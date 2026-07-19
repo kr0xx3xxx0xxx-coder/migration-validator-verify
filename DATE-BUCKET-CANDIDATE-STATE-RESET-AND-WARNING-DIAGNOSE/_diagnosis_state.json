@@ -1,0 +1,403 @@
+{
+  "bug1": {
+    "state": {
+      "col": "HIRE_DATE",
+      "checkbox_exists": true,
+      "checkbox_checked": true,
+      "checkbox_disabled": false,
+      "dropdown_exists": true,
+      "dropdown_value": "",
+      "dropdown_selected_label": "기간 미선택",
+      "dropdown_options": [
+        {
+          "v": "",
+          "label": "기간 미선택",
+          "sel": true
+        },
+        {
+          "v": "auto",
+          "label": "자동(월 추천)",
+          "sel": false
+        },
+        {
+          "v": "month",
+          "label": "월",
+          "sel": false
+        },
+        {
+          "v": "quarter",
+          "label": "분기",
+          "sel": false
+        },
+        {
+          "v": "year",
+          "label": "년",
+          "sel": false
+        }
+      ],
+      "final_gb_includes_col": false,
+      "final_gb_list": [
+        "SCHOOL_CODE",
+        "SUBJECT"
+      ],
+      "period_map": {},
+      "warn_visible": false,
+      "warn_text": "",
+      "selbar_text": "GROUP BY 2 / 3SUM 1 / 3COUNT(*) 항상 포함전역 설정: GROUP BY 최대 3개 · SUM 최대 3개",
+      "plan_mentions_col": false,
+      "plan_text": "실행 예정: COUNT(*) + GROUP BY 2개(school_code→SCHOOL_CODE, subject→SUBJECT) + SUM 1개(years_service→SERVICE_YEARS)",
+      "view_step": "candidate"
+    },
+    "reproduced": true
+  },
+  "bug2": {
+    "step1_auto": {
+      "col": "HIRE_DATE",
+      "checkbox_exists": true,
+      "checkbox_checked": true,
+      "checkbox_disabled": false,
+      "dropdown_exists": true,
+      "dropdown_value": "auto",
+      "dropdown_selected_label": "자동(월 추천)",
+      "dropdown_options": [
+        {
+          "v": "",
+          "label": "기간 미선택",
+          "sel": false
+        },
+        {
+          "v": "auto",
+          "label": "자동(월 추천)",
+          "sel": true
+        },
+        {
+          "v": "month",
+          "label": "월",
+          "sel": false
+        },
+        {
+          "v": "quarter",
+          "label": "분기",
+          "sel": false
+        },
+        {
+          "v": "year",
+          "label": "년",
+          "sel": false
+        }
+      ],
+      "final_gb_includes_col": true,
+      "final_gb_list": [
+        "SCHOOL_CODE",
+        "HIRE_DATE",
+        "SUBJECT"
+      ],
+      "period_map": {
+        "HIRE_DATE": "month"
+      },
+      "warn_visible": false,
+      "warn_text": "",
+      "selbar_text": "GROUP BY 3 / 3SUM 1 / 3COUNT(*) 항상 포함전역 설정: GROUP BY 최대 3개 · SUM 최대 3개",
+      "plan_mentions_col": true,
+      "plan_text": "실행 예정: COUNT(*) + GROUP BY 3개(school_code→SCHOOL_CODE, hire_date→HIRE_DATE 월 단위, subject→SUBJECT) + SUM 1개(years_service→SERVICE_YEARS)",
+      "view_step": "candidate"
+    },
+    "step2_view_after_run": "validation",
+    "downstream_flags": {
+      "sqlGen": true,
+      "exec": true
+    },
+    "step3_back": {
+      "col": "HIRE_DATE",
+      "checkbox_exists": true,
+      "checkbox_checked": true,
+      "checkbox_disabled": false,
+      "dropdown_exists": true,
+      "dropdown_value": "auto",
+      "dropdown_selected_label": "자동(월 추천)",
+      "dropdown_options": [
+        {
+          "v": "",
+          "label": "기간 미선택",
+          "sel": false
+        },
+        {
+          "v": "auto",
+          "label": "자동(월 추천)",
+          "sel": true
+        },
+        {
+          "v": "month",
+          "label": "월",
+          "sel": false
+        },
+        {
+          "v": "quarter",
+          "label": "분기",
+          "sel": false
+        },
+        {
+          "v": "year",
+          "label": "년",
+          "sel": false
+        }
+      ],
+      "final_gb_includes_col": true,
+      "final_gb_list": [
+        "SCHOOL_CODE",
+        "HIRE_DATE",
+        "SUBJECT"
+      ],
+      "period_map": {
+        "HIRE_DATE": "month"
+      },
+      "warn_visible": false,
+      "warn_text": "",
+      "selbar_text": "GROUP BY 3 / 3SUM 1 / 3COUNT(*) 항상 포함전역 설정: GROUP BY 최대 3개 · SUM 최대 3개",
+      "plan_mentions_col": true,
+      "plan_text": "실행 예정: COUNT(*) + GROUP BY 3개(school_code→SCHOOL_CODE, hire_date→HIRE_DATE 월 단위, subject→SUBJECT) + SUM 1개(years_service→SERVICE_YEARS)",
+      "view_step": "candidate"
+    },
+    "step4_quarter": {
+      "col": "HIRE_DATE",
+      "checkbox_exists": true,
+      "checkbox_checked": true,
+      "checkbox_disabled": false,
+      "dropdown_exists": true,
+      "dropdown_value": "quarter",
+      "dropdown_selected_label": "분기",
+      "dropdown_options": [
+        {
+          "v": "",
+          "label": "기간 미선택",
+          "sel": false
+        },
+        {
+          "v": "auto",
+          "label": "자동(월 추천)",
+          "sel": false
+        },
+        {
+          "v": "month",
+          "label": "월",
+          "sel": false
+        },
+        {
+          "v": "quarter",
+          "label": "분기",
+          "sel": true
+        },
+        {
+          "v": "year",
+          "label": "년",
+          "sel": false
+        }
+      ],
+      "final_gb_includes_col": true,
+      "final_gb_list": [
+        "SCHOOL_CODE",
+        "HIRE_DATE",
+        "SUBJECT"
+      ],
+      "period_map": {
+        "HIRE_DATE": "quarter"
+      },
+      "warn_visible": false,
+      "warn_text": "",
+      "selbar_text": "GROUP BY 3 / 3SUM 1 / 3COUNT(*) 항상 포함선택 변경사항 미적용전역 설정: GROUP BY 최대 3개 · SUM 최대 3개",
+      "plan_mentions_col": true,
+      "plan_text": "실행 예정: COUNT(*) + GROUP BY 3개(school_code→SCHOOL_CODE, hire_date→HIRE_DATE 분기 단위, subject→SUBJECT) + SUM 1개(years_service→SERVICE_YEARS)",
+      "view_step": "candidate"
+    },
+    "step5_after_refresh": {
+      "col": "HIRE_DATE",
+      "checkbox_exists": true,
+      "checkbox_checked": true,
+      "checkbox_disabled": false,
+      "dropdown_exists": true,
+      "dropdown_value": "auto",
+      "dropdown_selected_label": "자동(월 추천)",
+      "dropdown_options": [
+        {
+          "v": "",
+          "label": "기간 미선택",
+          "sel": false
+        },
+        {
+          "v": "auto",
+          "label": "자동(월 추천)",
+          "sel": true
+        },
+        {
+          "v": "month",
+          "label": "월",
+          "sel": false
+        },
+        {
+          "v": "quarter",
+          "label": "분기",
+          "sel": false
+        },
+        {
+          "v": "year",
+          "label": "년",
+          "sel": false
+        }
+      ],
+      "final_gb_includes_col": true,
+      "final_gb_list": [
+        "SCHOOL_CODE",
+        "HIRE_DATE",
+        "SUBJECT"
+      ],
+      "period_map": {
+        "HIRE_DATE": "month"
+      },
+      "warn_visible": false,
+      "warn_text": "",
+      "selbar_text": "GROUP BY 3 / 3SUM 1 / 3COUNT(*) 항상 포함전역 설정: GROUP BY 최대 3개 · SUM 최대 3개",
+      "plan_mentions_col": true,
+      "plan_text": "실행 예정: COUNT(*) + GROUP BY 3개(school_code→SCHOOL_CODE, hire_date→HIRE_DATE 월 단위, subject→SUBJECT) + SUM 1개(years_service→SERVICE_YEARS)",
+      "view_step": "candidate"
+    },
+    "step6_unchecked": {
+      "col": "HIRE_DATE",
+      "checkbox_exists": true,
+      "checkbox_checked": false,
+      "checkbox_disabled": false,
+      "dropdown_exists": true,
+      "dropdown_value": "auto",
+      "dropdown_selected_label": "자동(월 추천)",
+      "dropdown_options": [
+        {
+          "v": "",
+          "label": "기간 미선택",
+          "sel": false
+        },
+        {
+          "v": "auto",
+          "label": "자동(월 추천)",
+          "sel": true
+        },
+        {
+          "v": "month",
+          "label": "월",
+          "sel": false
+        },
+        {
+          "v": "quarter",
+          "label": "분기",
+          "sel": false
+        },
+        {
+          "v": "year",
+          "label": "년",
+          "sel": false
+        }
+      ],
+      "final_gb_includes_col": false,
+      "final_gb_list": [
+        "SCHOOL_CODE",
+        "SUBJECT"
+      ],
+      "period_map": {
+        "HIRE_DATE": "month"
+      },
+      "warn_visible": false,
+      "warn_text": "",
+      "selbar_text": "GROUP BY 2 / 3SUM 1 / 3COUNT(*) 항상 포함전역 설정: GROUP BY 최대 3개 · SUM 최대 3개",
+      "plan_mentions_col": false,
+      "plan_text": "실행 예정: COUNT(*) + GROUP BY 2개(school_code→SCHOOL_CODE, subject→SUBJECT) + SUM 1개(years_service→SERVICE_YEARS)",
+      "view_step": "candidate"
+    },
+    "step7_rechecked": {
+      "col": "HIRE_DATE",
+      "checkbox_exists": true,
+      "checkbox_checked": true,
+      "checkbox_disabled": false,
+      "dropdown_exists": true,
+      "dropdown_value": "auto",
+      "dropdown_selected_label": "자동(월 추천)",
+      "dropdown_options": [
+        {
+          "v": "",
+          "label": "기간 미선택",
+          "sel": false
+        },
+        {
+          "v": "auto",
+          "label": "자동(월 추천)",
+          "sel": true
+        },
+        {
+          "v": "month",
+          "label": "월",
+          "sel": false
+        },
+        {
+          "v": "quarter",
+          "label": "분기",
+          "sel": false
+        },
+        {
+          "v": "year",
+          "label": "년",
+          "sel": false
+        }
+      ],
+      "final_gb_includes_col": true,
+      "final_gb_list": [
+        "SCHOOL_CODE",
+        "HIRE_DATE",
+        "SUBJECT"
+      ],
+      "period_map": {
+        "HIRE_DATE": "month"
+      },
+      "warn_visible": false,
+      "warn_text": "",
+      "selbar_text": "GROUP BY 3 / 3SUM 1 / 3COUNT(*) 항상 포함전역 설정: GROUP BY 최대 3개 · SUM 최대 3개",
+      "plan_mentions_col": true,
+      "plan_text": "실행 예정: COUNT(*) + GROUP BY 3개(school_code→SCHOOL_CODE, hire_date→HIRE_DATE 월 단위, subject→SUBJECT) + SUM 1개(years_service→SERVICE_YEARS)",
+      "view_step": "candidate"
+    },
+    "values": {
+      "step4": "quarter",
+      "step5_after_refresh": "auto",
+      "step7_rechecked": "auto"
+    },
+    "reset_at_refresh": true,
+    "reset_at_recheck": false,
+    "reproduced": true
+  },
+  "date_candidates": [
+    {
+      "col": "HIRE_DATE",
+      "value": "auto",
+      "has_auto": true,
+      "options": [
+        "",
+        "auto",
+        "month",
+        "quarter",
+        "year"
+      ],
+      "recommended": "month"
+    },
+    {
+      "col": "RETIRE_DATE",
+      "value": "",
+      "has_auto": false,
+      "options": [
+        "",
+        "month",
+        "quarter",
+        "year"
+      ],
+      "recommended": ""
+    }
+  ],
+  "target_col": "HIRE_DATE",
+  "target_has_auto": true,
+  "console_errors": []
+}
