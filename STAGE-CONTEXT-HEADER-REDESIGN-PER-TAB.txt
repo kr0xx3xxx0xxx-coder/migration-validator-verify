@@ -98,5 +98,42 @@
              tests/test_tabulator_vendor.py, tests/test_validation_target_header_render.py(삭제),
              scripts/dev_e2e/stage_context_header_redesign_verify.py(신규)
 
+────────────────────────────────────────────────────────────────────────
+6. [추가지침] 3단계 실행계획 카드 실시간 반영 버그 수정 + 그리드화 + 코드명 친화 라벨
+   (EXECUTION-PLAN-CARD-LIVE-SELECTION-FIX)
+────────────────────────────────────────────────────────────────────────
+[근본원인] 실행계획 카드(strategyPlanBox)가 이중 stale:
+  - checkLimit(체크박스 핸들러)이 _mvRenderStrategyPlan 을 재호출하지 않음
+  - _mvBuildStatsScaleProfile 이 분석시점 DEFAULT(validation_sets_preview)를 고정 사용
+  → 체크박스를 선택해도 '실제 적용 GROUP BY 0개'로 고정(표시 형식을 넘어선 실제 버그).
+
+[수정]
+  1) _mvBuildStatsScaleProfile: 후보표 체크박스가 화면에 있으면 라이브 선택(_collectCheckedCols)
+     을 프로파일에 반영(selection_mode=MANUAL). 체크박스 없으면 기존 effective 폴백.
+  2) _mvRenderStrategyPlan: '실제 적용 / GROUP BY / 집계컬럼'을 라이브 체크박스 단일 출처로
+     표시(서버 effective 보다 우선). 비동기 /strategy/plan fetch 경쟁은 시퀀스 가드(_mvSpSeq)로
+     최신 렌더만 DOM 반영(stale 덮어쓰기 방지).
+  3) checkLimit + _onDatePeriodChange 에서 실행계획 카드 실시간 재렌더 배선.
+  4) 그리드화: 1·2단계와 동일한 요약 Grid(_mvKVGrid, mv-sgrid 스타일)로 전환 — No | 항목 | 값 | 상태.
+  5) 코드명 친화 라벨(_mvStratLabel) 병기(코드는 <code>로 함께 유지):
+     STATS_DIRECT_AGG      → 직접 집계(전체스캔 EXACT · 원본↔목적 그룹별 COUNT/SUM 비교)
+     DIRECT_STREAM_COMPARE → 직접 스트림 비교(원본·목적 전체를 한 번에 정렬·대조)
+     STATS_SAMPLE_ONLY/BUCKET_AGG/PARTITION_AGG → 표본/버킷/파티션 집계(참고용)
+     PK_RANGE_CHUNK_COMPARE → PK 범위 분할 비교(대용량) / HASH_BUCKET_COMPARE → 해시 버킷 비교
+  ※ 표시 전용 — 판정/SQL/plan/확정 상태 불변.
+
+[실측] 오라클 MV_ORA_DEMO · 포트 8000 · 인증 ON · 실 브라우저 체크박스 토글
+  드라이버: scripts/dev_e2e/execution_plan_live_selection_verify.py
+  실행계획 '실제 적용 GROUP BY' 시퀀스 = [0, 1, 2] (실시간 반영 성공):
+    gb=0(전부 해제)          → GROUP BY 0개 · GROUP BY '없음'
+    gb=1(STATUS_CD)          → GROUP BY 1개 · GROUP BY 'STATUS_CD'
+    gb=2(STATUS_CD, DEPT_CD) → GROUP BY 2개 · GROUP BY 'STATUS_CD, DEPT_CD'
+  그리드 렌더=True, 친화 라벨=True, 콘솔오류 0.
+  스크린샷: E:\verify_screenshots_only\STAGE-CONTEXT-HEADER-REDESIGN-PER-TAB\execplan_live\
+    stage3_loaded / gb_0_selected / gb_1_selected / gb_2_selected (.png)
+  회귀: samples 8/8·5/5, UI 관련 145 passed.
+  커밋 해시: c2a8491
+  서버 재기동: 2026-07-23 21:30 KST (포트 8000, 127.0.0.1, 인증 ON, PID 20708)
+
 작업명 : STAGE-CONTEXT-HEADER-REDESIGN-PER-TAB
-✅ 작업 완료 - 개별검증 1~5단계 공통 반복 헤더 바 제거 + 각 탭 상단에 2단계 스타일 컨텍스트 그리드 배치(오라클 실 브라우저 전/후 실측 완료)
+✅ 작업 완료 - 반복 헤더 바 제거 + 각 탭 상단 컨텍스트 그리드 배치 + 3단계 실행계획 카드 체크박스 실시간 반영/그리드화/친화 라벨(오라클 실 브라우저 실측 완료)
