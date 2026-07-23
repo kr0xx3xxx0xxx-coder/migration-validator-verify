@@ -1,0 +1,108 @@
+작업명 : GROUPBY-SAFETY-EXACT-COUNT-MISLABEL-FIX
+✅ 작업 완료 - 오라클/MySQL/MSSQL 정확 COUNT를 EXACT로 라벨해 불필요한 안전계수(×2.0)를 제거. 오라클 정확 86,472 → SAFE(계수 미적용) 실측 확인, PostgreSQL은 계수 유지(회귀 없음). 커밋 c17f931, 서버 8000 재기동(2026-07-23 22:56:02).
+
+────────────────────────────────────────────────────────────
+1. 배경(수정 대상 결함 P2)
+────────────────────────────────────────────────────────────
+GROUPBY-JUDGMENT-VALUE-OVERESTIMATE-DIAGNOSE 에서 확인된 결함:
+services/groupby_execution_safety.py 의 우선순위2(EXPLAIN) 경로가 explain_fn 결과를
+방언 구분 없이 무조건 PLANNER_ESTIMATE 로 라벨 → 오라클/MySQL/MSSQL 의 COUNT(*) 래핑
+(정확 그룹 수)에도 안전계수(×2.0)가 적용되어, 실제 그룹 수가 한도(100,000) 이내인데도
+2배(예: 86,472→172,944)로 부풀려져 부당하게 차단.
+정확값에는 과소추정 위험이 없으므로 계수를 적용할 이유가 없음.
+
+────────────────────────────────────────────────────────────
+2. 수정 내용(코드)
+────────────────────────────────────────────────────────────
+(1) services/groupby_explain_estimator.py
+    · _EXACT_ESTIMATE_DBMS = {oracle, mysql, mssql} + _is_exact_estimate_dbms() 추가.
+    · build_explain_estimate_fn() 반환 계약 확장:
+        기존:  _fn() -> int | None  (더 큰 값만)
+        변경:  _fn() -> (value:int, is_exact:bool) | None
+      - is_exact = 값에 기여한 방언이 '모두' 정확 COUNT(oracle/mysql/mssql)면 True.
+      - 하나라도 PostgreSQL 플래너 추정이 섞이면 False(그 쪽 과소추정 대비, 보수적).
+
+(2) services/groupby_execution_safety.py
+    · reason_code EXACT_COUNT_WITHIN_LIMIT 추가(정확 COUNT 한도 이내, 계수 미적용).
+    · 우선순위2 경로(구 라인 224):
+        기존:  _judge(int(rows), PLANNER_ESTIMATE, "explain", PLAN_ESTIMATE_WITHIN_LIMIT)
+        변경:  value, is_exact = rows if isinstance(rows, tuple) else (rows, False)
+               kind        = EXACT if is_exact else PLANNER_ESTIMATE
+               reason_safe = EXACT_COUNT_WITHIN_LIMIT if is_exact else PLAN_ESTIMATE_WITHIN_LIMIT
+               _judge(int(value), kind, "explain", reason_safe)
+      - bare int(레거시/직접 호출)은 비정확(PLANNER_ESTIMATE)으로 하위호환 유지.
+    · (P1 개선) _judge 의 detail 에 안전계수 적용 시 "(안전계수 ×N 적용 · 추정값 실효 상한 M)"
+      문구 추가 → 표시 한도(100,000)와 추정값 실효 상한(50,000) 괴리를 명시.
+
+※ _effective_count / _EXACT_KINDS(안전계수 로직 자체)는 변경하지 않음 — 라벨링만 방언별로
+  정확히 구분되도록 배선(이미 정당한 설계는 그대로 유지).
+
+────────────────────────────────────────────────────────────
+3. 실측(방언별 게이트 판정 end-to-end 재현)
+────────────────────────────────────────────────────────────
+※ 오라클 라이브 DB(asis 1523/tobe 1524)가 현재 미기동(접속 거부) → DB fetch 계층
+  (_cmn_db_fetch_all)만 모킹해 방언별 반환을 충실히 재현. build_explain_estimate_fn →
+  evaluate_groupby_execution_safety(공통 core) 전 경로 통과.
+  로그: E:\verify_screenshots_only\GROUPBY-SAFETY-EXACT-COUNT-MISLABEL-FIX\e2e_gate_dialect_kind_proof.txt
+
+(1) 오라클→오라클 (정확 COUNT 86,472) — 수정 대상
+    explain_fn() = (86472, True)
+    status=SAFE  estimate_kind=EXACT  reason_code=EXACT_COUNT_WITHIN_LIMIT
+    raw=86,472  판정값(effective)=86,472  safety_factor=None
+    detail="raw 86,472 · 판정값 86,472 ≤ 한도 100,000"
+    → 수정 전 172,944(차단) → 수정 후 86,472(SAFE, 계수 미적용) 확인.
+
+(2) PostgreSQL→PostgreSQL (플래너 추정 86,472) — 회귀 확인
+    explain_fn() = (86472, False)
+    status=BLOCKED_HIGH_CARDINALITY  estimate_kind=PLANNER_ESTIMATE
+    reason_code=ESTIMATE_SAFETY_MARGIN_EXCEEDED
+    raw=86,472  판정값=172,944  safety_factor=2.0
+    detail="raw 86,472 · 판정값 172,944 > 한도 100,000 (안전계수 ×2 적용 · 추정값 실효 상한 50,000)"
+    → 기존 계수 적용/차단 동작 유지(회귀 없음) + P1 문구 정상.
+
+(3) 혼합 오라클→PostgreSQL (max=86,472, 혼합→비정확) — 보수적 계수 적용
+    explain_fn() = (86472, False)  status=BLOCKED_HIGH_CARDINALITY  kind=PLANNER_ESTIMATE
+    → 한쪽이 플래너 추정이면 보수적으로 계수 적용(안전 우선) 확인.
+
+────────────────────────────────────────────────────────────
+4. 회귀 테스트 결과
+────────────────────────────────────────────────────────────
+· tests/test_groupby_explain_estimator.py + tests/test_groupby_execution_safety.py
+    → 47 passed (신규 test_22~25 포함).
+  신규 커버리지:
+    - test_22: 오라클 정확 COUNT → EXACT, 계수 미적용, SAFE, EXACT_COUNT_WITHIN_LIMIT.
+    - test_23: PG 플래너 추정 → ×2 차단(ESTIMATE_SAFETY_MARGIN_EXCEEDED).
+    - test_24: bare int 하위호환 → PLANNER_ESTIMATE, 계수 적용.
+    - test_25: 정확값이라도 한도 초과면 차단(계수 없이 raw 그대로).
+    - estimator: 오라클→(v,True), PG→(v,False), 혼합→(v,False).
+· CLAUDE.md 필수 회귀:
+    - samples/test_virtual_cases.py → 8/8 통과.
+    - samples/test_complex_cases.py → 5/5 통과.
+· 광범위 안전게이트 스위트: 16건 실패했으나 baseline(HEAD) in-place revert 비교로
+  '전부 사전 존재 실패'임을 확증(내 변경 회귀 0건):
+    - 라이브 DB 의존 12건(common_gate 4 · facade 7 · ui static-label 1): 오라클/PG 라이브
+      미기동으로 baseline 에서도 동일 실패(worktree 에서는 .env 부재로 skip → worktree
+      비교는 confound, in-place revert 로 격리).
+    - Node.js 렌더링/JS parity 4건(execution_safety_result_rendering×2, statistics_execution_safety,
+      groupby_estimate_service js-parity): baseline 에서도 동일 실패(node 하네스 문제, 코드 무관).
+
+────────────────────────────────────────────────────────────
+5. P1(표시 한도 vs 실효 한도 혼란) 처리
+────────────────────────────────────────────────────────────
+이번에 함께 처리(경미·안전). 안전계수가 적용되는 추정값 차단/통과 detail 에
+"(안전계수 ×2 적용 · 추정값 실효 상한 50,000)" 문구를 추가해, 화면 한도(100,000)와
+추정값 실효 상한(50,000)의 괴리를 사용자에게 명시. 정확값(EXACT)에는 문구 미표기.
+
+────────────────────────────────────────────────────────────
+6. 배포/커밋
+────────────────────────────────────────────────────────────
+· 커밋: c17f931  fix(safety): 오라클/MySQL/MSSQL 정확 COUNT를 EXACT로 라벨해 불필요한 안전계수 제거
+· 변경 파일: services/groupby_execution_safety.py, services/groupby_explain_estimator.py,
+             tests/test_groupby_execution_safety.py, tests/test_groupby_explain_estimator.py
+             (4 files changed, 103 insertions(+), 12 deletions(-))
+· 서버 재기동: 포트 8000, 인증(HTTP Basic Auth) ON, host 127.0.0.1, 단계 가드 ON.
+             재기동 시각 2026-07-23 22:56:02. HTTP 401(인증 요구) 응답으로 기동·인증 확인.
+· 증적: E:\verify_screenshots_only\GROUPBY-SAFETY-EXACT-COUNT-MISLABEL-FIX\e2e_gate_dialect_kind_proof.txt
+
+작업명 : GROUPBY-SAFETY-EXACT-COUNT-MISLABEL-FIX
+✅ 작업 완료 - 오라클/MySQL/MSSQL 정확 COUNT를 EXACT로 라벨해 불필요한 안전계수(×2.0)를 제거. 오라클 정확 86,472 → SAFE(계수 미적용) 실측 확인, PostgreSQL은 계수 유지(회귀 없음). 커밋 c17f931, 서버 8000 재기동(2026-07-23 22:56:02).
