@@ -1,0 +1,33 @@
+
+=== (1) oracle->oracle (exact COUNT 86,472) - FIX TARGET ===
+  explain_fn() returns (value,is_exact) = (86472, True)
+  status                = SAFE
+  estimate_kind         = EXACT
+  reason_code           = EXACT_COUNT_WITHIN_LIMIT
+  raw_estimated_group   = 86,472
+  effective(pandan)     = 86,472
+  estimate_safety_factor= None
+  detail                = raw 86,472 · 판정값 86,472 ≤ 한도 100,000
+
+=== (2) postgresql->postgresql (planner est 86,472) - REGRESSION CHECK (factor kept) ===
+  explain_fn() returns (value,is_exact) = (86472, False)
+  status                = BLOCKED_HIGH_CARDINALITY
+  estimate_kind         = PLANNER_ESTIMATE
+  reason_code           = ESTIMATE_SAFETY_MARGIN_EXCEEDED
+  raw_estimated_group   = 86,472
+  effective(pandan)     = 172,944
+  estimate_safety_factor= 2.0
+  detail                = raw 86,472 · 판정값 172,944 > 한도 100,000 (안전계수 ×2 적용 · 추정값 실효 상한 50,000)
+
+=== (3) mixed oracle->postgresql (max=86,472, mixed->inexact) - conservative factor ===
+  explain_fn() returns (value,is_exact) = (86472, False)
+  status                = BLOCKED_HIGH_CARDINALITY
+  estimate_kind         = PLANNER_ESTIMATE
+  reason_code           = ESTIMATE_SAFETY_MARGIN_EXCEEDED
+  raw_estimated_group   = 86,472
+  effective(pandan)     = 172,944
+  estimate_safety_factor= 2.0
+  detail                = raw 86,472 · 판정값 172,944 > 한도 100,000 (안전계수 ×2 적용 · 추정값 실효 상한 50,000)
+
+[SUMMARY] (1) oracle exact 86,472 -> SAFE (no factor, raw==effective). (2) PG est -> x2=172,944 BLOCKED (no regression). (3) mixed -> conservative BLOCKED.
+[NOTE] Oracle live DB (asis 1523/tobe 1524) is currently DOWN; dialect returns faithfully reproduced by mocking DB fetch layer.
