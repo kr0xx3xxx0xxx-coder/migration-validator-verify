@@ -1,0 +1,235 @@
+{
+  "phase": "before",
+  "steps": [],
+  "notes": [],
+  "enter": {
+    "pair_label": "Oracle_asis → Oracle_tobe",
+    "pair_existed": false,
+    "connected": true
+  },
+  "flow": {
+    "trace": [
+      {
+        "1_analyzed": {
+          "step": "query",
+          "sqlGen": false,
+          "exec": false,
+          "hasResult": false,
+          "cmdBtns": [
+            "◀ 이전(비활성)",
+            "▶ 검증 실행",
+            "다음 ▶"
+          ]
+        }
+      },
+      {
+        "2_counted": {
+          "step": "count",
+          "sqlGen": false,
+          "exec": false,
+          "hasResult": false,
+          "cmdBtns": [
+            "◀ 이전",
+            "▶ COUNT 다시 실행",
+            "다음 ▶"
+          ]
+        }
+      },
+      {
+        "3_at_candidate": {
+          "step": "candidate",
+          "sqlGen": false,
+          "exec": false,
+          "hasResult": false,
+          "cmdBtns": [
+            "◀ 이전",
+            "▶ 후보 컬럼 추천",
+            "다음 ▶(비활성)"
+          ]
+        }
+      },
+      {
+        "3_candidate_computed": {
+          "step": "candidate",
+          "sqlGen": false,
+          "exec": false,
+          "hasResult": false,
+          "cmdBtns": [
+            "◀ 이전",
+            "▶ 선택 적용 후 통계검증 진행",
+            "다음 ▶"
+          ]
+        }
+      },
+      {
+        "4_at_validation": {
+          "step": "validation",
+          "sqlGen": false,
+          "exec": false,
+          "hasResult": false,
+          "cmdBtns": [
+            "◀ 이전",
+            "▶ 통계검증 SQL 생성",
+            "다음 ▶(비활성)"
+          ]
+        }
+      },
+      {
+        "4_generated": {
+          "step": "validation",
+          "sqlGen": true,
+          "exec": false,
+          "hasResult": false,
+          "cmdBtns": [
+            "◀ 이전",
+            "▶ 통계검증 실행",
+            "다음 ▶(비활성)"
+          ]
+        }
+      },
+      {
+        "4_executed": {
+          "step": "validation",
+          "sqlGen": true,
+          "exec": true,
+          "hasResult": false,
+          "cmdBtns": [
+            "◀ 이전",
+            "▶ 통계검증 다시 실행",
+            "다음 ▶"
+          ]
+        }
+      },
+      {
+        "5_at_result": {
+          "step": "result",
+          "sqlGen": true,
+          "exec": true,
+          "hasResult": false,
+          "cmdBtns": [
+            "◀ 이전",
+            "다음 ▶(비활성)"
+          ]
+        }
+      }
+    ],
+    "analyze_click": true,
+    "count_state_after": {
+      "src": 140,
+      "tgt": 150,
+      "matched": false
+    },
+    "count_gate": {
+      "count_status": "COUNT_MINOR_DIFF",
+      "severity": null,
+      "severity_label": "소규모 COUNT 차이",
+      "blocked": null,
+      "count_precheck_status": null
+    },
+    "countState": "MISMATCH",
+    "execute_click": true,
+    "after_execute_step": "validation",
+    "after_execute_state": {
+      "viewStep": "validation",
+      "countState": "MISMATCH",
+      "validationExecuted": true,
+      "validationSqlGenerated": true,
+      "hasExecResult": false,
+      "execResultSuccess": null,
+      "execResultKeys": null,
+      "workflowToken": true,
+      "saveState": {
+        "show": false
+      },
+      "countGate": {
+        "count_status": "COUNT_MINOR_DIFF",
+        "severity": null,
+        "severity_label": "소규모 COUNT 차이",
+        "blocked": null,
+        "count_precheck_status": null
+      },
+      "lastCount": {
+        "src": 140,
+        "tgt": 150,
+        "matched": false
+      },
+      "execResultCard": {
+        "exists": true,
+        "shown": false
+      },
+      "groupSelectSection": {
+        "exists": true,
+        "shown": false
+      },
+      "groupId": "",
+      "cmdBarButtons": [
+        "◀ 이전",
+        "▶ 통계검증 다시 실행",
+        "다음 ▶"
+      ],
+      "registerBtnInCmdBar": false,
+      "registerBtnAllDom": []
+    },
+    "result_step": "result"
+  },
+  "register": {
+    "picked": {
+      "ok": true,
+      "val": "GRP_202606170243184996",
+      "options": [
+        {
+          "t": "(그룹 미선택 — 테스트용 임시 실행)",
+          "v": ""
+        },
+        {
+          "t": "인사급여1 · 이관쿼리 20건",
+          "v": "GRP_202606170243184996"
+        }
+      ]
+    },
+    "state_after_group_pick": {
+      "viewStep": "result",
+      "countState": "MISMATCH",
+      "validationExecuted": true,
+      "validationSqlGenerated": true,
+      "hasExecResult": false,
+      "execResultSuccess": null,
+      "execResultKeys": null,
+      "workflowToken": true,
+      "saveState": {
+        "show": false
+      },
+      "countGate": {
+        "count_status": "COUNT_MINOR_DIFF",
+        "severity": null,
+        "severity_label": "소규모 COUNT 차이",
+        "blocked": null,
+        "count_precheck_status": null
+      },
+      "lastCount": {
+        "src": 140,
+        "tgt": 150,
+        "matched": false
+      },
+      "execResultCard": {
+        "exists": true,
+        "shown": true
+      },
+      "groupSelectSection": {
+        "exists": true,
+        "shown": true
+      },
+      "groupId": "GRP_202606170243184996",
+      "cmdBarButtons": [
+        "◀ 이전",
+        "다음 ▶(비활성)"
+      ],
+      "registerBtnInCmdBar": false,
+      "registerBtnAllDom": []
+    },
+    "register_dom": [],
+    "register_click": "no-enabled-btn",
+    "save_msg": "",
+    "save_hint": ""
+  }
+}
