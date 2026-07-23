@@ -1,0 +1,53 @@
+{
+  "phase": "before",
+  "result": {
+    "REG_DT": {
+      "present": true,
+      "badge": "선택가능⚠ 명칭-값 불일치",
+      "reason": "날짜형 컬럼으로 월 단위 변환 시 그룹 수가 기준에 적합해 GROUP BY 후보로 선택할 수 있습니다. ⚠ 가설(표준사전 명칭)는 관리컬럼(시스템 감사)을 시사하나 값 검증 결과 불일치 — 업무 날짜/데이터인지 신중히 확인하세요.",
+      "remark": "기간 미선택자동(월 추천)월분기년생성 버킷: REG_DT → 월 단위 절단(YYYYMM)기간별 그룹 수 — 월 ≤12개 · 분기 ≤4개 · 년 ≤1개 · 추천: 월 · 근거: 범위 추정 · 신뢰도 보통예상 평균 그룹 크기: 약 13건변환 필요",
+      "hasDropdown": true,
+      "hasConvert": true,
+      "checkboxDisabled": false
+    },
+    "REG_DT_STALE": {
+      "present": true,
+      "badge": "정책상제외⚠ 명칭-값 불일치",
+      "reason": "날짜형 컬럼으로 월 단위 변환 시 그룹 수가 기준에 적합해 GROUP BY 후보로 선택할 수 있습니다. ⚠ 가설(표준사전 명칭)는 관리컬럼(시스템 감사)을 시사하나 값 검증 결과 불일치 — 업무 날짜/데이터인지 신중히 확인하세요.",
+      "remark": "기간 미선택자동(월 추천)월분기년생성 버킷: REG_DT_STALE → 월 단위 절단(YYYYMM)기간별 그룹 수 — 월 ≤12개 · 분기 ≤4개 · 년 ≤1개 · 추천: 월 · 근거: 범위 추정 · 신뢰도 보통예상 평균 그룹 크기: 약 13건변환 필요",
+      "hasDropdown": true,
+      "hasConvert": true,
+      "checkboxDisabled": true
+    },
+    "UPD_YMD": {
+      "present": false
+    },
+    "CREATED_BY": {
+      "present": false
+    },
+    "DEPT_CD": {
+      "present": true,
+      "badge": "기본추천",
+      "reason": "고유값 6개 · 그룹당 평균 25행 · 조직별 불일치 구분에 적합",
+      "remark": "프로파일 기반: 고유값 6개NULL 없음",
+      "hasDropdown": false,
+      "hasConvert": false,
+      "checkboxDisabled": false
+    }
+  },
+  "checks": {
+    "REG_DT 배지=선택가능": true,
+    "REG_DT 비고 드롭다운 존재": true,
+    "REG_DT 체크박스 활성": true,
+    "REG_DT 사유 '선택할 수 있습니다'": true,
+    "STALE 배지=정책상제외": true,
+    "STALE 비고 드롭다운 없음(수정 후)": false,
+    "STALE 비고 '변환 필요' 없음(수정 후)": false,
+    "STALE 사유에 '선택할 수 있습니다' 없음": false,
+    "STALE 사유에 '제외' 포함": false,
+    "STALE 체크박스 비활성": true,
+    "UPD_YMD 개별표 원천배제(행 없음)": true,
+    "CREATED_BY 개별표 원천배제(행 없음)": true
+  },
+  "allok": false
+}
