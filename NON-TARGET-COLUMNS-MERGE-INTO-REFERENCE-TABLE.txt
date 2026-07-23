@@ -1,0 +1,103 @@
+작업명 : NON-TARGET-COLUMNS-MERGE-INTO-REFERENCE-TABLE
+✅ 작업 완료 - '미대상 N — 사유 보기' 배너 완전 삭제 + 미대상 컬럼을 '참고/제외 후보 보기' 표 하나로 합류(실 브라우저 전/후 실측 완료)
+
+[요청 요약]
+개별검증 3단계 요약 카드 우측의 'GB 후보 가시성 배지'(전체/GB대상/선택가능 수치 + '미대상 N — 사유 보기'
+접이식 사유칩)를 완전히 제거하고, 그 배너가 보여주던 'GROUP BY 후보 풀에 못 든 컬럼'(PK/SUM전용/상수/
+암호화/고카디/근거없음 등)을 기존 '참고/제외 후보 보기' 표에 각 컬럼·사유와 함께 합류. 사용자가 우측
+배너를 못 보고 넘어가던 문제(NON-TARGET-BANNER-VS-EXCLUDED-CANDIDATE-DIAGNOSE) 해소.
+
+────────────────────────────────────────────────────────────────────────
+[1] 배너 삭제 확인 (링크로도 남기지 않음, 완전 제거)
+────────────────────────────────────────────────────────────────────────
+- ui/tabler_renderer.py _buildSummaryCard():
+  · 'GB 후보 가시성 요약 배지' 블록(_gcbHtml: 전체 N / GB대상 M / 선택가능 K + '미대상 N — 사유 보기'
+    <details> 사유칩) 전부 삭제. 요약 카드는 '추천 결과 rows + COUNT(*) 안내'만 남김.
+  · 배지 전용 CSS 클래스(gb-cand-badge, gcb-chip)·문구('미대상 N — 사유 보기')가 소스에서 완전히 소멸.
+  · 배지 삭제로 불필요해진 gbCandacy 인자를 시그니처(_buildSummaryCard(gbCands, sumCands))·호출부에서 제거.
+- 재사용 여부 사전 확인: 이 배너(gb-cand-badge/excluded_with_reason 표시)는 개별검증 _buildSummaryCard
+  한 곳에서만 렌더됐고 다른 화면(통계 계획 요약·일괄 경로 등)에서 재사용되지 않음을 확인 → 삭제 범위 조정 불필요.
+- 서버측 gb_candidacy_summary.excluded_with_reason(candidate_engine 방출) 데이터는 '표 합류'의 입력으로
+  계속 사용하므로 보존. 배너 전용(수치 배지·사유칩 조립) 표시 코드만 제거.
+
+────────────────────────────────────────────────────────────────────────
+[2] 통합 표 이관 내용 (새 컴포넌트 없음 — 기존 buildRow 렌더 재사용)
+────────────────────────────────────────────────────────────────────────
+- ui/tabler_renderer.py renderColSelect():
+  · data.gb_candidacy_summary.excluded_with_reason 각 항목을 최소 후보 객체(selection_status=
+    'EXCLUDED_BY_RULE', reason_text=서버 reason_label)로 합성하여 기존 '참고/제외' 목록(_gbSplit.ref)에
+    concat → 동일 buildRow/_candTable 로 렌더(별도 표/컴포넌트 신설 없음).
+  · 합성 객체는 점수/프로파일/타입 필드를 두지 않아 buildRow 가 점수·프로파일 chip 을 만들지 않음
+    → 배지 '정책상제외' + 선정 사유(reason_label) + 빈 비고로 깔끔히 렌더(체크박스 비활성).
+  · 중복·모순 방지: 이미 GROUP BY/SUM 후보표에 노출된 컬럼(예: AMT=합계대상 후보)은 합류에서 제외.
+    → 같은 컬럼이 '기본추천'과 '정책상제외'로 동시에 보이는 삼중 모순 방지(구조 안정성 우선).
+  · '참고/제외 후보 보기' 접이식(details.ict-ref-cands)·기본 펼침(open) 정책은 기존 그대로 유지
+    (그대로 활용 — 합류 컬럼이 즉시 보여 '놓치는' 문제를 오히려 더 잘 해소. 기존 open 계약 테스트도 유지).
+
+────────────────────────────────────────────────────────────────────────
+[3] reason_code → 한글 사유 문구 매핑표 (서버 reason_label 단일 출처 재사용)
+────────────────────────────────────────────────────────────────────────
+사유 문구는 서버(candidate_engine._gb_non_candidate_reason 등)가 내려주는 reason_label 을 그대로 표시한다
+(하드코딩·재판정 없음). 클라이언트에는 응답 누락 시에만 쓰는 동일 문구 fallback 사전(_EXCL_REASON_KO)만 둠.
+
+ reason_code                    | 한글 사유 문구(그대로 표시)
+ -------------------------------|-------------------------------------------------------------
+ AGGREGATE                      | 집계식(SUM/COUNT 등) — GROUP BY 대상 아님
+ PK_IDENTIFIER                  | PK/유니크 식별자 — 행마다 고유값이라 그룹 기준 부적합
+ NUMERIC_SUM_ONLY               | 숫자형 — SUM 전용(현재 GROUP BY 후보 미지원)
+ NUMERIC_SEMANTIC_EXCLUDED      | 숫자형 — 시맨틱 제외(SUM 후보에서도 제외되어 검증 대상 아님)
+ CONSTANT                       | 상수 컬럼(고유값 1개) — 그룹이 하나뿐이라 의미 없음
+ FREE_TEXT                      | 자유텍스트(고카디널리티) — 그룹 기준 부적합
+ HIGH_CARDINALITY               | 고카디널리티(고유값 과다) — 그룹 과다
+ SEMANTIC_EXCLUDED              | 시맨틱 제외(감사/식별자·GROUP BY 부적합) — 비추천
+ NO_EVIDENCE                    | GROUP BY 진입 근거 없음(저카디 통계·차원 의미 미확인)
+ ENCRYPTED_CANDIDATE_EXCLUDED   | 암호화 컬럼 - 후보 제외
+
+────────────────────────────────────────────────────────────────────────
+[4] 전/후 실측 (실 서버 포트 8000·인증 ON·실 오라클 MV_ORA_DEMO_SRC/TGT, 실 renderColSelect)
+────────────────────────────────────────────────────────────────────────
+대상 SQL: INSERT INTO NXDNP.MV_ORA_DEMO_TGT (...) SELECT ... FROM NXDNP.MV_ORA_DEMO_SRC
+서버 excluded_with_reason(배너→표 이관 대상): ID(PK_IDENTIFIER), AMT(NUMERIC_SUM_ONLY)
+
+[BEFORE] 01_before_nontarget_banner.png (baseline 코드)
+  · 요약 카드 우측에 '전체 5 / GB대상 3 / 선택가능 2' + '▶ 미대상 2 — 사유 보기' 배너 존재(.gb-cand-badge=True)
+  · '참고/제외 후보 보기 (1개)' — REG_DT 만. ID(PK)는 어느 표에도 없음(배너에만 숨겨짐 → 놓치기 쉬움)
+
+[AFTER] 02_after_merged_reference_table.png (현재 코드)
+  · 배너 완전 소멸(.gb-cand-badge=False)
+  · '참고/제외 후보 보기 (2개)' — REG_DT + ID.
+    ID 행: 유형 GROUP BY / 목적 ID / 추천 '정책상제외' / 사유 'PK/유니크 식별자 — 행마다 고유값이라 그룹 기준 부적합'
+  · 정상 후보 유지(회귀 없음): STATUS_CD(기본추천 70점), DEPT_CD(기본추천 65점·FK), AMT(합계대상 기본추천 75점)
+  · AMT(SUM전용)는 이미 '합계대상' 후보로 노출되므로 참고/제외 표에 이중 표기 안 함(모순 방지) — 판정 정상
+
+브라우저 자동 판정: [after] 성공 (배너 부재 + ID 정책상제외/PK 사유 + 정상 후보 존재), [before] 배너 존재=True
+
+────────────────────────────────────────────────────────────────────────
+[5] 회귀 결과
+────────────────────────────────────────────────────────────────────────
+- 필수 회귀: samples/test_virtual_cases.py 8/8 통과, samples/test_complex_cases.py 5/5 통과
+- 핵심 계약 테스트: test_summary_card_rendered_in_rendercolselect(갱신), test_task11_s9(ict-ref-cands open 유지),
+  test_single_validation_failure_evidence 등 22 passed
+- 광역 스윕(candidate/summary/reference/encrypted/admin_audit/date_bucket 등): 실패 노드 전부 baseline(HEAD)
+  에서도 동일 실패하는 '사전 존재 실패'(문자열 드리프트/라이브DB 미접속)임을 worktree 환경 동등화 비교로 확인
+  → 내 변경이 유발한 신규 실패 0건(comm -23 mine\base = 공집합).
+- 테스트 계약 갱신(배너 삭제 반영): test_task_single_candidate_evidence_preview.py
+  · 'gb-cand-badge'/'gcb-chip' 부재 assert(배너 삭제)
+  · 'excluded_with_reason' 합류 배선(_exclRefRows, _gbSplit.ref = _gbSplit.ref.concat(_exclRefRows)) assert
+
+────────────────────────────────────────────────────────────────────────
+[6] 서버 재기동 / 커밋
+────────────────────────────────────────────────────────────────────────
+- 서버 재기동: 2026-07-23 20:27:58 (포트 8000, 인증 ON=401 확인, 현재 코드 gb-cand-badge=0 확인)
+- 커밋 해시: b7d7919 (main) — 코드 repo push 안 함(정책), 증적만 verify repo push
+- 변경/생성 파일:
+  · ui/tabler_renderer.py (배너 제거 + 미대상 컬럼 참고/제외 표 합류)
+  · tests/test_task_single_candidate_evidence_preview.py (배너 삭제 계약 반영)
+  · scripts/dev_e2e/nontarget_merge_reference_table_browser_verify.py (신규 — 실 브라우저 전/후 검증 드라이버)
+
+[비고] 알려진 한계(범위 밖): GROUP BY/SUM 후보가 0개인 극단 케이스(모든 컬럼 제외)에서는 renderColSelect 가
+'후보 없음' early-return 으로 후보표 자체를 렌더하지 않아 미대상 컬럼도 표시되지 않는다(배너 삭제로 이 경로의
+사유칩도 사라짐). MV_ORA_DEMO 정상 흐름에는 해당 없음. 관리컬럼 확정(CONFIRMED, 예: CREATED_BY/UPD_YMD)은
+기존 정책(CONFIRMED-ADMIN-COLUMN-FULL-SUPPRESSION)대로 원천배제되어 배너/표 어디에도 나타나지 않음(불변).
+
+✅ 작업 완료 - '미대상 N — 사유 보기' 배너 완전 삭제 + 미대상 컬럼을 '참고/제외 후보 보기' 표 하나로 합류(실 브라우저 전/후 실측 완료)
