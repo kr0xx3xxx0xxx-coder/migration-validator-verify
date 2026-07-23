@@ -1,0 +1,102 @@
+작업명 : STAGE-CONTEXT-HEADER-REDESIGN-PER-TAB
+✅ 작업 완료 - 개별검증 1~5단계 공통 반복 헤더 바 제거 + 각 탭 상단에 2단계 스타일 컨텍스트 그리드 배치(오라클 실 브라우저 전/후 실측 완료)
+
+────────────────────────────────────────────────────────────────────────
+1. 삭제 확인 (반복 문구 "원본…목적지…경로…실행 모드…저장 상태: 결과 미저장")
+────────────────────────────────────────────────────────────────────────
+- DOM 삭제 : ui/tabler_renderer.py 의 <div id="singleValTargetBar"> (스티키 영역 내 1~5단계 공통 바) 제거
+- 렌더 함수 삭제 : _mvRenderRestoredRegHeader / _mvRenderValidationTargetHeader (연속 158줄) 제거
+- 호출부 4곳 삭제 : _mvUpdateSingleSectionHeader / showTab / resetAnalysisUi /
+  resetIndividualValidationWorkSession
+- 실측 확인(전) : 5단계 전부에서 바 노출(txt = "원본 NXDNP.MV_ORA_DEMO_SRC 목적지
+  NXDNP.MV_ORA_DEMO_TGT 경로 Oracle_asis→Oracle_tobe 실행 모드 TEST_ONLY 저장 상태: 결과 미저장")
+- 실측 확인(후) : 5단계 전부 repeat_bar.exists=false, shown=false (바·공간 완전 제거)
+
+────────────────────────────────────────────────────────────────────────
+2. 각 탭별 상단 그리드 내용 (전 그리드 2단계 COUNT 그리드 스타일 _mvGridDataToHtml 재사용)
+────────────────────────────────────────────────────────────────────────
+[1단계 쿼리검토] 기존 qrSummary 그리드 유지(최상단) —
+   원본 테이블 | 목적 테이블 | 입력 컬럼수 | 추출 컬럼수 | 매핑 | 조건 | 조인 | 상태
+   실측: NXDNP.MV_ORA_DEMO_SRC | NXDNP.MV_ORA_DEMO_TGT | 7 | 7 | 7/7 | 없음 | 없음 | ●정상
+
+[2단계 COUNT] 기존 countResult 그리드 유지(최상단) —
+   원본 테이블 | 목적 테이블 | 검증항목 | 원본 건수 | 대상 건수 | 차이 | 상태
+   실측: MV_ORA_DEMO_SRC | MV_ORA_DEMO_TGT | COUNT | 150 | 150 | 0 | ●정상
+
+[3단계 후보선정] 신규 상단 host(mvStage3CtxGrid) — _mvRenderCandidateGrid(hostId 파라미터 추가) —
+   "후보추천 요약": 원본 | 목적 | 입력 컬럼수 | 추출 컬럼수 | 매칭키 | 분할키 | SUM | GROUP BY | 상태
+   실측: 그리드 노출(shown=true), 원본/목적 테이블명 + 후보 요약 표시
+
+[4단계 통계검증 실행] 신규 상단 그리드(mvStage4CtxGrid) — _mvStage4CtxGridHtml, renderSQL 최상단 삽입 —
+   "통계검증 구성 요약": 원본 테이블 | 목적 테이블 | GROUP BY 구성 | SUM 구성 | 검증항목 | 상태
+   실측: MV_ORA_DEMO_SRC | MV_ORA_DEMO_TGT | STATUS_CD↔STATUS_CD · DEPT_CD↔DEPT_CD |
+         AMT↔AMT | COUNT · GB 2 · SUM 1 | ●정상
+
+[5단계 결과확인] 신규 상단 그리드(mvStage5CtxGrid) — _mvStage5CtxGridData —
+   "결과 확인 요약": 원본 테이블 | 목적 테이블 | COUNT(원본/대상/차이) | 불일치 그룹 | 재이관 대상 | 상태
+   실측: MV_ORA_DEMO_SRC | MV_ORA_DEMO_TGT | 150 / 150 · 차이 0 | 6개 | 6건 | ●불일치
+   ※ 사용자 요청("2단계 COUNT 전체값을 5단계에도 같이 표시")을 이 그리드에 함께 반영.
+     기존 실행기준(singleResultSummary)과 별도 host 라 서로 덮어쓰지 않음.
+   ※ COUNT 는 150/150 일치, 통계검증(SUM AMT 기준) 6그룹 불일치는 엔진의 실제 결과이며
+     표시 로직은 정확(불일치 값 자체는 이번 표시 작업 범위 밖).
+
+기본 컨텍스트(원본/목적 테이블명)는 5개 탭 그리드 전부에 포함되어 반복 바 제거로 인한 정보 손실 없음.
+
+────────────────────────────────────────────────────────────────────────
+3. 전/후 실측 (오라클 실 DB · 포트 8000 · 인증 ON · 실 브라우저 클릭)
+────────────────────────────────────────────────────────────────────────
+- 검증 경로 : Oracle_asis → Oracle_tobe (검증 경로 접속 확인)
+- 대상 테이블 : NXDNP.MV_ORA_DEMO_SRC → NXDNP.MV_ORA_DEMO_TGT (각 150행, COUNT 일치)
+- 인증 : 전용 계정(e2e) http_credentials 로 Basic Auth 통과(인증 ON 상태 그대로 검증)
+- 드라이버 : scripts/dev_e2e/stage_context_header_redesign_verify.py (before/after)
+- 콘솔 오류 : 0건 / notes : 없음
+- 스크린샷(전/후 × 1~5단계 × full+top, 총 20장):
+  E:\verify_screenshots_only\STAGE-CONTEXT-HEADER-REDESIGN-PER-TAB\before\
+  E:\verify_screenshots_only\STAGE-CONTEXT-HEADER-REDESIGN-PER-TAB\after\
+    1_query_review(.png/_top.png) 2_count_compare 3_candidate_columns
+    4_stats_validation 5_result_confirm
+
+전/후 요약(실측):
+             repeat_bar.shown   해당 단계 상단 그리드.shown
+  1단계 전   true               (그리드 없음, 바만)
+  1단계 후   false              qrSummary=true
+  2단계 후   false              countResult=true (COUNT 150/150/0)
+  3단계 후   false              mvStage3CtxGrid=true
+  4단계 후   false              mvStage4CtxGrid=true (GB 2 · SUM 1)
+  5단계 후   false              mvStage5CtxGrid=true (COUNT 150/150·차이 0, 불일치 6개, 재이관 6건)
+
+────────────────────────────────────────────────────────────────────────
+4. 회귀 테스트
+────────────────────────────────────────────────────────────────────────
+- CLAUDE.md 지정 회귀:
+    samples/test_virtual_cases.py   → 8/8 통과
+    samples/test_complex_cases.py   → 5/5 통과
+- UI 관련 스위트(16개 파일) : 204 passed, 5 xfailed, 1 failed
+    · 통과 : test_grid_helpers / test_tabulator_vendor / test_unified_result_detail /
+      test_navigation_sync / test_shared_sticky_step_nav / test_diagnosis_level_batch /
+      test_all_stages_timing_display_expand / test_execute_error_message_rendered_fix /
+      test_stage3_explicit_trigger_button / test_cmdbar_sequential_flow /
+      test_count_gate_cmdbar_rewire / test_applysinglepane_stray_candidate_calc_fix /
+      test_shared_execution_context / test_stats_result_full / test_plan_sets_save_gate_state 등
+- 실패 3건은 전부 '사전 존재 실패'(내 변경 이전 HEAD 에서도 동일 실패, git worktree baseline 대조 확인):
+    · test_active_path_header_and_profile_order::test_order_logic_active_first_display_only
+      (renderDbProfileList 관련, 내 변경 영역 아님 — baseline 실패 확증)
+    · test_single_sql_change_stale_clear::test_clear_final_save_state_clears_everything
+      (singleFinalSaveBar 관련, 반복 바와 무관 — baseline 실패 확증)
+    · test_tabulator_vendor::test_candidate_summary_grid_removed_and_pairing
+      (baseline 은 stale 단언 "el.innerHTML = tableHtml;" 로 실패 중이었음 —
+       이번에 실제 코드에 맞춰 정정 + 3단계 그리드 재도입 단언으로 갱신 → 현재 통과)
+- 폐기 테스트 삭제 : tests/test_validation_target_header_render.py (제거된 반복 바 함수 실측 전용)
+
+────────────────────────────────────────────────────────────────────────
+5. 서버 재기동 / 커밋
+────────────────────────────────────────────────────────────────────────
+- 서버 재기동 : 2026-07-23 21:11 KST (포트 8000, host 127.0.0.1, 인증 ON, 신규 PID 29504)
+  재기동 후 신 코드 서빙 확인(singleValTargetBar 부재, mvStage3CtxGrid/mvStage5CtxGrid 존재)
+- 커밋 해시 : 1cb38eb  (feat(single): 탭별 상단 컨텍스트 그리드로 반복 헤더 바 대체)
+  변경 파일 : ui/tabler_renderer.py, ui/grid_helpers.py, ui/js_sql_preview.py,
+             tests/test_tabulator_vendor.py, tests/test_validation_target_header_render.py(삭제),
+             scripts/dev_e2e/stage_context_header_redesign_verify.py(신규)
+
+작업명 : STAGE-CONTEXT-HEADER-REDESIGN-PER-TAB
+✅ 작업 완료 - 개별검증 1~5단계 공통 반복 헤더 바 제거 + 각 탭 상단에 2단계 스타일 컨텍스트 그리드 배치(오라클 실 브라우저 전/후 실측 완료)
