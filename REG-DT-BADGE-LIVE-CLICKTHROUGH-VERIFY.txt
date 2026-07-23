@@ -1,0 +1,82 @@
+작업명: REG-DT-BADGE 실발생조건 라이브 재검증 (807f02e 전제 검증)
+⚠️ 추가 작업 필요 - 라이브 화면에서 REG_DT는 지금도 '정책상제외'로 뜸(807f02e 보고 전제와 반대), 정책 확정 필요
+
+[사용자 신고 요지]
+ 원 스크린샷은 REG_DT '정책상제외' 배지. 807f02e 보고는 "실제 REG_DT는 AVAILABLE(선택가능),
+ '정책상제외'는 합성 REG_DT_STALE 에서만 재현"이라 함. 실제로 사용자가 본 그 순간의 상태가
+ AVAILABLE 였는지 EXCLUDED 였는지, 지금 포트 8000 진짜 클릭으로 확인.
+
+────────────────────────────────────────────────────────────────────────
+[결론 — 3줄]
+ 1) 라이브 포트 8000 진짜 클릭스루(합성주입·postcount 스크립트 없음)에서 REG_DT는 지금도
+    '정책상제외' 로 뜬다. 원자료 selection_status = EXCLUDED_BY_RULE.
+ 2) 즉 807f02e 가 "합성"이라 부른 REG_DT_STALE(=EXCLUDED) 이 사실은 라이브 실제 상태다.
+    807f02e 보고의 전제("REG_DT=AVAILABLE, 정책상제외=합성")는 라이브와 정반대다.
+ 3) 단, '정책상제외' 자체는 오배제가 아니라 정당한 판정이다 — 목적지 컬럼이 실제 VARCHAR2 라
+    현행 정책상 DATE_TRUNC 직접 불가로 제외된다(목적지 실조회로 확증).
+
+────────────────────────────────────────────────────────────────────────
+[왜 두 보고(2a166fe·807f02e)와 라이브가 갈렸나 — 검증 방법의 결함]
+ · 두 수정의 실측은 모두 SRC 단독 postcount 덤프(_reg_dt_cands_after.json,
+   oracle_reg_dt_postcount_repro.py 산출)에 대해 이뤄졌다. 이 repro 는 원본(Oracle_asis) 만
+   접속하고 목적지(Oracle_tobe)는 접속하지 않는다.
+ · 목적지 미접속이면 목적지 컬럼 타입 검사(candidate_target_date_granularity)가 동작하지 않아
+   REG_DT 가 '직접 변환 가능'으로 처리 → recommended_bucket=month → AVAILABLE_ADDITIONAL 로 나온다.
+ · 라이브(SRC→TGT)에서는 목적지 REG_DT = VARCHAR2(20) 을 감지 → needs_parse=True →
+   date_bucket_type_blocked → recommended_bucket=null → EXCLUDED_BY_RULE.
+
+   구분                     | 807f02e 실측이 쓴 덤프(SRC단독) | 라이브 SRC→TGT 클릭스루
+   -------------------------+---------------------------------+------------------------
+   selection_status         | AVAILABLE_ADDITIONAL            | EXCLUDED_BY_RULE
+   recommendation_status    | SELECTABLE                      | EXCLUDED
+   date_bucket_candidate    | True                            | True
+   recommended_bucket       | month                           | null
+   display_badge_label      | (선택가능계열)                  | 정책상제외
+   warn_reason              | (없음)                          | 목적지 varchar 정밀도 미상 → DATE_TRUNC 불가
+
+────────────────────────────────────────────────────────────────────────
+[807f02e 코드 자체는 라이브에서 무엇을 했나 — 공정 평가]
+ · 807f02e 의 렌더러 변경(배지·사유·비고를 단일 판정 selectable 로 통일)은 라이브에서도 실제로
+   작동한다. 라이브 EXCLUDED 상태의 REG_DT 에서 이제 세 곳이 모두 '제외'로 일치:
+   - 배지 '정책상제외', 사유 '정책상 그룹 기준으로 선택할 수 없어 제외', 비고 비어있음
+   - 기간 드롭다운 없음(hasDropdown=False), '변환 필요' 없음, 체크박스 비활성(disabled=True)
+   → 사용자가 원래 본 삼중 모순(배지=제외인데 드롭다운/변환필요 공존)은 라이브에서도 해소됐다.
+ · 그러나 807f02e 의 보고문·메모리("REG_DT는 실·AVAILABLE, 정책상제외는 합성 전용")는 사실과
+   반대다. 검증이 목적지 미접속 경로에서만 이뤄져 라이브 상태를 한 번도 관측하지 못했다.
+
+────────────────────────────────────────────────────────────────────────
+[지금 필요한 판단 — 정책 확정]
+ (A) 목적지가 varchar 인 날짜는 '정책상제외'가 의도된 결과라면:
+     → 807f02e 코드는 정상. 다만 보고문/커밋/메모리의 "REG_DT=AVAILABLE, 합성" 서술을 정정해야 함.
+        (실제로는 "목적지 varchar 라 정책상제외되며 세 표시가 일관됨"이 맞는 서술)
+ (B) REG_DT 를 실제로 쓰게 하려는 것이 목표라면:
+     → varchar 저장 날짜에 TO_DATE/TO_TIMESTAMP 파싱 후 TRUNC 를 생성하는 기능(현재 "후속 지원"
+        주석 상태)이 있어야 하며, 이는 이번 삼중모순 수정과 별개의 신규 기능이다.
+ 권장: 값이 '2026-01-01 07:13:29' 로 깔끔히 파싱 가능하므로 (B) 지원 가치가 있으나, 우선은
+        (A) 로 보고 서술을 정정하고 (B)는 별도 기능 티켓으로 분리 권장.
+
+────────────────────────────────────────────────────────────────────────
+[수행 근거 — 실측 로그]
+ · 서버: 포트 8000 재기동, 807f02e 마커('isDateBucket && selectable') 서빙 확인.
+   기존 PID 18532 시작 18:35:45 = 807f02e 커밋 18:35:36 직후(최신본 서빙 중이었음).
+   브라우저 자동화 목적 MV_AUTH_DISABLED 로 기동(analyze/count/postcount/render 로직과 무관).
+ · 클릭스루(진짜 마우스 클릭): 프로젝트 TESTONLY_REG → Oracle_asis→Oracle_tobe 검증경로 접속 →
+   개별검증. SQL: INSERT INTO NXDNP.MV_ORA_DEMO_TGT(...) SELECT ... FROM NXDNP.MV_ORA_DEMO_SRC
+   - 1단계 분석: from_table=MV_ORA_DEMO_SRC, 차단 없음
+   - 2단계 COUNT: COUNT_MATCHED (원본 150 · 목적 150 · 적재율 100%)
+   - 3단계 컬럼선정 REG_DT 실측:
+       배지='정책상제외⚠ 명칭-값 불일치' | 드롭다운=False | 변환필요=False | 체크박스 disabled=True
+       사유='날짜형 컬럼이나 정책상 그룹 기준으로 선택할 수 없어 제외했습니다. ⚠ 코멘트(등록일시)는
+             관리컬럼(시스템 감사)을 시사하나 값 검증 결과 불일치 — 신중히 확인하세요.'
+   - REG_DT 원자료(_analyzeData): selection_status=EXCLUDED_BY_RULE, recommendation_status=EXCLUDED,
+       display_badge_label=정책상제외, date_bucket_candidate=True, recommended_bucket=null,
+       candidate_subtype=DATE_DAILY, is_admin_audit_column=False, admin_audit_verdict=NAMING_VALUE_MISMATCH
+ · 목적지 컬럼 타입 실조회(oracledb 직접): MV_ORA_DEMO_TGT.REG_DT = VARCHAR2(20),
+   값 샘플 ['2026-01-01 07:13:29', '2026-02-02 14:26:58', '2026-03-03 21:39:27']
+ · 코드 지점: services/candidate_subtype_service.py:382-384 (문자열 목적지 → needs_parse=True,
+   'DATE_TRUNC 직접 불가') → services/date_bucket_evidence.py enrich_date_bucket_candidate 에서
+   recommended_bucket 미부착 → EXCLUDED 유지.
+ · 스크린샷: E:\verify_screenshots_only\REG-DT-BADGE-LIVE-CLICKTHROUGH\3_candidate_table.png
+ · 검증 스크립트: scripts/dev_e2e/reg_dt_live_clickthrough_verify.py (신규, 진짜 클릭스루)
+
+⚠️ 추가 작업 필요 - 라이브 화면에서 REG_DT는 지금도 '정책상제외'로 뜸(807f02e 보고 전제와 반대), 정책 확정 필요
