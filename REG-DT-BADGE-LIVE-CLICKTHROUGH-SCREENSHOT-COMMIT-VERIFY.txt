@@ -1,0 +1,41 @@
+✅ 작업 완료 - REG-DT-BADGE-LIVE-CLICKTHROUGH 스크린샷 3장 로컬 실재 확인 후 증적 저장소 커밋·푸시·원격 재확인 완료
+
+[1] 스크린샷 로컬 존재 여부 — 존재함 (재캡처 불필요)
+  E:\verify_screenshots_only\REG-DT-BADGE-LIVE-CLICKTHROUGH\
+    1_query.png            185,457 bytes  2026-07-23 18:49:45
+    2_count.png            177,327 bytes  2026-07-23 18:50:13
+    3_candidate_table.png  275,125 bytes  2026-07-23 18:50:19
+  3_candidate_table.png 내용 육안 확인:
+    - Source DB: Oracle_asis [ORACLE] · 접속중 / Target DB: Oracle_tobe [ORACLE] · 접속중 (원본+목적지 동시 접속)
+    - 3단계 '후보 컬럼 선정' 활성, 1단계 쿼리검토 완료 / 2단계 COUNT 사전검증 완료 (실제 클릭 진행 흔적)
+    - 원본 NXDNP.MV_ORA_DEMO_SRC → 목적지 NXDNP.MV_ORA_DEMO_TGT, 실행모드 TEST_ONLY
+    - REG_DT 행: 체크박스 비활성 + [정책상제외] + [명칭-값 불일치] 배지, 사유·비고 일치 표시
+
+[2] 저장소에 없었던 원인 — 캡처 유실 아님, 커밋 누락
+  git status 상 해당 폴더가 untracked(`?? REG-DT-BADGE-LIVE-CLICKTHROUGH/`) 상태로 남아 있었음.
+  즉 파일은 정상 생성되었으나 git add/commit/push 를 하지 않아 원격에 반영되지 않았다.
+  이전 보고서의 "스크린샷: ...3_candidate_table.png (전달함)" 표현은 부정확했으며, 정확히는
+  "로컬 캡처 완료, 원격 미반영" 이었다. 이 점을 정정한다.
+
+[3] 커밋·푸시
+  저장소: E:\verify_screenshots_only (origin https://github.com/kr0xx3xxx0xxx-coder/migration-validator-verify.git)
+  절차: fetch → merge --ff-only (원격 2커밋 수신: 2d6d4c7, 9091feb) → add 해당 폴더만 → commit → push
+  커밋: 6347589 evidence(REG-DT-BADGE-LIVE-CLICKTHROUGH): 라이브 8000 클릭스루 실측 스크린샷 3장
+  push: 2d6d4c7..6347589  main -> main
+  ※ 저장소 내 다른 미커밋 잔재(REIMPORT-*, STAGE5-* 등)는 이번 작업 범위 밖이라 건드리지 않았다.
+
+[4] 원격 반영 재확인 (ls-remote + ls-tree)
+  $ git ls-remote origin main
+    6347589117d42a9129a212df942b7eb6a4af724c	refs/heads/main
+  $ git rev-parse HEAD (로컬)
+    6347589117d42a9129a212df942b7eb6a4af724c        → 로컬 HEAD == 원격 main 일치
+  $ git ls-tree -r -l origin/main -- REG-DT-BADGE-LIVE-CLICKTHROUGH
+    100644 blob 7d8ae1d2...  185457  REG-DT-BADGE-LIVE-CLICKTHROUGH/1_query.png
+    100644 blob b96727d8...  177327  REG-DT-BADGE-LIVE-CLICKTHROUGH/2_count.png
+    100644 blob d04cd7d2...  275125  REG-DT-BADGE-LIVE-CLICKTHROUGH/3_candidate_table.png
+  → 원격 트리에 3장 모두 실재, 크기도 로컬과 동일.
+
+[5] 코드 저장소 영향
+  C:\projects\migration-validator 는 이번 작업에서 변경·커밋·푸시하지 않았다(증적 전용 저장소만 조작).
+
+✅ 작업 완료 - 스크린샷은 유실 아닌 커밋 누락이었고, 지금 원격(6347589)에 3장 반영 및 ls-remote/ls-tree 로 재확인 완료
