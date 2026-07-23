@@ -1,0 +1,89 @@
+✅ 작업 완료 - "미대상" 배너와 "참고/제외 후보" 표는 서로 다른 집합(풀 밖 vs 풀 안 강등)이며 거의 배타적
+
+[작업] NON-TARGET-BANNER-VS-EXCLUDED-CANDIDATE-DIAGNOSE (코드 수정 없음 · 진단만)
+
+■ 1. "미대상 N — 사유 보기" 배너 — 포함 기준
+  - UI 렌더: ui/tabler_renderer.py:21257-21287 (요약 카드 우측 배지)
+    입력: 서버 gb_candidacy_summary.excluded_with_reason 단일 출처
+  - 서버 조립: services/single_validation_analyze_service.py:1796-1828
+      total      = GB 후보 풀 진입 컬럼(scored) ∪ 비후보 컬럼(관리컬럼 확정분 제외)
+      scored     = GROUP BY 후보 풀에 진입(스코어링)한 컬럼 수
+      selectable = 그중 정책상 제외 아님(SELECTED_DEFAULT / AVAILABLE_ADDITIONAL)
+      미대상 N   = excluded_with_reason = non_candidate_reasons 에서
+                   GB 풀 소속·관리컬럼 억제분을 뺀 것
+  - 사유 생성: services/candidate_engine.py:961-1003(방출), 1024-1085(_gb_non_candidate_reason)
+  - 포함 기준 한 줄: "GROUP BY 후보 풀에 애초에 진입하지 못한 컬럼"(=풀 밖)
+  - reason_code(관문 우선순위):
+      AGGREGATE(집계식) > PK_IDENTIFIER(PK/유니크) >
+      NUMERIC_SUM_ONLY(숫자 SUM전용) / NUMERIC_SEMANTIC_EXCLUDED(숫자 시맨틱드롭) >
+      CONSTANT(상수) > HIGH_CARDINALITY / FREE_TEXT(고카디) >
+      SEMANTIC_EXCLUDED(날짜 등 시맨틱제외) > NO_EVIDENCE(근거없음)
+      + ENCRYPTED(암호화 원천배제, 최우선)
+  - ★ 관점 주의: 이 배지는 오직 GB 관점이다. SUM 후보 풀에 정상 진입한 숫자형(AMT류)도
+    GB 풀엔 없으므로 여기 'SUM전용'으로 "미대상"에 집계된다. 즉 배너의 "미대상"은
+    "검증 대상 아님"이 아니라 "GROUP BY 후보 아님"이다(본문 기본표엔 SUM 후보로 표시됨).
+
+■ 2. "참고/제외 후보 보기 · 기본계획 미포함" 표 — 포함 기준
+  - UI 렌더: 개별 ui/tabler_renderer.py:22439-22524, 일괄 11217-11276 (동일 _candPlanGroup 사용)
+  - 분류 함수: _candPlanGroup (ui/tabler_renderer.py:20966-20973)
+      REFERENCE 조건: (1)!selectable  (2)DATE_BUCKET_CANDIDATE
+                      (3)NAME_DESC_CANDIDATE  (4)EXCLUDED_BY_RULE
+      그 외(SELECTED_DEFAULT/AVAILABLE_ADDITIONAL/MANUAL_REQUIRED/미분류) → PRIMARY(기본표)
+  - 입력 모집단: 표시 후보 pool = gbCandsDisplay + sumCandsDisplay
+      (= GB 후보 풀 + SUM 후보 풀에 "이미 진입한" 컬럼들)
+  - 강등 사유(개별 _indPlanGroup 22442-22468):
+      · SUM 후보 중 PK/식별자/순번 (_sumPolicyExcl)
+      · GB 후보 중 식별자성·고카디·드릴다운 부적합 (_gbIdLike → EXCLUDED_BY_RULE)
+      · selection_status == EXCLUDED_BY_RULE
+      · date_bucket 후보인데 카디널리티 부적합(selectable=false)
+  - 포함 기준 한 줄: "후보 풀엔 진입했으나 기본 통계검증계획에서 강등된 컬럼"(=풀 안 강등)
+
+■ 3. 두 UI의 관계 — 거의 배타적(DISJOINT), 겹치지 않음
+  - 배너 미대상   = 후보 풀 "밖"  (스코어링조차 안 됨)
+  - 참고/제외 표  = 후보 풀 "안"  (스코어링됐으나 강등)
+  - 서버가 excluded_with_reason 을 만들 때 GB 풀 소속(_gb_pool_cols)을 명시적으로
+    제외(single_validation_analyze_service.py:1818)하므로 두 집합의 교집합은 없다.
+  - 포함관계 아님, 배타 관계.
+  - (유일한 어긋남) SUM 정상 후보는 배너엔 '미대상·SUM전용', 본문엔 기본 SUM 후보로
+    동시 등장 — 단 이는 "배너 ↔ 본문 기본표"의 관점차이지, "배너 ↔ 참고/제외 표"의 겹침은 아니다.
+
+  [사용자 시나리오: 전체5 · GB대상3 · 선택가능2 → 미대상2]
+    - 미대상2 = GB 풀 밖 2개. ID·PK(PK_IDENTIFIER) + AMT·SUM전용(NUMERIC_SUM_ONLY) 추정 → 로직상 타당.
+    - selectable(2) < scored(3): GB 풀 3개 중 1개는 풀 안이지만 선택불가 → 참고/제외 표에 REFERENCE로 표시.
+      → 이 1개가 REG_DT일 개연성이 높다.
+
+  [REG_DT 는 "미대상 2"에 포함되는가? → 원칙적으로 아니오]
+    - 결정 기준: REG_DT 가 GROUP BY 후보 풀(all_groupby_candidates)에 진입했는지 여부.
+        진입 O(DATE_BUCKET_CANDIDATE 또는 EXCLUDED_BY_RULE 로 selection_status 부여)
+          → scored 에 집계, 배너 미대상 "제외", 참고/제외 표에 표시.
+        진입 X(목적지 VARCHAR2 등으로 날짜 인식 실패 → 고카디 문자열)
+          → non_candidate_reasons(HIGH_CARDINALITY/FREE_TEXT/SEMANTIC_EXCLUDED)
+          → 배너 미대상 "포함".
+    - 라이브 실측(메모리 project_reg_dt_live_excluded_not_available, 커밋 807f02e): REG_DT 는
+      "정책상제외" 배지로 참고/제외 표에 표시됨 → 후보 풀 진입, scored 집계, 배너 미대상엔 미포함.
+    - 결론: REG_DT류(목적지 타입 불일치 정책 제외)는 코드상 "참고/제외 표" 쪽으로 라우팅되며,
+      배너 "미대상"에는 들어가지 않는 것이 정상 경로다.
+
+■ 4. "구조적 제외"와 "정책 제외"가 배너에 섞이는가? — 배너 내부에선 부분적으로 섞임
+  - 배너 미대상 사유를 성격별로 나누면:
+      · 순수 구조적(타입/제약/집계식으로 당연 제외):
+          PK_IDENTIFIER, NUMERIC_SUM_ONLY, CONSTANT, AGGREGATE
+      · 통계 임계 의존(카디널리티):
+          HIGH_CARDINALITY, FREE_TEXT
+      · 시맨틱/정책 판단:
+          SEMANTIC_EXCLUDED, NUMERIC_SEMANTIC_EXCLUDED, NO_EVIDENCE, ENCRYPTED
+    → 따라서 배너 배지 "안에서는" 구조적 제외와 시맨틱 판단 제외가 한 목록에 섞여 나온다.
+  - 다만 사용자가 우려한 핵심 케이스(REG_DT 처럼 "목적지 타입 불일치로 검토가 필요한 정책 제외")는
+    배너가 아니라 "참고/제외 표"로 분리 라우팅되므로, 배너 vs 표 두 UI 사이에서는 성격이 이미 분리돼 있다.
+  - 비율(코드 로직상 추정): 일반 업무 테이블은 PK 1~2 + 금액/수량 숫자(SUM전용) 다수 + 상수/감사 소수 구성이라
+    배너 "미대상"은 대개 "구조적 당연 제외(PK/SUM전용/상수)"가 다수를 차지하고,
+    시맨틱 판단 제외(SEMANTIC_EXCLUDED/NO_EVIDENCE)는 소수인 경향. 배너 실효성 저하는 제한적.
+
+■ 종합
+  - 두 UI는 서로 다른 컬럼 집합(풀 밖 vs 풀 안 강등), 배타 관계, 포함관계 아님.
+  - 사용자가 우려한 "검토 필요한 정책 제외(REG_DT류)"는 원칙적으로 "참고/제외 표"에 있고
+    배너 "미대상"엔 없다 → 두 UI 사이 성격 분리는 대체로 지켜진다.
+  - 다만 배너 "미대상" 목록 "내부"에는 구조적 제외 + 시맨틱 판단 제외가 함께 나열되며,
+    reason_code 태그(PK/SUM전용/시맨틱제외 등)로만 구분된다(그룹 헤더 분리 없음). 개선 여지는 여기.
+
+✅ 작업 완료 - 배너=후보 풀 밖 미진입, 참고/제외 표=풀 안 강등, 배타 관계이며 REG_DT류는 표 쪽으로 라우팅됨(코드 수정 없음)

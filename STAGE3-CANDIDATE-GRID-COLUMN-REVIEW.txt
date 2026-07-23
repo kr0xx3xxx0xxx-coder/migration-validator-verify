@@ -1,0 +1,98 @@
+작업명 : STAGE3-CANDIDATE-GRID-COLUMN-REVIEW
+✅ 작업 완료 - 3단계 후보추천 요약 그리드의 중복(입력/추출 컬럼수)·죽은 열(매칭키/분할키) 제거, 실측·회귀 통과
+
+────────────────────────────────────────────────────────────────────────
+1. 각 열의 정확한 용도/출처 (코드 근거)
+────────────────────────────────────────────────────────────────────────
+대상 함수: ui/grid_helpers.py `_mvRenderCandidateGrid` (→ #mvStage3CtxGrid 렌더)
+
+[입력 컬럼수 insCols / 추출 컬럼수 selCols]
+  - 출처: `_mvColsOf(a).insN` / `.selN`
+      insN = parse_result.insert_cols 길이 (INSERT 대상 컬럼 수)
+      selN = parse_result.select_items 중 tgt_col 보유 수 (없으면 insert_cols 재사용)
+  - 1단계 쿼리검토 그리드(_mvQueryReviewRows, grid_helpers.py:298)도 완전히 동일한
+    `_mvColsOf(a).insN/selN` 을 사용 → 값·출처가 100% 동일.
+  - 정상 INSERT..SELECT 는 입력=추출 이라 항상 같은 값(실측 7/7).
+  - 판단: 순수 중복. 3단계 맥락에서 '후보 필터링 이후 남은 수' 같은 다른 의미가 아님
+    (필터링 전 원시 파싱 개수 그대로). → 제거(1단계에서만 표시).
+
+[매칭키 matchKey / 분할키 chunkKey]
+  - 출처: `a.candidate_recommendation.exhaustive_validation_candidates
+           .match_key_candidates[0] / .chunk_key_candidates[0]`
+  - 이 필드를 만드는 유일한 생산자: services/diagnosis/candidate/recommender.py
+    `recommend_candidates()` → `_exhaustive()` (match_key_candidates 는 is_pk/is_unique 일 때 채움).
+  - `recommend_candidates()` 호출부는 전 코드베이스에서 단 1곳:
+    routes/diagnosis_route.py:1065 (전수검증 '배치/진단' 상세 경로).
+  - 개별검증 analyze 응답(single_validation_analyze_service.py / facade / postcount)은
+    candidate_recommendation 을 절대 싣지 않는다.
+  - 프론트 `_mvRenderCandidateGrid` 는 rec(=candidate_recommendation)가 있을 때만
+    (`if(rec)` 분기) mk/ck 를 계산하고, 없으면 else 분기로 빠져 mk/ck 는 '-' 초기값 유지.
+  - 판단: 개별검증 3단계에서는 PK 유무·테이블 규모와 무관하게 rec 이 항상 undefined 이므로
+    매칭키/분할키는 구조적으로 항상 '-'인 죽은 열. (대용량 청크비교 전용 조건이 아니라,
+    이 화면에는 데이터 원천 자체가 없음.) 매칭키/분할키는 전수검증 배치 진단 상세
+    화면(_mvRenderCandidateRecommendation) 소관. → 제거.
+
+[SUM / GROUP BY]  (유지)
+  - rec 없을 때 else 분기가 a.all_groupby_candidates / a.all_sum_candidates pool 에서
+    상위 후보를 source↔target 쌍으로 표시. 이 단계 고유 정보이며 1단계에 없음 → 비중복. 유지.
+
+────────────────────────────────────────────────────────────────────────
+2. 처리 내용
+────────────────────────────────────────────────────────────────────────
+- ui/grid_helpers.py `_mvRenderCandidateGrid`:
+    · 입력 컬럼수/추출 컬럼수/매칭키/분할키 4개 열 제거(컬럼 정의 + row 필드 + mk/ck 계산 + _mvColsOf 호출 제거)
+    · 남은 열: 원본 테이블 | 목적 테이블 | SUM | GROUP BY | 상태
+    · 제거 사유를 한글 주석으로 명시(재발/오해 방지)
+- ui/tabler_renderer.py: #mvStage3CtxGrid 설명 HTML 주석 동기화(제거 사유 명시)
+- tests/test_grid_helpers.py: test_candidate_grid_render_and_muted 를 새 열 구성으로 갱신
+    (입력/추출·매칭키/분할키 부재 단언 + 원본/목적·SUM/GROUP BY 존재 단언)
+- scripts/dev_e2e/stage3_candidate_grid_column_review_verify.py: 실측 E2E 드라이버 신규(before/after)
+
+* 기능 추가 아님 — 중복/죽은 열 삭제(구조 단순화). recommend_candidates 를 개별검증에
+  끌어와 매칭키/분할키를 '채우는' 방향은 신규 compute/heuristic 유입이라 CLAUDE.md
+  '기능 추가 제한/구조 안정화 우선'에 따라 배제.
+
+────────────────────────────────────────────────────────────────────────
+3. 실측 (실 오라클 MV_ORA_DEMO, PK=ID / 서버 8000, 인증 ON, 인증계정 e2e)
+────────────────────────────────────────────────────────────────────────
+이관SQL: INSERT INTO NXDNP.MV_ORA_DEMO_TGT (...) SELECT ... FROM NXDNP.MV_ORA_DEMO_SRC (150행, COUNT 일치)
+
+[before] (재기동 전, 구코드 서빙)  3단계 그리드 실측:
+  헤더: No | 원본 테이블 | 목적 테이블 | 입력 컬럼수 | 추출 컬럼수 | 매칭키 | 분할키 | SUM | GROUP BY | 상태
+  값  : 1 | ...DEMO_SRC | ...DEMO_TGT | 7 | 7 | - | - | AMT↔AMT | DEPT_CD↔DEPT_CD | ● 정상
+  _mvColsOf(_analyzeData) = {insN:7, selN:7}      → 입력/추출이 동일 출처·동일 값(중복 확증)
+  _analyzeData.candidate_recommendation = undefined → PK=ID 가 있어도 매칭키/분할키 '-'(죽은 열 확증)
+
+[after] (재기동 후, 신코드 서빙)  3단계 그리드 실측:
+  헤더: No | 원본 테이블 | 목적 테이블 | SUM | GROUP BY | 상태
+  값  : 1 | ...DEMO_SRC | ...DEMO_TGT | AMT↔AMT | DEPT_CD↔DEPT_CD | ● 정상
+  판정: 성공 (입력/추출·매칭키/분할키 제거, SUM/GROUP BY 유지)
+  콘솔 오류: 0건
+
+스크린샷: E:\verify_screenshots_only\STAGE3-CANDIDATE-GRID-COLUMN-REVIEW\{before,after}\
+  1_query_review.png / 2_count_compare.png / 3_candidate_columns.png / 3_candidate_grid_closeup.png
+
+[대용량(MV_ORA_XDIFF 25만, PK_RANGE_CHUNK 전략) 관련]
+  브라우저 재실행 대신 코드 경로로 확증: candidate_recommendation 생산자가 diagnosis_route
+  1곳뿐이고 개별검증 analyze 경로에 없으므로, 테이블 규모와 무관하게 개별검증 3단계 그리드의
+  매칭키/분할키는 동일하게 '-'. 즉 '대용량 청크비교에서만 채워지는 조건부 열'이라는 가설은 반증됨
+  (소형 PK=ID 시나리오에서 이미 '-'). 매칭키/분할키는 전수검증 배치 진단 상세에서만 산출.
+
+────────────────────────────────────────────────────────────────────────
+4. 회귀 결과
+────────────────────────────────────────────────────────────────────────
+- python samples/test_virtual_cases.py      : 8/8 통과
+- python samples/test_complex_cases.py       : 5/5 통과
+- pytest tests/test_grid_helpers.py           : 8 passed
+- pytest test_grid_helpers/test_candidate_recommender/test_individual_ux/test_batch_row_detail_ux : 35 passed
+
+────────────────────────────────────────────────────────────────────────
+5. 재기동 / 커밋
+────────────────────────────────────────────────────────────────────────
+- 서버 재기동: 2026-07-23 22:23:30 (포트 8000, _cmn_free_port 로 구 PID 21388 종료 → 신 PID 23260,
+  HTTP Basic Auth ON, 신코드 마커 'STAGE3-CANDIDATE-GRID-COLUMN-REVIEW' 서빙 확인)
+- 커밋 해시: 4fdba05
+  (fix(single): 3단계 후보추천 요약 그리드 중복/죽은 열 제거(STAGE3-CANDIDATE-GRID-COLUMN-REVIEW))
+
+작업명 : STAGE3-CANDIDATE-GRID-COLUMN-REVIEW
+✅ 작업 완료 - 3단계 후보추천 요약 그리드의 중복(입력/추출 컬럼수)·죽은 열(매칭키/분할키) 제거, 실측·회귀 통과

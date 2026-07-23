@@ -1,0 +1,97 @@
+작업명 : REIMPORT-DETAIL-GRID-SEPARATE-COLUMN-COLOR-FIX
+✅ 작업 완료 - 재이관 상세 그리드 원본/목적 화살표 압축을 별도 열 색상 구분으로 전환(실 오라클 10건·8000 인증 ON 실측 확인)
+
+────────────────────────────────────────────────────────────────────────
+1. 수정 내용
+────────────────────────────────────────────────────────────────────────
+대상 그리드(렌더 위치): ui/tabler_renderer.py
+  - _mvRiApply         : 재이관 상세 불일치 레코드(PK 검색 하단 표) — 주 대상
+  - _mvBuildGridHtml   : 그룹 드릴다운 인라인 상세(같은 재이관 상세, 일관성 통일)
+  - _mvRiApplySampleStop: 표본 조기중단 대표 레코드표(같은 재이관 상세, 일관성 통일)
+  - _mvRiApplyTO(목적 단독)은 원본이 없어 비교 대상이 아니므로 기존 유지
+
+신설 공용 헬퍼(중복 로직 금지):
+  - _mvPkCellSplit(sv,tv,missing,isDiff,isCode,num) : 값 셀을 원본(파랑)/목적(청록) 별도 td 로 분리
+  - _mvDrillHeaderLabel(c,comMap)                   : PK 배지·DB 코멘트 병기 라벨 추출(단일/분리 헤더 공유)
+  - _mvDrillHeaderCellSplit(c,comMap)               : 값 컬럼 원본/목적 2열 헤더, KEY 는 단일 열
+  - _mvSplitThCount(cols)                           : 헤더수==셀수 불변식 카운트(불일치유형1+KEY1+값컬럼2)
+
+핵심 변경:
+  · 화살표(→) 압축 표기 제거 → 원본/목적 별도 열
+  · 범례 _mvSrcTgtLegend('arrow') → 'color'(파랑=원본/청록=목적 칩)
+  · PK(비교키)는 원본/목적 공통 값이므로 단일 열 유지(항목 5)
+  · 헤더에는 '원본'/'목적' 문구 없이 컬럼명만 표시, 배경색으로 구분(항목 2)
+  · 목적 미존재/값 불일치 셀은 주황(#C2410C) 굵게 강조 유지(불일치 신호 보존)
+  · DOM th 카운트 불변식 (cols.length+1) → _mvSplitThCount(cols) 로 갱신(헤더 강제 재빌드 정합)
+  · 헤더 th 는 전역 CSS(.page-wrapper table thead th{background:#eef3fb!important})가 인라인을
+    덮으므로, 헤더에도 색이 보이도록 분리 헤더 인라인에 !important 부여(본문 td 는 미적용 규칙이라 불필요)
+
+테스트 갱신(의도된 변경 반영):
+  - tests/test_d7_3_restore_guard.py       : "_domThN === (cols.length+1)" → "_domThN === _mvSplitThCount(cols)"
+  - tests/test_stats_result_full.py        : "_mvPkCell2" 단언 → "_mvPkCellSplit"(원본/목적 분리 열)
+신규 검증 드라이버:
+  - scripts/dev_e2e/reimport_detail_grid_separate_column_color_verify.py
+
+────────────────────────────────────────────────────────────────────────
+2. 색상 체계 적용 근거
+────────────────────────────────────────────────────────────────────────
+신규 색을 만들지 않고, 이미 프로젝트가 쓰는 5단계 그룹 결과표의 원본/목적 열 색상을 그대로 재사용:
+  · 원본 열 = #eaf2ff (파랑)  = 5단계 execute_result_renderer.py _EXEC_SRC_BG 동일값
+  · 목적 열 = #e6f7f3 (청록)  = 5단계 execute_result_renderer.py _EXEC_TGT_BG 동일값
+  · 공통 범례 헬퍼 _mvSrcTgtLegend('color')(파랑/청록 칩)로 의미 안내 — 표마다 별도 범례 신설 금지
+항목 7(다른 그리드에 이미 적용된 방식 재사용) 준수: 5단계 색상 열 분리 방식을 재이관 상세에 이식.
+
+────────────────────────────────────────────────────────────────────────
+3. 전/후 실측 (실 오라클 MV_ORA_DEMO_SRC/TGT 재이관 10건, Playwright)
+────────────────────────────────────────────────────────────────────────
+데이터: MV_ORA_DEMO_SRC/TGT 각 150행, COUNT 일치(150=150), AMT 값 불일치 정확히 10건
+        (MOD(id,15)=0 → id 15,30,45,60,75,90,105,120,135,150), 원본 amt / 목적 amt+500
+
+[BEFORE] HEAD(화살표 코드) worktree · 임시 포트 8055 · 인증 ON
+  thCount=5(분리 없음), rowCount=10, arrowInValues=True, legendHasSrcTgt=True
+  헤더: 불일치유형 | ID(PK) | DEPT_CD | STATUS_CD | AMT (전부 단일, 헤더 배경 균일 rgb(238,243,251))
+  첫 행 AMT 셀: "1,512.5 → 2,012.5"  ← 원본→목적 한 열 화살표 압축
+  스크린샷: before_full.png / before_grid.png
+
+[AFTER] 실 서비스 포트 8000 · 인증 ON · 재기동된 커밋 코드(e4d32cb)
+  thCount=8(분리), rowCount=10, arrowInValues=False, legendHasSrcTgt=True
+  헤더: 불일치유형 | ID(PK) | DEPT_CD(파랑) DEPT_CD(청록) | STATUS_CD(파랑) STATUS_CD(청록) | AMT(파랑) AMT(청록)
+    · DEPT_CD/STATUS_CD/AMT 헤더 배경 = 원본 rgb(234,242,255)=#eaf2ff / 목적 rgb(230,247,243)=#e6f7f3
+    · 불일치유형·ID(PK) 헤더는 단일(기본색 rgb(238,243,251))
+  첫 행(id=15) 값 셀:
+    · ID "15"        : 단일 열(투명 배경) — PK 공통
+    · DEPT_CD "D03"  : 원본 #eaf2ff(파랑) / 목적 #e6f7f3(청록)
+    · STATUS_CD "P"  : 원본 #eaf2ff(파랑) / 목적 #e6f7f3(청록)
+    · AMT            : 원본 "1,512.5"(파랑, 일반색) / 목적 "2,012.5"(청록, 주황 #C2410C 굵게 강조)
+  스크린샷: after_full.png / after_grid.png
+
+판정: 별도 열 분리(True) + 원본/목적 색상 구분(True) + 화살표 제거(True) + PK 단일 열(True)
+      + 불일치 주황 강조 유지(True) — 요구사항 전부 충족.
+
+────────────────────────────────────────────────────────────────────────
+4. 회귀 결과
+────────────────────────────────────────────────────────────────────────
+필수 회귀(CLAUDE.md 지정):
+  · python samples/test_virtual_cases.py   → 8/8 통과
+  · python samples/test_complex_cases.py   → 5/5 통과
+영향 유닛:
+  · tests/test_d7_3_restore_guard.py       → 6 passed
+  · tests/test_stats_result_full.py        → 23 passed(+5 xfailed)
+UI/드릴다운/재이관 스위트(253 passed):
+  · 사전 실패 4건(본 작업 무관, HEAD 원본에서도 동일 실패 확증):
+    test_d7_1_completed_history::test_client_gate_and_dialog
+    test_d7_9_gb0_fallback::test_gate_gb0_always_grid, ::test_stage_timing_display
+    test_ui_contract_display::test_referenced_drilldown_functions_defined
+  · test_drilldown_readiness 2건은 라이브 PG(Neon) analyze 단계 quota 환경 이슈(코드 무관)
+
+────────────────────────────────────────────────────────────────────────
+5. 재기동 시각 · 커밋 해시
+────────────────────────────────────────────────────────────────────────
+서버 재기동(포트 8000, 인증 ON): 2026-07-23 19:06:59 (로컬)
+  · 재기동 코드 = 커밋 e4d32cb 와 동일(AFTER 캡처가 이 서버 대상)
+커밋 해시: e4d32cb
+  fix(reimport): 재이관 상세 그리드 원본/목적 화살표 압축→별도 열 색상 구분
+  (REIMPORT-DETAIL-GRID-SEPARATE-COLUMN-COLOR-FIX)
+
+작업명 : REIMPORT-DETAIL-GRID-SEPARATE-COLUMN-COLOR-FIX
+✅ 작업 완료 - 재이관 상세 그리드 원본/목적 화살표 압축을 별도 열 색상 구분으로 전환(실 오라클 10건·8000 인증 ON 실측 확인)
