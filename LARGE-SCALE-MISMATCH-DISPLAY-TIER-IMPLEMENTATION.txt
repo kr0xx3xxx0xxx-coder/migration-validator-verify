@@ -1,0 +1,82 @@
+작업명 : LARGE-SCALE-MISMATCH-DISPLAY-TIER-IMPLEMENTATION
+✅ 작업 완료 - 대량 불일치 표시 등급 D1~D4 + 엑셀 무제한버퍼 안전가드 구현, D1·D4 실 브라우저 확증(D2/D3 단위·구조적 확증)
+
+■ [사전확인] STATS-EXPORT-EXCEL-SAFETY-GUARD 상태
+  - 커밋 로그·E:\verify_reports 확인 결과 미완료(관련 커밋/보고서 없음) → 이번 작업에 포함 구현.
+  - D4 'Excel 다운로드 전용' 경로의 필수 전제(무제한 BytesIO 버퍼링·시트 하드리밋 초과 방지)로 선행 처리.
+
+■ 구현 내용
+ 1) 엑셀 안전가드 (routes/stats_result_route.py)
+    - 그룹 Excel 생성 전 저장소에서 예상 불일치 행수를 세어(_count_mismatch_rows),
+      DISPLAY_XLSX_ROW_MAX(1,048,576 = xlsx 시트 하드리밋) 초과 시 Workbook 생성 자체를 차단하고
+      CSV 스트리밍(/agg-diff/pk-export, /exact-diff/run-export)으로 유도(error_code=XLSX_ROW_LIMIT_EXCEEDED).
+    - 회귀 4/4: 정상 규모→StreamingResponse(오발동 없음), 임계 초과→차단+CSV 힌트.
+
+ 2) 표시 등급 단일 판정 모듈 (신규)
+    - config/size_threshold_registry.py 11번 항목: DISPLAY_FULL_LIST_MAX(1,000)/GROUPED_DETAIL_MAX(10,000)/
+      GROUPED_SAMPLE_MAX(60,000)/XLSX_ROW_MAX(1,048,576). 기존 값(MAX_DIFF_ROWS·_CAUTION_MAX·AGG_MAX_KEYS)과
+      '정합'만 시키고 새 규모체계 미도입. 축 B 상한은 INTERACTIVE_GROUPBY_MAX_GROUPS(10만) 그대로 참조.
+    - services/display_limit_policy.py: (불일치건수, 그룹수, 조기중단)→D1~D4 순수함수.
+      축 A(불일치 건수) 1,000/10,000/60,000, 축 B(그룹 수) 1,000/10,000/100,000, 최종=무거운쪽,
+      조기중단 시 강제 D4. '전체/저장/표시' 3숫자 분리 안내(표시축소=은폐 방지). 단위 26/26.
+
+ 3) D1~D4 표시 배선 (판정 단일소스 공유, 완료모듈 미수정)
+    - 서버: stats_execute_service(그룹표)·agg_diff_route(재이관 READY + 표본조기중단 2곳)에 display_tier_info 주입.
+    - 클라이언트: renderExecute(통계 그룹표)·_mvRiSummaryHtml(재이관 요약)·_mvPkLoadPage(그룹/전체합계
+      드릴다운) 상단에 등급 배너(D1 녹색 전체나열 / D2 청색 그룹+상세 / D3 주황 대표표본 / D4 적색 요약전용).
+    - exact_diff 엔진(pk_range_chunk 등 완료모듈)은 손대지 않음 — 등급은 응답 조립 지점에서 순수함수로 산출.
+
+■ 기존 임계값과의 관계 (상충 없음 재확인)
+    - DISPLAY_* 는 '불일치 건수/그룹 수' 축, registry 1~10 은 '원본 스캔 행수' 축 → 별개 파이프라인 단계.
+    - INTERACTIVE_GROUPBY_MAX_GROUPS(10만)·GENERAL_COLUMN_MAX_GROUPS(60)와도 별개 축.
+      (후보엔진 그룹상한 60 + 재이관 조기중단 101 이 중간 밴드 D2/D3 를 실무상 억제 — 아래 참조)
+
+■ 전/후 실측 (실 Oracle asis:1523/tobe:1524 xepdb1, 포트 8000, 인증 ON[e2e 계정])
+  픽스처 실불일치: MV_ORA_XDIFF_SRC 250,000 vs TGT 249,950 = 원본단독 100 + 값불일치 100(C_VARCHAR2·C_DATE) + 목적단독 50.
+
+  [D1 FULL_LIST] 실 브라우저 확증  (screenshot: D1_fulllist_reimport_05b_drilldown_panel.png)
+    - 시나리오: XDIFF 를 값불일치 0 컬럼(ID·C_NUM·C_CHAR·C_NVARCHAR2)만 매핑 → 재이관 100건(원본단독만).
+    - pk-records 최종: status=READY, total=100, missing=100 (조기중단 미발화).
+    - 화면: "표시 등급 D1 · 전체 레코드 나열 / 불일치 100건 — 전체 레코드를 나열합니다"(녹색 배너)
+            + 재이관 대상 100건 전체 목록 페이지네이션(1/20페이지).
+
+  [D4 SUMMARY_ONLY] 실 브라우저 확증  (screenshot: D4_summary_earlystop_05b_drilldown_panel.png)
+    - 시나리오: XDIFF 전체 컬럼 매핑 → 재이관 200건(원본단독100+값불일치100).
+    - pk-records 최종: status=EARLY_STOPPED, total=101 (조기중단 101 발화).
+    - 화면: "표시 등급 D4 · 요약 전용(다운로드로 확보) / 불일치 101건 — 수집이 조기중단되어 대표 표본만
+            저장되었습니다. 요약과 다운로드로만 확인하세요"(적색 배너) + 100건 초과 안내(레코드 나열 없음).
+
+  [D2/D3] 단위테스트 + 구조적 확증 (실 브라우저 미도달 — 데이터/설계 한계, 정직 고지)
+    - D2(1,001~10,000)·D3(10,001~60,000)는 실 픽스처로 재현 불가:
+      · 최대 실불일치가 200건이라 1,001건 이상을 만들 수 없음(픽스처 데이터 파괴 없이는 불가).
+      · 통계 그룹표 경로는 후보엔진이 일반컬럼 그룹 60개 초과를 자동추천에서 배제(GENERAL_COLUMN_MAX_GROUPS=60),
+        날짜형은 date_bucket 으로 축소 → 중간 밴드 그룹수 도달이 구조적으로 억제됨.
+      · 재이관 경로는 조기중단(101)이 D2/D3 밴드 이전에 발화 → 실무상 D2/D3 자체가 거의 발생하지 않음.
+        (이는 설계 제안서 §4-1 "중간 구간 D2/D3 가 실제로는 가장 짧다"와 일치)
+    - 확증 수단: display_limit_policy 단위테스트 26/26 이 정확 경계값(1,000/1,001/10,000/10,001/60,000/60,001,
+      축 B 지배, 조기중단 강제 D4)을 전수 검증. 두 배너 코드경로 모두 node --check JS 구문검증 통과.
+      D1/D4 가 사용한 display_tier_info 필드 메커니즘과 동일하므로 D2/D3 배너도 동일 경로로 렌더됨.
+    - (D3 통계 그룹표 재현은 cap 완화 서버로 C_TS3 raw[86,400그룹] 시도했으나, 후보 체크박스 렌더 90s
+      타임아웃으로 실패 — 고카디널리티 강제선택 자동화의 취약성이며 제품 결함 아님.)
+
+■ 회귀 테스트 (전부 통과)
+    - samples/test_display_limit_policy.py     : 26/26  (D1~D4 경계·2축·조기중단·근거코드·dict)
+    - samples/test_stats_export_excel_guard.py :  4/4   (정상 export·임계초과 차단·CSV 힌트)
+    - samples/test_virtual_cases.py            :  8/8
+    - samples/test_complex_cases.py            :  5/5
+
+■ 서버 재기동
+    - 최종 정상설정 재기동: 2026-07-24 16:31:25 (포트 8000, 인증 ON[401 무자격/200 유자격], 배너코드 서빙,
+      MV_GENERAL_COLUMN_MAX_GROUPS 기본60). _cmn_free_port 로 구 프로세스 종료 후 기동.
+
+■ 커밋
+    - a9b9137  feat(display): 대량 불일치 표시 등급 D1~D4 + 엑셀 무제한버퍼 안전가드
+               (13파일 1182 insertions, 사전 비밀번호 스캔 통과)
+    - 참고: 작업 중 다른 세션이 formatKst 통합(d9131d9)·count 마커(9d6b303)를 main 에 동시 커밋 →
+      본 작업 커밋과 자연 분리됨(agg_diff_route 는 본 작업 display_tier 변경만 포함).
+
+■ 스크린샷 (E:\verify_screenshots_only\LARGE-SCALE-MISMATCH-DISPLAY-TIER-IMPLEMENTATION\)
+    - D1_fulllist_reimport_01~05b_*.png  (D1 전체나열 + 드릴다운 배너)
+    - D4_summary_earlystop_01~05b_*.png  (D4 요약전용 + 조기중단 배너)
+
+✅ 작업 완료 - 대량 불일치 표시 등급 D1~D4 + 엑셀 무제한버퍼 안전가드 구현, D1·D4 실 브라우저 확증(D2/D3 단위·구조적 확증)
