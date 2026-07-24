@@ -1,0 +1,60 @@
+작업명 : URGENT-SERVER-JS-BROKEN-ALL-MENU-UNRESPONSIVE
+✅ 작업 완료 - 렌더 JS 주석 내 '*/' 조기종료로 전체 <script> 파싱 실패(전 메뉴 무반응) → 주석 수정으로 즉시 복구, 실 브라우저 정상 확인 + 재발방지 가드 추가
+
+[정확한 원인]
+- 증상: 모든 메뉴 클릭 무반응, 콘솔 'Uncaught ReferenceError: mvToggleGroup is not defined', URL /# 고정.
+- 근본원인: BATCH-VALIDATION-SEQUENTIAL-EXECUTION-AND-BLOCKING-HTTP-FIX 에서 추가한 UI 헬퍼
+  _mvAwaitBatchExecTerminal 의 주석 문구 'RUNNING_*/STOP_REQUESTED' 중 '*/' 가 JS 블록주석(/* ... */)을
+  '조기 종료'시켰다. 그 뒤 한글 텍스트('STOP_REQUESTED 는 진행 중...')가 실행 코드로 해석되어
+  SyntaxError: Unexpected identifier '는' 발생(ui/tabler_renderer.py 렌더 결과 blk1.js:7534).
+- 파급: 인라인 <script> 블록은 하나라도 문법오류면 '블록 전체'가 파싱 실패한다. 따라서 그 블록 안의
+  mvToggleGroup(정의는 tabler_renderer.py:6952 에 멀쩡히 존재), runWrapperValidation, showTab 등 모든 함수가
+  '미정의'가 되어 onclick 핸들러가 전부 'is not defined' → 전 메뉴 무반응, 해시 라우팅도 죽어 URL /# 고정.
+- 서버/백엔드는 정상: HTML 은 서버가 정상 렌더(그래서 대시보드는 보임). 파이썬 import·기동 정상, 로그에
+  크래시/트레이스백 없음. batch_single_core_wrapper.py / validation_scheduler.py / route 문법오류·초기화 실패 없음.
+  즉 '클라이언트 JS' 문제이지 서버 다운이 아니었다.
+
+[진단 경위(작업지시 1~5 대응)]
+1. 8000 프로세스: 살아있음. 문제 서버는 18:29:58 기동본(PID 15400)이 '깨진 JS'를 서빙 중이었음. (복구본은 아래)
+2. 서버 로그: 크래시/에러 흔적 없음(Application startup complete 정상). BATCH 수정 파일 문법오류/초기화 실패 없음.
+3. git status: 워킹트리 clean(추적파일 수정 0 · 미추적 dev 스크립트만) → BATCH 작업은 이미 커밋 완료 상태,
+   '중간 상태로 남은 파일' 아님. 즉 미완 워킹트리가 아니라 '이미 커밋된 코드'의 문제였음.
+4. mvToggleGroup: ui/tabler_renderer.py:6952 에 function 정의 존재(삭제·이름변경 아님). 런타임 미정의는
+   상위(같은 블록) 문법오류로 인한 '블록 전체 파싱 실패'가 원인임을 node --check 로 정확히 특정.
+5. 원인 확정(node --check → blk1.js:7534 'Unexpected identifier 는') 후 즉시 복구.
+
+[복구 조치]
+- ui/tabler_renderer.py 의 주석 'RUNNING_*/STOP_REQUESTED 는 ...' → 'RUNNING 계열·STOP_REQUESTED 는 ...' 로 교체
+  ('*/' 완전 제거). git stash/revert 불필요 — 1개 주석 수정으로 안전 복구(BATCH 기능 로직은 그대로 유지).
+- 검증: render_full_page() 인라인 JS 2개 블록 전부 node --check 통과.
+- 커밋 a72231e, 포트 8000(127.0.0.1·인증 ON) 재기동 2026-07-24 19:34:39 KST (PID 6288), Application startup complete.
+
+[정상화 확인 — 실 브라우저(작업지시 6)]
+- http://127.0.0.1:8000/#tab-analyze 접속(인증 ON):
+  · 콘솔/페이지 에러 = 0건 ('is not defined' 소멸)
+  · 함수 정의 상태: mvToggleGroup=function, runWrapperValidation=function, _mvAwaitBatchExecTerminal=function,
+    showTab=function, mvRunLock=object (전부 정상 정의)
+  · 좌측 '개별검증' 메뉴 클릭 → 정상 반응(clicked), URL /#tab-analyze 유지(/# 고정 해소)
+  · 개별검증 화면(1 쿼리검토~5 결과확인 5단계, SQL 입력, 목적지 WHERE, 하단 이전/검증실행/다음) 정상 렌더
+  · 스크린샷: E:\verify_screenshots_only\URGENT-SERVER-JS-BROKEN-ALL-MENU-UNRESPONSIVE\recovered_tab_analyze_8000.png
+
+[BATCH 작업이 원인이었는지 + 안전 진행 방법(작업지시 7)]
+- 원인 여부: 예. BATCH-VALIDATION 작업의 'UI 편집분(_mvAwaitBatchExecTerminal 헬퍼 주석)'이 직접 원인.
+  단, BATCH 의 백엔드(services/batch/wrapper_parallel_runner.py, wrapper_async_job.py, route, 단위테스트)는
+  이 사고와 무관하며 정상(파이썬 import·서버 기동·테스트 통과). 깨뜨린 것은 오직 JS 주석 1줄의 '*/' 였음.
+  ※ 참고: 이 UI 편집분은 동시 진행 세션 커밋 592d003 에 함께 포함되어 HEAD 에 있었고, 서버가 그 버전을 서빙 중이었음.
+- 재발방지:
+  (1) [적용됨] tests/test_rendered_js_syntax_guard.py 추가 — render_full_page() 인라인 JS 를 node --check 로 전수
+      문법검사(어떤 문법오류든 블록 전체 파싱실패로 UI 전면 무반응이 되므로 CI 에서 사전 차단). 이번 원인 패턴
+      'RUNNING_*/STOP_REQUESTED' 재유입도 명시 차단. 커밋 00a4be5. (2건 통과)
+  (2) [권장] UI(tabler_renderer.py 등 대형 JS 임베드) 편집은 별도 브랜치/워크트리에서 진행하고,
+      '서빙/머지 전' 위 JS 문법 가드 통과를 필수 게이트로 둔다. JS 주석에 정규식/경로/연산자('*/','//' 등)를
+      쓸 때는 인접한 '*/'가 블록주석을 닫지 않도록 표기(공백·중점·한글로 분리)한다.
+  (3) [권장] 서버 재기동 후 스모크: 실 브라우저에서 핵심 함수 typeof + 콘솔에러 0 확인(본 복구 검증 스크립트 재사용).
+
+[커밋 해시]
+- a72231e fix(ui): _mvAwaitBatchExecTerminal 주석 '*/' 조기종료 복구(ui/tabler_renderer.py)
+- 00a4be5 test(ui): 렌더 JS 문법 전수 가드(node --check) 추가(tests/test_rendered_js_syntax_guard.py)
+- (코드 repo push 안 함 — 규약 / 증적 repo 는 push)
+
+✅ 작업 완료 - 렌더 JS 주석 내 '*/' 조기종료로 전체 <script> 파싱 실패(전 메뉴 무반응) → 주석 수정으로 즉시 복구, 실 브라우저 정상 확인 + 재발방지 가드 추가
