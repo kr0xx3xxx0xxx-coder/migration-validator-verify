@@ -1,0 +1,69 @@
+작업명 : CANDIDATE-SUMMARY-GRID-GROUPBY-COUNT-AND-ORDER-FIX
+✅ 작업 완료 - 후보추천 요약 그리드 GROUP BY 선택 전부 표시 + GROUP BY→SUM 순서 변경, 실측 완료
+
+[커밋 해시] 254fbad (main)
+[서버 재기동] 2026-07-24 12:47:17 (포트 8000, 인증 ON)
+
+── 원인 ────────────────────────────────────────────────────
+- 3단계 '후보추천 요약' 그리드(_mvRenderCandidateGrid)가 GROUP BY/SUM 을 _mvPickTop(첫 후보
+  '하나')으로만 표시했다. 데이터 출처도 candidate_recommendation 의 top 이라 실제 체크박스
+  선택 상태와 무관했다.
+- 그래서 체크박스로 GROUP BY 2개(STATUS_CD·DEPT_CD)를 선택해도 그리드 GROUP BY 열엔
+  하나(DEPT_CD ↔ DEPT_CD)만 나오고 STATUS_CD 가 누락됐다.
+- 즉 그리드가 참조하는 데이터 소스(_mvPickTop of recommendation)와 실제 체크박스 상태
+  (_collectCheckedCols)가 서로 달랐던 것이 근본 원인.
+
+── 수정 내용 ───────────────────────────────────────────────
+(1) 전체 표시 + 출처 단일화
+  - 데이터 출처를 실제 체크박스(_collectCheckedCols)로 단일화. 체크박스가 있으면 라이브 선택을
+    그대로 반영(체크박스 없을 때만 추천→pool 폴백).
+  - 선택된 GROUP BY/SUM 후보를 '전부' src ↔ tgt 쌍으로 ', ' 나열
+    (예: "STATUS_CD ↔ STATUS_CD, DEPT_CD ↔ DEPT_CD"). SUM 도 동일 방식(여러 개 시 전부).
+  - 긴 나열은 tooltip 으로 전체 표시(groupByTip/sumTip).
+(2) 열 순서 변경
+  - "원본|목적|쿼리검토|COUNT|SUM|GROUP BY|상태" → "원본|목적|쿼리검토|COUNT|GROUP BY|SUM|상태"
+    (GROUP BY 를 SUM 앞으로).
+(3) 실시간 반영
+  - refreshFinalSelectionState(체크/해제마다 호출)에 요약 그리드 재렌더 호출 추가
+    → 체크박스 선택/해제가 즉시 그리드에 반영.
+  - 표시 전용 — 판정/집계/payload/SQL 생성 로직 불변.
+
+- 변경 파일:
+    ui/grid_helpers.py       (_mvRenderCandidateGrid — 전체표시·순서)
+    ui/tabler_renderer.py    (refreshFinalSelectionState — 실시간 재렌더)
+    tests/test_grid_helpers.py (테스트 갱신·추가)
+    scripts/dev_e2e/candidate_summary_grid_groupby_count_order_verify.py (신규 검증 드라이버)
+
+── 전/후 실측 (실 오라클 + 포트 8000, 인증 ON, DEMO 테이블) ──
+  대상 SQL: INSERT INTO NXDNP.MV_ORA_DEMO_TGT (...) SELECT ... FROM NXDNP.MV_ORA_DEMO_SRC
+  가용 후보: GROUP BY [STATUS_CD, DEPT_CD] / SUM [AMT]
+  그리드 헤더(실측): No | 원본 테이블 | 목적 테이블 | 쿼리검토 | COUNT | GROUP BY | SUM | 상태
+    → GROUP BY(idx 5)가 SUM(idx 6)보다 앞  ✓ 순서 변경 확인
+
+  · [단일 GB] DEPT_CD 만 체크        → GROUP BY 셀 = "DEPT_CD ↔ DEPT_CD"
+      (스크린샷 before_single_groupby.png)
+  · [다중 GB] STATUS_CD+DEPT_CD 체크 → GROUP BY 셀 = "STATUS_CD ↔ STATUS_CD, DEPT_CD ↔ DEPT_CD"
+      → 둘 다 표시(기존 버그: 하나만 표시 → 수정됨)  ✓ (스크린샷 after_two_groupby.png)
+  · [실시간 해제] STATUS_CD 해제      → GROUP BY 셀 = "DEPT_CD ↔ DEPT_CD" (즉시 반영)
+      (스크린샷 uncheck_status_cd.png)
+  · [실시간 재선택] STATUS_CD 재체크  → GROUP BY 셀 = "STATUS_CD ↔ STATUS_CD, DEPT_CD ↔ DEPT_CD"
+      (스크린샷 recheck_status_cd.png)
+  · SUM 은 후보가 AMT 1개라 "AMT ↔ AMT" 표시(다중선택 시 전부 나열되는 로직은 GROUP BY 와 동일 경로).
+  · 자동 검증(assert) 통과: 다중 GROUP BY 전부 표시 · 순서(GB→SUM) · 실시간 해제/재선택.
+  · 콘솔 오류 0건.
+
+  ※ '전(버그)' 상태는 코드 수정으로 재현 불가 — 근본원인(_mvPickTop 첫 후보만)과 수정 후
+    동작(1개→1개, 2개→2개 정확 반영, 실시간)을 위 4개 상태 스크린샷으로 실증.
+
+── 스크린샷 (E:\verify_screenshots_only\CANDIDATE-SUMMARY-GRID-GROUPBY-COUNT-AND-ORDER-FIX\) ──
+- before_single_groupby.png / after_two_groupby.png / uncheck_status_cd.png / recheck_status_cd.png (4종)
+
+── 회귀 테스트 ─────────────────────────────────────────────
+- tests/test_grid_helpers.py           : 12 pass
+    (candidate 순서 검증 추가 + 라이브 다중선택 전부표시 테스트 신규)
+- samples/test_virtual_cases.py        : 8/8 pass
+- samples/test_complex_cases.py        : 5/5 pass
+
+[커밋 해시] 254fbad
+[서버 재기동] 2026-07-24 12:47:17 (포트 8000, 인증 ON)
+✅ 작업 완료 - 후보추천 요약 그리드 GROUP BY 선택 전부 표시 + GROUP BY→SUM 순서 변경, 실측 완료
