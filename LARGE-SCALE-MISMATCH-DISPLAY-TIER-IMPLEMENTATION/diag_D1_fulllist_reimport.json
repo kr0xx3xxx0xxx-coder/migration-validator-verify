@@ -1,0 +1,260 @@
+{
+ "sql": "INSERT INTO NXDNP.MV_ORA_XDIFF_TGT (ID, C_NUM, C_CHAR, C_NVARCHAR2) SELECT ID, C_NUM, C_CHAR, C_NVARCHAR2 FROM NXDNP.MV_ORA_XDIFF_SRC",
+ "tag": "D1_fulllist_reimport",
+ "stages": {
+  "2_count": {
+   "count_status": "COUNT_MINOR_DIFF",
+   "force": false
+  },
+  "3_select": {
+   "gb_before": [
+    "C_CHAR"
+   ],
+   "gb_after": [],
+   "sum_after": [
+    "C_NUM"
+   ]
+  },
+  "4_exec": {
+   "planFp": null,
+   "exec_evidence_gb": null,
+   "exec_evidence_sum": null
+  },
+  "5_click": {
+   "found": true
+  },
+  "5_panel": {
+   "panel_poll": "표시 등급 D1 · 전체 레코드 나열불일치 100건(그룹 0개) — 전체 레코드를 나열합니다.재이관 대상 전체 100건 · 현재 1~5 표시 · 1/20페이지선택 그룹: =범례셀 표기 원본값 → 목적값 (목적 미존재·값 불일치는 주황)IDC_NUM721 → -25077,521 → -500715,021 → -750722,521 → -1000730,021 → -이전12345… 다음1/20페이지 · 5건 단위(그룹 전용)목적 단독(과잉) 레코드 보기 →계측 — 준비확인 665ms · scope 조회 77ms · 렌더 1ms",
+   "panel_final": "표시 등급 D1 · 전체 레코드 나열불일치 100건(그룹 0개) — 전체 레코드를 나열합니다.재이관 대상 전체 100건 · 현재 1~5 표시 · 1/20페이지선택 그룹: =범례셀 표기 원본값 → 목적값 (목적 미존재·값 불일치는 주황)IDC_NUM721 → -25077,521 → -500715,021 → -750722,521 → -1000730,021 → -이전12345… 다음1/20페이지 · 5건 단위(그룹 전용)목적 단독(과잉) 레코드 보기 →계측 — 준비확인 665ms · scope 조회 77ms · 렌더 1ms",
+   "stale": false
+  }
+ },
+ "notes": [],
+ "setup": {
+  "project": "TESTONLY_REG",
+  "pair_rows": 1
+ },
+ "net": [
+  {
+   "url": "prepare",
+   "q": "",
+   "resp": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PS72455484D400",
+    "accepted": true,
+    "error_message": null
+   }
+  },
+  {
+   "url": "pk-records",
+   "q": "run_id=PS72455484D400&page=1&page_size=5&view=reimport&scope_col=&scope_val=",
+   "resp": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PS72455484D400",
+    "total_count": null,
+    "gb_cols": [],
+    "sum_labels": []
+   }
+  },
+  {
+   "url": "pk-records",
+   "q": "run_id=PS72455484D400&page=1&page_size=5&view=reimport&scope_col=&scope_val=",
+   "resp": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PS72455484D400",
+    "total_count": null,
+    "gb_cols": [],
+    "sum_labels": []
+   }
+  },
+  {
+   "url": "pk-records",
+   "q": "run_id=PS72455484D400&page=1&page_size=5&view=reimport&scope_col=&scope_val=",
+   "resp": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PS72455484D400",
+    "total_count": null,
+    "gb_cols": [],
+    "sum_labels": []
+   }
+  },
+  {
+   "url": "pk-records",
+   "q": "run_id=PS72455484D400&page=1&page_size=5&view=reimport&scope_col=&scope_val=",
+   "resp": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PS72455484D400",
+    "total_count": null,
+    "gb_cols": [],
+    "sum_labels": []
+   }
+  },
+  {
+   "url": "pk-records",
+   "q": "run_id=PS72455484D400&page=1&page_size=5&view=reimport&scope_col=&scope_val=",
+   "resp": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PS72455484D400",
+    "total": null,
+    "total_count": null,
+    "gb_cols": [],
+    "sum_labels": [
+     "C_NUM"
+    ],
+    "key_col": "ID",
+    "source_count": 250000,
+    "target_count": 249950,
+    "target_only_count": 0,
+    "missing_migration": 12,
+    "value_mismatch": 0
+   }
+  },
+  {
+   "url": "pk-records",
+   "q": "run_id=PS72455484D400&page=1&page_size=5&view=reimport&scope_col=&scope_val=",
+   "resp": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PS72455484D400",
+    "total": null,
+    "total_count": null,
+    "gb_cols": [],
+    "sum_labels": [
+     "C_NUM"
+    ],
+    "key_col": "ID",
+    "source_count": 250000,
+    "target_count": 249950,
+    "target_only_count": 0,
+    "missing_migration": 29,
+    "value_mismatch": 0
+   }
+  },
+  {
+   "url": "pk-records",
+   "q": "run_id=PS72455484D400&page=1&page_size=5&view=reimport&scope_col=&scope_val=",
+   "resp": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PS72455484D400",
+    "total": null,
+    "total_count": null,
+    "gb_cols": [],
+    "sum_labels": [
+     "C_NUM"
+    ],
+    "key_col": "ID",
+    "source_count": 250000,
+    "target_count": 249950,
+    "target_only_count": 0,
+    "missing_migration": 45,
+    "value_mismatch": 0
+   }
+  },
+  {
+   "url": "pk-records",
+   "q": "run_id=PS72455484D400&page=1&page_size=5&view=reimport&scope_col=&scope_val=",
+   "resp": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PS72455484D400",
+    "total": null,
+    "total_count": null,
+    "gb_cols": [],
+    "sum_labels": [
+     "C_NUM"
+    ],
+    "key_col": "ID",
+    "source_count": 250000,
+    "target_count": 249950,
+    "target_only_count": 0,
+    "missing_migration": 61,
+    "value_mismatch": 0
+   }
+  },
+  {
+   "url": "pk-records",
+   "q": "run_id=PS72455484D400&page=1&page_size=5&view=reimport&scope_col=&scope_val=",
+   "resp": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PS72455484D400",
+    "total": null,
+    "total_count": null,
+    "gb_cols": [],
+    "sum_labels": [
+     "C_NUM"
+    ],
+    "key_col": "ID",
+    "source_count": 250000,
+    "target_count": 249950,
+    "target_only_count": 0,
+    "missing_migration": 77,
+    "value_mismatch": 0
+   }
+  },
+  {
+   "url": "pk-records",
+   "q": "run_id=PS72455484D400&page=1&page_size=5&view=reimport&scope_col=&scope_val=",
+   "resp": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PS72455484D400",
+    "total": null,
+    "total_count": null,
+    "gb_cols": [],
+    "sum_labels": [
+     "C_NUM"
+    ],
+    "key_col": "ID",
+    "source_count": 250000,
+    "target_count": 249950,
+    "target_only_count": 0,
+    "missing_migration": 93,
+    "value_mismatch": 0
+   }
+  },
+  {
+   "url": "pk-records",
+   "q": "run_id=PS72455484D400&page=1&page_size=5&view=reimport&scope_col=&scope_val=",
+   "resp": {
+    "ok": true,
+    "status": "READY",
+    "run_id": "PS72455484D400",
+    "total": 100,
+    "total_count": 100,
+    "reimport_total": null,
+    "gb_cols": [],
+    "sum_labels": [
+     "C_NUM"
+    ],
+    "numeric_pk": true,
+    "key_col": "ID",
+    "source_count": 250000,
+    "target_count": 249950,
+    "counts": {
+     "reimport_pks": 100,
+     "passed": 249900,
+     "missing_migration": 100,
+     "value_mismatch": 0,
+     "excluded_target_only": 50,
+     "target_only_stored": 50
+    },
+    "target_only_count": 50,
+    "missing_migration": 100,
+    "value_mismatch": 0
+   }
+  }
+ ],
+ "console": [],
+ "dialogs": [
+  "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+  "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+ ]
+}
