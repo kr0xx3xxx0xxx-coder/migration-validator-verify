@@ -1,0 +1,118 @@
+작업명 : GENERAL-COLUMN-ABSOLUTE-GROUP-COUNT-CAP
+✅ 작업 완료 - 일반 GROUP BY 후보에 절대 그룹수 상한(60) 추가, C_TS3(86,472그룹) 완전배제 실측 확인·정상 날짜축/저카디널리티 무영향
+
+■ 추가된 상수/기준
+- config/model_config.py : GENERAL_COLUMN_MAX_GROUPS = 60 (env MV_GENERAL_COLUMN_MAX_GROUPS)
+  + get_general_column_max_groups(override) — 테스트 주입용(하드코딩 금지)
+- 위치 근거 : 날짜버킷 DATE_BUCKET_MAX_GROUPS(60) 바로 옆. 같은 '자동추천 실용 상한' 축이며,
+  실행 안전 상한 INTERACTIVE_GROUPBY_MAX_GROUPS(10만)과는 별개 축임을 주석에 명시.
+- 기본값 60은 날짜버킷과의 일관성으로 시작(요청대로). 실측 근거는 아래 '적정선 재검토' 참고.
+
+■ 판정 로직 변경
+1) services/candidate_recommendation_policy.py `_gate_verdict` (GROUP_BY 완전배제 단일 관문)
+   기존 : distinct_ratio >= 0.9 → EXCLUDED
+   추가 : OR distinct_count > GENERAL_COLUMN_MAX_GROUPS → EXCLUDED
+   - 둘 중 하나만 걸려도 배제(요청대로 OR). 비율 기준을 먼저 판정해 기존 사유 문구 보존.
+   - 판정값은 계약에 이미 확정된 distinct_count(=resolved_distinct)를 그대로 재사용(새 계산 없음).
+   - 이 gate 는 analyze / facade / postcount 3경로 공통 최종 권위이므로,
+     metadata 경로(n_distinct 후보)와 semantic 경로(DIMENSION_*) 모두 자동 적용됨(항목 4 확인 완료).
+2) 사유 문구 구분(항목 3)
+   - 비율 기준 : "고유값 비율 과도(사실상 식별자) — 자동추천 제외(§22)"  (기존 유지)
+   - 절대수 기준 : "그룹 개수 과다(N개 > 상한 M개) — 집계 의미 없음"      (신규)
+   - ui/tabler_renderer.py : 배제 사유 표시를 서버 계약(exclusion_reasons)에서 그대로 노출.
+     임계값을 JS 에 중복 정의/재판정하지 않음(표시 전용, 판정·체크박스 불변).
+     날짜형 분기보다 먼저 판정 — 그렇지 않으면 C_TS3 사유가 '기간 변환 필요'로 표시되어 모순.
+3) 날짜 후보 취급(중요 설계 판단)
+   - 비율 기준과 동일하게 '예외를 두지 않음'. (실측상 TIMESTAMP 인 C_TS/C_TS6 도 이미 비율 기준으로
+     이 gate 에서 배제되고 있어, 날짜만 면제하면 오히려 비일관.)
+   - 기간 변환이 가능한 날짜는 이후 date_bucket enrich 가 '제외' 계열 표식을 비워 되살림(기존 구제 경로 재사용).
+     변환해도 그룹 축이 못 되는 날짜만 배제로 남음.
+   - services/single_validation_analyze_service.py : analyze 단계는 bucket profile 이 아직 없어
+     변환 적합성을 판정할 수 없으므로, '그룹 개수 과다' 사유 단독인 날짜 참고후보는 원래 상태(참고후보)로
+     되돌린다. 최종 판정은 bucket profile 이 수집되는 3단계 postcount 가 담당.
+     비율/PK 사유가 함께 걸린 배제는 종전대로 유지(회귀 없음).
+
+■ 근본원인(실측으로 확인한 구조적 틈)
+C_TS3 는 TIMESTAMP(3) 이며 값 범위가 2024-01-01 00:00:00 ~ 23:59:59 (하루) · 86,400 고유값(=하루의 초).
+→ 월/분기/년 어느 단위로 절단해도 1그룹이라 DATE_BUCKET_MIN_GROUPS(2) 미달 → recommended_bucket 이
+  영원히 None → 날짜버킷 상한(60)이 적용될 기회 자체가 없음.
+→ 동시에 비율은 34.56% 라 비율 기준(0.9)에도 안 걸림.
+결과적으로 두 상한 사이로 빠져 '선택가능'으로 남아 있었음. 이번 절대 그룹수 상한이 이 틈을 막음.
+
+■ 전/후 실측 (포트 8000 · 인증 ON(e2e) · 실 오라클 · 실 브라우저 클릭스루 1~3단계)
+대상 : NXDNP.MV_ORA_XDIFF_SRC(250,000행) → MV_ORA_XDIFF_TGT(249,950행), COUNT_MINOR_DIFF
+직접 측정한 실제 카디널리티(COUNT DISTINCT):
+  ID/C_NUM/C_NUM_PS/C_VARCHAR2/C_TS = 250,000(100%) · C_TS6 = 248,448 · C_TS3 = 86,400(34.56%)
+  C_NVARCHAR2 = 5,000 · C_CHAR = 1,000 · C_DATE = 900(2024-01-01~2026-06-18 → 30개월)
+
+  컬럼        | 전(before, 상한 미적용)          | 후(after, 상한 60)                        | 판정
+  ------------|----------------------------------|-------------------------------------------|------
+  C_TS3       | 선택가능(25점) · 체크가능=True   | 정책상제외 · 체크가능=False               | 변경(목표)
+              |                                  | 사유 '그룹 개수 과다(86472개 > 상한 60개)' |
+  C_TS        | 정책상제외(비율)                 | 정책상제외(비율) 동일                     | 회귀 없음
+  C_TS6       | 정책상제외(비율)                 | 정책상제외(비율) 동일                     | 회귀 없음
+  C_DATE      | 대체 기본추천(35점)·체크가능     | 대체 기본추천(35점)·체크가능 · bucket=month| 회귀 없음
+  C_CHAR      | 정책상제외(엔진 고카디)          | 동일                                      | 무영향
+  C_NVARCHAR2 | 정책상제외(엔진 고카디)          | 동일                                      | 무영향
+  C_VARCHAR2  | 정책상제외(자유텍스트)           | 동일                                      | 무영향
+  C_NUM       | 대체 기본추천(35점)              | 동일                                      | 무영향
+  ID          | 정책상제외(PK/유니크)            | 동일                                      | 무영향
+  → 전/후로 상태가 바뀐 컬럼은 C_TS3 단 1개. 나머지는 완전 동일.
+
+저카디널리티 무영향 확인 (NXDNP.MV_ORA_DEMO_SRC → MV_ORA_DEMO_TGT, COUNT_MATCHED):
+  STATUS_CD 고유값 4 → 기본추천(70점) · 체크가능=True  (무영향)
+  DEPT_CD   고유값 6 → 기본추천(65점) · 체크가능=True  (무영향)
+  이 SQL 에서 절대 그룹수 상한으로 배제된 컬럼 : 없음
+  (REG_DT 는 종전과 동일하게 비율 기준으로 배제 — 이번 변경과 무관)
+
+스크린샷 : E:\verify_screenshots_only\GENERAL-COLUMN-ABSOLUTE-GROUP-COUNT-CAP\
+  before_03_step3_candidates.png  (전 — C_TS3 '선택가능·체크가능')
+  03_step3_candidates.png / final_03_step3_candidates.png (후 — C_TS3 '정책상제외·체크불가')
+  demo_03_step3_candidates.png    (저카디널리티 무영향 — STATUS_CD/DEPT_CD 기본추천)
+  01/02_* 단계별, live_result*.json (원자료)
+
+■ 회귀 결과
+- 신규 테스트 4건 추가(tests/test_candidate_recommendation_policy.py) 전부 통과
+  · 절대 그룹수 초과 배제 + 신규 사유 문구 확인
+  · 비율 기준 배제는 기존 문구 유지(절대수 문구와 미혼입)
+  · 경계값(그룹수 == 상한 60)은 '초과' 아니므로 배제 대상 아님
+  · 날짜 후보는 gate 배제 후 변환 가능하면 구제(month)·불가하면 배제 유지
+- 정책 테스트 : baseline 14건 → 18건(신규 4건 포함) 전부 통과
+- 관련 회귀 179건 통과 (근거계약/카디널리티/postcount/date_bucket 4종/dimension rescue/
+  사유 일관성/라벨 py-js 일관성/stale 배지 순서/후보 감사/역할 정책 그리드)
+- 지정 회귀 : samples/test_virtual_cases.py 8/8 통과, samples/test_complex_cases.py 5/5 통과
+- 잔여 실패는 전부 사전 존재 실패임을 baseline(git worktree, HEAD 65fd1a0)과 목록 대조로 확정:
+  · 광범위 후보 세트 : 실패 16건이 baseline 과 완전 동일(diff 0) → 신규 회귀 0건
+  · 후보 감사/역할 그리드 : 실패 3건이 baseline 과 동일
+- 작업 중 1건 실사 회귀 발생·수정 완료:
+  test_stale_badge_label_enrich_order::test_groupby_date_bucket_candidate_label_stays_reference_after_gate
+  (날짜 참고후보 라벨이 gate 이후 '정책상제외'로 손상) → analyze 단계 보정 추가로 해소, 현재 통과.
+  ※ 이 테스트는 라이브 DB 전용이라 worktree 에서는 skip 됨 — worktree 대조가 아니라 실 실행으로 확인.
+
+■ 비판적 검토 / 남은 리스크
+1) 상한 60은 일반 컬럼에는 공격적일 수 있음(요청서도 재검토 여지를 명시).
+   실측 참고 : 이번 테이블의 C_CHAR(1,000)·C_NVARCHAR2(5,000)는 이미 엔진 고카디널리티 규칙으로
+   배제되고 있어 이번 상한의 추가 영향은 없었음. 그러나 지역코드/상품분류처럼 60~수백 그룹의
+   정상 차원 컬럼이 있는 스키마에서는 이 상한이 정상 후보를 배제할 수 있음.
+   → 코드 수정 없이 MV_GENERAL_COLUMN_MAX_GROUPS 로 조정 가능하게 해 둠. 운영 데이터로 분포 확인 후
+     상향(예: 200~500) 검토 권장.
+2) 상한 초과는 '완전배제(체크 불가)'라 사용자가 수동으로도 선택할 수 없음(요청대로 완전배제).
+   대화형 대조 목적상 타당하나, 드릴다운 축으로 일부러 쓰고 싶은 경우의 우회 수단은 env 조정뿐임.
+3) analyze 단계와 3단계의 날짜 후보 표시가 다를 수 있음(analyze=참고후보, 3단계=최종 판정).
+   이는 bucket profile 수집 시점 차이에 따른 기존 구조를 따른 것이며, 사용자 결정 화면인
+   3단계 판정은 정확함을 라이브로 확인함.
+
+■ 재기동 / 커밋
+- 서버 재기동(포트 8000, 인증 ON) : 2026-07-24 14:52:28  (최종본 서빙 중, HTTP 200 확인)
+- 커밋 해시 : 1c6a5d2
+  feat(candidate): 일반 GROUP BY 후보에 절대 그룹수 상한 추가(GENERAL-COLUMN-ABSOLUTE-GROUP-COUNT-CAP)
+- 변경 파일 :
+  M config/model_config.py
+  M services/candidate_recommendation_policy.py
+  M services/single_validation_analyze_service.py
+  M ui/tabler_renderer.py
+  M tests/test_candidate_recommendation_policy.py
+  A scripts/dev_e2e/general_column_group_count_cap_verify.py   (백엔드 전/후 ablation 실측)
+  A scripts/dev_e2e/general_column_cap_live_clickthrough.py    (실 브라우저 1~3단계 클릭스루)
+
+✅ 작업 완료 - 일반 GROUP BY 후보에 절대 그룹수 상한(60) 추가, C_TS3(86,472그룹) 완전배제 실측 확인·정상 날짜축/저카디널리티 무영향

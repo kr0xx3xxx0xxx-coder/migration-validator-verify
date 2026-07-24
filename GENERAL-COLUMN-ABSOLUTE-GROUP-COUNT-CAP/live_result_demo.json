@@ -1,0 +1,148 @@
+{
+ "sql": "INSERT INTO NXDNP.MV_ORA_DEMO_TGT (ID, DEPT_CD, UPD_YMD, REG_DT, STATUS_CD, AMT, CREATED_BY) SELECT ID, DEPT_CD, UPD_YMD, REG_DT, STATUS_CD, AMT, CREATED_BY FROM NXDNP.MV_ORA_DEMO_SRC",
+ "stages": {
+  "1_query": {
+   "blocked": false,
+   "err": null,
+   "from_table": "MV_ORA_DEMO_SRC"
+  },
+  "2_count": {
+   "count_status": "COUNT_MATCHED",
+   "force": false
+  },
+  "3_table": {
+   "STATUS_CD": {
+    "present": true,
+    "badge": "기본추천⚠ 관리컬럼 미확인 (70점)",
+    "reason": "고유값 4개 · 그룹당 평균 38행 · 상태별 불일치 구분에 적합",
+    "remark": "프로파일 기반: 고유값 4개",
+    "hasPeriod": false,
+    "checkboxPresent": true,
+    "checkboxDisabled": false
+   },
+   "DEPT_CD": {
+    "present": true,
+    "badge": "기본추천⚠ 관리컬럼 미확인 (65점)",
+    "reason": "고유값 6개 · 그룹당 평균 25행 · 조직별 불일치 구분에 적합",
+    "remark": "🔗 FK: MV_ORA_DEPT_MASTER.DEPT_CD 참조프로파일 기반: 고유값 6개",
+    "hasPeriod": false,
+    "checkboxPresent": true,
+    "checkboxDisabled": false
+   },
+   "CREATED_BY": {
+    "present": false
+   },
+   "UPD_YMD": {
+    "present": false
+   },
+   "REG_DT": {
+    "present": true,
+    "badge": "정책상제외⚠ 명칭-값 불일치",
+    "reason": "날짜형 컬럼이나 정책상 그룹 기준으로 선택할 수 없어 제외했습니다. ⚠ 코멘트('등록일시')는 관리컬럼(시스템 감사)을 시사하나 값 검증 결과 불일치 — 업무 날짜/데이터인지 신중히 확인하세요.",
+    "remark": "",
+    "hasPeriod": false,
+    "checkboxPresent": true,
+    "checkboxDisabled": true
+   },
+   "AMT": {
+    "present": true,
+    "badge": "기본추천 (75점)",
+    "reason": "금액 수치 · NULL 없음 · 금액 수치 차이 확인에 적합",
+    "remark": "NULL 낮음(가산)수치 집계값",
+    "hasPeriod": false,
+    "checkboxPresent": true,
+    "checkboxDisabled": false
+   },
+   "ID": {
+    "present": true,
+    "badge": "정책상제외",
+    "reason": "PK/유니크 식별자 — 행마다 고유값이라 그룹 기준 부적합",
+    "remark": "",
+    "hasPeriod": false,
+    "checkboxPresent": true,
+    "checkboxDisabled": true
+   }
+  },
+  "3_raw": {
+   "STATUS_CD": {
+    "found": true,
+    "selection_status": "SELECTED_DEFAULT",
+    "recommendation_status": "NORMAL_DEFAULT",
+    "display_badge_label": "기본추천",
+    "distinct_count": 4,
+    "recommended_bucket": null,
+    "date_bucket_recommended_period": null,
+    "warn_reason": null,
+    "exclusion_reasons": []
+   },
+   "DEPT_CD": {
+    "found": true,
+    "selection_status": "SELECTED_DEFAULT",
+    "recommendation_status": "NORMAL_DEFAULT",
+    "display_badge_label": "기본추천",
+    "distinct_count": 6,
+    "recommended_bucket": null,
+    "date_bucket_recommended_period": null,
+    "warn_reason": null,
+    "exclusion_reasons": []
+   },
+   "CREATED_BY": {
+    "found": true,
+    "selection_status": "EXCLUDED_BY_RULE",
+    "recommendation_status": "EXCLUDED",
+    "display_badge_label": "정책상제외",
+    "distinct_count": 3,
+    "recommended_bucket": null,
+    "date_bucket_recommended_period": null,
+    "warn_reason": "관리컬럼(시스템 감사 · 표준사전 명칭매칭) — GROUP BY 기준 부적합(정책상 제외)",
+    "exclusion_reasons": [
+     "EXCLUDED_BY_RULE",
+     "관리컬럼(시스템 감사 · 표준사전 명칭매칭) — GROUP BY 기준 부적합(정책상 제외)"
+    ]
+   },
+   "UPD_YMD": {
+    "found": true,
+    "selection_status": "AVAILABLE_ADDITIONAL",
+    "recommendation_status": "SELECTABLE",
+    "display_badge_label": "선택가능",
+    "distinct_count": 1,
+    "recommended_bucket": null,
+    "date_bucket_recommended_period": null,
+    "warn_reason": "관리컬럼(명칭/코멘트 매칭) 후보 — 값(A축) 교차확인 후 최종 판정",
+    "exclusion_reasons": [
+     "CONSTANT_VALUE",
+     "관리컬럼(명칭/코멘트 매칭) 후보 — 값(A축) 교차확인 후 최종 판정"
+    ]
+   },
+   "REG_DT": {
+    "found": true,
+    "selection_status": "EXCLUDED_BY_RULE",
+    "recommendation_status": "EXCLUDED",
+    "display_badge_label": "정책상제외",
+    "distinct_count": 150,
+    "recommended_bucket": null,
+    "date_bucket_recommended_period": null,
+    "warn_reason": "날짜값이 date/timestamp 가 아닌 문자열·숫자 타입으로 저장돼 기간 변환(월/분기/연) SQL 을 직접 적용할 수 없습니다(목적지가 문자열/숫자 타입(varchar, 정밀도 미상) — DATE_TRUNC 직접 불가, 파싱 후 절단 필요).",
+    "exclusion_reasons": [
+     "HIGH_CARDINALITY",
+     "UNIQUE_LIKE",
+     "관리컬럼(명칭/코멘트 매칭) 후보 — 값(A축) 교차확인 후 최종 판정",
+     "고유값 비율 과도(사실상 식별자) — 자동추천 제외(§22)"
+    ]
+   },
+   "AMT": {
+    "found": false
+   },
+   "ID": {
+    "found": false
+   }
+  }
+ },
+ "notes": [],
+ "setup": {
+  "project": "TESTONLY_REG",
+  "pair_rows": 1,
+  "pair_created": true,
+  "connected": true
+ }
+}
