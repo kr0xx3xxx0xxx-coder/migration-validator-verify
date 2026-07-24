@@ -1,0 +1,68 @@
+{
+ "sql": "INSERT INTO NXDNP.MV_ORA_XDIFF_TGT (ID, C_NUM, C_NUM_PS, C_VARCHAR2, C_CHAR, C_NVARCHAR2, C_DATE, C_TS, C_TS3, C_TS6) SELECT ID, C_NUM, C_NUM_PS, C_VARCHAR2, C_CHAR, C_NVARCHAR2, C_DATE, C_TS, C_TS3, C_TS6 FROM NXDNP.MV_ORA_XDIFF_SRC",
+ "tag": "before",
+ "stages": {
+  "2_count": {
+   "count_status": "COUNT_MINOR_DIFF",
+   "force": false
+  },
+  "3_select": {
+   "gb_before": [
+    "C_DATE"
+   ],
+   "gb_after": [],
+   "sum_after": [
+    "C_NUM",
+    "C_NUM_PS"
+   ]
+  },
+  "4_exec": {
+   "planFp": null,
+   "exec_evidence_gb": null,
+   "exec_evidence_sum": null
+  },
+  "5_click": {
+   "found": true
+  },
+  "5_panel": {
+   "panel_poll": "STALE_PLAN — 최신 실행계획 증적이 없습니다. 최신 계획으로 통계검증을 다시 실행한 뒤 그룹 상세를 여세요.",
+   "panel_final": "STALE_PLAN — 최신 실행계획 증적이 없습니다. 최신 계획으로 통계검증을 다시 실행한 뒤 그룹 상세를 여세요.",
+   "stale": true
+  }
+ },
+ "notes": [],
+ "setup": {
+  "project": "TESTONLY_REG",
+  "pair_rows": 1
+ },
+ "net": [
+  {
+   "url": "prepare",
+   "q": "",
+   "resp": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PS4686780307F3",
+    "accepted": true,
+    "error_message": null
+   }
+  },
+  {
+   "url": "pk-records",
+   "q": "run_id=PS4686780307F3&page=1&page_size=5&view=reimport&scope_col=&scope_val=",
+   "resp": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PS4686780307F3",
+    "total_count": null,
+    "gb_cols": [],
+    "sum_labels": []
+   }
+  }
+ ],
+ "console": [],
+ "dialogs": [
+  "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+  "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+ ]
+}
