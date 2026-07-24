@@ -1,0 +1,79 @@
+작업명 : PROFILE-COUNT-MARKER-UNDERSCORE-ALIAS-FIX
+✅ 작업 완료 - COUNT-only 마커 별칭 선행밑줄 제거(__mv_count_marker→mv_count_marker), 오라클 실측 ORA-00911 미재현 확인
+
+────────────────────────────────────────────────────────────────────────
+[배경]
+CTE/JOIN/window 등 복잡 이관 SQL 의 원본 COUNT 사전검증은 최종 projection 을
+'SELECT 1 AS __mv_count_marker' 로 축소한다. sqlglot 의 exp.alias_ 는 선행 밑줄을
+safe 로 보아 오라클에서도 비인용(unquoted) 렌더 → 오라클은 비인용 식별자가 반드시
+문자로 시작해야 하므로 ORA-00911(_: invalid character after AS) 발생.
+소비자 없음(COUNT(*) 결과만 읽고 컬럼값 미참조)이라 문자 시작 이름으로 개명만 수행.
+단순 SQL 은 물리 재조합 경로를 타 마커가 없어 지금까지 미노출(CTE/GROUP BY/UNION 잠복).
+
+[수정 내용]  __mv_count_marker → mv_count_marker (문자 시작 → 오라클 비인용 유효)
+운영 코드 3곳:
+  - services/count_sql_builder.py:213           (리터럴 별칭 + 208 주석)
+  - services/validation_sql/source_stats_sql_builder.py:27  (_COUNT_MARKER 상수값 + 111 주석; 88·162 참조)
+  - ui/tabler_renderer.py:23234                 (COUNT 사전검증 헬프텍스트)
+테스트 6개(문자열 단언 동반 수정):
+  - tests/test_count_source_cte_star_pruning.py
+  - tests/test_cte_count_execution_and_projection.py
+  - tests/test_groupby_insert_count_wrapping.py
+  - tests/test_realdb_cte_count_smoke.py
+  - tests/test_stats_wrapped_source_projection_prune.py
+  - tests/test_validation_job_plan_core.py
+검증 스크립트 2개(신규):
+  - scripts/dev_e2e/count_marker_underscore_alias_oracle_verify.py   (결정적 실측)
+  - scripts/dev_e2e/count_marker_underscore_alias_browser_shot.py    (포트 8000 브라우저)
+
+[소비자 재확인]
+전수 grep 결과 이 별칭을 '이름'으로 읽는 코드(dict 조회 등) 없음 — 진단(소비자 없음) 재확증.
+docs/archive 이력 문서 1건만 옛 문자열 잔존(의도적 미변경, 과거 기록).
+
+[오라클 실측 — 결정적(count_marker_underscore_alias_oracle_verify.py)]
+대상: CTE(WITH ranked) + LEFT JOIN + window(ROW_NUMBER OVER) 포함 이관 SQL
+접속: 192.168.0.151:1523 / xepdb1 / user=nxdnp (비밀번호 미표시)
+생성 COUNT SQL(원본):
+  SELECT COUNT(*) AS CNT
+  FROM (
+    WITH ranked AS ( ... LEFT JOIN ... ROW_NUMBER() OVER (PARTITION BY x.C_CHAR ORDER BY x.ID) AS rn )
+    SELECT 1 AS mv_count_marker FROM ranked WHERE rn >= 1
+  ) src_count
+  method = PARSED_MODEL_CTE_SUBQUERY_COUNT_SQL
+정적검증: 새 별칭 포함 / 선행밑줄 제거 / 'AS mv_count_marker' 비인용 / 인용 별칭 미사용 / src_count wrapping — 전부 ✓
+실행 결과: 원본 COUNT = 250000  → 실행 성공(ORA-00911 미발생)
+음성 대조(옛 이름 __mv_count_marker 로 동일 실행):
+  ORA-00911: _: invalid character after AS  → ORA-00911 재현됨(개명 인과성 입증)
+
+[실 서비스 브라우저 실측 — 포트 8000, 인증 ON(count_marker_underscore_alias_browser_shot.py)]
+인증: HTTP Basic Auth(e2e 계정) / 오라클 asis→tobe 검증경로 접속 성공
+COUNT 사전검증 실행: 원본 250,000 · 목적 249,950 (COUNT_MINOR_DIFF, 순차이 50 = XDIFF 의도적 누락)
+  → src_count 250,000 은 wrapping 된 원본 COUNT SQL 이 오라클에서 실제 실행되어 산출(ORA-00911 시 null)
+  marker_rendered_in_dom = true / ORA_00911_in_dom = false
+스크린샷: E:\verify_screenshots_only\PROFILE-COUNT-MARKER-UNDERSCORE-ALIAS-FIX\
+  - browser_1_query_review.png       (1단계 쿼리 검토)
+  - browser_2_count_precheck.png     (2단계 COUNT 사전검증 결과)
+  - browser_2b_count_sql_card.png    (COUNT SQL 카드)
+  - oracle_count_marker_result.txt   (결정적 실측 원문 로그)
+
+[회귀 테스트]
+- 개명 영향 6개 파일:  38 passed, 3 skipped, 1 failed
+  · 유일 실패 = test_ui_count_note_and_auto_audit 의 'function loadUploadAudit(' 단언
+    → 미변경 HEAD baseline(worktree)에서도 동일 재현되는 사전존재 실패(upload 관련), 마커 개명과 무관.
+    · 동 테스트의 마커 단언('mv_count_marker' in html)은 통과.
+- samples/test_virtual_cases.py:  8/8 통과
+- samples/test_complex_cases.py:  5/5 통과
+
+[서버 재기동]
+- 재기동 시각: 2026-07-24 15:58:47 KST
+- PID 15116 / 포트 8000 / HTTP Basic Auth: ON(등록 2계정) / 서버 단계 가드: ON
+- 새 코드 서빙 확인(응답 HTML 에 mv_count_marker 마커 존재, stale 아님)
+
+[커밋]
+- 9d6b303  fix(count): COUNT-only 마커 별칭 선행밑줄 제거 __mv_count_marker→mv_count_marker
+           (11 files changed, 330 insertions(+), 32 deletions(-))
+- 코드 저장소 push 금지 규칙에 따라 커밋만 수행(원격 push 안 함).
+
+────────────────────────────────────────────────────────────────────────
+작업명 : PROFILE-COUNT-MARKER-UNDERSCORE-ALIAS-FIX
+✅ 작업 완료 - COUNT-only 마커 별칭 선행밑줄 제거(__mv_count_marker→mv_count_marker), 오라클 실측 ORA-00911 미재현 확인
