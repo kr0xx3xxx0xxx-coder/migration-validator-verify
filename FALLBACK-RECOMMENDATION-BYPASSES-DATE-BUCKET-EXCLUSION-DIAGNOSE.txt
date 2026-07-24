@@ -1,0 +1,105 @@
+작업명 : FALLBACK-RECOMMENDATION-BYPASSES-DATE-BUCKET-EXCLUSION-DIAGNOSE
+✅ 작업 완료 - 일반 대체 기본추천이 raw 일단위 date/timestamp(C_TS3)를 낚아채던 결함을 _is_date durable 판정으로 수정, 실 오라클+포트8000 전/후 실측 확인
+
+────────────────────────────────────────────────────────────────────────
+[1] C_TS3 타입 / date_bucket 판정 확인
+────────────────────────────────────────────────────────────────────────
+- 오라클 카탈로그 실조회(픽스처 DDL): NXDNP.MV_ORA_XDIFF_SRC/TGT 양쪽 C_TS3 = TIMESTAMP(3).
+  → REG_DT 같은 varchar/파싱필요 타입이 '아님'. 실제 date/timestamp 타입이다.
+- date_bucket_type_blocked = False (실측). needs_parse/prebucketed 아님 → 타입 배제 대상 아님.
+- 값 분포: TIMESTAMP '2024-01-01 00:00:00.000' + MOD(n,86400)초 → 전 행이 2024-01-01 하루 안에
+  수렴. 월/분기/연 절단 시 그룹 1개(< MIN 2)로 붕괴 → date bucket 후보로는 부적합(recommended_bucket=None).
+- 결론: C_TS3에 붙은 '변환 필요' 배지는 candidate_subtype=DATE_DAILY(일 단위 날짜) 때문이며,
+  버킷 변환해도 그룹이 1개라 date bucket 승격 대상이 아니다(정상적으로 배제되어야 함).
+
+  ※ task 가설(REG_DT식 varchar 배제를 대체추천이 우회)은 이 케이스엔 해당 안 됨 —
+    C_TS3는 실 timestamp라 date_bucket_type_blocked 경로 자체를 안 탄다. 진짜 우회 경로는 다름(아래).
+
+────────────────────────────────────────────────────────────────────────
+[2] 대체 기본추천 로직의 배제 판정 반영 여부 (코드 확인)
+────────────────────────────────────────────────────────────────────────
+승격 경로는 2개다(services/candidate_postcount_finalize.py ⑦b 순서):
+  ① promote_general_fallback_default(gb,"GROUP_BY")  ← 비-날짜(raw) 후보 대상, 먼저 실행
+  ② promote_fallback_date_candidate(gb)              ← 날짜(버킷) 후보 대상, ①이 이미 승격했으면 no-op
+
+- ②(날짜 경로)는 date_bucket 그룹개수 게이트가 정상 동작 — C_TS3는 recommended_bucket=None이라
+  pool에 안 들어오고, C_DATE만 월 버킷(≤30그룹)으로 승격 자격이 있다. 여기까지는 배제 정직.
+- 문제는 ①(일반 경로)가 '이 후보가 날짜형인지'를 fallback_recommendation._is_date 로 판정하는데,
+  구버전 _is_date 는 date_bucket_candidate 플래그 · selection_status==DATE_BUCKET_CANDIDATE 만 봤다.
+  postcount ⑤ 추천 gate 가 실 date/timestamp 후보의 selection_status 를 AVAILABLE_ADDITIONAL 로
+  바꾸며 date_bucket_candidate 를 안 남기면(타입 기반 날짜) _is_date 가 False 로 뒤집힌다.
+  → ①이 C_TS3 를 '평범한 GROUP BY 후보'로 오인해 점수(0.6)만 보고 자동선택.
+
+────────────────────────────────────────────────────────────────────────
+[3] 원인 (실측으로 확정)
+────────────────────────────────────────────────────────────────────────
+- C_TS3 는 ⑤ gate 이후 selection_status=AVAILABLE_ADDITIONAL · date_bucket_candidate=null 상태가 됨.
+  _is_date(C_TS3)=False → promote_general_fallback_default 의 일반 pool 에 편입 → fallback_default 승격.
+- 그 결과 '비-날짜 대체 기본추천'이 이미 존재 → 뒤이은 promote_fallback_date_candidate 가 no-op →
+  정작 유효한 C_DATE(월 버킷)의 날짜 경로 승격까지 차단됨.
+- 즉 date_bucket 배제 자체는 잘 됐으나, 일반 대체추천 경로가 배제 결과(recommended_bucket=None)를
+  통째로 우회해 raw 일 단위 타임스탬프를 자동선택한 것이 실질 결함.
+- seed 갈림: 형제 C_TS/C_TS6 는 risk_flags 에 UNIQUE_LIKE(100% distinct)가 붙어 EXCLUDED_BY_RULE,
+  C_TS3 는 34.5% distinct 라 UNIQUE_LIKE 없이 AVAILABLE 잔류 → 일반 경로 대상이 됨. (카디널리티
+  분류 갈림은 별개·저위험 이슈로 미수정)
+
+────────────────────────────────────────────────────────────────────────
+[4] 수정 내용 (services/fallback_recommendation.py, 커밋 65fd1a0)
+────────────────────────────────────────────────────────────────────────
+- _is_date 를 durable 다중 신호로 강화:
+    · date_bucket_candidate / selection_status==DATE_BUCKET_CANDIDATE (기존)
+    · date_bucket_type_blocked (신규 — varchar 날짜 배제도 함께 커버)
+    · candidate_subtype == "DATE_DAILY" (신규 — 일 단위 날짜 durable)
+    · _has_real_date_type(): tgt_type/target_data_type/src_type/evidence_contract.target_data_type 가
+      date/timestamp/datetime/smalldatetime 접두 (신규 — 타입 기반 날짜 durable)
+- 효과: 날짜형(월/분기/연 변환을 거쳐야 하는) 후보는 일반(비-날짜) 대체추천 pool 에서 완전히
+  제외되고, 오직 date bucket 경로(그룹개수 게이트)로만 승격된다. 배제돼야 할 컬럼을 걸러낸 뒤
+  '그나마 나은 것'을 고르게 됨(task 요청 #4 취지 충족).
+- MONTH_BUCKET(YYYYMM varchar 등 직접 그룹화 가능)은 제외 — 정상 일반 후보 유지(회귀 방지).
+- date_bucket_evidence.py 의 별도 local _is_date 는 미변경(날짜 경로 전용, 영향 없음).
+
+────────────────────────────────────────────────────────────────────────
+[5] 전/후 실측 (실 오라클 NXDNP · 포트 8000 인증 ON 3단계 후보표)
+────────────────────────────────────────────────────────────────────────
+재현 스크립트:
+  - scripts/dev_e2e/xdiff_c_ts3_fallback_postcount_repro.py (analyze+postcount 실 오라클)
+  - scripts/dev_e2e/xdiff_c_ts3_stage3_browser_shot.py (포트 8000 인증 ON 렌더·캡처, 전은
+    구버전 _is_date monkeypatch 로 동일 실 데이터 재현)
+
+[수정 전]  (버그 재현)
+  C_TS3  : 배지='대체 기본추천' · 체크=True(자동선택) · 비고='변환 필요'   ← 신고된 증상 그대로
+  C_DATE : 배지='선택가능'      · 체크=False (정상 후보가 밀려 미승격)
+  요약    : 대체 기본추천=C_TS3 / 확인필요 후보=C_DATE
+
+[수정 후]  (정상)
+  C_TS3  : 배지='선택가능'      · 체크=False  (사유: cardinality 근거 부족 → 자동추천 제외, 수동 선택 가능)
+  C_DATE : 배지='대체 기본추천' · 체크=True   · 월 단위 버킷(≤30그룹)  ← 정상 후보가 대체추천됨
+  요약    : 대체 기본추천=C_DATE(월) / 확인필요 후보=C_TS3
+  C_TS·C_TS6 : 양쪽 모두 '정책상제외'(변동 없음)
+
+스크린샷: E:\verify_screenshots_only\FALLBACK-RECOMMENDATION-BYPASSES-DATE-BUCKET-EXCLUSION-DIAGNOSE\
+  stage3_before_full.png / stage3_before_card.png / stage3_after_full.png / stage3_after_card.png
+
+────────────────────────────────────────────────────────────────────────
+[6] 회귀 테스트
+────────────────────────────────────────────────────────────────────────
+- fallback/date_bucket/postcount 관련: 163 passed
+  (test_fallback_recommendation, test_fallback_evidence_gate_self_contradiction_fix,
+   test_date_bucket_fallback_promote/granularity, test_date_gb_autoselect_exclusion,
+   test_date_bucket_non_date_type_block, test_ordinal_integer_sum_fallback,
+   test_postcount_finalize, test_date_bucket_recommendation_evidence,
+   test_date_bucket_integration_ui, test_count_only_and_date_bucket 등)
+- CLAUDE.md 필수 회귀: samples/test_virtual_cases.py 8/8, samples/test_complex_cases.py 5/5 통과
+- 신규 실패 0. 사전존재 실패 6건은 HEAD baseline(git worktree)에서도 동일 실패 확인
+  (HTML 렌더 mojibake 4건 + PAY_DATE UNKNOWN 대칭 fix 관련 2건 — 이번 수정과 무관).
+
+────────────────────────────────────────────────────────────────────────
+[7] 재기동 / 커밋
+────────────────────────────────────────────────────────────────────────
+- 서버 재기동(포트 8000): 2026-07-24 13:44 KST · python web_server.py (기존 PID 자동 종료 후 기동)
+  · 새 리스너 PID 26276(이전 18708) · HTTP 200(e2e 인증) · 수정 모듈 로드 확인.
+- 커밋 해시: 65fd1a0
+  fix(candidate): 날짜형 후보를 일반 대체 기본추천 경로에서 durable 배제
+  (FALLBACK-RECOMMENDATION-BYPASSES-DATE-BUCKET-EXCLUSION-FIX)
+
+✅ 작업 완료 - 일반 대체 기본추천이 raw 일단위 date/timestamp(C_TS3)를 낚아채던 결함을 _is_date durable 판정으로 수정, 실 오라클+포트8000 전/후 실측 확인
