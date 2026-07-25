@@ -1,0 +1,71 @@
+{
+ "sql": "INSERT INTO NXDNP.MV_ORA_XDIFF_TGT (ID, C_NUM, C_NUM_PS, C_VARCHAR2, C_CHAR, C_NVARCHAR2, C_DATE, C_TS, C_TS3, C_TS6) WITH ranked AS (   SELECT x.ID, x.C_NUM,          CASE WHEN t.AMT IS NULL THEN x.C_NUM_PS ELSE ROUND(x.C_NUM_PS + t.AMT, 2) END AS C_NUM_PS,          x.C_VARCHAR2, x.C_CHAR, x.C_NVARCHAR2, x.C_DATE, x.C_TS, x.C_TS3, x.C_TS6,          ROW_NUMBER() OVER (PARTITION BY x.C_CHAR ORDER BY x.ID) AS rn   FROM NXDNP.MV_ORA_XDIFF_SRC x   LEFT JOIN NXDNP.MV_ORA_TEST_SRC t ON MOD(x.ID, 300) + 1 = t.ORDER_ID ) SELECT ID, C_NUM, C_NUM_PS, C_VARCHAR2, C_CHAR, C_NVARCHAR2, C_DATE, C_TS, C_TS3, C_TS6 FROM ranked WHERE rn >= 1",
+ "tag": "before",
+ "base": "http://127.0.0.1:8000/",
+ "stages": {
+  "1_src_tables": [
+   "NXDNP.MV_ORA_XDIFF_SRC",
+   "NXDNP.MV_ORA_TEST_SRC"
+  ],
+  "2_count": {
+   "count_status": "COUNT_MINOR_DIFF",
+   "force": false
+  },
+  "3_select": {
+   "gb_after": [],
+   "sum_after": [
+    "C_NUM",
+    "C_NUM_PS"
+   ]
+  },
+  "4_exec": {
+   "planFp": null
+  },
+  "5_click": {
+   "found": true
+  },
+  "5_panel": {
+   "final": "HOLD_UNSUPPORTED_SHAPE — 이 SQL 형태(공통 테이블 식(WITH/CTE) · 다중 원본 테이블(JOIN/서브쿼리))는 재이관 상세(행 단위 PK 비교)를 지원하지 않습니다. 통계검증(COUNT·SUM) 결과는 정상이며, 행 단위 재이관 목록은 단일 테이블 1:1 이관 SQL 에서만 제공됩니다.",
+   "hold": true,
+   "early_stop": false,
+   "has_reimport": false,
+   "stale": false,
+   "pk_wrap": {
+    "exists": false
+   },
+   "watch_sec": 2.1
+  }
+ },
+ "notes": [],
+ "panel_trace": [
+  {
+   "dt": 0.0,
+   "txt": "재이관 PK index 준비 중…(테이블당 1회)"
+  },
+  {
+   "dt": 2.1,
+   "txt": "HOLD_UNSUPPORTED_SHAPE — 이 SQL 형태(공통 테이블 식(WITH/CTE) · 다중 원본 테이블(JOIN/서브쿼리))는 재이관 상세(행 단위 PK 비교)를 지원하지 않습니다. 통계검증(COUNT·SUM) 결과는 정상이며, 행 단위 재이관 목록은 단일 테이블 1:1 이관 SQL 에서만 제공됩니다."
+  }
+ ],
+ "setup": {
+  "project": "TESTONLY_REG",
+  "pair_rows": 1
+ },
+ "net": [
+  {
+   "t": 1784981280.1,
+   "url": "prepare",
+   "resp": {
+    "ok": true,
+    "status": "HOLD",
+    "stop_reason": "HOLD_UNSUPPORTED_SHAPE",
+    "error_message": "이 SQL 형태(공통 테이블 식(WITH/CTE) · 다중 원본 테이블(JOIN/서브쿼리))는 재이관 상세(행 단위 PK 비교)를 지원하지 않습니다. 통계검증(COUNT·SUM) 결과는 정상이며, 행 단위 재이관 목록은 단일 테이블 1:1 이관 SQL 에서만 제공됩니다."
+   }
+  }
+ ],
+ "console": [],
+ "dialogs": [
+  "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+  "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+ ]
+}

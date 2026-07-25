@@ -1,0 +1,50 @@
+{
+ "sql": "INSERT INTO NXDNP.MV_ORA_XDIFF_TGT (ID, C_NUM_PS) WITH ranked AS (   SELECT x.ID, x.C_NUM_PS,          ROW_NUMBER() OVER (PARTITION BY x.C_CHAR ORDER BY x.ID) AS rn   FROM NXDNP.MV_ORA_XDIFF_SRC x   LEFT JOIN NXDNP.MV_ORA_TEST_SRC t ON MOD(x.ID, 300) + 1 = t.ORDER_ID ) SELECT ID, C_NUM_PS FROM ranked WHERE rn >= 1",
+ "tag": "after_idonly",
+ "base": "http://127.0.0.1:8000/",
+ "stages": {
+  "1_src_tables": [
+   "NXDNP.MV_ORA_XDIFF_SRC",
+   "NXDNP.MV_ORA_TEST_SRC"
+  ],
+  "2_count": {
+   "count_status": "COUNT_MINOR_DIFF",
+   "force": false
+  },
+  "3_select": {
+   "gb_after": [],
+   "sum_after": []
+  },
+  "4_exec": {
+   "planFp": null
+  },
+  "5_click": {
+   "found": false,
+   "rowCount": 0,
+   "keys": []
+  },
+  "5_panel": {
+   "final": null,
+   "hold": false,
+   "early_stop": false,
+   "has_reimport": false,
+   "stale": false,
+   "pk_wrap": {
+    "exists": false
+   },
+   "watch_sec": 201.7
+  }
+ },
+ "notes": [],
+ "panel_trace": [],
+ "setup": {
+  "project": "TESTONLY_REG",
+  "pair_rows": 1
+ },
+ "net": [],
+ "console": [],
+ "dialogs": [
+  "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+  "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+ ]
+}
