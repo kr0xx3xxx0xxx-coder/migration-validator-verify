@@ -1,0 +1,102 @@
+{
+ "sql": "INSERT INTO NXDNP.MV_ORA_XDIFF_TGT (ID, C_NUM, C_NUM_PS, C_VARCHAR2, C_CHAR, C_NVARCHAR2, C_DATE, C_TS, C_TS3, C_TS6) WITH ranked AS (   SELECT x.ID, x.C_NUM,          CASE WHEN t.AMT IS NULL THEN x.C_NUM_PS ELSE ROUND(x.C_NUM_PS + t.AMT, 2) END AS C_NUM_PS,          x.C_VARCHAR2, x.C_CHAR, x.C_NVARCHAR2, x.C_DATE, x.C_TS, x.C_TS3, x.C_TS6,          ROW_NUMBER() OVER (PARTITION BY x.C_CHAR ORDER BY x.ID) AS rn   FROM NXDNP.MV_ORA_XDIFF_SRC x   LEFT JOIN NXDNP.MV_ORA_TEST_SRC t ON MOD(x.ID, 300) + 1 = t.ORDER_ID ) SELECT ID, C_NUM, C_NUM_PS, C_VARCHAR2, C_CHAR, C_NVARCHAR2, C_DATE, C_TS, C_TS3, C_TS6 FROM ranked WHERE rn >= 1",
+ "tag": "before",
+ "stages": {
+  "1_src_tables": [
+   "NXDNP.MV_ORA_XDIFF_SRC",
+   "NXDNP.MV_ORA_TEST_SRC"
+  ],
+  "2_count": {
+   "count_status": "COUNT_MINOR_DIFF",
+   "force": false
+  },
+  "3_select": {
+   "gb_after": [],
+   "sum_after": [
+    "C_NUM",
+    "C_NUM_PS"
+   ]
+  },
+  "4_exec": {
+   "planFp": null
+  },
+  "5_click": {
+   "found": true
+  },
+  "5_panel": {
+   "final": "STALE_PLAN — 최신 실행계획 증적이 없습니다. 최신 계획으로 통계검증을 다시 실행한 뒤 그룹 상세를 여세요.",
+   "stale": true,
+   "early_stop": false,
+   "stuck_preparing": false,
+   "delayed": false,
+   "watch_sec": 4.1
+  }
+ },
+ "notes": [],
+ "panel_trace": [
+  {
+   "dt": 0.0,
+   "txt": "재이관 PK index 준비 중…(테이블당 1회)"
+  },
+  {
+   "dt": 2.1,
+   "txt": "재이관 대상 준비 중… (현재 저장 0건 · 완료되면 자동 표시)"
+  },
+  {
+   "dt": 4.1,
+   "txt": "STALE_PLAN — 최신 실행계획 증적이 없습니다. 최신 계획으로 통계검증을 다시 실행한 뒤 그룹 상세를 여세요."
+  }
+ ],
+ "setup": {
+  "project": "TESTONLY_REG",
+  "pair_rows": 1
+ },
+ "net": [
+  {
+   "t": 1784956164.1,
+   "url": "prepare",
+   "resp": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PS74D831083352",
+    "accepted": true,
+    "error_message": null
+   }
+  },
+  {
+   "t": 1784956164.2,
+   "url": "pk-records",
+   "resp": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PS74D831083352",
+    "total_count": null,
+    "gb_cols": [],
+    "sum_labels": [],
+    "available_count": 0,
+    "mismatch_count_so_far": 0,
+    "final_total_count": null,
+    "processed_source_count": 0
+   }
+  },
+  {
+   "t": 1784956165.8,
+   "url": "pk-records",
+   "resp": {
+    "ok": true,
+    "status": "FAILED",
+    "run_id": "PS74D831083352",
+    "total_count": null,
+    "error": "재이관 index 스트리밍 오류: ORA-00904: \"RN\": invalid identifier\nHelp: https://docs.oracle.com/error-help/db/ora-00904/",
+    "available_count": 0,
+    "final_total_count": null,
+    "processed_source_count": 0
+   }
+  }
+ ],
+ "console": [],
+ "dialogs": [
+  "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+  "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+ ]
+}
