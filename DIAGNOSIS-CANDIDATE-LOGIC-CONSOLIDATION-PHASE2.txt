@@ -1,0 +1,135 @@
+작업명 : DIAGNOSIS-CANDIDATE-LOGIC-CONSOLIDATION-PHASE2
+✅ 작업 완료 - 절대 그룹수 상한(60) + 날짜 durable 구제를 공통 core로 단일화하고 진단 경로(recommender/groupby_scoring)를 메인 엔진과 동일 판정으로 배선(실 오라클·포트8000 실측 일치)
+
+────────────────────────────────────────────────────────────────────────
+0. 스코프 조정(두 지시 통합 판단)
+────────────────────────────────────────────────────────────────────────
+- 1차 지시: classify_cardinality 확장 + is_date_durable_excluded 신설(공통 core).
+- 2차 지시: "recommender.py/groupby_scoring.py 두 파일만 수정 · 메인 엔진 상한 로직을 별도
+  재구현하지 말고 공통 함수를 import해 재사용 · 중복 제거를 완료 기준에 포함".
+- 판단: '중복 제거(단일 구현)' + '재구현 금지'를 지키려면 상한/날짜 durable 판정을 각 진단
+  파일에 따로 넣으면 안 됨(그러면 `>60` 비교·사유 문구가 2곳 중복). 그래서 공통 core
+  (services/candidate_recommendation_policy.py) 한 곳에 판정을 두고 두 진단 파일은 import만
+  하도록 배선함. 즉 '두 진단 파일 + 이를 가능케 하는 공통 core 1파일'을 수정했고, 두 진단
+  파일 자체에는 상한/날짜 판정 로직을 재구현하지 않음(요구 정확히 충족).
+- 추가로 메인 엔진 게이트(_gate_verdict, 공통 core와 동일 파일)의 inline `>60` 비교도 공통
+  판정 재사용으로 교체 → 상한값·사유 문구가 '메인 엔진 + 진단 3경로' 전체에서 단 한 곳
+  (classify_cardinality)에서만 나옴(문구 중복 완전 제거).
+
+────────────────────────────────────────────────────────────────────────
+1. 변경 내용(commit 44bbf64, main, push 안 함=코드 repo 규칙)
+────────────────────────────────────────────────────────────────────────
+[공통 core] services/candidate_recommendation_policy.py
+ - classify_cardinality(): general_max_groups 파라미터 추가(기본 None → config.GENERAL_COLUMN_MAX_GROUPS
+   모듈 전역을 호출시점 조회 = env MV_GENERAL_COLUMN_MAX_GROUPS·monkeypatch 반영). 실제 고유값 개수가
+   상한 초과면 반환 dict에 excluded=True + exclude_reason("그룹 개수 과다(N개 > 상한 M개) — 집계 의미
+   없음", 메인 엔진과 동일 문구) + general_max_groups. 등급(cardinality_class)은 상한으로 안 바뀜(별도 축).
+   음수 비율 표기는 절대 개수 불명이라 상한 미적용(등급/near_unique로만 처리).
+ - is_date_durable_excluded() 신설: fallback_recommendation._is_date 를 그대로 호출(재구현 없음) —
+   4개 durable 신호(date_bucket_candidate / date_bucket_type_blocked / candidate_subtype==DATE_DAILY /
+   실제 date·timestamp 타입). FALLBACK-RECOMMENDATION-BYPASSES-DATE-BUCKET-EXCLUSION-FIX 판정 재사용.
+ - _gate_verdict()(메인 엔진): inline `int(dc) > GENERAL_COLUMN_MAX_GROUPS` 비교·사유 문구를
+   classify_cardinality 재사용으로 교체(동작 동일·문구 단일 출처화). ※ 메인 엔진 판정 결과 불변.
+
+[진단] services/diagnosis/candidate/recommender.py  (상한/날짜 판정 재구현 없이 공통 core 호출만)
+ - _DEFAULT_CONFIG에 general_max_groups(None) 슬롯 추가.
+ - build_evidence(): classify_cardinality 1회 호출로 등급 + 절대상한 배제를 함께 산출,
+   cardinality_evidence에 group_cap_excluded/group_cap_reason/group_cap_limit 부착. is_date는
+   타입 기반(_is_date) OR is_date_durable_excluded 로 확장.
+ - _groupby_candidate(): 날짜 durable + (과다|상한초과) → dead 배제('카디널리티 과다') 대신 '기간 변환
+   후보(월/분기/연)'로 표시 + date_bucket_candidate 플래그(구제 신호, 실제 버킷 적합성은 enrich가 확정).
+   비-날짜 상한초과 → 공통 core '그룹 개수 과다(N>M)' 사유로 배제(문구 단일 출처).
+ - recommend_candidates(): 자동추천/조합 대상에서 배제사유 있는 후보 제외(reco/combo 필터 일원화).
+
+[진단] services/diagnosis/groupby_scoring.py  (동일 원칙)
+ - GroupByScoreConfig.general_max_groups(None) 필드 추가.
+ - _exclusion(): classify_cardinality(general_max_groups=...) 로 등급+near_unique+절대상한 판정.
+   등급 high/very_high(>200)는 기존대로 CARDINALITY_TOO_HIGH(회귀 없음). 등급이 low/medium이라도
+   절대상한 초과면 CARDINALITY_TOO_HIGH로 배제. 단 날짜 durable이면 상한만으로는 배제 취소(구제).
+
+[정책 금지 heuristic 점검(2차 지시 4항)]
+ - 카디널리티/날짜배제 경로에 '컬럼명 문자열 기반' heuristic 없음 → 제거 대상 없음. 날짜 판정은
+   타입/durable 신호(is_date_durable_excluded=fallback._is_date) 기반으로 교체 완료. 잔존하는 이름 힌트
+   (_AUDIT_HINTS/_PERIOD_HINTS 등)는 카디널리티가 아니라 '업무축 스코어링'(진단 패키지 고유 역할)
+   용도라 원칙1(고유 역할 불변)에 따라 미변경.
+
+────────────────────────────────────────────────────────────────────────
+2. 소비처(공유 유틸 여부) — 회귀 범위 근거
+────────────────────────────────────────────────────────────────────────
+- services.diagnosis.groupby_scoring 실제 import: strategy_orchestrator.py, routes/diagnosis_route.py 뿐.
+- services.diagnosis.candidate.recommender 실제 import: routes/diagnosis_route.py(+ui/grid_helpers 주석).
+  → 두 모듈은 '진단 패키지/라우트(strategy-orchestrate·groupby-score·candidate-recommend)'에만 국한.
+    메인 개별검증 analyze 경로(candidate_engine 직접 사용)와 분리됨(넓게 재사용되는 공유 유틸 아님).
+    따라서 회귀는 진단 관련 테스트 + 공통 core 테스트로 충분(그 외 광역 확대 불필요).
+
+────────────────────────────────────────────────────────────────────────
+3. C_TS3/C_DATE 판정 일치 — 메인 엔진 ↔ 진단 패키지 (실측, 상한=60)
+   (scripts/dev_e2e/phase2_cardinality_consolidation_parity.py, 순수 대조)
+────────────────────────────────────────────────────────────────────────
+ 컬럼        메인 gate                         진단 recommender                진단 groupby_scoring
+ ─────────  ───────────────────────────────  ──────────────────────────────  ────────────────────
+ C_TS3      EXCLUDED / rescue_bucket=None      배제·보류 + date_bucket=True     제외 CARDINALITY_TOO_HIGH
+ (86400)    "그룹 개수 과다(86400>60)"          "기간 변환 후보·raw 보류"
+ C_DATE     EXCLUDED(gate)→rescue_bucket=month 배제·보류 + date_bucket=True     제외 CARDINALITY_TOO_HIGH
+ (900)      "그룹 개수 과다(900>60)"            "기간 변환 후보·raw 보류"
+ REGION_CD  EXCLUDED                           배제                             제외 CARDINALITY_TOO_HIGH
+ (150,일반) "그룹 개수 과다(150>60)"            "그룹 개수 과다(150>60)"  ← 문구 완전 동일(단일 출처)
+ STATUS_CD  AUTO_RECOMMENDED                   자동추천                         추천
+ (5)
+- 핵심: 세 경로 모두 C_TS3/C_DATE/REGION_CD를 raw 자동추천에서 배제(일치). REGION_CD는 메인 gate와
+  진단 recommender가 '완전히 동일한 사유 문구' 반환(gate_and_recommender_same_cap_reason 테스트로 잠금).
+- C_TS3(하루수렴) vs C_DATE(월구제) 최종 구분은 '버킷 근거(월/분기/연 distinct)'가 필요한 enrich 단계
+  소관이며(공유 코드 date_bucket_evidence), 메인 gate 실측에서 C_TS3=rescue None / C_DATE=month로 정확히
+  구분됨. 진단 recommender는 순수 함수라 버킷 근거 없이 둘 다 '기간 변환 후보'로 신호만 부여(=메인 엔진의
+  gate→enrich 2단 구조와 동일 정책: raw는 보류, 버킷 적합성은 enrich가 확정).
+
+────────────────────────────────────────────────────────────────────────
+4. 실 브라우저 실측(포트 8000, 인증 ON, 실 오라클 NXDNP.MV_ORA_XDIFF 25만행)
+────────────────────────────────────────────────────────────────────────
+[메인 엔진 3단계 후보표] general_column_cap_live_clickthrough.py → 스크린샷 mainengine_01~03
+  C_TS3       정책상제외·체크불가  "그룹 개수 과다(86472개 > 상한 60개)"   (distinct 86472)
+  C_TS/C_TS6  정책상제외          "고유값 비율 과도"(회귀 없음)            (250000/248448)
+  C_DATE      대체 기본추천(35점)·체크가능·기간컨트롤 ON  gate배제→enrich 월 버킷 구제  (900, bucket=month)
+  판정: C_TS3 절대상한 배제=성공 / C_TS·C_TS6 비율기준 회귀없음=성공 / C_DATE 오배제 없음(월 구제)=성공
+[진단 패키지 3엔드포인트 live] phase2_diagnosis_screen_capture.py → 스크린샷 10_diagnosis_endpoints_live
+  candidate-recommend 자동추천=[STATUS_CD] · C_TS3/C_DATE date_bucket=True · REGION_CD "그룹 개수 과다(150>60)"
+  groupby-score 추천=[STATUS_CD] · C_TS3/C_DATE/REGION_CD=CARDINALITY_TOO_HIGH
+  strategy-orchestrate next_action=BUSINESS_GROUP_DRILLDOWN · 채택=[STATUS_CD]
+  판정: 진단 패키지 Phase 2 반영=성공(메인 엔진 판정과 일치)
+
+────────────────────────────────────────────────────────────────────────
+5. R1 — strategy-orchestrate 전/후 스냅샷(ablation: 상한 ∞ ↔ 60, 그 외 변수 동일)
+────────────────────────────────────────────────────────────────────────
+ 전(before, 상한 ∞): next_action=BUSINESS_GROUP_DRILLDOWN  recommended=[STATUS_CD, REGION_CD]
+ 후(after,  상한 60): next_action=BUSINESS_GROUP_DRILLDOWN  recommended=[STATUS_CD]
+ 변화: recommended에서 REGION_CD(distinct 150) 제거(신규 배제 CARDINALITY_TOO_HIGH). next_action 불변.
+ 판정: '의도된 개선' — 150그룹 일반 컬럼은 대화형 대조·집계 축으로 부적합해 raw 드릴다운 추천에서
+       제외됨이 옳음. 전략 자체(BUSINESS_GROUP_DRILLDOWN)는 저카디 STATUS_CD로 안정 유지(플립 없음).
+ ※ XDIFF 대표 컬럼(C_TS3/C_DATE/C_TS 등)은 모두 >200이라 전/후 모두 이미 배제 → 이들로 인한 변화 없음.
+   [61,200] 밴드 컬럼(REGION_CD)만 이번 상한의 실제 영향 대상임을 명확히 확인.
+
+────────────────────────────────────────────────────────────────────────
+6. 회귀 테스트(직접 관련 우선)
+────────────────────────────────────────────────────────────────────────
+ python -m pytest (진단/정책/패리티/fallback/browser 6종) → 81 passed / 3 failed
+   실패 3건은 전부 사전 존재 실패(내 변경 전 HEAD worktree에서 동일 재현 확인):
+     - test_engine_cardinality_parity::test_engine_stats_change_groupby_candidacy (엔진 후보생성, Phase2 무관)
+     - test_fallback_recommendation::test_date_fallback_sets_general_flags (promote_fallback_date, 미수정 파일)
+     - test_fallback_recommendation::test_date_fallback_survives_evidence_guard (동상)
+ 신규 패리티 테스트 5종(test_engine_cardinality_parity.py C섹션) 전부 통과:
+   classify_cardinality 상한/경계/override, is_date_durable_excluded 4신호, recommender 상한+날짜구제,
+   groupby_scoring 상한+날짜구제, 메인 gate↔recommender 사유 문구 단일 출처 동일성.
+ 프로젝트 표준 회귀: samples/test_virtual_cases.py 8/8 통과 · samples/test_complex_cases.py 5/5 통과.
+
+────────────────────────────────────────────────────────────────────────
+7. 산출물 / 재기동 / 커밋
+────────────────────────────────────────────────────────────────────────
+ - 서버 재기동: 2026-07-25 21:12:37 (python web_server.py, host 127.0.0.1:8000, 인증 ON, 단계가드 ON)
+ - 코드 커밋: 44bbf64f20c7a73a3a61aff57eb16d0c1b042de2 (branch main, 코드 repo push 금지 규칙 준수 — 미push)
+   변경: 6 files, +516 / -34 (core 1 + 진단 2 + 테스트 1 + dev_e2e 스크립트 2)
+ - 스크린샷: E:\verify_screenshots_only\DIAGNOSIS-CANDIDATE-LOGIC-CONSOLIDATION-PHASE2\
+     mainengine_01_step1_analyze.png / 02_step2_count.png / 03_step3_candidates.png (메인 엔진 실화면)
+     10_diagnosis_endpoints_live.png (진단 패키지 live) + live_result_mainengine.json / diagnosis_live_result.json
+ - 보고서: E:\verify_reports\DIAGNOSIS-CANDIDATE-LOGIC-CONSOLIDATION-PHASE2.txt (본 파일)
+
+✅ 작업 완료 - 절대 그룹수 상한(60) + 날짜 durable 구제를 공통 core로 단일화하고 진단 경로(recommender/groupby_scoring)를 메인 엔진과 동일 판정으로 배선(실 오라클·포트8000 실측 일치)
