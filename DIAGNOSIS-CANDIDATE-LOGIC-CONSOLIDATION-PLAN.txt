@@ -1,0 +1,217 @@
+작업명 : DIAGNOSIS-CANDIDATE-LOGIC-CONSOLIDATION-PLAN
+✅ 작업 완료 - 진단 후보 카디널리티 판정 중복 통합 계획 수립(코드 수정 없음, 계획서만)
+
+════════════════════════════════════════════════════════════════════════
+0. 요청 요약 (기능/구조 변경 요청 응답 형식)
+════════════════════════════════════════════════════════════════════════
+- 요청 요약: recommender.py / groupby_scoring.py 가 메인 엔진과 별도로 재구현한
+  GROUP BY/SUM 카디널리티 판정을 candidate_recommendation_policy 공통 core 로 단일화(계획만).
+- 긍정적 효과: 임계값 3중 분기 제거, 오늘 만든 2개 수정(절대 그룹수 상한 60, 날짜 durable
+  배제/구제)이 진단 경로에도 자동 반영, 이름 heuristic(정책 §37 금지) 제거로 정책 일관성 확보.
+- 구조적 문제점: 진단 패키지는 순수 함수 계약(planner/execution decision 불변)을 전제로
+  설계됨 — 공통 core 주입 시 의존 방향(services.diagnosis → services 상위)이 새로 생김.
+  단방향 유지를 위해 core 를 diagnosis 하위가 아닌 상위(services/candidate_*)에 두고
+  diagnosis 가 소비하는 형태여야 함(역방향 import 금지).
+- 운영상 위험: strategy-orchestrate 는 라이브 UI(드릴다운 전략 화면)에 배선됨 →
+  safe_group_max(200) 변경이 추천 GROUP BY 개수를 바꿔 next_action(드릴다운 전략)을 바꿀 수
+  있음. 롤백은 단계별 커밋으로 대비.
+- heuristic/scoring/explainability 영향: 이름 단어 heuristic(_ID_HINTS 등) 제거는 정책
+  준수(긍정) but 근거 없는 저-profile 컬럼 판정이 바뀔 수 있음 → 근거(evidence) 저장으로
+  explainability 보강 필요.
+- 권장 대응책: (1) core 함수를 상위에 신설, (2) diagnosis 는 어댑터로 소비만, (3) 단계별
+  분리 커밋 + 각 단계 회귀 테스트.
+- 지금 구현 여부: 문서화 우선(이번 작업은 계획서만). 실제 구현은 승인 후 단계별 진행.
+
+════════════════════════════════════════════════════════════════════════
+1. 영향범위 파악 — 호출부 전수 나열
+════════════════════════════════════════════════════════════════════════
+
+[A] recommend_candidates (services/diagnosis/candidate/recommender.py:330)
+  실제 호출부:
+   - routes/diagnosis_route.py:1066  POST /diagnosis/candidate-recommend (조회 전용, 저장 없음)
+   ※ services / batch / exhaustive runner / 어떤 서비스도 호출하지 않음(grep 전수 확인).
+     candidate_recommendation 필드는 UI 에서 detail passthrough 로만 렌더(tabler_renderer:18269
+     → 18472 _mvRenderCandidateRecommendation). 라이브 JS 에 candidate-recommend fetch 없음.
+     → 실질적으로 '고립된 자문(advisory) 엔드포인트'. 라이브 개별검증 analyze 응답엔 미탑재
+       (grid_helpers.py:544 주석이 명시: "개별검증 analyze 응답에 실리지 않는다").
+  테스트(이 core에 직접 의존):
+   - tests/test_candidate_recommender.py       : 15개 함수 전부(임계값·구조 의존)
+   - tests/test_browser_test_scenarios.py:95,107,114 : recommend_candidates 3회 호출(정렬 정합)
+
+[B] rank_groupby_candidates (services/diagnosis/groupby_scoring.py:143)
+  실제 호출부:
+   - routes/diagnosis_route.py:1624  POST /diagnosis/groupby-score (라이브 JS fetch 없음 — API/테스트용)
+   - services/diagnosis/strategy_orchestrator.py:34  orchestrate() 내부
+       └ orchestrate 호출부:
+          · routes/diagnosis_route.py:1579  POST /diagnosis/strategy-orchestrate
+              ← ★ 라이브 UI 배선됨: ui/tabler_renderer.py:17362 fetch('/diagnosis/strategy-orchestrate')
+              ← services/diagnosis/scope/scope_execution_gate.py:23 위임 라우트
+          · samples/mass_batch_simulator.py, realworld_samples.py, perf_rehearsal.py (시뮬)
+  테스트(이 core에 직접/간접 의존):
+   - tests/test_diagnosis_groupby_scoring.py   : 9개 함수(임계값 safe_group_max=200 직접 의존)
+   - tests/test_diagnosis_strategy_orchestrator.py, _strategy_explain.py, _cost_estimator.py,
+     _telemetry_advisory.py, _multi_scope_integration.py, _browser_test_scenarios.py,
+     _quality_enhancements.py, _pg_final_operation.py, _mass_batch_simulation.py,
+     _rc_verification.py, _release_closeout.py, _scope_execution.py (orchestrate 경유)
+
+[독자 임계값에 '실제로' 의존하는 테스트 — 통합 시 재작성 필요]
+  · test_diagnosis_groupby_scoring.py::test_exclusions        — HIGH=500 → EXC_CARDINALITY_HIGH
+       (safe_group_max=200 기준. 엔진 통합 시 절대상한 60/등급 재매핑으로 사유코드 변동)
+  · test_diagnosis_groupby_scoring.py::test_exclusions        — EMAIL near-unique(95000/100000)
+  · test_candidate_recommender.py::test_groupby_profile_cardinality_null
+       — ORDER_YM(24) 추천 기대. recommender low≤20 이라 'mid', 엔진 low≤50 이라 'low' (둘 다 추천 → 통과하나 경계 개념 상이)
+       — LOAD_DT(100) 는 미검증이지만 절대상한 60 적용 시 EXCLUDED 로 바뀜(신규 영향)
+  · test_candidate_recommender.py::test_groupby_combinations  — 500×500 near-unique 조합
+  → 즉 임계값 자체를 단언하는 테스트는 groupby_scoring 3건 + recommender 2~3건. 나머지는
+    저카디(4~10) 라 통합해도 결과 불변(회귀 안전).
+
+════════════════════════════════════════════════════════════════════════
+2. 임계값 3중 분기 대조표 (통합의 핵심 근거)
+════════════════════════════════════════════════════════════════════════
+개념              | 메인 엔진(candidate_engine   | recommender.py        | groupby_scoring.py
+                  |  + policy)                   | (_DEFAULT_CONFIG)     | (GroupByScoreConfig)
+------------------+------------------------------+-----------------------+---------------------
+constant(단일)    | nd<=1                        | distinct<=1(single)   | card<=1(SINGLE_VALUE)
+low 상한          | 50 (_GB_CARD_LOW_MAX)        | 20                    | ideal 20
+medium/mid 상한   | 200 (_GB_CARD_MEDIUM_MAX)    | (없음, low 다음 mid)  | safe 200
+high 상한         | 1000 (_GB_CARD_HIGH_MAX)     | 1000                  | (200 초과 즉시 배제)
+auto 허용 등급    | {low,medium,unknown}         | {low,mid}             | 점수 상위 3
+near-unique 비율  | 0.9 (GB_IDENTIFIER_RATIO)    | 0.9                   | 0.9
+절대 그룹수 상한  | 60 (GENERAL_COLUMN_MAX_GROUPS| ★ 없음(단일컬럼)      | ★ 없음(200이 대용)
+  (오늘 수정 #1)  |  , config 중앙+env)          |   조합만 100000       |
+날짜 durable 구제 | ★ 있음(date_bucket enrich    | ★ 없음                | ★ 없음
+  (오늘 수정 #2)  |   /subtype durable, 65fd1a0) |                       |
+이름 단어 heuristic| ★ 금지(§37)                 | ★ 사용(_ID_HINTS 등)  | 미사용(외부 business_score)
+PG 음수 n_distinct| ★ 처리(-1=완전고유)          | ★ 미처리              | ★ 미처리
+business 최소기준 | (semantic 게이트)            | (dict_ev/근거 조합)   | business_min=0.3
+
+핵심: low 경계(50 vs 20), 절대상한 60 부재, 날짜 durable 부재, PG 음수비율 미처리,
+      이름 heuristic 사용 — 이 5가지가 진단 경로를 메인과 다르게 만드는 실제 지점.
+
+════════════════════════════════════════════════════════════════════════
+3. 통합 설계안 — 경계선과 시그니처
+════════════════════════════════════════════════════════════════════════
+[통합 대상 = '카디널리티 등급 + 배제 판정' 앞단만]
+[유지 대상 = diagnosis 고유 로직 전부]
+  · recommender.py: _exhaustive()(MATCH_KEY/CHUNK_KEY/HASH_COMPARE/composite hint),
+                    _combinations()(조합 추정·정렬), build_candidate_quality_summary()(피드백),
+                    SUM 근거 결합/신뢰도(_conf), evidence 구조체(build_evidence 출력 스키마)
+  · groupby_scoring.py: score_candidate()의 속도·인덱스·scope_filter 점수, 등급별 가중(weights),
+                        rank 정렬/max_recommended/pool 보존, drilldown 연동 반환 스키마
+  → 이들은 '판정 결과(등급/배제 여부)를 입력으로 소비'만 하도록 앞단 교체.
+
+[신설 공통 core] services/candidate_recommendation_policy.py 에 순수 함수 추가(상위 위치 →
+  단방향 유지: services.diagnosis 가 services 상위를 import 하는 것은 기존에도 존재하므로
+  순환 없음. 역방향(policy → diagnosis) import 금지):
+
+  def classify_cardinality(n_distinct, *, row_count=None, is_pk=False, is_unique=False,
+                           general_max_groups=None) -> dict:
+      """단일 함수: 엔진 등급표(low50/med200/high1000) + near-unique(0.9) + 절대상한(60,
+         config 중앙) + PG 음수비율 을 한 곳에서 판정. 반환:
+         {'class': 'constant|low|medium|high|very_high|near_unique|unknown',
+          'auto_ok': bool, 'excluded': bool, 'exclude_reason': str|None,
+          'distinct_resolved': int|None, 'ratio': float|None}."""
+
+  def is_date_durable_excluded(col_evidence) -> tuple[bool, str|None]:
+      """날짜형 durable 판정(subtype/type 기반). date_bucket 변환 가능성 있으면 (False,None)
+         = 구제 대상. 초 단위 raw 등 축 불가면 (True, 사유)."""
+
+  ※ 두 함수 모두 '판정만' — 후보 삭제/점수/실행 없음. 상수(50/200/1000/0.9/60)는
+    엔진 상수(_GB_CARD_*)와 config(GENERAL_COLUMN_MAX_GROUPS)를 단일 출처로 재사용.
+
+[어댑터 필요 여부]
+  · recommender.py: 입력 키가 상이(distinct_count/n_distinct/cardinality) → 얇은 어댑터로
+    표준 입력 dict 로 변환 후 classify_cardinality 호출. 반환 class 를 기존 문자열
+    (single/low/mid/high/near_unique)로 매핑(호출부 스키마 보존) 또는 스키마도 동시 정렬.
+  · groupby_scoring.py: _exclusion() 내부의 카디널리티 분기(single/near/safe_max)를
+    classify_cardinality 결과로 치환. EXC_* 사유코드는 매핑표로 보존(테스트 하위호환).
+
+[경계선 다이어그램]
+  [입력 컬럼 메타]→(어댑터)→[classify_cardinality + is_date_durable_excluded]  ← 공통 core(단일)
+        │                                   │
+        │ (등급/배제만 소비)                 └ 오늘 수정 #1(60)·#2(날짜) 자동 반영
+        ▼
+  recommender: SUM 근거/조합/전수검증 후보    groupby_scoring: 점수/가중/정렬/drilldown
+   (그대로 유지)                               (그대로 유지)
+
+════════════════════════════════════════════════════════════════════════
+4. 영향도 재확인 — diagnosis 판정이 실제로 바뀌는 컬럼
+════════════════════════════════════════════════════════════════════════
+(예: 오늘 본 C_DATE 900건짜리)
+  · 현행 recommender: C_DATE(distinct 900) → 날짜형이지만 카디 mid(≤1000) → GB 후보/조합 진입
+    (절대상한 60 없음, 날짜 durable 없음) → '추천/후보'로 노출될 수 있음.
+  · 현행 groupby_scoring: 900 > safe_group_max(200) → EXC_CARDINALITY_HIGH(배제).
+  · 통합 후: classify_cardinality → 900 > 60(절대상한) → excluded=True. 이후 date durable
+    판정으로 '월/분기/연 변환 가능'하면 date_bucket 구제(엔진과 동일), 변환 불가(초 단위)면
+    배제 유지. → 즉 통합 후 diagnosis 도 메인 화면과 동일하게 '기간 변환 구제' 를 받음.
+  결론: 실제 판정이 바뀌는 컬럼군 =
+   (1) distinct 60~200 사이 일반 컬럼: recommender 는 '후보'였으나 통합 후 절대상한으로 배제.
+   (2) distinct 60~1000 날짜 컬럼: 통합 후 date_bucket 구제 경로 확보(현재는 recommender 무구제
+       /groupby_scoring 200 초과 단순 배제).
+   (3) PG 음수 n_distinct 컬럼: 현재 recommender/scoring 은 unknown 처리 → 통합 후 비율 등급화.
+  실제 UI 영향 범위:
+   - 전수검증/배치 상세 '3.후보추천' 표시(candidate_recommendation): recommender 산출 —
+     단, 라이브 producer 부재로 도달 빈도 낮음(자문 엔드포인트). 영향 '표시 정합' 위주.
+   - 드릴다운 전략 화면(strategy-orchestrate, tabler_renderer:17362): rank 추천 GB 개수 변동 →
+     route_drilldown 의 group_by_candidate_count 변동 → next_action 이 바뀔 수 있음(실질 영향 ★).
+
+════════════════════════════════════════════════════════════════════════
+5. 단계별 실행 계획 (로드맵)
+════════════════════════════════════════════════════════════════════════
+1단계 — 카디널리티 등급 통합(순수 core 신설 + 소비 전환)
+  · classify_cardinality 신설(엔진 상수 재사용). recommender._card_class /
+    groupby_scoring._exclusion 카디 분기를 core 호출로 치환. EXC_* / class 문자열은 매핑
+    보존. 이 단계에선 '값(50/200/1000)'을 엔진 기준으로 통일하되 절대상한/날짜는 미적용.
+  · 회귀: 저카디(4~10) 테스트 전부 그린 확인. 경계 테스트(HIGH500, ORDER_YM24)만 기대치 갱신.
+
+2단계 — 절대 그룹수 상한(60) + 날짜 durable 구제 반영
+  · classify_cardinality 에 general_max_groups(config) 주입, is_date_durable_excluded 배선.
+  · groupby_scoring/recommender 가 excluded/구제 결과 소비. date_bucket 구제 경로는 엔진과
+    동일 함수 재사용(중복 구현 금지).
+  · 회귀: distinct 60~1000 컬럼 신규 배제/구제 케이스 테스트 추가. strategy-orchestrate
+    next_action 변화 유무를 대량 시뮬(mass_batch_simulator)로 스냅샷 비교.
+
+3단계 — 이름 단어 heuristic 제거(§37 준수) + 회귀 테스트 전면 재작성
+  · recommender._ID_HINTS/_MEASURE_HINTS 등 dict_ev 강배제 경로 제거 →
+    근거(profile/구조) 기반으로 대체(엔진 정책과 동일). 제거로 판정이 바뀌는 SUM/GB 후보
+    목록을 라이브 프리셋(Inter/오라클 dev)으로 실측 후 테스트 기대치 재작성.
+  · 회귀: test_candidate_recommender / test_diagnosis_groupby_scoring 임계값 단언 재작성,
+    test_engine_cardinality_parity(이미 존재) 로 엔진↔진단 판정 일치 검증 추가.
+
+════════════════════════════════════════════════════════════════════════
+6. 리스크 평가 + 회귀 안전 확인 계획
+════════════════════════════════════════════════════════════════════════
+R1) 드릴다운 전략 변화(★최고위험): rank 추천 GB 개수 변동 → next_action 변경.
+    → 각 단계 전후로 mass_batch_simulator/realworld_samples orchestrate 결과 스냅샷 비교.
+      next_action 변동 건은 개별 사유 확인(의도된 변화만 승인). 라이브 strategy-orchestrate
+      클릭스루(dev_e2e) 로 화면 확인.
+R2) MATCH_KEY/CHUNK_KEY 판정 변동: 통합은 '카디 앞단'만 교체하므로 _exhaustive 는 불변이나,
+    PK/Unique 게이트가 core 로 이동하면 near-unique 경계에서 MATCH_KEY 후보 여부가 바뀔 수
+    있음. → _exhaustive 의 PK/Unique 소스는 기존 uniqueness_evidence 유지(카디 core 와 분리),
+      test_matchkey_chunkkey_profile 로 고정.
+R3) 이름 heuristic 제거로 SUM 오배제/오추천: PHONE_NO/LOAD_DT 등 이름으로 걸러지던 케이스가
+    profile 근거로만 판정될 때 결과 상이. → 3단계에서 라이브 실측 후 기대치 재작성(임의 변경
+    금지). 근거를 evidence 에 저장해 explainability 보강.
+R4) 하위호환 스키마 깨짐: recommender 반환 class 문자열(single/mid), groupby EXC_* 사유코드가
+    UI/테스트에 노출. → 매핑표로 기존 문자열 보존. 스키마 변경은 별도 승인 후.
+R5) 의존 방향/순환 import: core 를 services 상위에 두고 diagnosis 가 소비(역import 금지).
+    → import 그래프 점검(1단계 PR 체크리스트).
+
+전 단계 공통 게이트(각 단계 완료 시):
+  python samples/test_virtual_cases.py / test_complex_cases.py (회귀)
+  python -m pytest tests/test_diagnosis_groupby_scoring.py tests/test_candidate_recommender.py
+    tests/test_diagnosis_strategy_orchestrator.py tests/test_engine_cardinality_parity.py -q
+  사전 존재 실패 4건(facade/quality/upload)은 회귀 신호에서 제외(무관).
+
+════════════════════════════════════════════════════════════════════════
+7. 결론 / 권고
+════════════════════════════════════════════════════════════════════════
+- 통합은 타당(임계값 3중 분기·오늘 수정 미반영·§37 위반 heuristic 실존). 단, 순수-함수 계약과
+  단방향 의존을 지키기 위해 '카디널리티 판정 앞단만' core 로 올리고 diagnosis 고유 로직
+  (MATCH_KEY/CHUNK_KEY/HASH_COMPARE·드릴다운 축·점수/조합)은 소비자로 보존.
+- 실질 라이브 영향은 strategy-orchestrate(드릴다운 전략) 경로에 집중 — 여기 회귀만 특히
+  엄격히(스냅샷 비교 + 클릭스루). recommender 는 고립 자문 엔드포인트라 영향 낮음(표시 정합).
+- 3단계 분리(등급통일 → 상한/날짜 → 이름heuristic 제거)로 각 단계 롤백 가능하게 진행.
+- 이번 작업은 계획서만 — 코드 수정 없음. 실제 구현은 승인 후 1단계부터.
+
+✅ 작업 완료 - 진단 후보 카디널리티 판정 중복 통합 계획 수립(코드 수정 없음, 계획서만)
