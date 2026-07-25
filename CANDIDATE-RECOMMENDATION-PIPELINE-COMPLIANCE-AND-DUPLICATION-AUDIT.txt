@@ -1,0 +1,154 @@
+작업명 : CANDIDATE-RECOMMENDATION-PIPELINE-COMPLIANCE-AND-DUPLICATION-AUDIT
+⚠️ 추가 작업 필요 - 후보추천 파이프라인 절차 준수·라이브 재검증은 회귀 없이 전부 통과, 단 services/diagnosis 패키지에 GROUP BY/SUM 후보추천 병렬 중복 구현 발견(통합 검토 필요, 코드 수정 없음)
+
+════════════════════════════════════════════════════════════════════════
+[0] 감사 개요
+════════════════════════════════════════════════════════════════════════
+- 목적: 오늘 GROUP-CANDIDATE-QUALIFICATION-PIPELINE-ORDER-AUDIT(13:55)에서 확정한 후보추천
+  파이프라인이, 그 이후 두 수정을 거친 지금도 계획된 순서·절차대로 지켜지는지 + 중복 구현 여부.
+- 이후 반영된 수정 2건(감사 시점 이후/전후):
+    · 65fd1a0 (13:44) FALLBACK-RECOMMENDATION-BYPASSES-DATE-BUCKET-EXCLUSION-FIX (_is_date durable 강화)
+    · 1c6a5d2 (14:55) GENERAL-COLUMN-ABSOLUTE-GROUP-COUNT-CAP (일반 GROUP BY 절대 그룹수 상한 60)
+- 코드 수정 없음. 절차 추적 + 라이브 재검증(포트 8000·인증 ON·실 오라클) + 중복 감사만 수행.
+
+════════════════════════════════════════════════════════════════════════
+[1] 절차 준수 검증 — 파이프라인 순서 그대로 유지됨 (PASS)
+════════════════════════════════════════════════════════════════════════
+■ 후행 확정 core: services/candidate_postcount_finalize.py::finalize_recommendation_postcount
+  계획된 ①~⑦ 순서가 코드상 그대로 살아있음(라인 대조):
+    ① _run_bounded_sample (5만행 제한 샘플)                        [:614]
+    ② _inject_profile_evidence + _reset_stale_selection            [:625-628]
+    ②-b resolve_candidate_sample_values (값 샘플 LIMIT 100)        [:638-650]
+    ③ enrich_candidates_for_display (점수·자동추천 top-N)          [:659-669]
+    ④ attach_evidence_contracts (row_count 결합)                   [:677-687]
+    ⑤ apply_recommendation_gates (하드 배제/강등, demote-only)     [:695-696]
+    ⑥ date_bucket profile enrich + promote                         [:706-717]
+    ⑦ evidence guard + 대체 기본추천 + 계약 통일                    [:723-774]
+  → 순서 뒤바뀜/단계 누락/조기 return 없음. 건너뛴 단계 없음.
+
+■ 수정 1 (절대 그룹수 상한, 1c6a5d2) — ⑤ 게이트 안에 올바르게 삽입, 순서 무손상
+  · 위치: candidate_recommendation_policy._gate_verdict, GROUP_BY 분기(:89-104).
+  · 기존 '고유값 비율≥0.9' 배제와 OR 관계(둘 중 하나만 걸려도 EXCLUDED). 비율 판정 '다음'에 위치.
+  · 판정 입력은 계약에 이미 확정된 distinct_count(=resolved_distinct)만 재사용 — 새 계산/새 쿼리 없음.
+  · 상한값은 config.GENERAL_COLUMN_MAX_GROUPS(기본 60, env 폴백) 단일 출처. 하드코딩 아님.
+  · 날짜 후보도 예외 없이 ⑤에서 걸리되, ⑥ date_bucket enrich 가 변환 가능하면 '제외' 표식을 비워
+    되살린다(기존 구제 경로 재사용). → ⑤가 ⑥보다 먼저 실행되는 순서가 이 구제의 전제이며, 순서 유지됨.
+  · analyze 단계(single_validation_analyze_service:1579-1597)는 bucket profile 이 아직 없어 기간 변환
+    적합성을 판정할 수 없으므로, DATE_BUCKET_CANDIDATE 가 '그룹 개수 과다 사유 단독'으로만 배제된
+    경우 원 상태로 되돌린다(비율/PK 동반 배제는 유지). → ⑥ 구제 전제를 analyze 단계에서 선제 파괴하지
+    않도록 방어. 순서 원칙과 정합.
+
+■ 수정 2 (_is_date durable, 65fd1a0) — ⑦ 안에 올바르게 반영, 순서 무손상
+  · 위치: fallback_recommendation._is_date(:58-75). 4개 durable 신호로 강화:
+      date_bucket_candidate/DATE_BUCKET_CANDIDATE, date_bucket_type_blocked,
+      candidate_subtype==DATE_DAILY, _has_real_date_type(실 date/timestamp 저장 타입).
+  · ⑦ 승격 순서: promote_general_fallback_default(gb)[:741] → promote_fallback_date_candidate(gb)[:742].
+    _is_date 후보는 일반 경로(741)에서 durable 배제되고 오직 날짜 경로(742, 그룹개수 게이트)로만 승격.
+  · → raw 일/초 단위 timestamp 가 일반 fallback 으로 자동선택되던 우회가 막힘. 순서 자체는 종전과 동일.
+
+■ 두 수정의 상호작용 = 충돌 없음. 오히려 ⑤(절대상한 배제) → ⑥(날짜 버킷 구제) → ⑦(날짜/일반 경로 분리)
+  세 단계가 서로 맞물려 동작한다. 아래 라이브 재검증의 C_DATE 가 이 삼중 맞물림의 실증이다.
+
+════════════════════════════════════════════════════════════════════════
+[2] 실측 재검증 — 대표 5개 케이스 전부 회귀 없이 재현 (PASS)
+════════════════════════════════════════════════════════════════════════
+환경: http://127.0.0.1:8000 (인증 ON, e2e 계정) · 실 오라클 asis→tobe · 실 브라우저 클릭스루
+드라이버: scripts/dev_e2e/general_column_cap_live_clickthrough.py (합성 주입 없음, 1~3단계 클릭만)
+스크린샷: E:\verify_screenshots_only\CANDIDATE-RECOMMENDATION-PIPELINE-COMPLIANCE-AND-DUPLICATION-AUDIT\
+  · xdiff_01~03_*.png (MV_ORA_XDIFF)   · demo_01~03_*.png (MV_ORA_DEMO)
+
+── (A) MV_ORA_XDIFF_SRC(250,000행) → TGT(249,950행) ── [xdiff_03_step3_candidates.png]
+  C_TS3   distinct=86472 → EXCLUDED_BY_RULE · 배지 '정책상제외' · 체크 불가
+          사유 '그룹 개수 과다(86472개 > 상한 60개) — 집계 의미 없음'   ← 수정1(절대상한) 작동
+  C_TS    distinct=250000 → EXCLUDED_BY_RULE (고유값 비율 과도 §22)      ← 비율 배제 회귀 없음
+  C_TS6   distinct=248448 → EXCLUDED_BY_RULE (고유값 비율 과도 §22)      ← 비율 배제 회귀 없음
+  C_DATE  distinct=900 → ⑤에서 절대상한(900>60) 배제됐다가 ⑥ date_bucket enrich 로
+          bucket=month 구제 → SELECTED_DEFAULT · 배지 '대체 기본추천(35점)' · 체크 가능 · 기간컨트롤 O
+          ← 수정1+수정2+⑤→⑥→⑦ 순서 삼중 맞물림의 실증(정상 날짜축 오배제 없음)
+  ID      PK → EXCLUDED_BY_RULE '행마다 고유값이라 그룹 기준 부적합'      ← 구조적 배제
+  [판정] C_TS3 절대상한 배제=성공 · C_TS/C_TS6 비율배제 회귀없음=성공 · C_DATE 오배제없음=성공
+
+── (B) MV_ORA_DEMO_SRC → TGT (저카디널리티 정상 + 명칭-값 대조) ── [demo_03_step3_candidates.png]
+  STATUS_CD distinct=4 → SELECTED_DEFAULT · '기본추천(70점)'   ← 정상 후보(상한 무영향) 회귀 없음
+  DEPT_CD   distinct=6 → SELECTED_DEFAULT · '기본추천(65점)'   ← 정상 후보(상한 무영향) 회귀 없음
+  REG_DT    distinct=150 → EXCLUDED_BY_RULE · 배지 '정책상제외 ⚠ 명칭-값 불일치'
+            (코멘트 '등록일시'는 관리컬럼 시사하나 값 검증 불일치 → 신중 확인 경고)  ← 명칭-값 불일치 정상
+  ID        PK → EXCLUDED_BY_RULE                              ← 구조적 배제
+  [판정] 저카디널리티 정상 컬럼(STATUS_CD,DEPT_CD) 절대상한 무영향=성공, 이 SQL 절대상한 배제 컬럼=없음
+
+→ 오늘 고친 모든 수정이 동시에 정합성 있게 작동. 회귀 신호 없음.
+
+════════════════════════════════════════════════════════════════════════
+[3] 중복 구현 감사 — 결과
+════════════════════════════════════════════════════════════════════════
+■ 일괄검증(batch) 통계검증 = 중복 아님 (메인 core 재사용 확인)
+  · services/batch_runner.py:104,120 → candidate_engine.build_column_candidates + enrich_candidates_for_display
+    (개별검증과 동일 core). test_batch_runner_candidate_core_parity / test_batch_flow2_candidate_core_parity
+    가 parity 를 강제. → 별도 추천 로직 없음. 정상(공통화 준수).
+
+■ 발견된 병렬 중복 구현 = services/diagnosis 패키지 (진단/전수검증/드릴다운 서브시스템)
+  (1) services/diagnosis/candidate/recommender.py :: recommend_candidates
+      - 메인 파이프라인(candidate_engine→enricher→evidence_contract→recommendation_policy→postcount)과
+        완전히 별개인 자체 완결 순수함수. 자체 보유:
+          · 카디널리티 등급 _card_class: low≤20 / mid≤1000 / near_unique(비율 0.9)  (:92-105)
+            ↔ 메인은 LOW≤50 / MEDIUM≤200 / HIGH≤1000, 절대상한 60  — 경계값이 서로 다름
+          · near_unique_ratio 0.9, high_cardinality_cap 1000 (:45-46) — 메인 GB_IDENTIFIER 0.9 와 별도 상수
+          · 이름 단어 heuristic _ID_HINTS/_MEASURE_HINTS/_AUDIT_HINTS/_STATUS_HINTS/_PERIOD_HINTS/
+            _REGION_DEPT_HINTS (:32-39) — 메인 정책이 '컬럼명 단어 heuristic 추가 금지'로 명시 배제한 방식
+          · 자체 SUM/GROUP BY 후보 판정·조합·제외 로직 (_sum_candidate/_groupby_candidate/_combinations)
+      - 호출부: routes/diagnosis_route.py:1066 (/diagnosis/candidate-recommend) 단 1곳.
+        → static/ui/templates 어디에서도 이 엔드포인트를 호출하지 않음(UI 배선 없음).
+        → 개별검증 4단계 화면(주 통계검증 흐름)에는 전혀 유입되지 않음.
+  (2) services/diagnosis/groupby_scoring.py :: rank_groupby_candidates
+      - 자체 GROUP BY 스코어링/제외: near_unique_ratio 0.9, ideal_cardinality 20, safe_group_max 200 (:33-35)
+      - 호출부: routes/diagnosis_route.py:1619 (/diagnosis/groupby-score) + strategy_orchestrator(드릴다운 축 선정)
+
+■ 중복 아님(오해 소지 있으나 실제로는 별개 축)
+  · db_statistics_service._UNIQUE_LIKE_RATIO_THRESHOLD 0.9 : 메인 파이프라인 상류의 '통계 제공자' 단일
+    출처(위험 플래그 산출). 중복이 아니라 메인이 소비하는 근거원.
+  · candidate_scoring_runner.py Gate 4 (n_distinct_ratio≥0.9) : scripts/run_candidate_scoring* 대시보드/
+    dry-run 도구 전용. 라우트/analyze 경로에 미배선 → 운영 중복 아님(평가 하네스).
+
+════════════════════════════════════════════════════════════════════════
+[4] 중복 성격 판단 — 부분적으로 정당하나 GROUP BY/SUM 부분은 통합 필요
+════════════════════════════════════════════════════════════════════════
+■ 정당한 분리(재사용 불가 사유 있음):
+  - diagnosis 서브시스템은 '전수검증(행 단위 대조)'용 역할 후보(MATCH_KEY / CHUNK_KEY / HASH_COMPARE /
+    EXCLUDE)와 '불일치 드릴다운 축 선정'을 담당한다. 이 역할들은 메인 통계검증 엔진에 존재하지 않는다.
+    → recommender.py 의 exhaustive/match_key/chunk_key/hash 부분은 고유 책임이라 별도 존재가 정당하다.
+
+■ 위험한 중복(복붙 성격, 프로젝트 원칙 '공통화·분리화 최우선, 중복 금지' 위배):
+  - GROUP BY / SUM 후보의 '카디널리티 등급 판정 + near-unique/식별자 배제 + 저카디 그룹 적합성' 로직이
+    메인 엔진과 diagnosis 양쪽에 각각 구현돼 있고, 임계값이 서로 다르다(low 20 vs 50, mid 1000 vs 200,
+    절대상한 60은 diagnosis 에 아예 없음).
+  - 오늘의 두 수정(절대 그룹수 상한 60, 날짜형 durable 배제)은 메인에만 반영됐고 diagnosis 에는 없다.
+    예) 오늘 C_DATE(distinct 900) 는 메인에선 '월 버킷 구제'되지만, diagnosis recommender 기준으론
+        900≤1000 이라 그냥 'mid' 로 추천되고(날짜 버킷 개념 자체가 없음), groupby_scoring 기준으론
+        900>200 이라 '그룹 과다'로 제외된다 — 세 경로가 같은 컬럼에 서로 다른 결론.
+  - 또한 diagnosis 는 이름 단어 heuristic 을 쓰는데, 이는 메인 정책이 근거저장(explainability) 취약을
+    이유로 금지한 방식이다.
+  → 앞으로 후보추천 GROUP BY/SUM 규칙이 바뀔 때마다 두 곳을 따로 고쳐야 하고, 누락 시 조용히 divergence
+    가 발생하는 구조적 부채가 실재한다.
+
+■ 지금의 실질 영향도 = 낮음
+  - /diagnosis/candidate-recommend 는 UI 미배선(사실상 미사용/실험 엔드포인트), diagnosis GROUP BY/SUM
+    추천은 전수검증 상세화면에 국한되고 주 4단계 통계검증 흐름에 유입되지 않음. 사용자 대면 버그 아님.
+
+■ 권장 대응책(문서화 우선 — 즉시 리팩토링 아님):
+  - GROUP BY/SUM 의 '카디널리티 등급·near-unique/식별자 배제·저카디 적합성' 결정을 메인 공통 core
+    (candidate_engine + candidate_recommendation_policy 상수)로 단일화하고, diagnosis 는 그 결과를 소비만
+    하도록 전환. diagnosis 고유 역할(MATCH_KEY/CHUNK_KEY/HASH/드릴다운 축)은 그대로 분리 유지.
+  - 대규모 리팩토링에 해당하므로(완료된 모듈 다수 관여) CLAUDE.md 규칙대로 계획 제시 + 사용자 승인 후
+    별도 작업으로 진행 권장. 본 감사에서는 코드 수정 없음.
+
+════════════════════════════════════════════════════════════════════════
+[5] 결론
+════════════════════════════════════════════════════════════════════════
+- 절차 준수: PASS — ①~⑦ 순서 무손상, 두 수정 모두 올바른 위치·순서로 삽입, 상호 충돌 없음.
+- 라이브 재검증: PASS — 대표 5개 케이스(STATUS_CD/DEPT_CD·C_TS3·C_DATE·REG_DT·ID/PK) 회귀 없이 재현.
+- 중복 구현: 존재함 — services/diagnosis/candidate/recommender.py + services/diagnosis/groupby_scoring.py.
+  일부(전수검증 고유 역할)는 정당, GROUP BY/SUM 판정 부분은 병렬 중복이며 오늘 수정 미반영 → 통합 필요.
+  단 현 시점 사용자 대면 영향은 낮음(UI 미배선). 통합은 계획 수립 후 별도 작업 권장.
+
+작업명 : CANDIDATE-RECOMMENDATION-PIPELINE-COMPLIANCE-AND-DUPLICATION-AUDIT
+⚠️ 추가 작업 필요 - 후보추천 파이프라인 절차 준수·라이브 재검증은 회귀 없이 전부 통과, 단 services/diagnosis 패키지에 GROUP BY/SUM 후보추천 병렬 중복 구현 발견(통합 검토 필요, 코드 수정 없음)
