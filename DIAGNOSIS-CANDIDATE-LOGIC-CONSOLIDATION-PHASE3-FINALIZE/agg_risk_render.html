@@ -1,0 +1,263 @@
+<!doctype html><html lang='ko'><head><meta charset='utf-8'><style>body{font-family:'Malgun Gothic',sans-serif;padding:16px;background:#fff}.mv-diag-meta td{padding:2px 8px;border-bottom:1px solid #eee}</style></head><body><h3 style='font-size:.95rem'>SUM 후보추천 — aggregation_risk 위험표기 렌더(PHASE3-FINALIZE)</h3><div id='mount'></div><script>function esc(s){return s==null?'':String(s);}
+function _mvCandConfBadge(c) {
+  var M = { HIGH:['#e6f4ea','#1e7e34'], MEDIUM:['#fff4e0','#a86500'], LOW:['#eef2ff','#3b4ea8'] };
+  var m = M[c] || ['#f1f3f5','#6b7280'];
+  return '<span style="font-size:.68rem;font-weight:600;padding:1px 6px;border-radius:8px;background:' + m[0] + ';color:' + m[1] + '">' + (c||'-') + '</span>';
+}
+function _mvRenderCandidateRecommendation(rec) {
+  var E = (typeof esc === 'function') ? esc : function(v){ return v==null?'':String(v); };
+  if (!rec) return '<div class="text-secondary" style="font-size:.82rem">후보추천 결과가 없습니다.</div>';
+  var h = '<div style="font-weight:600;font-size:.85rem;margin:8px 0 6px">🧠 후보추천 <span style="font-weight:400;color:#6b7280;font-size:.75rem">(evidence 기반 · 자동 실행 아님)</span></div>';
+  function _recoTable(title, arr, cols) {
+    var a = arr || [];
+    var s = '<div style="font-weight:600;font-size:.8rem;margin:5px 0 2px">' + E(title) + ' <span style="color:#6b7280;font-weight:400;font-size:.72rem">(자동추천)</span></div>';
+    if (!a.length) return s + '<div class="text-secondary" style="font-size:.76rem">추천 후보 없음</div>';
+    s += '<table class="mv-diag-meta" style="width:100%;font-size:.76rem"><tbody>';
+    a.forEach(function(x){
+      s += '<tr><td>' + E(cols(x)) + '</td><td>' + _mvCandConfBadge(x.confidence) + '</td>'
+         + '<td style="font-size:.72rem;color:#6b7280">' + E(x.reason || x.combination_reason || '-')
+         + (x.aggregation_risk ? (' <span style="color:#a86500">⚠ ' + E([].concat(x.aggregation_risk).join(', ')) + '</span>') : '')
+         + (x.candidate_risk ? (' <span style="color:#a86500">⚠ ' + E([].concat(x.candidate_risk).join(', ')) + '</span>') : '') + '</td></tr>';
+    });
+    return s + '</tbody></table>';
+  }
+  function _excl(title, arr, key) {
+    var a = arr || []; if (!a.length) return '';
+    return '<div style="font-size:.76rem;color:#6b7280;margin-top:2px">' + E(title) + ' 제외: '
+         + a.slice(0,12).map(function(x){ return E(key(x)) + '(' + E((x.reason||x.excluded_reason||'')) + ')'; }).join(', ') + '</div>';
+  }
+  h += _recoTable('GROUP BY', rec.groupby && rec.groupby.recommended, function(x){ return x.column; });
+  h += _excl('GROUP BY', rec.groupby && rec.groupby.excluded, function(x){ return x.column; });
+  h += _recoTable('SUM', rec.sum && rec.sum.recommended, function(x){ return x.column + ' [' + E(x.aggregation_meaning||'') + ']'; });
+  h += _excl('SUM', rec.sum && rec.sum.excluded, function(x){ return x.column; });
+  var combos = rec.groupby_combinations && rec.groupby_combinations.recommended_combinations;
+  h += _recoTable('GROUP BY 조합', combos, function(x){ return (x.columns||[]).join(' + ') + ' (예상그룹 ' + E(x.estimated_group_count!=null?x.estimated_group_count:'-') + ')'; });
+  var ex = rec.exhaustive_validation_candidates || {};
+  h += _recoTable('MATCH_KEY', ex.match_key_candidates, function(x){ return x.column; });
+  h += _recoTable('CHUNK_KEY', ex.chunk_key_candidates, function(x){ return x.column; });
+  h += _excl('HASH 비교', ex.excluded_compare_columns, function(x){ return x.column; });
+  var q = rec.candidate_quality_summary || {};
+  if (q.total_feedback) {
+    h += '<div style="font-size:.76rem;color:#374151;margin-top:4px">피드백 참고: 총 ' + E(q.total_feedback)
+       + ' · override율 ' + E(q.override_rate!=null?q.override_rate:'-') + ' · 신뢰도 ' + E(q.feedback_confidence) + '</div>';
+  }
+  h += '<div class="text-secondary" style="font-size:.72rem;margin-top:4px">추천은 후보 pool 중 상위 N(각 최대 3)이며 자동 실행이 아닙니다. 최종 선택은 사용자가 확인합니다. 개별/일괄 동일 core.</div>';
+  return h;
+}
+
+/* === Phase 89~92: 운영 Dashboard / Batch History / Result 조회 표시(조회 전용 · 저장 없음). === */
+function _mvTrunc(v, n) { var s = v==null?'':String(v); n = n||40; return s.length>n ? s.slice(0,n)+'…' : s; }
+function _mvEmptyBox(msg) {
+  var E = (typeof esc === 'function') ? esc : function(v){ return v==null?'':String(v); };
+  return '<div class="text-secondary" style="font-size:.8rem;padding:10px 12px;background:#f8fafc;border:1px dashed #e2e8f0;border-radius:8px">' + E(msg) + '</div>';
+}
+function _mvRenderOpsDashboard(ops) {
+  var E = (typeof esc === 'function') ? esc : function(v){ return v==null?'':String(v); };
+  if (!ops) return _mvEmptyBox('운영 요약을 불러올 수 없습니다.');
+  if (ops.empty) return '<div style="font-weight:600;font-size:.85rem;margin:8px 0 6px">🗂 운영 Dashboard</div>' + _mvEmptyBox('아직 실행 근거(telemetry/배치 run)가 없습니다. 검증/진단을 실행하면 요약이 표시됩니다.');
+  var cs = ops.current_status || {}, rf = ops.recent_failures || {};
+  var h = '<div style="font-weight:600;font-size:.85rem;margin:8px 0 6px">🗂 운영 Dashboard</div>';
+  h += '<div style="font-size:.82rem;color:#374151;margin-bottom:4px">실행중 batch ' + E(cs.running_batch_count||0)
+     + ' · 부분완료 ' + E(cs.partial_completed_count||0)
+     + ' · 최근 batch ' + E(cs.latest_batch_run ? (_mvTrunc(cs.latest_batch_run.batch_run_id,16)+' ('+(cs.latest_batch_run.status||'-')+')') : '-')
+     + ' · 최근 report ' + E(cs.latest_report ? _mvTrunc(cs.latest_report.report_id,16) : '-') + '</div>';
+  h += '<div style="font-size:.8rem;color:#374151">최근 실패/HOLD: ERROR ' + E(rf.error_count||0) + ' · TIMEOUT ' + E(rf.timeout_count||0)
+     + ' · HOLD ' + E(rf.hold_count||0) + (rf.top_hold_reasons&&rf.top_hold_reasons.length ? (' · 대표 HOLD: ' + rf.top_hold_reasons.map(function(x){return E(x.key)+'('+E(x.count)+')';}).join(', ')) : '') + '</div>';
+  var su = ops.strategy_usage || {};
+  h += '<div style="font-size:.8rem;color:#374151;margin-top:2px">전략 사용률: '
+     + ['HASH_BUCKET_SPLIT','KEY_RANGE_SPLIT','ROW_DIFF_ALLOWED','BUSINESS_GROUP_DRILLDOWN','HOLD'].map(function(k){return E(k)+' '+E(su[k]||0);}).join(' · ') + '</div>';
+  function _top(title, arr) { var a=arr||[]; if(!a.length) return ''; return '<div style="font-size:.78rem;color:#6b7280">'+E(title)+': '+a.map(function(x){return E(x.key)+'('+E(x.count)+')';}).join(', ')+'</div>'; }
+  h += _top('원인 TOP', ops.root_cause_top) + _top('컬럼 TOP', ops.column_top);
+  var rr = ops.recent_reports || [];
+  if (rr.length) {
+    h += '<div style="font-weight:600;font-size:.78rem;margin:4px 0 1px">최근 Report</div>';
+    rr.forEach(function(r){ h += '<div style="font-size:.75rem;color:#374151">' + E(_mvTrunc(r.report_id,18)) + ' · ' + E(r.scope||'-') + ' · ' + E(r.strategy||'-') + ' · ' + E(r.top_root_cause||'-')
+       + (r.excel_ref ? (' · <a href="/diagnosis/investigation-report/'+encodeURIComponent(r.excel_ref)+'/excel" style="font-size:.72rem">Excel</a>') : '') + '</div>'; });
+  }
+  var ov = ops.recent_overrides || [];
+  if (ov.length) {
+    h += '<div style="font-weight:600;font-size:.78rem;margin:4px 0 1px">최근 Override</div>';
+    ov.forEach(function(o){ h += '<div style="font-size:.75rem;color:#a86500">추천 ' + E(o.recommended_strategy||'-') + ' → 실제 ' + E(o.actual_strategy||'-') + ' 🔀</div>'; });
+  }
+  h += '<div class="text-secondary" style="font-size:.72rem;margin-top:4px">조회 전용 요약입니다(저장 없음). 비-PG 는 HOLD, TEST_ONLY 는 저장되지 않습니다.</div>';
+  return h;
+}
+function _mvRenderBatchHistory(hist) {
+  var E = (typeof esc === 'function') ? esc : function(v){ return v==null?'':String(v); };
+  if (!hist || hist.empty) return '<div style="font-weight:600;font-size:.85rem;margin:8px 0 6px">📚 Batch 이력</div>' + _mvEmptyBox('조건에 맞는 배치 run 이 없습니다.');
+  var h = '<div style="font-weight:600;font-size:.85rem;margin:8px 0 6px">📚 Batch 이력 <span style="font-weight:400;color:#6b7280;font-size:.72rem">(' + E(hist.count) + ')</span></div>';
+  h += '<table class="mv-diag-meta" style="width:100%;font-size:.75rem;table-layout:fixed"><thead><tr>'
+     + '<th>run</th><th>batch</th><th>상태</th><th>진행</th><th>P/H/E/T</th><th>불일치</th><th>시작</th></tr></thead><tbody>';
+  (hist.runs||[]).forEach(function(r){
+    h += '<tr><td style="overflow:hidden;text-overflow:ellipsis">' + E(_mvTrunc(r.batch_run_id,14)) + '</td><td>' + E(_mvTrunc(r.batch_id,12)) + '</td>'
+       + '<td>' + (typeof _mvBatchStatusKo==='function'?E(_mvBatchStatusKo(r.status)):E(r.status)) + '</td>'
+       + '<td>' + E(r.progress) + (r.progress==='-'?'':'%') + '</td>'
+       + '<td style="font-size:.72rem">' + E(r.pass_count)+'/'+E(r.hold_count)+'/'+E(r.error_count)+'/'+E(r.timeout_count) + '</td>'
+       + '<td>' + E(r.mismatch_count) + '</td><td style="font-size:.71rem;color:#6b7280">' + E(_mvTrunc(r.started_at,16)) + '</td></tr>';
+  });
+  h += '</tbody></table><div class="text-secondary" style="font-size:.72rem;margin-top:3px">기존 run store 기반 조회입니다(새 저장 없음). 없는 값은 - 로 표시합니다.</div>';
+  return h;
+}
+function _mvRenderMigrationResult(res) {
+  var E = (typeof esc === 'function') ? esc : function(v){ return v==null?'':String(v); };
+  if (!res || res.empty) return '<div style="font-weight:600;font-size:.85rem;margin:8px 0 6px">🏁 검증 결과 요약</div>' + _mvEmptyBox((res&&res.message) || '표시할 배치 run 이 없습니다.');
+  var s = res.result_summary || {};
+  var h = '<div style="font-weight:600;font-size:.85rem;margin:8px 0 6px">🏁 검증 결과 요약 <span style="font-weight:400;color:#6b7280;font-size:.72rem">' + E(_mvTrunc(s.batch_run_id,18)) + '</span></div>';
+  h += '<div style="font-size:.82rem;color:#374151">상태 ' + (typeof _mvBatchStatusKo==='function'?E(_mvBatchStatusKo(s.status)):E(s.status))
+     + ' · 전체 ' + E(s.total_rows!=null?s.total_rows:'-') + ' · 진행 ' + E(s.completed_percent!=null?s.completed_percent:'-') + '%'
+     + ' · PASS ' + E(s.pass_count||0) + ' · HOLD ' + E(s.hold_count||0) + ' · ERROR ' + E(s.error_count||0) + ' · TIMEOUT ' + E(s.timeout_count||0) + '</div>';
+  function _dist(title, obj) { var k=Object.keys(obj||{}); if(!k.length) return ''; return '<div style="font-size:.78rem;color:#374151">'+E(title)+': '+k.map(function(x){return E(x)+' '+E(obj[x]);}).join(' · ')+'</div>'; }
+  h += _dist('row 상태', res.rows_summary) + _dist('전략 분포', res.strategy_distribution);
+  function _top(title, arr) { var a=arr||[]; if(!a.length) return ''; return '<div style="font-size:.76rem;color:#6b7280">'+E(title)+': '+a.map(function(x){return E(x.key||x.reason)+'('+E(x.count)+')';}).join(', ')+'</div>'; }
+  h += _top('HOLD 사유', res.hold_reason_top) + _top('ERROR 사유', res.error_reason_top);
+  var rl = res.report_links || [];
+  if (rl.length) {
+    h += '<div style="font-weight:600;font-size:.78rem;margin:4px 0 1px">Report</div>';
+    rl.forEach(function(r){ h += '<div style="font-size:.75rem">' + E(_mvTrunc(r.report_id,18)) + ' · ' + E(r.top_root_cause||'-') + ' · <a href="' + E(r.excel_url) + '" style="font-size:.72rem">Excel</a></div>'; });
+  }
+  var na = res.recommended_next_actions || [];
+  if (na.length) h += '<div style="font-size:.77rem;color:#374151;margin-top:3px">권장 조치: ' + na.map(function(x){return E(x);}).join(' · ') + '</div>';
+  var kl = res.known_limits || [];
+  if (kl.length) h += '<div class="text-secondary" style="font-size:.71rem;margin-top:4px">한계: ' + kl.map(function(x){return E(x);}).join(' · ') + '</div>';
+  return h;
+}
+
+/* === Phase 83: AUTO/Manual 전략 Override 표시(추천 vs 실제, 위험/확인/차단). planner/실행기 변경 아님. === */
+function _mvRenderStrategyOverride(ov) {
+  var E = (typeof esc === 'function') ? esc : function(v){ return v==null?'':String(v); };
+  if (!ov) return '';
+  var modeKo = (ov.mode === 'MANUAL') ? '수동(Manual)' : '자동(AUTO)';
+  var h = '<div style="font-weight:600;font-size:.82rem;margin:6px 0 3px">🔀 실행 전략 ' + E(modeKo) + '</div>';
+  h += '<div style="font-size:.8rem;color:#374151">추천 <b>' + E(ov.recommended_strategy || '-') + '</b>'
+     + ' → 실제 <b>' + E(ov.actual_strategy || '-') + '</b>'
+     + (ov.mode === 'MANUAL' ? (ov.is_override === false ? '' : ' <span style="color:#a86500;font-size:.72rem">(override)</span>') : '') + '</div>';
+  if (ov.block_reason) h += '<div style="font-size:.78rem;color:#b02a2a">차단: ' + E(ov.block_reason) + '</div>';
+  else if (ov.requires_confirm) h += '<div style="font-size:.78rem;color:#a86500">확인 필요 — 진행 전 위험을 확인하세요.</div>';
+  (ov.risk || []).forEach(function(r){ h += '<div style="font-size:.74rem;color:#a86500">⚠ ' + E(r) + '</div>'; });
+  h += '<div class="text-secondary" style="font-size:.72rem">기본은 AUTO입니다. 수동 선택은 planner/실행기 로직을 바꾸지 않으며 자동 실행이 아닙니다.</div>';
+  return h;
+}
+/* === Phase 84: 개별검증 결과 통합 패널 — 개별 렌더러를 순서대로 재사용(새 화면/렌더러 없음). === */
+function _mvRenderIndividualResultPanel(state) {
+  var E = (typeof esc === 'function') ? esc : function(v){ return v==null?'':String(v); };
+  state = state || {};
+  var h = '<div style="font-weight:700;font-size:.9rem;margin:6px 0 8px">🧭 개별검증 통합 결과</div>';
+  function _sec(title, html) {
+    if (!html) return '';
+    return '<div class="mv-ind-sec" style="border-top:1px solid #eef0f3;padding-top:6px;margin-top:8px">'
+         + '<div style="font-weight:600;font-size:.8rem;color:#475569;margin-bottom:2px">' + E(title) + '</div>' + html + '</div>';
+  }
+  /* 1) selected_plan (+cost 는 plan 내부 렌더에 포함) — 개별 렌더러 재사용 */
+  if (state.selected_plan && typeof _mvRenderSelectedPlan === 'function') h += _sec('1. 전략 계획(selected_plan · cost)', _mvRenderSelectedPlan(state.selected_plan));
+  /* 2) 전략 override(AUTO/Manual) */
+  if (state.strategy_override) h += _sec('2. 실행 전략(AUTO/Manual)', _mvRenderStrategyOverride(state.strategy_override));
+  /* 3) 후보추천 (Phase 85 연결 — 공통 core 결과 재사용) */
+  if (state.candidate_recommendation && typeof _mvRenderCandidateRecommendation === 'function') h += _sec('3. 후보추천', _mvRenderCandidateRecommendation(state.candidate_recommendation));
+  /* 4) multi_scope 계획 */
+  if (state.multi_scope_plan && typeof _mvRenderMultiScopePlan === 'function') h += _sec('4. 다중 Scope 계획', _mvRenderMultiScopePlan(state.multi_scope_plan));
+  /* 5) scope 실행 결과 */
+  if (state.scope_execution && typeof _mvRenderScopeExecResult === 'function') h += _sec('5. Scope 실행', _mvRenderScopeExecResult(state.scope_execution, false));
+  /* 6) 원인분류 + 7) 조사 보고서(개별 렌더러 재사용) */
+  if (state.investigation_report && typeof _mvRenderInvestigationReport === 'function') h += _sec('6. 원인분류 · 조사 보고서', _mvRenderInvestigationReport(state.investigation_report));
+  else if (state.mismatch_summary && typeof _mvRenderMismatchSummary === 'function') h += _sec('6. 원인분류', _mvRenderMismatchSummary(state.mismatch_summary));
+  /* 8) Excel 다운로드(보고서 있을 때) */
+  if (state.report_id) h += _sec('7. 다운로드', '<a class="btn-run" style="font-size:.74rem;padding:2px 8px;text-decoration:none" href="/diagnosis/investigation-report/' + encodeURIComponent(state.report_id) + '/excel">Excel 다운로드</a>');
+  h += '<div class="text-secondary" style="font-size:.72rem;margin-top:6px">한 화면에서 계획→후보추천→실행→원인분류→보고서 순으로 표시합니다. 자동 실행/자동 이동 없음, 개별 화면 렌더러 재사용.</div>';
+  return h;
+}
+
+/* ── 공통 분석 전략 Grid(COMMON-STRATEGY-GRID) — 표시 전용(전략/판정/SQL 불변) ──────────────────
+   같은 테이블의 동일 (전략·분할키·선택범위 크기정책) fingerprint 는 상세 목록 상단에 한 번만 표시하고,
+   개별 상세에는 선택 범위 조건·query 수·실행시간·트리만 남긴다. fingerprint 가 다른 상세는 자체 Grid 보유. */
+function _mvSizeClassKo(cls) {
+  return ({ SMALL: '소형', MEDIUM: '중형', LARGE: '대형' })[cls] || '미상';
+}
+function _mvSizeClassOfRows(n, pol) {
+  if (n == null || isNaN(Number(n))) return 'UNKNOWN';
+  var p = pol || {};
+  if (Number(n) <= (p.small_max_rows || 50000)) return 'SMALL';
+  if (Number(n) <= (p.medium_max_rows || 2000000)) return 'MEDIUM';
+  return 'LARGE';
+}
+/* 정책 깊이 — 크기 등급에서 유도(소형=전체, 그 외 1단계 lazy). deepen 으로 실제 깊이가 늘어도 정책은 불변. */
+function _mvPolicyDepthOf(sizeClass, pol) {
+  return (sizeClass === 'SMALL') ? ((pol || {}).full_depth || 3) : 1;
+}
+function _mvStrategyFingerprint(run) {
+  var plan = run.plan || {};
+  var ck = _mvDiagChunkKeyLabel(run.nodes || []) || '-';
+  var sz = run.size_class || '';
+  return [plan.selected_strategy || '', ck, sz, _mvPolicyDepthOf(sz, run.size_policy)].join('|');
+}
+/* 공통 전략 Grid HTML — 테이블 전체 규모/선택 범위 규모(별도 행)/분할 키/적용 전략/선정 이유/실행정책. */
+function _mvCommonStrategyGridHtml(run, title) {
+  var E = (typeof esc === 'function') ? esc : function(s){ return s==null?'':String(s); };
+  var plan = run.plan || {};
+  var pol = run.size_policy || {};
+  var stratMap = { EXECUTE_KEY_RANGE: '키 범위 분석', EXECUTE_GROUP_SCOPE: '추가 그룹 축 분석',
+                   ROW_DIFF_READY: '행 단위 비교 준비', HASH_BUCKET_REQUIRED: '해시 구간 분석 필요',
+                   HOLD_NO_SAFE_STRATEGY: '추가 분석 보류', HOLD_BUDGET_EXCEEDED: '예산 초과 중단' };
+  var _fmtN = function(n){ return (n == null || isNaN(Number(n))) ? null : Number(n).toLocaleString(); };
+  /* 테이블 전체 규모 — COUNT 사전검증 원본/목적 건수 기준(수집된 값만, 없으면 미상. 지침 §4). */
+  var _lcr = (typeof _lastCountResult !== 'undefined' && _lastCountResult) ? _lastCountResult : null;
+  var totalRows = _lcr ? _lcr.src_count : null;
+  var tgtRows = _lcr ? _lcr.tgt_count : null;
+  var totalCls = _mvSizeClassOfRows(totalRows, pol);
+  var scopeCls = run.size_class || 'UNKNOWN';
+  var pd = _mvPolicyDepthOf(scopeCls, pol);
+  var rows = [
+    ['테이블 전체 규모', _mvSizeClassKo(totalCls)
+      + (_fmtN(totalRows) != null ? ' · 원본 ' + _fmtN(totalRows) + '행' : ' · 원본 행 수 미수집')
+      + (_fmtN(tgtRows) != null ? ' / 목적 ' + _fmtN(tgtRows) + '행' : ' / 목적 행 수 미수집')],
+    ['현재 선택 범위 규모', _mvSizeClassKo(scopeCls)
+      + (_fmtN(run.scoped_count) != null ? ' · 조건 적용 ' + _fmtN(run.scoped_count) + '행' : ' · 조건 적용 행 수 미수집')
+      + ' · 적용 정책: ' + _mvSizeClassKo(scopeCls) + ' 등급 최대 깊이 ' + pd],
+    ['분할 키', _mvDiagChunkKeyLabel(run.nodes || []) || '-'],
+    ['적용 전략', (stratMap[plan.selected_strategy] || plan.selected_strategy || '-')],
+    ['선정 이유', plan.ui_reason || '-'],
+    ['실행정책(선택 범위 기준)', '최대 깊이 ' + pd + ' · 최상위 구간 ' + (pol.top_buckets || 8) + '개 · 전체 펼침 '
+      + (scopeCls === 'LARGE' ? '명시 실행(확인 후)' : '허용') + ' · 캐시: 세션(재펼침 조회 0회)'],
+  ];
+  var body = rows.map(function(r){
+    return '<tr><th style="width:170px">' + E(r[0]) + '</th><td>' + E(r[1]) + '</td></tr>';
+  }).join('');
+  return '<div class="mv-diag-common" style="margin:8px 0">'
+    + '<div style="font-size:.82rem;font-weight:700;color:#334155;margin-bottom:4px">' + E(title || '공통 분석 전략') + '</div>'
+    + '<table class="mv-diag-meta"><tbody>' + body + '</tbody></table></div>';
+}
+/* 공통 Grid 갱신 — 최초 분석 결과가 기준 fingerprint. 같은 fp 상세는 공통정보를 반복하지 않는다. */
+function _mvUpdateCommonStrategyGrid(run) {
+  var host = document.getElementById('mvDiagCommonStrategy');
+  if (!host || !run || run.ok === false || !(run.plan || {}).selected_strategy) return;
+  var fp = _mvStrategyFingerprint(run);
+  if (!window._mvDiagCommonFp) {
+    window._mvDiagCommonFp = fp;
+    host.innerHTML = _mvCommonStrategyGridHtml(run, '공통 분석 전략');
+  } else if (window._mvDiagCommonFp === fp) {
+    host.innerHTML = _mvCommonStrategyGridHtml(run, '공통 분석 전략');   /* 최신 수치로 갱신(같은 전략) */
+  }
+}
+
+/* 분할 키 라벨 — 'ID (PK)' / 'ID (UNIQUE)' / 'ID (일반 인덱스)'. 키 이름은 트리 범위 노드에서, 근거는
+   분석결과 후보 evidence(match_key reason=PK/Unique, chunk_key reason index 가점)에서 조회. 계산/판단 없음. */
+function _mvDiagChunkKeyLabel(nodes) {
+  var key = null;
+  (nodes || []).forEach(function(n){ if (!key && n.chunk_range && n.chunk_range.key) key = String(n.chunk_range.key); });
+  if (!key) return null;
+  var kind = '일반 인덱스';
+  try {
+    var ex = (((_analyzeData || {}).candidate_recommendation || {}).exhaustive_validation_candidates) || {};
+    var ku = key.toUpperCase();
+    var mk = (ex.match_key_candidates || []).filter(function(c){ return String(c.column || '').toUpperCase() === ku; })[0];
+    if (mk && /PK/i.test(mk.reason || '')) kind = 'PK';
+    else if (mk && /unique/i.test(mk.reason || '')) kind = 'UNIQUE';
+    else {
+      var ck = (ex.chunk_key_candidates || []).filter(function(c){ return String(c.column || '').toUpperCase() === ku; })[0];
+      if (ck && !/index 가점/.test(ck.reason || '')) kind = '인덱스 미확인';
+    }
+  } catch(e){}
+  return key + ' (' + kind + ')';
+}
+
+var r={"version": "candidate-recommender-v1", "row_count": 200, "columns": [{"column_name": "PK_ID", "column_type": "number", "source_evidence": true, "profile_evidence": true, "dictionary_evidence": null, "sql_expression_evidence": null, "index_evidence": false, "cardinality_evidence": {"distinct": 200, "class": "near_unique", "ratio": 1.0, "group_cap_excluded": true, "group_cap_reason": "그룹 개수 과다(200개 > 상한 60개) — 집계 의미 없음", "group_cap_limit": 60}, "null_ratio_evidence": 0.0, "uniqueness_evidence": {"is_pk": true, "is_unique": true, "near_unique": true}, "identifier_evidence": {"identifier_by_profile": true, "basis": "pk"}, "business_meaning_evidence": null, "is_numeric": true, "is_date": false, "is_lob": false}, {"column_name": "STORE_CD", "column_type": "number", "source_evidence": true, "profile_evidence": true, "dictionary_evidence": null, "sql_expression_evidence": null, "index_evidence": false, "cardinality_evidence": {"distinct": 8, "class": "low", "ratio": 0.04, "group_cap_excluded": false, "group_cap_reason": null, "group_cap_limit": 60}, "null_ratio_evidence": 0.0, "uniqueness_evidence": {"is_pk": false, "is_unique": false, "near_unique": false}, "identifier_evidence": {"identifier_by_profile": false, "basis": null}, "business_meaning_evidence": null, "is_numeric": true, "is_date": false, "is_lob": false}, {"column_name": "ITEM_NO", "column_type": "number", "source_evidence": true, "profile_evidence": true, "dictionary_evidence": null, "sql_expression_evidence": null, "index_evidence": false, "cardinality_evidence": {"distinct": 60, "class": "mid", "ratio": 0.3, "group_cap_excluded": false, "group_cap_reason": null, "group_cap_limit": 60}, "null_ratio_evidence": 0.0, "uniqueness_evidence": {"is_pk": false, "is_unique": false, "near_unique": false}, "identifier_evidence": {"identifier_by_profile": false, "basis": null}, "business_meaning_evidence": null, "is_numeric": true, "is_date": false, "is_lob": false}, {"column_name": "SALES_AMT", "column_type": "number", "source_evidence": true, "profile_evidence": true, "dictionary_evidence": null, "sql_expression_evidence": null, "index_evidence": false, "cardinality_evidence": {"distinct": 40, "class": "low", "ratio": 0.2, "group_cap_excluded": false, "group_cap_reason": null, "group_cap_limit": 60}, "null_ratio_evidence": 0.0, "uniqueness_evidence": {"is_pk": false, "is_unique": false, "near_unique": false}, "identifier_evidence": {"identifier_by_profile": false, "basis": null}, "business_meaning_evidence": null, "is_numeric": true, "is_date": false, "is_lob": false}, {"column_name": "SALES_AMT_DICT", "column_type": "number", "source_evidence": true, "profile_evidence": true, "dictionary_evidence": null, "sql_expression_evidence": null, "index_evidence": false, "cardinality_evidence": {"distinct": 40, "class": "low", "ratio": 0.2, "group_cap_excluded": false, "group_cap_reason": null, "group_cap_limit": 60}, "null_ratio_evidence": 0.0, "uniqueness_evidence": {"is_pk": false, "is_unique": false, "near_unique": false}, "identifier_evidence": {"identifier_by_profile": false, "basis": null}, "business_meaning_evidence": "매출금액", "is_numeric": true, "is_date": false, "is_lob": false}, {"column_name": "PLAIN_METRIC", "column_type": "number", "source_evidence": true, "profile_evidence": true, "dictionary_evidence": null, "sql_expression_evidence": null, "index_evidence": false, "cardinality_evidence": {"distinct": 40, "class": "low", "ratio": 0.2, "group_cap_excluded": false, "group_cap_reason": null, "group_cap_limit": 60}, "null_ratio_evidence": 0.0, "uniqueness_evidence": {"is_pk": false, "is_unique": false, "near_unique": false}, "identifier_evidence": {"identifier_by_profile": false, "basis": null}, "business_meaning_evidence": null, "is_numeric": true, "is_date": false, "is_lob": false}], "groupby": {"recommended": [{"column": "PLAIN_METRIC", "confidence": "HIGH", "score": 0.6, "reason": "낮은 카디널리티(그룹 적합)", "cardinality_class": "low"}, {"column": "SALES_AMT", "confidence": "HIGH", "score": 0.6, "reason": "낮은 카디널리티(그룹 적합)", "cardinality_class": "low"}, {"column": "SALES_AMT_DICT", "confidence": "HIGH", "score": 0.6, "reason": "낮은 카디널리티(그룹 적합)", "cardinality_class": "low"}], "pool": [{"column": "PLAIN_METRIC", "confidence": "HIGH", "score": 0.6, "reason": "낮은 카디널리티(그룹 적합)", "cardinality_class": "low"}, {"column": "SALES_AMT", "confidence": "HIGH", "score": 0.6, "reason": "낮은 카디널리티(그룹 적합)", "cardinality_class": "low"}, {"column": "SALES_AMT_DICT", "confidence": "HIGH", "score": 0.6, "reason": "낮은 카디널리티(그룹 적합)", "cardinality_class": "low"}, {"column": "STORE_CD", "confidence": "HIGH", "score": 0.6, "reason": "낮은 카디널리티(그룹 적합)", "cardinality_class": "low"}, {"column": "ITEM_NO", "confidence": "HIGH", "score": 0.45, "reason": "그룹 가능", "cardinality_class": "mid"}], "excluded": [{"column": "PK_ID", "reason": "PK/Unique/near-unique(전수에 가까움)"}]}, "sum": {"recommended": [{"column": "SALES_AMT_DICT", "sum_candidate_score": 1.0, "aggregation_meaning": "금액/수량 등 합계 의미", "aggregation_risk": null, "confidence": "HIGH", "reason": "숫자형 + 업무 measure 근거 + profile 근거"}, {"column": "ITEM_NO", "sum_candidate_score": 0.7, "aggregation_meaning": "숫자 합계(업무 의미 미확인)", "aggregation_risk": ["합계 의미 확인 필요 — 저/중카디 numeric, 업무 근거 없음"], "confidence": "HIGH", "reason": "숫자형 + profile 근거"}, {"column": "PLAIN_METRIC", "sum_candidate_score": 0.7, "aggregation_meaning": "숫자 합계(업무 의미 미확인)", "aggregation_risk": ["합계 의미 확인 필요 — 저/중카디 numeric, 업무 근거 없음"], "confidence": "HIGH", "reason": "숫자형 + profile 근거"}], "pool": [{"column": "SALES_AMT_DICT", "sum_candidate_score": 1.0, "aggregation_meaning": "금액/수량 등 합계 의미", "aggregation_risk": null, "confidence": "HIGH", "reason": "숫자형 + 업무 measure 근거 + profile 근거"}, {"column": "ITEM_NO", "sum_candidate_score": 0.7, "aggregation_meaning": "숫자 합계(업무 의미 미확인)", "aggregation_risk": ["합계 의미 확인 필요 — 저/중카디 numeric, 업무 근거 없음"], "confidence": "HIGH", "reason": "숫자형 + profile 근거"}, {"column": "PLAIN_METRIC", "sum_candidate_score": 0.7, "aggregation_meaning": "숫자 합계(업무 의미 미확인)", "aggregation_risk": ["합계 의미 확인 필요 — 저/중카디 numeric, 업무 근거 없음"], "confidence": "HIGH", "reason": "숫자형 + profile 근거"}, {"column": "SALES_AMT", "sum_candidate_score": 0.7, "aggregation_meaning": "숫자 합계(업무 의미 미확인)", "aggregation_risk": ["합계 의미 확인 필요 — 저/중카디 numeric, 업무 근거 없음"], "confidence": "HIGH", "reason": "숫자형 + profile 근거"}, {"column": "STORE_CD", "sum_candidate_score": 0.7, "aggregation_meaning": "숫자 합계(업무 의미 미확인)", "aggregation_risk": ["합계 의미 확인 필요 — 저/중카디 numeric, 업무 근거 없음"], "confidence": "HIGH", "reason": "숫자형 + profile 근거"}], "excluded": [{"column": "PK_ID", "reason": "PK/Unique 은 합계 대상이 아님"}]}, "groupby_combinations": {"recommended_combinations": [], "pool": [], "excluded": [{"columns": ["PLAIN_METRIC", "SALES_AMT"], "estimated_group_count": 1600, "excluded_reason": "near-unique 조합(전수에 가까움)"}, {"columns": ["PLAIN_METRIC", "SALES_AMT_DICT"], "estimated_group_count": 1600, "excluded_reason": "near-unique 조합(전수에 가까움)"}, {"columns": ["PLAIN_METRIC", "STORE_CD"], "estimated_group_count": 320, "excluded_reason": "near-unique 조합(전수에 가까움)"}, {"columns": ["PLAIN_METRIC", "ITEM_NO"], "estimated_group_count": 2400, "excluded_reason": "near-unique 조합(전수에 가까움)"}, {"columns": ["SALES_AMT", "SALES_AMT_DICT"], "estimated_group_count": 1600, "excluded_reason": "near-unique 조합(전수에 가까움)"}, {"columns": ["SALES_AMT", "STORE_CD"], "estimated_group_count": 320, "excluded_reason": "near-unique 조합(전수에 가까움)"}, {"columns": ["SALES_AMT", "ITEM_NO"], "estimated_group_count": 2400, "excluded_reason": "near-unique 조합(전수에 가까움)"}, {"columns": ["SALES_AMT_DICT", "STORE_CD"], "estimated_group_count": 320, "excluded_reason": "near-unique 조합(전수에 가까움)"}, {"columns": ["SALES_AMT_DICT", "ITEM_NO"], "estimated_group_count": 2400, "excluded_reason": "near-unique 조합(전수에 가까움)"}, {"columns": ["STORE_CD", "ITEM_NO"], "estimated_group_count": 480, "excluded_reason": "near-unique 조합(전수에 가까움)"}, {"columns": ["PLAIN_METRIC", "SALES_AMT", "SALES_AMT_DICT"], "estimated_group_count": 64000, "excluded_reason": "near-unique 조합(전수에 가까움)"}, {"columns": ["PLAIN_METRIC", "SALES_AMT", "STORE_CD"], "estimated_group_count": 12800, "excluded_reason": "near-unique 조합(전수에 가까움)"}, {"columns": ["PLAIN_METRIC", "SALES_AMT", "ITEM_NO"], "estimated_group_count": 96000, "excluded_reason": "near-unique 조합(전수에 가까움)"}, {"columns": ["PLAIN_METRIC", "SALES_AMT_DICT", "STORE_CD"], "estimated_group_count": 12800, "excluded_reason": "near-unique 조합(전수에 가까움)"}, {"columns": ["PLAIN_METRIC", "SALES_AMT_DICT", "ITEM_NO"], "estimated_group_count": 96000, "excluded_reason": "near-unique 조합(전수에 가까움)"}, {"columns": ["PLAIN_METRIC", "STORE_CD", "ITEM_NO"], "estimated_group_count": 19200, "excluded_reason": "near-unique 조합(전수에 가까움)"}, {"columns": ["SALES_AMT", "SALES_AMT_DICT", "STORE_CD"], "estimated_group_count": 12800, "excluded_reason": "near-unique 조합(전수에 가까움)"}, {"columns": ["SALES_AMT", "SALES_AMT_DICT", "ITEM_NO"], "estimated_group_count": 96000, "excluded_reason": "near-unique 조합(전수에 가까움)"}, {"columns": ["SALES_AMT", "STORE_CD", "ITEM_NO"], "estimated_group_count": 19200, "excluded_reason": "near-unique 조합(전수에 가까움)"}, {"columns": ["SALES_AMT_DICT", "STORE_CD", "ITEM_NO"], "estimated_group_count": 19200, "excluded_reason": "near-unique 조합(전수에 가까움)"}]}, "exhaustive_validation_candidates": {"match_key_candidates": [{"column": "PK_ID", "confidence": "HIGH", "candidate_risk": null, "reason": "PK 키"}], "chunk_key_candidates": [{"column": "PK_ID", "confidence": "MEDIUM", "candidate_risk": null, "reason": "숫자형 범위"}, {"column": "STORE_CD", "confidence": "MEDIUM", "candidate_risk": null, "reason": "숫자형 범위"}, {"column": "ITEM_NO", "confidence": "MEDIUM", "candidate_risk": null, "reason": "숫자형 범위"}, {"column": "SALES_AMT", "confidence": "MEDIUM", "candidate_risk": null, "reason": "숫자형 범위"}, {"column": "SALES_AMT_DICT", "confidence": "MEDIUM", "candidate_risk": null, "reason": "숫자형 범위"}, {"column": "PLAIN_METRIC", "confidence": "MEDIUM", "candidate_risk": null, "reason": "숫자형 범위"}], "hash_compare_columns": [{"column": "PK_ID"}, {"column": "STORE_CD"}, {"column": "ITEM_NO"}, {"column": "SALES_AMT"}, {"column": "SALES_AMT_DICT"}, {"column": "PLAIN_METRIC"}], "excluded_compare_columns": [], "composite_match_key_hint": null}, "exclude_columns": [], "candidate_quality_summary": {"total_feedback": 0, "selected_by_system": 0, "selected_by_user": 0, "overridden": 0, "override_rate": null, "override_reason_top": [], "success_signal": 0, "hold_signal": 0, "feedback_confidence": "LOW", "note": "참고 지표 — 추천 알고리즘/planner decision 을 자동으로 바꾸지 않습니다."}, "note": "자동추천은 후보 pool 중 상위 N(각 최대 3)이며 자동 실행이 아닙니다. 최종 선택은 사용자가 확인합니다."};
+document.getElementById('mount').innerHTML=_mvRenderCandidateRecommendation(r);</script></body></html>

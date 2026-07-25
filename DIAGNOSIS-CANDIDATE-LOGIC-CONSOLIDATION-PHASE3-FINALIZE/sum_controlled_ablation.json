@@ -1,0 +1,150 @@
+{
+  "table": "NXDNP.MV_ORA_PHASE3_SRC",
+  "row_count": 200,
+  "columns": [
+    {
+      "column": "PK_ID",
+      "column_type": "number",
+      "distinct_count": 200,
+      "null_ratio": 0.0,
+      "is_pk": true,
+      "is_unique": true
+    },
+    {
+      "column": "STORE_CD",
+      "column_type": "number",
+      "distinct_count": 8,
+      "null_ratio": 0.0,
+      "is_pk": false,
+      "is_unique": false
+    },
+    {
+      "column": "ITEM_NO",
+      "column_type": "number",
+      "distinct_count": 60,
+      "null_ratio": 0.0,
+      "is_pk": false,
+      "is_unique": false
+    },
+    {
+      "column": "SALES_AMT",
+      "column_type": "number",
+      "distinct_count": 40,
+      "null_ratio": 0.0,
+      "is_pk": false,
+      "is_unique": false
+    },
+    {
+      "column": "PLAIN_METRIC",
+      "column_type": "number",
+      "distinct_count": 40,
+      "null_ratio": 0.0,
+      "is_pk": false,
+      "is_unique": false
+    }
+  ],
+  "sum_old": {
+    "PK_ID": [
+      "SUM제외",
+      "PK/Unique 은 합계 대상이 아님",
+      null,
+      null,
+      null
+    ],
+    "STORE_CD": [
+      "SUM후보(비추천)",
+      "숫자형 + profile 근거",
+      "HIGH",
+      0.7,
+      null
+    ],
+    "ITEM_NO": [
+      "SUM추천",
+      "숫자형 + profile 근거",
+      "HIGH",
+      0.7,
+      null
+    ],
+    "SALES_AMT": [
+      "SUM추천",
+      "숫자형 + profile 근거",
+      "HIGH",
+      0.7,
+      null
+    ],
+    "PLAIN_METRIC": [
+      "SUM추천",
+      "숫자형 + profile 근거",
+      "HIGH",
+      0.7,
+      null
+    ]
+  },
+  "sum_new": {
+    "PK_ID": [
+      "SUM제외",
+      "PK/Unique 은 합계 대상이 아님",
+      null,
+      null,
+      null
+    ],
+    "STORE_CD": [
+      "SUM후보(비추천)",
+      "숫자형 + profile 근거",
+      "HIGH",
+      0.7,
+      [
+        "합계 의미 확인 필요 — 저/중카디 numeric, 업무 근거 없음"
+      ]
+    ],
+    "ITEM_NO": [
+      "SUM추천",
+      "숫자형 + profile 근거",
+      "HIGH",
+      0.7,
+      [
+        "합계 의미 확인 필요 — 저/중카디 numeric, 업무 근거 없음"
+      ]
+    ],
+    "SALES_AMT": [
+      "SUM추천",
+      "숫자형 + profile 근거",
+      "HIGH",
+      0.7,
+      [
+        "합계 의미 확인 필요 — 저/중카디 numeric, 업무 근거 없음"
+      ]
+    ],
+    "PLAIN_METRIC": [
+      "SUM추천",
+      "숫자형 + profile 근거",
+      "HIGH",
+      0.7,
+      [
+        "합계 의미 확인 필요 — 저/중카디 numeric, 업무 근거 없음"
+      ]
+    ]
+  },
+  "new_identifier_evidence": {
+    "PK_ID": {
+      "identifier_by_profile": true,
+      "basis": "pk"
+    },
+    "STORE_CD": {
+      "identifier_by_profile": false,
+      "basis": null
+    },
+    "ITEM_NO": {
+      "identifier_by_profile": false,
+      "basis": null
+    },
+    "SALES_AMT": {
+      "identifier_by_profile": false,
+      "basis": null
+    },
+    "PLAIN_METRIC": {
+      "identifier_by_profile": false,
+      "basis": null
+    }
+  }
+}
