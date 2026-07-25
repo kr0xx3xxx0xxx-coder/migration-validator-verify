@@ -1,0 +1,142 @@
+{
+  "table": "NXDNP.MV_ORA_PHASE3_SRC",
+  "row_count": 200,
+  "columns": [
+    {
+      "column": "PK_ID",
+      "column_type": "number",
+      "distinct_count": 200,
+      "null_ratio": 0.0,
+      "is_pk": true,
+      "is_unique": true
+    },
+    {
+      "column": "STORE_CD",
+      "column_type": "number",
+      "distinct_count": 8,
+      "null_ratio": 0.0,
+      "is_pk": false,
+      "is_unique": false
+    },
+    {
+      "column": "ITEM_NO",
+      "column_type": "number",
+      "distinct_count": 60,
+      "null_ratio": 0.0,
+      "is_pk": false,
+      "is_unique": false
+    },
+    {
+      "column": "SALES_AMT",
+      "column_type": "number",
+      "distinct_count": 40,
+      "null_ratio": 0.0,
+      "is_pk": false,
+      "is_unique": false
+    },
+    {
+      "column": "PLAIN_METRIC",
+      "column_type": "number",
+      "distinct_count": 40,
+      "null_ratio": 0.0,
+      "is_pk": false,
+      "is_unique": false
+    }
+  ],
+  "sum_old": {
+    "PK_ID": [
+      "SUM제외",
+      "PK/Unique 은 합계 대상이 아님",
+      null,
+      null,
+      null
+    ],
+    "STORE_CD": [
+      "SUM제외",
+      "식별자/코드/번호성(ID/SEQ/CODE/NO/PHONE/ZIP)",
+      null,
+      null,
+      null
+    ],
+    "ITEM_NO": [
+      "SUM제외",
+      "식별자/코드/번호성(ID/SEQ/CODE/NO/PHONE/ZIP)",
+      null,
+      null,
+      null
+    ],
+    "SALES_AMT": [
+      "SUM추천",
+      "숫자형 + 업무 measure 근거 + profile 근거",
+      "HIGH",
+      1.0,
+      null
+    ],
+    "PLAIN_METRIC": [
+      "SUM추천",
+      "숫자형 + profile 근거",
+      "HIGH",
+      0.7,
+      null
+    ]
+  },
+  "sum_new": {
+    "PK_ID": [
+      "SUM제외",
+      "PK/Unique 은 합계 대상이 아님",
+      null,
+      null,
+      null
+    ],
+    "STORE_CD": [
+      "SUM후보(비추천)",
+      "숫자형 + profile 근거",
+      "HIGH",
+      0.7,
+      null
+    ],
+    "ITEM_NO": [
+      "SUM추천",
+      "숫자형 + profile 근거",
+      "HIGH",
+      0.7,
+      null
+    ],
+    "SALES_AMT": [
+      "SUM추천",
+      "숫자형 + profile 근거",
+      "HIGH",
+      0.7,
+      null
+    ],
+    "PLAIN_METRIC": [
+      "SUM추천",
+      "숫자형 + profile 근거",
+      "HIGH",
+      0.7,
+      null
+    ]
+  },
+  "new_identifier_evidence": {
+    "PK_ID": {
+      "identifier_by_profile": true,
+      "basis": "pk"
+    },
+    "STORE_CD": {
+      "identifier_by_profile": false,
+      "basis": null
+    },
+    "ITEM_NO": {
+      "identifier_by_profile": false,
+      "basis": null
+    },
+    "SALES_AMT": {
+      "identifier_by_profile": false,
+      "basis": null
+    },
+    "PLAIN_METRIC": {
+      "identifier_by_profile": false,
+      "basis": null
+    }
+  }
+}
