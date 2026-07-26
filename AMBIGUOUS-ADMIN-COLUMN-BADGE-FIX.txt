@@ -1,0 +1,112 @@
+✅ 작업 완료 - 요청한 '관리컬럼 미확인' 배지는 이미 main에 구현·배선되어 있었고(커밋 532d78d), 현재 서비스 화면에서 정상 동작함을 실측 재확인(신규 구현 불요)
+
+======================================================================
+작업명 : AMBIGUOUS-ADMIN-COLUMN-BADGE-FIX
+결론   : 신규 구현 없음. 요청 기능이 이미 존재 → 진단·실측 검증으로 확정.
+일자   : 2026-07-26
+======================================================================
+
+[1] 진단 결과 (요청의 전제조건 = '현재 화면에서 어떻게 보이는가' 먼저 확인)
+----------------------------------------------------------------------
+- 요청: 이름/코멘트/값이 모두 애매해 NOT_AUDIT 으로 통과하는 관리컬럼 후보(cd1류)를
+  확정후보와 화면에서 구분되게 '관리컬럼 여부 미확인 - 검토 권장' 배지 신설.
+- 진단: grep/코드정독 결과 해당 배지가 이미 전 계층에 구현되어 있음.
+  · 커밋 532d78d "feat(candidate): 관리컬럼 근거부족 통과후보 화면 배지·판정 세분화
+    (ADMIN-AUDIT-AMBIGUOUS-CANDIDATE-BADGE)" — 2026-07-21, main 브랜치 포함 확인.
+  · 즉 이 작업(AMBIGUOUS-ADMIN-COLUMN-BADGE-FIX)이 요구한 산출물과 사실상 동일.
+- 판단: CLAUDE.md 비판적 검토 의무·기능 추가 제한에 따라 재구현 금지(중복/충돌 유발).
+  대신 '현재 서비스 화면에서 실제로 배지가 렌더되어 확정후보와 구분되는지'를 실측.
+
+[2] 이미 구현된 배선(현재 코드 위치 — 이번 세션 미변경)
+----------------------------------------------------------------------
+판정 세분화 (services/candidate_subtype_service.py):
+  - evaluate_admin_audit_crosscheck() 가 구 단일 NOT_AUDIT 을 A축 근거 강도로 2분:
+      B=False + A=False → NOT_AUDIT_CONFIRMED  (값이 타임스탬프로 반증 = 정상 업무컬럼, 배지 없음)
+      B=False + A=None(+group_by) → NOT_AUDIT_AMBIGUOUS  (이름·코멘트 무신호 + 값 판정불가 = 근거부족, 배지 대상)
+      SUM 역할은 A축 미수행(항상 None) → NOT_AUDIT_CONFIRMED 로 한정(배지 남발 방지)
+  - 점수/선정/is_admin_audit_confirmed 무영향(둘 다 CONFIRMED 아님) → 회귀 없음.
+
+배지 근거 부착 (services/candidate_display_enricher.py):
+  - attach_ambiguous_audit_evidence() : verdict==NOT_AUDIT_AMBIGUOUS 후보에만
+    ambiguous_audit_evidence{reason, axis_a_status, axis_b_status} 부착(순수 표시, in-place).
+  - single_validation_analyze_service.py 가 FK/DEFAULT attach 직후 동일 후보집합에 호출.
+
+UI 배지 (ui/tabler_renderer.py):
+  - CSS .status-badge-ambig : 앰버(#b45309) + 점선 테두리(#f59e0b) + cursor:help
+    → 확정 배지(초록/파랑/빨강)와 시각적으로 명확히 구분.
+  - 함수 _ambiguousAuditBadge(cand) : '⚠ 관리컬럼 미확인' 배지 HTML,
+    툴팁에 '검토 권장 + 값/명칭 양축 근거' 병기.
+  - 개별검증(statusBadge)·일괄(stBadgeCell) 후보표 양쪽에 배선.
+
+[3] 자체 테스트 (회귀 확인)
+----------------------------------------------------------------------
+  python -m pytest tests/test_fk_default_consumption_wiring.py \
+                   tests/test_admin_column_comment_hypothesis.py -q
+  → 33 passed in 3.05s
+  (NOT_AUDIT_AMBIGUOUS 만 배지 부착 / CONFIRMED·MISMATCH·CONFIRMED_NOT_AUDIT·SUM 은 미부착 검증 포함)
+
+[4] 라이브 실측 (인증 ON 8000 포트, 실 Inter DB, 강제주입 없음)
+----------------------------------------------------------------------
+스크립트 : scripts/dev_e2e/ambiguous_admin_column_badge_current_state_verify.py
+          (인증 ON 대응 http_credentials 추가, 비밀번호는 프리셋 파일서 로드 — 하드코딩 없음)
+케이스   : INSERT INTO tobe01.t_to_1_etl03 ... SELECT ... FROM asis01.t_as_1_etl03 (학교 이관)
+서버     : 실행 중 서버(PID 30472)가 _ambiguousAuditBadge 함수 서빙 확인(마커 4개) → 재기동 불요
+결과     : === PASS 12 / FAIL 0 ===
+
+  현재 화면 판정(제품 계산 그대로):
+    GROUP BY:
+      UPDATED_AT       CONFIRMED           is_admin=true   배지 없음  (확정 관리컬럼, 행 억제)
+      SCHOOL_CATEGORY  NOT_AUDIT_AMBIGUOUS  기본추천        ⚠ 배지     (score 65, SELECTED_DEFAULT)
+      REGION           NOT_AUDIT_AMBIGUOUS  정책상제외      ⚠ 배지     (score 45)
+      SCHOOL_CODE      NOT_AUDIT_AMBIGUOUS  정책상제외      ⚠ 배지     (score 35)
+    SUM:
+      FOUND_YEAR       NOT_AUDIT_CONFIRMED  배지 없음
+      MAX_CAPACITY     NOT_AUDIT_CONFIRMED  배지 없음
+
+  DOM 검증:
+    .status-badge-ambig span 3개 렌더, 문구 '⚠ 관리컬럼 미확인'
+    툴팁: "관리컬럼 여부 미확인 - 검토 권장 — 값 근거: 판정불가(타임스탬프 아님/미배선)
+           / 명칭·코멘트 근거: 가설없음(명칭·코멘트 매칭 없음)"
+
+  대비(확정 케이스 회귀 없음):
+    · CONFIRMED 관리컬럼(UPDATED_AT) → 애매 배지 아님 (OK)
+    · SUM 후보 → 애매 배지 미부착 (OK)
+    · 카디널리티 사유 제외 컬럼(SCHOOL_NAME/PRINCIPAL 등) → 애매 배지 없음, 배지는 애매 후보에만 (OK)
+    · 순수 표시 불변: AMBIGUOUS 후보의 selection_status/score/is_admin 배지와 무관하게 유지 (OK)
+
+스크린샷 :
+  E:\verify_screenshots_only\AMBIGUOUS-ADMIN-COLUMN-BADGE-FIX\current_state_ambiguous_badge_full.png
+  E:\verify_screenshots_only\AMBIGUOUS-ADMIN-COLUMN-BADGE-FIX\current_state_ambiguous_badge_card.png
+  → 카드 스크린샷에서 SCHOOL_CATEGORY(기본추천)와 REGION/SCHOOL_CODE(참고/제외 표)에
+    앰버 점선 '⚠ 관리컬럼 미확인' 배지가 확정후보(UPDATED_AT, 배지 없음)와 명확히 구분됨.
+
+[5] Before / After 관련 주석
+----------------------------------------------------------------------
+- 요청은 'Before(구분 안 됨)/After(배지로 구분됨)' 대조를 명시했으나, 배지가 이미 배포되어
+  있어 현재 코드에는 '배지 없는 Before' 상태가 존재하지 않는다. 따라서 이번 산출은
+  'After(현재 상태) = 배지로 구분됨' 단일 실측 캡처다.
+- 원 구현 시점의 Before/After 스크린샷은 원 커밋(2dd1b63, ADMIN-AUDIT-AMBIGUOUS-...)의
+  E:\verify_screenshots_only\ADMIN-AUDIT-AMBIGUOUS-CANDIDATE-BADGE\ 에 이미 존재한다.
+
+[6] 코드 변경(이번 세션)
+----------------------------------------------------------------------
+- 핵심 모듈(subtype/enricher/renderer) : 변경 없음 (재구현 안 함).
+- 신규 추가 : scripts/dev_e2e/ambiguous_admin_column_badge_current_state_verify.py (검증 전용 스크립트).
+  · 코드 repo 커밋은 하지 않음(사용자 미요청 + 증적 repo와 분리 원칙).
+- 관련 원 구현 커밋(참고) : 532d78d
+    services/candidate_subtype_service.py         (+45/-x)
+    services/candidate_display_enricher.py        (+31)
+    services/single_validation_analyze_service.py (+5)
+    ui/tabler_renderer.py                         (+27)
+    tests/test_fk_default_consumption_wiring.py   (+41)
+    tests/test_admin_column_comment_hypothesis.py (+29)
+    scripts/dev_e2e/ambiguous_audit_badge_stage3_shot.py (+209)
+
+[7] 알려진 후속(이번 범위 밖 — 요청도 명시적으로 제외)
+----------------------------------------------------------------------
+- 수동 명시적 오버라이드 기능 : 미구현(요청서에서 이번 범위 제외 명시). 더 큰 별도 작업.
+- 배지 노출 빈도 : NOT_AUDIT_AMBIGUOUS(A=None) 는 정상 범주형 코드컬럼(REGION/SCHOOL_CODE 등)
+  에도 붙어 비교적 흔하다(명세대로 전부 부착). 수동 오버라이드 도입 전까지 노출빈도 관찰 대상.
+
+======================================================================
+✅ 작업 완료 - 요청 배지 기능이 이미 구현·동작 중임을 실측 확정(테스트 33/33 + 라이브 12/12, 재구현 불요)
