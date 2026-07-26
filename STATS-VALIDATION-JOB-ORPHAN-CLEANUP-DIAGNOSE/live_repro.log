@@ -1,0 +1,44 @@
+=== P1) 개별검증 진입 · session_id 확보 ===
+   session_id = sess_ms1uw0le9ba5xe | setup = {"project": "TESTONLY_REG", "pair_rows": 0}
+
+=== P2) 같은 session 으로 PREPARING job 생성(25만행 스트리밍) ===
+   prepare: {"accept_ms": 214.7, "status": "PREPARING", "run_id": "PS46287E196F5A", "accepted": true, "reused": false, "err": null}
+   서버: {"active": true, "count": 1, "runs": [{"run_id": "PS46287E196F5A", "status": "PREPARING"}], "run_status": {"status": "PREPARING", "processed_source_count": 40009, "processed_target_count": 39992, "missing_migration": 17, "value_mismatch": 8, "elapsed_ms": 3605.0}}
+
+=== P3) 새로고침 ×3 — 팝업 + 폴링 관찰(팝업 방치) ===
+   [캡처] p3_reload1_popup.png
+   [새로고침 #1] 팝업=True :: 진행 중이던 검증 작업이 있습니다새로고침 전 진행 중이던 상세비교 작업이 있습니다(상태 PREPARING). 기존 진행을 이어서 보거나, 중단하고 처음(쿼리검토)부터 새로 시작할 수 있습니다. 자동으로 실행하거나 결
+   [새로고침#1 후 40초(팝업 방치)] pk-records 0회 · 그 외 {'active-run': 1} · 간격(min/med/max)=None/None/Nonems
+   [캡처] p3_reload2_popup.png
+   [새로고침 #2] 팝업=False :: (없음)
+   [새로고침#2 후 40초(팝업 방치)] pk-records 0회 · 그 외 {'active-run': 1} · 간격(min/med/max)=None/None/Nonems
+   [캡처] p3_reload3_popup.png
+   [새로고침 #3] 팝업=False :: (없음)
+   [새로고침#3 후 40초(팝업 방치)] pk-records 0회 · 그 외 {'active-run': 1} · 간격(min/med/max)=None/None/Nonems
+
+=== P4) '이어서 보기' 클릭 → 폴링 간격 실측 ===
+   [캡처] p4_view_existing.png
+   ['이어서 보기' 후 60초] pk-records 0회 · 그 외 {} · 간격(min/med/max)=None/None/Nonems
+   [캡처] p4_view_after.png
+
+=== P5) 페이지 이탈(about:blank) 후 서버 job 관찰 ===
+    {"dt": 10, "active": false, "status": "READY", "processed": 240049}
+    {"dt": 20, "active": false, "status": "READY", "processed": 240049}
+    {"dt": 30, "active": false, "status": "READY", "processed": 240049}
+    {"dt": 41, "active": false, "status": "READY", "processed": 240049}
+
+=== P7) 좀비 누적 — 서로 다른 fingerprint job 추가 ===
+   추가 job: {"gb": ["C_CHAR"], "status": "PREPARING", "run_id": "PSDE60D53ED2B4", "reused": false, "err": null}
+   추가 job: {"gb": ["ID"], "status": "PREPARING", "run_id": "PS83FCC4B0963C", "reused": false, "err": null}
+   누적 후 서버: {"active": true, "count": 2, "runs": [{"run_id": "PS83FCC4B0963C", "status": "PREPARING"}, {"run_id": "PSDE60D53ED2B4", "status": "PREPARING"}], "run_status": {"status": "READY", "processed_source_count": 240049, "processed_target_count": 239952, "missing_migration": 97, "value_mismatch": 49, "elaps
+
+=== P6) 브라우저 완전 종료 후 서버 job 상태 ===
+    {"active": true, "count": 2, "runs": [{"run_id": "PS83FCC4B0963C", "status": "PREPARING"}, {"run_id": "PSDE60D53ED2B4", "status": "PREPARING"}], "run_status": {"status": "READY", "processed_source_count": 240049, "processed_target_count": 239952, "missing_migration": 97, "value_mismatch": 49, "elapsed_ms": 11445.3}}
+
+=== P8) 정리(취소 요청) ===
+   cancel: {"run_id": "PS46287E196F5A", "ok": true, "status": "READY"}
+   cancel: {"run_id": "PSDE60D53ED2B4", "ok": true, "status": "CANCEL_REQUESTED"}
+   cancel: {"run_id": "PS83FCC4B0963C", "ok": true, "status": "CANCEL_REQUESTED"}
+   정리 후: {"active": false, "count": 0, "runs": []}
+
+결과 저장: E:\verify_screenshots_only\STATS-VALIDATION-JOB-ORPHAN-CLEANUP-DIAGNOSE\orphan_polling_live.json

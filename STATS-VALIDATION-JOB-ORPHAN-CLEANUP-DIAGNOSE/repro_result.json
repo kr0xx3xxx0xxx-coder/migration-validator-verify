@@ -1,0 +1,376 @@
+{
+ "base": "http://127.0.0.1:8000/",
+ "sql": "INSERT INTO NXDNP.MV_ORA_XDIFF_TGT (ID, C_CHAR, C_NUM_PS) SELECT ID, C_CHAR, C_NUM_PS FROM NXDNP.MV_ORA_XDIFF_SRC",
+ "phases": {
+  "setup": {
+   "project": "TESTONLY_REG",
+   "pair_rows": 1
+  },
+  "count": {
+   "count_status": "COUNT_MINOR_DIFF",
+   "force_available": false
+  },
+  "candidate": {
+   "gb": [],
+   "sum": [
+    "C_NUM_PS"
+   ]
+  },
+  "drilldown_click": {
+   "found": false,
+   "rowCount": 0
+  },
+  "preparing_entered": {
+   "wait_sec": 181.5,
+   "active": false,
+   "count": 0,
+   "run": null
+  },
+  "client_state_before_reload": {
+   "overlay": false,
+   "viewStep": "result",
+   "riPolling": false,
+   "riRunId": null,
+   "pollTimer": false,
+   "displayedRunId": null,
+   "pkPollAttempts": null,
+   "autoRestoreAttempted": true,
+   "reimportStatus": null,
+   "unloadHandlers": {
+    "beforeunload": 1,
+    "pagehide": 0,
+    "unload": 0,
+    "visibilitychange": 0
+   },
+   "fetchLogN": 9,
+   "timerLogN": 1
+  },
+  "logs_before_reload": {
+   "label": "reload 전(PREPARING 진행 중)",
+   "fetch_total": 9,
+   "pk_records_calls": 0,
+   "other_calls": [
+    "active-run"
+   ],
+   "pk_gaps_ms": [],
+   "pk_gap_min": null,
+   "pk_gap_median": null,
+   "pk_gap_max": null,
+   "pk_caller_stacks": [],
+   "timer_registrations": [
+    [
+     "interval/1200ms :: at window.setInterval (<anonymous>:34:83) <- at _startAnalyzeLoadingMsg (:26780:26) <- at runAnalyze (:25119:3) <- at :2",
+     1
+    ]
+   ]
+  },
+  "reloads": [
+   {
+    "n": 1,
+    "popup_shown": false,
+    "popup_text": null,
+    "client_state": {
+     "overlay": false,
+     "viewStep": "query",
+     "riPolling": false,
+     "riRunId": null,
+     "pollTimer": false,
+     "displayedRunId": null,
+     "pkPollAttempts": null,
+     "autoRestoreAttempted": true,
+     "reimportStatus": null,
+     "unloadHandlers": {
+      "beforeunload": 1,
+      "pagehide": 0,
+      "unload": 0,
+      "visibilitychange": 0
+     },
+     "fetchLogN": 1,
+     "timerLogN": 0
+    },
+    "logs": {
+     "label": "새로고침#1 후 45초",
+     "fetch_total": 1,
+     "pk_records_calls": 0,
+     "other_calls": [
+      "active-run"
+     ],
+     "pk_gaps_ms": [],
+     "pk_gap_min": null,
+     "pk_gap_median": null,
+     "pk_gap_max": null,
+     "pk_caller_stacks": [],
+     "timer_registrations": []
+    },
+    "server": {
+     "active": false,
+     "count": 0,
+     "run": null
+    },
+    "obs_sec": 88.7
+   },
+   {
+    "n": 2,
+    "popup_shown": false,
+    "popup_text": null,
+    "client_state": {
+     "overlay": false,
+     "viewStep": "query",
+     "riPolling": false,
+     "riRunId": null,
+     "pollTimer": false,
+     "displayedRunId": null,
+     "pkPollAttempts": null,
+     "autoRestoreAttempted": true,
+     "reimportStatus": null,
+     "unloadHandlers": {
+      "beforeunload": 1,
+      "pagehide": 0,
+      "unload": 0,
+      "visibilitychange": 0
+     },
+     "fetchLogN": 1,
+     "timerLogN": 0
+    },
+    "logs": {
+     "label": "새로고침#2 후 45초",
+     "fetch_total": 1,
+     "pk_records_calls": 0,
+     "other_calls": [
+      "active-run"
+     ],
+     "pk_gaps_ms": [],
+     "pk_gap_min": null,
+     "pk_gap_median": null,
+     "pk_gap_max": null,
+     "pk_caller_stacks": [],
+     "timer_registrations": []
+    },
+    "server": {
+     "active": false,
+     "count": 0,
+     "run": null
+    },
+    "obs_sec": 88.7
+   },
+   {
+    "n": 3,
+    "popup_shown": false,
+    "popup_text": null,
+    "client_state": {
+     "overlay": false,
+     "viewStep": "query",
+     "riPolling": false,
+     "riRunId": null,
+     "pollTimer": false,
+     "displayedRunId": null,
+     "pkPollAttempts": null,
+     "autoRestoreAttempted": true,
+     "reimportStatus": null,
+     "unloadHandlers": {
+      "beforeunload": 1,
+      "pagehide": 0,
+      "unload": 0,
+      "visibilitychange": 0
+     },
+     "fetchLogN": 1,
+     "timerLogN": 0
+    },
+    "logs": {
+     "label": "새로고침#3 후 45초",
+     "fetch_total": 1,
+     "pk_records_calls": 0,
+     "other_calls": [
+      "active-run"
+     ],
+     "pk_gaps_ms": [],
+     "pk_gap_min": null,
+     "pk_gap_median": null,
+     "pk_gap_max": null,
+     "pk_caller_stacks": [],
+     "timer_registrations": []
+    },
+    "server": {
+     "active": false,
+     "count": 0,
+     "run": null
+    },
+    "obs_sec": 88.7
+   }
+  ],
+  "view_existing": {
+   "clicked": false,
+   "client_state": {
+    "overlay": false,
+    "viewStep": "query",
+    "riPolling": false,
+    "riRunId": null,
+    "pollTimer": false,
+    "displayedRunId": null,
+    "pkPollAttempts": null,
+    "autoRestoreAttempted": true,
+    "reimportStatus": null,
+    "unloadHandlers": {
+     "beforeunload": 1,
+     "pagehide": 0,
+     "unload": 0,
+     "visibilitychange": 0
+    },
+    "fetchLogN": 0,
+    "timerLogN": 0
+   },
+   "logs": {
+    "label": "'이어서 보기' 후 60초",
+    "fetch_total": 0,
+    "pk_records_calls": 0,
+    "other_calls": [],
+    "pk_gaps_ms": [],
+    "pk_gap_min": null,
+    "pk_gap_median": null,
+    "pk_gap_max": null,
+    "pk_caller_stacks": [],
+    "timer_registrations": []
+   },
+   "server": {
+    "active": false,
+    "count": 0,
+    "run": null
+   }
+  },
+  "after_leave": {
+   "before": {
+    "active": false,
+    "count": 0,
+    "run": null
+   },
+   "trace": [
+    {
+     "dt": 10.1,
+     "active": false,
+     "status": null,
+     "processed": null
+    },
+    {
+     "dt": 20.1,
+     "active": false,
+     "status": null,
+     "processed": null
+    },
+    {
+     "dt": 30.2,
+     "active": false,
+     "status": null,
+     "processed": null
+    },
+    {
+     "dt": 40.3,
+     "active": false,
+     "status": null,
+     "processed": null
+    }
+   ]
+  },
+  "after_browser_close": {
+   "active": false,
+   "count": 0,
+   "run": null
+  }
+ },
+ "marks": {},
+ "session_id": "sess_ms1uh8s7iqpttx",
+ "run_id": null,
+ "notes": [
+  "PREPARING 진입 실패 — 재현 전제 미충족"
+ ],
+ "net_requests": [
+  {
+   "t": 110.952,
+   "u": "http://127.0.0.1:8000/single/active-run"
+  },
+  {
+   "t": 110.952,
+   "u": "http://127.0.0.1:8000/single/active-run"
+  },
+  {
+   "t": 111.063,
+   "u": "http://127.0.0.1:8000/agg-diff/resumable"
+  },
+  {
+   "t": 111.063,
+   "u": "http://127.0.0.1:8000/agg-diff/resumable"
+  },
+  {
+   "t": 114.188,
+   "u": "http://127.0.0.1:8000/single/active-run"
+  },
+  {
+   "t": 114.308,
+   "u": "http://127.0.0.1:8000/agg-diff/resumable"
+  },
+  {
+   "t": 114.375,
+   "u": "http://127.0.0.1:8000/single/active-run"
+  },
+  {
+   "t": 114.376,
+   "u": "http://127.0.0.1:8000/single/active-run"
+  },
+  {
+   "t": 114.49,
+   "u": "http://127.0.0.1:8000/agg-diff/resumable"
+  },
+  {
+   "t": 114.491,
+   "u": "http://127.0.0.1:8000/agg-diff/resumable"
+  },
+  {
+   "t": 120.323,
+   "u": "http://127.0.0.1:8000/single/active-run"
+  },
+  {
+   "t": 120.436,
+   "u": "http://127.0.0.1:8000/agg-diff/resumable"
+  },
+  {
+   "t": 120.603,
+   "u": "http://127.0.0.1:8000/single/active-run"
+  },
+  {
+   "t": 120.603,
+   "u": "http://127.0.0.1:8000/single/active-run"
+  },
+  {
+   "t": 120.603,
+   "u": "http://127.0.0.1:8000/single/active-run"
+  },
+  {
+   "t": 120.823,
+   "u": "http://127.0.0.1:8000/agg-diff/resumable"
+  },
+  {
+   "t": 120.824,
+   "u": "http://127.0.0.1:8000/agg-diff/resumable"
+  },
+  {
+   "t": 120.824,
+   "u": "http://127.0.0.1:8000/agg-diff/resumable"
+  },
+  {
+   "t": 312.341,
+   "u": "http://127.0.0.1:8000/single/active-run"
+  },
+  {
+   "t": 401.377,
+   "u": "http://127.0.0.1:8000/single/active-run"
+  },
+  {
+   "t": 490.484,
+   "u": "http://127.0.0.1:8000/single/active-run"
+  }
+ ],
+ "dialogs": [
+  "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+  "검증 경로 접속 성공: Oracle_asis → Oracle_tobe",
+  ""
+ ]
+}
