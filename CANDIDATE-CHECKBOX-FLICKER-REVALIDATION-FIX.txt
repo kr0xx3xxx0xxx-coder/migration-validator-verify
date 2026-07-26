@@ -1,0 +1,91 @@
+✅ 작업 완료 - 3단계 후보표 재검증 깜빡임 제거(후보 pane 통째 교체 → 노드 재사용 부분 갱신), 최종 표시값 불변 실측 확인
+
+작업명 : CANDIDATE-CHECKBOX-FLICKER-REVALIDATION-FIX
+일시   : 2026-07-26
+커밋   : a2ebc81 (수정 본체) / 47d92c2 (구현 리터럴 검사 테스트 1건 최소 수정)
+서버   : 포트 8000, HTTP Basic Auth ON — 최종 재기동 2026-07-26 17:40:49
+         (검증 실행에 사용한 재기동 17:34:10 / 최종 코드 재기동 17:40:49, 두 재기동 사이 변경은 주석 문구뿐)
+
+■ 근본원인(실측으로 확정 — 최초 가설 수정)
+  1) 기존 수정(0f93bb9)은 _singleInvalidateDownstream('candidate', {keepCandidatePane:true})로
+     후보 pane 을 '비우지 않게' 했으나, 이어지는 재렌더 자체가 innerHTML= 통째 교체라 체크박스·
+     기간 드롭다운을 포함한 모든 DOM 노드가 매번 폐기·재생성된다.
+  2) 더 결정적인 지점: 재검증(runRevalidateFromCandidate) 중 후보표 재렌더는 두 번 일어난다.
+       ① _refreshValidationPlanWithRowCount 대기(서버 왕복) 중 authoritative 응답 수신 후
+          _rerenderCandidateTablePreservingSelection 이 후보표를 다시 그림
+       ② 그 뒤 이 함수가 직접 후보표를 다시 그림
+     ①은 await 뒤라 브라우저가 그 사이 실제로 페인트한다 → 사용자가 보는 깜빡임의 주 원인.
+     (1차 구현에서 ②만 감쌌더니 실측상 효과 0 — ①에서 이미 전 노드가 폐기됨. 실측으로 교정.)
+
+■ 수정 내용 (ui/tabler_renderer.py — 순수 렌더링, 판정/데이터 로직 무변경)
+  · 후보 pane 갱신 단일 진입점 _mvMorphPaneHtml(el, html, normalize) 신설
+      - 새 HTML 을 분리(detached) 트리로 만들고 기존 DOM 과 같은 자리끼리 대조,
+        같은 종류 노드는 재사용하며 바뀐 속성/텍스트만 갱신(부분 갱신)
+      - 구조가 다른 자리(태그 변경·행 증감)만 그 부분만 국소 교체
+      - 사용자 상태 속성(input.checked/value, select.value, option.selected)은 동기화 제외
+      - normalize 로 _ictApplyRoleLayout('유형' 셀 rowspan 병합)을 새 트리에도 먼저 적용해
+        살아있는 DOM 과 구조를 일치(없으면 매 행 구조 불일치로 통째 교체되어 효과 소멸)
+      - 플래그(window._mvCandPaneMorph) OFF / 최초 렌더(el 비어있음) / 예외 → 기존 innerHTML= 폴백
+  · renderColSelect · renderUnifiedColTable 가 이 단일 진입점을 사용
+  · runRevalidateFromCandidate 가 함수 시작에서 플래그 ON, finally 에서 OFF
+      → ①·② 두 재렌더를 모두 포함. 그 외 경로(최초 분석·탭 재진입·일괄 화면)는 기존 동작 그대로.
+  · 파일 내 위치: ecf0ce3(REIMPORT-DRILLDOWN-STALE-PLAN-GB0-SUMONLY-FIX)이 손댄 16913행 근방과
+    무관한 지점만 수정(재검증 함수 15885/16016 부근, 렌더러 20681·21484~21580 부근) — 충돌 없음.
+
+■ 라이브 실측 (실제 서비스 포트 8000, 인증 ON, 실클릭)
+  환경 : Oracle_asis → Oracle_tobe, MV_ORA_DATEB_SRC → MV_ORA_DATEB_TGT (ORDER_DT DATE)
+  절차 : 1단계 분석 → 2단계 COUNT(일치 120/120) → 3단계 후보 계산(ORDER_DT GB 체크, 기간 '분기')
+         → 4단계 통계검증 SQL 생성 → 3단계 복귀 → 기간 변경 → '선택 적용 후 통계검증 진행' 클릭
+  Before/After 는 같은 세션·같은 서버에서 비교(Before 는 _mvMorphPaneHtml 을 수정 전 동작
+  (el.innerHTML = html)으로 덮어써 재현, After 는 제품 코드 그대로).
+
+  [DOM 재생성 여부 — JS 로 직접 확인]
+    구분     체크박스 참조  SUM  기간select  표  추적노드 생존   제거 엘리먼트  같은 selector 재조회 == 보관 참조
+    Before   0/3           0/1  0/1        0/1  0/124          264            gb 0 / sum 0 / period 0
+    After    3/3           1/1  1/1        1/1  124/124        16 (94%↓)      gb 3 / sum 1 / period 1
+    · morph 통계(After, colSelectOut): reused=124, replaced=0, added=0, removed=1, textUpdated=2
+      (= 바뀐 텍스트 2곳만 갱신, 노드 교체 0건)
+
+  [requestAnimationFrame 프레임 샘플링 — 클릭 직후 상태 변화 지점만]
+    Before : t=  9.8ms  살아있는 체크박스 참조 3, 기간 select 1 (pane 높이 638)
+             t=193.7ms  살아있는 참조 0, 기간 select 0 (pane 높이 621)  ← 전 노드 소멸 + 레이아웃 점프
+    After  : t= 10.4ms  참조 3/1 유지 … 이후 40프레임 동안 변화 없음     ← 재생성 없음
+
+  [최종 표시값 정확성 — 회귀 없음]
+    Before(기간 '년')  : GB [CATEGORY, ORDER_DT] · SUM [AMT] · ORDER_DT=year
+                         실행 예정 문구 "GROUP BY 2개(CATEGORY→CATEGORY, ORDER_DT→ORDER_DT 년 단위) + SUM 1개(AMT→AMT)"
+    After (기간 '월')  : GB [CATEGORY, ORDER_DT] · SUM [AMT] · ORDER_DT=month
+                         실행 예정 문구 "… ORDER_DT→ORDER_DT 월 단위 …"
+    → 사용자가 고른 값이 그대로 유지되고 문구도 일치. 콘솔 오류 0건, 다이얼로그 0건.
+
+  증적 : E:\verify_screenshots_only\CANDIDATE-CHECKBOX-FLICKER-REVALIDATION-FIX\
+         result.json(전체 계측 원자료) + 연속 스크린샷 BEFORE/AFTER 각 6프레임 + 단계별 화면 21장
+  검증 스크립트 : scripts/dev_e2e/candidate_checkbox_flicker_revalidation_verify.py
+
+■ 자체 테스트
+  · 신규 tests/test_candidate_pane_morph_flicker.py 7건 통과
+      - 배선 계약(단일 진입점 사용 / 플래그가 await 재렌더 구간을 감싸고 finally 해제 / 플래그 없으면 innerHTML)
+      - node + 최소 DOM shim 으로 제품 morph 코어 실행: 노드 객체 재사용(참조 동일),
+        checked/value 미변경, disabled·텍스트는 갱신, 태그 불일치 자리만 국소 교체
+  · 변경 렌더 경로를 참조하는 테스트 파일 38개(422건) 실행 → 402 passed / 10 xfailed / 20 failed
+      - 20건은 baseline(worktree, 9211995) 에서 동일하게 실패하는 사전 존재 실패(동일 집합 확인)
+      - 최초 21건이었으나 그중 1건(test_summary_card_rendered_in_rendercolselect)은 구현 리터럴
+        (el.innerHTML = …)을 검사하던 테스트라 조립 내용은 그대로 둔 채 진입점만 반영해 수정(47d92c2)
+  · samples/test_virtual_cases.py 8/8 통과, samples/test_complex_cases.py 5/5 케이스 분석 완료
+  · 페이지 JS 문법 node --check 통과
+  · 전체 tests 디렉터리 일괄 실행은 소요시간 과다(진행률 7%/8분 → 2시간 추정)로 완주하지 않음.
+    대신 변경 경로 참조 테스트 전수 + baseline 대조로 회귀 판정(위).
+
+■ 남은 사항 / 알려진 한계 (표시 전용, 이번 범위 밖)
+  · 체크박스를 단순 변경(재검증 클릭 없음)할 때 도는 _refreshVspOnCheckChange → 후보표 재렌더 경로는
+    플래그 밖이라 여전히 통째 교체된다. 같은 진입점을 쓰므로 동일 방식으로 확장 가능(별도 작업 권장).
+  · _showCandidateTable 의 재검증 후 scrollIntoView(80ms 뒤 smooth)는 기존 동작 그대로 유지했다
+    (깜빡임과 별개 UX 항목 — 임의 변경 시 기존 스크롤 정렬 계약이 바뀜).
+
+■ 변경 파일
+  M ui/tabler_renderer.py                                   (+115 / -2)
+  A tests/test_candidate_pane_morph_flicker.py              (신규 회귀 테스트)
+  A scripts/dev_e2e/candidate_checkbox_flicker_revalidation_verify.py (라이브 Before/After 계측)
+  M tests/test_task_single_candidate_evidence_preview.py    (구현 리터럴 검사 1줄 최소 수정)
+
+✅ 작업 완료 - 3단계 후보표 재검증 깜빡임 제거(후보 pane 통째 교체 → 노드 재사용 부분 갱신), 최종 표시값 불변 실측 확인
