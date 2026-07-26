@@ -1,0 +1,123 @@
+⚠️ 추가 작업 필요 - 재이관 드릴다운 네이티브 PK 고속경로(unique_key=True)에 결과셋 PK 유일성 게이트가 없어 1:N JOIN fan-out 을 조용히 '재이관 0건'으로 오판정(수정 방향만 제안, 이번 코드 변경 없음)
+
+작업명 : REIMPORT-JOIN-FANOUT-PK-UNIQUENESS-GUARD-DIAGNOSE
+성격   : 순수 진단(코드 수정 없음). 실 오라클(asis 1523 → tobe 1524, xepdb1/NXDNP) + 실 서버(8000, 인증 ON) + 실 브라우저.
+
+────────────────────────────────────────────────────────────────────────
+[시나리오] 의도적 fan-out(중복제거 없음) — 1:N JOIN 으로 원본 PK 가 결과셋에서 유일성 붕괴
+────────────────────────────────────────────────────────────────────────
+이관 SQL:
+  INSERT INTO NXDNP.MV_FANOUT_TGT (ID, COL_A, DETAIL_COL)
+  SELECT x.ID, x.COL_A, m.DETAIL_COL
+  FROM NXDNP.MV_FANOUT_SRC x JOIN NXDNP.MV_FANOUT_DETAIL m ON x.ID = m.SRC_ID
+픽스처(신규 테스트 테이블만, 기존 미접촉):
+  asis MV_FANOUT_SRC   : ID NUMBER PK, COL_A — 5행(ID 1..5, COL_A 100..500)
+  asis MV_FANOUT_DETAIL: SRC_ID, DETAIL_COL — 8행(1:N; ID 1→3건, 2→2건, 3~5→각1건)
+  tobe MV_FANOUT_TGT   : ID NUMBER PK, COL_A, DETAIL_COL — 5행(ID PK 라 dedup)
+  → 결과셋에서 x.ID 가 유일하지 않음(ID 1,2 중복). ROW_NUMBER/DISTINCT 등 중복제거 없음.
+
+────────────────────────────────────────────────────────────────────────
+[참값 truth] 실 데이터 직접 조회
+────────────────────────────────────────────────────────────────────────
+  fan-out 결과셋 COUNT = 8 (중복 포함)  /  결과셋 DISTINCT ID = 5  /  목적 TGT = 5
+  원본 ID별 fan-out 배수 = {1:3, 2:2, 3:1, 4:1, 5:1}
+  SUM(COL_A) fan-out = 1900 (부풀림)  vs  참값(중복제거)=목적 = 1500
+  유일성 깨진 PK = [1, 2]
+
+────────────────────────────────────────────────────────────────────────
+[핵심1] 재이관 키 확정이 unique_key=True(유일 착각)로 확정됨 — _pk_resolve
+────────────────────────────────────────────────────────────────────────
+  routes/agg_diff_route.py:638 _pk_resolve 실측 결과:
+    key=ID/ID, unique_native(=unique_key 고속경로)=True, err=없음
+  경로:
+    · JOIN 이라 TRUSTED 경로는 JOIN_MULTIPLICITY_RISK 로 회피(정상; key_evidence.py:287-288)
+    · confirmed_chunk_key 는 information_schema 기반(PG 전용)이라 오라클에선 빈 결과
+    · 네이티브 PK 경로 ①(_resolve_native_pk_key → _introspect_pk_cols, 목적지 제약만 조회)이
+      ID 를 확정하며 '결과셋 중복을 검사하지 않고' 곧바로 _unique_native_key=True 세팅
+      (agg_diff_route.py:711-718)
+
+────────────────────────────────────────────────────────────────────────
+[핵심2] 결과셋 PK 유일성 사전검사(GROUP BY pk HAVING COUNT(*)>1) 부재 — 코드 확인
+────────────────────────────────────────────────────────────────────────
+  · _pk_resolve / _resolve_native_pk_key 에 결과셋 유일성 게이트 없음.
+  · 네이티브 PK 경로 ①(정식 PK)는 _introspect_pk_cols 성공 시 즉시 return(agg_diff_route.py:561-565)
+    → 중복검사가 있는 ②③(_resolve_matchkey_via_diagnosis 의 _dup_present, :542-545)에 '도달하지 않음'.
+    즉 목적지에 정식 PK 가 있으면 fan-out 중복검사를 건너뛴다.
+  · 결과셋 dup probe(GROUP BY … HAVING COUNT(*)>1)는 별도 모듈
+    services/exhaustive_candidates/result_set_evidence.py(build_dup_probe_sql)에만 있고
+    이 재이관 드릴다운 경로에는 배선돼 있지 않음.
+
+────────────────────────────────────────────────────────────────────────
+[핵심3] 집계 SQL 이 실제 방출하는 행 — 중복 키를 유일(count=1)로 방출(실 오라클 실행)
+────────────────────────────────────────────────────────────────────────
+  services/exact_diff/agg_contribution.py:_pk_agg_sql
+  · unique_key=True (서버 실제 경로): 방출 8행, '1 AS __N'(상수), GROUP BY 없음
+      ['1',1,100,'D1a'] ['1',1,100,'D1b'] ['1',1,100,'D1c']  ← ID=1 이 3행, 각 __N=1(유일 착각), DETAIL 상이
+      ['2',1,200,'D2a'] ['2',1,200,'D2b'] ['3',1,300,'D3a'] ['4',1,400,'D4a'] ['5',1,500,'D5a']
+      → 결과셋에서 유일하지 않은 PK 를 '유일 1건'으로 착각해 그대로 방출. 이 중 target 과 값 다른 행은
+        같은 PK 인데도 별개 레코드로 취급됨(에러 없이 틀린 레코드를 유일하다고 착각하는 실제 지점).
+  · unique_key=False (대조·정상): 방출 5행, __N=count(*), GROUP BY 1
+      [1,3,300,'D1a'] [2,2,400,'D2a'] [3,1,300,'D3a'] [4,1,400,'D4a'] [5,1,500,'D5a']
+      → ID=1 __N=3 로 다중성 정상 표면화, SUM(COL_A)=300
+
+────────────────────────────────────────────────────────────────────────
+[핵심4] prepare 최종 판정 — 조용한 거짓 음성(백엔드 + 라이브 서버 API 이중 확인)
+────────────────────────────────────────────────────────────────────────
+  (A) 백엔드 직접(prepare_reimport_pk_index, force=True) 두 경로 대조:
+      · 서버 실제 경로 unique_key=True : status=READY, total_reimport_pks=0, passed_keys=8,
+          value_mismatch=0, src_keys=8(중복 미제거) → "재이관 대상 0건" 조용히 통과
+      · 대조 GROUP BY unique_key=False : total_reimport_pks=2, ID 1·2 를 COUNT+COL_A diff 로 감지
+          저장 레코드: key=1 diff=COUNT,COL_A src{COL_A:300} tgt{COL_A:100}
+                       key=2 diff=COUNT,COL_A src{COL_A:400} tgt{COL_A:200}
+  (B) 라이브 서버(8000, 인증 ON) 브라우저 개별검증 1~5단계 — 네트워크 실측:
+      · POST /agg-diff/prepare  → status=READY, total_reimport_pks=0, passed_keys=8,
+          src_keys=8, tgt_keys=5, source_count=8, target_count=5, key_col=ID
+      · GET  /agg-diff/pk-records → status=READY, counts.reimport_pks=0, passed=8
+      → 라이브 서버가 실제로 fan-out 을 '재이관 0건'으로 반환(백엔드 실측과 완전 일치).
+
+────────────────────────────────────────────────────────────────────────
+[브라우저 관찰] 상위 단계는 불일치 표시, 드릴다운은 STALE_PLAN(별개 기존 이슈)
+────────────────────────────────────────────────────────────────────────
+  · 2단계 COUNT : COUNT_MINOR_DIFF — "원본 8 · 목적 5 · 순 차이 3 · 목적지 적재율 62.5%" (fan-out 표면화)
+  · 3단계       : GROUP BY 해제, SUM=COL_A
+  · 5단계 드릴다운 UI 패널 : "STALE_PLAN — 최신 실행계획 증적이 없습니다…"
+      (COUNT+SUM GB0 '전체합계' 드릴다운의 별개 기존 렌더 이슈. 단 그 이면의 prepare 는 위 (B)처럼
+       이미 '재이관 0건' 을 산출한 상태 — 유일성 오판정 자체는 서버 API 로 확정됨)
+  스크린샷: 01_analyze / 02_count / 03_candidate / 04_executed / 05_result / 05b_drilldown_final,
+           result.json (E:\verify_screenshots_only\REIMPORT-JOIN-FANOUT-PK-UNIQUENESS-GUARD-DIAGNOSE\)
+
+────────────────────────────────────────────────────────────────────────
+[정상 샘플(XDIFF)과의 차이 — '원본 작성 책임' vs '도구 경고 책임' 판단]
+────────────────────────────────────────────────────────────────────────
+  기존 실측 XDIFF SQL 의 ROW_NUMBER() OVER(...) WHERE rn>=1 은 rn>=1 이라 전 행을 남겨 실제 중복제거
+  효과가 없었다. 그 샘플이 안전했던 진짜 이유는 JOIN 조건(MOD(x.ID,300)+1=t.ORDER_ID, ORDER_ID 유일)이
+  사실상 1:1 이라 결과셋에 fan-out 이 없었기 때문이다. 즉 현재 도구는 '조인이 1:1 이라는 원본 작성자의
+  암묵 전제'에만 의존하며, 네이티브 PK 고속경로는 물리 제약(베이스 테이블 PK)만 보고 '결과셋에서도 유일'
+  이라고 단정한다 → 이는 도구가 사전 경고해야 할 문제이며 원본 작성 책임으로만 미룰 수 없다.
+
+────────────────────────────────────────────────────────────────────────
+[결론 — 요청 분류]
+────────────────────────────────────────────────────────────────────────
+  → "감지 안 되고 조용히 틀린 결과 반환" (재이관 드릴다운 한정).
+     · 위험 경로는 '목적지 정식 PK + 1:N JOIN 원본'의 네이티브 고속경로(unique_key=True) 하나로 특정됨.
+     · 정식 PK 없는 UK/업무키 경로(②③)는 _dup_present 로 fan-out 을 차단(HOLD)하므로 안전.
+     · 단, 동일 시나리오에서 목적지가 dedup 되어 2단계 COUNT(8 vs 5)와 통계검증 SUM(1900 vs 1500)이
+       상위 단계에서 각각 불일치로 표시되므로 '시스템 전면 은폐'는 아니다. '조용히 틀림'은 드릴다운 단계
+       (재이관 대상 산정)에 국한되며, 위험의 본질은 상위 신호와 모순되게 '재이관 0건/모두 정상'이라
+       안심시키는 데 있다(잠재적으로 실제 fan-out 이 목적지에도 적재된 무-PK 케이스는 ②③ 가 HOLD).
+
+────────────────────────────────────────────────────────────────────────
+[수정 방향 — 제안만(이번 코드 변경 없음)]
+────────────────────────────────────────────────────────────────────────
+  1) _resolve_native_pk_key 경로 ①(정식 PK)에서도 wrapping/JOIN 형태면 unique_key=True 확정 전에
+     결과셋 중복 사전검사(이미 있는 _dup_present 재사용: GROUP BY key HAVING COUNT(*)>1 1건 probe)를
+     통과시키고, 중복 발견 시 unique_key=True 를 부여하지 않는다
+     → GROUP BY count 경로로 폴백해 다중성이 COUNT diff 로 정상 표면화되거나 명시적 'fan-out 경고' 표기.
+  2) 비용: 파생 소스가 JOIN/CTE 로 wrapping 된 경우에만 1회 probe(가장 위험한 형태 한정) → 저비용.
+  3) 게이트 단일화: MATCH_KEY 전수검증의 build_dup_probe_sql 과 동일 primitive 를 재이관 경로도 공유.
+
+[재현 스크립트]
+  scripts/dev_e2e/reimport_join_fanout_pk_uniqueness_diagnose.py  (setup / diag / drop) — 백엔드 실측
+  scripts/dev_e2e/reimport_join_fanout_browser_verify.py          — 실 브라우저(8000) 1~5단계
+
+⚠️ 추가 작업 필요 - 재이관 드릴다운 네이티브 PK 고속경로(unique_key=True)에 결과셋 PK 유일성 게이트가 없어 1:N JOIN fan-out 을 조용히 '재이관 0건'으로 오판정(수정 방향만 제안, 이번 코드 변경 없음)
