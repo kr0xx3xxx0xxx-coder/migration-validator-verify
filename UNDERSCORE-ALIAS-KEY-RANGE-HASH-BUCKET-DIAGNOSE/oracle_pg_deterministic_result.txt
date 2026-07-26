@@ -1,0 +1,90 @@
+=== UNDERSCORE-ALIAS-KEY-RANGE-HASH-BUCKET-DIAGNOSE / 진단(코드 수정 없음) ===
+대상: services/diagnosis/strategies/key_range.py(__BKT/__RNG), hash_bucket.py(__HB*/__KH/__RH)
+
+── [1] 별칭 생성 지점 ─────────────────────────────────────────────
+  services\diagnosis\strategies\hash_bucket.py:18  BUCKET_ALIAS = "__HB"          # bucket level alias prefix(__HB1, __HB2, ...)
+  services\diagnosis\strategies\hash_bucket.py:19  KEYHASH_ALIAS = "__KH"         # bucket 내 키 hash 합(키 누락/추가 검출)
+  services\diagnosis\strategies\hash_bucket.py:20  ROWHASH_ALIAS = "__RH"         # bucket 내 행 digest hash 합(값 변경 검출)
+  services\diagnosis\strategies\hash_bucket.py:54  new_sel.append(exp.alias_(b.copy(), BUCKET_ALIAS + str(i)))
+  services\diagnosis\strategies\hash_bucket.py:58  new_sel.append(exp.alias_(kh, KEYHASH_ALIAS))
+  services\diagnosis\strategies\hash_bucket.py:59  new_sel.append(exp.alias_(rh, ROWHASH_ALIAS))
+  services\diagnosis\strategies\key_range.py:194  aliased = exp.alias_(bucket, "__BKT")
+  services\diagnosis\strategies\key_range.py:224  tree.set("expressions", list(tree.expressions) + [exp.alias_(case, "__RNG")])
+
+── [2] 이름 기반 소비 지점(주석 제외, 파일별) ────────────────────
+  [services\diagnosis\multi_scope.py]
+      303  기타 참조                      gk = {k: v for k, v in (c.key or {}).items() if k != "__BKT"}
+      434  소비(groupby_cols 인자 전달)     r = _agg_compare(compare_fn, ext_src, ext_tgt, list(gb) + ["__BKT"], meter, extra, fp)
+      472  소비(dict 키 조회)              b = key.pop("__BKT", None)
+      600  소비(접두 문자열 검사)              return _j.dumps({k: v for k, v in (key or {}).items() if not str(k).startswith("__HB")},
+      612  소비(상수+level 조립)            al = hb.BUCKET_ALIAS + str(lvl)
+  [services\diagnosis\row_diff.py]
+       70  소비(dict 키 조회)              while (hb.BUCKET_ALIAS + str(lvl)) in cell_key:
+       73  소비(상수+level 조립)            ands.append(exp.EQ(this=bexpr, expression=exp.Placeholder())); params.append(cell_key[hb.BUCKET_ALIAS + str(lvl)])
+  [services\diagnosis\strategies\hash_bucket.py]
+        7  기타 참조                      - 별도 DB 실행기를 만들지 않는다. base 통계 SQL 에 'bucket 컬럼(__HBn) + 키/행 hash 집계(__KH/__RH)'를 sqlglot AST 로
+       12  기타 참조                      - 키 비교만 하면 값 변경을 못 찾으므로 __KH(키 hash 합)·__RH(행 digest hash 합, HASH_COMPARE 대상 포함)도 비교한다.
+       30  소비(상수+level 조립)            return [BUCKET_ALIAS + str(i) for i in range(1, int(depth) + 1)]
+       39  기타 참조                      level_salt 로 만들어 GROUP BY 에 모두 포함(부모 경로 보존). __KH/__RH 는 최심 집계. compare_*: 값 변경 검출.
+  [services\diagnosis\strategies\key_range.py]
+      210  기타 참조                      범위 밖 행은 __RNG NULL 그룹 — Source/Target 모두 동일 집합이라 비교 판정에 영향 없음."""
+  [services\diagnosis\strategies\router.py]
+      176  기타 참조                      mm["key"] = {}                    # 내부 축(__BKT/__RNG)은 표시 키에서 제거
+      194  소비(groupby_cols 인자 전달)     res = coerce_fn(compare_fn(ext_src, ext_tgt, ["__BKT"], eq_preds))   # 1 query/side
+      204  소비(dict 키 조회)              b = (g.get("key") or {}).get("__BKT")
+      215  기타 참조                      sc._preset_result = _preset_from(res, "__BKT", bi, True)   # 집계 결과 재사용(자식 재조회 제거)
+      300  소비(groupby_cols 인자 전달)     res = coerce_fn(compare_fn(ext_src, ext_tgt, ["__RNG"], eq_preds))   # 1 query/side (깊이당 일괄)
+      311  소비(dict 키 조회)              mis.add(int((g.get("key") or {}).get("__RNG")))
+      316  기타 참조                      preset = _preset_from(res, "__RNG", i, i in mis)
+  · 운영 코드 소비 라인 19개 / 파일 5개
+  · 테스트 소비 라인 29개 / 파일 8개: tests\test_diagnosis_hash_bucket_5m.py, tests\test_diagnosis_hash_bucket_e2e.py, tests\test_diagnosis_level_batch.py, tests\test_diagnosis_multi_scope.py, tests\test_diagnosis_multi_scope_e2e.py, tests\test_diagnosis_phase3.py, tests\test_diagnosis_planner.py, tests\test_diagnosis_row_diff.py
+
+── [3] 오라클 실측(ORA-00911 재현 여부) ──────────────────────────
+  [접속] src=192.168.0.151:1523/xepdb1 tgt=192.168.0.151:1524/xepdb1 (비밀번호 미표시)
+
+  [__BKT] build_bucket_agg_sql(dialect=oracle) 생성 SQL:
+    SELECT REGION_CD AS G0, COUNT(*) AS CNT, WIDTH_BUCKET(ORDER_ID, 1, 3001, 8) AS __BKT FROM NXDNP.MV_ORA_TEST_SRC GROUP BY REGION_CD, WIDTH_BUCKET(ORDER_ID, 1, 3001, 8)
+    실행: 실패 — ORA-00911: _: invalid character after AS
+Help: https://docs.oracle.com/error-help/db/ora-00911/
+    → ORA-00911 재현: 예 ✓
+
+  [__RNG] build_multi_range_agg_sql(dialect=oracle) 생성 SQL:
+    SELECT REGION_CD AS G0, COUNT(*) AS CNT, CASE WHEN ORDER_ID >= 1 AND ORDER_ID < 1500 THEN 1 WHEN ORDER_ID >= 1500 AND ORDER_ID <= 3000 THEN 2 END AS __RNG FROM NXDNP.MV_ORA_TEST_SRC GROUP BY REGION_CD, CASE WHEN ORDER_ID >= 1 AND ORDER_ID < 1500 THEN 1 WHEN ORDER_ID >= 1500 AND ORDER_ID <= 3000 THEN 2 END
+    실행: 실패 — ORA-00911: _: invalid character after AS
+Help: https://docs.oracle.com/error-help/db/ora-00911/
+    → ORA-00911 재현: 예 ✓
+
+── [4] 개명 probe — 별칭 문자열만 kr_bkt/kr_rng 로 치환한 동일 SQL ──
+    KR_BKT 실행: 성공(rows=20)
+    KR_RNG 실행: 성공(rows=20)
+    → 별칭이 유일 차단 요인(개명만으로 SQL 통과): 예 ✓
+
+── [5] 실 소비 경로 결합 실증 — make_stats_compare_fn(..., groupby_cols) ──
+    (router.py:194 / multi_scope.py:434 가 하는 것과 동일 호출)
+    (a) 현행 __BKT: success=False err=ORA-00911: _: invalid character after AS
+        → 소비자가 받는 판정: is_matched=None (None=판정불가 → 상위에서 fallback/HOLD)
+    (b) 별칭만 개명(소비자 미수정): success=False err=원본 SQL 결과에 필요한 컬럼이 없습니다: __BKT
+    (c) 별칭+소비자 동시 개명: success=True err=
+        → total_groups=1 matched=1 diff=0 src_only=0 tgt_only=0
+        → 그룹 키 샘플: [{'KR_BKT': '1'}]
+    → 이름 기반 결합(개명 시 소비자 동반 수정 필수) 실증: 예 ✓
+
+── [6] HASH_BUCKET(__HB*/__KH/__RH) 오라클 실측 ────────────────────
+    생성 SQL(앞 300자): SELECT REGION_CD AS G0, COUNT(*) AS CNT, ((CAST(CAST(('x' || LEFT(MD5('hbw1' || CASE WHEN (ORDER_ID) IS NULL THEN 'D#N' ELSE 'D:' || CAST(LENGTH(CAST(TRIM_SCALE(CAST((ORDER_ID) AS NUMBER)) AS CLOB)) AS CLOB) || ':' || CAST(TRIM_SCALE(CAST((ORDER_ID) AS NUMBER)) AS CLOB) END), 8)) AS BIT(32)) AS INT)
+    실행: 실패 — ORA-00907: missing right parenthesis
+Help: https://docs.oracle.com/error-help/db/ora-00907/
+    → 최초 차단 오류가 ORA-00911(별칭) 인가: 아니오 — 별칭보다 선행하는 결함 존재
+    (hash_contract 는 md5()/left()/::bit(32)/::numeric/trim_scale 등 PostgreSQL 전용 표현식)
+
+── [7] PostgreSQL 대조(동일 별칭) ──────────────────────────────────
+  [접속] 192.168.0.150:5433/asis (비밀번호 미표시)
+    __BKT(PG): 성공(rows=2)
+    __HB1/__KH/__RH(PG): 성공(rows=3)
+
+=== 결론(진단) ===
+  오라클 __BKT ORA-00911 재현 : 예 ✓
+  오라클 __RNG ORA-00911 재현 : 예 ✓
+  개명만으로 SQL 통과         : 예 ✓
+  이름 기반 소비자 결합 실증  : 예 ✓
+  HASH_BUCKET 오라클 선행결함 : 있음(별칭 무관 PG 전용 SQL)
+  PG 대조(선행 밑줄 허용)     : 정상 ✓

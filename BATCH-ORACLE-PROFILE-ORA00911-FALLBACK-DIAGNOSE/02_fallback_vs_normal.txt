@@ -1,0 +1,77 @@
+=== 증적2: soft-fallback vs 정상 후보 프로파일 차이 ===
+=== A) 정상 (pf_ collect_column_profiles OK) ===
+  profiled_columns: ['AMT', 'CHANNEL_CD', 'REGION_CD']
+  catalog_evidence_reused: False
+{
+  "REGION_CD": {
+    "distinct_count": 20,
+    "distinct_ratio": 0.0667,
+    "row_count": 300,
+    "selection_status": "SELECTED_DEFAULT",
+    "recommendation_status": "NORMAL_DEFAULT",
+    "display_badge_label": "기본추천",
+    "auto_selected": true,
+    "warn_reason": ""
+  },
+  "CHANNEL_CD": {
+    "distinct_count": 9,
+    "distinct_ratio": 0.03,
+    "row_count": 300,
+    "selection_status": "SELECTED_DEFAULT",
+    "recommendation_status": "NORMAL_DEFAULT",
+    "display_badge_label": "기본추천",
+    "auto_selected": true,
+    "warn_reason": ""
+  },
+  "AMT": {
+    "distinct_count": 300,
+    "distinct_ratio": 1.0,
+    "row_count": 300,
+    "selection_status": "SELECTED_DEFAULT",
+    "recommendation_status": "FALLBACK_DEFAULT",
+    "display_badge_label": "대체 기본추천",
+    "auto_selected": true,
+    "warn_reason": ""
+  }
+}
+
+=== B) soft-fallback (프로파일 SQL ORA-00911 실패 → {}) ===
+  profiled_columns: []
+  catalog_evidence_reused: False
+{
+  "REGION_CD": {
+    "distinct_count": null,
+    "distinct_ratio": null,
+    "row_count": 300,
+    "selection_status": "MANUAL_REQUIRED",
+    "recommendation_status": "SELECTABLE",
+    "display_badge_label": "선택가능",
+    "auto_selected": false,
+    "warn_reason": "row_count는 있으나 고유값 수 근거 없음 — 자동추천 보류 — profile 재수집 후 재선정 권장"
+  },
+  "CHANNEL_CD": {
+    "distinct_count": null,
+    "distinct_ratio": null,
+    "row_count": 300,
+    "selection_status": "MANUAL_REQUIRED",
+    "recommendation_status": "SELECTABLE",
+    "display_badge_label": "선택가능",
+    "auto_selected": false,
+    "warn_reason": "row_count는 있으나 고유값 수 근거 없음 — 자동추천 보류 — profile 재수집 후 재선정 권장"
+  },
+  "AMT": {
+    "distinct_count": null,
+    "distinct_ratio": null,
+    "row_count": 300,
+    "selection_status": "SELECTED_DEFAULT",
+    "recommendation_status": "FALLBACK_DEFAULT",
+    "display_badge_label": "대체 기본추천",
+    "auto_selected": true,
+    "warn_reason": ""
+  }
+}
+
+=== 차이(distinct_count/ratio) ===
+  REGION_CD: 정상 distinct=20/ratio=0.0667  vs  fallback distinct=None/ratio=None  | 정상 badge=기본추천 status=SELECTED_DEFAULT  vs fallback badge=선택가능 status=MANUAL_REQUIRED
+  CHANNEL_CD: 정상 distinct=9/ratio=0.03  vs  fallback distinct=None/ratio=None  | 정상 badge=기본추천 status=SELECTED_DEFAULT  vs fallback badge=선택가능 status=MANUAL_REQUIRED
+  AMT: 정상 distinct=300/ratio=1.0  vs  fallback distinct=None/ratio=None  | 정상 badge=대체 기본추천 status=SELECTED_DEFAULT  vs fallback badge=대체 기본추천 status=SELECTED_DEFAULT
