@@ -1,0 +1,192 @@
+✅ 작업 완료 - axis_a None(판정불가) 남용에 의한 '관리컬럼 미확인' 배지 오분류 진단(수정 없음) 완료
+
+================================================================================
+작업명 : AXIS-A-NONE-VS-FALSE-MISCLASSIFICATION-DIAGNOSE
+성격   : 순수 진단 + 설계안 제안 (코드 수정 없음)
+일자   : 2026-07-26
+검증   : 실 PostgreSQL(Inter) · 포트 8000(인증 ON) 브라우저 실측 · 로직 재현
+================================================================================
+
+──────────────────────────────────────────────────────────────────────────────
+1. 근본원인 코드 그대로 재확인 (candidate_subtype_service.py)
+──────────────────────────────────────────────────────────────────────────────
+
+[484-485] axis_a 가 None 을 돌리는 조건 (detect_system_audit_value_verdict 내부):
+
+    481  parts = [p for p in (_parse_timestamp_parts(v) for v in non_null) if p is not None]
+    482  # 대다수가 타임스탬프여야 이 판별기의 관할이다(혼합 방지 ...)
+    483  # 미달이면 '배치 스탬프가 아니다'가 아니라 '이 판별기로는 알 수 없다' → None.
+    484  if len(parts) < len(non_null) * _DATE_VALUE_MATCH_RATIO:   # _DATE_VALUE_MATCH_RATIO=0.9
+    485      return None
+
+  → 값 샘플의 90% 미만이 타임스탬프로 파싱되면 False(반증)가 아니라 None(판정불가)을 돌린다.
+    STATUS_CD('A'), DEPT_CD('D001'), 배치식별자 BATCH_ID('B001') 처럼 '타임스탬프가 아닌' 값은
+    전부 여기서 None 이 된다. 이 None 반환은 UNKNOWN-PATTERN-SAFE-DEFAULT-AUDIT 로 도입된
+    '의도적 보수 설계'다(파싱불가를 반증으로 뭉뚱그리면 BATCH_ID 배제가 풀리는 회귀 방지).
+
+[674-684] 문서화된 '알려진 한계' 원문:
+
+    674  ★ A=False 는 '타임스탬프로 파싱까지 된 값이 배치 스탬프 조건을 불충족'한 경우에만 성립한다
+    675    (시각 다양=실측 이벤트 / 자정=순수 날짜형 / 고유 날짜 과다). 값이 타임스탬프가 아니어서
+    676    A축이 답할 수 없는 경우는 반증이 아니라 A=None(판정 불가)이며, 위 표에 따라 CONFIRMED 로
+    677    기존 B축 배제가 유지된다 ...
+    680  ☆ 알려진 한계(미해소, 별도 지침 대상): B=True + A=None → CONFIRMED 는 '체크박스 비활성(하드
+    681    배제)'까지 간다. A축이 관할 밖이라 침묵한 경우, 배제 근거는 결국 WEAK(0.62) 명칭매칭 단독이며
+    682    이는 세션03 경고("이름 매칭 단독 신뢰 불가")가 그대로 남는 지점이다. 값이 타임스탬프가 아닌
+    683    관리컬럼(BATCH_ID)과 명칭만 감사스러운 업무컬럼(BIZ_REG_NO)은 A축으로 구분되지 않는다 —
+    684    구분하려면 타임스탬프 외 관리컬럼 시그니처를 읽는 A축 확장이 필요하다(신규 판정 로직).
+
+[744-762] verdict 매핑(핵심 소비 — axis_a None 이 배지로 이어지는 분기):
+
+    744  if axis_a is True:                     verdict = CONFIRMED
+    746  elif axis_b and axis_a is False:       verdict = NAMING_VALUE_MISMATCH
+    748  elif axis_b:                           verdict = CONFIRMED   ← B=True + A=None (BATCH_ID 보호)
+    750  elif axis_a is False:                  verdict = NOT_AUDIT_CONFIRMED
+    754  elif _role == "group_by":              verdict = NOT_AUDIT_AMBIGUOUS  ← B=False + A=None (배지!)
+    759  else:                                  verdict = NOT_AUDIT_CONFIRMED  (SUM)
+
+──────────────────────────────────────────────────────────────────────────────
+2. 재현 결과 (로직 + 실 PG 브라우저, 포트 8000 인증 ON)
+──────────────────────────────────────────────────────────────────────────────
+
+[로직 재현] scratchpad/repro_axis_a.py — STATUS_CD/DEPT_CD/GENDER_CD 모두:
+    axis_a(값판정) = None → verdict = NOT_AUDIT_AMBIGUOUS → 배지 '⚠ 관리컬럼 미확인' 부착.
+    (대조군) 고정시각 반복 REG_DTM = True(정상 확증), 자정/순수날짜 BIRTH_DT = None.
+
+[실 PG 브라우저] scripts/dev_e2e/axis_a_none_vs_false_misclassification_shot.py — PASS 10 / FAIL 0
+    SQL: asis01.t_as_1_etl03 → tobe01.t_to_1_etl03 (Inter 프리셋, 인증 ON, 강제주입 없음)
+
+    컬럼            값 샘플             verdict               axis_a  배지  선정상태
+    ────────────────────────────────────────────────────────────────────────────
+    SCHOOL_CATEGORY 중등/고등/초등       NOT_AUDIT_AMBIGUOUS   None   ★부착 SELECTED_DEFAULT
+    REGION          샘플시 샘플구 100동  NOT_AUDIT_AMBIGUOUS   None   ★부착 EXCLUDED_BY_RULE
+    SCHOOL_CODE     SC0100..            NOT_AUDIT_AMBIGUOUS   None   ★부착 EXCLUDED_BY_RULE
+    UPDATED_AT      2025-08-09T07:...   CONFIRMED             True   없음  (관리컬럼·정상)
+
+  ★ 결정적 모순: SCHOOL_CATEGORY 는 값이 '중등/고등/초등' 3종뿐인 전형적 저카디널리티 업무분류코드로,
+    시스템이 스스로 '기본추천(SELECTED_DEFAULT)' 한 GROUP BY 차원인데도 동시에 '⚠ 관리컬럼 미확인'
+    경고 배지를 달고 있다. 화면 캡처(axis_a_misclass_card.png): 1행 GROUP BY school_type↔SCHOOL_CATEGORY
+    에 [기본추천] + [⚠ 관리컬럼 미확인] 배지 병기 확인.
+
+  DOM: .status-badge-ambig 3개 렌더, 툴팁 "관리컬럼 여부 미확인 - 검토 권장 — 값 근거: 판정불가
+       (타임스탬프 아님/미배선) / 명칭·코멘트 근거: 가설없음".
+
+──────────────────────────────────────────────────────────────────────────────
+3. 진단 핵심 — '3레벨 axis_a 분리'의 실제 의미와 한계
+──────────────────────────────────────────────────────────────────────────────
+
+▶ axis_a 는 이미 3-state(True/False/None) 다. None 이 두 하위경우를 합치고 있다:
+    N1) 값 미배선 (sample_values 없음)
+    N2) 값 있으나 타임스탬프 아님 (코드/번호/순수날짜 — STATUS_CD·DEPT_CD·SCHOOL_CATEGORY·BATCH_ID)
+
+▶ 여기서 반드시 짚어야 할 사실(재현으로 확증):
+    axis_a 만으로는 BATCH_ID('B001')·DEPT_CD('D001')·SCHOOL_CATEGORY('중등')를 구별할 수 없다.
+    셋 다 N2(값 있으나 비타임스탬프)로 동일하다. 유일한 구분자는 B축(명칭/코멘트)뿐이다.
+    (테스트 _NON_TS = ["B001",...] 가 이를 그대로 인코딩 — CD1(구분코드)도 값이 'B001'류다.)
+
+▶ 그러므로 484-485 의 None 반환은 '보호자'이자 '원인'이라는 이중성을 갖는다:
+    · B=True 경로(BATCH_ID): None→CONFIRMED 로 배제 유지 = 보호(회귀 방지). False 로 바꾸면
+      B=True+A=False→MISMATCH 로 BATCH_ID 배제가 풀린다(=회귀).
+    · B=False 경로(SCHOOL_CATEGORY): None→NOT_AUDIT_AMBIGUOUS 로 배지 = 오분류 원인.
+
+  ★ 결론: 'N2 를 B축에 따라 다르게 취급' 하면 두 요구를 동시에 만족한다.
+      - B=True + N2 → None 처럼(CONFIRMED 유지) = BATCH_ID 보호   [별도 처리]
+      - B=False + N2 → False 처럼(NOT_AUDIT_CONFIRMED) = 배지 제거  [False 처럼 취급]
+    이것이 지시가 말한 "Unknown 을 False 처럼 취급할 지점(B=False) vs True/False 와 다르게 별도
+    처리할 지점(B=True)" 의 구분이다. BATCH_ID 회귀는 B=True 경로 보호로 원천 차단된다 —
+    배지(B=False 경로) 수정은 BATCH_ID 배제와 완전히 독립(다른 분기)이다.
+
+▶ 단, 순수 axis_a 분할의 한계(정직한 보고):
+    N2 를 B=False 에서 NOT_AUDIT_CONFIRMED 로 접으면 SCHOOL_CATEGORY 배지는 사라지지만,
+    같은 형태인 CD1(구분코드 — 배지의 원래 의도 대상 'cd1류')의 배지도 함께 사라진다.
+    또한 운영은 값이 항상 배선되므로(N1 거의 미발생) 이 배지는 사실상 미발화(near-dead)가 된다.
+    즉 '3레벨 분리'는 사실상 '값 있는 후보의 애매 배지 비활성' 정책 변경이며, 의도적으로 도입된
+    기능(ADMIN-AUDIT-AMBIGUOUS-CANDIDATE-BADGE)의 반경을 되돌리는 결정이다.
+    STATUS_CD(정상 차원)와 CD1(정체불명 코드)을 진짜로 구분하려면 axis_a 가 아니라 '양성 신호'
+    (저카디 + 열거형/코드형 값 + 의미있는 명칭 _CD/_TYPE/유형/구분)가 필요하다 = heuristic 증가
+    (CLAUDE.md 경고 대상) + explainability 필요.
+
+──────────────────────────────────────────────────────────────────────────────
+4. axis_a / verdict 소비 지점 전체 목록 (파일:라인)
+──────────────────────────────────────────────────────────────────────────────
+
+[A] axis_a 원시 3-state(True/False/None) 소비:
+  services/candidate_subtype_service.py:742   axis_a 계산(group_by 한정, else None)
+  services/candidate_subtype_service.py:744-762 verdict 매핑 if/elif 체인 ★핵심
+  services/candidate_subtype_service.py:774   방출 "axis_a_value": axis_a
+  services/candidate_subtype_service.py:775   방출 "axis_a_available": axis_a is not None
+  services/candidate_subtype_service.py:1190  _audit_by_value = axis_a_value is True (True만)
+  services/candidate_subtype_service.py:1312  candidate 저장 "admin_audit_axis_a_value"
+  services/candidate_subtype_service.py:1359  품질경고 "value_verdict"(표시용)
+
+[B] bool 축약(True 만 참) 소비 — None/False 모두 False 로 접힘, 변경 불필요:
+  services/candidate_subtype_service.py:508   detect_system_audit_value_pattern = ...is True
+  services/candidate_scoring.py:765           GROUP BY 감산 입력
+  services/date_bucket_evidence.py:788        날짜버킷 대체추천 제외 입력
+
+[C] verdict(파생) 소비:
+  is_admin_audit_confirmed  (subtype:633, CONFIRMED 만) ←
+      services/candidate_display_enricher.py:893        자동선정 억제
+      services/date_bucket_evidence.py:794              fallback 승격 배제
+      services/single_validation_analyze_service.py:1832 억제 집합
+      ui/tabler_renderer.py:22805-22815 _isAdminAuditConfirmed(JS, 행 억제)
+  attach_ambiguous_audit_evidence (enricher:709,727, NOT_AUDIT_AMBIGUOUS 만) ← ★배지 생성
+      services/single_validation_analyze_service.py:1606,1623 호출
+      ui/tabler_renderer.py:786,791(CSS) · 22227(병기) · 22819-22829(배지 HTML '⚠ 관리컬럼 미확인')
+  NAMING_VALUE_MISMATCH 소비(이번 변경 무관 — A=False+B=True 경로):
+      services/candidate_subtype_service.py:1331,1354 품질경고
+      ui/tabler_renderer.py:22013,22026,22831-22847 NVM 배지/사유
+
+[D] Unknown 분기 시 각 지점의 처리 지침:
+  · [A]742-762 verdict 매핑: 유일하게 실제 수정이 필요한 곳. 754 분기를 N1/N2 로 세분.
+      B=False+N2 → NOT_AUDIT_CONFIRMED(배지 제거), B=False+N1 → NOT_AUDIT_AMBIGUOUS(배지 유지).
+      B=True(748) 은 N1/N2 무관 CONFIRMED 유지(=Unknown 을 None 처럼, BATCH_ID 보호).
+  · [A]775 axis_a_available: N2 도 '값은 봤다'이므로 의미 재정의 주의(현재 None→False). 계약 변경 시
+      test_sample_values_wiring.py:300-301, test_admin_column_comment_hypothesis.py:110 영향.
+  · [B] 전부: True 만 보므로 무변경(안전).
+  · [C] is_admin_audit_confirmed: CONFIRMED 만 보므로 무변경. attach_ambiguous: 입력 verdict 기반이라
+      함수 자체는 무변경, 단 상류에서 AMBIGUOUS 생성이 줄어 배지 발화가 감소.
+
+──────────────────────────────────────────────────────────────────────────────
+5. 영향받는 테스트 (파일:라인)
+──────────────────────────────────────────────────────────────────────────────
+  깨짐(의도 반전 — 재작성 필요):
+    tests/test_admin_column_comment_hypothesis.py:112-121  test_cd1..._ambiguous_value_not_audit
+        (CD1+구분코드+_NON_TS → 현재 AMBIGUOUS 고정. N2 접기 시 NOT_AUDIT_CONFIRMED 로 바뀜)
+    scripts/dev_e2e/ambiguous_audit_badge_stage3_shot.py   (배지 발화를 성공기준으로 삼음 → 기대 반전)
+    scripts/dev_e2e/oracle_admin_audit_badge_browser_shot.py (동일 성격, 확인 필요)
+  확인 필요(계약 변경 시만):
+    tests/test_sample_values_wiring.py:297-311             axis_a_value/available 계약
+    tests/test_fk_default_consumption_wiring.py:178-213    attach_ambiguous(직접 verdict 주입 — 대체로 불변)
+  불변(B=True/CONFIRMED/MISMATCH 경로):
+    tests/test_admin_char_varchar_gate_reachability.py:127-156
+    tests/test_naming_value_mismatch_reason_display.py, tests/test_date_bucket_integration_ui.py
+
+──────────────────────────────────────────────────────────────────────────────
+6. 영향범위 추정 및 권고
+──────────────────────────────────────────────────────────────────────────────
+  · 코드 수정 파일: 실질 1개(candidate_subtype_service.py 742-762 분기 + N1/N2 판별 1줄).
+    최소 구현은 evaluate_admin_audit_crosscheck 안에서 _candidate_sample_values 존재 여부로
+    N1/N2 를 나누면 되므로 detect_system_audit_value_verdict 의 bool|None 계약은 건드리지 않는다
+    (→ [B]/[C] 소비처 무영향, blast radius 최소).
+  · 테스트 파일: 신규/재작성 2~3개(단위 1 + E2E 1~2), 확인 2개.
+  · 순수 기술 난이도는 '이번에 바로 할 만한 작업'(1개 함수, 최소 반경)이다. 그러나:
+    - 이 변경은 '의도적으로 도입된 애매 배지'를 사실상 비활성으로 되돌리는 정책 결정을 포함하고,
+    - STATUS_CD(정상)와 CD1(정체불명)을 진짜로 구분하려면 별도 양성신호(heuristic) 설계가 필요하다.
+  ⇒ 권고: '별도 작업으로 분리'. 이번 진단 결과를 근거로, 다음 중 하나를 사용자가 결정한 뒤 착수:
+      (안A) 애매 배지를 '값 있는 후보'에서 비활성(N2 접기) — 작고 안전, BATCH_ID 무영향. 배지 near-dead.
+      (안B) 배지 유지 + 양성 업무차원 인식기 추가 — 오탐만 억제, 그러나 heuristic/explainability 부담.
+    두 안 모두 BATCH_ID/MIGRATION_ID 회귀와는 무관(그 경로는 B=True 로 별도 보호됨)임을 확인.
+
+──────────────────────────────────────────────────────────────────────────────
+7. 산출물
+──────────────────────────────────────────────────────────────────────────────
+  스크린샷/로그 : E:\verify_screenshots_only\AXIS-A-NONE-VS-FALSE-MISCLASSIFICATION-DIAGNOSE\
+      - axis_a_misclass_card.png        (기본추천 + 관리컬럼미확인 배지 병기 캡처)
+      - axis_a_misclass_stage3_full.png (전체 3단계 화면)
+      - groupby_verdicts.json           (컬럼별 verdict/샘플/선정상태 원자료)
+  브라우저 스크립트: scripts/dev_e2e/axis_a_none_vs_false_misclassification_shot.py (PASS 10/0)
+  보고서 : E:\verify_reports\AXIS-A-NONE-VS-FALSE-MISCLASSIFICATION-DIAGNOSE.txt (본 파일)
+  ※ 코드 수정 없음(진단 전용). 신규 파일은 진단 스크립트 1개뿐.
+
+✅ 작업 완료 - axis_a None 남용 오분류 근본원인·소비지점·설계안·영향범위 진단 완료(수정 없음)

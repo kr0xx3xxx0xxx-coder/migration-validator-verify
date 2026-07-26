@@ -1,0 +1,109 @@
+✅ 작업 완료 - profile_recollect_service.py:358 밑줄 별칭(_rc/_d%d)→문자 시작(pr_rc/pr_d%d) 교정, 오라클 ORA-00911 방어(실측 확인), PG 회귀 없음
+
+[작업명] PROFILE-RECOLLECT-UNDERSCORE-ALIAS-FIX
+[대상]   UNDERSCORE-ALIAS-CODEBASE-FULL-AUDIT 우선순위 2번 항목 해소
+[커밋]   5f289c8 (코드 repo main, push 안 함 — 규칙상 코드 repo push 금지)
+[서버]   재기동 2026-07-26 08:09:15 KST (기존 PID 14540 종료 → 신규 32112, 인증 ON 3명·단계가드 ON)
+
+────────────────────────────────────────────────────────────────────
+1. 무엇을·어디를 고쳤나 (파일:라인)
+────────────────────────────────────────────────────────────────────
+services/profile_recollect_service.py  _collect_distinct_counts()
+  변경 전 (구 358행):
+    sel = ["COUNT(*) AS _rc"] + ["COUNT(DISTINCT %s) AS _d%d" % (_quote_ident(c, dialect), i) ...]
+  변경 후:
+    sel = ["COUNT(*) AS pr_rc"] + ["COUNT(DISTINCT %s) AS pr_d%d" % (_quote_ident(c, dialect), i) ...]
+
+  - 밑줄('_')로 시작하는 비인용 SQL 별칭은 오라클에서 ORA-00911 유발.
+  - pr_ (profile recollect) 문자 시작으로 통일 — 형제 수정 column_profile(pf_)·date_bucket(bkt_)과 동일 컨벤션.
+  - 파서/쿼리 로직은 건드리지 않음(지시 준수). 소비자는 positional(row[0]=행수 / row[i+1]=distinct)이라
+    별칭명은 순수 cosmetic → 개명만으로 안전.
+
+  호출 맥락(어떤 기능):
+    routes/column_candidate_gen_route.py:185  POST /api/batch-groups/{group_id}/profiles/recollect
+      → services.profile_recollect_service._recollect_one_side (:420)
+        → _collect_distinct_counts (:334, 문제의 SQL은 :358)
+    = "미수집/실패 profile 수동 재수집" 기능(GROUP BY 예상 그룹 수 산정 근거인 컬럼별 distinct_count 수집).
+
+────────────────────────────────────────────────────────────────────
+2. 오라클 실측 — BEFORE / AFTER (asis 192.168.0.151:1523 xepdb1, NXDNP.MV_ORA_TEST_SRC 300행)
+   (모듈 _quote_ident 로 358행 SQL 을 그대로 재현해 실 오라클에 직접 실행)
+────────────────────────────────────────────────────────────────────
+  [BEFORE 밑줄 별칭]
+    SQL : SELECT COUNT(*) AS _rc, COUNT(DISTINCT "REGION_CD") AS _d0,
+                 COUNT(DISTINCT "CHANNEL_CD") AS _d1, COUNT(DISTINCT "ORDER_YM") AS _d2
+          FROM NXDNP.MV_ORA_TEST_SRC
+    결과: 실패 → ORA-00911: _: invalid character after AS          ← 재현 확인
+
+  [AFTER 문자 별칭 pr_]
+    SQL : SELECT COUNT(*) AS pr_rc, COUNT(DISTINCT "REGION_CD") AS pr_d0,
+                 COUNT(DISTINCT "CHANNEL_CD") AS pr_d1, COUNT(DISTINCT "ORDER_YM") AS pr_d2
+          FROM NXDNP.MV_ORA_TEST_SRC
+    결과: 성공 → row=(300, 20, 9, 24)                              ← 해소 확인
+          (row[0]=행수 300, row[1..3]=컬럼별 distinct — 함수가 기대하는 정확한 shape)
+
+  [최소 재현]
+    BEFORE: SELECT COUNT(*) AS _rc  FROM ... → ORA-00911
+    AFTER : SELECT COUNT(*) AS pr_rc FROM ... → 성공 row=(300,)
+
+  로그: E:\verify_screenshots_only\PROFILE-RECOLLECT-UNDERSCORE-ALIAS-FIX\ora_before_after_ora00911.log
+
+────────────────────────────────────────────────────────────────────
+3. PostgreSQL 회귀 없음 — 실 함수 직접 호출(라이브)
+   (PostgreSQL_Inter_asis 192.168.0.150:5433 asis, 테이블 mvq_emp)
+────────────────────────────────────────────────────────────────────
+  _collect_distinct_counts(conn, "mvq_emp", {}, "postgresql")  ← 수정 적용본 실제 호출
+    _last_error : (없음)
+    수집 컬럼 4개:
+      EMP_NO  -> {distinct_count:3, row_count:3}
+      DEPT_NO -> {distinct_count:1, row_count:3}
+      SALARY  -> {distinct_count:3, row_count:3}
+      STATUS  -> {distinct_count:2, row_count:3}
+    => pr_ 별칭으로 PG distinct 정상 수집. 밑줄 별칭은 PG가 원래 허용하므로 이 변경이 PG를 깨지 않음(회귀 없음).
+  로그: E:\verify_screenshots_only\PROFILE-RECOLLECT-UNDERSCORE-ALIAS-FIX\pg_regression_real_function.log
+
+────────────────────────────────────────────────────────────────────
+4. 중요한 정정 — 감사 인벤토리 '오라클 경로 O' 는 정적 스캔 과대분류
+────────────────────────────────────────────────────────────────────
+  _collect_distinct_counts 는 343행 dialect 가드로 오라클이면 SQL 을 만들기 전에 즉시 {} 반환한다.
+    if (dialect or "").lower() not in ("postgresql","postgres","mysql","mariadb"): return out
+  실측: _collect_distinct_counts(..., "oracle") → {}  (358행 SQL 자체를 생성/실행하지 않음)
+  가드는 2026-06-11(21264c3)에 추가되어 감사일(2026-07-22)보다 앞섬.
+  기존 테스트도 이미 이를 못박음: tests/test_batch_profile_recollect_control.py:451
+     assert _collect_distinct_counts(_isq_conn(...), "T", {}, "oracle") == {}
+
+  => 결론: 라이브 재수집 경로에서 오라클은 이 별칭 SQL 에 도달하지 않으므로 ORA-00911 이 현재 라이브로
+     발화하지는 않는다. 그러나 별칭 자체는 오라클에서 명백히 위법(2번 항목 BEFORE 실측이 증명)하며,
+     이번 수정은 (a) 감사 잔존항목 2순위의 결정적 해소 + (b) 가드 제거/방언 확장 시 재발 방지의 방어적 통일이다.
+
+────────────────────────────────────────────────────────────────────
+5. 회귀 테스트
+────────────────────────────────────────────────────────────────────
+  python samples/test_virtual_cases.py   → 8/8 통과
+  python samples/test_complex_cases.py   → 5/5 통과
+  tests/test_batch_profile_recollect_control.py 중 수정 함수 단위:
+    test_collect_distinct_counts_single_query / _query_failure_safe / _schema_case_resolution → 3/3 통과
+  사전 존재 실패 3건(test_candidate_freshness_* / test_recollect_snapshot_roundtrip_*)은
+    conftest 운영DB 쓰기차단 가드([PROD-DB-WRITE-BLOCKED]) 때문 — 내 변경 되돌린 baseline 에서도
+    동일 3건 실패 확인(격리 완료, 회귀 아님). ※ worktree baseline 은 하드코딩 경로 불일치로 통과하는
+    교란요인이 있어 in-place revert 로 격리함.
+
+────────────────────────────────────────────────────────────────────
+6. 감사 목록 반영 근거
+────────────────────────────────────────────────────────────────────
+  UNDERSCORE-ALIAS-CODEBASE-FULL-AUDIT 2순위
+    "services/profile_recollect_service.py:358 — _rc/_d%d (positional 이라 개명만 하면 안전)"
+  → 해소 완료. 수정 파일:라인 = services/profile_recollect_service.py  _collect_distinct_counts()
+    (구 358행 sel 조립부, 커밋 5f289c8). positional 소비자라 소비자 동반 수정 불필요(확인 완료).
+
+────────────────────────────────────────────────────────────────────
+7. 산출물
+────────────────────────────────────────────────────────────────────
+  수정  : services/profile_recollect_service.py (커밋 5f289c8)
+  드라이버: scripts/dev_e2e/profile_recollect_underscore_alias_ora_verify.py (커밋 5f289c8)
+  증적  : E:\verify_screenshots_only\PROFILE-RECOLLECT-UNDERSCORE-ALIAS-FIX\
+            ora_before_after_ora00911.log / pg_regression_real_function.log /
+            server_restart.log / server_restart_note.txt / commit_5f289c8.txt
+  보고  : E:\verify_reports\PROFILE-RECOLLECT-UNDERSCORE-ALIAS-FIX.txt (본 파일)
+
+✅ 작업 완료 - 밑줄 별칭→문자 별칭 교정, 오라클 ORA-00911 Before/After 실측 대조·PG 회귀 없음·서버 재기동 완료

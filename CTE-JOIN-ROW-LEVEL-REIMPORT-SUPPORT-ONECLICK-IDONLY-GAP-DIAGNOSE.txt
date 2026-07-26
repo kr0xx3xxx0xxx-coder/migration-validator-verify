@@ -1,0 +1,161 @@
+작업명 : CTE-JOIN-ROW-LEVEL-REIMPORT-SUPPORT-ONECLICK-IDONLY-GAP-DIAGNOSE
+⚠️ 추가 작업 필요 - oneclick·idonly 빈결과는 둘 다 '테스트(dev_e2e) 결함'으로 확정(제품 기능 정상). oneclick=드릴다운 오픈 클릭 누락, idonly=SUM 후보 부재를 전제한 설계오류. 코드 수정은 미실행(수정방향만 제안).
+
+════════════════════════════════════════════════════════════════════════
+0. 결론 한 줄 (Q3 답)
+────────────────────────────────────────────────────────────────────────
+  · oneclick 빈결과  → 테스트 스크립트 결함 (기능 결함 아님). 드릴다운을 여는 '전체합계 행
+                       클릭'을 하지 않고, 미준비 상태의 _mvRiShowAllDetail() 를 호출해 no-op.
+  · idonly 빈결과    → 테스트 설계(전제) 결함 (기능 결함 아님). "C_NUM_PS 가 SUM 후보가 되어
+                       전체합계 드릴다운 진입점이 생긴다"는 전제가 틀림 — 추천엔진이 raw
+                       C_NUM_PS 를 '식별자성 의심 → 정책상제외'로 판정, SUM·GB 모두 비어
+                       COUNT-only 가 되고 전체합계(펼침) 행 자체가 없어 클릭대상 부재.
+  · 두 건 모두 CTE/JOIN 행수준 재이관 기능 자체의 결함이 아니다. 행을 실제로 클릭하면
+    /agg-diff/prepare·pk-records 가 정상 발생함을 실측으로 확인(oneclick 재현).
+  · 재현성: 두 시나리오 각 2회(r1·r2) 실행 — 매회 동일 결과(항상 재현, 우연한 1회성 아님).
+
+════════════════════════════════════════════════════════════════════════
+1. 검증 환경 (원칙 준수)
+────────────────────────────────────────────────────────────────────────
+  · 실 서비스 포트 8000 (인증 ON, http_credentials=e2e 계정), 실 오라클(asis/tobe), 실 브라우저.
+  · asis/tobe read-only. 강제 함수 직접호출·payload 주입 없음(실 UI 클릭 + 관찰 evaluate 만).
+  · 진단 드라이버: scripts/dev_e2e/cte_join_oneclick_idonly_gap_diagnose.py (신규, 코드수정 아님).
+  · 네트워크 훅으로 /agg-diff/prepare·pk-records·run-records 응답을 회차마다 캡처.
+  · [주의] 원 진단 최초 1회는 진단드라이버의 setup 이 검증경로 접속에 실패(pair_rows:0 →
+    DB_PATH_REQUIRED)해 무효였음. 접속 established 폴링(끊기 신호 확인)으로 setup 을 보강해
+    재실행 → pair_rows:1, connected:true 로 정상 진입 후 아래 결과를 얻음.
+
+════════════════════════════════════════════════════════════════════════
+2. oneclick 시나리오 — 원인 규명 (Q1)
+────────────────────────────────────────────────────────────────────────
+[원 증상] result_oneclick.json: detail_opened_by:"all" 인데 detail:{rows:0,txt:""}, net:[],
+         group_view:false, oneclick_01/02 png md5 완전 동일.
+
+[재현 실측 — r1·r2 동일]
+  · 5단계 결과 상태(전체합계 행 클릭 전):
+      rowCount:1, rowKeys:["{}"], hasAllRow:true   ← 전체합계(GB0 집계) 행은 실재
+      mvRiWrap_exists:false, state_runId:null, planFp:null
+      sum_selected:["C_NUM","C_NUM_PS"]            ← SUM 이 선택돼 있어 전체합계 행이 생김
+  · 미클릭 상태에서 _mvRiShowAllDetail() 호출:  return "all", net_delta=0, detail{rows:0,txt:""}
+      → 함수는 '존재해서 호출'됐을 뿐 아무것도 렌더 안 함(= no-op). 원 결과와 100% 일치.
+  · 올바른 경로(전체합계 행을 실제로 클릭): found:true, key "{}",
+      text "전체합계 250000 249950 Δ+50 …(C_NUM/C_NUM_PS 합계·Δ)…"
+      → 클릭 직후 /agg-diff 호출 net_delta=2(prepare+pk-records) 발생,
+        패널 "재이관 대상 준비 중… (현재 저장 0건 · 완료되면 자동 표시)" 로 드릴다운 기동.
+      (스크린샷 oneclick_r1_11_rowclick_drilldown.png: ▼전체합계 펼침 + '재이관 대상 준비 중…')
+
+[근본 원인 — 코드 근거]
+  · #mvRiWrap 은 실행결과 렌더 시 '빈 placeholder' 로만 생성됨(ui/tabler_renderer.py:25169
+    `<div id="mvRiWrap"></div>`). 실제 내용은 5단계 전체합계/그룹 행을 '펼칠 때'
+    (/agg-diff/prepare 로 run_id 확보 후)에만 채워진다.
+  · _mvRiShowAllDetail()(ui/tabler_renderer.py:26616) → _mvRiLoadPage()(26077) 의 첫 가드가
+      26080:  if (!wrap || !st.runId) return;
+    즉 드릴다운을 연 적이 없어 window._mvRiState.runId 가 없으면 '네트워크 호출 없이 즉시 반환'.
+    → 이것이 net:[](서버 미호출) + rows:0 + 화면 무변화(→ 동일 png)의 정확한 기전.
+  · 원 oneclick 드라이버(cte_join_reimport_oneclick_verify.py)는 전체합계 행을 클릭하지 않고
+    #mvRiWrap 을 기다린 뒤 곧장 _mvRiShowAllDetail() 만 호출 → 위 가드에서 항상 no-op.
+    detail_opened_by:"all" 은 '함수가 정의돼 호출됐다'는 신호일 뿐 '상세가 열렸다'가 아님(거짓 양성).
+
+[판정] 테스트 스크립트 결함. (① 드릴다운을 여는 클릭 누락, ② detail_opened_by 를 성공신호로
+        오해.) 원클릭 전체검증은 재이관 드릴다운을 자동으로 열지 않는다(그룹/전체합계 행을
+        펼쳐야 열림) — 원 스크립트의 가정이 틀렸다. 기능 자체는 정상(행 클릭 시 prepare 발생).
+
+════════════════════════════════════════════════════════════════════════
+3. idonly 시나리오 — 원인 규명 (Q2)
+────────────────────────────────────────────────────────────────────────
+[원 증상] result_after_idonly.json: 3_select gb_after:[] / sum_after:[], 5_click found:false
+         rowCount:0, pk_wrap.exists:false, watch_sec:201.7, net:[]. 05_result 와 05c_drilldown
+         png md5 완전 동일.
+
+[재현 실측 — r1·r2 동일]
+  · 3단계 후보표 전량 덤프:
+      GB 후보 : [{"value":"ID",       "disabled":true, "checked":false}]
+                 사유 "정책상제외 · PK/유니크 식별자 — 행마다 고유값이라 그룹 기준 부적합"(정당)
+      SUM 후보: [{"value":"C_NUM_PS", "disabled":true, "checked":false}]
+                 사유 "정책상제외 · 식별자성 의심 · 제외"
+      → 두 후보(유일한 GB 후보 ID, 유일한 SUM 후보 C_NUM_PS)가 모두 disabled.
+        스크립트가 SUM 을 켜려 했으나 활성 SUM 체크박스가 하나도 없어 sum_after:[].
+  · 5단계 결과: executeOut = "❌ COUNT-only 검증 — … SUM 기준: 없음 — COUNT only 검증",
+      rowCount:0, hasAllRow:false. 전체합계(펼침) 행이 아예 없음.
+      (스크린샷 idonly_r1_10_result_rows.png: 정적 COUNT 비교 카드만, 펼침 행 없음)
+  · 전체합계 행 클릭 시도: found:false (클릭 대상 자체가 화면에 없음).
+
+[근본 원인 — 코드 근거]
+  · SUM·GROUP BY 가 모두 없으면 5단계는 'COUNT-only' 로 렌더되어 전체합계(집계) 행을 만들지
+    않는다 → 드릴다운 진입점(클릭할 행)이 없다. (oneclick 은 SUM 이 있어 전체합계 행이 생겼고
+    idonly 는 SUM 이 없어 안 생김 — 이 한 가지가 두 시나리오의 갈림점.)
+  · C_NUM_PS 가 SUM 후보에서 disabled 된 이유:
+      analyzer/column_profile_analyzer.py :: _map_to_role(114–135)
+        - Categorical 로 분류되고 n_total≥3 이면서 n_distinct==n_total(전값 고유) → EXCLUDE(식별자)
+      → raw C_NUM_PS(idonly 는 원본 그대로 통과)가 '식별자성' 으로 EXCLUDE(정책상제외).
+  · 최후수단 SUM 구제도 불가:
+      services/fallback_recommendation.py :: _sum_relaxed_eligible_status(117–132)/
+        promote_general_fallback_default(SUM 분기) 은 EXCLUDED_BY_RULE/BLOCKED/selectable=False
+        후보를 최후수단 pool 에서 배제한다. '정책상제외' 는 여기 걸려 fallback 승격 대상이 못 됨.
+  · 대조(FULL/oneclick): 같은 컬럼이라도 FULL 의 C_NUM_PS 는 CASE 파생(x.C_NUM_PS + t.AMT)이라
+      '식별자성 EXCLUDE' 가 아닌 '합산 의미 확인 필요(MANUAL_REQUIRED)' 로 분류됨 → 최후수단
+      fallback 이 '대체 기본추천(35점)' 으로 구제해 SUM 활성. idonly 의 raw 통과분만 EXCLUDE.
+
+[판정] 테스트 설계(전제) 결함. 셀렉터/타이밍 문제가 아니라(행이 실제로 존재하지 않음),
+        "C_NUM_PS 가 반드시 SUM 후보가 되어 전체합계 드릴다운 진입점이 생긴다"는 전제가 이
+        데이터에서 성립하지 않음(추천엔진이 식별자성으로 제외). CTE/JOIN 재이관 기능 결함 아님.
+
+  [부차 관찰 — 기존·별개 제한, 이번 범위 밖] ID + 식별자성 숫자만 매핑되면 결과가 COUNT-only
+   가 되어, 행수준 재이관 드릴다운을 열 UI 진입점(전체합계/그룹 행)이 없다. 백엔드 wrapping 은
+   지원해도 UI 로는 도달 불가. 이는 CTE/JOIN 작업과 무관한 기존 UI 진입점 한계.
+
+════════════════════════════════════════════════════════════════════════
+4. 201.7초 대기 판정 (Q4)
+────────────────────────────────────────────────────────────────────────
+  · 정상 폴링 타임아웃도, 무한대기 결함도 아니다. → '클라이언트 테스트 감시 루프의 유한
+    대기 예산' 이 소진된 것.
+  · 원 idonly 드라이버(cte_join_reimport_support_verify.py)는 5단계 전체합계 행을 클릭한 뒤
+    드릴다운 패널을 관찰하는 while 루프(MV_PANEL_WATCH, 기본 300초)를 돈다. 그런데 클릭이
+    found:false 였으므로 패널이 열리지 않고, 관찰 대상(패널 텍스트/PK 행/pk-records status)이
+    영영 나타나지 않아 종료조건 미충족 상태로 대기 예산을 소모하다 끝났다(201.7s).
+  · 이 구간 net:[] — /agg-diff 서버 호출이 0건. 즉 서버는 아무 요청도 받지 않았고 hang 이
+    아니다. 대기는 '테스트가 나타날 수 없는 패널을 기다린' 순수 클라이언트측 공회전이며
+    상한(≤300s) 안에서 스스로 종료됨(무한/near-무한 hang 아님).
+
+════════════════════════════════════════════════════════════════════════
+5. 검증(필수) — 재현성 & 이미지 무결성
+────────────────────────────────────────────────────────────────────────
+  · 재현 회차: oneclick r1·r2, idonly r1·r2 (각 2회). 매회 결과 동일 → 항상 재현 확정.
+      - oneclick r1·r2: SUM 활성, 전체합계 행 존재, _mvRiShowAllDetail no-op(net_delta 0),
+        실제 행 클릭 시 net_delta 2(prepare+pk-records).
+      - idonly r1·r2:   C_NUM_PS SUM disabled(식별자성 제외), COUNT-only, found:false, net:[].
+  · 스크린샷 md5 자체대조: 이번 진단 png 26장 전부 고유(중복 0). 특히 원 문제였던
+    '클릭 전/후 동일 이미지' 재발 없음 —
+      oneclick_r1_10_showall_noclick_empty(5d605f…) ≠ _11_rowclick_drilldown(562efc…)
+      oneclick_r2_10(99230e…) ≠ _11(6757a9…)  (no-op 빈화면 vs 실제 드릴다운 '준비 중' 화면)
+  · 네트워크 로그: 각 diag_*.json 의 net 배열에 회차별 /agg-diff 호출/응답 보존.
+
+════════════════════════════════════════════════════════════════════════
+6. 수정 방향(제안만 — 이번엔 미실행, 별도 승인 후 진행)
+────────────────────────────────────────────────────────────────────────
+  [테스트(dev_e2e) 교정 — 권장]
+   · oneclick: _mvRiShowAllDetail 직접 호출 대신 '전체합계 행 클릭 → 드릴다운 오픈' 후
+     prepare/pk-records status 를 종료조건으로 관찰(support 드라이버 방식과 동일하게).
+     detail_opened_by 를 성공신호로 쓰지 말 것(가드 통과·행 존재·net_delta>0 로 판정).
+   · idonly: SUM 진입점을 보장하려면 '식별자성 EXCLUDE 되지 않는' 측정 컬럼(저카디 numeric
+     또는 값 변형으로 고유율↓)을 쓰거나, GB 후보가 활성인 컬럼을 하나 남겨 전체합계/그룹
+     드릴다운 진입점을 확보. found:false 를 곧 '기능 실패' 로 기록하지 말 것.
+  [제품(선택 — 기존·별개 이슈, CTE/JOIN 범위 밖)]
+   · (a) COUNT-only 결과에도 재이관 행수준 드릴다운 진입점을 제공(요약표는 이미 '재이관 대상
+     1건/준비 중' 을 표기하나 펼칠 행이 없어 도달 불가 — 불일치).
+   · (b) 유일 numeric 측정의 식별자성 SUM 제외 비대칭 재검토(FULL 은 최후수단 구제, idonly 는
+     제외). 단 이는 추천엔진 정책 변경이라 회귀 영향 검토 필요 — 본 진단 범위 밖.
+
+════════════════════════════════════════════════════════════════════════
+7. 산출물
+────────────────────────────────────────────────────────────────────────
+  · 진단 드라이버: scripts/dev_e2e/cte_join_oneclick_idonly_gap_diagnose.py (코드 repo 로컬 전용)
+  · 스크린샷/JSON(회차별): E:\verify_screenshots_only\CTE-JOIN-ROW-LEVEL-REIMPORT-SUPPORT-
+      ONECLICK-IDONLY-GAP-DIAGNOSE\
+        oneclick_r1_*.png / oneclick_r2_*.png / idonly_r1_*.png / idonly_r2_*.png (png 26장)
+        diag_oneclick_r1.json / diag_oneclick_r2.json / diag_idonly_r1.json / diag_idonly_r2.json
+  · 본 보고서: E:\verify_reports\CTE-JOIN-ROW-LEVEL-REIMPORT-SUPPORT-ONECLICK-IDONLY-GAP-
+      DIAGNOSE.txt (+ 스크린샷 폴더 REPORT.txt 사본)
+
+작업명 : CTE-JOIN-ROW-LEVEL-REIMPORT-SUPPORT-ONECLICK-IDONLY-GAP-DIAGNOSE
+⚠️ 추가 작업 필요 - oneclick·idonly 빈결과는 둘 다 '테스트(dev_e2e) 결함'으로 확정(제품 기능 정상). oneclick=드릴다운 오픈 클릭 누락, idonly=SUM 후보 부재를 전제한 설계오류. 코드 수정은 미실행(수정방향만 제안).

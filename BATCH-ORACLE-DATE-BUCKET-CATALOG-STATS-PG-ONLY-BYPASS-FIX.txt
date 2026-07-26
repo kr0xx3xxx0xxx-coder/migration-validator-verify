@@ -1,0 +1,96 @@
+✅ 작업 완료 - 오라클 날짜버킷 L1 catalog 통계 PG전용 함수 바이패스 제거(오라클 어댑터 위임)
+
+작업명 : BATCH-ORACLE-DATE-BUCKET-CATALOG-STATS-PG-ONLY-BYPASS-FIX
+커밋   : 0b52943 (main)
+서버 재기동: 2026-07-26 18:48:17 +0900 (신규 PID 18564, 기존 PID 17776 종료, 인증 ON)
+
+───────────────────────────────────────────────────────────────────────────
+[문제]
+services/candidate_postcount_finalize.py 의 _date_catalog_stats() 가 방언과 무관하게
+fetch_postgres_column_stats(PG 전용 — db_type != 'postgresql' 이면 즉시 {} 반환)를 호출.
+→ 오라클에서는 이미 존재하는 컬럼통계 어댑터(OracleAdapter.fetch_column_stats,
+  supports_column_stats()=True)가 있는데도 이 L1 경로가 '조용히 빈 값 {}' 만 반환.
+  결과: 날짜버킷 후보의 raw_distinct/null_ratio/raw_row_estimate 등 catalog 근거가 오라클에서 유실.
+
+[수정] (services/candidate_postcount_finalize.py 단일 파일 — 지시 준수)
+_date_catalog_stats() 에 방언(dbt) 인자 추가 + 방언별 통계 출처 분기:
+  - postgresql : fetch_postgres_column_stats(pg_stats/pg_class, schema 인자 지원) — 기존 경로 그대로(회귀 방지)
+  - oracle 등  : get_adapter(dbt).fetch_column_stats(ALL_TAB_COL_STATISTICS/ALL_TABLES)
+                 — PG 와 동일 shape 를 반환하는 '이미 존재하는' 어댑터 재사용(새 어댑터 작성 없음)
+  - 미지원 방언 : supports_column_stats()=False → 빈 dict(L2 범위추정 폴백)
+호출부(_collect_date_bucket_profiles)가 dbt 를 넘기도록 1줄 수정.
+
+'통계 없음' 원인을 로그로 구분(지시 #2):
+  (A) 미지원 방언       → DEBUG "L1 catalog 통계 미지원 방언(<dbt>) — L2 범위추정으로 폴백(통계 조회 생략)."
+  (B) 어댑터 정상 호출·통계 0건 → INFO "L1 catalog 통계 0건 — 어댑터(<dbt>) 정상 호출됐으나 대상 테이블(<t>)
+                                       통계 미수집 추정(gather stats 미실행 등) → L2 범위추정 폴백."
+  ⇒ '옛 PG전용 함수 오호출로 조용히 빔' 과 '어댑터 정상 호출됐으나 통계 자체가 없어서 빔' 을 명확히 구분.
+
+L4(DATE_TRUNC PG전용, ORA-00904)는 지시대로 이번 범위 밖 — 기존 L2 범위추정 폴백 그대로 유지.
+
+───────────────────────────────────────────────────────────────────────────
+[실측 검증]
+
+■ 1) 직접 호출 Before/After (Oracle tobe 1524 · MV_ORA_DATEB_TGT · db_type=oracle)
+   scripts/dev_e2e/datebucket_oracle_catalog_stats_bypass_verify.py
+   - [Before] fetch_postgres_column_stats(오라클 conn) 직접 호출 → 키수 0 (PG전용 오호출로 조용히 빔)
+   - [확인]   get_adapter('oracle').supports_column_stats() = True
+   - [After]  _date_catalog_stats(dbt='oracle') → 4컬럼 정상 수집:
+       AMT      : raw_row_estimate=120 raw_distinct=120.0 null_frac=0.0
+       CATEGORY : raw_row_estimate=120 raw_distinct=4.0   null_frac=0.0
+       ID       : raw_row_estimate=120 raw_distinct=120.0 null_frac=0.0
+       ORDER_DT : raw_row_estimate=120 raw_distinct=120.0 null_frac=0.0
+   → PASS: before_keys=0 → after_cols=4 (raw_row_estimate/n_distinct/null_frac 정상 수집)
+   * 지시 #2 구분 실증(로그 캡처):
+       (B) 미존재 오라클 테이블 → "L1 catalog 통계 0건 — 어댑터(oracle) 정상 호출됐으나 …통계 미수집 추정"
+       (A) mysql(미지원 방언)  → "L1 catalog 통계 미지원 방언(mysql) — L2 범위추정으로 폴백"
+
+■ 2) caller 레벨 기능 차이 (_collect_date_bucket_profiles, catalog={} 모사 = 옛 바이패스)
+   - [Before] ORDER_DT profile: raw_distinct=None  null_ratio=None  raw_row_estimate=120
+   - [After ] ORDER_DT profile: raw_distinct=120.0 null_ratio=0.0   raw_row_estimate=120
+   → PASS: catalog 기여로 raw_distinct/null_ratio 신규 확보(옛 바이패스 대비 근거 추가)
+
+■ 3) 실제 서비스 포트(8000, 인증 ON) 라이브 — analyze→count→/validation-sets/preview 직접 HTTP
+   scripts/dev_e2e/datebucket_oracle_catalog_stats_live_service.py (인증 e2e, Basic Auth)
+   * SRC/TGT=Oracle_tobe(1524) self-compare — asis(1523)는 DPY-6005 다운이라 우회
+   - [analyze] http=OK gb_cands=2(CATEGORY, ORDER_DT)
+   - [count]   http=OK src_count=120 tgt_count=120 (COUNT 일치)
+   - [preview] http=OK processing_steps_ms.postcount_date_bucket_profile=155.9ms (L1 오라클 catalog 경유)
+   - ORDER_DT date_bucket_evidence(preview 재확정 후):
+       raw_distinct_count=120.0, null_ratio=0.0, raw_row_estimate=120, execution_cost_risk=LOW
+       (month/quarter/year 버킷 RANGE_DERIVED, recommended_bucket=month)
+   → PASS: 실 서비스 전 구간 통과, catalog(L1)가 date_bucket_evidence 에 실제 반영
+   * 서버 로그(server_restart_8000_authON.log): /analyze /count/preview /validation-sets/preview 200 OK,
+     인증 401→200 확인.
+
+■ 4) PostgreSQL 회귀 없음 (PostgreSQL_Inter_asis 192.168.0.150:5433 · ntb.ga_asset_a)
+   - _date_catalog_stats(dbt='postgresql') → 9컬럼 정상 수집(raw_row_estimate=20000 등)
+   → PASS: PG 경로 코드 불변(fetch_postgres_column_stats + schema 그대로), 회귀 없음
+
+■ 5) 회귀 테스트
+   - samples/test_virtual_cases.py  : 8/8 통과
+   - samples/test_complex_cases.py  : 5/5 통과
+   - 날짜버킷/후보 단위 테스트       : 83 passed (date_bucket_cost_bound / evidence / schema_qualify /
+                                       count_only_and_date_bucket / fallback_granularity)
+     * test_date_bucket_cost_bound.py 의 _date_catalog_stats 몽키패치 fake_cat 시그니처를
+       (src_conn, table) → (src_conn, table, dbt=None) 로 반영(진입점 변경 반영, 로직 무관).
+   - 광역 스윕 실패 10건은 커밋 전 HEAD worktree 에서도 동일 실패/스킵 → 전부 사전 존재 실패(회귀 아님).
+     (count_only/drilldown/plan-tag UI·정적 테스트 — 본 변경과 무관; live-gate 2건은 worktree skip 혼동)
+
+───────────────────────────────────────────────────────────────────────────
+[변경 파일]
+  M services/candidate_postcount_finalize.py   (_date_catalog_stats 방언 분기 + 로그 구분, 호출부 1줄)
+  M tests/test_date_bucket_cost_bound.py        (fake_cat 시그니처 dbt=None 반영)
+  A scripts/dev_e2e/datebucket_oracle_catalog_stats_bypass_verify.py   (직접 Before/After + caller 실측)
+  A scripts/dev_e2e/datebucket_oracle_catalog_stats_live_service.py    (실 서비스 :8000 인증ON 라이브)
+
+[git]
+  commit 0b52943  "fix(date-bucket): 오라클 날짜버킷 L1 catalog 통계 PG전용 함수 바이패스 제거 …"
+  4 files changed, 313 insertions(+), 11 deletions(-)
+
+[증적] E:\verify_screenshots_only\BATCH-ORACLE-DATE-BUCKET-CATALOG-STATS-PG-ONLY-BYPASS-FIX\
+  - browser_00_home_authed_8000.png       (인증 ON 실 서비스 홈 브라우저 캡처)
+  - live_service_preview_result.json       (실 서비스 preview 응답 · ORDER_DT date_bucket_evidence)
+  - server_restart_8000_authON.log         (재기동 + 라이브 요청 200 OK 로그)
+
+✅ 작업 완료 - 오라클 날짜버킷 L1 catalog 통계 PG전용 함수 바이패스 제거(오라클 어댑터 위임), 실측·라이브·PG회귀 전부 PASS

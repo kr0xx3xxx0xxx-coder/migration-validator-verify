@@ -1,0 +1,127 @@
+작업명 : CTE-JOIN-ROW-LEVEL-REIMPORT-SUPPORT
+⚠️ 추가 작업 필요 - CTE/JOIN/UNION 재이관 파생·스트리밍은 구현·정확성·성능 실측 완료(HOLD 제거·행수준 비교 정상), 단 대량 고-불일치 케이스의 GB=0 전체합계 UI 목록 렌더는 별개 기존 STALE_PLAN 결함(범위 외)에 걸림
+
+════════════════════════════════════════════════════════════════════════
+1. 요청 요약
+────────────────────────────────────────────────────────────────────────
+CTE(WITH)/JOIN/UNION 원본 SQL 에서 행 단위 재이관 목록 생성이 HOLD_UNSUPPORTED_SHAPE 로
+막혀 있었다. 사용자 승인 방식 = "원본 SQL 을 AST 로 파싱해 재조립하지 말고, 그대로 서브쿼리로
+감싸서(FROM (원본 SQL) src) 그 위에서 PK 비교". 단순 1:1 경로는 무회귀.
+
+2. HOLD 를 발생시키던 정확한 지점(grep/추적 결과)
+────────────────────────────────────────────────────────────────────────
+- routes/agg_diff_route.py :: _pk_resolve()
+    → _unsupported_reimport_shape_error(req) 가 CTE/JOIN/다중소스/UNION 을 감지하면
+      err="…재이관 상세(행 단위 PK 비교)를 지원하지 않습니다…" 를 조기 반환
+    → agg_diff_prepare() 가 이 err 를 HOLD(stop_reason=HOLD_UNSUPPORTED_SHAPE)로 응답
+- 근본 크래시 원인: routes/exact_diff_route.py :: _derive_row_sqls() 는 단순 1:1 만 충실.
+  파서가 CTE 내부 JOIN 을 평탄화(joins=[])하고 외부 WHERE 의 윈도우 별칭 'rn>=1' 을 베이스
+  테이블 조회에 복사 → 'WHERE rn' 존재하지 않는 컬럼 참조로 ORA-00904 → 드릴다운 STALE_PLAN.
+
+3. 구현(그 두 파일만 수정)
+────────────────────────────────────────────────────────────────────────
+[routes/exact_diff_route.py] (신규 함수 추가 — 기존 _derive_row_sqls 무수정)
+  _derive_row_sqls_wrapped(pr, query_full, dialect):
+    - 원본 이관 SELECT 전체를 파싱해 각 projection 을 INSERT 대상 컬럼으로 위치기준 alias
+      (source_stats_sql_builder._extract_aliased_inner_select 재사용 — COUNT/통계검증 wrapping 과 동일)
+    - src = "SELECT * FROM ( <원본 CTE/JOIN/UNION SELECT> ) mv_reimport_src"
+    - tgt = "SELECT <insert_cols> FROM <tgt_table>"  ← 목적지 단일 물리테이블, 원본 WHERE 자동복사 없음
+    - SELECT */컬럼수 불일치 등 재구성 불가 시 (None,None,사유) → 정직한 HOLD(크래시 방지)
+  ※ AST 재조립하지 않는다. 원본 SQL 을 통째로 감싸므로 CTE 의 rn 필터가 CTE 내부에 남아 크래시 없음.
+
+[routes/agg_diff_route.py] (_pk_resolve 우회 배선 + 감지기 전환)
+  _unsupported_reimport_shape_error() → _reimport_source_needs_wrapping() 로 전환
+    (감지 → 차단 이 아니라 감지 → wrapping). CTE(WITH)/물리원본≥2(JOIN)/UNION → True.
+  _pk_resolve():
+    if _reimport_source_needs_wrapping(req):  → _derive_row_sqls_wrapped 로 파생(우회)
+    else:                                     → 기존 _derive_row_sqls (단순 1:1, 무회귀)
+    이후 키확정·목적 WHERE 안전관문(assert_single_select)·페이징·조기중단은 전부 기존 경로 재사용.
+
+  전/후 비교(핵심):
+    - 전: _shape_err = _unsupported_reimport_shape_error(req); if _shape_err: return None,…,_shape_err
+    - 후: if _reimport_source_needs_wrapping(req): src,tgt,err = _derive_row_sqls_wrapped(…)
+
+4. 오라클 별칭 결함 발견·수정(2차 커밋)
+────────────────────────────────────────────────────────────────────────
+1차 후 실측에서 /agg-diff/pk-records 가 ORA-00911(invalid character after ')') 로 실패.
+원인: 파생테이블 별칭을 '__mv_reimport_src'(밑줄 선두)로 둠 → 오라클은 비인용 식별자가
+밑줄로 시작하면 거부. 수정: 'mv_reimport_src'(문자 시작, 방언 공용). PG 무영향, 다운스트림
+oracle.pk_agg_sql 은 이미 "__agg" 인용. 생성 SQL 밑줄선두 비인용 별칭 0건 재확인.
+
+5. 대량 데이터 성능·정확성 실측(실 오라클 MV_ORA_XDIFF 250,000행)
+────────────────────────────────────────────────────────────────────────
+CTE+LEFT JOIN+ROW_NUMBER 원본을 감싼 스트림 재이관(prepare_reimport_pk_index_stream) 실측:
+  - 소요 9.45초 / 250,000행(원본) vs 249,950행(목적)
+  - missing_migration=67 + value_mismatch=34 = 101 (조기중단 abs=101에서 정상 중단)
+  - key_col=ID, early_stopped=true
+  → 원본에서 삭제된 누락행 + 목적지 값변경을 모두 정확히 검출. 래핑은 원본 행집합 불변,
+    Oracle 내부에서 CTE/JOIN 이 효율 실행되어 25만행에도 충분히 빠름(0.26초 소규모 → 9.45초 25만행).
+  ※ 안전장치: tgt_sql 에 원본 WHERE(rn>=1) 자동복사 없음(파생시 tgt 에 'rn' 미포함 단위테스트 가드).
+     페이징/조기중단(100건 경계·mismatch limit)은 기존 로직 그대로 재사용(신규 로직 없음).
+
+6. 실 브라우저 before/after 실측(포트 8000·인증 ON·실 오라클·실 클릭)
+────────────────────────────────────────────────────────────────────────
+드라이버: scripts/dev_e2e/cte_join_reimport_support_verify.py (http_credentials=e2e 계정)
+시나리오: MV_ORA_XDIFF_SRC ⨝ MV_ORA_TEST_SRC → MV_ORA_XDIFF_TGT, 1~5단계 실클릭 + 5단계
+          '전체합계' 행 클릭으로 재이관 드릴다운 오픈.
+
+  [BEFORE / 구코드]  (before_05c_drilldown_final.png, result_before.json)
+    /agg-diff/prepare → {status:HOLD, stop_reason:HOLD_UNSUPPORTED_SHAPE}
+    드릴다운 패널: "이 SQL 형태(공통 테이블 식(WITH/CTE)·다중 원본 테이블(JOIN/서브쿼리))는
+                   재이관 상세(행 단위 PK 비교)를 지원하지 않습니다…"
+
+  [AFTER / 신코드]  (after_05*.png, result_after.json)
+    /agg-diff/prepare → {status:PREPARING, accepted:true}   ← HOLD 제거 확인
+    /agg-diff/pk-records → PREPARING…(스트림 실행) → 최종 EARLY_STOPPED_HIGH_MISMATCH_ESTIMATE
+                          {total_count:20 (대표표본), key_col:ID}
+    → 원본 SQL 이 C_NUM_PS 를 t.AMT 만큼 변형(전 행 값변경)하므로 고-불일치 추정이 '정상'이며
+      재이관 비교가 실제로 실행되어 대표 PK 표본을 생성함(HOLD 아님).
+
+7. 유의사항 — 대량 고-불일치 GB=0 전체합계 UI 목록 렌더(범위 외 기존 결함)
+────────────────────────────────────────────────────────────────────────
+AFTER 실측에서 prepare 는 통과(accepted)·스트림도 실행됐으나, 5단계 '전체합계'(GROUP BY 0개)
+드릴다운의 최종 목록 렌더가 STALE_PLAN 안내로 표시됨. 원인 분석:
+  (a) 표본 조기중단(EARLY_STOPPED_HIGH_MISMATCH_ESTIMATE) 종단에서 클라이언트가 d.total 을
+      갱신 렌더하지 못하는 GB=0 전체합계 경로의 기존 결함.
+  (b) staged 자동화 하니스가 window._execPlanRun.planFp 를 세팅하지 않음(=None). 실제 대화형
+      세션/원클릭에선 planFp 가 세팅되므로 STALE_PLAN 조건(planFp 미설정 + d.total falsy)에
+      해당하지 않을 수 있음.
+근거로 이 STALE_PLAN 은 본 작업(CTE/JOIN 파생)과 무관·기존 결함임을 확인:
+  - ui/tabler_renderer.py 의 STALE_PLAN 분기(≈16880·16921)는 SQL 형태와 무관하게
+    'GB=0 전체합계 + d.total falsy + planFp 미설정' 에서만 발화.
+  - 동일 STALE_PLAN 을 '단순 1:1'(CTE/JOIN 아님)로 재현하는 기존 진단 스크립트가 존재:
+    scripts/dev_e2e/count_only_stale_plan_drilldown_diag.py (별도 이슈
+    COUNT-ONLY-PLAN-STALE-PLAN-DRILLDOWN-BUG).
+  - 사용자 지시 "그 파일만 수정"에 따라 클라이언트 렌더(tabler_renderer.py)는 손대지 않음.
+→ 후속(별개 작업 제안): GB=0 전체합계 드릴다운이 표본 조기중단 종단에서 대표표본을 목록으로
+   렌더하도록 클라이언트 재렌더/ planFp 미설정 폴백 보강. 본 작업 파일 범위 밖이라 미포함.
+
+8. 무회귀·자체 테스트
+────────────────────────────────────────────────────────────────────────
+- tests/test_reimport_unsupported_shape.py (신 계약으로 전면 갱신) : 8/8 통과
+    · _reimport_source_needs_wrapping True(CTE/JOIN/UNION)·False(1:1/무 query_full)
+    · _derive_row_sqls_wrapped: 원본 감싼 src + 목적 단일테이블(rn 미노출), SELECT * 는 정직 HOLD
+    · _pk_resolve: CTE+JOIN err=='' 파생 / 단순 1:1 기존 파생(무회귀)
+    · agg_diff_prepare(probe): CTE+JOIN 에서 HOLD_UNSUPPORTED_SHAPE 아님
+- samples/test_virtual_cases.py 8/8, samples/test_complex_cases.py 5/5 통과(회귀 없음)
+- CTE 래핑 관련 스위트(exact_diff_engine/cte_count 등) : 54 passed
+    · 사전존재 실패 1건 test_cte_count_execution_and_projection::test_ui_count_note_and_auto_audit
+      = 삭제된 loadUploadAudit JS 함수를 기대하는 stale UI 테스트(내 변경과 무관, tabler_renderer 미수정)
+
+9. 커밋·서버 재기동
+────────────────────────────────────────────────────────────────────────
+- ad185bc  feat(reimport): CTE/JOIN/UNION 원본 SQL 서브쿼리 wrapping … 행 단위 재이관 상세 지원
+- 5484622  fix(reimport): wrapping 파생테이블 별칭 밑줄선두 제거 — Oracle ORA-00911 해소
+- 8a69eed  test(reimport): CTE/JOIN 재이관 지원 실측 드라이버(before/after·idonly·원클릭)
+- 서버 재기동(포트 8000, 인증 ON): 2026-07-25 12:12:24 KST (신코드 PID 29440, 구 PID 종료)
+  * 코드 repo 는 push 금지(로컬 커밋만). 증적만 verify 저장소로 push.
+
+10. 산출물
+────────────────────────────────────────────────────────────────────────
+- 스크린샷: E:\verify_screenshots_only\CTE-JOIN-ROW-LEVEL-REIMPORT-SUPPORT\
+    before_05c_drilldown_final.png (HOLD), after_05c_drilldown_final.png,
+    after_05b_preparing.png, 1~5단계 캡처, result_before.json/result_after.json
+- 본 보고서: E:\verify_reports\CTE-JOIN-ROW-LEVEL-REIMPORT-SUPPORT.txt
+
+작업명 : CTE-JOIN-ROW-LEVEL-REIMPORT-SUPPORT
+⚠️ 추가 작업 필요 - CTE/JOIN/UNION 재이관 파생·스트리밍은 구현·정확성·성능 실측 완료(HOLD 제거·행수준 비교 정상), 단 대량 고-불일치 케이스의 GB=0 전체합계 UI 목록 렌더는 별개 기존 STALE_PLAN 결함(범위 외)에 걸림

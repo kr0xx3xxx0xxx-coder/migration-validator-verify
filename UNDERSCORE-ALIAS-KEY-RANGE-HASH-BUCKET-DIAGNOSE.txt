@@ -1,0 +1,252 @@
+================================================================================
+UNDERSCORE-ALIAS-KEY-RANGE-HASH-BUCKET-DIAGNOSE
+밑줄 별칭 4순위(key_range.py / hash_bucket.py) 영향범위 진단 — 코드 수정 없음
+작성일: 2026-07-26
+================================================================================
+
+■ 요약(결론 먼저)
+  1. 오라클 ORA-00911 은 __BKT / __RNG 에서 실측 재현됨(SQL 레벨). 별칭만 문자 시작으로
+     바꾸면 동일 SQL 이 정상 실행된다(별칭이 유일 차단 요인 — SQL 레벨).
+  2. 그러나 이 별칭들은 현재 오라클 라이브 경로에 '도달하지 않는다'.
+     실 route(POST /diagnosis/analyze, 8000·인증 ON, 실 오라클)는 CHUNK_KEY/MATCH_KEY 확정
+     실패로 HOLD_NO_SAFE_STRATEGY 에서 멈춘다 → KEY_RANGE / HASH_BUCKET 미실행.
+     선행 차단 결함 2건이 별칭보다 앞선다(아래 §4).
+  3. 소비자는 전부 '이름 기반'이 맞다. 개명 시 소비자 동반 수정 필수임을 실 소비 경로로 실증
+     (별칭만 개명 → "원본 SQL 결과에 필요한 컬럼이 없습니다: __BKT" 오류).
+  4. 규모: __BKT/__RNG 개명은 소규모(운영 2파일 9줄 + 테스트 3파일). __HB/__KH/__RH 는
+     오라클 hash 계약 자체가 PostgreSQL 전용이라 개명 실익 0 → 별도 대형 작업에 포함해야 함.
+  5. 권고: 이번에 '별칭 개명 단독'은 실익이 없다. 우선순위는 ① 정적 회귀 테스트(비인용 밑줄
+     별칭 금지) ② key_evidence._columns 방언 위임(진짜 차단요인) 이며, __BKT/__RNG 개명은
+     ①과 함께 묶어 처리하는 것이 합리적이다.
+
+--------------------------------------------------------------------------------
+■ 1) 별칭 생성 지점(정적 재확인 — 실제 소스 스캔)
+--------------------------------------------------------------------------------
+  services/diagnosis/strategies/key_range.py
+    :194  aliased = exp.alias_(bucket, "__BKT")
+          └ build_bucket_agg_sql() — 'WIDTH_BUCKET(key, lo, hi_excl, n) AS __BKT' 축 추가
+            (다중 bucket 단일 집계 — KEY_RANGE 1차 분할)
+    :224  tree.set("expressions", ... + [exp.alias_(case, "__RNG")])
+          └ build_multi_range_agg_sql() — 'CASE WHEN 범위i THEN i END AS __RNG' 축 추가
+            (LEVEL-BATCH — 같은 깊이 형제 범위 일괄 재검증)
+    ※ 두 곳 모두 '문자열 리터럴' 직접 사용 — 공유 상수 없음.
+
+  services/diagnosis/strategies/hash_bucket.py
+    :18   BUCKET_ALIAS  = "__HB"    (bucket level prefix → __HB1, __HB2, ...)
+    :19   KEYHASH_ALIAS = "__KH"    (bucket 내 키 hash 합)
+    :20   ROWHASH_ALIAS = "__RH"    (bucket 내 행 digest hash 합)
+    :30   bucket_aliases(depth) → [BUCKET_ALIAS + str(i) ...]  (별칭 목록 생성)
+    :54   exp.alias_(b.copy(), BUCKET_ALIAS + str(i))          (SELECT 축 생성)
+    :58   exp.alias_(kh, KEYHASH_ALIAS)
+    :59   exp.alias_(rh, ROWHASH_ALIAS)
+    ※ hash 계열은 모듈 상수로 단일화되어 있음(개명 지점 3줄).
+
+  [sqlglot 렌더 확인] exp.alias_ 는 선행 밑줄을 safe 로 보아 oracle/postgres/mysql/tsql
+  4개 방언 모두 '비인용(unquoted)'으로 렌더한다(실측):
+    SELECT ..., WIDTH_BUCKET(ORDER_ID, 1, 3001, 8) AS __BKT FROM ... GROUP BY ...
+
+--------------------------------------------------------------------------------
+■ 2) 이름 기반 소비자 — 파일 전체 목록과 참조 방식
+--------------------------------------------------------------------------------
+  ▸ 운영 코드 5개 파일(생성 2 + 소비 3). 저장소 전수 스캔(.py/.js/.html) 결과.
+
+  ① services/diagnosis/strategies/key_range.py   [생성]
+       194 / 224 리터럴 생성. 자체 소비 없음.
+
+  ② services/diagnosis/strategies/hash_bucket.py [생성]
+       18-20 상수 정의, 30/54/58/59 생성. 자체 소비 없음.
+
+  ③ services/diagnosis/strategies/router.py      [소비 — 문자열 리터럴]
+       194  compare_fn(ext_src, ext_tgt, ["__BKT"], eq_preds)   ← groupby_cols 인자(문자열)
+       204  b = (g.get("key") or {}).get("__BKT")               ← 결과 key dict 조회
+       215  _preset_from(res, "__BKT", bi, True)                ← 축 컬럼명 인자
+       300  compare_fn(ext_src, ext_tgt, ["__RNG"], eq_preds)   ← groupby_cols 인자
+       311  mis.add(int((g.get("key") or {}).get("__RNG")))     ← 결과 key dict 조회
+       316  _preset_from(res, "__RNG", i, i in mis)             ← 축 컬럼명 인자
+       (176 주석: "내부 축(__BKT/__RNG)은 표시 키에서 제거")
+
+  ④ services/diagnosis/multi_scope.py            [소비 — 리터럴 + 상수 + 접두검사]
+       303  gk = {k: v for k, v in (c.key or {}).items() if k != "__BKT"}   ← 키 필터(리터럴)
+       434  _agg_compare(compare_fn, ext_src, ext_tgt, list(gb) + ["__BKT"], ...) ← groupby_cols
+       472  b = key.pop("__BKT", None)                                       ← 키 pop(리터럴)
+       600  ... if not str(k).startswith("__HB")                             ← 접두 문자열 검사
+       612  al = hb.BUCKET_ALIAS + str(lvl)                                  ← 상수+level 조립
+       (428/468/513/598 주석)
+
+  ⑤ services/diagnosis/row_diff.py               [소비 — 상수 참조만]
+        70  while (hb.BUCKET_ALIAS + str(lvl)) in cell_key:
+        73  params.append(cell_key[hb.BUCKET_ALIAS + str(lvl)])
+
+  ▸ 간접(별칭 문자열은 없지만 '이름 매칭' 기전을 담당하는 계층)
+     - services/diagnosis/adapters/base.py:make_stats_compare_fn → ExecuteRequest(groupby_cols=...)
+     - services/stats_execute_service.py:372  gb_keys 가 결과 컬럼명(src_cols)에 존재해야 통과,
+       440  key_dict = {k: str(ref_rd.get(k,'')) for k in gb_keys}
+       → '별칭 문자열 == groupby_cols 문자열' 이 일치해야만 동작하는 name 결합의 실체.
+     - routes/diagnosis_route.py:544 (_multi_official_state) — pending_region.active 의 cell key
+       (__HB* 포함)를 SQLite(db/migration_validator.db, multi_scope_run)에 JSON 으로 저장 →
+       resume 계약에 별칭 문자열이 들어간다(개명 시 기존 저장 상태 무효화 이슈. 현재 저장 행 0건).
+
+  ▸ 테스트 8개 파일 / 29줄이 별칭 문자열을 assert 또는 fake 입력으로 고정
+     tests/test_diagnosis_level_batch.py (fake compare 가 "__RNG"/"__BKT" 분기, :158 sql assert)
+     tests/test_diagnosis_multi_scope.py (:502-504 "__HB1"/"__HB2"/"__KH"/"__RH" assert)
+     tests/test_diagnosis_multi_scope_e2e.py, tests/test_diagnosis_phase3.py,
+     tests/test_diagnosis_planner.py, tests/test_diagnosis_row_diff.py,
+     tests/test_diagnosis_hash_bucket_5m.py, tests/test_diagnosis_hash_bucket_e2e.py
+     (기준선: 위 5개 파일 64 tests 전부 통과 — 수정 전 상태 확인 완료)
+
+  ▸ 문서: CURRENT_TABLE_DEFINITION.md:64 예시 SQL 에 __BKT 표기(표시용).
+  ▸ 프런트(JS/HTML)에는 별칭 참조 없음 — router 가 표시 키에서 내부 축을 제거하기 때문.
+
+--------------------------------------------------------------------------------
+■ 3) 오라클 실측(Before) — ORA-00911 재현 여부
+--------------------------------------------------------------------------------
+  접속: Oracle asis 192.168.0.151:1523/xepdb1, tobe 1524/xepdb1 (비밀번호 미표시)
+  픽스처: NXDNP.MV_ORA_TEST_SRC / MV_ORA_TEST_TGT (REGION_CD 20그룹, ORDER_ID NUMBER PK)
+
+  (1) __BKT — build_bucket_agg_sql(dialect=oracle) 생성 SQL 직접 실행
+      SELECT REGION_CD, COUNT(*) AS CNT, WIDTH_BUCKET(ORDER_ID, 1, 3001, 8) AS __BKT
+        FROM NXDNP.MV_ORA_TEST_SRC GROUP BY REGION_CD, WIDTH_BUCKET(ORDER_ID, 1, 3001, 8)
+      → 실패: ORA-00911: _: invalid character after AS      [재현 ✓]
+
+  (2) __RNG — build_multi_range_agg_sql(dialect=oracle) 생성 SQL 직접 실행
+      → 실패: ORA-00911: _: invalid character after AS      [재현 ✓]
+
+  (3) 개명 probe(별칭 문자열만 KR_BKT/KR_RNG 로 치환, 나머지 동일)
+      → KR_BKT 성공(rows=20), KR_RNG 성공(rows=20)          [별칭이 유일 차단 요인 ✓]
+
+  (4) 실 소비 경로 결합 실증 — make_stats_compare_fn/execute_stats_validation
+      (router.py:194 · multi_scope.py:434 와 동일 호출 형태)
+      (a) 현행(__BKT + groupby_cols=["__BKT"])
+          → success=False, err=ORA-00911 …
+          → 소비자가 받는 판정 is_matched=None (판정불가)
+             ※ 즉 크래시가 아니라 '조용한 열화': router 는 이분(midpoint) fallback 으로,
+               multi_scope 는 PLAN_HOLD_BUDGET 중단으로 내려간다(판정 불변, 쿼리수·기능 손실).
+      (b) 별칭만 개명하고 소비자 미수정(SQL=KR_BKT, groupby_cols=["__BKT"])
+          → success=False, err="원본 SQL 결과에 필요한 컬럼이 없습니다: __BKT"
+             [이름 기반 결합 실증 ✓ — 개명 시 소비자 동반 수정 필수]
+      (c) 별칭+소비자 동시 개명(SQL=KR_BKT, groupby_cols=["KR_BKT"])
+          → success=True, total_groups=1, matched=1, 그룹 키 {'KR_BKT': '1'}
+
+  (5) HASH_BUCKET(__HB1/__KH/__RH) — build_hash_bucket_agg_sql(dialect=oracle) 실행
+      → 실패: ORA-00907: missing right parenthesis  (ORA-00911 아님)
+      → 최초 차단은 별칭이 아니라 hash_contract 의 PostgreSQL 전용 표현식
+        (md5(), left(), ::bit(32), ::numeric, trim_scale — services/diagnosis/hash_contract.py)
+        sqlglot 이 CAST(... AS BIT(32)) 등으로 렌더하지만 오라클은 해당 타입/함수를 모른다.
+      → 즉 __HB/__KH/__RH 개명은 오라클 관점에서 '무의미'(선행 결함이 훨씬 큼).
+
+  (6) PostgreSQL 대조(192.168.0.150:5433/asis, asis01.mvq_emp)
+      → __BKT 성공(rows=2), __HB1/__KH/__RH 성공(rows=3)
+      → 선행 밑줄은 PG 가 허용 — 이 결함은 오라클 한정임을 재확인.
+
+--------------------------------------------------------------------------------
+■ 4) 도달성(라이브) — 별칭에 도달하기 전에 막히는 선행 결함 2건
+--------------------------------------------------------------------------------
+  ▸ 실 route 관측(포트 8000, 인증 ON, 인증 브라우저 세션 내 same-origin fetch)
+      POST /diagnosis/analyze  (UI '불일치 상세 분석' 패널의 실제 엔드포인트)
+      입력: 실제 통계검증 결과(MV_ORA_TEST_SRC/TGT, 20그룹 중 diff 5) + scope_ref(서버 동일 세션 서명)
+      결과: HTTP 200, ok=true, status=DONE
+            stop_reason = HOLD_NO_SAFE_STRATEGY
+            plan.selected_strategy = HOLD_NO_SAFE_STRATEGY, size_class=SMALL
+            nodes = 0개  → KEY_RANGE 노드 자체가 생성되지 않음(별칭 SQL 미생성·미실행)
+      스크린샷: live_00_home_authed.png / live_01_after_analyze.png
+
+  ▸ 선행 결함 A — CHUNK_KEY 확정 불가(KEY_RANGE 진입 차단)  ★ __BKT/__RNG 도달 차단 원인
+      services/diagnosis/key_evidence.py:67 _columns()
+        "SELECT column_name, data_type FROM information_schema.columns ..."
+        → 오라클에는 information_schema 가 없어 예외 → {} 반환
+        → _normalized_metadata() = {} → chunk_key_candidates_from_contract() = []
+        → resolve_confirmed_chunk_key() = None → planner HOLD_NO_SAFE_STRATEGY
+      실측: _columns(Oracle) = {} ,  candidates = [] ,  resolve_confirmed_chunk_key = None
+      ※ PK 조회는 이미 어댑터 위임되어 정상 동작(_pk_unique → ORDER_ID is_pk=True,
+         constraint PK_MV_ORA_TEST_TGT). 즉 'PK 위임은 되었으나 컬럼 타입 조회가 PG 전용으로 남음'
+         (해당 함수 주석도 "컬럼메타 방언화는 PK 위임과 별개 범위"로 명시).
+      영향: 오라클에서는 개별/일괄 진단 모두 KEY_RANGE 로 라우팅되지 못한다
+            (routes/diagnosis_route.py 의 _confirm_routing·_contract_chunk_key 가 같은 함수 사용).
+
+  ▸ 선행 결함 B — MATCH_KEY 확정 불가 + hash 계약 PG 전용(HASH_BUCKET 진입/실행 차단)
+      실측: services/diagnosis/match_key_evidence.resolve_confirmed_match_key(Oracle) = None
+      설령 확정되더라도 §3-(5)처럼 hash_contract 가 PG 전용이라 실행 불가(ORA-00907).
+      참고: services/diagnosis/dbms/capabilities.py 도 oracle 의 hash_bucket 을
+            NOT_SUPPORTED(HASH_CONTRACT_NOT_AVAILABLE)로 이미 표기(단, 이 매트릭스는
+            표시/설명용이며 실행 게이트로 사용되지는 않는다 — 실제 게이트는 키 확정 실패).
+
+  ▸ 결론(도달성): 4순위 별칭은 현재 '잠재 결함(latent)'이다.
+      - PG: 별칭 정상 → 문제 없음.
+      - Oracle: 별칭 SQL 이 만들어지기 전에 키 확정 단계에서 차단 → ORA-00911 미도달.
+      - 2·3순위(profile_recollect_service / diagnosis profiler)와 다른 점:
+        profiler 는 실제로 오라클 라이브 경로에 도달해 scoped_cardinality 를 소실시켰지만,
+        여기는 도달 자체가 안 된다(오히려 profile_recollect 의 '방언 가드로 미도달'과 유사).
+
+--------------------------------------------------------------------------------
+■ 5) 개명 안전성 판단 — 소비자 동반 수정 필요 여부와 규모
+--------------------------------------------------------------------------------
+  판정: '개명만으로 안전'하지 않다. 이름 기반 소비자를 반드시 함께 고쳐야 한다.
+        근거: §3-(4)(b) 실측 — 별칭만 바꾸면 실행 core 가 결과 컬럼 매칭에 실패해
+        "필요한 컬럼이 없습니다: __BKT" 로 명시 차단된다(조용한 오답은 아님 — 즉시 실패).
+        positional 소비(count marker 처럼 COUNT(*)만 읽는 형태)가 아니다.
+
+  ▸ __BKT / __RNG 개명 시 수정 대상(운영 코드)
+      key_range.py           2줄(194, 224)                     [생성]
+      router.py              6줄(194,204,215,300,311,316) + 주석 1(176)
+      multi_scope.py         3줄(303,434,472)            + 주석 2(428,468)
+      ─ 합계: 운영 3파일 11줄(주석 포함), 실질 코드 11줄 중 9줄이 소비자
+      테스트: test_diagnosis_level_batch.py(6줄), test_diagnosis_phase3.py(4줄),
+              test_diagnosis_multi_scope.py(4줄), test_diagnosis_multi_scope_e2e.py(1줄),
+              test_diagnosis_planner.py(1줄) — 약 16줄
+      권장 형태: 문자열 산재 대신 key_range.py 에 상수 신설(BUCKET_AXIS_ALIAS="KR_BKT",
+                RANGE_AXIS_ALIAS="KR_RNG")하고 소비자는 상수 참조로 전환(재발 방지 동반).
+
+  ▸ __HB* / __KH / __RH 개명 시 수정 대상
+      hash_bucket.py         상수 3줄(18-20)만 바꾸면 생성/조립은 자동 반영
+      multi_scope.py         1줄(600 startswith("__HB") 리터럴) ← 상수 미사용 구멍
+      row_diff.py            수정 불필요(상수 참조)
+      테스트: test_diagnosis_multi_scope.py(:502-503,527-528,540-550),
+              test_diagnosis_row_diff.py(6줄), hash_bucket 5m/e2e(각 2줄) — 약 13줄
+      저장 상태: multi_scope_run.pending_region.active 의 cell key 에 __HB* 문자열이 들어감
+                (현재 저장 행 0건이라 실질 위험 없음 — 다만 개명 시 기존 STOPPED run 은
+                 resume 불가로 취급해야 한다).
+
+--------------------------------------------------------------------------------
+■ 6) 작업 규모 의견 — 지금 수정할 것인가
+--------------------------------------------------------------------------------
+  ▸ 기술적 규모만 보면 '오늘 처리 가능'한 소규모다(운영 4파일 12줄 + 테스트 6파일 29줄).
+    그러나 실익 관점에서 지금 별칭만 고치는 것은 권장하지 않는다.
+      - 오라클 라이브 효과: 0 (키 확정 단계에서 이미 차단 — §4)
+      - PG 라이브 효과: 0 (원래 정상)
+      - 남는 효과: 재발 방지·일관성뿐
+
+  ▸ 권장 순서(각각 별도 작업 단위)
+      1순위(작음)  : "생성 SQL 에 비인용 선행밑줄 별칭 없음" 정적 회귀 테스트 추가.
+                     지금까지 4건이 같은 방식으로 반복 발견됨 → 근본 방지책.
+                     이 테스트를 넣으면 key_range/hash_bucket 이 즉시 실패하므로,
+                     __BKT/__RNG 개명(+상수화)은 이 작업과 '한 묶음'으로 처리하는 것이 자연스럽다.
+      2순위(중간)  : key_evidence._columns 방언 위임(어댑터 fetch_column_metadata).
+                     오라클 KEY_RANGE 를 실제로 열어주는 유일한 선행 조치이며,
+                     열리는 순간 __BKT/__RNG 가 라이브 경로가 되므로 1순위와 함께 가야 안전하다.
+      3순위(큼)    : HASH_BUCKET canonical hash 계약의 오라클 이식(STANDARD_HASH/RAWTOHEX 등).
+                     별칭 개명은 이 작업의 일부로 흡수. 단독 진행 금지(무의미).
+
+  ▸ 즉답: "이번에 바로 수정 가능한 규모인가?" → __BKT/__RNG 한정이면 예(소규모).
+          다만 단독으로는 실익이 없으므로 1순위(정적 회귀 테스트)와 묶어서 진행하고,
+          __HB/__KH/__RH 는 3순위 작업으로 분리하는 것을 권고한다.
+
+--------------------------------------------------------------------------------
+■ 7) 재현 방법 / 산출물
+--------------------------------------------------------------------------------
+  결정적 실측:  python scripts/dev_e2e/underscore_alias_key_range_hash_bucket_diagnose.py
+  라이브 route: python scripts/dev_e2e/underscore_alias_key_range_live_route.py
+                (서버를 MV_SCOPE_REF_SESSION=diag_kr_alias 로 기동한 상태에서 실행)
+
+  증적(E:\verify_screenshots_only\UNDERSCORE-ALIAS-KEY-RANGE-HASH-BUCKET-DIAGNOSE\)
+    - oracle_pg_deterministic_result.txt : 별칭 스캔 + 오라클/PG 실측 전문
+    - live_route_observation.txt         : 실 route(8000·인증) 관측 전문
+    - live_00_home_authed.png            : 인증 세션 홈
+    - live_01_after_analyze.png          : /diagnosis/analyze 호출 직후
+    - REPORT.txt                         : 본 보고서 사본
+
+  회귀 확인: pytest tests/test_diagnosis_level_batch.py tests/test_diagnosis_multi_scope.py
+             tests/test_diagnosis_row_diff.py tests/test_diagnosis_phase3.py
+             tests/test_diagnosis_planner.py → 64 passed (수정 없음, 기준선)
+
+  ※ 코드 변경 없음. 추가된 파일은 진단 스크립트 2개(scripts/dev_e2e/)뿐이다.
+================================================================================
