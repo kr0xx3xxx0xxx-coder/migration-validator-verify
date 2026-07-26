@@ -1,0 +1,35 @@
+{
+  "작업": "REIMPORT-NATIVE-PK-FASTPATH-FANOUT-DUP-GUARD-FIX",
+  "commit": "931e9b0",
+  "픽스처": "오라클 asis(1523)/tobe(1524) NXDNP.MV_FANOUT_SRC(5,ID PK)+MV_FANOUT_DETAIL(8,1:N)+MV_FANOUT_TGT(5,ID PK dedup)",
+  "이관SQL": "INSERT INTO NXDNP.MV_FANOUT_TGT (ID, COL_A, DETAIL_COL) SELECT x.ID, x.COL_A, m.DETAIL_COL FROM NXDNP.MV_FANOUT_SRC x JOIN NXDNP.MV_FANOUT_DETAIL m ON x.ID = m.SRC_ID",
+  "참값": "fan-out 결과셋 8행 vs 목적 5행, 유일성 깨진 PK=[1,2] (ID1→3행, ID2→2행)",
+  "BEFORE_서버_16:31(guard 무력=HEAD 동작)": {
+    "status": "READY",
+    "total_reimport_pks": 0,
+    "value_mismatch": 0,
+    "passed_keys": 8,
+    "src_keys": 8,
+    "tgt_keys": 5,
+    "fanout_pk_warning": null,
+    "판정": "오판정 — fan-out 8행을 각각 유일 1건으로 처리, 재이관 대상 0건"
+  },
+  "AFTER_서버_16:37(fix 적용)": {
+    "status": "READY",
+    "total_reimport_pks": 2,
+    "value_mismatch": 2,
+    "passed_keys": 3,
+    "src_keys": 5,
+    "tgt_keys": 5,
+    "fanout_pk_warning": "원본이 1:N JOIN 등으로 목적지 PK 가 결과셋에서 중복(fan-out)됩니다 — 유일성 고속경로 대신 GROUP BY 개수 비교로 다중성(COUNT 불일치)을 검증합니다.",
+    "판정": "정상 — fan-out 감지, ID 1(COL_A 300→100)·ID 2(400→200) 불일치 2건 표면화"
+  },
+  "회귀_XDIFF_진짜1:1JOIN_250k": {
+    "SQL형태": "WITH ranked AS (... LEFT JOIN MV_ORA_TEST_SRC ON MOD(x.ID,300)+1=t.ORDER_ID, ROW_NUMBER ...) WHERE rn>=1 (CTE→wrapping 대상)",
+    "JOIN키_유일성": "MV_ORA_TEST_SRC.ORDER_ID distinct 300/300 → 1:1(fan-out 없음)",
+    "unique_native": "True (보존, 판정 불변)",
+    "_fanout_pk_nonunique": "False (게이트 정상 미발동)",
+    "dup_check_지연": "0.173s (250k, Oracle HAVING+FETCH FIRST 조기중단)",
+    "결론": "정상 케이스 무회귀"
+  }
+}

@@ -1,0 +1,113 @@
+commit 931e9b0cba74728779ce432423a548e3585f28d0
+Author: migration-validator <dev@migration-validator.local>
+Date:   Sun Jul 26 16:42:17 2026 +0900
+
+    fix(reimport): 네이티브 PK 고속경로 fan-out 유일성 게이트 추가 — 1:N JOIN 조용한 '재이관 0건' 오판정 차단 (REIMPORT-NATIVE-PK-FASTPATH-FANOUT-DUP-GUARD-FIX)
+    
+    목적지에 정식 PK 가 있으면 재이관 네이티브 PK 고속경로(_resolve_native_pk_key ①)가
+    '결과셋에서도 유일한지' 검사 없이 unique_key=True 를 확정했다. 원본이 1:N JOIN 으로
+    fan-out 되면 PK 가 원본 결과셋에서 중복되어 고속경로(1 AS __N, GROUP BY 없음)가
+    다중성을 COUNT diff 로 감지하지 못해 '재이관 0건/전부 정상'을 조용히 반환했다
+    (실측: 참값 불일치 ID 1·2 인데 total_reimport_pks=0).
+    
+    - 원본이 JOIN/CTE/UNION 으로 wrapping 되는 형태(_reimport_source_needs_wrapping)일 때만,
+      ②③ 경로가 쓰는 기존 _dup_present(GROUP BY key HAVING COUNT(*)>1, 1건 probe)를 PK 컬럼에
+      1회 재사용해 fan-out 유무를 확인(중복 로직 신규 구현 없음, 저비용).
+    - 중복 확정 시 _fanout_pk_nonunique 를 세워 _pk_resolve 가 unique_key 부여를 보류 →
+      기존 GROUP BY count 경로로 폴백해 다중성이 COUNT diff 로 표면화. 응답에 fanout_pk_warning 노출.
+    - 단순 1:1 이관(wrapping 불필요)은 검사를 아예 타지 않아 성능/판정 무영향. '확실히 중복(True)일
+      때만' 차단해 확인불가(None)/무중복(False)은 고속경로 유지 → 정상 케이스 무회귀.
+    - dup 검사 src_sql 은 재래핑 없이 직접 사용(파생 src_sql 이 이미 목적명 노출) — 밑줄선두 별칭
+      '__m' 오라클 ORA-00911 회피.
+    
+    실측(오라클 asis/tobe, MV_FANOUT_*): Before total_reimport_pks=0 → After 2
+    (value_mismatch=2, ID 1:300→100 · 2:400→200). XDIFF(진짜 1:1 JOIN, 250k) unique_key=True
+    보존·판정 불변, dup-check 지연 0.17s. 브라우저(8000 인증 ON) 5단계 드릴다운 불일치 2건 표면화 확인.
+    
+    Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_01NHgNJM5rCqWKMPzBTCCSYW
+
+ routes/agg_diff_route.py | 49 +++++++++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 48 insertions(+), 1 deletion(-)
+diff --git a/routes/agg_diff_route.py b/routes/agg_diff_route.py
+index c3f9eb3..becda2a 100644
+--- a/routes/agg_diff_route.py
++++ b/routes/agg_diff_route.py
+@@ -549,6 +549,31 @@ def _resolve_matchkey_via_diagnosis(req, src_sql: str, tgt_sql: str):
+     return None
+ 
+ 
++def _native_pk_fanout_present(req, src_sql: str, pk_cols: list) -> bool:
++    """[REIMPORT-NATIVE-PK-FASTPATH-FANOUT-DUP-GUARD-FIX] 원본 이관 결과셋에서 목적지 정식 PK 컬럼이
++    유일하지 않은지(=1:N JOIN 등 fan-out) 1회 확인한다.
++
++    목적지에 정식 PK 가 있으면 ①(네이티브 PK 고속경로)이 '결과셋에서도 유일한지' 검사 없이 곧바로
++    unique_key=True 를 확정한다. 원본이 1:N JOIN 으로 fan-out 되면 그 PK 가 원본 결과셋에서 중복되어
++    고속경로(1 AS __N, GROUP BY 없음)가 다중성을 COUNT diff 로 감지하지 못해 '재이관 0건'으로 조용히
++    오판정한다(실측 확인). ②③ 경로가 쓰는 동일 _dup_present(GROUP BY key HAVING COUNT(*)>1, 1건 probe)를
++    그 PK 컬럼에 그대로 재사용한다(중복 로직 신규 구현 없음). 이 검사가 도는 wrapping 경로의 파생 src_sql 은
++    이미 `SELECT * FROM (... AS tgt_col ...) mv_reimport_src` 형태로 각 컬럼을 목적명으로 alias 해 최상위에
++    노출하므로(정식 PK 는 insert_cols 부분집합이라 반드시 노출), 목적 PK 컬럼명으로 곧바로 GROUP BY 할 수 있어
++    별도 subquery 재래핑이 필요 없다 — 재래핑 시 밑줄선두 별칭('__m')이 오라클 ORA-00911 을 유발해 _dup_present
++    가 None 을 반환, 검사 자체가 무력화되던 문제를 회피한다(밑줄선두 별칭 오라클 금지 관례).
++
++    반환: True = 결과셋에서 PK 중복 확정(fan-out) → 고속경로 차단. False = 중복 없음(진짜 1:1) 또는
++    확인 불가(None). '확실히 중복일 때만' 차단해 정상 케이스(진짜 1:1 JOIN) 무회귀를 보장한다."""
++    try:
++        from services.diagnosis.match_key_evidence import _dup_present
++        from services.sql_dependency_pruning import _to_sqlglot_dialect
++    except Exception:  # noqa: BLE001
++        return False                                         # 진단 헬퍼 미가용 → 기존 동작(고속경로 유지)
++    _src_dialect = _to_sqlglot_dialect((req.src_conn or {}).get("db_type"))
++    return _dup_present(req.src_conn, src_sql, list(pk_cols), _src_dialect) is True
++
++
+ def _resolve_native_pk_key(req, src_sql: str = None, tgt_sql: str = None):
+     """[COMPOSITE-PK-DIRECT-MERGE-DRILLDOWN-FIX / DRILLDOWN-MATCHKEY-UK-BUSINESSKEY-SUPPORT-FIX]
+     그룹 드릴다운 MATCH_KEY 확정: ① 정식 PK → ② UK → ③ 데이터상 안정적 업무키 → ④ None(HOLD).
+@@ -562,6 +587,18 @@ def _resolve_native_pk_key(req, src_sql: str = None, tgt_sql: str = None):
+     if tbl:
+         pk_cols = _introspect_pk_cols(req.tgt_conn, tbl)
+         if pk_cols and (not _ins or all(str(c).upper() in _ins for c in pk_cols)):
++            # [REIMPORT-NATIVE-PK-FASTPATH-FANOUT-DUP-GUARD-FIX] 정식 PK 라도, 원본이 JOIN/CTE/UNION 으로
++            # wrapping 되는 형태(_reimport_source_needs_wrapping)일 때만 '원본 결과셋에서 그 PK 가 유일한지'를
++            # 1회 확인한다(가장 위험한 형태 한정·저비용). fan-out(중복) 확정 시 _fanout_pk_nonunique 를 세워
++            # 상위(_pk_resolve)가 unique_key=True 부여를 보류하도록 하고(→ GROUP BY count 경로 폴백으로 다중성이
++            # COUNT diff 로 표면화), PK 컬럼 문자열 자체는 그대로 반환한다. 단순 1:1 이관(wrapping 불필요)은
++            # fan-out 이 구조적으로 불가능하므로 이 검사를 아예 타지 않는다(정상 케이스 성능/판정 무영향).
++            if src_sql and _reimport_source_needs_wrapping(req) \
++                    and _native_pk_fanout_present(req, src_sql, pk_cols):
++                try:
++                    setattr(req, "_fanout_pk_nonunique", True)
++                except Exception:  # noqa: BLE001
++                    pass
+             return ", ".join(pk_cols)
+     # ②③ UK / 데이터상 안정적 업무키 — 전수검증 결과집합 재확인 로직 재사용
+     return _resolve_matchkey_via_diagnosis(req, src_sql, tgt_sql)
+@@ -711,8 +748,12 @@ def _pk_resolve(req):
+     if not (key_src and key_tgt):
+         _nk = _resolve_native_pk_key(req, src_sql, tgt_sql)
+         if _nk:
++            # [REIMPORT-NATIVE-PK-FASTPATH-FANOUT-DUP-GUARD-FIX] fan-out(원본 결과셋에서 PK 중복) 확정 시에는
++            # unique_key 고속경로를 부여하지 않는다(조용한 '재이관 0건' 오판정 방지) — 키는 그대로 확정하되
++            # 기존 GROUP BY count 경로로 폴백해 다중성이 COUNT diff 로 표면화되게 한다.
+             try:
+-                setattr(req, "_unique_native_key", True)
++                if not bool(getattr(req, "_fanout_pk_nonunique", False)):
++                    setattr(req, "_unique_native_key", True)
+             except Exception:  # noqa: BLE001
+                 pass
+             return src_sql, tgt_sql, _nk, _nk, ""
+@@ -795,6 +836,12 @@ def agg_diff_prepare(req: PkPrepareRequest):
+                 for _k, _v in _ev.items():
+                     _out.setdefault(_k, _v)
+                 _out.setdefault("selection_evidence", dict(_ev))
++                # [REIMPORT-NATIVE-PK-FASTPATH-FANOUT-DUP-GUARD-FIX] fan-out 감지 시 설명가능성 위해 경고 노출
++                # (판정/데이터 불변, 부가 키만) — 유일성 고속경로 대신 GROUP BY 개수 비교로 다중성을 검증함을 알림.
++                if bool(getattr(req, "_fanout_pk_nonunique", False)):
++                    _out.setdefault("fanout_pk_warning",
++                                    "원본이 1:N JOIN 등으로 목적지 PK 가 결과셋에서 중복(fan-out)됩니다 — "
++                                    "유일성 고속경로 대신 GROUP BY 개수 비교로 다중성(COUNT 불일치)을 검증합니다.")
+             return _out
+         if req.probe_only:
+             fp = pk_index_fingerprint(req.src_conn, req.tgt_conn, src_sql, tgt_sql,
