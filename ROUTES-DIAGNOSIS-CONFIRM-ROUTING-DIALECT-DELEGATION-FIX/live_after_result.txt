@@ -1,0 +1,48 @@
+====================================================================================
+ ROUTES-DIAGNOSIS-CONFIRM-ROUTING-DIALECT-DELEGATION-FIX — 라이브 실측 [AFTER]
+ 서버 http://127.0.0.1:8000(인증 ON) · 실행시각 2026-07-26 19:30:37
+====================================================================================
+
+── [1] 인증 게이트 — 무인증 GET / → 401(401 기대) / 인증 GET / → 200(200 기대)
+    판정: 인증 ON 정상 ✓
+
+── [2] NULL probe SQL 렌더 대조(key_evidence._null_probe_sql — 수정 대상 아님) ──
+    dialect=postgres  → SELECT 1 FROM NXDNP.MV_ORA_XDIFF_SRC WHERE id IS NULL LIMIT 1
+    dialect=oracle    → SELECT 1 FROM NXDNP.MV_ORA_XDIFF_SRC WHERE id IS NULL FETCH FIRST 1 ROWS ONLY
+    · postgres 렌더에 LIMIT 포함           : True  ← 오라클에서 실행 불가
+    · oracle   렌더에 FETCH FIRST 포함     : True
+
+── [3] 오라클 CHUNK_KEY 확정 — 방언 인자에 따른 결과(실 DB, in-process 대조) ──
+    dialect=postgres(기본값=Before 동작)      → None
+    dialect=oracle(After 동작)             → {'src_expr': 'id', 'tgt_expr': 'id', 'type': 'NUMBER', 'label': 'ID', 'confirmed': True, 'nullable': False, 'indexed': True, 'index_leading': True}
+    · postgres 렌더 probe 를 오라클에 직접 실행 → ORA-03049: SQL keyword 'LIMIT' is not syntactically valid following '...WHERE id IS NULL '
+
+── [4] POST /diagnosis/analyze (prewarm) — 오라클 실 라우팅(서버 코드 경로) ──
+    HTTP 200 응답 = {"ok": true, "prewarmed": true, "cached": false, "chunk_key_confirmed": true, "elapsed_ms": 300}
+    → chunk_key_confirmed = True  (확정 성공 ✓)
+
+── [5] POST /diagnosis/analyze (전체 분석) — 오라클 전략 도달 지점 ──
+    [통계검증] success=True total_groups=1000 matched=949 diff=51 src_only=0
+    HTTP 200 ok=True status=DONE stop_reason=COMPLETED
+    [계획] selected_strategy=EXECUTE_KEY_RANGE size_class=MEDIUM confidence=HIGH
+    [계획] reason_codes=['CHUNK_KEY_INDEXED', 'RANGE_DISTRIBUTION_OK', 'LOW_NULL_RATIO', 'EXPECTED_REDUCTION_HIGH']
+    [계획] ui_reason=키가 인덱스 선두 컬럼이며 현재 범위에서 축소 효과가 높아 키 범위 분석을 선택했습니다.
+    [노드] 9개
+       depth=0 strategy=GROUP_SCOPE status=DONE range=None is_matched=False
+       depth=1 strategy=KEY_RANGE status=DONE range={'key': 'ID', 'type': 'NUMBER', 'lower': '1', 'upper': '31258', 'lower_inc': True, 'upper_inc': False} is_matched=False
+       depth=1 strategy=KEY_RANGE status=DONE range={'key': 'ID', 'type': 'NUMBER', 'lower': '31258', 'upper': '62515', 'lower_inc': True, 'upper_inc': False} is_matched=False
+       depth=1 strategy=KEY_RANGE status=DONE range={'key': 'ID', 'type': 'NUMBER', 'lower': '62515', 'upper': '93772', 'lower_inc': True, 'upper_inc': False} is_matched=False
+       depth=1 strategy=KEY_RANGE status=DONE range={'key': 'ID', 'type': 'NUMBER', 'lower': '93772', 'upper': '125029', 'lower_inc': True, 'upper_inc': False} is_matched=False
+       depth=1 strategy=KEY_RANGE status=DONE range={'key': 'ID', 'type': 'NUMBER', 'lower': '125029', 'upper': '156286', 'lower_inc': True, 'upper_inc': False} is_matched=False
+       depth=1 strategy=KEY_RANGE status=DONE range={'key': 'ID', 'type': 'NUMBER', 'lower': '156286', 'upper': '187543', 'lower_inc': True, 'upper_inc': False} is_matched=False
+       depth=1 strategy=KEY_RANGE status=DONE range={'key': 'ID', 'type': 'NUMBER', 'lower': '187543', 'upper': '218800', 'lower_inc': True, 'upper_inc': False} is_matched=False
+
+── [6] KEY_RANGE 다중 bucket 집계 별칭(__BKT/__RNG) — 기존 별개 이슈 재현 확인(수정 안 함) ──
+    build_bucket_agg_sql 직접 실행 → (오류 없음)
+    → ORA-00911 재현: 아니오
+
+── [7] PostgreSQL 회귀 확인 — 같은 두 경로를 PG 접속으로 실행 ──
+    (prewarm) HTTP 200 응답 = {"ok": true, "prewarmed": true, "cached": false, "chunk_key_confirmed": true, "elapsed_ms": 190}
+    [통계검증] success=True total_groups=4 matched=2 diff=1 src_only=1
+    (분석) HTTP 200 ok=True stop_reason=COMPLETED selected_strategy=EXECUTE_KEY_RANGE nodes=6
+    (분석) reason_codes=['CHUNK_KEY_INDEXED', 'RANGE_DISTRIBUTION_OK', 'LOW_NULL_RATIO', 'EXPECTED_REDUCTION_HIGH'] size_class=SMALL

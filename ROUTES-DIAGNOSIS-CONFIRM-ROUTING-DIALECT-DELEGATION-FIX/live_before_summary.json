@@ -1,0 +1,65 @@
+{
+  "phase": "before",
+  "auth": {
+    "no_auth": 401,
+    "auth": 200
+  },
+  "null_probe_render": {
+    "postgres": "SELECT 1 FROM NXDNP.MV_ORA_XDIFF_SRC WHERE id IS NULL LIMIT 1",
+    "oracle": "SELECT 1 FROM NXDNP.MV_ORA_XDIFF_SRC WHERE id IS NULL FETCH FIRST 1 ROWS ONLY"
+  },
+  "inproc_chunk_key": {
+    "postgres": null,
+    "oracle": {
+      "src_expr": "id",
+      "tgt_expr": "id",
+      "type": "NUMBER",
+      "label": "ID",
+      "confirmed": true,
+      "nullable": false,
+      "indexed": true,
+      "index_leading": true
+    }
+  },
+  "pg_render_on_oracle_error": "ORA-03049: SQL keyword 'LIMIT' is not syntactically valid following '...WHERE id IS NULL '",
+  "oracle_prewarm": {
+    "ok": true,
+    "prewarmed": true,
+    "cached": true,
+    "chunk_key_confirmed": false,
+    "elapsed_ms": 0
+  },
+  "oracle_analyze": {
+    "http": 200,
+    "stop_reason": "HOLD_NO_SAFE_STRATEGY",
+    "selected_strategy": "HOLD_NO_SAFE_STRATEGY",
+    "reason_codes": [
+      "NO_SAFE_AXIS_OR_KEY"
+    ],
+    "size_class": "MEDIUM",
+    "node_count": 0,
+    "node_strategies": []
+  },
+  "bkt_alias_error": "(오류 없음)",
+  "pg": {
+    "prewarm_confirmed": true,
+    "stats_success": true,
+    "total_groups": 4,
+    "matched": 2,
+    "diff": 1,
+    "stop_reason": "COMPLETED",
+    "selected_strategy": "EXECUTE_KEY_RANGE",
+    "reason_codes": [
+      "CHUNK_KEY_INDEXED",
+      "RANGE_DISTRIBUTION_OK",
+      "LOW_NULL_RATIO",
+      "EXPECTED_REDUCTION_HIGH"
+    ],
+    "size_class": "SMALL",
+    "node_count": 6,
+    "node_strategies": [
+      "GROUP_SCOPE",
+      "KEY_RANGE"
+    ]
+  }
+}
