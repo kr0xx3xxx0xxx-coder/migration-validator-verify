@@ -1,0 +1,42 @@
+=== KEY-RANGE-BKT-RNG-ALIAS-AND-CONSUMER-FIX / 검증 ===
+상수: BUCKET_AXIS_ALIAS='KR_BKT', RANGE_AXIS_ALIAS='KR_RNG'
+
+── [1] 생성 SQL 정적 검사(비인용 밑줄 별칭 없음) ─────────────────
+  [oracle  /bucket] 밑줄별칭=없음 신별칭포함=예 → PASS
+  [oracle  /range] 밑줄별칭=없음 신별칭포함=예 → PASS
+  [postgres/bucket] 밑줄별칭=없음 신별칭포함=예 → PASS
+  [postgres/range] 밑줄별칭=없음 신별칭포함=예 → PASS
+
+── [2] 오라클 실측 — Before(__BKT/__RNG) vs After(KR_BKT/KR_RNG) ──
+  [접속] 192.168.0.151:1523/xepdb1 user=nxdnp (비밀번호 미표시)
+  ▶ bucket(__BKT→KR_BKT)
+    [Before SQL] SELECT REGION_CD AS G0, COUNT(*) AS CNT, WIDTH_BUCKET(ORDER_ID, 1, 3001, 8) AS __BKT FROM NXDNP.MV_ORA_TEST_SRC GROUP BY REGION_CD, WIDTH_BUCKET(ORDER_ID, 1, 3001, 8)
+    [Before 실행] 실패 — ORA-00911: _: invalid character after AS
+Help: https://docs.oracle.com/error-help/db/ora-00911/
+      → ORA-00911 재현: 예 ✓(기대)
+    [After  SQL] SELECT REGION_CD AS G0, COUNT(*) AS CNT, WIDTH_BUCKET(ORDER_ID, 1, 3001, 8) AS KR_BKT FROM NXDNP.MV_ORA_TEST_SRC GROUP BY REGION_CD, WIDTH_BUCKET(ORDER_ID, 1, 3001, 8)
+    [After  실행] 성공(rows=20, cols=['G0', 'CNT', 'KR_BKT'])
+      → 정상 실행: 예 ✓ / 결과컬럼에 KR_BKT 존재: 예 ✓
+
+  ▶ range (__RNG→KR_RNG)
+    [Before SQL] SELECT REGION_CD AS G0, COUNT(*) AS CNT, CASE WHEN ORDER_ID >= 1 AND ORDER_ID < 1500 THEN 1 WHEN ORDER_ID >= 1500 AND ORDER_ID <= 3000 THEN 2 END AS __RNG FROM NXDNP.MV_ORA_TEST_SRC GROUP BY REGION_CD, CASE WHEN ORDER_ID >= 1 AND ORDER_ID < 1500 THEN 1 WHEN ORDER_ID >= 1500 AND ORDER_ID <= 3000 THEN 2 END
+    [Before 실행] 실패 — ORA-00911: _: invalid character after AS
+Help: https://docs.oracle.com/error-help/db/ora-00911/
+      → ORA-00911 재현: 예 ✓(기대)
+    [After  SQL] SELECT REGION_CD AS G0, COUNT(*) AS CNT, CASE WHEN ORDER_ID >= 1 AND ORDER_ID < 1500 THEN 1 WHEN ORDER_ID >= 1500 AND ORDER_ID <= 3000 THEN 2 END AS KR_RNG FROM NXDNP.MV_ORA_TEST_SRC GROUP BY REGION_CD, CASE WHEN ORDER_ID >= 1 AND ORDER_ID < 1500 THEN 1 WHEN ORDER_ID >= 1500 AND ORDER_ID <= 3000 THEN 2 END
+    [After  실행] 성공(rows=20, cols=['G0', 'CNT', 'KR_RNG'])
+      → 정상 실행: 예 ✓ / 결과컬럼에 KR_RNG 존재: 예 ✓
+
+── [3] 소비 경로 라운드트립(오라클, compare_fn readback) ──────────
+    compare_fn(groupby=[KR_BKT]) → is_matched=True total_groups=1 (src==tgt 이므로 일치 기대)
+    group_metrics 키 집합: ['KR_BKT'] → KR_BKT 키잉: 예 ✓
+    → 라운드트립 정상(판정 도달): 예 ✓
+
+── [4] PostgreSQL 대조(동일 SQL 회귀 없음) ─────────────────────────
+  [접속] 192.168.0.150:5433/asis user=nextobe (비밀번호 미표시)
+  [After/PG SQL] SELECT status AS G0, COUNT(*) AS CNT, WIDTH_BUCKET(salary, 1, 200001, 8) AS KR_BKT FROM asis01.mvq_emp GROUP BY status, WIDTH_BUCKET(salary, 1, 200001, 8)
+  [실행] 성공(rows=2, cols=['G0', 'CNT', 'KR_BKT'])
+    → PG 정상(밑줄별칭 없이 KR_BKT): 예 ✓
+
+── 종합 ──────────────────────────────────────────────────────────
+결과: ✅ 전체 PASS
