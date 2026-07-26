@@ -1,0 +1,8 @@
+=== PG 실제 함수 호출: _collect_distinct_counts(conn, "mvq_emp", {}, "postgresql") ===
+  _last_error: (없음)
+  수집된 컬럼 수: 4
+    EMP_NO -> {'distinct_count': 3, 'row_count': 3}
+    DEPT_NO -> {'distinct_count': 1, 'row_count': 3}
+    SALARY -> {'distinct_count': 3, 'row_count': 3}
+    STATUS -> {'distinct_count': 2, 'row_count': 3}
+=> pr_ 별칭으로 PG distinct 수집 정상 (밑줄→pr_ 변경이 PG 무영향, 회귀 없음)

@@ -1,0 +1,28 @@
+======================================================================
+오라클 asis 접속 성공: 192.168.0.151:1523/xepdb1 (user=nxdnp)
+대상 테이블: NXDNP.MV_ORA_TEST_SRC, distinct 대상 컬럼: ['REGION_CD', 'CHANNEL_CD', 'ORDER_YM']
+======================================================================
+
+[BEFORE(밑줄 별칭 _rc/_d%d) — ORA-00911 재현 기대]
+  SQL: SELECT COUNT(*) AS _rc, COUNT(DISTINCT "REGION_CD") AS _d0, COUNT(DISTINCT "CHANNEL_CD") AS _d1, COUNT(DISTINCT "ORDER_YM") AS _d2 FROM NXDNP.MV_ORA_TEST_SRC
+  결과: 실패 -> ORA-00911: _: invalid character after AS
+Help: https://docs.oracle.com/error-help/db/ora-00911/
+
+[AFTER(문자 별칭 pr_rc/pr_d%d) — 정상 실행 기대]
+  SQL: SELECT COUNT(*) AS pr_rc, COUNT(DISTINCT "REGION_CD") AS pr_d0, COUNT(DISTINCT "CHANNEL_CD") AS pr_d1, COUNT(DISTINCT "ORDER_YM") AS pr_d2 FROM NXDNP.MV_ORA_TEST_SRC
+  결과: 성공, row=(300, 20, 9, 24)
+
+[최소재현 BEFORE: SELECT COUNT(*) AS _rc]
+  SQL: SELECT COUNT(*) AS _rc FROM NXDNP.MV_ORA_TEST_SRC
+  결과: 실패 -> ORA-00911: _: invalid character after AS
+Help: https://docs.oracle.com/error-help/db/ora-00911/
+
+[최소재현 AFTER : SELECT COUNT(*) AS pr_rc]
+  SQL: SELECT COUNT(*) AS pr_rc FROM NXDNP.MV_ORA_TEST_SRC
+  결과: 성공, row=(300,)
+
+======================================================================
+dialect 가드 확인 — _collect_distinct_counts(..., 'oracle') 반환값
+======================================================================
+  반환: {}  (빈 dict → 오라클은 358행 SQL 자체를 생성/실행하지 않음)
+  => 라이브 재수집 경로에서 오라클은 이 별칭 SQL 에 도달하지 않는다(가드 343행, 2026-06-11 21264c3).

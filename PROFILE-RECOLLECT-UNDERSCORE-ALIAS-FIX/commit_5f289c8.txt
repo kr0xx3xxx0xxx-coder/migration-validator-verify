@@ -1,0 +1,39 @@
+commit 5f289c852ab0b986a1d85cfc469f7937cbbed2c3
+Author: migration-validator <dev@migration-validator.local>
+Date:   Sun Jul 26 17:10:42 2026 +0900
+
+    fix(profile-recollect): distinct 프로필 SQL 밑줄 시작 별칭(_rc/_d%d) → 문자 시작(pr_rc/pr_d%d)로 교정 — 오라클 ORA-00911 방어 (PROFILE-RECOLLECT-UNDERSCORE-ALIAS-FIX)
+    
+    - services/profile_recollect_service.py:358 _collect_distinct_counts 가 생성하던
+      'COUNT(*) AS _rc', 'COUNT(DISTINCT c) AS _d%d' 밑줄 시작 비인용 별칭을 문자 시작 pr_ 로 통일.
+    - 오라클 실측(asis MV_ORA_TEST_SRC): BEFORE _rc → ORA-00911(_: invalid character after AS),
+      AFTER pr_rc/pr_d → 정상(row=(300,20,9,24)). column_profile pf_·date_bucket bkt_ 와 동일 컨벤션.
+    - 소비자는 positional(row[0]/row[i+1]) 이라 별칭명은 cosmetic — 파서/쿼리 로직 무수정.
+    - PG 회귀 없음: 실 함수 호출로 4컬럼 distinct 정상 수집(밑줄 별칭도 PG는 원래 허용이라 무영향).
+    - 주의: 이 함수는 dialect 가드(343행)로 오라클이면 {} 반환 → 라이브 재수집 경로 미도달.
+      이번 수정은 감사 잔존항목(UNDERSCORE-ALIAS 2순위) 해소 + 방언무관 방어적 통일.
+    
+    Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_01V29BfWjV73WgyTSLiSFy5E
+
+ ...rofile_recollect_underscore_alias_ora_verify.py | 101 +++++++++++++++++++++
+ services/profile_recollect_service.py              |   7 +-
+ 2 files changed, 106 insertions(+), 2 deletions(-)
+diff --git a/services/profile_recollect_service.py b/services/profile_recollect_service.py
+index 2f2c65d..cf4fdbf 100644
+--- a/services/profile_recollect_service.py
++++ b/services/profile_recollect_service.py
+@@ -355,8 +355,11 @@ def _collect_distinct_counts(conn, table: str, meta: dict, dialect: str, max_col
+         return out
+     qschema = _quote_ident(schema, dialect) + "." if schema else ""
+     qtable = qschema + _quote_ident(real_tbl, dialect)
+-    sel = ["COUNT(*) AS _rc"] + ["COUNT(DISTINCT %s) AS _d%d" % (_quote_ident(c, dialect), i)
+-                                 for i, (c, _) in enumerate(pick)]
++    # 별칭은 반드시 '문자'로 시작(오라클 ORA-00911: '_' 시작 비인용 별칭 금지). PG/MySQL 은 밑줄 별칭도
++    # 허용하나, 방언 무관 안전을 위해 문자 시작(pr_ = profile recollect)으로 통일. 소비자는 positional(row[0]/
++    # row[i+1]) 이라 별칭명은 순수 cosmetic — 개명해도 파싱 로직 무영향(column_profile pf_·date_bucket bkt_ 와 동일 컨벤션).
++    sel = ["COUNT(*) AS pr_rc"] + ["COUNT(DISTINCT %s) AS pr_d%d" % (_quote_ident(c, dialect), i)
++                                   for i, (c, _) in enumerate(pick)]
+     sql = "SELECT " + ", ".join(sel) + " FROM " + qtable
+     try:
+         cur = conn.cursor()
