@@ -1,0 +1,773 @@
+{
+ "sql": "INSERT INTO NXDNP.MV_ORA_DEMO_TGT (ID, DEPT_CD, UPD_YMD, REG_DT, STATUS_CD, AMT, CREATED_BY) SELECT ID, DEPT_CD, UPD_YMD, REG_DT, STATUS_CD, AMT, CREATED_BY FROM NXDNP.MV_ORA_DEMO_SRC",
+ "want_gb": [
+  "STATUS_CD",
+  "DEPT_CD"
+ ],
+ "want_sum": [
+  "AMT"
+ ],
+ "stages": {
+  "1_analyze": {
+   "blocked": false,
+   "err": null
+  },
+  "2_count": {
+   "count_status": "COUNT_MATCHED",
+   "src": 150,
+   "tgt": 150,
+   "force_offered": false
+  },
+  "3_select": {
+   "gb": {
+    "all": [
+     "STATUS_CD",
+     "DEPT_CD",
+     "REG_DT",
+     "ID"
+    ],
+    "disabled": [
+     "REG_DT",
+     "ID"
+    ],
+    "checked": [
+     "STATUS_CD",
+     "DEPT_CD"
+    ]
+   },
+   "sum": {
+    "all": [
+     "AMT"
+    ],
+    "disabled": [],
+    "checked": [
+     "AMT"
+    ]
+   }
+  }
+ },
+ "notes": [],
+ "setup": {
+  "project": "TESTONLY_REG",
+  "pair_rows": 1,
+  "badges": {
+   "src": "Oracle_asis",
+   "tgt": "Oracle_tobe"
+  }
+ },
+ "before_click": {
+  "_executeInProgress": false,
+  "_mvAnyRunActive": false,
+  "_mvExecPaused": null,
+  "_mvRiResuming": null,
+  "_mvExecPauseSent": null,
+  "_mvExecPanelActive": null,
+  "_mvExecTerminal": null,
+  "_pollTimer": false,
+  "_mvReimportStatus": null,
+  "spinner_btns": [],
+  "_analysisBlocked": false,
+  "_mvAnalyzeStaleForPolicy": false,
+  "_analyzeData_null": true,
+  "conn_deselected_src": false,
+  "conn_deselected_tgt": false,
+  "_singleValidationExecuted": false,
+  "_revalidateInProgress": false,
+  "_fullRunInProgress": false,
+  "_mvActiveRunResolved": null,
+  "_mvCompletedHistoryResolved": null,
+  "gate_blocked_stats": false,
+  "regenerate_required": false,
+  "srcBox_len": 162,
+  "tgtBox_len": 162,
+  "gbSel": "[\"STATUS_CD\",\"DEPT_CD\"]",
+  "sumSel": "[\"AMT\"]",
+  "runExecute_type": "function",
+  "_runExecutePlanSets_type": "function",
+  "execBtn": {
+   "disabled": false,
+   "visible": false,
+   "html": "▶ 통계검증 실행",
+   "onclickAttr": "runExecute()"
+  },
+  "cmdbarBtn": {
+   "disabled": false,
+   "visible": true,
+   "text": "▶ 통계검증 실행",
+   "fn": "runExecute"
+  },
+  "step": "validation",
+  "executeOut_len": 0,
+  "execStepError_len": 0,
+  "riRows": 0,
+  "overlay": false
+ },
+ "clicked": true,
+ "after_1_5s": {
+  "_executeInProgress": false,
+  "_mvAnyRunActive": false,
+  "_mvExecPaused": null,
+  "_mvRiResuming": null,
+  "_mvExecPauseSent": null,
+  "_mvExecPanelActive": false,
+  "_mvExecTerminal": true,
+  "_pollTimer": false,
+  "_mvReimportStatus": "READY",
+  "spinner_btns": [],
+  "_analysisBlocked": false,
+  "_mvAnalyzeStaleForPolicy": false,
+  "_analyzeData_null": true,
+  "conn_deselected_src": false,
+  "conn_deselected_tgt": false,
+  "_singleValidationExecuted": true,
+  "_revalidateInProgress": false,
+  "_fullRunInProgress": false,
+  "_mvActiveRunResolved": null,
+  "_mvCompletedHistoryResolved": null,
+  "gate_blocked_stats": false,
+  "regenerate_required": false,
+  "srcBox_len": 162,
+  "tgtBox_len": 162,
+  "gbSel": "[\"STATUS_CD\",\"DEPT_CD\"]",
+  "sumSel": "[\"AMT\"]",
+  "runExecute_type": "function",
+  "_runExecutePlanSets_type": "function",
+  "execBtn": {
+   "disabled": false,
+   "visible": false,
+   "html": "▶ 통계검증 다시 실행",
+   "onclickAttr": "runExecute()"
+  },
+  "cmdbarBtn": {
+   "disabled": false,
+   "visible": true,
+   "text": "▶ 통계검증 다시 실행",
+   "fn": "runExecute"
+  },
+  "step": "validation",
+  "executeOut_len": 1160,
+  "execStepError_len": 0,
+  "riRows": 0,
+  "overlay": false
+ },
+ "diag_1_5s": {
+  "rx": [
+   {
+    "ev": "enter",
+    "t": 143956.5
+   },
+   {
+    "ev": "resolved",
+    "t": 144810.40000009537
+   }
+  ],
+  "clicks": [
+   {
+    "t": 143956,
+    "id": "",
+    "fn": "runExecute",
+    "text": "▶ 통계검증 실행",
+    "disabled": false,
+    "hasOnclick": true,
+    "onclickAttr": "mvCommandBarRunAction(this)"
+   }
+  ],
+  "net": [
+   {
+    "url": "/db/presets/src",
+    "method": "GET",
+    "payload": "",
+    "payload_len": 0,
+    "t0": 143957.20000004768,
+    "status": 200,
+    "t1": 144015.90000009537,
+    "body": "[{\"name\":\"PostgreSQL_asis\",\"db_type\":\"postgresql\",\"host\":\"ep-bitter-moon-aoaf05cu.c-2.ap-southeast-1.aws.neon.tech\",\"port\":5432,\"dbname\":\"neondb\",\"user\":\"neondb_owner\",\"has_password\":true},{\"name\":\"MariaDB_asis\",\"db_type\":\"mariadb\",\"host\":\"192.168.0.211\",\"port\":3309,\"dbname\":\"nxdnp\",\"user\":\"nxdnp\",\"advanced_options\":{\"charset\":\"utf8mb4\"},\"has_password\":true},{\"name\":\"PostgreSQL_NEW_asis\",\"db_type\":\"postgresql\",\"host\":\"ep-aged-tooth-aoi66cbv-pooler.c-2.ap-southeast-1.aws.neon.tech\",\"port\":5432,\"dbname\":\"migration_source\",\"user\":\"neondb_owner\",\"advanced_options\":{\"sslmode\":\"require\",\"connect_timeout\":\"10\"},\"has_password\":true},{\"name\":\"DB2_asis\",\"db_type\":\"db2\",\"host\":\"192.168.0.10\",\"port\":50000,\"dbname\":\"ntbdb\",\"user\":\"dsadm\",\"advanced_options\":{\"schema\":\"DSADM\"},\"has_password\":true},{\"name\":\"PostgreSQL_Inter_asis\",\"db_type\":\"postgresql\",\"host\":\"192.168.0.150\",\"port\":5433,\"dbname\":\"asis\",\"user\":\"nextobe\",\"advanced_options\":{\"schema\":\"ntb\",\"sslmode\":\"disable\",\"connect_timeout\":\"10\"},\"has_password\":true},{\"name\":\"PostgreSQL_Inter_tobesrc\",\"db_type\":\"postgresql\",\"host\":\"192.168.0.150\",\"port\":5434,\"dbname\":\"tobe\",\"user\":\"nextobe\",\"advanced_options\":{\"sslmode\":\"disable\",\"connect_timeout\":\"10\"},\"has_password\":true},{\"name\":\"PostgreSQL_nxdnp_src\",\"db_type\":\"postgresql\",\"host\":\"192.168.0.150\",\"port\":5434,\"dbname\":\"tobe\",\"user\":\"nextobe\",\"advanced_options\":{\"sslmode\":\"disable\",\"connect_timeout\":\"10\"},\"has_password\":true},{\"name\":\"Oracle_asis\",\"db_type\":\"oracle\",\"host\":\"192.168.0.151\",\"port\":1523,\"dbname\":\"xepdb1\",\"user\":\"nxdnp\",\"advanced_options\":{\"sid\":\"XEPDB1\",\"schema\":\"NXDNP\",\"connect_type\":\"service_name\",\"encoding\":\"UTF-8\",\"nencoding\":\"UTF-8\",\"driver_mode\":\"thin\"},\"has_password\":true}]",
+    "body_len": 1708
+   },
+   {
+    "url": "/db/presets/tgt",
+    "method": "GET",
+    "payload": "",
+    "payload_len": 0,
+    "t0": 144016.20000004768,
+    "status": 200,
+    "t1": 144073,
+    "body": "[{\"name\":\"PostgreSQL_tobe\",\"db_type\":\"postgresql\",\"host\":\"ep-super-river-aoeo1f81.c-2.ap-southeast-1.aws.neon.tech\",\"port\":5432,\"dbname\":\"neondb\",\"user\":\"neondb_owner\",\"has_password\":true},{\"name\":\"DB2_tobe\",\"db_type\":\"db2\",\"host\":\"192.168.0.10\",\"port\":50000,\"dbname\":\"ntbdb\",\"user\":\"dsadm\",\"advanced_options\":{\"schema\":\"DSADM\"},\"has_password\":true},{\"name\":\"MariaDB_tobe\",\"db_type\":\"mariadb\",\"host\":\"192.168.0.211\",\"port\":3309,\"dbname\":\"nxdnp\",\"user\":\"nxdnp\",\"advanced_options\":{\"charset\":\"utf8mb4\"},\"has_password\":true},{\"name\":\"PostgreSQL_NEW_tobe\",\"db_type\":\"postgresql\",\"host\":\"ep-aged-tooth-aoi66cbv-pooler.c-2.ap-southeast-1.aws.neon.tech\",\"port\":5432,\"dbname\":\"migration_target\",\"user\":\"neondb_owner\",\"advanced_options\":{\"sslmode\":\"require\",\"connect_timeout\":\"10\"},\"has_password\":true},{\"name\":\"PostgreSQL_Inter_tobe\",\"db_type\":\"postgresql\",\"host\":\"192.168.0.150\",\"port\":5434,\"dbname\":\"tobe\",\"user\":\"nextobe\",\"advanced_options\":{\"sslmode\":\"disable\",\"connect_timeout\":\"10\"},\"has_password\":true},{\"name\":\"Oracle_tobe\",\"db_type\":\"oracle\",\"host\":\"192.168.0.151\",\"port\":1524,\"dbname\":\"xepdb1\",\"user\":\"nxdnp\",\"advanced_options\":{\"sid\":\"XEPDB1\",\"schema\":\"NXDNP\",\"connect_type\":\"service_name\",\"encoding\":\"UTF-8\",\"nencoding\":\"UTF-8\",\"driver_mode\":\"thin\"},\"has_password\":true}]",
+    "body_len": 1275
+   },
+   {
+    "url": "/single/active-run?session_id=sess_ms1ula45qb6klq",
+    "method": "GET",
+    "payload": "",
+    "payload_len": 0,
+    "t0": 144074.30000007153,
+    "status": 200,
+    "t1": 144133.5,
+    "body": "{\"ok\":true,\"active\":false,\"count\":0,\"run\":null,\"runs\":[]}",
+    "body_len": 57
+   },
+   {
+    "url": "/groupby-plan",
+    "method": "POST",
+    "payload": "{\"candidates\":[{\"col\":\"STATUS_CD\",\"recommendation_status\":\"NORMAL_DEFAULT\",\"explanation\":{\"reason_text\":\"고유값 4개 · 그룹당 평균 38행 · 상태별 불일치 구분에 적합\",\"reason_detail\":\"상태 구분값으로 그룹 비교 기준에 적합합니다. 고유값 분포와 NULL 상태가 그룹 검증에 적합합니다.\",\"evidence_chips\":[\"프로파일 기반: 고유값 4개\"],\"tooltip_text\":\"상태 구분값으로 그룹 비교 기준에 적합합니다. 고유값 분포와 NULL 상태가 그룹 검증에 적합합니다. | 점수 구성: experimental=True, version=E1, semantic={'score': 11, 'max_score': 20, 'label': '의미 근거', 'evidence': ['시맨틱 사전(DIMENSION_STATUS, score=0.55)'], 'reason': 'semantic dictionary 매칭(DIMENSION_STATUS) 반영 — 강도 WEAK', 'confidence': 'WEAK', 'reason_code': 'SEMANTIC_WEAK', 'source': 'semantic_dictionary', 'semantic_type': 'DIMENSION_STATUS'}, type_fit={'score': 15, 'max_score': 20, 'label': '타입 적합성', 'evidence': ['tgt_type=char'], 'reason': '타입 정보(char)를 확인했습니다. GROUP BY 후보로 사용 가능합니다.', 'confidence': 'MEDIUM'}, stats={'score': 50, 'max_score': 20, 'label': '통계 근거', 'evidence': ['raw_stats_score=50'], 'reason': '기존 통계 기반 점수를 참고값으로 반영했습니다.', 'confidence': 'LOW'}, key_constraint={'score': 20, 'max_score': 20, 'label': '키/제약 근거', 'evidence': [], 'reason': '명시적인 제외 규칙은 확인되지 않았습니다.', 'confidence': 'LOW'} | 통계: 고유값 4, 행수 150\",\"source_expression\":\"STATUS_CD\",\"primary_reasons\":[\"고유값 4개 · 그룹당 평균 38행 · 상태별 불일치 구분에 적합\",\"프로파일 기반: 고유값 4개 (2.7%)\"],\"caution_reasons\":[],\"demotion_reasons\":[],\"exclusion_reasons\":[],\"detail_lines\":[],\"explanation_level\":\"normal\"}},{\"col\":\"DEPT_CD\",\"recommendation_status\":\"NORMAL_DEFAULT\",\"explanation\":{\"reason_text\":\"고유값 6개 · 그룹당 평균 25행 · 조직별 불일치 구분에 적합\",\"reason_detail\":\"조직 구분값으로 그룹 비교 기준에 적합합니다. 고유값 분포와 NULL 상태가 그룹 검증에 적합합니다.\",\"evidence_chips\":[\"프로파일 기반: 고유값 6개\"],\"tooltip_text\":\"조직 구분값으로 그룹 비교 기준에 적합합니다. 고유값 분포와 NULL 상태가 그룹 검증에 적합합니다. | 점수 구성: experimental=True, version=E1, semantic={'score': 11, 'max_score': 20, 'label': '의미 근거', 'evidence': ['시맨틱 사전(DIMENSION_ORG, score=0.55)'], 'reason': 'semantic dictionary 매칭(DIMENSION_ORG) 반영 — 강도 WEAK', 'confidence': 'WEAK', 'reason_code': 'SEMANTIC_WEAK', 'source': 'semantic_dictionary', 'semantic_type': 'DIMENSION_ORG'}, type_fit={'score': 15, 'max_score': 20, 'label': '타입 적합성', 'evidence': ['tgt_type=varchar'], 'reason': '타입 정보(varchar)를 확인했습니다. GROUP BY 후보로 사용 가능합니다.', 'confidence': 'MEDIUM'}, stats={'score': 40, 'max_score': 20, 'label': '통계 근거', 'evidence': ['raw_stats_score=40'], 'reason': '기존 통계 기반 점수를 참고값으로 반영했습니다.', 'confidence': 'LOW'}, key_constraint={'score': 20, 'max_score': 20, 'label': '키/제약 근거', 'evidence': [], 'reason': '명시적인 제외 규칙은 확인되지 않았습니다.', 'confidence': 'LOW'} | 통계: 고유값 6, 행수 150\",\"source_expression\":\"DEPT_CD\",\"primary_reasons\":[\"고유값 6개 · 그룹당 평균 25행 · 조직별 불일치 구분에 적합\",\"프로파일 기반: 고유값 6개 (4.0%)\"],\"caution_reasons\":[],\"demotion_reasons\":[],\"exclusion_reasons\":[],\"detail_lines\":[],\"explanation_level\":\"normal\"}}],\"total_rows\":150,\"include_pair\":false}",
+    "payload_len": 2795,
+    "t0": 144076.20000004768,
+    "status": 200,
+    "t1": 144188.40000009537,
+    "body": "{\"sets\":[{\"set_id\":\"S1\",\"kind\":\"SINGLE\",\"cols\":[\"STATUS_CD\"],\"expected_groups\":null,\"avg_rows_per_group\":null,\"reason\":\"단일 축 기본 계획(후보별 독립 실행)\"},{\"set_id\":\"S2\",\"kind\":\"SINGLE\",\"cols\":[\"DEPT_CD\"],\"expected_groups\":null,\"avg_rows_per_group\":null,\"reason\":\"단일 축 기본 계획(후보별 독립 실행)\"}],\"excluded\":[{\"cols\":[\"STATUS_CD\",\"DEPT_CD\"],\"expected_groups\":null,\"avg_rows_per_group\":null,\"reason\":\"조합 distinct 근거 부족(단일 축 계획만 실행)\"}],\"pair_candidate\":null,\"expected_total_groups\":null,\"requires_confirm\":false,\"plan_version\":\"gbplan-v2\",\"plan_fingerprint\":\"c6818596cc74aa645e79\",\"policy\":{\"target_max_groups\":100,\"min_avg_rows_per_group\":100,\"max_auto_pair_sets\":1,\"max_auto_triple_sets\":0},\"ok\":true}",
+    "body_len": 682
+   },
+   {
+    "url": "/agg-diff/resumable",
+    "method": "GET",
+    "payload": "",
+    "payload_len": 0,
+    "t0": 144187.40000009537,
+    "status": 200,
+    "t1": 144302.40000009537,
+    "body": "{\"ok\":true,\"count\":0,\"items\":[]}",
+    "body_len": 32
+   },
+   {
+    "url": "/generate",
+    "method": "POST",
+    "payload": "{\"parse_result\":{\"insert_cols\":[\"ID\",\"DEPT_CD\",\"UPD_YMD\",\"REG_DT\",\"STATUS_CD\",\"AMT\",\"CREATED_BY\"],\"select_items\":[{\"tgt_col\":\"ID\",\"src_expr\":\"ID\"},{\"tgt_col\":\"DEPT_CD\",\"src_expr\":\"DEPT_CD\"},{\"tgt_col\":\"UPD_YMD\",\"src_expr\":\"UPD_YMD\"},{\"tgt_col\":\"REG_DT\",\"src_expr\":\"REG_DT\"},{\"tgt_col\":\"STATUS_CD\",\"src_expr\":\"STATUS_CD\"},{\"tgt_col\":\"AMT\",\"src_expr\":\"AMT\"},{\"tgt_col\":\"CREATED_BY\",\"src_expr\":\"CREATED_BY\"}],\"from_table\":\"MV_ORA_DEMO_SRC\",\"from_alias\":\"\",\"tgt_table\":\"MV_ORA_DEMO_TGT\",\"joins\":[],\"where\":\"\",\"groupby\":[],\"union_type\":null,\"union_branches\":[],\"from_table_qualified\":\"NXDNP.MV_ORA_DEMO_SRC\",\"tgt_table_qualified\":\"NXDNP.MV_ORA_DEMO_TGT\",\"source_schema\":\"NXDNP\",\"target_schema\":\"NXDNP\"},\"analyze_result\":{\"validated\":[{\"tgt_col\":\"ID\",\"src_expr\":\"ID\",\"src_type\":\"\",\"tgt_type\":\"NUMERIC\",\"is_pk\":false},{\"tgt_col\":\"DEPT_CD\",\"src_expr\":\"DEPT_CD\",\"src_type\":\"\",\"tgt_type\":\"VARCHAR\",\"is_pk\":false},{\"tgt_col\":\"UPD_YMD\",\"src_expr\":\"UPD_YMD\",\"src_type\":\"\",\"tgt_type\":\"VARCHAR\",\"is_pk\":false},{\"tgt_col\":\"REG_DT\",\"src_expr\":\"REG_DT\",\"src_type\":\"\",\"tgt_type\":\"VARCHAR\",\"is_pk\":false},{\"tgt_col\":\"STATUS_CD\",\"src_expr\":\"STATUS_CD\",\"src_type\":\"\",\"tgt_type\":\"CHAR\",\"is_pk\":false},{\"tgt_col\":\"AMT\",\"src_expr\":\"AMT\",\"src_type\":\"\",\"tgt_type\":\"NUMERIC\",\"is_pk\":false},{\"tgt_col\":\"CREATED_BY\",\"src_expr\":\"CREATED_BY\",\"src_type\":\"\",\"tgt_type\":\"VARCHAR\",\"is_pk\":false}],\"excluded\":[],\"sum_columns\":[{\"tgt_col\":\"AMT\",\"src_expr\":\"AMT\",\"cast_expr\":null,\"is_agg_src\":false}],\"groupby_columns\":[{\"tgt_col\":\"REG_DT\",\"src_expr\":\"REG_DT\",\"groupby_expr_src\":\"REG_DT\",\"groupby_expr_tgt\":\"REG_DT\",\"reason\":\"단문자 VARCHAR(20)\",\"tgt_type\":\"VARCHAR\",\"tgt_len\":20},{\"tgt_col\":\"DEPT_CD\",\"src_expr\":\"DEPT_CD\",\"groupby_expr_src\":\"DEPT_CD\",\"groupby_expr_tgt\":\"DEPT_CD\",\"reason\":\"코드성 VARCHAR(10)\",\"tgt_type\":\"VARCHAR\",\"tgt_len\":10},{\"tgt_col\":\"STATUS_CD\",\"src_expr\":\"STATUS_CD\",\"groupby_expr_src\":\"STATUS_CD\",\"groupby_expr_tgt\":\"STATUS_CD\",\"reason\":\"코드성 CHAR(1)\",\"tgt_type\":\"CHAR\",\"tgt_len\":1}],\"casted\":[],\"count_only\":false,\"has_meta\":true,\"meta_tables\":[\"MV_ORA_DEMO_SRC\"],\"tgt_where_excluded\":[]},\"all_groupby_candidates\":[{\"group_by_candidate_score\":40,\"aggregate_candidate_score\":null,\"raw_stats_score\":40,\"score_breakdown\":{\"experimental\":true,\"version\":\"E1\",\"semantic\":{\"score\":11,\"max_score\":20,\"label\":\"의미 근거\",\"evidence\":[\"시맨틱 사전(DIMENSION_ORG, score=0.55)\"],\"reason\":\"semantic dictionary 매칭(DIMENSION_ORG) 반영 — 강도 WEAK\",\"confidence\":\"WEAK\",\"reason_code\":\"SEMANTIC_WEAK\",\"source\":\"semantic_dictionary\",\"semantic_type\":\"DIMENSION_ORG\"},\"type_fit\":{\"score\":15,\"max_score\":20,\"label\":\"타입 적합성\",\"evidence\":[\"tgt_type=varchar\"],\"reason\":\"타입 정보(varchar)를 확인했습니다. GROUP BY 후보로 사용 가능합니다.\",\"confidence\":\"MEDIUM\"},\"stats\":{\"score\":40,\"max_score\":20,\"label\":\"통계 근거\",\"evidence\":[\"raw_stats_score=40\"],\"reason\":\"기존 통계 기반 점수를 참고값으로 반영했습니다.\",\"confidence\":\"LOW\"},\"key_constraint\":{\"score\":20,\"max_score\":20,\"label\":\"키/제약 근거\",\"evidence\":[],\"reason\":\"명시적인 제외 규칙은 확인되지 않았습니다.\",\"confidence\":\"LOW\"},\"compatibility\":{\"score\":0,\"max_score\":20,\"label\":\"원본/목적지 호환성\",\"evidence\":[],\"reason\":\"호환성 상세 계산은 아직 구현하지 않았습니다.\",\"confidence\":\"NONE\"},\"policy_adjustment\":{\"score\":0,\"max_score\":0,\"label\":\"정책 보정\",\"evidence\":[],\"reason\":\"이번 단계에서는 정책 보정을 적용하지 않습니다.\",\"confidence\":\"NONE\"}},\"hard_rule\":null,\"profile_quality_score\":null,\"risk_penalty\":0,\"candidate_rank\":null,\"evidence_json\":{\"profile_source\":\"DB_STATISTICS\",\"dbms\":\"postgresql\",\"statistics_available\":true,\"estimated\":true,\"null_frac\":0,\"n_distinct_raw\":6,\"n_distinct_resolved\":6,\"most_common_vals_present\":false,\"estimated_row_count\":150,\"is_unique_like\":false,\"estimated_distinct_ratio\":null,\"unique_like_threshold\":0.9,\"analyzed_at\":\"2026-07-24T14:05:15\",\"stats_freshness\":\"FRESH\",\"notes\":[\"pg_stats_based_poc\"]},\"risk_flags\":[],\"selection_status\":\"SELECTED_DEFAULT\",\"semantic_type_candidates\":[],\"candidate_source\":\"DB_STATISTICS\",\"candidate_id\":\"c_37ebb8f8\",\"target_column\":\"DEPT_CD\",\"source_expression\":\"DEPT_CD\",\"candidate_role\":\"GROUP_BY\",\"score\":0.58,\"confidence\":\"MEDIUM\",\"evidence\":[\"낮은",
+    "payload_len": 49085,
+    "t0": 144189,
+    "status": 200,
+    "t1": 144306.80000007153,
+    "body": "{\"success\":true,\"stats_src_sql\":\"SELECT\\n    STATUS_CD AS STATUS_CD,\\n    COUNT(*) AS CNT,\\n    SUM(AMT) AS AMT\\nFROM NXDNP.MV_ORA_DEMO_SRC\\nGROUP BY\\n    STATUS_CD\",\"stats_tgt_sql\":\"SELECT\\n    STATUS_CD AS STATUS_CD,\\n    COUNT(*) AS CNT,\\n    SUM(AMT) AS AMT\\nFROM NXDNP.MV_ORA_DEMO_TGT\\nGROUP BY\\n    STATUS_CD\",\"warnings\":[],\"wrapped_source_select\":false,\"source_sql_generation_method\":\"DIRECT_FROM\",\"processing_ms\":1.3,\"selection_evidence\":{\"configured_group_by\":3,\"configured_sum\":3,\"effective_group_by_columns\":[\"STATUS_CD\"],\"effective_sum_columns\":[\"AMT\"],\"effective_group_by_count\":1,\"effective_sum_count\":1,\"selection_mode\":\"AUTO\",\"selection_fingerprint\":\"3c63ea9645d315e16b73\",\"plan_fingerprint\":\"\",\"run_id\":\"\"}}",
+    "body_len": 724
+   },
+   {
+    "url": "/execute",
+    "method": "POST",
+    "payload": "{\"src_sql\":\"SELECT\\n    STATUS_CD AS STATUS_CD,\\n    COUNT(*) AS CNT,\\n    SUM(AMT) AS AMT\\nFROM NXDNP.MV_ORA_DEMO_SRC\\nGROUP BY\\n    STATUS_CD\",\"tgt_sql\":\"SELECT\\n    STATUS_CD AS STATUS_CD,\\n    COUNT(*) AS CNT,\\n    SUM(AMT) AS AMT\\nFROM NXDNP.MV_ORA_DEMO_TGT\\nGROUP BY\\n    STATUS_CD\",\"src_db\":{\"db_type\":\"oracle\",\"host\":\"192.168.0.151\",\"port\":1523,\"dbname\":\"xepdb1\",\"user\":\"nxdnp\",\"password\":\"\"},\"tgt_db\":{\"db_type\":\"oracle\",\"host\":\"192.168.0.151\",\"port\":1524,\"dbname\":\"xepdb1\",\"user\":\"nxdnp\",\"password\":\"\"},\"groupby_cols\":[\"STATUS_CD\"],\"sum_cols\":[\"AMT\"],\"selection_mode\":\"AUTO\",\"global_settings_fingerprint\":\"9e071849fb8285a5dd421ab5\",\"plan_version\":\"gbplan-v2\",\"plan_fingerprint\":\"c6818596cc74aa645e79\",\"plan_set_label\":\"STATUS_CD\",\"target_table\":\"MV_ORA_DEMO_TGT\",\"migration_sql\":\"INSERT INTO NXDNP.MV_ORA_DEMO_TGT (ID, DEPT_CD, UPD_YMD, REG_DT, STATUS_CD, AMT, CREATED_BY) SELECT ID, DEPT_CD, UPD_YMD, REG_DT, STATUS_CD, AMT, CREATED_BY FROM NXDNP.MV_ORA_DEMO_SRC\",\"candidate_snapshot_full\":{\"group_by\":[{\"group_by_candidate_score\":40,\"aggregate_candidate_score\":null,\"raw_stats_score\":40,\"score_breakdown\":{\"experimental\":true,\"version\":\"E1\",\"semantic\":{\"score\":11,\"max_score\":20,\"label\":\"의미 근거\",\"evidence\":[\"시맨틱 사전(DIMENSION_ORG, score=0.55)\"],\"reason\":\"semantic dictionary 매칭(DIMENSION_ORG) 반영 — 강도 WEAK\",\"confidence\":\"WEAK\",\"reason_code\":\"SEMANTIC_WEAK\",\"source\":\"semantic_dictionary\",\"semantic_type\":\"DIMENSION_ORG\"},\"type_fit\":{\"score\":15,\"max_score\":20,\"label\":\"타입 적합성\",\"evidence\":[\"tgt_type=varchar\"],\"reason\":\"타입 정보(varchar)를 확인했습니다. GROUP BY 후보로 사용 가능합니다.\",\"confidence\":\"MEDIUM\"},\"stats\":{\"score\":40,\"max_score\":20,\"label\":\"통계 근거\",\"evidence\":[\"raw_stats_score=40\"],\"reason\":\"기존 통계 기반 점수를 참고값으로 반영했습니다.\",\"confidence\":\"LOW\"},\"key_constraint\":{\"score\":20,\"max_score\":20,\"label\":\"키/제약 근거\",\"evidence\":[],\"reason\":\"명시적인 제외 규칙은 확인되지 않았습니다.\",\"confidence\":\"LOW\"},\"compatibility\":{\"score\":0,\"max_score\":20,\"label\":\"원본/목적지 호환성\",\"evidence\":[],\"reason\":\"호환성 상세 계산은 아직 구현하지 않았습니다.\",\"confidence\":\"NONE\"},\"policy_adjustment\":{\"score\":0,\"max_score\":0,\"label\":\"정책 보정\",\"evidence\":[],\"reason\":\"이번 단계에서는 정책 보정을 적용하지 않습니다.\",\"confidence\":\"NONE\"}},\"hard_rule\":null,\"profile_quality_score\":null,\"risk_penalty\":0,\"candidate_rank\":null,\"evidence_json\":{\"profile_source\":\"DB_STATISTICS\",\"dbms\":\"postgresql\",\"statistics_available\":true,\"estimated\":true,\"null_frac\":0,\"n_distinct_raw\":6,\"n_distinct_resolved\":6,\"most_common_vals_present\":false,\"estimated_row_count\":150,\"is_unique_like\":false,\"estimated_distinct_ratio\":null,\"unique_like_threshold\":0.9,\"analyzed_at\":\"2026-07-24T14:05:15\",\"stats_freshness\":\"FRESH\",\"notes\":[\"pg_stats_based_poc\"]},\"risk_flags\":[],\"selection_status\":\"SELECTED_DEFAULT\",\"semantic_type_candidates\":[],\"candidate_source\":\"DB_STATISTICS\",\"candidate_id\":\"c_37ebb8f8\",\"target_column\":\"DEPT_CD\",\"source_expression\":\"DEPT_CD\",\"candidate_role\":\"GROUP_BY\",\"score\":0.58,\"confidence\":\"MEDIUM\",\"evidence\":[\"낮은 카디널리티(n_distinct=6.0)\",\"시맨틱 사전(DIMENSION_ORG, score=0.55)\"],\"evidence_count\":2,\"tgt_col\":\"DEPT_CD\",\"src_expr\":\"DEPT_CD\",\"auto_selected\":true,\"warn_reason\":null,\"tgt_type\":\"varchar\",\"tgt_len\":10,\"tgt_scale\":0,\"reason\":\"낮은 카디널리티(n_distinct=6.0)\",\"groupby_expr_src\":\"DEPT_CD\",\"groupby_expr_tgt\":\"DEPT_CD\",\"column_comment\":\"\",\"sample_values\":[\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\"],\"simulated_selection_reason\":\"SCORE_TOP_2: 점수 기준 상위 3개 자동 선정 후보\",\"simulated_group_by_rank\":2,\"candidate_subtype\":\"CODE_LOW_CARDINALITY\",\"reas",
+    "payload_len": 47801,
+    "t0": 144307.20000004768,
+    "status": 200,
+    "t1": 144534.10000002384,
+    "body": "{\"success\":true,\"val_cols\":[\"CNT\",\"AMT\"],\"gb_keys\":[\"STATUS_CD\"],\"rows\":[{\"key\":{\"STATUS_CD\":\"A\"},\"src\":{\"CNT\":\"38\",\"AMT\":\"286412.5\"},\"tgt\":{\"CNT\":\"38\",\"AMT\":\"287412.5\"},\"status\":\"diff\",\"key_is_null\":{\"STATUS_CD\":false},\"cell_meta\":{\"AMT\":{\"result\":\"DIFF\",\"reason\":\"허용오차 초과 (차이 1000.0, 허용 1E-9)\",\"tolerance_applied\":true,\"tolerance_value\":\"1E-9\",\"diff_value\":\"1000.0\"}}},{\"key\":{\"STATUS_CD\":\"C\"},\"src\":{\"CNT\":\"37\",\"AMT\":\"282575\"},\"tgt\":{\"CNT\":\"37\",\"AMT\":\"283575\"},\"status\":\"diff\",\"key_is_null\":{\"STATUS_CD\":false},\"cell_meta\":{\"AMT\":{\"result\":\"DIFF\",\"reason\":\"허용오차 초과 (차이 1000, 허용 1E-9)\",\"tolerance_applied\":true,\"tolerance_value\":\"1E-9\",\"diff_value\":\"1000\"}}},{\"key\":{\"STATUS_CD\":\"I\"},\"src\":{\"CNT\":\"38\",\"AMT\":\"290250\"},\"tgt\":{\"CNT\":\"38\",\"AMT\":\"291750\"},\"status\":\"diff\",\"key_is_null\":{\"STATUS_CD\":false},\"cell_meta\":{\"AMT\":{\"result\":\"DIFF\",\"reason\":\"허용오차 초과 (차이 1500, 허용 1E-9)\",\"tolerance_applied\":true,\"tolerance_value\":\"1E-9\",\"diff_value\":\"1500\"}}},{\"key\":{\"STATUS_CD\":\"P\"},\"src\":{\"CNT\":\"37\",\"AMT\":\"278850\"},\"tgt\":{\"CNT\":\"37\",\"AMT\":\"280350\"},\"status\":\"diff\",\"key_is_null\":{\"STATUS_CD\":false},\"cell_meta\":{\"AMT\":{\"result\":\"DIFF\",\"reason\":\"허용오차 초과 (차이 1500, 허용 1E-9)\",\"tolerance_applied\":true,\"tolerance_value\":\"1E-9\",\"diff_value\":\"1500\"}}}],\"total_src\":4,\"total_tgt\":4,\"matched\":0,\"diff\":4,\"src_only\":0,\"tgt_only\":0,\"total_groups\":4,\"display_tier_info\":{\"display_mode\":\"FULL_LIST\",\"display_tier\":\"D1\",\"display_reason_code\":\"AXIS_A_MISMATCH_T1\",\"total_mismatch_count\":4,\"total_group_count\":4,\"early_stopped\":false,\"axis_a_tier\":1,\"axis_b_tier\":1,\"representative_sample_n\":20,\"xlsx_row_max\":1048576,\"display_message\":\"불일치 4건(그룹 4개) — 전체 레코드를 나열합니다.\",\"show_full_list\":true,\"show_group_table\":false,\"show_group_drilldown\":false,\"show_group_sample_only\":false,\"summary_only\":false,\"download_only_detail\":false,\"display_error\":\"\"},\"compared_groups\":4,\"displayed_groups\":4,\"result_rows_display_count\":4,\"max_display_rows\":200,\"display_truncated\":false,\"compare_truncated\":false,\"is_truncated\":false,\"tolerance_applied\":false,\"absolute_tolerance\":0.0,\"numeric_policy\":{\"count_exact\":true,\"sum_absolute_tolerance\":\"1E-9\",\"sum_relative_tolerance\":\"0\",\"null_equals_zero\":false,\"decimal_first\":true,\"effective_absolute_tolerance\":\"1E-9\"},\"tolerance_summary\":{\"user_tolerance_applied\":false,\"absolute_tolerance\":0.0,\"matched_with_tolerance_groups\":0},\"query_timing\":{\"source_query_started_at\":\"2026-07-26T13:42:53Z\",\"source_query_finished_at\":\"2026-07-26T13:42:53Z\",\"source_duration_ms\":6,\"target_query_started_at\":\"2026-07-26T13:42:53Z\",\"target_query_finished_at\":\"2026-07-26T13:42:54Z\",\"target_duration_ms\":7,\"source_target_gap_ms\":73,\"consistency_guarantee\":\"NOT_GUARANTEED\"},\"groupby_execution_safety\":{\"status\":\"SAFE\",\"reason_code\":\"FINITE_DOMAIN_CONFIRMED\",\"selected_columns\":[\"STATUS_CD\"],\"estimated_group_count\":4,\"raw_estimated_group_count\":4,\"effective_estimated_group_count\":4,\"estimate_safety_factor\":null,\"estimate_kind\":\"EXACT_UPPER_BOUND\",\"estimate_source\":\"finite_domain\",\"configured_limit\":100000,\"checked_at\":\"2026-07-26 13:42:53 UTC\",\"detail\":\"raw 4 · 판정값 4 ≤ 한도 100,000\",\"safety_scope_signature\":\"8665b5acdab807a711853f56a26b9f386f6496b1a94b23db563c9a9eee1e8372\"},\"run_id\":null,\"stored\":false,\"history_run_id\":null,\"result_view\":{\"status_code\":\"FAILED\",\"status_label\":\"불일치\",\"status_level\":\"danger\",\"summary_counts\":{\"matched\":0,\"diff\":4,\"src_only\":0,\"tgt_only\":0,\"total_groups\":4,\"compared_groups\":4},\"warning_messages\":[],\"evidence_messages\":[],\"truncation_message\":null,\"count_precheck_message\":null,\"tolerance_messages\":[],\"display_truncated\":false,\"compare_truncated\":false,\"count_precheck_status\":\"PASSED\",\"count_skipped\":false,\"tolerance_summary\":{\"user_tolerance_applied\":false,\"absolute_tolerance\":0.0,\"matched_with_tolerance_groups\":0},\"numeric_policy_summary\":{\"count_exact\":true,\"sum_absolute_tolerance\":\"1E-9\",\"sum_relative_tolerance\":\"0\",\"null_equals_zero\":false,\"decimal_first\":true,\"effective_absolute_tolerance\":\"1E-9\"},\"source_error\":null,\"target_error\":null},\"verdict_view\":{\"verdict\":\"MISMATCH\",\"matched\":false,\"mismatch_count\":4,\"warning_count\":0,\"error_count\":0,\"reason_code\":\"GROUP_SUM_MISMATCH\",\"summary\":\"불일치\",\"details\":{\"summary_counts\":{\"matched\":0,\"diff\":4,\"src_only\":0,\"tgt_only\":0,\"total_groups\":4,\"compared_groups\":4},\"count_mismatch\":false,\"legacy_status_code\":\"FAILED\"},\"validation_type\":\"INDIVIDUAL\",\"source_result\":null,\"target_result\":null,\"status_code\":\"FAILED\",\"verdict_label\":\"불일치\",\"verdict_level\":\"danger\"},\"result_view_model\":{\"execution_id\":\"sNceHG1bZuGKJNe8BHTLCN4UMCG6tqvF\",\"mode\":\"INDIVIDUAL\",\"validation_type\":\"INDIVIDUAL\",\"verdict\":\"MISMATCH\",\"verdict_label\":\"불일치\",\"verdict_level\":\"danger\",\"summary\":\"불일치\",\"reason_code\":\"GROUP_SUM_MISMATCH\",\"count\":{\"src\":150,\"tgt\":150,\"matched\":true},\"group_sum\":{\"matched_count\":0,\"mismatch_count\":4},\"warning_count\":0,\"error_count\":0,\"user_message\":\"\",\"can_retry\":false,\"can_save\":false,\"is_test_only\":true,\"persistence\":null},\"result_page\":{\"result_id\":\"SR16B4688B44E0\",\"total_group_count\":4,\"total_mismatch_count\":4,\"page_size_default\":50,\"plan_fingerprint\":\"c6818596cc74aa645e79\"},\"processing_ms\":156.7,\"selection_evidence\":{\"configured_group_by\":3,\"configured_sum\":3,\"effective_group_by_columns\":[\"STATUS_CD\"],\"effective_sum_columns\":[\"AMT\"],\"effective_group_by_count\":1,\"effective_sum_count\":1,\"selection_mode\":\"AUTO\",\"selection_fingerprint\":\"3c63ea9645d315e16b73\",\"plan_fingerprint\":\"c6818596cc74aa645e79\",\"run_id\":\"SR16B4688B44E0\"}}",
+    "body_len": 5430
+   },
+   {
+    "url": "/generate",
+    "method": "POST",
+    "payload": "{\"parse_result\":{\"insert_cols\":[\"ID\",\"DEPT_CD\",\"UPD_YMD\",\"REG_DT\",\"STATUS_CD\",\"AMT\",\"CREATED_BY\"],\"select_items\":[{\"tgt_col\":\"ID\",\"src_expr\":\"ID\"},{\"tgt_col\":\"DEPT_CD\",\"src_expr\":\"DEPT_CD\"},{\"tgt_col\":\"UPD_YMD\",\"src_expr\":\"UPD_YMD\"},{\"tgt_col\":\"REG_DT\",\"src_expr\":\"REG_DT\"},{\"tgt_col\":\"STATUS_CD\",\"src_expr\":\"STATUS_CD\"},{\"tgt_col\":\"AMT\",\"src_expr\":\"AMT\"},{\"tgt_col\":\"CREATED_BY\",\"src_expr\":\"CREATED_BY\"}],\"from_table\":\"MV_ORA_DEMO_SRC\",\"from_alias\":\"\",\"tgt_table\":\"MV_ORA_DEMO_TGT\",\"joins\":[],\"where\":\"\",\"groupby\":[],\"union_type\":null,\"union_branches\":[],\"from_table_qualified\":\"NXDNP.MV_ORA_DEMO_SRC\",\"tgt_table_qualified\":\"NXDNP.MV_ORA_DEMO_TGT\",\"source_schema\":\"NXDNP\",\"target_schema\":\"NXDNP\"},\"analyze_result\":{\"validated\":[{\"tgt_col\":\"ID\",\"src_expr\":\"ID\",\"src_type\":\"\",\"tgt_type\":\"NUMERIC\",\"is_pk\":false},{\"tgt_col\":\"DEPT_CD\",\"src_expr\":\"DEPT_CD\",\"src_type\":\"\",\"tgt_type\":\"VARCHAR\",\"is_pk\":false},{\"tgt_col\":\"UPD_YMD\",\"src_expr\":\"UPD_YMD\",\"src_type\":\"\",\"tgt_type\":\"VARCHAR\",\"is_pk\":false},{\"tgt_col\":\"REG_DT\",\"src_expr\":\"REG_DT\",\"src_type\":\"\",\"tgt_type\":\"VARCHAR\",\"is_pk\":false},{\"tgt_col\":\"STATUS_CD\",\"src_expr\":\"STATUS_CD\",\"src_type\":\"\",\"tgt_type\":\"CHAR\",\"is_pk\":false},{\"tgt_col\":\"AMT\",\"src_expr\":\"AMT\",\"src_type\":\"\",\"tgt_type\":\"NUMERIC\",\"is_pk\":false},{\"tgt_col\":\"CREATED_BY\",\"src_expr\":\"CREATED_BY\",\"src_type\":\"\",\"tgt_type\":\"VARCHAR\",\"is_pk\":false}],\"excluded\":[],\"sum_columns\":[{\"tgt_col\":\"AMT\",\"src_expr\":\"AMT\",\"cast_expr\":null,\"is_agg_src\":false}],\"groupby_columns\":[{\"tgt_col\":\"REG_DT\",\"src_expr\":\"REG_DT\",\"groupby_expr_src\":\"REG_DT\",\"groupby_expr_tgt\":\"REG_DT\",\"reason\":\"단문자 VARCHAR(20)\",\"tgt_type\":\"VARCHAR\",\"tgt_len\":20},{\"tgt_col\":\"DEPT_CD\",\"src_expr\":\"DEPT_CD\",\"groupby_expr_src\":\"DEPT_CD\",\"groupby_expr_tgt\":\"DEPT_CD\",\"reason\":\"코드성 VARCHAR(10)\",\"tgt_type\":\"VARCHAR\",\"tgt_len\":10},{\"tgt_col\":\"STATUS_CD\",\"src_expr\":\"STATUS_CD\",\"groupby_expr_src\":\"STATUS_CD\",\"groupby_expr_tgt\":\"STATUS_CD\",\"reason\":\"코드성 CHAR(1)\",\"tgt_type\":\"CHAR\",\"tgt_len\":1}],\"casted\":[],\"count_only\":false,\"has_meta\":true,\"meta_tables\":[\"MV_ORA_DEMO_SRC\"],\"tgt_where_excluded\":[]},\"all_groupby_candidates\":[{\"group_by_candidate_score\":40,\"aggregate_candidate_score\":null,\"raw_stats_score\":40,\"score_breakdown\":{\"experimental\":true,\"version\":\"E1\",\"semantic\":{\"score\":11,\"max_score\":20,\"label\":\"의미 근거\",\"evidence\":[\"시맨틱 사전(DIMENSION_ORG, score=0.55)\"],\"reason\":\"semantic dictionary 매칭(DIMENSION_ORG) 반영 — 강도 WEAK\",\"confidence\":\"WEAK\",\"reason_code\":\"SEMANTIC_WEAK\",\"source\":\"semantic_dictionary\",\"semantic_type\":\"DIMENSION_ORG\"},\"type_fit\":{\"score\":15,\"max_score\":20,\"label\":\"타입 적합성\",\"evidence\":[\"tgt_type=varchar\"],\"reason\":\"타입 정보(varchar)를 확인했습니다. GROUP BY 후보로 사용 가능합니다.\",\"confidence\":\"MEDIUM\"},\"stats\":{\"score\":40,\"max_score\":20,\"label\":\"통계 근거\",\"evidence\":[\"raw_stats_score=40\"],\"reason\":\"기존 통계 기반 점수를 참고값으로 반영했습니다.\",\"confidence\":\"LOW\"},\"key_constraint\":{\"score\":20,\"max_score\":20,\"label\":\"키/제약 근거\",\"evidence\":[],\"reason\":\"명시적인 제외 규칙은 확인되지 않았습니다.\",\"confidence\":\"LOW\"},\"compatibility\":{\"score\":0,\"max_score\":20,\"label\":\"원본/목적지 호환성\",\"evidence\":[],\"reason\":\"호환성 상세 계산은 아직 구현하지 않았습니다.\",\"confidence\":\"NONE\"},\"policy_adjustment\":{\"score\":0,\"max_score\":0,\"label\":\"정책 보정\",\"evidence\":[],\"reason\":\"이번 단계에서는 정책 보정을 적용하지 않습니다.\",\"confidence\":\"NONE\"}},\"hard_rule\":null,\"profile_quality_score\":null,\"risk_penalty\":0,\"candidate_rank\":null,\"evidence_json\":{\"profile_source\":\"DB_STATISTICS\",\"dbms\":\"postgresql\",\"statistics_available\":true,\"estimated\":true,\"null_frac\":0,\"n_distinct_raw\":6,\"n_distinct_resolved\":6,\"most_common_vals_present\":false,\"estimated_row_count\":150,\"is_unique_like\":false,\"estimated_distinct_ratio\":null,\"unique_like_threshold\":0.9,\"analyzed_at\":\"2026-07-24T14:05:15\",\"stats_freshness\":\"FRESH\",\"notes\":[\"pg_stats_based_poc\"]},\"risk_flags\":[],\"selection_status\":\"SELECTED_DEFAULT\",\"semantic_type_candidates\":[],\"candidate_source\":\"DB_STATISTICS\",\"candidate_id\":\"c_37ebb8f8\",\"target_column\":\"DEPT_CD\",\"source_expression\":\"DEPT_CD\",\"candidate_role\":\"GROUP_BY\",\"score\":0.58,\"confidence\":\"MEDIUM\",\"evidence\":[\"낮은",
+    "payload_len": 49083,
+    "t0": 144534.70000004768,
+    "status": 200,
+    "t1": 144602.20000004768,
+    "body": "{\"success\":true,\"stats_src_sql\":\"SELECT\\n    DEPT_CD AS DEPT_CD,\\n    COUNT(*) AS CNT,\\n    SUM(AMT) AS AMT\\nFROM NXDNP.MV_ORA_DEMO_SRC\\nGROUP BY\\n    DEPT_CD\",\"stats_tgt_sql\":\"SELECT\\n    DEPT_CD AS DEPT_CD,\\n    COUNT(*) AS CNT,\\n    SUM(AMT) AS AMT\\nFROM NXDNP.MV_ORA_DEMO_TGT\\nGROUP BY\\n    DEPT_CD\",\"warnings\":[],\"wrapped_source_select\":false,\"source_sql_generation_method\":\"DIRECT_FROM\",\"processing_ms\":1.2,\"selection_evidence\":{\"configured_group_by\":3,\"configured_sum\":3,\"effective_group_by_columns\":[\"DEPT_CD\"],\"effective_sum_columns\":[\"AMT\"],\"effective_group_by_count\":1,\"effective_sum_count\":1,\"selection_mode\":\"AUTO\",\"selection_fingerprint\":\"630af843c66fbfa2830a\",\"plan_fingerprint\":\"\",\"run_id\":\"\"}}",
+    "body_len": 710
+   },
+   {
+    "url": "/execute",
+    "method": "POST",
+    "payload": "{\"src_sql\":\"SELECT\\n    DEPT_CD AS DEPT_CD,\\n    COUNT(*) AS CNT,\\n    SUM(AMT) AS AMT\\nFROM NXDNP.MV_ORA_DEMO_SRC\\nGROUP BY\\n    DEPT_CD\",\"tgt_sql\":\"SELECT\\n    DEPT_CD AS DEPT_CD,\\n    COUNT(*) AS CNT,\\n    SUM(AMT) AS AMT\\nFROM NXDNP.MV_ORA_DEMO_TGT\\nGROUP BY\\n    DEPT_CD\",\"src_db\":{\"db_type\":\"oracle\",\"host\":\"192.168.0.151\",\"port\":1523,\"dbname\":\"xepdb1\",\"user\":\"nxdnp\",\"password\":\"\"},\"tgt_db\":{\"db_type\":\"oracle\",\"host\":\"192.168.0.151\",\"port\":1524,\"dbname\":\"xepdb1\",\"user\":\"nxdnp\",\"password\":\"\"},\"groupby_cols\":[\"DEPT_CD\"],\"sum_cols\":[\"AMT\"],\"selection_mode\":\"AUTO\",\"global_settings_fingerprint\":\"9e071849fb8285a5dd421ab5\",\"plan_version\":\"gbplan-v2\",\"plan_fingerprint\":\"c6818596cc74aa645e79\",\"plan_set_label\":\"DEPT_CD\",\"target_table\":\"MV_ORA_DEMO_TGT\",\"migration_sql\":\"INSERT INTO NXDNP.MV_ORA_DEMO_TGT (ID, DEPT_CD, UPD_YMD, REG_DT, STATUS_CD, AMT, CREATED_BY) SELECT ID, DEPT_CD, UPD_YMD, REG_DT, STATUS_CD, AMT, CREATED_BY FROM NXDNP.MV_ORA_DEMO_SRC\",\"candidate_snapshot_full\":{\"group_by\":[{\"group_by_candidate_score\":40,\"aggregate_candidate_score\":null,\"raw_stats_score\":40,\"score_breakdown\":{\"experimental\":true,\"version\":\"E1\",\"semantic\":{\"score\":11,\"max_score\":20,\"label\":\"의미 근거\",\"evidence\":[\"시맨틱 사전(DIMENSION_ORG, score=0.55)\"],\"reason\":\"semantic dictionary 매칭(DIMENSION_ORG) 반영 — 강도 WEAK\",\"confidence\":\"WEAK\",\"reason_code\":\"SEMANTIC_WEAK\",\"source\":\"semantic_dictionary\",\"semantic_type\":\"DIMENSION_ORG\"},\"type_fit\":{\"score\":15,\"max_score\":20,\"label\":\"타입 적합성\",\"evidence\":[\"tgt_type=varchar\"],\"reason\":\"타입 정보(varchar)를 확인했습니다. GROUP BY 후보로 사용 가능합니다.\",\"confidence\":\"MEDIUM\"},\"stats\":{\"score\":40,\"max_score\":20,\"label\":\"통계 근거\",\"evidence\":[\"raw_stats_score=40\"],\"reason\":\"기존 통계 기반 점수를 참고값으로 반영했습니다.\",\"confidence\":\"LOW\"},\"key_constraint\":{\"score\":20,\"max_score\":20,\"label\":\"키/제약 근거\",\"evidence\":[],\"reason\":\"명시적인 제외 규칙은 확인되지 않았습니다.\",\"confidence\":\"LOW\"},\"compatibility\":{\"score\":0,\"max_score\":20,\"label\":\"원본/목적지 호환성\",\"evidence\":[],\"reason\":\"호환성 상세 계산은 아직 구현하지 않았습니다.\",\"confidence\":\"NONE\"},\"policy_adjustment\":{\"score\":0,\"max_score\":0,\"label\":\"정책 보정\",\"evidence\":[],\"reason\":\"이번 단계에서는 정책 보정을 적용하지 않습니다.\",\"confidence\":\"NONE\"}},\"hard_rule\":null,\"profile_quality_score\":null,\"risk_penalty\":0,\"candidate_rank\":null,\"evidence_json\":{\"profile_source\":\"DB_STATISTICS\",\"dbms\":\"postgresql\",\"statistics_available\":true,\"estimated\":true,\"null_frac\":0,\"n_distinct_raw\":6,\"n_distinct_resolved\":6,\"most_common_vals_present\":false,\"estimated_row_count\":150,\"is_unique_like\":false,\"estimated_distinct_ratio\":null,\"unique_like_threshold\":0.9,\"analyzed_at\":\"2026-07-24T14:05:15\",\"stats_freshness\":\"FRESH\",\"notes\":[\"pg_stats_based_poc\"]},\"risk_flags\":[],\"selection_status\":\"SELECTED_DEFAULT\",\"semantic_type_candidates\":[],\"candidate_source\":\"DB_STATISTICS\",\"candidate_id\":\"c_37ebb8f8\",\"target_column\":\"DEPT_CD\",\"source_expression\":\"DEPT_CD\",\"candidate_role\":\"GROUP_BY\",\"score\":0.58,\"confidence\":\"MEDIUM\",\"evidence\":[\"낮은 카디널리티(n_distinct=6.0)\",\"시맨틱 사전(DIMENSION_ORG, score=0.55)\"],\"evidence_count\":2,\"tgt_col\":\"DEPT_CD\",\"src_expr\":\"DEPT_CD\",\"auto_selected\":true,\"warn_reason\":null,\"tgt_type\":\"varchar\",\"tgt_len\":10,\"tgt_scale\":0,\"reason\":\"낮은 카디널리티(n_distinct=6.0)\",\"groupby_expr_src\":\"DEPT_CD\",\"groupby_expr_tgt\":\"DEPT_CD\",\"column_comment\":\"\",\"sample_values\":[\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\"],\"simulated_selection_reason\":\"SCORE_TOP_2: 점수 기준 상위 3개 자동 선정 후보\",\"simulated_group_by_rank\":2,\"candidate_subtype\":\"CODE_LOW_CARDINALITY\",\"reason_text\":\"코드성 구분",
+    "payload_len": 47785,
+    "t0": 144602.60000002384,
+    "status": 200,
+    "t1": 144802.70000004768,
+    "body": "{\"success\":true,\"val_cols\":[\"CNT\",\"AMT\"],\"gb_keys\":[\"DEPT_CD\"],\"rows\":[{\"key\":{\"DEPT_CD\":\"D03\"},\"src\":{\"CNT\":\"25\",\"AMT\":\"188362.5\"},\"tgt\":{\"CNT\":\"25\",\"AMT\":\"190862.5\"},\"status\":\"diff\",\"key_is_null\":{\"DEPT_CD\":false},\"cell_meta\":{\"AMT\":{\"result\":\"DIFF\",\"reason\":\"허용오차 초과 (차이 2500.0, 허용 1E-9)\",\"tolerance_applied\":true,\"tolerance_value\":\"1E-9\",\"diff_value\":\"2500.0\"}}},{\"key\":{\"DEPT_CD\":\"D06\"},\"src\":{\"CNT\":\"25\",\"AMT\":\"196012.5\"},\"tgt\":{\"CNT\":\"25\",\"AMT\":\"198512.5\"},\"status\":\"diff\",\"key_is_null\":{\"DEPT_CD\":false},\"cell_meta\":{\"AMT\":{\"result\":\"DIFF\",\"reason\":\"허용오차 초과 (차이 2500.0, 허용 1E-9)\",\"tolerance_applied\":true,\"tolerance_value\":\"1E-9\",\"diff_value\":\"2500.0\"}}},{\"key\":{\"DEPT_CD\":\"D01\"},\"src\":{\"CNT\":\"25\",\"AMT\":\"183437.5\"},\"tgt\":{\"CNT\":\"25\",\"AMT\":\"183437.5\"},\"status\":\"ok\",\"key_is_null\":{\"DEPT_CD\":false}},{\"key\":{\"DEPT_CD\":\"D02\"},\"src\":{\"CNT\":\"25\",\"AMT\":\"185900\"},\"tgt\":{\"CNT\":\"25\",\"AMT\":\"185900\"},\"status\":\"ok\",\"key_is_null\":{\"DEPT_CD\":false}},{\"key\":{\"DEPT_CD\":\"D04\"},\"src\":{\"CNT\":\"25\",\"AMT\":\"190912.5\"},\"tgt\":{\"CNT\":\"25\",\"AMT\":\"190912.5\"},\"status\":\"ok\",\"key_is_null\":{\"DEPT_CD\":false}},{\"key\":{\"DEPT_CD\":\"D05\"},\"src\":{\"CNT\":\"25\",\"AMT\":\"193462.5\"},\"tgt\":{\"CNT\":\"25\",\"AMT\":\"193462.5\"},\"status\":\"ok\",\"key_is_null\":{\"DEPT_CD\":false}}],\"total_src\":6,\"total_tgt\":6,\"matched\":4,\"diff\":2,\"src_only\":0,\"tgt_only\":0,\"total_groups\":6,\"display_tier_info\":{\"display_mode\":\"FULL_LIST\",\"display_tier\":\"D1\",\"display_reason_code\":\"AXIS_A_MISMATCH_T1\",\"total_mismatch_count\":2,\"total_group_count\":6,\"early_stopped\":false,\"axis_a_tier\":1,\"axis_b_tier\":1,\"representative_sample_n\":20,\"xlsx_row_max\":1048576,\"display_message\":\"불일치 2건(그룹 6개) — 전체 레코드를 나열합니다.\",\"show_full_list\":true,\"show_group_table\":false,\"show_group_drilldown\":false,\"show_group_sample_only\":false,\"summary_only\":false,\"download_only_detail\":false,\"display_error\":\"\"},\"compared_groups\":6,\"displayed_groups\":6,\"result_rows_display_count\":6,\"max_display_rows\":200,\"display_truncated\":false,\"compare_truncated\":false,\"is_truncated\":false,\"tolerance_applied\":false,\"absolute_tolerance\":0.0,\"numeric_policy\":{\"count_exact\":true,\"sum_absolute_tolerance\":\"1E-9\",\"sum_relative_tolerance\":\"0\",\"null_equals_zero\":false,\"decimal_first\":true,\"effective_absolute_tolerance\":\"1E-9\"},\"tolerance_summary\":{\"user_tolerance_applied\":false,\"absolute_tolerance\":0.0,\"matched_with_tolerance_groups\":0},\"query_timing\":{\"source_query_started_at\":\"2026-07-26T13:42:54Z\",\"source_query_finished_at\":\"2026-07-26T13:42:54Z\",\"source_duration_ms\":6,\"target_query_started_at\":\"2026-07-26T13:42:54Z\",\"target_query_finished_at\":\"2026-07-26T13:42:54Z\",\"target_duration_ms\":4,\"source_target_gap_ms\":54,\"consistency_guarantee\":\"NOT_GUARANTEED\"},\"groupby_execution_safety\":{\"status\":\"SAFE\",\"reason_code\":\"FINITE_DOMAIN_CONFIRMED\",\"selected_columns\":[\"DEPT_CD\"],\"estimated_group_count\":6,\"raw_estimated_group_count\":6,\"effective_estimated_group_count\":6,\"estimate_safety_factor\":null,\"estimate_kind\":\"EXACT_UPPER_BOUND\",\"estimate_source\":\"finite_domain\",\"configured_limit\":100000,\"checked_at\":\"2026-07-26 13:42:54 UTC\",\"detail\":\"raw 6 · 판정값 6 ≤ 한도 100,000\",\"safety_scope_signature\":\"2a32fdf5823f898ef081fc92f4f646423f8f02f4a2db4de9e9a2609348fe1488\"},\"run_id\":null,\"stored\":false,\"history_run_id\":null,\"result_view\":{\"status_code\":\"FAILED\",\"status_label\":\"불일치\",\"status_level\":\"danger\",\"summary_counts\":{\"matched\":4,\"diff\":2,\"src_only\":0,\"tgt_only\":0,\"total_groups\":6,\"compared_groups\":6},\"warning_messages\":[],\"evidence_messages\":[],\"truncation_message\":null,\"count_precheck_message\":null,\"tolerance_messages\":[],\"display_truncated\":false,\"compare_truncated\":false,\"count_precheck_status\":\"PASSED\",\"count_skipped\":false,\"tolerance_summary\":{\"user_tolerance_applied\":false,\"absolute_tolerance\":0.0,\"matched_with_tolerance_groups\":0},\"numeric_policy_summary\":{\"count_exact\":true,\"sum_absolute_tolerance\":\"1E-9\",\"sum_relative_tolerance\":\"0\",\"null_equals_zero\":false,\"decimal_first\":true,\"effective_absolute_tolerance\":\"1E-9\"},\"source_error\":null,\"target_error\":null},\"verdict_view\":{\"verdict\":\"MISMATCH\",\"matched\":false,\"mismatch_count\":2,\"warning_count\":0,\"error_count\":0,\"reason_code\":\"GROUP_SUM_MISMATCH\",\"summary\":\"불일치\",\"details\":{\"summary_counts\":{\"matched\":4,\"diff\":2,\"src_only\":0,\"tgt_only\":0,\"total_groups\":6,\"compared_groups\":6},\"count_mismatch\":false,\"legacy_status_code\":\"FAILED\"},\"validation_type\":\"INDIVIDUAL\",\"source_result\":null,\"target_result\":null,\"status_code\":\"FAILED\",\"verdict_label\":\"불일치\",\"verdict_level\":\"danger\"},\"result_view_model\":{\"execution_id\":\"sNceHG1bZuGKJNe8BHTLCN4UMCG6tqvF\",\"mode\":\"INDIVIDUAL\",\"validation_type\":\"INDIVIDUAL\",\"verdict\":\"MISMATCH\",\"verdict_label\":\"불일치\",\"verdict_level\":\"danger\",\"summary\":\"불일치\",\"reason_code\":\"GROUP_SUM_MISMATCH\",\"count\":{\"src\":150,\"tgt\":150,\"matched\":true},\"group_sum\":{\"matched_count\":4,\"mismatch_count\":2},\"warning_count\":0,\"error_count\":0,\"user_message\":\"\",\"can_retry\":false,\"can_save\":false,\"is_test_only\":true,\"persistence\":null},\"result_page\":{\"result_id\":\"SR211132650E83\",\"total_group_count\":6,\"total_mismatch_count\":2,\"page_size_default\":50,\"plan_fingerprint\":\"c6818596cc74aa645e79\"},\"processing_ms\":133.3,\"selection_evidence\":{\"configured_group_by\":3,\"configured_sum\":3,\"effective_group_by_columns\":[\"DEPT_CD\"],\"effective_sum_columns\":[\"AMT\"],\"effective_group_by_count\":1,\"effective_sum_count\":1,\"selection_mode\":\"AUTO\",\"selection_fingerprint\":\"630af843c66fbfa2830a\",\"plan_fingerprint\":\"c6818596cc74aa645e79\",\"run_id\":\"SR211132650E83\"}}",
+    "body_len": 5420
+   },
+   {
+    "url": "/strategy/plan",
+    "method": "POST",
+    "payload": "{\"profile\":{\"table_key\":\"NXDNP.MV_ORA_DEMO_SRC\",\"source_count\":150,\"estimated_scan_rows\":150,\"configured_group_by_count\":null,\"configured_aggregate_count\":null,\"selection_mode\":\"MANUAL\",\"effective_group_by_columns\":[\"STATUS_CD\",\"DEPT_CD\"],\"effective_aggregate_columns\":[\"AMT\"],\"group_axis_count\":2,\"sum_column_count\":1,\"has_pk\":true,\"pk_kind\":\"SINGLE_NUMERIC\",\"pk_indexed\":true,\"remote\":true}}",
+    "payload_len": 393,
+    "t0": 144804.90000009537,
+    "status": 200,
+    "t1": 144923.70000004768,
+    "body": "{\"ok\":true,\"stats_plan\":{\"stats_strategy_id\":\"STATS_DIRECT_AGG\",\"reason_codes\":[\"DIRECT_AGG_OK\",\"REMOTE_CONNECTION\"],\"estimated_scan_rows\":150,\"estimated_group_count\":null,\"selected_group_axes\":[\"STATUS_CD\",\"DEPT_CD\"],\"selected_sum_columns\":[\"AMT\"],\"partition_usage\":false,\"index_usage\":false,\"expected_cost_score\":4.766,\"confidence\":\"LOW\",\"hold_reason\":\"\",\"provisional_grade\":\"잠정 소형\",\"grade_basis\":{\"estimated_scan_rows\":150,\"axis_group_sum\":null,\"estimated_group_count\":null,\"max_cardinality\":0,\"group_axis_count\":2,\"sum_column_count\":1,\"sum_expr_complexity\":0,\"where_complexity\":0,\"remote\":true,\"partition_available\":false,\"configured_group_by_count\":null,\"configured_aggregate_count\":null,\"effective_group_by_count\":2,\"effective_aggregate_count\":1,\"selection_mode\":\"MANUAL\"},\"plan_fingerprint\":\"a44c2ab988722f6b\"},\"full_compare_plan\":{\"compare_strategy_id\":\"DIRECT_STREAM_COMPARE\",\"reason_codes\":[\"SINGLE_NUMERIC_PK_INDEXED\",\"EST_TOTAL_WITHIN_DIRECT_BUDGET\"],\"pk_structure\":\"SINGLE_NUMERIC\",\"partition_usage\":false,\"proposed_chunk_size\":null,\"proposed_bucket_count\":null,\"expected_scan_rows\":150,\"expected_detail_count\":null,\"early_stop_policy\":{\"sample_threshold_ratio\":0.1},\"detail_extract_limit\":null,\"fallback_strategy_id\":\"\",\"implementation_status\":\"AVAILABLE\",\"plan_fingerprint\":\"d5892f8f0d4e72a2\"},\"provisional_grade\":\"잠정 소형\",\"compare_auto_runnable\":true,\"implementation_status\":\"AVAILABLE\",\"basis_text\":\"원본 150건 · 숫자 단일 PK · PK 인덱스 · 원격 DB\",\"configured_group_by_count\":null,\"configured_aggregate_count\":null,\"effective_group_by_count\":2,\"effective_aggregate_count\":1,\"effective_group_by_columns\":[\"STATUS_CD\",\"DEPT_CD\"],\"effective_aggregate_columns\":[\"AMT\"],\"selection_mode\":\"MANUAL\",\"transition\":{\"selected_strategy_id\":\"DIRECT_STREAM_COMPARE\",\"selected_chunk_size\":null,\"reason_codes\":[\"EST_TOTAL_WITHIN_DIRECT_BUDGET\"],\"expected_first_result_seconds\":null,\"expected_total_seconds\":0.02,\"confidence\":\"MEDIUM\",\"benchmark_profile_version\":\"phase4d1-1m-crosshost-cold\"}}",
+    "body_len": 1981
+   },
+   {
+    "url": "/agg-diff/prepare",
+    "method": "POST",
+    "payload": "{\"parse_result\":{\"insert_cols\":[\"ID\",\"DEPT_CD\",\"UPD_YMD\",\"REG_DT\",\"STATUS_CD\",\"AMT\",\"CREATED_BY\"],\"select_items\":[{\"tgt_col\":\"ID\",\"src_expr\":\"ID\"},{\"tgt_col\":\"DEPT_CD\",\"src_expr\":\"DEPT_CD\"},{\"tgt_col\":\"UPD_YMD\",\"src_expr\":\"UPD_YMD\"},{\"tgt_col\":\"REG_DT\",\"src_expr\":\"REG_DT\"},{\"tgt_col\":\"STATUS_CD\",\"src_expr\":\"STATUS_CD\"},{\"tgt_col\":\"AMT\",\"src_expr\":\"AMT\"},{\"tgt_col\":\"CREATED_BY\",\"src_expr\":\"CREATED_BY\"}],\"from_table\":\"MV_ORA_DEMO_SRC\",\"from_alias\":\"\",\"tgt_table\":\"MV_ORA_DEMO_TGT\",\"joins\":[],\"where\":\"\",\"groupby\":[],\"union_type\":null,\"union_branches\":[],\"from_table_qualified\":\"NXDNP.MV_ORA_DEMO_SRC\",\"tgt_table_qualified\":\"NXDNP.MV_ORA_DEMO_TGT\",\"source_schema\":\"NXDNP\",\"target_schema\":\"NXDNP\"},\"src_conn\":{\"db_type\":\"oracle\",\"host\":\"192.168.0.151\",\"port\":1523,\"dbname\":\"xepdb1\",\"user\":\"nxdnp\",\"password\":\"\"},\"tgt_conn\":{\"db_type\":\"oracle\",\"host\":\"192.168.0.151\",\"port\":1524,\"dbname\":\"xepdb1\",\"user\":\"nxdnp\",\"password\":\"\"},\"sum_cols\":[[\"AMT\",\"AMT\",\"AMT\"]],\"gb_cols\":[\"STATUS_CD\",\"DEPT_CD\"],\"stream\":false,\"source_count\":150,\"target_count\":150,\"early_stop_ratio\":null,\"early_stop_abs\":null,\"min_decision_count\":null,\"plan_fingerprint\":\"c6818596cc74aa645e79\",\"selection_fingerprint\":\"\",\"compare_strategy\":\"\",\"chunk_size\":0,\"global_settings_fingerprint\":\"9e071849fb8285a5dd421ab5\",\"chunk_key_evidence_snapshot\":{\"evidence_version\":\"cke-1\",\"verdict\":\"NOT_TRUSTED\",\"reason\":\"SCHEMA_META_MISSING\",\"query_hash\":\"fb5b15f635838b78b692cf96b6f7efd27a9b513ef315d4f126fe1f71ccfd07a9\",\"project_id\":\"832\",\"src_profile\":\"192.168.0.151:1523/xepdb1\",\"tgt_profile\":\"192.168.0.151:1524/xepdb1\",\"src_table\":\"MV_ORA_DEMO_SRC\",\"tgt_table\":\"MV_ORA_DEMO_TGT\",\"join_multiplicity_risk\":false,\"source_exists\":false,\"target_exists\":false,\"schema_structure_hash\":\"sh_fa99c999012d9ab067b6\"},\"force\":false,\"project_id\":\"832\",\"selection_mode\":\"AUTO\",\"session_id\":\"sess_ms1ula45qb6klq\",\"query_summary\":\"INSERT INTO NXDNP.MV_ORA_DEMO_TGT (ID, DEPT_CD, UPD_YMD, REG_DT, STATUS_CD, AMT, CREATED_BY) SELECT ID, DEPT_CD, UPD_YMD, REG_DT, STATUS_CD, AMT, CREATED_BY FRO\",\"query_full\":\"INSERT INTO NXDNP.MV_ORA_DEMO_TGT (ID, DEPT_CD, UPD_YMD, REG_DT, STATUS_CD, AMT, CREATED_BY) SELECT ID, DEPT_CD, UPD_YMD, REG_DT, STATUS_CD, AMT, CREATED_BY FROM NXDNP.MV_ORA_DEMO_SRC\",\"tgt_where\":\"\",\"resume\":false}",
+    "payload_len": 2263,
+    "t0": 144807,
+    "status": 200,
+    "t1": 145321,
+    "body": "{\"ok\":true,\"status\":\"READY\",\"run_id\":\"PK3D3D35F33ACB\",\"fingerprint\":\"4ba2d756891d5b9c06e361af76fc9cfd27526996e1a1cdf213b93011f6a076aa\",\"key_col\":\"ID\",\"gb_cols\":[\"STATUS_CD\",\"DEPT_CD\"],\"sum_labels\":[\"AMT\"],\"engine\":\"REIMPORT_PK_INDEX\",\"total_reimport_pks\":10,\"passed_keys\":140,\"missing_migration\":0,\"value_mismatch\":10,\"excluded_target_only\":0,\"target_only_stored\":0,\"src_keys\":150,\"tgt_keys\":150,\"source_count\":150,\"target_count\":150,\"ratios\":{\"reimport_ratio\":6.6667,\"missing_ratio\":0.0,\"value_ratio\":6.6667,\"target_only_ratio\":0.0,\"source_count\":150,\"target_count\":150},\"prepare_ms\":68.7,\"reused\":true,\"configured_group_by\":3,\"configured_sum\":3,\"effective_group_by_columns\":[\"STATUS_CD\",\"DEPT_CD\"],\"effective_sum_columns\":[\"AMT\"],\"effective_group_by_count\":2,\"effective_sum_count\":1,\"selection_mode\":\"AUTO\",\"selection_fingerprint\":\"690b6e59deaedb25ac89\",\"plan_fingerprint\":\"c6818596cc74aa645e79\",\"selection_evidence\":{\"configured_group_by\":3,\"configured_sum\":3,\"effective_group_by_columns\":[\"STATUS_CD\",\"DEPT_CD\"],\"effective_sum_columns\":[\"AMT\"],\"effective_group_by_count\":2,\"effective_sum_count\":1,\"selection_mode\":\"AUTO\",\"selection_fingerprint\":\"690b6e59deaedb25ac89\",\"plan_fingerprint\":\"c6818596cc74aa645e79\",\"run_id\":\"PK3D3D35F33ACB\"}}",
+    "body_len": 1241
+   },
+   {
+    "url": "/single/active-run?session_id=sess_ms1ula45qb6klq",
+    "method": "GET",
+    "payload": "",
+    "payload_len": 0,
+    "t0": 144808.10000002384,
+    "status": 200,
+    "t1": 145035.70000004768,
+    "body": "{\"ok\":true,\"active\":false,\"count\":0,\"run\":null,\"runs\":[]}",
+    "body_len": 57
+   },
+   {
+    "url": "/single/active-run?session_id=sess_ms1ula45qb6klq",
+    "method": "GET",
+    "payload": "",
+    "payload_len": 0,
+    "t0": 144809.60000002384,
+    "status": 200,
+    "t1": 145036.20000004768,
+    "body": "{\"ok\":true,\"active\":false,\"count\":0,\"run\":null,\"runs\":[]}",
+    "body_len": 57
+   },
+   {
+    "url": "/agg-diff/resumable",
+    "method": "GET",
+    "payload": "",
+    "payload_len": 0,
+    "t0": 145035.90000009537,
+    "status": 200,
+    "t1": 145154.5,
+    "body": "{\"ok\":true,\"count\":0,\"items\":[]}",
+    "body_len": 32
+   },
+   {
+    "url": "/agg-diff/resumable",
+    "method": "GET",
+    "payload": "",
+    "payload_len": 0,
+    "t0": 145036.40000009537,
+    "status": 200,
+    "t1": 145160.40000009537,
+    "body": "{\"ok\":true,\"count\":0,\"items\":[]}",
+    "body_len": 32
+   },
+   {
+    "url": "/agg-diff/pk-records?run_id=PK3D3D35F33ACB&page=1&page_size=20&view=reimport&scope_col=&scope_val=",
+    "method": "GET",
+    "payload": "",
+    "payload_len": 0,
+    "t0": 145321.5,
+    "status": 200,
+    "t1": 145397.70000004768,
+    "body": "{\"ok\":true,\"status\":\"READY\",\"display_tier_info\":{\"display_mode\":\"FULL_LIST\",\"display_tier\":\"D1\",\"display_reason_code\":\"AXIS_A_MISMATCH_T1\",\"total_mismatch_count\":10,\"total_group_count\":4,\"early_stopped\":false,\"axis_a_tier\":1,\"axis_b_tier\":1,\"representative_sample_n\":20,\"xlsx_row_max\":1048576,\"display_message\":\"불일치 10건(그룹 4개) — 전체 레코드를 나열합니다.\",\"show_full_list\":true,\"show_group_table\":false,\"show_group_drilldown\":false,\"show_group_sample_only\":false,\"summary_only\":false,\"download_only_detail\":false,\"display_error\":\"\"},\"per_group_policy\":{\"per_group_full_list_max\":100,\"per_group_early_stop_abs\":101},\"snapshot_at\":\"2026-07-26 13:36:06\",\"snapshot_at_kst\":\"2026-07-26 22:36:06 KST\",\"ready\":true,\"early_stopped\":false,\"run_id\":\"PK3D3D35F33ACB\",\"view\":\"reimport\",\"mismatch_limit_stopped\":false,\"mismatch_limit\":null,\"mismatch_group_distribution\":{\"group_col\":\"STATUS_CD\",\"groups\":[{\"value\":\"P\",\"count\":3,\"sample_pks\":[\"15\"]},{\"value\":\"I\",\"count\":3,\"sample_pks\":[\"30\"]},{\"value\":\"A\",\"count\":2,\"sample_pks\":[\"45\"]},{\"value\":\"C\",\"count\":2,\"sample_pks\":[\"60\"]}],\"top\":[{\"value\":\"P\",\"count\":3,\"sample_pks\":[\"15\"]},{\"value\":\"I\",\"count\":3,\"sample_pks\":[\"30\"]},{\"value\":\"A\",\"count\":2,\"sample_pks\":[\"45\"]},{\"value\":\"C\",\"count\":2,\"sample_pks\":[\"60\"]}],\"total_group_count\":4,\"returned_group_count\":4,\"group_total\":4,\"other_count\":0,\"truncated\":false,\"computed_from_store\":true},\"reimport_total\":null,\"mtype\":\"\",\"pk\":\"\",\"sampling\":null,\"sampling_status\":null,\"key_col\":\"ID\",\"gb_cols\":[\"STATUS_CD\",\"DEPT_CD\"],\"sum_labels\":[\"AMT\"],\"row_compare_columns\":[],\"result_grid_schema\":[{\"display_name\":\"ID\",\"output_alias\":\"ID\",\"role\":\"KEY\",\"column_order\":0,\"source_value_field\":\"ID\",\"target_value_field\":\"ID\",\"display_format\":\"text\"},{\"display_name\":\"STATUS_CD\",\"output_alias\":\"STATUS_CD\",\"role\":\"GROUP_BY\",\"column_order\":1,\"source_value_field\":\"STATUS_CD\",\"target_value_field\":\"STATUS_CD\",\"display_format\":\"text\"},{\"display_name\":\"DEPT_CD\",\"output_alias\":\"DEPT_CD\",\"role\":\"GROUP_BY\",\"column_order\":2,\"source_value_field\":\"DEPT_CD\",\"target_value_field\":\"DEPT_CD\",\"display_format\":\"text\"},{\"display_name\":\"AMT\",\"output_alias\":\"AMT\",\"role\":\"SUM\",\"column_order\":3,\"source_value_field\":\"AMT\",\"target_value_field\":\"AMT\",\"display_format\":\"number\"}],\"numeric_pk\":false,\"counts\":{\"reimport_pks\":10,\"passed\":140,\"missing_migration\":0,\"value_mismatch\":10,\"excluded_target_only\":0,\"target_only_stored\":0},\"missing_migration\":0,\"value_mismatch\":10,\"excluded_target_only\":0,\"target_only_count\":0,\"target_only_stored\":0,\"ratios\":{\"reimport_ratio\":6.6667,\"missing_ratio\":0.0,\"value_ratio\":6.6667,\"target_only_ratio\":0.0,\"source_count\":150,\"target_count\":150},\"source_count\":150,\"target_count\":150,\"stage_timings\":{\"merge_judge_ms\":null,\"store_save_ms\":null,\"index_build_ms\":null,\"first_20_committed_ms\":null,\"prepare_ms\":68.7,\"src_query_count\":null,\"tgt_query_count\":null,\"peak_python_mb\":null,\"source_chunk_read_seconds\":null,\"target_chunk_read_seconds\":null,\"compare_seconds\":null,\"store_seconds\":null,\"total_ready_seconds\":null,\"chunks_total\":null,\"chunks_done\":null,\"chunk_size\":null,\"source_target_wall_seconds\":null,\"read_overlap_saved_seconds\":null,\"parallel_read\":null,\"parallel_read_used\":null,\"parallel_read_disabled_reason\":null,\"source_read_sec\":null,\"target_read_sec\":null,\"read_wall_sec\":null,\"overlap_saved_sec\":null,\"total_wall_sec\":null,\"detail_started_at\":null,\"detail_finished_at\":null,\"detail_elapsed_ms\":null,\"orchestration_overhead_ms\":null},\"detail_elapsed_ms\":68.7,\"orchestration_overhead_ms\":null,\"job_status_detail\":null,\"resume_count\":null,\"resume_from_chunk\":null,\"execution_path\":null,\"selected_strategy_id\":null,\"actual_strategy_id\":\"DIRECT_STREAM_COMPARE\",\"chunk_size\":null,\"page_store_ms\":0.19,\"page_server_ms\":5.58,\"elapsed_ms\":68.7,\"total\":10,\"total_count\":10,\"final_total_count\":10,\"page\":1,\"page_size\":20,\"total_pages\":1,\"returned_count\":10,\"last_pk\":null,\"last_seq\":9,\"has_previous\":false,\"has_next\":false,\"keys\":[\"15\",\"30\",\"45\",\"60\",\"75\",\"90\",\"105\",\"120\",\"135\",\"150\"],\"records\":[{\"key\":\"15\",\"seq\":0,\"pk_num\":null,\"src\":{\"STATUS_CD\":\"P\",\"DEPT_CD\":\"D03\",\"AMT\":\"1512.5\"},\"tgt\":{\"STATUS_CD\":\"P\",\"DEPT_CD\":\"D03\",\"AMT\":\"2012.5\"},\"diff_cols\":[\"AMT\"]},{\"key\":\"30\",\"seq\":1,\"pk_num\":null,\"src\":{\"STATUS_CD\":\"I\",\"DEPT_CD\":\"D06\",\"AMT\":\"3025\"},\"tgt\":{\"STATUS_CD\":\"I\",\"DEPT_CD\":\"D06\",\"AMT\":\"3525\"},\"diff_cols\":[\"AMT\"]},{\"key\":\"45\",\"seq\":2,\"pk_num\":null,\"src\":{\"STATUS_CD\":\"A\",\"DEPT_CD\":\"D03\",\"AMT\":\"4537.5\"},\"tgt\":{\"STATUS_CD\":\"A\",\"DEPT_CD\":\"D03\",\"AMT\":\"5037.5\"},\"diff_cols\":[\"AMT\"]},{\"key\":\"60\",\"seq\":3,\"pk_num\":null,\"src\":{\"STATUS_CD\":\"C\",\"DEPT_CD\":\"D06\",\"AMT\":\"6050\"},\"tgt\":{\"STATUS_CD\":\"C\",\"DEPT_CD\":\"D06\",\"AMT\":\"6550\"},\"diff_cols\":[\"AMT\"]},{\"key\":\"75\",\"seq\":4,\"pk_num\":null,\"src\":{\"STATUS_CD\":\"P\",\"DEPT_CD\":\"D03\",\"AMT\":\"7562.5\"},\"tgt\":{\"STATUS_CD\":\"P\",\"DEPT_CD\":\"D03\",\"AMT\":\"8062.5\"},\"diff_cols\":[\"AMT\"]},{\"key\":\"90\",\"seq\":5,\"pk_num\":null,\"src\":{\"STATUS_CD\":\"I\",\"DEPT_CD\":\"D06\",\"AMT\":\"9075\"},\"tgt\":{\"STATUS_CD\":\"I\",\"DEPT_CD\":\"D06\",\"AMT\":\"9575\"},\"diff_cols\":[\"AMT\"]},{\"key\":\"105\",\"seq\":6,\"pk_num\":null,\"src\":{\"STATUS_CD\":\"A\",\"DEPT_CD\":\"D03\",\"AMT\":\"10500\"},\"tgt\":{\"STATUS_CD\":\"A\",\"DEPT_CD\":\"D03\",\"AMT\":\"11000\"},\"diff_cols\":[\"AMT\"]},{\"key\":\"120\",\"seq\":7,\"pk_num\":null,\"src\":{\"STATUS_CD\":\"C\",\"DEPT_CD\":\"D06\",\"AMT\":\"12012.5\"},\"tgt\":{\"STATUS_CD\":\"C\",\"DEPT_CD\":\"D06\",\"AMT\":\"12512.5\"},\"diff_cols\":[\"AMT\"]},{\"key\":\"135\",\"seq\":8,\"pk_num\":null,\"src\":{\"STATUS_CD\":\"P\",\"DEPT_CD\":\"D03\",\"AMT\":\"13525\"},\"tgt\":{\"STATUS_CD\":\"P\",\"DEPT_CD\":\"D03\",\"AMT\":\"14025\"},\"diff_cols\":[\"AMT\"]},{\"key\":\"150\",\"seq\":9,\"pk_num\":null,\"src\":{\"STATUS_CD\":\"I\",\"DEPT_CD\":\"D06\",\"AMT\":\"15037.5\"},\"tgt\":{\"STATUS_CD\":\"I\",\"DEPT_CD\":\"D06\",\"AMT\":\"15537.5\"},\"diff_cols\":[\"AMT\"]}]}",
+    "body_len": 5623
+   },
+   {
+    "url": "/single/active-run/status?run_id=PK3D3D35F33ACB",
+    "method": "GET",
+    "payload": "",
+    "payload_len": 0,
+    "t0": 145398.90000009537
+   }
+  ],
+  "rej": [],
+  "origType": "function"
+ },
+ "after_final": {
+  "_executeInProgress": false,
+  "_mvAnyRunActive": false,
+  "_mvExecPaused": null,
+  "_mvRiResuming": null,
+  "_mvExecPauseSent": null,
+  "_mvExecPanelActive": false,
+  "_mvExecTerminal": true,
+  "_pollTimer": false,
+  "_mvReimportStatus": "READY",
+  "spinner_btns": [],
+  "_analysisBlocked": false,
+  "_mvAnalyzeStaleForPolicy": false,
+  "_analyzeData_null": true,
+  "conn_deselected_src": false,
+  "conn_deselected_tgt": false,
+  "_singleValidationExecuted": true,
+  "_revalidateInProgress": false,
+  "_fullRunInProgress": false,
+  "_mvActiveRunResolved": null,
+  "_mvCompletedHistoryResolved": null,
+  "gate_blocked_stats": false,
+  "regenerate_required": false,
+  "srcBox_len": 162,
+  "tgtBox_len": 162,
+  "gbSel": "[\"STATUS_CD\",\"DEPT_CD\"]",
+  "sumSel": "[\"AMT\"]",
+  "runExecute_type": "function",
+  "_runExecutePlanSets_type": "function",
+  "execBtn": {
+   "disabled": false,
+   "visible": false,
+   "html": "▶ 통계검증 다시 실행",
+   "onclickAttr": "runExecute()"
+  },
+  "cmdbarBtn": {
+   "disabled": false,
+   "visible": true,
+   "text": "▶ 통계검증 다시 실행",
+   "fn": "runExecute"
+  },
+  "step": "validation",
+  "executeOut_len": 1160,
+  "execStepError_len": 0,
+  "riRows": 0,
+  "overlay": false
+ },
+ "diag_final": {
+  "rx": [
+   {
+    "ev": "enter",
+    "t": 143956.5
+   },
+   {
+    "ev": "resolved",
+    "t": 144810.40000009537
+   }
+  ],
+  "clicks": [
+   {
+    "t": 143956,
+    "id": "",
+    "fn": "runExecute",
+    "text": "▶ 통계검증 실행",
+    "disabled": false,
+    "hasOnclick": true,
+    "onclickAttr": "mvCommandBarRunAction(this)"
+   }
+  ],
+  "net": [
+   {
+    "url": "/db/presets/src",
+    "method": "GET",
+    "payload": "",
+    "payload_len": 0,
+    "t0": 143957.20000004768,
+    "status": 200,
+    "t1": 144015.90000009537,
+    "body": "[{\"name\":\"PostgreSQL_asis\",\"db_type\":\"postgresql\",\"host\":\"ep-bitter-moon-aoaf05cu.c-2.ap-southeast-1.aws.neon.tech\",\"port\":5432,\"dbname\":\"neondb\",\"user\":\"neondb_owner\",\"has_password\":true},{\"name\":\"MariaDB_asis\",\"db_type\":\"mariadb\",\"host\":\"192.168.0.211\",\"port\":3309,\"dbname\":\"nxdnp\",\"user\":\"nxdnp\",\"advanced_options\":{\"charset\":\"utf8mb4\"},\"has_password\":true},{\"name\":\"PostgreSQL_NEW_asis\",\"db_type\":\"postgresql\",\"host\":\"ep-aged-tooth-aoi66cbv-pooler.c-2.ap-southeast-1.aws.neon.tech\",\"port\":5432,\"dbname\":\"migration_source\",\"user\":\"neondb_owner\",\"advanced_options\":{\"sslmode\":\"require\",\"connect_timeout\":\"10\"},\"has_password\":true},{\"name\":\"DB2_asis\",\"db_type\":\"db2\",\"host\":\"192.168.0.10\",\"port\":50000,\"dbname\":\"ntbdb\",\"user\":\"dsadm\",\"advanced_options\":{\"schema\":\"DSADM\"},\"has_password\":true},{\"name\":\"PostgreSQL_Inter_asis\",\"db_type\":\"postgresql\",\"host\":\"192.168.0.150\",\"port\":5433,\"dbname\":\"asis\",\"user\":\"nextobe\",\"advanced_options\":{\"schema\":\"ntb\",\"sslmode\":\"disable\",\"connect_timeout\":\"10\"},\"has_password\":true},{\"name\":\"PostgreSQL_Inter_tobesrc\",\"db_type\":\"postgresql\",\"host\":\"192.168.0.150\",\"port\":5434,\"dbname\":\"tobe\",\"user\":\"nextobe\",\"advanced_options\":{\"sslmode\":\"disable\",\"connect_timeout\":\"10\"},\"has_password\":true},{\"name\":\"PostgreSQL_nxdnp_src\",\"db_type\":\"postgresql\",\"host\":\"192.168.0.150\",\"port\":5434,\"dbname\":\"tobe\",\"user\":\"nextobe\",\"advanced_options\":{\"sslmode\":\"disable\",\"connect_timeout\":\"10\"},\"has_password\":true},{\"name\":\"Oracle_asis\",\"db_type\":\"oracle\",\"host\":\"192.168.0.151\",\"port\":1523,\"dbname\":\"xepdb1\",\"user\":\"nxdnp\",\"advanced_options\":{\"sid\":\"XEPDB1\",\"schema\":\"NXDNP\",\"connect_type\":\"service_name\",\"encoding\":\"UTF-8\",\"nencoding\":\"UTF-8\",\"driver_mode\":\"thin\"},\"has_password\":true}]",
+    "body_len": 1708
+   },
+   {
+    "url": "/db/presets/tgt",
+    "method": "GET",
+    "payload": "",
+    "payload_len": 0,
+    "t0": 144016.20000004768,
+    "status": 200,
+    "t1": 144073,
+    "body": "[{\"name\":\"PostgreSQL_tobe\",\"db_type\":\"postgresql\",\"host\":\"ep-super-river-aoeo1f81.c-2.ap-southeast-1.aws.neon.tech\",\"port\":5432,\"dbname\":\"neondb\",\"user\":\"neondb_owner\",\"has_password\":true},{\"name\":\"DB2_tobe\",\"db_type\":\"db2\",\"host\":\"192.168.0.10\",\"port\":50000,\"dbname\":\"ntbdb\",\"user\":\"dsadm\",\"advanced_options\":{\"schema\":\"DSADM\"},\"has_password\":true},{\"name\":\"MariaDB_tobe\",\"db_type\":\"mariadb\",\"host\":\"192.168.0.211\",\"port\":3309,\"dbname\":\"nxdnp\",\"user\":\"nxdnp\",\"advanced_options\":{\"charset\":\"utf8mb4\"},\"has_password\":true},{\"name\":\"PostgreSQL_NEW_tobe\",\"db_type\":\"postgresql\",\"host\":\"ep-aged-tooth-aoi66cbv-pooler.c-2.ap-southeast-1.aws.neon.tech\",\"port\":5432,\"dbname\":\"migration_target\",\"user\":\"neondb_owner\",\"advanced_options\":{\"sslmode\":\"require\",\"connect_timeout\":\"10\"},\"has_password\":true},{\"name\":\"PostgreSQL_Inter_tobe\",\"db_type\":\"postgresql\",\"host\":\"192.168.0.150\",\"port\":5434,\"dbname\":\"tobe\",\"user\":\"nextobe\",\"advanced_options\":{\"sslmode\":\"disable\",\"connect_timeout\":\"10\"},\"has_password\":true},{\"name\":\"Oracle_tobe\",\"db_type\":\"oracle\",\"host\":\"192.168.0.151\",\"port\":1524,\"dbname\":\"xepdb1\",\"user\":\"nxdnp\",\"advanced_options\":{\"sid\":\"XEPDB1\",\"schema\":\"NXDNP\",\"connect_type\":\"service_name\",\"encoding\":\"UTF-8\",\"nencoding\":\"UTF-8\",\"driver_mode\":\"thin\"},\"has_password\":true}]",
+    "body_len": 1275
+   },
+   {
+    "url": "/single/active-run?session_id=sess_ms1ula45qb6klq",
+    "method": "GET",
+    "payload": "",
+    "payload_len": 0,
+    "t0": 144074.30000007153,
+    "status": 200,
+    "t1": 144133.5,
+    "body": "{\"ok\":true,\"active\":false,\"count\":0,\"run\":null,\"runs\":[]}",
+    "body_len": 57
+   },
+   {
+    "url": "/groupby-plan",
+    "method": "POST",
+    "payload": "{\"candidates\":[{\"col\":\"STATUS_CD\",\"recommendation_status\":\"NORMAL_DEFAULT\",\"explanation\":{\"reason_text\":\"고유값 4개 · 그룹당 평균 38행 · 상태별 불일치 구분에 적합\",\"reason_detail\":\"상태 구분값으로 그룹 비교 기준에 적합합니다. 고유값 분포와 NULL 상태가 그룹 검증에 적합합니다.\",\"evidence_chips\":[\"프로파일 기반: 고유값 4개\"],\"tooltip_text\":\"상태 구분값으로 그룹 비교 기준에 적합합니다. 고유값 분포와 NULL 상태가 그룹 검증에 적합합니다. | 점수 구성: experimental=True, version=E1, semantic={'score': 11, 'max_score': 20, 'label': '의미 근거', 'evidence': ['시맨틱 사전(DIMENSION_STATUS, score=0.55)'], 'reason': 'semantic dictionary 매칭(DIMENSION_STATUS) 반영 — 강도 WEAK', 'confidence': 'WEAK', 'reason_code': 'SEMANTIC_WEAK', 'source': 'semantic_dictionary', 'semantic_type': 'DIMENSION_STATUS'}, type_fit={'score': 15, 'max_score': 20, 'label': '타입 적합성', 'evidence': ['tgt_type=char'], 'reason': '타입 정보(char)를 확인했습니다. GROUP BY 후보로 사용 가능합니다.', 'confidence': 'MEDIUM'}, stats={'score': 50, 'max_score': 20, 'label': '통계 근거', 'evidence': ['raw_stats_score=50'], 'reason': '기존 통계 기반 점수를 참고값으로 반영했습니다.', 'confidence': 'LOW'}, key_constraint={'score': 20, 'max_score': 20, 'label': '키/제약 근거', 'evidence': [], 'reason': '명시적인 제외 규칙은 확인되지 않았습니다.', 'confidence': 'LOW'} | 통계: 고유값 4, 행수 150\",\"source_expression\":\"STATUS_CD\",\"primary_reasons\":[\"고유값 4개 · 그룹당 평균 38행 · 상태별 불일치 구분에 적합\",\"프로파일 기반: 고유값 4개 (2.7%)\"],\"caution_reasons\":[],\"demotion_reasons\":[],\"exclusion_reasons\":[],\"detail_lines\":[],\"explanation_level\":\"normal\"}},{\"col\":\"DEPT_CD\",\"recommendation_status\":\"NORMAL_DEFAULT\",\"explanation\":{\"reason_text\":\"고유값 6개 · 그룹당 평균 25행 · 조직별 불일치 구분에 적합\",\"reason_detail\":\"조직 구분값으로 그룹 비교 기준에 적합합니다. 고유값 분포와 NULL 상태가 그룹 검증에 적합합니다.\",\"evidence_chips\":[\"프로파일 기반: 고유값 6개\"],\"tooltip_text\":\"조직 구분값으로 그룹 비교 기준에 적합합니다. 고유값 분포와 NULL 상태가 그룹 검증에 적합합니다. | 점수 구성: experimental=True, version=E1, semantic={'score': 11, 'max_score': 20, 'label': '의미 근거', 'evidence': ['시맨틱 사전(DIMENSION_ORG, score=0.55)'], 'reason': 'semantic dictionary 매칭(DIMENSION_ORG) 반영 — 강도 WEAK', 'confidence': 'WEAK', 'reason_code': 'SEMANTIC_WEAK', 'source': 'semantic_dictionary', 'semantic_type': 'DIMENSION_ORG'}, type_fit={'score': 15, 'max_score': 20, 'label': '타입 적합성', 'evidence': ['tgt_type=varchar'], 'reason': '타입 정보(varchar)를 확인했습니다. GROUP BY 후보로 사용 가능합니다.', 'confidence': 'MEDIUM'}, stats={'score': 40, 'max_score': 20, 'label': '통계 근거', 'evidence': ['raw_stats_score=40'], 'reason': '기존 통계 기반 점수를 참고값으로 반영했습니다.', 'confidence': 'LOW'}, key_constraint={'score': 20, 'max_score': 20, 'label': '키/제약 근거', 'evidence': [], 'reason': '명시적인 제외 규칙은 확인되지 않았습니다.', 'confidence': 'LOW'} | 통계: 고유값 6, 행수 150\",\"source_expression\":\"DEPT_CD\",\"primary_reasons\":[\"고유값 6개 · 그룹당 평균 25행 · 조직별 불일치 구분에 적합\",\"프로파일 기반: 고유값 6개 (4.0%)\"],\"caution_reasons\":[],\"demotion_reasons\":[],\"exclusion_reasons\":[],\"detail_lines\":[],\"explanation_level\":\"normal\"}}],\"total_rows\":150,\"include_pair\":false}",
+    "payload_len": 2795,
+    "t0": 144076.20000004768,
+    "status": 200,
+    "t1": 144188.40000009537,
+    "body": "{\"sets\":[{\"set_id\":\"S1\",\"kind\":\"SINGLE\",\"cols\":[\"STATUS_CD\"],\"expected_groups\":null,\"avg_rows_per_group\":null,\"reason\":\"단일 축 기본 계획(후보별 독립 실행)\"},{\"set_id\":\"S2\",\"kind\":\"SINGLE\",\"cols\":[\"DEPT_CD\"],\"expected_groups\":null,\"avg_rows_per_group\":null,\"reason\":\"단일 축 기본 계획(후보별 독립 실행)\"}],\"excluded\":[{\"cols\":[\"STATUS_CD\",\"DEPT_CD\"],\"expected_groups\":null,\"avg_rows_per_group\":null,\"reason\":\"조합 distinct 근거 부족(단일 축 계획만 실행)\"}],\"pair_candidate\":null,\"expected_total_groups\":null,\"requires_confirm\":false,\"plan_version\":\"gbplan-v2\",\"plan_fingerprint\":\"c6818596cc74aa645e79\",\"policy\":{\"target_max_groups\":100,\"min_avg_rows_per_group\":100,\"max_auto_pair_sets\":1,\"max_auto_triple_sets\":0},\"ok\":true}",
+    "body_len": 682
+   },
+   {
+    "url": "/agg-diff/resumable",
+    "method": "GET",
+    "payload": "",
+    "payload_len": 0,
+    "t0": 144187.40000009537,
+    "status": 200,
+    "t1": 144302.40000009537,
+    "body": "{\"ok\":true,\"count\":0,\"items\":[]}",
+    "body_len": 32
+   },
+   {
+    "url": "/generate",
+    "method": "POST",
+    "payload": "{\"parse_result\":{\"insert_cols\":[\"ID\",\"DEPT_CD\",\"UPD_YMD\",\"REG_DT\",\"STATUS_CD\",\"AMT\",\"CREATED_BY\"],\"select_items\":[{\"tgt_col\":\"ID\",\"src_expr\":\"ID\"},{\"tgt_col\":\"DEPT_CD\",\"src_expr\":\"DEPT_CD\"},{\"tgt_col\":\"UPD_YMD\",\"src_expr\":\"UPD_YMD\"},{\"tgt_col\":\"REG_DT\",\"src_expr\":\"REG_DT\"},{\"tgt_col\":\"STATUS_CD\",\"src_expr\":\"STATUS_CD\"},{\"tgt_col\":\"AMT\",\"src_expr\":\"AMT\"},{\"tgt_col\":\"CREATED_BY\",\"src_expr\":\"CREATED_BY\"}],\"from_table\":\"MV_ORA_DEMO_SRC\",\"from_alias\":\"\",\"tgt_table\":\"MV_ORA_DEMO_TGT\",\"joins\":[],\"where\":\"\",\"groupby\":[],\"union_type\":null,\"union_branches\":[],\"from_table_qualified\":\"NXDNP.MV_ORA_DEMO_SRC\",\"tgt_table_qualified\":\"NXDNP.MV_ORA_DEMO_TGT\",\"source_schema\":\"NXDNP\",\"target_schema\":\"NXDNP\"},\"analyze_result\":{\"validated\":[{\"tgt_col\":\"ID\",\"src_expr\":\"ID\",\"src_type\":\"\",\"tgt_type\":\"NUMERIC\",\"is_pk\":false},{\"tgt_col\":\"DEPT_CD\",\"src_expr\":\"DEPT_CD\",\"src_type\":\"\",\"tgt_type\":\"VARCHAR\",\"is_pk\":false},{\"tgt_col\":\"UPD_YMD\",\"src_expr\":\"UPD_YMD\",\"src_type\":\"\",\"tgt_type\":\"VARCHAR\",\"is_pk\":false},{\"tgt_col\":\"REG_DT\",\"src_expr\":\"REG_DT\",\"src_type\":\"\",\"tgt_type\":\"VARCHAR\",\"is_pk\":false},{\"tgt_col\":\"STATUS_CD\",\"src_expr\":\"STATUS_CD\",\"src_type\":\"\",\"tgt_type\":\"CHAR\",\"is_pk\":false},{\"tgt_col\":\"AMT\",\"src_expr\":\"AMT\",\"src_type\":\"\",\"tgt_type\":\"NUMERIC\",\"is_pk\":false},{\"tgt_col\":\"CREATED_BY\",\"src_expr\":\"CREATED_BY\",\"src_type\":\"\",\"tgt_type\":\"VARCHAR\",\"is_pk\":false}],\"excluded\":[],\"sum_columns\":[{\"tgt_col\":\"AMT\",\"src_expr\":\"AMT\",\"cast_expr\":null,\"is_agg_src\":false}],\"groupby_columns\":[{\"tgt_col\":\"REG_DT\",\"src_expr\":\"REG_DT\",\"groupby_expr_src\":\"REG_DT\",\"groupby_expr_tgt\":\"REG_DT\",\"reason\":\"단문자 VARCHAR(20)\",\"tgt_type\":\"VARCHAR\",\"tgt_len\":20},{\"tgt_col\":\"DEPT_CD\",\"src_expr\":\"DEPT_CD\",\"groupby_expr_src\":\"DEPT_CD\",\"groupby_expr_tgt\":\"DEPT_CD\",\"reason\":\"코드성 VARCHAR(10)\",\"tgt_type\":\"VARCHAR\",\"tgt_len\":10},{\"tgt_col\":\"STATUS_CD\",\"src_expr\":\"STATUS_CD\",\"groupby_expr_src\":\"STATUS_CD\",\"groupby_expr_tgt\":\"STATUS_CD\",\"reason\":\"코드성 CHAR(1)\",\"tgt_type\":\"CHAR\",\"tgt_len\":1}],\"casted\":[],\"count_only\":false,\"has_meta\":true,\"meta_tables\":[\"MV_ORA_DEMO_SRC\"],\"tgt_where_excluded\":[]},\"all_groupby_candidates\":[{\"group_by_candidate_score\":40,\"aggregate_candidate_score\":null,\"raw_stats_score\":40,\"score_breakdown\":{\"experimental\":true,\"version\":\"E1\",\"semantic\":{\"score\":11,\"max_score\":20,\"label\":\"의미 근거\",\"evidence\":[\"시맨틱 사전(DIMENSION_ORG, score=0.55)\"],\"reason\":\"semantic dictionary 매칭(DIMENSION_ORG) 반영 — 강도 WEAK\",\"confidence\":\"WEAK\",\"reason_code\":\"SEMANTIC_WEAK\",\"source\":\"semantic_dictionary\",\"semantic_type\":\"DIMENSION_ORG\"},\"type_fit\":{\"score\":15,\"max_score\":20,\"label\":\"타입 적합성\",\"evidence\":[\"tgt_type=varchar\"],\"reason\":\"타입 정보(varchar)를 확인했습니다. GROUP BY 후보로 사용 가능합니다.\",\"confidence\":\"MEDIUM\"},\"stats\":{\"score\":40,\"max_score\":20,\"label\":\"통계 근거\",\"evidence\":[\"raw_stats_score=40\"],\"reason\":\"기존 통계 기반 점수를 참고값으로 반영했습니다.\",\"confidence\":\"LOW\"},\"key_constraint\":{\"score\":20,\"max_score\":20,\"label\":\"키/제약 근거\",\"evidence\":[],\"reason\":\"명시적인 제외 규칙은 확인되지 않았습니다.\",\"confidence\":\"LOW\"},\"compatibility\":{\"score\":0,\"max_score\":20,\"label\":\"원본/목적지 호환성\",\"evidence\":[],\"reason\":\"호환성 상세 계산은 아직 구현하지 않았습니다.\",\"confidence\":\"NONE\"},\"policy_adjustment\":{\"score\":0,\"max_score\":0,\"label\":\"정책 보정\",\"evidence\":[],\"reason\":\"이번 단계에서는 정책 보정을 적용하지 않습니다.\",\"confidence\":\"NONE\"}},\"hard_rule\":null,\"profile_quality_score\":null,\"risk_penalty\":0,\"candidate_rank\":null,\"evidence_json\":{\"profile_source\":\"DB_STATISTICS\",\"dbms\":\"postgresql\",\"statistics_available\":true,\"estimated\":true,\"null_frac\":0,\"n_distinct_raw\":6,\"n_distinct_resolved\":6,\"most_common_vals_present\":false,\"estimated_row_count\":150,\"is_unique_like\":false,\"estimated_distinct_ratio\":null,\"unique_like_threshold\":0.9,\"analyzed_at\":\"2026-07-24T14:05:15\",\"stats_freshness\":\"FRESH\",\"notes\":[\"pg_stats_based_poc\"]},\"risk_flags\":[],\"selection_status\":\"SELECTED_DEFAULT\",\"semantic_type_candidates\":[],\"candidate_source\":\"DB_STATISTICS\",\"candidate_id\":\"c_37ebb8f8\",\"target_column\":\"DEPT_CD\",\"source_expression\":\"DEPT_CD\",\"candidate_role\":\"GROUP_BY\",\"score\":0.58,\"confidence\":\"MEDIUM\",\"evidence\":[\"낮은",
+    "payload_len": 49085,
+    "t0": 144189,
+    "status": 200,
+    "t1": 144306.80000007153,
+    "body": "{\"success\":true,\"stats_src_sql\":\"SELECT\\n    STATUS_CD AS STATUS_CD,\\n    COUNT(*) AS CNT,\\n    SUM(AMT) AS AMT\\nFROM NXDNP.MV_ORA_DEMO_SRC\\nGROUP BY\\n    STATUS_CD\",\"stats_tgt_sql\":\"SELECT\\n    STATUS_CD AS STATUS_CD,\\n    COUNT(*) AS CNT,\\n    SUM(AMT) AS AMT\\nFROM NXDNP.MV_ORA_DEMO_TGT\\nGROUP BY\\n    STATUS_CD\",\"warnings\":[],\"wrapped_source_select\":false,\"source_sql_generation_method\":\"DIRECT_FROM\",\"processing_ms\":1.3,\"selection_evidence\":{\"configured_group_by\":3,\"configured_sum\":3,\"effective_group_by_columns\":[\"STATUS_CD\"],\"effective_sum_columns\":[\"AMT\"],\"effective_group_by_count\":1,\"effective_sum_count\":1,\"selection_mode\":\"AUTO\",\"selection_fingerprint\":\"3c63ea9645d315e16b73\",\"plan_fingerprint\":\"\",\"run_id\":\"\"}}",
+    "body_len": 724
+   },
+   {
+    "url": "/execute",
+    "method": "POST",
+    "payload": "{\"src_sql\":\"SELECT\\n    STATUS_CD AS STATUS_CD,\\n    COUNT(*) AS CNT,\\n    SUM(AMT) AS AMT\\nFROM NXDNP.MV_ORA_DEMO_SRC\\nGROUP BY\\n    STATUS_CD\",\"tgt_sql\":\"SELECT\\n    STATUS_CD AS STATUS_CD,\\n    COUNT(*) AS CNT,\\n    SUM(AMT) AS AMT\\nFROM NXDNP.MV_ORA_DEMO_TGT\\nGROUP BY\\n    STATUS_CD\",\"src_db\":{\"db_type\":\"oracle\",\"host\":\"192.168.0.151\",\"port\":1523,\"dbname\":\"xepdb1\",\"user\":\"nxdnp\",\"password\":\"\"},\"tgt_db\":{\"db_type\":\"oracle\",\"host\":\"192.168.0.151\",\"port\":1524,\"dbname\":\"xepdb1\",\"user\":\"nxdnp\",\"password\":\"\"},\"groupby_cols\":[\"STATUS_CD\"],\"sum_cols\":[\"AMT\"],\"selection_mode\":\"AUTO\",\"global_settings_fingerprint\":\"9e071849fb8285a5dd421ab5\",\"plan_version\":\"gbplan-v2\",\"plan_fingerprint\":\"c6818596cc74aa645e79\",\"plan_set_label\":\"STATUS_CD\",\"target_table\":\"MV_ORA_DEMO_TGT\",\"migration_sql\":\"INSERT INTO NXDNP.MV_ORA_DEMO_TGT (ID, DEPT_CD, UPD_YMD, REG_DT, STATUS_CD, AMT, CREATED_BY) SELECT ID, DEPT_CD, UPD_YMD, REG_DT, STATUS_CD, AMT, CREATED_BY FROM NXDNP.MV_ORA_DEMO_SRC\",\"candidate_snapshot_full\":{\"group_by\":[{\"group_by_candidate_score\":40,\"aggregate_candidate_score\":null,\"raw_stats_score\":40,\"score_breakdown\":{\"experimental\":true,\"version\":\"E1\",\"semantic\":{\"score\":11,\"max_score\":20,\"label\":\"의미 근거\",\"evidence\":[\"시맨틱 사전(DIMENSION_ORG, score=0.55)\"],\"reason\":\"semantic dictionary 매칭(DIMENSION_ORG) 반영 — 강도 WEAK\",\"confidence\":\"WEAK\",\"reason_code\":\"SEMANTIC_WEAK\",\"source\":\"semantic_dictionary\",\"semantic_type\":\"DIMENSION_ORG\"},\"type_fit\":{\"score\":15,\"max_score\":20,\"label\":\"타입 적합성\",\"evidence\":[\"tgt_type=varchar\"],\"reason\":\"타입 정보(varchar)를 확인했습니다. GROUP BY 후보로 사용 가능합니다.\",\"confidence\":\"MEDIUM\"},\"stats\":{\"score\":40,\"max_score\":20,\"label\":\"통계 근거\",\"evidence\":[\"raw_stats_score=40\"],\"reason\":\"기존 통계 기반 점수를 참고값으로 반영했습니다.\",\"confidence\":\"LOW\"},\"key_constraint\":{\"score\":20,\"max_score\":20,\"label\":\"키/제약 근거\",\"evidence\":[],\"reason\":\"명시적인 제외 규칙은 확인되지 않았습니다.\",\"confidence\":\"LOW\"},\"compatibility\":{\"score\":0,\"max_score\":20,\"label\":\"원본/목적지 호환성\",\"evidence\":[],\"reason\":\"호환성 상세 계산은 아직 구현하지 않았습니다.\",\"confidence\":\"NONE\"},\"policy_adjustment\":{\"score\":0,\"max_score\":0,\"label\":\"정책 보정\",\"evidence\":[],\"reason\":\"이번 단계에서는 정책 보정을 적용하지 않습니다.\",\"confidence\":\"NONE\"}},\"hard_rule\":null,\"profile_quality_score\":null,\"risk_penalty\":0,\"candidate_rank\":null,\"evidence_json\":{\"profile_source\":\"DB_STATISTICS\",\"dbms\":\"postgresql\",\"statistics_available\":true,\"estimated\":true,\"null_frac\":0,\"n_distinct_raw\":6,\"n_distinct_resolved\":6,\"most_common_vals_present\":false,\"estimated_row_count\":150,\"is_unique_like\":false,\"estimated_distinct_ratio\":null,\"unique_like_threshold\":0.9,\"analyzed_at\":\"2026-07-24T14:05:15\",\"stats_freshness\":\"FRESH\",\"notes\":[\"pg_stats_based_poc\"]},\"risk_flags\":[],\"selection_status\":\"SELECTED_DEFAULT\",\"semantic_type_candidates\":[],\"candidate_source\":\"DB_STATISTICS\",\"candidate_id\":\"c_37ebb8f8\",\"target_column\":\"DEPT_CD\",\"source_expression\":\"DEPT_CD\",\"candidate_role\":\"GROUP_BY\",\"score\":0.58,\"confidence\":\"MEDIUM\",\"evidence\":[\"낮은 카디널리티(n_distinct=6.0)\",\"시맨틱 사전(DIMENSION_ORG, score=0.55)\"],\"evidence_count\":2,\"tgt_col\":\"DEPT_CD\",\"src_expr\":\"DEPT_CD\",\"auto_selected\":true,\"warn_reason\":null,\"tgt_type\":\"varchar\",\"tgt_len\":10,\"tgt_scale\":0,\"reason\":\"낮은 카디널리티(n_distinct=6.0)\",\"groupby_expr_src\":\"DEPT_CD\",\"groupby_expr_tgt\":\"DEPT_CD\",\"column_comment\":\"\",\"sample_values\":[\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\"],\"simulated_selection_reason\":\"SCORE_TOP_2: 점수 기준 상위 3개 자동 선정 후보\",\"simulated_group_by_rank\":2,\"candidate_subtype\":\"CODE_LOW_CARDINALITY\",\"reas",
+    "payload_len": 47801,
+    "t0": 144307.20000004768,
+    "status": 200,
+    "t1": 144534.10000002384,
+    "body": "{\"success\":true,\"val_cols\":[\"CNT\",\"AMT\"],\"gb_keys\":[\"STATUS_CD\"],\"rows\":[{\"key\":{\"STATUS_CD\":\"A\"},\"src\":{\"CNT\":\"38\",\"AMT\":\"286412.5\"},\"tgt\":{\"CNT\":\"38\",\"AMT\":\"287412.5\"},\"status\":\"diff\",\"key_is_null\":{\"STATUS_CD\":false},\"cell_meta\":{\"AMT\":{\"result\":\"DIFF\",\"reason\":\"허용오차 초과 (차이 1000.0, 허용 1E-9)\",\"tolerance_applied\":true,\"tolerance_value\":\"1E-9\",\"diff_value\":\"1000.0\"}}},{\"key\":{\"STATUS_CD\":\"C\"},\"src\":{\"CNT\":\"37\",\"AMT\":\"282575\"},\"tgt\":{\"CNT\":\"37\",\"AMT\":\"283575\"},\"status\":\"diff\",\"key_is_null\":{\"STATUS_CD\":false},\"cell_meta\":{\"AMT\":{\"result\":\"DIFF\",\"reason\":\"허용오차 초과 (차이 1000, 허용 1E-9)\",\"tolerance_applied\":true,\"tolerance_value\":\"1E-9\",\"diff_value\":\"1000\"}}},{\"key\":{\"STATUS_CD\":\"I\"},\"src\":{\"CNT\":\"38\",\"AMT\":\"290250\"},\"tgt\":{\"CNT\":\"38\",\"AMT\":\"291750\"},\"status\":\"diff\",\"key_is_null\":{\"STATUS_CD\":false},\"cell_meta\":{\"AMT\":{\"result\":\"DIFF\",\"reason\":\"허용오차 초과 (차이 1500, 허용 1E-9)\",\"tolerance_applied\":true,\"tolerance_value\":\"1E-9\",\"diff_value\":\"1500\"}}},{\"key\":{\"STATUS_CD\":\"P\"},\"src\":{\"CNT\":\"37\",\"AMT\":\"278850\"},\"tgt\":{\"CNT\":\"37\",\"AMT\":\"280350\"},\"status\":\"diff\",\"key_is_null\":{\"STATUS_CD\":false},\"cell_meta\":{\"AMT\":{\"result\":\"DIFF\",\"reason\":\"허용오차 초과 (차이 1500, 허용 1E-9)\",\"tolerance_applied\":true,\"tolerance_value\":\"1E-9\",\"diff_value\":\"1500\"}}}],\"total_src\":4,\"total_tgt\":4,\"matched\":0,\"diff\":4,\"src_only\":0,\"tgt_only\":0,\"total_groups\":4,\"display_tier_info\":{\"display_mode\":\"FULL_LIST\",\"display_tier\":\"D1\",\"display_reason_code\":\"AXIS_A_MISMATCH_T1\",\"total_mismatch_count\":4,\"total_group_count\":4,\"early_stopped\":false,\"axis_a_tier\":1,\"axis_b_tier\":1,\"representative_sample_n\":20,\"xlsx_row_max\":1048576,\"display_message\":\"불일치 4건(그룹 4개) — 전체 레코드를 나열합니다.\",\"show_full_list\":true,\"show_group_table\":false,\"show_group_drilldown\":false,\"show_group_sample_only\":false,\"summary_only\":false,\"download_only_detail\":false,\"display_error\":\"\"},\"compared_groups\":4,\"displayed_groups\":4,\"result_rows_display_count\":4,\"max_display_rows\":200,\"display_truncated\":false,\"compare_truncated\":false,\"is_truncated\":false,\"tolerance_applied\":false,\"absolute_tolerance\":0.0,\"numeric_policy\":{\"count_exact\":true,\"sum_absolute_tolerance\":\"1E-9\",\"sum_relative_tolerance\":\"0\",\"null_equals_zero\":false,\"decimal_first\":true,\"effective_absolute_tolerance\":\"1E-9\"},\"tolerance_summary\":{\"user_tolerance_applied\":false,\"absolute_tolerance\":0.0,\"matched_with_tolerance_groups\":0},\"query_timing\":{\"source_query_started_at\":\"2026-07-26T13:42:53Z\",\"source_query_finished_at\":\"2026-07-26T13:42:53Z\",\"source_duration_ms\":6,\"target_query_started_at\":\"2026-07-26T13:42:53Z\",\"target_query_finished_at\":\"2026-07-26T13:42:54Z\",\"target_duration_ms\":7,\"source_target_gap_ms\":73,\"consistency_guarantee\":\"NOT_GUARANTEED\"},\"groupby_execution_safety\":{\"status\":\"SAFE\",\"reason_code\":\"FINITE_DOMAIN_CONFIRMED\",\"selected_columns\":[\"STATUS_CD\"],\"estimated_group_count\":4,\"raw_estimated_group_count\":4,\"effective_estimated_group_count\":4,\"estimate_safety_factor\":null,\"estimate_kind\":\"EXACT_UPPER_BOUND\",\"estimate_source\":\"finite_domain\",\"configured_limit\":100000,\"checked_at\":\"2026-07-26 13:42:53 UTC\",\"detail\":\"raw 4 · 판정값 4 ≤ 한도 100,000\",\"safety_scope_signature\":\"8665b5acdab807a711853f56a26b9f386f6496b1a94b23db563c9a9eee1e8372\"},\"run_id\":null,\"stored\":false,\"history_run_id\":null,\"result_view\":{\"status_code\":\"FAILED\",\"status_label\":\"불일치\",\"status_level\":\"danger\",\"summary_counts\":{\"matched\":0,\"diff\":4,\"src_only\":0,\"tgt_only\":0,\"total_groups\":4,\"compared_groups\":4},\"warning_messages\":[],\"evidence_messages\":[],\"truncation_message\":null,\"count_precheck_message\":null,\"tolerance_messages\":[],\"display_truncated\":false,\"compare_truncated\":false,\"count_precheck_status\":\"PASSED\",\"count_skipped\":false,\"tolerance_summary\":{\"user_tolerance_applied\":false,\"absolute_tolerance\":0.0,\"matched_with_tolerance_groups\":0},\"numeric_policy_summary\":{\"count_exact\":true,\"sum_absolute_tolerance\":\"1E-9\",\"sum_relative_tolerance\":\"0\",\"null_equals_zero\":false,\"decimal_first\":true,\"effective_absolute_tolerance\":\"1E-9\"},\"source_error\":null,\"target_error\":null},\"verdict_view\":{\"verdict\":\"MISMATCH\",\"matched\":false,\"mismatch_count\":4,\"warning_count\":0,\"error_count\":0,\"reason_code\":\"GROUP_SUM_MISMATCH\",\"summary\":\"불일치\",\"details\":{\"summary_counts\":{\"matched\":0,\"diff\":4,\"src_only\":0,\"tgt_only\":0,\"total_groups\":4,\"compared_groups\":4},\"count_mismatch\":false,\"legacy_status_code\":\"FAILED\"},\"validation_type\":\"INDIVIDUAL\",\"source_result\":null,\"target_result\":null,\"status_code\":\"FAILED\",\"verdict_label\":\"불일치\",\"verdict_level\":\"danger\"},\"result_view_model\":{\"execution_id\":\"sNceHG1bZuGKJNe8BHTLCN4UMCG6tqvF\",\"mode\":\"INDIVIDUAL\",\"validation_type\":\"INDIVIDUAL\",\"verdict\":\"MISMATCH\",\"verdict_label\":\"불일치\",\"verdict_level\":\"danger\",\"summary\":\"불일치\",\"reason_code\":\"GROUP_SUM_MISMATCH\",\"count\":{\"src\":150,\"tgt\":150,\"matched\":true},\"group_sum\":{\"matched_count\":0,\"mismatch_count\":4},\"warning_count\":0,\"error_count\":0,\"user_message\":\"\",\"can_retry\":false,\"can_save\":false,\"is_test_only\":true,\"persistence\":null},\"result_page\":{\"result_id\":\"SR16B4688B44E0\",\"total_group_count\":4,\"total_mismatch_count\":4,\"page_size_default\":50,\"plan_fingerprint\":\"c6818596cc74aa645e79\"},\"processing_ms\":156.7,\"selection_evidence\":{\"configured_group_by\":3,\"configured_sum\":3,\"effective_group_by_columns\":[\"STATUS_CD\"],\"effective_sum_columns\":[\"AMT\"],\"effective_group_by_count\":1,\"effective_sum_count\":1,\"selection_mode\":\"AUTO\",\"selection_fingerprint\":\"3c63ea9645d315e16b73\",\"plan_fingerprint\":\"c6818596cc74aa645e79\",\"run_id\":\"SR16B4688B44E0\"}}",
+    "body_len": 5430
+   },
+   {
+    "url": "/generate",
+    "method": "POST",
+    "payload": "{\"parse_result\":{\"insert_cols\":[\"ID\",\"DEPT_CD\",\"UPD_YMD\",\"REG_DT\",\"STATUS_CD\",\"AMT\",\"CREATED_BY\"],\"select_items\":[{\"tgt_col\":\"ID\",\"src_expr\":\"ID\"},{\"tgt_col\":\"DEPT_CD\",\"src_expr\":\"DEPT_CD\"},{\"tgt_col\":\"UPD_YMD\",\"src_expr\":\"UPD_YMD\"},{\"tgt_col\":\"REG_DT\",\"src_expr\":\"REG_DT\"},{\"tgt_col\":\"STATUS_CD\",\"src_expr\":\"STATUS_CD\"},{\"tgt_col\":\"AMT\",\"src_expr\":\"AMT\"},{\"tgt_col\":\"CREATED_BY\",\"src_expr\":\"CREATED_BY\"}],\"from_table\":\"MV_ORA_DEMO_SRC\",\"from_alias\":\"\",\"tgt_table\":\"MV_ORA_DEMO_TGT\",\"joins\":[],\"where\":\"\",\"groupby\":[],\"union_type\":null,\"union_branches\":[],\"from_table_qualified\":\"NXDNP.MV_ORA_DEMO_SRC\",\"tgt_table_qualified\":\"NXDNP.MV_ORA_DEMO_TGT\",\"source_schema\":\"NXDNP\",\"target_schema\":\"NXDNP\"},\"analyze_result\":{\"validated\":[{\"tgt_col\":\"ID\",\"src_expr\":\"ID\",\"src_type\":\"\",\"tgt_type\":\"NUMERIC\",\"is_pk\":false},{\"tgt_col\":\"DEPT_CD\",\"src_expr\":\"DEPT_CD\",\"src_type\":\"\",\"tgt_type\":\"VARCHAR\",\"is_pk\":false},{\"tgt_col\":\"UPD_YMD\",\"src_expr\":\"UPD_YMD\",\"src_type\":\"\",\"tgt_type\":\"VARCHAR\",\"is_pk\":false},{\"tgt_col\":\"REG_DT\",\"src_expr\":\"REG_DT\",\"src_type\":\"\",\"tgt_type\":\"VARCHAR\",\"is_pk\":false},{\"tgt_col\":\"STATUS_CD\",\"src_expr\":\"STATUS_CD\",\"src_type\":\"\",\"tgt_type\":\"CHAR\",\"is_pk\":false},{\"tgt_col\":\"AMT\",\"src_expr\":\"AMT\",\"src_type\":\"\",\"tgt_type\":\"NUMERIC\",\"is_pk\":false},{\"tgt_col\":\"CREATED_BY\",\"src_expr\":\"CREATED_BY\",\"src_type\":\"\",\"tgt_type\":\"VARCHAR\",\"is_pk\":false}],\"excluded\":[],\"sum_columns\":[{\"tgt_col\":\"AMT\",\"src_expr\":\"AMT\",\"cast_expr\":null,\"is_agg_src\":false}],\"groupby_columns\":[{\"tgt_col\":\"REG_DT\",\"src_expr\":\"REG_DT\",\"groupby_expr_src\":\"REG_DT\",\"groupby_expr_tgt\":\"REG_DT\",\"reason\":\"단문자 VARCHAR(20)\",\"tgt_type\":\"VARCHAR\",\"tgt_len\":20},{\"tgt_col\":\"DEPT_CD\",\"src_expr\":\"DEPT_CD\",\"groupby_expr_src\":\"DEPT_CD\",\"groupby_expr_tgt\":\"DEPT_CD\",\"reason\":\"코드성 VARCHAR(10)\",\"tgt_type\":\"VARCHAR\",\"tgt_len\":10},{\"tgt_col\":\"STATUS_CD\",\"src_expr\":\"STATUS_CD\",\"groupby_expr_src\":\"STATUS_CD\",\"groupby_expr_tgt\":\"STATUS_CD\",\"reason\":\"코드성 CHAR(1)\",\"tgt_type\":\"CHAR\",\"tgt_len\":1}],\"casted\":[],\"count_only\":false,\"has_meta\":true,\"meta_tables\":[\"MV_ORA_DEMO_SRC\"],\"tgt_where_excluded\":[]},\"all_groupby_candidates\":[{\"group_by_candidate_score\":40,\"aggregate_candidate_score\":null,\"raw_stats_score\":40,\"score_breakdown\":{\"experimental\":true,\"version\":\"E1\",\"semantic\":{\"score\":11,\"max_score\":20,\"label\":\"의미 근거\",\"evidence\":[\"시맨틱 사전(DIMENSION_ORG, score=0.55)\"],\"reason\":\"semantic dictionary 매칭(DIMENSION_ORG) 반영 — 강도 WEAK\",\"confidence\":\"WEAK\",\"reason_code\":\"SEMANTIC_WEAK\",\"source\":\"semantic_dictionary\",\"semantic_type\":\"DIMENSION_ORG\"},\"type_fit\":{\"score\":15,\"max_score\":20,\"label\":\"타입 적합성\",\"evidence\":[\"tgt_type=varchar\"],\"reason\":\"타입 정보(varchar)를 확인했습니다. GROUP BY 후보로 사용 가능합니다.\",\"confidence\":\"MEDIUM\"},\"stats\":{\"score\":40,\"max_score\":20,\"label\":\"통계 근거\",\"evidence\":[\"raw_stats_score=40\"],\"reason\":\"기존 통계 기반 점수를 참고값으로 반영했습니다.\",\"confidence\":\"LOW\"},\"key_constraint\":{\"score\":20,\"max_score\":20,\"label\":\"키/제약 근거\",\"evidence\":[],\"reason\":\"명시적인 제외 규칙은 확인되지 않았습니다.\",\"confidence\":\"LOW\"},\"compatibility\":{\"score\":0,\"max_score\":20,\"label\":\"원본/목적지 호환성\",\"evidence\":[],\"reason\":\"호환성 상세 계산은 아직 구현하지 않았습니다.\",\"confidence\":\"NONE\"},\"policy_adjustment\":{\"score\":0,\"max_score\":0,\"label\":\"정책 보정\",\"evidence\":[],\"reason\":\"이번 단계에서는 정책 보정을 적용하지 않습니다.\",\"confidence\":\"NONE\"}},\"hard_rule\":null,\"profile_quality_score\":null,\"risk_penalty\":0,\"candidate_rank\":null,\"evidence_json\":{\"profile_source\":\"DB_STATISTICS\",\"dbms\":\"postgresql\",\"statistics_available\":true,\"estimated\":true,\"null_frac\":0,\"n_distinct_raw\":6,\"n_distinct_resolved\":6,\"most_common_vals_present\":false,\"estimated_row_count\":150,\"is_unique_like\":false,\"estimated_distinct_ratio\":null,\"unique_like_threshold\":0.9,\"analyzed_at\":\"2026-07-24T14:05:15\",\"stats_freshness\":\"FRESH\",\"notes\":[\"pg_stats_based_poc\"]},\"risk_flags\":[],\"selection_status\":\"SELECTED_DEFAULT\",\"semantic_type_candidates\":[],\"candidate_source\":\"DB_STATISTICS\",\"candidate_id\":\"c_37ebb8f8\",\"target_column\":\"DEPT_CD\",\"source_expression\":\"DEPT_CD\",\"candidate_role\":\"GROUP_BY\",\"score\":0.58,\"confidence\":\"MEDIUM\",\"evidence\":[\"낮은",
+    "payload_len": 49083,
+    "t0": 144534.70000004768,
+    "status": 200,
+    "t1": 144602.20000004768,
+    "body": "{\"success\":true,\"stats_src_sql\":\"SELECT\\n    DEPT_CD AS DEPT_CD,\\n    COUNT(*) AS CNT,\\n    SUM(AMT) AS AMT\\nFROM NXDNP.MV_ORA_DEMO_SRC\\nGROUP BY\\n    DEPT_CD\",\"stats_tgt_sql\":\"SELECT\\n    DEPT_CD AS DEPT_CD,\\n    COUNT(*) AS CNT,\\n    SUM(AMT) AS AMT\\nFROM NXDNP.MV_ORA_DEMO_TGT\\nGROUP BY\\n    DEPT_CD\",\"warnings\":[],\"wrapped_source_select\":false,\"source_sql_generation_method\":\"DIRECT_FROM\",\"processing_ms\":1.2,\"selection_evidence\":{\"configured_group_by\":3,\"configured_sum\":3,\"effective_group_by_columns\":[\"DEPT_CD\"],\"effective_sum_columns\":[\"AMT\"],\"effective_group_by_count\":1,\"effective_sum_count\":1,\"selection_mode\":\"AUTO\",\"selection_fingerprint\":\"630af843c66fbfa2830a\",\"plan_fingerprint\":\"\",\"run_id\":\"\"}}",
+    "body_len": 710
+   },
+   {
+    "url": "/execute",
+    "method": "POST",
+    "payload": "{\"src_sql\":\"SELECT\\n    DEPT_CD AS DEPT_CD,\\n    COUNT(*) AS CNT,\\n    SUM(AMT) AS AMT\\nFROM NXDNP.MV_ORA_DEMO_SRC\\nGROUP BY\\n    DEPT_CD\",\"tgt_sql\":\"SELECT\\n    DEPT_CD AS DEPT_CD,\\n    COUNT(*) AS CNT,\\n    SUM(AMT) AS AMT\\nFROM NXDNP.MV_ORA_DEMO_TGT\\nGROUP BY\\n    DEPT_CD\",\"src_db\":{\"db_type\":\"oracle\",\"host\":\"192.168.0.151\",\"port\":1523,\"dbname\":\"xepdb1\",\"user\":\"nxdnp\",\"password\":\"\"},\"tgt_db\":{\"db_type\":\"oracle\",\"host\":\"192.168.0.151\",\"port\":1524,\"dbname\":\"xepdb1\",\"user\":\"nxdnp\",\"password\":\"\"},\"groupby_cols\":[\"DEPT_CD\"],\"sum_cols\":[\"AMT\"],\"selection_mode\":\"AUTO\",\"global_settings_fingerprint\":\"9e071849fb8285a5dd421ab5\",\"plan_version\":\"gbplan-v2\",\"plan_fingerprint\":\"c6818596cc74aa645e79\",\"plan_set_label\":\"DEPT_CD\",\"target_table\":\"MV_ORA_DEMO_TGT\",\"migration_sql\":\"INSERT INTO NXDNP.MV_ORA_DEMO_TGT (ID, DEPT_CD, UPD_YMD, REG_DT, STATUS_CD, AMT, CREATED_BY) SELECT ID, DEPT_CD, UPD_YMD, REG_DT, STATUS_CD, AMT, CREATED_BY FROM NXDNP.MV_ORA_DEMO_SRC\",\"candidate_snapshot_full\":{\"group_by\":[{\"group_by_candidate_score\":40,\"aggregate_candidate_score\":null,\"raw_stats_score\":40,\"score_breakdown\":{\"experimental\":true,\"version\":\"E1\",\"semantic\":{\"score\":11,\"max_score\":20,\"label\":\"의미 근거\",\"evidence\":[\"시맨틱 사전(DIMENSION_ORG, score=0.55)\"],\"reason\":\"semantic dictionary 매칭(DIMENSION_ORG) 반영 — 강도 WEAK\",\"confidence\":\"WEAK\",\"reason_code\":\"SEMANTIC_WEAK\",\"source\":\"semantic_dictionary\",\"semantic_type\":\"DIMENSION_ORG\"},\"type_fit\":{\"score\":15,\"max_score\":20,\"label\":\"타입 적합성\",\"evidence\":[\"tgt_type=varchar\"],\"reason\":\"타입 정보(varchar)를 확인했습니다. GROUP BY 후보로 사용 가능합니다.\",\"confidence\":\"MEDIUM\"},\"stats\":{\"score\":40,\"max_score\":20,\"label\":\"통계 근거\",\"evidence\":[\"raw_stats_score=40\"],\"reason\":\"기존 통계 기반 점수를 참고값으로 반영했습니다.\",\"confidence\":\"LOW\"},\"key_constraint\":{\"score\":20,\"max_score\":20,\"label\":\"키/제약 근거\",\"evidence\":[],\"reason\":\"명시적인 제외 규칙은 확인되지 않았습니다.\",\"confidence\":\"LOW\"},\"compatibility\":{\"score\":0,\"max_score\":20,\"label\":\"원본/목적지 호환성\",\"evidence\":[],\"reason\":\"호환성 상세 계산은 아직 구현하지 않았습니다.\",\"confidence\":\"NONE\"},\"policy_adjustment\":{\"score\":0,\"max_score\":0,\"label\":\"정책 보정\",\"evidence\":[],\"reason\":\"이번 단계에서는 정책 보정을 적용하지 않습니다.\",\"confidence\":\"NONE\"}},\"hard_rule\":null,\"profile_quality_score\":null,\"risk_penalty\":0,\"candidate_rank\":null,\"evidence_json\":{\"profile_source\":\"DB_STATISTICS\",\"dbms\":\"postgresql\",\"statistics_available\":true,\"estimated\":true,\"null_frac\":0,\"n_distinct_raw\":6,\"n_distinct_resolved\":6,\"most_common_vals_present\":false,\"estimated_row_count\":150,\"is_unique_like\":false,\"estimated_distinct_ratio\":null,\"unique_like_threshold\":0.9,\"analyzed_at\":\"2026-07-24T14:05:15\",\"stats_freshness\":\"FRESH\",\"notes\":[\"pg_stats_based_poc\"]},\"risk_flags\":[],\"selection_status\":\"SELECTED_DEFAULT\",\"semantic_type_candidates\":[],\"candidate_source\":\"DB_STATISTICS\",\"candidate_id\":\"c_37ebb8f8\",\"target_column\":\"DEPT_CD\",\"source_expression\":\"DEPT_CD\",\"candidate_role\":\"GROUP_BY\",\"score\":0.58,\"confidence\":\"MEDIUM\",\"evidence\":[\"낮은 카디널리티(n_distinct=6.0)\",\"시맨틱 사전(DIMENSION_ORG, score=0.55)\"],\"evidence_count\":2,\"tgt_col\":\"DEPT_CD\",\"src_expr\":\"DEPT_CD\",\"auto_selected\":true,\"warn_reason\":null,\"tgt_type\":\"varchar\",\"tgt_len\":10,\"tgt_scale\":0,\"reason\":\"낮은 카디널리티(n_distinct=6.0)\",\"groupby_expr_src\":\"DEPT_CD\",\"groupby_expr_tgt\":\"DEPT_CD\",\"column_comment\":\"\",\"sample_values\":[\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\",\"D05\",\"D06\",\"D01\",\"D02\",\"D03\",\"D04\"],\"simulated_selection_reason\":\"SCORE_TOP_2: 점수 기준 상위 3개 자동 선정 후보\",\"simulated_group_by_rank\":2,\"candidate_subtype\":\"CODE_LOW_CARDINALITY\",\"reason_text\":\"코드성 구분",
+    "payload_len": 47785,
+    "t0": 144602.60000002384,
+    "status": 200,
+    "t1": 144802.70000004768,
+    "body": "{\"success\":true,\"val_cols\":[\"CNT\",\"AMT\"],\"gb_keys\":[\"DEPT_CD\"],\"rows\":[{\"key\":{\"DEPT_CD\":\"D03\"},\"src\":{\"CNT\":\"25\",\"AMT\":\"188362.5\"},\"tgt\":{\"CNT\":\"25\",\"AMT\":\"190862.5\"},\"status\":\"diff\",\"key_is_null\":{\"DEPT_CD\":false},\"cell_meta\":{\"AMT\":{\"result\":\"DIFF\",\"reason\":\"허용오차 초과 (차이 2500.0, 허용 1E-9)\",\"tolerance_applied\":true,\"tolerance_value\":\"1E-9\",\"diff_value\":\"2500.0\"}}},{\"key\":{\"DEPT_CD\":\"D06\"},\"src\":{\"CNT\":\"25\",\"AMT\":\"196012.5\"},\"tgt\":{\"CNT\":\"25\",\"AMT\":\"198512.5\"},\"status\":\"diff\",\"key_is_null\":{\"DEPT_CD\":false},\"cell_meta\":{\"AMT\":{\"result\":\"DIFF\",\"reason\":\"허용오차 초과 (차이 2500.0, 허용 1E-9)\",\"tolerance_applied\":true,\"tolerance_value\":\"1E-9\",\"diff_value\":\"2500.0\"}}},{\"key\":{\"DEPT_CD\":\"D01\"},\"src\":{\"CNT\":\"25\",\"AMT\":\"183437.5\"},\"tgt\":{\"CNT\":\"25\",\"AMT\":\"183437.5\"},\"status\":\"ok\",\"key_is_null\":{\"DEPT_CD\":false}},{\"key\":{\"DEPT_CD\":\"D02\"},\"src\":{\"CNT\":\"25\",\"AMT\":\"185900\"},\"tgt\":{\"CNT\":\"25\",\"AMT\":\"185900\"},\"status\":\"ok\",\"key_is_null\":{\"DEPT_CD\":false}},{\"key\":{\"DEPT_CD\":\"D04\"},\"src\":{\"CNT\":\"25\",\"AMT\":\"190912.5\"},\"tgt\":{\"CNT\":\"25\",\"AMT\":\"190912.5\"},\"status\":\"ok\",\"key_is_null\":{\"DEPT_CD\":false}},{\"key\":{\"DEPT_CD\":\"D05\"},\"src\":{\"CNT\":\"25\",\"AMT\":\"193462.5\"},\"tgt\":{\"CNT\":\"25\",\"AMT\":\"193462.5\"},\"status\":\"ok\",\"key_is_null\":{\"DEPT_CD\":false}}],\"total_src\":6,\"total_tgt\":6,\"matched\":4,\"diff\":2,\"src_only\":0,\"tgt_only\":0,\"total_groups\":6,\"display_tier_info\":{\"display_mode\":\"FULL_LIST\",\"display_tier\":\"D1\",\"display_reason_code\":\"AXIS_A_MISMATCH_T1\",\"total_mismatch_count\":2,\"total_group_count\":6,\"early_stopped\":false,\"axis_a_tier\":1,\"axis_b_tier\":1,\"representative_sample_n\":20,\"xlsx_row_max\":1048576,\"display_message\":\"불일치 2건(그룹 6개) — 전체 레코드를 나열합니다.\",\"show_full_list\":true,\"show_group_table\":false,\"show_group_drilldown\":false,\"show_group_sample_only\":false,\"summary_only\":false,\"download_only_detail\":false,\"display_error\":\"\"},\"compared_groups\":6,\"displayed_groups\":6,\"result_rows_display_count\":6,\"max_display_rows\":200,\"display_truncated\":false,\"compare_truncated\":false,\"is_truncated\":false,\"tolerance_applied\":false,\"absolute_tolerance\":0.0,\"numeric_policy\":{\"count_exact\":true,\"sum_absolute_tolerance\":\"1E-9\",\"sum_relative_tolerance\":\"0\",\"null_equals_zero\":false,\"decimal_first\":true,\"effective_absolute_tolerance\":\"1E-9\"},\"tolerance_summary\":{\"user_tolerance_applied\":false,\"absolute_tolerance\":0.0,\"matched_with_tolerance_groups\":0},\"query_timing\":{\"source_query_started_at\":\"2026-07-26T13:42:54Z\",\"source_query_finished_at\":\"2026-07-26T13:42:54Z\",\"source_duration_ms\":6,\"target_query_started_at\":\"2026-07-26T13:42:54Z\",\"target_query_finished_at\":\"2026-07-26T13:42:54Z\",\"target_duration_ms\":4,\"source_target_gap_ms\":54,\"consistency_guarantee\":\"NOT_GUARANTEED\"},\"groupby_execution_safety\":{\"status\":\"SAFE\",\"reason_code\":\"FINITE_DOMAIN_CONFIRMED\",\"selected_columns\":[\"DEPT_CD\"],\"estimated_group_count\":6,\"raw_estimated_group_count\":6,\"effective_estimated_group_count\":6,\"estimate_safety_factor\":null,\"estimate_kind\":\"EXACT_UPPER_BOUND\",\"estimate_source\":\"finite_domain\",\"configured_limit\":100000,\"checked_at\":\"2026-07-26 13:42:54 UTC\",\"detail\":\"raw 6 · 판정값 6 ≤ 한도 100,000\",\"safety_scope_signature\":\"2a32fdf5823f898ef081fc92f4f646423f8f02f4a2db4de9e9a2609348fe1488\"},\"run_id\":null,\"stored\":false,\"history_run_id\":null,\"result_view\":{\"status_code\":\"FAILED\",\"status_label\":\"불일치\",\"status_level\":\"danger\",\"summary_counts\":{\"matched\":4,\"diff\":2,\"src_only\":0,\"tgt_only\":0,\"total_groups\":6,\"compared_groups\":6},\"warning_messages\":[],\"evidence_messages\":[],\"truncation_message\":null,\"count_precheck_message\":null,\"tolerance_messages\":[],\"display_truncated\":false,\"compare_truncated\":false,\"count_precheck_status\":\"PASSED\",\"count_skipped\":false,\"tolerance_summary\":{\"user_tolerance_applied\":false,\"absolute_tolerance\":0.0,\"matched_with_tolerance_groups\":0},\"numeric_policy_summary\":{\"count_exact\":true,\"sum_absolute_tolerance\":\"1E-9\",\"sum_relative_tolerance\":\"0\",\"null_equals_zero\":false,\"decimal_first\":true,\"effective_absolute_tolerance\":\"1E-9\"},\"source_error\":null,\"target_error\":null},\"verdict_view\":{\"verdict\":\"MISMATCH\",\"matched\":false,\"mismatch_count\":2,\"warning_count\":0,\"error_count\":0,\"reason_code\":\"GROUP_SUM_MISMATCH\",\"summary\":\"불일치\",\"details\":{\"summary_counts\":{\"matched\":4,\"diff\":2,\"src_only\":0,\"tgt_only\":0,\"total_groups\":6,\"compared_groups\":6},\"count_mismatch\":false,\"legacy_status_code\":\"FAILED\"},\"validation_type\":\"INDIVIDUAL\",\"source_result\":null,\"target_result\":null,\"status_code\":\"FAILED\",\"verdict_label\":\"불일치\",\"verdict_level\":\"danger\"},\"result_view_model\":{\"execution_id\":\"sNceHG1bZuGKJNe8BHTLCN4UMCG6tqvF\",\"mode\":\"INDIVIDUAL\",\"validation_type\":\"INDIVIDUAL\",\"verdict\":\"MISMATCH\",\"verdict_label\":\"불일치\",\"verdict_level\":\"danger\",\"summary\":\"불일치\",\"reason_code\":\"GROUP_SUM_MISMATCH\",\"count\":{\"src\":150,\"tgt\":150,\"matched\":true},\"group_sum\":{\"matched_count\":4,\"mismatch_count\":2},\"warning_count\":0,\"error_count\":0,\"user_message\":\"\",\"can_retry\":false,\"can_save\":false,\"is_test_only\":true,\"persistence\":null},\"result_page\":{\"result_id\":\"SR211132650E83\",\"total_group_count\":6,\"total_mismatch_count\":2,\"page_size_default\":50,\"plan_fingerprint\":\"c6818596cc74aa645e79\"},\"processing_ms\":133.3,\"selection_evidence\":{\"configured_group_by\":3,\"configured_sum\":3,\"effective_group_by_columns\":[\"DEPT_CD\"],\"effective_sum_columns\":[\"AMT\"],\"effective_group_by_count\":1,\"effective_sum_count\":1,\"selection_mode\":\"AUTO\",\"selection_fingerprint\":\"630af843c66fbfa2830a\",\"plan_fingerprint\":\"c6818596cc74aa645e79\",\"run_id\":\"SR211132650E83\"}}",
+    "body_len": 5420
+   },
+   {
+    "url": "/strategy/plan",
+    "method": "POST",
+    "payload": "{\"profile\":{\"table_key\":\"NXDNP.MV_ORA_DEMO_SRC\",\"source_count\":150,\"estimated_scan_rows\":150,\"configured_group_by_count\":null,\"configured_aggregate_count\":null,\"selection_mode\":\"MANUAL\",\"effective_group_by_columns\":[\"STATUS_CD\",\"DEPT_CD\"],\"effective_aggregate_columns\":[\"AMT\"],\"group_axis_count\":2,\"sum_column_count\":1,\"has_pk\":true,\"pk_kind\":\"SINGLE_NUMERIC\",\"pk_indexed\":true,\"remote\":true}}",
+    "payload_len": 393,
+    "t0": 144804.90000009537,
+    "status": 200,
+    "t1": 144923.70000004768,
+    "body": "{\"ok\":true,\"stats_plan\":{\"stats_strategy_id\":\"STATS_DIRECT_AGG\",\"reason_codes\":[\"DIRECT_AGG_OK\",\"REMOTE_CONNECTION\"],\"estimated_scan_rows\":150,\"estimated_group_count\":null,\"selected_group_axes\":[\"STATUS_CD\",\"DEPT_CD\"],\"selected_sum_columns\":[\"AMT\"],\"partition_usage\":false,\"index_usage\":false,\"expected_cost_score\":4.766,\"confidence\":\"LOW\",\"hold_reason\":\"\",\"provisional_grade\":\"잠정 소형\",\"grade_basis\":{\"estimated_scan_rows\":150,\"axis_group_sum\":null,\"estimated_group_count\":null,\"max_cardinality\":0,\"group_axis_count\":2,\"sum_column_count\":1,\"sum_expr_complexity\":0,\"where_complexity\":0,\"remote\":true,\"partition_available\":false,\"configured_group_by_count\":null,\"configured_aggregate_count\":null,\"effective_group_by_count\":2,\"effective_aggregate_count\":1,\"selection_mode\":\"MANUAL\"},\"plan_fingerprint\":\"a44c2ab988722f6b\"},\"full_compare_plan\":{\"compare_strategy_id\":\"DIRECT_STREAM_COMPARE\",\"reason_codes\":[\"SINGLE_NUMERIC_PK_INDEXED\",\"EST_TOTAL_WITHIN_DIRECT_BUDGET\"],\"pk_structure\":\"SINGLE_NUMERIC\",\"partition_usage\":false,\"proposed_chunk_size\":null,\"proposed_bucket_count\":null,\"expected_scan_rows\":150,\"expected_detail_count\":null,\"early_stop_policy\":{\"sample_threshold_ratio\":0.1},\"detail_extract_limit\":null,\"fallback_strategy_id\":\"\",\"implementation_status\":\"AVAILABLE\",\"plan_fingerprint\":\"d5892f8f0d4e72a2\"},\"provisional_grade\":\"잠정 소형\",\"compare_auto_runnable\":true,\"implementation_status\":\"AVAILABLE\",\"basis_text\":\"원본 150건 · 숫자 단일 PK · PK 인덱스 · 원격 DB\",\"configured_group_by_count\":null,\"configured_aggregate_count\":null,\"effective_group_by_count\":2,\"effective_aggregate_count\":1,\"effective_group_by_columns\":[\"STATUS_CD\",\"DEPT_CD\"],\"effective_aggregate_columns\":[\"AMT\"],\"selection_mode\":\"MANUAL\",\"transition\":{\"selected_strategy_id\":\"DIRECT_STREAM_COMPARE\",\"selected_chunk_size\":null,\"reason_codes\":[\"EST_TOTAL_WITHIN_DIRECT_BUDGET\"],\"expected_first_result_seconds\":null,\"expected_total_seconds\":0.02,\"confidence\":\"MEDIUM\",\"benchmark_profile_version\":\"phase4d1-1m-crosshost-cold\"}}",
+    "body_len": 1981
+   },
+   {
+    "url": "/agg-diff/prepare",
+    "method": "POST",
+    "payload": "{\"parse_result\":{\"insert_cols\":[\"ID\",\"DEPT_CD\",\"UPD_YMD\",\"REG_DT\",\"STATUS_CD\",\"AMT\",\"CREATED_BY\"],\"select_items\":[{\"tgt_col\":\"ID\",\"src_expr\":\"ID\"},{\"tgt_col\":\"DEPT_CD\",\"src_expr\":\"DEPT_CD\"},{\"tgt_col\":\"UPD_YMD\",\"src_expr\":\"UPD_YMD\"},{\"tgt_col\":\"REG_DT\",\"src_expr\":\"REG_DT\"},{\"tgt_col\":\"STATUS_CD\",\"src_expr\":\"STATUS_CD\"},{\"tgt_col\":\"AMT\",\"src_expr\":\"AMT\"},{\"tgt_col\":\"CREATED_BY\",\"src_expr\":\"CREATED_BY\"}],\"from_table\":\"MV_ORA_DEMO_SRC\",\"from_alias\":\"\",\"tgt_table\":\"MV_ORA_DEMO_TGT\",\"joins\":[],\"where\":\"\",\"groupby\":[],\"union_type\":null,\"union_branches\":[],\"from_table_qualified\":\"NXDNP.MV_ORA_DEMO_SRC\",\"tgt_table_qualified\":\"NXDNP.MV_ORA_DEMO_TGT\",\"source_schema\":\"NXDNP\",\"target_schema\":\"NXDNP\"},\"src_conn\":{\"db_type\":\"oracle\",\"host\":\"192.168.0.151\",\"port\":1523,\"dbname\":\"xepdb1\",\"user\":\"nxdnp\",\"password\":\"\"},\"tgt_conn\":{\"db_type\":\"oracle\",\"host\":\"192.168.0.151\",\"port\":1524,\"dbname\":\"xepdb1\",\"user\":\"nxdnp\",\"password\":\"\"},\"sum_cols\":[[\"AMT\",\"AMT\",\"AMT\"]],\"gb_cols\":[\"STATUS_CD\",\"DEPT_CD\"],\"stream\":false,\"source_count\":150,\"target_count\":150,\"early_stop_ratio\":null,\"early_stop_abs\":null,\"min_decision_count\":null,\"plan_fingerprint\":\"c6818596cc74aa645e79\",\"selection_fingerprint\":\"\",\"compare_strategy\":\"\",\"chunk_size\":0,\"global_settings_fingerprint\":\"9e071849fb8285a5dd421ab5\",\"chunk_key_evidence_snapshot\":{\"evidence_version\":\"cke-1\",\"verdict\":\"NOT_TRUSTED\",\"reason\":\"SCHEMA_META_MISSING\",\"query_hash\":\"fb5b15f635838b78b692cf96b6f7efd27a9b513ef315d4f126fe1f71ccfd07a9\",\"project_id\":\"832\",\"src_profile\":\"192.168.0.151:1523/xepdb1\",\"tgt_profile\":\"192.168.0.151:1524/xepdb1\",\"src_table\":\"MV_ORA_DEMO_SRC\",\"tgt_table\":\"MV_ORA_DEMO_TGT\",\"join_multiplicity_risk\":false,\"source_exists\":false,\"target_exists\":false,\"schema_structure_hash\":\"sh_fa99c999012d9ab067b6\"},\"force\":false,\"project_id\":\"832\",\"selection_mode\":\"AUTO\",\"session_id\":\"sess_ms1ula45qb6klq\",\"query_summary\":\"INSERT INTO NXDNP.MV_ORA_DEMO_TGT (ID, DEPT_CD, UPD_YMD, REG_DT, STATUS_CD, AMT, CREATED_BY) SELECT ID, DEPT_CD, UPD_YMD, REG_DT, STATUS_CD, AMT, CREATED_BY FRO\",\"query_full\":\"INSERT INTO NXDNP.MV_ORA_DEMO_TGT (ID, DEPT_CD, UPD_YMD, REG_DT, STATUS_CD, AMT, CREATED_BY) SELECT ID, DEPT_CD, UPD_YMD, REG_DT, STATUS_CD, AMT, CREATED_BY FROM NXDNP.MV_ORA_DEMO_SRC\",\"tgt_where\":\"\",\"resume\":false}",
+    "payload_len": 2263,
+    "t0": 144807,
+    "status": 200,
+    "t1": 145321,
+    "body": "{\"ok\":true,\"status\":\"READY\",\"run_id\":\"PK3D3D35F33ACB\",\"fingerprint\":\"4ba2d756891d5b9c06e361af76fc9cfd27526996e1a1cdf213b93011f6a076aa\",\"key_col\":\"ID\",\"gb_cols\":[\"STATUS_CD\",\"DEPT_CD\"],\"sum_labels\":[\"AMT\"],\"engine\":\"REIMPORT_PK_INDEX\",\"total_reimport_pks\":10,\"passed_keys\":140,\"missing_migration\":0,\"value_mismatch\":10,\"excluded_target_only\":0,\"target_only_stored\":0,\"src_keys\":150,\"tgt_keys\":150,\"source_count\":150,\"target_count\":150,\"ratios\":{\"reimport_ratio\":6.6667,\"missing_ratio\":0.0,\"value_ratio\":6.6667,\"target_only_ratio\":0.0,\"source_count\":150,\"target_count\":150},\"prepare_ms\":68.7,\"reused\":true,\"configured_group_by\":3,\"configured_sum\":3,\"effective_group_by_columns\":[\"STATUS_CD\",\"DEPT_CD\"],\"effective_sum_columns\":[\"AMT\"],\"effective_group_by_count\":2,\"effective_sum_count\":1,\"selection_mode\":\"AUTO\",\"selection_fingerprint\":\"690b6e59deaedb25ac89\",\"plan_fingerprint\":\"c6818596cc74aa645e79\",\"selection_evidence\":{\"configured_group_by\":3,\"configured_sum\":3,\"effective_group_by_columns\":[\"STATUS_CD\",\"DEPT_CD\"],\"effective_sum_columns\":[\"AMT\"],\"effective_group_by_count\":2,\"effective_sum_count\":1,\"selection_mode\":\"AUTO\",\"selection_fingerprint\":\"690b6e59deaedb25ac89\",\"plan_fingerprint\":\"c6818596cc74aa645e79\",\"run_id\":\"PK3D3D35F33ACB\"}}",
+    "body_len": 1241
+   },
+   {
+    "url": "/single/active-run?session_id=sess_ms1ula45qb6klq",
+    "method": "GET",
+    "payload": "",
+    "payload_len": 0,
+    "t0": 144808.10000002384,
+    "status": 200,
+    "t1": 145035.70000004768,
+    "body": "{\"ok\":true,\"active\":false,\"count\":0,\"run\":null,\"runs\":[]}",
+    "body_len": 57
+   },
+   {
+    "url": "/single/active-run?session_id=sess_ms1ula45qb6klq",
+    "method": "GET",
+    "payload": "",
+    "payload_len": 0,
+    "t0": 144809.60000002384,
+    "status": 200,
+    "t1": 145036.20000004768,
+    "body": "{\"ok\":true,\"active\":false,\"count\":0,\"run\":null,\"runs\":[]}",
+    "body_len": 57
+   },
+   {
+    "url": "/agg-diff/resumable",
+    "method": "GET",
+    "payload": "",
+    "payload_len": 0,
+    "t0": 145035.90000009537,
+    "status": 200,
+    "t1": 145154.5,
+    "body": "{\"ok\":true,\"count\":0,\"items\":[]}",
+    "body_len": 32
+   },
+   {
+    "url": "/agg-diff/resumable",
+    "method": "GET",
+    "payload": "",
+    "payload_len": 0,
+    "t0": 145036.40000009537,
+    "status": 200,
+    "t1": 145160.40000009537,
+    "body": "{\"ok\":true,\"count\":0,\"items\":[]}",
+    "body_len": 32
+   },
+   {
+    "url": "/agg-diff/pk-records?run_id=PK3D3D35F33ACB&page=1&page_size=20&view=reimport&scope_col=&scope_val=",
+    "method": "GET",
+    "payload": "",
+    "payload_len": 0,
+    "t0": 145321.5,
+    "status": 200,
+    "t1": 145397.70000004768,
+    "body": "{\"ok\":true,\"status\":\"READY\",\"display_tier_info\":{\"display_mode\":\"FULL_LIST\",\"display_tier\":\"D1\",\"display_reason_code\":\"AXIS_A_MISMATCH_T1\",\"total_mismatch_count\":10,\"total_group_count\":4,\"early_stopped\":false,\"axis_a_tier\":1,\"axis_b_tier\":1,\"representative_sample_n\":20,\"xlsx_row_max\":1048576,\"display_message\":\"불일치 10건(그룹 4개) — 전체 레코드를 나열합니다.\",\"show_full_list\":true,\"show_group_table\":false,\"show_group_drilldown\":false,\"show_group_sample_only\":false,\"summary_only\":false,\"download_only_detail\":false,\"display_error\":\"\"},\"per_group_policy\":{\"per_group_full_list_max\":100,\"per_group_early_stop_abs\":101},\"snapshot_at\":\"2026-07-26 13:36:06\",\"snapshot_at_kst\":\"2026-07-26 22:36:06 KST\",\"ready\":true,\"early_stopped\":false,\"run_id\":\"PK3D3D35F33ACB\",\"view\":\"reimport\",\"mismatch_limit_stopped\":false,\"mismatch_limit\":null,\"mismatch_group_distribution\":{\"group_col\":\"STATUS_CD\",\"groups\":[{\"value\":\"P\",\"count\":3,\"sample_pks\":[\"15\"]},{\"value\":\"I\",\"count\":3,\"sample_pks\":[\"30\"]},{\"value\":\"A\",\"count\":2,\"sample_pks\":[\"45\"]},{\"value\":\"C\",\"count\":2,\"sample_pks\":[\"60\"]}],\"top\":[{\"value\":\"P\",\"count\":3,\"sample_pks\":[\"15\"]},{\"value\":\"I\",\"count\":3,\"sample_pks\":[\"30\"]},{\"value\":\"A\",\"count\":2,\"sample_pks\":[\"45\"]},{\"value\":\"C\",\"count\":2,\"sample_pks\":[\"60\"]}],\"total_group_count\":4,\"returned_group_count\":4,\"group_total\":4,\"other_count\":0,\"truncated\":false,\"computed_from_store\":true},\"reimport_total\":null,\"mtype\":\"\",\"pk\":\"\",\"sampling\":null,\"sampling_status\":null,\"key_col\":\"ID\",\"gb_cols\":[\"STATUS_CD\",\"DEPT_CD\"],\"sum_labels\":[\"AMT\"],\"row_compare_columns\":[],\"result_grid_schema\":[{\"display_name\":\"ID\",\"output_alias\":\"ID\",\"role\":\"KEY\",\"column_order\":0,\"source_value_field\":\"ID\",\"target_value_field\":\"ID\",\"display_format\":\"text\"},{\"display_name\":\"STATUS_CD\",\"output_alias\":\"STATUS_CD\",\"role\":\"GROUP_BY\",\"column_order\":1,\"source_value_field\":\"STATUS_CD\",\"target_value_field\":\"STATUS_CD\",\"display_format\":\"text\"},{\"display_name\":\"DEPT_CD\",\"output_alias\":\"DEPT_CD\",\"role\":\"GROUP_BY\",\"column_order\":2,\"source_value_field\":\"DEPT_CD\",\"target_value_field\":\"DEPT_CD\",\"display_format\":\"text\"},{\"display_name\":\"AMT\",\"output_alias\":\"AMT\",\"role\":\"SUM\",\"column_order\":3,\"source_value_field\":\"AMT\",\"target_value_field\":\"AMT\",\"display_format\":\"number\"}],\"numeric_pk\":false,\"counts\":{\"reimport_pks\":10,\"passed\":140,\"missing_migration\":0,\"value_mismatch\":10,\"excluded_target_only\":0,\"target_only_stored\":0},\"missing_migration\":0,\"value_mismatch\":10,\"excluded_target_only\":0,\"target_only_count\":0,\"target_only_stored\":0,\"ratios\":{\"reimport_ratio\":6.6667,\"missing_ratio\":0.0,\"value_ratio\":6.6667,\"target_only_ratio\":0.0,\"source_count\":150,\"target_count\":150},\"source_count\":150,\"target_count\":150,\"stage_timings\":{\"merge_judge_ms\":null,\"store_save_ms\":null,\"index_build_ms\":null,\"first_20_committed_ms\":null,\"prepare_ms\":68.7,\"src_query_count\":null,\"tgt_query_count\":null,\"peak_python_mb\":null,\"source_chunk_read_seconds\":null,\"target_chunk_read_seconds\":null,\"compare_seconds\":null,\"store_seconds\":null,\"total_ready_seconds\":null,\"chunks_total\":null,\"chunks_done\":null,\"chunk_size\":null,\"source_target_wall_seconds\":null,\"read_overlap_saved_seconds\":null,\"parallel_read\":null,\"parallel_read_used\":null,\"parallel_read_disabled_reason\":null,\"source_read_sec\":null,\"target_read_sec\":null,\"read_wall_sec\":null,\"overlap_saved_sec\":null,\"total_wall_sec\":null,\"detail_started_at\":null,\"detail_finished_at\":null,\"detail_elapsed_ms\":null,\"orchestration_overhead_ms\":null},\"detail_elapsed_ms\":68.7,\"orchestration_overhead_ms\":null,\"job_status_detail\":null,\"resume_count\":null,\"resume_from_chunk\":null,\"execution_path\":null,\"selected_strategy_id\":null,\"actual_strategy_id\":\"DIRECT_STREAM_COMPARE\",\"chunk_size\":null,\"page_store_ms\":0.19,\"page_server_ms\":5.58,\"elapsed_ms\":68.7,\"total\":10,\"total_count\":10,\"final_total_count\":10,\"page\":1,\"page_size\":20,\"total_pages\":1,\"returned_count\":10,\"last_pk\":null,\"last_seq\":9,\"has_previous\":false,\"has_next\":false,\"keys\":[\"15\",\"30\",\"45\",\"60\",\"75\",\"90\",\"105\",\"120\",\"135\",\"150\"],\"records\":[{\"key\":\"15\",\"seq\":0,\"pk_num\":null,\"src\":{\"STATUS_CD\":\"P\",\"DEPT_CD\":\"D03\",\"AMT\":\"1512.5\"},\"tgt\":{\"STATUS_CD\":\"P\",\"DEPT_CD\":\"D03\",\"AMT\":\"2012.5\"},\"diff_cols\":[\"AMT\"]},{\"key\":\"30\",\"seq\":1,\"pk_num\":null,\"src\":{\"STATUS_CD\":\"I\",\"DEPT_CD\":\"D06\",\"AMT\":\"3025\"},\"tgt\":{\"STATUS_CD\":\"I\",\"DEPT_CD\":\"D06\",\"AMT\":\"3525\"},\"diff_cols\":[\"AMT\"]},{\"key\":\"45\",\"seq\":2,\"pk_num\":null,\"src\":{\"STATUS_CD\":\"A\",\"DEPT_CD\":\"D03\",\"AMT\":\"4537.5\"},\"tgt\":{\"STATUS_CD\":\"A\",\"DEPT_CD\":\"D03\",\"AMT\":\"5037.5\"},\"diff_cols\":[\"AMT\"]},{\"key\":\"60\",\"seq\":3,\"pk_num\":null,\"src\":{\"STATUS_CD\":\"C\",\"DEPT_CD\":\"D06\",\"AMT\":\"6050\"},\"tgt\":{\"STATUS_CD\":\"C\",\"DEPT_CD\":\"D06\",\"AMT\":\"6550\"},\"diff_cols\":[\"AMT\"]},{\"key\":\"75\",\"seq\":4,\"pk_num\":null,\"src\":{\"STATUS_CD\":\"P\",\"DEPT_CD\":\"D03\",\"AMT\":\"7562.5\"},\"tgt\":{\"STATUS_CD\":\"P\",\"DEPT_CD\":\"D03\",\"AMT\":\"8062.5\"},\"diff_cols\":[\"AMT\"]},{\"key\":\"90\",\"seq\":5,\"pk_num\":null,\"src\":{\"STATUS_CD\":\"I\",\"DEPT_CD\":\"D06\",\"AMT\":\"9075\"},\"tgt\":{\"STATUS_CD\":\"I\",\"DEPT_CD\":\"D06\",\"AMT\":\"9575\"},\"diff_cols\":[\"AMT\"]},{\"key\":\"105\",\"seq\":6,\"pk_num\":null,\"src\":{\"STATUS_CD\":\"A\",\"DEPT_CD\":\"D03\",\"AMT\":\"10500\"},\"tgt\":{\"STATUS_CD\":\"A\",\"DEPT_CD\":\"D03\",\"AMT\":\"11000\"},\"diff_cols\":[\"AMT\"]},{\"key\":\"120\",\"seq\":7,\"pk_num\":null,\"src\":{\"STATUS_CD\":\"C\",\"DEPT_CD\":\"D06\",\"AMT\":\"12012.5\"},\"tgt\":{\"STATUS_CD\":\"C\",\"DEPT_CD\":\"D06\",\"AMT\":\"12512.5\"},\"diff_cols\":[\"AMT\"]},{\"key\":\"135\",\"seq\":8,\"pk_num\":null,\"src\":{\"STATUS_CD\":\"P\",\"DEPT_CD\":\"D03\",\"AMT\":\"13525\"},\"tgt\":{\"STATUS_CD\":\"P\",\"DEPT_CD\":\"D03\",\"AMT\":\"14025\"},\"diff_cols\":[\"AMT\"]},{\"key\":\"150\",\"seq\":9,\"pk_num\":null,\"src\":{\"STATUS_CD\":\"I\",\"DEPT_CD\":\"D06\",\"AMT\":\"15037.5\"},\"tgt\":{\"STATUS_CD\":\"I\",\"DEPT_CD\":\"D06\",\"AMT\":\"15537.5\"},\"diff_cols\":[\"AMT\"]}]}",
+    "body_len": 5623
+   },
+   {
+    "url": "/single/active-run/status?run_id=PK3D3D35F33ACB",
+    "method": "GET",
+    "payload": "",
+    "payload_len": 0,
+    "t0": 145398.90000009537,
+    "status": 200,
+    "t1": 145515.90000009537,
+    "body": "{\"ok\":true,\"run_id\":\"PK3D3D35F33ACB\",\"status\":null,\"not_found\":true,\"recoverable\":false,\"recover_reason\":\"NO_CHECKPOINT\",\"recovery_source\":null,\"recovered_at\":null,\"recovery_status\":null,\"recovery_required\":false,\"settings_version\":\"d7-20\"}",
+    "body_len": 240
+   }
+  ],
+  "rej": [],
+  "origType": "function"
+ },
+ "visibility": {
+  "step": "validation",
+  "execResultCard": {
+   "exists": true,
+   "cls": "card mb-3 mv-pane-hidden",
+   "paneHidden": true,
+   "inlineDisplay": "",
+   "computedDisplay": "none",
+   "visible": false,
+   "textLen": 2755
+  },
+  "executeOut": {
+   "exists": true,
+   "cls": "",
+   "paneHidden": false,
+   "inlineDisplay": "",
+   "computedDisplay": "block",
+   "visible": false,
+   "textLen": 1160
+  },
+  "mvExecStepError": {
+   "exists": true,
+   "cls": "",
+   "paneHidden": false,
+   "inlineDisplay": "none",
+   "computedDisplay": "none",
+   "visible": false,
+   "textLen": 0
+  },
+  "mvExecProgress": {
+   "exists": true,
+   "cls": "",
+   "paneHidden": false,
+   "inlineDisplay": "none",
+   "computedDisplay": "none",
+   "visible": false,
+   "textLen": 0
+  },
+  "step4_visible_text": [
+   "sqlCard"
+  ]
+ },
+ "after_manual_step5": {
+  "step": "result",
+  "cardVisible": true,
+  "cardComputed": "flex",
+  "outTextLen": 1160,
+  "outHead": "불일치 유형전체목적 미존재값 불일치GROUP BY 기준전체STATUS_CDDEPT_CD그룹 값전체PK 검색조회초기화⬇ 상세 불일치 레코드 Excel 다운로드표시 등급 D1 · 전체 레코드 나열불일치 10건(그룹 4개) — 전체 레코드를 나열합니다.원본 전체 150건 · 목적 전체 150건 · 차이 0건재이관 대상 10건(6.67%) (현재 목록)목적 미존재 0건(0.00%) · 값 불일치 10건(6.67%)목적 단독 0건(0.00%) — 재이관 비율에 미포함실행경로 — · 전략 DIRECT_STREAM_COMPARE상세 불일치 처리 총 소요시간 0.07초고급 성능정보 · DIRECT_STREAM_COMPARE · 총 0.07초측정 기준(시작점을 찍은 실행 경로)단계별 [▶ 통계검증 실행]실행 시작 → 그룹 "
+ },
+ "console_after_click": [],
+ "net_after_click": [
+  {
+   "url": "http://127.0.0.1:8000/single/active-run?session_id=sess_ms1ula45qb6klq",
+   "status": 200,
+   "body": "{\"ok\":true,\"active\":false,\"count\":0,\"run\":null,\"runs\":[]}",
+   "body_len": 57
+  },
+  {
+   "url": "http://127.0.0.1:8000/agg-diff/resumable",
+   "status": 200,
+   "body": "{\"ok\":true,\"count\":0,\"items\":[]}",
+   "body_len": 32
+  },
+  {
+   "url": "http://127.0.0.1:8000/generate",
+   "status": 200,
+   "body": "{\"success\":true,\"stats_src_sql\":\"SELECT\\n    STATUS_CD AS STATUS_CD,\\n    COUNT(*) AS CNT,\\n    SUM(AMT) AS AMT\\nFROM NXDNP.MV_ORA_DEMO_SRC\\nGROUP BY\\n    STATUS_CD\",\"stats_tgt_sql\":\"SELECT\\n    STATUS_CD AS STATUS_CD,\\n    COUNT(*) AS CNT,\\n    SUM(AMT) AS AMT\\nFROM NXDNP.MV_ORA_DEMO_TGT\\nGROUP BY\\n    STATUS_CD\",\"warnings\":[],\"wrapped_source_select\":false,\"source_sql_generation_method\":\"DIRECT_FROM\",\"processing_ms\":1.3,\"selection_evidence\":{\"configured_group_by\":3,\"configured_sum\":3,\"effective_group_by_columns\":[\"STATUS_CD\"],\"effective_sum_columns\":[\"AMT\"],\"effective_group_by_count\":1,\"effective_sum_count\":1,\"selection_mode\":\"AUTO\",\"selection_fingerprint\":\"3c63ea9645d315e16b73\",\"plan_fingerprint\":\"\",\"run_id\":\"\"}}",
+   "body_len": 724
+  },
+  {
+   "url": "http://127.0.0.1:8000/execute",
+   "status": 200,
+   "body": "{\"success\":true,\"val_cols\":[\"CNT\",\"AMT\"],\"gb_keys\":[\"STATUS_CD\"],\"rows\":[{\"key\":{\"STATUS_CD\":\"A\"},\"src\":{\"CNT\":\"38\",\"AMT\":\"286412.5\"},\"tgt\":{\"CNT\":\"38\",\"AMT\":\"287412.5\"},\"status\":\"diff\",\"key_is_null\":{\"STATUS_CD\":false},\"cell_meta\":{\"AMT\":{\"result\":\"DIFF\",\"reason\":\"허용오차 초과 (차이 1000.0, 허용 1E-9)\",\"tolerance_applied\":true,\"tolerance_value\":\"1E-9\",\"diff_value\":\"1000.0\"}}},{\"key\":{\"STATUS_CD\":\"C\"},\"src\":{\"CNT\":\"37\",\"AMT\":\"282575\"},\"tgt\":{\"CNT\":\"37\",\"AMT\":\"283575\"},\"status\":\"diff\",\"key_is_null\":{\"STATUS_CD\":false},\"cell_meta\":{\"AMT\":{\"result\":\"DIFF\",\"reason\":\"허용오차 초과 (차이 1000, 허용 1E-9)\",\"tolerance_applied\":true,\"tolerance_value\":\"1E-9\",\"diff_value\":\"1000\"}}},{\"key\":{\"STATUS_CD\":\"I\"},\"src\":{\"CNT\":\"38\",\"AMT\":\"290250\"},\"tgt\":{\"CNT\":\"38\",\"AMT\":\"291750\"},\"status\":\"diff\",\"key_is_null\":{\"STATUS_CD\":false},\"cell_meta\":{\"AMT\":{\"result\":\"DIFF\",\"reason\":\"허용오차 초과 (차이 1500, 허용 1E-9)\",\"tolerance_applied\":true,\"tolerance_value\":\"1E-9\",\"diff_value\":\"1500\"}}},{\"key\":{\"STATUS_CD\":\"P\"},\"src\":{\"CNT\":\"37\",\"AMT\":\"278850\"},\"tgt\":{\"CNT\":\"37\",\"AMT\":\"280350\"},\"status\":\"diff\",\"key_is_null\":{\"STATUS_CD\":false},\"cell_meta\":{\"AMT\":{\"result\":\"DIFF\",\"reason\":\"허용오차 초과 (차이 1500, 허용 1E-9)\",\"tolerance_applied\":true,\"tolerance_value\":\"1E-9\",\"diff_value\":\"1500\"}}}],\"total_src\":4,\"total_tgt\":4,\"matched\":0,\"diff\":4,\"src_only\":0,\"tgt_only\":0,\"total_groups\":4,\"display_tier_info\":{\"display_mode\":\"FULL_LIST\",\"display_tier\":\"D1\",\"display_reason_code\":\"AXIS_A_MISMATCH_T1\",\"total_mismatch_count\":4,\"total_group_count\":4,\"early_stopped\":false,\"axis_a_tier\":1,\"axis_b_tier\":1,\"representative_sample_n\":20,\"xlsx_row_max\":1048576,\"display_message\":\"불일치 4건(그룹 4개) — 전체 레코드를 나열합니다.\",\"show_full_list\":true,\"show_group_table\":false,\"show_group_drilldown\":false,\"show_group_sample_only\":false,\"summary_only\":false,\"download_only_detail\":false,\"display_error\":\"\"},\"compared_groups\":4,\"displayed_groups\":4,\"result_rows_display_count\":4,\"max_display_rows\":200,\"display_truncated\":false,\"compare_truncated\":false,\"is_truncated\":false,\"tolerance_applied\":false,\"absolute_tolerance\":0.0,\"numeric_policy\":{\"count_exact\":true,\"sum_absolute_tolerance\":\"1E-9\",\"sum_relative_tolerance\":\"0\",\"null_equals_zero\":false,\"decimal_first\":true,\"effective_absolute_tolerance\":\"1E-9\"},\"tolerance_summary\":{\"user_tolerance_applied\":false,\"absolute_tolerance\":0.0,\"matched_with_tolerance_groups\":0},\"query_timing\":{\"source_query_started_at\":\"2026-07-26T13:42:53Z\",\"source_query_finished_at\":\"2026-07-26T13:42:53Z\",\"source_duration_ms\":6,\"target_query_started_at\":\"2026-07-26T13:42:53Z\",\"target_query_finished_at\":\"2026-07-26T13:42:54Z\",\"target_duration_ms\":7,\"source_target_gap_ms\":73,\"consistency_guarantee\":\"NOT_GUARANTEED\"},\"groupby_execution_safety\":{\"status\":\"SAFE\",\"reason_code\":\"FINITE_DOMAIN_CONFIRMED\",\"selected_columns\":[\"STATUS_CD\"],\"estimated_group_count\":4,\"raw_estimated_group_count\":4,\"effective_estimated_group_count\":4,\"estimate_safety_factor\":null,\"estimate_kind\":\"EXACT_UPPER_BOUND\",\"estimate_source\":\"finite_domain\",\"configured_limit\":100000,\"checked_at\":\"2026-07-26 13:42:53 UTC\",\"detail\":\"raw 4 · 판정값 4 ≤ 한도 100,000\",\"safety_scope_signature\":\"8665b5acdab807a711853f56a26b9f386f6496b1a94b23db563c9a9eee1e8372\"},\"run_id\":null,\"stored\":false,\"history_run_id\":null,\"result_view\":{\"status_code\":\"FAILED\",\"status_label\":\"불일치\",\"status_level\":\"danger\",\"summary_counts\":{\"matched\":0,\"diff\":4,\"src_only\":0,\"tgt_only\":0,\"total_groups\":4,\"compared_groups\":4},\"warning_messages\":[],\"evidence_messages\":[],\"truncation_message\":null,\"count_precheck_message\":null,\"tolerance_messages\":[],\"display_truncated\":false,\"compare_truncated\":false,\"count_precheck_status\":\"PASSED\",\"count_skipped\":false,\"tolerance_summary\":{\"user_tolerance_applied\":false,\"absolute_tolerance\":0.0,\"matched_with_tolerance_groups\":0},\"numeric_policy_summary\":{\"count_exact\":true,\"sum_absolute_tolerance\":\"1E-9\",\"sum_relative_tolerance\":\"0\",\"null_equals_zero\":false,\"decimal_first\":true,\"effective_absolute_tolerance\":\"1E-9\"},\"source_error\":null,\"target_error\":null},\"verdict_view\":",
+   "body_len": 5430
+  },
+  {
+   "url": "http://127.0.0.1:8000/generate",
+   "status": 200,
+   "body": "{\"success\":true,\"stats_src_sql\":\"SELECT\\n    DEPT_CD AS DEPT_CD,\\n    COUNT(*) AS CNT,\\n    SUM(AMT) AS AMT\\nFROM NXDNP.MV_ORA_DEMO_SRC\\nGROUP BY\\n    DEPT_CD\",\"stats_tgt_sql\":\"SELECT\\n    DEPT_CD AS DEPT_CD,\\n    COUNT(*) AS CNT,\\n    SUM(AMT) AS AMT\\nFROM NXDNP.MV_ORA_DEMO_TGT\\nGROUP BY\\n    DEPT_CD\",\"warnings\":[],\"wrapped_source_select\":false,\"source_sql_generation_method\":\"DIRECT_FROM\",\"processing_ms\":1.2,\"selection_evidence\":{\"configured_group_by\":3,\"configured_sum\":3,\"effective_group_by_columns\":[\"DEPT_CD\"],\"effective_sum_columns\":[\"AMT\"],\"effective_group_by_count\":1,\"effective_sum_count\":1,\"selection_mode\":\"AUTO\",\"selection_fingerprint\":\"630af843c66fbfa2830a\",\"plan_fingerprint\":\"\",\"run_id\":\"\"}}",
+   "body_len": 710
+  },
+  {
+   "url": "http://127.0.0.1:8000/execute",
+   "status": 200,
+   "body": "{\"success\":true,\"val_cols\":[\"CNT\",\"AMT\"],\"gb_keys\":[\"DEPT_CD\"],\"rows\":[{\"key\":{\"DEPT_CD\":\"D03\"},\"src\":{\"CNT\":\"25\",\"AMT\":\"188362.5\"},\"tgt\":{\"CNT\":\"25\",\"AMT\":\"190862.5\"},\"status\":\"diff\",\"key_is_null\":{\"DEPT_CD\":false},\"cell_meta\":{\"AMT\":{\"result\":\"DIFF\",\"reason\":\"허용오차 초과 (차이 2500.0, 허용 1E-9)\",\"tolerance_applied\":true,\"tolerance_value\":\"1E-9\",\"diff_value\":\"2500.0\"}}},{\"key\":{\"DEPT_CD\":\"D06\"},\"src\":{\"CNT\":\"25\",\"AMT\":\"196012.5\"},\"tgt\":{\"CNT\":\"25\",\"AMT\":\"198512.5\"},\"status\":\"diff\",\"key_is_null\":{\"DEPT_CD\":false},\"cell_meta\":{\"AMT\":{\"result\":\"DIFF\",\"reason\":\"허용오차 초과 (차이 2500.0, 허용 1E-9)\",\"tolerance_applied\":true,\"tolerance_value\":\"1E-9\",\"diff_value\":\"2500.0\"}}},{\"key\":{\"DEPT_CD\":\"D01\"},\"src\":{\"CNT\":\"25\",\"AMT\":\"183437.5\"},\"tgt\":{\"CNT\":\"25\",\"AMT\":\"183437.5\"},\"status\":\"ok\",\"key_is_null\":{\"DEPT_CD\":false}},{\"key\":{\"DEPT_CD\":\"D02\"},\"src\":{\"CNT\":\"25\",\"AMT\":\"185900\"},\"tgt\":{\"CNT\":\"25\",\"AMT\":\"185900\"},\"status\":\"ok\",\"key_is_null\":{\"DEPT_CD\":false}},{\"key\":{\"DEPT_CD\":\"D04\"},\"src\":{\"CNT\":\"25\",\"AMT\":\"190912.5\"},\"tgt\":{\"CNT\":\"25\",\"AMT\":\"190912.5\"},\"status\":\"ok\",\"key_is_null\":{\"DEPT_CD\":false}},{\"key\":{\"DEPT_CD\":\"D05\"},\"src\":{\"CNT\":\"25\",\"AMT\":\"193462.5\"},\"tgt\":{\"CNT\":\"25\",\"AMT\":\"193462.5\"},\"status\":\"ok\",\"key_is_null\":{\"DEPT_CD\":false}}],\"total_src\":6,\"total_tgt\":6,\"matched\":4,\"diff\":2,\"src_only\":0,\"tgt_only\":0,\"total_groups\":6,\"display_tier_info\":{\"display_mode\":\"FULL_LIST\",\"display_tier\":\"D1\",\"display_reason_code\":\"AXIS_A_MISMATCH_T1\",\"total_mismatch_count\":2,\"total_group_count\":6,\"early_stopped\":false,\"axis_a_tier\":1,\"axis_b_tier\":1,\"representative_sample_n\":20,\"xlsx_row_max\":1048576,\"display_message\":\"불일치 2건(그룹 6개) — 전체 레코드를 나열합니다.\",\"show_full_list\":true,\"show_group_table\":false,\"show_group_drilldown\":false,\"show_group_sample_only\":false,\"summary_only\":false,\"download_only_detail\":false,\"display_error\":\"\"},\"compared_groups\":6,\"displayed_groups\":6,\"result_rows_display_count\":6,\"max_display_rows\":200,\"display_truncated\":false,\"compare_truncated\":false,\"is_truncated\":false,\"tolerance_applied\":false,\"absolute_tolerance\":0.0,\"numeric_policy\":{\"count_exact\":true,\"sum_absolute_tolerance\":\"1E-9\",\"sum_relative_tolerance\":\"0\",\"null_equals_zero\":false,\"decimal_first\":true,\"effective_absolute_tolerance\":\"1E-9\"},\"tolerance_summary\":{\"user_tolerance_applied\":false,\"absolute_tolerance\":0.0,\"matched_with_tolerance_groups\":0},\"query_timing\":{\"source_query_started_at\":\"2026-07-26T13:42:54Z\",\"source_query_finished_at\":\"2026-07-26T13:42:54Z\",\"source_duration_ms\":6,\"target_query_started_at\":\"2026-07-26T13:42:54Z\",\"target_query_finished_at\":\"2026-07-26T13:42:54Z\",\"target_duration_ms\":4,\"source_target_gap_ms\":54,\"consistency_guarantee\":\"NOT_GUARANTEED\"},\"groupby_execution_safety\":{\"status\":\"SAFE\",\"reason_code\":\"FINITE_DOMAIN_CONFIRMED\",\"selected_columns\":[\"DEPT_CD\"],\"estimated_group_count\":6,\"raw_estimated_group_count\":6,\"effective_estimated_group_count\":6,\"estimate_safety_factor\":null,\"estimate_kind\":\"EXACT_UPPER_BOUND\",\"estimate_source\":\"finite_domain\",\"configured_limit\":100000,\"checked_at\":\"2026-07-26 13:42:54 UTC\",\"detail\":\"raw 6 · 판정값 6 ≤ 한도 100,000\",\"safety_scope_signature\":\"2a32fdf5823f898ef081fc92f4f646423f8f02f4a2db4de9e9a2609348fe1488\"},\"run_id\":null,\"stored\":false,\"history_run_id\":null,\"result_view\":{\"status_code\":\"FAILED\",\"status_label\":\"불일치\",\"status_level\":\"danger\",\"summary_counts\":{\"matched\":4,\"diff\":2,\"src_only\":0,\"tgt_only\":0,\"total_groups\":6,\"compared_groups\":6},\"warning_messages\":[],\"evidence_messages\":[],\"truncation_message\":null,\"count_precheck_message\":null,\"tolerance_messages\":[],\"display_truncated\":false,\"compare_truncated\":false,\"count_precheck_status\":\"PASSED\",\"count_skipped\":false,\"tolerance_summary\":{\"user_tolerance_applied\":false,\"absolute_tolerance\":0.0,\"matched_with_tolerance_groups\":0},\"numeric_policy_summary\":{\"count_exact\":true,\"sum_absolute_tolerance\":\"1E-9\",\"sum_relative_tolerance\":\"0\",\"null_equals_zero\":false,\"decimal_first\":true,\"effective_absolute_tolerance\":\"1E-9\"},\"source_error\":null,\"target_error\":null},\"verdict_view\":{\"verdic",
+   "body_len": 5420
+  },
+  {
+   "url": "http://127.0.0.1:8000/single/active-run?session_id=sess_ms1ula45qb6klq",
+   "status": 200,
+   "body": "{\"ok\":true,\"active\":false,\"count\":0,\"run\":null,\"runs\":[]}",
+   "body_len": 57
+  },
+  {
+   "url": "http://127.0.0.1:8000/single/active-run?session_id=sess_ms1ula45qb6klq",
+   "status": 200,
+   "body": "{\"ok\":true,\"active\":false,\"count\":0,\"run\":null,\"runs\":[]}",
+   "body_len": 57
+  },
+  {
+   "url": "http://127.0.0.1:8000/agg-diff/resumable",
+   "status": 200,
+   "body": "{\"ok\":true,\"count\":0,\"items\":[]}",
+   "body_len": 32
+  },
+  {
+   "url": "http://127.0.0.1:8000/agg-diff/resumable",
+   "status": 200,
+   "body": "{\"ok\":true,\"count\":0,\"items\":[]}",
+   "body_len": 32
+  },
+  {
+   "url": "http://127.0.0.1:8000/agg-diff/prepare",
+   "status": 200,
+   "body": "{\"ok\":true,\"status\":\"READY\",\"run_id\":\"PK3D3D35F33ACB\",\"fingerprint\":\"4ba2d756891d5b9c06e361af76fc9cfd27526996e1a1cdf213b93011f6a076aa\",\"key_col\":\"ID\",\"gb_cols\":[\"STATUS_CD\",\"DEPT_CD\"],\"sum_labels\":[\"AMT\"],\"engine\":\"REIMPORT_PK_INDEX\",\"total_reimport_pks\":10,\"passed_keys\":140,\"missing_migration\":0,\"value_mismatch\":10,\"excluded_target_only\":0,\"target_only_stored\":0,\"src_keys\":150,\"tgt_keys\":150,\"source_count\":150,\"target_count\":150,\"ratios\":{\"reimport_ratio\":6.6667,\"missing_ratio\":0.0,\"value_ratio\":6.6667,\"target_only_ratio\":0.0,\"source_count\":150,\"target_count\":150},\"prepare_ms\":68.7,\"reused\":true,\"configured_group_by\":3,\"configured_sum\":3,\"effective_group_by_columns\":[\"STATUS_CD\",\"DEPT_CD\"],\"effective_sum_columns\":[\"AMT\"],\"effective_group_by_count\":2,\"effective_sum_count\":1,\"selection_mode\":\"AUTO\",\"selection_fingerprint\":\"690b6e59deaedb25ac89\",\"plan_fingerprint\":\"c6818596cc74aa645e79\",\"selection_evidence\":{\"configured_group_by\":3,\"configured_sum\":3,\"effective_group_by_columns\":[\"STATUS_CD\",\"DEPT_CD\"],\"effective_sum_columns\":[\"AMT\"],\"effective_group_by_count\":2,\"effective_sum_count\":1,\"selection_mode\":\"AUTO\",\"selection_fingerprint\":\"690b6e59deaedb25ac89\",\"plan_fingerprint\":\"c6818596cc74aa645e79\",\"run_id\":\"PK3D3D35F33ACB\"}}",
+   "body_len": 1241
+  },
+  {
+   "url": "http://127.0.0.1:8000/agg-diff/pk-records?run_id=PK3D3D35F33ACB&page=1&page_size=20&view=reimport&scope_col=&scope_val=",
+   "status": 200,
+   "body": "{\"ok\":true,\"status\":\"READY\",\"display_tier_info\":{\"display_mode\":\"FULL_LIST\",\"display_tier\":\"D1\",\"display_reason_code\":\"AXIS_A_MISMATCH_T1\",\"total_mismatch_count\":10,\"total_group_count\":4,\"early_stopped\":false,\"axis_a_tier\":1,\"axis_b_tier\":1,\"representative_sample_n\":20,\"xlsx_row_max\":1048576,\"display_message\":\"불일치 10건(그룹 4개) — 전체 레코드를 나열합니다.\",\"show_full_list\":true,\"show_group_table\":false,\"show_group_drilldown\":false,\"show_group_sample_only\":false,\"summary_only\":false,\"download_only_detail\":false,\"display_error\":\"\"},\"per_group_policy\":{\"per_group_full_list_max\":100,\"per_group_early_stop_abs\":101},\"snapshot_at\":\"2026-07-26 13:36:06\",\"snapshot_at_kst\":\"2026-07-26 22:36:06 KST\",\"ready\":true,\"early_stopped\":false,\"run_id\":\"PK3D3D35F33ACB\",\"view\":\"reimport\",\"mismatch_limit_stopped\":false,\"mismatch_limit\":null,\"mismatch_group_distribution\":{\"group_col\":\"STATUS_CD\",\"groups\":[{\"value\":\"P\",\"count\":3,\"sample_pks\":[\"15\"]},{\"value\":\"I\",\"count\":3,\"sample_pks\":[\"30\"]},{\"value\":\"A\",\"count\":2,\"sample_pks\":[\"45\"]},{\"value\":\"C\",\"count\":2,\"sample_pks\":[\"60\"]}],\"top\":[{\"value\":\"P\",\"count\":3,\"sample_pks\":[\"15\"]},{\"value\":\"I\",\"count\":3,\"sample_pks\":[\"30\"]},{\"value\":\"A\",\"count\":2,\"sample_pks\":[\"45\"]},{\"value\":\"C\",\"count\":2,\"sample_pks\":[\"60\"]}],\"total_group_count\":4,\"returned_group_count\":4,\"group_total\":4,\"other_count\":0,\"truncated\":false,\"computed_from_store\":true},\"reimport_total\":null,\"mtype\":\"\",\"pk\":\"\",\"sampling\":null,\"sampling_status\":null,\"key_col\":\"ID\",\"gb_cols\":[\"STATUS_CD\",\"DEPT_CD\"],\"sum_labels\":[\"AMT\"],\"row_compare_columns\":[],\"result_grid_schema\":[{\"display_name\":\"ID\",\"output_alias\":\"ID\",\"role\":\"KEY\",\"column_order\":0,\"source_value_field\":\"ID\",\"target_value_field\":\"ID\",\"display_format\":\"text\"},{\"display_name\":\"STATUS_CD\",\"output_alias\":\"STATUS_CD\",\"role\":\"GROUP_BY\",\"column_order\":1,\"source_value_field\":\"STATUS_CD\",\"target_value_field\":\"STATUS_CD\",\"display_format\":\"text\"},{\"display_name\":\"DEPT_CD\",\"output_alias\":\"DEPT_CD\",\"role\":\"GROUP_BY\",\"column_order\":2,\"source_value_field\":\"DEPT_CD\",\"target_value_field\":\"DEPT_CD\",\"display_format\":\"text\"},{\"display_name\":\"AMT\",\"output_alias\":\"AMT\",\"role\":\"SUM\",\"column_order\":3,\"source_value_field\":\"AMT\",\"target_value_field\":\"AMT\",\"display_format\":\"number\"}],\"numeric_pk\":false,\"counts\":{\"reimport_pks\":10,\"passed\":140,\"missing_migration\":0,\"value_mismatch\":10,\"excluded_target_only\":0,\"target_only_stored\":0},\"missing_migration\":0,\"value_mismatch\":10,\"excluded_target_only\":0,\"target_only_count\":0,\"target_only_stored\":0,\"ratios\":{\"reimport_ratio\":6.6667,\"missing_ratio\":0.0,\"value_ratio\":6.6667,\"target_only_ratio\":0.0,\"source_count\":150,\"target_count\":150},\"source_count\":150,\"target_count\":150,\"stage_timings\":{\"merge_judge_ms\":null,\"store_save_ms\":null,\"index_build_ms\":null,\"first_20_committed_ms\":null,\"prepare_ms\":68.7,\"src_query_count\":null,\"tgt_query_count\":null,\"peak_python_mb\":null,\"source_chunk_read_seconds\":null,\"target_chunk_read_seconds\":null,\"compare_seconds\":null,\"store_seconds\":null,\"total_ready_seconds\":null,\"chunks_total\":null,\"chunks_done\":null,\"chunk_size\":null,\"source_target_wall_seconds\":null,\"read_overlap_saved_seconds\":null,\"parallel_read\":null,\"parallel_read_used\":null,\"parallel_read_disabled_reason\":null,\"source_read_sec\":null,\"target_read_sec\":null,\"read_wall_sec\":null,\"overlap_saved_sec\":null,\"total_wall_sec\":null,\"detail_started_at\":null,\"detail_finished_at\":null,\"detail_elapsed_ms\":null,\"orchestration_overhead_ms\":null},\"detail_elapsed_ms\":68.7,\"orchestration_overhead_ms\":null,\"job_status_detail\":null,\"resume_count\":null,\"resume_from_chunk\":null,\"execution_path\":null,\"selected_strategy_id\":null,\"actual_strategy_id\":\"DIRECT_STREAM_COMPARE\",\"chunk_size\":null,\"page_store_ms\":0.19,\"page_server_ms\":5.58,\"elapsed_ms\":68.7,\"total\":10,\"total_count\":10,\"final_total_count\":10,\"page\":1,\"page_size\":20,\"total_pages\":1,\"returned_count\":10,\"last_pk\":null,\"last_seq\":9,\"has_previous\":false,\"has_next\":false,\"keys\":[\"15\",\"30\",\"45\",\"60\",\"75\",\"90\",\"105\",\"120\",\"135\",\"150\"],\"records\":[{\"key\":\"15\",\"seq\":0,",
+   "body_len": 5623
+  },
+  {
+   "url": "http://127.0.0.1:8000/single/active-run/status?run_id=PK3D3D35F33ACB",
+   "status": 200,
+   "body": "{\"ok\":true,\"run_id\":\"PK3D3D35F33ACB\",\"status\":null,\"not_found\":true,\"recoverable\":false,\"recover_reason\":\"NO_CHECKPOINT\",\"recovery_source\":null,\"recovered_at\":null,\"recovery_status\":null,\"recovery_required\":false,\"settings_version\":\"d7-20\"}",
+   "body_len": 240
+  }
+ ],
+ "console_all": [
+  "[warning] [CSR] 미매칭 결과 8건 — 배지 주입 건너뜀: SUM:ID, GROUP_BY:ID, SUM:DEPT_CD, SUM:UPD_YMD, SUM:REG_DT, SUM:STATUS_CD, GROUP_BY:AMT, SUM:CREATED_BY",
+  "[warning] [CSR] 미매칭 결과 8건 — 배지 주입 건너뜀: SUM:ID, GROUP_BY:ID, SUM:DEPT_CD, SUM:UPD_YMD, SUM:REG_DT, SUM:STATUS_CD, GROUP_BY:AMT, SUM:CREATED_BY",
+  "[warning] [CSR] 미매칭 결과 8건 — 배지 주입 건너뜀: SUM:ID, GROUP_BY:ID, SUM:DEPT_CD, SUM:UPD_YMD, SUM:REG_DT, SUM:STATUS_CD, GROUP_BY:AMT, SUM:CREATED_BY",
+  "[warning] [CSR] 미매칭 결과 8건 — 배지 주입 건너뜀: SUM:ID, GROUP_BY:ID, SUM:DEPT_CD, SUM:UPD_YMD, SUM:REG_DT, SUM:STATUS_CD, GROUP_BY:AMT, SUM:CREATED_BY"
+ ],
+ "pageerrors": [],
+ "dialogs": [
+  "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+  "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+ ],
+ "verdict": {
+  "root_cause": "RESPONSE_HANDLING_FAILED(요청·응답·렌더 모두 정상 — 결과 카드가 5단계 전용 pane 이라 4단계 화면에서 mv-pane-hidden 으로 가려져 표시되지 않음)",
+  "handler_entered": true,
+  "promise_resolved": true,
+  "rejections": [],
+  "execute_requests": 2,
+  "rendered": true
+ }
+}
