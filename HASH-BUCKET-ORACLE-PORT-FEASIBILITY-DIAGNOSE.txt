@@ -1,0 +1,94 @@
+✅ 작업 완료 - HASH_BUCKET 오라클 이식 타당성 실측 확정: STANDARD_HASH(MD5) 기반 1:1 대체 가능, same-DBMS 한정 중간 규모
+
+[작업명] HASH-BUCKET-ORACLE-PORT-FEASIBILITY-DIAGNOSE
+[성격]   타당성 조사 + 설계안 (코드 수정 0건, 오라클 라이브 실측)
+[일자]   2026-07-26
+
+────────────────────────────────────────────────────────
+1. 현재 PG hash 계약 (hash_contract.py) — 구성과 목적
+────────────────────────────────────────────────────────
+HASH_BUCKET 은 문자/UUID/복합 MATCH_KEY 를 canonical 인코딩 → 32bit hash → bucket(& n-1)
+으로 나눠 한 번의 집계로 원본/목적 비교. 계약 fragment:
+  A md5(x)                          입력→32 hex 다이제스트(결정적)
+  B left(md5,8)                     앞 8 hex(=32bit)
+  C ('x'||hex8)::bit(32)::bigint    8hex→부호없는 32bit 정수(0..2^32-1)
+  D h & (n-1)                       2^k bucket 분할(비트 AND, modulo 회피)
+  E trim_scale(x::numeric)::text    숫자 canonical(12.50==12.5)
+  F x::text / G length()::text / H CASE NULL 마커  canonical 길이접두 결합
+  I sum(h32)                        bucket 내 키/행 hash 합(순서무관)
+  _H32 = (('x'||left(md5(%s),8))::bit(32)::bigint)
+
+────────────────────────────────────────────────────────
+2. 오라클 실행 불가 원인 (실측 — asis/tobe 라이브)
+────────────────────────────────────────────────────────
+PG 계약식을 오라클에 직접 실행 → 별칭(ORA-00911) 이전에 표현식 자체가 다지점 차단:
+  md5('abc')          ORA-00904 "MD5" invalid identifier (함수 없음)
+  left('abc',3)       ORA-00904 "LEFT" invalid identifier (함수 없음)
+  (...)::bit(32)      DPY-4010  :BIT 바인드 오인(:: 캐스트 문법 없음)
+  1::bigint           DPY-4010  :BIGINT 바인드 오인
+  trim_scale(12.50)   ORA-00904 "TRIM_SCALE" invalid identifier (함수 없음)
+  255 & 7             ORA-00923 FROM keyword not found (& 는 비트연산자 아님)
+  → 배경의 "ORA-00907" 은 실측상 위 6종. 결론 동일: 별칭 개명만으로는 도달 불가.
+
+────────────────────────────────────────────────────────
+3. 오라클 대체식 1:1 대응 (실측 성공 — exact_diff 운영검증 함수군)
+────────────────────────────────────────────────────────
+  A md5           → LOWER(RAWTOHEX(STANDARD_HASH(x,'MD5')))
+  B left(,8)      → SUBSTR(...,1,8)
+  C ::bit32::big  → TO_NUMBER(hex8,'XXXXXXXX')           [부호없는 32bit]
+  D & (n-1)       → BITAND(h, n-1)
+  E trim_scale    → REGEXP_REPLACE(REGEXP_REPLACE(TO_CHAR(x,'TM9'),'^\.','0.'),'^-\.','-0.')
+  F ::text        → TO_CHAR(x)  (날짜 TO_CHAR(...,'YYYY-MM-DD"T"HH24:MI:SS.FF6'))
+  G length        → TO_CHAR(LENGTH(v))       H/I CASE·sum 문법 공통
+
+  [실측값] md5('abc')=STANDARD_HASH('abc','MD5')=900150983cd24fb0d6963f7d28e17f72 동일
+           TO_NUMBER('ffffffff','XXXXXXXX')=4294967295(2^32-1)  BITAND(255,7)=7
+           TO_CHAR(12.50,'TM9')=12.5
+
+  [32bit 정수·bucket 동등성 — canonical 5종, 오라클 실측 == 표준 md5(=PG)]
+    S:3:abc                          ora 3276922494 == py 3276922494   bucket&127 126==126
+    S#N                              ora 10499643   == py 10499643     bucket&127  59== 59
+    D:4:12.5                         ora 584801104  == py 584801104    bucket&127  80== 80
+    T:26:2026-07-26T00:00:00.000000  ora 1817468297 == py 1817468297
+    hbw1S:3:abc(salt)                ora 976348671  == py 976348671
+  → STANDARD_HASH MD5 는 표준 MD5 라 PG md5()·Python hashlib.md5 와 바이트 동일.
+    TO_NUMBER X = PG ::bit(32)::bigint(부호없는), BITAND = PG &. 계약 1:1 동등 확정.
+    (PG 라이브 대조는 이번 세션 Neon 쿼터 소진·Inter 서버 설정으로 접속 불가 →
+     md5 표준성으로 Python 교차검증. 오라클 실측은 asis/tobe 둘 다 성공.)
+
+────────────────────────────────────────────────────────
+4. 방언 위임 설계안 (exact_diff _CANONICAL_ADAPTERS 패턴 답습)
+────────────────────────────────────────────────────────
+  hash_contract.py           → BaseHashContract(추상) + _HASH_CONTRACTS 위임표 + get_hash_contract() 팩토리만
+  dialects_hash/postgresql.py(신규) → 현행 PG 식 이전(로직 불변)
+  dialects_hash/oracle.py(신규)     → §3 오라클 대체식(STANDARD_HASH/RAWTOHEX/TO_NUMBER/BITAND/TM9)
+  소비측(hash_bucket.build_hash_bucket_agg_sql 은 이미 dialect 인자 보유 / row_diff / multi_scope)
+    → import hash_contract 직접호출 대신 get_hash_contract(dialect) 경유 배선(로직 불변, 인라인 if/elif 금지)
+  별칭 2차결함: __HB1/__KH/__RH 밑줄선두 → ORA-00911 → 문자시작 대문자(HB1/KH/RH)로 개명
+    (KEY_RANGE KR_BKT/KR_RNG 선례와 동종. 상수 BUCKET/KEYHASH/ROWHASH_ALIAS 단일화 + 리터럴 직접참조 스캔)
+  capabilities.py: 오라클 hash_bucket/canonical_hash_contract NOT_SUPPORTED→SUPPORTED (오라클↔오라클 한정)
+
+────────────────────────────────────────────────────────
+5. 영향범위·리스크·작업량
+────────────────────────────────────────────────────────
+  [영향파일] hash_contract 재편 + dialects_hash/{pg,oracle} 신규 + hash_bucket/row_diff/multi_scope 배선
+             + capabilities same-DBMS 개방 + 테스트 신규
+  [P0] cross-DBMS(PG↔오라클) 직접 hash 비교 시 canonical text 차이(trim_scale vs TM9/NLS)로 거짓 불일치 대량
+       → HASH_BUCKET 은 same-DBMS(오라클↔오라클) 한정으로만 개방, cross-DBMS 는 cross_db_comparable=False 유지·차단
+  [P1] 별칭 개명 누락 시 ORA-00911 통째 차단 → KEY_RANGE 선례대로 상수 단일화(dev_e2e 스캔 스크립트 존재)
+  [P1] max_string_size=STANDARD VARCHAR2 연결 4000자 초과 ORA-01489 → exact_diff 처럼 HOLD 로 드러남(거짓일치 아님)
+  [P2] 숫자 canonical 경계(선행0/음수) → §3 regex 복원식 exact_diff 검증됨 / STANDARD_HASH CLOB 거부 → LOB 제외·표기
+  [작업량] 재분류: "대형"→"중간". 로드맵 최후·별도 Phase 분류는 exact_diff 오라클 이식(운영검증) 이전 기준.
+           지금은 오라클 hash 함수 운영검증 완료 + 위임패턴 존재 + 표현식 1:1 실측확정 + 별칭은 KEY_RANGE 동종.
+           → KEY_RANGE 오라클 이식과 유사 규모. 단 same-DBMS 전제. cross-DBMS 증명 포함 시 별도 대형(P0).
+
+────────────────────────────────────────────────────────
+6. 산출물 / 검증
+────────────────────────────────────────────────────────
+  - docs/HASH_BUCKET_ORACLE_PORT_FEASIBILITY.md (설계 문서 신규)
+  - scripts/dev_e2e/hash_bucket_oracle_port_feasibility_verify.py (오라클 실측 드라이버 신규)
+  - 오라클 라이브 실측: asis(1523)/tobe(1524) xepdb1 접속 OK, PG 계약 6종 차단·오라클 대체식 6종 성공·32bit/bucket 동등 확인
+  - 코드 수정 0건(hash_contract.py/hash_bucket.py/capabilities.py 무변경) — 타당성/설계만
+  - 권장: 구현은 별도 작업 승인 후. cross-DBMS 직접 hash 비교는 절대 개방 금지(P0).
+
+✅ 작업 완료 - HASH_BUCKET 오라클 이식 타당성 실측 확정: STANDARD_HASH(MD5) 기반 1:1 대체 가능, same-DBMS 한정 중간 규모
