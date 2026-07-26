@@ -1,0 +1,117 @@
+✅ 작업 완료 - 그룹 등록 드롭다운 방언 불일치 차단(오라클→PostgreSQL 그룹 오등록 허점 봉쇄)
+
+작업명 : GROUP-REGISTER-DROPDOWN-DIALECT-MISMATCH-FIX
+일자   : 2026-07-26
+커밋   : 5802006 (코드 저장소 로컬 커밋, push 금지)
+
+──────────────────────────────────────────────────────────────────────
+1. 문제(구조적 허점 재확인)
+──────────────────────────────────────────────────────────────────────
+개별검증 결과를 검증 그룹에 등록하는 드롭다운(#singleGroupSelect)은
+services.batch_group_service.get_groups 로 후보를 조회한다. 이 조회는
+project_id 정확일치만 필터하고, 그룹에 이미 바인딩된 DB 방언
+(validation_batch_group.src_dbms_type / tgt_dbms_type)과 '지금 검증 중인
+세션의 방언(원본/목적지)'이 일치하는지는 전혀 확인하지 않았다.
+  · get_groups 의 SELECT 에는 애초에 src/tgt_dbms_type 컬럼조차 없었다
+    (드롭다운이 방언 정보를 받을 수단 자체가 없음).
+결과: 오라클 검증 결과를 PostgreSQL 로 바인딩된 그룹에 그대로 등록할 수
+있었다(조용히 틀린 이력 생성 위험).
+
+──────────────────────────────────────────────────────────────────────
+2. 수정 범위(드롭다운 / get_groups 계층 한정 — 지정 제외 파일 무수정)
+──────────────────────────────────────────────────────────────────────
+※ agg_diff_route.py / store.py / diagnosis/profiler.py 는 건드리지 않음
+  (다른 터미널이 tabler_renderer.py 의 다른 영역도 편집 중 → 내 2개 hunk만
+   부분 스테이징하여 커밋, 타 터미널 변경은 워킹트리에 그대로 보존).
+
+(a) services/batch_group_service.py
+    - get_groups SELECT/문서에 src_dbms_type, tgt_dbms_type 추가(순수 additive,
+      기존 소비자 무영향).
+    - annotate_group_dialect_compat(groups, sess_src_dbms, sess_tgt_dbms) 순수
+      헬퍼 신설(DB 접근 없음, 단위테스트 가능):
+        · 세션 방언 미전달(둘 다 None) → 어떤 표시 필드도 부착하지 않음
+          (일괄검증 등 기존 호출부 완전 무영향).
+        · 그룹 축(src/tgt) 방언이 '바인딩되어 있고' 세션 방언과 '다르면' 불일치.
+        · 그룹 방언 미바인딩(빈 값/미인식) → 불일치로 보지 않음(첫 등록 시
+          세션 방언으로 바인딩되므로 정상).
+        · 방언 별칭은 services.dialects.resolver.normalize_dbms_name 로 canonical
+          정규화(pg→postgresql 등).
+        · 각 그룹에 dialect_mismatch(bool)/registerable(bool)/
+          dialect_mismatch_reason(str) 부착.
+
+(b) routes/batch_group_route.py
+    - GET /api/batch-groups 에 선택 파라미터 sess_src_dbms, sess_tgt_dbms 추가.
+      하나라도 전달되면 annotate_group_dialect_compat 로 방언 호환성 부착.
+      미전달이면 기존과 동일(표시 필드 없음).
+
+(c) ui/tabler_renderer.py (개별검증 등록 드롭다운 로더 2곳)
+    - mvGroupFetchList(projectId, sessSrcDbms, sessTgtDbms): 세션 방언을 쿼리로
+      전달(옵션 인자 — 인자 없는 일괄검증 batchLoadGroups 는 무영향).
+    - singleLoadGroups(): 현재 개별검증 접속 select(srcDb/tgtDb)의 방언을 읽어
+      전달. registerable===false 그룹은 <option disabled> + 라벨에
+      '⚠ 방언 불일치(등록 불가: 사유)' 표기 → 사용자가 선택 자체를 못 함(=등록 차단).
+      이전 선택 그룹이 불일치로 비활성되면 선택을 해제하고 안내 표시.
+
+  [차단 방식 근거] 기존 UX(정책상제외/비활성 표기)와 일관되게 '드롭다운에서
+  선택 불가(disabled)'로 등록을 원천 차단하는 쪽을 기본으로 채택.
+
+──────────────────────────────────────────────────────────────────────
+3. 검증 결과
+──────────────────────────────────────────────────────────────────────
+[단위 테스트]
+  tests/test_batch_group_service.py         : 24 passed (신규 방언 6건 포함)
+  tests/test_group_dropdown_dialect_guard.py: 3 passed (라우트 배선)
+    - 세션방언 미전달 → 표시필드 부재
+    - 오라클세션 → PG그룹 registerable=False/dialect_mismatch=True/사유
+    - PG세션 → registerable=True(회귀 없음)
+[회귀]
+  samples/test_virtual_cases.py  : 8/8 통과
+  samples/test_complex_cases.py  : 5/5 통과
+  tests/test_single_group_registration.py + test_cmdbar_group_register_restore.py : 17 passed
+  JS 번들 node --check : 통과(EXIT 0, 신규 로직 3개 마커 반영 확인)
+  ※ tests/test_task11_t.py 4F/1E 는 운영 DB write 차단 가드(conftest)로 인한
+    사전 존재 실패 — 본 변경과 무관.
+
+[실 DB API 대조 — 인증 ON(포트 8000, HTTP Basic), 실 그룹 '인사급여1'(pid=2, src=postgresql 바인딩)]
+  무인증 GET /              → 401 (인증 ON 확인)
+  Before (세션방언 미전달)   : 인사급여1 registerable=<필드 없음> → 선택/등록 가능(허점 재현)
+  After  (sess=oracle)      : registerable=False, dialect_mismatch=True,
+                              reason="원본 PostgreSQL 그룹 · 현재 Oracle" → 차단
+  회귀   (sess=postgresql)   : registerable=True, dialect_mismatch=False → 정상 등록 가능
+
+[브라우저 실측 — Playwright, 인증 ON, 포트 8000, 실 UI]
+  스크립트: scripts/dev_e2e/group_register_dropdown_dialect_verify.py
+  before_oracle_session_pg_group_selectable.png
+    → [Before 재현] 오라클 세션에서도 '인사급여1' 선택 가능(disabled=False)
+  after_oracle_session_pg_group_blocked.png
+    → [After] '인사급여1 · 이관쿼리 20건 · ⚠ 방언 불일치(등록 불가: 원본
+      PostgreSQL 그룹 · 현재 Oracle)' 로 비활성(disabled=True)
+  regression_pg_session_pg_group_selectable.png
+    → [회귀] PostgreSQL 세션에서 같은 그룹 정상 선택 가능(disabled=False)
+  자동 판정: ✅ PASS (Before False / After True / 회귀 False 모두 기대 일치)
+
+──────────────────────────────────────────────────────────────────────
+4. 비판적 검토(잔여 리스크 · 후속 권고)
+──────────────────────────────────────────────────────────────────────
+- 본 수정은 '드롭다운 선택 차단'(클라이언트 게이트) + '서버측 방언 호환성
+  판정 부착'(get_groups 계층)까지다. 판정 자체는 서버(순수 헬퍼)로 권위 있게
+  계산되나, 최종 등록 엔드포인트 /single/save 에는 방언 게이트를 넣지 않았다
+  (지시상 수정 범위를 get_groups 드롭다운 계층으로 한정). 따라서 API 를 직접
+  호출해 불일치 gid 로 POST 하는 우회는 이론상 가능.
+  → 후속 권고: routes/single_save_route.py 에 그룹 바인딩 방언 vs 세션 방언
+    하드 게이트(차단) 1줄 추가(defense-in-depth). 별도 작업으로 분리 권장
+    (해당 파일은 본 지시 범위 밖).
+- 그룹 방언 미바인딩(신규 그룹)은 의도적으로 통과시켜 첫 등록 시 바인딩되게 함.
+  이 바인딩을 수행하는 경로(backfill/registration)의 정확성은 본 변경 범위 밖.
+
+──────────────────────────────────────────────────────────────────────
+5. 변경/생성 파일
+──────────────────────────────────────────────────────────────────────
+수정: services/batch_group_service.py, routes/batch_group_route.py,
+      ui/tabler_renderer.py(내 2 hunk만), tests/test_batch_group_service.py
+생성: tests/test_group_dropdown_dialect_guard.py,
+      scripts/dev_e2e/group_register_dropdown_dialect_verify.py
+커밋: 5802006 (로컬, 코드 저장소 push 안 함)
+서버: 재기동(인증 ON, 포트 8000) 2026-07-26 17:27:51
+
+✅ 작업 완료 - 그룹 등록 드롭다운 방언 불일치 차단(오라클→PostgreSQL 그룹 오등록 허점 봉쇄)
