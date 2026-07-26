@@ -1,0 +1,86 @@
+{
+  "base": "http://localhost:8000",
+  "project_id": "898",
+  "g_ora": "GRP_202607260920405615",
+  "g_pg": "GRP_202607260920414587",
+  "analyze_http": 200,
+  "token_issued": true,
+  "execute_http": 200,
+  "execute_success": true,
+  "save_oracle": {
+    "tag": "A_ORACLE바인딩(불일치 기대)",
+    "group_id": "GRP_202607260920405615",
+    "http": 409,
+    "out": {
+      "success": false,
+      "blocked": true,
+      "code": "DIALECT_MISMATCH",
+      "error": "선택한 그룹의 DB 방언과 현재 검증 세션의 방언이 일치하지 않아 공식 저장할 수 없습니다. (원본 Oracle 그룹 · 현재 PostgreSQL / 목적지 Oracle 그룹 · 현재 PostgreSQL)",
+      "run_id": null,
+      "history_run_id": null,
+      "saved_at": null
+    }
+  },
+  "save_pg": {
+    "tag": "B_POSTGRESQL바인딩(일치 기대)",
+    "group_id": "GRP_202607260920414587",
+    "http": 200,
+    "out": {
+      "success": false,
+      "blocked": true,
+      "code": "REGISTER_FAILED",
+      "persistence_status": "FAILED",
+      "retryable": true,
+      "registration_status": "METADATA_BLOCKED",
+      "error": "metadata 수집 성공을 확인하지 못했습니다.",
+      "required_parts": [
+        "registration",
+        "result_run",
+        "history",
+        "single_snapshot"
+      ],
+      "succeeded_parts": [],
+      "failed_parts": [
+        "registration"
+      ],
+      "result_references": {},
+      "run_id": null,
+      "history_run_id": null,
+      "saved_at": null,
+      "result_view_model": {
+        "execution_id": "R11una33H6QzFg8SCzVRgHm1iSbzi0N0",
+        "mode": "INDIVIDUAL",
+        "validation_type": "INDIVIDUAL",
+        "verdict": "PASSED",
+        "verdict_label": "일치",
+        "verdict_level": "success",
+        "summary": "일치",
+        "reason_code": "",
+        "count": {
+          "src": 200,
+          "tgt": 200,
+          "matched": true
+        },
+        "group_sum": {
+          "matched_count": 3,
+          "mismatch_count": 0
+        },
+        "warning_count": 0,
+        "error_count": 0,
+        "user_message": "",
+        "can_retry": true,
+        "can_save": true,
+        "is_test_only": false,
+        "persistence": {
+          "status": "FAILED",
+          "label": "저장 실패",
+          "level": "danger"
+        }
+      }
+    }
+  },
+  "verdict": {
+    "oracle_blocked_409_dialect": true,
+    "pg_not_dialect_blocked": true
+  }
+}
