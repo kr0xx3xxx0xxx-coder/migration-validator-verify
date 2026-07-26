@@ -1,0 +1,20 @@
+commit ecf0ce31da39b4c7a503cfc0563d1b47a633f91e
+Author: migration-validator <dev@migration-validator.local>
+Date:   Sun Jul 26 16:40:12 2026 +0900
+
+    fix(reimport-drilldown): 표본 조기중단(EARLY_STOPPED_HIGH_MISMATCH) 응답 total 필드 부재 → STALE_PLAN/0건 오표시 보정 (REIMPORT-DRILLDOWN-STALE-PLAN-GB0-SUMONLY-FIX)
+    
+    - 근본원인: pk-records 의 sample_early_stop 응답은 total_count/representative_total 만
+      싣고 total 필드를 생략(READY/EARLY_STOPPED 만 total 포함). GB0 전체합계+SUM 케이스에서
+      d.total 이 falsy 로 남아 _mvPkLoadPage 하위 렌더가 결과를 '0건'(대화형) 또는
+      'STALE_PLAN'(planFp 미설정 자동화)으로 오판, 실제 대표표본 PK 목록을 누락.
+    - 수정: 확정 응답에서 total 이 null/undefined 이고 확정 총건수(total_count/
+      representative_total)가 숫자면 단일 지점에서 total 로 정규화. total===0(정상 0건)은
+      제외해 오정규화 방지. 백엔드(routes/agg_diff_route.py) 무수정 — ui/tabler_renderer.py 만.
+    - 검증: result_after.json 최종 응답(total_count:20, total 필드 없음) 재현 →
+      Before STALE_PLAN(0행) / After 전체 20건 렌더. 대화형(planFp 세팅)도 구코드 0건 오표시
+      확인(실제 제품 결함, 테스트 아티팩트 아님). 회귀: 정상 READY(3건) 불변·정당한 0건 '없음' 유지.
+    
+    Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_01V29BfWjV73WgyTSLiSFy5E
+
