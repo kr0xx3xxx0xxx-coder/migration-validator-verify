@@ -1,0 +1,293 @@
+{
+ "case": "mismatch",
+ "sql": "INSERT INTO NXDNP.MV_ORA_XDIFF_TGT (ID) SELECT ID FROM NXDNP.MV_ORA_XDIFF_SRC",
+ "tag": "after2",
+ "expect": {
+  "button": true,
+  "outcome": "records"
+ },
+ "stages": {
+  "2_count": {
+   "count_status": "COUNT_MINOR_DIFF",
+   "src": 250000,
+   "tgt": 249950,
+   "force_offered": false
+  },
+  "3_select": {
+   "gb_before": [],
+   "sum_before": [],
+   "gb_after": [],
+   "sum_after": []
+  },
+  "5_card": {
+   "countOnlyCard": true,
+   "verdictMismatch": true,
+   "rowKeyCount": 0,
+   "buttonFound": true,
+   "buttonText": "재이관 대상 불일치 레코드 보기",
+   "uid": "cop_369294765",
+   "handlerDefined": true,
+   "cardHead": "❌ COUNT-only 검증 — 원본과 목적지의 전체 건수가 일치하지 않습니다.원본 COUNT250,000목적지 COUNT249,950차이(원본-목적지)+50판정불일치재이관 대상 불일치 레코드 보기검증 실행 기준COUNT(*): 항상 포함GROUP BY 기준: 전체 기준 집계SUM 기준: 없음 — COUNT only 검증숫자 비교 정책: COUNT 정확 비교 / SUM 절대 허용오차 1E-9표시 제한: 비교는 전체 그룹 기준으로 수행되며, 화면 표시만 상한(20"
+  },
+  "6_click": {
+   "panel_poll": "표시 등급 D1 · 전체 레코드 나열불일치 50건(그룹 0개) — 전체 레코드를 나열합니다.목적 단독(과잉) 전체 50건 · 현재 1~5 표시 · 1/10페이지선택 그룹: 전체 불일치 레코드범례목적 단독원본에 없고 목적에만 존재하는 레코드ID250001250002250003250004250005이전12345… 다음1/10페이지 · 5건 단위(그룹 전용)← 재이관 대상 레코드 보기계측 — 준비확인 3194ms · scope 조회 67ms · 렌더 0ms",
+   "detail": {
+    "text": "표시 등급 D1 · 전체 레코드 나열불일치 50건(그룹 0개) — 전체 레코드를 나열합니다.목적 단독(과잉) 전체 50건 · 현재 1~5 표시 · 1/10페이지선택 그룹: 전체 불일치 레코드범례목적 단독원본에 없고 목적에만 존재하는 레코드ID250001250002250003250004250005이전12345… 다음1/10페이지 · 5건 단위(그룹 전용)← 재이관 대상 레코드 보기계측 — 준비확인 3194ms · scope 조회 67ms · 렌더 0ms",
+    "tableRows": 5,
+    "headers": [
+     "ID"
+    ],
+    "hold": false,
+    "stale": false,
+    "totalLine": null,
+    "btnText": "재이관 대상 불일치 레코드 닫기"
+   }
+  },
+  "7_toggle_close": {
+   "hostEmpty": true,
+   "open": "0",
+   "btnText": "재이관 대상 불일치 레코드 보기"
+  }
+ },
+ "notes": [
+  "3단계 후보표 렌더 타임아웃"
+ ],
+ "setup": {
+  "project": "TESTONLY_REG",
+  "pair_rows": 1,
+  "badges": {
+   "src": "Oracle_asis",
+   "tgt": "Oracle_tobe"
+  }
+ },
+ "net": [
+  {
+   "url": "prepare",
+   "q": "",
+   "resp": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PSAD9C9E3AAA67",
+    "accepted": true,
+    "error_message": null
+   }
+  },
+  {
+   "url": "pk-records",
+   "q": "run_id=PSAD9C9E3AAA67&page=1&page_size=5&view=reimport&scope_col=&scope_val=",
+   "resp": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PSAD9C9E3AAA67",
+    "total_count": null,
+    "gb_cols": [],
+    "sum_labels": [],
+    "total_pages": null,
+    "records_len": 0
+   }
+  },
+  {
+   "url": "pk-records",
+   "q": "run_id=PSAD9C9E3AAA67&page=1&page_size=5&view=reimport&scope_col=&scope_val=",
+   "resp": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PSAD9C9E3AAA67",
+    "total": null,
+    "total_count": null,
+    "gb_cols": [],
+    "sum_labels": [],
+    "key_col": "ID",
+    "page": 1,
+    "page_size": 5,
+    "total_pages": null,
+    "source_count": 250000,
+    "target_count": 249950,
+    "target_only_count": 0,
+    "records_len": 0
+   }
+  },
+  {
+   "url": "pk-records",
+   "q": "run_id=PSAD9C9E3AAA67&page=1&page_size=5&view=reimport&scope_col=&scope_val=",
+   "resp": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PSAD9C9E3AAA67",
+    "total": null,
+    "total_count": null,
+    "gb_cols": [],
+    "sum_labels": [],
+    "key_col": "ID",
+    "page": 1,
+    "page_size": 5,
+    "total_pages": null,
+    "source_count": 250000,
+    "target_count": 249950,
+    "target_only_count": 0,
+    "records_len": 5
+   }
+  },
+  {
+   "url": "pk-records",
+   "q": "run_id=PSAD9C9E3AAA67&page=1&page_size=5&view=reimport&scope_col=&scope_val=",
+   "resp": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PSAD9C9E3AAA67",
+    "total": null,
+    "total_count": null,
+    "gb_cols": [],
+    "sum_labels": [],
+    "key_col": "ID",
+    "page": 1,
+    "page_size": 5,
+    "total_pages": null,
+    "source_count": 250000,
+    "target_count": 249950,
+    "target_only_count": 0,
+    "records_len": 5
+   }
+  },
+  {
+   "url": "pk-records",
+   "q": "run_id=PSAD9C9E3AAA67&page=1&page_size=5&view=reimport&scope_col=&scope_val=",
+   "resp": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PSAD9C9E3AAA67",
+    "total": null,
+    "total_count": null,
+    "gb_cols": [],
+    "sum_labels": [],
+    "key_col": "ID",
+    "page": 1,
+    "page_size": 5,
+    "total_pages": null,
+    "source_count": 250000,
+    "target_count": 249950,
+    "target_only_count": 0,
+    "records_len": 5
+   }
+  },
+  {
+   "url": "pk-records",
+   "q": "run_id=PSAD9C9E3AAA67&page=1&page_size=5&view=reimport&scope_col=&scope_val=",
+   "resp": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PSAD9C9E3AAA67",
+    "total": null,
+    "total_count": null,
+    "gb_cols": [],
+    "sum_labels": [],
+    "key_col": "ID",
+    "page": 1,
+    "page_size": 5,
+    "total_pages": null,
+    "source_count": 250000,
+    "target_count": 249950,
+    "target_only_count": 0,
+    "records_len": 5
+   }
+  },
+  {
+   "url": "pk-records",
+   "q": "run_id=PSAD9C9E3AAA67&page=1&page_size=5&view=reimport&scope_col=&scope_val=",
+   "resp": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PSAD9C9E3AAA67",
+    "total": null,
+    "total_count": null,
+    "gb_cols": [],
+    "sum_labels": [],
+    "key_col": "ID",
+    "page": 1,
+    "page_size": 5,
+    "total_pages": null,
+    "source_count": 250000,
+    "target_count": 249950,
+    "target_only_count": 0,
+    "records_len": 5
+   }
+  },
+  {
+   "url": "pk-records",
+   "q": "run_id=PSAD9C9E3AAA67&page=1&page_size=5&view=reimport&scope_col=&scope_val=",
+   "resp": {
+    "ok": true,
+    "status": "READY",
+    "run_id": "PSAD9C9E3AAA67",
+    "total": null,
+    "total_count": null,
+    "gb_cols": [],
+    "sum_labels": [],
+    "key_col": "ID",
+    "page": 1,
+    "page_size": 5,
+    "total_pages": null,
+    "source_count": 250000,
+    "target_count": 249950,
+    "target_only_count": 50,
+    "records_len": 5
+   }
+  },
+  {
+   "url": "pk-records",
+   "q": "run_id=PSAD9C9E3AAA67&page=1&page_size=5&view=target_only&scope_col=&scope_val=",
+   "resp": {
+    "ok": true,
+    "status": "READY",
+    "run_id": "PSAD9C9E3AAA67",
+    "total": 50,
+    "total_count": 50,
+    "gb_cols": [],
+    "sum_labels": [],
+    "key_col": "ID",
+    "page": 1,
+    "page_size": 5,
+    "total_pages": 10,
+    "source_count": 250000,
+    "target_count": 249950,
+    "target_only_count": 50,
+    "display_tier_info": {
+     "display_mode": "FULL_LIST",
+     "display_tier": "D1",
+     "display_reason_code": "AXIS_A_MISMATCH_T1",
+     "total_mismatch_count": 50,
+     "total_group_count": 0,
+     "early_stopped": false,
+     "axis_a_tier": 1,
+     "axis_b_tier": 1,
+     "representative_sample_n": 20,
+     "xlsx_row_max": 1048576,
+     "display_message": "불일치 50건(그룹 0개) — 전체 레코드를 나열합니다.",
+     "show_full_list": true,
+     "show_group_table": false,
+     "show_group_drilldown": false,
+     "show_group_sample_only": false,
+     "summary_only": false,
+     "download_only_detail": false,
+     "display_error": ""
+    },
+    "early_stopped": false,
+    "records_len": 5
+   }
+  }
+ ],
+ "console": [],
+ "dialogs": [
+  "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+  "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+ ],
+ "verdict": {
+  "button_expected": true,
+  "button_actual": true,
+  "button_ok": true,
+  "records_rendered": true,
+  "total_line": null,
+  "outcome_ok": true,
+  "PASS": true
+ }
+}

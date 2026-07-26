@@ -1,0 +1,85 @@
+{
+ "case": "nopk",
+ "sql": "INSERT INTO NXDNP.MV_ORA_NOPK_TGT (C_NUM, C_VARCHAR2) SELECT C_NUM, C_VARCHAR2 FROM NXDNP.MV_ORA_NOPK_SRC",
+ "tag": "after",
+ "expect": {
+  "button": true,
+  "outcome": "hold"
+ },
+ "stages": {
+  "2_count": {
+   "count_status": "COUNT_MINOR_DIFF",
+   "src": 30,
+   "tgt": 27,
+   "force_offered": false
+  },
+  "3_select": {
+   "gb_before": [],
+   "sum_before": [],
+   "gb_after": [],
+   "sum_after": []
+  },
+  "5_card": {
+   "countOnlyCard": true,
+   "verdictMismatch": true,
+   "rowKeyCount": 0,
+   "buttonFound": true,
+   "buttonText": "재이관 대상 불일치 레코드 보기",
+   "uid": "cop_318681634",
+   "handlerDefined": true,
+   "cardHead": "❌ COUNT-only 검증 — 원본과 목적지의 전체 건수가 일치하지 않습니다.원본 COUNT30목적지 COUNT27차이(원본-목적지)+3판정불일치재이관 대상 불일치 레코드 보기검증 실행 기준COUNT(*): 항상 포함GROUP BY 기준: 전체 기준 집계SUM 기준: 없음 — COUNT only 검증숫자 비교 정책: COUNT 정확 비교 / SUM 절대 허용오차 1E-9표시 제한: 비교는 전체 그룹 기준으로 수행되며, 화면 표시만 상한(200행)으로 제한될 수"
+  },
+  "6_click": {
+   "panel_poll": "MATCH_KEY_HOLD — 안정적인 비교키(MATCH KEY)가 확인되지 않아 재이관 PK 계산을 보류합니다.",
+   "detail": {
+    "text": "MATCH_KEY_HOLD — 안정적인 비교키(MATCH KEY)가 확인되지 않아 재이관 PK 계산을 보류합니다.",
+    "tableRows": 0,
+    "headers": [],
+    "hold": true,
+    "stale": false,
+    "totalLine": null,
+    "btnText": "재이관 대상 불일치 레코드 닫기"
+   }
+  },
+  "7_toggle_close": {
+   "hostEmpty": true,
+   "open": "0",
+   "btnText": "재이관 대상 불일치 레코드 보기"
+  }
+ },
+ "notes": [],
+ "setup": {
+  "project": "TESTONLY_REG",
+  "pair_rows": 1,
+  "badges": {
+   "src": "Oracle_asis",
+   "tgt": "Oracle_tobe"
+  }
+ },
+ "net": [
+  {
+   "url": "prepare",
+   "q": "",
+   "resp": {
+    "ok": true,
+    "status": "HOLD",
+    "run_id": "",
+    "stop_reason": "MATCH_KEY_HOLD",
+    "error_message": "안정적인 비교키(MATCH KEY)가 확인되지 않아 재이관 PK 계산을 보류합니다."
+   }
+  }
+ ],
+ "console": [],
+ "dialogs": [
+  "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+  "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+ ],
+ "verdict": {
+  "button_expected": true,
+  "button_actual": true,
+  "button_ok": true,
+  "hold_shown": true,
+  "outcome_ok": true,
+  "PASS": true
+ }
+}

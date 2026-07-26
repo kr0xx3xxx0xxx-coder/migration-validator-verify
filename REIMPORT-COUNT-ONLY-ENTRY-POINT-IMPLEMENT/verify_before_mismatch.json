@@ -1,0 +1,60 @@
+{
+ "case": "mismatch",
+ "sql": "INSERT INTO NXDNP.MV_ORA_XDIFF_TGT (ID) SELECT ID FROM NXDNP.MV_ORA_XDIFF_SRC",
+ "tag": "before",
+ "expect": {
+  "button": true,
+  "outcome": "records"
+ },
+ "stages": {
+  "2_count": {
+   "count_status": "COUNT_MINOR_DIFF",
+   "src": 250000,
+   "tgt": 249950,
+   "force_offered": false
+  },
+  "3_select": {
+   "gb_before": [],
+   "sum_before": [],
+   "gb_after": [],
+   "sum_after": []
+  },
+  "5_card": {
+   "countOnlyCard": true,
+   "verdictMismatch": true,
+   "rowKeyCount": 0,
+   "buttonFound": false,
+   "buttonText": null,
+   "uid": null,
+   "handlerDefined": false,
+   "cardHead": "❌ COUNT-only 검증 — 원본과 목적지의 전체 건수가 일치하지 않습니다.원본 COUNT250,000목적지 COUNT249,950차이(원본-목적지)+50판정불일치검증 실행 기준COUNT(*): 항상 포함GROUP BY 기준: 전체 기준 집계SUM 기준: 없음 — COUNT only 검증숫자 비교 정책: COUNT 정확 비교 / SUM 절대 허용오차 1E-9표시 제한: 비교는 전체 그룹 기준으로 수행되며, 화면 표시만 상한(200행)으로 제한될 수 있습니다."
+  },
+  "6_click": {
+   "skipped": "MV_STOP_AFTER_CARD=1"
+  }
+ },
+ "notes": [
+  "3단계 후보표 렌더 타임아웃"
+ ],
+ "setup": {
+  "project": "TESTONLY_REG",
+  "pair_rows": 1,
+  "badges": {
+   "src": "Oracle_asis",
+   "tgt": "Oracle_tobe"
+  }
+ },
+ "net": [],
+ "console": [],
+ "dialogs": [
+  "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+  "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+ ],
+ "verdict": {
+  "button_expected": true,
+  "button_actual": false,
+  "button_ok": false,
+  "outcome_ok": null,
+  "PASS": false
+ }
+}
