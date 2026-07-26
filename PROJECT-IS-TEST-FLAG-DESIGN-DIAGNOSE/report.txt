@@ -1,0 +1,80 @@
+✅ 작업 완료 - PROJECT-IS-TEST-FLAG-DESIGN-DIAGNOSE (코드 수정 없음, 진단·설계안만)
+
+■ 4. 현재 잔재 상태 재확인 — 결론: 55건 정리 이후 재누적 확인됨
+────────────────────────────────────────────────────────────────────
+project 테이블 현재 26행. 실사용 1건(id=2)을 뺀 24~25건이 테스트성:
+  2026-06-27  id=832   TESTONLY_REG              (고정명 1건)
+  2026-07-22  id=898   __TEST_PROJECT__          (재사용 전용, 설계상 정상·잔재 아님)
+  2026-07-22  id=899~920  OWN-ENF-*/OWN-BIND-*   (랜덤 hex 접미사 22건) ← 핵심
+  2026-07-24  id=921   TESTONLY_ASYNC_PARALLEL   (고정명 1건)
+  · OWN-* 22건은 전부 2026-07-22 하루 실행에서 누적(실행마다 랜덤 신규 행).
+  · conftest 운영DB 쓰기차단 가드 도입(2026-06-27, 6a7c3bb·a5ae7b0) '이후'에 생긴 잔재
+    → 가드만으로 못 막음이 실측 확정. 최근 잔재 07-24(이틀 전).
+
+■ 근본원인 (배경 (1)(2) 실측 확정)
+────────────────────────────────────────────────────────────────────
+주범 2파일: test_owner_connection_enforcement.py / test_single_official_register_owner_binding.py
+  · create_project(_PREFIX + os.urandom(3).hex())  ← 랜덤 접미사·db_path 미지정
+  · _DB = .../migration_validator.db               ← 테스트 모듈에 '운영 경로 하드코딩'
+  · _cleanup(): 이름 LIKE DELETE (best-effort, yield 이후 teardown)
+핵심 비대칭:
+  · create_project → services.project_store._DB_PATH → conftest 가 '샌드박스 복사본'으로 redirect
+  · _cleanup() → 테스트 모듈 로컬 `_DB`(하드코딩) → redirect 대상 아님 → 운영 실경로 connect
+    → 1차 가드가 RuntimeError → cleanup 매번 예외(죽은 정리).
+  ⇒ pytest 안: create=샌드박스 / cleanup=운영차단(무의미).
+  ⇒ 07-22 운영 잔재는 'pytest 밖'(conftest 미로딩: 직접 python·dev 스크립트) 실행 산물.
+    이때 create·cleanup 둘 다 운영 직격 + teardown best-effort → 중단·크래시 시 미정리(배경 (1)).
+
+■ 1. 그룹 is_test 체계 확인 + project 도입 스키마/마이그레이션 범위 (소규모·저위험)
+────────────────────────────────────────────────────────────────────
+[그룹] is_test INTEGER NOT NULL DEFAULT 0 (멱등 ALTER) / 최초추가 1회 E2E_ LIKE→is_test=1 /
+       create_group(is_test=False) / resolve_delete_policy: is_test→hard·그외 soft /
+       hard_delete_group: is_test 아니면 거부 / make_test_group 이 is_test=True 강제.
+[project 현재] is_test 컬럼·파라미터 없음, hard delete 자체 부재(soft만), 전용 cleanup 스크립트 부재
+              → 테스트/실사용 구분이 '이름 패턴'에만 의존.
+[도입 변경]
+  (A) 스키마: 기존 is_deleted/deleted_at 와 '동일 멱등 ALTER 1줄' — is_test INTEGER NOT NULL
+      DEFAULT 0. 데이터 마이그레이션 불필요(DEFAULT 0=운영), 무중단·롤백위험 사실상 없음.
+  (B) (선택) 최초추가 1회 migration: OWN-%/TESTONLY%/__TEST_PROJECT__ → is_test=1 (현존 자기식별화).
+  (C) create_project(..., is_test=False) 파라미터(하위호환).
+  (D) 테스트 단일관문 강제: _group_test_project.test_project_id() + 주범 2파일 → is_test=True.
+  (E) (권장) 안전 회수: resolve 에 is_test→hard 분기 + hard_delete_project(is_test=1 AND refs==0)
+      + scripts/cleanup_test_projects.py(그룹 스크립트 구조 재사용, dry-run 기본).
+  ※ (A)(C)는 기존 패턴의 연장이라 '완료모듈 임의수정 금지'에 저촉 안 됨. (E)는 신규.
+
+■ 2. try/finally teardown 강화 vs is_test 플래그 — 어느 쪽이 근본적인가
+────────────────────────────────────────────────────────────────────
+결론: 상호보완재. 더 근본적인 것은 is_test 플래그. 단, is_test 만으로 부족 —
+      '생성/정리 경로 비대칭 수정'이 사실상 최우선 선행.
+  · try/finally → 실행 중 정리 중단만 완화. SIGKILL/전원차단엔 안 돎. 게다가 현재 cleanup 은
+    운영경로 하드코딩 탓에 '호출 자체가 예외' → try/finally 로 감싸도 정리는 여전히 실패.
+  · is_test → 이름·정리성공 여부 무관하게 잔재가 스스로를 표시 → 크래시/kill/가드차단 후에도
+    밖에서(cron·스크립트) '항상 안전하게' 회수. 랜덤 접미사 이름매칭 취약성 제거 + 오삭제 차단.
+  우선순위 권장:
+    1) 주범 2파일 db_path(샌드박스/tmp) 주입 → 운영 원천 차단(밖 실행 포함)
+    2) is_test + 플래그기반 sweep(내구성 안전망)
+    3) try/finally 는 값싼 추가 경화(주 해법 아님)
+
+■ 3. 기존 테스트 영향 범위 추정
+────────────────────────────────────────────────────────────────────
+직접 create_project 호출 9개 소스: 헬퍼 2(_group_test_project·_scope_guard_testlib),
+  주범 2(owner_connection_enforcement·official_register_owner_binding),
+  기타 5(project_menu_shell[tmp·무변경]·project_safe_delete·project_scope_backtrack·
+  project_scope_guard·single_targets_pagination_guard·stats_plan_scope_guard).
+전이 호출(make_test_group/test_project_id) ~18파일 → 헬퍼가 '재사용 __TEST_PROJECT__ 1건'
+  이라 잔재 안 늘림. is_test 도입 시 헬퍼 1곳만 고치면 18개 일괄 커버.
+영향 규모: 실제 손댈 파일 3~4개(헬퍼 1 + 주범 2 (+선택 1)). is_test 는 DEFAULT 0·하위호환이라
+  나머지 호출부 무수정에도 회귀 없음.
+
+■ 설계 권고
+────────────────────────────────────────────────────────────────────
+- 운영위험: hard_delete_project 오용 데이터소실 → is_test=1 AND refs==0 이중게이트+dry-run 기본 필수
+- heuristic/scoring/explainability 영향: 없음(저장·정리 계층)
+- 권장 순서: ① 주범 2파일 경로 비대칭 제거(이번 범위 밖) ② is_test 컬럼+파라미터+헬퍼+sweep
+  ③ try/finally 부가 경화
+- 지금 구현 여부: 문서화 우선(이번은 진단·설계 확정까지, 구현은 별도 승인 단계)
+
+검증 이행: 잔재 재확인(26행·OWN-* 22건 07-22 재누적 실측) + 설계안(A~E) + 영향추정(직접9·전이18,
+           실수정 3~4) 모두 완료.
+
+✅ 작업 완료 - project is_test 플래그 도입 설계·마이그레이션 범위·영향추정·잔재 재확인(코드 무수정)

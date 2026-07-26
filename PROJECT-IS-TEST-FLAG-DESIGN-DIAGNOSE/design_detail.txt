@@ -1,0 +1,155 @@
+✅ 작업 완료 - PROJECT-IS-TEST-FLAG-DESIGN-DIAGNOSE (코드 수정 없음, 진단·설계안만)
+
+════════════════════════════════════════════════════════════════════════
+작업명 : PROJECT-IS-TEST-FLAG-DESIGN-DIAGNOSE
+원칙   : 코드 수정 없음. 설계안·진단만.
+════════════════════════════════════════════════════════════════════════
+
+■ 4. 현재 잔재 상태 재확인 (55건 정리 이후 재누적 여부) — 결론: 재누적 확인됨
+────────────────────────────────────────────────────────────────────────
+project 테이블 현재 26행. 실사용 1건(id=2 '2026 …실 시스템 마이그레이션 검증')
+을 뺀 나머지 24~25건이 테스트성:
+
+  생성시각              id     이름                        패턴
+  2026-06-27 06:46:48   832    TESTONLY_REG               고정명(1건)
+  2026-07-22 15:00:15   898    __TEST_PROJECT__           재사용 전용(설계상 1건, 정상)
+  2026-07-22 15:12~57   899~920 OWN-ENF-*/OWN-BIND-*      랜덤 hex 접미사(22건) ← 핵심
+  2026-07-24 09:19:31   921    TESTONLY_ASYNC_PARALLEL    고정명(1건)
+
+판정:
+  - OWN-BIND-*/OWN-ENF-* 22건은 전부 2026-07-22 하루 실행에서 누적(랜덤 hex라 실행마다 신규 행).
+  - 가장 최근 잔재는 2026-07-24(TESTONLY_ASYNC_PARALLEL). 오늘 2026-07-26 기준 이틀 전.
+  - conftest 운영DB 쓰기차단 가드/샌드박스 도입(2026-06-27, 커밋 6a7c3bb·a5ae7b0) '이후'에
+    생긴 잔재이므로 → 가드만으로는 못 막고 있고, 55건 일괄정리 이후에도 다시 쌓였음이 실측 확인.
+  - __TEST_PROJECT__(id=898)는 get-or-create 재사용이라 실행마다 늘지 않음(설계상 정상, 잔재 아님).
+
+■ 근본원인 종합 (배경 (1)(2) 실측 확정)
+────────────────────────────────────────────────────────────────────────
+주범 2파일: tests/test_owner_connection_enforcement.py,
+           tests/test_single_official_register_owner_binding.py
+  · create_project(_PREFIX + os.urandom(3).hex())  ← 랜덤 접미사, db_path 미지정
+  · _DB = .../db/migration_validator.db            ← 테스트 모듈에 '운영 경로 하드코딩'
+  · _cleanup(): 이름 접두사 LIKE 로 DELETE (best-effort, yield 이후 teardown)
+
+핵심 비대칭(가드 하에서 cleanup 이 죽는 진짜 이유):
+  · create_project → services.project_store._DB_PATH 사용 → conftest _redirect_prod_db_globals
+    가 '샌드박스 복사본'으로 redirect → pytest 안에서는 샌드박스에 씀(운영 무피해).
+  · _cleanup() → 테스트 모듈 로컬 전역 `_DB`(하드코딩) 사용 → redirect 대상 아님(services.* 만
+    redirect) → 운영 실경로로 connect → 1차 가드가 RuntimeError → cleanup 매번 예외.
+  ⇒ pytest 경로: create=샌드박스 / cleanup=운영차단 → 운영엔 잔재 안 생기나 cleanup 은 무의미.
+  ⇒ 07-22 운영 잔재는 'pytest 밖'(conftest 미로딩: 직접 python 실행/ dev 스크립트/ 다른 rootdir)
+    실행에서 발생 → 이때 create·cleanup 둘 다 운영을 직접 침. teardown 이 best-effort 라
+    중단·크래시·예외 시 정리 미완 → 배경 (1) 그대로.
+  (참고 메모리: project_test_cleanup_dead_by_proddb_guard)
+
+■ 1. 그룹 is_test 체계 확인 + project 도입 시 스키마/마이그레이션 범위
+────────────────────────────────────────────────────────────────────────
+[기존 그룹 체계 — services/batch_group_service.py]
+  · 컬럼: is_test INTEGER NOT NULL DEFAULT 0  (_GROUP_MASTER_EXT_COLS 멱등 ALTER)
+  · 최초 추가 1회 migration: is_test_newly_added True 일 때만 group_name LIKE 'E2E\_%' → is_test=1
+    (이후 컬럼 존재 → 재실행 안 됨. 이름접두사만으로 판단하지 않음)
+  · create_group(..., is_test=False) 파라미터 + INSERT 반영
+  · resolve_delete_policy: is_test=1 → 'hard'(완전삭제 허용) / 그 외 → 'soft'
+  · hard_delete_group: is_test=1 아니면 거부(안전장치). cascade 는 group_hard_reset_service 위임
+  · 테스트 진입점 make_test_group() 이 is_test=True 항상 강제
+
+[project 현재 — services/project_store.py]
+  · 컬럼: project_id, project_name, description, status, created_at, updated_at
+          + 멱등 ALTER 로 is_deleted, deleted_at
+  · is_test 컬럼 없음 / create_project 에 is_test 파라미터 없음
+  · hard delete 자체가 없음 — soft_delete_project 만 존재(is_deleted=1)
+  · 전용 cleanup 스크립트 없음(그룹은 scripts/cleanup_test_groups.py 존재, project 는 부재)
+  ⇒ 테스트/실사용 구분이 '이름 패턴'에만 의존(TESTONLY/OWN-*/__TEST_PROJECT__)
+
+[project 에 동일 패턴 도입 시 필요 변경 — 마이그레이션 범위: 소규모·저위험]
+  (A) 스키마: ensure_schema 에 기존 is_deleted/deleted_at 와 '동일한 멱등 ALTER' 1줄 추가
+      → ALTER TABLE project ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0
+      · 데이터 마이그레이션 불필요(DEFAULT 0 = 운영). 무중단·롤백 위험 사실상 없음.
+  (B) (선택) 최초 추가 1회 migration: 그룹의 E2E_ 방식 그대로,
+      컬럼 첫 도입 시점에 한해 project_name LIKE 'OWN-%'/'TESTONLY%'/'__TEST_PROJECT__'
+      → is_test=1 부여(현존 22~24건 자기식별화). 이후 재실행 안 됨.
+  (C) create_project(..., is_test: bool = False) 파라미터 + INSERT 반영(하위호환 유지)
+  (D) 테스트 생성 단일 관문에 is_test=True 강제:
+      · tests/_group_test_project.test_project_id() → 재사용 __TEST_PROJECT__ 를 is_test=1 로
+      · 주범 2파일의 create_project 호출도 is_test=True 로(또는 공통 헬퍼 경유로 수렴)
+  (E) (권장) 안전 회수 경로:
+      · resolve_project_delete_policy 에 is_test=1 → 'hard' 분기 추가(현재 전부 soft)
+      · hard_delete_project() 신규 — is_test=1 한정 + 참조 0 확인 후 물리삭제(그룹과 대칭)
+      · scripts/cleanup_test_projects.py 신규 — WHERE is_test=1 AND refs==0 만 삭제
+        (cleanup_test_groups.py 구조 재사용, dry-run 기본)
+
+  ※ 완료모듈 리팩토링 아님: (A)(C)는 기존 멱등 ALTER/파라미터 패턴의 '연장'이라 CLAUDE.md
+    '완료모듈 임의수정 금지'에 저촉되지 않음. (E)는 신규 추가.
+
+■ 2. teardown try/finally 강화 vs is_test 플래그 — 어느 쪽이 근본적인가
+────────────────────────────────────────────────────────────────────────
+결론: 둘은 '다른 실패모드'를 막는 상호보완재. 더 근본적인 것은 is_test 플래그.
+      단, is_test 만으로는 부족 — '생성/정리 경로 비대칭 수정'이 사실상 최우선 선행조건.
+
+  · try/finally teardown 강화 → 실패모드 #1(실행 중 정리 중단)만 완화. 한계 명확:
+      - SIGKILL/전원차단/os._exit/세그폴트에는 finally 도 안 돎.
+      - 현재 가드 하에서는 cleanup 이 '운영경로 하드코딩' 때문에 호출 자체가 예외 → try/finally
+        로 감싸도 '예외나는 정리'를 감쌀 뿐, 정리는 여전히 실패. 즉 지금의 죽은 cleanup 은
+        try/finally 로 안 살아남.
+  · is_test 플래그 → 실패모드 #2(식별). 이름·정리성공 여부와 무관하게 잔재가 '스스로를 테스트로
+    표시' → 크래시/kill/가드차단으로 인라인 정리가 실패해도, 밖에서(cron·스크립트) 플래그 기준
+    으로 '항상 안전하게' 회수 가능. 이름 매칭의 취약성(랜덤 접미사·오탐/누락) 제거. 물리삭제
+    안전장치(실사용 프로젝트 오삭제 차단)도 여기서 나옴.
+
+  우선순위 권장:
+    1순위) 생성/정리 경로 비대칭 제거 — 주범 2파일이 db_path(샌드박스/tmp)를 주입받아
+           운영을 아예 안 건드리게. 그러면 pytest 밖 실행에서도 운영 잔재가 원천 차단.
+    2순위) is_test 플래그 + 플래그기반 sweep 스크립트 — 그래도 새는 경우의 '내구성 안전망'.
+    3순위) teardown try/finally — 위 둘 위에 얹는 값싼 추가 경화(주 해법 아님).
+
+■ 3. 기존 테스트 영향 범위 추정 (project 생성 관련 전수 grep)
+────────────────────────────────────────────────────────────────────────
+[create_project 직접 호출 — 9개 소스파일(+pycache 제외)]
+  헬퍼 2:  tests/_group_test_project.py, tests/_scope_guard_testlib.py
+  주범 2:  tests/test_owner_connection_enforcement.py(:130),
+           tests/test_single_official_register_owner_binding.py(:75)      ← 랜덤접미사·운영경로
+  기타 5:  tests/test_project_menu_shell.py(db_path=db → tmp, 완전격리·무변경),
+           tests/test_project_safe_delete.py(:36), tests/test_project_scope_backtrack.py(:38),
+           tests/test_project_scope_guard.py(:39), tests/test_single_targets_pagination_guard.py(:43),
+           tests/test_stats_plan_scope_guard.py(:57)  ← db_path 미지정(pytest 하 샌드박스로 redirect)
+
+[전이 호출 — make_test_group/test_project_id 경유 ~18개 파일]
+  test_batch_run_wrapper_endpoint / test_batch_upload_cte_precheck / test_batch_upload_scope_guard /
+  test_batch_upload_to_wrapper_e2e / test_batch_wrapper_registration / test_column_candidate_scope_guard /
+  test_project_scope_guard / test_single_group_registration / test_single_group_targets /
+  test_single_official_register / test_single_official_register_current_history /
+  test_single_official_register_hardening / test_single_official_register_txn /
+  test_single_run_standard_registration_route / test_single_save_dialect_hard_gate /
+  test_single_save_group_registration / test_stats_plan_scope_guard  등
+  → 이들은 헬퍼가 '재사용 __TEST_PROJECT__ 1건' 을 get-or-create 하므로 프로젝트 잔재를 안 늘림.
+    is_test 도입 시 헬퍼 1곳만 is_test=1 로 고치면 18개 파일이 코드변경 없이 일괄 커버.
+
+[영향 규모 결론]
+  · 반드시 손대야 하는 파일: 실질 3~4개
+      - 헬퍼 tests/_group_test_project.py(is_test=True 부여) ← 전이 18개를 한 번에 커버
+      - 주범 2파일(db_path 주입 + is_test=True)
+      - (선택) tests/_scope_guard_testlib.py
+  · is_test 컬럼/파라미터 자체는 DEFAULT 0·하위호환이라, 나머지 create_project 호출부는
+    '무수정'이어도 컴파일·동작 불변(회귀 없음).
+
+════════════════════════════════════════════════════════════════════════
+■ 설계안 권고(기능/구조 변경 응답 형식)
+────────────────────────────────────────────────────────────────────────
+- 요청 요약: project 에도 그룹의 is_test 체계 도입 + teardown 견고화 방향 진단
+- 긍정적 효과: 테스트/실사용 결정적 구분, 크래시·kill 후에도 안전한 밖-회수, 이름매칭 취약성 제거
+- 구조적 문제점: project_store 표면적 증가(경미), hard delete 신규 도입(현재 soft-only 정책 확장)
+- 운영상 위험: hard_delete_project 오용 시 데이터 소실 → is_test=1 AND refs==0 이중 게이트 필수,
+              dry-run 기본·GRP_DEFAULT 류 보호대상 개념(보호 프로젝트) 유지
+- heuristic/scoring/explainability 영향: 없음(순수 저장·정리 계층)
+- 권장 대응책:
+    1) [선행·최우선] 주범 2파일 생성/정리 경로 비대칭 제거(db_path 주입) — 코드 이번 범위 밖
+    2) is_test 컬럼(멱등 ALTER)+create_project 파라미터+헬퍼 강제+플래그 sweep 스크립트
+    3) try/finally 는 부가 경화로만
+- 지금 구현 여부: '문서화 우선' (이번 작업은 진단·설계 확정까지. 구현은 별도 승인 단계)
+
+검증(요청 필수항목) 이행:
+  · 현재 잔재 상태 재확인 → 26행 중 테스트성 24~25건, OWN-* 22건 2026-07-22 재누적 실측
+  · 설계안 → is_test 스키마/마이그레이션(A~E) + teardown 대비 우선순위 제시
+  · 영향범위 추정 → 직접 9파일·전이 18파일, 실수정 필요 3~4개로 수렴
+
+✅ 작업 완료 - project is_test 플래그 도입 설계·마이그레이션 범위·영향추정·잔재 재확인 완료(코드 무수정)
