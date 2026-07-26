@@ -1,0 +1,47 @@
+=== COUNT-SQL-BUILDER-UNDERSCORE-ALIAS-FIX / 음성대조 + PG 회귀 ===
+
+[오라클] 접속 192.168.0.151:1523/xepdb1 user=nxdnp (비밀번호 미표시)
+  Before 별칭: __mv_count_marker  /  After 별칭: mv_count_marker
+
+── Before(옛 이름 __mv_count_marker) ──
+  실행 실패: ORA-00911: _: invalid character after AS
+
+── After(현재 이름 mv_count_marker) ──
+  실행 성공 COUNT=250000  → ORA-00911 미발생
+
+[PostgreSQL] 접속 192.168.0.150:5433/asis user=nextobe (비밀번호 미표시)
+── 생성된 원본 COUNT SQL ──
+SELECT COUNT(*) AS CNT
+FROM (
+WITH ranked AS (
+  SELECT
+    a.sn,
+    a.emp_no,
+    a.flnm,
+    a.orgn_cd,
+    CASE WHEN b.sn IS NULL THEN a.sal_amt ELSE COALESCE(b.sal_amt, a.sal_amt) END AS sal_amt,
+    a.ymd,
+    ROW_NUMBER() OVER (PARTITION BY a.orgn_cd ORDER BY a.sn) AS rn
+  FROM ntb.ga_hr_a AS a
+  LEFT JOIN ntb.ga_hr_b AS b
+    ON a.sn = b.sn
+)
+SELECT
+  1 AS mv_count_marker
+FROM ranked
+WHERE
+  rn >= 1
+) src_count
+──────────────────────────
+  실행 성공 COUNT=20000
+  기준값(ntb.ga_hr_a 전체) = 20000
+
+=== 결론 ===
+  ✓ Before: 옛 별칭에서 ORA-00911 재현
+  ✓ After: 현재 별칭 오라클 정상 실행
+  ✓ After: ORA-00911 미발생
+  ✓ PG: 새 별칭(mv_count_marker) 포함
+  ✓ PG: 선행 밑줄 별칭 없음
+  ✓ PG: 실행 성공
+  ✓ PG: COUNT 값이 기준값과 일치
+  최종: ✅ PASS
