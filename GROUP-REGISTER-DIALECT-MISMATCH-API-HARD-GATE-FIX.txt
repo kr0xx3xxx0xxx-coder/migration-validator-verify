@@ -1,0 +1,63 @@
+✅ 작업 완료 - /single/save 서버측 방언 하드 게이트 추가(API 직접 호출 우회 차단), Before/After 실측 완료
+
+[작업명] GROUP-REGISTER-DIALECT-MISMATCH-API-HARD-GATE-FIX
+
+■ 배경/문제
+  드롭다운 방언 차단(GROUP-REGISTER-DROPDOWN-DIALECT-MISMATCH-FIX)은 클라이언트 표시까지만이라,
+  최종 저장 엔드포인트 /single/save 를 직접 POST 하면 다른 방언으로 바인딩된 그룹에 등록하는
+  우회가 이론상 가능했다(defense-in-depth 누락). 이번 과제로 서버측 하드 게이트를 추가.
+
+■ 수정 내용 (commit 34302f9)
+  routes/single_save_route.py (+32)
+    - step 2-2 방언 하드 게이트 신설. 저장 직전(scope 가드 직후, persist facade 위임 전):
+      그룹 바인딩 방언(get_group 의 src/tgt_dbms_type) vs 세션 방언(req.src_db/tgt_db 의 db_type)
+      비교 → 불일치면 409 + code=DIALECT_MISMATCH 로 저장 자체 거부(식별자 미발급).
+    - 판정은 드롭다운과 동일한 annotate_group_dialect_compat 단일 출처를 재사용(재구현 없음).
+      세션 방언이 하나도 없으면(빈 db_type) 표시/차단 안 함(드롭다운 계약과 동일).
+    - 게이트 확인 자체 예외 시 fail-closed(우회 방지 우선, DIALECT_GATE_ERROR 409).
+    - batch_group_service / batch_group_route(드롭다운 차단 로직)는 미수정, 그대로 재사용.
+  tests/test_single_save_dialect_hard_gate.py (신규 +176) — 게이트 판정 단위 테스트 5건.
+  scripts/dev_e2e/group_register_dialect_api_hard_gate_verify.py (신규 +164) — 실 서버 API 실측 스크립트.
+
+■ 자체 테스트 (전부 통과)
+  - python samples/test_virtual_cases.py        → 8/8 통과
+  - python samples/test_complex_cases.py        → 5/5 통과
+  - pytest tests/test_single_save_dialect_hard_gate.py        → 5 passed
+  - pytest tests/test_batch_group_service.py                  → 통과(방언 판정 함수 회귀)
+  - pytest tests/test_single_explicit_final_save_gate.py      → 통과(기존 저장 게이트 회귀)
+    (합산 38 passed)
+  - 참고: tests/test_single_save_source_binding.py 의 실패 2건은 이 환경의 원자 저장 경로
+    사전존재 실패로, baseline(HEAD, 내 수정 이전) worktree 에서도 동일 실패 실측 → 회귀 아님.
+
+■ Before/After 실측 (실 파이프라인·실 토큰, 인증 ON, 단계가드 ON)
+  방식: PostgreSQL(Inter, 192.168.0.150) 세션으로 analyze→count→generate→execute 실제 구동해
+        유효 workflow_token 발급 후, 같은 토큰으로 oracle 바인딩 / postgresql 바인딩 두 그룹에
+        /single/save 직접 POST. 세션 방언 db_type=postgresql.
+
+  [Before] baseline 서버(게이트 없음)  http://localhost:8010
+    - oracle 그룹 저장 → http=200, code=REGISTER_FAILED
+      = 방언으로 차단되지 않고 등록 단계까지 진입(409 DIALECT_MISMATCH 부재) → 우회 표면 실증.
+  [After]  메인 서버(게이트 적용)  http://localhost:8000  (재기동 KST 2026-07-26 09:18:49)
+    - oracle 그룹 저장 → http=409, code=DIALECT_MISMATCH
+      error: "선택한 그룹의 DB 방언과 현재 검증 세션의 방언이 일치하지 않아 공식 저장할 수 없습니다.
+             (원본 Oracle 그룹 · 현재 PostgreSQL / 목적지 Oracle 그룹 · 현재 PostgreSQL)"
+      run_id=None history_run_id=None target_table=None → 식별자 미발급, 등록/이력 0.
+  [회귀] postgresql 그룹 저장 → 두 서버 모두 방언 차단 없음(게이트 통과).
+        = 게이트는 '방언'으로만 판정, 정상(동일 방언) 등록 흐름을 막지 않음.
+  ※ 양쪽 A/B 공통으로 나타난 REGISTER_FAILED(metadata)는 게이트 무관 하류 단계
+    (HTTP 본문 sources 미포함 → 단일 Source metadata SKIP)로 방언 결론에 영향 없음.
+    metadata 를 갖춘 in-process 경로에서는 불일치 방언이 실제 등록 성공함을 단위/worktree 테스트로 확인.
+
+■ 증적
+  E:\verify_screenshots_only\GROUP-REGISTER-DIALECT-MISMATCH-API-HARD-GATE-FIX\
+    - BEFORE_AFTER_API_evidence.txt
+    - dialect_api_hard_gate_evidence_main.json
+    - dialect_api_hard_gate_evidence_baseline.json
+  verify repo push 완료: remote main == local (c4ee87c), ls-remote 확인.
+
+■ git
+  코드 저장소 commit: 34302f9 (main)
+  변경: routes/single_save_route.py, tests/test_single_save_dialect_hard_gate.py,
+        scripts/dev_e2e/group_register_dialect_api_hard_gate_verify.py (3 files, +372)
+
+✅ 작업 완료 - /single/save 서버측 방언 하드 게이트 추가(API 직접 호출 우회 차단), Before/After 실측 완료
