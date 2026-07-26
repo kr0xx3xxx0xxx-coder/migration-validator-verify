@@ -1,0 +1,23 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.0.3, pluggy-1.6.0 -- C:\Python314\python.exe
+cachedir: .pytest_cache
+rootdir: C:\projects\migration-validator
+plugins: anyio-4.13.0
+collecting ... collected 8 items
+
+tests/test_underscore_alias_oracle_regression_static.py::TestRuntimeOracleAliasClean::test_clean_builders_pure_string 
+tests/test_underscore_alias_oracle_regression_static.py::TestRuntimeOracleAliasClean::test_clean_builders_pure_string PASSED [ 12%]
+tests/test_underscore_alias_oracle_regression_static.py::TestRuntimeOracleAliasClean::test_clean_builders_sqlglot 
+tests/test_underscore_alias_oracle_regression_static.py::TestRuntimeOracleAliasClean::test_clean_builders_sqlglot PASSED [ 25%]
+tests/test_underscore_alias_oracle_regression_static.py::TestRuntimeOracleAliasKnownOffenders::test_hash_bucket_agg_underscore_alias_known XFAIL [ 37%]
+tests/test_underscore_alias_oracle_regression_static.py::TestRuntimeOracleAliasKnownOffenders::test_key_range_bucket_agg_underscore_alias_known XFAIL [ 50%]
+tests/test_underscore_alias_oracle_regression_static.py::TestRuntimeOracleAliasKnownOffenders::test_key_range_multi_range_agg_underscore_alias_known XFAIL [ 62%]
+tests/test_underscore_alias_oracle_regression_static.py::TestStaticUnderscoreAliasScan::test_scanner_detects_known_oracle_unsafe PASSED [ 75%]
+tests/test_underscore_alias_oracle_regression_static.py::TestStaticUnderscoreAliasScan::test_scanner_finds_only_python_and_is_stable PASSED [ 87%]
+tests/test_underscore_alias_oracle_regression_static.py::TestStaticUnderscoreAliasScan::test_scanner_no_unexpected_offenders PASSED [100%]
+
+=========================== short test summary info ===========================
+XFAIL tests/test_underscore_alias_oracle_regression_static.py::TestRuntimeOracleAliasKnownOffenders::test_hash_bucket_agg_underscore_alias_known
+XFAIL tests/test_underscore_alias_oracle_regression_static.py::TestRuntimeOracleAliasKnownOffenders::test_key_range_bucket_agg_underscore_alias_known
+XFAIL tests/test_underscore_alias_oracle_regression_static.py::TestRuntimeOracleAliasKnownOffenders::test_key_range_multi_range_agg_underscore_alias_known
+=============== 5 passed, 3 xfailed, 6 subtests passed in 6.73s ===============
