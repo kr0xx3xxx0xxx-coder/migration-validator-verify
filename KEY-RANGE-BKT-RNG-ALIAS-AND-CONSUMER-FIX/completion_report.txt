@@ -1,8 +1,10 @@
-✅ 작업 완료 - KEY_RANGE 축 별칭 __BKT/__RNG → KR_BKT/KR_RNG 개명 + 소비자 상수 전환, 오라클 ORA-00911 해소 실측 확정
+✅ 작업 완료 - KEY_RANGE 축 별칭 __BKT/__RNG → KR_BKT/KR_RNG 개명 + 소비자 상수 전환, 오라클 KEY_RANGE 종단(56노드) ORA-00911 없이 실행 실측 확정
 
 [작업명] KEY-RANGE-BKT-RNG-ALIAS-AND-CONSUMER-FIX
 [커밋]   3abe5c45af3f25dfa4b6e7df0ce838ea3ccbc5ca  (main, 코드 repo push 안 함)
-[서버 재기동] 2026-07-26 19:32:56 KST  (기존 PID 종료→신규 PID 33728, uvicorn 127.0.0.1:8000, 인증 ON)
+[서버 재기동] 코드 반영 재기동 1차 2026-07-26 19:32:56 KST (PID 33728)
+             scope_ref 세션 일치 재기동 2차 2026-07-26 19:41 KST (PID 17384, MV_SCOPE_REF_SESSION=kr_bkt_rng_fix)
+             — 둘 다 본 수정 반영본, uvicorn 127.0.0.1:8000, 인증 ON
 
 ──────────────────────────────────────────────────────────────────────────
 1. 배경 / 원인
@@ -12,6 +14,9 @@
 · 별칭은 '이름 기반' 결합이라 별칭만 바꾸면 소비자(router.py/multi_scope.py)가 깨진다
   (positional 아님). 소비 지점을 동반 전환해야 한다.
 · 저장 상태(pending_region.active)의 __BKT 계약은 현재 저장 행 0건 → 하위호환 불필요.
+· 선행 배선: routes 방언 위임(07cd4d0)이 이미 반영돼 /diagnosis/analyze 오라클 경로가
+  CHUNK_KEY 확정·KEY_RANGE 도달까지 감. __BKT/__RNG ORA-00911 이 '마지막 잔존 차단원'
+  이었고(이전엔 이분 폴백으로 열화·크래시는 아님), 본 작업으로 native 실행 복원.
 
 ──────────────────────────────────────────────────────────────────────────
 2. 변경 내용 (지시 1·2 이행)
@@ -54,28 +59,16 @@
     오라클 실 픽스처: NXDNP.MV_ORA_TEST_SRC (ORDER_ID NUMBER 1..300, REGION_CD 20그룹)
 ──────────────────────────────────────────────────────────────────────────
 [1] 생성 SQL 정적(oracle·postgres × bucket·range) : 밑줄별칭 '없음' + 신별칭 포함 → 4/4 PASS
-
 [2] 오라클 실측 (192.168.0.151:1523/xepdb1, 비밀번호 미표시)
-    ▶ bucket
-      Before: ... WIDTH_BUCKET(ORDER_ID,1,3001,8) AS __BKT ...
-              실행 실패 → ORA-00911: _: invalid character after AS   [재현 ✓]
-      After : ... WIDTH_BUCKET(ORDER_ID,1,3001,8) AS KR_BKT ...
-              실행 성공 rows=20, cols=['G0','CNT','KR_BKT']            [정상 ✓]
-    ▶ range
-      Before: ... CASE WHEN ... THEN 1 ... AS __RNG ...
-              실행 실패 → ORA-00911                                    [재현 ✓]
-      After : ... CASE WHEN ... THEN 1 ... AS KR_RNG ...
-              실행 성공 rows=20, cols=['G0','CNT','KR_RNG']            [정상 ✓]
-    → 별칭이 유일한 차단 요인이었음을 대조 실증(동일 SQL, 별칭만 차이).
-
-[3] 소비 경로 라운드트립 (오라클, 운영 compare_fn = make_stats_compare_fn)
-    compare_fn(groupby=[KR_BKT]) → is_matched=True, total_groups=1 (src==tgt 일치)
-    group_metrics 키 집합=['KR_BKT'] → readback KR_BKT 키잉 정상 ✓
-    (별칭 개명이 소비자까지 일관 반영돼 판정 도달·키 조회가 깨지지 않음을 실증)
-
+    ▶ bucket : Before(AS __BKT) → ORA-00911: _: invalid character after AS  [재현 ✓]
+               After (AS KR_BKT) → 성공 rows=20, cols=['G0','CNT','KR_BKT']  [정상 ✓]
+    ▶ range  : Before(AS __RNG) → ORA-00911                                  [재현 ✓]
+               After (AS KR_RNG) → 성공 rows=20, cols=['G0','CNT','KR_RNG']  [정상 ✓]
+    → 별칭이 유일한 차단 요인임을 대조 실증(동일 SQL, 별칭만 차이).
+[3] 소비 경로 라운드트립 (오라클, 운영 compare_fn=make_stats_compare_fn)
+    compare_fn(groupby=[KR_BKT]) → is_matched=True, group_metrics 키=['KR_BKT'] → readback 정상 ✓
 [4] PostgreSQL 무회귀 (192.168.0.150:5433/asis, asis01.mvq_emp)
     After/PG SQL 실행 성공 rows=2, cols=['G0','CNT','KR_BKT'] → PG 정상(회귀 없음) ✓
-
     종합: ✅ 전체 PASS
 
 ──────────────────────────────────────────────────────────────────────────
@@ -94,28 +87,43 @@
 ──────────────────────────────────────────────────────────────────────────
 · 진단 스위트(multi_scope/level_batch/phase3/e2e/planner/keyrange/hash_bucket/row_diff/
   group_metrics/engine + 정적회귀) : 89 passed, 32 skipped(env-gated live), 1 xfailed
-· samples/test_virtual_cases.py  : 8/8 통과
-· samples/test_complex_cases.py  : 5/5 통과
+· samples/test_virtual_cases.py  : 8/8 통과   ·  samples/test_complex_cases.py : 5/5 통과
 · 사전 존재 실패 2건(test_diagnosis_phase3b.py: test_next_strategy_preview_matrix,
   test_start_passes_confirmed_chunk_key)은 clean HEAD worktree 에서도 동일 실패 →
   이번 변경과 무관(별칭·chunk_key resolve 무관), 회귀 아님.
 
 ──────────────────────────────────────────────────────────────────────────
-6. 브라우저 검증 (포트 8000, 인증 ON)
+6. 브라우저/실 서비스(포트 8000, 인증 ON) — KEY_RANGE 종단 실측  (지시 3 정면 이행)
+    스크립트: scripts/dev_e2e/key_range_bkt_rng_live_route_verify.py
 ──────────────────────────────────────────────────────────────────────────
-· E2E 계정으로 http://127.0.0.1:8000/ 접속 → 인증 통과, 앱 정상 로드
-  (타이틀 "이관 검증 센터", 대시보드 렌더) — 스크린샷: service_8000_authenticated.png
-· KEY_RANGE 전략의 UI 종단 도달은 상류 'routes 방언 미위임'(별도 터미널 작업)에
-  여전히 의존 → 지시 3의 명시적 예외조항(도달 안 되면 빌더 직접 호출 SQL 레벨 검증)에
-  따라 §3 의 오라클 실측 + 운영 소비경로 라운드트립을 확정 증거로 채택.
+· 인증 게이트: 무인증 GET / → 401, 인증 GET / → 200 (인증 ON 정상 ✓)
+· 앱 로드: E2E 계정 접속 시 타이틀 "이관 검증 센터" 대시보드 렌더 (스샷 첨부)
+· POST /diagnosis/analyze (오라클 XDIFF_SRC 250,000 → XDIFF_TGT 249,950, C_CHAR 그룹
+  1000개 중 diff 51건, CHUNK_KEY=ID NUMBER, max_depth=3):
+    HTTP 200, status=DONE, stop_reason=COMPLETED
+    selected_strategy = EXECUTE_KEY_RANGE  (size_class=MEDIUM,
+      reason_codes=[CHUNK_KEY_INDEXED, RANGE_DISTRIBUTION_OK, LOW_NULL_RATIO, EXPECTED_REDUCTION_HIGH])
+    노드 총 57개 / 전략 [GROUP_SCOPE, KEY_RANGE] / KEY_RANGE 노드 56개
+    (ID 범위를 이분·다중 bucket 집계로 재귀 세분 — 예: [1,31258)→[1,15629)→[1,7815) …)
+    → 응답 전체 ORA-00911 포함: 아니오 ✓
+    → KEY_RANGE 종단 도달·완료: 예 ✓
+· KEY_RANGE 다중집계 SQL 직접 실행(운영 빌더, After):
+    build_bucket_agg_sql(KR_BKT) → rows=8000, cols=[...,'KR_BKT']  실행 성공 ✓
+    build_multi_range_agg_sql(KR_RNG) → rows=2000, cols=[...,'KR_RNG'] 실행 성공 ✓
+  (정정) 앞선 추정과 달리 07cd4d0[routes 방언 위임]이 이미 반영돼 있어, 본 별칭 수정으로
+  KEY_RANGE 가 오라클에서 완전 종단 실행됨을 실 서비스 포트에서 확정.
 
 ──────────────────────────────────────────────────────────────────────────
 7. 증적
 ──────────────────────────────────────────────────────────────────────────
 · E:\verify_screenshots_only\KEY-RANGE-BKT-RNG-ALIAS-AND-CONSUMER-FIX\
-    - sql_level_before_after.txt      (Before/After 실측 전문 로그)
-    - service_8000_authenticated.png  (인증된 서비스 화면)
+    - sql_level_before_after.txt          (Before/After SQL 레벨 실측 전문)
+    - live_route_key_range_result.txt     (포트 8000 KEY_RANGE 종단 실측 전문)
+    - live_route_key_range_summary.json   (요약 JSON)
+    - service_8000_authenticated.png      (인증된 서비스 화면)
+    - completion_report.txt               (본 보고 사본)
 · 검증 스크립트: scripts/dev_e2e/key_range_bkt_rng_alias_consumer_verify.py
+                 scripts/dev_e2e/key_range_bkt_rng_live_route_verify.py
                  scripts/dev_e2e/key_range_bkt_rng_browser_shot.py
 
-✅ 작업 완료 - __BKT/__RNG → KR_BKT/KR_RNG 개명·소비자 상수 전환 완료, 오라클 ORA-00911 해소·PG 무회귀·정적 xfail→pass 전환 실측 확정
+✅ 작업 완료 - __BKT/__RNG → KR_BKT/KR_RNG 개명·소비자 상수 전환 완료, 오라클 KEY_RANGE 종단(56노드) ORA-00911 없이 실행·PG 무회귀·정적 xfail→pass 전환 실측 확정
