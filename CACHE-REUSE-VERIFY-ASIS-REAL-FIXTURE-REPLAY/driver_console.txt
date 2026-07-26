@@ -1,0 +1,14 @@
+=== 재이관 PK index 캐시 재사용 실측(직접 HTTP, asis→tobe 실 fixture 재현) ===
+  원본 asis=192.168.0.151:1523  목적 tobe=192.168.0.151:1524
+[T0-prepare accept] 239.6ms status=PREPARING run_id=PS678407ADF88B reused=False
+[T0-prepare READY] wall=250571.7ms status=READY reimport(avail)=None total=150 missing=100 vmm=50
+[전체목록 page1] 86.1ms 반환=100건 서로다른 C_CHAR 그룹=['C0007', 'C0012', 'C0507']
+[T1-그룹 드릴다운] C_CHAR=C0007 69.9ms 반환=0건 status=READY
+[T2-그룹 드릴다운] C_CHAR=C0012 96.6ms 반환=0건 status=READY
+[T3-그룹 드릴다운] C_CHAR=C0507 83.0ms 반환=0건 status=READY
+[T4-페이징 page2] C_CHAR=C0007 91.7ms
+[R1-동일 prepare 재요청] 100.0ms status=READY reused=True same_run=True
+[R2-새 세션 prepare] 90.0ms status=READY reused=True same_run=True
+
+결과 저장: E:\verify_screenshots_only\CACHE-REUSE-VERIFY-ASIS-REAL-FIXTURE-REPLAY\result.json
+   [캡처] timing_summary.png
