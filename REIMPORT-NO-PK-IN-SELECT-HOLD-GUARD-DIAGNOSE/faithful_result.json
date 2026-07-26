@@ -1,0 +1,240 @@
+{
+ "env": {
+  "src": "192.168.0.151:1523",
+  "tgt": "192.168.0.151:1524",
+  "fixture": "asis MV_ORA_NOPK_SRC(ID PK,C_NUM=MOD(ID,5) 중복,C_VARCHAR2) → tobe MV_ORA_NOPK_TGT(ID/PK 없음,불일치3건)",
+  "note": "이관 SELECT 에서 PK(ID) 의도적 제외"
+ },
+ "cases": {
+  "A_simple_1to1": {
+   "insert_cols": [
+    "C_NUM",
+    "C_VARCHAR2"
+   ],
+   "from_table": "MV_ORA_NOPK_SRC",
+   "tgt_table": "MV_ORA_NOPK_TGT",
+   "analyze_success": true,
+   "sync_path_le50k": {
+    "http": 200,
+    "ms": 482.7,
+    "status": "HOLD",
+    "stop_reason": "MATCH_KEY_HOLD",
+    "error_message": "안정적인 비교키(MATCH KEY)가 확인되지 않아 재이관 PK 계산을 보류합니다.",
+    "run_id": "",
+    "counts": null,
+    "detail": null,
+    "raw": {
+     "ok": true,
+     "status": "HOLD",
+     "stop_reason": "MATCH_KEY_HOLD",
+     "error_message": "안정적인 비교키(MATCH KEY)가 확인되지 않아 재이관 PK 계산을 보류합니다.",
+     "configured_group_by": 3,
+     "configured_sum": 3,
+     "effective_group_by_columns": [
+      "C_NUM"
+     ],
+     "effective_sum_columns": [],
+     "effective_group_by_count": 1,
+     "effective_sum_count": 0,
+     "selection_mode": "AUTO",
+     "selection_fingerprint": "7703da258a3d746c1aec",
+     "plan_fingerprint": "",
+     "run_id": "",
+     "selection_evidence": {
+      "configured_group_by": 3,
+      "configured_sum": 3,
+      "effective_group_by_columns": [
+       "C_NUM"
+      ],
+      "effective_sum_columns": [],
+      "effective_group_by_count": 1,
+      "effective_sum_count": 0,
+      "selection_mode": "AUTO",
+      "selection_fingerprint": "7703da258a3d746c1aec",
+      "plan_fingerprint": "",
+      "run_id": ""
+     }
+    }
+   },
+   "stream_path_gt50k": {
+    "prepare_http": 200,
+    "prepare_ms": 584.8,
+    "prepare_status": "PREPARING",
+    "stop_reason": null,
+    "error_message": null,
+    "run_id": "PS702C3808BB65",
+    "accepted": true,
+    "raw_prepare": {
+     "ok": true,
+     "status": "PREPARING",
+     "run_id": "PS702C3808BB65",
+     "accepted": true,
+     "prepare_timing_ms": {
+      "key_evidence_validate_ms": 451.9,
+      "trusted_physical_pk": false,
+      "fingerprint_validate_ms": 9.1,
+      "enqueue_ms": 0.3,
+      "run_id_bind_ms": 50.3,
+      "total_accepted_ms": 511.6
+     },
+     "chunk_key_evidence": null,
+     "error_message": null,
+     "fingerprint": "ad21bb9eed3c81ebf605dcc395c495bac7f62bb378b41b7b54d06b7a9d13de38",
+     "reused": false,
+     "configured_group_by": 3,
+     "configured_sum": 3,
+     "effective_group_by_columns": [
+      "C_NUM"
+     ],
+     "effective_sum_columns": [],
+     "effective_group_by_count": 1,
+     "effective_sum_count": 0,
+     "selection_mode": "AUTO",
+     "selection_fingerprint": "7703da258a3d746c1aec",
+     "plan_fingerprint": "",
+     "selection_evidence": {
+      "configured_group_by": 3,
+      "configured_sum": 3,
+      "effective_group_by_columns": [
+       "C_NUM"
+      ],
+      "effective_sum_columns": [],
+      "effective_group_by_count": 1,
+      "effective_sum_count": 0,
+      "selection_mode": "AUTO",
+      "selection_fingerprint": "7703da258a3d746c1aec",
+      "plan_fingerprint": "",
+      "run_id": "PS702C3808BB65"
+     }
+    },
+    "pk_records": {
+     "http": 200,
+     "ok": false,
+     "status": null,
+     "error": "재이관 PK index 를 찾을 수 없습니다.",
+     "key_col": null,
+     "raw": {
+      "ok": false,
+      "error": "재이관 PK index 를 찾을 수 없습니다.",
+      "run_id": "PS702C3808BB65"
+     }
+    }
+   }
+  },
+  "B_cte_join": {
+   "insert_cols": [
+    "C_NUM",
+    "C_VARCHAR2"
+   ],
+   "from_table": "MV_ORA_NOPK_SRC",
+   "tgt_table": "MV_ORA_NOPK_TGT",
+   "analyze_success": true,
+   "sync_path_le50k": {
+    "http": 200,
+    "ms": 463.5,
+    "status": "HOLD",
+    "stop_reason": "MATCH_KEY_HOLD",
+    "error_message": "안정적인 비교키(MATCH KEY)가 확인되지 않아 재이관 PK 계산을 보류합니다.",
+    "run_id": "",
+    "counts": null,
+    "detail": null,
+    "raw": {
+     "ok": true,
+     "status": "HOLD",
+     "stop_reason": "MATCH_KEY_HOLD",
+     "error_message": "안정적인 비교키(MATCH KEY)가 확인되지 않아 재이관 PK 계산을 보류합니다.",
+     "configured_group_by": 3,
+     "configured_sum": 3,
+     "effective_group_by_columns": [
+      "C_NUM"
+     ],
+     "effective_sum_columns": [],
+     "effective_group_by_count": 1,
+     "effective_sum_count": 0,
+     "selection_mode": "AUTO",
+     "selection_fingerprint": "7703da258a3d746c1aec",
+     "plan_fingerprint": "",
+     "run_id": "",
+     "selection_evidence": {
+      "configured_group_by": 3,
+      "configured_sum": 3,
+      "effective_group_by_columns": [
+       "C_NUM"
+      ],
+      "effective_sum_columns": [],
+      "effective_group_by_count": 1,
+      "effective_sum_count": 0,
+      "selection_mode": "AUTO",
+      "selection_fingerprint": "7703da258a3d746c1aec",
+      "plan_fingerprint": "",
+      "run_id": ""
+     }
+    }
+   },
+   "stream_path_gt50k": {
+    "prepare_http": 200,
+    "prepare_ms": 538.2,
+    "prepare_status": "PREPARING",
+    "stop_reason": null,
+    "error_message": null,
+    "run_id": "PS8F1BAC1DA679",
+    "accepted": true,
+    "raw_prepare": {
+     "ok": true,
+     "status": "PREPARING",
+     "run_id": "PS8F1BAC1DA679",
+     "accepted": true,
+     "prepare_timing_ms": {
+      "key_evidence_validate_ms": 406.1,
+      "trusted_physical_pk": false,
+      "fingerprint_validate_ms": 8.9,
+      "enqueue_ms": 0.4,
+      "run_id_bind_ms": 50.4,
+      "total_accepted_ms": 465.8
+     },
+     "chunk_key_evidence": null,
+     "error_message": null,
+     "fingerprint": "fb1eb8785835f365d3a652ebdc1e4d0e41affdf2dbe2b004a13ba738253508d7",
+     "reused": false,
+     "configured_group_by": 3,
+     "configured_sum": 3,
+     "effective_group_by_columns": [
+      "C_NUM"
+     ],
+     "effective_sum_columns": [],
+     "effective_group_by_count": 1,
+     "effective_sum_count": 0,
+     "selection_mode": "AUTO",
+     "selection_fingerprint": "7703da258a3d746c1aec",
+     "plan_fingerprint": "",
+     "selection_evidence": {
+      "configured_group_by": 3,
+      "configured_sum": 3,
+      "effective_group_by_columns": [
+       "C_NUM"
+      ],
+      "effective_sum_columns": [],
+      "effective_group_by_count": 1,
+      "effective_sum_count": 0,
+      "selection_mode": "AUTO",
+      "selection_fingerprint": "7703da258a3d746c1aec",
+      "plan_fingerprint": "",
+      "run_id": "PS8F1BAC1DA679"
+     }
+    },
+    "pk_records": {
+     "http": 200,
+     "ok": false,
+     "status": null,
+     "error": "재이관 PK index 를 찾을 수 없습니다.",
+     "key_col": null,
+     "raw": {
+      "ok": false,
+      "error": "재이관 PK index 를 찾을 수 없습니다.",
+      "run_id": "PS8F1BAC1DA679"
+     }
+    }
+   }
+  }
+ }
+}
