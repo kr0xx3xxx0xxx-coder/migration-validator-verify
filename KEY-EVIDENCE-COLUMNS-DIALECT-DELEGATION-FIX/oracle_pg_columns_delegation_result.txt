@@ -1,0 +1,49 @@
+==============================================================================
+ KEY-EVIDENCE-COLUMNS-DIALECT-DELEGATION-FIX 실측 검증
+ 오라클 원본=192.168.0.151:1523/xepdb1 목적=192.168.0.151:1524/xepdb1 (비밀번호 미표시)
+==============================================================================
+
+── [A] _columns() Before/After (오라클 목적지 MV_ORA_DEMO_TGT) ──────────────
+  [Before] 구방식(information_schema 직접조회) 실행:
+    → 실패 — ORA-00942: table or view "INFORMATION_SCHEMA"."COLUMNS" does not exist
+Help: https://docs.oracle.com/error-help/db/ora-0
+    → information_schema 가 오라클에 없어 조회 불가(구 _columns 는 이 예외를 {} 로 삼킴)
+  [After] 신방식(_fetch_columns_info → 어댑터 ALL_TAB_COLUMNS + normalize_type):
+    → _columns = {'ID': 'NUMBER', 'DEPT_CD': 'TEXT', 'UPD_YMD': 'TEXT', 'REG_DT': 'TEXT', 'STATUS_CD': 'TEXT', 'AMT': 'NUMBER', 'CREATED_BY': 'TEXT'}
+    → 판정: 복구됨 ✓ (ID=NUMBER 정상 분류)
+
+── [B] CHUNK_KEY 후보 생성(chunk_key_candidates_from_contract) ─────────────
+    → 후보 = ['ID']  (수정 전: [] — _columns={} 때문에 후보 0개 → HOLD)
+    → 판정: 복구됨 ✓ (ID 단일 CHUNK_KEY 후보)
+
+── [C] CHUNK_KEY 확정(resolve_confirmed_chunk_key) — 방언 영향 ────────────
+    (기본 postgres 방언 — 프로덕션 _confirm_routing 이 dialect 미전달) → None
+    (conn 방언 oracle 명시)                                        → 확정 ✓ {'src_expr': 'id', 'tgt_expr': 'id', 'type': 'NUMBER', 'label': 'ID', 'confirmed': True, 'nullable': False, 'indexed': True, 'index_leading': True}
+    NULL probe(postgres) = SELECT 1 FROM NXDNP.MV_ORA_DEMO_TGT WHERE id IS NULL LIMIT 1
+      실행 → 실패 — ORA-03049: SQL keyword 'LIMIT' is not syntactically valid following '...WHERE id IS NULL '
+    NULL probe(oracle)   = SELECT 1 FROM NXDNP.MV_ORA_DEMO_TGT WHERE id IS NULL FETCH FIRST 1 ROWS ONLY
+      실행 → OK(rows=0)
+    → [하류 차단원인 #1] routes/diagnosis_route.py:_confirm_routing 이 resolve_confirmed_chunk_key
+      호출 시 dialect 를 conn.db_type 에서 도출하지 않아(기본 postgres) 오라클 NULL probe 가
+      'LIMIT'(→ORA-03049)로 렌더 → 확정 실패. _columns 와 별개 결함(범위 밖 — 보고만).
+    → 규명 판정: 재현됨 ✓ (oracle 방언이면 확정)
+
+── [D] 하류 차단원인 #2 — __BKT/__RNG 오라클 ORA-00911 (보고만, 범위 밖) ─────
+    build_bucket_agg_sql(dialect=oracle) 생성 SQL:
+      SELECT DEPT_CD AS G0, COUNT(*) AS CNT, WIDTH_BUCKET(ID, 1, 201, 8) AS __BKT FROM NXDNP.MV_ORA_DEMO_TGT GROUP BY DEPT_CD, WIDTH_BUCKET(ID, 1, 201, 8)
+    실행 → 실패 — ORA-00911: _: invalid character after AS
+Help: https://docs.oracle.com/error-help/db/ora-00911/
+    → ORA-00911(선행 밑줄 별칭) 재현: 예 ✓ (별칭 수정은 별도 작업)
+
+── [E] PostgreSQL 회귀 없음(_columns 정상) ─────────────────────────────────
+    PG 테이블 'ga_asset_a' _columns(앞 6개) = {'SN': 'NUMBER', 'AST_MNG_NO': 'TEXT', 'AST_NM': 'TEXT', 'ORGN_CD': 'TEXT', 'DTL_ADDR': 'TEXT', 'ACQS_AMT': 'TEXT'}
+    → 판정: 정상 ✓ (PG 에서 _columns 타입 반환 — 회귀 없음)
+
+==============================================================================
+ 결론
+  [A] _columns 오라클 복구            : ✓
+  [B] CHUNK_KEY 후보 복원([]→['ID'])  : ✓
+  [C] 확정: conn 방언이면 성공        : ✓  (프로덕션 기본 postgres 방언은 하류 차단원인#1 로 실패)
+  [D] __BKT/__RNG ORA-00911(하류#2)   : 재현 ✓ (보고만)
+  [E] PostgreSQL 회귀 없음            : ✓
+==============================================================================

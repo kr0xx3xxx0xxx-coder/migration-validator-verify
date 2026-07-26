@@ -1,0 +1,14 @@
+==============================================================================
+ KEY-EVIDENCE-COLUMNS-DIALECT-DELEGATION-FIX — 라이브 HTTP(포트 8000, 인증 ON)
+==============================================================================
+
+── [1] 인증 게이트 ── 무인증 GET / → 401(401 기대) / 인증 GET / → 200(200 기대)
+    → 판정: 인증 ON 정상 ✓
+
+── [2] POST /diagnosis/analyze (prewarm=true) — 오라클 MV_ORA_DEMO ──────────
+    HTTP 200  응답 = {"ok": true, "prewarmed": true, "cached": false, "chunk_key_confirmed": false, "elapsed_ms": 332}
+    → 엔드포인트 정상 응답(크래시 없음): ✓
+    → chunk_key_confirmed = False
+      · False 인 경우: _columns 수정으로 CHUNK_KEY 후보는 복원되나(내부 실측 [B]), 프로덕션
+        _confirm_routing 이 dialect 미도출 → 오라클 NULL probe 'LIMIT'(ORA-03049)로 확정 실패.
+        이는 하류 차단원인#1(routes 계층 dialect 위임 누락)로, 본 작업(_columns) 범위 밖이다.
