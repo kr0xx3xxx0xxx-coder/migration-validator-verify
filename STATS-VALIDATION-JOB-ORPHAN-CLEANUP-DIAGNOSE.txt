@@ -1,0 +1,179 @@
+✅ 작업 완료 - 좀비 job/새로고침 팝업/pk-records 폴링 실측 진단 + 회수 설계안 제시 (코드 수정 없음)
+
+작업명: STATS-VALIDATION-JOB-ORPHAN-CLEANUP-DIAGNOSE
+일시: 2026-07-26
+환경: 실 서비스 포트 8000(인증 ON) · 실 오라클 asis(1523)→tobe(1524) · MV_ORA_XDIFF 250,000 vs 249,950
+성격: 순수 진단 + 설계안. 앱 코드 0줄 수정(브라우저 계측 주입만).
+
+────────────────────────────────────────────────────────────────────────
+1. 재현 결과 (지시 1)
+────────────────────────────────────────────────────────────────────────
+[팝업] 재현 성공 — 증적 p3_reload1_popup.png
+  PREPARING job(PS46287E196F5A)이 살아있는 상태에서 새로고침 →
+  "진행 중이던 검증 작업이 있습니다 (상태 PREPARING)" 팝업 표시.
+  프로젝트 미선택·DB 미연결 상태에서도 뜬다 — 조건은 오직 '세션의 서버 job 존재'.
+
+[폴링] 발원지 특정 — 증적 n2_drilldown_preparing.png, countonly_polling.json
+  5단계 COUNT-only 결과 → '재이관 대상 불일치 레코드 보기' 클릭 시 폴링 시작.
+  브라우저 계측이 잡은 호출자 스택:
+    pk-records 5회 / 25초 · 간격 min 1567 · median 1896 · max 1965 ms
+      x4  window.fetch <- _mvPkLoadPage <- (setTimeout 재귀 tick)
+      x1  window.fetch <- _mvPkLoadPage <- _mvCountOnlyReimportOpen  (최초 진입)
+
+[정정 — 중요] "새로고침 이후에도 폴링이 계속된다"는 재현되지 않았다.
+  구간별 pk-records 호출 실측:
+    드릴다운 진행 중 25초           → 5회 (간격 1.6~2.0초)
+    새로고침 후 팝업 방치 ×3(각 40초) → 0회 (active-run 1회뿐)
+    새로고침 후 25초                 → 0회
+    '이어서 보기' 후 25~60초         → 0회
+    개별검증 화면 이탈 후 60초        → 0회
+  새로고침은 문서를 파괴하므로 이전 setTimeout 루프는 반드시 소멸하며,
+  새 문서에서 폴링이 자동 재개되지도 않았다.
+  → 화면에서 본 반복 요청은 '새로고침 직전' L2 폴링 기록일 가능성이 높다
+    (DevTools Preserve log 가 켜져 있으면 새로고침 후에도 목록에 남는다).
+  → 60ms 급 간격은 그룹 패널을 여러 개 열었을 때로 설명된다. _mvPkLoadPage 폴링은
+    패널(uid|cacheKey)마다 독립 루프라 체감 간격 = 1500ms ÷ 열린 패널 수 (25개면 60ms).
+    단일 패널이었던 이번 실측은 1.6~2.0초였다.
+  확정 방법: 증상 화면에서 반복 요청의 Initiator 스택(_mvPkLoadPage 인지 _mvRiStartPolling 인지)과
+    동시에 열린 그룹 패널 수를 확인하면 즉시 판별된다.
+
+────────────────────────────────────────────────────────────────────────
+2. 폴링 코드 인벤토리 · 정리 이벤트 (지시 2)
+────────────────────────────────────────────────────────────────────────
+pk-records 호출 4곳 중 반복 루프는 2개.
+  L1  tabler_renderer.py:25848 _mvRiStartPolling   setTimeout 재귀 · 1000ms(서버설정)
+      종료: st._polling=false / terminal / displayedRunId 불일치
+  L2  tabler_renderer.py:16958 _mvPkLoadPage PREPARING 분기 · setTimeout 재귀 · 1500ms
+      종료: 상한 200회(약 5분) / 패널 DOM 부재     ← 이번에 실측된 폴링
+  (_mvRiLoadPage 26325, _mvRiLoadGroupPage 27155 는 1회 조회 — 루프 아님)
+
+정리(cleanup) 이벤트 — 브라우저 계측 실측:
+  beforeunload 1 · pagehide 0 · unload 0 · visibilitychange 0
+  유일한 beforeunload(tabler_renderer.py:7769)는 "저장 안 된 작업" 경고만 띄운다.
+  서버로 취소/이탈을 통지하는 코드는 없다(sendBeacon 사용처 0).
+  → 정리 이벤트 부재가 '서버가 클라이언트 이탈을 모르는' 직접 원인이 맞다.
+
+구조적 위험(코드 확인, 이번 실측 미재현):
+  _mvRenderReimportView(25356)가 window._mvRiState 를 새 객체로 교체하면서
+  _mvRiStopPolling() 을 선행 호출하지 않는다. L1 tick 은 closure 로 옛 st 를 보므로
+  교체 후 stop 을 불러도 옛 loop 가 살아남을 수 있다(같은 run_id 면 가드도 안 걸림).
+  복원 어댑터(js_restore_individual_adapter.py:46)는 교체 전 stop 을 불러 안전.
+
+────────────────────────────────────────────────────────────────────────
+3. 서버 job 저장소 회수 메커니즘 (지시 3) — 전무 확인
+────────────────────────────────────────────────────────────────────────
+reimport_job 모듈 실측(orphan_job_store_reclaim_probe.py):
+  TTL 심볼 [] · idle/reclaim 심볼 [] · heartbeat 심볼 [] · last_access 필드 없음 · sweeper 스레드 없음
+  5초 방치 시간 기반 회수 0건
+클라이언트 연결 종료 감지: FastAPI Request.is_disconnected 사용처 0(앱 코드 전체).
+agg_contribution._PK_RUNS: 상한 32 도달 시 LRU 가 아니라 전체 clear(), TTL 없음.
+run_recovery: 조회 시 판정만 하고 자동 회수 없음. 게다가 좀비는 worker thread 가 살아있어
+  ORPHAN 이 아니라 '정상 RUNNING' 으로 분류된다.
+
+라이브 확인:
+  페이지 이탈(about:blank) 후 10~41초 → job 계속 진행
+  브라우저 프로세스 완전 종료 후      → active=true, count=2 (PREPARING 2개 그대로 생존)
+  /single/active-run/cancel 호출 후    → CANCEL_REQUESTED → 정리
+  즉 명시적 취소 API 외에 job 을 멈추는 경로가 없다.
+→ CACHE-REUSE-VERIFY 의 "시간 기반 TTL 없음" 결론과 일치하며, 이번 증상과 직접 연결된다.
+
+디스크 측 잔재(코드 아닌 실제 데이터):
+  db/exact_diff_runs.db 927MB · exact_diff_run 284건 · record 1,515,132건
+  status='RUNNING' 로 남은 고아 run 34건 (2026-07-05 ~ 2026-07-25, 3주 누적)
+  그에 딸린 record 103,180건. finish_run 은 정상 종료 경로에서만 호출되므로
+  프로세스 종료/재시작 시 RUNNING 이 영구 잔류한다. 삭제 배치·TTL 없음.
+
+────────────────────────────────────────────────────────────────────────
+4. 좀비 누적과 _JOBS_MAX=16 LRU 상호작용 (지시 4)
+────────────────────────────────────────────────────────────────────────
+라이브: 서로 다른 fingerprint job 2개 추가 → active count=2 동시 진행, 브라우저 종료 후에도 유지.
+
+결정적 검증(in-process, 동일 코드 경로 · 실 DB 부하 없음):
+  PREPARING 좀비 20개 생성        → store 20개 잔류 (상한 16 초과, 축출 0건)
+  + 정상 완료(READY) job 7개 투입 → 완료 job 은 1개만 생존, 좀비 20개 전원 잔류
+  5초 방치                        → 시간 기반 회수 0건
+
+원인 — reimport_job._evict():
+  done = [... if j["status"] != PREPARING]; if not done: break
+  · PREPARING 은 축출 제외 → 좀비 불멸, 상한 16 사실상 무력화
+  · 축출 압력이 전부 '완료 job' 에 쏠린다 → prepare 1회 후 재사용 캐시가 좀비 때문에 조기 폐기
+    (오늘 CACHE-REUSE-VERIFY 에서 확인한 재사용 이득이 좀비 환경에서 무너진다)
+  · 부수 결함: done 판정이 status != PREPARING 이라 CANCEL_REQUESTED / PAUSE_REQUESTED(진행 중)도
+    '완료'로 분류되고, finished_at=None → 0 정렬이라 최우선 축출 대상이 된다(실측: 압력 투입 후 소멸)
+
+즉 질문하신 "정상적인 새 job 이 밀려나는가"의 답은 —
+  좀비가 밀려나는 게 아니라, 좀비가 자리를 점유한 채 정상 완료 job 이 밀려난다.
+
+────────────────────────────────────────────────────────────────────────
+5. 설계안 (지시 5)
+────────────────────────────────────────────────────────────────────────
+(a) 클라이언트 beforeunload/pagehide → 서버 취소 신호 (sendBeacon)
+  한계(모두 실재):
+   · 강제종료·탭 크래시·OS 절전·전원차단·네트워크 단절에서는 미도달 → 단독으로 문제 해결 불가
+   · sendBeacon 은 Content-Type 제약(text/plain·Blob)이라 현재 JSON body 라우트 그대로 못 씀
+   · session_id 는 localStorage 공유 → 한 탭을 닫으면 다른 탭의 정상 실행을 죽일 위험
+   · 현행 UX 와 정면 충돌: beforeunload 에서 새로고침과 탭 닫기를 구분할 수 없어,
+     여기서 취소하면 '이어서 보기' 기능 자체가 무의미해진다
+  → 취소 신호로 쓰는 것은 부적절. 쓰더라도 '뷰어 이탈 힌트' 기록 수준이어야 한다.
+
+(b) 서버측 유휴 회수(idle reclaim) — 권장
+  job 에 두 시각 기록:
+    last_client_seen  : pk-records / active-run* 조회 시 touch (화면이 이 run 을 보고 있는가)
+    last_progress_at  : worker 진행 콜백에서 touch (job 이 실제로 전진하는가)
+  판정(값은 execution_settings 로 관리 — 하드코딩 금지):
+   1) 유휴 회수: now-last_client_seen > CLIENT_IDLE_TTL(10~15분) → PAUSED 로 정지(취소 아님).
+      checkpoint 보존 → 사용자가 돌아오면 '이어서 실행'. 기존 pause/resume 배선 재사용.
+   2) 정체 판정: now-last_progress_at > STALL_TTL(30분) → FAILED/ORPHAN 확정 + store.finish_run
+      호출로 디스크 RUNNING 잔재를 남기지 않는다.
+   3) 완료 보존 TTL: finished_at + KEEP_TTL(2시간) 경과분 제거. LRU 상한과 분리해
+      '완료 job 이 좀비 때문에 밀려나는' 현상 제거.
+   4) _evict done 판정을 (READY, FAILED, CANCELLED, EARLY_STOPPED, PAUSED) 로 좁혀
+      CANCEL_REQUESTED/PAUSE_REQUESTED 오축출 차단.
+  장점: 클라이언트 협조 불필요(크래시·전원차단에도 동작), 판정 지점이 서버 한 곳,
+        시각 주입으로 단위 테스트 가능.
+
+병행 여부 의견: (b) 단독으로 충분하다.
+  (a)는 회수 지연을 줄이는 보조일 뿐이고 현행 '이어서 보기' UX 와 충돌 위험이 있어 지금 넣을 이유가 없다.
+  굳이 넣는다면 pagehide 에서 last_client_seen 만 앞당기는 형태여야 하고, 판정·정지는 서버가 한다.
+
+────────────────────────────────────────────────────────────────────────
+6. 영향범위 · 리스크 · 규모 (지시 6)
+────────────────────────────────────────────────────────────────────────
+(b) 기준 수정 파일 4개 + 테스트 1개:
+  services/exact_diff/reimport_job.py       시각 필드·touch·reclaim_idle·sweeper·_evict 수정 (핵심)
+  services/exact_diff/execution_settings.py CLIENT_IDLE_TTL/STALL_TTL/KEEP_TTL·토글
+  routes/agg_diff_route.py                  pk-records 조회 시 touch_client (1~2줄)
+  routes/single_active_run_route.py         status/active-run 조회 시 touch_client (1~2줄)
+  tests/test_job_idle_reclaim.py (신규)     시각 주입 회수 판정·PAUSED 전이·완료 TTL·evict 경계
+
+리스크:
+  · 정상 장기 job 오회수 — 25만행 약 25초, CTE/JOIN 25만행 6분대, 100만행급 수십 분.
+    last_progress_at(진행 중이면 절대 회수 안 함)을 반드시 1차 게이트로 둬야 한다.
+    클라이언트 유휴로 회수할 때도 PAUSED 로 두면 최악이 '다시 이어서 실행'이다.
+  · sweeper 데몬 1개 추가. lazy sweep 만으로는 '아무도 조회하지 않는 좀비'를 못 잡는다.
+  · pause/resume·recovery 경로와 경합 방지를 위해 회수는 _LOCK 안에서 상태 전이해야 한다.
+
+규모: 이번에 바로 할 만한 크기(반나절 수준). 다만 성격이 달라 단계 분리 권장.
+  1단계(작음·즉시) _evict done 판정 수정 — CANCEL_REQUESTED/PAUSE_REQUESTED 오축출 차단
+  2단계(핵심)      (b) 유휴/정체 회수 + 설정값 + 테스트
+  3단계(별건)      exact_diff_runs.db 고아 RUNNING 34건·927MB 정리 배치
+                   → 기존 데이터 삭제이므로 사용자 확인 필수(이번에 진행하지 않음)
+
+────────────────────────────────────────────────────────────────────────
+7. 생성 파일 · 증적
+────────────────────────────────────────────────────────────────────────
+docs/STATS_VALIDATION_JOB_ORPHAN_CLEANUP.md            진단 문서(설계안 포함)
+scripts/dev_e2e/orphan_job_store_reclaim_probe.py      job 저장소 회수 결정적 진단
+scripts/dev_e2e/stats_validation_job_orphan_repro.py   UI 전단계 클릭스루(대조군)
+scripts/dev_e2e/stats_validation_orphan_polling_live_repro.py   팝업/좀비 라이브 재현
+scripts/dev_e2e/stats_validation_orphan_polling_spa_leave_verify.py  화면 이탈 폴링 관찰
+scripts/dev_e2e/stats_validation_orphan_countonly_polling_repro.py   네이티브 폴링 실측
+증적: E:\verify_screenshots_only\STATS-VALIDATION-JOB-ORPHAN-CLEANUP-DIAGNOSE\
+  p3_reload1_popup.png(팝업 재현) · n2_drilldown_preparing.png(폴링 중 화면)
+  store_reclaim_probe.json · orphan_polling_live.json · countonly_polling.json
+  spa_leave_polling.json · repro_result.json · 각 실행 로그
+
+회귀: samples/test_virtual_cases.py 8/8 통과 · samples/test_complex_cases.py 5/5 통과
+정리: 진단 중 생성한 job 4건 전부 취소 요청으로 정리 완료(active=0 확인)
+
+✅ 작업 완료 - 좀비 job/새로고침 팝업/pk-records 폴링 실측 진단 + 회수 설계안 제시 (코드 수정 없음)
