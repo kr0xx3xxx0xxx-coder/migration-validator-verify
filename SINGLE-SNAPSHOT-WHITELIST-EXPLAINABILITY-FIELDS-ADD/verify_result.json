@@ -1,0 +1,177 @@
+{
+  "task": "SINGLE-SNAPSHOT-WHITELIST-EXPLAINABILITY-FIELDS-ADD",
+  "api": "http://127.0.0.1:8000",
+  "analyze": {
+    "http": null,
+    "gb_count": 1,
+    "sum_count": 2,
+    "val_transform_evidence": {
+      "detected": true,
+      "transform_kind": "CASE_IS_NULL",
+      "src_null_ratio": 0.3,
+      "evidence_source": "sql_expression"
+    },
+    "val_column_comment": "금액"
+  },
+  "count": {
+    "http": null,
+    "src": 1000,
+    "tgt": 1000
+  },
+  "execute": {
+    "http": null,
+    "success": true,
+    "matched": 3,
+    "diff": 0,
+    "src_only": 0,
+    "tgt_only": 0,
+    "total_src": 3,
+    "total_tgt": 3,
+    "status_code": "PASSED",
+    "status_label": "일치"
+  },
+  "single_save": {
+    "http": null,
+    "success": true,
+    "run_id": "bc02185d-8064-425b-85e5-0f26337fc855",
+    "group_id": "GRP_202607271101016178",
+    "project_id": "898",
+    "error": null
+  },
+  "snapshot_after": {
+    "run_id": "bc02185d-8064-425b-85e5-0f26337fc855",
+    "gb_count": 1,
+    "sum_count": 2,
+    "val_keys": [
+      "auto_select_blocked",
+      "auto_selected",
+      "candidate_subtype",
+      "cardinality_summary",
+      "caution_reasons",
+      "column_comment",
+      "demotion_reasons",
+      "display_score",
+      "evidence_chips",
+      "evidence_insufficient",
+      "evidence_status",
+      "exclusion_reasons",
+      "is_available_additional",
+      "is_default_selected",
+      "is_excluded",
+      "is_manual_required",
+      "manual_review_required",
+      "match_strength",
+      "null_summary",
+      "null_value_transform_evidence",
+      "profile_summary",
+      "reason_text",
+      "recommendation_status",
+      "role",
+      "selectable",
+      "selected_for_plan",
+      "selection_source",
+      "selection_status",
+      "selection_status_kind",
+      "semantic_domain",
+      "source_expression",
+      "target_column",
+      "tooltip_text",
+      "warning_messages"
+    ],
+    "val_column_comment": "금액",
+    "val_null_value_transform_evidence": {
+      "detected": true,
+      "transform_kind": "CASE_IS_NULL",
+      "src_null_ratio": 0.3,
+      "evidence_source": "sql_expression"
+    }
+  },
+  "snapshot_before_head_code": {
+    "val_keys": [
+      "auto_select_blocked",
+      "auto_selected",
+      "candidate_subtype",
+      "cardinality_summary",
+      "caution_reasons",
+      "demotion_reasons",
+      "display_score",
+      "evidence_chips",
+      "evidence_insufficient",
+      "evidence_status",
+      "exclusion_reasons",
+      "is_available_additional",
+      "is_default_selected",
+      "is_excluded",
+      "is_manual_required",
+      "manual_review_required",
+      "match_strength",
+      "null_summary",
+      "profile_summary",
+      "reason_text",
+      "recommendation_status",
+      "role",
+      "selectable",
+      "selected_for_plan",
+      "selection_source",
+      "selection_status",
+      "selection_status_kind",
+      "semantic_domain",
+      "source_expression",
+      "target_column",
+      "tooltip_text",
+      "warning_messages"
+    ],
+    "has_column_comment": false,
+    "has_null_value_transform_evidence": false
+  },
+  "verdict_parity": {
+    "wizard": {
+      "xform_sum": [
+        {
+          "col": "VAL",
+          "kind": "CASE_IS_NULL",
+          "src_null_ratio": 0.3
+        }
+      ],
+      "xform_gb": [],
+      "group_count_mismatch": null,
+      "all_ok": true,
+      "has_xform": true,
+      "rv_downgrade": true,
+      "label": "값 변환 감지 · 확인 필요"
+    },
+    "from_snapshot": {
+      "xform_sum": [
+        {
+          "col": "VAL",
+          "kind": "CASE_IS_NULL",
+          "src_null_ratio": 0.3
+        }
+      ],
+      "xform_gb": [],
+      "group_count_mismatch": null,
+      "all_ok": true,
+      "has_xform": true,
+      "rv_downgrade": true,
+      "label": "값 변환 감지 · 확인 필요"
+    },
+    "identical": true,
+    "ablation_without_new_fields": {
+      "xform_sum": [],
+      "xform_gb": [],
+      "group_count_mismatch": null,
+      "all_ok": true,
+      "has_xform": false,
+      "rv_downgrade": false,
+      "label": "(강등 없음)"
+    },
+    "ablation_diverges_from_wizard": true
+  },
+  "legacy_compat": {
+    "checked": 30,
+    "without_fields": 15,
+    "read_ok": 30,
+    "verdict_ok": 30,
+    "errors": []
+  }
+}

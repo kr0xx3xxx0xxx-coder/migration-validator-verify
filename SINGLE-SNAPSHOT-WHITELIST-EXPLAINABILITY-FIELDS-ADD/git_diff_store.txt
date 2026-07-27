@@ -1,0 +1,54 @@
+diff --git a/services/single_validation_result_store.py b/services/single_validation_result_store.py
+index d31d004..07fbdfb 100644
+--- a/services/single_validation_result_store.py
++++ b/services/single_validation_result_store.py
+@@ -118,6 +118,36 @@ def _profile_summary(c: dict) -> tuple[str, str, str]:
+     return prof, card, null
+ 
+ 
++# 값 변환(NULL→기본값) 근거 whitelist — candidate_display_enricher 가 부착하는 키만 보존.
++#   SUM: detected/transform_kind/src_null_ratio, GROUP BY: + role/group_count_impact,
++#   스키마 DEFAULT 실측: evidence_source/schema_default_expr/is_function_default/schema_default_source.
++_XFORM_EVIDENCE_KEYS = (
++    "detected", "transform_kind", "src_null_ratio",
++    "role", "group_count_impact",
++    "evidence_source", "schema_default_expr", "is_function_default", "schema_default_source",
++)
++
++
++def _sanitize_transform_evidence(ev):
++    """null_value_transform_evidence → 증적용 whitelist dict. 없으면/형식 불일치면 None.
++
++    SINGLE-SNAPSHOT-WHITELIST-EXPLAINABILITY-FIELDS-ADD:
++      마법사 5단계의 '값 변환 감지 · 확인 필요' 판정(_rvDowngrade)은 이 근거에만 의존하는데,
++      snapshot 에 저장되지 않아 같은 run 이 재조회 화면에서는 '일치'로 보일 위험이 있었다.
++      판정 로직은 건드리지 않고 저장 범위만 넓힌다(표시/설명용 — 상태값 불변).
++      알려진 키만 남기고 문자열은 상한을 적용한다.
++    """
++    if not isinstance(ev, dict):
++        return None
++    out = {}
++    for k in _XFORM_EVIDENCE_KEYS:
++        if k not in ev:
++            continue
++        v = ev.get(k)
++        out[k] = _cstr(v, 300) if isinstance(v, str) else v
++    return out or None
++
++
+ def _sanitize_candidate(c: dict, role: str, selected_set: set) -> dict:
+     """후보 dict → 증적용 whitelist 필드만(접속정보 제거, 문자열 상한)."""
+     if not isinstance(c, dict):
+@@ -162,6 +192,12 @@ def _sanitize_candidate(c: dict, role: str, selected_set: set) -> dict:
+         "evidence_insufficient":  bool(c.get("evidence_insufficient")),
+         "manual_review_required": bool(c.get("manual_review_required")),
+         "evidence_status":        _evidence_status_safe(c, role),
++        # 설명가능성(explainability) 보존 — 재조회 화면이 마법사와 동일 판정/표기를 재구성할 수 있게.
++        #   column_comment: 한글 컬럼명 표기(display_column_name_ko 와 동일 출처 — 서버 DB 코멘트 실측).
++        #   null_value_transform_evidence: '값 변환 감지 · 확인 필요' 판정의 유일 근거.
++        "column_comment":               _cstr(c.get("column_comment"), 300),
++        "null_value_transform_evidence": _sanitize_transform_evidence(
++            c.get("null_value_transform_evidence")),
+     }
+ 
+ 
