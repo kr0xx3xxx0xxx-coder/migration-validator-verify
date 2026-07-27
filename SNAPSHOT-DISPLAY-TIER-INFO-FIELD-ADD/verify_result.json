@@ -1,0 +1,254 @@
+{
+  "task": "SNAPSHOT-DISPLAY-TIER-INFO-FIELD-ADD",
+  "api": "http://127.0.0.1:8000",
+  "cases": [
+    {
+      "case": "D1",
+      "sql": "INSERT INTO tobe01.t_grpcnt_tgt (id, region, amt)\nSELECT id, region, amt\nFROM asis01.t_grpcnt_src",
+      "expect_tier": "D1",
+      "note": "4그룹 중 1그룹 미이관 — 불일치 1 / 전체 4 → D1(전체 레코드 나열)",
+      "analyze": {
+        "http": null,
+        "gb_count": 1,
+        "sum_count": 1
+      },
+      "count": {
+        "http": null,
+        "src": 1000,
+        "tgt": 990,
+        "error_code": "COUNT_MISMATCH",
+        "precheck_status": "FAILED"
+      },
+      "execute": {
+        "http": null,
+        "success": true,
+        "matched": 3,
+        "diff": 0,
+        "src_only": 1,
+        "tgt_only": 0,
+        "total_groups": 4,
+        "display_tier_info": {
+          "display_mode": "FULL_LIST",
+          "display_tier": "D1",
+          "display_reason_code": "AXIS_A_MISMATCH_T1",
+          "total_mismatch_count": 1,
+          "total_group_count": 4,
+          "early_stopped": false,
+          "axis_a_tier": 1,
+          "axis_b_tier": 1,
+          "representative_sample_n": 20,
+          "xlsx_row_max": 1048576,
+          "display_message": "불일치 1건(그룹 4개) — 전체 레코드를 나열합니다.",
+          "show_full_list": true,
+          "show_group_table": false,
+          "show_group_drilldown": false,
+          "show_group_sample_only": false,
+          "summary_only": false,
+          "download_only_detail": false,
+          "display_error": ""
+        }
+      },
+      "single_save": {
+        "http": null,
+        "success": true,
+        "run_id": "e7b2247b-37e8-4055-8c70-494ef62cf06c",
+        "group_id": "GRP_202607271152550558",
+        "project_id": "898",
+        "error": null
+      },
+      "snapshot_after": {
+        "run_id": "e7b2247b-37e8-4055-8c70-494ef62cf06c",
+        "has_field": true,
+        "display_tier_info": {
+          "display_mode": "FULL_LIST",
+          "display_tier": "D1",
+          "display_reason_code": "AXIS_A_MISMATCH_T1",
+          "total_mismatch_count": 1,
+          "total_group_count": 4,
+          "early_stopped": false,
+          "axis_a_tier": 1,
+          "axis_b_tier": 1,
+          "representative_sample_n": 20,
+          "xlsx_row_max": 1048576,
+          "display_message": "불일치 1건(그룹 4개) — 전체 레코드를 나열합니다.",
+          "show_full_list": true,
+          "show_group_table": false,
+          "show_group_drilldown": false,
+          "show_group_sample_only": false,
+          "summary_only": false,
+          "download_only_detail": false,
+          "display_error": ""
+        },
+        "key_count": 18
+      },
+      "dict_parity": {
+        "identical": true,
+        "missing_keys": [],
+        "changed_values": {}
+      },
+      "banner_parity": {
+        "wizard": {
+          "shown": true,
+          "title": "표시 등급 D1 · 전체 레코드 나열",
+          "message": "불일치 1건(그룹 4개) — 전체 레코드를 나열합니다.",
+          "reason_code": "AXIS_A_MISMATCH_T1",
+          "axis_a_tier": 1,
+          "axis_b_tier": 1,
+          "total_mismatch_count": 1,
+          "total_group_count": 4
+        },
+        "from_snapshot": {
+          "shown": true,
+          "title": "표시 등급 D1 · 전체 레코드 나열",
+          "message": "불일치 1건(그룹 4개) — 전체 레코드를 나열합니다.",
+          "reason_code": "AXIS_A_MISMATCH_T1",
+          "axis_a_tier": 1,
+          "axis_b_tier": 1,
+          "total_mismatch_count": 1,
+          "total_group_count": 4
+        },
+        "identical": true,
+        "ablation_without_field": {
+          "shown": false,
+          "title": "",
+          "message": "",
+          "reason_code": ""
+        },
+        "ablation_diverges_from_wizard": true
+      },
+      "snapshot_before_code": {
+        "ref": "HEAD",
+        "has_display_tier_info": false
+      },
+      "ok": true
+    },
+    {
+      "case": "D2",
+      "sql": "INSERT INTO tobe01.t_dtier_tgt (id, region_cd, chan_cd, amt)\nSELECT id, region_cd, chan_cd, amt\nFROM asis01.t_dtier_src",
+      "expect_tier": "D2",
+      "note": "1,600그룹(40×40 조합) 전부 SUM 불일치 — 불일치 1,600 / 전체 1,600 → D2(그룹 집계 + 그룹별 상세)",
+      "analyze": {
+        "http": null,
+        "gb_count": 2,
+        "sum_count": 1
+      },
+      "count": {
+        "http": null,
+        "src": 16000,
+        "tgt": 16000,
+        "error_code": null,
+        "precheck_status": "PASSED"
+      },
+      "execute": {
+        "http": null,
+        "success": true,
+        "matched": 0,
+        "diff": 1600,
+        "src_only": 0,
+        "tgt_only": 0,
+        "total_groups": 1600,
+        "display_tier_info": {
+          "display_mode": "GROUPED_DETAIL",
+          "display_tier": "D2",
+          "display_reason_code": "AXIS_A_MISMATCH_T2",
+          "total_mismatch_count": 1600,
+          "total_group_count": 1600,
+          "early_stopped": false,
+          "axis_a_tier": 2,
+          "axis_b_tier": 2,
+          "representative_sample_n": 20,
+          "xlsx_row_max": 1048576,
+          "display_message": "불일치 1,600건(그룹 1,600개) — 그룹 집계표를 먼저 보여드립니다. 그룹을 클릭하면 해당 그룹의 레코드를 페이지로 확인할 수 있습니다.",
+          "show_full_list": false,
+          "show_group_table": true,
+          "show_group_drilldown": true,
+          "show_group_sample_only": false,
+          "summary_only": false,
+          "download_only_detail": false,
+          "display_error": ""
+        }
+      },
+      "single_save": {
+        "http": null,
+        "success": true,
+        "run_id": "203b9c9d-a9bb-4a34-86ac-9d0252534e0b",
+        "group_id": "GRP_202607271152591526",
+        "project_id": "898",
+        "error": null
+      },
+      "snapshot_after": {
+        "run_id": "203b9c9d-a9bb-4a34-86ac-9d0252534e0b",
+        "has_field": true,
+        "display_tier_info": {
+          "display_mode": "GROUPED_DETAIL",
+          "display_tier": "D2",
+          "display_reason_code": "AXIS_A_MISMATCH_T2",
+          "total_mismatch_count": 1600,
+          "total_group_count": 1600,
+          "early_stopped": false,
+          "axis_a_tier": 2,
+          "axis_b_tier": 2,
+          "representative_sample_n": 20,
+          "xlsx_row_max": 1048576,
+          "display_message": "불일치 1,600건(그룹 1,600개) — 그룹 집계표를 먼저 보여드립니다. 그룹을 클릭하면 해당 그룹의 레코드를 페이지로 확인할 수 있습니다.",
+          "show_full_list": false,
+          "show_group_table": true,
+          "show_group_drilldown": true,
+          "show_group_sample_only": false,
+          "summary_only": false,
+          "download_only_detail": false,
+          "display_error": ""
+        },
+        "key_count": 18
+      },
+      "dict_parity": {
+        "identical": true,
+        "missing_keys": [],
+        "changed_values": {}
+      },
+      "banner_parity": {
+        "wizard": {
+          "shown": true,
+          "title": "표시 등급 D2 · 그룹 집계 + 그룹별 상세",
+          "message": "불일치 1,600건(그룹 1,600개) — 그룹 집계표를 먼저 보여드립니다. 그룹을 클릭하면 해당 그룹의 레코드를 페이지로 확인할 수 있습니다.",
+          "reason_code": "AXIS_A_MISMATCH_T2",
+          "axis_a_tier": 2,
+          "axis_b_tier": 2,
+          "total_mismatch_count": 1600,
+          "total_group_count": 1600
+        },
+        "from_snapshot": {
+          "shown": true,
+          "title": "표시 등급 D2 · 그룹 집계 + 그룹별 상세",
+          "message": "불일치 1,600건(그룹 1,600개) — 그룹 집계표를 먼저 보여드립니다. 그룹을 클릭하면 해당 그룹의 레코드를 페이지로 확인할 수 있습니다.",
+          "reason_code": "AXIS_A_MISMATCH_T2",
+          "axis_a_tier": 2,
+          "axis_b_tier": 2,
+          "total_mismatch_count": 1600,
+          "total_group_count": 1600
+        },
+        "identical": true,
+        "ablation_without_field": {
+          "shown": false,
+          "title": "",
+          "message": "",
+          "reason_code": ""
+        },
+        "ablation_diverges_from_wizard": true
+      },
+      "snapshot_before_code": {
+        "ref": "HEAD",
+        "has_display_tier_info": false
+      },
+      "ok": true
+    }
+  ],
+  "legacy_compat": {
+    "checked": 30,
+    "read_ok": 30,
+    "without_field": 28,
+    "banner_ok": 30,
+    "errors": []
+  },
+  "tier_varies": true
+}

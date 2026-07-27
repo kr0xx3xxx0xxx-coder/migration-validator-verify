@@ -1,0 +1,252 @@
+✅ 작업 완료 - SNAPSHOT-DISPLAY-TIER-INFO-FIELD-ADD: 개별검증 snapshot 에 표시 등급(D1~D4) 근거 필드 저장, 재조회 배너 복원 실측 확인
+
+════════════════════════════════════════════════════════════════════════
+작업명 : SNAPSHOT-DISPLAY-TIER-INFO-FIELD-ADD
+일시   : 2026-07-27
+커밋   : a31e725
+════════════════════════════════════════════════════════════════════════
+
+■ 배경
+
+직전 작업(SINGLE-SNAPSHOT-TOTAL-COUNTS-FIELDS-ADD) 완료 시 발견된 별개 갭이다.
+개별검증 마법사 5단계 결과 화면에는 '표시 등급 D1 · 전체 레코드 나열' 같은 배너가
+뜬다. 이 배너는 규모가 커질수록(D2~D4) 화면이 왜 '그룹부터 / 대표만 / 요약만'으로
+바뀌는지를 설명하는 유일한 문구다. 표시가 줄어드는데 이유가 없으면 사용자에게는
+'검증 결과를 숨긴 것'으로 읽힌다.
+
+그런데 이 배너의 입력인 display_tier_info 가 snapshot 에 저장되지 않아, 같은 run 을
+재조회한 화면에서는 배너가 통째로 사라졌다. A/B/C 스크린샷에서 실제로 확인된 증상이다.
+오늘 진행된 두 SNAPSHOT 보강 작업과 동일한 패턴(저장 whitelist 확장)으로 처리했다.
+
+
+■ 요청 요약 / 사전 검토
+
+  요청 요약 : 실행 응답의 display_tier_info 를 snapshot whitelist 에 추가해
+              재조회 화면이 표시 등급 배너를 재구성하게 한다.
+  긍정 효과 : 표시 축소의 근거(등급·축 판정·안내 문구)가 재조회에도 보존된다.
+              '표시 축소 = 은폐' 오해를 막는 explainability 필드다.
+  구조 문제 : 없음. web_server.py 무관, 저장 계층 1개 파일에 함수 1개 추가.
+              판정 모듈(display_limit_policy)과의 방향은 단방향 그대로다.
+  운영 위험 : 낮음. 추가만(47줄), 기존 필드/스키마 변경 없음. snapshot_json 크기가
+              run 당 약 0.6KB 증가한다(18키 dict 1개).
+  heuristic : 신규 heuristic 0. 등급 판정은 서버 단일 출처(display_limit_policy)에
+              그대로 두고, 저장은 그 결과 dict 를 '옮기기만' 한다(재계산 없음).
+  판단      : 진행
+
+
+■ 수정 내용 (services/single_validation_result_store.py — 이 파일만, +47줄 추가만)
+
+  1) build_single_snapshot() 끝단에 1줄
+       snapshot["display_tier_info"] = _display_tier_for_snapshot(result, rv)
+     기존 query_timing / groupby_execution_safety 보존과 동일한 자리·동일한 패턴이다.
+
+  2) _display_tier_for_snapshot(result, rv) 신설
+     - 우선순위: 실행 응답 최상위 → result_view (total_src/total_tgt 추출과 동일 규약)
+     - whitelist 18키만 보존(_DISPLAY_TIER_KEYS) — display_limit_policy.decision_to_dict
+       가 만드는 키 집합과 1:1
+         display_mode / display_tier / display_reason_code /
+         total_mismatch_count / total_group_count / early_stopped /
+         axis_a_tier / axis_b_tier / representative_sample_n / xlsx_row_max /
+         display_message /
+         show_full_list / show_group_table / show_group_drilldown /
+         show_group_sample_only / summary_only / download_only_detail / display_error
+     - dict 가 아니거나 display_tier 가 D1~D4 가 아니면 None
+       → 임의 기본 등급을 만들지 않는다. 소비측 renderer 는 값이 없으면 배너를 그리지
+         않으므로, '모르는 상태'가 '틀린 등급'으로 굳는 경로를 차단한다.
+     - 문자열은 기존 _cstr 상한(1000자) 적용
+
+  판정 로직은 한 줄도 건드리지 않았다. ui/execute_result_renderer.py,
+  ui/tabler_renderer.py, services/display_limit_policy.py 모두 무수정이다.
+
+  오늘 먼저 진행된 두 작업과의 충돌 없음 — 각 변경분은 파일 내 서로 다른 구간이다.
+    5eef44d column_comment / null_value_transform_evidence : 121~148, 196~200행
+    9893b3f total_src / total_tgt                          : 256~325행
+    이번    display_tier_info                              : 367~416행 (그 아래 신설)
+  git diff 는 47 insertions(+) / 0 deletions(-) 이다.
+
+
+■ 실측 환경
+
+  서버       : 실 서비스 포트 8000, Basic Auth ON, reload=False
+  재기동     : 2026-07-27 20:49:36 (PID 15084) — 코드 수정 후 재기동
+               ※ 이후 20:55:34 에 타 세션이 서버를 재기동해 PID 22368 로 교체되었다.
+                 web_server 의 포트 중복 방지 로직(점유 프로세스 종료 후 기동) 때문이며,
+                 코드는 디스크 기준으로 서빙되므로 어느 쪽이든 이번 수정본이 서빙된다.
+                 실제로 저장된 snapshot 에 display_tier_info 가 들어있는 것으로 확인된다
+                 (수정 전 코드로는 만들어질 수 없는 필드다).
+  DB         : 실 PostgreSQL — Inter asis/tobe (sslmode=disable)
+  픽스처     : D1 = asis01.t_grpcnt_src / tobe01.t_grpcnt_tgt  (오늘 작업분 재사용)
+               D2 = asis01.t_dtier_src  / tobe01.t_dtier_tgt   (이번 신규)
+
+
+■ 등급이 갈리는 케이스를 어떻게 만들었는가 (부수 실측)
+
+  표시 등급 판정은 두 축의 무거운 쪽으로 결정된다.
+    축 A — 불일치 그룹 수(diff+src_only+tgt_only) : 1,000 / 10,000 / 60,000
+    축 B — 전체 그룹 수(total_groups)             : 1,000 / 10,000 / 100,000
+
+  D2 를 만들려면 그룹이 1,000개를 넘어야 한다. 처음에는 grp 컬럼 하나에 1,200 그룹을
+  넣었는데 /generate 가 이렇게 막혔다.
+
+    "선택한 GROUP BY 컬럼을 후보에서 찾을 수 없습니다: GRP"
+    gb_candidacy_summary → {"tgt_col":"GRP", "reason_code":"HIGH_CARDINALITY",
+                            "reason_label":"고카디널리티(고유값 1200) — 그룹 과다"}
+
+  GROUP BY 후보 게이트는 고유값 50개 이하만 저카디로 통과시킨다
+  (services/candidate_engine.py:1114 _GB_CARD_LOW_MAX=50). 즉 단일 컬럼으로는 구조상
+  D2 이상에 도달할 수 없다. 그래서 각 40종(저카디 통과)인 컬럼 2개를 조합해
+  40 × 40 = 1,600 그룹으로 만들었다. 이 제약은 이번 수정과 무관한 기존 정책이며,
+  픽스처 파일 주석에 근거와 함께 남겨두었다.
+
+
+■ 검증 1 — 저장/조회 (scripts/dev_e2e/snapshot_display_tier_verify.py)
+
+  실 파이프라인 /analyze → /count → /generate → /execute → /single/save →
+  get_single_result 를 두 케이스로 완주시켰다.
+
+  [D1] run_id e7b2247b-37e8-4055-8c70-494ef62cf06c
+       COUNT 1,000 vs 990 (COUNT_MISMATCH · 수동 진행)
+       실행 결과 matched=3 diff=0 src_only=1 tgt_only=0 total_groups=4
+       실행 등급   D1 / FULL_LIST      / AXIS_A_MISMATCH_T1 (축A=1 축B=1)
+       snapshot   D1 / FULL_LIST      / AXIS_A_MISMATCH_T1
+       키 대조    실행응답 18키 vs snapshot 18키 — 누락 0 / 값 변형 0
+
+  [D2] run_id 203b9c9d-a9bb-4a34-86ac-9d0252534e0b
+       COUNT 16,000 vs 16,000 (일치 · PASSED)
+       실행 결과 matched=0 diff=1600 src_only=0 tgt_only=0 total_groups=1600
+       실행 등급   D2 / GROUPED_DETAIL / AXIS_A_MISMATCH_T2 (축A=2 축B=2)
+       snapshot   D2 / GROUPED_DETAIL / AXIS_A_MISMATCH_T2
+       키 대조    실행응답 18키 vs snapshot 18키 — 누락 0 / 값 변형 0
+
+  두 케이스의 저장 등급이 D1 / D2 로 갈렸다. 필드가 고정값이 아니라 실행 시점 판정을
+  그대로 옮긴다는 뜻이다.
+
+
+■ 검증 2 — A/B/C 브라우저 대조 (scripts/dev_e2e/snapshot_display_tier_browser_shot.py)
+
+  같은 run 을 세 입력으로 실제 renderExecute 에 통과시켜 배너를 비교했다.
+  실 브라우저(playwright chromium), 포트 8000, 인증 ON.
+
+    A) 마법사 5단계  — /execute 응답 원본
+    B) 재조회        — snapshot 재구성 (이번 수정 후)
+    C) 재조회        — B 에서 display_tier_info 제거 (= 수정 전 저장분 재현)
+
+  ┌────┬──────────────────────────────┬──────────┬─────────────────────────────────┐
+  │케이스│ 배너 제목                    │ 배너 표시│ 안내 문구                       │
+  ├────┼──────────────────────────────┼──────────┼─────────────────────────────────┤
+  │D1 A│ 표시 등급 D1 · 전체 레코드 나열│    ○     │ 불일치 1건(그룹 4개) — 전체 레코드를 나열합니다.│
+  │D1 B│ 표시 등급 D1 · 전체 레코드 나열│    ○     │ (A 와 문자열까지 동일)          │
+  │D1 C│ (표시 등급 배너 없음)          │    ×     │ —                               │
+  │D2 A│ 표시 등급 D2 · 그룹 집계 + 그룹별 상세│ ○  │ 불일치 1,600건(그룹 1,600개) — 그룹 집계표를 먼저 …│
+  │D2 B│ 표시 등급 D2 · 그룹 집계 + 그룹별 상세│ ○  │ (A 와 문자열까지 동일)          │
+  │D2 C│ (표시 등급 배너 없음)          │    ×     │ —                               │
+  └────┴──────────────────────────────┴──────────┴─────────────────────────────────┘
+
+  D1·D2 모두 A = B ≠ C. 제목뿐 아니라 안내 문구까지 A 와 B 가 완전히 같다.
+  C 스크린샷에서는 배너 영역만 사라지고 나머지 표·요약 카드는 동일한데,
+  이것이 수정 전 재조회 화면의 실제 모습이다.
+
+  스크린샷 6장:
+    D1_A_wizard_execute.png / D1_B_snapshot_after_fix.png / D1_C_snapshot_before_fix.png
+    D2_A_wizard_execute.png / D2_B_snapshot_after_fix.png / D2_C_snapshot_before_fix.png
+
+
+■ 검증 3 — ablation
+
+  저장된 snapshot 에서 display_tier_info 만 제거하고 같은 run 을 렌더하면
+  두 케이스 모두 배너가 사라진다(배너 표시 True → False).
+  이 필드 하나가 배너의 유일한 입력이며, 다른 저장 필드로는 대체 재구성이 불가능하다.
+
+  반대 방향도 확인했다. 수정 전 코드(HEAD=fa5edb1)의 build_single_snapshot 을 그대로
+  import 해 같은 실행 결과로 snapshot 을 재구성하면, 두 케이스 모두
+  display_tier_info 키 자체가 존재하지 않는다(has_display_tier_info=False).
+
+
+■ 검증 4 — 하위호환
+
+  기존 single_validation_snapshot 30건을 조회했다.
+    조회 성공          30건 / 30건 (예외 0)
+    신규 필드 없는 건  28건
+    배너 안전 처리     30건 (필드 없으면 배너 미표시 — 임의 기본 등급 생성 없음)
+    오류               0건
+
+  필드가 없는 과거 snapshot 이 D4(요약 전용) 같은 보수적 기본값으로 잘못 굳지 않는다.
+  '등급을 모른다'와 '등급이 D4다'는 다른 상태이고, 전자는 배너 미표시로 남는다.
+
+
+■ 검증 5 — 회귀
+
+  1) CLAUDE.md 지정 샘플 회귀
+       samples/test_virtual_cases.py   8/8 통과
+       samples/test_complex_cases.py   5/5 케이스 분석 완료
+
+  2) 저장소 계층 직접 테스트
+       tests/test_single_validation_result_store.py
+       tests/test_query_timing_persistence.py
+       tests/test_partial_persistence.py            → 22 passed
+
+  3) baseline 대조 (in-place revert 방식 — worktree 미사용)
+     이번 수정을 in-place 로 되돌린 baseline 과 적용본으로 동일 범위를 각각 완주시켜
+     실패 목록을 비교했다.
+
+       범위 : pytest tests -k "snapshot or result_store or single_save or
+                                single_official or display or persistence"
+              (944건 선택 / 10,319건 deselect)
+
+       baseline(HEAD)  66 failed / 874 passed / 5 skipped / 14 errors  (477.06s)
+       적용본          66 failed / 874 passed / 5 skipped / 14 errors  (477.07s)
+
+       실패 목록 diff : 0 (66행 완전 일치)
+
+     즉 이번 수정으로 새로 깨진 테스트는 0건이다. 66건의 실패는 baseline 에도 그대로
+     있는 사전 존재 실패다.
+
+  4) 전체 tests/ 완주는 이번 환경에서 불가능했다 — 사실대로 적는다.
+     전체 범위 실행이 약 13% 지점에서 멈춰 60분간 CPU 사용량이 전혀 늘지 않았다
+     (94.2초에서 고정). 같은 시각 타 세션의 pytest 프로세스(19:38 기동)도 동일하게
+     92.9초에서 고정된 채였다. 두 프로세스가 같은 자원에서 서로 물린 상태로 보이며,
+     이번 수정과는 무관하다(수정 파일은 SQLite snapshot 저장 1개 함수뿐이고,
+     되돌린 baseline 범위 실행도 동일하게 완주/미완주가 갈리지 않았다).
+     그래서 전체 대신 위 3)의 결정적 범위로 baseline 대조를 수행했다.
+     전체 스위트 완주가 필요하면 타 세션 작업이 없는 시점에 재실행해야 한다.
+
+
+■ 남은 갭 / 이번 범위 밖 (참고)
+
+  1) 이력 조회 경로(/history/runs/{run_id}/execute-result)는 snapshot 이 아니라
+     validation_history DB 에서 결과를 재조립하는 별개 경로다
+     (services/validation_history_service.build_execute_result_from_history).
+     이 경로에도 display_tier_info 는 없다. 다만 사용자 지시가
+     single_validation_result_store.py 한 파일로 한정돼 있어 손대지 않았다.
+     같은 함수는 total_src/total_tgt 를 total_groups 로 동일하게 채우고 있어
+     (776~777행) 그룹 수 표기 역시 실측이 아니다 — 별도 작업으로 다룰 사안이다.
+
+  2) GROUP BY 후보 고유값 50 상한(_GB_CARD_LOW_MAX) 때문에 단일 컬럼으로는
+     D2 이상을 만들 수 없다는 사실은 이번에 실측으로 확인했다. 정책 자체는 타당하나,
+     비후보 탈락 사유가 사용자 화면에 안 보이는 기존 갭과 맞물린다.
+
+
+■ 변경/생성 파일
+
+  수정 (1)
+    services/single_validation_result_store.py            +47 / -0
+
+  신규 (3, 모두 dev_e2e 실측 스크립트 — 운영 경로 무관)
+    scripts/dev_e2e/display_tier_d2_fixture.py            D2 픽스처 생성(40x40 조합)
+    scripts/dev_e2e/snapshot_display_tier_verify.py       API/저장/조회/ablation/하위호환
+    scripts/dev_e2e/snapshot_display_tier_browser_shot.py A/B/C 브라우저 대조
+
+  증적 (E:\verify_screenshots_only\SNAPSHOT-DISPLAY-TIER-INFO-FIELD-ADD\)
+    D1_A_wizard_execute.png / D1_B_snapshot_after_fix.png / D1_C_snapshot_before_fix.png
+    D2_A_wizard_execute.png / D2_B_snapshot_after_fix.png / D2_C_snapshot_before_fix.png
+    verify_result.json / browser_verdict.json / raw_wizard_vs_snapshot.json
+    pytest_after.txt / pytest_baseline_before.txt / _fail_after.txt / _fail_before.txt
+
+
+■ 결론
+
+  실행 시점에만 존재하던 표시 등급 판정이 이제 snapshot 에 함께 남는다.
+  재조회 화면은 등급을 다시 계산하지 않고 저장된 근거를 그대로 읽어 배너를 복원한다.
+  판정 로직과 상태값(PASS/WARNING/SKIP)은 변하지 않았고, 새로 깨진 테스트는 0건이다.
+
+✅ 작업 완료 - SNAPSHOT-DISPLAY-TIER-INFO-FIELD-ADD: display_tier_info 18키 whitelist 저장으로 D1/D2 두 케이스 모두 A=B≠C 실측 확인, baseline 실패목록 diff 0
