@@ -1,0 +1,38 @@
+oracle 키메타 조회 DB 연결 실패: DPY-4001: no credentials specified
+key_metadata 조회 DB 연결 실패: connection to server at "127.0.0.1", port 5432 failed: Connection refused (0x0000274D/10061)
+	Is the server running on that host and accepting TCP/IP connections?
+
+========================================================================================
+ AGG-DIFF-ROUTE-UNDERSCORE-M-ALIAS-FIX — rename 재래핑 별칭 오라클 안전성 검증
+ 검출기: tests/test_underscore_alias_oracle_regression_static (재사용)
+========================================================================================
+
+[코드 상태] MATCHKEY_WRAP_ALIAS 없음(개명 전 코드 — 별칭이 리터럴로 하드코딩됨)
+
+────────────────────────────────────────────────────────────────────────────────────────
+[oracle] 프로덕션 라우트가 DB 로 보낸 SQL (rename: emp_no → EMPLOYEE_NUMBER)
+────────────────────────────────────────────────────────────────────────────────────────
+  [1] ORA-00911 위험   SELECT 1 FROM (SELECT e.emp_no AS EMPLOYEE_NUMBER, e.dept AS DEPT_CD, e.pay AS PAY_AMT FROM mv_ora_test e WHERE e.pay > 0) __m WHERE employee_number I
+      └ 비인용 밑줄 선두 별칭: ['__m']
+  [2] OK             SELECT 1 FROM mv_ora_test_tgt WHERE employee_number IS NULL FETCH FIRST 1 ROWS ONLY
+  [3] ORA-00911 위험   SELECT COUNT(*) AS C FROM (SELECT e.emp_no AS EMPLOYEE_NUMBER, e.dept AS DEPT_CD, e.pay AS PAY_AMT FROM mv_ora_test e WHERE e.pay > 0) __m GROUP BY em
+      └ 비인용 밑줄 선두 별칭: ['__m']
+  [4] OK             SELECT COUNT(*) AS C FROM mv_ora_test_tgt GROUP BY employee_number HAVING COUNT(*) > 1 FETCH FIRST 1 ROWS ONLY
+
+  → 방출 SQL 4건 / 밑줄 별칭 발견 2건 ['__m'] / sqlglot 파싱 실패 0건
+
+────────────────────────────────────────────────────────────────────────────────────────
+[postgresql] 프로덕션 라우트가 DB 로 보낸 SQL (rename: emp_no → EMPLOYEE_NUMBER)
+────────────────────────────────────────────────────────────────────────────────────────
+  [1] 밑줄별칭           SELECT 1 FROM (SELECT e.emp_no AS EMPLOYEE_NUMBER, e.dept AS DEPT_CD, e.pay AS PAY_AMT FROM mv_ora_test AS e WHERE e.pay > 0) AS __m WHERE employee_nu
+      └ 비인용 밑줄 선두 별칭: ['__m']
+  [2] OK             SELECT 1 FROM mv_ora_test_tgt WHERE employee_number IS NULL LIMIT 1
+  [3] 밑줄별칭           SELECT COUNT(*) AS C FROM (SELECT e.emp_no AS EMPLOYEE_NUMBER, e.dept AS DEPT_CD, e.pay AS PAY_AMT FROM mv_ora_test AS e WHERE e.pay > 0) AS __m GROUP
+      └ 비인용 밑줄 선두 별칭: ['__m']
+  [4] OK             SELECT COUNT(*) AS C FROM mv_ora_test_tgt GROUP BY employee_number HAVING COUNT(*) > 1 LIMIT 1
+
+  → 방출 SQL 4건 / 밑줄 별칭 발견 2건 ['__m'] / sqlglot 파싱 실패 0건
+
+========================================================================================
+ 판정: FAIL — 오라클 방출 SQL 에 비인용 밑줄 선두 별칭 2건 (ORA-00911)
+========================================================================================

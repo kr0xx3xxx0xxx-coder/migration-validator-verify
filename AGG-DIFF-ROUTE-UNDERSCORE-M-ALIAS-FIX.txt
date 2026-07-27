@@ -1,0 +1,251 @@
+✅ 작업 완료 - AGG-DIFF-ROUTE-UNDERSCORE-M-ALIAS-FIX : rename 재래핑 별칭 '__m' → mm1 개명(오라클 ORA-00911 위험 2건→0건, 회귀 없음)
+
+════════════════════════════════════════════════════════════════════════════════════
+ AGG-DIFF-ROUTE-UNDERSCORE-M-ALIAS-FIX — 서술형 완료보고서
+ 작성일: 2026-07-27 (KST)
+ commit: 6a4cc8a  (직전 HEAD: 1fb93e8)
+════════════════════════════════════════════════════════════════════════════════════
+
+■ 1. 무엇을 고쳤나
+
+ROUTES-DIAGNOSIS-LIMIT-DIALECT-SECONDARY-CHECK 와 COUNT-GATE-ROUTE-DIALECT-AND-ALIAS-FIX
+양쪽에서 KNOWN_ORACLE_UNSAFE 로 '등록만 되고 미수정' 상태로 남아 있던 마지막 routes/ 항목,
+routes/agg_diff_route.py 의 '__m' 별칭을 개명했다.
+
+  위치 : routes/agg_diff_route.py:524 (수정 후 531)
+  함수 : _resolve_matchkey_via_diagnosis()
+  맥락 : rename 매핑 해소용 재래핑
+
+  src_for_diag = f"SELECT {', '.join(_tgt_cols)} FROM ({src_sql}) __m"
+
+  이 한 줄이 왜 있는가 — diagnosis 계열 헬퍼(resolve_confirmed_match_key, _has_null,
+  _dup_present)는 'Source/Target 이 동일 컬럼명(identity)'을 가정한다. 그런데 이관 SQL 이
+  컬럼을 rename 하는 경우(예: 원본 emp_no → 목적 EMPLOYEE_NUMBER), 소스측 probe 가 목적명을
+  찾지 못해 MATCH_KEY 확정이 실패한다. 파생 src_sql 은 이미 `(src_expr) AS tgt_col` 로 목적명
+  alias 를 달고 있으므로, 이를 서브쿼리로 한 번 감싸 목적명을 최상위에 노출시키면 헬퍼를
+  수정하지 않고도 그대로 재사용할 수 있다. 그 '한 번 감싸기'에 붙인 별칭이 '__m' 이었다.
+
+  왜 결함인가 — 오라클의 비인용(unquoted) 식별자는 반드시 문자로 시작해야 한다. '__m' 은
+  규칙 위반이라 ORA-00911(invalid character)로 문장 자체가 깨진다. 그리고 이 별칭은
+  '재래핑한 SQL' 에 붙기 때문에, 깨지는 것은 rename 케이스의 소스측 probe 전부다.
+
+  결과적으로 무슨 일이 벌어지나 — _has_null / _dup_present 는 예외를 삼키고 None 을 반환하며,
+  호출부는 None(확인 불가)을 '사용 금지'로 처리한다(안전장치). 즉 크래시가 아니라
+  '조용한 확정 거부'로 나타난다. 오라클 + rename 이관이면 ②UK 경로도 ③업무키 경로도 통과할 수
+  없어 MATCH_KEY 가 항상 HOLD 된다. 로그에 ORA-00911 이 드러나지도 않는다.
+
+  이 위험은 이미 코드가 알고 있었다 — 같은 파일 L565 독스트링(_native_pk_fanout_present)이
+  "재래핑 시 밑줄선두 별칭('__m')이 오라클 ORA-00911 을 유발해 _dup_present 가 None 을 반환,
+  검사 자체가 무력화되던 문제를 회피한다"고 명시하고 있었다. 다른 함수는 이 위험을 피하려고
+  재래핑을 안 하는 쪽을 택했는데, 정작 재래핑을 하는 함수는 그대로 남아 있었던 것이다.
+
+■ 2. 어떻게 고쳤나 — 별칭 개명만, 로직 변경 없음
+
+  (1) 모듈 상수 도입
+      MATCHKEY_WRAP_ALIAS = "mm1"
+      문자로 시작하므로 4개 방언 모두에서 유효하다. 리터럴을 그 자리에 박지 않고 상수로 둔 것은
+      바로 옆 파일 routes/count_gate_route.py 가 같은 결함을 SUBQUERY_ALIAS = "cg1" 로 해소한
+      선례를 그대로 따른 것이다(단일 출처화 — 다음에 또 흩어질 여지를 없앤다).
+
+  (2) 사용처 1곳 치환
+      해당 별칭은 SQL 어디에서도 이름으로 참조되지 않는 순수 positional 서브쿼리 별칭이다.
+      따라서 개명은 SQL 의미를 바꾸지 않는다(§4-3 에서 문자열 수준으로 실증했다).
+
+  (3) 독스트링 정정
+      L565 의 "'__m' 이 ORA-00911 을 유발한다"는 서술은 이제 사실이 아니다. 다만 그 문장은
+      _native_pk_fanout_present 가 '왜 재래핑을 하지 않는지'의 근거이기도 해서, 삭제하지 않고
+      이력으로 옮겼다 — 재래핑을 피하는 판단 자체는 별칭과 무관하게 여전히 유효하기 때문이다.
+      (지시 범위대로 로직은 건드리지 않았다. 이 함수의 동작은 그대로다.)
+
+  프로덕션 변경은 routes/agg_diff_route.py 한 파일뿐이다.
+
+■ 3. 정적 회귀 테스트 — tripwire 가 설계대로 뒤집혔고, 가드 하나를 함께 고쳐야 했다
+
+  개명 직후 tests/test_underscore_alias_oracle_regression_static.py 를 돌리자 2건이 실패했다.
+  둘 다 '회귀'가 아니라 '해결됨' 신호였지만, 성격이 달라서 나눠 적는다.
+
+  (a) test_scanner_detects_known_oracle_unsafe — 의도된 tripwire
+      KNOWN_ORACLE_UNSAFE 에 '__m' 이 등록돼 있는데 스캐너가 더 이상 탐지하지 못하니 실패한다.
+      테스트 주석이 미리 예고한 그대로다. 해당 항목을 목록에서 제거했다.
+      → 이제 KNOWN_ORACLE_UNSAFE 에는 hash_bucket(__HB/__KH/__RH) 하나만 남는다.
+        routes/ 트리는 전부 깨끗해졌다.
+
+  (b) test_routes_dir_is_actually_scanned — 가드 자체의 결함이 드러났다
+      이 테스트는 'routes/ 를 실제로 훑고 있는가'를 확인하려고 "routes/ 에서 밑줄 별칭이
+      하나라도 탐지되는가"로 판정하고 있었다. 그런데 그것은 커버리지의 대리 지표일 뿐이다.
+      agg_diff_route 를 고쳐 routes/ 가 완전히 깨끗해지자, 이 가드는 '오펜더가 사라졌다'는
+      이유로 실패했다 — 성공이 실패로 보고되는 구조였다.
+
+      판정 근거를 결과(오펜더 존재)에서 원인(스캔 파일 열거)으로 옮겼다. iter_scanned_files()
+      를 노출해 scan_services_tree() 가 그것을 쓰도록 하고, 가드는 routes/*.py 가 실제로 스캔
+      목록에 올라오는지 + agg_diff_route.py / count_gate_route.py 가 제외 규칙에 잘못 걸리지
+      않았는지를 본다. 검출기 자체의 동작은 원래부터 test_subquery_alias_detector_works 가
+      따로 고정하고 있으므로 커버리지 손실은 없다.
+
+      (이 문제는 앞으로도 같은 형태로 반복된다 — 남은 hash_bucket 을 고쳐 services/ 까지
+       깨끗해지면 test_scanner_finds_only_python_and_is_stable 이 같은 이유로 실패할 것이다.
+       그 시점에 동일한 방식으로 재anchor 하면 된다.)
+
+  (c) agg_diff_route 전용 회귀 가드 추가
+      count_gate_route 가 가진 것과 같은 형태로, 이 파일에 밑줄 선두 별칭이 다시 들어오면
+      실패하는 테스트를 추가했다(test_agg_diff_route_has_no_underscore_alias).
+
+  결과: 11 passed, 1 xfailed(기존 hash_bucket), 6 subtests passed — 전부 통과.
+
+■ 4. 검증
+
+[4-1] 라이브 DB 가용성 — 먼저 확인했고, 이번 회차도 불가였다
+
+  지시대로 내부망 복구 여부를 먼저 확인했다. 복구되지 않았다.
+
+    Oracle_asis            192.168.0.151:1523   TCP 미도달(timeout)
+    Oracle_tobe            192.168.0.151:1524   TCP 미도달(timeout)
+    PostgreSQL_Inter_asis  192.168.0.150:5433   TCP 미도달(timeout)
+    PostgreSQL_Inter_tobe  192.168.0.150:5434   TCP 미도달(timeout)
+    PostgreSQL_asis (Neon) ep-bitter-moon…       접속 거부(ERROR — 쿼터 소진 상태 지속)
+    PostgreSQL_NEW_asis    ep-aged-tooth…        접속 거부
+    localhost 5432/5433/1521/1523/1524/3306/50000   전부 closed
+    docker                                        미설치(command not found)
+
+  따라서 지시가 허용한 대로 "이전 진단과 동일한 방식"으로 대체했고, 그 사실을 명시한다.
+  대체 방식은 COUNT-GATE-ROUTE-DIALECT-AND-ALIAS-FIX 회차와 같은 계열이되, 이번에는 포착
+  지점을 한 단계 더 깊게 잡았다.
+
+    하네스: scripts/dev_e2e/agg_diff_route_underscore_m_alias_verify.py
+
+    · SQL 생성은 100% 프로덕션 코드가 한다. 프로덕션 함수 _resolve_matchkey_via_diagnosis 를
+      실제로 호출하고, 최종 DB 실행 함수 cmn_db_fetch_select_readonly 하나만 포착용 stub 으로
+      바꿔 '라우트가 실제로 DB 에 보낸 SQL 문자열'을 종단에서 수집했다.
+    · 이 지점을 고른 이유: _has_null 과 _dup_present 의 공통 chokepoint 이며, 특히
+      _dup_present 는 sqlglot 오라클 방언으로 재렌더한 뒤 이 함수를 호출한다. 즉 포착되는 것은
+      문자열 조립 추정치가 아니라 sqlglot 렌더를 통과한 진짜 최종 SQL 이다.
+    · 입력은 rename 이 실제로 있는 케이스로 만들었다(원본 emp_no → 목적 EMPLOYEE_NUMBER).
+      rename 이 없으면 재래핑 자체가 일어나지 않아 별칭이 방출되지 않기 때문이다.
+    · 검출기는 정적 회귀 테스트의 find_unquoted_underscore_aliases 를 그대로 import 해 썼다
+      (중복 구현 금지 — 판정 기준이 갈라지지 않게).
+    · 결정적이다: DB 접속 없음, 같은 입력 → 같은 출력.
+
+  선행 확인으로, sqlglot 이 오라클 방언에서 '__m' 을 자동 인용해 주지는 않는지도 실측했다.
+  인용하지 않는다 — 밑줄 별칭이 그대로 서버까지 나간다. 즉 이 결함은 파서 단계에서 걸러지지
+  않고 실제로 오라클에 도달한다.
+
+    __m -> SELECT COUNT(*) AS C FROM (…) __m GROUP BY EMPLOYEE_NUMBER
+    mm1 -> SELECT COUNT(*) AS C FROM (…) mm1 GROUP BY EMPLOYEE_NUMBER
+
+[4-2] Before / After — 오라클 방출 SQL (rename 케이스)
+
+  BEFORE (baseline worktree, HEAD=1fb93e8) : 방출 4건 중 밑줄 별칭 2건 → ORA-00911
+
+    [1] ORA-00911  SELECT 1 FROM (SELECT e.emp_no AS EMPLOYEE_NUMBER, … ) __m
+                   WHERE employee_number IS NULL FETCH FIRST 1 ROWS ONLY
+    [2] OK         SELECT 1 FROM mv_ora_test_tgt WHERE employee_number IS NULL FETCH FIRST 1 ROWS ONLY
+    [3] ORA-00911  SELECT COUNT(*) AS C FROM (SELECT e.emp_no AS EMPLOYEE_NUMBER, … ) __m
+                   GROUP BY employee_number HAVING COUNT(*) > 1 FETCH FIRST 1 ROWS ONLY
+    [4] OK         SELECT COUNT(*) AS C FROM mv_ora_test_tgt GROUP BY employee_number …
+
+    깨지는 것이 [1]·[3] 즉 '소스측' probe 두 개라는 점이 이 결함의 성격을 그대로 보여준다.
+    목적측([2]·[4])은 재래핑을 하지 않으므로 멀쩡하다. 한쪽만 조용히 죽어서 확정이 거부된다.
+
+  AFTER (commit 6a4cc8a) : 방출 4건, 밑줄 별칭 0건
+
+    [1] OK  SELECT 1 FROM (…) mm1 WHERE employee_number IS NULL FETCH FIRST 1 ROWS ONLY
+    [2] OK  SELECT 1 FROM mv_ora_test_tgt WHERE employee_number IS NULL FETCH FIRST 1 ROWS ONLY
+    [3] OK  SELECT COUNT(*) AS C FROM (…) mm1 GROUP BY employee_number HAVING COUNT(*) > 1 …
+    [4] OK  SELECT COUNT(*) AS C FROM mv_ora_test_tgt GROUP BY employee_number HAVING COUNT(*) > 1 …
+
+  보조 확인으로 방출 SQL 전량을 sqlglot 오라클 파서에 통과시켰다(4/4 OK, 파싱 실패 0건).
+  다만 이것은 파서 수준 확인이며 실 오라클 서버 실행이 아니라는 점을 분명히 해 둔다.
+
+[4-3] PostgreSQL 회귀 없음 — 문자열 수준으로 실증
+
+  같은 하네스를 postgresql 방언으로도 돌려 BEFORE/AFTER 를 대조했다. 판정 방법은
+  "BEFORE 의 SQL 에서 별칭 이름만 __m→mm1 로 치환하면 AFTER 와 완전히 같아지는가" 다.
+
+    oracle      : 4/4 완전 동일
+    postgresql  : 4/4 완전 동일
+
+  즉 별칭 이름 외에는 단 한 글자도 달라지지 않았다. 별칭은 어디에서도 참조되지 않으므로
+  SQL 의미도 불변이다. PG 경로는 실질 무변경이고, MySQL/MSSQL 도 같은 이유로 영향이 없다
+  (밑줄 별칭을 허용하던 방언들이라 애초에 깨지지 않았고, 문자 시작 별칭도 당연히 유효하다).
+
+[4-4] 테스트 — baseline 대조 (git worktree, stash 미사용)
+
+  agg_diff 를 언급하는 테스트 파일 전량 + 밑줄별칭 정적 테스트 + match_key 결과집합 테스트를
+  수정본과 baseline(worktree, HEAD=1fb93e8)에서 각각 돌려 대조했다.
+
+    baseline : 8 failed, 252 passed, 2 skipped, 7 xfailed, 6 subtests passed
+    수정 후  : 8 failed, 253 passed, 2 skipped, 7 xfailed, 6 subtests passed
+
+  실패 8건의 '목록'을 파일로 뽑아 diff 한 결과 완전히 동일했다(신규 실패 0건). 전부 사전 존재
+  실패이며 이번 변경과 무관하다:
+
+    test_d7_8_inline_drill_time.py::test_ui_advanced_perf_position_and_title
+    test_execution_path.py::test_parallel_read_decision_diff_host_true
+    test_execution_path.py::test_parallel_read_decision_off_by_default
+    test_execution_path.py::test_parallel_read_decision_same_host_sequential
+    test_single_auto_restore.py::test_contract_in_function_body
+    test_single_auto_restore.py::test_node_auto_restore_and_idempotent
+    test_single_auto_restore.py::test_present_and_wired_into_init_chain
+    test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+
+  통과 +1 은 이번에 추가한 agg_diff 전용 회귀 가드다. 즉 회귀 0건.
+
+  프로젝트 필수 회귀 스위트도 통과했다:
+    samples/test_virtual_cases.py   →  8/8 통과
+    samples/test_complex_cases.py   →  5/5 분석 완료
+
+[4-5] 서버 재기동 — 실제 서비스 포트 8000, 인증 ON
+
+    재기동 시각 : 2026-07-27 15:54:46 KST
+    PID         : 12148 → 33340 (프로세스 교체 확인)
+    기동 로그   : Uvicorn running on http://127.0.0.1:8000
+    인증        : 자격증명 없이 / 와 /jobs/active 요청 시 둘 다 HTTP 401 (Basic Auth 강제 확인)
+
+  reload=False 라 편집이 반영되려면 재기동이 필요하다. 파일 최종수정 15:46:43 < 프로세스 기동
+  15:54:46 이므로 실행 중인 서버가 개명된 코드를 서빙하고 있다.
+
+[4-6] 브라우저 확인 — 범위를 좁혀 명시한다
+
+    scripts/dev_e2e/agg_diff_route_alias_browser_shot.py (8000, http_credentials 인증)
+
+    page title      : 이관 검증 센터
+    핵심 JS 정의    : runAnalyze / _mvPkLoadPage / _mvSrcTgtLegend 모두 function
+    콘솔·페이지 오류 : 0건
+
+  솔직히 적어 둔다 — 이번 수정 지점은 오라클 드릴다운의 서버측 SQL 생성이라, 라이브 오라클
+  없이는 브라우저 클릭스루로 도달할 수 없다. 따라서 브라우저 확인의 의미는 '재기동한 서버가
+  인증 ON 상태로 정상 기동했고 UI 가 JS 오류 없이 뜬다(회귀 없음)'까지이며, 별칭 수정 자체의
+  Before/After 근거는 §4-2 의 하네스다.
+
+■ 5. 남은 일 / 한계
+
+  (a) 오라클 실 DB 실행 확인은 미완이다. 내부망 복구 시 하네스를 그대로 두고 stub 만 걷어내면
+      실 서버 실행으로 승격된다. 재현 시나리오는 'rename 이 있는 오라클 이관 SQL 로 통계검증
+      불일치 그룹 드릴다운' — BEFORE 라면 MATCH_KEY HOLD, AFTER 라면 확정되어야 한다.
+
+  (b) KNOWN_ORACLE_UNSAFE 에 hash_bucket(__HB/__KH/__RH) 이 남아 있다. PG 전용 해시 계약이라
+      단순 개명으로 끝나지 않는 별도 작업이며, Layer A 의 expectedFailure 마커도 그때 함께
+      정리해야 한다. 이번 작업 범위 밖이다.
+
+  (c) §3-(b) 에서 지적한 '가드가 성공 때문에 실패하는' 패턴은 hash_bucket 수정 시
+      test_scanner_finds_only_python_and_is_stable 에서 재현될 것이다. 미리 적어 둔다.
+
+■ 6. 변경 파일
+
+    routes/agg_diff_route.py                                   (프로덕션 — 별칭 개명 + 독스트링 정정)
+    tests/test_underscore_alias_oracle_regression_static.py    (KNOWN_ORACLE_UNSAFE 정리·가드 재anchor·전용 가드 추가)
+    scripts/dev_e2e/agg_diff_route_underscore_m_alias_verify.py (신규 — Before/After 하네스)
+    scripts/dev_e2e/agg_diff_route_alias_browser_shot.py        (신규 — 재기동 서버 브라우저 확인)
+
+  증적: E:\verify_screenshots_only\AGG-DIFF-ROUTE-UNDERSCORE-M-ALIAS-FIX\
+    01_server_restarted_authenticated.png
+    02_harness_AFTER_oracle_pg.log
+    03_harness_BEFORE_baseline_1fb93e8.log
+    04_static_alias_test_AFTER.log
+    05_related_tests_FAIL_baseline.txt
+    06_related_tests_FAIL_fixed.txt
+    07_server_restart.log
+
+════════════════════════════════════════════════════════════════════════════════════
+
+✅ 작업 완료 - AGG-DIFF-ROUTE-UNDERSCORE-M-ALIAS-FIX : rename 재래핑 별칭 '__m' → mm1 개명(오라클 ORA-00911 위험 2건→0건, 회귀 없음)
