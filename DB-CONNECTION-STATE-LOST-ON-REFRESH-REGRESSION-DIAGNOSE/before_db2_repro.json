@@ -1,0 +1,68 @@
+{
+  "tag": "before_db2",
+  "dialogs": [],
+  "console": [],
+  "pageerror": [],
+  "dbtest": [
+    "http://127.0.0.1:8001/db/test",
+    "http://127.0.0.1:8001/db/test"
+  ],
+  "step1_before_connect": {
+    "srcBadge": "미연결",
+    "tgtBadge": "미연결",
+    "connectedPair": null,
+    "savedActivePath": null,
+    "workProjectId": "921",
+    "pairRowStatus": [
+      "미접속PostgreSQL_asis → PostgreSQL_tobePostgreSQL_asisPOSTGRESQLPostgreSQL_tobePOSTGRESQL상세접속삭제",
+      "미접속DIAG_DB2_asis → DB2_tobeDB2_asisPOSTGRESQLDB2_tobePOSTGRESQL상세접속삭제"
+    ],
+    "hasRestoreFn": "function",
+    "hasConnectPair": "function",
+    "initSettled": true
+  },
+  "step2_after_connect": {
+    "srcBadge": "DB2_asis [DB2] · 접속중",
+    "tgtBadge": "DB2_tobe [DB2] · 접속중",
+    "connectedPair": "DIAG_DB2_asis → DB2_tobe",
+    "savedActivePath": "DIAG_DB2_asis → DB2_tobe",
+    "workProjectId": "921",
+    "pairRowStatus": [
+      "미접속PostgreSQL_asis → PostgreSQL_tobePostgreSQL_asisPOSTGRESQLPostgreSQL_tobePOSTGRESQL상세접속삭제",
+      "접속중DIAG_DB2_asis → DB2_tobeDB2_asisPOSTGRESQLDB2_tobePOSTGRESQL상세접속 끊기삭제"
+    ],
+    "hasRestoreFn": "function",
+    "hasConnectPair": "function",
+    "initSettled": true
+  },
+  "step2_dialogs": [
+    {
+      "type": "alert",
+      "message": "검증 경로 접속 성공: DIAG_DB2_asis → DB2_tobe"
+    }
+  ],
+  "step2_dbtest_calls": 2,
+  "step3_after_reload": {
+    "srcBadge": "DB2_asis [DB2] · 접속중",
+    "tgtBadge": "DB2_tobe [DB2] · 접속중",
+    "connectedPair": "DIAG_DB2_asis → DB2_tobe",
+    "savedActivePath": "DIAG_DB2_asis → DB2_tobe",
+    "workProjectId": "921",
+    "pairRowStatus": [
+      "미접속PostgreSQL_asis → PostgreSQL_tobePostgreSQL_asisPOSTGRESQLPostgreSQL_tobePOSTGRESQL상세접속삭제",
+      "접속중DIAG_DB2_asis → DB2_tobeDB2_asisPOSTGRESQLDB2_tobePOSTGRESQL상세접속 끊기삭제"
+    ],
+    "hasRestoreFn": "function",
+    "hasConnectPair": "function",
+    "initSettled": true
+  },
+  "step3_dbtest_calls": 2,
+  "step3_dialogs": [],
+  "step4_manual_restore": {
+    "saved": "DIAG_DB2_asis → DB2_tobe",
+    "err": null,
+    "connectedPair": "DIAG_DB2_asis → DB2_tobe",
+    "srcBadge": "DB2_asis [DB2] · 접속중"
+  },
+  "step4_dbtest_calls": 2
+}

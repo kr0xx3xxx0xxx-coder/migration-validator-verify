@@ -1,0 +1,263 @@
+{
+  "tag": "after",
+  "connectPair_result": {
+    "ret": "false",
+    "err": null
+  },
+  "trace": [
+    {
+      "t": 3,
+      "step": "CALL connectPair",
+      "extra": null
+    },
+    {
+      "t": 3,
+      "step": "ENTER selectPair",
+      "extra": "DIAG_PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe"
+    },
+    {
+      "t": 3,
+      "step": "ENTER _isConnLocked",
+      "extra": "src"
+    },
+    {
+      "t": 3,
+      "step": "RETURN _isConnLocked",
+      "extra": "false"
+    },
+    {
+      "t": 3,
+      "step": "ENTER _isConnLocked",
+      "extra": "tgt"
+    },
+    {
+      "t": 3,
+      "step": "RETURN _isConnLocked",
+      "extra": "false"
+    },
+    {
+      "t": 3,
+      "step": "ENTER _applyPairSide",
+      "extra": "src,PostgreSQL_Inter_asis,postgresql"
+    },
+    {
+      "t": 3,
+      "step": "ENTER applyPreset",
+      "extra": "src"
+    },
+    {
+      "t": 62,
+      "step": "RESOLVE applyPreset",
+      "extra": "undefined"
+    },
+    {
+      "t": 62,
+      "step": "RESOLVE _applyPairSide",
+      "extra": "undefined"
+    },
+    {
+      "t": 62,
+      "step": "ENTER _applyPairSide",
+      "extra": "tgt,PostgreSQL_Inter_tobe,postgresql"
+    },
+    {
+      "t": 62,
+      "step": "ENTER applyPreset",
+      "extra": "tgt"
+    },
+    {
+      "t": 117,
+      "step": "RESOLVE applyPreset",
+      "extra": "undefined"
+    },
+    {
+      "t": 117,
+      "step": "RESOLVE _applyPairSide",
+      "extra": "undefined"
+    },
+    {
+      "t": 117,
+      "step": "ENTER _setSelectedBadge",
+      "extra": "src,PostgreSQL_Inter_asis"
+    },
+    {
+      "t": 117,
+      "step": "RETURN _setSelectedBadge",
+      "extra": "undefined"
+    },
+    {
+      "t": 117,
+      "step": "ENTER _setSelectedBadge",
+      "extra": "tgt,PostgreSQL_Inter_tobe"
+    },
+    {
+      "t": 117,
+      "step": "RETURN _setSelectedBadge",
+      "extra": "undefined"
+    },
+    {
+      "t": 117,
+      "step": "ENTER _setMode",
+      "extra": "src,selected"
+    },
+    {
+      "t": 117,
+      "step": "ENTER _isConnLocked",
+      "extra": "src"
+    },
+    {
+      "t": 117,
+      "step": "RETURN _isConnLocked",
+      "extra": "false"
+    },
+    {
+      "t": 117,
+      "step": "RETURN _setMode",
+      "extra": "undefined"
+    },
+    {
+      "t": 117,
+      "step": "ENTER _setMode",
+      "extra": "tgt,selected"
+    },
+    {
+      "t": 117,
+      "step": "ENTER _isConnLocked",
+      "extra": "tgt"
+    },
+    {
+      "t": 117,
+      "step": "RETURN _isConnLocked",
+      "extra": "false"
+    },
+    {
+      "t": 117,
+      "step": "RETURN _setMode",
+      "extra": "undefined"
+    },
+    {
+      "t": 117,
+      "step": "ENTER renderPairList",
+      "extra": null
+    },
+    {
+      "t": 117,
+      "step": "RETURN renderPairList",
+      "extra": "undefined"
+    },
+    {
+      "t": 117,
+      "step": "RESOLVE selectPair",
+      "extra": "undefined"
+    },
+    {
+      "t": 227,
+      "step": "ENTER _testProfileConn",
+      "extra": "[obj]"
+    },
+    {
+      "t": 10295,
+      "step": "RESOLVE _testProfileConn",
+      "extra": "[object Object]"
+    },
+    {
+      "t": 10295,
+      "step": "ENTER _testProfileConn",
+      "extra": "[obj]"
+    },
+    {
+      "t": 20377,
+      "step": "RESOLVE _testProfileConn",
+      "extra": "[object Object]"
+    },
+    {
+      "t": 20377,
+      "step": "ENTER _recordPairSrcResults",
+      "extra": "[obj],[obj],false"
+    },
+    {
+      "t": 20377,
+      "step": "RETURN _recordPairSrcResults",
+      "extra": "undefined"
+    },
+    {
+      "t": 20377,
+      "step": "ALERT",
+      "extra": "원본 DB 접속 실패: [PostgreSQL_Inter_asis] postgresql 접속 실패: connection to server at \"192.168.0.150\", port 5433 failed: timeout expired\n\n목적지 DB 접속 실패: postgresql 접속 실패: connection to server at \"192.168.0.150\", port 5434 failed: timeout expired\n"
+    },
+    {
+      "t": 20377,
+      "step": "ENTER renderDbProfileList",
+      "extra": null
+    },
+    {
+      "t": 20378,
+      "step": "RETURN renderDbProfileList",
+      "extra": "undefined"
+    },
+    {
+      "t": 20378,
+      "step": "ENTER renderPairList",
+      "extra": null
+    },
+    {
+      "t": 20378,
+      "step": "RETURN renderPairList",
+      "extra": "undefined"
+    },
+    {
+      "t": 20378,
+      "step": "DONE connectPair",
+      "extra": "false"
+    }
+  ],
+  "state": {
+    "connectedPair": null,
+    "currentPair": "DIAG_PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe",
+    "savedActivePath": null,
+    "srcBadge": "PostgreSQL_Inter_asis [POSTGRESQL] · 접속중",
+    "tgtBadge": "PostgreSQL_Inter_tobe [POSTGRESQL] · 접속중",
+    "srcLocked": "(wrapped)",
+    "profileStatus": {
+      "src": {
+        "current": null,
+        "status": {
+          "PostgreSQL_Inter_asis": "FAILED"
+        },
+        "byName": {
+          "PostgreSQL_asis": "postgresql",
+          "MariaDB_asis": "mariadb",
+          "PostgreSQL_NEW_asis": "postgresql",
+          "DB2_asis": "db2",
+          "PostgreSQL_Inter_asis": "postgresql",
+          "PostgreSQL_Inter_tobesrc": "postgresql",
+          "PostgreSQL_nxdnp_src": "postgresql",
+          "Oracle_asis": "oracle"
+        },
+        "testedAt": {
+          "PostgreSQL_Inter_asis": 1785143832626
+        },
+        "mode": "selected"
+      },
+      "tgt": {
+        "current": null,
+        "status": {
+          "PostgreSQL_Inter_tobe": "FAILED"
+        },
+        "byName": {
+          "PostgreSQL_tobe": "postgresql",
+          "DB2_tobe": "db2",
+          "MariaDB_tobe": "mariadb",
+          "PostgreSQL_NEW_tobe": "postgresql",
+          "PostgreSQL_Inter_tobe": "postgresql",
+          "Oracle_tobe": "oracle"
+        },
+        "testedAt": {
+          "PostgreSQL_Inter_tobe": 1785143832626
+        },
+        "mode": "selected"
+      }
+    }
+  },
+  "errors": []
+}
