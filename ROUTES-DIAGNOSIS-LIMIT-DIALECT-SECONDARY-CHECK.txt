@@ -1,0 +1,170 @@
+작업명 : ROUTES-DIAGNOSIS-LIMIT-DIALECT-SECONDARY-CHECK
+⚠️ 추가 작업 필요 - routes/ 방언 미위임 15지점 확정(코드 수정 없음), 오라클 라이브 실측은 DB 서버 TCP 미도달로 미수행
+
+■ 수행 범위
+  - 대상: routes/ 디렉토리 40개 .py 전수 (services/ 는 지시대로 제외)
+  - 코드 수정 없음(순수 진단). 신규 진단 스크립트 1개만 추가:
+      scripts/dev_e2e/routes_limit_dialect_secondary_check.py
+  - 스캔 방식: AST 기반(주석·독스트링 제외, f-string 템플릿 복원) → 정규식 단독 스캔의
+    오탐(독스트링 본문)·누락(f-string 조각 분리)을 모두 제거
+
+■ 선행 언급 위치 재확인(요청서 배경)
+  근거는 커밋 메시지가 아니라 이전 진단 결론 기록에 있음:
+    E:\verify_reports\ROUTES-DIAGNOSIS-CONFIRM-ROUTING-DIALECT-DELEGATION-FIX.txt
+    + 세션 메모리 project_oracle_chunkkey_information_schema_gap
+  원문 취지: "같은 결함이 남은 곳(호출부 dialect 미전달) — routes/diagnosis_route.py:_contract_chunk_key,
+  routes/exact_diff_route.py:_resolve_key, routes/count_gate_route.py, routes/agg_diff_route.py".
+  이번 점검으로 그 목록이 정확했고, 추가로 3계열(제한문법 하드코딩·밑줄별칭·PG전용 드라이버 API)이
+  같은 파일들에 중첩돼 있음을 확인함.
+
+■ [지시 1·2] 발견 지점 전체 목록 + 방언위임 여부
+  ── (A) 페이징·제한 문법 하드코딩 (SQL 리터럴 한정, 7지점) ──────────────────────
+   파일:라인                     내용                                        방언분기   판정
+   count_gate_route.py:95       SELECT ({keyc}) FROM ({sql}) __cg           없음      결함
+                                 ORDER BY 1 LIMIT 5
+   count_gate_route.py:98       위와 동일 (ORDER BY 1 DESC LIMIT 5)         없음      결함
+   count_gate_route.py:136      SELECT * FROM ({sql}) __cg LIMIT 10         없음      결함
+   sample_route.py:54           ... WHERE ROWNUM <= 100                     있음      정상
+   sample_route.py:56           SELECT TOP 100 * FROM {tbl}                 있음      정상
+   sample_route.py:58           SELECT * FROM {tbl} LIMIT 100               있음      정상
+   batch_route.py:143           SELECT batch_id FROM mv_batch_result ...    해당없음   무해
+                                 ORDER BY created_dt DESC LIMIT 1                     (내부 SQLite)
+   → 사용자 DB 로 나가는 미분기 지점은 count_gate_route.py 3곳뿐.
+     sample_route.py 는 oracle/mssql/기타 3분기를 이미 갖춘 정상 대조군(이 파일이 올바른 패턴).
+
+  ── (B) sqlglot 방언 하드코딩 (2지점) ─────────────────────────────────────────
+   diagnosis_route.py:1482   sqlglot.parse_one(base_sql, read="postgres")           결함(경미)
+   diagnosis_route.py:1485   tree.sql(dialect="postgres") 로 실행                    결함(경미)
+   → 함수 _count_rows(). 다만 이 지점이 만드는 SQL 은 `SELECT COUNT(*) AS C FROM ...` 이라
+     4방언 렌더 결과가 모두 동일(아래 렌더 매트릭스 5-c 확인). 따라서 'LIMIT 계열' 문법오류는
+     발생하지 않으며, 위험은 base_sql 에 오라클 전용 표현식이 있을 때의 파싱·재렌더 왜곡으로 한정.
+     실패해도 except 로 삼켜 None → SIZE_UNKNOWN(조용한 열화).
+
+  ── (C) diagnosis 헬퍼 호출부 dialect 인자 (AST 기준 14곳 중 7곳 미위임) ──────────
+   [미위임 X] agg_diff_route.py:725    resolve_trusted_chunk_key()
+   [미위임 X] agg_diff_route.py:741    resolve_confirmed_chunk_key()
+   [미위임 X] agg_diff_route.py:1351   resolve_confirmed_chunk_key()
+   [미위임 X] count_gate_route.py:56   resolve_confirmed_chunk_key()
+   [미위임 X] diagnosis_route.py:515   resolve_confirmed_chunk_key()   (_contract_chunk_key)
+   [미위임 X] diagnosis_route.py:527   resolve_confirmed_match_key()   (_contract_match_key)
+   [미위임 X] exact_diff_route.py:139  resolve_confirmed_chunk_key()   (_resolve_key)
+   [위임 O ] agg_diff_route.py:527/540/542/544/546/576  (MATCH-KEY-ORACLE-DIALECT-DELEGATION-FIX 적용분)
+   [위임 O ] diagnosis_route.py:98     (이번 배경이 된 07cd4d0 적용분)
+   → 피호출 함수 기본값은 모두 dialect="postgres"
+     (key_evidence.py:382, match_key_evidence.py:87, key_evidence.py:353).
+     즉 미위임 = postgres 강제와 동일. 이것이 07cd4d0 이 고친 것과 완전히 같은 패턴.
+
+  ── (D) 밑줄 선두 별칭 — 오라클 비인용 식별자 규칙 위반 (10지점) ──────────────────
+   count_gate_route.py:80/86/95/98/105/136/165   별칭 __cg (7곳)
+   exact_diff_route.py:177/178                    별칭 __sf (2곳)
+   agg_diff_route.py:524                          별칭 __m  (1곳)
+   → 기존 정적 회귀 테스트 tests/test_underscore_alias_oracle_regression_static.py 의
+     스캔 대상은 services/ 뿐이며 routes/ 는 포함되지 않음 → routes/ 는 가드 공백 상태.
+     (agg_diff_route.py:565 독스트링에는 이미 "밑줄선두 별칭('__m')이 오라클 ORA-00911 을 유발"
+      이라고 명시돼 있어, 규칙 자체는 팀 내에서 확립된 상태인데 같은 파일 524행이 예외로 남음.)
+
+  ── (E) 드라이버 전용 API 하드코딩 (2지점, 방언 무관 파생 결함) ────────────────────
+   count_gate_route.py:163   real.cursor(name="__count_gate_export")   psycopg2 서버커서 전용
+   count_gate_route.py:164   cur.itersize = 5000                       psycopg2 전용 속성
+   → /count-gate/one-side-export 는 오라클 접속에서 SQL 이전에 드라이버 레벨로 실패.
+
+  ── (F) PG 전용 캐스트 ────────────────────────────────────────────────────────
+   exact_diff_route.py:177/178  ({_c})::text = '{_v}'   오라클 미지원(TO_CHAR 필요)
+
+■ [지시 2 근거] 방언 렌더 매트릭스 — DB 없이 결정적으로 확인(실행 로그 발췌)
+  5-a  key_evidence._null_probe_sql (chunk key NULL probe)
+       postgres → SELECT 1 FROM ... WHERE ORDER_ID IS NULL LIMIT 1
+       mysql    → SELECT 1 FROM ... WHERE ORDER_ID IS NULL LIMIT 1
+       oracle   → SELECT 1 FROM ... WHERE ORDER_ID IS NULL FETCH FIRST 1 ROWS ONLY
+       tsql     → SELECT TOP 1 1 FROM ... WHERE ORDER_ID IS NULL
+  5-b  match_key_evidence._dup_present (MATCH_KEY 중복 probe)
+       postgres → ... GROUP BY ORDER_ID HAVING COUNT(*) > 1 LIMIT 1
+       oracle   → ... GROUP BY ORDER_ID HAVING COUNT(*) > 1 FETCH FIRST 1 ROWS ONLY
+       tsql     → SELECT TOP 1 COUNT(*) AS C FROM ... HAVING COUNT(*) > 1
+  5-c  diagnosis_route._count_rows
+       4방언 모두 → SELECT COUNT(*) AS C FROM ...   (문법 차이 없음 → LIMIT 계열 결함 아님)
+  → (C)의 미위임 7곳은 전부 5-a/5-b 를 호출한다. 즉 오라클 세션에서 postgres 렌더가 나가
+    'LIMIT' 이 오라클로 방출되는 것이 코드 경로상 확정.
+
+■ [지시 3] 오라클 실측 — 이번 회차 수행 불가(사유 명시)
+  라이브 실측을 시도했으나 대상 DB 서버가 TCP 레벨에서 도달하지 않아 측정 자체가 불가했다.
+    Oracle_asis            192.168.0.151:1523   TCP 미도달(timeout)
+    Oracle_tobe            192.168.0.151:1524   TCP 미도달(timeout)
+    PostgreSQL_Inter_asis  192.168.0.150:5433   TCP 미도달(timeout)
+    PostgreSQL_Inter_tobe  192.168.0.150:5434   TCP 미도달(timeout)
+  로컬 NIC 는 192.168.0.22 로 동일 서브넷에 있으며 샌드박스 해제 후에도 동일 → 코드 문제 아닌
+  DB 서버 미가동/망 단절. (참고: 과거 DPY-6005 사례는 TCP 는 붙고 서비스만 미등록이었으나,
+  이번엔 TCP 자체가 안 붙으므로 다른 상태다.)
+
+  대체 근거 — 동일 SQL 형태에 대한 기존 라이브 실측 인용(재측정 아님, 인용임을 명시):
+   · LIMIT: E:\verify_reports\ROUTES-DIAGNOSIS-CONFIRM-ROUTING-DIALECT-DELEGATION-FIX.txt L39~43
+       dialect=postgres 렌더 실행 → ORA-03049: SQL keyword 'LIMIT' is not syntactically valid
+                                    following '...WHERE id IS NULL '
+       dialect=oracle  렌더 실행 → 정상
+   · 밑줄 별칭: 같은 보고서 L83~86 → ORA-00911: _: invalid character after AS
+  미실측 항목(정적 판정만, 향후 DB 복구 시 실측 필요):
+   · `FROM (...) __cg` 처럼 별칭이 테이블 별칭 위치일 때의 정확한 오류코드(ORA-00911/00933 중 어느 쪽인지)
+   · `::text` 오라클 실행 오류코드
+   · count_gate/exact_diff 라우트 종단 응답 형태
+  ※ 진단 스크립트는 TCP 도달성을 먼저 판정하고 도달 시 자동으로 라이브 실측·PG 대조군까지
+    수행하도록 작성돼 있어, DB 복구 후 재실행만 하면 위 미실측 항목이 즉시 채워진다.
+
+■ [지시 4] 우선순위 (실사용 빈도 · 하류 차단 여부 기준)
+  P1  count_gate_route.py — 결함 4계열 중첩, 오라클에서 라우트 전체가 무력
+      · L56 dialect 미위임(match_key 미확정) + L80~165 __cg 별칭 7곳
+        + L95/98/136 LIMIT 3곳 + L163/164 psycopg2 전용 API
+      · 차단 깊이: 첫 쿼리(L80 COUNT)부터 별칭에서 막히고, 별칭을 고쳐도 LIMIT 에서 다시 막힘
+        → 3개 엔드포인트(range-diagnosis / one-side-preview / one-side-export) 전부 오라클 불가
+      · 빈도: 조건부(COUNT 게이트 CRITICAL 또는 한쪽 0)이나, 이관 초기·부분적재에서 자주 도달
+      · 표면화: count_error 로 화면에 노출되므로 조용한 오답은 아님. 다만 사용자에겐 DB 장애로 오인됨
+      · 권장: 별칭 __cg → cg1 등 문자 시작 개명 + 제한문법 방언 위임(sample_route.py 패턴 재사용)
+              + dialect 인자 배선. export 는 방언별 커서 처리 분리 필요(별도 작업 규모)
+
+  P2  exact_diff_route.py — 오라클 도달 경로가 실재하며 조용히 HOLD 로 떨어짐
+      · L139 _resolve_key dialect 미위임 → 오라클 chunk key 미확정 → 키 빈값 반환
+      · L177/178 SCOPE 모드 wrap 이 ::text + __sf 로 오라클 실행 불가
+      · 도달 근거: engine 에 OracleExactDiffIO 어댑터 등록됨(services/exact_diff/engine.py:92),
+        UI(tabler_renderer.py:16554)가 전체>5만 & scope<=5만 일 때 scope_filter 를 전송 —
+        오라클 XDIFF 25만행 픽스처가 정확히 이 조건에 해당
+      · 표면화: HOLD/오류로 끝나 원인 특정이 어려움
+
+  P3  agg_diff_route.py — 하드 차단은 아니나 상시 경로의 조용한 성능 열화
+      · L725/741/1351 미위임 → 오라클에서 chunk key 확정 실패
+      · 단 실패 시 _resolve_native_pk_key(어댑터 위임, 정상)로 폴백하므로 기능은 동작
+        → 결과: 청크 기반 고속경로를 잃고 전량 스캔 경로로 내려감(재이관 prepare 지연과 정합)
+      · L524 __m 은 rename 매핑이 있을 때만 발생하며, 같은 파일 565행 독스트링이 이미 위험을 명시
+
+  P4  diagnosis_route.py:515/527 (_contract_chunk_key / _contract_match_key)
+      · /diagnosis/plan·orchestrate 계열 전용. 화면 주경로(/diagnosis/analyze)는 _confirm_routing
+        (07cd4d0 위임 완료)을 타므로 UI 영향 없음 → 일관성 목적의 후순위 정리 대상
+
+  P5  diagnosis_route.py:1482/1485 (_count_rows)
+      · 렌더 매트릭스상 4방언 동일 SQL → LIMIT 계열 문법오류 없음
+      · 잔여 위험은 오라클 전용 표현식 base_sql 의 파싱 왜곡뿐, 실패해도 SIZE_UNKNOWN 으로 축약
+      · 'LIMIT 미위임' 범주가 아니므로 별건으로 분류 권장
+
+  제외  sample_route.py(이미 정상 분기) / batch_route.py:143(내부 SQLite)
+
+■ 부수 발견(수정 아님, 보고만)
+  1) 밑줄별칭 정적 회귀 테스트가 services/ 만 스캔 → routes/ 는 가드 공백.
+     routes/ 를 스캔 대상에 추가하면 (D) 10지점이 즉시 회귀 가드에 편입된다.
+  2) count_gate 3개 엔드포인트에는 방언 관련 사전 게이트가 전혀 없어, 오라클 세션에서도
+     버튼이 그대로 노출되고 실행 후에야 실패한다(사전 차단/사유 표시 부재).
+
+■ 자체 테스트
+  python samples/test_virtual_cases.py   → 8/8 통과 (exit 0, 회귀 없음)
+  python samples/test_complex_cases.py   → 5/5 통과 (exit 0, 회귀 없음)
+  python scripts/dev_e2e/routes_limit_dialect_secondary_check.py
+     → 정적 15지점(제한문법 3 + 방언하드코딩 2 + 미위임 7 + 밑줄별칭 10 중 중복 제외) 산출,
+       방언 렌더 매트릭스 3종 출력, 라이브 구간은 TCP 미도달로 스킵 처리
+
+■ 변경/생성 파일
+  신규: scripts/dev_e2e/routes_limit_dialect_secondary_check.py  (진단 전용 드라이버)
+  수정: 없음 (프로덕션 코드 무변경)
+
+■ 다음 작업 제안
+  1) DB 서버 복구 후 위 스크립트 재실행 → 미실측 3항목(테이블별칭 오류코드·::text·라우트 종단) 확정
+  2) P1(count_gate) 단일 작업으로 4계열 일괄 수정 — 별칭 개명 + 제한문법 방언 위임 + dialect 배선
+  3) 회귀 가드로 밑줄별칭 정적 테스트의 스캔 범위에 routes/ 추가
+
+⚠️ 추가 작업 필요 - routes/ 방언 미위임 15지점 확정(코드 수정 없음), 오라클 라이브 실측은 DB 서버 TCP 미도달로 미수행
