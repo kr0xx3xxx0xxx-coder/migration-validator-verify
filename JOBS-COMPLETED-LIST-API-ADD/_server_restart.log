@@ -1,0 +1,32 @@
+INFO:     Started server process [25908]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+  포트 8000 점유 프로세스 PID 32612 종료
+이관 SQL 검증기 Web UI
+접속: http://localhost:8000
+  서버 인증(HTTP Basic Auth): ON (등록 계정 3명)
+  [배치 안내] 원격 접속 개방은 인증 확인 후 web_server.py 의 host 를 서버IP/0.0.0.0 으로 변경.
+  서버 단계 가드(WORKFLOW-STAGE-GATE): ON
+INFO:     127.0.0.1:13253 - "GET /jobs/completed HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13254 - "GET /jobs/single%3A799c0b1b-848a-41ef-a916-f36f909b18fc HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13255 - "GET /jobs/batch%3Aexec_a2c0630406254adf HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13256 - "GET /jobs/completed?source=batch HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13257 - "GET /jobs/completed?limit=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13258 - "GET /jobs/completed?limit=99999 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13259 - "GET /jobs/active HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13264 - "GET /jobs/completed?limit=5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13264 - "GET /jobs/active HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13264 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13268 - "GET /static/vendor/tabulator/tabulator.min.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13267 - "GET /static/tabler/tabler.min.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13265 - "GET /static/tabler/tabler.min.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13266 - "GET /static/vendor/tabulator/tabulator.min.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13266 - "GET /api/execution/settings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13267 - "GET /db/presets/src HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13265 - "GET /api/batch-groups HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13264 - "GET /api/execution/settings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13268 - "GET /api/batch-runs/recent HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13266 - "GET /db/presets/tgt HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13267 - "GET /jobs/active HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13267 - "GET /jobs/active HTTP/1.1" 200 OK

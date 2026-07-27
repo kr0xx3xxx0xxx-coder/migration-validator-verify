@@ -1,0 +1,89 @@
+[JOB-REGISTRY-STAGE2-READONLY-INTEGRATION] 통합 조회 계층 실측
+실행 시각: 2026-07-27 19:50:48
+
+==============================================================================
+P1 — A 개별검증 어댑터 · 청크 전략(PK_RANGE_CHUNK_COMPARE)
+==============================================================================
+  활성 job 수: 1 / warnings: []
+  DTO(지시 9필드) : {"source": "single", "id": "jrv_run_c_1785149448", "label": "INSERT INTO NXDNP.MV_ORA_XDIFF_TGT SELECT * FROM NXDNP.MV_ORA_XDIFF", "total": 120, "completed": 24, "current_target": "2400000", "status": "PREPARING", "last_progress_at": 1785149449.6052616, "started_at": 1785149448.4317813}
+  파생            : {"key": "single:jrv_run_c_1785149448", "unit": "chunk", "percent": 20.0, "active": true, "progress_signal": "PROGRESS", "stall_seconds": 0.0, "stall_basis": "last_progress_at"}
+  extra 발췌      : {"chunks_done": 24, "chunks_total": 120, "last_processed_key": 2400000, "processed_source_count": 72000, "source_count": 1200000}
+  ▶ 단위 판정: chunk (기대 chunk) · 진행률 20.0% · 정체참고 0.0초(last_progress_at)
+  종료 후 상세: status=CANCELLED active=False stall_seconds=None
+
+==============================================================================
+P1 — A 개별검증 어댑터 · 행 전략(DIRECT_STREAM_COMPARE · 현재 기본)
+==============================================================================
+  활성 job 수: 1 / warnings: []
+  DTO(지시 9필드) : {"source": "single", "id": "jrv_run_s_1785149450", "label": "INSERT INTO NXDNP.MV_ORA_XDIFF_TGT SELECT * FROM NXDNP.MV_ORA_XDIFF", "total": 1200000, "completed": 72000, "current_target": "2400000", "status": "PREPARING", "last_progress_at": 1785149451.2065034, "started_at": 1785149450.034383}
+  파생            : {"key": "single:jrv_run_s_1785149450", "unit": "row", "percent": 6.0, "active": true, "progress_signal": "PROGRESS", "stall_seconds": 0.0, "stall_basis": "last_progress_at"}
+  extra 발췌      : {"chunks_done": null, "chunks_total": null, "last_processed_key": 2400000, "processed_source_count": 72000, "source_count": 1200000}
+  ▶ 단위 판정: row (기대 row) · 진행률 6.0% · 정체참고 0.0초(last_progress_at)
+  종료 후 상세: status=CANCELLED active=False stall_seconds=None
+
+==============================================================================
+P2 — B 일괄검증 어댑터 · 운영 SQLite 실 데이터(읽기 전용)
+==============================================================================
+  운영 batch_execution_state 행 수: 386
+  원본 행(실 데이터): execution_run_id=exec_a2c0630406254adf status=COMPLETED processed_rows=5 total_rows=5 current_target_table=NXDNP.MV_ORA_XDIFF_TGT_2
+  DTO(지시 9필드) : {"source": "batch", "id": "exec_a2c0630406254adf", "label": "일괄검증 · GRP_202607240925308436 (FULL_VALIDATION)", "total": 5, "completed": 5, "current_target": "NXDNP.MV_ORA_XDIFF_TGT_2", "status": "COMPLETED", "last_progress_at": null, "started_at": 1784885303.0}
+  파생            : {"key": "batch:exec_a2c0630406254adf", "unit": "row", "percent": 100.0, "active": false, "progress_signal": "START_ONLY", "stall_seconds": null, "stall_basis": "started_at"}
+  extra 발췌      : {"group_id": "GRP_202607240925308436", "run_type": "FULL_VALIDATION", "processed_rows": 5, "total_rows": 5, "last_progress_at_available": false}
+  현재 활성(RUNNING) 일괄검증: 0건 (모두 종료 상태면 0건이 정상)
+
+==============================================================================
+P3 — B 일괄검증 어댑터 · 진행 중(RUNNING) 실측
+==============================================================================
+  원본 서비스로 생성: execution_run_id=exec_4b023df684744b35 (acquire_run_lock + update_progress)
+  collect_batch: 1건 / warnings=[]
+  DTO(지시 9필드) : {"source": "batch", "id": "exec_4b023df684744b35", "label": "일괄검증 · GRP_JRV_LIVE (FULL_VALIDATION)", "total": 40, "completed": 12, "current_target": "NXDNP.MV_ORA_XDIFF_TGT_2", "status": "RUNNING_FULL_VALIDATION", "last_progress_at": null, "started_at": 1785149451.0}
+  파생            : {"key": "batch:exec_4b023df684744b35", "unit": "row", "percent": 30.0, "active": true, "progress_signal": "START_ONLY", "stall_seconds": 0.7, "stall_basis": "started_at"}
+  extra 발췌      : {"group_id": "GRP_JRV_LIVE", "run_type": "FULL_VALIDATION", "processed_rows": 12, "total_rows": 40, "last_progress_at_available": false}
+
+==============================================================================
+P4 — C 통계검증 어댑터 · 진행 중(RUNNING) 실측
+==============================================================================
+  원본 서비스로 생성: run_id=srun_JRV_1785149451 (_create_run_record + _update_run_progress)
+  collect_stats: 1건 / warnings=[]
+  DTO(지시 9필드) : {"source": "stats", "id": "srun_JRV_1785149451", "label": "통계검증 계획 실행 · GRP_JRV_LIVE", "total": 8, "completed": 3, "current_target": "NXDNP.MV_ORA_TEST", "status": "RUNNING", "last_progress_at": 1785149452.0, "started_at": 1785149451.0}
+  파생            : {"key": "stats:srun_JRV_1785149451", "unit": "plan", "percent": 37.5, "active": true, "progress_signal": "PROGRESS", "stall_seconds": 0.8, "stall_basis": "last_progress_at"}
+  extra 발췌      : {"group_id": "GRP_JRV_LIVE", "total_plans": 8, "executed_plans": 3, "current_plan_id": 41, "updated_at_iso": "2026-07-27T10:50:52Z", "last_progress_at_available": true}
+  ▶ 진행 시각 근거: PROGRESS / 마지막 진행 후 0.8초 경과(참고 표시 전용)
+
+==============================================================================
+P5 — D 전수검증 어댑터 · 실행 구조 없음
+==============================================================================
+  collect_full: jobs=[] warnings=['전수검증(full)은 아직 실행 구조가 없어 표시할 job 이 없습니다(준비중).']
+
+==============================================================================
+P6 — 통합 조회(3소스 병합) + 요약
+==============================================================================
+  총 2건 / elapsed=0.0018s / is_matched=True
+  요약: {"total": 2, "by_source": {"single": 0, "batch": 1, "stats": 1, "full": 0}}
+  warnings: ["전수검증(full)은 아직 실행 구조가 없어 표시할 job 이 없습니다(준비중)."]
+   - [batch] 일괄검증 · GRP_JRV_LIVE (FULL_VALIDATION)        12/40 (30.0%) unit=row status=RUNNING_FULL_VALIDATION
+   - [stats] 통계검증 계획 실행 · GRP_JRV_LIVE                    3/8 (37.5%) unit=plan status=RUNNING
+
+==============================================================================
+P7 — 읽기 전용 보증(운영 SQLite 무변경)
+==============================================================================
+  운영 DB sha256(앞16) 조회 전: 6cc72cb5c2c325d8
+  운영 DB sha256(앞16) 조회 후: 6cc72cb5c2c325d8
+  판정: ✅ 동일(무변경)
+
+==============================================================================
+P8 — HTTP 실측(별도 인스턴스 :8011 · 인증 ON · 운영 auth_users.json 미변경)
+==============================================================================
+  임시 계정 파일: C:\Users\Public\Documents\ESTsoft\CreatorTemp\jrv_auth_6eip9l1b\auth_users.json (운영 auth_users.json 은 변경하지 않음)
+  인스턴스 기동 완료 :8011
+  [무인증] GET /jobs/active → HTTP 401 (기대 401 — 인증 강제)
+  [인증] GET /jobs/active → HTTP 200
+   응답: {"ok": true, "counts": {"total": 0, "by_source": {"single": 0, "batch": 0, "stats": 0, "full": 0}}, "warnings": ["전수검증(full)은 아직 실행 구조가 없어 표시할 job 이 없습니다(준비중)."], "notes": ["개별검증(single) job 은 in-memory 저장소라 서버 재시작 시 목록에서 사라집니다.", "stall_seconds 는 참고 표시용입니다 — 서버는 정체를 판정하거나 자동 개입하지 않습니다."]}
+   items=0건
+  [인증] GET /jobs/active?source=batch,stats → HTTP 200 items=0건
+  [인증] GET /jobs/batch:exec_a2c0630406254adf → HTTP 200
+   응답(실 데이터): {"ok": true, "found": true, "job": {"source": "batch", "id": "exec_a2c0630406254adf", "key": "batch:exec_a2c0630406254adf", "label": "일괄검증 · GRP_202607240925308436 (FULL_VALIDATION)", "total": 5, "completed": 5, "current_target": "NXDNP.MV_ORA_XDIFF_TGT_2", "status": "COMPLETED", "last_progress_at": null, "started_at": 1784885303.0, "unit": "row", "percent": 100.0, "active": false, "progress_signal": "START_ONLY", "stall_seconds": null, "stall_basis": "started_at", "extra": {"group_id": "GRP_202607240925308436", "batch_run_id": "20260724182533091358", "run_type": "FULL_VALIDATION", "processed_rows": 5, "total_rows": 5, "started_at_iso": "2026-07-24T09:28:23Z", "stop_requested_at": "", "stopped_at": "", "completed_at": "2026-07-24T09:28:24Z", "message": "완료", "last_progress_at_available": false}}, "error_message": ""}
+  [인증] GET /jobs/stats:no_such_run → HTTP 200 found=False msg=해당 job 을 찾을 수 없습니다(종료 후 정리되었거나 서버 재시작으로 소실).
+  인스턴스 종료
+
+완료.

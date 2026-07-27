@@ -1,0 +1,78 @@
+==============================================================================
+JOBS-COMPLETED-LIST-API-ADD — 실 서버(8000, 인증 ON) 종단 확인
+BASE=http://127.0.0.1:8000  실행시각=2026-07-27 19:37:00
+==============================================================================
+
+[1] 신규 엔드포인트 GET /jobs/completed (재기동 후 새 모듈 서빙 확인)
+  [PASS] HTTP 200 (실제=200)
+  [PASS] ok=true
+  [PASS] limit 필드 존재 (limit=50)
+  [PASS] 안내 notes 5건
+       · 개별검증(single) 완료 항목은 두 출처입니다: 재이관(exact_diff) job 은 in-memory 라 최근 세션(서버 재시작 전) 완료분만 조회되고(extra.origin=reimport_job, persistent=false), 개별검증 실행 결과 스냅샷은 서버 재시작 후에도 남습니다(extra.origin=single_validation_snapshot, persistent=true).
+       · 개별검증 결과 스냅샷에는 세션/프로젝트 정보가 저장되지 않아 session_id·project_id 로 좁혀지지 않습니다(항상 전역 목록).
+       · 일시중지(PAUSED)·복구대기(RECOVER_REQUIRED)·미실행(IDLE)은 재개 가능하거나 실행된 적이 없는 상태라 완료 목록에 포함하지 않습니다(활성 목록에도 없습니다).
+       · 완료 이력은 계속 쌓이므로 limit(기본 50, 최대 200)으로 최근 건만 반환합니다 — 잘린 경우 warnings 에 표시됩니다.
+       · extra.result_viewable=true 인 항목만 '결과 보기'로 열 수 있습니다.
+
+    완료 항목 50건 · counts={"total": 50, "by_source": {"single": 19, "batch": 31, "stats": 0, "full": 0}}
+       ! warning: 개별검증 결과 스냅샷 완료 job 이 상한(50건)을 초과해 최근 50건만 반환했습니다.
+       ! warning: 일괄검증 완료 job 이 상한(50건)을 초과해 최근 50건만 반환했습니다.
+       ! warning: 전수검증(full)은 아직 실행 구조가 없어 완료된 job 이 없습니다(준비중).
+       ! warning: 완료 job 이 상한(50건)을 초과해 최근 50건만 반환했습니다.
+
+[2] 소스별 완료분(운영 저장소 실측)
+    · single: 19건
+        - key=single:799c0b1b-848a-41ef-a916-f36f909b18fc  status='PASSED'  origin=single_validation_snapshot  종료=2026-07-27 10:23:11 UTC
+          label=개별검증 · tobe01.t_nullx_tgt  persistent=True  result_viewable=True
+        - key=single:9a864d80-9125-4b23-aacd-d9fa94c89b21  status='PASSED'  origin=single_validation_snapshot  종료=2026-07-27 10:22:45 UTC
+          label=개별검증 · tobe01.t_nullx_tgt  persistent=True  result_viewable=True
+        - key=single:789b1939-fb6f-40b6-bf5a-3031c937e517  status=''  origin=single_validation_snapshot  종료=2026-07-23 07:32:40 UTC
+          label=개별검증 · NXDNP.MV_ORA_DEMO_TGT  persistent=True  result_viewable=True
+    · batch: 31건
+        - key=batch:exec_a2c0630406254adf  status='COMPLETED'  origin=batch_execution_state  종료=2026-07-24 09:28:24 UTC
+          label=일괄검증 · GRP_202607240925308436 (FULL_VALIDATION)  persistent=True  result_viewable=True
+        - key=batch:exec_9b6a2a2374f04c2d  status='COMPLETED'  origin=batch_execution_state  종료=2026-07-24 09:25:56 UTC
+          label=일괄검증 · GRP_202607240925308436 (FULL_VALIDATION)  persistent=True  result_viewable=True
+        - key=batch:exec_727fe5923da448bc  status='COMPLETED'  origin=batch_execution_state  종료=2026-07-24 09:25:48 UTC
+          label=일괄검증 · GRP_202607240925308436 (FULL_VALIDATION)  persistent=True  result_viewable=True
+    · stats: 0건
+    · full: 0건
+  [PASS] 개별검증(single) 완료분 ≥1건
+  [PASS] 일괄검증(batch) 완료분 ≥1건
+    ※ 통계검증(stats) 운영 행 수 = 0건 — 0건이면 '실행 이력 없음'이며 결함이 아니다(자동 테스트로 별도 실증).
+  [PASS] 전수검증(full)은 항상 0건(가짜 항목 미생성)
+
+[3] 완료 항목 성질
+  [PASS] 모든 완료 항목 active=false
+  [PASS] 모든 완료 항목 extra.lifecycle=COMPLETED
+  [PASS] id 체계가 활성과 동일한 복합키(source:id)
+  [PASS] 완료 항목 DTO 키 집합이 활성 항목과 동일(별도 스키마 신설 없음)
+  [PASS] 응답에 접속정보/비밀번호 미포함
+  [PASS] 종료 시각 내림차순 정렬
+
+[4] 완료 항목 클릭 → 기존 GET /jobs/{key} 상세 연결
+  [PASS] single: GET /jobs/single:799c0b1b-848a-41ef-a916-f36f909b18fc → found=true
+        상세 status='PASSED' label=개별검증 · tobe01.t_nullx_tgt
+  [PASS] batch: GET /jobs/batch:exec_a2c0630406254adf → found=true
+        상세 status='COMPLETED' label=일괄검증 · GRP_202607240925308436 (FULL_VALIDATION)
+  [PASS] 완료 항목 상세 조회 2소스 이상 성공
+
+[5] 필터 · 상한
+  [PASS] source=batch 필터
+  [PASS] limit=2 적용
+  [PASS] 상한 초과 시 warnings 로 절단 사실 노출(조용한 절단 없음)
+  [PASS] limit 상한 clamp=200 (실제=200)
+
+[6] 기존 GET /jobs/active 회귀 확인
+  [PASS] HTTP 200 (실제=200)
+  [PASS] 최상위 응답 키 집합 불변 (실제=['counts', 'elapsed_time', 'error_message', 'is_matched', 'items', 'notes', 'ok', 'warnings'])
+    활성 항목 0건 · counts={"total": 0, "by_source": {"single": 0, "batch": 0, "stats": 0, "full": 0}}
+  [PASS] 활성 목록은 active=true 만 반환
+  [PASS] 활성 항목 DTO 키 집합 불변
+  [PASS] 활성 항목 extra 에 완료 전용 필드 미주입
+  [PASS] 완료 항목이 활성 목록에 유입되지 않음(교집합 0)
+  [PASS] 기존 notes 문구 유지
+
+==============================================================================
+✅ 전 항목 PASS
+==============================================================================
