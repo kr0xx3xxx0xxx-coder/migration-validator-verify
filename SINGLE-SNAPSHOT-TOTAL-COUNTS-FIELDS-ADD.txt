@@ -1,0 +1,183 @@
+✅ 작업 완료 — SINGLE-SNAPSHOT-TOTAL-COUNTS-FIELDS-ADD
+   개별검증 스냅샷에 원본/목적 그룹 수(total_src/total_tgt)를 저장해 재조회 화면이
+   마법사와 동일한 그룹 수 표기·'그룹 개수 실측 불일치' 경고를 복원하도록 했다.
+
+작성일시 : 2026-07-27 (KST)
+커밋     : 9893b3f  feat(snapshot): 개별검증 snapshot에 원본/목적 그룹 수 2필드 추가
+직전작업 : SINGLE-SNAPSHOT-WHITELIST-EXPLAINABILITY-FIELDS-ADD (5eef44d) 의 후속 보강
+
+
+■ 무엇을 왜 고쳤나
+  직전 작업에서 남긴 부수 갭을 처리했다. 마법사 5단계 화면(ui/execute_result_renderer.py)은
+  실행 응답 최상위의 total_src / total_tgt 두 값으로 두 가지를 그린다.
+    ① 요약 하단 표기 "원본 그룹 수: N / 목적지 그룹 수: M"        (renderer 909-910·948)
+    ② 경고 박스 항목 "그룹 개수 실측 불일치 — 원본 N개 / 목적 M개"  (renderer 438·465-470)
+  그런데 단건 스냅샷(single_validation_snapshot)에는 두 값이 저장되지 않았다. summary_counts 에도
+  (matched/diff/src_only/tgt_only/total_groups/compared_groups 뿐) 없고 최상위에도 없었다.
+  그래서 같은 run 이라도 스냅샷만으로 재구성하는 화면(현황판·재조회)은 ①을 "— / —"로 비우고
+  ②를 아예 표시하지 못했다. 값은 이미 실행 응답에 있으므로(services/stats_execute_service.py:531)
+  저장 범위만 넓히면 되는 문제였고, 판정 로직은 손대지 않았다.
+
+
+■ 변경 내용 (services/single_validation_result_store.py 만 수정)
+  1) 헬퍼 _group_total(result, rv, key) 신설
+     - 우선순위: 실행 응답 최상위 → result_view.summary_counts
+     - 숫자로 해석되지 않으면 None 을 돌려준다. 0 으로 대체하지 않는다.
+       '미측정'과 '그룹 0개'는 다른 상태이며, 소비측 renderer 는 null 이면 비교 자체를 건너뛴다.
+       0 으로 채웠다면 "원본 0개 / 목적지 0개"라는 거짓 실측값이 화면에 나갔을 것이다.
+     - bool 은 int 로 해석되지 않도록 별도 배제했다(True→1 오변환 방지).
+  2) build_single_snapshot 에서 값을 1회만 추출해 두 곳에 동일 값으로 보존
+     - snapshot["summary_counts"]["total_src"/"total_tgt"]  : 요약 계약과 대칭
+     - snapshot["total_src"/"total_tgt"]                    : renderer 가 결과 dict 최상위를 읽으므로 필수
+  판정 로직(_rvDowngrade 등 ui/execute_result_renderer.py)은 한 줄도 건드리지 않았다.
+  저장 whitelist 확장만으로 처리했고, 실행/집계/상태값은 그대로다.
+
+  서버 재기동 : 2026-07-27 20:11:10 (KST) — 수정 반영을 위해 web_server.py 재기동(포트 8000).
+                이후 모든 실측은 재기동된 서버로 수행했다.
+
+
+■ 실측 환경
+  - 서비스 포트 8000(운영과 동일 경로, Basic 인증 ON)
+  - 실 DB: PostgreSQL Inter (원본 192.168.0.150 asis01 / 목적지 192.168.0.150 tobe01, 비SSL)
+  - 신규 픽스처(직전 작업의 '값 변환' 케이스와 근거를 분리하기 위해 값 변환이 전혀 없는 데이터로 구성)
+      asis01.t_grpcnt_src : region 4그룹(EAST/WEST/SOUTH/NORTH), NULL 없음, 1,000행
+      tobe01.t_grpcnt_tgt : NORTH 그룹(10행)만 통째 미이관 → 3그룹, 990행
+      나머지 3그룹의 COUNT/SUM 은 원본과 완전히 동일 → diff=0, tgt_only=0, src_only=1
+      즉 화면의 '그룹 개수 실측 불일치' 표기는 오직 total_src/total_tgt 에만 의존한다(ablation 이 깨끗함).
+  - 대상 SQL
+      INSERT INTO tobe01.t_grpcnt_tgt (id, region, amt)
+      SELECT id, region, amt
+      FROM asis01.t_grpcnt_src
+  - 검증 스크립트
+      scripts/dev_e2e/group_count_mismatch_fixture.py                  (픽스처 생성)
+      scripts/dev_e2e/single_snapshot_total_counts_verify.py           (API/저장/조회/표시/회귀)
+      scripts/dev_e2e/single_snapshot_total_counts_browser_shot.py     (실 브라우저 A/B/C 대조)
+      scripts/dev_e2e/group_count_downgrade_reachability_probe.py      (강등 도달성 실측)
+
+
+■ 검증 1 — 실제 케이스로 저장/조회 시 두 값이 채워지는가 (PASS)
+  실 파이프라인 analyze → count → generate → execute → single/save 를 전부 실 서버로 구동했다.
+  (/execute 는 persist=False 고정이라 스냅샷을 쓰지 않는다. 운영에서 스냅샷이 실제 저장되는
+   유일한 경로는 확정 저장 /single/save 이므로 그 경로로 저장했다.)
+    analyze  : GROUP BY 후보 REGION / SUM 후보 AMT
+    count    : 원본 1,000 / 목적지 990 → COUNT_MISMATCH(적재율 99.0%), 수동 진행으로 계속
+    execute  : success=True, matched=3 diff=0 src_only=1 tgt_only=0
+               total_src=4 total_tgt=3  ← 원본 4그룹 / 목적 3그룹 실측
+    save     : success=True, run_id=47711fea-83ca-4294-b164-34c03f1a8a2a
+    조회     : get_single_result(run_id) →
+                 snapshot["total_src"]=4                  snapshot["total_tgt"]=3
+                 snapshot["summary_counts"]["total_src"]=4  ["total_tgt"]=3
+  수정 전/후 대조: 동일한 실행 응답을 수정 직전 리비전(HEAD=e7de84e)의 build_single_snapshot 으로
+  재구성하면 최상위에도 summary_counts 에도 total_src/total_tgt 키가 존재하지 않는다
+  (has_top_total_src=False, has_sc_total_src=False). 필드 유무 차이가 이번 수정 때문임이 확정된다.
+
+
+■ 검증 2 — 실 브라우저 A/B/C 대조 (PASS)
+  같은 run 을 세 가지 입력으로 실제 renderer(renderExecute)에 통과시켜 표시를 비교했다.
+  포트 8000, 인증 ON, Chromium 실 렌더 후 스크린샷을 남겼다.
+
+    A) 마법사 5단계 — /execute 응답 원본
+         "원본 그룹 수: 4 / 목적지 그룹 수: 3"
+         경고 박스 "값 변환 감지 · 확인 필요" 안에
+           "그룹 개수 실측 불일치 — 원본 4개 / 목적 3개 (차이 1개) — 그룹 구조가 실제로 달라졌습니다."
+    B) 재조회 — snapshot(이번 수정 후)
+         A 와 완전히 동일. 그룹 수 표기·경고 문구·차이 건수까지 같다.
+    C) 재조회 — snapshot(수정 전: 두 값 미보존)
+         "원본 그룹 수: — / 목적지 그룹 수: —"
+         '그룹 개수 실측 불일치' 항목 자체가 사라진다(경고 박스 미생성).
+
+  세 경우 모두 상단 배너와 집계 수치(전체 4 / 일치 3 / 원본만 1)는 동일하다. 즉 이번 수정은
+  판정이나 수치를 바꾸지 않고, 재조회 화면에서 사라졌던 '그룹 구조가 달라졌다'는 근거 표시만 되살린다.
+  스크린샷: A_wizard_execute.png / B_snapshot_after_fix.png / C_snapshot_before_fix.png
+
+
+■ 검증 3 — ablation (PASS)
+  저장된 스냅샷에서 total_src/total_tgt 만 제거하고 나머지는 그대로 둔 채 다시 재구성하면
+    그룹 수 표기 = "원본 — / 목적지 —",  '그룹 개수 실측 불일치' 항목 = 미표시,  경고 박스 = 미생성
+  으로 마법사와 갈린다(수정 전 위험의 정확한 재현). 두 값을 되돌려 놓으면 다시 마법사와 일치한다.
+  이 케이스에는 값 변환 근거(null_value_transform_evidence)가 전혀 없으므로, 표시 차이를 만드는
+  변수는 이번에 추가한 두 값 하나뿐이다.
+
+
+■ 검증 4 — 기존 스냅샷 하위호환 (PASS)
+  이번 run 을 제외한 최근 30건(전부 이번 필드 없이 저장된 스냅샷)을 조회했다.
+    조회 성공 30/30, 신규 필드 없는 건 30/30, 재구성 성공 30/30, 오류 0건
+  필드가 없으면 .get() 경로로 None 이 되어 그룹 수는 '—'로, 불일치 항목은 미표시로 안전 축약된다
+  (예외도, 0개라는 거짓 표기도 발생하지 않음을 assert 로 확인했다).
+
+
+■ 검증 5 — 회귀
+  1) 기존 샘플 회귀: samples/test_virtual_cases.py 8/8 통과,
+     samples/test_complex_cases.py 5/5 케이스 분석 완료.
+  2) 직접 관련 스위트: test_single_candidate_snapshot_full / test_single_validation_result_store /
+     test_groupby_null_value_transform_review / test_sum_null_value_transform_review /
+     test_candidate_snapshot_policy_page / test_validation_result_store → 71 passed.
+  3) 광역 선택(-k "snapshot or single_save or single_official or excel", 약 620건)을
+     이번 수정을 in-place 로 되돌린 baseline 과 적용본으로 각각 완주시켜 실패 목록을 비교했다.
+       baseline : 37 failed / 575 passed / 15 errors
+       적용본   : 37 failed / 575 passed / 13 errors
+     실패 건수는 동일하고, error 는 오히려 baseline 이 2건 더 많다(적용본에서 새로 깨진 것은 0건).
+     차이 난 2건(test_single_official_register_hardening::test_same_sql_same_everything_idempotent,
+     test_workbook_loader::test_excel_like_shared_strings_ok)은 baseline·적용본 어느 쪽에서도
+     단독 실행하면 그대로 통과한다(2 passed). 실측 중 다른 세션이 동일 범위
+     (-k "source_profile or ... single_official or single_save")의 pytest 를 동시에 돌리고 있었고,
+     공유 SQLite 를 함께 쓰는 데서 온 간섭으로 판단한다.
+  4) 더 좁은 결정적 범위(-k "snapshot", 약 360건)로도 baseline/적용본을 대조했다.
+     양쪽에서 각각 1건씩 방향이 다른 차이가 나왔고, 두 건 모두 상태와 무관한 기존 문제였다.
+       - test_execute_response_lossless_snapshot::test_route_shadow_on_equals_off
+         적용본 3회 연속 실패 / baseline 도 3회 연속 실패. 원인은 processing_ms 0.1 vs 0.2 로,
+         shadow ON/OFF 두 호출의 '측정 시간'을 그대로 비교하는 테스트 자체의 결함이다.
+         이번 수정과 무관하며 광역 실행에서 우연히 반올림 경계가 갈렸을 뿐이다.
+       - test_batch_flow2_multirow_e2e_smoke::test_old_snapshot_not_in_latest_plan (baseline 쪽 실패)
+     결론: 이번 변경으로 새로 깨진 테스트는 0건이다.
+
+
+■ 지시 2번에 대한 정정 보고 — '그룹 수 불일치가 강등을 유발하는 케이스'는 만들 수 없다
+  지시는 "그룹 수 불일치가 강등(_rvDowngrade)을 유발하는 케이스를 만들어 A/B/C 로 실측"이었다.
+  실측 결과 그런 케이스는 구조적으로 존재할 수 없다는 것을 확인했으므로 그대로 보고한다.
+
+  _rvDowngrade = _hasXform && allOk 이고, _hasXform 은 ①값 변환 감지 ②그룹 수 실측 불일치의 OR 이다.
+  ②만으로 강등이 나려면 allOk(diff=src_only=tgt_only=0)이면서 total_src ≠ total_tgt 여야 한다.
+  그런데 비교 엔진(services/stats_execute_service.py:398-455)에서
+      total_src = |S|(원본 그룹 키 집합),  total_tgt = |T|,
+      src_only  = |S \ T|,                 tgt_only  = |T \ S|
+  이므로 항상  total_src − total_tgt = src_only − tgt_only  가 성립한다.
+  따라서 allOk(둘 다 0)이면 그룹 수는 반드시 같아진다 — ② 단독 강등은 도달 불가능한 분기다.
+
+  실측으로도 확인했다(group_count_downgrade_reachability_probe.py).
+    - 순수 누락 케이스(NORTH 미이관)   : total_src=4 total_tgt=3, src_only=1 → allOk=False (강등 아님)
+    - NULL→값 변환 흡수 케이스(t_gbnullx): total_src=3 total_tgt=3 → 그룹 수 불일치 자체가 없음
+      (원본 통계 SQL 이 이관식 CASE 를 반영해 원본도 3그룹으로 집계되기 때문)
+    - 두 케이스 모두 항등식 성립. 무작위 그룹 집합 5,000쌍 시뮬레이션에서도 항등식 위반·반례 0건.
+
+  그래서 이번 2필드의 실효는 '강등 판정 복원'이 아니라 '그룹 수 표기와 그룹 개수 실측 불일치
+  경고 항목의 복원'이다(둘 다 allOk 여부와 무관하게 표시되는 경로다). 검증 2·3 이 그 실효를
+  A=B≠C 로 실증한다. 직전 작업 보고서에 남긴 "그룹 수 불일치 갈래의 강등을 재구성할 수 없다"는
+  표현은 이번 실측에 따라 "그 갈래는 강등이 아니라 표시를 잃는다"로 정정한다.
+
+
+■ 별개 사안(이번 범위에서 손대지 않음)
+  1) /single/save 의 preset 환원 경로 sslmode 누락 — 검증 스크립트는 화면과 동일하게 sources 를
+     명시 전달해 우회했다. 작업 중 다른 세션이 이 갭을 수정하는 변경
+     (services/source_profile_resolver.py, SINGLE-SAVE-SSLMODE-PRESET-RESTORE-FIX)을 워킹트리에
+     올려두고 있었다. 이번 커밋에는 포함하지 않았다(스테이징하지 않음).
+  2) 재조회 화면에는 display_tier_info(표시 등급 D1~D4)도 스냅샷에 없어 배너가 재구성되지 않는다.
+     이번 A/B/C 스크린샷에서 A 에만 'D1 · 전체 레코드 나열' 배너가 보이는 것이 그 흔적이다.
+     같은 성격(저장 범위 갭)이지만 지시 범위 밖이라 손대지 않고 보고만 남긴다.
+
+
+■ 변경/생성 파일
+  수정 services/single_validation_result_store.py                       (+34줄, 저장 whitelist 확장만)
+  신규 scripts/dev_e2e/group_count_mismatch_fixture.py                  (그룹 수 불일치 픽스처)
+  신규 scripts/dev_e2e/single_snapshot_total_counts_verify.py           (API/저장/조회/표시/회귀 실측)
+  신규 scripts/dev_e2e/single_snapshot_total_counts_browser_shot.py     (실 브라우저 A/B/C 대조)
+  신규 scripts/dev_e2e/group_count_downgrade_reachability_probe.py      (강등 도달성 실측)
+
+■ 증적
+  E:\verify_screenshots_only\SINGLE-SNAPSHOT-TOTAL-COUNTS-FIELDS-ADD\
+    A_wizard_execute.png / B_snapshot_after_fix.png / C_snapshot_before_fix.png
+    verify_result.json / browser_verdict.json / downgrade_reachability.json
+    raw_wizard_vs_snapshot.json / pytest_baseline_fail_before.txt / pytest_fail_after.txt
+    snap_baseline.txt / snap_after.txt
+
+✅ 작업 완료 — SINGLE-SNAPSHOT-TOTAL-COUNTS-FIELDS-ADD
