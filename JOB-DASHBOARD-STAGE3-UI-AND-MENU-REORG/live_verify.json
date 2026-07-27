@@ -1,0 +1,288 @@
+{
+  "results": [
+    {
+      "name": "최초 진입 랜딩 화면이 검증 현황판",
+      "ok": true,
+      "extra": "visible=True"
+    },
+    {
+      "name": "개별검증 job 이 현황판에 표시",
+      "ok": true,
+      "extra": "['batch', 'single', 'stats']"
+    },
+    {
+      "name": "일괄검증 job 이 현황판에 표시",
+      "ok": true,
+      "extra": "['batch', 'single', 'stats']"
+    },
+    {
+      "name": "통계검증 job 이 현황판에 표시",
+      "ok": true,
+      "extra": "['batch', 'single', 'stats']"
+    },
+    {
+      "name": "소스별 건수 counts 반영",
+      "ok": true,
+      "extra": "{\"single\": 2, \"batch\": 3, \"stats\": 1, \"full\": 0}"
+    },
+    {
+      "name": "폴링 주기를 execution_settings 에서 읽음(하드코딩 아님)",
+      "ok": true,
+      "extra": "interval=3000ms"
+    },
+    {
+      "name": "분모 미상 job 은 percent=None 유지(가짜 진행률 없음)",
+      "ok": true,
+      "extra": "미상 1건"
+    },
+    {
+      "name": "도넛(SVG 링) 렌더 + 비율 반영",
+      "ok": true,
+      "extra": "dasharray=112.64 339.292 pct=33.2%"
+    },
+    {
+      "name": "개별 job 진행바(Tabler progress) 렌더",
+      "ok": true,
+      "extra": "bars=9"
+    },
+    {
+      "name": "분모 미상 job 은 무한 스피너로 렌더",
+      "ok": true,
+      "extra": "indeterminate=1"
+    },
+    {
+      "name": "부모-자식 2단 목록 구조",
+      "ok": true,
+      "extra": "부모 4 / 자식 5"
+    },
+    {
+      "name": "기존 제어 버튼(일시중지/취소) 노출",
+      "ok": true,
+      "extra": "버튼 9개"
+    },
+    {
+      "name": "대기 목록(Tabulator) 행 렌더",
+      "ok": true,
+      "extra": "대기 1행"
+    },
+    {
+      "name": "잔여시간(ETA) 표기 없음",
+      "ok": true,
+      "extra": "ETA 문구는 '표시하지 않는다' 안내로만 등장"
+    },
+    {
+      "name": "그룹 헤더 합계 배지(접힌 상태에서도 보임)",
+      "ok": true,
+      "extra": "{\"text\": \"5\", \"on\": true, \"w\": 20.75, \"h\": 15.046875}"
+    },
+    {
+      "name": "개별검증 메뉴 배지 표시",
+      "ok": true,
+      "extra": "{\"src\": \"single\", \"text\": \"2\", \"on\": true, \"w\": 20.640625, \"h\": 15.046875}"
+    },
+    {
+      "name": "일괄검증 메뉴 배지 표시",
+      "ok": true,
+      "extra": "{\"src\": \"batch\", \"text\": \"3\", \"on\": true, \"w\": 20.640625, \"h\": 15.046875}"
+    },
+    {
+      "name": "전수검증 배지는 활성 0 이라 숨김",
+      "ok": true,
+      "extra": "{\"src\": \"full\", \"text\": \"\", \"on\": false, \"w\": 0, \"h\": 0}"
+    },
+    {
+      "name": "12초 동안 /jobs/active 요청이 단일 타이머 주기와 일치(3초 → 3~5회)",
+      "ok": true,
+      "extra": "4회 · 간격 [3.08, 3.07, 3.07]"
+    },
+    {
+      "name": "간격이 균일(패널별 중복 폴링 없음)",
+      "ok": true,
+      "extra": "간격 [3.08, 3.07, 3.07]"
+    },
+    {
+      "name": "현황판에서 반복 폴링하는 다른 endpoint 없음",
+      "ok": true,
+      "extra": "{}"
+    },
+    {
+      "name": "현황판 이탈 시 화면 폴링 중지(배지용 저속만)",
+      "ok": true,
+      "extra": "이탈 후 9초간 0회 (배지 주기 15초)"
+    },
+    {
+      "name": "완료된 job 은 현황판 목록에서 자동으로 빠짐",
+      "ok": true,
+      "extra": "남은 job 0건 counts={\"single\": 0, \"batch\": 0, \"stats\": 0, \"full\": 0}"
+    },
+    {
+      "name": "배지도 함께 사라짐",
+      "ok": true,
+      "extra": "'||'"
+    },
+    {
+      "name": "회귀 · 업로드 배치 이력(#quHistoryCard) 도달 가능",
+      "ok": true,
+      "extra": "OK"
+    },
+    {
+      "name": "회귀 · 최신 검증대상(#batchLatestCard) 도달 가능",
+      "ok": true,
+      "extra": "OK"
+    },
+    {
+      "name": "회귀 · 증적 다운로드(결과 상세 CSV/XLSX) 도달 가능",
+      "ok": true,
+      "extra": "OK"
+    },
+    {
+      "name": "회귀 · 검증 그룹(그룹 관리 화면) 도달 가능",
+      "ok": true,
+      "extra": "OK"
+    },
+    {
+      "name": "회귀 · 자동진단 화면 코드 존치(#tab-diagnosis) 도달 가능",
+      "ok": true,
+      "extra": "OK"
+    },
+    {
+      "name": "회귀 · 진단 이력 도달 가능",
+      "ok": true,
+      "extra": "OK"
+    },
+    {
+      "name": "회귀 · DBMS 실행 지원(드라이버/준비현황) 도달 가능",
+      "ok": true,
+      "extra": "OK"
+    },
+    {
+      "name": "회귀 · 후보추천 감사 리포트 탭 도달 가능",
+      "ok": true,
+      "extra": "OK"
+    },
+    {
+      "name": "브라우저 pageerror 0건",
+      "ok": true,
+      "extra": "[]"
+    }
+  ],
+  "snapshot": {
+    "items": [
+      {
+        "source": "stats",
+        "id": "srun_JD3_1785136056",
+        "status": "RUNNING",
+        "percent": 37.5,
+        "total": 8,
+        "completed": 3,
+        "unit": "plan"
+      },
+      {
+        "source": "single",
+        "id": "jd3_run_unknown_1785136053",
+        "status": "PREPARING",
+        "percent": null,
+        "total": null,
+        "completed": 147000,
+        "unit": "unknown"
+      },
+      {
+        "source": "single",
+        "id": "jd3_run_chunk_1785136053",
+        "status": "PREPARING",
+        "percent": 40.8,
+        "total": 120,
+        "completed": 49,
+        "unit": "chunk"
+      },
+      {
+        "source": "batch",
+        "id": "exec_6127aaf737a54fa0",
+        "status": "RUNNING_FULL_VALIDATION",
+        "percent": 30,
+        "total": 40,
+        "completed": 12,
+        "unit": "row"
+      },
+      {
+        "source": "batch",
+        "id": "exec_0f54f60e211f4f4a",
+        "status": "RUNNING_COUNT",
+        "percent": 33.3,
+        "total": 9,
+        "completed": 3,
+        "unit": "row"
+      },
+      {
+        "source": "batch",
+        "id": "exec_63e5ba1834264417",
+        "status": "RUNNING_FULL_VALIDATION",
+        "percent": 0,
+        "total": 25,
+        "completed": 0,
+        "unit": "row"
+      }
+    ],
+    "counts": {
+      "single": 2,
+      "batch": 3,
+      "stats": 1,
+      "full": 0
+    },
+    "polls": 3,
+    "interval": 3000
+  },
+  "dom": {
+    "donut": "112.64 339.292",
+    "pct": "33.2%",
+    "bars": 9,
+    "indet": 1,
+    "parents": 4,
+    "children": 5,
+    "ctlBtns": 9,
+    "waitRows": 1,
+    "waitTxt": "↕ 초기 순서Page 1 / 1No소스작업상태현재 대상경과단위1일괄검증일괄검증 · GRP_JD3_WAIT (CANDIDATE)RUNNING_FULL_VALIDATIONNXDNP.MV_ORA_WAIT_TGT13초행",
+    "notes": "· 전수검증(full)은 아직 실행 구조가 없어 표시할 job 이 없습니다(준비중).· 개별검증(single) job 은 in-memory 저장소라 서버 재시작 시 목록에서 사라집니다.· stall_seconds 는 참고 표시용입니다 — 서버는 정체를 판정하거나 자동 개입하지 않습니다.",
+    "eta": "\n        \n          \n            검증 현황판\n            \n              진행 중인 개별검증 / 일괄검증 / 통계검증 job 을 한 화면에서 조회합니다(조회 전용 · 잔여시간 예측 없음).\n            \n          \n          \n            단일 폴링 3초 주기 · 누적 3회\n            ↻ 지금 갱신\n          \n        \n\n        \n        \n          \n            \n              \n                \n                \n                33.2%\n                활성 job 6건\n              \n            \n            \n              활성 job 6건완료 67총량 202분모 미상 1건\n              분모를 모르는 job 1건은 위 비율 계산에서 제외했습니다(가짜 진행률을 만들지 않습니다). 잔여시간은 예측 근거가 없어 표시하지 않습니다.\n            \n            개별검증2일괄검증3통계검증1전수검증0\n          \n        \n\n        \n        개별검증 진행 중 2건세션 sess_jd3 job 2건 · 분모 미상 1건40.8% · 49 / 120 청크INSERT INTO NXDNP.MV_ORA_TEST_TGT SELECT * FROM NXDNP.MV_ORA_TEST상태 PREPARING현재 대상 4900000방금 갱신됨 (참고)일시중지취소처리 147,000건(전체 미상) · 분모를 모르는 job 이라 진행률을 계산하지 않습니다INSERT INTO NXDNP.MV_ORA_XDIFF_TGT SELECT * FROM NXDNP.MV_ORA_XDIFF상태 PREPARING현재 대상 4900000방금 갱신됨 (참고)일시중지취소40.8% · 49 / 120 청크일괄검증 진행 중 2건배치 그룹 GRP_JD3_LIVE job 1건30.0% · 12 / 40 행일괄검증 · GRP_JD3_LIVE (FULL_VALIDATION)상태 RUNNING_FULL_VALIDATION현재 대상 NXDNP.MV_ORA_XDIFF_TGT_2진행 신호 없음 · 시작 후 13초 경과 (참고)일시중지중단30.0% · 12 / 40 행배치 그룹 GRP_JD3_LIVE2 job 1건33.3% · 3 / 9 행일괄검증 · GRP_JD3_LIVE2 (COUNT_ONLY)상태 RUNNING_COUNT현재 대상 NXDNP.MV_ORA_TEST진행 신호 없음 · 시작 후 13초 경과 (참고)일시중지중단33.3% · 3 / 9 행통계검증 진행 중 1건배치 그룹 GRP_JD3_LIVE job 1건37.5% · 3 / 8 계획통계검증 계획 실행 · GRP_JD3_LIVE상태 RUNNING현재 대상 NXDNP.MV_ORA_TEST9초째 갱신 없음 (참고)취소37.5% · 3 / 8 계획\n\n        \n        \n          \n            대기 목록\n            \n              아직 1건도 처리되지 않은 활성 job (진행 중 job 은 위 섹션에 표시)\n            \n          \n          \n            ↕ 초기 순서Page 1 / 1No소스작업상태현재 대상경과단위1일괄검증일괄검증 · GRP_JD3_WAIT (CANDIDATE)RUNNING_FULL_VALIDATIONNXDNP.MV_ORA_WAIT_TGT13초행\n          \n        \n\n        · 전수검증(full)은 아직 실행 구조가 없어 표시할 job 이 없습니다(준비중).· 개별검증(single) job 은 in-memory 저장소라 서버 재시작 시 목록에서 사라집니다.· stall_seconds 는 참고 표시용입니다 — 서버는 정체를 판정하거나 자동 개입하지 않습니다.\n      "
+  },
+  "badges": [
+    {
+      "src": "single",
+      "text": "2",
+      "on": true,
+      "w": 20.640625,
+      "h": 15.046875
+    },
+    {
+      "src": "batch",
+      "text": "3",
+      "on": true,
+      "w": 20.640625,
+      "h": 15.046875
+    },
+    {
+      "src": "full",
+      "text": "",
+      "on": false,
+      "w": 0,
+      "h": 0
+    }
+  ],
+  "poll_gaps": [
+    3.08,
+    3.07,
+    3.07
+  ],
+  "other_endpoints": {},
+  "reach": {
+    "업로드 배치 이력(#quHistoryCard)": "OK",
+    "최신 검증대상(#batchLatestCard)": "OK",
+    "증적 다운로드(결과 상세 CSV/XLSX)": "OK",
+    "검증 그룹(그룹 관리 화면)": "OK",
+    "자동진단 화면 코드 존치(#tab-diagnosis)": "OK",
+    "진단 이력": "OK",
+    "DBMS 실행 지원(드라이버/준비현황)": "OK",
+    "후보추천 감사 리포트 탭": "OK"
+  },
+  "page_errors": []
+}

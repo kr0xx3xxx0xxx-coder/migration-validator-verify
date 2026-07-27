@@ -1,0 +1,121 @@
+✅ 작업 완료 - JOB-DASHBOARD-STAGE3-UI-AND-MENU-REORG - 검증 현황판 신설 + 좌측 메뉴 재배치(그룹 8→7·항목 28→15·죽은 링크 14→1), 단일 폴링·3소스 동시 표시 실측 34/34 PASS
+
+[작업명] JOB-DASHBOARD-STAGE3-UI-AND-MENU-REORG
+[커밋]   05d4fa1  (직전 HEAD 5eab277)
+[서버]   2026-07-27 17:35 재기동 → 17:35:06 응답 확인 (127.0.0.1:8000, 인증 ON, reload=False)
+
+■ 신규/수정 파일 (13개, +1367 / -331)
+  신규 ui/js_job_dashboard.py                              575줄  현황판 셸 HTML + CSS + JS 전부
+  신규 scripts/dev_e2e/job_dashboard_stage3_live_verify.py 384줄  실측 harness(34항목)
+  신규 scripts/dev_e2e/job_dashboard_stage3_menu_capture.py 115줄 메뉴 Before/After 캡처
+  수정 ui/tabler_renderer.py                          +390/-390  메뉴 재배치 + 탭 셸 + JS/CSS 배선
+  수정 services/exact_diff/execution_settings.py            6줄  polling 신규 3필드
+  수정 tests/ 8개 파일                                            tab-home 제거·메뉴 재배치 계약 갱신
+
+■ 좌측 메뉴 재배치 (실제 서빙 DOM 실측)
+                그룹    항목    준비중    죽은 링크
+    Before        8      28       15         14      ← 진단 보고서와 100% 일치
+    After         7      15        2          1
+
+  최종: 현황(검증 현황판) / 프로젝트(2) / 데이터 준비(3) / 검증 실행(3) /
+        결과·진단(3) / 검증 기준(2) / 기반정보·설정(1)
+
+  ※ 시안 수치와 다른 2가지 — 정직 고지
+    (1) 항목 15 (시안 문구는 17). 시안에 열거된 항목을 실제로 세면 15다
+        (1+2+3+3+3+2+1). 보고서 §7 의 "28→17"은 산술 오기. 열거된 시안을 따랐다.
+    (2) 죽은 링크 1 (시안 문구는 0). 시안이 "시맨틱 사전은 존치"라고 한 항목은
+        화면이 없어 존치하는 한 클릭 무반응이다. 두 지시가 배타적이라 존치를 택했다.
+        (전수검증은 빈 셸이나마 실화면이 있어 화면 전환이 일어남 → 죽은 링크 아님)
+
+  제거 항목은 전부 진단에서 '클릭 무반응' 실측된 것이며 기능 코드는 한 줄도 삭제하지 않았다.
+  실기능 도달 경로 브라우저 실측(전부 OK):
+    업로드 배치 이력 → #quHistoryCard        최신 검증대상 → #batchLatestCard
+    증적 다운로드    → 결과 상세 CSV/XLSX    검증 그룹     → 프로젝트>검증 그룹 관리
+    자동진단         → tab-diagnosis 존치    드라이버/준비현황 → DBMS 실행 지원 흡수
+    후보추천 감사 리포트 → 후보추천 정책 화면 내부 탭으로 이동
+  ★ 자동진단 화면 코드는 삭제하지 않았다 — 개별검증 불일치 행 인라인 경로가 이 코드를 쓴다.
+    메뉴 진입점만 정리했고, 회귀 테스트가 이를 강제한다.
+  ★ tab-home 제거: 진입점 없는 숨은 화면 + 하드코딩 sample(그룹 28건 vs 실데이터 15건).
+    랜딩·브랜드 로고 모두 검증 현황판으로 연결. 전용 CSS 92줄도 함께 제거.
+
+■ 검증 현황판 (#tab-job-dashboard) — 조회 전용, 재판정 0
+  · 상단 전체 진행률 링 + 소스별 섹션(부모=배치그룹·세션, 자식=job) + 대기 목록(Tabulator)
+  · 표시 원칙(선행 진단 확정분 그대로 적용, 화면에서 다시 정하지 않음)
+      잔여시간(ETA) 미표시 — "예측 근거가 없어 표시하지 않습니다" 안내만
+      분모 미상(percent=None) → 무한 스피너 + "처리 147,000건(전체 미상)". 가짜 % 없음.
+        상단 비율 계산에서도 제외하고 "분모 미상 1건"을 따로 명시
+      정체는 참고 문구만 — 경고색·자동 개입·임계 판정 없음
+        진행 시각 실재: "방금 갱신됨 / N분째 갱신 없음"
+        진행 시각 부재(일괄검증): "진행 신호 없음 · 시작 후 13초 경과"(근거를 밝힘)
+  · 제어는 기존 API 재사용(새 제어 로직 발명 없음)
+      개별 /single/active-run/pause·cancel
+      일괄 /api/batch-runs/{brid}/pause·cancel (batch_pause_control)
+      통계 /api/batch-groups/{gid}/stats-validation-plans/execute/{run_id}/cancel
+      키가 없으면 버튼 미생성 + "batch_run_id 없음 — 제어 불가" 사유 표시(임의 추론 금지)
+
+■ 폴링 — 화면당 단일 타이머 1개 (네트워크 실측으로 증명)
+  · setTimeout 체인 1개(_MV_JD.timer). setInterval 아님 → 응답 지연 시 요청 겹침 없음
+  · 12초 네트워크 전수 기록: /jobs/active 4회, 간격 [3.07s, 3.07s, 3.08s]
+    같은 구간 3회 이상 반복 호출된 다른 endpoint: 없음({}) → 패널별 독립 폴링 0
+  · 주기 하드코딩 없음 — execution_settings.polling 신규 3필드를 /api/execution/settings 로 1회 로드
+      job_dashboard_poll_interval_ms=3000 / job_badge_poll_interval_ms=15000 / job_poll_stop_when_idle=True
+  · 이탈 실측: showTab('batch') 후 9초간 /jobs/active 0회(배지 주기로 저하), 전 job terminal 시 정지
+  · 좌측 배지도 같은 응답 재사용(전용 폴링 없음). 항목 배지 3종 + 접힘 대비 "검증 실행" 그룹 헤더 합계 배지
+  · 개별검증 기존 "진행 중이던 검증 작업" 팝업은 미변경 — 배지와 공존(지시대로 범위 밖)
+
+■ 실측 결과 — 34개 항목 전부 PASS
+  방식: 내부망 DB 미가용 → uvicorn 을 **harness 와 같은 프로세스의 스레드**로 기동
+        (개별검증 job 은 in-memory 라 외부 프로세스에서 만들 수 없음 — STAGE2 대비 달라진 점)
+        일괄/통계는 원본 서비스 writer 로 임시 SQLite 생성. 인증 ON 유지 + 임시 계정 파일 분리.
+  동시 job: 개별 2건(청크 + 분모 미상) / 일괄 3건(진행 2 + 대기 1) / 통계 1건
+    · 3소스 동시 표시 · counts {single:2, batch:3, stats:1, full:0}
+    · 도넛 렌더 + 비율 반영(33.7%) · 진행바 9개 · 무한 스피너 1개
+    · 부모 4 / 자식 5 (2단 구조) · 대기 목록 Tabulator 1행 · 제어 버튼 9개
+    · 완료 처리 후 목록 0건 + 배지 동시 소멸
+    · 제거 메뉴 8종 실기능 전부 도달 · pageerror 0건
+    · 운영 SQLite sha256(앞16) 전후 동일 25d78ba31b025471 (무변경)
+  ※ harness 다듬는 중 나온 초기 FAIL 4건은 전부 harness 문제였고 원인 확인 후 수정:
+    (1) 앱 기동 시 미완료 실행 복구 루틴이 기동 전 생성한 통계 RUNNING 행을
+        FAILED_INTERRUPTED 로 정리 → 통계 job 을 기동 후 생성으로 변경
+    (2) acquire_run_lock 은 group 단위 배타 → 두 번째 일괄 실행은 다른 group_id 사용
+    둘 다 원본 서비스의 정상 동작이며 제품 결함이 아니다.
+
+■ 지시와 다르게 한 것 — Chart.js 도넛 → 인라인 SVG 링 (의도된 이탈)
+  사유 3가지: (a) Chart.js 가 이 저장소에 vendoring 돼 있지 않음(static/vendor 는 tabulator 뿐)
+              (b) CLAUDE.md 상 외부 패키지 도입은 사용자 승인 사항이고 승인 이력 없음
+              (c) 폐쇄망 전제라 CDN 불가 → 도입하려면 정적 파일 신규 vendoring 필요
+  형태(가운데 뚫린 링)와 역할(전체 대비 완료 비율)은 동일, 라이브러리 0개 추가.
+  Chart.js 자체가 필요하면 vendoring 승인이 선행돼야 하며, 교체 시 _jdRenderOverall 한 함수만 바꾸면 된다.
+
+■ 회귀 (git worktree 기준선 대조 — 이 저장소는 git stash 미사용)
+  UI/메뉴/네비 집합 26개 파일
+    기준선(HEAD 5eab277) : 26 failed, 236 passed
+    변경 후              : 25 failed, 238 passed
+    신규 실패 0건 / 사라진 실패 1건(test_unimplemented_labels_listed → 새 계약 테스트로 대체돼 통과)
+    기준선 실패 목록은 이번 변경과 무관한 사전 존재 실패이며 변경 후에도 동일
+  갱신한 테스트 8개는 전부 "없어진 UI 를 단언하던" 것 — 계약을 뒤집었다
+    이전: "미구현 항목을 HOLD 그룹으로 메뉴에 보존"
+    이후: "죽은 링크는 제거하되 그 기능의 실제 도달 경로가 살아있음을 확인"
+    (제거 라벨 부활 방지 + 실구현 DOM 존치를 함께 강제 — 메뉴 삭제가 기능 삭제로 번지면 실패)
+  CLAUDE.md 규정 회귀: samples/test_virtual_cases.py 8/8, samples/test_complex_cases.py 5/5
+  STAGE2 계층 회귀   : tests/test_job_registry.py + test_d7_20_execution_settings.py 30 passed
+  JS 번들 무결성     : 서빙 HTML 인라인 <script> 2블록(461자 / 1,881,222자) node --check 모두 OK
+                       (과거 주석 내 블록주석 종료 토큰 1개로 UI 전면 무반응이 된 전례 대비)
+
+■ 남은 것 / 다음 단계
+  · 정체 경고 임계(STALL_TTL) 여전히 미정 — 내부망 복구 후 heartbeat gap 실측 선행 필요.
+    그 전까지 stall 은 표시만, 경고 승격 금지.
+  · 일괄검증 진행 시각 부재는 통합 계층·화면 어디서도 메울 수 없음 — 원본 저장소 updated_at 추가는 별도 단계.
+  · 배치 안 테이블별 자식 목록은 API 미제공 → 현재 대상 1건까지만 표시(없는 세부를 지어내지 않음).
+  · 개별검증 팝업의 배지 완전 대체는 범위 밖(별도 승인) — 공존 유지.
+  · 시맨틱 사전은 화면이 없어 여전히 클릭 무반응(로드맵 표식으로 의도적 존치).
+  · 고객 공유(현황판 외부 공개)는 사용자가 명시적으로 보류 — 이번 범위 아님.
+
+■ 증적
+  E:\verify_screenshots_only\JOB-DASHBOARD-STAGE3-UI-AND-MENU-REORG\
+    REPORT.txt(서술형 보고서) / 스크린샷 9장(01_menu_before·after, 02_full_before·after,
+    03_dashboard_3sources, 04_menu_badges, 05_dashboard_after_finish,
+    06_policy_audit_tab, 07_dbmscap_absorbed) /
+    menu_before.json · menu_after.json · live_verify.json
+
+✅ 작업 완료 - JOB-DASHBOARD-STAGE3-UI-AND-MENU-REORG - 현황판 신설·메뉴 재배치·단일 폴링 실측 34/34 PASS, 회귀 신규 실패 0건 (커밋 05d4fa1)
