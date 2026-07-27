@@ -1,0 +1,104 @@
+========================================================================================================
+ COUNT-GATE-ROUTE-DIALECT-AND-ALIAS-FIX — count_gate_route 방언 방출 SQL 검증 [AFTER]
+========================================================================================================
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+■ dialect = oracle
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  [L56] resolve_confirmed_chunk_key(dialect=...) 전달값 : oracle
+
+  [1] POST /count-gate/range-diagnosis  (ok=True, 방출 10건)
+      [안전] SELECT count(*) FROM (SELECT ORDER_ID, REGION_CD, AMT FROM NXDNP.MV_ORA_TEST_SRC) cg1
+      [안전] SELECT MIN((ORDER_ID)), MAX((ORDER_ID)) FROM (SELECT ORDER_ID, REGION_CD, AMT FROM NXDNP.MV_ORA_TEST_SRC) cg1
+      [안전] SELECT (ORDER_ID) FROM (SELECT ORDER_ID, REGION_CD, AMT FROM NXDNP.MV_ORA_TEST_SRC) cg1 ORDER BY 1 FETCH FIRST 5 ROWS ONLY
+      [안전] SELECT (ORDER_ID) FROM (SELECT ORDER_ID, REGION_CD, AMT FROM NXDNP.MV_ORA_TEST_SRC) cg1 ORDER BY 1 DESC FETCH FIRST 5 ROWS ONLY
+      [안전] SELECT MIN((REG_DT)), MAX((REG_DT)) FROM (SELECT ORDER_ID, REGION_CD, AMT FROM NXDNP.MV_ORA_TEST_SRC) cg1
+      [안전] SELECT count(*) FROM (SELECT ORDER_ID, REGION_CD, AMT FROM NXDNP.MV_ORA_TEST_TGT) cg1
+      [안전] SELECT MIN((ORDER_ID)), MAX((ORDER_ID)) FROM (SELECT ORDER_ID, REGION_CD, AMT FROM NXDNP.MV_ORA_TEST_TGT) cg1
+      [안전] SELECT (ORDER_ID) FROM (SELECT ORDER_ID, REGION_CD, AMT FROM NXDNP.MV_ORA_TEST_TGT) cg1 ORDER BY 1 FETCH FIRST 5 ROWS ONLY
+      [안전] SELECT (ORDER_ID) FROM (SELECT ORDER_ID, REGION_CD, AMT FROM NXDNP.MV_ORA_TEST_TGT) cg1 ORDER BY 1 DESC FETCH FIRST 5 ROWS ONLY
+      [안전] SELECT MIN((REG_DT)), MAX((REG_DT)) FROM (SELECT ORDER_ID, REGION_CD, AMT FROM NXDNP.MV_ORA_TEST_TGT) cg1
+
+  [2] POST /count-gate/one-side-preview  (ok=True)
+      [안전] SELECT * FROM (SELECT ORDER_ID, REGION_CD, AMT FROM NXDNP.MV_ORA_TEST_SRC) cg1 FETCH FIRST 10 ROWS ONLY
+
+  [3] POST /count-gate/one-side-export  (kind=STREAM, ok=True)
+      커서 API 사용: ['cursor()', 'arraysize=5000']
+      [안전] SET TRANSACTION READ ONLY
+      [안전] SELECT * FROM (SELECT ORDER_ID, REGION_CD, AMT FROM NXDNP.MV_ORA_TEST_SRC) cg1
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+■ dialect = postgresql
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  [L56] resolve_confirmed_chunk_key(dialect=...) 전달값 : postgres
+
+  [1] POST /count-gate/range-diagnosis  (ok=True, 방출 10건)
+      [안전] SELECT count(*) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) cg1
+      [안전] SELECT MIN((ORDER_ID)), MAX((ORDER_ID)) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) cg1
+      [안전] SELECT (ORDER_ID) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) cg1 ORDER BY 1 LIMIT 5
+      [안전] SELECT (ORDER_ID) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) cg1 ORDER BY 1 DESC LIMIT 5
+      [안전] SELECT MIN((reg_dt)), MAX((reg_dt)) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) cg1
+      [안전] SELECT count(*) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) cg1
+      [안전] SELECT MIN((ORDER_ID)), MAX((ORDER_ID)) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) cg1
+      [안전] SELECT (ORDER_ID) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) cg1 ORDER BY 1 LIMIT 5
+      [안전] SELECT (ORDER_ID) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) cg1 ORDER BY 1 DESC LIMIT 5
+      [안전] SELECT MIN((reg_dt)), MAX((reg_dt)) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) cg1
+
+  [2] POST /count-gate/one-side-preview  (ok=True)
+      [안전] SELECT * FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) cg1 LIMIT 10
+
+  [3] POST /count-gate/one-side-export  (kind=STREAM, ok=True)
+      커서 API 사용: ["cursor(name='count_gate_export')", 'itersize=5000']
+      [안전] SELECT * FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) cg1
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+■ dialect = mysql
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  [L56] resolve_confirmed_chunk_key(dialect=...) 전달값 : mysql
+
+  [1] POST /count-gate/range-diagnosis  (ok=True, 방출 10건)
+      [안전] SELECT count(*) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) cg1
+      [안전] SELECT MIN((ORDER_ID)), MAX((ORDER_ID)) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) cg1
+      [안전] SELECT (ORDER_ID) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) cg1 ORDER BY 1 LIMIT 5
+      [안전] SELECT (ORDER_ID) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) cg1 ORDER BY 1 DESC LIMIT 5
+      [안전] SELECT MIN((reg_dt)), MAX((reg_dt)) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) cg1
+      [안전] SELECT count(*) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) cg1
+      [안전] SELECT MIN((ORDER_ID)), MAX((ORDER_ID)) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) cg1
+      [안전] SELECT (ORDER_ID) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) cg1 ORDER BY 1 LIMIT 5
+      [안전] SELECT (ORDER_ID) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) cg1 ORDER BY 1 DESC LIMIT 5
+      [안전] SELECT MIN((reg_dt)), MAX((reg_dt)) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) cg1
+
+  [2] POST /count-gate/one-side-preview  (ok=True)
+      [안전] SELECT * FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) cg1 LIMIT 10
+
+  [3] POST /count-gate/one-side-export  (kind=JSON, ok=False, reason=EXPORT_DIALECT_UNSUPPORTED)
+      정직한 응답: 전체 CSV 스트리밍은 아직 postgresql, oracle 만 지원합니다(요청 DB 종류: mysql). 대표 레코드 조회는 사용할 수 있습니다.
+      커서 API 사용: (없음 — 스트리밍 미수행)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+■ dialect = mssql
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  [L56] resolve_confirmed_chunk_key(dialect=...) 전달값 : tsql
+
+  [1] POST /count-gate/range-diagnosis  (ok=True, 방출 10건)
+      [안전] SELECT count(*) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) cg1
+      [안전] SELECT MIN((ORDER_ID)), MAX((ORDER_ID)) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) cg1
+      [안전] SELECT TOP (5) (ORDER_ID) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) cg1 ORDER BY 1
+      [안전] SELECT TOP (5) (ORDER_ID) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) cg1 ORDER BY 1 DESC
+      [안전] SELECT MIN((reg_dt)), MAX((reg_dt)) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) cg1
+      [안전] SELECT count(*) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) cg1
+      [안전] SELECT MIN((ORDER_ID)), MAX((ORDER_ID)) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) cg1
+      [안전] SELECT TOP (5) (ORDER_ID) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) cg1 ORDER BY 1
+      [안전] SELECT TOP (5) (ORDER_ID) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) cg1 ORDER BY 1 DESC
+      [안전] SELECT MIN((reg_dt)), MAX((reg_dt)) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) cg1
+
+  [2] POST /count-gate/one-side-preview  (ok=True)
+      [안전] SELECT TOP (10) * FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) cg1
+
+  [3] POST /count-gate/one-side-export  (kind=JSON, ok=False, reason=EXPORT_DIALECT_UNSUPPORTED)
+      정직한 응답: 전체 CSV 스트리밍은 아직 postgresql, oracle 만 지원합니다(요청 DB 종류: mssql). 대표 레코드 조회는 사용할 수 있습니다.
+      커서 API 사용: (없음 — 스트리밍 미수행)
+
+========================================================================================================
+ 요약 [AFTER] : 오라클 방출 SQL 중 위험 판정 0 건
+========================================================================================================

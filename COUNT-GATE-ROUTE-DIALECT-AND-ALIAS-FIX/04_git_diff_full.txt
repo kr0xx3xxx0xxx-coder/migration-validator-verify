@@ -1,0 +1,422 @@
+diff --git a/routes/count_gate_route.py b/routes/count_gate_route.py
+index cbd09ea..84caa84 100644
+--- a/routes/count_gate_route.py
++++ b/routes/count_gate_route.py
+@@ -6,6 +6,15 @@ COUNT gate 후속 라우트 — 범위 이상 진단(§28~§30)·한쪽 0 대표
+ CRITICAL 에서는 무거운 통계검증 대신 저비용 진단만 수행한다(§28) — 쿼리 수 상한을 정책 상수로
+ 강제하고(§29·§64), 인덱스 없는 컬럼의 전체 정렬/대규모 GROUP BY 를 자동 실행하지 않는다.
+ 원인은 후보 목록으로만 제시(§30 — 근거 없이 단일 원인 자동 확정 금지).
++
++[COUNT-GATE-ROUTE-DIALECT-AND-ALIAS-FIX] 이 라우트는 원래 PostgreSQL 문법을 방언 무관하게
++직접 조립해 오라클에서 3개 엔드포인트가 전부 무력화됐다. 아래 4개 계열을 방언 위임으로 교정했다.
++  (1) resolve_confirmed_chunk_key 에 실제 접속 방언 미전달 → 항상 'postgres' 로 렌더 → 오라클 확정 실패
++  (2) 서브쿼리 별칭 '__cg'(밑줄 선두) → 오라클 비인용 식별자 규칙 위반(ORA-00911)
++  (3) 'LIMIT n' 하드코딩 → 오라클 ORA-03049 (오라클은 FETCH FIRST, MSSQL 은 TOP 접두)
++  (4) CSV 스트리밍이 psycopg2 전용 서버 커서 API(cursor(name=...)/itersize) → 오라클 TypeError
++SQL 조각 생성은 새로 만들지 않고 기존 dialect 위임(services.dialects — row_limit_suffix /
++row_limit_top_prefix)을 재사용한다(count_diagnostic_sql_service 와 동일한 방식).
+ """
+ from __future__ import annotations
+ 
+@@ -18,6 +27,58 @@ router = APIRouter()
+ RANGE_DIAG_MAX_QUERIES_PER_SIDE = 5
+ # 대표 키/샘플 표시 건수(§19 — 전체 레코드 자동 저장 금지, 화면에는 대표만)
+ ONE_SIDE_PREVIEW_ROWS = 10
++# 대표 키 상/하위 표시 건수(§28)
++RANGE_DIAG_SAMPLE_KEYS = 5
++# 서브쿼리 별칭 — 오라클 비인용 식별자는 문자로 시작해야 한다(밑줄 선두 '__cg' 는 ORA-00911).
++#   4개 방언 모두에서 유효한 단일 별칭이라 방언 분기 없이 상수 하나로 쓴다.
++SUBQUERY_ALIAS = "cg1"
++# CSV 스트리밍(§53)을 지원하는 DB 종류 — 공통 read-only 실행 경로(cmn_db_fetch_select_readonly)가
++#   read-only 를 보장하는 방언과 동일하게 맞춘다. 그 외(mysql/mssql/db2)는 정직하게 미지원 응답.
++EXPORT_SUPPORTED_DB_TYPES = ("postgresql", "oracle")
++
++
++def _dialect(conn: dict):
++    """접속 dict 의 db_type → dialect 인스턴스(SQL 조각 위임용).
++
++    미상/미지정은 base(=PostgreSQL 기본값: LIMIT) — 기존 동작과 동일하다."""
++    from services.dialects.base import BaseDialect
++    from services.dialects.resolver import get_db_dialect
++    return get_db_dialect((conn or {}).get("db_type")) or BaseDialect()
++
++
++def _routing_dialect(req) -> str:
++    """src/tgt 접속의 db_type → sqlglot read dialect(key_evidence 위임용).
++
++    key_evidence 의 contract/NULL probe 는 base SQL 을 sqlglot 으로 파싱·재렌더하므로 실제 방언이
++    필요하다. 넘기지 않으면 기본 'postgres' 로 렌더돼 오라클에서 probe 가 LIMIT 으로 나가 실패하고,
++    그 결과 match_key 가 항상 미확정(confirmed=False)이 되어 대표 키 조회 자체가 생략된다.
++    도출 방식은 diagnosis_route._routing_dialect 와 동일(공통 헬퍼 재사용 — 새 매핑 만들지 않음).
++    혼합 방언(src≠tgt)은 어느 쪽으로 렌더해도 반대편이 실패하므로 기존 기본값을 유지한다."""
++    try:
++        from services.sql_dependency_pruning import _to_sqlglot_dialect
++    except Exception:  # noqa: BLE001
++        return "postgres"
++    s = _to_sqlglot_dialect((req.src_conn or {}).get("db_type"))
++    t = _to_sqlglot_dialect((req.tgt_conn or {}).get("db_type"))
++    return s if s == t else "postgres"
++
++
++def _limited_select(conn: dict, select_list: str, base_sql: str, n: int,
++                    order_by: str = "") -> str:
++    """행 제한 SELECT 를 방언별로 조립한다(oracle FETCH FIRST / mssql TOP / pg·mysql LIMIT).
++
++    분기는 dialect 에 위임한다 — 라우트에 방언 if/elif 를 새로 만들지 않는다.
++    order_by 가 있으면 제한절보다 앞에 붙는다(오라클 FETCH FIRST·MSSQL TOP 모두 ORDER BY 와 함께
++    '정렬 후 상위 n'을 보장 — ROWNUM 처럼 정렬 전에 잘리지 않는다)."""
++    d = _dialect(conn)
++    top = d.row_limit_top_prefix(n)          # mssql " TOP (n)", 그 외 ""
++    suffix = d.row_limit_suffix(n)           # oracle "FETCH FIRST n ROWS ONLY", pg·mysql "LIMIT n", mssql ""
++    sql = f"SELECT{top} {select_list} FROM ({base_sql}) {SUBQUERY_ALIAS}"
++    if order_by:
++        sql += f" ORDER BY {order_by}"
++    if suffix:
++        sql += f" {suffix}"
++    return sql
+ 
+ 
+ class CountGateDiagRequest(BaseModel):
+@@ -53,8 +114,10 @@ def count_gate_range_diagnosis(req: CountGateDiagRequest):
+         ck = None
+         try:
+             if req.src_conn and req.tgt_conn and req.src_sql and req.tgt_sql:
++                # [DIALECT-FIX] 실제 접속 방언 전달(배선만 — 피호출 함수 내부 로직은 불변).
+                 ck = resolve_confirmed_chunk_key(src_conn=req.src_conn, tgt_conn=req.tgt_conn,
+-                                                 src_sql=req.src_sql, tgt_sql=req.tgt_sql)
++                                                 src_sql=req.src_sql, tgt_sql=req.tgt_sql,
++                                                 dialect=_routing_dialect(req))
+         except Exception:  # noqa: BLE001
+             ck = None
+         out["match_key"] = ({"confirmed": bool(ck.get("confirmed")), "label": ck.get("label"),
+@@ -77,13 +140,13 @@ def count_gate_range_diagnosis(req: CountGateDiagRequest):
+                 _cols, rows = _fetch(_c, q, cap)
+                 return rows
+             try:
+-                r = _q(f"SELECT count(*) FROM ({sql}) __cg")
++                r = _q(f"SELECT count(*) FROM ({sql}) {SUBQUERY_ALIAS}")
+                 s["count"] = int(r[0][0]) if r else None
+             except Exception as exc:  # noqa: BLE001 — 실패를 0으로 표시하지 않는다(§10)
+                 s["count_error"] = str(exc)[:160]
+             if keyc:
+                 try:
+-                    r = _q(f"SELECT MIN(({keyc})), MAX(({keyc})) FROM ({sql}) __cg")
++                    r = _q(f"SELECT MIN(({keyc})), MAX(({keyc})) FROM ({sql}) {SUBQUERY_ALIAS}")
+                     if r:
+                         s["key_min"], s["key_max"] = str(r[0][0]), str(r[0][1])
+                         s["key_col"] = keyc
+@@ -92,17 +155,19 @@ def count_gate_range_diagnosis(req: CountGateDiagRequest):
+                 # 대표 키 상/하위 일부(§28) — match key 확정(인덱스 전제) 시에만(전체 정렬 자동 금지 §29)
+                 if ck and ck.get("confirmed"):
+                     try:
+-                        r = _q(f"SELECT ({keyc}) FROM ({sql}) __cg ORDER BY 1 LIMIT 5")
++                        r = _q(_limited_select(conn, f"({keyc})", sql,
++                                               RANGE_DIAG_SAMPLE_KEYS, order_by="1"))
+                         if r is not None:
+                             s["first_keys"] = [str(x[0]) for x in r]
+-                        r = _q(f"SELECT ({keyc}) FROM ({sql}) __cg ORDER BY 1 DESC LIMIT 5")
++                        r = _q(_limited_select(conn, f"({keyc})", sql,
++                                               RANGE_DIAG_SAMPLE_KEYS, order_by="1 DESC"))
+                         if r is not None:
+                             s["last_keys"] = [str(x[0]) for x in r]
+                     except Exception:  # noqa: BLE001
+                         pass
+             if perc:
+                 try:
+-                    r = _q(f"SELECT MIN(({perc})), MAX(({perc})) FROM ({sql}) __cg")
++                    r = _q(f"SELECT MIN(({perc})), MAX(({perc})) FROM ({sql}) {SUBQUERY_ALIAS}")
+                     if r:
+                         s["period_min"], s["period_max"] = str(r[0][0]), str(r[0][1])
+                         s["period_col"] = perc
+@@ -133,7 +198,7 @@ def count_gate_one_side_preview(req: CountGateDiagRequest):
+         sql = req.src_sql if side == "src" else req.tgt_sql
+         if side not in ("src", "tgt") or not (conn and sql):
+             return {"ok": False, "error": "side(src/tgt)와 대상 SQL/접속이 필요합니다."}
+-        cols, rows = _fetch(conn, f"SELECT * FROM ({sql}) __cg LIMIT {ONE_SIDE_PREVIEW_ROWS}")
++        cols, rows = _fetch(conn, _limited_select(conn, "*", sql, ONE_SIDE_PREVIEW_ROWS))
+         return {"ok": True, "side": side, "columns": cols,
+                 "rows": [[None if v is None else str(v) for v in r] for r in rows],
+                 "preview_limit": ONE_SIDE_PREVIEW_ROWS}
+@@ -143,7 +208,17 @@ def count_gate_one_side_preview(req: CountGateDiagRequest):
+ 
+ @router.post("/count-gate/one-side-export")
+ def count_gate_one_side_export(req: CountGateDiagRequest):
+-    """한쪽 0 전체 CSV(§19·§20·§53) — 사용자가 명시 요청할 때만 스트리밍 생성(서버 저장 없음)."""
++    """한쪽 0 전체 CSV(§19·§20·§53) — 사용자가 명시 요청할 때만 스트리밍 생성(서버 저장 없음).
++
++    [DIALECT-FIX] 스트리밍 커서 획득이 psycopg2 전용(cursor(name=...)/itersize)이라 오라클에서는
++    TypeError 로 즉시 깨졌다. 방언별로 등가 스트리밍 방식을 쓴다:
++      · PostgreSQL : named(server-side) 커서 + itersize — 기존 동작 그대로.
++      · Oracle     : oracledb 커서는 arraysize 단위로 서버에서 배치 fetch 하므로 fetchmany 만으로
++                     동일하게 스트리밍된다(전량 메모리 적재 없음). read-only 는 공통 실행 경로와
++                     같은 방식(SET TRANSACTION READ ONLY)으로 강제한다.
++      · 그 외      : read-only 보장·스트리밍 등가성을 검증하지 못했으므로 정직하게 미지원 응답
++                     (조용한 실패/전량 메모리 적재 대신 명시적 차단 — §10).
++    """
+     try:
+         from fastapi.responses import StreamingResponse
+         side = (req.side or "").strip()
+@@ -151,8 +226,16 @@ def count_gate_one_side_export(req: CountGateDiagRequest):
+         sql = req.src_sql if side == "src" else req.tgt_sql
+         if side not in ("src", "tgt") or not (conn and sql):
+             return {"ok": False, "error": "side(src/tgt)와 대상 SQL/접속이 필요합니다."}
++        db_type = (conn.get("db_type") or "").lower()
+         from services.readonly_sql_guard import assert_single_select
+-        assert_single_select(sql, (conn.get("db_type") or "").lower())
++        assert_single_select(sql, db_type)
++        # 미지원 방언은 스트리밍 시작 전에 차단한다 — StreamingResponse 를 이미 반환한 뒤에는
++        # 오류를 JSON 으로 알릴 수 없어 브라우저에 빈/깨진 CSV 가 내려간다.
++        if db_type not in EXPORT_SUPPORTED_DB_TYPES:
++            return {"ok": False, "reason_code": "EXPORT_DIALECT_UNSUPPORTED",
++                    "error": f"전체 CSV 스트리밍은 아직 {', '.join(EXPORT_SUPPORTED_DB_TYPES)} 만 지원합니다"
++                             f"(요청 DB 종류: {db_type or '미지정'}). 대표 레코드 조회는 사용할 수 있습니다."}
++        export_sql = f"SELECT * FROM ({sql}) {SUBQUERY_ALIAS}"
+ 
+         def _gen():
+             import csv
+@@ -160,9 +243,16 @@ def count_gate_one_side_export(req: CountGateDiagRequest):
+             from services import connection_pool
+             real, _reused = connection_pool.checkout(conn)
+             try:
+-                cur = real.cursor(name="__count_gate_export")   # 서버 커서 스트리밍(메모리 미적재)
+-                cur.itersize = 5000
+-                cur.execute(f"SELECT * FROM ({sql}) __cg")
++                if db_type == "oracle":
++                    # oracledb: name= 인자 없음. arraysize 배치 fetch 가 곧 서버측 스트리밍이다.
++                    cur = real.cursor()
++                    cur.execute("SET TRANSACTION READ ONLY")   # 공통 실행 경로와 동일한 read-only 강제
++                    cur.arraysize = 5000
++                    cur.execute(export_sql)
++                else:
++                    cur = real.cursor(name="count_gate_export")   # 서버 커서 스트리밍(메모리 미적재)
++                    cur.itersize = 5000
++                    cur.execute(export_sql)
+                 header_done = False
+                 while True:
+                     rows = cur.fetchmany(5000)
+diff --git a/tests/test_underscore_alias_oracle_regression_static.py b/tests/test_underscore_alias_oracle_regression_static.py
+index 8c54e5a..0859b6f 100644
+--- a/tests/test_underscore_alias_oracle_regression_static.py
++++ b/tests/test_underscore_alias_oracle_regression_static.py
+@@ -29,13 +29,23 @@
+ #                  소비자 router.py/multi_scope.py 동반 전환. 향후 hash_bucket 도 수정되면
+ #                  expectedFailure 가 '예상 밖 성공'으로 뒤집혀 마커 제거 신호가 된다.)
+ #
+-#   [Layer B] 정적 자동 탐색 — services/ 전체를 AST 로 훑어 SQL 별칭 방출 지점의
++#   [Layer B] 정적 자동 탐색 — services/ 와 routes/ 전체를 AST 로 훑어 SQL 별칭 방출 지점의
+ #             밑줄 선두 별칭을 자동 수집한다(향후 새 빌더 함수도 자동 커버). 비-오라클
+ #             방언 전용 모듈(dialects/postgresql.py 등)은 오라클에 도달하지 않으므로
+ #             제외한다. 현재 알려진 탐지 결과는 아래 두 부류로 명시 분류한다:
+ #               · KNOWN_ORACLE_UNSAFE      : 오라클 도달·미수정(실제 ORA-00911 위험)
+ #               · KNOWN_DIALECT_SCOPED     : 오라클 미도달(PG 전용 경로·SQLite ATTACH 등)
+ #             그 밖의 새 밑줄 별칭이 나타나면 forward-guard 테스트가 실패해 분류를 강제한다.
++#
++# 스캔 범위·검출기 확장 (COUNT-GATE-ROUTE-DIALECT-AND-ALIAS-FIX, 2026-07-27):
++#   ROUTES-DIAGNOSIS-LIMIT-DIALECT-SECONDARY-CHECK 가 "이 가드는 services/ 만 훑고 routes/ 는
++#   보지 않는다(가드 공백)"고 지적했다. 실제로 routes/count_gate_route.py 의 '__cg' 별칭 7곳은
++#   이 테스트를 통과한 채로 오라클에서 3개 엔드포인트를 통째로 무력화하고 있었다. 두 가지를 넓혔다:
++#     · 스캔 범위 : services/ + routes/ (_SCAN_DIRS)
++#     · 검출기    : 기존 `AS _x` 에 더해 '서브쿼리/테이블 별칭'(`) _x` — AS 없는 형태)도 검출(D3).
++#       count_gate 의 `FROM (...) __cg` 가 바로 AS 없는 형태라 기존 정규식으로는 잡히지 않았다.
++#       f-string 은 조각(Constant)으로 쪼개지면 별칭과 SELECT 가 다른 조각으로 흩어지므로
++#       JoinedStr 을 템플릿으로 복원한 뒤 검사한다(치환부는 '{}' 로 치환).
+ # ══════════════════════════════════════════════════════════════════════════════
+ 
+ from __future__ import annotations
+@@ -51,6 +61,9 @@ if _ROOT not in sys.path:
+     sys.path.insert(0, _ROOT)
+ 
+ _SERVICES_DIR = os.path.join(_ROOT, "services")
++_ROUTES_DIR = os.path.join(_ROOT, "routes")
++# [Layer B] 스캔 대상 트리 — routes/ 는 COUNT-GATE-ROUTE-DIALECT-AND-ALIAS-FIX 에서 추가(가드 공백 해소).
++_SCAN_DIRS = (_SERVICES_DIR, _ROUTES_DIR)
+ 
+ # sqlglot 가용 여부 — Layer A 의 sqlglot 의존 빌더(count/key_range/hash_bucket)만 gate.
+ try:
+@@ -66,12 +79,25 @@ except Exception:  # pragma: no cover - 환경 의존
+ # ──────────────────────────────────────────────────────────────────────────────
+ _AS_UNQUOTED_UNDERSCORE = re.compile(r'\bAS\s+(_[A-Za-z0-9_]*)', re.IGNORECASE)
+ 
++# 서브쿼리/테이블 별칭(AS 없는 형태) — `FROM (…) __cg` / `JOIN (…) _x`.
++#   오라클에서는 AS 유무와 무관하게 비인용 식별자가 '_' 로 시작하면 ORA-00911 이다.
++#   `) _x` 형태만 잡는다(닫는 괄호 뒤 공백 + 밑줄 시작 식별자) — 함수 호출 결과에 붙는 별칭 위치.
++_SUBQUERY_UNQUOTED_UNDERSCORE = re.compile(r'\)\s+(_[A-Za-z0-9_]*)')
++# SQL 문맥 판정 — 별칭처럼 보이는 일반 문자열(예: 튜플 언팩 주석)을 오탐하지 않기 위함.
++_SQL_CONTEXT = re.compile(r'\bSELECT\b|\bFROM\b|\bJOIN\b', re.IGNORECASE)
++
+ 
+ def find_unquoted_underscore_aliases(sql: str) -> list[str]:
+-    """생성 SQL 문자열에서 비인용 밑줄 선두 별칭 목록을 반환한다(없으면 빈 목록)."""
++    """생성 SQL 문자열에서 비인용 밑줄 선두 별칭 목록을 반환한다(없으면 빈 목록).
++
++    `AS _x`(명시 별칭)와 `) _x`(서브쿼리/테이블 별칭 — AS 생략형) 둘 다 검출한다.
++    후자는 SQL 문맥(SELECT/FROM/JOIN)이 같은 문자열에 있을 때만 별칭으로 인정한다."""
+     if not sql:
+         return []
+-    return [m.group(1) for m in _AS_UNQUOTED_UNDERSCORE.finditer(sql)]
++    found = [m.group(1) for m in _AS_UNQUOTED_UNDERSCORE.finditer(sql)]
++    if _SQL_CONTEXT.search(sql):
++        found += [m.group(1) for m in _SUBQUERY_UNQUOTED_UNDERSCORE.finditer(sql)]
++    return found
+ 
+ 
+ # ══════════════════════════════════════════════════════════════════════════════
+@@ -268,8 +294,11 @@ def scan_file_for_underscore_aliases(path: str) -> set:
+     """한 .py 파일에서 밑줄 선두 SQL 별칭 집합을 수집한다(파싱 실패 시 빈 집합).
+ 
+     검출 방식:
+-      D1) 문자열/f-string 리터럴 조각의 `AS _x` (직접 조립 SQL) — docstring 제외.
++      D1) 문자열 리터럴의 `AS _x` (직접 조립 SQL) — docstring 제외.
+       D2) sqlglot `.as_("_..")`, `alias_(x, "_..")` (모듈상수/`+` 좌항 해소 포함).
++      D3) f-string(JoinedStr) 템플릿 복원 후 `AS _x` / `) _x` — 치환부는 '{}' 로 치환한다.
++          f-string 은 조각으로 쪼개지면 별칭과 SELECT 가 다른 Constant 로 흩어져 D1 이 놓친다
++          (`f"SELECT * FROM ({sql}) __cg"` → 조각 '") __cg"' 에는 SQL 문맥이 없다).
+     """
+     try:
+         with open(path, encoding="utf-8") as f:
+@@ -282,15 +311,25 @@ def scan_file_for_underscore_aliases(path: str) -> set:
+     docstring_ids = _collect_docstring_constants(tree)
+     found: set = set()
+ 
++    # D3: f-string 템플릿 복원 — 내부 Constant 조각은 D1 중복 검사에서 제외한다.
++    fstring_piece_ids: set = set()
++    for node in ast.walk(tree):
++        if isinstance(node, ast.JoinedStr):
++            tmpl = ""
++            for v in node.values:
++                if isinstance(v, ast.Constant) and isinstance(v.value, str):
++                    fstring_piece_ids.add(id(v))
++                    tmpl += v.value
++                else:
++                    tmpl += "{}"
++            found.update(find_unquoted_underscore_aliases(tmpl))
++
+     for node in ast.walk(tree):
+-        # D1: 문자열 리터럴(단, docstring/단독 문자열 표현식 제외)
++        # D1: 문자열 리터럴(단, docstring/단독 문자열 표현식·f-string 조각 제외)
+         if isinstance(node, ast.Constant) and isinstance(node.value, str):
+-            if id(node) in docstring_ids:
++            if id(node) in docstring_ids or id(node) in fstring_piece_ids:
+                 continue
+-            for m in _AS_UNQUOTED_UNDERSCORE.finditer(node.value):
+-                found.add(m.group(1))
+-        # D1(f-string): JoinedStr 내부 Constant 조각 — ast.walk 가 Constant 도 따로 방문하지만
+-        #   f-string 조각 Constant 는 docstring_ids 에 없으므로 위 분기에서 이미 수집된다(중복은 set 이 흡수).
++            found.update(find_unquoted_underscore_aliases(node.value))
+         # D2: sqlglot 별칭 호출
+         if isinstance(node, ast.Call):
+             fn = node.func
+@@ -309,19 +348,24 @@ def scan_file_for_underscore_aliases(path: str) -> set:
+ 
+ 
+ def scan_services_tree() -> dict:
+-    """services/ 전체를 스캔해 {relpath(posix): set(밑줄별칭)} 반환(비-오라클 방언 모듈 제외)."""
++    """services/ + routes/ 전체를 스캔해 {relpath(posix): set(밑줄별칭)} 반환(비-오라클 방언 모듈 제외).
++
++    routes/ 는 COUNT-GATE-ROUTE-DIALECT-AND-ALIAS-FIX 에서 스캔 대상에 추가했다 — 라우트가 직접
++    조립하는 SQL(count_gate/agg_diff 등)도 오라클에 그대로 나가므로 가드 범위에 포함해야 한다.
++    (함수명은 기존 호출부 호환을 위해 유지 — 대상은 _SCAN_DIRS 가 정한다.)"""
+     out: dict = {}
+-    for dirpath, _dirs, files in os.walk(_SERVICES_DIR):
+-        for fn in files:
+-            if not fn.endswith(".py"):
+-                continue
+-            p = os.path.join(dirpath, fn)
+-            rel = os.path.relpath(p, _ROOT).replace("\\", "/")
+-            if _EXCLUDE_DIALECT_MODULE.search(rel):
+-                continue
+-            aliases = scan_file_for_underscore_aliases(p)
+-            if aliases:
+-                out[rel] = aliases
++    for root in _SCAN_DIRS:
++        for dirpath, _dirs, files in os.walk(root):
++            for fn in files:
++                if not fn.endswith(".py"):
++                    continue
++                p = os.path.join(dirpath, fn)
++                rel = os.path.relpath(p, _ROOT).replace("\\", "/")
++                if _EXCLUDE_DIALECT_MODULE.search(rel):
++                    continue
++                aliases = scan_file_for_underscore_aliases(p)
++                if aliases:
++                    out[rel] = aliases
+     return out
+ 
+ 
+@@ -331,8 +375,15 @@ def scan_services_tree() -> dict:
+ #     · key_range(__BKT/__RNG)는 2026-07-26 KR_BKT/KR_RNG 로 개명 완료 → 목록에서 제거했다.
+ #       (소비자 router.py/multi_scope.py 도 상수 참조로 동반 전환됨.)
+ #     · hash_bucket(__HB/__KH/__RH)만 잔존(PG 전용 해시 계약이라 별도 대형 작업으로 미개명).
++#     · routes/agg_diff_route.py(__m)는 routes/ 스캔 추가(2026-07-27)로 새로 드러난 항목이다.
++#       rename 매핑 해소용 재래핑 별칭이며 src_for_diag 가 resolve_confirmed_match_key(dialect=오라클
++#       가능)로 그대로 넘어가므로 오라클 도달이다. 같은 파일 L565 독스트링도 '__m 이 ORA-00911 을
++#       유발'한다고 이미 적고 있다. 수정은 agg_diff_route 소관이라 별도 작업으로 분리(여기선 상태 고정).
++#     · routes/count_gate_route.py(__cg 7곳)는 COUNT-GATE-ROUTE-DIALECT-AND-ALIAS-FIX 에서
++#       'cg1' 로 개명 완료 → 목록에 없다(스캔에서도 더 이상 탐지되지 않아야 한다).
+ KNOWN_ORACLE_UNSAFE: dict = {
+     "services/diagnosis/strategies/hash_bucket.py": {"__HB", "__KH", "__RH"},
++    "routes/agg_diff_route.py": {"__m"},
+ }
+ 
+ # (2) 오라클 미도달 — ORA-00911 위험 아님(밑줄 별칭이 정당). 각 사유 명시.
+@@ -340,8 +391,10 @@ KNOWN_ORACLE_UNSAFE: dict = {
+ #     dialects/oracle.pk_agg_sql(안전 별칭 K0/anchor)로 위임하므로 이 밑줄 별칭은 오라클에 방출되지 않는다.
+ #   · single_official_register_txn.py : SQLite `ATTACH DATABASE ... AS _atom_probe` — 검증 SQL 생성이
+ #     아니라 원자 커밋 가능성 probe(SQLite 는 밑줄 선두 별칭 허용). 오라클과 무관.
++#   · __agg(L138·148·782) / __sc(L840·841) 는 서브쿼리 별칭 검출기(D3) 추가로 새로 드러난 같은 파일의
++#     같은 계열 항목이다(__sc 는 `::text` 캐스팅을 동반해 PG 전용임이 코드상 명시적).
+ KNOWN_DIALECT_SCOPED: dict = {
+-    "services/exact_diff/agg_contribution.py": {"__C", "__G", "__K", "__N", "__S"},
++    "services/exact_diff/agg_contribution.py": {"__C", "__G", "__K", "__N", "__S", "__agg", "__sc"},
+     "services/single_official_register_txn.py": {"_atom_probe"},
+ }
+ 
+@@ -388,6 +441,48 @@ class TestStaticUnderscoreAliasScan(unittest.TestCase):
+               "KNOWN_DIALECT_SCOPED 에 등록하라.",
+         )
+ 
++    def test_routes_dir_is_actually_scanned(self):
++        """routes/ 가 실제 스캔 대상인지(범위 확장이 no-op 이 아닌지) — 가드 공백 재발 방지."""
++        self.assertTrue(os.path.isdir(_ROUTES_DIR), "routes/ 디렉터리를 찾을 수 없음")
++        self.assertIn(_ROUTES_DIR, _SCAN_DIRS, "routes/ 가 _SCAN_DIRS 에 없음(스캔 범위 축소 회귀)")
++        discovered = scan_services_tree()
++        self.assertTrue(
++            any(rel.startswith("routes/") for rel in discovered),
++            "routes/ 에서 아무것도 탐지되지 않음 — 스캐너가 routes/ 를 실제로 훑지 않거나 검출기가 무력화됨.",
++        )
++
++    def test_count_gate_route_has_no_underscore_alias(self):
++        """[COUNT-GATE-ROUTE-DIALECT-AND-ALIAS-FIX 회귀 가드] count_gate_route.py 는 밑줄 별칭이 없어야 한다.
++
++        원래 '__cg' 7곳이 오라클에서 range-diagnosis / one-side-preview / one-side-export 를 통째로
++        ORA-00911 로 깨뜨렸다. 'cg1' 로 개명했으며 다시 밑줄 선두 별칭이 들어오면 여기서 실패한다."""
++        p = os.path.join(_ROUTES_DIR, "count_gate_route.py")
++        self.assertTrue(os.path.exists(p), "routes/count_gate_route.py 없음")
++        found = scan_file_for_underscore_aliases(p)
++        self.assertEqual(
++            found, set(),
++            f"count_gate_route.py 에 비인용 밑줄 선두 별칭 재등장: {sorted(found)}\n"
++            f"  → 오라클 ORA-00911. 별칭 상수 SUBQUERY_ALIAS('cg1')를 사용하라.",
++        )
++
++    def test_subquery_alias_detector_works(self):
++        """D3(서브쿼리 별칭 `) _x`) 검출기가 실제로 동작하는지 — 검출기 무력화 방지.
++
++        기존 정규식은 `AS _x` 만 봤기 때문에 `FROM (…) __cg` 형태를 놓쳤다(그래서 count_gate 결함이
++        가드를 통과했다). 합성 SQL 로 두 형태 모두 잡히는지 고정한다."""
++        self.assertEqual(
++            find_unquoted_underscore_aliases("SELECT * FROM (SELECT 1 FROM t) __cg LIMIT 10"),
++            ["__cg"], "AS 없는 서브쿼리 별칭을 검출하지 못함")
++        self.assertEqual(
++            find_unquoted_underscore_aliases("SELECT a AS _x FROM t"), ["_x"],
++            "AS 별칭 검출 회귀")
++        self.assertEqual(
++            find_unquoted_underscore_aliases("SELECT * FROM (SELECT 1 FROM t) cg1"), [],
++            "문자 시작 별칭(cg1)을 오탐")
++        self.assertEqual(
++            find_unquoted_underscore_aliases('SELECT a AS "_x" FROM t'), [],
++            "인용 별칭(오라클서 유효)을 오탐")
++
+     def test_scanner_finds_only_python_and_is_stable(self):
+         """스캔이 최소 하나 이상은 탐지(스캐너 정상 동작) — 자동 탐색이 비활성화되지 않았는지 확인."""
+         discovered = scan_services_tree()

@@ -1,0 +1,252 @@
+✅ 작업 완료 - COUNT-GATE-ROUTE-DIALECT-AND-ALIAS-FIX : count_gate_route 4개 결함 계열 수정 + 밑줄별칭 가드 범위 확장(오라클 위험 12건→0건, 회귀 없음)
+
+════════════════════════════════════════════════════════════════════════════════════
+ COUNT-GATE-ROUTE-DIALECT-AND-ALIAS-FIX — 서술형 완료보고서
+ 작성일: 2026-07-27 (KST)
+ commit: 35a168c  (직전 HEAD: f54c957)
+════════════════════════════════════════════════════════════════════════════════════
+
+■ 1. 이번 작업이 무엇을 고쳤나
+
+ROUTES-DIAGNOSIS-LIMIT-DIALECT-SECONDARY-CHECK 가 P1 으로 확정한 대로,
+routes/count_gate_route.py 한 파일 안에 서로 다른 4개의 결함 계열이 겹쳐 있었고, 그 결과
+COUNT 게이트의 후속 진단 3개 엔드포인트가 오라클에서 통째로 무력화돼 있었다.
+
+  · POST /count-gate/range-diagnosis   (범위 이상 진단 §28~§30)
+  · POST /count-gate/one-side-preview  (한쪽 0 대표 레코드 §19·§20)
+  · POST /count-gate/one-side-export   (한쪽 0 전체 CSV §19·§20·§53)
+
+네 계열은 각각 다음과 같다.
+
+  (1) L56 방언 미위임
+      resolve_confirmed_chunk_key() 를 dialect 인자 없이 호출했다. 이 함수의 기본값은
+      'postgres' 라서, 오라클 접속이어도 내부 contract/NULL probe 가 PostgreSQL 문법으로
+      렌더된다. probe 가 실패하면 CHUNK_KEY 가 확정되지 않고(match_key.confirmed=False),
+      확정 전제로만 실행되는 '대표 키 상/하위' 조회가 통째로 생략된다. 즉 이 결함 하나만으로도
+      진단 결과의 절반이 조용히 비게 된다.
+
+  (2) 서브쿼리 별칭 '__cg' 7곳
+      오라클의 비인용(unquoted) 식별자는 문자로 시작해야 한다. '__cg' 는 규칙 위반이라
+      ORA-00911 로 문장 자체가 깨진다. COUNT·MIN/MAX·대표 키·미리보기·CSV 등 이 파일이
+      만드는 거의 모든 SQL 에 이 별칭이 붙어 있었다.
+
+  (3) L95/98/136 LIMIT 하드코딩
+      'LIMIT n' 은 PostgreSQL/MySQL 문법이다. 오라클은 FETCH FIRST n ROWS ONLY,
+      MSSQL 은 TOP (n) 접두를 써야 한다. 오라클에서는 ORA-03049 로 실패한다.
+
+  (4) L163/164 psycopg2 전용 서버 커서 API
+      CSV 스트리밍이 real.cursor(name=...) + cur.itersize 로 구현돼 있었다. 이는 psycopg2
+      고유 API 로, oracledb 커서에는 name 인자 자체가 없어 오라클에서는 SQL 을 보내보기도 전에
+      TypeError 로 깨진다.
+
+■ 2. 어떻게 고쳤나 — 새 패턴을 만들지 않고 기존 위임 구조에 얹었다
+
+(1) 방언 전달
+    _routing_dialect(req) 헬퍼를 추가했다. 도출 방식은 이미 같은 결함을 해소한
+    routes/diagnosis_route.py 의 동명 헬퍼와 동일하다 — 공통 매핑
+    services.sql_dependency_pruning._to_sqlglot_dialect 를 재사용하고, src/tgt 방언이 다르면
+    (혼합 방언은 상위 하드게이트가 차단한다) 기존 기본값 'postgres' 를 그대로 둔다.
+    피호출 함수(resolve_confirmed_chunk_key 등)는 한 줄도 건드리지 않았다 — 배선만 했다.
+
+(2) 별칭 개명
+    '__cg' 7곳을 모듈 상수 SUBQUERY_ALIAS = "cg1" 로 통일했다. 문자로 시작하므로 4개 방언
+    모두에서 유효하고, 상수 하나라 다음에 또 흩어질 여지가 없다.
+
+(3) 행 제한
+    지시는 sample_route.py 의 3분기 패턴을 재사용하라는 것이었는데, 실제로는 그보다
+    한 단계 위의 기존 패턴을 썼다. 이유를 밝혀 둔다.
+      · sample_route 의 오라클 분기는 WHERE ROWNUM <= n 이다. 이 구문은 ORDER BY 가 없을 때만
+        옳다. ROWNUM 은 정렬 '전'에 매겨지므로, 대표 키 조회(L95/98)처럼 ORDER BY 1 이 붙은
+        자리에 그대로 쓰면 '아무 5건을 뽑아 정렬'하게 되어 결과가 조용히 틀린다.
+        문법 오류가 아니라 오답이 나오는 쪽이라 더 위험하다.
+      · 그래서 프로젝트에 이미 있는 dialect 위임(services.dialects 의 row_limit_suffix /
+        row_limit_top_prefix)을 썼다. count_diagnostic_sql_service.py 와
+        column_profile_service.py 가 쓰는 바로 그 패턴이며, 새로 발명한 것이 아니다.
+        오라클은 FETCH FIRST(정렬 후 상위 n 을 보장), MSSQL 은 TOP 접두, PG/MySQL 은 LIMIT 이
+        자동으로 나온다. CLAUDE.md 의 '4개 방언 모두 처리' 규칙도 분기 없이 충족된다.
+    조립은 _limited_select() 한 함수에 모았다.
+
+(4) 스트리밍
+    HOLD 로 도망가지 않고 오라클도 실제로 지원하도록 고쳤다. oracledb 커서는 arraysize 단위로
+    서버에서 배치 fetch 하므로, cursor() + arraysize + fetchmany 만으로 psycopg2 named cursor 와
+    동등한 스트리밍이 된다(전량 메모리 적재 없음). read-only 도 공통 실행 경로와 같은 방식
+    (SET TRANSACTION READ ONLY)으로 강제했다. 즉 이번 지시의 "대안이 크면 HOLD" 예외는
+    쓰지 않았다 — 대안이 크지 않았기 때문이다.
+    다만 read-only 보장과 스트리밍 등가성을 확인하지 못한 mysql/mssql/db2 는 정직하게 막았다.
+    reason_code = EXPORT_DIALECT_UNSUPPORTED 로 JSON 응답을 돌려준다. 이 판정은 반드시
+    StreamingResponse 를 반환하기 '전'에 한다 — 스트림이 시작된 뒤에는 오류를 JSON 으로 알릴
+    방법이 없어 브라우저에 빈 CSV 가 내려가기 때문이다.
+
+■ 3. 가드 공백을 함께 메웠다 (지시 5)
+
+진단서가 지적한 대로, 기존 정적 회귀 테스트
+tests/test_underscore_alias_oracle_regression_static.py 는 services/ 만 훑고 routes/ 는 보지
+않았다. 그런데 범위만 넓혀서는 이번 결함을 여전히 못 잡는다. 검출기가 `AS _x` 형태만 보고
+있었는데, count_gate 의 '__cg' 는 `FROM (…) __cg` 처럼 AS 가 없는 테이블 별칭 위치였기
+때문이다. 게다가 f-string 은 조각으로 쪼개지면 별칭과 SELECT 가 서로 다른 Constant 로 흩어져
+문맥 판정마저 실패한다. 그래서 세 가지를 함께 넓혔다.
+
+  · 스캔 범위: services/ + routes/  (_SCAN_DIRS)
+  · 검출기 D3: `) _x` (AS 생략형 서브쿼리/테이블 별칭)
+  · f-string(JoinedStr) 템플릿 복원 후 검사
+
+효과는 실제로 확인했다. git 에서 수정 전 파일을 꺼내 새 스캐너로 훑으니 '__cg' 가 잡혔고,
+수정 후 파일은 깨끗하다.
+
+    수정 전 count_gate_route.py 스캔: ['__cg']
+    수정 후 count_gate_route.py 스캔: (없음)
+
+범위를 넓히자 그동안 안 보이던 것 세 가지가 새로 드러났고, 전부 분류해 상태를 고정했다.
+
+  · routes/agg_diff_route.py 의 '__m'  → KNOWN_ORACLE_UNSAFE (오라클 도달·미수정)
+      rename 매핑 해소용 재래핑 별칭인데, 이 SQL 이 resolve_confirmed_match_key 로
+      dialect=오라클 가능 상태로 넘어간다. 같은 파일 L565 독스트링도 이미 "'__m' 이
+      ORA-00911 을 유발한다"고 적고 있다. 수정은 agg_diff_route 소관이라 이번 작업 범위
+      (count_gate_route.py 만 수정)에서 제외하고 상태만 고정했다 — 별도 작업 권고.
+  · services/exact_diff/agg_contribution.py 의 '__agg', '__sc' → KNOWN_DIALECT_SCOPED
+      같은 파일의 기존 분류 항목과 동일 계열의 PostgreSQL 전용 경로다('__sc' 는 ::text
+      캐스팅을 동반해 PG 전용임이 코드상 명시적).
+
+회귀 가드 테스트 3개도 추가했다: routes/ 가 실제로 스캔되는지, count_gate_route.py 에 밑줄
+별칭이 다시 들어오지 않았는지, D3 검출기가 무력화되지 않았는지.
+
+■ 4. 검증
+
+[4-1] 라이브 DB 가용성 — 먼저 확인했고, 이번 회차는 불가였다
+
+  내부망 오라클/PG 는 여전히 TCP 미도달이고, 외부 Neon 은 서버측 쿼터 소진 상태다.
+  로컬 DB·docker 도 없다(모두 실측으로 확인).
+
+    Oracle_asis           192.168.0.151:1523   TCP 미도달
+    Oracle_tobe           192.168.0.151:1524   TCP 미도달
+    PostgreSQL_Inter_asis 192.168.0.150:5433   TCP 미도달
+    PostgreSQL_Inter_tobe 192.168.0.150:5434   TCP 미도달
+    PostgreSQL_asis/tobe (Neon)                접속 거부 — "Your project has exceeded …"
+    localhost 5432/5433/1521/1523/1524/3306    전부 closed / docker 미설치
+
+  따라서 지시가 허용한 대로 "이전 진단과 동일한 방식"으로 대체했고, 그 사실을 여기 명시한다.
+  다만 이전 회차의 렌더 매트릭스보다는 한 단계 강하게 잡았다. 프로덕션 라우트 함수를 실제로
+  호출하되 DB 실행 함수만 포착용 stub 으로 바꿔, '라우트가 만들어 보낸 SQL 문자열' 자체를
+  종단에서 수집했다(SQL 생성은 100% 프로덕션 코드가 수행). 하네스는
+  scripts/dev_e2e/count_gate_route_dialect_verify.py 이며 결정적이다(같은 입력 → 같은 출력).
+
+[4-2] Before / After — 오라클 방출 SQL
+
+  BEFORE (commit f54c957) : 오라클 위험 판정 12건 / dialect 전달값 = (미전달)
+    SELECT count(*) FROM (…) __cg                                  → ORA-00911
+    SELECT (ORDER_ID) FROM (…) __cg ORDER BY 1 LIMIT 5             → ORA-00911 + ORA-03049
+    SELECT * FROM (…) __cg LIMIT 10                                → ORA-00911 + ORA-03049
+    export: cursor(name='__count_gate_export') / itersize=5000      → oracledb TypeError
+
+  AFTER  (commit 35a168c) : 오라클 위험 판정 0건 / dialect 전달값 = oracle
+    SELECT count(*) FROM (…) cg1
+    SELECT (ORDER_ID) FROM (…) cg1 ORDER BY 1 FETCH FIRST 5 ROWS ONLY
+    SELECT (ORDER_ID) FROM (…) cg1 ORDER BY 1 DESC FETCH FIRST 5 ROWS ONLY
+    SELECT * FROM (…) cg1 FETCH FIRST 10 ROWS ONLY
+    export: SET TRANSACTION READ ONLY → cursor() / arraysize=5000 → SELECT … cg1
+
+  방언별 dialect 전달값도 전부 올바르게 도출된다: oracle→oracle, postgresql→postgres,
+  mysql→mysql, mssql→tsql.
+
+  보조 확인으로 AFTER 의 오라클 SQL 4종을 sqlglot 오라클 방언 파서로 통과시켰고(4/4 OK),
+  식별자 규칙 판정에서 '__cg' 는 무효, 'cg1' 은 유효로 확인했다. 다만 이것은 파서 수준
+  확인이며 실 오라클 서버 실행이 아니라는 점을 분명히 해 둔다.
+
+[4-3] PostgreSQL 회귀 없음
+
+  PG 방출 SQL 은 별칭 이름(__cg → cg1)을 빼면 BEFORE 와 문자열이 동일하다. 별칭은 SQL 의미에
+  영향이 없다(어디에서도 참조되지 않는 서브쿼리 별칭). LIMIT 절도 그대로 'LIMIT n' 이고,
+  export 도 여전히 named cursor + itersize 경로를 탄다 — 즉 PG 경로는 실질 무변경이다.
+  MySQL 도 LIMIT 유지, MSSQL 은 TOP (n) 으로 정상 전환된다.
+
+[4-4] 테스트 — baseline 대조
+
+  count_gate_route 직접 관련 테스트 6개 파일을 수정본과 baseline(git worktree, HEAD=f54c957)
+  에서 각각 돌려 대조했다. git stash 는 쓰지 않았다.
+
+    baseline : 3 failed, 33 passed, 1 xfailed, 6 subtests passed
+    수정 후  : 3 failed, 36 passed, 1 xfailed, 6 subtests passed
+
+  실패 3건은 양쪽이 동일하다 — test_count_gate.py::test_ui_gate_display_and_blocking 과
+  test_one_click_critical_hold_route_to_normal_gate.py 2건이며, 모두 Node.js 로 JS 를 돌리는
+  구간에서 나는 사전 존재 실패다(이번 변경은 JS 를 건드리지 않았다). 통과 건수 +3 은 이번에
+  추가한 회귀 가드 테스트다. 즉 회귀 0건.
+
+  밑줄별칭 정적 회귀 테스트 단독: 11 tests, OK (expected failures=1 — 기존 hash_bucket xfail).
+
+  CLAUDE.md 필수 회귀도 통과했다.
+    python samples/test_virtual_cases.py  → 8/8 통과
+    python samples/test_complex_cases.py  → 5/5 통과
+
+[4-5] 서버 재기동 및 실 서비스 포트 확인
+
+  재기동 시각: 2026-07-27 15:10 (KST) — 코드 수정 완료 후 재기동했다.
+  기동 로그: "서버 인증(HTTP Basic Auth): ON (등록 계정 3명)" / 포트 8000 / reload=False.
+
+  실 서비스 포트(8000, 인증 ON)에서 3개 엔드포인트를 HTTP 로 직접 호출했다.
+
+    /count-gate/range-diagnosis   HTTP 200  ok=True, query_limit_per_side=5,
+                                  possible_causes 6건, note 존재
+                                  src/tgt count_error="DPY-4001: no credentials specified"
+    /count-gate/one-side-preview  HTTP 200  ok=false + detail(DPY-4001)
+    /count-gate/one-side-export   (oracle) 지원 방언이므로 스트리밍 경로 진입
+    /count-gate/one-side-export   (mysql)  HTTP 200
+                                  {"ok":false,"reason_code":"EXPORT_DIALECT_UNSUPPORTED", …}
+
+  마지막 항목이 중요하다. EXPORT_DIALECT_UNSUPPORTED 는 새 코드에만 존재하는 값이므로,
+  서버가 stale 모듈이 아니라 이번 수정본을 서빙하고 있다는 직접 증거다(이 프로젝트는
+  reload=False 라 재기동하지 않으면 옛 모듈이 계속 서빙된다).
+
+  DB 접속은 자격증명이 없어 DPY-4001 에서 멈추는데, 이는 SQL 문법 계층에 도달하기 전 단계다.
+  따라서 이번 회차 HTTP 확인은 "라우트 도달 + 새 코드 반영 + 방언 게이트 동작"까지를
+  증명하며, 오라클 SQL 의 실 실행 성공까지는 증명하지 못한다. 정직하게 구분해 둔다.
+  실패를 0 으로 위장하지 않는 §10 동작(count_error 를 그대로 담아 반환)도 확인했다.
+
+  브라우저: 재기동 서버 UI 정상 로드, JS pageerror 없음,
+  mvRunRangeDiagnosis / mvCountGateSideExport 모두 function 으로 정의됨.
+
+■ 5. 남은 문제 · 권고
+
+  (a) 오라클 실 DB 실행 확인은 미완이다. 내부망 복구 시 하네스 두 개
+      (count_gate_route_dialect_verify.py / count_gate_route_http_endpoint_verify.py)를
+      그대로 재실행하면 되고, 진단 스크립트 routes_limit_dialect_secondary_check.py 는
+      TCP 도달 시 자동으로 라이브 구간까지 수행한다.
+
+  (b) routes/agg_diff_route.py 의 '__m' 이 오라클 도달 상태로 남아 있다(이번 범위 밖).
+      가드에 KNOWN_ORACLE_UNSAFE 로 등록해 뒀으므로, 개명하면 스캐너 테스트가 '예상 밖 성공'
+      쪽으로 뒤집혀 정리 신호가 뜬다. 별도 작업 권고.
+
+  (c) one-side-export 는 StreamingResponse 를 반환한 뒤 접속·실행 오류가 나면 JSON 으로
+      알릴 수 없다(이번 확인에서 IncompleteRead 로 관측됨). 이는 수정 전부터 있던 구조적
+      한계이며 방언과 무관하다. 방언 미지원만은 스트림 시작 전에 걸러 두었지만, 접속 실패까지
+      선점하려면 checkout 을 제너레이터 밖으로 빼야 하고 그러면 연결 반납 경로가 복잡해진다
+      (누수 위험). 이번엔 손대지 않았다 — 별도 판단 사안으로 남긴다.
+
+  (d) 비판적 검토: 이번 변경은 heuristic 을 늘리지 않았고(방언 분기를 라우트에 새로 만들지
+      않고 기존 dialect 객체에 위임), web_server.py 를 건드리지 않았으며, 라우트 파일은
+      114줄 증가했지만 그중 상당수가 결함 배경 주석과 위임 헬퍼다. explainability 측면에서는
+      미지원 방언을 reason_code 로 명시해 오히려 개선됐다. 보안 영향 없음(접속정보·SQL 값
+      로깅 추가 없음, 하네스는 비밀번호를 다루지 않는다).
+
+■ 6. 변경/생성 파일
+
+  수정: routes/count_gate_route.py                                  (+114 / -19)
+  수정: tests/test_underscore_alias_oracle_regression_static.py     (+141 / -16)
+  신규: scripts/dev_e2e/count_gate_route_dialect_verify.py          (방언 방출 SQL 하네스)
+  신규: scripts/dev_e2e/count_gate_route_http_endpoint_verify.py    (실 포트 종단 확인)
+
+  commit 35a168c  (4 files changed, 606 insertions(+), 35 deletions(-))
+
+■ 7. 증적
+
+  E:\verify_screenshots_only\COUNT-GATE-ROUTE-DIALECT-AND-ALIAS-FIX\
+    01_BEFORE_dialect_render.txt        수정 전 4방언 방출 SQL (오라클 위험 12건)
+    02_AFTER_dialect_render.txt         수정 후 4방언 방출 SQL (오라클 위험 0건)
+    03_git_diff_stat.txt                변경 요약
+    04_git_diff_full.txt                전체 diff
+    05_http_endpoint_verify.txt         실 서비스 포트(8000, 인증 ON) 종단 확인
+    06_ui_loaded_after_restart.png      재기동 후 UI 정상 로드
+
+════════════════════════════════════════════════════════════════════════════════════
+
+✅ 작업 완료 - COUNT-GATE-ROUTE-DIALECT-AND-ALIAS-FIX : count_gate_route 4개 결함 계열 수정 + 밑줄별칭 가드 범위 확장(오라클 위험 12건→0건, 회귀 없음)

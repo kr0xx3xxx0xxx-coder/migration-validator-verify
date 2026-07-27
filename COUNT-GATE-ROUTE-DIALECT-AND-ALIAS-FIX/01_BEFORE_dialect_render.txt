@@ -1,0 +1,115 @@
+========================================================================================================
+ COUNT-GATE-ROUTE-DIALECT-AND-ALIAS-FIX — count_gate_route 방언 방출 SQL 검증 [BEFORE]
+========================================================================================================
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+■ dialect = oracle
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  [L56] resolve_confirmed_chunk_key(dialect=...) 전달값 : (미전달)
+
+  [1] POST /count-gate/range-diagnosis  (ok=True, 방출 10건)
+      [위험] SELECT count(*) FROM (SELECT ORDER_ID, REGION_CD, AMT FROM NXDNP.MV_ORA_TEST_SRC) __cg
+             └ 밑줄선두 별칭 __cg(ORA-00911)
+      [위험] SELECT MIN((ORDER_ID)), MAX((ORDER_ID)) FROM (SELECT ORDER_ID, REGION_CD, AMT FROM NXDNP.MV_ORA_TEST_SRC) __cg
+             └ 밑줄선두 별칭 __cg(ORA-00911)
+      [위험] SELECT (ORDER_ID) FROM (SELECT ORDER_ID, REGION_CD, AMT FROM NXDNP.MV_ORA_TEST_SRC) __cg ORDER BY 1 LIMIT 5
+             └ LIMIT(ORA-03049), 밑줄선두 별칭 __cg(ORA-00911)
+      [위험] SELECT (ORDER_ID) FROM (SELECT ORDER_ID, REGION_CD, AMT FROM NXDNP.MV_ORA_TEST_SRC) __cg ORDER BY 1 DESC LIMIT 5
+             └ LIMIT(ORA-03049), 밑줄선두 별칭 __cg(ORA-00911)
+      [위험] SELECT MIN((REG_DT)), MAX((REG_DT)) FROM (SELECT ORDER_ID, REGION_CD, AMT FROM NXDNP.MV_ORA_TEST_SRC) __cg
+             └ 밑줄선두 별칭 __cg(ORA-00911)
+      [위험] SELECT count(*) FROM (SELECT ORDER_ID, REGION_CD, AMT FROM NXDNP.MV_ORA_TEST_TGT) __cg
+             └ 밑줄선두 별칭 __cg(ORA-00911)
+      [위험] SELECT MIN((ORDER_ID)), MAX((ORDER_ID)) FROM (SELECT ORDER_ID, REGION_CD, AMT FROM NXDNP.MV_ORA_TEST_TGT) __cg
+             └ 밑줄선두 별칭 __cg(ORA-00911)
+      [위험] SELECT (ORDER_ID) FROM (SELECT ORDER_ID, REGION_CD, AMT FROM NXDNP.MV_ORA_TEST_TGT) __cg ORDER BY 1 LIMIT 5
+             └ LIMIT(ORA-03049), 밑줄선두 별칭 __cg(ORA-00911)
+      [위험] SELECT (ORDER_ID) FROM (SELECT ORDER_ID, REGION_CD, AMT FROM NXDNP.MV_ORA_TEST_TGT) __cg ORDER BY 1 DESC LIMIT 5
+             └ LIMIT(ORA-03049), 밑줄선두 별칭 __cg(ORA-00911)
+      [위험] SELECT MIN((REG_DT)), MAX((REG_DT)) FROM (SELECT ORDER_ID, REGION_CD, AMT FROM NXDNP.MV_ORA_TEST_TGT) __cg
+             └ 밑줄선두 별칭 __cg(ORA-00911)
+
+  [2] POST /count-gate/one-side-preview  (ok=True)
+      [위험] SELECT * FROM (SELECT ORDER_ID, REGION_CD, AMT FROM NXDNP.MV_ORA_TEST_SRC) __cg LIMIT 10
+             └ LIMIT(ORA-03049), 밑줄선두 별칭 __cg(ORA-00911)
+
+  [3] POST /count-gate/one-side-export  (kind=STREAM, ok=True)
+      커서 API 사용: ["cursor(name='__count_gate_export')", 'itersize=5000']
+      [위험] SELECT * FROM (SELECT ORDER_ID, REGION_CD, AMT FROM NXDNP.MV_ORA_TEST_SRC) __cg
+             └ 밑줄선두 별칭 __cg(ORA-00911)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+■ dialect = postgresql
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  [L56] resolve_confirmed_chunk_key(dialect=...) 전달값 : (미전달)
+
+  [1] POST /count-gate/range-diagnosis  (ok=True, 방출 10건)
+      [안전] SELECT count(*) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) __cg
+      [안전] SELECT MIN((ORDER_ID)), MAX((ORDER_ID)) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) __cg
+      [안전] SELECT (ORDER_ID) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) __cg ORDER BY 1 LIMIT 5
+      [안전] SELECT (ORDER_ID) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) __cg ORDER BY 1 DESC LIMIT 5
+      [안전] SELECT MIN((reg_dt)), MAX((reg_dt)) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) __cg
+      [안전] SELECT count(*) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) __cg
+      [안전] SELECT MIN((ORDER_ID)), MAX((ORDER_ID)) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) __cg
+      [안전] SELECT (ORDER_ID) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) __cg ORDER BY 1 LIMIT 5
+      [안전] SELECT (ORDER_ID) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) __cg ORDER BY 1 DESC LIMIT 5
+      [안전] SELECT MIN((reg_dt)), MAX((reg_dt)) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) __cg
+
+  [2] POST /count-gate/one-side-preview  (ok=True)
+      [안전] SELECT * FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) __cg LIMIT 10
+
+  [3] POST /count-gate/one-side-export  (kind=STREAM, ok=True)
+      커서 API 사용: ["cursor(name='__count_gate_export')", 'itersize=5000']
+      [안전] SELECT * FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) __cg
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+■ dialect = mysql
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  [L56] resolve_confirmed_chunk_key(dialect=...) 전달값 : (미전달)
+
+  [1] POST /count-gate/range-diagnosis  (ok=True, 방출 10건)
+      [안전] SELECT count(*) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) __cg
+      [안전] SELECT MIN((ORDER_ID)), MAX((ORDER_ID)) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) __cg
+      [안전] SELECT (ORDER_ID) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) __cg ORDER BY 1 LIMIT 5
+      [안전] SELECT (ORDER_ID) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) __cg ORDER BY 1 DESC LIMIT 5
+      [안전] SELECT MIN((reg_dt)), MAX((reg_dt)) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) __cg
+      [안전] SELECT count(*) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) __cg
+      [안전] SELECT MIN((ORDER_ID)), MAX((ORDER_ID)) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) __cg
+      [안전] SELECT (ORDER_ID) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) __cg ORDER BY 1 LIMIT 5
+      [안전] SELECT (ORDER_ID) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) __cg ORDER BY 1 DESC LIMIT 5
+      [안전] SELECT MIN((reg_dt)), MAX((reg_dt)) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) __cg
+
+  [2] POST /count-gate/one-side-preview  (ok=True)
+      [안전] SELECT * FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) __cg LIMIT 10
+
+  [3] POST /count-gate/one-side-export  (kind=STREAM, ok=True)
+      커서 API 사용: ["cursor(name='__count_gate_export')", 'itersize=5000']
+      [안전] SELECT * FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) __cg
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+■ dialect = mssql
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  [L56] resolve_confirmed_chunk_key(dialect=...) 전달값 : (미전달)
+
+  [1] POST /count-gate/range-diagnosis  (ok=True, 방출 10건)
+      [안전] SELECT count(*) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) __cg
+      [안전] SELECT MIN((ORDER_ID)), MAX((ORDER_ID)) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) __cg
+      [안전] SELECT (ORDER_ID) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) __cg ORDER BY 1 LIMIT 5
+      [안전] SELECT (ORDER_ID) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) __cg ORDER BY 1 DESC LIMIT 5
+      [안전] SELECT MIN((reg_dt)), MAX((reg_dt)) FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) __cg
+      [안전] SELECT count(*) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) __cg
+      [안전] SELECT MIN((ORDER_ID)), MAX((ORDER_ID)) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) __cg
+      [안전] SELECT (ORDER_ID) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) __cg ORDER BY 1 LIMIT 5
+      [안전] SELECT (ORDER_ID) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) __cg ORDER BY 1 DESC LIMIT 5
+      [안전] SELECT MIN((reg_dt)), MAX((reg_dt)) FROM (SELECT id, region, amt FROM tobe01.t_gbnullx_tgt) __cg
+
+  [2] POST /count-gate/one-side-preview  (ok=True)
+      [안전] SELECT * FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) __cg LIMIT 10
+
+  [3] POST /count-gate/one-side-export  (kind=STREAM, ok=True)
+      커서 API 사용: ["cursor(name='__count_gate_export')", 'itersize=5000']
+      [안전] SELECT * FROM (SELECT id, region, amt FROM asis01.t_gbnullx_src) __cg
+
+========================================================================================================
+ 요약 [BEFORE] : 오라클 방출 SQL 중 위험 판정 12 건
+========================================================================================================

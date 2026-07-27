@@ -1,0 +1,31 @@
+====================================================================================================
+ COUNT-GATE-ROUTE-DIALECT-AND-ALIAS-FIX — 실 서비스 포트 종단 확인
+ BASE=http://127.0.0.1:8000 (HTTP Basic Auth ON)
+====================================================================================================
+
+[인증/도달] one-side-preview(빈 요청) HTTP 200
+
+── [1] POST /count-gate/range-diagnosis (oracle 접속) ──
+  HTTP 200
+  ok=True  query_limit_per_side=5
+  match_key={'confirmed': False}
+  [src] queries_used=1 count=None count_error=DPY-4001: no credentials specified
+  [tgt] queries_used=1 count=None count_error=DPY-4001: no credentials specified
+  possible_causes 6건 · note 존재=True
+
+── [2] POST /count-gate/one-side-preview (oracle 접속, side=src) ──
+  HTTP 200
+  {"ok":false,"error":"대표 레코드 조회 중 오류가 발생했습니다.","detail":"DPY-4001: no credentials specified"}
+
+── [3] POST /count-gate/one-side-export (oracle 접속, side=src) ──
+  HTTP -1
+  IncompleteRead(0 bytes read)
+  ※ 오라클은 지원 방언이므로 스트리밍 경로로 진입한다(DB 미도달이라 접속 단계에서 종료).
+
+── [4] POST /count-gate/one-side-export (mysql 접속) — 새 방언 게이트 확인 ──
+  HTTP 200
+  {"ok":false,"reason_code":"EXPORT_DIALECT_UNSUPPORTED","error":"전체 CSV 스트리밍은 아직 postgresql, oracle 만 지원합니다(요청 DB 종류: mysql). 대표 레코드 조회는 사용할 수 있습니다."}
+
+  ▶ 서버가 새 모듈을 서빙 중인가(EXPORT_DIALECT_UNSUPPORTED 존재): 예
+
+====================================================================================================
