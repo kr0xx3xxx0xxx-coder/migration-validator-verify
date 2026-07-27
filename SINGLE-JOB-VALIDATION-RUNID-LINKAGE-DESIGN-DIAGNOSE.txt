@@ -1,0 +1,193 @@
+✅ 작업 완료 - SINGLE-JOB-VALIDATION-RUNID-LINKAGE-DESIGN-DIAGNOSE (코드 수정 0 · 설계 진단만)
+
+■ 결론
+  서버측 연결점은 **전무**하다. 재이관(exact_diff) 실행 흐름은 검증 run_id 를 인자로 받은 적도, 저장한 적도,
+  로깅한 적도 없다. "이미 있는 필드를 어댑터가 안 읽었을 뿐"인 경우가 **아니다**.
+  결정적 사실 3개:
+   (1) 두 id 는 **생성 규칙부터 다르다** — 검증 run_id = str(uuid.uuid4())
+       (services/validation_result_store.py:182), 재이관 run_id = "PS"+uuid.hex[:12].대문자
+       (routes/agg_diff_route.py:241,372). 서로 같아질 수 없다.
+   (2) 그럼에도 **이미 한 곳이 둘을 같은 것으로 착각하고 있다** — routes/single_restore_route.py:155 가
+       재이관 run_id 를 single_validation_result_store.get_single_result() 에 그대로 넣는다.
+       → 항상 None → result_ids/plan_fingerprint/fingerprint 가 **영구히 빈 값**인 죽은 호출(무증상).
+   (3) 두 id 를 동시에 쥐고 있는 지점은 **클라이언트 한 곳뿐**이다 —
+       ui/tabler_renderer.py:17202-17208 이 검증쪽 result_ids 와 재이관 run_id 를 한 URL 로 합쳐
+       GET /stats-result/export?result_ids=…&pk_run_id=… 를 만든다(routes/stats_result_route.py:50).
+       즉 **클라 조립 선례는 이미 운영 중**이고, 서버 매핑 선례는 없다.
+
+────────────────────────────────────────────────────────────────────────────
+1. 두 run_id 체계 — 생성·저장·소비 전 구간 추적
+────────────────────────────────────────────────────────────────────────────
+[A] 검증 run_id (single_validation_snapshot 키)
+ 생성  services/single_validation_execute_orchestrator.py:46-55
+        run_id = _store.create_validation_run(input_type="STATS", …)   ← persist=False 면 None
+        └ 실체 services/validation_result_store.py:232-250 / id 발급 :182 `str(uuid.uuid4())`
+ 저장  validation_execution_run (SQLite db/migration_validator.db, :46-72 스키마)
+        single_validation_snapshot (:129-135, run_id TEXT PRIMARY KEY)
+        ← orchestrator:162-169 build_single_snapshot(run_id, result, req) + save_single_result(run_id, snap)
+          (fire-and-forget · 성공/실패 모두 저장)
+ 응답  result["run_id"] (:135) · result["validation_job_id"] (:169)
+ 화면  ui/execute_result_renderer.py:699,721 '실행 ID' 배지 / :1321 _vjid
+
+[B] 재이관 run_id (reimport_job / exact_diff 키)
+ 생성  routes/agg_diff_route.py:241  run_id = "PS" + uuid.uuid4().hex[:12].upper()
+                              :372  표본 게이트 선바인딩분도 동일 규칙
+ 바인딩 services/exact_diff/reimport_job.py:142-148 bind_run_id(job, run_id, meta)
+        (route :247,259,264,373,940 에서 호출)
+ 저장  in-memory  _JOBS_BY_RUN (reimport_job.py:22) — 서버 재기동 시 소멸
+        file       exact_diff_run (services/exact_diff/store.py:28-43, create_run :150-164)
+                   ※ prepare 는 default_exact_diff_store(True)=파일 영속 사용(agg_diff_route.py:934)
+ 소비  GET /agg-diff/pk-records(:1005) · pk-export(:1289) · /single/restore-envelope
+
+[C] 두 흐름이 만나는 지점 — **서버에는 없음**
+ · PkPrepareRequest(routes/agg_diff_route.py:417-457) 전 필드 확인:
+   parse_result / src·tgt_sql / src·tgt_conn / key_src·tgt / sum_cols / gb_cols / force / probe_only /
+   stream / batch_size / source·target_count / early_stop_* / min_decision_count / compare_strategy /
+   chunk_size / resume / plan_fingerprint / selection_fingerprint / selection_mode /
+   chunk_key_evidence_snapshot / session_id / query_summary / query_full /
+   global_settings_fingerprint / project_id / tgt_where
+   → **검증 run_id 를 받는 필드가 없다.**
+ · start_or_attach meta(agg_diff_route.py:960-968)에 들어가는 값도
+   gb_cols/session_id/project_id/workflow_type/query_summary/query_hash/condition_fp/
+   source·target_count/execution_path/selected_strategy_id/chunk_size — 검증 run_id 없음.
+ · 클라 payload _mvPkPayload(ui/tabler_renderer.py:16684-16736)도 미전송.
+   ※ 단 **같은 인자 r 안에 값은 있다** — _mvScopePayload(:16265)가 동일한 r 로부터
+     `origin_run_id: (r.run_id || r.snapshot_id || '')` 를 만들어 /diagnosis 로 보내고 있다.
+     즉 클라는 prepare 호출 시점에 검증 run_id 를 **이미 손에 쥐고 있으면서 안 보내는 상태**다.
+
+[D] 이미 문서화돼 있던 갭
+ ui/js_restore_individual_adapter.py:125-126 주석 —
+   "통계검증 SQL/실행 문맥 토큰은 이 복원 store(재이관 run)에 없다(통계 스냅샷은 별도 run_id)"
+ → 이번 진단의 결론과 동일한 사실이 이미 코드 주석으로 남아 있었다.
+
+────────────────────────────────────────────────────────────────────────────
+2. "어댑터가 안 읽었을 뿐"인가? — 아니다(단, 읽을 통로 자체는 이미 있다)
+────────────────────────────────────────────────────────────────────────────
+ · 값의 부재    : 위 1-[C] 대로 재이관 job/meta/store 어디에도 검증 run_id 가 저장되지 않는다.
+                 job_registry 의 single DTO id 는 services/job_registry.py:255 `st.get("run_id")` = 재이관 run_id,
+                 extra(:270-280)에도 session_id/query_hash 만 있고 검증 run_id·result_id 없음.
+ · 통로의 존재  : reimport_job.job["meta"] 는 **자유형 dict**(reimport_job.py:87-90 생성, :142-148 merge)이고,
+                 `get_by_run(run_id)`(reimport_job.py:58-59)이 job 원본 dict 를 그대로 반환하는 **공개 함수**다.
+                 → job_registry 어댑터가 meta 를 읽는 데 reimport_job.py 수정은 필요 없다.
+ · 단, 주의     : run_status()(reimport_job.py:402) 는 _job_public(:361-374)을 거치는데 그 함수는 meta 를
+                 **화이트리스트**(query_summary/session_id/query_hash)로만 노출한다.
+                 → meta 에 값을 넣더라도 run_status() 경로로는 안 보인다. 어댑터가 get_by_run() 을 써야 한다
+                   (또는 _job_public 수정 = reimport_job 침습).
+ 결론: "필드는 있는데 안 읽은 것"이 아니라 "쓰는 사람이 없는 빈 필드"다. 다만 **읽는 쪽은 무침습으로 가능**하다.
+
+────────────────────────────────────────────────────────────────────────────
+3. 최소 침습 연결 대안 3안
+────────────────────────────────────────────────────────────────────────────
+[A안] 클라이언트 조립 — 서버 매핑 0
+  구현: 현황판 job 카드에서 '결과 보기' 클릭 시, 클라가 갖고 있는 검증 run_id 를 그대로 결과 라우트에 넘긴다.
+        선례: /stats-result/export?result_ids=…&pk_run_id=… (tabler_renderer.py:17207 / stats_result_route.py:50)
+  침습: 0(서버 무수정). 규모: JS ~10줄.
+  치명적 한계: 현황판의 존재 이유가 "지금 이 브라우저가 만들지 않은 job 도 본다"인데, 클라 메모리에는
+        **자기 세션이 방금 실행한 run 의 id 만** 있다. 새로고침·다른 탭·다른 세션·서버 재기동 후에는
+        조립할 값이 없어 '결과 보기'가 조용히 비활성 → 커버리지가 사실상 "방금 내가 돌린 것"으로 축소.
+        → 단독안으로는 부적합. B안/C안의 **폴백**으로는 유효.
+
+[B안] prepare 요청에 필드 1개 + job meta 저장 (reimport_job.py 무수정)  ★추천
+  구현 4곳(전부 route/JS/registry — 완료 모듈 미수정):
+   ① ui/tabler_renderer.py:16706~ _mvPkPayload 반환에 `origin_run_id: ((r||{}).run_id||'')` 1줄
+      (_mvScopePayload:16265 와 완전히 같은 표현식 — 새 값 계산 없음)
+   ② routes/agg_diff_route.py:417-457 PkPrepareRequest 에 `origin_run_id: str = ""` 1줄
+   ③ routes/agg_diff_route.py:960-968 start_or_attach meta 에 `"origin_validation_run_id": (req.origin_run_id or "")` 1줄
+      + 재사용 분기(:904-911)에서도 `ex["meta"]["origin_validation_run_id"] = …` 갱신 1줄
+        (← 이걸 빼면 fingerprint 재사용 시 **stale 링크**가 생긴다. 아래 리스크 참조)
+   ④ services/job_registry.py dto_from_single_status — `_rj.get_by_run(rid)` 로 meta 조회해
+      extra["validation_run_id"] 채움(~5줄). DTO 기본 9필드 불변, extra 부가만.
+  침습: reimport_job.py / exact_diff store / engine **0 수정**. job_registry 의 "저장소 모듈 미수정"
+        원칙(services/job_registry.py:26-33) 위반 없음(get_by_run 은 공개 API).
+  수명: in-memory job 과 동일(재기동 시 소멸). 현황판 single 목록 자체가 in-memory job 기반이므로
+        **수명 불일치가 생기지 않는다** — 목록에 뜨는 job 은 항상 링크도 갖는다.
+  규모: 서버 3줄 + JS 1줄 + registry 5줄 ≈ 9줄. 신규 파일 0.
+
+[C안] 얇은 매핑 테이블 신설(영속)
+  구현: services/job_link_store.py(신규 ~80줄) — (reimport_run_id PK, validation_run_id, result_ids,
+        session_id, created_at). prepare 성공 시 write 1회, job_registry 가 mode=ro SELECT.
+  침습: 신규 저장소 1개 추가(=5번째 job 관련 저장소). reimport_job/exact_diff 무수정.
+  장점: **영속** — 서버 재기동 후에도 완료 run(exact_diff_run 은 파일 영속) 결과를 열 수 있다.
+        완료 job 목록 API 를 만들 때 유일하게 성립하는 안.
+  단점: 규모 ~120줄 + 테스트, 그리고 "job 저장소가 이미 4개로 분리돼 있다"는 기존 문제를 하나 더 키운다.
+        구조 안정화 우선 원칙과 정면으로 부딪힌다.
+
+[참고·비추천] exact_diff_run.basis_json 에 실어 영속화
+  basis 는 free-form 이고 restore 가 이미 읽지만(single_restore_route.py:81-125),
+  finish_run(services/exact_diff/store.py:181-193)이 basis 를 **통째로 덮어쓴다**. prepare 시점에 끼워 넣으면
+  완료 시 engine 이 만든 basis 로 소실되고, 소실을 막으려면 engine 수정(완료 모듈 침습)이 필요하다. → 배제.
+
+■ 비교
+  안   침습도                              구현규모            회귀위험                        영속성
+  ──  ──────────────────────────────────  ─────────────────  ──────────────────────────────  ──────
+  A   0 (서버 무수정)                      JS ~10줄            없음                            해당없음(값 자체가 휘발)
+  B   낮음 (route 3줄·JS 1줄·registry 5줄) ~9줄               낮음 — 부가 필드만, 판정·SQL·   job 수명과 동일
+                                                              store·응답 shape 불변            (재기동 시 소멸)
+  C   중간 (신규 저장소 1개)               ~120줄+테스트       중간 — 새 파일 I/O·동시성·      영속
+                                                              cleanup 책임 신설
+  D   높음 (완료 모듈 engine/store 수정)   —                  높음(basis 덮어쓰기 경합)        영속
+
+■ 추천: **B안**(+ '결과 보기' 미제공 시 A안 폴백). 영속이 요구사항으로 확정되면 그때 C안으로 승격.
+  근거 3가지
+   1. 이번 목표는 "**현황판에 떠 있는** 개별검증 job 의 결과를 연다"이고, 그 목록은 in-memory job 기반이라
+      B안의 수명 한계가 실제 기능 한계가 되지 않는다. C안의 영속성은 지금은 **아직 존재하지 않는 기능**
+      (완료 job 목록 API — 직전 진단 6항)을 위해서만 필요하다. 없는 기능을 위해 저장소를 먼저 늘리지 않는다.
+   2. reimport_job.py·store.py·engine.py 를 한 줄도 건드리지 않는다 → 완료 모듈 수정 승인 절차 자체가 불필요.
+   3. 값의 출처가 이미 검증된 표현식(_mvScopePayload:16265 의 r.run_id)이라 새 heuristic·새 계산이 0이다.
+
+■ B안 채택 시 반드시 함께 처리할 3건
+  ① 재사용 경로 stale — prepare 는 fingerprint 일치 시 start_or_attach 전에 조기 반환한다
+     (agg_diff_route.py:904-911). 이 분기에서 meta 를 갱신하지 않으면 "새 execute → 같은 fingerprint 재사용"
+     시 **이전 execute 의 검증 run_id** 가 링크로 남아 남의 결과를 연다. 갱신 1줄 필수.
+  ② N:1 손실 — GB 2개 이상 다중 세트 실행은 세트마다 검증 run_id 가 따로 생기는데 재이관 run 은 1개다.
+     meta 에 마지막 값만 남기면 조용히 1개를 대표로 삼게 된다. `origin_validation_run_ids`(목록) 로 두거나,
+     "대표 = 최근" 정책을 응답 필드로 명시해 설명가능성을 남길 것.
+  ③ 덤으로 고칠 것 — single_restore_route.py:155 의 죽은 호출. 링크가 생기면
+     `_enrich_from_result_store(<검증 run_id>)` 로 바꿔 result_ids/fingerprint 복원이 처음으로 실제 동작한다.
+     (지금은 항상 빈 값을 채우고 있어, 복원 화면의 result_ids 부재가 이 원인인지 아무도 모른다.)
+
+────────────────────────────────────────────────────────────────────────────
+4. 기능/구조 변경 요청 응답 형식
+────────────────────────────────────────────────────────────────────────────
+· 요청 요약: 현황판이 개별검증 job 카드에서 통계검증 결과를 열 수 있도록, 재이관 run_id ↔ 검증 run_id 를
+             비침습으로 연결할 방법을 진단(구현 없음).
+· 긍정적 효과: 링크 1개로 현황판 '결과 보기'가 성립하고, 부수적으로 복원 경로의 죽은 호출
+             (single_restore_route.py:155)까지 실제 동작하게 된다.
+· 구조적 문제점: 재이관(실행 관측)과 검증 결과(스냅샷)는 지금까지 **의도적으로 분리**돼 있었다. 링크를 넣는
+             순간 두 계층에 방향성 있는 결합이 생긴다. 방향을 반드시 '재이관 → 검증'(참조만) 한쪽으로
+             고정하고, 검증 저장소가 재이관을 아는 역방향 참조는 만들지 말 것.
+· 운영상 위험: (1) 재사용/prewarm 경로의 stale 링크 → **남의 결과 표시**(가장 큰 위험, 위 ①로 차단).
+             (2) 다중 세트 N:1 손실(위 ②). (3) 서버 재기동 시 링크 소멸 → '결과 보기'가 조용히 사라짐.
+                 사유 문구 없이 버튼만 없어지면 결함으로 오인된다.
+· heuristic / scoring / explainability 영향: heuristic·scoring 변경 0. explainability 는 **개선** 쪽이다 —
+             지금은 "이 재이관 run 이 어느 검증 실행에서 나왔는가"가 어디에도 기록돼 있지 않다.
+             단, 링크를 '대표 1개'로 뭉개면 근거 손실이 생기므로 목록 보존 또는 정책 명시가 조건.
+· 권장 대응책: B안(요청 필드 1개 + job meta + get_by_run 읽기) + 재사용 분기 갱신 + N:1 정책 명시.
+             reimport_job.py / exact_diff store·engine 은 건드리지 않는다.
+· 지금 구현 여부: **문서화 우선**(이번 지시가 진단 한정). 다만 B안은 선결 조건이 없고 9줄 규모라,
+             착수 승인만 있으면 단독으로 즉시 진행 가능하다(완료 job 목록 API·snapshot whitelist 확장 등
+             직전 진단의 나머지 선결 3건과 **독립**).
+
+────────────────────────────────────────────────────────────────────────────
+5. 검증(필수) 결과
+────────────────────────────────────────────────────────────────────────────
+[1] 두 run_id 체계의 관계를 코드로 추적 → 1항.
+    · 생성 규칙 상이: validation_result_store.py:182 (uuid4) vs agg_diff_route.py:241,372 ("PS"+hex12 대문자)
+      → 값이 우연히 일치할 가능성 0.
+    · 재이관 측이 검증 run_id 를 받는 지점: **없음**(PkPrepareRequest:417-457 전 필드 확인).
+    · 저장/로깅 지점: **없음**(start_or_attach meta agg_diff_route.py:960-968 / exact_diff_run 스키마
+      store.py:28-43 / create_run:150-164 전수 확인).
+    · 잘못된 전제 1건 실재: single_restore_route.py:155 → get_single_result(재이관 run_id) = 항상 None.
+    · 두 id 동시 보유 지점은 클라 1곳뿐: tabler_renderer.py:17202-17208 → stats_result_route.py:50.
+    · 선례 존재: 진단(diagnosis) 계층은 동일 문제를 origin_run_id 컬럼 영속으로 이미 해결했다
+      (services/diagnosis/store.py:136,155 / contracts.py:108 / routes/diagnosis_route.py:29,398).
+[2] 어댑터 미독출 여부 → 2항. **아니다**(값 자체가 없음). 단 읽는 통로는 무침습 존재 —
+    reimport_job.py:58-59 get_by_run(공개) 이 meta 포함 job 원본을 반환.
+    주의: run_status() 경로는 _job_public(:361-374) 화이트리스트라 meta 신규 키가 보이지 않는다.
+[3] 대안 비교 + 추천 → 3항. A(클라 조립·침습0·커버리지 부족) / B(요청필드+meta·9줄·무침습) /
+    C(매핑 테이블·영속·~120줄) + D(basis_json·배제 사유 명시). **추천 B안**.
+
+■ 코드 수정: 0건 (설계 진단 전용)
+■ 실행/DB 접속: 0회 (정적 코드 추적만)
+
+✅ 작업 완료 - SINGLE-JOB-VALIDATION-RUNID-LINKAGE-DESIGN-DIAGNOSE (서버 연결점 전무 확인 · B안(무침습 9줄) 추천)
