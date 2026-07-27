@@ -1,0 +1,104 @@
+✅ 작업 완료 - AGG-CONTRIBUTION-SCOPE-DIALECT-AND-ALIAS-FIX : agg_contribution scope 래핑의 PG 전용 캐스트·별칭을 4방언 분기 + mv_ 별칭으로 해소
+
+[1] 무엇을 고쳤나 — services/exact_diff/agg_contribution.py (지시대로 이 파일만)
+  Before(:840-841)  SELECT * FROM (...) __sc WHERE (col)::text = 'v'
+    · __sc   : 밑줄 선두 비인용 별칭 → 오라클 ORA-00911
+    · ::text : 오라클이 `:text` 를 바인드 변수로 오인 → DPY-4010
+    → 결과가 틀리는 결함이 아니라 '실행 자체가 불가'. raise 금지 규칙 탓에 사용자에겐
+      HOLD/AGG_QUERY_FAILED 로만 보이는 조용한 차단이었다.
+
+  After
+    (1) _scope_eq_expr 로 4방언 분기 — oracle=TO_CHAR((c)), mysql=CAST AS CHAR,
+        mssql=CAST AS NVARCHAR(4000), postgres=기존 ::text 유지.
+        새 패턴 발명 없이 exact_diff/dialects/oracle.py 의 _txt 캐스트를 그대로 재사용했고,
+        routes/exact_diff_route.py 의 동명 헬퍼와 계약을 맞췄다. 방언은 각 측 접속 db_type
+        에서 공통 헬퍼 _to_sqlglot_dialect 로 도출(_conn_dialect) — 혼합 방언도 각 측 대응.
+    (2) 별칭 __sc → mv_agg_scope_src / mv_agg_scope_tgt (mv_reimport_src·mv_scope_src 규칙과 통일).
+        이름 참조 없는 위치라 SQL 의미 불변.
+    (3) [지시 범위에서 한 걸음] 바깥층 _agg_sql 이 여전히 PG 전용(__K/__agg 밑줄 별칭·::text·
+        GROUP BY 1)이라 (1)(2)만으로는 최종 문장이 오라클에서 다시 막힌다. 지시 3번의
+        "After = 실행가능"을 충족시키려 db_type='oracle' 일 때 같은 파일에 이미 있는 위임
+        (_pk_agg_sql → dialects/oracle.pk_agg_sql, unique_key=False)로 넘기기만 했다.
+        새 빌더 없음·산출 컬럼 순서 동일(소비자 _row() 는 위치 기반)·PG 본문 무변경.
+
+[2] 이 경로가 실제로 도달하는 지점 (지시 2번)
+  run_agg_contribution_diff 의 유일 호출자 = routes/agg_diff_route.py:1366 (POST /agg-diff/run).
+  · 화면 클릭 경로로는 도달하지 않는다 — 통계검증 불일치 그룹 클릭은 §22 규칙상
+    /agg-diff/prepare + /agg-diff/pk-records 만 호출하며(tests/test_agg_contribution.py:149 가
+    "행 클릭이 /agg-diff/run 을 부르면 안 된다"를 단언), 그쪽 집계 SQL(_pk_agg_sql)은 이미
+    오라클 위임 완료 상태다.
+  · 다만 POST /agg-diff/run 은 서버에 살아 있는 공개 API 이고, 실 서비스 포트로 직접 호출하면
+    라우트 → 엔진 → scope 래핑까지 실제 진입한다(아래 [4] 실측). 검증 스크립트·외부 호출·향후
+    UI 재배선이 이 경로를 쓰면 그대로 막혔다.
+  → '매일 밟히는 화면 경로'는 아니고 '살아 있는 API 로서 오라클 구조적 실행 불가'였다.
+
+[3] Before/After 렌더 대조 (오라클, 원본측 — 실행 직전 SQL 그대로 캡처)
+  BEFORE  SELECT (ORDER_ID) AS __K, MIN((ORDER_YM)::text) AS __G, count(*) AS __N,
+                 SUM((ORDER_AMT)) AS __S0
+            FROM (SELECT * FROM (...) __sc WHERE (ORDER_YM)::text = '202601') __agg
+           GROUP BY 1 ORDER BY 1
+          차단요인 3종 검출 : ::text(DPY-4010) / 밑줄 선두 비인용 별칭(ORA-00911) / GROUP BY n
+  AFTER   SELECT (ORDER_ID) AS "__K", MIN(TO_CHAR((ORDER_YM))) AS "__G0", COUNT(*) AS "__N",
+                 SUM((ORDER_AMT)) AS "__S0"
+            FROM (SELECT * FROM (...) mv_agg_scope_src
+                   WHERE TO_CHAR((ORDER_YM)) = '202601') "__agg"
+           GROUP BY (ORDER_ID) ORDER BY (ORDER_ID)
+          차단요인 0종. 목적측 별칭도 mv_agg_scope_tgt 로 대칭.
+  ※ 정직한 한계 : sqlglot 파싱은 Before 도 통과시켜 판별자가 못 된다. 위 판정은 파서가 아니라
+    '과거 실측으로 확인된 차단요인 3종의 유무'로 내렸다.
+
+[4] 검증 환경 — 실 DB 대신 무엇으로 했나 (지시대로 내부망 먼저 확인)
+  192.168.0.151:1523/1524(Oracle), 192.168.0.150:5433/5434(PG) 전 포트 TCP TimeoutError.
+  → 실 DB 실행 불가. 지시서가 허용한 'SQL 렌더 캡처' 방식으로 대체했음을 명시한다.
+    캡처는 손으로 재구성한 SQL 이 아니라 fetch_fn 직전 실제 문자열이며, Before 는 git HEAD
+    모듈을 임시 로드해 동일 조건으로 캡처했다.
+  실 서비스 포트(8000, 인증 ON) 확인 : GET / → HTTP 200,
+    POST /agg-diff/run(오라클 접속·scope 지정) → HOLD/AGG_QUERY_FAILED
+      "DPY-6005: cannot connect to database ... timed out"
+    실패 지점이 SQL 문법이 아니라 DB 접속 타임아웃 = 수정 경로가 라이브에서 접속 직전까지
+    정상 도달. 남은 변수는 코드가 아니라 내부망.
+
+[5] PostgreSQL 회귀 없음
+  술어 (ORDER_YM)::text = '202601'  → 완전 동일, 집계 SQL 본문도 완전 동일.
+  차이는 인라인뷰 별칭(__sc → mv_agg_scope_src/tgt)뿐이며, 별칭명 정규화 후 Before/After
+  문자열 완전 일치(alias_only_change=True). _agg_sql 의 PG 본문은 단위 테스트에서 문자열 고정.
+  mysql/mssql 은 캐스트 분기는 되지만 이 엔진의 raw 커넥터가 PG/Oracle 만 등록되어 있어
+  현재 도달하지 않는다(사실 그대로 기록).
+
+[6] 테스트 (baseline 대조)
+  신규 tests/test_agg_contribution_scope_dialect.py 8건 + 기존 tests/test_agg_contribution.py
+    → 18 passed
+  agg_contribution / agg-diff / exact_diff 참조 테스트 전체
+    BASELINE (worktree, HEAD 1fb93e8, 55파일) : 17 failed, 449 passed, 1 skipped, 6 xfailed
+    AFTER    (수정 후, 56파일)                 : 17 failed, 457 passed, 1 skipped, 6 xfailed
+    → passed +8(신규 전부), failed 17건은 테스트 ID 까지 동일한 사전 존재 실패(UI 배선/실행경로 계열)
+  CLAUDE.md 지정 회귀 : samples/test_virtual_cases.py 8/8, samples/test_complex_cases.py 5/5
+
+[7] 서버 재기동
+  코드 수정시각 2026-07-27 15:48:05 → 재기동 2026-07-27 15:54:11 (KST), 기존 PID 18408 종료,
+  신규 PID 12148. web_server.py 는 reload=False 라 재기동 없이는 .py 편집이 반영되지 않는다.
+
+[8] 변경/생성 파일 · 커밋
+  수정 services/exact_diff/agg_contribution.py       (+63 / -6)
+  신규 tests/test_agg_contribution_scope_dialect.py
+  신규 scripts/dev_e2e/agg_contribution_scope_dialect_verify.py
+  커밋 5eab277c1658316ee90d91b121b4ee5ce8abf33d
+       fix(agg-diff): 집계 기여 scope 방언 캐스트 분기 + mv_ 별칭 개명
+       (AGG-CONTRIBUTION-SCOPE-DIALECT-AND-ALIAS-FIX)
+
+[9] 남은 갭 (비판적 검토)
+  (1) 실 DB 실행 검증 미완 — 내부망 복구 후 오라클 XDIFF(250,000 vs 249,950)로 재확인 필요.
+      현재는 렌더 대조까지가 한계다.
+  (2) _scope_eq_expr 이 exact_diff_route.py 와 agg_contribution.py 두 곳에 동일 내용으로 존재.
+      이번 지시가 파일 1개 한정이라 통합하지 않았다. 서비스 계층에 단일 정의를 두고 route 가
+      참조하는 방향이 계층 규칙에 맞다(별도 작업 권고).
+  (3) POST /agg-diff/run 은 UI 미배선 상태의 살아 있는 API — 유지/정리 정책 판단 필요.
+
+[10] 증적
+  E:\verify_reports\AGG-CONTRIBUTION-SCOPE-DIALECT-AND-ALIAS-FIX.txt
+  E:\verify_screenshots_only\AGG-CONTRIBUTION-SCOPE-DIALECT-AND-ALIAS-FIX\
+    REPORT.txt / before_after_render.txt / scope_dialect_render_before_after.json /
+    baseline_vs_after.txt / live_probe_and_restart.txt / pytest_related_after.txt /
+    pytest_agg_focus_after.txt
+
+✅ 작업 완료 - AGG-CONTRIBUTION-SCOPE-DIALECT-AND-ALIAS-FIX : 오라클 차단요인 3종 제거·PG 무회귀 확인(실 DB 실행 검증은 내부망 복구 후 재확인 필요)
