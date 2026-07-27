@@ -1,0 +1,102 @@
+STATS-PLAN-SERVICE-GROUPBY-STR-DICT-CHECK 실측 harness
+운영 DB: C:\projects\migration-validator\db\migration_validator.db
+운영 DB sha256(before): c86f3236a342fea529bf1871893f661411917f3005db01ae46f64d2c7bf50567
+
+==============================================================================
+P1. 함수 단위 재현 — _plan_summary(선택 원소 str vs dict)
+==============================================================================
+  문자열 리스트 : CRASH AttributeError: 'str' object has no attribute 'get' @ stats_validation_plan_service.py:1188
+  dict 리스트   : 정상(group_by_cols=['TXN_TYPE'], sum_cols=['TXN_AMT'])
+
+==============================================================================
+P2. _plan_summary 호출처 인벤토리(production 코드만)
+==============================================================================
+   services/stats_validation_plan_service.py:1104  _plan_summaries = [_plan_summary(p) for p in plans]
+   services/stats_validation_plan_service.py:1167  def _plan_summary(plan: dict) -> dict:
+
+==============================================================================
+P3. 운영 SQLite 실 shape (읽기 전용)
+==============================================================================
+
+  [policy_stats_validation_plan_snapshot] 총 1003행, policy 분포={'DEFAULT': 1003}
+    selected_group_by    empty      636행   예: policy=DEFAULT []
+    selected_group_by    str        367행   예: policy=DEFAULT ["TXN_TYPE"]
+    selected_sum         empty      636행   예: policy=DEFAULT []
+    selected_sum         str        367행   예: policy=DEFAULT ["TXN_AMT"]
+
+  [policy_column_candidate_snapshot] 총 78행, policy 분포={'count_passed_only': 78}
+    selected_group_by    empty       78행   예: policy=count_passed_only []
+    selected_sum         empty       78행   예: policy=count_passed_only []
+
+==============================================================================
+P4. 라이브 계획 조회 API(읽기) — 문자열 GB 보유 그룹 GRP_202606170243184996
+==============================================================================
+   status: 200
+   items: 10
+     row_id=990002549 plan_status=GENERATED selected_group_by=['DEPT_CD', 'STATUS_CD'] selected_sum=['AMT']
+     row_id=990002550 plan_status=GENERATED selected_group_by=['STATUS_CD', 'DEPT_CD'] selected_sum=['AMT']
+     row_id=4299 plan_status=GENERATED selected_group_by=['TXN_TYPE'] selected_sum=['TXN_AMT']
+     row_id=4771 plan_status=GENERATED selected_group_by=['TXN_TYPE'] selected_sum=['TXN_AMT']
+
+==============================================================================
+P5. 후보 선택 저장 API 유입 게이트 — 문자열 리스트 전송 시 응답
+==============================================================================
+   PATCH snapshot_id=1507 (문자열 리스트) → status=422
+   body: {"detail":[{"type":"dict_type","loc":["body","selected_group_by",0],"msg":"Input should be a valid dictionary","input":"REGION"},{"type":"dict_type","loc":["body","selected_sum",0],"msg":"Input should be a valid dictionary","input":"QTY"}]}
+   PATCH snapshot_id=1507 (dict 리스트/미존재 후보) → status=400
+   body: {"ok":false,"success":false,"blocked":true,"code":"PROJECT_NOT_SELECTED","error":"작업 프로젝트를 먼저 선택하세요.","snapshot_id":1507}
+
+==============================================================================
+P6. 도달성 실험 — 후보 snapshot 에 문자열이 들어갔다고 가정(운영 DB 복사본)
+==============================================================================
+   대상 snapshot id=1507 group_id=CFR_926000 policy=count_passed_only
+   문자열 리스트 ['REGION']                       → CRASH AttributeError: 'str' object has no attribute 'get' @ stats_validation_plan_service.py:981
+   dict 리스트 [{'tgt_col':'REGION'}]          → 정상 ok=True plans=1 group_by_cols=[['REGION']]
+
+==============================================================================
+P7. 운영 DB 무변경 확인
+==============================================================================
+   sha256(after) : c86f3236a342fea529bf1871893f661411917f3005db01ae46f64d2c7bf50567
+   무변경        : 예
+
+==============================================================================
+요약
+==============================================================================
+{
+  "P1": {
+    "str": "CRASH AttributeError: 'str' object has no attribute 'get' @ stats_validation_plan_service.py:1188",
+    "dict": "정상(group_by_cols=['TXN_TYPE'], sum_cols=['TXN_AMT'])"
+  },
+  "P2": [
+    "services/stats_validation_plan_service.py:1104  _plan_summaries = [_plan_summary(p) for p in plans]",
+    "services/stats_validation_plan_service.py:1167  def _plan_summary(plan: dict) -> dict:"
+  ],
+  "P3": {
+    "policy_stats_validation_plan_snapshot": {
+      "selected_group_by|str": 367,
+      "selected_sum|str": 367,
+      "selected_group_by|empty": 636,
+      "selected_sum|empty": 636
+    },
+    "policy_column_candidate_snapshot": {
+      "selected_group_by|empty": 78,
+      "selected_sum|empty": 78
+    }
+  },
+  "P4": {
+    "status": 200,
+    "items": 10,
+    "str_items": 10
+  },
+  "P5": {
+    "str_status": 422,
+    "str_body": "{\"detail\":[{\"type\":\"dict_type\",\"loc\":[\"body\",\"selected_group_by\",0],\"msg\":\"Input should be a valid dictionary\",\"input\":\"REGION\"},{\"type\":\"dict_type\",\"loc\":[\"body\",\"selected_sum\",0],\"msg\":\"Input should be a valid dictionary\",\"input\":\"QTY\"}]}",
+    "dict_status": 400,
+    "dict_body": "{\"ok\":false,\"success\":false,\"blocked\":true,\"code\":\"PROJECT_NOT_SELECTED\",\"error\":\"작업 프로젝트를 먼저 선택하세요.\",\"snapshot_id\":1507}"
+  },
+  "P6": {
+    "문자열 리스트 ['REGION']": "CRASH AttributeError: 'str' object has no attribute 'get' @ stats_validation_plan_service.py:981",
+    "dict 리스트 [{'tgt_col':'REGION'}]": "정상 ok=True plans=1 group_by_cols=[['REGION']]"
+  },
+  "prod_db_unchanged": true
+}
