@@ -1,0 +1,352 @@
+﻿════════════════════════════════════════════════════════════════════════
+  9단계: 복잡한 SQL 분석 테스트
+  총 케이스: 5개
+════════════════════════════════════════════════════════════════════════
+
+════════════════════════════════════════════════════════════════════════
+  케이스 01. 깊은 중첩 함수 + DECODE
+  설명: DECODE·COALESCE(NULLIF(TRIM))·LPAD(TRIM)·리터럴·SYSDATE·시계열 포함, 숫자 4개 → SUM 3개, GROUP BY 4개 → 3개 선정
+════════════════════════════════════════════════════════════════════════
+[1단계: SQL 파싱]
+  INSERT 컬럼  : 14개
+    EMP_ID, EMP_NM, DEPT_CD, DEPT_NM, SALARY, BONUS, NET_PAY
+    PERF_SCORE, HIRE_DT, STATUS_NM, FULL_NM, EMP_CD, DATA_GBN, LOAD_DT
+  FROM 테이블  : TA_EMPLOYEE (별칭: E)
+  JOIN         : 없음
+  WHERE        : E.STATUS_CD IN ('A', 'B', 'C') AND NOT E.HIRE_DT IS NULL
+────────────────────────────────────────────────────────────────────────
+
+[2단계: 컬럼 분류]
+  검증 대상    : 12개  /  제외 : 2개
+
+  [제외 컬럼]
+    ✗ DATA_GBN          ← '현행'                                             (사유: 리터럴)
+    ✗ LOAD_DT           ← SYSDATE                                          (사유: 자체생성)
+
+  [SUM 선정]  후보 4개 → 3개 선정 (최대 3개)
+    ✓ SALARY              NUMBER
+    ✓ BONUS               NUMBER
+    ✓ NET_PAY             NUMBER
+    ⊘ PERF_SCORE          NUMBER  ← 4번째+ 초과, 제외
+
+  [GROUP BY 선정]  후보 2개 → 2개 선정 (최대 3개)
+    ✓ DEPT_CD             코드성 CHAR(2)                           [tier2]
+    ✓ EMP_CD              코드성 CHAR(8)                           [tier2]
+────────────────────────────────────────────────────────────────────────
+
+[3단계: 통계검증 SQL 생성]
+
+  ── 원본 SQL ──
+  SELECT
+      LPAD(TRIM(E.EMP_NO), 8, '0') AS EMP_CD,
+      E.DEPT_CD AS DEPT_CD,
+      COUNT(*)               AS CNT,
+      SUM(E.SALARY) AS SUM_SALARY,
+      SUM(E.BONUS) AS SUM_BONUS,
+      SUM(ROUND(E.SALARY * (1 + NVL(E.BONUS, 0) / 100), 0)) AS SUM_NET_PAY
+  FROM   TA_EMPLOYEE E
+  WHERE  E.STATUS_CD IN ('A', 'B', 'C')
+    AND  NOT E.HIRE_DT IS NULL
+  GROUP  BY LPAD(TRIM(E.EMP_NO), 8, '0'), E.DEPT_CD
+
+  ── 목적지 SQL ──
+  SELECT
+      SUBSTR(EMP_CD, 1, 4) AS EMP_CD,
+      DEPT_CD AS DEPT_CD,
+      COUNT(*)               AS CNT,
+      SUM(SALARY) AS SUM_SALARY,
+      SUM(BONUS) AS SUM_BONUS,
+      SUM(NET_PAY) AS SUM_NET_PAY
+  FROM   TB_EMPLOYEE
+  -- ⚠️ 목적지 필터 조건 없음, 전체 데이터 집계됩니다.
+  GROUP  BY SUBSTR(EMP_CD, 1, 4), DEPT_CD
+
+  GROUP BY 컬럼 : ['EMP_CD', 'DEPT_CD']
+  SUM 컬럼     : ['SALARY', 'BONUS', 'NET_PAY']
+  count_only   : False
+────────────────────────────────────────────────────────────────────────
+
+[4단계: 신뢰도 판정]
+  판정  : ⚠ LOW
+  사유  : DECODE 함수 포함
+
+  ── [LOW 신뢰도] 처리 흐름 ──────────────────────────────────────
+  아래 SQL을 검토 후 실행 여부를 결정하세요.
+  (auto_confirm=False 시 사용자 입력 필요)
+  ─────────────────────────────────────────────────────────────────
+
+
+════════════════════════════════════════════════════════════════════════
+  케이스 02. 구식 JOIN (암시적 조인, 3테이블)
+  설명: FROM A, B, C 암묵적 JOIN, WHERE 조인/필터 분리, 문자 연결, 숫자 컬럼 없음 → COUNT only
+════════════════════════════════════════════════════════════════════════
+[1단계: SQL 파싱]
+  INSERT 컬럼  : 6개
+    INV_ID, CUST_NM, PROD_NM, ADDR_FULL, INV_STAT, INV_DT
+  FROM 테이블  : TA_INVOICE (별칭: I)
+  JOIN         : 2개
+    [IMPLICIT JOIN]  TA_CUSTOMER AS C
+      ON  I.CUST_ID = C.CUST_ID AND I.PROD_ID = P.PROD_ID
+    [IMPLICIT JOIN]  TA_PRODUCT AS P
+  WHERE        : I.INV_STAT = 'Y' AND C.USE_YN = 'Y'
+────────────────────────────────────────────────────────────────────────
+
+[2단계: 컬럼 분류]
+  검증 대상    : 6개  /  제외 : 0개
+
+  [SUM 선정]  후보 0개 → 0개 선정 (최대 3개)
+    → 숫자 비PK 컬럼 없음: COUNT(*) 만 수행
+
+  [GROUP BY 선정]  후보 1개 → 1개 선정 (최대 3개)
+    ✓ INV_STAT            코드성 CHAR(1)                           [tier2]
+────────────────────────────────────────────────────────────────────────
+
+[3단계: 통계검증 SQL 생성]
+
+  ── 원본 SQL ──
+  WITH SRC AS (
+    SELECT
+      I.INV_ID AS INV_ID,
+      C.CUST_NM AS CUST_NM,
+      P.PROD_NM AS PROD_NM,
+      COALESCE(C.ADDR1, '') || ' ' || COALESCE(C.ADDR2, '') AS ADDR_FULL,
+      I.INV_STAT AS INV_STAT,
+      TO_CHAR(I.INV_DT, 'YYYYMMDD') AS INV_DT
+    FROM   TA_INVOICE I,
+           TA_CUSTOMER C,
+           TA_PRODUCT P
+    WHERE  I.CUST_ID = C.CUST_ID AND I.PROD_ID = P.PROD_ID
+      AND  I.INV_STAT = 'Y'
+      AND  C.USE_YN = 'Y'
+  )
+  SELECT
+      INV_STAT,
+      COUNT(*)               AS CNT
+  FROM SRC
+  GROUP  BY INV_STAT
+
+  ── 목적지 SQL ──
+  SELECT
+      INV_STAT AS INV_STAT,
+      COUNT(*)               AS CNT
+  FROM   TB_INVOICE
+  -- ⚠️ 목적지 필터 조건 없음, 전체 데이터 집계됩니다.
+  GROUP  BY INV_STAT
+
+  GROUP BY 컬럼 : ['INV_STAT']
+  SUM 컬럼     : []
+  count_only   : True
+────────────────────────────────────────────────────────────────────────
+
+[4단계: 신뢰도 판정]
+  판정  : ⚠ LOW
+  사유  : 암묵적 JOIN (FROM절 콤마)
+
+  ── [LOW 신뢰도] 처리 흐름 ──────────────────────────────────────
+  아래 SQL을 검토 후 실행 여부를 결정하세요.
+  (auto_confirm=False 시 사용자 입력 필요)
+  ─────────────────────────────────────────────────────────────────
+
+
+════════════════════════════════════════════════════════════════════════
+  케이스 03. ANSI JOIN + 복잡 타입변환 (HIGH 신뢰도)
+  설명: INNER JOIN + LEFT OUTER JOIN, 숫자↔문자·날짜→문자 변환, SUM 5개→3개, GROUP BY 6개→3개 선정
+════════════════════════════════════════════════════════════════════════
+[1단계: SQL 파싱]
+  INSERT 컬럼  : 13개
+    ORD_DTL_ID, ORD_ID, CUST_GBN, PROD_CD, PROD_TYPE, ORD_STAT, UNIT_PRICE
+    QTY, TOTAL_AMT, DISCOUNT_RATE, NET_AMT, ORD_DT_STR, SHIP_YM
+  FROM 테이블  : TA_ORDER_DTL (별칭: D)
+  JOIN         : 2개
+    [INNER JOIN]  TA_CUSTOMER AS C
+      ON  D.CUST_ID = C.CUST_ID
+    [LEFT OUTER JOIN]  TA_PRODUCT AS P
+      ON  D.PROD_ID = P.PROD_ID
+  WHERE        : D.ORD_STAT = 'C' AND D.ORD_DT >= TO_DATE('2024-01-01', 'YYYY-MM-DD')
+────────────────────────────────────────────────────────────────────────
+
+[2단계: 컬럼 분류]
+  검증 대상    : 13개  /  제외 : 0개
+
+  [타입 불일치 → 캐스팅]
+    SHIP_YM           DATE → CHAR  캐스팅: TO_CHAR(SUBSTR(TO_CHAR(D.SHIP_DT, 'YYYYMMDD'), 1, 6), 'YYYYMMDD')
+
+  [SUM 선정]  후보 5개 → 3개 선정 (최대 3개)
+    ✓ UNIT_PRICE          NUMBER
+    ✓ QTY                 NUMBER
+    ✓ TOTAL_AMT           NUMBER
+    ⊘ DISCOUNT_RATE       NUMBER  ← 4번째+ 초과, 제외
+    ⊘ NET_AMT             NUMBER  ← 4번째+ 초과, 제외
+
+  [GROUP BY 선정]  후보 5개 → 3개 선정 (최대 3개)
+    ✓ SHIP_YM             시계열 CHAR(6) 년월 → 그대로                  [tier1]
+    ✓ CUST_GBN            코드성 CHAR(2)                           [tier2]
+    ✓ PROD_CD             코드성 VARCHAR(15)                       [tier2]
+    ⊘ PROD_TYPE           코드성 VARCHAR(20)                       [tier2]  ← 초과, 제외
+    ⊘ ORD_STAT            코드성 CHAR(1)                           [tier2]  ← 초과, 제외
+────────────────────────────────────────────────────────────────────────
+
+[3단계: 통계검증 SQL 생성]
+
+  ── 원본 SQL ──
+  WITH SRC AS (
+    SELECT
+      D.ORD_DTL_ID AS ORD_DTL_ID,
+      D.ORD_ID AS ORD_ID,
+      C.CUST_GBN AS CUST_GBN,
+      CAST(P.PROD_CD AS VARCHAR2(15)) AS PROD_CD,
+      P.PROD_TYPE AS PROD_TYPE,
+      D.ORD_STAT AS ORD_STAT,
+      D.UNIT_PRICE AS UNIT_PRICE,
+      CAST(D.QTY_STR AS INT) AS QTY,
+      D.UNIT_PRICE * CAST(D.QTY_STR AS INT) AS TOTAL_AMT,
+      D.DISCOUNT_RATE AS DISCOUNT_RATE,
+      ROUND(D.UNIT_PRICE * CAST(D.QTY_STR AS INT) * (1 - D.DISCOUNT_RATE / 100), 2) AS NET_AMT,
+      TO_CHAR(D.ORD_DT, 'YYYYMMDD') AS ORD_DT_STR,
+      SUBSTR(TO_CHAR(D.SHIP_DT, 'YYYYMMDD'), 1, 6) AS SHIP_YM
+    FROM   TA_ORDER_DTL D
+    INNER JOIN TA_CUSTOMER C ON D.CUST_ID = C.CUST_ID
+    LEFT OUTER JOIN TA_PRODUCT P ON D.PROD_ID = P.PROD_ID
+    WHERE  D.ORD_STAT = 'C'
+      AND  D.ORD_DT >= TO_DATE('2024-01-01', 'YYYY-MM-DD')
+  ... (11줄 생략)
+
+  ── 목적지 SQL ──
+  SELECT
+      SHIP_YM AS SHIP_YM,
+      PROD_CD AS PROD_CD,
+      CUST_GBN AS CUST_GBN,
+      COUNT(*)               AS CNT,
+      SUM(UNIT_PRICE) AS SUM_UNIT_PRICE,
+      SUM(QTY) AS SUM_QTY,
+      SUM(TOTAL_AMT) AS SUM_TOTAL_AMT
+  FROM   TB_ORDER_DTL
+  -- ⚠️ 목적지 필터 조건 없음, 전체 데이터 집계됩니다.
+  GROUP  BY SHIP_YM, PROD_CD, CUST_GBN
+
+  GROUP BY 컬럼 : ['SHIP_YM', 'PROD_CD', 'CUST_GBN']
+  SUM 컬럼     : ['UNIT_PRICE', 'QTY', 'TOTAL_AMT']
+  count_only   : False
+────────────────────────────────────────────────────────────────────────
+
+[4단계: 신뢰도 판정]
+  판정  : ✓ HIGH
+  사유  : 단순 이관 SQL
+  → SQL 바로 실행
+
+
+════════════════════════════════════════════════════════════════════════
+  케이스 04. 신뢰도 LOW: DECODE + 암묵적 JOIN 혼재
+  설명: DECODE + FROM절 콤마 JOIN → 이중 LOW 사유 동시 검출, 사용자 확인 메시지 흐름 확인
+════════════════════════════════════════════════════════════════════════
+[1단계: SQL 파싱]
+  INSERT 컬럼  : 7개
+    PAY_ID, CUST_NM, PAY_AMT, PAY_METHOD_NM, STATUS_NM, PAY_YMD, CUST_GBN
+  FROM 테이블  : TA_PAYMENT (별칭: P)
+  JOIN         : 1개
+    [IMPLICIT JOIN]  TA_CUSTOMER AS C
+      ON  P.CUST_ID = C.CUST_ID
+  WHERE        : P.STATUS_CD IN ('1', '2', '3') AND P.PAY_DT >= TO_DATE('2024-01-01', 'YY...
+────────────────────────────────────────────────────────────────────────
+
+[2단계: 컬럼 분류]
+  검증 대상    : 7개  /  제외 : 0개
+
+  [SUM 선정]  후보 1개 → 1개 선정 (최대 3개)
+    ✓ PAY_AMT             NUMBER
+
+  [GROUP BY 선정]  후보 1개 → 1개 선정 (최대 3개)
+    ✓ CUST_GBN            코드성 CHAR(2)                           [tier2]
+────────────────────────────────────────────────────────────────────────
+
+[3단계: 통계검증 SQL 생성]
+
+  ── 원본 SQL ──
+  WITH SRC AS (
+    SELECT
+      P.PAY_ID AS PAY_ID,
+      C.CUST_NM AS CUST_NM,
+      P.PAY_AMT AS PAY_AMT,
+      DECODE(P.PAY_METHOD, 'CC', '신용카드', 'DC', '직불카드', 'TF', '계좌이체', '기타') AS PAY_METHOD_NM,
+      CASE WHEN P.STATUS_CD = '1' THEN '승인' WHEN P.STATUS_CD = '2' THEN '취소' ELSE '처리중' END AS STATUS_NM,
+      TO_CHAR(P.PAY_DT, 'YYYYMMDD') AS PAY_YMD,
+      C.CUST_GBN AS CUST_GBN
+    FROM   TA_PAYMENT P,
+           TA_CUSTOMER C
+    WHERE  P.CUST_ID = C.CUST_ID
+      AND  P.STATUS_CD IN ('1', '2', '3')
+      AND  P.PAY_DT >= TO_DATE('2024-01-01', 'YYYY-MM-DD')
+  )
+  SELECT
+      CUST_GBN,
+      COUNT(*)               AS CNT,
+      SUM(PAY_AMT) AS SUM_PAY_AMT
+  FROM SRC
+  ... (1줄 생략)
+
+  ── 목적지 SQL ──
+  SELECT
+      CUST_GBN AS CUST_GBN,
+      COUNT(*)               AS CNT,
+      SUM(PAY_AMT) AS SUM_PAY_AMT
+  FROM   TB_PAYMENT
+  -- ⚠️ 목적지 필터 조건 없음, 전체 데이터 집계됩니다.
+  GROUP  BY CUST_GBN
+
+  GROUP BY 컬럼 : ['CUST_GBN']
+  SUM 컬럼     : ['PAY_AMT']
+  count_only   : False
+────────────────────────────────────────────────────────────────────────
+
+[4단계: 신뢰도 판정]
+  판정  : ⚠ LOW
+  사유  : 암묵적 JOIN (FROM절 콤마)
+  사유  : DECODE 함수 포함
+
+  ── [LOW 신뢰도] 처리 흐름 ──────────────────────────────────────
+  아래 SQL을 검토 후 실행 여부를 결정하세요.
+  (auto_confirm=False 시 사용자 입력 필요)
+  ─────────────────────────────────────────────────────────────────
+
+
+════════════════════════════════════════════════════════════════════════
+  케이스 05. 파싱 실패: 서브쿼리 FROM 절 (인라인 뷰)
+  설명: 인라인 뷰 FROM (SELECT...) S → from_clause 테이블명 추출 실패 → FAIL 신뢰도 → COUNT 최소검증만 수행 흐름
+════════════════════════════════════════════════════════════════════════
+[1단계: SQL 파싱]
+  INSERT 컬럼  : 6개
+    DEPT_CD, DEPT_NM, TOTAL_SALARY, AVG_BONUS, EMP_CNT, BASE_DT
+  FROM 테이블  : ( SELECT D.DEPT_CD, D.DEPT_NM, SUM(E.SALARY) AS TOTAL_SALARY, AVG(E.BONUS) AS AVG_BONUS, COUNT(*) AS EMP_CNT FROM TA_DEPARTMENT D, TA_EMPLOYEE E WHERE D.DEPT_CD = E.DEPT_CD AND E.STATUS_CD = 'A' GROUP BY D.DEPT_CD, D.DEPT_NM (별칭: S)
+  JOIN         : 없음
+  WHERE        : S.TOTAL_SALARY > 0
+────────────────────────────────────────────────────────────────────────
+
+[2단계: 컬럼 분류]  (FAIL 신뢰도 → 생략)
+  FROM 테이블 : "( SELECT D.DEPT_CD, D.DEPT_NM, SUM(E.SALARY) AS TOTAL_SALARY, AVG(E.BONUS) AS AVG_BONUS, COUNT(*) AS EMP_CNT FROM TA_DEPARTMENT D, TA_EMPLOYEE E WHERE D.DEPT_CD = E.DEPT_CD AND E.STATUS_CD = 'A' GROUP BY D.DEPT_CD, D.DEPT_NM"  (서브쿼리 감지)
+  매핑 수     : 6개 (INSERT/SELECT 파싱은 성공)
+────────────────────────────────────────────────────────────────────────
+
+[4단계: 신뢰도 판정]
+  판정  : ✗ FAIL
+  사유  : FROM 절 테이블명 추출 실패 (table="( SELECT D.DEPT_CD, D.DEPT_NM, SUM(E.SALARY) AS TOTAL_SALARY, AVG(E.BONUS) AS AVG_BONUS, COUNT(*) AS EMP_CNT FROM TA_DEPARTMENT D, TA_EMPLOYEE E WHERE D.DEPT_CD = E.DEPT_CD AND E.STATUS_CD = 'A' GROUP BY D.DEPT_CD, D.DEPT_NM") → 서브쿼리로 추정
+
+  ── [FAIL 신뢰도] 처리 흐름 ─────────────────────────────────────
+  파싱 실패 → COUNT(*) 최소 검증만 수행합니다.
+  최소 검증 SQL (원본)  : SELECT COUNT(*) AS CNT FROM <원본 뷰>
+  최소 검증 SQL (목적지): SELECT COUNT(*) AS CNT FROM <목적지 테이블>
+  ─────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+  [전체 검증 요약]
+────────────────────────────────────────────────────────────────────────
+  ✓  SUM 최대 3개 초과 없음
+  ✓  GROUP BY 최대 3개 초과 없음
+  ✓  리터럴/자체생성 정상 제외
+  ✓  시계열 컬럼 년단위 변환 확인
+  ✓  신뢰도 HIGH 정상 판정
+  ✓  신뢰도 LOW 정상 판정 (DECODE)
+  ✓  신뢰도 LOW 정상 판정 (암묵적JOIN)
+  ✓  신뢰도 FAIL 정상 판정 (서브쿼리)
+════════════════════════════════════════════════════════════════════════
+  케이스 분석 완료: 5/5
+════════════════════════════════════════════════════════════════════════

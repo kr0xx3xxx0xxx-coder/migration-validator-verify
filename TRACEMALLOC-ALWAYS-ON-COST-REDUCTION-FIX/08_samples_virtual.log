@@ -1,0 +1,158 @@
+﻿════════════════════════════════════════════════════════════════════════
+  DDL 메타 기반 가상 SQL 케이스 전체 파이프라인 테스트
+════════════════════════════════════════════════════════════════════════
+
+════════════════════════════════════════════════════════════════════════
+[✓] 케이스 01: 1:1 단순이관 + DATE→CHAR 변환 (TA_ORDER → TB_ORDER)
+────────────────────────────────────────────────────────────────────────
+  FROM : TA_ORDER AS A
+  매핑수: 13개
+  alias_col_map: A(14컬럼)
+  신뢰도: HIGH  ← 단순 이관 SQL
+  분류: 13개 컬럼
+  SUM  (3개): ['ORDER_AMT', 'DISCOUNT_AMT', 'FINAL_AMT']
+  GRPBY(3개): ['ORDER_YM', 'PAYMENT_CD', 'DEPT_CD']
+    • ORDER_YM→SUBSTR(TO_CHAR(A.ORDER_DT, 'YYYYMM'), 1, 6)
+    • PAYMENT_CD→A.PAYMENT_CD
+    • DEPT_CD→A.DEPT_CD
+  통계SQL: 생성됨 ✓
+
+  ✅ 모든 검증 통과
+
+════════════════════════════════════════════════════════════════════════
+[✓] 케이스 02: 1:1 타입변환+NULL처리 (TA_CUSTOMER → TB_CUSTOMER)
+────────────────────────────────────────────────────────────────────────
+  FROM : TA_CUSTOMER AS A
+  매핑수: 11개
+  alias_col_map: A(12컬럼)
+  신뢰도: HIGH  ← 단순 이관 SQL
+  분류: 11개 컬럼
+  SUM  (2개): ['CUST_SCORE', 'TOTAL_PURCHASE_AMT']
+  GRPBY(3개): ['JOIN_YM', 'GENDER_CD', 'CUST_GBN']
+    • JOIN_YM→SUBSTR(TO_CHAR(A.REG_DT, 'YYYYMM'), 1, 6)
+    • GENDER_CD→NVL(A.GENDER_CD, 'U')
+    • CUST_GBN→NVL(A.CUST_GBN, '99')
+  통계SQL: 생성됨 ✓
+
+  ✅ 모든 검증 통과
+
+════════════════════════════════════════════════════════════════════════
+[✓] 케이스 03: 1:1 코드변환+계산컬럼 (TA_PRODUCT → TB_PRODUCT)
+────────────────────────────────────────────────────────────────────────
+  FROM : TA_PRODUCT AS A
+  매핑수: 11개
+  alias_col_map: A(11컬럼)
+  신뢰도: HIGH  ← 단순 이관 SQL
+  분류: 11개 컬럼
+  SUM  (2개): ['UNIT_PRICE', 'STOCK_QTY']
+  GRPBY(3개): ['REG_YM', 'PROD_CD', 'PROD_TYPE']
+    • REG_YM→SUBSTR(TO_CHAR(A.REG_DT, 'YYYYMM'), 1, 6)
+    • PROD_CD→LPAD(A.PROD_CD, 8, '0')
+    • PROD_TYPE→NVL(A.PROD_TYPE, '99')
+  통계SQL: 생성됨 ✓
+
+  ✅ 모든 검증 통과
+
+════════════════════════════════════════════════════════════════════════
+[✓] 케이스 04: N:1 INNER JOIN 2테이블 (TA_ORDER+TA_CUSTOMER → TB_ORDER_SUMMARY)
+────────────────────────────────────────────────────────────────────────
+  FROM : TA_ORDER AS A
+  JOIN : TA_CUSTOMER AS B  [INNER JOIN]
+  매핑수: 9개
+  alias_col_map: A(14컬럼), B(12컬럼)
+  신뢰도: HIGH  ← 단순 이관 SQL
+  분류: 9개 컬럼
+  SUM  (3개): ['TOTAL_ORDER_AMT', 'TOTAL_DISCOUNT_AMT', 'TOTAL_FINAL_AMT']
+  GRPBY(3개): ['CUST_GBN', 'CHANNEL_SE', 'ORDER_YM']
+    • CUST_GBN→B.CUST_GBN
+    • CHANNEL_SE→A.CHANNEL_SE
+    • ORDER_YM→SUBSTR(TO_CHAR(A.ORDER_DT, 'YYYYMM'), 1, 6)
+  제외: [('ORDER_CNT', '리터럴'), ('REG_DT', '자체생성')]
+  통계SQL: 생성됨 ✓
+
+  ✅ 모든 검증 통과
+
+════════════════════════════════════════════════════════════════════════
+[✓] 케이스 05: N:1 INNER JOIN 2테이블 집계 (TA_ORDER+TA_ORDER_DETAIL → TB_ORDER_STATS)
+────────────────────────────────────────────────────────────────────────
+  FROM : TA_ORDER AS A
+  JOIN : TA_ORDER_DETAIL AS B  [INNER JOIN]
+  매핑수: 7개
+  alias_col_map: A(14컬럼), B(10컬럼)
+  신뢰도: HIGH  ← 단순 이관 SQL
+  분류: 7개 컬럼
+  SUM  (3개): ['TOTAL_QTY', 'TOTAL_LINE_AMT', 'TOTAL_DISCOUNT_AMT']
+  GRPBY(2개): ['ORDER_YM', 'ORDER_STAT']
+    • ORDER_YM→SUBSTR(A.ORDER_YM, 1, 6)
+    • ORDER_STAT→A.ORDER_STAT
+  제외: [('DTL_CNT', '리터럴')]
+  통계SQL: 생성됨 ✓
+
+  ✅ 모든 검증 통과
+
+════════════════════════════════════════════════════════════════════════
+[✓] 케이스 06: N:1 3테이블 JOIN 할인율 계산 (TA_ORDER+TA_CUSTOMER+TA_DISCOUNT → TB_SALES)
+────────────────────────────────────────────────────────────────────────
+  FROM : TA_ORDER AS A
+  JOIN : TA_CUSTOMER AS B  [INNER JOIN]
+  JOIN : TA_DISCOUNT AS D  [LEFT JOIN]
+  매핑수: 10개
+  alias_col_map: A(14컬럼), B(12컬럼), D(11컬럼)
+  신뢰도: HIGH  ← 단순 이관 SQL
+  분류: 10개 컬럼
+  SUM  (3개): ['ORDER_AMT', 'DISCOUNT_AMT', 'NET_AMT']
+  GRPBY(3개): ['CUST_GBN', 'CHANNEL_SE', 'ORDER_STAT']
+    • CUST_GBN→B.CUST_GBN
+    • CHANNEL_SE→A.CHANNEL_SE
+    • ORDER_STAT→A.ORDER_STAT
+  통계SQL: 생성됨 ✓
+
+  ✅ 모든 검증 통과
+
+════════════════════════════════════════════════════════════════════════
+[✓] 케이스 07: N:1 구식 JOIN 4테이블 (TA_ORDER,TA_CUSTOMER,TA_PRODUCT,TA_CODE → TB_REPORT)
+────────────────────────────────────────────────────────────────────────
+  FROM : TA_ORDER AS A
+  JOIN : TA_CUSTOMER AS B  [IMPLICIT JOIN]
+  JOIN : TA_PRODUCT AS C  [IMPLICIT JOIN]
+  JOIN : TA_CODE AS D  [IMPLICIT JOIN]
+  매핑수: 11개
+  alias_col_map: A(14컬럼), B(12컬럼), C(11컬럼), D(6컬럼)
+  신뢰도: LOW  ← 암묵적 JOIN
+  분류: 11개 컬럼
+  SUM  (2개): ['ORDER_AMT', 'FINAL_AMT']
+  GRPBY(3개): ['ORDER_YM', 'CUST_GBN', 'PROD_TYPE']
+    • ORDER_YM→SUBSTR(TO_CHAR(A.ORDER_DT, 'YYYYMM'), 1, 6)
+    • CUST_GBN→B.CUST_GBN
+    • PROD_TYPE→C.PROD_TYPE
+  통계SQL: 생성됨 ✓
+
+  ✅ 모든 검증 통과
+
+════════════════════════════════════════════════════════════════════════
+[✓] 케이스 08: N:1 5테이블 ANSI JOIN 복잡 (TA_ORDER+TA_CUSTOMER+TA_PRODUCT+TA_DISCOUNT+TA_COUPON → TB_FINAL_REPORT)
+────────────────────────────────────────────────────────────────────────
+  FROM : TA_ORDER AS A
+  JOIN : TA_CUSTOMER AS B  [INNER JOIN]
+  JOIN : TA_PRODUCT AS C  [INNER JOIN]
+  JOIN : TA_DISCOUNT AS D  [LEFT JOIN]
+  JOIN : TA_COUPON AS E  [LEFT JOIN]
+  매핑수: 14개
+  alias_col_map: A(14컬럼), B(12컬럼), C(11컬럼), D(11컬럼), E(12컬럼)
+  신뢰도: HIGH  ← 단순 이관 SQL
+  분류: 14개 컬럼
+  SUM  (3개): ['ORDER_AMT', 'COUPON_DISCOUNT', 'RATE_DISCOUNT']
+  GRPBY(3개): ['ORDER_YM', 'CUST_GBN', 'PROD_TYPE']
+    • ORDER_YM→SUBSTR(TO_CHAR(A.ORDER_DT, 'YYYYMM'), 1, 6)
+    • CUST_GBN→B.CUST_GBN
+    • PROD_TYPE→C.PROD_TYPE
+  제외: [('DATA_SE', '리터럴'), ('LOAD_DT', '자체생성')]
+  통계SQL: 생성됨 ✓
+
+  ✅ 모든 검증 통과
+
+════════════════════════════════════════════════════════════════════════
+  결과: 8/8 통과
+
+  ✅ 전체 8개 케이스 통과
+════════════════════════════════════════════════════════════════════════

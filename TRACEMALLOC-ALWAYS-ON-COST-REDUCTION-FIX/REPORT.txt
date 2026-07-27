@@ -1,0 +1,188 @@
+TRACEMALLOC-ALWAYS-ON-COST-REDUCTION-FIX — 서술형 완료보고서
+작성: 2026-07-27 / 대상 저장소: C:\projects\migration-validator (main)
+
+────────────────────────────────────────────────────────────────────────
+1. 무엇이 문제였나
+────────────────────────────────────────────────────────────────────────
+진단(PROGRESS-TRACKING-INSTRUMENTATION-OVERHEAD-DIAGNOSE, docs/PROGRESS_TRACKING_
+INSTRUMENTATION_OVERHEAD.md §4-3)이 실측으로 확정한 내용이다. 상세비교 두 엔진
+— services/exact_diff/pk_range_chunk.py:175, services/exact_diff/agg_contribution.py:551 —
+이 실행 시작부터 종료까지 전 구간 동안 tracemalloc 을 켜 두고 있었다. tracemalloc 은
+'모든 메모리 할당'을 추적하므로 행 단위 계측보다 촘촘하다. 그렇게 얻는 값은
+metrics.peak_python_mb 단 하나였다.
+
+비용은 진단이 250,000행 A/B 로 이미 측정해 두었다. OFF 1.052초 vs ON 7.585초
+(Δ +6.533초, +620.7%). 더 중요한 관찰은 이 비용이 DB read 대기로 희석되지 않는다는
+점이었다 — read 대기를 0/0.5/2.0/4.0초로 주입해도 Δ 는 +9.5 ~ +10.4초로 거의 일정했다.
+즉 read 가 길어지면 '비율'만 작아 보일 뿐 절대 비용은 그대로 남는다.
+
+진단의 권고는 두 가지였다. ① 기본 OFF 토글 또는 ② 첫 청크만 샘플링. 이번 작업은 ①을
+택했다. 값 하나를 얻기 위한 계측이라 '가끔 켜서 본다'가 정확한 사용 방식이고, 샘플링은
+"어느 구간이 샘플됐는지"라는 새 해석 문제를 만들기 때문이다.
+
+────────────────────────────────────────────────────────────────────────
+2. 무엇을 바꿨나
+────────────────────────────────────────────────────────────────────────
+운영 코드 3파일만 손댔다. 판정/비교 로직은 한 줄도 건드리지 않았다.
+
+(1) services/exact_diff/execution_settings.py
+    Instrumentation 그룹(13번)을 신설하고 memory_profiling_enabled(기본 False)를 두었다.
+    엔진이 설정 경로를 각자 해석하지 않도록 is_memory_profiling_enabled() 단일 조회
+    지점을 함께 만들었다. 설정 조회가 실패해도 엔진이 멈추면 안 되므로 예외 시에는
+    안전한 쪽(OFF = 오버헤드 없음)으로 떨어진다. settings_version("d7-20")은 바꾸지
+    않았다 — 기존 API 계약을 흔들 이유가 없다.
+
+(2) services/exact_diff/pk_range_chunk.py
+    tracemalloc.start() / get_traced_memory() / stop() 을 토글로 감쌌다. OFF 면 start 를
+    아예 호출하지 않는다(무력화가 아니라 미시작). peak 은 None 으로 둔다.
+
+(3) services/exact_diff/agg_contribution.py
+    동일 처리. 이 엔진은 stop() 지점이 3곳(취소 경로 / 예외 경로 / 정상 종료)이라 세 곳
+    모두 대칭으로 감쌌다. 한 곳이라도 빠지면 "시작 안 했는데 멈춤" 또는 그 반대의 비대칭이
+    남는다.
+
+peak_python_mb 필드 자체는 없애지 않았다. 미측정일 때 None 이 들어간다.
+
+추가로 손댄 파일(운영 로직 아님, 사유 명시):
+ - tests/test_reimport_stream.py §58 — 이 테스트는 'peak 힙이 N 에 비례해 폭증하지 않는다'는
+   메모리 계약 자체가 검증 대상이라, 기본 OFF 로는 None 과 비교하다 깨진다. 계측을 명시적으로
+   켜고 측정한 뒤 이전 설정으로 되돌리도록 고쳤다(reset 이 아니라 이전 인스턴스 복원 —
+   다른 세션/픽스처의 override 를 지우지 않기 위해서다). 계약과 임계값(20MB)은 그대로다.
+ - tests/test_tracemalloc_toggle_wiring.py (신규) — 진단이 경고한 '죽은 설정 6개'의 재발을
+   막기 위한 배선 테스트. 설정의 존재가 아니라 엔진 동작이 설정에 반응하는지를 본다.
+ - scripts/dev_e2e/tracemalloc_toggle_ab_verify.py,
+   scripts/dev_e2e/tracemalloc_off_consumer_safety_verify.py (신규, 개발/테스트 전용).
+
+────────────────────────────────────────────────────────────────────────
+3. 실측 — 진단의 +620% 가 이번 서버에서도 재현되는가
+────────────────────────────────────────────────────────────────────────
+진단은 tracemalloc 을 monkeypatch 로 no-op 화해 A/B 했다. 이번에는 monkeypatch 없이
+실제 운영 코드 경로(설정 토글)만 바꿔 같은 A/B 를 돌렸다. 250,000행 · 불일치율 0.8% ·
+chunk 50,000 · OFF↔ON 3회 교차(순서 편향 제거) · 중앙값.
+
+  pk_range_chunk    OFF 1.084 s | ON 7.795 s | Δ +6.711 s (ON 이 +619.30% 느림)
+  agg_contribution  OFF 0.950 s | ON 10.067 s | Δ +9.118 s (ON 이 +960.19% 느림)
+
+진단이 기록한 +620.7% 가 사실상 그대로 재현됐다(+619.30%). 직전 예비 측정에서도
++578.48% / +999.60% 로 같은 자릿수였다. agg_contribution(스트림 엔진)은 진단이 수치를
+남기지 않았던 쪽인데, 오히려 배율이 더 컸다 — 이 엔진은 행마다 dict/Decimal 객체를
+만들기 때문에 할당 추적의 표적이 더 넓다.
+
+OFF 로 바꿔서 정상적으로 빨라지는가: 그렇다. 위 수치의 OFF 쪽이 신규 기본값이다.
+250,000행 기준 엔진당 6.7 ~ 9.1초가 사라진다.
+
+같은 실행에서 판정이 바뀌지 않았음도 함께 확인했다. counts(missing_migration /
+value_mismatch / reimport_pks / reimport_total / excluded_target_only / target_only_stored /
+mismatch_limit_stopped)가 ON/OFF 완전 일치, 스트림 엔진의 total_reimport_pks·status 도 일치.
+
+증적: 01_ab_measure_250k.log
+
+라이브 DB 로 재보지 못한 이유(정직 고지): 내부망이 진단 시점과 동일하게 전면 불가다.
+192.168.0.151:1523/1524(Oracle asis/tobe), 192.168.0.150:5433/5434(PG Inter) 네 곳 모두
+TCP timeout 이고, Neon 은 데이터 전송 쿼터 소진 상태가 이어진다. 그래서 지시대로
+진단과 동일한 합성/로컬 A-B 로 대체했다. 이 방식의 한계도 진단과 같다 — 라이브 행은
+컬럼이 더 많아 할당량이 크고, read 시간에는 네트워크 대기와 드라이버 C 레벨 처리가
+섞이므로 "라이브 1M run 에서 정확히 몇 초 절약"은 여전히 확정할 수 없다. 확정된 것은
+'절대 비용이 대기로 희석되지 않는다'와 '순수 CPU 구간은 전부 이 배율의 영향을 받는다'
+두 가지이며, 그 방향은 이번 재현으로도 동일했다.
+증적: 07_server_restart_and_network.log
+
+────────────────────────────────────────────────────────────────────────
+4. peak_python_mb 를 쓰는 곳은 어디이고, OFF 에서 안전한가
+────────────────────────────────────────────────────────────────────────
+전수 grep 으로 소비처를 먼저 확인했다.
+
+  ① routes/agg_diff_route.py:1234 — pk-records 응답의 stage_timings 에 그대로 실어 보낸다.
+     hmetrics.get(k) 패스스루라 None 이어도 예외가 없고 JSON 에는 null 로 나간다.
+  ② UI(ui/tabler_renderer.py) — stage_timings 를 읽지만 peak_python_mb 는 화면에
+     표시하지 않는다(고급 성능정보 항목 목록에 없음). 즉 화면 영향 0.
+  ③ tests/test_reimport_stream.py:70 — 유일하게 값을 직접 비교하던 하드 소비처.
+     위 2절대로 계측을 켜고 측정하도록 수정했다.
+  ④ scripts/dev_e2e/progress_hidden_instrumentation_cost.py — 진단 harness(출력만).
+
+실제 코드 경로로 확인한 결과(02_consumer_safety.log):
+  C1 두 엔진 metrics.peak_python_mb=None, metrics 전체 JSON 직렬화 OK, 필드 존재 유지
+  C2 routes.agg_diff_route.agg_diff_pk_records() 의 stage_timings 통과 + payload 직렬화 OK
+  C3 토글 ON 시 다시 측정됨(agg_contribution 0.02MB / pk_range_chunk 2.14MB) — 기능 소실 아님
+
+────────────────────────────────────────────────────────────────────────
+5. 회귀
+────────────────────────────────────────────────────────────────────────
+baseline 대조는 git stash 대신 worktree(HEAD=5e725aa)로 했다.
+
+  baseline(worktree) 동일 11개 파일 : 100 passed
+  수정 후 동일 11개 파일           : 100 passed  (신규 실패 0)
+  최종(배선 테스트 4건 포함 12파일) : 107 passed
+    ※ 100 → 107 의 차이는 내 배선 테스트 4건 + 동시 진행 중인 별건 세션의 커밋
+      0ecd52a(CHUNK-CHECKPOINT-CONNECTION-REUSE-FIX)이 test_chunk_checkpoint.py 에 추가한
+      3건이다. 내 변경으로 늘어난 것이 아니다.
+  samples/test_virtual_cases.py 8/8, samples/test_complex_cases.py 5/5
+
+증적: 03_pytest_after.log, 08_samples_virtual.log, 09_samples_complex.log
+
+────────────────────────────────────────────────────────────────────────
+6. 서버 재기동
+────────────────────────────────────────────────────────────────────────
+엔진 모듈은 import 시점에 로딩되고 서버는 reload=False 이므로 재기동해야 반영된다.
+
+  2026-07-27 14:08:07  기존 프로세스(PID 31480) 종료
+  2026-07-27 14:08:17  재기동 확인(PID 30420) — 127.0.0.1:8000 LISTENING
+  무인증 GET /                       → HTTP 401 (인증 ON 유지)
+  인증 GET /api/execution/settings   → "instrumentation":{"memory_profiling_enabled":false}
+                                        "settings_version":"d7-20"
+
+즉 재기동된 실제 서비스가 신규 설정을 그대로 노출한다(코드 반영 확인). 14:11:56 재확인
+시점의 LISTENING PID 는 34068 로 바뀌어 있었다 — 같은 저장소에서 병행 중인 다른 세션이
+그 사이 한 번 더 재기동한 것이며, 그 프로세스도 동일하게 instrumentation 을 노출한다.
+증적: 07_server_restart_and_network.log
+
+────────────────────────────────────────────────────────────────────────
+7. 비판적 검토 — 이 변경이 만드는 위험
+────────────────────────────────────────────────────────────────────────
+- 메모리 회귀를 '상시' 관측하지 못하게 된다. 지금까지는 모든 run 이 peak 을 남겼으므로
+  exact_diff_runs.db 에 힙 추이가 자동 축적됐다. 앞으로는 None 이 쌓인다.
+  대응: 토글 ON 경로를 그대로 남겼고(C3 확인), 켜서 측정하는 harness 2개를 제공했다.
+  메모리 계약 자체는 test_reimport_stream §58 이 계속 지킨다.
+- 과거 run 과 신규 run 의 metrics 형태가 달라진다(수치 vs null). 표시 소비처가 없어
+  화면 영향은 0 이지만, 나중에 이 값을 대시보드에 올린다면 "None = 미측정"을 반드시
+  구분해 표기해야 한다("0MB"로 보이면 거짓 정보가 된다).
+- 설정 저장소가 아직 코드 기본값뿐이다(execution_settings 는 DB 저장이 없다). 운영 중
+  토글을 바꾸려면 override_group 호출 또는 재기동이 필요하다. 이번 범위에서 편집 UI 는
+  만들지 않았다 — 기존 D7-20 의 HOLD 정책을 그대로 따랐다.
+- 남은 우선순위: 진단 5-2 의 2순위(chunk_checkpoint._conn() 의 매회 DDL 재실행 제거,
+  8.11ms → 1.39ms)는 이번 작업 범위 밖이며, 별건 세션이 0ecd52a 로 수행했다.
+
+────────────────────────────────────────────────────────────────────────
+8. 커밋
+────────────────────────────────────────────────────────────────────────
+  c7142be  perf(exact-diff): tracemalloc 상시 ON 제거 — 설정 토글(기본 OFF)로 전환
+  b949c14  test(dev-e2e): peak_python_mb=None 소비처 안전성 검증 harness 추가
+  7b2c335  test(exact-diff): 계측 토글 배선 단위테스트 추가 — 죽은 설정 재발 방지
+
+같은 워킹트리에서 다른 세션이 동시에 작업 중이었으므로(JOB-RECOVERY-STAGE1,
+CHUNK-CHECKPOINT-CONNECTION-REUSE-FIX), execution_settings.py / pk_range_chunk.py 는
+파일 전체가 아니라 이번 작업 hunk 만 골라 스테이징해 커밋했다. 남의 미완성 변경을
+내 커밋에 섞지 않았다.
+증적: 04_commit_c7142be_stat.txt, 05_commit_c7142be_diff.txt, 06_git_log.txt
+
+────────────────────────────────────────────────────────────────────────
+9. 파일 목록
+────────────────────────────────────────────────────────────────────────
+수정: services/exact_diff/execution_settings.py
+      services/exact_diff/pk_range_chunk.py
+      services/exact_diff/agg_contribution.py
+      tests/test_reimport_stream.py
+신규: tests/test_tracemalloc_toggle_wiring.py
+      scripts/dev_e2e/tracemalloc_toggle_ab_verify.py
+      scripts/dev_e2e/tracemalloc_off_consumer_safety_verify.py
+
+증적 파일(이 디렉터리):
+  01_ab_measure_250k.log          A/B 실측 250,000행 3회 교차(두 엔진)
+  02_consumer_safety.log          peak_python_mb=None 소비처 안전성 + ON 복구
+  03_pytest_after.log             수정 후 회귀 12파일 107 passed
+  04_commit_c7142be_stat.txt      커밋 통계
+  05_commit_c7142be_diff.txt      운영/테스트 파일 diff 전문
+  06_git_log.txt                  커밋 로그
+  07_server_restart_and_network.log  재기동·인증·설정 노출·내부망 상태
+  08_samples_virtual.log          samples 가상 8/8
+  09_samples_complex.log          samples 복합 5/5

@@ -1,0 +1,226 @@
+﻿commit c7142bec152524ba676ea10cec03bcfda0e242ca
+Author: migration-validator <dev@migration-validator.local>
+Date:   Mon Jul 27 14:07:46 2026 +0900
+
+    perf(exact-diff): tracemalloc 상시 ON 제거 — 설정 토글(기본 OFF)로 전환 (TRACEMALLOC-ALWAYS-ON-COST-REDUCTION-FIX)
+    
+    진단(PROGRESS-TRACKING-INSTRUMENTATION-OVERHEAD)에서 실측 확정된 항목: 두 엔진이
+    실행 전 구간 동안 tracemalloc 을 켜 '모든 메모리 할당'을 추적하고 있었다. 얻는 값은
+    metrics.peak_python_mb 단 하나인데, 250,000행 기준 +6.5초(+620%)를 이미 지불 중이었고
+    이 비용은 DB read 대기로 희석되지 않는다(대기 0~4초 주입 전 구간에서 Δ +9.5~10.4초 고정).
+    
+    - services/exact_diff/execution_settings.py: Instrumentation 그룹 신설
+      (memory_profiling_enabled, 기본 False) + is_memory_profiling_enabled() 단일 조회 지점.
+      '죽은 설정' 재발 방지를 위해 같은 커밋에서 두 소비처에 실제 배선하고 배선 테스트를 포함.
+      settings_version(d7-20) 은 변경하지 않음(기존 계약 유지).
+    - services/exact_diff/pk_range_chunk.py: tracemalloc.start()/get_traced_memory()/stop() 을
+      토글로 감쌈. OFF 면 아예 start 하지 않는다.
+    - services/exact_diff/agg_contribution.py: 동일. stop() 3지점(취소·예외·정상) 전부 대칭 처리.
+    - peak_python_mb 필드는 유지 — 미측정 시 None. 소비처는 dict.get 기반이라 None 안전
+      (routes/agg_diff_route.py stage_timings 패스스루, UI 는 이 값을 표시하지 않음).
+    - tests/test_reimport_stream.py §58: '메모리 계약' 자체가 검증 대상이라 계측을 명시적으로
+      켜고 측정한 뒤 이전 설정으로 복원(다른 override 를 지우지 않도록 reset 대신 set 복원).
+    - scripts/dev_e2e/tracemalloc_toggle_ab_verify.py: monkeypatch 없이 실제 설정 토글만 바꿔
+      A/B 하는 검증 harness(개발/테스트 전용) 신규.
+    
+    실측(250,000행 · 불일치율 0.8% · 3회 교차 · 합성 fetch — 내부망 전면 다운으로 라이브 대체):
+    - pk_range_chunk   : OFF 1.144s / ON 7.759s → Δ +6.615s (ON 이 +578%)
+    - agg_contribution : OFF 0.913s / ON 10.045s → Δ +9.131s (ON 이 +1000%)
+    - 판정 불변: 두 엔진 counts/status ON=OFF 동일, OFF 시 peak_python_mb=None, ON 시 수치 측정
+    
+    회귀: 관련 테스트 11파일 100 passed(HEAD baseline 동일 100 passed),
+    samples/test_virtual_cases.py 8/8, samples/test_complex_cases.py 5/5.
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+diff --git a/services/exact_diff/agg_contribution.py b/services/exact_diff/agg_contribution.py
+index 5efd8ae..03d756e 100644
+--- a/services/exact_diff/agg_contribution.py
++++ b/services/exact_diff/agg_contribution.py
+@@ -23,6 +23,8 @@ import uuid
+ from decimal import Decimal
+ 
+ from services.exact_diff.store import default_exact_diff_store
++# [TRACEMALLOC-ALWAYS-ON-COST-REDUCTION] 힙 계측 토글 단일 조회 지점(기본 OFF) — 엔진은 이 함수만 참조한다.
++from services.exact_diff.execution_settings import is_memory_profiling_enabled as _es_memory_profiling_enabled
+ 
+ # 판정 3종(§20~§22) — 이 외 판정 추가 금지(TARGET_ONLY 는 레코드로 저장하지 않는다 §24)
+ AGG_MISSING = "MISSING_MIGRATION"      # 미이관 — 원본 키가 목적지에 없음(재이관 필요)
+@@ -548,7 +550,11 @@ def prepare_reimport_pk_index_stream(*, src_conn: dict, tgt_conn: dict, src_sql:
+     to_buf = []                                  # 별도 확인 #7 — 목적 단독 별도 버퍼(재이관 조기 flush 와 분리)
+     early = {"done": False}                      # §15 — 최초 20건 조기 flush 후 5000 batch 전환
+     s_close = t_close = None                      # 방언 opener 가 돌려준 연결 정리 콜백(finally 에서 호출)
+-    tracemalloc.start()
++    # [TRACEMALLOC-ALWAYS-ON-COST-REDUCTION] 힙 피크 계측은 기본 OFF(설정 토글). ON 일 때만 start/stop 한다.
++    #   OFF 면 metrics.peak_python_mb 는 None(미측정) — 필드는 유지하고 판정/비교 로직은 불변.
++    _mem_prof = _es_memory_profiling_enabled()
++    if _mem_prof:
++        tracemalloc.start()
+     try:
+         if _iters is not None:                      # 테스트 주입(드라이버 없이 merge 로직 검증 §57~§59)
+             s_it, t_it = iter(_iters[0]), iter(_iters[1])
+@@ -610,7 +616,8 @@ def prepare_reimport_pk_index_stream(*, src_conn: dict, tgt_conn: dict, src_sql:
+             if cancel_check is not None and cancel_check():   # §12 CANCELLED — 저장분 남기고 중단(§43)
+                 _flush(); _flush_to()
+                 m["merge_judge_ms"] = round((time.perf_counter() - t_merge) * 1000 - m["store_save_ms"], 1)
+-                tracemalloc.stop()
++                if _mem_prof:
++                    tracemalloc.stop()
+                 # [개별검증 active-run 단일화] 취소 시 이력 보존 — 부분 처리건수·불일치·취소시각/사유를 store 에
+                 #   CANCELLED 로 영속(run/store/result 삭제 금지). finish_run 실패해도 취소 반환은 유지.
+                 try:
+@@ -690,7 +697,8 @@ def prepare_reimport_pk_index_stream(*, src_conn: dict, tgt_conn: dict, src_sql:
+                                       else "ABSOLUTE")
+             m["early_stop_at_pk"] = (s[0] if s is not None else None)   # 마지막 처리 체크포인트(§6 저장)
+     except Exception as exc:  # noqa: BLE001
+-        tracemalloc.stop()
++        if _mem_prof:
++            tracemalloc.stop()
+         return {"ok": True, "status": "HOLD", "stop_reason": "STREAM_QUERY_FAILED",
+                 "error_message": f"재이관 index 스트리밍 오류: {str(exc)[:200]}"}
+     finally:
+@@ -700,7 +708,10 @@ def prepare_reimport_pk_index_stream(*, src_conn: dict, tgt_conn: dict, src_sql:
+                     _cl()
+             except Exception:  # noqa: BLE001
+                 pass
+-    _cur, _peak = tracemalloc.get_traced_memory(); tracemalloc.stop()
++    # [TRACEMALLOC-ALWAYS-ON-COST-REDUCTION] 계측 ON 일 때만 피크를 읽고 정지(OFF 면 _peak=None = 미측정).
++    _peak = None
++    if _mem_prof:
++        _cur, _peak = tracemalloc.get_traced_memory(); tracemalloc.stop()
+     # §25 — 실제로 모든 키가 숫자였을 때만 단일 숫자 PK 로 확정(하나라도 비숫자면 seq seek 로 격하).
+     numeric_pk = bool(numeric_pk) and m.get("pk_numeric_ok", True)
+     # §17 — 적재 완료 후 PK seek 인덱스 생성(단일 숫자 PK 만).
+@@ -710,7 +721,8 @@ def prepare_reimport_pk_index_stream(*, src_conn: dict, tgt_conn: dict, src_sql:
+     idx_ms = round((time.perf_counter() - t_idx) * 1000, 1)
+     m["store_save_ms"] = round(m["store_save_ms"], 1)
+     m["index_build_ms"] = idx_ms
+-    m["peak_python_mb"] = round(_peak / (1024 * 1024), 2)
++    # 계측 OFF(기본)면 None — 필드 자체는 유지(소비처 계약 불변).
++    m["peak_python_mb"] = (round(_peak / (1024 * 1024), 2) if _peak is not None else None)
+     try:
+         m["storage"] = store.storage_sizes(run_id)
+     except Exception:  # noqa: BLE001
+diff --git a/services/exact_diff/execution_settings.py b/services/exact_diff/execution_settings.py
+index 695f02f..24c2eed 100644
+--- a/services/exact_diff/execution_settings.py
++++ b/services/exact_diff/execution_settings.py
+@@ -152,6 +152,18 @@ class ExactDiffRead:
+     parallel_source_target_read_enabled: bool = True
+ 
+ 
++# ── 13. 계측(instrumentation) ────────────────────────────────────────────────────────
++@dataclass(frozen=True)
++class Instrumentation:
++    # [TRACEMALLOC-ALWAYS-ON-COST-REDUCTION] 파이썬 힙 피크 계측(tracemalloc) 사용 여부. 기본 OFF.
++    #   기본 False 사유(실측 근거): tracemalloc 은 '모든 메모리 할당'을 추적하므로 행 단위보다 촘촘하다.
++    #   250,000행 A/B 실측에서 OFF 1.052s vs ON 7.585s (+6.53s, +620%) — 얻는 값은 metrics.peak_python_mb
++    #   단 하나뿐이고, 이 비용은 DB read 대기로 희석되지 않는다(대기 0~4초 주입 전 구간에서 Δ +9.5~10.4s 고정).
++    #   → 성능 조사·메모리 회귀 확인이 필요할 때만 override_group('instrumentation',
++    #      memory_profiling_enabled=True) 로 켠다. OFF 이면 peak_python_mb 는 None(미측정)이다.
++    memory_profiling_enabled: bool = False
++
++
+ # ── 11. 안전장치 ─────────────────────────────────────────────────────────────────────
+ @dataclass(frozen=True)
+ class SafetyGuards:
+@@ -178,6 +190,8 @@ class ExecutionSettings:
+     history: HistoryLogging = field(default_factory=HistoryLogging)
+     safety: SafetyGuards = field(default_factory=SafetyGuards)
+     exact_diff_read: ExactDiffRead = field(default_factory=ExactDiffRead)   # [D8-7]
++    # [TRACEMALLOC-ALWAYS-ON-COST-REDUCTION] 계측 토글 — 소비처: pk_range_chunk / agg_contribution 의 tracemalloc.
++    instrumentation: Instrumentation = field(default_factory=Instrumentation)
+     settings_version: str = SETTINGS_VERSION
+ 
+     def to_dict(self) -> dict:
+@@ -207,6 +221,17 @@ def reset_execution_settings() -> None:
+     _CURRENT = _DEFAULT
+ 
+ 
++def is_memory_profiling_enabled() -> bool:
++    """[TRACEMALLOC-ALWAYS-ON-COST-REDUCTION] tracemalloc 계측 사용 여부 단일 조회 지점(기본 False).
++
++    엔진(pk_range_chunk / agg_contribution)이 이 함수만 참조한다 — 설정 경로를 엔진마다 중복 해석하지 않는다.
++    설정 조회 자체가 실패해도 엔진을 멈추면 안 되므로, 예외 시에는 안전한 쪽(OFF = 오버헤드 없음)으로 처리한다."""
++    try:
++        return bool(get_execution_settings().instrumentation.memory_profiling_enabled)
++    except Exception:  # noqa: BLE001
++        return False
++
++
+ def override_group(group_name: str, **kwargs) -> ExecutionSettings:
+     """특정 그룹의 일부 필드만 바꾼 새 설정을 적용하고 반환한다(override 구조 예시 — DB 로딩 시 재사용).
+     예: override_group('polling', active_run_poll_interval_ms=2000)."""
+diff --git a/services/exact_diff/pk_range_chunk.py b/services/exact_diff/pk_range_chunk.py
+index 426f116..85a8d3b 100644
+--- a/services/exact_diff/pk_range_chunk.py
++++ b/services/exact_diff/pk_range_chunk.py
+@@ -14,6 +14,8 @@ from __future__ import annotations
+ import time
+ 
+ from services.exact_diff.agg_contribution import REIMPORT_KIND, TARGET_ONLY_KIND
++# [TRACEMALLOC-ALWAYS-ON-COST-REDUCTION] 힙 계측 토글 단일 조회 지점(기본 OFF) — 엔진은 이 함수만 참조한다.
++from services.exact_diff.execution_settings import is_memory_profiling_enabled as _es_memory_profiling_enabled
+ from services.exact_diff.store import default_exact_diff_store
+ 
+ 
+@@ -172,7 +174,12 @@ def run_pk_range_chunk_compare(*, fetch_source_chunk, fetch_target_chunk, gb_col
+         pass
+     # [Phase4-D4] 재개면 create_run 생략(기존 완료 chunk 레코드 보존) + 누적 counts/seq 시드.
+     bounds = build_chunk_bounds(pk_min, pk_max, chunk_size)
+-    tracemalloc.start()
++    # [TRACEMALLOC-ALWAYS-ON-COST-REDUCTION] 힙 피크 계측은 기본 OFF(설정 토글). 상시 ON 이던 tracemalloc 은
++    #   metrics.peak_python_mb 값 1개를 위해 실행 전 구간의 '모든 할당'을 추적해 250,000행 기준 +6.5초(+620%)를
++    #   지불했다(실측). OFF 이면 아예 start 하지 않는다 — peak_python_mb 는 None(미측정)으로 둔다. 판정/비교 불변.
++    _mem_prof = _es_memory_profiling_enabled()
++    if _mem_prof:
++        tracemalloc.start()
+     m = {"missing": int(rs.get("missing", 0)), "value": int(rs.get("value", 0)),
+          "target_only": int(rs.get("target_only", 0)),
+          "src_rows": int(rs.get("processed_src", 0)), "tgt_rows": int(rs.get("processed_tgt", 0)),
+@@ -396,8 +403,11 @@ def run_pk_range_chunk_compare(*, fetch_source_chunk, fetch_target_chunk, gb_col
+         store.create_pk_index()
+     except Exception:  # noqa: BLE001
+         pass
+-    peak = tracemalloc.get_traced_memory()[1] / (1024 * 1024)
+-    tracemalloc.stop()
++    # [TRACEMALLOC-ALWAYS-ON-COST-REDUCTION] 계측 ON 일 때만 피크를 읽고 정지한다(OFF 면 None = 미측정).
++    peak = None
++    if _mem_prof:
++        peak = tracemalloc.get_traced_memory()[1] / (1024 * 1024)
++        tracemalloc.stop()
+     reimport = m["missing"] + m["value"]
+     _stored_reimport = int(representative_limit) if limit_hit else reimport
+     counts = {"missing_migration": m["missing"], "value_mismatch": m["value"],
+@@ -419,7 +429,9 @@ def run_pk_range_chunk_compare(*, fetch_source_chunk, fetch_target_chunk, gb_col
+                       "remaining_chunks": remaining_chunks, "representative_limit": int(representative_limit),
+                       "mismatch_limit_rate": mismatch_limit_rate} if limit is not None else None
+     metrics = {"prepare_ms": round((time.perf_counter() - t0) * 1000, 2),
+-               "first_20_committed_ms": m["first_20_committed_ms"], "peak_python_mb": round(peak, 2),
++               "first_20_committed_ms": m["first_20_committed_ms"],
++               # [TRACEMALLOC-ALWAYS-ON-COST-REDUCTION] 계측 OFF(기본)면 None — 필드 자체는 유지(소비처 계약 불변).
++               "peak_python_mb": (round(peak, 2) if peak is not None else None),
+                "src_query_count": m["src_query_count"], "tgt_query_count": m["tgt_query_count"],
+                "chunks_total": len(bounds), "chunks_done": m["chunks_done"], "chunk_size": chunk_size,
+                "src_query_count_total": m["src_query_count"],
+diff --git a/tests/test_reimport_stream.py b/tests/test_reimport_stream.py
+index a4844dd..2b19708 100644
+--- a/tests/test_reimport_stream.py
++++ b/tests/test_reimport_stream.py
+@@ -64,7 +64,15 @@ def test_large_mismatch_no_full_memory_load():
+     N = 10000
+     src = [_row(i, "2026%02d" % (((i - 1) % 12) + 1), "R0%d" % (((i - 1) % 8) + 1),
+                 "CH%d" % (((i - 1) % 5) + 1), 1, i * 10) for i in range(1, N + 1)]
+-    out = _stream(src, [], batch=2000)   # 전부 목적 누락 → 재이관
++    # [TRACEMALLOC-ALWAYS-ON-COST-REDUCTION] 힙 피크 계측은 이제 기본 OFF(설정 토글)라 peak_python_mb 는 None 이다.
++    #   이 테스트는 '메모리 계약' 자체가 검증 대상이므로 계측을 명시적으로 켜고 측정한 뒤 기본값으로 되돌린다.
++    from services.exact_diff import execution_settings as _es
++    _prev = _es.get_execution_settings()          # 다른 override 를 지우지 않도록 이전 설정 그대로 복원
++    _es.override_group("instrumentation", memory_profiling_enabled=True)
++    try:
++        out = _stream(src, [], batch=2000)   # 전부 목적 누락 → 재이관
++    finally:
++        _es.set_execution_settings(_prev)
+     assert out["total_reimport_pks"] == N
+     # peak 힙은 batch(2000) 규모 수준 — N 전체(10,000 레코드 dict)를 동시에 들지 않는다.
+     assert out["metrics"]["peak_python_mb"] < 20, out["metrics"]["peak_python_mb"]

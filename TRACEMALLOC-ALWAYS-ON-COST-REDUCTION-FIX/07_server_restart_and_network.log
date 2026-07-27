@@ -1,0 +1,14 @@
+﻿[서버 재기동] 2026-07-27 14:08:07 종료(PID 31480) → 14:08:17 기동 확인(PID 30420), 포트 8000 / 인증 ON
+[확인 시각] 2026-07-27 14:11:56
+TCP    127.0.0.1:8000         0.0.0.0:0 
+             LISTENING       34068
+[무인증 GET /] HTTP 401 (인증 ON)
+[인증 GET /api/execution/settings] instrumentation 노출 여부: 포함
+[해당 필드] "instrumentation":{"memory_profiling_enabled":false}
+[settings_version] "settings_version":"d7-20"
+
+[내부망 라이브 DB 접속 확인 — 전면 불가(진단 시점과 동일)]
+  192.168.0.151:1523 → TCP timeout/거부
+  192.168.0.151:1524 → TCP timeout/거부
+  192.168.0.150:5433 → TCP timeout/거부
+  192.168.0.150:5434 → TCP timeout/거부

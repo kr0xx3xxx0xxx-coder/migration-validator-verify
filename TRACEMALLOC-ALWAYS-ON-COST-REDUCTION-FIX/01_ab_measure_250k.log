@@ -1,0 +1,28 @@
+﻿
+============================================================================================
+A1. pk_range_chunk (PK_RANGE_CHUNK_COMPARE) — 250,000행 · 불일치율 0.8% · 3회 교차(OFF↔ON) · 실제 설정 토글
+============================================================================================
+  OFF(신규 기본) wall :   1.116   1.084   1.078
+  ON (기존 상시)  wall :   7.843   7.731   7.795
+  중앙값 : OFF   1.084 s | ON   7.795 s | Δ  +6.711 s (ON 이 +619.30% 느림)
+  peak_python_mb : OFF=None | ON=116.14
+
+============================================================================================
+A2. agg_contribution (REIMPORT_PK_INDEX_STREAM) — 250,000행 · 불일치율 0.8% · 3회 교차(OFF↔ON) · 실제 설정 토글
+============================================================================================
+  OFF(신규 기본) wall :   0.931   0.956   0.950
+  ON (기존 상시)  wall :  10.055  10.101  10.067
+  중앙값 : OFF   0.950 s | ON  10.067 s | Δ  +9.118 s (ON 이 +960.19% 느림)
+  peak_python_mb : OFF=None | ON=2.78
+
+============================================================================================
+A3. 배선/안전성 확인 — 계측 토글이 판정 결과를 바꾸지 않아야 한다
+============================================================================================
+  pk_range_chunk counts   : OFF {'missing_migration': 0, 'value_mismatch': 2000, 'reimport_pks': 2000, 'reimport_total': 2000, 'excluded_target_only': 0, 'target_only_stored': 0, 'mismatch_limit_stopped': False}
+                            ON  {'missing_migration': 0, 'value_mismatch': 2000, 'reimport_pks': 2000, 'reimport_total': 2000, 'excluded_target_only': 0, 'target_only_stored': 0, 'mismatch_limit_stopped': False}
+                            동일? 예
+  agg_contribution 요약   : OFF {'total_reimport_pks': 2000, 'status': 'READY'} / ON {'total_reimport_pks': 2000, 'status': 'READY'} → 동일? 예
+  OFF 시 peak_python_mb 가 두 엔진 모두 None(미측정)? 예
+  ON 시 두 엔진 모두 수치 측정?                      예
+
+결론 : 배선 정상 · 판정 불변 (절감 chunk +6.711 s / stream +9.118 s)
