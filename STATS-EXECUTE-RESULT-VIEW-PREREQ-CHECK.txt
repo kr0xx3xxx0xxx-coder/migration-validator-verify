@@ -1,0 +1,306 @@
+⚠️ 추가 작업 필요 - STATS-EXECUTE-RESULT-VIEW-PREREQ-CHECK (코드 수정 0 · 확인만) — 요약 표시 필드는 대체로 충분하나, 저장 자체가 되지 않는 선결 결함 1건을 실측 재현
+
+■ 결론(3줄)
+  (1) stats_execute_result 는 현황판 "요약 전용" 표시에 필요한 값을 이미 대부분 갖고 있다.
+      판정 배지·그룹 카운트·GROUP BY/SUM·실행 SQL·허용오차 근거까지 summary_json 에 보존된다.
+      직전 진단의 "요약 카운트만 있다"는 표현은 과소평가였다 — result_view 통째로 저장돼 있다.
+  (2) 그러나 **성공 행이 저장된 적이 한 번도 없다.** 일괄 통계검증 실행 경로가 GROUP BY 가 있는
+      모든 plan 에서 크래시한다(실측 재현). 이 상태에서 현황판 결과보기를 만들면 항상 '실행 오류'만 뜬다.
+  (3) 보강이 필요한 필드는 5개이며 전부 SINGLE-SNAPSHOT-*-FIELDS-ADD 와 **동일 패턴(dict whitelist 확장)**
+      으로 처리 가능하다. 단 '원본/목적 COUNT' 1개만은 값 자체가 시스템에 없어 보강 불가.
+
+────────────────────────────────────────────────────────────────────────────
+0. 선결 결함 — 배치 통계검증 실행이 GROUP BY plan 에서 100% 실패 (실측)
+────────────────────────────────────────────────────────────────────────────
+위치: services/batch_stats_execute_service.py:469-473  (_execute_one_plan)
+
+    gb_cols = [
+        c.get("tgt_col") or c.get("target_column", "")      ← c 를 dict 로 가정
+        for c in plan.get("selected_group_by", [])
+        if c.get("tgt_col") or c.get("target_column")
+    ]
+
+그런데 plan 은 _load_plans_with_risk(:327) 가 policy_stats_validation_plan_snapshot.
+selected_group_by_json 을 그대로 역직렬화한 값이고, 저장 형식은 **문자열 리스트**다.
+
+  실측(전수 집계, db/migration_validator.db):
+    policy_stats_validation_plan_snapshot 1,001건
+      · list[str]  365건   (예: ["REGION"], ["TXN_TYPE"])
+      · []         636건
+      · list[dict]   0건   ← 코드가 기대하는 형태는 **단 1건도 없다**
+    SQL preview 가 채워진 '실행 가능' plan 207건 → **207건 전부 list[str]**
+
+  → str.get 호출 → AttributeError → 워커 스레드 사망 →
+     _execute_one_plan_with_timeout(:626) 의 `holder.get("r") or {...}` 폴백이
+     원인을 지운 채 "실행 결과가 반환되지 않았습니다." 로 덮어쓴다(조용한 마스킹).
+
+[라이브 재현 — 실 DB(내부망 PostgreSQL), 운영 경로 그대로]
+  대상 group : GRP_202607271101016178 (SNAPXFIELD-49f2ad, postgresql→postgresql)
+  대상 plan  : id=2740  asis01.t_nullx_src(1,000행) → tobe01.t_nullx_tgt(1,000행)
+  호출       : start_batch_execute(...) — 라우트가 쓰는 것과 동일한 공개 API
+  결과       : run_id=srun_GRP_2026_1785150718 / run_status=PARTIAL_SUCCESS / error_count=1
+               stats_execute_result id=94 → execution_status=ERROR, summary_json='{}'
+               콘솔 스택트레이스: AttributeError: 'str' object has no attribute 'get'
+                                 (batch_stats_execute_service.py:472)
+
+  ※ 이 결함은 최초 구현(bd701dc, 2026-05-29 task12-d)부터 존재한 장기 잠복 결함이다.
+  ※ 개별검증(마법사) 경로는 services/stats_execute_service.py 를 직접 호출하므로 **무영향**이다.
+  ※ 두 테이블(stats_execute_result / batch_stats_execute_run)이 실측 시작 시점에 0행이었던 것도
+    같은 원인으로 설명된다 — 성공 이력이 쌓일 수 없었다.
+
+  동일 가정(dict shape)이 services/stats_validation_plan_service.py:1188,1191 에도 있다(표시용 파생).
+
+────────────────────────────────────────────────────────────────────────────
+1. 스키마 전체 목록
+────────────────────────────────────────────────────────────────────────────
+[A] stats_execute_result — DDL: batch_stats_execute_service.py:158-186 (실 DB PRAGMA 일치, 23컬럼)
+
+  #   컬럼               타입      기본값      비고
+  ──  ─────────────────  ────────  ─────────  ────────────────────────────────────────
+   0  id                 INTEGER   PK AUTOINC
+   1  run_id             TEXT      NOT NULL   batch_stats_execute_run.run_id 와 조인 키
+   2  group_id           TEXT      NOT NULL
+   3  plan_id            INTEGER              → policy_stats_validation_plan_snapshot.id
+   4  row_id             INTEGER              → policy_target_table_config.id
+   5  target_table       TEXT
+   6  plan_type          TEXT                 GLOBAL_COUNT_SUM / BASIC_GROUPED 등
+   7  execution_status   TEXT      'PENDING'  SUCCESS_MATCHED/SUCCESS_DIFF/ERROR/TIMEOUT/…
+   8  matched_count      INTEGER   0          그룹 단위
+   9  diff_count         INTEGER   0
+  10  src_only_count     INTEGER   0
+  11  tgt_only_count     INTEGER   0
+  12  total_groups       INTEGER   0
+  13  displayed_groups   INTEGER   0
+  14  is_truncated       INTEGER   0          표시 절단(display_truncated)
+  15  risk_level         TEXT                 LOW/MEDIUM/HIGH/VERY_HIGH/UNKNOWN
+  16  risk_action        TEXT                 'EXECUTED' / 건너뜀 사유
+  17  error_message      TEXT
+  18  started_at         TEXT                 ISO UTC
+  19  finished_at        TEXT
+  20  duration_ms        INTEGER
+  21  summary_json       TEXT                 ★ 아래 [C]
+  22  created_at         TEXT
+  (인덱스 없음 — run_id 조회는 full scan)
+
+[B] batch_stats_execute_run — DDL: :190-214 + notes(db/init_db.py:59-61 ALTER), 실 DB 19컬럼
+  id / run_id(UNIQUE) / group_id / run_status / total_plans / executed_plans /
+  current_plan_table / current_plan_id / matched_count / diff_count / error_count /
+  skipped_count / timeout_count / cancelled_count / started_at / updated_at /
+  finished_at / cancel_requested_at / notes
+  ※ 여기의 matched/diff/error 는 **plan 개수**이지 그룹 수가 아니다.
+  ※ run 테이블에는 검증 '판정'이 없다 — run_status 는 프로세스 상태(COMPLETED/PARTIAL_SUCCESS/…)다.
+     판정은 stats_execute_result 행들의 result_status_code 집계(build_run_result_summary)로만 나온다.
+
+[C] summary_json 저장 whitelist — :562-579 (dict 리터럴 14키, SINGLE-SNAPSHOT 패턴과 동일 구조)
+  val_cols · gb_keys · rows(상위 50건) · total_src · total_tgt · compare_truncated ·
+  display_truncated · max_display_rows · result_rows_display_count ·
+  tolerance_summary · numeric_policy · result_view · source_sql · target_sql
+
+────────────────────────────────────────────────────────────────────────────
+2. 현황판 요약 표시 필요 필드 대조표
+────────────────────────────────────────────────────────────────────────────
+기준: 직전 진단이 "1차 요약 전용"으로 확정한 표시 부품
+      _mvExecStepResultHtml(tabler_renderer.py:15217) + _mvExecBasisHtml(:16111)
+
+  표시 항목                    필요 값                        저장 위치                          판정
+  ──────────────────────────  ─────────────────────────────  ────────────────────────────────  ──────
+  판정 배지(색·라벨)           result_view.status_level/label  summary_json.result_view          ✅ 있음
+                                                              (구버전은 derive_result_view_
+                                                               from_stats_row 가 카운트로 복원)
+  전체 그룹                    total_groups                    컬럼 12                            ✅
+  일치 / 값 불일치             matched_count / diff_count      컬럼 8,9                           ✅
+  원본 단독 / 목적 단독        src_only_count / tgt_only_count 컬럼 10,11                         ✅
+  비교 그룹 수                 compared_groups                 result_view.summary_counts 내부    ✅ 간접
+  화면 표시 그룹 수            result_rows_display_count       summary_json                       ✅
+  GROUP BY 축 목록             gb_keys                         summary_json                       ✅
+  SUM 항목 목록                선택 SUM 컬럼                   summary_json.val_cols              △ 파생
+                                                              (실측 SUM=[VAL,QTY] →
+                                                               val_cols=[CNT,VAL,QTY]
+                                                               — COUNT alias 혼입)
+  실행 기준 · 예상 그룹 수     groupby_estimate                미저장(plan snapshot 조인 필요)     ❌
+  실행 기준 · 생성 그룹 수     total_groups                    컬럼 12                            ✅
+  목적 테이블                  target_table                    컬럼 5                             ✅
+  원본 테이블                  source_table                    미저장(source_sql 원문에만 존재)   ❌
+  원본/목적 COUNT(행 수)       count_src / count_tgt           **어디에도 없음**                  ❌
+  절단 표시                    is_truncated / display_truncated 컬럼 14 + summary_json            ✅
+  표시 등급 D1~D4              display_tier_info               미저장(반환값엔 존재)              ❌
+  허용오차 근거                tolerance_summary               summary_json                       ✅
+  수치 비교 정책               numeric_policy                  summary_json                       ✅
+  경고/증적 문구               warning_messages/evidence_…     result_view 내부                   ✅
+  실행 SQL(증적)               source_sql / target_sql         summary_json (원문 그대로)         ✅
+  실행 시각 / 소요시간         started_at/finished_at/duration  컬럼 18,19,20                      ✅
+  위험도                       risk_level / risk_action        컬럼 15,16                         ✅
+  조회 시각·동시점 미보장      query_timing                    미저장(반환값엔 존재)              ❌
+  그룹명 / 프로젝트            group_name / project_id         validation_batch_group 조인 가능   ✅ 간접
+  불일치 그룹 행(상위)         rows                            summary_json (상위 50건)           ✅ 제한
+
+  → 지시된 5개 축 판정:
+     판정 배지 ✅ / 그룹수 ✅ / GROUP BY 항목 ✅ / SUM 항목 △(파생·정확성 손실) /
+     실행기준 △(생성 그룹수만 ✅, 예상 그룹수 ❌) / 원본·목적 COUNT ❌
+
+[실측 데이터 예시 — 성공 경로]
+  ※ 위 §0 결함 때문에 운영 경로로는 성공 행을 만들 수 없어, plan.selected_group_by 만
+    dict shape 으로 보정(= 결함 수정 시의 형태)해 동일 함수 _execute_one_plan → _save_plan_result
+    를 실 DB 로 실행했다. 저장은 scratchpad SQLite 로 했고 운영 DB 는 오염시키지 않았다.
+
+  컬럼 실값:
+    execution_status='SUCCESS_MATCHED'  matched_count=3  diff_count=0
+    src_only_count=0  tgt_only_count=0  total_groups=3  displayed_groups=3
+    is_truncated=0  risk_level='UNKNOWN'  risk_action='EXECUTED'  error_message=''
+    target_table='T_NULLX_TGT'  plan_type='GLOBAL_COUNT_SUM'
+    plan_id=2740  row_id=990002564  duration_ms=315
+    started_at/finished_at='2026-07-27T11:13:18Z'
+
+  summary_json 실값(14키 전부 채워짐):
+    gb_keys   = ["REGION"]
+    val_cols  = ["CNT","VAL","QTY"]
+    total_src = 3        ← ★ 행 수가 아니라 **원본 그룹 수**(len(src_dict))
+    total_tgt = 3        ← ★ 목적 그룹 수. 원본 테이블은 실제 1,000행이다.
+    rows      = 3건, 예: {"key":{"REGION":"A"},
+                          "src":{"CNT":"333","VAL":"58638.00","QTY":"8183"},
+                          "tgt":{"CNT":"333","VAL":"58638.00","QTY":"8183"},
+                          "status":"ok","key_is_null":{"REGION":false}}
+    result_view = {status_code:"PASSED", status_label:"일치", status_level:"success",
+                   summary_counts:{matched:3,diff:0,src_only:0,tgt_only:0,
+                                   total_groups:3,compared_groups:3},
+                   warning_messages:[], evidence_messages:[], truncation_message:null,
+                   count_precheck_message:null, tolerance_messages:[],
+                   display_truncated:false, compare_truncated:false,
+                   count_precheck_status:"NOT_RUN", count_skipped:false,
+                   tolerance_summary:{…}, numeric_policy_summary:{…},
+                   source_error:null, target_error:null}
+    tolerance_summary = {user_tolerance_applied:false, absolute_tolerance:0.0,
+                         matched_with_tolerance_groups:0}
+    numeric_policy    = {count_exact:true, sum_absolute_tolerance:"1E-9",
+                         sum_relative_tolerance:"0", null_equals_zero:false,
+                         decimal_first:true, effective_absolute_tolerance:"1E-9"}
+    max_display_rows=200  result_rows_display_count=3
+    compare_truncated=false  display_truncated=false
+    source_sql/target_sql = 실행된 SQL 원문(줄바꿈 포함, 재포맷 없음)
+
+[실측 데이터 예시 — 실패 경로(운영 DB, 실제 저장분)]
+  run_id=srun_GRP_2026_1785150718 / group=GRP_202607271101016178
+  batch_stats_execute_run : run_status=PARTIAL_SUCCESS, total_plans=1, executed_plans=1,
+                            matched_count=0, diff_count=0, error_count=1, notes=NULL,
+                            started_at=updated_at=finished_at='2026-07-27T11:11:58Z'
+  stats_execute_result id=94 : execution_status='ERROR', 카운트 전부 0, summary_json='{}',
+                            error_message='실행 결과가 반환되지 않았습니다.', duration_ms=4
+  get_execute_run_results 파생 : result_status_code='ERROR' / '실행 오류' / danger
+                            result_summary={"status_code":"ERROR","counts":{"ERROR":1},"total":1}
+  → summary_json 이 비어도 판정 배지는 derive_result_view_from_stats_row 가 복원한다(확인됨).
+
+────────────────────────────────────────────────────────────────────────────
+3. 부족 필드 목록 + 보강 가능 여부
+────────────────────────────────────────────────────────────────────────────
+  #  부족 필드              현재 상태                        보강 방식                              가능?
+  ─  ─────────────────────  ──────────────────────────────  ────────────────────────────────────  ─────
+  1  display_tier_info      _execute_one_plan 반환값에는     summary_json whitelist 에 1키 추가     ✅ 1줄
+     (표시 등급 D1~D4)      있으나 whitelist 미포함          (:562-579)
+  2  query_timing           동상                             동상                                   ✅ 1줄
+     (조회시각·동시점)
+  3  selected_sum           val_cols 로 대체 중(CNT 혼입)    summary_json 에 plan.selected_sum      ✅ 1줄
+     (선택 SUM 원본 목록)                                    추가. 조인 불필요·실행시점 값 고정
+  4  groupby_estimate       미저장. plan snapshot 에는 있음   summary_json 에 추가 권장              ✅ 1줄
+     (예상 그룹 수)         단 plan 은 재생성 시 덮어써짐     (조인은 '실행 당시 값' 보장 못 함)
+  5  source_table           미저장(목적만 컬럼 보유)         summary_json 추가 또는 컬럼 ALTER      ✅ 1줄
+  6  src/tgt dbms_type      미저장                           summary_json 에 db_type 만 추가        ✅ 1줄
+     (실행 방언)                                             (host/user/password 는 저장 금지)
+  7  원본/목적 COUNT(행 수) **시스템 어디에도 없다**          보강 불가                              ❌
+                            · total_src/tgt 는 그룹 수
+                            · policy_target_table_config
+                              4,615건 전부 source_count NULL
+                              (count_precheck_status=NOT_RUN)
+                            · rows[].src.CNT 합산은 rows 가
+                              50건 상한이라 일반해 아님
+
+  [보강 패턴 적합성 판정]
+  · SINGLE-SNAPSHOT-WHITELIST-EXPLAINABILITY-FIELDS-ADD(5eef44d) 는
+    single_validation_result_store.py 의 후보 whitelist(dict 리터럴)에 키를 추가한 변경이었다.
+    summary_json(:562-579)도 **완전히 같은 형태의 dict 리터럴 whitelist** 이고,
+    소비측이 전부 .get() 경로(get_execute_run_results:1174, Excel export)라
+    기존 저장분에 키가 없어도 조회 회귀가 없다. → 동일 패턴 적용 가능(1~6번 전부).
+  · 스키마 ALTER 가 필요한 경우에도 db/init_db.py 의 _migrate_table 선례(notes 컬럼)가 있다.
+    다만 1~6번은 전부 summary_json 로 처리 가능하므로 **ALTER 불필요**를 권장한다.
+
+────────────────────────────────────────────────────────────────────────────
+4. 현황판 배선상 별도 갭 2건 (필드 충분성과 별개 · 라이브 실측)
+────────────────────────────────────────────────────────────────────────────
+ G1  DTO 에 project_id 가 없는데 상세 라우트는 project_id 를 요구한다.
+     · GET /jobs/completed?source=stats 의 extra = {group_id, total_plans, executed_plans,
+       matched/diff/error/skipped/timeout/cancelled_count, *_iso, result_viewable:true, …}
+       — **project_id 없음**(라이브 응답으로 확인).
+     · 유일한 상세 조회 경로
+       GET /api/batch-groups/{group_id}/stats-validation-plans/execute-results/{run_id}
+       는 프로젝트 범위 가드가 걸려 있다:
+         project_id 미첨부 → 403 {"blocked":true,"code":"PROJECT_NOT_SELECTED"} (실측)
+         project_id=898   → 200 정상 (실측)
+     · 현황판은 전역 목록이라 project_id 를 모른다. → DTO extra 에 project_id 추가 필요
+       (validation_batch_group.project_id 를 group_id 로 조인하면 서버측에서 채울 수 있다).
+
+ G2  run 단위 목록만으로는 판정 배지를 그릴 수 없다.
+     batch_stats_execute_run 에는 판정이 없고(run_status=프로세스 상태), 판정은 plan 행 집계다.
+     → 현황판 목록에 배지를 넣으려면 run 당 execute-results 1회 추가 호출이 필요하다.
+       (목록 N건이면 N회 — 폴링 부하 고려 필요. 또는 run 테이블에 판정 요약 컬럼 추가.)
+
+────────────────────────────────────────────────────────────────────────────
+5. 기능/구조 변경 요청 응답 형식
+────────────────────────────────────────────────────────────────────────────
+· 요청 요약: 현황판 결과보기 1차(요약 전용) 착수 전, stats 저장소의 요약 표시 필드 충분성 재확인.
+· 긍정적 효과: 저장소가 이미 result_view 를 통째로 보존하고 있어 판정 표기 이중화(재계산) 없이
+             단일 출처로 배지를 그릴 수 있다. 신규 렌더러·신규 판정 로직 불필요.
+· 구조적 문제점: 요약에 필요한 값이 컬럼(23개)과 summary_json(14키)과 조인 대상 테이블 3곳
+             (plan snapshot / target_table_config / validation_batch_group)에 흩어져 있다.
+             조인 대상은 전부 **가변**이라 '실행 당시 값' 보장을 못 한다 → 조인보다 저장 확장이 안전.
+· 운영상 위험: (1) §0 결함이 남아 있는 한 현황판 결과보기는 항상 '실행 오류'만 보여준다.
+             기능이 아니라 **결함 전시창**이 된다. (2) stats_execute_result 에 run_id 인덱스가
+             없어 이력이 쌓이면 목록 조회가 느려진다. (3) rows 50건 상한과 화면 상한 200 이
+             불일치 — 그룹표를 1차 범위에 넣지 않으면 무해.
+· heuristic / scoring / explainability 영향:
+             heuristic·scoring 변경 없음. explainability 는 오히려 이 저장소가 양호한 편이다
+             (실행 SQL 원문·허용오차·수치정책·경고문구까지 보존). 다만 §0 의
+             "실행 결과가 반환되지 않았습니다." 폴백은 **원인을 지우는 마스킹**이라
+             설명가능성 관점의 실질 결함이다 — 예외를 error_message 에 담아야 한다.
+· 권장 대응책:
+             ① 선결 — batch_stats_execute_service.py:469-473 을 str/dict 양쪽 허용으로 수정하고
+                :626 폴백이 예외 원문을 error_message 에 남기도록 한다(별도 작업으로 분리).
+             ② 그 다음 summary_json whitelist 에 1~6번 6키 추가(단일 커밋, ~6줄).
+             ③ job_registry DTO extra 에 project_id 추가(§4 G1).
+             ④ '원본/목적 COUNT' 는 요약 항목에서 제외하거나 'COUNT 미실행'으로 표기한다.
+                없는 숫자를 total_src/total_tgt(그룹 수)로 대신 채우면 **거짓 표시**가 된다.
+· 지금 구현 여부: **보류** — ① 선결 결함 수정이 먼저다. ①이 끝나기 전 현황판 결과보기를 만들면
+             표시할 성공 데이터가 구조적으로 존재하지 않는다.
+
+────────────────────────────────────────────────────────────────────────────
+6. 검증(필수) 결과
+────────────────────────────────────────────────────────────────────────────
+[1] 스키마 전체 목록 + 요약 표시 필요 필드 대조표 → §1, §2.
+    stats_execute_result 23컬럼 + summary_json 14키 전수 · 표시 항목 22개 대조
+    (✅ 15 / △ 2 / ❌ 5)
+[2] 실측 데이터 예시 → §2 하단. 성공 경로(SUCCESS_MATCHED, 실 DB) + 실패 경로(운영 DB 실제 저장분)
+[3] 부족 필드 목록 + 보강 필요 여부 결론 → §3. 7건 중 6건 보강 가능(전부 whitelist 1줄),
+    1건(원본/목적 COUNT)은 값 자체가 없어 보강 불가.
+[4] 선결 결함 1건 실측 재현 → §0. 실행 가능 plan 207/207 영향.
+
+[라이브 확인 — 실제 서비스 포트 8000 · 인증 ON]
+  GET /                                   → 401 (인증 미첨부) / 200 (Basic Auth 통과)
+  GET /jobs/completed?source=stats        → 200, items 1건
+                                            key="stats:srun_GRP_2026_1785150718"
+                                            status=PARTIAL_SUCCESS, percent=100,
+                                            extra.result_viewable=true, persistent=true
+  GET /jobs/stats:srun_GRP_2026_1785150718 → 200, found=true (종료 job 상세 조회됨)
+  GET …/execute-results/{run_id}          → 403 PROJECT_NOT_SELECTED (project_id 미첨부)
+  GET …/execute-results/{run_id}?project_id=898 → 200, results 1건 + result_summary
+
+[실 DB 라이브]
+  내부망 복구 확인: 192.168.0.150:5433/5434, 192.168.0.151:1523/1524, 192.168.0.211:3309 전부 TCP OK
+  실행 DB: PostgreSQL_Inter_asis(asis01.t_nullx_src 1,000행) → PostgreSQL_Inter_tobe(tobe01.t_nullx_tgt 1,000행)
+  비밀번호 노출 점검: 접속정보 출력은 host/port/dbname 까지만, password 는 전 구간 미출력.
+                    보고서·로그·스크립트 어디에도 평문 비밀번호 없음.
+
+■ 코드 수정: 0건 (지시대로 순수 확인)
+■ 운영 데이터 변경: 실측 실행으로 stats_execute_result 1행(id=94) +
+   batch_stats_execute_run 1행(run_id=srun_GRP_2026_1785150718)이 추가됐다.
+   §0 결함의 실증 증적이라 임의 삭제하지 않고 남겨 뒀다(삭제 원하시면 지시 바랍니다).
+   성공 경로 실측은 scratchpad SQLite 로 분리해 운영 DB 를 오염시키지 않았다.
+
+⚠️ 추가 작업 필요 - STATS-EXECUTE-RESULT-VIEW-PREREQ-CHECK (요약 필드는 6/7 보강 가능하나, 배치 통계검증 실행이 GROUP BY plan 에서 100% 크래시 — 이 결함 수정이 현황판 결과보기의 선결 조건)
