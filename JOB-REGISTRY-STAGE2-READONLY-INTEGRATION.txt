@@ -1,0 +1,122 @@
+✅ 작업 완료 - JOB-REGISTRY-STAGE2-READONLY-INTEGRATION : 검증 job 통합 조회 계층(읽기전용) + GET /jobs/active·/jobs/{id} 구현·실측 완료
+
+[작업명] JOB-REGISTRY-STAGE2-READONLY-INTEGRATION
+[커밋]   1fb93e8  (직전 HEAD 25138f0)
+[서버]   2026-07-27 15:31:23 재기동 → 15:31:28 응답 확인 (127.0.0.1:8000, 인증 ON, reload=False)
+
+■ 신규/수정 파일
+  신규 services/job_registry.py                 591줄  통합 DTO + 어댑터 4종(single/batch/stats/full)
+  신규 routes/job_dashboard_route.py             59줄  GET /jobs/active, GET /jobs/{source:id}
+  신규 tests/test_job_registry.py               431줄  단위/계약 테스트 19건
+  신규 scripts/dev_e2e/job_registry_stage2_readonly_verify.py 338줄  실측 harness(P1~P8)
+  수정 web_server.py                              5줄  라우터 등록(2줄 + 주석 3줄)
+  ※ 기존 저장소 3종(reimport_job.py / batch_execution_state_service.py /
+     batch_stats_execute_service.py)은 **한 글자도 수정하지 않음** — 읽기 전용 통합.
+
+■ 통합 DTO (지시 9필드 + 파생)
+  필수: source / id / label / total / completed / current_target / status / last_progress_at / started_at
+  파생: key("source:id") / unit(chunk|row|plan|unknown) / percent / active /
+        progress_signal(PROGRESS|START_ONLY|UNKNOWN) / stall_seconds / stall_basis / extra
+
+■ 어댑터 매핑 (진단 매핑표 그대로 구현)
+  A single : chunks_total→total, chunks_done→completed, last_processed_key→current_target,
+             progress.last_progress_at→last_progress_at
+             (청크 없으면 meta.source_count/processed_source_count 로 행 단위 폴백, 둘 다 없으면 불확정)
+  B batch  : total_rows, processed_rows, current_target_table, status  /  진행 시각 컬럼 없음 → None
+  C stats  : total_plans, executed_plans, current_plan_table, run_status, updated_at→last_progress_at
+  D full   : 실행 구조 없음 → 항상 빈 목록 + 안내 warning(가짜 job 미생성)
+
+■ 세 소스 정규화 응답 예시(실측 발췌)
+  [A 개별검증 · 청크 전략]
+   {"source":"single","id":"jrv_run_c_...","label":"INSERT INTO NXDNP.MV_ORA_XDIFF_TGT SELECT ...",
+    "total":120,"completed":24,"current_target":"2400000","status":"PREPARING",
+    "last_progress_at":1785133121.4,"started_at":1785133120.2}
+    → unit=chunk · percent=20.0 · progress_signal=PROGRESS · stall_seconds=0.0(last_progress_at)
+  [A 개별검증 · 행 전략(DIRECT_STREAM · 현재 기본)]
+   {"total":1200000,"completed":72000,"current_target":"2400000","status":"PREPARING"}
+    → unit=row · percent=6.0   ← chunks_total 부재 시 단위 폴백 실제 작동 확인
+  [B 일괄검증 · 운영 SQLite 실 데이터]
+   {"source":"batch","id":"exec_a2c0630406254adf",
+    "label":"일괄검증 · GRP_202607240925308436 (FULL_VALIDATION)","total":5,"completed":5,
+    "current_target":"NXDNP.MV_ORA_XDIFF_TGT_2","status":"COMPLETED",
+    "last_progress_at":null,"started_at":1784885303.0}
+    → unit=row · percent=100.0 · progress_signal=START_ONLY · extra.last_progress_at_available=false
+  [B 일괄검증 · 진행 중(RUNNING)]
+   {"id":"exec_f0b8ea27603a46ea","total":40,"completed":12,
+    "current_target":"NXDNP.MV_ORA_XDIFF_TGT_2","status":"RUNNING_FULL_VALIDATION"}  → percent=30.0
+  [C 통계검증 · 진행 중(RUNNING)]
+   {"source":"stats","id":"srun_JRV_...","label":"통계검증 계획 실행 · GRP_JRV_LIVE",
+    "total":8,"completed":3,"current_target":"NXDNP.MV_ORA_TEST","status":"RUNNING",
+    "last_progress_at":1785133125.0,"started_at":1785133123.0}
+    → unit=plan · percent=37.5 · progress_signal=PROGRESS(세 소스 중 유일하게 진행 시각 실재)
+  [D 전수검증] jobs=[] / warnings=["전수검증(full)은 아직 실행 구조가 없어 표시할 job 이 없습니다(준비중)."]
+
+■ API 응답 실측(JSON, 인증 ON 인스턴스 :8011, 실 HTTP)
+  무인증 GET /jobs/active → HTTP 401 (인증 강제 확인)
+  인증   GET /jobs/active → HTTP 200
+    {"ok":true,"counts":{"total":0,"by_source":{"single":0,"batch":0,"stats":0,"full":0}},
+     "warnings":["전수검증(full)은 아직 실행 구조가 없어 표시할 job 이 없습니다(준비중)."],
+     "notes":["개별검증(single) job 은 in-memory 저장소라 서버 재시작 시 목록에서 사라집니다.",
+              "stall_seconds 는 참고 표시용입니다 — 서버는 정체를 판정하거나 자동 개입하지 않습니다."]}
+  인증   GET /jobs/active?source=batch,stats → HTTP 200 (소스 필터 적용)
+  인증   GET /jobs/batch:exec_a2c0630406254adf → HTTP 200  ※ 운영 DB 실 데이터
+    {"ok":true,"found":true,"job":{"source":"batch","id":"exec_a2c0630406254adf",
+     "key":"batch:exec_a2c0630406254adf","label":"일괄검증 · GRP_202607240925308436 (FULL_VALIDATION)",
+     "total":5,"completed":5,"current_target":"NXDNP.MV_ORA_XDIFF_TGT_2","status":"COMPLETED",
+     "last_progress_at":null,"started_at":1784885303.0,"unit":"row","percent":100.0,"active":false,
+     "progress_signal":"START_ONLY","stall_seconds":null,"stall_basis":"started_at","extra":{...}},
+     "error_message":""}
+  인증   GET /jobs/stats:no_such_run → HTTP 200 found=false
+     error_message="해당 job 을 찾을 수 없습니다(종료 후 정리되었거나 서버 재시작으로 소실)."
+
+■ 정체(stall) 취급 — 표시만, 판정 없음
+  · STAGE1 의 last_progress_at 을 그대로 활용해 stall_seconds/stall_basis 계산.
+  · 임계값 비교·상태 전환·자동 중단/전환은 넣지 않음(진단 §7 — heartbeat gap 실측 전 임계 확정 금지).
+  · 근거 종류를 progress_signal 로 명시: PROGRESS(진행 시각 실재) / START_ONLY(시작 시각 대체) / UNKNOWN.
+  · 비활성 job 은 stall_seconds=None(경과 측정 자체를 하지 않음).
+
+■ 읽기 전용 보증
+  · SQLite 접근은 전부 mode=ro URI — 이 연결로는 DDL 실행 불가(원본의 CREATE TABLE IF NOT EXISTS 미수행).
+  · 운영 DB sha256(앞16) 조회 전 25d78ba31b025471 / 조회 후 25d78ba31b025471 → 동일(무변경).
+  · 단위 테스트 2건이 이를 강제(테이블 없는 DB 조회 후 DDL 부작용 0 / 조회 전후 행 내용 완전 동일).
+  · 원본의 stale 정리(6h 초과 RUNNING→FAILED_INTERRUPTED)는 write 이므로 미수행 →
+    미정리 stale 행이 활성으로 보일 수 있음(주석에 한계 명시, 정리는 원본 경로 책임).
+
+■ 테스트 결과
+  · 신규 tests/test_job_registry.py : 19 passed (2.65s)
+      단위폴백 3분기 / 어댑터 3종 정규화 / D 빈 목록 / 병합·정렬·소스·그룹 필터 /
+      복합키·bare id 상세 / 부분 실패 격리 / DB 파일 부재 warning / 읽기전용 보증 2건 / API 계약 3건
+  · CLAUDE.md 규정 회귀 : samples/test_virtual_cases.py 8/8, samples/test_complex_cases.py 5/5
+  · 회귀 비교(변경 영향권 서브셋 -k "route or router or active_run or job", 494건)
+      변경 후 : 22 failed, 491 passed, 3 skipped, 2 errors (308.17s)
+      기준선  : 22 failed, 472 passed, 3 skipped, 2 errors (307.53s)
+                (web_server.py 를 HEAD 로 in-place 되돌린 뒤 test_job_registry.py 제외)
+      → 실패 22건 + error 2건 **목록 완전 동일**(사전 존재 실패, 실 DB 요구 테스트).
+        passed 차이 19 = 신규 테스트 19건. 이번 변경으로 깨진 것 없음.
+
+■ 환경 / 한계 (정직 고지)
+  · 내부망 DB 여전히 전 노드 TCP 타임아웃(Oracle 192.168.0.151:1523·1524,
+    내부 PG 192.168.0.150:5433·5434 — 15:20 측정) → 라이브 job 생성 불가.
+    A 는 운영과 동일 코드 경로(start_or_attach + agg_diff_route _pcb 배선) in-process 구동으로 대체,
+    B 는 **운영 SQLite 실 데이터 386건 중 1건**을 실제 조회, C 는 운영 DB 행 0건이라
+    원본 서비스 writer(_create_run_record/_update_run_progress)로 임시 DB 에 실제 생성해 실측.
+  · 포트 8000 은 인증 ON 이라 자격증명 없이는 라우팅 전 401 → 8000 에서는 재기동 후 401 확인까지만.
+    라우팅 200 확인은 동일 app 을 인증 ON 으로 띄운 :8011 인스턴스에서 수행
+    (운영 auth_users.json 미변경 — MV_AUTH_USERS_FILE 로 임시 계정 파일 분리).
+  · 전체 tests/(약 11,200건)는 완주 못 함(10% 진행에 10분 초과 → 2회 비교 비현실적).
+    대신 변경 영향권 494건을 기준선과 1:1 비교.
+
+■ 다음 단계에 넘기는 것
+  · 정체 경고 임계(STALL_TTL)는 미정 — 내부망 복구 후 heartbeat gap 실측 선행 필요.
+    그 전까지 stall_seconds 는 숫자 표시만, 경고 승격 금지.
+  · 일괄검증(B) 진행 시각 부재는 통합 계층에서 메울 수 없음 — 원본 저장소 updated_at 추가는 별도 단계.
+  · 3단계(현황판 화면)는 ui/js_job_dashboard.py 로 분리, 폴링은 화면당 단일 타이머 1개.
+    JS 주석에 '*/' 금지(번들 붕괴 전례).
+
+■ 증적
+  E:\verify_screenshots_only\JOB-REGISTRY-STAGE2-READONLY-INTEGRATION\
+    REPORT.txt / 01_harness_P1-P8_실측로그.txt / 02_unit_test_job_registry.txt /
+    03_회귀비교_baseline_vs_after.txt / 04_samples_regression.txt /
+    05_commit_stat.txt / 06_diff_web_server.txt
+
+✅ 작업 완료 - JOB-REGISTRY-STAGE2-READONLY-INTEGRATION : 읽기전용 통합 계층·API·테스트 19건·회귀 무영향 확인 완료
