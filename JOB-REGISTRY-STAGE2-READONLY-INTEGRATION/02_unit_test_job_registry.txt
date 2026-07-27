@@ -1,0 +1,28 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.0.3, pluggy-1.6.0 -- C:\Python314\python.exe
+cachedir: .pytest_cache
+rootdir: C:\projects\migration-validator
+plugins: anyio-4.13.0
+collecting ... collected 19 items
+
+tests/test_job_registry.py::test_single_unit_chunk_branch PASSED         [  5%]
+tests/test_job_registry.py::test_single_unit_row_branch_when_no_chunks PASSED [ 10%]
+tests/test_job_registry.py::test_single_unit_unknown_branch_no_denominator PASSED [ 15%]
+tests/test_job_registry.py::test_single_inactive_job_has_no_stall_seconds PASSED [ 21%]
+tests/test_job_registry.py::test_batch_row_normalization PASSED          [ 26%]
+tests/test_job_registry.py::test_stats_row_normalization PASSED          [ 31%]
+tests/test_job_registry.py::test_single_collect_uses_live_registry PASSED [ 36%]
+tests/test_job_registry.py::test_full_adapter_always_empty PASSED        [ 42%]
+tests/test_job_registry.py::test_active_jobs_merges_three_sources PASSED [ 47%]
+tests/test_job_registry.py::test_active_jobs_excludes_terminal_rows PASSED [ 52%]
+tests/test_job_registry.py::test_source_filter_and_group_filter PASSED   [ 57%]
+tests/test_job_registry.py::test_get_job_by_composite_key_and_bare_id PASSED [ 63%]
+tests/test_job_registry.py::test_partial_failure_is_isolated PASSED      [ 68%]
+tests/test_job_registry.py::test_missing_db_file_returns_warning_not_exception PASSED [ 73%]
+tests/test_job_registry.py::test_readonly_does_not_create_tables PASSED  [ 78%]
+tests/test_job_registry.py::test_readonly_does_not_mutate_rows PASSED    [ 84%]
+tests/test_job_registry.py::test_api_jobs_active_contract PASSED         [ 89%]
+tests/test_job_registry.py::test_api_jobs_active_source_filter PASSED    [ 94%]
+tests/test_job_registry.py::test_api_jobs_detail_found_and_not_found PASSED [100%]
+
+============================= 19 passed in 2.65s ==============================

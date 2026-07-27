@@ -1,0 +1,29 @@
+commit 1fb93e85a2f7c76973c43eaa2bd35285c841fee2
+Author: migration-validator <dev@migration-validator.local>
+Date:   Mon Jul 27 15:30:57 2026 +0900
+
+    feat(job): 검증 job 통합 조회 계층(읽기전용) + GET /jobs/active·/jobs/{id} (JOB-REGISTRY-STAGE2-READONLY-INTEGRATION)
+    
+    개별검증(reimport_job)/일괄검증(batch_execution_state)/통계검증(batch_stats_execute_run)
+    세 저장소가 각자 갖고 있던 "총량·완료량·현재대상·상태" 4요소를 단일 DTO(JobProgressDTO)로
+    정규화하는 읽기 전용 통합 계층을 추가한다. 기존 저장소는 수정하지 않는다.
+    
+    - services/job_registry.py  : 통합 DTO + 어댑터 4종(single/batch/stats/full)
+      · 단위 폴백 3분기(청크 → 행 → 불확정) — 분모 미상 시 0%/가짜 진행률 생성 금지
+      · last_progress_at(STAGE1 추가분) 활용 — 정체 여부는 '참고 표시'만, 자동 판정/개입 없음
+      · SQLite 는 mode=ro URI SELECT 전용(DDL·write 없음), 전수검증(full)은 항상 빈 목록
+      · 한 소스 실패해도 나머지 반환(부분 실패는 warnings), 에러는 raise 대신 결과 객체에 담음
+    - routes/job_dashboard_route.py : GET /jobs/active(3소스 병합), GET /jobs/{source:id 복합키}
+    - tests/test_job_registry.py    : 19건(어댑터 정규화·단위폴백·병합/필터·읽기전용 보증·API 계약)
+    - scripts/dev_e2e/job_registry_stage2_readonly_verify.py : 실측 harness(P1~P8)
+    - web_server.py : 라우터 등록 2줄
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+ routes/job_dashboard_route.py                      |  59 ++
+ .../dev_e2e/job_registry_stage2_readonly_verify.py | 338 ++++++++++++
+ services/job_registry.py                           | 591 +++++++++++++++++++++
+ tests/test_job_registry.py                         | 431 +++++++++++++++
+ web_server.py                                      |   5 +
+ 5 files changed, 1424 insertions(+)
+1fb93e8 feat(job): 검증 job 통합 조회 계층(읽기전용) + GET /jobs/active·/jobs/{id} (JOB-REGISTRY-STAGE2-READONLY-INTEGRATION)

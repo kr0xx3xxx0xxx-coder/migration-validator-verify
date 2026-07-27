@@ -1,0 +1,30 @@
+[회귀 비교] 동일 서브셋(-k "route or router or active_run or job") baseline(HEAD) vs 변경후
+
+■ 변경 후 : 22 failed, 491 passed, 3 skipped, 2 errors  (308.17s)
+■ baseline : 22 failed, 472 passed, 3 skipped, 2 errors  (307.53s)  ※ test_job_registry.py 제외
+
+→ 실패 22건 + error 2건 목록 완전 동일(사전 존재 실패). passed 차이 19 = 신규 test_job_registry.py 19건.
+
+[사전 존재 실패 22건 목록]
+tests/test_analyze_route_shadow_integration.py::test_shadow_on_equals_off
+tests/test_analyze_route_shadow_integration.py::test_shadow_build_failure_keeps_success
+tests/test_analyze_route_shadow_integration.py::test_route_isolates_shadow_helper_exception
+tests/test_analyze_routing_r3_safe_return.py::test_route_on_equals_off
+tests/test_analyze_shadow_metrics_audit.py::test_route_response_invariant
+tests/test_execute_r3_safe_return.py::test_route_on_uses_mapped
+tests/test_execute_route_shadow_integration.py::test_shadow_on_calls_build
+tests/test_generate_route_contract.py::test_g07_sql_generation_uses_common_builder
+tests/test_generate_route_contract.py::test_g12_empty_or_none_col_is_error
+tests/test_generate_route_contract.py::test_g14_over_three_selection_is_error
+tests/test_group_save_unify_cleanup.py::test_save_route_returns_409_on_replace_confirmation
+tests/test_groupby_safety_common_gate.py::test_execute_route_gate_safe
+tests/test_one_click_critical_hold_route_to_normal_gate.py::test_critical_gate_hold_routes_to_normal_gate_not_error_panel
+tests/test_one_click_critical_hold_route_to_normal_gate.py::test_real_count_error_still_uses_error_panel_unchanged
+tests/test_single_execute_store_skeleton_state_lock.py::test_route_store_does_not_add_persistence
+tests/test_single_run_standard_route.py::test_route_pg_normal_returns_ok_envelope
+tests/test_single_run_standard_route.py::test_route_passes_manual_selection
+tests/test_single_run_standard_route.py::test_route_cols_alias_selection
+tests/test_single_validation_result_view_persistence.py::test_execute_attaches_job_id_and_saves
+tests/test_task11_g.py::TestAdapterUsage::test_TC_PIPELINE_04_analyze_route_uses_adapter
+tests/test_task11_h1.py::TestCallerIntegration::test_TC_DBOBJ_PMODEL_22_analyze_route_passes_parsed_model
+tests/test_upload_audit_store.py::TestRoute::test_route_endpoints
