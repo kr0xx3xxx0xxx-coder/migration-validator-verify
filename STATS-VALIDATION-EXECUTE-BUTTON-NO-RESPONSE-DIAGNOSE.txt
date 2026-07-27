@@ -1,0 +1,454 @@
+⚠️ 추가 작업 필요 - '통계검증 실행'은 정상 동작하나 결과 카드가 5단계 전용 pane이라 4단계 화면에서 가려져 무반응으로 체감됨(수정 미포함, 진단만)
+
+작업명 : STATS-VALIDATION-EXECUTE-BUTTON-NO-RESPONSE-DIAGNOSE
+일시   : 2026-07-26 22:30~22:45 KST (본문)
+         2026-07-27 부록 A~E 추가 — STATS-VALIDATION-EXECUTE-BUTTON-NO-RESPONSE-DIAGNOSE-REPORT-MANDATORY
+범위   : 순수 진단(코드 수정 없음). 실 서비스 포트 8000 · 인증 ON · 실 오라클(Oracle_asis 1523 → Oracle_tobe 1524)
+
+[개정 이력]
+ · 2026-07-26 본문 작성. 다만 이 파일이 verify 저장소에 push 되지 않아 원격에는 스크린샷과
+   JSON 원자료만 올라간 상태였다(결론 문단 부재). 2026-07-27 작업에서 원격 증적을 다시 pull 해
+   두 JSON 을 재대조하고, 당시 다루지 않은 4개 항목을 부록 A~E 로 보강한 뒤 원격에 반영했다.
+ · 부록에서 재진단·재실행·브라우저 조작은 하지 않았다(기존 증적 재분석 + 정적 코드 확인만).
+
+═══════════════════════════════════════════════════════════════════
+결론(근본원인 확정)
+═══════════════════════════════════════════════════════════════════
+지시된 4개 선택지 중 → "요청은 나갔으나 응답 처리 실패" 계열.
+정확히는 요청·응답·렌더까지 모두 정상이고, 렌더된 결과 카드가 화면에 보이지 않는다.
+
+  · 핸들러 미연결        → 아니다 (클릭 이벤트 도달 + runExecute 진입 실측)
+  · 요청 자체가 조건에 막힘 → 아니다 (/execute 2회 모두 200)
+  · 서버가 stale 코드 서빙  → 아니다 (프로세스 시작 21:58:56 > 파일 최종수정 21:58:42,
+                              오늘 최종 커밋 마커가 서빙 HTML에 존재)
+  · 요청은 나갔으나 (화면) 반영 실패 → 맞다 ★
+
+근본원인 한 줄:
+  결과 카드 execResultCard(=#executeOut)는 SINGLE_STEP_CARDS 매핑상 5단계(result) 전용
+  pane인데, runExecute는 실행 후 의도적으로 4단계(validation)에 머문다. 4단계에서는
+  execResultCard에 .mv-pane-hidden{display:none!important} 이 걸려 있어, 실행이 성공하고
+  결과 HTML(2,755자)이 실제로 채워져도 사용자 화면에는 아무것도 나타나지 않는다.
+
+  ui/tabler_renderer.py:5648-5649
+    validation: ['sqlCard','sampleCard','singleValidationNav','mvExecProgress','mvExecStepError']
+    result:     ['execResultCard','relatedHistCard']
+  ui/tabler_renderer.py:947   .mv-pane-hidden{display:none!important}
+  ui/tabler_renderer.py:25331 var erc=document.getElementById('execResultCard');
+                              if (erc) erc.style.display='';   ← 인라인 display는
+                              !important 클래스를 이기지 못한다(무력)
+  ui/tabler_renderer.py:27538 "[탭 전이 §3·자동 이동 전면 제거] 통계검증 실행 후에는 4단계에
+                              머문다(자동 5단계 이동 금지)"
+
+  ※ 개발자 주석이 이미 같은 사실을 기술하고 있다(ui/tabler_renderer.py:25332-25334):
+    "다중 세트 중 하나라도 실패하면 planRun 상세(재이관 뷰)는 결과카드(5단계, 4단계 pane에서
+     가려짐)에 그려져 화면에 안 보인다"
+    → 2026-07-23 커밋 010eefd(EXECUTE-ERROR-MESSAGE-NOT-RENDERED-FIX)는 '실행 오류'만
+      4단계 #mvExecStepError 로 우회 표출했고, '실행 성공' 경로에는 대응 표시가 없다.
+      바로 이 비대칭이 이번 증상의 실체다.
+
+═══════════════════════════════════════════════════════════════════
+1. 재현 시나리오 (실 UI 클릭, 강제주입 없음)
+═══════════════════════════════════════════════════════════════════
+드라이버: scripts/dev_e2e/stats_validation_execute_button_no_response_diagnose.py
+  SQL : INSERT INTO NXDNP.MV_ORA_DEMO_TGT (ID,DEPT_CD,UPD_YMD,REG_DT,STATUS_CD,AMT,CREATED_BY)
+        SELECT ID,DEPT_CD,UPD_YMD,REG_DT,STATUS_CD,AMT,CREATED_BY FROM NXDNP.MV_ORA_DEMO_SRC
+  GROUP BY : STATUS_CD + DEPT_CD   /   SUM : AMT
+  1단계 분석 정상 → 2단계 COUNT_MATCHED(150/150) → 3단계 후보 선택 → 4단계 SQL 생성 정상
+  → '▶ 통계검증 실행' 실 클릭
+
+2회 독립 실행(diag, diag2) 모두 동일 결과.
+
+═══════════════════════════════════════════════════════════════════
+2. 클릭 직전 가드/상태 덤프 (전문)
+═══════════════════════════════════════════════════════════════════
+{
+ "_executeInProgress": false,
+ "_mvAnyRunActive": false,
+ "_mvExecPaused": null,
+ "_mvRiResuming": null,
+ "_mvExecPauseSent": null,
+ "_mvExecPanelActive": null,
+ "_mvExecTerminal": null,
+ "_pollTimer": false,
+ "_mvReimportStatus": null,
+ "spinner_btns": [],
+ "_analysisBlocked": false,
+ "_mvAnalyzeStaleForPolicy": false,
+ "_analyzeData_null": true,          ← window 미노출(let 선언). 렉시컬 _analyzeData 는 정상
+ "conn_deselected_src": false,
+ "conn_deselected_tgt": false,
+ "_singleValidationExecuted": false,
+ "_revalidateInProgress": false,
+ "_fullRunInProgress": false,
+ "_mvActiveRunResolved": null,
+ "_mvCompletedHistoryResolved": null,
+ "gate_blocked_stats": false,
+ "regenerate_required": false,
+ "srcBox_len": 162,
+ "tgtBox_len": 162,
+ "gbSel": "[\"STATUS_CD\",\"DEPT_CD\"]",
+ "sumSel": "[\"AMT\"]",
+ "runExecute_type": "function",
+ "_runExecutePlanSets_type": "function",
+ "execBtn": {"disabled": false, "visible": false, "html": "▶ 통계검증 실행",
+             "onclickAttr": "runExecute()"},
+ "cmdbarBtn": {"disabled": false, "visible": true, "text": "▶ 통계검증 실행",
+               "fn": "runExecute"},
+ "step": "validation",
+ "executeOut_len": 0,
+ "execStepError_len": 0,
+ "riRows": 0,
+ "overlay": false
+}
+→ runExecute 초입의 조용한 return 조건(_executeInProgress / _mvAnyRunActive) 전부 false.
+  즉 "이미 실행 중으로 오판되어 막히는" 경로가 아니다.
+
+═══════════════════════════════════════════════════════════════════
+3. 핸들러 호출 여부 (지시 2번)
+═══════════════════════════════════════════════════════════════════
+클릭 이벤트(document capture-phase 리스너):
+[
+ {"t": 143956, "id": "", "fn": "runExecute", "text": "▶ 통계검증 실행",
+  "disabled": false, "hasOnclick": true, "onclickAttr": "mvCommandBarRunAction(this)"}
+]
+
+runExecute 래핑 추적:
+[
+ {"ev": "enter",    "t": 143956.5},
+ {"ev": "resolved", "t": 144810.4}
+]
+
+unhandledrejection : []
+pageerror          : []
+클릭 후 console     : []   (경고·오류 0건)
+
+→ 핸들러는 정상 호출되고 예외 없이 정상 종료(resolve)한다.
+  "핸들러 미연결"도 아니고 "예외가 catch되어 조용히 죽는" 것도 아니다.
+
+═══════════════════════════════════════════════════════════════════
+4. 네트워크 요청/응답 (지시 1·3번) — 브라우저 fetch 래핑 + 서버 응답 실측
+═══════════════════════════════════════════════════════════════════
+클릭 이후 발생한 요청(순서대로, 전부 status 200):
+
+ 200 /db/presets/src                                          body_len=1708
+ 200 /db/presets/tgt                                          body_len=1275
+ 200 /single/active-run?session_id=sess_...                   body_len=57
+     {"ok":true,"active":false,"count":0,"run":null,"runs":[]}
+ 200 /agg-diff/resumable                                      body_len=32
+     {"ok":true,"count":0,"items":[]}
+ POST /groupby-plan   (payload 2,795B — STATUS_CD/DEPT_CD 후보 근거)
+ 200 /generate                                                body_len=724
+ 200 /execute                                                 body_len=5430
+     payload src_sql: SELECT STATUS_CD AS STATUS_CD, COUNT(*) AS CNT, SUM(AMT) AS AMT
+                      FROM NXDNP.MV_ORA_DEMO_SRC GROUP BY STATUS_CD
+             tgt_sql: 동일 구조 / MV_ORA_DEMO_TGT
+             groupby_cols ["STATUS_CD"], sum_cols ["AMT"], plan_set_label "STATUS_CD"
+ 200 /generate                                                body_len=710
+ 200 /execute                                                 body_len=5420
+     payload groupby_cols ["DEPT_CD"], sum_cols ["AMT"], plan_set_label "DEPT_CD"
+ 200 /strategy/plan                                           body_len=1981
+     stats_strategy_id=STATS_DIRECT_AGG, compare_strategy_id=DIRECT_STREAM_COMPARE,
+     provisional_grade="잠정 소형", compare_auto_runnable=true
+ 200 /agg-diff/prepare                                        body_len=1241
+     {"ok":true,"status":"READY","run_id":"PK3D3D35F33ACB","key_col":"ID",
+      "gb_cols":["STATUS_CD","DEPT_CD"],"sum_labels":["AMT"],
+      "engine":"REIMPORT_PK_INDEX","total_reimport_pks":10, ...}
+ 200 /agg-diff/pk-records?run_id=PK3D3D35F33ACB&page=1&page_size=20&view=reimport
+                                                              body_len=5623
+     display_tier D1 / "불일치 10건(그룹 4개) — 전체 레코드를 나열합니다."
+     counts {"reimport_pks":10,"passed":140,"missing_migration":0,"value_mismatch":10,
+             "excluded_target_only":0,"target_only_stored":0}
+     mismatch_group_distribution STATUS_CD: P=3, I=3, A=2, C=2
+ 200 /single/active-run/status?run_id=PK3D3D35F33ACB           body_len=240
+
+→ GROUP BY 2개 선택이므로 _runExecutePlanSets(단일 축 우선 세트 계획) 경로.
+  세트당 generate+execute 1쌍씩 총 2쌍이 모두 200으로 성공했고,
+  응답 body에 실제 COUNT/GROUP BY/SUM 비교 결과가 들어 있다.
+
+═══════════════════════════════════════════════════════════════════
+5. 그런데 왜 화면에 안 보이는가 (핵심 실측)
+═══════════════════════════════════════════════════════════════════
+클릭 후 최종 상태:
+  _singleValidationExecuted : true      (실행 완료 플래그 정상 설정)
+  _mvReimportStatus         : "READY"
+  executeOut_len            : 1,160자   (결과 HTML 실제 존재)
+  execStepError_len         : 0
+  step                      : "validation"  ← 화면은 4단계에 머묾
+  cmdbarBtn text            : "▶ 통계검증 다시 실행"
+
+계산 스타일(getComputedStyle) 실측:
+{
+ "step": "validation",
+ "execResultCard": {"exists": true, "cls": "card mb-3 mv-pane-hidden",
+                    "paneHidden": true, "inlineDisplay": "",
+                    "computedDisplay": "none", "visible": false, "textLen": 2755},
+ "executeOut":     {"exists": true, "computedDisplay": "block",
+                    "visible": false, "textLen": 1160},
+ "mvExecStepError":{"exists": true, "inlineDisplay": "none",
+                    "computedDisplay": "none", "textLen": 0},
+ "mvExecProgress": {"exists": true, "inlineDisplay": "none",
+                    "computedDisplay": "none", "textLen": 0},
+ "step4_visible_text": ["sqlCard"]     ← 4단계에서 실제로 보이는 카드는 SQL 카드 하나뿐
+}
+
+→ 결과는 DOM에 2,755자로 존재하지만 computedDisplay="none".
+  4단계 pane에 결과/진행/오류 어느 것도 표시되지 않아 화면상 변화가 SQL 카드 그대로다.
+
+교차확인 — 5단계 탭으로 수동 이동하면:
+{
+ "step": "result", "cardVisible": true, "cardComputed": "flex", "outTextLen": 1160,
+ "outHead": "불일치 유형 전체/목적 미존재/값 불일치 · GROUP BY 기준 전체/STATUS_CD/DEPT_CD ·
+             표시 등급 D1 · 전체 레코드 나열 · 불일치 10건(그룹 4개) ·
+             원본 전체 150건 · 목적 전체 150건 · 차이 0건 ·
+             재이관 대상 10건(6.67%) · 값 불일치 10건(6.67%) ·
+             전략 DIRECT_STREAM_COMPARE · 총 0.07초 ..."
+}
+→ 결과 자체는 완전히 정상 생성·렌더되어 있었고, pane 가시성만 문제였음이 확정된다.
+
+사용자가 체감하는 유일한 변화(캡처 확인):
+  · 상단 탭 5단계 배지가 '대기중(잠금)' → '완료' 로 바뀜
+  · 하단 상태바 '통계검증 완료' + '4단계 처리시간: 0.01초 미만'
+  · 버튼 라벨 '▶ 통계검증 실행' → '▶ 통계검증 다시 실행'
+  본문에는 아무 결과도 나타나지 않으므로 "무반응"으로 인식된다.
+
+부수 관찰(표시 불일치):
+  탭 하이라이트는 4단계 '현재' 인데 안내문은 "현재 단계: 결과 확인 ·
+  COUNT/SUM/GROUP BY 비교 결과를 확인하세요." 로 표시되어 서로 어긋난다.
+
+═══════════════════════════════════════════════════════════════════
+6. 서버 stale 여부 (지시 5번) — 배제 완료
+═══════════════════════════════════════════════════════════════════
+  실행 프로세스 : PID 17832  C:\Python314\python.exe web_server.py
+  시작 시각     : 2026-07-26 21:58:56
+  ui/tabler_renderer.py 최종 수정 : 2026-07-26 21:58:42 (2,055,651 bytes)
+  → 시작이 파일 수정보다 14초 늦다. stale 아님.
+
+  서빙 HTML 실측(포트 8000, Basic 인증):
+    HTML 길이 2,209,291 · 인라인 script 2블록
+    오늘 최종 커밋 006236f 마커 _mvCountOnlyReimportOpen : 4회 존재
+    오늘 커밋 a2ebc81 마커 _mvMorphPaneHtml              : 4회 존재
+    오늘 커밋 ecf0ce3 마커 EARLY_STOPPED_HIGH_MISMATCH   : 3회 존재
+  → 최신 코드를 서빙 중.
+
+  JS 번들 무결성(과거 '*/' 주석 번들 붕괴 전례 대비):
+    node --check 결과 2블록 모두 OK, SYNTAX ERROR 0건. 번들 붕괴 아님.
+
+═══════════════════════════════════════════════════════════════════
+7. 오늘 여러 작업의 상호 충돌 여부 (지시 6번) — 무관 확인
+═══════════════════════════════════════════════════════════════════
+오늘 ui/tabler_renderer.py · ui/execute_result_renderer.py 를 건드린 커밋 5건의
+변경 hunk 위치를 전수 확인:
+
+  006236f REIMPORT-COUNT-ONLY-ENTRY-POINT-IMPLEMENT
+          renderCountOnlyResult(708~742), _mvToggleRowAggDiff(16596~)
+  a2ebc81 CANDIDATE-CHECKBOX-FLICKER-REVALIDATION-FIX
+          runRevalidateFromCandidate(15888~), renderUnifiedColTable,
+          _buildEvidenceFlat(21487~), renderColSelect(22765~)
+  5802006 GROUP-REGISTER-DROPDOWN-DIALECT-MISMATCH-FIX
+          _renderBatchResultTable(7365~), singleLoadGroups(27447~27478)
+  ecf0ce3 REIMPORT-DRILLDOWN-STALE-PLAN-GB0-SUMONLY-FIX
+          _mvPkLoadPage(16914~)
+  639d4f5 DB-PROFILE-CONNECTION-STATUS-STALE-CACHE-AND-NOTE-FIX
+          syncDbmsFields / _recordProfileTestStatus / renderDbProfileList 등(12799~14319)
+
+  이번 문제 지점 : runExecute(27298~27570), _runExecutePlanSets(25198~25360),
+                   SINGLE_STEP_CARDS(5635~5650)
+  → 오늘 커밋 중 어느 것도 이 세 구간을 수정하지 않았다. 충돌·회귀 아님.
+
+  구조 이력(git log -S):
+    2026-07-04 c9834a9 : execResultCard 를 result(5단계) pane 전용으로 매핑
+    2026-07-08 08c2119 : 단계 버튼 성공 후 자동 탭 이동 전면 제거
+    2026-07-10 b1a1a15 : 3단계 '선택 적용 후 다시 검증'의 4/5단계 자동실행 제거
+    2026-07-23 010eefd : 실행 '오류'만 4단계 #mvExecStepError 로 표출(성공 경로는 미대응)
+  → 이 조합이 성립한 시점부터 존재해 온 구조적 결함이며 오늘 유입된 회귀가 아니다.
+
+═══════════════════════════════════════════════════════════════════
+8. 비판적 검토 / 권고 (수정은 미포함)
+═══════════════════════════════════════════════════════════════════
+구조적 문제점
+  · '실행 후 4단계 유지' 정책과 '결과 카드는 5단계 pane 전용' 배치가 정면 충돌한다.
+    두 결정 각각은 합리적이나 조합되면 성공 결과가 통째로 사라진다.
+  · 25331행 erc.style.display='' 는 .mv-pane-hidden 의 !important 때문에 무력한
+    죽은 코드다. 코드를 읽는 사람에게 "표시된다"는 잘못된 인상을 준다.
+  · 오류만 4단계로 우회 표출한 010eefd 의 비대칭이 문제를 더 감춘다
+    (오류는 보이는데 성공은 안 보이므로, 사용자는 성공을 실패보다 더 '고장'으로 느낀다).
+
+운영상 위험
+  · 실행은 실제로 수행되어 DB 부하·이력·run_id 가 생성되는데 사용자는 무반응으로 인식해
+    재클릭을 반복하기 쉽다. 대형 테이블에서는 중복 실행 비용이 크다
+    (이번 케이스는 150건이라 무해했다).
+
+권장 대응 방향(택1, 구조 훼손 최소 순)
+  ① 4단계 pane에 성공 결과 요약을 표시하는 전용 영역을 두고, 오류(#mvExecStepError)와
+     대칭으로 배선한다 — 010eefd 의 미완성분을 성공 경로까지 확장. 자동 탭 이동 정책 불변.
+  ② SINGLE_STEP_CARDS.validation 에 execResultCard 를 추가해 4·5단계 공용으로 만든다.
+     가장 적은 변경이나, 5단계의 존재 의의가 흐려진다.
+  ③ 실행 성공 시 5단계로 자동 이동 — 2026-07-08 에 명시적으로 제거한 정책의 되돌리기라
+     비권장.
+  → 권고: ①. 판정·실행 로직 무변경, 표시 계층만 대칭 보강이라 회귀 위험이 가장 낮다.
+
+═══════════════════════════════════════════════════════════════════
+9. 증적
+═══════════════════════════════════════════════════════════════════
+드라이버 : scripts/dev_e2e/stats_validation_execute_button_no_response_diagnose.py (신규, 진단 전용)
+증적경로 : E:\verify_screenshots_only\STATS-VALIDATION-EXECUTE-BUTTON-NO-RESPONSE-DIAGNOSE\
+  diag_diag.json  / diag_diag2.json      전체 실측 로그(가드덤프·네트워크·콘솔·판정)
+  diag2_01_analyze.png ~ diag2_04_generated.png   1~4단계 진행
+  diag2_05_after_click.png   클릭 직후 — 4단계에 SQL 카드만, 결과 없음(증상 재현)
+  diag2_06_manual_step5.png  5단계 수동 이동 — 결과 전량 정상 표시(대조군)
+
+자동 판정 결과:
+{
+ "root_cause": "RESPONSE_HANDLING_FAILED(요청·응답·렌더 모두 정상 — 결과 카드가 5단계 전용
+                pane 이라 4단계 화면에서 mv-pane-hidden 으로 가려져 표시되지 않음)",
+ "handler_entered": true, "promise_resolved": true, "rejections": [],
+ "execute_requests": 2, "rendered": true
+}
+
+운영 코드 변경 : 없음(진단 전용 드라이버 1개만 신규 추가)
+
+═══════════════════════════════════════════════════════════════════
+부록 A. before_click / after_1_5s / after_final 3시점 대조 (2회차 재대조)
+═══════════════════════════════════════════════════════════════════
+본문 2·5절은 클릭 직전과 최종만 실었다. 원격에서 다시 받은 두 JSON 을 열어 중간 시점
+(after_1_5s)까지 3시점으로 세워 보면, 버튼이 언제 무엇을 했는지가 더 분명해진다.
+
+                              1회차(diag_diag)            2회차(diag_diag2)
+  ─────────────────────────── ────────────────────────── ──────────────────────────
+  before  executeOut_len        0                          0
+  before  _mvExecTerminal       null                       null
+  before  _singleValidationExecuted false                  false
+  before  cmdbar 버튼           "▶ 통계검증 실행"(표시·활성) "▶ 통계검증 실행"(표시·활성)
+  ─────────────────────────── ────────────────────────── ──────────────────────────
+  +1.5s   executeOut_len        130                        1160
+  +1.5s   _mvExecTerminal       true                       true
+  +1.5s   _singleValidationExecuted true                   true
+  +1.5s   cmdbar 버튼           "▶ 통계검증 다시 실행"      "▶ 통계검증 다시 실행"
+  ─────────────────────────── ────────────────────────── ──────────────────────────
+  final   executeOut_len        1157                       1160
+  final   _mvReimportStatus     READY                      READY
+  final   execStepError_len     0                          0
+  final   step                  "validation"(4단계)        "validation"(4단계)
+
+  핸들러 체류: 1회차 enter 144507.4 → resolved 145384.9 (877.5ms)
+               2회차 enter 143956.5 → resolved 144810.4 (853.9ms)
+
+■ 이 대조가 말해 주는 것(요구된 명확한 결론 문장)
+  "이번 재현 시도에서 [▶ 통계검증 실행] 버튼은 클릭 수신 → runExecute 진입 →
+   /generate·/execute·/agg-diff/prepare 발신 → HTTP 200 수신 → DOM 렌더(#executeOut 0자
+   → 1,157~1,160자)까지 전 구간이 예외 없이 정상 작동했다. 클릭 1.5초 안에 이미 단말 상태
+   (_mvExecTerminal=true)에 도달했고 버튼 라벨도 '다시 실행'으로 바뀌었다."
+  "따라서 '버튼이 죽어 있다 / 요청이 안 나간다'는 의미의 무반응은 재현되지 않았다.
+   그러나 같은 실측에서 그 결과가 사용자 화면에는 전혀 나타나지 않았으므로,
+   '눌러도 화면이 그대로'라는 사용자 체감 증상 자체는 재현되었다."
+  → 4지선다 중 ②"요청은 나갔으나 응답 처리 실패"(정확히는 응답 처리·렌더까지 성공하고
+    표시 단계에서 실패)로 확정한다. 본문 결론과 동일하며, 5번째 결론("재현 안 됨")은
+    선택하지 않는다 — 사용자에게 보이는 현상은 재현되었기 때문이다.
+
+═══════════════════════════════════════════════════════════════════
+부록 B. 두 JSON 의 verdict 가 서로 다른 이유 (모순 아님 — 관측 깊이 차이)
+═══════════════════════════════════════════════════════════════════
+  1회차 diag_diag.json  verdict.root_cause = "NOT_REPRODUCED(정상 렌더됨)"
+  2회차 diag_diag2.json verdict.root_cause = "RESPONSE_HANDLING_FAILED(요청·응답·렌더 모두 정상
+        — 결과 카드가 5단계 전용 pane 이라 4단계 화면에서 mv-pane-hidden 으로 가려져 표시되지 않음)"
+
+  두 회차의 handler_entered=true / promise_resolved=true / rejections=[] /
+  execute_requests=2 / rendered=true 는 완전히 동일하다. 관측된 사실은 같다.
+  차이는 드라이버의 관측 깊이뿐이다. 1회차 실행 시점의 스크립트에는 가시성(계산 스타일) 확인
+  블록이 없어 자동 판정이 "렌더됐으니 정상"에서 멈췄다 — 실제로 diag_diag.json 에는
+  visibility 키 자체가 존재하지 않는다. 2회차에 그 블록이 추가되면서
+  "렌더는 됐지만 computedDisplay=none 이라 보이지 않는다"가 드러났다.
+  → 1회차의 NOT_REPRODUCED 는 관측 누락에 의한 과소판정이다. 2회차 판정이 옳고,
+    이 보고서는 2회차 판정을 채택한다. 이 문서 이전에는 이 모순이 어디에도 서술되지
+    않아, JSON 만 읽은 사람이 "버그가 원래 없었다"로 오독할 수 있는 상태였다.
+
+═══════════════════════════════════════════════════════════════════
+부록 C. "당시 좀비 PREPARING job 때문이었을 가능성" 검토 + 교차 언급
+═══════════════════════════════════════════════════════════════════
+결론: 이번 실측에서는 좀비 job 이 0건인 깨끗한 상태였는데도 증상이 나타났다.
+      따라서 좀비 job 은 이번에 확정한 표시 계층 결함의 원인이 아니다(필요조건이 아님).
+
+  근거 — 클릭 직전 클라이언트 상태(두 회차 공통):
+    _mvAnyRunActive=false, _executeInProgress=false, _pollTimer=false,
+    _mvReimportStatus=null, spinner_btns=[]
+  근거 — 클릭 직후 서버 응답(두 회차 공통):
+    GET /single/active-run  → {"ok":true,"active":false,"count":0,"run":null,"runs":[]}
+    GET /agg-diff/resumable → {"ok":true,"count":0,"items":[]}
+  즉 세션에 살아 있는 job 이 하나도 없는 상태에서 클릭했고, 그럼에도 결과가 화면에 안 떴다.
+
+같은 저장소의 STATS-VALIDATION-JOB-ORPHAN-CLEANUP-DIAGNOSE.txt(완료) 결론과의 연결:
+  · 그 보고서는 reimport_job._evict() 가 done 목록에서 PREPARING 을 제외하기 때문에 좀비가
+    축출되지 않고 자리를 영구 점유하며, 그 결과 상한 _JOBS_MAX=16 의 축출 압력이 전부
+    '정상 완료 job' 쪽으로 쏠려 완료 job 이 밀려난다는 것을 in-process 로 결정적으로 확인했다
+    (PREPARING 좀비 20개 투입 → 20개 전원 잔류, 정상 완료 7개 중 1개만 생존, 시간 기반 회수 0건).
+  · 또 PREPARING job 이 살아 있으면 새로고침 시 "진행 중이던 검증 작업이 있습니다(PREPARING)"
+    팝업이 뜨고, 드릴다운 중에는 pk-records 폴링이 1.5~2.0초 간격으로 돈다는 것도 실측했다
+    (다만 '새로고침 이후에도 폴링이 계속된다'는 재현되지 않았다고 그 보고서가 정정하고 있다).
+  · 따라서 좀비가 걸려 있던 당시 화면에서는 (a) 재사용되어야 할 완료 job 이 축출되어 prepare 가
+    다시 돌면서 대기가 길어지고, (b) 팝업·폴링 소음이 겹치면서, 이번에 확정한 표시 계층 문제
+    (결과가 4단계에서 안 보임)가 훨씬 더 오래·심하게 '무반응'으로 체감되었을 개연성이 높다.
+  · 정리 — 좀비 job 은 이 증상의 원인이 아니라 증폭 요인이다. 표시 계층을 고치면 좀비 유무와
+    무관하게 결과가 보이고, 좀비를 회수하면 대기 시간과 화면 소음이 줄어든다. 두 조치는
+    서로 독립적이며 어느 하나가 다른 하나를 대체하지 않는다.
+
+═══════════════════════════════════════════════════════════════════
+부록 D. diag_00_setup_failed.png 는 무엇인가
+═══════════════════════════════════════════════════════════════════
+1차 시도에서 드라이버가 본 실측에 들어가기 전 setup 게이트에 걸려 중단하며 남긴 캡처다.
+scripts/dev_e2e/stats_validation_execute_button_no_response_diagnose.py:322~327 에
+  if pair_rows == 0 or "미선택" in (badges.src + badges.tgt):
+      print("  ❌ DB 검증 경로 미접속 — 실측 중단")
+      _snap(page, "00_setup_failed")
+      R["verdict"] = {"root_cause": "SETUP_FAILED_DB_NOT_CONNECTED"};  return 1
+라는 선행조건 게이트가 있고, 이 PNG 가 바로 그 지점의 스냅샷이다.
+
+캡처된 화면 상태:
+  · 작업 프로젝트 TESTONLY_REG 는 정상 선택되어 있다.
+  · 우측 상단 Source DB="미선택", Target DB="미선택"   ← 게이트에 걸린 직접 원인
+  · 개별검증 1단계(쿼리검토), SQL 입력창 비어 있음. 하단 상태바 "SQL 미입력 · 연결 정상".
+setup() 은 [DB 프로필 / 검증 경로] 화면에서 "Oracle_asis → Oracle_tobe" 행을 찾고, 없으면
+[+ 검증 경로 추가]로 경로를 만든 뒤 [접속]을 눌러 최대 40초 폴링한다(:246~267). 1차 시도는
+그 생성·접속이 제한 시간 안에 마무리되지 않아 뱃지가 '미선택'인 채 게이트에 걸린 것이다.
+이후 성공한 두 회차에서는 dialogs 에
+  "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)"
+  "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+가 기록되고 setup={pair_rows:1, badges:{src:"Oracle_asis", tgt:"Oracle_tobe"}} 로 통과했다.
+→ 이 PNG 는 '통계검증 실행 버튼'과는 무관한 전제조건 실패이며, 진단이 전제 미충족 상태에서
+  실측을 시작하지 않고 스스로 멈췄다는 절차 건전성의 증적으로 읽어야 한다.
+  (본문 6절의 stale 배제와 함께, 실측 조건이 오염되지 않았음을 뒷받침한다.)
+
+═══════════════════════════════════════════════════════════════════
+부록 E. 왜 4단계에 아무것도 없었나 — 진행 패널까지 비어 있던 점에 대한 보완
+═══════════════════════════════════════════════════════════════════
+본문 5절이 지적한 대로 4단계에 보이는 카드는 sqlCard 하나뿐이었고, 오류 영역
+(#mvExecStepError)뿐 아니라 진행 패널(#mvExecProgress)도 display:none · textLen 0 이었다.
+설계 의도는 ui/tabler_renderer.py:19674~19726 에 명시되어 있다.
+  · 상세비교 대상이 없으면(GROUP BY 0개, COUNT-only) 즉시 5단계로 이동한다.
+  · 대상이 있으면 _mvGateFiveTabOnPrepare() 로 가서, prepare accepted 시
+    "active tab 을 4번(validation)으로 전환 — 5번 자동 이동 금지" 주석 그대로 4단계에 두고,
+    4단계에 진행 패널을 띄운 뒤 READY 후 사용자가 '결과 확인'을 눌렀을 때만 5탭으로 이동한다.
+  이번 실측은 불일치 6그룹이라 후자 경로였고, 4단계에 남은 것 자체는 설계대로다.
+
+  다만 이번 데이터가 150행으로 매우 작아 prepare 가 0.5~0.6초 만에 끝났고
+  (after_final: _mvExecPanelActive=false, _mvExecTerminal=true, _mvReimportStatus="READY"),
+  진행 패널이 열리자마자 닫히면서 4단계에는 원래 있던 SQL 카드만 남은 것으로 보인다.
+  즉 '진행 중에는 4단계 진행 패널이 상황을 알려 준다'는 전제가, 진행이 순식간에 끝나는
+  소규모 데이터에서는 성립하지 않아 4단계가 빈 화면처럼 남는다.
+  ※ 이 문단은 재실행이 금지된 상태에서 기존 계측값과 정적 코드만으로 세운 정황 추론이다.
+    확정하려면 prepare 소요를 늘린 조건에서 #mvExecProgress 의 표시/소멸 타이밍을 한 번 더
+    계측하면 된다. 본문 8절 권고 ①(성공 경로를 오류 경로와 대칭으로 4단계에 표시)은 이
+    추론의 참·거짓과 무관하게 유효하다 — 진행 패널이 닫힌 뒤에도 4단계에 '결과 준비 완료 ·
+    결과 확인으로 이동' 안내가 남아야 하기 때문이다.
+
+═══════════════════════════════════════════════════════════════════
+부록 F. 남은 불확실성 (숨기지 않고 명시)
+═══════════════════════════════════════════════════════════════════
+ (1) 사용자가 최초에 겪은 그 순간의 화면이 여기서 확정한 표시 계층 문제와 동일한 것인지,
+     아니면 좀비 job 이 얽힌 다른 지연이 겹친 것인지는 당시 계측이 없어 단정할 수 없다.
+     다만 이번 실측이 좀비 0건 상태에서도 같은 체감 증상을 만들어냈으므로, 좀비 유무와
+     무관하게 존재하는 결함이라는 점은 확정적이다.
+ (2) 부록 E 의 '진행 패널이 열리자마자 닫혀 4단계가 비었다'는 설명은 정황 추론이다.
+ (3) 이번 실측은 오라클 · 150행 · 불일치 6그룹 조건 1종이다. COUNT-only(GROUP BY 0개) 경로는
+     코드상 즉시 5단계로 이동하므로 이 증상이 없을 것으로 보이나 실측하지는 않았다.
+
+⚠️ 추가 작업 필요 - '통계검증 실행'은 정상 동작하나 결과 카드가 5단계 전용 pane이라 4단계 화면에서 가려져 무반응으로 체감됨(수정 미포함, 진단만)
