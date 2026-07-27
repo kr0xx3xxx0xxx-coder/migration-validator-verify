@@ -1,0 +1,93 @@
+✅ 작업 완료 - JOB-RECOVERY-STAGE1-PROGRESS-TIMESTAMP-AND-SAFE-DEFAULTS
+
+작업명: JOB-RECOVERY-STAGE1-PROGRESS-TIMESTAMP-AND-SAFE-DEFAULTS
+커밋: f54c957 (main) / 서버 재기동: 2026-07-27 14:17:52 KST (포트 8000, 인증 ON)
+
+[구현 — 지시 1~5]
+1. last_progress_at 신설 (reimport_job.py)
+   _new_progress() 에 last_progress_at(epoch 초, 초기 None) 추가.
+   update_progress() 가 호출될 때마다 갱신 — 두 엔진(PK_RANGE_CHUNK / STREAM)이
+   모두 이 함수로 수렴하므로 엔진 무관하게 빠짐 없음.
+2. 엔진 발행 시각 전달 (pk_range_chunk.py → agg_diff_route.py)
+   _emit_prog() payload 에 progress_at=time.time() 추가, route _pcb 가 그대로 전달.
+   발행 빈도·1초 throttle 로직 미변경(한 줄도 안 건드림).
+3. L1 정리 (reclaim_dead_thread_jobs)
+   활성(_ACTIVE) + thread 존재 + is_alive()==False → 유예 후 ORPHAN 확정.
+   상태는 신규 status 추가 없이 RECOVER_REQUIRED + recover_reason=ORPHAN_RUNNING
+   재사용, store.finish_run(status="ORPHANED", stop_reason="ORPHAN_RUNNING") 호출.
+   토글과 무관하게 항상 동작(사실 판정이므로). 별도 sweeper thread 없이 기존 폴링
+   경로(active_runs / run_status)에서 스캔. store I/O 는 Lock 밖(데드락 방지).
+   유예 2단계: 최초 관측 시각만 기록 → 재관측에도 죽어 있을 때만 확정, 중간에
+   살아나면 표식 즉시 제거(start() 직전 경계 오탐 차단).
+4. 설정 (execution_settings.py)
+   신규 동의어 없이 기존 recovery.orphan_running_after_sec 소비(120→30 조정 — 사용처
+   0인 죽은 설정이라 파급 없음, 사실 판정이라 긴 유예는 좀비 구간만 늘림).
+   stale_running_after_sec 은 L2용으로 선언만 유지(여전히 소비처 0).
+   stall_detection_enabled(기본 False) 자리만 선언 — 소비 로직 미구현(테스트로 고정).
+5. 노출
+   _job_public 에 last_progress_at(+recover_reason/orphan_confirmed_at),
+   진행 중 폴링 API(/agg-diff/pk-records) PREPARING 분기 응답에 last_progress_at.
+
+[범위 준수] PAUSED 자동 idle-전환 / L2·L3 판정 / 대시보드 UI·라우트 — 전부 미구현.
+지시된 4개 파일 외 production 파일 무수정(테스트 1 + dev_e2e 드라이버 1만 신규 추가).
+
+[환경 — 실 DB 사용 불가 및 대체]
+내부망 전부 TCP timeout (192.168.0.150:5433/5434, .151:1523/1524, .211:3309),
+Neon PG 4개 프리셋 모두 서버측 쿼터 거부("exceeded the data ..."). 도달 가능한
+DB2(192.168.0.10:50000)는 PK range chunk 미지원 방언이라 사용 불가.
+→ 직전 세 진단과 동일하게 in-process 대체: 가짜는 DB connection·chunk 어댑터 2개뿐이고
+  실 엔진·실 route(_run_pk_range_chunk)·실 job 스레드·실 폴링 API 를 그대로 구동.
+  드라이버: scripts/dev_e2e/job_recovery_stage1_progress_timestamp_verify.py
+
+[검증 결과 — 지시 6 및 필수 검증]
+A. last_progress_at 실제 갱신 (PASS)
+   6,000행 / 30 chunk / chunk당 400ms 지연. run_status 0.5초 폴링 25회 →
+   서로 다른 값 25개, 단조 증가 위반 0, 갱신 간격 0.401~0.803초(1초 throttle 이내).
+   t=0.5s processed=200 → t=12.52s processed=6,000, 최종 READY.
+B. L1 30초 유예 후 ORPHAN 확정 (PASS)
+   ctypes 로 SystemExit 비동기 주입해 스레드 즉사(= _runner 미정리 실제 사고 재현).
+   kill 직후 alive=False·status=PREPARING(좀비) → 2초 간격 폴링에서 0~28초 PREPARING
+   유지 → 30.0초에 RECOVER_REQUIRED / reason=ORPHAN_RUNNING.
+   store run status=ORPHANED, stop_reason=ORPHAN_RUNNING, active_runs 잔여 0건.
+C. 정상 진행 job 무영향 (PASS — 가장 중요)
+   유예(30초)보다 오래 도는 45초 job 을 1초마다 폴링(47회, 매번 L1 스캔).
+   예상외 상태 0건, recover_reason=None, thread_dead_seen_at 표식조차 미발생,
+   최종 READY 정상 완료. 시간 임계가 아니라 구조(살아있는 thread 는 대상 아님)로 보장.
+D. 실 서버(8000, 인증 ON) — 재기동 14:17:52, 무인증 401 정상.
+   GET /api/execution/settings → orphan_running_after_sec=30,
+   stall_detection_enabled=false, stale_running_after_sec=300(미배선) 서빙 확인.
+   GET /single/active-run/status?run_id=NOSUCH → not_found 정상.
+   ※ 미확인 1건: 실 서버에서 실제 재이관 job 의 last_progress_at 이 API 로 흐르는 종단
+     확인은 살아있는 DB 가 필요해 하지 못했다(서버 프로세스 job 저장소는 외부 주입 불가).
+     실 DB 복구 후 재확인 필요.
+
+[회귀 — baseline 대조]
+신규 tests/test_job_recovery_stage1_progress_timestamp.py 11건 전부 통과.
+변경 모듈 참조 테스트 전수 40개 파일:
+  변경 전(HEAD~1=7b2c335): 320 passed, 8 failed, 6 xfailed
+  변경 후(f54c957)       : 331 passed, 8 failed, 6 xfailed  (+11 = 신규)
+실패 8건은 목록·내용 동일한 사전 존재 실패(UI 문구/전략표시/parallel_read_decision 계열).
+직접 관련 테스트 13파일 단독 대조도 109 passed/1 xfailed 로 baseline 과 완전 동일.
+
+[변경 파일]
+ M routes/agg_diff_route.py                              (+6/-2)
+ M services/exact_diff/execution_settings.py             (+13/-2)
+ M services/exact_diff/pk_range_chunk.py                 (+4)
+ M services/exact_diff/reimport_job.py                   (+106/-3)
+ A tests/test_job_recovery_stage1_progress_timestamp.py
+ A scripts/dev_e2e/job_recovery_stage1_progress_timestamp_verify.py
+동시에 다른 터미널에서 진행된 tracemalloc/checkpoint 작업과 hunk 단위로 분리 커밋.
+
+[증적] E:\verify_screenshots_only\JOB-RECOVERY-STAGE1-PROGRESS-TIMESTAMP-AND-SAFE-DEFAULTS\
+ REPORT.txt / stage1_progress_timestamp_verify.json / live_server_execution_settings.json
+ live_server_active_run_status.json / pytest_stage1_unit.txt / pytest_related_after.txt
+ commit_f54c957_stat.txt / commit_f54c957_full.diff
+
+[다음 단계]
+ 1) 실 DB 복구 후 8000 포트 종단 확인(위 D 미확인 항목)
+ 2) L2(stale_running_after_sec 배선) — 임계값은 실환경 분포 수집 후 확정
+ 3) L3·PAUSED 자동 idle-전환 — STREAM checkpoint 방어 선행 필요
+ 4) execution_settings 영속화 + 환경변수 override(사고 시 무재시작 조정)
+ 5) 진행률 대시보드 UI/라우트
+
+✅ 작업 완료 - JOB-RECOVERY-STAGE1-PROGRESS-TIMESTAMP-AND-SAFE-DEFAULTS
