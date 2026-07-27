@@ -1,0 +1,258 @@
+{
+  "mode": "after",
+  "results": [
+    {
+      "name": "골격이 1회 생성되고 세 섹션이 모두 존재",
+      "ok": true,
+      "extra": "ready=1 sections=['single', 'batch', 'stats']"
+    },
+    {
+      "name": "S0 · 전부 0건이면 세 섹션 모두 축소",
+      "ok": true,
+      "extra": "{\"single\": [true, false], \"batch\": [true, false], \"stats\": [true, false]}"
+    },
+    {
+      "name": "S0 · 축소돼도 섹션 헤더는 남아 존재를 알 수 있음",
+      "ok": true,
+      "extra": "{\"single\": \"▾개별검증진행 중 0건수동 지정 — 갱신해도 유지\", \"batch\": \"▾일괄검증진행 중 0건수동 지정 — 갱신해도 유지\", \"stats\": \"▾통계검증진행 중 0건수동 지정 — 갱신해도 유지\"}"
+    },
+    {
+      "name": "S1 · 개별검증 섹션 자동 펼침(0건→1건)",
+      "ok": true,
+      "extra": "{\"src\": \"single\", \"collapsed\": false, \"manual\": false, \"aria\": \"true\", \"cntText\": \"진행 중 1건\", \"headText\": \"▾개별검증진행 중 1건수동 지정 — 갱신해도 유지\", \"bodyVisible\": true, \"bodyChildren\": 1, \"jobRows\": 1}"
+    },
+    {
+      "name": "S1 · 일괄/통계 섹션은 0건이라 축소 유지",
+      "ok": true,
+      "extra": "batch=True stats=True"
+    },
+    {
+      "name": "S1 · 헤더 건수 문구가 서버 값 그대로 반영",
+      "ok": true,
+      "extra": "진행 중 1건 / 진행 중 0건"
+    },
+    {
+      "name": "S2 · 일괄검증도 활성이 되자 자동 펼침",
+      "ok": true,
+      "extra": "{\"src\": \"batch\", \"collapsed\": false, \"manual\": false, \"aria\": \"true\", \"cntText\": \"진행 중 1건\", \"headText\": \"▾일괄검증진행 중 1건수동 지정 — 갱신해도 유지\", \"bodyVisible\": true, \"bodyChildren\": 1, \"jobRows\": 1}"
+    },
+    {
+      "name": "S2 · 개별검증은 계속 펼친 상태 유지",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "S2 · 통계검증만 축소 유지",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "S3 · 개별검증 job 종료 후 해당 섹션 자동 축소(N건→0건)",
+      "ok": true,
+      "extra": "{\"src\": \"single\", \"collapsed\": true, \"manual\": false, \"aria\": \"false\", \"cntText\": \"진행 중 0건\", \"headText\": \"▾개별검증진행 중 0건수동 지정 — 갱신해도 유지\", \"bodyVisible\": false, \"bodyChildren\": 1, \"jobRows\": 0}"
+    },
+    {
+      "name": "S3 · 일괄검증은 활성이라 펼침 유지",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "S4 · 수동 클릭으로 0건 섹션이 펼쳐짐(내용은 '없습니다' 안내)",
+      "ok": true,
+      "extra": "{\"src\": \"stats\", \"collapsed\": false, \"manual\": true, \"aria\": \"true\", \"cntText\": \"진행 중 0건\", \"headText\": \"▾통계검증진행 중 0건수동 지정 — 갱신해도 유지\", \"bodyVisible\": true, \"bodyChildren\": 1, \"jobRows\": 0}"
+    },
+    {
+      "name": "S4 · 폴링 4회가 지나도 수동 펼침 유지(서버 갱신이 도로 접지 않음)",
+      "ok": true,
+      "extra": "폴링 4회 · collapsed=False"
+    },
+    {
+      "name": "S4 · 수동 펼침 중에도 다른 섹션 자동 상태는 그대로",
+      "ok": true,
+      "extra": "single=True batch=False"
+    },
+    {
+      "name": "S4b · 활성 섹션을 수동으로 접으면 폴링 2회 뒤에도 접힌 채 유지",
+      "ok": true,
+      "extra": "{\"src\": \"batch\", \"collapsed\": true, \"manual\": true, \"aria\": \"false\", \"cntText\": \"진행 중 1건\", \"headText\": \"▾일괄검증진행 중 1건수동 지정 — 갱신해도 유지\", \"bodyVisible\": false, \"bodyChildren\": 1, \"jobRows\": 1}"
+    },
+    {
+      "name": "S5 · 통계검증이 0건→1건이 되면 자동 상태로 복귀해 펼침(수동 표식 해제)",
+      "ok": true,
+      "extra": "{\"src\": \"stats\", \"collapsed\": false, \"manual\": false, \"aria\": \"true\", \"cntText\": \"진행 중 1건\", \"headText\": \"▾통계검증진행 중 1건수동 지정 — 갱신해도 유지\", \"bodyVisible\": true, \"bodyChildren\": 1, \"jobRows\": 1}"
+    },
+    {
+      "name": "갱신 내용이 동일하면 섹션 본문 DOM 을 다시 만들지 않음(깜빡임 방지)",
+      "ok": true,
+      "extra": "{\"sameNode\": true, \"probeKept\": \"keep\", \"htmlUnchanged\": true}"
+    },
+    {
+      "name": "접기→펼치기 토글은 클래스만 바꾸고 본문 노드를 유지",
+      "ok": true,
+      "extra": "{\"sameNode\": true, \"collapsed\": false}"
+    },
+    {
+      "name": "브라우저 pageerror 0건",
+      "ok": true,
+      "extra": "[]"
+    }
+  ],
+  "S0": {
+    "sections": [
+      {
+        "src": "single",
+        "collapsed": true,
+        "manual": false,
+        "aria": "false",
+        "cntText": "진행 중 0건",
+        "headText": "▾개별검증진행 중 0건수동 지정 — 갱신해도 유지",
+        "bodyVisible": false,
+        "bodyChildren": 1,
+        "jobRows": 0
+      },
+      {
+        "src": "batch",
+        "collapsed": true,
+        "manual": false,
+        "aria": "false",
+        "cntText": "진행 중 0건",
+        "headText": "▾일괄검증진행 중 0건수동 지정 — 갱신해도 유지",
+        "bodyVisible": false,
+        "bodyChildren": 1,
+        "jobRows": 0
+      },
+      {
+        "src": "stats",
+        "collapsed": true,
+        "manual": false,
+        "aria": "false",
+        "cntText": "진행 중 0건",
+        "headText": "▾통계검증진행 중 0건수동 지정 — 갱신해도 유지",
+        "bodyVisible": false,
+        "bodyChildren": 1,
+        "jobRows": 0
+      }
+    ],
+    "ready": "1",
+    "pollCount": 3
+  },
+  "S1": {
+    "sections": [
+      {
+        "src": "single",
+        "collapsed": false,
+        "manual": false,
+        "aria": "true",
+        "cntText": "진행 중 1건",
+        "headText": "▾개별검증진행 중 1건수동 지정 — 갱신해도 유지",
+        "bodyVisible": true,
+        "bodyChildren": 1,
+        "jobRows": 1
+      },
+      {
+        "src": "batch",
+        "collapsed": true,
+        "manual": false,
+        "aria": "false",
+        "cntText": "진행 중 0건",
+        "headText": "▾일괄검증진행 중 0건수동 지정 — 갱신해도 유지",
+        "bodyVisible": false,
+        "bodyChildren": 1,
+        "jobRows": 0
+      },
+      {
+        "src": "stats",
+        "collapsed": true,
+        "manual": false,
+        "aria": "false",
+        "cntText": "진행 중 0건",
+        "headText": "▾통계검증진행 중 0건수동 지정 — 갱신해도 유지",
+        "bodyVisible": false,
+        "bodyChildren": 1,
+        "jobRows": 0
+      }
+    ],
+    "ready": "1",
+    "pollCount": 4
+  },
+  "S2": {
+    "sections": [
+      {
+        "src": "single",
+        "collapsed": false,
+        "manual": false,
+        "aria": "true",
+        "cntText": "진행 중 1건",
+        "headText": "▾개별검증진행 중 1건수동 지정 — 갱신해도 유지",
+        "bodyVisible": true,
+        "bodyChildren": 1,
+        "jobRows": 1
+      },
+      {
+        "src": "batch",
+        "collapsed": false,
+        "manual": false,
+        "aria": "true",
+        "cntText": "진행 중 1건",
+        "headText": "▾일괄검증진행 중 1건수동 지정 — 갱신해도 유지",
+        "bodyVisible": true,
+        "bodyChildren": 1,
+        "jobRows": 1
+      },
+      {
+        "src": "stats",
+        "collapsed": true,
+        "manual": false,
+        "aria": "false",
+        "cntText": "진행 중 0건",
+        "headText": "▾통계검증진행 중 0건수동 지정 — 갱신해도 유지",
+        "bodyVisible": false,
+        "bodyChildren": 1,
+        "jobRows": 0
+      }
+    ],
+    "ready": "1",
+    "pollCount": 5
+  },
+  "S3": {
+    "sections": [
+      {
+        "src": "single",
+        "collapsed": true,
+        "manual": false,
+        "aria": "false",
+        "cntText": "진행 중 0건",
+        "headText": "▾개별검증진행 중 0건수동 지정 — 갱신해도 유지",
+        "bodyVisible": false,
+        "bodyChildren": 1,
+        "jobRows": 0
+      },
+      {
+        "src": "batch",
+        "collapsed": false,
+        "manual": false,
+        "aria": "true",
+        "cntText": "진행 중 1건",
+        "headText": "▾일괄검증진행 중 1건수동 지정 — 갱신해도 유지",
+        "bodyVisible": true,
+        "bodyChildren": 1,
+        "jobRows": 1
+      },
+      {
+        "src": "stats",
+        "collapsed": true,
+        "manual": false,
+        "aria": "false",
+        "cntText": "진행 중 0건",
+        "headText": "▾통계검증진행 중 0건수동 지정 — 갱신해도 유지",
+        "bodyVisible": false,
+        "bodyChildren": 1,
+        "jobRows": 0
+      }
+    ],
+    "ready": "1",
+    "pollCount": 6
+  },
+  "poll_hits": 14,
+  "page_errors": []
+}

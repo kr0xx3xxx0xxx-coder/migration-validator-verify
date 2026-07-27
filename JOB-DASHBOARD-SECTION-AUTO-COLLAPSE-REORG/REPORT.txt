@@ -1,0 +1,140 @@
+✅ 작업 완료 - JOB-DASHBOARD-SECTION-AUTO-COLLAPSE-REORG : 검증 현황판 섹션 자동 접힘/펼침 재구성 완료(실측 19/19 PASS)
+
+작업명 : JOB-DASHBOARD-SECTION-AUTO-COLLAPSE-REORG
+작성일 : 2026-07-27
+커밋   : d7a2ebb  feat(ui): 검증 현황판 섹션 자동 접힘/펼침 (JOB-DASHBOARD-SECTION-AUTO-COLLAPSE-REORG)
+서버 재기동 : 2026-07-27 18:33:48 기동 → 18:33:53 응답 확인(포트 8000, 인증 ON, reload=False 라 재기동 필수)
+
+────────────────────────────────────────────────────────────────────────
+1. 배경과 결정
+────────────────────────────────────────────────────────────────────────
+검증 현황판은 개별검증 / 일괄검증 / 통계검증 3개 섹션을 항상 펼쳐서 보여줬다. 실사용에서는
+대부분의 시간 동안 세 섹션 중 한둘만 활성이고 나머지는 "진행 중인 ... job 이 없습니다" 안내문만
+차지해 화면 노이즈가 됐다(수정 전 실측: 활성 0건일 때도 섹션 영역이 237px 를 차지).
+
+탭 분리는 "동시에 여러 종류가 도는 상황을 한눈에 본다"는 현황판 본래 목적을 깨뜨리므로 채택하지
+않았고, 절충안으로 "활성 job 이 있는 섹션은 자동 펼침, 0건인 섹션은 헤더 한 줄로 축소"를 택했다.
+0건 섹션도 완전히 숨기지 않고 헤더 한 줄로 남겨 존재 자체는 항상 보이며, 클릭하면 수동으로
+펼쳐 볼 수 있다.
+
+────────────────────────────────────────────────────────────────────────
+2. 변경 범위 — 표시 계층 한 파일
+────────────────────────────────────────────────────────────────────────
+수정 : ui/js_job_dashboard.py   (+166 / -36)
+신규 : tests/test_job_dashboard_section_auto_collapse.py            (가드 테스트)
+신규 : scripts/dev_e2e/job_dashboard_section_auto_collapse_verify.py (브라우저 실측 harness)
+
+무수정(원칙대로 손대지 않음):
+  - services/job_registry.py       (통합 조회 계층)
+  - routes/job_dashboard_route.py  (GET /jobs/active)
+접힘 여부는 서버가 내려준 활성 job 수만 보고 정한다. 판정·집계·DTO 는 전혀 건드리지 않았고,
+도넛(상단 전체 진행률)·좌측 메뉴 배지·단일 폴링 타이머 구조도 그대로다.
+
+■ 구현 요지
+  (1) 상태 모델 — 소스별로 두 값만 둔다.
+        active : 서버가 내려준 활성 job 유무(자동 상태)
+        manual : 사용자가 직접 지정한 상태(null = 지정 없음 → 자동 상태를 따름)
+      표시 상태 = (manual == null) ? active : manual
+      manual 은 **활성 유무가 실제로 바뀔 때(0↔N)만** 해제한다. 같은 상태로 폴링이 반복되는
+      동안에는 사용자가 펼쳐 둔 섹션을 서버 갱신이 도로 접지 않는다(사용자 조작 우선).
+
+  (2) DOM 재생성 금지 — 기존에는 폴링(3초)마다 #jdSections 를 innerHTML 로 통째 재생성했다.
+      · 섹션 골격(헤더 + 본문 컨테이너)은 data-jdsec-ready 로 최초 1회만 생성
+      · 본문은 HTML 문자열이 실제로 바뀐 섹션만 교체(_MV_JD.secHtml 캐시와 비교)
+      · 헤더 건수 문구는 textContent 로만 갱신
+      · 접기/펼치기는 클래스 토글(is-collapsed)뿐 — 노드를 버리거나 다시 만들지 않는다
+      오늘 고친 CANDIDATE-CHECKBOX-FLICKER-REVALIDATION-FIX 와 같은 취지다. 다만 그 경로의
+      _mvMorphPaneHtml 은 후보 pane 전용 전역 플래그(_mvCandPaneMorph)와 검증용 통계 전역
+      (_mvCandMorphStat)에 묶여 있어, 3초 폴링이 그 전역을 계속 덮어쓰면 후보 pane 검증 하니스를
+      오염시킨다. 그래서 함수를 호출하지 않고 같은 원칙만 따랐다(호출부 없는 자족 구현).
+
+  (3) 전환 효과는 캐럿 회전 0.15s 뿐이다. 높이 애니메이션은 쓰지 않았다 — 높이 측정 리플로우가
+      폴링 주기와 겹치면 오히려 깜빡임을 만든다.
+
+  (4) 접근성 — 헤더에 role="button" / tabindex="0" / aria-expanded 를 부여하고 Enter·Space
+      키로도 토글된다.
+
+────────────────────────────────────────────────────────────────────────
+3. Before / After 실측 대조 (포트 8000, 인증 ON)
+────────────────────────────────────────────────────────────────────────
+이번 변경은 표시 계층 전용이고 입력 계약은 GET /jobs/active 응답이므로, 실서비스 포트에 붙되
+그 응답만 시나리오별로 주입해 확인했다(운영 DB·in-memory job 저장소 미접근). 별도로 실제 job
+저장소를 쓰는 STAGE3 harness 도 회귀 실행해 실 데이터에서도 동일하게 동작함을 확인했다.
+
+■ Before (재기동 전 = 수정 전 모듈 서빙 중, 18:33:21 캡처)
+   - 섹션 골격(data-jdsec) 자체가 없음 — 접힘 기능 이전 상태
+   - 활성 0건인데도 3섹션 안내문이 전부 펼쳐져 노출(empty 블록 3개, 영역 높이 237px)
+   - 개별검증 1건만 활성일 때도 나머지 2섹션 안내문이 그대로 노출(축소 없음)
+   증적: before_S0_all_zero.png / before_S1_single_only.png / before_verify.json
+
+■ After (재기동 후 18:33:57 실측, PASS 19 / FAIL 0)
+   S0 전부 0건        → 세 섹션 모두 축소(본문 height=0), 헤더 "개별검증 진행 중 0건" 은 유지
+   S1 개별 1건        → 개별검증만 자동 펼침(job 행 1건), 일괄·통계는 축소 유지        [0건→N건]
+   S2 개별+일괄       → 일괄검증도 활성이 되자 자동 펼침, 통계만 축소 유지             [0건→N건]
+   S3 개별 종료       → 개별검증 섹션 자동 축소(본문 비표시), 일괄은 펼침 유지         [N건→0건]
+   S4 수동 펼침 유지  → 0건인 통계 섹션을 클릭해 펼친 뒤 폴링 4회(약 11초) 경과에도 펼친 상태 유지,
+                        "수동 지정 — 갱신해도 유지" 표식 노출, 다른 섹션의 자동 상태는 불변
+   S4b 수동 접기 유지 → 활성(1건) 섹션을 수동으로 접으면 폴링 2회 뒤에도 접힌 채 유지
+   S5 수동 해제 시점  → 통계가 0건→1건으로 실제 전환되자 수동 지정이 풀리고 자동으로 펼침
+   DOM  재사용        → 갱신 내용이 같으면 본문 첫 노드가 동일 객체로 유지(probe 속성 보존),
+                        접기→펼치기 토글에서도 본문 노드 동일(클래스만 변경)
+   pageerror 0건
+   증적: after_S0_all_zero.png / after_S1_single_only.png / after_S2_single_batch.png /
+         after_S3_batch_only.png / after_S4_manual_expand.png / after_S5_stats_activated.png /
+         after_verify.json
+
+■ 실 job 저장소 회귀(같은 프로세스 uvicorn + 실제 reimport_job / batch / stats writer)
+   scripts/dev_e2e/job_dashboard_stage3_live_verify.py → PASS 34 / FAIL 0
+   - 3소스 동시 활성일 때 세 섹션 모두 펼쳐져 기존과 동일하게 표시(진행바 9개, 부모 4 / 자식 5,
+     제어 버튼 9개, 대기 목록 1행)
+   - job 이 전부 끝나자 세 섹션이 모두 헤더 한 줄로 자동 축소
+   - 폴링 간격 3.07초 균일(단일 타이머 유지), 이탈 시 화면 폴링 정지, 운영 SQLite 무변경
+   증적: realjob_A_3sources_all_active.png / realjob_B_all_finished_collapsed.png
+
+────────────────────────────────────────────────────────────────────────
+4. 자체 테스트
+────────────────────────────────────────────────────────────────────────
+  python -m pytest tests/test_rendered_js_syntax_guard.py -q      → 2 passed
+      (렌더된 인라인 <script> 전체를 node --check 로 검사 — 주석 '*/' 사고 재발 방지 가드)
+  python -m pytest tests/test_job_dashboard_section_auto_collapse.py -q → 4 passed (신규)
+      · 골격 1회 생성 + 본문은 바뀐 섹션만 교체 + 폴링 렌더에 host.innerHTML 없음
+      · 접기/펼치기는 클래스 토글뿐(innerHTML 미사용), CSS 는 본문만 숨김
+      · 0건 섹션 헤더는 남아 클릭 가능(role/tabindex/키보드 핸들러)
+      · 제품 함수(_jdSyncSectionState/_jdSecExpanded)를 node 로 그대로 실행해 상태 규칙 표 검증
+        (자동 펼침·자동 축소·수동 유지·전환 시에만 수동 해제·수동 접기 유지)
+  python -m pytest tests/test_candidate_pane_morph_flicker.py -q  → 7 passed (기존 morph 무영향)
+  python -m pytest tests/test_job_registry.py -q                  → 19 passed (API 계층 무변경 확인)
+  python samples/test_virtual_cases.py                            → 8/8 통과
+  python samples/test_complex_cases.py                            → 5/5 케이스 분석 완료
+
+────────────────────────────────────────────────────────────────────────
+5. 비판적 검토(문제점 · 위험 · 대응)
+────────────────────────────────────────────────────────────────────────
+- 정보 은폐 위험 : 0건 섹션을 접으면 "그 종류가 화면에 없다"는 오해가 생길 수 있다.
+  → 헤더를 항상 남기고 "개별검증 진행 중 0건" 문구를 그대로 표기했다. 완전 숨김은 쓰지 않았다.
+- 상태 폭발 위험 : 접힘 상태를 서버·저장소에 남기면 새 저장 계층이 생긴다.
+  → 세션 메모리(_MV_JD.sec)에만 둔다. 새로고침하면 자동 상태로 복귀한다(영속화 없음 = 부채 없음).
+- 사용자 조작 무시 위험 : 폴링이 사용자 클릭을 되돌리면 "버튼이 먹통"으로 체감된다.
+  → 0↔N 실제 전환에서만 수동 지정을 해제하도록 규칙을 좁히고, 양방향(수동 펼침/수동 접기)을
+    실측으로 확인했다.
+- 깜빡임 재발 위험 : 폴링마다 DOM 을 다시 만들면 오늘 고친 문제가 되살아난다.
+  → 골격 1회 생성 + 변경분만 교체 + 클래스 토글로 처리하고, 노드 동일성까지 실측·테스트했다.
+- heuristic / explainability : 새 임계값·가중치를 도입하지 않았다. 판단 입력은 "활성 job 수"
+  하나뿐이고, 그 값은 서버 DTO 를 그대로 쓴다. 수동 지정 중임을 화면에 표식으로 밝힌다.
+
+────────────────────────────────────────────────────────────────────────
+6. 남은 사항(이번 범위 밖)
+────────────────────────────────────────────────────────────────────────
+- 대기 목록 카드는 접힘 대상에서 제외했다(섹션이 아닌 별도 카드, 지시 범위 밖).
+- 전수검증(full)은 아직 실행 구조가 없어 섹션 자체가 없다 — 상단 건수 타일에만 0 으로 표시된다.
+- 접힘 상태를 새로고침 뒤에도 기억시키려면 localStorage 가 필요하다. 저장 계층이 늘어나므로
+  이번에는 넣지 않았다(요청 시 별도 작업으로 검토).
+
+파일 목록(변경/생성)
+  M ui/js_job_dashboard.py
+  A tests/test_job_dashboard_section_auto_collapse.py
+  A scripts/dev_e2e/job_dashboard_section_auto_collapse_verify.py
+
+스크린샷 : E:\verify_screenshots_only\JOB-DASHBOARD-SECTION-AUTO-COLLAPSE-REORG\ (12개 파일)
+
+✅ 작업 완료 - JOB-DASHBOARD-SECTION-AUTO-COLLAPSE-REORG : 0건 섹션 자동 축소 · 활성 섹션 자동 펼침 · 사용자 수동 조작 우선까지 실측 확인(19/19 PASS, 커밋 d7a2ebb)
