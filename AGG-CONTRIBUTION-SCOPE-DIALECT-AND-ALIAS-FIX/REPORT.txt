@@ -1,0 +1,208 @@
+AGG-CONTRIBUTION-SCOPE-DIALECT-AND-ALIAS-FIX — 서술형 완료보고서
+================================================================================
+작성일   : 2026-07-27
+대상 파일 : services/exact_diff/agg_contribution.py (지시대로 이 파일만 수정)
+커밋     : 5eab277c1658316ee90d91b121b4ee5ce8abf33d
+선행 작업 : 25138f0 EXACT-DIFF-ROUTE-CHUNKKEY-DIALECT-AND-CAST-FIX (남긴 갭의 후속)
+
+
+1. 배경과 문제의 정확한 형태
+--------------------------------------------------------------------------------
+선행 작업에서 routes/exact_diff_route.py 의 SCOPE 모드 PG 전용 래핑을 4개 방언으로
+분기하면서, 완전히 같은 형태의 래핑이 services/exact_diff/agg_contribution.py 에도
+남아 있다는 사실을 명시적으로 남겨두었다. 이번 작업은 그 갭을 닫는 것이다.
+
+수정 전 코드(:840-841):
+
+    s_sql = f"SELECT * FROM ({s_sql}) __sc WHERE ({_c})::text = '{_v}'"
+    t_sql = f"SELECT * FROM ({t_sql}) __sc WHERE ({_c})::text = '{_v}'"
+
+이 한 줄짜리 래핑에 오라클 차단 요인이 두 개 겹쳐 있다.
+
+  (a) 별칭 `__sc` — 오라클 비인용 식별자는 밑줄로 시작할 수 없다. 파서는 인라인뷰
+      닫는 괄호 뒤에서 ORA-00911(invalid character)로 즉시 실패한다. PG 는 허용하기
+      때문에 PG 에서만 개발·검증하면 드러나지 않는다.
+  (b) 캐스트 `::text` — 오라클 드라이버(python-oracledb)는 `:text` 를 바인드 변수로
+      해석한다. 바인드 값이 주어지지 않으므로 DPY-4010 으로 실행 자체가 불가능하다.
+
+즉 오라클 접속에서 이 경로는 '결과가 틀리는' 종류의 결함이 아니라 '실행이 시작조차
+안 되는' 결함이었다. 그리고 엔진은 raise 금지 규칙에 따라 예외를 결과 객체로 바꾸므로
+사용자에게는 status=HOLD / stop_reason=AGG_QUERY_FAILED 로만 보인다 — 방언 문제라는
+사실이 표면에 드러나지 않는 조용한 차단이다.
+
+
+2. 이 경로가 실제로 도달하는 지점 (지시 2번)
+--------------------------------------------------------------------------------
+문제의 scope 래핑은 run_agg_contribution_diff() 안에만 존재한다. 호출 계보를 전수
+확인한 결과는 다음과 같다.
+
+  run_agg_contribution_diff  ← 유일 호출자 routes/agg_diff_route.py:1366
+                                (POST /agg-diff/run)
+
+  POST /agg-diff/run         ← 현재 화면(ui/tabler_renderer.py, ui/*.py) 에서 호출하는
+                                JS 가 없다. 통계검증 불일치 그룹 클릭은 §22 규칙에 따라
+                                /agg-diff/prepare + /agg-diff/pk-records (재이관 PK
+                                index 경로)만 호출하며, tests/test_agg_contribution.py:149
+                                가 "행 클릭이 /agg-diff/run 을 부르면 안 된다"를 명시적으로
+                                단언하고 있다.
+
+따라서 정확한 도달 조건은 이렇게 정리된다.
+
+  - 화면(UI) 클릭 경로로는 현재 도달하지 않는다. 그 경로는 prepare_reimport_pk_index(_stream)
+    쪽이고, 그쪽 집계 SQL(_pk_agg_sql)은 이미 오라클 방언 위임이 되어 있다.
+  - POST /agg-diff/run 은 서버에 살아 있는 공개 API 다. 실 서비스 포트(8000, 인증 ON)로
+    직접 호출하면 라우트 → 엔진 → scope 래핑까지 실제로 진입한다(§3 에 실측 첨부).
+    검증 스크립트·외부 호출·향후 UI 재배선이 이 경로를 쓰면 그대로 오라클에서 막힌다.
+
+즉 '지금 화면에서 매일 밟히는 경로'는 아니고, '살아 있는 API 로서 오라클에서 구조적으로
+실행 불가한 경로'였다. 이 구분은 과장 없이 그대로 보고한다.
+
+
+3. 검증 환경 — 실 DB 대신 무엇으로 검증했는가
+--------------------------------------------------------------------------------
+지시대로 내부망 복구 여부를 먼저 확인했다.
+
+    192.168.0.151:1523 (Oracle asis)  TCP connect -> TimeoutError
+    192.168.0.151:1524 (Oracle tobe)  TCP connect -> TimeoutError
+    192.168.0.150:5433 (PG asis)      TCP connect -> TimeoutError
+    192.168.0.150:5434 (PG tobe)      TCP connect -> TimeoutError
+
+전 포트 미도달이라 실 DB 실행 검증은 불가능했다. 지시서가 허용한 대체 방식(이전 진단과
+동일한 SQL 렌더 캡처)으로 진행했음을 명시한다. 다만 캡처는 손으로 재구성한 SQL 이 아니라,
+run_agg_contribution_diff 가 fetch_fn 을 통해 DB 로 넘기기 직전의 실제 SQL 문자열을 그대로
+가로챈 것이다(실행 경로 그대로, 우회 재현 아님). Before 는 git HEAD 의 모듈을 임시 모듈로
+로드해 같은 방식으로 캡처했으므로 Before/After 가 동일 조건 대조다.
+
+실 서비스 포트 확인은 별도로 수행했다. 서버 재기동(2026-07-27 15:54:11 KST, PID 12148,
+코드 수정시각 15:48:05 이후) 뒤 인증을 걸고 POST /agg-diff/run 을 오라클 접속·scope 지정으로
+호출한 결과:
+
+    {"ok":true,"status":"HOLD","stop_reason":"AGG_QUERY_FAILED",
+     "error_message":"집계 기여 조회 오류: DPY-6005: cannot connect to database ... timed out"}
+
+실패 지점이 SQL 문법이 아니라 DB 접속 타임아웃이다. 수정된 경로가 라이브 서비스에서
+정상적으로 DB 접속 직전까지 도달한다는 뜻이며, 남은 변수는 코드가 아니라 내부망이다.
+
+
+4. 수정 내용
+--------------------------------------------------------------------------------
+새 패턴을 발명하지 않고, 선행 작업에서 이미 검증된 해법을 그대로 재사용했다.
+
+ (1) 캐스트 방언 분기 — _scope_eq_expr(col, val, dialect)
+     oracle  : TO_CHAR((col)) = 'v'          ← dialects/oracle.py 의 _txt 와 동일 표현
+     mysql   : CAST((col) AS CHAR) = 'v'
+     mssql   : CAST((col) AS NVARCHAR(4000)) = 'v'
+     postgres: (col)::text = 'v'             ← 기존 표현 그대로 보존
+     방언은 각 측 접속 db_type 에서 공통 헬퍼 _to_sqlglot_dialect 로 도출한다(_conn_dialect).
+     원본/목적을 각각 도출하므로 혼합 방언도 각 측에 맞는 캐스트가 나간다. 양측 모두 같은
+     계열의 균일 문자 정규화라 비교 대칭성은 유지된다.
+
+ (2) 별칭 개명 — __sc → mv_agg_scope_src / mv_agg_scope_tgt
+     기존 mv_reimport_src · mv_scope_src 명명 규칙과 통일했다. 이 별칭은 이름으로 참조되지
+     않는 위치(positional)라 개명이 SQL 의미를 바꾸지 않는다.
+
+ (3) 바깥층 _agg_sql 방언 위임 (지시 범위에서 한 걸음 나간 부분 — 아래에 이유를 밝힌다)
+     (1)(2)만 고치면 scope 층은 오라클 문법이 되지만, 그 SQL 을 감싸는 집계 SQL 빌더
+     _agg_sql 이 여전히 PG 전용이라 최종 문장은 오라클에서 그대로 실패한다. 밑줄 비인용
+     별칭(__K/__G/__N/__S0/__agg), `::text`, 위치 표기 GROUP BY 1 이 모두 남기 때문이다.
+     지시 3번이 요구한 "After = 실행가능"을 충족하려면 이 층을 함께 처리해야 했다.
+     새 빌더를 만들지 않고, db_type='oracle' 일 때 같은 파일에 이미 존재하는 위임
+     (_pk_agg_sql → dialects/oracle.pk_agg_sql, unique_key=False 경로)로 넘기기만 했다.
+     그 경로의 산출 컬럼 순서는 (__K, __G0, __N, __S0..) 로 기존 본문과 동일하고, 소비자
+     _row() 는 위치 기반이라 별칭명 차이는 무해하다. PG 는 분기에 걸리지 않으므로 본문
+     그대로다. 수정 파일은 여전히 agg_contribution.py 한 개다.
+
+
+5. Before / After 렌더 대조 (오라클, 원본측)
+--------------------------------------------------------------------------------
+BEFORE (실행 불가):
+  SELECT (ORDER_ID) AS __K, MIN((ORDER_YM)::text) AS __G, count(*) AS __N,
+         SUM((ORDER_AMT)) AS __S0
+    FROM (SELECT * FROM (SELECT ... FROM NXDNP.MV_ORA_XDIFF_SRC) __sc
+           WHERE (ORDER_YM)::text = '202601') __agg
+   GROUP BY 1 ORDER BY 1
+
+  검출된 차단요인 3종:
+    - `::text` → 오라클은 `:text` 를 바인드 변수로 오인(DPY-4010)
+    - 밑줄 선두 비인용 별칭(__sc/__agg/__K 등) → ORA-00911
+    - 위치 표기 GROUP BY n → 오라클 비호환
+
+AFTER (오라클 문법):
+  SELECT (ORDER_ID) AS "__K", MIN(TO_CHAR((ORDER_YM))) AS "__G0", COUNT(*) AS "__N",
+         SUM((ORDER_AMT)) AS "__S0"
+    FROM (SELECT * FROM (SELECT ... FROM NXDNP.MV_ORA_XDIFF_SRC) mv_agg_scope_src
+           WHERE TO_CHAR((ORDER_YM)) = '202601') "__agg"
+   GROUP BY (ORDER_ID) ORDER BY (ORDER_ID)
+
+  검출된 차단요인: 0종. 목적측 별칭도 __sc → mv_agg_scope_tgt 로 대칭 개명.
+
+주의(정직한 한계): sqlglot 파싱은 Before 도 통과시키므로 오라클 실행가능성의 판별자가
+되지 못한다. 위 판정은 파서가 아니라 '과거 실측으로 확인된 차단요인 3종의 유무'로 내렸다.
+실 DB 실행 확인은 내부망 복구 후 재검증이 필요하다.
+
+
+6. PostgreSQL 회귀 없음
+--------------------------------------------------------------------------------
+같은 방식으로 PG 렌더를 Before/After 캡처해 문자열 대조했다.
+
+  술어 : (ORDER_YM)::text = '202601'   →  (ORDER_YM)::text = '202601'   (완전 동일)
+  집계 : SELECT (ORDER_ID) AS __K, MIN((ORDER_YM)::text) AS __G, count(*) AS __N,
+         SUM((ORDER_AMT)) AS __S0 ... __agg GROUP BY 1 ORDER BY 1        (완전 동일)
+  차이 : 인라인뷰 별칭 __sc → mv_agg_scope_src/tgt  (이름 참조 없음)
+
+별칭명을 정규화해 비교하면 Before/After 문자열이 완전히 일치한다(alias_only_change=True).
+_agg_sql 의 PG 본문은 단위 테스트에서 문자열 고정으로 잠갔다.
+
+mysql/mssql 도 캐스트 분기는 방언 규칙대로 렌더되지만, 이 엔진의 raw 커넥터는 현재
+PostgreSQL/Oracle 만 등록되어 있어 실제로 도달하지 않는다(사실 그대로 기록).
+
+
+7. 테스트 결과 (baseline 대조)
+--------------------------------------------------------------------------------
+신규: tests/test_agg_contribution_scope_dialect.py (8건) — 4방언 캐스트, db_type 매핑,
+      오라클 차단요인 부재, PG 술어 무변경, _agg_sql PG 본문 문자열 고정, 오라클 위임
+      컬럼 순서, scope 미지정 시 래핑 없음.
+
+  tests/test_agg_contribution_scope_dialect.py + tests/test_agg_contribution.py
+      → 18 passed
+
+  agg_contribution / agg-diff / exact_diff 참조 테스트 전체(56파일)
+      BASELINE(worktree, HEAD 1fb93e8, 55파일) : 17 failed, 449 passed, 1 skipped, 6 xfailed
+      AFTER  (수정 후, 56파일)                  : 17 failed, 457 passed, 1 skipped, 6 xfailed
+      → passed +8(신규 테스트 전부), failed 17건은 테스트 ID 까지 완전 동일한 사전 존재 실패
+        (UI 배선/실행경로 계열 — 본 수정과 무관)
+
+  CLAUDE.md 지정 회귀:
+      samples/test_virtual_cases.py  → 8/8 통과
+      samples/test_complex_cases.py  → 5/5 케이스 분석 완료
+
+
+8. 남은 갭 / 후속 권고
+--------------------------------------------------------------------------------
+ (1) 실 DB 실행 검증 미완 — 내부망 복구 후 오라클 XDIFF(250,000 vs 249,950)로
+     POST /agg-diff/run + scope 실행을 재확인해야 최종 확증이 된다. 현재는 렌더 대조까지다.
+ (2) _scope_eq_expr 이 routes/exact_diff_route.py 와 agg_contribution.py 두 곳에 같은
+     내용으로 존재한다. 이번 지시가 파일 1개 수정으로 한정되어 통합하지 않았다. 서비스
+     계층(services/exact_diff/)에 단일 정의를 두고 route 가 참조하는 방향이 계층 규칙에
+     맞는 정리다(별도 작업 권고).
+ (3) POST /agg-diff/run 은 UI 미배선 상태의 살아 있는 API 다. 유지할지(검증/외부용),
+     정리할지는 정책 판단이 필요하다. 유지한다면 이번 수정으로 오라클에서도 문법상
+     실행 가능해졌고, 정리한다면 이 경로의 방언 부채도 함께 사라진다.
+
+
+9. 산출물
+--------------------------------------------------------------------------------
+  코드   services/exact_diff/agg_contribution.py                     (수정)
+  테스트 tests/test_agg_contribution_scope_dialect.py                (신규)
+  검증   scripts/dev_e2e/agg_contribution_scope_dialect_verify.py    (신규)
+  커밋   5eab277c1658316ee90d91b121b4ee5ce8abf33d
+  증적   E:\verify_screenshots_only\AGG-CONTRIBUTION-SCOPE-DIALECT-AND-ALIAS-FIX\
+           REPORT.txt
+           before_after_render.txt
+           scope_dialect_render_before_after.json
+           baseline_vs_after.txt
+           live_probe_and_restart.txt
+           pytest_related_after.txt
+           pytest_agg_focus_after.txt
+
+AGG-CONTRIBUTION-SCOPE-DIALECT-AND-ALIAS-FIX — 보고서 끝

@@ -1,0 +1,27 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.0.3, pluggy-1.6.0 -- C:\Python314\python.exe
+cachedir: .pytest_cache
+rootdir: C:\projects\migration-validator
+plugins: anyio-4.13.0
+collecting ... collected 18 items
+
+tests/test_agg_contribution_scope_dialect.py::test_scope_eq_expr_covers_four_dialects PASSED [  5%]
+tests/test_agg_contribution_scope_dialect.py::test_conn_dialect_maps_db_type PASSED [ 11%]
+tests/test_agg_contribution_scope_dialect.py::test_oracle_scope_sql_has_no_pg_only_blockers PASSED [ 16%]
+tests/test_agg_contribution_scope_dialect.py::test_postgres_scope_predicate_unchanged PASSED [ 22%]
+tests/test_agg_contribution_scope_dialect.py::test_agg_sql_postgres_body_unchanged PASSED [ 27%]
+tests/test_agg_contribution_scope_dialect.py::test_agg_sql_oracle_delegates_with_same_column_order PASSED [ 33%]
+tests/test_agg_contribution_scope_dialect.py::test_no_scope_means_no_wrapping PASSED [ 38%]
+tests/test_agg_contribution.py::test_three_judgments_and_selected_sum_only PASSED [ 44%]
+tests/test_agg_contribution.py::test_unselected_columns_completely_ignored PASSED [ 50%]
+tests/test_agg_contribution.py::test_reuse_same_scope_zero_db PASSED     [ 55%]
+tests/test_agg_contribution.py::test_hold_paths PASSED                   [ 61%]
+tests/test_agg_contribution.py::test_row_click_pk_only_wiring PASSED     [ 66%]
+tests/test_agg_contribution.py::test_exact_diff_separated_and_terms_removed PASSED [ 72%]
+tests/test_agg_contribution.py::test_count_sum_split_verdict PASSED      [ 77%]
+tests/test_agg_contribution.py::test_reimport_pk_judgment_and_exclusions PASSED [ 83%]
+tests/test_agg_contribution.py::test_reimport_pk_cache_and_fingerprint PASSED [ 88%]
+tests/test_agg_contribution.py::test_pk_records_and_export_same_set PASSED [ 94%]
+tests/test_agg_contribution.py::test_pk_records_values_and_five_per_page PASSED [100%]
+
+============================= 18 passed in 2.67s ==============================

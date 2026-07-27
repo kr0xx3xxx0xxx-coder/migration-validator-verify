@@ -1,0 +1,66 @@
+commit 4db92e192a5afb23b383fcb6ab6dcb198401bf93
+Author: migration-validator <dev@migration-validator.local>
+Date:   Mon Jul 27 15:54:35 2026 +0900
+
+    fix(diagnosis): contract 키 복원 2곳 방언 배선 (DIAGNOSIS-ROUTE-CONTRACT-KEY-DIALECT-CONSISTENCY-FIX)
+    
+    _contract_chunk_key / _contract_match_key 가 resolve_confirmed_*_key 를 호출할 때
+    실제 접속 방언을 전달하지 않아 항상 기본 postgres 로 렌더되던 문제를 수정한다.
+    방언 도출은 기존 _routing_dialect 헬퍼를 그대로 재사용(새 매핑 없음, 혼합 방언은
+    기존대로 postgres 유지). PG 경로는 기본값과 동일해 동작 불변.
+    
+    도달성: 두 헬퍼를 태우는 7개 route(multi-analyze/resume/row-diff/row-diff-resume/
+    size-strategy/drilldown-strategy/strategy-orchestrate)는 현재 UI 클릭 진입점이 없다
+    (strategy-orchestrate 를 부르는 _mvLoadStrategyPreview 는 정의만 있고 호출부 0).
+    일관성·잠재 재활성 대비 목적의 정리이며 화면 동작 변화는 없다.
+    
+    검증 스크립트: scripts/dev_e2e/diagnosis_route_contract_key_dialect_verify.py
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+ routes/diagnosis_route.py                          |  18 +-
+ .../diagnosis_route_contract_key_dialect_verify.py | 226 +++++++++++++++++++++
+ 2 files changed, 240 insertions(+), 4 deletions(-)
+diff --git a/routes/diagnosis_route.py b/routes/diagnosis_route.py
+index 7cef399..2ffd51c 100644
+--- a/routes/diagnosis_route.py
++++ b/routes/diagnosis_route.py
+@@ -508,24 +508,34 @@ class MultiAnalyzeRequest(BaseModel):
+ 
+ 
+ def _contract_chunk_key(req):
+-    """Contract 기반 CHUNK_KEY 복원만 — UI 가 보낸 축/후보/전략은 읽지 않는다(§2: 백엔드가 Contract 에서 복원)."""
++    """Contract 기반 CHUNK_KEY 복원만 — UI 가 보낸 축/후보/전략은 읽지 않는다(§2: 백엔드가 Contract 에서 복원).
++
++    [DIAGNOSIS-ROUTE-CONTRACT-KEY-DIALECT-CONSISTENCY-FIX] 복원 호출에 실제 접속 방언을 전달한다(배선만 —
++    resolve_confirmed_chunk_key 내부 로직 불변). 미전달 시 기본 'postgres' 로 렌더돼 오라클에서 NULL probe 가
++    LIMIT 으로 나가 확정 실패 → key_range_available=False 로 조용히 오판한다. 방언 도출은 _confirm_routing
++    (07cd4d0) 과 같은 _routing_dialect 헬퍼를 재사용한다(새 매핑 만들지 않음)."""
+     from services.diagnosis.key_evidence import resolve_confirmed_chunk_key
+     if req.src_conn and req.tgt_conn and req.src_sql and req.tgt_sql:
+         try:
+             return resolve_confirmed_chunk_key(src_conn=req.src_conn, tgt_conn=req.tgt_conn,
+-                                               src_sql=req.src_sql, tgt_sql=req.tgt_sql)
++                                               src_sql=req.src_sql, tgt_sql=req.tgt_sql,
++                                               dialect=_routing_dialect(req))
+         except Exception:  # noqa: BLE001
+             return None
+     return None
+ 
+ 
+ def _contract_match_key(req):
+-    """Contract 기반 CONFIRMED MATCH_KEY 복원(HASH_BUCKET 용) — UI 가 키를 보내지 않는다(백엔드가 결과집합으로 재확인)."""
++    """Contract 기반 CONFIRMED MATCH_KEY 복원(HASH_BUCKET 용) — UI 가 키를 보내지 않는다(백엔드가 결과집합으로 재확인).
++
++    [DIAGNOSIS-ROUTE-CONTRACT-KEY-DIALECT-CONSISTENCY-FIX] 위 _contract_chunk_key 와 동일한 이유로 방언을
++    전달한다(후보집합 조회·NULL/중복 probe 가 base SQL 을 방언으로 재렌더한다)."""
+     from services.diagnosis.match_key_evidence import resolve_confirmed_match_key
+     if req.src_conn and req.tgt_conn and req.src_sql and req.tgt_sql:
+         try:
+             return resolve_confirmed_match_key(src_conn=req.src_conn, tgt_conn=req.tgt_conn,
+-                                               src_sql=req.src_sql, tgt_sql=req.tgt_sql)
++                                               src_sql=req.src_sql, tgt_sql=req.tgt_sql,
++                                               dialect=_routing_dialect(req))
+         except Exception:  # noqa: BLE001
+             return None
+     return None

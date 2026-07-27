@@ -1,0 +1,283 @@
+.....................................................................F.. [ 14%]
+......................................................................F. [ 29%]
+...............................................................F.....F.. [ 44%]
+F.......................................................s......FFFFF.... [ 59%]
+.FFF.................................................................... [ 74%]
+......................................................FF.F.............. [ 89%]
+...xx..xxx..F...............x....................                  [100%]
+================================== FAILURES ===================================
+______________________ test_ui_gate_display_and_blocking ______________________
+
+    def test_ui_gate_display_and_blocking():
+        html = _page()
+        m = re.search(r"function _mvCountGateHtml\([^)]*\)\s*\{.*?\n\}\n", html, re.S)
+        assert m, "_mvCountGateHtml 미발견"
+        b = m.group(0)
+        for label in ("원본 ", "목적 ", "순 차이", "적재율", "다음 단계"):
+            assert label in b, f"COUNT gate 표시 누락(§40): {label}"
+        assert "범위 이상 진단" in b and "대표 레코드 보기" in b and "전체 CSV 생성" in b   # §43
+        assert "0건 아님" in b                                        # QUERY_FAILED 안내(§17)
+        assert "background:#fff0f0" not in b and "#C2410C" in b       # §42 색상(핑크 금지)
+        # 후속 게이팅: runGenerate/runExecute/Exact Diff 버튼(§39·§44)
+        assert html.count("_mvGateBlocked('stats')") >= 2
+>       upd = re.search(r"function _mvExactDiffUpdateButton\([^)]*\)\s*\{.*?\n\}\n", html, re.S).group(0)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'NoneType' object has no attribute 'group'
+
+tests\test_count_gate.py:206: AttributeError
+_________________________ test_client_gate_and_dialog _________________________
+
+    def test_client_gate_and_dialog():
+        html = TablerRenderer().render_full_page()
+        # runFullValidation: active-run 게이트 뒤에 완료이력 게이트
+>       assert "/single/completed-history" in html
+E       assert '/single/completed-history' in '<!DOCTYPE html>\n<html lang="ko">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width,...esultsDetail; window.goToResultsDetail = goToResultsDetail; window.resExport = resExport;\n</script>\n</body>\n</html>'
+
+tests\test_d7_1_completed_history.py:112: AssertionError
+__________________ test_ui_advanced_perf_position_and_title ___________________
+
+    def test_ui_advanced_perf_position_and_title():
+        summ = re.search(r"function _mvRiSummaryHtml\(d, curPageMs\)\s*\{.*?\n\}", _HTML, re.S).group(0)
+        # \uc694\uc57d \ubc18\ud658\uc5d0 \uadf8\ub8f9(_grpHtml) \uc5c6\uc74c \u2014 mvRiWrap \uc778\ub77c\uc778\uc73c\ub85c \uc774\ub3d9
+>       ret = summ[summ.rindex("return _limitBanner"):]
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       ValueError: substring not found
+
+tests\test_d7_8_inline_drill_time.py:90: ValueError
+__________________________ test_gate_gb0_always_grid __________________________
+
+    def test_gate_gb0_always_grid():
+        ap = re.search(r"function _mvRiApply\(d, page, mStore, fromCache\)\s*\{.*?\nfunction ", _HTML, re.S).group(0)
+>       assert "_hasGb" in ap and "_distOk" in ap
+E       assert ('_hasGb' in "function _mvRiApply(d, page, mStore, fromCache) {\n  var st = window._mvRiState || {};\n  var wrap = document.getElem...렌더. 재이관 대상과 분리: 유형 컬럼 없음, 목적 값만 표시(원본 없음).\n   목적 단독은 '재이관 비율'에 미포함이며, 목적에만 존재하고 원본에는 없는 레코드다(정리·확인 대상). */\nfunction " and '_distOk' in "function _mvRiApply(d, page, mStore, fromCache) {\n  var st = window._mvRiState || {};\n  var wrap = document.getElem...렌더. 재이관 대상과 분리: 유형 컬럼 없음, 목적 값만 표시(원본 없음).\n   목적 단독은 '재이관 비율'에 미포함이며, 목적에만 존재하고 원본에는 없는 레코드다(정리·확인 대상). */\nfunction ")
+
+tests\test_d7_9_gb0_fallback.py:34: AssertionError
+__________________________ test_stage_timing_display __________________________
+
+    def test_stage_timing_display():
+        # UI: 접힘 영역 함수 + 결과확인 고급 성능정보에 삽입
+        assert "function _mvStageTimingHtml()" in _HTML
+        assert "1~5단계 진입 전 처리시간" in _HTML
+>       assert "+ _mvStageTimingHtml() +" in _HTML
+E       assert '+ _mvStageTimingHtml() +' in '<!DOCTYPE html>\n<html lang="ko">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width,...esultsDetail; window.goToResultsDetail = goToResultsDetail; window.resExport = resExport;\n</script>\n</body>\n</html>'
+
+tests\test_d7_9_gb0_fallback.py:63: AssertionError
+__________________ test_button_state_conditions_flag_on_off ___________________
+
+    def test_button_state_conditions_flag_on_off():
+        # \xa73\xb7\xa74 \u2014 \ubc84\ud2bc\uc740 \ud56d\uc0c1 \ud45c\uc2dc, \uc870\uac74(flag/PostgreSQL/5\ub9cc \ud589) \ud3c9\uac00\ub85c \ud65c\uc131/\ube44\ud65c\uc131 + \uc0ac\uc720 \uba85\uc2dc
+        html = _page()
+>       upd = _fn(html, "_mvExactDiffUpdateButton")
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_exact_diff_ui_wiring.py:30: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+html = '<!DOCTYPE html>\n<html lang="ko">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width,...esultsDetail; window.goToResultsDetail = goToResultsDetail; window.resExport = resExport;\n</script>\n</body>\n</html>'
+name = '_mvExactDiffUpdateButton'
+
+    def _fn(html, name):
+        m = re.search(r"function %s\([^)]*\)\s*\{.*?\n\}\n" % name, html, re.S)
+>       assert m, f"{name} 미발견"
+E       AssertionError: _mvExactDiffUpdateButton 미발견
+E       assert None
+
+tests\test_exact_diff_ui_wiring.py:23: AssertionError
+_____________ test_run_wiring_calls_exact_diff_api_not_key_range ______________
+
+    def test_run_wiring_calls_exact_diff_api_not_key_range():
+        # \xa75\xb7\xa715 \u2014 \ubc84\ud2bc\uc740 /exact-diff/run \uc744 \ud638\ucd9c\ud55c\ub2e4(KEY_RANGE \ubd84\uc11d API \uc544\ub2d8)
+        html = _page()
+>       run = _fn(html, "mvExactDiffRun")
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_exact_diff_ui_wiring.py:44: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+html = '<!DOCTYPE html>\n<html lang="ko">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width,...esultsDetail; window.goToResultsDetail = goToResultsDetail; window.resExport = resExport;\n</script>\n</body>\n</html>'
+name = 'mvExactDiffRun'
+
+    def _fn(html, name):
+        m = re.search(r"function %s\([^)]*\)\s*\{.*?\n\}\n" % name, html, re.S)
+>       assert m, f"{name} 미발견"
+E       AssertionError: mvExactDiffRun 미발견
+E       assert None
+
+tests\test_exact_diff_ui_wiring.py:23: AssertionError
+_________________ test_record_grid_and_kind_filter_and_order __________________
+
+    def test_record_grid_and_kind_filter_and_order():
+        # \xa76~\xa79 \u2014 \uc21c\uc11c(\uc694\uc57d\u2192\ud544\ud130\u2192Grid\u2192\ub2e4\uc6b4\ub85c\ub4dc), \ub808\ucf54\ub4dc \ub2e8\uc704 \uc5f4, 4\uc885 \ud544\ud130\xb7\uac74\uc218
+        html = _page()
+>       run = _fn(html, "mvExactDiffRun")
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_exact_diff_ui_wiring.py:55: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+html = '<!DOCTYPE html>\n<html lang="ko">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width,...esultsDetail; window.goToResultsDetail = goToResultsDetail; window.resExport = resExport;\n</script>\n</body>\n</html>'
+name = 'mvExactDiffRun'
+
+    def _fn(html, name):
+        m = re.search(r"function %s\([^)]*\)\s*\{.*?\n\}\n" % name, html, re.S)
+>       assert m, f"{name} 미발견"
+E       AssertionError: mvExactDiffRun 미발견
+E       assert None
+
+tests\test_exact_diff_ui_wiring.py:23: AssertionError
+__________________________ test_hold_labels_visible ___________________________
+
+    def test_hold_labels_visible():
+        # \xa713 \u2014 \uc870\uc6a9\ud55c \uc2e4\ud328 \uae08\uc9c0: EXACT_DIFF_SIZE_HOLD / MATCH_KEY_HOLD \ud654\uba74 \ud45c\uae30 \ub9e4\ud551
+        html = _page()
+        assert "EXACT_DIFF_SIZE_HOLD" in html and "MATCH_KEY_HOLD" in html
+>       run = _fn(html, "mvExactDiffRun")
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_exact_diff_ui_wiring.py:76: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+html = '<!DOCTYPE html>\n<html lang="ko">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width,...esultsDetail; window.goToResultsDetail = goToResultsDetail; window.resExport = resExport;\n</script>\n</body>\n</html>'
+name = 'mvExactDiffRun'
+
+    def _fn(html, name):
+        m = re.search(r"function %s\([^)]*\)\s*\{.*?\n\}\n" % name, html, re.S)
+>       assert m, f"{name} 미발견"
+E       AssertionError: mvExactDiffRun 미발견
+E       assert None
+
+tests\test_exact_diff_ui_wiring.py:23: AssertionError
+__________________ test_key_range_tree_labeled_as_auxiliary ___________________
+
+    def test_key_range_tree_labeled_as_auxiliary():
+        # \xa72\xb7\xa712 \u2014 KEY_RANGE \ud2b8\ub9ac\ub294 '\ubd88\uc77c\uce58 \ubd84\ud3ec \ubcf4\uae30(\ubcf4\uc870 \ubd84\uc11d)' \ub77c\ubca8, Exact Diff \uc601\uc5ed\uacfc \ubd84\ub9ac
+        html = _page()
+        assert "불일치 분포 보기 · KEY_RANGE 보조 분석" in html
+>       assert "전수검증 (고급 · 별도 기능)" in html                 # 통계검증과 분리·보존
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       assert '전수검증 (고급 · 별도 기능)' in '<!DOCTYPE html>\n<html lang="ko">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width,...esultsDetail; window.goToResultsDetail = goToResultsDetail; window.resExport = resExport;\n</script>\n</body>\n</html>'
+
+tests\test_exact_diff_ui_wiring.py:84: AssertionError
+_________________ test_parallel_read_decision_off_by_default __________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002A486CF7690>
+
+    def test_parallel_read_decision_off_by_default(monkeypatch):
+        # \xa71 \u2014 \uc815\ucc45 OFF \u2192 \uc21c\ucc28(False).
+        _set_par(monkeypatch, False)
+>       assert ar._parallel_read_decision({"host": "h1", "port": 5432}, {"host": "h2", "port": 5432}) is False
+E       AssertionError: assert (True, '') is False
+E        +  where (True, '') = <function _parallel_read_decision at 0x000002A48A6B2F00>({'host': 'h1', 'port': 5432}, {'host': 'h2', 'port': 5432})
+E        +    where <function _parallel_read_decision at 0x000002A48A6B2F00> = ar._parallel_read_decision
+
+tests\test_execution_path.py:85: AssertionError
+_________________ test_parallel_read_decision_diff_host_true __________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002A486D7A430>
+
+    def test_parallel_read_decision_diff_host_true(monkeypatch):
+        # \xa73 \u2014 \uc815\ucc45 ON + \uc11c\ub85c \ub2e4\ub978 \ubb3c\ub9ac DB \u2192 \ub3d9\uc2dc\uc870\ud68c(True).
+        _set_par(monkeypatch, True)
+>       assert ar._parallel_read_decision({"host": "asis", "port": 5432}, {"host": "tobe", "port": 5432}) is True
+E       AssertionError: assert (True, '') is True
+E        +  where (True, '') = <function _parallel_read_decision at 0x000002A48A6B2F00>({'host': 'asis', 'port': 5432}, {'host': 'tobe', 'port': 5432})
+E        +    where <function _parallel_read_decision at 0x000002A48A6B2F00> = ar._parallel_read_decision
+
+tests\test_execution_path.py:91: AssertionError
+______________ test_parallel_read_decision_same_host_sequential _______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002A4884DDF60>
+
+    def test_parallel_read_decision_same_host_sequential(monkeypatch):
+        # \xa73 \u2014 \uc815\ucc45 ON \uc774\uc5b4\ub3c4 \uac19\uc740 \ubb3c\ub9ac DB(host/port) \u2192 \uc21c\ucc28(\ubd80\ud558 \ubcf4\ud638, False).
+        _set_par(monkeypatch, True)
+>       assert ar._parallel_read_decision({"host": "same", "port": 5432}, {"host": "same", "port": 5432}) is False
+E       AssertionError: assert (False, 'SAME_PHYSICAL_DB') is False
+E        +  where (False, 'SAME_PHYSICAL_DB') = <function _parallel_read_decision at 0x000002A48A6B2F00>({'host': 'same', 'port': 5432}, {'host': 'same', 'port': 5432})
+E        +    where <function _parallel_read_decision at 0x000002A48A6B2F00> = ar._parallel_read_decision
+
+tests\test_execution_path.py:97: AssertionError
+___________________ test_present_and_wired_into_init_chain ____________________
+
+    def test_present_and_wired_into_init_chain():
+        assert _FN_SRC, "_mvSingleAutoRestore 함수 없음"
+        # \ucd08\uae30\ud654 promise \uccb4\uc778 \uc885\ub8cc(_mvSingleInitSettled, \ud30c\uc77c \ud6c4\ubc18\uc758 init chain \u2014 rfind) \ub4a4\uc5d0 \uc790\ub3d9\ubcf5\uc6d0\uc774 \uc5f0\uacb0\ub3fc\uc57c \ud55c\ub2e4
+        idx = _HTML.rfind("_mvSingleInitSettled = true")
+        assert idx > 0
+        tail = _HTML[idx:idx + 500]
+>       assert "_mvSingleAutoRestore()" in tail, "초기화 체인에 자동복원 미연결"
+E       AssertionError: 초기화 체인에 자동복원 미연결
+E       assert '_mvSingleAutoRestore()' in '_mvSingleInitSettled = true; }\\n  try { _mvSyncExecInitButton(); } catch (e) {}\\n}, 3000); } catch (e) {}\\n/* \ud604\uc7ac \uc120\ud0dd\ub41c ...ileList(); } catch (e) {}\\n/* \ub2e8\uc77c DB \uc0c1\uc138 \uc785\ub825 \ud3fc \u2014 \uae30\ubcf8 DBMS(PostgreSQL) \uc804\uc6a9 \ud544\ub4dc \ucd08\uae30 \ub80c\ub354 */\\ntry { syncProfileDbmsFields(); } cat'
+
+tests\test_single_auto_restore.py:38: AssertionError
+_______________________ test_contract_in_function_body ________________________
+
+    def test_contract_in_function_body():
+        code = _strip_js_comments(_FN_SRC)
+        assert "_mvAutoRestoreAttempted" in code           # 로드당 1회 멱등 플래그
+        assert "/single/active-run" in code                # 동일 session active run 조회
+>       assert "MvRestoreCore.restore" in code and "workflow_type: 'individual'" in code
+E       AssertionError: assert ('MvRestoreCore.restore' in 'async function _mvSingleAutoRestore() {\n  if (window._mvAutoRestoreAttempted) return;   \n  window._mvAutoRestoreAtt...| !act.run.run_id) return;   \n    \n    try { _mvRefreshActiveRunChoice(act.run); } catch (e) {}\n  } catch (e) {}\n}')
+
+tests\test_single_auto_restore.py:46: AssertionError
+____________________ test_node_auto_restore_and_idempotent ____________________
+
+tmp_path = WindowsPath('C:/Users/Public/Documents/ESTsoft/CreatorTemp/pytest-of-nextobe_lyk/pytest-3589/test_node_auto_restore_and_ide0')
+
+    def test_node_auto_restore_and_idempotent(tmp_path):
+        if shutil.which("node") is None:
+            return
+        scenario = r"""
+        var _mvCurrentTab = 'analyze';
+        var calls = [];
+        function _mvSessionId() { return 'sid1'; }
+        window.MvRestoreCore = { restore: function (o) { calls.push(o.run_id); return Promise.resolve({ ok: true }); } };
+        var fetchCount = 0;
+        var fetch = function () { fetchCount++; return Promise.resolve({ json: function () { return Promise.resolve({ active: true, run: { run_id: 'RUN9' } }); } }); };
+        function __after1() {
+          if (calls.join(',') !== 'RUN9') { console.error('restore 미호출', calls); process.exit(1); }
+          if (fetchCount !== 1) { console.error('active-run 조회 1회 아님', fetchCount); process.exit(1); }
+        }
+        function __after2() {
+          if (calls.length !== 1) { console.error('멱등 위반(중복 restore)', calls); process.exit(1); }
+          if (fetchCount !== 1) { console.error('멱등 위반(중복 active-run 조회)', fetchCount); process.exit(1); }
+        }
+        """
+        r = _node(scenario, tmp_path, "ar1.js")
+>       assert r.returncode == 0 and "OK" in r.stdout, f"자동복원/멱등 오류: {r.stderr or r.stdout}"
+E       AssertionError: 자동복원/멱등 오류: restore 미호출 []
+E         
+E       assert (1 == 0)
+E        +  where 1 = CompletedProcess(args=['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\pytest-of-nextobe_lyk\\pytest-3589\\test_node_auto_restore_and_ide0\\ar1.js'], returncode=1, stdout='', stderr='restore 미호출 []\n').returncode
+
+tests\test_single_auto_restore.py:99: AssertionError
+___________ test_phase4b_strategy_plan_effective_selection_display ____________
+
+    def test_phase4b_strategy_plan_effective_selection_display():
+        """[Phase4-B \xa74] \uc2e4\ud589\uacc4\ud68d \uce74\ub4dc \u2014 \uc804\uc5ed \uc124\uc815 vs \uc2e4\uc81c \uc801\uc6a9 GB/SUM + \uceec\ub7fc \ubaa9\ub85d + \uc124\uc815 \ubd88\uc77c\uce58 \uc0ac\uc720."""
+        html = _page()
+        fn = re.search(r"async function _mvRenderStrategyPlan\([^)]*\)\s*\{.*?\n\}\n", html, re.S).group(0)
+        assert "전역 설정" in fn and "실제 적용" in fn
+>       assert "effective_group_by_count" in fn and "effective_aggregate_count" in fn
+E       assert ('effective_group_by_count' in 'async function _mvRenderStrategyPlan(profile, hostId) {\n  var host = document.getElementById(hostId || \'strategyPla...:.74rem;color:#C2410C;margin-top:4px">미구현 전략은 자동 실행하지 않습니다. 기존 전체 비교 fallback 은 명시 승인 시에만 사용합니다.</div>\' : \'\');\n}\n')
+
+tests\test_stats_result_full.py:489: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_count_gate.py::test_ui_gate_display_and_blocking - Attribut...
+FAILED tests/test_d7_1_completed_history.py::test_client_gate_and_dialog - as...
+FAILED tests/test_d7_8_inline_drill_time.py::test_ui_advanced_perf_position_and_title
+FAILED tests/test_d7_9_gb0_fallback.py::test_gate_gb0_always_grid - assert ('...
+FAILED tests/test_d7_9_gb0_fallback.py::test_stage_timing_display - assert '+...
+FAILED tests/test_exact_diff_ui_wiring.py::test_button_state_conditions_flag_on_off
+FAILED tests/test_exact_diff_ui_wiring.py::test_run_wiring_calls_exact_diff_api_not_key_range
+FAILED tests/test_exact_diff_ui_wiring.py::test_record_grid_and_kind_filter_and_order
+FAILED tests/test_exact_diff_ui_wiring.py::test_hold_labels_visible - Asserti...
+FAILED tests/test_exact_diff_ui_wiring.py::test_key_range_tree_labeled_as_auxiliary
+FAILED tests/test_execution_path.py::test_parallel_read_decision_off_by_default
+FAILED tests/test_execution_path.py::test_parallel_read_decision_diff_host_true
+FAILED tests/test_execution_path.py::test_parallel_read_decision_same_host_sequential
+FAILED tests/test_single_auto_restore.py::test_present_and_wired_into_init_chain
+FAILED tests/test_single_auto_restore.py::test_contract_in_function_body - As...
+FAILED tests/test_single_auto_restore.py::test_node_auto_restore_and_idempotent
+FAILED tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+17 failed, 457 passed, 1 skipped, 6 xfailed, 6 subtests passed in 59.49s

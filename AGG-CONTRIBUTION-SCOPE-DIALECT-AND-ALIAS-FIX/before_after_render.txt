@@ -1,0 +1,32 @@
+AGG-CONTRIBUTION-SCOPE-DIALECT-AND-ALIAS-FIX - SQL 렌더 Before/After 대조
+====================================================================================================
+환경: {"oracle_host": "192.168.0.151:1523/1524", "pg_host": "192.168.0.150:5433/5434", "reachable": false, "note": "내부망 전 포트 TCP timeout — SQL 렌더 캡처로 대체"}
+
+----------------------------------------------------------------------------------------------------
+[oracle]
+  BEFORE(원본측): SELECT (ORDER_ID) AS __K, MIN((ORDER_YM)::text) AS __G, count(*) AS __N, SUM((ORDER_AMT)) AS __S0 FROM (SELECT * FROM (SELECT ORDER_ID, ORDER_YM, ORDER_AMT FROM NXDNP.MV_ORA_XDIFF_SRC) __sc WHERE (ORDER_YM)::text = '202601') __agg GROUP BY 1 ORDER BY 1
+  AFTER (원본측): SELECT (ORDER_ID) AS "__K", MIN(TO_CHAR((ORDER_YM))) AS "__G0", COUNT(*) AS "__N", SUM((ORDER_AMT)) AS "__S0" FROM (SELECT * FROM (SELECT ORDER_ID, ORDER_YM, ORDER_AMT FROM NXDNP.MV_ORA_XDIFF_SRC) mv_agg_scope_src WHERE TO_CHAR((ORDER_YM)) = '202601') "__agg" GROUP BY (ORDER_ID) ORDER BY (ORDER_ID)
+  목적측 별칭: __sc -> mv_agg_scope_tgt
+  BEFORE 차단요인:
+    - PG 캐스트 `::text` → 오라클은 `:text` 를 바인드 변수로 오인(DPY-4010)
+    - 밑줄 선두 비인용 별칭(__sc/__agg/__K 등) → ORA-00911
+    - 위치 표기 GROUP BY n → 오라클 비호환
+  AFTER 차단요인: 없음
+----------------------------------------------------------------------------------------------------
+[postgresql]
+  BEFORE(원본측): SELECT (ORDER_ID) AS __K, MIN((ORDER_YM)::text) AS __G, count(*) AS __N, SUM((ORDER_AMT)) AS __S0 FROM (SELECT * FROM (SELECT ORDER_ID, ORDER_YM, ORDER_AMT FROM NXDNP.MV_ORA_XDIFF_SRC) __sc WHERE (ORDER_YM)::text = '202601') __agg GROUP BY 1 ORDER BY 1
+  AFTER (원본측): SELECT (ORDER_ID) AS __K, MIN((ORDER_YM)::text) AS __G, count(*) AS __N, SUM((ORDER_AMT)) AS __S0 FROM (SELECT * FROM (SELECT ORDER_ID, ORDER_YM, ORDER_AMT FROM NXDNP.MV_ORA_XDIFF_SRC) mv_agg_scope_src WHERE (ORDER_YM)::text = '202601') __agg GROUP BY 1 ORDER BY 1
+  목적측 별칭: __sc -> mv_agg_scope_tgt
+----------------------------------------------------------------------------------------------------
+[mysql]
+  BEFORE(원본측): SELECT (ORDER_ID) AS __K, MIN((ORDER_YM)::text) AS __G, count(*) AS __N, SUM((ORDER_AMT)) AS __S0 FROM (SELECT * FROM (SELECT ORDER_ID, ORDER_YM, ORDER_AMT FROM NXDNP.MV_ORA_XDIFF_SRC) __sc WHERE (ORDER_YM)::text = '202601') __agg GROUP BY 1 ORDER BY 1
+  AFTER (원본측): SELECT (ORDER_ID) AS __K, MIN((ORDER_YM)::text) AS __G, count(*) AS __N, SUM((ORDER_AMT)) AS __S0 FROM (SELECT * FROM (SELECT ORDER_ID, ORDER_YM, ORDER_AMT FROM NXDNP.MV_ORA_XDIFF_SRC) mv_agg_scope_src WHERE CAST((ORDER_YM) AS CHAR) = '202601') __agg GROUP BY 1 ORDER BY 1
+  목적측 별칭: __sc -> mv_agg_scope_tgt
+----------------------------------------------------------------------------------------------------
+[mssql]
+  BEFORE(원본측): SELECT (ORDER_ID) AS __K, MIN((ORDER_YM)::text) AS __G, count(*) AS __N, SUM((ORDER_AMT)) AS __S0 FROM (SELECT * FROM (SELECT ORDER_ID, ORDER_YM, ORDER_AMT FROM NXDNP.MV_ORA_XDIFF_SRC) __sc WHERE (ORDER_YM)::text = '202601') __agg GROUP BY 1 ORDER BY 1
+  AFTER (원본측): SELECT (ORDER_ID) AS __K, MIN((ORDER_YM)::text) AS __G, count(*) AS __N, SUM((ORDER_AMT)) AS __S0 FROM (SELECT * FROM (SELECT ORDER_ID, ORDER_YM, ORDER_AMT FROM NXDNP.MV_ORA_XDIFF_SRC) mv_agg_scope_src WHERE CAST((ORDER_YM) AS NVARCHAR(4000)) = '202601') __agg GROUP BY 1 ORDER BY 1
+  목적측 별칭: __sc -> mv_agg_scope_tgt
+----------------------------------------------------------------------------------------------------
+PG 회귀: 별칭명만 변경(술어 무변경) = True
+판정: {"oracle_before_blocked": true, "oracle_after_clean": true, "pg_no_regression": true, "PASS": true}

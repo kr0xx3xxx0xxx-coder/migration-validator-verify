@@ -1,0 +1,89 @@
+.....s.........................FF....................................... [ 61%]
+.......................F..............F......                            [100%]
+================================== FAILURES ===================================
+______________________ test_next_strategy_preview_matrix ______________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000021A29EFD630>
+
+    def test_next_strategy_preview_matrix(monkeypatch):
+        ck = {"src_expr": "id", "tgt_expr": "id", "type": "NUMBER", "confirmed": True}
+        assert _cap(["S"], monkeypatch, chunk=ck) == "NEXT_KEY_RANGE"        # 확정 CHUNK_KEY → KEY_RANGE
+        assert _cap(["S"], monkeypatch, axes=["R"]) == "NEXT_GROUP_SCOPE"    # 남은 확정 축 우선
+>       assert _cap([], monkeypatch, hash_only=True) == "HASH_BUCKET_REQUIRED"
+E       AssertionError: assert 'NEXT_KEY_RANGE' == 'HASH_BUCKET_REQUIRED'
+E         
+E         - HASH_BUCKET_REQUIRED
+E         + NEXT_KEY_RANGE
+
+tests\test_diagnosis_phase3b.py:105: AssertionError
+____________________ test_start_passes_confirmed_chunk_key ____________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000021A29EBF540>
+
+    def test_start_passes_confirmed_chunk_key(monkeypatch):
+        """diagnosis_start 가 재확인된 chunk_key 를 엔진까지 전달한다(BLOCKED/None 후보는 미전달)."""
+        import routes.diagnosis_route as dr
+        seen = {}
+    
+        def _fake_diag(**kw):
+            seen.update(kw)
+            class _R:  # 최소 run stub
+                run_id = "x"; status = "DONE"; stop_reason = ""; strategy = "GROUP_SCOPE"
+                started_at = ""; finished_at = ""; persist = False
+                class context: origin_type = "INDIVIDUAL"; target_table = "t"
+                class budget: max_nodes = 100; spent_nodes = 0
+                chunk_key = None; confirmed_group_axes = []; match_key_only_unsupported = False
+            return _R()
+        monkeypatch.setattr("services.diagnosis.adapters.individual_adapter.diagnose_individual_mismatch", _fake_diag)
+        monkeypatch.setattr(dr, "_run_view", lambda run, store: {"ok": True})
+        ck = {"src_expr": "id", "tgt_expr": "id", "type": "NUMBER", "confirmed": True}
+        monkeypatch.setattr(ke, "resolve_confirmed_chunk_key", lambda **kw: ck)
+        req = dr.DiagnosisStartRequest(execute_result={}, src_sql="s", tgt_sql="t", groupby_cols=["S"],
+                                       src_conn={"a": 1}, tgt_conn={"b": 1})
+        dr.diagnosis_start(req)
+        assert seen.get("chunk_key") == ck                                   # contract 재확인 chunk_key 전달
+        # 비확정(None) 이면 전달 안 함
+        monkeypatch.setattr(ke, "resolve_confirmed_chunk_key", lambda **kw: None)
+        seen.clear(); dr.diagnosis_start(req)
+>       assert seen.get("chunk_key") is None
+E       AssertionError: assert {'confirmed': True, 'src_expr': 'id', 'tgt_expr': 'id', 'type': 'NUMBER'} is None
+E        +  where {'confirmed': True, 'src_expr': 'id', 'tgt_expr': 'id', 'type': 'NUMBER'} = <built-in method get of dict object at 0x0000021A2FDA2300>('chunk_key')
+E        +    where <built-in method get of dict object at 0x0000021A2FDA2300> = {'budget': DiagnosisBudget(max_nodes=100, max_depth=3, spent_nodes=0, max_seconds=None), 'chunk_key': {'confirmed': True, 'src_expr': 'id', 'tgt_expr': 'id', 'type': 'NUMBER'}, 'confirmed_group_axes': [], 'execute_result': {}, ...}.get
+
+tests\test_diagnosis_phase3b.py:134: AssertionError
+______________________________ test_sample_only _______________________________
+
+    def test_sample_only():
+        plan = _plan([_grp("D", 80, rows=9_000_000)], strategy="ROW_DIFF_ALLOWED")   # 과대 → SAMPLE
+>       assert plan["scope_items"][0]["recommended_action"] == "SAMPLE_ROW_DIFF_ONLY"
+E       AssertionError: assert 'ROW_DIFF_ALLOWED' == 'SAMPLE_ROW_DIFF_ONLY'
+E         
+E         - SAMPLE_ROW_DIFF_ONLY
+E         + ROW_DIFF_ALLOWED
+
+tests\test_scope_execution.py:100: AssertionError
+______________________ test_ui_gate_display_and_blocking ______________________
+
+    def test_ui_gate_display_and_blocking():
+        html = _page()
+        m = re.search(r"function _mvCountGateHtml\([^)]*\)\s*\{.*?\n\}\n", html, re.S)
+        assert m, "_mvCountGateHtml 미발견"
+        b = m.group(0)
+        for label in ("원본 ", "목적 ", "순 차이", "적재율", "다음 단계"):
+            assert label in b, f"COUNT gate 표시 누락(§40): {label}"
+        assert "범위 이상 진단" in b and "대표 레코드 보기" in b and "전체 CSV 생성" in b   # §43
+        assert "0건 아님" in b                                        # QUERY_FAILED 안내(§17)
+        assert "background:#fff0f0" not in b and "#C2410C" in b       # §42 색상(핑크 금지)
+        # 후속 게이팅: runGenerate/runExecute/Exact Diff 버튼(§39·§44)
+        assert html.count("_mvGateBlocked('stats')") >= 2
+>       upd = re.search(r"function _mvExactDiffUpdateButton\([^)]*\)\s*\{.*?\n\}\n", html, re.S).group(0)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'NoneType' object has no attribute 'group'
+
+tests\test_count_gate.py:206: AttributeError
+=========================== short test summary info ===========================
+FAILED tests/test_diagnosis_phase3b.py::test_next_strategy_preview_matrix - A...
+FAILED tests/test_diagnosis_phase3b.py::test_start_passes_confirmed_chunk_key
+FAILED tests/test_scope_execution.py::test_sample_only - AssertionError: asse...
+FAILED tests/test_count_gate.py::test_ui_gate_display_and_blocking - Attribut...
+4 failed, 112 passed, 1 skipped in 10.52s

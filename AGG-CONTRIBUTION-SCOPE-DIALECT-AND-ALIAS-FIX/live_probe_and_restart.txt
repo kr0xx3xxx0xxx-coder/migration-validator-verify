@@ -1,0 +1,35 @@
+AGG-CONTRIBUTION-SCOPE-DIALECT-AND-ALIAS-FIX - 실 서비스 포트 확인 / 서버 재기동
+==============================================================================
+
+[1] 내부망 도달 확인 (실 DB 검증 가능 여부 - 먼저 확인)
+    python socket connect timeout 3~4s
+      192.168.0.151:1523 (Oracle asis)  -> FAIL TimeoutError
+      192.168.0.151:1524 (Oracle tobe)  -> FAIL TimeoutError
+      192.168.0.150:5433 (PG  asis)     -> FAIL TimeoutError
+      192.168.0.150:5434 (PG  tobe)     -> FAIL TimeoutError
+      192.168.0.150:5432                -> FAIL TimeoutError
+    => 내부망 미복구. 실 DB 실행 대신 지시서가 허용한 'SQL 렌더 캡처' 방식으로 대체(명시).
+       캡처는 추정이 아니라 run_agg_contribution_diff 가 fetch_fn 으로 DB 에 넘기기 직전의
+       실제 SQL 문자열이다(실행 경로 그대로).
+
+[2] 서버 재기동 (포트 8000, 인증 ON)
+    코드 수정시각 : 2026-07-27 15:48:05  (services/exact_diff/agg_contribution.py)
+    기존 리스너   : PID 18408 -> Stop-Process
+    재기동 시각   : 2026-07-27 15:54:11 (KST)
+    신규 PID      : 12148
+    => 재기동 시각 > 파일 수정시각 이므로 실행 중 서버가 수정본 모듈을 서빙한다
+       (web_server.py 는 reload=False 라 재기동 없이는 .py 편집이 반영되지 않는다).
+
+[3] 실 서비스 포트 도달 확인 (Basic Auth ON)
+    GET / (127.0.0.1:8000, -u e2e:***)            -> HTTP 200
+
+    POST /agg-diff/run  (오라클 접속 + scope={"col":"ORDER_YM","val":"202601"})
+    응답:
+      {"ok":true,"status":"HOLD","stop_reason":"AGG_QUERY_FAILED",
+       "error_message":"집계 기여 조회 오류: DPY-6005: cannot connect to database
+        (CONNECTION_ID=...).\ntimed out"}
+      HTTP 200
+
+    해석: 라우트 -> 엔진 -> scope 래핑 -> SQL 렌더 -> DB 접속 단계까지 실제로 진입했고,
+          실패 지점이 'SQL 문법'이 아니라 'DB 접속 타임아웃(내부망 다운)'이다.
+          즉 수정된 경로 자체는 라이브 서비스에서 정상 도달한다.

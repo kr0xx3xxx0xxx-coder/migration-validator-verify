@@ -1,0 +1,47 @@
+{
+  "db_state": {
+    "Oracle_asis": "DPY-6005: cannot connect to database (CONNECTION_ID=FzAulJD6ADg5Flh3mCs95A==).",
+    "Oracle_tobe": "DPY-6005: cannot connect to database (CONNECTION_ID=3nkLYjIQVMpW/MY/KgZ4vQ==).",
+    "PostgreSQL_Inter_asis": "connection to server at \"192.168.0.150\", port 5433 failed: timeout expired",
+    "PostgreSQL_Inter_tobe": "connection to server at \"192.168.0.150\", port 5434 failed: timeout expired"
+  },
+  "ui_route_refs": {
+    "/diagnosis/multi-analyze": 0,
+    "/diagnosis/multi-resume": 0,
+    "/diagnosis/multi-row-diff": 0,
+    "/diagnosis/multi-row-diff-resume": 0,
+    "/diagnosis/size-strategy": 0,
+    "/diagnosis/drilldown-strategy": 0,
+    "/diagnosis/strategy-orchestrate": 1
+  },
+  "orchestrate_entrypoint": {
+    "defs": 1,
+    "total": 1,
+    "served": 1,
+    "http": 200
+  },
+  "dialect_matrix": {
+    "BEFORE(HEAD)/oracle": {
+      "chunk_key": "(미전달→기본 postgres)",
+      "match_key": "(미전달→기본 postgres)"
+    },
+    "BEFORE(HEAD)/postgresql": {
+      "chunk_key": "(미전달→기본 postgres)",
+      "match_key": "(미전달→기본 postgres)"
+    },
+    "AFTER(작업트리)/oracle": {
+      "chunk_key": "oracle",
+      "match_key": "oracle"
+    },
+    "AFTER(작업트리)/postgresql": {
+      "chunk_key": "postgres",
+      "match_key": "postgres"
+    }
+  },
+  "null_probe_render": {
+    "postgres": "SELECT 1 FROM NXDNP.MV_ORA_XDIFF_SRC WHERE ID IS NULL LIMIT 1",
+    "oracle": "SELECT 1 FROM NXDNP.MV_ORA_XDIFF_SRC WHERE ID IS NULL FETCH FIRST 1 ROWS ONLY"
+  },
+  "pg_regression_same": true,
+  "mixed_dialect": "postgres"
+}

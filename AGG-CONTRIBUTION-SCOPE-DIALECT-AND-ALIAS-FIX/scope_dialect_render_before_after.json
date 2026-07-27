@@ -1,0 +1,69 @@
+{
+  "env": {
+    "oracle_host": "192.168.0.151:1523/1524",
+    "pg_host": "192.168.0.150:5433/5434",
+    "reachable": false,
+    "note": "내부망 전 포트 TCP timeout — SQL 렌더 캡처로 대체"
+  },
+  "cases": {
+    "oracle": {
+      "before_src": "SELECT (ORDER_ID) AS __K, MIN((ORDER_YM)::text) AS __G, count(*) AS __N, SUM((ORDER_AMT)) AS __S0 FROM (SELECT * FROM (SELECT ORDER_ID, ORDER_YM, ORDER_AMT FROM NXDNP.MV_ORA_XDIFF_SRC) __sc WHERE (ORDER_YM)::text = '202601') __agg GROUP BY 1 ORDER BY 1",
+      "after_src": "SELECT (ORDER_ID) AS \"__K\", MIN(TO_CHAR((ORDER_YM))) AS \"__G0\", COUNT(*) AS \"__N\", SUM((ORDER_AMT)) AS \"__S0\" FROM (SELECT * FROM (SELECT ORDER_ID, ORDER_YM, ORDER_AMT FROM NXDNP.MV_ORA_XDIFF_SRC) mv_agg_scope_src WHERE TO_CHAR((ORDER_YM)) = '202601') \"__agg\" GROUP BY (ORDER_ID) ORDER BY (ORDER_ID)",
+      "before_tgt_alias": "__sc",
+      "after_tgt_alias": "mv_agg_scope_tgt",
+      "before_blockers": [
+        "PG 캐스트 `::text` → 오라클은 `:text` 를 바인드 변수로 오인(DPY-4010)",
+        "밑줄 선두 비인용 별칭(__sc/__agg/__K 등) → ORA-00911",
+        "위치 표기 GROUP BY n → 오라클 비호환"
+      ],
+      "after_blockers": [],
+      "before_parse": "PARSE_OK",
+      "after_parse": "PARSE_OK",
+      "identical": false
+    },
+    "postgresql": {
+      "before_src": "SELECT (ORDER_ID) AS __K, MIN((ORDER_YM)::text) AS __G, count(*) AS __N, SUM((ORDER_AMT)) AS __S0 FROM (SELECT * FROM (SELECT ORDER_ID, ORDER_YM, ORDER_AMT FROM NXDNP.MV_ORA_XDIFF_SRC) __sc WHERE (ORDER_YM)::text = '202601') __agg GROUP BY 1 ORDER BY 1",
+      "after_src": "SELECT (ORDER_ID) AS __K, MIN((ORDER_YM)::text) AS __G, count(*) AS __N, SUM((ORDER_AMT)) AS __S0 FROM (SELECT * FROM (SELECT ORDER_ID, ORDER_YM, ORDER_AMT FROM NXDNP.MV_ORA_XDIFF_SRC) mv_agg_scope_src WHERE (ORDER_YM)::text = '202601') __agg GROUP BY 1 ORDER BY 1",
+      "before_tgt_alias": "__sc",
+      "after_tgt_alias": "mv_agg_scope_tgt",
+      "before_blockers": [],
+      "after_blockers": [],
+      "before_parse": "PARSE_OK",
+      "after_parse": "PARSE_OK",
+      "identical": false
+    },
+    "mysql": {
+      "before_src": "SELECT (ORDER_ID) AS __K, MIN((ORDER_YM)::text) AS __G, count(*) AS __N, SUM((ORDER_AMT)) AS __S0 FROM (SELECT * FROM (SELECT ORDER_ID, ORDER_YM, ORDER_AMT FROM NXDNP.MV_ORA_XDIFF_SRC) __sc WHERE (ORDER_YM)::text = '202601') __agg GROUP BY 1 ORDER BY 1",
+      "after_src": "SELECT (ORDER_ID) AS __K, MIN((ORDER_YM)::text) AS __G, count(*) AS __N, SUM((ORDER_AMT)) AS __S0 FROM (SELECT * FROM (SELECT ORDER_ID, ORDER_YM, ORDER_AMT FROM NXDNP.MV_ORA_XDIFF_SRC) mv_agg_scope_src WHERE CAST((ORDER_YM) AS CHAR) = '202601') __agg GROUP BY 1 ORDER BY 1",
+      "before_tgt_alias": "__sc",
+      "after_tgt_alias": "mv_agg_scope_tgt",
+      "before_blockers": [],
+      "after_blockers": [],
+      "before_parse": "PARSE_OK",
+      "after_parse": "PARSE_OK",
+      "identical": false
+    },
+    "mssql": {
+      "before_src": "SELECT (ORDER_ID) AS __K, MIN((ORDER_YM)::text) AS __G, count(*) AS __N, SUM((ORDER_AMT)) AS __S0 FROM (SELECT * FROM (SELECT ORDER_ID, ORDER_YM, ORDER_AMT FROM NXDNP.MV_ORA_XDIFF_SRC) __sc WHERE (ORDER_YM)::text = '202601') __agg GROUP BY 1 ORDER BY 1",
+      "after_src": "SELECT (ORDER_ID) AS __K, MIN((ORDER_YM)::text) AS __G, count(*) AS __N, SUM((ORDER_AMT)) AS __S0 FROM (SELECT * FROM (SELECT ORDER_ID, ORDER_YM, ORDER_AMT FROM NXDNP.MV_ORA_XDIFF_SRC) mv_agg_scope_src WHERE CAST((ORDER_YM) AS NVARCHAR(4000)) = '202601') __agg GROUP BY 1 ORDER BY 1",
+      "before_tgt_alias": "__sc",
+      "after_tgt_alias": "mv_agg_scope_tgt",
+      "before_blockers": [],
+      "after_blockers": [],
+      "before_parse": "PARSE_OK",
+      "after_parse": "PARSE_OK",
+      "identical": false
+    }
+  },
+  "pg_regression": {
+    "alias_only_change": true,
+    "predicate_before": "WHERE (ORDER_YM)::text = '202601') __agg GROUP BY 1 ORDER BY 1",
+    "predicate_after": "WHERE (ORDER_YM)::text = '202601') __agg GROUP BY 1 ORDER BY 1"
+  },
+  "verdict": {
+    "oracle_before_blocked": true,
+    "oracle_after_clean": true,
+    "pg_no_regression": true,
+    "PASS": true
+  }
+}

@@ -1,0 +1,43 @@
+============================================================================================
+ DIAGNOSIS-ROUTE-CONTRACT-KEY-DIALECT-CONSISTENCY-FIX — 도달성 감사 + Before/After 배선 실측
+ 실행시각 2026-07-27 15:52:00 · 서버 http://127.0.0.1:8000(인증 ON)
+============================================================================================
+
+── [1] 실 DB 가용성 확인(오라클/내부 PG) ─────────────────────────────
+    Oracle_asis                 20209ms  DPY-6005: cannot connect to database (CONNECTION_ID=FzAulJD6ADg5Flh3mCs95A==).
+    Oracle_tobe                 20015ms  DPY-6005: cannot connect to database (CONNECTION_ID=3nkLYjIQVMpW/MY/KgZ4vQ==).
+    PostgreSQL_Inter_asis       10014ms  connection to server at "192.168.0.150", port 5433 failed: timeout expired
+    PostgreSQL_Inter_tobe       10008ms  connection to server at "192.168.0.150", port 5434 failed: timeout expired
+    → 오라클 라이브 가능: 아니오(내부망 단절 — DB 왕복 없는 대체 방식으로 진행)
+
+── [2] 도달성 감사 — 대상 route 의 UI 호출 지점 ──────────────────────
+    /diagnosis/multi-analyze               UI 호출 문자열 0회
+    /diagnosis/multi-resume                UI 호출 문자열 0회
+    /diagnosis/multi-row-diff              UI 호출 문자열 0회
+    /diagnosis/multi-row-diff-resume       UI 호출 문자열 0회
+    /diagnosis/size-strategy               UI 호출 문자열 0회
+    /diagnosis/drilldown-strategy          UI 호출 문자열 0회
+    /diagnosis/strategy-orchestrate        UI 호출 문자열 1회
+
+    _mvLoadStrategyPreview  정의 1회 / 전체 등장 1회 → 호출부 0회
+    실 서버 HTML(GET / , HTTP 200) 내 등장 1회 (정의 1회뿐이면 클릭 가능한 진입점 없음)
+    → 판정: /diagnosis/strategy-orchestrate 는 UI 화면에서 도달 불가(죽은 진입점), 나머지 6개 route 는 UI 호출부 0 → 도달 불가(테스트·samples 전용)
+
+── [3] Before(HEAD) / After(작업트리) — 키 복원 호출의 dialect 인자 ──
+    BEFORE(HEAD)     접속=oracle      chunk_key dialect=(미전달→기본 postgres)          match_key dialect=(미전달→기본 postgres)
+    BEFORE(HEAD)     접속=postgresql  chunk_key dialect=(미전달→기본 postgres)          match_key dialect=(미전달→기본 postgres)
+    AFTER(작업트리)      접속=oracle      chunk_key dialect=oracle                     match_key dialect=oracle
+    AFTER(작업트리)      접속=postgresql  chunk_key dialect=postgres                   match_key dialect=postgres
+
+── [4] 기능적 귀결 — 전달된 dialect 로 실제 렌더되는 NULL probe SQL ──
+    dialect=postgres  → SELECT 1 FROM NXDNP.MV_ORA_XDIFF_SRC WHERE ID IS NULL LIMIT 1
+    dialect=oracle    → SELECT 1 FROM NXDNP.MV_ORA_XDIFF_SRC WHERE ID IS NULL FETCH FIRST 1 ROWS ONLY
+    · BEFORE 는 오라클 접속에도 postgres 로 렌더 → 'LIMIT' 포함=True → 오라클 실행 시 ORA-03049 계열 실패 → chunk_key 확정 불가
+    · AFTER 는 oracle 로 렌더 → 'FETCH FIRST' 포함=True
+
+── [5] PostgreSQL 회귀 확인 ──────────────────────────────────────────
+    PG 접속의 실효 방언: BEFORE=(미전달→기본 postgres) / AFTER=postgres → 동작 동일: True
+    (미전달 시 기본값이 'postgres' 이므로 PG 경로는 수정 전후 같은 SQL 이 렌더된다)
+
+── [6] 혼합 방언 안전판(_routing_dialect 규약 그대로) ────────────────
+    src=oracle · tgt=postgresql → dialect=postgres (기존 규약대로 'postgres' 유지)
