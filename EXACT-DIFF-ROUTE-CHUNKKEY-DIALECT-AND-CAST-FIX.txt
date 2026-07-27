@@ -1,0 +1,98 @@
+✅ 작업 완료 - EXACT-DIFF-ROUTE-CHUNKKEY-DIALECT-AND-CAST-FIX
+
+■ 수정 파일 (지시대로 routes/exact_diff_route.py 만 수정)
+  routes/exact_diff_route.py                             커밋 25138f0
+  + tests/test_exact_diff_route_dialect_cast.py          (신규 회귀 테스트 6건)
+  + scripts/dev_e2e/exact_diff_route_dialect_cast_verify.py (신규 검증 harness)
+
+■ [지시1] L139 dialect 배선
+  _resolve_key → resolve_confirmed_chunk_key 에 실제 접속 방언 전달.
+  접속 db_type 을 공통 헬퍼 _to_sqlglot_dialect 로 도출(신규 매핑 없음).
+  혼합 방언(원본≠목적)은 기존 동작(postgres) 유지.
+
+  근본원인 실측:
+    dialect=postgres -> SELECT 1 FROM ... WHERE SEQ_NO IS NULL LIMIT 1     ← 오라클 ORA-00933
+    dialect=oracle   -> SELECT 1 FROM ... WHERE SEQ_NO IS NULL FETCH FIRST 1 ROWS ONLY
+  실패 연쇄: _has_null=None → confirm_chunk_key=None → _resolve_key=("","") → 사유 없는 조용한 HOLD
+
+■ [지시2] L177/178 캐스트 방언 분기 + 별칭 개명
+  _scope_eq_expr 신설 — 지원 4개 방언 모두 처리:
+    oracle     TO_CHAR((col)) = '값'          (exact_diff/dialects/oracle.py _txt 와 동일 규칙)
+    postgres   (col)::text = '값'             (기존 표현 그대로 유지)
+    mysql      CAST((col) AS CHAR) = '값'
+    mssql      CAST((col) AS NVARCHAR(4000)) = '값'
+  별칭 __sf → mv_scope_src / mv_scope_tgt (문자 시작, ORA-00911 회피)
+
+■ [지시3] Before / After 실측
+  ※ 내부망 전면 차단으로 실 오라클/PG 실행 불가 — 이전 진단과 동일 방식으로 대체(아래 명시)
+     ora-asis 192.168.0.151:1523 / ora-tobe :1524 / pg-inter 192.168.0.150:5433,5434
+     → 4개 모두 TCP 타임아웃
+     대체: 라우트 함수·실제 ASGI 앱을 그대로 실행하고 DB 왕복 2곳만 캡처 stub 으로 치환.
+           SQL 렌더/인자 배선은 운영과 동일 경로 → 측정값은 DB 유무와 무관하게 결정적.
+     Before=baseline worktree(f54c957), After=현재 트리, 동일 harness.
+
+  오라클 / SCOPE=ON (전체>5만 & scope<=5만 — UI tabler_renderer.py:16549 조건)
+    Before  dialect 전달 False(→기본 postgres)
+            SELECT * FROM (...) __sf WHERE (DEPT_CD)::text = 'A1''B'
+            ❌ `::` 캐스트(DPY-4010) + 밑줄 선두 별칭(ORA-00911) + 조용한 HOLD
+    After   dialect 전달 True / 값=oracle
+            SELECT * FROM (...) mv_scope_src WHERE TO_CHAR((DEPT_CD)) = 'A1''B'
+            ✅ 실행 불가 패턴 없음 · chunk key 정상 확정(SEQ_NO)
+            따옴표 이스케이프(A1'B → 'A1''B') 유지 확인
+
+  오라클 / SCOPE=OFF
+    Before  SQL 자체는 정상이나 dialect 미전달은 동일 → chunk key 확정 실패
+    After   oracle 위임 → 정상. (1)번 결함은 SCOPE 여부와 무관하게 오라클 전 경로 해당
+
+  실제 ASGI 앱(web_server:app) POST /exact-diff/run 경유로도 동일 확인
+    HTTP 200 · chunk dialect=oracle · src_sql 에 TO_CHAR 렌더
+
+■ [지시4] PostgreSQL 회귀 없음
+  Before/After 모두  WHERE (DEPT_CD)::text = 'A1''B'  — 술어 표현 완전 동일
+  차이는 내부 인라인뷰 별칭(__sf → mv_scope_src) 뿐, 결과셋 무영향
+  기존 가드 테스트 test_groupby_plan.py::test_scope_filter_pushdown_and_major_no_multi
+  ("::text = " 소스 단언)는 수정 없이 통과
+
+■ 회귀 테스트 (baseline 대조)
+  samples/test_virtual_cases.py                       EXIT=0
+  samples/test_complex_cases.py                       EXIT=0
+  직접 관련 32건 전부 통과
+    (test_exact_diff_route_dialect_cast / test_groupby_plan / test_exact_diff_engine)
+
+  신규 테스트 6건: baseline 5건 실패 → after 6건 전부 통과
+    baseline 에서 유일하게 통과한 것이 test_scope_filter_postgres_unchanged
+    → 결함을 실제로 잡으면서 PG 는 원래 정상이었음을 동시에 입증
+
+  광범위 스위트(약 780건): baseline 30 실패 / after 36 실패
+    증가분 11건은 전부 groupby_safety 계열 라이브 DB 테스트 —
+    worktree 는 skip, main 은 실행되어 내부망 차단으로 실패하는 알려진 혼동 패턴.
+    worktree 비교 오판을 피하려 in-place revert 로 격리 검증:
+    내 수정을 HEAD 원본으로 되돌린 상태에서 동일 11건이 똑같이 실패 → 사전 존재 실패 확정.
+    감소분 5건은 이번 수정으로 해소된 신규 테스트.
+
+■ 서버 재기동
+  재기동 시각 : 2026-07-27 15:16:58  (PID 34392, 이전 34604)
+  포트/인증   : 127.0.0.1:8000 · 인증 ON (무인증 요청 401 AUTH_REQUIRED 확인)
+  모듈 신선도 : 파일 최종수정 15:15:52 < 기동 15:16:58 → 새 모듈 로드 확정
+  ※ auth_users.json 이 scrypt 해시만 보관해 자격증명 없이는 인증 라우트를 브라우저로
+     직접 조작할 수 없었다. 해당 부분은 ASGI 앱 경유 실측으로 대체했다.
+
+■ 남은 갭 (이번 지시 범위 밖 — 미수정)
+  services/exact_diff/agg_contribution.py:840-841 에 동일 형태의 PG 전용 scope 래핑 잔존
+    s_sql = f"SELECT * FROM ({s_sql}) __sc WHERE ({_c})::text = '{_v}'"
+  `__sc` 별칭 + `::text` 둘 다 같은 오라클 차단 요인. "exact_diff_route.py 만 수정"
+  지시를 지켜 손대지 않음 — agg-diff 를 오라클에서 쓰려면 후속 수정 필요.
+
+■ 증적
+  E:\verify_screenshots_only\EXACT-DIFF-ROUTE-CHUNKKEY-DIALECT-AND-CAST-FIX\
+    REPORT.txt                        서술형 완료보고서
+    before_route_render.txt           Before 실측(baseline worktree)
+    after_route_render.txt            After 실측
+    null_probe_dialect_evidence.txt   근본원인(LIMIT vs FETCH FIRST) 실측
+    network_unreachable_evidence.txt  내부망 차단 근거
+    diff_exact_diff_route.txt         코드 diff
+    commit_25138f0_stat.txt           커밋 stat
+    test_after.txt                    신규 테스트 결과
+    regression_baseline_failures.txt / regression_after_failures.txt
+
+✅ 작업 완료 - EXACT-DIFF-ROUTE-CHUNKKEY-DIALECT-AND-CAST-FIX
