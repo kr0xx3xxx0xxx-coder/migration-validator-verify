@@ -1,0 +1,75 @@
+{
+  "task": "SINGLE-SAVE-SSLMODE-PRESET-RESTORE-FIX",
+  "phase": "after",
+  "base": "http://127.0.0.1:8000",
+  "enter": {
+    "pair_label": "PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe",
+    "pair_existed": false,
+    "connected": true
+  },
+  "flow": {
+    "analyze_click": true,
+    "step_after_analyze": "query",
+    "count": {
+      "src": 1000,
+      "tgt": 1000,
+      "matched": true
+    },
+    "step_candidate": "candidate",
+    "execute_click": true,
+    "exec_success": true,
+    "step_result": "result"
+  },
+  "register": {
+    "picked": {
+      "ok": true,
+      "val": "GRP_202606170243184996",
+      "options": [
+        {
+          "t": "(그룹 미선택 — 테스트용 임시 실행)",
+          "d": false
+        },
+        {
+          "t": "인사급여1 · 이관쿼리 20건",
+          "d": false
+        }
+      ]
+    },
+    "save_state": {
+      "show": true,
+      "canSave": true
+    },
+    "register_click": "clicked",
+    "save_msg": "저장 완료그룹 등록 완료 · 2026-07-27 11:27:39 UTC · 등록 대상 T_NULLX_TGT",
+    "save_hint": ""
+  },
+  "single_save_calls": [
+    {
+      "req": {
+        "sources": [],
+        "source_connection_id": null,
+        "src_db": {
+          "db_type": "postgresql",
+          "host": "192.168.0.150",
+          "port": 5433,
+          "dbname": "asis",
+          "user": "nextobe",
+          "password": "***",
+          "sslmode": "disable"
+        },
+        "group_id": "GRP_202606170243184996",
+        "project_id": "2"
+      },
+      "resp": {
+        "status": 200,
+        "success": true,
+        "registration_status": "REGISTERED",
+        "run_id": "e2d88eff-d016-4687-a46f-7ae1ec0fd4b9",
+        "saved_at": "2026-07-27 11:27:39 UTC",
+        "error": null,
+        "registration": null
+      }
+    }
+  ],
+  "js_errors": []
+}

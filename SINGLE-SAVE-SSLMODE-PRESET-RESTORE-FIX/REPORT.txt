@@ -1,0 +1,225 @@
+✅ 작업 완료 - SINGLE-SAVE-SSLMODE-PRESET-RESTORE-FIX : /single/save preset 환원 경로의 sslmode 누락을 복원해 비SSL Inter DB 등록 차단(METADATA_BLOCKED) 해소
+
+────────────────────────────────────────────────────────────────────────
+1. 무엇이 문제였나 (근본원인)
+────────────────────────────────────────────────────────────────────────
+개별검증 5단계에서 [그룹 등록]을 누르면 화면은 /single/save 로 저장 payload 를 보낸다.
+이때 화면이 보내는 sources 필드는 ui/js_source_owner.py:241 _soOwnerBuildActiveSources() 가
+만드는데, 이 함수는 "원본 프로필이 2개 미만이면 빈 배열을 반환"한다(profs.length < 2 → []).
+즉 원본이 1개인 일반적인 개별검증에서는 화면이 항상 sources=[] 를 보내고,
+서버는 services/single_validation_save_service.py:66 _resolve_authoritative_sources 에서
+"src_db 접속정보를 등록된 preset 으로 환원"하는 폴백 경로를 탄다.
+
+그 환원을 담당하는 함수가 services/source_profile_resolver.py 의 preset_to_source() 이고,
+이 함수는 preset 에서 db_type/host/port/dbname/user/password/name/connection_id 8개 키만
+꺼내는 화이트리스트였다. 여기에 sslmode 가 없었다.
+
+한편 db_presets 는 sslmode 를 preset 최상위가 아니라 advanced_options 안에 보관한다.
+실측한 저장값은 다음과 같다.
+  PostgreSQL_Inter_asis     advanced_options.sslmode = 'disable'
+  PostgreSQL_Inter_tobesrc  advanced_options.sslmode = 'disable'
+  PostgreSQL_nxdnp_src      advanced_options.sslmode = 'disable'
+  PostgreSQL_NEW_asis       advanced_options.sslmode = 'require'
+  PostgreSQL_asis           (sslmode 키 없음)
+
+그리고 접속 어댑터 services/db_adapters/postgresql.py:87 은
+  kwargs['sslmode'] = db_info.get('sslmode') or 'require'
+로, 값이 없으면 require 를 기본값으로 쓴다.
+
+두 사실이 합쳐져 다음 연쇄가 발생했다.
+  화면 sources=[] → preset 환원 → sslmode 유실 → 어댑터가 require 로 접속 시도
+  → 비SSL 서버(192.168.0.150)가 SSL 미지원 → 접속 실패
+  → ensure_official_metadata 가 metadata 수집 실패(FAILED)
+  → single_official_register_service.py:491 이 registration_status='METADATA_BLOCKED' 로 등록 차단
+
+sslmode 강제가 실제로 접속을 끊는다는 것도 직접 확인했다. 같은 Inter DB 에
+  sslmode=disable → 접속 성공
+  sslmode=require → 실패: 'server does not support SSL, but SSL was required'
+
+즉 화면에서 sources 를 명시로 넣어주면 저장되고, 화면 기본 경로(sources 비움)로는 막히던
+비대칭이 그대로 재현된 것이다. 이 갭은 직전 작업(SINGLE-SNAPSHOT-WHITELIST-EXPLAINABILITY-
+FIELDS-ADD)의 검증 스크립트가 sources 를 명시 전달해 우회하면서 주석으로 남겨둔 그 지점이다.
+
+────────────────────────────────────────────────────────────────────────
+2. 무엇을 고쳤나
+────────────────────────────────────────────────────────────────────────
+수정 파일: services/source_profile_resolver.py (1개 파일만)
+커밋: b2c8f801b9661aa1740ecb93caac5f213eca83d4
+      fix(single-save): preset 환원 경로에 sslmode 누락 복원 (SINGLE-SAVE-SSLMODE-PRESET-RESTORE-FIX)
+
+_preset_sslmode(p) 헬퍼를 추가해 preset 에 저장된 sslmode 를 꺼내고
+(advanced_options 우선, 최상위 저장 형태도 함께 허용), preset_to_source() 가
+"값이 있을 때만" 그 값을 그대로 conn dict 에 싣도록 했다.
+
+지시대로 새 기본값 하드코딩은 하지 않았다. 값이 없으면 sslmode 키 자체를 넣지 않고
+어댑터의 기존 기본값 처리(require)에 그대로 위임한다. 이 설계 덕분에
+"sslmode 를 저장하지 않은 프로필"의 동작이 수정 전과 완전히 동일하게 유지된다.
+
+diff 요약: 28 insertions(+), 2 deletions(-) — 함수 1개 추가 + 반환 dict 조립 방식 변경.
+동작이 바뀌는 지점은 sslmode 키를 싣는 한 줄뿐이며, 매칭 로직(resolve_source_from_conn)은
+손대지 않았다.
+
+────────────────────────────────────────────────────────────────────────
+3. Before / After 실측 (실제 화면 클릭, 포트 8000·인증 ON, 실 PostgreSQL_Inter)
+────────────────────────────────────────────────────────────────────────
+검증 스크립트: scripts/dev_e2e/single_save_sslmode_preset_restore_verify.py
+환경: http://127.0.0.1:8000 (HTTP Basic Auth ON, Playwright http_credentials 로 인증)
+경로: 검증 경로 PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe (UI 에서 실제 생성·접속)
+프로젝트: 2026 차세대 시스템 데이터 검증 / 그룹: 인사급여1
+이관 SQL: INSERT INTO tobe01.t_nullx_tgt (id, region, val, qty)
+          SELECT id, region, CASE WHEN val IS NULL THEN 0 ELSE val END AS val, qty
+          FROM asis01.t_nullx_src
+
+클릭 순서는 실제 사용자와 동일하다 — 1단계 분석 → 2단계 COUNT 비교 → 3단계 후보선정 →
+4단계 통계검증 SQL 생성·실행 → 5단계 결과확인 → 그룹 드롭다운 선택 → [그룹 등록] 클릭.
+두 phase 모두 COUNT 1,000 / 1,000 일치, 통계검증 실행 성공(불일치 0)까지 동일하게 도달했고
+차이는 마지막 등록 단계에서만 났다.
+
+[BEFORE] 서버 재기동 2026-07-27 20:22:03 KST (HEAD, 수정 전 코드)
+  /single/save 요청 sources = []          ← preset 환원 폴백 경로 진입 확인
+  응답 http 200, success=false
+  registration_status = METADATA_BLOCKED
+  error = "metadata 수집 성공을 확인하지 못했습니다."
+  화면: 등록 안내문 아래 빨간 글씨로 동일 문구 표시, 버튼은 [그룹 등록] 그대로
+  증적: before_3_after_register_click.png, before_result.json
+
+[AFTER] 서버 재기동 2026-07-27 20:26:13 KST (기동 완료 20:26:32, 수정 코드)
+  /single/save 요청 sources = []          ← 동일하게 preset 환원 경로
+  응답 http 200, success=true
+  registration_status = REGISTERED
+  run_id = e2d88eff-d016-4687-a46f-7ae1ec0fd4b9
+  saved_at = 2026-07-27 11:27:39 UTC
+  화면: "저장 완료 · 그룹 등록 완료 · 2026-07-27 11:27:39 UTC · 등록 대상 T_NULLX_TGT"
+        버튼이 [등록 완료](비활성)로 전환
+  증적: after_3_after_register_click.png, after_result.json
+
+[FINAL] 커밋본으로 최종 재기동 2026-07-27 21:04:47 KST 후 재확인
+  sources = [] / success=true / registration_status = ALREADY_CURRENT_SINGLE
+  run_id = 089659a9-993c-424e-917b-fd0de3b740b6 / saved_at = 2026-07-27 12:05:57 UTC
+  (동일 SQL 재등록이라 이미 current 로 판정된 정상 성공 경로)
+  증적: final_3_after_register_click.png, final_result.json
+
+before/after 모두 요청 payload 의 sources 가 비어 있음을 네트워크 레벨에서 캡처했다.
+즉 "우회로(sources 명시)가 아니라 문제가 되던 그 경로 그대로" 저장이 성공한 것이다.
+
+────────────────────────────────────────────────────────────────────────
+4. 다른 sslmode 값 회귀 확인
+────────────────────────────────────────────────────────────────────────
+검증 스크립트: scripts/dev_e2e/single_save_sslmode_other_profiles_regression.py
+수정 전(HEAD) 모듈을 git show 로 임시 로드해 같은 입력으로 나란히 비교했다.
+
+(1) 환원 dict 에 실리는 sslmode 값
+  프로필                     preset 저장값   before    after
+  PostgreSQL_asis            (없음)         (없음)    (없음)
+  PostgreSQL_NEW_asis        require        (없음)    require
+  PostgreSQL_Inter_asis      disable        (없음)    disable
+  PostgreSQL_Inter_tobesrc   disable        (없음)    disable
+  PostgreSQL_nxdnp_src       disable        (없음)    disable
+  MariaDB_asis / DB2_asis / Oracle_asis  → 전부 (없음), before=after 동일
+
+(2) 실제로 드라이버(psycopg2)에 도달하는 실효 sslmode — 어댑터 호출을 가로채 실측
+  프로필                     before 실효   after 실효   동일 여부
+  PostgreSQL_asis            require       require      동일
+  PostgreSQL_NEW_asis        require       require      동일
+  PostgreSQL_Inter_asis      require       disable      변경(의도된 수정)
+  PostgreSQL_Inter_tobesrc   require       disable      변경(의도된 수정)
+  PostgreSQL_nxdnp_src       require       disable      변경(의도된 수정)
+
+이 (2)번 표가 회귀 여부의 결론이다. sslmode=require 프로필과 sslmode 미지정 프로필은
+수정 전후로 드라이버에 도달하는 값이 require 로 완전히 동일하다 — 동작 변화가 없다.
+(1)번 표에서 PostgreSQL_NEW_asis 가 "(없음) → require" 로 바뀐 것처럼 보이는 것은
+dict 에 키가 명시적으로 들어갔다는 뜻일 뿐, 어댑터가 어차피 require 를 기본값으로 채우므로
+실효 동작은 같다. 실제로 값이 달라지는 것은 disable 프로필 3개뿐이고, 그것이 이번 수정의
+목적 그 자체다. 비-PostgreSQL 프로필(MariaDB/DB2/Oracle)은 sslmode 자체가 무관하며
+before=after 로 변화 없음을 확인했다.
+
+라이브 접속 결과:
+  PostgreSQL_Inter_asis / _tobesrc / nxdnp_src → sslmode=disable 로 접속 성공
+  PostgreSQL_asis, PostgreSQL_NEW_asis (Neon)  → TLS 핸드셰이크는 통과했으나 서버가
+    "Your project has exceeded the data transfer quota" 로 거부.
+    이는 Neon 계정의 데이터 전송 쿼터 소진(서버측 사유)이며 코드·sslmode 와 무관하다.
+    따라서 require 프로필의 "라이브 저장 end-to-end" 는 이번에 실행할 수 없었고,
+    대신 위 (2)번 실효값 실측과 아래 음성 대조로 require 경로가 정상임을 확인했다.
+  음성 대조: 비SSL Inter DB 에 일부러 sslmode=require 로 접속하면
+    "server does not support SSL, but SSL was required" 로 실패한다.
+    → require 가 무시되거나 임의로 바뀌지 않고 그대로 강제됨을 반증적으로 확인.
+
+────────────────────────────────────────────────────────────────────────
+5. 테스트 회귀
+────────────────────────────────────────────────────────────────────────
+지침상 필수 회귀 스위트:
+  python samples/test_virtual_cases.py   → 8/8 통과
+  python samples/test_complex_cases.py   → 5/5 통과
+
+관련 단위 테스트(source_profile / single_official / single_save 선택자):
+동일 선택자를 HEAD 와 수정본에서 각각 2회씩 돌려 비교했는데, HEAD 자체가 실행마다
+실패 집합이 달라지는 비결정적 스위트였다. HEAD 1회차 대비 HEAD 2회차에서만
+test_workflow_stage_guard.py::test_source_profile_change_blocks 와
+test_single_explicit_final_save_gate.py::test_single_save_persists_and_payload_has_cols_and_no_korean
+가 추가로 실패했다. 수정본에서 간헐적으로 나타난 항목들도 같은 계열이었다.
+
+원인은 이번 수정과 무관한 공유 상태(운영 SQLite 쓰기차단 guard / 테스트 간 상태 간섭)이며,
+확인을 위해 문제가 된 5개 파일을 따로 묶어 수정본에서 단독 실행한 결과
+  tests/test_single_official_register_current_history.py
+  tests/test_single_official_register_owner_binding.py
+  tests/test_single_official_register_txn.py
+  tests/test_workflow_stage_guard.py
+  tests/test_single_explicit_final_save_gate.py
+  → 60 passed (실패 0)
+로 전부 통과했다. 이번 수정에 기인한 회귀는 없다.
+
+사전 존재 실패(HEAD 에서도 동일하게 실패, 원인은 tests/conftest.py:218 운영 DB 쓰기차단 guard):
+  test_single_official_register_hardening.py::test_persist_blocked_when_atomicity_unsupported
+  test_task11_r3.py::TC_R3_09_11_CandidateIntegrity::test_10_selected_not_affected_by_source_profile_skip
+  test_task11_r_source_profile.py::TC04_08_SourceSnapshotStore::test_06_source_or_target_source_stored
+  test_single_save_source_binding.py (4건 ERROR)
+  test_task11_t.py::TC_T_07_10_UIAndAPI::test_08b_ui_shows_source_profile_message
+이들은 수정 전 baseline 과 동일하게 재현되므로 회귀 신호가 아니다.
+
+────────────────────────────────────────────────────────────────────────
+6. 서버 재기동 이력
+────────────────────────────────────────────────────────────────────────
+  2026-07-27 20:22:03 KST  HEAD(수정 전) 코드로 재기동 → BEFORE 실측
+  2026-07-27 20:26:13 KST  수정 코드로 재기동 (기동 완료 20:26:32) → AFTER 실측
+  2026-07-27 21:04:47 KST  커밋본(b2c8f80)으로 최종 재기동 → FINAL 재확인
+모두 python web_server.py (127.0.0.1:8000, 인증 ON, 단계 가드 ON). health 200 확인.
+현재 서버는 커밋본 그대로 기동 중이며 working tree 는 clean 이다.
+
+────────────────────────────────────────────────────────────────────────
+7. 남은 갭 / 후속 제안 (이번 범위 밖 — 수정하지 않음)
+────────────────────────────────────────────────────────────────────────
+(1) 다중 Source 경로에도 같은 성격의 누락이 있다.
+    ui/js_source_owner.py:251 _soOwnerBuildActiveSources() 가 만드는 conn 객체 역시
+    db_type/host/port/dbname/user/password/name/connection_id 만 담고 sslmode 를 넣지 않는다.
+    이 경로는 원본 프로필이 2개 이상일 때만 동작하므로 이번 단일 Source 재현 대상이 아니었고,
+    지시받은 수정 범위(/single/save 라우트·서비스)도 아니라 손대지 않았다.
+    다만 비SSL DB 를 원본 2개 이상으로 묶으면 같은 방식으로 막힐 수 있다.
+
+(2) preset 의 connect_timeout 도 동일하게 환원 대상에서 빠져 있다.
+    접속 가부를 바꾸지는 않아(타임아웃 기본값으로 동작) 이번엔 sslmode 만 최소 수정했다.
+
+(3) scripts/dev_e2e/single_snapshot_explainability_fields_verify.py:174-177 의 주석은
+    "preset 환원 경로는 sslmode 를 싣지 않아 ... 기존 배선 갭" 이라고 적혀 있는데
+    이번 수정으로 사실이 아니게 됐다. 해당 스크립트는 직전 작업의 증적물이고 지시된
+    수정 범위 밖이라 건드리지 않았다. 필요하면 주석만 정리하면 된다.
+
+────────────────────────────────────────────────────────────────────────
+8. 변경/생성 파일
+────────────────────────────────────────────────────────────────────────
+수정: services/source_profile_resolver.py
+생성: scripts/dev_e2e/single_save_sslmode_preset_restore_verify.py       (Before/After 브라우저 실측)
+생성: scripts/dev_e2e/single_save_sslmode_other_profiles_regression.py   (다른 sslmode 값 회귀 실측)
+커밋: b2c8f801b9661aa1740ecb93caac5f213eca83d4
+
+증적 파일(E:\verify_screenshots_only\SINGLE-SAVE-SSLMODE-PRESET-RESTORE-FIX\):
+  before_0_pair_connected.png / before_1_result_step5.png / before_2_group_selected.png
+  before_3_after_register_click.png   ← METADATA_BLOCKED 문구 표시
+  after_0..2_*.png / after_3_after_register_click.png  ← "그룹 등록 완료" 표시
+  final_0..3_*.png
+  before_result.json / after_result.json / final_result.json  (요청 sources·응답 전문, 비밀번호 마스킹)
+  sslmode_regression.json  (프로필별 before/after 환원값 + 라이브 접속 결과)
+
+비밀번호는 스크립트·JSON·화면 캡처 어디에도 평문으로 남기지 않았다(재귀 마스킹 적용,
+pre-commit 비밀번호 스캔도 통과).
+
+✅ 작업 완료 - SINGLE-SAVE-SSLMODE-PRESET-RESTORE-FIX : preset 환원 시 sslmode 를 프로필 값 그대로 위임하도록 수정, Inter DB 등록 Before(METADATA_BLOCKED)/After(REGISTERED) 실화면 실측 및 require·미지정 프로필 무회귀 확인 완료
