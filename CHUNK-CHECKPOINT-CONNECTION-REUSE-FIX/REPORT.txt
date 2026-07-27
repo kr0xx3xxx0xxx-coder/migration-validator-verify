@@ -1,0 +1,195 @@
+CHUNK-CHECKPOINT-CONNECTION-REUSE-FIX — 완료보고서 (서술형)
+
+작업일자   : 2026-07-27
+대상 파일  : services/exact_diff/chunk_checkpoint.py (운영 코드 단일 파일)
+커밋       : 0ecd52a  perf(exact-diff): chunk checkpoint write 시 connection 재사용 — DDL 매회 재실행 제거
+선행 진단  : PROGRESS-TRACKING-INSTRUMENTATION-OVERHEAD-DIAGNOSE (docs/PROGRESS_TRACKING_INSTRUMENTATION_OVERHEAD.md §5-2 권장 2순위)
+서버 재기동: 2026-07-27 14:09:21 (KST) 요청 → 14:09:26 LISTENING 확인 (127.0.0.1:8000, PID 34068, HTTP 401 = 인증 ON 정상)
+
+
+1. 무엇이 문제였나
+──────────────────────────────────────────────────────────────────────────────
+PK_RANGE_CHUNK 실행은 청크가 하나 끝날 때마다 chunk_checkpoint.checkpoint() 를 호출해
+진행 상태를 db/chunk_checkpoints.db 에 영속화한다. 이 write 1회의 실측 비용이 8.11 ms 였는데,
+선행 진단이 그 내역을 분해한 결과 실제 데이터 갱신(UPDATE+commit)은 1.39 ms 에 불과하고
+나머지 6.7 ms(82%)는 _conn() 이 매 호출마다 반복하던 부대작업이었다.
+
+    수정 전 _conn() 이 write 마다 하던 일 (chunk_checkpoint.py:62-74)
+      ① sqlite3.connect()            — 파일 열기
+      ② PRAGMA journal_mode=WAL      — 저널 모드 질의
+      ③ PRAGMA busy_timeout=5000
+      ④ CREATE TABLE IF NOT EXISTS   — 이미 있는 테이블을 매번 확인
+      ⑤ ALTER TABLE ADD COLUMN × 3   — 매번 실패(중복 컬럼)를 예외로 삼키는 시도
+      ⑥ 실제 UPDATE + commit         ← 여기만이 본 목적
+      ⑦ close()
+
+즉 "디스크가 비싼 게 아니라 연결 방식이 비쌌다". ④⑤ 는 스키마가 이미 갖춰진 뒤에는
+한 번도 아무 일을 하지 않으면서 매 write 마다 비용만 지불하는 순수 낭비였다.
+
+
+2. 무엇을 바꿨나
+──────────────────────────────────────────────────────────────────────────────
+저장되는 데이터의 스키마·컬럼·필드·의미는 한 글자도 바꾸지 않았다. 오직 연결 관리 방식만
+바꿨으며, 변경은 chunk_checkpoint.py 한 파일에 갇혀 있다(호출측 API 시그니처 불변).
+
+(1) 스키마 DDL 을 DB 파일당 최초 1회만 실행
+    모듈 전역 _SCHEMA_READY(set) 에 DDL 적용을 마친 DB 경로를 기록한다. 이미 들어 있는
+    경로면 CREATE TABLE / ALTER TABLE 을 아예 건너뛴다. 서버 기동 시 web_server.py 가
+    호출하는 mark_interrupted_on_startup() 이 사실상 최초 1회 초기화 지점이 되고, 그
+    이후의 모든 청크 write 는 UPDATE + commit 만 수행한다.
+
+(2) connection 을 스레드별로 캐시·재사용
+    threading.local() 에 {db_path: connection} 딕셔너리를 두어, 같은 스레드가 같은 DB 경로로
+    다시 write 할 때는 이미 열어 둔 connection 을 그대로 쓴다. 캐시 키를 "경로"로 둔 이유는
+    테스트가 _DB_PATH 를 임시 경로로 교체하기 때문이다(경로가 바뀌면 자동으로 새 connection).
+
+(3) 테이블 소실 자가복구(_with_conn)
+    수정 전 코드는 매 호출 CREATE TABLE IF NOT EXISTS 를 돌렸기 때문에, DB 파일이 외부에서
+    삭제되거나 테이블이 사라져도 다음 호출에서 저절로 복구되는 성질이 있었다. DDL 을 1회로
+    줄이면 이 내구성이 사라진다. 그래서 모든 DB 접근을 _with_conn(fn) 으로 감싸,
+    "no such table" OperationalError 가 나면 캐시 connection 을 버리고 스키마를 다시 만든 뒤
+    딱 1회 재시도하도록 했다. 기존과 동일한 복원력을 유지하되 정상 경로에는 비용이 없다.
+
+(4) conn_debug_info() — 진단 전용 helper
+    현재 스레드의 재사용 connection 식별자와 스키마 초기화 완료 경로 수를 반환한다.
+    "정말 재사용되고 있는가", "스레드끼리 공유하고 있지는 않은가" 를 테스트와 실측 하니스가
+    추측이 아니라 값으로 확인하기 위해 추가했다.
+
+
+3. 스레드 안전성을 어떻게 확보했는가 (지시 2의 핵심)
+──────────────────────────────────────────────────────────────────────────────
+sqlite3 connection 은 파이썬 기본값 check_same_thread=True 에서 "만든 스레드 밖"에서 쓰면
+ProgrammingError 를 낸다. 따라서 "전역 connection 1개를 모든 스레드가 공유" 하는 흔한 방식은
+check_same_thread=False 로 이 안전장치를 꺼야만 성립한다. 일괄검증(ValidationScheduler)이
+여러 job 을 제한 병렬로 돌리고, 각 job 이 자기 스레드에서 checkpoint 를 쓰는 이 프로젝트에서는
+그 방식을 택하지 않았다. 판단 근거는 다음과 같다.
+
+  · 이 모듈의 모든 공개 함수는 이미 모듈 전역 _LOCK(RLock)을 획득한 뒤에만 DB 를 만진다.
+    따라서 "전역 1개 공유 + 안전장치 해제" 도 이론적으로는 성립한다. 그러나 그것은
+    _LOCK 이 앞으로도 영원히 모든 경로에서 획득된다는 가정에 안전성을 의존하는 구조다.
+    누군가 나중에 _LOCK 없는 접근 경로를 하나만 추가해도 조용히 깨진다.
+  · 스레드별 캐시는 그 가정이 깨져도 안전하다. 각 스레드는 자기가 만든 connection 만
+    만지므로 sqlite3 의 기본 방어(check_same_thread=True)를 그대로 유지한 채 재사용 이득을
+    전부 가져간다. 안전성이 "코드 규율"이 아니라 "구조"로 보장된다.
+  · 동시 write 의 직렬화는 기존과 완전히 동일하게 유지된다 — 프로세스 안에서는 _LOCK 이,
+    프로세스 간(포트 8000/8001 등 같은 파일을 공유하는 경우)에는 WAL + busy_timeout=5000 이
+    담당한다. 이번 변경은 이 두 계층을 건드리지 않았다.
+
+실측으로도 확인했다. 4개 스레드가 각자 다른 fingerprint 로 150회씩(총 600회) 동시에 write 하는
+시나리오에서 스레드별 connection 식별자가 4개 모두 서로 달랐고(공유 0건), 예외·락 오류 0건,
+각 fingerprint 의 최종 값이 정확히 보존됐다(교차 오염 0건).
+
+
+4. 실측 결과 (지시 3·4)
+──────────────────────────────────────────────────────────────────────────────
+내부망이 오늘도 단절되어(192.168.0.151:1523/1524 오라클, 192.168.0.150:5433/5434 PG 전부
+TCP timeout) 라이브 DB 실측은 하지 못했다. 지시대로 선행 진단과 동일한 로컬 A/B 실측으로
+대체했으며, 이 측정 대상(checkpoint write 비용)은 원래 Source/Target DB 접속과 무관하다.
+
+측정 방법은 진단과 동일하다 — n=300 반복, 중앙값. 신규 하니스:
+  scripts/dev_e2e/chunk_checkpoint_conn_reuse_measure.py
+
+[A] 같은 worktree·같은 DB 파일에서 코드만 교체한 짝 비교 (가장 통제된 비교, 2회)
+
+    항목                                  수정 전        수정 후        절감
+    ────────────────────────────────────────────────────────────────────────
+    checkpoint() write 1회 (중앙)         8.379 ms       1.401 ms       83.3%
+                                          8.404 ms       1.384 ms       83.5%
+    이론 하한(raw conn 재사용 UPDATE)      1.365 ms       1.393 ms         —
+    동시 write 4스레드 (중앙 지연)        34.555 ms      5.741 ms       83.4%
+                                         34.302 ms      5.799 ms       83.1%
+    동시 write 600회 총 wall               5.358 s       0.909 s      5.9배 단축
+
+    → 목표치 1.39 ms 를 달성했을 뿐 아니라, 같은 조건에서 측정한 이론 하한(1.37~1.39 ms)과
+      사실상 구분되지 않는다. 남은 오버헤드는 SQLite 의 UPDATE+commit 자체이며,
+      부대작업은 사실상 0 이 됐다.
+
+[B] 운영 DB 파일(db/chunk_checkpoints.db) 기준 반복 측정
+
+    수정 전 3회: 8.283 / 8.154 / 8.147 ms   (선행 진단 8.11 ms 재현 확인)
+    수정 후 4회: 1.412 / 1.363 / 1.362 / 1.314 ms
+    동시 write : 32.7~33.2 ms → 5.71~5.76 ms,  총 wall 5.19~5.32 s → 0.90~0.94 s
+
+[C] 통제군 — 개선이 이 변경에서 온 것이 맞는지 교차 확인
+    선행 진단이 쓰던 원 하니스(progress_instrumentation_overhead_measure.py)의 단위비용을
+    수정 후 다시 측정했다.
+
+      (b) chunk_checkpoint write        : 8.11 ms → 1.405 ms   ← 이번에 고친 경로
+      (c) exact_diff_runs.db UPDATE     : 8.19 ms → 8.371 ms   ← 손대지 않은 다른 모듈(유지)
+      (a) in-memory dict 갱신           : 0.600 μs → 0.700 μs
+
+    손대지 않은 (c) 가 그대로라는 점이, (b) 의 개선이 머신 상태 변화나 측정 편차가 아니라
+    이번 변경 때문임을 뒷받침한다.
+
+[D] 실 엔진 경로 종단 확인 (운영과 동일한 checkpoint_cb 배선)
+    250,000행 · 불일치율 0.8% · chunk_size 50,000 으로 pk_range_chunk 엔진을 디스크
+    checkpoint 켠 상태로 실행:
+      chunks=5, checkpoint 호출 5회, progress 호출 7회, reimport 2,000건
+      디스크 최종 상태 = chunks_done 5 / processed_src 250,000 / processed_tgt 250,000 /
+                        value_cnt 2,000 / last_completed_end 250,001 / status RUNNING
+    저장 값이 수정 전과 동일한 형태·의미로 남는 것을 확인했다(스키마·필드 불변 확인).
+
+
+5. 회귀 테스트
+──────────────────────────────────────────────────────────────────────────────
+baseline(수정 전) 대조로 먼저 돌리고, 수정 후 다시 돌렸다.
+
+    수정 전 baseline : test_chunk_checkpoint / test_d7_19_recovery /
+                       test_d7_18b_pause_time / test_pk_range_chunk  → 56 passed
+    수정 후          : 같은 4개 파일                                  → 59 passed
+                       (baseline 56건 전부 유지 + 신규 계약 테스트 3건)
+    수정 후 확대     : 위 4개 + test_d7_5_chunk100k_count /
+                       test_d7_pk_chunk_compare_cols / test_d7_6_progress_earlystop /
+                       test_active_run_query_notice / test_active_run_singleton /
+                       test_job_recovery_stage1_progress_timestamp → 96 passed (9.95s)
+    프로젝트 공통    : samples/test_virtual_cases.py 8/8, samples/test_complex_cases.py 5/5
+
+신규 테스트 3건은 이번 변경의 계약을 고정한다.
+  · test_conn_reused_within_thread_and_ddl_once — 같은 스레드·같은 경로면 write 를 반복해도
+    connection 이 1개로 고정되고(신규 생성 없음) 값은 정상 저장된다.
+  · test_schema_self_heal_when_table_dropped — 테이블을 외부에서 DROP 해도 예외 없이
+    스키마를 다시 만들고 정상 동작한다(기존 내구성 유지 확인).
+  · test_concurrent_writes_no_cross_contamination — 4스레드 동시 write 에서 스레드마다 별도
+    connection(공유 0), 락/스레드 오류 0, fingerprint 별 값 보존.
+
+작성 과정에서 첫 시도한 단언(스레드 캐시에 connection 이 항상 1개)이 실패했는데, 이는 결함이
+아니라 설계대로 캐시가 "경로별"로 여러 개를 담기 때문이었다(같은 스레드가 운영 DB 와 임시 DB 를
+차례로 쓰면 2개). 진단 helper 에 현재 경로 기준 식별자(current_conn_id)를 추가해 단언을
+정확한 계약으로 고쳤다.
+
+
+6. 남은 위험과 한계 (비판적 검토)
+──────────────────────────────────────────────────────────────────────────────
+· 라이브 DB 미측정. 내부망 단절로 오라클/PG 종단 실측을 못 했다. 다만 이 변경은 Source/Target
+  DB 와 무관한 로컬 SQLite 계층이고, 실 엔진 경로 종단([D])까지는 확인했다. 내부망 복구 후
+  1M PK_RANGE_CHUNK 라이브 run 으로 한 번 재확인하는 것이 남았다.
+· 파일 핸들 상시 점유. connection 을 계속 열어 두므로, 서버 실행 중에는 Windows 에서
+  db/chunk_checkpoints.db 파일을 삭제·이동하기 어려워진다(수정 전에는 write 순간에만 열렸다).
+  운영상 이 파일을 실행 중에 지울 일은 없으나, 장애 대응으로 파일을 치우려면 서버를 먼저
+  내려야 한다는 점이 달라졌다.
+· connection 명시적 회수는 없다. job 스레드가 끝나면 threading.local 저장소가 해제되어 GC 가
+  connection 을 닫는다. 스레드가 매우 많이 생성·소멸하는 구조라면 핸들이 잠시 쌓일 수 있으나,
+  ValidationScheduler 는 상한 병렬이라 실질 위험은 낮다고 판단했다.
+· _SCHEMA_READY 는 프로세스 전역이다. 다른 프로세스가 테이블을 지우면 이 프로세스는 그 사실을
+  모른다. 그 경우는 (3) 의 "no such table" 자가복구가 받아낸다.
+· 효과의 크기를 과장하지 않는다. 1M 검증 1건 기준 청크 write 총합은 20청크 × 8.15 ms = 약
+  0.163초에서 20 × 1.38 ms = 약 0.028초로 줄어든다. 전체 실행시간의 0.19% → 0.03% 이므로
+  사용자가 체감하는 단축은 사실상 없다. 이번 작업의 실질 가치는 두 가지다 —
+  ① 동시 write 지연이 34.5 ms → 5.7 ms 로 줄어 병행 job 이 많을수록 대기 사슬이 짧아진다,
+  ② 앞으로 진행률 대시보드가 write 빈도를 늘릴 때 쓸 수 있는 여유(headroom)를 확보했다.
+  선행 진단이 1순위로 지목한 tracemalloc 상시 ON 은 이미 별건(c7142be)으로 처리되어 있다.
+
+
+7. 변경/생성 파일
+──────────────────────────────────────────────────────────────────────────────
+  수정  services/exact_diff/chunk_checkpoint.py      (연결 관리만, 저장 스키마 불변)
+  수정  tests/test_chunk_checkpoint.py               (신규 계약 테스트 3건 추가)
+  신규  scripts/dev_e2e/chunk_checkpoint_conn_reuse_measure.py  (개발/테스트 전용 실측 하니스)
+
+증적(이 디렉터리):
+  ab_before_worktree.log / ab_after_worktree.log  — 동일 환경 짝 A/B 전체 로그
+  after_measure_run.log                            — 운영 DB 기준 수정 후 측정 로그
+  tests_after.log                                  — 수정 후 관련 테스트 96 passed
+  commit_0ecd52a.txt / diff_chunk_checkpoint.patch — 커밋 요약 및 운영 코드 diff
+
+CHUNK-CHECKPOINT-CONNECTION-REUSE-FIX — 완료 (write 8.15ms → 1.38ms, 83% 절감 / 동시 write 회귀 없음)

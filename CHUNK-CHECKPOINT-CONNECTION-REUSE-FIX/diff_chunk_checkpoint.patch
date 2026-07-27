@@ -1,0 +1,304 @@
+diff --git a/services/exact_diff/chunk_checkpoint.py b/services/exact_diff/chunk_checkpoint.py
+index 517a2ab..7032478 100644
+--- a/services/exact_diff/chunk_checkpoint.py
++++ b/services/exact_diff/chunk_checkpoint.py
+@@ -59,19 +59,96 @@ _ADD_COLS = [("src_profile", "ALTER TABLE chunk_checkpoint ADD COLUMN src_profil
+              ("table_identity", "ALTER TABLE chunk_checkpoint ADD COLUMN table_identity TEXT")]
+ 
+ 
++# ── connection 재사용 (CHUNK-CHECKPOINT-CONNECTION-REUSE-FIX) ────────────────────
++#   기존에는 write 1회마다 connect + CREATE TABLE IF NOT EXISTS + ALTER TABLE 3회 + PRAGMA 를
++#   반복해, 실측 8.15 ms 중 6.8 ms(83%)가 이 부대작업이었다. 아래 두 가지로 제거한다.
++#     ① 스키마 DDL 은 DB 파일당 최초 1회만(_SCHEMA_READY) — 이후 write 는 UPDATE+commit 만.
++#     ② connection 은 **스레드별로** 재사용(_LOCAL) — sqlite3 connection 은 기본(check_same_thread=True)
++#        스레드 간 공유가 금지되므로 전역 1개를 공유하지 않고 스레드마다 1개를 캐시한다.
++#        일괄검증처럼 여러 job 스레드가 동시에 write 해도 각자 자기 connection 만 쓰며(공유 없음),
++#        파일 단위 직렬화는 기존 _LOCK(모든 함수가 획득) + WAL + busy_timeout 이 그대로 담당한다.
++#   _DB_PATH 는 테스트에서 교체되므로 캐시 키를 경로로 둔다(경로가 바뀌면 새 connection).
++_LOCAL = threading.local()          # 스레드별 {db_path: sqlite3.Connection}
++_SCHEMA_READY: set[str] = set()     # DDL 적용 완료 DB 경로(_LOCK 보호)
++
++
++def _thread_conns():
++    """현재 스레드의 connection 캐시(dict) — 다른 스레드와 공유되지 않는다."""
++    d = getattr(_LOCAL, "conns", None)
++    if d is None:
++        d = {}
++        _LOCAL.conns = d
++    return d
++
++
+ def _conn():
+-    os.makedirs(os.path.dirname(_DB_PATH), exist_ok=True)
+-    c = sqlite3.connect(_DB_PATH, timeout=30)
++    """현재 스레드 전용 connection 반환(재사용). 스키마 DDL 은 DB 파일당 최초 1회만 실행한다.
++    호출자는 _LOCK 을 보유한 상태여야 하며(모든 공개 함수가 그렇다), 반환된 connection 을 close 하지 않는다."""
++    path = str(_DB_PATH)
++    conns = _thread_conns()
++    c = conns.get(path)
++    if c is not None:
++        return c
++    os.makedirs(os.path.dirname(path), exist_ok=True)
++    c = sqlite3.connect(path, timeout=30)
+     c.row_factory = sqlite3.Row
+     c.execute("PRAGMA journal_mode=WAL")
+     c.execute("PRAGMA busy_timeout=5000")
++    with _LOCK:                                   # RLock — 이미 보유 중이어도 안전(재진입)
++        if path not in _SCHEMA_READY:
++            _init_schema(c)
++            _SCHEMA_READY.add(path)
++    conns[path] = c
++    return c
++
++
++def _init_schema(c):
++    """테이블 생성 + 누락 컬럼 보강(멱등) — DB 파일당 1회만 호출된다."""
+     c.execute(_DDL)
+     for _col, _sql in _ADD_COLS:
+         try:
+             c.execute(_sql)
+         except Exception:  # noqa: BLE001
+             pass
+-    return c
++    c.commit()
++
++
++def _discard_conn():
++    """현재 스레드의 캐시 connection 폐기 + 스키마 플래그 해제(자가복구용)."""
++    path = str(_DB_PATH)
++    c = _thread_conns().pop(path, None)
++    if c is not None:
++        try:
++            c.close()
++        except Exception:  # noqa: BLE001
++            pass
++    with _LOCK:
++        _SCHEMA_READY.discard(path)
++
++
++def _with_conn(fn):
++    """_LOCK 보유 상태에서 스레드 connection 으로 fn(c) 실행.
++    DB 파일이 외부에서 삭제/재생성돼 테이블이 사라진 경우(기존 코드는 매 호출 DDL 이라 자동 복구됐다)
++    connection 을 버리고 스키마를 다시 만든 뒤 1회만 재시도해 같은 내구성을 유지한다."""
++    with _LOCK:
++        try:
++            return fn(_conn())
++        except sqlite3.OperationalError as e:
++            if "no such table" not in str(e).lower():
++                raise
++            _discard_conn()
++            return fn(_conn())
++
++
++def conn_debug_info():
++    """[진단 전용] 현재 스레드의 재사용 connection 식별자와 스키마 초기화 완료 경로 수.
++    current_conn_id 는 현재 _DB_PATH 의 캐시 connection(없으면 None) — 새로 열지 않는다."""
++    conns = _thread_conns()
++    cur = conns.get(str(_DB_PATH))
++    return {"thread": threading.current_thread().name,
++            "thread_conn_ids": [id(c) for c in conns.values()],
++            "current_conn_id": (id(cur) if cur is not None else None),
++            "schema_ready_paths": len(_SCHEMA_READY), "db_path": str(_DB_PATH)}
+ 
+ 
+ def start(fingerprint, run_id, *, actual_strategy_id, chunk_size, policy_version=None,
+@@ -79,98 +156,88 @@ def start(fingerprint, run_id, *, actual_strategy_id, chunk_size, policy_version
+     """chunk 실행 시작(또는 재개) checkpoint 초기화. seed(재개 시 기존 누적)로 counts/seq 시작값 설정.
+     src_profile/tgt_profile 은 자격증명 아닌 식별자(host/dbname) — 재개 시 profile 일치 확인용(§3·§4)."""
+     s = seed or {}
+-    with _LOCK:
+-        c = _conn()
+-        try:
+-            c.execute(
+-                "INSERT INTO chunk_checkpoint (fingerprint, run_id, actual_strategy_id, chunk_size,"
+-                " last_completed_end, last_completed_pk, processed_src, processed_tgt, missing, value_cnt,"
+-                " target_only, seq, chunks_done, committed_first, policy_version, status, resume_count,"
+-                " heartbeat, updated_at, src_profile, tgt_profile, table_identity)"
+-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+-                " ON CONFLICT(fingerprint) DO UPDATE SET run_id=excluded.run_id,"
+-                " actual_strategy_id=excluded.actual_strategy_id, chunk_size=excluded.chunk_size,"
+-                " policy_version=excluded.policy_version, status='RUNNING',"
+-                " resume_count=excluded.resume_count, heartbeat=excluded.heartbeat,"
+-                " updated_at=excluded.updated_at, src_profile=excluded.src_profile,"
+-                " tgt_profile=excluded.tgt_profile, table_identity=excluded.table_identity",
+-                (fingerprint, run_id, actual_strategy_id, int(chunk_size),
+-                 s.get("last_completed_end"), s.get("last_completed_pk"),
+-                 int(s.get("processed_src", 0)), int(s.get("processed_tgt", 0)),
+-                 int(s.get("missing", 0)), int(s.get("value", 0)), int(s.get("target_only", 0)),
+-                 int(s.get("seq", 0)), int(s.get("chunks_done", 0)), int(bool(s.get("committed_first"))),
+-                 policy_version, RUNNING, int(resume_count), (now or time.time()), (now or time.time()),
+-                 src_profile, tgt_profile, table_identity))
+-            c.commit()
+-        finally:
+-            c.close()
++
++    def _run(c):
++        c.execute(
++            "INSERT INTO chunk_checkpoint (fingerprint, run_id, actual_strategy_id, chunk_size,"
++            " last_completed_end, last_completed_pk, processed_src, processed_tgt, missing, value_cnt,"
++            " target_only, seq, chunks_done, committed_first, policy_version, status, resume_count,"
++            " heartbeat, updated_at, src_profile, tgt_profile, table_identity)"
++            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
++            " ON CONFLICT(fingerprint) DO UPDATE SET run_id=excluded.run_id,"
++            " actual_strategy_id=excluded.actual_strategy_id, chunk_size=excluded.chunk_size,"
++            " policy_version=excluded.policy_version, status='RUNNING',"
++            " resume_count=excluded.resume_count, heartbeat=excluded.heartbeat,"
++            " updated_at=excluded.updated_at, src_profile=excluded.src_profile,"
++            " tgt_profile=excluded.tgt_profile, table_identity=excluded.table_identity",
++            (fingerprint, run_id, actual_strategy_id, int(chunk_size),
++             s.get("last_completed_end"), s.get("last_completed_pk"),
++             int(s.get("processed_src", 0)), int(s.get("processed_tgt", 0)),
++             int(s.get("missing", 0)), int(s.get("value", 0)), int(s.get("target_only", 0)),
++             int(s.get("seq", 0)), int(s.get("chunks_done", 0)), int(bool(s.get("committed_first"))),
++             policy_version, RUNNING, int(resume_count), (now or time.time()), (now or time.time()),
++             src_profile, tgt_profile, table_identity))
++        c.commit()
++
++    _with_conn(_run)
+ 
+ 
+ def mark_interrupted_on_startup(now=None):
+     """[§1] 서버 시작 시 stale RUNNING → INTERRUPTED_RESUMABLE 전환(재시작 시 어떤 job 도 실행 중 아님).
+     반환 전환 건수. RUNNING 을 계속 표시하지 않기 위함."""
+-    with _LOCK:
+-        c = _conn()
+-        try:
+-            cur = c.execute("UPDATE chunk_checkpoint SET status=?, updated_at=? WHERE status=?",
+-                            (INTERRUPTED_RESUMABLE, (now or time.time()), RUNNING))
+-            c.commit()
+-            return cur.rowcount if cur.rowcount is not None else 0
+-        finally:
+-            c.close()
++    def _run(c):
++        cur = c.execute("UPDATE chunk_checkpoint SET status=?, updated_at=? WHERE status=?",
++                        (INTERRUPTED_RESUMABLE, (now or time.time()), RUNNING))
++        c.commit()
++        return cur.rowcount if cur.rowcount is not None else 0
++
++    return _with_conn(_run)
+ 
+ 
+ def list_resumable():
+     """[§2] 재개 가능(INTERRUPTED_RESUMABLE) checkpoint 목록 — 내부 DB 만 조회(Source/Target 접속 없음)."""
+-    with _LOCK:
+-        c = _conn()
+-        try:
+-            rows = c.execute("SELECT * FROM chunk_checkpoint WHERE status=? ORDER BY updated_at DESC",
+-                             (INTERRUPTED_RESUMABLE,)).fetchall()
+-            return [dict(r) for r in rows]
+-        finally:
+-            c.close()
++    def _run(c):
++        rows = c.execute("SELECT * FROM chunk_checkpoint WHERE status=? ORDER BY updated_at DESC",
++                         (INTERRUPTED_RESUMABLE,)).fetchall()
++        return [dict(r) for r in rows]
++
++    return _with_conn(_run)
+ 
+ 
+ def checkpoint(fingerprint, state, now=None):
+-    """chunk 완료 후 원자적 갱신(§1 — bulk commit 완료 후에만 호출). heartbeat 갱신."""
+-    with _LOCK:
+-        c = _conn()
+-        try:
+-            c.execute(
+-                "UPDATE chunk_checkpoint SET last_completed_end=?, last_completed_pk=?, processed_src=?,"
+-                " processed_tgt=?, missing=?, value_cnt=?, target_only=?, seq=?, chunks_done=?,"
+-                " committed_first=?, heartbeat=?, updated_at=? WHERE fingerprint=?",
+-                (state.get("last_completed_end"), state.get("last_completed_pk"),
+-                 int(state.get("processed_src", 0)), int(state.get("processed_tgt", 0)),
+-                 int(state.get("missing", 0)), int(state.get("value", 0)), int(state.get("target_only", 0)),
+-                 int(state.get("seq", 0)), int(state.get("chunks_done", 0)),
+-                 int(bool(state.get("committed_first"))), (now or time.time()), (now or time.time()),
+-                 fingerprint))
+-            c.commit()
+-        finally:
+-            c.close()
++    """chunk 완료 후 원자적 갱신(§1 — bulk commit 완료 후에만 호출). heartbeat 갱신.
++    [CONNECTION-REUSE] 스레드 재사용 connection 으로 UPDATE+commit 만 수행한다(연결·DDL 재실행 없음)."""
++    def _run(c):
++        c.execute(
++            "UPDATE chunk_checkpoint SET last_completed_end=?, last_completed_pk=?, processed_src=?,"
++            " processed_tgt=?, missing=?, value_cnt=?, target_only=?, seq=?, chunks_done=?,"
++            " committed_first=?, heartbeat=?, updated_at=? WHERE fingerprint=?",
++            (state.get("last_completed_end"), state.get("last_completed_pk"),
++             int(state.get("processed_src", 0)), int(state.get("processed_tgt", 0)),
++             int(state.get("missing", 0)), int(state.get("value", 0)), int(state.get("target_only", 0)),
++             int(state.get("seq", 0)), int(state.get("chunks_done", 0)),
++             int(bool(state.get("committed_first"))), (now or time.time()), (now or time.time()),
++             fingerprint))
++        c.commit()
++
++    _with_conn(_run)
+ 
+ 
+ def finish(fingerprint, status=DONE):
+-    with _LOCK:
+-        c = _conn()
+-        try:
+-            c.execute("UPDATE chunk_checkpoint SET status=?, updated_at=? WHERE fingerprint=?",
+-                      (status, time.time(), fingerprint))
+-            c.commit()
+-        finally:
+-            c.close()
++    def _run(c):
++        c.execute("UPDATE chunk_checkpoint SET status=?, updated_at=? WHERE fingerprint=?",
++                  (status, time.time(), fingerprint))
++        c.commit()
++
++    _with_conn(_run)
+ 
+ 
+ def get(fingerprint):
+-    with _LOCK:
+-        c = _conn()
+-        try:
+-            row = c.execute("SELECT * FROM chunk_checkpoint WHERE fingerprint=?", (fingerprint,)).fetchone()
+-            return dict(row) if row else None
+-        finally:
+-            c.close()
++    def _run(c):
++        row = c.execute("SELECT * FROM chunk_checkpoint WHERE fingerprint=?", (fingerprint,)).fetchone()
++        return dict(row) if row else None
++
++    return _with_conn(_run)
+ 
+ 
+ def resumable(fingerprint, *, actual_strategy_id, chunk_size, policy_version=None):
+@@ -195,14 +262,12 @@ def resumable(fingerprint, *, actual_strategy_id, chunk_size, policy_version=Non
+ def get_by_run_id(run_id):
+     """[D7-19] run_id 로 checkpoint 조회(복구 판정용) — PK 는 fingerprint 이므로 run_id 컬럼을 검색한다.
+     같은 run_id 가 복수면 최신(updated_at) 1건. 없으면 None."""
+-    with _LOCK:
+-        c = _conn()
+-        try:
+-            row = c.execute("SELECT * FROM chunk_checkpoint WHERE run_id=? ORDER BY updated_at DESC LIMIT 1",
+-                            (run_id,)).fetchone()
+-            return dict(row) if row else None
+-        finally:
+-            c.close()
++    def _run(c):
++        row = c.execute("SELECT * FROM chunk_checkpoint WHERE run_id=? ORDER BY updated_at DESC LIMIT 1",
++                        (run_id,)).fetchone()
++        return dict(row) if row else None
++
++    return _with_conn(_run)
+ 
+ 
+ def recoverable_by_run(run_id):
+@@ -235,10 +300,8 @@ def seed_from_checkpoint(cp):
+ 
+ def clear_all():
+     """테스트 정리용."""
+-    with _LOCK:
+-        c = _conn()
+-        try:
+-            c.execute("DELETE FROM chunk_checkpoint")
+-            c.commit()
+-        finally:
+-            c.close()
++    def _run(c):
++        c.execute("DELETE FROM chunk_checkpoint")
++        c.commit()
++
++    _with_conn(_run)

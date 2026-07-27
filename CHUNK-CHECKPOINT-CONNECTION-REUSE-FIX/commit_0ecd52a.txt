@@ -1,0 +1,32 @@
+commit 0ecd52adef4802edacfdd62e2172eae542f5b56b
+Author: migration-validator <dev@migration-validator.local>
+Date:   Mon Jul 27 14:11:13 2026 +0900
+
+    perf(exact-diff): chunk checkpoint write 시 connection 재사용 — DDL 매회 재실행 제거 (CHUNK-CHECKPOINT-CONNECTION-REUSE-FIX)
+    
+    배경: PROGRESS-TRACKING-INSTRUMENTATION-OVERHEAD 진단 실측 — checkpoint write 8.11ms 중
+    6.7ms(82%)가 _conn() 이 매 호출마다 하는 connect + CREATE TABLE IF NOT EXISTS +
+    ALTER TABLE 3회 + PRAGMA 부대작업이었다.
+    
+    변경(chunk_checkpoint.py 만, 저장 스키마·필드 불변):
+    - 스키마 DDL 은 DB 파일 경로당 최초 1회만 실행(_SCHEMA_READY)
+    - connection 은 스레드별로 캐시·재사용(_LOCAL, {db_path: conn}) — sqlite3 기본
+      check_same_thread=True 를 유지해 스레드 간 공유를 원천 차단, 파일 단위 직렬화는
+      기존 _LOCK + WAL + busy_timeout 이 그대로 담당
+    - _with_conn(): 테이블 소실 시 connection 폐기 후 스키마 재생성 1회 재시도(기존 매회 DDL 이
+      제공하던 자가복구 내구성 유지)
+    - conn_debug_info(): 재사용/공유 여부 검증용 진단 helper
+    
+    실측(n=300 중앙, 로컬 A/B — 내부망 단절로 라이브 DB 미측정):
+    - write 1회: 8.15ms → 1.36ms (83% 절감, 이론 하한 1.37ms 에 도달)
+    - 동시 write 4스레드 × 150회: 32.7ms → 5.76ms, wall 5.19s → 0.91s, 예외 0건·값 손상 0건
+    - 통제군(미수정 exact_diff_runs.db UPDATE) 8.37ms 유지 → 개선이 이 변경에서 온 것 확인
+    
+    테스트: 관련 59건 통과(baseline 56 + 신규 3), samples 8/8·5/5, 인접 37건 통과
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+ .../dev_e2e/chunk_checkpoint_conn_reuse_measure.py | 218 ++++++++++++++++++
+ services/exact_diff/chunk_checkpoint.py            | 247 +++++++++++++--------
+ tests/test_chunk_checkpoint.py                     |  80 +++++++
+ 3 files changed, 453 insertions(+), 92 deletions(-)
