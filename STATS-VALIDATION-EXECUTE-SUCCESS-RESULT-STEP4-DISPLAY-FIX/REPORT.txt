@@ -1,0 +1,241 @@
+⚠️ 추가 작업 필요 - 4단계 성공 요약 표시 구현·검증 완료(리플레이 7항목 PASS). 다만 라이브 DB 전면 다운으로 '실 DB 클릭 재현'과 'COUNT-only 라이브 회귀'는 미실측 — DB 복구 후 커밋된 드라이버로 재확인 필요
+
+작업명 : STATS-VALIDATION-EXECUTE-SUCCESS-RESULT-STEP4-DISPLAY-FIX
+일시   : 2026-07-27 13:00~14:00 KST
+범위   : 표시 계층 전용 수정(ui/tabler_renderer.py) + 테스트 + 검증 드라이버
+커밋   : 5e725aa (직전 HEAD 006236f)
+서버   : web_server.py 재기동 2회 — 13:06:15 (PID 32784, 최초 수정본) /
+         13:44:13 (PID 31480, 문구·색 보강본). 서빙 HTML 에 신규 마커 mvExecStepResult 11회 확인.
+
+═══════════════════════════════════════════════════════════════════
+1. 무엇을 고쳤나
+═══════════════════════════════════════════════════════════════════
+선행 진단(STATS-VALIDATION-EXECUTE-BUTTON-NO-RESPONSE-DIAGNOSE)이 확정한 근본원인은
+'요청·응답·렌더는 전부 정상인데 결과가 화면에 안 보인다' 였다. 결과 카드 execResultCard 는
+SINGLE_STEP_CARDS 매핑상 5단계(result) 전용 pane 인데, 통계검증 실행 후 화면은 4단계
+(validation)에 머무는 정책(2026-07-08 08c2119 자동 이동 전면 제거)이라 4단계에서는
+.mv-pane-hidden{display:none!important} 로 가려진다. 2026-07-23 010eefd 는 '실행 오류'만
+4단계 #mvExecStepError 로 우회 표출했고 '성공' 경로에는 대응이 없었다 — 그 비대칭이 증상의 실체.
+
+지시받은 권고안 ①(성공 경로를 오류 경로와 대칭으로 4단계에 배선)을 그대로 구현했다.
+권고안 ②(SINGLE_STEP_CARDS 4·5단계 공용화)는 채택하지 않았고, 매핑 대전제와 자동 이동
+금지 정책은 그대로 두었다. 판정/실행 로직(runExecute 의 판정 분기, /execute·/agg-diff/prepare
+등 백엔드)은 한 줄도 건드리지 않았다 — 전부 표시 계층이다.
+
+수정 파일: ui/tabler_renderer.py 단 1개(운영 코드 기준). 그 외는 테스트·검증 드라이버.
+
+ (1) HTML — #mvExecStepResult 신설
+     위치: #mvExecStepError 바로 아래(4단계 pane 안, 대칭 위치). 기본 display:none.
+ (2) SINGLE_STEP_CARDS.validation 에 'mvExecStepResult' 추가
+     → 탭 이동 시 오류 영역과 함께 토글되어 다른 단계에서 잔류 노출되지 않는다.
+     result: ['execResultCard','relatedHistCard'] 는 불변(결과 '상세'는 여전히 5단계 전용).
+ (3) 함수 4개 — 오류 경로(_mvShowExecStepError/_mvClearExecStepError)와 동일 구조
+     _mvExecStepResultHtml(r, opts)   요약 HTML 생성(서버가 준 결과 필드만 읽음 — 재계산 없음)
+     _mvShowExecStepResult(r, opts)   내용 채움 → pane 클래스 해제 → display 토글 → 스크롤
+     _mvClearExecStepResult()         비우고 숨김
+     _mvExecStepResultGoResult()      5단계 이동(_mvExecShowResult 재사용, 실패 시 _mvNavClick 폴백)
+ (4) 호출 배선(성공 경로 2곳)
+     runExecute 단일 세트 성공        _mvShowExecStepResult(r, {countOnly: gbSel.length===0})
+     _runExecutePlanSets 전 세트 성공 _mvShowExecStepResult(agg, {countOnly:false})
+ (5) 초기화 배선(오류 경로와 '같은' 3지점)
+     resetExecuteResultOnly(재실행 시작) / resetAfterGenerateStart(SQL 재생성) /
+     _clearCountDownstreamUi(COUNT 무효화)
+ (6) 상호배타 — _mvShowExecStepError 가 표시될 때 성공 요약을 자동 제거
+     (이전 실행의 성공 요약이 새 실패 위에 남지 않는다)
+
+표시 내용(결과 카드 복제 아님 — 축약 요약 + 이동 버튼):
+  · 머리말   판정 문구(result_view.status_level 기준, runExecute 의 _updateProgressCard 와 동일 분기)
+  · 한 줄    불일치 그룹 n건(값 불일치/원본 단독/목적 단독 내역) 또는 '모든 그룹이 일치했습니다'
+  · 분포     전체 그룹 / 일치 / 값 불일치 / 원본 단독 / 목적 단독
+  · 안내     "그룹별 비교 상세·재이관 대상 레코드는 5단계 결과 확인에서 볼 수 있습니다
+             (현재 화면은 4단계에 그대로 머뭅니다)"
+  · 버튼     [결과 확인(5단계) 보기 →]
+  COUNT-only(GROUP BY 0개)는 그룹 분포표를 만들지 않는다(없는 숫자를 지어내지 않음).
+
+지시 3항(진행 패널이 열리자마자 닫히는 소규모 데이터에서도 요약이 남을 것)은 구조적으로 충족한다 —
+#mvExecStepResult 는 #mvExecProgress 와 별개 host 이고, 진행 패널 소멸 경로가 이 영역을 건드리지
+않는다. 리플레이 실측에서도 진행 패널이 뜨지 않은 상태에서 요약만 남는 것을 확인했다.
+
+═══════════════════════════════════════════════════════════════════
+2. 지시 중 하나를 그대로 따르지 않은 부분 — 25331행 '죽은 코드' 건 (중요)
+═══════════════════════════════════════════════════════════════════
+지시: "25331행의 죽은 코드(erc.style.display=''; .mv-pane-hidden 의 !important 를 못 이김)는
+       이번 기회에 함께 정리하거나, 대체하는 새 로직으로 자연히 무력화되게 할 것"
+
+확인 결과 이 줄은 죽은 코드가 아니다. 삭제하면 새 결함이 생긴다.
+  · execResultCard 는 HTML 에 style="display:none" 인라인으로 태어난다(ui/tabler_renderer.py:2935).
+  · pane 전환 로직(_applySinglePane, 5694~5699)은 .mv-pane-hidden 클래스만 붙였다 뗀다 —
+    인라인 display 는 건드리지 않고 "flow 자체 display(도달 시 노출)에 위임"한다(주석 원문).
+  · 즉 erc.style.display='' 가 그 인라인 none 을 걷어내는 유일한 지점이고, 이게 없으면
+    5단계로 이동해도 결과 카드가 계속 display:none 이다.
+  · 진단서 자신의 교차확인(5단계 수동 이동 시 cardComputed:"flex")이 바로 이 줄 덕분에 성립한다.
+  → '죽은 코드'라는 전제는 사실과 다르다. 정확히는 "4단계에 표시하는 수단으로는 무력하고,
+    5단계 노출에는 필수"다.
+
+그래서 삭제 대신 지시의 두 번째 선택지("대체하는 새 로직으로 자연히 무력화")를 택했다:
+  · 4단계 표시 책임을 #mvExecStepResult 로 명시 이관하고,
+  · 그 줄 위 주석을 사실대로 정정했다 — 무엇을 하는 코드이고(5단계 노출), 왜 4단계에서는
+    안 통하며(!important), 4단계 표시는 누가 맡는지(#mvExecStepResult)를 적었다.
+  진단서가 지적한 실제 폐해(코드를 읽는 사람이 '표시된다'고 오해)는 주석 정정으로 해소되고,
+  기능은 그대로 유지된다.
+
+═══════════════════════════════════════════════════════════════════
+3. 검증 — 무엇을 실제로 확인했고 무엇을 못 했나
+═══════════════════════════════════════════════════════════════════
+■ 3-1. 라이브 DB 전면 불가(이번 검증의 가장 큰 제약 — 숨기지 않고 먼저 적는다)
+
+지시 5항(진단과 동일 재현: MV_ORA_DEMO_SRC→TGT, GB STATUS_CD+DEPT_CD, SUM AMT 실 클릭)을
+위해 라이브 드라이버를 작성해 먼저 실행했으나, 오라클이 죽어 있어 setup 단계에서 실패했다.
+  드라이버 실측 로그:
+    DIALOG "원본 DB 접속 실패: [Oracle_asis] Oracle 접속 실패 — 네트워크/호스트/포트 연결 실패.
+            목적지 DB 접속 실패: Oracle 접속 실패 — 네트워크/호스트/포트 연결 실패."
+    이후 1단계 분석은 파싱만 되고, 4단계에서 "스키마 오류가 있어 통계검증 SQL을 생성할 수
+    없습니다" 로 진행 불가.
+  TCP 직접 확인(2026-07-27 13:2x):
+    192.168.0.151:1523 (Oracle_asis)      TimeoutError
+    192.168.0.151:1524 (Oracle_tobe)      TimeoutError
+    192.168.0.150:5433 (PG_Inter_asis)    TimeoutError
+    192.168.0.150:5434 (PG_Inter_tobe)    TimeoutError
+    → 내부망 DB 호스트 2대가 모두 응답 없음(게이트웨이 192.168.0.1:80·인터넷 8.8.8.8:53 은 정상
+      이므로 네트워크 전반이 아니라 해당 호스트들이 내려간 것).
+    Neon PostgreSQL: TCP 포트는 열리나 /db/test 가 120초 타임아웃(4개 프리셋 전부).
+      2026-07-17 기록된 Neon 데이터 전송 쿼터 소진 상태가 이어지는 것으로 보인다.
+  → 실 DB 를 실제로 조회하는 클릭 재현은 이번 세션에서 불가능했다. 없는 실측을 있는 것처럼
+    쓰지 않기 위해, 아래 3-2 의 리플레이 검증으로 대체하고 그 한계를 명시한다.
+
+■ 3-2. 리플레이 검증(실 서비스 포트 8000 · 인증 ON · 운영 함수 그대로)
+
+방법: 진단 당시 같은 시나리오에서 실측 기록된 '실제 서버 응답 원문'을 실 서비스 페이지에
+리플레이했다. 대체한 것은 네트워크 전송뿐이고, 그 뒤 분기·집계·렌더는 운영 코드
+(_runExecutePlanSets → _mvRenderValidationDetail → _mvShowExecStepResult)를 그대로 실행했다.
+  리플레이 원자료(진단 diag_diag2.json 에 저장된 응답 본문, 가공 없음):
+    /groupby-plan 682B · /generate 724B+710B · /execute 5,430B+5,420B · /agg-diff/prepare 1,241B
+  드라이버: scripts/dev_e2e/stats_validation_execute_success_step4_replay_verify.py
+
+  판정 7/7 PASS:
+    A 성공요약_4단계_가시        true   step=validation 유지, computedDisplay=block, 높이 실측 > 0
+    B 수정전_동일상태_비가시      true   같은 상태에서 이 영역만 감추면 4단계에 SQL 카드만 남음
+    C 5단계이동_결과카드_가시     true   요약의 버튼 실 클릭 → step=result, execResultCard 가시
+    D 오류표시_유지_성공요약_제거 true   세트 실패 리플레이 → #mvExecStepError 표시, 요약 사라짐
+    E COUNTonly_분포표없음       true   그룹 분포표 없이 'COUNT 비교(그룹 미사용)' 문구만
+    F 다른단계_잔류노출없음       true   3단계로 이동 시 요약 숨김, 4단계 복귀 시 재노출
+    G pageerror_없음             true   JS 예외 0건(번들 붕괴 없음)
+
+  화면 대조(같은 실행 상태에서 촬영한 Before/After):
+    Before(replay_11) 4단계에 '통계검증 SQL' 카드만 — 진단서 5절의
+                      step4_visible_text:["sqlCard"] 와 정확히 일치하는 화면
+    After (replay_10) 그 아래에 요약 박스 추가:
+                      "⚠ 통계검증 실행 완료 · 불일치 있음"
+                      "불일치 그룹 6건이 확인되었습니다 (값 불일치 6 · 원본 단독 0 · 목적 단독 0)."
+                      전체 그룹 10 / 일치 4 / 값 불일치 6 / 원본 단독 0 / 목적 단독 0
+                      [결과 확인(5단계) 보기 →]
+    표시된 수치는 실측 두 응답의 합과 일치한다(세트1 total 4·diff 4 + 세트2 total 6·matched 4·diff 2
+    = 전체 10 · 일치 4 · 불일치 6). 임의 계산이 아니라 서버 집계 필드의 단순 합이다.
+
+  리플레이의 한계 1가지(그대로 적는다): _runExecutePlanSets 말미의 _renderSingleStepNav 는
+  '보고 있는 탭이 Gate 기준 잠김이면 현재 단계로 되돌린다'(tabler_renderer.py:6321~6328).
+  리플레이는 1~3단계를 실제로 완료하지 않아 4단계가 잠김으로 판정돼 pane 이 1단계로 되돌아갔다.
+  실 세션에서는 진단 실측대로 step 이 'validation' 로 유지되므로, 되돌림 직후 원 상태를
+  A_raw_after_call 로 기록해 두고 실 세션과 같은 조건(4단계를 보는 상태)으로 복원한 뒤 측정했다.
+  이 되돌림은 리플레이의 상류 상태 부재 때문이며 이번 변경과 무관하다.
+
+■ 3-3. 화면 표시 문구 보강(1차 실측 후 반영)
+  1차 리플레이 화면에서 다중 세트 합산(agg)에는 result_view 가 없어, 불일치 6건인데도 머리말이
+  중립 "✅ 실행 완료" 로 나왔다. 오해 소지가 있어 서버가 준 집계 숫자만으로 판별 가능한 사실을
+  문구·색에 반영했다: 불일치 합계>0 이면 "⚠ 실행 완료 · 불일치 있음"(호박색), 아니면 기존대로.
+  PASS/WARNING/SKIP 판정을 새로 만들지 않으며 표시 문구·색만 바뀐다. 반영 후 서버 재기동
+  (13:44:13) 하고 리플레이를 다시 돌려 7/7 PASS 를 재확인했다.
+
+■ 3-4. 정적 회귀 테스트(baseline 대조)
+  baseline: git worktree 로 HEAD(006236f) 체크아웃 후 동일 테스트 집합 실행(stash 미사용).
+    baseline  6 failed, 122 passed
+    수정 후    6 failed, 130 passed   ← 실패 목록 완전 동일(사전 존재분), 신규 실패 0건
+  사전 존재 실패 6건(이번 작업과 무관):
+    test_individual_validation_stage_content::test_sql_shape_object_label_extraction
+    test_single_run_standard_ui 4건 / test_ui_tab4_tab5_separation::test_target_only_display
+  신규 테스트: tests/test_execute_success_result_step4_display_fix.py (8건 전부 통과)
+    영역 존재·pane 등록 / 매핑 대전제 불변(execResultCard 는 여전히 result 전용) / 헬퍼 정의·노출 /
+    단일 세트 배선 / 다중 세트 배선 / 성공·오류 상호배타 / 초기화 3지점 / 이동 버튼·정책 주석 유지
+  기존 테스트 1건 계약 갱신: tests/test_shared_sticky_step_nav.py
+    validation pane 목록 단언에 'mvExecStepResult' 추가(목록이 실제로 1개 늘었으므로 갱신).
+  JS 번들 문법 가드(tests/test_rendered_js_syntax_guard.py) 통과 — 주석 '*/' 번들 붕괴 전례 대비.
+
+═══════════════════════════════════════════════════════════════════
+4. 지시 항목별 이행 결과
+═══════════════════════════════════════════════════════════════════
+ 1. 성공 시 4단계 pane 에 결과 요약 영역 신설(#mvExecStepError 와 대칭)      완료
+ 2. 축약 요약 + '결과 확인(5단계) 보기' 버튼(결과 카드 복제 금지)            완료
+ 3. 진행 패널 소멸과 무관하게 요약 유지                                      완료(별도 host·실측)
+ 4. 오류 경로(#mvExecStepError) 회귀 없음                                    완료(리플레이 D + 정적)
+ 5. 진단과 동일 조건 실 클릭 재현                                            미이행 — 라이브 DB 다운
+                                                                            (드라이버는 커밋해 둠)
+ 6. COUNT-only 경로 회귀 확인                                                부분 이행
+    · 즉시 5단계 이동 경로(원클릭 _applyFullRunEnvelope 19678~19690)는 이번 diff 가 전혀
+      건드리지 않았다(git diff 로 확인 가능) — 코드상 회귀 요인 없음
+    · COUNT-only 요약 렌더 자체는 리플레이 E 로 실측(분포표 없이 문구만)
+    · 라이브에서 GROUP BY 0개를 실제로 실행해 본 회귀 확인은 DB 다운으로 미실측
+
+ 검증 요구 항목:
+    Before/After 스크린샷 대조        완료(replay_11 / replay_10, 같은 실행 상태에서 촬영)
+    오류 경로 회귀 없음               완료(replay_13)
+    COUNT-only 회귀                   부분(위 6번 참조)
+    git diff/commit hash              5e725aa (ui/tabler_renderer.py +133/-3 외 테스트·드라이버)
+    회귀 테스트 baseline 대조         완료(신규 실패 0건)
+
+═══════════════════════════════════════════════════════════════════
+5. 비판적 검토
+═══════════════════════════════════════════════════════════════════
+긍정적 효과
+  · 실행 후 '아무 반응 없음'이라는 체감이 사라진다. 진단서가 지적한 운영 위험(무반응으로 인식해
+    재클릭 → 대형 테이블 중복 실행 비용)이 직접 완화된다.
+  · 성공/실패 표시가 대칭이 되어, '오류는 보이는데 성공은 안 보이는' 비대칭이 해소된다.
+
+구조적 문제점 / 잔여 위험
+  · ui/tabler_renderer.py 가 또 133줄 늘었다(비대화 억제 원칙과 상충). 다만 신규 함수는 오류 경로
+    4함수와 같은 위치·같은 패턴이라 나중에 함께 분리하기 쉬운 형태로 두었다.
+  · 4단계 요약과 5단계 상세가 '같은 결과의 두 표현'이라 표시 중복이 늘었다. 숫자 출처는 서버 응답
+    단일 필드라 값이 어긋날 여지는 없지만, 향후 5단계 요약 문구가 바뀌면 두 곳을 같이 봐야 한다.
+  · 다중 세트(agg)에는 result_view 가 없어 판정 문구를 집계 숫자에서 유도한다(3-3). 서버가 나중에
+    agg 수준 result_view 를 주면 그쪽으로 일원화하는 게 맞다.
+heuristic / scoring / explainability
+  · 새 heuristic 없음. 판정 재계산 없음(서버 필드 표시만). 근거(그룹 분포)를 함께 노출해
+    explainability 는 오히려 개선.
+보안
+  · 표시 계층만 변경, 접속정보·payload 취급 변화 없음. 사전커밋 비밀번호 스캔 통과.
+
+═══════════════════════════════════════════════════════════════════
+6. 남은 작업(다음 세션 권고)
+═══════════════════════════════════════════════════════════════════
+ (1) 라이브 DB 복구 후 지시 5·6항 실측 마무리 — 드라이버는 이미 커밋되어 있다:
+       python scripts/dev_e2e/stats_validation_execute_success_step4_display_verify.py
+         MV_MODE=success    GB STATUS_CD+DEPT_CD / SUM AMT (다중 세트, 진단과 동일 조건)
+         MV_MODE=error      GB 1개 + 존재하지 않는 원본 테이블로 실패 유도(오류 경로 회귀)
+         MV_MODE=countonly  GB/SUM 0개(COUNT-only 회귀)
+ (2) 원클릭 전체검증(_applyFullRunEnvelope) 경로도 상세비교 대상이 있으면 4단계에 머문다
+     (19713~19726). 이 경로는 진행 패널이 뜨므로 이번 증상과 다르지만, 진행 패널이 닫힌 뒤
+     4단계에 남는 안내가 없다는 점은 동일하다 — 같은 요약을 붙일지 별도 판단이 필요하다.
+     (이번 지시 범위는 runExecute/_runExecutePlanSets 였으므로 손대지 않았다.)
+ (3) 진단서 부록 C 가 지적한 좀비 job 회수(STATS-VALIDATION-JOB-ORPHAN-CLEANUP)는 이 표시
+     결함과 독립적이며 여전히 미해결이다.
+
+═══════════════════════════════════════════════════════════════════
+7. 증적
+═══════════════════════════════════════════════════════════════════
+E:\verify_screenshots_only\STATS-VALIDATION-EXECUTE-SUCCESS-RESULT-STEP4-DISPLAY-FIX\
+  replay_10_AFTER_FIX_step4_success_summary.png   After — 4단계에 성공 요약 표시
+  replay_11_BEFORE_equivalent_same_state.png      Before 재현 — 같은 상태에서 요약만 감춤
+  replay_12_after_result_button_step5.png         '결과 확인(5단계) 보기' 클릭 후 5단계
+  replay_13_error_path_regression.png             오류 경로 회귀 없음(#mvExecStepError)
+  replay_14_countonly_summary.png                 COUNT-only 요약(분포표 없음)
+  verify_replay.json                              전 항목 실측 원자료·판정
+  success_01_analyze.png / success_03_candidate.png / success_04_generated_before_click.png
+                                                  라이브 시도 흔적(오라클 다운으로 중단)
+
+변경 파일(커밋 5e725aa)
+  ui/tabler_renderer.py                                              (운영 — 표시 계층만)
+  tests/test_execute_success_result_step4_display_fix.py             (신규 정적 배선 테스트 8건)
+  tests/test_shared_sticky_step_nav.py                               (pane 목록 계약 갱신 1줄)
+  scripts/dev_e2e/stats_validation_execute_success_step4_display_verify.py   (라이브 드라이버)
+  scripts/dev_e2e/stats_validation_execute_success_step4_replay_verify.py    (리플레이 드라이버)
+
+⚠️ 추가 작업 필요 - 4단계 성공 요약 표시 구현·검증 완료(리플레이 7항목 PASS). 다만 라이브 DB 전면 다운으로 '실 DB 클릭 재현'과 'COUNT-only 라이브 회귀'는 미실측 — DB 복구 후 커밋된 드라이버로 재확인 필요
