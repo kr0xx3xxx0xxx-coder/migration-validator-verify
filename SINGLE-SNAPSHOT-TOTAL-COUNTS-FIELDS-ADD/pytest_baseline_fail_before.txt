@@ -1,0 +1,60 @@
+============================== warnings summary ===============================
+tests/test_workbook_loader.py::TestWorkbookLoader::test_excel_like_shared_strings_ok
+  C:\Users\nextobe_lyk\AppData\Roaming\Python\Python314\site-packages\openpyxl\styles\stylesheet.py:237: UserWarning: Workbook contains no default style, apply openpyxl's default
+    warn("Workbook contains no default style, apply openpyxl's default")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_batch_flow2_e2e_smoke.py::test_e2e_generate_candidates_then_snapshots
+FAILED tests/test_batch_flow2_multirow_e2e_smoke.py::test_two_normal_rows_each_snapshot_and_plan
+FAILED tests/test_batch_flow2_multirow_e2e_smoke.py::test_old_snapshot_not_in_latest_plan
+FAILED tests/test_batch_profile_recollect_control.py::test_recollect_snapshot_roundtrip_surfaces_distinct_and_type
+FAILED tests/test_batch_report_service.py::TestBuildBatchExcelReport::test_R04_returns_bytes
+FAILED tests/test_batch_report_service.py::TestBuildBatchExcelReport::test_R05_three_sheets_exist
+FAILED tests/test_batch_report_service.py::TestBuildBatchExcelReport::test_R06_summary_contains_run_id
+FAILED tests/test_batch_report_service.py::TestBuildBatchExcelReport::test_R07_items_sheet_row_count
+FAILED tests/test_batch_report_service.py::TestBuildBatchExcelReport::test_R08_failed_items_contains_analyze_failed_and_diff
+FAILED tests/test_batch_report_service.py::TestBuildBatchExcelReport::test_R10_no_payload_json_in_excel
+FAILED tests/test_batch_row_snapshot_build_and_save.py::test_flag_off_no_save
+FAILED tests/test_batch_row_snapshot_build_and_save.py::test_flag_on_saves - ...
+FAILED tests/test_batch_row_snapshot_build_and_save.py::test_flag_on_no_secret_saved
+FAILED tests/test_batch_row_snapshot_build_and_save.py::test_save_failure_is_fire_and_forget
+FAILED tests/test_batch_row_snapshot_flag_on_observation.py::test_flag_on_saves_success_and_failure_rows
+FAILED tests/test_batch_row_snapshot_flag_on_observation.py::test_no_secret_in_saved_snapshot
+FAILED tests/test_batch_row_snapshot_flag_on_observation.py::test_save_failure_is_fire_and_forget
+FAILED tests/test_batch_snapshot_preview_baseline.py::test_ui_off_empty_container
+FAILED tests/test_batch_ui_snapshot_preview_flagged.py::test_ui_off_empty_hidden_container_and_funcs
+FAILED tests/test_drilldown_readiness.py::test_live_count_only_available_and_snapshot_fields
+FAILED tests/test_global_settings_gate.py::test_client_analyze_payload_carries_snapshot
+FAILED tests/test_group_master_crud.py::TestQueryUploadResultRender::test_result_excel_download
+FAILED tests/test_group_save_unify_cleanup.py::test_single_save_calls_register_core_once
+FAILED tests/test_groupby_estimate_excel_evidence.py::test_single_excel_includes_groupby_estimate
+FAILED tests/test_groupby_estimate_excel_evidence.py::test_single_excel_null_group_in_evidence
+FAILED tests/test_groupby_estimate_excel_evidence.py::test_single_excel_unknown_and_full_cases
+FAILED tests/test_groupby_estimate_excel_evidence.py::test_batch_excel_includes_groupby_estimate_column
+FAILED tests/test_single_official_register_hardening.py::test_persist_blocked_when_atomicity_unsupported
+FAILED tests/test_single_save_group_registration.py::test_save_registers_target_and_count_increases
+FAILED tests/test_single_save_group_registration.py::test_resave_same_sql_idempotent
+FAILED tests/test_single_save_group_registration.py::test_resave_changed_sql_requires_confirmation_then_replaces
+FAILED tests/test_single_save_group_registration.py::test_migration_sql_not_executed
+FAILED tests/test_single_save_source_binding.py::test_single_source_binding_uses_profile_name
+FAILED tests/test_single_save_source_binding.py::test_resave_keeps_latest_binding
+FAILED tests/test_task11_r_source_profile.py::TC04_08_SourceSnapshotStore::test_06_source_or_target_source_stored
+FAILED tests/test_upload_quality_check.py::TestQualityCheck::test_error_excel_per_batch
+FAILED tests/test_upload_quality_check.py::TestPhaseDAutoConfirmAndGate::test_zero_error_auto_confirm_and_snapshot
+ERROR tests/test_single_official_register_hardening.py::test_same_sql_same_everything_idempotent
+ERROR tests/test_single_save_source_binding.py::test_single_source_binding_uses_profile_name
+ERROR tests/test_single_save_source_binding.py::test_multi_source_blocked_at_service
+ERROR tests/test_single_save_source_binding.py::test_ambiguous_owner_blocks_save
+ERROR tests/test_single_save_source_binding.py::test_resave_keeps_latest_binding
+ERROR tests/test_task11_p_profile_snapshot.py::TC06_08_EnricherIntegration::test_06_candidate_input_builder_accepts_snapshot
+ERROR tests/test_task11_p_profile_snapshot.py::TC06_08_EnricherIntegration::test_07_enricher_uses_profile_stats_for_display_score
+ERROR tests/test_task11_p_profile_snapshot.py::TC06_08_EnricherIntegration::test_08_individual_batch_same_snapshot_same_score
+ERROR tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_09_job_type_equal
+ERROR tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_10_department_code_equal
+ERROR tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_11_hire_date_equal
+ERROR tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_12_salary_equal
+ERROR tests/test_task11_r2_source_connection_id.py::TC_R2_01_04_ConnectionIsolation::test_04_different_batch_different_snapshot
+ERROR tests/test_task11_r3.py::TC_R3_01_04_MissingConnectionDefense::test_04_missing_src_cid_does_not_use_other_connection_snapshot
+ERROR tests/test_workbook_loader.py::TestWorkbookLoader::test_excel_like_shared_strings_ok
+37 failed, 575 passed, 6 skipped, 10646 deselected, 1 warning, 15 errors in 445.10s (0:07:25)

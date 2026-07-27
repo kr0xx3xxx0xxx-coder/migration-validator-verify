@@ -1,0 +1,126 @@
+{
+  "task": "SINGLE-SNAPSHOT-TOTAL-COUNTS-FIELDS-ADD",
+  "api": "http://127.0.0.1:8000",
+  "sql": "INSERT INTO tobe01.t_grpcnt_tgt (id, region, amt)\nSELECT id, region, amt\nFROM asis01.t_grpcnt_src",
+  "analyze": {
+    "http": null,
+    "gb_count": 1,
+    "sum_count": 1,
+    "gb_cols": [
+      "REGION"
+    ],
+    "sum_cols": [
+      "AMT"
+    ]
+  },
+  "count": {
+    "http": null,
+    "src": 1000,
+    "tgt": 990,
+    "error_code": "COUNT_MISMATCH"
+  },
+  "execute": {
+    "http": null,
+    "success": true,
+    "matched": 3,
+    "diff": 0,
+    "src_only": 1,
+    "tgt_only": 0,
+    "total_src": 4,
+    "total_tgt": 3,
+    "total_groups": 4,
+    "status_code": "FAILED",
+    "status_label": "불일치"
+  },
+  "single_save": {
+    "http": null,
+    "success": true,
+    "run_id": "47711fea-83ca-4294-b164-34c03f1a8a2a",
+    "group_id": "GRP_202607271112430188",
+    "project_id": "898",
+    "error": null
+  },
+  "snapshot_after": {
+    "run_id": "47711fea-83ca-4294-b164-34c03f1a8a2a",
+    "top_total_src": 4,
+    "top_total_tgt": 3,
+    "summary_counts": {
+      "total_groups": 4,
+      "compared_groups": 4,
+      "matched": 3,
+      "diff": 0,
+      "src_only": 1,
+      "tgt_only": 0,
+      "total_src": 4,
+      "total_tgt": 3
+    },
+    "top_keys_sample": [
+      "total_src",
+      "total_tgt"
+    ]
+  },
+  "snapshot_before_code": {
+    "ref": "HEAD",
+    "has_top_total_src": false,
+    "has_top_total_tgt": false,
+    "has_sc_total_src": false,
+    "summary_counts_keys": [
+      "compared_groups",
+      "diff",
+      "matched",
+      "src_only",
+      "tgt_only",
+      "total_groups"
+    ]
+  },
+  "display_parity": {
+    "wizard": {
+      "group_count_mismatch": {
+        "src": 4,
+        "tgt": 3
+      },
+      "group_count_label": "원본 4 / 목적지 3",
+      "warn_box_shown": true,
+      "warn_group_count_item": true,
+      "xform_sum": [],
+      "xform_gb": [],
+      "all_ok": false,
+      "has_xform": true,
+      "rv_downgrade": false
+    },
+    "from_snapshot": {
+      "group_count_mismatch": {
+        "src": 4,
+        "tgt": 3
+      },
+      "group_count_label": "원본 4 / 목적지 3",
+      "warn_box_shown": true,
+      "warn_group_count_item": true,
+      "xform_sum": [],
+      "xform_gb": [],
+      "all_ok": false,
+      "has_xform": true,
+      "rv_downgrade": false
+    },
+    "identical": true,
+    "ablation_without_new_fields": {
+      "group_count_mismatch": null,
+      "group_count_label": "원본 — / 목적지 —",
+      "warn_box_shown": false,
+      "warn_group_count_item": false,
+      "xform_sum": [],
+      "xform_gb": [],
+      "all_ok": false,
+      "has_xform": false,
+      "rv_downgrade": false
+    },
+    "ablation_diverges_from_wizard": true
+  },
+  "legacy_compat": {
+    "checked": 30,
+    "without_fields": 30,
+    "read_ok": 30,
+    "display_ok": 30,
+    "errors": []
+  }
+}

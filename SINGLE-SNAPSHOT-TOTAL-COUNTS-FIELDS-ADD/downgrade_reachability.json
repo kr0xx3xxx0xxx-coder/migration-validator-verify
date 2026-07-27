@@ -1,0 +1,43 @@
+{
+  "task": "SINGLE-SNAPSHOT-TOTAL-COUNTS-FIELDS-ADD",
+  "purpose": "그룹 수 불일치 단독으로 _rvDowngrade 도달 가능한지 실측",
+  "cases": [
+    {
+      "success": true,
+      "total_src": 4,
+      "total_tgt": 3,
+      "matched": 3,
+      "diff": 0,
+      "src_only": 1,
+      "tgt_only": 0,
+      "all_ok": false,
+      "group_count_mismatch": true,
+      "downgrade_by_group_count_only": false,
+      "identity_holds": true,
+      "title": "순수 누락(NORTH 그룹 미이관)"
+    },
+    {
+      "success": true,
+      "total_src": 3,
+      "total_tgt": 3,
+      "matched": 3,
+      "diff": 0,
+      "src_only": 0,
+      "tgt_only": 0,
+      "all_ok": true,
+      "group_count_mismatch": false,
+      "downgrade_by_group_count_only": false,
+      "identity_holds": true,
+      "title": "NULL→값 변환 흡수(NULL 그룹이 EAST 로 합쳐짐)"
+    }
+  ],
+  "simulation": {
+    "trials": 5000,
+    "counterexamples": 0
+  },
+  "conclusion": {
+    "downgrade_by_group_count_only_reachable": false,
+    "reason": "비교 엔진에서 total_src-total_tgt == src_only-tgt_only 항등식이 성립하므로 allOk(둘 다 0)이면 그룹 수는 반드시 같다 — 그룹 수 불일치 단독 강등은 도달 불가.",
+    "actual_effect": "total_src/total_tgt 저장의 실효는 재조회 화면의 '원본/목적 그룹 수' 표기와 '그룹 개수 실측 불일치' 경고 항목 복원(강등 여부와 무관하게 표시)."
+  }
+}
