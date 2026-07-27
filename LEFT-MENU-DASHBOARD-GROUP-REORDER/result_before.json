@@ -1,0 +1,156 @@
+{
+  "mode": "before",
+  "menu": [
+    {
+      "grp": "status",
+      "label": "현황",
+      "expanded": "true",
+      "caret": "▾",
+      "badge_sum": false,
+      "items": [
+        {
+          "label": "검증 현황판",
+          "onclick": "showTab('job-dashboard');return false"
+        }
+      ],
+      "collapsed": false
+    },
+    {
+      "grp": "project",
+      "label": "프로젝트",
+      "expanded": "false",
+      "caret": "▸",
+      "badge_sum": false,
+      "items": [
+        {
+          "label": "프로젝트 목록",
+          "onclick": "showTab('projects');return false"
+        },
+        {
+          "label": "검증 그룹 관리",
+          "onclick": "showTab('groups');return false"
+        }
+      ],
+      "collapsed": true
+    },
+    {
+      "grp": "prep",
+      "label": "데이터 준비",
+      "expanded": "false",
+      "caret": "▸",
+      "badge_sum": false,
+      "items": [
+        {
+          "label": "이관쿼리 업로드업로드 이력·품질점검 포함",
+          "onclick": "showTab('queryupload');return false"
+        },
+        {
+          "label": "메타데이터 수집",
+          "onclick": "showTab('metadata');return false"
+        },
+        {
+          "label": "DB 프로필 / 검증 경로",
+          "onclick": "showTab('settings');return false"
+        }
+      ],
+      "collapsed": true
+    },
+    {
+      "grp": "exec",
+      "label": "검증 실행",
+      "expanded": "false",
+      "caret": "▸",
+      "badge_sum": true,
+      "items": [
+        {
+          "label": "개별검증",
+          "onclick": "showTab('analyze');return false"
+        },
+        {
+          "label": "일괄검증개별검증 core 반복 실행 · 최신 검증대상 포함",
+          "onclick": "showTab('batch');return false"
+        },
+        {
+          "label": "전수검증준비중",
+          "onclick": "showTab('fullvalidation');return false"
+        }
+      ],
+      "collapsed": true
+    },
+    {
+      "grp": "result",
+      "label": "결과 / 진단",
+      "expanded": "false",
+      "caret": "▸",
+      "badge_sum": false,
+      "items": [
+        {
+          "label": "실행 이력",
+          "onclick": "showTab('history');return false"
+        },
+        {
+          "label": "검증 결과 상세증적 CSV/XLSX 다운로드 포함",
+          "onclick": "showTab('results');return false"
+        },
+        {
+          "label": "진단 이력",
+          "onclick": "showTab('diaghistory');return false"
+        }
+      ],
+      "collapsed": true
+    },
+    {
+      "grp": "criteria",
+      "label": "검증 기준",
+      "expanded": "false",
+      "caret": "▸",
+      "badge_sum": false,
+      "items": [
+        {
+          "label": "후보추천 정책감사 리포트 탭 포함",
+          "onclick": "showTab('policy');return false"
+        },
+        {
+          "label": "시맨틱 사전",
+          "onclick": "return false"
+        }
+      ],
+      "collapsed": true
+    },
+    {
+      "grp": "base",
+      "label": "기반정보 / 설정",
+      "expanded": "false",
+      "caret": "▸",
+      "badge_sum": false,
+      "items": [
+        {
+          "label": "DBMS 실행 지원드라이버·실행 준비현황 포함",
+          "onclick": "showTab('dbmscap');return false"
+        }
+      ],
+      "collapsed": true
+    }
+  ],
+  "order": [
+    "status",
+    "project",
+    "prep",
+    "exec",
+    "result",
+    "criteria",
+    "base"
+  ],
+  "labels": [
+    "현황",
+    "프로젝트",
+    "데이터 준비",
+    "검증 실행",
+    "결과 / 진단",
+    "검증 기준",
+    "기반정보 / 설정"
+  ],
+  "errors": [],
+  "pass": 1,
+  "fail": 0
+}
