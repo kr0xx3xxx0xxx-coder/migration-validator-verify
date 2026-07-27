@@ -1,0 +1,127 @@
+{
+ "driver": "job_recovery_stage1_progress_timestamp_verify",
+ "results": {
+  "A_last_progress_at": {
+   "rows": 6000,
+   "chunk_size": 200,
+   "chunk_delay_ms": 400,
+   "final_status": "READY",
+   "poll_samples": 25,
+   "distinct_values": 25,
+   "gap_sec_min": 0.401,
+   "gap_sec_max": 0.803,
+   "first_sample": {
+    "t": 0.5,
+    "status": "PREPARING",
+    "last_progress_at": 1785129291.8693385,
+    "processed_source_count": 200
+   },
+   "last_sample": {
+    "t": 12.52,
+    "status": "READY",
+    "last_progress_at": 1785129303.5122743,
+    "processed_source_count": 6000
+   },
+   "api_field_present": true,
+   "advanced_during_run": true,
+   "monotonic": true,
+   "verdict": "PASS"
+  },
+  "B_l1_orphan": {
+   "grace_sec": 30,
+   "status_before_kill": "PREPARING",
+   "last_progress_at_before_kill": 1785129303.9651868,
+   "thread_alive_after_kill": false,
+   "confirmed_after_sec": 30.0,
+   "status_after": "RECOVER_REQUIRED",
+   "recover_reason": "ORPHAN_RUNNING",
+   "store_run_status": "ORPHANED",
+   "store_stop_reason": "ORPHAN_RUNNING",
+   "active_runs_after": 0,
+   "timeline": [
+    {
+     "t": 0.0,
+     "status": "PREPARING"
+    },
+    {
+     "t": 2.0,
+     "status": "PREPARING"
+    },
+    {
+     "t": 4.0,
+     "status": "PREPARING"
+    },
+    {
+     "t": 6.0,
+     "status": "PREPARING"
+    },
+    {
+     "t": 8.0,
+     "status": "PREPARING"
+    },
+    {
+     "t": 10.0,
+     "status": "PREPARING"
+    },
+    {
+     "t": 12.0,
+     "status": "PREPARING"
+    },
+    {
+     "t": 14.0,
+     "status": "PREPARING"
+    },
+    {
+     "t": 16.0,
+     "status": "PREPARING"
+    },
+    {
+     "t": 18.0,
+     "status": "PREPARING"
+    },
+    {
+     "t": 20.0,
+     "status": "PREPARING"
+    },
+    {
+     "t": 22.0,
+     "status": "PREPARING"
+    },
+    {
+     "t": 24.0,
+     "status": "PREPARING"
+    },
+    {
+     "t": 26.0,
+     "status": "PREPARING"
+    },
+    {
+     "t": 28.0,
+     "status": "PREPARING"
+    },
+    {
+     "t": 30.0,
+     "status": "RECOVER_REQUIRED"
+    }
+   ],
+   "verdict": "PASS"
+  },
+  "C_healthy_untouched": {
+   "run_duration_sec": 45,
+   "grace_sec": 30,
+   "poll_count": 47,
+   "unexpected_status": [],
+   "final_status": "READY",
+   "recover_reason": null,
+   "thread_dead_seen_at": null,
+   "store_run_status": "RUNNING",
+   "verdict": "PASS"
+  }
+ },
+ "env": {
+  "internal_network": "unreachable(192.168.0.150/151/211 timed out)",
+  "neon": "quota exceeded(서버측 거부)",
+  "substitute": "실 엔진·실 route·실 job thread in-process 구동(가짜: DB conn/chunk 어댑터)"
+ },
+ "verdict": "PASS"
+}

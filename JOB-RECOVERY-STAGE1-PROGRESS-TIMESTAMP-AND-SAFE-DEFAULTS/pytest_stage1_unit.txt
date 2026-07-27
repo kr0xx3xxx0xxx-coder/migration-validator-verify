@@ -1,0 +1,20 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.0.3, pluggy-1.6.0 -- C:\Python314\python.exe
+cachedir: .pytest_cache
+rootdir: C:\projects\migration-validator
+plugins: anyio-4.13.0
+collecting ... collected 11 items
+
+tests/test_job_recovery_stage1_progress_timestamp.py::test_new_progress_has_last_progress_at PASSED [  9%]
+tests/test_job_recovery_stage1_progress_timestamp.py::test_update_progress_stamps_time PASSED [ 18%]
+tests/test_job_recovery_stage1_progress_timestamp.py::test_update_progress_uses_engine_timestamp PASSED [ 27%]
+tests/test_job_recovery_stage1_progress_timestamp.py::test_pk_range_chunk_emits_progress_at PASSED [ 36%]
+tests/test_job_recovery_stage1_progress_timestamp.py::test_job_public_exposes_last_progress_at PASSED [ 45%]
+tests/test_job_recovery_stage1_progress_timestamp.py::test_l1_reclaims_dead_thread_after_grace PASSED [ 54%]
+tests/test_job_recovery_stage1_progress_timestamp.py::test_l1_grace_is_configurable_and_reuses_existing_setting PASSED [ 63%]
+tests/test_job_recovery_stage1_progress_timestamp.py::test_running_job_never_touched PASSED [ 72%]
+tests/test_job_recovery_stage1_progress_timestamp.py::test_dead_seen_mark_cleared_when_alive_again PASSED [ 81%]
+tests/test_job_recovery_stage1_progress_timestamp.py::test_paused_job_not_reclaimed PASSED [ 90%]
+tests/test_job_recovery_stage1_progress_timestamp.py::test_stall_detection_toggle_declared_but_unused PASSED [100%]
+
+============================= 11 passed in 2.71s ==============================

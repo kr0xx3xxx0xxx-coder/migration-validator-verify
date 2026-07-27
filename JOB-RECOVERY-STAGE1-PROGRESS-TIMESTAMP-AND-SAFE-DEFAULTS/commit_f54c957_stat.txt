@@ -1,0 +1,23 @@
+commit f54c95732aa4481139c9d70e9185b8d93c4431e7
+Author: migration-validator <dev@migration-validator.local>
+Date:   Mon Jul 27 14:29:11 2026 +0900
+
+    feat(job): 재이관 job 진행시각(last_progress_at) 기록 + L1 죽은 thread 정리 (JOB-RECOVERY-STAGE1-PROGRESS-TIMESTAMP-AND-SAFE-DEFAULTS)
+    
+    - progress.last_progress_at 신설: update_progress 가 매 호출마다 기록(엔진 발행 시각 우선)
+    - pk_range_chunk._emit_prog 가 progress_at(wall clock) 을 함께 발행 — throttle/빈도 변경 없음
+    - L1 정리: 활성 job 의 실행 thread 가 죽었을 때(사실 판정) 유예 후 RECOVER_REQUIRED(ORPHAN_RUNNING)
+      + store.finish_run(ORPHANED). 토글 없이 항상 동작(진행 중 job 은 thread 가 살아 있어 대상 아님)
+    - 유예는 기존 execution_settings.recovery.orphan_running_after_sec 재사용(120→30), 신규 동의어 없음
+    - stall_detection_enabled(기본 False) 자리만 선언 — 이번 단계 소비 로직 없음(L2/L3 는 다음 단계)
+    - _job_public / pk-records 응답에 last_progress_at 노출(관측 전용)
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+ routes/agg_diff_route.py                           |   6 +-
+ ...ob_recovery_stage1_progress_timestamp_verify.py | 289 +++++++++++++++++++++
+ services/exact_diff/execution_settings.py          |  14 +-
+ services/exact_diff/pk_range_chunk.py              |   4 +
+ services/exact_diff/reimport_job.py                | 109 +++++++-
+ .../test_job_recovery_stage1_progress_timestamp.py | 221 ++++++++++++++++
+ 6 files changed, 638 insertions(+), 5 deletions(-)

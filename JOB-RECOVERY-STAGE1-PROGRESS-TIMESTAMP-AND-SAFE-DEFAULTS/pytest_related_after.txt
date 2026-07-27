@@ -1,0 +1,103 @@
+..........................................x............................. [ 20%]
+.............................F.......................................... [ 41%]
+..................F.....F..F............................................ [ 62%]
+FFF..................................................................... [ 83%]
+.......................xx..xxx..F........................                [100%]
+================================== FAILURES ===================================
+_________________________ test_client_gate_and_dialog _________________________
+
+    def test_client_gate_and_dialog():
+        html = TablerRenderer().render_full_page()
+        # runFullValidation: active-run 게이트 뒤에 완료이력 게이트
+>       assert "/single/completed-history" in html
+E       assert '/single/completed-history' in '<!DOCTYPE html>\n<html lang="ko">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width,...esultsDetail; window.goToResultsDetail = goToResultsDetail; window.resExport = resExport;\n</script>\n</body>\n</html>'
+
+tests\test_d7_1_completed_history.py:112: AssertionError
+__________________ test_ui_advanced_perf_position_and_title ___________________
+
+    def test_ui_advanced_perf_position_and_title():
+        summ = re.search(r"function _mvRiSummaryHtml\(d, curPageMs\)\s*\{.*?\n\}", _HTML, re.S).group(0)
+        # \uc694\uc57d \ubc18\ud658\uc5d0 \uadf8\ub8f9(_grpHtml) \uc5c6\uc74c \u2014 mvRiWrap \uc778\ub77c\uc778\uc73c\ub85c \uc774\ub3d9
+>       ret = summ[summ.rindex("return _limitBanner"):]
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       ValueError: substring not found
+
+tests\test_d7_8_inline_drill_time.py:90: ValueError
+__________________________ test_gate_gb0_always_grid __________________________
+
+    def test_gate_gb0_always_grid():
+        ap = re.search(r"function _mvRiApply\(d, page, mStore, fromCache\)\s*\{.*?\nfunction ", _HTML, re.S).group(0)
+>       assert "_hasGb" in ap and "_distOk" in ap
+E       assert ('_hasGb' in "function _mvRiApply(d, page, mStore, fromCache) {\n  var st = window._mvRiState || {};\n  var wrap = document.getElem...렌더. 재이관 대상과 분리: 유형 컬럼 없음, 목적 값만 표시(원본 없음).\n   목적 단독은 '재이관 비율'에 미포함이며, 목적에만 존재하고 원본에는 없는 레코드다(정리·확인 대상). */\nfunction " and '_distOk' in "function _mvRiApply(d, page, mStore, fromCache) {\n  var st = window._mvRiState || {};\n  var wrap = document.getElem...렌더. 재이관 대상과 분리: 유형 컬럼 없음, 목적 값만 표시(원본 없음).\n   목적 단독은 '재이관 비율'에 미포함이며, 목적에만 존재하고 원본에는 없는 레코드다(정리·확인 대상). */\nfunction ")
+
+tests\test_d7_9_gb0_fallback.py:34: AssertionError
+__________________________ test_stage_timing_display __________________________
+
+    def test_stage_timing_display():
+        # UI: 접힘 영역 함수 + 결과확인 고급 성능정보에 삽입
+        assert "function _mvStageTimingHtml()" in _HTML
+        assert "1~5단계 진입 전 처리시간" in _HTML
+>       assert "+ _mvStageTimingHtml() +" in _HTML
+E       assert '+ _mvStageTimingHtml() +' in '<!DOCTYPE html>\n<html lang="ko">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width,...esultsDetail; window.goToResultsDetail = goToResultsDetail; window.resExport = resExport;\n</script>\n</body>\n</html>'
+
+tests\test_d7_9_gb0_fallback.py:63: AssertionError
+_________________ test_parallel_read_decision_off_by_default __________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002759F100FA0>
+
+    def test_parallel_read_decision_off_by_default(monkeypatch):
+        # \xa71 \u2014 \uc815\ucc45 OFF \u2192 \uc21c\ucc28(False).
+        _set_par(monkeypatch, False)
+>       assert ar._parallel_read_decision({"host": "h1", "port": 5432}, {"host": "h2", "port": 5432}) is False
+E       AssertionError: assert (True, '') is False
+E        +  where (True, '') = <function _parallel_read_decision at 0x000002759F380E00>({'host': 'h1', 'port': 5432}, {'host': 'h2', 'port': 5432})
+E        +    where <function _parallel_read_decision at 0x000002759F380E00> = ar._parallel_read_decision
+
+tests\test_execution_path.py:85: AssertionError
+_________________ test_parallel_read_decision_diff_host_true __________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002759F121E80>
+
+    def test_parallel_read_decision_diff_host_true(monkeypatch):
+        # \xa73 \u2014 \uc815\ucc45 ON + \uc11c\ub85c \ub2e4\ub978 \ubb3c\ub9ac DB \u2192 \ub3d9\uc2dc\uc870\ud68c(True).
+        _set_par(monkeypatch, True)
+>       assert ar._parallel_read_decision({"host": "asis", "port": 5432}, {"host": "tobe", "port": 5432}) is True
+E       AssertionError: assert (True, '') is True
+E        +  where (True, '') = <function _parallel_read_decision at 0x000002759F380E00>({'host': 'asis', 'port': 5432}, {'host': 'tobe', 'port': 5432})
+E        +    where <function _parallel_read_decision at 0x000002759F380E00> = ar._parallel_read_decision
+
+tests\test_execution_path.py:91: AssertionError
+______________ test_parallel_read_decision_same_host_sequential _______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002759F123930>
+
+    def test_parallel_read_decision_same_host_sequential(monkeypatch):
+        # \xa73 \u2014 \uc815\ucc45 ON \uc774\uc5b4\ub3c4 \uac19\uc740 \ubb3c\ub9ac DB(host/port) \u2192 \uc21c\ucc28(\ubd80\ud558 \ubcf4\ud638, False).
+        _set_par(monkeypatch, True)
+>       assert ar._parallel_read_decision({"host": "same", "port": 5432}, {"host": "same", "port": 5432}) is False
+E       AssertionError: assert (False, 'SAME_PHYSICAL_DB') is False
+E        +  where (False, 'SAME_PHYSICAL_DB') = <function _parallel_read_decision at 0x000002759F380E00>({'host': 'same', 'port': 5432}, {'host': 'same', 'port': 5432})
+E        +    where <function _parallel_read_decision at 0x000002759F380E00> = ar._parallel_read_decision
+
+tests\test_execution_path.py:97: AssertionError
+___________ test_phase4b_strategy_plan_effective_selection_display ____________
+
+    def test_phase4b_strategy_plan_effective_selection_display():
+        """[Phase4-B \xa74] \uc2e4\ud589\uacc4\ud68d \uce74\ub4dc \u2014 \uc804\uc5ed \uc124\uc815 vs \uc2e4\uc81c \uc801\uc6a9 GB/SUM + \uceec\ub7fc \ubaa9\ub85d + \uc124\uc815 \ubd88\uc77c\uce58 \uc0ac\uc720."""
+        html = _page()
+        fn = re.search(r"async function _mvRenderStrategyPlan\([^)]*\)\s*\{.*?\n\}\n", html, re.S).group(0)
+        assert "전역 설정" in fn and "실제 적용" in fn
+>       assert "effective_group_by_count" in fn and "effective_aggregate_count" in fn
+E       assert ('effective_group_by_count' in 'async function _mvRenderStrategyPlan(profile, hostId) {\n  var host = document.getElementById(hostId || \'strategyPla...:.74rem;color:#C2410C;margin-top:4px">미구현 전략은 자동 실행하지 않습니다. 기존 전체 비교 fallback 은 명시 승인 시에만 사용합니다.</div>\' : \'\');\n}\n')
+
+tests\test_stats_result_full.py:489: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_d7_1_completed_history.py::test_client_gate_and_dialog - as...
+FAILED tests/test_d7_8_inline_drill_time.py::test_ui_advanced_perf_position_and_title
+FAILED tests/test_d7_9_gb0_fallback.py::test_gate_gb0_always_grid - assert ('...
+FAILED tests/test_d7_9_gb0_fallback.py::test_stage_timing_display - assert '+...
+FAILED tests/test_execution_path.py::test_parallel_read_decision_off_by_default
+FAILED tests/test_execution_path.py::test_parallel_read_decision_diff_host_true
+FAILED tests/test_execution_path.py::test_parallel_read_decision_same_host_sequential
+FAILED tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+8 failed, 331 passed, 6 xfailed in 37.13s

@@ -1,0 +1,762 @@
+commit f54c95732aa4481139c9d70e9185b8d93c4431e7
+Author: migration-validator <dev@migration-validator.local>
+Date:   Mon Jul 27 14:29:11 2026 +0900
+
+    feat(job): 재이관 job 진행시각(last_progress_at) 기록 + L1 죽은 thread 정리 (JOB-RECOVERY-STAGE1-PROGRESS-TIMESTAMP-AND-SAFE-DEFAULTS)
+    
+    - progress.last_progress_at 신설: update_progress 가 매 호출마다 기록(엔진 발행 시각 우선)
+    - pk_range_chunk._emit_prog 가 progress_at(wall clock) 을 함께 발행 — throttle/빈도 변경 없음
+    - L1 정리: 활성 job 의 실행 thread 가 죽었을 때(사실 판정) 유예 후 RECOVER_REQUIRED(ORPHAN_RUNNING)
+      + store.finish_run(ORPHANED). 토글 없이 항상 동작(진행 중 job 은 thread 가 살아 있어 대상 아님)
+    - 유예는 기존 execution_settings.recovery.orphan_running_after_sec 재사용(120→30), 신규 동의어 없음
+    - stall_detection_enabled(기본 False) 자리만 선언 — 이번 단계 소비 로직 없음(L2/L3 는 다음 단계)
+    - _job_public / pk-records 응답에 last_progress_at 노출(관측 전용)
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+diff --git a/routes/agg_diff_route.py b/routes/agg_diff_route.py
+index becda2a..38854a7 100644
+--- a/routes/agg_diff_route.py
++++ b/routes/agg_diff_route.py
+@@ -282,7 +282,9 @@ def _run_pk_range_chunk(req, src_sql, tgt_sql, key_src, key_tgt, sum_pairs, job,
+         def _pcb(_p):
+             rj.update_progress(job, processed_src=_p.get("processed_src"), processed_tgt=_p.get("processed_tgt"),
+                                mismatch=((_p.get("missing") or 0) + (_p.get("value") or 0)), available=_p.get("available"),
+-                               missing=_p.get("missing"), value=_p.get("value"), target_only=_p.get("target_only"))
++                               missing=_p.get("missing"), value=_p.get("value"), target_only=_p.get("target_only"),
++                               # [JOB-RECOVERY-STAGE1] 엔진 발행 시각 그대로 전달(미전달 시 update_progress 가 호출 시각으로 채움).
++                               progress_at=_p.get("progress_at"))
+             try:
+                 _pg = job["progress"]
+                 _pg["current_chunk"] = _p.get("current_chunk"); _pg["last_processed_key"] = _p.get("last_processed_key")
+@@ -1097,6 +1099,8 @@ def agg_diff_pk_records(run_id: str, page: int = 1, page_size: int = 100,
+                     "mismatch_group_distribution": prog.get("mismatch_group_distribution"),
+                     # [D7-8-1 D] 실행 중 실제 상세비교 경과(조회 시작 기준). UI '경과 N초' 는 이 값 우선.
+                     "detail_elapsed_ms": prog.get("detail_elapsed_ms"),
++                    # [JOB-RECOVERY-STAGE1] 마지막 진행 신호 시각(epoch 초) — 관측/노출 전용(자동 개입 없음).
++                    "last_progress_at": prog.get("last_progress_at"),
+                     "final_total_count": None, "total_count": None, "total": None, "total_pages": None,
+                     "page": pg["page"], "page_size": pg["page_size"], "returned_count": pg["returned_count"],
+                     "last_seq": (recs[-1].get("seq") if recs else None), "last_pk": None,
+diff --git a/scripts/dev_e2e/job_recovery_stage1_progress_timestamp_verify.py b/scripts/dev_e2e/job_recovery_stage1_progress_timestamp_verify.py
+new file mode 100644
+index 0000000..9821a57
+--- /dev/null
++++ b/scripts/dev_e2e/job_recovery_stage1_progress_timestamp_verify.py
+@@ -0,0 +1,289 @@
++# -*- coding: utf-8 -*-
++"""
++scripts/dev_e2e/job_recovery_stage1_progress_timestamp_verify.py
++
++JOB-RECOVERY-STAGE1-PROGRESS-TIMESTAMP-AND-SAFE-DEFAULTS 실측 드라이버 — 개발/테스트 전용(운영 파이프라인 아님).
++파이프라인상 위치: checker 계층(reimport_job / pk_range_chunk) + route 배선 종단 재현.
++
++실 DB(내부망 192.168.0.x / Neon) 이 모두 불통이라(§환경) 실 오라클·PG 종단 대신
++'실 엔진 + 실 route 함수(_run_pk_range_chunk) + 실 job 스레드' 를 in-process 로 구동해 재현한다.
++가짜인 것은 DB connection 과 chunk 조회 어댑터뿐이고, 진행신호 발행·throttle·job 갱신·폴링 경로는 전부 실제 코드다.
++
++측정 항목:
++  A. 재이관 job 진행 중 last_progress_at 이 실제로 갱신되는가(폴링 API rj.run_status 응답 기준) + 갱신 간격
++  B. L1 — 실행 thread 를 실제로 강제 종료(SystemExit 비동기 주입)시켰을 때 유예(30초) 후 ORPHAN 확정 + finish_run
++  C. 회귀 — 유예보다 오래 진행되는 '정상 job' 이 이번 변경으로 영향받지 않는가(가장 중요)
++
++사용법:  python scripts/dev_e2e/job_recovery_stage1_progress_timestamp_verify.py
++"""
++from __future__ import annotations
++
++import ctypes
++import json
++import os
++import sys
++import threading
++import time
++import types
++
++sys.path.insert(0, r"C:\projects\migration-validator")
++sys.stdout.reconfigure(encoding="utf-8")
++
++from services.exact_diff import execution_settings as es       # noqa: E402
++from services.exact_diff import pk_range_chunk as pc           # noqa: E402
++from services.exact_diff import reimport_job as rj             # noqa: E402
++from services.exact_diff import store as store_mod             # noqa: E402
++from services.exact_diff.store import ExactDiffRunStore        # noqa: E402
++
++SHOT = os.environ.get(
++    "MV_SHOT_DIR",
++    r"E:\verify_screenshots_only\JOB-RECOVERY-STAGE1-PROGRESS-TIMESTAMP-AND-SAFE-DEFAULTS")
++
++R: dict = {"driver": "job_recovery_stage1_progress_timestamp_verify", "results": {}}
++MEM_STORE = ExactDiffRunStore(memory=True)      # 운영 DB 파일 오염 방지(test-only in-memory)
++
++
++# ── 공통 — 가짜 DB connection / chunk 어댑터(실 엔진에 실 데이터 형태로 공급) ───────────────
++def _install_fake_db(rows_n: int, row_delay_ms: float = 0.0):
++    """route 가 쓰는 _pg_raw_connect 와 chunk 어댑터를 가짜로 교체한다(실 엔진 로직은 그대로).
++
++    row_delay_ms: chunk 조회 1회당 인위적 지연 — 실 DB read 대기를 모사해 진행신호 간격을 관측한다."""
++    from services.exact_diff import agg_contribution as agg_c
++
++    class _FakeConn:
++        def close(self):
++            pass
++
++    agg_c._pg_raw_connect = lambda conn: _FakeConn()
++
++    def _row(k, v):
++        return {"key": k, "gb": {}, "sum": {}, "cmp": {"V": v}}
++
++    SRC = {k: _row(k, str(k)) for k in range(1, rows_n + 1)}
++    # 값 불일치는 1,000행당 1건만 — 조기중단(임계 도달) 없이 chunk 루프를 끝까지 돌려 진행신호를 관측한다.
++    TGT = {k: _row(k, str(k + 1000) if k % 1000 == 0 else str(k)) for k in range(1, rows_n + 1)}
++
++    def _mk_fetch(_conn, _sql, _key, _gb, _sum, _labels, compare_cols=None):
++        data = SRC if _sql == "SRC" else TGT
++
++        def _f(a, b):
++            if row_delay_ms:
++                time.sleep(row_delay_ms / 1000.0)
++            return [data[k] for k in sorted(data) if a <= k < b]
++        return _f
++
++    adapter = (lambda d: d,                                     # output_alias(표시명 → alias)
++               lambda _c, _s, _k: (1, rows_n),                  # pk_min_max
++               _mk_fetch)
++    pc.get_chunk_fetch_adapter = lambda dbms: adapter
++    store_mod.default_exact_diff_store = lambda persist: MEM_STORE   # 운영 sqlite 미오염
++
++
++def _mk_req(rows_n: int, chunk_size: int):
++    """route(_run_pk_range_chunk)가 참조하는 최소 요청 객체 — 실제 필드 이름 그대로."""
++    return types.SimpleNamespace(
++        src_conn={"db_type": "postgresql", "host": "fake-src", "port": "5432", "dbname": "d"},
++        tgt_conn={"db_type": "postgresql", "host": "fake-tgt", "port": "5432", "dbname": "d"},
++        parse_result={"insert_cols": ["ID", "V"],
++                      "select_items": [{"tgt_col": "ID"}, {"tgt_col": "V"}]},
++        exclude_cols=[], gb_cols=[], chunk_size=chunk_size,
++        source_count=rows_n, target_count=rows_n)
++
++
++# ── A. 진행 중 last_progress_at 갱신 실측(폴링 API 응답 기준) ────────────────────────────
++def part_a():
++    print("\n" + "=" * 78)
++    print("[A] 재이관 job 진행 중 last_progress_at 갱신 실측 (실 엔진 + 실 route _pcb 배선)")
++    print("=" * 78)
++    import routes.agg_diff_route as agg
++
++    ROWS, CHUNK, DELAY_MS = 6000, 200, 400     # 30 chunk × 0.4초 지연 = 실 DB read 대기 모사(약 12초 실행)
++    _install_fake_db(ROWS, row_delay_ms=DELAY_MS)
++    rj.clear_all()
++
++    def _run_fn(job):
++        return agg._run_pk_range_chunk(_mk_req(ROWS, CHUNK), "SRC", "TGT", "ID", "ID", [], job,
++                                       fingerprint="")
++
++    job = rj.start_or_attach(fingerprint="fpA", meta={"session_id": "sessA",
++                                                      "workflow_type": "INDIVIDUAL",
++                                                      "query_summary": "stage1 verify"},
++                             run_fn=_run_fn)
++    # UI 와 동일하게 1초 폴링하며 API 응답(run_status)의 last_progress_at 만 본다.
++    samples, t0 = [], time.time()
++    run_id = None
++    while time.time() - t0 < 30:
++        run_id = run_id or job.get("run_id")
++        if run_id:
++            st = rj.run_status(run_id)
++            samples.append({"t": round(time.time() - t0, 2), "status": st.get("status"),
++                            "last_progress_at": st.get("last_progress_at"),
++                            "processed_source_count": st.get("processed_source_count")})
++            if st.get("status") not in rj._ACTIVE:
++                break
++        time.sleep(0.5)
++    job["thread"].join(timeout=30)
++
++    vals = [s["last_progress_at"] for s in samples if s["last_progress_at"] is not None]
++    distinct = sorted(set(vals))
++    gaps = [round(distinct[i + 1] - distinct[i], 3) for i in range(len(distinct) - 1)]
++    ok_present = bool(vals)
++    ok_advance = len(distinct) >= 3
++    ok_monotonic = all(vals[i] <= vals[i + 1] for i in range(len(vals) - 1))
++    R["results"]["A_last_progress_at"] = {
++        "rows": ROWS, "chunk_size": CHUNK, "chunk_delay_ms": DELAY_MS,
++        "final_status": job["status"], "poll_samples": len(samples),
++        "distinct_values": len(distinct), "gap_sec_min": (min(gaps) if gaps else None),
++        "gap_sec_max": (max(gaps) if gaps else None),
++        "first_sample": samples[0] if samples else None, "last_sample": samples[-1] if samples else None,
++        "api_field_present": ok_present, "advanced_during_run": ok_advance, "monotonic": ok_monotonic,
++        "verdict": "PASS" if (ok_present and ok_advance and ok_monotonic) else "FAIL",
++    }
++    print(f"  폴링 {len(samples)}회 / 서로 다른 last_progress_at {len(distinct)}개 / "
++          f"갱신간격 {min(gaps) if gaps else '-'}~{max(gaps) if gaps else '-'}초")
++    print(f"  최종 status={job['status']}  판정={R['results']['A_last_progress_at']['verdict']}")
++    return R["results"]["A_last_progress_at"]["verdict"] == "PASS"
++
++
++# ── B. L1 — 실행 thread 강제 종료 후 30초 유예 → ORPHAN 확정 ──────────────────────────
++def _kill_thread(t: threading.Thread):
++    """thread 에 SystemExit 를 비동기 주입 — _runner 의 except Exception 에 잡히지 않고 thread 가 즉사한다.
++    (실제 사고: worker 프로세스/스레드가 비정상 종료했지만 job 상태는 PREPARING 으로 남는 상황을 그대로 재현)"""
++    ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(t.ident),
++                                               ctypes.py_object(SystemExit))
++
++
++def part_b():
++    print("\n" + "=" * 78)
++    print("[B] L1 — 실행 thread 강제 종료 후 유예 경과 시 ORPHAN 확정 (실시간 벽시계)")
++    print("=" * 78)
++    rj.clear_all()
++    grace = es.get_execution_settings().recovery.orphan_running_after_sec
++    print(f"  유예 설정 orphan_running_after_sec = {grace}초 (execution_settings 재사용)")
++    RUN_ID = "PSORPHAN1"
++    MEM_STORE.create_run(RUN_ID, target_table="MV_STAGE1", fingerprint="fpB")
++
++    stop = threading.Event()
++
++    def _run_fn(job):
++        rj.bind_run_id(job, RUN_ID, {"session_id": "sessB", "workflow_type": "INDIVIDUAL"})
++        rj.update_progress(job, processed_src=1234, processed_tgt=1200)   # 진행 신호 1회 발행
++        while not stop.is_set():
++            time.sleep(0.2)
++        return {"status": "READY", "run_id": RUN_ID}
++
++    job = rj.start_or_attach(fingerprint="fpB", meta={"session_id": "sessB",
++                                                      "workflow_type": "INDIVIDUAL"},
++                             run_fn=_run_fn)
++    time.sleep(1.0)
++    before = rj.run_status(RUN_ID)
++    _kill_thread(job["thread"])
++    job["thread"].join(timeout=5)
++    killed_at = time.time()
++    print(f"  thread 강제 종료 — alive={job['thread'].is_alive()} status={job['status']} "
++          f"(job 은 스스로 끝나지 않는 좀비 상태)")
++
++    timeline, confirmed_at = [], None
++    while time.time() - killed_at < grace + 20:
++        st = rj.run_status(RUN_ID)            # UI 폴링 경로가 곧 L1 스캔 지점
++        timeline.append({"t": round(time.time() - killed_at, 1), "status": st.get("status")})
++        if st.get("status") == rj.RECOVER_REQUIRED:
++            confirmed_at = time.time() - killed_at
++            break
++        time.sleep(2.0)
++
++    head = MEM_STORE.get_run(RUN_ID) or {}
++    actives = rj.active_runs("sessB", workflow_type="INDIVIDUAL")
++    ok = (confirmed_at is not None and grace <= confirmed_at <= grace + 8
++          and job.get("recover_reason") == rj.RECOVER_REASON_ORPHAN_RUNNING
++          and head.get("status") == "ORPHANED" and not actives)
++    R["results"]["B_l1_orphan"] = {
++        "grace_sec": grace,
++        "status_before_kill": before.get("status"),
++        "last_progress_at_before_kill": before.get("last_progress_at"),
++        "thread_alive_after_kill": job["thread"].is_alive(),
++        "confirmed_after_sec": (round(confirmed_at, 1) if confirmed_at is not None else None),
++        "status_after": job["status"], "recover_reason": job.get("recover_reason"),
++        "store_run_status": head.get("status"), "store_stop_reason": head.get("stop_reason"),
++        "active_runs_after": len(actives),
++        "timeline": timeline,
++        "verdict": "PASS" if ok else "FAIL",
++    }
++    print(f"  ORPHAN 확정까지 {confirmed_at}초 (유예 {grace}초) / job.status={job['status']} "
++          f"reason={job.get('recover_reason')}")
++    print(f"  store.finish_run 결과 status={head.get('status')} stop_reason={head.get('stop_reason')}")
++    print(f"  active_runs 잔여={len(actives)}건  판정={R['results']['B_l1_orphan']['verdict']}")
++    stop.set()
++    return ok
++
++
++# ── C. 회귀 — 유예보다 오래 도는 정상 job 은 절대 영향받지 않는다 ────────────────────────
++def part_c():
++    print("\n" + "=" * 78)
++    print("[C] 회귀 — 유예(30초)보다 오래 진행되는 정상 job 무영향 (가장 중요)")
++    print("=" * 78)
++    rj.clear_all()
++    grace = es.get_execution_settings().recovery.orphan_running_after_sec
++    RUN_ID = "PSHEALTHY1"
++    MEM_STORE.create_run(RUN_ID, target_table="MV_STAGE1_OK", fingerprint="fpC")
++    stop = threading.Event()
++    DURATION = grace + 15                       # 유예보다 확실히 오래 진행
++
++    def _run_fn(job):
++        rj.bind_run_id(job, RUN_ID, {"session_id": "sessC", "workflow_type": "INDIVIDUAL"})
++        n, t0 = 0, time.time()
++        while not stop.is_set() and time.time() - t0 < DURATION:
++            n += 500
++            rj.update_progress(job, processed_src=n, processed_tgt=n)   # 진행 신호 정상 발행
++            time.sleep(1.0)
++        return {"status": "READY", "run_id": RUN_ID}
++
++    job = rj.start_or_attach(fingerprint="fpC", meta={"session_id": "sessC",
++                                                      "workflow_type": "INDIVIDUAL"},
++                             run_fn=_run_fn)
++    seen, t0 = [], time.time()
++    while time.time() - t0 < DURATION + 3:
++        st = rj.run_status(RUN_ID)              # 폴링마다 L1 스캔이 돈다
++        seen.append(st.get("status"))
++        if st.get("status") not in rj._ACTIVE:
++            break
++        time.sleep(1.0)
++    job["thread"].join(timeout=20)
++    head = MEM_STORE.get_run(RUN_ID) or {}
++    bad = [s for s in seen if s not in (rj.PREPARING, rj.READY)]
++    ok = (not bad and job["status"] == rj.READY and head.get("status") != "ORPHANED"
++          and job.get("recover_reason") is None and job.get("thread_dead_seen_at") is None)
++    R["results"]["C_healthy_untouched"] = {
++        "run_duration_sec": DURATION, "grace_sec": grace, "poll_count": len(seen),
++        "unexpected_status": bad, "final_status": job["status"],
++        "recover_reason": job.get("recover_reason"),
++        "thread_dead_seen_at": job.get("thread_dead_seen_at"),
++        "store_run_status": head.get("status"),
++        "verdict": "PASS" if ok else "FAIL",
++    }
++    print(f"  {DURATION}초 진행(유예 {grace}초 초과) / 폴링 {len(seen)}회 / 예상외 상태 {bad}")
++    print(f"  최종 status={job['status']}  판정={R['results']['C_healthy_untouched']['verdict']}")
++    return ok
++
++
++def main() -> int:
++    R["env"] = {"internal_network": "unreachable(192.168.0.150/151/211 timed out)",
++                "neon": "quota exceeded(서버측 거부)",
++                "substitute": "실 엔진·실 route·실 job thread in-process 구동(가짜: DB conn/chunk 어댑터)"}
++    a = part_a()
++    b = part_b()
++    c = part_c()
++    R["verdict"] = "PASS" if (a and b and c) else "FAIL"
++    print("\n" + "=" * 78)
++    print(f"종합 판정: {R['verdict']}  (A={a} B={b} C={c})")
++    print("=" * 78)
++    os.makedirs(SHOT, exist_ok=True)
++    out = os.path.join(SHOT, "stage1_progress_timestamp_verify.json")
++    with open(out, "w", encoding="utf-8") as f:
++        json.dump(R, f, ensure_ascii=False, indent=1)
++    print("결과 저장:", out)
++    return 0 if R["verdict"] == "PASS" else 1
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/services/exact_diff/execution_settings.py b/services/exact_diff/execution_settings.py
+index 24c2eed..2e0a6f3 100644
+--- a/services/exact_diff/execution_settings.py
++++ b/services/exact_diff/execution_settings.py
+@@ -61,10 +61,20 @@ class Recovery:
+     allow_recovery: bool = True
+     recovery_claim_ttl_sec: int = 600            # 벤치마크 후 조정
+     recovery_duplicate_guard_sec: int = 5        # 벤치마크 후 조정
+-    stale_running_after_sec: int = 300           # 벤치마크 후 조정(RUNNING heartbeat 없음 → stale 판정)
+-    orphan_running_after_sec: int = 120          # 벤치마크 후 조정(thread 없음 orphan 판정 유예)
++    # [JOB-RECOVERY-STAGE1] 아래 두 값은 신규 동의어를 만들지 않고 기존 선언을 그대로 소비한다.
++    #   stale_running_after_sec  : L2(정체 의심) 판정용 — 이번 단계에서는 소비처 없음(선언 유지, 다음 단계).
++    #   orphan_running_after_sec : L1(thread 사망 확인 후 정리) 유예. reimport_job.reclaim_dead_thread_jobs 가 소비.
++    #     120 → 30 으로 조정: L1 은 시간 추정이 아니라 사실 판정(is_alive()==False)이라 긴 유예가 안전을 더해주지 않고,
++    #     '진행 중으로 잘못 보고되는 좀비 구간'만 늘린다. 유예는 start() 직후 경계 구간 보호가 목적이다.
++    stale_running_after_sec: int = 300           # 벤치마크 후 조정(RUNNING heartbeat 없음 → stale 판정 — 소비처 없음)
++    orphan_running_after_sec: int = 30           # L1 ORPHAN 확정 유예(초) — thread 사망 재확인 간격
+     recoverable_checkpoint_max_age_sec: int = 86400  # 벤치마크 후 조정(오래된 checkpoint 복구 제외)
+     server_restart_recovery_enabled: bool = True
++    # [JOB-RECOVERY-STAGE1] L2(정체 의심)/L3(절대상한) 자동 판정 토글 — '자리'만 만들어 둔다.
++    #   이번 단계에는 이 값을 읽어 동작하는 로직이 존재하지 않는다(의도적). 기본 False 사유:
++    #   시간 기반 판정은 '느린 청크'와 '멈춘 job'을 구분하지 못한다 — 실환경 last_progress_at 분포를
++    #   충분히 관측한 뒤 임계값을 확정하고 켠다. L1(thread 사망 = 사실 판정)은 이 토글과 무관하게 항상 동작한다.
++    stall_detection_enabled: bool = False
+ 
+ 
+ # ── 5. cancel / finish ───────────────────────────────────────────────────────────────
+diff --git a/services/exact_diff/pk_range_chunk.py b/services/exact_diff/pk_range_chunk.py
+index 85a8d3b..ecd6125 100644
+--- a/services/exact_diff/pk_range_chunk.py
++++ b/services/exact_diff/pk_range_chunk.py
+@@ -282,6 +282,10 @@ def run_pk_range_chunk_compare(*, fetch_source_chunk, fetch_target_chunk, gb_col
+         _last_prog[0] = _now
+         try:
+             progress_cb({"processed_src": m["src_rows"], "processed_tgt": m["tgt_rows"],
++                         # [JOB-RECOVERY-STAGE1] 진행 신호 발행 시각(wall clock, epoch 초) — job.progress.last_progress_at 의 원천.
++                         #   perf_counter 는 단조시계라 외부 표시/회수 판정에 못 쓴다(발행 시점 time.time() 을 함께 싣는다).
++                         #   발행 빈도·throttle 로직(위 1초 게이트)은 변경하지 않는다 — 기존 발행 지점에 값만 얹는다.
++                         "progress_at": time.time(),
+                          "missing": m["missing"], "value": m["value"], "target_only": m["target_only"],
+                          "available": m["missing"] + m["value"] + m["target_only"],
+                          "current_chunk": m["chunks_done"] + 1, "last_processed_key": _last_key[0],
+diff --git a/services/exact_diff/reimport_job.py b/services/exact_diff/reimport_job.py
+index d8f5085..39a2693 100644
+--- a/services/exact_diff/reimport_job.py
++++ b/services/exact_diff/reimport_job.py
+@@ -42,9 +42,13 @@ _RECOVER_CLAIM: dict = {}   # run_id -> {"recovered_at": ts, "recovery_source":
+ 
+ def _new_progress() -> dict:
+     # TASK36 §1·§2 — 유형별 진행 카운트(merge 루프 카운터 — Source/Target 재조회 없음).
++    # [JOB-RECOVERY-STAGE1] last_progress_at = '마지막으로 진행 신호가 발행된 wall clock 시각'(초, epoch).
++    #   아직 한 번도 발행되지 않았으면 None → 소비측은 job['started_at'] 으로 폴백한다.
++    #   기록 전용 필드다 — 이 값을 근거로 job 을 자동 중단/전환하는 로직은 이번 단계에 넣지 않는다(L2/L3 는 다음 단계).
+     return {"processed_source_count": 0, "processed_target_count": 0,
+             "mismatch_count_so_far": 0, "available_count": 0,
+-            "missing_migration": 0, "value_mismatch": 0, "excluded_target_only": 0}
++            "missing_migration": 0, "value_mismatch": 0, "excluded_target_only": 0,
++            "last_progress_at": None}
+ 
+ 
+ def get_by_fingerprint(fp: str):
+@@ -267,6 +271,93 @@ def clear_recover(run_id: str) -> None:
+         _RECOVER_CLAIM.pop(run_id, None)
+ 
+ 
++# ── [JOB-RECOVERY-STAGE1] L1 — 실행 thread 사망 확인 후 정리(사실 판정) ────────────────────
++# 판정 근거는 '시간 추정'이 아니라 사실이다: job["thread"] 가 존재하는데 is_alive()==False 인데도
++# status 가 활성(_ACTIVE)이면, 그 job 을 끝낼 주체(_runner)가 이미 사라진 것이다 — 스스로 절대 끝나지 않는다.
++# 그래서 이 정리만은 기능 토글 없이 항상 동작해도 안전하다(진행 중 job 은 thread 가 살아 있어 대상이 될 수 없다).
++#
++# 유예(orphan_running_after_sec, 기본 30초)를 두는 이유는 오탐이 아니라 '경계 구간' 때문이다:
++#   start_or_attach 는 job["thread"]=t 를 t.start() 전에 대입한다 → 그 찰나에 스캔이 끼면 is_alive()==False.
++#   그래서 ① 최초 관측 시각만 기록하고 ② 유예 경과 후 재관측에서도 여전히 죽어 있을 때만 확정한다.
++#   중간에 살아난(=정상) job 은 관측 표식을 즉시 지운다(누적되지 않는다).
++# 절대 하지 않는 것: 시간만 보고(진행 신호가 없다는 이유로) 살아 있는 thread 를 건드리는 일 — L2/L3 는 다음 단계.
++
++
++def _collect_orphans_locked(now: float, grace: float) -> list:
++    """_LOCK 보유 상태에서 호출 — ORPHAN 확정 대상 job 목록을 반환하고 status 를 전이시킨다.
++
++    반환 원소: (job, run_id) — store.finish_run 은 Lock 해제 후 호출한다(DB I/O 를 Lock 안에서 하지 않는다)."""
++    seen, victims = set(), []
++    for j in list(_JOBS_BY_FP.values()) + list(_JOBS_BY_RUN.values()):
++        if id(j) in seen:
++            continue
++        seen.add(id(j))
++        t = j.get("thread")
++        if t is None:
++            continue                                   # thread 를 가진 job 만 사실 판정 가능(외부 생성 job 제외)
++        if j.get("status") not in _ACTIVE:
++            j.pop("thread_dead_seen_at", None)
++            continue                                   # 이미 종료/정지 상태 — 대상 아님
++        if t.is_alive():
++            j.pop("thread_dead_seen_at", None)         # 살아 있음 → 이전 관측 표식 제거(경계 구간 오탐 방지)
++            continue
++        seen_at = j.get("thread_dead_seen_at")
++        if seen_at is None:
++            j["thread_dead_seen_at"] = now             # 최초 관측 — 확정하지 않는다(유예 시작)
++            continue
++        if (now - seen_at) < grace:
++            continue                                   # 유예 미경과 — 다음 스캔에서 재확인
++        # 유예 경과 + 재관측에도 thread 사망 → ORPHAN 확정. 상태는 기존 복구 어휘를 재사용한다
++        # (RECOVER_REQUIRED + reason=ORPHAN_RUNNING) — 새 status 값을 늘리지 않고, checkpoint 기반 복구 대상으로 남긴다.
++        j["status"] = RECOVER_REQUIRED
++        j["recover_reason"] = RECOVER_REASON_ORPHAN_RUNNING
++        j["orphan_confirmed_at"] = now
++        j["finished_at"] = j.get("finished_at") or now
++        j["error"] = j.get("error") or "실행 thread 가 종료되어 진행할 수 없는 job 입니다(ORPHAN_RUNNING)."
++        victims.append((j, j.get("run_id")))
++    return victims
++
++
++def reclaim_dead_thread_jobs(*, now=None, store=None) -> list:
++    """[JOB-RECOVERY-STAGE1 L1] 실행 thread 가 죽은 활성 job 을 유예 후 ORPHAN 으로 정리한다.
++
++    호출 지점은 기존 조회 경로(active_runs / run_status) — 별도 sweeper thread 를 만들지 않는다(운영 단순).
++    비용: job 수(≤ _JOBS_MAX=16) 만큼의 is_alive() 검사. 확정 대상이 있을 때만 store.finish_run(DB write)을 한다.
++    반환: 이번 호출에서 확정한 run_id 목록(없으면 빈 리스트)."""
++    now = now if now is not None else time.time()
++    try:
++        grace = float(_es.get_execution_settings().recovery.orphan_running_after_sec)
++    except Exception:  # noqa: BLE001
++        grace = 30.0
++    with _LOCK:
++        victims = _collect_orphans_locked(now, grace)
++        if victims:
++            _evict()                                   # 활성에서 빠졌으므로 상한 정리 대상에 포함
++    done = []
++    for j, rid in victims:
++        if not rid:
++            continue
++        note_finished(rid, now=now)                    # 실행시간 확정(_LOCK 밖 — 재진입 방지)
++        try:
++            st = store if store is not None else _default_store()
++            if st is not None:
++                st.finish_run(rid, status="ORPHANED", stop_reason=RECOVER_REASON_ORPHAN_RUNNING,
++                              is_matched=False)
++        except Exception as exc:  # noqa: BLE001
++            j["orphan_store_error"] = str(exc)[:200]   # store 실패해도 in-memory 정리는 유지(조회는 정상화)
++        done.append(rid)
++    return done
++
++
++def _default_store():
++    """store 지연 import(모듈 순환 방지). 실패 시 None — in-memory 정리는 계속 진행한다."""
++    try:
++        from services.exact_diff.store import default_exact_diff_store
++        return default_exact_diff_store(True)
++    except Exception:  # noqa: BLE001
++        return None
++
++
+ def _job_public(j: dict) -> dict:
+     """UI/조회용 요약(민감정보 없음 — run_id/상태/진행/시작시각/쿼리요약만)."""
+     m = j.get("meta") or {}
+@@ -274,6 +365,11 @@ def _job_public(j: dict) -> dict:
+             "started_at": j.get("started_at"), "finished_at": j.get("finished_at"),
+             "cancel_requested_at": j.get("cancel_requested_at"), "cancel_reason": j.get("cancel_reason"),
+             "progress": dict(j.get("progress") or {}),
++            # [JOB-RECOVERY-STAGE1] 마지막 진행 신호 시각(초·epoch). 아직 발행 전이면 None(→ started_at 폴백은 소비측 판단).
++            #   표시/관측 전용 — 이 값으로 자동 개입하지 않는다.
++            "last_progress_at": (j.get("progress") or {}).get("last_progress_at"),
++            # [JOB-RECOVERY-STAGE1] L1 정리로 ORPHAN 확정된 job 의 사유·확정시각(정상 job 은 None).
++            "recover_reason": j.get("recover_reason"), "orphan_confirmed_at": j.get("orphan_confirmed_at"),
+             "query_summary": m.get("query_summary") or "", "session_id": m.get("session_id") or "",
+             "query_hash": m.get("query_hash") or ""}   # [안내 문구 구분] 동일/다른 쿼리 판정용(민감정보 아님)
+ 
+@@ -283,6 +379,7 @@ def active_runs(session_id: str = "", project_id: str = "", workflow_type: str =
+ 
+     [D7-4 C] project_id/workflow_type 이 주어지면 그 스코프로 추가 필터한다(다른 프로젝트/워크플로 run 격리).
+     개별검증 재이관 run 은 모두 workflow_type=INDIVIDUAL. project_id 는 job meta 에 저장된 값과 비교(없으면 통과)."""
++    reclaim_dead_thread_jobs()   # [JOB-RECOVERY-STAGE1 L1] 죽은 thread job 을 '진행 중'으로 보고하지 않는다
+     with _LOCK:
+         out = []
+         for j in list(_JOBS_BY_RUN.values()):
+@@ -303,6 +400,7 @@ def active_runs(session_id: str = "", project_id: str = "", workflow_type: str =
+ 
+ 
+ def run_status(run_id: str) -> dict:
++    reclaim_dead_thread_jobs()   # [JOB-RECOVERY-STAGE1 L1] 폴링 경로에서 사실 판정(별도 sweeper thread 없음)
+     with _LOCK:
+         j = _JOBS_BY_RUN.get(run_id)
+         if j is None:
+@@ -371,8 +469,15 @@ def find_completed_by_condition(session_id: str, condition_fp: str, *,
+ 
+ 
+ def update_progress(job: dict, *, processed_src=None, processed_tgt=None,
+-                    mismatch=None, available=None, missing=None, value=None, target_only=None):
++                    mismatch=None, available=None, missing=None, value=None, target_only=None,
++                    progress_at=None):
++    """진행 카운트 갱신 + [JOB-RECOVERY-STAGE1] 진행 시각(last_progress_at) 기록.
++
++    progress_at 은 엔진(_emit_prog)이 발행 시점에 찍은 wall clock 시각. 미전달이면 이 호출 시각으로 채운다.
++    → 어느 엔진(PK_RANGE_CHUNK / REIMPORT_PK_INDEX_STREAM)을 쓰든 progress_cb 가 호출되면 반드시 갱신된다.
++    기록만 한다 — 이 값으로 상태를 바꾸는 판정(정체 의심·절대상한)은 이번 단계 범위가 아니다."""
+     p = job["progress"]
++    p["last_progress_at"] = progress_at if progress_at is not None else time.time()
+     if processed_src is not None:
+         p["processed_source_count"] = processed_src
+     if processed_tgt is not None:
+diff --git a/tests/test_job_recovery_stage1_progress_timestamp.py b/tests/test_job_recovery_stage1_progress_timestamp.py
+new file mode 100644
+index 0000000..1b0ae84
+--- /dev/null
++++ b/tests/test_job_recovery_stage1_progress_timestamp.py
+@@ -0,0 +1,221 @@
++# -*- coding: utf-8 -*-
++"""JOB-RECOVERY-STAGE1-PROGRESS-TIMESTAMP-AND-SAFE-DEFAULTS 회귀 테스트.
++
++검증 대상(services/exact_diff/reimport_job.py):
++  1. progress.last_progress_at 필드 존재 + update_progress 호출 시 갱신(엔진 발행 시각 우선)
++  2. _job_public / run_status 응답에 last_progress_at 노출
++  3. L1 정리 — 활성(_ACTIVE) job 의 실행 thread 가 죽었을 때 유예 경과 후 ORPHAN 확정 + store.finish_run
++  4. 회귀(가장 중요) — 정상 진행 중(thread alive) job 은 절대 건드리지 않는다
++"""
++from __future__ import annotations
++
++import threading
++import time
++
++import pytest
++
++from services.exact_diff import execution_settings as es
++from services.exact_diff import reimport_job as rj
++
++
++class _FakeStore:
++    """store.finish_run 호출만 기록하는 가짜 store(DB 접근 없음)."""
++
++    def __init__(self):
++        self.finished = []
++
++    def finish_run(self, run_id, **kw):
++        self.finished.append((run_id, kw))
++
++
++@pytest.fixture(autouse=True)
++def _clean():
++    rj.clear_all()
++    es.reset_execution_settings()
++    yield
++    rj.clear_all()
++    es.reset_execution_settings()
++
++
++def _mk_job(fp, run_id, hold: threading.Event, session="sessS1"):
++    """hold 가 set 될 때까지 PREPARING 을 유지하는 실제 thread job 1개."""
++    def _run(job):
++        rj.bind_run_id(job, run_id, {"session_id": session, "workflow_type": "INDIVIDUAL"})
++        hold.wait(timeout=30)
++        return {"status": "READY", "run_id": run_id}
++
++    return rj.start_or_attach(fingerprint=fp,
++                              meta={"session_id": session, "workflow_type": "INDIVIDUAL"},
++                              run_fn=_run)
++
++
++# ── 1. 진행 시각 기록 ──────────────────────────────────────────────────────────────────
++def test_new_progress_has_last_progress_at():
++    p = rj._new_progress()
++    assert "last_progress_at" in p and p["last_progress_at"] is None   # 발행 전엔 None
++
++
++def test_update_progress_stamps_time():
++    job = {"progress": rj._new_progress()}
++    t0 = time.time()
++    rj.update_progress(job, processed_src=10, processed_tgt=9)
++    ts = job["progress"]["last_progress_at"]
++    assert ts is not None and t0 <= ts <= time.time()
++    # 두 번째 호출에서 값이 전진(단조 증가)
++    time.sleep(0.01)
++    rj.update_progress(job, processed_src=20)
++    assert job["progress"]["last_progress_at"] > ts
++    assert job["progress"]["processed_source_count"] == 20   # 기존 카운트 동작 불변
++
++
++def test_update_progress_uses_engine_timestamp():
++    """엔진(_emit_prog)이 실은 progress_at 을 그대로 쓴다(호출 시각으로 덮어쓰지 않는다)."""
++    job = {"progress": rj._new_progress()}
++    fixed = 1700000000.5
++    rj.update_progress(job, processed_src=1, progress_at=fixed)
++    assert job["progress"]["last_progress_at"] == fixed
++
++
++def test_pk_range_chunk_emits_progress_at():
++    """pk_range_chunk._emit_prog 발행 payload 에 progress_at 이 실려 있는지(배선 계약)."""
++    import inspect
++
++    from services.exact_diff import pk_range_chunk as pc
++    src = inspect.getsource(pc.run_pk_range_chunk_compare)
++    assert '"progress_at": time.time()' in src
++
++
++# ── 2. 노출 ───────────────────────────────────────────────────────────────────────────
++def test_job_public_exposes_last_progress_at():
++    hold = threading.Event()
++    job = _mk_job("fpS1", "RUNS1", hold)
++    try:
++        time.sleep(0.2)
++        rj.update_progress(job, processed_src=5)
++        pub = rj._job_public(job)
++        assert "last_progress_at" in pub and pub["last_progress_at"] is not None
++        st = rj.run_status("RUNS1")
++        assert st["last_progress_at"] == pub["last_progress_at"]
++    finally:
++        hold.set()
++
++
++# ── 3. L1 정리(스레드 사망 시뮬레이션) ─────────────────────────────────────────────────
++def test_l1_reclaims_dead_thread_after_grace():
++    hold = threading.Event()
++    job = _mk_job("fpS2", "RUNS2", hold)
++    time.sleep(0.2)
++    hold.set()                       # worker 종료 → thread 사망
++    for _ in range(100):
++        if not job["thread"].is_alive():
++            break
++        time.sleep(0.02)
++    job["status"] = rj.PREPARING     # 강제 시뮬레이션: 상태만 활성으로 되돌린다(= thread 만 죽은 좀비)
++    job["finished_at"] = None
++    store = _FakeStore()
++
++    now = time.time()
++    # (a) 유예 내 재관측 — 아직 확정하지 않는다
++    assert rj.reclaim_dead_thread_jobs(now=now + 1, store=store) == []
++    assert job["status"] == rj.PREPARING and job.get("thread_dead_seen_at") is not None
++    assert rj.reclaim_dead_thread_jobs(now=now + 20, store=store) == []
++    assert job["status"] == rj.PREPARING          # 30초 유예 미경과 → 그대로
++
++    # (b) 유예(orphan_running_after_sec=30) 경과 → ORPHAN 확정
++    grace = es.get_execution_settings().recovery.orphan_running_after_sec
++    assert grace == 30
++    done = rj.reclaim_dead_thread_jobs(now=now + grace + 1, store=store)
++    assert done == ["RUNS2"]
++    assert job["status"] == rj.RECOVER_REQUIRED
++    assert job["recover_reason"] == rj.RECOVER_REASON_ORPHAN_RUNNING
++    assert job["orphan_confirmed_at"] is not None
++    assert store.finished and store.finished[0][0] == "RUNS2"
++    assert store.finished[0][1]["status"] == "ORPHANED"
++    # 더 이상 '진행 중'으로 보고되지 않는다(팝업/게이트 해제)
++    assert not any(r["run_id"] == "RUNS2" for r in rj.active_runs("sessS1"))
++
++
++def test_l1_grace_is_configurable_and_reuses_existing_setting():
++    """신규 동의어 설정을 만들지 않고 기존 orphan_running_after_sec 를 소비하는지."""
++    es.override_group("recovery", orphan_running_after_sec=5)
++    hold = threading.Event()
++    job = _mk_job("fpS3", "RUNS3", hold)
++    time.sleep(0.2)
++    hold.set()
++    for _ in range(100):
++        if not job["thread"].is_alive():
++            break
++        time.sleep(0.02)
++    job["status"] = rj.PREPARING
++    store = _FakeStore()
++    now = time.time()
++    assert rj.reclaim_dead_thread_jobs(now=now + 1, store=store) == []
++    assert rj.reclaim_dead_thread_jobs(now=now + 6, store=store) == ["RUNS3"]   # 5초 설정 반영
++
++
++# ── 4. 회귀 — 정상 진행 중 job 무영향(가장 중요) ────────────────────────────────────────
++def test_running_job_never_touched():
++    hold = threading.Event()
++    job = _mk_job("fpS4", "RUNS4", hold)
++    try:
++        time.sleep(0.2)
++        rj.update_progress(job, processed_src=100)
++        store = _FakeStore()
++        # 유예보다 한참 뒤 시각으로 스캔해도 thread 가 살아 있으면 대상이 아니다
++        for offset in (1, 60, 3600, 86400):
++            assert rj.reclaim_dead_thread_jobs(now=time.time() + offset, store=store) == []
++            assert job["status"] == rj.PREPARING
++        assert store.finished == []
++        assert job.get("thread_dead_seen_at") is None
++        assert any(r["run_id"] == "RUNS4" for r in rj.active_runs("sessS1"))
++        assert rj.run_status("RUNS4")["status"] == rj.PREPARING
++    finally:
++        hold.set()
++
++
++def test_dead_seen_mark_cleared_when_alive_again():
++    """start() 직전 경계에서 죽은 것으로 관측돼도, 살아 있으면 표식이 즉시 지워진다(오탐 누적 없음)."""
++    hold = threading.Event()
++    job = {"status": rj.PREPARING, "started_at": time.time() - 999,
++           "thread": threading.Thread(target=lambda: hold.wait(timeout=10)),
++           "progress": rj._new_progress()}
++    rj._JOBS_BY_FP["fpS5"] = job
++    now = time.time()
++    rj.reclaim_dead_thread_jobs(now=now, store=_FakeStore())
++    assert job["thread_dead_seen_at"] is not None      # 아직 start() 전 → 죽은 것으로 관측
++    job["thread"].start()
++    try:
++        rj.reclaim_dead_thread_jobs(now=now + 1, store=_FakeStore())
++        assert job.get("thread_dead_seen_at") is None  # 살아난 시점에 표식 제거
++        # 표식이 지워졌으므로 유예가 처음부터 다시 시작된다(즉시 ORPHAN 확정되지 않는다)
++        assert rj.reclaim_dead_thread_jobs(now=now + 999, store=_FakeStore()) == []
++        assert job["status"] == rj.PREPARING
++    finally:
++        hold.set()
++        job["thread"].join(timeout=5)
++
++
++def test_paused_job_not_reclaimed():
++    """PAUSED 는 _ACTIVE 가 아니다 — thread 가 없어도 L1 대상이 아니다(재개 가능 상태 보존)."""
++    hold = threading.Event()
++    job = _mk_job("fpS6", "RUNS6", hold)
++    time.sleep(0.2)
++    hold.set()
++    for _ in range(100):
++        if not job["thread"].is_alive():
++            break
++        time.sleep(0.02)
++    job["status"] = rj.PAUSED
++    store = _FakeStore()
++    assert rj.reclaim_dead_thread_jobs(now=time.time() + 999, store=store) == []
++    assert job["status"] == rj.PAUSED and store.finished == []
++
++
++# ── 5. 토글 자리만 존재(소비 로직 없음) ────────────────────────────────────────────────
++def test_stall_detection_toggle_declared_but_unused():
++    rc = es.get_execution_settings().recovery
++    assert hasattr(rc, "stall_detection_enabled")
++    assert rc.stall_detection_enabled is False
++    # 이번 단계에서 이 토글을 읽는 소비처는 없어야 한다(L2/L3 는 다음 단계).
++    import inspect
++    assert "stall_detection_enabled" not in inspect.getsource(rj)

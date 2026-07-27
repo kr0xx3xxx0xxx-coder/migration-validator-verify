@@ -1,0 +1,194 @@
+JOB-RECOVERY-STAGE1-PROGRESS-TIMESTAMP-AND-SAFE-DEFAULTS — 서술형 완료보고서
+작성일 2026-07-27 / 커밋 f54c957 / 서버 재기동 2026-07-27 14:17:52 (KST)
+
+────────────────────────────────────────────────────────────────────────────
+1. 이번 작업이 무엇을 해결했나
+────────────────────────────────────────────────────────────────────────────
+직전 세 진단(REIMPORT-JOB-PROGRESS-HEARTBEAT-INTERVAL / BATCH-VALIDATION-PROGRESS-
+DASHBOARD-FEASIBILITY / PROGRESS-TRACKING-INSTRUMENTATION-OVERHEAD)이 공통으로
+지목한 것은 하나였다. "job 이 살아 있는지 죽었는지 판단할 근거 자체가 서버에 없다."
+
+재이관 job 은 in-memory dict 로만 존재했고, 그 dict 에는 시작 시각(started_at)과
+완료 시각(finished_at)은 있어도 "마지막으로 무언가 진행된 시각"이 없었다. 그래서
+회수 메커니즘(좀비 job 정리)도, 진행률 대시보드도, 둘 다 같은 지점에서 막혀 있었다.
+이번 단계는 그 공통 기반 한 칸(last_progress_at)을 채우고, 그 위에서 '안전이 확실한
+정리'만 켰다.
+
+의도적으로 하지 않은 것이 이번 작업의 절반이다. PAUSED 자동 idle-전환, L2(정체 의심)
+판정, L3(절대상한 자동 FAILED), 대시보드 UI 는 전부 범위에서 뺐다. 이유는 진단 §7-2 에
+기록된 그대로다 — checkpoint 없는 STREAM 엔진에서 시간 기반 자동 개입은 20시간짜리
+검증을 통째로 날릴 수 있고, 그 임계값을 정할 실환경 데이터가 아직 없다. 데이터를 모으는
+필드를 먼저 넣고, 판정은 나중에 붙이는 순서다.
+
+────────────────────────────────────────────────────────────────────────────
+2. 무엇을 어떻게 바꿨나
+────────────────────────────────────────────────────────────────────────────
+(1) 진행 시각 기록 — services/exact_diff/reimport_job.py
+    _new_progress() 에 last_progress_at(초·epoch, 초기 None)을 추가하고,
+    update_progress() 가 호출될 때마다 이 값을 갱신하도록 했다. 갱신 지점을
+    update_progress 한 곳으로 모은 이유는 엔진이 두 개이기 때문이다 —
+    PK_RANGE_CHUNK_COMPARE 와 REIMPORT_PK_INDEX_STREAM 이 서로 다른 경로로
+    progress_cb 를 호출하는데, 둘 다 결국 update_progress 로 수렴한다. 여기 하나만
+    찍으면 엔진이 무엇이든 빠짐이 없다.
+
+(2) 엔진 발행 시각 전달 — pk_range_chunk.py + routes/agg_diff_route.py
+    _emit_prog() 가 발행 payload 에 progress_at(=time.time())을 함께 싣고, route 의
+    _pcb 가 그대로 update_progress 에 넘긴다. 엔진 내부는 time.perf_counter(단조시계)로
+    throttle 하는데 그 값은 외부 표시·회수 판정에 쓸 수 없어서, 발행 시점의 벽시계를
+    별도로 실어 보낸다. 발행 빈도와 1초 throttle 로직은 한 줄도 건드리지 않았다.
+    (미전달 시에는 update_progress 가 호출 시각으로 채우므로 STREAM 경로도 안전하다.)
+
+(3) L1 정리 — reclaim_dead_thread_jobs()
+    핵심은 "이 판정은 추정이 아니라 사실"이라는 점이다. job["thread"] 가 존재하는데
+    is_alive()==False 인데도 status 가 활성(_ACTIVE)이면, 그 job 을 끝낼 주체(_runner)가
+    이미 사라진 것이다. 그 job 은 스스로 절대 끝나지 않는다. 반대로 진행 중인 job 은
+    thread 가 살아 있으므로 애초에 대상이 될 수 없다. 그래서 이 정리만은 기능 토글 없이
+    항상 동작해도 안전하다고 판단했다.
+
+    유예(30초)를 둔 이유는 오탐 방지가 아니라 경계 구간 때문이다. start_or_attach 는
+    job["thread"]=t 를 t.start() 이전에 대입하므로, 그 찰나에 스캔이 끼면 is_alive()가
+    False 로 보인다. 그래서 ① 최초 관측 시각만 기록하고 ② 유예 경과 후 재관측에도 여전히
+    죽어 있을 때만 확정한다. 중간에 살아난 job 은 관측 표식을 즉시 지운다(누적 없음).
+
+    확정 시 상태는 새 status 값을 만들지 않고 기존 복구 어휘를 재사용했다 —
+    RECOVER_REQUIRED + recover_reason=ORPHAN_RUNNING. 이 두 상수는 D7-19 때 정확히 이
+    상황("job 은 있으나 실행 thread 종료(비정상)")을 위해 이미 선언돼 있었다. 동시에
+    store.finish_run(status="ORPHANED", stop_reason="ORPHAN_RUNNING") 로 디스크 run
+    헤더도 닫는다. store I/O 는 Lock 밖에서 호출한다(기존 request_cancel 과 같은 패턴).
+
+    호출 지점은 별도 sweeper thread 를 만들지 않고 기존 조회 경로 두 곳(active_runs,
+    run_status)에 얹었다. UI 가 1초마다 폴링하는 그 경로가 곧 스캔 주기가 된다. 비용은
+    job 수(상한 16)만큼의 is_alive() 검사이고, 확정 대상이 있을 때만 DB write 가 난다.
+
+(4) 설정 — execution_settings.py
+    신규 이름을 만들지 않고 기존 recovery.orphan_running_after_sec 를 소비처로 연결했다.
+    이 필드는 선언만 되고 사용처가 0이던 6개 죽은 설정 중 하나였다. 기본값은 120→30 으로
+    조정했다. L1 은 사실 판정이라 긴 유예가 안전을 더해주지 않고, '진행 중으로 잘못
+    보고되는 좀비 구간'만 늘리기 때문이다. stale_running_after_sec 은 L2 용이므로 이번엔
+    선언만 유지했다(여전히 소비처 0 — 다음 단계에서 배선).
+    stall_detection_enabled(기본 False)는 지시대로 '자리'만 만들었다. 이 값을 읽는 코드가
+    없다는 것 자체를 테스트로 고정해 두었다(inspect 로 reimport_job 소스에 이름이 없음을
+    단언) — 다음 단계에서 소비 로직을 넣을 때 이 테스트가 같이 갱신되도록.
+
+(5) 노출 — _job_public / pk-records 응답
+    _job_public 에 last_progress_at(+ recover_reason, orphan_confirmed_at)을 추가했고,
+    진행 중 폴링 API(/agg-diff/pk-records)의 PREPARING 분기 응답에도 last_progress_at 을
+    실었다. 관측·표시 전용이며 이 값으로 자동 개입하는 코드는 없다.
+
+────────────────────────────────────────────────────────────────────────────
+3. 검증 — 실 DB 를 쓰지 못한 사정과 그 대체
+────────────────────────────────────────────────────────────────────────────
+지시대로 실 서비스 포트(8000, 인증 ON)와 실 오라클/PG 로 검증하려 했으나, 내부망은 여전히
+복구되지 않았고 Neon 도 쿼터 거부 상태였다. 실측 결과는 다음과 같다(모두 이번 작업 중 직접 확인):
+
+  192.168.0.150:5433/5434(Inter PG), 192.168.0.151:1523/1524(Oracle asis/tobe),
+  192.168.0.211:3309(MariaDB)  → 전부 TCP timeout
+  Neon PG 4개 프리셋                → 서버측 "Your project has exceeded the data ..." 거부
+  (도달 가능한 것은 DB2 192.168.0.10:50000 뿐인데, PK range chunk 재이관 미지원 방언이라
+   이번 검증에 쓸 수 없다)
+
+그래서 직전 세 진단과 동일한 방식으로 대체했다 — 가짜인 것은 DB connection 과 chunk 조회
+어댑터 두 개뿐이고, 진행신호 발행·throttle·route 의 _pcb 배선·job 스레드·폴링 API 는 전부
+실제 코드를 그대로 구동했다. 드라이버는
+scripts/dev_e2e/job_recovery_stage1_progress_timestamp_verify.py 이다.
+
+[A] 진행 중 last_progress_at 갱신 — PASS
+    6,000행 / chunk 200(=30 chunk) / chunk 조회당 400ms 지연(실 DB read 대기 모사).
+    실제 route 함수 _run_pk_range_chunk 를 실 job 스레드에서 돌리고, UI 와 동일하게
+    run_status 를 0.5초 간격으로 폴링했다.
+      폴링 25회 → 서로 다른 last_progress_at 25개(전부 전진, 단조 증가 위반 0)
+      갱신 간격 0.401 ~ 0.803초 (엔진의 1초 throttle 이내)
+      첫 샘플 t=0.5s processed=200 → 마지막 t=12.52s processed=6,000, 최종 READY
+    즉 "job 이 살아 있으면 최소 1초 안쪽으로 시각이 갱신된다"가 실측으로 확인됐다.
+
+[B] L1 정리 — PASS
+    가장 신경 쓴 부분은 '진짜 사고를 재현했는가'다. 스레드를 정상 종료시키면 _runner 가
+    상태를 정리해 버려 좀비가 만들어지지 않는다. 그래서 ctypes 로 SystemExit 를 비동기
+    주입해 스레드를 즉사시켰다 — _runner 의 except Exception 에 잡히지 않으므로 스레드만
+    사라지고 job 은 PREPARING 으로 남는다(= 실제 사고 형태 그대로).
+      kill 직후: thread alive=False, status=PREPARING (스스로 끝나지 않는 좀비)
+      2초 간격 폴링 타임라인: 0~28초 PREPARING 유지 → 30.0초에 RECOVER_REQUIRED
+      recover_reason=ORPHAN_RUNNING, store run status=ORPHANED / stop_reason=ORPHAN_RUNNING
+      active_runs 잔여 0건 (더 이상 '진행 중'으로 보고되지 않음 = 새로고침 팝업 재발 해소)
+    유예가 실제 벽시계로 30초 지켜졌고, 그 전에는 한 번도 상태를 건드리지 않았다.
+
+[C] 회귀 — 정상 job 무영향 — PASS (가장 중요)
+    유예(30초)보다 확실히 오래 도는 45초짜리 정상 job 을 돌리며 1초마다 폴링(47회)했다.
+    폴링할 때마다 L1 스캔이 도는 조건이다.
+      예상외 상태 0건(PREPARING → READY 만 관측), recover_reason=None,
+      thread_dead_seen_at 표식조차 한 번도 찍히지 않음, 최종 READY 정상 완료
+    "오래 걸리는 job 이 죽임당하지 않는다"는 것이 이번 변경의 안전성 핵심인데, 그것이
+    시간 임계가 아니라 구조(살아 있는 thread 는 대상이 아님)로 보장됨을 확인했다.
+
+[D] 실 서버(8000, 인증 ON) — 재기동 2026-07-27 14:17:52 KST
+    무인증 요청 401(인증 계층 정상), 기동 로그 Application startup complete.
+    GET /api/execution/settings 응답에서 새 설정이 그대로 서빙됨을 확인:
+      orphan_running_after_sec: 30, stall_detection_enabled: false,
+      stale_running_after_sec: 300(미배선 유지)
+    GET /single/active-run/status?run_id=NOSUCH → not_found 정상 응답(라우트 건재).
+    다만 실 서버에서 '실제 재이관 job 의 last_progress_at 이 API 로 흐르는 것'까지는
+    확인하지 못했다 — 그러려면 살아 있는 DB 가 필요하고, 서버 프로세스의 job 저장소는
+    외부에서 주입할 수 없기 때문이다. 이 항목만 실 DB 복구 후 재확인이 필요하다(§5).
+
+[E] 단위·회귀 테스트
+    신규 tests/test_job_recovery_stage1_progress_timestamp.py 11건 전부 통과.
+    변경 모듈(reimport_job / pk_range_chunk / agg_diff_route / execution_settings)을
+    참조하는 테스트 전수 40개 파일을 변경 전(HEAD~1=7b2c335)과 변경 후로 각각 돌려 대조:
+      변경 전: 320 passed, 8 failed, 6 xfailed
+      변경 후: 331 passed, 8 failed, 6 xfailed  (+11 = 이번에 추가한 테스트)
+    실패 8건은 목록·내용이 완전히 동일한 사전 존재 실패이며(UI 문구/전략표시/
+    parallel_read_decision 계열), 이번 변경으로 늘거나 줄지 않았다.
+
+────────────────────────────────────────────────────────────────────────────
+4. 판단이 필요했던 지점과 그 근거
+────────────────────────────────────────────────────────────────────────────
+· 유예 30초 vs 기존 기본값 120초 — 지시는 "30초 유예"와 "기존 orphan_running_after_sec
+  재사용(신규 동의어 금지)"을 함께 요구했는데 그 필드의 기본값은 120이었다. 새 필드를
+  만들면 지시를 어기고, 120을 그대로 쓰면 30초 요구를 어긴다. 소비처가 0인 죽은 설정이라
+  기본값 변경의 파급이 없다는 점을 확인하고 120→30 으로 조정하는 쪽을 택했다.
+  (설정 조회 테스트는 hasattr 만 단언하므로 영향 없음 — 실행해 확인.)
+· ORPHAN 상태값 — 새 status 문자열을 늘리지 않고 RECOVER_REQUIRED + ORPHAN_RUNNING 을
+  재사용했다. 새 값을 만들면 _ACTIVE 판정·게이트·UI 분기를 모두 재검토해야 하는데, 기존
+  어휘가 이미 이 상황을 위해 존재했다. store 쪽 status 문자열만 "ORPHANED"로 새로 쓴다
+  (기존 소비처 중 run status 문자열로 분기하는 코드가 없음을 grep 으로 확인).
+· 스캔 주체 — 전용 sweeper thread 를 만들 수도 있었으나, 상시 스레드는 운영 복잡도와
+  종료·예외 처리 부담을 늘린다. UI 가 이미 1초 폴링을 하고 있으므로 그 경로에 얹는 쪽이
+  구조적으로 더 단순하고, "아무도 안 보는 job 은 정리도 급하지 않다"는 성질과도 맞는다.
+
+────────────────────────────────────────────────────────────────────────────
+5. 남은 것(다음 단계로 분리한 항목)
+────────────────────────────────────────────────────────────────────────────
+1) 실 DB 복구 후, 실제 재이관 job 을 8000 포트에서 돌려 pk-records 응답의
+   last_progress_at 이 브라우저까지 흐르는지 종단 확인(§3-D 미확인 항목).
+2) L2(정체 의심) — stale_running_after_sec 배선. 단, 임계값은 실환경 last_progress_at
+   분포를 모은 뒤 확정한다. 진단 §4-C 의 2시간짜리 청크 추정치는 아직 실측이 아니다.
+3) L3(절대상한 자동 FAILED) 및 PAUSED 자동 idle-전환 — checkpoint 없는 STREAM 엔진에
+   대한 방어(진단 §7-3 의 1·2)가 선행되어야 한다. 지금 켜면 진행 중인 장시간 검증을
+   폐기할 위험이 실재한다.
+4) execution_settings 영속화 + 환경변수 override — 사고 시 TTL 을 서버 재시작 없이
+   늘릴 수 있어야 한다(진단 §8 ③④). 이번 단계에서는 코드 기본값만 사용한다.
+5) 진행률 대시보드 UI/라우트 — 별도 작업.
+
+────────────────────────────────────────────────────────────────────────────
+6. 변경 파일 / 커밋
+────────────────────────────────────────────────────────────────────────────
+커밋 f54c957 (main)
+  M routes/agg_diff_route.py                              (+6/-2)
+  M services/exact_diff/execution_settings.py             (+13/-2)
+  M services/exact_diff/pk_range_chunk.py                 (+4)
+  M services/exact_diff/reimport_job.py                   (+106/-3)
+  A tests/test_job_recovery_stage1_progress_timestamp.py  (신규 11건)
+  A scripts/dev_e2e/job_recovery_stage1_progress_timestamp_verify.py (신규 드라이버)
+지시된 4개 대상 파일 외 production 파일은 손대지 않았다(테스트·드라이버 2개만 신규 추가).
+같은 시간 다른 터미널에서 진행된 tracemalloc/checkpoint 작업(7b2c335 등)과는 hunk 단위로
+분리해 커밋했으며, 서로의 변경을 삼키지 않았음을 diff 로 확인했다.
+
+증적: E:\verify_screenshots_only\JOB-RECOVERY-STAGE1-PROGRESS-TIMESTAMP-AND-SAFE-DEFAULTS\
+  stage1_progress_timestamp_verify.json   A/B/C 실측 원본(타임라인 포함)
+  live_server_execution_settings.json     재기동된 실 서버 설정 응답
+  live_server_active_run_status.json      실 서버 status 라우트 응답
+  pytest_stage1_unit.txt                  신규 단위테스트 11건 상세
+  pytest_related_after.txt                변경 후 관련 테스트 전수 결과
+  commit_f54c957_stat.txt / .diff         커밋 통계·전체 diff
+
+JOB-RECOVERY-STAGE1-PROGRESS-TIMESTAMP-AND-SAFE-DEFAULTS
