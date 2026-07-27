@@ -1,0 +1,150 @@
+✅ 작업 완료 - STATS-PLAN-SERVICE-GROUPBY-STR-DICT-CHECK : stats_validation_plan_service.py:1188/1191 str/dict 가정은 실존하나 production 경로 도달 불가 확인, 코드 수정 없음
+
+작업명 : STATS-PLAN-SERVICE-GROUPBY-STR-DICT-CHECK
+일시   : 2026-07-27 20:40~20:50 (KST)
+대상   : services/stats_validation_plan_service.py:1187~1192 (_plan_summary 의 group_by_cols / sum_cols)
+서버   : http://127.0.0.1:8000 (실제 서비스 포트, 인증 ON) — 코드 수정 없음 → 서버 재기동 없음
+결론   : 결함은 "실존하는 잠재 결함(latent)"이나 현재 코드에서는 도달 불가. 이번 작업 범위에서는 미수정.
+
+────────────────────────────────────────────────────────────────────────────
+1. 지시 1 — :1188,1191 근방 코드가 무엇을 하는 코드인가
+────────────────────────────────────────────────────────────────────────────
+services/stats_validation_plan_service.py:1167 `_plan_summary(plan: dict) -> dict`
+  = 생성된 통계검증 계획 1건을 API 응답용 요약 dict 로 바꾸는 **표시 전용 파생 함수**.
+
+    1185  "group_by_count":  len(gb_list),
+    1186  "sum_count":       len(sum_list),
+    1187  "group_by_cols":   [
+    1188      c.get("tgt_col") or c.get("target_column", "") for c in gb_list
+    1189  ],
+    1190  "sum_cols":        [
+    1191      c.get("tgt_col") or c.get("target_column", "") for c in sum_list
+    1192  ],
+
+  - gb_list / sum_list = plan["selected_group_by"] / plan["selected_sum"]
+  - 원소를 **후보 dict** 로 가정하고 표시용 컬럼명(tgt_col → target_column 순)을 뽑는다.
+  - 용도: 일괄검증 화면 "통계검증 계획" 목록의 GROUP BY/SUM 컬럼명 표시. 판정에는 쓰이지 않는다.
+  - 같은 파일 안에서 선택 리스트를 다루는 다른 함수(enforce_selection_cap:606,
+    classify_count_only_reason:544)는 len()/truthiness 만 쓰므로 shape 비의존이다.
+    즉 이 파일에서 str/dict 가정을 하는 곳은 1188/1191 두 줄뿐이다.
+
+────────────────────────────────────────────────────────────────────────────
+2. 지시 2 — 실제 호출 경로 (production 코드 인벤토리)
+────────────────────────────────────────────────────────────────────────────
+_plan_summary 호출처(테스트·샘플 제외) : **단 1곳**
+  services/stats_validation_plan_service.py:1104
+      _plan_summaries = [_plan_summary(p) for p in plans]
+    ← generate_stats_validation_plans() 안
+    ← routes/stats_validation_plan_route.py:134
+       POST /api/batch-groups/{group_id}/stats-validation-plans/generate
+    ← 화면: 일괄검증 탭 → 그룹 선택 → [통계검증 계획 생성] 버튼(#batchStatsPlanGenerateBtn,
+       기본 숨김 카드 #batchStatsPlanCard, "고급: 통계검증계획 재생성 ▸" 링크로 노출)
+
+핵심: generate 경로가 읽는 입력은 **policy_column_candidate_snapshot(후보 스냅샷)** 뿐이다
+      (stats_validation_plan_service.py:981 get_column_candidate_snapshots).
+      문자열 리스트가 실제로 저장돼 있는 policy_stats_validation_plan_snapshot(계획 스냅샷)은
+      _plan_summary 로 절대 들어가지 않는다.
+
+계획 스냅샷(문자열 보유 테이블)의 읽기 소비자는 아래 2곳이며 둘 다 이 함수를 쓰지 않는다.
+  a) get_stats_validation_plans()(같은 파일:1246~) — JSON 을 그대로 통과시킴(.get 호출 없음) → 안전
+  b) routes/column_candidate_gen_route.py:450 → 479
+     공식 full 일괄검증이 등록 plan 의 selected_group_by(문자열)를 실행 입력으로 전달
+     → services/batch_stats_execute_service.py:469~473 (**다른 터미널이 수정 중인 파일**)
+     즉 "실제로 크래시가 나는 쪽"은 batch_stats_execute_service 이고, 이 파일이 아니다.
+
+────────────────────────────────────────────────────────────────────────────
+3. 지시 3 — 문자열 리스트 실제 plan 으로 재현 시도
+────────────────────────────────────────────────────────────────────────────
+harness : scripts/dev_e2e/stats_plan_service_groupby_str_dict_check.py
+          (전체 로그: E:\verify_screenshots_only\STATS-PLAN-SERVICE-GROUPBY-STR-DICT-CHECK\
+                       diagnosis_harness_log.txt)
+
+P1) 함수 단위 — 결함 자체는 실존
+    _plan_summary({"selected_group_by": ["TXN_TYPE"], "selected_sum": ["TXN_AMT"], ...})
+      → CRASH AttributeError: 'str' object has no attribute 'get' @ stats_validation_plan_service.py:1188
+    _plan_summary({"selected_group_by": [{"tgt_col": "TXN_TYPE"}], ...})
+      → 정상 (group_by_cols=['TXN_TYPE'], sum_cols=['TXN_AMT'])
+
+P3) 운영 SQLite 실 shape (읽기 전용, db/migration_validator.db)
+    [policy_stats_validation_plan_snapshot] 총 1003행, policy 분포 = {'DEFAULT': 1003}
+        selected_group_by  str    367행   예) ["TXN_TYPE"] , ["STATUS_CD","REGION_CD","BASE_MONTH"]
+        selected_group_by  empty  636행
+        selected_sum       str    367행 / empty 636행
+        → dict 원소 0행. 즉 이 테이블의 실 데이터는 전부 개별검증 확정 저장 경로
+          (single_official_register_txn.py:520, /single/save → selected_groupby=문자열 리스트)
+          산출물이며, 일괄 generate 경로가 만든 행은 현재 0건.
+    [policy_column_candidate_snapshot] 총 78행, policy 전부 count_passed_only
+        selected_group_by / selected_sum  전부 empty([])  → 문자열 원소 0행
+
+P4) 라이브 HTTP(읽기, 8000/인증 ON)
+    GET /api/batch-groups/GRP_202606170243184996/stats-validation-plans?project_id=2
+      → 200, items 10건, 10건 모두 문자열 GROUP BY(['TXN_TYPE'] 등). 크래시 없음
+      (읽기 경로는 _plan_summary 미사용 → 문자열이 그대로 통과)
+
+P5) 유입 게이트 — 후보 스냅샷에 문자열이 들어갈 수 있는가
+    PATCH /api/column-candidate-snapshots/1507/selection {"selected_group_by": ["REGION"], ...}
+      → **422** {"type":"dict_type","loc":["body","selected_group_by",0],
+                 "msg":"Input should be a valid dictionary","input":"REGION"}
+      (routes/column_candidate_gen_route.py:42 SaveSelectionRequest.selected_group_by: list[dict])
+    → UI/API 로는 후보 스냅샷에 문자열을 저장할 수 없다. 후보 생성 경로도 dict 만 만든다.
+
+P6) 도달성 실험(운영 DB 복사본에서만) — "문자열이 후보 스냅샷에 들어갔다고 가정하면?"
+    후보 스냅샷 selected_group_by_json 을 ["REGION"] 으로 강제 주입 후 generate 실행:
+      → CRASH AttributeError @ **column_candidate_gen_service.py:1116 → candidate_engine.py:77**
+         (`_ensure_candidate_id(c)` 의 cand.get) — 즉 1188 에 닿기 전에 상류에서 먼저 죽는다.
+    dict 주입 시:
+      → 정상 ok=True, plans=1, group_by_cols=[['REGION']]
+    (실행 전후 운영 DB sha256 동일 — 무변경 확인)
+
+P7) 브라우저 실측(실제 서비스 8000, 인증 ON)
+    harness : scripts/dev_e2e/stats_plan_service_groupby_str_dict_browser.py
+    스크린샷: E:\verify_screenshots_only\STATS-PLAN-SERVICE-GROUPBY-STR-DICT-CHECK\
+      S1_batch_tab.png / S2_group_selected.png / S2b_plan_card_opened.png /
+      S3_before_generate_click.png / S4_after_generate_click.png / browser_log.json
+    절차: 작업 프로젝트 2 지정 → 일괄검증 탭 → 그룹 '인사급여1'(GRP_202606170243184996,
+          문자열 GROUP BY 계획 10건 보유) 선택 → 통계검증 계획 카드 노출 → [통계검증 계획 생성] 실제 클릭
+    결과: 화면 메시지 "선택된 정책으로 생성된 후보 snapshot이 없습니다."(422 조기 반환)
+          _statsPlanItems=0, JS pageerror 없음, 500/크래시 없음, 운영 DB sha256 무변경.
+    해석: 문자열 계획을 가진 그룹에서 계획 생성을 눌러도 generate 는 후보 스냅샷만 보므로
+          문자열 계획을 읽지 않는다 → 1188 미도달을 화면에서 확인.
+
+────────────────────────────────────────────────────────────────────────────
+4. 지시 4 — 판단 : 수정 없음
+────────────────────────────────────────────────────────────────────────────
+크래시가 재현되지 않는 이유(3중 차단):
+  ① 입력 출처 분리 — _plan_summary 의 유일한 입력은 후보 스냅샷이며, 문자열이 저장된
+     계획 스냅샷은 이 함수로 들어오는 경로가 없다.
+  ② 유입 게이트 — 후보 선택 저장 API 가 pydantic list[dict] 로 문자열을 422 거부(실측).
+     후보 생성 경로(candidate_engine)도 dict 만 생성.
+  ③ 상류 선차단 — 설령 후보 스냅샷에 문자열이 들어가도 candidate_engine.py:77 에서 먼저
+     죽으므로 1188 은 실행되지 않는다(복사본 실험으로 실측).
+→ 지시 4의 "크래시가 안 나면 수정 없이 결론만 보고" 조건에 해당하므로
+  services/stats_validation_plan_service.py 는 수정하지 않았다. git diff 없음, commit 없음.
+
+권장(별건 제안, 이번엔 미적용):
+  같은 호출 체인의 groupby_estimate_service.estimate_groupby_count 는 이미
+  `[c for c in gb_selected if isinstance(c, dict)]`(:207) 로 방어하고 있다. 동일 관례를
+  1188/1191 에도 적용(문자열이면 그 값을 컬럼명으로 사용)하면 방어가 일관되지만,
+  **지금 고쳐도 동작 변화가 없고**(도달 불가) 다른 터미널이 실제 도달 경로
+  (batch_stats_execute_service.py:469~473)를 수정 중이므로 중복·충돌 회피를 위해 보류한다.
+  적용 시점에는 개별검증 확정 저장이 계획 스냅샷에 문자열을 남기는 구조 자체
+  (single_official_register_txn.py:520) 를 함께 정리하는 편이 근본적이다.
+
+────────────────────────────────────────────────────────────────────────────
+5. 지시 5 — 회귀 확인
+────────────────────────────────────────────────────────────────────────────
+python -m pytest tests/test_task12_b0.py tests/test_task12_b.py tests/test_task12_c.py -q
+  → 94 passed, 7 subtests passed in 7.05s
+  (test_task12_b.py:397/416 이 _plan_summary 의 group_by_cols / tgt_col·target_column 우선순위를 커버)
+운영 SQLite(db/migration_validator.db) sha256 : 진단·브라우저 실측 전후 동일(무변경).
+제품 코드 변경 없음 → 서버 재기동 없음(기동 중 인스턴스 그대로, 8000 인증 ON).
+
+────────────────────────────────────────────────────────────────────────────
+6. 생성 파일 (제품 코드 아님, 실측 harness 만)
+────────────────────────────────────────────────────────────────────────────
+  scripts/dev_e2e/stats_plan_service_groupby_str_dict_check.py     (진단 harness)
+  scripts/dev_e2e/stats_plan_service_groupby_str_dict_browser.py   (브라우저 실측 harness)
+증적: E:\verify_screenshots_only\STATS-PLAN-SERVICE-GROUPBY-STR-DICT-CHECK\
+      (스크린샷 5장 + browser_log.json + diagnosis_harness_log.txt + REPORT.txt)
+
+✅ 작업 완료 - STATS-PLAN-SERVICE-GROUPBY-STR-DICT-CHECK : 1188/1191 str/dict 가정은 잠재 결함으로 실존하나 입력 출처 분리·pydantic list[dict] 게이트·상류 선차단으로 도달 불가 확인, 코드 수정 없음(회귀 94 passed)
