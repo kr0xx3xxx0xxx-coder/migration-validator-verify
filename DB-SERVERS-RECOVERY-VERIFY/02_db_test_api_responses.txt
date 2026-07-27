@@ -1,0 +1,58 @@
+DB-SERVERS-RECOVERY-VERIFY — /db/test 접속 테스트 API 응답 원문
+실행: 2026-07-27 19:12:57 (KST) / 코드 수정 없음
+
+[운영 8000 상태 — 직접 호출 불가 사유]
+GET http://127.0.0.1:8000/  → HTTP 401 Unauthorized
+  Content-Length: 65
+  Cache-Control: no-store
+  Content-Type: application/json; charset=utf-8
+  Date: Mon, 27 Jul 2026 10:15:37 GMT
+  Server: uvicorn
+  WWW-Authenticate: Basic realm="Migration Validator", charset="UTF-8"
+→ 운영 서버는 정상 기동·정상 인증 응답. Basic Auth 자격증명 미보유로 UI 클릭 실측 불가.
+
+[대체 실측 조건]
+  운영 auth_users.json 무변경. MV_AUTH_USERS_FILE 로 임시 계정 파일만 분리.
+  동일 web_server:app 을 127.0.0.1:8021 에 인증 ON 으로 기동.
+  운영 db_presets_src.json / db_presets_tgt.json 은 읽기만(무변경).
+  비밀번호는 전송하지 않음(빈값) — 서버가 저장 프리셋에서 복원.
+  검증 후 임시 인스턴스 종료. 운영 8000 무중단.
+
+────────────────────────────────────────────────────────────
+── src/PostgreSQL_Inter_asis (postgresql 192.168.0.150:5433/asis)
+   HTTP 200 · 205ms · ok=True
+   {"ok": true, "success": true, "selected_dbms": "postgresql", "detected_dbms": "postgresql", "detected_version": "PostgreSQL 16.11 (Debian 16.11-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit", "dbms_match": true, "error_code": "", "error_message": "", "message": "PostgreSQL 연결 성공"}
+
+── src/PostgreSQL_Inter_tobesrc (postgresql 192.168.0.150:5434/tobe)
+   HTTP 200 · 127ms · ok=True
+   {"ok": true, "success": true, "selected_dbms": "postgresql", "detected_dbms": "postgresql", "detected_version": "PostgreSQL 16.11 (Debian 16.11-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit", "dbms_match": true, "error_code": "", "error_message": "", "message": "PostgreSQL 연결 성공"}
+
+── tgt/PostgreSQL_Inter_tobe (postgresql 192.168.0.150:5434/tobe)
+   HTTP 200 · 106ms · ok=True
+   {"ok": true, "success": true, "selected_dbms": "postgresql", "detected_dbms": "postgresql", "detected_version": "PostgreSQL 16.11 (Debian 16.11-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit", "dbms_match": true, "error_code": "", "error_message": "", "message": "PostgreSQL 연결 성공"}
+
+── src/Oracle_asis (oracle 192.168.0.151:1523/xepdb1)
+   HTTP 200 · 248ms · ok=True
+   {"ok": true, "success": true, "selected_dbms": "oracle", "detected_dbms": "oracle", "detected_version": "23.26.1.0.0", "dbms_match": true, "error_code": "", "error_message": "", "message": "Oracle 연결 성공 (Oracle↔Oracle 동일 방언 검증 실행을 지원합니다. 원본·목적지 방언이 다르면 지원하지 않습니다.)"}
+
+── tgt/Oracle_tobe (oracle 192.168.0.151:1524/xepdb1)
+   HTTP 200 · 147ms · ok=True
+   {"ok": true, "success": true, "selected_dbms": "oracle", "detected_dbms": "oracle", "detected_version": "23.26.1.0.0", "dbms_match": true, "error_code": "", "error_message": "", "message": "Oracle 연결 성공 (Oracle↔Oracle 동일 방언 검증 실행을 지원합니다. 원본·목적지 방언이 다르면 지원하지 않습니다.)"}
+
+── src/MariaDB_asis (mariadb 192.168.0.211:3309/nxdnp)
+   HTTP 200 · 120ms · ok=True
+   {"ok": true, "success": true, "selected_dbms": "mariadb", "detected_dbms": "mariadb", "detected_version": "MariaDB", "dbms_match": true, "error_code": "", "error_message": "", "message": "MariaDB 연결 성공 (단, MariaDB 기반 검증 실행은 아직 지원 범위가 아닙니다.)"}
+
+── tgt/MariaDB_tobe (mariadb 192.168.0.211:3309/nxdnp)
+   HTTP 200 · 106ms · ok=True
+   {"ok": true, "success": true, "selected_dbms": "mariadb", "detected_dbms": "mariadb", "detected_version": "MariaDB", "dbms_match": true, "error_code": "", "error_message": "", "message": "MariaDB 연결 성공 (단, MariaDB 기반 검증 실행은 아직 지원 범위가 아닙니다.)"}
+
+===== 요약 =====
+  성공 | src/PostgreSQL_Inter_asis    |  205ms | postgresql
+  성공 | src/PostgreSQL_Inter_tobesrc |  127ms | postgresql
+  성공 | tgt/PostgreSQL_Inter_tobe    |  106ms | postgresql
+  성공 | src/Oracle_asis              |  248ms | oracle
+  성공 | tgt/Oracle_tobe              |  147ms | oracle
+  성공 | src/MariaDB_asis             |  120ms | mariadb
+  성공 | tgt/MariaDB_tobe             |  106ms | mariadb
+→ 7/7 성공, dbms_match 전부 true.

@@ -1,0 +1,123 @@
+⚠️ 추가 작업 필요 - DB 3호스트 L2·TCP·접속 전부 복구 확인, 단 운영 8000 실측과 자동시작 설정은 자격증명 미보유로 미확인
+
+작업명 : DB-SERVERS-RECOVERY-VERIFY
+실행 시각 : 2026-07-27 19:10~19:20 (KST)
+코드 수정 : 없음 (순수 확인 작업, 제품 코드·운영 설정 파일 무변경)
+
+────────────────────────────────────────────────────────────
+1) ping / ARP — L2 복구 확인 : 3호스트 전부 정상
+────────────────────────────────────────────────────────────
+[ping 원문]
+192.168.0.150 : Sent=2, Received=2, Lost=0 (0% loss)  time=59ms / 2ms  TTL=64
+192.168.0.151 : Sent=2, Received=2, Lost=0 (0% loss)  time=3ms / 1ms   TTL=64
+192.168.0.211 : Sent=2, Received=2, Lost=0 (0% loss)  time=28ms / 2ms  TTL=64
+
+[Get-NetNeighbor 원문]
+IPAddress     LinkLayerAddress  State  InterfaceAlias
+192.168.0.211 08-00-27-61-9D-8E Probe  Wi-Fi
+192.168.0.151 08-00-27-F3-50-B4 Probe  Wi-Fi
+192.168.0.150 08-00-27-C0-8A-D6 Probe  Wi-Fi
+
+→ 2026-07-27 오전 관측된 ARP 무응답(Unreachable) 상태 해소.
+→ MAC OUI 08-00-27 = Oracle VirtualBox 가상 NIC (세 호스트 모두 VM).
+
+────────────────────────────────────────────────────────────
+2) Test-NetConnection — 서비스 포트 TCP : 5/5 성공
+────────────────────────────────────────────────────────────
+PostgreSQL_Inter_asis    192.168.0.150:5433  TcpTestSucceeded=True
+PostgreSQL_Inter_tobe    192.168.0.150:5434  TcpTestSucceeded=True
+Oracle_asis              192.168.0.151:1523  TcpTestSucceeded=True
+Oracle_tobe              192.168.0.151:1524  TcpTestSucceeded=True
+MariaDB                  192.168.0.211:3309  TcpTestSucceeded=True
+
+→ 과거 Oracle asis(1523) DPY-6005(xepdb1 미등록) 증상도 재현되지 않음(3항 참조).
+
+────────────────────────────────────────────────────────────
+3) 실 서비스 접속 테스트 (/db/test) : 대상 프로필 7/7 접속 성공
+────────────────────────────────────────────────────────────
+[전제 — 운영 8000 직접 호출 불가]
+  운영 포트 8000 은 기동 중이나 Basic Auth 가 활성이며 자격증명을 보유하지 않아
+  직접 호출이 401 로 차단됨. 실측 원문:
+    GET http://127.0.0.1:8000/  → HTTP 401 Unauthorized
+      WWW-Authenticate: Basic realm="Migration Validator", charset="UTF-8"
+      Server: uvicorn
+  → 운영 서버 자체는 정상 기동·정상 인증 응답. 다만 "8000 화면에서 버튼 클릭" 은
+    자격증명 없이는 수행 불가.
+
+[대체 실측 — 동일 코드·동일 운영 프리셋, 인증 ON 유지]
+  기존 검증 스크립트 관례대로 운영 auth_users.json 은 변경하지 않고
+  MV_AUTH_USERS_FILE 로 임시 계정 파일만 분리해 127.0.0.1:8021 에 동일 web_server:app 기동.
+  UI '접속 테스트' 버튼과 동일한 POST /db/test 엔드포인트를 호출.
+  비밀번호는 전송하지 않음(빈값) — 서버가 저장 프리셋에서 복원(평문 왕복 없음).
+  검증 종료 후 임시 인스턴스 종료, 운영 8000 은 계속 기동 중(무영향).
+
+[API 응답 원문 요약]
+src/PostgreSQL_Inter_asis    (postgresql 192.168.0.150:5433/asis)   HTTP 200 · 205ms · ok=true
+  detected_dbms=postgresql, dbms_match=true
+  version: PostgreSQL 16.11 (Debian 16.11-1.pgdg13+1) on x86_64-pc-linux-gnu
+src/PostgreSQL_Inter_tobesrc (postgresql 192.168.0.150:5434/tobe)   HTTP 200 · 127ms · ok=true
+  detected_dbms=postgresql, dbms_match=true, PostgreSQL 16.11
+tgt/PostgreSQL_Inter_tobe    (postgresql 192.168.0.150:5434/tobe)   HTTP 200 · 106ms · ok=true
+  detected_dbms=postgresql, dbms_match=true, PostgreSQL 16.11
+src/Oracle_asis              (oracle 192.168.0.151:1523/xepdb1)     HTTP 200 · 248ms · ok=true
+  detected_dbms=oracle, dbms_match=true, version 23.26.1.0.0
+tgt/Oracle_tobe              (oracle 192.168.0.151:1524/xepdb1)     HTTP 200 · 147ms · ok=true
+  detected_dbms=oracle, dbms_match=true, version 23.26.1.0.0
+src/MariaDB_asis             (mariadb 192.168.0.211:3309/nxdnp)     HTTP 200 · 120ms · ok=true
+  detected_dbms=mariadb, dbms_match=true
+tgt/MariaDB_tobe             (mariadb 192.168.0.211:3309/nxdnp)     HTTP 200 · 106ms · ok=true
+  detected_dbms=mariadb, dbms_match=true
+
+→ 7/7 성공. 선택 DB 종류와 실제 감지 DBMS 도 전부 일치(dbms_match=true).
+→ 응답시간 106~248ms 로 정상 범위.
+
+────────────────────────────────────────────────────────────
+4) 서비스 자동시작 설정 : 로컬에서 확인 불가 (미확인 항목)
+────────────────────────────────────────────────────────────
+[로컬 Windows 서비스 조회 결과 — 원문]
+  Get-Service | Where-Object { Name/DisplayName -match 'postgre|oracle|maria|mysql|db2|vbox' }
+    → 결과 0건 (해당 서비스 없음)
+  VBoxManage 명령 : 없음(로컬 미설치)
+  VirtualBox/VMware/Docker 프로세스 : 0건
+
+[원격 관리 포트 스캔 — 원문]
+  192.168.0.150:22   True    192.168.0.150:445  False   :3389 False   :5985 False
+  192.168.0.151:22   True    192.168.0.151:445  False   :3389 False   :5985 False
+  192.168.0.211:22   True    192.168.0.211:445  False   :3389 False   :5985 False
+
+[해석]
+  - DB 3호스트는 이 PC 위의 VM 이 아니라 별도 머신에서 구동 중이며,
+    SSH 만 열려 있고 SMB/RDP/WinRM 이 모두 닫혀 있어 Linux 게스트로 판단됨
+    (PostgreSQL 이 Debian 빌드로 응답한 것과 일치).
+  - 따라서 "Windows 서비스 시작 유형: 자동" 개념이 이 호스트들에 직접 적용되지 않으며,
+    자동시작 여부는 각 게스트의 systemd(systemctl is-enabled) 또는
+    컨테이너 restart policy, 그리고 VM 을 호스팅하는 상위 PC 의 VirtualBox
+    자동시작 설정에서 결정됨.
+  - 이 PC 에서는 해당 설정을 조회할 수단이 없고(SSH 자격증명 미보유),
+    지시상 변경도 금지이므로 미확인 상태로 남김.
+
+[재발 방지를 위해 확인이 필요한 지점 — 변경 없이 제안만]
+  1. VM 을 호스팅하는 상위 PC 의 VirtualBox VM 자동시작 등록 여부
+     (VBoxAutostart 서비스 또는 로그온 시 자동 기동 스크립트)
+  2. 각 게스트 내 DB 서비스 enable 여부
+     postgres : systemctl is-enabled postgresql / docker inspect --format '{{.HostConfig.RestartPolicy.Name}}'
+     oracle   : systemctl is-enabled oracle-xe-23ai (또는 컨테이너 restart policy)
+     mariadb  : systemctl is-enabled mariadb
+
+────────────────────────────────────────────────────────────
+결론
+────────────────────────────────────────────────────────────
+✔ 1항 ping/ARP        : 정상 복구 (3/3)
+✔ 2항 TCP 포트         : 정상 복구 (5/5)
+✔ 3항 실 접속 테스트    : 정상 복구 (7/7, dbms_match 전부 일치)
+△ 3항 운영 8000 직접 실측 : 미수행 — Basic Auth 자격증명 미보유(401).
+                          서버 자체는 정상 기동 확인. 계정 제공 시 즉시 재확인 가능.
+△ 4항 자동시작 설정      : 미확인 — 대상이 원격 Linux 게스트이며 조회 수단 없음.
+
+[변경 사항 없음 확인]
+  - 제품 코드 수정 0건
+  - 운영 auth_users.json / db_presets_*.json 무변경(읽기만)
+  - 운영 8000 프로세스 무중단 (재기동하지 않음)
+  - 검증 스크립트는 scratchpad 에만 생성(저장소 미포함)
+
+⚠️ 추가 작업 필요 - DB 3호스트 L2·TCP·접속 전부 복구 확인, 단 운영 8000 실측과 자동시작 설정은 자격증명 미보유로 미확인

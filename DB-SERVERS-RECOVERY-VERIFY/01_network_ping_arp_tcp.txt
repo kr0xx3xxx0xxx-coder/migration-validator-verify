@@ -1,0 +1,47 @@
+DB-SERVERS-RECOVERY-VERIFY — 네트워크 계층 실측 원문
+실행: 2026-07-27 19:10 (KST) / 코드 수정 없음
+
+=== ping (PowerShell: ping -n 2 <ip>) ===
+Pinging 192.168.0.150 with 32 bytes of data:
+Reply from 192.168.0.150: bytes=32 time=59ms TTL=64
+Reply from 192.168.0.150: bytes=32 time=2ms TTL=64
+    Packets: Sent = 2, Received = 2, Lost = 0 (0% loss)
+
+Pinging 192.168.0.151 with 32 bytes of data:
+Reply from 192.168.0.151: bytes=32 time=3ms TTL=64
+Reply from 192.168.0.151: bytes=32 time=1ms TTL=64
+    Packets: Sent = 2, Received = 2, Lost = 0 (0% loss)
+
+Pinging 192.168.0.211 with 32 bytes of data:
+Reply from 192.168.0.211: bytes=32 time=28ms TTL=64
+Reply from 192.168.0.211: bytes=32 time=2ms TTL=64
+    Packets: Sent = 2, Received = 2, Lost = 0 (0% loss)
+
+=== Get-NetNeighbor -IPAddress 192.168.0.150,192.168.0.151,192.168.0.211 ===
+IPAddress     LinkLayerAddress  State  InterfaceAlias
+192.168.0.211 08-00-27-61-9D-8E Probe  Wi-Fi
+192.168.0.151 08-00-27-F3-50-B4 Probe  Wi-Fi
+192.168.0.150 08-00-27-C0-8A-D6 Probe  Wi-Fi
+
+(2026-07-27 오전 관측된 ARP Unreachable 상태 해소. MAC OUI 08-00-27 = VirtualBox)
+
+=== Test-NetConnection — DB 서비스 포트 ===
+PostgreSQL_Inter_asis    192.168.0.150:5433  TcpTestSucceeded=True  RemoteAddress=192.168.0.150
+PostgreSQL_Inter_tobe    192.168.0.150:5434  TcpTestSucceeded=True  RemoteAddress=192.168.0.150
+Oracle_asis              192.168.0.151:1523  TcpTestSucceeded=True  RemoteAddress=192.168.0.151
+Oracle_tobe              192.168.0.151:1524  TcpTestSucceeded=True  RemoteAddress=192.168.0.151
+MariaDB                  192.168.0.211:3309  TcpTestSucceeded=True  RemoteAddress=192.168.0.211
+
+=== Test-NetConnection — 원격 관리 포트(호스트 OS 성격 판별용) ===
+192.168.0.150:22    True     192.168.0.150:445  False    192.168.0.150:3389  False    192.168.0.150:5985  False
+192.168.0.151:22    True     192.168.0.151:445  False    192.168.0.151:3389  False    192.168.0.151:5985  False
+192.168.0.211:22    True     192.168.0.211:445  False    192.168.0.211:3389  False    192.168.0.211:5985  False
+
+→ SSH 만 개방, SMB/RDP/WinRM 전부 폐쇄 → 대상은 Linux 게스트.
+  이 PC 의 Windows 서비스 관리자로는 자동시작 설정을 조회할 수 없음.
+
+=== 로컬 Windows 서비스 조회 (자동시작 확인 시도) ===
+Get-Service | Where-Object { Name -match 'postgre|oracle|maria|mysql|db2' }        → 0건
+Get-Service | Where-Object { DisplayName -match '...|vbox|virtualbox' }            → 0건
+VBoxManage                                                                         → 없음(로컬 미설치)
+Get-Process (VBox|virtualbox|vmware|docker)                                        → 0건
