@@ -1,0 +1,25 @@
+Exception in thread Thread-1 (_run):
+Traceback (most recent call last):
+  File "C:\Python314\Lib\threading.py", line 1082, in _bootstrap_inner
+    self._context.run(self.run)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "C:\Python314\Lib\threading.py", line 1024, in run
+    self._target(*self._args, **self._kwargs)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\projects\migration-validator\services\batch_stats_execute_service.py", line 601, in _run
+    holder["r"] = _execute_one_plan(plan, src_conn, tgt_conn, cancel_token=cancel_token)
+                  ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\projects\migration-validator\services\batch_stats_execute_service.py", line 472, in _execute_one_plan
+    if c.get("tgt_col") or c.get("target_column")
+       ^^^^^
+AttributeError: 'str' object has no attribute 'get'
+[1] 저장 shape 집계 — 전체 1003건 / str 367 / dict 0 / empty 636
+[2] 문자열 리스트(운영 DB 실제 형식) — 결함 지점
+  [str ] direct  → CRASH AttributeError: 'str' object has no attribute 'get'
+  [str ] wrapper → status=ERROR err='실행 결과가 반환되지 않았습니다.'
+[3] dict 리스트(일괄 생성 경로 형식) — 호환 유지 확인
+  [dict] direct  → status=FAILED err='connection to server at "127.0.0.1", port 5432 failed: Connection refused (0x0000274D/10061)'
+  [dict] wrapper → status=FAILED err='connection to server at "127.0.0.1", port 5432 failed: Connection refused (0x0000274D/10061)'
+[4] GROUP BY 없음(GLOBAL_COUNT_SUM) — 회귀 확인
+  [none] direct  → status=FAILED err='connection to server at "127.0.0.1", port 5432 failed: Connection refused (0x0000274D/10061)'
+  [none] wrapper → status=FAILED err='connection to server at "127.0.0.1", port 5432 failed: Connection refused (0x0000274D/10061)'

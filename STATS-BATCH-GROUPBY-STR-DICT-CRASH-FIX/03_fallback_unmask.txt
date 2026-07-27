@@ -1,0 +1,16 @@
+plan 실행 중 처리되지 않은 예외 (plan_id=9999)
+Traceback (most recent call last):
+  File "C:\projects\migration-validator\services\batch_stats_execute_service.py", line 634, in _run
+    holder["r"] = _execute_one_plan(plan, src_conn, tgt_conn, cancel_token=cancel_token)
+                  ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\projects\migration-validator\services\batch_stats_execute_service.py", line 502, in _execute_one_plan
+    gb_cols = _plan_group_by_cols(plan.get("selected_group_by", []))
+  File "C:\projects\migration-validator\scripts\dev_e2e\stats_batch_fallback_unmask_verify.py", line 31, in _boom
+    raise AttributeError("'str' object has no attribute 'get'")
+AttributeError: 'str' object has no attribute 'get'
+[폴백] execution_status = ERROR
+[폴백] error_message   = "plan 실행 중 예외: AttributeError: 'str' object has no attribute 'get'"
+[판정] 마스킹 여부       = False  (False 여야 정상)
+[판정] 예외 원문 보존    = True  (True 여야 정상)
+[판정] 상태값 유지(ERROR) = True
+[폴백-무예외] status=ERROR err='실행 결과가 반환되지 않았습니다.'

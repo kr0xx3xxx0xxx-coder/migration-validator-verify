@@ -1,0 +1,16 @@
+[STATS-BATCH-GROUPBY-STR-DICT-CRASH-FIX] GROUP BY 유/무 회귀 대조 (실 DB)
+  원본  : postgresql 192.168.0.150:5433/asis
+  목적지: postgresql 192.168.0.150:5434/tobe
+
+  [A. GROUP BY 문자열 리스트 (결함 재현 형식)]
+      status=SUCCESS_MATCHED matched=3 diff=0 src_only=0 tgt_only=0 groups=3
+      gb_keys=['REGION'] err=''
+  [B. GROUP BY dict 리스트 (일괄 생성 형식)]
+      status=SUCCESS_MATCHED matched=3 diff=0 src_only=0 tgt_only=0 groups=3
+      gb_keys=['REGION'] err=''
+  [C. GROUP BY 없음 (GLOBAL_COUNT_SUM 회귀)]
+      status=SUCCESS_MATCHED matched=1 diff=0 src_only=0 tgt_only=0 groups=1
+      gb_keys=[] err=''
+
+  판정 A==B (str/dict 동등)      : ✅
+  판정 C  (GROUP BY 없음 정상)  : ✅

@@ -1,0 +1,110 @@
+{
+  "base": "http://127.0.0.1:8000",
+  "group_id": "GRP_202607271101016178",
+  "src_preset": "PostgreSQL_Inter_asis",
+  "tgt_preset": "PostgreSQL_Inter_tobe",
+  "preset_applied": {
+    "src": {
+      "host": "192.168.0.150",
+      "port": "5433",
+      "dbname": "asis",
+      "db_type": "postgresql",
+      "has_pw": false
+    },
+    "tgt": {
+      "host": "192.168.0.150",
+      "port": "5434",
+      "dbname": "tobe",
+      "db_type": "postgresql",
+      "has_pw": false
+    }
+  },
+  "group_pick": "OK",
+  "plan_card_reveal": "SHOWN",
+  "count_precheck": {
+    "group_status": 200,
+    "group_success": true,
+    "rows": [
+      {
+        "tbl": "T_NULLX_TGT",
+        "st": null,
+        "src": 1000,
+        "tgt": 1000,
+        "err": null,
+        "revalidate": {
+          "status": 200,
+          "success": true,
+          "db_valid": "PASSED",
+          "err": null
+        }
+      }
+    ]
+  },
+  "saved_plans": {
+    "status": 200,
+    "count": 1,
+    "plans": [
+      {
+        "plan_id": 2740,
+        "row_id": 990002564,
+        "tbl": "T_NULLX_TGT",
+        "gb": [
+          "REGION"
+        ],
+        "sum": [
+          "VAL",
+          "QTY"
+        ],
+        "gb_types": [
+          "string"
+        ]
+      }
+    ]
+  },
+  "conn_payload": {
+    "src": {
+      "db_type": "postgresql",
+      "host": "192.168.0.150",
+      "port": 5433,
+      "dbname": "asis",
+      "user": "nextobe",
+      "pw_empty": true,
+      "sslmode": "disable"
+    },
+    "tgt": {
+      "db_type": "postgresql",
+      "host": "192.168.0.150",
+      "port": 5434,
+      "dbname": "tobe",
+      "user": "nextobe",
+      "pw_empty": true,
+      "sslmode": "disable"
+    }
+  },
+  "execute_btn_found": true,
+  "run_id": "srun_GRP_2026_1785153314",
+  "final_ui": {
+    "run_id": null,
+    "label": "실행 완료: 1건",
+    "summary": "실행 상태: 부분 완료 (timeout/오류 포함)- 실행된 계획: 1건-   일치: 0건-   차이: 0건-   오류: 1건-   timeout: 0건-   취소 건너뜀: 0건- 제외(위험도): 0건run_id: srun_GRP_2026_1785153314",
+    "btn": "▶ 안전 계획 실행 (LOW/MEDIUM)"
+  },
+  "page_errors": [],
+  "db_results": [
+    {
+      "id": 97,
+      "run_id": "srun_GRP_2026_1785153314",
+      "plan_id": 2740,
+      "target_table": "T_NULLX_TGT",
+      "plan_type": "GLOBAL_COUNT_SUM",
+      "execution_status": "ERROR",
+      "matched_count": 0,
+      "diff_count": 0,
+      "src_only_count": 0,
+      "tgt_only_count": 0,
+      "total_groups": 0,
+      "error_message": "plan 실행 중 예외: AttributeError: 'str' object has no attribute 'get'"
+    }
+  ],
+  "verdict_ok": false
+}

@@ -1,0 +1,96 @@
+diff --git a/services/batch_stats_execute_service.py b/services/batch_stats_execute_service.py
+index 8c40b74..0c1a789 100644
+--- a/services/batch_stats_execute_service.py
++++ b/services/batch_stats_execute_service.py
+@@ -453,6 +453,38 @@ def classify_plans_by_risk(
+ # ■ 단건 plan 실행
+ # ══════════════════════════════════════════════════════════════════════════════
+ 
++def _plan_group_by_cols(selected_gb) -> list[str]:
++    """plan.selected_group_by → GROUP BY 목적지 컬럼명 문자열 목록.
++
++    저장 형식이 writer 별로 두 가지라 양쪽을 모두 받는다
++    (policy_stats_validation_plan_snapshot.selected_group_by_json 역직렬화 결과):
++
++      1) list[str]  — 개별검증 정식등록 경로
++         (single_validation_save_service._build_register_plan → single_official_register_txn).
++         save_req.selected_groupby(= 목적지 컬럼명 목록)를 그대로 직렬화한다.
++      2) list[dict] — 일괄 계획 생성 경로
++         (stats_validation_plan_service._generate_for_snap → _save_plan).
++         후보 snapshot 의 selected_group_by(후보 dict)를 그대로 직렬화한다.
++         키는 tgt_col 또는 target_column.
++
++    dict 만 가정하고 .get() 을 호출하면 (1) 형식에서 AttributeError 로 크래시한다
++    (STATS-BATCH-GROUPBY-STR-DICT-CRASH-FIX). 판정 로직 변경 없이 컬럼명만 뽑아낸다.
++    """
++    cols: list[str] = []
++    for c in selected_gb or []:
++        if isinstance(c, str):
++            name = c.strip()
++        elif isinstance(c, dict):
++            name = (c.get("tgt_col") or c.get("target_column") or "").strip()
++        else:
++            # 알 수 없는 형식은 조용히 통과시키지 않고 근거를 남긴다(설명가능성).
++            _log.warning("selected_group_by 항목 형식을 해석할 수 없습니다: %r", type(c).__name__)
++            name = ""
++        if name:
++            cols.append(name)
++    return cols
++
++
+ def _execute_one_plan(
+     plan:         dict,
+     src_conn:     dict | None,
+@@ -466,11 +498,8 @@ def _execute_one_plan(
+     """
+     src_sql = (plan.get("source_sql_preview") or "").strip()
+     tgt_sql = (plan.get("target_sql_preview") or "").strip()
+-    gb_cols = [
+-        c.get("tgt_col") or c.get("target_column", "")
+-        for c in plan.get("selected_group_by", [])
+-        if c.get("tgt_col") or c.get("target_column")
+-    ]
++    # selected_group_by 는 저장 writer 에 따라 list[str] / list[dict] 둘 다 올 수 있다.
++    gb_cols = _plan_group_by_cols(plan.get("selected_group_by", []))
+ 
+     # PostgreSQL 실행 시 Oracle 방언 NUMBER 타입 표현 정규화
+     # (sqlglot Oracle dialect 파싱으로 NUMERIC→NUMBER 변환된 경우 복원)
+@@ -598,7 +627,14 @@ def _execute_one_plan_with_timeout(
+     holder: dict = {}
+ 
+     def _run() -> None:
+-        holder["r"] = _execute_one_plan(plan, src_conn, tgt_conn, cancel_token=cancel_token)
++        # 스레드에서 터진 예외는 join() 으로 전파되지 않아 holder 가 비고,
++        # 아래 폴백이 "실행 결과가 반환되지 않았습니다."로 원인을 지운다.
++        # → 예외 원문/타입을 holder 에 담아 error_message 로 노출한다(설명가능성 개선).
++        try:
++            holder["r"] = _execute_one_plan(plan, src_conn, tgt_conn, cancel_token=cancel_token)
++        except BaseException as exc:   # noqa: BLE001 — 스레드 경계에서 원인 보존이 목적
++            holder["exc"] = exc
++            _log.exception("plan 실행 중 처리되지 않은 예외 (plan_id=%s)", plan.get("plan_id"))
+ 
+     t = threading.Thread(target=_run, daemon=True)
+     t.start()
+@@ -623,10 +659,20 @@ def _execute_one_plan_with_timeout(
+             "cancel_succeeded": cancel_info.get("cancel_succeeded", False),
+             "cancel_error":     cancel_info.get("cancel_error"),
+         }
+-    return holder.get("r") or {
++    _r = holder.get("r")
++    if _r:
++        return _r
++
++    # 결과 없음 — 스레드에서 잡은 예외가 있으면 원문을 남긴다(판정은 기존과 동일 ERROR).
++    _exc = holder.get("exc")
++    if _exc is not None:
++        _msg = f"plan 실행 중 예외: {type(_exc).__name__}: {_exc}"
++    else:
++        _msg = "실행 결과가 반환되지 않았습니다."
++    return {
+         "success":          False,
+         "execution_status": EXEC_STATUS_ERROR,
+-        "error_message":    "실행 결과가 반환되지 않았습니다.",
++        "error_message":    _msg[:500],
+     }
+ 
+ 
