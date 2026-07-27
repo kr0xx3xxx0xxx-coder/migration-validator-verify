@@ -1,0 +1,119 @@
+commit 25138f09e98f582c5bfedd90f54ff193e57a89ee
+Author: migration-validator <dev@migration-validator.local>
+Date:   Mon Jul 27 15:16:22 2026 +0900
+
+    fix(exact-diff): SCOPE 모드 방언 캐스트 분기 + chunk key dialect 배선 (EXACT-DIFF-ROUTE-CHUNKKEY-DIALECT-AND-CAST-FIX)
+    
+    routes/exact_diff_route.py 의 오라클 전용 차단 2건을 해소한다.
+    
+    (1) _resolve_key 가 resolve_confirmed_chunk_key 에 dialect 를 넘기지 않아 기본
+        postgres 로 렌더됐다 — NULL probe 가 `LIMIT 1` 로 나가 오라클에서 ORA-00933
+        으로 실패하고, _has_null=None → confirm_chunk_key=None → 키 ("","") → 사유
+        없는 조용한 HOLD 로 떨어졌다. 접속 db_type 을 공통 헬퍼(_to_sqlglot_dialect)
+        로 도출해 전달한다(혼합 방언은 기존대로 postgres 유지).
+    
+    (2) SCOPE 모드가 PG 전용 `::text` 캐스트와 밑줄 선두 별칭 `__sf` 를 써서 오라클
+        에서 실행 자체가 불가능했다(`:text` 바인드 변수 오인 DPY-4010 / ORA-00911).
+        캐스트를 _scope_eq_expr 로 4개 방언 모두 분기하고(oracle=TO_CHAR, mysql=CAST
+        AS CHAR, mssql=CAST AS NVARCHAR, postgres=기존 ::text 유지), 별칭을 문자로
+        시작하는 mv_scope_src / mv_scope_tgt 로 개명했다.
+    
+    UI 는 전체>5만 & scope<=5만 일 때 SCOPE 를 보내므로(tabler_renderer.py:16549)
+    오라클 XDIFF 25만행에서 실제로 도달하는 경로다. PG 는 술어 표현 무변경(별칭명만
+    변경)이라 회귀 없음.
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+diff --git a/routes/exact_diff_route.py b/routes/exact_diff_route.py
+index 0c932cf..bee81fb 100644
+--- a/routes/exact_diff_route.py
++++ b/routes/exact_diff_route.py
+@@ -54,7 +54,8 @@ class ExactDiffRunRequest(BaseModel):
+     target_table: str = ""
+     force: bool = False
+     # SCOPE-PUSHDOWN(§39): 전체가 한도 초과라도 선택 scope(단순 동등 조건)가 한도 이하면 scope 비교 허용.
+-    # {col, val} — 파생된 양측 논리 SELECT 에 동일 조건을 안전하게 감싼다(::text 비교, 따옴표 이스케이프).
++    # {col, val} — 파생된 양측 논리 SELECT 에 동일 조건을 안전하게 감싼다(문자 캐스트 동등비교, 따옴표 이스케이프).
++    # 캐스트 표현은 방언별로 분기한다(_scope_eq_expr) — 과거 PG 전용 `::text` 고정이던 지점.
+     scope_filter: dict = {}
+ 
+ 
+@@ -130,14 +131,55 @@ def _derive_row_sqls_wrapped(pr: dict, query_full: str, dialect: str) -> tuple:
+     return src, tgt, ""
+ 
+ 
++def _conn_dialect(conn: dict) -> str:
++    """[EXACT-DIFF-ROUTE-CHUNKKEY-DIALECT-AND-CAST-FIX] 접속 dict 의 db_type → sqlglot read dialect.
++
++    매핑을 새로 만들지 않고 공통 헬퍼(services.sql_dependency_pruning._to_sqlglot_dialect)를 재사용한다
++    — diagnosis_route._routing_dialect / agg_diff_route 의 MATCH-KEY-ORACLE-DIALECT-DELEGATION-FIX 와
++    동일한 도출 방식. 미지원/불명은 기존 기본값과 같은 'postgres'."""
++    try:
++        from services.sql_dependency_pruning import _to_sqlglot_dialect
++    except Exception:  # noqa: BLE001
++        return "postgres"
++    return _to_sqlglot_dialect((conn or {}).get("db_type"))
++
++
++def _scope_eq_expr(col: str, val: str, dialect: str) -> str:
++    """[EXACT-DIFF-ROUTE-CHUNKKEY-DIALECT-AND-CAST-FIX] scope pushdown 의 '문자 캐스트 동등비교' 술어를
++    방언별로 렌더한다 — 과거 PG 전용 `(col)::text = '...'` 고정이던 지점.
++
++    Oracle 에서 `::text` 는 `:text` 를 바인드 변수로 오인(DPY-4010)해 실행 자체가 불가능했다. 균일 문자
++    정규화 방식은 이미 검증된 exact_diff Oracle 어댑터(services/exact_diff/dialects/oracle.py 의 _txt —
++    PG `(x)::text` ↔ Oracle `TO_CHAR((x))`)와 동일하게 맞춘다. 양측(원본/목적) 모두 같은 계열의 균일
++    캐스트라 비교는 대칭이다. col/val 은 호출부에서 이미 sanitize·이스케이프된 값만 들어온다.
++
++    4개 지원 방언 모두 처리(방언 분기 규칙): postgres / oracle / mysql / mssql(tsql)."""
++    d = (dialect or "postgres").lower()
++    if d == "oracle":
++        return f"TO_CHAR(({col})) = '{val}'"
++    if d == "mysql":
++        return f"CAST(({col}) AS CHAR) = '{val}'"
++    if d == "tsql":
++        return f"CAST(({col}) AS NVARCHAR(4000)) = '{val}'"
++    return f"({col})::text = '{val}'"          # postgres(기본) — 기존 표현 그대로 유지
++
++
+ def _resolve_key(req, src_sql: str, tgt_sql: str) -> tuple:
+-    """단일 안정 키 확정(§2) — 요청 키 우선, 없으면 chunk key 계약(백엔드 재확인)으로 확정."""
++    """단일 안정 키 확정(§2) — 요청 키 우선, 없으면 chunk key 계약(백엔드 재확인)으로 확정.
++
++    [EXACT-DIFF-ROUTE-CHUNKKEY-DIALECT-AND-CAST-FIX] 재확인 호출에 실제 접속 방언을 전달한다(배선만 —
++    resolve_confirmed_chunk_key 내부 로직은 불변). 이 인자를 넘기지 않으면 기본 'postgres' 로 렌더돼
++    오라클에서 후보 생성/NULL probe 가 LIMIT 등 PG 문법으로 나가 실패하고, 그 결과 chunk key 가 확정되지
++    않아 조용히 키 없음("")→상위 HOLD 로 떨어졌다. 혼합 방언(원본≠목적)은 어느 쪽으로 렌더해도 반대편
++    probe 가 실패하므로 기존 동작(기본 postgres)을 유지한다 — 영향 범위를 '동일 방언'으로 한정."""
+     if req.key_src and req.key_tgt:
+         return req.key_src, req.key_tgt
+     try:
+         from services.diagnosis.key_evidence import resolve_confirmed_chunk_key
++        _sd, _td = _conn_dialect(req.src_conn), _conn_dialect(req.tgt_conn)
+         ck = resolve_confirmed_chunk_key(src_conn=req.src_conn, tgt_conn=req.tgt_conn,
+-                                         src_sql=src_sql, tgt_sql=tgt_sql)
++                                         src_sql=src_sql, tgt_sql=tgt_sql,
++                                         dialect=(_sd if _sd == _td else "postgres"))
+         if ck and ck.get("confirmed"):
+             return ck.get("src_expr") or "", ck.get("tgt_expr") or ""
+     except Exception:  # noqa: BLE001
+@@ -170,12 +212,18 @@ def exact_diff_run(req: ExactDiffRunRequest):
+                 return {"ok": True, "status": "HOLD", "stop_reason": "HOLD_UNSUPPORTED_SHAPE",
+                         "error_message": err, "is_matched": False, "counts": {}}
+         # SCOPE-PUSHDOWN(§39) — 단순 동등 조건만 양측 동일 적용(컬럼명은 결과셋 컬럼 — 하드코딩 아님)
++        # [EXACT-DIFF-ROUTE-CHUNKKEY-DIALECT-AND-CAST-FIX] 캐스트는 각 측 접속 방언으로 렌더하고(_scope_eq_expr),
++        # 파생 테이블 별칭은 문자로 시작한다 — Oracle 은 비인용 식별자가 밑줄로 시작하면 ORA-00911 이고
++        # `::text` 는 `:text` 를 바인드 변수로 오인(DPY-4010)해 SCOPE 모드 자체가 실행 불가였다
++        # (_derive_row_sqls_wrapped 의 mv_reimport_src 별칭 규칙과 동일 계열).
+         sf = req.scope_filter or {}
+         if sf.get("col") and sf.get("val") is not None:
+             _c = str(sf["col"]).replace('"', "").replace(";", "").replace("--", "")
+             _v = str(sf["val"]).replace("'", "''")
+-            src_sql = f"SELECT * FROM ({src_sql}) __sf WHERE ({_c})::text = '{_v}'"
+-            tgt_sql = f"SELECT * FROM ({tgt_sql}) __sf WHERE ({_c})::text = '{_v}'"
++            src_sql = (f"SELECT * FROM ({src_sql}) mv_scope_src "
++                       f"WHERE {_scope_eq_expr(_c, _v, _conn_dialect(req.src_conn))}")
++            tgt_sql = (f"SELECT * FROM ({tgt_sql}) mv_scope_tgt "
++                       f"WHERE {_scope_eq_expr(_c, _v, _conn_dialect(req.tgt_conn))}")
+         key_src, key_tgt = _resolve_key(req, src_sql, tgt_sql)
+         # [ENCRYPTED-COLUMN-EXCLUSION-POLICY-PG] 암호화 컬럼 제외 생산자 — 매핑정의서 '암호화여부'가
+         # analyze 에서 parse_result 에 부착되면 그 컬럼을 값검증 대상에서 자동 제외한다(명시필드만·자동탐지 없음).

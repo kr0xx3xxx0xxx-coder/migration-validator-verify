@@ -1,0 +1,169 @@
+================================================================================
+EXACT-DIFF-ROUTE-CHUNKKEY-DIALECT-AND-CAST-FIX — 서술형 완료보고서
+작성: 2026-07-27
+대상: routes/exact_diff_route.py
+커밋: 25138f0
+================================================================================
+
+[1] 무엇을 고쳤나
+
+ROUTES-DIAGNOSIS-LIMIT-DIALECT-SECONDARY-CHECK 가 P2 로 확정한 exact_diff_route.py
+의 오라클 전용 차단 2건을 해소했다. 두 결함은 서로 독립이 아니라 SCOPE 모드에서
+연쇄로 터진다 — 코드 순서상 scope 래핑(L177/178)이 먼저 일어나고, 그렇게 래핑된
+SQL 을 그대로 받아 chunk key 를 확정(L179 → _resolve_key)하기 때문이다.
+
+(1) chunk key 확정에 방언이 전달되지 않았다
+
+    _resolve_key 는 resolve_confirmed_chunk_key 를 호출하면서 dialect 인자를
+    넘기지 않았다. 이 함수의 기본값은 'postgres' 이므로, 오라클 접속이어도 후보
+    재확인 probe 가 PostgreSQL 문법으로 렌더됐다.
+
+    실측한 근본원인은 다음과 같다(null_probe_dialect_evidence.txt):
+
+      dialect=postgres  -> SELECT 1 FROM ... WHERE SEQ_NO IS NULL LIMIT 1
+      dialect=oracle    -> SELECT 1 FROM ... WHERE SEQ_NO IS NULL FETCH FIRST 1 ROWS ONLY
+
+    오라클은 LIMIT 을 모른다(ORA-00933). 그런데 이 실패가 사용자에게 보이지
+    않는다는 점이 더 중요하다. 실패 경로를 코드로 따라가면:
+
+      _has_null 이 예외를 삼키고 None 반환 (key_evidence.py:101-102)
+        → confirm_chunk_key 가 'sn is None or tn is None' 에서 None 반환 (:431-432)
+        → resolve_confirmed_chunk_key 가 후보를 모두 소진하고 None
+        → _resolve_key 가 ("", "") 반환
+        → run_exact_diff 가 빈 키를 받아 HOLD
+
+    즉 오라클에서는 PK 가 멀쩡히 있어도 "안정적인 키를 확인할 수 없습니다" 류의
+    보류로 조용히 떨어졌고, 진짜 원인(문법 오류)은 어디에도 남지 않았다.
+
+    수정은 배선만이다. 접속 db_type 을 공통 헬퍼(_to_sqlglot_dialect)로 sqlglot
+    방언명으로 바꿔 전달한다. 매핑을 새로 만들지 않았고, resolve_confirmed_chunk_key
+    내부 로직도 건드리지 않았다. diagnosis_route._routing_dialect(ROUTES-DIAGNOSIS-
+    CONFIRM-ROUTING-DIALECT-DELEGATION-FIX)와 완전히 같은 도출 방식이라, 이미
+    검증된 선례를 따라간 것이다.
+
+    혼합 방언(원본≠목적)은 기존 동작(postgres)을 그대로 유지했다. 한쪽으로
+    렌더하면 반대편 probe 가 반드시 실패하므로, 이번 수정의 영향 범위를 '동일
+    방언'으로 한정하는 것이 안전하다. 이것도 선례와 동일한 판단이다.
+
+(2) SCOPE 모드가 PG 전용 문법으로 고정돼 있었다
+
+    scope pushdown 은 양측 논리 SELECT 를 서브쿼리로 감싸고 동등 조건을 거는데,
+    그 표현이 `SELECT * FROM (...) __sf WHERE (col)::text = '값'` 으로 하드코딩돼
+    있었다. 오라클에서 이 SQL 은 두 가지 이유로 실행 자체가 불가능하다:
+
+      · `::text` — oracledb 드라이버가 `:text` 를 바인드 변수로 오인한다(DPY-4010)
+      · `__sf`   — 비인용 식별자가 밑줄로 시작하면 ORA-00911
+
+    캐스트는 _scope_eq_expr 로 분리해 지원 4개 방언을 모두 처리했다. 오라클 등가
+    표현은 새로 발명하지 않고, 이미 실 오라클에서 검증된 exact_diff 어댑터
+    (services/exact_diff/dialects/oracle.py 의 _txt: PG `(x)::text` ↔ Oracle
+    `TO_CHAR((x))`)와 같은 균일 문자 정규화를 그대로 채택했다. 원본·목적 양쪽에
+    같은 계열 캐스트가 걸리므로 비교는 대칭이다.
+
+    별칭은 mv_scope_src / mv_scope_tgt 로 개명했다. 같은 파일의
+    _derive_row_sqls_wrapped 가 이미 쓰고 있는 mv_reimport_src 규칙과 같은 계열이다.
+
+[2] 이 경로가 실제로 도달하는가
+
+도달한다. UI 가 SCOPE 를 보내는 조건은 ui/tabler_renderer.py:16549-16554 에
+명시돼 있다 — 전체 행수가 5만 초과이고 선택 scope 행수가 5만 이하일 때
+scope_filter 를 실어 /exact-diff/run 을 호출한다. 오라클 XDIFF(25만행)에서
+그룹 하나를 눌러 상세를 여는 흔한 조작이 정확히 이 조건이다.
+
+[3] Before / After 실측
+
+실 오라클/PG 로 실행하려 했으나 내부망이 전면 차단돼 있었다
+(network_unreachable_evidence.txt):
+
+  ora-asis      192.168.0.151:1523  TCP 타임아웃
+  ora-tobe      192.168.0.151:1524  TCP 타임아웃
+  pg-inter-asis 192.168.0.150:5433  TCP 타임아웃
+  pg-inter-tobe 192.168.0.150:5434  TCP 타임아웃
+
+그래서 이전 진단(ROUTES-DIAGNOSIS-LIMIT-DIALECT-SECONDARY-CHECK)과 같은 방식으로
+대체했다. 라우트 함수를 실제로 실행하되 DB 왕복 2곳(resolve_confirmed_chunk_key ·
+run_exact_diff)만 캡처 stub 으로 치환한다. 그 앞단의 SQL 렌더와 인자 배선은
+운영과 완전히 동일한 코드 경로를 탄다. 측정 대상이 '만들어진 SQL 문자열'과
+'전달된 dialect 값'이므로, 이 값들은 DB 접속 성공 여부와 무관하게 결정적이다.
+
+Before 는 baseline worktree(HEAD=f54c957)에서, After 는 현재 트리에서 같은
+harness 를 돌렸다(scripts/dev_e2e/exact_diff_route_dialect_cast_verify.py).
+
+  ── 오라클 / SCOPE=ON ──
+  Before:
+    dialect 전달여부 : False  (미전달 → 기본 postgres)
+    src_sql : SELECT * FROM (...) __sf WHERE (DEPT_CD)::text = 'A1''B'
+    판정    : `::` 캐스트 잔존(DPY-4010) + 밑줄 선두 별칭 잔존(ORA-00911)
+              chunk key 재확인이 오라클 방언으로 나가지 않음 → 조용한 HOLD
+  After:
+    dialect 전달여부 : True / 값 = oracle
+    src_sql : SELECT * FROM (...) mv_scope_src WHERE TO_CHAR((DEPT_CD)) = 'A1''B'
+    tgt_sql : SELECT * FROM (...) mv_scope_tgt WHERE TO_CHAR((DEPT_CD)) = 'A1''B'
+    확정 key: SEQ_NO / SEQ_NO
+    판정    : 오라클 실행 불가 패턴 없음 · chunk key 가 oracle 방언으로 위임됨
+
+  따옴표 이스케이프(A1'B → 'A1''B')는 방언 분기 이후에도 그대로 유지된다.
+
+  ── PostgreSQL / SCOPE=ON (회귀 확인) ──
+  Before/After 모두: WHERE (DEPT_CD)::text = 'A1''B'
+  술어 표현이 완전히 동일하다. 달라진 것은 인라인뷰 별칭(__sf → mv_scope_src)
+  뿐이고, 이는 결과셋에 영향이 없는 내부 별칭이다.
+
+  ── 오라클 / SCOPE=OFF ──
+  Before 에도 SQL 자체는 문제가 없었다(scope 래핑을 안 하므로). 그러나 dialect
+  미전달은 동일하게 발생해 chunk key 확정은 여전히 실패했다. After 는 oracle 로
+  위임된다. 즉 (1)번 결함은 SCOPE 여부와 무관하게 오라클 전 경로에 걸려 있었다.
+
+실제 ASGI 앱(web_server:app) 라우팅을 경유한 POST /exact-diff/run 으로도 같은
+결과를 확인했다 — HTTP 200, chunk dialect=oracle, src_sql 에 TO_CHAR 렌더.
+라우터 마운트/요청 파싱까지 포함한 경로에서 동일하게 동작한다.
+
+[4] 회귀 확인
+
+  · samples/test_virtual_cases.py     EXIT=0
+  · samples/test_complex_cases.py     EXIT=0
+  · 직접 관련 테스트 32건 전부 통과
+    (test_exact_diff_route_dialect_cast / test_groupby_plan / test_exact_diff_engine)
+
+  기존 가드 테스트 test_groupby_plan.py::test_scope_filter_pushdown_and_major_no_multi
+  는 소스에 "::text = " 가 있는지 단언한다. PG 분기를 기존 표현 그대로 유지했기
+  때문에 이 테스트는 수정 없이 통과한다.
+
+  신규 테스트(tests/test_exact_diff_route_dialect_cast.py, 6건)는 baseline 에서
+  5건이 실패하고 1건만 통과한다. 통과하는 그 1건이 test_scope_filter_postgres_
+  unchanged 라는 점이 중요하다 — 테스트가 결함을 실제로 잡아내면서, 동시에 PG
+  동작이 처음부터 정상이었음을 같이 보여준다.
+
+  광범위 스위트(exact_diff/diagnosis/key_evidence/count_gate/groupby/agg/reimport,
+  약 780건)에서는 baseline 30건 실패 / after 36건 실패로 나왔다. 이 차이는
+  회귀가 아니다. 늘어난 11건은 전부 groupby_safety 계열 라이브 DB 테스트인데,
+  worktree 에서는 게이트가 꺼져 skip 되고 main 트리에서는 실행돼 내부망 차단으로
+  실패하는 알려진 혼동 패턴이다. worktree 비교로 오판하지 않기 위해 in-place
+  revert 로 격리 검증했다 — 내 수정을 HEAD 원본으로 되돌린 상태에서 같은 11건이
+  '동일하게' 실패했다. 즉 내 변경과 무관한 사전 존재 실패다. 반대로 줄어든 5건은
+  이번 수정으로 해소된 신규 테스트다.
+
+[5] 남은 갭 (이번 범위 밖 — 수정하지 않음)
+
+services/exact_diff/agg_contribution.py:840-841 에 완전히 같은 형태의 PG 전용
+scope 래핑이 남아 있다:
+
+    s_sql = f"SELECT * FROM ({s_sql}) __sc WHERE ({_c})::text = '{_v}'"
+
+`__sc` 별칭과 `::text` 캐스트 둘 다 동일한 오라클 차단 요인이다. 이번 작업은
+"routes/exact_diff_route.py 만 수정" 이라는 지시 범위를 지켜 손대지 않았다.
+집계 기여 비교(agg-diff)를 오라클에서 쓰려면 같은 방식의 후속 수정이 필요하다.
+
+[6] 서버 재기동
+
+  재기동 시각 : 2026-07-27 15:16:58 (PID 34392, 이전 PID 34604)
+  포트        : 127.0.0.1:8000
+  인증        : ON — 무인증 GET /exact-diff/status 가 401 AUTH_REQUIRED 반환
+  모듈 신선도 : exact_diff_route.py 최종수정 15:15:52 < 기동 15:16:58
+                → reload=False 환경에서 새 모듈이 로드됐음이 확정된다
+
+  인증이 켜져 있고 auth_users.json 은 scrypt 해시만 보관하므로, 인증이 필요한
+  라우트를 브라우저로 직접 눌러보는 검증은 자격증명 없이는 수행하지 못했다.
+  그 부분은 위 [3] 의 ASGI 앱 경유 실측으로 대체했다.
+
+================================================================================

@@ -1,0 +1,41 @@
+==============================================================================
+[EXACT-DIFF-ROUTE-CHUNKKEY-DIALECT-AND-CAST-FIX] 라우트 렌더/배선 실측
+==============================================================================
+
+── oracle / SCOPE=ON ───────────────────────────────────────────
+  chunk key dialect 전달여부 : False
+  chunk key dialect 값       : (미전달→기본 postgres)
+  확정 key(src/tgt)          : SEQ_NO / SEQ_NO
+  src_sql : SELECT * FROM (SELECT (SEQ_NO) AS SEQ_NO, (DEPT_CD) AS DEPT_CD, (AMT) AS AMT FROM NXDNP.XDIFF_SRC) __sf WHERE (DEPT_CD)::text = 'A1''B'
+  tgt_sql : SELECT * FROM (SELECT SEQ_NO, DEPT_CD, AMT FROM NXDNP.XDIFF_TGT) __sf WHERE (DEPT_CD)::text = 'A1''B'
+  판정 : ❌ 오라클 실행 불가 패턴 — `::` 캐스트 잔존(DPY-4010: 바인드 변수 오인) / 밑줄 선두 비인용 별칭 잔존(ORA-00911)
+  판정 : ❌ chunk key 재확인이 오라클 방언으로 나가지 않음(→ 조용히 HOLD)
+
+── oracle / SCOPE=OFF ──────────────────────────────────────────
+  chunk key dialect 전달여부 : False
+  chunk key dialect 값       : (미전달→기본 postgres)
+  확정 key(src/tgt)          : SEQ_NO / SEQ_NO
+  src_sql : SELECT (SEQ_NO) AS SEQ_NO, (DEPT_CD) AS DEPT_CD, (AMT) AS AMT FROM NXDNP.XDIFF_SRC
+  tgt_sql : SELECT SEQ_NO, DEPT_CD, AMT FROM NXDNP.XDIFF_TGT
+  판정 : ✅ 오라클 실행 불가 패턴 없음
+  판정 : ❌ chunk key 재확인이 오라클 방언으로 나가지 않음(→ 조용히 HOLD)
+
+── postgresql / SCOPE=ON ───────────────────────────────────────
+  chunk key dialect 전달여부 : False
+  chunk key dialect 값       : (미전달→기본 postgres)
+  확정 key(src/tgt)          : SEQ_NO / SEQ_NO
+  src_sql : SELECT * FROM (SELECT (SEQ_NO) AS SEQ_NO, (DEPT_CD) AS DEPT_CD, (AMT) AS AMT FROM NXDNP.XDIFF_SRC) __sf WHERE (DEPT_CD)::text = 'A1''B'
+  tgt_sql : SELECT * FROM (SELECT SEQ_NO, DEPT_CD, AMT FROM NXDNP.XDIFF_TGT) __sf WHERE (DEPT_CD)::text = 'A1''B'
+  판정 : ✅ PG 렌더 유지(::text 동등비교)
+
+── postgresql / SCOPE=OFF ──────────────────────────────────────
+  chunk key dialect 전달여부 : False
+  chunk key dialect 값       : (미전달→기본 postgres)
+  확정 key(src/tgt)          : SEQ_NO / SEQ_NO
+  src_sql : SELECT (SEQ_NO) AS SEQ_NO, (DEPT_CD) AS DEPT_CD, (AMT) AS AMT FROM NXDNP.XDIFF_SRC
+  tgt_sql : SELECT SEQ_NO, DEPT_CD, AMT FROM NXDNP.XDIFF_TGT
+  판정 : ✅ PG 렌더 유지(::text 동등비교)
+
+==============================================================================
+결과: ❌ 실패 3건
+==============================================================================

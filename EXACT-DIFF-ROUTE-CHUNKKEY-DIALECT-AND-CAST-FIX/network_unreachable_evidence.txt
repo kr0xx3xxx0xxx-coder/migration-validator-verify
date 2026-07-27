@@ -1,0 +1,9 @@
+[내부망 접속 확인] 실행: 2026-07-27 15:0x  — 라이브 오라클/PG 검증 불가 근거
+
+  ora-asis        192.168.0.151:1523  FAIL TimeoutError
+  ora-tobe        192.168.0.151:1524  FAIL TimeoutError
+  pg-inter-asis   192.168.0.150:5433  FAIL TimeoutError
+  pg-inter-tobe   192.168.0.150:5434  FAIL TimeoutError
+
+→ 오라클 2개 · Inter PG 2개 모두 TCP 타임아웃. 실 DB Before/After 실행 불가.
+→ 대체: 라우트 함수/ASGI 앱을 실제로 실행하고 DB 왕복 2곳만 캡처 stub 으로 치환해 SQL·인자 실측.

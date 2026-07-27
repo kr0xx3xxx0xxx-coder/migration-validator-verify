@@ -1,0 +1,9 @@
+[근본원인 실측] chunk key 확정용 NULL probe SQL — dialect 미전달 시 PG 문법으로 나간다
+
+  dialect=postgres  -> SELECT 1 FROM NXDNP.XDIFF_SRC WHERE SEQ_NO IS NULL LIMIT 1
+  dialect=oracle    -> SELECT 1 FROM NXDNP.XDIFF_SRC WHERE SEQ_NO IS NULL FETCH FIRST 1 ROWS ONLY
+
+  Before: dialect 미전달 → 기본 'postgres' → 오라클에 `LIMIT 1` 전송 → ORA-00933
+          → _has_null=None → confirm_chunk_key=None → resolve_confirmed_chunk_key=None
+          → _resolve_key 가 ('','') 반환 → 사유 없는 조용한 HOLD
+  After : dialect='oracle' → FETCH FIRST 1 ROWS ONLY → 정상 확인 가능
