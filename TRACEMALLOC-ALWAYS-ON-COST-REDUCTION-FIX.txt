@@ -1,0 +1,77 @@
+✅ 작업 완료 - TRACEMALLOC-ALWAYS-ON-COST-REDUCTION-FIX - tracemalloc 상시 ON 제거(설정 토글·기본 OFF), 250,000행 A/B 로 +619% 오버헤드 재현·해소 확인
+
+[수정 내용 — 운영 3파일, 판정/비교 로직 무변경]
+- services/exact_diff/execution_settings.py
+  Instrumentation 그룹(13) 신설: memory_profiling_enabled = False(기본 OFF)
+  + is_memory_profiling_enabled() 단일 조회 지점(설정 조회 실패 시 안전한 쪽 OFF)
+  settings_version("d7-20")은 변경하지 않음(기존 계약 유지)
+- services/exact_diff/pk_range_chunk.py
+  tracemalloc.start/get_traced_memory/stop 을 토글로 감쌈. OFF 면 start 자체를 호출하지 않음
+- services/exact_diff/agg_contribution.py
+  동일 처리. stop() 3지점(취소·예외·정상 종료) 전부 대칭 처리
+- peak_python_mb 필드는 유지, 미측정 시 None
+
+[추가 파일 — 운영 로직 아님]
+- tests/test_reimport_stream.py §58 수정: '메모리 계약' 자체가 검증 대상이라 계측을 명시적으로
+  켜고 측정한 뒤 이전 설정 인스턴스로 복원(reset 아님 — 타 override 보존). 임계값 20MB 불변
+- tests/test_tracemalloc_toggle_wiring.py(신규): 배선 단위테스트 4건 — 죽은 설정 6개 재발 방지
+- scripts/dev_e2e/tracemalloc_toggle_ab_verify.py(신규): monkeypatch 없이 실제 설정 토글 A/B
+- scripts/dev_e2e/tracemalloc_off_consumer_safety_verify.py(신규): None 소비처 안전성 검증
+
+[실측 — 250,000행 · 불일치율 0.8% · chunk 50,000 · OFF↔ON 3회 교차 · 중앙값]
+  pk_range_chunk    OFF  1.084 s | ON  7.795 s | Δ +6.711 s (ON 이 +619.30% 느림)
+  agg_contribution  OFF  0.950 s | ON 10.067 s | Δ +9.118 s (ON 이 +960.19% 느림)
+  → 진단 실측(+620.7%)이 이번 서버에서 그대로 재현(+619.30%). OFF 전환으로 정상적으로 빨라짐
+  → 판정 불변: counts 7개 항목 ON=OFF 완전 일치, 스트림 total_reimport_pks/status 일치
+  → OFF 시 peak_python_mb=None(두 엔진), ON 시 정상 측정(116.14MB / 2.78MB)
+  ※ 예비 측정(동일 조건 별도 1회): +578.48% / +999.60% — 같은 자릿수
+
+[라이브 DB 대체 사유 — 정직 고지]
+  192.168.0.151:1523/1524(Oracle), 192.168.0.150:5433/5434(PG Inter) 4곳 전부 TCP timeout,
+  Neon 은 전송 쿼터 소진 상태 지속 → 진단과 동일한 합성/로컬 A-B 로 대체(지시대로 명시).
+  한계도 진단과 동일: 라이브 1M run 의 절감 절대값은 여전히 미확정(방향·배율만 재확인).
+
+[peak_python_mb 소비처 확인 + OFF 안전성]
+  ① routes/agg_diff_route.py:1234 stage_timings — hmetrics.get 패스스루, None 안전(JSON null)
+  ② UI(ui/tabler_renderer.py) — 이 값을 화면에 표시하지 않음(고급 성능정보 목록에 없음) → 영향 0
+  ③ tests/test_reimport_stream.py:70 — 유일한 하드 소비처 → 계측 ON 후 측정하도록 수정
+  ④ scripts/dev_e2e/progress_hidden_instrumentation_cost.py — 진단 harness(출력만, None 안전)
+  실측(02_consumer_safety.log): C1 두 엔진 None + metrics JSON 직렬화 OK / C2 agg_diff_pk_records
+  stage_timings 통과 + payload 직렬화 OK / C3 토글 ON 복구 정상(0.02MB, 2.14MB)
+
+[회귀 — baseline 대조는 git stash 금지 정책에 따라 worktree(HEAD=5e725aa) 사용]
+  baseline 동일 11파일 : 100 passed
+  수정 후 동일 11파일 : 100 passed (신규 실패 0)
+  최종 12파일(배선 4건 포함) : 107 passed
+    ※ 100→107 = 내 배선 테스트 4건 + 별건 세션 커밋 0ecd52a 가 추가한 3건. 내 변경 기인 아님
+  samples/test_virtual_cases.py 8/8, samples/test_complex_cases.py 5/5
+
+[서버 재기동 — 코드 반영 확인]
+  2026-07-27 14:08:07 기존 프로세스(PID 31480) 종료 → 14:08:17 기동(PID 30420), 127.0.0.1:8000
+  무인증 GET /                     → HTTP 401 (인증 ON 유지)
+  인증 GET /api/execution/settings → "instrumentation":{"memory_profiling_enabled":false}
+  14:11:56 재확인 시 PID 34068(병행 세션이 추가 재기동) — 동일하게 신규 설정 노출
+
+[커밋]
+  c7142be perf(exact-diff): tracemalloc 상시 ON 제거 — 설정 토글(기본 OFF)로 전환
+  b949c14 test(dev-e2e): peak_python_mb=None 소비처 안전성 검증 harness 추가
+  7b2c335 test(exact-diff): 계측 토글 배선 단위테스트 추가 — 죽은 설정 재발 방지
+  ※ 동일 워킹트리에서 타 세션(JOB-RECOVERY-STAGE1 / CHUNK-CHECKPOINT-CONNECTION-REUSE-FIX)이
+    execution_settings.py·pk_range_chunk.py 를 동시 수정 중이라, 파일 전체가 아니라 이번 작업
+    hunk 만 골라 스테이징해 커밋했다(타 세션 미완성 변경 미혼입).
+
+[비판적 검토 — 위험과 대응]
+  - 메모리 회귀를 상시 관측하지 못하게 됨(앞으로 metrics 에 null 축적)
+    → 토글 ON 경로 유지 + 측정 harness 2종 제공, 메모리 계약은 §58 테스트가 계속 방어
+  - 과거 run(수치) vs 신규 run(null) 형태 불일치 → 대시보드에 올릴 경우 "미측정"을 반드시
+    구분 표기해야 함("0MB" 로 보이면 거짓 정보)
+  - execution_settings 는 DB 저장이 없어 운영 중 변경은 override_group 또는 재기동 필요
+    (편집 UI 는 D7-20 의 HOLD 정책 유지 — 이번 범위 밖)
+  - 진단 5-2 의 2순위(chunk_checkpoint._conn 매회 DDL 제거)는 범위 밖 · 별건 세션이 0ecd52a 로 수행
+
+[증적] E:\verify_screenshots_only\TRACEMALLOC-ALWAYS-ON-COST-REDUCTION-FIX\
+  REPORT.txt(서술형 완료보고서), 01_ab_measure_250k.log, 02_consumer_safety.log,
+  03_pytest_after.log, 04_commit_c7142be_stat.txt, 05_commit_c7142be_diff.txt,
+  06_git_log.txt, 07_server_restart_and_network.log, 08_samples_virtual.log, 09_samples_complex.log
+
+✅ 작업 완료 - TRACEMALLOC-ALWAYS-ON-COST-REDUCTION-FIX - 250,000행 기준 pk_range_chunk +6.711초 / agg_contribution +9.118초 오버헤드 제거, 판정 불변·소비처 None 안전·회귀 0 확인
