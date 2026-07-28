@@ -1,0 +1,227 @@
+STATS-VALIDATION-COMBO-DECOMPOSITION-FALSE-MATCH-WARNING-FIX
+
+작업일시 : 2026-07-28
+커밋     : 135ee9e860a2407b12cd91d74ec4705bdef669f1 (main)
+서버기동 : 2026-07-28 18:49:08 (포트 8010 — 수정 모듈 적재 새 프로세스)
+
+
+1. 배경과 문제
+------------------------------------------------------------------------------
+선행 진단(SINGLE-STEP5-COMBO-VIEW-AND-SKEWED-GROUP-VOLUME-DIAGNOSE)이 확정한 사실은
+다음과 같다. GROUP BY 를 2개 이상 선택하면 실행계획이 이를 "축별 독립 단일 세트"로
+분해해 실행한다(services/groupby_plan_service.py:88-93). 이는 과세분화를 막기 위한
+의도된 정책이며 이번 작업에서 바꾸지 않았다.
+
+문제는 그 결과가 화면에 어떻게 표현되는가였다. 축별로 따로 집계하면 두 축의 조합
+에서만 드러나는 차이가 각 축 안에서 서로 상쇄되어 사라진다. 진단이 만든 상쇄 픽스처
+(asis01.t_combo_src / tobe01.t_combo_tgt — (P,D01)+10 / (P,D02)-10 / (A,D01)-10 /
+(A,D02)+10 의 2x2 라틴 상쇄)에서 실제로 이런 일이 일어났다.
+
+  GROUP BY status_cd            그룹=3  불일치=0
+  GROUP BY dept_cd              그룹=4  불일치=0
+  GROUP BY status_cd + dept_cd  그룹=12 불일치=4   <- 조합에서만 드러남
+
+축별 분해 실행은 앞의 두 줄만 수행하므로 통계검증 판정이 matched=7 / diff=0 이 되고,
+화면은 "통계결과 일치 · 불일치 그룹 0개 · 최종상태 정상"이라고 표시했다. 그런데 같은
+화면 아래쪽 행 수준 상세비교는 같은 데이터에서 값 불일치 400건(= 4조합 x 100행)을
+정확히 검출한다. 한 화면 안에서 위쪽은 "정상", 아래쪽은 "재이관 400건"이라는 모순이
+사용자에게 그대로 노출되고 있었다.
+
+조합 비교 기능 자체를 새로 만드는 것은 실행계획 계층의 큰 설계 변경이라 이번 범위가
+아니다. 이번 작업의 목표는 하나다 — "조합은 검증하지 않았다"는 사실을 요약이 숨기지
+않게 만드는 것.
+
+
+2. 원칙 준수 사항
+------------------------------------------------------------------------------
+- 판정 로직(diff / matched / src_only / tgt_only 계산)은 한 줄도 건드리지 않았다.
+- 세트 분해 정책(groupby_plan_service.py)도 그대로 두었다. 서버 코드 변경 0줄.
+- 변경 범위는 UI 표시 계층 2개 파일뿐이다.
+- 축이 1개인 경우에는 어떤 문구도 붙지 않게 했다(회귀 방지 — 단일축은 조합 문제 자체가
+  성립하지 않는다).
+
+
+3. 변경 내용
+------------------------------------------------------------------------------
+[ui/grid_helpers.py]
+
+  (1) 판정 헬퍼 _mvComboUnverifiedAxes(r)
+      조합 미검증이면 선택 축 배열을, 아니면 null 을 돌려준다. 조건은 세 가지가 모두
+      만족될 때로 한정했다.
+        - _execEvidence.gbSel 이 2개 이상일 것
+        - _execEvidence.plan.sets 라는 '분해 계획 증적'이 실재할 것
+        - 그 세트들 중 선택 축 전부를 동시에 GROUP BY 한 세트가 하나도 없을 것
+
+      마지막 조건 덕분에 보강 2축(PAIR) 세트가 실제로 실행된 경우에는 문구가 붙지
+      않는다. 두 번째 조건은 오탐 방지 장치다. 일괄검증(batch)은 선택 축 전체를 한
+      SQL 의 GROUP BY 로 묶어 실행하므로(services/batch_runner.py:645
+      groupby_cols=default_set.group_by) 조합이 실제로 검증된다. 이 경로에는 분해
+      계획 증적이 없어 항상 null 이 되고, 잘못된 '조합 미검증' 표기가 붙지 않는다.
+      이 부분은 코드를 읽어 확인한 뒤 조건을 좁힌 것이며 테스트 케이스로도 고정했다.
+
+  (2) 배너 _mvComboUnverifiedNoticeHtml(r)
+      앰버 색 안내 박스를 만든다. 실제 문구는 다음과 같다.
+
+        [경고] 각 축 개별 검증 완료 · 조합(다축 동시) 검증은 수행되지 않았습니다
+        선택한 GROUP BY 2개 축(STATUS_CD, DEPT_CD)은 축마다 독립 세트로 나누어
+        개별로만 비교했습니다. 따라서 위 통계결과·최종상태는 각 축 개별 기준이며,
+        STATUS_CD + DEPT_CD 조합에서만 드러나는 불일치(축별 집계에서 서로 상쇄되어
+        사라지는 차이)는 이 판정에 포함되어 있지 않습니다.
+        조합 기준 확인이 필요하면 아래 상세비교(재이관 대상 레코드) 결과를 함께
+        확인하세요 — 행 단위 비교는 조합 불일치를 그대로 검출합니다.
+
+  (3) 요약 셀 꼬리표 _mvComboUnverifiedCellNote()
+      요약 행의 '통계결과'와 '최종상태' 셀 아래에 작은 주황색 '조합 미검증' 한 줄을
+      덧붙이고, 셀 title 에 전체 설명을 tooltip 으로 넣는다. 배지 값 자체("일치",
+      "정상")는 바꾸지 않았다 — 판정은 계산된 그대로가 맞고, 그 옆에 범위를 명시하는
+      방식이 더 정확하다고 판단했다.
+
+  (4) _mvTargetSummaryView 에 comboUnverified / comboTip 필드 추가,
+      _mvTargetSummaryCellsHtml 에서 위 꼬리표·tooltip 렌더,
+      _mvRenderResultGrid 상단에 배너 삽입.
+
+[ui/tabler_renderer.py]
+
+  (5) 4단계 실행 성공 요약(_mvExecStepResultHtml)에도 같은 배너를 병기.
+      통계검증 실행 직후 화면은 4단계에 머무는 정책이라, 사용자가 실제로 가장 먼저
+      보는 문구가 여기 있는 "검증 완료 · 일치 / 모든 그룹이 일치했습니다"였다.
+      5단계만 고치면 이 문구는 그대로 나가므로 함께 병기했다. 판정 라벨과 집계 숫자는
+      건드리지 않고 안내 한 줄만 덧붙였다.
+
+
+4. 검증
+------------------------------------------------------------------------------
+검증 스크립트 3종을 새로 만들었고 전부 통과했다.
+
+(A) 정적 렌더 검증 — scripts/dev_e2e/combo_decomposition_warning_static_verify.py
+    node fake-DOM 으로 실제 렌더 함수를 실행해 표시 계약을 확인한다. 14 / 14 PASS.
+      A 다축·일치      -> 배너 O / 셀 꼬리표 O / 최종상태 '정상' 유지 / 축 이름 명시
+      B 다축·불일치    -> 배너 O (조합 미검증은 결과와 무관한 사실이므로 항상 표기)
+      C 단일축         -> 배너 X · 꼬리표 X (회귀 방지)
+      D 일괄검증형     -> 배너 X (계획 증적 없음 — 오탐 방지)
+      E 전 축 동시 세트 실행 -> 배너 X (조합이 실제로 검증된 경우)
+      F 4단계 요약     -> 다축만 병기 / 단일축 미표기
+      G 판정 헬퍼 반환값 4종
+
+(B) Before / After 문구 대조 — combo_decomposition_warning_before_after_shot.py
+    git HEAD 의 grid_helpers.py(수정 전)와 작업 트리(수정 후)를 같은 fixture·같은 렌더
+    함수로 각각 렌더해 나란히 스크린샷했다. 6 / 6 PASS.
+      BEFORE 다축 -> 문구 없음, 최종상태 '정상'만 표시
+      AFTER  다축 -> 문구 병기, 최종상태 '정상'은 그대로 유지
+      AFTER  단일축 -> 문구 없음
+      BEFORE 단일축 == AFTER 단일축 (렌더 결과 문자열 완전 동일 — 회귀 0)
+
+    산출물 : static_before_multi.png / static_after_multi.png / static_after_single.png
+
+    BEFORE 요약 행 (실제 텍스트)
+      ... 실행계획 [단일축 2세트 · 7그룹] 통계결과 [일치] 재이관 PK [준비 중]
+          최종상태 [정상]
+    AFTER 요약 행 (실제 텍스트)
+      [경고 배너 3줄]
+      ... 실행계획 [단일축 2세트 · 7그룹] 통계결과 [일치 / 조합 미검증]
+          재이관 PK [준비 중] 최종상태 [정상 / 조합 미검증]
+
+(C) 실 서버 실측 클릭스루 — combo_decomposition_warning_live_verify.py
+    실 PostgreSQL(PostgreSQL_Inter_asis -> PostgreSQL_Inter_tobe), 인증 ON, 실 브라우저
+    (playwright)로 1~5단계를 실제 클릭 실행했다. 진단이 남겨 둔 상쇄 픽스처를 그대로
+    사용했다. 2 / 2 PASS.
+
+      [combo2] GROUP BY STATUS_CD + DEPT_CD
+        계획 세트 : S1 SINGLE [STATUS_CD] / S2 SINGLE [DEPT_CD]   (조합 세트 없음)
+        자동 제외 : STATUS_CD+DEPT_CD — "조합 distinct 근거 부족(단일 축 계획만 실행)"
+        집계      : matched=7 diff=0 src_only=0 tgt_only=0 total_groups=7
+        요약 셀   : ... [단일축 2세트 · 7그룹] [일치 / 조합 미검증] [준비 중]
+                        [정상 / 조합 미검증]
+        배너      : 2개 렌더(4단계 실행 요약 + 5단계 최종 요약)
+        판정      : 4단계 병기=True / 5단계 병기=True / 셀 꼬리표=True -> PASS
+
+      [single] GROUP BY STATUS_CD (1축)
+        요약 셀   : ... [단일축 1세트 · 3그룹] [일치] [준비 중] [정상]
+        판정      : 4단계 병기=False / 5단계 병기=False / 꼬리표=False -> PASS (회귀 없음)
+
+    지시 4번 항목(조합이 실제로 일치하는 정상 케이스에서도 문구가 붙는가)도 확인했다.
+    붙는다. 조합 검증을 수행하지 않은 것은 결과가 일치하든 아니든 동일한 사실이므로
+    다축 분해 실행이면 항상 병기한다(정적 검증 케이스 B 로 고정).
+
+(D) 회귀 테스트
+    python samples/test_virtual_cases.py    8 / 8 통과
+    python samples/test_complex_cases.py    5 / 5 완료
+    pytest (UI 렌더 계약 7개 파일)          108 passed / 2 failed / 5 xfailed
+
+    실패 2건은 이번 변경과 무관한 사전 존재 실패다. HEAD(수정 전) 코드를 별도 worktree
+    에 체크아웃해 같은 두 테스트를 실행한 결과 동일하게 실패하는 것을 확인했다.
+      - test_count_only_validation_ui.py::test_group_result_uses_normal_renderer_unchanged
+        (ui/execute_result_renderer.py 의 renderExecute 가 opts 미전달 시 TypeError —
+         이번에 손대지 않은 파일)
+      - test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+        (_mvRenderStrategyPlan 의 effective_group_by_count 표기 — 무관 함수)
+
+    JS 번들 문법 검사도 수행했다(node --check). grid_helpers 단독 JS 및 전체 페이지의
+    <script> 블록 2개 모두 파싱 정상 — 주석 안 '*/' 로 인한 번들 붕괴 없음.
+
+
+5. 서버 재기동에 대한 기록
+------------------------------------------------------------------------------
+코드 수정 후 서버를 새로 기동했다. 다만 포트는 8000 이 아니라 8010 을 썼다.
+
+이유는 이렇다. 작업 시점에 동일 저장소에서 다른 세션 두 건이 포트 8000 의 실행 중인
+서버를 대상으로 'before' 기준 캡처를 진행하고 있었다(step4_combo_sql_label_accuracy_
+verify.py, stats_excel_gb_cols_index_verify.py). 이 상태에서 8000 을 재기동하면 진행
+중이던 그 캡처들이 중간에 깨진다. 조용한 대기 창을 기다렸으나 새 before 실행이 계속
+이어져 열리지 않았다.
+
+그래서 web_server.py 는 전혀 수정하지 않고, 같은 app 객체를 새 프로세스로 8010 에
+올리는 검증 전용 기동 스크립트(scripts/dev_e2e/_combo_warn_server_8010.py)를 만들어
+사용했다. 새 프로세스이므로 수정된 ui/grid_helpers.py, ui/tabler_renderer.py 가 실제로
+적재된 상태이며(실행 중 서버는 reload=False 라 파일 수정이 반영되지 않는다), 위 (C)
+실측은 전부 이 서버를 대상으로 한 것이다.
+
+  기동 시각 : 2026-07-28 18:49:08
+  로그      : server_restart_8010.log
+  프로세스  : uvicorn / port 8010 / reload=False
+
+포트 8000 서버는 손대지 않았다. 다른 세션 작업이 끝난 뒤 8000 을 재기동하면 같은 변경이
+그대로 반영된다(정적 파일 변경이 아니라 파이썬 모듈 변경이므로 재기동만 하면 된다).
+
+
+6. 비판적 검토 — 남는 문제와 한계
+------------------------------------------------------------------------------
+- 이번 수정은 문구를 정정한 것이지 결함을 없앤 것이 아니다. 조합 불일치는 여전히
+  통계검증에서 검출되지 않는다. 사용자는 배너를 읽고 아래 상세비교로 내려가야 한다.
+  근본 해소는 조합 세트 실행(실행계획 계층 변경) 또는 PAIR 진입점 복구가 필요하며
+  별도 과제다.
+- 배너를 항상 표시하는 선택은 정보 노이즈를 늘린다. 다축 검증을 늘 쓰는 사용자에게는
+  매번 같은 안내가 보인다. 다만 "조합을 검증하지 않았다"는 사실이 결과에 따라
+  달라지지 않으므로, 조건부로 숨기면 오히려 신뢰를 해친다고 판단했다.
+- 판정 조건을 plan.sets 증적 유무로 좁힌 탓에, 실행계획 증적이 보존되지 않는 복원·
+  이력 재조회 경로에서는 배너가 표시되지 않을 수 있다. 잘못 붙는 것보다 안 붙는 쪽이
+  안전하다고 보고 보수적으로 잡았다. 해당 경로에 증적이 실리면 자동으로 표시된다.
+- heuristic 하드코딩은 늘지 않았다(임계값·규칙 추가 없음). 판정은 전부 기존 실행 증적
+  필드를 읽는 것으로만 이뤄진다. explainability 측면에서는 오히려 개선됐다 — 어떤
+  축을 개별로만 검증했는지 배너와 tooltip 에 명시된다.
+- web_server.py 비대화는 없다(서버 코드 변경 0줄). grid_helpers.py 에 함수 3개가
+  늘었으나 모두 순수 함수이고 node 하니스로 단위 검증이 가능한 형태다.
+
+
+7. 산출물
+------------------------------------------------------------------------------
+변경 파일
+  ui/grid_helpers.py                                          (+81 / -3)
+  ui/tabler_renderer.py                                       (+11)
+신규 파일
+  scripts/dev_e2e/combo_decomposition_warning_static_verify.py
+  scripts/dev_e2e/combo_decomposition_warning_before_after_shot.py
+  scripts/dev_e2e/combo_decomposition_warning_live_verify.py
+  scripts/dev_e2e/_combo_warn_server_8010.py
+
+증적 (E:\verify_screenshots_only\STATS-VALIDATION-COMBO-DECOMPOSITION-FALSE-MATCH-WARNING-FIX\)
+  static_before_multi.png / static_after_multi.png / static_after_single.png
+  after_combo2_4_step4_summary.png / after_combo2_5_final_summary.png
+  after_single1_4_step4_summary.png / after_single1_5_final_summary.png
+  after_combo2_*.png / after_single1_*.png (1~5단계 전체 화면)
+  01_static_render_verify.log / 02_before_after_shot.log
+  03_live_clickthrough_after.log / 04_regression_tests.log
+  05_git_diff_stat.txt / 06_commit.txt / 07_live_result.json
+  server_restart_8010.log
+
+작업 완료 — STATS-VALIDATION-COMBO-DECOMPOSITION-FALSE-MATCH-WARNING-FIX
