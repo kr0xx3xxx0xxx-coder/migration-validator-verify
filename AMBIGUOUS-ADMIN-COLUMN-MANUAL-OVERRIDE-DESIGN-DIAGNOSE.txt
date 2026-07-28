@@ -1,0 +1,280 @@
+✅ 작업 완료 - 관리컬럼 수동 오버라이드 설계 진단 완료(코드 수정 0) — 저장은 프로젝트×테이블×컬럼 영속 권고, 단 백로그가 지목한 AMBIGUOUS 뒤집기는 실효가 거의 없고 실제 수요는 CONFIRMED 뒤집기라 범위 재정의 필요
+
+작업명 : AMBIGUOUS-ADMIN-COLUMN-MANUAL-OVERRIDE-DESIGN-DIAGNOSE
+일자   : 2026-07-28
+성격   : 순수 설계 진단 (코드 수정 0 / DB 변경 0 / 커밋 0)
+
+────────────────────────────────────────────────────────────────────────
+0. 요청 응답 형식 (CLAUDE.md 기능/구조 변경 요청 규약)
+────────────────────────────────────────────────────────────────────────
+- 요청 요약    : NOT_AUDIT_AMBIGUOUS 배지 후보를 사용자가 '관리컬럼 맞음/아님'으로
+                 직접 확정하는 수동 오버라이드의 저장위치·UI위치·일괄패턴·재사용·규모 진단.
+- 긍정적 효과  : 자동판정(A축 값 × B축 명칭·코멘트)이 근거부족으로 침묵하는 지점을
+                 사람이 명시적으로 닫을 수 있게 되어, 판정 공백이 '조용한 통과/조용한
+                 배제'로 남지 않는다. 사용자 확정은 heuristic 이 아니라 근거로 기록된다.
+- 구조적 문제점: ui/tabler_renderer.py(28,000행+)에 인터랙티브 컨트롤이 또 늘고,
+                 candidate_subtype_service.evaluate_admin_audit_crosscheck 의 판정표에
+                 '사용자 우선순위' 축이 하나 더 붙는다(현재 B×A 2축 → 3축).
+- 운영상 위험  : 오버라이드가 영속되면 자동판정 로직이 나중에 개선돼도 옛 확정이 계속
+                 이겨 '고쳤는데 화면이 안 바뀐다'가 발생한다(stale override).
+- heuristic /  : 새 heuristic 은 생기지 않는다(사용자 입력이 최상위 우선). 다만 컬럼명
+  scoring /      단위 자동 재사용을 허용하면 시스템이 사용자 결정을 일반화하는 셈이라
+  explainability  §37(이름 heuristic 금지) 위반과 같은 결과가 된다 → 아래 4항 참고.
+                 explainability 는 '저장 당시 자동판정·A/B축 근거 스냅샷'을 함께 저장해야 확보.
+- 권장 대응책  : 판정 chokepoint 1곳(evaluate_admin_audit_crosscheck) 주입 + 프로젝트
+                 스코프 전용 저장소 신설. UI 는 신규 표를 만들지 않고 기존 비고 셀 재사용.
+- 지금 구현 여부: **문서화 우선(보류)**. 사유는 6항 — 백로그가 지정한 범위(AMBIGUOUS
+                 뒤집기)는 현재 실무에서 거의 발화하지 않고, 실제 가치가 있는 방향
+                 (CONFIRMED 뒤집기)은 화면에 진입점 자체가 없어 선행 작업이 필요하다.
+
+────────────────────────────────────────────────────────────────────────
+1. 저장 위치 / 범위 설계안  (지시 1)
+────────────────────────────────────────────────────────────────────────
+
+■ 1-1. 결론
+  검증 세션 단위 임시 선택이 아니라 **프로젝트 단위 영속 설정**이 맞다.
+  단 저장 키는 '프로젝트×컬럼명'이 아니라 **프로젝트 × 테이블 × 컬럼명**이어야 한다.
+
+  근거:
+  · 오버라이드는 '이 실행의 파라미터'가 아니라 '이 컬럼이 무슨 컬럼인가'라는 지식이다.
+    같은 컬럼을 재검증할 때마다 다시 판단시키면 기능의 의미가 없다 → 세션 임시 탈락.
+  · 나이스/에듀파인처럼 기관마다 스키마가 다르면 전역(설치 단위) 저장은 다른 기관의
+    동일 컬럼명에 오염된다 → 전역 탈락. 프로젝트가 '기관/이관 사업' 경계와 일치한다.
+  · 테이블을 키에서 빼면 같은 프로젝트 안에서도 REG_DT 가 A테이블에선 배치 스탬프,
+    B테이블에선 업무 등록일자인 경우를 구분할 수 없다 → 테이블 포함 필수.
+
+■ 1-2. 이미 존재하는 선례 (새 패턴을 발명할 필요 없음)
+  services/source_owner_binding_store.py — '사용자가 명시적으로 고른 판단'을
+  프로젝트 스코프로 영속하는 저장소가 이미 운영 중이다(실 데이터 642행).
+    · 키        : UNIQUE(project_id, group_id, validation_target_id, canonical_source_object_key)
+    · 상태 관리 : status = BOUND / STALE  ← stale 개념이 이미 구현돼 있다
+    · 스키마    : ensure_schema() 멱등(CREATE IF NOT EXISTS + 컬럼 점검) — 신규설치/기존 upgrade 동시
+  이 파일의 구조를 그대로 본떠 만들면 된다(신규 설계 아님).
+
+  ※ 유사하지만 재사용 불가한 것 2건 — 오인 방지
+    · candidate_policy_snapshot.manual_overrides_json
+      → 실데이터 0행. 키가 UNIQUE(target_table) 뿐이라 project 스코프가 없고,
+        내용도 '선택 여부(is_user_selected)' 오버라이드지 '의미 판정' 오버라이드가 아니다.
+        (services/candidate_recalculation_service.py:358 _apply_manual_overrides)
+    · mv_column_learning (project_id, table_nm, column_nm, column_role, selected_by AUTO/MANUAL)
+      → 키 모양은 거의 정확히 원하는 그것이지만 실데이터 0행 + 참조처가
+        routes/sample_route.py, services/sample_service.py 뿐인 사실상 미사용 레거시.
+        되살리기보다 신규 테이블이 안전(컬럼 의미가 role 이지 audit 판정이 아님).
+
+■ 1-3. 권고 스키마 (신규 테이블, db/migration_validator.db — project 테이블과 같은 DB)
+
+    CREATE TABLE admin_column_override (
+        id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id              TEXT NOT NULL,
+        scope                   TEXT NOT NULL DEFAULT 'TABLE_COLUMN',  -- TABLE_COLUMN | PROJECT_COLUMN
+        table_key               TEXT NOT NULL DEFAULT '',              -- scope=PROJECT_COLUMN 이면 ''
+        column_name             TEXT NOT NULL,                         -- 대문자 정규화
+        decision                TEXT NOT NULL,                         -- AUDIT | NOT_AUDIT
+        -- explainability(필수) : 확정 당시 자동판정과 근거를 함께 박제한다
+        auto_verdict_at_decision TEXT NOT NULL DEFAULT '',             -- CONFIRMED / NOT_AUDIT_AMBIGUOUS ...
+        axis_a_at_decision      TEXT NOT NULL DEFAULT '',              -- True/False/None
+        axis_b_at_decision      TEXT NOT NULL DEFAULT '',              -- naming / comment / none
+        memo                    TEXT NOT NULL DEFAULT '',
+        decided_by              TEXT NOT NULL DEFAULT '',
+        status                  TEXT NOT NULL DEFAULT 'ACTIVE',        -- ACTIVE | STALE
+        created_at              TEXT, updated_at TEXT,
+        UNIQUE(project_id, scope, table_key, column_name)
+    );
+
+  · 우선순위 : TABLE_COLUMN > PROJECT_COLUMN > 자동판정
+  · scope 를 '데이터'로 저장하는 것이 핵심 — 프로젝트 전체 적용은 시스템의 일반화가
+    아니라 사용자가 고른 범위가 된다(4항의 §37 문제를 구조로 회피).
+  · auto_verdict_at_decision 이 현재 자동판정과 달라지면 status=STALE 표시
+    (source_owner_binding 의 BOUND/STALE 과 동일 개념) → '고쳤는데 안 바뀐다' 위험 차단.
+
+■ 1-4. 주입 지점 (배선이 이미 1곳으로 모여 있어 유리하다)
+  · 판정 단일 출처 : services/candidate_subtype_service.py:652 evaluate_admin_audit_crosscheck()
+                     → :1209 에서 호출, :1327 에서 admin_audit_verdict 부착
+  · 자격 게이트 단일 출처 : 같은 파일 :633 is_admin_audit_confirmed()
+  · 즉 override 를 evaluate_admin_audit_crosscheck 의 최상위 우선순위 입력으로 넣으면
+    배지·체크박스·원천배제·date_bucket 대체추천 승격·일괄까지 전부 자동 일관.
+    (JS 쪽 _isAdminAuditConfirmed 도 서버 verdict 만 읽으므로 클라 재계산 없음)
+  · 다만 override_map 을 전달하려면 시그니처를 타고 내려가야 한다 — 경유 지점 4곳:
+      services/candidate_display_enricher.py:1231 enrich_candidates_for_display (내부 :1380/:1381)
+      ├ services/batch_runner.py:139
+      ├ services/candidate_postcount_finalize.py:705
+      ├ services/column_candidate_gen_service.py:845   (개별검증 analyze 경로)
+      └ services/candidate_recalculation_service.py:313 (enrich_candidates_with_subtype 직접 호출)
+
+■ 1-5. 제약 1건 (사전 확인 필요)
+  개별검증은 group_id 가 비면 TEST_ONLY(화면 확인용)로 DB 저장 금지 정책이 있고
+  (schemas/request_models.py AnalyzeRequest 주석), project_id 는 str|None 이라 없을 수 있다.
+  오버라이드 저장은 analyze 부수효과가 아닌 **사용자의 명시적 POST** 이므로 그 정책과
+  충돌하지 않지만, project_id 미선택 상태에서는 저장 자체가 불가하다
+  → UI 에서 '프로젝트를 먼저 선택하세요'로 컨트롤 비활성 필요(무저장 실패 방지).
+
+────────────────────────────────────────────────────────────────────────
+2. UI 배치 위치 제안  (지시 2)
+────────────────────────────────────────────────────────────────────────
+
+■ 2-1. 자연스러운 자리 = 3단계 후보표의 **비고(비고 열) 셀**
+  ui/tabler_renderer.py buildRow(:22167) 가 그리는 행에서
+    · 추천 열(:22276) : _ambiguousAuditBadge(c) / _namingValueMismatchBadge(c) 배지가 붙는 자리
+    · 비고 열(:22543) : _dateBucketRowControl(c) 가 **이미 per-row 인터랙티브 컨트롤
+                        (기간 월/분기/연 드롭다운)을 렌더하는 선례가 있는 자리**
+  → 배지는 '추천'열에 그대로 두고, 확정 컨트롤은 **비고 셀에 배치**가 맞다.
+    추천 열은 배지 2종이 이미 경합해 폭이 없고, 비고 셀은 컨트롤 렌더 관례가 확립돼 있다.
+
+  제안 형태(신규 표·신규 컴포넌트 없음):
+    비고 셀 : [⚠ 관리컬럼 미확인]  ▸ 확정: (관리컬럼 맞음) (관리컬럼 아님) [메모]
+    확정 후 : 배지가 '👤 사용자 확정: 관리컬럼 아님' 으로 교체 + tooltip 에 확정자/시각/
+              당시 자동판정 표시(explainability). 자동판정 문구는 지우지 않고 병기.
+
+■ 2-2. 반드시 같이 봐야 할 함정 — 재렌더 상태 보존
+  후보표는 morph 부분갱신 경로(_rerenderCandidateTablePreservingSelection, :21538 주석)를
+  쓰고, 기간 드롭다운은 과거 DATE-BUCKET-BUG2(재렌더 시 raw value 소실 → 'auto' 폴백)를
+  겪었다(:15939, :15993 복원 로직). 오버라이드 컨트롤을 '로컬 상태'로 두면 같은 버그를
+  그대로 재현한다.
+  → 회피책: 클릭 즉시 서버 POST → 응답의 override 를 후보 객체에 반영 → 재렌더.
+     로컬 미확정 상태를 만들지 않으면 스냅샷/복원 로직 자체가 불필요하다.
+
+■ 2-3. ★ 결정적 발견 — 반대 방향은 진입점이 아예 없다
+  '관리컬럼 맞음(확정)' 방향은 AMBIGUOUS 배지 행에 컨트롤을 달면 된다.
+  그러나 '관리컬럼 아님(확정)'으로 **CONFIRMED 를 되돌리는 방향은 화면에 행이 없다.**
+  CONFIRMED-ADMIN-COLUMN-FULL-SUPPRESSION 정책이 3곳에서 행 자체를 제거하기 때문:
+      ui/tabler_renderer.py:11021  일괄 후보 통합표
+      ui/tabler_renderer.py:20949  컬럼 분석 통합표(그룹기준 추천 컬럼)
+      ui/tabler_renderer.py:21657  개별검증 후보표(유일 진입점 gbCands)
+  참고/제외 표(_gbSplit.ref)도 gbCandsDisplay 에서 파생되므로 여기서도 안 보이고,
+  거기에 합류하는 excluded_with_reason(:22730)은 엔진 게이트에서 떨어진 컬럼용이라
+  enrich 계층에서 CONFIRMED 된 관리컬럼은 포함되지 않는다.
+  → 즉 '관리컬럼 아님' 오버라이드를 쓰려면 **CONFIRMED 행을 참고/제외 표에 되살리는
+     별도 작업이 선행**돼야 한다. 백로그에 기재되지 않은 숨은 선행 과제다.
+
+────────────────────────────────────────────────────────────────────────
+3. 일괄검증 기존 패턴 확인 결과  (지시 3)
+────────────────────────────────────────────────────────────────────────
+
+■ 3-1. 확인 결과: **컬럼 단위 오버라이드를 받는 엑셀 열은 존재하지 않는다.**
+  백로그가 말한 'target_where 처럼 엑셀 전용 열' 패턴은 실재하지만, 그 형태는
+  **행(=쿼리) 단위 단일 문자열**이다. 컬럼 단위 다중 판정과 형태가 다르다.
+
+  실측 확인:
+    services/batch_excel_parser.py:45  _OPTIONAL_COLS =
+        {source_name, target_where, owner, note, ddl_text, active_yn, priority,
+         expected_row_count, connection_id_source, connection_id_target}
+    → 10개 선택 컬럼 중 컬럼 단위 값을 받는 열은 0개.
+    BATCH_EXCEL_INPUT_SPEC.md §3.3 도 동일(전부 행 속성).
+
+■ 3-2. 배관(plumbing) 자체는 재사용 가능하나, 경유 파일이 5개다
+    services/batch_excel_parser.py (:46 _OPTIONAL_COLS, :196/:216 item dict)
+      → services/batch_runner.py (:187, :520, :693, :799, :1219 — 5곳)
+      → services/policy_target_table_service.py (DB 컬럼 target_where — 조회/저장 10곳+)
+      → routes/batch_route.py (:986, :996)
+      → BATCH_EXCEL_INPUT_SPEC.md
+    (batch_item 테이블에는 target_where 전용 컬럼이 없고 payload_json 경유)
+
+■ 3-3. 판정: **동일 패턴 재사용 비권고.**
+  ① 컬럼 단위 값을 셀 하나에 넣으려면 `REG_DT:AUDIT,DEPT_CD:NOT_AUDIT` 같은
+     미니 DSL 이 생긴다 → 파싱·검증·오타 처리 코드가 늘고, CLAUDE.md 가 금지하는
+     'heuristic 하드코딩 증가'에 정확히 해당한다.
+  ② 오버라이드는 '쿼리 1건의 실행 파라미터'가 아니라 '프로젝트의 컬럼 지식'이다.
+     행 단위 엑셀에 두면 같은 컬럼이 여러 행에 중복 입력되고 서로 모순될 수 있으며,
+     그 모순을 해소할 규칙을 또 만들어야 한다(정합성 책임이 엑셀로 새어나감).
+  ③ 1항의 프로젝트 스코프 저장소를 두면 **일괄검증은 읽기만 하면 되고 엑셀 변경이 0**이다.
+     batch_runner.py:139 enrich_candidates_for_display 호출에 override_map 만 넘기면 끝.
+  → 권고: 일괄은 입력 채널을 만들지 않고 저장소를 조회해 자동 적용.
+     대량 입력이 필요해지면 그때 별도 '관리컬럼 오버라이드' 전용 화면/시트로 분리(2차).
+
+────────────────────────────────────────────────────────────────────────
+4. 다른 테이블/세션 재사용과 §37 이름 heuristic  (지시 4)
+────────────────────────────────────────────────────────────────────────
+
+■ 4-1. 사용자 지적은 절반 맞다 — 성격은 다르지만 위험 메커니즘은 같다
+  · 다른 점 : §37 은 '시스템이 컬럼명으로 의미를 추정'하는 것이고, 오버라이드는
+              '사용자가 명시적으로 확정'한 것이다. 근거의 출처와 신뢰도가 다르다. 맞다.
+  · 같은 점 : 사용자가 확정한 것은 **(그 테이블의) 그 컬럼**이지 '그 이름을 가진 모든
+              컬럼'이 아니다. 이를 컬럼명만으로 다른 테이블에 자동 적용하면, 확정을
+              일반화한 주체는 사용자가 아니라 시스템이 된다 → 그 순간 다시 이름 heuristic 이다.
+              (실제 위험 사례가 이 저장소에 있다: REG_DT 는 맥락에 따라 판정이 갈렸다)
+
+■ 4-2. 권고
+  · 기본값 : 다른 테이블에 **자동 적용하지 않는다**(scope=TABLE_COLUMN).
+  · 대신 제안만 : "이 프로젝트에 같은 이름 컬럼 확정이 N건 있습니다 — 이 행에도 적용"
+                  버튼을 띄우고, 누르면 그 행에 대한 TABLE_COLUMN 행이 생성된다.
+                  (일반화의 주체가 계속 사용자로 남는다)
+  · 사용자가 원하면 : '이 프로젝트 전체에 적용'을 명시 선택 → scope=PROJECT_COLUMN 저장.
+                      이건 사용자가 고른 범위이므로 explainability 가 유지된다.
+  · 다른 세션 재사용 : 같은 (project, table, column) 이면 무조건 재사용한다(그게 영속의 목적).
+                      단 auto_verdict_at_decision ≠ 현재 자동판정이면 STALE 배지로 드러낸다.
+  · 프로젝트 경계 넘김 : 금지. 기관 스키마가 달라 오염 위험이 실재한다(나이스↔에듀파인).
+
+────────────────────────────────────────────────────────────────────────
+5. 구현 규모 추정  (지시 5)
+────────────────────────────────────────────────────────────────────────
+
+  신규 4개
+    services/admin_column_override_store.py        저장소(source_owner_binding_store 본뜸)
+    routes/admin_column_override_route.py          조회/확정/해제 API
+    tests/test_admin_column_override.py            판정 우선순위·stale·스코프 단위테스트
+    scripts/dev_e2e/…_verify.py                    실 DB 실측 캡처
+
+  수정 9개
+    services/candidate_subtype_service.py          ★ evaluate_admin_audit_crosscheck 3축화
+                                                     + enrich_candidates_with_subtype 시그니처
+    services/candidate_display_enricher.py         enrich_candidates_for_display 전달 +
+                                                     attach_ambiguous_audit_evidence 배지 분기
+    services/column_candidate_gen_service.py       개별 analyze 경로 배선
+    services/candidate_postcount_finalize.py       3단계 재산정 경로 배선
+    services/batch_runner.py                       일괄 경로 배선
+    services/candidate_recalculation_service.py    정책 재산정 경로 배선
+    ui/tabler_renderer.py                          ★ 비고 컨트롤 + 배지 + POST
+                                                     (+ 2-3 항 선행작업 시 참고/제외 표 합류)
+    web_server.py                                  라우터 등록
+    docs/ (INDEX + 설계문서)                        설계 근거 기록
+
+  ⇒ **총 13개 파일 (±2)**. 작업 부피의 약 60% 가
+     ui/tabler_renderer.py 와 services/candidate_subtype_service.py 두 파일에 집중된다.
+     2-3 항의 'CONFIRMED 행 되살리기' 선행작업을 포함하면 ui/tabler_renderer.py 수정
+     범위가 3곳(11021 / 20949 / 21657) 추가로 늘어 +1 단계 규모.
+
+────────────────────────────────────────────────────────────────────────
+6. 종합 판단 — 지금 구현하지 말아야 하는 이유
+────────────────────────────────────────────────────────────────────────
+
+■ 6-1. 백로그가 지정한 범위(AMBIGUOUS 뒤집기)는 이미 실효가 거의 없다
+  AXIS-A-N2-AMBIGUOUS-BADGE-DEACTIVATE-FIX 이후 NOT_AUDIT_AMBIGUOUS 는
+  **B=False + A=None + 값 미배선(N1)** 에서만 나온다
+  (services/candidate_subtype_service.py:775 — _candidate_sample_values(candidate) is None).
+  값이 배선됐는데 타임스탬프가 아닌 대다수 케이스(N2)는 NOT_AUDIT_CONFIRMED 로 빠진다.
+  코드 주석 자체가 "N2 가 사실상 대부분이라 이 애매 배지는 near-dead 가 되며 이는
+  의도된 결과다"(:774)라고 명시한다.
+  → 오버라이드 UI 를 붙일 대상 행이 실무에서 거의 뜨지 않는다. 만들어도 안 쓰인다.
+
+■ 6-2. 진짜 수요는 반대편에 있는데, 거긴 진입점이 없다
+  실제로 사용자가 뒤집고 싶어질 판정은 CONFIRMED 쪽이다 — 특히 코드가 스스로
+  '알려진 한계'로 남긴 지점(:689~:693):
+      "B=True + A=None → CONFIRMED 는 체크박스 비활성(하드 배제)까지 간다.
+       배제 근거는 결국 WEAK(0.62) 명칭매칭 단독이며, 이는 세션03 경고
+       ('이름 매칭 단독 신뢰 불가')가 그대로 남는 지점이다.
+       BATCH_ID(진짜 관리컬럼)와 BIZ_REG_NO(이름만 감사스러운 업무컬럼)는 A축으로 구분되지 않는다."
+  즉 '명칭만으로 조용히 배제된 업무 컬럼'을 되살리는 것이 수동 오버라이드의 본래 가치다.
+  그런데 그 컬럼들은 2-3 항대로 화면에서 행 자체가 제거되어 손댈 방법이 없다.
+
+■ 6-3. 권고 순서
+    ① (선행) CONFIRMED 관리컬럼을 '참고/제외 후보 보기' 표에 사유와 함께 되살린다.
+             — 배제를 사용자에게 보이게 하는 것만으로도 '조용한 배제' 문제의 절반이 해소된다.
+             — 이 단계는 ui/tabler_renderer.py 만 건드리며 판정 로직 불변(저위험).
+    ② (본작업) 그 위에 1항 저장소 + 2항 비고 셀 컨트롤로 오버라이드를 얹는다.
+    ③ (선택) 일괄은 저장소 읽기만 배선(엑셀 변경 0).
+  ①을 건너뛰고 ②부터 하면, 만든 기능이 뜨지 않는 배지에만 걸려 사실상 사용 불가하다.
+
+────────────────────────────────────────────────────────────────────────
+7. 검증 항목 대조표
+────────────────────────────────────────────────────────────────────────
+  저장 위치/범위 설계안        : 1항 — 프로젝트×테이블×컬럼 영속, scope 컬럼으로 확장,
+                                 source_owner_binding_store 선례 재사용, 스키마 제시 ✅
+  UI 배치 위치 제안            : 2항 — 3단계 후보표 비고 셀(_dateBucketRowControl 선례),
+                                 재렌더 보존 함정 + CONFIRMED 진입점 부재 지적 ✅
+  일괄검증 기존 패턴 확인 결과 : 3항 — 컬럼 단위 엑셀 열 부재(실측), target_where 는 행 단위,
+                                 재사용 비권고 + 사유 3건 ✅
+  구현 규모 추정               : 5항 — 신규 4 / 수정 9 = 총 13(±2) ✅
+
+  코드 수정 : 0    DB 변경 : 0    커밋 : 0    비밀정보 노출 : 0
+
+✅ 작업 완료 - 관리컬럼 수동 오버라이드 설계 진단 완료(코드 수정 0) — 저장은 프로젝트×테이블×컬럼 영속 권고, 단 백로그가 지목한 AMBIGUOUS 뒤집기는 실효가 거의 없고 실제 수요는 CONFIRMED 뒤집기라 범위 재정의 필요
