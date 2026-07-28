@@ -1,0 +1,137 @@
+작업명 : SINGLE-STEP5-MULTI-GROUPBY-REPRESENTATIVE-AXIS-DIAGNOSE
+
+⚠️ 추가 작업 필요 - 다중 GROUP BY 는 '조합'이 아니라 '단일축 N세트'로 실행되며, 5단계 대표축은
+   정책이 아니라 gb_cols[0](전달 순서)로 결정 → 재조회 시 축이 뒤바뀌어 그룹 수 4→2 실측 재현됨
+
+■ 검증 환경(코드 수정 없음 · 진단 전용)
+  - 실 서비스 http://localhost:8000 (인증 ON, Basic e2e) · 실 브라우저 클릭 · 강제주입 없음
+  - 실 DB: Oracle_asis(192.168.0.151:1523) → Oracle_tobe(:1524), NXDNP.MV_ORA_DEMO_SRC/TGT (각 150행)
+  - 선택: GROUP BY = STATUS_CD + DEPT_CD, SUM = AMT (사용자 사례와 동일 테이블·동일 선택)
+  - 구동 스크립트: scripts/dev_e2e/multi_groupby_representative_axis_diagnose.py
+                   scripts/dev_e2e/multi_groupby_representative_axis_fixture.py (PG 대조 픽스처)
+  - 증적: E:\verify_screenshots_only\SINGLE-STEP5-MULTI-GROUPBY-REPRESENTATIVE-AXIS-DIAGNOSE\
+          03_candidate.png / 04_generated_sql.png / 04b_executed.png / 05_result_first.png /
+          05b_group_child.png / 06b_after_return_result.png / 07_requery.png / 07b_requery_group_child.png
+          네트워크 원문: scripts/dev_e2e/_mgb_axis_diag.json (net 18건 — 요청 payload·응답 body 전문)
+
+■ 실 DB 실제 상태(직접 SQL 대조 — 판정 기준선)
+  조합(DEPT_CD, STATUS_CD) 기준 : 전체 12그룹 · 값불일치 4그룹  ← (D03,A) (D03,P) (D06,C) (D06,I)
+  DEPT_CD 축 단독 기준          : 전체 6그룹  · 값불일치 2그룹  ← D03, D06
+  STATUS_CD 축 단독 기준        : 전체 4그룹  · 값불일치 4그룹  ← A, P, C, I
+  행 수준 불일치(재이관 대상)    : 10건
+
+■ 지시 1. 대표축 선정 로직(파일:라인) — 구현이 '두 벌' 이고, 실제로 도는 쪽엔 정책이 없다
+  (A) 정책 구현(설계 의도) : services/exact_diff/pk_range_chunk.py:234-254  _select_rep_axis()
+      "①불일치 distinct group 2~200 축 → ②후보점수 높은 축 → ③사용자 선택순서 → ④최소 그룹수"
+      · 호출 :259(_build_grp_dist) / :398(최종) → basis.mismatch_group_distribution 에 저장
+      · 단, 점수·선택순서 인자(gb_candidate_scores / gb_selection_order, :152)는 운영 호출부 어디서도
+        전달되지 않는다(전수 grep 결과 테스트 tests/test_d7_16_representative_axis.py 만 전달).
+        → 점수는 항상 None 이라 ②는 무효, 사실상 "밴드(2~200) 안에 드는 첫 축"으로 퇴화.
+      · 이 경로는 PK_RANGE_CHUNK_COMPARE(대량) 일 때만 탄다.
+  (B) 실제로 도는 구현 : routes/agg_diff_route.py:621-651  _group_dist_from_store()
+      · :626  gcol = next((g for g in (gb_cols or []) if g), None)   ← ★ 무조건 gb_cols[0]. 정책 없음.
+      · :1215-1217 basis 에 분포가 없으면(DIRECT 경로) 이 폴백으로 분포를 만든다.
+      · 저장 레코드 상한 2000건(:630) 안에서만 집계, NULL 은 ''(정책 구현은 '(NULL)') — 규칙도 다름.
+  (C) 어느 쪽이 도는가 : ui/tabler_renderer.py:16843,16860
+      compare_strategy = (원본 COUNT > 50,000 ? 'PK_RANGE_CHUNK_COMPARE' : '')
+      → 5만행 이하(대다수 개별검증·이번 실측 150행)는 DIRECT → 항상 (B) = gb_cols[0].
+      실측 응답이 이를 증명: computed_from_store=true, representative_axis=null, selection_reason=null,
+      axis_group_counts=null (정책 snapshot 필드가 전부 비어 있음 = 정책 경로 미사용).
+  (D) 라벨 렌더 : ui/tabler_renderer.py:27381(헤더 '대표 GROUP BY(...)') / :27388(열 '그룹값(...)')
+      — 서버가 준 group_col 하나만 표기. 다른 축이 존재한다는 사실·선정 사유는 화면에 없다.
+
+■ 지시 2. 실제 비교/판정이 STATUS_CD+DEPT_CD '조합' 기준인가 → 아니다(조합 실행 안 됨)
+  네트워크 원문(_mgb_axis_diag.json) 실측:
+    /generate #1 → GROUP BY STATUS_CD, DEPT_CD   ← 4단계 화면에 '표시만' 되는 SQL
+    /groupby-plan → sets = [ {SINGLE, [STATUS_CD]}, {SINGLE, [DEPT_CD]} ]
+    /generate #2 → GROUP BY STATUS_CD            ← 실제 실행 SQL 1
+    /execute  #1 → matched 0 · diff 4 · total_groups 4 · gb_keys [STATUS_CD]
+    /generate #3 → GROUP BY DEPT_CD              ← 실제 실행 SQL 2
+    /execute  #2 → matched 4 · diff 2 · total_groups 6 · gb_keys [DEPT_CD]
+  화면 요약(4단계) = 세트 '합산' : 전체 그룹 10(4+6) · 일치 4(0+4) · 값 불일치 6(4+2)
+  → 사용자가 보고한 10 / 4 / 6 과 정확히 일치. 즉 그 숫자는 조합 집계가 아니라 두 단독축의 합이다.
+  → 조합 기준 실측값(전체 12 · 불일치 4)과는 다른 수치이며, 조합 SQL 은 한 번도 실행되지 않았다.
+  분기 지점 : ui/tabler_renderer.py:27682  if (gbSel.length >= 2) → _runExecutePlanSets(:25434)
+              :25459 EXPLICIT_MULTI(복합) 세트는 계획에 있어도 항상 제외
+  ※ 서버 비교기 자체는 조합 키를 지원한다(services/stats_execute_service.py:206 tuple 키).
+     조합이 안 되는 이유는 비교기가 아니라 '세트 계획이 단일축만 만들기 때문'이다.
+  ※ 4단계 화면은 "생성된 SQL 기준 GROUP BY: STATUS_CD, DEPT_CD"(04b_executed.png)를 그대로 보여준 뒤
+     바로 아래에 세트 합산 결과를 붙인다 → 조합으로 실행됐다고 오인할 수밖에 없는 화면.
+     (5단계에는 '단일 축 2세트: DEPT_CD / STATUS_CD' 표기가 있어 4단계만 사실과 다르다.)
+
+■ 지시 3. 원인 뭉개짐 — 실재하며 그대로 재현됨
+  재조회 후(대표축 DEPT_CD) 분포 표 : D03 5건(50%) / D06 5건(50%)  ← 07_requery.png
+  D03 행을 실제 클릭해 펼친 상세(07b_requery_group_child.png):
+     ID 15 P / ID 45 A / ID 75 P / ID 105 A / ID 135 P   → STATUS_CD = P 3건 + A 2건
+  즉 서로 다른 두 원인 (D03,P) 과 (D03,A) 가 "D03 5건" 한 줄로 합쳐져 분포 표에서는 구분되지 않는다.
+  (반대로 대표축이 STATUS_CD 이면 P 3건 · A 2건으로 나뉘지만 이번엔 어느 부서인지가 뭉개진다.)
+  드릴다운 필터도 단일 컬럼 전용(scope_col/scope_val 1쌍 — agg_diff_route.py:1197, tabler_renderer.py:27436)
+  이라 '조합 그룹'으로는 좁힐 수 없다. 행 상세를 펼치면 나머지 축 값은 표에 보이므로 정보 자체는 남아 있다.
+
+■ 지시 4. 그룹 수 4→2 재현 — 재현됨. 단, '복귀'가 아니라 '지금 다시 조회' 클릭이 방아쇠
+  ① 최초 5단계        : run PK62E3F9158ACF · gb_cols [STATUS_CD, DEPT_CD] · 대표축 STATUS_CD · 4그룹
+                        (P3 / I3 / A2 / C2 = 10건)
+  ② 다른 탭(일괄검증) 이동 후 개별검증 복귀 : 완전히 동일 — 대표축 STATUS_CD · 4그룹, 스냅샷 시각도
+                        16:45:32 그대로. 즉 '스냅샷을 그대로 본 경우'에는 변하지 않는다.
+  ③ '↻ 지금 다시 조회' 클릭 : 새 run PKF0C988904985 · gb_cols [DEPT_CD, STATUS_CD] · 대표축 DEPT_CD
+                        · 2그룹(D03 5 / D06 5 = 10건), 스냅샷 16:45:57
+  → 총 불일치 건수는 10건으로 양쪽 동일(데이터 변화 없음). 바뀐 것은 '어느 축으로 묶어 보여주는가' 뿐.
+  통제 실험(동일 데이터·순서만 반대로 준 실 서버 prepare 3회, 8_axis_order_experiment):
+      A gb_cols[STATUS_CD, DEPT_CD] → group_col STATUS_CD · 4그룹
+      B gb_cols[DEPT_CD, STATUS_CD] → group_col DEPT_CD   · 2그룹
+      C gb_cols[STATUS_CD, DEPT_CD] → group_col STATUS_CD · 4그룹 (A 재현)
+  → 대표축 = gb_cols[0] 이고 그룹 수는 그 축의 distinct 수라는 것이 결정적으로 확인됨.
+
+■ 지시 5. 근본원인(파일:라인) — 캐시/스냅샷 문제도, 데이터 변경도 아니다. '축 순서 출처가 두 개'다
+  대표축은 prepare 에 실린 gb_cols 의 첫 원소로 정해지는데(agg_diff_route.py:626),
+  그 gb_cols 를 만드는 출처가 실행 경로마다 다르고 순서도 다르다:
+    · 단계별 수동 실행 : ui/tabler_renderer.py:27663 gbSel = sqlOut.dataset.gbSel
+                         ← ui/validation_plan_renderer.py:597-600 _collectCheckedCols =
+                            document.querySelectorAll 결과 = '후보표 DOM 행 순서' (실측 STATUS_CD 먼저)
+    · '지금 다시 조회' : ui/tabler_renderer.py:27279 _mvRiRePrepare
+                         → :26419 _mvExecRestartFromStart → :15813 runFullValidation(원클릭 전체 재실행)
+                         → :19678 _egb = env.effective_selection.effective_group_by_columns (서버 산출 순서)
+                         → :19745 agg._execEvidence.gbSel = _egb  (실측 DEPT_CD 먼저)
+    · prepare payload  : ui/tabler_renderer.py:16837 gbAll = aggEv.gbSel || ev.gbSel → :16848 gb_cols
+  같은 선택(STATUS_CD+DEPT_CD)인데 경로에 따라 [STATUS_CD, DEPT_CD] ↔ [DEPT_CD, STATUS_CD] 로 순서가
+  바뀌고, 그 첫 원소가 곧 대표축이 되어 표시 그룹 수가 4 ↔ 2 로 뒤집힌다.
+  부수 확인: '지금 다시 조회'는 스냅샷 재조회가 아니라 analyze~execute 전체 재실행이며(27274-27292 주석
+  에도 명시), 후보 선택도 서버 자동선정으로 다시 계산된다 → 사용자가 3단계에서 고른 순서·구성이
+  그대로 유지된다는 보장이 없다.
+  같은 세션 다른 세션 여부·타 세션의 동시 데이터 변경 가능성은 배제됨(양쪽 run 의 불일치 총건수 10건 동일,
+  DB 는 이 진단 중 UPDATE/DELETE 하지 않음).
+
+■ 지시 6. 다중 GROUP BY 설계 의도 — '지원'은 되지만 조합이 아니라 단일축 N세트가 설계다
+  services/groupby_plan_service.py:75  "[D7-17 통합 D] 복합 GROUP BY(EXPLICIT_MULTI) 세트 생성 제거 —
+                                        선택 축을 각각 독립 단일 세트로만 실행"
+                                :138  명시 복합 세트 생성 제거(2축 PAIR 는 '보강 분석' 명시 요청 시에만, :125)
+  ui/tabler_renderer.py:25436·25459 클라이언트도 EXPLICIT_MULTI 세트를 항상 제외
+  → 다중 선택이 '어쩌다 통과'하는 게 아니라, 의도적으로 단일축 세트로 분해해 실행하는 설계.
+  반면 5단계 대표축 정책(pk_range_chunk.py:235 주석 "첫 표시 후 자동 변경 금지")은 다축을 전제로 쓰였으나
+  실제 도는 경로(DIRECT)에는 적용되지 않아, 설계 문서와 동작이 어긋나 있다.
+
+■ 위험 정리(수정 제안 아님 — 판단용)
+  1) 4단계가 실행되지 않는 조합 SQL 을 '생성된 SQL 기준'으로 제시 → 사용자가 조합 검증을 했다고 오인.
+     실제로 (D03,A) 같은 조합 단위 불일치는 어느 세트에서도 조합으로 판정되지 않는다.
+  2) 대표축이 gb_cols[0] 이라 '왜 이 축인가'가 화면·응답 어디에도 남지 않는다(explainability 없음).
+     정책 구현이 만들어 두는 근거 snapshot(representative_axis/selection_reason/axis_group_counts)은
+     DIRECT 경로에서 항상 null.
+  3) 같은 결과를 다시 열었을 뿐인데 그룹 수가 달라 보이는 것은 신뢰도 문제로 직결(이번 실측이 그 사례).
+  4) 5만행 경계로 대표축 규칙이 통째로 바뀐다(≤5만: gb_cols[0] / >5만: 밴드 정책). 같은 선택·같은 축
+     구성에서도 규모만 다르면 다른 축이 대표가 될 수 있다(코드 기준 확인, 대량 라이브 실측은 미수행).
+  5) _group_dist_from_store 는 저장 레코드 2000건 상한으로만 집계하므로, 불일치가 많으면 분포 자체가
+     저장분 기준으로 축소될 수 있다(이번 케이스 10건이라 미발현).
+
+■ 남은 한계(정직 고지)
+  - 대량(>5만행) chunk 경로의 대표축 정책 동작은 코드 판독으로만 확인했고 라이브 실측은 하지 않았다.
+  - PG 대조 픽스처(asis01.t_mgb_src / tobe01.t_mgb_tgt, 200행 · 조합 10그룹)를 만들어 두었으나
+    이번 결론은 전부 오라클 실측으로 확정했고, PG 픽스처는 재현용 예비다(테이블만 생성, 기존 테이블 불변).
+
+■ 변경 파일
+  - 신규(진단 전용, 운영 코드 아님):
+      scripts/dev_e2e/multi_groupby_representative_axis_diagnose.py
+      scripts/dev_e2e/multi_groupby_representative_axis_fixture.py
+  - 운영 코드 수정 0건(요청대로 진단만 수행)
+
+⚠️ 추가 작업 필요 - 대표축 단일출처화(정책/폴백 이원화 해소)와 4단계 '조합 SQL 표시 vs 단일축 실행'
+   불일치 해소가 필요하며, 두 건 모두 별도 작업으로 승인 후 진행 대상
