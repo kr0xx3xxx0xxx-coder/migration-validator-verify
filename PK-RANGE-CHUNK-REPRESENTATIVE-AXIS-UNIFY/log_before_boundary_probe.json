@@ -1,0 +1,176 @@
+{
+ "tag": "before",
+ "at": "2026-07-28 19:39:20",
+ "runs": [
+  {
+   "pair": "a",
+   "src_rows": 49999,
+   "gb_cols": [
+    "status_cd",
+    "dept_cd"
+   ],
+   "stream": false,
+   "compare_strategy": "",
+   "prepare_status": "READY",
+   "run_id": "PK054C7358B1C3",
+   "err": null,
+   "status": "READY",
+   "elapsed_s": 5.7,
+   "actual_strategy_id": "DIRECT_STREAM_COMPARE",
+   "reimport_total": null,
+   "group_col": "dept_cd",
+   "representative_axis": "dept_cd",
+   "total_group_count": 2,
+   "selection_reason": "IN_BAND_FEWEST_GROUPS",
+   "representative_axis_reason": "불일치 그룹 2개(2~200 구간) · 축 2개 중 최소 · 선택 순서 무관 고정",
+   "axis_group_counts": {
+    "status_cd": 4,
+    "dept_cd": 2
+   },
+   "axis_selection_deterministic": true,
+   "computed_from_store": true,
+   "groups": [
+    {
+     "v": "D02",
+     "c": 63
+    },
+    {
+     "v": "D01",
+     "c": 63
+    }
+   ]
+  },
+  {
+   "pair": "a",
+   "src_rows": 49999,
+   "gb_cols": [
+    "dept_cd",
+    "status_cd"
+   ],
+   "stream": false,
+   "compare_strategy": "",
+   "prepare_status": "READY",
+   "run_id": "PK2F11584B664F",
+   "err": null,
+   "status": "READY",
+   "elapsed_s": 5.7,
+   "actual_strategy_id": "DIRECT_STREAM_COMPARE",
+   "reimport_total": null,
+   "group_col": "dept_cd",
+   "representative_axis": "dept_cd",
+   "total_group_count": 2,
+   "selection_reason": "IN_BAND_FEWEST_GROUPS",
+   "representative_axis_reason": "불일치 그룹 2개(2~200 구간) · 축 2개 중 최소 · 선택 순서 무관 고정",
+   "axis_group_counts": {
+    "dept_cd": 2,
+    "status_cd": 4
+   },
+   "axis_selection_deterministic": true,
+   "computed_from_store": true,
+   "groups": [
+    {
+     "v": "D02",
+     "c": 63
+    },
+    {
+     "v": "D01",
+     "c": 63
+    }
+   ]
+  },
+  {
+   "pair": "b",
+   "src_rows": 50001,
+   "gb_cols": [
+    "status_cd",
+    "dept_cd"
+   ],
+   "stream": true,
+   "compare_strategy": "PK_RANGE_CHUNK_COMPARE",
+   "prepare_status": "PREPARING",
+   "run_id": "PSC15194AEDCA1",
+   "err": null,
+   "status": "READY",
+   "elapsed_s": 5.1,
+   "actual_strategy_id": "PK_RANGE_CHUNK_COMPARE",
+   "reimport_total": 126,
+   "group_col": "status_cd",
+   "representative_axis": "status_cd",
+   "total_group_count": 4,
+   "selection_reason": "IN_BAND_2_200",
+   "representative_axis_reason": null,
+   "axis_group_counts": {
+    "status_cd": 4,
+    "dept_cd": 2
+   },
+   "axis_selection_deterministic": null,
+   "computed_from_store": null,
+   "groups": [
+    {
+     "v": "S04",
+     "c": 32
+    },
+    {
+     "v": "S01",
+     "c": 32
+    },
+    {
+     "v": "S02",
+     "c": 31
+    },
+    {
+     "v": "S03",
+     "c": 31
+    }
+   ]
+  },
+  {
+   "pair": "b",
+   "src_rows": 50001,
+   "gb_cols": [
+    "dept_cd",
+    "status_cd"
+   ],
+   "stream": true,
+   "compare_strategy": "PK_RANGE_CHUNK_COMPARE",
+   "prepare_status": "PREPARING",
+   "run_id": "PS96765DF803BB",
+   "err": null,
+   "status": "READY",
+   "elapsed_s": 4.8,
+   "actual_strategy_id": "PK_RANGE_CHUNK_COMPARE",
+   "reimport_total": 126,
+   "group_col": "dept_cd",
+   "representative_axis": "dept_cd",
+   "total_group_count": 2,
+   "selection_reason": "IN_BAND_2_200",
+   "representative_axis_reason": null,
+   "axis_group_counts": {
+    "dept_cd": 2,
+    "status_cd": 4
+   },
+   "axis_selection_deterministic": null,
+   "computed_from_store": null,
+   "groups": [
+    {
+     "v": "D02",
+     "c": 63
+    },
+    {
+     "v": "D01",
+     "c": 63
+    }
+   ]
+  }
+ ],
+ "verdict": {
+  "대표축들": [
+   "dept_cd",
+   "dept_cd",
+   "status_cd",
+   "dept_cd"
+  ],
+  "전부 동일": false,
+  "경계 양쪽 동일": false
+ }
+}

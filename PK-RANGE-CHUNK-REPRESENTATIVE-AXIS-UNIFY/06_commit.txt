@@ -1,0 +1,14 @@
+﻿commit ab480810e1be55bd414468fa3092fdee986b56d9
+author migration-validator
+date Tue Jul 28 19:50:12 2026 +0900
+
+fix(reimport): 5만행 초과 chunk 경로 대표 GROUP BY 축을 DIRECT와 동일한 결정적 규칙으로 통일 (PK-RANGE-CHUNK-REPRESENTATIVE-AXIS-UNIFY)
+
+- pk_range_chunk._select_rep_axis 폴백(후보점수·선택순서 미전달=운영 경로)을
+  DIRECT(_select_direct_rep_axis)와 동일 규칙으로 교체
+  (①값 관측 축 ②2~200 구간 ③그룹 수 최소 ④컬럼명 오름차순)
+- 근거 필드 representative_axis_reason·axis_selection_deterministic 를 DIRECT와
+  동일 이름·형태로 응답에 추가(화면 코드 무수정)
+- 후보점수/선택순서가 실제 전달될 때는 기존 D7-16 C 정책 유지(회귀 없음)
+- 실측: 49,999행 DIRECT / 50,001행 chunk 양쪽 모두 대표축 dept_cd 동일
+
