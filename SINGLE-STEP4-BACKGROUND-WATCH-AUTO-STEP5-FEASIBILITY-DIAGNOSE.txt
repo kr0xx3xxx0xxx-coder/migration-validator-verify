@@ -1,0 +1,179 @@
+⚠️ 추가 작업 필요 - 백그라운드 감시 방식은 타당하나 감시 대상 job 이 존재하지 않아 4단계 실행의 비동기 job 화가 선행돼야 함
+
+작업명: SINGLE-STEP4-BACKGROUND-WATCH-AUTO-STEP5-FEASIBILITY-DIAGNOSE (2026-07-28)
+성격: 순수 진단 + 설계안 — 운영 코드 수정 0. 신규 파일은 진단 문서 1 + dev_e2e 관측 스크립트 2뿐.
+환경: 실 서비스 포트 8000(인증 ON) · Chromium(playwright) 실측.
+
+────────────────────────────────────────────────────────────────────────
+[결론 한 줄]
+"원래 탭이 자기 job 완료를 백그라운드로 감시" 방식 자체는 타당하고 팝업 통신(BroadcastChannel)보다
+확실히 단순하다. 그러나 지금 감시할 job 이 없다 — 4단계 실행은 job 이 아니라 단일 blocking HTTP
+요청이다. 이 기능의 본체는 자동전환이 아니라 '4단계 실행의 비동기 job 화'이며 그것이 공수의 대부분이다.
+
+[지시의 전제 1건 정정]
+지시 3의 "기존 정책은 시작 시 자동전환 금지였고 완료 시는 정책이 없었다"는 사실과 다르다.
+08c2119(2026-07-08) "단계 버튼 성공 후 자동 탭 이동 전면 제거"가 바로 '완료 시' 정책이며,
+runExecute·_runExecutePlanSets 성공 경로를 명시 대상으로 삼았다. 테스트가 정책 문구까지 잠가 놨다.
+
+────────────────────────────────────────────────────────────────────────
+[지시 1] 현재 4단계 실행의 상태 추적 — 없음
+
+  · runExecute(tabler_renderer.py:27308)  = await fetch('/execute') 1회. 추적은 클라 플래그
+    (_executeInProgress·_mvExecPanelActive)와 버튼 스피너뿐.
+  · _runExecutePlanSets(25196)            = 세트 수만큼 /generate→/execute 순차 반복. '세트 i/N' 텍스트만.
+  · routes/execute_route.py:45            = 동기 함수. orchestrator 호출 후 최종 결과를 한 번에 반환.
+                                            job 생성·상태기록 0줄. persist=False 고정(run_id=None).
+  · 단, 성공 시 전체 행은 인메모리 stats_result_store 에 저장되어 result_page.result_id 발급
+    (orchestrator:246~272, persist 무관) → 비동기화 시 '결과 보관' 설계의 선례로 재사용 가능.
+
+  기존 폴링 3종 재사용 판정:
+    L1 _mvRiStartPolling(25848)     재이관 exact_diff run 대상  → ❌ 볼 run 없음
+    L2 _mvPkLoadPage(16958)         PK index 준비 대상          → ❌ 동일
+    L3 _jdPollOnce(js_job_dashboard.py:632) GET /jobs/active     → ⚠️ 루프 골격은 최적(단일 타이머·
+                                            inFlight 가드·setTimeout 체인·정지조건 구비). 다만 목록에
+                                            4단계 실행이 들어오지 않는다.
+  → 재사용 가능한 것은 L3 골격과 배지 인프라(data-jobbadge)뿐. 새로 필요한 것은 서버 job + 상태 API.
+
+[지시 2] 완료 판정 기준 — 기존 /jobs API 로는 감지 불가
+
+  실측 GET /jobs/active → counts.by_source = {"single":0,"batch":0,"stats":0,"full":0}
+    single = 개별검증 '재이관 상세'(exact_diff) — 4단계 통계검증 실행이 아니다
+    batch  = 일괄검증 batch_execution_state
+    stats  = **일괄** 통계검증 계획 실행(batch_stats_execute_run)
+    full   = 전수검증(실행 구조 없음)
+  개별검증 4단계 실행은 네 소스 어디에도 없다 → GET /jobs/{id} 로 완료를 감지할 수 없다.
+
+  다만 확장 비용은 작다:
+    · terminal 판정이 화이트리스트가 아닌 여집합으로 정의돼 새 상태가 조용히 누락되지 않음
+    · 복합키 source:id 체계가 있어 single_exec:<run_id> 로 자연 확장
+    · 제약: job_registry 는 read-only·원본 무수정 원칙 → '저장소 신설 → 어댑터 추가' 순서 필수
+
+[지시 3] 정책 충돌 — 충돌한다(전제 정정)
+
+  08c2119(2026-07-08) 정책: 모든 단계 버튼 실행 '성공 후' 자동으로 다음 탭 이동 금지.
+    - _runExecutePlanSets 성공: showSingleStep('result') 제거
+    - runExecute 성공: 유지 + _renderSingleStepNav() 로 결과(5) '활성화만'
+  1c10a54(2026-07-08): 완료 직후 다음 탭 자동 '현재' 승격까지 금지(배지 판정).
+  코드 문구: tabler_renderer.py:27545 "통계검증 실행 후에는 4단계에 머문다(자동 5단계 이동 금지)"
+  테스트 잠금: tests/test_execute_success_result_step4_display_fix.py:106 이 그 문구 존재를 assert.
+
+  예외 선례 존재: 원클릭 전체검증(runFullValidation/_applyFullRunEnvelope)은 08c2119 범위 밖으로
+  명시 제외됐고 지금도 완료 시 _singleViewStep='result' 로 직접 이동한다.
+  → 해소 방향은 정책을 뒤집지 말고 좁히는 것: "포그라운드 동기 실행 완료 후 이동 금지는 유지,
+     사용자가 명시적으로 '백그라운드 실행'을 선택한 경우에 한해 완료 시 이동 허용."
+     이는 UX 정책 결정이므로 사용자 승인 대상(테스트 문구도 함께 갱신).
+
+[지시 4] 탭 이탈 후 감시 지속 — SPA 는 살지만, 다른 검증으로 이동하면 실행이 죽는다
+
+  실측(증적 feasibility_probe.json / timer_persistence_probe.json):
+    · SPA 내부 탭 이동(현황판→개별검증): 문서 유지 → 타이머 생존. 이탈 상태에서 폴링 1회 실제 발생
+      (pollCount 2→3). 새로고침은 문서 파괴로 소멸(재개 없음).
+    · 이탈 + 활성 job 0: 정지 — _jdSchedule 의 (!visible && stopWhenIdle && activeCount===0)
+    · 가짜 활성 job 주입: 첫 폴링 응답이 서버 목록(활성 0)으로 덮어써 즉시 정지
+      → 서버가 활성으로 인정하는 job 이 있어야만 백그라운드 감시가 지속된다(핵심)
+    · 폴링 주기: 표시 중 3,000ms / 이탈 후 배지 15,000ms (execution_settings.polling — 하드코딩 아님)
+    · 브라우저 hidden throttling: 미측정. headless Chromium 에 Emulation.setPageVisibilityState 가 없어
+      hidden 을 만들지 못했다(visible 상태 1초 tick gap 993~1016ms 정상). 추정값을 만들지 않고 미확보로 남긴다.
+
+  결정적 발견 — 실측 { "outcome": "ABORTED", "verBumped": 3 }
+    resetIndividualValidationWorkSession(15068)이 _singleNewAbortSignal() 로 진행 중 fetch 를 abort 한다.
+    호출 지점: DB 프로필/경로 변경(PROFILE_CHANGE) · runAnalyze 진입(ANALYZE = 다른 테이블 검증 시작)
+              · 전체검증(FULL_RUN) · 수동 초기화/새로고침(MANUAL_OR_RELOAD)
+    → "실행 걸어놓고 다른 검증 진행" 시나리오가 현재 구조에서 아예 성립하지 않는다.
+      서버는 계속 실행되지만(클라 이탈 미감지) persist=False 라 결과는 버려진다.
+
+[지시 5] 새창 — 통신 불필요 전제는 맞다
+
+  · 팝업 차단: 자동화 환경에서는 제스처 없는 window.open 도 열려 실제 Chrome 정책이 재현되지 않았다.
+    실 브라우저 기준은 유효하므로 보수적으로 설계 — 반드시 click 핸들러 안에서 동기 호출.
+    await 뒤·setTimeout 안·폴링 콜백 안에서 열지 말 것.
+  · 새창 비용: 현황판은 독립 페이지가 아니라 SPA 탭(#tab-job-dashboard) → 전체 재로드.
+    실측 로드 1.4초 · 문서 2,251,186자(약 2.15MB). 경량 전용 페이지 없음.
+  · deep-link 지원: _mvResolveInitialTab 이 #tab-<name> 을 1순위로 읽음(실측 새창 _mvActiveTab='job-dashboard').
+  · 통신 불필요: 맞다. 새창은 자기 타이머로 GET /jobs/active 만 조회하는 조회 전용, 원래 탭은 자기 job 을
+    독립 폴링. postMessage·opener·BroadcastChannel 전부 불필요. 단 전제는 지시 2 — job 등록 전에는
+    새창에 4단계 실행이 뜨지 않는다.
+  · 부작용: 창 수만큼 폴링 증가(창당 1개). 주기가 커서 부담은 작다.
+
+[지시 6] 다중 감시 / 다른 화면 방해 — 조건부 전환 필수
+
+  개별검증 화면은 단일 작업-세션이다(_analyzeData·_singleLastExecResult·_singleViewStep·
+  _singleWorkflowToken 이 전역 1세트). job A 완료로 5단계를 렌더하면 사용자가 보던 job B 의 화면을
+  탭 전환이 아니라 데이터까지 덮어쓴다.
+    완료 감지 시 3중 일치(세션 버전 + workflow_token + job_id)일 때만 자동전환,
+    그 외에는 비침습 알림만(현황판 배지 data-jobbadge + '결과 보기' 링크).
+  동시 여러 job 이어도 타이머는 화면당 1개 — GET /jobs/active 한 번이 N 개를 내려준다.
+  (L2 가 패널마다 독립 루프를 만들어 체감 60ms 폭주를 낳은 전례 있음)
+
+[지시 7] 오늘의 스냅샷 3작업과의 관계 — 별개다
+
+  같은 문서·같은 탭이므로 세션 상태가 끊기지 않는다. 결과는 이미 _singleLastExecResult 에 있고
+  _mvRenderValidationDetail 이 5단계 DOM 에 렌더해 둔 상태(.mv-pane-hidden 으로 가려져 있을 뿐)라,
+  5단계 전환은 pane 표시 전환이지 결과 재구성이 아니다 → 스냅샷 필드가 개입할 지점이 없다.
+  오늘 3작업(표시 등급 D1~D4 근거 필드 / 원본·목적 그룹 수 2필드 / preset sslmode 복원)은
+  이 기능과 무관하게 독립적 가치로 남는다.
+  스냅샷/복원이 필요해지는 경우는 (a) 새로고침·브라우저 재시작 후 결과 복원, (b) 현황판 완료 목록에서
+  열기 두 가지뿐이며, 비동기 job 화만 놓고 보면 job 객체에 /execute 응답 dict 를 그대로 담으면 된다.
+
+────────────────────────────────────────────────────────────────────────
+[설계안]
+
+ Phase 0 — 4단계 실행의 비동기 job 화 (이 기능의 본체)
+   선례: services/batch/wrapper_async_job.py — 일괄 run-wrapper 를 '즉시 job_id 반환 + 데몬 스레드 +
+         상태 폴링'으로 전환한 모듈. 환경변수→정책→기본값 3단 롤백 토글까지 구비. 그대로 복제한다.
+     services/single_execute_job.py (신규)   job store + 데몬 스레드 + 취소 + TTL 회수
+     routes/execute_route.py                 async_mode 분기(즉시 job_id) + GET /execute/jobs/{id}
+                                             (기존 동기 경로 유지 = 무위험 롤백)
+     services/job_registry.py                새 소스 single_exec 어댑터 + ALL_SOURCES
+     ui/js_job_dashboard.py                  새 소스 행/배지(폴링 골격 무변경)
+     ui/tabler_renderer.py                   runExecute 비동기 분기 + 감시자 1개
+     services/exact_diff/execution_settings.py  폴링 주기·TTL·토글(하드코딩 금지)
+     tests/test_single_execute_async_job.py (신규)
+   → 파일 6~8개 + 신규 테스트. _runExecutePlanSets 의 세트 루프를 서버로 옮기는 부분이 최대 덩어리.
+
+ Phase 1 — 완료 시 조건부 자동전환: 3중 일치 게이트 + 정책/테스트 문구 갱신. 파일 2~3개.
+ Phase 2 — 현황판 새창: 버튼 1개 + click 핸들러 동기 window.open. 통신 코드 0. 파일 1개.
+
+[운영상 위험]
+  · 좀비 job 재발      — STATS_VALIDATION_JOB_ORPHAN_CLEANUP.md 의 문제(이탈 미감지·TTL 부재·
+                          PREPARING 축출 제외)가 새 저장소에서 그대로 재현된다 → TTL/유휴 회수를 처음부터
+  · 비밀번호 체류      — 접속 dict 를 백그라운드 스레드가 실행 내내 보유 → job 객체에 원문 보관 금지,
+                          상태 응답에 절대 미포함
+  · 동시 실행 폭증     — 개별검증 집계는 항상 EXACT → 동시 실행 상한(세션·전역) 필수
+  · 단계 가드 타이밍   — record_outcome('execute') 시점이 요청 종료와 분리됨 → 완료 콜백에서 기록
+  · 정책 회귀 오인     — 테스트가 문구를 assert 하므로 문구만 지우고 통과시키면 정책이 조용히 소멸
+                          → 정책을 '좁히는' 형태로 다시 쓰고 테스트도 새 문구로 갱신
+
+[heuristic / scoring / explainability 영향]
+  · heuristic 증가 없음 — 판정·후보·SQL 생성 로직 무변경. 실행의 전달 방식만 바뀐다.
+  · scoring 무관.
+  · explainability 개선 — 지금은 이탈 시 흔적 0 이지만 job 화하면 시작·진행·종료 시각과 사유가 서버에 남는다.
+    단, 자동전환이 조용히 화면을 바꾸는 것 자체가 리스크 → 전환 시 "job X 완료로 이동" 표시 필수(무성 전환 금지).
+
+[지금 구현 여부] 보류 — 방향은 승인 가능
+  지시가 상정한 "기존 폴링에 감시 한 줄 얹기"는 성립하지 않는다(감시 대상 부재).
+  실제 필요한 것은 Phase 0(구조 변경)이며, §4 정책 변경은 사용자 결정 사항이다.
+  권장 순서: (1) 자동전환 정책 축소 동의 여부 결정 → (2) Phase 0 을 단일 세트(runExecute)만 먼저
+  (여기까지만 해도 현황판 노출 + 이탈해도 결과 보존이라는 최대 실익 확보) → (3) Phase 1 → (4) Phase 2 →
+  (5) 다중 세트 서버 이관은 마지막(위험 최대).
+
+────────────────────────────────────────────────────────────────────────
+[검증 수행 내역]
+  · 실 서비스 포트 8000(인증 ON, Basic) Chromium 실측 2회 — 코드 수정 0, 관측만
+  · GET /jobs/active 소스 목록 실측 · 현황판 폴링 지속/정지 조건 실측 · 세션 reset 의 fetch abort 실측
+    · window.open 팝업/새창 로드 비용 실측 · setTimeout tick gap 실측
+  · 페이지 JS 오류 0건
+  · 미확보 1건(정직 고지): 브라우저 hidden 탭 throttling — headless Chromium 이
+    Emulation.setPageVisibilityState 를 지원하지 않아 hidden 상태를 만들지 못했다. 추정값 미기재.
+
+[생성 파일 — 운영 코드 수정 0]
+  docs/SINGLE_STEP4_BACKGROUND_WATCH_AUTO_STEP5_FEASIBILITY.md            (진단 문서)
+  scripts/dev_e2e/single_step4_background_watch_feasibility_verify.py     (라이브 관측)
+  scripts/dev_e2e/single_step4_background_watch_timer_persistence_verify.py (타이머 지속성 재측정)
+
+[증적]
+  E:\verify_screenshots_only\SINGLE-STEP4-BACKGROUND-WATCH-AUTO-STEP5-FEASIBILITY\
+    feasibility_probe.json · timer_persistence_probe.json
+    01_dashboard.png · 02_analyze_tab_after_leave.png · 03_popup_dashboard.png · 04_analyze_tab_polling.png
+
+⚠️ 추가 작업 필요 - 백그라운드 감시 방식은 타당하나 감시 대상 job 이 존재하지 않아 4단계 실행의 비동기 job 화가 선행돼야 함
