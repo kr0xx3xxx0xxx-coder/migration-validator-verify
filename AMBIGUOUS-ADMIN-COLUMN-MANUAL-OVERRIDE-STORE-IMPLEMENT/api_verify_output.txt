@@ -1,0 +1,55 @@
+==============================================================================
+AMBIGUOUS-ADMIN-COLUMN-MANUAL-OVERRIDE-STORE-IMPLEMENT — API 실측
+BASE=http://127.0.0.1:8000  (인증 ON, user=e2e)
+==============================================================================
+
+[0] 대상 프로젝트 project_id=898
+
+[1] POST /save — TABLE_COLUMN 확정 저장
+    HTTP 200  {"success": true, "id": 3, "row": {"id": 3, "project_id": "898", "scope": "TABLE_COLUMN", "table_key": "PUBLIC.T_ADMCOL_SRC", "column_name": "REG_DT", "decision": "NOT_AUDIT", "auto_verdict_at_decision": "CONFIRMED", "axis_a_at_decision": "None", "axis_b_at_decision": "naming", "memo": "업무 등록일자(이름만 
+  ✅ 저장 성공(200)
+  ✅ 근거 스냅샷 저장  — axis_a=None axis_b=naming
+  ✅ 초기 status=ACTIVE
+
+[2] GET /list, GET /resolve — 조회
+    list HTTP 200  count=1
+  ✅ 목록 1건
+    resolve HTTP 200  {"id": 3, "project_id": "898", "scope": "TABLE_COLUMN", "table_key": "PUBLIC.T_ADMCOL_SRC", "column_name": "REG_DT", "decision": "NOT_AUDIT", "auto_verdict_at_decision": "CONFIRMED", "axis_a_at_decision": "None", "axis_b
+  ✅ resolve 매칭
+
+[3] 우선순위 — TABLE_COLUMN > PROJECT_COLUMN
+  ✅ PROJECT_COLUMN 저장 성공
+  ✅ PROJECT_COLUMN 은 table_key 공백 강제
+    TABLE_A resolve → scope=TABLE_COLUMN decision=NOT_AUDIT
+  ✅ TABLE_A: TABLE_COLUMN 이 이김
+    TABLE_B resolve → scope=PROJECT_COLUMN decision=AUDIT
+  ✅ TABLE_B(개별확정 없음): PROJECT_COLUMN 적용
+  ✅ 확정 없음 → override=null(자동판정 사용)
+
+[4] STALE — 확정 당시 자동판정 ≠ 현재 자동판정
+  ✅ 자동판정 동일 → ACTIVE
+    stale_reason: 확정 당시 자동판정(CONFIRMED)과 현재 자동판정(NOT_AUDIT_CONFIRMED)이 다릅니다.
+  ✅ 자동판정 변경 → STALE
+  ✅ STALE 이어도 확정은 감추지 않음
+  ✅ mark-stale 반영  — {"success": true, "updated": 1}
+  ✅ 저장된 STALE 은 자동판정 일치해도 유지
+
+[5] project_id 게이트 — 미선택/미실재 저장 거부
+    빈 값            → HTTP 400  프로젝트를 먼저 선택해야 관리컬럼 확정을 저장할 수 있습니다.
+  ✅ 빈 값 저장 거부(400)
+    '전체 프로젝트'      → HTTP 400  프로젝트를 먼저 선택해야 관리컬럼 확정을 저장할 수 있습니다.
+  ✅ '전체 프로젝트' 저장 거부(400)
+    미실재 id         → HTTP 400  존재하지 않는 프로젝트입니다. 프로젝트를 먼저 선택하세요.
+  ✅ 미실재 id 저장 거부(400)
+  ✅ 무효 decision 거부(400)  — 확정 값(decision)은 AUDIT 또는 NOT_AUDIT 이어야 합니다.
+
+[6] DELETE — 확정 해제
+  ✅ 해제 성공  — {"success": true, "deleted": 1}
+  ✅ 해제 후 PROJECT_COLUMN 으로 폴백
+  ✅ PROJECT_COLUMN 해제
+  ✅ 전부 해제 → override=null(자동판정 복귀)
+  ✅ 재해제 멱등(deleted=0, 200)
+
+==============================================================================
+결과: 실패 0건  (전부 통과)
+==============================================================================

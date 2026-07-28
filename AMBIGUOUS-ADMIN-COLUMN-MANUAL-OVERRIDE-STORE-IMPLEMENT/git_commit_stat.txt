@@ -1,0 +1,33 @@
+commit 13cc873de7a0df43d0fbed376e544594473878fc
+Author: migration-validator <dev@migration-validator.local>
+Date:   Tue Jul 28 21:05:52 2026 +0900
+
+    feat(admin-column): 관리컬럼 수동 확정(override) 저장소 계층 신설 (AMBIGUOUS-ADMIN-COLUMN-MANUAL-OVERRIDE-STORE-IMPLEMENT)
+    
+    설계 진단(AMBIGUOUS-ADMIN-COLUMN-MANUAL-OVERRIDE-DESIGN-DIAGNOSE §1)의 13개 파일 작업 중
+    1단계 저장소 계층만 구현한다. 판정(candidate_subtype_service)·UI(tabler_renderer) 연결은
+    후속 단계로 분리했으며 이번 커밋에서 그 파일들은 무수정이다.
+    
+    - services/admin_column_override_store.py (신규)
+      source_owner_binding_store 구조를 그대로 본뜬 프로젝트 스코프 영속 저장소.
+      UNIQUE(project_id, scope, table_key, column_name), ensure_schema 멱등.
+      우선순위 TABLE_COLUMN > PROJECT_COLUMN > 자동판정(resolve_override).
+      확정 당시 자동판정·A/B축 근거 박제 → 현재 자동판정과 다르면 STALE 표시.
+      project_id sentinel/미실재는 저장 거부(고아 확정 방지).
+    - routes/admin_column_override_route.py (신규) save/list/resolve/mark-stale/DELETE
+    - tests/test_admin_column_override.py (신규) 28건
+    - scripts/dev_e2e/admin_column_override_store_api_verify.py (신규) 실서버 API 실측
+    - web_server.py 라우터 등록 6줄
+    
+    검증: 신규 테스트 28 passed / 인접 회귀 포함 54 passed /
+          samples 회귀 8+5 통과 / 실서버(8000, 인증 ON) API 실측 실패 0건.
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_01LiBuJHHsw71W7E9ruBXSa8
+
+ routes/admin_column_override_route.py              | 102 ++++++
+ .../admin_column_override_store_api_verify.py      | 217 ++++++++++++
+ services/admin_column_override_store.py            | 392 +++++++++++++++++++++
+ tests/test_admin_column_override.py                | 256 ++++++++++++++
+ web_server.py                                      |   6 +
+ 5 files changed, 973 insertions(+)
