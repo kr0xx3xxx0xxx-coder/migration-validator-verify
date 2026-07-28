@@ -1,0 +1,60 @@
+﻿==============================================================================
+COUNT-TIMEOUT-ERROR-MESSAGE-CATEGORY-FIX 실측 — before
+  COUNT_STATEMENT_TIMEOUT_MS = 60000
+==============================================================================
+[Q] 실 DB 쿼리 타임아웃 (mvbench.bench_30m, statement_timeout=2000ms)
+  [Q] 발화 elapsed=2.1s is_query_timeout_error=True
+      raw      : canceling statement due to statement timeout
+      분류결과 : 연결 시간 초과
+[R1] 실제 접속 실패 — 존재하지 않는 호스트
+  [R1_dns] 접속실패 elapsed=0.0s
+      raw      : could not translate host name "no-such-host.invalid" to address: Name or service not known
+      분류결과 : 호스트명 조회 실패 (DNS 오류)
+[R2] 실제 접속 실패 — 닫힌 포트
+  [R2_refused] 접속실패 elapsed=2.1s
+      raw      : connection to server at "127.0.0.1", port 59999 failed: Connection refused (0x0000274D/10061) Is the server running on that host and accepting TCP/IP connections?
+      분류결과 : 포트 연결 거부
+[R3] 실제 접속 실패 — 접속 자체 타임아웃(unroutable IP)
+  [R3_connect_timeout] 접속실패 elapsed=10.0s
+      raw      : connection to server at "10.255.255.1", port 5432 failed: timeout expired
+      분류결과 : 연결 시간 초과
+[S] 오프라인 문자열 회귀
+  [S1_pg_stmt_timeout] db_type=postgresql → 연결 시간 초과
+  [S2_ora_call_timeout] db_type=oracle → 연결 시간 초과
+  [S3_mysql_max_exec] db_type=mysql → Query execution was interrupted, maximum statement execution time exceeded
+  [S4_mssql_query_to] db_type=mssql → 연결 시간 초과
+  [S5_mssql_login_to] db_type=mssql → 연결 시간 초과
+  [S6_conn_timed_out] db_type=postgresql → 연결 시간 초과
+  [S7_refused] db_type=postgresql → 포트 연결 거부
+  [S8_dns] db_type=postgresql → 호스트명 조회 실패 (DNS 오류)
+  [S9_auth] db_type=postgresql → 패스워드 인증 실패
+  [S10_pg_no_dbtype] db_type=None → 연결 시간 초과
+{
+  "tag": "before",
+  "cases": [
+    {
+      "case": "Q_query_timeout",
+      "fired": true,
+      "elapsed_s": 2.1,
+      "is_query_timeout_error": true,
+      "raw": "canceling statement due to statement timeout",
+      "category": "연결 시간 초과"
+    },
+    {
+      "case": "R1_dns",
+      "failed": true,
+      "elapsed_s": 0.0,
+      "raw": "could not translate host name \"no-such-host.invalid\" to address: Name or service not known",
+      "category": "호스트명 조회 실패 (DNS 오류)"
+    },
+    {
+      "case": "R2_refused",
+      "failed": true,
+      "elapsed_s": 2.1,
+      "raw": "connection to server at \"127.0.0.1\", port 59999 failed: Connection refused (0x0000274D/10061) Is the server running on that host and accepting TCP/IP connections?",
+      "category": "포트 연결 거부"
+    },
+    {
+      "case": "R3_connect_timeout",
+      "failed": true,
+      "elapsed_s": 10.0,

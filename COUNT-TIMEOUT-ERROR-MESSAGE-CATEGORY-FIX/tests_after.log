@@ -1,0 +1,68 @@
+﻿.....................F.................................................. [ 75%]
+.......................                                                  [100%]
+================================== FAILURES ===================================
+__ TestCountConnSeparation.test_TC_COUNT_CONN_01_source_sql_runs_on_src_conn __
+
+self = <test_task10_1.TestCountConnSeparation testMethod=test_TC_COUNT_CONN_01_source_sql_runs_on_src_conn>
+mock_build = <MagicMock name='build_count_sql_from_parse_result' id='1582212764672'>
+mock_fetch = <MagicMock name='_cmn_db_fetch_count' id='1582166612624'>
+
+    @patch('services.db_query_service._cmn_db_fetch_count')
+    @patch('services.count_sql_builder.build_count_sql_from_parse_result')
+    def test_TC_COUNT_CONN_01_source_sql_runs_on_src_conn(self, mock_build, mock_fetch):
+        """TC-COUNT-CONN-01: source_count_sql은 src_conn_info로 실행."""
+        mock_build.return_value = {
+            'success': True,
+            'source_count_sql': 'SELECT COUNT(*) FROM TA_A',
+            'target_count_sql': 'SELECT COUNT(*) FROM TB_A',
+            'warnings': [],
+        }
+        call_log = []
+        def fake_fetch(conn_info, sql):
+            call_log.append((conn_info.get('host'), sql))
+            return 100
+        mock_fetch.side_effect = fake_fetch
+    
+        import services.count_precheck_service as svc
+>       svc.run_count_for_row(
+            self._base_row(),
+            {'host': 'src-host', 'db_type': 'postgresql'},
+            {'host': 'tgt-host', 'db_type': 'postgresql'},
+        )
+
+tests\test_task10_1.py:236: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+services\count_precheck_service.py:584: in run_count_for_row
+    active_svj = _get_source_validation_json(row_id) if migration_sql_raw else None
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+services\count_precheck_service.py:333: in _get_source_validation_json
+    conn = _connect()
+           ^^^^^^^^^^
+services\count_precheck_service.py:43: in _connect
+    conn = sqlite3.connect(str(_DB_PATH))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+database = 'C:\\projects\\migration-validator\\db\\migration_validator.db'
+args = (), kwargs = {}, uri = False
+p = WindowsPath('C:/projects/migration-validator/db/migration_validator.db')
+
+    def _guarded_connect(database, *args, **kwargs):
+        """[1차 방어] 운영 SQLite 를 쓰기 가능 연결로 열면 즉시 RuntimeError."""
+        uri = bool(kwargs.get("uri", False)) or str(database).startswith("file:")
+        if not _is_readonly_uri(database, uri):
+            p = _extract_path(database, uri)
+            if p is not None and str(p) in _REAL_PROD_FILES:
+>               raise RuntimeError(
+                    "[PROD-DB-WRITE-BLOCKED] 테스트가 운영 SQLite 를 쓰기 가능 연결로 열려 했습니다: "
+                    f"{p}. 테스트는 tmp_path/운영 복사본만 사용하고, 운영 DB 읽기는 mode=ro URI "
+                    "(또는 ro_connect helper)만 허용됩니다. 운영 DB fallback 금지."
+                )
+E               RuntimeError: [PROD-DB-WRITE-BLOCKED] 테스트가 운영 SQLite 를 쓰기 가능 연결로 열려 했습니다: C:\projects\migration-validator\db\migration_validator.db. 테스트는 tmp_path/운영 복사본만 사용하고, 운영 DB 읽기는 mode=ro URI (또는 ro_connect helper)만 허용됩니다. 운영 DB fallback 금지.
+
+tests\conftest.py:218: RuntimeError
+------------------------------ Captured log call ------------------------------
+WARNING  services.count_execution_planner:count_execution_planner.py:359 _pg_fetch_scalar 실패 — row 수 추정 없이 진행: could not translate host name "src-host" to address: Name or service not known
+=========================== short test summary info ===========================
+FAILED tests/test_task10_1.py::TestCountConnSeparation::test_TC_COUNT_CONN_01_source_sql_runs_on_src_conn
+1 failed, 94 passed in 111.73s (0:01:51)

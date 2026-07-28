@@ -1,0 +1,166 @@
+﻿commit 4e52dee562baae234e3fcaa3c37ea46c49c7ed06
+Author: migration-validator <dev@migration-validator.local>
+Date:   Tue Jul 28 20:17:03 2026 +0900
+
+    fix(count): COUNT 실행 타임아웃을 '연결 시간 초과'로 오분류하던 문제 해소 (COUNT-TIMEOUT-ERROR-MESSAGE-CATEGORY-FIX)
+    
+    categorize_conn_error 가 오류 메시지에 'timeout' 문자열만 있으면 무조건 '연결 시간 초과'로
+    분류해, 접속은 성공했고 쿼리 실행 시간만 초과한 경우(COUNT_STATEMENT_TIMEOUT_MS 발화)까지
+    '접속 문제'로 잘못 안내했다.
+    
+    - 쿼리 타임아웃 판별은 db_adapter_registry.is_query_timeout_error 에 위임(재구현 없음)
+    - 접속 단계 표지(connection to server / login timeout 등)가 있으면 접속 실패로 확정 —
+      실측된 PG connect 실패 'failed: timeout expired', MSSQL 'Login timeout expired' 오탐 차단
+    - 쿼리 타임아웃 시 제한값·환경변수명·재시도 무의미 안내를 함께 표시
+      (STATS-EXECUTE-TIMEOUT-CLARITY-FIX 와 동일 톤, 그리드 표시 고려해 한 줄로 압축)
+    - run_count_pair 두 호출부에서 예외 객체·db_type 을 함께 전달
+    - 타임아웃 판정 로직·타임아웃 값 자체는 불변(오류 분류/문구 전용)
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_01LiBuJHHsw71W7E9ruBXSa8
+
+ .../count_timeout_error_message_category_verify.py | 160 +++++++++++++++++++++
+ .../count_timeout_error_message_e2e_verify.py      |  99 +++++++++++++
+ services/count_common_service.py                   |  87 ++++++++++-
+ tests/test_count_timeout_error_message_category.py |  76 ++++++++++
+ 4 files changed, 418 insertions(+), 4 deletions(-)
+commit 4e52dee562baae234e3fcaa3c37ea46c49c7ed06
+Author: migration-validator <dev@migration-validator.local>
+Date:   Tue Jul 28 20:17:03 2026 +0900
+
+    fix(count): COUNT 실행 타임아웃을 '연결 시간 초과'로 오분류하던 문제 해소 (COUNT-TIMEOUT-ERROR-MESSAGE-CATEGORY-FIX)
+    
+    categorize_conn_error 가 오류 메시지에 'timeout' 문자열만 있으면 무조건 '연결 시간 초과'로
+    분류해, 접속은 성공했고 쿼리 실행 시간만 초과한 경우(COUNT_STATEMENT_TIMEOUT_MS 발화)까지
+    '접속 문제'로 잘못 안내했다.
+    
+    - 쿼리 타임아웃 판별은 db_adapter_registry.is_query_timeout_error 에 위임(재구현 없음)
+    - 접속 단계 표지(connection to server / login timeout 등)가 있으면 접속 실패로 확정 —
+      실측된 PG connect 실패 'failed: timeout expired', MSSQL 'Login timeout expired' 오탐 차단
+    - 쿼리 타임아웃 시 제한값·환경변수명·재시도 무의미 안내를 함께 표시
+      (STATS-EXECUTE-TIMEOUT-CLARITY-FIX 와 동일 톤, 그리드 표시 고려해 한 줄로 압축)
+    - run_count_pair 두 호출부에서 예외 객체·db_type 을 함께 전달
+    - 타임아웃 판정 로직·타임아웃 값 자체는 불변(오류 분류/문구 전용)
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_01LiBuJHHsw71W7E9ruBXSa8
+
+diff --git a/services/count_common_service.py b/services/count_common_service.py
+index 6d2bc2b..910c6cd 100644
+--- a/services/count_common_service.py
++++ b/services/count_common_service.py
+@@ -224,8 +224,82 @@ def parse_migration_sql_for_count(
+ # ■ DB 연결 오류 분류
+ # ══════════════════════════════════════════════════════════════════════════════
+ 
+-def categorize_conn_error(msg: str) -> str:
+-    """DB 연결/실행 오류를 분류해 인증정보 없는 안전한 메시지로 반환."""
++# ── 쿼리 실행 타임아웃 vs 접속 실패 구분 (COUNT-TIMEOUT-ERROR-MESSAGE-CATEGORY) ──────
++#
++# 배경: 과거에는 오류 메시지에 'timeout' 문자열만 있으면 무조건 '연결 시간 초과'로 분류했다.
++#       그런데 COUNT 실행에는 statement timeout(COUNT_STATEMENT_TIMEOUT_MS)이 걸려 있어,
++#       '접속은 성공했는데 쿼리 실행 시간만 초과'한 경우까지 접속 문제로 잘못 안내됐다.
++#       (실측: PostgreSQL 'canceling statement due to statement timeout' → '연결 시간 초과')
++#
++# 판정 원칙:
++#   · 쿼리 타임아웃 판별 자체는 재구현하지 않고 db_adapter_registry.is_query_timeout_error
++#     (DBMS 어댑터 단일 진실원천)에 위임한다. 여기서는 '분류/문구'만 정한다.
++#   · 다만 접속 단계(connect) 실패 메시지에도 'timeout expired' 같은 문자열이 섞여 나오므로
++#     (실측: PG connect 실패 → 'connection to server at "…" failed: timeout expired',
++#      MSSQL → 'Login timeout expired'), 접속 단계 표지가 있으면 위임 판정보다 먼저 접속
++#      실패로 확정한다. 이 표지는 '접속 단계인지' 만 가르는 것으로 타임아웃 판정 로직이 아니다.
++
++# 접속 단계(connect) 실패임을 드러내는 표지 — 이게 있으면 쿼리 타임아웃으로 보지 않는다.
++_CONNECT_PHASE_MARKERS = (
++    'connection to server',        # PostgreSQL: connection to server at "…" failed: …
++    'login timeout',               # SQL Server: Login timeout expired
++    'could not connect',
++    'unable to connect',
++    "can't connect to",            # MySQL/MariaDB: Can't connect to MySQL server on …
++    'tns:connect timeout',         # Oracle ORA-12170: TNS:Connect timeout occurred
++    'connect timeout occurred',
++)
++
++# db_type 을 알 수 없을 때 위임 판정을 시도할 방언 목록(지원 DB 4종).
++# 일괄검증 경로(count_precheck_service)는 예외 문자열만 넘겨오므로 db_type 이 비어 있다.
++_TIMEOUT_PROBE_DIALECTS = ('postgresql', 'oracle', 'mysql', 'mssql')
++
++
++def _is_query_timeout(msg: str, exc: Exception | None, db_type: str | None) -> bool:
++    """'쿼리 실행 시간 초과'인지 판별 — 어댑터 판별기(is_query_timeout_error)에 위임.
++
++    exc 가 없으면(문자열만 있는 호출 경로) 메시지를 담은 예외로 감싸 동일 판별기에 넘긴다
++    (PostgreSQL 은 pgcode 우선이지만 메시지 매칭 보조 경로가 있어 문자열만으로도 판별된다).
++    db_type 이 비어 있으면 지원 4개 방언 판별기를 모두 적용한다(판정 재구현 아님 — 위임 반복).
++    """
++    m = (msg or '').lower()
++    # 접속 단계 표지가 있으면 쿼리 타임아웃이 아니다(접속 실패 분류로 넘긴다).
++    if any(mk in m for mk in _CONNECT_PHASE_MARKERS):
++        return False
++    from services.db_adapter_registry import is_query_timeout_error
++    probe = exc if exc is not None else RuntimeError(msg)
++    if (db_type or '').strip():
++        return bool(is_query_timeout_error(probe, db_type))
++    return any(is_query_timeout_error(probe, dt) for dt in _TIMEOUT_PROBE_DIALECTS)
++
++
++def _query_timeout_message() -> str:
++    """COUNT 쿼리 실행 타임아웃 안내 문구(STATS-EXECUTE-TIMEOUT-CLARITY 와 동일 톤).
++
++    타임아웃은 일시적 장애가 아니라 실행마다 동일하게 적용되는 고정 상한이므로,
++    ① 접속이 아니라 실행이 초과됐다는 사실 ② 현재 제한값(초 + 환경변수/ms) ③ 재시도가
++    무의미하다는 점과 대안을 함께 알린다. 통계검증(4단계) 문구와 톤을 맞추되, COUNT 오류는
++    일괄검증 그리드 셀에도 표시되므로 한 줄로 압축한다(하위 200자 절단 경로 안전).
++    ※ 타임아웃 판정 로직·타임아웃 값 자체는 변경하지 않는다(문구 전용).
++    """
++    from services.db_query_service import COUNT_STATEMENT_TIMEOUT_MS as _ms
++    return (
++        f"쿼리 실행 시간 초과 (접속은 정상 — 실행 시간이 제한을 초과했습니다). "
++        f"현재 제한: {_ms / 1000.0:g}초 (환경변수 MV_COUNT_STATEMENT_TIMEOUT_MS = {_ms} ms). "
++        f"이 제한은 실행마다 적용되는 고정값이라 재시도해도 동일하게 실패할 가능성이 높습니다. "
++        f"제한 상향(환경변수 조정 후 서버 재기동) 또는 대상 축소(WHERE 조건)를 권장합니다."
++    )
++
++
++def categorize_conn_error(msg: str, exc: Exception | None = None,
++                          db_type: str | None = None) -> str:
++    """DB 연결/실행 오류를 분류해 인증정보 없는 안전한 메시지로 반환.
++
++    Args:
++        msg:     예외 문자열(str(exc))
++        exc:     원본 예외 객체(선택) — 있으면 pgcode/errno 기반 정밀 판별에 사용
++        db_type: 접속 DBMS(선택) — 있으면 해당 방언 판별기만 적용
++    """
+     m = msg.lower()
+     if 'password authentication failed' in m or ('authentication' in m and 'failed' in m):
+         return '패스워드 인증 실패'
+@@ -236,6 +310,9 @@ def categorize_conn_error(msg: str) -> str:
+         return '포트 연결 거부'
+     if 'database' in m and ('does not exist' in m or 'unknown database' in m):
+         return '데이터베이스가 존재하지 않음'
++    # 쿼리 실행 타임아웃 → 접속 문제로 오안내하지 않는다(접속 실패 타임아웃은 아래 분기 유지)
++    if _is_query_timeout(msg, exc, db_type):
++        return _query_timeout_message()
+     if 'timeout' in m or 'timed out' in m:
+         return '연결 시간 초과'
+     if 'ssl' in m and 'error' in m:
+@@ -513,7 +590,8 @@ def run_count_pair(
+             _probe.set_role("source")
+             source_count = _cmn_db_fetch_count(src_conn, source_count_sql)
+         except Exception as exc:
+-            src_err = categorize_conn_error(str(exc))
++            # 예외 객체·db_type 을 함께 넘겨 '쿼리 실행 타임아웃'과 '접속 실패'를 구분 분류한다
++            src_err = categorize_conn_error(str(exc), exc=exc, db_type=src_conn.get("db_type"))
+             _log.debug("원본 COUNT 실행 오류 (%s): %s", src_table, exc)
+         src_elapsed_ms = (_time.perf_counter() - _t) * 1000.0
+ 
+@@ -523,7 +601,8 @@ def run_count_pair(
+             _probe.set_role("target")
+             target_count = _cmn_db_fetch_count(tgt_conn, target_count_sql)
+         except Exception as exc:
+-            tgt_err = categorize_conn_error(str(exc))
++            # 예외 객체·db_type 을 함께 넘겨 '쿼리 실행 타임아웃'과 '접속 실패'를 구분 분류한다
++            tgt_err = categorize_conn_error(str(exc), exc=exc, db_type=tgt_conn.get("db_type"))
+             _log.debug("목적지 COUNT 실행 오류 (%s): %s", tgt_table, exc)
+         tgt_elapsed_ms = (_time.perf_counter() - _t) * 1000.0
+ 
