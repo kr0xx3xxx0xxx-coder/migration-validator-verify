@@ -1,0 +1,171 @@
+✅ 작업 완료 - 4단계 통계검증 단일 실행 vs 청크 분할 트레이드오프 실측 진단 (코드 수정 없음)
+
+작업명 : STATS-VALIDATION-CHUNKED-VS-SINGLE-TRADEOFF-DIAGNOSE
+일자   : 2026-07-28
+범위   : 코드 수정 없음 — 구조 확인 + 실 DB 실측 + 설계안/임계값 권고
+환경   : PG16.11(내부망 asis 192.168.0.150:5433) · Oracle 21c XE(192.168.0.151:1524)
+         실 서비스 포트 8000 · Basic 인증 ON
+문서   : docs/STATS_VALIDATION_CHUNKED_VS_SINGLE_TRADEOFF.md
+
+────────────────────────────────────────────────────────────────────────
+[1] 안전장치 조건 확인 — GROUP BY 실행 안전 게이트
+────────────────────────────────────────────────────────────────────────
+단일 boundary 1곳: single_validation_core.py:412 → groupby_execution_safety_gate.py:121
+
+상한(config/model_config.py:156~194)
+  · 허용 최대 예상 그룹 수 = 100,000 (MV_INTERACTIVE_GROUPBY_MAX_GROUPS)
+  · 추정값 안전계수 ×2.0    → 추정값 실효 상한 50,000
+  · 정확값(EXACT/EXACT_UPPER_BOUND)에는 안전계수 미적용
+  · cardinality 점검 EXPLAIN budget 5초
+
+COUNT-only / SUM 전체(GROUP BY 0개) → 게이트 대상 아님이 맞다(질문 확인)
+  · evaluate_groupby_execution_safety: 선택 컬럼 비면 NOT_APPLICABLE(groupby_execution_safety.py:195)
+    → PROCEED_STATUSES 라 그대로 실행
+  · 실행 후 hard cap 도 GROUP BY 계획에만 적용 — _row_cap = _limit if gb_keys else None
+    (stats_execute_service.py:262)
+  ⇒ COUNT-only 경로에는 사전 게이트도, 결과 상한도, 행수 상한도 없다. 막는 건 60초 timeout 하나뿐.
+
+실 서버 8000(인증 ON) 종단 실측 — stats_chunk_tradeoff_gate_live_verify.py
+  G1 COUNT-only(GB 0개)      : NOT_APPLICABLE / NO_GROUPBY_SELECTED       → 실행됨 130.4ms, 1행
+  G2 GROUP BY ID(고유값 100만): BLOCKED_HIGH_CARDINALITY / PLAN_ESTIMATE_EXCEEDS_LIMIT
+                               raw 1,000,000 → 판정 2,000,000 > 한도 100,000 → 차단 17.3ms, DB집계 미실행
+  G3 GROUP BY GRP_CD(고유값 20): SAFE / PLAN_ESTIMATE_WITHIN_LIMIT        → 실행됨 195.1ms, 20행
+
+  ★ 게이트는 '예상 결과 그룹 수'만 본다. 원본 행 수·예상 소요 시간은 어떤 게이트도 보지 않는다.
+    G3(20그룹)은 원본이 1억 행이어도 SAFE 통과 — 이것이 타임아웃 위험의 실제 통로다.
+
+────────────────────────────────────────────────────────────────────────
+[2] 타임아웃 설정 확인
+────────────────────────────────────────────────────────────────────────
+계층별
+  · HTTP/ASGI 요청 타임아웃  : 없음 (web_server.py:357 uvicorn.run — timeout 옵션 미지정)
+  · 4단계 통계검증 SQL       : 60,000ms (stats_execute_service.py:44, env MV_EXECUTE_STATEMENT_TIMEOUT_MS)
+  · 2단계 COUNT 비교 SQL     : 없음 (db_query_service.py:518 — timeout 인자 자체가 없음)
+  · GROUP BY 안전점검 EXPLAIN: 5초
+  · DB 서버측 기본값         : 실측 statement_timeout = 0 (무제한)
+
+DBMS별 실제 적용(비대칭)
+  · PostgreSQL : SET LOCAL statement_timeout        → 발화 O (실측 60.4초)
+  · Oracle     : connection.call_timeout 위임        → 발화 O (실측 DPY-4024)
+  · MySQL      : apply_query_timeout → return None  → 미적용 = 무제한 (mysql.py:58, 주석 HOLD)
+  · MariaDB    : 동일 no-op                          → 무제한 (mariadb.py:29)
+  · MSSQL      : 동일 no-op                          → 무제한 (mssql.py:53)
+
+오라클 실측 — stats_chunk_tradeoff_oracle_timeout_verify.py
+  O1 [timeout 미지정] 완주 45.1 s (상한 없이 완주)
+  O2 [timeout 5초]    중단  5.2 s · is_query_timeout_error=True · DPY-4024 call timeout exceeded
+  O3 [부분결과]       예외 경로라 반환값 없음 → 전량 소실
+
+취소 불가(구조)
+  · /execute 는 cancel_token 을 넘기지 않는다(routes/execute_route.py:95)
+  · def stats_execute(sync) → threadpool 실행이라 브라우저 이탈해도 서버는 끝까지 수행 후 결과 폐기
+  · 4단계는 /jobs/active 의 job 도 아님
+
+────────────────────────────────────────────────────────────────────────
+[3] 단일 실행 대량 스케일 실측 + 추정 (상한선 목적 — 정밀 예측 아님)
+────────────────────────────────────────────────────────────────────────
+원본 SQL 2형태
+  PLAIN  : 단순 FROM 대량테이블 JOIN 차원테이블      → EXPLAIN 결과 청크술어 pushdown 가능(Index Cond)
+  CTEWIN : WITH ranked AS(… row_number() OVER …) JOIN → pushdown 불가(Seq Scan, 윈도우가 barrier)
+
+행 수별 단일 GROUP BY 집계 소요(2회 중 최소)
+   1,000,000 행 : PLAIN  0.147 s (6.81 M행/s)  | CTEWIN   1.599 s (0.63 M행/s)   ← 캐시 적재 구간
+   3,000,000 행 : PLAIN  0.391 s (7.67 M행/s)  | CTEWIN   5.450 s (0.55 M행/s)   ← 캐시 적재 구간
+  10,000,000 행 : PLAIN  8.088 s (1.24 M행/s)  | CTEWIN  36.570 s (0.27 M행/s)
+  30,000,000 행 : PLAIN 34.468 s (0.87 M행/s)  | CTEWIN 115.839 s (0.26 M행/s)
+
+디스크 바운드 구간(10M·30M) 처리량만 추정 근거로 사용 → PLAIN 0.87 M행/s · CTEWIN 0.26 M행/s
+
+선형 외삽
+       1억 행 : PLAIN 약 115 s (1.9분)   | CTEWIN 약 386 s (6.4분)
+      10억 행 : PLAIN 약 1,150 s (19분)  | CTEWIN 약 3,861 s (64분)
+
+60초 타임아웃이 허용하는 실질 상한
+      PLAIN  약 5,200만 행 / CTEWIN 약 1,550만 행
+      ⇒ 1억 행은 두 형태 모두 이미 타임아웃 영역. 10억 행은 논외.
+
+제품 경로 실측(execute_stats_validation, 3,000만 행 CTEWIN)
+      success=False · 60.4 s · src_error='원본 통계 SQL 실행 시간이 제한을 초과했습니다.' · 보존행 0
+      같은 쿼리는 타임아웃 없이 115.8초에 정상 완료 → '불가능한 쿼리'가 아니라 '절반에서 잘린 쿼리'.
+      재시도해도 같은 지점에서 잘리므로 영구 실패.
+
+────────────────────────────────────────────────────────────────────────
+[4] 청크 분할 비용 실측 (1,000만 행 · 순차 · 단일 대비 총 소요 배수)
+────────────────────────────────────────────────────────────────────────
+방식: 원본 SQL 을 파생테이블로 감싸고 PK range 술어를 바깥에 부착(재이관 wrapping 과 동형)
+
+  PLAIN  / COUNT-only   : N=4 1.14배 · N=10 1.37배 · N=20 1.57배  (청크당 1.84→0.88→0.51 s, 감소)
+  PLAIN  / GROUP BY 병합: N=4 1.10배 · N=10 1.33배 · N=20 1.46배  (청크당 1.91→0.92→0.51 s, 감소)
+  CTEWIN / COUNT-only   : N=4 3.52배 · N=10 7.84배 · N=20 18.28배 (청크당 22.8→20.3→23.7 s, 일정)
+  CTEWIN / GROUP BY 병합: N=4 3.14배 · N=10 7.30배 · N=20 14.81배 (청크당 22.5→21.0→21.3 s, 일정)
+
+해석
+  · PLAIN  : 청크당 시간이 N에 반비례 감소 → 술어가 base table 까지 내려가 자기 몫만 읽음. 추가비용은 고정비뿐(1.1~1.6배)
+  · CTEWIN : 청크당 시간이 N과 무관하게 21~24초 일정 → 모든 청크가 원본 전체 재스캔. 총 소요가 N에 비례
+  · 재이관 기준 청크 크기 5만 행을 그대로 적용하면 1,000만 행 → N=200 → CTEWIN 약 71분(단일 28.7초 대비 약 150배). 실용 불가
+  · 청크 병합 결과는 정확(그룹 20, COUNT/SUM 합 일치). 단 COUNT/SUM 이 가산적이기 때문 —
+    AVG·DISTINCT COUNT 였다면 병합 자체가 불성립(현 제품은 COUNT/SUM 만 사용하므로 조건 충족)
+
+────────────────────────────────────────────────────────────────────────
+[5] 중단 시나리오 비교 실측 (강제 취소 = 이탈/타임아웃 모사)
+────────────────────────────────────────────────────────────────────────
+  PLAIN  · 예산 4초  : 단일 CANCELED 보존 0%(전량 소실) | 청크(N=10) 완료 6/10 → 보존 60%
+  CTEWIN · 예산 70초 : 단일 COMPLETED 27.3초 100%       | 청크(N=10) 완료 3/10 → 보존 30%
+
+  ★ CTEWIN 에서 역전: 청크가 70초를 다 쓰고 30%인 동안 단일은 27.3초에 이미 완주.
+    '부분이라도 건지는' 이점이 '전체를 15배 느리게 만드는' 비용에 잡아먹힌다.
+  ★ 현재 제품에는 부분보존을 받아 줄 저장소가 없다(통계검증엔 chunk_checkpoint 없음, /execute 는 job 아님).
+    청크를 넣어도 '완료 청크 보존'을 실제로 얻으려면 job store + checkpoint 계층 신설이 필요하다.
+
+────────────────────────────────────────────────────────────────────────
+[6] 임계값 권고
+────────────────────────────────────────────────────────────────────────
+청크 전환이 이득인 조건 — 세 가지 동시 충족
+  C1 predicate pushdown 가능(파생 안에 윈도우/DISTINCT/집계/UNION 없음)  ← 불가 시 14.8~18.3배
+  C2 이관 SELECT 결과에 단일 숫자 PK 포함(청크 축 존재)
+     — 기존 엔진도 PG·단일 숫자 PK 한정(exact_diff/sampling_preflight.py:14, store.py:59)
+  C3 단일 실행 예상 소요 > 30초(타임아웃 60초의 절반) ≈ 약 2,600만 행
+
+행수 임계값
+  ~1,500만 행                     : 현행 유지. 두 형태 모두 60초 내 완료. 청크는 순수 손해
+  1,500만~5,200만 행              : 형태 의존. CTE/윈도우형은 이미 타임아웃(청크로도 해결 안 됨)
+  2,600만 행 이상 + C1·C2 충족    : 청크 전환 검토 구간(비용 1.1~1.6배로 진행률·부분보존·청크별 타임아웃 확보)
+  5,200만 행 이상                 : 단순형도 타임아웃 → 청크 또는 타임아웃 상향 필수
+  1억 행 이상                     : CTE형은 청크 도입 금지(6.4분 → 90분+)
+
+우선순위 권고 — 청크는 1순위가 아니다
+  1. 타임아웃 정책 정비 (MV_EXECUTE_STATEMENT_TIMEOUT_MS 는 이미 env, 코드 0줄)
+     + 잘렸을 때 '재시도해도 동일 · 상향 방법' 안내를 오류 메시지에 포함      [비용 매우 낮음 / 효과 큼]
+  2. MySQL/MariaDB/MSSQL timeout no-op 해소(HOLD 3건)                          [비용 낮음]
+  3. 실행 전 예상 소요 경고(보유 중인 COUNT × 실측 처리량 → '예상 N초/한도 60초') [비용 낮음]
+  4. 2단계 COUNT 타임아웃 부재 해소(4단계와 비대칭 제거)                       [비용 낮음]
+  5. 청크 전환 — C1~C3 만족 케이스 한정. job store + checkpoint 신설 필요       [비용 높음]
+
+지금 구현 여부 : 보류(문서화 우선)
+  청크 전환은 조건 교집합이 좁고 신설 계층이 커서 web_server 비대화·결합도 증가 위험이 크다.
+  1~3번으로 실제 장애 통로(60초 영구 실패)를 먼저 막고, 2,600만 행 이상 + pushdown 가능 +
+  단일 숫자 PK 인 실제 대상이 운영에서 관측될 때 5번을 재검토한다.
+
+────────────────────────────────────────────────────────────────────────
+[7] 산출물 / 잔여 정리
+────────────────────────────────────────────────────────────────────────
+문서
+  docs/STATS_VALIDATION_CHUNKED_VS_SINGLE_TRADEOFF.md (신규)
+실측 스크립트(신규, 개발/검증 전용 — 제품 코드 무변경)
+  scripts/dev_e2e/stats_chunk_tradeoff_setup.py                  합성 데이터 구축(1,000만 행)
+  scripts/dev_e2e/stats_chunk_tradeoff_measure.py                M0 pushdown · M1 단일 · M2 청크
+  scripts/dev_e2e/stats_chunk_tradeoff_scale.py                  S1 규모별 · S2 제품경로 60초 타임아웃
+  scripts/dev_e2e/stats_chunk_tradeoff_cancel.py                 중단 시나리오(단일 vs 청크)
+  scripts/dev_e2e/stats_chunk_tradeoff_gate_live_verify.py       실 서버 8000·인증 ON 게이트 종단
+  scripts/dev_e2e/stats_chunk_tradeoff_oracle_timeout_verify.py  실 오라클 call_timeout 발화
+결과 JSON
+  scripts/dev_e2e/_stats_chunk_tradeoff*.json (5건)
+
+제품 코드 변경 : 0건 (services/·routes/·ui/ 무변경)
+
+잔여 정리 대상
+  내부망 asis PG 에 전용 스키마 mvbench 가 남아 있다(약 5.4GB —
+  bench_1m/bench_3m/bench_src/bench_30m/bench_dim). 운영 스키마는 미접근.
+  재검증 종료 후 회수:  DROP SCHEMA mvbench CASCADE;
+
+✅ 작업 완료 - 4단계 통계검증 단일 실행 vs 청크 분할 트레이드오프 실측 진단 (코드 수정 없음)
