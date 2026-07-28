@@ -1,0 +1,165 @@
+STATS-EXECUTE-STEP4-GENERATED-SQL-LABEL-ACCURACY-FIX
+
+작성일시 : 2026-07-28
+대상 브랜치 : main
+커밋 : 28973db  fix(ui): 4단계 생성 SQL 표시 — GROUP BY 2개 이상은 축별 분해 실행임을 명시
+서버 재기동 : 2026-07-28 18:49:32 (PID 17332, 포트 8000, 인증 ON / 단계 가드 ON)
+
+
+────────────────────────────────────────────────────────────────────────
+1. 무엇이 문제였나
+────────────────────────────────────────────────────────────────────────
+선행 진단(SINGLE-STEP5-MULTI-GROUPBY-REPRESENTATIVE-AXIS-DIAGNOSE)에서 확정된 사실은
+다음과 같았다. 사용자가 개별검증 3단계에서 GROUP BY 를 2개(예: STATUS_CD + DEPT_CD)
+선택하면, 4단계 화면은 "생성된 SQL 기준"이라는 제목 아래
+
+    GROUP BY STATUS_CD, DEPT_CD
+
+형태의 '조합' 통계검증 SQL 을 원본/목적지 양쪽으로 보여준다. 그런데 이 SQL 은 실제로는
+한 번도 실행되지 않는다. 4단계 '통계검증 실행'을 누르면 runExecute 가
+
+    if (gbSel.length >= 2) → _runExecutePlanSets(...)
+
+로 분기해, /groupby-plan 이 만든 '축별 단일 세트' 계획대로 /generate·/execute 를 세트마다
+다시 호출한다. 즉 화면에 보이던 조합 SQL 대신 GROUP BY STATUS_CD 한 세트, GROUP BY
+DEPT_CD 한 세트가 각각 따로 생성·실행된다(services/groupby_plan_service.py 의
+build_groupby_execution_plan 이 선택 축마다 SET_SINGLE 세트를 1개씩 만들고, 단일 축은
+자동 제외 대상이 아니므로 세트 수 N 은 선택 축 수와 항상 같다. 2축 보강 세트는 사용자가
+'보강 분석'을 명시적으로 실행할 때만 추가된다).
+
+5단계(결과 확인)의 실행 근거 영역에는 이미 "단일 축 2세트: STATUS_CD / DEPT_CD" 라고
+사실대로 표기되고 있었다. 사실과 다른 화면은 4단계 하나뿐이었고, 그 결과 사용자는
+'조합(STATUS_CD × DEPT_CD) 단위로 검증했다'고 오인할 수 있었다. 조합 검증과 축별 검증은
+탐지 범위가 다르므로(조합에서만 드러나는 불일치는 축별 집계에서 상쇄될 수 있다) 이는
+단순 문구 문제가 아니라 검증 범위를 오해하게 만드는 표시 오류였다.
+
+
+────────────────────────────────────────────────────────────────────────
+2. 무엇을 고쳤나
+────────────────────────────────────────────────────────────────────────
+4단계 '생성된 SQL 기준' 박스 안에, GROUP BY 가 2개 이상일 때만 나타나는 안내 한 개를
+추가했다(요소 id: genSqlComboDecomposeNotice). 표시 문구는 아래와 같다.
+
+  ⚠️ 이 SQL은 참고용입니다 — 실제로는 각 축을 독립적으로 실행합니다.
+     아래 조합 SQL(GROUP BY STATUS_CD, DEPT_CD)은 실행되지 않습니다. 통계검증 실행 시
+     단일 축 2세트(STATUS_CD / DEPT_CD)로 분해해 축별로 따로 집계·비교합니다.
+     실제 실행된 SQL과 세트 구성은 5단계(결과 확인)에서 확인할 수 있습니다.
+
+세트 수와 축 목록은 선택값에서 그대로 만들어 5단계의 "단일 축 N세트" 표기와 같은 어휘를
+쓰도록 맞췄다. GROUP BY 가 0개(전체 기준 집계) 또는 1개인 경우에는 조합 분해 자체가
+일어나지 않으므로 안내가 붙지 않는다.
+
+변경 범위는 표시 문구 한 곳뿐이다. 표시되는 SQL 원문은 손대지 않았고(여전히 조합 SQL 을
+그대로 보여준다 — 사용자가 선택 기준을 검토하는 용도), SQL 생성·실행·판정 로직은 한 줄도
+건드리지 않았다.
+
+  변경 파일 : ui/js_sql_preview.py  (+20줄, 신규 함수 없음)
+  변경 위치 : renderSQL() 의 '생성된 SQL 기준'(gen-sql-basis) 박스 구성부
+
+
+지시와 다른 점 — 수정 파일 (사전 보고)
+  작업 지시는 "ui/tabler_renderer.py 만 수정"이었으나, 4단계 생성 SQL 을 실제로 그리는
+  renderSQL 은 과거 UI-RENDERER-DISPLAY-COMPONENT-EXTRACTION 작업으로 tabler_renderer.py
+  에서 ui/js_sql_preview.py 로 이미 분리되어 있었다(tabler_renderer.py 25287행에 이관
+  주석만 남아 있다). tabler_renderer.py 쪽에서 처리하려면 renderSQL 호출부 2곳
+  (runGenerate, 원클릭 전체검증 경로) 뒤에서 DOM 을 사후 주입해야 하고, 호출부가 하나라도
+  늘면 안내가 조용히 빠지는 구조가 된다. 그래서 지시의 취지("4단계 SQL 표시 부분만,
+  판정/실행 로직 불가침")를 그대로 지키면서 표시 단일 출처인 js_sql_preview.py 를
+  수정했다. 이 파일은 설계상 presentation 전용 모듈이므로 판정/실행 로직과는 무관하다.
+  tabler_renderer.py 는 이 작업에서 한 글자도 수정하지 않았다.
+
+
+────────────────────────────────────────────────────────────────────────
+3. 어떻게 검증했나
+────────────────────────────────────────────────────────────────────────
+(1) 실 서비스·실 브라우저 클릭 검증  [After]
+    스크립트 : scripts/dev_e2e/step4_combo_sql_label_accuracy_verify.py --tag after
+    환경     : 포트 8000 실 서비스(인증 ON·단계 가드 ON), 실 오라클
+               Oracle_asis → Oracle_tobe, NXDNP.MV_ORA_DEMO_SRC → MV_ORA_DEMO_TGT
+    강제주입 없음 — 스크립트는 클릭과 관측만 하고 표시/판정은 전부 운영 코드가 수행.
+
+      1단계 분석      : from_table=MV_ORA_DEMO_SRC, GB 후보 5개 정상 산출
+      2단계 COUNT     : COUNT_MATCHED (원본 150 / 목적지 150)
+      3단계 선택      : GROUP BY = STATUS_CD + DEPT_CD, SUM = AMT
+      4단계 생성 SQL  : 안내 존재=true / 화면 노출=true
+                        문구에 "단일 축 2세트(STATUS_CD / DEPT_CD)" 포함 확인
+                        표시 SQL 은 여전히 조합(GROUP BY STATUS_CD, DEPT_CD) 유지 확인
+      [회귀] 3단계로 돌아가 DEPT_CD 체크 해제 → GROUP BY = STATUS_CD 1개로 재생성
+      4단계 생성 SQL  : 안내 존재=false (DOM 에 요소 자체가 없음)
+                        박스 내용은 "GROUP BY: STATUS_CD / SUM: AMT" 정상 표시
+
+    판정 4/4 통과. 결과 원본: scripts/dev_e2e/_step4_combo_label_verify_after.json
+
+(2) Before/After 화면 대조
+    Before(수정 전) 화면을 실 서비스에서 캡처하려 했으나, 같은 저장소를 공유하는 동시
+    작업 세션이 포트 8000 서버를 18:32:37 에 먼저 재기동해 버려(내 수정이 이미 반영된
+    상태) 수정 전 상태의 실 브라우저 캡처 기회가 사라졌다. 최초 시도(18:40) 캡처는
+    'Before' 라는 이름으로 남기면 거짓이 되므로 파일명을 notBefore_serverAlreadyPatched_*
+    로 바꿔 보존했다(참고용).
+
+    대신 같은 컴포넌트를 동일 입력으로 두 코드에서 렌더해 대조했다.
+    스크립트 : scripts/dev_e2e/step4_combo_sql_label_before_after_render.py
+      - Before : git HEAD(수정 전) 의 ui/js_sql_preview.py 원문 renderSQL
+      - After  : 작업트리(수정 후) renderSQL
+      - 입력   : 실측과 동일한 gbSel=[STATUS_CD, DEPT_CD] / sumSel=[AMT], 동일 페이지 CSS
+      결과     : Before 안내 없음 / After 안내 있음 — 두 코드의 차이만 남는 대조 확인
+      캡처     : cmp_before_gen_sql_basis.png ↔ cmp_after_gen_sql_basis.png
+
+(3) 표시 회귀 하네스 (GROUP BY 개수별)
+    운영 renderSQL 원문을 그대로 실행해 안내 노출 조건만 확인했다.
+      GROUP BY 0개(전체 집계) : 안내 없음   기대 없음  → PASS
+      GROUP BY 1개            : 안내 없음   기대 없음  → PASS
+      GROUP BY 2개            : 안내 있음   기대 있음  → PASS ("단일 축 2세트" 포함)
+      GROUP BY 3개            : 안내 있음   기대 있음  → PASS ("단일 축 3세트" 포함)
+      4개 케이스 모두에서 표시 SQL 원문(stats_src_sql/stats_tgt_sql) 유실 없음 확인
+
+(4) 스크립트 문법 가드
+    렌더된 전체 페이지의 inline script 블록 2개를 추출해 node --check 통과.
+    (JS 주석 안의 '*/' 로 번들이 깨지는 과거 사고 유형에 대한 가드)
+
+(5) 기존 테스트 회귀
+      python samples/test_virtual_cases.py   → 8/8 통과
+      python samples/test_complex_cases.py   → 5/5 통과 (전체 검증 요약 8항목 정상)
+
+
+────────────────────────────────────────────────────────────────────────
+4. 남은 사실과 한계
+────────────────────────────────────────────────────────────────────────
+- 이번 변경은 표시 정확성만 회복한다. 다중 GROUP BY 를 '조합'으로 검증하지 않는다는
+  동작 자체는 그대로다. 조합 단위 검증이 필요하다는 요구는 별개 작업으로 남는다.
+- 안내에 적히는 세트 수 N 은 선택 축 수를 그대로 쓴다. 현재 실행계획이 단일 축 세트를
+  자동 제외하지 않으므로 실제 세트 수와 일치하지만, '보강 분석'을 명시 실행하면 2축
+  세트가 1개 추가될 수 있다(그 경우 실행 세트 수는 N+1). 안내는 분해 실행 사실을
+  알리는 것이 목적이므로 이 경우도 오해를 유발하지 않는다고 판단했다.
+- 이 작업 중 다른 세션이 ui/tabler_renderer.py, ui/grid_helpers.py 를 동시 수정 중이었다.
+  스테이징은 내 파일만 선별해 커밋했고(js_sql_preview.py + 신규 검증 스크립트 2개),
+  타 작업 변경분은 손대지 않았다. 다만 (1) 항의 실 서비스 검증은 그 미커밋 변경분이
+  함께 올라간 서버에서 수행됐다는 점을 사실대로 남긴다.
+
+
+────────────────────────────────────────────────────────────────────────
+5. 산출물
+────────────────────────────────────────────────────────────────────────
+코드
+  ui/js_sql_preview.py                                        (수정, +20줄)
+  scripts/dev_e2e/step4_combo_sql_label_accuracy_verify.py     (신규, 실 브라우저 검증)
+  scripts/dev_e2e/step4_combo_sql_label_before_after_render.py (신규, 컴포넌트 대조)
+
+스크린샷 : E:\verify_screenshots_only\STATS-EXECUTE-STEP4-GENERATED-SQL-LABEL-ACCURACY-FIX\
+  cmp_before_gen_sql_basis.png              Before(git HEAD) — 안내 없음
+  cmp_after_gen_sql_basis.png               After(수정본)    — 안내 있음
+  after_multi_gb2_basis.png                 실 서비스 GB 2개 — 안내 표시
+  after_multi_gb2_step4_full.png            실 서비스 GB 2개 — 4단계 전체 화면
+  after_single_gb1_basis.png                실 서비스 GB 1개 — 안내 없음(회귀)
+  after_single_gb1_step4_full.png           실 서비스 GB 1개 — 4단계 전체 화면
+  notBefore_serverAlreadyPatched_*.png      (참고) 최초 시도분 — 서버가 이미 재기동된
+                                            상태라 Before 가 아님
+
+결과 JSON
+  scripts/dev_e2e/_step4_combo_label_verify_after.json
+  scripts/dev_e2e/_step4_combo_label_render_cmp.json
+
+
+✅ 작업 완료 - 4단계 '생성된 SQL' 영역에 다중 GROUP BY 축별 분해 실행 안내 추가, 단일축 회귀 없음
+
+STATS-EXECUTE-STEP4-GENERATED-SQL-LABEL-ACCURACY-FIX
