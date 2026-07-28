@@ -1,0 +1,120 @@
+✅ 작업 완료 - SINGLE-STEP4-EXEC-STATUS-DISPLAY-IMPLEMENT : 4단계 통계검증 실행 중 '경과시간 + 세트 i/N' 표시 신설 (백엔드 무변경)
+
+■ 요청 요약
+  진단 SINGLE-STEP4-INLINE-PROGRESS-FEASIBILITY-DIAGNOSE 권장안 A-3+A-1 구현.
+  서버가 이미 만들어 보내던 '세트 i/N 실행 중' 문구가 5단계 pane(#executeOut) 소속이라
+  4단계에 머무는 동안 화면에 안 보이던 것을 노출하고, 경과시간 카운트업을 추가.
+
+■ 구현 (ui/tabler_renderer.py 단일 파일, 백엔드 0줄)
+  1) #mvExecStepProgress 영역 신설 + SINGLE_STEP_CARDS.validation(4단계 pane) 등록.
+     기존 #mvExecStepError(실패) · #mvExecStepResult(성공요약)와 같은 계열의 세 번째 영역이며
+     셋은 상호배타로만 노출된다.
+  2) 경과시간 1초 카운트업 — _mvShowExecStepProgress(label) / _mvClearExecStepProgress().
+     60초 미만 '45초', 이상 '1분 05초'. 매초 경과 숫자만 갱신(박스 재렌더 없음 → 스피너 유지).
+  3) 다중 세트 '세트 i/N' 문구를 이 영역에도 렌더(_runExecutePlanSets).
+     기존 #executeOut 렌더는 그대로 유지 — 이동이 아니라 '추가 렌더'.
+     세트 문구 이전 구간(무음)에 '실행 계획(GROUP BY 세트) 생성 중…' 문구 추가.
+  4) 최초 노출 시 1회 scrollIntoView(block:'center') — 검증 중 발견한 갭(아래 ■추가수정).
+  5) 종료 정리 6지점: runExecute finally(단일) / plan-sets finally / _execAbort /
+     resetExecuteResultOnly / 오류 표시 / 성공요약 표시. 타이머(setInterval)도 함께 해제.
+  6) 진행률(%)·추정 진행바는 만들지 않음 — /execute 는 집계 SQL 단일 실행이라 서버에 중간
+     진행 신호가 원리적으로 없다. 근거 없는 추정치는 가짜 진행률이 되므로 A-2 는 범위 제외.
+     대신 박스에 "진행률(%)은 표시하지 않습니다 — 집계 SQL 한 번의 실행이라 완료 전에는
+     중간 진행 신호가 없습니다" 사유를 명시.
+  7) 자동 5단계 이동 금지 정책 불변(표시만 추가, 뷰 이동 없음).
+
+■ 검증 중 발견해 추가 수정한 2건 (라이브 실측 결과)
+  (1) 표시했는데 안 보이는 문제: 4단계는 통계검증 SQL 카드가 길고 실행 버튼은 하단 고정
+      커맨드바라 사용자가 스크롤을 내리지 않는다 → 영역이 뷰포트 밖(실측). 최초 1회
+      scrollIntoView 추가(오류/성공요약 영역과 동일 패턴). 문구 갱신마다 스크롤하면
+      사용자 스크롤을 뺏으므로 _first 조건으로 제한.
+  (2) 하단 고정 커맨드바 가림: block:'nearest' 는 요소 하단을 뷰포트 하단에 맞추므로
+      .mv-cmdbar(position:fixed;bottom:0)가 박스 마지막 줄(경과시간)을 덮었다
+      (실측 top=986 / bottom=1072 / barTop=1053 / vh=1100). block:'center' 로 변경 →
+      실측 top=887 / bottom=976 (barTop=1053, 겹침 없음).
+
+■ 자체 테스트 (신규) — tests/test_exec_step_progress_display.py : 18건 전부 통과
+  · 정적 배선 9건: 영역 존재/기본 숨김/4단계 pane 등록, 결과카드 5단계 매핑 불변,
+    헬퍼 정의·window 노출, runExecute 시작 배선, 세트 문구 4단계 렌더 + 기존 #executeOut
+    렌더 유지, 종료 배선 ≥6곳, 최초 1회 scrollIntoView, 진행률 미표시, 자동이동 정책 불변
+  · node 동작 계약 8건(실제 제품 함수를 node 로 실행, 시계·타이머 주입):
+    실행 전 비노출 / 시작 시 기본문구+0초+타이머 1개 / 3초→'3초', 65초→'1분 05초' /
+    세트 1/2·2/2 문구 반영 + 경과 리셋 안 됨 + 타이머 중복 없음 / 종료 시 숨김·비움·타이머 해제 /
+    성공요약 표시 시 진행 자동 종료 / 오류 표시 시 진행 자동 종료 / 재실행 시 경과 0초 재시작
+  · node --check 1건 통과(페이지 JS 문법)
+
+■ 회귀 테스트
+  · 관련 15개 테스트 파일: 188 passed / 3 failed / 5 xfailed
+    실패 3건은 사전 존재 결함(내 변경과 무관) — HEAD 기준 worktree 에서 동일하게 3건 실패 확인:
+      tests/test_individual_validation_stage_content.py::test_sql_shape_object_label_extraction
+      tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+      tests/test_ui_tab4_tab5_separation.py::test_target_only_display
+  · samples/test_virtual_cases.py 8/8 통과, samples/test_complex_cases.py 5/5 통과
+
+■ 라이브 브라우저 검증 (오라클 Oracle_asis 1523 → Oracle_tobe 1524, 인증 ON)
+  · AFTER  : 실제 서비스 포트 8000
+  · BEFORE : 수정 전 코드(HEAD) worktree 서버를 8055 로 분리 기동해 측정.
+             8000 을 쓰지 않은 이유 — 이 포트는 동시 세션과 공유하며 web_server.py 기동 시
+             _cmn_free_port(8000) 로 서로를 종료시킨다(baseline 서버가 실제로 종료당함).
+             측정 절차·스크립트·케이스는 Before/After 완전히 동일.
+  · 서버 재기동 시각: 15:30:19(1차) → 15:55:07(scrollIntoView 추가) → 15:58:23(center 최종)
+  · 스크립트: scripts/dev_e2e/single_step4_exec_status_display_verify.py
+             (클릭 직전 페이지에 100ms 샘플러 주입 — 실행이 1~3초로 짧아 스크린샷만으로는
+              구간을 놓치므로 가시성·문구·뷰포트 좌표를 전 프레임 기록)
+
+  [케이스 A] 다중 세트 — NXDNP.MV_ORA_TEST_SRC 300행, GROUP BY CHANNEL_CD + ORDER_YM(2세트), SUM AMT/QTY
+    BEFORE: 진행영역 노출 0프레임(#mvExecStepProgress 자체 없음).
+            '세트 1/2 … CHANNEL_CD' / '세트 2/2 … ORDER_YM' 문구는 #executeOut 에 정상 생성되나
+            전 프레임 shown=false — 진단서에 적힌 갭 그대로 재현.
+    AFTER : 진행영역 노출 9~23프레임(회차별), 문구 전이 실측
+            '실행 계획(GROUP BY 세트) 생성 중…' → '세트 1/2 실행 중 — GROUP BY CHANNEL_CD'
+            → '세트 2/2 실행 중 — GROUP BY ORDER_YM'
+            경과시간 카운트업 실측: 0초 → 1초 → 2초 (박스 이미지 프레임으로 저장)
+            뷰포트 판정: inView 15/15, 커맨드바 가림 없음 14/15
+            (첫 1프레임만 smooth 스크롤 착지 전 — 이후 전부 완전 노출)
+    종료 정리: progress_shown=false / progress_text='' / result_shown=true
+
+  [케이스 B] 단일 세트 대량 — MV_ORA_XDIFF_SRC 250,000행 ⨝ MV_ORA_TEST_SRC, GB C_DATE(월), SUM 2개
+    BEFORE: 진행영역 0프레임(execBtn 스피너 '실행 중...' 뿐)
+    AFTER : '원본·목적지 통계 SQL 실행 중…' + 경과 0초 → 1초, 노출 15프레임
+    종료 정리: progress_shown=false / result_shown=true
+
+  [케이스 C] 실행 실패 경로 회귀(무효 SQL 주입 — 표시 계층만 확인, 판정 로직 무변경)
+    ORA-00942(table or view does not exist) 발생.
+    오류가 처음 표시된 프레임(502ms)에서 진행영역은 이미 숨김 상태 → 겹침 없음.
+    최종: progress_shown=false / error_shown=true / result_shown=false (성공요약 미노출)
+
+  · 콘솔 에러 0건, 페이지 에러 0건.
+
+■ 변경/생성 파일 (커밋 5681667, 브랜치 main)
+  M  ui/tabler_renderer.py                                     (+139 / -2, 12 hunk 전부 이번 작업)
+  A  tests/test_exec_step_progress_display.py                  (신규 18건)
+  A  scripts/dev_e2e/single_step4_exec_status_display_verify.py(신규 검증 드라이버)
+  ※ 백엔드(services/, routes/) 무변경. 동시 세션과 파일 충돌 없음(시작 시 git status 확인,
+     ui/tabler_renderer.py 는 세션 시작 시점 clean 이었고 diff 12 hunk 전부 본 작업분).
+
+■ 비판적 검토 / 남은 위험
+  1) 취소 버튼 기대 불일치: 진행 표시가 붙으면 사용자는 '중단'을 기대하지만, 4단계 실행은
+     cancel_token 미전달로 중단 불가(진단서 기록). 이번 범위 밖 — 필요 시 별도 과제.
+  2) 경과시간은 '클라이언트 시계' 기준이라 서버 처리시간(processing_ms)과 다르다
+     (네트워크·렌더 포함). 표시는 '경과'라고만 하고 서버 시간으로 오인될 문구는 쓰지 않았다.
+  3) '세트 i/N' 은 세트 단위 진행일 뿐, 세트 '내부' 진행은 여전히 무신호다(원리적 한계).
+  4) A-2(추정 진행바) 미구현 — 의도적 제외. 추정 근거(직전 processing_ms) 표기 설계가
+     확정되기 전에는 붙이지 않는다.
+  5) 관측 하니스 주의(코드 결함 아님): 일부 증적 JSON 의 run.elapsed_sec 이 180초대인 것은
+     playwright element screenshot 이 '사라진 요소'를 기다린 하니스 대기 때문이다.
+     실제 실행 소요는 같은 파일의 run.exec_wall_from_frames_sec(1.3~2.9초)가 정확하다.
+  6) 라이브 실행 중 COUNT 단계가 간헐 ERROR 로 떨어지는 회차가 있었다(재실행 시 정상).
+     동시 세션이 같은 오라클/포트를 사용 중이라 환경 경합으로 판단 — 이번 변경과 무관하며,
+     성공 회차 기준으로만 증적을 채택했다.
+
+■ 증적
+  E:\verify_screenshots_only\SINGLE-STEP4-EXEC-STATUS-DISPLAY-IMPLEMENT\
+    · REPORT.txt                                  서술형 완료보고서
+    · before_multi_* / after_multi_*              Before/After 대조(동일 케이스·동일 화면)
+    · before_big_*   / after_big_*                단일 세트 대량 케이스
+    · after_big_err_*                             실행 실패 경로
+    · *_box_NN.png                                진행 박스만 잘라낸 연속 프레임(세트 전환·경과 카운트업)
+    · exec_status_*.json                          100ms 샘플러 원본 관측 기록
+
+✅ 작업 완료 - SINGLE-STEP4-EXEC-STATUS-DISPLAY-IMPLEMENT : 자체 테스트 18건 + 회귀(사전존재 3건 외 전부 통과) + 오라클 라이브 Before/After 실측 완료, 커밋 5681667
