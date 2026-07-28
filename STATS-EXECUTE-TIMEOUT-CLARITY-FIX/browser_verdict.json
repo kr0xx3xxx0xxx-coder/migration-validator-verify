@@ -1,0 +1,108 @@
+{
+  "execute": {
+    "T1_timeout": {
+      "http": 200,
+      "elapsed_s": 60.2,
+      "success": false,
+      "error": "원본 통계검증 SQL 실행 오류",
+      "src_error": "원본 통계 SQL 실행 시간이 제한을 초과했습니다.\n현재 제한: 60초 (환경변수 MV_EXECUTE_STATEMENT_TIMEOUT_MS = 60000 ms)\n이 제한은 실행마다 동일하게 적용되는 고정값이므로, 같은 SQL·같은 데이터로는 재시도해도 동일하게 실패할 가능성이 높습니다. 단순 재시도 대신 아래 조치를 권장합니다.\n① 제한 상향: 서버 환경변수 MV_EXECUTE_STATEMENT_TIMEOUT_MS 를 더 큰 값(밀리초)으로 설정한 뒤 서버를 재기동하세요. (예: 300000 = 300초 / 현재 60000)\n② 대상 축소: WHERE 조건으로 검증 범위를 줄이거나 GROUP BY·SUM 컬럼 수를 줄여 쿼리 부담을 낮추세요.",
+      "tgt_error": null,
+      "rows": 0,
+      "total_groups": null
+    },
+    "N1_normal": {
+      "http": 200,
+      "elapsed_s": 0.9,
+      "success": true,
+      "error": null,
+      "src_error": null,
+      "tgt_error": null,
+      "rows": 20,
+      "total_groups": 20
+    }
+  },
+  "browser": {
+    "B_before_timeout_message": {
+      "text": "❌ 최종 상태: 원본 SQL 실행 실패원본 오류 내용:원본 통계 SQL 실행 시간이 제한을 초과했습니다.확인할 항목원본 DB 연결(호스트/포트/계정) 상태를 확인하세요.원본 테이블/컬럼이 실제로 존재하는지 확인하세요.원본 통계 SQL 문법(함수/형변환)을 확인하세요.검증 실행 기준COUNT(*): 항상 포함GROUP BY 기준: 전체 기준 집계SUM 기준: 없음 — COUNT only 검증숫자 비교 정책: COUNT 정확 비교 / SUM 허용오차 적용표시 제한: 비교는 전체 그룹 기준으로 수행되며, 화면 표시만 상한(200행)으로 제한될 수 있습니다.실행 SQL 정보 없음",
+      "has_retry_notice": false,
+      "has_env_name": false,
+      "has_current_limit": false,
+      "has_raise_guide": false,
+      "is_fail_box": true,
+      "is_success_table": true,
+      "title": "B) Before(수정 전 재현) — 4단계 통계검증 타임아웃 오류 표시",
+      "shot": "E:\\verify_screenshots_only\\STATS-EXECUTE-TIMEOUT-CLARITY-FIX\\B_before_timeout_message.png"
+    },
+    "A_after_timeout_message": {
+      "text": "❌ 최종 상태: 원본 SQL 실행 실패원본 오류 내용:원본 통계 SQL 실행 시간이 제한을 초과했습니다.현재 제한: 60초 (환경변수 MV_EXECUTE_STATEMENT_TIMEOUT_MS = 60000 ms)이 제한은 실행마다 동일하게 적용되는 고정값이므로, 같은 SQL·같은 데이터로는 재시도해도 동일하게 실패할 가능성이 높습니다. 단순 재시도 대신 아래 조치를 권장합니다.① 제한 상향: 서버 환경변수 MV_EXECUTE_STATEMENT_TIMEOUT_MS 를 더 큰 값(밀리초)으로 설정한 뒤 서버를 재기동하세요. (예: 300000 = 300초 / 현재 60000)② 대상 축소: WHERE 조건으로 검증 범위를 줄이거나 GROUP BY·SUM 컬럼 수를 줄여 쿼리 부담을 낮추세요.확인할 항목원본 DB 연결(호스트/포트/계정) 상태를 확인하세요.원본 테이블/컬럼이 실제로 존재하는지 확인하세요.원본 통계 SQL 문법(함수/형변환)을 확인하세요.검증 실행 기준COUNT(*): 항상 포함GROUP BY 기준: 전체 기준 집계SUM 기준: 없음 — COUNT only 검증숫자 비교 정책: COUNT 정확 비교 / SUM 허용오차 적용표시 제한: 비교는 전체 그룹 기준으로 수행되며, 화면 표시만 상한(200행)으로 제한될 수 있습니다.실행 SQL 정보 없음",
+      "has_retry_notice": true,
+      "has_env_name": true,
+      "has_current_limit": true,
+      "has_raise_guide": true,
+      "is_fail_box": true,
+      "is_success_table": true,
+      "title": "A) After(실 서버 8000 응답 그대로) — 4단계 통계검증 타임아웃 오류 표시",
+      "shot": "E:\\verify_screenshots_only\\STATS-EXECUTE-TIMEOUT-CLARITY-FIX\\A_after_timeout_message.png"
+    },
+    "N_after_normal_result": {
+      "text": " 일치 — 전체 20개 그룹 / 일치 20 · 값불일치 0 · 원본만 0 · 목적지만 0 표시 등급 D1 · 전체 레코드 나열 불일치 0건(그룹 20개) — 전체 레코드를 나열합니다. 전체 그룹 20 일치 그룹 20 불일치 그룹 0 일치율 100.0% 원본 그룹 수: 20 / 목적지 그룹 수: 20 ⚙ 세부 기준 및 SQL 실행 기준 산출 근거안전 판정 적용값: 40개허용 상한(안전 한도): 100,000개산출 근거(estimate 유형): PLANNER_ESTIMATE안전성 상태: SAFE검증 실행 기준COUNT(*): 항상 포함GROUP BY 기준: GRP_CDSUM 기준: SUM_AMT숫자 비교 정책: COUNT 정확 비교 / SUM 절대 허용오차 1E-9표시 제한: 비교는 전체 그룹 기준으로 수행되며, 화면 표시만 상한(200행)으로 제한될 수 있습니다.실행 SQL 정보 없음 전체 20COUNT 0AMT 0항목 클릭 시 그 항목이 차이난 그룹만 표시(재실행 없음) 전체 그룹 20 · 불일치 그룹 0 · 현재 표시 20 ⬇ 전체 불일치 결과 Excel 다운로드 불일치 그룹 전체 + 재이관 대상 레코드 전체 일치 행 숨기기 (20건) 표시 건수 20건 50건 100건 범례원본목적 GRP_CDGRP_CDCOUNT(건수)COUNT(건수)AMT(금액)AMT(금액)판정(STATUS) G001G001500005000024995000.0024995000.00✓ 일치G002G002500005000024995500.0024995500.00✓ 일치G003G003500005000024996000.0024996000.00✓ 일치G004G004500005000024996500.0024996500.00✓ 일치G005G005500005000024997000.0024997000.00✓ 일치G006G006500005000024997500.0024997500.00✓ 일치G007G007500005000024998000.0024998000.00✓ 일치G008G008500005000024998500.0024998500.00✓ 일치G009G009500005000024999000.0024999000.00✓ 일치G010G010500005000024999500.0024999500.00✓ 일치G011G011500005000025000000.0025000000.00✓ 일치G012G012500005000025000500.0025000500.00✓ 일치G0",
+      "has_retry_notice": false,
+      "has_env_name": false,
+      "has_current_limit": false,
+      "has_raise_guide": false,
+      "is_fail_box": false,
+      "is_success_table": true,
+      "title": "N) After — 정상 완료 케이스(회귀 없음, 실 서버 응답 그대로)",
+      "shot": "E:\\verify_screenshots_only\\STATS-EXECUTE-TIMEOUT-CLARITY-FIX\\N_after_normal_result.png"
+    }
+  },
+  "verdict": {
+    "all_pass": true,
+    "checks": [
+      [
+        "T1 실 서버에서 타임아웃 발화(success=False·src_error)",
+        true
+      ],
+      [
+        "T1 소요가 제한(60초) 부근",
+        true
+      ],
+      [
+        "Before 화면에 재시도 안내 없음",
+        true
+      ],
+      [
+        "Before 화면에 환경변수/현재 제한값 없음",
+        true
+      ],
+      [
+        "After 화면에 재시도해도 동일 실패 안내 표시",
+        true
+      ],
+      [
+        "After 화면에 환경변수명 표시",
+        true
+      ],
+      [
+        "After 화면에 현재 제한값(초) 표시",
+        true
+      ],
+      [
+        "After 화면에 상향 방법 안내 표시",
+        true
+      ],
+      [
+        "Before/After 모두 동일한 '원본 SQL 실행 실패' 박스(구조 불변)",
+        true
+      ],
+      [
+        "N1 정상 케이스 실 서버 성공",
+        true
+      ],
+      [
+        "N1 정상 화면은 결과표(오류 문구 없음·회귀 없음)",
+        true
+      ]
+    ]
+  }
+}

@@ -1,0 +1,82 @@
+commit 77035ce87b8f95914b16ae0a44f062aadf4ed5f1
+Author: migration-validator <dev@migration-validator.local>
+Date:   Tue Jul 28 15:22:54 2026 +0900
+
+    fix(execute): 통계검증 타임아웃 오류 메시지에 영구실패 사실·현재 설정값·상향 방법 명시 (STATS-EXECUTE-TIMEOUT-CLARITY-FIX)
+    
+    기존 메시지("원본 통계 SQL 실행 시간이 제한을 초과했습니다.")는 이 실패가
+    '실행마다 동일하게 적용되는 고정 상한에 의한 영구 실패'라는 사실을 알려주지 않아
+    사용자가 의미 없는 재시도를 반복하게 만들었다(진단: STATS-VALIDATION-CHUNKED-VS-SINGLE-TRADEOFF).
+    
+    - _timeout_error_message() 추가 — 원본/목적지 공통 문구 단일 출처
+      ① 재시도해도 동일 실패 가능성이 높다는 사실
+      ② 현재 적용 제한값(초) + 환경변수명 MV_EXECUTE_STATEMENT_TIMEOUT_MS + ms 원값
+      ③ 상향 방법(환경변수 상향 후 재기동)과 대안(대상 축소)
+    - 타임아웃 값(60초)·판정 로직(is_query_timeout_error)은 변경 없음 — 문구 전용
+    - 첫 문장은 기존 문구 그대로 보존(하위호환)
+    
+    검증(실측): mvbench.bench_30m(3,000만 행) CTEWIN
+    - Before(HEAD 모듈) 60.5s → 한 줄 메시지 / After 60.1s → 개선 메시지(원본·목적지 양측)
+    - env 5000ms 주입 시 '현재 제한: 5초'로 실제 설정값 추종
+    - 정상 케이스(100만 행) 성공·오류 문구 없음(회귀 없음)
+    - 실 서버 8000(인증 ON) 종단 + 실 브라우저 renderExecute 표시 확인
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_01LiBuJHHsw71W7E9ruBXSa8
+
+diff --git a/services/stats_execute_service.py b/services/stats_execute_service.py
+index ccc3272..cff6a75 100644
+--- a/services/stats_execute_service.py
++++ b/services/stats_execute_service.py
+@@ -110,6 +110,33 @@ def _sanitize_error(exc_str: str) -> str:
+     return (lines[0] if lines else exc_str)[:200]
+ 
+ 
++def _timeout_error_message(side_label: str) -> str:
++    """통계 SQL 실행 타임아웃 오류 메시지(STATS-EXECUTE-TIMEOUT-CLARITY).
++
++    타임아웃은 '일시적 장애'가 아니라 '실행마다 동일하게 적용되는 고정 상한'이다.
++    같은 SQL·같은 데이터라면 재시도해도 같은 지점에서 잘리는 영구 실패이므로,
++    사용자가 의미 없는 재시도를 반복하지 않도록 아래 3가지를 함께 알린다.
++      ① 재시도해도 동일 실패 가능성이 높다는 사실
++      ② 현재 적용된 제한값(초 + 환경변수명/ms 원값)
++      ③ 상향 방법과 대안(대상 축소)
++    ※ 판정 로직·타임아웃 값 자체는 변경하지 않는다(문구 전용).
++    첫 문장은 기존 문구를 그대로 보존한다(기존 표시/계약 하위호환).
++
++    side_label: '원본' 또는 '목적지'
++    """
++    _sec = EXECUTE_STATEMENT_TIMEOUT_MS / 1000.0
++    return (
++        f"{side_label} 통계 SQL 실행 시간이 제한을 초과했습니다."
++        f"\n현재 제한: {_sec:g}초 (환경변수 MV_EXECUTE_STATEMENT_TIMEOUT_MS = {EXECUTE_STATEMENT_TIMEOUT_MS} ms)"
++        "\n이 제한은 실행마다 동일하게 적용되는 고정값이므로, 같은 SQL·같은 데이터로는 "
++        "재시도해도 동일하게 실패할 가능성이 높습니다. 단순 재시도 대신 아래 조치를 권장합니다."
++        "\n① 제한 상향: 서버 환경변수 MV_EXECUTE_STATEMENT_TIMEOUT_MS 를 더 큰 값(밀리초)으로 "
++        f"설정한 뒤 서버를 재기동하세요. (예: 300000 = 300초 / 현재 {EXECUTE_STATEMENT_TIMEOUT_MS})"
++        "\n② 대상 축소: WHERE 조건으로 검증 범위를 줄이거나 GROUP BY·SUM 컬럼 수를 줄여 "
++        "쿼리 부담을 낮추세요."
++    )
++
++
+ def _db_type_of(db_info) -> str:
+     """ExecuteRequest 의 src_db/tgt_db dict 에서 db_type 추출(소문자, 없으면 '')."""
+     if isinstance(db_info, dict):
+@@ -340,7 +367,7 @@ def execute_stats_validation(req: ExecuteRequest, cancel_token=None) -> dict:
+                 "BLOCKED_UNVERIFIABLE", _src_exc.reason_code, "READ_ONLY_SESSION_ENFORCEMENT_FAILED",
+                 f"원본 통계 SQL 의 읽기 전용 실행을 보장하지 못했습니다: {_src_exc.message}",
+                 selected_columns=gb_keys, limit=_limit)
+-        _msg = ("원본 통계 SQL 실행 시간이 제한을 초과했습니다."
++        _msg = (_timeout_error_message("원본")
+                 if is_query_timeout_error(_src_exc, _db_type_of(req.src_db)) else _sanitize_error(str(_src_exc)))
+         return _err_response("원본 통계검증 SQL 실행 오류", src_error=_msg)
+     if _tgt_exc is not None:
+@@ -349,7 +376,7 @@ def execute_stats_validation(req: ExecuteRequest, cancel_token=None) -> dict:
+                 "BLOCKED_UNVERIFIABLE", _tgt_exc.reason_code, "READ_ONLY_SESSION_ENFORCEMENT_FAILED",
+                 f"목적지 통계 SQL 의 읽기 전용 실행을 보장하지 못했습니다: {_tgt_exc.message}",
+                 selected_columns=gb_keys, limit=_limit)
+-        _msg = ("목적지 통계 SQL 실행 시간이 제한을 초과했습니다."
++        _msg = (_timeout_error_message("목적지")
+                 if is_query_timeout_error(_tgt_exc, _db_type_of(req.tgt_db)) else _sanitize_error(str(_tgt_exc)))
+         return _err_response("목적지 통계검증 SQL 실행 오류", tgt_error=_msg)
+     src_cols, src_rows, src_timing = _src_pack
