@@ -1,0 +1,254 @@
+작업명 : COMBO-PAIR-ENTRY-POINT-RESTORE-IMPLEMENT-RESUME
+✅ 작업 완료 - 워킹트리 변경분 온전성 확인 → 회귀 재검증(의심 F 6개 = 사전 존재 실패로 확정) → 커밋(7d94b99)
+
+════════════════════════════════════════════════════════════════════════════
+0. 이 작업이 한 일
+════════════════════════════════════════════════════════════════════════════
+COMBO-PAIR-ENTRY-POINT-RESTORE-IMPLEMENT 세션이 터미널 창과 함께 강제 종료되면서
+코드 변경은 워킹트리에만 남고 커밋·회귀검증·완료보고가 전부 미완인 상태였다.
+이 작업은 코드를 새로 짜지 않고 그 변경분을 그대로 이어받아 검증만 완결했다.
+
+가장 중요한 미해결 항목은 "죽기 직전 회귀 테스트 8% 지점에서 Before 엔 없던 F 6개가
+After 에만 나타난" 의심 신호였다. 결론부터 쓰면 **회귀가 아니다**. 그 6개의 정체를
+테스트 이름 수준까지 특정했고, 실패 원인과 왜 Before 에선 안 났는지까지 확정했다.
+
+════════════════════════════════════════════════════════════════════════════
+1. 워킹트리 변경분 온전성 확인
+════════════════════════════════════════════════════════════════════════════
+변경분은 훼손 없이 온전했다. 보강이 필요한 부분은 없었고, 코드는 한 줄도 새로 쓰지 않았다.
+
+  git diff --stat (재개 시점)
+    ui/js_sql_preview.py   +48
+    ui/tabler_renderer.py  +62
+    tests/test_groupby_plan.py +55   ← 지침에 안 적혀 있었으나 이 작업 소유(아래 3항)
+
+  · 파일 mtime 2026-07-28 20:53:09 / 20:53:15 — 죽은 세션이 마지막으로 쓴 시각 그대로.
+  · 이 두 파일을 마지막으로 건드린 커밋은 135ee9e / 28973db(모두 이전 작업). 그 뒤로
+    다른 세션이 건드린 흔적 없음. 본 작업 2.5시간 동안에도 mtime·diff 불변 재확인.
+  · python py_compile 통과.
+  · node --check: 페이지 인라인 script 2블록 전부 통과(block#0 461자, block#1 1,913,672자).
+    JS 주석 '*/' 로 번들이 통째로 죽는 과거 사고 유형에 대한 방어 확인.
+  · 정적 렌더/실행 검증 27/27 통과
+    (scripts/dev_e2e/combo_pair_entry_point_restore_static_verify.py)
+  · tests/test_groupby_plan.py 13/13 통과(신규 계약 테스트 2건 포함).
+
+  안전장치: 작업 시작 시 변경분을 patch(219줄) + 파일 사본으로 별도 백업해 두고 진행했다.
+  워킹트리를 되돌리는 방식(git stash / in-place revert)은 쓰지 않았다.
+
+════════════════════════════════════════════════════════════════════════════
+2. 회귀 재검증 — 의심 F 6개의 정체와 판정
+════════════════════════════════════════════════════════════════════════════
+【2-1】 먼저 발견한 것: 죽은 세션의 Before/After 비교 자체가 기준이 어긋나 있었다
+
+죽은 세션이 남긴 원본 로그(3ecb24c7/scratchpad)를 그대로 읽었다.
+
+  reg_before.txt 3행: ........................................FFFF......FF..F.F..........F....
+  reg_after.txt  3행: .............FFFFF.F....................FFFF......FF..F.F..........F....
+                      └─ 13열 뒤 FFFFF.F = F 6개(5+1) ─┘
+
+41열 이후가 두 줄 완전히 동일하다 → 테스트 인덱스가 밀린 게 아니라 같은 위치의 테스트가
+After 에서만 실패한 것이 맞다. 여기까지는 죽은 세션의 관찰이 정확했다.
+
+그런데 그 Before 는 **13cc873 worktree**, After 는 **a649dab + 변경분**이었다.
+둘 사이에는 이 작업과 무관한 커밋 2개(e9248c3, a649dab)가 끼어 있다.
+
+  git diff --stat 13cc873..a649dab
+    routes/agg_diff_route.py                       +10
+    tests/test_sampling_gate_wrapping_skip.py      +95 (신규 테스트 파일)
+    scripts/dev_e2e/reimport_sampling_skip_*.py    +733
+
+즉 죽은 세션의 Before/After 차이에는 COMBO-PAIR 변경분뿐 아니라 REIMPORT 계열 커밋 2개가
+섞여 있었다. 이 상태의 비교로는 원인 귀속이 불가능하다. 그래서 Before 기준을 올바른
+baseline(a649dab)으로 다시 잡고 전량 재실행했다.
+
+【2-2】 재실행 방법 — 단일 프로세스로는 스위트가 끝나지 않는다(실측)
+
+지침대로 중단됐던 스위트를 그대로 재실행했다.
+  pytest tests/ -q --ignore=tests/test_limited_live_batch.py
+         -k "ui or grid or render or result or stats or single or batch"
+  (690개 파일 / 4,366개 테스트 선택)
+
+그런데 이 스위트는 단일 프로세스로 실행하면 52% 지점에서 영구 정지한다. 40분간 진행률이
+1도 움직이지 않는 것을 확인하고, 원인을 프로세스 계보로 직접 특정했다.
+
+  pytest(PID 35484) → node(PID 8996) 자식이 harness.js 를 물고 40분+ 무한 대기
+  · tests/ 다수가 node 를 subprocess 로 띄우면서 timeout 인자를 주지 않는다.
+    자식 node 가 안 끝나면 pytest 가 영원히 그 자리에 선다.
+  · 과거 멈춘 pytest(PID 33856)도 **완전히 동일한 -k 선택**이었다. 즉 죽은 세션의 회귀
+    테스트가 8%에서 멈춘 것도 세션이 죽어서가 아니라 이 hang 때문일 가능성이 높다.
+
+그래서 파일을 25개씩 청크로 나눠 실행하고, 청크가 상한을 넘기면 그 청크만 파일 단위로
+재실행해 '멈추는 파일'을 격리 기록하는 실행기를 만들어 돌렸다(선택 조건 -k 는 동일 유지).
+멈추는 파일 4개를 실제로 격리해냈고, 스위트는 그때서야 끝까지 돌았다.
+
+  tests/test_one_click_full_run.py
+  tests/test_single_facade_legacy_parity.py
+  tests/test_single_run_facade_manual_selection.py
+  tests/test_single_run_standard_route.py
+  → 4개 모두 Before(a649dab) 에서도 똑같이 멈춘다. 변경분과 무관한 기존 문제다.
+
+【2-3】 Before / After 결과
+
+  After (현재 워킹트리, 690파일)      : 실패 239 · 통과 4,063 · 에러 15 · 스킵 21 · 63분
+  Before(a649dab worktree, 111파일)   : 실패 228 · 36분
+    ※ Before 는 "After 에서 실패한 파일 111개"만 돌렸다. After 에서 통과한 테스트는
+       정의상 회귀가 될 수 없으므로 회귀 판정에 필요한 최소·충분 집합이다.
+
+  차집합
+    After 에만 실패 : 13건
+    Before 에만 실패:  2건   ← 변경분이 원인이라면 나올 수 없는 방향. 순서 의존 신호.
+
+두 실행은 청크 구성이 서로 달랐다(After=690파일, Before=111파일). 한 프로세스에 25개
+파일이 함께 올라가므로, 전역/공유 상태에 의존하는 테스트는 '같이 실행된 이웃'에 따라
+결과가 갈린다. 그래서 차이 난 15건을 **양쪽 트리에서 각각 단독 실행**해 재확인했다.
+
+  단독 실행 결과: 14건 = Before/After 둘 다 FAIL(동일)
+                   1건 = After PASS / Before FAIL
+                   → 단독 실행 기준 회귀(After 만 실패) : **0건**
+
+【2-4】 F 6개의 정체 — 이름까지 특정
+
+죽은 세션이 쓴 -k 선택으로 수집 순서를 그대로 재현해, 3행 14~20열에 해당하는
+158~164번째 테스트를 뽑았다.
+
+  #158 test_batch_report_service.py::TestBuildBatchExcelReport::test_R04_returns_bytes      F
+  #159                                                          test_R05_three_sheets_exist F
+  #160                                                          test_R06_summary_contains_run_id F
+  #161                                                          test_R07_items_sheet_row_count   F
+  #162                                                          test_R08_failed_items_...        F
+  #163                                                          test_R09_not_found_returns_none  .  ← 통과
+  #164                                                          test_R10_no_payload_json_in_excel F
+
+FFFFF.F 패턴과 정확히 일치한다(F 5개 + 통과 1개 + F 1개 = F 6개). 6개 전부
+tests/test_batch_report_service.py 의 배치 Excel 리포트 테스트이며, 이번 변경이 건드린
+GROUP BY / 조합 / 4단계 SQL 카드와는 아무 접점이 없다.
+
+실패 원인도 확정했다. 양쪽 트리 단독 실행에서 완전히 같은 실패가 난다.
+
+  [PROD-DB-WRITE-BLOCKED] 테스트가 운영 SQLite 를 쓰기 가능 연결로 열려 했습니다
+  → batch_run 행 생성 실패 → 리포트가 None → AssertionError: unexpectedly None
+
+  After (main tree)      : FAIL — 경로 C:\projects\migration-validator\db\migration_validator.db
+  Before(a649dab worktree): FAIL — 경로 ...\before_head\db\migration_validator.db
+
+테스트가 운영 DB 에 쓰려 하고 가드가 이를 막아서 실패하는, 이미 알려진 기존 결함이다.
+가드가 있는 한 상시 실패이며 이번 변경과 무관하다. 이 테스트들이 어떤 실행에선 통과하고
+어떤 실행에선 실패하는 이유는 같은 프로세스에 올라온 이웃 테스트가 DB 경로를 tmp 로
+바꿔치기한 상태가 남는지 여부에 달려 있기 때문이다(순서 의존).
+
+【2-5】 판정
+
+  의심 F 6개 = **회귀 아님**. 재현되지만, Before(올바른 baseline a649dab)에서도 동일하게
+  실패하는 사전 존재 실패다. 죽은 세션이 회귀로 의심한 이유는 두 가지가 겹쳤기 때문이다.
+    ① Before 기준 커밋이 13cc873 로 어긋나 있었다(무관한 커밋 2개 포함).
+    ② 해당 테스트들이 순서/환경 의존이라 실행 구성에 따라 결과가 갈린다.
+  이번 변경분으로 인한 회귀는 단독 실행 기준 0건이다.
+
+════════════════════════════════════════════════════════════════════════════
+3. 원래 지침의 검증 항목
+════════════════════════════════════════════════════════════════════════════
+아래 실측은 죽은 세션이 22:23~22:25 에 수행해 남긴 증적으로, 지금 커밋한 코드와 동일한
+파일(mtime 20:53, 이후 변경 없음)에 대한 결과임을 확인하고 그대로 채택했다.
+증적 위치: E:\verify_screenshots_only\COMBO-PAIR-ENTRY-POINT-RESTORE-IMPLEMENT\
+
+【체크박스 OFF/ON Before/After 스크린샷】
+  before_render_step4_card_off.png    체크박스 없음(checkbox_present=false) — 진입점 부재
+  after_render_step4_card_off.png     체크박스 있음·기본 OFF(checked=false)
+  after_render_step4_card_on.png      체크 시 안내 문구 교체(off_visible=false / on_visible=true)
+  after_combo_off_step4~5_*.png / after_combo_on_step4~5_*.png / after_guard_on_*.png
+  ※ ON 의 Before 는 성립하지 않는다(변경 전에는 체크박스 자체가 없다). Before 증적은
+    '진입점 부재' 상태 캡처로 대신했다.
+
+【조합 불일치 실제 검출 — 4그룹】
+  오라클 실 DB(asis 1523 → tobe 1524), t_combo 1,200행, GROUP BY STATUS_CD+DEPT_CD, SUM AMT
+
+    OFF  세트 2개(SINGLE)  STATUS_CD 3그룹 전부 일치 / DEPT_CD 4그룹 전부 일치 → diff 0
+         '조합 미검증' 배너 표시됨. 즉 화면상 완전한 '일치'로 보인다.
+    ON   세트 3개(SINGLE 2 + PAIR 1)
+         PAIR(STATUS_CD+DEPT_CD) 12그룹 중 8일치 / **4불일치 검출** → diff 4
+         배너 자동 소거(조합을 실제로 검증했으므로).
+
+  OFF 에서 축별로 상쇄되어 사라지던 불일치 4그룹이 ON 에서 그대로 드러난다. 이 작업의
+  목적이 실제 데이터에서 달성됨을 확인한 핵심 증거다.
+
+【가드 탈락 케이스에서 배너 유지】
+  REGION_CD + CHAN_CD (40 × 40 = 1,600그룹) 선택 후 체크박스 ON 상태로 실행:
+    PAIR 세트 미생성. 제외 사유 "예상 1,600그룹 — 자동계획 상한(100) 초과, 과세분화 방지를
+    위해 단일 축 계획으로 분리" 표시. '조합 미검증' 배너 그대로 유지(banner_in_dom=true).
+  → 체크해도 안전하다. 자동 제외됐는데 검증된 것처럼 보이는 거짓 안심은 발생하지 않는다.
+    이 가능성은 4단계 안내 문구에도 미리 고지해 두었다.
+
+【비용】
+  라이브 실측 elapsed  OFF 2.18s / ON 2.16s (1,200행 — 이 규모에선 유의미한 차이 없음)
+  진단 문서 실측(3회 반복): 조합 세트 1개 비용 ≈ 단일축 세트 1개(같은 테이블 전체 집계 1회 추가)
+    1회차 385ms vs 373ms / 2회차 256ms vs 301ms / 3회차 302ms vs 220ms
+  → 자동 ON 이면 축 N개 선택 시 총 실행시간 +1/N(2축 +50%, 3축 +33%)을 무조건 부과한다.
+    과세분화 가드는 예상 그룹 수만 보고 스캔 비용은 막지 못하며, 이 도구의 대상은
+    수천만~1억 행이다. 그래서 기본 OFF·명시 opt-in 을 유지했다. 비용은 사용자가 통제한다.
+
+【정적/계약】
+  static_verify 27/27 통과(node --check 2블록 포함)
+  tests/test_groupby_plan.py 13/13 통과 — 기본 OFF·PAIR 세트 생성 조건·distinct 근거 부족 시
+  미생성·상한 초과 시 자동 제외까지 계약으로 고정.
+
+════════════════════════════════════════════════════════════════════════════
+4. 커밋
+════════════════════════════════════════════════════════════════════════════
+  commit 7d94b9952c0d6b03598874f27547d3d96c37719c
+  feat(step4): 4단계 SQL 카드에 조합(PAIR) 검증 opt-in 진입점 복원
+               (COMBO-PAIR-ENTRY-POINT-RESTORE-IMPLEMENT)
+  pre-commit 비밀번호 스캔 통과(staged 9개 파일, 지문 4건 대조)
+
+  9 files changed, 1950 insertions(+), 7 deletions(-)
+    ui/js_sql_preview.py                                    +48   진단이 지목한 지점 ①
+    ui/tabler_renderer.py                                   +62   진단이 지목한 지점 ②③
+    tests/test_groupby_plan.py                              +55
+    docs/COMBO_PAIR_ENTRY_POINT_RESTORE_FEASIBILITY.md     +369
+    scripts/dev_e2e/combo_pair_entry_point_feasibility_verify.py    +281
+    scripts/dev_e2e/combo_pair_entry_point_restore_live_verify.py   +586
+    scripts/dev_e2e/combo_pair_entry_point_restore_render_shot.py   +121
+    scripts/dev_e2e/combo_pair_entry_point_restore_static_verify.py +279
+    scripts/dev_e2e/combo_pair_oracle_fixture.py                    +156
+
+  변경 내용은 진단이 지목한 정확히 그 3개 지점뿐이다.
+    ① js_sql_preview.py — 기존 '조합 미검증' 안내 박스 안에 opt-in 체크박스(#gbIncludePair).
+       기본 OFF, 미체크 시 동작은 기존과 완전히 동일. 체크 시 문구를 사실과 일치시킨다.
+    ② tabler_renderer.py(_mvPlanCandidateEvidence) — 후보 distinct 를 평면 키만 읽어 항상
+       null 을 보내던 배선 갭 해소. 서버 정본 추출기와 동일 우선순위로 중첩 경로까지 읽는다.
+       이 값이 없으면 include_pair=true 여도 서버가 '조합 distinct 근거 부족'으로 탈락시켰다.
+    ③ tabler_renderer.py(runExecute) — 체크 상태를 include_pair 로 전달. 레거시 1회성
+       플래그(_mvIncludePairOnce)도 OR 로 계속 지원.
+  판정·집계·SQL 생성 로직과 서버 코드는 건드리지 않았다.
+
+  ★ 커밋에서 의도적으로 제외한 것 — 동시 실행 중인 다른 세션의 미완 변경분이다.
+      services/stats_execute_service.py                   (주석만 · STATS-COUNT-STEP-TIMEOUT-PARITY-FIX)
+      docs/STATS_VALIDATION_CHUNKED_VS_SINGLE_TRADEOFF.md
+      .claude/settings.local.json
+    커밋 후 이 3건이 워킹트리에 그대로 남아 있음을 재확인했다. 남의 작업을 삼키지 않았다.
+
+════════════════════════════════════════════════════════════════════════════
+5. 정리 후보 (이번 지침대로 종료하지 않고 기록만)
+════════════════════════════════════════════════════════════════════════════
+  PID 15496  포트 8020 고아 서버 — 생존 확인됨(2026-07-28 21:29 기동, COMBO-PAIR before 기준 서버).
+             이번 검증에 사용하지 않았다. 종료 판단은 별도로.
+  PID 33856  멈춘 pytest(2026-07-28 18:37 기동) — 생존 확인됨. 이번에 원인을 특정했다:
+             node 자식 harness 무한 대기. 본 작업의 -k 선택과 동일한 스위트다.
+  PID 16044  멈춘 pytest(2026-07-28 13:48 기동, ADMIN-COLUMN 계열)
+  PID 32744  멈춘 pytest(2026-07-27 19:38 기동, 30시간+)
+  ※ 위 pytest 3건에는 각각 고아 node 자식이 붙어 있다.
+  ※ 본 작업이 만든 프로세스는 전부 회수했다. 사용한 worktree(before_head)는 남겨 두었으며,
+     필요 없으면 git worktree remove 로 정리하면 된다.
+
+════════════════════════════════════════════════════════════════════════════
+6. 남은 제안 (이번 작업 범위 밖 — 코드 변경 안 함)
+════════════════════════════════════════════════════════════════════════════
+  · tests/ 의 node subprocess 호출 상당수에 timeout 인자가 없다. 한 파일이 멈추면 스위트
+    전체가 영구 정지하고, 그 결과 회귀 판정 자체가 불가능해진다. 이번에 회귀 오인의 배경이
+    된 문제이므로 공통 헬퍼(tests/contract_utils.run_node 는 timeout=30 이 이미 있다)로
+    수렴시키는 것을 권한다.
+  · test_batch_report_service.py 등 운영 SQLite 에 쓰려다 가드에 막혀 상시 실패하는 테스트군은
+    회귀 신호를 가리는 노이즈다. 별도 작업으로 tmp_path 기반으로 고치는 편이 낫다.
+
+════════════════════════════════════════════════════════════════════════════
+작업명 : COMBO-PAIR-ENTRY-POINT-RESTORE-IMPLEMENT-RESUME
+✅ 작업 완료 - 의심 F 6개는 test_batch_report_service.py 의 사전 존재 실패로 확정(회귀 0건), 커밋 7d94b99

@@ -48,19 +48,7 @@
                 case W : before 442.24s → after 4.56s (97.0x), sampling_ran true → false(게이트 skip)
                          sampling_source 437,257.36ms → null, verdict_identical = true
                 두 케이스 모두 pk_count 101 동일, pk_only 양쪽 공집합, verdict_diff 없음
-  브라우저검증: 23:24:55 기동 → 23:27:17 정상 완료(확인 중에 끝남). 산출물은 scripts/dev_e2e 가 아니라
-                E:\verify_screenshots_only\REIMPORT-SAMPLING-PREFLIGHT-SKIP-FOR-WRAPPING-SOURCE-FIX\ 에 기록
-                  browser_result_after.json (23:27:17)
-                  after_01_analyze.png(23:25:27) / after_02_count.png / after_03_candidate.png /
-                  after_04_executed.png / after_05_result.png / after_05b_drilldown_ready.png /
-                  after_05d_drilldown_final.png (23:27:15)
-                결과 요약(after): CTE+LEFT JOIN wrapping SQL, 원본 250,000 / 목적 249,950(순 차이 50)
-                  sampling_status = null (표본 preflight 게이트 skip 확인 — 수정 의도대로 동작)
-                  준비 완료 6.1초(패널 trace: PK index 준비 → 저장 0건 → 20건 이상 → 표시), EARLY_STOPPED
-                  불일치 101건(missing_migration 67 / value_mismatch 34 / target_only 0), 표시 등급 D4
-                  '재이관 대상 준비 지연' 경고(임계 300초) 미발생, observation_valid = true
-                  → 앞서 compare.json 의 case W(442.24s → 4.56s)와 정합
-  ※ 1차 조회 시점에 dev_e2e 결과 파일이 안 보였던 것은 실패가 아니라 산출 경로가 스크린샷 저장소이기 때문.
+  미완 단계   : 브라우저 검증(reimport_sampling_skip_browser_verify.py) — 지금 실행 중, 결과 파일 미생성
 
 [부수 관찰 — 조치하지 않음(읽기 전용 지시)]
   장시간 잔류 pytest 프로세스 3건이 확인됨. 이번 작업과 무관하나 자원 점유 중:
@@ -75,9 +63,7 @@
 
 [권고]
   1. 재실행하지 말 것 — 같은 브라우저 검증을 중복 기동하면 포트 8000 서버 상태와 픽스처가 충돌한다.
-  2. 진행 상황은 살아있는 그 세션(claude.exe PID 29456 / WindowsTerminal PID 32424)의 창에서 확인할 것.
-     확인 종료 시점(23:27:53)에도 세션 생존, 실행 중인 dev_e2e 스크립트는 없음(직전 단계 완료 상태).
-  3. 결과 확인 경로는 두 곳: 성능 비교는 scripts/dev_e2e/_reimport_sampling_skip_*.json,
-     브라우저 검증은 E:\verify_screenshots_only\REIMPORT-SAMPLING-PREFLIGHT-SKIP-FOR-WRAPPING-SOURCE-FIX\.
+  2. 진행 상황은 살아있는 그 세션(WindowsTerminal PID 32424)의 창에서 확인할 것.
+  3. 결과 확인이 필요하면 scripts/dev_e2e/_reimport_sampling_skip_* 결과 파일의 갱신을 지켜보면 된다.
 
 ✅ 작업 완료 - 해당 작업은 살아있음(별도 Claude Code 세션에서 브라우저 검증 실행 중), 재시작 불필요
