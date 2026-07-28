@@ -1,0 +1,111 @@
+✅ 작업 완료 - PID 32744 는 좀비가 아니라 자식 node 프로세스 무한루프에 걸린 pytest, 원인·재현 확정(종료 미실시)
+
+작업명 : ZOMBIE-PYTEST-PROCESS-PID32744-INVESTIGATE
+조사일시: 2026-07-28 20:52 ~ 21:00 (KST)
+원칙 준수: 프로세스 종료 절대 금지 → 대상 PID 32744 / 17284 무손상 유지 확인 완료
+
+────────────────────────────────────────────────────────
+1. 프로세스 생존·정체 여부 (확정)
+────────────────────────────────────────────────────────
+PID 32744  python.exe   생존 O
+  - 시작        : 2026-07-27 19:38:01
+  - 경과        : 25시간 14분
+  - CPU         : 92.875초 → 10초 후 재측정 92.875초 (증가량 0.00초)
+  - 메모리      : 814MB → 853MB
+  - 스레드      : 3개, 전부 Wait 상태 (UserRequest / Executive)
+  - Responding  : True
+  → pytest 자신은 살아있으나 연산을 전혀 하지 않고 "대기 중"
+
+무엇을 기다리는가 → 자식 프로세스
+PID 17284  node.exe     생존 O  (부모 = 32744)
+  - 시작    : 2026-07-27 19:44:42
+  - CPU     : 97,424초 (= 약 27시간 CPU 소모)
+  - 10초 간격 재측정 : 97,440 → 97,449초 (증가량 9.78초 / 10초)
+  - 스레드  : 8개 중 1개 Running
+  → 코어 1개를 100% 점유하며 25시간째 무한루프 중
+
+결론: 프로세스는 "죽은 좀비"가 아니다.
+      node 자식이 무한루프에 빠졌고, pytest 는 그 종료를 무기한 기다리며 정지했다.
+      (외형은 정체, 실체는 CPU 1코어 상시 소모 — 방치 시 계속 코어 1개를 잡아먹음)
+
+────────────────────────────────────────────────────────
+2. 로그 파일 갱신 여부 (확정)
+────────────────────────────────────────────────────────
+경로      : E:\verify_screenshots_only\JOBS-COMPLETED-LIST-API-ADD\full_pytest.log
+크기      : 1,756 bytes
+생성      : 2026-07-27 19:38:01
+최종수정  : 2026-07-27 19:44:42
+무갱신 경과: 25시간 07분  (기준 30분을 크게 초과 → 완전 정지 확정)
+
+로그 마지막 상태:
+  - 22행까지 기록, 진행률 [ 13%] 에서 중단
+  - 마지막 줄이 72자를 못 채운 미완결 행 (".......................................................")
+  - EXIT= 마커 없음 → pytest 미종료
+
+중요 일치: 로그 최종 수정 시각(19:44:42) = node 자식 프로세스 생성 시각(19:44:42)
+  → 정확히 node 를 띄우는 그 테스트에서 멈춘 것이 시각으로도 교차 확인됨
+
+────────────────────────────────────────────────────────
+3. 멈춘 지점 특정 (확정)
+────────────────────────────────────────────────────────
+멈춘 테스트: tests/test_blocked_state_reset.py
+
+특정 근거:
+  - 남아있는 임시 harness 파일 C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmproe9rgfi.harness.js
+    내용에 OUT.sessionBumped / OUT.staleBail / OUT.afterRerunSuccess 식별자 존재
+  - 전체 tests/ 를 검색한 결과 위 3개 식별자를 모두 가진 파일은
+    tests/test_blocked_state_reset.py 단 1개
+  - 짝 입력 파일 tmpjzjudbna.asm.js (2,300,390 bytes) 도 함께 잔존
+
+구조적 원인 (tests/test_blocked_state_reset.py:127):
+    r = subprocess.run(["node", harness, asm], capture_output=True,
+                       encoding="utf-8", errors="replace")
+  → timeout 인자가 없다. node 가 끝나지 않으면 pytest 는 영원히 대기한다.
+  → 동일 패턴(node 서브프로세스 호출)이 tests/ 전체에 183곳 / 113개 파일에 존재하므로
+    같은 사고가 다른 테스트에서도 재발할 수 있는 공통 구조다.
+
+────────────────────────────────────────────────────────
+4. 재현 검증 (2회 모두 재현 성공)
+────────────────────────────────────────────────────────
+재현① 사고 당시 입력 그대로
+    node tmproe9rgfi.harness.js tmpjzjudbna.asm.js
+  결과: 15초 내 미종료, CPU 12.9초 소모(100% 점유) → 무한 hang 재현
+        (내가 띄운 재현 프로세스만 즉시 정리, 원본은 손대지 않음)
+
+재현② 현재 코드로 해당 테스트만 단독 실행
+    python -m pytest tests/test_blocked_state_reset.py -q -p no:cacheprovider
+  결과: 60초 내 미종료 → 현재 코드에서도 동일하게 hang
+        (재현으로 생긴 신규 프로세스 PID 7608 만 정리)
+
+→ 일시적 현상이 아니라 재현 100% 의 결정적 결함이다.
+  지금 전체 pytest 를 그대로 다시 돌리면 같은 지점에서 또 멈춘다.
+
+────────────────────────────────────────────────────────
+5. 재실행용 정확한 커맨드라인 (기록)
+────────────────────────────────────────────────────────
+원래 실행된 프로세스 커맨드라인:
+    C:\Python314\python.exe -u -m pytest tests/ -q -p no:cacheprovider
+
+원래 실행된 셸 명령(부모 PID 16720, git bash):
+    cd C:/projects/migration-validator && (python -u -m pytest tests/ -q -p no:cacheprovider \
+      > "E:/verify_screenshots_only/JOBS-COMPLETED-LIST-API-ADD/full_pytest.log" 2>&1; \
+      echo "EXIT=$?" >> "E:/verify_screenshots_only/JOBS-COMPLETED-LIST-API-ADD/full_pytest.log") & echo launched
+
+※ 그대로 재실행하면 tests/test_blocked_state_reset.py 에서 다시 무한 대기한다.
+  재실행이 필요하면 아래 중 하나를 권장(이번 조사에서는 미적용):
+    - 해당 테스트 제외 : ... pytest tests/ -q -p no:cacheprovider --deselect tests/test_blocked_state_reset.py
+    - 전역 타임아웃    : subprocess.run(..., timeout=<초>) 도입 (외부 패키지 없이 표준 라이브러리로 가능)
+
+────────────────────────────────────────────────────────
+6. 최종 결론
+────────────────────────────────────────────────────────
+- "느린 것"이 아니다: 로그 25시간 무갱신, pytest CPU 증가량 0.00초.
+- "죽은 좀비"도 아니다: 자식 node 가 코어 1개를 100% 점유하며 무한루프 중(CPU 27시간분 누적).
+- 정확히는 "무한루프에 빠진 자식 node + timeout 없이 그것을 기다리는 pytest" 조합의 영구 정지다.
+- 기다려도 절대 끝나지 않는다. 다른 세션이 결과를 기다리고 있다면 그 대기는 무의미하다.
+- 다만 지시대로 종료하지 않았다. 종료 여부는 사용자 판단을 기다린다.
+  (종료 시에는 node 자식 17284 → python 32744 순으로 정리해야 CPU 점유가 확실히 해제된다)
+
+무손상 최종 확인: PID 32744 생존 O (CPU 92.9초) / PID 17284 생존 O (CPU 97,612초)
+
+✅ 작업 완료 - PID 32744 는 좀비가 아니라 자식 node 프로세스 무한루프에 걸린 pytest, 원인·재현 확정(종료 미실시)
