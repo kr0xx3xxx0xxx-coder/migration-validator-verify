@@ -1,0 +1,76 @@
+{
+  "primary": [
+    {
+      "col": "DEPT_CD",
+      "disabled": false,
+      "checked": true,
+      "badges": [
+        {
+          "cls": "status-badge-sd",
+          "text": "기본추천",
+          "tip": ""
+        }
+      ],
+      "reason": "고유값 5개 · 조직별 불일치 구분에 적합"
+    },
+    {
+      "col": "PAY_AMT",
+      "disabled": false,
+      "checked": true,
+      "badges": [
+        {
+          "cls": "status-badge-sd",
+          "text": "기본추천",
+          "tip": ""
+        }
+      ],
+      "reason": "금액 수치"
+    }
+  ],
+  "ref": [
+    {
+      "col": "REC_ID",
+      "disabled": true,
+      "checked": false,
+      "badges": [
+        {
+          "cls": "status-badge-er",
+          "text": "정책상제외",
+          "tip": ""
+        }
+      ],
+      "reason": "PK/유니크 식별자 — 행마다 고유값이라 그룹 기준 부적합"
+    }
+  ],
+  "verdicts": {
+    "DEPT_CD": {
+      "verdict": "NOT_AUDIT_CONFIRMED",
+      "is_admin": false,
+      "axis_a": null,
+      "axis_b_naming": false,
+      "axis_b_comment": false,
+      "selection_status": "SELECTED_DEFAULT"
+    },
+    "LAST_UPDATED": {
+      "verdict": "CONFIRMED",
+      "is_admin": true,
+      "axis_a": true,
+      "axis_b_naming": true,
+      "axis_b_comment": false,
+      "selection_status": "DATE_BUCKET_CANDIDATE"
+    },
+    "BIZ_REG_NO": {
+      "verdict": "CONFIRMED",
+      "is_admin": true,
+      "axis_a": null,
+      "axis_b_naming": true,
+      "axis_b_comment": false,
+      "selection_status": "EXCLUDED_BY_RULE"
+    }
+  },
+  "ref_summary": "참고/제외 후보 보기 · 기본계획 미포함 (1개)",
+  "suppressed": [
+    "BIZ_REG_NO",
+    "LAST_UPDATED"
+  ]
+}

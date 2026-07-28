@@ -1,0 +1,220 @@
+✅ 작업 완료 - ADMIN-COLUMN-CONFIRMED-RESTORE-TO-REFERENCE-DIAGNOSE : 관리컬럼 확정(CONFIRMED) 배제 후보를 '참고/제외 후보' 표에 사유·근거강도와 함께 복원(판정 로직 불변, 브라우저 17/17 PASS, 커밋 68c75ae)
+
+작업명 : ADMIN-COLUMN-CONFIRMED-RESTORE-TO-REFERENCE-DIAGNOSE
+일자   : 2026-07-28
+성격   : 진단 + 표시 전용 코드 수정 (판정 로직 0줄 변경 / DB 스키마 변경 0 / 커밋 1건)
+커밋   : 68c75ae  feat(ui): 관리컬럼 확정 배제 후보를 참고/제외 표로 복원
+서버   : 재기동 완료 — 2026-07-28 14:09:12 (127.0.0.1:8000, 인증 ON)
+
+────────────────────────────────────────────────────────────────────────
+0. 요청 응답 형식 (CLAUDE.md 기능/구조 변경 요청 규약)
+────────────────────────────────────────────────────────────────────────
+- 요청 요약    : 원천배제되어 화면에서 사라진 CONFIRMED 관리컬럼을 '참고/제외 후보' 표에
+                 사유와 함께 되살린다. 판정은 건드리지 않고 표시만 복원.
+- 긍정적 효과  : 이름 매칭 단독(WEAK 0.62)으로 조용히 배제되던 업무 컬럼(BIZ_REG_NO 류)이
+                 사용자 눈에 보이게 된다. '조용한 배제' 문제의 절반이 구조 변경 없이 해소되고,
+                 후속 수동 오버라이드(②)를 붙일 진입점이 생긴다.
+- 구조적 문제점: ui/tabler_renderer.py 에 표시 헬퍼 3개(_adminAuditExclusionKind /
+                 _adminAuditEvidenceParts / _adminAuditExclusionBadge)가 추가된다. 다만
+                 새 표·새 컴포넌트·새 판정은 만들지 않고 기존 buildRow/_buildUnifiedRow 와
+                 기존 참고·제외 영역을 그대로 재사용하므로 결합도 증가는 최소다.
+- 운영상 위험  : 되살린 행이 기본 후보표로 새면 '제외된 컬럼이 추천처럼 보이는' 역효과가
+                 난다 → 아래 2-2 항의 REFERENCE 확정 라우팅으로 차단(실측 확인).
+                 체크박스가 활성으로 살아나면 실행 SQL 이 바뀐다 → 불변임을 실측으로 고정.
+- heuristic /  : 새 heuristic 0. 서버가 이미 응답에 담고 있던 축 값(admin_audit_axis_*)을
+  scoring /      문구로 옮길 뿐이며 JS 에서 재판정하지 않는다(단일 출처 존중).
+  explainability explainability 는 오히려 개선 — 지금까지 응답에만 있고 화면엔 없던 배제 근거가
+                 사유·툴팁으로 표면화된다.
+- 권장 대응책  : 판정 파일(candidate_subtype_service.py)은 손대지 않고 렌더러만 수정.
+                 '판별불가(축 미부착)'를 '이름 매칭 단독'으로 단정하지 않도록 3분류로 분리.
+- 지금 구현 여부: **진행(완료)**. 위험이 표시 계층에 갇혀 있고, 후속 작업(②)의 선행조건이다.
+
+────────────────────────────────────────────────────────────────────────
+1. 지시 1 — 기존 '참고/제외 후보 보기' 표 구조와 합류 가능성
+────────────────────────────────────────────────────────────────────────
+■ 현재 구조 (ui/tabler_renderer.py, 개별 후보표 renderColSelect 내부)
+  · 후보를 _splitByPlan() 이 _indPlanGroup() 기준으로 PRIMARY / REFERENCE 두 리스트로 나눈다.
+  · PRIMARY = 기본 후보표, REFERENCE = <details class="ict-ref-cands"> '참고/제외 후보 보기'.
+  · 두 영역은 같은 thead·같은 행 빌더(buildRow)를 쓴다 — 표가 하나이고 영역만 둘이다.
+  · NON-TARGET-COLUMNS-MERGE-INTO-REFERENCE-TABLE 선례: 엔진 관문에서 떨어진 비후보
+    (gb_candidacy_summary.excluded_with_reason)를 '최소 후보 객체'로 합성해 같은 표에
+    합류시키는 패턴이 이미 운영 중이다.
+
+■ 판단: 별도 하위 섹션 불필요 — 기존 표에 그대로 얹을 수 있고, 얹는 쪽이 더 낫다.
+  근거:
+   ① CONFIRMED 관리컬럼은 excluded_with_reason 과 달리 '진짜 후보 객체'다. 서버
+      all_groupby_candidates 에 점수·프로파일·reason_text·축 근거를 전부 달고 살아 있다
+      (서버는 후보를 지우지 않는다 — 지운 것은 렌더러뿐이었다). 따라서 최소 객체 합성이
+      필요 없고 buildRow 가 그대로 그리면 된다.
+   ② buildRow 는 이미 관리컬럼 전용 처리를 완비하고 있다 — selectable 계산에서 제외
+      (체크박스 disabled + 전용 title), 배지 '정책상 제외(관리컬럼)', 사유 분기,
+      기간 컨트롤/'변환 필요' 태그 억제. 즉 행을 다시 통과시키기만 하면 표시가 이미 정합하다.
+   ③ 새 섹션을 만들면 '제외 사유를 보는 자리'가 화면에 두 개가 되어, 사용자가 어느 표를
+      봐야 하는지 다시 헷갈린다(직전 작업이 배너를 없애고 표 하나로 합친 방향과 역행).
+
+────────────────────────────────────────────────────────────────────────
+2. 지시 2 — 3곳의 필터 지점과 '이동' 전환 가능성
+────────────────────────────────────────────────────────────────────────
+■ 2-1. 세 지점의 실제 성격은 같지 않았다 (중요)
+  (구)11021 일괄 후보 통합표      : 전체 후보 + 참고·제외 영역 있음  → 이동 가능
+  (구)20949 컬럼 분석 통합표      : '그룹기준 추천 컬럼' 최대 3개 요약, 참고 영역 없음 → 이동 부적합
+  (구)21657 개별검증 후보표       : 전체 후보 + 참고·제외 영역 있음  → 이동 가능
+
+■ 2-2. 개별검증 후보표 (수정함)
+  · 진입점 필터 `.filter(c => !_isAdminAuditConfirmed(c))` 제거.
+  · 필터만 지우면 기본표로 샌다 — 실측으로 확인한 누수 경로가 있다:
+      서버 자동선정 강등(services/candidate_display_enricher.py:1085)은
+      _AUTOSEL_ELIGIBLE_STATUS = {SELECTED_DEFAULT, AVAILABLE_ADDITIONAL} 인 후보만
+      EXCLUDED_BY_RULE 로 내린다. 그래서 BIZ_REG_NO 는 EXCLUDED_BY_RULE 로 내려오지만
+      LAST_UPDATED 는 selection_status=DATE_BUCKET_CANDIDATE 인 채로 온다(실측 덤프 확인).
+      _indPlanGroup 의 날짜 분기는 `_selectable = !_sumPolicyExcl && !_ruleExcl` 만 보므로
+      DATE_BUCKET 관리컬럼이 PRIMARY 로 분류된다.
+    → _indPlanGroup 에 `if (_isAdminAuditCol(c, isGb)) return 'REFERENCE';` 를 추가해
+      상태와 무관하게 참고·제외 영역으로 확정 라우팅했다(배지·체크박스와 동일 판정 공유).
+
+■ 2-3. 일괄 후보 통합표 (수정함)
+  · 동일하게 필터 제거 + _batchPlanGroup 에 REFERENCE 확정 라우팅.
+  · _batchPlanGroup 이 역할(isGb)을 인자로 받지 않아 관리컬럼 판정(GROUP BY 전용)을 할 수
+    없었으므로 _batchSplit(cands, isGb) 로 역할을 넘기게 시그니처를 넓혔다(SUM 목록 불변).
+  · 일괄 스냅샷도 all_groupby_candidates 원본을 그대로 담으므로
+    (services/batch_row_snapshot_builder.py:48) 축 근거가 살아 있어 개별과 같은 문구를 만든다.
+  · 체크박스는 종전대로 비활성 — _isSelectable(cand) 이 서버 is_selectable_by_subtype=false 를
+    읽는다(관리컬럼 판정과 별개 경로이나 결과 동일).
+
+■ 2-4. 컬럼 분석 통합표 (수정 안 함 — 억제 유지)
+  이 표는 이름 그대로 '추천 컬럼 최대 3개' 요약이고 참고/제외 영역이 없다. 여기에 관리컬럼을
+  끼워 넣으면 (a) '추천' 섹션 의미가 깨지고 (b) 슬롯 3개를 제외 컬럼이 잠식해 정작 추천 컬럼이
+  밀려난다. 복원 목적(배제 사실·사유를 보이기)은 같은 화면의 후보표에서 이미 달성되므로
+  중복 노출도 불필요하다. 소스에 이 판단 근거를 주석으로 남겼다.
+
+────────────────────────────────────────────────────────────────────────
+3. 지시 3 — WEAK(이름 매칭 단독) 케이스 재현과 근거 문구
+────────────────────────────────────────────────────────────────────────
+■ 3-1. 픽스처 (실 DB, 강제주입 없음)
+  기존 Inter 실 데이터에는 관리컬럼이 전부 A축(값)으로 확증되는 케이스뿐이라(직전 작업 기록과
+  일치) WEAK 케이스가 존재하지 않았다. 그래서 한 테이블에 네 케이스를 담은 픽스처를 실 DB에
+  만들었다(읽기 검증용 신규 테이블 — 기존 데이터 변경·삭제 없음).
+
+    asis01.t_admcol_src → tobe01.t_admcol_tgt (각 600행, PostgreSQL_Inter 페어)
+      LAST_UPDATED  timestamp, 고정 배치 스탬프 3종 반복  → A=True                → CONFIRMED(VALUE)
+      BIZ_REG_NO    varchar, 사업자등록번호(업무 데이터)  → A=None + B=명칭매칭    → CONFIRMED(WEAK)
+      DEPT_CD       varchar 저카디 업무코드                → 정상 GROUP BY 후보(대조군)
+      PAY_AMT       numeric                                → SUM 후보(대조군)
+
+  BIZ_REG_NO 가 WEAK 로 걸리는 것은 조작이 아니라 실제 사전 매칭 결과다(실측):
+      match_semantic_dictionary('biz_reg_no') → IDENTIFIER 0.55 / SYSTEM_AUDIT 0.62
+  즉 선행 진단이 지목한 "WEAK(0.62) 명칭매칭 단독 배제"가 이 컬럼에서 그대로 재현된다.
+
+■ 3-2. 서버 판정 실측(억제 전 후보 풀)
+    LAST_UPDATED : verdict=CONFIRMED, axis_a=true,  axis_b_naming=true, status=DATE_BUCKET_CANDIDATE
+    BIZ_REG_NO   : verdict=CONFIRMED, axis_a=null,  axis_b_naming=true, status=EXCLUDED_BY_RULE
+    DEPT_CD      : verdict=NOT_AUDIT_CONFIRMED (정상 후보)
+    gb_candidacy_summary.admin_audit_suppressed = ["BIZ_REG_NO","LAST_UPDATED"]
+  → 전제 비-공허성 확인. 두 컬럼 모두 화면에서 지워지고 있었다.
+
+■ 3-3. 되살린 행에 붙은 근거 문구 (실 DOM 캡처)
+    BIZ_REG_NO
+      사유 : "관리컬럼(시스템 감사)으로 판정해 그룹 기준에서 제외했습니다.
+              배제 근거: 표준사전 명칭매칭.
+              ⚠ 실측 값으로는 확인되지 않았습니다(값이 타임스탬프가 아니거나 미수집) —
+              이름/코멘트만으로 배제된 상태라 업무 컬럼일 수 있으니 검토를 권장합니다."
+      배지 : [정책상 제외(관리컬럼)] [⚠ 이름 매칭만 — 재검토 권장]
+    LAST_UPDATED
+      사유 : "관리컬럼(시스템 감사)으로 확정되어 그룹 기준에서 제외했습니다.
+              배제 근거: 실측 값(배치 적재 스탬프 패턴) · 표준사전 명칭매칭."
+      배지 : [정책상 제외(관리컬럼)] [🔒 관리컬럼 확정 배제]
+  A축·B축 근거는 절대 한 문구로 뭉뚱그리지 않고 '·'로 나열한다(서버 reason_text 와 같은 원칙).
+  WEAK 사유는 안전 경고이므로 2줄 클램프를 해제해 전문을 노출한다(NVM 배지와 같은 처리).
+
+────────────────────────────────────────────────────────────────────────
+4. 지시 4 — 진짜 관리컬럼과의 오인 방지
+────────────────────────────────────────────────────────────────────────
+■ 필요하다고 판단했다. 같은 '정책상 제외(관리컬럼)' 배지를 단 두 행이 참고 표에 나란히 놓이면
+  사용자는 둘을 구분할 수 없는데, 하나는 손댈 필요가 없고 다른 하나는 검토가 필요하다.
+
+■ 근거 강도를 3분류로 나눴다 (_adminAuditExclusionKind — 새 판정이 아니라 부착된 축 값 읽기)
+    VALUE   : axis_a === true            → 🔒 관리컬럼 확정 배제        (회색 중립)
+    WEAK    : axis_b(명칭/코멘트) 단독   → ⚠ 이름 매칭만 — 재검토 권장 (앰버·점선)
+    UNKNOWN : 축 필드 미부착(구 스냅샷)  → 🔒 배지 + '근거 상세 확인 불가' 툴팁, 경고 없음
+
+  UNKNOWN 을 따로 둔 이유가 핵심이다. 축 정보가 아예 없는 응답까지 WEAK 로 몰면 '근거 없는
+  재검토 권장' 경고가 대량 발생한다 — 판별불가를 단정으로 바꾸지 않는다는 기존 원칙과 정면으로
+  어긋난다. 이 경우엔 종전 문구를 그대로 쓴다(회귀 0).
+
+────────────────────────────────────────────────────────────────────────
+5. 지시 5 — 회귀 확인 (판정·선택 불변)
+────────────────────────────────────────────────────────────────────────
+■ 브라우저 실측(인증 ON, 127.0.0.1:8000) — 17/17 PASS
+    되살린 BIZ_REG_NO / LAST_UPDATED : 체크박스 disabled=true, checked=false
+    '정책상 제외(관리컬럼)' 상태 배지 유지(배지·사유·체크박스가 같은 근거를 가리킴)
+    정상 후보 DEPT_CD  : 기본표 잔류 · 선택 가능 · 기본추천(65점) · checked
+    SUM 후보 PAY_AMT   : 선택 가능 · 기본추천(75점) · checked
+    JS 페이지 에러 0건
+
+■ Before / After 대조 (같은 SQL·같은 서버 응답·같은 렌더 함수)
+    BEFORE : 참고/제외 후보 (1개) — REC_ID 뿐. 두 관리컬럼은 기본표·참고표 어디에도 없음.
+             요약 카드에 '제외 후보' 줄 자체가 없음.
+    AFTER  : 참고/제외 후보 (3개) — BIZ_REG_NO(⚠ 이름 매칭만) + LAST_UPDATED(🔒 확정 배제) 추가.
+             요약 카드에 '제외 후보: LAST_UPDATED, BIZ_REG_NO' 줄도 함께 복원됨(부수 효과).
+    ※ BEFORE 는 서버 재기동 후 캡처했으므로, 제거된 한 줄과 동일한 필터를 같은 판정 함수로
+       후보 pool 에 다시 적용해 직전 정책을 재현한 화면이다(서버 응답·렌더 함수 동일, 입력만
+       당시와 같게 맞춤). 재현임을 감추지 않고 명시한다.
+
+■ 단위 테스트
+    수정 전 기준선(worktree HEAD)   : 4 failed, 139 passed, 3 skipped
+    수정 후(동일 16개 파일 세트)     : 6 failed, 141 passed
+    차이 2건은 test_candidate_contract 의 라이브 DB 테스트로, worktree 에선 프리셋 파일이
+    없어 skip 되던 것이다. 프리셋을 worktree 로 복사해 '기준선 코드 + 동일 라이브 환경'으로
+    다시 돌린 결과 똑같이 2건 실패(status=ERROR step=analyze) — 내 변경과 무관한 기존 실패다.
+    (검증 후 복사한 프리셋·인증 파일은 즉시 삭제하고 worktree 를 제거했다.)
+    나머지 4건(test_evidence_role_split_strings / test_ui_contract_display 2건 /
+    test_global_js_helper_dedup)도 기준선에서 동일하게 실패하는 기존 항목이다.
+
+    정책 전환에 맞춰 갱신한 테스트 3개:
+      test_date_bucket_integration_ui   : '행 완전 억제' 가드 → '참고 표 이동' 가드로 교체 +
+                                          근거 강도 3분류 경계 테스트(test_admin_audit_exclusion_kind_axes) 신설
+      test_candidate_decision_evidence  : 사유 하네스에 새 표시 헬퍼 2개 주입
+      test_naming_value_mismatch_...    : 동일(하네스 의존성만 추가)
+    렌더 JS 문법 가드(test_rendered_js_syntax_guard) 통과 — 번들 붕괴 없음.
+
+────────────────────────────────────────────────────────────────────────
+6. 변경 파일
+────────────────────────────────────────────────────────────────────────
+  M ui/tabler_renderer.py                                (+182/-37 상당, 표시 전용)
+      · CSS  status-badge-adm-val / status-badge-adm-weak 추가
+      · 헬퍼 _adminAuditExclusionKind / _adminAuditEvidenceParts /
+             _adminAuditValueProven / _adminAuditExclusionBadge 추가
+      · 개별: gbCands 필터 제거, _indPlanGroup REFERENCE 라우팅, 배지 병기,
+              _candDecisionReason 관리컬럼 분기 3분기화, WEAK 사유 클램프 해제
+      · 일괄: gbCands 필터 제거, _batchPlanGroup(cand,isGb) REFERENCE 라우팅, 배지·사유 병기
+      · 컬럼 분석 통합표: 억제 유지 + 판단 근거 주석
+  M tests/test_date_bucket_integration_ui.py             (정책 가드 교체 + 신규 테스트 1)
+  M tests/test_candidate_decision_evidence.py            (하네스 의존성)
+  M tests/test_naming_value_mismatch_reason_display.py   (하네스 의존성)
+  A scripts/dev_e2e/admin_column_confirmed_restore_to_reference_verify.py  (실화면 검증)
+
+  판정 로직 파일(services/candidate_subtype_service.py)은 한 줄도 건드리지 않았다.
+
+────────────────────────────────────────────────────────────────────────
+7. 남은 사실 / 후속
+────────────────────────────────────────────────────────────────────────
+  · 되살린 LAST_UPDATED 행의 점수가 '(0점)'으로 표시된다(DATE_BUCKET_CANDIDATE 후보의 기존
+    점수 표기 규칙 — 이번 변경과 무관). 표시상 어색하나 판정·선택과 무관해 손대지 않았다.
+  · 이 작업은 선행(①)이다. 후속(②) 수동 오버라이드는 이제 '⚠ 이름 매칭만 — 재검토 권장'
+    배지가 붙은 행이라는 명확한 진입점을 갖는다.
+  · 저장소 상태 주의: 작업 도중 이 저장소의 체크아웃 브랜치가 main →
+    test/whitebox-contract-conversion-phase1 로 바뀌어 있었다(동시 작업 세션). 브랜치를
+    되돌리면 그 세션을 방해하므로 현재 체크아웃 브랜치 위에 내 5개 파일만 커밋했다(68c75ae).
+    main 반영이 필요하면 별도 판단이 필요하다.
+  · 라이브 픽스처 테이블(asis01.t_admcol_src / tobe01.t_admcol_tgt, 각 600행)은 재현을 위해
+    남겨 두었다. 불필요하면 DROP 해도 다른 검증에 영향 없다.
+
+────────────────────────────────────────────────────────────────────────
+8. 증적
+────────────────────────────────────────────────────────────────────────
+  E:\verify_screenshots_only\ADMIN-COLUMN-CONFIRMED-RESTORE-TO-REFERENCE-DIAGNOSE\
+    BEFORE_candidate_table.png   직전 정책 재현 — 참고/제외 (1개), 관리컬럼 흔적 없음
+    AFTER_candidate_table.png    복원 후 — 참고/제외 (3개), 배지·사유 병기
+    BEFORE_dump.json / AFTER_dump.json   DOM·서버 판정 원본 덤프
+
+✅ 작업 완료 - ADMIN-COLUMN-CONFIRMED-RESTORE-TO-REFERENCE-DIAGNOSE : 관리컬럼 확정 배제 후보를 참고/제외 표에 사유·근거강도와 함께 복원 완료(판정 불변·회귀 없음)
