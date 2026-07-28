@@ -1,0 +1,282 @@
+{
+  "tag": "before",
+  "started_at": "2026-07-28 19:22:22",
+  "policy": {
+    "sample_early_stop_enabled": true,
+    "sample_expected_ratio_threshold": 10.0,
+    "sample_initial_n": 2000,
+    "sample_max_n": 10000,
+    "sample_confidence_level": 95.0,
+    "sample_representative_store_n": 20
+  },
+  "analyze": {
+    "code": 200,
+    "token": true,
+    "gb_cands": [
+      "STATUS_CD",
+      "DEPT_CD"
+    ],
+    "sum_cands": [
+      "AMT"
+    ]
+  },
+  "count": {
+    "code": 200,
+    "src": 3000,
+    "tgt": 3000
+  },
+  "generate": {
+    "code": 200,
+    "has_sql": true
+  },
+  "execute": {
+    "code": 200,
+    "success": true,
+    "matched": 0,
+    "diff": 12,
+    "src_only": 0,
+    "tgt_only": 0,
+    "gb_keys": [
+      "STATUS_CD",
+      "DEPT_CD"
+    ],
+    "val_cols": [
+      "CNT",
+      "AMT"
+    ],
+    "result_id": "SRC72E5F22D7C3"
+  },
+  "prepare": {
+    "code": 200,
+    "status": "READY",
+    "run_id": "PK2769F3E48601",
+    "sample_early_stop": null,
+    "error": null
+  },
+  "pk_records": {
+    "status": "READY",
+    "sample_early_stop": null,
+    "gb_cols": [
+      "status_cd",
+      "dept_cd"
+    ],
+    "sum_labels": [
+      "AMT"
+    ],
+    "key_col": "id",
+    "total_count": 900,
+    "representative_total": null,
+    "sampling": {
+      "valid_sample_count": null,
+      "missing_sample": null,
+      "value_sample": null,
+      "reimport_sample": null,
+      "expected_ratio": null,
+      "ci_low": null,
+      "ci_high": null,
+      "threshold_ratio": null,
+      "sample_target_n": null
+    },
+    "first_records": [
+      {
+        "key": "790",
+        "seq": 0,
+        "pk_num": null,
+        "src": {
+          "status_cd": "P",
+          "dept_cd": "D02",
+          "AMT": "1006"
+        },
+        "tgt": {
+          "status_cd": "P",
+          "dept_cd": "D02",
+          "AMT": "1506"
+        },
+        "diff_cols": [
+          "AMT"
+        ]
+      },
+      {
+        "key": "2850",
+        "seq": 1,
+        "pk_num": null,
+        "src": {
+          "status_cd": "C",
+          "dept_cd": "D02",
+          "AMT": "1001"
+        },
+        "tgt": {
+          "status_cd": "C",
+          "dept_cd": "D02",
+          "AMT": "1501"
+        },
+        "diff_cols": [
+          "AMT"
+        ]
+      },
+      {
+        "key": "652",
+        "seq": 2,
+        "pk_num": null,
+        "src": {
+          "status_cd": "P",
+          "dept_cd": "D04",
+          "AMT": "1001"
+        },
+        "tgt": {
+          "status_cd": "P",
+          "dept_cd": "D04",
+          "AMT": "1501"
+        },
+        "diff_cols": [
+          "AMT"
+        ]
+      }
+    ]
+  },
+  "excel": {
+    "code": 200,
+    "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "bytes": 22222,
+    "path": "E:\\verify_screenshots_only\\SAMPLING-PREFLIGHT-EXCEL-EXPORT-GB-COLS-CHECK-AND-FIX\\records_excel_before.xlsx",
+    "sheets": {
+      "재이관 대상 레코드": {
+        "header": [
+          "ID",
+          "불일치 유형",
+          "원본 S",
+          "원본 D",
+          "원본 AMT",
+          "목적 S",
+          "목적 D",
+          "목적 AMT"
+        ],
+        "rows": [
+          [
+            "790",
+            "값 불일치",
+            "",
+            "",
+            "1006",
+            "",
+            "",
+            "1506"
+          ],
+          [
+            "2850",
+            "값 불일치",
+            "",
+            "",
+            "1001",
+            "",
+            "",
+            "1501"
+          ],
+          [
+            "652",
+            "값 불일치",
+            "",
+            "",
+            "1001",
+            "",
+            "",
+            "1501"
+          ],
+          [
+            "1560",
+            "값 불일치",
+            "",
+            "",
+            "1006",
+            "",
+            "",
+            "1506"
+          ],
+          [
+            "51",
+            "값 불일치",
+            "",
+            "",
+            "1002",
+            "",
+            "",
+            "1502"
+          ],
+          [
+            "951",
+            "값 불일치",
+            "",
+            "",
+            "1006",
+            "",
+            "",
+            "1506"
+          ],
+          [
+            "70",
+            "값 불일치",
+            "",
+            "",
+            "1000",
+            "",
+            "",
+            "1500"
+          ],
+          [
+            "350",
+            "값 불일치",
+            "",
+            "",
+            "1000",
+            "",
+            "",
+            "1500"
+          ],
+          [
+            "2080",
+            "값 불일치",
+            "",
+            "",
+            "1001",
+            "",
+            "",
+            "1501"
+          ],
+          [
+            "2520",
+            "값 불일치",
+            "",
+            "",
+            "1000",
+            "",
+            "",
+            "1500"
+          ],
+          [
+            "1750",
+            "값 불일치",
+            "",
+            "",
+            "1000",
+            "",
+            "",
+            "1500"
+          ]
+        ],
+        "max_row": null,
+        "max_col": null
+      }
+    }
+  },
+  "store": {
+    "status": null,
+    "columns_json": null,
+    "key_col_src": null,
+    "basis_keys": [],
+    "basis_gb_cols": null,
+    "basis_sum_labels": null,
+    "basis_has_row_compare_columns": false,
+    "record_kinds": {},
+    "first_record": null
+  }
+}

@@ -1,0 +1,186 @@
+작업명 : SAMPLING-PREFLIGHT-EXCEL-EXPORT-GB-COLS-CHECK-AND-FIX
+⚠️ 추가 작업 필요 - sampling_preflight.py 에는 gb_cols 인덱싱 결함이 없어 수정하지 않았고(코드+실측으로 확정),
+   대신 표본 조기중단 run 의 레코드 Excel 이 '헤더만 0행'으로 나오는 별건 결함을 실측으로 새로 확인했다
+   (원인은 routes/stats_result_route.py 의 kind 필터 — 이번 작업 범위 밖이라 미수정).
+
+────────────────────────────────────────────────────────────────────────
+1. 결론 (지시 1·3 에 대한 답)
+────────────────────────────────────────────────────────────────────────
+진단 문서(docs/SINGLE_STEP5_COMBO_VIEW_AND_SKEWED_GROUP_VOLUME_DIAGNOSE.md §2 표)는
+`sampling_preflight.py:311` 표본 조기중단 경로도 레코드 Excel 의 GROUP BY 값이 "유실 예상
+(코드 근거 — 미실측)"이라고 적었다. 실측 결과 이 예상은 **틀렸다**. 두 가지 의미에서 틀렸다.
+
+ (1) sampling_preflight.py 자체에는 문자열을 튜플처럼 [0] 으로 자르는 인덱싱 실수가 없다.
+     :311 은 `"gb_cols": list(gb_cols or [])` 로 문자열 리스트를 그대로 저장하고,
+     :294 도 `columns=[[g, ""] for g in (gb_cols or [])]` 로 g 를 문자열로 다룬다.
+     실제 저장된 run 을 열어봐도 basis.gb_cols = ['status_cd','dept_cd'] (원소 타입 str,
+     첫 글자만 남은 흔적 없음), columns_json = [["status_cd",""],["dept_cd",""]] 로 정상이다.
+     → 지시 3 에 따라 sampling_preflight.py 는 **수정하지 않았다**(git diff 없음).
+
+ (2) 그런데 이 경로의 레코드 Excel 은 '값이 빈칸'인 게 아니라 **데이터 행이 아예 0건**이다.
+     GROUP BY 값이 유실되는 게 아니라 대표 불일치 표본 20건 전부가 Excel 에 나오지 않는다.
+     즉 진단이 예상한 증상보다 더 큰 누락이며, 원인도 gb_cols 인덱싱이 아니다.
+
+원인은 routes/stats_result_route.py:164 가 `store.iter_records(pk_run_id, kind=REIMPORT_KIND)`
+로 kind="REIMPORT" 만 순회하는 데 있다. 표본 조기중단 경로는 sampling_preflight.py:32·289 에서
+kind="SAMPLE_MISMATCH"(SAMPLE_KIND) 로 저장한다 — 설계상 '전체 재이관 대상 목록'과 대표 표본을
+분리하기 위한 의도적 구분(§5·§7)이다. 두 kind 가 어긋나므로 Excel 은 항상 0행이 된다.
+이 결함은 gb_cols 수식(구식/신식)과 완전히 독립이다.
+
+────────────────────────────────────────────────────────────────────────
+2. 실측 조건 — 조기중단은 '5만행 초과'에서만 발생한다(중간 발견)
+────────────────────────────────────────────────────────────────────────
+처음 3,000행 픽스처로 상세비교를 돌렸을 때 조기중단이 발동하지 않았다(run_id PK…·status READY).
+원인을 코드로 추적한 결과, 표본 게이트 호출부 `_run_sampling_gate` 는
+routes/agg_diff_route.py:980 — 즉 **`if req.stream:` 블록 안**에만 있고, UI(_mvPkPayload,
+ui/tabler_renderer.py:16854)는 원본 COUNT > 50,000 일 때만 stream=true 를 보낸다.
+따라서 표본 조기중단은 5만행 이하 테이블에서는 구조적으로 발생하지 않는다.
+이 사실을 반영해 60,000행 픽스처를 새로 만들어 UI 와 동일한 payload
+(stream=true · compare_strategy=PK_RANGE_CHUNK_COMPARE · chunk_size=50000)로 재현했다.
+
+검증 환경
+ - 실 서비스 포트 8000(인증 ON, Basic e2e), 실 DB: PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe
+ - 서버 프로세스 PID 17332, 기동 시각 2026-07-28 18:49:32
+   ※ 이번 작업은 **코드를 한 줄도 고치지 않았으므로 서버 재기동을 하지 않았다**.
+     (같은 시각 다른 터미널이 routes/stats_result_route.py 를 19:13:19 에 수정 중이었고,
+      재기동하면 그 미완 편집이 로드되어 남의 작업 상태를 흔들게 되므로 의도적으로 재기동하지 않았다.
+      결과적으로 실측에 쓰인 서버는 **수정 전 route** 를 들고 있다 = Before 상태 그대로.)
+ - 정책 실효값: sample_early_stop_enabled=true · 임계 10.0% · initial_n=2000 · max_n=10000 ·
+   신뢰수준 95% · 대표표본 저장 20건
+
+픽스처(신규 생성, 기존 테이블 무단 변경 없음)
+ - 대조군(비stream): asis01.t_spgb_src(3,000) → tobe01.t_spgb_tgt(3,000)
+ - 조기중단용(stream): asis01.t_spgbl_src(60,000) → tobe01.t_spgbl_tgt(60,000)
+   양쪽 모두 id integer PRIMARY KEY(단일 숫자 PK), status_cd 3종 / dept_cd 4종 / amt numeric,
+   목적지만 id%10<3 인 30% 행의 amt 를 어긋나게 적재 → COUNT 는 60,000=60,000 으로 일치하고
+   행 수준 불일치만 18,000건(30%)이다.
+
+────────────────────────────────────────────────────────────────────────
+3. 실측 결과 — 조기중단 실발동 · Excel 0행
+────────────────────────────────────────────────────────────────────────
+scripts/dev_e2e/sampling_preflight_excel_gb_cols_verify.py stream
+(/analyze → /count → /generate → /execute → /agg-diff/prepare → /agg-diff/pk-records →
+ /stats-result/export?scope=records — 전부 실 엔드포인트, 강제 주입 없음)
+
+ [count]    src=60,000 · tgt=60,000 (2단계 통과)
+ [execute]  success=True · diff=12 그룹 · result_id=SR20F57C278119
+ [prepare]  status=PREPARING · run_id=PS7E56381EC65A  ← 'PS' 접두 = 표본 게이트가 선바인딩한 run
+ [pk-records] status=EARLY_STOPPED_HIGH_MISMATCH_ESTIMATE
+              표본 2,000건 · 목적 미존재 0 · 값 불일치 566 · 재이관 566
+              예상 불일치율 28.30% · 95% 신뢰구간 26.37%~30.31% · 기준 10% → 하한이 기준 이상 → 조기중단
+              gb_cols=['status_cd','dept_cd'] · sum_labels=['AMT'] · 대표 표본 20건
+              레코드 예: key=100 src={status_cd:'P', dept_cd:'D04', AMT:'1002.00'}
+                                 tgt={status_cd:'P', dept_cd:'D04', AMT:'1502.00'} diff=[AMT]
+
+ [레코드 Excel] GET /stats-result/export?...&pk_run_id=PS7E56381EC65A&scope=records → 200(xlsx)
+   시트 '재이관 대상 레코드'
+   헤더: ID | 불일치 유형 | 원본 S | 원본 D | 원본 AMT | 목적 S | 목적 D | 목적 AMT
+   행  : (데이터 행 없음 — 헤더만)
+
+ 헤더의 '원본 S / 원본 D' 는 수정 전 route 의 gb_cols 인덱싱 결함이 그대로 드러난 것이고
+ (다른 터미널의 STATS-RESULT-EXCEL-EXPORT-GB-COLS-INDEX-FIX 대상), 그 아래 데이터 행이
+ 0건인 것이 이번에 새로 확인된 별건 결함이다.
+
+같은 run 을 제품 렌더러(_mvRiApply → _mvRiApplySampleStop)로 그린 5단계 화면은 정상이다.
+표본 조기중단 배너(예상 28.30% · 신뢰구간 26.37%~30.31%)와 대표 표본 20건 표가 뜨고
+STATUS_CD='P' · DEPT_CD='D04' 처럼 GROUP BY 값이 원본/목적 양쪽 다 정상 표시된다.
+→ 화면은 멀쩡한데 같은 run 의 Excel 만 빈다(조용한 누락).
+   증적: step5_early_stop_screen.png
+
+────────────────────────────────────────────────────────────────────────
+4. 원인 분리 replay — gb_cols 인덱싱인가, kind 불일치인가
+────────────────────────────────────────────────────────────────────────
+scripts/dev_e2e/sampling_preflight_excel_kind_mismatch_replay.py PS7E56381EC65A
+(실제 저장된 run 을 find_run_store 로 열어 route 와 같은 방식으로 순회)
+
+ [basis] gb_cols=['status_cd','dept_cd'] 원소 타입=['str','str'] · row_compare_columns 없음
+ [cols]  구식(p[0] 적용) = ['s','d','AMT']            ← 인덱싱 결함 재현됨
+         신식(문자열 그대로) = ['status_cd','dept_cd','AMT']
+ [iter kind=REIMPORT]        레코드 0건               ← route 가 실제로 도는 kind
+ [iter kind=SAMPLE_MISMATCH] 레코드 20건              ← 이 경로가 실제로 저장한 kind
+    · 구식 행: ['100','값 불일치', None, None, '1002.00', None, None, '1502.00']
+    · 신식 행: ['100','값 불일치', 'P', 'D04', '1002.00', 'P', 'D04', '1502.00']
+
+해석:
+ · gb_cols 인덱싱 결함 자체는 route 쪽에 실재한다(구식 행에서 GROUP BY 값이 None 으로 유실).
+   하지만 그 결함은 **행을 한 건이라도 순회할 때만** 관측된다.
+ · 표본 조기중단 run 은 REIMPORT kind 레코드가 0건이라 route 가 순회할 행이 없다.
+   따라서 진단이 예상한 '빈칸 유실' 증상은 이 경로에서 **관측되지 않는다**(더 큰 0행 누락에 가려진다).
+ · route 의 gb_cols 수정이 반영되어도 이 경로의 Excel 은 여전히 0행이다(수식과 무관).
+
+────────────────────────────────────────────────────────────────────────
+5. 대조군 — 비stream(소규모) 경로에서는 진단대로 '빈칸 유실'이 실재한다
+────────────────────────────────────────────────────────────────────────
+같은 하니스를 3,000행(stream 아님)으로 돌리면 표본 게이트를 타지 않고 소규모 DIRECT merge
+(agg_contribution REIMPORT_PK_INDEX)로 간다. 이때 Excel 은 다음과 같다:
+
+ 헤더: ID | 불일치 유형 | 원본 S | 원본 D | 원본 AMT | 목적 S | 목적 D | 목적 AMT
+ 행  : 790 | 값 불일치 | (빈칸) | (빈칸) | 1006 | (빈칸) | (빈칸) | 1506
+       2850| 값 불일치 | (빈칸) | (빈칸) | 1001 | (빈칸) | (빈칸) | 1501   … (총 900행)
+
+진단 문서가 실측했다고 적은 그 증상이 지금도 그대로 재현된다. 이 경로의 수정은
+다른 터미널의 STATS-RESULT-EXCEL-EXPORT-GB-COLS-INDEX-FIX 소관이라 손대지 않았다.
+(대조군 증적: drive_result_nonstream_control.json · records_excel_nonstream_control.xlsx)
+
+────────────────────────────────────────────────────────────────────────
+6. 회귀 확인 (지시 4)
+────────────────────────────────────────────────────────────────────────
+이번 작업에서 **제품 코드는 한 줄도 변경하지 않았다**. 따라서 회귀 위험 자체가 없으나,
+지시대로 정상 경로와 기존 테스트를 모두 확인했다.
+
+ · python samples/test_virtual_cases.py    → 8/8 통과
+ · python samples/test_complex_cases.py    → 5/5 통과
+ · pytest tests/test_sampling_preflight.py tests/test_stats_result_full.py
+          tests/test_d6_group_record_separation.py samples/test_stats_export_excel_guard.py
+   → 39 passed · 5 xfailed · 1 failed
+   실패 1건 = tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+   (실행계획 카드의 UI 문자열 assert — 이번 작업과 무관한 사전 존재 실패. 소스 무변경이므로
+    이번 작업이 만든 실패일 수 없다.)
+ · 정상 경로(조기중단 미발동) 실측: 3,000행 대조군에서 상세비교 900건 정상 산출·Excel 900행 생성 확인.
+ · 조기중단 경로 화면 렌더 정상 확인(step5_early_stop_screen.png).
+
+git diff : 없음(제품 코드 무변경). commit hash : 없음(커밋 없음).
+추가된 파일은 검증 스크립트 4개뿐이다(제품 동작에 영향 없음):
+ - scripts/dev_e2e/sampling_preflight_excel_gb_cols_fixture.py      (픽스처 생성 · large 인자로 6만행)
+ - scripts/dev_e2e/sampling_preflight_excel_gb_cols_verify.py       (실 서비스 E2E 구동·Excel 파싱)
+ - scripts/dev_e2e/sampling_preflight_excel_kind_mismatch_replay.py (원인 분리 replay)
+ - scripts/dev_e2e/sampling_preflight_early_stop_shot.py            (5단계 조기중단 화면 캡처)
+
+────────────────────────────────────────────────────────────────────────
+7. 남는 문제와 권고 (별건 — 이번 작업 범위 밖)
+────────────────────────────────────────────────────────────────────────
+문제: 표본 조기중단 run 에서 '⬇ 상세 불일치 레코드 Excel 다운로드' 를 누르면 헤더만 있는 빈 파일이
+      받아진다. 화면에는 "대표 불일치 표본 20건" 이 보이는 상태라 사용자는 다운로드 실패를 인지할 수
+      없다. 5만행 초과 + 예상 불일치율 10% 초과 = 조기중단 조건이므로, 정확히 '가장 크고 가장 많이
+      틀린 이관'에서 증적 파일이 비는 셈이다.
+
+선택지(구조 관점):
+ (A) route 가 basis.sample_early_stop 이면 kind=SAMPLE_MISMATCH 로 순회하도록 분기.
+     — 최소 변경. 다만 시트명이 '재이관 대상 레코드'인데 실제 내용은 대표 표본이라 의미가 어긋난다.
+        시트명/안내 문구를 '표본 대표 레코드'로 함께 바꿔야 오해가 없다.
+ (B) route 가 조기중단 run 이면 Excel 생성을 막고 "표본 조기중단이라 전체 재이관 목록이 없다"는
+     안내를 반환. — 현행 '재이관 index 미준비' 안내(:177)와 같은 방식이라 일관되고 조용한 실패가 없다.
+ (C) sampling_preflight 가 대표 표본을 REIMPORT kind 로도 저장. — 권장하지 않는다.
+     §5·§7 이 의도적으로 분리한 kind 계약을 깨서, 대표 20건이 '전체 재이관 목록'으로 오인될 수 있다.
+
+권고: (B) 를 기본으로 하고, 표본 증적이 필요하면 (A) 를 시트명 변경과 함께. 어느 쪽이든 수정 지점은
+      routes/stats_result_route.py 이며 sampling_preflight.py 는 손댈 필요가 없다. 다른 터미널이
+      같은 파일을 수정 중이므로 그 작업이 커밋된 뒤 별도 작업으로 진행하는 것이 안전하다.
+
+부수 관찰(참고): 표본 조기중단은 stream 경로(원본 5만행 초과)에서만 도는데, 화면·문서 어디에도
+      "5만행 이하에서는 이 정책이 적용되지 않는다"는 표시가 없다. 정책 화면에서 켜고 끌 수 있는
+      스위치라 '켰는데 왜 안 도나' 오해를 부를 수 있다.
+
+────────────────────────────────────────────────────────────────────────
+8. 증적
+────────────────────────────────────────────────────────────────────────
+E:\verify_screenshots_only\SAMPLING-PREFLIGHT-EXCEL-EXPORT-GB-COLS-CHECK-AND-FIX\
+ - drive_result_stream_earlystop.json      조기중단 E2E 전체 응답(정책·표본통계·Excel 파싱·store 덤프)
+ - records_excel_stream_earlystop.xlsx     조기중단 run 의 레코드 Excel 실물(헤더만·0행)
+ - drive_result_nonstream_control.json     비stream 대조군 E2E 응답
+ - records_excel_nonstream_control.xlsx    대조군 Excel 실물(900행·GROUP BY 빈칸)
+ - replay_kind_mismatch.txt                kind/cols 분리 replay 출력
+ - step5_early_stop_screen.png             5단계 조기중단 화면(배너+대표표본 20건, GB 값 정상 표시)
+
+작업명 : SAMPLING-PREFLIGHT-EXCEL-EXPORT-GB-COLS-CHECK-AND-FIX
+⚠️ 추가 작업 필요 - SAMPLING-PREFLIGHT-EXCEL-EXPORT-GB-COLS-CHECK-AND-FIX : sampling_preflight.py 에는 동종 gb_cols 인덱싱 결함이 없음을 코드·실측으로 확정해 수정하지 않았고(진단의 '유실 예상'은 반증), 대신 표본 조기중단 run 의 레코드 Excel 이 0행이 되는 별건 결함(routes/stats_result_route.py kind 필터)을 새로 확인해 후속 작업으로 남긴다.

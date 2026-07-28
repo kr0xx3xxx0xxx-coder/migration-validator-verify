@@ -1,0 +1,191 @@
+{
+  "tag": "stream_before",
+  "started_at": "2026-07-28 19:24:29",
+  "policy": {
+    "sample_early_stop_enabled": true,
+    "sample_expected_ratio_threshold": 10.0,
+    "sample_initial_n": 2000,
+    "sample_max_n": 10000,
+    "sample_confidence_level": 95.0,
+    "sample_representative_store_n": 20
+  },
+  "analyze": {
+    "code": 200,
+    "token": true,
+    "gb_cands": [
+      "STATUS_CD",
+      "DEPT_CD"
+    ],
+    "sum_cands": [
+      "AMT"
+    ]
+  },
+  "count": {
+    "code": 200,
+    "src": 60000,
+    "tgt": 60000
+  },
+  "generate": {
+    "code": 200,
+    "has_sql": true
+  },
+  "execute": {
+    "code": 200,
+    "success": true,
+    "matched": 0,
+    "diff": 12,
+    "src_only": 0,
+    "tgt_only": 0,
+    "gb_keys": [
+      "STATUS_CD",
+      "DEPT_CD"
+    ],
+    "val_cols": [
+      "CNT",
+      "AMT"
+    ],
+    "result_id": "SR20F57C278119"
+  },
+  "prepare": {
+    "code": 200,
+    "status": "PREPARING",
+    "run_id": "PS7E56381EC65A",
+    "sample_early_stop": null,
+    "error": null
+  },
+  "pk_records": {
+    "status": "EARLY_STOPPED_HIGH_MISMATCH_ESTIMATE",
+    "sample_early_stop": true,
+    "gb_cols": [
+      "status_cd",
+      "dept_cd"
+    ],
+    "sum_labels": [
+      "AMT"
+    ],
+    "key_col": "id",
+    "total_count": 20,
+    "representative_total": 20,
+    "sampling": {
+      "valid_sample_count": 2000,
+      "missing_sample": 0,
+      "value_sample": 566,
+      "reimport_sample": 566,
+      "expected_ratio": 0.283,
+      "ci_low": 0.26368878363616177,
+      "ci_high": 0.30314321488390183,
+      "threshold_ratio": 0.1,
+      "sample_target_n": 2000
+    },
+    "first_records": [
+      {
+        "key": "100",
+        "seq": 0,
+        "pk_num": 100,
+        "src": {
+          "status_cd": "P",
+          "dept_cd": "D04",
+          "AMT": "1002.00"
+        },
+        "tgt": {
+          "status_cd": "P",
+          "dept_cd": "D04",
+          "AMT": "1502.00"
+        },
+        "diff_cols": [
+          "AMT"
+        ]
+      },
+      {
+        "key": "121",
+        "seq": 1,
+        "pk_num": 121,
+        "src": {
+          "status_cd": "P",
+          "dept_cd": "D01",
+          "AMT": "1002.00"
+        },
+        "tgt": {
+          "status_cd": "P",
+          "dept_cd": "D01",
+          "AMT": "1502.00"
+        },
+        "diff_cols": [
+          "AMT"
+        ]
+      },
+      {
+        "key": "721",
+        "seq": 2,
+        "pk_num": 721,
+        "src": {
+          "status_cd": "P",
+          "dept_cd": "D01",
+          "AMT": "1000.00"
+        },
+        "tgt": {
+          "status_cd": "P",
+          "dept_cd": "D01",
+          "AMT": "1500.00"
+        },
+        "diff_cols": [
+          "AMT"
+        ]
+      }
+    ]
+  },
+  "excel": {
+    "code": 200,
+    "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "bytes": 4960,
+    "path": "E:\\verify_screenshots_only\\SAMPLING-PREFLIGHT-EXCEL-EXPORT-GB-COLS-CHECK-AND-FIX\\records_excel_stream_before.xlsx",
+    "sheets": {
+      "재이관 대상 레코드": {
+        "header": [
+          "ID",
+          "불일치 유형",
+          "원본 S",
+          "원본 D",
+          "원본 AMT",
+          "목적 S",
+          "목적 D",
+          "목적 AMT"
+        ],
+        "rows": [],
+        "max_row": null,
+        "max_col": null
+      }
+    }
+  },
+  "store": {
+    "status": "EARLY_STOPPED",
+    "columns_json": "[[\"status_cd\", \"\"], [\"dept_cd\", \"\"]]",
+    "key_col_src": "id",
+    "basis_keys": [
+      "gb_cols",
+      "key_col",
+      "numeric_pk",
+      "sample_early_stop",
+      "sampling",
+      "sum_labels"
+    ],
+    "basis_gb_cols": [
+      "status_cd",
+      "dept_cd"
+    ],
+    "basis_sum_labels": [
+      "AMT"
+    ],
+    "basis_has_row_compare_columns": false,
+    "record_kinds": {
+      "SAMPLE_MISMATCH": 20
+    },
+    "first_record": {
+      "kind": "SAMPLE_MISMATCH",
+      "side": "src",
+      "key_value": "100",
+      "src_json": "{\"status_cd\": \"P\", \"dept_cd\": \"D04\", \"AMT\": \"1002.00\"}",
+      "tgt_json": "{\"status_cd\": \"P\", \"dept_cd\": \"D04\", \"AMT\": \"1502.00\"}"
+    }
+  }
+}

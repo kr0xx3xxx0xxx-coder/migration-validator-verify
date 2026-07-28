@@ -1,0 +1,20 @@
+[run] PS7E56381EC65A status= EARLY_STOPPED key_col_src= id
+[basis] gb_cols= ['status_cd', 'dept_cd'] sum_labels= ['AMT'] row_compare_columns 존재= False
+[basis] gb_cols 원소 타입= ['str', 'str']
+
+[cols] 구식 = ['s', 'd', 'AMT']
+[cols] 신식 = ['status_cd', 'dept_cd', 'AMT']
+
+[iter kind=REIMPORT] 레코드 0건
+
+[iter kind=SAMPLE_MISMATCH] 레코드 20건
+   구식 행: ['100', '값 불일치', None, None, '1002.00', None, None, '1502.00']
+   신식 행: ['100', '값 불일치', 'P', 'D04', '1002.00', 'P', 'D04', '1502.00']
+   구식 행: ['121', '값 불일치', None, None, '1002.00', None, None, '1502.00']
+   신식 행: ['121', '값 불일치', 'P', 'D01', '1002.00', 'P', 'D01', '1502.00']
+   구식 행: ['721', '값 불일치', None, None, '1000.00', None, None, '1500.00']
+   신식 행: ['721', '값 불일치', 'P', 'D01', '1000.00', 'P', 'D01', '1500.00']
+
+[결론 재료]
+  · sampling_preflight 가 저장한 kind = SAMPLE_MISMATCH / route(stats_result_route) 가 순회하는 kind = REIMPORT
+  · 따라서 cols 식(구/신)과 무관하게 Excel 데이터 행 수 = 0 건
