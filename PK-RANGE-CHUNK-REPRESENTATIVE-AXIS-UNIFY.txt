@@ -1,0 +1,174 @@
+PK-RANGE-CHUNK-REPRESENTATIVE-AXIS-UNIFY — 5만행 초과 chunk 경로 대표 GROUP BY 축 통일 (완료보고)
+
+작성: 2026-07-28
+커밋: ab48081 (로컬 커밋. 코드 저장소 push 없음)
+서버 재기동: 2026-07-28 19:40:03 (PID 32020, 포트 8000, 인증 ON)
+  * Before 실측 전용으로 HEAD(수정 전) 코드를 8010 포트에 19:27:45~19:39 한시 기동 후 종료했다(사유는 아래 §4).
+
+
+■ 1. 무엇이 문제였나
+
+직전 작업(SINGLE-STEP5-REPRESENTATIVE-AXIS-SINGLE-SOURCE-FIX)은 5만행 이하 DIRECT 경로
+(routes/agg_diff_route.py:_select_direct_rep_axis)만 '순서 무관 결정적' 대표축 선정으로 고쳤다.
+5만행을 넘으면 실행 경로가 chunk(services/exact_diff/pk_range_chunk.py)로 갈리는데, 그쪽
+_select_rep_axis 는 지시대로 미수정으로 남아 있었다.
+
+그 정책은 ①2~200 그룹 축 ②후보점수(gb_candidate_scores) ③선택순서(gb_selection_order) 순으로
+동점을 깨게 설계돼 있었지만, 운영 호출부(routes/agg_diff_route.py:314)는 이 두 인자를 아예 넘기지
+않는다. 인자가 없으면 _sel_order 가 gb_cols 순서로 대체되므로, 실질적으로 '먼저 온 축'이 대표축이
+되었다. 결과적으로 같은 데이터·같은 선택이라도
+
+  - gb_cols 를 [status_cd, dept_cd] 로 보내면 대표축 status_cd
+  - gb_cols 를 [dept_cd, status_cd] 로 보내면 대표축 dept_cd
+
+로 뒤바뀌고, 나아가 데이터 규모가 5만행 경계를 넘나들면 같은 선택인데도 DIRECT(dept_cd)와
+chunk(status_cd)가 서로 다른 축을 대표로 골랐다. 5단계 '대표 GROUP BY 불일치 분포'의 축과 그룹 수가
+데이터 규모에 따라 달라 보이는 것이 사용자에게 보이는 증상이다.
+
+
+■ 2. 무엇을 고쳤나 (services/exact_diff/pk_range_chunk.py 만 수정)
+
+(1) 폴백 규칙 교체 — 후보점수·선택순서가 실제로 전달되지 않은 경우(= 현재 운영 경로)에는 DIRECT 와
+    '완전히 동일한' 결정적 규칙으로 대표축을 고른다. 새 규칙은 만들지 않았고 DIRECT 규칙을 그대로 이식했다.
+      ① 값이 실제 관측된 축(coverage>0) 우선 — 전부 0이면 전체 축을 후보로 둔다
+      ② 불일치 distinct 그룹 수 2~200 구간 축 우선(드릴다운 실효 구간)
+      ③ 그 안에서 그룹 수가 적은 축 우선
+      ④ 최종 동률은 컬럼명 오름차순(입력 순서를 전혀 참조하지 않는다)
+    ①을 위해 축별 '값(non-NULL) 관측 레코드 수' 누적(_grp_cover_by_axis)을 기존 분포 누적 루프에
+    한 줄 얹었다(추가 DB 조회 없음).
+
+(2) 근거 필드 동일화 — chunk 응답의 mismatch_group_distribution 에 DIRECT 와 같은 이름·형태로
+    representative_axis / selection_reason / representative_axis_reason / axis_group_counts /
+    axis_selection_deterministic 를 싣는다. 사유코드도 DIRECT 와 같은 값(SINGLE_AXIS /
+    IN_BAND_FEWEST_GROUPS / OUT_OF_BAND_FEWEST_GROUPS)을 쓴다. 화면(ui/tabler_renderer.py
+    _mvRiRenderGroupView)은 손대지 않았고, 실제로 손대지 않아도 그대로 표시된다(§5 실화면 확인).
+
+(3) 기존 정책 보존 — gb_candidate_scores 또는 gb_selection_order 가 실제로 전달되면 기존 D7-16 C
+    정책(2~200 → 후보점수 → 선택순서)이 그대로 동작한다. 그 인자들을 운영에서 채워 넣는 일은 이번
+    범위 밖이라는 지시에 따라 손대지 않았다.
+
+(4) 5만행 경계(compare_strategy 분기, ui/tabler_renderer.py:16854·16871)는 건드리지 않았다.
+
+공통 함수 추출 여부(중복 로직 금지 원칙)에 대한 판단:
+  공통 모듈로 뽑는 쪽을 먼저 검토했으나 채택하지 않았다. 이유는 두 가지다.
+   (a) 이번 작업 지시가 pk_range_chunk.py 한 파일 수정으로 못박혀 있고, 상대편 파일
+       routes/agg_diff_route.py 는 직전 작업으로 막 완료된 모듈이라 임의 수정 대상이 아니다.
+   (b) 기술적으로도 services → routes 역방향 import 는 단방향 의존 원칙 위반이며, agg_diff_route 가
+       pk_range_chunk 를 import 하고 있어 실제 순환 import 가 된다. 반대 방향(routes 가 services 의
+       공통 함수를 호출)이 옳은 구조지만 그건 agg_diff_route.py 수정을 수반한다.
+  따라서 규칙을 pk_range_chunk.py 에 동일 형태로 복제 구현하되, 두 구현이 시간이 지나며 어긋나는 것을
+  막기 위해 회귀 테스트에서 '같은 입력 → 같은 (축·사유코드·사유문구)'를 직접 대조하도록 했다
+  (tests/test_pk_range_chunk_representative_axis_unify.py::test_규칙_자체가_DIRECT_와_동치다).
+  후속으로 agg_diff_route.py 수정이 허용되면 pk_range_chunk.select_deterministic_rep_axis 를
+  단일 출처로 삼고 DIRECT 가 그것을 호출하도록 바꾸는 것이 정리 방향이다.
+
+
+■ 3. 실측 픽스처 (실 PostgreSQL 내부망, 전용 스키마 mvbench 만 사용)
+
+  scripts/dev_e2e/rep_axis_boundary_fixture.py 로 구축.
+  - A 쌍: mvbench.repaxis_a_src 49,999행 → mvbench.repaxis_a_tgt 49,873행 (목적 미존재 126건)
+  - B 쌍: mvbench.repaxis_b_src 50,001행 → mvbench.repaxis_b_tgt 49,875행 (목적 미존재 126건)
+  - 불일치는 id % 397 = 7 로 심어 두 축 모든 값에 고루 분포. 불일치 축별 distinct 그룹 수는
+    양쪽 쌍 모두 dept_cd 2그룹 / status_cd 4그룹(원본에서 직접 세어 확인).
+  - 원본 asis(192.168.0.150:5433) → 목적 tobe(192.168.0.150:5434). 운영 스키마 무접근, 비밀번호 미출력.
+
+  화면 규칙(src_count > 50000 → stream + PK_RANGE_CHUNK_COMPARE)을 그대로 적용하면
+  A 쌍은 DIRECT 경로, B 쌍은 chunk 경로로 갈린다 — 즉 '경계 양쪽'의 통제실험이 된다.
+
+
+■ 4. Before / After (실 서비스·운영 엔드포인트 /agg-diff/prepare → /agg-diff/pk-records)
+
+  실험 4건 = (A 49,999행 / B 50,001행) × (gb_cols 순서 [status_cd,dept_cd] / [dept_cd,status_cd])
+  스크립트: scripts/dev_e2e/rep_axis_boundary_probe.py (강제주입 없음 — 판정은 전부 서버가 수행)
+
+  [Before] HEAD(수정 전) 코드 — 로그 log_before_boundary_probe.json
+    a 49,999행 gb=[status_cd,dept_cd] → DIRECT_STREAM_COMPARE    대표축 dept_cd   2그룹  IN_BAND_FEWEST_GROUPS
+    a 49,999행 gb=[dept_cd,status_cd] → DIRECT_STREAM_COMPARE    대표축 dept_cd   2그룹  IN_BAND_FEWEST_GROUPS
+    b 50,001행 gb=[status_cd,dept_cd] → PK_RANGE_CHUNK_COMPARE   대표축 status_cd 4그룹  IN_BAND_2_200   ← 순서에 끌려감
+    b 50,001행 gb=[dept_cd,status_cd] → PK_RANGE_CHUNK_COMPARE   대표축 dept_cd   2그룹  IN_BAND_2_200
+    판정: 전부 동일 = false / 경계 양쪽 동일 = false
+    → 49,999행은 dept_cd, 50,001행은 (순서에 따라) status_cd. 5만행 경계에서 축이 갈리는 현상 재현.
+
+  [After] 수정 코드 — 포트 8000, 인증 ON, 재기동 19:40:03 — 로그 log_after_boundary_probe.json
+    a 49,999행 gb=[status_cd,dept_cd] → DIRECT_STREAM_COMPARE    대표축 dept_cd 2그룹 IN_BAND_FEWEST_GROUPS 결정적 true
+    a 49,999행 gb=[dept_cd,status_cd] → DIRECT_STREAM_COMPARE    대표축 dept_cd 2그룹 IN_BAND_FEWEST_GROUPS 결정적 true
+    b 50,001행 gb=[status_cd,dept_cd] → PK_RANGE_CHUNK_COMPARE   대표축 dept_cd 2그룹 IN_BAND_FEWEST_GROUPS 결정적 true
+    b 50,001행 gb=[dept_cd,status_cd] → PK_RANGE_CHUNK_COMPARE   대표축 dept_cd 2그룹 IN_BAND_FEWEST_GROUPS 결정적 true
+    판정: 전부 동일 = true / 경계 양쪽 동일 = true
+    → 순서 무관·경계 무관으로 항상 dept_cd(불일치 그룹 2개로 최소). 이번 작업의 핵심 목표 달성.
+
+  Before 를 8010 포트에서 잡은 이유(정직한 기록):
+    8000 서버는 18:49 기동본이었지만 pk_range_chunk 모듈이 지연 import 라, 내가 코드를 고친 뒤
+    첫 호출 시점에 수정본이 로드돼 이미 After 동작을 보였다(=Before 캡처 창 소실). 게다가 실측 도중
+    다른 세션이 19:27:45 에 8000 서버를 재기동해 HEAD 인스턴스를 종료시켰다. 그래서 HEAD 커밋
+    135ee9e 의 git worktree 를 만들어 그 코드를 8010 포트(인증 ON, 동일 auth_users.json,
+    동일 실 PG·동일 픽스처)에 한시 기동해 Before 를 잡았고, After 는 지시대로 실 서비스 포트 8000에서
+    측정했다. Before/After 는 코드만 다르고 데이터·요청·엔드포인트는 동일하다.
+
+
+■ 5. 근거 필드 응답 + 실화면 표시 확인
+
+  chunk 경로(50,001행, gb 순서 [status_cd, dept_cd] — 과거 축이 뒤집히던 조건)로 실제 완료된 run
+  (run_id=PS23F32C95E45B)의 /agg-diff/pk-records 응답:
+    representative_axis            : dept_cd
+    selection_reason               : IN_BAND_FEWEST_GROUPS
+    representative_axis_reason     : "불일치 그룹 2개(2~200 구간) · 축 2개 중 최소 · 선택 순서 무관 고정"
+    axis_group_counts              : {"status_cd": 4, "dept_cd": 2}
+    axis_selection_deterministic   : true
+
+  이 응답을 제품 렌더러 window._mvRiRenderGroupView 에 그대로 넣어 5단계 그룹뷰를 그렸다
+  (scripts/dev_e2e/rep_axis_boundary_browser_shot.py, 캡처 01_chunk_group_view_representative_axis.png).
+    헤더   : "대표 GROUP BY(DEPT_CD) 불일치 분포 · 전체 2개 그룹 · 그룹 클릭 시 행 아래 상세"
+    배지   : "대표축 선정: 불일치 그룹 2개(2~200 구간) · 축 2개 중 최소 · 선택 순서 무관 고정"
+    툴팁   : "선택 축별 불일치 그룹 수 — dept_cd 2개 그룹 · status_cd 4개 그룹 /
+              선택 순서와 무관하게 항상 같은 축이 선정됩니다."
+    그룹표 : D02 63건 50.00% / D01 63건 50.00% (합 126건 = 실제 목적 미존재 건수와 일치)
+  화면 코드는 이번 작업에서 한 줄도 고치지 않았다 — 서버가 DIRECT 와 같은 필드명을 실어주니 그대로 표시된다.
+
+
+■ 6. 회귀 테스트
+
+  (1) 신규/기존 대표축 테스트 — 15건 전부 통과
+      tests/test_pk_range_chunk_representative_axis_unify.py (신규 6건)
+        · 순서 무관 동일 대표축 · chunk↔DIRECT 동일 축 · 두 구현 규칙 동치(7 케이스 대조)
+        · 근거 필드 이름/형태 · 후보점수 전달 시 기존 정책 유지(IN_BAND_2_200·deterministic=false)
+      tests/test_d7_16_representative_axis.py (기존 4건, 후보점수·선택순서 전달 케이스) — 무회귀
+      tests/test_single_step5_representative_axis_single_source.py (DIRECT 5건) — 무회귀
+
+  (2) chunk 엔진/재이관 인접 테스트 118건 — 114 passed / 4 failed
+      실패 4건은 모두 수정 전(HEAD)에서도 동일하게 실패하는 기존 실패다:
+        test_d7_8_inline_drill_time.py::test_ui_advanced_perf_position_and_title
+        test_execution_path.py::test_parallel_read_decision_* (3건, _parallel_read_decision 반환형이
+        튜플로 바뀐 뒤 갱신되지 않은 테스트)
+
+  (3) 광범위 회귀(-k "chunk or reimport or representative or drilldown or agg or exact or d7 or d8",
+      611건) — 수정본 20 failed / HEAD worktree 18 failed.
+      차이 2건은 tests/test_drilldown_readiness.py 의 라이브 테스트로, HEAD worktree 에서는
+      db_presets 파일이 없어 skip 되던 것이 본 저장소에서는 실행돼 실패한 것이다. 실패 원인은
+      Neon 원본 DB 접속 거부("Your project has exceeded the data transfer quota")로 확인했고,
+      두 테스트 모두 step=analyze 에서 멈춘다 — 이번 수정 지점(불일치 축 선정)과 무관하다.
+
+  (4) 파이프라인 기본 회귀 — samples/test_virtual_cases.py 8/8 통과,
+      samples/test_complex_cases.py 5/5 케이스 분석 완료.
+
+
+■ 7. 변경/생성 파일
+
+  수정: services/exact_diff/pk_range_chunk.py  (+82 / -8)
+  신규: tests/test_pk_range_chunk_representative_axis_unify.py
+  신규: scripts/dev_e2e/rep_axis_boundary_fixture.py       (5만행 경계 픽스처 구축)
+  신규: scripts/dev_e2e/rep_axis_boundary_probe.py         (통제실험 4건, 실 엔드포인트)
+  신규: scripts/dev_e2e/rep_axis_boundary_browser_shot.py  (5단계 그룹뷰 실화면 캡처)
+  (화면 코드 ui/tabler_renderer.py, DIRECT 경로 routes/agg_diff_route.py 는 무수정)
+
+
+■ 8. 남은 위험·후속 과제
+
+  - gb_candidate_scores / gb_selection_order 를 운영에서 실제로 채우면 다시 순서 의존 경로가 살아난다.
+    지시대로 이번 범위 밖으로 두었으나, 채울 때는 DIRECT 와 같은 결정성 요건을 함께 검토해야 한다.
+  - 같은 규칙이 두 파일에 복제돼 있다(사유는 §2). 동치성 테스트로 묶어 두었지만, 구조적으로는
+    services 쪽 단일 출처로 모으고 routes 가 호출하는 형태가 정답이다(agg_diff_route.py 수정 필요).
+  - 이번 실측 픽스처(mvbench.repaxis_a_*/repaxis_b_*, 약 20만행)는 내부망 PG 에 남아 있다.
+    정리하려면 mvbench 스키마의 repaxis_* 테이블만 DROP 하면 된다.
+
+작업명: PK-RANGE-CHUNK-REPRESENTATIVE-AXIS-UNIFY
