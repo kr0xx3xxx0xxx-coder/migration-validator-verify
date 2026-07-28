@@ -1,0 +1,432 @@
+{
+  "scenario": "oracle XDIFF 250k JOIN",
+  "sql": "INSERT INTO NXDNP.MV_ORA_XDIFF_TGT (ID, C_NUM, C_NUM_PS, C_VARCHAR2, C_CHAR, C_NVARCHAR2, C_DATE, C_TS, C_TS3, C_TS6) SELECT x.ID, x.C_NUM, CASE WHEN t.AMT IS NULL THEN x.C_NUM_PS ELSE ROUND(x.C_NUM_PS + t.AMT, 2) END, x.C_VARCHAR2, t.CHANNEL_CD, x.C_NVARCHAR2, x.C_DATE, x.C_TS, x.C_TS3, x.C_TS6 FROM NXDNP.MV_ORA_XDIFF_SRC x LEFT JOIN NXDNP.MV_ORA_TEST_SRC t ON MOD(x.ID, 300) + 1 = t.ORDER_ID WHERE x.ID <= (SELECT MAX(ID) FROM NXDNP.MV_ORA_XDIFF_SRC)",
+  "setup": {
+    "pair_rows": 0,
+    "pair_created": true,
+    "connected": true
+  },
+  "stage1": {
+    "from_table": "MV_ORA_XDIFF_SRC",
+    "target_table": "",
+    "joins": 1,
+    "blocked": false,
+    "err": null
+  },
+  "stage2": {
+    "count_status": "COUNT_MINOR_DIFF",
+    "src": 250000,
+    "tgt": 249950
+  },
+  "stage3_pick_single": {
+    "gb": [
+      "C_DATE"
+    ],
+    "sum": [
+      "C_NUM",
+      "C_NUM_PS"
+    ],
+    "periods": [
+      {
+        "col": "C_DATE",
+        "value": "month",
+        "options": [
+          "",
+          "auto",
+          "month",
+          "quarter",
+          "year"
+        ]
+      }
+    ],
+    "gb_all": [
+      {
+        "v": "C_DATE",
+        "d": false
+      },
+      {
+        "v": "C_TS",
+        "d": true
+      },
+      {
+        "v": "C_TS3",
+        "d": true
+      },
+      {
+        "v": "C_TS6",
+        "d": true
+      },
+      {
+        "v": "ID",
+        "d": true
+      },
+      {
+        "v": "C_VARCHAR2",
+        "d": true
+      },
+      {
+        "v": "C_CHAR",
+        "d": true
+      },
+      {
+        "v": "C_NVARCHAR2",
+        "d": true
+      }
+    ]
+  },
+  "stage3_after_reapply": {
+    "computed": true,
+    "gb": [
+      "C_DATE"
+    ],
+    "sum": [
+      "C_NUM",
+      "C_NUM_PS"
+    ]
+  },
+  "step4_reached": "validation",
+  "step4_generate": {
+    "step": "validation",
+    "genOut": ""
+  },
+  "run_single_set": {
+    "tag": "SINGLE_SET(GB 1개)",
+    "t0": 692657.6904651,
+    "before": {
+      "step": "validation",
+      "execBtn": {
+        "html": "▶ 통계검증 실행",
+        "disabled": false
+      },
+      "mvExecProgress": {
+        "exists": true,
+        "shown": false,
+        "display": "none",
+        "text": ""
+      },
+      "mvExecStepResult": {
+        "exists": true,
+        "shown": false,
+        "display": "none",
+        "text": ""
+      },
+      "mvExecStepError": {
+        "exists": true,
+        "shown": false,
+        "display": "none",
+        "text": ""
+      },
+      "executeOut": {
+        "exists": true,
+        "shown": false,
+        "display": "block",
+        "text": ""
+      },
+      "executed": false,
+      "inProgress": false
+    },
+    "clicked": true,
+    "elapsed_sec": 2.57,
+    "after": {
+      "step": "validation",
+      "execBtn": {
+        "html": "▶ 통계검증 다시 실행",
+        "disabled": false
+      },
+      "mvExecProgress": {
+        "exists": true,
+        "shown": false,
+        "display": "none",
+        "text": ""
+      },
+      "mvExecStepResult": {
+        "exists": true,
+        "shown": true,
+        "display": "block",
+        "text": "⚠ 통계검증 실행 완료 · 불일치 있음 (불일치)불일치 그룹 30건이 확인되었습니다 (값 불일치 30 · 원본 단독 0 · 목적 단독 0).전체 그룹30일치0값 불일치30원본 단독0목적 단독0그룹별 비교 상세·재이관 대상 레코드는 5단계 결과 확인에서 볼 수 있습니다 (현재 화면은 4단"
+      },
+      "mvExecStepError": {
+        "exists": true,
+        "shown": false,
+        "display": "none",
+        "text": ""
+      },
+      "executeOut": {
+        "exists": true,
+        "shown": false,
+        "display": "block",
+        "text": "⚙ 세부 기준 및 SQL 실행 기준 산출 근거안전 판정 적용값: 900개허용 상한(안전 한도): 100,000개산출 근거(estimate 유형): EXACT_UPPER_BOUND안전성 상태: SAFEℹ COUNT 사전검증 실패 — 원본/목적지 건수가 일치하지 않습니다.검증 실행 기준CO"
+      },
+      "executed": true,
+      "inProgress": false
+    },
+    "net_events": [
+      {
+        "kind": "req",
+        "t": 692657.702,
+        "method": "GET",
+        "url": "/db/presets/src"
+      },
+      {
+        "kind": "resp",
+        "t": 692657.78,
+        "status": 200,
+        "url": "/db/presets/src"
+      },
+      {
+        "kind": "req",
+        "t": 692657.78,
+        "method": "GET",
+        "url": "/db/presets/tgt"
+      },
+      {
+        "kind": "resp",
+        "t": 692657.846,
+        "status": 200,
+        "url": "/db/presets/tgt"
+      },
+      {
+        "kind": "req",
+        "t": 692657.851,
+        "method": "GET",
+        "url": "/single/active-run?session_id=sess_ms45tctswh9av6"
+      },
+      {
+        "kind": "req",
+        "t": 692657.855,
+        "method": "POST",
+        "url": "/execute"
+      },
+      {
+        "kind": "resp",
+        "t": 692657.998,
+        "status": 200,
+        "url": "/single/active-run?session_id=sess_ms45tctswh9av6"
+      },
+      {
+        "kind": "req",
+        "t": 692657.999,
+        "method": "GET",
+        "url": "/agg-diff/resumable"
+      },
+      {
+        "kind": "resp",
+        "t": 692658.072,
+        "status": 200,
+        "url": "/agg-diff/resumable"
+      },
+      {
+        "kind": "resp",
+        "t": 692659.664,
+        "status": 200,
+        "url": "/execute"
+      },
+      {
+        "kind": "req",
+        "t": 692659.688,
+        "method": "POST",
+        "url": "/strategy/plan"
+      },
+      {
+        "kind": "req",
+        "t": 692659.688,
+        "method": "GET",
+        "url": "/stats-result/page?result_id=SRDACF6AFCD71B&page=1&page_size=50&mismatch_only=true&fp="
+      },
+      {
+        "kind": "req",
+        "t": 692659.689,
+        "method": "POST",
+        "url": "/diagnosis/scope-actions"
+      },
+      {
+        "kind": "req",
+        "t": 692659.689,
+        "method": "GET",
+        "url": "/single/active-run?session_id=sess_ms45tctswh9av6"
+      },
+      {
+        "kind": "req",
+        "t": 692659.69,
+        "method": "GET",
+        "url": "/single/active-run?session_id=sess_ms45tctswh9av6"
+      },
+      {
+        "kind": "req",
+        "t": 692659.69,
+        "method": "GET",
+        "url": "/single/active-run?session_id=sess_ms45tctswh9av6"
+      },
+      {
+        "kind": "resp",
+        "t": 692659.837,
+        "status": 200,
+        "url": "/strategy/plan"
+      },
+      {
+        "kind": "resp",
+        "t": 692659.84,
+        "status": 200,
+        "url": "/stats-result/page?result_id=SRDACF6AFCD71B&page=1&page_size=50&mismatch_only=true&fp="
+      },
+      {
+        "kind": "resp",
+        "t": 692659.982,
+        "status": 200,
+        "url": "/diagnosis/scope-actions"
+      },
+      {
+        "kind": "req",
+        "t": 692659.99,
+        "method": "POST",
+        "url": "/diagnosis/analyze"
+      },
+      {
+        "kind": "resp",
+        "t": 692659.99,
+        "status": 200,
+        "url": "/single/active-run?session_id=sess_ms45tctswh9av6"
+      },
+      {
+        "kind": "req",
+        "t": 692659.99,
+        "method": "GET",
+        "url": "/agg-diff/resumable"
+      },
+      {
+        "kind": "resp",
+        "t": 692660.15,
+        "status": 200,
+        "url": "/single/active-run?session_id=sess_ms45tctswh9av6"
+      },
+      {
+        "kind": "req",
+        "t": 692660.222,
+        "method": "GET",
+        "url": "/agg-diff/resumable"
+      },
+      {
+        "kind": "resp",
+        "t": 692660.224,
+        "status": 200,
+        "url": "/single/active-run?session_id=sess_ms45tctswh9av6"
+      },
+      {
+        "kind": "req",
+        "t": 692660.293,
+        "method": "GET",
+        "url": "/agg-diff/resumable"
+      },
+      {
+        "kind": "resp",
+        "t": 692660.441,
+        "status": 200,
+        "url": "/agg-diff/resumable"
+      },
+      {
+        "kind": "resp",
+        "t": 692660.524,
+        "status": 200,
+        "url": "/agg-diff/resumable"
+      },
+      {
+        "kind": "resp",
+        "t": 692660.525,
+        "status": 200,
+        "url": "/agg-diff/resumable"
+      },
+      {
+        "kind": "resp",
+        "t": 692660.583,
+        "status": 200,
+        "url": "/diagnosis/analyze"
+      }
+    ],
+    "net_request_count": 15,
+    "net_urls": [
+      "/db/presets/src",
+      "/db/presets/tgt",
+      "/single/active-run?session_id=sess_ms45tctswh9av6",
+      "/execute",
+      "/agg-diff/resumable",
+      "/strategy/plan",
+      "/stats-result/page?result_id=SRDACF6AFCD71B&page=1&page_size=50&mismatch_only=true&fp=",
+      "/diagnosis/scope-actions",
+      "/single/active-run?session_id=sess_ms45tctswh9av6",
+      "/single/active-run?session_id=sess_ms45tctswh9av6",
+      "/single/active-run?session_id=sess_ms45tctswh9av6",
+      "/diagnosis/analyze",
+      "/agg-diff/resumable",
+      "/agg-diff/resumable",
+      "/agg-diff/resumable"
+    ],
+    "exec_bodies": [
+      {
+        "query_timing": {
+          "source_query_started_at": "2026-07-28T04:32:33Z",
+          "source_query_finished_at": "2026-07-28T04:32:33Z",
+          "source_duration_ms": 380,
+          "target_query_started_at": "2026-07-28T04:32:33Z",
+          "target_query_finished_at": "2026-07-28T04:32:34Z",
+          "target_duration_ms": 1105,
+          "source_target_gap_ms": 64,
+          "consistency_guarantee": "NOT_GUARANTEED"
+        },
+        "processing_ms": 1654.3,
+        "total_groups": 30,
+        "matched": 0,
+        "diff": 30,
+        "src_only": 0,
+        "tgt_only": 0,
+        "success": true,
+        "error": null
+      }
+    ],
+    "frames": [
+      {
+        "t": 2.57,
+        "ui": {
+          "step": "validation",
+          "execBtn": {
+            "html": "▶ 통계검증 다시 실행",
+            "disabled": false
+          },
+          "mvExecProgress": {
+            "exists": true,
+            "shown": false,
+            "display": "none",
+            "text": ""
+          },
+          "mvExecStepResult": {
+            "exists": true,
+            "shown": true,
+            "display": "block",
+            "text": "⚠ 통계검증 실행 완료 · 불일치 있음 (불일치)불일치 그룹 30건이 확인되었습니다 (값 불일치 30 · 원본 단독 0 · 목적 단독 0).전체 그룹30일치0값 불일치30원본 단독0목적 단독0그룹별 비교 상세·재이관 대상 레코드는 5단계 결과 확인에서 볼 수 있습니다 (현재 화면은 4단"
+          },
+          "mvExecStepError": {
+            "exists": true,
+            "shown": false,
+            "display": "none",
+            "text": ""
+          },
+          "executeOut": {
+            "exists": true,
+            "shown": false,
+            "display": "block",
+            "text": "⚙ 세부 기준 및 SQL 실행 기준 산출 근거안전 판정 적용값: 900개허용 상한(안전 한도): 100,000개산출 근거(estimate 유형): EXACT_UPPER_BOUND안전성 상태: SAFEℹ COUNT 사전검증 실패 — 원본/목적지 건수가 일치하지 않습니다.검증 실행 기준CO"
+          },
+          "executed": true,
+          "inProgress": false
+        }
+      }
+    ],
+    "frame_count": 1
+  },
+  "run_plan_sets_skipped": "선택 가능 GB 후보 1개 — 다중 세트 실행 불가",
+  "run_plan_sets_error": "선택 가능 GB 후보 1개 — 다중 세트 실행 불가",
+  "console_errors": [],
+  "dialogs": [
+    "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+    "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+  ]
+}

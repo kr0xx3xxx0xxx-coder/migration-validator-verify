@@ -1,0 +1,113 @@
+✅ 작업 완료 - 4단계 통계검증 실행에는 진행 신호가 없음(집계 SQL 단일 실행) 확인, 실측 기반 개선안 3안 정리(코드 수정 없음)
+
+[작업명] SINGLE-STEP4-INLINE-PROGRESS-FEASIBILITY-DIAGNOSE
+[일시]   2026-07-28
+[범위]   진단 전용 — 운영 코드 수정 0건. 신규 파일 2개(진단 스크립트, 설계문서)만 추가.
+
+────────────────────────────────────────────────────────────
+1. /execute 실행 구조 (단일 실행 vs 세트 순차)
+────────────────────────────────────────────────────────────
+· GB 0~1개 : runExecute(ui/tabler_renderer.py:27308) → POST /execute 1회
+             → routes/execute_route.py:45 → single_validation_execute_orchestrator.py:38
+             → single_validation_core.py:400 → stats_execute_service.py:218
+· GB 2개+  : _runExecutePlanSets(ui/tabler_renderer.py:25196)
+             → /groupby-plan 1회 후 세트마다 /generate + /execute 순차 반복(클라이언트 루프)
+
+서버 내부 순서(한 요청 안에서 전부 동기):
+  ① 단계 가드/전역설정 지문(메모리)  ② GROUP BY 안전 게이트 — 그룹 수 추정(DB 0~1회)
+  ③ 원본 통계 SQL 실행+fetch(1회)    ④ 목적지 통계 SQL 실행+fetch(1회)
+  ⑤ Python 그룹 비교 루프            ⑥ 후처리(result_view/snapshot/stats_result_store)
+
+────────────────────────────────────────────────────────────
+2. 진행 신호 유무 — 없음(확정)
+────────────────────────────────────────────────────────────
+· orchestrator / stats_execute_service / single_validation_core 전체에 progress 문자열 0건.
+· 결과 수신은 fetchall()(그룹 상한 있을 때만 fetchmany(cap+1)) 한 번 — 부분 수신 루프 없음
+  (db_query_service.py:653~656).
+· 대조군: 재이관/상세비교는 progress_cb + job store + 청크 checkpoint(routes/agg_diff_route.py:288),
+  일괄검증은 row 루프마다 update_progress(batch_execution_state_service.py:173).
+  통계검증만 그 축이 없다. /execute 는 job 도 아니다(/jobs/active 4소스 미포함).
+· 부수 확인: run_single_validation_execute_flow 는 cancel_token 미전달 → 실행 중 취소도 불가.
+
+[진짜 % 가 원리적으로 불가한 이유]
+  통계검증 SQL 은 GROUP BY 집계 1문이라 집계가 끝나기 전에는 DB 가 아무 행도 주지 않는다.
+  셀 수 있는 것은 '결과 그룹 행 수'뿐인데 그건 집계 완료 후 수치이고 규모가 작다
+  (실측: 원본 250,000행 → 결과 30그룹).
+
+────────────────────────────────────────────────────────────
+3. 부분 신호 — '세트 i/N' 은 있으나 4단계에서 안 보인다(갭)
+────────────────────────────────────────────────────────────
+· _runExecutePlanSets 25222행이 '세트 i/N 실행 중 — GROUP BY …' 문구를 #executeOut 에 렌더한다.
+· 그런데 #executeOut 은 5단계(result) pane 소속(tabler_renderer.py:2879, pane 목록 5537행에 없음)
+  → 실행 후 4단계에 머무는 정책상 이 문구는 DOM 에만 들어가고 화면에는 보이지 않는다.
+· 실측(오라클 300행, 2세트): t=0.44s '세트 1/2 …', t=0.85s '세트 2/2 …' 둘 다 offsetParent=null.
+· 같은 계열의 세 번째 사례다(실행 오류→#mvExecStepError, 성공 요약→#mvExecStepResult 는 이미 보강됨).
+
+────────────────────────────────────────────────────────────
+4. 화면만 vs 백엔드 필요
+────────────────────────────────────────────────────────────
+  백엔드 무변경 : 경과시간 카운트업 / 추정 진행바(직전 processing_ms 재사용) / '세트 i/N' 4단계 표시
+  백엔드 필요   : 서버 단계명(원본·목적·비교) 실시간 표시, 실행 중 취소
+  백엔드+SQL 재설계 : 행 단위 진짜 %(비권장)
+
+────────────────────────────────────────────────────────────
+5. 청크 결론(REIMPORT-*, PROGRESS-TRACKING-*)의 적용 가능성 — 적용 불가
+────────────────────────────────────────────────────────────
+  그 결론은 '청크 축이 이미 있는 경로'의 기록 단가 이야기다. 통계검증에는 청크 축 자체가 없다.
+  억지 분할 시: 임의 형태 원본 SQL(CTE/JOIN/UNION)을 PK 범위로 감싸 N회 재실행 → 전체 스캔 N회 위험,
+  청크 키 부재 케이스 실재(GB 0개/복합 PK/이관 SELECT 에 PK 미포함), EXACT 1회 실행 전제 훼손.
+
+────────────────────────────────────────────────────────────
+6. 라이브 실측 (포트 8000, 인증 ON, Oracle asis 1523 → tobe 1524)
+────────────────────────────────────────────────────────────
+[6-A] 대량/복잡: MV_ORA_XDIFF_SRC(250,000행) ⨝ MV_ORA_TEST_SRC, GB=C_DATE(월), SUM 2개
+  · 2회 실측 — 클릭→완료 1.26초 / 2.57초, /execute 왕복 0.786초 / 1.809초
+  · 서버 시간분해: 1회차 원본 374ms · 목적 94ms · gap 67ms · 총 619.5ms
+                   2회차 원본 380ms · 목적 1,105ms · gap 64ms · 총 1,654.3ms
+  · 결과 30그룹(전부 diff) — 250,000행이 30행으로 접힘
+  · /execute 왕복 중 나간 요청: /agg-diff/resumable 1건뿐(재개가능 job 조회, 진행률 폴링 아님)
+    → 그 외 구간 완전 무음. 응답 도착 후에야 후속 요청 6건이 몰림
+  · 실행 중 화면(0.02s/0.43s/0.84s 프레임 동일): execBtn '스피너+실행 중...' 뿐,
+    #mvExecProgress 미표시(상세비교 전용), #mvExecStepResult 미표시, #executeOut 미표시
+
+[6-B] 다중 세트: MV_ORA_TEST(300행), GB 2개
+  · /groupby-plan → /generate+/execute(세트1 269ms) → /generate+/execute(세트2 242ms)
+  · '세트 i/N' 문구 생성 확인, 화면 미표시(3절)
+
+[6-C] 서버 병행 처리 가능 여부
+  · /execute 처리 중에도 /single/active-run(147ms), /agg-diff/resumable(73ms) 이 200 응답
+  · 별도 프로브 /jobs/active 1초 간격 340회 — 전부 200, 최대 0.49초
+  → 진행률 폴링을 붙여도 서버가 막히지 않음(옵션 B 실현 근거)
+
+────────────────────────────────────────────────────────────
+7. 개선안 · 구현 규모 · 권장
+────────────────────────────────────────────────────────────
+[옵션 A] 화면만(백엔드 0줄, JS 100~120줄, 신규 API 0개) — 권장
+  A-1 4단계 전용 실행 상태 영역(#mvExecStepProgress) — 경과시간 카운트업 + 고정 문구(JS ~60줄)
+  A-2 직전 실행 processing_ms 기반 '추정' 진행바(JS ~40줄, '추정' 라벨 필수)
+  A-3 '세트 i/N' 문구를 4단계 영역에도 렌더(JS ~15줄)
+[옵션 B] 서버 단계명 신호 — 서버 ~120줄(진행 store 80 + 조회 라우트 40) + 계측 4곳 + 클라 ~80줄,
+         요청 body 에 client_exec_id 1필드 추가. 얻는 것은 % 가 아니라 단계명.
+         위험: 서버 상태 저장소 +1(현행 job 저장소 4개), TTL/좀비 회수 부재는 이미 알려진 결함.
+[옵션 C] 진짜 %(청크 분할) — 비권장(5절)
+
+권장 순서: A-3 → A-1 → (표기 확실할 때만) A-2 → B 는 문서화 후 보류
+  (실측상 서버 총 처리시간이 0.6~1.7초라 단계명 표시의 실익이 작다)
+
+[비판적 검토 — 위험 고지]
+  · 취소 없는 진행률: 진행률을 붙이면 '중단' 기대가 생기는데 현재 4단계 실행은 취소 불가.
+  · 체감 지연 위치: 실측에서 통계검증 실행(0.79초)보다 그 뒤 /agg-diff/prepare(1.23초)가 더 길었고,
+    그 구간에는 이미 진행 패널이 있다 → '4단계가 느리다'는 체감의 실제 구간 확인이 선행돼야 한다.
+  · 추정 진행바는 근거(직전 실행 ms)를 함께 표기하지 않으면 '가짜 진행률'이 된다.
+
+────────────────────────────────────────────────────────────
+8. 생성 파일 / 증적
+────────────────────────────────────────────────────────────
+  docs/SINGLE_STEP4_INLINE_PROGRESS_FEASIBILITY.md                      (설계·진단 문서)
+  scripts/dev_e2e/single_step4_inline_progress_feasibility_verify.py    (라이브 실측 드라이버)
+  E:\verify_screenshots_only\SINGLE-STEP4-INLINE-PROGRESS-FEASIBILITY\
+      01_big_step4_before_execute.png / 02_big_step4_after_execute.png
+      inline_progress_probe_big.json / inline_progress_probe_multi.json
+  운영 코드(ui/, services/, routes/) 변경 0건
+
+✅ 작업 완료 - 4단계 통계검증 실행에는 진행 신호가 없음(집계 SQL 단일 실행) 확인, 실측 기반 개선안 3안 정리(코드 수정 없음)

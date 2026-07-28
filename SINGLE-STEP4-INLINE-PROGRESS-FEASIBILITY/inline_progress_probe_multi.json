@@ -1,0 +1,639 @@
+{
+  "scenario": "oracle multi",
+  "sql": "INSERT INTO NXDNP.MV_ORA_TEST_TGT (ORDER_ID, AMT, QTY, RATIO, ORDER_YM, REGION_CD, CHANNEL_CD, MEMO, DESCR, ORDER_DT, CREATED_TS, UPDATED_TS) SELECT ORDER_ID, AMT, QTY, RATIO, ORDER_YM, REGION_CD, CHANNEL_CD, MEMO, DESCR, ORDER_DT, CREATED_TS, UPDATED_TS FROM NXDNP.MV_ORA_TEST_SRC",
+  "case": "multi",
+  "setup": {
+    "pair_rows": 0,
+    "pair_created": true,
+    "connected": true
+  },
+  "stage1": {
+    "from_table": "MV_ORA_TEST_SRC",
+    "target_table": "",
+    "joins": 0,
+    "blocked": false,
+    "err": null
+  },
+  "stage2": {
+    "count_status": "COUNT_MATCHED",
+    "src": 300,
+    "tgt": 300
+  },
+  "stage3_pick_single": {
+    "gb": [
+      "CHANNEL_CD",
+      "ORDER_YM"
+    ],
+    "sum": [
+      "AMT",
+      "QTY"
+    ],
+    "periods": [],
+    "gb_all": [
+      {
+        "v": "CHANNEL_CD",
+        "d": false
+      },
+      {
+        "v": "ORDER_YM",
+        "d": false
+      },
+      {
+        "v": "REGION_CD",
+        "d": false
+      },
+      {
+        "v": "ORDER_DT",
+        "d": false
+      },
+      {
+        "v": "ORDER_ID",
+        "d": true
+      },
+      {
+        "v": "RATIO",
+        "d": true
+      },
+      {
+        "v": "MEMO",
+        "d": true
+      },
+      {
+        "v": "DESCR",
+        "d": true
+      }
+    ]
+  },
+  "stage3_after_reapply": {
+    "computed": true,
+    "gb": [
+      "CHANNEL_CD",
+      "ORDER_YM"
+    ],
+    "sum": [
+      "AMT",
+      "QTY"
+    ]
+  },
+  "step4_reached": "validation",
+  "step4_generate": {
+    "step": "validation",
+    "genOut": ""
+  },
+  "run_single_set": {
+    "tag": "SINGLE_SET(GB 1개)",
+    "t0": 692847.4384141,
+    "before": {
+      "step": "validation",
+      "execBtn": {
+        "html": "▶ 통계검증 실행",
+        "disabled": false
+      },
+      "mvExecProgress": {
+        "exists": true,
+        "shown": false,
+        "display": "none",
+        "text": ""
+      },
+      "mvExecStepResult": {
+        "exists": true,
+        "shown": false,
+        "display": "none",
+        "text": ""
+      },
+      "mvExecStepError": {
+        "exists": true,
+        "shown": false,
+        "display": "none",
+        "text": ""
+      },
+      "executeOut": {
+        "exists": true,
+        "shown": false,
+        "display": "block",
+        "text": ""
+      },
+      "executed": false,
+      "inProgress": false
+    },
+    "clicked": true,
+    "elapsed_sec": 1.27,
+    "after": {
+      "step": "validation",
+      "execBtn": {
+        "html": "▶ 통계검증 다시 실행",
+        "disabled": false
+      },
+      "mvExecProgress": {
+        "exists": true,
+        "shown": false,
+        "display": "none",
+        "text": ""
+      },
+      "mvExecStepResult": {
+        "exists": true,
+        "shown": true,
+        "display": "block",
+        "text": "⚠ 통계검증 실행 완료 · 불일치 있음불일치 그룹 10건이 확인되었습니다 (값 불일치 10 · 원본 단독 0 · 목적 단독 0).전체 그룹33일치23값 불일치10원본 단독0목적 단독0그룹별 비교 상세·재이관 대상 레코드는 5단계 결과 확인에서 볼 수 있습니다 (현재 화면은 4단계에 그대"
+      },
+      "mvExecStepError": {
+        "exists": true,
+        "shown": false,
+        "display": "none",
+        "text": ""
+      },
+      "executeOut": {
+        "exists": true,
+        "shown": false,
+        "display": "block",
+        "text": "불일치 유형전체목적 미존재값 불일치GROUP BY 기준전체CHANNEL_CDORDER_YM그룹 값전체PK 검색조회초기화⬇ 상세 불일치 레코드 Excel 다운로드표시 등급 D1 · 전체 레코드 나열불일치 5건(그룹 5개) — 전체 레코드를 나열합니다.원본 전체 300건 · 목적 전체 30"
+      },
+      "executed": true,
+      "inProgress": false
+    },
+    "net_events": [
+      {
+        "kind": "req",
+        "t": 692847.451,
+        "method": "GET",
+        "url": "/db/presets/src"
+      },
+      {
+        "kind": "resp",
+        "t": 692847.521,
+        "status": 200,
+        "url": "/db/presets/src"
+      },
+      {
+        "kind": "req",
+        "t": 692847.522,
+        "method": "GET",
+        "url": "/db/presets/tgt"
+      },
+      {
+        "kind": "resp",
+        "t": 692847.591,
+        "status": 200,
+        "url": "/db/presets/tgt"
+      },
+      {
+        "kind": "req",
+        "t": 692847.596,
+        "method": "GET",
+        "url": "/single/active-run?session_id=sess_ms45xf65tgtell"
+      },
+      {
+        "kind": "req",
+        "t": 692847.598,
+        "method": "POST",
+        "url": "/groupby-plan"
+      },
+      {
+        "kind": "resp",
+        "t": 692847.756,
+        "status": 200,
+        "url": "/single/active-run?session_id=sess_ms45xf65tgtell"
+      },
+      {
+        "kind": "req",
+        "t": 692847.76,
+        "method": "GET",
+        "url": "/agg-diff/resumable"
+      },
+      {
+        "kind": "resp",
+        "t": 692847.762,
+        "status": 200,
+        "url": "/groupby-plan"
+      },
+      {
+        "kind": "req",
+        "t": 692847.764,
+        "method": "POST",
+        "url": "/generate"
+      },
+      {
+        "kind": "resp",
+        "t": 692847.907,
+        "status": 200,
+        "url": "/agg-diff/resumable"
+      },
+      {
+        "kind": "resp",
+        "t": 692847.912,
+        "status": 200,
+        "url": "/generate"
+      },
+      {
+        "kind": "req",
+        "t": 692847.919,
+        "method": "POST",
+        "url": "/execute"
+      },
+      {
+        "kind": "resp",
+        "t": 692848.188,
+        "status": 200,
+        "url": "/execute"
+      },
+      {
+        "kind": "req",
+        "t": 692848.194,
+        "method": "POST",
+        "url": "/generate"
+      },
+      {
+        "kind": "resp",
+        "t": 692848.283,
+        "status": 200,
+        "url": "/generate"
+      },
+      {
+        "kind": "req",
+        "t": 692848.289,
+        "method": "POST",
+        "url": "/execute"
+      },
+      {
+        "kind": "resp",
+        "t": 692848.531,
+        "status": 200,
+        "url": "/execute"
+      },
+      {
+        "kind": "req",
+        "t": 692848.549,
+        "method": "POST",
+        "url": "/strategy/plan"
+      },
+      {
+        "kind": "req",
+        "t": 692848.549,
+        "method": "POST",
+        "url": "/agg-diff/prepare"
+      },
+      {
+        "kind": "req",
+        "t": 692848.549,
+        "method": "GET",
+        "url": "/single/active-run?session_id=sess_ms45xf65tgtell"
+      },
+      {
+        "kind": "req",
+        "t": 692848.549,
+        "method": "GET",
+        "url": "/single/active-run?session_id=sess_ms45xf65tgtell"
+      },
+      {
+        "kind": "resp",
+        "t": 692848.836,
+        "status": 200,
+        "url": "/strategy/plan"
+      },
+      {
+        "kind": "resp",
+        "t": 692848.837,
+        "status": 200,
+        "url": "/single/active-run?session_id=sess_ms45xf65tgtell"
+      },
+      {
+        "kind": "resp",
+        "t": 692848.839,
+        "status": 200,
+        "url": "/single/active-run?session_id=sess_ms45xf65tgtell"
+      },
+      {
+        "kind": "req",
+        "t": 692848.839,
+        "method": "GET",
+        "url": "/agg-diff/resumable"
+      },
+      {
+        "kind": "req",
+        "t": 692848.844,
+        "method": "GET",
+        "url": "/agg-diff/resumable"
+      },
+      {
+        "kind": "resp",
+        "t": 692848.989,
+        "status": 200,
+        "url": "/agg-diff/resumable"
+      },
+      {
+        "kind": "resp",
+        "t": 692848.99,
+        "status": 200,
+        "url": "/agg-diff/resumable"
+      },
+      {
+        "kind": "resp",
+        "t": 692849.78,
+        "status": 200,
+        "url": "/agg-diff/prepare"
+      },
+      {
+        "kind": "req",
+        "t": 692849.781,
+        "method": "GET",
+        "url": "/agg-diff/pk-records?run_id=PKA1ABAE428616&page=1&page_size=20&view=reimport&scope_col=&scope_val="
+      },
+      {
+        "kind": "resp",
+        "t": 692849.872,
+        "status": 200,
+        "url": "/agg-diff/pk-records?run_id=PKA1ABAE428616&page=1&page_size=20&view=reimport&scope_col=&scope_val="
+      },
+      {
+        "kind": "req",
+        "t": 692849.876,
+        "method": "GET",
+        "url": "/single/active-run/status?run_id=PKA1ABAE428616"
+      }
+    ],
+    "net_request_count": 17,
+    "net_urls": [
+      "/db/presets/src",
+      "/db/presets/tgt",
+      "/single/active-run?session_id=sess_ms45xf65tgtell",
+      "/groupby-plan",
+      "/agg-diff/resumable",
+      "/generate",
+      "/execute",
+      "/generate",
+      "/execute",
+      "/strategy/plan",
+      "/agg-diff/prepare",
+      "/single/active-run?session_id=sess_ms45xf65tgtell",
+      "/single/active-run?session_id=sess_ms45xf65tgtell",
+      "/agg-diff/resumable",
+      "/agg-diff/resumable",
+      "/agg-diff/pk-records?run_id=PKA1ABAE428616&page=1&page_size=20&view=reimport&scope_col=&scope_val=",
+      "/single/active-run/status?run_id=PKA1ABAE428616"
+    ],
+    "exec_bodies": [
+      {
+        "query_timing": {
+          "source_query_started_at": "2026-07-28T04:35:43Z",
+          "source_query_finished_at": "2026-07-28T04:35:43Z",
+          "source_duration_ms": 9,
+          "target_query_started_at": "2026-07-28T04:35:43Z",
+          "target_query_finished_at": "2026-07-28T04:35:43Z",
+          "target_duration_ms": 11,
+          "source_target_gap_ms": 66,
+          "consistency_guarantee": "NOT_GUARANTEED"
+        },
+        "processing_ms": 164.8,
+        "total_groups": 9,
+        "matched": 4,
+        "diff": 5,
+        "src_only": 0,
+        "tgt_only": 0,
+        "success": true,
+        "error": null
+      },
+      {
+        "query_timing": {
+          "source_query_started_at": "2026-07-28T04:35:43Z",
+          "source_query_finished_at": "2026-07-28T04:35:43Z",
+          "source_duration_ms": 9,
+          "target_query_started_at": "2026-07-28T04:35:43Z",
+          "target_query_finished_at": "2026-07-28T04:35:43Z",
+          "target_duration_ms": 11,
+          "source_target_gap_ms": 64,
+          "consistency_guarantee": "NOT_GUARANTEED"
+        },
+        "processing_ms": 161.1,
+        "total_groups": 24,
+        "matched": 19,
+        "diff": 5,
+        "src_only": 0,
+        "tgt_only": 0,
+        "success": true,
+        "error": null
+      }
+    ],
+    "frames": [
+      {
+        "t": 0.02,
+        "ui": {
+          "step": "validation",
+          "execBtn": {
+            "html": "<span class=\"spinner\"></span>실행 중...",
+            "disabled": true
+          },
+          "mvExecProgress": {
+            "exists": true,
+            "shown": false,
+            "display": "none",
+            "text": ""
+          },
+          "mvExecStepResult": {
+            "exists": true,
+            "shown": false,
+            "display": "none",
+            "text": ""
+          },
+          "mvExecStepError": {
+            "exists": true,
+            "shown": false,
+            "display": "none",
+            "text": ""
+          },
+          "executeOut": {
+            "exists": true,
+            "shown": false,
+            "display": "block",
+            "text": ""
+          },
+          "executed": false,
+          "inProgress": true
+        }
+      },
+      {
+        "t": 0.44,
+        "ui": {
+          "step": "validation",
+          "execBtn": {
+            "html": "<span class=\"spinner\"></span>실행 중...",
+            "disabled": true
+          },
+          "mvExecProgress": {
+            "exists": true,
+            "shown": false,
+            "display": "none",
+            "text": ""
+          },
+          "mvExecStepResult": {
+            "exists": true,
+            "shown": false,
+            "display": "none",
+            "text": ""
+          },
+          "mvExecStepError": {
+            "exists": true,
+            "shown": false,
+            "display": "none",
+            "text": ""
+          },
+          "executeOut": {
+            "exists": true,
+            "shown": false,
+            "display": "block",
+            "text": "세트 1/2 실행 중 — GROUP BY CHANNEL_CD …"
+          },
+          "executed": false,
+          "inProgress": true
+        }
+      },
+      {
+        "t": 0.85,
+        "ui": {
+          "step": "validation",
+          "execBtn": {
+            "html": "<span class=\"spinner\"></span>실행 중...",
+            "disabled": true
+          },
+          "mvExecProgress": {
+            "exists": true,
+            "shown": false,
+            "display": "none",
+            "text": ""
+          },
+          "mvExecStepResult": {
+            "exists": true,
+            "shown": false,
+            "display": "none",
+            "text": ""
+          },
+          "mvExecStepError": {
+            "exists": true,
+            "shown": false,
+            "display": "none",
+            "text": ""
+          },
+          "executeOut": {
+            "exists": true,
+            "shown": false,
+            "display": "block",
+            "text": "세트 2/2 실행 중 — GROUP BY ORDER_YM …"
+          },
+          "executed": false,
+          "inProgress": true
+        }
+      },
+      {
+        "t": 1.27,
+        "ui": {
+          "step": "validation",
+          "execBtn": {
+            "html": "▶ 통계검증 실행",
+            "disabled": false
+          },
+          "mvExecProgress": {
+            "exists": true,
+            "shown": false,
+            "display": "none",
+            "text": ""
+          },
+          "mvExecStepResult": {
+            "exists": true,
+            "shown": true,
+            "display": "block",
+            "text": "⚠ 통계검증 실행 완료 · 불일치 있음불일치 그룹 10건이 확인되었습니다 (값 불일치 10 · 원본 단독 0 · 목적 단독 0).전체 그룹33일치23값 불일치10원본 단독0목적 단독0그룹별 비교 상세·재이관 대상 레코드는 5단계 결과 확인에서 볼 수 있습니다 (현재 화면은 4단계에 그대"
+          },
+          "mvExecStepError": {
+            "exists": true,
+            "shown": false,
+            "display": "none",
+            "text": ""
+          },
+          "executeOut": {
+            "exists": true,
+            "shown": false,
+            "display": "block",
+            "text": "불일치 유형전체목적 미존재값 불일치GROUP BY 기준전체CHANNEL_CDORDER_YM그룹 값전체PK 검색조회초기화⬇ 상세 불일치 레코드 Excel 다운로드표시 건수 20건50건100건재이관 PK index 준비 중…(테이블당 1회)"
+          },
+          "executed": true,
+          "inProgress": false
+        }
+      }
+    ],
+    "frame_count": 4
+  },
+  "stage3_pick_multi": [
+    "CHANNEL_CD",
+    "REGION_CD"
+  ],
+  "run_plan_sets": {
+    "tag": "PLAN_SETS(GB 2개)",
+    "t0": 692959.7960762,
+    "before": {
+      "step": "candidate",
+      "execBtn": {
+        "html": "▶ 통계검증 다시 실행",
+        "disabled": false
+      },
+      "mvExecProgress": {
+        "exists": true,
+        "shown": false,
+        "display": "none",
+        "text": ""
+      },
+      "mvExecStepResult": {
+        "exists": true,
+        "shown": false,
+        "display": "none",
+        "text": "⚠ 통계검증 실행 완료 · 불일치 있음불일치 그룹 10건이 확인되었습니다 (값 불일치 10 · 원본 단독 0 · 목적 단독 0).전체 그룹33일치23값 불일치10원본 단독0목적 단독0그룹별 비교 상세·재이관 대상 레코드는 5단계 결과 확인에서 볼 수 있습니다 (현재 화면은 4단계에 그대"
+      },
+      "mvExecStepError": {
+        "exists": true,
+        "shown": false,
+        "display": "none",
+        "text": ""
+      },
+      "executeOut": {
+        "exists": true,
+        "shown": false,
+        "display": "block",
+        "text": "불일치 유형전체목적 미존재값 불일치GROUP BY 기준전체CHANNEL_CDORDER_YM그룹 값전체PK 검색조회초기화⬇ 상세 불일치 레코드 Excel 다운로드표시 등급 D1 · 전체 레코드 나열불일치 5건(그룹 5개) — 전체 레코드를 나열합니다.원본 전체 300건 · 목적 전체 30"
+      },
+      "executed": true,
+      "inProgress": false
+    },
+    "clicked": false,
+    "abort_reason": "runExecute 버튼 클릭 실패(단계 미도달 또는 비활성)",
+    "net_request_count": 0,
+    "net_urls": [],
+    "exec_bodies": [],
+    "frames": [],
+    "frame_count": 0,
+    "cmd_buttons": [
+      {
+        "txt": "◀ 이전",
+        "fn": "_mvNavStep",
+        "disabled": false,
+        "visible": true
+      },
+      {
+        "txt": "▶ 선택 적용 후 통계검증 진행",
+        "fn": "runRevalidateFromCandidate",
+        "disabled": false,
+        "visible": true
+      },
+      {
+        "txt": "다음 ▶",
+        "fn": "_mvNavStep",
+        "disabled": true,
+        "visible": true
+      }
+    ],
+    "elapsed_sec": 15.08,
+    "set_progress_frames": []
+  },
+  "console_errors": [],
+  "dialogs": [
+    "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+    "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+  ]
+}
