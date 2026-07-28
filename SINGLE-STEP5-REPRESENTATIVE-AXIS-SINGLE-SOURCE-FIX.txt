@@ -1,0 +1,197 @@
+SINGLE-STEP5-REPRESENTATIVE-AXIS-SINGLE-SOURCE-FIX — 완료 보고서
+
+작성일시 : 2026-07-28 (KST)
+작업 브랜치 : main
+커밋 : dad1a3d0ec099c31249a802a83db7c396d8ab5c6
+기준 커밋(수정 전) : 5681667
+서버 재기동 : 2026-07-28 18:32:49 KST (python web_server.py · 포트 8000 · Basic 인증 ON)
+증적 : E:\verify_screenshots_only\SINGLE-STEP5-REPRESENTATIVE-AXIS-SINGLE-SOURCE-FIX\
+
+────────────────────────────────────────────────────────────────────────
+1. 무엇이 문제였나
+────────────────────────────────────────────────────────────────────────
+선행 진단(SINGLE-STEP5-MULTI-GROUPBY-REPRESENTATIVE-AXIS-DIAGNOSE)에서 확정된 사실은
+"5단계 '대표 GROUP BY(...) 불일치 분포'의 축이 정책이 아니라 gb_cols[0], 즉 서버로
+먼저 전달된 컬럼으로 정해진다"는 것이었다. 문제는 그 '전달 순서'의 출처가 실행 경로마다
+다르다는 데 있었다.
+
+  · 4단계에서 사용자가 직접 실행한 경우 → 3단계 후보표의 DOM 행 순서가 그대로 전달된다.
+  · 5단계에서 '↻ 지금 다시 조회'를 누른 경우 → 이는 스냅샷 재조회가 아니라
+    runFullValidation 전체 재실행이라, 서버가 자동 선정한 effective_group_by_columns
+    순서로 바뀌어 전달된다.
+
+그 결과 같은 데이터·같은 컬럼 선택인데도 대표축이 STATUS_CD ↔ DEPT_CD 로 뒤바뀌고,
+화면의 그룹 수가 4개 ↔ 2개로 달라 보였다(실측). 사용자 입장에서는 "다시 조회했더니
+결과가 변했다"로 읽히지만 실제 불일치 총건수(10건)는 동일했다. 게다가 왜 그 축이
+대표로 뽑혔는지에 대한 근거가 화면에도 응답에도 전혀 남지 않아(explainability 부재)
+사용자가 스스로 판단할 근거가 없었다.
+
+────────────────────────────────────────────────────────────────────────
+2. 무엇을 고쳤나
+────────────────────────────────────────────────────────────────────────
+지시대로 routes/agg_diff_route.py 의 _group_dist_from_store(실제로 도는 소규모·DIRECT
+폴백 경로) 한 곳만 손댔다. services/exact_diff/pk_range_chunk.py 의 정책 구현
+(_select_rep_axis, COUNT 5만행 초과 chunk 경로 전용)은 지시대로 건드리지 않았다.
+
+(1) 순서 출처를 하나로 통일했다.
+    기존에는 gb_cols 의 첫 축 하나만 집계했다. 이제 선택된 축 '전부'를 저장분 1회
+    순회로 함께 집계한 뒤(추가 DB 조회 없음), 새로 추가한 _select_direct_rep_axis 의
+    결정적 규칙으로 대표축을 고른다. 이 규칙은 입력 순서를 어디에서도 참조하지 않는다.
+
+      ① 후보 = 저장 레코드에서 값이 실제로 관측된 축(coverage > 0).
+         전부 관측되지 않으면 전체 축을 후보로 둔다.
+         (값이 없는 축은 전부 '' 한 덩어리로 뭉쳐 그룹 1개가 되므로 대표축이 되면 안 된다.)
+      ② 불일치 distinct 그룹 수가 2~200 구간인 축 우선. 1개면 나눠 볼 의미가 없고,
+         200 초과는 그룹표 표시 상한을 넘어 잘린다. 경계값은 chunk 경로(_GRP_FULL_CAP)와
+         동일하게 맞춰 두 경로의 표기 기준이 어긋나지 않게 했다.
+      ③ 그 안에서는 '그룹 수가 적은 축' 우선. 그룹당 표본이 많아 원인 국소화가 쉽다.
+      ④ 최종 동률은 컬럼명 오름차순. 완전 결정적이며 전달 순서·DOM 순서와 무관하다.
+
+(2) 선정 근거를 응답과 화면에 노출했다.
+    응답(mismatch_group_distribution)에 representative_axis, selection_reason(코드),
+    representative_axis_reason(사람이 읽는 문구), mismatch_group_count,
+    axis_group_counts(축별 불일치 그룹 수), axis_selection_deterministic 을 추가했다.
+    필드명은 chunk 경로(_build_grp_dist)와 일부러 동일하게 맞춰, 클라이언트가 어느
+    경로로 계산된 분포인지 구분하지 않아도 되게 했다.
+    화면(ui/tabler_renderer.py, _mvRiRenderGroupView)에서는 '대표 GROUP BY(DEPT_CD)
+    불일치 분포' 라벨 옆에 회색 배지로 근거를 짧게 붙였다.
+
+      대표축 선정: 불일치 그룹 2개(2~200 구간) · 축 2개 중 최소 · 선택 순서 무관 고정
+
+    배지의 title(툴팁)에는 축별 그룹 수를 전부 싣는다.
+
+      선택 축별 불일치 그룹 수 — DEPT_CD 2개 그룹 · STATUS_CD 4개 그룹
+      / 선택 순서와 무관하게 항상 같은 축이 선정됩니다.
+
+    GROUP BY 축이 1개일 때는 '왜 이 축인가'가 자명하므로 배지를 띄우지 않는다.
+    표시 전용 변경이며 판정·정렬·그룹 클릭 동작은 건드리지 않았다.
+
+────────────────────────────────────────────────────────────────────────
+3. 검증 — Before / After 통제실험
+────────────────────────────────────────────────────────────────────────
+[3-1] 함수 단위 통제실험 (증적 04·05)
+진단이 쓴 것과 동일한 통제실험을 함수 단위로 재현했다. 실측 오라클 분포와 같은 저장분
+(불일치 10건 · DEPT_CD D03 5건/D06 5건 · STATUS_CD P3/I3/A2/C2)을 주고, gb_cols 순서만
+바꿔 운영 함수 _group_dist_from_store 를 그대로 호출했다. 수정 전 코드는 재구현이 아니라
+기준 커밋(5681667) worktree 에서 실제로 실행했다.
+
+  입력 순서                    │ BEFORE(5681667)      │ AFTER(dad1a3d)
+  ─────────────────────────────┼──────────────────────┼──────────────────────
+  A [STATUS_CD, DEPT_CD]       │ STATUS_CD · 4개 그룹 │ DEPT_CD · 2개 그룹
+  B [DEPT_CD, STATUS_CD]       │ DEPT_CD   · 2개 그룹 │ DEPT_CD · 2개 그룹
+  C [STATUS_CD, DEPT_CD] 반복  │ STATUS_CD · 4개 그룹 │ DEPT_CD · 2개 그룹
+  ─────────────────────────────┼──────────────────────┼──────────────────────
+  order_independent            │ False                │ True
+
+[3-2] 실 서비스·실 오라클 브라우저 검증 (증적 01·02·03)
+포트 8000 실 서비스(인증 ON)·실 오라클(NXDNP.MV_ORA_DEMO_SRC→TGT, 150행)에서
+브라우저로 1~5단계를 실제로 클릭해 돌렸다. 3단계에서 GROUP BY 는 STATUS_CD·DEPT_CD 2개,
+SUM 은 AMT 를 선택했고 2단계 COUNT 는 150/150 일치였다.
+
+  경로 ① 4단계 수동 실행 → 5단계 최초 표시
+        클라이언트가 보낸 gb_cols = [STATUS_CD, DEPT_CD]
+        → 대표축 DEPT_CD · 2개 그룹(D03 5건 / D06 5건)
+        → selection_reason=IN_BAND_FEWEST_GROUPS
+        → 화면 헤더: "대표 GROUP BY(DEPT_CD) 불일치 분포 전체 2개 그룹 …
+                      대표축 선정: 불일치 그룹 2개(2~200 구간) · 축 2개 중 최소 · 선택 순서 무관 고정"
+
+  경로 ② '↻ 지금 다시 조회'(전체 재실행)
+        클라이언트가 보낸 gb_cols = [DEPT_CD, STATUS_CD]  ← 순서가 실제로 뒤집혔다
+        → 대표축 DEPT_CD · 2개 그룹 (경로 ①과 동일)
+        → 화면 헤더·근거 배지 문구도 동일
+
+  즉 진단에서 4↔2 로 흔들리던 바로 그 두 경로가, 전달 순서가 여전히 서로 다름에도
+  동일한 대표축·동일한 그룹 수를 낸다. 순서 자체를 없앤 것이 아니라 순서에 대한
+  의존을 없앤 것이므로, 어느 경로로 들어와도 결과가 같다.
+
+[3-3] 운영 엔드포인트 직접 통제실험 (증적 03)
+같은 브라우저 세션에서 /agg-diff/prepare 를 gb_cols 순서만 바꿔 3회 호출했다
+(A=[STATUS_CD,DEPT_CD], B=[DEPT_CD,STATUS_CD], C=A 반복 · 실제 오라클 조회).
+세 번 모두 group_col=DEPT_CD · total_group_count=2 · selection_reason=IN_BAND_FEWEST_GROUPS
+· axis_group_counts={STATUS_CD:4, DEPT_CD:2} 로 일치했다.
+
+  판정 요약(스크립트 자체 판정):
+    ① 순서 무관 동일 대표축 : true (DEPT_CD / DEPT_CD / DEPT_CD)
+    ② 두 실행 경로 동일 대표축 : true (수동실행 DEPT_CD = 지금다시조회 DEPT_CD)
+    ③ 선정 근거 응답+화면 노출 : true
+    PASS
+
+[3-4] 회귀 확인 (증적 06)
+  · python samples/test_virtual_cases.py   → 8/8 통과
+  · python samples/test_complex_cases.py   → 5/5 통과
+  · 관련 pytest 6파일(신규 포함) → 40 passed / 1 failed
+    유일한 실패 tests/test_d7_8_inline_drill_time.py::test_ui_advanced_perf_position_and_title
+    은 사전 존재 실패다. 이 테스트는 _mvRiSummaryHtml 안에서 "return _limitBanner" 문자열을
+    찾는데, 그 문자열은 기준 커밋(5681667)의 ui/tabler_renderer.py 에도 존재하지 않는다
+    (git show HEAD:ui/tabler_renderer.py | grep -c → 0). 이번 변경은 _mvRiSummaryHtml 을
+    전혀 건드리지 않았다.
+  · 신규 테스트 tests/test_single_step5_representative_axis_single_source.py 6건 전부 통과
+    (순서 무관성 · 근거 필드 · 단일축 · 값 미관측 축 배제 · 구간 밖 폴백 · 이름 타이브레이크)
+  · 서버 렌더 번들 JS 파싱 검증: 실제 서비스가 내려준 index HTML 의 script 블록 2개를
+    node --check 로 확인 → 전부 통과(JS 주석/문자열 사고 없음).
+
+────────────────────────────────────────────────────────────────────────
+4. 비판적 검토 — 남은 위험과 한계
+────────────────────────────────────────────────────────────────────────
+(1) chunk 경로는 여전히 순서 의존이다(지시에 따른 의도적 미수정).
+    COUNT 5만행 초과 시 도는 pk_range_chunk._select_rep_axis 는 '2~200 구간 → 후보점수
+    → 사용자 선택순서' 순으로 고르는데, 후보점수·선택순서 인자가 운영에서 전달되지 않아
+    사실상 gb_cols 순서로 결정된다. 즉 대규모 run 에서는 이번 증상이 그대로 남아 있고,
+    같은 선택이라도 데이터 규모(5만행 경계)에 따라 두 경로가 서로 다른 축을 고를 수 있다.
+    다음 작업으로 동일 규칙을 chunk 경로에 이식하거나, 두 경로가 같은 선택 함수를 쓰도록
+    합치는 것을 권한다.
+
+(2) '그룹 수가 적은 축 우선'은 선택이지 유일한 정답이 아니다.
+    그룹당 표본이 많아 원인을 좁히기 쉽다는 근거로 택했지만, 반대로 축의 해상도가 낮아
+    원인 구분이 덜 될 수 있다. 다만 이번 작업의 목표는 '항상 같은 축'이며, 어떤 축이
+    보기 좋은지는 사용자가 판단할 문제다. 그래서 축별 그룹 수를 툴팁으로 전부 노출해
+    사용자가 다른 축이 있다는 사실과 그 규모를 알 수 있게 했다. 축을 직접 전환하는 UI 는
+    이번 범위 밖이며, 필요하면 별도 작업으로 다루는 편이 낫다.
+
+(3) heuristic 이 하나 늘었다.
+    2~200 구간 경계는 새 하드코딩이다. 다만 chunk 경로가 이미 쓰던 동일 상수를 상수명
+    (_DIRECT_REP_AXIS_BAND_MIN/MAX)으로 노출해 재사용했고, 판단 근거(그룹 수)와 결과
+    (선택된 축·사유코드)를 전부 응답에 남겨 explainability 는 오히려 개선됐다.
+
+(4) 성능 영향은 무시할 수준이다.
+    저장분 조회는 종전과 동일하게 1회(최대 2000건)이고, 축 수(최대 3)만큼 dict 갱신이
+    늘 뿐이다. 추가 DB 조회·추가 SQL 은 없다.
+
+(5) 공유 작업트리 주의.
+    동시 진행 중인 두 작업이 ui/tabler_renderer.py·ui/grid_helpers.py·ui/js_sql_preview.py
+    를 함께 수정 중이었다. 커밋은 hunk 단위로 분리해 본인 변경분만 스테이징했고
+    (tabler_renderer 의 3개 hunk 중 본인 것 1개만), 나머지는 미스테이징 상태로 그대로 두었다.
+    다만 재기동한 서버는 같은 작업트리를 읽으므로 다른 작업의 미완성 변경도 함께 로드된
+    상태로 검증이 돌았다. 이번 검증 항목(대표축 선정)은 그 파일들과 무관한 경로라
+    판정에 영향은 없다고 본다.
+
+────────────────────────────────────────────────────────────────────────
+5. 변경 파일
+────────────────────────────────────────────────────────────────────────
+  M routes/agg_diff_route.py
+      + _DIRECT_REP_AXIS_BAND_MIN / _DIRECT_REP_AXIS_BAND_MAX (상수)
+      + _select_direct_rep_axis()  — 순서 무관 결정적 대표축 선정
+      ~ _group_dist_from_store()   — 전 축 동시 집계 + 근거 필드 응답 노출
+  M ui/tabler_renderer.py
+      ~ _mvRiRenderGroupView()     — 대표축 선정 근거 배지(표시 전용)
+  A tests/test_single_step5_representative_axis_single_source.py   (6건)
+  A scripts/dev_e2e/representative_axis_order_unit_probe.py        (Before/After 통제실험)
+  A scripts/dev_e2e/representative_axis_single_source_verify.py    (실 브라우저 검증)
+
+  미수정(지시에 따름): services/exact_diff/pk_range_chunk.py
+
+────────────────────────────────────────────────────────────────────────
+6. 증적 파일
+────────────────────────────────────────────────────────────────────────
+  01_after_manual_exec.png              4단계 수동 실행 후 5단계 화면(근거 배지 포함)
+  02_after_requery.png                  '↻ 지금 다시 조회' 후 5단계 화면(동일 대표축)
+  03_live_verify_result.json            실 브라우저·실 오라클 검증 전체 관측값 + 판정
+  04_unit_probe_BEFORE_5681667.json     수정 전 통제실험(order_independent=False)
+  05_unit_probe_AFTER_dad1a3d.json      수정 후 통제실험(order_independent=True)
+  06_tests.txt                          pytest 결과(40 passed / 1 사전 존재 실패)
+  07_server_restart.log                 서버 재기동 로그
+  08_commit_dad1a3d.txt                 커밋 stat + 소스 diff
+
+작업 결과 : 완료 (PASS)
+
+SINGLE-STEP5-REPRESENTATIVE-AXIS-SINGLE-SOURCE-FIX

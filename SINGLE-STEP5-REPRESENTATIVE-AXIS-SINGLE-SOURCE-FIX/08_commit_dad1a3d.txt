@@ -1,0 +1,197 @@
+commit dad1a3d0ec099c31249a802a83db7c396d8ab5c6
+Author: migration-validator <dev@migration-validator.local>
+Date:   Tue Jul 28 18:38:20 2026 +0900
+
+    fix(step5): 5단계 대표 GROUP BY 축을 순서 무관 결정적 규칙으로 통일 (SINGLE-STEP5-REPRESENTATIVE-AXIS-SINGLE-SOURCE-FIX)
+    
+    DIRECT(소규모·저장분 폴백) 경로의 대표축이 gb_cols[0](먼저 온 축)이라, 그 순서의 출처가
+    실행 경로마다 달라(수동 실행=후보표 DOM 순서 / '지금 다시 조회'=서버 effective 순서)
+    같은 데이터·같은 선택인데 대표축과 표시 그룹 수가 뒤바뀌었다(실측 STATUS_CD 4개 ↔ DEPT_CD 2개).
+    
+    - routes/agg_diff_route.py: 선택된 축 전부를 저장분 1회 순회로 집계한 뒤
+      _select_direct_rep_axis 의 결정적 규칙(값 관측 축 → 2~200 구간 → 그룹 수 최소 → 컬럼명 오름차순)
+      으로 대표축 선정. 근거를 representative_axis_reason/selection_reason/axis_group_counts 로 응답에 노출.
+    - ui/tabler_renderer.py: '대표 GROUP BY(...)' 라벨 옆에 선정 근거 배지 표기(표시 전용).
+    - chunk 경로(services/exact_diff/pk_range_chunk.py)는 이번 범위 밖 — 미수정.
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_01G9phv6MTyipqwBUnBDQqLh
+
+ routes/agg_diff_route.py                           |  87 ++++++++--
+ .../representative_axis_order_unit_probe.py        |  58 +++++++
+ .../representative_axis_single_source_verify.py    | 182 +++++++++++++++++++++
+ ...ngle_step5_representative_axis_single_source.py |  92 +++++++++++
+ ui/tabler_renderer.py                              |  24 ++-
+ 5 files changed, 431 insertions(+), 12 deletions(-)
+commit dad1a3d0ec099c31249a802a83db7c396d8ab5c6
+Author: migration-validator <dev@migration-validator.local>
+Date:   Tue Jul 28 18:38:20 2026 +0900
+
+    fix(step5): 5단계 대표 GROUP BY 축을 순서 무관 결정적 규칙으로 통일 (SINGLE-STEP5-REPRESENTATIVE-AXIS-SINGLE-SOURCE-FIX)
+    
+    DIRECT(소규모·저장분 폴백) 경로의 대표축이 gb_cols[0](먼저 온 축)이라, 그 순서의 출처가
+    실행 경로마다 달라(수동 실행=후보표 DOM 순서 / '지금 다시 조회'=서버 effective 순서)
+    같은 데이터·같은 선택인데 대표축과 표시 그룹 수가 뒤바뀌었다(실측 STATUS_CD 4개 ↔ DEPT_CD 2개).
+    
+    - routes/agg_diff_route.py: 선택된 축 전부를 저장분 1회 순회로 집계한 뒤
+      _select_direct_rep_axis 의 결정적 규칙(값 관측 축 → 2~200 구간 → 그룹 수 최소 → 컬럼명 오름차순)
+      으로 대표축 선정. 근거를 representative_axis_reason/selection_reason/axis_group_counts 로 응답에 노출.
+    - ui/tabler_renderer.py: '대표 GROUP BY(...)' 라벨 옆에 선정 근거 배지 표기(표시 전용).
+    - chunk 경로(services/exact_diff/pk_range_chunk.py)는 이번 범위 밖 — 미수정.
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_01G9phv6MTyipqwBUnBDQqLh
+
+diff --git a/routes/agg_diff_route.py b/routes/agg_diff_route.py
+index 9c0e328..88d0634 100644
+--- a/routes/agg_diff_route.py
++++ b/routes/agg_diff_route.py
+@@ -618,13 +618,63 @@ def _resolve_native_pk_key(req, src_sql: str = None, tgt_sql: str = None):
+     return _resolve_matchkey_via_diagnosis(req, src_sql, tgt_sql)
+ 
+ 
++# [SINGLE-STEP5-REPRESENTATIVE-AXIS-SINGLE-SOURCE-FIX] DIRECT(소규모·저장분 폴백) 경로 대표축 선정 상수.
++#   2~200 = '그룹 드릴다운이 실효한 구간'. 1개면 나눠 보는 의미가 없고, 200 초과는 표시 상한을 넘어
++#   그룹표가 잘린다. chunk 경로(pk_range_chunk._GRP_FULL_CAP)와 같은 경계값을 쓴다(두 경로 표기 일관성).
++_DIRECT_REP_AXIS_BAND_MIN = 2
++_DIRECT_REP_AXIS_BAND_MAX = 200
++
++
++def _select_direct_rep_axis(axis_counts: dict, axis_coverage: dict):
++    """[SINGLE-STEP5-REPRESENTATIVE-AXIS-SINGLE-SOURCE-FIX] 저장분 집계 결과만으로 대표 GROUP BY 축을
++    결정적으로 고른다 — gb_cols 가 어떤 순서로 전달되든(수동 실행=후보표 DOM 순서, 재조회=서버
++    effective_group_by_columns 순서) 항상 같은 축이 뽑히게 한다.
++
++    규칙(항상 동일 기준·재현 가능):
++      ① 후보 = 저장 레코드에서 값이 실제 관측된 축(coverage>0). 전부 0이면 전체 축을 후보로 둔다.
++      ② 불일치 distinct 그룹 수가 2~200 구간인 축 우선(드릴다운 실효 구간).
++      ③ 그 안에서는 '그룹 수가 적은 축' 우선 — 그룹당 표본이 많아 원인 국소화가 쉽다.
++      ④ 최종 동률은 컬럼명 오름차순(완전 결정적 — 전달 순서·DOM 순서에 의존하지 않는다).
++
++    반환: (대표축, 사유코드, 사유문구). 후보 없음 → (None, None, None)."""
++    _axes = [a for a in (axis_counts or {}) if a]
++    if not _axes:
++        return None, None, None
++    _cands = [a for a in _axes if (axis_coverage or {}).get(a, 0) > 0] or _axes
++
++    def _in_band(a):
++        return _DIRECT_REP_AXIS_BAND_MIN <= axis_counts.get(a, 0) <= _DIRECT_REP_AXIS_BAND_MAX
++
++    # 정렬키: (구간 밖=1) → 그룹 수 오름차순 → 컬럼명 오름차순. 입력 순서를 전혀 참조하지 않는다.
++    _best = sorted(_cands, key=lambda a: (0 if _in_band(a) else 1, axis_counts.get(a, 0), str(a).upper()))[0]
++    _n = axis_counts.get(_best, 0)
++    if len(_axes) == 1:
++        return _best, "SINGLE_AXIS", "선택된 GROUP BY 축이 1개 — 대체 축 없음"
++    if _in_band(_best):
++        return (_best, "IN_BAND_FEWEST_GROUPS",
++                "불일치 그룹 %d개(%d~%d 구간) · 축 %d개 중 최소 · 선택 순서 무관 고정"
++                % (_n, _DIRECT_REP_AXIS_BAND_MIN, _DIRECT_REP_AXIS_BAND_MAX, len(_axes)))
++    return (_best, "OUT_OF_BAND_FEWEST_GROUPS",
++            "%d~%d 구간 축 없음 → 불일치 그룹 %d개로 최소인 축 선택 · 선택 순서 무관 고정"
++            % (_DIRECT_REP_AXIS_BAND_MIN, _DIRECT_REP_AXIS_BAND_MAX, _n))
++
++
+ def _group_dist_from_store(store, run_id: str, gb_cols: list, kind: str):
+     """[COMPOSITE-PK-DIRECT-MERGE-DRILLDOWN-FIX] basis 에 분포가 없는 DIRECT merge run(복합/문자 PK 드릴다운
+     등)에서, 저장된 불일치 레코드(조기중단으로 소량 보장)를 대표 GROUP BY 축으로 집계해 그룹 분포를 만든다.
+     chunk 경로(pk_range_chunk)는 basis 에 분포를 이미 넣으므로 이 함수를 타지 않는다(기존 동작 무영향).
+-    폭주 방지로 상한(2000건) 내에서만 집계 — 그룹 드릴다운은 100건 조기중단이라 항상 상한 이하."""
+-    gcol = next((g for g in (gb_cols or []) if g), None)
+-    if not gcol:
++    폭주 방지로 상한(2000건) 내에서만 집계 — 그룹 드릴다운은 100건 조기중단이라 항상 상한 이하.
++
++    [SINGLE-STEP5-REPRESENTATIVE-AXIS-SINGLE-SOURCE-FIX] 대표축을 gb_cols[0](=먼저 온 축)으로 잡던 것을
++    고쳤다. 그 순서의 출처가 실행 경로마다 달라(수동 실행=후보표 DOM 순서 / '↻ 지금 다시 조회'=서버
++    effective_group_by_columns 순서) 같은 데이터·같은 선택인데 대표축과 표시 그룹 수가 뒤바뀌었다(실측 4↔2).
++    이제 선택된 축 '전부'를 한 번의 저장분 순회로 집계한 뒤 _select_direct_rep_axis 의 결정적 규칙으로
++    대표축을 고르고, 선정 근거(representative_axis_reason 등)를 응답에 함께 싣는다(화면 표기용)."""
++    _axes = []
++    for g in (gb_cols or []):
++        if g and g not in _axes:
++            _axes.append(g)
++    if not _axes:
+         return None
+     try:
+         pg = store.page_records(run_id, page=1, page_size=2000, kind=kind)
+@@ -634,21 +684,36 @@ def _group_dist_from_store(store, run_id: str, gb_cols: list, kind: str):
+     if not recs:
+         return None
+     from collections import Counter
+-    cnt, samp = Counter(), {}
++    # 저장분 1회 순회로 '모든 축'의 분포·표본·값 관측수(coverage)를 동시에 누적한다(추가 DB 조회 없음).
++    cnt = {a: Counter() for a in _axes}
++    samp = {a: {} for a in _axes}
++    cover = {a: 0 for a in _axes}
+     for r in recs:
+         src = r.get("src") or {}
+         tgt = r.get("tgt") or {}
+-        v = src.get(gcol, tgt.get(gcol))
+-        v = "" if v is None else str(v)
+-        cnt[v] += 1
+-        samp.setdefault(v, r.get("key"))
+-    if not cnt:
++        for a in _axes:
++            v = src.get(a, tgt.get(a))
++            if v is not None:
++                cover[a] += 1
++            v = "" if v is None else str(v)
++            cnt[a][v] += 1
++            samp[a].setdefault(v, r.get("key"))
++    axis_counts = {a: len(cnt[a]) for a in _axes}
++    gcol, _reason_code, _reason_text = _select_direct_rep_axis(axis_counts, cover)
++    if not gcol or not cnt.get(gcol):
+         return None
+-    groups = [{"value": k, "count": n, "sample_pks": [samp.get(k)]} for k, n in cnt.most_common()]
++    groups = [{"value": k, "count": n, "sample_pks": [samp[gcol].get(k)]} for k, n in cnt[gcol].most_common()]
+     return {"group_col": gcol, "groups": groups, "top": groups[:10],
+             "total_group_count": len(groups), "returned_group_count": len(groups),
+             "group_total": len(groups), "other_count": 0, "truncated": False,
+-            "computed_from_store": True}
++            "computed_from_store": True,
++            # [SINGLE-STEP5-REPRESENTATIVE-AXIS-SINGLE-SOURCE-FIX] 대표축 선정 snapshot(감사·화면 표기용).
++            #   chunk 경로(_build_grp_dist)와 같은 필드명을 쓴다 — 클라이언트가 경로를 구분하지 않아도 된다.
++            "representative_axis": gcol, "selection_reason": _reason_code,
++            "representative_axis_reason": _reason_text,
++            "mismatch_group_count": axis_counts.get(gcol, 0),
++            "axis_group_counts": axis_counts,
++            "axis_selection_deterministic": True}
+ 
+ 
+ # [CTE-JOIN-ROW-LEVEL-REIMPORT-SUPPORT] 재이관 상세(행 수준 PK 비교) — 원본 SQL wrapping 필요 형태 탐지.
+diff --git a/ui/tabler_renderer.py b/ui/tabler_renderer.py
+index 14ade50..12280d7 100644
+--- a/ui/tabler_renderer.py
++++ b/ui/tabler_renderer.py
+@@ -27378,9 +27378,31 @@ function _mvRiRenderGroupView(d) {
+     ? (_truncated ? ('상위 ' + _returned.toLocaleString() + '개 그룹 표시 · 전체 그룹 수 ' + _totalAll.toLocaleString() + '개')
+                   : ('전체 ' + _totalAll.toLocaleString() + '개 그룹'))
+     : ('상위 ' + _shown.length + '개 + 기타 ' + _hiddenN.toLocaleString() + '개 그룹' + (_truncated ? ' · 전체 ' + _totalAll.toLocaleString() + '개' : ''));
++  /* [SINGLE-STEP5-REPRESENTATIVE-AXIS-SINGLE-SOURCE-FIX] 대표축 선정 근거 표기(표시 전용 — 판정·정렬 불변).
++     서버가 실은 representative_axis_reason(문구)을 우선 쓰고, 없으면 selection_reason(코드)을 짧게 번역한다.
++     GROUP BY 축이 2개 이상일 때만 노출한다(단일 축이면 '왜 이 축인가'가 자명하다). */
++  var _axisCnts = _gd.axis_group_counts || null;
++  var _axisN = _axisCnts ? Object.keys(_axisCnts).length : 0;
++  var _reasonTxt = _gd.representative_axis_reason || (function(){
++    var c = _gd.selection_reason || '';
++    if (c === 'IN_BAND_FEWEST_GROUPS' || c === 'IN_BAND_2_200') return '불일치 그룹 수가 드릴다운 실효 구간(2~200)';
++    if (c === 'OUT_OF_BAND_FEWEST_GROUPS' || c === 'FEWEST_GROUPS') return '불일치 그룹 수가 가장 적은 축';
++    if (c === 'NO_MISMATCH_GROUPS') return '불일치 그룹 없음';
++    if (c === 'SINGLE_AXIS') return '선택된 GROUP BY 축이 1개';
++    return '';
++  })();
++  var _axisTip = _axisCnts ? Object.keys(_axisCnts).sort().map(function(k){
++    return k + ' ' + Number(_axisCnts[k]).toLocaleString() + '개 그룹'; }).join(' · ') : '';
++  var _reasonHtml = (_reasonTxt && _axisN >= 2)
++    ? '<span style="margin-left:6px;color:#64748b;font-size:.72rem;border:1px solid #e2e8f0;background:#f8fafc;'
++      + 'border-radius:9px;padding:1px 7px" title="' + esc('선택 축별 불일치 그룹 수 — ' + _axisTip
++      + (_gd.axis_selection_deterministic ? ' / 선택 순서와 무관하게 항상 같은 축이 선정됩니다.' : '')) + '">'
++      + '대표축 선정: ' + esc(_reasonTxt) + '</span>'
++    : '';
+   var _hdr = '<div style="margin-bottom:4px;font-size:.8rem"><b>대표 GROUP BY(' + esc(_gcol.toUpperCase()) + ') 불일치 분포</b> '
+     + '<span style="color:#94a3b8;font-size:.72rem">' + _hdrCount
+-    + ' · 그룹 클릭 시 행 아래 상세' + (preparing ? ' · 잠정(집계 중)' : '') + '</span></div>';
++    + ' · 그룹 클릭 시 행 아래 상세' + (preparing ? ' · 잠정(집계 중)' : '') + '</span>'
++    + _reasonHtml + '</div>';
+   var _fullBtn = '<div style="margin-top:8px"><button class="btn" style="font-size:.76rem;padding:3px 12px;border:1px solid #2471a3;color:#2471a3;background:#fff;border-radius:5px;cursor:pointer" onclick="_mvRiShowAllDetail()">전체 상세 보기 →</button></div>';
+   /* [DRILLDOWN-GROUP-TABLE-HEADER-ADD] 분포 표 컬럼 헤더 — 각 열 의미 명시(표시 전용, 데이터 행/정렬/클릭 동작 불변).
+      th 기본 width:120px 를 열별로 재지정하고, 숫자 열은 데이터 행과 동일하게 우측 정렬한다. */

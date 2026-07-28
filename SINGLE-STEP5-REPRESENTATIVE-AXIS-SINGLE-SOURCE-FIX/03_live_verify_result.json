@@ -1,0 +1,287 @@
+{
+ "notes": [],
+ "setup": {
+  "pair": "Oracle_asis → Oracle_tobe",
+  "row": "접속중Oracle_asis → Oracle_tobeOracle_asisORACLEOracle_tobeORACLE상세접속 끊기삭제"
+ },
+ "1_analyze": {
+  "blocked": false,
+  "from_table": "MV_ORA_DEMO_SRC",
+  "tgt": "",
+  "gb_cand": [
+   "DEPT_CD",
+   "STATUS_CD",
+   "CREATED_BY",
+   "UPD_YMD",
+   "REG_DT"
+  ]
+ },
+ "2_count": {
+  "status": "COUNT_MATCHED",
+  "src": 150,
+  "tgt": 150
+ },
+ "3_candidate": {
+  "gb": [
+   "STATUS_CD",
+   "DEPT_CD"
+  ],
+  "sum": [
+   "AMT"
+  ],
+  "unchecked": []
+ },
+ "4_generated_sql": {
+  "srcBox": "SELECT STATUS_CD AS STATUS_CD, DEPT_CD AS DEPT_CD, COUNT(*) AS CNT, SUM(AMT) AS AMT FROM NXDNP.MV_ORA_DEMO_SRC GROUP BY STATUS_CD, DEPT_CD",
+  "tgtBox": "SELECT STATUS_CD AS STATUS_CD, DEPT_CD AS DEPT_CD, COUNT(*) AS CNT, SUM(AMT) AS AMT FROM NXDNP.MV_ORA_DEMO_TGT GROUP BY STATUS_CD, DEPT_CD",
+  "gbSel": "[\"STATUS_CD\",\"DEPT_CD\"]",
+  "sumSel": "[\"AMT\"]"
+ },
+ "4_exec_state": {
+  "setCount": 2,
+  "sets": [
+   {
+    "kind": "SINGLE",
+    "cols": [
+     "STATUS_CD"
+    ]
+   },
+   {
+    "kind": "SINGLE",
+    "cols": [
+     "DEPT_CD"
+    ]
+   }
+  ],
+  "perSet": [
+   {
+    "cols": [
+     "STATUS_CD"
+    ],
+    "matched": 0,
+    "diff": 4,
+    "src_only": 0,
+    "tgt_only": 0,
+    "total_groups": 4,
+    "gb_keys": [
+     "STATUS_CD"
+    ]
+   },
+   {
+    "cols": [
+     "DEPT_CD"
+    ],
+    "matched": 4,
+    "diff": 2,
+    "src_only": 0,
+    "tgt_only": 0,
+    "total_groups": 6,
+    "gb_keys": [
+     "DEPT_CD"
+    ]
+   }
+  ],
+  "agg": {
+   "matched": 4,
+   "diff": 6,
+   "src_only": 0,
+   "tgt_only": 0,
+   "total_groups": 10,
+   "gbSel": [
+    "STATUS_CD",
+    "DEPT_CD"
+   ]
+  },
+  "stepResultText": "⚠ 통계검증 실행 완료 · 불일치 있음불일치 그룹 6건이 확인되었습니다 (값 불일치 6 · 원본 단독 0 · 목적 단독 0).전체 그룹10일치4값 불일치6원본 단독0목적 단독0그룹별 비교 상세·재이관 대상 레코드는 5단계 결과 확인에서 볼 수 있습니다 (현재 화면은 4단계에 그대로 머뭅니다).결과 확인(5단계) 보기 →"
+ },
+ "5_manual_exec_view": {
+  "tag": "manual_exec",
+  "runId": "PKD390BCF6F682",
+  "gbColsState": [
+   "STATUS_CD",
+   "DEPT_CD"
+  ],
+  "respGbCols": [
+   "STATUS_CD",
+   "DEPT_CD"
+  ],
+  "status": "READY",
+  "group_col": "DEPT_CD",
+  "total_group_count": 2,
+  "representative_axis": "DEPT_CD",
+  "selection_reason": "IN_BAND_FEWEST_GROUPS",
+  "representative_axis_reason": "불일치 그룹 2개(2~200 구간) · 축 2개 중 최소 · 선택 순서 무관 고정",
+  "axis_group_counts": {
+   "STATUS_CD": 4,
+   "DEPT_CD": 2
+  },
+  "axis_selection_deterministic": true,
+  "computed_from_store": true,
+  "groups": [
+   {
+    "v": "D03",
+    "c": 5
+   },
+   {
+    "v": "D06",
+    "c": 5
+   }
+  ],
+  "headerText": "대표 GROUP BY(DEPT_CD) 불일치 분포 전체 2개 그룹 · 그룹 클릭 시 행 아래 상세대표축 선정: 불일치 그룹 2개(2~200 구간) · 축 2개 중 최소 · 선택 순서 무관 고정",
+  "reasonBadgeTitle": "선택 축별 불일치 그룹 수 — DEPT_CD 2개 그룹 · STATUS_CD 4개 그룹 / 선택 순서와 무관하게 항상 같은 축이 선정됩니다."
+ },
+ "6_requery_clicked": "↻ 지금 다시 조회",
+ "6_requery_view": {
+  "tag": "requery",
+  "runId": "PK18E2CBC93E30",
+  "gbColsState": [
+   "DEPT_CD",
+   "STATUS_CD"
+  ],
+  "respGbCols": [
+   "DEPT_CD",
+   "STATUS_CD"
+  ],
+  "status": "READY",
+  "group_col": "DEPT_CD",
+  "total_group_count": 2,
+  "representative_axis": "DEPT_CD",
+  "selection_reason": "IN_BAND_FEWEST_GROUPS",
+  "representative_axis_reason": "불일치 그룹 2개(2~200 구간) · 축 2개 중 최소 · 선택 순서 무관 고정",
+  "axis_group_counts": {
+   "DEPT_CD": 2,
+   "STATUS_CD": 4
+  },
+  "axis_selection_deterministic": true,
+  "computed_from_store": true,
+  "groups": [
+   {
+    "v": "D03",
+    "c": 5
+   },
+   {
+    "v": "D06",
+    "c": 5
+   }
+  ],
+  "headerText": "대표 GROUP BY(DEPT_CD) 불일치 분포 전체 2개 그룹 · 그룹 클릭 시 행 아래 상세대표축 선정: 불일치 그룹 2개(2~200 구간) · 축 2개 중 최소 · 선택 순서 무관 고정",
+  "reasonBadgeTitle": "선택 축별 불일치 그룹 수 — DEPT_CD 2개 그룹 · STATUS_CD 4개 그룹 / 선택 순서와 무관하게 항상 같은 축이 선정됩니다."
+ },
+ "7_axis_order_experiment": {
+  "A": {
+   "cols": [
+    "STATUS_CD",
+    "DEPT_CD"
+   ],
+   "run_id": "PKC77EA62DB01D",
+   "status": "READY",
+   "gb_cols": [
+    "STATUS_CD",
+    "DEPT_CD"
+   ],
+   "group_col": "DEPT_CD",
+   "total_group_count": 2,
+   "computed_from_store": true,
+   "representative_axis": "DEPT_CD",
+   "selection_reason": "IN_BAND_FEWEST_GROUPS",
+   "representative_axis_reason": "불일치 그룹 2개(2~200 구간) · 축 2개 중 최소 · 선택 순서 무관 고정",
+   "axis_group_counts": {
+    "STATUS_CD": 4,
+    "DEPT_CD": 2
+   },
+   "groups": [
+    {
+     "v": "D03",
+     "c": 5
+    },
+    {
+     "v": "D06",
+     "c": 5
+    }
+   ]
+  },
+  "B": {
+   "cols": [
+    "DEPT_CD",
+    "STATUS_CD"
+   ],
+   "run_id": "PKB07878EAC36C",
+   "status": "READY",
+   "gb_cols": [
+    "DEPT_CD",
+    "STATUS_CD"
+   ],
+   "group_col": "DEPT_CD",
+   "total_group_count": 2,
+   "computed_from_store": true,
+   "representative_axis": "DEPT_CD",
+   "selection_reason": "IN_BAND_FEWEST_GROUPS",
+   "representative_axis_reason": "불일치 그룹 2개(2~200 구간) · 축 2개 중 최소 · 선택 순서 무관 고정",
+   "axis_group_counts": {
+    "DEPT_CD": 2,
+    "STATUS_CD": 4
+   },
+   "groups": [
+    {
+     "v": "D03",
+     "c": 5
+    },
+    {
+     "v": "D06",
+     "c": 5
+    }
+   ]
+  },
+  "C": {
+   "cols": [
+    "STATUS_CD",
+    "DEPT_CD"
+   ],
+   "run_id": "PK4B37112B2822",
+   "status": "READY",
+   "gb_cols": [
+    "STATUS_CD",
+    "DEPT_CD"
+   ],
+   "group_col": "DEPT_CD",
+   "total_group_count": 2,
+   "computed_from_store": true,
+   "representative_axis": "DEPT_CD",
+   "selection_reason": "IN_BAND_FEWEST_GROUPS",
+   "representative_axis_reason": "불일치 그룹 2개(2~200 구간) · 축 2개 중 최소 · 선택 순서 무관 고정",
+   "axis_group_counts": {
+    "STATUS_CD": 4,
+    "DEPT_CD": 2
+   },
+   "groups": [
+    {
+     "v": "D03",
+     "c": 5
+    },
+    {
+     "v": "D06",
+     "c": 5
+    }
+   ]
+  }
+ },
+ "verdict": {
+  "① 순서 무관 동일 대표축": true,
+  "실험 축": [
+   "DEPT_CD",
+   "DEPT_CD",
+   "DEPT_CD"
+  ],
+  "② 두 경로 동일 대표축": true,
+  "수동실행": "DEPT_CD",
+  "지금다시조회": "DEPT_CD",
+  "③ 선정 근거 응답+화면 노출": true,
+  "PASS": true
+ },
+ "dialogs": [
+  "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+  "검증 경로 접속 성공: Oracle_asis → Oracle_tobe",
+  "원본/목적 DB 를 지금 다시 비교해 최신 스냅샷을 만듭니다.\n검증을 처음부터 다시 실행하므로 대상 규모에 따라 시간이 걸릴 수 있습니다.\n\n계속하시겠습니까?"
+ ],
+ "errors": []
+}

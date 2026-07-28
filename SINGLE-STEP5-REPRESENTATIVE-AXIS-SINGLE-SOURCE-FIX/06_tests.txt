@@ -1,0 +1,15 @@
+....................................F....                                [100%]
+================================== FAILURES ===================================
+__________________ test_ui_advanced_perf_position_and_title ___________________
+
+    def test_ui_advanced_perf_position_and_title():
+        summ = re.search(r"function _mvRiSummaryHtml\(d, curPageMs\)\s*\{.*?\n\}", _HTML, re.S).group(0)
+        # \uc694\uc57d \ubc18\ud658\uc5d0 \uadf8\ub8f9(_grpHtml) \uc5c6\uc74c \u2014 mvRiWrap \uc778\ub77c\uc778\uc73c\ub85c \uc774\ub3d9
+>       ret = summ[summ.rindex("return _limitBanner"):]
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       ValueError: substring not found
+
+tests\test_d7_8_inline_drill_time.py:90: ValueError
+=========================== short test summary info ===========================
+FAILED tests/test_d7_8_inline_drill_time.py::test_ui_advanced_perf_position_and_title
+1 failed, 40 passed in 14.56s
