@@ -1,0 +1,168 @@
+════════════════════════════════════════════════════════════════════════════════
+ COMBO-PAIR-ENTRY-POINT-RESTORE-FEASIBILITY-DIAGNOSE
+ 조합(PAIR) 진입점 복원 타당성 진단 — 코드 수정 없음(진단 전용)
+ 검증일: 2026-07-28 / 실 PostgreSQL(Inter asis→tobe) · 실 서비스 포트 8000(인증 ON)
+════════════════════════════════════════════════════════════════════════════════
+
+✅ 작업 완료 - PAIR 실행 경로는 서버에서 완전히 살아 있음을 실측 확인, 차단 원인은 UI
+   진입점 부재 + distinct evidence 배선 갭의 이중 차단, 구현 규모 파일 3개·30줄로 산정
+
+────────────────────────────────────────────────────────────────────────────────
+[1] PAIR 세트 실행 가능성 — 강제 트리거 실측
+────────────────────────────────────────────────────────────────────────────────
+스크립트: scripts/dev_e2e/combo_pair_entry_point_feasibility_verify.py
+픽스처  : asis01.t_combo_src / tobe01.t_combo_tgt (1,200행 · 단일축 일치 · 조합 4그룹 불일치)
+
+/groupby-plan 4조합 실측
+  ui_evidence__include_pair_false      sets=[SINGLE:STATUS_CD, SINGLE:DEPT_CD]                     PAIR 없음
+      제외: STATUS_CD+DEPT_CD — 조합 distinct 근거 부족(단일 축 계획만 실행)
+  ui_evidence__include_pair_true       sets=[SINGLE:STATUS_CD, SINGLE:DEPT_CD]                     PAIR 없음  ★
+      제외: STATUS_CD+DEPT_CD — 조합 distinct 근거 부족(단일 축 계획만 실행)
+  distinct_forced__include_pair_false  sets=[SINGLE:STATUS_CD, SINGLE:DEPT_CD]                     PAIR 없음
+  distinct_forced__include_pair_true   sets=[SINGLE:STATUS_CD, SINGLE:DEPT_CD, PAIR:STATUS+DEPT]   PAIR 있음 ✅
+
+생성된 조합 SQL(/generate, selected_groupby 2개) — 조합 전용 경로 아님, 기존 생성기 그대로
+  원본  : SELECT status_cd AS STATUS_CD, dept_cd AS DEPT_CD, COUNT(*) AS CNT, SUM(amt) AS AMT
+          FROM asis01.t_combo_src GROUP BY status_cd, dept_cd
+  목적지: SELECT STATUS_CD AS STATUS_CD, DEPT_CD AS DEPT_CD, COUNT(*) AS CNT, SUM(AMT) AS AMT
+          FROM tobe01.t_combo_tgt GROUP BY STATUS_CD, DEPT_CD
+
+/execute — 서버 tuple 키 비교기(stats_execute_service.py:206) 실동작
+  success=True  gb_keys=[STATUS_CD, DEPT_CD]  total_groups=12
+  matched=8  diff=4  src_only=0  tgt_only=0   판정=불일치(FAILED)
+  (A,D01) 100299.00 → 99299.00 / (A,D02) 100303.00 → 101303.00
+  (P,D01) 100297.00 → 101297.00 / (P,D02) 100301.00 → 99301.00
+
+대조 — 현행 축별 분해(같은 픽스처·같은 서버)
+  STATUS_CD  그룹=3  matched=3  diff=0  판정=일치
+  DEPT_CD    그룹=4  matched=4  diff=0  판정=일치
+
+→ 서버 계층에 미구현 부분 없음. 조합 불일치를 정확히 검출한다.
+
+────────────────────────────────────────────────────────────────────────────────
+[2] UI 진입점 부재 확인 — "있었는데 표와 함께 지워졌다"
+────────────────────────────────────────────────────────────────────────────────
+정책 이력(커밋 추적)
+  81b556b  GROUP BY 자동계획 재설계        PAIR 자동 보강(과세분화 가드 3종 동시 도입)
+  e8603fb  count-gate-v2·단일축 실행 단일화 PAIR 명시 요청으로 강등(§23) + mvRunPairAugment 버튼 신설
+                                          사유 = "실행계획 단일화, 기본은 단일축만"(과세분화 아님)
+  b884eab  TASK31 세트 요약표 제거          "세트 요약표·[보기]·보강분석 버튼 제거(§25~§28)" → 진입점 소멸
+
+삭제 직전 코드(git show b884eab^) — 세트 요약표 헤더 안에 렌더되던 버튼
+  function mvRunPairAugment() { window._mvIncludePairOnce = true; runExecute(); }
+
+→ 조합 정책 변경 결정이 아니라 표 정리의 부수 삭제. 서버 include_pair·pair_candidate 는 지금도 동작.
+
+이중 차단 — 버튼만 되살려도 동작하지 않는다(실측)
+  _mvPlanCandidateEvidence(tabler_renderer.py:25431)는 distinct 를 평면 키로만 읽는다.
+  그런데 실제 /analyze 후보 dict 에는 그 평면 키가 하나도 없다:
+    STATUS_CD: distinct_count=∅ n_distinct_resolved=∅ n_distinct=∅ unique_count=∅ cardinality=∅
+               cardinality_evidence.distinct_count = 3   ← 값은 여기 있다
+               profile_evidence.distinct_count     = 3
+               evidence_json.n_distinct_resolved   = 3.0
+    DEPT_CD  : 동일 구조, 값 4
+
+게이트 분리 실측 — 무엇이 막는지 확정
+  S0_UI원형            include_pair=true → PAIR 없음  (제외: 조합 distinct 근거 부족)
+  S1_distinct만_보강    include_pair=true → PAIR 있음 ✅ pair_candidate={12그룹, 100.0행/그룹}
+  S2_distinct+업무근거   include_pair=true → PAIR 있음 ✅ (S1 과 동일)
+
+→ 업무 evidence 게이트는 이미 통과 중(explanation.reason_text 존재). 막는 것은 distinct 하나뿐이고
+  그 값은 응답 안에 이미 있다. 배선만 안 돼 있다.
+→ 부수 결론: 이 갭 때문에 pair_candidate 도 항상 null — "조합을 검증할 수 있었다"는 정보가
+  서버에서 화면으로 올라온 적이 한 번도 없다(진입점과 무관한 기존 결함).
+
+────────────────────────────────────────────────────────────────────────────────
+[3] 구현 규모 추정 — 파일 3개 · 코어 30줄 내외
+────────────────────────────────────────────────────────────────────────────────
+  1) ui/tabler_renderer.py  _mvPlanCandidateEvidence(:25431)  distinct 중첩 fallback   필수 3~5줄
+  2) ui/js_sql_preview.py   _comboNotice(:57~66)              opt-in 체크박스 신설     ~15줄
+  3) ui/tabler_renderer.py  runExecute(:27716)                _incPair 에 체크박스 반영  1줄
+  4) tests/test_groupby_plan.py                               양성 테스트 추가         ~20줄
+
+손대지 않아도 되는 것(실측 확인)
+  services/groupby_plan_service.py(include_pair 분기·가드) / routes/groupby_plan_route.py
+  generator/sql_generator.py(다축 GROUP BY) / services/stats_execute_service.py(tuple 키)
+  ui/grid_helpers.py(조합 미검증 배너) / _runExecutePlanSets MAJOR 금지 가드
+
+배치 설계 — 진입점은 4단계 SQL 카드 안(기존 "이 SQL은 참고용" 배너 자리)
+  · 문제를 알리는 자리와 해결하는 자리를 일치시킨다
+  · execBtn 옆은 불가 — body.mv-has-cmdbar #execBtn{display:none!important}(tabler:484)로 숨겨짐
+  · 실행 후 결과 화면 버튼(구 mvRunPairAugment) 방식은 재실행을 유발 → 실행 전 선택이 유리
+
+남는 UX 위험(구현 시 처리) — 체크해도 탈락하는 정상 케이스 5종
+  distinct 근거 없음 / 예상 그룹>100 / 평균<100행 / 구분 효과 없음 / COUNT MAJOR
+  5단계 '자동 제외' 줄에서만 사유가 보인다. 단, 이 경우 조합 미검증 배너가 그대로 떠서
+  거짓 안심은 발생하지 않는다.
+
+────────────────────────────────────────────────────────────────────────────────
+[4] 자동 vs 명시적 트리거 — 권고: 명시(opt-in) 유지
+────────────────────────────────────────────────────────────────────────────────
+정책 이력 재확인: 과세분화 방지 의도는 처음부터 있었으나(81b556b) 그때는 자동이었다.
+자동→명시 전환(e8603fb)의 근거는 "실행계획 단일화"이지 과세분화가 아니었다.
+
+항목별 위험 판단
+  그룹 폭주(과세분화)   낮음     상한 100그룹·하한 100행·구분효과 3중 가드 실측 동작
+  결과 표시 폭주        낮음     표시 축소는 등급과 별개(MAX_DISPLAY_ROWS 200 + 페이징)
+  대량 COUNT 불일치     이미 차단 COUNT_MAJOR_DIFF 에서 pair 금지(§25)
+  실행 비용             실재 위험 가드는 예상 그룹 수만 본다 — 스캔 비용은 전혀 못 막는다
+
+비용 실측(t_combo 1,200행, 3회, /generate+/execute 왕복)
+  1회차  단일축 385ms  조합 373ms  (0.97x)
+  2회차  단일축 256ms  조합 301ms  (1.17x)
+  3회차  단일축 302ms  조합 220ms  (0.73x)
+→ 조합 세트 1개 = 단일축 세트 1개와 동급 비용(테이블 전체 집계 1회 추가).
+  자동 ON 은 축 N개에서 총 실행 시간 +1/N 을 무조건 부과(2축 +50% / 3축 +33%).
+  대상이 수천만~1억 행인 도구에서 요청하지 않은 전체 스캔 추가는 공짜가 아니다.
+
+권고 근거 3가지
+  1) 가드의 사각지대가 비용 축이다 — 결과 크기는 막지만 실행 시간은 못 막는다
+  2) 자동 ON 의 최대 장점(거짓 안심 제거)은 오늘 배너로 이미 확보됐다
+  3) 자동이면 데이터에 따라 조합 실행 여부가 갈리는데 사용자가 통제할 수 없다
+
+후속 검토 후보(범위 밖): table_load_profiles 규모 등급 '소형' 대상에 한정한 조건부 자동 ON
+
+────────────────────────────────────────────────────────────────────────────────
+[5] 오늘 만든 경고 배너와의 관계 — 이미 연동됨, 추가 작업 0
+────────────────────────────────────────────────────────────────────────────────
+_mvComboUnverifiedAxes(grid_helpers.py:916) 판정 규칙은
+  "PAIR 이 아니면 배너"가 아니라 "선택 축 전부를 덮는 세트가 없으면 배너"
+    for (i in sets) if (sets[i].cols.length >= axes.length) return null;
+
+  2축 선택 · 단일축 2세트만            → 표시
+  2축 선택 · PAIR 세트 함께 실행       → 자동 미표시 ✅
+  3축 선택 · PAIR(2축) 함께 실행       → 표시(3축 조합은 여전히 미검증 — 올바름)
+  조합 체크했으나 가드로 탈락          → 표시(사실과 일치 — 거짓 안심 없음)
+
+재실행: scripts/dev_e2e/combo_decomposition_warning_static_verify.py  통과 14/14
+  [PASS] E   전 축 동시 세트 실행 → 미표기
+  [PASS] G-4 판정 헬퍼 PAIR 실행 → null
+→ 어제 배너 작성 시 이미 PAIR 실행 케이스를 상정해 둔 테스트. 배너 코드는 손댈 필요 없음.
+
+────────────────────────────────────────────────────────────────────────────────
+[검증 결과]
+────────────────────────────────────────────────────────────────────────────────
+combo_pair_entry_point_feasibility_verify.py (신규)               6/6 PASS
+  ✅ A_include_pair_OFF는_PAIR없음
+  ✅ B_include_pair_ON이면_PAIR생성
+  ✅ C_UI원형evidence는_ON이어도_PAIR없음        ← 이중 차단 확정
+  ✅ D_조합SQL_2축_GROUPBY_생성
+  ✅ E_tuple키_비교기_조합불일치_검출             ← diff=4 / total_groups=12
+  ✅ F_현행_축별분해는_불일치0                    ← 대조군
+combo_decomposition_warning_static_verify.py (재실행)            14/14 PASS
+
+회귀 확인(운영 코드 무수정이나 규칙대로 실행)
+  samples/test_virtual_cases.py                                   8/8 통과
+  samples/test_complex_cases.py                                   5/5 통과
+  pytest tests/test_groupby_plan.py tests/test_grid_helpers.py    22 passed
+
+[생성 파일 — 운영 코드 변경 0건]
+  docs/COMBO_PAIR_ENTRY_POINT_RESTORE_FEASIBILITY.md
+  scripts/dev_e2e/combo_pair_entry_point_feasibility_verify.py
+  E:\verify_screenshots_only\COMBO-PAIR-ENTRY-POINT-RESTORE-FEASIBILITY-DIAGNOSE\pair_feasibility_verify.json
+
+[픽스처] 기존 asis01.t_combo_src / tobe01.t_combo_tgt 재사용 — 신규 생성·변경 없음
+[보안] 접속정보/비밀번호는 프리셋에서만 로드, 출력·저장 없음
+
+✅ 작업 완료 - 조합(PAIR) 실행은 서버에서 즉시 가능하며 UI 배선 3개 파일·30줄로 복원 가능,
+   자동 ON 은 스캔 비용 사각지대 때문에 보류하고 opt-in 진입점 복원을 권고
