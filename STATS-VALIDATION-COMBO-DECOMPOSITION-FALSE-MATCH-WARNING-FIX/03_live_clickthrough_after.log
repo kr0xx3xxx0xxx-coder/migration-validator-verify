@@ -1,0 +1,26 @@
+
+=== [combo2] tag=after GB=['STATUS_CD', 'DEPT_CD'] SUM=['AMT'] ===
+  [1단계 쿼리검토] {"step": "query", "blocked": false, "err": null, "from_table": "T_COMBO_SRC", "target_table": ""}
+  [2단계 COUNT] {"moved": true, "clicks": 2, "count_status": "COUNT_MATCHED", "src_count": 1200, "tgt_count": 1200, "force_btn": false, "gate_excerpt": "COUNT 일치원본 1,200 · 목적 1,200 · 순 차이 0 · 목적지 적재율 100.0%COUNT 일치 — 값 불일치/교차 누락·과잉 확인을 위해 통계검증·Exact Diff 진행 가능.다음 단계: 통계검증 계속통계검증 계속 →"}
+  [3단계] picked= {"gb": ["STATUS_CD", "DEPT_CD"], "sum": ["AMT"], "missing": [], "disabled": []} applied= True
+  [계획 세트] [{"set_id": "S1", "kind": "SINGLE", "cols": ["STATUS_CD"]}, {"set_id": "S2", "kind": "SINGLE", "cols": ["DEPT_CD"]}]
+  [제외]      [{"cols": ["STATUS_CD", "DEPT_CD"], "reason": "조합 distinct 근거 부족(단일 축 계획만 실행)"}]
+  [집계]      {"matched": 7, "diff": 0, "src_only": 0, "tgt_only": 0, "total_groups": 7}
+  [요약 셀]   ["1", "asis01.t_combo_src", "tobe01.t_combo_tgt", "잠정 소형", "통과", "1,200 / 1,200", "단일축 2세트 · 7그룹", "일치조합 미검증", "준비 중", "정상조합 미검증"]
+  [배너 2개] ["⚠ 각 축 개별 검증 완료 · 조합(다축 동시) 검증은 수행되지 않았습니다선택한 GROUP BY 2개 축(STATUS_CD, DEPT_CD)은 축마다 독립 세트로 나누어 개별로만 비교했습니다. 따라서 위 통계결과·최종상태는 각 축 개별 기준이며, STATUS_CD + DEPT_CD 조합에서만 드러나는 불일치(축별 집계에서 서로 상쇄되어 사라지는 차이)는 이 판정에 포함되어 있지 않습니다.조합 기준 확인이 필요하면 아래 상세비교(재이관 대상 레코드) 결과를 함께 확인하세요 — 행 단위 비교는 조합 불일치를 그대로 검출합니다.", "⚠ 각 축 개별 검증 완료 · 조합(다축 동시) 검증은 수행되지 않았습니다선택한 GROUP BY 2개 축(STATUS_CD, DEPT_CD)은 축마다 독립 세트로 나누어 개별로만 비교했습니다. 따라서 위 통계결과·최종상태는 각 축 개별 기준이며, STATUS_CD + DEPT_CD 조합에서만 드러나는 불일치(축별 집계에서 서로 상쇄되어 사라지는 차이)는 이 판정에 포함되어 있지 않습니다.조합 기준 확인이 필요하면 아래 상세비교(재이관 대상 레코드) 결과를 함께 확인하세요 — 행 단위 비교는 조합 불일치를 그대로 검출합니다."]
+  [판정] 4단계병기=True 5단계병기=True 셀꼬리표=True 기대=True → PASS
+
+=== [single] tag=after GB=['STATUS_CD'] SUM=['AMT'] ===
+  [1단계 쿼리검토] {"step": "query", "blocked": false, "err": null, "from_table": "T_COMBO_SRC", "target_table": ""}
+  [2단계 COUNT] {"moved": true, "clicks": 2, "count_status": "COUNT_MATCHED", "src_count": 1200, "tgt_count": 1200, "force_btn": false, "gate_excerpt": "COUNT 일치원본 1,200 · 목적 1,200 · 순 차이 0 · 목적지 적재율 100.0%COUNT 일치 — 값 불일치/교차 누락·과잉 확인을 위해 통계검증·Exact Diff 진행 가능.다음 단계: 통계검증 계속통계검증 계속 →"}
+  [3단계] picked= {"gb": ["STATUS_CD"], "sum": ["AMT"], "missing": [], "disabled": []} applied= True
+  [계획 세트] []
+  [제외]      []
+  [집계]      {"matched": 3, "diff": 0, "src_only": 0, "tgt_only": 0, "total_groups": 3}
+  [요약 셀]   ["1", "asis01.t_combo_src", "tobe01.t_combo_tgt", "잠정 소형", "통과", "1,200 / 1,200", "단일축 1세트 · 3그룹", "일치", "준비 중", "정상"]
+  [배너 0개] []
+  [판정] 4단계병기=False 5단계병기=False 셀꼬리표=False 기대=False → PASS
+
+결과 JSON: C:\projects\migration-validator\scripts\dev_e2e\_combo_decomposition_warning_after.json 
+스크린샷: E:\verify_screenshots_only\STATS-VALIDATION-COMBO-DECOMPOSITION-FALSE-MATCH-WARNING-FIX
+전체 판정: PASS

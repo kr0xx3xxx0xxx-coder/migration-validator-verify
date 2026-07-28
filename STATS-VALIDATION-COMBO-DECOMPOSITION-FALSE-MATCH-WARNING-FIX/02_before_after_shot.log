@@ -1,0 +1,20 @@
+  [shot] E:\verify_screenshots_only\STATS-VALIDATION-COMBO-DECOMPOSITION-FALSE-MATCH-WARNING-FIX\static_before_multi.png
+  [shot] E:\verify_screenshots_only\STATS-VALIDATION-COMBO-DECOMPOSITION-FALSE-MATCH-WARNING-FIX\static_after_multi.png
+  [shot] E:\verify_screenshots_only\STATS-VALIDATION-COMBO-DECOMPOSITION-FALSE-MATCH-WARNING-FIX\static_after_single.png
+==============================================================================
+  [FAIL] BEFORE 다축 → 문구 없음
+  [PASS] BEFORE 다축 → 최종상태 '정상'
+  [PASS] AFTER  다축 → 문구 병기
+  [PASS] AFTER  다축 → 최종상태 '정상' 유지
+  [PASS] AFTER  단일축 → 문구 없음(회귀)
+  [PASS] BEFORE 단일축 == AFTER 단일축(무변경)
+------------------------------------------------------------------------------
+통과 5 / 6
+
+[BEFORE 다축 요약 텍스트]
+  ⚠ 각 축 개별 검증 완료 · 조합(다축 동시) 검증은 수행되지 않았습니다 선택한 GROUP BY 2개 축( STATUS_CD, DEPT_CD )은 축마다 독립 세트로 나누어 개별로만 비교했습니다. 따라서 위 통계결과·최종상태는 각 축 개별 기준 이며, STATUS_CD + DEPT_CD 조합에서만 드러나는 불일치(축별 집계에서 서로 상쇄되어 사라지는 차이)는 이 판정에 포함되어 있지 않습니다. 조합 기준 확인이 필요하면 아래 상세비교(재이관 대상 레코드) 결과를 함께 확인하세요 — 행 단위 비교는 조합 불일치를 그대로 검출합니다. 전체 대상 1건 No 원본 테이블 목적 테이블 통계검증 규모 쿼리검토 COUNT 실행계획 통계결과 재이관 PK 최종상태 1 asis01.t_combo_src tobe01.t_co
+
+[AFTER  다축 요약 텍스트]
+  ⚠ 각 축 개별 검증 완료 · 조합(다축 동시) 검증은 수행되지 않았습니다 선택한 GROUP BY 2개 축( STATUS_CD, DEPT_CD )은 축마다 독립 세트로 나누어 개별로만 비교했습니다. 따라서 위 통계결과·최종상태는 각 축 개별 기준 이며, STATUS_CD + DEPT_CD 조합에서만 드러나는 불일치(축별 집계에서 서로 상쇄되어 사라지는 차이)는 이 판정에 포함되어 있지 않습니다. 조합 기준 확인이 필요하면 아래 상세비교(재이관 대상 레코드) 결과를 함께 확인하세요 — 행 단위 비교는 조합 불일치를 그대로 검출합니다. 전체 대상 1건 No 원본 테이블 목적 테이블 통계검증 규모 쿼리검토 COUNT 실행계획 통계결과 재이관 PK 최종상태 1 asis01.t_combo_src tobe01.t_combo_tgt 산정 전 통과 1,200 / 1,200 단일축 2세트 · 7그룹 일치 조합 미검증 준비 중 정상 조합 미검증
+
+스크린샷: E:\verify_screenshots_only\STATS-VALIDATION-COMBO-DECOMPOSITION-FALSE-MATCH-WARNING-FIX

@@ -1,0 +1,69 @@
+........................................................................ [ 62%]
+xx..xxx..F.............F...................                              [100%]
+================================== FAILURES ===================================
+___________ test_phase4b_strategy_plan_effective_selection_display ____________
+
+    def test_phase4b_strategy_plan_effective_selection_display():
+        """[Phase4-B \xa74] \uc2e4\ud589\uacc4\ud68d \uce74\ub4dc \u2014 \uc804\uc5ed \uc124\uc815 vs \uc2e4\uc81c \uc801\uc6a9 GB/SUM + \uceec\ub7fc \ubaa9\ub85d + \uc124\uc815 \ubd88\uc77c\uce58 \uc0ac\uc720."""
+        html = _page()
+        fn = re.search(r"async function _mvRenderStrategyPlan\([^)]*\)\s*\{.*?\n\}\n", html, re.S).group(0)
+        assert "전역 설정" in fn and "실제 적용" in fn
+>       assert "effective_group_by_count" in fn and "effective_aggregate_count" in fn
+E       assert ('effective_group_by_count' in 'async function _mvRenderStrategyPlan(profile, hostId) {\n  var host = document.getElementById(hostId || \'strategyPla...:.74rem;color:#C2410C;margin-top:4px">미구현 전략은 자동 실행하지 않습니다. 기존 전체 비교 fallback 은 명시 승인 시에만 사용합니다.</div>\' : \'\');\n}\n')
+
+tests\test_stats_result_full.py:489: AssertionError
+______________ test_group_result_uses_normal_renderer_unchanged _______________
+
+    def test_group_result_uses_normal_renderer_unchanged():
+        # §4: 일반 GROUP BY/SUM 결과는 전용 renderer 로 빠지지 않고 기존 그룹 UI 유지.
+>       h = _render(_GROUP_RESULT)
+            ^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_count_only_validation_ui.py:113: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+r = {'diff': 0, 'gb_keys': ['JOIN_YM'], 'matched': 2, 'rows': [{'key': {'JOIN_YM': '202401'}, 'src': {'CNT': '5', 'SUM_AMT': '100'}, 'status': 'ok', 'tgt': {'CNT': '5', 'SUM_AMT': '100'}}], ...}
+
+    def _render(r):
+        """renderExecute 를 실제 실행해 #executeOut innerHTML 을 반환(node)."""
+        if not shutil.which("node"):
+            pytest.skip("node 미설치")
+        from ui.execute_result_renderer import build_execute_result_js
+        # renderExecute 는 본문을 targetId('x') 엘리먼트에 쓰고, 이후 결과 페이지네이션을
+        # exec-result-tbody/exec-result-paging 등 별도 엘리먼트에 쓴다(+window._exec* 상태 사용).
+        # 과거 하네스는 모든 id 에 동일 _el 을 반환해 본문이 페이지네이션으로 덮였고 window 미정의로 깨졌다.
+        # 실제 브라우저 DOM 과 동일하게 id 별 개별 엘리먼트 + window stub 을 제공하고 본문(id='x')만 읽는다.
+        harness = (
+            "function esc(s){return String(s==null?'':s);}\nfunction escNl(s){return esc(s);}\n"
+            "var window={};\n"
+            "var _els={};\nfunction _getEl(id){if(!_els[id])_els[id]={innerHTML:''};return _els[id];}\n"
+            "var document={getElementById:function(id){return _getEl(id);}};\n"
+            + build_execute_result_js() + "\n"
+            "renderExecute(" + json.dumps(r) + ",'x');\n"
+            "console.log(JSON.stringify({html:_getEl('x').innerHTML}));\n"
+        )
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+            f.write(harness)
+            path = f.name
+        try:
+            p = subprocess.run(["node", path], capture_output=True, encoding="utf-8", errors="replace")
+>           assert p.returncode == 0, p.stderr[:600]
+E           AssertionError: C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpk8v5ciu6.js:1276
+E               const _globalBtn = (opts.globalExport !== false)
+E                                        ^
+E             
+E             TypeError: Cannot read properties of undefined (reading 'globalExport')
+E                 at renderExecute (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpk8v5ciu6.js:1276:28)
+E                 at Object.<anonymous> (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpk8v5ciu6.js:1360:1)
+E                 at Module._compile (node:internal/modules/cjs/loader:1830:14)
+E                 at Object..js (node:internal/modules/cjs/loader:1961:10)
+E                 at Module.load (node:internal/modules/cjs/loader:1553:32)
+E                 
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmpk8v5ciu6.js'], returncode=1, st...unMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v24.15.0\n").returncode
+
+tests\test_count_only_validation_ui.py:50: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+FAILED tests/test_count_only_validation_ui.py::test_group_result_uses_normal_renderer_unchanged
+2 failed, 108 passed, 5 xfailed in 21.75s
