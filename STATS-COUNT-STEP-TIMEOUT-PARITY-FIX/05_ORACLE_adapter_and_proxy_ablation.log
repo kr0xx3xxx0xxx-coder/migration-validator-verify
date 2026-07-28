@@ -1,0 +1,14 @@
+﻿==============================================================================
+STATS-COUNT-STEP-TIMEOUT-PARITY-FIX — 오라클 COUNT timeout 실측
+  COUNT_STATEMENT_TIMEOUT_MS = 60000
+==============================================================================
+[O1] scope 없음 · budget 3000ms · 느린 COUNT
+  [O1_no_scope_3000ms] EXC elapsed=3.5s is_query_timeout_error=True msg=DPY-4024: call timeout of 3000 ms exceeded
+[O2] scope 안 · budget 3000ms · 느린 COUNT (연결 프록시 경유)
+  [O2_in_scope_3000ms] EXC elapsed=3.1s is_query_timeout_error=True msg=DPY-4024: call timeout of 3000 ms exceeded
+[O2b] ablation · 프록시 __setattr__ 위임 제거(수정 전 동작 재현)
+  [O2b_ablation_no_setattr] OK value=449910000 elapsed=11.6s
+[O3] 기본 budget(60초) · 정상 COUNT
+  [O3_default_fast] OK value=249950 elapsed=0.1s
+[O4] scope 누수 가드 — COUNT 후 실제 연결 call_timeout
+  [O4_scope_restore] real.call_timeout = 0 (기대: 0)

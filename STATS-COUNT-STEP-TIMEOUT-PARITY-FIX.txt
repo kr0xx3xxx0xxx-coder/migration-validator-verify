@@ -1,0 +1,83 @@
+✅ 작업 완료 - STATS-COUNT-STEP-TIMEOUT-PARITY-FIX : 2단계 COUNT 비교 SQL 에 실행 시간 상한(60초) 적용, 4단계와 비대칭 해소
+
+■ 요청 요약
+2단계 COUNT 비교 SQL 에는 타임아웃이 없어(무제한) 60초 상한이 있는 4단계와 비대칭이던 것을,
+services/db_query_service.py 단일 파일 수정으로 4단계와 동일한 메커니즘을 재사용해 해소.
+
+■ 조치 내용 (services/db_query_service.py 만 수정)
+1) COUNT_STATEMENT_TIMEOUT_MS 추가 — env MV_COUNT_STATEMENT_TIMEOUT_MS, 기본 60000
+   (4단계 EXECUTE_STATEMENT_TIMEOUT_MS 와 동일 형태·동일 기본값. 새 설정 체계 없음)
+2) _cmn_db_fetch_count(..., *, statement_timeout_ms=None) — 커서 생성 직후
+   get_adapter(db_type).apply_query_timeout 위임 (방언 분기는 어댑터에 캡슐화, 이 파일 미증가)
+3) _restore_scope_query_timeout() — finally 에서 scope 기준값(없으면 0=무제한)으로 복귀.
+   PG(세션 SET)·Oracle(call_timeout) 모두 연결에 남으므로, COUNT 상한이 같은 scope 의
+   후속 analyze/profile 쿼리를 오탐 취소하지 않게 막는다.
+4) _NoCloseConn.__setattr__ 위임 — 작업 중 발견한 2차 갭. 프록시가 읽기만 위임해
+   Oracle 의 conn.call_timeout 대입이 실제 연결에 닿지 않아 조용히 무효였다(ablation 실증).
+   기존 _cmn_db_fetch_all 의 Oracle timeout 에도 있던 갭이 함께 해소된다.
+
+■ 값 선택 근거 — 별도 값(더 짧게) 대신 4단계와 같은 60초
+- 하한: 정상 대용량 COUNT 도 수십 초다. mvbench.bench_30m(3,000만 행/3.7GB) 단순 COUNT(*)
+  반복 실측 19.4 / 22.6 / 22.7 / 23.5 / 24.6초. 30초로 줄이면 마진 20% 남짓이라
+  캐시 콜드·동시부하에서 정상 COUNT 를 오탐 취소한다.
+- 상한: COUNT 는 같은 테이블 GROUP BY(4단계)보다 항상 가볍다. COUNT 가 60초를 넘겼다면
+  뒤따르는 통계검증은 확실히 60초에 걸리므로, 60초보다 크게 두면 무의미한 대기만 늘어난다.
+→ 양쪽 근거가 같은 값을 가리킨다. 결과적으로 4단계와 동일(=parity). 더 짧게 쓰려면 env 로 조정.
+
+■ 실측 검증 (내부망 PostgreSQL_Inter_asis · mvbench 3,000만 행 픽스처, read-only)
+[Before / After]  느린 COUNT = bench_30m(3,000만) × bench_dim(50) × 3 = 45억 행
+  Before(수정 전 코드, worktree 68c75ae) : 168.4초 완주 — 상한 없음
+  After (기본 60초)                      : 60.2초 중단 · is_query_timeout_error=True
+                                           "canceling statement due to statement timeout"
+[정상 케이스 회귀 없음]
+  3,000만 행 plain COUNT → 22.7초 정상 반환(30,000,000)
+  100만 행 plain COUNT   → 0.1초 정상 반환(1,000,000)
+[scope 누수 가드]
+  scope 안 COUNT 실행 후 같은 연결 statement_timeout = 0 (무제한 복귀)
+[단계 경로 E2E — count_common_service.run_count_pair]
+  env 1500ms → source COUNT 1,671ms 중단, status=ERROR / count_error_code=EXEC_ERROR,
+               목적지 COUNT 는 이어서 82ms 정상(연결 오염 없음)
+  기본 60초  → source COUNT 23.5초 정상, status=FAILED / COUNT_MISMATCH(실행오류 아님)
+[Oracle — 방언 확장 + 프록시 갭 ablation]
+  O1 scope 없음 3000ms → DPY-4024 발화(3.5초) / O2 scope 안 → 3.1초 발화
+  O2b ablation(__setattr__ 위임 제거=수정 전) → 상한 미적용, 11.6초 완주 (갭 실증)
+  O3 기본 60초 정상 COUNT 0.1초 / O4 scope 종료 후 call_timeout=0 복귀
+
+■ 기존 테스트 회귀
+  samples/test_virtual_cases.py 8/8 통과, samples/test_complex_cases.py 5/5 완료
+  COUNT/어댑터 pytest 7파일: 110 passed / 2 failed
+  실패 2건(test_batch_count_only_path, test_cte_count_execution_and_projection의 UI 검사)은
+  본 수정을 되돌린 상태에서도 동일 실패 — 사전 존재 실패로 격리 확인(타 세션의
+  ui/tabler_renderer.py 미커밋 변경 영향으로 보임, 본 수정과 무관)
+
+■ 서버 재기동
+  2026-07-28 15:48:36 (KST), PID 25396, HTTP 401(Basic Auth 정상 기동)
+  로드된 COUNT_STATEMENT_TIMEOUT_MS = 60000 확인
+
+■ 변경/생성 파일 · 커밋
+  수정 services/db_query_service.py (+63 / -2)
+  신규 scripts/dev_e2e/count_step_timeout_parity_verify.py
+       scripts/dev_e2e/count_step_timeout_e2e_verify.py
+       scripts/dev_e2e/count_step_timeout_oracle_verify.py
+  커밋 47be676e7def5c9c68f1f48428329c5a4b78d54e
+
+■ 잔여 과제(이번 범위 밖 · 단일 파일 지시 준수로 미수정)
+1) 오류 문구 부정확 — count_common_service.categorize_conn_error 가 'timeout' 포함 메시지를
+   무조건 "연결 시간 초과" 로 분류. 실제는 쿼리 실행 시간 초과라 접속 문제로 오인 소지.
+2) 문서/주석 동기화 — stats_execute_service.py:41 주석과
+   docs/STATS_VALIDATION_CHUNKED_VS_SINGLE_TRADEOFF.md 2-1 표의 "COUNT = 타임아웃 없음" 기술이
+   이제 사실과 다름.
+3) MySQL/MariaDB/MSSQL 발화는 각 어댑터 구현에 의존 — 타 세션 DIALECT-TIMEOUT-NOOP-FIX 범위.
+   이번 실측은 PostgreSQL·Oracle 2방언.
+4) /count 는 여전히 CancelToken 미사용 — 브라우저 이탈 시 즉시 중단이 아니라 '최대 60초 후 해제'.
+5) UI 변경 없음(백엔드 실행 상한만 추가) → 화면 캡처 증적 없음.
+
+■ 증적
+  E:\verify_screenshots_only\STATS-COUNT-STEP-TIMEOUT-PARITY-FIX\
+    01_BEFORE_baseline_no_timeout.log / 02_AFTER_timeout_applied.log
+    03_E2E_step_env_1500ms.log / 04_E2E_step_default_60s.log
+    05_ORACLE_adapter_and_proxy_ablation.log / 06_regression_samples.log
+    07_git_diff_db_query_service.txt / 08_pytest_count_related.log
+    09_server_restart.log / REPORT.txt(서술형 완료보고서)
+
+✅ 작업 완료 - STATS-COUNT-STEP-TIMEOUT-PARITY-FIX

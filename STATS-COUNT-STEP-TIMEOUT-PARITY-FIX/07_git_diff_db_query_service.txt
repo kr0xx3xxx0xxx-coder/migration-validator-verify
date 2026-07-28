@@ -1,0 +1,104 @@
+﻿diff --git a/services/db_query_service.py b/services/db_query_service.py
+index b820354..6dceab4 100644
+--- a/services/db_query_service.py
++++ b/services/db_query_service.py
+@@ -146,6 +146,15 @@ class _NoCloseConn:
+     def __getattr__(self, name):
+         return getattr(object.__getattribute__(self, '_real'), name)
+ 
++    def __setattr__(self, name, value):
++        """속성 '쓰기'도 실제 연결로 위임한다(STATS-COUNT-STEP-TIMEOUT-PARITY-FIX).
++
++        위임이 없으면 conn 속성 대입형 설정(예: Oracle 어댑터의 conn.call_timeout = ms,
++        autocommit)이 프록시 객체에만 붙고 실제 연결에는 반영되지 않아 조용히 무효가 된다.
++        _real 자체는 __init__ 이 object.__setattr__ 로 넣으므로 이 경로를 타지 않는다.
++        """
++        setattr(object.__getattribute__(self, '_real'), name, value)
++
+ 
+ def _connection_fingerprint(db_info: dict) -> str:
+     """connection profile identity 지문(단방향 해시) — 비밀번호 원문을 키/로그에 노출하지 않으면서도
+@@ -247,6 +256,40 @@ _conn_scope_log = _logging.getLogger(__name__)
+ _CONN_SCOPE_DEBUG = bool(_os.environ.get("MV_CONN_SCOPE_DEBUG"))
+ _scope_diag_lock = threading.Lock()
+ 
++# ── 2단계 COUNT 비교 SQL 실행 시간 budget(ms) — STATS-COUNT-STEP-TIMEOUT-PARITY-FIX ──────────
++# 4단계 통계검증(stats_execute_service.EXECUTE_STATEMENT_TIMEOUT_MS = env MV_EXECUTE_STATEMENT_TIMEOUT_MS,
++# 기본 60000)과 '동일한 방식·동일한 기본값'을 쓴다. 새 설정 체계를 만들지 않고 env 주입 + 어댑터
++# apply_query_timeout 위임이라는 기존 메커니즘을 그대로 재사용한다.
++#
++# 값 선택 근거(더 짧게 잡지 않은 이유 — 실측 기반):
++#   내부망 PostgreSQL mvbench.bench_30m(3,000만 행 / 3.7GB) 의 '정상' COUNT(*) 가 24.6초.
++#   즉 정당한 COUNT 도 수십 초가 걸릴 수 있어 30초 급으로 줄이면 정상 대용량 COUNT 를 오탐 취소한다.
++#   반면 COUNT 는 뒤이어 실행될 통계검증(GROUP BY)보다 항상 가벼우므로 통계검증 상한(60초)보다 큰
++#   값도 의미가 없다. → 통계검증과 같은 60초가 상·하한 양쪽에서 타당하다(비대칭 제거 = parity).
++# 검수/테스트용 임시 주입은 env MV_COUNT_STATEMENT_TIMEOUT_MS 로만(운영 기본값 60000 불변).
++COUNT_STATEMENT_TIMEOUT_MS = int(_os.environ.get("MV_COUNT_STATEMENT_TIMEOUT_MS", "60000"))
++
++
++def _restore_scope_query_timeout(conn, db_info: dict) -> None:
++    """연결에 걸어둔 쿼리 timeout 을 현재 scope 기준값으로 되돌린다(재사용 연결 누수 방지).
++
++    scope 가 없으면 기준값도 없으므로 0(무제한)으로 되돌린다 — _cmn_db_connect 가 checkout 시
++    적용하는 규약(_to if _to else 0)과 동일하다. 실패해도 예외를 전파하지 않는다(정리 코드).
++    """
++    try:
++        from services.db_adapter_registry import get_adapter
++        _base = getattr(_req_conn, 'stmt_timeout_ms', None)
++        _cur = conn.cursor()
++        try:
++            get_adapter(db_info.get('db_type')).apply_query_timeout(conn, _cur, _base if _base else 0)
++        finally:
++            try:
++                _cur.close()
++            except Exception:
++                pass
++    except Exception:
++        pass
++
+ 
+ def _diag_host_tok(host) -> str:
+     """[진단 전용] host 를 노출하지 않고 source/target 구분만 가능한 짧은 결정적 토큰(md5 앞 6자)."""
+@@ -515,15 +558,32 @@ def __open_real_connection_impl(db_info: dict):
+     return get_adapter(db_info.get('db_type')).connect(db_info, connect_timeout=10)
+ 
+ 
+-def _cmn_db_fetch_count(db_info: dict, sql: str) -> int:
+-    """COUNT(*) SQL 실행 후 정수 반환. (계측: MV_COUNT_EXEC_PROBE=1 시 connect/exec 소요·실행 1회 기록)"""
++def _cmn_db_fetch_count(db_info: dict, sql: str, *, statement_timeout_ms: int | None = None) -> int:
++    """COUNT(*) SQL 실행 후 정수 반환. (계측: MV_COUNT_EXEC_PROBE=1 시 connect/exec 소요·실행 1회 기록)
++
++    실행 시간 상한(STATS-COUNT-STEP-TIMEOUT-PARITY-FIX):
++      4단계 통계검증(stats_execute_service.EXECUTE_STATEMENT_TIMEOUT_MS)과 동일한 메커니즘
++      (env 주입 + DBMS 어댑터 registry 의 apply_query_timeout)을 그대로 재사용한다. 2단계 COUNT 만
++      상한이 없어 느린/멈춘 COUNT 가 요청 스레드를 무한정 잡던 비대칭을 없앤다.
++      statement_timeout_ms 를 명시하면 그 값이 우선이고, 미지정(None)이면 COUNT_STATEMENT_TIMEOUT_MS 를 쓴다.
++      초과 시 드라이버 예외가 그대로 올라가 호출측(count_common_service)의 기존 실행오류 경로로 처리된다.
++
++    scope 누수 방지:
++      request_connection_scope 안에서는 연결이 재사용되므로(PostgreSQL 은 세션 SET statement_timeout,
++      Oracle 은 conn.call_timeout — 둘 다 연결 단위로 남는다) COUNT 가 설정한 상한을 finally 에서
++      scope 기준값(_req_conn.stmt_timeout_ms, 없으면 0=무제한)으로 되돌린다. 그래야 같은 scope 의
++      후속 analyze/profile 쿼리가 COUNT 의 상한을 물려받아 오탐 취소되지 않는다.
++    """
+     from services import count_exec_probe as _probe
++    from services.db_adapter_registry import get_adapter
+     import time as _t
++    _to = COUNT_STATEMENT_TIMEOUT_MS if statement_timeout_ms is None else statement_timeout_ms
+     _t0 = _t.perf_counter()
+     conn = _cmn_db_connect(db_info)
+     _t1 = _t.perf_counter()
+     try:
+         cur = conn.cursor()
++        get_adapter(db_info.get('db_type')).apply_query_timeout(conn, cur, _to)
+         _te0 = _t.perf_counter()
+         cur.execute(sql)
+         _diag_sql_log("count", sql, (_t.perf_counter() - _te0) * 1000.0, conn)   # [진단] COUNT 실행 SQL·시간
+@@ -531,6 +591,7 @@ def _cmn_db_fetch_count(db_info: dict, sql: str) -> int:
+         return int(row[0]) if row else 0
+     finally:
+         _probe.record_count_exec((_t1 - _t0) * 1000.0, (_t.perf_counter() - _t1) * 1000.0)
++        _restore_scope_query_timeout(conn, db_info)
+         try:
+             conn.close()
+         except Exception:

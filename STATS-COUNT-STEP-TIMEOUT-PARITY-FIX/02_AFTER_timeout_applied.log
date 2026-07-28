@@ -1,0 +1,50 @@
+﻿==============================================================================
+STATS-COUNT-STEP-TIMEOUT-PARITY-FIX 실측 — after(수정 후)
+  COUNT_STATEMENT_TIMEOUT_MS = 60000
+==============================================================================
+[A] 느린 COUNT — 3,000만 행 × 차원 150배(45억 행)
+  [A_slow_crossjoin_30m] EXC elapsed=60.2s is_query_timeout_error=True msg=canceling statement due to statement timeout
+[B] 정상 COUNT — 3,000만 행 plain
+  [B_plain_30m] OK value=30000000 elapsed=22.7s
+[C] 정상 COUNT — 100만 행 plain
+  [C_plain_1m] OK value=1000000 elapsed=0.1s
+[D] scope 누수 가드 — COUNT 후 statement_timeout 복귀
+  [D_scope_restore] statement_timeout after COUNT = 0 (기대: 0)
+[E] 명시 인자(statement_timeout_ms=3000) — 3,000만 행 plain
+  [E_explicit_3000ms] EXC elapsed=3.1s is_query_timeout_error=True msg=canceling statement due to statement timeout
+{
+  "mode": "after(수정 후)",
+  "cases": [
+    {
+      "case": "A_slow_crossjoin_30m",
+      "ok": false,
+      "elapsed_s": 60.2,
+      "is_query_timeout_error": true,
+      "error": "canceling statement due to statement timeout"
+    },
+    {
+      "case": "B_plain_30m",
+      "ok": true,
+      "value": 30000000,
+      "elapsed_s": 22.7
+    },
+    {
+      "case": "C_plain_1m",
+      "ok": true,
+      "value": 1000000,
+      "elapsed_s": 0.1
+    },
+    {
+      "case": "D_scope_restore",
+      "statement_timeout_after": "0",
+      "ok": true
+    },
+    {
+      "case": "E_explicit_3000ms",
+      "ok": false,
+      "elapsed_s": 3.1,
+      "is_query_timeout_error": true,
+      "error": "canceling statement due to statement timeout"
+    }
+  ]
+}

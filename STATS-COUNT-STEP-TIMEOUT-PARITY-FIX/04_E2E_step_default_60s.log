@@ -1,0 +1,18 @@
+﻿==============================================================================
+STATS-COUNT-STEP-TIMEOUT-PARITY-FIX — 2단계 COUNT 단계 경로 E2E
+  COUNT_STATEMENT_TIMEOUT_MS = 60000 (env=(미설정))
+==============================================================================
+{
+  "status": "FAILED",
+  "source_count": 30000000,
+  "target_count": 1000000,
+  "count_error_code": "COUNT_MISMATCH",
+  "count_error_message": "원본 30000000, 목적지 1000000, 차이 29000000",
+  "source_count_error": null,
+  "target_count_error": null,
+  "source_count_elapsed_ms": 23528.8,
+  "target_count_elapsed_ms": 81.0
+}
+  총 소요 = 23.8s
+  source_count_sql = SELECT COUNT(*) AS CNT
+FROM   mvbench.bench_30m
