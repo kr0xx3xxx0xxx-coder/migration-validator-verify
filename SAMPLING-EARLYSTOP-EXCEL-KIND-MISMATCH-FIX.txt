@@ -1,0 +1,154 @@
+SAMPLING-EARLYSTOP-EXCEL-KIND-MISMATCH-FIX — 서술형 완료보고서
+작성일: 2026-07-28
+대상 커밋: 6087b02
+서버 재기동 시각(KST): 2026-07-28 20:09:27
+
+────────────────────────────────────────────────────────────────────────────────
+1. 배경과 이번 작업의 범위
+────────────────────────────────────────────────────────────────────────────────
+직전 작업(SAMPLING-PREFLIGHT-EXCEL-EXPORT-GB-COLS-CHECK-AND-FIX)에서 표본 조기중단 경로의
+레코드 Excel 이 "헤더는 정상인데 데이터가 한 줄도 없다"는 사실이 실측으로 확인됐다. 그 작업은
+헤더 쪽 결함(gb_cols 문자열 리스트에 p[0] 를 적용해 "STATUS_CD" 가 "S" 로 잘리던 문제)만
+고쳤고, 데이터 행이 0건인 원인은 별도 결함으로 분리해 이번 작업으로 넘겼다.
+
+원인은 저장 kind 와 조회 kind 의 불일치다. 표본 조기중단은 규모가 큰 대상에 대해 전체 재이관
+목록을 만들지 않고, 대표 불일치 표본만 남긴다. 이때 sampling_preflight.py 의
+_persist_early_stop 은 그 표본을 kind="SAMPLE_MISMATCH" 로 저장한다. 반면 레코드 Excel 을
+만드는 routes/stats_result_route.py 는 kind="REIMPORT" 만 순회했다. 조기중단 run 에는
+REIMPORT 레코드가 애초에 존재하지 않으므로, 순회 결과는 언제나 0건이고 Excel 은 헤더만
+남는다. 저장은 정상적으로 되어 있는데 읽는 쪽이 다른 서랍을 열고 있던 셈이다.
+
+작업 지시대로 sampling_preflight.py 의 저장 kind 자체는 건드리지 않았다. 전체 재이관 대상
+목록과 대표 표본을 구분하기 위한 의도된 설계이고, 이 구분을 없애면 두 개념이 한 통에 섞인다.
+고쳐야 할 쪽은 그 구분을 인식하지 못하던 export 다. 수정 파일은 지시대로
+routes/stats_result_route.py 한 개다(그 외 추가한 파일은 실측용 스크립트 2개뿐).
+
+────────────────────────────────────────────────────────────────────────────────
+2. 무엇을 어떻게 고쳤나
+────────────────────────────────────────────────────────────────────────────────
+export 가 run head 의 basis 를 이미 읽고 있다는 점을 이용했다. 조기중단 run 은 basis 에
+sample_early_stop=True 가 기록되어 있고, 이는 동일 저장소를 읽는 다른 소비자
+(routes/agg_diff_route.py 의 pk-records 조기중단 분기)가 이미 쓰고 있는 판별 필드다. 즉
+새로운 신호를 발명하지 않고, 이미 확립된 계약을 export 에도 동일하게 적용했다.
+
+  - basis.sample_early_stop 이 참인 run 에 한해 순회 kind 목록에 SAMPLE_MISMATCH 를 추가한다.
+    (REIMPORT 를 빼지 않고 함께 순회한다 — 두 kind 가 섞여 저장될 여지가 생기더라도 누락이
+     없도록 하고, 기존 PK 기준 중복 제거 로직이 그대로 겹침을 걸러준다.)
+  - 조기중단이 아닌 run 은 kind 목록이 [REIMPORT] 하나 그대로다. 순회 횟수도, 발행되는
+    질의도 종전과 완전히 동일하다. 정상 경로에 회귀가 생길 구조적 여지가 없다.
+  - 시트명을 구분했다. 조기중단본은 "대표 불일치 표본", 그 외는 종전대로 "재이관 대상 레코드".
+
+시트명을 바꾼 이유는 정확성 때문이다. 조기중단 run 의 Excel 에 담기는 20건은 전체 재이관
+대상이 아니라 표본이다. 이번 수정으로 데이터가 나오기 시작하면, "재이관 대상 레코드" 라는
+시트명은 사용자에게 "재이관할 것이 20건뿐" 이라는 잘못된 인상을 준다. 실제 이번 실측에서
+표본 추정 불일치율은 29.65~30.45% 였고, 6만 행 기준 실제 대상은 1만 8천 건 규모다. 0행이던
+때는 오해할 여지도 없었지만 데이터를 채우는 순간 오독 위험이 생기므로, 같은 커밋에서 범위를
+명시했다. 집계 판정·건수 산출에는 아무 영향이 없는 표시 계층의 변경이다.
+
+부수적으로 시트 생성 시점을 조정했다. 종전에는 sheet 를 먼저 만들고 나중에 내용을 채웠는데,
+시트명을 run 성격에 따라 정하려면 basis 를 읽은 뒤에 만들어야 한다. 그래서 ws2 생성을 각
+분기 안으로 내렸다. 분기는 3개(정상/조기중단, run 미발견, index 미준비)이고 셋 다 시트를
+생성하도록 했다 — 어떤 경로로도 시트 없는 빈 통합문서가 나오지 않는다.
+
+────────────────────────────────────────────────────────────────────────────────
+3. 실측 — Before / After
+────────────────────────────────────────────────────────────────────────────────
+직전 작업이 만든 60,000행 픽스처(asis01.t_spgbl_src → tobe01.t_spgbl_tgt, 불일치율 30%)가
+존치되어 있어 그대로 재사용했다. 실측은 강제 주입 없이 제품 엔드포인트를 순서대로 타는
+방식이다: /analyze → /count → /generate → /execute → /agg-diff/prepare(여기서 표본 게이트
+발동) → /agg-diff/pk-records → /stats-result/export?scope=records(실제 파일 다운로드).
+마지막에 db/exact_diff_runs.db 를 직접 읽어 저장 kind 분포를 대조했다.
+
+[Before] run PS22D56DB7D55E
+  pk-records status = EARLY_STOPPED_HIGH_MISMATCH_ESTIMATE, 대표표본 20건
+  store record_kinds = {"SAMPLE_MISMATCH": 20}   ← 저장은 정상
+  다운로드 Excel: 시트 "재이관 대상 레코드"
+    헤더 = [ID, 불일치 유형, 원본 STATUS_CD, 원본 DEPT_CD, 원본 AMT,
+            목적 STATUS_CD, 목적 DEPT_CD, 목적 AMT]   ← 직전 수정으로 헤더는 이미 정상
+    데이터 행 = 0
+
+[After] run PSBBDB6152A5A7 (동일 픽스처·동일 요청 경로)
+  pk-records status = EARLY_STOPPED_HIGH_MISMATCH_ESTIMATE, 대표표본 20건
+  store record_kinds = {"SAMPLE_MISMATCH": 20}
+  다운로드 Excel: 시트 "대표 불일치 표본"
+    헤더 동일
+    데이터 행 = 20   ← 저장된 대표표본 20건이 하나도 누락 없이 전량 노출
+    예: [342, 값 불일치, C, D02, 1006.00, C, D02, 1506.00]
+        [402, 값 불일치, C, D02, 1003.00, C, D02, 1503.00]
+        [421, 값 불일치, P, D01, 1001.00, P, D01, 1501.00]
+
+행 수(20)가 store 저장 건수(20) 및 pk-records 가 화면에 주는 대표표본 수(20)와 정확히
+일치한다. GROUP BY 컬럼값(STATUS_CD/DEPT_CD)도 빈칸 없이 채워졌고, 원본 AMT 와 목적 AMT 가
+정확히 500 차이나는 픽스처 설계와 값까지 맞아떨어진다.
+
+────────────────────────────────────────────────────────────────────────────────
+4. 정상 경로 회귀 확인
+────────────────────────────────────────────────────────────────────────────────
+기존 60,000행 픽스처는 불일치율 30% 라 임계(10%)를 넘겨 항상 조기중단된다. 즉 그 픽스처로는
+정상 CHUNK 경로를 밟을 수 없다. 그래서 규모는 같고(60,000행 > 50,000 → stream ·
+PK_RANGE_CHUNK_COMPARE) 불일치율만 2% 로 낮춘 세트를 새로 만들어 조기중단이 발동하지 않는
+정상 경로를 실제로 통과시켰다.
+
+  픽스처: asis01.t_spgbn_src → tobe01.t_spgbn_tgt, 60,000행, 값 불일치 1,200건(2.0%)
+  (scripts/dev_e2e/sampling_earlystop_excel_kind_regress_fixture.py)
+
+[정상 PK_RANGE_CHUNK_COMPARE] run PS4FDF4FFCDF91
+  pk-records status = READY (조기중단 미발동 — 표본 추정 불일치율 1.85%)
+  store record_kinds = {"REIMPORT": 1200}, basis 에 sample_early_stop 없음
+  Excel 시트명 = "재이관 대상 레코드"(종전 그대로), 데이터 행 = 1,200
+  → 픽스처가 의도한 불일치 1,200건과 정확히 일치. 누락도 중복도 없다.
+
+[정상 비스트림 REIMPORT_PK_INDEX] 3,000행 픽스처(asis01.t_spgb_src)
+  pk-records status = READY, Excel 시트명 = "재이관 대상 레코드", 데이터 행 = 900
+  → 직전 작업이 수정 전에 남긴 대조군 증적(records_excel_nonstream_control.xlsx)의 900행과
+    동일하다. 이 경로는 이번 수정 전후로 행 수·시트명이 완전히 같다.
+
+두 정상 경로 모두 시트명·행 수가 불변이다. 코드 구조상으로도 sample_early_stop 이 없으면
+kind 목록이 종전과 동일한 [REIMPORT] 하나이므로, 추가 질의가 발생하지 않는다.
+
+기존 회귀 테스트도 전부 통과했다.
+  python samples/test_virtual_cases.py  → 8/8 통과
+  python samples/test_complex_cases.py  → 5/5 통과
+
+────────────────────────────────────────────────────────────────────────────────
+5. 남은 사항과 판단
+────────────────────────────────────────────────────────────────────────────────
+- 이번 수정은 export 표시 계층에 한정된다. 검증 판정(PASS/WARNING/SKIP)·집계 결과·저장
+  데이터에는 어떤 영향도 없다. 조기중단 run 의 Excel 이 "저장된 것을 그대로 보여주는" 상태로
+  돌아왔을 뿐이다.
+- 조기중단 Excel 은 여전히 대표 표본 20건이다(정책값 sample_representative_store_n=20).
+  이것은 결함이 아니라 조기중단 설계 그 자체다 — 규모가 커서 전량 열거를 포기한 상태이므로,
+  전량이 필요하면 조기중단을 끄거나 임계를 조정해 정식 상세비교를 돌려야 한다. 시트명 구분은
+  이 사실을 사용자가 파일만 보고도 알 수 있게 하려는 것이다.
+- 조기중단 run 에서 REIMPORT 와 SAMPLE_MISMATCH 를 함께 순회하지만, 실제 저장 분포는
+  SAMPLE_MISMATCH 단독이었다(실측 record_kinds 확인). REIMPORT 순회는 방어적 여유분이며
+  비용은 빈 결과 질의 1회다.
+
+────────────────────────────────────────────────────────────────────────────────
+6. 변경 파일
+────────────────────────────────────────────────────────────────────────────────
+수정 (1개 — 지시 범위 준수)
+  routes/stats_result_route.py
+    · ws2 생성 시점을 basis 판독 이후로 이동, 조기중단 여부에 따라 시트명 분기
+    · 순회 kind 목록화 — 조기중단 run 에만 SAMPLE_MISMATCH 추가
+    · 레코드 순회 루프를 kind 반복 안으로 이동(PK 중복 제거 seen 은 kind 간 공유 유지)
+
+신규 (실측 스크립트 2개 — 제품 코드 아님)
+  scripts/dev_e2e/sampling_earlystop_excel_kind_verify.py
+    · 직전 작업 드라이버를 재사용하고 증적 경로만 교체(조건 동일성 보장) + chunk_normal 모드 추가
+  scripts/dev_e2e/sampling_earlystop_excel_kind_regress_fixture.py
+    · 정상 CHUNK 경로 회귀 확인용 60,000행 저불일치(2%) 픽스처 생성기
+
+미변경 (지시대로 보존)
+  services/exact_diff/sampling_preflight.py — 저장 kind("SAMPLE_MISMATCH") 계약 그대로
+
+증적
+  E:\verify_screenshots_only\SAMPLING-EARLYSTOP-EXCEL-KIND-MISMATCH-FIX\
+    records_excel_before.xlsx              (조기중단 · 데이터 0행)
+    records_excel_after.xlsx               (조기중단 · 데이터 20행)
+    records_excel_chunk_normal_after.xlsx  (정상 CHUNK · 1,200행)
+    records_excel_nonstream_after.xlsx     (정상 비스트림 · 900행)
+    drive_result_*.json                    (각 실행의 엔드포인트 응답·store kind 분포 원본)
+    verify_summary.txt                     (Before/After·회귀 대조표)
+
+SAMPLING-EARLYSTOP-EXCEL-KIND-MISMATCH-FIX — 완료
