@@ -1,0 +1,58 @@
+id   | 주입 결함                                             | 대상 테스트 결과
+--------------------------------------------------------------------------------------------------------------
+M1   | 공용 컨테이너 소유권 가드 제거(개별 nav 가 일괄 화면도 덮어씀 = clobber 재발 | OK(잡음)  anchors=1
+     |                                                    |   - test_inner_render_guard_validation_only=FAIL
+     |                                                    |   - test_shared_container_ownership_guard=FAIL
+     |                                                    |   - test_ownership_guard_single_renders_only_on_analyze=FAIL
+M2   | 검증탭 상호 clobber 방지 제거(늦은 batch init 이 표시 중 개별 단계탭을  | OK(잡음)  anchors=1
+     |                                                    |   - test_show_bar_central_guard_behavior=FAIL
+     |                                                    |   - test_validation_tabs_do_not_clobber_each_other=FAIL
+M3   | 4단계 pane 배선에서 실행 진행 패널(mvExecProgress) 제거          | OK(잡음)  anchors=1
+     |                                                    |   - test_validation_action_row_and_result_nav=FAIL
+M4   | 탭 전환(showSingleStep)이 실행 로직(runExecute)을 호출        | OK(잡음)  anchors=1
+     |                                                    |   - test_single_pane_no_logic_call_on_tab=FAIL
+     |                                                    |   - test_single_step_funcs_no_auto_logic_call=FAIL
+M5   | 숨김이 DOM 제거를 하지 않음(진행 탭 잔존 = 누출)                    | OK(잡음)  anchors=1
+     |                                                    |   - test_hide_clears_dom=FAIL
+     |                                                    |   - test_show_bar_central_guard_behavior=FAIL
+M6   | SubNav 화이트리스트에 비검증 페이지(settings) 혼입 = 전역 누출        | OK(잡음)  anchors=1
+     |                                                    |   - test_node_should_show_subnav_policy=FAIL
+     |                                                    |   - test_step_nav_hidden_off_validation_screens=FAIL
+     |                                                    |   - test_subnav_policy_validation_pages_only=FAIL
+M7   | scroll-margin 을 공통 sticky 변수 대신 임시 px 하드코딩(원래 결함 재 | OK(잡음)  anchors=1
+     |                                                    |   - test_scroll_margin_uses_common_sticky_offset_vars=FAIL
+M8   | 하단 좌우 버튼 게이트가 완료 mark 를 참조(항상 인접 정책 붕괴)            | OK(잡음)  anchors=1
+     |                                                    |   - test_gate_wiring_contract=FAIL
+M9   | 새로고침(load) 보강에서 개별 단계탭 재렌더 제거(단계 탭 사라짐 재발)         | OK(잡음)  anchors=1
+     |                                                    |   - test_nav_render_wired_on_page_load=FAIL
+M10  | 후보표 표시 후 sticky offset 재계산 누락(안내박스 가려짐 재발)         | OK(잡음)  anchors=2
+     |                                                    |   - test_show_candidate_table_resyncs_sticky_offsets=FAIL
+M11  | 후보 카드에서 scroll-margin 클래스 제거(sticky 띠에 가려짐)        | OK(잡음)  anchors=1
+     |                                                    |   - test_colselect_card_has_scroll_margin_class=FAIL
+M12  | 잠긴 단계도 클릭 가능해짐(disabled 무시)                        | OK(잡음)  anchors=2
+     |                                                    |   - test_forward_steps_truly_disabled_not_clickable=FAIL
+     |                                                    |   - test_forward_step_not_clickable_node=FAIL
+M12b | 위임 핸들러의 잠금 단계 방어 제거(잠긴 단계 클릭이 실제로 전환됨)             | OK(잡음)  anchors=1
+     |                                                    |   - test_delegated_listener_is_navigation_only=FAIL
+M12c | 잠금 방어 2겹(마크업 + 위임 핸들러) 동시 제거 → 잠긴 단계가 실제로 전환됨      | OK(잡음)  anchors=2
+     |                                                    |   - test_locked_step_click_ignored=FAIL
+M13  | showTab 이 정책 함수 대신 페이지명 하드코딩으로 회귀                  | OK(잡음)  anchors=1
+     |                                                    |   - test_showtab_uses_subnav_policy=FAIL
+M14  | 위임 리스너 1회 바인딩 가드 제거(클릭 리스너 누적 = 첫 클릭 다중 호출)        | OK(잡음)  anchors=1
+     |                                                    |   - test_no_duplicate_listener_registration=FAIL
+     |                                                    |   - test_delegated_listener_is_navigation_only=FAIL
+M15  | 5단계 전용 결과 카드가 4단계 pane 으로 혼입                       | OK(잡음)  anchors=1
+     |                                                    |   - test_validation_action_row_and_result_nav=FAIL
+M16  | 무효화 함수가 실행 로직 호출(표시 전용 계약 위반)                      | OK(잡음)  anchors=1
+     |                                                    |   - test_downstream_invalidation_wired_to_change_events=FAIL
+M17  | 단계↔카드 배선에서 3단계(candidate) 키 삭제                     | OK(잡음)  anchors=1
+     |                                                    |   - test_single_real_pane_switching=FAIL
+     |                                                    |   - test_candidate_pane_renders_on_entry=FAIL
+M18  | SQL 입력 카드를 2단계 pane 에도 배선(단계 격리 붕괴)                | OK(잡음)  anchors=1
+     |                                                    |   - test_single_sql_input_card_in_query_pane=FAIL
+M19  | 상단 탭 렌더가 인접 게이트(_mvCanNavStep)로 회귀(완료 단계 자유이동 소실)  | OK(잡음)  anchors=1
+     |                                                    |   - test_gate_wiring_contract=FAIL
+M20  | 초기 복원이 단일 Controller 를 우회해 history 직접 조작           | OK(잡음)  anchors=1
+     |                                                    |   - test_navigation_controller_structure=FAIL
+--------------------------------------------------------------------------------------------------------------
+전체 결과: 모든 결함을 계약이 잡음

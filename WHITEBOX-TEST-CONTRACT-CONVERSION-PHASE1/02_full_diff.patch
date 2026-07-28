@@ -1,0 +1,1828 @@
+diff --git a/tests/test_count_only_sticky_overlap.py b/tests/test_count_only_sticky_overlap.py
+index 09fdd03..6cfcbf1 100644
+--- a/tests/test_count_only_sticky_overlap.py
++++ b/tests/test_count_only_sticky_overlap.py
+@@ -9,6 +9,12 @@ COUNT-only 후보 화면에서 sticky 섹션 헤더가 'COUNT-only 검증' 안
+   - colSelectCard 에 해당 클래스 적용.
+   - _showCandidateTable 이 표시 직후 _mvSyncStickyOffsets 로 공통 offset 을 재계산.
+   - 일반 후보 화면 레이아웃(sticky top 계산)은 동일 변수 사용으로 회귀 없음.
++
++WHITEBOX-TEST-CONTRACT-CONVERSION-PHASE1 — 문자열 단언 → 동작계약 전환.
++  · CSS 는 '어떤 선언문이 통째로 있다'가 아니라 '어떤 규칙이 어떤 변수에 의존한다'를 계약으로 본다
++    (공백/속기/속성 순서 변경에 깨지지 않되, 임시 px 하드코딩으로 바뀌면 잡힌다).
++  · 태그 원문 비교 → 클래스 토큰 멤버십(속성 순서 무관).
++  · h.find("function ...") 수동 슬라이스 → contract_utils.function_body(중괄호 매칭) + calls_absent.
+ """
+ 
+ import os
+@@ -16,6 +22,17 @@ import re
+ import sys
+ 
+ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
++sys.path.insert(0, os.path.dirname(__file__))
++
++from contract_utils import (  # noqa: E402
++    calls_absent,
++    function_body,
++    has_function,
++    inline_scripts,
++)
++
++# sticky offset 을 이루는 공통 CSS 변수(임시 px 가산이 아니라 이 두 변수에 기대는 것이 계약).
++_OFFSET_VARS = ("--mv-conn-bar-h", "--mv-step-nav-h")
+ 
+ 
+ def _html():
+@@ -23,47 +40,85 @@ def _html():
+     return _build_html()
+ 
+ 
++def _decl(css_source, selector, prop):
++    """`<selector>{ ... <prop>:<값> ... }` 에서 해당 선언의 '값'만 뽑는다(공백/줄바꿈 무관).
++
++    contract_utils 6헬퍼는 JS 구조용이라 CSS 선언에는 쓸 수 없다. 새 계약 헬퍼를 발명하는 것이 아니라,
++    이 파일 안에서만 쓰는 최소 파서다(선언 블록을 찾아 한 속성의 값을 반환).
++    """
++    m = re.search(re.escape(selector) + r"\s*\{([^}]*)\}", css_source)
++    assert m, f"CSS 규칙 미발견: {selector}"
++    v = re.search(re.escape(prop) + r"\s*:\s*([^;}]+)", m.group(1))
++    assert v, f"{selector} 에 {prop} 선언 없음"
++    return v.group(1).strip()
++
++
++def _tag_classes(html, element_id):
++    """id 로 요소 태그를 찾아 class 토큰 집합을 반환(속성 순서/개수 무관)."""
++    i = html.find('id="' + element_id + '"')
++    assert i >= 0, f"요소 미발견: #{element_id}"
++    tag = html[html.rindex("<", 0, i):html.index(">", i) + 1]
++    m = re.search(r'class="([^"]*)"', tag)
++    return set(m.group(1).split()) if m else set()
++
++
++# ── 계약 ①: scroll-margin 은 sticky 헤더와 '같은 공통 변수'로 계산된다(임시 px 아님) ─────────
+ def test_scroll_margin_uses_common_sticky_offset_vars():
+-    # scroll-margin-top 이 sticky 헤더와 동일한 공통 CSS 변수로 계산된다(임시 px 가산 아님).
+     h = _html()
+-    assert ".mv-step-pane-card{scroll-margin-top:" in h
+-    assert "calc(var(--mv-conn-bar-h,52px) + var(--mv-step-nav-h,40px) + 12px)" in h
+-    # sticky 섹션 헤더 top 도 같은 변수 기반(공통 offset 일관)
+-    assert "top:calc(var(--mv-conn-bar-h,52px) + var(--mv-step-nav-h,40px))" in h
++    scroll_margin = _decl(h, ".mv-step-pane-card", "scroll-margin-top")
++    for var in _OFFSET_VARS:
++        assert var in scroll_margin, \
++            f"scroll-margin-top 이 공통 sticky 변수 {var} 를 쓰지 않음(임시 px 하드코딩 의심): {scroll_margin}"
++    # sticky 섹션 헤더 top 도 같은 변수 기반(공통 offset 일관) — 두 규칙이 같은 출처를 공유해야 어긋나지 않는다.
++    header_top = _decl(h, ".mv-sticky-section-header", "top")
++    for var in _OFFSET_VARS:
++        assert var in header_top, f"sticky 섹션 헤더 top 이 {var} 를 쓰지 않음: {header_top}"
+ 
+ 
++# ── 계약 ②: 후보 카드가 scroll-margin 클래스를 갖는다(속성 순서 무관) ─────────────────────
+ def test_colselect_card_has_scroll_margin_class():
+     # 후보 카드(colSelectCard)에 scroll-margin 클래스 적용 → scrollIntoView 시 sticky 띠에 가리지 않음.
+-    h = _html()
+-    assert 'class="card mb-3 mv-step-pane-card" id="colSelectCard"' in h
++    classes = _tag_classes(_html(), "colSelectCard")
++    assert "mv-step-pane-card" in classes, \
++        f"colSelectCard 에 scroll-margin 클래스 미적용(가려짐 재발) — 실제 class={sorted(classes)}"
+ 
+ 
++# ── 계약 ③: 후보표 표시 직후 공통 offset 재계산 + 서버 재호출 금지 ───────────────────────
+ def test_show_candidate_table_resyncs_sticky_offsets():
+     # COUNT-only 전용 화면 축소 후에도 offset 이 맞도록 표시 직후 공통 offset 재계산을 호출.
+-    h = _html()
+-    s = h.find("function _showCandidateTable()")
+-    e = h.find("function ", s + 10)
+-    body = h[s:e]
++    s = inline_scripts(_html())
++    assert has_function(s, "_showCandidateTable")
++    body = function_body(s, "_showCandidateTable")
+     assert "_mvSyncStickyOffsets" in body, "_showCandidateTable 이 sticky offset 재계산을 호출하지 않음"
+-    assert "scrollIntoView" in body
++    assert "scrollIntoView" in body, "후보 카드로 스크롤 이동하지 않음"
++    # 표시 전용 계약(음성): 후보표 표시가 서버 재조회/재실행을 유발하면 안 된다.
++    assert calls_absent(body, ["fetch(", "runAnalyze(", "runCount(", "runGenerate("]) == [], \
++        "_showCandidateTable 이 표시 외 실행/재조회를 수행함"
+ 
+ 
++# ── 계약 ④: COUNT-only 안내 문구(가려짐 방지 대상)는 계속 존재 ─────────────────────────────
+ def test_count_only_note_still_rendered_in_candidate():
+-    # COUNT-only 안내 박스 전체 문구가 후보 화면에 존재(가려짐 방지 대상).
++    # 안내 문구 자체가 사용자와의 계약이므로 문구는 그대로 검사한다(UI 문구 계열은 유지 대상).
+     h = _html()
+     assert "COUNT-only 검증" in h
+     assert "선택 가능한 GROUP BY/SUM 후보가 없어 원본과 목적지의 전체 건수만 비교합니다." in h
+     assert "COUNT(*) 전체 건수 비교" in h
+ 
+ 
++# ── 계약 ⑤: 일반 후보 화면 회귀 없음(렌더러 존재 + 보정은 scroll-margin 뿐) ────────────────
+ def test_general_candidate_layout_unchanged():
+-    # 일반 후보 화면 회귀: sticky 섹션 헤더 정의/후보표 렌더러는 그대로 존재(레이아웃 변경 없음).
+     h = _html()
++    s = inline_scripts(h)
+     assert "후보 컬럼 선정 및 수작업 조정" in h
+-    assert "function renderUnifiedColTable(data)" in h
+-    assert "function renderColSelect(data)" in h
+-    # 보정은 scroll-margin(스크롤 정렬)만 — 레이아웃용 margin/padding 가산(임시 숫자)은 쓰지 않는다.
+-    assert "scroll-margin-top:calc(var(--mv-conn-bar-h,52px) + var(--mv-step-nav-h,40px) + 12px)" in h
++    assert has_function(s, "renderUnifiedColTable"), "통합 후보표 렌더러 소실"
++    assert has_function(s, "renderColSelect"), "후보 선정 렌더러 소실"
++    # 보정은 scroll-margin(스크롤 정렬)만 — 레이아웃용 margin-top/padding-top 가산(임시 숫자)은 쓰지 않는다.
++    m = re.search(r"\.mv-step-pane-card\s*\{([^}]*)\}", h)
++    assert m, ".mv-step-pane-card 규칙 미발견"
++    rule = m.group(1)
++    for banned in ("margin-top", "padding-top"):
++        assert not re.search(r"(^|;)\s*" + banned + r"\s*:", rule), \
++            f".mv-step-pane-card 가 {banned} 로 레이아웃을 밀고 있음(임시 보정 회귀): {rule}"
+ 
+ 
+ if __name__ == "__main__":
+diff --git a/tests/test_first_click_tab_nav.py b/tests/test_first_click_tab_nav.py
+index 818c9bd..d5b9838 100644
+--- a/tests/test_first_click_tab_nav.py
++++ b/tests/test_first_click_tab_nav.py
+@@ -14,29 +14,41 @@ FIRST-CLICK-TAB-NAV-FIX — 단계 탭(step nav) 첫 클릭 신뢰성(리렌더
+   - 클릭 1회당 onClick 1회
+   - disabled/locked 단계 클릭은 무시
+ pytest: python -m pytest tests/test_first_click_tab_nav.py -q
++
++WHITEBOX-TEST-CONTRACT-CONVERSION-PHASE1 — 이 파일은 이미 '동작계약'(실제 코드를 node 로 실행) 방식이라
++검증 방식 자체는 유지하고, 하니스 배관만 공용 헬퍼로 교체한다.
++  · 수동 js.index(...) 슬라이스 → contract_utils.listener_body(앵커 쌍).
++  · 임시파일 + subprocess 직접 조작 → contract_utils.run_node.
++  · 추가 계약: 위임 리스너 바인딩 함수가 실행 로직을 직접 호출하지 않는다(음성 계약).
+ """
+ import json
+ import os
+ import re
+-import shutil
+-import subprocess
+ import sys
+-import tempfile
+ 
+ import pytest
+ 
+ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
++sys.path.insert(0, os.path.dirname(__file__))
+ 
++from contract_utils import (  # noqa: E402
++    calls_absent,
++    function_body,
++    has_function,
++    inline_scripts,
++    listener_body,
++    run_node,
++)
+ 
+-def _extract_js():
+-    """페이지 JS 에서 _mvStepNavItemsHtml ~ renderMvStepNav(위임 헬퍼 포함) 블록을 추출."""
++
++def _scripts():
+     from ui.tabler_renderer import TablerRenderer
+-    h = TablerRenderer().render_full_page()
+-    blocks = sorted(re.findall(r"<script\b(?![^>]*\bsrc=)[^>]*>(.*?)</script>", h, re.S), key=len, reverse=True)
+-    js = blocks[0]
+-    start = js.index("function _mvStepNavItemsHtml")
+-    end = js.index("var _mvStepNavOwner")
+-    return js[start:end]
++    return inline_scripts(TablerRenderer().render_full_page())
++
++
++def _extract_js():
++    """페이지 JS 에서 _mvStepNavItemsHtml ~ renderMvStepNav(위임 헬퍼 포함) 블록을 추출(앵커 쌍)."""
++    return listener_body(_scripts(), "function _mvStepNavItemsHtml", "var _mvStepNavOwner")
+ 
+ 
+ _HARNESS = r"""
+@@ -161,18 +173,7 @@ console.log(JSON.stringify(out));
+ 
+ 
+ def _run():
+-    if not shutil.which("node"):
+-        pytest.skip("node 미설치")
+-    harness = _HARNESS.replace("__INJECT__", _extract_js())
+-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+-        f.write(harness)
+-        path = f.name
+-    try:
+-        p = subprocess.run(["node", path], capture_output=True, encoding="utf-8", errors="replace")
+-        assert p.returncode == 0, p.stderr[:800]
+-        return json.loads(p.stdout.strip())
+-    finally:
+-        os.unlink(path)
++    return json.loads(run_node(_HARNESS.replace("__INJECT__", _extract_js())).strip())
+ 
+ 
+ _R = None
+@@ -216,5 +217,25 @@ def test_enter_key_navigates():
+     assert _res()["enter_key"] == ["query"]
+ 
+ 
++def test_delegated_listener_is_navigation_only():
++    """위임 리스너를 다는 렌더 함수가 검증 실행 로직을 직접 호출하지 않는다(탭 전환 전용 — 음성 계약).
++
++    첫 클릭 유실 수정은 '위임 바인딩'이 핵심이므로, 그 바인딩 지점이 실행 로직으로 오염되면
++    탭 클릭이 곧 재실행이 되는 회귀가 된다. 존재 계약(has_function)만으로는 잡히지 않아 함께 건다.
++    """
++    s = _scripts()
++    assert has_function(s, "renderMvStepNav")
++    body = function_body(s, "renderMvStepNav")
++    assert calls_absent(body, ["runAnalyze(", "runCount(", "runGenerate(", "runExecute("]) == [], \
++        "단계 탭 렌더/위임 바인딩이 검증 실행 로직을 호출함"
++    # 위임은 안정적 부모에 1회만(idempotent) — 플래그 가드가 있어야 리스너가 누적되지 않는다.
++    # 부분 문자열 검사는 오탐한다(_mvStepNavDelegatedX 로 개명해도 통과 — mutation M14 에서 실제로 놓쳤다).
++    # 같은 플래그를 '읽고' '쓰는' 쌍이 모두 있어야 idempotent 가 성립하므로 단어 경계로 검사한다.
++    assert len(re.findall(r"\b_mvStepNavDelegated\b", body)) >= 2, \
++        "위임 리스너 1회 바인딩 가드(_mvStepNavDelegated 읽기/쓰기 쌍)가 소실됨"
++    # 잠긴 단계는 위임 단계에서도 걸러진다(마크업 가드와 별개의 2중 방어).
++    assert "mv-step-disabled" in body, "위임 핸들러의 잠금 단계 방어가 사라짐"
++
++
+ if __name__ == "__main__":
+     sys.exit(pytest.main([__file__, "-q"]))
+diff --git a/tests/test_navigation_sync.py b/tests/test_navigation_sync.py
+index a809b9b..f62ea31 100644
+--- a/tests/test_navigation_sync.py
++++ b/tests/test_navigation_sync.py
+@@ -3,48 +3,46 @@
+ tests/test_navigation_sync.py
+ Phase 71 — Navigation 상태 일관성(Menu/Header/URL/History 동기화) 검증.
+ 단일 Controller(showTab) 로 Sidebar active/Page Header/URL hash/현재 Tab/SubNav 가 항상 동일. 초기 우선순위 hash>ls>job-dashboard(검증 현황판).
+-브라우저 확인 불가 → node(DOM mock) + HTTP + _FULL_HTML 구조 검사로 대체.
++브라우저 확인 불가 → node(DOM mock) + HTTP + 구조 계약 검사로 대체.
++
++WHITEBOX-TEST-CONTRACT-CONVERSION-PHASE1 — 문자열 단언 → 동작계약 전환.
++  · 로컬 _run_node/_slice(수동 index 슬라이스) 제거 → contract_utils.run_node / listener_body / function_body.
++  · showTab 구조 검사를 '토큰 존재'가 아니라 '함수 본문 단위 배선 + 음성 계약'으로 재작성.
+ """
+ import os
+-import subprocess
+ import sys
+-import tempfile
+ 
+ import pytest
+ 
+ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
++sys.path.insert(0, os.path.dirname(__file__))
++
++from contract_utils import (  # noqa: E402
++    calls_absent,
++    function_body,
++    has_function,
++    listener_body,
++    run_node,
++)
+ 
+ 
+-def _have_node():
+-    try:
+-        subprocess.run(["node", "--version"], capture_output=True, timeout=10)
+-        return True
+-    except Exception:
+-        return False
++def _full():
++    from ui.tabler_renderer import _FULL_HTML
++    return _FULL_HTML
+ 
+ 
+ def _run_node(src):
+-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+-        f.write(src); path = f.name
+-    try:
+-        out = subprocess.run(["node", path], capture_output=True, text=True, encoding="utf-8", timeout=30)
+-        assert out.returncode == 0, out.stderr
+-        return out.stdout
+-    finally:
+-        os.unlink(path)
++    return run_node(src)
+ 
+ 
+ def _slice(a_anchor, b_anchor):
+-    from ui.tabler_renderer import _FULL_HTML
+-    a = _FULL_HTML.index(a_anchor); b = _FULL_HTML.index(b_anchor)
+-    return _FULL_HTML[a:b]
++    """앵커 쌍 슬라이스 — contract_utils.listener_body 위임(고정 길이 절단 금지)."""
++    return listener_body(_full(), a_anchor, b_anchor)
+ 
+ 
+ # ── 초기 진입 우선순위(순수) : hash > localStorage > job-dashboard ──────────────────────────────────────
+ def test_node_resolve_initial_tab_priority():
+-    if not _have_node():
+-        pytest.skip("node 미설치")
+-    fn = _slice("function _mvResolveInitialTab(hash, ls, isValid) {", "function _restoreActiveTab() {")
++    fn = function_body(_full(), "_mvResolveInitialTab")
+     js = (fn + "\n"
+           + "var ok=function(x){return ['job-dashboard','analyze','batch','history'].indexOf(x)>=0;};\n"
+           + "console.log('HASH::' + _mvResolveInitialTab('#tab-batch','analyze',ok));\n"
+@@ -112,10 +110,8 @@ function _activeNames(){ return TABS.filter(function(n){return linkEls[n].classL
+ 
+ 
+ def test_node_showtab_single_controller_sync():
+-    if not _have_node():
+-        pytest.skip("node 미설치")
+     block = _slice("var _MV_SUBNAV_PAGES", "var _ALL_TABS")            # subnav + page header 정책/헬퍼
+-    showtab = _slice("function showTab(name, opts) {", "/* Phase 71 — 초기 진입 탭 결정(순수)")
++    showtab = function_body(_full(), "showTab")
+     js = _dom_mock_prelude() + block + "\n" + showtab + "\n" + r"""
+ /* 1) 메뉴 클릭(analyze): active 1개 + hash pushState + header + subnav */
+ showTab('analyze');
+@@ -159,18 +155,26 @@ console.log('DUP_PUSH_DELTA::' + (_pushes.length-pc3));
+     assert out["DUP_PUSH_DELTA"] == "0"
+ 
+ 
+-# ── 구조 검사(_FULL_HTML) ────────────────────────────────────────────────────────────────────
++# ── 구조 계약(단일 Controller 배선) ─────────────────────────────────────────────────────────
+ def test_navigation_controller_structure():
+-    from ui.tabler_renderer import _FULL_HTML
+-    st = _slice("function showTab(name, opts) {", "function _mvResolveInitialTab")
++    """URL/History 조작은 showTab 한 곳에만 있고, 나머지 경로는 showTab 을 경유한다(단일 Controller)."""
++    full = _full()
++    st = function_body(full, "showTab")
++    # showTab 이 history 를 직접 관리(push/replace 분기 + 뒤로가기 재조작 방지 옵션)
+     assert "opts.fromHistory" in st and "history.pushState" in st and "history.replaceState" in st
+     assert "nav-link.active" in st                                   # single active 정리
+     # hashchange/popstate 는 _ALL_TABS + fromHistory 로 단일 Controller 동기화
+-    hc = _slice("window.addEventListener('hashchange'", "/* 초기 로드 시 마지막 활성 탭 복원")
+-    assert "_ALL_TABS.indexOf(h)" in hc and "fromHistory: true" in hc and "popstate" in hc
++    hc = listener_body(full, "window.addEventListener('hashchange'")
++    assert "_ALL_TABS.indexOf(h)" in hc and "fromHistory: true" in hc
++    assert "popstate" in _slice("window.addEventListener('hashchange'",
++                                "/* 초기 로드 시 마지막 활성 탭 복원")
+     # 초기 복원은 showTab(replace) 단일 Controller 경유(검증 현황판 포함)
+-    rt = _slice("function _restoreActiveTab() {", "window.addEventListener('hashchange'")
+-    assert "showTab(name, { replace: true })" in rt
++    rt = function_body(full, "_restoreActiveTab")
++    assert "showTab(" in rt and "replace: true" in rt, "초기 복원이 showTab(replace) 를 경유하지 않음"
++    # 음성 계약: 복원 경로가 Controller 를 우회해 직접 화면/URL 을 조작하면 안 된다.
++    assert calls_absent(rt, ["history.pushState(", "location.reload(", "_mvHideStepNavBar("]) == [], \
++        "_restoreActiveTab 이 단일 Controller 를 우회해 history/화면을 직접 조작함"
++    assert has_function(full, "_mvResolveInitialTab")
+ 
+ 
+ def test_get_root_200(tmp_path):
+diff --git a/tests/test_save_time_label_and_nav.py b/tests/test_save_time_label_and_nav.py
+index 6e380b5..9b6eebe 100644
+--- a/tests/test_save_time_label_and_nav.py
++++ b/tests/test_save_time_label_and_nav.py
+@@ -8,6 +8,14 @@ SAVE-TIME-LABEL-AND-REFRESH-WORKFLOW-NAV-FIX
+ 2) 새로고침 Workflow nav: 단계 탭 5개 항상 렌더(타이밍/토큰/결과 비종속) — JS 보강 + 공용 nav clobber 방지.
+ 
+ pytest: python -m pytest tests/test_save_time_label_and_nav.py -q
++
++WHITEBOX-TEST-CONTRACT-CONVERSION-PHASE1 —
++  test_front_refresh_nav_fixes_present 는 원래 렌더 산출물 원문(인라인 복합조건)을 그대로 비교해
++  정당한 리팩터(_mvShouldShowSubNav 헬퍼 추출)에 깨졌고, NAV-STICKY-TEST-FRONT-REFRESH-STALE-FAILURE-FIX
++  에서 '현재 산출물 문자열'로 갱신됐다. 그 방식은 다음 리팩터에서 또 깨지므로, 여기서 계약(행동)으로 재전환한다.
++    · 새로고침 시 단계 탭 렌더 배선(load 콜백에서 개별 nav 를 다시 그린다)
++    · 비검증 화면에서는 SubNav 미표시(정책 함수 실행)
++    · 검증 탭 상호 clobber 방지(다른 검증 탭 소유 nav 를 지우지 않는다) — 실제 함수 실행
+ """
+ 
+ import os
+@@ -21,6 +29,15 @@ import tempfile
+ import pytest
+ 
+ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
++sys.path.insert(0, os.path.dirname(__file__))
++
++from contract_utils import (  # noqa: E402
++    function_body,
++    has_function,
++    inline_scripts,
++    listener_body,
++    run_node,
++)
+ 
+ 
+ # ── 1) latest_result_saved_at_by_target: 목적지별 최신 finished_at(정규화 키) ──
+@@ -81,20 +98,113 @@ def test_front_labels_and_cells():
+     assert 'id="singleGroupTargetsBody"' not in html and "그룹 최신 검증대상 목록</span>" not in html
+ 
+ 
+-def test_front_refresh_nav_fixes_present():
+-    html = _html()
+-    # window load 보강 렌더 + _mvInitNav defer + clobber 방지 가드
+-    assert "window.addEventListener('load'" in html
+-    assert "setTimeout(_mvInitNav, 0);" in html
+-    # clobber 방지 가드는 이후 리팩터로 인라인 복합조건(_mvCurrentTab !== 'analyze' && ... !== 'batch')에서
+-    # SubNav 화이트리스트(_MV_SUBNAV_PAGES) + _mvShouldShowSubNav() 헬퍼로 추출됐다. 계약(비검증 화면에서
+-    # 공용 step nav 미표시 / 검증 탭 상호 clobber 방지)은 그대로이므로 현재 산출물 형태로 단언을 최신화한다.
+-    assert "_MV_SUBNAV_PAGES = ['analyze','batch']" in html            # SubNav 소유 화이트리스트(analyze/batch)
+-    assert "function _mvShouldShowSubNav(name)" in html                 # 화이트리스트 멤버십 헬퍼
+-    assert "if (!_mvShouldShowSubNav(_mvCurrentTab)) _mvHideStepNavBar();" in html  # 비검증 화면에서만 숨김/정리
+-    # 개별↔일괄 공용 컨테이너(mvStepNavInner) 소유권 가드: 표시 중인 검증 탭만 자신의 nav 를 그린다.
+-    assert "_isSingleCaller && _mvCurrentTab !== 'analyze'" in html     # 개별 nav 는 analyze 표시 중에만
+-    assert "!_isSingleCaller && _mvCurrentTab !== 'batch'" in html      # 일괄 nav 는 batch 표시 중에만
++def _scripts():
++    return inline_scripts(_html())
++
++
++# ── 계약 A: 새로고침(전체 로드) 후 개별검증 단계 탭을 반드시 한 번 다시 그린다 ────────────────
++def test_nav_render_wired_on_page_load():
++    """단계 탭 렌더가 타이밍/토큰/결과에 종속되지 않도록 초기화 + load 보강 양쪽에 배선돼 있다.
++
++    문자열 'setTimeout(_mvInitNav, 0);' 대신 '초기화가 스케줄된다'는 배선 계약으로 검사한다
++    (DOMContentLoaded 등록 또는 다음 tick 스케줄 — 어느 형태든 계약 충족).
++    """
++    s = _scripts()
++    assert has_function(s, "_mvInitNav"), "nav 초기화 진입점 소실"
++    assert re.search(r"addEventListener\(\s*'DOMContentLoaded'\s*,\s*_mvInitNav\s*\)"
++                     r"|setTimeout\(\s*_mvInitNav\s*,", s), \
++        "새로고침 시 _mvInitNav 초기화 배선(DOMContentLoaded 등록 또는 다음 tick 스케줄)이 없음"
++    # load 보강: 개별검증 화면이 표시 중이면 단계 탭을 다시 그린다(고정 길이 절단 금지 — 중괄호 매칭 본문).
++    body = listener_body(s, "window.addEventListener('load'")
++    # 'typeof _renderSingleStepNav === function' 같은 존재 확인만 남고 실제 호출이 사라지는 회귀를
++    # 잡으려면 '호출'을 봐야 한다(mutation M9 에서 실제로 놓쳤던 지점).
++    assert re.search(r"_renderSingleStepNav\s*\(\s*\)", body), \
++        "window load 보강에서 개별검증 단계 탭 재렌더 '호출'이 사라짐(새로고침 후 단계 탭 미표시 재발)"
++    assert "_mvCurrentTab" in body, "load 보강이 공용 nav 소유권 가드를 통과시키지 않음"
++
++
++# ── 계약 B: 비검증 화면에서는 공용 step nav 를 표시하지 않는다(정책 함수 실행) ─────────────
++def test_step_nav_hidden_off_validation_screens():
++    s = _scripts()
++    js = (listener_body(s, "var _MV_SUBNAV_PAGES", "/* Phase 70") + "\n"
++          + "console.log('SHOW:' + (_mvShouldShowSubNav('analyze') && _mvShouldShowSubNav('batch')));\n"
++          + "console.log('HIDE:' + ['settings','home','job-dashboard','queryupload','history','metadata']"
++            ".every(function(n){return _mvShouldShowSubNav(n)===false;}));\n")
++    out = run_node(js)
++    assert "SHOW:true" in out, "검증 화면에서 SubNav 가 미표시로 판정됨"
++    assert "HIDE:true" in out, "비검증 화면에서 SubNav 가 표시로 판정됨(전역 누출)"
++
++
++# ── 계약 C: 검증 탭 상호 clobber 방지 — 늦게 온 렌더가 표시 중 탭 nav 를 지우지 않는다 ──────
++def test_validation_tabs_do_not_clobber_each_other():
++    """개별검증 화면 표시 중에 일괄 init 이 늦게 도착해도 개별 단계 탭이 유지된다.
++
++    (이 파일이 원래 잡으려던 결함 — '새로고침 후 단계 탭 사라짐' — 의 실제 행동 계약)
++    """
++    s = _scripts()
++    js = (r"""
++var _store={}, _cssVars={};
++function _el(id){ return _store[id] || (_store[id]={ id:id, innerHTML:'', hidden:false,
++  style:{ display:'', setProperty:function(){} } }); }
++var document={ getElementById:_el,
++  documentElement:{ style:{ setProperty:function(k,v){_cssVars[k]=v;} } } };
++var _mvCurrentTab='', _mvStepNavOwner='';
++"""
++          + listener_body(s, "var _MV_SUBNAV_PAGES", "/* Phase 70") + "\n"
++          + function_body(s, "_mvHideStepNavBar") + "\n"
++          + function_body(s, "_mvShowStepNavBar") + "\n"
++          + r"""
++/* 개별검증 화면 표시 중 + 개별 단계 탭이 그려진 상태 */
++_mvCurrentTab='analyze';
++_el('mvStepNavInner').innerHTML='<div class="mv-step-nav">개별 1~5단계</div>';
++/* 늦게 도착한 일괄 init 이 자기 소유가 아닌 상태로 표시 요청 */
++_mvShowStepNavBar('batch');
++console.log('KEPT:' + (_el('mvStepNavInner').innerHTML.indexOf('mv-step-nav') >= 0));
++/* 반대로 비검증 화면이면 정리한다 */
++_mvCurrentTab='settings';
++_mvShowStepNavBar('batch');
++console.log('CLEARED_OFFSCREEN:' + (_el('mvStepNavInner').innerHTML === ''));
++""")
++    out = run_node(js)
++    assert "KEPT:true" in out, \
++        "늦게 도착한 일괄 렌더가 표시 중인 개별검증 단계 탭을 지움(새로고침 후 단계 탭 사라짐 재발)"
++    assert "CLEARED_OFFSCREEN:true" in out, "비검증 화면에서 단계 탭 DOM 이 정리되지 않음"
++
++
++# ── 계약 D: 공용 컨테이너 소유권 가드 — 표시 중인 검증 탭만 자기 nav 를 그린다 ───────────────
++def test_shared_container_ownership_guard():
++    s = _scripts()
++
++    def _wrote(current_tab, on_click):
++        js = (r"""
++var _wrote='__UNSET__';
++var _inner={ querySelector:function(){return null;}, querySelectorAll:function(){return [];},
++             addEventListener:function(){}, contains:function(){return false;} };
++Object.defineProperty(_inner,'innerHTML',{set:function(v){_wrote=v;},
++  get:function(){return _wrote==='__UNSET__'?'':_wrote;}});
++var document={ getElementById:function(id){ return id==='mvStepNavInner'?_inner:null; } };
++var window={};
++function showSingleStep(){} function showBatchStep(){}
++function _mvEsc(x){ return String(x==null?'':x); }
++"""
++              + listener_body(s, "var _MV_STEP_STATUS_CLASS") + ";\n"
++              + "var _mvCurrentTab='" + current_tab + "';\n"
++              + function_body(s, "_mvNavClick") + "\n"
++              + function_body(s, "_mvStepNavItemsHtml") + "\n"
++              + function_body(s, "_mvStepNavSig") + "\n"
++              + function_body(s, "_mvUpdateStepNavInPlace") + "\n"
++              + function_body(s, "renderMvStepNav") + "\n"
++              + "renderMvStepNav('mvStepNavInner',"
++                "[{no:1,label:'L1',status:'current',badge:'현재',active:true,clickKey:'query'}],"
++                + on_click + ");\n"
++              + "console.log('WROTE:' + (_wrote !== '__UNSET__'));\n")
++        return "WROTE:true" in run_node(js)
++
++    batch_cb = "function(k){ showBatchStep(Number(k)); }"
++    assert _wrote("analyze", "_mvNavClick") is True, "개별검증 화면에서 개별 단계 탭이 그려지지 않음"
++    assert _wrote("batch", "_mvNavClick") is False, "일괄 화면인데 개별 nav 가 공용 컨테이너를 덮어씀"
++    assert _wrote("batch", batch_cb) is True, "일괄 화면에서 일괄 단계 탭이 그려지지 않음"
++    assert _wrote("analyze", batch_cb) is False, "개별 화면인데 일괄 nav 가 공용 컨테이너를 덮어씀"
+ 
+ 
+ def test_rendered_js_node_check():
+diff --git a/tests/test_shared_sticky_step_nav.py b/tests/test_shared_sticky_step_nav.py
+index 884aec2..e9c3c65 100644
+--- a/tests/test_shared_sticky_step_nav.py
++++ b/tests/test_shared_sticky_step_nav.py
+@@ -8,17 +8,35 @@ UX-SHARED-STICKY-STEP-NAV-FOR-SINGLE-AND-BATCH.
+   - 개별/일괄이 같은 공통 컴포넌트(renderMvStepNav) 사용
+   - sticky class(.mv-sticky-step-nav) + 연결 badge class 존재
+ Node 로 helper 를 직접 실행해 검증한다.
++
++WHITEBOX-TEST-CONTRACT-CONVERSION-PHASE1 — 문자열 단언 → 동작계약 전환(이 파일은 Tier 1 최대 파일).
++  전환 원칙(파일럿 결론 그대로):
++    · 배관 통일 — 로컬 _extract_fn/_run_node/스크립트 추출 → contract_utils 6헬퍼 재사용.
++    · DOM 원문 통째 비교(`id="…" class="…" style="…" hidden>`) → 요소 단위 속성/클래스 토큰 검사.
++    · 배열/객체 리터럴 원문 비교(`'a', 'b', 'c']`) → 멤버십 계약(순서·줄바꿈·항목 추가 무관 + 음성 계약).
++    · 함수 시그니처 원문(`function f(a, b)`) → has_function(파라미터 목록 무관) + 본문 단언 동반.
++    · '금지 호출 없음' 반복문 → calls_absent(위반 목록 반환 — 실패 사유가 드러남).
++  유지 대상: node 실행 계약(이미 행동 검증), UI 한글 문구(문구 자체가 사용자와의 계약),
++             제거 확인(not in)은 '식별자 단위'로 좁혀 유지.
+ """
+ from __future__ import annotations
+ 
+ import os
+ import re
+-import shutil
+-import subprocess
+ import sys
+-import tempfile
+ 
+ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
++sys.path.insert(0, os.path.dirname(__file__))
++
++from contract_utils import (  # noqa: E402
++    calls_absent,
++    function_body,
++    has_function,
++    inline_scripts,
++    listener_body,
++    run_node,
++    wiring_keys,
++)
+ 
+ 
+ def _html():
+@@ -27,18 +45,34 @@ def _html():
+ 
+ 
+ def _extract_fn(name, scripts):
+-    m = re.search(r'function ' + name + r'\s*\([^)]*\)\s*\{', scripts)
+-    assert m, f"{name} 미발견"
+-    i = scripts.index("{", m.start())
+-    depth = 0
+-    for j in range(i, len(scripts)):
+-        if scripts[j] == "{":
+-            depth += 1
+-        elif scripts[j] == "}":
+-            depth -= 1
+-            if depth == 0:
+-                return scripts[m.start():j + 1]
+-    raise AssertionError("brace 매칭 실패")
++    """함수 정의 원문 추출 — contract_utils.function_body 위임(로직 재구현 없음)."""
++    return function_body(scripts, name)
++
++
++def _tag_of(html, element_id):
++    """id 로 요소의 여는 태그 원문을 반환(속성 단위 검사용)."""
++    i = html.find('id="' + element_id + '"')
++    assert i >= 0, f"요소 미발견: #{element_id}"
++    return html[html.rindex("<", 0, i):html.index(">", i) + 1]
++
++
++def _classes_of(html, element_id):
++    """id 로 요소의 class 토큰 집합을 반환(속성 순서/추가 클래스 무관)."""
++    m = re.search(r'class="([^"]*)"', _tag_of(html, element_id))
++    return set(m.group(1).split()) if m else set()
++
++
++def _card_ids(scripts, step_key):
++    """SINGLE_STEP_CARDS 의 단계별 카드 id 목록(배열 멤버십 계약용).
++
++    contract_utils.wiring_keys 는 '객체 최상위 키'를 주므로, 그 아래 배열 원소까지는
++    객체 본문을 listener_body(중괄호 매칭)로 잘라낸 뒤 해당 단계 배열만 읽는다.
++    (새 계약 헬퍼 발명이 아니라 6헬퍼 결과를 조합하는 이 파일 전용 접근자다.)
++    """
++    obj = listener_body(scripts, "SINGLE_STEP_CARDS = {")
++    m = re.search(r"(?:^|[\s,{])" + re.escape(step_key) + r"\s*:\s*\[(.*?)\]", obj, re.DOTALL)
++    assert m, f"SINGLE_STEP_CARDS.{step_key} 배열 미발견"
++    return re.findall(r"['\"]([^'\"]+)['\"]", m.group(1))
+ 
+ 
+ def _gate_and_bridge(scripts):
+@@ -72,21 +106,11 @@ def _gate_and_bridge(scripts):
+ 
+ 
+ def _run_node(extra):
+-    if not shutil.which("node"):
+-        import pytest; pytest.skip("node 미설치")
+-    src = _html()
+-    scripts = "\n".join(re.findall(r'<script(?!\s[^>]*src)[^>]*>(.*?)</script>', src, re.DOTALL))
+-    body = ("var _MV_STEP_STATUS_CLASS = " + re.search(r'var _MV_STEP_STATUS_CLASS = (\{.*?\});', scripts, re.DOTALL).group(1) + ";\n"
++    scripts = inline_scripts(_html())
++    body = (listener_body(scripts, "var _MV_STEP_STATUS_CLASS") + ";\n"
+             + "function _mvEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}\n"
+             + _extract_fn("_mvStepNavItemsHtml", scripts) + "\n" + extra)
+-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+-        f.write(body); path = f.name
+-    try:
+-        r = subprocess.run(["node", path], capture_output=True, encoding="utf-8", errors="replace")
+-        assert r.returncode == 0, r.stderr[:500]
+-        return r.stdout
+-    finally:
+-        os.unlink(path)
++    return run_node(body)
+ 
+ 
+ def test_step_items_status_classes():
+@@ -119,17 +143,25 @@ def test_step_count_agnostic_3_and_6():
+ 
+ def test_shared_component_used_by_both_via_global_bar():
+     h = _html()
+-    # 공통 컴포넌트/헬퍼 존재
+-    assert "function _mvStepNavItemsHtml(steps)" in h
+-    assert "function renderMvStepNav(containerId, steps, onClick)" in h
+-    # 개별/일괄 모두 전역 step nav bar inner(connection bar 아래 sticky)로 렌더 — 같은 컴포넌트
++    s = inline_scripts(h)
++    # 공통 컴포넌트/헬퍼 존재(파라미터 목록 변경에 깨지지 않는 존재 계약)
++    assert has_function(s, "_mvStepNavItemsHtml")
++    assert has_function(s, "renderMvStepNav")
++    # 개별/일괄 모두 같은 공용 컨테이너(mvStepNavInner)에 같은 컴포넌트로 렌더 — 컨테이너 id 가 계약.
+     # STAGE-STEPPER-LEFTRIGHT-NAV-AND-TAB-UNIFY: 개별 탭 onClick 을 showSingleStep→_mvNavClick(인접 이동 게이트)로 통합.
+-    assert "renderMvStepNav('mvStepNavInner', steps, _mvNavClick)" in h   # 개별(인접 이동 게이트 경유 pane 전환)
+-    assert "renderMvStepNav('mvStepNavInner', steps, function(k)" in h   # 일괄(클릭 핸들러)
++    assert "_mvCanNavTab(" in _extract_fn("_renderSingleStepNav", s), "개별 nav 가 탭 게이트를 쓰지 않음"
++    assert re.search(r"renderMvStepNav\(\s*'mvStepNavInner'\s*,\s*steps\s*,\s*_mvNavClick\s*\)", s), \
++        "개별 nav 가 공용 컴포넌트를 개별 게이트(_mvNavClick)로 호출하지 않음"
++    assert len(re.findall(r"renderMvStepNav\(\s*'mvStepNavInner'", s)) >= 2, \
++        "개별/일괄이 같은 공용 컨테이너를 쓰지 않음(컴포넌트 분기 회귀)"
+     # Phase 69 — SubNav 는 page-body 콘텐츠 상단(in-page)으로 이동, display:none+hidden 으로 완전 접힘.
+-    assert 'id="mvStepNavBar" class="mv-sticky-step-nav mv-step-nav-inpage" style="display:none" hidden>' in h
++    bar = _tag_of(h, "mvStepNavBar")
++    bar_classes = _classes_of(h, "mvStepNavBar")
++    assert {"mv-sticky-step-nav", "mv-step-nav-inpage"} <= bar_classes, \
++        f"SubNav bar 클래스 누락 — 실제={sorted(bar_classes)}"
++    assert "display:none" in bar.replace(" ", "") and "hidden" in bar, "SubNav bar 기본 접힘 아님"
+     # tab inner(mvStepNavInner)는 본문 .container-xl(page-body) 안에 위치해 동일 폭으로 정렬
+-    assert '<div id="mvStepNavInner"></div>' in h
++    assert 'id="mvStepNavInner"' in h
+     # 단계별 status CSS class(보조색)
+     for c in ("mv-step-done", "mv-step-active", "mv-step-locked", "mv-step-waiting", "mv-step-error"):
+         assert "." + c in h
+@@ -176,7 +208,8 @@ def test_validation_wider_shell_scoped_to_validation_tabs():
+     assert "_mvSyncWideValidation()" in _extract_fn("_persistActiveTab", scripts)
+     assert "_mvSyncWideValidation()" in _extract_fn("_restoreActiveTab", scripts)
+     # step nav inner + 본문이 동일 .container-xl 폭 기준(SubNav 를 page-body 콘텐츠로 이동)
+-    assert 'id="mvStepNavBar" class="mv-sticky-step-nav mv-step-nav-inpage"' in h
++    assert "mv-step-nav-inpage" in _classes_of(h, "mvStepNavBar"), \
++        "SubNav 가 in-page(본문 폭 기준) 배치가 아님"
+ 
+ 
+ def test_step_nav_sticky_under_connection_from_load():
+@@ -184,10 +217,10 @@ def test_step_nav_sticky_under_connection_from_load():
+     # step nav bar 가 sticky(top = conn bar 높이, z-index 290)
+     assert '.mv-sticky-step-nav{position:sticky;top:var(--mv-conn-bar-h,52px);z-index:290' in h
+     # page-body 콘텐츠 상단(페이지 헤더 아래)으로 이동 — 전역 chrome(header 직후) 아님(in-page 클래스)
+-    assert 'id="mvStepNavBar" class="mv-sticky-step-nav mv-step-nav-inpage"' in h
++    assert {"mv-sticky-step-nav", "mv-step-nav-inpage"} <= _classes_of(h, "mvStepNavBar")
+     assert h.find('id="mvPageHeader"') < h.find('id="mvStepNavBar"')   # 페이지 헤더 이후(본문 내부)
+     # 실제 높이를 CSS 변수에 반영(하드코딩 미신뢰) + resize/ResizeObserver 보정
+-    assert "function _mvSyncStickyOffsets()" in h
++    assert has_function(inline_scripts(h), "_mvSyncStickyOffsets")
+     assert "root.style.setProperty('--mv-conn-bar-h'" in h
+     assert "root.style.setProperty('--mv-step-nav-h'" in h
+     assert "window.ResizeObserver" in h
+@@ -231,7 +264,7 @@ def test_step_tab_aria_selected_runnable_node():
+ def test_tab_inner_aligned_with_content_container():
+     h = _html()
+     # connection bar / step nav inner(in-page) / 본문이 같은 .container-xl 폭 기준 사용
+-    assert 'id="mvStepNavBar" class="mv-sticky-step-nav mv-step-nav-inpage" style="display:none" hidden>' in h
++    assert {"mv-sticky-step-nav", "mv-step-nav-inpage"} <= _classes_of(h, "mvStepNavBar")
+     # connection bar 도 container-xl 사용(원본/목적지 badge)
+     assert "navbar navbar-expand-md d-print-none mv-global-connection-bar" in h
+     # 본문도 container-xl
+@@ -243,7 +276,7 @@ def test_tab_inner_aligned_with_content_container():
+ def test_current_step_hint_present():
+     h = _html()
+     assert 'id="mvStepHint" class="mv-step-hint"' in h
+-    assert "function _mvSetStepHint(html)" in h
++    assert has_function(inline_scripts(h), "_mvSetStepHint")
+     assert "var _MV_SINGLE_HINT = {" in h and "var _MV_BATCH_HINT = {" in h
+     # 개별/일괄 모두 '실제 workflow 현재 단계' 기준 hint(보고 있는 active 탭 아님 — 소유권 인지 setter 경유)
+     assert "_mvSetStepHintOwned('analyze', _MV_SINGLE_HINT[_mvGateToStageKey(wfCurrent)]" in h
+@@ -287,12 +320,14 @@ def test_batch_active_follows_viewed_step():
+ 
+ def test_single_real_pane_switching():
+     h = _html()
+-    # 개별 5단계 pane 카드 매핑 + active pane 만 표시(.mv-pane-hidden 추가 레이어)
+-    assert "var SINGLE_STEP_CARDS = {" in h
++    s = inline_scripts(h)
++    # 개별 5단계 pane 카드 매핑 — 단계 키가 모두(순서대로) 배선돼 있어야 한다(멤버십 계약).
++    assert wiring_keys(s, "SINGLE_STEP_CARDS") == ["query", "count", "candidate", "validation", "result"], \
++        f"단계↔카드 배선 키가 5단계와 어긋남: {wiring_keys(s, 'SINGLE_STEP_CARDS')}"
+     for cid in ("queryReviewCard", "countCard", "colSelectCard", "sqlCard", "execResultCard"):
+         assert cid in h
+-    assert "function showSingleStep(key)" in h
+-    assert "function _applySinglePane()" in h
++    assert has_function(s, "showSingleStep")
++    assert has_function(s, "_applySinglePane")
+     assert ".mv-pane-hidden{display:none!important}" in h
+     # 탭 클릭 = pane 전환(표시 제어만) — 분석/COUNT/SQL/실행 자동 호출 없음(showSingleStep 내 실행 함수 호출 없음)
+     assert "_singleViewStep = key;" in h
+@@ -303,12 +338,11 @@ def test_single_real_pane_switching():
+ 
+ 
+ def test_single_pane_no_logic_call_on_tab():
+-    # showSingleStep 본문에 분석/COUNT/SQL/실행 함수 직접 호출이 없어야 함(표시 제어 전용)
+-    src = _html()
+-    scripts = "\n".join(re.findall(r'<script(?!\s[^>]*src)[^>]*>(.*?)</script>', src, re.DOTALL))
+-    fn = _extract_fn("showSingleStep", scripts)
+-    for forbidden in ("runAnalyze(", "runCount(", "runGenerate(", "runExecute(", "singleRunStandard("):
+-        assert forbidden not in fn, f"탭 전환이 {forbidden} 실행 로직을 호출하면 안 됨"
++    # showSingleStep 본문에 분석/COUNT/SQL/실행 함수 직접 호출이 없어야 함(표시 제어 전용 — 음성 계약)
++    fn = _extract_fn("showSingleStep", inline_scripts(_html()))
++    offenders = calls_absent(fn, ["runAnalyze(", "runCount(", "runGenerate(",
++                                  "runExecute(", "singleRunStandard("])
++    assert offenders == [], f"탭 전환이 실행 로직을 호출함: {offenders}"
+ 
+ 
+ # ── 개별 1단계 하단 가운데 action(상단 sticky 제거) + 카운트 게이트 (UX-SINGLE-QUERY-TAB-BOTTOM-ACTIONS-ONLY) ──
+@@ -316,7 +350,10 @@ def test_single_sql_input_card_in_query_pane():
+     h = _html()
+     # SQL 입력 카드가 1단계(query) pane 에만 — 2단계 등에서 .mv-pane-hidden 으로 숨김
+     assert 'id="sqlInputCard"' in h
+-    assert "query:      ['sqlInputCard'," in h
++    s = inline_scripts(h)
++    assert "sqlInputCard" in _card_ids(s, "query"), "SQL 입력 카드가 1단계 pane 배선에서 빠짐"
++    for other in ("count", "candidate", "validation", "result"):
++        assert "sqlInputCard" not in _card_ids(s, other), f"SQL 입력 카드가 {other} 단계에도 배선됨"
+ 
+ 
+ def test_single_query_bottom_actions_no_top_sticky():
+@@ -348,7 +385,7 @@ def test_single_sql_label_restored_not_sticky():
+     assert 'id="clearSqlLink" onclick="_mvClearSqlInputOnly();return false;" class="mv-link-action"' in h
+     assert ".mv-link-action:hover" in h
+     # SQL 입력 카드는 query pane → 2번 단계에서 .mv-pane-hidden(제목/textarea 함께 숨김)
+-    assert "query:      ['sqlInputCard'," in h
++    assert "sqlInputCard" in _card_ids(inline_scripts(h), "query")
+ 
+ 
+ def test_single_count_step_gated_by_analysis_success():
+@@ -357,7 +394,7 @@ def test_single_count_step_gated_by_analysis_success():
+     # P2: _singleSqlAnalyzed 은 실제 분석 결과에서만 set — sticky 렌더가 _progressState.query 로 재도출하지 않음.
+     assert "_singleSqlAnalyzed = queryOK;" not in h
+     assert "_singleSqlAnalyzed 은 실제 분석 결과(runAnalyze 성공/차단·전체검증)에서만 설정한다" in h
+-    assert "function _singleSyncCountStepBtn() {" in h
++    assert has_function(inline_scripts(h), "_singleSyncCountStepBtn")
+     assert 'oninput="_singleSyncCountStepBtn()"' in h
+     assert "if (typeof _singleSyncCountStepBtn === 'function') _singleSyncCountStepBtn();" in h  # reset/silent 후 비활성
+ 
+@@ -375,23 +412,20 @@ def test_single_no_auto_advance_and_forward_tab_blocked():
+ 
+ def test_single_step_funcs_no_auto_logic_call():
+     # showSingleStep/_singleAdvanceTo 본문에 분석/COUNT/실행 함수 직접 호출 없음(pane 전환 전용)
+-    h = _html()
+-    scripts = "\n".join(re.findall(r'<script(?!\s[^>]*src)[^>]*>(.*?)</script>', h, re.DOTALL))
++    scripts = inline_scripts(_html())
+     for name in ("showSingleStep", "_singleAdvanceTo", "_mvUpdateSingleSectionHeader"):
+-        fn = _extract_fn(name, scripts)
+-        for forbidden in ("runAnalyze(", "runCount(", "runGenerate(", "runExecute("):
+-            assert forbidden not in fn, f"{name} 가 {forbidden} 자동 호출하면 안 됨"
++        offenders = calls_absent(_extract_fn(name, scripts),
++                                 ["runAnalyze(", "runCount(", "runGenerate(", "runExecute("])
++        assert offenders == [], f"{name} 가 실행 로직을 자동 호출함: {offenders}"
+ 
+ 
+ # ── 분석 상세는 2단계로, 1단계는 입력/실행/완료안내만 (UX-SINGLE-QUERY-RESULTS-STAY-HIDDEN-UNTIL-COUNT-STEP) ──
+ def test_single_analysis_details_in_query_pane_not_count():
+     # CLEAN-UP-INDIVIDUAL-VALIDATION-STAGE-CONTENT: 쿼리검토 상세는 1단계(query)에서만 렌더하고
+     # 2단계(count)에서는 다시 렌더하지 않는다(요약/링크만).
+-    h = _html()
+-    m = re.search(r"SINGLE_STEP_CARDS\s*=\s*\{(.*?)\n\};", h, re.DOTALL)
+-    block = m.group(1)
+-    q = re.search(r"query:\s*\[(.*?)\]", block, re.DOTALL).group(1)
+-    c = re.search(r"count:\s*\[(.*?)\]", block, re.DOTALL).group(1)
++    s = inline_scripts(_html())
++    q = _card_ids(s, "query")
++    c = _card_ids(s, "count")
+     # Grid First 전환: SQL구조/신뢰도/Provider 카드는 queryReviewCard 안의 단일 Grid 로 흡수되어
+     # 별도 카드(sqlShapeCard/confBanner/providerModeBanner)는 제거됨.
+     for cid in ("loadProfileOut", "cteInfoOut", "queryReviewCard"):
+@@ -427,8 +461,8 @@ def test_footer_prev_next_nav_buttons_removed():
+     assert 'id="singleCandRevalidateBtn"' in h
+     assert 'id="execBtn" onclick="runExecute()"' in h
+     # 공용 이동 함수(_singleAdvanceTo)·상단 탭 이동(showSingleStep)은 유지
+-    assert "function _singleAdvanceTo(" in h
+-    assert "function showSingleStep(" in h
++    assert has_function(inline_scripts(h), "_singleAdvanceTo")
++    assert has_function(inline_scripts(h), "showSingleStep")
+ 
+ 
+ # ── 2단계 COUNT 액션 한 줄 + 불일치 건너뛰기 체크박스 (UX-SINGLE-COUNT-TAB-ACTION-ROW-AND-SKIP-CHECKBOX) ──
+@@ -458,11 +492,11 @@ def test_single_count_next_gated_by_state_and_checkbox():
+     for _st in ("'OK'", "'NOT_CONNECTED'", "'MISMATCH'", "'MISMATCH_ACCEPTED'", "'SKIPPED_BY_USER'"):
+         assert "cs === " + _st in fn
+     assert "return true;" in fn
+-    assert "var cb = document.getElementById('singleCountSkipChk');" in fn   # 미실행: 체크 시 진행 허용
+-    assert "return !!(cb && cb.checked);" in fn
+-    # 체크박스는 즉시 이동 아님 — onchange 가 _mvUpdateSingleSectionHeader(버튼 상태만)만 호출
+-    for forbidden in ("runAnalyze(", "runCount(", "runExecute(", "_singleAdvanceTo("):
+-        assert forbidden not in fn
++    assert "getElementById('singleCountSkipChk')" in fn   # 미실행: 체크 시 진행 허용
++    assert "cb.checked" in fn
++    # 판정 함수는 상태만 읽는다 — 실행/이동을 유발하면 안 됨(음성 계약)
++    offenders = calls_absent(fn, ["runAnalyze(", "runCount(", "runExecute(", "_singleAdvanceTo("])
++    assert offenders == [], f"_singleCountDone 이 부작용을 일으킴: {offenders}"
+     # SQL 수정(stale) 시 체크 해제
+     assert "if (cb) cb.checked = false;" in h
+ 
+@@ -474,8 +508,8 @@ def test_count_screen_redesigned_no_skip_checkbox():
+     assert 'id="singleCountSkipChk"' not in h
+     assert "검증 '실패'로 기록됩니다(경고 아님)" not in h
+     # 4 요약 카드(원본/목적지/차이/판정) + 한 줄 핵심 + 가이드 아코디언 helper 존재
+-    assert "function _countSummaryCardsHtml(" in h
+-    assert "function _countGuideAccordionHtml(" in h
++    assert has_function(inline_scripts(h), "_countSummaryCardsHtml")
++    assert has_function(inline_scripts(h), "_countGuideAccordionHtml")
+     assert "원본 COUNT" in h and "목적지 COUNT" in h and "차이(원본-목적지)" in h
+     assert "불일치 원인 확인 가이드" in h
+     # Grid First 전환: COUNT SQL(좌우 2열)은 접힘(mv-sql-fold) 안에 보존, 결과 Grid 가 먼저 표시되고
+@@ -508,7 +542,8 @@ def test_candidate_pane_renders_on_entry():
+     # candidate pane = colSelectCard. 진입 시 후보표 미표시면 _showCandidateTable()/게이트로 표시(빈 화면 방지).
+     # COLSELECT-BLANK-SCREEN-FIX: 판단을 display==='none' 단일 신호가 아니라 '카드가 실제로 비었는가'
+     #   (숨김 or 게이트·후보표 둘 다 없음)로 한다 — 무효화로 내용만 비고 display='' 로 남은 재진입 대응.
+-    assert "candidate:  ['colSelectCard']," in h
++    assert _card_ids(inline_scripts(h), "candidate") == ["colSelectCard"], \
++        "3단계 pane 배선이 colSelectCard 단독이 아님"
+     assert "if (_singleViewStep === 'candidate' && _analyzeData) {" in h
+     assert "_csc.style.display === 'none'" in h            # 숨김이면 (재)그림(기존 신호 유지)
+     assert "getElementById('candCalcGate')" in h           # 보이지만 게이트 없음 감지
+@@ -524,7 +559,7 @@ def test_candidate_pane_renders_on_entry():
+ def test_candidate_pane_mismatch_notice():
+     h = _html()
+     # COUNT 불일치 수동 진행 시 후보 pane 상단 안내(축약 문구)
+-    assert "function _singleRenderCandidatePaneNotice()" in h
++    assert has_function(inline_scripts(h), "_singleRenderCandidatePaneNotice")
+     assert "COUNT 불일치 상태입니다. 후보 선정 후 통계검증으로 원인을 좁힙니다." in h
+     assert "if (_countState === 'MISMATCH' || _countState === 'MISMATCH_ACCEPTED')" in h
+ 
+@@ -554,20 +589,26 @@ def test_count_mismatch_does_not_block_generate():
+ # ── 4단계 실행 action row (footer 이전/다음 제거 후 execBtn 만 유지) ──
+ def test_validation_action_row_and_result_nav():
+     h = _html()
+-    import re as _re
++    s = inline_scripts(h)
+     # 4단계: 통계검증 실행(execBtn) 1개만, 이전/다음 footer 버튼 제거
+     assert 'id="singleValPrevBtn"' not in h and 'id="singleValNextBtn"' not in h
+-    assert "'sqlCard', 'sampleCard', 'singleValidationNav', 'mvExecProgress'" in h   # mvExecProgress 포함(실행 진행 패널)
+-    # EXECUTE-ERROR-MESSAGE-NOT-RENDERED-FIX: 실행 오류 4단계 표시 영역(mvExecStepError)도 validation pane 에 포함
+-    # STATS-VALIDATION-EXECUTE-SUCCESS-RESULT-STEP4-DISPLAY-FIX: 실행 성공 요약 영역(mvExecStepResult)도 대칭으로 포함
+-    assert "'mvExecProgress', 'mvExecStepError', 'mvExecStepResult']" in h
+-    assert len(_re.findall(r'id="execBtn"', h)) == 1
++    # 4단계 pane 배선은 '멤버십'으로 본다 — 배열 끝에 항목을 추가하는 정당한 확장에 깨지지 않되,
++    # 필요한 영역이 빠지거나 5단계 전용 카드가 섞이면 잡힌다(파일럿 사례 3의 전환 대상).
++    v = _card_ids(s, "validation")
++    for need in ("sqlCard", "sampleCard", "singleValidationNav",
++                 "mvExecProgress",        # 실행 진행 패널
++                 "mvExecStepError",       # EXECUTE-ERROR-MESSAGE-NOT-RENDERED-FIX: 실행 오류 4단계 표시 영역
++                 "mvExecStepResult"):     # STATS-VALIDATION-...-STEP4-DISPLAY-FIX: 실행 성공 요약(대칭)
++        assert need in v, f"4단계 pane 배선 키 누락: {need} (실제={v})"
++    # 음성 계약: 5단계 전용 결과 카드가 4단계 pane 에 혼입되면 안 된다.
++    assert "execResultCard" not in v, "결과 카드(5단계 전용)가 4단계 pane 에 혼입"
++    assert len(re.findall(r'id="execBtn"', h)) == 1
+     assert 'id="execBtn" onclick="runExecute()"' in h
+ 
+ 
+ def test_step_btn_labels_done_redo():
+     h = _html()
+-    assert "function _singleSyncStepBtnLabels()" in h
++    assert has_function(inline_scripts(h), "_singleSyncStepBtnLabels")
+     # 상태 기반 단일 문구(완료=다시) — 합성 문구('완료/재실행') 금지(§33~§35)
+     # DEFAULT-AUTO-RUN-WITH-TABS: 1단계 버튼은 '검증 실행'(전체 자동실행) 으로 통합
+     assert "'▶ 다시 검증 실행', '▶ 검증 실행'" in h
+@@ -592,17 +633,27 @@ def test_reached_steps_accessible_no_lock_message():
+ def test_forward_steps_truly_disabled_not_clickable():
+     """최초 진입: 1번만 클릭 가능, 2~5번은 disabled(data-step/onclick 미부여). 잠금은 공통 Gate 가 계산."""
+     h = _html()
+-    # P2: 선행 단계 미충족(Gate 접근 불가) 단계는 status='locked'·badge='잠김' 로 표시.
+-    assert "var accessible = G.isTabAccessible(gid, wf, defs);" in h
+-    assert "if (!accessible)            { status = 'locked'; badge = '잠김'; }" in h
++    s = inline_scripts(h)
++    nav = _extract_fn("_renderSingleStepNav", s)
++    # P2: 잠금 판정은 공통 Gate(선행 단계 SUCCESS)가 계산하고, 그 결과가 status='locked'/badge='잠김' 로 표시된다.
++    assert "isTabAccessible(" in nav, "잠금 판정이 공통 Gate 를 경유하지 않음"
++    assert re.search(r"status\s*=\s*'locked'", nav) and "'잠김'" in nav, "잠김 상태/배지 표시 소실"
+     # STAGE-NAV-BUTTON-REPOSITION-AND-COMPLETION-FREE-ROAM: 상단 탭 클릭 가능(disabled)은 _mvCanNavTab 으로 판정
+-    #  (평시 인접, 5단계 완료 진입 후 자유이동 예외). 활성 탭은 항상 클릭 가능 유지.
+-    assert "var navClickable = active || _mvCanNavTab(d.key);" in h
+-    assert "disabled: !navClickable," in h
+-    # forward(reached) 기반 강제 제거
+-    assert "var forward = (_singleStepIdx(d.key) > _singleReachedIdx);" not in h
+-    # 비활성 단계는 _mvStepNavItemsHtml 에서 clickable=false → data-step/onclick 없음
+-    assert "var clickable = (s.clickKey != null && !s.disabled);" in h
++    #  (평시 인접, 완료 단계 자유이동 예외). 활성 탭은 항상 클릭 가능 유지.
++    assert "_mvCanNavTab(" in nav, "상단 탭 클릭 가능 판정이 탭 게이트를 쓰지 않음"
++    assert re.search(r"disabled\s*:\s*!", nav), "단계 항목에 disabled 배선 없음"
++    # forward(reached) 기반 강제 제거 — 옛 게이트가 되살아나면 안 됨(음성 계약).
++    # calls_absent 는 텍스트 검사라 '쓰지 않는다'는 주석까지 잡는다 → 실제 '비교 연산'만 금지한다.
++    assert not re.search(r"[<>]=?\s*_singleReachedIdx", nav), \
++        "상단 탭 렌더가 옛 reached 기반 강제 판정으로 회귀함"
++    # 비활성 단계는 _mvStepNavItemsHtml 에서 clickable=false → data-step/onclick 없음(행동으로 확인)
++    out = _run_node(
++        "var h=_mvStepNavItemsHtml([{no:1,label:'A',status:'current',active:true,clickKey:'query'},"
++        "{no:2,label:'B',status:'locked',disabled:true,clickKey:'count'}]);"
++        "console.log('OPEN:'+(h.indexOf('data-step=\"query\"')>=0));"
++        "console.log('LOCKED:'+(h.indexOf('data-step=\"count\"')>=0));")
++    assert "OPEN:true" in out, "클릭 가능한 단계에 data-step 이 부여되지 않음"
++    assert "LOCKED:false" in out, "비활성 단계에 data-step 이 부여됨(클릭 가능 회귀)"
+ 
+ 
+ def test_forward_step_not_clickable_node():
+@@ -635,13 +686,15 @@ def test_runexecute_finally_reapplies_label():
+     assert "_singleValidationExecuted = true;" in fn
+ 
+ 
++def _step_defs(scripts):
++    """_SINGLE_STEP_DEFS 배열 리터럴 원문(앵커 쌍 슬라이스 — 고정 길이 절단 금지)."""
++    return listener_body(scripts, "var _SINGLE_STEP_DEFS = [", "];").split("= ", 1)[1] + "]"
++
++
+ def _run_invalidate(setup):
+     """_singleInvalidateDownstream 동작을 node 로 격리 실행 — 상태 플래그/도달 index 전이 검증."""
+-    if not shutil.which("node"):
+-        import pytest; pytest.skip("node 미설치")
+-    src = _html()
+-    scripts = "\n".join(re.findall(r'<script(?!\s[^>]*src)[^>]*>(.*?)</script>', src, re.DOTALL))
+-    defs = re.search(r'var _SINGLE_STEP_DEFS = (\[.*?\]);', scripts, re.DOTALL).group(1)
++    scripts = inline_scripts(_html())
++    defs = _step_defs(scripts)
+     body = (
+         "var _SINGLE_STEP_DEFS = " + defs + ";\n"
+         "var validationSqlGenerated=false,_singleValidationExecuted=false,"
+@@ -654,15 +707,8 @@ def _run_invalidate(setup):
+         + "console.log(JSON.stringify({gen:validationSqlGenerated,exec:_singleValidationExecuted,"
+           "reached:_singleReachedIdx,view:_singleViewStep,snap:_genSelSnapshot}));\n"
+     )
+-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+-        f.write(body); path = f.name
+-    try:
+-        import json
+-        r = subprocess.run(["node", path], capture_output=True, encoding="utf-8", errors="replace")
+-        assert r.returncode == 0, r.stderr[:500]
+-        return json.loads(r.stdout.strip())
+-    finally:
+-        os.unlink(path)
++    import json
++    return json.loads(run_node(body).strip())
+ 
+ 
+ def test_invalidate_from_candidate_resets_validation_and_result():
+@@ -718,26 +764,22 @@ def test_invalidate_noop_when_nothing_downstream():
+ def test_downstream_invalidation_wired_to_change_events():
+     """변경 이벤트별 downstream 무효화 배선 — UI 표시만 수정(실행 로직 호출 없음)."""
+     h = _html()
+-    assert "function _singleInvalidateDownstream(fromKey, opts)" in h
++    scripts = inline_scripts(h)
++    # 존재 계약(파라미터 목록 무관 — 파일럿 사례 2: opts 인자 추가만으로 깨지던 단언의 전환 대상)
++    assert has_function(scripts, "_singleInvalidateDownstream")
+     # (UI-CONSISTENCY-AND-SELECTION-DRAFT-FIX §4) 후보 체크 변경(checkLimit)은 draft 편집일 뿐 —
+     # 즉시 candidate 무효화하지 않는다(후보표/plan/SQL/결과 유지). 적용은 '선택 적용 후 다시 검증'/'SQL 다시 생성'에서만.
+-    scripts0 = "\n".join(re.findall(r'<script(?!\s[^>]*src)[^>]*>(.*?)</script>', h, re.DOTALL))
+-    s0 = scripts0.find("function checkLimit("); j0 = scripts0.index("{", s0); d0 = 0
+-    for k0 in range(j0, len(scripts0)):
+-        if scripts0[k0] == "{": d0 += 1
+-        elif scripts0[k0] == "}":
+-            d0 -= 1
+-            if d0 == 0: _cl = scripts0[s0:k0+1]; break
+-    assert "_singleInvalidateDownstream('candidate')" not in _cl
++    _cl = _extract_fn("checkLimit", scripts)
++    assert calls_absent(_cl, ["_singleInvalidateDownstream('candidate')"]) == [], \
++        "후보 체크 변경(draft)이 즉시 candidate 를 무효화함"
+     # (UX-REDESIGN §2) COUNT 건너뛰기 체크박스 제거 — onchange 배선 없음
+     assert "onchange=\"_singleInvalidateDownstream('count')\"" not in h
+     # SQL 입력/파일/WHERE → query 무효화(전체 초기화 경로는 유지)
+-    assert "_singleInvalidateDownstream('query');" in h
+-    # 무효화 함수는 실행/생성 로직을 호출하지 않는다
+-    scripts = "\n".join(re.findall(r'<script(?!\s[^>]*src)[^>]*>(.*?)</script>', h, re.DOTALL))
++    assert "_singleInvalidateDownstream('query')" in h
++    # 무효화 함수는 실행/생성 로직을 호출하지 않는다(표시 전용 — 음성 계약)
+     fn = _extract_fn("_singleInvalidateDownstream", scripts)
+-    for forbidden in ("runAnalyze(", "runCount(", "runGenerate(", "runExecute("):
+-        assert forbidden not in fn
++    offenders = calls_absent(fn, ["runAnalyze(", "runCount(", "runGenerate(", "runExecute("])
++    assert offenders == [], f"무효화 함수가 실행 로직을 호출함: {offenders}"
+ 
+ 
+ # ── UX-SINGLE-CLEANUP-ADVANCED-FACADE-AND-STEP-STATE-FIX ──
+@@ -761,11 +803,16 @@ def test_count_btn_label_done_independent_of_checkbox():
+ def test_gencolbtn_always_enabled_next_gated_by_confirm():
+     """3번 '통계검증 SQL 생성'은 항상 활성, '다음 →'은 SQL 생성 성공만으로 활성(후보 선택 무관)."""
+     h = _html()
+-    # genColBtn 비활성화 분기 제거 — 항상 enabled
+-    assert "if (genBtn && genBtn.style.display !== 'none') genBtn.disabled = false;" in h
+-    assert "genBtn.disabled = !_countOnlyConfirm;" not in h   # 옛 게이트 제거
++    s = inline_scripts(h)
++    # genColBtn 비활성화 분기 제거 — 초기화 경로에서 항상 enabled 로 되돌린다(함수 범위로 좁힌 계약).
++    reset_ui = _extract_fn("resetAnalysisUi", s)
++    assert re.search(r"genBtn\.disabled\s*=\s*false", reset_ui), \
++        "초기화 시 '통계검증 SQL 생성' 버튼을 활성으로 되돌리지 않음"
++    assert calls_absent(reset_ui, ["genBtn.disabled = !_countOnlyConfirm",
++                                   "_countOnlyConfirm"]) == [], \
++        "옛 COUNT-only 확인 게이트가 생성 버튼 활성화 판정에 되살아남"
+     # _singleCandNextAllowed(COUNT-only 확인 게이트) 함수는 보존(footer '다음 →' 버튼은 제거됨)
+-    assert "function _singleCandNextAllowed()" in h
++    assert has_function(inline_scripts(h), "_singleCandNextAllowed")
+     # COUNT-only 확인 체크박스 제거 — next gate 가 _countOnlyConfirm 에 의존하지 않는다
+     assert 'id="countOnlyConfirmChk"' not in h
+     assert "COUNT만 검증합니다. 이를 확인했습니다" not in h
+@@ -774,10 +821,7 @@ def test_gencolbtn_always_enabled_next_gated_by_confirm():
+ 
+ def _run_cand_next(setup):
+     """_singleCandNextAllowed 동작을 node 로 격리 실행."""
+-    if not shutil.which("node"):
+-        import pytest; pytest.skip("node 미설치")
+-    src = _html()
+-    scripts = "\n".join(re.findall(r'<script(?!\s[^>]*src)[^>]*>(.*?)</script>', src, re.DOTALL))
++    scripts = inline_scripts(_html())
+     body = (
+         "var validationSqlGenerated=false,_countOnlyConfirm=false,_cc=0,_cs=0;\n"
+         "function _countOnlyCheckedCount(){return _cc;}\n"
+@@ -785,14 +829,7 @@ def _run_cand_next(setup):
+         + _extract_fn("_singleCandNextAllowed", scripts) + "\n"
+         + setup + "\nconsole.log(_singleCandNextAllowed());\n"
+     )
+-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+-        f.write(body); path = f.name
+-    try:
+-        r = subprocess.run(["node", path], capture_output=True, encoding="utf-8", errors="replace")
+-        assert r.returncode == 0, r.stderr[:500]
+-        return r.stdout.strip()
+-    finally:
+-        os.unlink(path)
++    return run_node(body).strip()
+ 
+ 
+ def test_cand_next_allowed_logic():
+@@ -826,7 +863,7 @@ def test_single_reload_runs_reset_function():
+     """새로고침/bfcache(pageshow+DOMContentLoaded) → _singleResetOnReload → _singleResetWorkSilent(버튼과 동일)."""
+     h = _html()
+     scripts = "\n".join(re.findall(r'<script(?!\s[^>]*src)[^>]*>(.*?)</script>', h, re.DOTALL))
+-    assert "function _singleResetOnReload()" in h
++    assert has_function(scripts, "_singleResetOnReload")
+     ror = _extract_fn("_singleResetOnReload", scripts)
+     assert "_singleResetWorkSilent()" in ror
+     # load + bfcache 양쪽에서 호출
+@@ -837,13 +874,9 @@ def test_single_reload_runs_reset_function():
+ 
+ def _run_ownership_nav(active_tab, onclick_expr):
+     """renderMvStepNav 소유권 가드 — active_tab 과 caller(개별/일괄)별로 렌더/skip 확인."""
+-    if not shutil.which("node"):
+-        import pytest; pytest.skip("node 미설치")
+-    src = _html()
+-    scripts = "\n".join(re.findall(r'<script(?!\s[^>]*src)[^>]*>(.*?)</script>', src, re.DOTALL))
+-    status_cls = re.search(r'var _MV_STEP_STATUS_CLASS = (\{.*?\});', scripts, re.DOTALL).group(1)
++    scripts = inline_scripts(_html())
+     body = (
+-        "var _MV_STEP_STATUS_CLASS = " + status_cls + ";\n"
++        listener_body(scripts, "var _MV_STEP_STATUS_CLASS") + ";\n"
+         "function _mvEsc(s){return String(s==null?'':s);}\n"
+         "var _innerHtml='__UNSET__';\n"
+         "var _el={ set innerHTML(v){_innerHtml=v;}, get innerHTML(){return _innerHtml;}, querySelectorAll:function(){return [];}, addEventListener:function(){}, contains:function(){return false;} };\n"
+@@ -861,15 +894,8 @@ def _run_ownership_nav(active_tab, onclick_expr):
+         + "renderMvStepNav('mvStepNavInner', steps, " + onclick_expr + ");\n"
+         + "console.log(JSON.stringify({ wrote: _innerHtml !== '__UNSET__', hasNav: _innerHtml.indexOf('mv-step-nav')>=0 }));\n"
+     )
+-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+-        f.write(body); path = f.name
+-    try:
+-        import json
+-        r = subprocess.run(["node", path], capture_output=True, encoding="utf-8", errors="replace")
+-        assert r.returncode == 0, r.stderr[:600]
+-        return json.loads(r.stdout.strip())
+-    finally:
+-        os.unlink(path)
++    import json
++    return json.loads(run_node(body).strip())
+ 
+ 
+ def test_ownership_guard_single_renders_only_on_analyze():
+@@ -890,10 +916,7 @@ def _run_step_hint(active_tab):
+ 
+     개별검증 화면(active='analyze')에서 일괄 문구(그룹/업로드)가 mvStepHint 를 덮어쓰지 않아야 한다.
+     """
+-    if not shutil.which("node"):
+-        import pytest; pytest.skip("node 미설치")
+-    src = _html()
+-    scripts = "\n".join(re.findall(r'<script(?!\s[^>]*src)[^>]*>(.*?)</script>', src, re.DOTALL))
++    scripts = inline_scripts(_html())
+     body = (
+         "var _hint='';\n"
+         "var _el={ set innerHTML(v){_hint=v;}, get innerHTML(){return _hint;}, style:{} };\n"
+@@ -906,15 +929,8 @@ def _run_step_hint(active_tab):
+         + "_mvSetStepHintOwned('batch', '<b>현재 단계: 그룹/업로드</b> · 검증 작업 그룹을 선택하고 검증대상을 업로드하세요.');\n"
+         + "console.log(JSON.stringify({ hint:_hint }));\n"
+     )
+-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+-        f.write(body); path = f.name
+-    try:
+-        import json
+-        r = subprocess.run(["node", path], capture_output=True, encoding="utf-8", errors="replace")
+-        assert r.returncode == 0, r.stderr[:600]
+-        return json.loads(r.stdout.strip())["hint"]
+-    finally:
+-        os.unlink(path)
++    import json
++    return json.loads(run_node(body).strip())["hint"]
+ 
+ 
+ def test_single_screen_keeps_query_hint_not_batch():
+@@ -937,7 +953,7 @@ def test_batch_screen_keeps_batch_hint():
+ def test_step_hint_setters_are_ownership_aware():
+     """단계 문구 setter 가 소유권(active tab) 기준으로만 mvStepHint 를 쓴다(공통 DOM 분리)."""
+     h = _html()
+-    assert "function _mvSetStepHintOwned(owner, html)" in h
++    assert has_function(inline_scripts(h), "_mvSetStepHintOwned")
+     # 개별 nav 렌더 → 'analyze' owner, 일괄 nav 렌더 → 'batch' owner. 문구는 실제 현재단계 기준.
+     assert "_mvSetStepHintOwned('analyze', _MV_SINGLE_HINT[_mvGateToStageKey(wfCurrent)]" in h
+     assert "_mvSetStepHintOwned('batch', _MV_BATCH_HINT[_batchGateIdToNum(view && view.current_stage)]" in h
+@@ -974,11 +990,8 @@ def test_reset_work_silent_renders_locked_via_reached_zero():
+     이전 진행 상태(_spStepModel done/current, reached=3, view=candidate)가 남아 있어도
+     _singleResetWorkSilent → _renderSingleStepNav(reached=0 forward 강제)로 초기 탭이 그려진다(별도 모델 없음).
+     """
+-    if not shutil.which("node"):
+-        import pytest; pytest.skip("node 미설치")
+-    src = _html()
+-    scripts = "\n".join(re.findall(r'<script(?!\s[^>]*src)[^>]*>(.*?)</script>', src, re.DOTALL))
+-    defs = re.search(r'var _SINGLE_STEP_DEFS = (\[.*?\]);', scripts, re.DOTALL).group(1)
++    scripts = inline_scripts(_html())
++    defs = _step_defs(scripts)
+     body = (
+         "var _SINGLE_STEP_DEFS = " + defs + ";\n"
+         "var _MV_SINGLE_HINT = { query: 'q' };\n"
+@@ -1014,15 +1027,8 @@ def test_reset_work_silent_renders_locked_via_reached_zero():
+         + "console.log(JSON.stringify({view:_singleViewStep, reached:_singleReachedIdx,"
+           " steps:(_captured||[]).map(function(s){return {no:s.no,active:!!s.active,status:s.status,disabled:!!s.disabled};})}));\n"
+     )
+-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+-        f.write(body); path = f.name
+-    try:
+-        import json
+-        r = subprocess.run(["node", path], capture_output=True, encoding="utf-8", errors="replace")
+-        assert r.returncode == 0, r.stderr[:600]
+-        out = json.loads(r.stdout.strip())
+-    finally:
+-        os.unlink(path)
++    import json
++    out = json.loads(run_node(body).strip())
+     assert out["view"] == "query" and out["reached"] == 0
+     steps = {s["no"]: s for s in out["steps"]}
+     assert steps[1]["active"] is True and steps[1]["disabled"] is False
+@@ -1065,15 +1071,11 @@ def test_tombstone_load_hard_resets_step_model():
+     이전 진행 badge(_progressState count=done/candidate=active, _spStepModel done/current)가 frozen 으로
+     남아 있어도 _singleResetWorkSilent 후 step nav 가 1번 current / 2~5 locked 로 렌더되는지 node 로 검증한다.
+     """
+-    if not shutil.which("node"):
+-        import pytest; pytest.skip("node 미설치")
+-    src = _html()
+-    scripts = "\n".join(re.findall(r'<script(?!\s[^>]*src)[^>]*>(.*?)</script>', src, re.DOTALL))
+-    defs = re.search(r'var _SINGLE_STEP_DEFS = (\[.*?\]);', scripts, re.DOTALL).group(1)
+-    status_cls = re.search(r'var _MV_STEP_STATUS_CLASS = (\{.*?\});', scripts, re.DOTALL).group(1)
++    scripts = inline_scripts(_html())
++    defs = _step_defs(scripts)
+     # 최소 DOM/스텁 + 관련 함수 추출 후, '진행된' 상태를 강제로 만들어 두고 hard reset 검증
+     body = (
+-        "var _MV_STEP_STATUS_CLASS = " + status_cls + ";\n"
++        listener_body(scripts, "var _MV_STEP_STATUS_CLASS") + ";\n"
+         "function _mvEsc(s){return String(s==null?'':s);}\n"
+         "var _captured=null;\n"
+         "var document={getElementById:function(){return null;},querySelectorAll:function(){return [];},"
+@@ -1107,15 +1109,8 @@ def test_tombstone_load_hard_resets_step_model():
+         + "console.log(JSON.stringify({view:_singleViewStep, reached:_singleReachedIdx,"
+           " steps:(_captured||[]).map(function(s){return {no:s.no,active:!!s.active,status:s.status,disabled:!!s.disabled};})}));\n"
+     )
+-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+-        f.write(body); path = f.name
+-    try:
+-        import json
+-        r = subprocess.run(["node", path], capture_output=True, encoding="utf-8", errors="replace")
+-        assert r.returncode == 0, r.stderr[:600]
+-        out = json.loads(r.stdout.strip())
+-    finally:
+-        os.unlink(path)
++    import json
++    out = json.loads(run_node(body).strip())
+     assert out["view"] == "query" and out["reached"] == 0
+     steps = {s["no"]: s for s in out["steps"]}
+     # 1번만 active(현재 보는 pane) + 잠금/완료 아님(대기/현재) — 초기 상태
+@@ -1140,25 +1135,15 @@ def test_facade_result_local_not_step5():
+ 
+ def test_format_duration_ms_appends_seconds():
+     """formatDurationMs: ms 값 옆에 초(소수3자리) 병기 + 비숫자/—/이미포맷 보존(초 중복 금지)."""
+-    if not shutil.which("node"):
+-        import pytest; pytest.skip("node 미설치")
+-    src = _html()
+-    scripts = "\n".join(re.findall(r'<script(?!\s[^>]*src)[^>]*>(.*?)</script>', src, re.DOTALL))
++    scripts = inline_scripts(_html())
+     body = (_extract_fn("formatDurationMs", scripts) + "\n"
+             + "var R=[3815,1333,8,0,null].map(function(v){return formatDurationMs(v);});\n"
+             + "R.push(formatDurationMs('—'));\n"
+             + "R.push(formatDurationMs('해당 없음'));\n"
+             + "R.push(formatDurationMs('3815 ms (3.815초)'));\n"   # 이미 포맷 → 그대로(중복 금지)
+             + "console.log(JSON.stringify(R));\n")
+-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+-        f.write(body); path = f.name
+-    try:
+-        import json
+-        r = subprocess.run(["node", path], capture_output=True, encoding="utf-8", errors="replace")
+-        assert r.returncode == 0, r.stderr[:500]
+-        R = json.loads(r.stdout.strip())
+-    finally:
+-        os.unlink(path)
++    import json
++    R = json.loads(run_node(body).strip())
+     assert R[0] == "3815 ms (3.815초)"
+     assert R[1] == "1333 ms (1.333초)"
+     assert R[2] == "8 ms (0.008초)"
+@@ -1176,7 +1161,7 @@ def test_diagnostics_uses_format_duration_ms():
+     assert "formatDurationMs(v)" in js
+     # 공통 formatter 정의는 shared utils 에 있다
+     from ui.js_shared_utils import render_shared_utils_js
+-    assert "function formatDurationMs(value)" in render_shared_utils_js()
++    assert has_function(render_shared_utils_js(), "formatDurationMs")
+     assert "toFixed(3)" in render_shared_utils_js() and "초)" in render_shared_utils_js()
+ 
+ 
+diff --git a/tests/test_stage_tab_free_nav_completed_only.py b/tests/test_stage_tab_free_nav_completed_only.py
+index e2fe68d..5534e88 100644
+--- a/tests/test_stage_tab_free_nav_completed_only.py
++++ b/tests/test_stage_tab_free_nav_completed_only.py
+@@ -13,18 +13,32 @@ STAGE-TAB-FREE-NAV-COMPLETED-ONLY — 상단 단계 탭 '완료 단계 자유이
+   · 하단 좌우 버튼(_mvCanNavStep)은 완료 여부와 무관하게 '항상 인접'(회귀 없음 — 별도 함수 그대로).
+ 
+ pytest: python -m pytest tests/test_stage_tab_free_nav_completed_only.py -q
++
++WHITEBOX-TEST-CONTRACT-CONVERSION-PHASE1 — 이 파일의 정책 테스트 6건은 이미 '실제 함수를 node 로 실행'
++하는 동작계약이라 방식은 유지하고, 배관과 마지막 정적 단언만 계약으로 교체한다.
++  · 로컬 _extract_fn 제거 → contract_utils.function_body(동일한 중괄호 매칭).
++  · 임시파일/subprocess 직접 조작 → contract_utils.run_node.
++  · test_static_wiring_present: 선언문 원문 비교(`var navClickable = active || _mvCanNavTab(d.key);`,
++    `fn: '_mvNavStep', args: [-1]`) → 함수 본문 단위의 '배선 계약'(어떤 게이트를 참조하는가 /
++    두 판정이 분리돼 있는가)로 재작성. 공백·변수명·인자 표기 변화에 깨지지 않되, 게이트가 뒤바뀌면 잡는다.
+ """
+ from __future__ import annotations
+ 
+ import json
+ import os
+ import re
+-import shutil
+-import subprocess
+ import sys
+-import tempfile
+ 
+ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
++sys.path.insert(0, os.path.dirname(__file__))
++
++from contract_utils import (  # noqa: E402
++    calls_absent,
++    function_body,
++    has_function,
++    inline_scripts,
++    run_node,
++)
+ 
+ 
+ def _html():
+@@ -33,29 +47,14 @@ def _html():
+ 
+ 
+ def _extract_fn(name, scripts):
+-    """정적 스크립트에서 함수 정의 원문(중괄호 매칭)을 추출한다."""
+-    m = re.search(r'function ' + name + r'\s*\([^)]*\)\s*\{', scripts)
+-    assert m, f"{name} 미발견"
+-    i = scripts.index("{", m.start())
+-    depth = 0
+-    for j in range(i, len(scripts)):
+-        if scripts[j] == "{":
+-            depth += 1
+-        elif scripts[j] == "}":
+-            depth -= 1
+-            if depth == 0:
+-                return scripts[m.start():j + 1]
+-    raise AssertionError("brace 매칭 실패")
++    """함수 정의 원문 추출 — contract_utils.function_body 위임(로직 재구현 없음)."""
++    return function_body(scripts, name)
+ 
+ 
+ def _run(scenario_js):
+     """공통 Gate + 실제 화면의 nav 게이트 함수들을 주입하고, 시나리오별 _mvCanNavTab 결과를 JSON 으로 반환."""
+-    if not shutil.which("node"):
+-        import pytest
+-        pytest.skip("node 미설치")
+     from ui.js_stage_gate import render_stage_gate_js
+-    src = _html()
+-    scripts = "\n".join(re.findall(r'<script(?!\s[^>]*src)[^>]*>(.*?)</script>', src, re.DOTALL))
++    scripts = inline_scripts(_html())
+     # 브라우저에선 window 가 전역 — node 하니스에서도 동일 접근(bare MvStageGate)을 재현한다.
+     harness = (
+         "global.window = global;\n"
+@@ -88,15 +87,7 @@ def _run(scenario_js):
+         + "process.stdout.write(JSON.stringify({view:_singleViewStep, maxIdx:_singleCompletedMaxIdx,"
+           " stale:_singleSqlStale, tab:tab, step:step}));\n"
+     )
+-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+-        f.write(harness)
+-        path = f.name
+-    try:
+-        r = subprocess.run(["node", path], capture_output=True, text=True, encoding="utf-8", timeout=60)
+-        assert r.returncode == 0, r.stderr[:800]
+-        return json.loads(r.stdout.strip())
+-    finally:
+-        os.unlink(path)
++    return json.loads(run_node(harness, timeout=60).strip())
+ 
+ 
+ # 1~3단계 완료(candidate 확정), 4·5 미완료, 비-stale 상태 세팅 스니펫.
+@@ -176,11 +167,38 @@ def test_bottom_buttons_always_adjacent_regressionfree():
+     assert r["step"]["result"] is False           # 3→5 비인접 → 하단 버튼 불가
+ 
+ 
+-def test_static_wiring_present():
+-    """정적: 탭 게이트가 완료 high-water mark + stale 을 함께 보고, 인접 게이트는 별도 유지."""
+-    h = _html()
+-    assert "function _mvCanNavTab(targetKey)" in h
+-    assert "_singleCompletedMaxIdx" in h and "_singleStepIdx(targetKey)" in h
+-    # 상단 탭 클릭 가능(disabled)은 _mvCanNavTab, 하단 좌우 버튼은 _mvCanNavStep(항상 인접) — 두 판정 분리 유지.
+-    assert "var navClickable = active || _mvCanNavTab(d.key);" in h
+-    assert "fn: '_mvNavStep', args: [-1]" in h and "fn: '_mvNavStep', args: [1]" in h
++def test_gate_wiring_contract():
++    """배선 계약: 상단 탭과 하단 좌우 버튼이 '서로 다른 게이트'를 쓰고, 탭 게이트는 완료 mark + stale 을 본다.
++
++    (기존에는 `var navClickable = active || _mvCanNavTab(d.key);` 같은 선언문 원문을 비교해
++     변수명/공백만 바뀌어도 깨졌다. 여기서는 '어느 함수가 어느 게이트를 참조하는가'를 계약으로 본다.)
++    """
++    scripts = inline_scripts(_html())
++
++    # ① 탭 게이트 자체가 완료 high-water mark 와 stale 을 함께 본다(둘 중 하나라도 빠지면 정책이 무너짐).
++    assert has_function(scripts, "_mvCanNavTab")
++    tab_gate = function_body(scripts, "_mvCanNavTab")
++    assert "_singleCompletedMaxIdx" in tab_gate, "탭 게이트가 완료 high-water mark 를 보지 않음"
++    assert "_singleStepIdx(" in tab_gate, "탭 게이트가 단계 index 비교를 하지 않음"
++    assert "_singleSqlStale" in tab_gate, "탭 게이트가 stale(자유이동 해제) 조건을 보지 않음"
++
++    # ② 인접 게이트(_mvCanNavStep)는 완료 mark 를 보지 않는다 — 두 정책이 섞이면 하단 버튼도 자유이동이 된다.
++    assert has_function(scripts, "_mvCanNavStep")
++    step_gate = function_body(scripts, "_mvCanNavStep")
++    assert calls_absent(step_gate, ["_singleCompletedMaxIdx"]) == [], \
++        "하단 좌우 버튼 게이트가 완료 mark 를 참조함(항상 인접 정책이 깨짐)"
++
++    # ③ 상단 탭 렌더는 탭 게이트로 클릭 가능 여부를 정하고, 인접 게이트를 쓰지 않는다.
++    nav_render = function_body(scripts, "_renderSingleStepNav")
++    assert "_mvCanNavTab(" in nav_render, "상단 탭 렌더가 탭 게이트를 쓰지 않음"
++    assert calls_absent(nav_render, ["_mvCanNavStep("]) == [], \
++        "상단 탭 렌더가 인접 게이트를 사용함(완료 단계 자유이동 소실)"
++
++    # ④ 하단 좌우 버튼(커맨드바)은 인접 게이트로 판정하고 _mvNavStep 으로 양방향 이동한다.
++    cmd_bar = function_body(scripts, "_mvSingleValidationCmdBarConfig")
++    assert "_mvCanNavStep(" in cmd_bar, "하단 좌우 버튼이 인접 게이트로 판정하지 않음"
++    assert calls_absent(cmd_bar, ["_mvCanNavTab("]) == [], \
++        "하단 좌우 버튼이 탭 게이트를 사용함(비인접 이동 허용 회귀)"
++    for direction in ("-1", "1"):
++        assert re.search(r"fn:\s*'_mvNavStep'\s*,\s*args:\s*\[\s*" + direction + r"\s*\]", cmd_bar), \
++            f"하단 커맨드바에 _mvNavStep({direction}) 이동 액션이 없음"
+diff --git a/tests/test_step_nav_scope.py b/tests/test_step_nav_scope.py
+index df21e12..6f94e8c 100644
+--- a/tests/test_step_nav_scope.py
++++ b/tests/test_step_nav_scope.py
+@@ -3,8 +3,14 @@
+ tests/test_step_nav_scope.py
+ SCOPE-PROGRESS-TABS-TO-INDIVIDUAL-VALIDATION-ONLY
+ 
+-상단 진행(step) 탭을 검증 화면(개별 analyze / 일괄 batch)에서만 노출하도록 한 central guard
+-가 렌더 산출물에 반영됐는지 정적 검증. 기준 = 현재 활성 탭(_mvCurrentTab).
++상단 진행(step) 탭을 검증 화면(개별 analyze / 일괄 batch)에서만 노출하도록 한 central guard 검증.
++기준 = 현재 활성 탭(_mvCurrentTab).
++
++WHITEBOX-TEST-CONTRACT-CONVERSION-PHASE1 — 문자열 단언 → 동작계약(behavioral contract) 전환.
++  · 로컬 _extract_fn 제거 → tests/contract_utils.function_body 재사용(중괄호 매칭 동일 로직).
++  · '함수 본문에 이 토큰이 있다' 류 단언을 실제 함수를 node 로 실행한 '행동' 단언으로 교체.
++  · 특히 기존 test_simulated_guard_behavior 는 가드를 테스트 안에서 손으로 재구현해 실행했다 —
++    프로덕션 코드가 아니라 테스트 스텁을 검증하고 있었으므로, 실제 함수 원문 주입으로 교체한다.
+ """
+ import os
+ import re
+@@ -12,24 +18,41 @@ import sys
+ import unittest
+ 
+ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
++sys.path.insert(0, os.path.dirname(__file__))
++
++from contract_utils import (  # noqa: E402  (sys.path 조정 후 import)
++    function_body,
++    has_function,
++    inline_scripts,
++    listener_body,
++    run_node,
++)
++
++
++# ── 공용: 최소 fake DOM(스텁 최소화 — contract_utils 자기비판 #2) ──────────────────────────────
++_DOM = r"""
++var _store = {};
++function _mkEl(id){
++  return { id:id, innerHTML:'x', hidden:false,
++           style:{ display:'', setProperty:function(){} } };
++}
++function _el(id){ return _store[id] || (_store[id] = _mkEl(id)); }
++var _cssVars = {};
++var document = {
++  getElementById: _el,
++  documentElement: { style: { setProperty: function(k, v){ _cssVars[k] = v; } } }
++};
++"""
++
+ 
++def _scripts():
++    from ui.tabler_renderer import TablerRenderer
++    return inline_scripts(TablerRenderer().render_full_page())
+ 
+-def _extract_fn(name, src):
+-    """중첩 브레이스까지 포함해 함수 본문 전체를 추출한다.
+-    단순 비탐욕 정규식(.*?\\}) 은 Phase 69 처럼 if(bar){...} 중첩 블록의 첫 '}' 에서 잘려
+-    본문 뒷부분(mvStepNavInner 정리)을 놓친다 — depth 카운팅으로 함수 끝까지 잡는다."""
+-    m = re.search(r'function ' + re.escape(name) + r'\s*\([^)]*\)\s*\{', src)
+-    assert m, f"{name} 미발견"
+-    i = src.index("{", m.start())
+-    depth = 0
+-    for j in range(i, len(src)):
+-        if src[j] == "{":
+-            depth += 1
+-        elif src[j] == "}":
+-            depth -= 1
+-            if depth == 0:
+-                return src[m.start():j + 1]
+-    raise AssertionError("brace 매칭 실패")
++
++def _subnav_policy(scripts):
++    """SubNav 화이트리스트 상수 + 판정 헬퍼 원문(앵커 쌍 슬라이스)."""
++    return listener_body(scripts, "var _MV_SUBNAV_PAGES", "/* Phase 70")
+ 
+ 
+ class TestStepNavScope(unittest.TestCase):
+@@ -37,66 +60,137 @@ class TestStepNavScope(unittest.TestCase):
+     def setUpClass(cls):
+         from ui.tabler_renderer import TablerRenderer
+         cls.html = TablerRenderer().render_full_page()
++        cls.scripts = inline_scripts(cls.html)
+ 
++    # ── 계약 ①: 현재 표시 화면 추적(모든 탭) ────────────────────────────────────────────────
+     def test_current_tab_tracked_for_all_tabs(self):
+-        # showTab 이 비검증 탭 포함 모든 탭에서 현재 화면을 기록
+-        self.assertIn("var _mvCurrentTab", self.html)
+-        self.assertIn("_mvCurrentTab = name", self.html)
+-
+-    def test_show_bar_central_guard(self):
+-        # _mvShowStepNavBar 는 현재 화면이 owner 일 때만 노출(아니면 숨김)
+-        m = re.search(r"function _mvShowStepNavBar\(owner\)\s*\{(.*?)\}", self.html, re.DOTALL)
+-        self.assertIsNotNone(m)
+-        body = m.group(1)
+-        self.assertIn("_mvCurrentTab !== owner", body)
+-        self.assertIn("_mvHideStepNavBar()", body)
++        """showTab 이 비검증 탭 포함 모든 탭에서 현재 화면(_mvCurrentTab)을 기록한다."""
++        fn = function_body(self.scripts, "showTab")
++        self.assertIn("_mvCurrentTab = name", fn,
++                      "showTab 이 현재 표시 화면을 기록하지 않음(central guard 기준 소실)")
++
++    # ── 계약 ②: 소유자가 아닌 화면에서는 진행 탭 미노출 ─────────────────────────────────────
++    def test_show_bar_central_guard_behavior(self):
++        """_mvShowStepNavBar(owner) 는 '현재 화면 == owner' 일 때만 노출한다(실제 함수 실행).
++
++        세 가지 행동을 한 번에 본다:
++          A. 비검증 화면(settings)에 늦은 batch 렌더 도착 → 미노출 + inner DOM 제거 + step-nav 높이 0
++          B. 소유 화면(batch)에서 batch 렌더 → 노출
++          C. '다른 검증 탭'(analyze 표시 중)에 늦은 batch 렌더 도착 → 그 탭의 nav 를 지우지 않는다
++             (SAVE-TIME-LABEL-AND-REFRESH-WORKFLOW-NAV-FIX 의 clobber 방지 계약)
++        """
++        s = self.scripts
++        js = (_DOM
++              + "var _mvCurrentTab='', _mvStepNavOwner='';\n"
++              + _subnav_policy(s) + "\n"
++              + function_body(s, "_mvHideStepNavBar") + "\n"
++              + function_body(s, "_mvShowStepNavBar") + "\n"
++              + r"""
++/* A. 비검증 화면에 늦은 batch 렌더 도착 */
++_mvCurrentTab='settings'; _el('mvStepNavBar').style.display=''; _el('mvStepNavInner').innerHTML='<div>x</div>';
++_mvShowStepNavBar('batch');
++console.log('A_DISPLAY:' + _el('mvStepNavBar').style.display);
++console.log('A_HIDDEN:'  + (_el('mvStepNavBar').hidden === true));
++console.log('A_INNER_CLEARED:' + (_el('mvStepNavInner').innerHTML === ''));
++console.log('A_NAVH0:'   + (_cssVars['--mv-step-nav-h'] === '0px'));
++/* B. 소유 화면에서 렌더 → 노출 */
++_mvCurrentTab='batch'; _mvShowStepNavBar('batch');
++console.log('B_DISPLAY:' + (_el('mvStepNavBar').style.display === ''));
++console.log('B_HIDDEN:'  + (_el('mvStepNavBar').hidden === false));
++console.log('B_OWNER:'   + _mvStepNavOwner);
++/* C. 다른 '검증' 탭이 표시 중이면 그 탭 소유 nav 를 지우지 않는다(clobber 방지) */
++_mvCurrentTab='analyze'; _el('mvStepNavInner').innerHTML='<div class="mv-step-nav">개별 단계탭</div>';
++_mvShowStepNavBar('batch');
++console.log('C_KEPT:' + (_el('mvStepNavInner').innerHTML.indexOf('mv-step-nav') >= 0));
++""")
++        out = run_node(js)
++        self.assertIn("A_DISPLAY:none", out, "비검증 화면에서 진행 탭이 노출됨(전역 누출)")
++        self.assertIn("A_HIDDEN:true", out, "비검증 화면에서 hidden 미적용(레이아웃 여백 잔존)")
++        self.assertIn("A_INNER_CLEARED:true", out, "비검증 화면에서 진행 탭 DOM 이 남음")
++        self.assertIn("A_NAVH0:true", out, "step nav 높이 변수를 0 으로 되돌리지 않음(본문 상단 여백)")
++        self.assertIn("B_DISPLAY:true", out, "소유 화면에서 진행 탭이 노출되지 않음")
++        self.assertIn("B_HIDDEN:true", out, "소유 화면에서 hidden 이 풀리지 않음")
++        self.assertIn("B_OWNER:batch", out, "소유자 기록 누락")
++        self.assertIn("C_KEPT:true", out,
++                      "늦게 도착한 일괄 렌더가 표시 중인 개별검증 단계 탭을 지움(clobber)")
+ 
++    # ── 계약 ③: 공용 컨테이너 소유권 — 표시 중인 검증 탭만 자신의 nav 를 그린다 ──────────────
+     def test_inner_render_guard_validation_only(self):
+-        # renderMvStepNav: 개별 nav 는 analyze, 일괄 nav 는 batch 표시 중에만 DOM 생성
+-        m = re.search(r"function renderMvStepNav\(.*?\)\s*\{(.*?)el\.innerHTML", self.html, re.DOTALL)
+-        self.assertIsNotNone(m)
+-        body = m.group(1)
+-        self.assertIn("_mvCurrentTab !== 'analyze'", body)
+-        self.assertIn("_mvCurrentTab !== 'batch'", body)
++        """renderMvStepNav: 개별 nav 는 analyze 표시 중에만, 일괄 nav 는 batch 표시 중에만 DOM 생성."""
++        s = self.scripts
+ 
++        def _wrote(current_tab, on_click):
++            js = (_DOM
++                  + listener_body(s, "var _MV_STEP_STATUS_CLASS") + ";\n"
++                  + "function _mvEsc(x){return String(x==null?'':x);}\n"
++                  + "var _wroteHtml='__UNSET__';\n"
++                  + "_store['mvStepNavInner'] = { innerHTML:'', querySelector:function(){return null;},"
++                    " querySelectorAll:function(){return [];}, addEventListener:function(){},"
++                    " contains:function(){return false;} };\n"
++                  + "Object.defineProperty(_store['mvStepNavInner'], 'innerHTML',"
++                    " { set:function(v){_wroteHtml=v;}, get:function(){return _wroteHtml==='__UNSET__'?'':_wroteHtml;} });\n"
++                  + "var window={};\n"
++                  + "var _mvCurrentTab='" + current_tab + "';\n"
++                  + "function showSingleStep(){}\nfunction showBatchStep(){}\n"
++                  + function_body(s, "_mvNavClick") + "\n"
++                  + function_body(s, "_mvStepNavItemsHtml") + "\n"
++                  + function_body(s, "_mvStepNavSig") + "\n"
++                  + function_body(s, "_mvUpdateStepNavInPlace") + "\n"
++                  + function_body(s, "renderMvStepNav") + "\n"
++                  + "var steps=[{no:1,label:'L1',status:'current',badge:'현재',active:true,clickKey:'query'}];\n"
++                  + "renderMvStepNav('mvStepNavInner', steps, " + on_click + ");\n"
++                  + "console.log('WROTE:' + (_wroteHtml !== '__UNSET__'));\n")
++            return "WROTE:true" in run_node(js)
++
++        batch_cb = "function(k){ showBatchStep(Number(k)); }"
++        self.assertTrue(_wrote("analyze", "_mvNavClick"), "개별검증 화면에서 개별 nav 가 그려지지 않음")
++        self.assertFalse(_wrote("batch", "_mvNavClick"), "일괄 화면인데 개별 nav 가 그려짐(clobber)")
++        self.assertTrue(_wrote("batch", batch_cb), "일괄 화면에서 일괄 nav 가 그려지지 않음")
++        self.assertFalse(_wrote("analyze", batch_cb), "개별 화면인데 일괄 nav 가 그려짐(clobber)")
++        # 비검증 화면에서는 어느 writer 도 DOM 을 만들지 않는다.
++        self.assertFalse(_wrote("settings", "_mvNavClick"), "비검증 화면에서 개별 nav DOM 생성")
++        self.assertFalse(_wrote("settings", batch_cb), "비검증 화면에서 일괄 nav DOM 생성")
++
++    # ── 계약 ④: 숨김은 '단순 display 조작'이 아니라 DOM 제거 ────────────────────────────────
+     def test_hide_clears_dom(self):
+-        # 비검증 화면에서는 진행 탭 DOM 제거(단순 숨김 아님) — Phase 69 후 if(bar){...} 중첩 브레이스 포함 추출
+-        body = _extract_fn("_mvHideStepNavBar", self.html)
+-        self.assertIn("mvStepNavInner", body)
+-        self.assertIn("inner.innerHTML = ''", body)
++        """_mvHideStepNavBar 는 진행 탭 DOM 을 실제로 비운다(숨김만 아님) — 실행 결과로 확인."""
++        s = self.scripts
++        self.assertTrue(has_function(s, "_mvHideStepNavBar"))
++        js = (_DOM
++              + "var _mvStepNavOwner='batch';\n"
++              + "_el('mvStepNavInner').innerHTML='<div class=\"mv-step-nav\">잔존</div>';\n"
++              + "_el('mvStepHint').innerHTML='힌트';\n"
++              + function_body(s, "_mvHideStepNavBar") + "\n"
++              + "_mvHideStepNavBar();\n"
++              + "console.log('INNER:' + (_el('mvStepNavInner').innerHTML === ''));\n"
++              + "console.log('HINT:'  + (_el('mvStepHint').innerHTML === ''));\n"
++              + "console.log('OWNER:' + (_mvStepNavOwner === ''));\n")
++        out = run_node(js)
++        self.assertIn("INNER:true", out, "진행 탭 DOM 이 제거되지 않음(누출)")
++        self.assertIn("HINT:true", out, "단계 안내 문구가 남음")
++        self.assertIn("OWNER:true", out, "소유자 표시가 해제되지 않음")
+ 
++    # ── 계약 ⑤: 초기 마크업은 접힘 상태 ────────────────────────────────────────────────────
+     def test_bar_initially_hidden(self):
+-        # 새로고침 직후(기본 home) 진행 탭 미노출 — 초기 마크업 display:none
+-        self.assertRegex(self.html, r'id="mvStepNavBar"[^>]*style="display:none"')
+-
+-    def test_simulated_guard_behavior(self):
+-        # central guard 동작 시뮬레이션(node): 비검증 화면에서 늦은 batch 렌더가 와도 미노출
+-        import shutil, subprocess, tempfile, textwrap
+-        if not shutil.which("node"):
+-            self.skipTest("node 미설치")
+-        js = textwrap.dedent("""
+-            var store={};
+-            function el(id){return store[id]||(store[id]={style:{display:''},innerHTML:'x'});}
+-            var document={getElementById:el};
+-            var _mvCurrentTab='', _mvStepNavOwner='';
+-            function _mvHideStepNavBar(){_mvStepNavOwner='';el('mvStepNavBar').style.display='none';el('mvStepNavInner').innerHTML='';}
+-            function _mvShowStepNavBar(owner){if(_mvCurrentTab!==owner){_mvHideStepNavBar();return;}_mvStepNavOwner=owner;el('mvStepNavBar').style.display='';}
+-            // 설정 화면에서 늦은 batch 렌더 도착 → 미노출 + DOM 제거
+-            _mvCurrentTab='settings'; el('mvStepNavBar').style.display='';
+-            _mvShowStepNavBar('batch');
+-            var r1 = el('mvStepNavBar').style.display + '|' + el('mvStepNavInner').innerHTML;
+-            // 일괄검증 화면 → 노출
+-            _mvCurrentTab='batch'; _mvShowStepNavBar('batch');
+-            var r2 = el('mvStepNavBar').style.display;
+-            console.log(r1 + '##' + r2);
+-        """)
+-        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+-            f.write(js); path = f.name
+-        try:
+-            out = subprocess.check_output(["node", path], text=True).strip()
+-        finally:
+-            os.unlink(path)
+-        self.assertEqual(out, "none|##")   # 설정: 숨김+DOM제거 / 배치: 노출('')
++        """새로고침 직후(기본 home) 진행 탭 미노출 — 속성 단위 검사(속성 순서/추가 클래스 무관)."""
++        i = self.html.find('id="mvStepNavBar"')
++        self.assertGreaterEqual(i, 0, "mvStepNavBar 컨테이너 미존재")
++        tag = self.html[i:self.html.index(">", i) + 1]
++        self.assertRegex(tag, r'style="[^"]*display:\s*none', "초기 마크업이 display:none 이 아님")
++        self.assertIn("hidden", tag, "초기 마크업에 hidden 속성 없음(레이아웃 여백 잔존)")
++
++    # ── 계약 ⑥: SubNav 표시 대상 정책(검증 화면만) ─────────────────────────────────────────
++    def test_subnav_policy_validation_pages_only(self):
++        """_mvShouldShowSubNav 는 검증 페이지만 true(정책 함수 실제 실행)."""
++        s = self.scripts
++        js = (_subnav_policy(s) + "\n"
++              + "var show=['analyze','batch'];\n"
++              + "var hide=['settings','home','job-dashboard','queryupload','history','metadata','projects','groups'];\n"
++              + "console.log('SHOW:' + show.every(function(n){return _mvShouldShowSubNav(n)===true;}));\n"
++              + "console.log('HIDE:' + hide.every(function(n){return _mvShouldShowSubNav(n)===false;}));\n")
++        out = run_node(js)
++        self.assertIn("SHOW:true", out, "검증 화면에서 SubNav 정책이 false")
++        self.assertIn("HIDE:true", out, "비검증 화면에서 SubNav 정책이 true(전역 누출)")
+ 
+ 
+ if __name__ == "__main__":
+diff --git a/tests/test_subnav_pages.py b/tests/test_subnav_pages.py
+index 9c8ca77..8e6617c 100644
+--- a/tests/test_subnav_pages.py
++++ b/tests/test_subnav_pages.py
+@@ -2,24 +2,29 @@
+ """
+ tests/test_subnav_pages.py
+ Phase 69 — 상단 단계 탭(SubNav) 전역 고정 제거 + 페이지별 표시 전환 검증.
+-검증 페이지(개별/일괄)에서만 SubNav 표시, 그 외 페이지는 DOM/여백 없이 접힘. 브라우저 확인 불가 → node + HTTP.
++검증 페이지(개별/일괄)에서만 SubNav 표시, 그 외 페이지는 DOM/여백 없이 접힘.
++
++WHITEBOX-TEST-CONTRACT-CONVERSION-PHASE1 — 문자열 단언 → 동작계약 전환.
++  · _FULL_HTML.index(...) 수동 슬라이스 → contract_utils.listener_body(앵커 쌍/중괄호 매칭).
++  · 임시파일 + subprocess 직접 조작 → contract_utils.run_node.
++  · "본문에 bar.hidden = true 문자열이 있다" → 실제 _mvHideStepNavBar 를 실행해 '접힘 결과'를 본다.
++  · showTab 의 SubNav 배선은 정책 함수 호출 여부(구조) + 접힘 행동으로 확인.
+ """
+ import os
+-import subprocess
+ import sys
+-import tempfile
+ 
+ import pytest
+ 
+ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
++sys.path.insert(0, os.path.dirname(__file__))
+ 
+-
+-def _have_node():
+-    try:
+-        subprocess.run(["node", "--version"], capture_output=True, timeout=10)
+-        return True
+-    except Exception:
+-        return False
++from contract_utils import (  # noqa: E402
++    calls_absent,
++    function_body,
++    has_function,
++    listener_body,
++    run_node,
++)
+ 
+ 
+ def _client(tmp_path):
+@@ -31,65 +36,78 @@ def _client(tmp_path):
+     return TestClient(web_server.app)
+ 
+ 
+-# ── 정책(순수) : SubNav 표시/미표시 페이지 ─────────────────────────────────────────────────────
+-def test_node_should_show_subnav_policy():
+-    if not _have_node():
+-        pytest.skip("node 미설치")
++def _full():
+     from ui.tabler_renderer import _FULL_HTML
+-    a = _FULL_HTML.index("var _MV_SUBNAV_PAGES")
+-    b = _FULL_HTML.index("var _ALL_TABS")
+-    block = _FULL_HTML[a:b]
++    return _FULL_HTML
++
++
++# ── 계약 ① 정책(순수) : SubNav 는 검증 페이지에서만 표시 ──────────────────────────────────────
++def test_node_should_show_subnav_policy():
++    """_mvShouldShowSubNav 를 실제로 실행해 표시/미표시 페이지 판정을 확인."""
++    block = listener_body(_full(), "var _MV_SUBNAV_PAGES", "/* Phase 70")
+     js = (block + "\n"
+-          + "var show=['analyze','batch']; var hide=['settings','home','queryupload','history','metadata','projects','groups'];\n"
++          + "var show=['analyze','batch'];\n"
++          + "var hide=['settings','home','job-dashboard','queryupload','history','metadata','projects','groups'];\n"
+           + "console.log('SHOW=' + show.map(function(n){return n+':'+_mvShouldShowSubNav(n);}).join(','));\n"
+           + "console.log('HIDE=' + hide.map(function(n){return n+':'+_mvShouldShowSubNav(n);}).join(','));\n")
+-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+-        f.write(js); path = f.name
+-    try:
+-        out = subprocess.run(["node", path], capture_output=True, text=True, encoding="utf-8", timeout=30)
+-        assert out.returncode == 0, out.stderr
+-        lines = dict(l.split("=", 1) for l in out.stdout.strip().splitlines())
+-    finally:
+-        os.unlink(path)
++    lines = dict(l.split("=", 1) for l in run_node(js).strip().splitlines())
+     # 검증 페이지 표시
+-    assert lines["SHOW"] == "analyze:true,batch:true"
++    assert lines["SHOW"] == "analyze:true,batch:true", "검증 페이지에서 SubNav 미표시 판정"
+     # 비검증 페이지 미표시(connection/profile=settings, dashboard=home, upload=queryupload, history, metadata 등)
+-    assert "true" not in lines["HIDE"]
++    assert "true" not in lines["HIDE"], f"비검증 페이지에서 SubNav 표시 판정: {lines['HIDE']}"
+     for p in ("settings", "home", "queryupload", "history", "metadata"):
+         assert (p + ":false") in lines["HIDE"]
+ 
+ 
+-# ── 셸 마크업 : SubNav bar 는 기본 접힘(placeholder 없음) ───────────────────────────────────────
++# ── 계약 ② 셸 마크업 : SubNav bar 는 기본 접힘(placeholder 없음) ────────────────────────────
+ def test_subnav_bar_collapsed_by_default(tmp_path):
++    """서빙된 페이지의 SubNav 컨테이너가 기본 접힘 — 속성 단위 검사(속성 순서/클래스 추가 무관)."""
+     client = _client(tmp_path)
+     r = client.get("/")
+     assert r.status_code == 200
+     html = r.text
+-    # SubNav 컨테이너는 존재하되 기본은 hidden + display:none (검증 페이지에서만 노출)
+     i = html.index('id="mvStepNavBar"')
+-    tag = html[i - 60:i + 120]
+-    assert "hidden" in tag and "display:none" in tag
+-    # 정책 상수/헬퍼가 존재
+-    assert "_MV_SUBNAV_PAGES" in html and "_mvShouldShowSubNav" in html
+-
+-
+-def test_hide_helper_collapses_layout(tmp_path):
+-    """_mvHideStepNavBar 가 display:none + hidden + step-nav 높이 0 을 적용(여백 없음)."""
+-    from ui.tabler_renderer import _FULL_HTML
+-    a = _FULL_HTML.index("function _mvHideStepNavBar() {")
+-    b = _FULL_HTML.index("function _mvSetStepHint(html) {")
+-    body = _FULL_HTML[a:b]
+-    assert "bar.hidden = true" in body and "display = 'none'" in body
+-    assert "--mv-step-nav-h" in body and "0px" in body
+-
+-
++    tag = html[html.rindex("<", 0, i):html.index(">", i) + 1]
++    assert "hidden" in tag, "SubNav 컨테이너에 hidden 속성 없음(레이아웃 여백 잔존)"
++    assert "display:none" in tag.replace(" ", ""), "SubNav 컨테이너 초기 display:none 아님"
++    # 정책 상수/헬퍼가 서빙 산출물에 존재
++    assert "_MV_SUBNAV_PAGES" in html and has_function(html, "_mvShouldShowSubNav")
++
++
++# ── 계약 ③ 숨김 헬퍼는 '레이아웃까지' 접는다(여백 0) ───────────────────────────────────────
++def test_hide_helper_collapses_layout():
++    """_mvHideStepNavBar 실행 결과: display:none + hidden + step-nav 높이 변수 0px."""
++    js = (r"""
++var _store = {}, _cssVars = {};
++function _el(id){ return _store[id] || (_store[id] = { id:id, innerHTML:'x', hidden:false,
++    style:{ display:'', setProperty:function(){} } }); }
++var document = { getElementById:_el,
++  documentElement:{ style:{ setProperty:function(k,v){ _cssVars[k]=v; } } } };
++var _mvStepNavOwner='analyze';
++"""
++          + function_body(_full(), "_mvHideStepNavBar") + "\n"
++          + "_el('mvStepNavBar').style.display=''; _el('mvStepNavBar').hidden=false;\n"
++          + "_mvHideStepNavBar();\n"
++          + "console.log('DISPLAY:' + _el('mvStepNavBar').style.display);\n"
++          + "console.log('HIDDEN:'  + _el('mvStepNavBar').hidden);\n"
++          + "console.log('NAVH:'    + _cssVars['--mv-step-nav-h']);\n")
++    out = run_node(js)
++    assert "DISPLAY:none" in out, "SubNav 가 display:none 으로 접히지 않음"
++    assert "HIDDEN:true" in out, "SubNav 에 hidden 미적용(스크린리더/레이아웃 잔존)"
++    assert "NAVH:0px" in out, "step nav 높이 변수를 0 으로 되돌리지 않아 본문 상단 여백이 남음"
++
++
++# ── 계약 ④ showTab 은 하드코딩이 아니라 정책 함수로 SubNav 노출을 결정 ────────────────────
+ def test_showtab_uses_subnav_policy():
+-    """showTab 이 하드코딩 analyze/batch 대신 _mvShouldShowSubNav 정책으로 SubNav 노출을 결정."""
+-    from ui.tabler_renderer import _FULL_HTML
+-    a = _FULL_HTML.index("function showTab(name, opts) {")
+-    b = _FULL_HTML.index("function _restoreActiveTab() {")
+-    body = _FULL_HTML[a:b]
+-    assert "_mvShouldShowSubNav(name)" in body and "_mvHideStepNavBar()" in body
++    """showTab 이 하드코딩 analyze/batch 비교 대신 _mvShouldShowSubNav 정책으로 결정하고,
++    미표시 페이지에서는 _mvHideStepNavBar 로 접는다."""
++    body = function_body(_full(), "showTab")
++    assert "_mvShouldShowSubNav(name)" in body, "showTab 이 SubNav 정책 함수를 쓰지 않음"
++    assert "_mvHideStepNavBar()" in body, "showTab 이 비대상 페이지에서 SubNav 를 접지 않음"
++    # 정책 우회(하드코딩 페이지명 비교로의 회귀) 금지 — 음성 계약
++    assert calls_absent(body, ["name === 'analyze' || name === 'batch'",
++                               "name == 'analyze' || name == 'batch'"]) == [], \
++        "showTab 에 SubNav 페이지 하드코딩 비교가 되살아남(정책 함수 우회)"
+ 
+ 
+ def test_get_root_200(tmp_path):
