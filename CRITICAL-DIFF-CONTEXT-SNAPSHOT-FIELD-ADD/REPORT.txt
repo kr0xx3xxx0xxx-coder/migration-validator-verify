@@ -1,0 +1,266 @@
+CRITICAL-DIFF-CONTEXT-SNAPSHOT-FIELD-ADD — 완료 보고서
+작성: 2026-07-28 / 실 서비스 포트 8000(Basic Auth ON) · 실 PostgreSQL_Inter(192.168.0.150)
+
+════════════════════════════════════════════════════════════════════════════════
+■ 한 줄 요약
+
+  부분 적재(COUNT_CRITICAL_DIFF) 상태에서 강행한 개별검증 결과를 재조회할 때 통째로
+  사라지던 "건수 격차(부분 적재) 상태에서 진행된 결과입니다" 맥락 배너를, 실행 시점
+  게이트 근거를 snapshot 에 보존하는 방식으로 복원했다. 판정 로직은 손대지 않았다.
+
+
+════════════════════════════════════════════════════════════════════════════════
+■ 배경 — 무엇이 사라졌고 왜 사라졌나
+
+  SNAPSHOT-DOWNGRADE-REACHABILITY-CONSOLIDATE-DIAGNOSE 에서 확인된 L1 항목이다.
+
+  마법사 5단계는 결과표 위에 파란 맥락 배너를 그린다. 내용은 "아래 불일치는 값이 손상된
+  것이 아니라, 데이터가 어디까지 옮겨졌는지(누락 범위)를 보여줍니다" 이고, 적재율·순
+  차이·관측 패턴(편중/균등/혼합)과 원본만·값불일치 범례가 따라붙는다. 부분 적재 상태에서
+  사용자가 강행한 결과를 '값이 깨진 것'으로 오해하지 않게 하는 설명 장치다.
+
+  그런데 이 배너의 발화 조건이 결과 객체(r)가 아니라 브라우저 전역에 있었다.
+
+      ui/execute_result_renderer.py:751  _execCriticalDiffContext(r)
+        window._countGate.count_status === 'COUNT_CRITICAL_DIFF'
+        AND window._mvCountGateForceAccepted (사용자 강제진행 동의)
+
+  두 신호 모두 마법사 실행 세션에만 존재한다. window._countGate 는 /count 응답의
+  count_gate 를 받아 화면이 들고 있는 값이고(ui/tabler_renderer.py:24017), 강제진행
+  동의도 그 세션의 클릭으로만 세워진다. 그래서 같은 run 을 다시 열면 두 신호가 모두
+  없어 배너가 통째로 사라졌다. 표시가 줄어드는 게 아니라 '왜 이렇게 보이는지'에 대한
+  설명 자체가 없어지는 종류의 결손이다.
+
+  저장 쪽에도 근거가 없었다. snapshot 의 count_precheck_status 는
+  NOT_RUN/PASSED/FAILED/ERROR/SKIPPED_BY_USER 5값 화이트리스트라, CRITICAL 이든
+  MINOR 든 건수 불일치는 전부 FAILED 한 칸으로 뭉개졌다. 즉 재조회 화면이 참고할
+  '이 run 은 부분 적재였다'는 사실이 어디에도 남아 있지 않았다.
+
+  실측으로도 확인했다. /execute 응답에는 count_gate 도 count_status 도 없다
+  (verify_result.json 의 execute.has_count_gate_in_response = false). 게이트 판정은
+  /count 응답에만 실려 화면 전역으로 들어갔다가 세션과 함께 사라진다.
+
+
+════════════════════════════════════════════════════════════════════════════════
+■ 무엇을 바꿨나
+
+  커밋 2개로 나눴다. 두 번째는 요청 범위를 벗어나므로 아래에 따로 밝힌다.
+
+  ── 커밋 1  b02e06b  (요청 범위 — services/single_validation_result_store.py) ──
+
+    build_single_snapshot 이 count_gate_context 를 함께 저장한다.
+
+      count_status, source_count, target_count, absolute_diff, relative_diff,
+      coverage_ratio, target_load_ratio, severity_label, next_action_label,
+      diagnostic_reason, confirmed_full_missing_side
+      + stats_blocked_by_gate, force_accepted, force_accepted_evidence,
+        evidence_source, count_precheck_status, gate_policy_version
+
+    보존 우선순위는 두 단계다.
+
+      1) 실행 응답에 게이트 dict 가 이미 실려 있으면 그대로 whitelist 복사한다.
+         (일괄/원클릭 경로는 count_result 에 count_gate 를 붙여 내려보낸다.)
+      2) 없으면 — 마법사 경로가 여기 해당한다 — 저장 대상 COUNT 값
+         (req.count_src_count / count_tgt_count = 화면이 게이트를 띄울 때 쓴 바로 그 값)
+         으로 같은 단일 출처 함수 evaluate_count_gate 를 재평가한다.
+
+    2번이 '재판정 아니냐'는 의심을 살 수 있어 값으로 증명했다. evaluate_count_gate 는
+    순수 함수이고 입력이 동일하므로 결과도 결정적으로 동일하다. 실측에서 /count 응답의
+    게이트 dict 와 snapshot 저장값을 11개 키 전부 대조해 두 케이스 모두 불일치 0 이었다
+    (verify_result.json 의 gate_parity.identical = true). 임계값·분기·판정식은 한 줄도
+    건드리지 않았다(services/count_gate_service.py 무수정).
+
+    count_precheck_status 5값 계약은 그대로 뒀다. 지시는 "화이트리스트에 CRITICAL 값
+    (또는 별도 필드) 추가"였는데, 5값 집합에 6번째를 넣는 쪽은 택하지 않았다. 그 5값은
+    배지 map(ui 상태 배지), 일괄 통계검증 집계, 후보 생성 서비스가 이미 계약으로 쓰고
+    있어서, 값을 하나 더 흘리면 "추가만 하고 기존 값 의미는 그대로"라는 조건이 실제로는
+    깨진다(기존 소비처의 else 분기로 떨어져 표시가 달라진다). 그래서 지시가 허용한
+    '별도 필드' 쪽을 택하고, 게이트 코드 8종에 대한 자체 화이트리스트
+    (_COUNT_GATE_STATUSES)를 같은 패턴으로 뒀다. 실측으로 5값 집합 무변경과
+    normalize_count_status 동작 동일을 확인했다(contract_unchanged.unchanged = true).
+
+    force_accepted 도 새 기준을 만들지 않았다. 게이트 자신의 allowed_stages 에 stats 가
+    없으면(= 게이트가 통계검증을 막은 상태) 그 상태에서 실행 결과가 존재한다는 사실
+    자체가 강제진행의 증거다. 화면이 보낸 skip_reason 에 '수동 진행'이 있으면 그것을
+    우선 근거로 쓰고, 어느 쪽인지 force_accepted_evidence 에 남긴다.
+
+    COUNT 값이 없으면 None 을 저장한다. 미실행/미확인을 0건이나 특정 등급으로 단정하지
+    않는다(§10 실패를 0건으로 처리 금지와 같은 태도).
+
+  ── 커밋 2  4db0e18  (요청 범위 밖 — ui/execute_result_renderer.py, 11줄) ──
+
+    지시는 store 한 파일만 고치라는 것이었고 그 제약은 지켰다. 다만 그 상태로는 지시
+    4번(Before 배너 소실 / After 배너 복원)이 성립하지 않는다는 사실을 실측으로 확인해
+    함께 보고한다. 저장을 아무리 정확히 해도 소비측 _execCriticalDiffContext 가
+    window._countGate 만 읽기 때문에, 재조회 화면의 배너는 여전히 뜨지 않는다.
+
+    그래서 표시 계층에 폴백 한 곳을 최소로 추가했다.
+
+        전역(window._countGate / _mvCountGateForceAccepted)이 없을 때에 한해
+        결과의 count_gate_context 를 읽는다. 전역이 있으면 전역이 우선이므로
+        마법사 실행 중 동작은 변하지 않는다.
+
+    표시 전용이다. 판정·집계 수치(matched/diff/src_only/tgt_only)를 바꾸지 않고 새
+    임계값도 없다. 저장된 실행 시점 값을 읽기만 한다. 범위를 넘긴 판단이므로 커밋을
+    분리해 두었다 — 이 결정에 동의하지 않으면 4db0e18 만 되돌리면 되고, 그 경우
+    저장 계층(b02e06b)은 그대로 남아 Excel 증적·복원 경로에서 계속 유효하다.
+
+
+════════════════════════════════════════════════════════════════════════════════
+■ 실측 픽스처
+
+  COUNT 게이트의 CRITICAL 조건은 (큰쪽 ≥ 100,000 AND coverage ≤ 20%) 또는
+  (절대 ≥ 1,000,000 AND 상대 ≥ 10%) 이다. 소형 테이블은 비율만으로 CRITICAL 이 되지
+  않으므로(§16 소형 보호) 원본을 15만행으로 만들었다.
+
+    asis01.t_critdiff_src   150,000행 · region_cd 10종(저카디 — GB 후보 게이트 ≤50 통과)
+    tobe01.t_critdiff_tgt    15,000행 · R001 그룹만 적재
+                             → 적재율 10% · 순 차이 135,000 → COUNT_CRITICAL_DIFF
+                             → 10그룹 중 9그룹 통째 누락 = 편중 부분 적재
+    tobe01.t_critdiff_ctl   149,500행 · 500행만 빠짐(대조군)
+                             → 상대 0.33% → COUNT_MINOR_DIFF (게이트가 stats 를 막지 않음)
+
+  대조군을 같이 둔 이유는 저장 필드가 고정값이 아니라 실제로 갈린다는 것과, CRITICAL 이
+  아닌 run 에 거짓 배너가 생기지 않는다는 것을 같은 실행으로 보이기 위해서다.
+
+
+════════════════════════════════════════════════════════════════════════════════
+■ 검증 결과
+
+  1) 파이프라인 실측 (실 DB · 실 포트 8000 · 인증 ON)
+     /analyze → /count → /generate → /execute → /single/save → get_single_result
+
+     [CRITICAL] src=150,000 tgt=15,000 · count_error_code=COUNT_MISMATCH
+                /count 게이트: COUNT_CRITICAL_DIFF · 적재율 0.1 · 순 차이 135,000
+                             allowed_stages=['range_diagnosis'] (= stats 차단 상태)
+                /execute    : success=True matched=1 diff=0 src_only=9 tgt_only=0
+                snapshot    : count_gate_context.count_status=COUNT_CRITICAL_DIFF
+                              적재율 0.1 · 순 차이 135,000
+                              force_accepted=True (USER_MANUAL_PROCEED)
+                              evidence_source=DERIVED_FROM_SAVED_COUNTS
+                              count_precheck_status=FAILED (기존 5값 그대로)
+
+     [MINOR]    src=150,000 tgt=149,500
+                /count 게이트: COUNT_MINOR_DIFF · allowed_stages=['stats','key_range','exact_diff']
+                snapshot    : count_gate_context.count_status=COUNT_MINOR_DIFF
+                              → 배너 미발화(정상)
+
+  2) 게이트 무변형 대조 — 재판정이 아님을 값으로 증명
+     /count 응답 게이트 dict vs snapshot 저장값, 11개 키 전부 대조 → 불일치 0 (두 케이스)
+
+  3) 브라우저 A/B/C 대조 (실제 renderExecute 통과 · 8000 인증 ON · 총 6장)
+
+     A) 마법사 5단계   : /execute 응답 + 화면 전역 게이트 + 강제진행 동의
+     B) 재조회(수정 후): 전역 없음 + snapshot 재구성(count_gate_context 포함)
+     C) 재조회(수정 전): 전역 없음 + count_gate_context 제거
+
+     [CRITICAL]  A 배너 O / B 배너 O / C 배너 X
+                 A·B 배너 제목·본문·패턴 문자열 완전 일치:
+                   "🔎 건수 격차(부분 적재) 상태에서 진행된 결과입니다"
+                   "목적지 적재율 10.0% (원본 150,000 / 목적 15,000 · 순 차이 135,000건).
+                    아래 불일치는 값이 손상된 것이 아니라, 데이터가 어디까지 옮겨졌는지
+                    (누락 범위)를 보여줍니다."
+                   "관측 패턴: 편중 부분 적재 — 일부 그룹은 목적지에 아예 없습니다(통째 누락)."
+                 C 에서는 배너뿐 아니라 결과표 행 배지의 부가 라벨('그룹 전체 누락')까지
+                 사라진다 — 같은 _critCtx 를 쓰는 표시라 함께 소실되는 것을 확인했다.
+
+     [MINOR]     A/B/C 모두 배너 없음 → 거짓 배너가 생기지 않음
+
+  4) ablation / 수정 전 코드 재구성
+     HEAD(수정 전) 시점 store 모듈을 그대로 로드해 같은 입력으로 snapshot 을 만들면
+     count_gate_context 가 없고, count_precheck_status 는 FAILED 뿐이다
+     (= CRITICAL 이라는 사실 자체가 남지 않는다). 두 케이스 모두 동일.
+
+  5) 하위호환
+     기존(필드 없이 저장된) snapshot 30건 조회 → 성공 30건 · 오류 0건 ·
+     신규 필드 없는 건 30건 · 배너 안전 미표시 30건. .get() 경로라 예외 없음.
+
+  6) 기존 계약 무변경
+     _COUNT_STATUSES = {NOT_RUN, PASSED, FAILED, ERROR, SKIPPED_BY_USER} 그대로.
+     normalize_count_status 샘플 8종 반환 동일('COUNT_CRITICAL_DIFF' 입력은 기존과
+     똑같이 NOT_RUN 으로 떨어진다 — 5값 계약에 게이트 코드를 섞지 않았다는 뜻).
+
+  7) baseline 회귀 대조 (in-place revert 방식 — worktree 미사용)
+     대상: 저장소(store)·persistence·snapshot·COUNT 게이트/강제진행 관련 33개 파일 313건
+
+       baseline(되돌린 트리)  34 failed / 275 passed / 4 errors  (170.19s)
+       적용본                 33 failed / 276 passed / 4 errors  (176.42s)
+
+     실패 목록 diff = 1행. 새로 깨진 테스트는 0건이고, 오히려 baseline 에서만 실패한
+     1건이 있다:
+       tests/test_single_execute_store_skeleton_state_lock.py::test_route_store_failure_isolated
+
+     이 1건은 이번 수정과 무관한 flaky 다. 근거 두 가지를 실측했다.
+       - 적용본 트리에서 같은 파일을 5회 반복 실행하면 2/3/2/3/3 건으로 실패 수가 흔들린다.
+       - 단독 실행 시 실패 사유는 processing_ms(0.2 vs 7.7) 불일치다. 이 테스트는 두 번
+         실행한 응답 dict 의 완전 동일성(on == off)을 단언하는데, 응답에 실행시간 필드가
+         있어 태생적으로 타이밍 의존이다. 이번 변경은 응답이 아니라 snapshot dict 에만
+         키를 추가하므로 이 비교에 개입할 수 없다.
+
+     전체 tests/ 완주는 이번에도 하지 않았다 — 넓은 범위(-k 필터 2,564건) 실행이 14%
+     지점에서 진행이 멈춰 중단했고, 같은 시각 타 세션 pytest 프로세스가 여러 개 떠 있었다
+     (직전 작업 보고서에 기록된 것과 같은 현상). 사실대로 적는다.
+
+  8) 서버 재기동
+     구 프로세스 종료 2026-07-28 13:44:05 → 재기동 후 HTTP 200 확인 13:44:21 (포트 8000).
+     재기동 뒤 브라우저가 실제로 새 코드를 받는지도 확인했다(응답 HTML 번들에
+     count_gate_context 2회 등장). JS 번들 전체를 node --check 로 파싱 검사해 통과했다
+     (렌더 JS 주석이 번들을 깨뜨리는 과거 실패 유형 예방).
+
+
+════════════════════════════════════════════════════════════════════════════════
+■ 남은 갭 / 이번 범위 밖
+
+  1) 이력 조회 경로(/history/runs/{run_id}/execute-result)는 snapshot 이 아니라
+     validation_history DB 에서 결과를 재조립하는 별개 경로다. 이 경로에는
+     count_gate_context 도 display_tier_info 도 없다. 직전 작업 보고서에 적은 것과 같은
+     구조적 갭이며 별도 작업으로 다뤄야 한다.
+
+  2) force_accepted 는 대조군(MINOR)에서도 True 로 기록된다. 화면이 보낸 skip_reason
+     ('건수 불일치 — 사용자 수동 진행')이 사실이기 때문이며, 배너는 CRITICAL 조건과
+     AND 로 묶여 있어 표시에는 영향이 없다. 다만 '게이트를 뚫고 나온 것'과 '단순 건수
+     불일치를 수동 진행한 것'을 한 필드가 겸하고 있어, 나중에 이 값을 다른 용도로 쓸
+     때는 stats_blocked_by_gate 와 함께 봐야 한다(그래서 그 값도 같이 저장했다).
+
+  3) 마법사 실행 중에는 여전히 화면 전역이 1차 신호다. 전역을 없애고 응답/저장값 단일
+     출처로 통일하는 정리는 더 큰 변경이라 하지 않았다.
+
+
+════════════════════════════════════════════════════════════════════════════════
+■ 변경/생성 파일
+
+  수정 (2)
+    services/single_validation_result_store.py            +121 / -0   (b02e06b)
+    ui/execute_result_renderer.py                         +11  / -0   (4db0e18, 범위 밖)
+
+  신규 (3, 모두 dev_e2e 실측 스크립트 — 운영 경로 무관)
+    scripts/dev_e2e/critical_diff_context_fixture.py      CRITICAL/MINOR 픽스처 생성
+    scripts/dev_e2e/critical_diff_context_verify.py       API/저장/조회/대조/ablation/하위호환
+    scripts/dev_e2e/critical_diff_context_browser_shot.py A/B/C 브라우저 대조(6장)
+
+  증적 (E:\verify_screenshots_only\CRITICAL-DIFF-CONTEXT-SNAPSHOT-FIELD-ADD\)
+    CRITICAL_A_wizard_execute.png / CRITICAL_B_snapshot_after_fix.png
+    CRITICAL_C_snapshot_before_fix.png
+    MINOR_A_wizard_execute.png / MINOR_B_snapshot_after_fix.png
+    MINOR_C_snapshot_before_fix.png
+    verify_result.json / browser_verdict.json / raw_wizard_vs_snapshot.json
+    pytest_after.txt / pytest_baseline_before.txt / _fail_after.txt / _fail_before.txt
+    _flaky_check.txt / REPORT.txt
+
+  커밋
+    b02e06b  feat(snapshot): 개별검증 snapshot에 COUNT 게이트 맥락(부분 적재 CRITICAL) 근거 필드 추가
+    4db0e18  fix(ui): 재조회 화면에서 부분 적재 맥락 배너 복원 — 저장 게이트 context 폴백
+
+
+════════════════════════════════════════════════════════════════════════════════
+■ 결론
+
+  실행 시점에만 존재하던 COUNT 게이트 맥락이 이제 snapshot 에 함께 남는다. 재조회 화면은
+  게이트를 다시 판정하지 않고 저장된 근거를 그대로 읽어 부분 적재 배너를 복원한다.
+  판정 로직·임계값·상태값(PASS/WARNING/SKIP)은 변하지 않았고, 기존 5값 COUNT 계약도
+  그대로다. 새로 깨진 테스트는 0건이다.
+
+  다만 저장 계층만으로는 증상이 해소되지 않아 표시 계층 11줄을 함께 고쳤다. 지시 범위를
+  넘어선 판단이므로 커밋을 분리했고, 되돌릴 경우의 영향까지 위에 적어 두었다.
+
+✅ 작업 완료 - CRITICAL-DIFF-CONTEXT-SNAPSHOT-FIELD-ADD: count_gate_context 저장 + 재조회 폴백으로 CRITICAL/MINOR 두 케이스 A=B≠C 실측, 게이트 11키 무변형·기존 5값 계약 무변경·baseline 신규 실패 0

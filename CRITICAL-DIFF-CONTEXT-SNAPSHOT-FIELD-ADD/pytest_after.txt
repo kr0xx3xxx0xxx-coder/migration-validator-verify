@@ -1,0 +1,868 @@
+......................................FFFF........F..........FFFFFFFFF.. [ 23%]
+........................................................................ [ 46%]
+.F...................FF................................F....FFF...F....F [ 69%]
+E.E.EFE.....................FFF.FFF..................................... [ 91%]
+................F......FF                                                [100%]
+=================================== ERRORS ====================================
+______ ERROR at teardown of test_single_source_binding_uses_profile_name ______
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001FB3F102350>
+
+    @pytest.fixture(autouse=True)
+    def _harness(monkeypatch):
+        monkeypatch.setattr(_psg, "scope_block", lambda **k: None)
+        monkeypatch.setattr("routes.single_save_route.scope_block", lambda **k: None)
+        monkeypatch.setattr(S._store, "_conn_id", lambda d: "CONN")
+        monkeypatch.setattr(S._store, "create_validation_run", lambda **kw: "RUN-1")
+        monkeypatch.setattr(S._store, "save_execute_response", lambda **kw: None)
+        monkeypatch.setattr(S._store, "finish_validation_run", lambda **kw: None)
+        monkeypatch.setattr(S._history, "save_stats_validation_history", lambda **kw: "HIST-1")
+        import services.single_validation_result_store as RS
+        monkeypatch.setattr(RS, "build_single_snapshot", lambda *a, **k: {"run_id": a[0]})
+        monkeypatch.setattr(RS, "save_single_result", lambda *a, **k: True)
+        # preset 로더 고정(resolve + restore fallback 공용)
+        monkeypatch.setattr(SPR, "_load_src_presets", lambda: list(_PRESETS))
+        # \uc2e4 DB \ubbf8\uc811\uc18d \ud658\uacbd \u2014 metadata live \uc218\uc9d1\uc740 advisory SKIP \uc73c\ub85c \uace0\uc815(\ub4f1\ub85d/\ubc14\uc778\ub529 \uc800\uc7a5\uc740 \uadf8\ub300\ub85c \uac80\uc99d).
+        import services.single_official_register_txn as TXN
+        monkeypatch.setattr(TXN, "ensure_official_metadata", lambda **kw: {
+            "status": "SKIPPED_NO_CONN", "reused": 0, "collected": 0, "fingerprint": "", "reason": "test"})
+        yield
+>       _cleanup()
+
+tests\test_single_save_source_binding.py:76: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_single_save_source_binding.py:82: in _cleanup
+    conn = sqlite3.connect(str(_DB))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+database = 'C:\\projects\\migration-validator\\db\\migration_validator.db'
+args = (), kwargs = {}, uri = False
+p = WindowsPath('C:/projects/migration-validator/db/migration_validator.db')
+
+    def _guarded_connect(database, *args, **kwargs):
+        """[1차 방어] 운영 SQLite 를 쓰기 가능 연결로 열면 즉시 RuntimeError."""
+        uri = bool(kwargs.get("uri", False)) or str(database).startswith("file:")
+        if not _is_readonly_uri(database, uri):
+            p = _extract_path(database, uri)
+            if p is not None and str(p) in _REAL_PROD_FILES:
+>               raise RuntimeError(
+                    "[PROD-DB-WRITE-BLOCKED] 테스트가 운영 SQLite 를 쓰기 가능 연결로 열려 했습니다: "
+                    f"{p}. 테스트는 tmp_path/운영 복사본만 사용하고, 운영 DB 읽기는 mode=ro URI "
+                    "(또는 ro_connect helper)만 허용됩니다. 운영 DB fallback 금지."
+                )
+E               RuntimeError: [PROD-DB-WRITE-BLOCKED] 테스트가 운영 SQLite 를 쓰기 가능 연결로 열려 했습니다: C:\projects\migration-validator\db\migration_validator.db. 테스트는 tmp_path/운영 복사본만 사용하고, 운영 DB 읽기는 mode=ro URI (또는 ro_connect helper)만 허용됩니다. 운영 DB fallback 금지.
+
+tests\conftest.py:218: RuntimeError
+__________ ERROR at teardown of test_multi_source_blocked_at_service __________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001FB3F102E40>
+
+    @pytest.fixture(autouse=True)
+    def _harness(monkeypatch):
+        monkeypatch.setattr(_psg, "scope_block", lambda **k: None)
+        monkeypatch.setattr("routes.single_save_route.scope_block", lambda **k: None)
+        monkeypatch.setattr(S._store, "_conn_id", lambda d: "CONN")
+        monkeypatch.setattr(S._store, "create_validation_run", lambda **kw: "RUN-1")
+        monkeypatch.setattr(S._store, "save_execute_response", lambda **kw: None)
+        monkeypatch.setattr(S._store, "finish_validation_run", lambda **kw: None)
+        monkeypatch.setattr(S._history, "save_stats_validation_history", lambda **kw: "HIST-1")
+        import services.single_validation_result_store as RS
+        monkeypatch.setattr(RS, "build_single_snapshot", lambda *a, **k: {"run_id": a[0]})
+        monkeypatch.setattr(RS, "save_single_result", lambda *a, **k: True)
+        # preset 로더 고정(resolve + restore fallback 공용)
+        monkeypatch.setattr(SPR, "_load_src_presets", lambda: list(_PRESETS))
+        # \uc2e4 DB \ubbf8\uc811\uc18d \ud658\uacbd \u2014 metadata live \uc218\uc9d1\uc740 advisory SKIP \uc73c\ub85c \uace0\uc815(\ub4f1\ub85d/\ubc14\uc778\ub529 \uc800\uc7a5\uc740 \uadf8\ub300\ub85c \uac80\uc99d).
+        import services.single_official_register_txn as TXN
+        monkeypatch.setattr(TXN, "ensure_official_metadata", lambda **kw: {
+            "status": "SKIPPED_NO_CONN", "reused": 0, "collected": 0, "fingerprint": "", "reason": "test"})
+        yield
+>       _cleanup()
+
+tests\test_single_save_source_binding.py:76: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_single_save_source_binding.py:82: in _cleanup
+    conn = sqlite3.connect(str(_DB))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+database = 'C:\\projects\\migration-validator\\db\\migration_validator.db'
+args = (), kwargs = {}, uri = False
+p = WindowsPath('C:/projects/migration-validator/db/migration_validator.db')
+
+    def _guarded_connect(database, *args, **kwargs):
+        """[1차 방어] 운영 SQLite 를 쓰기 가능 연결로 열면 즉시 RuntimeError."""
+        uri = bool(kwargs.get("uri", False)) or str(database).startswith("file:")
+        if not _is_readonly_uri(database, uri):
+            p = _extract_path(database, uri)
+            if p is not None and str(p) in _REAL_PROD_FILES:
+>               raise RuntimeError(
+                    "[PROD-DB-WRITE-BLOCKED] 테스트가 운영 SQLite 를 쓰기 가능 연결로 열려 했습니다: "
+                    f"{p}. 테스트는 tmp_path/운영 복사본만 사용하고, 운영 DB 읽기는 mode=ro URI "
+                    "(또는 ro_connect helper)만 허용됩니다. 운영 DB fallback 금지."
+                )
+E               RuntimeError: [PROD-DB-WRITE-BLOCKED] 테스트가 운영 SQLite 를 쓰기 가능 연결로 열려 했습니다: C:\projects\migration-validator\db\migration_validator.db. 테스트는 tmp_path/운영 복사본만 사용하고, 운영 DB 읽기는 mode=ro URI (또는 ro_connect helper)만 허용됩니다. 운영 DB fallback 금지.
+
+tests\conftest.py:218: RuntimeError
+____________ ERROR at teardown of test_ambiguous_owner_blocks_save ____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001FB3F066270>
+
+    @pytest.fixture(autouse=True)
+    def _harness(monkeypatch):
+        monkeypatch.setattr(_psg, "scope_block", lambda **k: None)
+        monkeypatch.setattr("routes.single_save_route.scope_block", lambda **k: None)
+        monkeypatch.setattr(S._store, "_conn_id", lambda d: "CONN")
+        monkeypatch.setattr(S._store, "create_validation_run", lambda **kw: "RUN-1")
+        monkeypatch.setattr(S._store, "save_execute_response", lambda **kw: None)
+        monkeypatch.setattr(S._store, "finish_validation_run", lambda **kw: None)
+        monkeypatch.setattr(S._history, "save_stats_validation_history", lambda **kw: "HIST-1")
+        import services.single_validation_result_store as RS
+        monkeypatch.setattr(RS, "build_single_snapshot", lambda *a, **k: {"run_id": a[0]})
+        monkeypatch.setattr(RS, "save_single_result", lambda *a, **k: True)
+        # preset 로더 고정(resolve + restore fallback 공용)
+        monkeypatch.setattr(SPR, "_load_src_presets", lambda: list(_PRESETS))
+        # \uc2e4 DB \ubbf8\uc811\uc18d \ud658\uacbd \u2014 metadata live \uc218\uc9d1\uc740 advisory SKIP \uc73c\ub85c \uace0\uc815(\ub4f1\ub85d/\ubc14\uc778\ub529 \uc800\uc7a5\uc740 \uadf8\ub300\ub85c \uac80\uc99d).
+        import services.single_official_register_txn as TXN
+        monkeypatch.setattr(TXN, "ensure_official_metadata", lambda **kw: {
+            "status": "SKIPPED_NO_CONN", "reused": 0, "collected": 0, "fingerprint": "", "reason": "test"})
+        yield
+>       _cleanup()
+
+tests\test_single_save_source_binding.py:76: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_single_save_source_binding.py:82: in _cleanup
+    conn = sqlite3.connect(str(_DB))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+database = 'C:\\projects\\migration-validator\\db\\migration_validator.db'
+args = (), kwargs = {}, uri = False
+p = WindowsPath('C:/projects/migration-validator/db/migration_validator.db')
+
+    def _guarded_connect(database, *args, **kwargs):
+        """[1차 방어] 운영 SQLite 를 쓰기 가능 연결로 열면 즉시 RuntimeError."""
+        uri = bool(kwargs.get("uri", False)) or str(database).startswith("file:")
+        if not _is_readonly_uri(database, uri):
+            p = _extract_path(database, uri)
+            if p is not None and str(p) in _REAL_PROD_FILES:
+>               raise RuntimeError(
+                    "[PROD-DB-WRITE-BLOCKED] 테스트가 운영 SQLite 를 쓰기 가능 연결로 열려 했습니다: "
+                    f"{p}. 테스트는 tmp_path/운영 복사본만 사용하고, 운영 DB 읽기는 mode=ro URI "
+                    "(또는 ro_connect helper)만 허용됩니다. 운영 DB fallback 금지."
+                )
+E               RuntimeError: [PROD-DB-WRITE-BLOCKED] 테스트가 운영 SQLite 를 쓰기 가능 연결로 열려 했습니다: C:\projects\migration-validator\db\migration_validator.db. 테스트는 tmp_path/운영 복사본만 사용하고, 운영 DB 읽기는 mode=ro URI (또는 ro_connect helper)만 허용됩니다. 운영 DB fallback 금지.
+
+tests\conftest.py:218: RuntimeError
+____________ ERROR at teardown of test_resave_keeps_latest_binding ____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001FB3F067230>
+
+    @pytest.fixture(autouse=True)
+    def _harness(monkeypatch):
+        monkeypatch.setattr(_psg, "scope_block", lambda **k: None)
+        monkeypatch.setattr("routes.single_save_route.scope_block", lambda **k: None)
+        monkeypatch.setattr(S._store, "_conn_id", lambda d: "CONN")
+        monkeypatch.setattr(S._store, "create_validation_run", lambda **kw: "RUN-1")
+        monkeypatch.setattr(S._store, "save_execute_response", lambda **kw: None)
+        monkeypatch.setattr(S._store, "finish_validation_run", lambda **kw: None)
+        monkeypatch.setattr(S._history, "save_stats_validation_history", lambda **kw: "HIST-1")
+        import services.single_validation_result_store as RS
+        monkeypatch.setattr(RS, "build_single_snapshot", lambda *a, **k: {"run_id": a[0]})
+        monkeypatch.setattr(RS, "save_single_result", lambda *a, **k: True)
+        # preset 로더 고정(resolve + restore fallback 공용)
+        monkeypatch.setattr(SPR, "_load_src_presets", lambda: list(_PRESETS))
+        # \uc2e4 DB \ubbf8\uc811\uc18d \ud658\uacbd \u2014 metadata live \uc218\uc9d1\uc740 advisory SKIP \uc73c\ub85c \uace0\uc815(\ub4f1\ub85d/\ubc14\uc778\ub529 \uc800\uc7a5\uc740 \uadf8\ub300\ub85c \uac80\uc99d).
+        import services.single_official_register_txn as TXN
+        monkeypatch.setattr(TXN, "ensure_official_metadata", lambda **kw: {
+            "status": "SKIPPED_NO_CONN", "reused": 0, "collected": 0, "fingerprint": "", "reason": "test"})
+        yield
+>       _cleanup()
+
+tests\test_single_save_source_binding.py:76: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_single_save_source_binding.py:82: in _cleanup
+    conn = sqlite3.connect(str(_DB))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+database = 'C:\\projects\\migration-validator\\db\\migration_validator.db'
+args = (), kwargs = {}, uri = False
+p = WindowsPath('C:/projects/migration-validator/db/migration_validator.db')
+
+    def _guarded_connect(database, *args, **kwargs):
+        """[1차 방어] 운영 SQLite 를 쓰기 가능 연결로 열면 즉시 RuntimeError."""
+        uri = bool(kwargs.get("uri", False)) or str(database).startswith("file:")
+        if not _is_readonly_uri(database, uri):
+            p = _extract_path(database, uri)
+            if p is not None and str(p) in _REAL_PROD_FILES:
+>               raise RuntimeError(
+                    "[PROD-DB-WRITE-BLOCKED] 테스트가 운영 SQLite 를 쓰기 가능 연결로 열려 했습니다: "
+                    f"{p}. 테스트는 tmp_path/운영 복사본만 사용하고, 운영 DB 읽기는 mode=ro URI "
+                    "(또는 ro_connect helper)만 허용됩니다. 운영 DB fallback 금지."
+                )
+E               RuntimeError: [PROD-DB-WRITE-BLOCKED] 테스트가 운영 SQLite 를 쓰기 가능 연결로 열려 했습니다: C:\projects\migration-validator\db\migration_validator.db. 테스트는 tmp_path/운영 복사본만 사용하고, 운영 DB 읽기는 mode=ro URI (또는 ro_connect helper)만 허용됩니다. 운영 DB fallback 금지.
+
+tests\conftest.py:218: RuntimeError
+================================== FAILURES ===================================
+____________________________ test_flag_off_no_save ____________________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001FB3F42F7E0>
+
+    def test_flag_off_no_save(monkeypatch):
+        db = _tmp_db()
+        res = _run_batch(monkeypatch, db, save_flag=False)
+>       assert res["items"][0]["status"] == "DEFAULT_EXECUTE_OK"
+E       AssertionError: assert 'DEFAULT_EXECUTE_FAILED' == 'DEFAULT_EXECUTE_OK'
+E         
+E         - DEFAULT_EXECUTE_OK
+E         ?                 ^^
+E         + DEFAULT_EXECUTE_FAILED
+E         ?                 ^^^^^^
+
+tests\test_batch_row_snapshot_build_and_save.py:129: AssertionError
+_____________________________ test_flag_on_saves ______________________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001FB3F5C4C20>
+
+    def test_flag_on_saves(monkeypatch):
+        db = _tmp_db()
+        res = _run_batch(monkeypatch, db, save_flag=True)
+>       assert res["items"][0]["status"] == "DEFAULT_EXECUTE_OK"
+E       AssertionError: assert 'DEFAULT_EXECUTE_FAILED' == 'DEFAULT_EXECUTE_OK'
+E         
+E         - DEFAULT_EXECUTE_OK
+E         ?                 ^^
+E         + DEFAULT_EXECUTE_FAILED
+E         ?                 ^^^^^^
+
+tests\test_batch_row_snapshot_build_and_save.py:140: AssertionError
+________________________ test_flag_on_no_secret_saved _________________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001FB3F6206E0>
+
+    def test_flag_on_no_secret_saved(monkeypatch):
+        import json, sqlite3
+        db = _tmp_db()
+        _run_batch(monkeypatch, db, save_flag=True)
+        con = sqlite3.connect(db)
+        raw = con.execute("SELECT snapshot_json FROM batch_row_snapshot WHERE batch_run_id='BR1'").fetchone()[0]
+        con.close()
+        for tok in ("password", "secret", "host", "neon.tech", "src_db", "tgt_db"):
+>           assert tok not in raw, f"저장 snapshot_json 에 민감 토큰: {tok}"
+E           AssertionError: 저장 snapshot_json 에 민감 토큰: host
+E           assert 'host' not in '{"run_id": ...text": null}'
+E             
+E             'host' is contained here:
+E             ?           ^^^^^
+E               translate host name \"h\" to address: Name or service not known", "target_error": null}, "result_status_code": "ERROR", "result_status_label": "실행 오류", "result_status_level": "danger", "summary_counts": {"total_groups": 0, "compared_groups": 0, "matched": 0, "diff": 0, "src_only": 0, "tgt_only": 0, "total_src": null, "total_tgt": null}, "total_src": null, "total_tgt": null, "display_truncated": false, "compare_truncated": false, "max_display_rows": 200, "result_rows_display_count": null, "tolerance_summary": {}, "numeric_policy": {}, "count_prechec...
+E             
+E             ...Full output truncated (2 lines hidden), use '-vv' to show
+
+tests\test_batch_row_snapshot_build_and_save.py:163: AssertionError
+____________________ test_save_failure_is_fire_and_forget _____________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001FB3F5C6350>
+
+    def test_save_failure_is_fire_and_forget(monkeypatch):
+        db = _tmp_db()
+        # upsert 가 예외를 던져도 batch 결과는 유지되어야 함
+        monkeypatch.setattr(store, "upsert_batch_row_snapshot",
+                            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+        res = _run_batch(monkeypatch, db, save_flag=True)
+        assert res["success"] is True
+>       assert res["items"][0]["status"] == "DEFAULT_EXECUTE_OK"
+E       AssertionError: assert 'DEFAULT_EXECUTE_FAILED' == 'DEFAULT_EXECUTE_OK'
+E         
+E         - DEFAULT_EXECUTE_OK
+E         ?                 ^^
+E         + DEFAULT_EXECUTE_FAILED
+E         ?                 ^^^^^^
+
+tests\test_batch_row_snapshot_build_and_save.py:173: AssertionError
+------------------------------ Captured log call ------------------------------
+WARNING  services.batch_runner:batch_runner.py:571 batch row snapshot 저장 실패 (query_id=Q1): boom
+__________________ test_shadow_report_carries_status_preview __________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001FB3F320C90>
+
+    def test_shadow_report_carries_status_preview(monkeypatch):
+        res = _run_batch_on(monkeypatch)
+        report = rep.get_last_batch_shadow_report()
+        assert report is not None and report["rows"]
+        row0 = report["rows"][0]
+        assert "single_status_preview" in row0
+        sp = row0["single_status_preview"]
+        # DEFAULT_EXECUTE_OK + diff_groups==0 → PASSED
+>       assert sp["single_status_preview"] == "PASSED" and sp["status_mapping_state"] == "MATCH"
+E       AssertionError: assert ('ERROR' == 'PASSED'
+E         
+E         - PASSED
+E         + ERROR)
+
+tests\test_batch_single_status_preview_and_save_point.py:123: AssertionError
+__________________ test_single_save_calls_register_core_once __________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001FB3EF65940>
+
+    def test_single_save_calls_register_core_once(monkeypatch):
+        import services.single_validation_save_service as S
+        calls = {"n": 0}
+    
+        def _fake_register(save_req):
+            calls["n"] += 1
+            return {"success": True, "registration_status": "REGISTERED",
+                    "validation_target_id": 1, "target_table": "TB_X",
+                    "source_channel": "SINGLE_REGISTERED", "current": True}
+    
+        monkeypatch.setattr(S, "_register_group_target", _fake_register)
+        monkeypatch.setattr(S._store, "_conn_id", lambda d: "CONN")
+        monkeypatch.setattr(S._store, "create_validation_run", lambda **kw: "RUN-1")
+        monkeypatch.setattr(S._store, "save_execute_response", lambda **kw: None)
+        monkeypatch.setattr(S._store, "finish_validation_run", lambda **kw: None)
+        monkeypatch.setattr(S._history, "save_stats_validation_history", lambda **kw: "HIST-1")
+        import services.single_validation_result_store as RS
+        monkeypatch.setattr(RS, "build_single_snapshot", lambda *a, **k: {"run_id": a[0]})
+        monkeypatch.setattr(RS, "save_single_result", lambda *a, **k: True)
+    
+        from schemas.request_models import SingleSaveRequest
+        req = SingleSaveRequest(
+            group_id="G1", migration_sql="INSERT INTO TB_X (A) SELECT A FROM TA_X",
+            src_sql="SELECT A FROM TA_X", tgt_sql="SELECT A FROM TB_X",
+            src_db={"db_type": "postgresql"}, tgt_db={"db_type": "postgresql"},
+            result={"success": True, "rows": []})
+        out = S.persist_single_validation_result(req)
+>       assert out["success"] is True
+E       assert False is True
+
+tests\test_group_save_unify_cleanup.py:81: AssertionError
+_____________ test_save_route_returns_409_on_replace_confirmation _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001FB3EF66820>
+
+    def test_save_route_returns_409_on_replace_confirmation(monkeypatch):
+        from routes import single_save_route as RT
+        monkeypatch.setattr(RT, "scope_block", lambda **k: None)        # 프로젝트 범위 통과
+        monkeypatch.setattr(RT, "persist_single_validation_result", lambda req: {
+            "success": False, "blocked": False, "code": "REGISTER_FAILED",
+            "registration_status": "DUPLICATE_CONFIRM_REQUIRED", "requires_confirmation": True,
+            "existing_current": {"validation_target_id": 99, "target_table": "TB_X"},
+            "run_id": None, "history_run_id": None, "saved_at": None,
+        })
+        from schemas.request_models import SingleSaveRequest
+        req = SingleSaveRequest(group_id="G1", project_id="P1",
+                                src_sql="SELECT 1", tgt_sql="SELECT 1",
+                                result={"success": True})
+        resp = RT.single_save(req)
+        # JSONResponse(409) \ubc18\ud658 \u2014 \uc790\ub3d9 200/\uad50\uccb4 \uae08\uc9c0.
+        from fastapi.responses import JSONResponse
+>       assert isinstance(resp, JSONResponse)
+E       AssertionError: assert False
+E        +  where False = isinstance({'blocked': True, 'code': 'REGISTER_FAILED', 'error': '\uac80\uc99d\uc5d0 \uc0ac\uc6a9\ud55c \uc6d0\ubcf8 Source \ub97c \uc815\ud655\ud788 1\uac1c\ub85c \ud655\uc815\ud558\uc9c0 \ubabb\ud574 \ub4f1\ub85d\ud558\uc9c0 \uc54a\uc558\uc2b5\ub2c8\ub2e4(\uac1c\ubcc4\uac80\uc99d\uc740 \uc6d0\ubcf8 1\uac1c\ub9cc \ud5c8\uc6a9 \u2014 host \uc784\uc758 \uc800\uc7a5/\uc784\uc758 preset \uc120\ud0dd \uae08\uc9c0).', 'failed_parts': ['registration'], ...}, <class 'starlette.responses.JSONResponse'>)
+
+tests\test_group_save_unify_cleanup.py:102: AssertionError
+______________________ test_17_count_only_not_applicable ______________________
+
+    def test_17_count_only_not_applicable():
+        _skip_if_no_live()
+        env = _run(_PROD)
+>       assert env.get("status") == "OK"
+E       AssertionError: assert 'ERROR' == 'OK'
+E         
+E         - OK
+E         + ERROR
+
+tests\test_groupby_safety_facade.py:64: AssertionError
+---------------------------- Captured stdout call -----------------------------
+[run-standard] trace_id= status=ERROR step=analyze count_error_code=None src_count_ok=True tgt_count_ok=True
+______________________ test_18_count_sum_not_applicable _______________________
+
+    def test_18_count_sum_not_applicable():
+        _skip_if_no_live()
+        env = _run(_PAY, gb=[], sm=["PAY_AMT"])
+>       assert env.get("status") == "OK"
+E       AssertionError: assert 'ERROR' == 'OK'
+E         
+E         - OK
+E         + ERROR
+
+tests\test_groupby_safety_facade.py:72: AssertionError
+---------------------------- Captured stdout call -----------------------------
+[run-standard] trace_id= status=ERROR step=analyze count_error_code=None src_count_ok=True tgt_count_ok=True
+_________________ test_19_default_date_groupby_safe_one_click _________________
+
+    def test_19_default_date_groupby_safe_one_click():
+        _skip_if_no_live()
+        env = _run(_PAY)   # PAY_DATE 대체 기본추천(날짜 evidence) → SAFE
+>       assert env.get("status") == "OK" and env.get("step") == "done"
+E       AssertionError: assert ('ERROR' == 'OK'
+E         
+E         - OK
+E         + ERROR)
+
+tests\test_groupby_safety_facade.py:81: AssertionError
+---------------------------- Captured stdout call -----------------------------
+[run-standard] trace_id= status=ERROR step=analyze count_error_code=None src_count_ok=True tgt_count_ok=True
+______________ test_21_manual_groupby_safe_one_click_via_explain ______________
+
+    def test_21_manual_groupby_safe_one_click_via_explain():
+        _skip_if_no_live()
+        env = _run(_PROD, gb=["CATEGORY_NAME"])   # 근거 부족 → EXPLAIN → SAFE
+>       assert env.get("status") == "OK" and env.get("step") == "done"
+E       AssertionError: assert ('ERROR' == 'OK'
+E         
+E         - OK
+E         + ERROR)
+
+tests\test_groupby_safety_facade.py:90: AssertionError
+---------------------------- Captured stdout call -----------------------------
+[run-standard] trace_id= status=ERROR step=analyze count_error_code=None src_count_ok=True tgt_count_ok=True
+___________ test_04_recommendation_provenance_unchanged_after_safe ____________
+
+    def test_04_recommendation_provenance_unchanged_after_safe():
+        _skip_if_no_live()
+        env = _run(_PROD, gb=["CATEGORY_NAME"])
+        by = {c.get("tgt_col"): c for c in (env.get("analyze_result") or {}).get("all_groupby_candidates") or []}
+        cat = by.get("CATEGORY_NAME") or {}
+>       assert cat.get("recommendation_status") == "SELECTABLE"      # 기본추천으로 승격 안 함
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: assert None == 'SELECTABLE'
+E        +  where None = <built-in method get of dict object at 0x000001FB4023E1C0>('recommendation_status')
+E        +    where <built-in method get of dict object at 0x000001FB4023E1C0> = {}.get
+
+tests\test_groupby_safety_facade.py:103: AssertionError
+---------------------------- Captured stdout call -----------------------------
+[run-standard] trace_id= status=ERROR step=analyze count_error_code=None src_count_ok=True tgt_count_ok=True
+_________________ test_05_block_no_execution_verdict_blocked __________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001FB3F32C520>
+
+    def test_05_block_no_execution_verdict_blocked(monkeypatch):
+        _skip_if_no_live()
+        import config.model_config as mc
+        monkeypatch.setattr(mc, "INTERACTIVE_GROUPBY_MAX_GROUPS", 10)   # CATEGORY_NAME(100) > 10
+        env = _run(_PROD, gb=["CATEGORY_NAME"])
+        s = env.get("groupby_execution_safety") or {}
+>       assert s.get("status") == "BLOCKED_HIGH_CARDINALITY"
+E       AssertionError: assert None == 'BLOCKED_HIGH_CARDINALITY'
+E        +  where None = <built-in method get of dict object at 0x000001FB400E3C40>('status')
+E        +    where <built-in method get of dict object at 0x000001FB400E3C40> = {}.get
+
+tests\test_groupby_safety_facade.py:114: AssertionError
+---------------------------- Captured stdout call -----------------------------
+[run-standard] trace_id= status=ERROR step=analyze count_error_code=None src_count_ok=True tgt_count_ok=True
+_________________ test_06_unverifiable_block_when_no_explain __________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001FB40D77770>
+
+    def test_06_unverifiable_block_when_no_explain(monkeypatch):
+        _skip_if_no_live()
+        # EXPLAIN estimator 를 무력화(None) → 근거 부족 CATEGORY_NAME 은 확인 불가로 차단
+        import services.groupby_explain_estimator as gee
+        monkeypatch.setattr(gee, "build_explain_estimate_fn",
+                            lambda *a, **k: (lambda: None))
+        env = _run(_PROD, gb=["CATEGORY_NAME"])
+        s = env.get("groupby_execution_safety") or {}
+>       assert s.get("status") == "BLOCKED_UNVERIFIABLE"
+E       AssertionError: assert None == 'BLOCKED_UNVERIFIABLE'
+E        +  where None = <built-in method get of dict object at 0x000001FB3F03E8C0>('status')
+E        +    where <built-in method get of dict object at 0x000001FB3F03E8C0> = {}.get
+
+tests\test_groupby_safety_facade.py:131: AssertionError
+---------------------------- Captured stdout call -----------------------------
+[run-standard] trace_id= status=ERROR step=analyze count_error_code=None src_count_ok=True tgt_count_ok=True
+_________________ test_single_source_saves_and_keeps_binding __________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001FB3F5838C0>
+
+    def test_single_source_saves_and_keeps_binding(monkeypatch):
+        from services.single_validation_save_service import persist_single_validation_result
+        gid = _new_group()
+        _src = {"name": "PostgreSQL_asis", "connection_id": "PostgreSQL_asis", "db_type": "postgresql"}
+        monkeypatch.setattr(S, "_resolve_authoritative_sources", lambda req: ([_src], _src))
+        out = persist_single_validation_result(_save_req(gid))
+>       assert out["success"] is True
+E       assert False is True
+
+tests\test_single_connection_policy.py:151: AssertionError
+____________________ test_route_off_equals_on_no_store_key ____________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001FB3F0BDFD0>
+
+    def test_route_off_equals_on_no_store_key(monkeypatch):
+        _offline(monkeypatch, _canned())
+        monkeypatch.delenv(_ENV, raising=False)
+        off = stats_execute(_exec_req())
+        _offline(monkeypatch, _canned())
+        monkeypatch.setenv(_ENV, "1")
+        on = stats_execute(_exec_req())
+>       assert on == off
+E       AssertionError: assert {'compare_tru...': ['G'], ...} == {'compare_tru...': ['G'], ...}
+E         
+E         Omitting 18 identical items, use -vv to show
+E         Differing items:
+E         {'processing_ms': 0.1} != {'processing_ms': 0.2}
+E         Use -v to get more diff
+
+tests\test_single_execute_store_skeleton_state_lock.py:176: AssertionError
+__________________ test_route_store_does_not_add_persistence __________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001FB3F0BE350>
+
+    def test_route_store_does_not_add_persistence(monkeypatch):
+        calls = {"history": 0, "create": 0, "save_exec": 0}
+        monkeypatch.setattr(svc, "execute_single_validation", lambda req, cancel_token=None: dict(_canned()))
+    
+        def _create(**kw):
+            calls["create"] += 1
+            return "RID-LOCK"        # run_id 반환 → 기존 save_execute_response 경로 실행
+        monkeypatch.setattr(orch._store, "create_validation_run", _create)
+        monkeypatch.setattr(orch._store, "save_execute_response",
+                            lambda **kw: calls.__setitem__("save_exec", calls["save_exec"] + 1), raising=False)
+        monkeypatch.setattr(orch._store, "finish_validation_run", lambda **kw: None, raising=False)
+        # \ub2e8\uac74 \uc2a4\ub0c5\uc0f7 \uc800\uc7a5(success \uc2dc) \ub3c4 \uc624\ud504\ub77c\uc778 \u2014 store hook \uacfc \ubb34\uad00\ud568\uc744 \ubd84\ub9ac
+        import services.single_validation_result_store as _svrs
+        monkeypatch.setattr(_svrs, "build_single_snapshot", lambda *a, **k: {}, raising=False)
+        monkeypatch.setattr(_svrs, "save_single_result", lambda *a, **k: None, raising=False)
+        monkeypatch.setattr(orch._history, "save_stats_validation_history",
+                            lambda **kw: calls.__setitem__("history", calls["history"] + 1), raising=False)
+        monkeypatch.setenv(_ENV, "1")
+        stats_execute(_exec_req())
+        # store hook 이 history/create/save_execute_response 를 **추가로 호출하지 않는다**(기존 1회씩만)
+>       assert calls["history"] == 1 and calls["create"] == 1 and calls["save_exec"] == 1
+E       assert (0 == 1)
+
+tests\test_single_execute_store_skeleton_state_lock.py:203: AssertionError
+______________________ test_execute_with_group_persists _______________________
+
+    def test_execute_with_group_persists():
+        calls, r = _post_execute("GRP_X")
+>       assert "create_run" in calls and "save_history" in calls
+E       AssertionError: assert ('create_run' in [])
+
+tests\test_single_policy_cleanup_bundle.py:56: AssertionError
+_______________ test_save_registers_target_and_count_increases ________________
+
+    def test_save_registers_target_and_count_increases():
+        gid = _new_group()
+        _seed_targets(gid, 20)
+        assert len(get_registered_targets(gid)) == 20
+    
+        sql = "INSERT INTO PUBLIC.TV_IV_PASS (JOIN_YM, CUST_SCORE) SELECT JOIN_YM, CUST_SCORE FROM TA_CUSTOMER"
+        out = persist_single_validation_result(_save_req(gid, "PUBLIC.TV_IV_PASS", sql))
+    
+>       assert out["success"] is True, out
+E       AssertionError: {'code': 'PARTIAL_PERSISTENCE', 'error': '필수 저장 항목 중 일부가 저장되지 않았습니다(부분 저장). 재시도 시 이미 저장된 항목은 재사용하고 누락 항목만 보완합니다.', 'failed_parts': ['result_run', 'single_snapshot'], 'history_run_id': 'HIST-1', ...}
+E       assert False is True
+
+tests\test_single_save_group_registration.py:161: AssertionError
+_______________________ test_resave_same_sql_idempotent _______________________
+
+    def test_resave_same_sql_idempotent():
+        gid = _new_group()
+        sql = "INSERT INTO TB_SAVE_X (A, B) SELECT A, B FROM TA_SAVE_X"
+        persist_single_validation_result(_save_req(gid, "TB_SAVE_X", sql))
+        out2 = persist_single_validation_result(_save_req(gid, "TB_SAVE_X", sql))
+>       assert out2["success"] is True
+E       assert False is True
+
+tests\test_single_save_group_registration.py:183: AssertionError
+_________ test_resave_changed_sql_requires_confirmation_then_replaces _________
+
+    def test_resave_changed_sql_requires_confirmation_then_replaces():
+        gid = _new_group()
+        persist_single_validation_result(
+            _save_req(gid, "TB_SAVE_X", "INSERT INTO TB_SAVE_X (A, B) SELECT A, B FROM TA_SAVE_X"))
+        changed = "INSERT INTO TB_SAVE_X (A, B) SELECT A, B FROM TA_SAVE_X WHERE B > 0"
+    
+        # 미확인 → 교체 확인 필요(차단). 기존 current/이력 불변, 신규 row 없음.
+        out_block = persist_single_validation_result(_save_req(gid, "TB_SAVE_X", changed))
+        assert out_block["success"] is False
+        assert out_block.get("requires_confirmation") is True
+        assert out_block.get("registration_status") == "DUPLICATE_CONFIRM_REQUIRED"
+        assert len(get_target_history(gid, "TB_SAVE_X")) == 1   # 신규 row 없음(차단)
+    
+        # 확인(replace_confirmed=True) → 교체 등록.
+        out2 = persist_single_validation_result(
+            _save_req(gid, "TB_SAVE_X", changed, replace_confirmed=True))
+>       assert out2["success"] is True and out2["registration_status"] == "REGISTERED"
+E       assert (False is True)
+
+tests\test_single_save_group_registration.py:208: AssertionError
+_______________________ test_migration_sql_not_executed _______________________
+
+    def test_migration_sql_not_executed():
+        gid = _new_group()
+        # target DB 실행이 일어나면 import/호출되는 실행기를 감시: 등록 경로는 이를 호출하지 않아야 한다.
+        import services.single_validation_save_service as _S
+        sql = "INSERT INTO TB_SAVE_X (A, B) SELECT A, B FROM TA_SAVE_X"
+        out = persist_single_validation_result(_save_req(gid, "TB_SAVE_X", sql))
+>       assert out["success"] is True
+E       assert False is True
+
+tests\test_single_save_group_registration.py:258: AssertionError
+________________ test_single_source_binding_uses_profile_name _________________
+
+    def test_single_source_binding_uses_profile_name():
+        gid = _new_group()
+        sql = "INSERT INTO PUBLIC.TV_IV_PASS (JOIN_YM, CUST_SCORE) SELECT JOIN_YM, CUST_SCORE FROM TA_CUSTOMER"
+        out = persist_single_validation_result(_save_req(gid, "PUBLIC.TV_IV_PASS", sql))
+>       assert out["success"] is True, out
+E       AssertionError: {'code': 'PARTIAL_PERSISTENCE', 'error': '필수 저장 항목 중 일부가 저장되지 않았습니다(부분 저장). 재시도 시 이미 저장된 항목은 재사용하고 누락 항목만 보완합니다.', 'failed_parts': ['result_run', 'single_snapshot'], 'history_run_id': 'HIST-1', ...}
+E       assert False is True
+
+tests\test_single_save_source_binding.py:129: AssertionError
+______________________ test_resave_keeps_latest_binding _______________________
+
+    def test_resave_keeps_latest_binding():
+        gid = _new_group()
+        persist_single_validation_result(_save_req(
+            gid, "PUBLIC.TV_IV_PASS",
+            "INSERT INTO PUBLIC.TV_IV_PASS (JOIN_YM, CUST_SCORE) SELECT JOIN_YM, CUST_SCORE FROM TA_CUSTOMER"))
+        out2 = persist_single_validation_result(_save_req(
+            gid, "PUBLIC.TV_IV_PASS",
+            "INSERT INTO PUBLIC.TV_IV_PASS (JOIN_YM, CUST_SCORE) SELECT JOIN_YM, CUST_SCORE FROM TA_CUSTOMER WHERE CUST_SCORE > 0"))
+>       assert out2["success"] is True and out2["registration_status"] == "REGISTERED"
+E       assert (False is True)
+
+tests\test_single_save_source_binding.py:187: AssertionError
+___________________ test_execute_attaches_job_id_and_saves ____________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001FB3FEB09F0>
+
+    def test_execute_attaches_job_id_and_saves(monkeypatch):
+        captured = {}
+        _patch_common(monkeypatch, _result())
+        monkeypatch.setattr(svs, "save_single_result", lambda rid, snap, db_path=None: captured.update(rid=rid, snap=snap) or True)
+    
+        out = er.stats_execute(_req())
+>       assert out.get("validation_job_id") == "RV_TEST_1"
+E       AssertionError: assert None == 'RV_TEST_1'
+E        +  where None = <built-in method get of dict object at 0x000001FB3F59AC00>('validation_job_id')
+E        +    where <built-in method get of dict object at 0x000001FB3F59AC00> = {'compare_truncated': False, 'compared_groups': 288, 'diff': 0, 'display_truncated': True, ...}.get
+
+tests\test_single_validation_result_view_persistence.py:65: AssertionError
+_________________________ test_status_code_consistent _________________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001FB3FEB1630>
+
+    def test_status_code_consistent(monkeypatch):
+        captured = {}
+        _patch_common(monkeypatch, _result(diff=1, matched=287))   # diff → FAILED
+        monkeypatch.setattr(svs, "save_single_result", lambda rid, snap, db_path=None: captured.update(snap=snap) or True)
+        out = er.stats_execute(_req())
+        assert out["result_view"]["status_code"] == "FAILED"
+>       assert captured["snap"]["result_status_code"] == "FAILED"
+               ^^^^^^^^^^^^^^^^
+E       KeyError: 'snap'
+
+tests\test_single_validation_result_view_persistence.py:79: KeyError
+_________________________ test_count_precheck_not_run _________________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001FB3FEB2AC0>
+
+    def test_count_precheck_not_run(monkeypatch):
+        captured = {}
+        _patch_common(monkeypatch, _result())
+        monkeypatch.setattr(svs, "save_single_result", lambda rid, snap, db_path=None: captured.update(snap=snap) or True)
+        er.stats_execute(_req())
+>       assert captured["snap"]["count_precheck_status"] == "NOT_RUN"
+               ^^^^^^^^^^^^^^^^
+E       KeyError: 'snap'
+
+tests\test_single_validation_result_view_persistence.py:88: KeyError
+_______________________ test_truncated_tolerance_saved ________________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001FB402EE3C0>
+
+    def test_truncated_tolerance_saved(monkeypatch):
+        captured = {}
+        _patch_common(monkeypatch, _result(compare_truncated=False, display_truncated=True))
+        monkeypatch.setattr(svs, "save_single_result", lambda rid, snap, db_path=None: captured.update(snap=snap) or True)
+        er.stats_execute(_req())
+>       assert captured["snap"]["display_truncated"] is True
+               ^^^^^^^^^^^^^^^^
+E       KeyError: 'snap'
+
+tests\test_single_validation_result_view_persistence.py:107: KeyError
+___________________________ test_no_connection_info ___________________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001FB402EDE10>
+
+    def test_no_connection_info(monkeypatch):
+        captured = {}
+        _patch_common(monkeypatch, _result())
+        monkeypatch.setattr(svs, "save_single_result", lambda rid, snap, db_path=None: captured.update(snap=snap) or True)
+        er.stats_execute(_req())
+        import json
+>       blob = json.dumps(captured["snap"], ensure_ascii=False)
+                          ^^^^^^^^^^^^^^^^
+E       KeyError: 'snap'
+
+tests\test_single_validation_result_view_persistence.py:119: KeyError
+_______________________ test_failure_saved_for_evidence _______________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001FB402ED080>
+
+    def test_failure_saved_for_evidence(monkeypatch):
+        """현 계약: execute 실패(src_error/tgt_error)도 result_view/스냅샷 저장 → 실패 증적 export 가능.
+        (과거 'success=False 미저장' 기대값은 orchestrator 가 실패도 저장하도록 바뀌며 폐기됨)"""
+        captured = {"n": 0, "snap": None}
+        _patch_common(monkeypatch, {"success": False, "error": "원본 오류", "src_error": "x", "rows": []})
+        monkeypatch.setattr(svs, "save_single_result",
+                            lambda rid, snap, db_path=None: captured.update(n=captured["n"] + 1, snap=snap) or True)
+        out = er.stats_execute(_req())
+>       assert out.get("validation_job_id") == "RV_TEST_1"
+E       AssertionError: assert None == 'RV_TEST_1'
+E        +  where None = <built-in method get of dict object at 0x000001FB3F454E40>('validation_job_id')
+E        +    where <built-in method get of dict object at 0x000001FB3F454E40> = {'error': '원본 오류', 'error_contract': {'blocked': True, 'blocking': True, 'code': 'QUERY_EXECUTION_ERROR', 'details': {}, ...}, 'history_run_id': None, 'processing_ms': 0.2, ...}.get
+
+tests\test_single_validation_result_view_persistence.py:132: AssertionError
+______________________ test_ui_gate_display_and_blocking ______________________
+
+    def test_ui_gate_display_and_blocking():
+        html = _page()
+        m = re.search(r"function _mvCountGateHtml\([^)]*\)\s*\{.*?\n\}\n", html, re.S)
+        assert m, "_mvCountGateHtml 미발견"
+        b = m.group(0)
+        for label in ("원본 ", "목적 ", "순 차이", "적재율", "다음 단계"):
+            assert label in b, f"COUNT gate 표시 누락(§40): {label}"
+        assert "범위 이상 진단" in b and "대표 레코드 보기" in b and "전체 CSV 생성" in b   # §43
+        assert "0건 아님" in b                                        # QUERY_FAILED 안내(§17)
+        assert "background:#fff0f0" not in b and "#C2410C" in b       # §42 색상(핑크 금지)
+        # 후속 게이팅: runGenerate/runExecute/Exact Diff 버튼(§39·§44)
+        assert html.count("_mvGateBlocked('stats')") >= 2
+>       upd = re.search(r"function _mvExactDiffUpdateButton\([^)]*\)\s*\{.*?\n\}\n", html, re.S).group(0)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'NoneType' object has no attribute 'group'
+
+tests\test_count_gate.py:206: AttributeError
+________ test_critical_gate_hold_routes_to_normal_gate_not_error_panel ________
+
+    def test_critical_gate_hold_routes_to_normal_gate_not_error_panel():
+>       out = _run_harness()
+              ^^^^^^^^^^^^^^
+
+tests\test_one_click_critical_hold_route_to_normal_gate.py:155: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    def _run_harness():
+        node = shutil.which("node")
+        if not node:
+            pytest.skip("node \ubbf8\uc124\uce58 \u2014 DOM \ub3d9\uc791 \ud14c\uc2a4\ud2b8 skip")
+        h = _html()
+        fin_src = _extract_fn(h, "function _fullRunFinalState(env) {")
+        apply_src = _extract_fn(h, "function _applyFullRunEnvelope(env, sql) {")
+        code = _HARNESS.replace("__FULLRUNFINALSTATE__", fin_src).replace("__APPLYFULLRUNENVELOPE__", apply_src)
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+            f.write(code)
+            path = f.name
+        try:
+            r = subprocess.run([node, path], capture_output=True, encoding="utf-8", errors="replace")
+>           assert r.returncode == 0, r.stderr[:1500]
+E           AssertionError: C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpubl62e0a.js:73
+E               _mvClearExecStepError();
+E               ^
+E             
+E             ReferenceError: _mvClearExecStepError is not defined
+E                 at _applyFullRunEnvelope (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpubl62e0a.js:73:3)
+E                 at runScenario (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpubl62e0a.js:364:3)
+E                 at Object.<anonymous> (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpubl62e0a.js:373:15)
+E                 at Module._compile (node:internal/modules/cjs/loader:1830:14)
+E                 at Object..js (node:internal/modules/cjs/loader:1961:10)
+E                 at Module.load (node:internal/modules/cjs/loader:1553:32)
+E                 at Module._load (node:internal/modules/cjs/loader:1355:12)
+E                 at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+E                 at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+E                 at node:internal/main/run_main_module:33:47
+E             
+E             Node.js v24.15.0
+E             
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['C:\\Program Files\\nodejs\\node.EXE', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmp...unMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v24.15.0\n').returncode
+
+tests\test_one_click_critical_hold_route_to_normal_gate.py:148: AssertionError
+___________ test_real_count_error_still_uses_error_panel_unchanged ____________
+
+    def test_real_count_error_still_uses_error_panel_unchanged():
+>       out = _run_harness()
+              ^^^^^^^^^^^^^^
+
+tests\test_one_click_critical_hold_route_to_normal_gate.py:167: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    def _run_harness():
+        node = shutil.which("node")
+        if not node:
+            pytest.skip("node \ubbf8\uc124\uce58 \u2014 DOM \ub3d9\uc791 \ud14c\uc2a4\ud2b8 skip")
+        h = _html()
+        fin_src = _extract_fn(h, "function _fullRunFinalState(env) {")
+        apply_src = _extract_fn(h, "function _applyFullRunEnvelope(env, sql) {")
+        code = _HARNESS.replace("__FULLRUNFINALSTATE__", fin_src).replace("__APPLYFULLRUNENVELOPE__", apply_src)
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+            f.write(code)
+            path = f.name
+        try:
+            r = subprocess.run([node, path], capture_output=True, encoding="utf-8", errors="replace")
+>           assert r.returncode == 0, r.stderr[:1500]
+E           AssertionError: C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp8rlr80nz.js:73
+E               _mvClearExecStepError();
+E               ^
+E             
+E             ReferenceError: _mvClearExecStepError is not defined
+E                 at _applyFullRunEnvelope (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp8rlr80nz.js:73:3)
+E                 at runScenario (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp8rlr80nz.js:364:3)
+E                 at Object.<anonymous> (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp8rlr80nz.js:373:15)
+E                 at Module._compile (node:internal/modules/cjs/loader:1830:14)
+E                 at Object..js (node:internal/modules/cjs/loader:1961:10)
+E                 at Module.load (node:internal/modules/cjs/loader:1553:32)
+E                 at Module._load (node:internal/modules/cjs/loader:1355:12)
+E                 at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+E                 at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+E                 at node:internal/main/run_main_module:33:47
+E             
+E             Node.js v24.15.0
+E             
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['C:\\Program Files\\nodejs\\node.EXE', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmp...unMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v24.15.0\n').returncode
+
+tests\test_one_click_critical_hold_route_to_normal_gate.py:148: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_batch_row_snapshot_build_and_save.py::test_flag_off_no_save
+FAILED tests/test_batch_row_snapshot_build_and_save.py::test_flag_on_saves - ...
+FAILED tests/test_batch_row_snapshot_build_and_save.py::test_flag_on_no_secret_saved
+FAILED tests/test_batch_row_snapshot_build_and_save.py::test_save_failure_is_fire_and_forget
+FAILED tests/test_batch_single_status_preview_and_save_point.py::test_shadow_report_carries_status_preview
+FAILED tests/test_group_save_unify_cleanup.py::test_single_save_calls_register_core_once
+FAILED tests/test_group_save_unify_cleanup.py::test_save_route_returns_409_on_replace_confirmation
+FAILED tests/test_groupby_safety_facade.py::test_17_count_only_not_applicable
+FAILED tests/test_groupby_safety_facade.py::test_18_count_sum_not_applicable
+FAILED tests/test_groupby_safety_facade.py::test_19_default_date_groupby_safe_one_click
+FAILED tests/test_groupby_safety_facade.py::test_21_manual_groupby_safe_one_click_via_explain
+FAILED tests/test_groupby_safety_facade.py::test_04_recommendation_provenance_unchanged_after_safe
+FAILED tests/test_groupby_safety_facade.py::test_05_block_no_execution_verdict_blocked
+FAILED tests/test_groupby_safety_facade.py::test_06_unverifiable_block_when_no_explain
+FAILED tests/test_single_connection_policy.py::test_single_source_saves_and_keeps_binding
+FAILED tests/test_single_execute_store_skeleton_state_lock.py::test_route_off_equals_on_no_store_key
+FAILED tests/test_single_execute_store_skeleton_state_lock.py::test_route_store_does_not_add_persistence
+FAILED tests/test_single_policy_cleanup_bundle.py::test_execute_with_group_persists
+FAILED tests/test_single_save_group_registration.py::test_save_registers_target_and_count_increases
+FAILED tests/test_single_save_group_registration.py::test_resave_same_sql_idempotent
+FAILED tests/test_single_save_group_registration.py::test_resave_changed_sql_requires_confirmation_then_replaces
+FAILED tests/test_single_save_group_registration.py::test_migration_sql_not_executed
+FAILED tests/test_single_save_source_binding.py::test_single_source_binding_uses_profile_name
+FAILED tests/test_single_save_source_binding.py::test_resave_keeps_latest_binding
+FAILED tests/test_single_validation_result_view_persistence.py::test_execute_attaches_job_id_and_saves
+FAILED tests/test_single_validation_result_view_persistence.py::test_status_code_consistent
+FAILED tests/test_single_validation_result_view_persistence.py::test_count_precheck_not_run
+FAILED tests/test_single_validation_result_view_persistence.py::test_truncated_tolerance_saved
+FAILED tests/test_single_validation_result_view_persistence.py::test_no_connection_info
+FAILED tests/test_single_validation_result_view_persistence.py::test_failure_saved_for_evidence
+FAILED tests/test_count_gate.py::test_ui_gate_display_and_blocking - Attribut...
+FAILED tests/test_one_click_critical_hold_route_to_normal_gate.py::test_critical_gate_hold_routes_to_normal_gate_not_error_panel
+FAILED tests/test_one_click_critical_hold_route_to_normal_gate.py::test_real_count_error_still_uses_error_panel_unchanged
+ERROR tests/test_single_save_source_binding.py::test_single_source_binding_uses_profile_name
+ERROR tests/test_single_save_source_binding.py::test_multi_source_blocked_at_service
+ERROR tests/test_single_save_source_binding.py::test_ambiguous_owner_blocks_save
+ERROR tests/test_single_save_source_binding.py::test_resave_keeps_latest_binding
+33 failed, 276 passed, 4 errors in 176.42s (0:02:56)

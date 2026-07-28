@@ -1,0 +1,9 @@
+서버 재기동 기록 (CRITICAL-DIFF-CONTEXT-SNAPSHOT-FIELD-ADD)
+
+구 프로세스(PID 16900) 종료 : 2026-07-28 13:44:05
+재기동 후 HTTP 200 확인     : 2026-07-28 13:44:21 (127.0.0.1:8000, Basic Auth ON)
+새 코드 서빙 확인           : 응답 HTML JS 번들에 count_gate_context 2회 등장
+JS 번들 파싱 검사           : node --check 통과 (1,891,693 bytes)
+
+주: web_server.py 는 reload=False 로 기동하므로 .py 수정은 재기동해야 브라우저에 반영된다.
+    이번 브라우저 대조(6장)는 모두 재기동 이후 시각(13:47)에 촬영했다.

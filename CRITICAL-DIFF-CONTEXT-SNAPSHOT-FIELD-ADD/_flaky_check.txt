@@ -1,0 +1,14 @@
+=== flaky 확인: 적용본 트리에서 같은 파일 5회 반복 ===
+2 failed, 11 passed in 3.38s
+3 failed, 10 passed in 2.87s
+2 failed, 11 passed in 3.25s
+3 failed, 10 passed in 2.98s
+3 failed, 10 passed in 3.11s
+            raise RuntimeError("forced store failure")
+>       assert on == off and on["success"] is True
+E       AssertionError: assert ({'compare_tru...': ['G'], ...} == {'compare_tru...': ['G'], ...}
+E         
+E         Omitting 18 identical items, use -vv to show
+E         Differing items:
+E         {'processing_ms': 0.2} != {'processing_ms': 7.7}
+E         Use -v to get more diff)

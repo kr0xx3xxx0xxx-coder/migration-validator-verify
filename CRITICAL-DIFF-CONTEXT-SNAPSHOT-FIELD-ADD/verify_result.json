@@ -1,0 +1,257 @@
+{
+  "task": "CRITICAL-DIFF-CONTEXT-SNAPSHOT-FIELD-ADD",
+  "api": "http://127.0.0.1:8000",
+  "cases": [
+    {
+      "case": "CRITICAL",
+      "sql": "INSERT INTO tobe01.t_critdiff_tgt (id, region_cd, amt)\nSELECT id, region_cd, amt\nFROM asis01.t_critdiff_src",
+      "expect_status": "COUNT_CRITICAL_DIFF",
+      "note": "150,000 vs 15,000(적재율 10%) — 9그룹 통째 누락 = 편중 부분 적재 → CRITICAL",
+      "analyze": {
+        "http": null,
+        "gb_count": 1,
+        "sum_count": 1
+      },
+      "count": {
+        "http": null,
+        "src": 150000,
+        "tgt": 15000,
+        "error_code": "COUNT_MISMATCH",
+        "precheck_status": "FAILED",
+        "count_gate": {
+          "count_status": "COUNT_CRITICAL_DIFF",
+          "source_count": 150000,
+          "target_count": 15000,
+          "absolute_diff": 135000,
+          "relative_diff": 0.9,
+          "coverage_ratio": 0.1,
+          "target_load_ratio": 0.1,
+          "severity_label": "치명적 COUNT 불일치 · 범위/이관 상태 확인 필요",
+          "next_action_label": "범위 이상 진단",
+          "diagnostic_reason": "치명적 COUNT 불일치 — 순 차이 135,000건, 목적지 적재율 10.0%. 일반 SUM/GROUP BY/KEY_RANGE/Exact Diff 를 중단하고 범위/이관 상태를 먼저 확인하세요(대량 누락/과잉 레코드 자동 생성 금지).",
+          "confirmed_full_missing_side": null
+        },
+        "allowed_stages": [
+          "range_diagnosis"
+        ],
+        "stats_blocked": true
+      },
+      "execute": {
+        "http": null,
+        "success": true,
+        "matched": 1,
+        "diff": 0,
+        "src_only": 9,
+        "tgt_only": 0,
+        "total_groups": 10,
+        "has_count_gate_in_response": false,
+        "has_count_status_in_response": false
+      },
+      "single_save": {
+        "http": null,
+        "success": true,
+        "run_id": "9852e662-bfbd-4714-993e-725ea5783a14",
+        "group_id": "GRP_202607280446220767",
+        "project_id": "898",
+        "error": null
+      },
+      "snapshot_after": {
+        "run_id": "9852e662-bfbd-4714-993e-725ea5783a14",
+        "has_field": true,
+        "count_gate_context": {
+          "count_status": "COUNT_CRITICAL_DIFF",
+          "source_count": 150000,
+          "target_count": 15000,
+          "absolute_diff": 135000,
+          "relative_diff": 0.9,
+          "coverage_ratio": 0.1,
+          "target_load_ratio": 0.1,
+          "severity_label": "치명적 COUNT 불일치 · 범위/이관 상태 확인 필요",
+          "next_action_label": "범위 이상 진단",
+          "diagnostic_reason": "치명적 COUNT 불일치 — 순 차이 135,000건, 목적지 적재율 10.0%. 일반 SUM/GROUP BY/KEY_RANGE/Exact Diff 를 중단하고 범위/이관 상태를 먼저 확인하세요(대량 누락/과잉 레코드 자동 생성 금지).",
+          "confirmed_full_missing_side": null,
+          "stats_blocked_by_gate": true,
+          "force_accepted": true,
+          "force_accepted_evidence": "USER_MANUAL_PROCEED",
+          "evidence_source": "DERIVED_FROM_SAVED_COUNTS",
+          "count_precheck_status": "FAILED",
+          "gate_policy_version": "count-gate-v2"
+        },
+        "count_precheck_status": "FAILED",
+        "count_src_count": 150000,
+        "count_tgt_count": 15000
+      },
+      "gate_parity": {
+        "identical": true,
+        "diffs": {}
+      },
+      "banner": {
+        "A_wizard": {
+          "shown": true,
+          "head": "목적지 적재율 10.0% (원본 150,000 / 목적 15,000 · 순 차이 135,000건).",
+          "pattern": "편중 부분 적재",
+          "title": "건수 격차(부분 적재) 상태에서 진행된 결과입니다"
+        },
+        "B_snapshot_after": {
+          "shown": true,
+          "head": "목적지 적재율 10.0% (원본 150,000 / 목적 15,000 · 순 차이 135,000건).",
+          "pattern": "편중 부분 적재",
+          "title": "건수 격차(부분 적재) 상태에서 진행된 결과입니다"
+        },
+        "C_snapshot_before": {
+          "shown": false,
+          "head": "",
+          "pattern": ""
+        },
+        "A_equals_B": true,
+        "C_differs": true
+      },
+      "snapshot_before_code": {
+        "ref": "HEAD",
+        "has_count_gate_context": false,
+        "count_precheck_status": "FAILED"
+      },
+      "ok": true
+    },
+    {
+      "case": "MINOR",
+      "sql": "INSERT INTO tobe01.t_critdiff_ctl (id, region_cd, amt)\nSELECT id, region_cd, amt\nFROM asis01.t_critdiff_src",
+      "expect_status": "COUNT_MINOR_DIFF",
+      "note": "150,000 vs 149,500(상대 0.33%) — 게이트가 stats 를 막지 않음 → MINOR(배너 없음)",
+      "analyze": {
+        "http": null,
+        "gb_count": 1,
+        "sum_count": 1
+      },
+      "count": {
+        "http": null,
+        "src": 150000,
+        "tgt": 149500,
+        "error_code": "COUNT_MISMATCH",
+        "precheck_status": "FAILED",
+        "count_gate": {
+          "count_status": "COUNT_MINOR_DIFF",
+          "source_count": 150000,
+          "target_count": 149500,
+          "absolute_diff": 500,
+          "relative_diff": 0.003333,
+          "coverage_ratio": 0.996667,
+          "target_load_ratio": 0.996667,
+          "severity_label": "소규모 COUNT 차이",
+          "next_action_label": "통계검증 계속",
+          "diagnostic_reason": "소규모 COUNT 차이(순 차이 500건) — 통계검증과 Exact Diff 로 실제 누락/과잉/값 불일치를 확인하세요(차이만으로 종료하지 않음).",
+          "confirmed_full_missing_side": null
+        },
+        "allowed_stages": [
+          "stats",
+          "key_range",
+          "exact_diff"
+        ],
+        "stats_blocked": false
+      },
+      "execute": {
+        "http": null,
+        "success": true,
+        "matched": 0,
+        "diff": 10,
+        "src_only": 0,
+        "tgt_only": 0,
+        "total_groups": 10,
+        "has_count_gate_in_response": false,
+        "has_count_status_in_response": false
+      },
+      "single_save": {
+        "http": null,
+        "success": true,
+        "run_id": "2144bd3e-2143-4867-8b68-2ea904678172",
+        "group_id": "GRP_202607280446273572",
+        "project_id": "898",
+        "error": null
+      },
+      "snapshot_after": {
+        "run_id": "2144bd3e-2143-4867-8b68-2ea904678172",
+        "has_field": true,
+        "count_gate_context": {
+          "count_status": "COUNT_MINOR_DIFF",
+          "source_count": 150000,
+          "target_count": 149500,
+          "absolute_diff": 500,
+          "relative_diff": 0.003333,
+          "coverage_ratio": 0.996667,
+          "target_load_ratio": 0.996667,
+          "severity_label": "소규모 COUNT 차이",
+          "next_action_label": "통계검증 계속",
+          "diagnostic_reason": "소규모 COUNT 차이(순 차이 500건) — 통계검증과 Exact Diff 로 실제 누락/과잉/값 불일치를 확인하세요(차이만으로 종료하지 않음).",
+          "confirmed_full_missing_side": null,
+          "stats_blocked_by_gate": false,
+          "force_accepted": true,
+          "force_accepted_evidence": "USER_MANUAL_PROCEED",
+          "evidence_source": "DERIVED_FROM_SAVED_COUNTS",
+          "count_precheck_status": "FAILED",
+          "gate_policy_version": "count-gate-v2"
+        },
+        "count_precheck_status": "FAILED",
+        "count_src_count": 150000,
+        "count_tgt_count": 149500
+      },
+      "gate_parity": {
+        "identical": true,
+        "diffs": {}
+      },
+      "banner": {
+        "A_wizard": {
+          "shown": false,
+          "head": "",
+          "pattern": ""
+        },
+        "B_snapshot_after": {
+          "shown": false,
+          "head": "",
+          "pattern": ""
+        },
+        "C_snapshot_before": {
+          "shown": false,
+          "head": "",
+          "pattern": ""
+        },
+        "A_equals_B": true,
+        "C_differs": false
+      },
+      "snapshot_before_code": {
+        "ref": "HEAD",
+        "has_count_gate_context": false,
+        "count_precheck_status": "FAILED"
+      },
+      "ok": true
+    }
+  ],
+  "legacy_compat": {
+    "checked": 30,
+    "read_ok": 30,
+    "without_field": 30,
+    "banner_ok": 30,
+    "errors": []
+  },
+  "contract_unchanged": {
+    "whitelist": [
+      "ERROR",
+      "FAILED",
+      "NOT_RUN",
+      "PASSED",
+      "SKIPPED_BY_USER"
+    ],
+    "unchanged": true,
+    "normalize_samples": {
+      "PASSED": "PASSED",
+      "FAILED": "FAILED",
+      "ERROR": "ERROR",
+      "SKIPPED_BY_USER": "SKIPPED_BY_USER",
+      "NOT_RUN": "NOT_RUN",
+      "COUNT_CRITICAL_DIFF": "NOT_RUN",
+      "": "NOT_RUN",
+      "null": "NOT_RUN"
+    },
+    "normalize_ok": true
+  },
+  "status_varies": true
+}
