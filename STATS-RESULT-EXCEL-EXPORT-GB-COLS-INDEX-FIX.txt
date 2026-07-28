@@ -1,0 +1,185 @@
+STATS-RESULT-EXCEL-EXPORT-GB-COLS-INDEX-FIX — 완료보고서
+작성 2026-07-28 · 커밋 3383619 · 서버 재기동 2026-07-28 19:27:50
+
+────────────────────────────────────────────────────────────────────────────
+1. 요청 요약
+────────────────────────────────────────────────────────────────────────────
+routes/stats_result_route.py 의 레코드 Excel(시트 '재이관 대상 레코드') 컬럼
+결정식이 gb_cols(문자열 리스트)를 튜플로 착각해 [p[0] for p in basis["gb_cols"]]
+로 처리했다. "STATUS_CD"[0] = "S" 가 되어 sv.get("S") 는 항상 None 을 반환했고,
+화면 '전체 상세 보기'에는 정상 표시되는 GROUP BY 컬럼값이 Excel 에서는 헤더가
+첫 글자만 남고 값은 전부 빈칸으로 유실됐다. 이 인덱싱을 문자열 계약에 맞게
+수정하고, before/after 실 다운로드 대조와 STREAM/CHUNK 회귀 없음을 실측 확인했다.
+
+────────────────────────────────────────────────────────────────────────────
+2. 수정 내용 (routes/stats_result_route.py 단일 파일)
+────────────────────────────────────────────────────────────────────────────
+수정 전 (:151-154)
+    row_cmp = basis.get("row_compare_columns")
+    cols = ([str(c) for c in row_cmp] if row_cmp
+            else ([p[0] for p in (basis.get("gb_cols") or [g[0] for g in (head.get("columns") or [])])]
+                  + list(basis.get("sum_labels") or [])))
+
+수정 후 (:151-159)
+    row_cmp = basis.get("row_compare_columns")
+    # [STATS-RESULT-EXCEL-EXPORT-GB-COLS-INDEX-FIX] gb_cols 는 '문자열 리스트' 계약이다
+    #   (agg_contribution/sampling_preflight 가 zip(gb_cols, ...) 로 레코드 dict 키에 직접 사용).
+    #   과거 식은 이 리스트에 p[0] 를 적용해 "STATUS_CD" → "S" 로 첫 글자만 남겼고,
+    #   그 결과 sv.get("S") 가 항상 None → GROUP BY 컬럼값이 Excel 에서 전부 빈칸이었다.
+    #   head["columns"] 는 (컬럼명, 표시명) 쌍이라 g[0] 로 컬럼명만 꺼내는 것이 맞다(유지).
+    _gb_cols = basis.get("gb_cols") or [g[0] for g in (head.get("columns") or [])]
+    cols = ([str(c) for c in row_cmp] if row_cmp
+            else [str(p) for p in _gb_cols] + list(basis.get("sum_labels") or []))
+
+수정 범위를 좁힌 근거
+  · 제거한 것은 '바깥쪽' p[0] 하나뿐이다. head["columns"] 가 (컬럼명, 표시명) 쌍이라
+    안쪽 g[0] 로 컬럼명만 꺼내는 처리는 지시대로 그대로 두었다.
+  · 다만 이 바깥쪽 p[0] 는 gb_cols 분기와 head["columns"] 분기 '양쪽에' 걸려 있었다.
+    즉 head["columns"] 분기도 g[0] 로 이미 컬럼명(문자열)을 꺼낸 뒤 다시 p[0] 로 첫
+    글자만 남기고 있었으므로 두 분기 모두 같은 결함이었다. p[0] 제거는 gb_cols 계약을
+    바로잡으면서 head["columns"] 분기의 동일 결함도 함께 해소하며, 튜플 언패킹(g[0])
+    자체는 건드리지 않는다. 별도 동작 변경이 아니라 같은 결함의 동일 원인 해소다.
+  · row_compare_columns 가 있는 분기(STREAM/CHUNK)의 식은 한 글자도 바뀌지 않았다.
+
+────────────────────────────────────────────────────────────────────────────
+3. 영향 경로 확정 (basis 계약 기준)
+────────────────────────────────────────────────────────────────────────────
+  경로                                              row_compare_columns   수정 전 Excel
+  ─────────────────────────────────────────────────────────────────────────
+  REIMPORT_PK_INDEX      agg_contribution.py:346    없음                  유실(결함)
+  sample_early_stop      sampling_preflight.py:311  없음                  헤더 결함
+  REIMPORT_PK_INDEX_STREAM agg_contribution.py:760  있음                  정상
+  PK_RANGE_CHUNK_COMPARE pk_range_chunk.py:478      있음                  정상
+
+  sampling_preflight 경로 재확인(지시 3)
+    코드 근거: :311 basis 에 gb_cols/sum_labels 만 기록하고 row_compare_columns 를
+    쓰지 않으므로 동일 fallback 식을 탄다 → 같은 결함.
+    실측(store 레벨 replay · 실 export 엔드포인트 다운로드):
+      before 헤더 [ID, 불일치 유형, 원본 S, 원본 D, 원본 AMT, 목적 S, 목적 D, 목적 AMT]
+      after  헤더 [ID, 불일치 유형, 원본 STATUS_CD, 원본 DEPT_CD, 원본 AMT,
+                   목적 STATUS_CD, 목적 DEPT_CD, 목적 AMT]
+    추가 발견(이번 수정 범위 밖, 별건): 이 경로가 저장하는 레코드 kind 는
+    SAMPLE_MISMATCH 인데 export 는 REIMPORT kind 만 읽는다(iter_records(kind=REIMPORT_KIND)).
+    따라서 표본 조기중단 run 의 레코드 Excel 은 수정 전후 모두 '데이터 행 0건'이며
+    이번 수정으로 복구되는 것은 헤더 컬럼명뿐이다. 값 행 자체가 안 나오는 것은
+    kind 불일치라는 별개 사안으로, 본 작업에서는 수정하지 않고 사실만 기록한다.
+
+────────────────────────────────────────────────────────────────────────────
+4. 검증 — Before/After 실 Excel 다운로드 대조
+────────────────────────────────────────────────────────────────────────────
+공통 조건: in-process 서버(포트 자동)로 실 엔드포인트만 사용. 강제주입 없음.
+  실 DB 경로는 PostgreSQL Inter 프리셋(asis01/tobe01) + 진단이 만든 COMBO/SKEW 픽스처.
+  before 는 수정 전 파일로, after 는 수정 후 파일로 각각 별도 프로세스에서 측정.
+  basis 계약 4종 replay 의 before 는 git worktree(HEAD 135ee9e, 수정 전)에서 측정했다.
+
+(A) 실 DB · COMBO 1,200행 · REIMPORT_PK_INDEX (결함 경로 · 지시 2)
+    실행: analyze → count(1200/1200) → generate → execute(그룹 12 · 불일치 4)
+          → /agg-diff/prepare(stream=False) → basis engine=REIMPORT_PK_INDEX,
+            gb_cols=['STATUS_CD','DEPT_CD'], row_compare_columns 없음(결함 분기 확정)
+          → /stats-result/export?scope=records 실 다운로드
+    파일: before_combo_pkindex_records.xlsx (12,810B) / after_..._records.xlsx (17,729B)
+    시트 '재이관 대상 레코드' 401행(헤더 포함), 행 수는 before/after 동일.
+
+      before 헤더 : ID | 불일치 유형 | 원본 S | 원본 D | 원본 AMT | 목적 S | 목적 D | 목적 AMT
+      before 1행  : 51 | 값 불일치 | (빈칸) | (빈칸) | 1002 | (빈칸) | (빈칸) | 1012
+
+      after  헤더 : ID | 불일치 유형 | 원본 STATUS_CD | 원본 DEPT_CD | 원본 AMT |
+                    목적 STATUS_CD | 목적 DEPT_CD | 목적 AMT
+      after  1행  : 51 | 값 불일치 | P | D01 | 1002 | P | D01 | 1012
+      after  3행  : 539 | 값 불일치 | A | D02 | 1000 | A | D02 | 1010
+
+    → 진단이 기록한 증상(컬럼명 첫 글자만·값 전부 빈칸)이 그대로 재현됐고,
+      수정 후 GROUP BY 조합 원본값이 정상 기재된다. 화면 '전체 상세 보기'
+      표기(P / D01)와 Excel 값이 일치한다.
+
+(B) 실 DB · SKEW 120,000행 · REIMPORT_PK_INDEX_STREAM (회귀 확인)
+    basis row_compare_columns=['STATUS_CD','AMT'] 존재 → 수정과 무관한 분기.
+    before/after 모두 2,544,630 B · 시트 100,001행.
+    셀 단위 전량 해시 대조 결과 identical=True (헤더·전 행 동일).
+      헤더: ID | 불일치 유형 | 원본 STATUS_CD | 원본 AMT | 목적 STATUS_CD | 목적 AMT
+      1행 : 1 | 값 불일치 | P | 501 | P | 502
+    → STREAM 경로 회귀 없음.
+
+(C) basis 계약 4종 replay (실 export 엔드포인트 · 외부 DB 접속 0회)
+    제품이 실제로 쓰는 basis/head.columns/records 계약을 저장소 공개 API 로 재현한 뒤
+    같은 다운로드 URL 로 대조했다. before 는 HEAD worktree(수정 전)에서 측정.
+
+      1_pkindex  (rcc 없음) : 변경됨  원본 S/원본 D·빈칸 → 원본 STATUS_CD/DEPT_CD·P/D01
+      2_stream   (rcc 있음) : 동일    5,086B ↔ 5,086B · 셀 단위 identical=True
+      3_chunk    (rcc 있음) : 동일    5,086B ↔ 5,086B · 셀 단위 identical=True
+      4_sampling (rcc 없음) : 헤더만 변경(데이터 행 0건 — 위 §3 kind 사유)
+
+    → CHUNK 경로(PK_RANGE_CHUNK_COMPARE basis 계약)도 수정 전후 셀 단위 동일.
+
+(D) CHUNK 실 DB 라이브 측정은 미획득 — 별건 원인 명시
+    SKEW·COMBO 픽스처로 compare_strategy=PK_RANGE_CHUNK_COMPARE 를 실행하면
+    chunk job 이 시작 직후 FAILED 로 끝나 run head 자체가 생성되지 않는다.
+    job 오류 전문(실측):
+      column _s.ID does not exist
+      LINE 1: SELECT min(_s."ID"), max(_s."ID") FROM (SELECT (id) AS ID, ...
+    원인: 파생 SQL 이 (id) AS ID 로 따옴표 없는 별칭을 만들어 PostgreSQL 이 id 로
+    소문자 폴딩하는데, PK min/max 조회는 _s."ID" 로 따옴표를 붙여 조회한다.
+    이번 Excel 수정과 무관한 CHUNK 경로 별건이며 지시 범위 밖이라 수정하지 않았다.
+    (그래서 CHUNK 회귀는 위 (C) basis 계약 replay 로 확인했다.)
+
+────────────────────────────────────────────────────────────────────────────
+5. 기존 테스트 회귀
+────────────────────────────────────────────────────────────────────────────
+  python samples/test_virtual_cases.py            8/8 통과
+  python samples/test_complex_cases.py            5/5 통과
+  python samples/test_stats_export_excel_guard.py 4/4 통과
+  pytest tests/test_stats_result_full.py tests/test_d6_group_record_separation.py
+        26 passed · 5 xfailed · 1 failed
+
+  실패 1건: test_phase4b_strategy_plan_effective_selection_display
+    (_mvRenderStrategyPlan JS 의 effective_aggregate_count 문자열 검사 — UI 문구 검사)
+    수정 전 HEAD(135ee9e) worktree 에서도 동일하게 실패함을 확인했다(사전 존재 실패).
+    이번 수정과 무관하다.
+
+────────────────────────────────────────────────────────────────────────────
+6. 변경 파일 / 커밋
+────────────────────────────────────────────────────────────────────────────
+  커밋 3383619 (main)
+    M routes/stats_result_route.py                                (-2 / +9)
+    A scripts/dev_e2e/stats_excel_gb_cols_index_verify.py          실 DB before/after 구동
+    A scripts/dev_e2e/stats_excel_gb_cols_index_chunk_verify.py    CHUNK 전용 재측정
+    A scripts/dev_e2e/stats_excel_gb_cols_basis_contract_replay.py basis 계약 4종 대조
+    A scripts/dev_e2e/stats_excel_gb_cols_index_compare.py         xlsx 셀 단위 대조
+
+  git diff 요지
+    -                        else ([p[0] for p in (basis.get("gb_cols") or [g[0] for g in (head.get("columns") or [])])]
+    -                              + list(basis.get("sum_labels") or [])))
+    +                _gb_cols = basis.get("gb_cols") or [g[0] for g in (head.get("columns") or [])]
+    +                        else [str(p) for p in _gb_cols] + list(basis.get("sum_labels") or []))
+
+────────────────────────────────────────────────────────────────────────────
+7. 서버 재기동
+────────────────────────────────────────────────────────────────────────────
+  2026-07-28 19:27:50 재기동 완료
+    포트 8000 점유 PID 13828 종료 → 신규 PID 27348 LISTENING
+    HTTP Basic Auth: ON (등록 계정 3명) · 서버 단계 가드: ON
+    무인증(MV_AUTH_DISABLED) 아님 — 실측 스크립트에서만 프로세스 국소 설정.
+
+────────────────────────────────────────────────────────────────────────────
+8. 보안 점검
+────────────────────────────────────────────────────────────────────────────
+  프리셋 비밀번호 4종을 대상으로 증적 폴더 전체 파일(xlsx/JSON/로그)과 이번 커밋
+  대상 소스를 UTF-8·UTF-16LE 두 인코딩으로 스캔 — 노출 0건.
+  실측 스크립트는 접속정보를 로그·JSON 에 기록하지 않는다(conn dict 미저장).
+
+────────────────────────────────────────────────────────────────────────────
+9. 남은 사안(이번 범위 밖 · 기록만)
+────────────────────────────────────────────────────────────────────────────
+  · 표본 조기중단 run 의 레코드 Excel 은 kind 불일치(SAMPLE_MISMATCH vs REIMPORT)로
+    데이터 행이 0건이다. 헤더는 이번 수정으로 정상화됐으나 값 행 노출은 별도 판단 필요.
+  · CHUNK 경로가 소문자 컬럼 파생 SQL 에서 PK min/max 조회 시 _s."ID" 대문자
+    따옴표 별칭으로 실패한다(§4-D). 드릴다운 CHUNK 실행 자체가 막히는 사안이다.
+
+증적 위치
+  보고서 : E:\verify_reports\STATS-RESULT-EXCEL-EXPORT-GB-COLS-INDEX-FIX.txt
+  스크린샷/로그/xlsx : E:\verify_screenshots_only\STATS-RESULT-EXCEL-EXPORT-GB-COLS-INDEX-FIX\
+    before/after xlsx 16개 · 대조결과 _compare_before_after.json ·
+    실행 로그 log_before_live.txt / log_after_live.txt / log_before_chunk_probe.txt /
+    log_server_restart.txt · 단계별 JSON 5개
+
+STATS-RESULT-EXCEL-EXPORT-GB-COLS-INDEX-FIX — 보고 끝
