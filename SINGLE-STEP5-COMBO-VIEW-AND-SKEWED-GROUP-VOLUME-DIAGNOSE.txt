@@ -1,0 +1,136 @@
+✅ 작업 완료 - 조합 기준 뷰는 '판정 자체가 부재'로 확정, 편중 D1 오분류는 실재하나 화면 멈춤 위험은 없음(진단 전용·코드 미수정)
+
+작업명 : SINGLE-STEP5-COMBO-VIEW-AND-SKEWED-GROUP-VOLUME-DIAGNOSE
+일자   : 2026-07-28
+범위   : 진단 전용(코드 수정 없음). 실 PostgreSQL(PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe),
+         실 서비스 포트 8000(인증 ON), 실 브라우저 클릭스루.
+
+────────────────────────────────────────────────────────────────────────
+[1] 조합 기준 뷰 — 결론: 뷰 부재가 아니라 '조합 판정 자체가 없음'
+────────────────────────────────────────────────────────────────────────
+· 실행계획이 다중 GROUP BY 를 축별 독립 세트로 분해한다.
+  services/groupby_plan_service.py:88-93 (후보별 SINGLE 세트)
+  같은 파일 :138 "[D7-17 통합 D] 명시 복합(EXPLICIT_MULTI) 세트 생성 제거"
+  ui/tabler_renderer.py:25459 클라이언트도 EXPLICIT_MULTI 를 항상 필터링
+· 남은 조합 경로(PAIR)는 UI 도달 불가 — ctx.includePair 의 유일한 출처
+  window._mvIncludePairOnce 를 true 로 세팅하는 코드가 UI 전체에 없다
+  (ui/tabler_renderer.py:27683 에서 읽고 즉시 false, 설정 지점 0건).
+  서버 include_pair(routes/groupby_plan_route.py:23)는 살아있으나 켤 방법이 없음.
+· 구현 불가가 아니라 정책적 분해다 — generator/sql_generator.py:207 은
+  "GROUP  BY " + ", ".join(gb_exprs) 로 다중 축 SQL 을 만들 수 있다.
+
+[실측] 조합 상쇄 픽스처(status_cd 3종 × dept_cd 4종, 2×2 라틴 상쇄)
+  픽스처 자체 교차확인: status 단독 불일치 0 / dept 단독 불일치 0 / 조합 불일치 4
+  UI 실행 결과 : 계획 S1[STATUS_CD] S2[DEPT_CD] · 세트별 diff=0/0
+                 화면 판정 "통계결과 일치 · 불일치 그룹 0개 · 최종상태 정상"
+  → 조합 4그룹의 실제 SUM 불일치가 통계검증에서 통째로 은폐됐다.
+  같은 화면 하단 행 수준 상세비교는 값 불일치 400건(4조합×100행)을 정확히 검출.
+  화면에 제외 사실은 표기됨: "자동 제외 1건 — 예: STATUS_CD+DEPT_CD (조합 distinct 근거 부족)"
+  (pair_candidate=null — 후보 evidence 에 distinct 미탑재로 조합 평가 전 탈락. 이중 차단)
+
+[5단계 화면 전면 클릭스루 — 조합 뷰 없음 확정]
+  · 대표 GROUP BY 분포표 : group_col=STATUS_CD 단일. P 200건 / A 200건
+                           ((P,D01)+(P,D02)가 'P 200건'으로 뭉쳐짐)
+  · GROUP BY 기준 드롭다운: ['', STATUS_CD, DEPT_CD] · multiple=false → 두 축 동시 지정 불가
+  · 그룹 값 드롭다운      : 선택한 한 축의 값만
+  · 그룹 펼침 / 전체 상세 / PK 검색 : 조합 단위 집계 지점 없음
+  → "대표 GROUP BY 분포가 유일한 그룹별 뷰이고 다중 축 선택 시 대표축 1개로만 축약된다"가
+     현재 설계의 한계임을 확정(배치·라벨링 문제 아님).
+
+[조합 원본값 보존 여부]
+  · 화면 '전체 상세 보기' : 보존됨
+      불일치 유형 | ID(PK) | STATUS_CD | STATUS_CD | DEPT_CD | DEPT_CD | AMT | AMT
+      값 불일치   | 51     | P         | P         | D01     | D01     | 1,002 | 1,012
+    → 화면 표시만 대표축이고 데이터 접근은 막히지 않음.
+  · 레코드 Excel : 유실됨(버그, 실측 확인)
+      헤더 : ID | 불일치 유형 | 원본 S | 원본 D | 원본 AMT | 목적 S | 목적 D | 목적 AMT
+      행   : 51 | 값 불일치   | (빈칸) | (빈칸) | 1002     | (빈칸) | (빈칸) | 1012
+    원인 : routes/stats_result_route.py:151-154 fallback 이
+           [p[0] for p in basis["gb_cols"]] 를 적용 — gb_cols 는 문자열 리스트라
+           "STATUS_CD"[0]="S" 가 되고 sv.get("S") 는 항상 None.
+           (head["columns"] 는 [(g,g)] 튜플이라 g[0] 이 맞다 — 두 fallback 합치며 생긴 혼선)
+    범위 : row_compare_columns 미보유 basis 경로만 해당
+           - agg_contribution.py:346 REIMPORT_PK_INDEX(소규모 non-stream) → 유실(실측)
+           - sampling_preflight.py:311 표본 조기중단 → 유실 예상(코드 근거·미실측)
+           - agg_contribution.py:753 STREAM / pk_range_chunk.py:169,478 CHUNK → 정상
+
+────────────────────────────────────────────────────────────────────────
+[2] 편중 그룹 표시 등급 — D1 오분류 실재, 화면 멈춤 위험은 없음
+────────────────────────────────────────────────────────────────────────
+[등급 산정 기준 — 경로마다 축 A 정의가 다름]
+  · services/stats_execute_service.py:547 (통계검증 그룹표)
+      축A = 불일치 '그룹 수'(diff+src_only+tgt_only) / 축B = 전체 그룹 수
+  · routes/agg_diff_route.py:1223 (재이관 드릴다운)
+      축A = 실제 '레코드 건수'(pg["total"]) / 축B = 불일치 그룹 수
+  · 구조적 관찰: 통계검증 경로는 축A ≤ 축B 가 항상 성립(불일치 그룹 ≤ 전체 그룹)해
+      max(a,b) 가 언제나 축B — 축A 는 등급에 영향을 주지 못한다(reason 라벨만 AXIS_A_*).
+      두 축 설계가 이 경로에서 사실상 1축으로 붕괴해 있다.
+
+[실측] 편중 픽스처(status_cd 2종: P 100,000행 / C 20,000행, 목적지 P 전량 amt+1)
+  서버 display_tier_info :
+    display_tier=D1 · display_mode=FULL_LIST · reason=AXIS_A_MISMATCH_T1
+    total_mismatch_count=1 (그룹 수) · total_group_count=2
+    display_message="불일치 1건(그룹 2개) — 전체 레코드를 나열합니다."
+  화면 결과행 : P | 100,000 | 100,000 | 50,599,986.00 | 50,699,986.00 Δ-100,000 | 집계값 불일치
+  → 행 수준 불일치 100,000건인데 '불일치 1건'으로 D1 판정. 오분류는 실재한다.
+
+[그러나 실제 위험은 문구 오도로 한정 — 3중 실측 근거]
+  (a) 등급이 렌더 동작을 제어하지 않음
+      show_full_list / summary_only / show_group_drilldown / show_group_sample_only /
+      download_only_detail / display_mode 를 UI 코드에서 읽는 곳이 0건(ui/*.py grep).
+      실제 사용은 display_tier·display_message(배너 문구)뿐.
+      표시 축소는 별도 장치가 담당 — MAX_DISPLAY_ROWS(200)+클라 페이징, 재이관 서버 페이징.
+  (b) 통계검증 그룹표에는 D1 배너가 아예 표시되지 않음(화면 텍스트 '표시 등급 D' 검색 false).
+      D1~D4 배너는 재이관/드릴다운 경로에서만 노출(combo 에서는 정상 노출 확인).
+      → 잘못된 문구가 사용자에게 보이지도 않는다. 단, 등급 표시 기능이 이 화면에서
+        동작하지 않는다는 뜻이기도 하다.
+  (c) 실제 드릴다운은 D4 로 정확히 보호됨 — 편중 그룹 행 실클릭 결과:
+      "표시 등급 D4 · 요약 전용(다운로드로 확보)
+       불일치 20건(그룹 1개) — 수집이 조기중단되어 대표 표본만 저장되었습니다."
+      재이관 대상 전체 20건 · 1/4페이지 · 내부 계측 준비확인 138ms · scope 94ms · 렌더 1ms
+      → 10만 건을 나열하려는 시도 자체가 없다(표본 조기중단 → early_stopped 강제 D4).
+      추가 방어: per_group_display_policy(100건 경계) — combo 200건 그룹은 P3(숫자만)로 렌더 확인.
+
+[부수 관측 — 이번 범위 밖, 기록만]
+  · 상단 '재이관 대상: 준비 중' 이 그룹 드릴다운 완료 후에도 15분간 유지(_mvPkState=PREPARING).
+    PK index prewarm 은 5만행 이하만 동작 — SKEW 는 12만행. 그룹 드릴다운 자체는 정상.
+  · 분포표는 'P 200건'으로 정확한 수를 보여주나 펼치면 '정확한 수는 확인하지 않았습니다' — 문구 충돌.
+  · COMBO 요약표 '불일치 그룹 0개 / 최종상태 정상' vs 하단 '재이관 대상 400건' 기준 혼재.
+
+────────────────────────────────────────────────────────────────────────
+[3] 두 사안의 연관성 — 독립 사안으로 판단
+────────────────────────────────────────────────────────────────────────
+· 원인 계층이 다르다 : 조합 뷰=실행계획 계층(세트 분해) / 편중 등급=표시 판정 계층(축A 정의).
+· 조합 뷰가 생겨도 편중 오분류는 남는다 : 축A 가 '그룹 수'인 한, 저카디 컬럼이 1개뿐인
+  테이블(SKEW 형태)에서는 조합 축 자체가 없어 동일 증상이 그대로 재현된다.
+· 완화 방향이 반대다 : 조합 뷰는 그룹을 잘게 쪼개는 방향, 편중 문제는 한 그룹 안 레코드 규모를
+  등급에 반영하는 문제. 쪼개면 증상이 가려질 뿐 판정 기준이 고쳐지지 않는다.
+· 공통 뿌리는 하나 있다 : 두 사안 모두 '그룹 단위 숫자'와 '행 단위 숫자'를 같은 자리에 놓는다.
+  조합 판정 부재는 그룹 집계가 행 차이를 상쇄해 감추고, 편중 오분류는 그룹 수가 행 건수 자리에 들어간다.
+  묶어서 정리하는 것은 가능하나 설계 판단 사안이며 이번 진단의 권고 범위 밖.
+
+────────────────────────────────────────────────────────────────────────
+[4] 자체 테스트(회귀 확인 — 코드 미수정이나 규칙대로 실행)
+────────────────────────────────────────────────────────────────────────
+  python samples/test_virtual_cases.py        → 8/8 통과
+  python samples/test_complex_cases.py        → 5/5 통과
+  python samples/test_display_limit_policy.py → 26/26 통과
+  (코드 수정이 없으므로 수정 전/후 차이 없음. 신규 파일은 진단 스크립트·문서뿐)
+
+────────────────────────────────────────────────────────────────────────
+[5] 생성/변경 파일
+────────────────────────────────────────────────────────────────────────
+  신규 docs/SINGLE_STEP5_COMBO_VIEW_AND_SKEWED_GROUP_VOLUME_DIAGNOSE.md   (진단 본문)
+  신규 scripts/dev_e2e/combo_view_and_skew_fixture.py        (실 PG 픽스처 2종 + 기대값 교차확인)
+  신규 scripts/dev_e2e/combo_view_and_skew_clickthrough.py   (1~5단계 실클릭·계획/등급/버튼 열거)
+  신규 scripts/dev_e2e/combo_step5_full_surface_probe.py     (5단계 전면 훑기·Excel 실다운로드)
+  신규 scripts/dev_e2e/skew_drilldown_tier_probe.py          (편중 등급 폴링)
+  신규 scripts/dev_e2e/skew_row_click_observe.py             (편중 행 클릭 30/60/120/240초 관측)
+  결과 JSON 4건 : scripts/dev_e2e/_combo_skew_clickthrough.json, _combo_step5_surface.json,
+                  _skew_drilldown_tier.json, _skew_row_click.json
+  스크린샷 : E:\verify_screenshots_only\SINGLE-STEP5-COMBO-VIEW-AND-SKEWED-GROUP-VOLUME-DIAGNOSE\
+  실 DB 픽스처(존치) : asis01.t_combo_src / tobe01.t_combo_tgt / asis01.t_skew_src / tobe01.t_skew_tgt
+                       (기존 테이블은 미변경)
+  기존 코드 변경 : 없음
+
+✅ 작업 완료 - 조합 기준 뷰는 '판정 자체가 부재'로 확정, 편중 D1 오분류는 실재하나 화면 멈춤 위험은 없음(진단 전용·코드 미수정)
