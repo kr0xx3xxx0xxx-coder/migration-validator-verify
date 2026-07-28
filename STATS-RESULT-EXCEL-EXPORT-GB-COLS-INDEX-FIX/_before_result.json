@@ -1,0 +1,380 @@
+{
+  "task": "STATS-RESULT-EXCEL-EXPORT-GB-COLS-INDEX-FIX",
+  "phase": "before",
+  "server_started": "2026-07-28 18:45:06",
+  "paths": {
+    "A_combo_pkindex": {
+      "stats": {
+        "tag": "combo",
+        "analyze": {
+          "http": null,
+          "blocked": null,
+          "token": true,
+          "gb_cand": 2,
+          "sum_cand": 1
+        },
+        "count": {
+          "http": null,
+          "src": 1200,
+          "tgt": 1200
+        },
+        "generate": {
+          "http": null,
+          "has_src_sql": true
+        },
+        "execute": {
+          "http": null,
+          "success": true,
+          "matched": 8,
+          "diff": 4,
+          "src_only": 0,
+          "tgt_only": 0,
+          "total_groups": 12,
+          "gb_keys": [
+            "STATUS_CD",
+            "DEPT_CD"
+          ],
+          "val_cols": [
+            "CNT",
+            "AMT"
+          ],
+          "result_id": "SRAC28F573C435",
+          "plan_fingerprint": "PFP-combo-before",
+          "error": null
+        }
+      },
+      "prepare": {
+        "http": null,
+        "status": "READY",
+        "run_id": "PK45FC7A672020",
+        "stop_reason": null,
+        "error": null,
+        "records_status": "READY",
+        "total_reimport_pks": null,
+        "row_compare_columns_resp": [],
+        "basis": {
+          "engine": "REIMPORT_PK_INDEX",
+          "strategy": null,
+          "gb_cols": [
+            "STATUS_CD",
+            "DEPT_CD"
+          ],
+          "has_row_compare_columns": false,
+          "row_compare_columns": null,
+          "sum_labels": [
+            "AMT"
+          ]
+        },
+        "head_columns": [
+          [
+            "STATUS_CD",
+            "STATUS_CD"
+          ],
+          [
+            "DEPT_CD",
+            "DEPT_CD"
+          ]
+        ]
+      },
+      "export": {
+        "ok": true,
+        "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "bytes": 12810,
+        "file": "E:/verify_screenshots_only\\STATS-RESULT-EXCEL-EXPORT-GB-COLS-INDEX-FIX\\before_combo_pkindex_records.xlsx",
+        "sheets": {
+          "재이관 대상 레코드": {
+            "rows": [
+              [
+                "ID",
+                "불일치 유형",
+                "원본 S",
+                "원본 D",
+                "원본 AMT",
+                "목적 S",
+                "목적 D",
+                "목적 AMT"
+              ],
+              [
+                "51",
+                "값 불일치",
+                "",
+                "",
+                "1002",
+                "",
+                "",
+                "1012"
+              ],
+              [
+                "70",
+                "값 불일치",
+                "",
+                "",
+                "1000",
+                "",
+                "",
+                "1010"
+              ],
+              [
+                "539",
+                "값 불일치",
+                "",
+                "",
+                "1000",
+                "",
+                "",
+                "1010"
+              ],
+              [
+                "176",
+                "값 불일치",
+                "",
+                "",
+                "1001",
+                "",
+                "",
+                "991"
+              ],
+              [
+                "576",
+                "값 불일치",
+                "",
+                "",
+                "1002",
+                "",
+                "",
+                "1012"
+              ],
+              [
+                "22",
+                "값 불일치",
+                "",
+                "",
+                "1001",
+                "",
+                "",
+                "1011"
+              ]
+            ],
+            "max_row": null
+          }
+        }
+      }
+    },
+    "D_sampling_replay": {
+      "ok": true,
+      "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "bytes": 4961,
+      "file": "E:/verify_screenshots_only\\STATS-RESULT-EXCEL-EXPORT-GB-COLS-INDEX-FIX\\before_sampling_replay_records.xlsx",
+      "sheets": {
+        "재이관 대상 레코드": {
+          "rows": [
+            [
+              "ID",
+              "불일치 유형",
+              "원본 S",
+              "원본 D",
+              "원본 AMT",
+              "목적 S",
+              "목적 D",
+              "목적 AMT"
+            ]
+          ],
+          "max_row": null
+        }
+      },
+      "basis": {
+        "sample_early_stop": true,
+        "gb_cols": [
+          "STATUS_CD",
+          "DEPT_CD"
+        ],
+        "sum_labels": [
+          "AMT"
+        ],
+        "numeric_pk": true,
+        "key_col": "ID"
+      },
+      "record_kind": "SAMPLE_MISMATCH"
+    },
+    "B_skew_stream": {
+      "stats": {
+        "tag": "skew",
+        "analyze": {
+          "http": null,
+          "blocked": null,
+          "token": true,
+          "gb_cand": 1,
+          "sum_cand": 1
+        },
+        "count": {
+          "http": null,
+          "src": 120000,
+          "tgt": 120000
+        },
+        "generate": {
+          "http": null,
+          "has_src_sql": true
+        },
+        "execute": {
+          "http": null,
+          "success": true,
+          "matched": 1,
+          "diff": 1,
+          "src_only": 0,
+          "tgt_only": 0,
+          "total_groups": 2,
+          "gb_keys": [
+            "STATUS_CD"
+          ],
+          "val_cols": [
+            "CNT",
+            "AMT"
+          ],
+          "result_id": "SR93E4AFEC718E",
+          "plan_fingerprint": "PFP-skew-before",
+          "error": null
+        }
+      },
+      "prepare": {
+        "http": null,
+        "status": "PREPARING",
+        "run_id": "PSB3C90C28F91F",
+        "stop_reason": null,
+        "error": null,
+        "records_status": "READY",
+        "total_reimport_pks": null,
+        "row_compare_columns_resp": [
+          "STATUS_CD",
+          "AMT"
+        ],
+        "basis": {
+          "engine": "REIMPORT_PK_INDEX_STREAM",
+          "strategy": null,
+          "gb_cols": [
+            "STATUS_CD"
+          ],
+          "has_row_compare_columns": true,
+          "row_compare_columns": [
+            "STATUS_CD",
+            "AMT"
+          ],
+          "sum_labels": [
+            "AMT"
+          ]
+        },
+        "head_columns": [
+          [
+            "STATUS_CD",
+            "STATUS_CD"
+          ]
+        ]
+      },
+      "export": {
+        "ok": true,
+        "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "bytes": 2544630,
+        "file": "E:/verify_screenshots_only\\STATS-RESULT-EXCEL-EXPORT-GB-COLS-INDEX-FIX\\before_skew_stream_records.xlsx",
+        "sheets": {
+          "재이관 대상 레코드": {
+            "rows": [
+              [
+                "ID",
+                "불일치 유형",
+                "원본 STATUS_CD",
+                "원본 AMT",
+                "목적 STATUS_CD",
+                "목적 AMT"
+              ],
+              [
+                "1",
+                "값 불일치",
+                "P",
+                "501",
+                "P",
+                "502"
+              ],
+              [
+                "2",
+                "값 불일치",
+                "P",
+                "502",
+                "P",
+                "503"
+              ],
+              [
+                "3",
+                "값 불일치",
+                "P",
+                "503",
+                "P",
+                "504"
+              ],
+              [
+                "4",
+                "값 불일치",
+                "P",
+                "504",
+                "P",
+                "505"
+              ],
+              [
+                "5",
+                "값 불일치",
+                "P",
+                "505",
+                "P",
+                "506"
+              ],
+              [
+                "6",
+                "값 불일치",
+                "P",
+                "506",
+                "P",
+                "507"
+              ]
+            ],
+            "max_row": null
+          }
+        }
+      }
+    },
+    "C_skew_chunk": {
+      "prepare": {
+        "http": null,
+        "status": "PREPARING",
+        "run_id": "PS97D4183D653D",
+        "stop_reason": null,
+        "error": null,
+        "records_status": null,
+        "total_reimport_pks": null,
+        "row_compare_columns_resp": null,
+        "basis": {
+          "engine": null,
+          "strategy": null,
+          "gb_cols": null,
+          "has_row_compare_columns": false,
+          "row_compare_columns": null,
+          "sum_labels": null
+        },
+        "head_columns": null
+      },
+      "export": {
+        "ok": true,
+        "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "bytes": 4927,
+        "file": "E:/verify_screenshots_only\\STATS-RESULT-EXCEL-EXPORT-GB-COLS-INDEX-FIX\\before_skew_chunk_records.xlsx",
+        "sheets": {
+          "재이관 대상 레코드": {
+            "rows": [
+              [
+                "재이관 PK index 를 찾을 수 없습니다."
+              ]
+            ],
+            "max_row": null
+          }
+        }
+      }
+    }
+  }
+}

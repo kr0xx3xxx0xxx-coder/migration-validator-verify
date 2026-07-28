@@ -1,0 +1,52 @@
+[서버] http://127.0.0.1:14472 in-process 기동 (2026-07-28 18:45:06 · phase=before · cwd 모듈)
+
+==========================================================================================
+A) COMBO / stream=False → REIMPORT_PK_INDEX (결함 경로) · phase=before
+==========================================================================================
+  [analyze:combo] http=None blocked=None gb후보=2 sum후보=1
+  [count:combo] http=None 원본=1200 목적=1200
+  [generate:combo] http=None src_sql=True
+  [execute:combo] http=None success=True 일치=8 불일치=4 그룹수=12 result_id=SRAC28F573C435
+  [prepare:combo] http=None status=READY run_id=PK45FC7A672020 stop=None err=None
+    basis engine=REIMPORT_PK_INDEX gb_cols=['STATUS_CD', 'DEPT_CD'] row_compare_columns 존재=False
+  [export:combo_pkindex] {"ok": true, "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "bytes": 12810, "file": "E:/verify_screenshots_only\\STATS-RESULT-EXCEL-EXPORT-GB-COLS-INDEX-FIX\\before_combo_pkindex_rec
+    [재이관 대상 레코드] max_row=None
+       ["ID", "불일치 유형", "원본 S", "원본 D", "원본 AMT", "목적 S", "목적 D", "목적 AMT"]
+       ["51", "값 불일치", "", "", "1002", "", "", "1012"]
+       ["70", "값 불일치", "", "", "1000", "", "", "1010"]
+       ["539", "값 불일치", "", "", "1000", "", "", "1010"]
+
+==========================================================================================
+D) 표본 조기중단 basis replay(store 레벨) · phase=before
+==========================================================================================
+  [export:sampling_replay] {"ok": true, "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "bytes": 4961, "file": "E:/verify_screenshots_only\\STATS-RESULT-EXCEL-EXPORT-GB-COLS-INDEX-FIX\\before_sampling_replay_re
+    [재이관 대상 레코드] max_row=None
+       ["ID", "불일치 유형", "원본 S", "원본 D", "원본 AMT", "목적 S", "목적 D", "목적 AMT"]
+
+==========================================================================================
+B) SKEW / stream=True → REIMPORT_PK_INDEX_STREAM (정상 경로 회귀) · phase=before
+==========================================================================================
+  [analyze:skew] http=None blocked=None gb후보=1 sum후보=1
+  [count:skew] http=None 원본=120000 목적=120000
+  [generate:skew] http=None src_sql=True
+  [execute:skew] http=None success=True 일치=1 불일치=1 그룹수=2 result_id=SR93E4AFEC718E
+  [prepare:skew_stream] http=None status=PREPARING run_id=PSB3C90C28F91F stop=None err=None
+    basis engine=REIMPORT_PK_INDEX_STREAM gb_cols=['STATUS_CD'] row_compare_columns 존재=True
+  [export:skew_stream] {"ok": true, "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "bytes": 2544630, "file": "E:/verify_screenshots_only\\STATS-RESULT-EXCEL-EXPORT-GB-COLS-INDEX-FIX\\before_skew_stream_rec
+    [재이관 대상 레코드] max_row=None
+       ["ID", "불일치 유형", "원본 STATUS_CD", "원본 AMT", "목적 STATUS_CD", "목적 AMT"]
+       ["1", "값 불일치", "P", "501", "P", "502"]
+       ["2", "값 불일치", "P", "502", "P", "503"]
+       ["3", "값 불일치", "P", "503", "P", "504"]
+
+==========================================================================================
+C) SKEW / PK_RANGE_CHUNK_COMPARE → CHUNK (정상 경로 회귀) · phase=before
+==========================================================================================
+  [prepare:skew_chunk] http=None status=PREPARING run_id=PS97D4183D653D stop=None err=None
+    basis engine=None gb_cols=None row_compare_columns 존재=False
+  [export:skew_chunk] {"ok": true, "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "bytes": 4927, "file": "E:/verify_screenshots_only\\STATS-RESULT-EXCEL-EXPORT-GB-COLS-INDEX-FIX\\before_skew_chunk_records
+    [재이관 대상 레코드] max_row=None
+       ["재이관 PK index 를 찾을 수 없습니다."]
+
+[완료] 결과 JSON: E:/verify_screenshots_only\STATS-RESULT-EXCEL-EXPORT-GB-COLS-INDEX-FIX\_before_result.json
+        xlsx/로그 폴더: E:/verify_screenshots_only\STATS-RESULT-EXCEL-EXPORT-GB-COLS-INDEX-FIX

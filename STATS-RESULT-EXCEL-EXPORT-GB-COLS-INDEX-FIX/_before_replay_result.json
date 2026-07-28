@@ -1,0 +1,207 @@
+{
+  "task": "STATS-RESULT-EXCEL-EXPORT-GB-COLS-INDEX-FIX",
+  "phase": "before",
+  "server_started": "2026-07-28 19:15:04",
+  "result_id": "SR04990276FE64",
+  "cases": {
+    "1_pkindex": {
+      "basis": {
+        "engine": "REIMPORT_PK_INDEX",
+        "gb_cols": [
+          "STATUS_CD",
+          "DEPT_CD"
+        ],
+        "sum_labels": [
+          "AMT"
+        ],
+        "source_count": 1200,
+        "target_count": 1200
+      },
+      "record_kind": "REIMPORT",
+      "export": {
+        "ok": true,
+        "bytes": 5044,
+        "file": "E:/verify_screenshots_only\\STATS-RESULT-EXCEL-EXPORT-GB-COLS-INDEX-FIX\\before_replay_1_pkindex.xlsx",
+        "sheets": {
+          "재이관 대상 레코드": [
+            [
+              "ID",
+              "불일치 유형",
+              "원본 S",
+              "원본 D",
+              "원본 AMT",
+              "목적 S",
+              "목적 D",
+              "목적 AMT"
+            ],
+            [
+              "51",
+              "값 불일치",
+              "",
+              "",
+              "1002",
+              "",
+              "",
+              "1012"
+            ],
+            [
+              "176",
+              "목적 미존재",
+              "",
+              "",
+              "1001"
+            ]
+          ]
+        }
+      }
+    },
+    "2_stream": {
+      "basis": {
+        "engine": "REIMPORT_PK_INDEX_STREAM",
+        "gb_cols": [
+          "STATUS_CD",
+          "DEPT_CD"
+        ],
+        "sum_labels": [
+          "AMT"
+        ],
+        "numeric_pk": true,
+        "row_compare_columns": [
+          "STATUS_CD",
+          "DEPT_CD",
+          "AMT"
+        ],
+        "match_key_columns": [
+          "ID"
+        ]
+      },
+      "record_kind": "REIMPORT",
+      "export": {
+        "ok": true,
+        "bytes": 5086,
+        "file": "E:/verify_screenshots_only\\STATS-RESULT-EXCEL-EXPORT-GB-COLS-INDEX-FIX\\before_replay_2_stream.xlsx",
+        "sheets": {
+          "재이관 대상 레코드": [
+            [
+              "ID",
+              "불일치 유형",
+              "원본 STATUS_CD",
+              "원본 DEPT_CD",
+              "원본 AMT",
+              "목적 STATUS_CD",
+              "목적 DEPT_CD",
+              "목적 AMT"
+            ],
+            [
+              "51",
+              "값 불일치",
+              "P",
+              "D01",
+              "1002",
+              "P",
+              "D01",
+              "1012"
+            ],
+            [
+              "176",
+              "목적 미존재",
+              "P",
+              "D02",
+              "1001"
+            ]
+          ]
+        }
+      }
+    },
+    "3_chunk": {
+      "basis": {
+        "gb_cols": [
+          "STATUS_CD",
+          "DEPT_CD"
+        ],
+        "sum_labels": [
+          "AMT"
+        ],
+        "numeric_pk": true,
+        "row_compare_columns": [
+          "STATUS_CD",
+          "DEPT_CD",
+          "AMT"
+        ],
+        "key_col": "ID",
+        "strategy": "PK_RANGE_CHUNK_COMPARE"
+      },
+      "record_kind": "REIMPORT",
+      "export": {
+        "ok": true,
+        "bytes": 5086,
+        "file": "E:/verify_screenshots_only\\STATS-RESULT-EXCEL-EXPORT-GB-COLS-INDEX-FIX\\before_replay_3_chunk.xlsx",
+        "sheets": {
+          "재이관 대상 레코드": [
+            [
+              "ID",
+              "불일치 유형",
+              "원본 STATUS_CD",
+              "원본 DEPT_CD",
+              "원본 AMT",
+              "목적 STATUS_CD",
+              "목적 DEPT_CD",
+              "목적 AMT"
+            ],
+            [
+              "51",
+              "값 불일치",
+              "P",
+              "D01",
+              "1002",
+              "P",
+              "D01",
+              "1012"
+            ],
+            [
+              "176",
+              "목적 미존재",
+              "P",
+              "D02",
+              "1001"
+            ]
+          ]
+        }
+      }
+    },
+    "4_sampling": {
+      "basis": {
+        "sample_early_stop": true,
+        "gb_cols": [
+          "STATUS_CD",
+          "DEPT_CD"
+        ],
+        "sum_labels": [
+          "AMT"
+        ],
+        "numeric_pk": true,
+        "key_col": "ID"
+      },
+      "record_kind": "SAMPLE_MISMATCH",
+      "export": {
+        "ok": true,
+        "bytes": 4960,
+        "file": "E:/verify_screenshots_only\\STATS-RESULT-EXCEL-EXPORT-GB-COLS-INDEX-FIX\\before_replay_4_sampling.xlsx",
+        "sheets": {
+          "재이관 대상 레코드": [
+            [
+              "ID",
+              "불일치 유형",
+              "원본 S",
+              "원본 D",
+              "원본 AMT",
+              "목적 S",
+              "목적 D",
+              "목적 AMT"
+            ]
+          ]
+        }
+      }
+    }
+  }
+}
