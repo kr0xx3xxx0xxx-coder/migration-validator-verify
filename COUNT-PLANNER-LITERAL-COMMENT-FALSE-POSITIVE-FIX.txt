@@ -1,0 +1,189 @@
+작업명 : COUNT-PLANNER-LITERAL-COMMENT-FALSE-POSITIVE-FIX
+✅ 작업 완료 - COUNT-PLANNER-LITERAL-COMMENT-FALSE-POSITIVE-FIX - COUNT 실행판정의 리터럴/주석 키워드 오탐 4종 제거, 실제 구문 6종 UNSUPPORTED 무회귀
+
+================================================================================
+1. 문제 정의
+================================================================================
+services/count_execution_planner.py:133 (수정 전)
+    sql_u = sql.upper()
+    for pattern, reason in _UNSUPPORTED_PATTERNS:
+        if re.search(pattern, sql_u): -> UNSUPPORTED
+
+SQL 원문을 전처리 없이 그대로 대문자화해 검사하므로,
+문자열 리터럴('UNION ALL 처리 대상') / 라인주석(-- GROUP BY ...) / 블록주석(/* SELECT DISTINCT */)
+안에만 존재하는 키워드까지 실제 구문으로 오인 -> UNSUPPORTED 오판정 -> COUNT 실행 자체가 차단됨.
+
+근거 보고서: SQLGLOT-USAGE-CONSISTENCY-AUDIT-DIAGNOSE.txt (P2-1) — 실측 오탐 4건.
+부수효과(routes/batch_route.py:1361 이 업로드 시점 정적 판정을 row 에 저장 -> 오탐 영속)는
+원인 제거로 자연 해소되므로 batch_route.py 는 손대지 않음(지시대로).
+
+================================================================================
+2. 수정 내용 (수정 파일 1개 — 지시 범위 준수)
+================================================================================
+services/count_execution_planner.py
+
+  (a) import 추가
+      from services.analyze_service import _strip_sql_literals_and_comments
+      -> 신규 전처리 로직 작성 금지 지시에 따라, 이미 실측 오탐 0건으로 검증된
+         공통 함수를 그대로 재사용.
+      -> 순환 import 없음 확인: analyze_service 는 re / analyzer.column_analyzer 만 import,
+         analyzer.column_analyzer 는 re / dataclasses / typing 만 import.
+
+  (b) 판정 전 전처리 적용
+      sql_u = sql.upper()
+        -> sql_u = _strip_sql_literals_and_comments(sql).upper()
+
+  * 해당 공통 함수는 리터럴/주석을 "공백으로 치환"하며 길이·줄바꿈을 보존한다.
+    따라서 위치 기반 패턴인 (r"^\s*WITH\b") 판정 결과가 변하지 않는다.
+    (예: "-- 이관용 CTE\nWITH TMP AS (...)" 는 주석이 공백이 되어도 ^\s*WITH 가 그대로 매칭)
+    -> B5 케이스로 실측 확인 완료.
+
+  * _UNSUPPORTED_PATTERNS 목록 자체는 무변경(탐지 규칙 축소 없음).
+
+routes/batch_route.py — 무수정(지시대로)
+
+================================================================================
+3. 실측 검증 — 전/후 판정 결과
+================================================================================
+검증 스크립트: scripts/dev_e2e/count_planner_literal_comment_false_positive_verify.py
+실행:  PYTHONIOENCODING=utf-8 python scripts/dev_e2e/count_planner_literal_comment_false_positive_verify.py
+DB 접속 불필요(plan_count_execution 은 순수 판정 함수).
+"수정 전" 은 전처리 없는 원본 판정 경로(re.search(pattern, sql.upper()))를 그대로 재현.
+
+[A] 오탐군 — 리터럴/주석 안에만 키워드가 있는 SQL 4종
+--------------------------------------------------------------------------------
+A1-리터럴-UNION                PASS
+   SQL   : SELECT ORD_ID, 'UNION ALL 처리 대상' AS REMARK FROM SRC_ORDER ...
+   수정 전: UNSUPPORTED                | UNION SQL은 자동 COUNT 지원 범위 밖입니다
+   수정 후: NORMAL_COUNT_WITH_WARNING  | row_count_estimate 없음 — DB 통계 정보를 확인하세요. 일반 COUNT 실행.
+
+A2-라인주석-GROUP BY           PASS
+   SQL   : SELECT ORD_ID, AMT   -- GROUP BY 는 여기서 쓰지 않는다
+   수정 전: UNSUPPORTED                | GROUP BY SQL은 자동 COUNT 지원 범위 밖입니다
+   수정 후: NORMAL_COUNT_WITH_WARNING  | row_count_estimate 없음 — DB 통계 정보를 확인하세요. 일반 COUNT 실행.
+
+A3-블록주석-SELECT DISTINCT    PASS
+   SQL   : /* 과거에는 SELECT DISTINCT 를 썼으나 현재는 미사용 */ SELECT ORD_ID, AMT ...
+   수정 전: UNSUPPORTED                | DISTINCT SQL은 자동 COUNT 지원 범위 밖입니다
+   수정 후: NORMAL_COUNT_WITH_WARNING  | row_count_estimate 없음 — DB 통계 정보를 확인하세요. 일반 COUNT 실행.
+
+A4-리터럴-WITH-AS              PASS
+   SQL   : SELECT ORD_ID, 'WITH TMP AS (' || ORD_ID || ')' AS NOTE FROM SRC_ORDER
+   수정 전: UNSUPPORTED                | CTE(WITH) SQL은 자동 COUNT 지원 범위 밖입니다
+   수정 후: NORMAL_COUNT_WITH_WARNING  | row_count_estimate 없음 — DB 통계 정보를 확인하세요. 일반 COUNT 실행.
+
+  * 수정 후 모드가 NORMAL_COUNT_WITH_WARNING 인 것은 row_count_estimate=None(통계 미조회) 때문이며,
+    UNSUPPORTED 차단이 풀려 COUNT 실행 가능 상태가 된 것이 핵심(오탐 해소).
+
+[B] 무회귀군 — 실제 구문 6종 (수정 전/후 모두 UNSUPPORTED 유지 기대)
+--------------------------------------------------------------------------------
+B1-실제-UNION                  PASS   전:UNSUPPORTED  후:UNSUPPORTED  (UNION SQL은 자동 COUNT 지원 범위 밖입니다)
+B2-실제-GROUP BY               PASS   전:UNSUPPORTED  후:UNSUPPORTED  (GROUP BY SQL은 ...)
+B3-실제-SELECT DISTINCT        PASS   전:UNSUPPORTED  후:UNSUPPORTED  (DISTINCT SQL은 ...)
+B4-실제-CTE(WITH)              PASS   전:UNSUPPORTED  후:UNSUPPORTED  (CTE(WITH) SQL은 ...)
+B5-주석뒤-실제-CTE             PASS   전:UNSUPPORTED  후:UNSUPPORTED  (선행 주석이 공백화돼도 ^\s*WITH 매칭 유지)
+B6-리터럴+실제-UNION 혼재      PASS   전:UNSUPPORTED  후:UNSUPPORTED  (리터럴 'UNION 문자열' 제거 후에도 실제 UNION 탐지)
+
+결과: 10/10 PASS — 오탐 4종 해소 + 실제 구문 탐지력 무회귀(오탐 제거가 결함 탐지력을 없애지 않음)
+
+================================================================================
+4. 테스트 회귀 대조 (baseline = HEAD a741a80 git worktree, git stash 미사용)
+================================================================================
+[4-1] CLAUDE.md 지정 기존 회귀 테스트
+  python samples/test_virtual_cases.py   -> 8/8 통과
+  python samples/test_complex_cases.py   -> 5/5 케이스 분석 완료
+
+[4-2] 관련 서브셋 (COUNT/경고 관련 전체 + count planner 전용)
+  대상: tests/test_*count*.py, tests/test_*warning*.py,
+        tests/test_task10_5.py, tests/test_task10_6d2.py, tests/test_task10_6e.py
+  명령: python -m pytest <위 목록> -q -p no:randomly
+
+  수정 후 : 12 failed, 647 passed, 9 skipped, 2 xfailed, 1 error, 20 subtests passed (83.79s)
+  baseline: 12 failed, 647 passed, 10 skipped, 1 xfailed, 1 error, 20 subtests passed (80.31s)
+  -> 실패 집합 완전 동일(12 failed + 1 error, 항목 단위 일치). 신규 실패 0건 = 무회귀.
+  -> skip/xfail 1건 차이는 라이브DB 환경 게이트 차이(실패 아님).
+
+  [실패 테스트 전체 목록 — 전부 baseline 에서도 동일하게 실패, 이번 수정과 무관]
+    1  tests/test_batch_count_only_path.py::test_count_only_route_separate_from_full
+    2  tests/test_count_gate.py::test_ui_gate_display_and_blocking
+    3  tests/test_count_only_validation_ui.py::test_group_result_uses_normal_renderer_unchanged
+    4  tests/test_count_sql_full_visibility.py::test_count_sql_pre_boxes_no_clip_and_order
+    5  tests/test_count_sql_full_visibility.py::test_render_count_result_full_sql_and_copy_equivalence
+    6  tests/test_cte_count_execution_and_projection.py::test_ui_count_note_and_auto_audit
+    7  tests/test_fallback_provenance_already_count_fix.py::test_frontend_uses_server_warn_reason_not_hardcoded_text
+    8  tests/test_fallback_provenance_already_count_fix.py::test_frontend_no_alternative_risk_flag_shows_distinct_text
+    9  tests/test_groupby_estimated_group_count_ui.py::test_estimate_uses_cardinality_evidence
+   10  tests/test_groupby_estimated_group_count_ui.py::test_renderer_estimate_summary_evidence_wiring
+   11  tests/test_sql_limit_warning_ui_static.py::test_ddl_missing_warning_message
+   12  tests/test_upload_visibility_and_cte_count.py::test_ui_separates_lists_and_count_note
+   E1  tests/test_upload_visibility_and_cte_count.py::test_audit_shows_all_rows_with_summary (ERROR)
+   (전부 UI/static HTML 검사 계열 — count_execution_planner 판정 로직과 무관)
+
+[4-3] count planner 전용 4개 파일 (별도 실행)
+  tests/test_task10_5.py, test_task10_6d2.py, test_task10_6e.py,
+  test_batch_legacy_count_planner_display_removed.py
+  수정 후 : 1 failed, 60 passed
+    FAILED tests/test_batch_legacy_count_planner_display_removed.py::test_get_latest_facade_count_helper
+  -> 귀속 판정: 이 실패는 운영 store(db/migration_validator.db, 40MB 누적 상태) 의존 실패로,
+     동일 DB 파일을 baseline 워크트리에 복사해 미수정 HEAD 코드로 실행해도 동일하게 실패함을 확인.
+     (깨끗한 커밋본 DB 로는 baseline 61 passed) => 이번 수정과 무관한 환경/상태 의존 실패.
+
+  * TC-COUNT-PLAN-01~11 (tests/test_task10_5.py — count_execution_planner 판정 로직 전용) 전건 통과.
+
+[4-4] import 순환 스모크
+  services.count_execution_planner / services.count_precheck_service /
+  routes.batch_route / web_server  -> 4개 모두 정상 import (OK)
+
+================================================================================
+5. git diff / 커밋
+================================================================================
+커밋 해시 : 49b3fb204d8bc0280b6126c7b6a4e6c1874013d9
+브랜치    : main
+제목      : fix(count-plan): COUNT 실행판정이 리터럴/주석 안 키워드를 구문으로 오인하는 오탐 제거
+            (COUNT-PLANNER-LITERAL-COMMENT-FALSE-POSITIVE-FIX)
+포함 파일 : services/count_execution_planner.py (수정)
+            scripts/dev_e2e/count_planner_literal_comment_false_positive_verify.py (신규, 검증 스크립트)
+* 동시 진행 중인 다른 작업의 working tree 변경분은 스테이징하지 않음(수술적 커밋).
+
+--- diff (services/count_execution_planner.py) ---
+@@ -23,6 +23,9 @@ import logging
+ import re
+
+ import config.size_threshold_registry as _reg  # SIZE-THRESHOLD-SINGLE-SOURCE: 리터럴 단일 출처(값 변경 없음)
++# [COUNT-PLANNER-LITERAL-COMMENT-FALSE-POSITIVE-FIX]
++#   리터럴/주석 제거 전처리는 이미 실측 오탐 0건으로 검증된 공통 함수를 재사용한다(신규 작성 금지).
++from services.analyze_service import _strip_sql_literals_and_comments
+
+ _log = logging.getLogger(__name__)
+
+@@ -130,7 +133,12 @@ def plan_count_execution(
+                           estimate=row_count_estimate)
+
+     # 2. 지원 불가 SQL 패턴 (GROUP BY / DISTINCT / UNION / CTE)
+-    sql_u = sql.upper()
++    # [COUNT-PLANNER-LITERAL-COMMENT-FALSE-POSITIVE-FIX]
++    #   문자열 리터럴('... UNION ...')·주석(-- GROUP BY, /* WITH */) 안의 키워드를 실제 구문으로
++    #   오인해 UNSUPPORTED 로 오판정(COUNT 실행 자체가 차단)하던 결함을 제거한다.
++    #   전처리 로직을 새로 만들지 않고, 이미 검증된 analyze_service 의 공통 함수를 그대로 재사용한다.
++    #   (해당 함수는 길이·줄바꿈을 보존하므로 `^\s*WITH` 같은 위치 기반 패턴 판정은 변하지 않는다)
++    sql_u = _strip_sql_literals_and_comments(sql).upper()
+     for pattern, reason in _UNSUPPORTED_PATTERNS:
+         if re.search(pattern, sql_u):
+             return _make_plan("UNSUPPORTED",
+
+================================================================================
+6. 잔여 사항 / 한계
+================================================================================
+- 지시 문구의 "single_validation_analyze_service.py 의 _strip_sql_literals_and_comments" 는
+  실제로는 services/analyze_service.py:378 에 정의되어 있다(single_validation_analyze_service.py 에는
+  해당 함수 없음, grep 확인). 지시 의도대로 "기존 검증된 함수 재사용"을 지켜 analyze_service 의
+  동일 함수를 import 했다. 전처리 로직 신규 작성은 하지 않았다.
+- 해당 공통 함수는 double-quoted identifier 를 보수적으로 유지한다. 따라서
+  "UNION" 처럼 큰따옴표로 감싼 식별자 안의 키워드는 여전히 오탐 가능(기존 함수 정책 그대로 승계).
+  실측 오탐 4건에는 해당 패턴이 없어 이번 범위 밖으로 둔다.
+- routes/batch_route.py 에 이미 저장된 과거 오탐 판정 row 는 재업로드/재판정 시점에 정정된다
+  (원인 제거 방식, 별도 마이그레이션 없음).
+
+실검증 상태 : 실제 코드 경로(services/count_execution_planner.plan_count_execution) 직접 호출로 전/후 판정 실측 완료(10/10 PASS) — DB 접속 불필요한 순수 판정 함수라 라이브 DB 미사용, 화면 무관으로 스크린샷 없음
+
+✅ 작업 완료 - COUNT-PLANNER-LITERAL-COMMENT-FALSE-POSITIVE-FIX - COUNT 실행판정의 리터럴/주석 키워드 오탐 4종 제거, 실제 구문 6종 UNSUPPORTED 무회귀
