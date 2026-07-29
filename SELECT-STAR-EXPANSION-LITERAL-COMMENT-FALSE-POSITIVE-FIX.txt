@@ -1,0 +1,198 @@
+작업명 : SELECT-STAR-EXPANSION-LITERAL-COMMENT-FALSE-POSITIVE-FIX
+✅ 작업 완료 - SELECT-STAR-EXPANSION-LITERAL-COMMENT-FALSE-POSITIVE-FIX - 리터럴/주석 안 JOIN·UNION 키워드 오탐으로 analyze 전체가 SELECT_STAR_OUT_OF_SCOPE 차단되던 문제 제거(기존 정상 차단 무회귀)
+
+────────────────────────────────────────────────────────────────────────────────
+1. 요청 요약
+────────────────────────────────────────────────────────────────────────────────
+services/select_star_expansion.py:63-68 이 문자열 리터럴/주석 안의 JOIN·UNION 키워드를
+실제 구문으로 오인 → detect_simple_select_star 가 simple=False 를 반환 →
+상위 _expand_select_star_or_block 이 SELECT_STAR_OUT_OF_SCOPE 로 analyze 전체를 차단.
+근거: verify 저장소 SQLGLOT-USAGE-CONSISTENCY-AUDIT-DIAGNOSE.txt (P2-3)
+
+────────────────────────────────────────────────────────────────────────────────
+2. 수정 내용 (수정 파일 1개 — 지시대로 services/select_star_expansion.py 만 변경)
+────────────────────────────────────────────────────────────────────────────────
+(1) 전처리 재사용 — 새 전처리 로직 작성 없음
+    from services.analyze_service import _strip_sql_literals_and_comments
+    * 지시문에는 services/single_validation_analyze_service.py 의 함수로 적혀 있었으나,
+      실제 정의 위치는 services/analyze_service.py:378 이다(전 저장소 grep 결과 정의 1곳).
+      동일 함수이며, 이미 services/count_execution_planner.py:28 이 같은 방식으로
+      모듈 최상단 import 해 쓰고 있다(선례 존재, 순환 import 없음 — 아래 4-(3) 실측).
+
+(2) detect_simple_select_star — 판정을 전부 '리터럴/주석 제거본(cleaned)' 으로 수행
+    s = sql.strip()  →  cleaned = _strip_sql_literals_and_comments(s)
+    · _RE_INSERT_HEAD.search(s)      → search(cleaned)
+    · after = s[head.end():]         → cleaned[head.end():]
+    · _RE_JOIN.search(s)             → search(cleaned)     ← 오탐 지점 (:63)
+    · _RE_UNION.search(s)            → search(cleaned)     ← 오탐 지점 (:66)
+    · _RE_STAR_SELECT.search(s)      → search(cleaned)
+    · _from_seg = s[star.end("src"):] → cleaned[...]        (FROM 절 콤마 판정)
+    helper 는 리터럴/주석을 '같은 길이의 공백'으로 치환하므로 s 와 cleaned 의 offset 이
+    1:1 로 보존된다 → 판정만 cleaned 로 옮겨도 위치 기반 로직이 그대로 성립한다.
+
+(3) build_expanded_sql — 재작성 위치도 cleaned offset 기준으로 변경(추가 결함 동반 수정)
+    기존: _RE_STAR_SELECT.sub(..., sql, count=1) / _RE_INSERT_HEAD.sub(..., count=1)
+          → 원문 첫 매칭을 치환하므로 '주석 안 SELECT * FROM ...' 가 먼저 있으면
+            주석을 재작성하고 실제 구문은 확장되지 않는 조용한 오재작성이 발생.
+    변경: cleaned 에서 match 를 찾아 원문에 offset splice(sql[:start] + 새문 + sql[end:]).
+          match 실패 시 res["error"] 로 반환(기존 계약대로 raise 없음).
+    ※ 이 결함은 (2)의 오탐과 동일 원인(리터럴/주석 미제거)이며, (2)만 고치면
+      기존에 '차단'으로 가려져 있던 이 경로가 '조용히 잘못된 SQL' 로 노출되므로 함께 수정.
+
+  · 함수 시그니처/반환 키 계약 변경 없음(detected/simple/target_table/source_table/
+    insert_cols/reason, ok/expanded_sql/mapping/source_column_count/target_column_count/error).
+  · 차단 사유 메시지 문구 변경 없음 → 상위 SELECT_STAR_OUT_OF_SCOPE 계약 그대로.
+
+────────────────────────────────────────────────────────────────────────────────
+3. 실측 재현 — 수정 전 / 수정 후 판정 결과
+────────────────────────────────────────────────────────────────────────────────
+스크립트: scratchpad/repro_select_star_literal_comment.py
+  · [1] detect_simple_select_star 단위 판정
+  · [2] analyze 상위 경로 services.single_validation_analyze_service._expand_select_star_or_block
+        실제 호출(metadata 조회 2개 함수만 stub, DB 미접속) → 차단 여부/error_code 실측
+  · [3] build_expanded_sql 의 주석 오재작성 확인
+
+[오탐 재현 — 수정 전 차단, 수정 후 정상 진행]
+ 케이스                                   SQL 요지                                                 수정 전                              수정 후
+ ----------------------------------------------------------------------------------------------------------------------------------------------------------
+ FP-1 문자열 리터럴 안 키워드              INSERT INTO TGT_T SELECT * FROM SRC_T                   simple=False                        simple=True
+                                          WHERE MEMO = 'UNION ALL JOIN 처리대상'                  차단 SELECT_STAR_OUT_OF_SCOPE       진행(확장 SQL 생성)
+                                                                                                  reason="다중 테이블 SELECT * 는 …"
+ FP-2 라인/블록 주석 안 키워드             -- JOIN 은 사용하지 않는다                              simple=False                        simple=True
+                                          /* UNION ALL 금지: SELECT * FROM OTHER_T 참고 */        차단 SELECT_STAR_OUT_OF_SCOPE       진행(확장 SQL 생성)
+                                          INSERT INTO TGT_T SELECT * FROM SRC_T                   reason="다중 테이블 SELECT * 는 …"
+
+  수정 후 FP-1 확장 결과:
+    INSERT INTO TGT_T (ID, NM, MEMO) SELECT ID, NM, MEMO FROM SRC_T WHERE MEMO = 'UNION ALL JOIN 처리대상'
+      → 리터럴 원문 그대로 보존, SELECT * 만 확장됨.
+  수정 후 FP-2 확장 결과:
+    -- JOIN 은 사용하지 않는다
+    /* UNION ALL 금지: SELECT * FROM OTHER_T 참고 */
+    INSERT INTO TGT_T (ID, NM, MEMO) SELECT ID, NM, MEMO FROM SRC_T
+      → 주석 2줄 원문 그대로 보존(주석 안 SELECT * 는 재작성되지 않음).
+
+[회귀 확인 — 실제 범위 밖 케이스는 여전히 차단]
+ 케이스                                   SQL 요지                                                수정 전                      수정 후                      판정
+ ----------------------------------------------------------------------------------------------------------------------------------------------------------
+ REG-1 실제 JOIN                          SELECT * FROM SRC_T A JOIN SRC_T2 B ON …                차단 OUT_OF_SCOPE            차단 OUT_OF_SCOPE            동일
+ REG-2 실제 UNION                         SELECT * FROM SRC_T UNION ALL SELECT * FROM SRC_T2      차단 OUT_OF_SCOPE            차단 OUT_OF_SCOPE            동일
+ REG-3 alias.*                            SELECT S.* FROM SRC_T S                                 차단 OUT_OF_SCOPE            차단 OUT_OF_SCOPE            동일
+ REG-4 다중 source(콤마)                  SELECT * FROM SRC_T, SRC_T2                             차단 OUT_OF_SCOPE            차단 OUT_OF_SCOPE            동일
+ REG-5 정상 단순 SELECT *                 INSERT INTO TGT_T SELECT * FROM SRC_T                   진행(확장)                   진행(확장, 동일 SQL)         동일
+ REG-6 INSERT 컬럼목록 명시               INSERT INTO TGT_T (ID,NM,MEMO) SELECT * FROM SRC_T      진행(확장)                   진행(확장, 동일 SQL)         동일
+ REG-7 CTE(직속 INSERT..SELECT 아님)      INSERT INTO TGT_T WITH C AS (…) SELECT C.* FROM C       detected=False(기존흐름)     detected=False(기존흐름)     동일
+ REG-8 명시 컬럼 SELECT                   INSERT INTO TGT_T SELECT ID, NM FROM SRC_T              detected=False(기존흐름)     detected=False(기존흐름)     동일
+
+  단위 판정 합계: 수정 전 8/10 일치(FP-1·FP-2 불일치) → 수정 후 10/10 일치.
+
+[추가로 드러나 함께 고친 결함 — 주석 안 'SELECT * FROM' 오재작성]
+  입력: /* 참고: SELECT * FROM WRONG_T 는 대상 아님 */
+        INSERT INTO TGT_T SELECT * FROM SRC_T
+  수정 전: source_table=WRONG_T (오인) / 확장 SQL =
+           "/* 참고: SELECT ID, NM, MEMO FROM WRONG_T 는 대상 아님 */
+            INSERT INTO TGT_T (ID, NM, MEMO) SELECT * FROM SRC_T"
+           → 주석이 훼손되고 실제 구문의 SELECT * 는 확장되지 않음(조용한 오생성).
+  수정 후: source_table=SRC_T (정상) / 확장 SQL =
+           "/* 참고: SELECT * FROM WRONG_T 는 대상 아님 */
+            INSERT INTO TGT_T (ID, NM, MEMO) SELECT ID, NM, MEMO FROM SRC_T"
+           → 주석 원문 보존 + 실제 구문만 확장.
+
+────────────────────────────────────────────────────────────────────────────────
+4. 테스트 — 관련 서브셋 + baseline 대조
+────────────────────────────────────────────────────────────────────────────────
+baseline 측정법: git stash 금지 규칙에 따라 '변경분 in-place revert → 재측정 → 백업 복원'
+                 (동일 커밋 기준선 보장 — 동시 세션의 미커밋 WIP 가 섞이지 않는 유일한 방법).
+
+(1) 직접 관련 서브셋 (select_star_expansion 을 import 하는 테스트 포함)
+    python -m pytest tests/test_batch_single_core_wrapper_foundation.py \
+                     tests/test_sql_warnings_api.py \
+                     tests/test_batch_single_core_parity_finalize.py \
+                     tests/test_batch_single_core_parity_gaps.py -q -p no:randomly
+      Before(변경분 revert) : 4 failed, 78 passed  (21.22s)
+      After (변경분 적용)   : 4 failed, 78 passed  (21.25s)
+      → 실패 집합 차분 = 공집합. 회귀 0건.
+
+(2) 광역 키워드 서브셋
+    python -m pytest tests/ -q -p no:randomly -k "select_star or sql_validation or pre_parse or sql_shape"
+      Before : 1 failed, 55 passed, 11377 deselected (27.77s)
+      After  : 1 failed, 55 passed, 11377 deselected (27.84s)
+      → 실패 집합 차분 = 공집합. 회귀 0건.
+
+(3) 순환 import 실측 (최상단 import 추가에 따른 확인)
+    python -c "import services.select_star_expansion"                                    → OK
+    python -c "import services.analyze_service, services.select_star_expansion"          → OK (order A)
+    python -c "import services.single_validation_analyze_service, services.select_star_expansion" → OK (order B)
+      · services/analyze_service.py 의 import 는 re + analyzer.column_analyzer 뿐이라
+        select_star_expansion 으로 되돌아오는 경로 없음.
+      · single_validation_analyze_service 는 select_star_expansion 을 함수 내부에서
+        lazy import(:351) 하므로 로드 순서 영향 없음.
+
+────────────────────────────────────────────────────────────────────────────────
+5. 실패 테스트 전체 목록 (총 5건 — 전부 사전 존재 실패, 이번 변경과 무관)
+────────────────────────────────────────────────────────────────────────────────
+ #  테스트                                                                                        Before  After  성격
+ --------------------------------------------------------------------------------------------------------------------------------------
+ 1  tests/test_batch_single_core_wrapper_foundation.py::test_ui_advanced_diagnostics_render        FAIL    FAIL   UI 렌더 문자열 단언
+ 2  tests/test_batch_single_core_wrapper_foundation.py::test_ui_diagnostics_analyze_subrows        FAIL    FAIL   UI 렌더 문자열 단언
+ 3  tests/test_batch_single_core_wrapper_foundation.py::test_ui_diagnostics_dependency_rows        FAIL    FAIL   UI 렌더 문자열 단언
+ 4  tests/test_batch_single_core_wrapper_foundation.py::test_ui_dependency_applied_rows            FAIL    FAIL   UI 렌더 문자열 단언
+ 5  tests/test_individual_validation_stage_content.py::test_sql_shape_object_label_extraction      FAIL    FAIL   UI 렌더 문자열 단언
+
+  1~4 단언: ui/js_single_run_standard.render_single_run_standard_js() 결과에 ".innerHTML" 이
+           없어야 한다는 구조 단언 — 현재 소스에 innerHTML 사용이 존재해 실패.
+  5   단언: 개별검증 HTML 에 "_shapeObj.shape_type_ko || _shapeObj.shape_type" 문자열 부재.
+  → 5건 모두 대상 파일이 ui/ 계열이며 services/select_star_expansion.py 와 무관.
+    Before/After 동일 실패로 실측 확인했으므로 이번 변경의 회귀가 아니다.
+  신규 실패: 0건.
+
+────────────────────────────────────────────────────────────────────────────────
+6. 비판적 검토
+────────────────────────────────────────────────────────────────────────────────
+ · 이번 수정으로 '차단이 풀리는' 범위는 리터럴/주석 안 키워드에 한정된다. 실제 JOIN/UNION/
+   alias.*/다중 source 는 실측(REG-1~4)대로 그대로 차단된다.
+ · 남는 한계(이번 범위 밖, 기존과 동일): 헬퍼는 double-quoted identifier 를 보수적으로 유지하므로
+   "UNION" 같이 큰따옴표로 감싼 식별자는 여전히 오탐 가능. 이는 헬퍼의 문서화된 정책이며
+   sql_warnings 와 동일 기준이라 본 수정에서 바꾸지 않았다(바꾸면 sql_warnings 전체에 파급).
+ · 정규식 기반 판정이라는 근본 구조는 유지했다. sqlglot AST 판정으로의 전환은 이 지시의 범위
+   (파일 1개, 무회귀)를 넘어서므로 하지 않았다 — 필요 시 별도 작업으로 제안.
+ · 테스트 파일 추가는 지시("이 파일만 수정")에 따라 하지 않았다. 회귀 고정을 원하면
+   tests/ 에 FP-1/FP-2/REG-1~4 케이스를 넣는 후속 작업을 별도로 지시 필요.
+
+────────────────────────────────────────────────────────────────────────────────
+7. 변경 파일 / 커밋
+────────────────────────────────────────────────────────────────────────────────
+ 변경 파일 : services/select_star_expansion.py  (1개, 32 insertions(+), 12 deletions(-))
+ 커밋 해시 : 590b315c7c5343ad28f79b67eeee6e08f81e9a55
+ 커밋 제목 : fix(select-star): 리터럴/주석 안 JOIN·UNION 키워드 오탐으로 analyze 전체가 차단되던
+             문제 수정 (SELECT-STAR-EXPANSION-LITERAL-COMMENT-FALSE-POSITIVE-FIX)
+ 저장소    : migration-validator (로컬 커밋만 — 코드 저장소 push 금지 규칙 준수)
+
+ git diff --stat:
+   services/select_star_expansion.py | 44 ++++++++++++++++++++++++++++-----------
+   1 file changed, 32 insertions(+), 12 deletions(-)
+
+ 주요 diff 발췌:
+   +from services.analyze_service import _strip_sql_literals_and_comments
+   +    cleaned = _strip_sql_literals_and_comments(s)
+   -    head = _RE_INSERT_HEAD.search(s)          +    head = _RE_INSERT_HEAD.search(cleaned)
+   -    after = s[head.end():].lstrip()           +    after = cleaned[head.end():].lstrip()
+   -    if _RE_JOIN.search(s):                    +    if _RE_JOIN.search(cleaned):
+   -    if _RE_UNION.search(s):                   +    if _RE_UNION.search(cleaned):
+   -    star = _RE_STAR_SELECT.search(s)          +    star = _RE_STAR_SELECT.search(cleaned)
+   -    _from_seg = s[star.end("src"):].lstrip()  +    _from_seg = cleaned[star.end("src"):].lstrip()
+   -    expanded = _RE_STAR_SELECT.sub(..., sql, count=1)
+   +    star = _RE_STAR_SELECT.search(_strip_sql_literals_and_comments(sql))
+   +    expanded = sql[:star.start()] + "SELECT " + ", ".join(src_cols) + " FROM " + star.group("src") + sql[star.end():]
+   -    expanded = _RE_INSERT_HEAD.sub(..., expanded, count=1)
+   +    head = _RE_INSERT_HEAD.search(_strip_sql_literals_and_comments(expanded))
+   +    expanded = expanded[:head.start()] + "INSERT INTO " + head.group("tgt") + " (" + ", ".join(eff_tgt) + ") SELECT" + expanded[head.end():]
+
+────────────────────────────────────────────────────────────────────────────────
+8. 실검증 상태
+────────────────────────────────────────────────────────────────────────────────
+실검증 상태: 완료 (실 DB 불필요 — 대상 로직이 순수 SQL 텍스트 판정. 실제 모듈을 import 해
+detect_simple_select_star / build_expanded_sql 및 analyze 상위 경로
+services.single_validation_analyze_service._expand_select_star_or_block 를 직접 실행,
+컬럼 metadata 조회 2개 함수만 stub 로 대체. 화면 무관 작업이라 스크린샷 없음)
+
+✅ 작업 완료 - SELECT-STAR-EXPANSION-LITERAL-COMMENT-FALSE-POSITIVE-FIX - 리터럴/주석 안 JOIN·UNION 키워드 오탐으로 analyze 전체가 SELECT_STAR_OUT_OF_SCOPE 차단되던 문제 제거(기존 정상 차단 무회귀)
