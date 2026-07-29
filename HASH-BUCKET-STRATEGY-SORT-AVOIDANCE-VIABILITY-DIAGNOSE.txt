@@ -1,0 +1,359 @@
+작업명 : HASH-BUCKET-STRATEGY-SORT-AVOIDANCE-VIABILITY-DIAGNOSE
+✅ 작업 완료 - 해시 버킷 전략의 정렬 회피 실효성 진단(코드 수정 0건, 실 오라클 25만행 실측)
+
+[0] 한 줄 결론
+해시 버킷은 자기 정렬은 확실히 회피한다(EXPLAIN PLAN 에 SORT ORDER BY 0개, HASH GROUP BY).
+그러나 원본 SQL 자체의 정렬(윈도우함수)은 그대로 남고, 2번째 wave 부터 활성 bucket 수에 선형으로
+비용이 폭증한다(단순 SELECT 기준 활성 경로 1개당 약 0.85초/25만행).
+→ "언제나 더 안전한 대안"이 아니라 원본 SQL 형태가 갈림길이다.
+   CTE+JOIN+윈도우 = 확실한 우위 / 단순 SELECT = 불일치가 희소할 때만 우위.
+
+[실측 환경]
+  실 오라클 tobe(1524) NXDNP.MV_ORA_XDIFF_TGT — 249,950행
+  인덱스 = PK_MV_ORA_XDIFF_TGT(ID) 단 1개 (all_indexes 실조회로 확인)
+  → 사용자가 지목한 "목적 테이블에 PK 외 인덱스가 없는 상황"과 정확히 일치
+  MATCH_KEY = (C_VARCHAR2, ID) 문자·복합 (해시 버킷이 실제로 선택되는 조건)
+  드라이버: scripts/dev_e2e/hash_bucket_sort_avoidance_viability_diagnose.py
+            scripts/dev_e2e/hash_bucket_wave_depth_and_total_cost.py
+            scripts/dev_e2e/hash_bucket_wave2_realistic.py
+            scripts/dev_e2e/_hb_wave2_orbranch_scaling.py
+  진단 문서: docs/HASH_BUCKET_STRATEGY_SORT_AVOIDANCE_VIABILITY.md
+
+[리팩터 진행 상태 고지]
+  병행 작업 HASH-BUCKET-ORACLE-PORT-PHASE1-IMPLEMENT 는 이 진단 시점에 커밋 완료(eb65115)돼 있었고
+  hash_contract.py / hash_bucket.py 는 워킹트리에서 수정 없음(clean).
+  즉 본 진단은 "Base+위임표+PG 구현체 분리가 끝난 상태" 기준이다.
+  오라클 구현체(dialects_hash/oracle.py)는 아직 없다 — dialects_hash/ 에는 postgresql.py 뿐.
+
+────────────────────────────────────────────────────────────────────────────
+[선결 사항] 세 전략은 같은 계층이 아니다
+────────────────────────────────────────────────────────────────────────────
+  전략                        모듈                     계층          산출물          구현상태
+  ------------------------- ------------------------ ------------ --------------- -----------------
+  DIRECT_STREAM_COMPARE     services/exact_diff/     전수(행단위)  불일치 행 자체   AVAILABLE
+  PK_RANGE_CHUNK_COMPARE    exact_diff/pk_range_chunk 전수(행단위)  불일치 행 자체   AVAILABLE
+  HASH_BUCKET_COMPARE       —                        전수(행단위)  —               미구현(PHASE4_B_REQUIRED)
+  EXECUTE_BATCH_HASH_BUCKET diagnosis/strategies/     진단(국소화)  "어느 bucket"    PG 만 구현
+                            hash_bucket.py
+
+  근거: strategy_models.py:38 AVAILABLE_COMPARE_STRATEGIES 에 HASH_BUCKET_COMPARE 없음
+        full_compare_strategy_planner.py:21 미구현 → IMPL_PHASE4_B_REQUIRED
+
+  → "DIRECT_STREAM 대신 해시 버킷을 쓴다"는 선택지는 현재 코드에 존재하지 않는다.
+    실제 가능한 대체는 "HASH_BUCKET 으로 영역을 좁힌 뒤 그 영역만 ROW_DIFF 로 실물 조회"이며
+    본 진단은 그 조합을 전수 전략과 비교했다.
+  → 또한 해시 버킷은 CONFIRMED MATCH_KEY 가 반드시 있어야 선택된다(multi_scope.py:196).
+    없으면 HOLD_NO_MATCH_KEY(:523) — "PK 도 인덱스도 없는 테이블"의 만능 해결책은 아니다.
+
+────────────────────────────────────────────────────────────────────────────
+[지시 1] 해시 버킷 SQL 에 ORDER BY 가 없는가 → 없다 (확정)
+────────────────────────────────────────────────────────────────────────────
+1-1. 운영 PG 빌더 출력 지문(오프라인)
+  base SQL                        전략이 추가한 ORDER BY   GROUP BY 추가   길이
+  ------------------------------- ----------------------- --------------- -------
+  SELECT count(*) FROM t          없음                    있음(bucket식)   1,748자
+  SELECT g,count(*) GROUP BY g    없음                    있음(g,bucket식) 1,759자
+  CTE+JOIN+row_number 감싼 집계    없음                    있음(bucket식)   1,918자
+
+  구조: hash_bucket.py:52-61 이 GROUP BY 에만 bucket 식을 추가. ORDER BY 는 어느 경로에서도 생성 안 함.
+  bucket 식 = BITAND(h32(salt||canon), n-1) — 비트 분할이라 정렬이 원리적으로 불필요.
+
+1-2. 오라클 EXPLAIN PLAN (실 DB)  ※ 아래 오라클 SQL 은 수작업 이식식 — [제한사항] 참조
+  PLAIN(단순 SELECT) 원본
+    HASH_BUCKET      SELECT STATEMENT / HASH GROUP BY / TABLE ACCESS FULL
+                     → SORT 계열 연산자 0개.  cost 3,556(숫자키) · 4,265(문자·복합키)
+    DIRECT_STREAM    SELECT STATEMENT / SORT ORDER BY / TABLE ACCESS FULL       cost 4,832
+    PK_RANGE_CHUNK   SELECT STATEMENT / TABLE ACCESS BY INDEX ROWID
+                                      / INDEX RANGE SCAN PK_MV_ORA_XDIFF_TGT    cost 1,818
+
+  확정: 단순 SELECT 원본에서 해시 버킷 계획에는 SORT 가 하나도 없다.
+        PK_RANGE_CHUNK 의 정렬 회피는 "인덱스에 의존"하고, 해시 버킷의 정렬 회피는 "의존하지 않는다".
+        이것이 두 전략의 본질적 차이다.
+
+1-3. [부수 발견] 빌더가 same-DBMS 가드를 우회한다
+  get_hash_contract_pair() 는 정상 동작:
+    postgresql→postgresql : contract=postgresql
+    oracle→oracle         : None / HASH_CONTRACT_NOT_AVAILABLE
+    oracle→postgresql     : None / HASH_BUCKET_CROSS_DBMS_NOT_SUPPORTED
+    postgresql→oracle     : None / HASH_BUCKET_CROSS_DBMS_NOT_SUPPORTED
+    mysql→mysql           : None / HASH_CONTRACT_NOT_AVAILABLE
+    (방언 미상)→postgresql : None / HASH_CONTRACT_NOT_AVAILABLE
+
+  그러나 build_hash_bucket_agg_sql 은 이 팩토리를 거치지 않는다(hash_bucket.py:16 → PEP562 재수출,
+  hash_contract.py:171-186 = PG 계약 고정). dialect="oracle" 로 호출한 실측 결과:
+    MD5(...) 방출 / CAST(... AS BIT(32)) 방출 / TRIM_SCALE(...) 방출
+    " & " 방출(오라클에서 치환변수 → ORA-00923) / 별칭 __HB1 방출(밑줄 선두 → ORA-00911)
+  → 설계의 "계약을 얻지 못하면 빌더가 SQL 자체를 만들 수 없다"(hash_contract.py:143-145)는
+    팩토리 경로에만 성립하고 빌더 직접 호출에는 성립하지 않는다. 이번 범위 밖이라 수정하지 않음.
+
+────────────────────────────────────────────────────────────────────────────
+[지시 2] 원본 SQL 형태별 비교 → 원본의 정렬은 남고, 해시 버킷은 추가 정렬 없이 얹힌다
+────────────────────────────────────────────────────────────────────────────
+  WRAPPED(CTE+JOIN+ROW_NUMBER OVER(PARTITION BY C_CHAR ORDER BY ID)) 원본
+    HASH_BUCKET      HASH GROUP BY / VIEW / WINDOW SORT / HASH JOIN RIGHT OUTER / ...
+                     → WINDOW SORT 잔존.  cost 6,070(숫자키) · 7,485(문자·복합키)
+    DIRECT_STREAM    SORT ORDER BY / VIEW / WINDOW SORT / ...   (2중 정렬)  cost 8,050
+    PK_RANGE_CHUNK   SORT ORDER BY / VIEW / WINDOW SORT / ...   cost 8,050
+                     (청크 술어 pushdown 실패 — 모든 단계 card 249,950, 빈 청크도 0.284s 고정비)
+
+  질문                                                    답
+  ------------------------------------------------------ ------------------------------------------
+  원본 SQL 의 정렬 필요성이 해시 버킷 단계에도 남는가       남는다 (WINDOW SORT 그대로 존재)
+  해시 버킷은 그 위에 추가 비용 없이 얹히는가               거의 그렇다 — 상위에 SORT 대신
+                                                          HASH GROUP BY 만 추가.
+                                                          cost 8,050 → 6,070~7,485 로 오히려 낮다
+
+  → 해시 버킷의 이득은 "원본 정렬 제거"가 아니라 "전수 전략이 원본 정렬 위에 얹는 두 번째
+    정렬(SORT ORDER BY)의 제거"다. PK_RANGE_CHUNK 대비 이득은 정렬 '횟수' —
+    PK_RANGE_CHUNK 는 pushdown 실패 형태에서 청크마다 WINDOW SORT 를 재실행하지만
+    해시 버킷은 wave 당 1회만 낸다.
+
+────────────────────────────────────────────────────────────────────────────
+[지시 3] PK 외 인덱스 없는 25만행 실측 비교 (단측 기준, 최소값 / 실제는 양측 2배)
+────────────────────────────────────────────────────────────────────────────
+3-1. 단일 조회 1회
+  원본     전략                        정렬 연산자                 실행시간   반환행수
+  -------- --------------------------- --------------------------- ---------- ---------
+  PLAIN    HASH_BUCKET wave1(n=128)    없음                        1.61~2.04s      128
+  PLAIN    DIRECT_STREAM(문자키)        SORT ORDER BY               8.63s       249,950
+  PLAIN    DIRECT_STREAM(숫자키)        SORT ORDER BY               8.17s       249,950
+  PLAIN    PK_RANGE_CHUNK 1청크(5만)    없음(INDEX RANGE SCAN)      1.52s        49,980
+  WRAPPED  HASH_BUCKET wave1(n=128)    WINDOW SORT                 1.98~2.39s      128
+  WRAPPED  DIRECT_STREAM(문자키)        SORT ORDER BY + WINDOW SORT 9.38s       249,950
+  WRAPPED  PK_RANGE_CHUNK 1청크(5만)    SORT ORDER BY + WINDOW SORT 1.80s        49,980
+  WRAPPED  PK_RANGE_CHUNK 빈 청크       동일                        0.284s(순수낭비)  0
+
+  첫 wave 만 보면 해시 버킷이 압도적 — 25만행을 128행으로 줄여 돌려준다.
+  DIRECT_STREAM 8.63s 중 DB 작업은 1.15s(execute)이고 나머지 7.5s 는 25만행 전송이다.
+
+3-2. [핵심 발견] wave2 부터 활성 bucket 수에 선형 폭증 — 단순 SELECT 한정
+  운영 _run_hash_bucket_waves(multi_scope.py:557-561)는 wave2 부터 활성 경로를
+  _hash_path_predicate 로 제한 → WHERE (b1=a AND b2=b) OR (...) OR (...).
+  OR 분기마다 옵티마이저가 canonical 해시식 전체를 재평가한다.
+
+  활성 경로 수    PLAIN(단순 SELECT)     WRAPPED(CTE+JOIN+윈도우)
+  -------------- ---------------------- -------------------------
+       1          1.02s                  1.38s
+       2          2.03s                  1.06s
+       5          5.28s                  1.19s
+      10         10.11s                  1.37s
+      20         18.03s                  1.71s
+      40         33.72s                  (미측정)
+
+  - PLAIN 은 기울기 약 0.85s/경로의 완전한 선형. 활성 10개면 이미 DIRECT_STREAM(8.6s)을 넘고
+    40개면 4배. 운영 상한상 활성 경로는 최대 128개까지 가능 → 1 wave 약 109초/측(선형 외삽).
+  - WRAPPED 는 평탄. VIEW/WINDOW SORT 장벽이 pushdown 을 막아 뷰가 한 번만 구체화되고
+    필터가 그 위에서 1회 평가되기 때문.
+    → 선행 진단에서 PK_RANGE_CHUNK 를 망친 바로 그 pushdown 실패가, 해시 버킷에서는 비용을 눌러 준다.
+
+3-3. wave 깊이 자체 비용 (활성 경로 제한 없는 밀집 최악값)
+  원본     level1(n=128)   level2(128^2)     level3(128^3)
+  -------- --------------- ----------------- ---------------------
+  PLAIN    1.65s / 128행    2.40s / 16,384행  9.33s / 235,269행
+  WRAPPED  2.12s / 128행    2.95s / 16,384행 10.31s / 235,269행
+
+  level3 에서 결과 235,269행 — 거의 행마다 bucket 1개가 되어 "집계로 줄인다" 이점이 소멸.
+  단, 운영 코드는 이 상태에 도달하지 않는다:
+    n_w = pow2_floor(min(128, 180 // parents))
+    parents=1  → n_w=128, cells=128   정상
+    parents=4  → n_w=32,  cells=128   정상
+    parents=10 → n_w=16,  cells=160   정상
+    parents=128→ n_w=1              → PLAN_HOLD_RESULT(분할 불가로 명시 중단)
+  → 밀집 불일치에서는 2번째 wave 에서 스스로 포기한다(조용한 오답 아님 — 안전).
+    대신 그때까지의 스캔 비용은 그대로 지불된다.
+
+3-4. 후속 단계 ROW_DIFF (bucket 1개, 1,947행)
+  PLAIN    COUNT STOPKEY / TABLE ACCESS FULL                     정렬 없음        1.38s
+  WRAPPED  COUNT STOPKEY / VIEW / WINDOW SORT / HASH JOIN        WINDOW SORT(원본) 1.39s
+  ROW_DIFF 도 ORDER BY 를 붙이지 않는다(LIMIT 만). cell 배치마다 full scan 1회이고
+  fetch_limit=5000 초과 시 HOLD_ROW_DIFF_LIMIT 로 중단(조용한 절단 아님 — row_diff.py:163-164).
+
+3-5. 전략 완주 총비용 (단측)
+  (a) 운영 제약 반영 현실적 조합 — 활성 bucket 5개 가정
+      원본     HASH_BUCKET+ROW_DIFF            DIRECT_STREAM  PK_RANGE_CHUNK(6청크)
+      -------- ------------------------------- -------------- ---------------------
+      PLAIN    1.61 + 5.28 + 1.38 =  8.27s      8.63s          8.25s
+      WRAPPED  1.99 + 1.19 + 1.39 =  4.57s      9.38s         10.67s
+
+  (b) 제약 없는 밀집 최악(3 wave 완주 + ROW_DIFF) — 참고 상한
+      원본     HASH_BUCKET 3wave        +ROW_DIFF   DIRECT_STREAM  PK_RANGE_CHUNK
+      -------- ------------------------ ----------- -------------- ---------------
+      PLAIN    2.12/2.93/9.70 = 14.74s   16.14s      9.25s          8.25s
+      WRAPPED  2.62/3.45/11.25= 17.32s   18.63s     10.42s         10.67s
+
+  해석: 단순 SELECT 는 세 전략이 사실상 동률이고 밀집 시 해시 버킷이 가장 나쁘다.
+        CTE+JOIN+윈도우는 희소 불일치일 때 해시 버킷이 2배 이상 빠르고, 밀집일 때만 역전.
+
+────────────────────────────────────────────────────────────────────────────
+[지시 4] 해시 버킷 자체의 안전장치 공백
+────────────────────────────────────────────────────────────────────────────
+4-1. 있는 안전장치
+  최대 wave 수          3       MultiScopeConfig.max_waves(multi_scope.py:50)
+  전체 query 상한       16      max_queries(:54)
+  측당 full scan 상한   3       max_full_scans_per_side(:49)
+  밀집 불일치 중단      0.5     dense_mismatch_ratio(:56) → PLAN_HOLD_DENSE
+  wave 당 cell 상한     180     max_mismatch_cells_per_wave(:60) → 초과 시 분할 불가 HOLD
+  활성 bucket 상한      4,000   max_active_buckets(:52)
+  ROW_DIFF 절단         5,000행 초과 시 HOLD_ROW_DIFF_LIMIT(조용한 절단 없음)
+  그룹 검출 완전성      부모 cell 유지(multi_scope.py:571-575 — 해시 합 충돌로 자식이 빠져도 보존)
+
+4-2. 공백 (선행 진단과 같은 계열)
+  A. 사전 크기 게이트 없음
+     plan_multi_scope(...) 시그니처(multi_scope.py:153-158)에 source_count·estimated_scan_rows 류
+     입력 자체가 없다. 25만행이든 3천만행이든 동일하게 선택된다.
+     대조: 전수 계획기 plan_full_compare_strategy 는 direct_stream_max_rows 를 받는다
+           (full_compare_strategy_planner.py:26)
+  B. 타임아웃 미배선
+     MultiScopeConfig.max_seconds 기본 None(:55). HTTP 경로 _config_from_budget
+     (routes/diagnosis_route.py:549-552)의 화이트리스트에 max_seconds 없음
+     → _budget_block 의 시간 검사(:368-371)가 운영에서 영원히 비활성.
+     guards.DEFAULT_LIMITS["max_seconds"]=60(guards.py:22)은 admission 계층의 별도 딕셔너리라 미연결.
+  C. 샘플링 없음
+     _agg_compare(:375-383)가 무조건 source/target_full_scan_count += 1.
+     매 wave 가 확정적으로 양측 full scan. 사전 표본으로 규모/밀도를 재보는 단계가 없다.
+  D. 활성 경로 수 ↔ 비용 상한이 무관
+     max_mismatch_cells_per_wave=180 은 '결과 cell 수' 상한이지 OR 분기 비용 상한이 아니다.
+     3-2 의 선형 폭증을 막는 게이트가 없다.
+  E. 인덱스/실행계획 사전 판정 없음
+     bucket 식은 함수 기반이라 어떤 인덱스도 못 쓴다 — 그 사실을 사전 판정하지 않는다.
+     (다만 이건 약점이 아니라 특성이다 — 지시 6 참조)
+
+4-3. 선행 진단과의 결정적 차이
+  PK_RANGE_CHUNK 의 최악 공백은 정합성 계열이었다(문자 PK 가 int() 를 통과해 60% 미조회 →
+  재이관 대상 0건 = 조용한 거짓 "일치").
+  해시 버킷에는 그에 해당하는 정합성 공백이 발견되지 않았다 — 한계에 부딪히면 전부 명시 HOLD
+  (PLAN_HOLD_RESULT / PLAN_HOLD_DENSE / HOLD_ROW_DIFF_LIMIT / HOLD_BUDGET)로 떨어지고,
+  자식 bucket 이 사라져도 부모 cell 을 유지해 그룹 검출 누락을 0 으로 만든다.
+  → 해시 버킷의 공백은 전부 성능 계열이다.
+
+────────────────────────────────────────────────────────────────────────────
+[지시 5] cross-DBMS 제약이 이 판단에 추가하는 것
+────────────────────────────────────────────────────────────────────────────
+  1. 혼합 방언 영구 차단 — HASH_BUCKET_CROSS_DBMS_NOT_SUPPORTED.
+     성능이 아니라 정합성 때문(hash_contract.py:146-149):
+       PG trim_scale(x::numeric)::text vs 오라클 TO_CHAR(x,'TM9')
+       PG 빈문자열 'S:0:' vs 오라클 ''=NULL → 'S#N'
+     같은 논리값이 다른 bucket 으로 가면 거짓 불일치가 대량 발생. 완화 대상이 아니다.
+  2. 현시점 실사용 가능 페어는 PG↔PG 하나뿐 — 오라클↔오라클도 HASH_CONTRACT_NOT_AVAILABLE
+     (구현체 미등록). MySQL/MSSQL 동일.
+
+  이 진단에 추가되는 제약:
+  - 지시 3 의 모든 우위 결론은 same-DBMS 페어에서만 유효하다.
+    오라클→PG 이관 검증에서는 해시 버킷이 선택지에 없다 → DIRECT_STREAM/PK_RANGE_CHUNK 중에서만
+    골라야 하고, 선행 진단의 정렬 비용 문제를 우회할 수단이 없다.
+  - 오라클↔오라클에서 쓰려면 HASH-BUCKET-ORACLE-PORT 후속 단계 완료가 선행 조건이다.
+
+────────────────────────────────────────────────────────────────────────────
+[지시 6] 종합 권고표
+────────────────────────────────────────────────────────────────────────────
+전제: 목적 테이블에 PK 외 인덱스 없음 · 대량(25만행 이상) · same-DBMS 페어
+
+6-1. 원본 SQL 형태 × 키 유형별
+  원본 SQL          MATCH_KEY                          1순위                2순위           쓰지 말 것
+  ----------------- ---------------------------------- -------------------- --------------- ------------------------
+  단순 SELECT       숫자 PK(인덱스 O)                   PK_RANGE_CHUNK       DIRECT_STREAM   HASH_BUCKET
+  단순 SELECT       문자/복합 · 불일치 희소(활성≲5)      HASH_BUCKET+ROW_DIFF DIRECT_STREAM   PK_RANGE_CHUNK(불가)
+  단순 SELECT       문자/복합 · 불일치 밀집              DIRECT_STREAM        —               HASH_BUCKET
+  CTE+JOIN+윈도우   숫자 PK(인덱스 O)                   HASH_BUCKET+ROW_DIFF PK_RANGE_CHUNK  PK_RANGE_CHUNK 소청크
+                                                       (PG↔PG) /
+                                                       DIRECT_STREAM(그 외)
+  CTE+JOIN+윈도우   문자/복합 키                        HASH_BUCKET+ROW_DIFF DIRECT_STREAM   PK_RANGE_CHUNK(불가)
+                                                       (PG↔PG)
+  아무 형태         MATCH_KEY 없음/미확정                DIRECT_STREAM        STATS_ONLY_HOLD HASH_BUCKET(불가)
+  아무 형태         cross-DBMS(오라클↔PG 등)            DIRECT_STREAM        PK_RANGE_CHUNK  HASH_BUCKET(영구 금지)
+
+  근거 요약
+   · 단순+숫자PK : INDEX RANGE SCAN 으로 정렬 0(6청크 8.25s). 해시는 full scan 이라 이득 없음
+   · 단순+문자키 희소 : 8.27s vs 8.63s 근소 우위 + 전송량 25만행→128행
+   · 단순+문자키 밀집 : 활성 경로 선형 폭증(10경로 10.1s, 40경로 33.7s) → DIRECT_STREAM 초과
+   · CTE+윈도우 : 청크 pushdown 실패 → 청크마다 WINDOW SORT 재실행(빈 청크도 0.284s).
+                  해시는 wave 당 1회. 4.57s vs 9.38s = 2배 우위, wave2 비용도 평탄
+
+6-2. 인덱스 유무 축 요약
+  목적 테이블 인덱스              DIRECT_STREAM      PK_RANGE_CHUNK           HASH_BUCKET
+  ------------------------------ ------------------ ------------------------ --------------------------
+  PK 있음 + 청크 키 = PK          전체 정렬 1회       최적(INDEX RANGE SCAN)    인덱스 무용 — 이득 없음
+  PK 만 있음, 청크 키 ≠ PK        전체 정렬 1회       사용 불가(비숫자 PK HOLD) 인덱스 부재에 둔감
+   (문자/복합키)                                                              → 유일한 실효 대안
+  PK 도 없음                      전체 정렬 1회       사용 불가                 사용 불가(MATCH_KEY 없음)
+                                                                             → DIRECT_STREAM 뿐
+
+  한 줄 요약: 해시 버킷의 진짜 강점은 "정렬을 피한다"보다
+              "인덱스가 없어도 성능이 안 떨어진다"(어차피 항상 full scan)와
+              "25만행을 128행으로 줄여 전송한다"이다.
+              사용자가 우려한 "PK 외 인덱스 없는 상황"은 해시 버킷에 가장 유리한 조건이 맞다 —
+              단 ① same-DBMS 페어 ② CONFIRMED MATCH_KEY 존재 ③ 불일치 희소, 셋이 모두 성립할 때다.
+
+────────────────────────────────────────────────────────────────────────────
+[대응 방향 — 제안만, 이번 작업에서 구현하지 않음]
+────────────────────────────────────────────────────────────────────────────
+  1. wave2 활성 경로 수 게이트 — 활성 bucket 이 임계(예: 8)를 넘고 원본이 pushdown 가능
+     형태(단순 SELECT)면 해시 버킷을 계속하지 않고 전수 비교로 전환 제안.
+     현재는 128경로까지 그대로 실행.                                    [성능/최우선]
+  2. max_seconds 배선 — _config_from_budget 화이트리스트에 추가.
+     지금은 시간 상한 코드가 있으나 절대 발동하지 않는다.                [운영 안정성]
+  3. 빌더 계층 방언 가드 — build_hash_bucket_agg_sql 이 계약 객체를 주입받게 하고,
+     계약 없이 호출되면 SQL 을 만들지 않고 HOLD 사유 반환.                [구조/정합성]
+  4. 사전 크기 힌트 전달 — plan_multi_scope 에 estimated_scan_rows 전달(전수 계획기와 대칭).
+     새 heuristic 추가가 아니라 이미 있는 profile 값의 전달만.            [전략 선택 품질]
+  5. 원본 형태 판정 재사용 — 선행 진단이 제안한 pushdown 사전 판정(윈도우 PARTITION BY 집합
+     검사)을 해시 버킷 wave2 비용 예측에도 그대로 재사용. 판정 하나로 두 전략이 동시에 개선. [구조]
+
+  하지 말아야 할 대응: "해시 버킷을 대량 데이터의 기본 전략으로 승격".
+  단순 SELECT + 밀집 불일치에서 가장 느리고, cross-DBMS 에서는 정합성상 금지이며,
+  MATCH_KEY 없으면 아예 불가다. 조건부 대안이지 상위 호환이 아니다.
+
+────────────────────────────────────────────────────────────────────────────
+[검증 항목 대조]
+────────────────────────────────────────────────────────────────────────────
+  요구 항목                                    결과
+  ------------------------------------------- --------------------------------------------------
+  해시 버킷 SQL 의 정렬 연산자 유무(EXPLAIN)    확인 — PLAIN 은 SORT 0개(HASH GROUP BY),
+                                               WRAPPED 는 원본 WINDOW SORT 만 잔존
+  원본 SQL 형태별 비교 실측                     확인 — PLAIN/WRAPPED 각 3전략 계획+시간 실측
+  인덱스 없는 대량 테이블 실측 비교              확인 — PK 단일 인덱스 249,950행 실테이블
+  해시 버킷 자체 안전장치 공백 확인              확인 — 공백 A~E, 전부 성능 계열(정합성 공백 없음)
+  전략별 권고표(원본 형태 × 인덱스 유무)         확인 — 6-1 / 6-2
+
+────────────────────────────────────────────────────────────────────────────
+[제한사항 — 정직 고지]
+────────────────────────────────────────────────────────────────────────────
+  · PostgreSQL 라이브 미실측. PostgreSQL_Inter_asis(5433)·_tobe(5434) 모두 접속 타임아웃(10초),
+    Neon 4개 엔드포인트 전부 서버측 거부(쿼터 소진). 선행 진단과 동일 상황.
+    아이러니하게도 해시 버킷이 현재 실제 동작하는 유일한 방언이 PG 인데 그 PG 를 실측하지 못했다.
+    지시 1 의 SQL 지문은 운영 PG 빌더의 실제 출력이라 유효하지만, PG 실행계획·PG 실측 시간은 없다.
+  · 오라클 해시식은 수작업 이식식이다. dialects_hash/oracle.py 는 아직 없다.
+    설계 §1 대응표(E1~E18)를 문자 그대로 적용했고 원시연산 4종 동등성을 실 DB 로 확인했다
+    (STANDARD_HASH('abc','MD5')=900150983cd24fb0d6963f7d28e17f72 = PG md5() 동일,
+     TO_NUMBER('ffffffff','XXXXXXXX')=4294967295, BITAND(255,7)=7, TO_CHAR(12.50,'TM9')='12.5').
+    지시 3 의 오라클 수치는 "설계대로 이식했을 때의 예상 성능"이지 현재 가용 성능이 아니다.
+  · 3-2 의 128경로 109초는 선형 외삽이다(실측 상한은 40경로 33.72s).
+    1~40 구간에서 기울기 0.85s/경로의 선형성이 6점으로 확인됐으나 128 은 측정하지 않았다.
+  · 불일치 밀도별 end-to-end 실측이 아니다. 활성 경로 수를 인위 지정해 비용만 측정했고,
+    실제 불일치 데이터를 심어 wave 진행을 완주시킨 것이 아니다.
+  · 브라우저 검증 없음 — SQL/실행계획/시간 계측이라 UI 표시 경로를 건드리지 않는다.
+  · 데이터 변경 없음. 전부 SELECT/EXPLAIN PLAN. plan_table 에 진단용 statement_id
+    (HBSA*/HBW*/ORB*)가 남는다.
+
+────────────────────────────────────────────────────────────────────────────
+[변경 파일]
+────────────────────────────────────────────────────────────────────────────
+  운영 코드 수정: 0건 (services/routes/ui/parser/analyzer/generator/checker/validator/web_server.py
+                     모두 무변경 — git status 로 확인)
+  신규(진단 산출물, 전부 untracked):
+    docs/HASH_BUCKET_STRATEGY_SORT_AVOIDANCE_VIABILITY.md
+    scripts/dev_e2e/hash_bucket_sort_avoidance_probe0.py
+    scripts/dev_e2e/hash_bucket_sort_avoidance_viability_diagnose.py
+    scripts/dev_e2e/hash_bucket_wave_depth_and_total_cost.py
+    scripts/dev_e2e/hash_bucket_wave2_realistic.py
+    scripts/dev_e2e/_hb_wave2_variance.py
+    scripts/dev_e2e/_hb_wave2_orbranch_scaling.py
+    scripts/dev_e2e/_hb_orbranch_40.py
+    scripts/dev_e2e/_hash_bucket_sort_avoidance.json
+    scripts/dev_e2e/_hash_bucket_wave_depth_total.json
+    scripts/dev_e2e/_hash_bucket_wave2_realistic.json
+
+  보안 점검: 실 DB 접속정보(호스트/계정/비밀번호)는 소스·문서·보고서 어디에도 기록하지 않았다.
+             프리셋 파일(db_presets_tgt.json)에서 런타임에 읽어 쓰기만 했다.
+
+✅ 작업 완료 - 해시 버킷 전략의 정렬 회피 실효성 진단(코드 수정 0건, 실 오라클 25만행 실측)
