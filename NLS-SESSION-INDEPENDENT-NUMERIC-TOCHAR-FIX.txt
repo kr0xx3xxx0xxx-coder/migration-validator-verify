@@ -1,0 +1,277 @@
+작업명 : NLS-SESSION-INDEPENDENT-NUMERIC-TOCHAR-FIX
+✅ 작업 완료 - NLS-SESSION-INDEPENDENT-NUMERIC-TOCHAR-FIX - 오라클 숫자→문자 canonical 변환의 소수점 문자를 3인자 TO_CHAR 의 nlsparam 으로 식 자체에 고정해 세션 NLS 차이로 인한 거짓 불일치를 제거(실 DB 양측 실측 완료 · 무회귀 확인 · hash_contract 는 오라클 구현체 부재로 대상 없음)
+
+================================================================================
+1. 1단계 — 위치 특정 결과
+================================================================================
+
+(a) hash_contract 쪽 — 고칠 오라클 코드 없음(설계만 존재)
+--------------------------------------------------------------------------------
+  services/diagnosis/hash_contract.py
+    TO_CHAR 출현 2건 — 둘 다 **모듈 docstring / 함수 docstring 안의 설명 문구**다.
+      L27  "숫자 정규화 trim_scale vs TO_CHAR TM9"          (cross-DBMS 발산 설명)
+      L146 "숫자: PG trim_scale(x::numeric)::text vs 오라클 TO_CHAR(x,'TM9')"
+    → SQL 을 방출하는 실행 코드가 아니다.
+
+  services/diagnosis/dialects_hash/
+    __init__.py, postgresql.py 만 존재 — oracle.py **없음**.
+    dialects_hash/__init__.py L16 원문:
+      "현재 구현: postgresql.PgHashContract. oracle 은 후속 단계에서 추가한다
+       (위임표에 등록되기 전까지 팩토리가 None 반환)."
+
+  판정: F1(HASH_BUCKET 오라클 이식) 미착수 상태 그대로이며 오라클 해시 구현체가 물리적으로
+        존재하지 않는다. 지침대로 **코드를 새로 만들지 않고 건너뛴다**.
+  → F1 착수 시 반드시 함께 반영할 것(설계서 HASH-BUCKET-ORACLE-PORT-DESIGN-FINALIZE §2.3 R3 / P1
+    항목이 이미 이 고정을 요구하고 있다 — E7b/E7c/E11b 렌더 규칙에 nlsparam 을 포함시켜야 한다).
+
+(b) exact_diff 쪽 — 숫자→텍스트 TO_CHAR 사용처 전수(서식 없는 기본 TO_CHAR 포함)
+--------------------------------------------------------------------------------
+  ┌── 수정함(타입이 숫자로 확정되는 경로) ────────────────────────────────────────┐
+  │ services/exact_diff/dialects/oracle.py                                        │
+  │   L93(→L104)  norm_expr  NUMERIC/INTEGER/FLOAT : TO_CHAR((x),'TM9')           │
+  │               canonical hash 의 숫자 정규화 — 세션 NLS 직접 노출. 결함 본체.  │
+  │   L116(→L130) encode_expr 길이 포매팅 : TO_CHAR(LENGTH(norm),'TM9')           │
+  │               LENGTH 는 정수라 소수점 문자가 출력에 등장하지 않아 값은 불변    │
+  │               (실측 확인). 숫자→문자 변환 규칙을 한 곳으로 통일하려 함께 적용. │
+  └───────────────────────────────────────────────────────────────────────────────┘
+
+  ┌── 수정 안 함 ①: 날짜/타임스탬프(이미 명시 서식 — 지침상 대상 아님) ──────────┐
+  │ oracle.py L100 CAT_DATE        TO_CHAR((x),'YYYY-MM-DD"T"HH24:MI:SS')         │
+  │ oracle.py L102 CAT_TIMESTAMP   TO_CHAR((x),'...FF6')                          │
+  │ oracle.py L104 CAT_TIMESTAMPTZ TO_CHAR(SYS_EXTRACT_UTC(x),'...FF6')           │
+  │  → 숫자 변환이 아니며 서식이 이미 고정이라 NLS_NUMERIC_CHARACTERS 무관.        │
+  └───────────────────────────────────────────────────────────────────────────────┘
+
+  ┌── 수정 안 함 ②: 타입 미상 '균일 문자 캐스트' — 적용 시 회귀(아래 §5 잔여위험) ┐
+  │ oracle.py L109  norm_expr fall-through   TO_CHAR((x))                         │
+  │ oracle.py L496(→L509) pk_agg_sql._txt    TO_CHAR((x))   ← key/gb/cmp          │
+  │ oracle.py L569(→L583) make_ora_fetch_chunk compare 컬럼 TO_CHAR(Q0."C")       │
+  │ services/exact_diff/agg_contribution.py L843  scope WHERE TO_CHAR((col))='v'  │
+  │ routes/exact_diff_route.py L204 _scope_eq_expr scope WHERE TO_CHAR((col))='v' │
+  │  → PG `(x)::text` 등가의 **타입 무관 균일 캐스트**다. 문자 컬럼도 통과한다.    │
+  │    여기에 'TM9' 를 붙이면 문자 인자에서 ORA-01722 로 **실행 자체가 실패**한다  │
+  │    (실측 근거 §4-E). 지침의 무회귀 요구("정상 케이스가 깨지면 안 됨")와 정면   │
+  │    충돌하므로 이번 범위에서 제외하고 잔여 위험으로 보고한다.                   │
+  │    단 L109 는 실질 위험 없음 — _ORACLE_TYPE_CATEGORY 가 NUMBER/BINARY_INTEGER/ │
+  │    BINARY_FLOAT/BINARY_DOUBLE 을 모두 숫자 카테고리로 잡아내므로 이 분기에      │
+  │    도달하는 것은 VARCHAR2/NVARCHAR2 와 미지 타입(ROWID·INTERVAL·JSON 등)뿐이다. │
+  └───────────────────────────────────────────────────────────────────────────────┘
+
+  PostgreSQL 방언(dialects/postgresql.py 4건)은 오라클 전용 결함이라 미변경(지침 준수).
+
+================================================================================
+2. 수정 내역 (git diff — 운영 코드)
+================================================================================
+commit 275b5a9c13da584e24d601b543a96fce7ca8fcd2
+  fix(oracle): 숫자→문자 canonical 변환의 소수점 문자를 식 자체에 고정 — 세션 NLS
+  차이로 인한 거짓 불일치 제거 (NLS-SESSION-INDEPENDENT-NUMERIC-TOCHAR-FIX)
+
+ scripts/dev_e2e/nls_numeric_tochar_session_independence_verify.py | 182 +++++++
+ services/exact_diff/dialects/oracle.py                            |  19 ++-
+ tests/test_nls_numeric_tochar_session_independent.py              |  91 ++++
+ 3 files changed, 290 insertions(+), 2 deletions(-)
+
+--- a/services/exact_diff/dialects/oracle.py
++++ b/services/exact_diff/dialects/oracle.py
+@@ -50,6 +50,17 @@ _ORACLE_TYPE_CATEGORY = {
+ }
+
+
++# [NLS-SESSION-INDEPENDENT-NUMERIC-TOCHAR-FIX] 숫자→문자 변환의 소수점 문자를 '식 자체'에 고정하는 nlsparam.
++# 오라클의 숫자 TO_CHAR 는 서식 지정 여부와 무관하게 세션 NLS_NUMERIC_CHARACTERS 를 따른다(',' 세션이면
++# 12.5 → '12,5'). 원본/목적지 오라클 인스턴스의 세션 설정이 다르면 같은 값이 서로 다른 canonical 이 되어
++# **거짓 불일치**가 난다(실측: 세션만 ',.' 로 바꾸면 동일 데이터의 row hash 가 전부 갈렸다). 3인자 TO_CHAR 의
++# nlsparam 으로 소수점 '.' · 그룹 ',' 를 고정하면 세션 설정에 의존하지 않는다.
++#   · 세션이 이미 '.,' 였다면 출력은 완전히 동일하다 — 로케일을 고정할 뿐 값의 문자열 표현을 바꾸지 않는다.
++#   · 문자 인자에는 붙일 수 없다(ORA-01722) → 타입이 숫자로 확정된 경로에만 적용한다. 타입 미상 균일 캐스트
++#     (`TO_CHAR((x))` — pk_agg_sql._txt / make_ora_fetch_chunk 의 compare 등)는 이 고정을 쓸 수 없다.
++_ORA_NLS_NUM = "'NLS_NUMERIC_CHARACTERS=''.,'''"
++
++
+ def oracle_key_bind_names(n: int) -> list:
+
+@@ -90,7 +101,8 @@ class OracleCanonicalHashAdapter(BaseCanonicalHashAdapter):
+         if category in (CAT_NUMERIC, CAT_INTEGER, CAT_FLOAT):
+             # TM9 는 후행 0 을 제거한 최단 표기('12.50'→'12.5', '12.00'→'12')를 주지만 절대값 1 미만은
+             # 선행 0 을 생략한다('.5'). PG trim_scale(x)::text 와 맞추기 위해 선행 0 을 복원한다.
+-            tm = f"TO_CHAR(({c}), 'TM9')"
++            # 소수점 문자는 nlsparam 으로 고정한다 — 세션 NLS 에 의존하지 않는다(_ORA_NLS_NUM 주석 참고).
++            tm = f"TO_CHAR(({c}), 'TM9', {_ORA_NLS_NUM})"
+             return f"REGEXP_REPLACE(REGEXP_REPLACE({tm}, '^\\.', '0.'), '^-\\.', '-0.')"
+
+@@ -112,8 +124,11 @@ class OracleCanonicalHashAdapter(BaseCanonicalHashAdapter):
+         # 길이는 TM9 로 포매팅한다 — TO_CHAR 기본 서식의 부호 자리(선행 공백)가 섞이지 않게 한다.
++        # 길이는 항상 정수라 소수점 문자가 출력에 등장하지 않지만(실측: 세션 ',.' 에서도 값 동일), 숫자→문자
++        # 변환 지점을 한 규칙으로 통일해 두면 세션 NLS 가 스며들 여지가 남지 않는다(_ORA_NLS_NUM).
+         return (f"CASE WHEN ({col}) IS NULL THEN '|{ordinal}{tid}:N' "
+-                f"ELSE '|{ordinal}{tid}:V' || TO_CHAR(LENGTH({norm}), 'TM9') || ':' || {norm} END")
++                f"ELSE '|{ordinal}{tid}:V' || TO_CHAR(LENGTH({norm}), 'TM9', {_ORA_NLS_NUM}) "
++                f"|| ':' || {norm} END")
+
+  서식 표기는 설계서(HASH-BUCKET-ORACLE-PORT-DESIGN-FINALIZE §2.3 P1)의 확정 형태를 그대로 따랐다:
+      TO_CHAR(x, 'TM9', 'NLS_NUMERIC_CHARACTERS=''.,''')
+  (새 서식을 발명하지 않았다. '.' = 소수점 / ',' = 그룹 구분자 — TM9 는 그룹 구분자를 쓰지 않는다.)
+
+================================================================================
+3. 전/후 렌더 대조 (emit SQL — 외부 DB 접속 0회)
+================================================================================
+[변경된 지점 — 숫자 경로만]
+  norm_expr(NUMERIC / INTEGER / FLOAT)
+    BEFORE: REGEXP_REPLACE(REGEXP_REPLACE(TO_CHAR((AMT), 'TM9'), '^\.', '0.'), '^-\.', '-0.')
+    AFTER : REGEXP_REPLACE(REGEXP_REPLACE(TO_CHAR((AMT), 'TM9', 'NLS_NUMERIC_CHARACTERS=''.,'''),
+                           '^\.', '0.'), '^-\.', '-0.')
+
+  encode_expr 길이 포매팅
+    BEFORE: ... || TO_CHAR(LENGTH(<norm>), 'TM9') || ':' || <norm> END
+    AFTER : ... || TO_CHAR(LENGTH(<norm>), 'TM9', 'NLS_NUMERIC_CHARACTERS=''.,''') || ':' || <norm> END
+
+[불변 확인 — 전/후 문자열 완전 동일]
+  norm_expr TEXT        TO_CHAR((C))                                         (변화 없음)
+  norm_expr CHAR        RTRIM((C))                                           (변화 없음)
+  norm_expr DATE        TO_CHAR((C), 'YYYY-MM-DD"T"HH24:MI:SS') || '.000000' (변화 없음)
+  norm_expr TIMESTAMP   TO_CHAR((C), 'YYYY-MM-DD"T"HH24:MI:SS.FF6')          (변화 없음)
+  norm_expr TIMESTAMPTZ TO_CHAR(SYS_EXTRACT_UTC(C), '...FF6')                (변화 없음)
+  norm_expr BYTEA       LOWER(RAWTOHEX((C)))                                 (변화 없음)
+  norm_expr BOOL        CASE WHEN (C) THEN '1' ELSE '0' END                  (변화 없음)
+  detail_fetch_sql                                                           (변화 없음)
+  pk_agg_sql (unique/group 양 경로 — 다형 _txt)                              (변화 없음)
+  PostgresCanonicalHashAdapter 전 카테고리                                   (변화 없음)
+
+[readonly 가드 — 이스케이프된 따옴표가 SQL 파이프라인을 깨지 않는지]
+  hash_stream / meta_probe / detail_fetch 는 실행 전 assert_single_select(sqlglot AST 검사)를 거친다.
+    key_hash_stream_sql : BEFORE PASS → AFTER PASS
+    detail_fetch_sql    : BEFORE PASS → AFTER PASS
+    sqlglot.parse_one(dialect='oracle') 파싱 성공 · 재렌더 시 nlsparam 리터럴 원형 보존 확인.
+  → nlsparam 도입으로 UNPARSEABLE 차단이 생기지 않는다(회귀 없음).
+
+================================================================================
+4. 실측 검증 (실 DB — Oracle 양측 라이브)
+================================================================================
+드라이버: scripts/dev_e2e/nls_numeric_tochar_session_independence_verify.py
+대상    : Oracle_asis(192.168.0.151:1523) / Oracle_tobe(192.168.0.151:1524) — 양측 접속 OK
+          두 인스턴스의 기존 세션 NLS_NUMERIC_CHARACTERS = '.,' (동일)
+방법    : ALTER SESSION 으로 **이 검증 세션에서만** '.,'(기본) ↔ ',.'(유럽식)을 바꿔가며 측정.
+          (운영 DB 설정은 변경하지 않았다 — 세션 스코프이며 종료 시 소멸. 데이터 변경 0건 · 읽기 전용.)
+          비교식은 하드코딩이 아니라 **운영 코드(OracleCanonicalHashAdapter)가 emit 하는 식**을 그대로 실행.
+
+[축 A/B] 운영 norm_expr 의 실제 렌더 값 — 두 인스턴스 결과 완전 동일
+  입력값        | BEFORE '.,'    BEFORE ',.'   | AFTER '.,'     AFTER ',.'    | 판정
+  ------------- | -------------  ------------- | -------------  ------------- | ---------------------
+  12.5          | 12.5           12,5          | 12.5           12.5          | 수정 전 깨짐 → 해소
+  12.50         | 12.5           12,5          | 12.5           12.5          | 수정 전 깨짐 → 해소
+  12.00         | 12             12            | 12             12            | 원래 안전(소수부 없음)
+  0.5           | 0.5            ,5            | 0.5            0.5           | 수정 전 깨짐 → 해소
+  -0.5          | -0.5           -,5           | -0.5           -0.5          | 수정 전 깨짐 → 해소
+  -1234.5       | -1234.5        -1234,5       | -1234.5        -1234.5       | 수정 전 깨짐 → 해소
+  0             | 0              0             | 0              0             | 원래 안전
+  123456789     | 123456789      123456789     | 123456789      123456789     | 원래 안전
+  1234567.891   | 1234567.891    1234567,891   | 1234567.891    1234567.891   | 수정 전 깨짐 → 해소
+  0.000001      | 0.000001       ,000001       | 0.000001       0.000001      | 수정 전 깨짐 → 해소
+  -0.000001     | -0.000001      -,000001      | -0.000001      -0.000001     | 수정 전 깨짐 → 해소
+
+  · 세션 독립성 : AFTER 열의 '.,' 와 ',.' 가 **전 케이스 동일** → 세션 설정에 의존하지 않는다.
+  · 무회귀      : AFTER '.,' == BEFORE '.,' **전 케이스 동일** → 기존 정상 세션의 출력이 한 글자도
+                  바뀌지 않았다(로케일을 고정할 뿐 값의 문자열 표현을 바꾸지 않았음을 실측으로 확인).
+  · 선행 0 복원(REGEXP_REPLACE)도 그대로 작동 — 0.5 → '0.5'('.5' 아님).
+
+[축 C] 운영 canonical row hash 실값(STANDARD_HASH MD5) — 정합성 최종 증명
+  대상: row_hash_expr([(AMT,NUMERIC),(NM,TEXT)]) · 4행(12.5/0.5/-1234.5/123456789)
+                                    asis(1523)   tobe(1524)
+    BEFORE  세션 '.,' == 세션 ',.'      False        False    ← 세션만 달라도 해시 전량 불일치(거짓 불일치)
+    AFTER   세션 '.,' == 세션 ',.'      True         True     ← 해소
+    무회귀  BEFORE '.,' == AFTER '.,'   True         True     ← 기존 결과 완전 보존
+  · BEFORE 의 두 세션 해시 집합은 4건 중 3건이 서로 달랐다(일치한 1건은 123456789 — 소수부가 없어
+    소수점 문자가 등장하지 않는 값). 즉 소수부를 가진 모든 행이 거짓 불일치로 뜨는 상태였다.
+
+[축 D] 길이 포매팅 경로 — 값 불변 실증
+  TO_CHAR(LENGTH(v),'TM9') 결과가 BEFORE/AFTER · 두 세션 모두 전 케이스 동일(4/4, 2/2, 7/7, 11/11 …).
+  → 정수라 소수점 문자가 출력에 등장하지 않는다. 이번 통일 적용은 값에 영향 0.
+
+[축 E] 다형 경로 한계 — 이번 범위에서 제외한 실측 근거
+  E-① 숫자에 대한 무서식 TO_CHAR((x)) 는 여전히 세션을 따른다:
+        세션 ',.' → 12.5 가 '12,5' / 1234567.891 이 '1234567,891' 로 렌더됨(양 인스턴스 동일).
+  E-② 문자 인자에 서식을 붙이면 실행 불가:
+        TO_CHAR(('ab,cd'))                                       → 'ab,cd'  (정상)
+        TO_CHAR(('ab,cd'),'TM9')                                 → ORA-01722 unable to convert
+                                                                    string value containing 'a' to a number
+        TO_CHAR(('ab,cd'),'TM9','NLS_NUMERIC_CHARACTERS=''.,''') → ORA-01722 (동일)
+  → 타입 미상 균일 캐스트에 3인자 형태를 확대 적용하면 문자 컬럼에서 **SQL 이 실행조차 되지 않는다**.
+    지침의 무회귀 요구를 지키기 위해 적용하지 않았다(§5 에 잔여 위험으로 명시).
+
+================================================================================
+5. 잔여 위험 (미해결 — 다음 작업 후보)
+================================================================================
+R1. 타입 미상 균일 캐스트 5개 지점(§1(b) 표)은 여전히 세션 NLS 에 노출된다.
+      oracle.py L509 pk_agg_sql._txt (재이관 PK index 집계의 key/gb/cmp 문자화)
+      oracle.py L583 make_ora_fetch_chunk 의 compare 컬럼
+      agg_contribution.py L843 · routes/exact_diff_route.py L204 (SCOPE pushdown WHERE 동등비교)
+    영향: 숫자 컬럼이 이 경로로 문자화될 때 src/tgt 세션 NLS 가 다르면 값 비교가 거짓 불일치.
+          (SCOPE WHERE 의 경우 조건이 아무 행도 매칭하지 못해 비교 범위가 조용히 비는 형태로 나타난다.)
+    3인자 고정은 구조적으로 불가(§4-E ②). 실행 가능한 대안은 두 가지다.
+      대안 A) 오라클 연결 시점에 `ALTER SESSION SET NLS_NUMERIC_CHARACTERS = '.,'` 를 1회 실행.
+              타입 무관하고 값 표현을 바꾸지 않으며 exact_diff 오라클 경로 전체를 한 번에 덮는다.
+              단 커넥션 풀을 공유하는 다른 기능의 세션 상태까지 바꾸므로 **되돌리기 어려운 구조 변경**에
+              해당한다 → 이번 지침 범위 밖으로 두고 별도 승인 후 진행할 것을 권장.
+      대안 B) 해당 경로에 컬럼 타입 정보를 전달해 숫자 컬럼만 3인자 형태로 렌더. 정확하지만 호출부
+              (agg_diff_route 등)까지 시그니처가 번지므로 비용이 크다.
+    권장: 대안 A(단일 지점·저비용·값 불변). 승인 후 별도 작업으로 진행.
+
+R2. F1(HASH_BUCKET 오라클 이식) 착수 시 신규 오라클 해시 구현체에 동일 고정을 반드시 포함할 것.
+    현재는 팩토리가 오라클에 대해 None 을 반환해 호출 자체가 차단되어 있어 노출 위험은 없다.
+
+R3. 세션 타임존(NLS 계열 중 날짜 경로)은 이번 범위 밖이다 — 설계서 §2.1 잔여한계로 이미 분리 표기됨.
+
+================================================================================
+6. 테스트 결과
+================================================================================
+서브셋(지침 지정 키워드 exact_diff / oracle / dialects 를 포함하도록 확장 — canonical·hash·chunk 포함)
+  대상 파일 28개 · 동일 명령으로 BASELINE(수정 전) / AFTER(수정 후) 각 1회
+
+  BASELINE : 5 failed, 269 passed, 17 skipped, 1 xfailed, 12 subtests passed  (33.95s)
+  AFTER    : 5 failed, 269 passed, 17 skipped, 1 xfailed, 12 subtests passed  (33.12s)
+  실패 ID 차분(BASELINE vs AFTER) : **차분 없음 — 신규 실패 0건**
+
+  실패 테스트 전체 목록(5건 — BASELINE 과 AFTER 가 완전히 동일한 사전 존재 실패):
+    FAILED tests/test_exact_diff_ui_wiring.py::test_button_state_conditions_flag_on_off
+    FAILED tests/test_exact_diff_ui_wiring.py::test_run_wiring_calls_exact_diff_api_not_key_range
+    FAILED tests/test_exact_diff_ui_wiring.py::test_record_grid_and_kind_filter_and_order
+    FAILED tests/test_exact_diff_ui_wiring.py::test_hold_labels_visible
+    FAILED tests/test_exact_diff_ui_wiring.py::test_key_range_tree_labeled_as_auxiliary
+  → 전부 UI 문구(HTML 문자열) 대조 실패로 이번 수정과 무관한 사전 존재 실패다. 수정 전에도 동일하게
+    실패했으며 이번 변경으로 늘거나 줄지 않았다.
+
+신규 회귀 테스트: tests/test_nls_numeric_tochar_session_independent.py — 6 passed (1.57s)
+    · 숫자 카테고리(NUMERIC/INTEGER/FLOAT)가 3인자 형태를 emit 하는지 + 2인자 잔존 금지
+    · encode_expr 길이 포매팅도 동일 규칙인지
+    · 비숫자 카테고리 7종 렌더가 문자열 단위로 불변인지(nlsparam 미포함)
+    · 타입 미상 균일 캐스트(pk_agg_sql)에는 확대 적용되지 않았는지(의도적 제외 고정)
+    · PostgreSQL 어댑터 무영향
+    · 실행 SQL 이 sqlglot 파싱 + readonly 가드를 통과하는지
+
+================================================================================
+7. 보안 점검
+================================================================================
+  · 이 보고서 · 커밋 · 신규 테스트 · 검증 드라이버에 DB 비밀번호 평문 없음(재확인 완료).
+  · 검증 드라이버는 접속정보를 UI 프리셋에서 로드하며 비밀번호를 출력하지 않는다.
+  · pre-commit 비밀번호 스캔 통과("staged 3개 파일, 지문 4건 대조").
+  · 실측은 전부 읽기 전용(SELECT ... FROM dual / 인라인뷰) — 실 데이터 변경 0건.
+  · ALTER SESSION 은 검증 세션 스코프이며 종료와 함께 소멸(운영 파라미터 미변경).
+
+================================================================================
+8. 실검증 상태
+================================================================================
+  실검증 상태 : 실 DB 라이브 검증 완료(Oracle asis 1523 / tobe 1524 양측) — 세션
+                NLS_NUMERIC_CHARACTERS 를 '.,' ↔ ',.' 로 실제 변경해 가며 운영 코드가 emit 하는
+                식과 canonical row hash 실값을 직접 측정했다. 세션 독립성(AFTER 두 세션 동일)과
+                무회귀(AFTER '.,' == BEFORE '.,')를 양측에서 모두 확인. hash_contract 오라클
+                구현체는 코드가 존재하지 않아 검증 대상 없음(F1 착수 시 반영 필요).
+
+================================================================================
+9. 변경/생성 파일
+================================================================================
+  M services/exact_diff/dialects/oracle.py                              (운영 코드 — 2개 지점)
+  A tests/test_nls_numeric_tochar_session_independent.py                (회귀 테스트 6건)
+  A scripts/dev_e2e/nls_numeric_tochar_session_independence_verify.py   (실측 드라이버)
+  커밋 해시: 275b5a9c13da584e24d601b543a96fce7ca8fcd2
+
+✅ 작업 완료 - NLS-SESSION-INDEPENDENT-NUMERIC-TOCHAR-FIX - 오라클 숫자→문자 canonical 변환의 소수점 문자를 3인자 TO_CHAR 의 nlsparam 으로 식 자체에 고정해 세션 NLS 차이로 인한 거짓 불일치를 제거(실 DB 양측 실측 완료 · 무회귀 확인 · hash_contract 는 오라클 구현체 부재로 대상 없음)
