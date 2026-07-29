@@ -10,10 +10,10 @@
 - 대상 제외: 아직 push 되지 않은 로컬 전용 보고서 16건은 이번 취합에서 제외했다.
   push 후 이 파일에 합류시킨다.
 - 최초 작성: 2026-07-29 (VERIFY-REPO-BACKLOG-FILE-CREATE)
-- 최종 갱신: 2026-07-29 (BACKLOG-STRATEGY-PLAN-PK-EVIDENCE-ROOT-CAUSES-ADD) — P8 우회 수정 후 남은
+- 최종 갱신: 2026-07-29 (BACKLOG-CHARSET-COLLATION-AND-NLS-RESIDUAL-ADD) — 캐릭터셋 정렬 붕괴·byte/char
+  의미 소실·NLS 잔여 위험 등록(S12·S13·S14 신규, M15 신규)
+- 직전 갱신: 2026-07-29 (BACKLOG-STRATEGY-PLAN-PK-EVIDENCE-ROOT-CAUSES-ADD) — P8 우회 수정 후 남은
   근본 원인 3건 등록(S10·S11 신규, P9 신규)
-- 직전 갱신: 2026-07-29 (BACKLOG-NEW-STRATEGY-HIERARCHICAL-CHECKSUM-ADD) — `신규 전략 검토` 섹션(N1) 추가,
-  S2·S4 해결 완료 표시
 - 예외: 위 "완료 항목은 넣지 않는다" 원칙에도, 해결된 지 얼마 되지 않은 항목은 **삭제하지 않고
   `✅ 해결 완료` 로 표시 + 근거 커밋 해시**를 남긴다(같은 문제 재론 방지). 다음 정리 때 일괄 제거한다.
 - 번호는 추가 순서(다음 번호)로 부여하며, 배치는 위 정렬 규칙(발견일 최신순)을 따른다.
@@ -186,6 +186,56 @@
   (오라클 `ALL_TAB_COLUMNS` 등은 어댑터에 이미 존재 — `build_tgt_column_meta_query` 재사용 검토).
   S9(방언 미위임 일괄 정리)와 함께 처리하는 편이 자연스럽다.
 - 참고: E:\verify_reports\STRATEGY-PLAN-PK-KIND-HARDCODE-FIX.txt
+
+### S12. (최우선급) exact_diff 문자 키 병합이 원본/목적지 캐릭터셋이 다르면 조용히 붕괴한다
+- 발견일: 2026-07-29
+- 근거 보고서: `ORACLE-CHARSET-COLLATION-EXACT-DIFF-DIAGNOSE.txt` (§3 / §5-P1)
+- 상세: `services/exact_diff/dialects/oracle.py` 의 `key_hash_stream_sql` 이
+  `NLSSORT(..., 'NLS_SORT=BINARY')` 로 정렬하는데, BINARY 는 세션 `NLS_SORT` 와 무관하게
+  **DB 캐릭터셋의 바이트 순서**를 따른다. 원본이 KO16MSWIN949/EUC-KR 계열이고 목적지가 AL32UTF8 이면
+  한글 정렬 순서 자체가 완전히 달라진다(유니코드로는 `'가' < '똠'` 이지만 CP949 바이트로는 `'똠' < '가'`).
+  병합측 `services/exact_diff/stream_merge.py` 는 **파이썬 코드포인트 순** 비교를 전제하므로,
+  두 순서가 어긋나면 merge-join 이 깨진다. S2(문자 PK 정렬 전제 위반)와 **동일 메커니즘의 다른 판본**이다.
+- 실측(운영 코드 재현): 완전히 동일한 데이터 1,986건(한글 4자 키)을 원본은 CP949 순, 목적지는 UTF-8 순으로만
+  흘려보내 `stream_merge.merge_compare` 로 재현 — **77.1%(양쪽 각 1,531건)가 거짓 "원본에만 있음" /
+  "목적지에만 있음" 으로 날조**(총 3,062건 허위 불일치). 예외도 경고도 없이 확정 결과로 보고된다.
+  ASCII PK 는 영향 없음(양 캐릭터셋의 배열이 동일).
+- 현재 노출 여부: 테스트 환경(asis/tobe)은 양측 AL32UTF8 로 동일해 지금 당장 오염되지는 않는다.
+  그러나 원본이 실제 레거시 캐릭터셋인 이관 대상에는 **잠재 위험이 그대로 남아 있다**.
+- 대응 방향(주): S2 해결 시 도입한 `_ensure_pk_ascending`(서버 정렬을 믿지 않고 파이썬이 직접 검증)과 같은 계열로,
+  `stream_merge.merge_compare` 에 "직전 키보다 작은 키가 나오면 즉시 중단 + HOLD"(`order_violation`) 신호를 추가한다.
+  전량 메모리 적재 금지 경로라 재정렬은 불가하므로, 위반 탐지 후 HOLD 가 현실적 방향이다.
+- 대응 방향(보조): 실행 전 src/tgt 의 `NLS_CHARACTERSET` 을 조회(read-only)해 불일치 시 문자 키 exact_diff 를 사전 HOLD.
+- 비권장: `NLSSORT` 를 특정 캐릭터셋으로 강제하는 방향 — 원본 DB 인덱스 활용(= 정렬 회피 전략의 존재 이유)이 깨진다.
+- 참고: E:\verify_reports\ORACLE-CHARSET-COLLATION-EXACT-DIFF-DIAGNOSE.txt
+
+### S13. VARCHAR2 byte/char 의미를 도구가 구분하지 못해 실효 저장용량 축소를 놓친다
+- 발견일: 2026-07-29
+- 근거 보고서: `ORACLE-CHARSET-COLLATION-EXACT-DIFF-DIAGNOSE.txt` (§4 / §5-P2)
+- 상세: `services/db_adapters/oracle.py` 가 `CHAR_LENGTH` 만 읽고 `CHAR_USED`(`'B'`/`'C'`)는 전혀 조회하지 않는다
+  (오라클 실 컬럼 75개 중 73개가 BYTE 의미로 확인됨). 그 결과 `VARCHAR2(50 BYTE)` 와 `VARCHAR2(50 CHAR)` 가
+  도구에게는 똑같이 "50" 으로 보인다. 원본 CP949(한글 1자=2바이트, 25자 수용) → 목적지 AL32UTF8(한글 1자=3바이트,
+  16자 수용)로 캐릭터셋이 바뀌면 실효 수용량이 줄어드는데도, `services/candidate_scoring_runner.py` 의 길이 비교
+  로직이 **"COMPATIBLE, 위험 없음"** 으로 통과시킨다.
+- 대응 방향: 컬럼 메타 조회에 `CHAR_USED`/`DATA_LENGTH` 를 추가하고, 양측 캐릭터셋과 함께 **실효 문자 수용량**을
+  계산해 비교하도록 확장한다. 완료된 모듈 수정이라 사용자 확인이 필요하다. PG/MySQL/MSSQL 대응 개념도 함께
+  설계해야 한다(4방언 처리 원칙).
+- 참고: E:\verify_reports\ORACLE-CHARSET-COLLATION-EXACT-DIFF-DIAGNOSE.txt
+
+### S14. NLS 숫자 고정이 타입 미상 균일 캐스트 5곳에는 적용되지 않았다(NLS 고정 수정의 잔여 위험 R1)
+- 발견일: 2026-07-29
+- 근거 보고서: `NLS-SESSION-INDEPENDENT-NUMERIC-TOCHAR-FIX.txt` (§5-R1)
+- 상세: `services/exact_diff/dialects/oracle.py` 의 `pk_agg_sql._txt` 와 `make_ora_fetch_chunk` 의 compare 컬럼,
+  `services/exact_diff/agg_contribution.py` · `routes/exact_diff_route.py` 의 SCOPE WHERE 동등비교 —
+  이 5곳은 타입이 숫자로 확정되지 않는 **균일 캐스트**(`TO_CHAR((x))`)라 3인자 `nlsparam` 을 붙일 수 없다
+  (문자 컬럼에서 ORA-01722 로 실행 자체가 깨진다). 숫자 컬럼이 이 경로를 타면 여전히 세션
+  `NLS_NUMERIC_CHARACTERS` 차이로 거짓 불일치가 가능하다(SCOPE WHERE 의 경우 조건이 조용히
+  **아무 행도 매칭하지 못하는** 형태로 나타난다).
+- 대응 방향(권장): 오라클 연결 시점에 `ALTER SESSION SET NLS_NUMERIC_CHARACTERS = '.,'` 를 1회 실행한다 —
+  타입과 무관하고 값 표현을 바꾸지 않으며 exact_diff 오라클 경로 전체를 한 번에 덮는다.
+  단 **커넥션 풀 공유 세션 상태를 바꾸는 구조 변경**이라 별도 승인 후 진행을 권장한다.
+- 대안: 호출부까지 컬럼 타입 정보를 전파해 숫자 컬럼만 3인자 형태로 렌더한다(정확하지만 비용이 크다).
+- 참고: E:\verify_reports\NLS-SESSION-INDEPENDENT-NUMERIC-TOCHAR-FIX.txt
 
 ### S8. CHUNK 경로가 소문자 컬럼 파생 SQL 에서 PK min/max 조회 시 대문자 따옴표 별칭으로 실패 — 드릴다운 CHUNK 실행 자체가 막힌다
 - 발견일: 2026-07-28
@@ -470,6 +520,15 @@
 - 근거 보고서: `COMBO-PAIR-ENTRY-POINT-RESTORE-IMPLEMENT-RESUME.txt` (§6)
 - 상세: `test_batch_report_service.py` 등. 회귀 신호를 가리는 노이즈라 별도 작업으로 고치는 편이 낫다.
 - 참고: E:\verify_reports\COMBO-PAIR-ENTRY-POINT-RESTORE-IMPLEMENT-RESUME.txt
+
+### M15. 오라클 연결 프리셋의 encoding/nencoding 필드가 죽은 설정이다
+- 발견일: 2026-07-29
+- 근거 보고서: `ORACLE-CHARSET-COLLATION-EXACT-DIFF-DIAGNOSE.txt` (§1-4 / §5-P3)
+- 상세: `db_presets_*.json` 에 `encoding`/`nencoding` 값이 있고 UI 에도 입력칸이 있으나, 코드 어디서도 이 값을
+  읽지 않는다(`oracledb` 4.x 는 해당 파라미터 자체를 지원하지 않는다 — 항상 UTF-8 고정이라 오히려 이게 정답이다).
+  기능 위험은 없으나 "설정했는데 반영된 줄 아는" 오해를 부른다.
+- 대응 방향: UI 입력칸 제거, 또는 "드라이버가 UTF-8 로 고정(설정 불가)" 안내 표기.
+- 참고: E:\verify_reports\ORACLE-CHARSET-COLLATION-EXACT-DIFF-DIAGNOSE.txt
 
 ### M5. `tests/test_step_tab_dom_stability.py` 8건이 사전 존재 실패 상태('죽은 빨간 불')
 - 발견일: 2026-07-28
