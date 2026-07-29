@@ -1,0 +1,275 @@
+작업명 : STATS-PLAN-LITERAL-COMMENT-FALSE-POSITIVE-FIX
+✅ 작업 완료 - STATS-PLAN-LITERAL-COMMENT-FALSE-POSITIVE-FIX - 통계검증 계획 판정이 문자열 리터럴·주석 안 키워드를 미지원 구문으로 오인해 plan_status="UNSUPPORTED"로 조기 반환하던 오탐 제거(실제 미지원 구문 하드 게이트는 불변)
+
+────────────────────────────────────────────────────────────────────────
+1. 배경 / 결함
+────────────────────────────────────────────────────────────────────────
+근거: verify 저장소 SQLGLOT-USAGE-CONSISTENCY-AUDIT-DIAGNOSE.txt (P2-2)
+
+services/stats_validation_plan_service.py 의 classify_unsupported_sql_shape()가
+원본 SQL 텍스트를 전처리 없이 그대로 정규식 검사했다. 이 때문에
+  - 문자열 리터럴 안 : 'UNION ALL 처리분', 'SELECT DISTINCT / EXISTS ( 문구'
+  - 라인 주석 안     : -- WITH tmp AS ( SELECT ... )
+  - 블록 주석 안     : /* GROUP BY DEPT_CD, SUM() OVER (PARTITION BY X) */
+같은 텍스트가 실제 구문으로 오인됐다.
+
+오탐의 파급: classify_unsupported_sql_shape() 결과는 _generate_for_snap()의
+하드 게이트(services/stats_validation_plan_service.py:784~ )에서
+plan_status="UNSUPPORTED" 조기 반환으로 이어지므로,
+정상 이관 SQL인데도 통계검증 계획 자체가 생성되지 않았다
+(source_sql_preview / target_sql_preview 모두 빈 문자열).
+
+────────────────────────────────────────────────────────────────────────
+2. 수정 내용 (지침대로 대상 파일 1개만 수정)
+────────────────────────────────────────────────────────────────────────
+파일: services/stats_validation_plan_service.py  (+20 / -7, 1 file)
+
+- 신규 전처리 로직을 작성하지 않고 기존 helper를 그대로 재사용:
+    from services.analyze_service import _strip_sql_literals_and_comments
+  * 지침에는 services/single_validation_analyze_service.py 의 helper로 적혀 있으나,
+    실제 canonical 정의 위치는 services/analyze_service.py:378 이며
+    single_validation_analyze_service.py 도 해당 모듈에서 import 해 쓰는 구조다
+    (services/single_validation_analyze_service.py:21-26). 즉 동일 함수를 재사용했다.
+  * 순환 import 없음 — analyze_service 는 stats_validation_plan_service 를 참조하지 않는다.
+
+- classify_unsupported_sql_shape() 내부:
+    scan_sql = _strip_sql_literals_and_comments(sql)
+  를 만들고, 이후 6개 판정(CTE / UNION / WINDOW / AGGREGATE / DISTINCT / MANUAL)과
+  SELECT 블록 추출을 전부 scan_sql 기준으로 변경.
+  전처리 함수는 길이 보존형(제거 대상을 공백으로 치환)이라 원본 SQL과 오프셋이 동일해
+  select_block 추출 로직이 그대로 유지된다.
+
+- 실제 미지원 구문에 대한 UNSUPPORTED 하드 게이트는 손대지 않았다(무회귀).
+  감지 우선순위, warning_code, severity/label/message, _generate_for_snap 게이트 모두 불변.
+
+────────────────────────────────────────────────────────────────────────
+3. 실측 검증 — 전/후 판정 결과
+────────────────────────────────────────────────────────────────────────
+[3-1] 분류 함수 단위 실측 (repro_stats_plan_fp.py, 13케이스)
+
+■ 수정 전 (baseline) : 총 실패 5건 / 13건
+  FAIL | FP-1 문자열 리터럴 안 UNION ALL            판정=UNSUPPORTED_UNION_SHAPE
+  FAIL | FP-2 라인 주석 안 CTE(WITH x AS ()         판정=UNSUPPORTED_CTE_MIGRATION
+  FAIL | FP-3 블록 주석 안 GROUP BY / OVER (        판정=UNSUPPORTED_WINDOW_FUNCTION
+  FAIL | FP-4 리터럴 안 SELECT DISTINCT / EXISTS (  판정=LIMITED_DISTINCT_SHAPE
+  FAIL | FP-5 이스케이프 따옴표 안 UNION            판정=UNSUPPORTED_UNION_SHAPE
+  PASS | TP-1~TP-8 (실제 미지원 6종 + 정상 이관 2종) 전부 기대값 일치
+
+■ 수정 후 : 총 실패 0건 / 13건
+  PASS | FP-1 문자열 리터럴 안 UNION ALL            판정=None
+  PASS | FP-2 라인 주석 안 CTE(WITH x AS ()         판정=None
+  PASS | FP-3 블록 주석 안 GROUP BY / OVER (        판정=None
+  PASS | FP-4 리터럴 안 SELECT DISTINCT / EXISTS (  판정=None
+  PASS | FP-5 이스케이프 따옴표 안 UNION            판정=None
+  PASS | TP-1 실제 CTE        기대=UNSUPPORTED_CTE_MIGRATION   실제=UNSUPPORTED_CTE_MIGRATION
+  PASS | TP-2 실제 UNION ALL  기대=UNSUPPORTED_UNION_SHAPE     실제=UNSUPPORTED_UNION_SHAPE
+  PASS | TP-3 실제 WINDOW     기대=UNSUPPORTED_WINDOW_FUNCTION 실제=UNSUPPORTED_WINDOW_FUNCTION
+  PASS | TP-4 실제 GROUP BY   기대=UNSUPPORTED_AGGREGATE_SHAPE 실제=UNSUPPORTED_AGGREGATE_SHAPE
+  PASS | TP-5 실제 DISTINCT   기대=LIMITED_DISTINCT_SHAPE      실제=LIMITED_DISTINCT_SHAPE
+  PASS | TP-6 실제 EXISTS     기대=LIMITED_MANUAL_REVIEW       실제=LIMITED_MANUAL_REVIEW
+  PASS | TP-7 정상 단순이관   기대=None                        실제=None
+  PASS | TP-8 인라인뷰 단일   기대=None                        실제=None
+  → 실제 미지원 구문 차단은 전/후 완전 동일(무회귀).
+
+[3-2] 계획 생성 경로 e2e 실측 (repro_stats_plan_e2e.py, 5케이스)
+  _generate_for_snap()을 임시 SQLite로 직접 구동해 plan_status 를 확인.
+  (실 DB 접속 없음 — 계획 생성은 preview only 경로)
+
+  PASS | FP-1 리터럴 안 UNION ALL
+         plan_status=COUNT_ONLY  (수정 전에는 UNSUPPORTED로 계획 미생성)
+         warnings=['NO_GROUP_BY_SELECTED','NO_SUM_SELECTED','COUNT_ONLY_PLAN','NO_TARGET_WHERE']
+         source_sql_preview=SELECT     COUNT(*) AS CNT FROM SRC_ORDER O
+  PASS | FP-2 라인주석 안 WITH x AS (
+         plan_status=COUNT_ONLY,  source_sql_preview 정상 생성
+  PASS | FP-3 블록주석 안 GROUP BY / OVER (
+         plan_status=COUNT_ONLY,  source_sql_preview 정상 생성
+  PASS | TP-2 실제 UNION ALL
+         plan_status=UNSUPPORTED, warnings=['UNSUPPORTED_UNION_SHAPE'], preview 없음 (기존과 동일 차단)
+  PASS | TP-4 실제 GROUP BY
+         plan_status=UNSUPPORTED, warnings=['UNSUPPORTED_AGGREGATE_SHAPE'], preview 없음 (기존과 동일 차단)
+
+  총 실패 0건 / 5건 → 오탐 SQL은 통계검증 계획이 실제로 생성되고,
+  실제 미지원 SQL은 UNSUPPORTED로 그대로 차단됨을 계획 생성 경로에서 확인.
+
+────────────────────────────────────────────────────────────────────────
+4. 관련 서브셋 + baseline 대조
+────────────────────────────────────────────────────────────────────────
+[4-1] CLAUDE.md 필수 회귀 (수정 후)
+  python samples/test_virtual_cases.py  → 8/8 통과 (전체 8개 케이스 통과)
+  python samples/test_complex_cases.py  → 5/5 통과 (케이스 분석 완료 5/5)
+
+[4-2] 전용 테스트
+  python -m pytest tests/test_demox_r4_unsupported_status.py -q
+    → 35 passed in 2.11s  (classify_unsupported_sql_shape 전용 스위트, 전건 통과)
+
+[4-3] 관련 서브셋 47개 파일 (stats_validation_plan / classify_unsupported_sql_shape /
+      UNSUPPORTED_* 를 참조하는 테스트 전량)
+
+  수정 후 (작업 트리)      : 30 failed, 761 passed, 4 errors, 7 subtests passed  (359.95s)
+  baseline (HEAD worktree) : 36 failed, 755 passed, 4 errors, 7 subtests passed  (359.70s)
+
+  baseline 구성 방법(git stash 미사용):
+    - git worktree add --detach <tmp> HEAD (HEAD=590b315)
+    - 동시 진행 중인 타 작업의 미커밋 변경 4개 파일
+      (services/exact_diff/sampling_preflight.py, services/single_validation_analyze_service.py,
+       services/stats_execute_service.py, ui/grid_helpers.py)을 worktree로 복사
+    - db/*.db 16개 복사 (DB 상태 차이 교란 제거)
+    → 결과적으로 baseline 과 작업 트리의 차이는
+      services/stats_validation_plan_service.py 단 1개 파일뿐.
+
+  실패 노드 집합 차분:
+    ■ 수정본에만 있는 실패(신규 회귀) : 0건
+    ■ baseline 에만 있는 실패          : 6건 — 전부 worktree 환경 차이(코드 무관)
+        tests/test_demox_r2_dataset.py::test_r2_01d_batch_excel_exists
+        tests/test_demox_r2_dataset.py::test_r2_05_batch_has_10_rows
+        tests/test_demox_r2_dataset.py::test_r2_05b_batch_header_includes_sql
+        tests/test_demox_r2_dataset.py::test_r2_05c_batch_each_row_has_target_and_sql
+        tests/test_demox_r2_dataset.py::test_r2_05d_batch_all_enabled
+        tests/test_demox_r3_complex_sql.py::test_r3_10b_r2_dataset_files_still_exist
+      원인: samples/demo_complex_10_batch.xlsx 가 git untracked 파일이라
+            worktree 체크아웃에 존재하지 않음(FileNotFoundError). 본 수정과 무관.
+
+  → 신규 회귀 0건. 아래 30건은 baseline 에서도 동일하게 실패하는 사전 존재 실패다.
+
+[4-4] 실패 테스트 전체 목록 (수정 후 30건 — 전부 baseline 동일 실패)
+  tests/test_batch_flow2_candidate_core_parity.py::test_coalesce_cast_flow2_core_parity
+  tests/test_batch_flow2_e2e_smoke.py::test_e2e_generate_candidates_then_snapshots
+  tests/test_batch_flow2_e2e_smoke.py::test_e2e_groupby_estimate_in_responses
+  tests/test_batch_flow2_e2e_smoke.py::test_e2e_target_filter_excludes_non_passed
+  tests/test_batch_flow2_e2e_smoke.py::test_plan_mode_count_sum_only
+  tests/test_batch_flow2_e2e_smoke.py::test_plan_mode_default_selected_only
+  tests/test_batch_flow2_e2e_smoke.py::test_plan_mode_global_and_grouped
+  tests/test_batch_flow2_e2e_smoke.py::test_plan_mode_grouped_only
+  tests/test_batch_flow2_e2e_smoke.py::test_plan_modes_share_same_selected_candidates
+  tests/test_batch_flow2_multirow_e2e_smoke.py::test_db_valid_status_filter
+  tests/test_batch_flow2_multirow_e2e_smoke.py::test_is_current_latest_only
+  tests/test_batch_flow2_multirow_e2e_smoke.py::test_old_snapshot_not_in_latest_plan
+  tests/test_batch_flow2_multirow_e2e_smoke.py::test_row_failure_isolation
+  tests/test_batch_flow2_multirow_e2e_smoke.py::test_soft_deleted_batch_excluded
+  tests/test_batch_flow2_multirow_e2e_smoke.py::test_two_normal_rows_each_snapshot_and_plan
+  tests/test_batch_profile_candidate_parity.py::test_calc_profile_present_parity
+  tests/test_single_connection_policy.py::test_single_source_saves_and_keeps_binding
+  tests/test_single_official_register_hardening.py::test_persist_blocked_when_atomicity_unsupported
+  tests/test_single_save_group_registration.py::test_migration_sql_not_executed
+  tests/test_single_save_group_registration.py::test_resave_changed_sql_requires_confirmation_then_replaces
+  tests/test_single_save_group_registration.py::test_resave_same_sql_idempotent
+  tests/test_single_save_group_registration.py::test_save_registers_target_and_count_increases
+  tests/test_single_save_source_binding.py::test_resave_keeps_latest_binding
+  tests/test_single_save_source_binding.py::test_single_source_binding_uses_profile_name
+  tests/test_single_validation_final_flow_check.py::test_analyze_candidates_business_first_and_source_expression
+  tests/test_task11_g.py::TestAdapterUsage::test_TC_PIPELINE_04_analyze_route_uses_adapter
+  tests/test_task11_g.py::TestCandidateEngineEvidence::test_TC_PIPELINE_09_lineage_sum_evidence
+  tests/test_task11_g.py::TestSqlglotImportRestriction::test_TC_PIPELINE_01_sqlglot_restricted_to_parser
+  tests/test_task11_i.py::TestBatchCandidateMetaPath::test_02_no_metadata_warning_uses_sql_only_message
+  tests/test_task11_s9_r3.py::test_r3_04_individual_checklimit_4th_reverts
+
+  errors 4건(수정 전/후 동일, baseline 동일):
+  tests/test_single_save_source_binding.py::test_single_source_binding_uses_profile_name
+  tests/test_single_save_source_binding.py::test_multi_source_blocked_at_service
+  tests/test_single_save_source_binding.py::test_ambiguous_owner_blocks_save
+  tests/test_single_save_source_binding.py::test_resave_keeps_latest_binding
+
+────────────────────────────────────────────────────────────────────────
+5. git diff / 커밋
+────────────────────────────────────────────────────────────────────────
+커밋 해시 : 01cbb10daf85239991e9ffb9b9a41aa949609641
+직전 HEAD : 590b315 (SELECT-STAR-EXPANSION-LITERAL-COMMENT-FALSE-POSITIVE-FIX)
+변경 파일 : services/stats_validation_plan_service.py  (1 file changed, 20 insertions(+), 7 deletions(-))
+
+--- a/services/stats_validation_plan_service.py
++++ b/services/stats_validation_plan_service.py
+@@ -33,6 +33,11 @@ import sqlite3
+ from datetime import datetime, timezone
+ from pathlib import Path
+
++# 문자열 리터럴·주석 오탐 방지 전처리 (재사용 — 신규 전처리 로직 작성 금지)
++# canonical 정의 위치: services/analyze_service.py
++#   (services/single_validation_analyze_service.py 도 동일 모듈에서 재사용한다)
++from services.analyze_service import _strip_sql_literals_and_comments
++
+ _log = logging.getLogger(__name__)
+ _DB_PATH = Path(__file__).parent.parent / "db" / "migration_validator.db"
+
+@@ -164,6 +169,11 @@ def classify_unsupported_sql_shape(migration_sql: str) -> dict | None:
+
+     단일 인라인뷰(FROM (SELECT ...))는 지원 대상이므로 감지하지 않는다.
+
++    판정 전 문자열 리터럴·주석을 제거한 텍스트(scan_sql)로만 검사한다.
++    (예: SELECT 'UNION ALL' 리터럴, "-- WITH tmp AS (" 라인주석,
++     블록주석 안의 GROUP BY 는 미지원 구문이 아니다)
++    전처리 함수는 길이 보존형이라 원본 SQL과 오프셋이 동일하다.
++
+     Returns:
+         {status_code, warning_code, label, severity, category, message} 또는
+         지원 대상이면 None
+@@ -174,9 +184,12 @@ def classify_unsupported_sql_shape(migration_sql: str) -> dict | None:
+     import re as _re
+     sql = migration_sql.strip()
+
++    # 리터럴·주석 제거본 — 이후 모든 keyword 판정은 이 문자열로만 수행한다
++    scan_sql = _strip_sql_literals_and_comments(sql)
++
+     # SELECT 블록 추출 (INSERT INTO ... 이후) — GROUP BY/DISTINCT 판정용
+-    _sel = _re.search(r'\bSELECT\b', sql, _re.IGNORECASE)
+-    select_block = sql[_sel.start():] if _sel else sql
++    _sel = _re.search(r'\bSELECT\b', scan_sql, _re.IGNORECASE)
++    select_block = scan_sql[_sel.start():] if _sel else scan_sql
+
+     def _mk(code: str) -> dict:
+         meta = _SHAPE_META[code]
+@@ -190,15 +203,15 @@ def classify_unsupported_sql_shape(migration_sql: str) -> dict | None:
+         }
+
+     # 1. CTE — WITH ... AS ( (INSERT 뒤 또는 문장 선두 모두 감지)
+-    if _re.search(r'\bWITH\s+\w+\s+AS\s*\(', sql, _re.IGNORECASE):
++    if _re.search(r'\bWITH\s+\w+\s+AS\s*\(', scan_sql, _re.IGNORECASE):
+         return _mk(SHAPE_CODE_CTE)
+
+     # 2. UNION / UNION ALL
+-    if _re.search(r'\bUNION\b', sql, _re.IGNORECASE):
++    if _re.search(r'\bUNION\b', scan_sql, _re.IGNORECASE):
+         return _mk(SHAPE_CODE_UNION)
+
+     # 3. WINDOW 함수 — OVER (
+-    if _re.search(r'\bOVER\s*\(', sql, _re.IGNORECASE):
++    if _re.search(r'\bOVER\s*\(', scan_sql, _re.IGNORECASE):
+         return _mk(SHAPE_CODE_WINDOW)
+
+     # 4. AGGREGATE — SELECT 블록에 GROUP BY (HAVING 동반 가능)
+@@ -206,11 +219,11 @@ def classify_unsupported_sql_shape(migration_sql: str) -> dict | None:
+         return _mk(SHAPE_CODE_AGGREGATE)
+
+     # 5. DISTINCT — SELECT DISTINCT
+-    if _re.search(r'\bSELECT\s+DISTINCT\b', sql, _re.IGNORECASE):
++    if _re.search(r'\bSELECT\s+DISTINCT\b', scan_sql, _re.IGNORECASE):
+         return _mk(SHAPE_CODE_DISTINCT)
+
+     # 6. MANUAL — EXISTS ( (scalar subquery는 단일 인라인뷰 오탐 위험으로 제외)
+-    if _re.search(r'\bEXISTS\s*\(', sql, _re.IGNORECASE):
++    if _re.search(r'\bEXISTS\s*\(', scan_sql, _re.IGNORECASE):
+         return _mk(SHAPE_CODE_MANUAL)
+
+     return None
+
+(4번 판정은 select_block 변수를 통해 이미 scan_sql 기준으로 전환됨)
+
+────────────────────────────────────────────────────────────────────────
+6. 병행 확인 / 잔여 리스크
+────────────────────────────────────────────────────────────────────────
+- 수정 파일 services/stats_validation_plan_service.py 1개. 동시 진행 중인 3개 지침과 겹침 없음.
+  커밋도 해당 파일만 staged(pre-commit 비밀번호 스캔 통과, staged 1개 파일).
+- 화면 무관 작업이므로 스크린샷 없음(지침대로).
+- 잔여: 전처리 helper는 double-quoted identifier 를 보수적으로 유지하므로,
+  "UNION" 같은 따옴표 식별자는 여전히 키워드로 감지될 수 있다(helper 자체 규약, 본 수정 범위 밖).
+- 잔여: helper 가 services/analyze_service.py 의 private 함수(_ 접두)라 모듈 간 결합이 하나 늘었다.
+  다만 신규 전처리 중복 구현(오탐 규칙 이원화) 위험보다 재사용이 안전하다고 판단했고,
+  동일 helper 를 이미 count-plan / select-star 경로에서도 재사용 중이라 일관된다.
+  향후 공용 sql_text_utils 모듈로 승격하는 정리가 바람직하다.
+
+────────────────────────────────────────────────────────────────────────
+7. 실검증 상태
+────────────────────────────────────────────────────────────────────────
+실검증 상태: 실측 완료 (분류 함수 13케이스 + 계획 생성 경로 e2e 5케이스 전건 실행,
+전용 스위트 35건 통과, 관련 서브셋 47파일 baseline 대조 신규 회귀 0건 — 실 DB 접속 불요 경로)
+
+✅ 작업 완료 - STATS-PLAN-LITERAL-COMMENT-FALSE-POSITIVE-FIX - 통계검증 계획 판정이 문자열 리터럴·주석 안 키워드를 미지원 구문으로 오인해 plan_status="UNSUPPORTED"로 조기 반환하던 오탐 제거(실제 미지원 구문 하드 게이트는 불변)
