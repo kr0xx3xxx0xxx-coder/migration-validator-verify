@@ -10,7 +10,11 @@
 - 대상 제외: 아직 push 되지 않은 로컬 전용 보고서 16건은 이번 취합에서 제외했다.
   push 후 이 파일에 합류시킨다.
 - 최초 작성: 2026-07-29 (VERIFY-REPO-BACKLOG-FILE-CREATE)
-- 최종 갱신: 2026-07-29 (BACKLOG-S2-UPDATE-CHARACTER-PK-AXIS-B) — S2 에 축 B 확정분 반영, P8 신규 추가
+- 최종 갱신: 2026-07-29 (BACKLOG-NEW-STRATEGY-HIERARCHICAL-CHECKSUM-ADD) — `신규 전략 검토` 섹션(N1) 추가,
+  S2·S4 해결 완료 표시
+- 직전 갱신: 2026-07-29 (BACKLOG-S2-UPDATE-CHARACTER-PK-AXIS-B) — S2 에 축 B 확정분 반영, P8 신규 추가
+- 예외: 위 "완료 항목은 넣지 않는다" 원칙에도, 해결된 지 얼마 되지 않은 항목은 **삭제하지 않고
+  `✅ 해결 완료` 로 표시 + 근거 커밋 해시**를 남긴다(같은 문제 재론 방지). 다음 정리 때 일괄 제거한다.
 - 번호는 추가 순서(다음 번호)로 부여하며, 배치는 위 정렬 규칙(발견일 최신순)을 따른다.
   따라서 섹션 안에서 번호가 연속하지 않을 수 있다.
 
@@ -33,7 +37,17 @@
   **사용자 결정 필요** — 안전측 전환은 무회귀가 아니다.
 - 참고: E:\verify_reports\SQLGLOT-USAGE-CONSISTENCY-AUDIT-DIAGNOSE.txt
 
-### S2. 문자 PK 지정 시 조용한 오판정 — 축 A(경계 절단) + 축 B(merge-join 정렬 전제 위반), 청크 신뢰성 게이트가 없다
+### S2. ✅ 해결 완료 — 문자 PK 지정 시 조용한 오판정 — 축 A(경계 절단) + 축 B(merge-join 정렬 전제 위반), 청크 신뢰성 게이트가 없다
+- 해결일: 2026-07-29 (PK-RANGE-CHUNK-SORT-ORDER-ALIGNMENT-FIX)
+- 근거 커밋: 코드 저장소 `934c293` — `fix(pk-chunk): PK_RANGE_CHUNK merge-join 정렬 전제를 불변식으로 강제
+  — 문자 키 조용한 오판정 제거 (PK-RANGE-CHUNK-SORT-ORDER-ALIGNMENT-FIX)`
+- 근거 보고서 커밋: 이 저장소 `ab0d492`(완료보고 `PK-RANGE-CHUNK-SORT-ORDER-ALIGNMENT-FIX-RESUME`) /
+  `8eb750e`(Before·After 실측·브라우저·chunk 경로 증적)
+- 해결 요약: 축 B 는 `merge_chunk` 진입점에서 PK 오름차순을 불변식으로 보장(`_ensure_pk_ascending`,
+  이미 정렬된 입력은 O(n) 검사만·SQL 의 ORDER BY 는 불변·보정 건수는 `pk_order_*` metrics 로 노출),
+  축 A 는 MIN/MAX 가 문자로 반환된 경우에만 숫자 의미로 재산정(전 행 변환 가능할 때만 적용, 1건이라도
+  불가하면 문자 경계 유지 → 호출측 `int()` 게이트가 HOLD). 100만행 실 오라클 실측에서
+  문자키 재이관 64,997 + 목적 단독 54,998 → 참값 그대로 10,000 / 목적 단독 0 으로 교정 확인.
 - 발견일: 2026-07-29
 - 근거 보고서: `PK-RANGE-CHUNK-BOUNDARY-ORDERING-ASSUMPTION-DIAGNOSE.txt` (§5 A·B / §6-1) /
   `CHARACTER-PK-SILENT-FALSE-MATCH-1M-REPRODUCE.txt` (§2·§3 / §6)
@@ -80,7 +94,15 @@
 - 참고: E:\verify_reports\PLAIN-JOIN-WRAPPING-NECESSITY-DIAGNOSE.txt
 - 참고: E:\verify_reports\SQLGLOT-USAGE-CONSISTENCY-AUDIT-DIAGNOSE.txt
 
-### S4. 재이관 DIRECT_STREAM 에 사전 행수 게이트가 없어 5만행 상한이 원본 DB 부하를 전혀 막지 못한다
+### S4. ✅ 해결 완료 — 재이관 DIRECT_STREAM 에 사전 행수 게이트가 없어 5만행 상한이 원본 DB 부하를 전혀 막지 못한다
+- 해결일: 2026-07-29 (DIRECT-STREAM-PRECOUNT-GATE-FIX)
+- 근거 커밋: 코드 저장소 `2e443f2` — `fix(exact-diff): 소형 상한(5만) 판정을 정렬 완료 후 → SQL 발행 전으로
+  이동 (DIRECT-STREAM-PRECOUNT-GATE-FIX)`
+- 근거 보고서 커밋: 이 저장소 `e80469d`(완료보고 `DIRECT-STREAM-PRECOUNT-GATE-FIX-RESUME`)
+- 해결 요약: 이미 확보된 `expected_src/tgt_count` 가 상한을 넘으면 SQL 발행 **전에** 같은 사유·같은 문구로
+  즉시 보류한다(임계값·HOLD 사유 불변, 판정 시점만 이동). 사전 COUNT 가 없는 호출 경로는 기존 동작으로 폴백.
+  실 오라클 100만행 대조 실측: Before 6.19/7.81/6.67s · 50,001+49,501행 스캔 · 쿼리 4회 →
+  After 0.00s · 0행 스캔 · 쿼리 0회.
 - 발견일: 2026-07-29
 - 근거 보고서: `LARGE-DATA-SORT-EXPOSURE-DIAGNOSE.txt` (§4 / §5 A-1, 최우선 권고)
 - 상세: `PHASE1_MAX_ROWS=50,000` 판정은 `io.hash_stream()` 이 이미 `ORDER BY __K` 를 서버에 던지고 첫 행을
@@ -344,6 +366,27 @@
   필요하고, `group_hard_reset_service` 같은 공통 core 를 재사용하는 별도 작업이 안전하다.
   ※ 기존 데이터 삭제를 수반하므로 **실행 전 사용자 확인 필수**.
 - 참고: E:\verify_reports\PROJECT-IS-TEST-FLAG-IMPLEMENT.txt
+
+---
+
+## 신규 전략 검토
+
+### N1. 계층적 체크섬(Merkle tree) 전략 도입 검토
+- 발견일: 2026-07-29 (PO 와의 논의)
+- 근거: 세션 대화. **문서화된 진단/설계 보고서는 아직 없으며 최초 아이디어 단계**다
+  (이 저장소에 근거 보고서 파일 없음).
+- 상세: 현행 재이관 실행전략은 DIRECT_STREAM / PK_RANGE_CHUNK / HASH_BUCKET 3종이다.
+  이 중 HASH_BUCKET 은 **버킷 개수가 고정**이라 데이터가 커질수록 불일치를 포함한 '활성 버킷' 수가
+  선형으로 늘어나고 상한이 없다(연관: P5 의 chunk 폭증 방어 부재, `HASH-BUCKET-STRATEGY-
+  SORT-AVOIDANCE-VIABILITY-DIAGNOSE.txt` 의 wave2 선형 폭증 관측).
+  계층적 체크섬은 청크를 트리 구조로 나눠 **상위 레벨 해시만 먼저 비교**하고, 값이 다른 가지만
+  재귀적으로 좁혀 내려가는 방식이다(pt-table-checksum / AWS DMS 검증이 쓰는 계열).
+  불일치가 희소한 대용량 테이블에서 스캔량을 고정 버킷 방식보다 **구조적으로** 더 줄일 잠재력이 있다.
+- 검토 시 함께 볼 것(미검증 전제): 레벨별 해시의 방언 간 동등성(S6 의 NLS 의존과 동일 계열 위험),
+  트리 재귀 중 원본 데이터 변경 시 판정 안정성, 왕복 횟수 증가 대비 스캔량 감소의 손익분기.
+- 대응 방향: **아직 설계 착수 전**. 기존 3대 전략의 미진한 부분(S5 / S6 / P1 / P5 / P8 / F1) 정리가
+  먼저이고, 그 이후 필요 시 별도 설계 검토 세션으로 착수한다.
+- 상태: 아이디어 단계 — 설계/구현 미착수
 
 ---
 
