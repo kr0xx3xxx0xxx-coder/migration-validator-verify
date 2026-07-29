@@ -1,0 +1,37 @@
+﻿==============================================================================
+COUNT-TIMEOUT-ERROR-MESSAGE-CATEGORY-FIX — run_count_pair E2E
+  COUNT_STATEMENT_TIMEOUT_MS = 1500 (env 주입)
+==============================================================================
+[E1] 원본 COUNT 쿼리 타임아웃 (3,000만 행 / 제한 1.5초)
+  [E1_query_timeout] status=ERROR code=EXEC_ERROR
+      source_count_error : 쿼리 실행 시간 초과 (접속은 정상 — 실행 시간이 제한을 초과했습니다). 현재 제한: 1.5초 (환경변수 MV_COUNT_STATEMENT_TIMEOUT_MS = 1500 ms). 이 제한은 실행마다 적용되는 고정값이라 재시도해도 동일하게 실패할 가능성이 높습니다. 제한 상향(환경변수 조정 후 서버 재기동) 또는 대상 축소(WHERE 조건)를 권장합니다.
+      count_error_message: 원본: 쿼리 실행 시간 초과 (접속은 정상 — 실행 시간이 제한을 초과했습니다). 현재 제한: 1.5초 (환경변수 MV_COUNT_STATEMENT_TIMEOUT_MS = 1500 ms). 이 제한은 실행마다 적용되는 고정값이라 재시도해도 동일하게 실패할 가능성이 높습니다. 제한 상향(환경변수 조정 후 서버 재기동) 또는 대상 축소(WHERE 조건)를 권장합니다.
+[E2] 접속 실패(존재하지 않는 호스트) — 기존 문구 회귀 확인
+  [E2_conn_fail] status=ERROR code=EXEC_ERROR
+      source_count_error : 호스트명 조회 실패 (DNS 오류)
+      count_error_message: 원본: 호스트명 조회 실패 (DNS 오류); 목적지: 호스트명 조회 실패 (DNS 오류)
+{
+  "cases": [
+    {
+      "case": "E1_query_timeout",
+      "status": "ERROR",
+      "count_error_code": "EXEC_ERROR",
+      "count_error_message": "원본: 쿼리 실행 시간 초과 (접속은 정상 — 실행 시간이 제한을 초과했습니다). 현재 제한: 1.5초 (환경변수 MV_COUNT_STATEMENT_TIMEOUT_MS = 1500 ms). 이 제한은 실행마다 적용되는 고정값이라 재시도해도 동일하게 실패할 가능성이 높습니다. 제한 상향(환경변수 조정 후 서버 재기동) 또는 대상 축소(WHERE 조건)를 권장합니다.",
+      "source_count_error": "쿼리 실행 시간 초과 (접속은 정상 — 실행 시간이 제한을 초과했습니다). 현재 제한: 1.5초 (환경변수 MV_COUNT_STATEMENT_TIMEOUT_MS = 1500 ms). 이 제한은 실행마다 적용되는 고정값이라 재시도해도 동일하게 실패할 가능성이 높습니다. 제한 상향(환경변수 조정 후 서버 재기동) 또는 대상 축소(WHERE 조건)를 권장합니다.",
+      "target_count_error": null,
+      "source_count": null,
+      "target_count": 1000000
+    },
+    {
+      "case": "E2_conn_fail",
+      "status": "ERROR",
+      "count_error_code": "EXEC_ERROR",
+      "count_error_message": "원본: 호스트명 조회 실패 (DNS 오류); 목적지: 호스트명 조회 실패 (DNS 오류)",
+      "source_count_error": "호스트명 조회 실패 (DNS 오류)",
+      "target_count_error": "호스트명 조회 실패 (DNS 오류)",
+      "source_count": null,
+      "target_count": null
+    }
+  ],
+  "count_statement_timeout_ms": 1500
+}

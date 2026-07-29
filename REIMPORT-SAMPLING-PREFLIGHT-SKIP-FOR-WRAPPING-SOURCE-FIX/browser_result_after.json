@@ -1,0 +1,121 @@
+{
+ "task": "REIMPORT-SAMPLING-PREFLIGHT-SKIP-FOR-WRAPPING-SOURCE-FIX",
+ "tag": "after",
+ "sql": "INSERT INTO NXDNP.MV_ORA_XDIFF_TGT (ID, C_NUM_PS) WITH ranked AS ( SELECT x.ID, CASE WHEN t.AMT IS NULL THEN x.C_NUM_PS ELSE x.C_NUM_PS END AS C_NUM_PS, ROW_NUMBER() OVER (PARTITION BY x.C_CHAR ORDER BY x.ID) AS rn FROM NXDNP.MV_ORA_XDIFF_SRC x LEFT JOIN NXDNP.MV_ORA_TEST_SRC t ON MOD(x.ID,300)+1 = t.ORDER_ID ) SELECT ID, C_NUM_PS FROM ranked WHERE rn >= 1",
+ "base": "http://127.0.0.1:8000/",
+ "stages": {
+  "2_count": {
+   "count_status": "COUNT_MINOR_DIFF",
+   "force": false,
+   "gate_text": "소규모 COUNT 차이원본 250,000 · 목적 249,950 · 순 차이 50 · 목적지 적재율 100.0%소규모 COUNT 차이(순 차이 50건) — 통계검증과 Exact Diff 로 실제 누락/과잉/값 불일치를 확인하세요(차이만으로 종료하지 않음).다음 단계: 통계검증 계속통계검증 계속 →"
+  },
+  "3_select": {
+   "gb_after": [],
+   "sum_after": []
+  },
+  "5_click": {
+   "found": true,
+   "uid": "cop_369294765",
+   "hostId": "cop_369294765_host"
+  },
+  "5_panel": {
+   "final": "표시 등급 D4 · 요약 전용(다운로드로 확보)불일치 101건(그룹 0개) — 수집이 조기중단되어 대표 표본만 저장되었습니다. 요약과 다운로드로만 확인하세요.이 그룹은 불일치가 100건을 초과합니다 — 정확한 수는 확인하지 않았습니다(조기중단). 이 정도 규모의 불일치는 개별 레코드 문제가 아니라 이관 로직 자체의 점검이 필요할 가능성이 높습니다. 레코드 상세는 Excel 다운로드 또는 전수검증(이 범위 지정)으로 확인하세요.⬇ 상세 불일치 레코드 Excel 다운로드",
+   "watch_sec": 10.2,
+   "ready_at_sec": 6.1,
+   "warning_seen_at_sec": null,
+   "warning_text": "재이관 대상 준비 지연",
+   "warning_threshold_sec": 300,
+   "observation_valid": true,
+   "invalid_reason": ""
+  }
+ },
+ "panel_trace": [
+  {
+   "dt": 0.0,
+   "txt": "재이관 PK index 준비 중…(테이블당 1회)"
+  },
+  {
+   "dt": 3.0,
+   "txt": "재이관 대상 준비 중… (현재 저장 0건 · 완료되면 자동 표시)"
+  },
+  {
+   "dt": 4.5,
+   "txt": "재이관 대상 준비 중… (현재 저장 20건 이상 · 완료되면 자동 표시)"
+  },
+  {
+   "dt": 6.1,
+   "txt": "표시 등급 D4 · 요약 전용(다운로드로 확보)불일치 101건(그룹 0개) — 수집이 조기중단되어 대표 표본만 저장되었습니다. 요약과 다운로드로만 확인하세요.이 그룹은 불일치가 100건을 초과합니다 — 정확한 수는 확인하지 않았습니다(조기중단). 이 정도 규모의 불일치는 개별 레코드 문제가 아니라 이관 로직 자체의 점검이 필요할 가능성이 높습니다. 레코드 상세는 Excel 다운로드 또는 전수검증(이 범위 지정)으로 확인하세요.⬇ 상세 불일치 레코드 Excel 다"
+  }
+ ],
+ "setup": {
+  "project": "TESTONLY_REG",
+  "pair_rows": 1,
+  "nav_single_clicked": true
+ },
+ "net": [
+  {
+   "t": 1785248826.8,
+   "url": "prepare",
+   "resp": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PS7A430183F330"
+   }
+  },
+  {
+   "t": 1785248826.89,
+   "url": "pk-records",
+   "resp": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PS7A430183F330",
+    "total": null,
+    "available_count": 0,
+    "missing_migration": 0,
+    "value_mismatch": 0,
+    "target_only_count": 0,
+    "sampling_status": null,
+    "source_count": 250000,
+    "target_count": 249950
+   }
+  },
+  {
+   "t": 1785248828.69,
+   "url": "pk-records",
+   "resp": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PS7A430183F330",
+    "total": null,
+    "available_count": 20,
+    "missing_migration": 53,
+    "value_mismatch": 27,
+    "target_only_count": 0,
+    "sampling_status": null,
+    "source_count": 250000,
+    "target_count": 249950
+   }
+  },
+  {
+   "t": 1785248830.29,
+   "url": "pk-records",
+   "resp": {
+    "ok": true,
+    "status": "EARLY_STOPPED",
+    "run_id": "PS7A430183F330",
+    "total": 101,
+    "reimport_total": null,
+    "missing_migration": 67,
+    "value_mismatch": 34,
+    "target_only_count": 0,
+    "sampling_status": null,
+    "source_count": 250000,
+    "target_count": 249950
+   }
+  }
+ ],
+ "dialogs": [
+  "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+  "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+ ]
+}

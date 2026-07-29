@@ -1,0 +1,96 @@
+commit e9248c33c2b79288b6cf74d85c50eb2cdc96bbb7
+Author: migration-validator <dev@migration-validator.local>
+Date:   Tue Jul 28 23:12:22 2026 +0900
+
+    perf(reimport): CTE/JOIN wrapping 소스에서 표본 preflight 게이트 건너뛰기 (REIMPORT-SAMPLING-PREFLIGHT-SKIP-FOR-WRAPPING-SOURCE-FIX)
+    
+    wrapping 소스는 원본 SQL 을 인라인뷰로 감싸고 그 위에 述어를 얹는 구조라 CTE/윈도우함수가
+    view merging 을 막아, 표본 어댑터의 anchor 1개당 조회가 매번 원본 전체 재스캔이 된다.
+    실 오라클(asis 1523 → tobe 1524) 25만행 CTE+LEFT JOIN+ROW_NUMBER 실측에서 표본 preflight
+    463.5초 vs 전수 merge 3.1초로, 비용을 아끼려는 표본이 전수보다 150배 비싼 역전이 발생했다.
+    
+    표본은 판정이 아니라 사전 게이트이므로(INCONCLUSIVE 와 동일 취급) wrapping 소스에서는
+    건너뛴다. 기존 방언 불일치 스킵(:358)과 동일 패턴으로 조건 1개만 추가하고, 게이트 내부
+    로직과 전수 merge 로직은 건드리지 않는다.
+    
+    실측(Before/After, 동일 픽스처·동일 파라미터):
+      wrapping     469.30s → 5.10s (92배), 표본 미실행
+      non-wrapping  10.83s → 4.32s, 표본 그대로 실행(anchor 2,000) — 무회귀
+      판정 동일성  재이관 대상 PK 150건(미이관 100 + 값불일치 50) 완전 동일(차집합 공집합)
+                   절단 조건(early_stop_abs 기본 101)에서도 101건 완전 동일
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_014AYsAvgx6Me4B5vQNaBHEV
+
+ routes/agg_diff_route.py                           |  10 +
+ .../reimport_sampling_skip_browser_verify.py       | 329 +++++++++++++++++++++
+ scripts/dev_e2e/reimport_sampling_skip_compare.py  |  93 ++++++
+ .../reimport_sampling_skip_wrapping_verify.py      | 286 ++++++++++++++++++
+ tests/test_sampling_gate_wrapping_skip.py          |  95 ++++++
+ 5 files changed, 813 insertions(+)
+
+commit e9248c33c2b79288b6cf74d85c50eb2cdc96bbb7
+Author: migration-validator <dev@migration-validator.local>
+Date:   Tue Jul 28 23:12:22 2026 +0900
+
+    perf(reimport): CTE/JOIN wrapping 소스에서 표본 preflight 게이트 건너뛰기 (REIMPORT-SAMPLING-PREFLIGHT-SKIP-FOR-WRAPPING-SOURCE-FIX)
+    
+    wrapping 소스는 원본 SQL 을 인라인뷰로 감싸고 그 위에 述어를 얹는 구조라 CTE/윈도우함수가
+    view merging 을 막아, 표본 어댑터의 anchor 1개당 조회가 매번 원본 전체 재스캔이 된다.
+    실 오라클(asis 1523 → tobe 1524) 25만행 CTE+LEFT JOIN+ROW_NUMBER 실측에서 표본 preflight
+    463.5초 vs 전수 merge 3.1초로, 비용을 아끼려는 표본이 전수보다 150배 비싼 역전이 발생했다.
+    
+    표본은 판정이 아니라 사전 게이트이므로(INCONCLUSIVE 와 동일 취급) wrapping 소스에서는
+    건너뛴다. 기존 방언 불일치 스킵(:358)과 동일 패턴으로 조건 1개만 추가하고, 게이트 내부
+    로직과 전수 merge 로직은 건드리지 않는다.
+    
+    실측(Before/After, 동일 픽스처·동일 파라미터):
+      wrapping     469.30s → 5.10s (92배), 표본 미실행
+      non-wrapping  10.83s → 4.32s, 표본 그대로 실행(anchor 2,000) — 무회귀
+      판정 동일성  재이관 대상 PK 150건(미이관 100 + 값불일치 50) 완전 동일(차집합 공집합)
+                   절단 조건(early_stop_abs 기본 101)에서도 101건 완전 동일
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_014AYsAvgx6Me4B5vQNaBHEV
+
+diff --git a/routes/agg_diff_route.py b/routes/agg_diff_route.py
+index 88d0634..63b0222 100644
+--- a/routes/agg_diff_route.py
++++ b/routes/agg_diff_route.py
+@@ -357,6 +357,16 @@ def _run_sampling_gate(req, src_sql, tgt_sql, key_src, key_tgt, sum_pairs, fp, j
+     # encoding 이 달라 전 행이 거짓 불일치) 여기서 별도 판정을 만들지 않고 기존 전략으로 넘긴다.
+     if dbms != tgt_dbms:
+         return None
++    # [REIMPORT-SAMPLING-PREFLIGHT-SKIP-FOR-WRAPPING-SOURCE-FIX] CTE/JOIN/UNION wrapping 소스는 표본 게이트를
++    # 건너뛴다(위 방언 불일치와 동일 패턴 — 판정을 만들지 않고 기존 전략으로 넘긴다).
++    # 사유: wrapping 소스는 원본 SQL 을 인라인뷰로 감싸고 그 위에 述어를 얹는 구조라 윈도우함수/CTE 가 view
++    # merging 을 막아, 표본 어댑터의 anchor 1개당 조회가 매번 '원본 전체 재스캔'이 된다. 실측(25만행 CTE+JOIN+
++    # ROW_NUMBER, REIMPORT-COUNTONLY-CHUNK-SIZE-DIAGNOSE)에서 anchor 2,000개 = 471.5초인데 정작 전수 merge 는
++    # 2.7초로, '전수 비용을 아끼려는 표본'이 전수보다 175배 비싼 역전이 발생했다. 표본은 판정이 아니라 사전
++    # 게이트일 뿐이므로(INCONCLUSIVE 와 동일 취급) 건너뛰어도 최종 불일치 판정·건수는 불변이다.
++    # 단순 SELECT(non-wrapping)는 anchor 당 2.2ms 로 저렴하므로 기존 표본 게이트를 그대로 탄다(무회귀).
++    if _reimport_source_needs_wrapping(req):
++        return None
+     from services.exact_diff import sampling_preflight as spf
+     from services.exact_diff.agg_contribution import _pg_raw_connect
+     # 방언별 표본 어댑터는 sampling_preflight 의 위임표(_SAMPLING_ADAPTERS)에서 받는다.
+
+=== a649dab (검증 드라이버만) ===
+commit a649dabec6283625964672f6f2f5a86fd8aa61a2
+Author: migration-validator <dev@migration-validator.local>
+Date:   Tue Jul 28 23:28:35 2026 +0900
+
+    test(reimport): 표본 스킵 브라우저 검증 드라이버를 현행 UI 진입점에 맞춤 (REIMPORT-SAMPLING-PREFLIGHT-SKIP-FOR-WRAPPING-SOURCE-FIX)
+    
+    개발/검증 전용 드라이버만 수정(운영 코드 무변경).
+    - 좌측 메뉴 그룹 라벨이 '주요 검증'이 아니라 '검증 실행' — JS 직접 클릭으로 교체.
+    - GB=0/SUM=0 결과 화면의 재이관 진입점은 그룹 드릴다운 행(tr[data-row-key])이 아니라
+      '재이관 대상 불일치 레코드 보기' 버튼(_mvCountOnlyReimportOpen)이다. 패널도 그 host div 를 본다.
+    - 진입 버튼 미발견/확정 상태 미관측이면 '경고 미발생'을 공허한 참으로 보고하지 않도록
+      observation_valid 플래그 추가.
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_014AYsAvgx6Me4B5vQNaBHEV
+
+ .../reimport_sampling_skip_browser_verify.py       | 57 ++++++++++++++++------
+ 1 file changed, 41 insertions(+), 16 deletions(-)

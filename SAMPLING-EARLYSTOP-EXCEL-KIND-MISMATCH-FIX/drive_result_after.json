@@ -1,0 +1,302 @@
+{
+  "tag": "after",
+  "started_at": "2026-07-28 20:09:35",
+  "policy": {
+    "sample_early_stop_enabled": true,
+    "sample_expected_ratio_threshold": 10.0,
+    "sample_initial_n": 2000,
+    "sample_max_n": 10000,
+    "sample_confidence_level": 95.0,
+    "sample_representative_store_n": 20
+  },
+  "analyze": {
+    "code": 200,
+    "token": true,
+    "gb_cands": [
+      "STATUS_CD",
+      "DEPT_CD"
+    ],
+    "sum_cands": [
+      "AMT"
+    ]
+  },
+  "count": {
+    "code": 200,
+    "src": 60000,
+    "tgt": 60000
+  },
+  "generate": {
+    "code": 200,
+    "has_sql": true
+  },
+  "execute": {
+    "code": 200,
+    "success": true,
+    "matched": 0,
+    "diff": 12,
+    "src_only": 0,
+    "tgt_only": 0,
+    "gb_keys": [
+      "STATUS_CD",
+      "DEPT_CD"
+    ],
+    "val_cols": [
+      "CNT",
+      "AMT"
+    ],
+    "result_id": "SRE92AD37934B6"
+  },
+  "prepare": {
+    "code": 200,
+    "status": "PREPARING",
+    "run_id": "PSBBDB6152A5A7",
+    "sample_early_stop": null,
+    "error": null
+  },
+  "pk_records": {
+    "status": "EARLY_STOPPED_HIGH_MISMATCH_ESTIMATE",
+    "sample_early_stop": true,
+    "gb_cols": [
+      "status_cd",
+      "dept_cd"
+    ],
+    "sum_labels": [
+      "AMT"
+    ],
+    "key_col": "id",
+    "total_count": 20,
+    "representative_total": 20,
+    "sampling": {
+      "valid_sample_count": 2000,
+      "missing_sample": 0,
+      "value_sample": 609,
+      "reimport_sample": 609,
+      "expected_ratio": 0.3045,
+      "ci_low": 0.28472205945191115,
+      "ci_high": 0.32502750603505864,
+      "threshold_ratio": 0.1,
+      "sample_target_n": 2000
+    },
+    "first_records": [
+      {
+        "key": "342",
+        "seq": 0,
+        "pk_num": 342,
+        "src": {
+          "status_cd": "C",
+          "dept_cd": "D02",
+          "AMT": "1006.00"
+        },
+        "tgt": {
+          "status_cd": "C",
+          "dept_cd": "D02",
+          "AMT": "1506.00"
+        },
+        "diff_cols": [
+          "AMT"
+        ]
+      },
+      {
+        "key": "402",
+        "seq": 1,
+        "pk_num": 402,
+        "src": {
+          "status_cd": "C",
+          "dept_cd": "D02",
+          "AMT": "1003.00"
+        },
+        "tgt": {
+          "status_cd": "C",
+          "dept_cd": "D02",
+          "AMT": "1503.00"
+        },
+        "diff_cols": [
+          "AMT"
+        ]
+      },
+      {
+        "key": "421",
+        "seq": 2,
+        "pk_num": 421,
+        "src": {
+          "status_cd": "P",
+          "dept_cd": "D01",
+          "AMT": "1001.00"
+        },
+        "tgt": {
+          "status_cd": "P",
+          "dept_cd": "D01",
+          "AMT": "1501.00"
+        },
+        "diff_cols": [
+          "AMT"
+        ]
+      }
+    ]
+  },
+  "excel": {
+    "code": 200,
+    "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "bytes": 5731,
+    "path": "E:\\verify_screenshots_only\\SAMPLING-EARLYSTOP-EXCEL-KIND-MISMATCH-FIX\\records_excel_after.xlsx",
+    "sheets": {
+      "대표 불일치 표본": {
+        "header": [
+          "ID",
+          "불일치 유형",
+          "원본 STATUS_CD",
+          "원본 DEPT_CD",
+          "원본 AMT",
+          "목적 STATUS_CD",
+          "목적 DEPT_CD",
+          "목적 AMT"
+        ],
+        "rows": [
+          [
+            "342",
+            "값 불일치",
+            "C",
+            "D02",
+            "1006.00",
+            "C",
+            "D02",
+            "1506.00"
+          ],
+          [
+            "402",
+            "값 불일치",
+            "C",
+            "D02",
+            "1003.00",
+            "C",
+            "D02",
+            "1503.00"
+          ],
+          [
+            "421",
+            "값 불일치",
+            "P",
+            "D01",
+            "1001.00",
+            "P",
+            "D01",
+            "1501.00"
+          ],
+          [
+            "450",
+            "값 불일치",
+            "C",
+            "D02",
+            "1002.00",
+            "C",
+            "D02",
+            "1502.00"
+          ],
+          [
+            "481",
+            "값 불일치",
+            "P",
+            "D01",
+            "1005.00",
+            "P",
+            "D01",
+            "1505.00"
+          ],
+          [
+            "512",
+            "값 불일치",
+            "A",
+            "D04",
+            "1001.00",
+            "A",
+            "D04",
+            "1501.00"
+          ],
+          [
+            "541",
+            "값 불일치",
+            "P",
+            "D01",
+            "1002.00",
+            "P",
+            "D01",
+            "1502.00"
+          ],
+          [
+            "592",
+            "값 불일치",
+            "P",
+            "D04",
+            "1004.00",
+            "P",
+            "D04",
+            "1504.00"
+          ],
+          [
+            "712",
+            "값 불일치",
+            "P",
+            "D04",
+            "1005.00",
+            "P",
+            "D04",
+            "1505.00"
+          ],
+          [
+            "911",
+            "값 불일치",
+            "A",
+            "D03",
+            "1001.00",
+            "A",
+            "D03",
+            "1501.00"
+          ],
+          [
+            "1062",
+            "값 불일치",
+            "C",
+            "D02",
+            "1005.00",
+            "C",
+            "D02",
+            "1505.00"
+          ]
+        ],
+        "max_row": null,
+        "max_col": null
+      }
+    }
+  },
+  "store": {
+    "status": "EARLY_STOPPED",
+    "columns_json": "[[\"status_cd\", \"\"], [\"dept_cd\", \"\"]]",
+    "key_col_src": "id",
+    "basis_keys": [
+      "gb_cols",
+      "key_col",
+      "numeric_pk",
+      "sample_early_stop",
+      "sampling",
+      "sum_labels"
+    ],
+    "basis_gb_cols": [
+      "status_cd",
+      "dept_cd"
+    ],
+    "basis_sum_labels": [
+      "AMT"
+    ],
+    "basis_has_row_compare_columns": false,
+    "record_kinds": {
+      "SAMPLE_MISMATCH": 20
+    },
+    "first_record": {
+      "kind": "SAMPLE_MISMATCH",
+      "side": "src",
+      "key_value": "342",
+      "src_json": "{\"status_cd\": \"C\", \"dept_cd\": \"D02\", \"AMT\": \"1006.00\"}",
+      "tgt_json": "{\"status_cd\": \"C\", \"dept_cd\": \"D02\", \"AMT\": \"1506.00\"}"
+    }
+  }
+}

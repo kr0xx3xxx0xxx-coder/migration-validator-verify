@@ -1,0 +1,19 @@
+CREATE TABLE admin_column_override (
+                id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id               TEXT NOT NULL,
+                scope                    TEXT NOT NULL DEFAULT 'TABLE_COLUMN',
+                table_key                TEXT NOT NULL DEFAULT '',
+                column_name              TEXT NOT NULL,
+                decision                 TEXT NOT NULL,
+                auto_verdict_at_decision TEXT NOT NULL DEFAULT '',
+                axis_a_at_decision       TEXT NOT NULL DEFAULT '',
+                axis_b_at_decision       TEXT NOT NULL DEFAULT '',
+                memo                     TEXT NOT NULL DEFAULT '',
+                decided_by               TEXT NOT NULL DEFAULT '',
+                status                   TEXT NOT NULL DEFAULT 'ACTIVE',
+                created_at               TEXT,
+                updated_at               TEXT,
+                UNIQUE(project_id, scope, table_key, column_name)
+            ) ;
+
+잔여 행 수: 0

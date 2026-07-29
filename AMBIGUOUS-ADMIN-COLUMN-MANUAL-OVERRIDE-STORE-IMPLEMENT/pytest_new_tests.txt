@@ -1,0 +1,37 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.0.3, pluggy-1.6.0 -- C:\Python314\python.exe
+cachedir: .pytest_cache
+rootdir: C:\projects\migration-validator
+plugins: anyio-4.13.0
+collecting ... collected 28 items
+
+tests/test_admin_column_override.py::test_save_and_get_roundtrip PASSED  [  3%]
+tests/test_admin_column_override.py::test_upsert_updates_not_duplicates PASSED [  7%]
+tests/test_admin_column_override.py::test_case_normalization_matches_same_row PASSED [ 10%]
+tests/test_admin_column_override.py::test_table_scope_isolation_same_column_different_tables PASSED [ 14%]
+tests/test_admin_column_override.py::test_project_isolation PASSED       [ 17%]
+tests/test_admin_column_override.py::test_resolve_priority_table_beats_project PASSED [ 21%]
+tests/test_admin_column_override.py::test_resolve_none_means_use_auto_verdict PASSED [ 25%]
+tests/test_admin_column_override.py::test_resolve_without_table_key_only_project_scope PASSED [ 28%]
+tests/test_admin_column_override.py::test_project_scope_forces_empty_table_key PASSED [ 32%]
+tests/test_admin_column_override.py::test_stale_when_auto_verdict_changed PASSED [ 35%]
+tests/test_admin_column_override.py::test_unknown_current_verdict_is_not_stale PASSED [ 39%]
+tests/test_admin_column_override.py::test_mark_stale_persists_and_survives_matching_verdict PASSED [ 42%]
+tests/test_admin_column_override.py::test_resave_clears_stale PASSED     [ 46%]
+tests/test_admin_column_override.py::test_reject_sentinel_project_id[] PASSED [ 50%]
+tests/test_admin_column_override.py::test_reject_sentinel_project_id[   ] PASSED [ 53%]
+tests/test_admin_column_override.py::test_reject_sentinel_project_id[\uc804\uccb4 \ud504\ub85c\uc81d\ud2b8] PASSED [ 57%]
+tests/test_admin_column_override.py::test_reject_sentinel_project_id[all] PASSED [ 60%]
+tests/test_admin_column_override.py::test_reject_sentinel_project_id[null] PASSED [ 64%]
+tests/test_admin_column_override.py::test_reject_sentinel_project_id[undefined] PASSED [ 67%]
+tests/test_admin_column_override.py::test_reject_sentinel_project_id[None] PASSED [ 71%]
+tests/test_admin_column_override.py::test_reject_nonexistent_project_id PASSED [ 75%]
+tests/test_admin_column_override.py::test_reject_invalid_decision[] PASSED [ 78%]
+tests/test_admin_column_override.py::test_reject_invalid_decision[MAYBE] PASSED [ 82%]
+tests/test_admin_column_override.py::test_reject_invalid_decision[audit_column] PASSED [ 85%]
+tests/test_admin_column_override.py::test_reject_invalid_decision[None] PASSED [ 89%]
+tests/test_admin_column_override.py::test_reject_invalid_scope_and_missing_keys PASSED [ 92%]
+tests/test_admin_column_override.py::test_delete_override_releases_to_auto PASSED [ 96%]
+tests/test_admin_column_override.py::test_ensure_schema_idempotent PASSED [100%]
+
+============================= 28 passed in 7.48s ==============================
