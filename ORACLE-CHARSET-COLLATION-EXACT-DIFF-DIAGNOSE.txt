@@ -1,0 +1,502 @@
+작업명 : ORACLE-CHARSET-COLLATION-EXACT-DIFF-DIAGNOSE
+✅ 작업 완료 - ORACLE-CHARSET-COLLATION-EXACT-DIFF-DIAGNOSE - 원본/목적지 캐릭터셋이 다르면 exact_diff 값비교가 조용히 붕괴한다(운영 merge 코드로 1,986건 전건일치 → 거짓 불일치 3,062건 재현). 단, 현재 테스트 환경 asis/tobe 는 양측 AL32UTF8 로 동일해 지금 당장의 오염은 없음
+
+작성일 : 2026-07-29
+성격   : 순수 진단 — 코드 수정 0건 (지침 준수)
+실측환경: 오라클 asis 192.168.0.151:1523 / tobe 192.168.0.151:1524 (xepdb1, NXDNP)
+         드라이버 oracledb 4.0.1 (thin 모드), 조회는 전부 read-only(SELECT/카탈로그)
+
+
+================================================================================
+■ 0. 맨 앞 요약 — 실제 캐릭터셋 조회 결과
+================================================================================
+
+지침이 "다르면 굵게 강조하라"고 한 항목이다. 실측 결과는 다음과 같다.
+
+  ** 현재 테스트 환경의 asis 와 tobe 는 캐릭터셋이 동일하다 — 양측 모두 AL32UTF8 이다. **
+  ** 따라서 지금 이 환경에서 돌린 검증 결과는 캐릭터셋 때문에 오염되지 않았다. **
+
+  [NLS_DATABASE_PARAMETERS 실측]
+                                asis(1523)      tobe(1524)
+    NLS_CHARACTERSET            AL32UTF8        AL32UTF8      ← 동일
+    NLS_NCHAR_CHARACTERSET      AL16UTF16       AL16UTF16     ← 동일
+    NLS_SORT                    BINARY          BINARY        ← 동일
+    NLS_COMP                    BINARY          BINARY        ← 동일
+    NLS_LANGUAGE / TERRITORY    AMERICAN/AMERICA  AMERICAN/AMERICA
+
+그러나 이것은 "위험이 없다"는 뜻이 아니라 **"이 테스트 환경이 우려하는 상황을 재현하지
+못한다"**는 뜻이다. 사용자가 우려한 실제 이관 대상(오래된 레거시 원본)의 캐릭터셋은 이
+환경에 없으므로 확인할 수 없었다. 그리고 아래 2번 항목에서 밝히듯,
+**원본이 KO16MSWIN949/EUC-KR 계열이면 exact_diff 값비교는 오류 없이 조용히 틀린 결과를 낸다.**
+이 위험은 잠재(latent) 상태로 코드에 그대로 남아 있다.
+
+  판정 요약표
+  ┌────┬──────────────────────────────────┬─────────────────────────────┐
+  │ 항목│ 내용                              │ 판정                        │
+  ├────┼──────────────────────────────────┼─────────────────────────────┤
+  │ 1  │ 연결 계층 인코딩 처리              │ 이미 안전하게 처리됨(단, 설정 │
+  │    │                                   │ 필드가 죽은 코드 — 별건)     │
+  │ 2  │ exact_diff 문자열 값 비교          │ 이미 안전(디코딩된 str 비교) │
+  │ 2b │ 유니코드 정규화(NFC/NFD) 부재      │ 이론상 가능하나 희박         │
+  │ 3  │ ★문자 PK 정렬 — 서버측 collation  │ ★실제 위험이 있음(최우선)   │
+  │ 3b │ PK_RANGE_CHUNK 경로의 정렬         │ 이미 안전(오늘 축B 수정 덕)  │
+  │ 4  │ VARCHAR2 byte vs char 의미 구분    │ 실제 위험이 있음(사각지대)   │
+  └────┴──────────────────────────────────┴─────────────────────────────┘
+
+
+================================================================================
+■ 1. 연결 계층의 인코딩 처리
+================================================================================
+
+판정 : **현재 코드로 이미 안전하게 처리됨** (단, 부수적으로 죽은 설정 필드 발견)
+
+── 1-1. 코드가 인코딩을 명시하는가 : 명시하지 않는다(드라이버 기본값 위임)
+
+services/db_adapters/oracle.py:112-138 — 운영 오라클 연결의 단일 출처다.
+
+    def connect(self, db_info: dict, *, connect_timeout: int = 10):
+        ...
+        try:
+            import oracledb as _ora   # thin 모드 — 클라이언트 라이브러리 불요
+        except ImportError:
+            try:
+                import cx_Oracle as _ora
+            ...
+        if connect_type == "sid" and sid:
+            dsn = _ora.makedsn(host, port, sid=sid)
+        else:
+            dsn = _ora.makedsn(host, port, service_name=service)
+        return _ora.connect(user=db_info.get("user"), password=db_info.get("password"), dsn=dsn)
+
+  → user / password / dsn 세 개만 넘긴다. 인코딩 관련 인자는 하나도 없다.
+
+또한 코드 전체에서 NLS_LANG 환경변수 설정이나 `ALTER SESSION SET NLS_...` 문장은 **전무**하다.
+  grep -rn "NLS_LANG|ALTER SESSION SET NLS" services/ routes/ web_server.py → 0건
+
+── 1-2. 그런데 왜 이것이 "안전"인가 : oracledb 4.x 는 항상 UTF-8 로 고정이다
+
+설치된 드라이버는 oracledb 4.0.1, thin 모드 기본이다(실측: is_thin_mode()=True).
+python-oracledb 는 1.0 부터 `encoding`/`nencoding` 파라미터를 폐지했고 클라이언트 캐릭터셋을
+**항상 UTF-8 로 고정**한다. 실측으로 확인했다:
+
+    >>> import inspect, oracledb
+    >>> sig = inspect.signature(oracledb.connect)
+    >>> 'encoding' in sig.parameters, 'nencoding' in sig.parameters
+    (False, False)          ← 파라미터 자체가 존재하지 않는다
+
+즉 NLS_LANG 을 명시하지 않는 것이 오히려 정답이다. 드라이버가 세션 캐릭터셋을 AL32UTF8 로
+잡으므로, DB 캐릭터셋이 무엇이든 **서버가 AL32UTF8 로 변환해서 내려주고 파이썬은 온전한 str
+로 받는다.**
+
+── 1-3. 변환이 깨질 수 있는가 : 읽기 방향은 안전, 바인딩 방향만 조건부
+
+  · 읽기(DB charset → AL32UTF8 클라이언트)
+    KO16MSWIN949/EUC-KR → 유니코드 매핑은 전사(全射)다. 모든 CP949 문자는 대응 유니코드
+    코드포인트를 가지므로 **손실이 원리적으로 발생하지 않는다.** 치환문자(?) 로 깨질 일 없음.
+
+  · 바인딩(클라이언트 UTF-8 → DB charset) — 여기만 조건부다
+    services/exact_diff/engine.py:420 `emit(EMIT_HASH_MISMATCH, s[0], "")` 에서 보듯 hash 불일치
+    키는 **원본(source) 스트림의 키**이고, engine.py:385-386 `_flush_hash` 는 그 키를
+    src 와 tgt **양쪽에** 바인딩해 실제값을 재조회한다.
+
+        fs = ex.submit(_fetch_map, "src", list(keys))
+        ft = ex.submit(_fetch_map, "tgt", list(keys))
+
+    따라서 "원본에는 있으나 목적지 캐릭터셋으로 표현 불가한 문자"가 키에 있으면 목적지 바인딩
+    시 손실 변환된다. 다만 실제 이관 방향은 레거시(CP949) → 신규(AL32UTF8), 즉 **좁은 charset
+    에서 넓은 charset 으로** 가는 확장 방향이므로 이 경로는 안전하다.
+    (역방향 이관 AL32UTF8 → KO16MSWIN949 를 하게 되면 위험해진다 — 현재 계획엔 없음)
+
+── 1-4. 부수 발견 : 프리셋의 encoding/nencoding 은 죽은 설정이다 (별건, 위험 아님)
+
+  db_presets_src.json:101 / db_presets_tgt.json:74
+      "encoding": "UTF-8", "nencoding": "UTF-8"
+  ui/tabler_renderer.py:14457-14459 — 오라클 고급옵션 UI 에 Encoding/NEncoding 입력칸 존재
+
+  그러나 services/ 전체에서 이 두 키를 읽는 코드는 **0건**이다(mysql 의 charset 만
+  db_connection_service.py:279 에서 소비된다). 그리고 1-2 에서 봤듯 oracledb 4.x 는 그 인자를
+  받지도 않는다.
+
+  → 사용자가 UI 에서 Encoding 을 'EUC-KR' 로 바꿔도 **아무 효과가 없고 경고도 없다.**
+     기능적 위험은 없다(어차피 UTF-8 이 정답이므로). 다만 "설정했는데 반영된 줄 아는" 오해를
+     부르는 UI 이므로 입력칸 제거 또는 '드라이버 고정(UTF-8)' 안내문 표기가 바람직하다.
+
+
+================================================================================
+■ 2. 값 비교 경로(exact_diff)의 문자열 처리
+================================================================================
+
+판정 : raw bytes 아님 / 디코딩된 파이썬 str 비교 — **이미 안전하게 처리됨**
+       유니코드 정규화(NFC/NFD)는 **부재** — 이론상 가능하나 희박
+
+── 2-1. 무엇을 비교하는가 : 서버측 MD5 해시 + 파이썬측 str 재검증, 둘 다 문자 단위
+
+services/exact_diff/dialects/oracle.py:118-123 — 해시는 서버에서 만든다.
+
+    def row_hash_expr(self, cols_with_cat: list) -> str:
+        parts = [self.encode_expr(c, cat, i) for i, (c, cat) in enumerate(cols_with_cat)]
+        ...
+        return "LOWER(RAWTOHEX(STANDARD_HASH(" + " || ".join(parts) + ", 'MD5')))"
+
+  STANDARD_HASH 는 **DB 캐릭터셋 바이트열**에 대해 MD5 를 계산한다. 그러므로 원본이 CP949,
+  목적지가 AL32UTF8 이면 **같은 한글 문자열이라도 해시가 다르다.**
+  → 이것만 보면 "값 비교가 전부 틀리는 것 아닌가" 싶지만, 그렇지 않다. 이유는 §8 규약이다.
+
+services/exact_diff/engine.py 및 stream_merge.py:12-13 헤더 주석:
+
+    주의: hash 불일치는 'VALUE_DIFFERENT 후보'로만 방출한다 — 최종 확정은 engine 이 실제
+    컬럼값을 재조회해 컬럼별 비교로 판정한다(§8: hash 만으로 최종 확정 금지).
+
+  즉 해시는 **선별(screening)** 용이고, 확정은 반드시 실제값 재조회 후 파이썬 비교로 한다.
+  재조회 값은 1-2 에서 확인했듯 드라이버가 UTF-8 str 로 디코딩해 준 것이므로, CP949 원본과
+  UTF8 목적지의 '한글' 은 파이썬에서 동일한 str '한글' 이 되어 **정확히 같다고 판정된다.**
+
+  services/exact_diff/canonical.py:134-172 normalize_value() — 파이썬측 정규화도 전부 str 기반:
+      if category == CAT_CHAR:
+          return str(v).rstrip(" ")        # CHAR 후행 공백
+      ...
+      return str(v)
+
+  → **raw bytes 비교가 아니라 디코딩된 str 비교다. 이 축에서는 캐릭터셋 차이가 무해하다.**
+     (대가는 성능이다 — 캐릭터셋이 다르면 전건이 hash 불일치 후보가 되어 전건 재조회가
+      발생한다. 정확성 문제는 아니지만 사실상 실행 불가 수준으로 느려진다. 아래 §3 의
+      정렬 붕괴와 겹치면 결과는 그냥 틀린다.)
+
+── 2-2. 유니코드 정규화(NFC/NFD) : 값 비교 경로에는 없다
+
+  코드 전체에서 unicodedata 사용처는 **파일명/식별자 비교 전용** 2곳뿐이다:
+      services/identifier_normalize.py:39,46   — 원본파일명 NFC 정규화
+      services/active_file_exclude_service.py:39 — 동일 파일명 비교 key
+
+  **데이터 값 비교 경로(canonical.normalize_value, norm_expr, merge_compare)에는 NFC/NFD
+  정규화가 전혀 없다.** 조합형(NFD)과 완성형(NFC)은 서로 다른 값으로 판정된다:
+
+      NFC '한글' 코드포인트: ['0xd55c', '0xae00']                       len=2
+      NFD '한글' 코드포인트: ['0x1112','0x1161','0x11ab','0x1100','0x1173','0x11af']  len=6
+      파이썬 == 비교 : False
+      MD5 동일 여부  : False
+
+  ▷ 그런데 왜 "희박"으로 판정하는가 — 이번 시나리오에 한해 구조적으로 막혀 있다.
+      NFD 한글은 **CP949 로 인코딩 자체가 불가능**하다(실측: UnicodeEncodeError).
+      즉 원본이 KO16MSWIN949 계열이라면 그 DB 에는 NFD 한글이 **애초에 저장될 수 없다.**
+      따라서 "CP949 원본 vs UTF8 목적지" 조합에서 NFC/NFD 불일치는 발생하지 않는다.
+
+      실제 위험이 되는 경우는 별개다: macOS 에서 만든 CSV/파일 경유 적재(맥은 NFD 를 쓴다),
+      또는 NCHAR/NVARCHAR2(AL16UTF16) 컬럼에 외부 유입 데이터가 들어온 경우. 이번 이관에
+      해당 경로가 있는지는 확인되지 않았다.
+
+      → **이론상 가능하지만 희박.** 다만 발생하면 §2-1 의 안전망(str 재검증)이 무력하다.
+         재검증조차 '다르다'고 볼 것이기 때문이다. 거짓 불일치로 나타난다(거짓 통과 아님).
+
+
+================================================================================
+■ 3. ★문자 PK 정렬/경계 — 가장 중요한 발견
+================================================================================
+
+판정 : **실제 위험이 있음.** 오늘 수정한 축A/축B 와 **정확히 같은 계열의 잠재 결함**이며,
+       아직 수정되지 않았다. 우선순위 최상.
+
+── 3-1. 정렬을 누가 하는가 : exact_diff 는 서버측 정렬에 전적으로 의존한다
+
+services/exact_diff/dialects/oracle.py:125-132
+
+    def key_hash_stream_sql(self, logical_sql, key_col, key_category, cols_with_cat):
+        h = self.row_hash_expr(cols_with_cat)
+        # 문자 키는 NLSSORT BINARY(byte 순) 정렬 — 세션 NLS_SORT 가 무엇이든 Python str 비교와 같은 순서.
+        order = (f"NLSSORT(({key_col}), 'NLS_SORT=BINARY')"
+                 if key_category in (CAT_TEXT, CAT_CHAR) else f"({key_col})")
+        return (f'SELECT ({key_col}) AS "__K", {h} AS "__H" '
+                f'FROM ({logical_sql}) "__ed" ORDER BY {order}')
+
+  그리고 이 스트림을 소비하는 병합은 **파이썬 비교**를 쓴다.
+  services/exact_diff/stream_merge.py:140-145
+
+    def _key_lt(a, b) -> bool:
+        """키 비교 — 같은 카테고리 키(숫자/문자) 전제. 타입 혼합 시 문자열 비교로 폴백(안전)."""
+        try:
+            return a < b            ← 파이썬 str 비교 = 유니코드 코드포인트 순
+        except TypeError:
+            return str(a) < str(b)
+
+  즉 **정렬은 DB 서버가, 비교는 파이썬이** 한다. 두 순서가 일치해야만 merge-join 이 성립한다.
+
+── 3-2. 위 주석의 전제가 무엇인지 : "DB 캐릭터셋이 AL32UTF8" 이라는 미명시 전제
+
+  주석은 "세션 NLS_SORT 가 무엇이든 Python str 비교와 같은 순서"라고 단언한다.
+  **세션 NLS_SORT 에 대해서는 맞다.** BINARY 를 명시했으므로 세션 설정은 무력화된다.
+  **그러나 캐릭터셋에 대해서는 틀렸다.** NLSSORT BINARY 는 "DB 캐릭터셋에서의 바이트 순"이다.
+
+  라이브 실측으로 확정했다(tobe, AL32UTF8):
+
+      SELECT RAWTOHEX(NLSSORT(:1,'NLS_SORT=BINARY')) FROM dual
+        '가'  NLSSORT=EAB08000   UTF-8=EAB080   CP949=B0A1
+        '똠'  NLSSORT=EB98A000   UTF-8=EB98A0   CP949=8C63
+        '한'  NLSSORT=ED959C00   UTF-8=ED959C   CP949=C7D1
+        '힣'  NLSSORT=ED9EA300   UTF-8=ED9EA3   CP949=C652
+
+    → NLSSORT BINARY 반환값 = **DB 캐릭터셋 인코딩 바이트 + 종단자 0x00**. 전 건 정확히 일치.
+       AL32UTF8 DB 에서는 UTF-8 바이트열이므로 유니코드 코드포인트 순과 같다(UTF-8 의 성질).
+       **KO16MSWIN949 DB 에서는 CP949 바이트열이 되고, 그 순서는 완전히 다르다.**
+
+  같은 DB 에서 서버 정렬 vs 파이썬 정렬도 확인했다(현재 환경은 일치 — 정상):
+      서버 ORDER BY NLSSORT BINARY : 0 A a 가 각 국 꽝 똠 뷁 쀍 한 힣
+      Python sorted()              : 0 A a 가 각 국 꽝 똠 뷁 쀍 한 힣
+      동일 여부 : True   ← AL32UTF8 이라서 일치하는 것이다
+
+  CP949 순서는 다르다(파이썬으로 산출한 반례):
+      CP949 바이트순 : 0 A Z a 똠 뷁 쀍 가 각 국 꽝 힣 한
+      유니코드순     : 0 A Z a 가 각 국 꽝 똠 뷁 쀍 한 힣
+      반례 예시:
+        '가'(U+AC00, cp949=B0A1) vs '똠'(U+B620, cp949=8C63)
+            → 유니코드로는 가 < 똠 인데 CP949 바이트로는 똠 < 가 (역전)
+        '한'(U+D55C, cp949=C7D1) vs '힣'(U+D7A3, cp949=C652)
+            → 유니코드로는 한 < 힣 인데 CP949 바이트로는 힣 < 한 (역전)
+
+  원인 구조: CP949 는 KS X 1001 상용 2,350자를 0xB0A1~ 대역에, 나머지 확장 8,822자를 그보다
+  **낮은** 0x8141~ 대역에 배치한다. 유니코드 U+AC00~U+D7A3 은 초성/중성/종성 순으로 11,172자를
+  연속 배치한다. 두 배열 규칙이 근본적으로 다르므로 순서 역전이 대량 발생한다.
+  (ASCII 구간은 양 charset 이 동일하므로 **PK 가 순수 ASCII 면 이 문제는 발생하지 않는다.**)
+
+── 3-3. 실제로 어떤 결과가 나오는가 : 운영 merge 코드로 재현 완료
+
+  운영 코드 services/exact_diff/stream_merge.merge_compare 를 그대로 호출했다.
+  데이터는 **양측 100% 동일**하게 두고(참값 = 전건 일치, 불일치 0건), 정렬 순서만
+  원본은 CP949 바이트순, 목적지는 UTF-8 바이트순으로 주었다. 한글 4자 키 1,986건.
+
+    ① 정상(양측 AL32UTF8)
+       matched=1986   source_only=0      target_only=0      hash_mismatch=0
+       판정: PASS(정답)
+
+    ② 원본 KO16MSWIN949 / 목적지 AL32UTF8
+       matched=455    source_only=1531   target_only=1531   hash_mismatch=0
+       판정: 거짓 불일치 날조
+
+  **완전히 동일한 데이터인데 1,986건 중 1,531건(77.1%)이 '원본에만 있음'으로, 동일한 1,531건이
+  '목적지에만 있음'으로 날조되었다. 총 3,062건의 허위 불일치 레코드가 생성된다.**
+  예외도, 경고도, 어떤 이상 신호도 없이 확정 결과로 보고된다.
+
+  이는 오늘 처리한 CHARACTER-PK-SILENT-FALSE-MATCH-1M-REPRODUCE(참값 10,000건이 재이관
+  64,997건 + 목적 단독 54,998건으로 날조)와 **증상·메커니즘이 동일**하다.
+  다른 점은 트리거뿐이다: 오늘 것은 "WHERE 숫자 바인드 vs ORDER BY 문자 정렬"의 불일치였고,
+  이번 것은 "서버측 charset 바이트순 vs 파이썬 코드포인트순"의 불일치다.
+
+  방향성 참고: 주 증상은 거짓 불일치(거짓 FAIL)라서 나쁜 이관을 통과시키는 형태는 아니다.
+  다만 우연히 순서가 맞아떨어진 455건 구간에서는 **진짜 불일치가 가려질 수도 있다**(거짓 PASS
+  가능성 배제 불가). 그리고 결과가 "정상 완료된 확정 판정"으로 표시되므로 사용자는 이관이
+  실패했다고 오판하게 된다.
+
+── 3-4. PK_RANGE_CHUNK 경로는? : 이미 안전하다 (오늘 축B 수정 덕분)
+
+  대조적으로 pk_range_chunk 경로는 이 문제에 면역이다. 두 가지 이유다.
+
+  (a) 경계 자체가 정수 전용이다 — services/exact_diff/pk_range_chunk.py:246-253
+        def build_chunk_bounds(pk_min, pk_max, chunk_size):
+            pk_min, pk_max, chunk_size = int(pk_min), int(pk_max), max(1, int(chunk_size))
+      int() 로 강제하므로 문자 정렬 규칙이 개입할 여지가 없다.
+
+  (b) 정렬을 파이썬이 직접 보장한다 — pk_range_chunk.py:59-97 _ensure_pk_ascending
+        "[PK-RANGE-CHUNK-SORT-ORDER-ALIGNMENT-FIX] merge-join 이 전제하는 'PK 오름차순' 을
+         실제로 보장한다. ... 방언 중립 지점이라 PG/Oracle/향후 방언 모두 한 번에 보장된다."
+      → 서버가 어떤 순서로 주든 파이썬이 검사하고 필요시 재정렬한다.
+        캐릭터셋/collation 이 무엇이든 무관해진다.
+
+  ▷ **오늘의 축B 수정이 채택한 방식(서버 정렬을 믿지 말고 파이썬에서 보장)이 정확히 이번
+     문제의 해법이기도 하다.** exact_diff 경로에는 그 안전망이 아직 없다.
+     services/exact_diff/engine.py 에는 스트림 재정렬 코드가 존재하지 않는다(grep 확인).
+
+── 3-5. MIN/MAX 는? : 이 경로에선 문자 PK 를 애초에 다루지 않는다
+
+  dialects/oracle.py:277 `SELECT MIN(S0."ID"), MAX(S0."ID") FROM (원본 SQL) S0` 는
+  routes/agg_diff_route.py:274 에서 곧바로 int() 캐스팅된다. 문자 PK 는 여기서 걸러진다.
+  따라서 "MIN/MAX 가 서버 collation 때문에 어긋나는" 시나리오는 현 구조에선 성립하지 않는다.
+
+
+================================================================================
+■ 4. 길이 관련 (byte vs char semantics)
+================================================================================
+
+판정 : **실제 위험이 있음** — 코드가 이 차이를 인지하지 못한다(사각지대)
+
+── 4-1. 코드가 무엇을 읽는가 : CHAR_LENGTH 만 읽고 CHAR_USED 는 읽지 않는다
+
+services/db_adapters/oracle.py:184-200 build_tgt_column_meta_query (:159-182 도 동일 패턴)
+
+    "SELECT column_name, data_type, "
+    "       CASE WHEN data_type IN ('CHAR','VARCHAR2','NCHAR','NVARCHAR2') "
+    "            THEN char_length ELSE NULL END, "
+    "       data_precision, data_scale "
+    "FROM all_tab_columns ..."
+
+  ALL_TAB_COLUMNS 에는 세 개의 관련 컬럼이 있다:
+      DATA_LENGTH — 바이트 길이
+      CHAR_LENGTH — 문자 길이
+      CHAR_USED   — 'B'(byte 의미) / 'C'(char 의미)
+  코드는 CHAR_LENGTH 만 읽는다. **CHAR_USED 는 코드 전체에서 단 한 번도 조회되지 않는다**
+  (grep -rn "CHAR_USED|char_used" --include=*.py services/ → 0건).
+
+── 4-2. 왜 문제인가 : CHAR_LENGTH 는 BYTE/CHAR 의미를 구분해 주지 않는다
+
+  라이브 실측(tobe, NXDNP 스키마):
+
+    [CHAR_USED 분포] 문자형 컬럼 75개 중
+        CHAR_USED='B' : 73 컬럼  (BYTE 의미)   ← 절대 다수
+        CHAR_USED='C' :  2 컬럼  (CHAR 의미)
+
+    [실제 값]
+        TABLE                  COLUMN           TYPE      BYTE   CHAR   SEM
+        CDC_ALL_HIST           CD_LOAD_NO       VARCHAR2    50     50     B
+        CDC_ALL_HIST           CD_NODE_ALIAS    VARCHAR2   100    100     B
+        CDC_ALL_HIST           CD_TS            VARCHAR2    30     30     B
+
+    → BYTE 의미 컬럼에서 CHAR_LENGTH 는 DATA_LENGTH 와 같은 값(선언 숫자)을 그대로 돌려준다.
+      즉 VARCHAR2(50 BYTE) 와 VARCHAR2(50 CHAR) 가 **도구에게는 똑같이 "50" 으로 보인다.**
+
+    [한글 적재 한계 실측]
+        '한글' → LENGTHB=6(바이트), LENGTH=2(문자)      ← AL32UTF8 에서 한글 1자 = 3바이트
+        'AB'   → LENGTHB=2,         LENGTH=2
+
+── 4-3. 구체적 실패 시나리오
+
+  원본 KO16MSWIN949 의 VARCHAR2(50 BYTE) : 한글 1자=2바이트 → **한글 25자** 저장 가능
+  목적지 AL32UTF8   의 VARCHAR2(50 BYTE) : 한글 1자=3바이트 → **한글 16자** 저장 가능
+
+  둘 다 char_length=50 이므로 도구는 다음과 같이 판정한다 —
+  services/candidate_scoring_runner.py:355-364
+
+        if sn == tn:
+            if col_renamed and sn == "text":
+                s_len = src_meta.char_length or 0
+                t_len = tgt_meta.char_length or 0
+                if s_len > 0 and t_len > 0 and t_len < s_len:
+                    risk_flags.append("PRECISION_LOSS_RISK")
+                    return "PRECISION_LOSS_RISK", risk_flags, False
+            return "COMPATIBLE", [], False
+
+  50 < 50 이 거짓이므로 **"COMPATIBLE, 위험플래그 없음"** 으로 통과한다.
+  실제로는 한글 17~25자 데이터가 목적지에 들어가지 못해 ORA-12899 로 적재 실패하거나
+  잘려 들어간다. **도구는 이 절단 위험을 사전에 경고하지 못한다.**
+
+  부수 관찰(캐릭터셋과 무관하나 같은 함수의 제약): 위 길이 비교는 `col_renamed` 가 True 이고
+  타입이 text 일 때만 동작한다. 컬럼명이 그대로면 50→30 같은 명백한 축소도 검사되지 않는다.
+  이번 지침 범위 밖이라 지적만 남긴다.
+
+
+================================================================================
+■ 5. 대응 방향 제안 (이번 지침에서는 구현하지 않음 — 다음 지침 항목)
+================================================================================
+
+우선순위 순으로 정리한다. 전부 별도 지침으로 분리할 것을 권한다.
+
+  [P1] exact_diff 문자 키 정렬 전제 붕괴 (§3) — 최우선
+       현상: 캐릭터셋이 다르면 동일 데이터가 77% 거짓 불일치로 날조됨(재현 완료)
+       권장안 A(주): pk_range_chunk 의 _ensure_pk_ascending 과 같은 계열로,
+             stream_merge 진입 전 또는 merge_compare 내부에서 **정렬 위반을 탐지**한다.
+             스트림은 전량 메모리 적재가 금지된 경로(§9 fetchall 금지)이므로 재정렬은 불가하다.
+             따라서 "직전 키보다 작은 키가 나오면 즉시 중단 + HOLD" 가 현실적이다.
+             merge_compare 는 이미 null_key_found / aborted 라는 중단 신호 체계를 갖고 있으므로
+             order_violation 플래그를 같은 방식으로 추가하면 구조 훼손이 없다.
+             → 조용한 오답이 명시적 HOLD 로 바뀐다. 이것이 최소 안전 조치다.
+       권장안 B(보조): 사전 게이트. run 시작 전 src/tgt 의 NLS_CHARACTERSET 을 조회해
+             불일치하면 문자 키 exact_diff 를 HOLD 하고 사유를 표시한다.
+             (§0 에서 쓴 조회 SQL 을 그대로 재사용 가능 — read-only 1회)
+       비권장: NLSSORT 를 특정 charset 으로 강제하는 방향. 원본 DB 에서 인덱스를 못 쓰게 되어
+             이 전략의 존재 이유(전체 정렬 회피)를 훼손한다.
+       부수: dialects/oracle.py:128 주석의 "세션 NLS_SORT 가 무엇이든" 문구는 캐릭터셋 전제를
+             누락하고 있으므로 정정 필요. 반면 dialects/postgresql.py:100 의 대응 주석은
+             "Python str 비교(코드포인트 순)와 **UTF-8 에서** 동일 순서" 로 전제를 정확히
+             명시하고 있다 — 오라클 쪽만 이 단서가 빠졌다.
+
+  [P2] VARCHAR2 byte/char 의미 미구분 (§4)
+       권장: build_tgt_column_meta_query / build_column_meta_query 에 CHAR_USED 와 DATA_LENGTH 를
+             추가 조회하고, 양측 캐릭터셋과 함께 "실효 문자 수용량"을 계산해 비교한다.
+             완료된 모듈 수정에 해당하므로 사용자 확인 후 진행해야 한다.
+       주의: 4개 방언 모두 처리 규칙(CLAUDE.md)에 따라 PG/MySQL/MSSQL 의 대응 개념도 함께
+             설계해야 한다. 스키마 shape 가 바뀌므로 영향 범위가 넓다 — 계획 선제시 권장.
+
+  [P3] 프리셋 encoding/nencoding 죽은 설정 (§1-4)
+       권장: UI 입력칸 제거 또는 "드라이버가 UTF-8 로 고정(설정 불가)" 안내 표기.
+             기능 위험은 없으므로 우선순위 낮음.
+
+  [P4] NFC/NFD 정규화 부재 (§2-2)
+       권장: 현 시나리오(CP949 원본)에서는 구조적으로 발생 불가하므로 **지금은 보류**.
+             외부 파일 경유 적재나 NCHAR 컬럼이 이관 대상에 포함되면 그때 재검토한다.
+
+
+================================================================================
+■ 6. 병행 지침 상호 참조
+================================================================================
+
+NLS-SESSION-INDEPENDENT-NUMERIC-TOCHAR-FIX 가 같은 파일
+services/exact_diff/dialects/oracle.py 를 수정 중이다. 지침대로 **코드는 일절 건드리지 않았고**
+읽기만 했다. 겹치는 지점과, 그 지침에 도움이 될 실측값을 남긴다.
+
+  · 겹치는 코드 영역
+      oracle.py:88-109 norm_expr — 숫자 TM9 포매팅(:93-94)이 그 지침의 대상이다.
+      이번 진단이 문제 삼은 곳은 :125-132 key_hash_stream_sql 의 NLSSORT 정렬이며,
+      norm_expr 과는 별개 함수다. **수정 충돌 없음.**
+
+  · 그 지침에 유용한 실측값 (§0 에서 조회한 것)
+      asis/tobe 양측 NLS_SESSION_PARAMETERS:
+          NLS_NUMERIC_CHARACTERS = '.,'      ← 소수점=. 그룹구분=, (양측 동일)
+          NLS_SORT  = BINARY,  NLS_COMP = BINARY
+          NLS_DATE_FORMAT = DD-MON-RR,  NLS_LANGUAGE = AMERICAN
+      즉 현재 두 인스턴스는 숫자 표기 세션 설정이 동일하며 기본값이다. 그 지침이 노리는
+      "세션 NLS 의존 제거"는 현재 환경에서 증상이 드러나지 않는 상태에서의 선제 조치에
+      해당한다(이번 캐릭터셋 건과 같은 구도 — 테스트 환경이 문제를 재현하지 못함).
+
+  · 공통 교훈
+      두 건 모두 "세션/DB 설정에 따라 결과가 달라지는 서버측 동작을 코드가 무조건 신뢰한다"는
+      동일한 뿌리를 갖는다. 정렬(§3)·숫자표기·날짜표기 전반에 같은 점검을 한 번에 도는 것이
+      효율적일 수 있다.
+
+
+================================================================================
+■ 7. 조사 방법·재현 절차 (검증 가능성 확보용)
+================================================================================
+
+  · 캐릭터셋 조회 (read-only)
+        SELECT parameter, value FROM nls_database_parameters
+         WHERE parameter IN ('NLS_CHARACTERSET','NLS_NCHAR_CHARACTERSET','NLS_SORT',
+                             'NLS_COMP','NLS_LANGUAGE','NLS_TERRITORY');
+        SELECT parameter, value FROM nls_session_parameters WHERE parameter IN (...);
+    asis 는 tcp_connect_timeout 미지정 시 응답이 없어 2분 타임아웃이 걸렸다.
+    tcp_connect_timeout=8 을 주면 정상 접속된다(기존 메모의 asis 접속 불안정 이슈와 정합).
+
+  · NLSSORT 바이트 확인 (read-only)
+        SELECT RAWTOHEX(NLSSORT(:1,'NLS_SORT=BINARY')) FROM dual;
+  · 서버 정렬 vs 파이썬 정렬 (read-only, dual UNION ALL — 실 테이블 미접촉)
+        SELECT c FROM (SELECT :1 AS c FROM dual UNION ALL ...) ORDER BY NLSSORT(c,'NLS_SORT=BINARY');
+  · byte/char 의미 확인 (카탈로그 read-only)
+        SELECT char_used, COUNT(*) FROM all_tab_columns WHERE owner='NXDNP'
+         AND data_type IN ('CHAR','VARCHAR2','NCHAR','NVARCHAR2') GROUP BY char_used;
+  · §3-3 거짓 불일치 재현 — DB 불요. 운영 모듈 services.exact_diff.stream_merge.merge_compare 에
+    동일 데이터를 CP949 정렬 / UTF-8 정렬 두 순서로 주입. seed=20260729, 한글 4자 키 1,986건.
+
+  · 쓰기 작업 : **0건.** asis/tobe 실 테이블에 대한 SELECT 도 하지 않았다
+    (카탈로그 뷰 all_tab_columns / nls_*_parameters / dual 조회만 수행).
+  · 코드 수정 : **0건.** 비밀번호는 로그·보고서 어디에도 출력하지 않았다.
+
+
+================================================================================
+■ 8. 결론
+================================================================================
+
+1) 현재 테스트 환경의 asis/tobe 는 **양측 AL32UTF8 로 동일**하다. 지금까지의 검증 결과가
+   캐릭터셋 때문에 오염된 정황은 없다.
+
+2) 그러나 우려는 타당하다. **원본이 KO16MSWIN949/EUC-KR 계열이면 exact_diff 의 문자 키
+   merge-join 이 조용히 붕괴한다.** 서버는 CP949 바이트순으로 정렬해 주는데 파이썬은
+   유니코드 코드포인트순으로 비교하기 때문이다. 완전히 동일한 데이터 1,986건이 거짓 불일치
+   3,062건으로 날조되는 것을 운영 코드로 재현했다. 경고도 예외도 없다.
+
+3) 값 자체의 비교(§2)와 연결 계층(§1)은 안전하다. 드라이버가 UTF-8 로 고정하고, 확정 판정을
+   해시가 아닌 디코딩된 str 재검증으로 하기 때문이다. 위험은 **값이 아니라 순서**에 있다.
+
+4) PK_RANGE_CHUNK 경로는 오늘 넣은 _ensure_pk_ascending 덕분에 이 문제에 면역이다.
+   **같은 방식의 안전망을 exact_diff 스트림 경로에 넣는 것이 P1 대응이다.**
+
+5) VARCHAR2 의 byte/char 의미 차이(§4)는 코드가 전혀 인지하지 못하는 별개의 사각지대다.
+   CHAR_LENGTH 만 읽고 CHAR_USED 를 읽지 않아, 캐릭터셋이 바뀌면 실효 수용량이 25자→16자로
+   줄어드는데도 "COMPATIBLE" 로 통과시킨다.
+
+✅ 작업 완료 - ORACLE-CHARSET-COLLATION-EXACT-DIFF-DIAGNOSE - 원본/목적지 캐릭터셋이 다르면 exact_diff 값비교가 조용히 붕괴한다(운영 merge 코드로 1,986건 전건일치 → 거짓 불일치 3,062건 재현). 단, 현재 테스트 환경 asis/tobe 는 양측 AL32UTF8 로 동일해 지금 당장의 오염은 없음
