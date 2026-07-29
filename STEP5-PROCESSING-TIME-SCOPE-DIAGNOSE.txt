@@ -1,0 +1,93 @@
+작업명 : STEP5-PROCESSING-TIME-SCOPE-DIAGNOSE
+
+✅ 작업 완료 - "5단계 처리시간"과 그룹 드릴다운 계측은 포함관계 아닌 우연 일치로 확정(코드 근거 + 실 브라우저 2케이스 실측)
+
+■ 결론
+  "5단계 처리시간"은 4단계 /execute 의 서버 처리시간이고, "준비확인/scope 조회/렌더"는
+  그룹을 클릭한 '뒤에' 브라우저가 잰 값이다. 시간 순서상 전자가 후자를 포함할 수 없다.
+  → 우연 일치. 재이관 준비는 5단계 처리시간에 포함되지 않는다.
+
+■ 1. "5단계 처리시간" 측정 범위 (코드 근거)
+  값 출처   routes/execute_route.py:91-97
+              _t0 = perf_counter()
+              resp = run_single_validation_execute_flow(req, persist=False)
+              resp["processing_ms"] = (perf_counter() - _t0) * 1000
+            → 서버 내부 시간만. 네트워크 왕복·직렬화·브라우저 렌더 제외.
+  범위 내용 services/single_validation_execute_orchestrator.py:38
+            통계검증 실행(집계 SQL) + 결과저장 hook + 이력 + result_view + 스냅샷.
+            재이관 준비(agg-diff/prepare/exact_diff/pk_range) 코드는 이 파일에 0건(grep 확인).
+  표시 지점 ui/tabler_renderer.py:16186  _mvShowStageProcessingTime(5, r.processing_ms)
+            ui/tabler_renderer.py:16192  같은 값을 slot4 에도 기입(4단계=5단계 동일값)
+            호출부 ui/tabler_renderer.py:27971 — runExecute 의 /execute 성공 직후
+            → 5단계 탭 진입이 아니라 '4단계 실행 완료 시점'에 확정된다.
+            탭 전환은 표시 필터링만(ui/tabler_renderer.py:5588).
+
+■ 2. "준비확인/scope 조회/렌더"의 정체
+  별도 API 호출에서 발생하는 클라이언트 계측이다(백그라운드 준비의 표시가 아님).
+    tPrep   그룹 클릭 순간 t0(:16691) → _mvPkEnsurePrepared 반환(:16728-16729)
+    tFetch  _mvPkLoadPage 진입 t1(:17115) → /agg-diff/pk-records 응답(:17190)
+    tRender 조회 완료 t2(:17191) → DOM 주입(:17349)
+    표시    ui/tabler_renderer.py:17351-17352
+  전부 performance.now() 브라우저 시계, 기준점은 '그룹 클릭 시각'.
+
+■ 3. 재이관 준비 시작 시점 (실측)
+  코드   prewarm 호출부 ui/tabler_renderer.py:16234-16237(4단계 실행 완료 직후)
+         발동 조건 ui/tabler_renderer.py:17442 — 불일치>0 AND db_type=='postgresql' AND 원본 5만행 이하
+         → 오라클/대량은 prewarm 미발동 = 그룹 첫 클릭 때 prepare 시작
+  실측(CSPK 오라클 100만행, 포트 8000 인증 ON 브라우저)
+    125.78s /execute 200 processing_ms=621.8
+    128.88s 4단계 실행 완료 렌더 · _mvPkState = null
+    132.73s 5단계 진입 완료 · pkState{hasResp:false, pending:false}
+    132.85~163.02s  idle 30초(그룹 미클릭) → /agg-diff/prepare 요청 0건
+    163.13s 그룹 행 STATUS_CD=P 클릭
+    163.14s → /agg-diff/prepare 요청 발생
+    164.00s ← 응답 status=PREPARING (즉시 반환, routes/agg_diff_route.py:230-232·264 EARLY BIND)
+    164.07/165.68/167.28/168.86s  pk-records 폴링 4회 → EARLY_STOPPED, total=101
+  CTE+JOIN 케이스도 동일 패턴(idle 30초 prepare 0건 → 클릭 후 발생)
+
+■ 4. 포함관계 결론 — 우연 일치
+                     5단계 처리시간          준비확인/scope/렌더
+    측정 주체        서버 perf_counter       브라우저 performance.now
+    대상 라우트      /execute                /agg-diff/prepare + pk-records
+    기준 시각        orchestrator 호출 직전  그룹 행 클릭 순간
+    확정 시점        4단계 실행 완료 시      그룹 클릭 후
+  "준비확인 813ms"의 정체 = /agg-diff/prepare 요청 왕복(PREPARING 즉시 반환).
+  실측 재현값: CSPK 869ms · CTE+JOIN 1696ms (사용자 관측 813ms 와 동일 성격·자릿수)
+
+■ 5. CTE+JOIN 케이스 비교
+                          CSPK(단순, 100만행)   CTE+JOIN+ROW_NUMBER(25만행)
+    2단계 /count          370.2ms               6114.6ms (원본 SQL wrapping)
+    4단계 /generate       2.0ms                 6.7ms
+    5단계 처리시간        0.62초                3.74초
+    5단계 진입 시 준비    미시작                미시작
+    idle 30초 prepare     0건                   0건
+    클릭 후 준비확인      869ms                 1696ms
+  → CTE+JOIN 에서도 5단계 처리시간은 몇 분이 아니라 3.74초로 짧게 표시되고,
+    재이관 준비는 완전히 별개로 그룹 클릭 이후 진행된다.
+  [실측 한계 — 정직 고지] 이번 CTE 실행은 표본 조기중단(EARLY_STOPPED)이 걸려 준비가 약 5초에 끝났다.
+    "준비에 수 분" 상태를 그대로 재현하지는 못했다. 다만 결론 근거는 소요시간이 아니라 발생 순서
+    (준비는 항상 5단계 값 확정 이후 시작)이므로 영향받지 않는다.
+
+■ 6. 부수 관측 (이번 범위 밖 — 기록만, 수정 없음)
+  (1) 계측 문구가 폴링 대기를 누락한다. CSPK 클릭→표시 실제 6.02초인데 문구 합계는 0.945초.
+      PREPARING 폴링(1.5초×3회 ≈ 4.7초)이 tPrep·tFetch 어디에도 안 잡힌다.
+      tFetch 는 재귀 호출마다 t1 재설정(:17115)이라 '마지막 폴링 왕복'만 표시된다.
+  (2) 4단계 슬롯과 5단계 슬롯이 같은 값이라 서로 다른 계측처럼 오독될 수 있다(:16186·:16192).
+  (3) 요약셀 "준비 중" 표기가 실제로는 "미시작"이다(pkState hasResp=false, pending=false).
+
+■ 검증 결과
+  - 코드 수정 0건(순수 진단, 요구사항 준수)
+  - 실 서비스 포트 8000·인증 ON 브라우저 클릭스루 2케이스 완주
+  - CSPK: 원본 1,000,000 / 목적 990,000, COUNT_MINOR_DIFF, GB=STATUS_CD, SUM=AMT·QTY
+  - CTE:  원본 250,000 / 목적 249,950, COUNT_MINOR_DIFF, GB 0개(COUNT-only), SUM=C_NUM·C_NUM_PS
+  - 콘솔 오류/다이얼로그 이상 없음(검증경로 생성·접속 안내 다이얼로그만)
+
+■ 생성/변경 파일
+  신규 docs/STEP5_PROCESSING_TIME_SCOPE_DIAGNOSE.md
+  신규 scripts/dev_e2e/step5_processing_time_scope_diagnose.py
+  신규 scripts/dev_e2e/_step5_processing_time_scope_cspk.json
+  신규 scripts/dev_e2e/_step5_processing_time_scope_cte.json
+  증적 E:\verify_screenshots_only\STEP5-PROCESSING-TIME-SCOPE-DIAGNOSE\ (cspk/cte 각 7장)
+  운영 코드 변경 없음
+
+✅ 작업 완료 - "5단계 처리시간"은 /execute 서버시간(4단계 완료 시 확정)이고 재이관 준비는 그룹 클릭 후 시작 — 두 값은 우연 일치
