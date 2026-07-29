@@ -1,0 +1,92 @@
+{
+  "task": "STRATEGY-PLAN-PK-KIND-HARDCODE-FIX",
+  "base": "http://127.0.0.1:7926/",
+  "pair": [
+    "Oracle_asis",
+    "Oracle_tobe"
+  ],
+  "cases": {
+    "txt_pk": {
+      "label": "문자 단일 PK",
+      "sql": "INSERT INTO NXDNP.T_SPKFIX_TXT_TGT (CODE, DEPT_CD, AMT) SELECT CODE, DEPT_CD, AMT FROM NXDNP.T_SPKFIX_TXT_SRC",
+      "shots": {
+        "BEFORE_card": "E:\\verify_screenshots_only\\STRATEGY-PLAN-PK-KIND-HARDCODE-FIX\\txt_pk_before_card.png",
+        "BEFORE_full": "E:\\verify_screenshots_only\\STRATEGY-PLAN-PK-KIND-HARDCODE-FIX\\txt_pk_before_stage3_full.png",
+        "AFTER_card": "E:\\verify_screenshots_only\\STRATEGY-PLAN-PK-KIND-HARDCODE-FIX\\txt_pk_after_card.png",
+        "AFTER_full": "E:\\verify_screenshots_only\\STRATEGY-PLAN-PK-KIND-HARDCODE-FIX\\txt_pk_after_stage3_full.png"
+      },
+      "hashes": {
+        "BEFORE_card": "b74cddd8902eba4e",
+        "BEFORE_full": "9359ce32edf54f33",
+        "AFTER_card": "42177c84cb5c660a",
+        "AFTER_full": "1219cb6cc0fa2728"
+      },
+      "setup": {
+        "pair_label": "Oracle_asis → Oracle_tobe",
+        "pair_existed": false,
+        "pair_created": true,
+        "connect_clicked": true
+      },
+      "from_table": "T_SPKFIX_TXT_SRC",
+      "target_pk_evidence": {
+        "available": true,
+        "table": "T_SPKFIX_TXT_TGT",
+        "pk_columns": [
+          "CODE"
+        ],
+        "key_column_count": 1,
+        "types": {
+          "CODE": "VARCHAR"
+        },
+        "reason": ""
+      },
+      "from_table_ok": false,
+      "moved_count": true,
+      "count": {
+        "status": "COUNT_MATCHED",
+        "gate_src": 300,
+        "gate_tgt": 300,
+        "last_src": 300,
+        "last_tgt": 300
+      },
+      "moved_cand": true,
+      "profile_ready": true,
+      "BEFORE": {
+        "ok": true,
+        "profile_pk": {
+          "has_pk": true,
+          "pk_kind": "SINGLE_NUMERIC",
+          "pk_indexed": true,
+          "pk_evidence": "TARGET_PK_EVIDENCE"
+        },
+        "plan": {
+          "compare_strategy_id": "DIRECT_STREAM_COMPARE",
+          "pk_structure": "SINGLE_NUMERIC",
+          "implementation_status": "AVAILABLE",
+          "basis_text": "원본 300건 · 숫자 단일 PK · PK 인덱스 · 원격 DB",
+          "provisional_grade": "잠정 소형"
+        }
+      },
+      "BEFORE_card_text": "실행계획No항목값상태1통계검증 규모잠정 소형 · 예상 스캔 300행2실제 적용GROUP BY 1개 · 집계컬럼 1개적용됨3GROUP BYDEPT_CD4집계컬럼AMT5통계전략직접 집계(전체스캔 EXACT · 원본↔목적 그룹별 COUNT/SUM 비교) STATS_DIRECT_AGG6불일치 추출전략직접 스트림 비교(원본·목적 전체를 한 번에 정렬·대조) DIRECT_STREAM_COMPARE7상태실행 가능8판정근거원본 300건 · 숫자 단일 PK · PK 인덱스 · 원격 DB",
+      "AFTER": {
+        "ok": true,
+        "profile_pk": {
+          "has_pk": true,
+          "pk_kind": "SINGLE_TEXT",
+          "pk_indexed": true,
+          "pk_evidence": "TARGET_PK_EVIDENCE"
+        },
+        "plan": {
+          "compare_strategy_id": "STATS_ONLY_HOLD",
+          "pk_structure": "SINGLE_TEXT",
+          "implementation_status": "HOLD",
+          "basis_text": "원본 300건 · 문자 단일 PK · PK 인덱스 · 원격 DB",
+          "provisional_grade": "잠정 소형"
+        }
+      },
+      "AFTER_card_text": "실행계획No항목값상태1통계검증 규모잠정 소형 · 예상 스캔 300행2실제 적용GROUP BY 1개 · 집계컬럼 1개적용됨3GROUP BYDEPT_CD4집계컬럼AMT5통계전략직접 집계(전체스캔 EXACT · 원본↔목적 그룹별 COUNT/SUM 비교) STATS_DIRECT_AGG6불일치 추출전략STATS_ONLY_HOLD7상태상세비교 보류(HOLD)8판정근거원본 300건 · 문자 단일 PK · PK 인덱스 · 원격 DB미구현 전략은 자동 실행하지 않습니다. 기존 전체 비교 fallback 은 명시 승인 시에만 사용합니다.",
+      "card_bytes_differ": true
+    }
+  },
+  "console_errors": []
+}

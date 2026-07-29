@@ -1,0 +1,530 @@
+작업명 : STRATEGY-PLAN-PK-KIND-HARDCODE-FIX
+✅ 작업 완료 - STRATEGY-PLAN-PK-KIND-HARDCODE-FIX - 3단계 실행계획 카드의 PK 구조 고정값(has_pk/pk_kind/pk_indexed)을 제거하고, 기존 방언 위임 어댑터를 재사용한 추가 전용 근거 필드(target_pk_evidence)로 판정하도록 바꿔 오라클 실 DB 3종(숫자/문자/복합 PK)이 각각 '숫자 단일 PK·실행 가능' / '문자 단일 PK·HOLD' / '복합 PK·HOLD' 로 정확히 표시됨을 화면 렌더로 확인했다(기존 응답 필드·판정 불변, 신규 회귀 0건)
+
+실검증 상태: 완료 (오라클 라이브 실 DB — asis 192.168.0.151:1523 / tobe 192.168.0.151:1524, 스키마 NXDNP, PK 구조 3종 픽스처 각 300행, 개별검증 1~3단계 실제 브라우저 클릭스루)
+
+────────────────────────────────────────────────────────────────────────
+1. 요청 요약 / 수정 범위
+────────────────────────────────────────────────────────────────────────
+`ui/grid_helpers.py` 의 `_mvBuildStatsScaleProfile()` 이 실제 PK 구조를 조사하지 않고
+`has_pk=true / pk_kind='SINGLE_NUMERIC' / pk_indexed=true` 를 고정 전송해, 3단계 실행계획
+카드가 문자 PK·복합 PK 테이블까지 "숫자 단일 PK · 실행 가능" 으로 잘못 표시하던 결함을
+근거 기반 판정으로 교체한다. 표시 전용 결함이며 실행 엔진은 이 값을 쓰지 않는다.
+
+지시 범위는 `ui/grid_helpers.py` 1파일이었고, 지시문에 "실제 PK 근거를 가져오는 기존
+API/서비스를 먼저 조사하고, 근거 제공 엔드포인트가 전혀 없으면 코드 변경 전에 보고하고
+사용자 확인을 받을 것" 이라는 조건이 있었다. 조사 결과 근거 제공자(어댑터)는 이미 있으나
+화면까지 배선돼 있지 않아 UI 만으로는 읽을 근거가 없었고, 이 사실을 실측과 함께 보고한 뒤
+사용자가 **"신규 필드 추가(기존 필드·판정 불변)"** 방향을 선택해 백엔드 1파일을 추가 수정했다.
+
+- 수정 파일 (2개)
+  1) `ui/grid_helpers.py`                              (+100 / -2)
+  2) `services/single_validation_analyze_service.py`   (+70  / -0)   ← 사용자 승인 후 추가
+- 새 엔드포인트 없음 / 새 카탈로그 SQL 없음 / 기존 응답 필드 변경 없음
+- 코드 저장소(C:\projects\migration-validator)에서는 지시대로 git 명령을 일절 쓰지 않았다.
+  (아래 diff 는 git 대신 수정 전 baseline 사본과의 difflib unified diff 로 생성)
+- 병행 작업과 겹침 0
+  · UNION-SAMETABLE-WRAPPING-DETECTION-AST-FIX (routes/agg_diff_route.py)
+  · ALIAS-DERIVE-ROW-SQLS-WRAPPING-FIX         (routes/exact_diff_route.py)
+  · BACKLOG-NEW-STRATEGY-HIERARCHICAL-CHECKSUM-ADD (BACKLOG.md)
+  · SAMPLING-PREFLIGHT-PROGRESS-CB-ROUTE-WIRING-FIX (routes/agg_diff_route.py)
+
+────────────────────────────────────────────────────────────────────────
+2. 근거 조사 결과 — 왜 UI 1파일로는 불가능했는가 (실측)
+────────────────────────────────────────────────────────────────────────
+PK 근거 '제공자' 는 이미 존재하고 오라클에서도 정확히 동작한다.
+어댑터 `get_adapter(db_type).fetch_key_metadata()` 직접 호출 실측(오라클 tobe 1524):
+
+    T_SPKFIX_NUM_TGT → {"ID":   {is_pk:true, key_column_count:1, is_composite_key_member:false}}
+    T_SPKFIX_TXT_TGT → {"CODE": {is_pk:true, key_column_count:1, is_composite_key_member:false}}
+    T_SPKFIX_CMP_TGT → {"CO_CD":{is_pk:true, key_column_count:2, is_composite_key_member:true},
+                        "SEQ":  {is_pk:true, key_column_count:2, is_composite_key_member:true}}
+
+그런데 그 결과가 화면(analyze 응답)까지 배선돼 있지 않았다. 실측으로 확인한 3가지 차단 지점:
+
+ (a) `services/db_query_service.py:1248` — `_cmn_fetch_tgt_col_meta` 가 반환 row 마다
+     `'is_pk': False` 를 **고정**으로 넣는다. 목적지 접속이 있으면 이 결과가 DDL 메타를
+     통째로 교체하므로, `analyze_result.validated[].is_pk` 는 **전 방언에서 항상 false** 다.
+     → 실측: 3종 모두 `validated PK cols = []`
+
+ (b) `services/diagnosis/key_evidence.py:228` — `_table_key_meta` 의 컬럼 조회가
+     `information_schema.columns`(PostgreSQL 전용) 하드코딩이라 오라클에서는 빈 결과가 되고,
+     `chunk_key_evidence_snapshot` 이 `SCHEMA_META_MISSING` 으로 떨어진다.
+     → 실측: 3종 모두 verdict=NOT_TRUSTED / reason=SCHEMA_META_MISSING
+     (PG 에서는 동작하지만, 이 snapshot 은 '신뢰 가능한 단일 숫자 PK 인가' 만 판정하므로
+      문자 단일 PK 와 복합 PK 를 구분하지 못한다 — 요구된 3종 구분에 원리적으로 부족)
+
+ (c) DDL 입력 경로도 대안이 못 된다. 목적지 접속이 있으면 (a)의 실 DB 메타가 DDL 메타를
+     교체하므로 is_pk 가 다시 false 가 된다. → 실측: ddl_text 동봉해도 `validated PK cols = []`
+
+ (d) PK 구조를 돌려주는 read-only 엔드포인트는 없다.
+     · `/metadata-inventory/collect` — 그룹·품질확정 snapshot 선행 필요 + 수집(쓰기) 작업
+     · `/diagnosis/candidate-recommend` — 컬럼 메타를 **입력으로 받는** 순수 계산 API
+
+즉 화면이 읽을 수 있는 PK 근거가 응답에 하나도 없었다. UI 만 고치면 라이브 DB 경로에서는
+3종 모두 "PK 없음 · 상세비교 보류(HOLD)" 로 떨어져(안전측이지만) 숫자 PK 정탐까지 사라진다.
+이 실측을 근거로 보고했고, 사용자가 '신규 필드 추가' 를 선택했다.
+
+────────────────────────────────────────────────────────────────────────
+3. 수정 내용
+────────────────────────────────────────────────────────────────────────
+(1) services/single_validation_analyze_service.py — 추가만(비파괴)
+    · `_build_target_pk_evidence(tgt_conn, tgt_table, analyze_result)` 신설
+      - PK 조회는 **기존 방언 위임 어댑터** `get_adapter(db_type).fetch_key_metadata` 재사용
+        (오라클 ALL_CONSTRAINTS / PG information_schema 등은 어댑터가 이미 캡슐화 — 새 SQL 없음)
+      - PK 컬럼 타입은 **이미 분류된 analyze_result 에서 인용**(목적지 컬럼 메타 재조회 없음)
+      - 목적지 미연결 / 테이블 없음 / 조회 실패 / 미지원 DBMS → `available=false` + reason
+        ('PK 없음' 으로 단정하지 않는다 — 소비측이 보수적 HOLD 로 떨어지게 하기 위함)
+    · analyze 응답에 `target_pk_evidence` 키 1개 추가.
+      기존 필드는 하나도 바꾸지 않았다(`is_pk` 포함) → 후보추천·자동선정·SUM 제외·판정 전부 불변.
+    · 수집 실패가 analyze 를 깨지 않도록 try/except 로 감쌌다.
+
+(2) ui/grid_helpers.py — 하드코딩 제거 + 근거 기반 판정
+    · `_pk_type_vocab_js()` 신설: PK 타입 어휘(숫자/날짜/문자)를 화면에 새로 하드코딩하지 않고
+      `analyzer/column_analyzer.py` 의 NUMERIC_TYPES/DATETIME_TYPES/STRING_TYPES 를 **단일 출처**로
+      JS 에 주입한다(heuristic 하드코딩 증가 방지). import 실패 시 빈 어휘 → 타입 미상 → 보수적 HOLD.
+    · `_mvPkTypeKind(t)` : 'NUMBER(10,2)' → 기본 타입명 추출 후 어휘 대조. 미상이면 ''.
+    · `_mvDerivePkProfile(ad)` : 화면이 이미 보유한 analyze 응답만 읽어 PK 구조를 판정한다
+      (브라우저 기준 **네트워크 왕복 추가 0**). 근거 우선순위:
+        1) `target_pk_evidence`            — PK 컬럼 목록·키컬럼수·타입 (문자/복합/없음까지 구분)
+        2) `chunk_key_evidence_snapshot`   — verdict=TRUSTED_PHYSICAL_PK → 단일 숫자 PK 확정
+        3) `analyze_result.validated[].is_pk` + tgt_type — DDL 입력 경로
+        4) 어느 근거로도 확정 불가 → `has_pk=false / pk_kind='NONE'` (서버 계획기 STATS_ONLY_HOLD)
+    · `_mvBuildStatsScaleProfile()` 의 `has_pk/pk_kind/pk_indexed` 고정값을 위 판정 결과로 교체.
+      설명가능성을 위해 `pk_evidence` 근거코드를 함께 실어 보낸다(StrategyProfile 에 없는 키라
+      서버는 무시 — 화면 진단 전용).
+
+(3) 요구사항 3 (`_mvComputeStatsScale` 목록 규모 셀) — 같은 수정으로 함께 해소
+    `_mvComputeStatsScale`(ui/grid_helpers.py:969, 목록 규모 셀)과
+    `_mvRenderStrategyPlan`(ui/tabler_renderer.py:27163, 실행계획 카드)이 **동일 빌더**
+    `_mvBuildStatsScaleProfile()` 를 호출하므로 빌더 1곳 수정으로 두 소비자가 동시에 교정된다.
+    ui/ 전체에 남은 PK 하드코딩은 0건(grep 확인).
+
+────────────────────────────────────────────────────────────────────────
+4. 실측 조건
+────────────────────────────────────────────────────────────────────────
+· 실 DB : 오라클 라이브 (asis 192.168.0.151:1523 / tobe 192.168.0.151:1524, 스키마 NXDNP)
+          — Neon PostgreSQL 4개 프리셋과 Inter PG(192.168.0.150:5433/5434)는 접속 불가
+            (Neon 쿼터 소진 / Inter 포트 timeout) 이라 오라클 경로로 실측했다.
+· 픽스처 : PK 구조만 다르고 나머지는 동일한 3쌍(각 300행). 원본 asis / 목적지 tobe 에 동일 구조 생성.
+    T_SPKFIX_NUM_SRC/TGT : PK(ID NUMBER(10))                  ← 숫자 단일 PK
+    T_SPKFIX_TXT_SRC/TGT : PK(CODE VARCHAR2(20))              ← 문자 단일 PK
+    T_SPKFIX_CMP_SRC/TGT : PK(CO_CD VARCHAR2(4), SEQ NUMBER(8)) ← 복합 PK
+  비-PK 컬럼은 3종 공통(DEPT_CD VARCHAR2(4), AMT NUMBER(12,2)) — PK 구조 외 변수를 제거했다.
+· 서버 : 별도 포트 인프로세스 기동(MV_AUTH_DISABLED=1). 동시 세션의 8000/8021 서버는 건드리지 않았다.
+         서버가 최신 코드를 서빙하는지 확인: 응답 HTML 에 `_mvDerivePkProfile`·`_MV_PK_NUM_TYPES`
+         존재 확인(SERVING_NEW_CODE: YES / VOCAB_INJECTED: YES). 코드 수정 후 재기동해 재확인.
+· 화면 : 개별검증 1단계(SQL 입력·분석) → 2단계(COUNT 비교, 3종 모두 300 vs 300 COUNT_MATCHED)
+         → 3단계(후보 선정) 실제 클릭스루. 같은 화면·같은 테이블·같은 COUNT 조건에서
+         실행계획 카드를 두 번 렌더해 Before/After 를 캡처했다.
+         Before = 수정 전 하드코딩 3필드(has_pk=true/SINGLE_NUMERIC/pk_indexed=true) 재현,
+         After  = 수정 후 `_mvBuildStatsScaleProfile()` 의 근거 기반 프로파일.
+         4·5단계는 진행하지 않았다(표시 전용 결함 — 실행 범위 밖).
+
+────────────────────────────────────────────────────────────────────────
+5. 실측 결과 — 3단계 실행계획 카드 Before/After (같은 화면·같은 조건)
+────────────────────────────────────────────────────────────────────────
+공통 조건: 원본 300건 / 목적지 300건 COUNT_MATCHED, GROUP BY·집계컬럼 선택 상태 동일,
+          원격 DB(오라클), 표시 화면 = 개별검증 3단계 '실행계획' 카드.
+
+[1] 숫자 단일 PK — NXDNP.T_SPKFIX_NUM_SRC → T_SPKFIX_NUM_TGT  (PK: ID NUMBER(10))
+    화면이 받은 근거 : target_pk_evidence = {available:true, pk_columns:["ID"],
+                       key_column_count:1, types:{ID:"NUMERIC"}}
+    BEFORE 불일치 추출전략 : DIRECT_STREAM_COMPARE   상태 : 실행 가능
+           판정근거        : 원본 300건 · 숫자 단일 PK · PK 인덱스 · 원격 DB
+    AFTER  불일치 추출전략 : DIRECT_STREAM_COMPARE   상태 : 실행 가능
+           판정근거        : 원본 300건 · 숫자 단일 PK · PK 인덱스 · 원격 DB
+    → **대조군**. 실제로 숫자 단일 PK 이므로 수정 전후 표시가 같은 것이 정답이다.
+      (수정으로 정탐이 사라지지 않았음을 보이는 회귀 방지 케이스)
+    스크린샷 : num_pk_before_card.png / num_pk_after_card.png
+               num_pk_before_stage3_full.png / num_pk_after_stage3_full.png
+    카드 SHA256(앞16) : BEFORE b74cddd8902eba4e / AFTER b74cddd8902eba4e  → **동일(의도된 결과)**
+
+[2] 문자 단일 PK — NXDNP.T_SPKFIX_TXT_SRC → T_SPKFIX_TXT_TGT  (PK: CODE VARCHAR2(20))
+    화면이 받은 근거 : target_pk_evidence = {available:true, pk_columns:["CODE"],
+                       key_column_count:1, types:{CODE:"VARCHAR"}}
+    BEFORE 불일치 추출전략 : DIRECT_STREAM_COMPARE   상태 : 실행 가능        ← 오표시
+           판정근거        : 원본 300건 · 숫자 단일 PK · PK 인덱스 · 원격 DB  ← 오표시
+    AFTER  불일치 추출전략 : STATS_ONLY_HOLD         상태 : 상세비교 보류(HOLD)
+           판정근거        : 원본 300건 · 문자 단일 PK · PK 인덱스 · 원격 DB
+    스크린샷 : txt_pk_before_card.png / txt_pk_after_card.png
+               txt_pk_before_stage3_full.png / txt_pk_after_stage3_full.png
+    카드 SHA256(앞16) : BEFORE b74cddd8902eba4e / AFTER 42177c84cb5c660a  → **다름**
+
+[3] 복합 PK — NXDNP.T_SPKFIX_CMP_SRC → T_SPKFIX_CMP_TGT  (PK: CO_CD VARCHAR2(4), SEQ NUMBER(8))
+    화면이 받은 근거 : target_pk_evidence = {available:true, pk_columns:["CO_CD","SEQ"],
+                       key_column_count:2, types:{CO_CD:"VARCHAR", SEQ:"NUMERIC"}}
+    BEFORE 불일치 추출전략 : DIRECT_STREAM_COMPARE   상태 : 실행 가능        ← 오표시
+           판정근거        : 원본 300건 · 숫자 단일 PK · PK 인덱스 · 원격 DB  ← 오표시
+    AFTER  불일치 추출전략 : STATS_ONLY_HOLD         상태 : 상세비교 보류(HOLD)
+           판정근거        : 원본 300건 · 복합 PK · PK 인덱스 · 원격 DB
+    스크린샷 : cmp_pk_before_card.png / cmp_pk_after_card.png
+               cmp_pk_before_stage3_full.png / cmp_pk_after_stage3_full.png
+    카드 SHA256(앞16) : BEFORE 708c6bf52396e6e6 / AFTER 5ee51bc386e578e9  → **다름**
+
+전/후 스크린샷 바이트 동일 여부 자체 확인:
+  · 문자 PK, 복합 PK  → BEFORE ≠ AFTER (해시 상이) — 실제로 다른 화면임을 확인
+  · 숫자 PK          → BEFORE = AFTER (해시 동일) — 의도된 결과다.
+    실제 PK 구조가 숫자 단일이므로 수정 전 하드코딩 값과 수정 후 판정 값이 우연이 아니라
+    필연적으로 일치한다. 이 케이스는 '차이를 보이는' 증적이 아니라 '정탐이 유지됨을 보이는'
+    대조군이며, 근거 필드(target_pk_evidence)와 pk_evidence=TARGET_PK_EVIDENCE 가
+    _verify_result_*.json 에 함께 기록돼 판정 경로가 하드코딩이 아님을 확인할 수 있다.
+
+콘솔 오류: 0건 (num/cmp 실행), 0건 (txt 실행)
+
+수정 전 상태 재현 방식(중요):
+  같은 페이지·같은 analyze/COUNT 결과 위에서 profile 의 PK 3필드만 수정 전 고정값
+  (has_pk=true / pk_kind='SINGLE_NUMERIC' / pk_indexed=true)으로 되돌려 동일한 렌더 함수
+  `_mvRenderStrategyPlan` 에 통과시켰다. 테이블·건수·선택 컬럼 등 다른 조건은 모두 동일하다.
+  (git stash 는 사용하지 않았고, 코드 저장소에서 git 명령을 쓰지 않기 위한 방식이기도 하다)
+
+하니스 실행 이력(투명성):
+  · 1차 실행에서 한 페이지로 3케이스를 연달아 돌려 2·3번째 카드가 재렌더되지 않았다
+    (_lastCountResult 등 전역 잔류). → 케이스마다 새 페이지를 쓰도록 교정 후 재실행.
+  · 2차 실행에서 문자 PK 케이스가 setup 재진입 중 #sqlInput 미표시로 타임아웃 → 해당 케이스만
+    단독 재실행해 정상 캡처(결과 JSON 은 _verify_result_txt_pk.json 로 분리 저장).
+  · 최종 증적은 num/cmp(_verify_result_num-cmp.json) + txt(_verify_result_txt_pk.json) 2개 파일이다.
+
+────────────────────────────────────────────────────────────────────────
+6. 서버 응답(strategy_route) ↔ 화면 표시 대조
+────────────────────────────────────────────────────────────────────────
+화면에 표시되는 '불일치 추출전략 / 상태 / 판정근거' 는 전부 `POST /strategy/plan` 응답을 그대로
+치환한 값이다(routes/strategy_route.py:75-83 의 pk_txt 라벨 매핑). 따라서 대조는
+"화면이 서버 응답과 같은가" 가 아니라 "서버에 어떤 profile 을 보내는가" 가 쟁점이며,
+Before/After 모두 같은 화면에서 같은 렌더 함수(_mvRenderStrategyPlan)를 통과시켰다.
+카드에 찍힌 문구와 그때 서버가 돌려준 값이 케이스별로 일치함을 함께 기록했다(§5 표).
+
+────────────────────────────────────────────────────────────────────────
+7. 회귀 확인 — baseline 차분
+────────────────────────────────────────────────────────────────────────
+코드 저장소에서 git 사용이 금지돼 있어(지시), 수정 전 baseline 사본을 별도로 만들어
+같은 테스트 서브셋을 두 번 돌리고 실패 '집합' 을 차분했다.
+
+  서브셋: pytest tests -k "analyze or single_validation or key_evidence or chunk_key"
+    BASELINE(수정 전) : 41 failed, 659 passed, 2 skipped, 10731 deselected (201.4s)
+    AFTER  (수정 후) : 41 failed, 659 passed, 2 skipped, 10731 deselected (201.0s)
+    → AFTER 에만 있는 실패(신규 회귀) : **0건**
+    → BASELINE 에만 있는 실패          : 0건  (실패 집합 완전 동일)
+
+  선행 서브셋: pytest tests -k "grid_helper or strategy or stats_result_full or scale"
+    2 failed, 119 passed, 2 skipped, 6 xfailed
+    두 실패 모두 이번 수정과 무관한 사전 존재 실패:
+      · tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+        — `effective_group_by_count` 문자열을 `_mvRenderStrategyPlan` 본문에서 찾는 소스 검사인데,
+          해당 문자열은 ui/tabler_renderer.py 전체에 0회 등장한다(내가 손대지 않은 파일).
+          선행 EXECUTION-PLAN-CARD-LIVE-SELECTION-FIX 가 서버 effective 카운트를 라이브 체크박스로
+          교체하면서 생긴 미갱신 테스트.
+      · tests/test_diagnosis_phase3b.py::test_next_strategy_preview_matrix — services/diagnosis 영역(무관).
+
+  JS 문법 : node --check 통과(생성된 grid_helpers JS 전문).
+  JS 분기 : `_mvDerivePkProfile` 13개 분기 단위 검증 전부 통과
+            (근거 없음/숫자·문자·날짜 단일/복합 2컬럼/복합 kcc/PK 없음 확정/타입 미상/조회 실패/
+             chunk_key 폴백/DDL 폴백 2종/메타 없음 — '확인 불가 → HOLD' 폴백 포함)
+
+────────────────────────────────────────────────────────────────────────
+8. 성능 영향
+────────────────────────────────────────────────────────────────────────
+· 브라우저 기준 추가 네트워크 왕복 : **0** (화면은 이미 받은 analyze 응답만 읽는다)
+· 서버 analyze 기준 추가 비용 : 오라클 카탈로그 1쿼리, 3회 실측 평균 **6.8 ms**
+    run1 5.7ms / run2 7.8ms / run3 6.9ms — 계측 단계 합계 대비 1.0~2.2%
+    (참고 동일 실행의 다른 단계: target_metadata_lookup 104.8ms, candidate_prepare 129.4ms,
+     src_key_metadata 48.3ms, chunk_key_evidence 42.3ms)
+· 실패해도 analyze 를 깨지 않는다(try/except + available=false).
+
+────────────────────────────────────────────────────────────────────────
+9. 비판적 검토 — 남은 위험 / 미해결
+────────────────────────────────────────────────────────────────────────
+(a) '확인 불가' 와 'PK 없음' 이 화면에서 같은 문구로 보인다.
+    서버 라벨 맵(routes/strategy_route.py:75-76)에 PK_NONE 밖에 없어, 근거를 못 구한 경우도
+    판정근거에 "PK 없음" 으로 찍힌다. 판정(HOLD)은 안전측으로 맞지만 사유는 정확하지 않다.
+    화면에는 `pk_evidence` 근거코드(UNKNOWN / KEY_METADATA_UNAVAILABLE 등)를 함께 보내 두었으므로,
+    라벨 분리는 strategy_route 를 수정 대상에 포함할 때 후속으로 처리할 수 있다. (이번 범위 밖)
+
+(b) `remote: true` 는 여전히 하드코딩이다.
+    이번 지시 범위(has_pk/pk_kind/pk_indexed) 밖이라 손대지 않았다. remote 는 DIRECT↔CHUNK
+    전환 정책(strategy_transition)에 쓰이므로, 값을 바꾸면 표시 전략이 함께 바뀐다.
+    현행 유지 = 기존 동작 보존(보수적)이며, 별도 작업으로 다루는 편이 안전하다.
+
+(c) 근본 원인 2건은 그대로 남아 있다(이번 작업이 우회한 것이지 고친 게 아니다).
+    · `services/db_query_service.py:1248` — `_cmn_fetch_tgt_col_meta` 의 `'is_pk': False` 고정.
+      실 DB 접속이 있으면 전 방언에서 `validated[].is_pk` 가 항상 false 다. 이 값을 소비하는
+      SUM 후보 제외·기본체크·후보 점수 로직이 '목적지 PK 를 모르는 상태' 로 동작하고 있다.
+      고치면 후보추천 결과가 바뀌므로 별도 승인·별도 실측이 필요하다(그래서 이번엔 손대지 않았다).
+    · `services/diagnosis/key_evidence.py:228` — `_table_key_meta` 의 컬럼 조회가
+      `information_schema.columns` PG 전용. 오라클/MSSQL 에서 chunk_key_evidence_snapshot 이
+      항상 SCHEMA_META_MISSING 이다(PK 위임은 이미 방언화됐는데 컬럼 조회 절반이 남았다).
+
+(d) 표시 전용이라는 성격은 그대로다.
+    실행 엔진은 이 profile 을 쓰지 않으므로, 이번 수정으로 잘못된 실행이 막히는 것은 아니다.
+    반대로 카드가 이제 HOLD 를 정확히 표시하므로, '카드는 HOLD 인데 실제로는 실행된다' 는
+    괴리가 눈에 띌 수 있다. 이는 표시/엔진 분리라는 기존 구조에서 오는 것이고 판정은 불변이다.
+
+(e) 픽스처는 검증 종료 후에도 남겨 두었다(T_SPKFIX_* 6개, 각 300행).
+    재현·재검증에 필요하고 운영 데이터와 이름이 겹치지 않는다. 삭제가 필요하면 알려 달라.
+
+────────────────────────────────────────────────────────────────────────
+10. 보안 점검
+────────────────────────────────────────────────────────────────────────
+· 새로 추가한 `target_pk_evidence` 필드에는 접속정보(host/user/password)가 없다.
+  담기는 값은 목적지 테이블명·PK 컬럼명·컬럼 타입·사유코드뿐이다.
+· 새 헬퍼는 로그를 남기지 않는다(조회 실패도 reason 코드만 반환).
+· 보고서·스크린샷·스크립트에 비밀번호를 기록하지 않았다.
+· 별건(기존 이슈, 이번 수정과 무관): `db_presets_src.json` / `db_presets_tgt.json` 에
+  DB 비밀번호가 평문으로 남아 있다. 이번 작업에서 건드리지 않았으며 별도 조치 대상이다.
+
+────────────────────────────────────────────────────────────────────────
+11. 변경 diff (git 미사용 — 수정 전 baseline 사본과의 unified diff)
+────────────────────────────────────────────────────────────────────────
+--- a/services/single_validation_analyze_service.py
++++ b/services/single_validation_analyze_service.py
+@@ -234,6 +234,62 @@
+     m = _RE_INSERT_TARGET.search(sql or "")
+     return m.group(1).strip('"[]`').upper() if m else ""
+ 
++
++
++def _build_target_pk_evidence(tgt_conn: dict, tgt_table: str, analyze_result: dict) -> dict:
++    """[STRATEGY-PLAN-PK-KIND-HARDCODE-FIX] 목적지 물리 PK 구조 증거 — 3단계 실행계획 카드 '표시 전용' 추가 필드.
++
++    배경:
++      실행계획 카드(ui/grid_helpers.py `_mvBuildStatsScaleProfile`)가 실제 PK 구조를 조사하지 않고
++      has_pk=true / pk_kind='SINGLE_NUMERIC' / pk_indexed=true 를 고정 전송해, 문자 PK·복합 PK 테이블도
++      'PK 범위 분할 비교 · 실행 가능' 으로 잘못 표시됐다. 화면이 읽을 수 있는 PK 근거가 응답에 전혀
++      없었기 때문이다 — `analyze_result.validated[].is_pk` 는 목적지 접속이 있으면 항상 False 이고
++      (_cmn_fetch_tgt_col_meta 가 값을 채우지 않는다), `chunk_key_evidence_snapshot` 은 '신뢰 가능한
++      단일 숫자 PK 인가' 만 판정해 문자/복합을 구분하지 못한다.
++
++    원칙(비파괴·추가만):
++      - PK 조회는 기존 방언 위임 어댑터 `get_adapter(db_type).fetch_key_metadata` 를 그대로 재사용한다
++        — 새 엔드포인트도, 새 카탈로그 SQL 도 만들지 않는다(방언별 카탈로그는 어댑터가 이미 캡슐화).
++      - 기존 응답 필드는 하나도 바꾸지 않는다(`is_pk` 포함) — 후보추천/자동선정/판정 전부 불변이다.
++      - 조회 실패·미지원 DBMS·목적지 미연결이면 available=False + reason 만 남긴다. 소비측(실행계획 카드)이
++        낙관적으로 'PK 있음' 을 단정하지 않고 보수적으로 상세비교 HOLD 로 떨어지게 하기 위함이다.
++
++    반환: {available, table, pk_columns, key_column_count, types, reason}
++      - pk_columns: 목적지 물리 PK 컬럼(대문자). 복합 PK 면 2개 이상.
++      - key_column_count: PK 제약의 컬럼 수(복합 판정 근거).
++      - types: PK 컬럼의 목적지 타입({COL: TYPE}) — 이미 분류된 analyze_result 에서 인용(추가 조회 없음).
++    """
++    out = {"available": False, "table": tgt_table or "", "pk_columns": [],
++           "key_column_count": 0, "types": {}, "reason": ""}
++    if not (tgt_conn or {}).get("host"):
++        out["reason"] = "NO_TARGET_CONNECTION"
++        return out
++    if not tgt_table or str(tgt_table).startswith("("):
++        out["reason"] = "NO_TARGET_TABLE"
++        return out
++    # 어댑터 조회는 스키마 미수식 테이블명을 받는다(_pk_unique 등 기존 호출부와 동일 규약).
++    bare = str(tgt_table).split(".")[-1].strip('"[]`')
++    try:
++        from services.db_adapter_registry import get_adapter
++        keymeta = get_adapter((tgt_conn or {}).get("db_type")).fetch_key_metadata(tgt_conn, bare) or {}
++    except Exception:  # noqa: BLE001
++        out["reason"] = "KEY_METADATA_LOOKUP_FAILED"
++        return out
++    if not keymeta:
++        # 미지원 DBMS / 조회 실패 / 카탈로그 접근 불가 — 'PK 없음' 으로 단정하지 않는다.
++        out["reason"] = "KEY_METADATA_UNAVAILABLE"
++        return out
++    pk_cols = [c for c, m in keymeta.items() if (m or {}).get("is_pk")]
++    kcc = max([int((keymeta.get(c) or {}).get("key_column_count") or 0) for c in pk_cols], default=0)
++    # 타입은 이미 분류된 결과에서 인용한다(목적지 컬럼 메타 재조회 없음).
++    tmap = {}
++    for c in ((analyze_result or {}).get("validated") or []):
++        if c.get("tgt_col") and c.get("tgt_type"):
++            tmap[str(c["tgt_col"]).upper()] = str(c["tgt_type"])
++    out.update({"available": True, "pk_columns": sorted(pk_cols),
++                "key_column_count": kcc,
++                "types": {c: tmap[c] for c in sorted(pk_cols) if c in tmap}})
++    return out
+ 
+ 
+ def _analyze_timed(name, fn, *args, **kwargs):
+@@ -1772,6 +1828,18 @@
+     except Exception:  # noqa: BLE001
+         _chunk_key_evidence_snapshot = {}
+ 
++    # [STRATEGY-PLAN-PK-KIND-HARDCODE-FIX] 목적지 물리 PK 구조 증거(3단계 실행계획 카드 표시 전용 추가 필드).
++    #   기존 방언 위임 어댑터 재사용 — 새 엔드포인트/새 카탈로그 SQL 없음. 기존 필드·판정은 불변이며,
++    #   실패해도 analyze 를 깨지 않는다(available=False → 카드가 보수적으로 상세비교 HOLD 로 표시).
++    _target_pk_evidence = {"available": False, "reason": "NOT_COLLECTED"}
++    try:
++        _tgt_tbl_pk = (parse_result or {}).get("tgt_table") or (parse_result or {}).get("target_table") or ""
++        _target_pk_evidence = _analyze_timed(
++            "target_pk_evidence", _build_target_pk_evidence,
++            getattr(req, "tgt_conn", None) or {}, _tgt_tbl_pk, analyze_result) or _target_pk_evidence
++    except Exception:  # noqa: BLE001
++        _target_pk_evidence = {"available": False, "reason": "KEY_METADATA_LOOKUP_FAILED"}
++
+     # ── GROUP-BY-ZERO-CANDIDATE-LASTRESORT-FIX: 불일치 위치 좁힐 단서 부재 명확 안내 ──
+     # GROUP BY 후보가 (최후수단으로도) 하나도 없으면 COUNT 외 불일치 위치를 좁힐 방법이 없다.
+     # 기존처럼 약한 "숫자 컬럼 없음"만으로 조용히 넘어가지 않도록 명확히 안내한다(기존 warnings 패턴 재사용).
+@@ -1883,6 +1951,8 @@
+         "parse_result":             parse_result,
+         "analyze_result":           analyze_result,
+         "chunk_key_evidence_snapshot": _chunk_key_evidence_snapshot,   # [D7-12 B] prepare 재사용용 chunk key 증거
++        # [STRATEGY-PLAN-PK-KIND-HARDCODE-FIX] 목적지 물리 PK 구조(표시 전용 추가 — 기존 필드/판정 불변)
++        "target_pk_evidence":       _target_pk_evidence,
+         "all_groupby_candidates":   all_groupby_candidates,
+         "all_sum_candidates":       all_sum_candidates,
+         "gb_candidacy_summary":     _gb_candidacy_summary,   # GB 후보 가시성 요약(전체/대상/선택가능 + 비후보 사유)
+--- a/ui/grid_helpers.py
++++ b/ui/grid_helpers.py
+@@ -102,6 +102,30 @@
+ """.strip("\n")
+ 
+ 
++# ── [STRATEGY-PLAN-PK-KIND-HARDCODE-FIX] PK 타입 어휘 단일 출처 ──────────────
++def _pk_type_vocab_js() -> str:
++    """PK 구조 판정용 타입 어휘(숫자/날짜/문자)를 analyzer 의 기존 집합에서 그대로 JS 로 내보낸다.
++
++    화면에 타입 목록을 새로 하드코딩하면 analyzer 와 어휘가 갈라져 조용한 오분류가 생기므로
++    (heuristic 하드코딩 증가 방지), analyzer/column_analyzer.py 의 NUMERIC_TYPES /
++    DATETIME_TYPES / STRING_TYPES 를 단일 출처로 삼는다. import 실패 시에는 빈 어휘를 내보내
++    타입 판정이 '미상' 으로 떨어지고, 상위 판정이 보수적으로 HOLD 로 폴백한다(낙관적 단정 금지).
++    """
++    import json
++    try:
++        from analyzer.column_analyzer import (
++            NUMERIC_TYPES as _num, DATETIME_TYPES as _dt, STRING_TYPES as _str)
++        num, dtm, txt = sorted(_num), sorted(_dt), sorted(_str)
++    except Exception:  # noqa: BLE001
++        num, dtm, txt = [], [], []
++    return (
++        "/* [STRATEGY-PLAN-PK-KIND-HARDCODE-FIX] PK 타입 어휘 — analyzer/column_analyzer.py 에서 주입(단일 출처). */\n"
++        "var _MV_PK_NUM_TYPES  = %s;\n"
++        "var _MV_PK_DATE_TYPES = %s;\n"
++        "var _MV_PK_TEXT_TYPES = %s;\n"
++    ) % (json.dumps(num), json.dumps(dtm), json.dumps(txt))
++
++
+ # ── 공통 + 탭별 JS ───────────────────────────────────────────────────────────
+ def build_grid_helpers_js() -> str:
+     """Grid First 공통 helper + 개별검증 탭별 Summary Grid 렌더 JS.
+@@ -117,7 +141,7 @@
+       _mvQueryReviewGridHtml(a)    쿼리검토(_analyzeData) → Grid HTML 반환(주 화면)
+       _mvCountGridHtml(c)          COUNT(renderCountResult 인자) → Grid HTML 반환(주 화면)
+     """
+-    return r"""
++    return _pk_type_vocab_js() + r"""
+ /* ══ Grid First 공통 helper (ui/grid_helpers.py) ══════════════════════════════ */
+ /* _mvTrunc(v,n) 는 tabler_renderer 에 이미 정의됨 — 재정의하지 않고 그대로 사용(전역 clobber 방지). */
+ /* 배열 첫 후보(top) 반환 — 없으면 null. 후보추천 Grid 대표값 추출용. */
+@@ -835,6 +859,75 @@
+ /* STRATEGY-PLAN-CARD-WIRE-TO-SCREEN: /strategy/plan 프로파일 빌더 — _mvComputeStatsScale(규모 셀)과
+    _mvRenderStrategyPlan(실행계획 카드)가 동일 프로파일을 쓰도록 추출(새 로직 아님 — 기존 인라인 그대로 이동).
+    count 미도착이면 null(호출부에서 미표시). */
++/* ══ [STRATEGY-PLAN-PK-KIND-HARDCODE-FIX] 실행계획 PK 구조 근거화 ═════════════════
++   기존 결함: _mvBuildStatsScaleProfile() 이 has_pk/pk_kind/pk_indexed 를 실제 PK 구조와 무관하게
++     true / 'SINGLE_NUMERIC' / true 로 고정 전송했다. 서버(routes/strategy_route.py)는 받은 값을
++     한글 라벨로 치환할 뿐이라, 실제로는 상세비교 HOLD 되어야 할 문자 PK·복합 PK·PK 없음 테이블도
++     3단계 실행계획 카드가 '숫자 단일 PK · 실행 가능' 으로 표시됐다(표시 전용 결함 — 실행 엔진은
++     이 값을 쓰지 않으므로 잘못된 실행이 일어나지는 않는다).
++   이 수정: 네트워크 왕복을 추가하지 않고, 3단계 진입 시점에 화면이 이미 보유한 analyze 응답
++     (_analyzeData)만 '읽어서' PK 구조를 판정한다. 새 API/새 백엔드 엔드포인트를 만들지 않는다.
++   근거 우선순위:
++     1) target_pk_evidence — 목적지 물리 PK 구조(PK 컬럼 목록·키컬럼수·타입). 서버가 방언 위임 어댑터로
++        조회해 analyze 응답에 실어준다. 문자/복합/없음을 모두 구분할 수 있는 유일한 근거다.
++     2) chunk_key_evidence_snapshot — DB 카탈로그 물리 PK 제약 증거(단일컬럼 여부·키컬럼수·타입·NOT NULL).
++        verdict='TRUSTED_PHYSICAL_PK' 는 '단일컬럼 숫자 물리 PK' 가 카탈로그로 확정된 경우다.
++     3) analyze_result.validated[].is_pk + tgt_type — 목적지 컬럼 메타(DDL 입력 경로)의 PK 표시.
++   안전측 원칙: 어느 근거로도 확정하지 못하면 낙관적으로 SINGLE_NUMERIC 을 단정하지 않고
++     has_pk=false / pk_kind='NONE' 으로 폴백한다 → 서버 계획기가 STATS_ONLY_HOLD(상세비교 보류)로 판정. */
++/* 타입 문자열 → PK 종류. 'NUMBER(10,2)' → 기본 타입명 NUMBER 추출 후 어휘 대조. 미상이면 ''. */
++function _mvPkTypeKind(t){
++  var m = String(t == null ? '' : t).trim().toUpperCase().match(/^(\w+)/);
++  var bt = m ? m[1] : '';
++  if (!bt) return '';
++  if ((typeof _MV_PK_NUM_TYPES  !== 'undefined' ? _MV_PK_NUM_TYPES  : []).indexOf(bt) >= 0) return 'SINGLE_NUMERIC';
++  if ((typeof _MV_PK_DATE_TYPES !== 'undefined' ? _MV_PK_DATE_TYPES : []).indexOf(bt) >= 0) return 'SINGLE_DATE';
++  if ((typeof _MV_PK_TEXT_TYPES !== 'undefined' ? _MV_PK_TEXT_TYPES : []).indexOf(bt) >= 0) return 'SINGLE_TEXT';
++  return '';
++}
++/* analyze 응답(ad)에서 PK 구조 판정 → {has_pk, pk_kind, pk_indexed, pk_evidence}. 조회/왕복 없음. */
++function _mvDerivePkProfile(ad){
++  /* 확인 불가 시 보수적 폴백 — 서버 계획기에서 NO_STABLE_PK → STATS_ONLY_HOLD 로 이어진다. */
++  var UNKNOWN = { has_pk:false, pk_kind:'NONE', pk_indexed:false, pk_evidence:'UNKNOWN' };
++  ad = ad || {};
++  var snap = ad.chunk_key_evidence_snapshot || {};
++  var ar   = ad.analyze_result || {};
++  /* 1) 목적지 물리 PK 구조 증거(최우선) — 문자/복합/없음까지 구분 가능한 유일한 근거.
++        available=false 는 '조회 못함' 이지 'PK 없음' 이 아니므로 여기서 단정하지 않고 아래 근거로 넘어간다. */
++  var tpe = ad.target_pk_evidence || {};
++  if (tpe.available === true) {
++    var cols = tpe.pk_columns || [];
++    var kcc  = Number(tpe.key_column_count || 0);
++    if (cols.length === 0)
++      return { has_pk:false, pk_kind:'NONE', pk_indexed:false, pk_evidence:'TARGET_PK_EVIDENCE_NO_PK' };
++    if (cols.length >= 2 || kcc >= 2)          /* 복합 PK — 범위 분할 부적합 */
++      return { has_pk:true, pk_kind:'COMPOSITE', pk_indexed:true, pk_evidence:'TARGET_PK_EVIDENCE' };
++    var k1 = _mvPkTypeKind((tpe.types || {})[cols[0]]);
++    /* 타입을 못 얻으면(분류 대상 밖 컬럼 등) 종류를 단정하지 않는다 → 보수적 HOLD. */
++    if (!k1) return { has_pk:false, pk_kind:'NONE', pk_indexed:false, pk_evidence:'TARGET_PK_EVIDENCE_TYPE_UNKNOWN' };
++    return { has_pk:true, pk_kind:k1, pk_indexed:true, pk_evidence:'TARGET_PK_EVIDENCE' };
++  }
++  /* 2) 카탈로그 물리 PK 증거가 '신뢰 가능한 단일 숫자 PK' 로 확정한 경우 — 물리 PK 는 인덱스를 수반한다. */
++  if (snap.verdict === 'TRUSTED_PHYSICAL_PK')
++    return { has_pk:true, pk_kind:'SINGLE_NUMERIC', pk_indexed:true, pk_evidence:'CHUNK_KEY_EVIDENCE' };
++  /* 3) 목적지 컬럼 메타가 없으면(has_meta!==true) PK 유무 자체를 알 수 없다 → 'PK 없음' 으로도 단정하지 않고 UNKNOWN. */
++  if (ar.has_meta !== true) return UNKNOWN;
++  var pkCols = (ar.validated || []).filter(function(c){ return !!(c && c.is_pk); });
++  /* 카탈로그가 '단일컬럼 PK 없음' 이라고 말하면(복합 PK 등) 메타상 PK 컬럼이 1건으로 보여도 복합으로 본다
++     — validated 는 자체생성/리터럴 매핑 컬럼이 빠진 목록이라 PK 컬럼 수를 과소계상할 수 있다. */
++  if (snap.reason === 'NO_SINGLE_COLUMN_PK' && pkCols.length >= 1)
++    return { has_pk:true, pk_kind:'COMPOSITE', pk_indexed:true, pk_evidence:'CHUNK_KEY_EVIDENCE' };
++  if (pkCols.length >= 2)
++    return { has_pk:true, pk_kind:'COMPOSITE', pk_indexed:true, pk_evidence:'TARGET_COLUMN_META' };
++  if (pkCols.length === 1) {
++    var kind = _mvPkTypeKind(pkCols[0].tgt_type);
++    if (!kind) return UNKNOWN;                 /* 타입 미상 → 낙관적 단정 금지 */
++    return { has_pk:true, pk_kind:kind, pk_indexed:true, pk_evidence:'TARGET_COLUMN_META' };
++  }
++  /* PK 컬럼 0건: 실제로 PK 가 없을 수도, 제외 컬럼(자체생성/리터럴)에 PK 가 있을 수도 있다 → 보수적 UNKNOWN. */
++  return UNKNOWN;
++}
++if (typeof window !== 'undefined') { window._mvPkTypeKind = _mvPkTypeKind; window._mvDerivePkProfile = _mvDerivePkProfile; }
+ function _mvBuildStatsScaleProfile(){
+   if (typeof window === 'undefined') return null;
+   var count = (typeof _lastCountResult !== 'undefined' && _lastCountResult) || {};
+@@ -856,6 +949,9 @@
+   var effGb = (liveGb !== null) ? liveGb : _mvEffectiveGbCols(ad);
+   var effSum = (liveSum !== null) ? liveSum : _mvEffectiveSumCols(ad);
+   var srcTables = ((ad.validation_context || {}).source_tables || []);
++  /* [STRATEGY-PLAN-PK-KIND-HARDCODE-FIX] PK 구조는 고정값이 아니라 화면이 이미 가진 analyze 근거로 판정한다.
++     판정 불가면 has_pk=false/NONE → 서버 계획기가 상세비교 HOLD 로 판정(안전측). */
++  var pk = _mvDerivePkProfile(ad);
+   return {
+     table_key: (srcTables[0] || ''), source_count: count.src_count, estimated_scan_rows: count.src_count,
+     configured_group_by_count: (pol.default_groupby_limit != null ? pol.default_groupby_limit : null),
+@@ -863,7 +959,9 @@
+     selection_mode: (liveGb !== null ? 'MANUAL' : 'AUTO'),
+     effective_group_by_columns: effGb, effective_aggregate_columns: effSum,
+     group_axis_count: effGb.length, sum_column_count: effSum.length,
+-    has_pk: true, pk_kind: 'SINGLE_NUMERIC', pk_indexed: true, remote: true };
++    has_pk: pk.has_pk, pk_kind: pk.pk_kind, pk_indexed: pk.pk_indexed,
++    /* 판정 근거코드(설명가능성) — StrategyProfile 에 없는 키라 서버는 무시하고 화면 진단에만 쓰인다. */
++    pk_evidence: pk.pk_evidence, remote: true };
+ }
+ if (typeof window !== 'undefined') window._mvBuildStatsScaleProfile = _mvBuildStatsScaleProfile;
+ async function _mvComputeStatsScale(){
+
+────────────────────────────────────────────────────────────────────────
+12. 증적 파일
+────────────────────────────────────────────────────────────────────────
+E:\verify_screenshots_only\STRATEGY-PLAN-PK-KIND-HARDCODE-FIX\
+  num_pk_before_card.png / num_pk_after_card.png            (숫자 단일 PK — 실행계획 카드)
+  num_pk_before_stage3_full.png / num_pk_after_stage3_full.png
+  txt_pk_before_card.png / txt_pk_after_card.png            (문자 단일 PK — 실행계획 카드)
+  txt_pk_before_stage3_full.png / txt_pk_after_stage3_full.png
+  cmp_pk_before_card.png / cmp_pk_after_card.png            (복합 PK — 실행계획 카드)
+  cmp_pk_before_stage3_full.png / cmp_pk_after_stage3_full.png
+  _verify_result_num-cmp.json / _verify_result_txt_pk.json  (프로파일·서버응답·해시 원본)
+  _change.diff                                              (변경 전문)
+  _harness_01_fixture.py                 오라클 PK 3종 픽스처 생성
+  _harness_02_pk_evidence_gap_probe.py   PK 근거 배선 갭 실측(§2)
+  _harness_03_after_route_compare.py     신·구 profile 서버 판정 대조
+  _harness_04_pk_derive_unit.js          _mvDerivePkProfile 13분기 단위 검증
+  _harness_05_browser_before_after.py    3단계 화면 Before/After 캡처
+  _harness_06_cost.py                    추가 수집 비용 실측
+
+✅ 작업 완료 - STRATEGY-PLAN-PK-KIND-HARDCODE-FIX - 3단계 실행계획 카드의 PK 구조 고정값(has_pk/pk_kind/pk_indexed)을 제거하고, 기존 방언 위임 어댑터를 재사용한 추가 전용 근거 필드(target_pk_evidence)로 판정하도록 바꿔 오라클 실 DB 3종(숫자/문자/복합 PK)이 각각 '숫자 단일 PK·실행 가능' / '문자 단일 PK·HOLD' / '복합 PK·HOLD' 로 정확히 표시됨을 화면 렌더로 확인했다(기존 응답 필드·판정 불변, 신규 회귀 0건)
