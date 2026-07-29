@@ -1,0 +1,192 @@
+{
+  "task": "STRATEGY-PLAN-PK-KIND-HARDCODE-FIX",
+  "base": "http://127.0.0.1:7862/",
+  "pair": [
+    "Oracle_asis",
+    "Oracle_tobe"
+  ],
+  "cases": {
+    "num_pk": {
+      "label": "숫자 단일 PK",
+      "sql": "INSERT INTO NXDNP.T_SPKFIX_NUM_TGT (ID, DEPT_CD, AMT) SELECT ID, DEPT_CD, AMT FROM NXDNP.T_SPKFIX_NUM_SRC",
+      "shots": {
+        "BEFORE_card": "E:\\verify_screenshots_only\\STRATEGY-PLAN-PK-KIND-HARDCODE-FIX\\num_pk_before_card.png",
+        "BEFORE_full": "E:\\verify_screenshots_only\\STRATEGY-PLAN-PK-KIND-HARDCODE-FIX\\num_pk_before_stage3_full.png",
+        "AFTER_card": "E:\\verify_screenshots_only\\STRATEGY-PLAN-PK-KIND-HARDCODE-FIX\\num_pk_after_card.png",
+        "AFTER_full": "E:\\verify_screenshots_only\\STRATEGY-PLAN-PK-KIND-HARDCODE-FIX\\num_pk_after_stage3_full.png"
+      },
+      "hashes": {
+        "BEFORE_card": "b74cddd8902eba4e",
+        "BEFORE_full": "4ac7b880a4986fe5",
+        "AFTER_card": "b74cddd8902eba4e",
+        "AFTER_full": "6f685972142e917b"
+      },
+      "setup": {
+        "pair_label": "Oracle_asis → Oracle_tobe",
+        "pair_existed": false,
+        "pair_created": true,
+        "connect_clicked": true
+      },
+      "from_table": "T_SPKFIX_NUM_SRC",
+      "target_pk_evidence": {
+        "available": true,
+        "table": "T_SPKFIX_NUM_TGT",
+        "pk_columns": [
+          "ID"
+        ],
+        "key_column_count": 1,
+        "types": {
+          "ID": "NUMERIC"
+        },
+        "reason": ""
+      },
+      "from_table_ok": false,
+      "moved_count": true,
+      "count": {
+        "status": "COUNT_MATCHED",
+        "gate_src": 300,
+        "gate_tgt": 300,
+        "last_src": 300,
+        "last_tgt": 300
+      },
+      "moved_cand": true,
+      "profile_ready": true,
+      "BEFORE": {
+        "ok": true,
+        "profile_pk": {
+          "has_pk": true,
+          "pk_kind": "SINGLE_NUMERIC",
+          "pk_indexed": true,
+          "pk_evidence": "TARGET_PK_EVIDENCE"
+        },
+        "plan": {
+          "compare_strategy_id": "DIRECT_STREAM_COMPARE",
+          "pk_structure": "SINGLE_NUMERIC",
+          "implementation_status": "AVAILABLE",
+          "basis_text": "원본 300건 · 숫자 단일 PK · PK 인덱스 · 원격 DB",
+          "provisional_grade": "잠정 소형"
+        }
+      },
+      "BEFORE_card_text": "실행계획No항목값상태1통계검증 규모잠정 소형 · 예상 스캔 300행2실제 적용GROUP BY 1개 · 집계컬럼 1개적용됨3GROUP BYDEPT_CD4집계컬럼AMT5통계전략직접 집계(전체스캔 EXACT · 원본↔목적 그룹별 COUNT/SUM 비교) STATS_DIRECT_AGG6불일치 추출전략직접 스트림 비교(원본·목적 전체를 한 번에 정렬·대조) DIRECT_STREAM_COMPARE7상태실행 가능8판정근거원본 300건 · 숫자 단일 PK · PK 인덱스 · 원격 DB",
+      "AFTER": {
+        "ok": true,
+        "profile_pk": {
+          "has_pk": true,
+          "pk_kind": "SINGLE_NUMERIC",
+          "pk_indexed": true,
+          "pk_evidence": "TARGET_PK_EVIDENCE"
+        },
+        "plan": {
+          "compare_strategy_id": "DIRECT_STREAM_COMPARE",
+          "pk_structure": "SINGLE_NUMERIC",
+          "implementation_status": "AVAILABLE",
+          "basis_text": "원본 300건 · 숫자 단일 PK · PK 인덱스 · 원격 DB",
+          "provisional_grade": "잠정 소형"
+        }
+      },
+      "AFTER_card_text": "실행계획No항목값상태1통계검증 규모잠정 소형 · 예상 스캔 300행2실제 적용GROUP BY 1개 · 집계컬럼 1개적용됨3GROUP BYDEPT_CD4집계컬럼AMT5통계전략직접 집계(전체스캔 EXACT · 원본↔목적 그룹별 COUNT/SUM 비교) STATS_DIRECT_AGG6불일치 추출전략직접 스트림 비교(원본·목적 전체를 한 번에 정렬·대조) DIRECT_STREAM_COMPARE7상태실행 가능8판정근거원본 300건 · 숫자 단일 PK · PK 인덱스 · 원격 DB",
+      "card_bytes_differ": false
+    },
+    "txt_pk": {
+      "label": "문자 단일 PK",
+      "sql": "INSERT INTO NXDNP.T_SPKFIX_TXT_TGT (CODE, DEPT_CD, AMT) SELECT CODE, DEPT_CD, AMT FROM NXDNP.T_SPKFIX_TXT_SRC",
+      "shots": {},
+      "hashes": {},
+      "setup": {
+        "pair_label": "Oracle_asis → Oracle_tobe",
+        "skipped": [
+          "TESTONLY_REG: TimeoutError",
+          "개별검증: TimeoutError"
+        ],
+        "pair_existed": true
+      },
+      "error": "TimeoutError: Page.wait_for_selector: Timeout 40000ms exceeded.\nCall log:\n  - waiting for locator(\"#sqlInput\") to be visible\n    82 × locator resolved to hidden <textarea rows=\"5\" id=\"sqlInput\" autocorrect=\"off\" au"
+    },
+    "cmp_pk": {
+      "label": "복합 PK",
+      "sql": "INSERT INTO NXDNP.T_SPKFIX_CMP_TGT (CO_CD, SEQ, DEPT_CD, AMT) SELECT CO_CD, SEQ, DEPT_CD, AMT FROM NXDNP.T_SPKFIX_CMP_SRC",
+      "shots": {
+        "BEFORE_card": "E:\\verify_screenshots_only\\STRATEGY-PLAN-PK-KIND-HARDCODE-FIX\\cmp_pk_before_card.png",
+        "BEFORE_full": "E:\\verify_screenshots_only\\STRATEGY-PLAN-PK-KIND-HARDCODE-FIX\\cmp_pk_before_stage3_full.png",
+        "AFTER_card": "E:\\verify_screenshots_only\\STRATEGY-PLAN-PK-KIND-HARDCODE-FIX\\cmp_pk_after_card.png",
+        "AFTER_full": "E:\\verify_screenshots_only\\STRATEGY-PLAN-PK-KIND-HARDCODE-FIX\\cmp_pk_after_stage3_full.png"
+      },
+      "hashes": {
+        "BEFORE_card": "708c6bf52396e6e6",
+        "BEFORE_full": "6bad7ab99f18747f",
+        "AFTER_card": "5ee51bc386e578e9",
+        "AFTER_full": "3488c27dc8f1aed7"
+      },
+      "setup": {
+        "pair_label": "Oracle_asis → Oracle_tobe",
+        "skipped": [
+          "TESTONLY_REG: TimeoutError",
+          "DB 프로필/검증 경로: TimeoutError"
+        ],
+        "pair_existed": true
+      },
+      "from_table": "T_SPKFIX_CMP_SRC",
+      "target_pk_evidence": {
+        "available": true,
+        "table": "T_SPKFIX_CMP_TGT",
+        "pk_columns": [
+          "CO_CD",
+          "SEQ"
+        ],
+        "key_column_count": 2,
+        "types": {
+          "CO_CD": "VARCHAR",
+          "SEQ": "NUMERIC"
+        },
+        "reason": ""
+      },
+      "from_table_ok": false,
+      "moved_count": true,
+      "count": {
+        "status": "COUNT_MATCHED",
+        "gate_src": 300,
+        "gate_tgt": 300,
+        "last_src": 300,
+        "last_tgt": 300
+      },
+      "moved_cand": true,
+      "profile_ready": true,
+      "BEFORE": {
+        "ok": true,
+        "profile_pk": {
+          "has_pk": true,
+          "pk_kind": "SINGLE_NUMERIC",
+          "pk_indexed": true,
+          "pk_evidence": "TARGET_PK_EVIDENCE"
+        },
+        "plan": {
+          "compare_strategy_id": "DIRECT_STREAM_COMPARE",
+          "pk_structure": "SINGLE_NUMERIC",
+          "implementation_status": "AVAILABLE",
+          "basis_text": "원본 300건 · 숫자 단일 PK · PK 인덱스 · 원격 DB",
+          "provisional_grade": "잠정 소형"
+        }
+      },
+      "BEFORE_card_text": "실행계획No항목값상태1통계검증 규모잠정 소형 · 예상 스캔 300행2실제 적용GROUP BY 2개 · 집계컬럼 1개적용됨3GROUP BYCO_CD, DEPT_CD4집계컬럼AMT5통계전략직접 집계(전체스캔 EXACT · 원본↔목적 그룹별 COUNT/SUM 비교) STATS_DIRECT_AGG6불일치 추출전략직접 스트림 비교(원본·목적 전체를 한 번에 정렬·대조) DIRECT_STREAM_COMPARE7상태실행 가능8판정근거원본 300건 · 숫자 단일 PK · PK 인덱스 · 원격 DB",
+      "AFTER": {
+        "ok": true,
+        "profile_pk": {
+          "has_pk": true,
+          "pk_kind": "COMPOSITE",
+          "pk_indexed": true,
+          "pk_evidence": "TARGET_PK_EVIDENCE"
+        },
+        "plan": {
+          "compare_strategy_id": "STATS_ONLY_HOLD",
+          "pk_structure": "COMPOSITE",
+          "implementation_status": "HOLD",
+          "basis_text": "원본 300건 · 복합 PK · PK 인덱스 · 원격 DB",
+          "provisional_grade": "잠정 소형"
+        }
+      },
+      "AFTER_card_text": "실행계획No항목값상태1통계검증 규모잠정 소형 · 예상 스캔 300행2실제 적용GROUP BY 2개 · 집계컬럼 1개적용됨3GROUP BYCO_CD, DEPT_CD4집계컬럼AMT5통계전략직접 집계(전체스캔 EXACT · 원본↔목적 그룹별 COUNT/SUM 비교) STATS_DIRECT_AGG6불일치 추출전략STATS_ONLY_HOLD7상태상세비교 보류(HOLD)8판정근거원본 300건 · 복합 PK · PK 인덱스 · 원격 DB미구현 전략은 자동 실행하지 않습니다. 기존 전체 비교 fallback 은 명시 승인 시에만 사용합니다.",
+      "card_bytes_differ": true
+    }
+  },
+  "console_errors": []
+}

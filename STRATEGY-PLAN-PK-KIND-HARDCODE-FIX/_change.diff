@@ -1,0 +1,232 @@
+--- a/services/single_validation_analyze_service.py
++++ b/services/single_validation_analyze_service.py
+@@ -234,6 +234,62 @@
+     m = _RE_INSERT_TARGET.search(sql or "")
+     return m.group(1).strip('"[]`').upper() if m else ""
+ 
++
++
++def _build_target_pk_evidence(tgt_conn: dict, tgt_table: str, analyze_result: dict) -> dict:
++    """[STRATEGY-PLAN-PK-KIND-HARDCODE-FIX] 목적지 물리 PK 구조 증거 — 3단계 실행계획 카드 '표시 전용' 추가 필드.
++
++    배경:
++      실행계획 카드(ui/grid_helpers.py `_mvBuildStatsScaleProfile`)가 실제 PK 구조를 조사하지 않고
++      has_pk=true / pk_kind='SINGLE_NUMERIC' / pk_indexed=true 를 고정 전송해, 문자 PK·복합 PK 테이블도
++      'PK 범위 분할 비교 · 실행 가능' 으로 잘못 표시됐다. 화면이 읽을 수 있는 PK 근거가 응답에 전혀
++      없었기 때문이다 — `analyze_result.validated[].is_pk` 는 목적지 접속이 있으면 항상 False 이고
++      (_cmn_fetch_tgt_col_meta 가 값을 채우지 않는다), `chunk_key_evidence_snapshot` 은 '신뢰 가능한
++      단일 숫자 PK 인가' 만 판정해 문자/복합을 구분하지 못한다.
++
++    원칙(비파괴·추가만):
++      - PK 조회는 기존 방언 위임 어댑터 `get_adapter(db_type).fetch_key_metadata` 를 그대로 재사용한다
++        — 새 엔드포인트도, 새 카탈로그 SQL 도 만들지 않는다(방언별 카탈로그는 어댑터가 이미 캡슐화).
++      - 기존 응답 필드는 하나도 바꾸지 않는다(`is_pk` 포함) — 후보추천/자동선정/판정 전부 불변이다.
++      - 조회 실패·미지원 DBMS·목적지 미연결이면 available=False + reason 만 남긴다. 소비측(실행계획 카드)이
++        낙관적으로 'PK 있음' 을 단정하지 않고 보수적으로 상세비교 HOLD 로 떨어지게 하기 위함이다.
++
++    반환: {available, table, pk_columns, key_column_count, types, reason}
++      - pk_columns: 목적지 물리 PK 컬럼(대문자). 복합 PK 면 2개 이상.
++      - key_column_count: PK 제약의 컬럼 수(복합 판정 근거).
++      - types: PK 컬럼의 목적지 타입({COL: TYPE}) — 이미 분류된 analyze_result 에서 인용(추가 조회 없음).
++    """
++    out = {"available": False, "table": tgt_table or "", "pk_columns": [],
++           "key_column_count": 0, "types": {}, "reason": ""}
++    if not (tgt_conn or {}).get("host"):
++        out["reason"] = "NO_TARGET_CONNECTION"
++        return out
++    if not tgt_table or str(tgt_table).startswith("("):
++        out["reason"] = "NO_TARGET_TABLE"
++        return out
++    # 어댑터 조회는 스키마 미수식 테이블명을 받는다(_pk_unique 등 기존 호출부와 동일 규약).
++    bare = str(tgt_table).split(".")[-1].strip('"[]`')
++    try:
++        from services.db_adapter_registry import get_adapter
++        keymeta = get_adapter((tgt_conn or {}).get("db_type")).fetch_key_metadata(tgt_conn, bare) or {}
++    except Exception:  # noqa: BLE001
++        out["reason"] = "KEY_METADATA_LOOKUP_FAILED"
++        return out
++    if not keymeta:
++        # 미지원 DBMS / 조회 실패 / 카탈로그 접근 불가 — 'PK 없음' 으로 단정하지 않는다.
++        out["reason"] = "KEY_METADATA_UNAVAILABLE"
++        return out
++    pk_cols = [c for c, m in keymeta.items() if (m or {}).get("is_pk")]
++    kcc = max([int((keymeta.get(c) or {}).get("key_column_count") or 0) for c in pk_cols], default=0)
++    # 타입은 이미 분류된 결과에서 인용한다(목적지 컬럼 메타 재조회 없음).
++    tmap = {}
++    for c in ((analyze_result or {}).get("validated") or []):
++        if c.get("tgt_col") and c.get("tgt_type"):
++            tmap[str(c["tgt_col"]).upper()] = str(c["tgt_type"])
++    out.update({"available": True, "pk_columns": sorted(pk_cols),
++                "key_column_count": kcc,
++                "types": {c: tmap[c] for c in sorted(pk_cols) if c in tmap}})
++    return out
+ 
+ 
+ def _analyze_timed(name, fn, *args, **kwargs):
+@@ -1772,6 +1828,18 @@
+     except Exception:  # noqa: BLE001
+         _chunk_key_evidence_snapshot = {}
+ 
++    # [STRATEGY-PLAN-PK-KIND-HARDCODE-FIX] 목적지 물리 PK 구조 증거(3단계 실행계획 카드 표시 전용 추가 필드).
++    #   기존 방언 위임 어댑터 재사용 — 새 엔드포인트/새 카탈로그 SQL 없음. 기존 필드·판정은 불변이며,
++    #   실패해도 analyze 를 깨지 않는다(available=False → 카드가 보수적으로 상세비교 HOLD 로 표시).
++    _target_pk_evidence = {"available": False, "reason": "NOT_COLLECTED"}
++    try:
++        _tgt_tbl_pk = (parse_result or {}).get("tgt_table") or (parse_result or {}).get("target_table") or ""
++        _target_pk_evidence = _analyze_timed(
++            "target_pk_evidence", _build_target_pk_evidence,
++            getattr(req, "tgt_conn", None) or {}, _tgt_tbl_pk, analyze_result) or _target_pk_evidence
++    except Exception:  # noqa: BLE001
++        _target_pk_evidence = {"available": False, "reason": "KEY_METADATA_LOOKUP_FAILED"}
++
+     # ── GROUP-BY-ZERO-CANDIDATE-LASTRESORT-FIX: 불일치 위치 좁힐 단서 부재 명확 안내 ──
+     # GROUP BY 후보가 (최후수단으로도) 하나도 없으면 COUNT 외 불일치 위치를 좁힐 방법이 없다.
+     # 기존처럼 약한 "숫자 컬럼 없음"만으로 조용히 넘어가지 않도록 명확히 안내한다(기존 warnings 패턴 재사용).
+@@ -1883,6 +1951,8 @@
+         "parse_result":             parse_result,
+         "analyze_result":           analyze_result,
+         "chunk_key_evidence_snapshot": _chunk_key_evidence_snapshot,   # [D7-12 B] prepare 재사용용 chunk key 증거
++        # [STRATEGY-PLAN-PK-KIND-HARDCODE-FIX] 목적지 물리 PK 구조(표시 전용 추가 — 기존 필드/판정 불변)
++        "target_pk_evidence":       _target_pk_evidence,
+         "all_groupby_candidates":   all_groupby_candidates,
+         "all_sum_candidates":       all_sum_candidates,
+         "gb_candidacy_summary":     _gb_candidacy_summary,   # GB 후보 가시성 요약(전체/대상/선택가능 + 비후보 사유)
+--- a/ui/grid_helpers.py
++++ b/ui/grid_helpers.py
+@@ -102,6 +102,30 @@
+ """.strip("\n")
+ 
+ 
++# ── [STRATEGY-PLAN-PK-KIND-HARDCODE-FIX] PK 타입 어휘 단일 출처 ──────────────
++def _pk_type_vocab_js() -> str:
++    """PK 구조 판정용 타입 어휘(숫자/날짜/문자)를 analyzer 의 기존 집합에서 그대로 JS 로 내보낸다.
++
++    화면에 타입 목록을 새로 하드코딩하면 analyzer 와 어휘가 갈라져 조용한 오분류가 생기므로
++    (heuristic 하드코딩 증가 방지), analyzer/column_analyzer.py 의 NUMERIC_TYPES /
++    DATETIME_TYPES / STRING_TYPES 를 단일 출처로 삼는다. import 실패 시에는 빈 어휘를 내보내
++    타입 판정이 '미상' 으로 떨어지고, 상위 판정이 보수적으로 HOLD 로 폴백한다(낙관적 단정 금지).
++    """
++    import json
++    try:
++        from analyzer.column_analyzer import (
++            NUMERIC_TYPES as _num, DATETIME_TYPES as _dt, STRING_TYPES as _str)
++        num, dtm, txt = sorted(_num), sorted(_dt), sorted(_str)
++    except Exception:  # noqa: BLE001
++        num, dtm, txt = [], [], []
++    return (
++        "/* [STRATEGY-PLAN-PK-KIND-HARDCODE-FIX] PK 타입 어휘 — analyzer/column_analyzer.py 에서 주입(단일 출처). */\n"
++        "var _MV_PK_NUM_TYPES  = %s;\n"
++        "var _MV_PK_DATE_TYPES = %s;\n"
++        "var _MV_PK_TEXT_TYPES = %s;\n"
++    ) % (json.dumps(num), json.dumps(dtm), json.dumps(txt))
++
++
+ # ── 공통 + 탭별 JS ───────────────────────────────────────────────────────────
+ def build_grid_helpers_js() -> str:
+     """Grid First 공통 helper + 개별검증 탭별 Summary Grid 렌더 JS.
+@@ -117,7 +141,7 @@
+       _mvQueryReviewGridHtml(a)    쿼리검토(_analyzeData) → Grid HTML 반환(주 화면)
+       _mvCountGridHtml(c)          COUNT(renderCountResult 인자) → Grid HTML 반환(주 화면)
+     """
+-    return r"""
++    return _pk_type_vocab_js() + r"""
+ /* ══ Grid First 공통 helper (ui/grid_helpers.py) ══════════════════════════════ */
+ /* _mvTrunc(v,n) 는 tabler_renderer 에 이미 정의됨 — 재정의하지 않고 그대로 사용(전역 clobber 방지). */
+ /* 배열 첫 후보(top) 반환 — 없으면 null. 후보추천 Grid 대표값 추출용. */
+@@ -835,6 +859,75 @@
+ /* STRATEGY-PLAN-CARD-WIRE-TO-SCREEN: /strategy/plan 프로파일 빌더 — _mvComputeStatsScale(규모 셀)과
+    _mvRenderStrategyPlan(실행계획 카드)가 동일 프로파일을 쓰도록 추출(새 로직 아님 — 기존 인라인 그대로 이동).
+    count 미도착이면 null(호출부에서 미표시). */
++/* ══ [STRATEGY-PLAN-PK-KIND-HARDCODE-FIX] 실행계획 PK 구조 근거화 ═════════════════
++   기존 결함: _mvBuildStatsScaleProfile() 이 has_pk/pk_kind/pk_indexed 를 실제 PK 구조와 무관하게
++     true / 'SINGLE_NUMERIC' / true 로 고정 전송했다. 서버(routes/strategy_route.py)는 받은 값을
++     한글 라벨로 치환할 뿐이라, 실제로는 상세비교 HOLD 되어야 할 문자 PK·복합 PK·PK 없음 테이블도
++     3단계 실행계획 카드가 '숫자 단일 PK · 실행 가능' 으로 표시됐다(표시 전용 결함 — 실행 엔진은
++     이 값을 쓰지 않으므로 잘못된 실행이 일어나지는 않는다).
++   이 수정: 네트워크 왕복을 추가하지 않고, 3단계 진입 시점에 화면이 이미 보유한 analyze 응답
++     (_analyzeData)만 '읽어서' PK 구조를 판정한다. 새 API/새 백엔드 엔드포인트를 만들지 않는다.
++   근거 우선순위:
++     1) target_pk_evidence — 목적지 물리 PK 구조(PK 컬럼 목록·키컬럼수·타입). 서버가 방언 위임 어댑터로
++        조회해 analyze 응답에 실어준다. 문자/복합/없음을 모두 구분할 수 있는 유일한 근거다.
++     2) chunk_key_evidence_snapshot — DB 카탈로그 물리 PK 제약 증거(단일컬럼 여부·키컬럼수·타입·NOT NULL).
++        verdict='TRUSTED_PHYSICAL_PK' 는 '단일컬럼 숫자 물리 PK' 가 카탈로그로 확정된 경우다.
++     3) analyze_result.validated[].is_pk + tgt_type — 목적지 컬럼 메타(DDL 입력 경로)의 PK 표시.
++   안전측 원칙: 어느 근거로도 확정하지 못하면 낙관적으로 SINGLE_NUMERIC 을 단정하지 않고
++     has_pk=false / pk_kind='NONE' 으로 폴백한다 → 서버 계획기가 STATS_ONLY_HOLD(상세비교 보류)로 판정. */
++/* 타입 문자열 → PK 종류. 'NUMBER(10,2)' → 기본 타입명 NUMBER 추출 후 어휘 대조. 미상이면 ''. */
++function _mvPkTypeKind(t){
++  var m = String(t == null ? '' : t).trim().toUpperCase().match(/^(\w+)/);
++  var bt = m ? m[1] : '';
++  if (!bt) return '';
++  if ((typeof _MV_PK_NUM_TYPES  !== 'undefined' ? _MV_PK_NUM_TYPES  : []).indexOf(bt) >= 0) return 'SINGLE_NUMERIC';
++  if ((typeof _MV_PK_DATE_TYPES !== 'undefined' ? _MV_PK_DATE_TYPES : []).indexOf(bt) >= 0) return 'SINGLE_DATE';
++  if ((typeof _MV_PK_TEXT_TYPES !== 'undefined' ? _MV_PK_TEXT_TYPES : []).indexOf(bt) >= 0) return 'SINGLE_TEXT';
++  return '';
++}
++/* analyze 응답(ad)에서 PK 구조 판정 → {has_pk, pk_kind, pk_indexed, pk_evidence}. 조회/왕복 없음. */
++function _mvDerivePkProfile(ad){
++  /* 확인 불가 시 보수적 폴백 — 서버 계획기에서 NO_STABLE_PK → STATS_ONLY_HOLD 로 이어진다. */
++  var UNKNOWN = { has_pk:false, pk_kind:'NONE', pk_indexed:false, pk_evidence:'UNKNOWN' };
++  ad = ad || {};
++  var snap = ad.chunk_key_evidence_snapshot || {};
++  var ar   = ad.analyze_result || {};
++  /* 1) 목적지 물리 PK 구조 증거(최우선) — 문자/복합/없음까지 구분 가능한 유일한 근거.
++        available=false 는 '조회 못함' 이지 'PK 없음' 이 아니므로 여기서 단정하지 않고 아래 근거로 넘어간다. */
++  var tpe = ad.target_pk_evidence || {};
++  if (tpe.available === true) {
++    var cols = tpe.pk_columns || [];
++    var kcc  = Number(tpe.key_column_count || 0);
++    if (cols.length === 0)
++      return { has_pk:false, pk_kind:'NONE', pk_indexed:false, pk_evidence:'TARGET_PK_EVIDENCE_NO_PK' };
++    if (cols.length >= 2 || kcc >= 2)          /* 복합 PK — 범위 분할 부적합 */
++      return { has_pk:true, pk_kind:'COMPOSITE', pk_indexed:true, pk_evidence:'TARGET_PK_EVIDENCE' };
++    var k1 = _mvPkTypeKind((tpe.types || {})[cols[0]]);
++    /* 타입을 못 얻으면(분류 대상 밖 컬럼 등) 종류를 단정하지 않는다 → 보수적 HOLD. */
++    if (!k1) return { has_pk:false, pk_kind:'NONE', pk_indexed:false, pk_evidence:'TARGET_PK_EVIDENCE_TYPE_UNKNOWN' };
++    return { has_pk:true, pk_kind:k1, pk_indexed:true, pk_evidence:'TARGET_PK_EVIDENCE' };
++  }
++  /* 2) 카탈로그 물리 PK 증거가 '신뢰 가능한 단일 숫자 PK' 로 확정한 경우 — 물리 PK 는 인덱스를 수반한다. */
++  if (snap.verdict === 'TRUSTED_PHYSICAL_PK')
++    return { has_pk:true, pk_kind:'SINGLE_NUMERIC', pk_indexed:true, pk_evidence:'CHUNK_KEY_EVIDENCE' };
++  /* 3) 목적지 컬럼 메타가 없으면(has_meta!==true) PK 유무 자체를 알 수 없다 → 'PK 없음' 으로도 단정하지 않고 UNKNOWN. */
++  if (ar.has_meta !== true) return UNKNOWN;
++  var pkCols = (ar.validated || []).filter(function(c){ return !!(c && c.is_pk); });
++  /* 카탈로그가 '단일컬럼 PK 없음' 이라고 말하면(복합 PK 등) 메타상 PK 컬럼이 1건으로 보여도 복합으로 본다
++     — validated 는 자체생성/리터럴 매핑 컬럼이 빠진 목록이라 PK 컬럼 수를 과소계상할 수 있다. */
++  if (snap.reason === 'NO_SINGLE_COLUMN_PK' && pkCols.length >= 1)
++    return { has_pk:true, pk_kind:'COMPOSITE', pk_indexed:true, pk_evidence:'CHUNK_KEY_EVIDENCE' };
++  if (pkCols.length >= 2)
++    return { has_pk:true, pk_kind:'COMPOSITE', pk_indexed:true, pk_evidence:'TARGET_COLUMN_META' };
++  if (pkCols.length === 1) {
++    var kind = _mvPkTypeKind(pkCols[0].tgt_type);
++    if (!kind) return UNKNOWN;                 /* 타입 미상 → 낙관적 단정 금지 */
++    return { has_pk:true, pk_kind:kind, pk_indexed:true, pk_evidence:'TARGET_COLUMN_META' };
++  }
++  /* PK 컬럼 0건: 실제로 PK 가 없을 수도, 제외 컬럼(자체생성/리터럴)에 PK 가 있을 수도 있다 → 보수적 UNKNOWN. */
++  return UNKNOWN;
++}
++if (typeof window !== 'undefined') { window._mvPkTypeKind = _mvPkTypeKind; window._mvDerivePkProfile = _mvDerivePkProfile; }
+ function _mvBuildStatsScaleProfile(){
+   if (typeof window === 'undefined') return null;
+   var count = (typeof _lastCountResult !== 'undefined' && _lastCountResult) || {};
+@@ -856,6 +949,9 @@
+   var effGb = (liveGb !== null) ? liveGb : _mvEffectiveGbCols(ad);
+   var effSum = (liveSum !== null) ? liveSum : _mvEffectiveSumCols(ad);
+   var srcTables = ((ad.validation_context || {}).source_tables || []);
++  /* [STRATEGY-PLAN-PK-KIND-HARDCODE-FIX] PK 구조는 고정값이 아니라 화면이 이미 가진 analyze 근거로 판정한다.
++     판정 불가면 has_pk=false/NONE → 서버 계획기가 상세비교 HOLD 로 판정(안전측). */
++  var pk = _mvDerivePkProfile(ad);
+   return {
+     table_key: (srcTables[0] || ''), source_count: count.src_count, estimated_scan_rows: count.src_count,
+     configured_group_by_count: (pol.default_groupby_limit != null ? pol.default_groupby_limit : null),
+@@ -863,7 +959,9 @@
+     selection_mode: (liveGb !== null ? 'MANUAL' : 'AUTO'),
+     effective_group_by_columns: effGb, effective_aggregate_columns: effSum,
+     group_axis_count: effGb.length, sum_column_count: effSum.length,
+-    has_pk: true, pk_kind: 'SINGLE_NUMERIC', pk_indexed: true, remote: true };
++    has_pk: pk.has_pk, pk_kind: pk.pk_kind, pk_indexed: pk.pk_indexed,
++    /* 판정 근거코드(설명가능성) — StrategyProfile 에 없는 키라 서버는 무시하고 화면 진단에만 쓰인다. */
++    pk_evidence: pk.pk_evidence, remote: true };
+ }
+ if (typeof window !== 'undefined') window._mvBuildStatsScaleProfile = _mvBuildStatsScaleProfile;
+ async function _mvComputeStatsScale(){
