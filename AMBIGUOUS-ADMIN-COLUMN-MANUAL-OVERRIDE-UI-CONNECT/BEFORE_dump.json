@@ -1,0 +1,201 @@
+{
+  "primary": [
+    {
+      "col": "STATUS_CD",
+      "disabled": false,
+      "checked": true,
+      "badges": [
+        {
+          "cls": "status-badge-sd",
+          "text": "기본추천",
+          "tip": ""
+        }
+      ],
+      "has_ovr_ctl": false,
+      "ovr_buttons": [],
+      "reason": "고유값 4개 · 상태별 불일치 구분에 적합",
+      "remark": "프로파일 기반: 고유값 4개"
+    },
+    {
+      "col": "DEPT_CD",
+      "disabled": false,
+      "checked": true,
+      "badges": [
+        {
+          "cls": "status-badge-sd",
+          "text": "기본추천",
+          "tip": ""
+        }
+      ],
+      "has_ovr_ctl": false,
+      "ovr_buttons": [],
+      "reason": "고유값 6개 · 조직별 불일치 구분에 적합",
+      "remark": "🔗 FK: MV_ORA_DEPT_MASTER.DEPT_CD 참조프로파일 기반: 고유값 6개"
+    },
+    {
+      "col": "AMT",
+      "disabled": false,
+      "checked": true,
+      "badges": [
+        {
+          "cls": "status-badge-sd",
+          "text": "기본추천",
+          "tip": ""
+        }
+      ],
+      "has_ovr_ctl": false,
+      "ovr_buttons": [],
+      "reason": "금액 수치",
+      "remark": "수치 집계값"
+    }
+  ],
+  "ref": [
+    {
+      "col": "CREATED_BY",
+      "disabled": true,
+      "checked": false,
+      "badges": [
+        {
+          "cls": "status-badge-er",
+          "text": "정책상 제외(관리컬럼)",
+          "tip": ""
+        },
+        {
+          "cls": "status-badge-adm-weak",
+          "text": "⚠ 이름 매칭만 — 재검토 권장",
+          "tip": "배제 근거: 표준사전 명칭매칭 — 실측 값으로는 확인되지 않았습니다(A축 판정 불가). 이름/코멘트만으로 배제된 상태라 업무 컬럼일 수 있습니다 — 검토를 권장합니다."
+        }
+      ],
+      "has_ovr_ctl": false,
+      "ovr_buttons": [],
+      "reason": "관리컬럼(시스템 감사)으로 판정해 그룹 기준에서 제외했습니다. 배제 근거: 표준사전 명칭매칭. ⚠ 실측 값으로는 확인되지 않았습니다(값이 타임스탬프가 아니거나 미수집) — 이름/코멘트만으로 배제된 상태라 업무 컬럼일 수 있으니 검토를 권장합니다.",
+      "remark": "정책상 제외(관리컬럼-명칭매칭)"
+    },
+    {
+      "col": "UPD_YMD",
+      "disabled": true,
+      "checked": false,
+      "badges": [
+        {
+          "cls": "status-badge-er",
+          "text": "정책상 제외(관리컬럼)",
+          "tip": ""
+        },
+        {
+          "cls": "status-badge-adm-weak",
+          "text": "⚠ 이름 매칭만 — 재검토 권장",
+          "tip": "배제 근거: 표준사전 명칭매칭 · 코멘트/한글명 가설('수정일자') — 실측 값으로는 확인되지 않았습니다(A축 판정 불가). 이름/코멘트만으로 배제된 상태라 업무 컬럼일 수 있습니다 — 검토를 권장합니다."
+        }
+      ],
+      "has_ovr_ctl": false,
+      "ovr_buttons": [],
+      "reason": "관리컬럼(시스템 감사)으로 판정해 그룹 기준에서 제외했습니다. 배제 근거: 표준사전 명칭매칭 · 코멘트/한글명 가설('수정일자'). ⚠ 실측 값으로는 확인되지 않았습니다(값이 타임스탬프가 아니거나 미수집) — 이름/코멘트만으로 배제된 상태라 업무 컬럼일 수 있으니 검토를 권장합니다.",
+      "remark": ""
+    },
+    {
+      "col": "REG_DT",
+      "disabled": true,
+      "checked": false,
+      "badges": [
+        {
+          "cls": "status-badge-er",
+          "text": "정책상제외",
+          "tip": ""
+        },
+        {
+          "cls": "status-badge-nvm",
+          "text": "⚠ 명칭-값 불일치",
+          "tip": "코멘트('등록일시')는 관리컬럼(시스템 감사)을 시사하나 값 검증 결과 불일치 — 업무 날짜/데이터인지 신중히 확인하세요."
+        }
+      ],
+      "has_ovr_ctl": false,
+      "ovr_buttons": [],
+      "reason": "고유값이 전체 건수와 같아 대부분 행별로 고유합니다. 그룹 분류축으로 의미가 낮아 자동추천에서 제외했습니다. ⚠ 코멘트('등록일시')는 관리컬럼(시스템 감사)을 시사하나 값 검증 결과 불일치 — 업무 날짜/데이터인지 신중히 확인하세요.",
+      "remark": "식별자성 의심"
+    },
+    {
+      "col": "ID",
+      "disabled": true,
+      "checked": false,
+      "badges": [
+        {
+          "cls": "status-badge-er",
+          "text": "정책상제외",
+          "tip": ""
+        }
+      ],
+      "has_ovr_ctl": false,
+      "ovr_buttons": [],
+      "reason": "PK/유니크 식별자 — 행마다 고유값이라 그룹 기준 부적합",
+      "remark": ""
+    }
+  ],
+  "verdicts": {
+    "DEPT_CD": {
+      "verdict": "NOT_AUDIT_CONFIRMED",
+      "is_admin": false,
+      "verdict_auto": null,
+      "axis_a": null,
+      "axis_b_naming": false,
+      "selection_status": "SELECTED_DEFAULT",
+      "selectable": true,
+      "override": null,
+      "ovr_ctx": null
+    },
+    "STATUS_CD": {
+      "verdict": "NOT_AUDIT_CONFIRMED",
+      "is_admin": false,
+      "verdict_auto": null,
+      "axis_a": null,
+      "axis_b_naming": false,
+      "selection_status": "SELECTED_DEFAULT",
+      "selectable": true,
+      "override": null,
+      "ovr_ctx": null
+    },
+    "CREATED_BY": {
+      "verdict": "CONFIRMED",
+      "is_admin": true,
+      "verdict_auto": null,
+      "axis_a": null,
+      "axis_b_naming": true,
+      "selection_status": "EXCLUDED_BY_RULE",
+      "selectable": false,
+      "override": null,
+      "ovr_ctx": null
+    },
+    "UPD_YMD": {
+      "verdict": "CONFIRMED",
+      "is_admin": true,
+      "verdict_auto": null,
+      "axis_a": null,
+      "axis_b_naming": true,
+      "selection_status": "DATE_BUCKET_CANDIDATE",
+      "selectable": false,
+      "override": null,
+      "ovr_ctx": null
+    },
+    "REG_DT": {
+      "verdict": "NAMING_VALUE_MISMATCH",
+      "is_admin": false,
+      "verdict_auto": null,
+      "axis_a": false,
+      "axis_b_naming": true,
+      "selection_status": "EXCLUDED_BY_RULE",
+      "selectable": false,
+      "override": null,
+      "ovr_ctx": null
+    },
+    "AMT": {
+      "verdict": "NOT_AUDIT_CONFIRMED",
+      "is_admin": false,
+      "verdict_auto": null,
+      "axis_a": null,
+      "axis_b_naming": false,
+      "selection_status": "SELECTED_DEFAULT",
+      "selectable": true,
+      "override": null,
+      "ovr_ctx": null
+    }
+  }
+}
