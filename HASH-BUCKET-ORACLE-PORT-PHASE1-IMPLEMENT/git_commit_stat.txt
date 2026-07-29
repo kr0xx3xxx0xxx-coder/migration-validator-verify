@@ -1,0 +1,42 @@
+commit eb6511590d7354c0abe8752070a96166c8a2b484
+Author: migration-validator <dev@migration-validator.local>
+Date:   Wed Jul 29 14:53:41 2026 +0900
+
+    refactor(hash-contract): HASH_BUCKET 해시 계약을 어댑터(Base+위임표+팩토리)와 PG 구현체로 분리 (HASH-BUCKET-ORACLE-PORT-PHASE1-IMPLEMENT)
+    
+    설계 HASH_BUCKET_ORACLE_PORT_ADAPTER_DESIGN §3(어댑터 분리)·§4(same-DBMS 가드) 중
+    "오라클 코드 0줄로 안전 확인이 끝나는 지점"까지만 착수한다(설계 §6.3 step ②).
+    
+    변경:
+      · hash_contract.py — PG 전용 SQL 빌더에서 Base 계약(BaseHashContract) + 위임표(_HASH_CONTRACTS)
+        + 팩토리(get_hash_contract / get_hash_contract_pair) + 공통 유틸(pow2_floor) + PEP562 하위호환
+        재수출로 재편. exact_diff 의 _CANONICAL_ADAPTERS 선례를 그대로 답습(지연 import 로 순환 방지).
+      · dialects_hash/postgresql.py — 현행 PG 표현식(_H32/_canon_component/bucket_expr 등)을 문자 단위로
+        그대로 이전. 계약 버전 "hashv1-md5-lenpfx" 불변(방언 접미사 분리는 별칭 개명과 같은 커밋에서).
+      · [가드 L3] get_hash_contract_pair — src/tgt 방언이 다르면 계약 자체를 주지 않아 혼합 방언 SQL 이
+        물리적으로 생성 불가. 미등록 방언(현재 oracle)도 차단.
+      · [가드 L2] adapters/base.resolve_hash_contract 를 db_type 쌍이 살아 있는 마지막 경계
+        (multi_scope_adapter 실행 진입, multi-row-diff-resume 라우트)에 배치 — DB 접근 이전 차단.
+        접속 미상이면 판단하지 않아 기존 호출 동작을 바꾸지 않는다.
+    
+    동작 무변경 실측: 계약이 방출하는 SQL 전수(337개 leaf — 표현식/확장 집계 SQL/행 SELECT/
+    fingerprint) 리팩터 전후 지문 동일(sha256 7a841886…62d4, 불일치 0건).
+    영향 테스트 76파일 baseline 대조 — 실패 6건 동일(전부 사전 존재), 신규 26건 통과.
+    
+    별칭 __HB/__KH/__RH 개명은 이번 커밋에 넣지 않는다 — 설계 §5.3-3 이 개명과 계약 버전 bump 를
+    같은 커밋으로 묶으라고 못박고 있고, 버전 bump 는 저장된 run 의 fingerprint 를 바꿔 PG 페어의
+    동작을 실제로 변경하므로(EVIDENCE_CHANGED) 이번 "순수 리팩터" 전제와 양립하지 않는다.
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+ routes/diagnosis_route.py                          |   8 +
+ .../hash_bucket_same_dbms_guard_live_verify.py     | 138 ++++++++++
+ ...contract_adapter_refactor_equivalence_verify.py | 279 +++++++++++++++++++
+ services/diagnosis/adapters/base.py                |  21 ++
+ services/diagnosis/adapters/multi_scope_adapter.py |  14 +
+ services/diagnosis/dialects_hash/__init__.py       |  17 ++
+ services/diagnosis/dialects_hash/postgresql.py     |  73 +++++
+ services/diagnosis/hash_contract.py                | 215 +++++++++++----
+ tests/test_diagnosis_engine.py                     |   8 +-
+ tests/test_hash_contract_dialect_adapter.py        | 294 +++++++++++++++++++++
+ 10 files changed, 1014 insertions(+), 53 deletions(-)

@@ -1,0 +1,13 @@
+HASH-BUCKET-ORACLE-PORT-PHASE1-IMPLEMENT — 리팩터 전/후 계약 SQL 지문 대조
+
+대상: hash_contract 계약이 방출하는 SQL 문자열 전수(표현식/확장 집계 SQL/행 SELECT/fingerprint)
+
+BEFORE offline digest = 7a841886582f0c67fe6c2be5f720d63410c55c653363f7a66ccf8bb7160962d4
+AFTER  offline digest = 7a841886582f0c67fe6c2be5f720d63410c55c653363f7a66ccf8bb7160962d4
+digest 일치           = True
+비교 항목(leaf) 수    = 337
+불일치 항목 수        = 0
+
+항목 분포: /contract_version=1, agg_sql=48, aliases=3, cases=152, level_salt=5, match_key_fingerprint=3, pow2_floor=15, row_select_sql=96, scope_index_map=14
+
+주: live 축(실 PG 실행)은 작업 시점 가용 PostgreSQL 부재로 수집하지 못했다 — live_db_availability.txt 참조.
