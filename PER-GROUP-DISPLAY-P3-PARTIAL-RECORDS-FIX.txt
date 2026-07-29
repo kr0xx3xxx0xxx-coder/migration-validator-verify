@@ -1,0 +1,123 @@
+작업명 : PER-GROUP-DISPLAY-P3-PARTIAL-RECORDS-FIX
+✅ 작업 완료 - PER-GROUP-DISPLAY-P3-PARTIAL-RECORDS-FIX
+
+[1] 무엇을 고쳤나
+  증상(진단 확정): 그룹당 불일치가 경계(기본 100) 초과(P3)면 레코드를 0건만 표시.
+                   99건→전부, 100건→전부, 101건→0건 이라는 '절벽'.
+  원인: 2026-07-24 커밋 592d003 이 '역전 현상'(101~1,000건이 20건만 보이던 모순)을 없애면서
+        P3 를 '배너만 + return'(레코드 나열 금지)으로 만든 것.
+  수정 방향: 조기중단(early_stop_abs=101) 자체는 의도된 안전장치이므로 그대로 두고,
+             '표시 정책'만 변경 → 확보된 저장분의 앞 100건은 항상 표시 + 미확정임을 명시.
+
+[2] 수정 파일 (지시대로 정책/렌더 3파일만, 저장·조회 계층 무변경)
+  services/per_group_display_policy.py  (+81/-  ) P3 부분 표시 개념 추가
+  ui/tabler_renderer.py                 (+153/-  ) 차단 3지점 → 부분 표시로 전환
+  services/display_limit_policy.py      (+35/-  ) 조기중단 문구 정정·경로별 분기
+  (부수) samples/test_per_group_display_policy.py  단위테스트 보강(+47)
+  (신규) scripts/dev_e2e/per_group_p3_partial_records_fixture.py      실측 run 픽스처
+  (신규) scripts/dev_e2e/per_group_p3_partial_records_verify.py       경계 Before/After 실측
+  (신규) scripts/dev_e2e/per_group_p3_partial_user_case_verify.py     사용자 실제 run 실측
+  commit: f0c8856f48451ce3521c114b98a245d8d0568993  (7 files, +620 / -57)
+  ※ 저장 계층(조기중단 임계값, DIRECT/CHUNK/표본 로직), hash_contract.py / hash_bucket.py
+    (동시 진행 HASH-BUCKET-ORACLE-PORT-PHASE1) 은 일절 건드리지 않음 — git status 로 확인 후
+    본인 변경 7개 파일만 stage 하여 커밋.
+
+[3] 구현 요지
+  (a) per_group_display_policy.py — P3 판정에 '부분 표시' 축 추가(기존 필드 의미 불변, 추가만)
+        show_partial_records / partial_display_max(=경계) / partial_shown_count(=min(확보분,경계))
+        / available_record_count. decide_per_group_display(..., available_record_count=) 신설.
+        per_group_policy_dict 에 per_group_partial_display_max 추가(클라이언트 단일 출처).
+  (b) tabler_renderer.py — 차단 3지점 전환
+        :17173 _mvPkLoadPage        '배너 + return' → '배너 + 앞 100건 나열'(페이징 상한 재계산)
+        :27549 _mvRiLoadGroupPage   '조회 자체를 안 함' → '조회 수행 후 앞 100건 나열'
+        :27564 _mvRiLoadGroupPage   '재확인 후 차단' → '배너 + 앞 100건 나열'
+        공통 헬퍼 _mvPerGroupTrimRecords(페이지 단위 상한 절단) / _mvPerGroupPages(빈 페이지 방지) 신설.
+  (c) display_limit_policy.py — 조기중단 안내 문구
+        기존 "수집이 조기중단되어 대표 표본만 저장되었습니다. 요약과 다운로드로만 확인하세요."
+        → DIRECT 경로에서 사실과 다름(실측: early_stop_abs=101 → store 에 실제 불일치 101건 저장).
+        storage_kind('DIRECT' / 'CHUNK' / 'SAMPLE' / None) 별 문구 분기 도입.
+        현재 호출부(routes)는 storage_kind 를 넘기지 않으므로 기본은 '두 경로 공통으로 참인 중립 문구':
+        "불일치 N건 이상(그룹 M개) — 수집이 조기중단되어 정확한 총 건수는 확인하지 않았습니다.
+         저장된 레코드는 그룹 상세에서 표시 경계까지 나열하고, 나머지는 Excel/CSV 다운로드로 확인하세요."
+        (거짓 문구는 이번에 제거됨. 경로별 세분 문구 배선은 [8] 후속 과제 참조.)
+
+[4] Before / After 실측 — 사용자 실제 케이스 (지시 4)
+  대상: run_id=PSF1978945915C (영속 store 에 실재 · status=EARLY_STOPPED · total=101 ·
+        counts{value_mismatch:100, missing_migration:1} · gb_cols=[] 이라 scope 없는 드릴다운 패널 경로)
+  방법: baseline(HEAD=eb65115) worktree 서버 8199 = Before / 현행 코드 서버 8198 = After,
+        동일 store 를 두 서버가 함께 조회. 실제 Chromium 으로 패널을 열고 마지막 페이지까지 넘기며
+        DOM 행 수를 합산(스크립트: per_group_p3_partial_user_case_verify.py).
+
+    구분     화면 표시 레코드   페이지   화면 문구
+    ------  ----------------  ------  -----------------------------------------------------------
+    Before        0 건          1      "이 그룹은 불일치가 100건을 초과합니다 — 정확한 수는 확인하지
+                                        않았습니다(조기중단)" + 등급 D4 "대표 표본만 저장되었습니다"
+    After       100 건         20      "이 그룹은 불일치가 100건을 초과합니다 — 표시 100건 /
+                                        실제 100건 초과(정확한 총수는 확인 안 됨, 조기중단).
+                                        실제 불일치 레코드 중 확보된 저장분의 앞 100건을 표시합니다."
+                                        + 상단 "재이관 대상 전체 101건 (표시 상한 100건 ·
+                                        실제는 100건 초과·총수 미확정) · 현재 96~100 표시 · 20/20페이지"
+                                        + 등급 D4 문구도 "…정확한 총 건수는 확인하지 않았습니다…"로 정정
+
+[5] 경계 단조 증가 실측 (지시 5) — 역전 없음
+  픽스처: 원본 2,000행 단일 그룹(GRP=ALL)에 값 불일치 N건 주입 → 실제 엔진(DIRECT merge 스트림)이
+          조기중단·저장을 그대로 수행. 실 DB 불필요(사내 PG_Inter 도달 불가 상황에서도 재현 가능).
+          (P3PARTIAL_B099/B100/B101/B150/B1500 + CHUNK20)
+
+    주입 불일치   store 저장   Before 표시            After 표시            경로A / 경로B 동일?
+    ----------   ---------   ------------------    -----------------    ------------------
+        99건        99건       99건 / 99건            99건 / 99건          예 (P1 회귀 없음)
+       100건       100건      100건 / 100건          100건 / 100건         예 (P1 회귀 없음)
+       101건       101건        0건 /   0건  ←절벽   100건 / 100건         예
+       150건       101건        0건 /   0건          100건 / 100건         예
+     1,500건       101건        0건 /   0건          100건 / 100건         예
+    (경로A=_mvPkLoadPage 드릴다운 패널, 경로B=_mvRiLoadGroupPage 재이관 그룹 child)
+
+  단조 증가: 99 → 100 → 100 → 100 → 100 (감소 구간 없음).
+  설계상 보장: 100건 이하는 전부 / 초과는 항상 min(확보분, 100)건 → 과거의 '101~1,000건이 20건보다
+  적게 보이는' 역전은 구조적으로 재발 불가. 순수함수 단위테스트로도 경계 6종 전수 확인.
+
+[6] CHUNK / 표본 preflight 경로 — 20건 한계 (지시 6)
+  실측: 실제 불일치 300건 · representative_limit=20 → store 저장 20건(trim 후).
+        Before 경로B 0건 → After 경로B 20건, 문구:
+        "표시 20건 / 실제 100건 초과(정확한 총수는 확인 안 됨, 조기중단).
+         이 경로는 저장분이 20건뿐이라 그 이상은 표시할 수 없습니다(저장 상한)."
+  즉 20건까지만 보이는 것이 이번 범위의 정상 동작이며(그 이상은 데이터 자체가 없음),
+  '데이터가 없어 못 보여준다'는 사실을 문구로 명시하도록 처리했다(은폐 금지).
+  ※ 이번 작업에서 저장 상한(20) 자체는 변경하지 않았다.
+
+[7] 그 밖의 검증
+  - node --check : tests/test_rendered_js_syntax_guard.py 2 passed
+                   (렌더된 인라인 <script> 전 블록 node --check 통과 · node 설치 환경이라 skip 아님)
+  - 단위테스트   : samples/test_per_group_display_policy.py 50/50 통과(기존 26 + 신규 24)
+                   samples/test_display_limit_policy.py     26/26 통과(D1~D4 회귀 없음)
+  - 기존 회귀    : samples/test_virtual_cases.py 8/8 · samples/test_complex_cases.py 5/5
+                   pytest 드릴다운/재이관 6종 41 passed / 3 failed
+                   pytest test_date_bucket_evidence + test_groupby_plan 25 passed
+  - 실패 3건은 이번 변경과 무관(사전 존재/환경):
+      test_d7_8_inline_drill_time::test_ui_advanced_perf_position_and_title
+          → baseline(HEAD) worktree 에서도 동일 실패 = 사전 존재 실패
+      test_drilldown_readiness::test_live_* 2건
+          → 라이브 DB(PostgreSQL_Inter 192.168.0.150:5433/5434) TCP 타임아웃으로 COUNT 가 BLOCKED.
+            baseline worktree 에는 db_presets 파일이 없어 같은 테스트가 skip 되는 차이일 뿐,
+            코드 변경과 무관(라이브 게이트 환경 문제).
+  - 성능(지시 2의 '조회 1회 증가'): P3 그룹의 pk-records 응답 실측
+      P3PARTIAL_B1500(P3) 중앙값 37.0ms(min 30.1 / max 119.9)
+      P3PARTIAL_B100 (P1) 중앙값 30.2ms(min 18.9 / max  41.7)
+    → P3 에서 늘어난 조회 1회는 P1 의 기존 조회와 사실상 동일 비용(내부 SQLite store 조회, page_size
+      단일 페이지). Source/Target DB 재조회는 여전히 0회. 영향 미미함을 실측으로 확인.
+
+[8] 남은 과제 / 주의
+  (a) [후속] CHUNK·표본 preflight 경로에서 100건 표시를 보장하려면 '저장 상한(representative_limit=20)'을
+      올려야 한다. 이번 작업 범위에서 제외(저장 계층 변경 금지 지시) — 별도 작업으로 분리 필요.
+  (b) [후속] display_limit_policy.decide_display_mode(storage_kind=) 는 구현했으나 호출부
+      (routes/agg_diff_route.py 2곳, services/stats_execute_service.py 1곳)가 아직 값을 넘기지 않아
+      현재는 중립 문구로만 동작한다. 3파일 제한 지시를 지키기 위해 배선은 하지 않았다.
+      경로별 세분 문구를 원하면 호출부에 인자 1개 추가(각 1줄)만 하면 된다.
+  (c) 경로A(_mvPkLoadPage)는 그룹 분포 count 를 알 수 없어, CHUNK trim 처럼 '저장 20건 / 실제 300건'인
+      경우 P1(20건 전부 나열)로 판정된다. 이때 실제 규모 경고는 상단 등급 배너(D4)가 담당한다.
+      경로B 는 분포 count 를 함께 보므로 '표시 20건 / 실제 100건 초과' 로 정확히 표기된다.
+  (d) 실측용 run(P3PARTIAL_*)은 공용 영속 store(db/exact_diff_runs.db)에 추가만 했고 기존 run 은
+      삭제하지 않았다. 재검증이 필요하면 fixture 스크립트의 build 로 재적재 가능.
+
+✅ 작업 완료 - PER-GROUP-DISPLAY-P3-PARTIAL-RECORDS-FIX

@@ -1,0 +1,179 @@
+작업명 : TEST-NODE-SUBPROCESS-TIMEOUT-GUARD-ADD
+✅ 작업 완료 - node 서브프로세스 상한 가드 도입, 멈추던 pytest 가 이제 명확한 실패로 종료됨 (커밋 a2c3646)
+
+════════════════════════════════════════════════════════════════════════════
+0. 요약
+════════════════════════════════════════════════════════════════════════════
+tests/ 의 node 서브프로세스 호출에 상한이 없어 harness JS 가 안 끝나면 pytest 전체가 영구
+정지하던 문제를 해소했다. 호출부 144곳에 timeout 을 반복해 넣는 대신 **한 곳(conftest)에서**
+상한을 거는 방식을 택했다 — 새로 추가되는 테스트도 자동으로 보호된다.
+
+  커밋 a2c3646e688242cdaeaeecdadcb8bffd2a771bdb
+  변경 6개 파일(전부 tests/) — 프로덕션 코드(services/routes/ui/config) 무변경
+
+════════════════════════════════════════════════════════════════════════════
+1. 멈춘 프로세스 3건의 정확한 소재 특정
+════════════════════════════════════════════════════════════════════════════
+프로세스 명령행 → 자식 node 프로세스 → 그 node 가 물고 있는 harness.js 임시파일 내용의
+지문(OUT.* 식별자)을 tests/ 에서 역추적하는 방식으로 파일까지 특정했다. 3건 모두 "부모
+pytest 1개 + 자식 node 1개" 구조로, 정확히 이 패턴이 맞았다.
+
+  PID 32744  2026-07-27 19:38 기동(26시간+ 정지)
+    명령행 : pytest tests/ -q -p no:cacheprovider
+    자식   : node tmproe9rgfi.harness.js  (지문 OUT.staleBail / OUT.afterRerunReset)
+    → tests/test_blocked_state_reset.py
+
+  PID 16044  2026-07-28 13:48 기동(10시간+ 정지)
+    명령행 : pytest tests/ -q -k "candidate or admin or audit or ui or render or batch_profile or grid or contract"
+    자식   : node tmpygdf2943.harness.js  (지문 OUT.afterUncheckAll / OUT.afterRestore)
+    → tests/test_candidate_draft_selection.py
+
+  PID 33856  2026-07-28 18:37 기동(6시간+ 정지)
+    명령행 : pytest tests/ -q --ignore=tests/test_limited_live_batch.py -k "ui or grid or render or result or stats or single or batch"
+    자식   : node tmpkztxfa6n.harness.js  (지문 OUT.blocked_col / OUT.countonly / OUT.unsupported)
+    → tests/test_one_click_full_run.py
+
+  ※ 지시대로 이 3개 프로세스는 건드리지 않았다(여전히 실행 중). 이번 변경은 앞으로 새로
+    실행되는 테스트에만 적용된다.
+
+════════════════════════════════════════════════════════════════════════════
+2. 호출 지점 전수 분류 (문자열 grep 아닌 AST 분석)
+════════════════════════════════════════════════════════════════════════════
+`subprocess.run/check_output/check_call/call/Popen` 호출 중 인자에 node 실행 흔적이 있는
+것만 AST 로 정확히 세었다(문자열 grep 은 주석·문서까지 잡아 오탐이 난다).
+
+  수정 전 : node 서브프로세스 호출 289곳 / 202개 파일
+              timeout 있음 141곳
+              timeout 없음 148곳 (107개 파일)   ← 정지 위험
+              Popen 0곳 ← 전부 run/check_output 계열이라 단일 패턴으로 처리 가능
+
+  수정 후 : timeout 없음 144곳 (104개 파일)
+              → 명시 전환 4곳(멈췄던 3개 파일) + 나머지는 전역 가드가 상한 주입
+
+════════════════════════════════════════════════════════════════════════════
+3. 구현
+════════════════════════════════════════════════════════════════════════════
+【tests/node_timeout_guard.py (신규)】
+  · NODE_SUBPROCESS_TIMEOUT — 기본 60초, env MV_TEST_NODE_TIMEOUT 로 조정
+  · run_node_guarded(cmd, **kw) — 호출부에서 명시적으로 쓰는 헬퍼. subprocess.run 과
+    인자·반환값이 같아 기존 호출을 그대로 옮길 수 있다.
+  · _guarded_run — subprocess.run 래퍼. **node 실행이면서 timeout 이 없을 때만** 상한을
+    주입한다. node 아닌 호출(python·git 등)과 이미 timeout 을 명시한 141곳은 원본 동작 그대로.
+  · install_node_subprocess_timeout_guard() — 설치. 중복 설치는 무시.
+
+【tests/conftest.py】
+  pytest_configure 에서 가드 설치. 기존 '운영 SQLite 쓰기 차단 가드'와 동일한 패턴·위치라
+  구조가 새로 복잡해지지 않는다. 실서버 실행에는 영향 없다(conftest 는 pytest 에서만 로드).
+
+【멈췄던 3개 파일】 subprocess.run → run_node_guarded 로 명시 전환(4곳)
+  호출부만 봐도 보호 사실이 드러나고, pytest 밖에서 직접 실행할 때도 보호된다.
+
+【상한값 60초 근거】
+  이미 timeout 이 있는 141곳의 관행값이 30초이고 그 값으로 문제없이 통과해 왔다. 동시 세션이
+  여러 개 도는 개발 PC 의 부하 여유를 위해 2배인 60초로 두되, 무한루프가 26시간이 아니라
+  1분 안에 명확한 실패로 끝나게 한다. 느린 환경은 env 로 조정한다.
+
+【실패 메시지 — 조용히 죽지 않는다】
+  [NODE-SUBPROCESS-TIMEOUT] node 실행이 상한 60초를 초과해 강제 종료했습니다.
+    명령: node C:\...\tmpXXXX.harness.js C:\...\tmpYYYY.asm.js
+    원인: harness JS 가 끝나지 않았을 가능성이 높습니다(무한루프/대기).
+    조치: 해당 harness 의 종료 조건을 확인하세요. 상한 조정은 env MV_TEST_NODE_TIMEOUT(초).
+  subprocess.run 은 만료 시 자식을 kill 하므로, '고아 node 가 CPU 를 계속 태우는' 2차 피해도
+  함께 막힌다(오늘 멈춘 3건 모두 자식 node 가 코어를 100% 점유 중이었다).
+
+════════════════════════════════════════════════════════════════════════════
+4. 검증
+════════════════════════════════════════════════════════════════════════════
+【4-1 가드 자체 계약 테스트 — 신규 8건 전부 통과】 tests/test_node_timeout_guard.py
+  ① 무한루프 JS(`while(true){}`)가 상한에서 강제 종료되고, 메시지에 명령·초과시간이 담긴다
+  ② timeout 미지정 node 호출에 기본 상한이 실제로 주입된다
+  ③ 정상 node 실행은 결과가 기존과 동일하다(회귀 없음)
+  ④ 호출부가 명시한 timeout 은 덮어쓰지 않는다(기존 141곳 계약 무변경)
+  ⑤ node 아닌 서브프로세스에는 상한을 주입하지 않는다
+  ⑥ 명령 판정 규칙(리스트/문자열/절대경로/.exe)
+  ⑦ 기본 상한이 무한이 아니고 합리적 범위다
+  ⑧ 가드 설치 후 모듈 reload 해도 재귀하지 않는다
+
+  ★ 구현 중 실제 결함 1건을 이 테스트가 잡았다: 최초 구현은 `_REAL_RUN = subprocess.run` 을
+    import 시점에 잡아뒀는데, 가드가 이미 설치된 상태에서 모듈이 reload 되면 **가드가 가드를
+    감싸 RecursionError** 가 났다. 원본을 가드 함수에 보관해 되찾도록 수정하고 ⑧로 고정했다.
+
+【4-2 회귀 비교 — 690파일 / 4,366테스트, 가드 전 vs 후(동일 선택·동일 청크 구성)】
+                    실패    통과     비고
+    가드 전(기준선)  239    4,063    멈춘 파일 4개는 결과 자체가 없었음
+    가드 후          241             완주
+
+  차집합
+    가드 후에만 실패 4건 — 전부 tests/test_one_click_full_run.py
+      test_full_run_blocked_stays_on_failed_stage_not_result
+      test_result_kpi_not_duplicated_summary_vs_detail
+      test_result_summary_neutral_hierarchy
+      test_result_summary_unified_content
+      → 기존엔 이 파일이 '멈춰서 결과가 없던' 상태다. 통과하던 테스트가 깨진 것이 아니라,
+        가려져 있던 실패가 드러난 것이다(실패 사유가 NODE-SUBPROCESS-TIMEOUT 임을 확인).
+    가드 전에만 실패 2건 — test_route_store_failure_isolated (2개 파일)
+      → PROD-DB 가드 계열의 순서 의존 실패로 이미 문서화된 사전 존재 실패. 이 변경과 무관.
+
+  **통과하던 테스트가 실패로 바뀐 사례는 0건이다.**
+
+【4-3 멈추던 파일이 이제 종료되는가 — 개별 실측】
+    tests/test_one_click_full_run.py                    상한에 걸려 실패로 종료
+                                                        (NODE-SUBPROCESS-TIMEOUT 메시지 확인)
+    tests/test_blocked_state_reset.py                   상한에 걸려 실패로 종료
+    tests/test_candidate_draft_selection.py             상한에 걸려 실패로 종료
+      → 위 3건이 정확히 멈춰 있던 PID 32744/16044/33856 의 파일이다. 영구 정지 → 1분 내 종료.
+
+  ★ 이전 작업(COMBO-PAIR)에서 '멈춘 파일'로 함께 지목했던 아래 3개는 이번 실측 결과
+    **멈춘 것이 아니라 느린 것**으로 확인됐다. 당시 측정 하니스의 파일당 상한이 100초여서
+    그보다 느린 파일이 정지로 오분류됐다. 이전 보고의 해당 표현을 정정한다.
+        tests/test_single_official_register_current_history.py  105초 — 11개 전부 통과
+        tests/test_single_run_facade_manual_selection.py        105초 —  8개 전부 통과
+        tests/test_single_run_standard_route.py                 230초 —  3실패/3통과(일반 단언 실패)
+        tests/test_single_facade_legacy_parity.py               316초 —  1실패/7통과(일반 단언 실패)
+    네 파일 모두 NODE-SUBPROCESS-TIMEOUT 실패가 0건이다 = 상한에 걸린 적이 없다.
+
+════════════════════════════════════════════════════════════════════════════
+5. 변경 파일 목록
+════════════════════════════════════════════════════════════════════════════
+  A  tests/node_timeout_guard.py         (신규) 중앙 상한 + 헬퍼 + subprocess.run 래퍼
+  A  tests/test_node_timeout_guard.py    (신규) 가드 계약 테스트 8건
+  M  tests/conftest.py                   (+8)   pytest_configure 에서 가드 설치
+  M  tests/test_blocked_state_reset.py   (+6)   run_node_guarded 명시 전환 (PID 32744)
+  M  tests/test_candidate_draft_selection.py (+6) run_node_guarded 명시 전환 (PID 16044)
+  M  tests/test_one_click_full_run.py    (+8)   run_node_guarded 명시 전환 2곳 (PID 33856)
+  합계 4 files changed, 24 insertions(+), 4 deletions(-) + 신규 2파일
+
+  ※ services/stats_execute_service.py 등 다른 세션의 미완 변경분은 커밋에서 제외했다
+    (커밋 직전 git diff --cached 로 staged 목록이 내 6개 파일뿐임을 확인).
+
+════════════════════════════════════════════════════════════════════════════
+6. 남은 파일 (후속 작업)
+════════════════════════════════════════════════════════════════════════════
+  timeout 미명시 호출 144곳 / 103개 파일이 남아 있다. **전부 전역 가드로 이미 보호된다** —
+  동작상 위험은 해소된 상태이고, 남은 것은 '호출부에 상한이 눈에 보이지 않는다'는 가독성 문제다.
+
+  이번에 일괄 전환하지 않은 근거:
+    · 103개 파일을 기계적으로 고치면 diff 가 커지는 데 비해 동작 개선이 0이다(이미 보호됨).
+    · 호출부마다 kwargs·반환 처리(text/encoding/errors/capture_output)가 제각각이라
+      일괄 치환은 회귀 위험이 실질적으로 있다.
+    · 반면 전역 가드는 앞으로 추가될 호출까지 자동 보호한다 — 커버리지가 더 넓다.
+  후속 전환 시에는 파일 단위로 나눠 run_node_guarded 로 옮기고 매번 해당 파일 테스트를
+  재실행하는 방식을 권한다.
+
+  상위 파일(호출 수): test_candidate_evidence_display.py 4 · test_diagnosis_ui_workflow.py 4 ·
+  test_groupby_estimated_group_count_ui.py 3 · test_analyze_gate_await_lock_persist.py 2 ·
+  test_batch_overview_contract.py 2 · test_batch_summary_dashboard.py 2 ·
+  test_bottom_command_bar.py 2 · test_candidate_pane_morph_flicker.py 2 · (이하 1곳씩)
+
+════════════════════════════════════════════════════════════════════════════
+7. 별도 후속 과제 (이번 범위 밖)
+════════════════════════════════════════════════════════════════════════════
+  · test_one_click_full_run.py / test_blocked_state_reset.py / test_candidate_draft_selection.py
+    의 harness JS 가 **왜 끝나지 않는지**는 이번 작업에서 고치지 않았다. 이번 변경은 그 정지가
+    스위트 전체를 마비시키지 않게 막는 안전장치이지, 원인 수정이 아니다. 이제 이 테스트들이
+    1분 안에 명확한 메시지로 실패하므로 원인 조사가 가능한 상태가 됐다.
+  · 오늘 멈춰 있는 PID 32744/16044/33856 은 지시대로 종료하지 않았다(각각 고아 node 자식 보유).
+
+════════════════════════════════════════════════════════════════════════════
+작업명 : TEST-NODE-SUBPROCESS-TIMEOUT-GUARD-ADD
+✅ 작업 완료 - 전역 가드로 148곳 정지 위험 해소, 회귀 0건(통과→실패 전환 없음), 커밋 a2c3646

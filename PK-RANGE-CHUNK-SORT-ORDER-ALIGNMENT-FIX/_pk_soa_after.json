@@ -1,0 +1,262 @@
+{
+  "task": "PK-RANGE-CHUNK-SORT-ORDER-ALIGNMENT-FIX",
+  "tag": "AFTER",
+  "env": {
+    "chunk_size": 50000,
+    "cases": [
+      "V2",
+      "V3",
+      "V5"
+    ],
+    "truth_missing": 10000,
+    "total_elapsed_sec": 306.6
+  },
+  "cases": {
+    "V2": {
+      "case": "V2",
+      "desc": "TO_CHAR(g) — 문자 정렬 ≠ 숫자 정렬(결함 재현 대상)",
+      "key": "GKEY",
+      "min_max_elapsed_sec": 2.12,
+      "src_min_max": [
+        "1",
+        "1000000"
+      ],
+      "tgt_min_max": [
+        "1",
+        "999999"
+      ],
+      "min_max_types": [
+        "int",
+        "int"
+      ],
+      "int_gate": "PASS",
+      "pk_min": 1,
+      "pk_max": 1000000,
+      "chunks": 20,
+      "probe_chunk": {
+        "rows": 50000,
+        "inversions": 4500,
+        "first_20": [
+          1,
+          10,
+          100,
+          1000,
+          10000,
+          10001,
+          10002,
+          10003,
+          10004,
+          10005,
+          10006,
+          10007,
+          10008,
+          10009,
+          1001,
+          10010,
+          10011,
+          10012,
+          10013,
+          10014
+        ],
+        "elapsed_sec": 2.39
+      },
+      "status": "READY",
+      "counts": {
+        "missing_migration": 10000,
+        "value_mismatch": 0,
+        "reimport_pks": 10000,
+        "reimport_total": 10000,
+        "excluded_target_only": 0,
+        "target_only_stored": 0,
+        "mismatch_limit_stopped": false
+      },
+      "reimport": 10000,
+      "ratios": {
+        "reimport_ratio": 1.0,
+        "missing_ratio": 1.0,
+        "value_ratio": 0.0,
+        "target_only_ratio": 0.0
+      },
+      "elapsed_sec": 100.23,
+      "run_id": "PKSOAAV2",
+      "processed_src": 20,
+      "chunks_done": 20,
+      "pk_order": {
+        "pk_order_checked_lists": 40,
+        "pk_order_normalized_lists": 4,
+        "pk_order_normalized_rows": 199500,
+        "pk_order_violations": 9001,
+        "pk_order_uncomparable_lists": 0,
+        "pk_order_normalized_src_lists": 3,
+        "pk_order_normalized_tgt_lists": 1,
+        "pk_order_normalization_applied": true
+      },
+      "truth_missing": 10000,
+      "delta_vs_truth": 0
+    },
+    "V3": {
+      "case": "V3",
+      "desc": "g 숫자 PK(대조군 — 회귀 확인)",
+      "key": "GKEY",
+      "min_max_elapsed_sec": 0.87,
+      "src_min_max": [
+        "1",
+        "1000000"
+      ],
+      "tgt_min_max": [
+        "1",
+        "999999"
+      ],
+      "min_max_types": [
+        "int",
+        "int"
+      ],
+      "int_gate": "PASS",
+      "pk_min": 1,
+      "pk_max": 1000000,
+      "chunks": 20,
+      "probe_chunk": {
+        "rows": 50000,
+        "inversions": 0,
+        "first_20": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20
+        ],
+        "elapsed_sec": 2.21
+      },
+      "status": "READY",
+      "counts": {
+        "missing_migration": 10000,
+        "value_mismatch": 0,
+        "reimport_pks": 10000,
+        "reimport_total": 10000,
+        "excluded_target_only": 0,
+        "target_only_stored": 0,
+        "mismatch_limit_stopped": false
+      },
+      "reimport": 10000,
+      "ratios": {
+        "reimport_ratio": 1.0,
+        "missing_ratio": 1.0,
+        "value_ratio": 0.0,
+        "target_only_ratio": 0.0
+      },
+      "elapsed_sec": 88.79,
+      "run_id": "PKSOAAV3",
+      "processed_src": 20,
+      "chunks_done": 20,
+      "pk_order": {
+        "pk_order_checked_lists": 40,
+        "pk_order_normalized_lists": 0,
+        "pk_order_normalized_rows": 0,
+        "pk_order_violations": 0,
+        "pk_order_uncomparable_lists": 0,
+        "pk_order_normalized_src_lists": 0,
+        "pk_order_normalized_tgt_lists": 0,
+        "pk_order_normalization_applied": false
+      },
+      "truth_missing": 10000,
+      "delta_vs_truth": 0
+    },
+    "V5": {
+      "case": "V5",
+      "desc": "LPAD(TO_CHAR(g),7,'0') zero-pad 문자키(대조군 — 문자 정렬 == 숫자 정렬)",
+      "key": "GKEY",
+      "min_max_elapsed_sec": 2.65,
+      "src_min_max": [
+        "1",
+        "1000000"
+      ],
+      "tgt_min_max": [
+        "1",
+        "999999"
+      ],
+      "min_max_types": [
+        "int",
+        "int"
+      ],
+      "int_gate": "PASS",
+      "pk_min": 1,
+      "pk_max": 1000000,
+      "chunks": 20,
+      "probe_chunk": {
+        "rows": 50000,
+        "inversions": 0,
+        "first_20": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20
+        ],
+        "elapsed_sec": 2.69
+      },
+      "status": "READY",
+      "counts": {
+        "missing_migration": 10000,
+        "value_mismatch": 0,
+        "reimport_pks": 10000,
+        "reimport_total": 10000,
+        "excluded_target_only": 0,
+        "target_only_stored": 0,
+        "mismatch_limit_stopped": false
+      },
+      "reimport": 10000,
+      "ratios": {
+        "reimport_ratio": 1.0,
+        "missing_ratio": 1.0,
+        "value_ratio": 0.0,
+        "target_only_ratio": 0.0
+      },
+      "elapsed_sec": 104.16,
+      "run_id": "PKSOAAV5",
+      "processed_src": 20,
+      "chunks_done": 20,
+      "pk_order": {
+        "pk_order_checked_lists": 40,
+        "pk_order_normalized_lists": 0,
+        "pk_order_normalized_rows": 0,
+        "pk_order_violations": 0,
+        "pk_order_uncomparable_lists": 0,
+        "pk_order_normalized_src_lists": 0,
+        "pk_order_normalized_tgt_lists": 0,
+        "pk_order_normalization_applied": false
+      },
+      "truth_missing": 10000,
+      "delta_vs_truth": 0
+    }
+  }
+}

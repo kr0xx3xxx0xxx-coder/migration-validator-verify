@@ -1,0 +1,1215 @@
+commit eb6511590d7354c0abe8752070a96166c8a2b484
+Author: migration-validator <dev@migration-validator.local>
+Date:   Wed Jul 29 14:53:41 2026 +0900
+
+    refactor(hash-contract): HASH_BUCKET 해시 계약을 어댑터(Base+위임표+팩토리)와 PG 구현체로 분리 (HASH-BUCKET-ORACLE-PORT-PHASE1-IMPLEMENT)
+    
+    설계 HASH_BUCKET_ORACLE_PORT_ADAPTER_DESIGN §3(어댑터 분리)·§4(same-DBMS 가드) 중
+    "오라클 코드 0줄로 안전 확인이 끝나는 지점"까지만 착수한다(설계 §6.3 step ②).
+    
+    변경:
+      · hash_contract.py — PG 전용 SQL 빌더에서 Base 계약(BaseHashContract) + 위임표(_HASH_CONTRACTS)
+        + 팩토리(get_hash_contract / get_hash_contract_pair) + 공통 유틸(pow2_floor) + PEP562 하위호환
+        재수출로 재편. exact_diff 의 _CANONICAL_ADAPTERS 선례를 그대로 답습(지연 import 로 순환 방지).
+      · dialects_hash/postgresql.py — 현행 PG 표현식(_H32/_canon_component/bucket_expr 등)을 문자 단위로
+        그대로 이전. 계약 버전 "hashv1-md5-lenpfx" 불변(방언 접미사 분리는 별칭 개명과 같은 커밋에서).
+      · [가드 L3] get_hash_contract_pair — src/tgt 방언이 다르면 계약 자체를 주지 않아 혼합 방언 SQL 이
+        물리적으로 생성 불가. 미등록 방언(현재 oracle)도 차단.
+      · [가드 L2] adapters/base.resolve_hash_contract 를 db_type 쌍이 살아 있는 마지막 경계
+        (multi_scope_adapter 실행 진입, multi-row-diff-resume 라우트)에 배치 — DB 접근 이전 차단.
+        접속 미상이면 판단하지 않아 기존 호출 동작을 바꾸지 않는다.
+    
+    동작 무변경 실측: 계약이 방출하는 SQL 전수(337개 leaf — 표현식/확장 집계 SQL/행 SELECT/
+    fingerprint) 리팩터 전후 지문 동일(sha256 7a841886…62d4, 불일치 0건).
+    영향 테스트 76파일 baseline 대조 — 실패 6건 동일(전부 사전 존재), 신규 26건 통과.
+    
+    별칭 __HB/__KH/__RH 개명은 이번 커밋에 넣지 않는다 — 설계 §5.3-3 이 개명과 계약 버전 bump 를
+    같은 커밋으로 묶으라고 못박고 있고, 버전 bump 는 저장된 run 의 fingerprint 를 바꿔 PG 페어의
+    동작을 실제로 변경하므로(EVIDENCE_CHANGED) 이번 "순수 리팩터" 전제와 양립하지 않는다.
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+diff --git a/routes/diagnosis_route.py b/routes/diagnosis_route.py
+index 2ffd51c..67a8a49 100644
+--- a/routes/diagnosis_route.py
++++ b/routes/diagnosis_route.py
+@@ -836,6 +836,14 @@ def diagnosis_multi_row_diff_resume(req: MultiAnalyzeRequest):
+         from services.diagnosis import row_diff as rd
+         from services.diagnosis.multi_scope_store import (MultiScopeRunStore, accumulate_metrics,
+                                                           ST_DONE, ST_STOPPED)
++        # [가드 L2 — 라우트 경계] 재개는 어댑터(diagnose_multi_scope)를 거치지 않고 execute_row_diff 를 직접 부르는
++        # 유일한 경로다. ROW_DIFF 의 cell 조건은 canonical bucket 식(해시 계약)을 그대로 재사용하므로,
++        # 혼합 방언이면 여기서도 차단한다. claim 이전에 판정해 run 을 점유한 채 막히지 않게 한다.
++        from services.diagnosis.adapters.base import resolve_hash_contract
++        _c, _hold = resolve_hash_contract(req.src_conn, req.tgt_conn)
++        if _hold is not None:
++            return {"ok": False, "blocked": True, "reason": _hold,
++                    "error": "원본과 목적지의 DBMS 가 서로 다르거나 해시 계약이 없어 행 단위 비교를 이어서 실행할 수 없습니다."}
+         store = MultiScopeRunStore()
+         claim = store.claim_for_resume(req.run_id)
+         if not claim.get("ok"):
+diff --git a/scripts/dev_e2e/hash_bucket_same_dbms_guard_live_verify.py b/scripts/dev_e2e/hash_bucket_same_dbms_guard_live_verify.py
+new file mode 100644
+index 0000000..7be2afc
+--- /dev/null
++++ b/scripts/dev_e2e/hash_bucket_same_dbms_guard_live_verify.py
+@@ -0,0 +1,138 @@
++# -*- coding: utf-8 -*-
++"""
++scripts/dev_e2e/hash_bucket_same_dbms_guard_live_verify.py
++HASH-BUCKET-ORACLE-PORT-PHASE1-IMPLEMENT — same-DBMS 가드의 **실 서비스 포트(8000, 인증 ON) 실측**.
++
++이 가드는 DB 접근 **이전**(계약 해석 단계)에 판정하도록 심었기 때문에, 실 DB 없이도
++운영 중인 서버에서 그대로 확인할 수 있다. 확인하는 것:
++
++  1) 서버가 리팩터된 모듈(hash_contract + dialects_hash)로 정상 기동했는가
++     — /diagnosis/capabilities 응답으로 진단 모듈 import 경로 생존 확인
++  2) [L2 라우트 경계] POST /diagnosis/multi-row-diff-resume 에 혼합 방언(PG↔오라클) 접속을 주면
++     DB 접근 전에 HASH_BUCKET_CROSS_DBMS_NOT_SUPPORTED 로 차단되는가
++  3) 동일 방언이지만 계약 미등록(오라클↔오라클)이면 HASH_CONTRACT_NOT_AVAILABLE 로 차단되는가
++  4) 동일 방언 PG↔PG 는 가드에 걸리지 않고 **기존 경로**(run_id 없음 → 재개 불가)로 그대로 흘러가는가
++     — 가드가 PG 페어의 기존 동작을 바꾸지 않았다는 반증
++
++실행: python scripts/dev_e2e/hash_bucket_same_dbms_guard_live_verify.py
++출력: E:\\verify_screenshots_only\\HASH-BUCKET-ORACLE-PORT-PHASE1-IMPLEMENT\\guard_live_verify.txt
++"""
++
++import base64
++import datetime
++import json
++import os
++import sys
++import urllib.error
++import urllib.request
++
++sys.stdout.reconfigure(encoding="utf-8")
++
++BASE = os.environ.get("MV_BASE", "http://127.0.0.1:8000")
++E2E_USER = os.environ.get("MV_E2E_USER", "e2e")
++E2E_PW = os.environ.get("MV_E2E_PW", "e2e_verify_2026!")
++_AUTH = "Basic " + base64.b64encode(f"{E2E_USER}:{E2E_PW}".encode()).decode()
++OUT_DIR = r"E:\verify_screenshots_only\HASH-BUCKET-ORACLE-PORT-PHASE1-IMPLEMENT"
++
++LINES: list[str] = []
++PASSES: list[str] = []
++FAILS: list[str] = []
++
++
++def out(s: str = "") -> None:
++    print(s)
++    LINES.append(s)
++
++
++def check(name: str, cond: bool, extra: str = "") -> None:
++    (PASSES if cond else FAILS).append(name)
++    out(("  OK   " if cond else "  FAIL ") + name + (("   -> " + str(extra)) if extra else ""))
++
++
++def call(method: str, path: str, body=None):
++    url = BASE + path
++    data = json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None
++    req = urllib.request.Request(url, data=data, method=method,
++                                 headers={"Content-Type": "application/json", "Authorization": _AUTH})
++    try:
++        with urllib.request.urlopen(req, timeout=30) as r:
++            return r.status, json.loads(r.read().decode("utf-8"))
++    except urllib.error.HTTPError as e:
++        raw = e.read().decode("utf-8")
++        try:
++            return e.code, json.loads(raw)
++        except json.JSONDecodeError:
++            return e.code, {"_raw": raw[:400]}
++
++
++# 접속 dict — 가드가 db_type 만 보고 DB 접근 이전에 판정하므로 호스트는 도달 불가여도 무방하다
++# (도달 가능한 호스트를 쓰면 오히려 '가드가 아니라 접속 실패로 막힌 것' 과 구분이 안 된다).
++PG = {"db_type": "postgresql", "host": "127.0.0.1", "port": 1, "dbname": "x", "user": "x", "password": "x"}
++ORA = {"db_type": "oracle", "host": "127.0.0.1", "port": 1, "dbname": "x", "user": "x", "password": "x"}
++
++
++def body(src, tgt, run_id="hb_guard_probe"):
++    return {"src_sql": "SELECT 1", "tgt_sql": "SELECT 1", "groupby_cols": ["G"],
++            "execute_result": {"gb_keys": ["G"]}, "scope_refs": [],
++            "src_conn": src, "tgt_conn": tgt, "run_id": run_id}
++
++
++def main() -> int:
++    os.makedirs(OUT_DIR, exist_ok=True)
++    out("HASH-BUCKET-ORACLE-PORT-PHASE1-IMPLEMENT — same-DBMS 가드 실측")
++    out("실행: %s / 대상: %s (인증 ON)" % (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), BASE))
++    out()
++
++    out("[1] 서버가 리팩터된 모듈로 기동했는가")
++    st, js = call("GET", "/diagnosis/dbms-capabilities")
++    check("GET /diagnosis/dbms-capabilities 200", st == 200, "status=%s" % st)
++    caps = (js or {}).get("capabilities") or {}
++    check("PG hash_bucket=SUPPORTED (매트릭스 불변)",
++          ((caps.get("postgresql") or {}).get("matrix") or {}).get("hash_bucket") == "SUPPORTED",
++          ((caps.get("postgresql") or {}).get("matrix") or {}).get("hash_bucket"))
++    check("Oracle hash_bucket=NOT_SUPPORTED (이번 단계에서 열지 않음)",
++          ((caps.get("oracle") or {}).get("matrix") or {}).get("hash_bucket") == "NOT_SUPPORTED",
++          ((caps.get("oracle") or {}).get("matrix") or {}).get("hash_bucket"))
++    # 서버 프로세스가 실제로 새 모듈을 들고 있는지 — 계약 팩토리 응답으로 확인
++    out()
++
++    out("[2] 혼합 방언(PG↔Oracle) — DB 접근 이전 차단")
++    st, js = call("POST", "/diagnosis/multi-row-diff-resume", body(PG, ORA))
++    out("      응답: %s" % json.dumps(js, ensure_ascii=False)[:300])
++    check("blocked=True", js.get("blocked") is True, js.get("blocked"))
++    check("reason=HASH_BUCKET_CROSS_DBMS_NOT_SUPPORTED",
++          js.get("reason") == "HASH_BUCKET_CROSS_DBMS_NOT_SUPPORTED", js.get("reason"))
++    st2, js2 = call("POST", "/diagnosis/multi-row-diff-resume", body(ORA, PG))
++    check("역방향(Oracle↔PG)도 동일 차단",
++          js2.get("reason") == "HASH_BUCKET_CROSS_DBMS_NOT_SUPPORTED", js2.get("reason"))
++    out()
++
++    out("[3] 동일 방언이나 계약 미등록(Oracle↔Oracle) — 차단")
++    st, js = call("POST", "/diagnosis/multi-row-diff-resume", body(ORA, ORA))
++    out("      응답: %s" % json.dumps(js, ensure_ascii=False)[:300])
++    check("reason=HASH_CONTRACT_NOT_AVAILABLE",
++          js.get("reason") == "HASH_CONTRACT_NOT_AVAILABLE", js.get("reason"))
++    out()
++
++    out("[4] 동일 방언 PG↔PG — 가드를 통과해 기존 경로로 진행(동작 무변경 반증)")
++    st, js = call("POST", "/diagnosis/multi-row-diff-resume", body(PG, PG))
++    out("      응답: %s" % json.dumps(js, ensure_ascii=False)[:300])
++    check("가드 사유로 막히지 않음",
++          js.get("reason") not in ("HASH_BUCKET_CROSS_DBMS_NOT_SUPPORTED", "HASH_CONTRACT_NOT_AVAILABLE"),
++          js.get("reason"))
++    check("기존 재개 게이트(run 미존재)로 낙하", js.get("reason") is not None, js.get("reason"))
++    out()
++
++    out("─" * 70)
++    out("결과: 통과 %d건 / 실패 %d건" % (len(PASSES), len(FAILS)))
++    for f in FAILS:
++        out("  실패: " + f)
++    path = os.path.join(OUT_DIR, "guard_live_verify.txt")
++    with open(path, "w", encoding="utf-8") as fp:
++        fp.write("\n".join(LINES) + "\n")
++    print("저장: " + path)
++    return 1 if FAILS else 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/scripts/dev_e2e/hash_contract_adapter_refactor_equivalence_verify.py b/scripts/dev_e2e/hash_contract_adapter_refactor_equivalence_verify.py
+new file mode 100644
+index 0000000..a65cb8f
+--- /dev/null
++++ b/scripts/dev_e2e/hash_contract_adapter_refactor_equivalence_verify.py
+@@ -0,0 +1,279 @@
++# -*- coding: utf-8 -*-
++"""
++scripts/dev_e2e/hash_contract_adapter_refactor_equivalence_verify.py
++HASH-BUCKET-ORACLE-PORT-PHASE1-IMPLEMENT — hash_contract 어댑터 분리(순수 리팩터)의 '비트 단위 무변경' 실측 harness.
++
++목적:
++  리팩터 전(BEFORE)/후(AFTER) 로 두 번 실행해, HASH_BUCKET 계약이 만들어내는 SQL 문자열과
++  실 PostgreSQL 페어에서 실제로 산출되는 canonical/해시/bucket 값, 그리고 불일치 검출 결과가
++  단 1비트도 달라지지 않았음을 sha256 지문으로 고정한다.
++
++수집 대상:
++  [A] 오프라인 SQL 지문 — hash_contract 의 전 표현식 + strategies/hash_bucket 확장 집계 SQL +
++      row_diff 행 SELECT SQL + match_key_evidence fingerprint 계산식(계약 버전 반영).
++  [B] 실 PG 실측 — asis/tobe 실제 테이블에 확장 집계 SQL 을 실행해 (bucket, __KH, __RH) 전 행 수집,
++      양측 대조로 '불일치 bucket 집합'(=HASH_BUCKET 검출 결과) 산출, 그 활성 cell 로 row_diff 행 SELECT 실행.
++
++사용: python scripts/dev_e2e/hash_contract_adapter_refactor_equivalence_verify.py BEFORE|AFTER
++출력: E:\\verify_screenshots_only\\HASH-BUCKET-ORACLE-PORT-PHASE1-IMPLEMENT\\snapshot_<TAG>.json
++"""
++from __future__ import annotations
++
++import hashlib
++import json
++import os
++import sys
++
++_HERE = os.path.dirname(os.path.abspath(__file__))
++_ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
++if _ROOT not in sys.path:
++    sys.path.insert(0, _ROOT)
++
++TAG = (sys.argv[1] if len(sys.argv) > 1 else "BEFORE").upper()
++OUT_DIR = r"E:\verify_screenshots_only\HASH-BUCKET-ORACLE-PORT-PHASE1-IMPLEMENT"
++
++
++def _load_preset(fname: str, name: str) -> dict:
++    """gitignore 된 프리셋 파일에서 접속정보를 이름으로 로드(비밀번호 하드코딩 금지)."""
++    with open(os.path.join(_ROOT, fname), encoding="utf-8") as f:
++        rows = json.load(f)
++    for r in rows:
++        if r.get("name") == name:
++            conn = {k: v for k, v in r.items() if k not in ("name", "advanced_options")}
++            for ak, av in (r.get("advanced_options") or {}).items():
++                conn[ak] = av
++            return conn
++    raise SystemExit(f"프리셋 '{name}' 을 {fname} 에서 찾지 못했습니다.")
++
++
++# ── [A] 오프라인 SQL 지문 ───────────────────────────────────────────────────────────────────
++# 계약이 다루는 3종 ntype(NUMBER/DATE_TIME/TEXT) + 미지정(fallback) + 단일/복합/비교컬럼 유무를 모두 태운다.
++CASES = [
++    {"name": "single_text", "exprs": ["rec_id"], "ntypes": ["TEXT"],
++     "cexprs": [], "cntypes": []},
++    {"name": "single_number", "exprs": ["pay_amt"], "ntypes": ["NUMBER"],
++     "cexprs": ["dept_cd"], "cntypes": ["TEXT"]},
++    {"name": "single_datetime", "exprs": ["last_updated"], "ntypes": ["DATE_TIME"],
++     "cexprs": ["pay_amt"], "cntypes": ["NUMBER"]},
++    {"name": "composite_3", "exprs": ["rec_id", "dept_cd", "pay_amt"],
++     "ntypes": ["TEXT", "TEXT", "NUMBER"],
++     "cexprs": ["last_updated", "biz_reg_no"], "cntypes": ["DATE_TIME", "TEXT"]},
++    {"name": "ntype_missing_fallback", "exprs": ["a", "b"], "ntypes": ["TEXT"],
++     "cexprs": ["c"], "cntypes": []},
++    {"name": "ntype_lowercase", "exprs": ["x"], "ntypes": ["number"],
++     "cexprs": [], "cntypes": []},
++    {"name": "ntype_unknown_tag", "exprs": ["x"], "ntypes": ["BOOLEAN_NOT_A_TAG"],
++     "cexprs": [], "cntypes": []},
++    {"name": "empty_key", "exprs": [], "ntypes": [],
++     "cexprs": ["only_compare"], "cntypes": ["TEXT"]},
++]
++
++_BASE_AGG_SQL = ("SELECT dept_cd, count(*) AS cnt, sum(pay_amt) AS s "
++                 "FROM asis01.t_admcol_src GROUP BY dept_cd")
++
++
++def collect_offline() -> dict:
++    """계약이 방출하는 SQL 문자열 전수 — 리팩터로 문자 1개라도 바뀌면 여기서 잡힌다."""
++    from services.diagnosis import hash_contract as hc
++    from services.diagnosis.strategies import hash_bucket as hb
++    from services.diagnosis import row_diff as rd
++
++    out = {"contract_version": hc.HASH_CONTRACT_VERSION,
++           "pow2_floor": {str(n): hc.pow2_floor(n) for n in
++                          [-5, 0, 1, 2, 3, 4, 7, 8, 9, 63, 64, 128, 129, 1000, 65536]},
++           "aliases": {"BUCKET": hb.BUCKET_ALIAS, "KEYHASH": hb.KEYHASH_ALIAS,
++                       "ROWHASH": hb.ROWHASH_ALIAS},
++           "level_salt": {str(i): hb.level_salt(i) for i in range(1, 6)},
++           "cases": {}}
++    for c in CASES:
++        kc = hc.key_canonical_sql(c["exprs"], c["ntypes"])
++        rc = hc.row_canonical_sql(kc, c["cexprs"], c["cntypes"])
++        item = {
++            "key_canonical_sql": kc,
++            "row_canonical_sql": rc,
++            "key_hash_expr_sql": hc.key_hash_expr_sql(kc),
++            "row_hash_expr_sql": hc.row_hash_expr_sql(rc),
++            "bucket_expr_sql": {},
++        }
++        for n in (1, 2, 8, 128, 100):
++            for salt in ("", "hbw1", "hbw3"):
++                item["bucket_expr_sql"]["n=%d|salt=%s" % (n, salt)] = hc.bucket_expr_sql(kc, n, salt)
++        out["cases"][c["name"]] = item
++
++    # 확장 집계 SQL(strategy) — sqlglot 렌더까지 통과한 최종 실행 SQL
++    out["agg_sql"] = {}
++    for c in CASES:
++        for ns in ([128], [8, 8], [4, 4, 4]):
++            for dialect in ("postgres", "oracle"):
++                k = "%s|ns=%s|%s" % (c["name"], ",".join(map(str, ns)), dialect)
++                try:
++                    out["agg_sql"][k] = hb.build_hash_bucket_agg_sql(
++                        _BASE_AGG_SQL, exprs=c["exprs"], ntypes=c["ntypes"],
++                        compare_exprs=c["cexprs"], compare_ntypes=c["cntypes"],
++                        ns=ns, dialect=dialect)
++                except Exception as e:                                   # noqa: BLE001
++                    out["agg_sql"][k] = "ERROR:%s:%s" % (type(e).__name__, e)
++
++    # scope_index_map(bucket gb_index 계약)
++    out["scope_index_map"] = {str(d): hb.scope_index_map(["dept_cd", "yyyymm"], d) for d in (0, 1, 2, 3)}
++
++    # row_diff 행 SELECT — cell 조건(bucket level 포함) + bind params
++    out["row_select_sql"] = {}
++    cells = [{"dept_cd": "D1", "__HB1": 3}, {"dept_cd": "D2", "__HB1": 5, "__HB2": 1}]
++    for c in CASES:
++        for dialect in ("postgres", "oracle"):
++            k = "%s|%s" % (c["name"], dialect)
++            try:
++                sql, params = rd.build_row_select_sql(
++                    _BASE_AGG_SQL, key_exprs=c["exprs"], key_ntypes=c["ntypes"],
++                    compare_exprs=c["cexprs"], gb_keys=["dept_cd"], cells=cells,
++                    ns=[8, 8], side="src", dialect=dialect, limit=5000)
++                out["row_select_sql"][k] = {"sql": sql, "params": params}
++            except Exception as e:                                       # noqa: BLE001
++                out["row_select_sql"][k] = "ERROR:%s:%s" % (type(e).__name__, e)
++
++    # match_key_evidence fingerprint — 계약 버전이 들어가는 식(버전이 바뀌면 여기서 즉시 드러난다)
++    from services.diagnosis.match_key_evidence import HASH_CONTRACT_VERSION as MKV
++    fps = {}
++    for te, comp in ((["rec_id"], ["pay_amt"]), (["rec_id", "dept_cd"], ["pay_amt", "last_updated"])):
++        raw = "|".join(te) + "||" + MKV + "||" + ",".join(comp)
++        fps["|".join(te)] = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
++    out["match_key_fingerprint"] = {"version": MKV, "fingerprints": fps}
++    return out
++
++
++# ── [B] 실 PG 실측 ─────────────────────────────────────────────────────────────────────────
++LIVE_SRC_SQL = ("SELECT dept_cd, count(*) AS cnt, sum(pay_amt) AS s "
++                "FROM asis01.t_admcol_src GROUP BY dept_cd")
++LIVE_TGT_SQL = ("SELECT dept_cd, count(*) AS cnt, sum(pay_amt) AS s "
++                "FROM tobe01.t_admcol_tgt GROUP BY dept_cd")
++# MATCH_KEY: 복합(TEXT+TEXT) — HASH 적격 조건과 동일한 형태. 비교 컬럼으로 값 변경까지 검출한다.
++LIVE_KEY_EXPRS = ["rec_id", "biz_reg_no"]
++LIVE_KEY_NTYPES = ["TEXT", "TEXT"]
++LIVE_CMP_EXPRS = ["pay_amt", "dept_cd"]
++LIVE_CMP_NTYPES = ["NUMBER", "TEXT"]
++LIVE_NS = [8]
++
++
++def _fetch(db, sql, params=None):
++    from services.db_query_service import cmn_db_fetch_select_readonly
++    cols, rows, _t = cmn_db_fetch_select_readonly(db, sql, params=params, statement_timeout_ms=60000)
++    return cols, rows
++
++
++def collect_live() -> dict:
++    """실 PG 페어에서 HASH_BUCKET 집계를 실제로 실행 — 해시값·bucket·불일치 검출 결과를 그대로 담는다."""
++    from services.diagnosis.strategies import hash_bucket as hb
++    from services.diagnosis import row_diff as rd
++
++    asis = _load_preset("db_presets_src.json", "PostgreSQL_Inter_asis")
++    tobe = _load_preset("db_presets_tgt.json", "PostgreSQL_Inter_tobe")
++    out = {"src_db": {"db_type": asis.get("db_type"), "dbname": asis.get("dbname")},
++           "tgt_db": {"db_type": tobe.get("db_type"), "dbname": tobe.get("dbname")}}
++
++    ssql = hb.build_hash_bucket_agg_sql(LIVE_SRC_SQL, exprs=LIVE_KEY_EXPRS, ntypes=LIVE_KEY_NTYPES,
++                                        compare_exprs=LIVE_CMP_EXPRS, compare_ntypes=LIVE_CMP_NTYPES,
++                                        ns=LIVE_NS, dialect="postgres")
++    tsql = hb.build_hash_bucket_agg_sql(LIVE_TGT_SQL, exprs=LIVE_KEY_EXPRS, ntypes=LIVE_KEY_NTYPES,
++                                        compare_exprs=LIVE_CMP_EXPRS, compare_ntypes=LIVE_CMP_NTYPES,
++                                        ns=LIVE_NS, dialect="postgres")
++    out["executed_src_sql"] = ssql
++    out["executed_tgt_sql"] = tsql
++
++    scols, srows = _fetch(asis, ssql)
++    tcols, trows = _fetch(tobe, tsql)
++    out["src_cols"], out["tgt_cols"] = list(scols), list(tcols)
++
++    def _norm_rows(cols, rows):
++        """(dept_cd, __HB1) → {cnt, sum, __KH, __RH} — 값은 문자열로 고정(드라이버 타입 편차 제거)."""
++        idx = {str(c).lower(): i for i, c in enumerate(cols)}
++        m = {}
++        for r in rows:
++            k = "%s|%s" % (r[idx["dept_cd"]], r[idx["__hb1"]])
++            m[k] = {"cnt": str(r[idx["cnt"]]), "sum": str(r[idx["s"]]),
++                    "KH": str(r[idx["__kh"]]), "RH": str(r[idx["__rh"]])}
++        return m
++
++    smap, tmap = _norm_rows(scols, srows), _norm_rows(tcols, trows)
++    out["src_buckets"] = dict(sorted(smap.items()))
++    out["tgt_buckets"] = dict(sorted(tmap.items()))
++
++    # HASH_BUCKET 검출 = 키해시합/행해시합이 다르거나 한쪽에만 있는 bucket
++    active = []
++    for k in sorted(set(smap) | set(tmap)):
++        s, t = smap.get(k), tmap.get(k)
++        if s is None or t is None or s["KH"] != t["KH"] or s["RH"] != t["RH"]:
++            active.append(k)
++    out["active_cells"] = active
++    out["active_cell_count"] = len(active)
++    out["matched_cell_count"] = len(set(smap) | set(tmap)) - len(active)
++
++    # 검출된 활성 cell 로 row_diff 행 SELECT 실행 — 실제 차이 레코드까지 대조
++    cells = []
++    for k in active:
++        dept, hb1 = k.rsplit("|", 1)
++        cells.append({"dept_cd": (None if dept == "None" else dept), "__HB1": int(hb1)})
++    if cells:
++        rsql, rp = rd.build_row_select_sql(LIVE_SRC_SQL, key_exprs=LIVE_KEY_EXPRS,
++                                           key_ntypes=LIVE_KEY_NTYPES, compare_exprs=LIVE_CMP_EXPRS,
++                                           gb_keys=["dept_cd"], cells=cells, ns=LIVE_NS,
++                                           side="src", dialect="postgres", limit=5000)
++        rsql2, rp2 = rd.build_row_select_sql(LIVE_TGT_SQL, key_exprs=LIVE_KEY_EXPRS,
++                                             key_ntypes=LIVE_KEY_NTYPES, compare_exprs=LIVE_CMP_EXPRS,
++                                             gb_keys=["dept_cd"], cells=cells, ns=LIVE_NS,
++                                             side="tgt", dialect="postgres", limit=5000)
++        out["row_select_src_sql"], out["row_select_src_params"] = rsql, rp
++        out["row_select_tgt_sql"], out["row_select_tgt_params"] = rsql2, rp2
++        _c1, r1 = _fetch(asis, rsql, rp)
++        _c2, r2 = _fetch(tobe, rsql2, rp2)
++        out["row_select_src_rows"] = sorted([str([str(x) for x in r]) for r in r1])
++        out["row_select_tgt_rows"] = sorted([str([str(x) for x in r]) for r in r2])
++
++    # 계약 표현식의 '값' 자체를 직접 확인 — canonical / h32 / bucket 을 행별로 실측
++    from services.diagnosis import hash_contract as hc
++    kc = hc.key_canonical_sql(LIVE_KEY_EXPRS, LIVE_KEY_NTYPES)
++    rc = hc.row_canonical_sql(kc, LIVE_CMP_EXPRS, LIVE_CMP_NTYPES)
++    probe = ("SELECT (%s) AS kcanon, (%s) AS rcanon, (%s) AS kh32, (%s) AS rh32, (%s) AS bkt "
++             "FROM asis01.t_admcol_src ORDER BY rec_id LIMIT 25") % (
++        kc, rc, hc.key_hash_expr_sql(kc), hc.row_hash_expr_sql(rc),
++        hc.bucket_expr_sql(kc, 8, "hbw1"))
++    out["value_probe_sql"] = probe
++    _pc, prows = _fetch(asis, probe)
++    out["value_probe_rows"] = [[str(x) for x in r] for r in prows]
++    return out
++
++
++def main() -> int:
++    os.makedirs(OUT_DIR, exist_ok=True)
++    snap = {"tag": TAG, "offline": collect_offline()}
++    try:
++        snap["live"] = collect_live()
++        snap["live_error"] = None
++    except Exception as e:                                               # noqa: BLE001
++        snap["live"] = None
++        snap["live_error"] = "%s: %s" % (type(e).__name__, e)
++
++    body = json.dumps(snap, ensure_ascii=False, sort_keys=True, indent=1)
++    snap["digest"] = {
++        "offline": hashlib.sha256(json.dumps(snap["offline"], ensure_ascii=False,
++                                             sort_keys=True).encode("utf-8")).hexdigest(),
++        "live": (hashlib.sha256(json.dumps(snap["live"], ensure_ascii=False,
++                                           sort_keys=True).encode("utf-8")).hexdigest()
++                 if snap["live"] is not None else None),
++        "all": hashlib.sha256(body.encode("utf-8")).hexdigest(),
++    }
++    path = os.path.join(OUT_DIR, "snapshot_%s.json" % TAG)
++    with open(path, "w", encoding="utf-8") as f:
++        json.dump(snap, f, ensure_ascii=False, sort_keys=True, indent=1)
++    print("[%s] 저장: %s" % (TAG, path))
++    print("  offline digest = %s" % snap["digest"]["offline"])
++    print("  live    digest = %s" % snap["digest"]["live"])
++    print("  live    error  = %s" % snap["live_error"])
++    if snap["live"]:
++        print("  활성(불일치) cell = %d / 일치 cell = %d"
++              % (snap["live"]["active_cell_count"], snap["live"]["matched_cell_count"]))
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/services/diagnosis/adapters/base.py b/services/diagnosis/adapters/base.py
+index aa9e7c0..365bf4f 100644
+--- a/services/diagnosis/adapters/base.py
++++ b/services/diagnosis/adapters/base.py
+@@ -32,6 +32,27 @@ def build_diagnosis_request(*, execute_result: dict, src_sql: str, tgt_sql: str,
+         match_key_only_unsupported=bool(match_key_only_unsupported), min_range_width=min_range_width)
+ 
+ 
++def resolve_hash_contract(src_db, tgt_db):
++    """[가드 L2 — 실행 진입] 접속 dict 쌍 → HASH_BUCKET canonical 해시 계약. DB 접근 이전에 판정한다.
++
++    반환: (contract, None) 통과 / (None, hold_reason) 차단 / (None, None) 판정 불가(접속 미상 — 기존 동작 유지).
++
++    여기가 가드 자리인 이유: 하류가 받는 `dialect` 는 sqlglot 렌더 방언 1개이고
++    routes/diagnosis_route._routing_dialect 는 src≠tgt 이면 "postgres" 로 접어버린다 —
++    즉 **db_type 쌍이 살아 있는 마지막 경계가 어댑터/라우트**다. 하류에서 고르면 혼합 방언이
++    조용히 PG 계약으로 실행된다. 실제 판정 규칙(same-DBMS + 등록 여부)은 L3 단일 출처에 위임한다.
++
++    src_db/tgt_db 가 None 이거나 db_type 이 없으면 (None, None) 을 돌려준다 — 계약을 주입받지 않고
++    compare_fn 만 주입하는 기존 호출(단위 테스트 등)의 동작을 바꾸지 않기 위함이다.
++    """
++    from services.diagnosis.hash_contract import get_hash_contract_pair
++    s = ((src_db or {}).get("db_type") or "") if isinstance(src_db, dict) else ""
++    t = ((tgt_db or {}).get("db_type") or "") if isinstance(tgt_db, dict) else ""
++    if not s or not t:
++        return None, None                       # 방언 미상 — 가드가 판단하지 않는다(기존 경로 그대로)
++    return get_hash_contract_pair(s, t)
++
++
+ def make_bounds_fn(src_db, tgt_db, timeout_ms: int = 60000, meter=None):
+     """KEY_RANGE 경계(min/max) 조회 함수 — 공통 read-only 실행 재사용 + 전체 meter 에 Source/Target query 누적."""
+     import time as _t
+diff --git a/services/diagnosis/adapters/multi_scope_adapter.py b/services/diagnosis/adapters/multi_scope_adapter.py
+index 008b7c3..2902811 100644
+--- a/services/diagnosis/adapters/multi_scope_adapter.py
++++ b/services/diagnosis/adapters/multi_scope_adapter.py
+@@ -16,6 +16,7 @@ from services.diagnosis.metering import QueryMeter
+ from services.diagnosis.multi_scope import (
+     MultiScopeConfig, plan_multi_scope, run_batch_diagnosis,
+     PLAN_HOLD, PLAN_HOLD_BUDGET, PLAN_HOLD_RESULT, PLAN_HOLD_NO_MATCH_KEY, PLAN_HASH,
++    PLAN_BATCH_HASH_BUCKET,
+ )
+ from services.diagnosis.multi_scope_select import select_scopes
+ 
+@@ -55,6 +56,19 @@ def diagnose_multi_scope(*, execute_result: dict, src_sql: str, tgt_sql: str, gb
+                 "mode": plan.mode, "ui_reason": plan.ui_reason, "selected_scope_count": plan.active_scope_count,
+                 "rejected": sel["rejected"], "allowed": plan.allowed}
+ 
++    # 2-b) [가드 L2] HASH_BUCKET 은 Source/Target 이 동일 방언일 때만 실행한다 — DB 접근 이전에 차단.
++    #      db_type 쌍이 살아 있는 마지막 경계가 여기다(하류의 dialect 는 혼합 페어를 "postgres" 로 접는다).
++    #      차단 시 기존 HASH_BUCKET_REQUIRED(plan_only) 경로로 자연 낙하시켜 화면/저장 계약을 바꾸지 않는다.
++    if plan.selected_strategy == PLAN_BATCH_HASH_BUCKET:
++        from services.diagnosis.adapters.base import resolve_hash_contract
++        _contract, _hold = resolve_hash_contract(src_db, tgt_db)
++        if _hold is not None:
++            return {"ok": True, "plan_only": True, "selected_strategy": PLAN_HASH,
++                    "mode": plan.mode, "hold_reason": _hold,
++                    "ui_reason": "원본과 목적지의 DBMS 가 서로 다르거나 해시 계약이 없어 해시 구간 분석을 실행할 수 없습니다.",
++                    "selected_scope_count": plan.active_scope_count,
++                    "rejected": sel["rejected"], "allowed": False}
++
+     # 3) 공통 runner — wave 기반 일괄 집계 실행(전체 meter 공유). 주입 fn 사용 시 같은 meter 를 함께 주입한다.
+     meter = meter or QueryMeter()
+     cf = compare_fn or _default_compare(src_db, tgt_db, meter)
+diff --git a/services/diagnosis/dialects_hash/__init__.py b/services/diagnosis/dialects_hash/__init__.py
+new file mode 100644
+index 0000000..e558131
+--- /dev/null
++++ b/services/diagnosis/dialects_hash/__init__.py
+@@ -0,0 +1,17 @@
++# -*- coding: utf-8 -*-
++"""
++services/diagnosis/dialects_hash/
++HASH_BUCKET canonical 해시 계약(hash_contract.BaseHashContract)의 **방언별 구현체** 패키지.
++
++파이프라인상 위치: hash_contract(Base 계약 + 위임표 + 팩토리) 바로 아래 — 실제 SQL fragment 를 방출하는 층.
++
++원칙:
++  - 이 패키지의 모듈은 hash_contract 를 import 하지만, hash_contract 는 이 패키지를 모듈 로드 시점에
++    import 하지 않는다(팩토리에서 지연 import — 순환 방지).
++  - 구현체는 SQL 표현식 문자열만 만든다. 값/실행/판정은 다루지 않는다.
++  - 계약 객체는 무상태(stateless)이며, 호출측은 db_type 으로 팩토리에서 받아 쓸 뿐 인라인 if/elif 를 두지 않는다.
++  - 이름이 dialects_hash 인 이유: services/diagnosis/dbms/(capabilities/readonly_policy) 와의 혼동을 피하기 위함이며,
++    패턴 자체는 services/exact_diff/dialects/ 와 동일하다.
++
++현재 구현: postgresql.PgHashContract. oracle 은 후속 단계에서 추가한다(위임표에 등록되기 전까지 팩토리가 None 반환).
++"""
+diff --git a/services/diagnosis/dialects_hash/postgresql.py b/services/diagnosis/dialects_hash/postgresql.py
+new file mode 100644
+index 0000000..c50ffc8
+--- /dev/null
++++ b/services/diagnosis/dialects_hash/postgresql.py
+@@ -0,0 +1,73 @@
++# -*- coding: utf-8 -*-
++"""
++services/diagnosis/dialects_hash/postgresql.py
++HASH_BUCKET canonical 해시 계약의 **PostgreSQL 구현체**(hash_contract.BaseHashContract 상속).
++
++파이프라인상 위치: hash_contract(Base·위임표·팩토리) 아래 — 실제 PG SQL fragment 를 방출한다.
++
++[HASH-BUCKET-ORACLE-PORT-PHASE1] 물리 분리 이전에 services/diagnosis/hash_contract.py 안에 있던
++PG 전용 표현식(_H32 / _canon_component / key_canonical_sql / row_canonical_sql / bucket_expr_sql /
++key_hash_expr_sql / row_hash_expr_sql)을 **문자 단위로 그대로** 이 파일로 옮긴 것이다.
++표현식·계약 버전·NULL 마커·길이접두 규약은 1비트도 바꾸지 않았다(순수 구조 분리).
++
++원칙(이전 파일에서 그대로 승계):
++  - 단순 CONCAT 금지 — 각 구성요소를 '타입태그 : 길이 : canonical값'(NULL 은 별도 마커)으로 '길이접두' 결합해
++    ("ab","c") 와 ("a","bc") 같은 구분자 충돌을 차단한다.
++  - DB 내장 hash 결과 동일성을 가정하지 않는다 — PostgreSQL 내장 md5(extension 불필요, 결정적)만 사용한다.
++  - 타입별 canonical: 문자열/UUID 는 text(대소문자·공백 보존, uuid::text 는 소문자정규형),
++    숫자는 trim_scale(scale 정규화), 날짜/시간은 text(정규형).
++    타입태그로 '문자 "1" 과 숫자 1' 을 구분한다. NULL 과 빈문자열을 구분한다.
++  - Source/Target 은 각자 표현식(논리 매핑)을 쓰되 같은 논리값 → 같은 canonical → 같은 hash 를 보장한다.
++  - 여기서 새 heuristic/판정을 만들지 않는다. 전체 SQL(SELECT/WHERE/GROUP BY)은 만들지 않는다(strategy 가 AST 로 주입).
++"""
++from __future__ import annotations
++
++from services.diagnosis.hash_contract import BaseHashContract, pow2_floor
++
++
++class PgHashContract(BaseHashContract):
++    """PostgreSQL canonical 해시 계약 — 내장 md5 기반(extension 불필요, 결정적)."""
++
++    db_type = "postgresql"
++    # 계약 버전 — 저장/resume 시 동일성 확인용(버전 다르면 재사용 금지).
++    # [PHASE1] 값 불변 유지. 방언 접미사(-pg/-ora) 분리는 오라클 구현체 도입 단계에서
++    # 별칭 개명(__HB→HB)과 **같은 커밋**으로 올린다(설계 §3.5·§5.3-3 — 버전이 바뀌면 저장된 run 이
++    # EVIDENCE_CHANGED 로 차단되므로, 별칭 비호환과 반드시 짝지어야 안전하다).
++    version = "hashv1-md5-lenpfx"
++    # 타 방언 계약과 canonical 이 발산한다(숫자 trim_scale vs TM9, 빈문자열=NULL 여부, 날짜 서식)
++    # → cross-DBMS 직접 hash 비교 금지. 팩토리의 same-DBMS 가드가 이 속성을 근거로 삼는다.
++    cross_db_comparable = False
++
++    # 32비트 hash 정수 표현식(0..2^32-1, 음수 없음) — md5 앞 8 hex → bit(32) → bigint.
++    _H32 = "(('x' || left(md5(%s), 8))::bit(32)::bigint)"
++
++    def is_available(self) -> bool:
++        """PG 내장 md5 만 쓰므로 항상 사용 가능(extension/권한 요구 없음)."""
++        return True
++
++    def h32(self, canon_sql: str) -> str:
++        """canonical text 표현식 → 32비트 부호없는 정수 표현식."""
++        return self._H32 % canon_sql
++
++    def canon_component(self, expr: str, ntype: str) -> str:
++        """키/비교 구성요소 1개의 canonical text 표현식 — '타입태그:길이:값'(NULL 은 '태그#N')."""
++        e = "(" + str(expr) + ")"
++        nt = (ntype or "TEXT").upper()
++        if nt == "NUMBER":
++            val = "trim_scale(" + e + "::numeric)::text"; tag = "D"   # scale 정규화(1.0 == 1.00)
++        elif nt == "DATE_TIME":
++            val = e + "::text"; tag = "T"
++        else:
++            val = e + "::text"; tag = "S"                            # 문자열/UUID(uuid::text=소문자정규형)
++        # NULL 은 빈문자열('S:0:')과 구분되는 별도 마커. 값은 길이접두(length)로 결합 → 구분자 충돌 차단.
++        return ("CASE WHEN " + e + " IS NULL THEN '" + tag + "#N' "
++                "ELSE '" + tag + ":' || length(" + val + ")::text || ':' || " + val + " END")
++
++    def bucket_expr(self, key_canon_sql: str, n: int, salt: str = "") -> str:
++        """bucket = hash(salt || key_canon) & (n-1) (0..n-1, n=2^k). wave 별 salt 로 활성 bucket 재세분.
++
++        '%'(modulo) 연산자는 sqlglot 이 다시 '%' 로 렌더 → psycopg2 가 placeholder 로 오인(IndexError)하므로,
++        2의 거듭제곱 bucket 에 대해 비트 AND 를 쓴다(md5 하위비트는 균등분포라 분할 품질 동일).
++        """
++        salted = ("'" + str(salt) + "' || " + key_canon_sql) if salt else key_canon_sql
++        return "(" + self.h32(salted) + " & " + str(int(pow2_floor(n)) - 1) + ")"
+diff --git a/services/diagnosis/hash_contract.py b/services/diagnosis/hash_contract.py
+index 6d37702..3c835fa 100644
+--- a/services/diagnosis/hash_contract.py
++++ b/services/diagnosis/hash_contract.py
+@@ -2,60 +2,106 @@
+ """
+ services/diagnosis/hash_contract.py
+ HASH_BUCKET 의 'canonical 해시 계약' — Source/Target 에서 동일 논리 키가 반드시 동일 bucket 에 들어가게 하는
+-결정적 인코딩을 SQL fragment(표현식)로 생성한다(DB 무관 순수 빌더 — 컬럼 표현식만 받고 값은 다루지 않는다).
++결정적 인코딩을 SQL fragment(표현식)로 생성한다(컬럼 표현식만 받고 값은 다루지 않는다).
+ 
+-원칙:
++파이프라인상 위치: strategies/hash_bucket · row_diff · multi_scope · match_key_evidence 가 쓰는 계약 계층.
++
++[HASH-BUCKET-ORACLE-PORT-PHASE1] 이 파일은 더 이상 특정 방언의 SQL 을 직접 만들지 않는다.
++  - 여기에 남는 것: **Base 계약(BaseHashContract) / 위임표(_HASH_CONTRACTS) + 팩토리 / 방언 무관 공통 유틸(pow2_floor)
++    / same-DBMS 페어 가드 / 하위호환 재수출(PEP 562)**.
++  - 실제 구현체는 services/diagnosis/dialects_hash/<dbms>.py 에 있다(postgresql.PgHashContract).
++  - 위임표는 클래스가 아니라 "모듈경로, 클래스명" 으로 등록하고 팩토리에서 지연 import 한다.
++    dialects_hash 모듈이 이 파일(Base)을 import 하므로, 반대 방향을 모듈 로드 시점에 걸면 순환이 된다.
++    (services/exact_diff/canonical.py 의 _CANONICAL_ADAPTERS 선례와 동일한 패턴.)
++  - 호출측은 db_type 으로 계약 객체를 받아 쓸 뿐 인라인 if/elif 로 SQL 을 만들지 않는다.
++
++계약이 지키는 원칙(방언 구현체가 공통으로 따른다):
+   - 단순 CONCAT 금지 — 각 구성요소를 '타입태그 : 길이 : canonical값'(NULL 은 별도 마커)으로 '길이접두' 결합해
+     ("ab","c") 와 ("a","bc") 같은 구분자 충돌을 차단한다.
+-  - DB 내장 hash 결과 동일성을 가정하지 않는다 — PostgreSQL 내장 md5(extension 불필요, 결정적)만 사용한다.
+-  - 타입별 canonical: 문자열/UUID 는 text(대소문자·공백 보존, uuid::text 는 소문자정규형), 숫자는 trim_scale(scale 정규화),
+-    날짜/시간은 text(정규형). 타입태그로 '문자 "1" 과 숫자 1' 을 구분한다. NULL 과 빈문자열을 구분한다.
++  - DB 내장 hash 결과가 방언 간 동일하다고 가정하지 않는다 — 각 방언은 자기 내장 hash 만 쓴다.
++  - 타입태그로 '문자 "1" 과 숫자 1' 을 구분하고, NULL 과 빈문자열을 구분한다.
+   - Source/Target 은 각자 표현식(논리 매핑)을 쓰되 같은 논리값 → 같은 canonical → 같은 hash 를 보장한다.
+   - 여기서 새 heuristic/판정을 만들지 않는다. 전체 SQL(SELECT/WHERE/GROUP BY)은 만들지 않는다(strategy 가 AST 로 주입).
++
++[중요 — cross-DBMS 는 열지 않는다] 방언 간 canonical 은 물리적으로 발산한다
++  (숫자 정규화 trim_scale vs TO_CHAR TM9, 오라클의 ''=NULL, 날짜 서식). 같은 논리값이 서로 다른 canonical 이
++  되면 **거짓 불일치**가 대량 발생하므로, HASH_BUCKET 은 Source/Target 이 **동일 방언**일 때만 허용한다.
++  이 판정의 단일 출처가 get_hash_contract_pair() 다(가드 L3).
+ """
+ from __future__ import annotations
+ 
+-# 계약 버전 — 저장/resume 시 동일성 확인용(버전 다르면 재사용 금지).
+-HASH_CONTRACT_VERSION = "hashv1-md5-lenpfx"
++from typing import Optional
+ 
+-# 32비트 hash 정수 표현식(0..2^32-1, 음수 없음) — md5 앞 8 hex → bit(32) → bigint.
+-_H32 = "(('x' || left(md5(%s), 8))::bit(32)::bigint)"
++# ── 표준 HOLD 사유(계약을 얻지 못했을 때) ─────────────────────────────────────────────────────
++# HR_HASH_CONTRACT_NA 는 services/diagnosis/dbms/capabilities.HR_HASH_CONTRACT_NA 와 동일 문자열이다
++# (표준 HOLD 사유 집합에 이미 등록돼 있어 generic ERROR 로 새지 않는다). capabilities 를 import 하지 않는 이유는
++# 계약 계층이 능력 매트릭스에 의존하지 않게 하기 위함이며, 값 동일성은 tests 가 고정한다.
++HR_HASH_CONTRACT_NA = "HASH_CONTRACT_NOT_AVAILABLE"
++# 방언이 서로 다른 페어 — 성능이 아니라 정합성 때문에 영구 차단한다(§cross-DBMS).
++HR_HASH_CROSS_DBMS = "HASH_BUCKET_CROSS_DBMS_NOT_SUPPORTED"
+ 
+ 
+-def _canon_component(expr: str, ntype: str) -> str:
+-    """키/비교 구성요소 1개의 canonical text 표현식 — '타입태그:길이:값'(NULL 은 '태그#N')."""
+-    e = "(" + str(expr) + ")"
+-    nt = (ntype or "TEXT").upper()
+-    if nt == "NUMBER":
+-        val = "trim_scale(" + e + "::numeric)::text"; tag = "D"   # scale 정규화(1.0 == 1.00)
+-    elif nt == "DATE_TIME":
+-        val = e + "::text"; tag = "T"
+-    else:
+-        val = e + "::text"; tag = "S"                            # 문자열/UUID(uuid::text=소문자정규형)
+-    # NULL 은 빈문자열('S:0:')과 구분되는 별도 마커. 값은 길이접두(length)로 결합 → 구분자 충돌 차단.
+-    return ("CASE WHEN " + e + " IS NULL THEN '" + tag + "#N' "
+-            "ELSE '" + tag + ":' || length(" + val + ")::text || ':' || " + val + " END")
+-
+-
+-def key_canonical_sql(exprs: list, ntypes: list) -> str:
+-    """복합/단일 키 → canonical text 표현식(구성요소를 순서대로 길이접두 결합). 컬럼 순서 바뀌면 다른 값."""
+-    parts = [_canon_component(e, (ntypes[i] if i < len(ntypes or []) else "TEXT"))
+-             for i, e in enumerate(exprs or [])]
+-    if not parts:
+-        return "''"
+-    return " || ".join(parts)
++class BaseHashContract:
++    """HASH_BUCKET canonical 해시 계약 — 방언별 구현체가 상속(SQL fragment 만 생성, 값은 다루지 않는다).
+ 
++    구현체가 반드시 채워야 하는 것: h32(32비트 정수화) / canon_component(구성요소 canonical) / bucket_expr(비트 분할).
++    key_canonical · row_canonical · key_hash_expr · row_hash_expr 은 위 세 원시연산의 **방언 무관 조합**이라
++    여기에 기본 구현을 둔다(구분자 없는 순수 '||' 결합 — 방언 간 문법이 동일).
++    """
+ 
+-def row_canonical_sql(key_canon_sql: str, compare_exprs: list, compare_ntypes: list) -> str:
+-    """행 digest용 canonical — 키 canonical + HASH_COMPARE 대상 구성요소(순서 보존). 값 변경 검출용."""
+-    parts = [key_canon_sql]
+-    for i, e in enumerate(compare_exprs or []):
+-        parts.append(_canon_component(e, (compare_ntypes[i] if i < len(compare_ntypes or []) else "TEXT")))
+-    return " || ".join(parts)
++    db_type = ""                       # "postgresql" | "oracle" | ...
++    version = ""                       # 예: "hashv1-md5-lenpfx"
++    cross_db_comparable = False        # 항상 False — 타 방언 계약과 직접 비교 금지
++
++    def is_available(self) -> bool:
++        """이 방언에서 계약을 실제로 쓸 수 있는가(내장 hash/권한 등). False 면 호출측 HOLD."""
++        return False
++
++    # ── 방언별 원시연산(구현체 필수) ────────────────────────────────────────────────────────
++    def h32(self, canon_sql: str) -> str:
++        """canonical text 표현식 → 32비트 부호없는 정수 표현식(0..2^32-1)."""
++        raise NotImplementedError
++
++    def canon_component(self, expr: str, ntype: str) -> str:
++        """구성요소 1개의 canonical text 표현식. ntype: NUMBER | DATE_TIME | TEXT(그 외는 TEXT 취급)."""
++        raise NotImplementedError
++
++    def bucket_expr(self, key_canon_sql: str, n: int, salt: str = "") -> str:
++        """bucket = hash(salt || key_canon) & (n-1) (0..n-1, n=2^k). 비트 AND 문법이 방언별로 다르다."""
++        raise NotImplementedError
++
++    # ── 원시연산 조합(방언 무관 — 필요 시 구현체가 재정의) ──────────────────────────────────
++    def key_canonical(self, exprs: list, ntypes: list) -> str:
++        """복합/단일 키 → canonical text 표현식(구성요소를 순서대로 길이접두 결합). 컬럼 순서 바뀌면 다른 값."""
++        parts = [self.canon_component(e, (ntypes[i] if i < len(ntypes or []) else "TEXT"))
++                 for i, e in enumerate(exprs or [])]
++        if not parts:
++            return "''"
++        return " || ".join(parts)
++
++    def row_canonical(self, key_canon_sql: str, compare_exprs: list, compare_ntypes: list) -> str:
++        """행 digest용 canonical — 키 canonical + HASH_COMPARE 대상 구성요소(순서 보존). 값 변경 검출용."""
++        parts = [key_canon_sql]
++        for i, e in enumerate(compare_exprs or []):
++            parts.append(self.canon_component(e, (compare_ntypes[i] if i < len(compare_ntypes or []) else "TEXT")))
++        return " || ".join(parts)
++
++    def key_hash_expr(self, key_canon_sql: str) -> str:
++        """행별 키 hash(집계 전 — bucket 내 키 집합 비교용). 집계는 strategy 가 sum() 으로 결합(순서무관)."""
++        return self.h32(key_canon_sql)
++
++    def row_hash_expr(self, row_canon_sql: str) -> str:
++        """행별 행 digest hash(bucket 내 값 변경 검출용). 집계는 strategy 가 sum() 으로 결합(순서무관)."""
++        return self.h32(row_canon_sql)
++
++    # ── 방언 제약 사전점검 ────────────────────────────────────────────────────────────────
++    def precheck(self, exprs: list, compare_exprs: list) -> Optional[str]:
++        """방언 고유 제약(연결 길이 상한·해시 입력 불가 타입 등) 위반 시 HOLD 사유 문자열, 통과면 None."""
++        return None
+ 
+ 
+ def pow2_floor(n: int) -> int:
+-    """n 이하 최대 2의 거듭제곱(>=1) — bucket 수를 2^k 로 고정(비트 AND 분할용)."""
++    """n 이하 최대 2의 거듭제곱(>=1) — bucket 수를 2^k 로 고정(비트 AND 분할용). 방언 무관 순수 계산."""
+     n = int(n)
+     if n < 1:
+         return 1
+@@ -65,21 +111,88 @@ def pow2_floor(n: int) -> int:
+     return p
+ 
+ 
+-def bucket_expr_sql(key_canon_sql: str, n: int, salt: str = "") -> str:
+-    """bucket = hash(salt || key_canon) & (n-1) (0..n-1, n=2^k). wave 별 salt 로 활성 bucket 재세분.
++# db_type → (모듈 경로, 클래스명). 방언 추가는 이 표에만 등록한다(호출측 인라인 분기 금지).
++# 클래스가 아니라 경로 문자열로 두는 이유: dialects_hash 모듈이 이 파일(Base)을 import 하므로
++# 여기서 dialects_hash 를 모듈 로드 시점에 import 하면 순환이 된다 — 팩토리에서 지연 해석한다.
++# oracle 은 후속 단계에서 ("services.diagnosis.dialects_hash.oracle", "OracleHashContract") 로 등록한다.
++_HASH_CONTRACTS = {
++    "postgresql": ("services.diagnosis.dialects_hash.postgresql", "PgHashContract"),
++}
++
++
++def _resolve(spec: tuple):
++    """(모듈 경로, 속성명) → 실제 객체. 위임 표의 지연 해석 단일 출처."""
++    import importlib
++    return getattr(importlib.import_module(spec[0]), spec[1])
+ 
+-    '%'(modulo) 연산자는 sqlglot 이 다시 '%' 로 렌더 → psycopg2 가 placeholder 로 오인(IndexError)하므로,
+-    2의 거듭제곱 bucket 에 대해 비트 AND 를 쓴다(md5 하위비트는 균등분포라 분할 품질 동일).
+-    """
+-    salted = ("'" + str(salt) + "' || " + key_canon_sql) if salt else key_canon_sql
+-    return "(" + (_H32 % salted) + " & " + str(int(pow2_floor(n)) - 1) + ")"
+ 
++def get_hash_contract(db_type: str) -> Optional[BaseHashContract]:
++    """단일 방언 계약 객체. 미등록/미구현 → None(호출측 HOLD_UNSUPPORTED_DB)."""
++    spec = _HASH_CONTRACTS.get((db_type or "").lower())
++    if spec is None:
++        return None
++    obj = _resolve(spec)()
++    return obj if obj.is_available() else None
+ 
+-def key_hash_expr_sql(key_canon_sql: str) -> str:
+-    """행별 키 hash(집계 전 — bucket 내 키 집합 비교용). 집계는 strategy 가 sum() 으로 결합(순서무관)."""
+-    return _H32 % key_canon_sql
+ 
++def get_hash_contract_pair(src_db_type: str, tgt_db_type: str):
++    """[가드 L3 — same-DBMS 한정] Source/Target 이 **동일 방언**일 때만 계약을 돌려준다.
+ 
+-def row_hash_expr_sql(row_canon_sql: str) -> str:
+-    """행별 행 digest hash(bucket 내 값 변경 검출용). 집계는 strategy 가 sum() 으로 결합(순서무관)."""
+-    return _H32 % row_canon_sql
++    반환: (contract, None) 또는 (None, hold_reason).
++
++    여기서 막는 이유(구조): 계약을 얻지 못하면 빌더가 **SQL 자체를 만들 수 없다** — 상위 게이트를 우회한
++    호출 경로가 생겨도 혼합 방언 HASH_BUCKET SQL 이 물리적으로 생성되지 않는다.
++    막아야 하는 이유(정합성): 방언 간 canonical 은 발산한다 —
++      · 숫자: PG trim_scale(x::numeric)::text vs 오라클 TO_CHAR(x,'TM9')
++      · 빈문자열: PG 는 'S:0:', 오라클은 ''=NULL 이라 'S#N' → **같은 논리값이 다른 canonical**
++      · 날짜/시간 서식, NLS 세션 의존
++    → 같은 논리값이 서로 다른 bucket/해시가 되어 **거짓 불일치가 대량 발생**한다. 성능 문제가 아니다.
++
++    참고: 하류(multi_scope 등)가 받는 `dialect` 는 sqlglot 렌더 방언 1개이며
++    routes/diagnosis_route._routing_dialect 가 src≠tgt 이면 "postgres" 로 접어버린다.
++    따라서 판정은 반드시 **db_type 쌍이 살아 있는 경계**(어댑터/라우트)에서 이 함수로 해야 한다.
++    """
++    s = (src_db_type or "").lower()
++    t = (tgt_db_type or "").lower()
++    if not s or not t:
++        return None, HR_HASH_CONTRACT_NA          # 방언 미상 — 계약을 고를 수 없다(추측 금지)
++    if s != t:
++        return None, HR_HASH_CROSS_DBMS           # 혼합 방언 — 영구 차단(정합성)
++    contract = get_hash_contract(s)
++    if contract is None:
++        return None, HR_HASH_CONTRACT_NA          # 미등록/미구현 방언(현재 oracle 등)
++    return contract, None
++
++
++# 물리 분리 이전에 이 모듈에 있던 방언 심볼/모듈 함수의 재수출(하위호환) — 기존 import 경로를 깨지 않는다.
++# 모듈 __getattr__(PEP 562)로 접근 시점에 해석해 모듈 로드 순환을 만들지 않는다.
++# [정리 대상] 소비측(strategies/hash_bucket · row_diff · multi_scope · match_key_evidence)이 계약 객체 주입으로
++# 전환 완료되면 이 재수출은 제거한다. 그때까지 기존 호출은 **PostgreSQL 계약**으로 위임된다(기존 동작 보존).
++_PG_CONTRACT_SPEC = ("services.diagnosis.dialects_hash.postgresql", "PgHashContract")
++# 분리 이전 모듈 함수명 → 계약 메서드명(1:1). 설계의 대응표를 코드로 옮긴 것.
++_REEXPORT_METHOD = {
++    "key_canonical_sql": "key_canonical", "row_canonical_sql": "row_canonical",
++    "bucket_expr_sql": "bucket_expr", "key_hash_expr_sql": "key_hash_expr",
++    "row_hash_expr_sql": "row_hash_expr", "_canon_component": "canon_component",
++}
++_pg_singleton = None
++
++
++def _pg() -> BaseHashContract:
++    """재수출용 PG 계약 싱글턴(무상태) — 지연 생성."""
++    global _pg_singleton
++    if _pg_singleton is None:
++        _pg_singleton = _resolve(_PG_CONTRACT_SPEC)()
++    return _pg_singleton
++
++
++def __getattr__(name: str):
++    """분리 이전 이름(HASH_CONTRACT_VERSION / *_sql 함수)을 그대로 접근할 수 있게 한다(하위호환 재수출)."""
++    if name == "HASH_CONTRACT_VERSION":
++        return _pg().version
++    if name == "_H32":
++        return type(_pg())._H32
++    m = _REEXPORT_METHOD.get(name)
++    if m is None:
++        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
++    return getattr(_pg(), m)
+diff --git a/tests/test_diagnosis_engine.py b/tests/test_diagnosis_engine.py
+index 32229e1..9149ec3 100644
+--- a/tests/test_diagnosis_engine.py
++++ b/tests/test_diagnosis_engine.py
+@@ -94,8 +94,12 @@ def test_adapters_have_no_diagnosis_sql_builder():
+         code = "\n".join(ln for ln in open(p, encoding="utf-8").read().splitlines()
+                          if not ln.lstrip().startswith("#"))
+         assert "SELECT * FROM (" not in code      # outer-filter 방식 신규 생성 없음
+-        # ::text 일괄 비교 금지 — 단, hash_contract.py 는 canonical 해시 인코딩 계약(결정적 인코딩에 ::text 필수)이라 정당 → 제외.
+-        if os.path.basename(p) != "hash_contract.py":
++        # ::text 일괄 비교 금지 — 단, canonical 해시 인코딩 계약(결정적 인코딩에 ::text 필수)은 정당 → 제외.
++        #   [HASH-BUCKET-ORACLE-PORT-PHASE1] 계약이 hash_contract.py(Base·팩토리) + dialects_hash/<dbms>.py
++        #   (방언 구현체)로 물리 분리되면서, PG 전용 ::text 식은 dialects_hash/postgresql.py 로 옮겨졌다.
++        #   예외 범위는 '계약 파일'로 동일하며 넓어지지 않는다(다른 진단 모듈은 계속 금지).
++        _norm = p.replace("\\", "/")
++        if os.path.basename(p) != "hash_contract.py" and "/diagnosis/dialects_hash/" not in _norm:
+             assert "::text" not in code
+         # 통계 WHERE SQL 문자열을 코드로 만들지 않음(따옴표로 감싼 SQL 키워드 리터럴 부재 — 산문/주석 제외).
+         for lit in ("'SELECT", '"SELECT', "'WHERE", '"WHERE', "' GROUP BY", '" GROUP BY'):
+diff --git a/tests/test_hash_contract_dialect_adapter.py b/tests/test_hash_contract_dialect_adapter.py
+new file mode 100644
+index 0000000..5f36dfd
+--- /dev/null
++++ b/tests/test_hash_contract_dialect_adapter.py
+@@ -0,0 +1,294 @@
++# -*- coding: utf-8 -*-
++"""
++tests/test_hash_contract_dialect_adapter.py
++HASH-BUCKET-ORACLE-PORT-PHASE1 — hash_contract 어댑터 분리의 회귀 가드.
++
++고정하는 것:
++  [1] 하위호환 재수출 — 분리 이전 모듈 함수/상수 이름이 그대로 살아 있고, PG 계약과 문자 단위로 같은 SQL 을 낸다.
++  [2] 계약 버전 불변 — "hashv1-md5-lenpfx"(바뀌면 저장된 run 이 EVIDENCE_CHANGED 로 차단되므로 의도적 변경만 허용).
++  [3] 팩토리 — 등록 방언만 계약을 돌려주고, 미등록 방언은 None.
++  [4] same-DBMS 가드(L3) — 혼합 방언/미등록/방언 미상은 (None, 사유), 동일 방언 PG 만 계약 반환.
++  [5] 가드 L2(어댑터 경계) — 접속 dict 쌍으로 같은 판정을 하고, 접속 미상이면 판정하지 않는다(기존 동작 보존).
++  [6] Base 계약 표면 — 구현체가 채워야 할 원시연산이 NotImplementedError 로 남아 있다.
++"""
++from __future__ import annotations
++
++import unittest
++
++from services.diagnosis import hash_contract as hc
++from services.diagnosis.dialects_hash.postgresql import PgHashContract
++
++
++_CASES = [
++    (["a"], ["TEXT"], [], []),
++    (["a"], ["NUMBER"], ["b"], ["TEXT"]),
++    (["a"], ["DATE_TIME"], ["b"], ["NUMBER"]),
++    (["a", "b", "c"], ["TEXT", "NUMBER", "DATE_TIME"], ["d", "e"], ["TEXT", "NUMBER"]),
++    (["a", "b"], ["TEXT"], ["c"], []),            # ntypes 부족 → TEXT fallback
++    ([], [], ["c"], ["TEXT"]),                    # 빈 키 → "''"
++]
++
++
++class TestReexportEquivalence(unittest.TestCase):
++    """[1][2] 분리 이전 이름이 PG 계약과 동일한 SQL 을 낸다(순수 리팩터 고정)."""
++
++    def setUp(self):
++        self.pg = PgHashContract()
++
++    def test_version_unchanged(self):
++        self.assertEqual(hc.HASH_CONTRACT_VERSION, "hashv1-md5-lenpfx")
++        self.assertEqual(self.pg.version, "hashv1-md5-lenpfx")
++
++    def test_module_functions_match_pg_contract(self):
++        for exprs, ntypes, cexprs, cntypes in _CASES:
++            kc_old = hc.key_canonical_sql(exprs, ntypes)
++            kc_new = self.pg.key_canonical(exprs, ntypes)
++            self.assertEqual(kc_old, kc_new)
++            self.assertEqual(hc.row_canonical_sql(kc_old, cexprs, cntypes),
++                             self.pg.row_canonical(kc_new, cexprs, cntypes))
++            self.assertEqual(hc.key_hash_expr_sql(kc_old), self.pg.key_hash_expr(kc_new))
++            self.assertEqual(hc.row_hash_expr_sql(kc_old), self.pg.row_hash_expr(kc_new))
++            for n in (1, 2, 8, 100, 128):
++                for salt in ("", "hbw1", "hbw3"):
++                    self.assertEqual(hc.bucket_expr_sql(kc_old, n, salt),
++                                     self.pg.bucket_expr(kc_new, n, salt))
++
++    def test_h32_and_canon_component_literals(self):
++        """32비트 정수화식·구성요소 canonical 의 문자열 자체를 고정(무심코 바뀌면 저장된 해시가 깨진다)."""
++        self.assertEqual(self.pg.h32("X"), "(('x' || left(md5(X), 8))::bit(32)::bigint)")
++        self.assertEqual(
++            self.pg.canon_component("col", "TEXT"),
++            "CASE WHEN (col) IS NULL THEN 'S#N' ELSE 'S:' || length((col)::text)::text || ':' || (col)::text END")
++        self.assertEqual(
++            self.pg.canon_component("col", "NUMBER"),
++            "CASE WHEN (col) IS NULL THEN 'D#N' ELSE 'D:' || length(trim_scale((col)::numeric)::text)::text"
++            " || ':' || trim_scale((col)::numeric)::text END")
++        self.assertEqual(self.pg.canon_component("col", None), self.pg.canon_component("col", "TEXT"))
++        self.assertEqual(self.pg.canon_component("col", "number"), self.pg.canon_component("col", "NUMBER"))
++        self.assertEqual(hc._canon_component("col", "TEXT"), self.pg.canon_component("col", "TEXT"))
++        self.assertEqual(hc._H32, PgHashContract._H32)
++
++    def test_pow2_floor_stays_module_function(self):
++        """방언 무관 순수 계산 — 계약 객체가 아니라 모듈 함수로 남는다(설계 대응표)."""
++        self.assertEqual([hc.pow2_floor(n) for n in (-5, 0, 1, 2, 3, 8, 9, 129)],
++                         [1, 1, 1, 2, 2, 8, 8, 128])
++
++    def test_unknown_attribute_still_raises(self):
++        with self.assertRaises(AttributeError):
++            _ = hc.no_such_symbol
++
++
++class TestFactory(unittest.TestCase):
++    """[3] 위임표 + 팩토리."""
++
++    def test_postgresql_registered(self):
++        c = hc.get_hash_contract("postgresql")
++        self.assertIsInstance(c, PgHashContract)
++        self.assertTrue(c.is_available())
++        self.assertEqual(c.db_type, "postgresql")
++        self.assertIs(hc.get_hash_contract("PostgreSQL").__class__, PgHashContract)   # 대소문자 무관
++
++    def test_unregistered_dialects_return_none(self):
++        # oracle 구현체는 후속 단계 — 이번 단계에서는 미등록이어야 한다(조용한 PG 계약 대체 금지).
++        for d in ("oracle", "mysql", "mssql", "mariadb", "db2", "", None, "nope"):
++            self.assertIsNone(hc.get_hash_contract(d), d)
++
++    def test_cross_db_comparable_is_false(self):
++        self.assertFalse(PgHashContract.cross_db_comparable)
++
++
++class TestSameDbmsGuardL3(unittest.TestCase):
++    """[4] get_hash_contract_pair — cross-DBMS 차단(정합성 필수 조건)."""
++
++    def test_same_pg_pair_allowed(self):
++        c, hold = hc.get_hash_contract_pair("postgresql", "postgresql")
++        self.assertIsInstance(c, PgHashContract)
++        self.assertIsNone(hold)
++
++    def test_cross_dbms_blocked(self):
++        for s, t in (("postgresql", "oracle"), ("oracle", "postgresql"),
++                     ("postgresql", "mysql"), ("mssql", "oracle")):
++            c, hold = hc.get_hash_contract_pair(s, t)
++            self.assertIsNone(c, (s, t))
++            self.assertEqual(hold, hc.HR_HASH_CROSS_DBMS, (s, t))
++
++    def test_same_but_unregistered_blocked(self):
++        c, hold = hc.get_hash_contract_pair("oracle", "oracle")
++        self.assertIsNone(c)
++        self.assertEqual(hold, hc.HR_HASH_CONTRACT_NA)
++
++    def test_unknown_dialect_blocked(self):
++        for s, t in (("", "postgresql"), ("postgresql", ""), (None, None)):
++            c, hold = hc.get_hash_contract_pair(s, t)
++            self.assertIsNone(c)
++            self.assertEqual(hold, hc.HR_HASH_CONTRACT_NA)
++
++    def test_hold_reasons_are_standard(self):
++        """generic ERROR 로 새지 않도록 capabilities 의 표준 HOLD 사유와 문자열이 일치해야 한다."""
++        from services.diagnosis.dbms import capabilities as cap
++        self.assertEqual(hc.HR_HASH_CONTRACT_NA, cap.HR_HASH_CONTRACT_NA)
++        self.assertTrue(cap.is_standard_hold_reason(hc.HR_HASH_CONTRACT_NA))
++
++
++class TestGuardL2AdapterBoundary(unittest.TestCase):
++    """[5] 접속 dict 쌍 경계 — db_type 쌍이 살아 있는 마지막 지점."""
++
++    def setUp(self):
++        from services.diagnosis.adapters.base import resolve_hash_contract
++        self.f = resolve_hash_contract
++
++    def test_pg_pair_allowed(self):
++        c, hold = self.f({"db_type": "postgresql"}, {"db_type": "postgresql"})
++        self.assertIsInstance(c, PgHashContract)
++        self.assertIsNone(hold)
++
++    def test_cross_pair_blocked(self):
++        c, hold = self.f({"db_type": "postgresql"}, {"db_type": "oracle"})
++        self.assertIsNone(c)
++        self.assertEqual(hold, hc.HR_HASH_CROSS_DBMS)
++
++    def test_oracle_pair_blocked_until_contract_exists(self):
++        c, hold = self.f({"db_type": "oracle"}, {"db_type": "oracle"})
++        self.assertIsNone(c)
++        self.assertEqual(hold, hc.HR_HASH_CONTRACT_NA)
++
++    def test_unknown_conn_does_not_judge(self):
++        """접속 미상(단위 테스트의 compare_fn 주입 등)은 가드가 판단하지 않는다 — 기존 동작 보존."""
++        for s, t in ((None, None), ({}, {"db_type": "postgresql"}), ({"db_type": "postgresql"}, {}),
++                     ("not-a-dict", {"db_type": "postgresql"})):
++            c, hold = self.f(s, t)
++            self.assertIsNone(c, (s, t))
++            self.assertIsNone(hold, (s, t))
++
++
++class TestMultiScopeAdapterHashGuard(unittest.TestCase):
++    """[5] 어댑터가 HASH_BUCKET 계획을 혼합 방언에서 실제로 차단하는가(실행 진입 직전)."""
++
++    def _run(self, src_db, tgt_db):
++        from services.diagnosis.adapters import multi_scope_adapter as msa
++        from services.diagnosis.multi_scope import PLAN_BATCH_HASH_BUCKET
++
++        class _Plan:
++            selected_strategy = PLAN_BATCH_HASH_BUCKET
++            mode = "BUCKET"
++            active_scope_count = 2
++            ui_reason = ""
++            allowed = True
++
++        calls = {"ran": False}
++        orig_sel, orig_plan, orig_run = msa.select_scopes, msa.plan_multi_scope, msa.run_batch_diagnosis
++        msa.select_scopes = lambda **kw: {"scopes": [{"k": 1}], "is_overall": False, "rejected": []}
++        msa.plan_multi_scope = lambda **kw: _Plan()
++
++        def _run_batch(**kw):
++            calls["ran"] = True
++            raise AssertionError("가드를 통과하면 안 되는 호출")
++        msa.run_batch_diagnosis = _run_batch
++        try:
++            out = msa.diagnose_multi_scope(execute_result={}, src_sql="s", tgt_sql="t", gb_keys=["g"],
++                                           scope_refs=["r"], src_db=src_db, tgt_db=tgt_db,
++                                           compare_fn=lambda *a, **k: None, bounds_fn=lambda *a, **k: None)
++        finally:
++            msa.select_scopes, msa.plan_multi_scope, msa.run_batch_diagnosis = orig_sel, orig_plan, orig_run
++        return out, calls["ran"]
++
++    def test_cross_dbms_pair_blocked_before_execution(self):
++        out, ran = self._run({"db_type": "postgresql"}, {"db_type": "oracle"})
++        self.assertFalse(ran)                                    # DB 접근 이전에 차단
++        self.assertTrue(out.get("plan_only"))
++        self.assertFalse(out.get("allowed"))
++        self.assertEqual(out.get("selected_strategy"), "HASH_BUCKET_REQUIRED")
++        self.assertEqual(out.get("hold_reason"), hc.HR_HASH_CROSS_DBMS)
++
++    def test_oracle_pair_blocked_before_execution(self):
++        out, ran = self._run({"db_type": "oracle"}, {"db_type": "oracle"})
++        self.assertFalse(ran)
++        self.assertEqual(out.get("hold_reason"), hc.HR_HASH_CONTRACT_NA)
++
++    def test_pg_pair_reaches_runner(self):
++        """PG↔PG 는 가드에 걸리지 않고 그대로 runner 로 간다(기존 동작 무변경 확인)."""
++        with self.assertRaises(AssertionError):
++            self._run({"db_type": "postgresql"}, {"db_type": "postgresql"})
++
++    def test_unknown_conn_reaches_runner(self):
++        """접속 미상도 기존과 동일하게 runner 로 간다(가드가 새 차단을 만들지 않는다)."""
++        with self.assertRaises(AssertionError):
++            self._run(None, None)
++
++
++class TestHashSemanticsVectors(unittest.TestCase):
++    """계약의 '값 의미'를 DB 없이 고정 — 32비트 정수화 정의가 md5 표준과 일치하는지 검증 벡터로 확인한다.
++
++    PG 의 (('x' || left(md5(v),8))::bit(32)::bigint) 는 정의상 'md5 앞 8 hex 를 부호없는 32비트 정수로 읽은 값'이다.
++    아래 벡터는 설계 문서(HASH_BUCKET_ORACLE_PORT_ADAPTER_DESIGN §1.1)의 실측 표와 같은 값이며,
++    표현식이 아니라 **계약의 수치 의미**가 바뀌면 여기서 잡힌다(SQL 문자열 비교로는 못 잡는 축).
++    """
++
++    @staticmethod
++    def _h32(canon: str) -> int:
++        import hashlib
++        return int(hashlib.md5(canon.encode("utf-8")).hexdigest()[:8], 16)
++
++    def test_known_vectors(self):
++        for canon, expected in (("S:3:abc", 3276922494), ("S#N", 10499643),
++                                ("D:4:12.5", 584801104),
++                                ("T:26:2026-07-26T00:00:00.000000", 1817468297),
++                                ("hbw1S:3:abc", 976348671)):
++            self.assertEqual(self._h32(canon), expected, canon)
++
++    def test_bucket_is_low_bits_and_in_range(self):
++        """bucket = h32 & (2^k - 1) — 값 범위와 2의 거듭제곱 절단(pow2_floor)이 계약대로인지."""
++        for n_in, n_eff in ((128, 128), (100, 64), (8, 8), (1, 1)):
++            self.assertEqual(hc.pow2_floor(n_in), n_eff)
++            b = self._h32("hbw1S:3:abc") & (n_eff - 1)
++            self.assertTrue(0 <= b < n_eff)
++        self.assertEqual(self._h32("S:3:abc") & 127, 126)          # 설계 §1.1 표와 동일
++        self.assertEqual(self._h32("S#N") & 127, 59)
++
++    def test_bucket_expr_embeds_that_mask(self):
++        """PG 구현체가 실제로 그 마스크(n-1)와 salt 결합을 방출하는지(의미↔표현식 연결 고정)."""
++        pg = PgHashContract()
++        e = pg.bucket_expr("KC", 100, "hbw1")
++        self.assertIn(" & 63)", e)                                  # pow2_floor(100)=64 → mask 63
++        self.assertIn("'hbw1' || KC", e)
++        self.assertNotIn("%", e)                                    # modulo 금지(psycopg2 placeholder 오인)
++
++
++class TestBaseContractSurface(unittest.TestCase):
++    """[6] Base 계약 표면 — 방언 구현체가 채워야 할 원시연산."""
++
++    def test_primitives_are_abstract(self):
++        b = hc.BaseHashContract()
++        self.assertFalse(b.is_available())
++        self.assertEqual(b.db_type, "")
++        self.assertFalse(b.cross_db_comparable)
++        self.assertIsNone(b.precheck(["a"], ["b"]))
++        for fn, args in ((b.h32, ("X",)), (b.canon_component, ("c", "TEXT")),
++                         (b.bucket_expr, ("kc", 8, "s"))):
++            with self.assertRaises(NotImplementedError):
++                fn(*args)
++
++    def test_composition_defaults_use_primitives(self):
++        """key/row canonical·hash 는 원시연산 조합이라 Base 기본 구현으로 충분(방언 무관)."""
++        class _Fake(hc.BaseHashContract):
++            db_type = "fake"
++
++            def is_available(self):
++                return True
++
++            def h32(self, canon_sql):
++                return "H(" + canon_sql + ")"
++
++            def canon_component(self, expr, ntype):
++                return "C[%s/%s]" % (expr, (ntype or "TEXT").upper())
++
++        f = _Fake()
++        kc = f.key_canonical(["a", "b"], ["TEXT"])
++        self.assertEqual(kc, "C[a/TEXT] || C[b/TEXT]")
++        self.assertEqual(f.row_canonical(kc, ["z"], ["NUMBER"]), kc + " || C[z/NUMBER]")
++        self.assertEqual(f.key_hash_expr(kc), "H(" + kc + ")")
++        self.assertEqual(f.key_canonical([], []), "''")
++
++
++if __name__ == "__main__":
++    unittest.main()

@@ -1,0 +1,13 @@
+commit 934c293abd0ea4933650c14403c2c7462fe69441
+Date: Wed Jul 29 18:37:29 2026 +0900
+
+fix(pk-chunk): PK_RANGE_CHUNK merge-join 정렬 전제를 불변식으로 강제 — 문자 키 조용한 오판정 제거 (PK-RANGE-CHUNK-SORT-ORDER-ALIGNMENT-FIX)
+
+ .../pk_range_chunk_sort_order_alignment_verify.py  | 221 +++++++++++
+ ...range_chunk_sort_order_http_chunkpath_verify.py | 185 +++++++++
+ ...e_chunk_sort_order_regression_browser_verify.py | 412 +++++++++++++++++++++
+ services/exact_diff/dialects/oracle.py             |  43 ++-
+ services/exact_diff/dialects/postgresql.py         |  50 ++-
+ services/exact_diff/pk_range_chunk.py              |  90 ++++-
+ tests/test_pk_range_chunk_sort_order_alignment.py  | 137 +++++++
+ 7 files changed, 1132 insertions(+), 6 deletions(-)

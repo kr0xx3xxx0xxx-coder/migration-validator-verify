@@ -1,0 +1,177 @@
+작업명 : SAMPLING-PREFLIGHT-PROGRESS-CB-ROUTE-WIRING-FIX
+✅ 작업 완료 - SAMPLING-PREFLIGHT-PROGRESS-CB-ROUTE-WIRING-FIX - 표본 preflight 진행신호(progress_cb)를 실 서비스 HTTP 경로(routes/agg_diff_route.py 호출부)에 배선해, /jobs/active 가 표본 구간에서 START_ONLY 로 머물던 68.0초를 실측 4.36초 PROGRESS 전이로 교체했다(판정 불변)
+
+실검증 상태: 완료 (오라클 라이브 실 DB — asis 1523 / tobe 1524, NXDNP.MV_ORA_XDIFF 25만행, 실제 HTTP 경로 POST /agg-diff/prepare → GET /jobs/active)
+
+────────────────────────────────────────────────────────────────────────
+1. 요청 요약 / 수정 범위
+────────────────────────────────────────────────────────────────────────
+선행 작업 SAMPLING-PREFLIGHT-TIME-CAP-AND-PROGRESS-FIX 는 지시 범위가 sampling_preflight.py 1파일이라
+엔진만 진행신호를 발행하고 소비자(route 호출부)는 미연결로 남았다(그 보고서 §7-(a)).
+이번 작업은 그 배선 1줄만 마무리한다.
+
+- 수정 파일: `routes/agg_diff_route.py` **1개** (호출부 progress_cb 인자 추가 + 사유 주석 3줄)
+- 신규(검증 전용, 운영 코드 아님): `scripts/dev_e2e/sampling_preflight_progress_cb_route_wiring_verify.py`
+- 커밋: a741a80 (코드 저장소 로컬 커밋 — 원격 push 없음)
+- 병행 작업(STRATEGY-PLAN-PK-KIND-HARDCODE-FIX: ui/grid_helpers.py, services/single_validation_analyze_service.py)과 겹침 0
+
+────────────────────────────────────────────────────────────────────────
+2. git diff (전문)
+────────────────────────────────────────────────────────────────────────
+diff --git a/routes/agg_diff_route.py b/routes/agg_diff_route.py
+index 1243903..43a8a69 100644
+--- a/routes/agg_diff_route.py
++++ b/routes/agg_diff_route.py
+@@ -397,7 +397,13 @@ def _run_sampling_gate(req, src_sql, tgt_sql, key_src, key_tgt, sum_pairs, fp, j
+             fingerprint=fp, source_count=req.source_count, pk_min=pk_min, pk_max=pk_max,
+             gb_cols=gb_cols, sum_labels=sum_labels, settings=settings, fetch_source=fs, fetch_target=ft,
+             numeric_pk=True, dbms=dbms, store=default_exact_diff_store(True),
+-            run_id=run_id, key_col=key_src)
++            run_id=run_id, key_col=key_src,
++            # [SAMPLING-PREFLIGHT-PROGRESS-CB-ROUTE-WIRING-FIX] 표본 preflight 진행 신호 배선.
++            #   페이로드 키가 chunk 경로(_pcb)와 동일 규약이라 기존 rj.update_progress 를 그대로 재사용한다
++            #   → /jobs/active 의 last_progress_at 이 갱신되고 progress_signal 이 START_ONLY→PROGRESS 로 바뀐다.
++            progress_cb=lambda p: rj.update_progress(job, processed_src=p.get("processed_src"),
++                                                     available=p.get("available"),
++                                                     progress_at=p.get("progress_at")))
+         try:
+             job.setdefault("meta", {})["sampling"] = out.get("sampling")
+             job["meta"]["sampling_status"] = out.get("status")
+
+(변경은 이 1개 hunk 가 전부다. 판정/로직/분기 변경 없음 — 콜백 인자 추가와 그 사유 주석뿐이며,
+ `rj` 는 같은 함수 안에서 이미 import 되어 있고(agg_diff_route.py:380) `job` 은 함수 파라미터다.
+ 콜백 형태는 선행 보고서 §7-(a)에 실측 검증된 그대로이며, chunk 경로 `_pcb`(:289)와 같은 소비자다.)
+
+────────────────────────────────────────────────────────────────────────
+3. 구조 검토(비판적 검토 의무)
+────────────────────────────────────────────────────────────────────────
+- 긍정적 효과: 표본 구간이 UI 에서 '멈춘 것처럼' 보이던 구간에 실제 진행 시각이 남는다
+  (/jobs/active 의 progress_signal·stall_basis 가 started_at → last_progress_at 으로 전환).
+- 구조 부채: 새 메커니즘/새 엔드포인트/새 상태를 만들지 않았다. 페이로드 키 규약이 chunk 경로와 같아
+  기존 `rj.update_progress` 소비자를 그대로 쓴다. web_server.py 무변경.
+- 위험: 콜백이 예외를 던지면 게이트가 깨질 수 있다 → 엔진 `_emit_progress` 가 모든 예외를 삼키므로(관측 전용)
+  판정 경로에 영향이 없다. 이번 실측에서도 Before/After 판정이 완전히 동일함을 4절에서 확인했다.
+- heuristic/scoring: 추가 없음. explainability: 진행 시각·처리 anchor 수가 API 응답에 남는다(오히려 개선).
+- 남는 한계(정직 고지): 신호 촘촘함은 '표본 단계 단위'가 상한이다. 확장 단계 내부는 batch 쿼리 1회라
+  단계 중간에는 신호가 없다 — 아래 4-2 After 케이스에서 t=30.29s 의 stall_seconds 가 24.9 로 찍히는 이유다
+  (선행 보고서 §7-(b)와 동일 항목, 이번 범위 밖).
+
+────────────────────────────────────────────────────────────────────────
+4. 실 HTTP 경로 실측 (Before/After)
+────────────────────────────────────────────────────────────────────────
+측정 방식(요청서 §4-5 방식을 HTTP 로 재현):
+  · Before 서버 = git worktree(HEAD bfda564, 라우트 배선 없음) + 미커밋 sampling_preflight.py 복사 → 127.0.0.1:8122
+  · After  서버 = 현재 작업트리(배선 적용)                                        → 127.0.0.1:8121
+    (운영 중인 8000/8035 서버는 건드리지 않았다. 두 서버는 각자 별도 store·별도 포트로 순차 실행.)
+  · 드라이버: scripts/dev_e2e/sampling_preflight_progress_cb_route_wiring_verify.py
+      POST /agg-diff/prepare (stream=true, force=true, chunk 50000, early_stop_abs=100000)
+      → 폴링 GET /jobs/active?source=single (0.2~0.5초 간격) → 종료 후 GET /agg-diff/pk-records 로 판정 수집
+  · 소스: NXDNP.MV_ORA_XDIFF_SRC(250,000) → MV_ORA_XDIFF_TGT(249,950), 단순 SELECT(non-wrapping)
+    ground truth: 미이관 100 + 값불일치 50 = 재이관 150건, 목적지단독 50건
+
+4-1. 케이스 S — 기본 설정(표본 상한/프로브 기본값), 비교키 = 물리 PK(ID, 인덱스 있음)
+  [Before] GET /jobs/active 원문(발췌)
+    t=1.23s {"id":"PSE8DDAD37A4DA","status":"PREPARING","completed":0,"total":250000,
+             "last_progress_at":null,"started_at":1785322805.3236485,
+             "progress_signal":"START_ONLY","stall_basis":"started_at","stall_seconds":0.1}
+    t=3.14s {... "completed":0,"last_progress_at":null,"progress_signal":"START_ONLY",
+             "stall_basis":"started_at","stall_seconds":2.0}          ← 표본 구간 내내 무신호
+    t=4.87s {... "completed":20004,"last_progress_at":1785322809.0345163,
+             "progress_signal":"PROGRESS","stall_basis":"last_progress_at"}  ← 전수 merge 시작 후에야 첫 신호
+  [After]
+    t=1.18s {"id":"PS7FF9C266DE9B", ... "completed":0,"last_progress_at":null,
+             "progress_signal":"START_ONLY","stall_basis":"started_at","stall_seconds":0.1}
+    t=1.46s {... "completed":2000,"last_progress_at":1785322818.7522402,"started_at":1785322818.3449576,
+             "progress_signal":"PROGRESS","stall_basis":"last_progress_at","stall_seconds":0.0}
+             ← completed=2000 은 표본 1단계 anchor 수(전수 merge 이전) = **표본이 낸 신호**
+  → START_ONLY 지속: Before 4.52초 → After 1.18초. 첫 PROGRESS: Before 4.87s(completed=20004, merge 발) →
+    After 1.46s(completed=2000, 표본 발).
+
+4-2. 케이스 X — 표본 구간을 길게 만든 관측(비교키 = C_NUM, 인덱스 없음 → anchor 단가 큼)
+     서버 기동 env: MV_SAMPLING_PROBE_MARGIN=1000, MV_SAMPLING_TIME_CAP_MS=0 (프로브 차단·시간 상한 해제)
+     Before/After 동일 env — 표본 1단계(2,000 anchor)가 통째로 도는 ~65~70초 구간을 관측 창으로 확보.
+  [Before] (run_id=PS4BC541C6223A)
+    t=0.37s  {"status":"PREPARING","completed":0,"total":250000,"last_progress_at":null,
+              "started_at":1785322956.432539,"progress_signal":"START_ONLY","stall_basis":"started_at","stall_seconds":0.1}
+    t=30.18s {... "completed":0,"last_progress_at":null,
+              "progress_signal":"START_ONLY","stall_basis":"started_at","stall_seconds":29.9}
+    t=68.34s {... "last_progress_at":1785323024.2854192,"progress_signal":"PROGRESS",
+              "stall_basis":"last_progress_at","stall_seconds":0.2}   ← 표본 끝나고 merge 시작 후 첫 신호
+    → **68.0초 동안 START_ONLY**(표본 구간 전체가 무신호).
+  [After] (run_id=PSAA7C8D7672C8)
+    t=0.37s  {"completed":0,"last_progress_at":null,"progress_signal":"START_ONLY","stall_basis":"started_at"}
+    t=4.36s  {"completed":8,"last_progress_at":1785322866.374703,"progress_signal":"PROGRESS",
+              "stall_basis":"last_progress_at","stall_seconds":0.4}   ← 사전 프로브 1단계(anchor 8)
+    t=5.50s  {"completed":40, ... "progress_signal":"PROGRESS"}                    ← 프로브 2단계(누적 anchor 40)
+    t=30.29s {"completed":40, ... "progress_signal":"PROGRESS","stall_basis":"last_progress_at","stall_seconds":24.9}
+              ← 단계 내부는 batch 쿼리 1회라 갱신 없음(3절 한계 그대로 — 신호 '유무'는 이미 PROGRESS)
+    t=75.36s {"completed":2000, ... "progress_signal":"PROGRESS"}                   ← 표본 1단계 완료 신호
+    → 첫 PROGRESS 4.36초. START_ONLY 지속 3.79초.
+
+4-3. 판정 동일성(핵심) — 콜백은 부수효과일 뿐 판정에 영향 없음
+  케이스 S : verdict identical = True, 재이관 대상 PK 목록 identical = True (150건 / 150건)
+  케이스 X : verdict identical = True, 재이관 대상 PK 목록 identical = True (150건 / 150건)
+  양측 공통 판정값:
+    {"status":"READY","total":150,"missing_migration":100,"value_mismatch":50,"target_only_count":50,
+     "early_stopped":false,"source_count":250000,"target_count":249950,
+     "sampling_status":"FULL_COMPARE_APPROVED","sampling_anchor_count":2000}
+  (총 소요는 Before 6.68s / After 4.05s(S), Before 77.07s / After 86.51s(X)로 편차가 있으나 이는 오라클·
+   네트워크 실행 편차다 — 콜백은 job dict 갱신 1회/신호이며 판정·건수는 위와 같이 완전 동일하다.)
+
+────────────────────────────────────────────────────────────────────────
+5. 회귀 테스트 + baseline 대조
+────────────────────────────────────────────────────────────────────────
+관련 서브셋(요청 키워드: agg_diff / sampling / preflight / jobs). 같은 파일 집합·같은 -k 로 양측 실행:
+  pytest <39개 파일> -k "agg_diff or aggdiff or sampling or preflight or job" -q -p no:randomly
+    Before(worktree HEAD bfda564 + 미커밋 sampling_preflight.py) : 12 failed, 154 passed, 1 error (87.26s)
+    After (현재 트리)                                            : 12 failed, 154 passed, 1 error (87.17s)
+  → **실패 집합 완전 동일(차분 0건)** = 이번 배선으로 인한 회귀 없음.
+  (worktree 전체 tests/ 수집은 db_presets_*.json 부재로 collection error 가 나므로 — 비밀번호 파일을
+   worktree 에 복사하지 않기 위해 — 양측 모두 동일한 39개 파일을 명시 지정해 대조했다.)
+
+  직접 관련 테스트: tests/test_sampling_preflight.py, tests/test_sampling_gate_wrapping_skip.py
+  (위 서브셋에 포함, 양측 모두 통과)
+
+  프로젝트 필수 회귀:
+    python samples/test_virtual_cases.py  → 8/8 통과
+    python samples/test_complex_cases.py  → 5/5 케이스 분석 완료
+
+  실패 테스트 전체 목록(12 failed + 1 error — Before/After 동일, 전부 사전 존재 결함):
+    tests/test_group_master_crud.py::TestQueryUploadResultRender::test_preflight_official_flow_elements
+    tests/test_single_execute_preflight_connection.py::test_both_ok_proceeds
+    tests/test_single_execute_preflight_connection.py::test_source_fail_blocks_with_message
+    tests/test_single_execute_preflight_connection.py::test_target_fail_blocks_with_message
+    tests/test_single_execute_preflight_connection.py::test_both_fail_shows_both
+    tests/test_single_execute_preflight_connection.py::test_non_pg_skips_preflight
+    tests/test_single_execute_preflight_connection.py::test_no_path_skips_preflight
+    tests/test_single_execute_preflight_connection.py::test_no_password_leak
+    tests/test_single_execute_preflight_connection.py::test_preflight_wired_into_execute_entries
+    tests/test_single_validation_result_view_persistence.py::test_execute_attaches_job_id_and_saves
+    tests/test_single_validation_server_guards.py::test_single_missing_conn_blocked_preflight
+    tests/test_single_validation_server_guards.py::test_single_pg_normal_flow_not_broken_by_preflight
+    ERROR tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_09_job_type_equal
+  ※ 이 목록은 선행 작업 보고서(SAMPLING-PREFLIGHT-TIME-CAP-AND-PROGRESS-FIX §6)에 기록된 사전 존재
+    실패군과 같은 계열이며, 이번 -k 조건에서 걸리는 부분집합이다(운영 SQLite 가드/preflight UI 계약 계열).
+
+────────────────────────────────────────────────────────────────────────
+6. 남은 일 (이번 범위 밖)
+────────────────────────────────────────────────────────────────────────
+(a) 표본 단계 '내부' 무신호 구간(4-2 의 t=5.5s~75.4s): 단계당 쿼리 1회 계약(§4)을 깨야 잘게 쪼갤 수 있어
+    이번에도 손대지 않았다(선행 보고서 §7-(b) 그대로).
+(b) 상한 초과분이 '진행 중인 한 단계'만큼 발생하는 문제(선행 §7-(c)), 프로브 여유배수 PostgreSQL 재확인
+    (선행 §7-(d))도 그대로 남아 있다 — 내부망 PG 미도달·Neon 쿼터 소진 상태.
+(c) 화면(UI) 표기는 이번 범위 아님 — /jobs/active 응답 계약만 검증했다(요청서 '화면 무관').
+
+────────────────────────────────────────────────────────────────────────
+7. 증적 파일
+────────────────────────────────────────────────────────────────────────
+  E:\verify_reports\SAMPLING-PREFLIGHT-PROGRESS-CB-ROUTE-WIRING-FIX\sampling_preflight_progress_cb_route_wiring_verify.py  (HTTP 드라이버)
+  E:\verify_reports\SAMPLING-PREFLIGHT-PROGRESS-CB-ROUTE-WIRING-FIX\_spf_progress_s_before.json / _spf_progress_s_after.json  (케이스 S 폴링 원문·판정)
+  E:\verify_reports\SAMPLING-PREFLIGHT-PROGRESS-CB-ROUTE-WIRING-FIX\_spf_progress_x_before.json / _spf_progress_x_after.json  (케이스 X 폴링 원문·판정)
+  E:\verify_reports\SAMPLING-PREFLIGHT-PROGRESS-CB-ROUTE-WIRING-FIX\before_subset_tail.txt / after_subset_tail.txt          (테스트 결과 요약)
+  ※ 드라이버는 프리셋에서 접속정보를 로드만 하고 출력·저장하지 않는다(비밀번호 노출 0). 검증용 worktree 에는
+    비밀번호 파일을 복사하지 않았고, 임시로 복사했던 auth_users.json·db/migration_validator.db 는 worktree
+    제거 전에 삭제했다. 검증 서버(8121/8122)는 실측 종료 후 모두 종료했다(운영 8000/8035 무영향).
+
+실검증 상태: 완료 (오라클 라이브 실 DB — asis 1523 / tobe 1524, NXDNP.MV_ORA_XDIFF 25만행, 실제 HTTP 경로)
+✅ 작업 완료 - SAMPLING-PREFLIGHT-PROGRESS-CB-ROUTE-WIRING-FIX - 표본 preflight 진행신호(progress_cb)를 실 서비스 HTTP 경로(routes/agg_diff_route.py 호출부)에 배선해, /jobs/active 가 표본 구간에서 START_ONLY 로 머물던 68.0초를 실측 4.36초 PROGRESS 전이로 교체했다(판정 불변)

@@ -1,0 +1,15 @@
+[실 DB 가용성 점검] 2026-07-29 14:45:41 (로컬시각)
+
+  PostgreSQL_Inter_asis    192.168.0.150:5433 -> TCP 연결 실패(TimeoutError)
+  PostgreSQL_Inter_tobe    192.168.0.150:5434 -> TCP 연결 실패(TimeoutError)
+  Oracle_asis              192.168.0.151:1523 -> TCP 연결 성공
+  Oracle_tobe              192.168.0.151:1524 -> TCP 연결 성공
+
+[Neon PostgreSQL 프리셋 접속 시도]
+  PostgreSQL_NEW_asis    접속 실패: connection to server at "ep-aged-tooth-aoi66cbv-pooler.c-2.ap-southeast-1.aws.neon.tech" (3.0.167.45), port 5432 failed: ERROR:  Your project has exce
+  PostgreSQL_NEW_tobe    접속 실패: connection to server at "ep-aged-tooth-aoi66cbv-pooler.c-2.ap-southeast-1.aws.neon.tech" (3.0.167.45), port 5432 failed: ERROR:  Your project has exce
+  PostgreSQL_asis        접속 실패: connection to server at "ep-bitter-moon-aoaf05cu.c-2.ap-southeast-1.aws.neon.tech" (3.0.167.45), port 5432 failed: ERROR:  Your project has exceeded t
+  PostgreSQL_tobe        접속 실패: connection to server at "ep-super-river-aoeo1f81.c-2.ap-southeast-1.aws.neon.tech" (13.251.17.193), port 5432 failed: ERROR:  Your project has exceede
+
+결론: 이 작업 시점에 사용 가능한 PostgreSQL 인스턴스가 없어 실 PG 라이브 대조는 수행하지 못했다.
+      Oracle(192.168.0.151)만 가용하나 이번 단계는 오라클 계약 미구현이라 실행 대상이 아니다.

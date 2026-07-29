@@ -1,0 +1,268 @@
+작업명 : DISPLAY-TIER-D4-100RECORD-CUTOFF-BEHAVIOR-DIAGNOSE
+✅ 작업 완료 - DISPLAY-TIER-D4-100RECORD-CUTOFF-BEHAVIOR-DIAGNOSE (코드 수정 없음 · 순수 진단)
+
+────────────────────────────────────────────────────────────────────────────
+0. 결론 요약 (먼저 읽을 3줄)
+────────────────────────────────────────────────────────────────────────────
+1) D4 의 원인은 "불일치 100건 초과" 가 아니다. 조기중단(early_stopped) 이 발생하면
+   축 A·축 B 등급과 무관하게 강제로 D4 다. 실측 run 은 두 축 모두 등급 1(=D1) 이었다.
+2) 화면에서 레코드를 막는 주체는 D4 가 아니라 '별개 축' 인 그룹당 표시 정책 P3 다.
+   경계 100 의 all-or-nothing — 100건이면 전부, 101건이면 0건.
+3) 데이터는 서버에 101건 전량 살아 있다(Excel 도 101건). 따라서 "100건까지 화면 표시" 는
+   데이터 부족 문제가 아니라 순수 표시 정책 문제다. 다만 CHUNK·표본 조기중단 경로는
+   저장 자체가 20건이라 별도 설정 상향이 필요하다.
+
+────────────────────────────────────────────────────────────────────────────
+1. D4 분류 조건 확정 (파일:라인)
+────────────────────────────────────────────────────────────────────────────
+판정 단일 출처 : services/display_limit_policy.py
+
+  services/display_limit_policy.py:162
+      tier = 4 if early_stopped else max(a, b)
+      → 조기중단이면 축과 무관하게 강제 D4. 근거코드 "EARLY_STOPPED"(:167)
+
+  축 A(불일치 레코드 건수)  _axis_a_tier  :87~96   경계 1,000 / 10,000 / 60,000
+  축 B(불일치 그룹 수)      _axis_b_tier  :99~108  경계 1,000 / 10,000 / 100,000
+
+  ※ 101건은 축 A 등급 1 이다(≤1,000). 즉 '100건 초과' 는 D4 조건이 아니다.
+    100 이라는 숫자는 D1~D4 체계 어디에도 경계로 존재하지 않는다.
+
+호출부(주입 지점) 3곳
+  routes/agg_diff_route.py:1296~1299   재이관/드릴다운 확정 응답
+        decide_display_mode(pg.total, _grp_cnt, early_stopped=(early_stopped or _limit_stopped))
+  routes/agg_diff_route.py:1247        표본 preflight 조기중단 전용 응답
+        decide_display_mode(spg.total, 0, early_stopped=True)   ← 그룹수 0 하드코딩
+  services/stats_execute_service.py:549~552  통계검증(5단계) — early_stopped=False 고정
+        → 5단계 그룹표 경로는 구조적으로 D4 진입 불가(그룹수 10만 초과 시에만 가능)
+
+실서버 실측(8000 · 인증 ON · run_id=PSF1978945915C)
+  GET /agg-diff/pk-records?run_id=PSF1978945915C&page=1&page_size=5
+      status               = EARLY_STOPPED
+      display_tier         = D4
+      display_reason_code  = EARLY_STOPPED
+      total_mismatch_count = 101          ← 사용자가 본 101건
+      total_group_count    = 0            ← 사용자가 본 '그룹 0개'
+      axis_a_tier          = 1            ← 축 A 는 D1
+      axis_b_tier          = 1            ← 축 B 도 D1
+      display_message      = 불일치 101건(그룹 0개) — 수집이 조기중단되어 대표 표본만
+                             저장되었습니다. 요약과 다운로드로만 확인하세요.
+
+  → 두 축 모두 D1 인데 early_stopped 하나로 D4 가 됐음이 실측으로 확정된다.
+
+순수함수 단위 실측(scripts/dev_e2e/display_tier_d4_100record_cutoff_diagnose.py)
+  (101,   0, early_stopped=True )  → D4  reason=EARLY_STOPPED     axisA=1 axisB=1
+  (101,   0, early_stopped=False)  → D1  reason=AXIS_A_MISMATCH_T1
+  (100,   0, early_stopped=True )  → D4  (100건이어도 조기중단이면 D4)
+  ( 20,   0, early_stopped=True )  → D4  (표본 preflight 경로)
+  (60000, 0, early_stopped=False)  → D3
+  (60001, 0, early_stopped=False)  → D4  (축 A 로 D4 가 되려면 6만 건 초과가 필요)
+
+────────────────────────────────────────────────────────────────────────────
+2. 서버가 실제로 확보한 레코드 수 — 조기중단 경로별로 전혀 다르다
+────────────────────────────────────────────────────────────────────────────
+실측 run PSF1978945915C 의 실제 경로 판별(실서버 응답)
+      early_stopped          = True
+      mismatch_limit_stopped = False      → CHUNK 누적상한 경로 아님
+      sample_early_stop      = None       → 표본 preflight 경로 아님
+      total = 101 · total_count = 101 · total_pages = 21
+      counts.reimport_pks = 101 (missing 1 + value_mismatch 100)
+      records 실제 반환 확인(page_size=5 → key '1'~'5')
+  → DIRECT merge + early_stop_abs=101 경로로 확정. 서버는 101건을 전량 보유하며
+    이미 페이징으로 반환하고 있다(21페이지).
+
+조기중단 3경로 비교 (모두 실측)
+ ┌──────────────────────┬────────────────────────────┬──────────────────────────┐
+ │ 경로                 │ 중단 기준                  │ store 실제 저장 건수     │
+ ├──────────────────────┼────────────────────────────┼──────────────────────────┤
+ │ DIRECT merge         │ early_stop_abs = 101       │ 101건 전량 (trim 없음)   │
+ │ agg_contribution.py  │ :685~690 에서 break        │ ★ 데이터 있음            │
+ ├──────────────────────┼────────────────────────────┼──────────────────────────┤
+ │ CHUNK                │ mismatch_limit 25,000건    │ 20건만 (trim_kind 절단)  │
+ │ pk_range_chunk.py    │ (=원본 10%) :444           │ :473~479 대표 20건 남기고│
+ │                      │                            │ 나머지 DELETE            │
+ ├──────────────────────┼────────────────────────────┼──────────────────────────┤
+ │ 표본 preflight       │ Wilson 95% CI 하한 ≥ 10%   │ 대표 20건                │
+ │ sampling_preflight.py│ :158~166                   │ :243 저장 상한           │
+ └──────────────────────┴────────────────────────────┴──────────────────────────┘
+
+ 단위 실측 A — DIRECT(25만행 · early_stop_abs=101)
+    비교한 원본 행수 = 10,100 / 250,000 에서 중단 (early_stop_reason=ABSOLUTE)
+    m['reimport'] = 101
+    ★ store 실제 저장 = 101건 · page_records total = 101
+
+ 단위 실측 B — CHUNK(5,000행 전량 불일치 · mismatch_limit=300 · representative_limit=20)
+    limit_hit=True · 실제 불일치 300건
+    counts.reimport_total = 300  /  counts.reimport_pks(저장분) = 20
+    ★ store 실제 저장 = 20건  (trim_kind 로 280건 삭제됨)
+
+ 운영 정책 실측값(현재 서버)
+    per_group_full_list_max      = 100     per_group_early_stop_abs = 101
+    actual_mismatch_limit_rate   = 10.0    representative_sample_limit = 20
+    sample_early_stop_enabled    = True    sample_representative_store_n = 20
+    _mismatch_limit_from_policy(250000) = (limit=25000, rep=20, rate=10.0, min_dec=0, abs=None)
+
+ ※ 안내 문구의 사실 오류 — display_limit_policy.py:129~131 의 조기중단 문구는
+   "대표 표본만 저장되었습니다" 라고 단정하지만, DIRECT 경로는 대표 표본이 아니라
+   불일치 101건을 '전량' 저장한다. 실측 run 이 정확히 이 경우이며 문구가 사실과 다르다.
+   (CHUNK·표본 preflight 경로에서만 문구가 참이다.)
+
+────────────────────────────────────────────────────────────────────────────
+3. '그룹 0개' 표기의 의미 (오도 표기 — 그룹이 0개인 게 아니다)
+────────────────────────────────────────────────────────────────────────────
+실측 run 응답
+      gb_cols                     = []      ← GROUP BY 미선택(COUNT + SUM 만)
+      sum_labels                  = ['C_NUM', 'C_NUM_PS']
+      mismatch_group_distribution = None
+
+코드 경로
+  routes/agg_diff_route.py:1290~1292
+      _dist = basis.get("mismatch_group_distribution")
+      if _dist is None and not _is_to and gb_cols:      ← gb_cols 가 비면 산출 자체를 안 함
+          _dist = _group_dist_from_store(...)
+  routes/agg_diff_route.py:1297
+      _grp_cnt = int((_dist or {}).get("total_group_count") or 0)   ← None → 0
+
+  → 이 run 은 GROUP BY 축이 없어 '그룹' 이라는 개념 자체가 없다. 그런데 화면은
+    '그룹 0개' 로 표기해, 마치 불일치 그룹을 세어보니 0개인 것처럼 읽힌다.
+    (별개로 표본 preflight 응답 :1247 은 그룹 수를 아예 0 으로 하드코딩한다.)
+
+────────────────────────────────────────────────────────────────────────────
+4. 화면이 레코드를 하나도 안 그리는 진짜 원인 — D4 가 아니라 P3 다
+────────────────────────────────────────────────────────────────────────────
+(1) D4 는 배너 문구 전용이다.
+    display_tier_info 의 동작 플래그(summary_only / show_full_list /
+    show_group_drilldown / download_only_detail)를 읽어 렌더를 막는 UI 코드는 0건.
+    UI 가 실제로 쓰는 값은 display_tier · display_message 뿐이다
+    (ui/tabler_renderer.py:17028~17042 _mvDisplayTierBanner — 배너 HTML 만 생성).
+
+(2) 실제 차단자 = 그룹당 표시 정책 P3 (완전히 다른 축)
+    services/per_group_display_policy.py:120
+        mode = PG_MODE_FULL if n <= fl else PG_MODE_COUNT_ONLY      (fl = 100)
+    ui/tabler_renderer.py:16997
+        var mode = (n <= p.fl) ? 'P1' : 'P3';
+
+    차단 지점 3곳(모두 '배너만 그리고 return' — 레코드 렌더 자체를 건너뜀)
+        ui/tabler_renderer.py:17173~17174   _mvPkLoadPage
+            var _g100 = _mvGroupOver100Guidance(d.total, _pgUncertain);
+            if (_g100) { wrap.innerHTML = _tierBnr + _g100; return; }
+        ui/tabler_renderer.py:27549         _mvRiLoadGroupPage (조회 '전' 차단 — 쿼리 0회)
+        ui/tabler_renderer.py:27564~27567   _mvRiLoadGroupPage (실제 total 재확인 후 차단)
+
+    단위 실측 : 99건→P1(전부) · 100건→P1(전부) · 101건→P3(0건) · 150건→P3(0건)
+    → 100 과 101 사이에서 '전부' 가 '전무' 로 떨어지는 all-or-nothing.
+
+(3) 화면 위치에 따라 결과가 갈린다(중요)
+    - 전체 상세 Grid 경로(_mvRiApply, ui/tabler_renderer.py:26828~26844)에는 P3 차단이 없다.
+      이 run 은 gb_cols=[] 이라 그룹뷰를 타지 않고 상세 Grid 로 가므로,
+      결과확인 Grid 에서는 101건이 페이징으로 표시된다(코드 기준).
+    - 반면 '전체합계' 행 등 드릴다운 패널을 열면 _mvPkLoadPage 로 들어가
+      d.total=101 > 100 → P3 로 레코드가 0건이 된다.
+    → 사용자가 본 "레코드가 전혀 안 뜨는" 화면은 드릴다운 패널 경로로 판단된다.
+      어느 쪽이든 결론(데이터는 101건 있고 표시 정책이 막는다)은 동일하다.
+
+(4) 의도된 설계인가, 빠진 것인가 — '의도된 설계이나 0건은 단순화의 부작용'
+    ui/tabler_renderer.py:16973 주석
+        "GROUP-DRILLDOWN-RECORD-LIMIT-100-FIX: 그룹 불일치 건수가 100건을 초과하면
+         레코드 목록 대신 안내 HTML 을 반환한다"  → 차단 자체는 명시적 의도.
+
+    그러나 git 이력상 '최소 몇 건은 보여준다' 는 개념은 원래 있었다가 사라졌다.
+        96fb91a  그룹당 표시 3단계 P1/P2/P3 도입
+                 → P2 = 101~1,000건 구간은 '대표 20건' 을 화면에 표시했다.
+        592d003  (2026-07-24) PER-GROUP-RECORD-DISPLAY-SINGLE-THRESHOLD-SIMPLIFY
+                 커밋 메시지: "역전 현상 제거: 101~1,000건이 오히려 대표 20건만
+                 보이던 모순을 없앰" → P2(대표 20건) 개념 자체를 삭제
+                 → 그 결과 101건부터 표시 건수가 20건에서 '0건' 이 되었다.
+
+    즉 '역전 현상'(적을 때 더 많이 보여주는 모순)을 없애려고 P2 를 제거했는데,
+    그 부작용으로 101건 이상은 아무것도 안 보이게 됐다. 사용자의 기대
+    ("최소 100건은 화면에 보여주기")는 삭제된 그 개념의 복구에 해당한다.
+
+────────────────────────────────────────────────────────────────────────────
+5. Excel 다운로드 실제 건수
+────────────────────────────────────────────────────────────────────────────
+  routes/stats_result_route.py:179~180
+      for _kind in kinds:
+          for rec in store.iter_records(pk_run_id, kind=_kind):
+      → 페이지·상한 없이 저장분 '전량' 순회. 100건/20건 같은 캡이 없다.
+  routes/stats_result_route.py:157~160
+      kinds = [REIMPORT_KIND]
+      basis.sample_early_stop 인 run 에 한해 kinds.append(SAMPLE_KIND)
+
+  단위 실측 : store 저장 101건 → iter_records 순회 101건 (1:1 일치)
+
+  → 실측 run 의 Excel = 101건.
+     화면 0건 vs Excel 101건 이라는 비대칭이 실제로 존재한다.
+     조기중단 경로별로는 CHUNK run = 20건, 표본 preflight run = 20건 이 담긴다.
+
+  ※ 실서버에서 직접 다운로드 검증은 하지 못했다. /stats-result/export 는
+    result_ids(통계 결과 저장소 id)가 필수 파라미터이고 UI 가 채워 넣는 값이라
+    API 단독 호출 시 {"ok":false,"error":"result_ids 가 필요합니다."} 로 거부된다.
+    건수 자체는 위 코드 경로 + 단위 실측으로 확정했다.
+
+────────────────────────────────────────────────────────────────────────────
+6. "100건까지 화면 표시 · 101건째부터 조기중단" 전환 가능 여부 + 구현 규모
+────────────────────────────────────────────────────────────────────────────
+[가능 여부] 데이터 문제가 아니라 표시 정책만의 문제다(단, 경로별 단서 있음).
+
+  · 수집 측은 이미 사용자 기대대로 동작 중이다.
+    DIRECT 경로의 early_stop_abs 는 정확히 101 이라, 101건째를 만나는 순간 중단한다
+    (실측: 25만행 중 10,100행만 비교하고 종료). 즉 "101건째부터 조기중단" 은 이미 구현돼 있다.
+  · 서버는 그 101건을 전량 보유하고 pk-records 가 페이징으로 이미 반환 중이다(total_pages=21).
+    화면만 P3 로 렌더를 건너뛴다. → 표시 정책 수정으로 해결 가능.
+
+[구현 규모] 파일 2~3개. 서버 저장·조회 계층 변경 0건.
+
+  1) services/per_group_display_policy.py  (순수 함수 · 단위테스트 기존 보유)
+     P3 에 '앞 N건은 표시' 개념 추가(show_full_records=False 지만 부분 표시 허용).
+     기존 테스트 samples/test_per_group_display_policy.py 갱신 필요.
+  2) ui/tabler_renderer.py  (차단 3지점)
+     :17173~17174 / :27549 / :27564~27567 을 '배너만 + return' 에서
+     '배너 + 최대 100건 목록' 으로 변경. 특히 :27549 는 조회조차 하지 않는
+     '조회 전 차단' 이므로 조회하도록 바꿔야 한다(쿼리 1회 증가).
+  3) (선택) services/display_limit_policy.py:129~131
+     "대표 표본만 저장되었습니다" 문구가 DIRECT 경로에서 사실과 다르므로 분기 필요.
+
+[경로별 단서 — 이건 데이터 한계라 표시 정책만으로는 안 됨]
+  · DIRECT 조기중단 run      : 101건 보유 → 100건 표시 가능 (수정만 하면 됨)
+  · CHUNK 조기중단 run       : trim_kind 로 20건만 남음 → 100건 표시 불가.
+                               representative_sample_limit(현재 20) 상향이 함께 필요.
+  · 표본 preflight 조기중단   : 대표 20건만 저장 → 100건 표시 불가.
+                               sample_representative_store_n(현재 20) 상향이 함께 필요.
+  → 세 경로 모두에서 "100건 보장" 을 원한다면 정책 기본값 3개(100/100/100) 정렬이 전제다.
+
+[위험 검토]
+  · 역전 현상 재발? 없음. 101건→100건 표시, 1,500건→100건 표시로 단조라 과거 모순과 다르다.
+  · '정확한 수를 세지 않는다(조기중단)' 원칙과의 충돌? 없음. 101건째에서 멈추므로
+    앞 100건은 이미 확정 확보분이다. 다만 배너 문구는 '표시 100건 / 실제 100건 초과(미확정)'
+    두 숫자를 분리 표기해야 한다(표시 축소가 은폐로 읽히지 않도록).
+  · heuristic/scoring/explainability 영향: 신규 하드코딩 없음(경계는 이미 서버 단일 출처
+    per_group_policy 로 내려오고 있음). 판정(PASS/WARNING/SKIP) 불변.
+
+────────────────────────────────────────────────────────────────────────────
+7. 검증 방법 및 증적
+────────────────────────────────────────────────────────────────────────────
+  · 실서버 실측 : http://127.0.0.1:8000 (인증 ON · Basic Auth e2e 계정)
+      GET /              → HTTP 200 · 2,725,016 bytes
+        서빙 중인 JS 번들에 P3 차단·D4 배너 로직이 소스와 동일함을 확인(stale 모듈 아님)
+          "if (_g100) { wrap.innerHTML = _tierBnr + _g100; return; }"   존재
+          "mode = (n <= p.fl) ? 'P1' : 'P3'"                            존재
+          "요약 전용(다운로드로 확보)"                                   존재
+      GET /jobs/completed → 실제 사용자 케이스 run 발견
+          id=PSF1978945915C · status=EARLY_STOPPED · total=250,000
+          원본 SQL = INSERT INTO NXDNP.MV_ORA_XDIFF_TGT ... WITH ranked AS (...)  (오라클 CTE)
+          source_count=250,000 / target_count=249,950
+      GET /agg-diff/pk-records?run_id=PSF1978945915C → 위 1·2·3항 수치 전부 실측
+  · 단위 실측 드라이버(신규 추가 · 진단 전용, 기존 코드 무수정)
+      scripts/dev_e2e/display_tier_d4_100record_cutoff_diagnose.py
+      [1] D4 판정 경계 6종 · [2] P1/P3 경계 4종 · [3] DIRECT 25만행 조기중단 저장 건수
+      [3-B] CHUNK trim_kind 효과 · [4] Excel 순회 방식
+  · 미수행 : 브라우저 스크린샷 검증. 해당 run 을 5단계 화면에 복원하려면 세션 복원이
+    필요해 이번 진단에서는 실서버 API 응답 + 서빙 번들 검사로 대체했다.
+
+────────────────────────────────────────────────────────────────────────────
+8. 이번 작업에서 변경한 파일
+────────────────────────────────────────────────────────────────────────────
+  신규 : scripts/dev_e2e/display_tier_d4_100record_cutoff_diagnose.py  (진단 드라이버)
+  수정 : 없음 (지시대로 코드 수정 없이 진단만 수행)
+
+✅ 작업 완료 - DISPLAY-TIER-D4-100RECORD-CUTOFF-BEHAVIOR-DIAGNOSE (코드 수정 없음 · 순수 진단)

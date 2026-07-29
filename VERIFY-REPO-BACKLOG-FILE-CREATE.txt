@@ -1,0 +1,115 @@
+작업명 : VERIFY-REPO-BACKLOG-FILE-CREATE
+✅ 작업 완료 - verify 저장소 루트에 영구 백로그 BACKLOG.md 신규 작성(미해결 42건 취합) · push 반영 확인(13bd9ac)
+
+작성일 : 2026-07-29
+성격   : 문서 신규 작성 전용 (코드 저장소 무변경 · DB 접속 0회)
+
+════════════════════════════════════════════════════════════════════════════════
+1. 배경
+════════════════════════════════════════════════════════════════════════════════
+Claude(웹)의 memory 저장 한도(30개)가 소진되어, 앞으로 "수정 필요" 항목은 memory 대신
+verify 저장소(migration-validator-verify)의 영구 백로그 파일에 누적 관리한다.
+이번 작업은 그 최초 파일을 만드는 일이다.
+
+════════════════════════════════════════════════════════════════════════════════
+2. 수행 내역
+════════════════════════════════════════════════════════════════════════════════
+[2-1] 취합 대상 확정
+  - 저장소 루트 tracked *.txt = 68건(= push 완료된 완료보고서)
+  - 하위 디렉터리 증적 txt 121건은 본문 근거로만 참조(항목 출처로는 루트 보고서만 인용)
+  - 로컬 untracked 보고서 16건은 아직 push 되지 않아 이번 취합에서 제외
+    (BACKLOG.md 머리말에 그 사실과 "push 후 합류" 방침을 명시)
+
+[2-2] 미해결 항목 추출
+  마커 전수 grep: 이번 범위 밖 / 후속 과제 / 남은 한계 / ⚠️ 추가 작업 필요 / 미수정 / 미해결 / 잔여 과제
+  → 히트 지점의 본문 섹션을 직접 읽어 "할 일" 만 선별. 이미 후속 커밋으로 해소된 것은 제외.
+
+  제외한(=완료 확인된) 대표 사례
+    · 표본 조기중단 run 의 레코드 Excel 0행  → SAMPLING-EARLYSTOP-EXCEL-KIND-MISMATCH-FIX(6087b02)로 해소
+    · 일괄 통계검증 GROUP BY plan 100% 크래시 → STATS-BATCH-GROUPBY-STR-DICT-CRASH-FIX 로 해소
+    · agg_contribution scope 래핑 PG 전용 캐스트·별칭 → AGG-CONTRIBUTION-SCOPE-DIALECT-AND-ALIAS-FIX 로 해소
+    · routes/agg_diff_route.py 의 '__m' 오라클 도달 → AGG-DIFF-ROUTE-UNDERSCORE-M-ALIAS-FIX 로 해소
+    · STATS 타임아웃 문서/주석 동기화 → STATS-TIMEOUT-DOCS-COMMENT-SYNC-FIX 로 해소
+
+[2-3] BACKLOG.md 작성 (요구 구조 준수)
+  # Migration Validator 백로그
+  ## 심각(정합성·안전) — 최우선   9건 (S1~S9)
+  ## 성능                        7건 (P1~P7)
+  ## 기능 미완(설계 완료·구현 대기) 12건 (F1~F12)
+  ## 경미/문서                   14건 (M1~M14)
+  + 부록: 환경 때문에 미완인 실측 6건(코드 결함 아님)
+  합계 42항목 / 425줄
+
+  각 항목 형식: 한 줄 요약(제목) + 발견일 + 근거 보고서 파일명 + 상세·대응 방향
+               + "참고: E:\verify_reports\<파일명>.txt" (총 49줄)
+  정렬        : 각 섹션 안에서 발견일 최신순(2026-07-29 → 07-28 → 07-27)
+  발견일 기준 : 해당 보고서가 이 저장소에 최초 커밋된 날짜(보고서 본문 일자와 일치)
+
+════════════════════════════════════════════════════════════════════════════════
+3. 지시 3번 필수 항목 자체 대조 — 13개 요구 항목 전부 포함(누락 0)
+════════════════════════════════════════════════════════════════════════════════
+ 요구 항목                                              배치   근거 보고서
+ ------------------------------------------------------ ------ ----------------------------------------
+ DIRECT_STREAM 사전 행수 게이트 (A-1)                    S4     LARGE-DATA-SORT-EXPOSURE-DIAGNOSE
+ 문자 PK 조용한 거짓 일치 · 경계 신뢰성 게이트 (B)        S2     PK-RANGE-CHUNK-BOUNDARY-ORDERING-ASSUMPTION
+ pushdown 사전 판정 (C)                                  P1     PK-RANGE-CHUNK-BOUNDARY-ORDERING-ASSUMPTION
+ profile_recollect 샘플링/타임아웃 부재 (D)              P2     LARGE-DATA-SORT-EXPOSURE-DIAGNOSE
+ 별칭 이관 SQL 재이관 크래시 (E)                         S3     PLAIN-JOIN-WRAPPING-NECESSITY + SQLGLOT 감사
+ 같은 테이블 UNION 과소집계 + fan-out 게이트 무력화(P1-1) S1     SQLGLOT-USAGE-CONSISTENCY-AUDIT
+ P2 차단 오탐 4건(count_planner/stats_plan/select_star)  S7     SQLGLOT-USAGE-CONSISTENCY-AUDIT
+ hash_bucket 빌더 직접호출 same-DBMS 가드 우회            S5     HASH-BUCKET-STRATEGY-SORT-AVOIDANCE-VIABILITY
+ CHUNK/표본 preflight 저장상한(20) 미조정                 F2     PER-GROUP-DISPLAY-P3-PARTIAL-RECORDS-FIX
+ 관리컬럼 오버라이드 잔여 4건                             F4     AMBIGUOUS-ADMIN-COLUMN-MANUAL-OVERRIDE-UI-CONNECT
+ 화이트박스 테스트 전환 phase1 이후 잔여                  F5     WHITEBOX-TEST-CONTRACT-CONVERSION-PHASE1
+ hash_bucket 오라클 이식 phase2 이후(구현체 부재)         F1     HASH-BUCKET-ORACLE-PORT-DESIGN-FINALIZE
+
+ ※ 정정 1건 — 지시의 "화이트박스 잔여 103개 파일"
+   보고서상 103 은 회귀 통과 **건수**이지 파일 수가 아니다(PHASE1 §소급 대조표).
+   전환 대상 총량은 파일럿 기준 206파일·809케이스이며 phase1 은 Tier 1 8파일만 전환했다.
+   BACKLOG F5 에 이 사실을 명시하고 "정확한 잔여 파일 수는 Tier 2 착수 시 재확정" 으로 적었다.
+
+════════════════════════════════════════════════════════════════════════════════
+4. 검증 결과
+════════════════════════════════════════════════════════════════════════════════
+ (1) BACKLOG.md 생성 확인 + 항목 수
+     생성 : E:\verify_reports\BACKLOG.md (425줄, UTF-8, 한국어)
+     항목 : 42건 (심각 9 / 성능 7 / 기능 미완 12 / 경미·문서 14) + 부록 표 6행
+     참고 경로 줄 : 49줄
+
+ (2) 인용 보고서 실재·push 여부 전수 확인
+     인용된 보고서 35개 파일명 전부에 대해 `git ls-files --error-unmatch` 실행
+     → 35/35 OK, MISS 0건 (= 인용한 근거가 모두 원격에 실재)
+
+ (3) push 후 원격 반영 확인
+     커밋      : 13bd9ac  docs(backlog): 미해결 항목 영구 백로그 BACKLOG.md 신규 작성
+                 (1 file changed, 425 insertions)
+     push      : f25d0ec..13bd9ac  main -> main
+     ls-remote : 13bd9ac4d3fa0468ada96d76a6fe38c3da8d9f0f  refs/heads/main
+     local HEAD: 13bd9ac4d3fa0468ada96d76a6fe38c3da8d9f0f   → 일치
+     원격 트리 : git ls-tree origin/main → BACKLOG.md 존재 확인
+
+ (4) 필수 항목 누락 대조
+     핵심 키워드 12종 grep → 전부 1건 이상 히트(§3 표 참조), 누락 0
+
+════════════════════════════════════════════════════════════════════════════════
+5. 원칙 준수 확인
+════════════════════════════════════════════════════════════════════════════════
+ · 코드 저장소(C:\projects\migration-validator) 무변경 — 파일 생성·수정·커밋 0건
+ · push 전 fetch + pull --ff-only 수행 → "Already up to date"(behind 0) 확인 후 커밋
+   (stale 인덱스 삭제 사고 재발 방지 원칙 준수)
+ · `git add BACKLOG.md` 로 내 파일만 수술적 스테이징 — 공유 트리의 untracked 16건은 미터치
+ · 완료 항목 미포함 — 이번 파일은 "할 일" 만 다룸(§2-2 제외 목록 참조)
+ · 실 DB 접속 0회 → 비밀번호 노출 검사 대상 없음. 산출물에 호스트·계정·비밀번호 문자열 없음
+
+════════════════════════════════════════════════════════════════════════════════
+6. 남은 일 / 주의
+════════════════════════════════════════════════════════════════════════════════
+ · 로컬 untracked 보고서 16건이 push 되면 BACKLOG.md 에 합류시켜야 한다.
+   그 중 REIMPORT-JOB-PROGRESS-HEARTBEAT-INTERVAL-DIAGNOSE 는 "복합 PK STREAM 이 PAUSED 시
+   전량 소실" 이라는 심각 항목을 담고 있어 push 즉시 심각 섹션에 추가 대상이다.
+ · S9(routes/ 방언 15지점)와 F11(좌측 메뉴)은 보고서 작성 이후 별건 수정이 일부 반영됐다.
+   착수 전 잔존 지점 재집계가 필요하다는 주의를 각 항목에 적어 두었다.
+ · 앞으로 새 미해결 항목이 나오면 memory 가 아니라 BACKLOG.md 에 추가한다.
+
+작업명 : VERIFY-REPO-BACKLOG-FILE-CREATE
+✅ 작업 완료 - verify 저장소 루트에 영구 백로그 BACKLOG.md 신규 작성(미해결 42건 취합) · push 반영 확인(13bd9ac)

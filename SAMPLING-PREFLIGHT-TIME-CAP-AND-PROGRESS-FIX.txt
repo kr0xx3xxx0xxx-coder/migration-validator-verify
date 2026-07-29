@@ -1,0 +1,209 @@
+작업명 : SAMPLING-PREFLIGHT-TIME-CAP-AND-PROGRESS-FIX
+✅ 작업 완료 - SAMPLING-PREFLIGHT-TIME-CAP-AND-PROGRESS-FIX - 표본 preflight 확장 단계에 사전 프로브(재앙적 케이스 진입 차단) + 누적 시간 상한(기본 60초) + anchor 진행 신호(progress_cb)를 넣어, 무신호 67분 노출 구간을 실측 1.9초 보류로 교체했다
+
+실검증 상태: 완료 (오라클 라이브 실 DB — asis 1523 / tobe 1524, NXDNP 픽스처 25만행 · 100만행)
+
+────────────────────────────────────────────────────────────────────────
+1. 요청 요약 / 수정 범위
+────────────────────────────────────────────────────────────────────────
+BACKLOG P3 — `services/exact_diff/sampling_preflight.py` 의 표본 확장 단계(2,000→5,000→10,000)에
+누적 시간 상한·타임아웃·진행 신호가 전혀 없어 최악 17,000 anchor 를 무신호로 소진한다.
+요구 4개: (1) 사전 프로브로 진입 차단 (2) 누적 상한 + 부분 결과 안전 마무리
+(3) progress_cb(anchor_i/anchor_total) 발행 (4) wrapping 소스는 이미 게이트를 건너뛰므로 무관.
+
+- 수정 파일: `services/exact_diff/sampling_preflight.py` **1개** (지시 범위 그대로, 269줄 추가 / 5줄 삭제)
+- 다른 파일 무수정 — 동시 진행 중인 agg_diff_route.py / exact_diff_route.py / stats_execute_service.py 와 겹침 0
+
+────────────────────────────────────────────────────────────────────────
+2. 구조 검토(비판적 검토 의무)
+────────────────────────────────────────────────────────────────────────
+- 긍정적 효과: 판정 로직(§5·§6)을 전혀 건드리지 않고 '시간'만 방어한다. 상한에 걸리면 결과는 항상
+  INCONCLUSIVE 이고, INCONCLUSIVE 는 기존에도 '기존 전체 merge 진행'을 뜻하므로 **최종 불일치 판정·건수는 불변**이다.
+- 핵심 위험(요청서에도 명시): 사전 프로브가 정상 케이스를 INCONCLUSIVE 로 오판하면 표본 조기중단 이득이 사라진다.
+  → 3절에 실측 기반 2중 완화(비용 분해 + 여유 배수)와 그 검증을 적었다.
+- heuristic 증가 여부: 임계·배수를 코드에 흩지 않고 모듈 상수 3개 + env 3개 + settings override 로 단일화했다
+  (`MV_COUNT_STATEMENT_TIMEOUT_MS` / `MV_EXECUTE_STATEMENT_TIMEOUT_MS` 와 같은 기존 네이밍·ms 단위 관례).
+- explainability: 왜 멈췄는지가 응답에 남는다 — `reason`(최상위) + `sampling.time_cap_reason` +
+  `sampling.probe`(단계별 실측 ms·고정비·단가·환산치·차단임계). 무증적 보류를 만들지 않았다.
+- 구조 부채: 새 진행 메커니즘을 만들지 않았다. 페이로드 키를 `pk_range_chunk._emit_prog` 규약
+  (processed_src/available/progress_at)에 맞춰 route 의 기존 콜백(_pcb → rj.update_progress)이 그대로 소비한다.
+
+────────────────────────────────────────────────────────────────────────
+3. 구현 요약
+────────────────────────────────────────────────────────────────────────
+(1) 사전 프로브 `probe_expansion_cost()`
+    - anchor 8개 → 32개 2단계로 시범 실행 후 비용을 **고정비 + anchor 단가**로 분해
+      (1단계만 재면 쿼리 고정비가 단가로 잡혀 정상 소스를 과대추정 → 오판의 주원인).
+    - 환산: `projected = 고정비 × 단계수 + 단가 × Σ(단계 anchor 수=17,000)` (최악 기준)
+    - 차단 조건: `projected > cap × margin(기본 3.0)` — 프로브는 '재앙적 케이스' 만 막고,
+      애매한 구간은 단계를 1회 실제로 돌린 뒤 그 실측으로 막는다(아래 (2)).
+    - 2단계 간격을 x4 로 넓힌 것은 실측 근거다. 오라클 비인덱스 키에서 4→8 구간은 429ms→355ms 로
+      **한계비용이 0 으로 잡혀** 그대로 통과했고, 통과한 2,000 anchor 단계가 73.9초였다.
+      같은 소스의 8→32 구간은 623ms→1,303ms 로 단가(28.3ms/anchor)가 드러난다.
+(2) 누적 시간 상한 `SAMPLING_TIME_CAP_MS`(기본 60,000ms)
+    - 단계 **시작 전**: `경과 + 이번 단계 예상비용 > 상한` 이면 시작하지 않는다.
+      예상비용의 출처가 프로브면 여유 배수로 나눠 쓰고(과대추정 보정), 직전 단계 실측이면 그대로 쓴다
+      (`estimate_basis`: PROBE / MEASURED_STEP).
+    - 단계 **완료 후**: 경과가 상한을 넘었으면 다음 단계로 넘어가지 않는다.
+    - 마무리: 그 시점까지의 표본 통계를 그대로 담아 `status=SAMPLING_INCONCLUSIVE`,
+      `reason=SAMPLING_TIME_CAP_EXCEEDED` 로 반환. **부분 표본으로 조기중단/승인 판정을 만들지 않는다**
+      (판정은 완결된 단계에서만 나오므로 기존 판정 규칙이 그대로 유지된다).
+(3) 진행 신호 `progress_cb`
+    - 프로브 단계마다 1회, 확장 단계 완료마다 1회 발행. 페이로드에 anchor_i/anchor_total 과
+      기존 키(processed_src/available/progress_at)를 함께 싣는다.
+    - 콜백이 dict 위치인자든 **kw 든 모두 수용하고, 콜백 예외는 전부 삼킨다(발행이 판정을 깨지 않는다).
+    - 미전달(None)이면 기존과 완전히 동일(무신호).
+(4) 조정 수단: `MV_SAMPLING_TIME_CAP_MS` / `MV_SAMPLING_PROBE_ANCHORS` / `MV_SAMPLING_PROBE_MARGIN`
+    (0 이면 상한·프로브 해제 = 기존 동작). settings dict 로도 override 가능(time_cap_ms/probe_anchors/probe_margin).
+
+신호 촘촘함의 한계(정직 고지): 한 단계 내부는 batch 쿼리 1회다(§4 '표본 PK별 N+1 금지', 회귀 테스트
+`test_source_target_query_counts_bounded` 가 단계당 1회를 계약으로 고정). 그래서 anchor 단위로 더 잘게
+쪼개려면 그 계약을 깨야 하므로 하지 않았다 — 대신 단계 사이 무신호 구간의 **길이**를 (1)(2)로 제한했다.
+
+────────────────────────────────────────────────────────────────────────
+4. 라이브 실측 (오라클 asis 192.168.0.151:1523 / tobe :1524, 스키마 NXDNP)
+────────────────────────────────────────────────────────────────────────
+접속 확인:
+  [Oracle_asis] 접속 OK 0.24s   NXDNP.MV_CSPK_SRC rows=1000000 / MV_ORA_XDIFF_SRC rows=250000
+  [Oracle_tobe] 접속 OK 0.07s   NXDNP.MV_CSPK_TGT rows=990000  / MV_ORA_XDIFF_TGT rows=249950
+  [PG_Inter_asis/tobe] 접속 실패 21.0s (Connection timed out) — 내부망 PG 는 여전히 미도달(기존 부록 항목)
+
+4-1. anchor 단가 곡선(표본 어댑터를 그대로 호출한 실측)
+  XDIFF/ID(인덱스 있음)      anchors=4  12.3ms / 8  29.1ms / 16  36.8ms / 32  41.4ms
+  XDIFF/C_NUM(인덱스 없음)   anchors=4 539.0ms / 8 449.2ms / 16 800.2ms / 32 1173.8ms
+  → 인덱스 없는 숫자키는 8→32 구간 한계비용 30.2ms/anchor. 17,000 anchor 환산 ≈ 8.6분.
+
+4-2. 대량 non-wrapping 고비용 소스 — Before / After
+  [Before] 상한·프로브 없음(현행 코드 그대로, 같은 소스·같은 설정)
+     실경과 73.86s  status=FULL_COMPARE_APPROVED  ← **1단계(2,000 anchor)만으로 73.9초**
+     (걸침이었다면 5,000·10,000 단계까지 진행 → 17,000 anchor ≈ 8~10분, 그 사이 신호 0)
+  [After] 기본값(cap 60초 · 프로브 8/32)
+     === 대량 non-wrapping 고비용(XDIFF 25만 · 비인덱스 숫자키 C_NUM) ===
+       실경과=1.93s  status=SAMPLING_INCONCLUSIVE  reason=PROBE_PROJECTED_TIME_EXCEEDED
+       time_capped=True time_cap_reason=PROBE_PROJECTED_TIME_EXCEEDED steps_completed=0
+       probe={"exceeded": true, "stages": [8, 32], "stage_ms": [622.98, 1303.19], "fixed_ms": 396.244,
+              "per_anchor_ms": 28.3419, "projected_ms": 483001.39, "cap_ms": 60000,
+              "probe_elapsed_ms": 1926.16, "margin": 3.0, "block_threshold_ms": 180000.0,
+              "estimate_basis": "PROBE"}
+       진행신호 2건: [('SAMPLING_PREFLIGHT_PROBE', 8, 17000, 623.1, ...),
+                     ('SAMPLING_PREFLIGHT_PROBE', 40, 17000, 1926.4, ...)]
+     → 73.9초(1단계만) → **1.93초 보류**. 환산 483초(8.1분)를 사유로 남기고 확장 진입 자체를 안 했다.
+
+4-3. 누적 상한이 확장 도중 발동(프로브 OFF로 상한 경로만 분리 검증, cap 90초)
+     === 누적 상한 중간 발동(XDIFF 25만 · 비인덱스 키, cap 90초 · 프로브 OFF) ===
+       실경과=95.46s  status=SAMPLING_INCONCLUSIVE  reason=SAMPLING_TIME_CAP_EXCEEDED
+       time_capped=True steps_completed=1 anchor_progress={'done': 2000, 'total': 17000}
+       probe={"cap_ms": 90000, "per_anchor_ms": 47.7315, "measured_from_step_anchors": 2000,
+              "measured_step_ms": 95462.93, "estimate_basis": "MEASURED_STEP"}
+       valid=2000 reimport=3 ci=[0.0005, 0.0044] step_n=2000 query(src/tgt)=1/1
+     → 1단계(2,000 anchor) 결과를 **버리지 않고** 담은 채 2단계 진입을 막고 INCONCLUSIVE 로 마무리.
+       (95.46s > 90s 인 이유: 진행 중인 단계는 중간에 죽이지 않는다 — 초과분은 최대 '한 단계'로 제한된다.
+        이 케이스의 다음 단계 예상은 실측 기반 47.7ms × 5,000 = 239초였다.)
+
+4-4. 정상 규모 회귀 — 오판(거짓 INCONCLUSIVE) 없음
+     === 정상 규모(XDIFF 25만 · 인덱스 키 ID) ===
+       실경과=0.28s  status=FULL_COMPARE_APPROVED  reason=DECIDED_BY_CI   ← Before 와 동일 판정
+       probe={"stages":[8,32],"stage_ms":[12.37,15.65],"fixed_ms":11.271,"per_anchor_ms":0.1368,
+              "projected_ms":2359.77,"block_threshold_ms":180000.0,"exceeded":false}
+       valid=2000 reimport=1 ci=[0.0001, 0.0028] step_n=2000 query(src/tgt)=1/1 probe_query=4
+     → 프로브 비용 28ms(전체의 10%), 환산 2.36초 vs 차단임계 180초(76배 여유). 오판 여지 없음.
+
+4-5. progress_cb → /jobs/active 응답 확인(요구 3)
+  route 와 동일한 콜백(_pcb → rj.update_progress)을 붙이고, /jobs/active 라우터 함수를 직접 호출해 받은 DTO:
+    {"source": "single", "id": "PSLIVEVERIFY01", "key": "single:PSLIVEVERIFY01",
+     "status": "PREPARING", "completed": 2000, "last_progress_at": 1785322085.98458,
+     "started_at": 1785322085.7038436, "active": true,
+     "progress_signal": "PROGRESS", "stall_seconds": 0.3, "stall_basis": "last_progress_at"}
+  → `last_progress_at` 이 실제로 갱신되고, 백로그가 지적한 **START_ONLY 가 PROGRESS 로 바뀐다**
+     (stall_basis 도 started_at → last_progress_at). HTTP 대신 라우터 함수를 직접 호출한 이유는
+     개별검증 job 저장소가 in-memory 라 다른 프로세스(HTTP 클라이언트)에서는 이 job 이 보이지 않기 때문이다.
+
+────────────────────────────────────────────────────────────────────────
+5. 결정적(비 DB) harness — 경계 동작 Before/After
+────────────────────────────────────────────────────────────────────────
+고정비/단가를 고정한 stub 으로 baseline(worktree HEAD 6a0a430)과 현재 트리를 같은 스크립트로 비교했다.
+
+  케이스                                 Before(baseline)                     After(현재)
+  A1 승인(희소 불일치)                    35ms  APPROVED                       40ms  APPROVED        (동일)
+  A2 조기중단(불일치 20%)                 29ms  EARLY_STOPPED                  33ms  EARLY_STOPPED   (동일)
+  A3 걸침→최대확장                        258ms INCONCLUSIVE/MAX_SAMPLE...     269ms INCONCLUSIVE/MAX_SAMPLE... (동일)
+  B1 고정비 300ms·단가 0.01ms(정상)       331ms APPROVED                       951ms APPROVED        (판정 동일)
+  C1 단가 30ms/anchor(대량 고비용)        60,024ms APPROVED                    1,221ms INCONCLUSIVE/PROBE_PROJECTED_TIME_EXCEEDED
+  D1 단가 1ms·cap 3s·프로브 OFF          17,122ms INCONCLUSIVE/MAX_SAMPLE...  2,020ms INCONCLUSIVE/SAMPLING_TIME_CAP_EXCEEDED
+  E1 progress_cb 미전달                   31ms  APPROVED                       36ms  APPROVED        (동일)
+  E2 콜백이 예외를 던짐                   (미지원)                              APPROVED — 게이트 무사
+  F1 cap=0·probe=0(상한 해제)             30ms  APPROVED                       34ms  APPROVED        (동일)
+
+- A/B/E/F: 판정·표본통계·단계당 쿼리 수(src 1 / tgt 1) 모두 Before 와 동일 = 무회귀.
+- B1 은 오판 유발 조건을 일부러 만든 케이스다(고정비 300ms). 1단계만 재는 소박한 프로브였다면
+  37.5ms/anchor × 17,000 = 637초로 계산돼 **잘못 차단**됐겠지만, 분해 결과 단가 0.008ms → 환산 1.03초로 통과했다.
+  대신 프로브가 고정비를 2번 더 내므로 총 시간은 331ms → 951ms 로 늘어난다(고정비가 큰 소스에서의 대가).
+- C1/D1 이 이번 수정의 목표 구간이다(각각 49배·8.5배 단축, 사유 명시).
+
+────────────────────────────────────────────────────────────────────────
+6. 회귀 테스트 + baseline 대조
+────────────────────────────────────────────────────────────────────────
+- 직접 관련 파일: `python -m pytest tests/test_sampling_preflight.py tests/test_sampling_gate_wrapping_skip.py -q`
+    → **18 passed** (수정 전후 동일)
+- 서브셋: `pytest tests/ -k "sampling or preflight or exact_diff or exactdiff or reimport or job" -q -p no:randomly`
+    baseline(HEAD 6a0a430, worktree) : 17 failed, 222 passed, 1 skipped, 1 xfailed  (95.42s)
+    현재 트리                        : 17 failed, 221 passed, 1 skipped, 1 xfailed, 1 error (98.35s)
+  실패 목록 차분(before_fails.txt ↔ after_fails.txt): **차이 1건뿐**
+    > ERROR tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_09_job_type_equal
+  귀속 판정: 이 ERROR 는 내 수정과 무관한 **사전 존재 결함**이다. baseline worktree 에서 같은 테스트를
+  단독 실행하면 동일하게 실패한다:
+    RuntimeError: [PROD-DB-WRITE-BLOCKED] ... \scratchpad\baseline\db\migration_validator.db
+  (BACKLOG M4 '운영 SQLite 가드에 막혀 상시 실패하는 테스트군'과 같은 계열이며, 스위트 실행 순서에 따라
+   발현이 갈리는 상태 의존 항목이다. sampling_preflight 를 import 하지도 않는다.)
+
+  실패 테스트 전체 목록(17건 — Before/After 동일, 전부 사전 존재):
+    tests/test_exact_diff_ui_wiring.py::test_button_state_conditions_flag_on_off
+    tests/test_exact_diff_ui_wiring.py::test_hold_labels_visible
+    tests/test_exact_diff_ui_wiring.py::test_key_range_tree_labeled_as_auxiliary
+    tests/test_exact_diff_ui_wiring.py::test_record_grid_and_kind_filter_and_order
+    tests/test_exact_diff_ui_wiring.py::test_run_wiring_calls_exact_diff_api_not_key_range
+    tests/test_group_master_crud.py::TestQueryUploadResultRender::test_preflight_official_flow_elements
+    tests/test_single_execute_preflight_connection.py::test_both_fail_shows_both
+    tests/test_single_execute_preflight_connection.py::test_both_ok_proceeds
+    tests/test_single_execute_preflight_connection.py::test_no_password_leak
+    tests/test_single_execute_preflight_connection.py::test_no_path_skips_preflight
+    tests/test_single_execute_preflight_connection.py::test_non_pg_skips_preflight
+    tests/test_single_execute_preflight_connection.py::test_preflight_wired_into_execute_entries
+    tests/test_single_execute_preflight_connection.py::test_source_fail_blocks_with_message
+    tests/test_single_execute_preflight_connection.py::test_target_fail_blocks_with_message
+    tests/test_single_validation_result_view_persistence.py::test_execute_attaches_job_id_and_saves
+    tests/test_single_validation_server_guards.py::test_single_missing_conn_blocked_preflight
+    tests/test_single_validation_server_guards.py::test_single_pg_normal_flow_not_broken_by_preflight
+  ※ 주의: 현재 작업트리에는 다른 세션의 미커밋 변경(routes/exact_diff_route.py,
+    services/stats_execute_service.py 등)이 함께 있다. 위 17건은 Before/After 양쪽에서 동일하게 실패하므로
+    이번 수정과 무관함이 차분으로 확정된다.
+
+────────────────────────────────────────────────────────────────────────
+7. 남은 일 (이번 범위 밖 — 반드시 후속 필요)
+────────────────────────────────────────────────────────────────────────
+(a) **route 배선 1줄이 남아 있다.** 지시가 `sampling_preflight.py` 1파일로 한정돼 있어
+    `routes/agg_diff_route.py:396 spf.run_sampling_preflight(...)` 호출에 `progress_cb=` 를 넣지 못했다.
+    현재 실 서비스 경로는 진행 신호를 여전히 발행하지 않는다(엔진은 준비 완료, 소비자만 미연결).
+    필요한 변경은 chunk 경로와 같은 형태 1줄이다:
+        progress_cb=lambda p: rj.update_progress(job, processed_src=p.get("processed_src"),
+                                                 available=p.get("available"),
+                                                 progress_at=p.get("progress_at")),
+    이번 실측(4-5)은 바로 이 콜백을 그대로 붙여 `/jobs/active` 응답까지 확인한 것이다.
+(b) 진행 신호 촘촘함은 '단계 단위'가 상한이다(3절 마지막). anchor 단위로 더 잘게 보려면
+    §4 batch 계약(단계당 쿼리 1회)을 바꿔야 하므로 별도 판단 대상이다.
+(c) 상한 초과분은 '진행 중인 한 단계'만큼 발생할 수 있다(4-3에서 90초 상한에 95.46초). 즉시 끊으려면
+    어댑터에 statement_timeout/cancel_token 을 전달하는 별도 작업이 필요하다(BACKLOG M8 과 같은 계열).
+(d) `MV_SAMPLING_PROBE_MARGIN` 기본 3.0 은 이번 오라클 실측 2점(정상 76배 여유 / 위험 2.7배 초과)으로 잡은 값이다.
+    PostgreSQL 라이브(내부망 미도달·Neon 쿼터 소진)로는 확인하지 못했다 — DB 복구 시 재확인 대상.
+
+────────────────────────────────────────────────────────────────────────
+8. 증적 파일
+────────────────────────────────────────────────────────────────────────
+  E:\verify_reports\SAMPLING-PREFLIGHT-TIME-CAP-AND-PROGRESS-FIX\live_preflight_verify.py  (라이브 harness)
+  E:\verify_reports\SAMPLING-PREFLIGHT-TIME-CAP-AND-PROGRESS-FIX\stub_preflight_verify.py  (결정적 harness)
+  E:\verify_reports\SAMPLING-PREFLIGHT-TIME-CAP-AND-PROGRESS-FIX\before_fails.txt / after_fails.txt
+  ※ harness 는 프리셋에서 접속정보를 로드만 하고 출력하지 않는다(비밀번호 노출 0). baseline 대조용으로
+     임시 복사했던 `db_presets_*.json` 은 실행 직후 삭제했고, worktree 에는 .example 파일만 남아 있다.
+
+실검증 상태: 완료 (오라클 라이브 실 DB — asis 1523 / tobe 1524, NXDNP 픽스처 25만행 · 100만행)
+✅ 작업 완료 - SAMPLING-PREFLIGHT-TIME-CAP-AND-PROGRESS-FIX - 표본 preflight 확장 단계에 사전 프로브(재앙적 케이스 진입 차단) + 누적 시간 상한(기본 60초) + anchor 진행 신호(progress_cb)를 넣어, 무신호 67분 노출 구간을 실측 1.9초 보류로 교체했다

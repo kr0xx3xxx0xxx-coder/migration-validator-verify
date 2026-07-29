@@ -1,0 +1,198 @@
+작업명 : ALIAS-DERIVE-ROW-SQLS-WRAPPING-FIX
+✅ 작업 완료 - ALIAS-DERIVE-ROW-SQLS-WRAPPING-FIX - 별칭 사용 단순 1:1 이관의 행 수준 재파생을 검증된 wrapping 산출 형태로 위임해 ORA-00904 크래시 제거(별칭 없는 기존 경로는 산출 SQL 완전 동일)
+
+작성일 : 2026-07-29
+대상 파일 : routes/exact_diff_route.py (지침대로 이 파일만 수정)
+추가 파일 : tests/test_alias_derive_row_sqls_wrapping.py, scripts/dev_e2e/alias_derive_row_sqls_wrapping_verify.py
+
+================================================================================
+1. 문제 (수정 전)
+================================================================================
+routes/exact_diff_route.py 의 _derive_row_sqls 는 parse_result 로 행 수준 원본 SELECT 를
+재조립한다. select_items 의 src_expr 은 원본 별칭을 그대로 달고 오는데(FROM T s → 's.ID'),
+FROM 절에는 from_alias 를 반영하지 않아 존재하지 않는 상관자를 참조했다.
+
+  수정 전 산출:
+    SELECT (s.ID) AS ID, (s.DEPT_CD) AS DEPT_CD, (s.AMT) AS AMT FROM NXDNP.MV_ORA_DEMO_SRC
+                                                                 ^^^ 별칭 s 없음
+
+UI 의 재이관 prepare payload 에는 src_sql/tgt_sql 이 없어 서버가 항상 이 재파생 경로를 타므로,
+별칭을 쓴 단순 1:1 이관 SQL 은 재이관 상세 조회에서 그대로 크래시했다(방언 무관, WHERE 의 별칭
+참조도 동일한 원인). 형제 빌더 4곳(source_count_sql_builder:32, pre_validator._build_from,
+stats_sql_builder:84, column_profile_service:264)은 모두 별칭을 보존하고 있어 이 경로만의 결함.
+
+================================================================================
+2. 수정 내용 (방식 B — 기존 wrapping 처리 경로 재사용)
+================================================================================
+지침대로 FROM 절 alias 반영을 새 로직으로 만들지 않고, '별칭 유무' 단일 판정으로 이미 검증된
+wrapping 산출 형태로 넘겼다. 판단 로직은 한 곳(_derive_row_sqls 내 fa 분기)에만 둔다.
+
+(a) _wrap_as_derived_src(inner_select)  [신규 · 단일 정의]
+    행 수준 원본 SELECT 를 파생 테이블로 감싸는 형태의 단일 출처.
+      SELECT * FROM (\n <원본 SELECT> \n) mv_reimport_src
+    기존 wrapping 경로 _derive_row_sqls_wrapped 의 인라인 문자열을 이 함수 호출로 치환했다
+    (출력 문자열 동일 — 별칭 규약 mv_reimport_src / 밑줄 시작 금지(ORA-00911)도 그대로 승계).
+
+(b) _derive_row_sqls 의 별칭 분기  [신규]
+      fa = pr['from_alias']
+      if fa:  src = _wrap_as_derived_src(f"SELECT {sel} FROM {ft} {alias}" + WHERE...)
+      else :  src = 기존 문자열 그대로(무회귀)
+    별칭이 살아 있는 원본 SELECT 를 파생 테이블로 감싸 최상위를 평범한 SELECT 로 유지하므로,
+    하위 소비처(키 재확인 probe · scope pushdown · chunk 어댑터)가 상관자 별칭을 볼 일이 없다.
+    wrapping 의 성능 페널티는 0 으로 이미 실측됨(PLAIN-JOIN-WRAPPING-EXPLAIN-PLANS).
+
+(c) _alias_as_used(items, from_alias)  [신규 · 안전장치]
+    파서는 from_alias 를 대문자로 정규화('S')하는 반면 src_expr 은 원본 표기('s.ID')를 유지한다.
+    Oracle/PostgreSQL/MSSQL 은 비인용 식별자 대소문자를 구분하지 않아 무해하지만 MySQL 은
+    테이블 별칭이 대소문자를 구분하므로, src_expr 에 실제로 쓰인 접두사 표기를 우선 사용한다
+    (4개 방언 공통 안전값). 접두사를 못 찾으면 파서 값 그대로 폴백. 유사 이름(ss.)은 오탐하지 않음.
+
+  수정 후 산출(별칭 케이스):
+    SELECT * FROM (
+    SELECT (s.ID) AS ID, (s.DEPT_CD) AS DEPT_CD, (s.AMT) AS AMT FROM NXDNP.MV_ORA_DEMO_SRC s
+    ) mv_reimport_src
+
+  ※ 별칭 없는 경로는 문자열 단위로 수정 전과 완전히 동일(테스트로 고정, 아래 4-2 fingerprint 로도 확인).
+  ※ agg_diff_route.py 는 손대지 않았다(병행 작업과 파일 미충돌). 수정 지점이 재파생 함수 자체라
+     세 호출부(_pk_resolve, /exact-diff/run, agg_diff_route:1430) 전부에 동일하게 적용된다.
+
+================================================================================
+3. 실측 — 전/후 대조 (Oracle asis, NXDNP.MV_ORA_DEMO_SRC/TGT 150행)
+================================================================================
+3-1. 실제 서비스 경로(/analyze → /agg-diff/prepare, src_sql/tgt_sql 미전달 = UI 와 동일 payload)
+
+  [수정 전 · 포트 8000(구 모듈 적재 서버), scripts/dev_e2e/plain_join_wrapping_alias_prepare.py]
+    ■ 별칭 사용(s.)   from_alias='S'  src_expr[0]='s.ID'
+      prepare 응답: {"status": "HOLD", "ok": true, "run_id": ""}
+      stop_reason  : AGG_QUERY_FAILED
+      error_message: 재이관 PK 계산 조회 오류: ORA-00904: "S"."AMT": invalid identifier
+    ■ 별칭 없음       from_alias=''   src_expr[0]='ID'
+      prepare 응답: {"status": "READY", "run_id": "PK9839AEFE8075"}
+      key_col=ID  src_keys=150 tgt_keys=150 passed_keys=150 total_reimport_pks=0
+      fingerprint = 0f3c68c3d19d511c2e28ab23b451debf5668acefad2da9b268c3a97c4e7d15e6
+
+  [수정 후 · 별도 포트 8021 로 수정 코드 기동, scripts/dev_e2e/alias_derive_row_sqls_wrapping_verify.py]
+    케이스                        from_alias  status   error_message
+    ----------------------------------------------------------------------------
+    별칭 사용(s.)                  S           READY    -
+    별칭 사용 + WHERE 별칭참조     S           READY    -
+    별칭 없음(회귀 확인)                       READY    -
+
+      별칭 사용(s.)              : src=150 tgt=150 passed=150 reimport=0
+                                   fingerprint = 7f145353d7f998bb79907ef5a3bef8f8d64abd819da07297957911a9e7b00809
+      별칭 사용 + WHERE 별칭참조 : src=150 tgt=150 passed=150 reimport=0
+                                   fingerprint = 037b2de63747c1b02d4f6e9c26cafceda355b9b828ad7d87e82a3794196d7835
+      별칭 없음(회귀 확인)       : src=150 tgt=150 passed=150 reimport=0
+                                   fingerprint = 0f3c68c3d19d511c2e28ab23b451debf5668acefad2da9b268c3a97c4e7d15e6
+                                   ↑ 수정 전 fingerprint 와 완전히 동일 → 무회귀 확인
+
+3-2. 파생 SQL 직접 실행 대조(같은 parse_result 로 baseline worktree(HEAD) 코드 vs 수정 코드,
+     실 Oracle 에 SELECT COUNT(*) FROM (파생SQL) 실행)
+
+  [수정 전 — baseline worktree 934c293]
+    ■ 별칭 사용(s.)              from_alias='S'
+      파생 src_sql: SELECT (s.ID) AS ID, (s.DEPT_CD) AS DEPT_CD, (s.AMT) AS AMT FROM NXDNP.MV_ORA_DEMO_SRC
+      실 오라클 실행: 실패 → ORA-00904: "S"."AMT": invalid identifier
+    ■ 별칭 사용 + WHERE 별칭참조  from_alias='S'
+      파생 src_sql: ... FROM NXDNP.MV_ORA_DEMO_SRC WHERE s.AMT >= 0
+      실 오라클 실행: 실패 → ORA-00904: "S"."AMT": invalid identifier
+    ■ 별칭 없음                   from_alias=''
+      파생 src_sql: SELECT (ID) AS ID, (DEPT_CD) AS DEPT_CD, (AMT) AS AMT FROM NXDNP.MV_ORA_DEMO_SRC
+      실 오라클 실행: OK  count=150
+
+  [수정 후]
+    ■ 별칭 사용(s.)              from_alias='S'
+      파생 src_sql: SELECT * FROM ( SELECT (s.ID) AS ID, (s.DEPT_CD) AS DEPT_CD, (s.AMT) AS AMT
+                    FROM NXDNP.MV_ORA_DEMO_SRC s ) mv_reimport_src
+      실 오라클 실행: OK  count=150
+    ■ 별칭 사용 + WHERE 별칭참조  from_alias='S'
+      파생 src_sql: SELECT * FROM ( ... FROM NXDNP.MV_ORA_DEMO_SRC s WHERE s.AMT >= 0 ) mv_reimport_src
+      실 오라클 실행: OK  count=150
+    ■ 별칭 없음                   from_alias=''
+      파생 src_sql: SELECT (ID) AS ID, (DEPT_CD) AS DEPT_CD, (AMT) AS AMT FROM NXDNP.MV_ORA_DEMO_SRC
+      실 오라클 실행: OK  count=150   (문자열 동일)
+
+  요약:  ORA-00904 → READY / 실행 OK,  별칭 없음은 산출·결과 모두 불변.
+
+3-3. PostgreSQL 미실측(사유)
+  접속 가능한 PG 인스턴스가 없다. 전 PG 프리셋 8건 접속 시도 결과:
+    - Neon 4건(PostgreSQL_asis / NEW_asis / tobe / NEW_tobe) : 서버측 접속 거부(쿼터 소진 상태 유지)
+    - 사내 Inter 4건(Inter_asis / Inter_tobesrc / nxdnp_src / Inter_tobe, 192.168.0.150:5433·5434)
+      : Connection timed out (10060)
+  다만 이번 변경은 방언 분기 없는 문자열 조립이고, 별칭 없는 경로는 산출 SQL 이 완전히 동일하며
+  별칭 경로의 산출 형태(파생 테이블 감싸기)는 PG 에서 이미 상시 사용 중인 wrapping 경로와 동일하다.
+
+================================================================================
+4. 테스트
+================================================================================
+4-1. 신규 자체 테스트 : tests/test_alias_derive_row_sqls_wrapping.py (6건 전부 통과)
+   - 별칭 사용 시 FROM 에 별칭 복원 + 파생 테이블 감싸기 + mv_reimport_src 별칭
+   - 별칭 + WHERE 별칭참조도 감싸진 안쪽에서 해석
+   - 별칭 없음 산출 SQL 문자열 고정(수정 전과 동일)
+   - 별칭 대소문자는 src_expr 실제 표기를 따름 / 유사 이름 오탐 없음 / 미발견 시 파서 값 폴백
+   - JOIN 이관은 종전대로 보류(별칭 분기가 가드를 우회하지 않음)
+   - wrapping 경로와 감싸기 정의 공유 확인
+   근접 스위트 동시 실행: test_exact_diff_engine / test_reimport_unsupported_shape /
+   test_sampling_gate_wrapping_skip 포함 36 passed.
+
+4-2. 관련 서브셋 + baseline 대조
+   명령: python -m pytest tests -k "exact_diff or reimport or wrapping or alias or derive" -q
+   baseline(worktree, HEAD=934c293) : 8 failed, 233 passed, 1 skipped, 2 xfailed  (2회 실행 동일)
+   수정 후                          : 8 failed, 233 passed, 1 skipped, 2 xfailed
+   → 실패 집합 완전 동일 = 신규 회귀 0건.
+
+   실패 테스트 전체 목록(8건 · 전부 baseline 에서도 동일하게 실패하는 사전 존재 실패):
+     tests/test_cte_alias_scope_and_derived_validation.py::test_real_physical_column_missing_still_failed
+     tests/test_cte_alias_scope_and_derived_validation.py::test_real_physical_table_missing_still_failed
+     tests/test_exact_diff_ui_wiring.py::test_button_state_conditions_flag_on_off
+     tests/test_exact_diff_ui_wiring.py::test_run_wiring_calls_exact_diff_api_not_key_range
+     tests/test_exact_diff_ui_wiring.py::test_record_grid_and_kind_filter_and_order
+     tests/test_exact_diff_ui_wiring.py::test_hold_labels_visible
+     tests/test_exact_diff_ui_wiring.py::test_key_range_tree_labeled_as_auxiliary
+     tests/test_single_run_standard_route.py::test_route_cols_alias_selection
+
+   참고: 수정 트리 실행 중 2회에 걸쳐 "ERROR at teardown" 3건이 관측됐으나 매 실행마다 대상
+   테스트가 달라졌고(1회차 test_single_run_standard_route/test_underscore_alias_.../
+   test_validation_job_plan_core, 2회차 test_cte_alias_scope.../test_cte_derived_column_lineage/
+   test_validation_job_plan_core), 3회차에는 0건이었다. 실행 중이던 서버 프로세스의 db 파일 핸들
+   점유에 따른 teardown 정리 실패로, 이번 변경과 무관한 환경 잡음이다(격리 실행 시 재현 없음).
+
+================================================================================
+5. 구조 검토 (CLAUDE.md 비판적 검토 의무)
+================================================================================
+- 긍정적 효과: 별칭을 쓴 가장 흔한 형태의 이관 SQL에서 재이관 상세가 조용히 막히던 문제 해소.
+  수정 지점이 재파생 함수 자체라 세 호출부에 일괄 적용된다.
+- 구조적 문제점: 감싸기 형태 문자열이 두 곳에 흩어질 뻔했으나 _wrap_as_derived_src 단일 정의로
+  통합했다(_derive_row_sqls_wrapped 도 이 함수를 쓰도록 치환 — 출력 동일).
+- heuristic 영향: _alias_as_used 의 정규식 접두사 탐색이 새 heuristic 이다. 다만 파서가 별칭을
+  대문자로 정규화하는 알려진 사실에 대한 좁은 보정이고, 실패 시 파서 값 그대로 폴백이라 위험이 낮다.
+- 잔여 위험: parse_result 의 from_alias 가 비어 있는데 src_expr 에는 별칭이 남는 shape(파서가 CTE
+  평탄화 시 from_alias 를 비우는 경로 등)는 여전히 구 경로를 탄다. 다만 그 shape 는
+  _reimport_source_needs_wrapping 이 True 로 잡아 wrapping 경로로 가므로 실사용상 겹치지 않는다.
+- 운영상 위험: 낮음. 별칭 없는 경로는 산출 SQL 이 바이트 단위로 동일해 롤백 없이도 기존 동작 보존.
+
+================================================================================
+6. 변경 파일 / 커밋
+================================================================================
+커밋 해시 : 9350223 (93502230ffa15981e2ad8bb110ef70866b51b165)
+제목      : fix(reimport): 별칭 사용 단순 1:1 이관의 행 수준 재파생을 wrapping 경로로 위임
+            (ALIAS-DERIVE-ROW-SQLS-WRAPPING-FIX)
+변경 통계 : 3 files changed, 264 insertions(+), 2 deletions(-)
+  routes/exact_diff_route.py                              | 49 ++++++++-
+  scripts/dev_e2e/alias_derive_row_sqls_wrapping_verify.py| 110 +++++++++++++
+  tests/test_alias_derive_row_sqls_wrapping.py            | 107 +++++++++++
+
+git diff 요약(routes/exact_diff_route.py):
+  + _DERIVED_SRC_ALIAS = "mv_reimport_src"
+  + def _alias_as_used(items, from_alias) -> str      (별칭 실제 표기 선택)
+  + def _wrap_as_derived_src(inner_select) -> str     (감싸기 단일 정의)
+  ~ _derive_row_sqls: _tail 추출 + fa(from_alias) 분기 — 별칭 있으면 wrapping 형태, 없으면 기존 문자열
+  ~ _derive_row_sqls_wrapped: 인라인 "SELECT * FROM (...) mv_reimport_src" → _wrap_as_derived_src(inner)
+
+실검증 상태: 완료
+  (Oracle 실측 완료 — 서비스 경로 prepare 전/후 + 파생 SQL 실 오라클 실행 전/후 대조.
+   PostgreSQL 은 접속 가능한 인스턴스 부재로 미실측, 사유는 3-3 참조. 화면 무관 백엔드 수정이라
+   스크린샷 없음 — 응답 원문/실행 로그로 증적.)
+
+작업명 : ALIAS-DERIVE-ROW-SQLS-WRAPPING-FIX
+✅ 작업 완료 - ALIAS-DERIVE-ROW-SQLS-WRAPPING-FIX - 별칭 사용 단순 1:1 이관의 행 수준 재파생을 검증된 wrapping 산출 형태로 위임해 ORA-00904 크래시 제거(별칭 없는 기존 경로는 산출 SQL 완전 동일)

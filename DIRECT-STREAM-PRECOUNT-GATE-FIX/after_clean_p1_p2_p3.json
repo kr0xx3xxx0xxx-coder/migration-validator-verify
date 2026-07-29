@@ -1,0 +1,60 @@
+{
+  "task": "DIRECT-STREAM-PRECOUNT-GATE-FIX",
+  "label": "AFTER-CLEAN",
+  "env": {
+    "phases": [
+      "P0",
+      "P1",
+      "P2",
+      "P3"
+    ],
+    "subset_g": 40000
+  },
+  "phases": {
+    "P0": {
+      "src_count": 1000000,
+      "tgt_count": 990000,
+      "src_subset_count": 40000,
+      "tgt_subset_count": 39600
+    },
+    "P1": {
+      "status": "HOLD",
+      "stop_reason": "HOLD_SIZE_OVER_PHASE1_LIMIT",
+      "error_message": "행 수가 소형 상한(50,000)을 초과해 보류합니다(중·대형은 후속 Phase).",
+      "elapsed_sec": 0.0,
+      "src_scanned_rows": 0,
+      "tgt_scanned_rows": 0,
+      "src_query_count": 0,
+      "tgt_query_count": 0,
+      "counts": {}
+    },
+    "P2": {
+      "status": "HOLD",
+      "stop_reason": "HOLD_SIZE_OVER_PHASE1_LIMIT",
+      "error_message": "행 수가 소형 상한(50,000)을 초과해 보류합니다(중·대형은 후속 Phase).",
+      "elapsed_sec": 8.58,
+      "src_scanned_rows": 50001,
+      "tgt_scanned_rows": 49501,
+      "src_query_count": 2,
+      "tgt_query_count": 2,
+      "counts": {}
+    },
+    "P3": {
+      "status": "DONE",
+      "stop_reason": "",
+      "error_message": "",
+      "elapsed_sec": 6.89,
+      "src_scanned_rows": 40000,
+      "tgt_scanned_rows": 39600,
+      "src_query_count": 3,
+      "tgt_query_count": 2,
+      "counts": {
+        "source_only": 400,
+        "target_only": 0,
+        "value_different": 0,
+        "duplicate_key": 0
+      },
+      "is_matched": false
+    }
+  }
+}

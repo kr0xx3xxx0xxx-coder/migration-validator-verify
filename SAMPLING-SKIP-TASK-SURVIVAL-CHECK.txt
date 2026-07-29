@@ -1,0 +1,83 @@
+작업명 : SAMPLING-SKIP-TASK-SURVIVAL-CHECK
+✅ 작업 완료 - 해당 작업은 살아있음(별도 Claude Code 세션에서 브라우저 검증 실행 중), 재시작 불필요
+
+[결론]
+  닫은 터미널 창과 함께 죽지 않았다. 그 작업을 수행하던 Claude Code 세션(claude.exe PID 29456,
+  07-26 22:30:50 기동)이 다른 WindowsTerminal(PID 32424) 안에 그대로 살아 있고,
+  확인 시점 기준 브라우저 검증 스크립트를 새로 띄워 실행 중이다.
+  → "정상 진행 중, 창을 닫아도 안 끊김". 재시작 금지(중복 실행 위험).
+
+[검증 1] 프로세스 생존 여부
+  1차 조회(23:23:55): 'reimport_sampling_skip|agg_diff_route' 매치 = 자기 자신(조회 쿼리)뿐
+                      → 이 시점만 보면 "죽었다"로 오판하기 쉬움(스크립트 실행 간 공백 구간)
+  2차 조회(23:24:55~): python.exe PID 32948
+                      CMD = C:\Python314\python.exe scripts/dev_e2e/reimport_sampling_skip_browser_verify.py
+                      START = 23:24:55, 23:26:13 재확인 시점에도 실행 중
+  자식 프로세스      : playwright driver node.exe PID 36244 (START 23:24:56) → 실제 브라우저 구동 중
+  조상 추적          : python 32948 → bash.exe 31244/28036/13712(23:24:55, Claude Code 셸 스냅샷)
+                                    → claude.exe PID 29456 (07-26 22:30:50)
+                                    → powershell.exe PID 31932 → WindowsTerminal.exe PID 32424
+  판정: 작업 주체 세션 생존. 사용자가 닫은 창은 이 세션의 창이 아니었다.
+
+[검증 2] 포트 응답 여부
+  Test-NetConnection 127.0.0.1:8000 → TcpTestSucceeded = True
+  LISTEN 소유자 : PID 7760 / python / CMD = C:\Python314\python.exe web_server.py / START 23:07:02
+  판정: 서버 정상 응답. (직전 진단에서 확인됐던 PID 7760 그대로 유지)
+
+[검증 3] 최근 파일 갱신 시각 (scripts/dev_e2e, 확인 시각 23:26:13)
+  23:24:49  reimport_sampling_skip_browser_verify.py   19,118 bytes  ← 재작성(Create 시각도 23:24:49)
+  23:11:42  _reimport_sampling_skip_compare_full.json   1,218 bytes
+  23:11:42  _reimport_sampling_skip_compare.json        1,221 bytes
+  23:11:35  _reimport_sampling_skip_afterfull.json      8,196 bytes
+  23:11:18  _reimport_sampling_skip_after.json          6,424 bytes
+  23:06:44  _reimport_sampling_skip_beforefull.json    88,980 bytes
+  22:58:38  reimport_sampling_skip_wrapping_verify.py  14,920 bytes
+  22:57:06  _reimport_sampling_skip_before.json        83,687 bytes
+  22:53:44  reimport_sampling_skip_compare.py           4,949 bytes
+  주의: 1차 조회(23:23:55) 때 browser_verify.py 는 23:15:16 이었고, 2차(23:25:05) 에 23:24:49 로 바뀌었다.
+        즉 조회 사이에 파일이 새로 쓰이고 곧바로 실행됨 = 진행 중인 증거.
+
+[검증 4] 작업 진척 상태(참고, 읽기 전용 확인)
+  코드 커밋   : e9248c3  2026-07-28 23:12:22
+                perf(reimport): CTE/JOIN wrapping 소스에서 표본 preflight 게이트 건너뛰기
+                (REIMPORT-SAMPLING-PREFLIGHT-SKIP-FOR-WRAPPING-SOURCE-FIX)
+                → 코드 수정·커밋은 창이 닫히기 전에 이미 완료
+  성능 비교   : _reimport_sampling_skip_compare.json (23:11:42) 기준
+                case S : before 5.55s → after 3.26s (1.7x), sampling 유지(FULL_COMPARE_APPROVED)
+                         sampling_source 2,108.61ms → 79.22ms, verdict_identical = true
+                case W : before 442.24s → after 4.56s (97.0x), sampling_ran true → false(게이트 skip)
+                         sampling_source 437,257.36ms → null, verdict_identical = true
+                두 케이스 모두 pk_count 101 동일, pk_only 양쪽 공집합, verdict_diff 없음
+  브라우저검증: 23:24:55 기동 → 23:27:17 정상 완료(확인 중에 끝남). 산출물은 scripts/dev_e2e 가 아니라
+                E:\verify_screenshots_only\REIMPORT-SAMPLING-PREFLIGHT-SKIP-FOR-WRAPPING-SOURCE-FIX\ 에 기록
+                  browser_result_after.json (23:27:17)
+                  after_01_analyze.png(23:25:27) / after_02_count.png / after_03_candidate.png /
+                  after_04_executed.png / after_05_result.png / after_05b_drilldown_ready.png /
+                  after_05d_drilldown_final.png (23:27:15)
+                결과 요약(after): CTE+LEFT JOIN wrapping SQL, 원본 250,000 / 목적 249,950(순 차이 50)
+                  sampling_status = null (표본 preflight 게이트 skip 확인 — 수정 의도대로 동작)
+                  준비 완료 6.1초(패널 trace: PK index 준비 → 저장 0건 → 20건 이상 → 표시), EARLY_STOPPED
+                  불일치 101건(missing_migration 67 / value_mismatch 34 / target_only 0), 표시 등급 D4
+                  '재이관 대상 준비 지연' 경고(임계 300초) 미발생, observation_valid = true
+                  → 앞서 compare.json 의 case W(442.24s → 4.56s)와 정합
+  ※ 1차 조회 시점에 dev_e2e 결과 파일이 안 보였던 것은 실패가 아니라 산출 경로가 스크린샷 저장소이기 때문.
+
+[부수 관찰 — 조치하지 않음(읽기 전용 지시)]
+  장시간 잔류 pytest 프로세스 3건이 확인됨. 이번 작업과 무관하나 자원 점유 중:
+    PID 32744  START 2026-07-27 19:38:01  pytest tests/ -q -p no:cacheprovider          (28시간+ 잔류)
+    PID 16044  START 2026-07-28 13:48:28  pytest tests/ -q -k "candidate or admin ..."  (9시간+ 잔류)
+    PID 33856  START 2026-07-28 18:37:03  pytest tests/ -q --ignore=... -k "ui or ..."  (4시간+ 잔류)
+  자식 node harness 무한 대기로 인한 hang 가능성(기존 확인된 패턴과 동일 형태). 별도 판단 필요.
+  포트 8020 개발 서버(PID 15496, 21:29:02 기동)도 별도로 살아있음.
+
+[수행하지 않은 것]
+  프로세스 종료 없음. 파일 수정 없음. 서버 재시작 없음. 모두 읽기 전용 조회만 수행.
+
+[권고]
+  1. 재실행하지 말 것 — 같은 브라우저 검증을 중복 기동하면 포트 8000 서버 상태와 픽스처가 충돌한다.
+  2. 진행 상황은 살아있는 그 세션(claude.exe PID 29456 / WindowsTerminal PID 32424)의 창에서 확인할 것.
+     확인 종료 시점(23:27:53)에도 세션 생존, 실행 중인 dev_e2e 스크립트는 없음(직전 단계 완료 상태).
+  3. 결과 확인 경로는 두 곳: 성능 비교는 scripts/dev_e2e/_reimport_sampling_skip_*.json,
+     브라우저 검증은 E:\verify_screenshots_only\REIMPORT-SAMPLING-PREFLIGHT-SKIP-FOR-WRAPPING-SOURCE-FIX\.
+
+✅ 작업 완료 - 해당 작업은 살아있음(별도 Claude Code 세션에서 브라우저 검증 실행 중), 재시작 불필요

@@ -1,0 +1,290 @@
+작업명 : SQLGLOT-USAGE-CONSISTENCY-AUDIT-DIAGNOSE
+✅ 작업 완료 - SQL 문자열 취급 지점 전수 감사(그룹A 감지/판단 · 그룹B 재구성/조립) + 오탐·누락 실측
+
+[0] 작업 성격
+  - 순수 진단. 코드 수정 0건. 읽기 전용 스크립트만 스크래치패드에서 실행.
+  - 대상: services/ routes/ generator/ parser/ analyzer/ checker/ validator/ (py 480개)
+  - 병행 작업 파일 충돌 없음(어떤 파일도 편집하지 않음).
+
+────────────────────────────────────────────────────────────────────────────
+[1] 그룹A "감지/판단" 전수 목록 — sqlglot 사용 여부
+────────────────────────────────────────────────────────────────────────────
+
+■ sqlglot 미사용(문자열/정규식) — 감사 대상 8곳
+
+ 파일:라인                                                  방식        리터럴·주석제거  실측
+ ----------------------------------------------------------------------------------------
+ routes/agg_diff_route.py:759                              문자열 in    없음            FN 2 + FP 2
+   _reimport_source_needs_wrapping — " UNION " in raw.upper()
+ services/count_execution_planner.py:46-52,134-135         정규식       없음            FP 4
+   _UNSUPPORTED_PATTERNS (GROUP BY/DISTINCT/UNION/WITH)
+ services/stats_validation_plan_service.py:178-214         정규식       없음            FP 3
+   classify_unsupported_sql_shape (CTE/UNION/WINDOW/AGG/DISTINCT/EXISTS)
+ services/select_star_expansion.py:34-35, 63-68            정규식       없음            FP 2
+   _RE_JOIN / _RE_UNION
+ services/batch_single_core_wrapper.py:530-533             문자열 in    없음            FN 1 + FP 1
+   _is_unsupported_sql_shape (UNION/RECURSIVE)
+ services/analyze_service.py:469-500                       문자열+정규식 **있음**        FP 0
+   _build_sql_warnings ← _strip_sql_literals_and_comments(378-431)
+ services/sql_shape_analyzer.py:165-184                    정규식       **있음**        FP 0
+   _RE_* 전체 ← _normalize(190-194)
+ services/db_object_validation_service.py:68,99,124,180,445 정규식      없음            구조적 안전
+   ※ ParsedMigrationModel(sqlglot)이 주 경로, regex 는 명시적 legacy fallback
+
+■ 대상 외로 판별(“SQL 원문”을 보지 않음 — 오탐 개념 자체가 성립 안 함)
+ services/execution_profile_service.py:95-105  _shape_flags — count_generation_method 코드 문자열
+ services/count_common_service.py:38-54        _classify_fallback_code — 실패사유 문자열
+ services/groupby_execution_safety.py:74-79    _is_finite_domain — candidate_subtype 내부 enum
+
+■ 저위험 잔여(단일 컬럼 식 대상·표시/근거보강용, 문장 전체 판정 아님)
+ services/candidate_explanation_service.py:89-99  _expr_category ("CASE "/"CAST("/"COALESCE(" in u)
+ services/candidate_evidence_contract.py:316      src_expr 에 "CASE"/"DECODE" 포함 시 근거 보강
+
+■ 이미 sqlglot AST 사용(그룹A 모범 사례) — 주요 지점
+ services/validation_sql/source_stats_sql_builder.py:209 _raw_shape        (UNION/DERIVED/PLAIN)
+ services/validation_sql/source_stats_sql_builder.py:185 _original_select_is_aggregated
+ services/sql_cte_utils.py:53,78    extract_cte_names / extract_physical_source_tables
+ services/sql_structure_check.py:87,141   services/readonly_sql_guard.py:56
+ services/sql_dependency_pruning.py:62    services/sql_scope_inject.py:25,80
+ services/analysis/advanced_sql_shape_normalizer.py:26    .../sql_lineage_extractor.py:28
+ services/metadata_collection_safety.py:36  services/metadata_column_lineage.py:48
+ services/exhaustive_candidates/result_set_evidence.py:15  services/count_sql_builder.py:192
+ services/diagnosis/{key_evidence,match_key_evidence,profiler,row_diff}.py
+ services/diagnosis/strategies/{key_range,hash_bucket,group_scope}.py
+ parser/sqlglot_parser.py · parser/sql_parser.py · routes/diagnosis_route.py:1497
+
+────────────────────────────────────────────────────────────────────────────
+[2] 그룹A 미사용 지점 오탐/누락 실측 (실행 재현 — 전부 재현됨)
+────────────────────────────────────────────────────────────────────────────
+
+■ 2-1. _reimport_source_needs_wrapping (agg_diff_route.py:759)  ★최우선
+
+  케이스                                     기대   문자열판정  sqlglot AST 판정
+  --------------------------------------------------------------------------
+  A1 동일테이블 UNION ALL / 줄바꿈 구분        True   False ✗    True  ✓
+  A2 동일테이블 UNION / 줄바꿈 구분            True   False ✗    True  ✓
+  A3 동일테이블 UNION / 한 줄(공백 구분)       True   True  ✓    True  ✓
+  A4 리터럴 안 UNION (' UNION ')              False  True  ✗    False ✓
+  A5 주석 안 UNION (-- UNION 처리 예정)        False  True  ✗    False ✓
+  A6 컬럼명 credit_union_cd                   False  False ✓    False ✓
+  A7 단순 1:1                                 False  False ✓    False ✓
+                                            문자열 3/7 정답, AST 7/7 정답
+
+  ▶ 누락(FN)의 근본 원인 2단 결합 — 실측으로 확인
+    ① " UNION " 은 **양쪽 공백**을 요구한다. 실무 표준 포맷인
+       "...WHERE GB='A'\nUNION ALL\nSELECT..." 은 앞뒤가 줄바꿈이라 **매칭 안 됨**.
+    ② 앞단 가드 len(phys)>=2 도 못 잡는다. extract_physical_source_tables 가 **대문자 dedup**
+       하므로 동일 테이블 UNION 은 ['T_SRC'] 1개 → 통과.
+    실측: extract_cte_names=set() / extract_physical_source_tables=['T_SRC']
+          ' UNION ' in raw.upper() = False → _reimport_source_needs_wrapping = False
+
+  ▶ FN 이 실제로 만드는 오답(조용한 잘못된 결과 — 크래시 아님)
+    실 파서(SqlglotParser) 산출: union_type='UNION_ALL', union_branches 2개,
+      단 최상위 where_clause 는 **첫 브랜치만** = "GB = 'A'"
+    → _pk_resolve 가 _derive_row_sqls 로 분기, 생성 결과:
+        src = SELECT (C_NUM) AS C_NUM, (C_NM) AS C_NM FROM T_SRC WHERE GB = 'A'
+        err = 없음   ← HOLD 도 아니고 오류도 아님
+      두 번째 브랜치 GB='B' 포함 여부 = False  (전량 소실)
+    → 재이관 상세가 원본 결과셋의 절반만 보고 "재이관 대상"을 산출한다. 정직한 HOLD 가 아니라
+      **정상처럼 보이는 과소 집계**라 오늘 발견한 '문자 PK 오판정'과 동일 계열이다.
+
+  ▶ 같은 FN 이 부수적으로 무력화하는 안전장치 2개
+    agg_diff_route.py:620  _native_pk_fanout_present (fan-out 유일성 게이트)
+      — 판정이 False 라 검사 자체를 건너뛴다. 하필 **동일 테이블 UNION ALL 은 PK 중복을
+        만들 수 있는 대표 shape** 이므로, 게이트가 가장 필요한 곳에서 꺼진다.
+    agg_diff_route.py:368  표본 preflight skip — 성능만(무해).
+
+  ▶ 오탐(FP, A4/A5)의 영향: wrapping 경로로 감. wrapping 은 검증된 안전 경로라 결과는 정확하나,
+    _derive_row_sqls_wrapped 가 _extract_aliased_inner_select 실패 시 HOLD 를 반환하므로
+    **정상 동작하던 단순 SQL 이 HOLD 로 바뀔 수 있다**(리터럴에 ' UNION ' 이 있다는 이유만으로).
+
+■ 2-2. count_execution_planner (services/count_execution_planner.py:134)
+  B1 리터럴 안 UNION      → UNSUPPORTED  *** 오탐 ***
+  B2 주석 안 GROUP BY     → UNSUPPORTED  *** 오탐 ***
+  B3 블록주석 안 DISTINCT → UNSUPPORTED  *** 오탐 ***
+  B4 컬럼명 credit_union  → NORMAL_COUNT  정상(\b 경계 덕)
+  B5 리터럴 안 'WITH x AS(' → UNSUPPORTED *** 오탐 ***
+  B6 정상 단순            → NORMAL_COUNT  정상
+  ▶ 영향: count_precheck_service.py:598 "UNSUPPORTED SQL이면 COUNT 실행 차단".
+    routes/batch_route.py:1361 은 업로드 시점 정적 판정을 row 에 저장 → 오탐이 영속된다.
+
+■ 2-3. stats_validation_plan_service.classify_unsupported_sql_shape (:178-214)
+  F1 리터럴 안 UNION      → UNSUPPORTED_UNION_SHAPE     *** 오탐 ***
+  F2 주석 안 OVER(        → UNSUPPORTED_WINDOW_FUNCTION *** 오탐 ***
+  F3 리터럴 안 'EXISTS('  → LIMITED_MANUAL_REVIEW       *** 오탐 ***
+  F4 주석 안 GROUP BY     → None(지원)   ※ 우연히 통과 — GROUP BY 만 select_block(첫 SELECT 이후)
+                                            를 보므로 SELECT 앞 주석은 제외됐을 뿐, 설계된 방어 아님
+  F5 컬럼명 handover_cd   → None(지원)   정상
+  F6 정상                 → None(지원)   정상
+  ▶ 영향: :774-798 에서 plan_status="UNSUPPORTED" 조기 반환(하드 게이트).
+    통계검증 계획 자체가 생성되지 않는다.
+
+■ 2-4. select_star_expansion.detect_simple_select_star (:63-68)
+  C1 리터럴 안 JOIN ("WHERE memo = 'JOIN'")  → detected=True simple=False *** 오탐 ***
+  C2 주석 안 UNION ("-- UNION 예정")          → detected=True simple=False *** 오탐 ***
+  C3 컬럼명 union_cd                          → simple=True  정상
+  C4 정상 단순                                → simple=True  정상
+  ▶ 영향: single_validation_analyze_service.py:302 _blocked_analyze_response
+    (error_code=SELECT_STAR_OUT_OF_SCOPE) → **analyze 전체가 차단**된다.
+
+■ 2-5. batch_single_core_wrapper._is_unsupported_sql_shape (:530-533)
+  D1 줄바꿈 UNION → 기대 True / 실제 False  *** 누락 ***
+  D2 리터럴 안 UNION → 기대 False / 실제 True *** 오탐 ***
+  D3 UNION ALL / D4 정상 → 정답
+  ▶ 영향: pg_stats prefetch 대상 제외 판정뿐 — 판정/건수 불변. 성능만.
+
+■ 2-6. 리터럴·주석 제거 전처리가 있는 2곳은 오탐 0 (대조군)
+  analyze_service._build_sql_warnings : E1(리터럴 UNION) warnings=[] / E2(주석 UNION) warnings=[]
+  sql_shape_analyzer.analyze_sql_shape: E1·E2 모두 SIMPLE_INSERT_SELECT, detected_features=[]
+  ▶ 즉 이 코드베이스는 "문자열 검사라도 전처리하면 안전하다"는 것을 이미 자체 증명하고 있다.
+    문제는 그 전처리가 **8곳 중 2곳에만** 적용돼 있다는 일관성 결여다.
+
+────────────────────────────────────────────────────────────────────────────
+[3] 그룹B "재구성/조립" 전수 목록 + 감싸기 대체 가능 여부
+────────────────────────────────────────────────────────────────────────────
+
+■ 3-1. 문자열 조립 — 결함 있음(오늘 발견 계열)
+
+ routes/exact_diff_route.py:78-87  _derive_row_sqls               ★ from_alias 누락
+   실측 재현:
+     입력 parse_result: from_table_qualified='SC.T_SRC', from_alias='x',
+                        select_items=[{src_expr:'x.C_NUM'},{src_expr:'x.C_NM'}], where='x.C_NUM > 0'
+     산출 src = SELECT (x.C_NUM) AS C_NUM, (x.C_NM) AS C_NM FROM SC.T_SRC WHERE x.C_NUM > 0
+     → FROM 에 별칭 x 가 없는데 SELECT/WHERE 는 x. 를 참조
+       PG:     missing FROM-clause entry for table "x"
+       Oracle: ORA-00904
+   ▶ 형제 빌더 대조 — **오직 이 함수만** 별칭을 떨어뜨린다:
+     services/validation_sql/source_count_sql_builder.py:32
+        from_parts = [f'{from_table} {from_alias}' if from_alias else from_table]   ← 보존
+     checker/pre_validator.py:_build_from
+        tbl_str = tbl + (f" {alias}" if alias else "")                              ← 보존
+     services/stats_sql_builder.py:224,252 / services/column_profile_service.py:264,290 ← 보존
+   ▶ 감싸기 대체: **가능**. 동일 파일 :90-131 에 검증된 _derive_row_sqls_wrapped 가 이미 있다.
+
+ services/select_star_expansion.py:109-114  build_expanded_sql
+   _RE_STAR_SELECT.sub / _RE_INSERT_HEAD.sub 로 원문 SQL 을 정규식 치환해 재작성.
+   ▶ 감싸기 대체: **불가**. "SELECT * 를 명시 컬럼으로 바꾸는 것" 자체가 목적이라 감싸도 * 가 남는다.
+     다만 감지(3-1 상단 2-4)와 치환 모두 정규식이라, 감지 오탐 시 조용히 잘못 재작성될 여지가 있다
+     (현재는 감지 실패가 HOLD 로 가서 잘못된 SQL 이 나가진 않음).
+
+■ 3-2. 감싸기 방식 — 안전(구조적으로 별칭/절 손실 불가)
+ routes/exact_diff_route.py:129        _derive_row_sqls_wrapped  (mv_reimport_src)
+ routes/exact_diff_route.py:223-226    scope pushdown            (mv_scope_src/tgt)
+ services/exact_diff/agg_contribution.py:891-893                 (mv_agg_scope_src/tgt)
+ services/validation_sql/source_stats_sql_builder.py:262         (src_stats)
+ services/groupby_explain_estimator.py:75                        (MV_GROUP_EST_SUB)
+ services/count_diagnostic_sql_service.py:131,304                (subquery_alias())
+ routes/count_gate_route.py:143,149,170,238                      (SUBQUERY_ALIAS)
+ services/exact_diff/dialects/{postgresql.py:102-166, oracle.py:131-197}
+ routes/agg_diff_route.py:542                                    (MATCHKEY_WRAP_ALIAS)
+
+■ 3-3. 재구성이 본질적으로 필요 — 감싸기로 대체 불가(정상)
+ generator/sql_generator.py:212-340        JOIN/UNION 원본측 집계 CTE 생성
+ services/stats_sql_builder.py:224-258     4단계 통계검증(GROUP BY/SUM 새 집계 SQL)  ← 사용자 지적대로 본질적
+ services/count_sql_builder.py:100,247-281 COUNT SQL
+ services/validation_sql/source_count_sql_builder.py:21-43
+ services/column_profile_service.py:233-372  profile SQL
+ services/date_bucket_evidence.py:333-393    날짜버킷 MIN/MAX 근거
+ services/profile_recollect_service.py:363   단일테이블 distinct(별칭 개념 없음)
+ checker/pre_validator.py:158-200            WHERE 1=0 dry-run
+ ▶ 이 그룹은 전부 from_alias/join alias 를 보존하고 있어 오늘의 별칭 버그와 동형 결함 없음(확인 완료).
+
+■ 3-4. AST 기반 재구성(문자열 조립 아님 — 모범)
+ services/sql_scope_inject.py:25-81      sqlglot AST + bind parameter, 문자열 치환 없음(모듈 주석 명시)
+ services/sql_dependency_pruning.py:62   AST projection pruning
+ services/analysis/advanced_sql_shape_normalizer.py:26  인라인뷰 평탄화, 불확실하면 원본 반환
+ services/diagnosis/strategies/hash_bucket.py:41  base 통계 SQL 에 버킷/해시 컬럼을 AST 로 주입
+
+────────────────────────────────────────────────────────────────────────────
+[4] 기존 sqlglot 안전 사용 패턴 — 무엇이 이들을 안전하게 만드는가
+────────────────────────────────────────────────────────────────────────────
+ 공통 4요소(확인 완료):
+   ① import 를 함수 안에서 try 로 감쌈 — sqlglot 미설치 환경 방어
+      (parser/sqlglot_parser.py:41 is_available() → model_config 가 LegacyParser 로 폴백하므로
+       sqlglot 은 **선택적 의존**이다. AST 전환 시 폴백은 선택이 아니라 필수.)
+   ② sqlglot.parse_one(..., error_level=sqlglot.ErrorLevel.IGNORE) — 부분 파싱 허용
+   ③ 파싱 실패 시 폴백 3형태 중 하나를 **명시적으로** 선택
+      - 정규식 폴백      : sql_cte_utils.py:69-74 ("sqlglot 우선, 실패 시 정규식 폴백")
+      - 판정 보류 ''     : source_stats_sql_builder._raw_shape:226-229 (호출측이 기존 경로 유지)
+      - 보수적 무변경    : advanced_sql_shape_normalizer ("조금이라도 불확실하면 원본 반환")
+      - 과소판정 방지    : sql_change_detection.py:17 (AST 비교 불가 → 텍스트 비교로 폴백)
+   ④ 원문 무변형(읽기 전용 분석)임을 모듈 주석에 명시
+
+ ▶ 그룹A 미사용 지점에 그대로 적용 가능한가 → **가능. 특히 2-1 은 새 코드조차 필요 없다.**
+   source_stats_sql_builder._raw_shape 가 이미 정확히 같은 판정을 하고 있고, 실측 5/5 정답이다:
+      A1 동일테이블 UNION ALL(줄바꿈) → 'UNION'   (문자열 판정은 False 였음)
+      A2 동일테이블 UNION(줄바꿈)     → 'UNION'   (문자열 판정은 False 였음)
+      A4 리터럴 안 UNION              → 'PLAIN'   (문자열 판정은 True 였음)
+      A5 주석 안 UNION                → 'PLAIN'   (문자열 판정은 True 였음)
+      A7 단순 1:1                     → 'PLAIN'
+      파싱 불가 입력                  → ''  (안전 폴백 정상 동작)
+   또 _reimport_source_needs_wrapping 은 이미 try/except→False 폴백 구조를 갖고 있고 같은 함수에서
+   sqlglot 기반 sql_cte_utils 를 호출 중이라, UNION 검사 한 줄만 AST 로 교체하면 된다.
+   (단, 폴백 방향이 False=단순파생 이라 '파싱 실패 시 조용히 위험한 경로'가 된다 — 교체 시
+    폴백을 True(감싸기=안전측) 로 뒤집을지는 별도 판단 필요. 이번엔 진단만.)
+
+────────────────────────────────────────────────────────────────────────────
+[5] 우선순위 분류
+────────────────────────────────────────────────────────────────────────────
+ P1 — 정합성 위험(조용한 오답/크래시). 오늘 발견한 문자 PK 오판정·별칭 크래시와 동일 계열
+   P1-1 agg_diff_route.py:759  UNION 누락(FN)
+        → 동일테이블 UNION 이 wrapping 판정을 못 받아 2번째 브랜치 전량 소실(HOLD 아님, 과소 집계)
+          + fan-out 유일성 게이트(:620)가 가장 필요한 shape 에서 꺼짐. **조용한 오답**.
+   P1-2 exact_diff_route.py:78-87  _derive_row_sqls from_alias 누락
+        → PG/Oracle 실행 크래시. 형제 빌더 4곳은 모두 보존 중이라 이 함수만의 결함.
+
+ P2 — 차단 오탐(정상 SQL 을 막음). 오답은 아니나 기능이 죽고, 사유가 사실과 다름
+   P2-1 count_execution_planner.py:134     → COUNT 실행 차단(+ 업로드 시 판정 영속)
+   P2-2 stats_validation_plan_service.py:178-214 → 통계검증 plan UNSUPPORTED 조기반환
+   P2-3 select_star_expansion.py:63-68     → analyze 전체 차단(SELECT_STAR_OUT_OF_SCOPE)
+   P2-4 agg_diff_route.py:759 의 FP 측     → 안전한 wrapping 으로 가나, HOLD 로 전환될 여지
+
+ P3 — 성능/스타일만
+   P3-1 batch_single_core_wrapper.py:530-533  prefetch 대상 판정(판정·건수 불변)
+   P3-2 candidate_explanation_service.py:89-99 / candidate_evidence_contract.py:316
+        단일 컬럼 식 분류(표시·근거보강용)
+   P3-3 select_star_expansion.build_expanded_sql 정규식 치환(현재 잘못된 SQL 유출은 없음)
+
+────────────────────────────────────────────────────────────────────────────
+[6] 사용자 제안 원칙에 대한 비판적 검토
+────────────────────────────────────────────────────────────────────────────
+ ▶ 원칙 자체는 실측으로 뒷받침됨: 동일 7케이스에서 문자열 3/7 vs AST 7/7.
+ ▶ 다만 "감지는 전부 sqlglot 으로" 를 일괄 적용하는 데는 3가지 유의점이 있다.
+   ① sqlglot 은 **선택적 의존**이다(is_available→LegacyParser 폴백). AST 전환 지점마다
+      폴백을 반드시 함께 설계해야 하며, 폴백 방향이 안전측인지 지점별로 다르다.
+      특히 P1-1 은 현재 폴백이 False(=위험한 단순파생 경로)라 전환 시 방향 재검토 필요.
+   ② 전면 전환은 파싱 비용을 늘린다. batch_route.py:1361 은 업로드 row 마다 호출되므로
+      AST 전환 시 파싱 횟수가 row 수만큼 늘어난다(현재는 정규식). 캐시 또는 기존 parse_result
+      재사용 여부를 함께 봐야 한다.
+   ③ 더 저렴한 중간 대안이 존재한다 — analyze_service._strip_sql_literals_and_comments(378-431)를
+      P2 계열(count_execution_planner / stats_validation_plan_service / select_star_expansion)에
+      적용하면 오탐 9건 중 상당수가 파싱 없이 사라진다. 실측상 이 전처리를 가진 2곳은 오탐 0.
+      P1(정합성)은 AST 로, P2(차단 오탐)는 우선 전처리 재사용으로 — 라는 2단 대응이
+      구조 변경 폭 대비 효과가 크다.
+ ▶ heuristic/explainability 영향: 이번 감사는 하드코딩을 늘리지 않는다. 오히려 UNION/CTE 판정이
+   현재 5곳에 서로 다른 규칙으로 흩어져 있다(문자열 2 / 정규식 3). 단일 출처(_raw_shape 계열)로
+   모으면 규칙 중복이 줄고 판정 근거도 한 곳에서 설명 가능해진다.
+
+────────────────────────────────────────────────────────────────────────────
+[7] 검증 항목 대조
+────────────────────────────────────────────────────────────────────────────
+ 요구사항                                          결과
+ -----------------------------------------------------------------------
+ 그룹A/B 전수 목록(파일:라인, sqlglot 사용 여부)     [1]/[3] — A 8곳+대상외 3+저위험 2, B 4분류
+ sqlglot 미사용 그룹A 오탐/누락 실측                [2] — 5개 지점 재현, FN 3 / FP 12
+ 그룹B 감싸기 대체 가능 여부                        [3] — 대체가능 1(_derive_row_sqls),
+                                                    불가 1(build_expanded_sql), 본질필요 8, 안전 9
+ 우선순위(정합성 vs 성능/스타일)                    [5] — P1 2건 / P2 4건 / P3 3건
+ 기존 sqlglot 안전 사용 패턴 확인                   [4] — 4요소 + 폴백 4형태, _raw_shape 5/5 재사용가능
+
+ 실행한 검증 스크립트(스크래치패드, 읽기 전용):
+   sqlglot_audit_repro.py — 그룹A 5지점 오탐/누락 + 그룹B 별칭버그 재현
+   union_fn_e2e.py        — 동일테이블 UNION FN 의 파서/파생 SQL 실측
+   (+ _raw_shape 드롭인 검증, classify_unsupported_sql_shape 오탐 검증 인라인 실행)
+ 코드 변경 0건 / 커밋 0건.
+
+⚠️ 남은 판단(사용자 결정 필요): P1-1 을 AST 로 교체할 때 파싱 실패 시 폴백을
+   False(현행·단순파생) 로 둘지 True(감싸기·안전측) 로 뒤집을지. 안전측 전환은 파싱 실패
+   케이스에서 기존 정상 동작을 HOLD 로 바꿀 수 있어 무회귀가 아니다.
+
+✅ 작업 완료 - SQL 문자열 취급 지점 전수 감사(그룹A 감지/판단 · 그룹B 재구성/조립) + 오탐·누락 실측

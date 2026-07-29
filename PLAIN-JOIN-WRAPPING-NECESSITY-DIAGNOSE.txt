@@ -1,0 +1,262 @@
+작업명 : PLAIN-JOIN-WRAPPING-NECESSITY-DIAGNOSE
+⚠️ 추가 작업 필요 - 순수 JOIN wrapping 은 완화 불필요로 확정(비용 0), 단 진단 중 별도 결함 1건 발견
+
+[결론 먼저]
+① 순수 JOIN 을 감싸는 것은 성능상 무해하다 — 감싸도 predicate pushdown 이 100% 성립하고,
+   옵티마이저 추정 Cost 가 감싼 것/안 감싼 것이 완전히 동일하다(실측 전 케이스).
+   따라서 "보수적 규칙이라 완화하면 빨라진다"는 전제는 거짓이다. 완화 이득 = 0.
+② 규칙이 CTE/JOIN/UNION 을 한 묶음으로 둔 이유는 "셋 다 위험해서"가 아니라
+   "단순 1:1 재파생(_derive_row_sqls)이 충실하지 못한 형태 전부"를 한 우회로로 보냈기 때문이다.
+③ 과거 "JOIN 파서 크래시" 전례는 최상위 JOIN 이 아니라 CTE 안에 숨은 JOIN 에서 났다.
+   최상위 JOIN 은 크래시한 적이 없고 정직한 HOLD 였다(실측 확인).
+④ 오늘 확정된 CTE+윈도우함수의 비용은 wrapping 탓이 아니다 — 감싸기를 제거해도(DIRECT 주입)
+   실행계획·Cost·소요가 그대로다. 원인은 윈도우함수 자체다(정정 필요 사항).
+⑤ 부수 발견(신규·실 서비스 재현): 별칭을 쓴 '단순 1:1' 이관 SQL 은 wrapping 대상에서 빠져
+   재이관 상세가 ORA-00904 로 HOLD 된다. 이 케이스는 오히려 wrapping 이 필요하다.
+
+------------------------------------------------------------------------------
+1) 판정 조건과 유래 (지시 1)
+------------------------------------------------------------------------------
+routes/agg_diff_route.py:739-761 _reimport_source_needs_wrapping — 조건은 3개뿐이다.
+  raw = req.query_full(원본 이관 SQL). 비어 있으면 False(기존 _derive_row_sqls 의 joins 가드에 위임).
+  ① ctes = extract_cte_names(raw, dialect)      → 비어 있지 않으면 True   (CTE/WITH)
+  ② phys = extract_physical_source_tables(...)  → len(phys) >= 2 면 True  (JOIN/다중소스)
+  ③ raw.upper() 에 " UNION " 포함 또는 " UNION" 으로 끝나면 True          (UNION)
+  ④ 그 외 False. 추출 예외 발생 시에도 False(기존 동작 유지).
+  ※ JOIN 을 joins 파싱으로 보지 않고 '물리 원본 테이블 개수'로 본다. 윈도우함수(OVER)는 검사하지 않는다.
+
+git 이력(3개 커밋):
+  04a1ca8 (2026-07-04, Phase 1-B)  _derive_row_sqls 에 joins 가드 최초 도입.
+        커밋 메시지: "…chunk key 계약으로 단일 안정 키 확정, JOIN 은 HOLD".
+        문구도 "JOIN 이관은 Phase 1-B 미지원입니다(1:1 단일 테이블만)" — 설계 범위 제약이지 크래시 대응이 아니다.
+  fdd6ee9 (2026-07-25) _reimport_source_needs_wrapping 최초 도입. 단 이때는 '차단(HOLD)' 판정기.
+        커밋 메시지가 근본원인을 명시한다 — "파서가 CTE 내부 JOIN 을 최상위 joins 로 노출하지 않고(joins=[])
+        from_table 을 CTE 내부 베이스 테이블로 평탄화하며 외부 WHERE(윈도우 별칭 'rn>=1')를 그대로 복사
+        → _derive_row_sqls 가 'SELECT cols FROM base WHERE rn>=1' 를 만들어 ORA-00904: "RN" invalid identifier
+        → STALE_PLAN. 기존 joins 가드는 CTE 안에 숨은 JOIN 을 놓쳤다."
+  ad185bc (2026-07-25) 같은 판정기를 '차단' 대신 'wrapping 우회'로 전환(현재 코드).
+
+→ 지시 1 답: 세션 01~02 기록의 "JOIN 파서 크래시" 전례는 이 규칙의 근거가 맞다. 다만 그 전례의 실체는
+  'JOIN 이 위험하다'가 아니라 'CTE 평탄화로 joins 가드가 무력화됐다'이다. JOIN 이 규칙에 들어간 것은
+  크래시 전례 때문이 아니라, 04a1ca8 부터 있던 '1:1 단일 테이블만 재파생 가능'이라는 설계 제약 때문이다.
+
+------------------------------------------------------------------------------
+2) predicate pushdown 실측 — 오라클 EXPLAIN PLAN (지시 2)
+------------------------------------------------------------------------------
+환경: 실 오라클 asis 192.168.0.151:1523 / NXDNP. 원본 NXDNP.MV_ORA_XDIFF_SRC 250,000행(PK ID 고유 인덱스),
+      조인 상대 MV_ORA_TEST_SRC 300행(PK ORDER_ID) · MV_ORA_DEPT_MASTER 6행(PK DEPT_CD). 읽기 전용.
+스크립트: scripts/dev_e2e/plain_join_wrapping_explain.py (계획 전문 = 같은 폴더 _PLAIN-JOIN-WRAPPING-EXPLAIN-PLANS.txt)
+
+실제 chunk 엔진이 만드는 SQL 형태를 그대로 재현해 3변형 비교:
+  W_FULL = Q0( 재이관 wrapping( 원본SQL ) )  ← 현재 운영 경로(2중 인라인뷰)
+           SELECT Q0."ID" AS "K0", TO_CHAR(...) FROM (SELECT * FROM ( 원본SQL ) mv_reimport_src) Q0
+             WHERE Q0."ID" >= :1 AND Q0."ID" < :2 ORDER BY Q0."ID"     (oracle.py:515 형태)
+  W_ONE  = Q0( 원본SQL )                     ← chunk 어댑터만 감싼 형태
+  DIRECT = 원본SQL 내부 WHERE 에 술어 직접 주입 ← '파싱해서 직접 삽입'하는 가상 경로
+
+판정 기준: 250,000행 원본 접근이 PK INDEX RANGE SCAN 이고 그 access 술어가 :1/:2 를 참조하면 pushdown 성립.
+
+  케이스                                  W_FULL   W_ONE   DIRECT   최상위 추정행
+  S0 단순 1:1 (비-wrapping 대조군)          성공     성공     성공      625
+  J1 LEFT · 함수조인 MOD(x.ID,300)+1        성공     성공     성공      625
+  J2 INNER · 함수조인                       성공     성공     성공      625
+  J3 LEFT · 단순 동등조인                    성공     성공     성공      625
+  J4 INNER · 단순 동등조인                   성공     성공     성공      300
+  J5 LEFT · 문자 코드마스터 조인              성공     성공     성공      625
+  J6 2단 JOIN(LEFT+LEFT)                  성공     성공     성공      625
+  C1 CTE(윈도우함수 없음) + JOIN             성공     성공     성공      625
+  C2 CTE + 윈도우함수 + JOIN (대조군)        실패     실패     실패      250K
+  U1 UNION ALL 2분기                       성공     성공     (주1)     626
+  (주1) U1 DIRECT 는 분기마다 술어가 들어가 바인드가 4개 — 첫 스크립트에서 바인드 수 불일치로 EXPLAIN 실패.
+        반복 측정 스크립트에서 :1~:4 로 고쳐 정상 측정했다(3절 표 참조).
+
+핵심: 순수 JOIN 은 INNER/LEFT, 함수조인/단순동등조인/문자조인/2단조인 어느 형태에서도, 그리고 2중으로
+      감싼 현행 W_FULL 에서도 pushdown 이 성립한다. 실패는 오직 C2(윈도우함수)뿐이며 C2 는 DIRECT 로
+      직접 주입해도 실패한다 — 감싸기가 원인이 아니라는 결정적 증거다.
+      (윈도우함수에서 pushdown 이 막히는 것은 정확성 보장 장치이기도 하다. 이미 확인된 대로
+       PARTITION BY 가 청크 단위로 잘리지 않으려면 윈도우는 전체 행집합에서 먼저 계산돼야 한다.)
+
+------------------------------------------------------------------------------
+3) 감싸기 유무 비용 차이 — Cost + 반복 실행 (지시 3)
+------------------------------------------------------------------------------
+스크립트: scripts/dev_e2e/plain_join_wrapping_cost.py (1차) · plain_join_wrapping_cost_repeat.py (3회 반복)
+조건: chunk_size=50,000 · PK[1..250,000] → chunk 5개 순회 · 각 변형 3회 반복 · chunk 단위 소요 중앙값 사용
+      (1차 측정에 첫 실행 hard parse·네트워크 단발 이상치가 섞여 중앙값으로 재측정)
+
+  케이스                        변형     chunk중앙   chunk최소   chunk최대   추정행    Cost
+  S0 단순 1:1                  W_FULL    0.109s     0.099s     0.162s     625      43
+                              W_ONE     0.111s     0.102s     0.139s     625      43
+                              DIRECT    0.131s     0.106s     0.153s     625      43
+  J1 LEFT 함수조인             W_FULL    0.144s     0.136s     0.154s     625      49
+                              W_ONE     0.140s     0.133s     0.150s     625      49
+                              DIRECT    0.141s     0.132s     0.149s     625      49
+  J2 INNER 함수조인            W_FULL    0.144s     0.131s     0.204s     625      49
+                              W_ONE     0.143s     0.132s     0.155s     625      49
+                              DIRECT    0.146s     0.128s     0.166s     625      49
+  J3 LEFT 단순동등             W_FULL    0.133s     0.121s     0.179s     625      44
+                              W_ONE     0.120s     0.114s     0.149s     625      44
+                              DIRECT    0.125s     0.106s     0.200s     625      44
+  J4 INNER 단순동등            W_FULL    0.016s     0.013s     0.021s     300      44
+                              W_ONE     0.015s     0.012s     0.019s     300      44
+                              DIRECT    0.015s     0.013s     0.020s     300      44
+  J5 LEFT 문자마스터           W_FULL    0.131s     0.116s     0.190s     625      43
+                              W_ONE     0.123s     0.110s     0.156s     625      43
+                              DIRECT    0.141s     0.128s     0.197s     625      43
+  J6 2단 JOIN                 W_FULL    0.154s     0.144s     0.210s     625      49
+                              W_ONE     0.150s     0.133s     0.165s     625      49
+                              DIRECT    0.149s     0.133s     0.155s     625      49
+  C1 CTE(윈도우없음)+JOIN      W_FULL    0.135s     0.126s     0.195s     625      49
+                              W_ONE     0.136s     0.129s     0.157s     625      49
+                              DIRECT    0.135s     0.124s     0.171s     625      49
+  C2 CTE+윈도우+JOIN(대조군)   W_FULL    0.465s     0.410s     0.490s     250K   7396
+                              W_ONE     0.454s     0.407s     0.479s     250K   7396
+                              DIRECT    0.492s     0.430s     0.593s     250K   7396
+  U1 UNION ALL 2분기          W_FULL    0.137s     0.124s     0.145s     626      87
+                              W_ONE     0.131s     0.123s     0.148s     626      87
+                              DIRECT    0.137s     0.133s     0.179s     626      87
+
+W_FULL(현행 감싸기) 대비 DIRECT 배율 — chunk 중앙값 기준:
+  S0 0.83x · J1 1.02x · J2 0.99x · J3 1.07x · J4 1.06x · J5 0.93x · J6 1.04x · C1 1.00x · C2 0.95x · U1 1.00x
+
+결정적 사실: 옵티마이저 추정 Cost 가 세 변형에서 완전히 동일하다(43/49/44/87/7396 …).
+  감싸기는 실행계획을 전혀 바꾸지 않는다 — 오라클이 인라인뷰를 merge 해 동일 계획으로 수렴한다.
+  시간 배율 0.83~1.07x 는 전부 측정 노이즈 범위(1 미만이 5건 = 감싼 쪽이 더 빠르게 나온 경우도 절반).
+
+------------------------------------------------------------------------------
+4) 대량(250,000행) 실제 비용 — CTE+윈도우 케이스와의 대비 (지시 4)
+------------------------------------------------------------------------------
+250,000행 전량을 5 chunk 로 순회한 총 소요(1차 측정):
+  순수 JOIN 계열(J1/J2/J3/J5/J6) · CTE(윈도우없음) C1 · UNION U1 : 총 0.61 ~ 0.80초 (chunk당 0.12~0.16초)
+  단순 1:1 S0                                                   : 총 0.57 ~ 0.73초
+  CTE+윈도우함수 C2                                              : 총 2.58 ~ 3.85초 (chunk당 0.41~0.49초)
+
+확연히 다르다 — chunk 단위로 약 3.3배, 옵티마이저 Cost 로는 49 대 7396 으로 151배다.
+그러나 그 차이는 감싸기와 무관하다: C2 는 DIRECT(감싸기 없이 직접 주입)에서도 Cost 7396 · 0.492s 로 동일하다.
+
+[중요 정정] "CTE+윈도우함수 케이스의 심각한 비용"의 원인 귀속
+  오늘 실측된 471.5초(anchor 2,000개 표본 preflight, REIMPORT-COUNTONLY-CHUNK-SIZE-DIAGNOSE)는
+  'wrapping 때문에 느린 것'이 아니라 '윈도우함수 때문에 pushdown 이 불가능해 anchor 1건당 원본 전체
+  재스캔이 되고, 그것이 2,000회 반복된 것'이다. chunk 순회(5회)로 환산하면 5 × 전체스캔 ≈ 2.6~3.9초로
+  현재 측정치와 정합한다. 즉 비용의 곱셈 인자는 '감싸기 유무'가 아니라 '조회 횟수 × pushdown 실패'다.
+  agg_diff_route.py:360-369 의 표본 게이트 skip 주석이 이 현상을 'wrapping 소스'로 서술하는데,
+  실제 인과는 'wrapping 판정에 걸리는 형태 중 윈도우함수를 포함한 것'이다(주석 정확도 개선 여지 — 이번엔 미수정).
+
+------------------------------------------------------------------------------
+5) 과거 크래시의 정확한 형태 특정 — 파서 + 실 오라클 실행 (지시 5)
+------------------------------------------------------------------------------
+스크립트: scripts/dev_e2e/plain_join_wrapping_parser_shape.py
+방법: 실제 이관 SQL(INSERT INTO … SELECT)을 SqlglotParser 로 파싱 → 운영과 동일한 parse_result 조립
+      (services/single_validation_analyze_service.py:552-569 와 같은 키 구성) → _derive_row_sqls 산출물을
+      실 오라클에서 1행 실행. 읽기 전용.
+
+  케이스                        joins   wrap판정   _derive_row_sqls        실 오라클 실행
+  S0 단순 1:1 (별칭 x. 사용)      0      False     SQL 생성                실패 ORA-00904 "X"."C_NUM"  ← 6절
+  J1 LEFT · 함수조인             1      True      HOLD(Phase 1-B 미지원)   -
+  J2 INNER · 함수조인            1      True      HOLD                    -
+  J3 LEFT · 단순동등조인          1      True      HOLD                    -
+  J5 LEFT · 문자마스터조인        1      True      HOLD                    -
+  J6 2단 JOIN                   2      True      HOLD                    -
+  J7 JOIN + WHERE               1      True      HOLD                    -
+  J8 서브쿼리(파생테이블) 조인     1      True      HOLD                    -
+  C1 CTE(윈도우 없음) + JOIN      0      True      SQL 생성 FROM BASE      실패 ORA-00942 (BASE 없음)
+  C2 CTE + 윈도우 + JOIN         0      True      SQL 생성 FROM RANKED
+                                                  WHERE rn >= 1          실패 ORA-00942 (RANKED 없음)
+
+읽는 법:
+  - 최상위 JOIN(J1~J8)은 파서가 joins 를 1~2개로 정상 노출한다 → joins 가드가 걸려 '정직한 HOLD'.
+    INNER/LEFT, 함수조인, 단순 동등조인, 문자 조인, 2단 조인, 서브쿼리(파생테이블) 조인 전부 동일.
+    → 모든 JOIN 이 위험한 것도, 특정 JOIN 형태만 위험한 것도 아니다. 최상위 JOIN 은 애초에 크래시 경로가 아니다.
+  - 위험한 것은 CTE 다. CTE 가 있으면 파서가 joins=0 으로 평탄화하고 from_table 을 CTE 이름(BASE/RANKED)으로
+    잡아 joins 가드가 무력화되고, 존재하지 않는 객체를 참조하는 SQL 이 생성돼 실제로 실행에 실패한다.
+    C2 는 여기에 더해 외부 WHERE 'rn >= 1' 까지 복사한다(fdd6ee9 가 서술한 ORA-00904 "RN" 의 정확한 기전).
+  - C1(윈도우함수 없는 CTE)도 똑같이 크래시한다 → CTE 는 윈도우 유무와 무관하게 재파생 불가.
+
+------------------------------------------------------------------------------
+6) 부수 발견(신규 결함) — 별칭 쓴 단순 1:1 이관은 재이관 상세가 열리지 않는다
+------------------------------------------------------------------------------
+routes/exact_diff_route.py:82-86 _derive_row_sqls 는 select_items 의 src_expr(예: 's.ID')을 그대로 쓰면서
+FROM 절에는 from_alias 를 붙이지 않는다 — `src = f"SELECT {sel} FROM {ft}"`.
+parse_result 에 from_alias 는 존재하지만(single_validation_analyze_service.py:557) 이 함수가 쓰지 않는다.
+별칭을 쓴 단순 1:1 이관 SQL 은 CTE 없음·물리원본 1개·UNION 없음이라 wrapping 판정이 False → 이 경로를 그대로 탄다.
+
+실 서비스 재현(포트 8000 · 인증 ON · 실 오라클 asis→tobe · scripts/dev_e2e/plain_join_wrapping_alias_prepare.py):
+  UI 의 prepare payload(_mvPkPayload, ui/tabler_renderer.py:16837)에는 src_sql/tgt_sql 이 없다
+  → 서버 _pk_resolve 는 항상 parse_result 재파생 경로를 탄다(우회 없음).
+
+  [별칭 사용]  INSERT INTO NXDNP.MV_ORA_DEMO_TGT (ID, DEPT_CD, AMT)
+               SELECT s.ID, s.DEPT_CD, s.AMT FROM NXDNP.MV_ORA_DEMO_SRC s
+    /analyze        → from_alias='S'  src_expr[0]='s.ID'
+    _derive_row_sqls→ SELECT (s.ID) AS ID, … FROM NXDNP.MV_ORA_DEMO_SRC     ← 별칭 s 정의가 사라짐
+    /agg-diff/prepare → status=HOLD  stop_reason=AGG_QUERY_FAILED  run_id=''
+                        error_message: 재이관 PK 계산 조회 오류: ORA-00904: "S"."AMT": invalid identifier
+
+  [별칭 없음]  같은 테이블·같은 컬럼, 별칭만 제거
+    /analyze        → from_alias=''  src_expr[0]='ID'
+    /agg-diff/prepare → status=READY  run_id=PK9E922CCD4EA5  src_keys=150 tgt_keys=150 prepare_ms=98.6
+
+  두 케이스의 유일한 차이는 별칭 유무다 → 원인 확정. 방언 무관 결함(PG 도 동일 구조로 실패할 것이나 미검증).
+
+이 발견은 이번 과제의 결론을 강화한다 — 문제는 '감싸기가 과하다'가 아니라 '감싸지 않는 경로가 취약하다'이다.
+
+------------------------------------------------------------------------------
+7) 완화 가능 여부 판단 (지시 6)
+------------------------------------------------------------------------------
+결론: 완화하지 말 것(현행 유지 권고). 근거 3가지.
+
+  (가) 성능 이득이 0 이다. Cost 동일 · 시간 배율 0.83~1.07x(노이즈). 얻을 것이 없다.
+  (나) 순수 JOIN 에는 대체 경로가 아예 없다. wrapping 을 걷어내면 _derive_row_sqls 의 joins 가드에 걸려
+       "JOIN 이관은 Phase 1-B 미지원" HOLD 로 되돌아간다 = ad185bc 이전 상태 = 재이관 상세 기능 상실.
+       즉 '완화'는 성능 최적화가 아니라 기능 후퇴다. 완화하려면 JOIN 재조립 파싱 경로를 새로 만들어야 하는데,
+       그 방식의 취약성은 6절에서 이미 실증됐다(별칭 하나에 ORA-00904).
+  (다) 위험 대비 이득 비대칭. 이득 0 · 위험은 크래시(ORA-00904)와 조용한 오판정(fan-out 등).
+
+권고 방향(구현은 별도 승인 후):
+  - 유지: _reimport_source_needs_wrapping 의 CTE/다중원본/UNION 판정 3조건 그대로.
+  - 개선(우선순위 높음): 6절 결함. 두 선택지 —
+      A안 _derive_row_sqls 가 from_alias 를 FROM 절에 반영(예: FROM {ft} {alias}). 최소 변경이나
+          완료 모듈(Phase 1-B) 수정이라 사용자 확인 필요, 회귀 범위는 재이관/scope 파생 전반.
+      B안 별칭이 있으면 wrapping 대상으로 넘긴다(판정 조건 추가). 이미 안전성이 실증된 경로를 재사용하고
+          성능 페널티가 0 임이 이번에 확인됐다 → 구조적으로 더 안전. 권장.
+  - 개선(문서): agg_diff_route.py:360-369 표본 게이트 skip 주석의 인과 서술을 'wrapping 소스'에서
+    '윈도우함수로 pushdown 불가한 소스'로 정정(4절). 코드 동작 변경 없음.
+  - 안전 조건: 어떤 완화도 조건부 폴백(파싱 실패·shape 불일치 시 wrapping 또는 정직한 HOLD)을 유지해야 한다.
+
+------------------------------------------------------------------------------
+8) 검증 항목 대조 / 미검증 고지
+------------------------------------------------------------------------------
+  규칙의 유래(과거 크래시 전례와의 연관성)          확인 — 1절(커밋 04a1ca8 / fdd6ee9 / ad185bc)
+  순수 JOIN predicate pushdown 실측(EXPLAIN PLAN) 확인 — 2절(오라클) / PG 미검증
+  감싸기 유무 비용 차이 실측                       확인 — 3절(Cost 동일 · 배율 0.83~1.07x)
+  대량(250,000행) 실제 비용                        확인 — 4절
+  여러 JOIN 형태 반복 일반화                       확인 — INNER/LEFT · 함수/단순동등/문자 · 2단 · 서브쿼리조인
+  과거 크래시 케이스의 정확한 JOIN 형태 특정        확인 — 5절(최상위 JOIN 아님 · CTE 평탄화가 원인)
+  완화 가능 여부 + 조건부 제안                     확인 — 7절(완화 불가·불필요로 결론)
+
+[미검증 — 정직 고지] PostgreSQL 실측을 하지 못했다.
+  PostgreSQL_Inter_asis(192.168.0.150:5433) · PostgreSQL_Inter_tobe(5434) · PostgreSQL_nxdnp_src
+      → Connection timed out (10060). 사내망 접근 불가.
+  Neon 4건(PostgreSQL_asis / PostgreSQL_NEW_asis / PostgreSQL_tobe / PostgreSQL_NEW_tobe)
+      → 서버측 접속 거부(기록된 쿼터 소진 상태와 일치).
+  로컬 PostgreSQL·docker 도 없음(psql 미설치, docker 미설치).
+  따라서 2~4절 결론은 오라클 실측에 한정된다. 다만 PG 도 인라인뷰 pushdown(qual pushdown)과
+  CTE 인라인화(PG12+)를 하므로 같은 방향일 가능성이 높다 — 이는 추정이며 실측으로 대체하지 않았다.
+
+------------------------------------------------------------------------------
+9) 코드 변경 / 산출물
+------------------------------------------------------------------------------
+코드 수정 없음(지시대로 순수 진단). 운영 코드 파일 무변경.
+신규 진단 스크립트(scripts/dev_e2e/, 읽기 전용):
+  plain_join_wrapping_inventory.py       실 DB 테이블/PK 인벤토리
+  plain_join_wrapping_pg_probe.py        PG 접속 가용성 탐색(전부 실패 확인)
+  plain_join_wrapping_cols.py            오라클 컬럼·인덱스·행수 확인
+  plain_join_wrapping_explain.py         EXPLAIN PLAN 3변형 × 10케이스 (2절)
+  plain_join_wrapping_cost.py            chunk 순회 실행 비용 1차 (4절)
+  plain_join_wrapping_cost_repeat.py     3회 반복 중앙값 + Cost 비교 (3절)
+  plain_join_wrapping_parser_shape.py    파서 shape + 재파생 + 실행 (5절)
+  plain_join_wrapping_alias_live.py      /analyze 경유 별칭 확인 (6절)
+  plain_join_wrapping_alias_prepare.py   /agg-diff/prepare 실 서비스 재현 (6절)
+  _PLAIN-JOIN-WRAPPING-EXPLAIN-PLANS.txt 실행계획 전문
+회귀 테스트: 코드 무변경이라 회귀 대상 없음(기존 테스트 미실행).
+비밀번호 취급: 프리셋 값을 공통 복원 chokepoint(_with_resolved_password)로만 사용, 출력·저장 없음.
+
+⚠️ 추가 작업 필요 - 순수 JOIN wrapping 은 완화 불필요로 확정(비용 0), 단 진단 중 별도 결함 1건 발견

@@ -1,0 +1,172 @@
+작업명 : HASH-BUCKET-FACTORY-GUARD-ENFORCE-FIX
+✅ 작업 완료 - HASH-BUCKET-FACTORY-GUARD-ENFORCE-FIX - build_hash_bucket_agg_sql 이 계약 팩토리(get_hash_contract_pair)를 반드시 거치도록 강제해 미지원·혼합 방언에서 PG 전용 SQL 방출을 차단(PG-PG 산출은 문자열 단위로 완전 동일)
+
+작성일 : 2026-07-29
+대상 파일 : services/diagnosis/strategies/hash_bucket.py (지침대로 이 파일만 수정, hash_contract.py 미수정)
+추가 파일 : tests/test_hash_bucket_factory_guard.py
+
+================================================================================
+1. 문제 (수정 전)
+================================================================================
+build_hash_bucket_agg_sql 은 canonical 표현식을 hash_contract 의 하위호환 재수출(PEP 562,
+hash_contract.py:171-198 → PG 계약 고정)로 직접 만들었다. 따라서 dialect 인자가 무엇이든
+**PostgreSQL 계약이 고정 적용**되고, 계약 팩토리(get_hash_contract_pair = 가드 L3 단일 출처)를
+전혀 거치지 않았다. "계약을 얻지 못하면 SQL 자체를 만들 수 없다"는 설계 전제가 팩토리를 거치는
+호출 경로(adapters/base.py)에서만 성립했고, 빌더 직접 호출 경로에서는 무너져 있었다.
+
+실측(수정 전, 동일 인자로 dialect 만 바꿔 호출):
+  [postgres] 생성됨 → SELECT ... MD5(...) ... CAST(... AS BIT(32)) ... & 7 AS __HB1 ...
+  [oracle  ] 생성됨 → MD5 / CAST AS BIT(32) / TRIM_SCALE / ' & ' / __HB1  ← PG 전용 SQL 그대로 방출
+  [mysql   ] 생성됨 → 'x' OR LEFT(MD5('hbw1' OR CASE ...   ← '||' 가 논리 OR 로 렌더돼 canonical 붕괴
+  [tsql    ] 생성됨 → HASHBYTES + TRIM_SCALE(미존재 함수) 혼재
+
+  수정 전 oracle 방출 SQL 의 토큰 검사:
+    MD5 포함: True | 비트AND(' & ') 포함: True | TRIM_SCALE 포함: True | __HB1 별칭: True
+
+즉 오라클/MySQL/MSSQL 로 호출하면 조용히 잘못된 SQL 이 만들어져 실행 단계에서야 깨졌다
+(오라클 ORA-00923/ORA-00911/ORA-00907, MySQL 은 오류 없이 의미가 달라질 위험).
+
+================================================================================
+2. 수정 내용
+================================================================================
+(a) _require_contract(dialect, src_db_type, tgt_db_type)  [신규]
+    - 반드시 hash_contract.get_hash_contract_pair() 를 거쳐 계약 객체를 얻는다.
+    - 판정 규칙(same-DBMS + 등록 여부)은 복제하지 않고 L3 단일 출처에 위임한다(hash_contract.py 미수정).
+    - 계약이 없으면 HashContractUnavailableError 를 던지고 SQL 을 만들지 않는다.
+
+(b) HashContractUnavailableError(RuntimeError)  [신규]
+    - reason_code 에 표준 HOLD 사유(HASH_CONTRACT_NOT_AVAILABLE / HASH_BUCKET_CROSS_DBMS_NOT_SUPPORTED)를
+      그대로 담아 호출측이 HOLD 로 승격할 수 있게 했다.
+    - raise 를 택한 이유(CLAUDE.md '에러는 결과 객체로 반환' 규칙과의 관계): 이 함수의 반환값은
+      '실행될 SQL 문자열'이라 에러를 문자열로 돌려주면 그대로 DB 로 나간다. 생성 자체를 중단해야
+      전제가 지켜진다. 운영 경로(services/diagnosis/multi_scope.py:339-353)는 이미 예외를 잡아
+      stopped_reason=EXECUTION_ERROR + error_message 로 보존하므로 사용자에게는 HOLD 로 노출되고
+      예외가 라우트로 전파되지 않는다(허위 일치 없음).
+
+(c) build_hash_bucket_agg_sql 시그니처에 src_db_type/tgt_db_type 선택 인자 추가
+    - db_type 쌍을 아는 호출자는 명시하면 cross-DBMS 도 이 함수에서 차단된다.
+    - 미지정이면 dialect 에서 역매핑한 단일 db_type 을 양측에 쓴다(기존 호출은 시그니처 변경 없이 동작).
+    - canonical 생성은 재수출(hc.*_sql) 대신 계약 객체 메서드(contract.key_canonical / row_canonical /
+      bucket_expr / key_hash_expr / row_hash_expr)로 전환.
+
+(d) _db_type_of(dialect)  [신규]
+    - 새 매핑표를 만들지 않고 공통 헬퍼(services.sql_dependency_pruning._to_sqlglot_dialect)를
+      지원 DBMS 4종(postgresql/mysql/oracle/mssql)에 **역으로** 적용한다(단일 출처 유지).
+    - 헬퍼가 미지원/불명을 postgres 로 접어버리므로 '역매핑 결과가 있는 값'만 인정 —
+      알 수 없는 방언 문자열이 조용히 PostgreSQL 로 흡수되지 않는다.
+
+================================================================================
+3. 실측 — 전/후 대조
+================================================================================
+3-1. 빌더 직접 호출(방언별) — 수정 후
+
+  dialect='postgres'                         → 생성됨: SELECT dept AS DEPT, COUNT(*) AS CNT, ((CAST(...MD5...
+  dialect='oracle'      → HashContractUnavailableError [HASH_CONTRACT_NOT_AVAILABLE]
+      "HASH_BUCKET canonical 해시 계약을 사용할 수 없습니다(방언=oracle, db_type=oracle) —
+       미등록/미구현 방언이거나 방언을 특정할 수 없습니다."
+  dialect='mysql'       → HashContractUnavailableError [HASH_CONTRACT_NOT_AVAILABLE] (db_type=mysql)
+  dialect='tsql'        → HashContractUnavailableError [HASH_CONTRACT_NOT_AVAILABLE] (db_type=mssql)
+  dialect='mssql'       → HashContractUnavailableError [HASH_CONTRACT_NOT_AVAILABLE] (db_type=mssql)
+  dialect='duckdb'      → HashContractUnavailableError [HASH_CONTRACT_NOT_AVAILABLE] (db_type=미상)
+  dialect=''            → HashContractUnavailableError [HASH_CONTRACT_NOT_AVAILABLE] (방언=미상)
+
+  cross-DBMS(렌더 방언은 postgres 로 접혀 있어도 db_type 쌍으로 차단):
+  src=postgresql,tgt=oracle → HashContractUnavailableError [HASH_BUCKET_CROSS_DBMS_NOT_SUPPORTED]
+      "HASH_BUCKET 은 Source/Target 이 동일 방언일 때만 허용됩니다(원본=postgresql, 목적지=oracle)
+       — 방언 간 canonical 이 발산해 거짓 불일치가 발생합니다."
+  src=oracle,tgt=postgresql → 동일 사유로 차단
+  src=mysql,tgt=postgresql  → 동일 사유로 차단
+
+  정상 경로:
+  dialect='postgres'                                          → 생성됨
+  dialect='postgres' + src/tgt=postgresql(명시)                → 생성됨(산출 SQL 완전 동일)
+
+  ※ dialect='postgresql'(sqlglot 미지원 표기)은 수정 전과 동일하게 sqlglot 자체 ValueError
+    ("Unknown dialect 'postgresql'. Did you mean postgres?")가 난다 — 이번 변경과 무관한 기존 동작.
+
+3-2. 실 오라클 실행 대조 (Oracle asis, NXDNP.MV_ORA_DEMO_SRC)
+  [수정 전] dialect='oracle' 로 방출된 SQL 을 그대로 실행
+      → 실행 실패: ORA-00907: missing right parenthesis
+        (CAST(... AS BIT(32)) 등 PG 전용 구문에서 파싱이 깨진다. 진단 보고서에 기록된
+         ORA-00923(치환변수 ' & ')·ORA-00911(__HB1 밑줄 선두 별칭)은 클라이언트/구문 도달 순서에
+         따라 먼저 걸리는 오류가 달라지는 같은 뿌리의 증상이다.)
+  [수정 후] 동일 호출 → HashContractUnavailableError 로 생성 단계에서 차단
+      → **DB 로 나간 쿼리 없음**(실행 자체가 발생하지 않음)
+
+3-3. PG-PG 무회귀 — 산출 SQL 문자열 완전 동일
+  수정 전 구현(재수출 경로)을 그대로 재현해 현행 구현과 3개 케이스 대조:
+    키=['id']      ns=[8]         산출 동일: True (len=1206)
+    키=['a','b']   ns=[128]       산출 동일: True (len=1552)
+    키=['mk']      ns=[64,16,4]   산출 동일: True (len=1959)
+  → PG-PG 전 케이스 산출 문자열 완전 동일(True).
+
+================================================================================
+4. 테스트
+================================================================================
+4-1. 신규 자체 테스트 : tests/test_hash_bucket_factory_guard.py — 9 passed (subtests 6)
+   - 미등록 방언(oracle/mysql/tsql) 차단 + reason_code=HASH_CONTRACT_NOT_AVAILABLE
+   - 알 수 없는 방언/빈 방언이 PostgreSQL 로 흡수되지 않음
+   - db_type 쌍 명시 시 cross-DBMS 차단 + reason_code=HASH_BUCKET_CROSS_DBMS_NOT_SUPPORTED
+   - reason_code 문자열이 hash_contract 표준 사유와 동일(사유 집합 이탈 방지)
+   - PG-PG 정상 생성 / 쌍 명시해도 산출 동일 / 다단 wave(ns=[64,16,4]) 정상
+   - _db_type_of 역매핑(postgres→postgresql, tsql→mssql, duckdb→"" 등)
+
+4-2. 관련 서브셋 + baseline 대조
+   (a) python -m pytest tests -k "hash_bucket or hash_contract" -q
+       baseline(worktree, HEAD=6a0a430) : 32 passed, 15 skipped, 1 xfailed, 0 failed
+       수정 후                          : 41 passed, 15 skipped, 1 xfailed, 0 failed  (증가분 9건 = 신규 테스트)
+   (b) 소비처 서브셋 python -m pytest tests -k "multi_scope or diagnosis_strateg or row_diff" -q
+       baseline : 76 passed, 11 skipped, 0 failed
+       수정 후  : 76 passed, 11 skipped, 0 failed
+
+   실패 테스트 전체 목록: **없음(0건)** — 양쪽 서브셋 모두 failed 0.
+   xfail 1건(tests/test_underscore_alias_oracle_regression_static.py::
+   test_hash_bucket_agg_underscore_alias_known)은 수정 전후 모두 xfail 유지다. 이 테스트는
+   '오라클에서 __HB 밑줄 별칭이 남는다'는 알려진 미해결을 expectedFailure 로 표기한 것으로,
+   이제는 그 이전 단계(계약 부재)에서 차단돼 예외로 실패하므로 마커 상태가 그대로 유지된다
+   (unexpected success 로 뒤집히지 않음 — 마커 제거 신호 오발생 없음).
+
+================================================================================
+5. 구조 검토 (CLAUDE.md 비판적 검토 의무)
+================================================================================
+- 긍정적 효과: 방어가 '호출 관례'에서 '함수 자체의 책임'으로 이동했다. 상위 게이트를 우회한
+  경로가 생겨도 혼합/미지원 방언 HASH_BUCKET SQL 이 물리적으로 생성되지 않는다.
+- 구조적 문제점: 판정 규칙을 복제하지 않고 팩토리에 위임했으므로 규칙 이원화는 없다. 다만
+  '방언→db_type 역매핑'이라는 새 보조 로직이 생겼다 — 새 표를 만들지 않고 공통 헬퍼의 역적용으로
+  최소화했고, 지원 4종 밖은 전부 차단쪽으로 기울게 했다.
+- heuristic/scoring 영향: 새 heuristic·가중치 없음. 사유 코드는 기존 표준 HOLD 사유 재사용.
+- explainability: 예외 메시지에 방언·db_type·차단 사유(정합성 발산)를 명시하고 reason_code 를
+  기계 판독 가능하게 보존한다.
+- 운영상 위험: 낮음. multi_scope 는 예외를 이미 보류로 흡수하며, PG-PG 산출은 바이트 단위 동일.
+  오라클 HASH_BUCKET 은 원래도 실행 불가(ORA-*)였으므로 '되던 것이 막히는' 사례는 없다 —
+  조용한 실패가 명시적 HOLD 로 바뀔 뿐이다.
+- 잔여(이번 범위 밖): 계약 객체의 precheck(방언 고유 제약)은 호출하지 않았다(기존 PG 경로 동작
+  보존 우선). __HB/__KH/__RH 밑줄 별칭 개명도 별건으로 남아 있다(오라클 계약 등록 시 필요).
+
+================================================================================
+6. 변경 파일 / 커밋
+================================================================================
+커밋 해시 : bfda564 (bfda564790c5a583eca5ec4ee37a00a6661eaa2c)
+제목      : fix(hash-bucket): SQL 빌더가 계약 팩토리를 반드시 거치도록 강제 — 미지원/혼합 방언 SQL
+            방출 차단 (HASH-BUCKET-FACTORY-GUARD-ENFORCE-FIX)
+변경 통계 : 2 files changed
+  services/diagnosis/strategies/hash_bucket.py | 89 ++++++++++++++++++++++++++--  (83 insertions, 6 deletions)
+  tests/test_hash_bucket_factory_guard.py      | 신규 (9 테스트)
+
+git diff 요약(services/diagnosis/strategies/hash_bucket.py):
+  + _SUPPORTED_DB_TYPES = ("postgresql", "mysql", "oracle", "mssql")
+  + class HashContractUnavailableError(RuntimeError)   (reason_code 보유)
+  + def _db_type_of(dialect) -> str                    (공통 헬퍼 역적용, 미지원 흡수 금지)
+  + def _require_contract(dialect, src_db_type, tgt_db_type)  (팩토리 강제 · 판정은 L3 위임)
+  ~ build_hash_bucket_agg_sql: src_db_type/tgt_db_type 인자 추가, 첫 줄에서 _require_contract 호출,
+    hc.key_canonical_sql/row_canonical_sql/bucket_expr_sql/key_hash_expr_sql/row_hash_expr_sql
+    → contract.key_canonical/row_canonical/bucket_expr/key_hash_expr/row_hash_expr 로 전환
+  (hash_contract.py 는 수정하지 않음)
+
+실검증 상태: 완료
+  (빌더 직접 호출 전/후 대조 + 실 Oracle(asis) 실행 대조 완료 — 수정 전 방출 SQL 은 ORA-00907 로
+   실패, 수정 후에는 생성 단계 차단으로 DB 로 나간 쿼리 없음. PG-PG 산출 문자열 동일성 및
+   서브셋 baseline 대조까지 확인. 화면 무관 백엔드 수정이라 스크린샷 없음.)
+
+작업명 : HASH-BUCKET-FACTORY-GUARD-ENFORCE-FIX
+✅ 작업 완료 - HASH-BUCKET-FACTORY-GUARD-ENFORCE-FIX - build_hash_bucket_agg_sql 이 계약 팩토리(get_hash_contract_pair)를 반드시 거치도록 강제해 미지원·혼합 방언에서 PG 전용 SQL 방출을 차단(PG-PG 산출은 문자열 단위로 완전 동일)

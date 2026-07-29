@@ -1,0 +1,121 @@
+작업명 : SINGLE-TABLE-WINDOW-FUNCTION-WRAPPING-GAP-DIAGNOSE
+✅ 작업 완료 - 단일테이블+윈도우함수 wrapping 갭 진단(위험 없음으로 확정, 코드 수정 없음)
+
+[결론 먼저]
+가설(윈도우함수 미감지 → PK 조건이 윈도우 계산 '전'에 삽입 → rn 오염)은 재현되지 않았다.
+전제의 앞 절반(wrapping 대상에서 빠짐)은 사실이지만, 뒷 절반(PK 조건이 계산 전에 삽입됨)이 거짓이다.
+따라서 _reimport_source_needs_wrapping 에 OVER 감지를 추가할 필요가 없다(지시 6 미해당).
+
+------------------------------------------------------------------------------
+1) needs_wrapping 판정 — 윈도우함수는 실제로 검사하지 않음(전제 확인)
+------------------------------------------------------------------------------
+routes/agg_diff_route.py:739-761 의 판정 조건은 3개뿐이다.
+  - ctes           → True   (extract_cte_names)
+  - len(phys) >= 2 → True   (extract_physical_source_tables)
+  - " UNION "      → True
+'OVER' / 윈도우함수 검사는 본문에 존재하지 않는다.
+
+실측(scripts/dev_e2e/window_function_wrapping_gap_diagnose.py):
+  대상 SQL: INSERT INTO T_WINFN_TGT (ID, COL_A, RN)
+            SELECT ID, COL_A, ROW_NUMBER() OVER (PARTITION BY COL_B ORDER BY ID) AS RN
+            FROM T_WINFN_SRC
+  방언=oracle      needs_wrapping=False  물리테이블=['T_WINFN_SRC']  CTE=[]
+  방언=postgresql  needs_wrapping=False  물리테이블=['T_WINFN_SRC']  CTE=[]
+→ 지시 1 확정: 단일테이블+윈도우함수는 wrapping 대상에서 빠진다(=기존 _derive_row_sqls 경로).
+
+------------------------------------------------------------------------------
+2) 빠졌을 때 _derive_row_sqls 가 만드는 SQL — 윈도우함수가 원문 그대로 보존됨
+------------------------------------------------------------------------------
+파서(SqlglotParser)가 select_item 의 src_expr 에 OVER 절을 통째로 담는다.
+  src_expr = 'ROW_NUMBER() OVER (PARTITION BY COL_B ORDER BY ID)'   ← 절단·손실 없음
+
+파생 결과(oracle/postgresql 동일):
+  src: SELECT (ID) AS ID, (COL_A) AS COL_A,
+              (ROW_NUMBER() OVER (PARTITION BY COL_B ORDER BY ID)) AS RN
+       FROM T_WINFN_SRC
+  tgt: SELECT ID, COL_A, RN FROM T_WINFN_TGT
+→ 파생 src_sql 은 원본 SELECT 와 의미적으로 동등하다(윈도우 정의 보존, WHERE 는 원본 그대로 복사).
+
+------------------------------------------------------------------------------
+3) PK 조건 삽입 지점 — 전 경로가 '감싼 뒤 바깥에서' 필터(핵심 근거)
+------------------------------------------------------------------------------
+routes/exact_diff_route.py:223-226   scope pushdown
+    SELECT * FROM (파생SQL) mv_scope_src WHERE <scope 동등조건>
+services/exact_diff/dialects/postgresql.py:402
+    SELECT ... FROM (파생SQL) _q WHERE _q.key >= %s AND _q.key < %s ORDER BY _q.key
+services/exact_diff/dialects/oracle.py:515
+    SELECT ... FROM (파생SQL) Q0 WHERE Q0.key >= :1 AND Q0.key < :2 ORDER BY Q0.key
+그 외 DIRECT/앵커/IN 조회도 동일 형태(postgresql.py:103,109,266,299 / oracle.py:132,138,301,340).
+
+즉 파생 SQL 은 항상 서브쿼리 안에 놓이고, PK 범위·scope 조건은 그 바깥에 붙는다.
+윈도우함수는 서브쿼리 안에서 '전체 행집합' 기준으로 이미 계산된 뒤 바깥에서 걸러지므로
+PARTITION BY 구성이 청크 단위로 잘리지 않는다. 이것이 안전의 구조적 근거다.
+
+추가: 재이관 드릴다운의 PK 값 조회(/agg-diff/pk-records, agg_diff_route.py:1080-)는
+저장 index(SQLite store)만 읽고 Source/Target DB 를 재조회하지 않는다 — 조회 시점 SQL 주입 자체가 없다.
+
+------------------------------------------------------------------------------
+4) 실 DB 재현 — rn 값 전량 일치(불일치 0)
+------------------------------------------------------------------------------
+[4-A] DB 레벨 대조 (scripts/dev_e2e/window_function_wrapping_live_repro.py)
+  Oracle asis(192.168.0.151:1523) 실 DB. 원본 30행, COL_B 파티션(X/Y/Z)이 ID 순서와 교차하도록 배치.
+  청크를 5행 단위로 쪼개 청크 경계가 파티션 경계를 반드시 가로지르게 함.
+    정답  : 원본 SELECT 통째 실행한 ROW_NUMBER
+    비교군: 파생 src_sql 을 청크 조회 SQL 형태로 감싸 5행씩 조회
+  결과: 정답 행수=30  청크조회 행수=30  불일치=0
+
+[4-B] 실 서비스 end-to-end (scripts/dev_e2e/window_function_reimport_drilldown_e2e.py)
+  실 서버 8000(인증 ON) + asis 1523 → tobe 1524.
+  prepare 에 src_sql/tgt_sql 을 비워 보내 서버가 parse_result+query_full 로 직접 파생하게 함
+  (= _pk_resolve → needs_wrapping 판정 → _derive_row_sqls 진단 대상 경로를 실제 통과).
+  목적지에서 ID 7,8,20 을 삭제해 '목적 누락'을 만들고 RN 을 GB 축으로 노출.
+    prepare status=READY  run_id=PKE1B3F03E567E
+    pk-records status=READY  총건수=3  반환=3
+      ID=7   원본전체실행 RN(정답)=3  재이관 드릴다운 src RN=3  [OK]
+      ID=8   원본전체실행 RN(정답)=3  재이관 드릴다운 src RN=3  [OK]
+      ID=20  원본전체실행 RN(정답)=7  재이관 드릴다운 src RN=7  [OK]
+    → 드릴다운 src RN 불일치 = 0건
+
+[4-C] 인접 형태 추가 확인 — 인라인뷰 + 윈도우 별칭 외부 WHERE
+  SELECT ID, COL_A, RN FROM (SELECT ..., ROW_NUMBER() OVER (...) AS RN FROM 단일테이블) WHERE RN = 1
+  needs_wrapping=False (CTE 아님, 물리테이블 1개) 이지만 안전했다:
+  파서가 src_table 을 인라인뷰 '원문 전체'로 보존하고(베이스 테이블로 평탄화하지 않음),
+  WHERE RN=1 은 인라인뷰 바깥에 붙어 원본과 동일 구조가 된다.
+    파생: SELECT (ID) AS ID, (COL_A) AS COL_A, (RN) AS RN
+          FROM ( SELECT ID, COL_A, ROW_NUMBER() OVER (PARTITION BY COL_B ORDER BY ID) AS RN
+                 FROM NXDNP.MV_WINFN_SRC ) WHERE RN = 1
+  실 오라클 대조(5행 청크): 정답={1:1, 2:1, 3:1}  청크조회={1:1, 2:1, 3:1}  불일치=[]
+  ※ 과거 ORA-00904 를 유발했던 CTE 형태는 from_table 이 CTE 내부 베이스 테이블로 평탄화되면서
+    외부 WHERE(rn>=1)가 존재하지 않는 컬럼을 참조한 경우다. 그 형태는 지금도 needs_wrapping=True 로
+    감지되어 wrapping 경로로 처리된다 — 이번 단일테이블 형태와는 원인이 다르다.
+
+------------------------------------------------------------------------------
+5) 안전 판정 근거 요약(지시 5)
+------------------------------------------------------------------------------
+  (a) 파서가 OVER 절을 손실 없이 src_expr 에 보존 → 파생 SQL 이 원본과 의미 동등.
+  (b) PK 범위·scope 조건은 전 경로에서 파생 SQL 을 감싼 '바깥'에 삽입 → 윈도우 계산 후 필터.
+  (c) 드릴다운 PK 조회는 저장 index 만 읽어 DB 재조회 자체가 없음.
+  (d) 실 오라클에서 파티션 경계를 가로지르는 5행 청크로도 rn 전량 일치, end-to-end 도 전량 일치.
+→ 위험 미확인. 지시 6(OVER 감지 추가 제안)은 해당 없음 — 불필요하게 wrapping 대상만 넓혀
+  기존 단순 1:1 경로에 성능 비용을 추가하게 되므로 권장하지 않는다.
+
+------------------------------------------------------------------------------
+6) 검증 한계(정직 보고)
+------------------------------------------------------------------------------
+  - PostgreSQL 실 DB 재현은 하지 못했다. 접속 불가 상태:
+      192.168.0.150:5433 / 5434 (Inter asis·tobe) → TCP 도달 불가(timeout)
+      Neon(ep-bitter-moon…, ep-aged-tooth…)        → "Your project has exceeded the …" 쿼터 초과 거부
+    PG 측은 코드 경로 확인만 수행했다(dialects/postgresql.py:402 가 오라클과 동일한 wrapping 구조).
+    구조가 동일하므로 결론은 같을 것으로 보나, PG 실측은 미완이다.
+  - 이번 진단은 재이관(행 수준 PK 비교) 경로에 한정된다. 통계검증(COUNT/SUM) 경로는 대상이 아니다.
+
+------------------------------------------------------------------------------
+7) 생성/변경 파일 (제품 코드 수정 0건 — 진단 스크립트만 신규)
+------------------------------------------------------------------------------
+  신규: scripts/dev_e2e/window_function_wrapping_gap_diagnose.py      (판정·파생 SQL 코드 확정)
+  신규: scripts/dev_e2e/window_function_wrapping_live_repro.py        (실 DB 청크 rn 대조)
+  신규: scripts/dev_e2e/window_function_reimport_drilldown_e2e.py     (실 서비스 end-to-end)
+  픽스처: NXDNP.MV_WINFN_SRC(asis 30행), NXDNP.MV_WINFN_TGT(tobe, ID 7·8·20 누락 상태로 잔존)
+  제품 코드(routes/, services/) 변경 없음.
+
+✅ 작업 완료 - 단일테이블+윈도우함수 wrapping 갭 진단(위험 없음으로 확정, 코드 수정 없음)

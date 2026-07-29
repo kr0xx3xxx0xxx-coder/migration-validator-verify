@@ -1,0 +1,38 @@
+=== wrapping 소스 재이관 드릴다운 브라우저 실측 / tag=numericpk / base=http://127.0.0.1:8000/ ===
+   DIALOG: 검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)
+   DIALOG: 검증 경로 접속 성공: Oracle_asis → Oracle_tobe
+  [setup] {"project": "TESTONLY_REG", "pair_rows": 1, "nav_single_clicked": true}
+   [캡처] numericpk_01_analyze.png
+   [캡처] numericpk_02_count.png
+  [2단계] {"count_status": "COUNT_MINOR_DIFF", "force": false, "gate_text": "소규모 COUNT 차이원본 250,000 · 목적 249,950 · 순 차이 50 · 목적지 적재율 100.0%소규모 COUNT 차이(순 차이 50건) — 통계검증과 Exact Diff 로 실제 누락/과잉/값 불일치를 확인하세요(차이만으로 종료하지 않음).다음 단계: 통계검증 계속통계검증 계속 →"}
+  [3단계] GB= [] SUM= []
+   [캡처] numericpk_03_candidate.png
+   [캡처] numericpk_04_executed.png
+   [캡처] numericpk_05_result.png
+  [5단계] 재이관 진입 버튼 클릭: {"found": true, "uid": "cop_369294765", "hostId": "cop_369294765_host"}
+   [패널 0.0s] 재이관 PK index 준비 중…(테이블당 1회)
+   [패널 1.5s] 재이관 대상 준비 중… (현재 저장 0건 · 완료되면 자동 표시)
+   [패널 12.1s] 재이관 대상 준비 중… (현재 저장 20건 이상 · 완료되면 자동 표시)
+   [패널 13.6s] 표시 등급 D4 · 요약 전용(다운로드로 확보)불일치 101건 이상(그룹 0개) — 수집이 조기중단되어 정확한 총 건수는 확인하지 않았습니다. 저장된 레코드는 그룹 상세에서 표시 경계까지 나열하고, 나머지는 Excel/CSV 다운로드로 확인하세요.이 그룹은 불일치가 100건을 초과합니다 — 표시 100건 / 실제 100건
+   ● pk-records 확정 status=EARLY_STOPPED at 13.6s
+   [캡처] numericpk_05b_drilldown_ready.png
+  [관측 유효성] 유효
+  [5단계 드릴다운 최종]: 표시 등급 D4 · 요약 전용(다운로드로 확보)불일치 101건 이상(그룹 0개) — 수집이 조기중단되어 정확한 총 건수는 확인하지 않았습니다. 저장된 레코드는 그룹 상세에서 표시 경계까지 나열하고, 나머지는 Excel/CSV 다운로드로 확인하세요.이 그룹은 불일치가 100건을 초과합니다 — 표시 100건 / 실제 100건 초과(정확한 총수는 확인 안 됨, 조기중단). 실제 불일치 레코드 중 확보된 저장분의 앞 100건을 아래에 표시합니다. 이 정도 규모의 불일치는 개별 레코드 문제가 아니라 이관 로직 자체의 점검이 필요할 가능성이 높습니다. 나머지 상세는 Excel 다운로드 또는 전수검증(이 범위 지정)으로 확인하세요.⬇ 상세 불일치 레코드 Excel 다운로드재이관 대상 전체 101건 (표시 상한 100건 
+  경고('재이관 대상 준비 지연') 발생 여부: 미발생 / READY 도달 13.6초
+   [캡처] numericpk_05d_drilldown_final.png
+
+=== 네트워크(prepare/pk-records) ===
+   prepare | {"ok": true, "status": "PREPARING", "run_id": "PSBDDE426A6D03"}
+   pk-records | {"ok": true, "status": "PREPARING", "run_id": "PSBDDE426A6D03", "available_count": 0}
+   pk-records | {"ok": true, "status": "PREPARING", "run_id": "PSBDDE426A6D03", "available_count": 0}
+   pk-records | {"ok": true, "status": "PREPARING", "run_id": "PSBDDE426A6D03", "total": null, "available_count": 0, "missing_migration": 0, "value_mismatch": 0, "target_only_count": 0, "sampling_status": "FULL_COMPARE_APPROVED", "source_count": 250000, "target_count": 249950}
+   pk-records | {"ok": true, "status": "PREPARING", "run_id": "PSBDDE426A6D03", "total": null, "available_count": 0, "missing_migration": 0, "value_mismatch": 0, "target_only_count": 0, "sampling_status": "FULL_COMPARE_APPROVED", "source_count": 250000, "target_count": 249950}
+   pk-records | {"ok": true, "status": "PREPARING", "run_id": "PSBDDE426A6D03", "total": null, "available_count": 0, "missing_migration": 0, "value_mismatch": 0, "target_only_count": 0, "sampling_status": "FULL_COMPARE_APPROVED", "source_count": 250000, "target_count": 249950}
+   pk-records | {"ok": true, "status": "PREPARING", "run_id": "PSBDDE426A6D03", "total": null, "available_count": 0, "missing_migration": 0, "value_mismatch": 0, "target_only_count": 0, "sampling_status": "FULL_COMPARE_APPROVED", "source_count": 250000, "target_count": 249950}
+   pk-records | {"ok": true, "status": "PREPARING", "run_id": "PSBDDE426A6D03", "total": null, "available_count": 20, "missing_migration": 53, "value_mismatch": 27, "target_only_count": 0, "sampling_status": "FULL_COMPARE_APPROVED", "source_count": 250000, "target_count": 249950}
+   pk-records | {"ok": true, "status": "EARLY_STOPPED", "run_id": "PSBDDE426A6D03", "total": 101, "reimport_total": null, "missing_migration": 67, "value_mismatch": 34, "target_only_count": 0, "sampling_status": "FULL_COMPARE_APPROVED", "source_count": 250000, "target_count": 249950}
+결과 저장: E:\verify_screenshots_only\PK-RANGE-CHUNK-SORT-ORDER-ALIGNMENT-FIX\browser_result_numericpk.json
+
+=== 이번 실행이 만든 run(영속 store) ===
+   {"run_id": "PSBDDE426A6D03", "status": "EARLY_STOPPED", "created_at": "2026-07-29 09:33:53", "strategy": null, "key_col": null, "counts": {"reimport_pks": 101, "passed": 164911, "missing_migration": 67, "value_mismatch": 34, "excluded_target_only": 0, "target_only_stored": 0}, "chunks_total": null, "chunk_size": null, "pk_order": {}}
+[판정] 판정불가(새 run 없음)

@@ -1,0 +1,42 @@
+{
+  "task": "DIRECT-STREAM-PRECOUNT-GATE-FIX",
+  "label": "BEFORE",
+  "env": {
+    "phases": [
+      "P0",
+      "P1",
+      "P2"
+    ],
+    "subset_g": 40000
+  },
+  "phases": {
+    "P0": {
+      "src_count": 1000000,
+      "tgt_count": 990000,
+      "src_subset_count": 40000,
+      "tgt_subset_count": 39600
+    },
+    "P1": {
+      "status": "HOLD",
+      "stop_reason": "HOLD_SIZE_OVER_PHASE1_LIMIT",
+      "error_message": "행 수가 소형 상한(50,000)을 초과해 보류합니다(중·대형은 후속 Phase).",
+      "elapsed_sec": 6.19,
+      "src_scanned_rows": 50001,
+      "tgt_scanned_rows": 49501,
+      "src_query_count": 2,
+      "tgt_query_count": 2,
+      "counts": {}
+    },
+    "P2": {
+      "status": "HOLD",
+      "stop_reason": "HOLD_SIZE_OVER_PHASE1_LIMIT",
+      "error_message": "행 수가 소형 상한(50,000)을 초과해 보류합니다(중·대형은 후속 Phase).",
+      "elapsed_sec": 5.39,
+      "src_scanned_rows": 50001,
+      "tgt_scanned_rows": 49501,
+      "src_query_count": 2,
+      "tgt_query_count": 2,
+      "counts": {}
+    }
+  }
+}

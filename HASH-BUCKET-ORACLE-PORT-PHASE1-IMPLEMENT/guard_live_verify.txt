@@ -1,0 +1,25 @@
+HASH-BUCKET-ORACLE-PORT-PHASE1-IMPLEMENT — same-DBMS 가드 실측
+실행: 2026-07-29 14:56:06 / 대상: http://127.0.0.1:8000 (인증 ON)
+
+[1] 서버가 리팩터된 모듈로 기동했는가
+  OK   GET /diagnosis/dbms-capabilities 200   -> status=200
+  OK   PG hash_bucket=SUPPORTED (매트릭스 불변)   -> SUPPORTED
+  OK   Oracle hash_bucket=NOT_SUPPORTED (이번 단계에서 열지 않음)   -> NOT_SUPPORTED
+
+[2] 혼합 방언(PG↔Oracle) — DB 접근 이전 차단
+      응답: {"ok": false, "blocked": true, "reason": "HASH_BUCKET_CROSS_DBMS_NOT_SUPPORTED", "error": "원본과 목적지의 DBMS 가 서로 다르거나 해시 계약이 없어 행 단위 비교를 이어서 실행할 수 없습니다."}
+  OK   blocked=True   -> True
+  OK   reason=HASH_BUCKET_CROSS_DBMS_NOT_SUPPORTED   -> HASH_BUCKET_CROSS_DBMS_NOT_SUPPORTED
+  OK   역방향(Oracle↔PG)도 동일 차단   -> HASH_BUCKET_CROSS_DBMS_NOT_SUPPORTED
+
+[3] 동일 방언이나 계약 미등록(Oracle↔Oracle) — 차단
+      응답: {"ok": false, "blocked": true, "reason": "HASH_CONTRACT_NOT_AVAILABLE", "error": "원본과 목적지의 DBMS 가 서로 다르거나 해시 계약이 없어 행 단위 비교를 이어서 실행할 수 없습니다."}
+  OK   reason=HASH_CONTRACT_NOT_AVAILABLE   -> HASH_CONTRACT_NOT_AVAILABLE
+
+[4] 동일 방언 PG↔PG — 가드를 통과해 기존 경로로 진행(동작 무변경 반증)
+      응답: {"ok": false, "blocked": true, "reason": "NOT_FOUND", "error": "재개할 수 없는 상태입니다."}
+  OK   가드 사유로 막히지 않음   -> NOT_FOUND
+  OK   기존 재개 게이트(run 미존재)로 낙하   -> NOT_FOUND
+
+──────────────────────────────────────────────────────────────────────
+결과: 통과 9건 / 실패 0건

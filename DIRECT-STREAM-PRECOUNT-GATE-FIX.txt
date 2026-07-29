@@ -1,0 +1,288 @@
+DIRECT-STREAM-PRECOUNT-GATE-FIX-RESUME — 완료보고
+
+작성일: 2026-07-29
+대상 커밋: 2e443f2f3d60bd01417a6db00a0481c78ccf68f6
+  fix(exact-diff): 소형 상한(5만) 판정을 정렬 완료 후 → SQL 발행 전으로 이동
+                   (DIRECT-STREAM-PRECOUNT-GATE-FIX)
+기준 HEAD: f0c8856 (PER-GROUP-DISPLAY-P3-PARTIAL-RECORDS-FIX)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+0. 재개 경위와 워킹트리 온전성 확인
+═══════════════════════════════════════════════════════════════════════════════
+
+이 작업은 DIRECT-STREAM-PRECOUNT-GATE-FIX 로 시작했다가 사용량 한도로 세션이 끊겼고,
+DIRECT-STREAM-PRECOUNT-GATE-FIX-RESUME 로 이어받아 마무리했다. 지시대로 코드를 새로
+짜지 않고, 중단 시점의 워킹트리 변경분을 그대로 이어서 검증만 끝냈다.
+
+재개 직후 확인한 사실은 세 가지다.
+
+첫째, 중단 전에 넣은 수정은 온전했다. `services/exact_diff/engine.py` 에 19줄이 그대로
+남아 있었고 `git diff` 로 본 내용이 의도한 게이트 그 자체였다. `tests/test_exact_diff_engine.py`
+의 신규 테스트 47줄, 실측 드라이버 `scripts/dev_e2e/direct_stream_precount_gate_verify.py`
+280줄도 남아 있었다. 세 파일 모두 `python -m py_compile` 통과. (JS 변경이 없으므로
+node --check 대상 파일은 없다 — 이번 수정은 파이썬 엔진 한 곳뿐이다.)
+
+둘째, 다른 세션이 같은 파일을 건드리지는 않았다. `git log` 상 HEAD 는 여전히 f0c8856
+이고, `services/exact_diff/engine.py` 와 `routes/exact_diff_route.py` 의 마지막 커밋은
+25138f0(2026-07-27, EXACT-DIFF-ROUTE-CHUNKKEY-DIALECT-AND-CAST-FIX)로 내 작업 이전 것이다.
+즉 내 수정과 충돌한 커밋은 없다.
+
+셋째 — 이건 그냥 넘길 수 없는 발견인데, **워킹트리에 내가 만들지 않은 변경이 섞여 있었다.**
+세션 시작 시점의 git status 에는 없던 파일 세 개가 수정 상태로 나타났다:
+
+    services/exact_diff/dialects/oracle.py       +43
+    services/exact_diff/dialects/postgresql.py   +50
+    services/exact_diff/pk_range_chunk.py        +90
+
+diff 안의 태그는 전부 `[PK-RANGE-CHUNK-SORT-ORDER-ALIGNMENT-FIX]` 로, 문자 PK 정렬 전제
+위반을 고치는 **다른 세션의 진행 중 작업**이다. 파일 mtime 은 17:36~17:37 로, 내가 실 DB
+실측을 돌린 17:39~17:43 보다 **앞선다**. 즉 중단 전에 찍은 "After" 실측은 내 게이트뿐
+아니라 남의 미완성 변경까지 포함한 트리에서 나온 값이었다.
+
+이 오염은 두 가지로 처리했다.
+
+  (1) 커밋에서 배제 — `git add` 로 내 파일 세 개만 스테이징해 커밋했다. 남의 작업 파일은
+      워킹트리에 그대로 남겨 두었다(stash 금지 원칙 준수).
+  (2) 실측 재수행 — HEAD(f0c8856)에서 새 worktree 를 파고 **내 패치만** 적용한 깨끗한
+      트리(after_clean)를 만들어 Before/After 를 처음부터 다시 쟀다. 아래 §3 의 수치는
+      전부 이 깨끗한 대조에서 나온 것이고, 중단 전 값은 폐기했다.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+1. 무엇이 문제였나
+═══════════════════════════════════════════════════════════════════════════════
+
+`run_exact_diff`(services/exact_diff/engine.py)에는 소형 직접 비교의 안전상한
+`PHASE1_MAX_ROWS = 50,000` 이 있다. 이 상한을 넘으면 결과를 확정하지 않고
+`HOLD_SIZE_OVER_PHASE1_LIMIT` 로 보류한다. 취지는 명확하다 — 소형 경로로 감당할 수 없는
+규모는 시작하지 말라는 것이다.
+
+그런데 그 판정이 **너무 늦게** 일어났다. 판정 지점은 merge 루프 안이었다:
+
+    out = sm.merge_compare(src_it, tgt_it, ..., max_rows=...)
+    if out.aborted:
+        res.status, res.stop_reason = STATUS_HOLD, HOLD_SIZE_OVER_LIMIT
+
+`merge_compare` 는 어느 한쪽 스캔 행이 상한을 넘으면 중단한다. 문제는 그 첫 행이 언제
+도착하느냐다. 양측 스트림 SQL(`key_hash_stream_sql`)은 merge-join 요건상 `ORDER BY 키` 를
+반드시 포함하고, 정렬은 blocking 연산이라 **DB 가 전체 테이블 정렬을 끝내야 첫 행이
+나온다.** 100만 행이면 100만 행을 다 정렬한 뒤에 5만 번째 행에서 "너무 크네요" 하고
+멈추는 셈이다. 상한이 지키려던 비용을 상한 자신이 이미 다 써 버린 뒤에 발동한다.
+
+BACKLOG S4 가 지적한 "30M 행이면 270초를 다 쓰고 나서야 보류" 가 이 구조다. 그리고 이
+지점은 실제로 다른 진단을 가로막고 있었다 — CHARACTER-PK-SILENT-FALSE-MATCH-1M-REPRODUCE
+가 100만행 prepare 를 HTTP 로 호출하지 못하고 함수 레벨 시뮬레이션으로 우회한 이유가
+바로 "백그라운드 전체 스캔/정렬을 유발하기 때문(BACKLOG S4 참조)" 이었다.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+2. 무엇을 고쳤나 — 판정 시점만 앞으로
+═══════════════════════════════════════════════════════════════════════════════
+
+지침이 못박은 대로 임계값(50,000)도, HOLD 사유 코드도, 사유 문구도 건드리지 않았다.
+바꾼 것은 **언제 판정하느냐** 하나다.
+
+`run_exact_diff` 는 이미 `expected_src_count` / `expected_tgt_count` 를 인자로 받는다.
+2단계 COUNT 사전검증 결과를 넘겨받는 자리로, 기존에는 스캔이 끝난 뒤 "기대 행수와 실제
+스캔 행수가 다르면 SNAPSHOT_CHANGED" 판정에만 쓰였다. 이 값이 이미 손에 있는데도 상한
+판정에는 쓰지 않고 있었던 것이다.
+
+engine.py 의 §1(키 검사 · 방언 검사) 직후, 첫 SQL(`meta_probe`) 발행 직전에 게이트를 넣었다:
+
+    _limit = int(max_rows or PHASE1_MAX_ROWS)
+    for _expected in (expected_src_count, expected_tgt_count):   # src/tgt 대칭 판정
+        if _expected is not None and int(_expected) > _limit:
+            res.status, res.stop_reason = STATUS_HOLD, HOLD_SIZE_OVER_LIMIT
+            res.error_message = f"행 수가 소형 상한({_limit:,})을 초과해 보류합니다(중·대형은 후속 Phase)."
+            res.elapsed_time = time.perf_counter() - t0
+            return res
+
+설계에서 신경 쓴 지점을 남긴다.
+
+  - **위치**: 세션 캐시(§0) 조회 뒤에 뒀다. 앞에 두면 이미 DONE 으로 끝난 캐시 결과가
+    HOLD 로 뒤집힌다. 또 키 검사·방언 검사 뒤에 뒀다 — 앞에 두면 키가 없거나 방언이 다른
+    대량 테이블의 HOLD 사유가 기존 `HOLD_NO_STABLE_KEY` / `HOLD_UNSUPPORTED_DB` 에서
+    `SIZE_OVER` 로 바뀐다. 사유 우선순위를 그대로 보존했다.
+  - **비교 연산자**: `merge_compare` 와 동일하게 초과(`>`)다. 정확히 5만이면 통과한다.
+    `>=` 로 썼다면 경계값 하나가 조용히 막혔을 것이다.
+  - **대칭**: src 만이 아니라 tgt 도 본다. `merge_compare` 가 "어느 한쪽이라도 초과하면
+    중단" 이므로 게이트도 같은 규칙이어야 한다.
+  - **폴백**: `expected_*_count` 가 `None` 인 호출은 게이트를 그냥 지나간다. 사전 COUNT
+    없이 직접 호출되는 경로까지 막으면 정상적인 소형 비교가 차단된다.
+  - **부작용 없음**: `store.create_run` 이전에 반환하므로 보류로 끝난 실행이 run 레코드를
+    남기지 않는다. 이는 기존의 다른 조기 HOLD(키 없음·미지원 방언)와 같은 처리다.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+3. Before / After 실측 — 실 오라클 100만행
+═══════════════════════════════════════════════════════════════════════════════
+
+지침이 지정한 대로 LARGE-DATA-SORT-EXPOSURE-DIAGNOSE 계열이 쓴 동일 대량 픽스처를 썼다.
+오라클에 200,000행 이상인 테이블은 MV_CSPK_SRC(100만)와 MV_ORA_XDIFF_SRC(25만) 둘뿐이라
+가장 큰 CSPK 를 택했다.
+
+  원본 asis(1523)  NXDNP.MV_CSPK_SRC   1,000,000행
+  목적 tobe(1524)  NXDNP.MV_CSPK_TGT     990,000행 (참값 누락 10,000행)
+  키 PK_STR(문자) · 값비교 AMT/QTY/ITEM_NM/STATUS_CD (REG_DT 는 NLS 형식차 때문에 제외)
+
+Before 는 HEAD(f0c8856) worktree, After 는 **HEAD + 내 패치만** 적용한 worktree 로,
+두 트리의 차이는 engine.py 19줄과 테스트뿐이다. 같은 드라이버·같은 픽스처·같은 시간대.
+
+【지시 2】 게이트 경로 — expected_src_count 를 넘긴 호출 (3회 반복)
+
+  구분     경과시간              원본 스캔   목적 스캔   쿼리 수   판정
+  ------   -------------------   ---------   ---------   -------   --------------------------
+  Before   6.19s / 7.81s / 6.67s    50,001      49,501       4      HOLD_SIZE_OVER_PHASE1_LIMIT
+  After    0.00s / 0.00s / 0.00s         0           0       0      HOLD_SIZE_OVER_PHASE1_LIMIT
+
+  사유 문구는 양쪽 완전히 동일: "행 수가 소형 상한(50,000)을 초과해 보류합니다(중·대형은
+  후속 Phase)."
+
+  시간보다 더 분명한 증거는 **쿼리 수와 스캔 행 수가 0** 이라는 점이다. Before 는 메타
+  probe 2회 + 스트림 2회, 도합 4개 쿼리를 실제로 DB 에 던지고 99,502행을 네트워크로
+  받아 온 뒤에야 보류했다. After 는 DB 연결조차 열지 않는다. 시간이 0.00s 인 것은
+  네트워크 상태가 좋아서가 아니라 **할 일이 없어서**다 — 이 값은 회선 상태와 무관하게
+  재현된다(3회 모두 0.00s).
+
+  덧붙여, 여기서 잰 6~8초는 100만행 기준이다. S4 가 인용한 270초는 30M 행 기준의 값이고
+  이번에 그 규모를 실측하지는 않았다. 다만 정렬은 O(n log n) 에 메모리 초과 시 디스크
+  spill 이 붙으므로, 행 수가 30배면 시간은 30배보다 나빠지면 나빴지 낫지 않는다.
+  절감폭은 규모에 비례해 커진다.
+
+【지시 3】 폴백 경로 — 사전 COUNT 없이 호출 (회귀 확인)
+
+  구분     경과시간   원본 스캔   목적 스캔   쿼리 수   판정
+  ------   --------   ---------   ---------   -------   --------------------------
+  Before     5.39s      50,001      49,501       4      HOLD_SIZE_OVER_PHASE1_LIMIT
+  After      8.58s      50,001      49,501       4      HOLD_SIZE_OVER_PHASE1_LIMIT
+
+  스캔 행 수·쿼리 수·판정·사유 문구가 모두 동일하다. 게이트를 건너뛰고 기존 경로를 그대로
+  탄다는 뜻이다. 경과시간이 5.39 → 8.58s 로 늘어난 것은 코드 차이가 아니라 원격 오라클
+  왕복 편차다(같은 조건 Before 반복에서도 6.19~7.81s 로 흔들렸다). 구조 지표가 전부
+  일치하므로 회귀로 보지 않는다.
+
+【지시 4】 정상 케이스 — 5만행 이하 (HOLD 되면 안 되는 경우)
+
+  전역순번 g<=40,000 으로 범위를 잘라 원본 40,000행 / 목적 39,600행(누락 400행)으로 맞췄다.
+
+  구분     경과시간   판정   분류
+  ------   --------   -----   -----------------------------------------------------
+  Before     6.64s     DONE   source_only=400, target_only=0, value_different=0, dup=0
+  After      6.89s     DONE   source_only=400, target_only=0, value_different=0, dup=0
+
+  픽스처 참값(g<=40,000 구간에서 MOD(g,100)=0 인 400행 누락)과 정확히 일치한다. 게이트가
+  정상 규모를 막지 않고, 판정 결과도 비트 단위로 동일하다.
+
+【HTTP — 운영 포트 8000 · 인증 ON】
+
+  실 서비스 포트에서 `/exact-diff/run` 을 Basic Auth 로 직접 호출해 같은 대조를 했다.
+
+  구분              expected 지정(게이트)   expected 없음(폴백)
+  ---------------   ---------------------   -------------------
+  Before(HEAD 서버)         5.81s                  5.83s
+  After (현행 서버)         0.23s                  7.25s
+
+  둘 다 HTTP 200 · status=HOLD · HOLD_SIZE_OVER_PHASE1_LIMIT · 동일 사유 문구.
+  After 의 0.23s 는 HTTP 왕복과 요청 파싱이 대부분이고 DB 작업은 0이다.
+
+  서버 재기동: Before 측정용 baseline 서버를 8000 에 올렸다가, 이후 현행 코드 서버로
+  교체했다. 최종 확인 시점의 서버는 PID 21832, 기동 시각 **2026-07-29 18:23:54**(다른
+  세션이 재기동한 프로세스이며, 내 engine.py 수정(17:34) 이후에 뜬 것이라 게이트를
+  포함한다 — 위 0.23s 응답이 그 증거다).
+
+
+═══════════════════════════════════════════════════════════════════════════════
+4. 회귀 검증
+═══════════════════════════════════════════════════════════════════════════════
+
+전부 깨끗한 after_clean worktree(HEAD + 내 패치만)에서 돌렸다. 오염된 메인 트리에서
+돌린 결과는 내 변경에 귀속시킬 수 없어 쓰지 않았다.
+
+  - tests/test_exact_diff_engine.py            17 passed (신규 2건 포함)
+  - exact_diff/agg_diff/reimport/pk_range 부분집합
+                                               93 passed, 1 skipped, 1 xfailed, 5 failed
+  - samples/test_virtual_cases.py              8/8 통과
+  - samples/test_complex_cases.py              5/5 통과
+
+실패 5건은 전부 `tests/test_exact_diff_ui_wiring.py` 이며, **내 변경 이전부터 있던
+실패**다. HEAD(f0c8856) worktree 에서 그대로 돌려 동일한 5건이 같은 이유로 실패하는 것을
+확인했다(렌더된 페이지에서 `_mvExactDiffUpdateButton` / `mvExactDiffRun` 등을 못 찾음 —
+UI 렌더러 쪽 사전 존재 실패이고 엔진과 무관하다).
+
+신규 테스트 2건이 검증하는 것:
+
+  test_size_over_limit_gate_fires_before_any_sql
+    - 사전 COUNT 초과 시 meta/stream/detail 쿼리가 모두 0회인지 (SQL 발행 전 차단)
+    - 스캔 행 수가 src/tgt 모두 0인지
+    - 사유 문구에 임계값이 그대로 찍히는지 (문구·임계값 불변)
+    - tgt 쪽 초과도 대칭으로 잡는지
+    - 정확히 상한과 같으면 통과하는지 (경계값)
+
+  test_size_over_limit_gate_skipped_without_expected_count
+    - expected 미지정이면 스트림을 실제로 열고(stream=2) 기존대로 스캔 중 판정하는지
+    - 5만행 이하 + 사전 COUNT 지정이 DONE 으로 끝나는지
+
+전체 스위트(11,000여 건, 약 60분)는 after_clean worktree 에서 백그라운드로 돌렸으나 이
+보고 작성 시점에 완료되지 않았다. 위 부분집합과 샘플 테스트로 대신했음을 명시한다.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+5. 정직하게 남기는 한계
+═══════════════════════════════════════════════════════════════════════════════
+
+■ 이 게이트는 현재 UI 클릭 경로에서는 발동하지 않는다.
+
+  `expected_src_count` 를 서버로 보내는 화면 코드가 없다. 확인해 보니 UI(tabler_renderer.py
+  :16582)는 자체적으로 `totalRows <= 50000` 을 **클라이언트에서** 먼저 검사하고, 초과면
+  아예 요청을 보내지 않고 "EXACT_DIFF_SIZE_HOLD" 를 그려 버린다. 그래서 UI 로는 대량
+  요청이 서버에 도달하지 않는다.
+
+  이 수정의 실효 범위는 그 클라이언트 검사를 거치지 않는 호출 — API 직접 호출, 스크립트,
+  그리고 화면 검사가 어떤 이유로든 우회되는 경우다. 서버 측 방어선으로서의 가치이지,
+  "화면이 빨라졌다" 는 아니다. 지침이 지정한 범위(판정 시점 이동)를 넘어 UI 배선까지
+  건드리는 것은 하지 않았다.
+
+■ 브라우저 스크린샷은 남기지 못했다.
+
+  위 이유 그대로다. 브라우저에서 이 게이트를 눈으로 보여 주려면 UI 의 5만행 클라이언트
+  검사를 먼저 뚫어야 하는데, 그건 이 작업의 범위가 아니다. 대신 실 서비스 포트 8000 ·
+  인증 ON 상태의 HTTP 응답 실측(§3)과 원본 JSON 을 증적으로 남겼다.
+
+■ 실측 규모는 100만행이며 30M 은 아니다.
+
+  가용한 최대 픽스처가 100만행이었다. 270초라는 S4 의 숫자는 검증하지 않았고 인용만 했다.
+
+■ "재이관 DIRECT_STREAM" 이라는 표현에 대한 정정.
+
+  `PHASE1_MAX_ROWS` 상한이 실제로 존재하는 곳은 `run_exact_diff`(exact_diff 엔진) 한
+  곳뿐이다. 재이관 prepare 경로(`prepare_reimport_pk_index_stream` / `agg_contribution`)
+  에는 이 상한이 없다 — 거기는 조기중단(early_stop) 정책으로 다르게 제어된다. 지침이
+  지정한 수정 위치(engine.py 진입부)와 실제 결함 위치는 일치하며, 전략 명칭
+  `DIRECT_STREAM_COMPARE` 와 이 상수가 서로 다른 계층의 이름이라는 점만 적어 둔다.
+
+■ 워킹트리에 남의 미완성 변경이 있다.
+
+  `PK-RANGE-CHUNK-SORT-ORDER-ALIGNMENT-FIX` 의 3개 파일(dialects/oracle.py,
+  dialects/postgresql.py, pk_range_chunk.py)이 커밋되지 않은 채 남아 있다. 내 커밋에는
+  포함하지 않았고 손대지도 않았다. 그 세션이 이어서 커밋할 몫이다.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+6. 변경 파일
+═══════════════════════════════════════════════════════════════════════════════
+
+  services/exact_diff/engine.py                        +19   사전 게이트(핵심 수정)
+  tests/test_exact_diff_engine.py                      +47   신규 테스트 2건
+  scripts/dev_e2e/direct_stream_precount_gate_verify.py +280  실측 드라이버(신규)
+
+  커밋: 2e443f2f3d60bd01417a6db00a0481c78ccf68f6
+
+증적: E:\verify_screenshots_only\DIRECT-STREAM-PRECOUNT-GATE-FIX\
+  before_p1_p2.json / before_p3.json / before_p4_http.json
+  before_p1_rep2.json / before_p1_rep3.json
+  after_clean_p1_p2_p3.json / after_p1_rep2.json / after_p1_rep3.json
+  after_p4_http.json / engine_diff.txt / commit_stat.txt / server_restart_8000.log
+
+
+작업 상태: ✅ 완료 — DIRECT-STREAM-PRECOUNT-GATE-FIX-RESUME
