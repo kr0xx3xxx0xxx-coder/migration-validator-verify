@@ -1,0 +1,174 @@
+✅ 작업 완료 - 재시작 전 저장소 최신성 점검: 결론 "주의 — 미커밋 변경 있음, 내용은 온전함"
+
+작업명 : SERVER-RESTART-COMMIT-FRESHNESS-CHECK
+일시   : 2026-07-29 14:09 KST
+성격   : 읽기 전용 확인 (서버 재시작·코드 변경 일절 수행 안 함)
+대상   : C:\projects\migration-validator (branch: main, upstream 미설정)
+
+
+────────────────────────────────────────────────────────────
+1. 워킹트리 상태 (git status)
+────────────────────────────────────────────────────────────
+총 83개 엔트리 — 추적 파일 수정 3건 + 미추적 80건, staged 변경 0건.
+
+[추적 파일 수정 3건]
+ M .claude/settings.local.json
+ M docs/STATS_VALIDATION_CHUNKED_VS_SINGLE_TRADEOFF.md
+ M services/stats_execute_service.py
+
+[미추적 80건 — 성격별]
+ - db/chunk_checkpoints.db-shm, db/chunk_checkpoints.db-wal  (2건, SQLite 런타임 아티팩트)
+ - docs/*.md                                                  (9건, 설계·타당성 문서)
+ - scripts/dev_e2e/*.py, *.txt                                (69건, 개발용 검증 드라이버)
+ → 런타임 임포트 경로(web_server.py / services / ui / parser / analyzer)에 속한
+   미추적 소스 파일은 0건. 즉 서버 동작에 영향을 주는 미추적 코드 없음.
+
+
+────────────────────────────────────────────────────────────
+2. 변경량 및 문법 온전성 (git diff --stat + 문법 검사)
+────────────────────────────────────────────────────────────
+$ git diff --stat
+ .claude/settings.local.json                         |  4 +++-
+ docs/STATS_VALIDATION_CHUNKED_VS_SINGLE_TRADEOFF.md | 16 ++++++++++++----
+ services/stats_execute_service.py                   |  7 +++++--
+ 3 files changed, 20 insertions(+), 7 deletions(-)
+
+$ git diff --cached --stat
+ (출력 없음 — staged 변경 0건)
+
+[변경 내용 실체]
+ · services/stats_execute_service.py (+5/-2)
+   → 코드 변경 아님. EXECUTE_STATEMENT_TIMEOUT_MS 위 블록의 **주석만** 갱신.
+     "COUNT 사전검증은 상한 없음" 이라는 낡은 서술을
+     "COUNT 사전검증은 db_query_service.COUNT_STATEMENT_TIMEOUT_MS(기본 60000ms,
+      env MV_COUNT_STATEMENT_TIMEOUT_MS)를 가짐" 으로 정정하는 문서화 diff.
+     실행 문장(statement) 변경 0줄 → 재시작해도 런타임 거동 변화 없음.
+
+ · .claude/settings.local.json (+2/-1)
+   → permissions.allow 목록에 항목 2개 추가(진단 스크립트 실행 허용).
+     Claude Code 하네스 설정이며 web_server.py 런타임과 무관.
+
+ · docs/STATS_VALIDATION_CHUNKED_VS_SINGLE_TRADEOFF.md (+12/-4)
+   → 문서.
+
+[문법 검사 결과]
+ $ python -m py_compile services/stats_execute_service.py
+   → py_compile OK: services/stats_execute_service.py
+ $ python -c "json.load(open('.claude/settings.local.json'))"
+   → JSON OK: .claude/settings.local.json
+ node --check 대상(.js) 변경 없음 — 미커밋/미추적 통틀어 .js 파일 0건이라 미실시.
+
+ ⇒ 미커밋 변경 3건 모두 문법적으로 온전하며, 중간에 끊긴 편집 흔적 없음.
+
+
+────────────────────────────────────────────────────────────
+3. 최근 커밋 이력 (git log --oneline -5)
+────────────────────────────────────────────────────────────
+0d3a560 feat(admin-column): 관리컬럼 수동 확정(override)을 3단계 후보표·판정에 연결
+        (AMBIGUOUS-ADMIN-COLUMN-MANUAL-OVERRIDE-UI-CONNECT)   ← HEAD
+a2c3646 fix(tests): node 서브프로세스 상한 가드 도입 — harness 무한루프로 pytest 가
+        영구 정지하던 문제 (TEST-NODE-SUBPROCESS-TIMEOUT-GUARD-ADD)
+7d94b99 feat(step4): 4단계 SQL 카드에 조합(PAIR) 검증 opt-in 진입점 복원
+        (COMBO-PAIR-ENTRY-POINT-RESTORE-IMPLEMENT)
+a649dab test(reimport): 표본 스킵 브라우저 검증 드라이버를 현행 UI 진입점에 맞춤
+        (REIMPORT-SAMPLING-PREFLIGHT-SKIP-FOR-WRAPPING-SOURCE-FIX)
+e9248c3 perf(reimport): CTE/JOIN wrapping 소스에서 표본 preflight 게이트 건너뛰기
+        (REIMPORT-SAMPLING-PREFLIGHT-SKIP-FOR-WRAPPING-SOURCE-FIX)
+
+HEAD 전체 해시 : 0d3a560a56ded15f6c204591d260500443d97097
+HEAD 커밋 시각 : 2026-07-29 13:54:50 +0900
+브랜치        : main (upstream 미설정 — ahead/behind 비교 대상 없음)
+
+[요구된 해시 포함 여부]
+ · 0d3a560 → HEAD 그 자체. 포함 ✅
+ · a2c3646 → HEAD의 직계 부모. 포함 ✅
+ ⇒ verify 저장소에 기록된 최근 완료 작업 커밋들을 현재 HEAD가 모두 포함하고 있음.
+
+[특기] 이 세션 시작 시점 스냅샷의 HEAD 는 a2c3646 이었으나, 현재 HEAD 는 0d3a560.
+ 즉 세션 진행 중 다른 세션이 0d3a560 을 커밋했다. 저장소는 뒤쳐진 게 아니라
+ 오히려 세션 스냅샷보다 한 커밋 앞서 있는 상태(= 더 최신).
+
+
+────────────────────────────────────────────────────────────
+4. 살아있는 8000 포트 서버 vs 코드 파일 최종 수정 시각
+────────────────────────────────────────────────────────────
+[8000 포트 프로세스]
+ PID          : 24640
+ 프로세스     : python  ("C:\Python314\python.exe" web_server.py)
+ 상태         : LISTEN on :8000
+ 시작 시각    : 2026-07-29 14:07:39
+ 점검 기준시각: 2026-07-29 14:09:19  (가동 약 1분 40초)
+
+[코드 파일(.py/.js/.html/.css) 최종 수정 상위]
+ 2026-07-29 13:22:07  scripts\dev_e2e\admin_column_manual_override_ui_connect_verify.py
+ 2026-07-29 13:21:55  ui\js_admin_column_override.py
+ 2026-07-29 13:21:10  ui\tabler_renderer.py
+ 2026-07-29 13:05:11  services\single_validation_analyze_service.py
+ 2026-07-29 13:05:04  services\candidate_display_enricher.py
+ 2026-07-29 13:04:44  services\candidate_subtype_service.py
+ 2026-07-29 10:41:33  tests\test_node_timeout_guard.py
+ 2026-07-29 10:41:16  tests\node_timeout_guard.py
+ (이하 생략 — 전부 그 이전)
+
+[미커밋 변경 3파일 mtime]
+ 2026-07-28 20:07:11  services\stats_execute_service.py                        (약 18시간 전)
+ 2026-07-28 20:08:00  docs\STATS_VALIDATION_CHUNKED_VS_SINGLE_TRADEOFF.md      (약 18시간 전)
+ 2026-07-26 22:40:28  .claude\settings.local.json                              (약 2.6일 전)
+
+[비교 판정]
+ 가장 최근 코드 파일 수정 = 13:22:07
+ 서버 기동                = 14:07:39   (45분 32초 늦음)
+ ⇒ 모든 코드 파일 mtime 이 서버 기동 시각보다 이르다.
+   현재 떠 있는 서버(PID 24640)는 **최신 코드를 로드한 상태**이며,
+   미커밋 변경(stats_execute_service.py 주석)도 이미 반영된 상태로 서빙 중.
+   "실행 중 서버는 옛 모듈(reload=False)" 리스크는 이번 건에는 해당 없음.
+
+
+────────────────────────────────────────────────────────────
+5. 다른 세션의 실시간 편집 여부 (최근 1~5분 이내 수정 파일)
+────────────────────────────────────────────────────────────
+전체 파일(.git / __pycache__ / node_modules / venv 제외) 대상, 최근 5분 이내 수정:
+
+ 14:07:41  db\chunk_checkpoints.db-shm   (1.98분 전)   ← 유일
+
+ 이 1건의 정체: SQLite WAL 공유메모리 인덱스 파일. 수정 시각 14:07:41 은
+ 서버 기동 14:07:39 의 +2초 시점 → 방금 뜬 서버 자신이 DB 를 열면서 만든
+ 런타임 아티팩트이며, 사람/다른 세션의 소스 편집이 아니다.
+
+ 소스 코드 파일 기준 최근 1~2분 이내 수정: **0건**
+ (가장 최근 코드 편집도 47분 전인 13:22:07)
+
+ ⇒ 지금 이 순간 파일을 활발히 편집 중인 다른 세션은 관측되지 않음.
+    다만 40분 전~1시간 전 구간에는 다른 세션의 작업 흔적이 뚜렷하며
+    (13:04~13:22 소스 편집 → 13:54:50 커밋 0d3a560),
+    그 세션은 커밋까지 마쳐 일단락된 것으로 보인다.
+    남은 미커밋 3건은 그 세션과 무관한 어제(7/28 20:07)·그제 자투리 변경.
+
+
+────────────────────────────────────────────────────────────
+6. 종합 결론
+────────────────────────────────────────────────────────────
+▶ 주의 — 미커밋 변경 있음, 내용은 온전함(재시작해도 그 변경사항까지 반영됨)
+
+근거 요약:
+ · 워킹트리가 깨끗하지 않음(추적 파일 3건 수정) → "안전" 등급은 불가.
+ · 그러나 3건 모두 문법 검증 통과, 편집이 중간에 끊긴 흔적 없음.
+   실질 내용은 주석 1건 + 문서 1건 + 하네스 권한목록 1건으로
+   web_server.py 런타임 거동을 바꾸는 코드 변경은 0줄.
+ · HEAD(0d3a560)가 a2c3646 을 포함 — 최신 완료 작업들이 모두 반영됨.
+ · 현재 서버는 14:07:39 기동으로 모든 코드 파일보다 나중 → 이미 최신 코드 서빙 중.
+ · 최근 1~2분 내 소스 편집 0건 → 다른 세션과 재시작 시점을 조율할 필요 없음.
+   ("위험" 등급의 두 조건 — 불완전한 미커밋 변경, 진행 중인 동시 편집 — 모두 미성립)
+
+부가 판단:
+ · 재시작을 막을 요소는 없다. 다만 현재 서버가 이미 최신 코드를 서빙 중이므로
+   이번 재시작으로 얻는 코드 반영 효과는 사실상 없다(가동 2분 미만).
+ · 재시작 시 db/chunk_checkpoints.db 의 WAL(-wal/-shm)이 열려 있는 상태이므로,
+   진행 중인 청크 검증 job 이 있다면 그 job 은 소실될 수 있다. 재시작 전
+   활성 job 유무 확인을 권장(본 점검 범위 밖이라 미확인).
+
+수행하지 않은 것(지시대로 읽기 전용 준수):
+ · 서버 재시작 미수행, 프로세스 종료 미수행
+ · 코드 저장소 파일 수정·커밋·push 미수행 (git 명령은 status/diff/log 조회만)
+
+✅ 작업 완료 - 재시작 전 저장소 최신성 점검: 결론 "주의 — 미커밋 변경 있음, 내용은 온전함"
