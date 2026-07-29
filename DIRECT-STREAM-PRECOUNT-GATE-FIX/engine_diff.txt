@@ -1,0 +1,52 @@
+commit 2e443f2f3d60bd01417a6db00a0481c78ccf68f6
+Author: migration-validator <dev@migration-validator.local>
+Date:   Wed Jul 29 18:25:51 2026 +0900
+
+    fix(exact-diff): 소형 상한(5만) 판정을 정렬 완료 후 → SQL 발행 전으로 이동 (DIRECT-STREAM-PRECOUNT-GATE-FIX)
+    
+    BACKLOG S4. run_exact_diff 의 PHASE1_MAX_ROWS(5만) 상한은 merge_compare 스캔 '중'에만
+    판정돼, KEY+ROW_HASH 스트림의 blocking ORDER BY 가 전체 정렬을 끝낸 뒤에야 HOLD 가 났다.
+    이미 확보된 COUNT 사전검증 값(expected_src/tgt_count)이 상한을 넘으면 SQL 발행 전에
+    같은 사유·같은 문구로 즉시 보류한다. 임계값과 HOLD 사유는 불변 — 판정 시점만 이동.
+    
+    - expected_*_count 가 없는 호출 경로는 게이트를 건너뛰고 기존 동작(스트리밍 후 판정) 폴백
+    - 비교 조건은 merge_compare 와 동일한 초과(>) — 정확히 상한과 같으면 통과
+    - src/tgt 대칭 판정
+    
+    실측(실 오라클 MV_CSPK_SRC 100만행 / MV_CSPK_TGT 99만행, 동일 HEAD 기준 worktree 대조):
+      Before 6.19/7.81/6.67s · 50,001+49,501행 스캔 · 쿼리 4회
+      After  0.00/0.00/0.00s · 0행 스캔 · 쿼리 0회
+      폴백(사전 COUNT 없음)·5만행 이하 정상 케이스(source_only 400) 모두 회귀 없음
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+diff --git a/services/exact_diff/engine.py b/services/exact_diff/engine.py
+index 64798ce..562f3ac 100644
+--- a/services/exact_diff/engine.py
++++ b/services/exact_diff/engine.py
+@@ -253,6 +253,25 @@ def run_exact_diff(*, src_conn: dict, tgt_conn: dict, src_sql: str, tgt_sql: str
+             res.elapsed_time = time.perf_counter() - t0
+             return res
+         io = make_exact_diff_io(src_conn, tgt_conn)
++
++    # 1-b) [DIRECT-STREAM-PRECOUNT-GATE-FIX] 소형 상한 사전 게이트 — 판정 '시점'만 앞당긴다.
++    #   기존에는 이 상한을 merge_compare 가 스캔 중 초과했을 때(out.aborted, §3 아래)만 판정했다.
++    #   그런데 KEY+ROW_HASH 스트림 SQL 은 `ORDER BY` 를 포함하는 blocking 연산이라, 상한 초과가
++    #   확실한 대량 테이블에서도 DB 가 전체 정렬을 끝내야 첫 행이 나온다 — 즉 수십~수백 초를
++    #   다 쓰고 나서야 HOLD 가 났다(30M 행이면 정렬만 270초). 이미 확보된 COUNT 사전검증 값
++    #   (expected_src/tgt_count)이 상한을 넘으면 SQL 발행 전에 같은 사유로 즉시 보류한다.
++    #   임계값(max_rows)과 사유 문구는 아래 사후 판정과 동일하게 유지한다 — 위치만 이동.
++    #   expected_*_count 가 없는 호출 경로(사전 COUNT 미수행)는 게이트를 건너뛰고 기존 동작
++    #   (스트리밍 후 판정)으로 폴백한다 — 이 경로를 막으면 정상 소형 비교까지 차단된다.
++    #   비교 조건은 merge_compare 와 동일하게 '초과(>)' 다 — 정확히 상한과 같으면 통과.
++    _limit = int(max_rows or PHASE1_MAX_ROWS)
++    for _expected in (expected_src_count, expected_tgt_count):   # src/tgt 대칭 판정
++        if _expected is not None and int(_expected) > _limit:
++            res.status, res.stop_reason = STATUS_HOLD, HOLD_SIZE_OVER_LIMIT
++            res.error_message = f"행 수가 소형 상한({_limit:,})을 초과해 보류합니다(중·대형은 후속 Phase)."
++            res.elapsed_time = time.perf_counter() - t0
++            return res
++
+     # 방언별 SQL 생성은 adapter 에 위임한다(엔진 안에서 db_type 으로 SQL 을 분기하지 않는다).
+     # io 주입(테스트)으로 db_type 이 비어 있으면 기존 동작대로 PostgreSQL adapter 를 쓴다.
+     adapter = get_canonical_adapter(sdb) or get_canonical_adapter("postgresql")

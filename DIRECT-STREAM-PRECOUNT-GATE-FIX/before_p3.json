@@ -1,0 +1,36 @@
+{
+  "task": "DIRECT-STREAM-PRECOUNT-GATE-FIX",
+  "label": "BEFORE",
+  "env": {
+    "phases": [
+      "P0",
+      "P3"
+    ],
+    "subset_g": 40000
+  },
+  "phases": {
+    "P0": {
+      "src_count": 1000000,
+      "tgt_count": 990000,
+      "src_subset_count": 40000,
+      "tgt_subset_count": 39600
+    },
+    "P3": {
+      "status": "DONE",
+      "stop_reason": "",
+      "error_message": "",
+      "elapsed_sec": 6.64,
+      "src_scanned_rows": 40000,
+      "tgt_scanned_rows": 39600,
+      "src_query_count": 3,
+      "tgt_query_count": 2,
+      "counts": {
+        "source_only": 400,
+        "target_only": 0,
+        "value_different": 0,
+        "duplicate_key": 0
+      },
+      "is_matched": false
+    }
+  }
+}
