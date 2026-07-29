@@ -1,0 +1,186 @@
+작업명 : UNION-SAMETABLE-WRAPPING-DETECTION-AST-FIX
+✅ 작업 완료 - UNION-SAMETABLE-WRAPPING-DETECTION-AST-FIX - UNION 판정을 문자열 검사에서 sqlglot AST로 교체해 동일 테이블 UNION의 절반만 비교하던 조용한 과소집계 제거(재이관 대상 75건 → 정답 150건)
+
+================================================================================
+1. 결함 요약
+================================================================================
+routes/agg_diff_route.py `_reimport_source_needs_wrapping` 의 UNION 판정이 문자열 검사였다.
+
+    if (" UNION " in raw.upper()) or raw.upper().endswith(" UNION"):
+
+두 가지가 겹쳐 무력화된다.
+  (1) 실무 표준 포맷("...\nUNION ALL\nSELECT ...")은 UNION 이 행 선두라 앞 공백이 없어 매칭 실패.
+      (들여쓰기된 "  UNION ALL" 은 앞 공백 때문에 '우연히' 걸린다 — 포맷에 따라 판정이 갈렸다.)
+  (2) 동일 테이블끼리의 UNION 은 extract_physical_source_tables 의 대문자 dedup 때문에 물리 테이블이
+      1개로 세어져 물리 테이블 수 게이트(len(phys)>=2)도 통과한다.
+
+→ wrapping 이 아니라 단순 1:1 재파생(_derive_row_sqls)이 선택되고, 그 재파생은
+   parse_result['where'](= 첫 브랜치 WHERE)만 복사하므로 원본 결과셋의 절반만 비교 대상이 된다.
+   같은 함수가 fan-out 게이트(_native_pk_fanout_present, agg_diff_route.py:620)의 선행 조건이라
+   PK 중복 검사도 함께 무력화됐다.
+근거: verify 저장소 SQLGLOT-USAGE-CONSISTENCY-AUDIT-DIAGNOSE.txt (P1-1)
+
+================================================================================
+2. 수정 내용 (routes/agg_diff_route.py 단일 파일)
+================================================================================
+[신설] _raw_union_present(raw, dialect) → True / False / None(파싱 실패)
+  ① top-level : 통계검증 원본 wrapping 이 이미 쓰는 기존 AST 유틸
+                services/validation_sql/source_stats_sql_builder.py 의 _raw_shape 를 그대로 재사용.
+                'UNION 이면 첫 브랜치만 재조합돼 과소 집계된다'는 동일 판단을 두 경로가 같은 유틸로
+                내리게 해 통계검증 wrapping ↔ 재이관 wrapping 판정이 어긋나지 않게 한다.
+  ② 그 외 위치 : _raw_shape 는 top-level 형태만 분류하므로(서브쿼리 안 UNION 은 'DERIVED'로 뭉뚱그려짐)
+                같은 파스 트리에서 exp.Union 노드를 전수 탐색(tree.find) → 인라인뷰/서브쿼리/CTE 내부
+                UNION 까지 검출. 문자열 검사는 완전히 제거했다.
+  · exp.Union 은 UNION/UNION ALL 만 해당(sqlglot 30.7.0 에서 EXCEPT/INTERSECT 는 별도 노드) —
+    판정 범위를 임의로 넓히지 않았다.
+
+[변경] _reimport_source_needs_wrapping
+  · UNION 판정을 물리 테이블 수 게이트보다 **먼저, 독립적으로** 평가 — 동일 테이블 UNION 은 물리
+    테이블이 1개로 잡혀도 wrapping 필요로 판정된다(요구사항 1).
+  · sqlglot 파싱 실패(None) 시 폴백을 False → **True(감싸기)** 로 전환(요구사항 2).
+    사유: 파싱 실패 = '원본 형태를 모른다'. 모르는 형태를 단순 재파생하면 UNION/JOIN 을 놓쳐 조용한
+    과소집계가 나지만, wrapping 은 원본 SQL 을 그대로 서브쿼리로 감싸 실행해 행집합이 불변이다
+    (통계검증 wrapping 과 동일 원칙). 감싸기 자체가 불가한 형태는 하위 _derive_row_sqls_wrapped 가
+    정직한 HOLD 사유를 반환한다 — 조용히 틀린 숫자를 내지 않는다.
+  · 삭제: `if (" UNION " in raw.upper()) or raw.upper().endswith(" UNION"): return True`
+
+================================================================================
+3. 실측 검증 — 실 DB (스키마 변경 없음 · read-only)
+================================================================================
+대상: 오라클 asis(192.168.0.151:1523) → tobe(:1524) 실 쌍
+  asis NXDNP.MV_ORA_XDIFF_SRC  250,000행 (ID 1~250,000)
+  tobe NXDNP.MV_ORA_XDIFF_TGT  249,950행 (ID 1~250,050)
+  ground truth : 미이관 100 + 값불일치 50 = 재이관 대상 150건, 목적지 단독 50건
+재현 SQL(실무 표준 포맷 — 개행 포함 동일 테이블 UNION ALL, 파티션 분할 이관의 전형):
+  INSERT INTO NXDNP.MV_ORA_XDIFF_TGT (ID, C_NUM_PS)
+  SELECT ID, C_NUM_PS FROM NXDNP.MV_ORA_XDIFF_SRC WHERE ID <= 125000
+  UNION ALL
+  SELECT ID, C_NUM_PS FROM NXDNP.MV_ORA_XDIFF_SRC WHERE ID > 125000
+  (parse_result.where = 'ID <= 125000' — 첫 브랜치 WHERE 만 실림. /analyze 실응답으로 확보)
+
+── [S2] 파생 원본 SQL 실측 COUNT (실 오라클 asis 직접 실행) ──────────────────────
+  케이스                          수정 전            수정 후            정답
+  U1 동일테이블 UNION ALL(개행)    125,000 (절반)    250,000            250,000
+  U4 서브쿼리 내부 UNION(들여쓰기)  250,000           250,000            250,000
+  U5 서브쿼리 내부 UNION(행 선두)   250,000           250,000            250,000
+  P1 단순 1:1                      250,000           250,000            250,000
+  P2 단순 1:1 + WHERE              250,000           250,000            250,000
+  P3 CTE                           250,000           250,000            250,000
+  → U1 이 정확히 절반만 산출하던 것이 전량으로 교정. 무회귀 케이스는 전부 수치 불변.
+
+── [S3] 종단 실측 — POST /agg-diff/prepare (src_sql/tgt_sql 미전달 = 서버가 직접 파생) ──
+  UI 와 동일 엔드포인트. 수정 후 측정은 서버 재기동(PID 21832 → 22256) 후 수행.
+  항목                              수정 전      수정 후      정답
+  재이관 대상(reimport_pks)          75          150          150
+    · 미이관(missing_migration)      50          100          100
+    · 값불일치(value_mismatch)       25          50           50
+  비교 통과(passed)                  124,925     249,850      249,850
+  원본 처리 행수(passed+대상)        125,000     250,000      250,000
+  목적지 단독 오분류                 125,000     50           50
+  소요                               7.73s       3.74s
+  run_id                             PSD93F48B4FA4C  PS6584967B2D3B
+  → 수정 전에는 목적지 후반부 12.5만행 전체가 '목적지 단독'으로 오분류됐고, 실제 재이관 대상 150건 중
+     75건(정확히 절반)만 산출됐다. 수정 후 3개 수치 모두 ground truth 와 정확히 일치.
+
+── [S1] 판정 매트릭스 (수정 전은 clean HEAD worktree 에서 동일 하니스로 측정) ─────────
+  case 설명                              수정 전   수정 후   기대    비고
+  U1   동일테이블 UNION ALL(개행)          False    True     True   ★결함 본체
+  U2   동일테이블 UNION ALL(한 줄)         True     True     True   기존에도 문자열 검사에 걸림
+  U3   이종테이블 UNION ALL(개행)          True     True     True   물리테이블 수 게이트로 통과
+  U4   서브쿼리 내부 UNION(들여쓰기)        True     True     True   앞 공백 때문에 우연히 걸리던 케이스
+  U5   서브쿼리 내부 UNION(행 선두)         False    True     True   ★중첩 UNION 미탐지
+  P1   단순 1:1(무회귀 가드)               False    False    False  변화 없음
+  P2   단순 1:1 + WHERE(무회귀 가드)       False    False    False  변화 없음
+  P3   CTE                                True     True     True   변화 없음
+  P4   JOIN 물리 2개                       True     True     True   변화 없음
+  N1   망가졌지만 파싱은 되는 SQL           False    False    False  UNION 없음 → 폴백 대상 아님
+  N2   파싱 예외 TokenError                False    True     True   ★폴백 방향 전환
+  N3   파싱 예외 ParseError                False    True     True   ★폴백 방향 전환
+  → 판정이 바뀐 것은 U1/U5/N2/N3 4건뿐이며 전부 False→True(안전측) 방향. False 로 유지돼야 하는
+     무회귀 가드(P1/P2/N1)는 전부 불변 = 폴백 방향 전환이 기존 '불필요' 케이스를 깨지 않음(요구사항 2).
+
+── [S4/S5] fan-out 게이트 재활성화 (요구사항 3) ─────────────────────────────────
+  S4 도달 여부: _native_pk_fanout_present 호출 횟수  수정 전 0회 → 수정 후 1회
+                (_resolve_native_pk_key 경유, pk_cols=['ID'], wrapping 된 src_sql 전달)
+  S5 실동작(실 오라클, 실제 함수 그대로 실행):
+     겹치는 브랜치 UNION (ID<=125000 UNION ALL ID<=1000) → needs_wrapping=True, fan-out=True  (중복 검출)
+     비겹침 브랜치 UNION (ID<=125000 UNION ALL ID>125000) → needs_wrapping=True, fan-out=False (정상 1:1)
+  → 게이트가 '호출만 되는' 수준이 아니라 실제로 PK 중복을 판별하는 것까지 확인. 별도 원인 없이 정상
+     재활성화됐다(이번 수정 범위 내에서 해결).
+
+================================================================================
+4. 회귀 검증 — baseline(clean HEAD 934c293) 대조
+================================================================================
+서브셋: agg_diff_route / exact_diff / union / wrapping / reimport / drilldown / CTE 관련 39개 파일
+실행:   python -m pytest <39개 파일> -q -p no:randomly
+결과:   baseline  14 failed, 328 passed, 1 skipped, 7 xfailed, 1 error, 6 subtests
+        수정본    14 failed, 328 passed, 1 skipped, 7 xfailed, 1 error, 6 subtests
+FAILED/ERROR 목록 정렬 후 diff → **차이 없음(신규 실패 0건)**
+
+사전 존재 실패 전체 목록(수정 전후 동일 · 15건):
+  ERROR  tests/test_upload_visibility_and_cte_count.py::test_audit_shows_all_rows_with_summary
+  FAILED tests/test_cte_count_execution_and_projection.py::test_ui_count_note_and_auto_audit
+  FAILED tests/test_drilldown_readiness.py::test_live_count_only_available_and_snapshot_fields
+  FAILED tests/test_drilldown_readiness.py::test_live_manual_category_is_selected_unconfirmed_verdict_unchanged
+  FAILED tests/test_exact_diff_ui_wiring.py::test_button_state_conditions_flag_on_off
+  FAILED tests/test_exact_diff_ui_wiring.py::test_hold_labels_visible
+  FAILED tests/test_exact_diff_ui_wiring.py::test_key_range_tree_labeled_as_auxiliary
+  FAILED tests/test_exact_diff_ui_wiring.py::test_record_grid_and_kind_filter_and_order
+  FAILED tests/test_exact_diff_ui_wiring.py::test_run_wiring_calls_exact_diff_api_not_key_range
+  FAILED tests/test_execution_path.py::test_parallel_read_decision_diff_host_true
+  FAILED tests/test_execution_path.py::test_parallel_read_decision_off_by_default
+  FAILED tests/test_execution_path.py::test_parallel_read_decision_same_host_sequential
+  FAILED tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+  FAILED tests/test_stats_sql_complex_source_wrap.py::test_union_still_blocked_at_gate
+  FAILED tests/test_upload_visibility_and_cte_count.py::test_ui_separates_lists_and_count_note
+  ※ test_union_still_blocked_at_gate 는 이름이 UNION 이라 이번 수정과 관련돼 보이지만 baseline 에서도
+    동일하게 실패한다(통계검증 게이트 쪽 사전 존재 실패 — 이번 수정 대상 아님).
+
+[중간에 관측된 ERROR 수 변동에 대한 귀속 판정]
+  초기 수정본 실행에서 ERROR 가 1건이 아니라 2~4건으로 튀는 현상을 관측했다(변동 파일:
+  test_insert_select_validation.py, test_stats_sql_complex_source_wrap.py). 원인 규명:
+   · 근본 원인은 [PROD-DB-WRITE-BLOCKED] setup 예외 — 테스트가 운영 SQLite
+     (<repo>/db/migration_validator.db)에 쓰려다 가드에 막힌다. 경로가 테스트 파일 기준 상대경로라
+     baseline worktree 에서는 '다른(미사용) 파일'을 가리켜 충돌이 없고, 메인 트리에서는 기동 중인
+     uvicorn 서버가 같은 파일을 점유해 타이밍에 따라 발생/미발생한다.
+   · 결정적 확인: **같은 디렉터리에서 agg_diff_route.py 만 HEAD 버전으로 되돌려** 2회 실행 →
+     1 error / 2 errors 로 동일하게 변동. 즉 이번 수정과 무관한 환경 의존 변동이다.
+   · 이후 수정본 재실행 4회에서 FAILED 집합은 항상 14건으로 고정, 최종 대조에서 ERROR 포함 완전 일치.
+
+[동시 작업 간섭 고지]
+  작업 도중 다른 세션이 같은 저장소의 services/exact_diff/sampling_preflight.py(+235행,
+  SAMPLING-PREFLIGHT-TIME-CAP-AND-PROGRESS-FIX)와 ui/grid_helpers.py(+83행,
+  STRATEGY-PLAN-PK-KIND-HARDCODE-FIX)를 수정했다(작업 시작 시점 git status 에는 없던 변경).
+  둘 다 이번 커밋에 포함하지 않았고(staged 2개 파일만), 최종 회귀 대조는 이 상태에서도 baseline 과
+  완전 일치했다.
+
+================================================================================
+5. 변경 범위 확인 (무관한 부분 미변경)
+================================================================================
+커밋 6a0a430 — 2 files changed, 402 insertions(+), 3 deletions(-)
+  routes/agg_diff_route.py                                   |  65 +++-   (수정 대상 파일)
+  scripts/dev_e2e/union_sametable_wrapping_detection_repro.py| 340 ++++   (신규 실측 하니스)
+git diff routes/agg_diff_route.py 요약:
+  + _raw_union_present() 신설 (+45행, 대부분 한글 주석)
+  + _reimport_source_needs_wrapping 내 UNION 선평가 + 폴백 전환 (+11행)
+  - 문자열 UNION 검사 2행 삭제
+  그 외 함수·상수·호출부 무변경. tests/ 미수정(요청 범위 준수). 운영 코드 중 수정 파일은 1개뿐.
+
+================================================================================
+6. 남는 사항 / 권고
+================================================================================
+· 영구 회귀 가드: 기존 tests/test_reimport_unsupported_shape.py::test_needs_wrapping_flags_union 은
+  한 줄 UNION 만 검증해 이번 결함(개행 포맷)을 잡지 못한다. 개행 포맷·동일 테이블·중첩 UNION 케이스를
+  추가할 것을 권고한다(이번엔 "이 파일만 수정" 지시에 따라 tests/ 를 건드리지 않았다).
+· 판정 확대 부작용(의도된 안전측): SELECT 목록·WHERE 안 스칼라 서브쿼리에 UNION 이 있으면 이제
+  wrapping 으로 판정된다. wrapping 은 원본 SQL 을 그대로 감싸 실행해 행집합이 불변이므로 결과는
+  같고, 표본 preflight 스킵(_run_sampling_gate)이 적용돼 오히려 빨라진다(실측 7.73s → 3.74s).
+
+실검증 상태: 완료
+
+커밋: 6a0a430  fix(reimport): 동일 테이블 UNION wrapping 미탐지를 AST 판정으로 교정
+               (UNION-SAMETABLE-WRAPPING-DETECTION-AST-FIX)
+       ※ 코드 저장소는 로컬 커밋까지만 수행(push 금지 규칙). 증적은 verify 저장소에 push.
+
+작업명 : UNION-SAMETABLE-WRAPPING-DETECTION-AST-FIX
+✅ 작업 완료 - UNION-SAMETABLE-WRAPPING-DETECTION-AST-FIX - UNION 판정을 문자열 검사에서 sqlglot AST로 교체해 동일 테이블 UNION의 절반만 비교하던 조용한 과소집계 제거(재이관 대상 75건 → 정답 150건)
