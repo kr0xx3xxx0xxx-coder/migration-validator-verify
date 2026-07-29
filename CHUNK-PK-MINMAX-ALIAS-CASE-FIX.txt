@@ -1,0 +1,264 @@
+작업명 : CHUNK-PK-MINMAX-ALIAS-CASE-FIX
+✅ 작업 완료 - CHUNK-PK-MINMAX-ALIAS-CASE-FIX - PK min/max·표본 조회의 별칭 참조를 실제 output alias
+   인용으로 통일해 CHUNK 드릴다운이 시작 직후 FAILED 되던 결함을 PG·Oracle 양쪽에서 제거
+
+────────────────────────────────────────────────────────────────────────────
+1. 1단계 — 위치 특정 결과(지시대로 수정 전 선행 수행)
+────────────────────────────────────────────────────────────────────────────
+  근거 문서 : E:\verify_reports\STATS-RESULT-EXCEL-EXPORT-GB-COLS-INDEX-FIX.txt §4-D
+    실측 오류 전문
+      column _s.ID does not exist
+      LINE 1: SELECT min(_s."ID"), max(_s."ID") FROM (SELECT (id) AS ID, ...
+
+  별칭 참조(결함 발생 지점)
+    services/exact_diff/dialects/postgresql.py:282  pg_pk_min_max()          ← §4-D 실패 SQL 발원지
+    services/exact_diff/dialects/postgresql.py:249  _pg_numeric_min_max()
+    services/exact_diff/dialects/oracle.py:311      ora_pk_min_max()
+    services/exact_diff/dialects/oracle.py:284      _ora_numeric_min_max()
+    (+ 같은 파생 SQL 을 소비하는 형제 경로 — 표본 preflight 어댑터 4개, 아래 3장)
+
+  별칭 생성 지점
+    routes/exact_diff_route.py:111  _derive_row_sqls()
+      sel = ", ".join(f"({it.get('src_expr') or it.get('tgt_col')}) AS {c}" ...)
+      → 따옴표 없는 별칭을 emit 한다. 미인용 식별자의 폴딩 방향은 방언마다 반대다.
+        PostgreSQL : 소문자 폴딩  (`AS ID`  → 실제 output alias 'id')
+        Oracle     : 대문자 폴딩  (`AS id`  → 실제 output alias 'ID')
+
+  기존 코드베이스 관례(새 규약 발명 없이 이것을 따랐다)
+    pg_output_alias()  postgresql.py:411  +  _qi()      postgresql.py:424
+    ora_output_alias() oracle.py:516      +  _ora_qi()  oracle.py:530
+      quoting 을 보고 실제 output alias 를 확정한 뒤 그 alias 를 인용해 참조한다
+      (blanket lower()/upper() 우회가 아니다).
+    chunk 조회 팩토리 make_pg_fetch_chunk / make_ora_fetch_chunk 는 Phase4-D7-1 에서 이미 이 관례를
+    쓰고 있었고, PK min/max 계열만 관례에서 누락돼 표시명을 그대로 인용하고 있었다.
+    → 두 지점을 '실제 output alias 인용' 쪽으로 통일했다(양쪽 다 인용 규약 · 소문자 강제 아님).
+
+────────────────────────────────────────────────────────────────────────────
+2. 겹침 보고 및 사용자 확인(지시 §1단계 준수)
+────────────────────────────────────────────────────────────────────────────
+  수정 대상 2개 파일이 PK-RANGE-CHUNK-SORT-ORDER-ALIGNMENT-FIX(934c293)가 건드린
+  dialects/postgresql.py · dialects/oracle.py 와 겹친다는 사실을 구현 착수 전에 보고하고 확인받았다.
+    · 934c293 은 이미 커밋 완료 상태이고 두 파일 모두 워킹트리 clean(미커밋 변경 0) 이었다.
+    · 수정 지점도 분리된다 — 934c293 은 _*_numeric_min_max 의 '숫자 의미 경계' 로직 추가,
+      이번 건은 그 함수들이 참조하는 '컬럼 별칭 표기'만 교정.
+  사용자 선택: "진행" → 이후 구현/실측 착수.
+
+  S7 3개(count_execution_planner.py / stats_validation_plan_service.py / select_star_expansion.py)와는
+  겹치지 않는다(수정 파일에 포함되지 않음).
+
+────────────────────────────────────────────────────────────────────────────
+3. 수정 내용
+────────────────────────────────────────────────────────────────────────────
+  services/exact_diff/dialects/postgresql.py   (+30 / -18)
+    _pg_numeric_min_max     _kq = '"%s"' % key_col          → _qi(pg_output_alias(key_col))
+    pg_pk_min_max           _s."%s"                         → _s.<실제 output alias 인용>
+    make_pg_fetch_source    key/gb/sum + LATERAL 내부 참조 모두 동일 관례로 교체
+    make_pg_fetch_target    key/gb/sum + = ANY 조건절 참조 동일
+
+  services/exact_diff/dialects/oracle.py       (+31 / -15)
+    _ora_numeric_min_max    S0."%s"                         → S0.<실제 output alias 인용>
+    ora_pk_min_max          S0."%s"                         → 동일
+    make_ora_fetch_source   key/gb/sum + CROSS APPLY 내부 참조 동일
+    make_ora_fetch_target   key/gb/sum + IN 목록 조건절 참조 동일
+
+  scripts/dev_e2e/chunk_pk_minmax_alias_case_verify.py  (신규 393줄 — Before/After 실측 드라이버)
+
+  git diff 요지
+    -    _kq = '"%s"' % str(key_col).replace('"', '""')
+    +    _kq = _qi(pg_output_alias(key_col))
+
+    -        cur.execute('SELECT min(_s."%s"), max(_s."%s") FROM (%s) _s' % (key_src, key_src, src_sql))
+    +    _kq = _qi(pg_output_alias(key_src))
+    +        cur.execute('SELECT min(_s.%s), max(_s.%s) FROM (%s) _s' % (_kq, _kq, src_sql))
+
+    -        cur.execute('SELECT MIN(S0."%s"), MAX(S0."%s") FROM (%s) S0' % (key_src, key_src, src_sql))
+    +    _kq = _ora_qi(ora_output_alias(key_src))
+    +        cur.execute('SELECT MIN(S0.%s), MAX(S0.%s) FROM (%s) S0' % (_kq, _kq, src_sql))
+
+    -            sel = ['S0."%s" AS K0' % key_src]        →  +    sel = ['S0.%s AS K0' % _ka]
+    -                sel.append('S0."%s"' % g)            →  +    sel.append('S0.%s' % _ora_qi(ora_output_alias(g)))
+
+  잔여 확인: 두 파일에서 상관자(_s/_q/_t/S0/Q0/T0/V0/N0) 를 통한 표시명 직접 인용은 전수 제거됐다.
+  남은 '"%s"' 패턴은 인용 헬퍼(_qi / _ora_qi) 자체 정의 2곳과 자체 별칭("NK") 뿐이다.
+
+────────────────────────────────────────────────────────────────────────────
+4. 다른 방언 확인(지시 요구사항)
+────────────────────────────────────────────────────────────────────────────
+  Oracle : 같은 유형의 불일치가 존재했고 이번에 함께 교정했다. 폴딩 방향이 PG 와 반대(대문자)라
+           실패 형태도 반대다 — 소문자 표시명에서 ORA-00904, 이미 인용된 표시명에서는 이중 인용이
+           돼 ORA-01741(illegal zero-length identifier). 둘 다 실 DB 라이브로 재현·해소를 확인했다.
+  MySQL / MSSQL : exact_diff CHUNK 경로에 방언 구현 자체가 없다.
+           services/exact_diff/dialects/ 에는 postgresql.py · oracle.py 2개만 존재하고,
+           pk_range_chunk.py 와 sampling_preflight.py 의 위임표에도 postgresql / oracle 만 등록돼
+           있다(미등록 방언은 None → 호출측 HOLD). 따라서 이 결함의 대상 방언은 2개가 전부다.
+
+────────────────────────────────────────────────────────────────────────────
+5. 실측 — Before / After (드라이버: scripts/dev_e2e/chunk_pk_minmax_alias_case_verify.py)
+────────────────────────────────────────────────────────────────────────────
+  Before 는 baseline worktree(C:\projects\_mv_baseline_cpmac · HEAD 590b315, 수정 미포함)에서
+  같은 드라이버로 측정했다(프리셋만 원 저장소에서 읽음 — MV_PRESET_ROOT).
+
+(A) Oracle 라이브 실측 — 실 DB · NXDNP.MV_COMBO_SRC / MV_COMBO_TGT 각 1,200행
+    측정 축 A) pk_min_max  B) 표본 preflight 어댑터  C) chunk end-to-end(run_pk_range_chunk_compare)
+
+    O1  insert_cols 소문자(미인용 별칭 → 대문자 폴딩) — 결함 재현 대상
+        Before  [A] ora_pk_min_max(src) 실패 → ORA-00904: "S0"."id": invalid identifier
+                [A] ora_pk_min_max(tgt) 실패 → ORA-00904: "S0"."id": invalid identifier
+                판정 FAILED_AT_PK_MINMAX — chunk job 시작 불가(축 B/C 도달 못 함)
+        After   [A] src 1 ~ 1200 · tgt 1 ~ 1200
+                [B] 표본 어댑터 원본 3행 · 목적 3행
+                [C] chunk 완료 · 상태 READY · chunk 3개 · 0.25s
+                    재이관 대상 400건(목적 미존재 0 · 값 불일치 400) · 목적 단독 0건
+                판정 OK
+
+    O2  insert_cols 대문자(표기와 폴딩 방향 일치) — 대조군
+        Before  [A] 1 ~ 1200 · [B] 3행/3행 · [C] READY · chunk 3개 · 0.23s · 재이관 400건 → OK
+        After   [A] 1 ~ 1200 · [B] 3행/3행 · [C] READY · chunk 3개 · 0.16s · 재이관 400건 → OK
+        → 판정·건수 완전 동일(무회귀)
+
+    O3  insert_cols 인용 소문자(인용 식별자 case 보존)
+        Before  [A] src/tgt 실패 → ORA-01741: illegal zero-length identifier (이중 인용)
+                판정 FAILED_AT_PK_MINMAX
+        After   [A] src 1 ~ 1200 · tgt 1 ~ 1200 · [B] 3행/3행
+                [C] chunk 완료 · READY · chunk 3개 · 0.16s · 재이관 400건 → 판정 OK
+
+        비고 — O3 의 목적 SQL 은 픽스처 제약을 우회해 구성했다. 파생 함수의 목적 SQL 은 insert_cols 를
+        물리 컬럼으로 그대로 참조하는데(SELECT "id", ... FROM TGT), 오라클 픽스처의 목적 물리 컬럼은
+        대문자(ID/AMT)라 인용 소문자 케이스에서는 목적 SQL 자체가 성립하지 않는다(별칭 참조와 무관한
+        ORA-00904). 이 케이스의 검증 대상은 조회측 별칭 참조 규약 하나뿐이라, 목적 SQL 도 원본과 동일한
+        별칭 재지정 형태로 맞춰 그 축만 측정했다. Before/After 동일 조건이다.
+
+(B) PostgreSQL emit SQL 대조 — 외부 DB 접속 0회
+    PG 프리셋 8종이 이번 세션에서 전부 도달 불가였다(아래 8장). 그래서 운영 함수가 실제로 emit 하는
+    SQL 을 캡처해, 파생 SQL 이 노출하는 output alias 와 대조하는 방식으로 측정했다.
+    output alias 는 sqlglot 의 방언별 normalize_identifiers 로 독립 산출했다 — 제품 코드의 판정
+    (pg_output_alias)을 재사용하지 않는다. 참조 식별자가 output alias 집합에 없거나 emit SQL 이
+    파싱조차 되지 않으면 그 SQL 은 실행 시 반드시 실패한다(§4-D 실측 에러와 동형).
+
+    P1  insert_cols 대문자 — §4-D 실패 형태
+        파생 SQL   SELECT (id) AS ID, (status_cd) AS STATUS_CD, ... FROM asis01.t_combo_src
+        실제 alias ['id', 'status_cd', 'dept_cd', 'amt']
+        Before  pk_min_max   FAIL  참조=['ID']                     ← output alias 에 없음
+                fetch_source FAIL  참조=['AMT','ID','STATUS_CD']   ← 없음
+                fetch_target FAIL  참조=['AMT','ID','STATUS_CD']   ← 없음
+                fetch_chunk  OK    참조=['amt','dept_cd','id','status_cd']  (이미 관례 적용된 대조군)
+                판정 ALIAS_MISMATCH
+        After   4개 probe 전부 OK · 참조=['id'] / ['amt','id','status_cd'] / 동일 / 동일 → 판정 OK
+
+    P2  insert_cols 소문자 — 대조군
+        Before  4개 probe 전부 OK → 판정 OK
+        After   4개 probe 전부 OK → 판정 OK   (산출 SQL 동일 · 무회귀)
+
+    P3  insert_cols 인용 대문자
+        Before  pk_min_max / fetch_source / fetch_target 모두 PARSE_FAIL
+                (이중 인용으로 SQL 자체가 유효하지 않음 — Oracle O3 의 ORA-01741 과 동형)
+                판정 ALIAS_MISMATCH
+        After   4개 probe 전부 OK · 참조=['ID'] / ['AMT','ID','STATUS_CD'] → 판정 OK
+
+  요약표
+    ─────────────────────────────────────────────────────────────────
+      케이스                         Before                    After
+    ─────────────────────────────────────────────────────────────────
+      Oracle O1 (미인용 소문자)      FAILED_AT_PK_MINMAX        OK
+      Oracle O2 (대조군)             OK                         OK
+      Oracle O3 (인용)               FAILED_AT_PK_MINMAX        OK
+      PG     P1 (미인용 대문자)      ALIAS_MISMATCH             OK
+      PG     P2 (대조군)             OK                         OK
+      PG     P3 (인용)               ALIAS_MISMATCH             OK
+    ─────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────
+6. 기존 테스트 회귀 — baseline 대조
+────────────────────────────────────────────────────────────────────────────
+  python samples/test_virtual_cases.py     8/8 통과
+  python samples/test_complex_cases.py     5/5 통과
+
+  서브셋 1 — pk_range_chunk / d7 계열 / execution_path / sampling_preflight (9개 파일)
+    baseline(C:\projects\_mv_baseline_cpmac)  5 failed · 68 passed · 1 xfailed
+    수정 후(C:\projects\migration-validator)  5 failed · 68 passed · 1 xfailed
+    → 건수·실패 집합 완전 일치(회귀 0)
+
+  서브셋 2 — exact_diff 계열 / chunk_checkpoint / strategy_planner / batch_execution_router (10개 파일)
+    baseline  5 failed · 81 passed · 1 skipped
+    수정 후    5 failed · 81 passed · 1 skipped
+    → 건수·실패 집합 완전 일치(회귀 0)
+
+  실패 테스트 전체 목록(10건 — 전부 사전 존재 실패 · 이번 수정과 무관, baseline 에서 동일 실패)
+    1  tests/test_d7_9_gb0_fallback.py::test_gate_gb0_always_grid
+    2  tests/test_d7_9_gb0_fallback.py::test_stage_timing_display
+    3  tests/test_execution_path.py::test_parallel_read_decision_off_by_default
+    4  tests/test_execution_path.py::test_parallel_read_decision_diff_host_true
+    5  tests/test_execution_path.py::test_parallel_read_decision_same_host_sequential
+    6  tests/test_exact_diff_ui_wiring.py::test_button_state_conditions_flag_on_off
+    7  tests/test_exact_diff_ui_wiring.py::test_run_wiring_calls_exact_diff_api_not_key_range
+    8  tests/test_exact_diff_ui_wiring.py::test_record_grid_and_kind_filter_and_order
+    9  tests/test_exact_diff_ui_wiring.py::test_hold_labels_visible
+   10  tests/test_exact_diff_ui_wiring.py::test_key_range_tree_labeled_as_auxiliary
+
+    3~5 는 _parallel_read_decision 이 bool → (bool, 사유) 튜플로 바뀐 뒤 테스트가 따라가지 못한 것,
+    6~10 은 UI 문구 검사('전수검증 (고급 · 별도 기능)' 등)로, 모두 dialects 파일과 무관하다.
+
+────────────────────────────────────────────────────────────────────────────
+7. git
+────────────────────────────────────────────────────────────────────────────
+  커밋 해시 : 783b9f1
+  제목      : fix(chunk): PK min/max·표본 조회의 별칭 참조를 실제 output alias 로 통일 —
+              CHUNK 드릴다운 시작 직후 FAILED 제거 (CHUNK-PK-MINMAX-ALIAS-CASE-FIX)
+  변경 파일 : 3개 · 458 insertions(+) · 33 deletions(-)
+              services/exact_diff/dialects/postgresql.py            48 ++-
+              services/exact_diff/dialects/oracle.py                50 ++-
+              scripts/dev_e2e/chunk_pk_minmax_alias_case_verify.py  393 +++ (신규)
+  pre-commit 비밀번호 스캔 통과(staged 3개 파일 · 지문 4건 대조)
+  코드 저장소는 커밋만 하고 push 하지 않았다(증적 저장소와 remote 정책이 다름).
+
+  baseline worktree 는 대조 종료 후 제거했다.
+
+────────────────────────────────────────────────────────────────────────────
+8. 실검증 상태
+────────────────────────────────────────────────────────────────────────────
+  실검증 상태 : 실 DB 라이브 검증 완료(Oracle) · PostgreSQL 은 프리셋 전 노드 도달 불가로 emit SQL
+                대조로 대체(외부 DB 접속 0회)
+
+  Oracle       Oracle_asis / Oracle_tobe 실 접속 성공 — NXDNP.MV_COMBO_SRC / MV_COMBO_TGT(각 1,200행)
+               으로 Before(ORA-00904 / ORA-01741 재현) → After(chunk 3개 정상 완료) 전 구간 실측.
+  PostgreSQL   아래 8개 프리셋이 모두 접속 실패해 라이브 측정을 하지 못했다.
+                 PostgreSQL_asis · PostgreSQL_NEW_asis · PostgreSQL_tobe · PostgreSQL_NEW_tobe
+                   → Neon 서버측 거부(쿼터 소진 상태 지속)
+                 PostgreSQL_Inter_asis · PostgreSQL_Inter_tobe · PostgreSQL_Inter_tobesrc ·
+                 PostgreSQL_nxdnp_src (192.168.0.150:5433/5434)
+                   → connection timeout expired(사내망 미도달)
+               따라서 §4-D 와 동일한 '실 PG 에서의 chunk job FAILED → 정상 완료' 재현은 이번에
+               획득하지 못했다. 대신 제품이 실제로 emit 하는 SQL 을 캡처해 독립 산출한 output alias
+               와 대조했고, Before 에서 §4-D 실패 SQL(min(_s."ID"))이 그대로 재현됨을 확인했다.
+               드라이버의 PG 축은 emit 대조 전용이다(라이브 조회 경로 없음). 프리셋 접속이 복구되면
+               Oracle 축(run_ora_case)과 동형의 PG 라이브 축을 추가해 재측정하면 된다.
+
+  서버 재기동   하지 않았다. 이번 변경은 화면 무관(지시 명시)이고, 같은 저장소에서 다른 세션이
+               동시에 미커밋 작업 중(stats_validation_plan_service.py 등 M 상태)이라 재기동하면
+               그쪽 미완성 코드가 함께 적재될 위험이 있어 의도적으로 생략했다.
+               → 실행 중인 서버 프로세스에는 이번 수정이 아직 반영돼 있지 않다(reload=False).
+
+────────────────────────────────────────────────────────────────────────────
+9. 보안 점검
+────────────────────────────────────────────────────────────────────────────
+  프리셋 비밀번호 4종을 지문으로, 이번 커밋 대상 소스 3개와 증적 JSON 2개를 UTF-8 · UTF-16LE
+  두 인코딩으로 스캔 — 노출 0건.
+  실측 드라이버는 접속정보를 로그·JSON 에 기록하지 않는다(conn dict 미저장 · 프리셋에서 필요한
+  키만 읽어 어댑터에 전달).
+
+────────────────────────────────────────────────────────────────────────────
+10. 남은 사안(이번 범위 밖 · 기록만)
+────────────────────────────────────────────────────────────────────────────
+  · PG 라이브 재확인 미획득(위 8장). 프리셋 접속 복구 시 재측정 대상.
+  · _derive_row_sqls 의 목적 SQL 은 insert_cols 를 물리 컬럼으로 그대로 참조한다. 목적 테이블의
+    실제 컬럼 case 와 insert_cols 표기가 어긋나면 목적 SQL 자체가 성립하지 않는다(§5-A O3 비고).
+    이번 수정은 조회측 별칭 참조 규약만 다루며 이 지점은 건드리지 않았다.
+
+증적 위치
+  보고서 : E:\verify_reports\CHUNK-PK-MINMAX-ALIAS-CASE-FIX.txt
+  실측 JSON : E:\verify_screenshots_only\CHUNK-PK-MINMAX-ALIAS-CASE-FIX\
+    _chunk_pk_minmax_alias_case_before.json · _chunk_pk_minmax_alias_case_after.json
+  드라이버 : scripts/dev_e2e/chunk_pk_minmax_alias_case_verify.py (커밋 783b9f1 에 포함)
+
+✅ 작업 완료 - CHUNK-PK-MINMAX-ALIAS-CASE-FIX - PK min/max·표본 조회의 별칭 참조를 실제 output alias
+   인용으로 통일해 CHUNK 드릴다운이 시작 직후 FAILED 되던 결함을 PG·Oracle 양쪽에서 제거
