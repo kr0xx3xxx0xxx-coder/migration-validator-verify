@@ -1,0 +1,313 @@
+작업명 : LARGE-DATA-SORT-EXPOSURE-DIAGNOSE
+⚠️ 추가 작업 필요 - 정렬 노출 전수 진단 완료(코드 무수정). 도구측 최대 위험은 재이관 DIRECT_STREAM 의 전체 테이블 ORDER BY — 30M행 실측 첫 행까지 270초, 5만행 상한이 이를 못 막음. PostgreSQL 라이브 실측만 환경 미도달로 미완.
+
+════════════════════════════════════════════════════════════════════════════════
+0. 결론 요약
+════════════════════════════════════════════════════════════════════════════════
+사용자 우려는 실재한다. 다만 위험은 경로마다 크게 다르고, 가장 큰 도구측 노출은
+"통계검증"이 아니라 "재이관 DIRECT_STREAM" 이다.
+
+  위험 순위(도구가 만드는 정렬)
+   1위  재이관 DIRECT_STREAM 전체 ORDER BY   ── 사전 크기 게이트 없음. 30M행 270초 blocking. ★최대
+   2위  후보추천 profile 재수집 COUNT(DISTINCT) ── 샘플·타임아웃 전무, 최대 30컬럼. 30M×8컬럼 158초
+   3위  재이관 PK index 집계 ORDER BY         ── AGG_MAX_KEYS(6만) 상한이 정렬 완료 후에만 작동
+   안전  PK_RANGE_CHUNK / 통계검증 / 후보추천 3단계 profile ── 각각 범위한정·그룹수 게이트·5만행 샘플로 통제됨
+
+사용자 원본 SQL 유래 정렬(CTE+윈도우함수)은 도구측 정렬보다 3.9배 무겁다
+(250K행 기준 옵티마이저 TempSpc 추정 67.4MB vs 17.3MB). 도구가 제거할 수 없는 영역이다.
+
+핵심 구조 결함 1건: 코드베이스 전체에 work_mem / PGA / sort_area / TEMP / 스필 관련
+참조가 **0건**이다(grep 전수). 즉 정렬 메모리를 인지·추정·경고하는 장치가 아예 없다.
+
+════════════════════════════════════════════════════════════════════════════════
+1. 정렬 발생 지점 전수 목록 (파일:라인 / 도구 vs 사용자 SQL 구분)
+════════════════════════════════════════════════════════════════════════════════
+
+[A] 재이관 경로 — 도구 생성
+ ─────────────────────────────────────────────────────────────────────────────────
+ A1 ★ services/exact_diff/dialects/postgresql.py:97-103  key_hash_stream_sql
+    services/exact_diff/dialects/oracle.py:125-132       (오라클 동일판)
+      SELECT (key) AS __K, md5(...) AS __H FROM (원본SQL) __ed ORDER BY __K
+      → 전체 테이블 정렬. LIMIT/범위조건 없음. DIRECT_STREAM 엔진(engine.py:320-321)이 사용.
+      → PG 는 문자키에 COLLATE "C" 를 덧붙여 정렬(정렬 비용 동일).
+      ※ 최대 노출 지점. 상세는 §4 참조.
+
+ A2 services/exact_diff/agg_contribution.py:137  (unique_key 경로)
+      ... FROM (원본SQL) __agg ORDER BY col1, col2 ...
+      주석(:114-119)은 "PK 인덱스 Index Scan 을 타게 해 정렬 회피"를 의도한다고 명시하나,
+      오라클 EXPLAIN 실측은 TABLE ACCESS FULL + SORT ORDER BY 였다(§2 R2). 의도 미성립.
+
+ A3 services/exact_diff/agg_contribution.py:147-148  (비유일키 경로)
+      SELECT (key) AS __K, MIN(...), count(*) ... GROUP BY 1 ORDER BY 1
+    services/exact_diff/dialects/oracle.py:453,463    (오라클 동일판)
+      호출: agg_contribution.py:483-485 prepare_reimport_pk_index_stream(order_by=True)
+
+ A4 services/exact_diff/agg_contribution.py:788,795
+      SELECT ... FROM (logical_sql) __agg GROUP BY 1 ORDER BY 1
+
+ A5 [안전] services/exact_diff/dialects/postgresql.py:384,402
+           services/exact_diff/dialects/oracle.py:497,515
+      chunk range 조회 — WHERE key>=:1 AND key<:2 ORDER BY key
+      → 정렬 대상이 chunk 1개(기본 50,000행, execution_settings.py:29)로 한정.
+        PK 인덱스 range scan 이면 정렬 자체가 제거된다. 설계 의도가 실제로 성립하는 유일한 경로.
+      → pk_range_chunk.py:5 헤더가 "전체 테이블 global ORDER BY 없이"라고 명시한 대로 동작.
+
+ A6 [경미] services/exact_diff/dialects/postgresql.py:267 / oracle.py:303
+      키 1건 재조회 — ORDER BY key LIMIT 1 / FETCH FIRST 1 ROWS ONLY. 소량.
+
+[B] 통계검증(4단계) — 도구 생성
+ ─────────────────────────────────────────────────────────────────────────────────
+ B1 [양호] services/validation_sql/source_stats_sql_builder.py:143
+      sel.set("order", None) — 원본 SQL 의 **최상위 ORDER BY 를 제거**한다.
+      → 도구는 통계검증 경로에서 정렬을 추가하지 않는다. 사용자 ORDER BY 도 걷어낸다.
+      → 윈도우 내부 ORDER BY / rn=1 은 의미상 필수라 보존(:105-106 명시).
+ B2 source_stats_sql_builder.py:270,341 / target_stats_sql_builder.py:47
+      GROUP BY 절만 생성 → 정렬이 아니라 해시 집계로 처리됨(§2 S1/S2 실측 HASH GROUP BY).
+ B3 services/stats_execute_service.py — ORDER BY 생성 없음(grep 확인). statement timeout 보유.
+
+[C] 후보추천(3단계) 프로파일링 — 도구 생성
+ ─────────────────────────────────────────────────────────────────────────────────
+ C1 [안전] services/column_profile_service.py:261,357  COUNT(DISTINCT ...) × N
+      _SAMPLE_LIMIT = 50_000 (:47) — WITH SRC → SAMPLE_SRC(5만행) CTE 로 행 제한(:502-510).
+      → EXPLAIN 에 COUNT STOPKEY 확인(§2 C1). 42M행 timeout 사고 후 도입된 방어가 유효.
+
+ C2 ★ services/profile_recollect_service.py:361-363
+      SELECT COUNT(*), COUNT(DISTINCT c1), ... FROM <테이블>
+      → **샘플링 없음 · WHERE 없음 · statement timeout 없음**. 컬럼 상한만 max_cols=30(:334,352).
+      → 전체 테이블 스캔 + 컬럼당 distinct 집계. §3 에서 30M×8컬럼 158초 실측.
+
+ C3 [제한적] services/date_bucket_evidence.py:390-392  COUNT(DISTINCT TRUNC(...))
+      전체 테이블 스캔이나, candidate_postcount_finalize.py 가
+      _MAX_EXACT_DATE_COLS=2(:35) + _DATE_PROFILE_TIMEOUT_MS=15,000(:36) 으로 예산 제한하고
+      실패 시 해당 컬럼만 범위추정으로 폴백(:390-391). 통제되고 있음.
+
+[D] 사용자 원본 이관 SQL 유래 — 도구가 손댈 수 없음
+ ─────────────────────────────────────────────────────────────────────────────────
+ D1 CTE + ROW_NUMBER() OVER (PARTITION BY ... ORDER BY ...) → WINDOW SORT (오늘의 XDIFF 샘플 형태)
+ D2 SELECT DISTINCT → HASH UNIQUE
+ D3 사용자 최상위 ORDER BY → 통계검증·재이관 wrapping 양쪽 모두 B1 이 제거하므로 무해
+      (재이관 wrapping 도 routes/exact_diff_route.py _derive_row_sqls_wrapped 가
+       source_stats_sql_builder._extract_aliased_inner_select 를 재사용 → 동일하게 제거)
+ D4 사용자 GROUP BY / 집계 원본 → 도구가 derived table 로 감싸므로 원본 집계가 그대로 1회 더 수행
+
+════════════════════════════════════════════════════════════════════════════════
+2. EXPLAIN PLAN 실측 — 정렬 연산자 등장 지점 (Oracle asis 1523, MV_ORA_XDIFF_SRC 250,000행)
+════════════════════════════════════════════════════════════════════════════════
+환경: Oracle AI Database 26ai Free 23.26.1.0.0 / cpu_count=2 / db_block_size=8192
+      pga_aggregate_target=536,870,912(512MB) / pga_aggregate_limit=2,147,483,648(2GB)
+      workarea_size_policy=AUTO / 대상표 PK: PK_MV_ORA_XDIFF_SRC (UNIQUE, ID)
+
+ ID                    경로/출처                        정렬 연산자              옵티마이저 TempSpc 추정
+ ───────────────────── ──────────────────────────────── ──────────────────────── ──────────────────────
+ R1-STREAM-HASH        재이관 DIRECT_STREAM   / 도구    SORT ORDER BY            18,138,000  (17.3MB)
+ R2-PKAGG-UNIQ-ORDER   재이관 PK_IDX(유일키)  / 도구    SORT ORDER BY            15,074,000  (14.4MB)
+ R3-PKAGG-GROUP-ORDER  재이관 PK_IDX(비유일)  / 도구    SORT ORDER BY             9,077,000  ( 8.7MB)
+ R4-PKAGG-NOORDER      재이관 PK_IDX(해시비교)/ 도구    (정렬 연산자 없음)        없음
+ R5-CHUNK-RANGE        재이관 PK_RANGE_CHUNK  / 도구    (정렬 연산자 없음)        없음
+ S1-STATS-GROUPBY      통계검증 고카디널리티  / 도구    HASH GROUP BY             7,054,000  ( 6.7MB)
+ S2-STATS-DATEBUCKET   통계검증 저카디널리티  / 도구    HASH GROUP BY            없음(900그룹)
+ C1-PROFILE-SAMPLED    후보추천 3단계(5만샘플)/ 도구    HASH GROUP BY + COUNT STOPKEY  없음
+ C2-PROFILE-RECOLLECT  후보추천 profile 재수집/ 도구    HASH GROUP BY            없음(스칼라 집계)
+ C3-DATEBUCKET-EXACT   후보추천 날짜버킷 L4   / 도구    HASH GROUP BY            없음(스칼라 집계)
+ U1-USER-WINDOW        사용자 CTE+윈도우      / 사용자  WINDOW SORT PUSHED RANK  70,632,000  (67.4MB) ★
+ U2-USER-WINDOW+통계   사용자+도구            / 혼합    WINDOW SORT + HASH GROUP BY  14,140,000
+ U3-USER-DISTINCT      사용자 DISTINCT        / 사용자  HASH UNIQUE              10,052,000  ( 9.6MB)
+
+ 판독
+  · 옵티마이저가 인덱스로 정렬을 회피한 경우 : R4(GROUP BY 제거), R5(PK range scan), S2/C1/C3(저카디 해시)
+  · 진짜 정렬이 발생하는 경우                : R1·R2·R3(SORT ORDER BY), U1·U2(WINDOW SORT), U3(HASH UNIQUE)
+  · **R2 는 설계 의도 미성립** — 코드 주석은 PK 인덱스 Index Scan 으로 정렬을 회피한다고 하나,
+    실제 계획은 TABLE ACCESS FULL + SORT ORDER BY(TempSpc 14.4MB). 넓은 projection 때문에
+    옵티마이저가 인덱스 경유를 버린다. PG 실측 근거(12M 복합PK 0.16초)를 오라클에 그대로 적용할 수 없다.
+  · 250K행에서 이미 TempSpc 가 붙는다 = 옵티마이저 스스로 TEMP 사용을 예고하고 있다.
+
+ 30M행 선형 외삽(250K 실측 통계 기준, 행폭 동일 가정)
+   R1 재이관 STREAM  : 17.3MB × 120 = 약 2.08 GB   → pga_aggregate_target(512MB) 4배 초과, PGA limit(2GB) 초과
+   U1 사용자 윈도우  : 67.4MB × 120 = 약 8.09 GB   → PGA limit 4배 초과. 전량 TEMP 스필 확정.
+
+════════════════════════════════════════════════════════════════════════════════
+3. 대량 데이터 실측 — 디스크 스필 재현
+════════════════════════════════════════════════════════════════════════════════
+계측 방법(제약 대응)
+  · nxdnp 계정은 v$mystat / v$sesstat / v$sql_workarea / v$tempseg_usage 전부 ORA-00942(권한 없음).
+    → 워크에어리어 통계 직접 조회 불가.
+  · ALTER SESSION workarea_size_policy=MANUAL + sort_area_size=1MB 는 명령은 성공하나
+    **23ai 에서 실효 없음을 실측 확인**(정렬 시간 AUTO 2.409s vs MANUAL 2.389s, 무차이) → 대조군 무효.
+  · 최종 채택: 동일 SQL 의 'ORDER BY 있음' vs 'ORDER BY 없음' 실행시간 차 = 순수 정렬비용.
+    행 증폭은 CONNECT BY 승수 조인(테이블 생성/변경 없음, 순수 읽기).
+
+[3-1] 도구 STREAM SQL 첫 행 도달 시간 — 정렬의 blocking 특성 ★핵심
+   실제 도구가 발행하는 SQL(dialects/oracle.key_hash_stream_sql)을 그대로 실행
+
+     규모      ORDER BY 있음(첫 행)   ORDER BY 없음(첫 행)   배율
+     ───────   ────────────────────   ────────────────────   ──────
+     250K              1.964 s               0.015 s          131 x
+     5M               34.652 s               0.286 s          121 x
+     30M             270.286 s               0.539 s          501 x
+
+   · 5,000행까지 받는 시간은 첫 행 시간과 거의 같다(30M: 270.286 → 270.306s).
+     = 정렬이 끝나기 전에는 단 1행도 나오지 않고, 끝나면 한꺼번에 쏟아진다.
+   · **30M행에서 4분 30초 동안 서버가 정렬만 하고 클라이언트는 완전 대기**한다.
+
+[3-2] 정렬비용 스케일 곡선 (좁은 투영, ROWNUM 래퍼로 네트워크 배제)
+     규모        행수         정렬있음    정렬없음    순수정렬    행당 정렬비용
+     ────────    ──────────   ─────────   ─────────   ────────    ─────────────
+     250K           250,000     0.074s      0.024s      0.050s       0.200 µs/행
+     1M           1,000,000     0.304s      0.095s      0.209s       0.209 µs/행
+     5M           5,000,000     2.196s      0.505s      1.691s       0.338 µs/행  ← 꺾임 시작
+     15M         15,000,000     6.651s      1.220s      5.431s       0.362 µs/행
+     30M         30,000,000    16.444s      2.612s     13.832s       0.461 µs/행
+
+   · 행당 비용이 0.200 → 0.461 µs 로 2.3배 악화. 1M~5M 구간에서 꺾인다
+     = 워크에어리어를 넘어 TEMP 스필로 전환된 지점. 초선형 열화 확인.
+   · 이 표는 md5 계산이 pruning 된 좁은 투영이라 [3-1] 대비 과소평가치다. 실제 도구 부하는 [3-1].
+
+[3-3] 후보추천 profile 재수집(services/profile_recollect_service.py) — 무제한 COUNT(DISTINCT)
+     규모        5컬럼        8컬럼
+     ────────    ─────────    ─────────
+     250K           0.37 s       0.53 s
+     5M             9.78 s      14.64 s
+     30M          116.99 s     158.29 s
+
+   · max_cols 상한이 30 이므로 30컬럼이면 30M행에서 500초 이상으로 외삽된다.
+   · statement timeout 이 없어 그때까지 세션이 계속 물린다.
+
+[3-4] 성능 저하 정리
+   · 스필 자체의 절대 비용은 이 Free 인스턴스(2 vCPU) 기준 30M행 정렬 13.8~270초.
+   · 진짜 위험은 시간이 아니라 **TEMP 용량과 PGA limit** 이다. §2 외삽대로
+     STREAM 2.08GB / 사용자 윈도우 8.09GB 는 pga_aggregate_limit(2GB)를 넘는다.
+     운영 오라클에서 TEMP 테이블스페이스가 부족하면 ORA-01652(temp segment 확장 실패),
+     PGA limit 초과 시 ORA-04036 으로 세션이 종료된다. 다중 사용자 동시 실행이면 배수로 악화된다.
+   · 본 진단 인스턴스는 TEMP 여유가 충분해 ORA-01652 를 재현하지는 못했다(과장 금지).
+
+════════════════════════════════════════════════════════════════════════════════
+4. 방지·경고 장치 유무 — 코드 확인 결과
+════════════════════════════════════════════════════════════════════════════════
+[전제] work_mem / sort_area / PGA / pga_aggregate / TEMP / spill 문자열 전수 grep → **코드 0건**.
+       정렬 예상 크기를 추정하거나 경고하는 로직은 존재하지 않는다.
+
+ 경로                          방어장치                                     실효성
+ ────────────────────────────  ───────────────────────────────────────────  ────────────────────────
+ 재이관 DIRECT_STREAM          PHASE1_MAX_ROWS=50,000 (contracts.py:34)     ✗ 무력
+   engine.py:413,418-420 merge_compare(max_rows=...) 의 out.aborted 로 HOLD.
+   그러나 이 판정은 io.hash_stream() 이 이미 `ORDER BY __K` 를 서버에 던지고 첫 행을 받은
+   **뒤**에 일어난다. [3-1] 대로 정렬은 blocking 이므로, 30M행이면 270초를 다 쓰고 나서야
+   "5만행 초과라 보류합니다"를 반환한다. 상한이 서버 부하를 전혀 막지 못한다.
+   routes/exact_diff_route.py:232-239 에도 사전 행수 게이트가 없다.
+   expected_src_count 는 engine.py:428 에서 **스트리밍 완료 후** 스냅샷 안정성 확인용으로만 쓰인다.
+
+ 재이관 PK index 집계           AGG_MAX_KEYS=60,000                          ✗ 동일 한계
+   agg_contribution.py:44,222 — row_cap 으로 fetch 는 조기 중단되나, SORT ORDER BY /
+   GROUP BY 가 blocking 이라 서버측 정렬은 이미 완료된 뒤다.
+
+ 재이관 PK_RANGE_CHUNK          chunk_size 기본 50,000                       ✓ 유효
+   execution_settings.py:29-31 (min 10,000 / max 200,000). 정렬 대상이 chunk 로 한정되고
+   PK range scan 이면 정렬 자체가 사라진다. 유일하게 설계대로 작동하는 대용량 경로.
+
+ 통계검증 4단계                 그룹 수 사전 게이트                          ✓ 유효
+   groupby_execution_safety.py — 실행 전 예상 그룹 수 확인. 미확인이면 BLOCKED_UNVERIFIABLE.
+   INTERACTIVE_GROUPBY_MAX_GROUPS=100,000 (model_config.py:166) + safety_factor.
+   stats_execute_service.py:290,388-391 에서 cap+1 도달 시 비교 없이 BLOCKED.
+   → 해시 집계 메모리는 그룹 수에 비례하므로 이 게이트가 사실상 메모리 상한 역할을 한다.
+   ※ 단, 게이트가 보는 것은 '결과 그룹 수'이지 '정렬/해시 메모리 바이트'가 아니다.
+      GROUP BY 키가 매우 넓은 문자열(예: VARCHAR2(4000) 3개)이면 그룹 수가 적어도 통과한다.
+
+ 후보추천 3단계 profile         _SAMPLE_LIMIT=50,000                         ✓ 유효
+   column_profile_service.py:47,502-510. 42M행 timeout 사고의 재발 방지책이 살아 있다.
+
+ 후보추천 날짜버킷 L4           _MAX_EXACT_DATE_COLS=2 + 15초 timeout        ✓ 유효
+   candidate_postcount_finalize.py:35-36,489,509.
+
+ 후보추천 profile 재수집        (없음)                                       ✗ 방어 전무
+   profile_recollect_service.py:361-377 — 샘플링·WHERE·timeout 모두 없음. 컬럼 상한 30 뿐.
+
+════════════════════════════════════════════════════════════════════════════════
+5. 대응 방향 제안 (이번엔 구현하지 않음)
+════════════════════════════════════════════════════════════════════════════════
+[5-A] 도구가 통제 가능한 지점
+
+ A-1 재이관 DIRECT_STREAM 사전 행수 게이트 (최우선, 위험 대비 비용 최소)
+     run_exact_diff 진입 시점에 이미 보유한 expected_src_count / COUNT 사전검증 결과로
+     PHASE1_MAX_ROWS 초과 여부를 **SQL 발행 전에** 판정해 HOLD 한다.
+     지금은 같은 값을 스트리밍이 끝난 뒤(engine.py:428) 쓰고 있을 뿐이라, 판정 시점만 앞당기면 된다.
+     신규 DB 왕복 0회. 30M행 기준 270초 → 0초.
+     · 구조 영향: engine.py 진입부 가드 1개. 모듈 분리·의존 방향 불변.
+     · 위험: 사전 count 가 없는 호출 경로에서는 게이트가 비어 기존 동작으로 남는다(무해한 폴백).
+
+ A-2 전략계획을 실제 실행 경로에 연결
+     full_compare_strategy_planner 는 이미 대형이면 PK_RANGE_CHUNK 를 고르도록 되어 있으나
+     (:44-51), direct_stream_max_rows 가 None 이면 항상 DIRECT 로 떨어진다(:47).
+     routes/strategy_route.py:48-55 외에는 이 임계가 주입되지 않는다.
+     → §3 실측(1M~5M 구간에서 스필 전환)을 근거로 기본 임계값을 부여하는 안.
+     · 주의: CLAUDE.md 자동 fallback 금지 원칙(§3·§14)과 충돌하지 않도록, 자동 전환이 아니라
+       "DIRECT 차단 + CHUNK 권고" 형태여야 한다.
+
+ A-3 profile 재수집에 3단계와 동일한 5만행 샘플 + statement timeout 적용
+     column_profile_service 의 SAMPLE_SRC CTE 구조를 그대로 재사용(신규 로직 없음).
+     30M×8컬럼 158초 → 1초 미만. distinct 값이 표본 기반이 되므로 근거 표기에
+     "표본 5만행" 을 함께 남겨야 한다(explainability 훼손 방지 — 이게 없으면 조용한 과소추정이 된다).
+
+ A-4 A2/A3 의 order_by=True 재검토
+     agg_contribution.py:114-119 주석의 "Index Scan 으로 정렬 회피" 전제가 오라클에서 성립하지
+     않음이 §2 R2 로 확인됐다. merge-join 알고리즘 요건이라 정렬 자체는 제거 불가하나,
+     최소한 주석의 근거(PG 12M 실측)를 오라클에 확대 적용하지 않도록 기록 정정이 필요하다.
+
+ A-5 정렬 규모 사전 경고(선택)
+     실행 전 EXPLAIN 의 TempSpc(오라클) / Sort Method·work_mem(PG) 를 읽어
+     임계 초과 시 사용자에게 경고 배너를 띄우는 안. 이미 groupby_explain_estimator 가
+     EXPLAIN 호출 인프라를 갖고 있어 재사용 가능.
+     · 다만 heuristic 임계 하드코딩이 늘어나므로, 값은 config/size_threshold_registry 단일 출처로.
+
+[5-B] 사용자 원본 SQL 에 내재된 정렬 — 도구가 제거할 수 없음
+     제거하면 결과 자체가 달라지므로(윈도우함수·DISTINCT 는 의미론적 필수) 손대면 안 된다.
+     대응은 '안내·경고' 뿐이다.
+
+ B-1 1단계 분석 결과에 "정렬 유발 구문 감지" 표시
+     파서가 이미 CTE/윈도우함수/DISTINCT 를 인식한다(sql_structure_check.py 등).
+     감지 시 "이 이관 SQL 은 원본에 전체 정렬을 유발하는 구문(윈도우함수 등)을 포함합니다.
+     대량 테이블에서는 원본 DB 의 TEMP 사용량이 커질 수 있습니다" 수준의 정보 배너.
+     · 판정(PASS/WARNING/SKIP)에는 영향 주지 않는 순수 표시 축으로 둘 것.
+
+ B-2 도구가 그 위에 정렬을 겹치지 않는지 확인
+     현재 통계검증은 최상위 ORDER BY 를 제거(B1)하므로 겹치지 않는다 — 유지되어야 할 좋은 성질이다.
+     §2 U2 에서 WINDOW SORT + HASH GROUP BY 2단으로 쌓이는 것은 사용자 SQL 의 정렬 1개 +
+     도구의 해시집계 1개이며, 도구가 정렬을 추가한 것은 아니다.
+
+[5-C] 우선순위 판단
+     지금 구현 : A-1 (사전 행수 게이트) — 위험 최대·비용 최소·구조 영향 최소
+     다음      : A-3 (profile 재수집 샘플링), A-4 (주석 근거 정정)
+     문서화 우선: A-2, A-5, B-1 (임계값 결정에 PostgreSQL 실측이 선행되어야 함)
+
+════════════════════════════════════════════════════════════════════════════════
+6. 미검증 항목 / 이번 진단의 한계 (과장 없이 명시)
+════════════════════════════════════════════════════════════════════════════════
+ · PostgreSQL 라이브 EXPLAIN / 스필 실측 미완 — 지시 4·5 의 PG 부분 미이행.
+     Neon asis·tobe : 서버측 거부("Your project has ..." 쿼터 소진). 코드 문제 아님.
+     PostgreSQL_Inter 192.168.0.150:5433/5434 : TCP 연결 자체가 timeout(호스트 미도달).
+     로컬 PostgreSQL 없음(127.0.0.1:5432 연결 거부, PG 설치 없음).
+     → PG 관련 서술(§1 A1 의 COLLATE "C", §4 게이트)은 **코드 확인 근거이며 실행계획 실측이 아니다**.
+       PG 는 Sort Method: external merge / work_mem 확인이 남아 있다.
+ · v$sql_workarea 기반 OPTIMAL/ONE PASS/MULTI PASS 판정 미확보(계정 권한 없음).
+   스필은 '행당 정렬비용 초선형 열화'와 '옵티마이저 TempSpc 추정'으로 간접 입증했다.
+ · ORA-01652(TEMP 부족) / ORA-04036(PGA limit) 실제 발생은 재현하지 못했다.
+   §2 의 30M 외삽(2.08GB / 8.09GB)은 250K 실측 통계의 선형 확대이며, 행폭이 동일하다는 가정이다.
+ · 30M행은 실제 픽스처가 아니라 CONNECT BY 승수 조인 합성이다(오라클 최대 실 테이블은
+   MV_ORA_XDIFF_SRC 250,000행). 카디널리티 분포가 실제 대용량 테이블과 다를 수 있다.
+ · 계측 인스턴스는 Oracle 26ai Free / 2 vCPU / PGA 512MB 로 운영 사양이 아니다.
+   절대 시간은 운영 환경과 다르며, 의미 있는 것은 규모별 상대 추세다.
+
+════════════════════════════════════════════════════════════════════════════════
+7. 수행 내역
+════════════════════════════════════════════════════════════════════════════════
+ 코드 변경 : 없음 (진단 전용 지시 준수). 커밋 없음.
+ DB 변경   : 없음. 테이블/인덱스 생성·수정·삭제 없음. 전 쿼리 SELECT + EXPLAIN PLAN 전용.
+             (EXPLAIN PLAN 은 세션 plan_table 에 기록 후 동일 statement_id 로 즉시 삭제)
+ 접속 대상 : Oracle asis 192.168.0.151:1523/xepdb1 (nxdnp), Oracle tobe :1524
+ 비밀번호 노출 검사 : 보고서·로그·스크립트 출력 전부 비밀번호 미포함 확인.
+                     db_presets_src.json / db_presets_tgt.json 은 평문 비밀번호를 보유하고 있어
+                     (기존 알려진 사안) 값은 읽되 출력하지 않았다.
+ 진단 스크립트 : 세션 scratchpad 에만 생성(프로젝트 트리 미오염)
+   sort_probe_00_inventory.py / ora_inv.py / ora_explain.py / ora_spill.py /
+   ora_spill2.py / ora_spill3.py / ora_sort_curve.py
+
+⚠️ 추가 작업 필요 - 정렬 노출 전수 진단 완료(코드 무수정). 도구측 최대 위험은 재이관 DIRECT_STREAM 의 전체 테이블 ORDER BY — 30M행 실측 첫 행까지 270초, 5만행 상한이 이를 못 막음. PostgreSQL 라이브 실측만 환경 미도달로 미완.
