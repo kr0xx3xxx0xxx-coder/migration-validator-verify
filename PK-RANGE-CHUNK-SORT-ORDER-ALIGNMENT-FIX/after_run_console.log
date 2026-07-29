@@ -1,0 +1,45 @@
+========================================================================================
+ PK-RANGE-CHUNK-SORT-ORDER-ALIGNMENT-FIX 실측 [AFTER] cases=['V2', 'V3', 'V5'] chunk=50,000
+ 코드 경로: C:\projects\migration-validator\scripts\dev_e2e
+========================================================================================
+
+ 접속 중(원본 asis / 목적 tobe)...
+ 접속 완료
+
+========================================================================================
+ [AFTER] V2 — TO_CHAR(g) — 문자 정렬 ≠ 숫자 정렬(결함 재현 대상)
+========================================================================================
+  ora_pk_min_max  원본 1 ~ 1000000 · 목적 1 ~ 999999  (타입 int, 2.12s)
+  합집합 범위 1 ~ 1,000,000 · chunk 20개
+  chunk 1개 반환 순서: 50,000행 · 역전 4,500회 (문자 정렬(전제 위반))
+  end-to-end 실행 중(run_id=PKSOAAV2)...
+  상태 READY · chunk 20개 · 100.23s
+  판정: 재이관 대상 10,000건(목적 미존재 10,000 · 값 불일치 0) · 목적 단독 0건
+  참값 10,000건 대비 → +0건 (일치)
+  PK 정렬 보정 증적: {'pk_order_checked_lists': 40, 'pk_order_normalized_lists': 4, 'pk_order_normalized_rows': 199500, 'pk_order_violations': 9001, 'pk_order_uncomparable_lists': 0, 'pk_order_normalized_src_lists': 3, 'pk_order_normalized_tgt_lists': 1, 'pk_order_normalization_applied': True}
+
+========================================================================================
+ [AFTER] V3 — g 숫자 PK(대조군 — 회귀 확인)
+========================================================================================
+  ora_pk_min_max  원본 1 ~ 1000000 · 목적 1 ~ 999999  (타입 int, 0.87s)
+  합집합 범위 1 ~ 1,000,000 · chunk 20개
+  chunk 1개 반환 순서: 50,000행 · 역전 0회 (오름차순)
+  end-to-end 실행 중(run_id=PKSOAAV3)...
+  상태 READY · chunk 20개 · 88.79s
+  판정: 재이관 대상 10,000건(목적 미존재 10,000 · 값 불일치 0) · 목적 단독 0건
+  참값 10,000건 대비 → +0건 (일치)
+  PK 정렬 보정 증적: {'pk_order_checked_lists': 40, 'pk_order_normalized_lists': 0, 'pk_order_normalized_rows': 0, 'pk_order_violations': 0, 'pk_order_uncomparable_lists': 0, 'pk_order_normalized_src_lists': 0, 'pk_order_normalized_tgt_lists': 0, 'pk_order_normalization_applied': False}
+
+========================================================================================
+ [AFTER] V5 — LPAD(TO_CHAR(g),7,'0') zero-pad 문자키(대조군 — 문자 정렬 == 숫자 정렬)
+========================================================================================
+  ora_pk_min_max  원본 1 ~ 1000000 · 목적 1 ~ 999999  (타입 int, 2.65s)
+  합집합 범위 1 ~ 1,000,000 · chunk 20개
+  chunk 1개 반환 순서: 50,000행 · 역전 0회 (오름차순)
+  end-to-end 실행 중(run_id=PKSOAAV5)...
+  상태 READY · chunk 20개 · 104.16s
+  판정: 재이관 대상 10,000건(목적 미존재 10,000 · 값 불일치 0) · 목적 단독 0건
+  참값 10,000건 대비 → +0건 (일치)
+  PK 정렬 보정 증적: {'pk_order_checked_lists': 40, 'pk_order_normalized_lists': 0, 'pk_order_normalized_rows': 0, 'pk_order_violations': 0, 'pk_order_uncomparable_lists': 0, 'pk_order_normalized_src_lists': 0, 'pk_order_normalized_tgt_lists': 0, 'pk_order_normalization_applied': False}
+
+ 결과 원본 → scripts/dev_e2e/_pk_soa_after.json (총 306.6s)

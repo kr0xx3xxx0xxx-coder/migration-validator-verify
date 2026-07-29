@@ -1,0 +1,55 @@
+{
+ "task": "PK-RANGE-CHUNK-SORT-ORDER-ALIGNMENT-FIX",
+ "base": "http://127.0.0.1:8000",
+ "note": "명시 전략 요청(compare_strategy=PK_RANGE_CHUNK_COMPARE)으로 chunk 엔진 경로 강제",
+ "src_sql": "SELECT ID, C_NUM_PS FROM NXDNP.MV_ORA_XDIFF_SRC",
+ "tgt_sql": "SELECT ID, C_NUM_PS FROM NXDNP.MV_ORA_XDIFF_TGT",
+ "prepare": {
+  "ms": 211.9,
+  "body": {
+   "ok": true,
+   "status": "PREPARING",
+   "run_id": "PS50346785F3D2",
+   "error_message": null,
+   "reused": false
+  }
+ },
+ "final_records": {
+  "status": "READY",
+  "total": 150,
+  "missing_migration": 100,
+  "value_mismatch": 50,
+  "target_only_count": 50,
+  "key_col": "ID"
+ },
+ "elapsed_sec": 12.6,
+ "run": {
+  "run_id": "PS50346785F3D2",
+  "status": "DONE",
+  "counts": {
+   "missing_migration": 100,
+   "value_mismatch": 50,
+   "reimport_pks": 150,
+   "reimport_total": 150,
+   "excluded_target_only": 50,
+   "target_only_stored": 50,
+   "mismatch_limit_stopped": false
+  },
+  "strategy": "PK_RANGE_CHUNK_COMPARE",
+  "key_col": "ID",
+  "chunks_total": 6,
+  "chunk_size": 50000,
+  "detail_elapsed_ms": 8484.37,
+  "pk_order": {
+   "pk_order_checked_lists": 11,
+   "pk_order_normalized_lists": 0,
+   "pk_order_normalized_rows": 0,
+   "pk_order_violations": 0,
+   "pk_order_uncomparable_lists": 0,
+   "pk_order_normalized_src_lists": 0,
+   "pk_order_normalized_tgt_lists": 0,
+   "pk_order_normalization_applied": false
+  }
+ },
+ "verdict": "숫자 PK 회귀 없음 — PK_RANGE_CHUNK 실행 · 정렬 보정 0회"
+}
