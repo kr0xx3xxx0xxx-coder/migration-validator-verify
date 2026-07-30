@@ -1,0 +1,155 @@
+작업명 : DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE
+✅ 작업 완료 - DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE - 남은 지점 5개(2계열·2파일), 실사용 경로 영향은 1지점뿐
+
+■ 결론 한 줄
+  2026-07-27 기준 15지점 중 **10지점이 이후 5개 작업으로 이미 해소**됐고, 실제 남은 것은
+  **agg_diff_route.py dialect 미위임 3 + diagnosis_route._count_rows sqlglot 하드코딩 2 = 5지점**이다.
+  이 중 실사용 UI 경로에 영향이 있는 것은 **agg_diff_route.py:893 단 1지점**이며, 나머지 4는
+  '무영향(호출부 없음/메타 전용)' 또는 '라이브에서 정상 확인된 잔여 위험'이다.
+  count_gate 사전 게이트는 서버측이 해소됐고, 대신 **UI 측 미해소 1건이 새로 드러났다**.
+
+■ 재집계 방법(증거)
+  1) 지난 회차가 남긴 진단 드라이버를 그대로 재실행(코드 무변경):
+       python scripts/dev_e2e/routes_limit_dialect_secondary_check.py
+     → routes/ 40개 .py 를 AST 재스캔. 정규식 오탐/누락 없음(주석·독스트링 제외, f-string 복원).
+  2) 지난 회차와 달리 **오라클 DB 가 TCP 도달 가능**해져 라이브 실측이 실제로 수행됐다.
+       Oracle_asis 1523 / Oracle_tobe 1524  → 도달 ✓
+       PostgreSQL_Inter 5433 / 5434         → 여전히 미도달 ✗ (PG 대조군만 미수행)
+  3) 15지점 원본 목록은 ROUTES-DIAGNOSIS-LIMIT-DIALECT-SECONDARY-CHECK.txt 의 (A)~(F) 계열에서 인용.
+
+  드라이버 요약 출력(현재 코드베이스 기준):
+       정적: 제한문법 4 · 방언 하드코딩 2 · 밑줄별칭 0 · dialect 미위임 호출 3
+       (지난 회차: 제한문법 7(결함 3) · 방언 하드코딩 2 · 밑줄별칭 10 · 미위임 7)
+     ※ '제한문법 4' 는 sample_route 3(이미 정상 4방언 분기) + batch_route 1(내부 SQLite) 로 전부 무해 대조군.
+       지난 회차에 결함으로 잡혔던 count_gate 3곳은 목록에서 사라졌다.
+
+■ 해소된 것(짧게만 — 어느 작업이 해소했는지)
+  · count_gate_route.py 4계열 전부(제한문법 3 + 별칭 7 + 미위임 1 + psycopg2 전용 API 2)
+      → 35a168c COUNT-GATE-ROUTE-DIALECT-AND-ALIAS-FIX
+        (별칭 __cg→cg1 상수화, _limited_select 로 dialect.row_limit_* 위임, _routing_dialect 배선,
+         export 는 oracle=arraysize fetchmany / pg=named cursor 분기 + 미지원 방언 사전 차단)
+  · exact_diff_route.py:139 미위임 / 177·178 `::text` + `__sf`
+      → 25138f0 EXACT-DIFF-ROUTE-CHUNKKEY-DIALECT-AND-CAST-FIX
+        (_conn_dialect 배선, _scope_eq_expr 4방언 분기, 별칭 mv_scope_src/tgt)
+  · diagnosis_route.py:515·527 (_contract_chunk_key / _contract_match_key) 미위임
+      → 4db92e1 DIAGNOSIS-ROUTE-CONTRACT-KEY-DIALECT-CONSISTENCY-FIX
+  · agg_diff_route.py:524 `__m` 별칭
+      → 6a4cc8a AGG-DIFF-ROUTE-UNDERSCORE-M-ALIAS-FIX (MATCHKEY_WRAP_ALIAS='mm1')
+  · 부수발견 1) 밑줄별칭 정적 회귀 테스트의 routes/ 가드 공백
+      → 35a168c 에서 _SCAN_DIRS 에 routes/ 추가. 현재 tests/test_underscore_alias_oracle_regression_static.py
+        11 passed·1 xfailed·6 subtests 통과로 가드 유효 확인.
+  · '애초에 오탐' 판정은 없음 — 지난 회차 목록은 전부 실재했다(그 정확성은 이번 라이브 실측으로도 재확인).
+
+■ 진짜 남은 지점(우선순위 순)
+
+  ── R1 [P1·유일한 실사용 영향] routes/agg_diff_route.py:893  resolve_confirmed_chunk_key() dialect 미위임
+     · 소속: `_pk_resolve(req)` (829~) → **POST /agg-diff/prepare** 전용 경로(드릴다운·재이관 준비 진입점).
+     · 현상: dialect 미전달 → 기본 'postgres' 렌더 → 오라클에서 NULL probe 가 `... LIMIT 1` 로 방출.
+       이번 라이브 실측으로 확정: ORA-03049 "SQL keyword 'LIMIT' is not syntactically valid"
+       (dialect=oracle 로 넘기면 FETCH FIRST 로 렌더돼 정상 rows=0).
+     · 결과: 오라클에서 chunk key 확정 실패 → 902행 `_resolve_native_pk_key`(어댑터 위임, 정상) 폴백.
+       기능은 동작하되 **청크 고속경로를 잃고 전량 스캔으로 내려간다**(재이관 prepare 지연과 정합).
+       화면에 오류가 뜨지 않아 '느릴 뿐'으로 보이는 조용한 열화 — 표면화되지 않는 점이 가장 나쁘다.
+     · 난이도: 같은 파일 539~540 행에 이미 정답 패턴이 있다(_to_sqlglot_dialect 로 src/tgt 도출).
+       852행이 이미 `assert_single_select` 에 db_type 을 넘기고 있어 접속 정보도 이미 손에 있다. 2줄 배선.
+     · 주의(비판적 검토): 혼합 방언(src≠tgt)은 어느 쪽으로 렌더해도 반대편 probe 가 깨진다.
+       기존 3개 수정본이 모두 `_sd if _sd == _td else "postgres"` 로 영향 범위를 '동일 방언'에 한정했으므로
+       여기서도 같은 규약을 따라야 한다 — 새 규칙을 만들면 4개 파일의 방언 도출 규약이 갈라진다.
+
+  ── R2 [P4] routes/agg_diff_route.py:1503  resolve_confirmed_chunk_key() dialect 미위임
+     · 소속: **POST /agg-diff/run**.
+     · 실패 시 R1 과 달리 native PK 폴백이 없다 → key 빈값 → run_agg_contribution_diff:871 에서
+       `status=HOLD / stop_reason=MATCH_KEY_HOLD`("안정적인 MATCH KEY 가 확인되지 않아…")로 종료.
+       즉 원인이 '방언 미배선'인데 사용자에겐 '키 없음'으로 보이는 **오귀인 메시지**가 된다.
+     · 다만 **현재 UI 호출부가 없다**. tests/test_agg_contribution.py:149 가 §22 규약으로
+       "UI 는 클릭마다 /agg-diff/run 을 부르지 않는다"를 강제하고 있고, UI 는 prepare/pk-records/
+       run-records 만 호출한다 → 직접 API 호출로만 도달. 그래서 P4.
+     · R1 과 같은 파일·같은 2줄 배선이므로 **R1 과 반드시 같은 작업에서 함께 고친다**(따로 하면 규약 분기 재발).
+
+  ── R3 [P5·사실상 무해, 일관성 목적] routes/agg_diff_route.py:877  resolve_trusted_chunk_key() dialect 미위임
+     · 이 함수는 데이터 전수조회를 하지 않는다(information_schema + PK 제약만). dialect 는
+       key_evidence.py:329 `_direct_column_name(expr, dialect)` 의 sqlglot 파싱에만 쓰인다.
+     · 대상 문자열은 '순수 컬럼 참조인지' 판정용이라, 순수 컬럼이면 postgres/oracle 파싱 결과가 같고
+       순수 컬럼이 아니면 어차피 None(=passthrough 불인정)이 정답이다 → 오판 여지가 사실상 없다.
+       **DB 로 나가는 SQL 이 없으므로 ORA 오류도 발생하지 않는다.**
+     · 판정: 미해결이지만 위험 없음. R1 수정 시 인자만 함께 넘기면 되므로 별도 작업 가치는 없다.
+
+  ── R4 [P5] routes/diagnosis_route.py:1500·1503  `sqlglot.parse_one(..., read="postgres")` / `tree.sql(dialect="postgres")`
+     · 소속: `_count_rows()` → 크기 등급 산정(/diagnosis/size-strategy 등).
+     · 렌더 매트릭스상 4방언 결과가 모두 `SELECT COUNT(*) AS C FROM ...` 로 동일 → LIMIT 계열 문법오류 없음.
+       이번 **오라클 라이브 실측에서도 정상 동작(300 반환)**.
+     · 잔여 위험은 base_sql 에 오라클 전용 표현식이 있을 때의 파싱·재렌더 왜곡뿐이고, 실패해도
+       except 로 삼켜 None → SIZE_UNKNOWN 으로 축약된다(조용한 열화지만 판정 자체는 안전측).
+     · 판정: 미해결. 단 'LIMIT 미위임' 범주가 아니므로 S9 본체와 분리해 별건으로 두는 편이 정확하다.
+
+  ── R5 [신규·요구사항 3에서 드러남] ui/tabler_renderer.py:24521 `mvCountGateSideExport`
+     · 서버(count_gate_route.py:234)는 이제 미지원 방언(mysql/mssql)에 대해 스트리밍 전에
+       `{"ok":false,"reason_code":"EXPORT_DIALECT_UNSUPPORTED", ...}` JSON 을 반환한다(사전 차단 신설).
+     · 그런데 UI 는 `.then(resp => resp.blob())` 으로 **응답을 무조건 blob 으로 받아 .csv 로 저장**한다
+       → 사용자는 오류 문구가 든 `one_side_src_records.csv` 를 내려받는다(오류가 화면에 안 뜬다).
+     · 즉 서버 게이트를 UI 가 소비하지 않는 반쪽 배선. 지난 회차 이후 서버만 고쳐지며 생긴 신규 갭이다.
+
+■ [요구사항 3] count_gate 3개 엔드포인트 방언 사전 게이트 — 재확인 결과
+  구분                       지난 회차            현재                                              판정
+  /count-gate/range-diagnosis  게이트 없음·오라클 전멸  게이트는 여전히 없으나 **오라클에서 정상 동작**       실질 해소
+                                                   (라이브: match_key.confirmed=True, src/tgt count=300,
+                                                    first_keys 정상 반환)
+  /count-gate/one-side-preview 게이트 없음·오라클 전멸  방언 위임으로 정상 실행(별칭 cg1 + row_limit 위임)   실질 해소
+  /count-gate/one-side-export  게이트 없음·오라클 전멸  **서버 사전 게이트 신설**(EXPORT_SUPPORTED_DB_TYPES
+                                                   =postgresql/oracle, 스트리밍 시작 전 JSON 차단)      서버 해소
+                                                                                                   / UI 미해소(R5)
+
+  · mysql/mssql 에서 range-diagnosis·preview 에는 여전히 '사전' 게이트가 없다. 다만 실행 시
+    공통 read-only 경로(db_query_service.py:668)가 READ_ONLY_SESSION_ENFORCEMENT_FAILED 로 명시 차단하고,
+    그 사유가 count_error / error.detail 로 화면에 노출된다 → 조용한 실패가 아니라 '사후 명시 실패'다.
+    두 방언은 애초에 통계 실행 전반이 미지원이므로, 이 두 엔드포인트만 별도 사전 게이트를 다는 것은
+    실익이 낮다(권장: 버튼 노출 조건을 방언별로 거는 UI 공통 처리로 R5 와 묶어 한 번에).
+  · 즉 "3개 엔드포인트 사전 게이트 부재" 항목은 **오라클 관점에서는 소멸**했고, 남은 것은
+    mysql/mssql 에서의 UI 노출 정책 1건(R5 포함)으로 성격이 바뀌었다.
+
+■ 지난 회차 '미실측 3항목' — 이번 라이브 실측으로 전부 확정(오라클 asis 도달)
+  1) `FROM (...) __cg` 처럼 밑줄 별칭이 테이블 별칭 위치일 때의 오류코드
+       → **ORA-00911: _: invalid character after )** (ORA-00933 아님). 확정.
+  2) `::text` 오라클 실행 오류
+       → SQL 오류가 아니라 드라이버 단계 실패: **DPY-4010 bind variable ":TEXT" not provided**.
+         (즉 `::text` 는 오라클에서 문법오류로 잡히는 게 아니라 바인드 변수로 오인된다 — 현행
+          _scope_eq_expr 의 TO_CHAR 분기가 올바른 대응임을 실측으로 뒷받침.)
+  3) 라우트 종단 응답 형태
+       → POST /count-gate/range-diagnosis 오라클 종단 정상(위 표 참조).
+  참고 실측(수정 전/후 대조, 같은 오라클 세션):
+       count_gate:95 원형(LIMIT+__cg)        → 실패 ORA-00911
+       count_gate:95 별칭만 안전화(LIMIT 유지)  → 실패 ORA-03049
+       count_gate:95 별칭+제한 모두 방언화       → **성공 rows=5**   ← 현행 코드가 이 형태
+     즉 '별칭만' 또는 '제한만' 고쳤으면 여전히 실패했고, 두 계열을 함께 고친 35a168c 가 정확했음이 확인된다.
+
+■ 권장 착수 순서(수정은 이번 지침 범위 밖 — 제안만)
+  1) R1+R2+R3 을 **agg_diff_route.py 단일 작업**으로 일괄 배선(2줄×3, 기존 539~540 패턴 재사용,
+     혼합 방언은 postgres 유지 규약 준수). 지금까지의 4개 수정본과 동일 계열이라 위험 낮음.
+  2) R5 는 UI 작업으로 분리 — export 응답의 Content-Type 을 보고 JSON 이면 오류 표시로 분기.
+     (동시에 mysql/mssql 버튼 노출 정책을 함께 정하면 요구사항 3 잔여분까지 닫힌다.)
+  3) R4 는 S9 본체에서 분리해 '별건'으로 재분류 권장 — LIMIT 미위임 범주가 아니고 실측상 정상.
+  ※ BACKLOG.md S9 의 '15지점' 표기는 이제 사실과 다르다 → **5지점(그중 실사용 영향 1)** 으로 갱신 필요.
+
+■ 비판적 검토(구조·운영 관점)
+  · 긍정: 방언 위임 규약이 4개 파일에서 동일 헬퍼(_to_sqlglot_dialect)로 수렴 중이고, 밑줄별칭은
+    정적 회귀 가드가 routes/ 까지 덮어 재발이 막혔다. 이번 재집계에서 **신규 위반 0건**인 것이 그 증거다.
+  · 위험: dialect 인자는 여전히 '호출부가 안 넘기면 조용히 postgres' 라는 **기본값 함정** 구조다.
+    남은 3곳을 고쳐도 새 호출부가 생기면 같은 결함이 재발한다. 근본 대책은 (a) 기본값 제거(필수 인자화)
+    또는 (b) routes/ 를 AST 스캔해 dialect 미전달 호출을 실패시키는 정적 테스트 추가.
+    이번 드라이버(scripts/dev_e2e/routes_limit_dialect_secondary_check.py)가 이미 그 스캔 로직을
+    갖고 있으므로 tests/ 로 승격만 하면 된다 — 비용 대비 효과가 가장 큰 후속 작업이다.
+  · explainability: R2 의 MATCH_KEY_HOLD 처럼 '원인(방언 미배선) ≠ 표시 사유(키 없음)' 인 오귀인이
+    남아 있다. 배선을 고쳐도 HOLD 사유에 근거를 남기지 않으면 같은 혼동이 반복된다.
+
+■ 자체 테스트(코드 변경 없음 — 회귀 확인 목적)
+  python samples/test_virtual_cases.py                                  → 8/8 통과
+  python samples/test_complex_cases.py                                  → 5/5 통과
+  pytest tests/test_underscore_alias_oracle_regression_static.py -q     → 11 passed, 1 xfailed, 6 subtests
+  python scripts/dev_e2e/routes_limit_dialect_secondary_check.py        → 정적 재집계 + 오라클 라이브 실측 수행
+
+■ 변경/생성 파일
+  없음 — 순수 진단. 프로덕션 코드·테스트·스크립트 무변경.
+  asis/tobe 실 테이블에 대한 쓰기 없음(읽기 전용 probe/COUNT/SELECT 만 수행).
+
+작업명 : DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE
+✅ 작업 완료 - DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE - 남은 지점 5개(2계열·2파일), 실사용 경로 영향은 1지점뿐
