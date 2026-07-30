@@ -1,0 +1,113 @@
+작업명 : GITIGNORE-DB-WAL-PATTERN-FIX
+
+================================================================================
+1. 배경 / 문제
+================================================================================
+.gitignore 에 db/*.db 규칙은 있었으나 SQLite WAL 모드에서 실행 중 생성되는
+보조 전이 파일(-shm / -wal)에 대한 규칙이 없었다.
+그 결과 db/chunk_checkpoints.db-shm, db/chunk_checkpoints.db-wal 이 매번
+미추적(??) 상태로 git status 에 잡혀 잡음을 만들었고,
+URGENT-WORKINGTREE-UNCOMMITTED-STACK-COMMIT-RECOVERY 에서
+"진짜 미커밋 변경을 가리는 간접 원인" 으로 지적됐다.
+
+================================================================================
+2. 수정 내용 (대상 파일: .gitignore 1개)
+================================================================================
+기존 "# 로컬 SQLite / DB 파일 제외" 블록 바로 아래에 WAL/SHM 보조파일 패턴 추가.
+기존 규칙(db/*.db 포함) 및 다른 무관한 규칙은 일절 변경하지 않았다.
+
+--- git diff ---
+diff --git a/.gitignore b/.gitignore
+index 7e6cf03..2752085 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -46,6 +46,20 @@ config/db_presets_*.json
+ db/*.db
+ db/*.sqlite
+ db/*.sqlite3
++# SQLite WAL 모드 보조파일(-shm/-wal) — 실행 중 자동 생성되는 전이 파일이므로 추적 제외
++# (GITIGNORE-DB-WAL-PATTERN-FIX)
++*.db-shm
++*.db-wal
++*.sqlite-shm
++*.sqlite-wal
++*.sqlite3-shm
++*.sqlite3-wal
++db/*.db-shm
++db/*.db-wal
++db/*.sqlite-shm
++db/*.sqlite-wal
++db/*.sqlite3-shm
++db/*.sqlite3-wal
+
+ # 로그 / 출력물 제외
+ logs/
+
+패턴 선정 근거:
+- *.db-shm / *.db-wal : 저장소 어디에서 생성돼도 동일하게 제외(루트 *.db 규칙과 대칭).
+- *.sqlite(-shm/-wal), *.sqlite3(-shm/-wal) : 기존 *.sqlite / *.sqlite3 규칙과 대칭.
+- db/ 하위 동일 패턴 : 기존 db/*.db 계열 규칙과 대칭(명시성 유지, 규칙 의도 가독성).
+
+================================================================================
+3. 실측 검증
+================================================================================
+[3-1] 수정 전 git status (요약)
+ M .claude/settings.local.json
+?? db/chunk_checkpoints.db-shm      <-- 미추적으로 노출
+?? db/chunk_checkpoints.db-wal      <-- 미추적으로 노출
+?? docs/BATCH_VALIDATION_PROGRESS_DASHBOARD_FEASIBILITY.md
+?? ... (이하 docs/ , scripts/dev_e2e/ 미추적 항목들)
+총 라인 수: 114
+
+[3-2] 수정 후 git status (요약)
+ M .claude/settings.local.json
+ M .gitignore                       <-- 이번 수정분(커밋 전 시점)
+?? docs/BATCH_VALIDATION_PROGRESS_DASHBOARD_FEASIBILITY.md
+?? ... (이하 동일)
+총 라인 수: 113
+
+[3-3] before -> after 차분 (git status --porcelain diff)
+2,3c2
+< ?? db/chunk_checkpoints.db-shm
+< ?? db/chunk_checkpoints.db-wal
+---
+>  M .gitignore
+
+  => 사라진 항목: db-shm / db-wal 2건 (의도한 결과)
+  => 새로 생긴 항목: .gitignore 수정 1건 (이번 작업 자체)
+  => 그 외 항목 변화 0건. 즉 다른 파일은 하나도 영향받지 않았다.
+
+[3-4] 실제 무시 규칙 매칭 확인 (git check-ignore -v)
+.gitignore:57:db/*.db-shm       db/chunk_checkpoints.db-shm
+.gitignore:58:db/*.db-wal       db/chunk_checkpoints.db-wal
+
+[3-5] 신규 패턴이 실제로 잡는 파일 전수 (git status --porcelain --ignored=matching)
+!! db/chunk_checkpoints.db-shm
+!! db/chunk_checkpoints.db-wal
+  => 딱 의도한 2건만 무시 대상. 과도 매칭 없음.
+
+[3-6] 정상 추적 파일 오무시 여부 (git ls-files -i -c --exclude-standard)
+  -shm/-wal 로 끝나는 tracked 파일: 0건 (출력 없음)
+  => 기존에 추적 중이던 파일이 새 규칙으로 무시 대상이 된 사례 없음.
+
+================================================================================
+4. 코드 저장소 커밋 (push 금지 — 지침대로 커밋까지만)
+================================================================================
+커밋: 2cc77bd
+  chore(gitignore): SQLite WAL/SHM 보조파일(-shm/-wal) 추적 제외 패턴 추가
+                    (GITIGNORE-DB-WAL-PATTERN-FIX)
+변경 파일: .gitignore | 14 ++++++++++++++  (1 file changed, 14 insertions(+))
+pre-commit 비밀번호 스캔: 통과 (staged 1개 파일, 지문 4건 대조)
+스테이징 범위: .gitignore 단일 파일만. .claude/settings.local.json 등
+동시 진행 작업의 변경분은 스테이징하지 않았다.
+
+================================================================================
+5. 병행 작업 간섭 여부
+================================================================================
+수정 파일은 .gitignore 1개뿐이며,
+ORPHANED-UNTRACKED-DEV-E2E-DOCS-ATTRIBUTION-COMMIT /
+VERIFY-REPO-ORPHAN-COMMIT-PUSH-RECOVERY 와 대상 파일이 겹치지 않는다.
+단, 새 규칙은 db/ 하위 -shm/-wal 만 무시하므로 저 두 작업이 커밋 대상으로 삼는
+docs/*.md, scripts/dev_e2e/*.py 미추적 항목에는 아무 영향이 없다(3-3에서 실측 확인).
+
+✅ 작업 완료 - GITIGNORE-DB-WAL-PATTERN-FIX - .gitignore 에 SQLite WAL/SHM 보조파일(-shm/-wal) 제외 패턴 추가, db/chunk_checkpoints.db-shm|wal 2건이 git status 에서 제거됨을 실측 확인(타 파일 영향 0건), 코드 저장소 커밋 2cc77bd 완료
