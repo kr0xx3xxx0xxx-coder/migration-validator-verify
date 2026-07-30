@@ -1,0 +1,148 @@
+작업명 : AGG-DIFF-ROUTE-CHUNKKEY-DIALECT-DELEGATION-FIX
+✅ 작업 완료 - AGG-DIFF-ROUTE-CHUNKKEY-DIALECT-DELEGATION-FIX - chunk key 확정 3개 호출(resolve_trusted_chunk_key 1곳·resolve_confirmed_chunk_key 2곳)에 실제 접속 방언을 배선해, 오라클에서 NULL probe 가 LIMIT 로 나가 ORA-03049 로 실패하고 청크 고속경로를 조용히 잃던 열화를 제거
+
+────────────────────────────────────────────────────────────────────────────
+1. 수정 대상 (요청 범위 그대로 — 이 파일만 수정)
+────────────────────────────────────────────────────────────────────────────
+routes/agg_diff_route.py
+  - 신규 헬퍼 _chunk_key_dialect(req)  (499행 뒤, _introspect_pk_cols 앞)
+  - A1  _pk_resolve  → resolve_trusted_chunk_key   (수정 전 877행 / 수정 후 898~901행)
+  - A2  _pk_resolve  → resolve_confirmed_chunk_key (수정 전 893행 / 수정 후 916~918행, /agg-diff/prepare 실사용 경로)
+  - A3  agg_diff_run → resolve_confirmed_chunk_key (수정 전 1503행 / 수정 후 1527~1529행, /agg-diff/run)
+
+검증 harness(신규, 운영 파이프라인 아님)
+  scripts/dev_e2e/agg_diff_route_chunkkey_dialect_verify.py
+
+────────────────────────────────────────────────────────────────────────────
+2. 규약 준수 — 새 규약 발명 없음
+────────────────────────────────────────────────────────────────────────────
+방언 도출은 같은 파일 539~540행(_resolve_matchkey_via_diagnosis / MATCH-KEY-ORACLE-DIALECT-DELEGATION-FIX)의
+정답 패턴을 그대로 재사용한다.
+    from services.sql_dependency_pruning import _to_sqlglot_dialect
+    _sd = _to_sqlglot_dialect((req.src_conn or {}).get("db_type"))
+    _td = _to_sqlglot_dialect((req.tgt_conn or {}).get("db_type"))
+혼합 방언(src≠tgt)은 기존 3개 수정본과 동일 규약 `_sd if _sd == _td else "postgres"` 를 적용했다.
+  · routes/exact_diff_route.py:227  (EXACT-DIFF-ROUTE-CHUNKKEY-DIALECT-AND-CAST-FIX)
+  · routes/diagnosis_route.py:63~81 (_routing_dialect / ROUTES-DIAGNOSIS-CONFIRM-ROUTING-DIALECT-DELEGATION-FIX)
+  · routes/agg_diff_route.py:537~540(MATCH-KEY-ORACLE-DIALECT-DELEGATION-FIX)
+→ 4개 파일의 방언 도출 규약이 동일하게 유지된다(갈라지지 않음).
+호출이 3곳이라 diagnosis_route._routing_dialect 선례와 같이 모듈 수준 헬퍼 1개로 묶었다(인라인 3중복 회피).
+접속 정보는 852행(assert_single_select 에 db_type 전달)이 이미 확보한 req.src_conn/req.tgt_conn 을 그대로 재사용 —
+새 인자·새 payload 필드 없음.
+
+────────────────────────────────────────────────────────────────────────────
+3. 실측 [1] — 배선 캡처 (외부 DB 접속 0회, 방언 6케이스 × 3지점)
+────────────────────────────────────────────────────────────────────────────
+harness: scripts/dev_e2e/agg_diff_route_chunkkey_dialect_verify.py
+방식: resolve_trusted_chunk_key / resolve_confirmed_chunk_key 를 캡처 stub 으로 치환하고
+      운영 함수(_pk_resolve, agg_diff_run)를 실제 호출해 '전달된 dialect 인자'를 관측.
+BEFORE 는 같은 파일을 baseline worktree(HEAD f1a31a0, 수정 전)에서 실행.
+
+  케이스                기대값     BEFORE(A1/A2/A3)              AFTER(A1/A2/A3)
+  oracle   / oracle     oracle     미전달→기본 postgres  ❌      oracle   / oracle   / oracle    ✅
+  postgres / postgres   postgres   미전달→기본 postgres          postgres / postgres / postgres  ✅
+  mysql    / mysql      mysql      미전달→기본 postgres  ❌      mysql    / mysql    / mysql     ✅
+  mssql    / mssql      tsql       미전달→기본 postgres  ❌      tsql     / tsql     / tsql      ✅
+  혼합 pg  / oracle     postgres   미전달→기본 postgres          postgres / postgres / postgres  ✅
+  혼합 oracle / pg      postgres   미전달→기본 postgres          postgres / postgres / postgres  ✅
+
+  판정: BEFORE 3지점 전부 dialect 미전달(기본값 postgres) / AFTER 6케이스 × 3지점 전부 기대값 일치.
+  주의(정직 기록): postgres·혼합 3케이스는 BEFORE 도 실효값이 postgres 라 동작 변화가 없다(무회귀 확인 목적).
+                   실동작이 바뀌는 것은 oracle / mysql / mssql 동일방언 케이스뿐이다.
+  결과 원본: scripts/dev_e2e/_agg_diff_chunkkey_dialect_{before,after}.json
+
+────────────────────────────────────────────────────────────────────────────
+4. 실측 [2] — 오라클 실 DB /agg-diff/prepare (핵심 재현)
+────────────────────────────────────────────────────────────────────────────
+환경: 내부망 오라클 asis 192.168.0.151:1523 / tobe 192.168.0.151:1524, 스키마 NXDNP
+      픽스처 NXDNP.MV_COMBO_SRC(1,200행) → NXDNP.MV_COMBO_TGT(1,200행, PK=ID)
+      접속정보는 UI 프리셋(db_presets_src/tgt.json)에서 로드 — 비밀번호는 출력·기록하지 않음.
+방식: DB 로 나가는 SELECT 를 기록만 하는 wrapper 로 감싸고(실행은 그대로 통과),
+      운영 함수 _pk_resolve 와 라우트 핸들러 agg_diff_prepare 를 실제 실행.
+
+[BEFORE] (baseline worktree, HEAD f1a31a0)
+  probe SQL  : SELECT 1 FROM NXDNP.MV_COMBO_SRC WHERE id IS NULL LIMIT 1
+               SELECT 1 FROM NXDNP.MV_COMBO_TGT WHERE id IS NULL LIMIT 1
+  결과       : ORA-03049: SQL keyword 'LIMIT' is not syntactically valid following
+               '...MV_COMBO_SRC WHERE id IS NULL '   (2건, src/tgt 각 1건)
+  _pk_resolve: key_src/key_tgt = ID / ID, trusted=false, native_unique=TRUE
+               → contract chunk key 미확정 → 물리 PK 네이티브 폴백
+               → prepare 에서 compare_strategy="" 로 강제(청크 우회, DIRECT merge)
+  prepare    : status=READY (run_id PKFFC05BDE55DF, 1.12s) — 조용히 열화(에러 미표출)
+
+[AFTER] (현재 트리)
+  probe SQL  : SELECT 1 FROM NXDNP.MV_COMBO_SRC WHERE id IS NULL FETCH FIRST 1 ROWS ONLY
+               SELECT 1 FROM NXDNP.MV_COMBO_TGT WHERE id IS NULL FETCH FIRST 1 ROWS ONLY
+  결과       : ORA 에러 0건 (probe 2건 모두 성공)
+  _pk_resolve: key_src/key_tgt = id / id, trusted=false, native_unique=FALSE
+               → contract 기반 chunk key 정상 확정 → 청크 고속경로 유지
+  prepare    : status=READY (run_id PK8C753F151887, 0.89s)
+
+  핵심 차이  : ORA-03049 2건 → 0건 / native PK 폴백(native_unique=true) → contract 확정(false).
+  정직 기록  : 1,200행 픽스처에서는 벽시계 차이가 유의하지 않다(1.12s vs 0.89s, 네트워크 편차 범위).
+               이번 수정의 실효는 '전략 경로 복원'이며 대용량에서 비용 차이로 나타난다.
+               _pk_resolve 단독 시간은 AFTER 가 오히려 길다(1.06s → 3.43s) — BEFORE 는 probe 가 즉시
+               ORA 에러로 실패해 빨리 포기했기 때문이며, AFTER 는 실제 NULL 검증을 수행한 결과다.
+
+  잔여(이번 범위 밖, BEFORE/AFTER 동일하게 관측됨):
+    chunk key 후보 생성 중 `SELECT column_name, data_type, is_nullable FROM information_schema.columns ...`
+    (PG 전용 카탈로그)가 오라클에서 2건 차단된다. 이번 수정과 무관한 별개 갭이며, 그럼에도 AFTER 는
+    chunk key 확정에 성공했다(차단 요인 아님). 수정 대상 파일 범위 밖이라 손대지 않았다.
+
+────────────────────────────────────────────────────────────────────────────
+5. 회귀 테스트 + baseline 대조
+────────────────────────────────────────────────────────────────────────────
+(1) agg_diff 키워드 서브셋
+    python -m pytest tests -k "agg_diff or aggdiff" -q
+    → 2 passed, 11450 deselected (26.65s)
+
+(2) agg_diff_route/agg-diff 를 참조하는 테스트 파일 32개 전체
+    AFTER  : 8 failed, 260 passed, 7 xfailed, 6 subtests passed (38.27s)
+    BEFORE : 8 failed, 260 passed, 7 xfailed, 6 subtests passed (36.52s)
+    ※ BEFORE 는 워킹트리 confound 를 피하려고 worktree 가 아니라 '같은 트리에서 대상 파일만
+      HEAD 판으로 되돌려' 실행 후 원복했다(다른 세션의 미커밋 변경분을 동일 조건으로 유지).
+    → 실패 집합 완전 동일 → 이번 수정 기인 회귀 0건.
+
+    실패 테스트 전체 목록(8건, BEFORE/AFTER 동일 — 전부 사전 존재, UI/JS 문자열 및 병렬읽기 기본값 관련):
+      tests/test_d7_8_inline_drill_time.py::test_ui_advanced_perf_position_and_title
+      tests/test_execution_path.py::test_parallel_read_decision_off_by_default
+      tests/test_execution_path.py::test_parallel_read_decision_diff_host_true
+      tests/test_execution_path.py::test_parallel_read_decision_same_host_sequential
+      tests/test_single_auto_restore.py::test_present_and_wired_into_init_chain
+      tests/test_single_auto_restore.py::test_contract_in_function_body
+      tests/test_single_auto_restore.py::test_node_auto_restore_and_idempotent
+      tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+
+(3) CLAUDE.md 규정 회귀
+    python samples/test_virtual_cases.py  → 8/8 통과
+    python samples/test_complex_cases.py  → 5/5 케이스 분석 완료
+
+────────────────────────────────────────────────────────────────────────────
+6. git
+────────────────────────────────────────────────────────────────────────────
+커밋 해시 : 16526e7
+브랜치     : main (직전 HEAD f1a31a0)
+변경 파일  : routes/agg_diff_route.py (+28 / -3)
+             scripts/dev_e2e/agg_diff_route_chunkkey_dialect_verify.py (신규, 검증 harness)
+
+diff 요약 (routes/agg_diff_route.py):
+  + def _chunk_key_dialect(req) -> str:            # _to_sqlglot_dialect 재사용, 혼합→postgres
+  @@ _pk_resolve — resolve_trusted_chunk_key(...)   + dialect=_chunk_key_dialect(req)
+  @@ _pk_resolve — resolve_confirmed_chunk_key(...) + dialect=_chunk_key_dialect(req)
+  @@ agg_diff_run — resolve_confirmed_chunk_key(...) + dialect=_chunk_key_dialect(req)
+
+────────────────────────────────────────────────────────────────────────────
+7. 병행 확인
+────────────────────────────────────────────────────────────────────────────
+시작 전 git status 로 워킹트리 온전성 확인. routes/agg_diff_route.py 는 시작 시점 미변경 상태였고
+(오늘 UNION 지침 수정분은 이미 커밋됨), 오늘 병행 작업(stream_merge.py / ui/tabler_renderer.py)과
+파일 충돌 없음. 작업 중 다른 세션이 f1a31a0(EXACT-DIFF-STREAM-MERGE-ORDER-VIOLATION-HOLD-FIX)를
+커밋해 HEAD 가 이동했으며, 그 위에 이어서 커밋했다(충돌 없음).
+
+────────────────────────────────────────────────────────────────────────────
+실검증 상태 : 실 DB 실측 완료 — 오라클 asis(1523)/tobe(1524) NXDNP.MV_COMBO_SRC/TGT 1,200행으로
+              /agg-diff/prepare · _pk_resolve 를 BEFORE/AFTER 각각 실행. BEFORE ORA-03049 2건 재현,
+              AFTER 0건 + chunk key 확정. 화면 무관 작업이라 스크린샷 없음.
+────────────────────────────────────────────────────────────────────────────
+
+✅ 작업 완료 - AGG-DIFF-ROUTE-CHUNKKEY-DIALECT-DELEGATION-FIX - 3개 호출 지점 방언 배선 완료, 오라클 실측 ORA-03049 2건→0건·청크 고속경로 복원, 회귀 0건(실패 8건은 BEFORE/AFTER 동일 사전 존재)
