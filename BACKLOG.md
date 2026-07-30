@@ -23,6 +23,35 @@
 
 ---
 
+## verify 저장소 운영 규칙
+
+작업 항목이 아니라 **모든 세션이 지켜야 할 운영 규칙**이다. 확정일: 2026-07-30 (사용자 확정).
+
+### 규칙 — push 는 항상 임시 worktree 에서, 자기 작업 파일만
+verify 저장소(`migration-validator-verify`) push 는 **항상 `origin/main` 기반 임시 worktree 를
+새로 만들어 자기 작업 파일만 커밋·push** 하는 방식으로 통일한다.
+공유 작업트리(`E:\verify_reports`)에 직접 커밋하는 방식은 쓰지 않는다.
+
+```bash
+git -C E:/verify_reports fetch origin
+git -C E:/verify_reports worktree add --detach <임시경로> origin/main
+# <임시경로> 에서 자기 작업 파일만 수정/추가 → git add <자기 파일> → commit → push origin HEAD:main
+git -C E:/verify_reports worktree remove <임시경로>
+```
+
+### 사유
+공유 트리에 다른 세션의 미커밋 변경(`BACKLOG.md` 등)이 상주하면 pull/merge 가 계속 거부되어
+로컬 `main` 이 원격 대비 영원히 **"ahead"** 상태로 남는다. 후속 세션이 이 ahead 를
+**"미push 유실"** 로 오인하는 사고가 실제로 반복 발생했다.
+
+- 근거: `VERIFY-REPO-ORPHAN-COMMIT-PUSH-RECOVERY.txt` — 미push 로 보이던 커밋을 blob 해시로
+  대조한 결과 원격과 동일 내용인 중복 커밋이었고, 실제로는 유실이 아니었음이 밝혀졌다.
+- 같은 작업 도중 동일 패턴이 실시간으로 한 번 더 재현됐다(중복 커밋 1건 추가 확인).
+- 임시 worktree 방식은 공유 트리의 미커밋 변경과 무관하게 항상 최신 `origin/main` 위에서
+  자기 파일만 얹으므로, ahead 잔류·타 세션 변경 오염·오인 사고가 구조적으로 생기지 않는다.
+
+---
+
 ## 심각(정합성·안전) — 최우선
 
 ### S1. 동일 테이블 UNION 이 wrapping 판정을 못 받아 2번째 브랜치가 전량 소실된다(조용한 과소집계) + fan-out 유일성 게이트까지 꺼진다
