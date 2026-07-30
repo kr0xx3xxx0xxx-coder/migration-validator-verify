@@ -10,7 +10,9 @@
 - 대상 제외: 아직 push 되지 않은 로컬 전용 보고서 16건은 이번 취합에서 제외했다.
   push 후 이 파일에 합류시킨다.
 - 최초 작성: 2026-07-29 (VERIFY-REPO-BACKLOG-FILE-CREATE)
-- 최종 갱신: 2026-07-30 (BACKLOG-S9-R4-RECLASSIFY-DOC-UPDATE) — S9 재집계 반영(15지점 → 5지점, R1~R3
+- 최종 갱신: 2026-07-30 (BACKLOG-COMPLETED-ITEMS-S1-S3-S5-S8-F13-MARK-RESOLVED) — 이미 해결된
+  S1·S3·S5·S8·F13 5건을 `✅ 해결 완료` 로 표시(삭제하지 않고 근거 커밋·해결 요약만 추가)
+- 직전 갱신: 2026-07-30 (BACKLOG-S9-R4-RECLASSIFY-DOC-UPDATE) — S9 재집계 반영(15지점 → 5지점, R1~R3
   해결 완료) + R4 를 별건 M16 으로 분리, R5(count_gate export UI 미소비) F13 신규 등록
 - 직전 갱신: 2026-07-29 (BACKLOG-CHARSET-COLLATION-AND-NLS-RESIDUAL-ADD) — 캐릭터셋 정렬 붕괴·byte/char
   의미 소실·NLS 잔여 위험 등록(S12·S13·S14 신규, M15 신규)
@@ -54,7 +56,22 @@ git -C E:/verify_reports worktree remove <임시경로>
 
 ## 심각(정합성·안전) — 최우선
 
-### S1. 동일 테이블 UNION 이 wrapping 판정을 못 받아 2번째 브랜치가 전량 소실된다(조용한 과소집계) + fan-out 유일성 게이트까지 꺼진다
+### S1. ✅ 해결 완료 — 동일 테이블 UNION 이 wrapping 판정을 못 받아 2번째 브랜치가 전량 소실된다(조용한 과소집계) + fan-out 유일성 게이트까지 꺼진다
+- 해결일: 2026-07-29 (UNION-SAMETABLE-WRAPPING-DETECTION-AST-FIX)
+- 근거 커밋: 코드 저장소 `6a0a430` — `fix(reimport): 동일 테이블 UNION wrapping 미탐지를 AST 판정으로 교정
+  (UNION-SAMETABLE-WRAPPING-DETECTION-AST-FIX)`
+- 근거 보고서 커밋: 이 저장소 `b4c01dc`(완료보고 `UNION-SAMETABLE-WRAPPING-DETECTION-AST-FIX` — 전/후 실측)
+- 해결 요약: 문자열 검사(`" UNION " in raw.upper()`)를 폐기하고 `_raw_union_present` 를 신설했다
+  (① top-level 은 통계검증 wrapping 이 쓰는 기존 AST 유틸 `_raw_shape` 재사용, ② 같은 파스 트리에서
+  `exp.Union` 전수 탐색으로 서브쿼리/인라인뷰 내부 UNION 까지 검출). UNION 판정을 물리 테이블 수 게이트와
+  **독립적으로 먼저** 평가하도록 순서도 바꿨다.
+  **미결 논점이었던 파싱 실패 시 폴백 방향은 `True`(감싸기 = 안전측)로 결정·반영**됐다 — 판정 매트릭스
+  12케이스 중 바뀐 것은 U1/U5/N2/N3 4건뿐이고 전부 False→True 방향이며, False 로 남아야 하는 무회귀
+  가드(P1/P2/N1)는 불변이다.
+  실 오라클 종단 실측(POST /agg-diff/prepare): 재이관 대상 75 → 150(정답 150), 목적지 단독 오분류
+  125,000 → 50(정답 50), 원본 처리 250,000 전량(수정 전 125,000 = 절반), 소요 7.73s → 3.74s.
+  **fan-out 유일성 게이트도 함께 재활성화 확인** — `_native_pk_fanout_present` 호출 0회 → 1회,
+  겹치는 브랜치 UNION 에서 fan-out=True(중복 검출) / 비겹침 UNION 에서 fan-out=False(정상 1:1).
 - 발견일: 2026-07-29
 - 근거 보고서: `SQLGLOT-USAGE-CONSISTENCY-AUDIT-DIAGNOSE.txt` (P1-1)
 - 상세: `routes/agg_diff_route.py:759 _reimport_source_needs_wrapping` 이 `" UNION " in raw.upper()` 로
@@ -112,7 +129,21 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\PK-RANGE-CHUNK-BOUNDARY-ORDERING-ASSUMPTION-DIAGNOSE.txt
 - 참고: E:\verify_reports\CHARACTER-PK-SILENT-FALSE-MATCH-1M-REPRODUCE.txt
 
-### S3. 별칭을 쓴 단순 1:1 이관 SQL 은 재이관 상세가 아예 열리지 않는다(ORA-00904 크래시)
+### S3. ✅ 해결 완료 — 별칭을 쓴 단순 1:1 이관 SQL 은 재이관 상세가 아예 열리지 않는다(ORA-00904 크래시)
+- 해결일: 2026-07-29 (ALIAS-DERIVE-ROW-SQLS-WRAPPING-FIX)
+- 근거 커밋: 코드 저장소 `9350223` — `fix(reimport): 별칭 사용 단순 1:1 이관의 행 수준 재파생을 wrapping
+  경로로 위임 (ALIAS-DERIVE-ROW-SQLS-WRAPPING-FIX)`
+- 근거 보고서 커밋: 이 저장소 `5f346ae`(완료보고 `ALIAS-DERIVE-ROW-SQLS-WRAPPING-FIX` — ORA-00904 → READY 전/후 실측)
+- 해결 요약: 보고서 권고대로 **B안(wrapping 재사용)을 채택**했다. FROM 절에 `from_alias` 를 덧대는 A안 대신,
+  별칭 유무만 판정해 이미 검증된 wrapping 산출 형태(`_wrap_as_derived_src`)로 넘긴다 — 감싸는 형태는
+  CTE/JOIN 경로(`_derive_row_sqls_wrapped`)와 단일 정의를 공유하므로 완료 모듈에 새 분기를 만들지 않는다.
+  별칭 표기(대소문자)는 `src_expr` 에 실제로 쓰인 접두사를 따르고(MySQL 별칭 대소문자 구분 대비),
+  못 찾으면 파서 값 그대로 폴백한다.
+  실 오라클 실측(NXDNP.MV_ORA_DEMO_SRC/TGT 150행, /analyze → /agg-diff/prepare = UI 와 동일 payload):
+  별칭 사용 `HOLD / AGG_QUERY_FAILED / ORA-00904 "S"."AMT"` → `READY`(src=150 tgt=150 passed=150),
+  WHERE 에서 별칭을 참조하는 변형도 READY. 별칭 없는 경로는 fingerprint 가 수정 전과 완전히 동일
+  (`0f3c68c3…`)해 무회귀를 확인했다. 신규 자체 테스트 6건 전부 통과.
+  ※ PostgreSQL 은 접속 가능한 인스턴스 부재로 미실측(방언 무관 구조라 코드 판독으로만 확인).
 - 발견일: 2026-07-29
 - 근거 보고서: `PLAIN-JOIN-WRAPPING-NECESSITY-DIAGNOSE.txt` (6절) / `SQLGLOT-USAGE-CONSISTENCY-AUDIT-DIAGNOSE.txt` (P1-2)
 - 상세: `routes/exact_diff_route.py:78-87 _derive_row_sqls` 가 `select_items` 의 `src_expr`(`s.ID`)은 그대로
@@ -145,7 +176,19 @@ git -C E:/verify_reports worktree remove <임시경로>
   신규 DB 왕복 0회, 30M행 기준 270초 → 0초. 구조 영향은 진입부 가드 1개.
 - 참고: E:\verify_reports\LARGE-DATA-SORT-EXPOSURE-DIAGNOSE.txt
 
-### S5. hash_bucket 빌더 직접 호출은 same-DBMS 가드를 우회한다
+### S5. ✅ 해결 완료 — hash_bucket 빌더 직접 호출은 same-DBMS 가드를 우회한다
+- 해결일: 2026-07-29 (HASH-BUCKET-FACTORY-GUARD-ENFORCE-FIX)
+- 근거 커밋: 코드 저장소 `bfda564` — `fix(hash-bucket): SQL 빌더가 계약 팩토리를 반드시 거치도록 강제 —
+  미지원/혼합 방언 SQL 방출 차단 (HASH-BUCKET-FACTORY-GUARD-ENFORCE-FIX)`
+- 근거 보고서 커밋: 이 저장소 `62187dd`(완료보고 `HASH-BUCKET-FACTORY-GUARD-ENFORCE-FIX` — 계약 팩토리 강제 전/후 실측)
+- 해결 요약: **팩토리를 경유하지 않는 직접 호출에서도 same-DBMS 가드가 함수 자체의 책임으로 강제**된다.
+  `_require_contract()` 를 신설해 `get_hash_contract_pair()`(L3 단일 출처)를 반드시 거쳐 계약 객체를 얻고,
+  판정 규칙은 복제하지 않고 팩토리에 위임한다(`hash_contract.py` 미수정). 계약 부재·혼합 방언이면
+  표준 HOLD 사유 코드를 가진 `HashContractUnavailableError` 로 **생성 단계에서** 차단한다.
+  실측: `dialect='oracle'/'mysql'/'tsql'/'mssql'/'duckdb'/''` 전부 `HASH_CONTRACT_NOT_AVAILABLE` 차단,
+  cross-DBMS 3조합 전부 `HASH_BUCKET_CROSS_DBMS_NOT_SUPPORTED` 차단. 실 오라클 대조에서는 수정 전
+  방출 SQL 이 ORA-00907 로 실행 실패하던 것이 수정 후 **DB 로 나간 쿼리 0회**가 됐다.
+  PG-PG 무회귀는 3개 케이스 산출 SQL 문자열 완전 동일로 확인. 신규 테스트 9건 통과, 서브셋 failed 0.
 - 발견일: 2026-07-29
 - 근거 보고서: `HASH-BUCKET-STRATEGY-SORT-AVOIDANCE-VIABILITY-DIAGNOSE.txt` (1-3 부수 발견)
 - 상세: `get_hash_contract_pair()` 는 cross-DBMS·미지원 방언을 정상 차단하지만
@@ -268,7 +311,20 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 대안: 호출부까지 컬럼 타입 정보를 전파해 숫자 컬럼만 3인자 형태로 렌더한다(정확하지만 비용이 크다).
 - 참고: E:\verify_reports\NLS-SESSION-INDEPENDENT-NUMERIC-TOCHAR-FIX.txt
 
-### S8. CHUNK 경로가 소문자 컬럼 파생 SQL 에서 PK min/max 조회 시 대문자 따옴표 별칭으로 실패 — 드릴다운 CHUNK 실행 자체가 막힌다
+### S8. ✅ 해결 완료 — CHUNK 경로가 소문자 컬럼 파생 SQL 에서 PK min/max 조회 시 대문자 따옴표 별칭으로 실패 — 드릴다운 CHUNK 실행 자체가 막힌다
+- 해결일: 2026-07-29 (CHUNK-PK-MINMAX-ALIAS-CASE-FIX)
+- 근거 커밋: 코드 저장소 `783b9f1` — `fix(chunk): PK min/max·표본 조회의 별칭 참조를 실제 output alias 로
+  통일 — CHUNK 드릴다운 시작 직후 FAILED 제거 (CHUNK-PK-MINMAX-ALIAS-CASE-FIX)`
+- 근거 보고서 커밋: 이 저장소 `97448ef`(완료보고 `CHUNK-PK-MINMAX-ALIAS-CASE-FIX`)
+- 해결 요약: 원인은 '대문자 따옴표' 자체가 아니라 **미인용 별칭의 폴딩 방향이 방언마다 다른데
+  (PG=소문자 / Oracle=대문자) PK min/max·표본 preflight 조회만 표시명을 그대로 인용해 참조**한 것이었다
+  (PG `_s."ID"` → column does not exist / Oracle `S0."id"` → ORA-00904 / 인용 표시명 → ORA-01741).
+  chunk 조회 팩토리가 이미 쓰던 실제 output alias 규약으로 참조를 통일했다.
+  실 오라클 실측(NXDNP.MV_COMBO_SRC/TGT 각 1,200행): 소문자 컬럼 케이스가 Before `ORA-00904` 실패 →
+  After `src 1 ~ 1200 · tgt 1 ~ 1200` 정상, 인용 표시명 케이스는 Before `ORA-01741` → After 정상.
+  대문자 기존 케이스는 Before/After 모두 READY·chunk 3개·재이관 400건으로 판정·건수 완전 동일(무회귀).
+  `samples/test_virtual_cases.py` 8/8, `samples/test_complex_cases.py` 5/5 통과, baseline 대조에서
+  실패 집합 완전 일치(회귀 0 — 실패 10건은 전부 사전 존재 실패).
 - 발견일: 2026-07-28
 - 근거 보고서: `STATS-RESULT-EXCEL-EXPORT-GB-COLS-INDEX-FIX.txt` (§4-D / §9)
 - 상세: `_s."ID"` 형태 대문자 따옴표 별칭 때문에 실패한다. Excel 헤더 결함과는 무관한 별건이며,
@@ -398,7 +454,21 @@ git -C E:/verify_reports worktree remove <임시경로>
 
 ## 기능 미완(설계는 끝났으나 구현 대기)
 
-### F13. count_gate export 의 서버 방언 사전 게이트를 UI 가 소비하지 않는다(반쪽 배선, S9 에서 분리)
+### F13. ✅ 해결 완료 — count_gate export 의 서버 방언 사전 게이트를 UI 가 소비하지 않는다(반쪽 배선, S9 에서 분리)
+- 해결일: 2026-07-30 (COUNT-GATE-EXPORT-UI-DIALECT-GATE-CONSUME-FIX)
+- 근거 커밋: 코드 저장소 `080ac75` — `fix(count-gate): 전체 CSV 내려받기가 서버 사전게이트 오류 JSON 을
+  정상 CSV 로 저장하던 반쪽 배선 해소 (COUNT-GATE-EXPORT-UI-DIALECT-GATE-CONSUME-FIX)`
+  ※ 이 수정은 원래 diff 로만 제출됐다가 `URGENT-WORKINGTREE-UNCOMMITTED-STACK-COMMIT-RECOVERY` 에서
+    정식 커밋으로 분리·확정됐다.
+- 근거 보고서 커밋: 이 저장소 `477e959`(완료보고 `COUNT-GATE-EXPORT-UI-DIALECT-GATE-CONSUME-FIX`) /
+  `9d98b73`(보고서 변경 규모 수치 정정 +46/-7)
+- 해결 요약: 대응 방향대로 **응답 Content-Type 을 먼저 판독해 JSON 이면 파일로 저장하지 않고 오류로 표시**
+  하도록 `mvCountGateSideExport` 를 분기시켰다(FastAPI 는 dict 반환·422 검증오류를 모두
+  `application/json` 으로 내려주므로 미지원 방언·입력 누락·내부 예외가 한 경로로 커버된다).
+  실측: MySQL/MSSQL 은 Before `one_side_src_records.csv`(219 bytes, 내용은 오류 JSON)를 화면 오류 없이
+  받던 것이 After 다운로드 없음 + 화면에 `전체 CSV 생성 실패 [EXPORT_DIALECT_UNSUPPORTED] …` 표시로 바뀌었다.
+  정상 방언(Oracle 실 DB, NXDNP.TB_DEPT 10행)은 Before/After 파일이 290 bytes·sha256 동일(`bd98fc2a1e52f557`)로
+  바이트 단위 일치 — 회귀 없음(성공 안내 문구만 신규 추가).
 - 발견일: 2026-07-30
 - 근거 보고서: `DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE.txt` (§진짜 남은 지점 R5 / §요구사항 3 표)
 - 상세: 서버(`count_gate_route.py:234`)는 미지원 방언(mysql/mssql)에 대해 스트리밍 전에
@@ -409,6 +479,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 대응 방향: 응답 Content-Type 이 JSON 이면 오류 표시로 분기. 동시에 mysql/mssql 에서의 버튼 노출 정책을
   함께 정하면 range-diagnosis·one-side-preview 의 사전 게이트 잔여분까지 한 번에 닫힌다.
 - 진행 상태: 별도 작업(COUNT-GATE-EXPORT-UI-DIALECT-GATE-CONSUME-FIX)으로 착수 중 — 완료 시 이 항목 정리.
+  → 2026-07-30 완료(위 `해결 요약` 참조).
 - 참고: E:\verify_reports\DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE.txt
 
 ### F1. HASH_BUCKET 오라클 구현체 자체가 아직 없다 (phase2 = 어댑터 분리까지만 완료)
