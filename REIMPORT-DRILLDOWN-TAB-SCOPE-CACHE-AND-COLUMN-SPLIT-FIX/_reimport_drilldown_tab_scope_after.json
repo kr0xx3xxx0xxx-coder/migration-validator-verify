@@ -1,0 +1,605 @@
+{
+  "task": "REIMPORT-DRILLDOWN-TAB-SCOPE-CACHE-AND-COLUMN-SPLIT-FIX",
+  "tag": "AFTER",
+  "base": "http://127.0.0.1:8000",
+  "sql": "INSERT INTO NXDNP.MV_CSPK_TGT (PK_STR, AMT, QTY, REG_DT, ITEM_NM, STATUS_CD) SELECT REGION_CD || '-' || LPAD(SEQ_NO, 6, '0'), AMT, QTY, REG_DT, ITEM_NM, STATUS_CD FROM NXDNP.MV_CSPK_SRC",
+  "stages": {
+    "2_count": {
+      "count_status": "COUNT_MINOR_DIFF",
+      "src_count": 1000000,
+      "tgt_count": 990000
+    },
+    "3_select": {
+      "gb": [
+        "STATUS_CD"
+      ],
+      "sum": [
+        "AMT",
+        "QTY"
+      ]
+    }
+  },
+  "notes": [],
+  "setup": {
+    "pair_rows": 1,
+    "pair_created": true,
+    "connected": true
+  },
+  "obs": {
+    "t0_initial": {
+      "label": "일치 행 보기 (3건)",
+      "hideMatched": false,
+      "srvMode": true,
+      "srvIncludeMatched": false,
+      "colFilter": "",
+      "shownRows": 1,
+      "shownMismatchRows": 1,
+      "shownOkRows": 0,
+      "okRowTexts": [],
+      "rowKeys": [
+        "{\"STATUS_CD\":\"P\"}"
+      ],
+      "tabs": [
+        {
+          "label": "전체 4",
+          "active": true
+        },
+        {
+          "label": "COUNT 1",
+          "active": false
+        },
+        {
+          "label": "AMT 1",
+          "active": false
+        },
+        {
+          "label": "QTY 1",
+          "active": false
+        }
+      ]
+    },
+    "b0_count_tab_no_toggle": {
+      "label": "일치 행 보기 (3건)",
+      "hideMatched": false,
+      "srvMode": true,
+      "srvIncludeMatched": false,
+      "colFilter": "CNT",
+      "shownRows": 1,
+      "shownMismatchRows": 1,
+      "shownOkRows": 0,
+      "okRowTexts": [],
+      "rowKeys": [
+        "{\"STATUS_CD\":\"P\"}"
+      ],
+      "tabs": [
+        {
+          "label": "전체 4",
+          "active": false
+        },
+        {
+          "label": "COUNT 1",
+          "active": true
+        },
+        {
+          "label": "AMT 1",
+          "active": false
+        },
+        {
+          "label": "QTY 1",
+          "active": false
+        }
+      ]
+    },
+    "b0_back_all_tab_no_toggle": {
+      "label": "일치 행 보기 (3건)",
+      "hideMatched": false,
+      "srvMode": true,
+      "srvIncludeMatched": false,
+      "colFilter": "",
+      "shownRows": 1,
+      "shownMismatchRows": 1,
+      "shownOkRows": 0,
+      "okRowTexts": [],
+      "rowKeys": [
+        "{\"STATUS_CD\":\"P\"}"
+      ],
+      "tabs": [
+        {
+          "label": "전체 4",
+          "active": true
+        },
+        {
+          "label": "COUNT 1",
+          "active": false
+        },
+        {
+          "label": "AMT 1",
+          "active": false
+        },
+        {
+          "label": "QTY 1",
+          "active": false
+        }
+      ]
+    },
+    "c1_first_open_all_tab": {
+      "phase": "C1-전체탭-최초클릭",
+      "clicked": true,
+      "row_index": 0,
+      "wall_sec": 4.624,
+      "click_at": 167.06,
+      "prepare_reqs": 1,
+      "pkrecords_reqs": 3,
+      "net": [
+        {
+          "t": 167.07,
+          "kind": "req",
+          "path": "/agg-diff/prepare",
+          "method": "POST",
+          "url": "http://127.0.0.1:8000/agg-diff/prepare"
+        },
+        {
+          "t": 168.02,
+          "kind": "req",
+          "path": "/agg-diff/pk-records",
+          "method": "GET",
+          "url": "http://127.0.0.1:8000/agg-diff/pk-records?run_id=PSA01A783988E6&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+        },
+        {
+          "t": 168.02,
+          "kind": "resp",
+          "path": "/agg-diff/prepare",
+          "status": "PREPARING",
+          "run_id": "PSA01A783988E6",
+          "ok": true,
+          "reused": false
+        },
+        {
+          "t": 168.09,
+          "kind": "resp",
+          "path": "/agg-diff/pk-records",
+          "status": "PREPARING",
+          "run_id": "PSA01A783988E6",
+          "ok": true
+        },
+        {
+          "t": 169.59,
+          "kind": "req",
+          "path": "/agg-diff/pk-records",
+          "method": "GET",
+          "url": "http://127.0.0.1:8000/agg-diff/pk-records?run_id=PSA01A783988E6&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+        },
+        {
+          "t": 169.67,
+          "kind": "resp",
+          "path": "/agg-diff/pk-records",
+          "status": "PREPARING",
+          "run_id": "PSA01A783988E6",
+          "ok": true,
+          "total": null
+        },
+        {
+          "t": 171.18,
+          "kind": "req",
+          "path": "/agg-diff/pk-records",
+          "method": "GET",
+          "url": "http://127.0.0.1:8000/agg-diff/pk-records?run_id=PSA01A783988E6&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+        },
+        {
+          "t": 171.25,
+          "kind": "resp",
+          "path": "/agg-diff/pk-records",
+          "status": "EARLY_STOPPED",
+          "run_id": "PSA01A783988E6",
+          "ok": true,
+          "total": 101
+        }
+      ],
+      "detail": {
+        "present": true,
+        "table": true,
+        "thCount": 7,
+        "headers": [
+          "PK_STRPK",
+          "STATUS_CD",
+          "STATUS_CD",
+          "AMT",
+          "AMT",
+          "QTY",
+          "QTY"
+        ],
+        "headerBg": [
+          "",
+          "rgb(234, 242, 255)",
+          "rgb(230, 247, 243)",
+          "rgb(234, 242, 255)",
+          "rgb(230, 247, 243)",
+          "rgb(234, 242, 255)",
+          "rgb(230, 247, 243)"
+        ],
+        "tdCount": 0,
+        "firstRowCells": [],
+        "firstRowBg": [],
+        "arrowCells": 0,
+        "measureText": "계측 — 준비확인 952ms · scope 조회 76ms · 렌더 1ms",
+        "topLine": "재이관 대상 전체 101건 (표시 상한 100건 · 실제는 100건 초과·총수 미확정) · 현재 1~5 표시 · 1/20페이지"
+      }
+    },
+    "b1_after_toggle_on": {
+      "label": "일치 행 숨기기 (3건)",
+      "hideMatched": false,
+      "srvMode": true,
+      "srvIncludeMatched": true,
+      "colFilter": "",
+      "shownRows": 4,
+      "shownMismatchRows": 1,
+      "shownOkRows": 3,
+      "okRowTexts": [
+        "AA250000250000149404502514940450251224972412249724✓ 일치",
+        "CC250000250000149404570014940457001224975512249755✓ 일치",
+        "XX250000250000149404637514940463751224978612249786✓ 일치"
+      ],
+      "rowKeys": [
+        "{\"STATUS_CD\":\"P\"}"
+      ],
+      "tabs": [
+        {
+          "label": "전체 4",
+          "active": true
+        },
+        {
+          "label": "COUNT 1",
+          "active": false
+        },
+        {
+          "label": "AMT 1",
+          "active": false
+        },
+        {
+          "label": "QTY 1",
+          "active": false
+        }
+      ]
+    },
+    "b2_on_count_tab": {
+      "label": "일치 행 숨기기 (3건)",
+      "hideMatched": false,
+      "srvMode": true,
+      "srvIncludeMatched": true,
+      "colFilter": "CNT",
+      "shownRows": 1,
+      "shownMismatchRows": 1,
+      "shownOkRows": 0,
+      "okRowTexts": [],
+      "rowKeys": [
+        "{\"STATUS_CD\":\"P\"}"
+      ],
+      "tabs": [
+        {
+          "label": "전체 4",
+          "active": false
+        },
+        {
+          "label": "COUNT 1",
+          "active": true
+        },
+        {
+          "label": "AMT 1",
+          "active": false
+        },
+        {
+          "label": "QTY 1",
+          "active": false
+        }
+      ]
+    },
+    "b3_back_to_all_tab": {
+      "label": "일치 행 숨기기 (3건)",
+      "hideMatched": false,
+      "srvMode": true,
+      "srvIncludeMatched": true,
+      "colFilter": "",
+      "shownRows": 4,
+      "shownMismatchRows": 1,
+      "shownOkRows": 3,
+      "okRowTexts": [
+        "AA250000250000149404502514940450251224972412249724✓ 일치",
+        "CC250000250000149404570014940457001224975512249755✓ 일치",
+        "XX250000250000149404637514940463751224978612249786✓ 일치"
+      ],
+      "rowKeys": [
+        "{\"STATUS_CD\":\"P\"}"
+      ],
+      "tabs": [
+        {
+          "label": "전체 4",
+          "active": true
+        },
+        {
+          "label": "COUNT 1",
+          "active": false
+        },
+        {
+          "label": "AMT 1",
+          "active": false
+        },
+        {
+          "label": "QTY 1",
+          "active": false
+        }
+      ]
+    },
+    "c2_reopen_count_tab": {
+      "phase": "C2-COUNT탭-재클릭",
+      "clicked": true,
+      "row_index": 0,
+      "wall_sec": 0.512,
+      "click_at": 184.32,
+      "prepare_reqs": 0,
+      "pkrecords_reqs": 0,
+      "net": [],
+      "detail": {
+        "present": true,
+        "table": true,
+        "thCount": 7,
+        "headers": [
+          "PK_STRPK",
+          "STATUS_CD",
+          "STATUS_CD",
+          "AMT",
+          "AMT",
+          "QTY",
+          "QTY"
+        ],
+        "headerBg": [
+          "",
+          "rgb(234, 242, 255)",
+          "rgb(230, 247, 243)",
+          "rgb(234, 242, 255)",
+          "rgb(230, 247, 243)",
+          "rgb(234, 242, 255)",
+          "rgb(230, 247, 243)"
+        ],
+        "tdCount": 0,
+        "firstRowCells": [],
+        "firstRowBg": [],
+        "arrowCells": 0,
+        "measureText": "계측 — 준비확인 0ms · scope 조회 0ms(캐시) · 렌더 1ms",
+        "topLine": "재이관 대상 전체 101건 (표시 상한 100건 · 실제는 100건 초과·총수 미확정) · 현재 1~5 표시 · 1/20페이지"
+      }
+    },
+    "c3_reopen_all_tab": {
+      "phase": "C3-전체탭-3회차클릭",
+      "clicked": true,
+      "row_index": 0,
+      "wall_sec": 0.519,
+      "click_at": 189.02,
+      "prepare_reqs": 0,
+      "pkrecords_reqs": 0,
+      "net": [],
+      "detail": {
+        "present": true,
+        "table": true,
+        "thCount": 7,
+        "headers": [
+          "PK_STRPK",
+          "STATUS_CD",
+          "STATUS_CD",
+          "AMT",
+          "AMT",
+          "QTY",
+          "QTY"
+        ],
+        "headerBg": [
+          "",
+          "rgb(234, 242, 255)",
+          "rgb(230, 247, 243)",
+          "rgb(234, 242, 255)",
+          "rgb(230, 247, 243)",
+          "rgb(234, 242, 255)",
+          "rgb(230, 247, 243)"
+        ],
+        "tdCount": 0,
+        "firstRowCells": [],
+        "firstRowBg": [],
+        "arrowCells": 0,
+        "measureText": "계측 — 준비확인 0ms · scope 조회 0ms(캐시) · 렌더 1ms",
+        "topLine": "재이관 대상 전체 101건 (표시 상한 100건 · 실제는 100건 초과·총수 미확정) · 현재 1~5 표시 · 1/20페이지"
+      }
+    },
+    "cache_state": {
+      "pageCacheKeys": [
+        "PSA01A783988E6|STATUS_CD|P|reimport|1"
+      ],
+      "pkStateStatus": "PREPARING",
+      "pkStateRunId": "PSA01A783988E6"
+    }
+  },
+  "net": [
+    {
+      "t": 33.69,
+      "kind": "req",
+      "path": "/analyze",
+      "method": "POST",
+      "url": "http://127.0.0.1:8000/analyze"
+    },
+    {
+      "t": 34.95,
+      "kind": "resp",
+      "path": "/analyze",
+      "status": 200
+    },
+    {
+      "t": 131.32,
+      "kind": "req",
+      "path": "/count",
+      "method": "POST",
+      "url": "http://127.0.0.1:8000/count"
+    },
+    {
+      "t": 131.78,
+      "kind": "resp",
+      "path": "/count",
+      "status": "FAILED",
+      "processing_ms": 389.8
+    },
+    {
+      "t": 148.3,
+      "kind": "req",
+      "path": "/generate",
+      "method": "POST",
+      "url": "http://127.0.0.1:8000/generate"
+    },
+    {
+      "t": 148.42,
+      "kind": "resp",
+      "path": "/generate",
+      "status": 200,
+      "processing_ms": 1.7
+    },
+    {
+      "t": 153.45,
+      "kind": "req",
+      "path": "/execute",
+      "method": "POST",
+      "url": "http://127.0.0.1:8000/execute"
+    },
+    {
+      "t": 154.21,
+      "kind": "resp",
+      "path": "/execute",
+      "status": 200,
+      "processing_ms": 639.6,
+      "run_id": null
+    },
+    {
+      "t": 154.63,
+      "kind": "req",
+      "path": "/analyze",
+      "method": "POST",
+      "url": "http://127.0.0.1:8000/diagnosis/analyze"
+    },
+    {
+      "t": 154.85,
+      "kind": "resp",
+      "path": "/analyze",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "t": 167.07,
+      "kind": "req",
+      "path": "/agg-diff/prepare",
+      "method": "POST",
+      "url": "http://127.0.0.1:8000/agg-diff/prepare"
+    },
+    {
+      "t": 168.02,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET",
+      "url": "http://127.0.0.1:8000/agg-diff/pk-records?run_id=PSA01A783988E6&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+    },
+    {
+      "t": 168.02,
+      "kind": "resp",
+      "path": "/agg-diff/prepare",
+      "status": "PREPARING",
+      "run_id": "PSA01A783988E6",
+      "ok": true,
+      "reused": false
+    },
+    {
+      "t": 168.09,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "PREPARING",
+      "run_id": "PSA01A783988E6",
+      "ok": true
+    },
+    {
+      "t": 169.59,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET",
+      "url": "http://127.0.0.1:8000/agg-diff/pk-records?run_id=PSA01A783988E6&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+    },
+    {
+      "t": 169.67,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "PREPARING",
+      "run_id": "PSA01A783988E6",
+      "ok": true,
+      "total": null
+    },
+    {
+      "t": 171.18,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET",
+      "url": "http://127.0.0.1:8000/agg-diff/pk-records?run_id=PSA01A783988E6&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+    },
+    {
+      "t": 171.25,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "EARLY_STOPPED",
+      "run_id": "PSA01A783988E6",
+      "ok": true,
+      "total": 101
+    }
+  ],
+  "marks": [
+    {
+      "t": 32.4,
+      "mark": "1단계 분석",
+      "extra": null
+    },
+    {
+      "t": 36.57,
+      "mark": "2단계 COUNT",
+      "extra": null
+    },
+    {
+      "t": 135.4,
+      "mark": "3단계 후보선정",
+      "extra": null
+    },
+    {
+      "t": 145.05,
+      "mark": "4단계 SQL 생성 + 통계검증 실행",
+      "extra": null
+    },
+    {
+      "t": 157.27,
+      "mark": "4단계 실행 완료",
+      "extra": null
+    },
+    {
+      "t": 157.27,
+      "mark": "5단계 진입",
+      "extra": null
+    },
+    {
+      "t": 167.06,
+      "mark": "[C1-전체탭-최초클릭] 그룹 클릭(index=0)",
+      "extra": null
+    },
+    {
+      "t": 184.32,
+      "mark": "[C2-COUNT탭-재클릭] 그룹 클릭(index=0)",
+      "extra": null
+    },
+    {
+      "t": 189.02,
+      "mark": "[C3-전체탭-3회차클릭] 그룹 클릭(index=0)",
+      "extra": null
+    }
+  ],
+  "console_errors": [],
+  "dialogs": [
+    "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+    "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+  ]
+}

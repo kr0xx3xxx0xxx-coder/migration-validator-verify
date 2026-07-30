@@ -1,0 +1,208 @@
+작업명 : REIMPORT-DRILLDOWN-TAB-SCOPE-CACHE-AND-COLUMN-SPLIT-FIX
+✅ 작업 완료 - REIMPORT-DRILLDOWN-TAB-SCOPE-CACHE-AND-COLUMN-SPLIT-FIX - 상세표 원본/목적 열 분리 + 일치행 토글 라벨·상태 정합 + 드릴다운 준비 캐시 재사용(탭 무관 결함으로 판명, 캐시 적용)
+
+작성일 : 2026-07-30
+대상   : 개별검증 5단계(결과 확인) — 통계검증 불일치 그룹 드릴다운
+커밋   : 66e4a30
+수정   : ui/tabler_renderer.py · ui/execute_result_renderer.py · tests/test_agg_contribution.py
+신규   : scripts/dev_e2e/reimport_drilldown_tab_scope_cache_and_column_split_verify.py
+
+────────────────────────────────────────────────────────────────────────
+0단계 — 테스트 데이터 준비 : 요청 INSERT 실행하지 않음(안전 확인 결과)
+────────────────────────────────────────────────────────────────────────
+지시받은 INSERT :
+    INSERT INTO NXDNP.MV_CSPK_TGT (PK_STR, AMT, QTY, ITEM_NM, STATUS_CD)
+    SELECT REGION_CD || '-' || LPAD(SEQ_NO, 6, '0'), AMT, QTY, ITEM_NM, STATUS_CD
+    FROM NXDNP.MV_CSPK_SRC
+
+읽기 전용 실측(SELECT만, 쓰기 0회)으로 확인한 사실 :
+  [1] 현재 행수    SRC=1,000,000  TGT=990,000  (차이 10,000)
+  [2] TGT 제약     PK_MV_CSPK_TGT PRIMARY KEY (PK_STR) — 존재
+  [3] 충돌 예측    INSERT 가 만들 PK_STR 1,000,000건 중 990,000건이 이미 TGT 에 존재
+                   → ORA-00001 로 문장 전체 롤백(영향행수 0). 실행해도 아무 효과 없음.
+  [4] 누락행 분포  MOD(g,100)=0 인 10,000행의 STATUS_CD 는 전부 'P' 한 값
+  [5] 그룹별 판정  A 250,000/250,000 일치 · C 250,000/250,000 일치 · X 250,000/250,000 일치
+                   P 250,000/240,000 차이 10,000 → 불일치
+
+판단 :
+  ① 이 INSERT 는 PK 제약 때문에 반드시 실패한다(영향행수 0).
+  ② 제약을 우회해 성공시키면 P 그룹 누락이 0 이 되어 '불일치 그룹 1건' 재현 조건 자체가 사라진다.
+     즉 재현을 만드는 INSERT 가 아니라 재현을 없애는 INSERT 다.
+  ③ 참값 10,000건 규칙은 아래 2개 회귀 스크립트가 의존한다 —
+       scripts/dev_e2e/pk_range_chunk_sort_order_alignment_verify.py (TRUTH_MISSING = 10000)
+       scripts/dev_e2e/character_pk_silent_false_match_1m_reproduce.py
+     성공 시 두 스크립트의 기준이 동시에 깨진다.
+  ④ 현재 픽스처가 이미 스크린샷 조건 그대로다 — 일치 그룹 3건(A/C/X) = 버튼 라벨 '(3건)',
+     불일치 그룹 P 1건 · 재이관 대상 10,000건(100건 초과).
+  결론 : INSERT 미실행. 백업 테이블도 생성하지 않음(불필요). asis 는 애초에 미접촉.
+         이 상태 그대로 Before/After 실측을 수행했다.
+
+────────────────────────────────────────────────────────────────────────
+1단계 — 조사 결과
+────────────────────────────────────────────────────────────────────────
+(a) '일치 행 숨기기' 토글 상태의 저장 위치
+    이 화면에는 숨김 상태가 '두 개' 있고 서로 동기화되지 않았다.
+      - 클라이언트 모드 : window._execHideMatched (execute_result_renderer.py)
+      - 서버 페이지 모드 : window._execSrv.includeMatched → /stats-result/page 의 mismatch_only
+    5단계 결과는 저장 결과(result_page)가 있으면 '서버 페이지 모드'로 동작한다(실측 srvMode=true).
+    버튼 라벨은 renderExecute 의 클라이언트 템플릿 hideLabel('일치 행 숨기기 (N건)')로 한 번 찍히고
+    끝이라, 서버 모드 기본값(일치 행 숨김)과 처음부터 반대였다.
+    → 리셋되는 지점은 없었다. 라벨이 처음부터 실제 상태를 반대로 표기하고 있었다.
+
+    실제로 표시가 바뀌는 지점은 따로 있었다 :
+    항목 탭(전체/COUNT/AMT/QTY)은 _execSetColFilter → _execRenderResultPage 로 이어지는데,
+    _execRenderResultPage 는 서버 모드를 전혀 보지 않고 클라이언트 행(_execResultRows)으로
+    tbody 를 통째로 덮어쓴다. 그래서 탭을 한 번 다녀오면 서버가 숨기고 있던 일치 행(A/C/X)이
+    되살아났다. 사용자가 '토글이 조용히 리셋된다'고 인지한 실제 현상이 이것이다.
+
+(b)(c) 탭별 드릴다운 캐시/scope
+    탭은 그룹 목록을 필터링만 하며, 드릴다운은 탭별 상태를 갖지 않는다.
+    캐시는 이미 존재한다(window._mvPkPageCache, 키 = run_id|scope_col|scope_val|view|page).
+    그런데 실측에서 매 클릭마다 재조회가 일어났고, 원인은 탭이 아니라 준비 캐시 게이트였다 :
+      _mvPkEnsurePrepared 는 status === 'READY' 일 때만 캐시를 재사용한다.
+      원본 100만행은 stream 준비라 prepare 가 즉시 READY 가 아니라 PREPARING(run_id 는 이미 바인딩)
+      으로 응답한다 → 캐시 미적중 → 그룹을 열 때마다 /agg-diff/prepare 재 POST
+      → 서버는 fingerprint 재사용 대상(READY/PREPARING)이 아닌 상태에서 새 job 을 만든다(reused:false)
+      → run_id 가 매번 바뀐다 → run_id 를 키에 포함하는 _mvPkPageCache 도 통째로 무효
+      → 결과적으로 항상 전량 재조회 + 서버에 중복 run 누적.
+    결정적 증거 : C3(같은 '전체' 탭에서 3회차 클릭)도 C1 과 동일하게 새 run_id 로 전량 재조회됐다.
+    → 탭마다 다른 scope 를 조회하는 구조가 아니다. 탭과 무관한 캐시 결함이므로 버그로 분류하고
+      캐시를 적용했다(요구사항 C 의 첫 번째 갈래).
+
+────────────────────────────────────────────────────────────────────────
+수정 내용
+────────────────────────────────────────────────────────────────────────
+A. 상세 레코드표 원본/목적 열 분리 (ui/tabler_renderer.py · _mvPkLoadPage)
+   - 값 셀 _mvPkCellHtml('원본값 → 목적값') → _mvPkCellSplit(원본 셀 / 목적 셀 2개)
+   - 헤더 → _mvDrillHeaderCellSplit (KEY 는 공통이라 1열 유지, 값 컬럼만 2열)
+   - 범례 → _mvSrcTgtLegend('arrow') → ('color'). 목적 단독 뷰는 기존 'tgt_only' 유지.
+   - 전부 표본 조기중단 대표 레코드표(_mvRiApplySampleStop)가 이미 쓰던 기존 헬퍼를 재사용했다.
+     새 렌더러·새 색상·새 헤더 용어를 만들지 않았다(헤더는 컬럼명 + 기존 PK 배지 + DB 코멘트 관례).
+   - 강조 규칙 유지 확인(렌더러 직접 실행) :
+       목적 미존재  <td …background:#eaf2ff>1,100</td><td …background:#e6f7f3;color:#C2410C;font-weight:700>-</td>
+       값 불일치    목적 셀 999 에 color:#C2410C;font-weight:700
+       일치 컬럼    목적 셀 강조 없음
+   - 위쪽 '집계값 불일치' 요약표는 손대지 않았다(스크린샷으로 확인).
+
+B. 토글 라벨과 실제 표시 상태 정합 (ui/execute_result_renderer.py)
+   - _execHideMatchedEffective() : 모드 무관 단일 판독(서버 모드면 !includeMatched, 아니면 _execHideMatched)
+   - _execSyncToggleLabel() : 실효 상태에서 라벨 재계산. _execRenderResultPage 와 _execSrvGo 양쪽에서 호출
+     → 초기 렌더·토글·탭 전환·페이지 이동 어디를 거쳐도 라벨이 실제 상태를 따라간다.
+   - 서버 모드 전용 어휘('불일치만 보기'/'일치 포함 보기') 제거 → 기존 라벨 쌍
+     ('일치 행 보기 (N건)'/'일치 행 숨기기 (N건)')으로 통일. 새 용어 추가 아님.
+   - _execRenderResultPage 의 필터 기준을 _execHideMatchedEffective() 로 교체.
+   - 서버 모드에서 '전체'(항목 필터 해제)는 _execSrvGo 로 서버 저장 결과 페이지에 복귀 →
+     클라이언트 행으로 조용히 갈아끼우며 일치 행이 되살아나던 경로 제거.
+   - _execSrvGo 가 tbody 를 교체한 뒤 _mvWireRowsFromCache 로 행 클릭 배선 재적용
+     (서버 렌더 후 그룹 행이 클릭 불가로 남던 잠재 갭도 함께 해소).
+   선택 이유 : '탭마다 별도 상태'가 아니라 '모드마다 별도 상태'가 문제였고, 두 상태를 하나의 실효
+   판독으로 모으는 쪽이 라벨/필터/렌더 3곳의 불일치를 한 번에 없앤다. 탭은 상태를 갖지 않는다.
+
+C. 드릴다운 준비 결과 재사용 (ui/tabler_renderer.py · _mvPkEnsurePrepared)
+   - 재사용 판정을 status==='READY' 한정 → 'run_id 가 확정된 준비 상태'로 확장
+     _MV_PK_REUSABLE_STATUS = { READY, PREPARING, EARLY_STOPPED, EARLY_STOPPED_HIGH_MISMATCH_ESTIMATE }
+   - HOLD/FAILED/CANCELLED/INTERRUPTED_RESUMABLE 은 제외 → 재준비·'이어서 실행' 경로 보존.
+   - 재사용한 run 의 store 가 서버 재기동으로 사라진 경우는 _mvPkLoadPage 의 'PK index' 자동
+     재-prepare(dd455c0)가 그대로 복구한다.
+   - 기존 캐시 메커니즘(_mvPkState / _mvPkPageCache)만 사용했다. 새 캐시를 만들지 않았다.
+
+────────────────────────────────────────────────────────────────────────
+실측 검증 (실 오라클 · 실 브라우저 클릭)
+────────────────────────────────────────────────────────────────────────
+환경 : Oracle_asis NXDNP.MV_CSPK_SRC(1,000,000) → Oracle_tobe NXDNP.MV_CSPK_TGT(990,000)
+       GROUP BY STATUS_CD · SUM AMT,QTY · 불일치 그룹 P(재이관 대상 101건 조기중단, 실제 10,000)
+Before : HEAD(16526e7) git worktree + 다른 세션 미완료 변경 4개 파일 복사 → 별도 포트 8010
+After  : 워킹트리(수정본) → 포트 8000. 두 서버 모두 실행 직전 재기동, 활성 job 0건 확인 후 진행.
+드라이버 : scripts/dev_e2e/reimport_drilldown_tab_scope_cache_and_column_split_verify.py
+
+[A] 상세표 구조
+    BEFORE  헤더 4개 ['PK_STR','STATUS_CD','AMT','QTY']          · 셀 'P → -' / '1,100 → -' / '4 → -'
+            범례 "셀 표기 원본값 → 목적값 (목적 미존재·값 불일치는 주황)"
+    AFTER   헤더 7개 ['PK_STR(PK)','STATUS_CD','STATUS_CD','AMT','AMT','QTY','QTY']
+            헤더 배경 원본 rgb(234,242,255) / 목적 rgb(230,247,243) 교대
+            셀 'P | -' / '1,100 | -' / '4 | -' (화살표 0개), 목적 셀 '-' 주황 강조 유지
+    증적 : before_02_detail_all_tab_first.png ↔ after_02_detail_all_tab_first.png
+           (강조 있는 행 = 재이관 대상 P 그룹 레코드, 강조 없는 행 = 위 요약표 A/C/X 일치 행)
+
+[B] 토글 라벨 ↔ 실제 표시 상태
+                                   BEFORE                                AFTER
+    초기(진입 직후)      라벨 '일치 행 숨기기 (3건)' / 일치행 0건    라벨 '일치 행 보기 (3건)' / 일치행 0건
+    토글 미조작·탭 왕복  라벨 '일치 행 숨기기 (3건)' / 일치행 3건 ✗  라벨 '일치 행 보기 (3건)' / 일치행 0건 ✓
+    토글 ON              라벨 '불일치만 보기'        / 일치행 3건    라벨 '일치 행 숨기기 (3건)' / 일치행 3건 ✓
+    COUNT 탭 이동        라벨 '불일치만 보기'        / 일치행 0건    라벨 '일치 행 숨기기 (3건)' / 일치행 0건 ✓
+    전체 탭 복귀         라벨 '불일치만 보기'        / 일치행 3건    라벨 '일치 행 숨기기 (3건)' / 일치행 3건 ✓
+    (COUNT 탭의 일치행 0건은 항목 필터 특성 — 그 항목이 차이난 그룹만 남으므로 정상)
+    증적 : before_01c / after_01c (토글 미조작 탭 왕복), before_03~05 / after_03~05
+
+[C] 탭 간 드릴다운 재사용 (소요시간 실측)
+                              BEFORE                          AFTER
+    C1 전체 탭 최초 클릭   6.174s  prepare 1 · pk-records 4   4.624s  prepare 1 · pk-records 3
+    C2 COUNT 탭 재클릭     6.171s  prepare 1 · pk-records 4   0.512s  prepare 0 · pk-records 0
+    C3 전체 탭 3회차       4.641s  prepare 1 · pk-records 3   0.519s  prepare 0 · pk-records 0
+    화면 계측 문구
+      BEFORE C2  '준비확인 910ms · scope 조회 74ms · 렌더 1ms'
+      AFTER  C2  '준비확인 0ms · scope 조회 0ms(캐시) · 렌더 1ms'
+    누적 run(캐시키) 수  3개 → 1개  (클릭마다 서버에 중복 run 이 쌓이던 것도 함께 제거)
+    → 2회차 이후 12.1배 단축(6.171s → 0.512s). C3 이 같은 탭인데도 BEFORE 에서 재조회됐다는 점이
+      '탭 간 문제 아님'의 근거이며, AFTER 에서 C2·C3 둘 다 0회 조회로 동일하게 해소됐다.
+    증적 : before_06/07 ↔ after_06/07, _reimport_drilldown_tab_scope_before.json / _after.json
+
+────────────────────────────────────────────────────────────────────────
+회귀 테스트 (관련 서브셋 + baseline 대조)
+────────────────────────────────────────────────────────────────────────
+baseline = HEAD(16526e7) worktree + 다른 세션의 미완료 변경 4개 파일 복사(동일 조건)
+
+wave 1 (20개 파일) : AFTER 13 failed / 198 passed / 6 xfailed
+                     BASELINE 13 failed / 198 passed / 6 xfailed  → 실패 집합 동일
+wave 2 (26개 파일) : AFTER 10 failed / 256 passed
+                     BASELINE 10 failed / 256 passed              → 실패 집합 동일
+합계 46개 파일 454 passed · 실패 23건 전부 baseline 과 동일 · 신규 실패 0건
+
+실패 테스트 전체 목록(23건 — 전부 수정 전부터 실패, 본 작업과 무관) :
+  tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+  tests/test_result_view_ui_wiring.py::test_node_passed_uses_result_view
+  tests/test_result_view_ui_wiring.py::test_node_compare_truncated_suppresses_passed
+  tests/test_result_view_ui_wiring.py::test_node_tolerance_message_dedup
+  tests/test_result_view_ui_wiring.py::test_node_count_skipped_warning
+  tests/test_result_view_ui_wiring.py::test_node_legacy_fallback_no_result_view
+  tests/test_result_view_ui_wiring.py::test_node_legacy_compare_truncated_fallback
+  tests/test_ui_tab4_tab5_separation.py::test_target_only_display
+  tests/test_d7_8_inline_drill_time.py::test_ui_advanced_perf_position_and_title
+  tests/test_drilldown_readiness.py::test_live_count_only_available_and_snapshot_fields
+  tests/test_drilldown_readiness.py::test_live_manual_category_is_selected_unconfirmed_verdict_unchanged
+  tests/test_execution_safety_result_rendering.py::test_normal_result_shows_consistency_notice_once
+  tests/test_execution_safety_result_rendering.py::test_consistency_notice_absent_when_no_timing
+  tests/test_candidate_contract.py::test_live_payment_contract_clean_and_defaults_preserved
+  tests/test_candidate_contract.py::test_live_product_selectable_not_auto_selected
+  tests/test_count_only_validation_ui.py::test_group_result_uses_normal_renderer_unchanged
+  tests/test_d7_9_gb0_fallback.py::test_gate_gb0_always_grid
+  tests/test_d7_9_gb0_fallback.py::test_stage_timing_display
+  tests/test_groupby_estimated_group_count_ui.py::test_estimate_uses_cardinality_evidence
+  tests/test_groupby_estimated_group_count_ui.py::test_renderer_estimate_summary_evidence_wiring
+  tests/test_statistics_execution_safety.py::test_consistency_notice_renders_when_timing_present
+  tests/test_ui_contract_display.py::test_result_guard_markers_present
+  tests/test_ui_contract_display.py::test_referenced_drilldown_functions_defined
+
+수정한 테스트 1건 :
+  tests/test_agg_contribution.py::test_row_click_pk_only_wiring
+  구 렌더러 _mvPkCellHtml 사용을 단정하던 assert 를 요구사항 A 가 도입한 _mvPkCellSplit /
+  _mvDrillHeaderCellSplit 로 갱신했다. 검사 의도(원본/목적 값이 모두 렌더되는가, 실제 키 컬럼명이
+  헤더에 쓰이는가, 주황 강조가 유지되는가, 원본/목적 열 배경이 구분되는가)는 그대로 유지했다.
+
+페이지 JS 문법 : node --check 통과(전체 조립 번들 1,942,451자).
+
+────────────────────────────────────────────────────────────────────────
+잔여 사항(이번 범위 밖 — 별도 사안)
+────────────────────────────────────────────────────────────────────────
+1) 서버 페이지 모드에서 항목 필터(COUNT/AMT/QTY) 탭은 여전히 클라이언트 행(_execResultRows)
+   기준으로 필터링한다. /execute 응답 행이 서버 저장 결과보다 적은 대량 케이스에서는 탭 결과가
+   서버 전체 기준과 다를 수 있다. 서버측 항목 필터 파라미터가 필요해 이번 범위에서 제외했다.
+   (이번 수정으로 '일치 행 노출 여부'는 두 경로가 동일해졌다.)
+2) 서버 /agg-diff/prepare 는 fingerprint 재사용을 READY/PREPARING 상태에서만 한다. 조기중단으로
+   끝난 run 은 여전히 재사용되지 않으므로, 클라이언트 캐시가 비워진 뒤(새로고침 등)에는 같은
+   fingerprint 라도 새 run 이 생성된다. 서버측 재사용 확장은 별도 사안으로 남긴다.
+
+실검증 상태 : 실 오라클 DB · 실 브라우저 클릭으로 Before/After 각 1회 완주(스텁·모킹 없음)
+
+작업명 : REIMPORT-DRILLDOWN-TAB-SCOPE-CACHE-AND-COLUMN-SPLIT-FIX
+✅ 작업 완료 - REIMPORT-DRILLDOWN-TAB-SCOPE-CACHE-AND-COLUMN-SPLIT-FIX - 상세표 원본/목적 열 분리 + 일치행 토글 라벨·상태 정합 + 드릴다운 준비 캐시 재사용(탭 무관 결함으로 판명, 캐시 적용)

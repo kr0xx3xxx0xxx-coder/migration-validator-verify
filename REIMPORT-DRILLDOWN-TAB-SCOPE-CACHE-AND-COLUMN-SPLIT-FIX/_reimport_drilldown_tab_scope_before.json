@@ -1,0 +1,911 @@
+{
+  "task": "REIMPORT-DRILLDOWN-TAB-SCOPE-CACHE-AND-COLUMN-SPLIT-FIX",
+  "tag": "BEFORE",
+  "base": "http://127.0.0.1:8010",
+  "sql": "INSERT INTO NXDNP.MV_CSPK_TGT (PK_STR, AMT, QTY, REG_DT, ITEM_NM, STATUS_CD) SELECT REGION_CD || '-' || LPAD(SEQ_NO, 6, '0'), AMT, QTY, REG_DT, ITEM_NM, STATUS_CD FROM NXDNP.MV_CSPK_SRC",
+  "stages": {
+    "2_count": {
+      "count_status": "COUNT_MINOR_DIFF",
+      "src_count": 1000000,
+      "tgt_count": 990000
+    },
+    "3_select": {
+      "gb": [
+        "STATUS_CD"
+      ],
+      "sum": [
+        "AMT",
+        "QTY"
+      ]
+    }
+  },
+  "notes": [],
+  "setup": {
+    "pair_rows": 1,
+    "pair_created": true,
+    "connected": true
+  },
+  "obs": {
+    "t0_initial": {
+      "label": "일치 행 숨기기 (3건)",
+      "hideMatched": false,
+      "srvMode": true,
+      "srvIncludeMatched": false,
+      "colFilter": "",
+      "shownRows": 1,
+      "shownMismatchRows": 1,
+      "shownOkRows": 0,
+      "okRowTexts": [],
+      "rowKeys": [
+        "{\"STATUS_CD\":\"P\"}"
+      ],
+      "tabs": [
+        {
+          "label": "전체 4",
+          "active": true
+        },
+        {
+          "label": "COUNT 1",
+          "active": false
+        },
+        {
+          "label": "AMT 1",
+          "active": false
+        },
+        {
+          "label": "QTY 1",
+          "active": false
+        }
+      ]
+    },
+    "b0_count_tab_no_toggle": {
+      "label": "일치 행 숨기기 (3건)",
+      "hideMatched": false,
+      "srvMode": true,
+      "srvIncludeMatched": false,
+      "colFilter": "CNT",
+      "shownRows": 1,
+      "shownMismatchRows": 1,
+      "shownOkRows": 0,
+      "okRowTexts": [],
+      "rowKeys": [
+        "{\"STATUS_CD\":\"P\"}"
+      ],
+      "tabs": [
+        {
+          "label": "전체 4",
+          "active": false
+        },
+        {
+          "label": "COUNT 1",
+          "active": true
+        },
+        {
+          "label": "AMT 1",
+          "active": false
+        },
+        {
+          "label": "QTY 1",
+          "active": false
+        }
+      ]
+    },
+    "b0_back_all_tab_no_toggle": {
+      "label": "일치 행 숨기기 (3건)",
+      "hideMatched": false,
+      "srvMode": true,
+      "srvIncludeMatched": false,
+      "colFilter": "",
+      "shownRows": 4,
+      "shownMismatchRows": 1,
+      "shownOkRows": 3,
+      "okRowTexts": [
+        "AA250000250000149404502514940450251224972412249724✓ 일치",
+        "CC250000250000149404570014940457001224975512249755✓ 일치",
+        "XX250000250000149404637514940463751224978612249786✓ 일치"
+      ],
+      "rowKeys": [
+        "{\"STATUS_CD\":\"P\"}"
+      ],
+      "tabs": [
+        {
+          "label": "전체 4",
+          "active": true
+        },
+        {
+          "label": "COUNT 1",
+          "active": false
+        },
+        {
+          "label": "AMT 1",
+          "active": false
+        },
+        {
+          "label": "QTY 1",
+          "active": false
+        }
+      ]
+    },
+    "c1_first_open_all_tab": {
+      "phase": "C1-전체탭-최초클릭",
+      "clicked": true,
+      "row_index": 0,
+      "wall_sec": 6.174,
+      "click_at": 168.87,
+      "prepare_reqs": 1,
+      "pkrecords_reqs": 4,
+      "net": [
+        {
+          "t": 168.87,
+          "kind": "req",
+          "path": "/agg-diff/prepare",
+          "method": "POST",
+          "url": "http://127.0.0.1:8010/agg-diff/prepare"
+        },
+        {
+          "t": 169.9,
+          "kind": "req",
+          "path": "/agg-diff/pk-records",
+          "method": "GET",
+          "url": "http://127.0.0.1:8010/agg-diff/pk-records?run_id=PSCF56C6DDD449&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+        },
+        {
+          "t": 169.9,
+          "kind": "resp",
+          "path": "/agg-diff/prepare",
+          "status": "PREPARING",
+          "run_id": "PSCF56C6DDD449",
+          "ok": true,
+          "reused": false
+        },
+        {
+          "t": 169.96,
+          "kind": "resp",
+          "path": "/agg-diff/pk-records",
+          "status": "PREPARING",
+          "run_id": "PSCF56C6DDD449",
+          "ok": true
+        },
+        {
+          "t": 171.47,
+          "kind": "req",
+          "path": "/agg-diff/pk-records",
+          "method": "GET",
+          "url": "http://127.0.0.1:8010/agg-diff/pk-records?run_id=PSCF56C6DDD449&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+        },
+        {
+          "t": 171.57,
+          "kind": "resp",
+          "path": "/agg-diff/pk-records",
+          "status": "PREPARING",
+          "run_id": "PSCF56C6DDD449",
+          "ok": true,
+          "total": null
+        },
+        {
+          "t": 173.08,
+          "kind": "req",
+          "path": "/agg-diff/pk-records",
+          "method": "GET",
+          "url": "http://127.0.0.1:8010/agg-diff/pk-records?run_id=PSCF56C6DDD449&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+        },
+        {
+          "t": 173.15,
+          "kind": "resp",
+          "path": "/agg-diff/pk-records",
+          "status": "PREPARING",
+          "run_id": "PSCF56C6DDD449",
+          "ok": true,
+          "total": null
+        },
+        {
+          "t": 174.66,
+          "kind": "req",
+          "path": "/agg-diff/pk-records",
+          "method": "GET",
+          "url": "http://127.0.0.1:8010/agg-diff/pk-records?run_id=PSCF56C6DDD449&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+        },
+        {
+          "t": 174.74,
+          "kind": "resp",
+          "path": "/agg-diff/pk-records",
+          "status": "EARLY_STOPPED",
+          "run_id": "PSCF56C6DDD449",
+          "ok": true,
+          "total": 101
+        }
+      ],
+      "detail": {
+        "present": true,
+        "table": true,
+        "thCount": 4,
+        "headers": [
+          "PK_STR",
+          "STATUS_CD",
+          "AMT",
+          "QTY"
+        ],
+        "headerBg": [
+          "",
+          "",
+          "",
+          ""
+        ],
+        "tdCount": 0,
+        "firstRowCells": [],
+        "firstRowBg": [],
+        "arrowCells": 0,
+        "measureText": "계측 — 준비확인 1025ms · scope 조회 74ms · 렌더 1ms",
+        "topLine": "재이관 대상 전체 101건 (표시 상한 100건 · 실제는 100건 초과·총수 미확정) · 현재 1~5 표시 · 1/20페이지"
+      }
+    },
+    "b1_after_toggle_on": {
+      "label": "불일치만 보기",
+      "hideMatched": false,
+      "srvMode": true,
+      "srvIncludeMatched": true,
+      "colFilter": "",
+      "shownRows": 4,
+      "shownMismatchRows": 1,
+      "shownOkRows": 3,
+      "okRowTexts": [
+        "AA250000250000149404502514940450251224972412249724✓ 일치",
+        "CC250000250000149404570014940457001224975512249755✓ 일치",
+        "XX250000250000149404637514940463751224978612249786✓ 일치"
+      ],
+      "rowKeys": [
+        "{\"STATUS_CD\":\"P\"}"
+      ],
+      "tabs": [
+        {
+          "label": "전체 4",
+          "active": true
+        },
+        {
+          "label": "COUNT 1",
+          "active": false
+        },
+        {
+          "label": "AMT 1",
+          "active": false
+        },
+        {
+          "label": "QTY 1",
+          "active": false
+        }
+      ]
+    },
+    "b2_on_count_tab": {
+      "label": "불일치만 보기",
+      "hideMatched": false,
+      "srvMode": true,
+      "srvIncludeMatched": true,
+      "colFilter": "CNT",
+      "shownRows": 1,
+      "shownMismatchRows": 1,
+      "shownOkRows": 0,
+      "okRowTexts": [],
+      "rowKeys": [
+        "{\"STATUS_CD\":\"P\"}"
+      ],
+      "tabs": [
+        {
+          "label": "전체 4",
+          "active": false
+        },
+        {
+          "label": "COUNT 1",
+          "active": true
+        },
+        {
+          "label": "AMT 1",
+          "active": false
+        },
+        {
+          "label": "QTY 1",
+          "active": false
+        }
+      ]
+    },
+    "b3_back_to_all_tab": {
+      "label": "불일치만 보기",
+      "hideMatched": false,
+      "srvMode": true,
+      "srvIncludeMatched": true,
+      "colFilter": "",
+      "shownRows": 4,
+      "shownMismatchRows": 1,
+      "shownOkRows": 3,
+      "okRowTexts": [
+        "AA250000250000149404502514940450251224972412249724✓ 일치",
+        "CC250000250000149404570014940457001224975512249755✓ 일치",
+        "XX250000250000149404637514940463751224978612249786✓ 일치"
+      ],
+      "rowKeys": [
+        "{\"STATUS_CD\":\"P\"}"
+      ],
+      "tabs": [
+        {
+          "label": "전체 4",
+          "active": true
+        },
+        {
+          "label": "COUNT 1",
+          "active": false
+        },
+        {
+          "label": "AMT 1",
+          "active": false
+        },
+        {
+          "label": "QTY 1",
+          "active": false
+        }
+      ]
+    },
+    "c2_reopen_count_tab": {
+      "phase": "C2-COUNT탭-재클릭",
+      "clicked": true,
+      "row_index": 0,
+      "wall_sec": 6.171,
+      "click_at": 187.66,
+      "prepare_reqs": 1,
+      "pkrecords_reqs": 4,
+      "net": [
+        {
+          "t": 187.67,
+          "kind": "req",
+          "path": "/agg-diff/prepare",
+          "method": "POST",
+          "url": "http://127.0.0.1:8010/agg-diff/prepare"
+        },
+        {
+          "t": 188.58,
+          "kind": "req",
+          "path": "/agg-diff/pk-records",
+          "method": "GET",
+          "url": "http://127.0.0.1:8010/agg-diff/pk-records?run_id=PSC8D9EA321F84&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+        },
+        {
+          "t": 188.57,
+          "kind": "resp",
+          "path": "/agg-diff/prepare",
+          "status": "PREPARING",
+          "run_id": "PSC8D9EA321F84",
+          "ok": true,
+          "reused": false
+        },
+        {
+          "t": 188.63,
+          "kind": "resp",
+          "path": "/agg-diff/pk-records",
+          "status": "PREPARING",
+          "run_id": "PSC8D9EA321F84",
+          "ok": true
+        },
+        {
+          "t": 190.14,
+          "kind": "req",
+          "path": "/agg-diff/pk-records",
+          "method": "GET",
+          "url": "http://127.0.0.1:8010/agg-diff/pk-records?run_id=PSC8D9EA321F84&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+        },
+        {
+          "t": 190.22,
+          "kind": "resp",
+          "path": "/agg-diff/pk-records",
+          "status": "PREPARING",
+          "run_id": "PSC8D9EA321F84",
+          "ok": true,
+          "total": null
+        },
+        {
+          "t": 191.74,
+          "kind": "req",
+          "path": "/agg-diff/pk-records",
+          "method": "GET",
+          "url": "http://127.0.0.1:8010/agg-diff/pk-records?run_id=PSC8D9EA321F84&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+        },
+        {
+          "t": 191.81,
+          "kind": "resp",
+          "path": "/agg-diff/pk-records",
+          "status": "PREPARING",
+          "run_id": "PSC8D9EA321F84",
+          "ok": true,
+          "total": null
+        },
+        {
+          "t": 193.31,
+          "kind": "req",
+          "path": "/agg-diff/pk-records",
+          "method": "GET",
+          "url": "http://127.0.0.1:8010/agg-diff/pk-records?run_id=PSC8D9EA321F84&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+        },
+        {
+          "t": 193.39,
+          "kind": "resp",
+          "path": "/agg-diff/pk-records",
+          "status": "EARLY_STOPPED",
+          "run_id": "PSC8D9EA321F84",
+          "ok": true,
+          "total": 101
+        }
+      ],
+      "detail": {
+        "present": true,
+        "table": true,
+        "thCount": 4,
+        "headers": [
+          "PK_STR",
+          "STATUS_CD",
+          "AMT",
+          "QTY"
+        ],
+        "headerBg": [
+          "",
+          "",
+          "",
+          ""
+        ],
+        "tdCount": 0,
+        "firstRowCells": [],
+        "firstRowBg": [],
+        "arrowCells": 0,
+        "measureText": "계측 — 준비확인 910ms · scope 조회 74ms · 렌더 1ms",
+        "topLine": "재이관 대상 전체 101건 (표시 상한 100건 · 실제는 100건 초과·총수 미확정) · 현재 1~5 표시 · 1/20페이지"
+      }
+    },
+    "c3_reopen_all_tab": {
+      "phase": "C3-전체탭-3회차클릭",
+      "clicked": true,
+      "row_index": 0,
+      "wall_sec": 4.641,
+      "click_at": 198.02,
+      "prepare_reqs": 1,
+      "pkrecords_reqs": 3,
+      "net": [
+        {
+          "t": 198.03,
+          "kind": "req",
+          "path": "/agg-diff/prepare",
+          "method": "POST",
+          "url": "http://127.0.0.1:8010/agg-diff/prepare"
+        },
+        {
+          "t": 198.91,
+          "kind": "req",
+          "path": "/agg-diff/pk-records",
+          "method": "GET",
+          "url": "http://127.0.0.1:8010/agg-diff/pk-records?run_id=PS6A639FA0C04B&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+        },
+        {
+          "t": 198.91,
+          "kind": "resp",
+          "path": "/agg-diff/prepare",
+          "status": "PREPARING",
+          "run_id": "PS6A639FA0C04B",
+          "ok": true,
+          "reused": false
+        },
+        {
+          "t": 198.97,
+          "kind": "resp",
+          "path": "/agg-diff/pk-records",
+          "status": "PREPARING",
+          "run_id": "PS6A639FA0C04B",
+          "ok": true
+        },
+        {
+          "t": 200.49,
+          "kind": "req",
+          "path": "/agg-diff/pk-records",
+          "method": "GET",
+          "url": "http://127.0.0.1:8010/agg-diff/pk-records?run_id=PS6A639FA0C04B&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+        },
+        {
+          "t": 200.56,
+          "kind": "resp",
+          "path": "/agg-diff/pk-records",
+          "status": "PREPARING",
+          "run_id": "PS6A639FA0C04B",
+          "ok": true,
+          "total": null
+        },
+        {
+          "t": 202.07,
+          "kind": "req",
+          "path": "/agg-diff/pk-records",
+          "method": "GET",
+          "url": "http://127.0.0.1:8010/agg-diff/pk-records?run_id=PS6A639FA0C04B&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+        },
+        {
+          "t": 202.15,
+          "kind": "resp",
+          "path": "/agg-diff/pk-records",
+          "status": "EARLY_STOPPED",
+          "run_id": "PS6A639FA0C04B",
+          "ok": true,
+          "total": 101
+        }
+      ],
+      "detail": {
+        "present": true,
+        "table": true,
+        "thCount": 4,
+        "headers": [
+          "PK_STR",
+          "STATUS_CD",
+          "AMT",
+          "QTY"
+        ],
+        "headerBg": [
+          "",
+          "",
+          "",
+          ""
+        ],
+        "tdCount": 0,
+        "firstRowCells": [],
+        "firstRowBg": [],
+        "arrowCells": 0,
+        "measureText": "계측 — 준비확인 885ms · scope 조회 80ms · 렌더 1ms",
+        "topLine": "재이관 대상 전체 101건 (표시 상한 100건 · 실제는 100건 초과·총수 미확정) · 현재 1~5 표시 · 1/20페이지"
+      }
+    },
+    "cache_state": {
+      "pageCacheKeys": [
+        "PSCF56C6DDD449|STATUS_CD|P|reimport|1",
+        "PSC8D9EA321F84|STATUS_CD|P|reimport|1",
+        "PS6A639FA0C04B|STATUS_CD|P|reimport|1"
+      ],
+      "pkStateStatus": "PREPARING",
+      "pkStateRunId": "PS6A639FA0C04B"
+    }
+  },
+  "net": [
+    {
+      "t": 33.57,
+      "kind": "req",
+      "path": "/analyze",
+      "method": "POST",
+      "url": "http://127.0.0.1:8010/analyze"
+    },
+    {
+      "t": 35.74,
+      "kind": "resp",
+      "path": "/analyze",
+      "status": 200
+    },
+    {
+      "t": 132.6,
+      "kind": "req",
+      "path": "/count",
+      "method": "POST",
+      "url": "http://127.0.0.1:8010/count"
+    },
+    {
+      "t": 133.01,
+      "kind": "resp",
+      "path": "/count",
+      "status": "FAILED",
+      "processing_ms": 356.8
+    },
+    {
+      "t": 150.12,
+      "kind": "req",
+      "path": "/generate",
+      "method": "POST",
+      "url": "http://127.0.0.1:8010/generate"
+    },
+    {
+      "t": 150.24,
+      "kind": "resp",
+      "path": "/generate",
+      "status": 200,
+      "processing_ms": 2.2
+    },
+    {
+      "t": 155.27,
+      "kind": "req",
+      "path": "/execute",
+      "method": "POST",
+      "url": "http://127.0.0.1:8010/execute"
+    },
+    {
+      "t": 155.94,
+      "kind": "resp",
+      "path": "/execute",
+      "status": 200,
+      "processing_ms": 554.3,
+      "run_id": null
+    },
+    {
+      "t": 156.28,
+      "kind": "req",
+      "path": "/analyze",
+      "method": "POST",
+      "url": "http://127.0.0.1:8010/diagnosis/analyze"
+    },
+    {
+      "t": 156.59,
+      "kind": "resp",
+      "path": "/analyze",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "t": 168.87,
+      "kind": "req",
+      "path": "/agg-diff/prepare",
+      "method": "POST",
+      "url": "http://127.0.0.1:8010/agg-diff/prepare"
+    },
+    {
+      "t": 169.9,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET",
+      "url": "http://127.0.0.1:8010/agg-diff/pk-records?run_id=PSCF56C6DDD449&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+    },
+    {
+      "t": 169.9,
+      "kind": "resp",
+      "path": "/agg-diff/prepare",
+      "status": "PREPARING",
+      "run_id": "PSCF56C6DDD449",
+      "ok": true,
+      "reused": false
+    },
+    {
+      "t": 169.96,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "PREPARING",
+      "run_id": "PSCF56C6DDD449",
+      "ok": true
+    },
+    {
+      "t": 171.47,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET",
+      "url": "http://127.0.0.1:8010/agg-diff/pk-records?run_id=PSCF56C6DDD449&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+    },
+    {
+      "t": 171.57,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "PREPARING",
+      "run_id": "PSCF56C6DDD449",
+      "ok": true,
+      "total": null
+    },
+    {
+      "t": 173.08,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET",
+      "url": "http://127.0.0.1:8010/agg-diff/pk-records?run_id=PSCF56C6DDD449&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+    },
+    {
+      "t": 173.15,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "PREPARING",
+      "run_id": "PSCF56C6DDD449",
+      "ok": true,
+      "total": null
+    },
+    {
+      "t": 174.66,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET",
+      "url": "http://127.0.0.1:8010/agg-diff/pk-records?run_id=PSCF56C6DDD449&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+    },
+    {
+      "t": 174.74,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "EARLY_STOPPED",
+      "run_id": "PSCF56C6DDD449",
+      "ok": true,
+      "total": 101
+    },
+    {
+      "t": 187.67,
+      "kind": "req",
+      "path": "/agg-diff/prepare",
+      "method": "POST",
+      "url": "http://127.0.0.1:8010/agg-diff/prepare"
+    },
+    {
+      "t": 188.58,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET",
+      "url": "http://127.0.0.1:8010/agg-diff/pk-records?run_id=PSC8D9EA321F84&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+    },
+    {
+      "t": 188.57,
+      "kind": "resp",
+      "path": "/agg-diff/prepare",
+      "status": "PREPARING",
+      "run_id": "PSC8D9EA321F84",
+      "ok": true,
+      "reused": false
+    },
+    {
+      "t": 188.63,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "PREPARING",
+      "run_id": "PSC8D9EA321F84",
+      "ok": true
+    },
+    {
+      "t": 190.14,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET",
+      "url": "http://127.0.0.1:8010/agg-diff/pk-records?run_id=PSC8D9EA321F84&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+    },
+    {
+      "t": 190.22,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "PREPARING",
+      "run_id": "PSC8D9EA321F84",
+      "ok": true,
+      "total": null
+    },
+    {
+      "t": 191.74,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET",
+      "url": "http://127.0.0.1:8010/agg-diff/pk-records?run_id=PSC8D9EA321F84&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+    },
+    {
+      "t": 191.81,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "PREPARING",
+      "run_id": "PSC8D9EA321F84",
+      "ok": true,
+      "total": null
+    },
+    {
+      "t": 193.31,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET",
+      "url": "http://127.0.0.1:8010/agg-diff/pk-records?run_id=PSC8D9EA321F84&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+    },
+    {
+      "t": 193.39,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "EARLY_STOPPED",
+      "run_id": "PSC8D9EA321F84",
+      "ok": true,
+      "total": 101
+    },
+    {
+      "t": 198.03,
+      "kind": "req",
+      "path": "/agg-diff/prepare",
+      "method": "POST",
+      "url": "http://127.0.0.1:8010/agg-diff/prepare"
+    },
+    {
+      "t": 198.91,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET",
+      "url": "http://127.0.0.1:8010/agg-diff/pk-records?run_id=PS6A639FA0C04B&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+    },
+    {
+      "t": 198.91,
+      "kind": "resp",
+      "path": "/agg-diff/prepare",
+      "status": "PREPARING",
+      "run_id": "PS6A639FA0C04B",
+      "ok": true,
+      "reused": false
+    },
+    {
+      "t": 198.97,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "PREPARING",
+      "run_id": "PS6A639FA0C04B",
+      "ok": true
+    },
+    {
+      "t": 200.49,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET",
+      "url": "http://127.0.0.1:8010/agg-diff/pk-records?run_id=PS6A639FA0C04B&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+    },
+    {
+      "t": 200.56,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "PREPARING",
+      "run_id": "PS6A639FA0C04B",
+      "ok": true,
+      "total": null
+    },
+    {
+      "t": 202.07,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET",
+      "url": "http://127.0.0.1:8010/agg-diff/pk-records?run_id=PS6A639FA0C04B&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+    },
+    {
+      "t": 202.15,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "EARLY_STOPPED",
+      "run_id": "PS6A639FA0C04B",
+      "ok": true,
+      "total": 101
+    }
+  ],
+  "marks": [
+    {
+      "t": 32.29,
+      "mark": "1단계 분석",
+      "extra": null
+    },
+    {
+      "t": 37.89,
+      "mark": "2단계 COUNT",
+      "extra": null
+    },
+    {
+      "t": 136.71,
+      "mark": "3단계 후보선정",
+      "extra": null
+    },
+    {
+      "t": 146.85,
+      "mark": "4단계 SQL 생성 + 통계검증 실행",
+      "extra": null
+    },
+    {
+      "t": 159.08,
+      "mark": "4단계 실행 완료",
+      "extra": null
+    },
+    {
+      "t": 159.08,
+      "mark": "5단계 진입",
+      "extra": null
+    },
+    {
+      "t": 168.87,
+      "mark": "[C1-전체탭-최초클릭] 그룹 클릭(index=0)",
+      "extra": null
+    },
+    {
+      "t": 187.66,
+      "mark": "[C2-COUNT탭-재클릭] 그룹 클릭(index=0)",
+      "extra": null
+    },
+    {
+      "t": 198.02,
+      "mark": "[C3-전체탭-3회차클릭] 그룹 클릭(index=0)",
+      "extra": null
+    }
+  ],
+  "console_errors": [],
+  "dialogs": [
+    "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+    "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+  ]
+}
