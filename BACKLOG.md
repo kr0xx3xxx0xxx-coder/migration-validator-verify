@@ -10,7 +10,10 @@
 - 대상 제외: 아직 push 되지 않은 로컬 전용 보고서 16건은 이번 취합에서 제외했다.
   push 후 이 파일에 합류시킨다.
 - 최초 작성: 2026-07-29 (VERIFY-REPO-BACKLOG-FILE-CREATE)
-- 최종 갱신: 2026-07-30 (BACKLOG-COMPLETED-ITEMS-S1-S3-S5-S8-F13-MARK-RESOLVED) — 이미 해결된
+- 최종 갱신: 2026-07-30 (BACKLOG-VARCHAR2-CAPACITY-PROVIDER-GAP-AND-MSSQL-RISK-ADD) — VARCHAR2 실효
+  수용량 판정이 운영 경로에 도달하지 못하는 provider 배선 공백과 MSSQL 동종 위험(컬럼 메타 조회 자체
+  미구현) 2건 등록(F14·F15 신규)
+- 직전 갱신: 2026-07-30 (BACKLOG-COMPLETED-ITEMS-S1-S3-S5-S8-F13-MARK-RESOLVED) — 이미 해결된
   S1·S3·S5·S8·F13 5건을 `✅ 해결 완료` 로 표시(삭제하지 않고 근거 커밋·해결 요약만 추가)
 - 직전 갱신: 2026-07-30 (BACKLOG-S9-R4-RECLASSIFY-DOC-UPDATE) — S9 재집계 반영(15지점 → 5지점, R1~R3
   해결 완료) + R4 를 별건 M16 으로 분리, R5(count_gate export UI 미소비) F13 신규 등록
@@ -453,6 +456,38 @@ git -C E:/verify_reports worktree remove <임시경로>
 ---
 
 ## 기능 미완(설계는 끝났으나 구현 대기)
+
+### F14. 오라클 metadata provider 배선이 없어 VARCHAR2 실효수용량 경고가 운영 화면에 뜨지 않는다
+- 발견일: 2026-07-30
+- 근거 보고서: `VARCHAR2-BYTE-CHAR-CAPACITY-COMPARISON-FIX.txt` (§6-2-(5))
+- 상세: VARCHAR2-BYTE-CHAR-CAPACITY-COMPARISON-FIX 로 판정 로직·조회 능력·값 전달 배선은 완성됐으나,
+  운영 경로 `/csr-preview`(`routes/csr_preview_route.py` → `services/analyze_to_csr_adapter.py`)가
+  `source_metadata=None, target_metadata=None` 을 **고정으로** 넘긴다. 그 결과
+  `_evaluate_compatibility` 가 즉시 `UNKNOWN_COMPATIBILITY` 로 반환하고 비교 자체에 도달하지 않는다.
+  기존 길이 비교도 같은 이유로 원래부터 미도달이었다 — 이번 수정 **이전부터 있던 사각지대**이며,
+  이번 수정이 새로 만든 결함이 아니다.
+  메타를 실제로 채우는 provider 는 `services/postgres_metadata_provider.py` 하나뿐이고 PG 전용이며,
+  그마저 `scripts/` 의 smoke test 에서만 쓰인다(웹 앱 미배선). **오라클용 provider 자체가 없다.**
+- 대응 방향: 오라클 metadata provider 를 신설해 `analyze_to_csr_adapter.py` 의 고정 `None` 을 실제 값으로
+  채우도록 배선한다. 캐릭터셋 조회(`build_db_charset_query`)는 이미 있으므로 그것을 호출해
+  `ColumnMeta.charset` 을 채우는 코드만 추가하면 된다.
+- 참고: E:\verify_reports\VARCHAR2-BYTE-CHAR-CAPACITY-COMPARISON-FIX.txt
+
+### F15. MSSQL 도 VARCHAR/NVARCHAR 구분 미조회로 동일한 실효수용량 축소 위험이 있으나, 컬럼 메타 조회 자체가 구현돼 있지 않다
+- 발견일: 2026-07-30
+- 근거 보고서: `VARCHAR2-BYTE-CHAR-CAPACITY-COMPARISON-FIX.txt` (§5-3)
+- 상세: MSSQL 은 `VARCHAR(n)`=n**바이트**, `NVARCHAR(n)`=n**문자**(내부 2바이트)인데
+  `information_schema.columns.character_maximum_length` 가 둘 다 n 을 그대로 반환해
+  `VARCHAR(50)` 과 `NVARCHAR(50)` 이 똑같이 "50" 으로 보인다(오라클 `CHAR_USED` 미구분과 동일 구도).
+  SQL Server 2019+ 의 UTF-8 collation(`_UTF8`)을 쓰면 `VARCHAR(50)` 이 한글 16자로 줄어
+  오라클 사례와 **완전히 같아진다.**
+- 선행 과제: 판정 이전에 `MSSQLAdapter` 가 `build_tgt_column_meta_query` / `build_column_meta_query` 를
+  **아예 구현하지 않아**(base 의 `None` 반환) 이 판정 경로에 도달조차 하지 못한다. 즉 MSSQL 대응은
+  "수용량 비교 추가" 가 아니라 **"컬럼 메타 조회 구현"** 이 먼저다.
+- 대응 방향: MSSQL 어댑터에 컬럼 메타 조회부터 구현한다(`character_octet_length` + `collation_name` 필요).
+  이후 오라클과 같은 패턴(`char_used` 상당값 + 캐릭터셋)으로 확장한다. 기존 `_effective_char_capacity` ·
+  비교 로직은 방언 중립으로 설계돼 있어 수정이 필요 없다.
+- 참고: E:\verify_reports\VARCHAR2-BYTE-CHAR-CAPACITY-COMPARISON-FIX.txt
 
 ### F13. ✅ 해결 완료 — count_gate export 의 서버 방언 사전 게이트를 UI 가 소비하지 않는다(반쪽 배선, S9 에서 분리)
 - 해결일: 2026-07-30 (COUNT-GATE-EXPORT-UI-DIALECT-GATE-CONSUME-FIX)
