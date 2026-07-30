@@ -615,6 +615,38 @@ git -C E:/verify_reports worktree remove <임시경로>
 
 ## 경미/문서
 
+### M17. 재이관 드릴다운 라이브 레코드에 목적 미존재·값 불일치 강조(주황)가 서지 않는다
+- 발견일: 2026-07-30
+- 근거 보고서: `REIMPORT-DRILLDOWN-TREE-MERGE-AND-WARNING-HOIST-FIX/ADDENDUM_emphasis_and_preexisting_defects.md`
+  (§1 / §2-2)
+- 상세: `_mvPkCellSplit` 의 강조 계산 로직 자체는 정상이다 — 합성 계약 실측
+  (`_tree_merge_emphasis_contract.json`, verdict PASS)에서 목적 미존재 2셀 주황 / 값 불일치 1셀 주황 /
+  완전 일치 0셀을 정확히 검출했다. 그러나 실제 라이브 드릴다운 레코드 행에서는 화면 값은 정상
+  표시되면서도(목적 미존재는 `-`, 값 불일치는 실제로 다른 숫자) 강조 색이 전혀 붙지 않는다
+  (cspk After·demo After 각 레코드 5행 전부 주황 셀 0개, `getComputedStyle(td).color` 기준).
+  `_mvPkCellSplit` 의 인자인 `missing`(=`rec.tgt` 가 null)과 `rec.diff_cols` 가 라이브
+  `/agg-diff/pk-records` 응답에서 서지 않는 것으로 추정된다.
+  **Before/After 완전히 동일한 현상**이라 이번 트리병합 작업과 무관한 기존 결함이다.
+- 영향: 어떤 컬럼이 왜 재이관 대상인지 화면 색만으로는 구분할 수 없다. 값 자체는 정확히 표시되므로
+  데이터 정합성 문제는 아니고 설명성(explainability)·UX 문제다.
+- 대응 방향: 서버측 `/agg-diff/pk-records` 응답의 `tgt` / `diff_cols` 산출 로직 확인이 필요하다.
+- 참고: E:\verify_reports\REIMPORT-DRILLDOWN-TREE-MERGE-AND-WARNING-HOIST-FIX\
+  ADDENDUM_emphasis_and_preexisting_defects.md
+
+### M18. 다른 그룹을 펼치면 이전 그룹의 펼침 화살표(▾)가 닫힌 채로 안 돌아온다
+- 발견일: 2026-07-30
+- 근거 보고서: `REIMPORT-DRILLDOWN-TREE-MERGE-AND-WARNING-HOIST-FIX/ADDENDUM_emphasis_and_preexisting_defects.md`
+  (§2-1)
+- 상세: 그룹0 펼침 → 그룹1 펼침 시, 상세 패널은 정상적으로 1개만 유지되지만(SINGLE-OPEN 정책 정상),
+  이전에 열었던 그룹 행의 `aria-expanded` 가 `true` 로 남아 화살표가 계속 ▾ 로 보인다.
+  Before(트리병합 전)에도 동일하게 재현된다(`aria-expanded="true"` 인 그룹 행 = `['A','C']` 동일) —
+  기존 결함이며 트리병합으로 화살표가 트리 어포던스가 되면서 더 눈에 띄게 됐을 뿐이다.
+- 대응 방향: `_mvToggleRowAggDiff` 가 `tr.mv-ed-scope-panel` 을 일괄 제거하는 경로에서, 제거되는
+  패널의 직전 형제 행 `aria-expanded` 를 `'false'` 로 되돌리는 처리를 추가한다
+  (`_mvCloseOtherScopePanels` 는 이미 같은 처리를 하고 있으나 일괄 제거 경로에는 누락됐다).
+- 참고: E:\verify_reports\REIMPORT-DRILLDOWN-TREE-MERGE-AND-WARNING-HOIST-FIX\
+  ADDENDUM_emphasis_and_preexisting_defects.md
+
 ### M16. `diagnosis_route._count_rows` 의 sqlglot 방언이 postgres 로 하드코딩돼 있다(S9 에서 분리된 별건)
 - 발견일: 2026-07-30
 - 근거 보고서: `DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE.txt` (§진짜 남은 지점 R4 / §권장 착수 순서 3)
