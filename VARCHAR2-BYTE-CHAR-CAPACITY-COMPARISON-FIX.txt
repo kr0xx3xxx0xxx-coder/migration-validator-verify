@@ -1,0 +1,470 @@
+작업명 : VARCHAR2-BYTE-CHAR-CAPACITY-COMPARISON-FIX
+✅ 작업 완료 - VARCHAR2-BYTE-CHAR-CAPACITY-COMPARISON-FIX - 오라클 컬럼 메타에 CHAR_USED/DATA_LENGTH 를 추가 조회하고 캐릭터셋을 반영한 '실효 문자 수용량' 비교를 넣어, VARCHAR2(50 BYTE) 원본 CP949 → 목적지 AL32UTF8 이관에서 한글 25자→16자로 줄어드는데도 COMPATIBLE 로 통과하던 조용한 절단 위험을 위험 판정으로 전환했다(실측: 동일 캐릭터셋 12건 판정 불변, CP949 원본 가정 시 12건 중 9건 전환)
+
+작성일 : 2026-07-30
+성격   : 완료 모듈(candidate_scoring_runner.py) 수정 — **무회귀 수정이 아니다**(판정 결과가 바뀐다)
+근거   : verify 저장소 ORACLE-CHARSET-COLLATION-EXACT-DIFF-DIAGNOSE.txt §4 / §5-P2, BACKLOG.md S13
+커밋   : 8dd4f95
+실측환경: 오라클 asis 192.168.0.151:1523 / tobe 192.168.0.151:1524 (xepdb1, NXDNP)
+         드라이버 oracledb thin 모드. 조회는 전부 read-only(SELECT/카탈로그). 쓰기 0건.
+
+
+================================================================================
+■ 0. 맨 앞 요약 — 판정이 어떻게 바뀌었나
+================================================================================
+
+수정 전에는 CHAR_USED 를 아예 조회하지 않아 VARCHAR2(50 BYTE) 와 VARCHAR2(50 CHAR) 가
+도구에게 똑같이 "50" 으로 보였다. 그래서 아래 비교가 항상 거짓이 되어 통과했다.
+
+    t_len(50) < s_len(50)  →  거짓  →  "COMPATIBLE, 위험플래그 없음"
+
+수정 후에는 선언 숫자를 그대로 믿지 않고 '실효 문자 수용량'으로 환산해 비교한다.
+
+    원본 KO16MSWIN949 VARCHAR2(50 BYTE) → 한글 1자=2바이트 → 25자
+    목적지 AL32UTF8   VARCHAR2(50 BYTE) → 한글 1자=3바이트 → 16자
+    16 < 25  →  PRECISION_LOSS_RISK + CHAR_CAPACITY_SHRINK_RISK
+
+  ** 실측 결과: 수정 전 코드는 12개 문자형 컬럼 전부를 COMPATIBLE 로 통과시켰고,          **
+  ** 수정 후 코드는 같은 입력에서 9건을 PRECISION_LOSS_RISK 로 전환했다.                  **
+  ** 반면 양측 캐릭터셋이 같은 실환경(둘 다 AL32UTF8)에서는 12건 전부 COMPATIBLE 유지 —   **
+  ** 즉 판정 변화는 '캐릭터셋이 다른 경우'에만 발생하고 현재 환경 판정은 불변이다.        **
+
+
+================================================================================
+■ 1. 수정 내용 (파일별)
+================================================================================
+
+지침이 지정한 수정 대상은 2개 파일이었으나, 그 2개만 고치면 새 로직이 **도달 불가한 죽은
+코드**가 되어 실제로 7개 파일을 건드렸다. 늘어난 5개는 전부 '값을 흘려보내는 배선'이며
+판정 로직은 candidate_scoring_runner.py 한 곳에만 있다. 아래에 이유를 명시한다.
+
+── 1-1. services/db_adapters/oracle.py  (지침 지정 ①)
+
+  build_tgt_column_meta_query : 5컬럼 → **7컬럼** (6=char_used, 7=data_length)
+  build_column_meta_query     : 4컬럼 → **6컬럼** (5=char_used, 6=data_length)
+      기존 char_length 조회는 지침 1항대로 그대로 유지했다.
+      **앞부분 컬럼 순서를 건드리지 않고 뒤에만 추가**했다 — 위치 기반으로 읽는 소비자와
+      PG/MySQL 어댑터(여전히 5·4컬럼)를 깨지 않기 위한 선택이다.
+
+  build_db_charset_query : **신설**
+      지침 2항의 "캐릭터셋 정보를 어디서 확보할지 판단해 보고에 명시" 에 대한 답이다.
+      → **기존에 재사용할 수 있는 조회 경로가 없어 신규 조회를 추가했다.**
+        · 연결 계층(§1 관련) 은 캐릭터셋을 조회하지 않는다. connect() 는 user/password/dsn
+          만 넘기고, oracledb 4.x 는 클라이언트를 항상 UTF-8 로 고정하므로 캐릭터셋을 알
+          필요가 없었다(진단서 §1-2). 즉 재사용할 값이 애초에 존재하지 않는다.
+        · 프리셋의 encoding/nencoding 필드는 **읽는 코드가 0건인 죽은 설정**이고(진단서
+          §1-4) 드라이버가 그 인자를 받지도 않으므로 출처로 쓸 수 없다.
+        · 따라서 진단서 §0/§7 이 실측에 사용한 SQL 을 그대로 재사용해
+          `SELECT value FROM nls_database_parameters WHERE parameter='NLS_CHARACTERSET'`
+          을 어댑터 메서드로 넣었다. read-only 1회, 바인드 없음.
+      세션 뷰(NLS_SESSION_PARAMETERS)가 아니라 **DB 뷰**를 쓴 이유: 수용량은 '저장' 기준이고
+      DB 캐릭터셋은 DB 생성 시 확정돼 접속별로 흔들리지 않는다.
+
+── 1-2. services/candidate_scoring_runner.py  (지침 지정 ②)
+
+  _CHARSET_CJK_BYTES_PER_CHAR : 캐릭터셋 → 한글 1자당 바이트 수 표(12종)
+      AL32UTF8/UTF8=3, KO16MSWIN949/KO16KSC5601=2, US7ASCII 등=1, JA16EUC=3, ZHS16GBK=2 …
+      **최댓값(AL32UTF8=4)이 아니라 한글 기준(3)** 을 쓴 이유: 최댓값을 쓰면 순수 ASCII
+      컬럼까지 과도하게 경고한다. 진단서 §4-3 이 실측한 3바이트 기준을 따랐다.
+      한계: 보충문자(이모지·희귀한자, 4바이트)가 실제 데이터에 있으면 이 계산도 낙관적이다.
+
+  _effective_char_capacity(meta) : 신설 — 실효 문자 수용량 환산
+      char_used='C' → char_length 그대로 (캐릭터셋 무관하게 선언 글자 수 보장 = 이미 안전)
+      char_used='B' → data_length // 한글 1자당 바이트 수
+      판단 불가 시 None → 호출측이 비교를 건너뛴다(없는 위험을 날조하지 않는다)
+
+  _evaluate_compatibility 의 text-text 분기 : 수용량 비교 추가
+      **발동 조건 3개를 모두 만족할 때만** 플래그를 올린다(판정 변화 범위를 최소화):
+        (1) 어느 한쪽이라도 char_used='B'  — 바이트 의미가 개입해야 캐릭터셋이 수용량을 바꾼다
+        (2) 실효 수용량이 실제로 줄어든다 (t_cap < s_cap)
+        (3) 선언 길이는 줄지 않았다 (t_len >= s_len) — '숫자만 보면 안전해 보이는' 경우로 한정
+      부여 결과: compatibility_status = PRECISION_LOSS_RISK (기존 어휘 재사용)
+                risk_flags += CHAR_CAPACITY_SHRINK_RISK (신규, 설명용)
+                risk_gate_blocked = False (경고 수준 — 검증 자체를 막지 않는다)
+
+      status 를 신설하지 않고 기존 PRECISION_LOSS_RISK 를 재사용한 이유: COMPAT_PRIORITY /
+      RISK_GATE_BLOCKED_STATUSES / UI 라벨맵 등 status 어휘가 여러 파일에 박혀 있어 신설하면
+      영향 범위가 불필요하게 넓어진다. 구분이 필요한 정보는 risk_flag 로 분리했다.
+
+── 1-3. 배선 4개 (지침에 없었으나 없으면 신규 로직이 죽는 파일)
+
+  services/db_adapters/base.py
+      build_db_charset_query 기본 None 추가 + build_tgt_column_meta_query 계약 주석 갱신
+      ("앞 5컬럼 필수, 뒤는 방언이 덧붙일 수 있음")
+
+  services/db_query_service.py  ← **없으면 런타임 예외가 나는 필수 수정**
+      `for col_nm, dtype, char_len, num_prec, num_scale in rows:` 고정 5-튜플 언패킹이
+      7컬럼 행을 받으면 ValueError 로 터진다. 앞 5개 필수 + 뒤 선택 방식으로 바꿨다.
+      _query_columns_info / _fetch_columns_info 도 동일하게 폭 가변 처리하고 char_used/
+      data_length 를 결과 dict 에 **값이 있을 때만** 추가한다(PG/MySQL dict 는 키 개수까지 불변).
+
+  services/candidate_metadata_provider.py / services/candidate_context_adapter.py
+      CandidateColumnMetadata 에 char_used/data_length/charset 3필드(기본값 None) 추가 및
+      ColumnMeta 로 전달. **이 배선이 없으면 _evaluate_compatibility 가 값을 영원히 받지 못해
+      새 비교가 100% 건너뛰어진다.**
+
+  ui/csr_display_helpers.py
+      CHAR_CAPACITY_SHRINK_RISK 한글 설명 등록. 라벨이 없으면 화면에 코드 원문이 그대로
+      노출되어 explainability 가 깨진다(표시 전용 — 판정 무관).
+
+
+================================================================================
+■ 2. 전/후 판정 결과 변화 목록 (실측)
+================================================================================
+
+방법: 동일한 검증 스크립트를 (a) 수정 전 코드가 있는 baseline worktree 와 (b) 수정 후 main
+에서 각각 실행했다. 스크립트는 ColumnMeta 의 dataclass 필드를 런타임에 확인해 수정 전 코드에
+없는 필드는 자동으로 생략하므로, 스크립트 1개로 진짜 Before/After 를 얻는다.
+입력은 tobe 실 테이블 CDC_ALL_HIST 의 **실제 카탈로그 값**이며 컬럼명은 원본=목적지 동일
+(col_renamed=False — 실 이관에서 가장 흔하고, 기존 길이 비교가 아예 동작하지 않던 조건)이다.
+
+── 2-1. 시나리오별 집계
+
+  ┌──────────────────────────────────────┬────────────────────┬────────────────────┐
+  │ 시나리오                              │ BEFORE(수정 전)     │ AFTER(수정 후)      │
+  ├──────────────────────────────────────┼────────────────────┼────────────────────┤
+  │ D-1 양측 AL32UTF8 (실환경 그대로)      │ COMPATIBLE 12건    │ COMPATIBLE 12건    │
+  │                                       │ 위험 0건           │ 위험 0건 ← **불변** │
+  ├──────────────────────────────────────┼────────────────────┼────────────────────┤
+  │ D-2 원본 KO16MSWIN949 → 목적지 AL32UTF8│ COMPATIBLE 12건    │ PRECISION_LOSS 9건 │
+  │     (레거시 CP949 원본 이관 가정)      │ 위험 0건           │ COMPATIBLE 3건     │
+  │                                       │                    │ ← **9건 전환**      │
+  ├──────────────────────────────────────┼────────────────────┼────────────────────┤
+  │ D-3 양측 KO16MSWIN949                 │ COMPATIBLE 12건    │ COMPATIBLE 12건    │
+  │                                       │ 위험 0건           │ 위험 0건 ← **불변** │
+  └──────────────────────────────────────┴────────────────────┴────────────────────┘
+
+  → 판정이 바뀌는 것은 **D-2, 즉 양측 캐릭터셋이 다를 때뿐**이다.
+    D-1/D-3 처럼 캐릭터셋이 같으면 수용량 비율이 양측 동일해 비교 결과가 그대로다.
+
+── 2-2. 컬럼별 상세 (D-2, 실 카탈로그 값)
+
+  COLUMN            CHAR_LEN  DATA_LEN  CHAR_USED  CP949 실효  UTF8 실효  전/후
+  ───────────────────────────────────────────────────────────────────────────────
+  CD_LOAD_NO             50        50       B         25자       16자    COMPATIBLE→PRECISION_LOSS_RISK
+  CD_NODE_ALIAS         100       100       B         50자       33자    COMPATIBLE→PRECISION_LOSS_RISK
+  CD_SCHEMA             100       100       B         50자       33자    COMPATIBLE→PRECISION_LOSS_RISK
+  CD_TABLE              100       100       B         50자       33자    COMPATIBLE→PRECISION_LOSS_RISK
+  CD_XID_LSN            100       100       B         50자       33자    COMPATIBLE→PRECISION_LOSS_RISK
+  CD_OFFSET              30        30       B         15자       10자    COMPATIBLE→PRECISION_LOSS_RISK
+  CD_TS                  30        30       B         15자       10자    COMPATIBLE→PRECISION_LOSS_RISK
+  CD_DT                  30        30       B         15자       10자    COMPATIBLE→PRECISION_LOSS_RISK
+  CD_REG_DT              17        17       B          8자        5자    COMPATIBLE→PRECISION_LOSS_RISK
+  CD_OP                   1         1       B          0자        0자    COMPATIBLE (불변)
+  CD_PK_EXIST_YN          1         1       B          0자        0자    COMPATIBLE (불변)
+  CD_CDC_REG_YN           1         1       B          0자        0자    COMPATIBLE (불변)
+
+  전환 9건 / 불변 3건. 불변 3건은 모두 VARCHAR2(1 BYTE) 로, 어느 캐릭터셋에서도 한글을 한 자도
+  담을 수 없어(1//2=0, 1//3=0) 수용량이 줄지 않는다 — 경고하지 않는 것이 맞다.
+  CHAR_USED='C' 컬럼은 이 테이블에 없었다(실측 분포: B 12건 / C 0건). 'C' 불변은 단위 테스트로 고정했다.
+
+── 2-3. 판정이 바뀌지 **않는** 것을 확인한 항목(무회귀 경계)
+
+  · 양측 캐릭터셋 동일 (AL32UTF8/KO16MSWIN949/US7ASCII) → COMPATIBLE 유지
+  · CHAR_USED='C' 양측 + 캐릭터셋 상이 → COMPATIBLE 유지 (지침 2항: 이미 안전)
+  · 캐릭터셋 미상/미등록 → COMPATIBLE 유지 (경고 날조 금지)
+  · char_used/data_length/charset 미설정 기존 메타 → COMPATIBLE 유지
+  · 역방향(AL32UTF8 → KO16MSWIN949, 수용량 증가) → COMPATIBLE 유지
+  · 숫자형(precision/scale) 판정 → 기존 로직 그대로
+  · 컬럼명 변경 + 선언 길이 축소(50→30) → 기존 경로 그대로 PRECISION_LOSS_RISK,
+    신규 플래그는 붙지 않음
+  · **PostgreSQL/MySQL 결과 dict 는 키 개수까지 완전 불변** (char_used 키를 아예 넣지 않음)
+
+
+================================================================================
+■ 3. 실측 검증 상세
+================================================================================
+
+스크립트: scripts/dev_e2e/varchar2_byte_char_capacity_comparison_verify.py (커밋 포함)
+
+── [A] 신규/변경 카탈로그 쿼리가 실 DB 에서 도는가 — **통과**
+    밑줄 별칭 ORA-00911 전례가 있어 '실행된다'는 사실 자체를 확인했다.
+      asis: build_tgt_column_meta_query 반환 7컬럼 / 7행, build_column_meta_query 6컬럼 / 7행
+      tobe: build_tgt_column_meta_query 반환 7컬럼 / 14행, build_column_meta_query 6컬럼 / 14행
+      (수정 전 동일 실행: 각각 5컬럼 / 4컬럼 — 폭 증가가 실측으로 확인됨)
+    실측 CHAR_USED 분포: asis 문자형 5컬럼 전부 'B', tobe 문자형 12컬럼 전부 'B'
+    실측 값 예: CD_LOAD_NO VARCHAR2 CHAR_LENGTH=50 DATA_LENGTH=50 CHAR_USED=B
+               → 진단서 §4-2 의 "BYTE 의미에서 CHAR_LENGTH=DATA_LENGTH=선언 숫자" 재확인
+
+── [B] 캐릭터셋 조회 — **통과**
+    asis NLS_CHARACTERSET = AL32UTF8 / tobe NLS_CHARACTERSET = AL32UTF8 (양측 동일)
+    → 진단서 §0 실측과 일치. **현재 테스트 환경은 캐릭터셋 차이를 재현하지 못하므로**
+      D-2 는 원본 캐릭터셋만 KO16MSWIN949 로 치환해 실 컬럼 shape 위에 얹어 측정했다.
+      (진단서 §3-3 이 정렬 붕괴를 재현할 때 쓴 것과 같은 방식 — 운영 코드에 실 데이터를 주입)
+
+── [C] 앱 공통 경로가 넓어진 행을 소비하는가 — **통과**
+    운영 함수 _cmn_fetch_tgt_col_meta(오라클, CDC_ALL_HIST) 직접 호출:
+      컬럼 14개 정상 반환, 그중 12개에 char_used/data_length 실림, 언패킹 붕괴 없음
+      예: CD_LOAD_NO type=varchar length=50 char_used=B data_length=50
+    수정 전 동일 호출: 14개 반환, char_used 실린 컬럼 0개 (기존 동작 보존 확인)
+    ※ 이 검증의 첫 시도는 asis 테이블명을 tobe 에 조회해 0행이 나왔다(스크립트 결함).
+      tobe 실재 테이블로 고쳐 재측정한 값이 위 결과다 — 0행 상태로 '통과'라 쓰지 않았다.
+
+── [D] 판정 변화 — 위 ■2 참조
+
+
+================================================================================
+■ 4. 테스트 결과
+================================================================================
+
+── 4-1. 신규 자체 테스트 : tests/test_varchar2_byte_char_capacity.py — **32건 전부 통과**
+    수용량 환산(문자/바이트 의미, 미상 5케이스), 신규 탐지 4케이스,
+    무회귀 경계 8케이스, 어댑터 쿼리 계약 6케이스
+
+── 4-2. CLAUDE.md 지정 회귀 테스트 — **통과**
+    python samples/test_virtual_cases.py  → 8/8 통과
+    python samples/test_complex_cases.py  → 5/5 통과
+
+── 4-3. 관련 서브셋 (main 트리) — **184 passed, 5 skipped**
+    test_varchar2_byte_char_capacity / test_candidate_scoring_runner /
+    test_candidate_context_adapter / test_schema_qualified_target_lookup /
+    test_candidate_scoring_real_provider_dry_run
+
+── 4-4. baseline 대조 (핵심) — **내 변경으로 새로 깨진 테스트 0건**
+
+    귀속 판정을 위해 worktree 2개를 만들어 동일 선택자로 비교했다.
+    (git stash 미사용 — 메모 규칙 준수)
+      baseline_wt : HEAD(d707861) 그대로
+      mine_wt     : HEAD + **내 변경 파일만** 복사(동시 세션의 tabler_renderer.py 제외)
+
+    선택자: -k "adapter or oracle or column_meta or db_query or candidate or csr or
+                metadata or dialect"  (-p no:randomly, 순서 의존 배제)
+
+      baseline_wt : 47 failed, 2146 passed, 25 skipped, 33 errors  (527~550초)
+      mine_wt     : 47 failed, 2152 passed, 25 skipped, 33 errors  (520초)
+                    passed +6 = 내 신규 테스트 중 선택자에 걸린 6건(나머지 26건은 deselected)
+
+    실패 집합 차분 결과:
+      · 내 변경으로 새로 깨진 것 (mine − baseline) : **0건**
+      · 내 변경으로 고쳐진 것   (baseline − mine)  : 0건
+      → 실패 47건 + 에러 33건의 **집합이 완전히 동일**하다. 전부 사전 존재 실패다.
+
+    에러 33건의 성격: worktree 에 gitignore 대상 산출물(db_presets_*.json, 대시보드 HTML 등)이
+    없어서 나는 환경 결함이다. 코드 결함이 아니며 baseline/mine 양쪽에서 동일하게 발생한다.
+    (실제로 mine_wt 첫 실행은 프리셋 부재로 수집 단계에서 2건 오류가 났고, 프리셋을 복사한
+     뒤 재측정한 값이 위 수치다 — worktree 혼동으로 오판하지 않기 위해 기록해 둔다.)
+
+── 4-5. 사전 존재 실패 테스트 전체 목록 (47건 — 내 변경과 무관, baseline 동일)
+
+  test_analyze_adapter_routing_shadow_compare.py::test_http_200_via_testclient
+  test_analyze_adapter_routing_shadow_compare.py::test_independent_from_shadow_flag
+  test_analyze_adapter_routing_shadow_compare.py::test_routing_on_equals_off
+  test_batch_flow2_candidate_core_parity.py::test_coalesce_cast_flow2_core_parity
+  test_batch_flow2_e2e_smoke.py::test_e2e_generate_candidates_then_snapshots
+  test_batch_flow2_e2e_smoke.py::test_plan_modes_share_same_selected_candidates
+  test_batch_profile_candidate_parity.py::test_calc_profile_present_parity
+  test_candidate_contract.py::test_live_payment_contract_clean_and_defaults_preserved
+  test_candidate_contract.py::test_live_product_selectable_not_auto_selected
+  test_candidate_decision_evidence.py::test_evidence_role_split_strings
+  test_candidate_display_policy.py::test_04_group_by_default
+  test_candidate_display_policy.py::test_05_sum_default
+  test_candidate_display_policy.py::test_06_net_amt
+  test_candidate_draft_selection.py::test_candidate_notice_sticky_fix_uses_common_offset
+  test_candidate_draft_selection.py::test_candidate_selection_bar_present_and_populated
+  test_candidate_draft_selection.py::test_checkbox_change_keeps_table_and_plan_marks_draft
+  test_candidate_draft_selection.py::test_restore_to_applied_clears_draft_notice
+  test_candidate_draft_selection.py::test_uncheck_all_does_not_switch_to_count_only_before_apply
+  test_candidate_evidence_display_policy.py::test_net_amt_vs_unit_price_distinct
+  test_candidate_explainability.py::test_01_default_has_primary
+  test_candidate_explainability.py::test_05_line_amt_computed
+  test_candidate_explainability.py::test_06_group_by_profile
+  test_candidate_explanation_display.py::test_candidate_score_separate_column
+  test_candidate_plan_matrix.py::test_null_vs_empty_selection_contract
+  test_candidate_plan_matrix.py::test_plan_matrix_one_click
+  test_candidate_role_policy_grid.py::test_global_limit_banner_and_count_same_input_no_lock
+  test_candidate_scoring_dashboard_static.py::TestDashboardFilesGenerated::test_round1_html_exists
+  test_candidate_scoring_dashboard_static.py::TestDashboardFilesGenerated::test_round1_html_not_empty
+  test_candidate_scoring_dashboard_static.py::TestDashboardFilesGenerated::test_round2_html_exists
+  test_candidate_scoring_dashboard_static.py::TestDashboardFilesGenerated::test_round2_html_not_empty
+  test_candidate_scoring_dashboard_static.py::TestFallbackDisplay::test_round1_html_contains_fallback_badge
+  test_candidate_scoring_dashboard_static.py::TestMaxNDisplay::test_max3_over_text_in_script
+  test_csr_apply_selection.py::TestRunGeneratePayloadUnchanged::test_checkboxes_still_source_of_selection
+  test_date_candidate_ui_cleanup.py::test_date_cap_guard_and_hold
+  test_single_validation_candidate_audit.py::test_audit_fixture_cases_all_pass
+  test_single_validation_candidate_audit.py::test_fallback_promote_golden
+  test_single_validation_final_flow_check.py::test_analyze_candidates_business_first_and_source_expression
+  test_tabulator_vendor.py::test_candidate_summary_grid_removed_and_pairing
+  test_task11_g.py::TestAdapterUsage::test_TC_PIPELINE_04_analyze_route_uses_adapter
+  test_task11_g.py::TestCandidateEngineEvidence::test_TC_PIPELINE_09_lineage_sum_evidence
+  test_task11_i.py::TestBatchCandidateMetaPath::test_02_no_metadata_warning_uses_sql_only_message
+  test_task11_r3.py::TC_R3_09_11_CandidateIntegrity::test_10_selected_not_affected_by_source_profile_skip
+  test_task_single_candidate_evidence_preview.py::test_additional_preview_dedup_logic_present
+  test_task_single_candidate_evidence_preview.py::test_additional_preview_hidden_when_empty
+  test_task_single_candidate_evidence_preview.py::test_additional_preview_only_individual_screen
+  test_task_single_candidate_evidence_preview.py::test_cap3_unchanged
+  test_upload_quality_check.py::TestPhaseDAutoConfirmAndGate::test_error_blocks_confirm_and_metadata
+
+  (추가로 별개 확인: test_diagnosis_phase3b.py 2건 + test_d9_4_top_n_single_source.py 1건도
+   baseline 에서 동일하게 실패한다 — 사전 존재)
+
+
+================================================================================
+■ 5. 지침 3항 — PG/MySQL/MSSQL '표시 길이 ≠ 실제 저장 용량' 검토 (설계 메모, 미구현)
+================================================================================
+
+지침대로 **오라클만 구현했고 타 방언은 코드를 건드리지 않았다.** 검토 결과를 남긴다.
+
+── 5-1. PostgreSQL — **동일 문제 없음** (우선순위 낮음)
+    varchar(n)/char(n) 의 n 은 **항상 문자 수**이며 byte 의미 선언이 존재하지 않는다.
+    서버 인코딩은 저장 바이트만 바꾸고 선언 문자 수용량을 바꾸지 않으므로,
+    현재 어댑터가 읽는 information_schema.character_maximum_length 는 그대로 비교 가능하다.
+    단, 좁은 예외 1건: **server_encoding=SQL_ASCII** 는 바이트를 검증 없이 문자로 취급해
+    한글 1자가 3문자로 계산된다 → 사실상 byte 의미와 같아진다. 실 이관에서 SQL_ASCII 를
+    쓰는 원본을 만나면 오라클과 같은 조용한 축소가 발생할 수 있다.
+    구현 시 필요한 값: SHOW server_encoding (또는 pg_database.encoding). 조회 경로 신설 필요.
+
+── 5-2. MySQL/MariaDB — **문자 수용량 문제는 없으나 다른 축의 위험 있음** (우선순위 중)
+    VARCHAR(n) 의 n 은 4.1 이후 **문자 수**라 캐릭터셋이 넓어져도 문자 수용량은 줄지 않는다.
+    대신 바이트 기준 제약이 별도로 존재한다:
+      · 행 최대 크기 65,535 바이트, 인덱스 키 접두사 제한(767/3072 바이트)
+      · latin1(1B) → utf8mb4(4B) 전환 시 varchar(255)=1,020 바이트가 되어 인덱스/행 한계를
+        넘을 수 있다 → **조용한 절단이 아니라 DDL/INSERT 실패**로 드러난다(성격이 다르다)
+    유리한 점: information_schema.columns 가 character_maximum_length(문자)와
+    **character_octet_length(바이트)를 모두 제공**하므로 추가 카탈로그 신설 없이 판정 가능하다.
+    주의: MySQL 은 캐릭터셋이 **컬럼/테이블 단위**(columns.character_set_name)라, 오라클처럼
+    DB 단위 1회 조회로 끝나지 않는다 — 구현 시 컬럼별 캐릭터셋을 함께 읽어야 한다.
+
+── 5-3. MSSQL — **오라클과 가장 유사한 실제 위험** (우선순위 높음 — 다음 대응 권장)
+    VARCHAR(n) = **n 바이트**, NVARCHAR(n) = **n 문자**(내부 2바이트). 그런데
+    information_schema.columns.character_maximum_length 는 둘 다 n 을 돌려주므로
+    **VARCHAR(50) 과 NVARCHAR(50) 이 똑같이 '50' 으로 보인다** — 오라클 CHAR_USED 미구분과 동일 구도.
+    SQL Server 2019+ 의 UTF-8 collation(_UTF8) 을 쓰면 VARCHAR(50) 이 한글 16자로 줄어
+    오라클 사례와 완전히 같아진다.
+    구현 시 필요한 값: character_octet_length + collation_name(→ 코드페이지별 바이트 수).
+    **단, 현재 MSSQLAdapter 는 build_tgt_column_meta_query / build_column_meta_query 를
+    아예 구현하지 않아(base 의 None 반환) 이 판정 경로에 도달조차 하지 않는다.**
+    따라서 MSSQL 대응은 '수용량 비교 추가'가 아니라 '컬럼 메타 조회 구현'이 선행 과제다.
+
+── 5-4. 공통 구조 메모
+    이번에 넣은 ColumnMeta.char_used/data_length/charset 3필드와 _effective_char_capacity 는
+    방언 중립이다. 타 방언은 (a) 어댑터가 char_used 상당값('B'/'C')과 바이트 길이를 채우고
+    (b) 캐릭터셋 조회를 build_db_charset_query 로 제공하면 **비교 로직 수정 없이** 동작한다.
+    MySQL 처럼 컬럼 단위 캐릭터셋인 방언은 charset 을 컬럼별로 채우면 되므로 필드 위치도 맞다.
+
+
+================================================================================
+■ 6. 비판적 검토 — 문제점·위험·미해결 (CLAUDE.md 비판적 검토 의무)
+================================================================================
+
+── 6-1. 이번 수정으로 새로 생긴 위험
+
+  (1) **거짓 경고 가능성** — 수용량 계산은 '한글로 꽉 찬 최악'을 가정한다. 실제 데이터가
+      영문/숫자 위주면 50 BYTE 로도 50자가 들어가므로 경고가 과할 수 있다.
+      완화: risk_gate_blocked=False 로 두어 **검증을 막지 않고 경고만** 한다.
+      근본 해결책(미구현): 실 데이터의 MAX(LENGTHB(col)) 를 함께 보면 정밀해진다.
+      현재는 카탈로그만 보므로 데이터 실측은 하지 않는다.
+
+  (2) **보충문자 낙관** — AL32UTF8 은 이모지/희귀한자에 4바이트를 쓰므로 3바이트 가정이
+      낙관적이다. 그런 데이터가 있으면 여전히 과소 경고한다.
+
+  (3) **판정 어휘 재사용의 부작용** — PRECISION_LOSS_RISK 를 재사용했으므로, 이 status 를
+      '숫자 정밀도'로만 이해하는 기존 UI 문구/집계에서는 의미가 약간 어긋난다. UI 라벨은
+      "숫자 정밀도 차이로 값 손실 가능성" 이라 문자 케이스에 정확하지 않다.
+      risk_flag CHAR_CAPACITY_SHRINK_RISK 에 정확한 설명을 붙여 보완했으나,
+      status 라벨 자체는 손대지 않았다(영향 범위 확대 회피).
+
+── 6-2. 이번 수정이 **해결하지 않은** 것 (범위 밖 — 의도적)
+
+  (4) **선언 길이 축소인데 컬럼명이 같으면 여전히 못 잡는다.** 50→30 같은 명백한 축소도
+      col_renamed=False 면 검사되지 않는다(진단서 §4-3 부수 관찰). 이번 지침 범위가 아니라
+      손대지 않았고, 그 경계를 단위 테스트로 고정해 두었다
+      (test_declared_length_shrink_same_name_remains_pre_existing_gap).
+      → 별도 지침 권장. 지금 함께 고치면 판정 변화 범위가 크게 넓어진다.
+
+  (5) **캐릭터셋을 실제로 채워 주는 provider 배선이 없다 — 현재 운영 경로에서는 새 비교가
+      동작하지 않는다.** 이것이 가장 중요한 잔여 사항이다. 확인 결과:
+        · 운영 경로 /csr-preview 는 routes/csr_preview_route.py → services/analyze_to_csr_adapter.py
+          → run_scoring_from_contexts 인데, analyze_to_csr_adapter 가
+          `source_metadata=None, target_metadata=None` 을 **고정으로 넣는다**(NullProvider 효과).
+          따라서 _evaluate_compatibility 는 tgt_meta=None 으로 즉시
+          UNKNOWN_COMPATIBILITY 를 반환하고 길이/수용량 비교에 **도달하지 않는다**.
+          이는 이번 수정 이전에도 마찬가지였다(기존 길이 비교도 같은 이유로 미도달).
+        · 메타를 실제로 채우는 provider 는 services/postgres_metadata_provider.py 하나이며
+          **PG 전용이고 scripts/ 의 smoke test 에서만 쓰인다**(웹 앱 미배선).
+        · 즉 오라클용 metadata provider 자체가 없다. 캐릭터셋을 조회하는 메서드는 이번에
+          넣었으나 **그것을 호출해 ColumnMeta.charset 을 채우는 코드는 아직 없다.**
+      → 결론: 이번 수정은 판정 로직과 조회 능력, 값 전달 배선까지 완성했고 단위/실측으로
+        검증했으나, **운영 화면에서 이 경고가 뜨게 하려면 오라클 metadata provider 배선이
+        추가로 필요하다.** 이를 숨기지 않고 명시한다. 다음 지침 후보다.
+      (참고: 이 때문에 ■2 의 실측은 provider 를 우회해 실 카탈로그 값을 직접
+       ColumnMeta 로 만들어 운영 판정 함수에 투입하는 방식으로 수행했다.)
+
+  (6) 캐릭터셋 미상이면 조용히 검사를 건너뛴다 — '판별불가=안전' 가정이 하나 더 늘었다.
+      경고를 날조하지 않기 위한 선택이지만, 미상 사실이 화면에 표시되지는 않는다.
+
+── 6-3. heuristic / scoring / explainability 영향
+    heuristic 하드코딩: 캐릭터셋→바이트 표 12종이 늘었다. 다만 이는 임의 규칙이 아니라
+      캐릭터셋 표준의 사실값이며, 미등록 값은 조용히 건너뛰므로 오작동하지 않는다.
+    scoring: 점수 계산식은 건드리지 않았다. compatibility_status 경유 간접 영향만 있다
+      (PRECISION_LOSS_RISK 는 기존에도 SUM SELECTED_DEFAULT 를 막지 않는 등급이다).
+    explainability: 신규 플래그에 한글 설명을 등록해 근거가 화면에 남는다.
+      실효 수용량 수치(25자→16자)는 설명 문구에 예시로만 들어가고 **컬럼별 실제 계산값은
+      저장/표시되지 않는다** — 개선 여지로 남긴다.
+    보안: 비밀번호는 코드·로그·보고서 어디에도 출력하지 않았다. 신규 조회는 전부 read-only.
+
+
+================================================================================
+■ 7. 병행 확인 (지침 요구)
+================================================================================
+
+services/db_adapters/oracle.py 가 ORACLE-CONNECTION-NLS-NUMERIC-SESSION-PIN-FIX 와 겹친다는
+지적에 따라 시작 전 git status / git log 로 확인했다.
+
+  · 해당 지침은 **이미 완료·커밋되어 있었다** — d707861
+    "fix(oracle): 연결 시 세션 NLS_NUMERIC_CHARACTERS '.,' 고정"
+  · 작업 시작 시 워킹트리는 clean(untracked 스크립트 1건 제외)이었고,
+    oracle.py 에 미커밋 변경이 없었다 → **동시 진행 아님, 충돌 없음.**
+  · 함수 단위로도 분리된다: 그 지침은 connect()/_pin_session_nls_numeric,
+    이번 지침은 build_*_column_meta_query / build_db_charset_query. **동일 함수 미접촉.**
+
+── 7-1. 다른 동시 세션 발견 (중요 — 커밋 위생)
+    작업 중 워킹트리에 **내가 만들지 않은 변경**이 나타났다:
+      ui/tabler_renderer.py (+118/-9), tests/test_diagnosis_ui_workflow.py,
+      tests/test_reimport_drilldown_notice_dedup_and_tab_expand.py,
+      scripts/dev_e2e/scatter_mismatch_perf_*.py 등
+    내용은 REIMPORT-DRILLDOWN-TAB-EXPAND-STATE-PERSIST 로, **다른 세션이 동시 작업 중**이다.
+    → 이 파일들을 **커밋에 포함하지 않았다.** git add 로 내 9개 파일만 수술적으로 지정해
+      커밋했고(8dd4f95), 커밋 후 git status 로 상대 파일이 unstaged 로 보존됨을 확인했다.
+    → 또한 main 트리 전체 테스트 수치는 이 동시 변경에 오염되므로, 무회귀 판정은
+      main 트리가 아니라 **worktree 2개 대조(■4-4)** 로 수행했다.
+
+
+================================================================================
+■ 8. 변경 파일 목록 / git
+================================================================================
+
+커밋: 8dd4f95  fix(oracle): VARCHAR2 byte/char 의미 구분 + 실효 문자 수용량 비교
+              (VARCHAR2-BYTE-CHAR-CAPACITY-COMPARISON-FIX)
+부모: d707861
+
+ scripts/dev_e2e/varchar2_byte_char_capacity_comparison_verify.py | 282 ++++ (신규)
+ tests/test_varchar2_byte_char_capacity.py                        | 239 ++++ (신규)
+ services/candidate_scoring_runner.py                             | 100 ++++
+ services/db_query_service.py                                     |  49 ++-
+ services/db_adapters/oracle.py                                   |  37 ++-
+ services/db_adapters/base.py                                     |  19 +-
+ services/candidate_context_adapter.py                            |   6 +
+ services/candidate_metadata_provider.py                          |   6 +
+ ui/csr_display_helpers.py                                        |   5 +
+ 9 files changed, 733 insertions(+), 10 deletions(-)
+
+커밋 제외(동시 세션 소유, 의도적 보존): ui/tabler_renderer.py,
+ tests/test_diagnosis_ui_workflow.py, tests/test_reimport_drilldown_notice_dedup_and_tab_expand.py,
+ scripts/dev_e2e/reimport_drilldown_notice_dedup_and_tab_expand_verify.py,
+ scripts/dev_e2e/scatter_mismatch_perf_*.py
+코드 저장소 push: 하지 않았다(규칙에 따라 verify 저장소만 push).
+
+
+실검증 상태: 실 DB 실측 완료 — 내부망 오라클 asis(192.168.0.151:1523) / tobe(:1524) xepdb1
+NXDNP 스키마에 실제 접속해 카탈로그를 조회했다. 신규/변경 쿼리가 오류 없이 실행되어 컬럼 폭
+5→7 / 4→6 으로 늘고 CHAR_USED='B' 와 DATA_LENGTH 실값을 반환함을 확인했으며(문자형 asis 5컬럼
+/ tobe 12컬럼 전부 'B'), NLS_CHARACTERSET 은 양측 AL32UTF8 로 실측했다. 운영 함수
+_cmn_fetch_tgt_col_meta 로 14컬럼을 정상 소비(언패킹 붕괴 없음)함도 확인했다. 판정 변화는
+수정 전 코드(baseline worktree)와 수정 후 코드에서 같은 스크립트를 실행해 대조했고, 동일
+캐릭터셋 12건 COMPATIBLE 불변 / 원본 CP949 가정 시 9건 전환을 얻었다. 쓰기 작업 0건, 비밀번호
+미출력. **단, 현재 테스트 환경은 asis/tobe 가 모두 AL32UTF8 이라 캐릭터셋 상이 상황을 실제
+DB 로 재현할 수 없어, 원본 캐릭터셋만 KO16MSWIN949 로 치환해 실 컬럼 shape 위에서 측정했다
+(진단서 §3-3 과 동일한 주입 방식). 또한 운영 /csr-preview 경로는 metadata=None 고정이라
+이 경고가 화면에 뜨려면 오라클 metadata provider 배선이 추가로 필요하다 — ■6-2 (5) 참조.**
+
+✅ 작업 완료 - VARCHAR2-BYTE-CHAR-CAPACITY-COMPARISON-FIX - 오라클 컬럼 메타에 CHAR_USED/DATA_LENGTH 를 추가 조회하고 캐릭터셋을 반영한 '실효 문자 수용량' 비교를 넣어, VARCHAR2(50 BYTE) 원본 CP949 → 목적지 AL32UTF8 이관에서 한글 25자→16자로 줄어드는데도 COMPATIBLE 로 통과하던 조용한 절단 위험을 위험 판정으로 전환했다(실측: 동일 캐릭터셋 12건 판정 불변, CP949 원본 가정 시 12건 중 9건 전환)
