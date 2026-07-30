@@ -1,0 +1,70 @@
+diff --git a/ui/tabler_renderer.py b/ui/tabler_renderer.py
+index a9f832b..2c7e5f4 100644
+--- a/ui/tabler_renderer.py
++++ b/ui/tabler_renderer.py
+@@ -24545,19 +24549,58 @@ async function mvCountGateSidePreview(side) {
+     + ' 상위 ' + (d.preview_limit || 10) + '건 — 전체 레코드는 자동 저장하지 않습니다)'
+     + '<div style="overflow-x:auto"><table class="mv-diag-meta" style="margin-top:4px"><thead>' + head + '</thead><tbody>' + rows + '</tbody></table></div></div>';
+ }
++/* COUNT-GATE-EXPORT-UI-DIALECT-GATE-CONSUME-FIX:
++   서버(/count-gate/one-side-export)는 미지원 방언(mysql/mssql)·입력 누락·내부 예외를 스트리밍
++   시작 전에 JSON({ok:false, reason_code, error})으로 차단한다. 그런데 여기서 응답을 무조건
++   resp.blob() 으로 받아 .csv 로 저장하고 있어서, 사용자는 오류 JSON 이 담긴 파일을 정상 CSV 인 줄
++   알고 내려받았다(화면에는 아무 오류도 뜨지 않음 — 서버 사전게이트가 UI 에서 소비되지 않는 반쪽 배선).
++   응답 Content-Type 을 먼저 보고 JSON 이면 오류로 표시한다. 오류 표시는 새 컴포넌트를 만들지 않고
++   같은 영역의 기존 패턴(#mvRangeDiagOut + 붉은 글씨 한 줄 — mvCountGateSidePreview 와 동일)을 재사용한다. */
+ function mvCountGateSideExport(side) {
+   if (!window.confirm('비어 있지 않은 쪽 전체 레코드를 CSV 로 스트리밍 생성합니다(요청 시에만 — 서버 저장 없음).\\n대상 행 수가 많으면 시간이 걸릴 수 있습니다. 계속하시겠습니까?')) return;
++  /* 오류 출력 영역 — 대표 레코드/범위 진단과 같은 자리를 쓴다(없으면 생성). */
++  var host = document.getElementById('countGateBox');
++  var out = document.getElementById('mvRangeDiagOut');
++  if (!out && host) { out = document.createElement('div'); out.id = 'mvRangeDiagOut'; host.appendChild(out); }
++  var _msg = function(html){
++    if (out) out.innerHTML = html;
++    else window.alert(String(html).replace(/<[^>]*>/g, ''));
++  };
++  var _fail = function(text){
++    _msg('<div style="color:#b4472a;font-size:.78rem">' + esc(text) + '</div>');
++  };
+   var p0 = {};
+   try { p0 = (typeof _mvScopePayload === 'function') ? _mvScopePayload({}) : {}; } catch(e){}
+   var body = Object.assign(_mvCountGateSideSqls(), { src_conn: p0.src_conn || {}, tgt_conn: p0.tgt_conn || {}, side: side });
++  _msg('<div style="font-size:.78rem;color:#64748b">전체 CSV 생성 요청 중…</div>');
+   fetch('/count-gate/one-side-export', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) })
+-    .then(function(resp){ return resp.blob(); })
+-    .then(function(blob){
+-      var a = document.createElement('a');
+-      a.href = URL.createObjectURL(blob);
+-      a.download = 'one_side_' + side + '_records.csv';
+-      a.click();
+-    });
++    .then(function(resp){
++      var ct = (resp.headers.get('Content-Type') || '').toLowerCase();
++      /* JSON 이면 CSV 가 아니라 서버 차단/오류다 — 파일로 저장하지 않고 화면에 표시한다.
++         (FastAPI 는 dict 반환/422 검증오류를 모두 application/json 으로 내려준다) */
++      if (ct.indexOf('json') >= 0) {
++        return resp.json().then(function(d){
++          d = d || {};
++          var reason = d.reason_code ? ' [' + d.reason_code + ']' : '';
++          var text = d.error || d.detail || ('요청이 거부되었습니다(HTTP ' + resp.status + ').');
++          _fail('전체 CSV 생성 실패' + reason + ' — ' + text);
++        }, function(){
++          _fail('전체 CSV 생성 실패 — 서버 응답을 해석하지 못했습니다(HTTP ' + resp.status + ').');
++        });
++      }
++      if (!resp.ok) { _fail('전체 CSV 생성 실패 — 서버 오류(HTTP ' + resp.status + ').'); return; }
++      return resp.blob().then(function(blob){
++        var url = URL.createObjectURL(blob);
++        var a = document.createElement('a');
++        a.href = url;
++        a.download = 'one_side_' + side + '_records.csv';
++        a.click();
++        setTimeout(function(){ URL.revokeObjectURL(url); }, 30000);
++        _msg('<div style="font-size:.78rem;color:#1f7a3d">전체 CSV 다운로드를 시작했습니다'
++          + '(one_side_' + esc(side) + '_records.csv).</div>');
++      });
++    })
++    .catch(function(e){ _fail('전체 CSV 생성 중 통신 오류: ' + e); });
+ }
+ window.mvRunRangeDiagnosis = mvRunRangeDiagnosis;
+ window.mvCountGateSidePreview = mvCountGateSidePreview;

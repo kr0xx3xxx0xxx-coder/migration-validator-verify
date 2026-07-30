@@ -1,0 +1,188 @@
+작업명 : COUNT-GATE-EXPORT-UI-DIALECT-GATE-CONSUME-FIX
+✅ 작업 완료 - COUNT-GATE-EXPORT-UI-DIALECT-GATE-CONSUME-FIX - 전체 CSV export 응답을 Content-Type 기준으로 분기해, 서버가 이미 내보내던 미지원 방언 차단 JSON을 오류 파일로 저장하지 않고 화면 오류로 표시하도록 배선 완결
+
+작성일 : 2026-07-30
+대상 파일 : ui/tabler_renderer.py (1개 — 지침 범위 그대로)
+
+
+────────────────────────────────────────────────────────────────────────
+1. 문제 정의
+────────────────────────────────────────────────────────────────────────
+routes/count_gate_route.py:234 는 선행 작업(COUNT-GATE-ROUTE-DIALECT-AND-ALIAS-FIX)에서
+이미 미지원 방언(mysql/mssql)을 스트리밍 시작 전에 차단하도록 수정돼 있었다.
+
+    if db_type not in EXPORT_SUPPORTED_DB_TYPES:      # ("postgresql", "oracle")
+        return {"ok": False, "reason_code": "EXPORT_DIALECT_UNSUPPORTED", "error": ...}
+
+그런데 UI 쪽 mvCountGateSideExport(ui/tabler_renderer.py) 는 응답을 무조건
+
+    .then(function(resp){ return resp.blob(); })
+
+로 받아 one_side_<side>_records.csv 로 저장했다. 그 결과:
+
+  · 서버가 명시적으로 "차단했다"고 알려준 JSON 이 CSV 확장자를 달고 사용자 PC 에 저장된다.
+  · 화면에는 아무 오류도 뜨지 않는다 — 사용자는 정상 CSV 를 받았다고 오인한다.
+  · 즉 서버 사전게이트가 UI 에서 소비되지 않는 "반쪽 배선" 상태였다.
+
+같은 경로는 미지원 방언 외에도 입력 누락("side/SQL/접속 필요")과 내부 예외("CSV 생성 중 오류")를
+동일하게 JSON 으로 반환하므로, 세 종류의 서버 차단이 모두 조용히 파일로 저장되고 있었다.
+
+
+────────────────────────────────────────────────────────────────────────
+2. 수정 내용 (ui/tabler_renderer.py — mvCountGateSideExport)
+────────────────────────────────────────────────────────────────────────
+응답 Content-Type 을 먼저 확인하는 분기를 넣었다.
+
+  (1) Content-Type 에 json 이 포함 → CSV 가 아니라 서버 차단/오류다.
+      resp.json() 으로 파싱해 reason_code / error 를 화면에 표시하고, 파일은 저장하지 않는다.
+      · 표시 문구: "전체 CSV 생성 실패 [<reason_code>] — <error>"
+      · JSON 파싱마저 실패하면 HTTP 상태코드를 붙여 표시(무한 침묵 방지).
+      · FastAPI 는 dict 반환과 422 검증오류를 모두 application/json 으로 내려주므로 한 분기로 덮인다.
+  (2) JSON 이 아니면서 !resp.ok → "서버 오류(HTTP nnn)" 로 표시.
+  (3) 그 외(정상 CSV 스트림) → 기존과 동일하게 blob 다운로드.
+      부가로 성공 안내 한 줄과 URL.revokeObjectURL(30초 뒤) 만 추가했다.
+  (4) fetch 자체 실패(네트워크) → catch 에서 통신 오류로 표시.
+
+오류 표시는 새 UI 컴포넌트를 만들지 않고, 같은 영역에서 이미 쓰이던 패턴을 그대로 재사용했다:
+#mvRangeDiagOut 컨테이너 + 붉은 글씨 한 줄(color:#b4472a; font-size:.78rem) —
+mvCountGateSidePreview / mvRunRangeDiagnosis 와 완전히 동일한 방식이다.
+(#mvRangeDiagOut 이 없으면 기존 두 함수와 똑같이 countGateBox 아래에 생성하고,
+ countGateBox 조차 없는 예외 상황에서만 alert 로 폴백한다.)
+
+범위 준수
+  · 지침 범위 밖인 range-diagnosis / one-side-preview 버튼은 손대지 않았다.
+  · 선택 사항이던 "미지원 방언일 때 버튼 사전 비활성화"는 의도적으로 넣지 않았다.
+    EXPORT_SUPPORTED_DB_TYPES 를 JS 쪽에 복제하는 순간 서버-클라이언트 두 곳에 지원 방언
+    목록이 생겨 CLAUDE.md 가 금지하는 heuristic 하드코딩 증가/이중 진실 문제가 된다.
+    서버 응답이 단일 진실로 남는 "응답 기반 사후 처리"만으로 지침의 필수 범위를 충족한다.
+    (지침에도 이 방식만으로 완료 인정으로 명시돼 있다.)
+
+
+────────────────────────────────────────────────────────────────────────
+3. 실측 조건
+────────────────────────────────────────────────────────────────────────
+harness : scripts/dev_e2e/count_gate_export_dialect_gate_ui_verify.py (신규)
+          scripts/dev_e2e/count_gate_export_dialect_gate_evidence_panel.py (신규, 증적 패널)
+방식    : 실 서버(uvicorn, 실제 web_server:app) + 실 브라우저(Playwright Chromium,
+          accept_downloads=True) 로 실제 버튼을 클릭.
+          COUNT 게이트는 실제 렌더 함수 _mvCountGateHtml({count_status:'TARGET_EMPTY', ...}) 로
+          그렸고, 그 안의 실제 [전체 CSV 생성(요청 시)] 버튼을 실제로 클릭했다.
+          스텁은 _analyzeData(대상 테이블)와 _mvScopePayload(접속정보), confirm 자동승인 3개뿐 —
+          클릭 → fetch → 서버 왕복 → 응답 처리 → 다운로드/표시는 전부 실제 코드다.
+BEFORE  : git worktree(HEAD=66e4a30) 를 별도 포트로 기동해 수정 전 코드를 그대로 실행
+          (git stash 미사용 — worktree 방식).
+AFTER   : 수정된 워킹트리를 별도 포트로 기동.
+DB      : 미지원 방언(mysql/mssql) 차단은 접속 이전 단계라 DB 접속이 발생하지 않는다(더미 접속정보).
+          정상 방언 회귀만 실 DB 사용 — Oracle_asis(192.168.0.151:1523/xepdb1, NXDNP.TB_DEPT 10행).
+운영서버 : 검증 시작 전 활성 job 0건(/jobs/active counts.total=0) 확인 후 재기동.
+          PID 18416, 시작 16:50:47 > ui/tabler_renderer.py 최종수정 16:29:11 → 최신 코드 서빙 확인
+          (렌더 HTML 에 'COUNT-GATE-EXPORT-UI-DIALECT-GATE-CONSUME-FIX' 및 "ct.indexOf('json')" 포함).
+
+
+────────────────────────────────────────────────────────────────────────
+4. 실측 결과 (before / after)
+────────────────────────────────────────────────────────────────────────
+[MySQL — 미지원 방언]
+  BEFORE  화면 표시 : 없음 (아무 오류도 뜨지 않음)
+          다운로드  : one_side_src_records.csv (219 bytes)
+                      내용 → {"ok":false,"reason_code":"EXPORT_DIALECT_UNSUPPORTED","error":"전체 CSV
+                              스트리밍은 아직 postgresql, oracle 만 지원합니다(요청 DB 종류: mysql)…"}
+                      ← CSV 가 아니라 오류 JSON 이 .csv 로 저장됨 (문제 재현 성공)
+  AFTER   화면 표시 : "전체 CSV 생성 실패 [EXPORT_DIALECT_UNSUPPORTED] — 전체 CSV 스트리밍은 아직
+                       postgresql, oracle 만 지원합니다(요청 DB 종류: mysql). 대표 레코드 조회는
+                       사용할 수 있습니다."
+          다운로드  : 없음 (정상 차단)
+
+[MSSQL — 미지원 방언]
+  BEFORE  화면 표시 : 없음 / 다운로드 : one_side_src_records.csv (219 bytes, 오류 JSON)
+  AFTER   화면 표시 : "전체 CSV 생성 실패 [EXPORT_DIALECT_UNSUPPORTED] — …(요청 DB 종류: mssql)…"
+          다운로드  : 없음 (정상 차단)
+
+[Oracle — 정상 방언 회귀 확인 · 실 DB 접속]
+  BEFORE  다운로드 : one_side_src_records.csv 290 bytes
+                     sha256(앞 16) = bd98fc2a1e52f557
+  AFTER   다운로드 : one_side_src_records.csv 290 bytes
+                     sha256(앞 16) = bd98fc2a1e52f557   ← 바이트 단위 동일
+          내용 : DEPT_ID,DEPT_NAME / D00000000000000001,DEPT_1 … (NXDNP.TB_DEPT 10행)
+          화면 : "전체 CSV 다운로드를 시작했습니다(one_side_src_records.csv)." (신규 성공 안내)
+  → 정상 방언 export 경로는 결과 파일이 완전히 동일하다. 회귀 없음.
+
+스크린샷
+  00_before_after_summary.png      before/after 3개 시나리오 대조 요약(화면 표시 + 실제 다운로드 파일 내용)
+  before_mysql.png / after_mysql.png
+  before_mssql.png / after_mssql.png
+  before_oracle_regression.png / after_oracle_regression.png
+  _downloads_before/ , _downloads_after/   실제 다운로드된 파일 원본
+  result_before.json / result_after.json   실측 원자료
+
+
+────────────────────────────────────────────────────────────────────────
+5. 테스트 (서브셋 + baseline 대조)
+────────────────────────────────────────────────────────────────────────
+(A) count_gate / export 키워드 서브셋 + 렌더 JS 문법 가드 — 9개 파일
+    AFTER    : 2 failed, 118 passed (10.62s)
+    BASELINE : 2 failed, 118 passed (15.21s)   ← HEAD(66e4a30) worktree 에서 동일 실행
+    → 실패 집합 완전 동일
+
+(B) 렌더 페이지 JS 문법(node --check) 가드를 포함한 33개 파일 전체
+    AFTER    : 5 failed, 539 passed, 1 skipped (164.67s)
+    BASELINE : 5 failed, 539 passed, 1 skipped (183.45s)
+    → 실패 집합 완전 동일
+
+실패 테스트 전체 목록 (7건 — 전부 수정 전 baseline 에서도 동일하게 실패, 이번 변경과 무관)
+  1. tests/test_batch_wrapper_result_export.py::test_run_wrapper_uses_facade_and_persists
+  2. tests/test_count_gate.py::test_ui_gate_display_and_blocking
+       (원인: _mvExactDiffUpdateButton 정규식 매칭 실패 — 이번 변경 지점과 다른 함수)
+  3. tests/test_candidate_explanation_display.py::test_candidate_score_separate_column
+  4. tests/test_detail_compare_rerun_reuse_ux.py::test_dialog_wiring_view_restores_rerun_forces_new_run
+  5. tests/test_full_run_token.py::test_front_common_token_capture
+  6. tests/test_task12_h.py::test_12h_07b_execute_stats_propagates_token
+  7. tests/test_task9_5d.py::TestBatchListDescription::test_tc_batch_list_01_description_text
+
+JS 번들 붕괴 가드 : tests/test_rendered_js_syntax_guard.py 2 passed
+  (추가한 주석에 '*/' 문자열 없음, 백슬래시 미사용 — Python 문자열 이스케이프 영향 없음)
+
+
+────────────────────────────────────────────────────────────────────────
+6. 보안 점검
+────────────────────────────────────────────────────────────────────────
+증적 폴더 전체 + 신규 harness 2개 파일을 대상으로 실 DB(Oracle_asis) 평문 비밀번호
+포함 여부를 바이트 검색 → 노출 0건.
+harness 는 db_presets_src.json 에서 비밀번호를 읽어 접속에만 사용하고 출력/저장하지 않는다.
+
+
+────────────────────────────────────────────────────────────────────────
+7. git diff / 커밋
+────────────────────────────────────────────────────────────────────────
+코드 저장소 커밋 : 하지 않음 (의도적)
+  ui/tabler_renderer.py 에 이번 작업과 무관한 다른 동시 작업의 미커밋 변경
+  (ORACLE-PRESET-DEAD-ENCODING-FIELD-CLEANUP-FIX — @@ -14454,10 +14454,14 @@ 한 덩어리)이
+  이미 워킹트리에 올라와 있어, 파일 단위 커밋 시 남의 작업이 함께 휩쓸려 들어간다.
+  되돌리기 어려운 이력 오염을 피하기 위해 커밋하지 않고 diff 로 제출한다.
+  (git stash 는 금지 관례에 따라 사용하지 않음.)
+
+증적 patch 파일
+  git_diff_this_task.patch      이번 작업 hunk 만 (@@ -24545,19 +24549,58 @@ 1덩어리)
+  git_diff_full_worktree.patch  ui/tabler_renderer.py 워킹트리 전체 diff (무관 hunk 포함, 대조용)
+
+변경 요약 : ui/tabler_renderer.py  +43 / -6 (mvCountGateSideExport 1개 함수 + 설명 주석)
+기준 커밋 : 66e4a30
+
+
+────────────────────────────────────────────────────────────────────────
+8. 남은 사항 / 알려진 한계
+────────────────────────────────────────────────────────────────────────
+· 스트리밍이 이미 시작된 뒤(헤더 전송 후) 서버 제너레이터 내부에서 예외가 나면 여전히
+  Content-Type 이 text/csv 이므로 UI 는 정상 CSV 로 취급한다. 이는 서버 쪽 구조적 한계
+  (routes/count_gate_route.py 주석에도 명시)로 이번 지침 범위 밖이다.
+· 미지원 방언에서 export 버튼을 사전 비활성화하는 안은 2절 사유로 채택하지 않았다.
+· 지침 범위 밖인 range-diagnosis / one-side-preview 는 원래 resp.json() 으로 받고 있어
+  같은 결함이 없다(확인만 하고 미수정).
+
+
+실검증 상태 : 실제 서버 + 실제 브라우저 클릭으로 before/after 재현 완료. 미지원 방언(mysql·mssql)은
+              더미 접속정보로 접속 이전 차단 경로를 실측했고, 정상 방언 회귀는 실 DB(Oracle_asis,
+              NXDNP.TB_DEPT)에 실제 접속해 동일 바이트 CSV 수신을 확인했다. 실패 테스트 7건은
+              모두 HEAD baseline 에서 동일하게 실패하는 사전 존재 실패다.
+
+✅ 작업 완료 - COUNT-GATE-EXPORT-UI-DIALECT-GATE-CONSUME-FIX - 전체 CSV export 응답을 Content-Type 기준으로 분기해, 서버가 이미 내보내던 미지원 방언 차단 JSON을 오류 파일로 저장하지 않고 화면 오류로 표시하도록 배선 완결
