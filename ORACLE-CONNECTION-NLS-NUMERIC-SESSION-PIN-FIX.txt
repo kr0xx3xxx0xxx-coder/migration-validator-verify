@@ -1,0 +1,289 @@
+작업명 : ORACLE-CONNECTION-NLS-NUMERIC-SESSION-PIN-FIX
+✅ 작업 완료 - ORACLE-CONNECTION-NLS-NUMERIC-SESSION-PIN-FIX - 오라클 connect() 반환 직전 ALTER SESSION 으로 NLS_NUMERIC_CHARACTERS 를 '.,' 로 1회 고정. S14 의 타입 미상 균일 캐스트 5곳이 세션 로케일에 의존해 내던 거짓 불일치를 실 DB 로 재현→해소 확인, 다른 NLS 계열 무영향, 신규회귀 0건.
+
+────────────────────────────────────────────────────────────────────────
+1. 배경 / 채택 근거
+────────────────────────────────────────────────────────────────────────
+선행 NLS-SESSION-INDEPENDENT-NUMERIC-TOCHAR-FIX 는 타입이 숫자로 확정된 경로만
+3인자 TO_CHAR(x,'TM9','NLS_NUMERIC_CHARACTERS=''.,''') 로 식 자체에 로케일을 고정했다.
+그러나 타입 미상 균일 캐스트 TO_CHAR((x)) 5곳은 문자 컬럼에 nlsparam 을 붙이면 ORA-01722 가
+나므로 3인자 형태를 쓸 수 없었다(S14). 그 보고서(§5-R1)가 권장한 대안 — 연결 시점 세션 고정 —
+을 이번에 채택했다. 타입 무관하고 값 표현을 바꾸지 않으며 exact_diff 오라클 경로 전체를
+한 번에 덮는다.
+근거: NLS-SESSION-INDEPENDENT-NUMERIC-TOCHAR-FIX.txt(§5-R1),
+      HASH-BUCKET-ORACLE-PORT-DESIGN-FINALIZE.txt(신규3), BACKLOG.md S6/S14
+
+────────────────────────────────────────────────────────────────────────
+2. 병행 확인 (파일 겹침 — 시작 전 점검)
+────────────────────────────────────────────────────────────────────────
+VARCHAR2-BYTE-CHAR-CAPACITY-COMPARISON-FIX 와 services/db_adapters/oracle.py 가 겹침.
+시작 전 `git status --porcelain` = 완전 clean(출력 없음), `git worktree list` 8개 중
+migration-validator 코드 저장소의 다른 세션 worktree 는 모두 detached baseline 용이며
+services/db_adapters/oracle.py 를 잡고 있는 미커밋 변경 없음.
+→ 다른 세션이 이 파일을 붙잡고 있지 않음을 확인하고 이 작업만 진행했다.
+   (VARCHAR2-BYTE-CHAR-CAPACITY-COMPARISON-FIX 는 이 커밋 d707861 이후 진행하면 된다.
+    이번 변경은 connect()/모듈 상수만 건드렸고 컬럼메타 함수(build_column_meta_query /
+    build_tgt_column_meta_query)는 무접촉이라 충돌 지점이 겹치지 않는다.)
+
+────────────────────────────────────────────────────────────────────────
+3. 수정 내용 (services/db_adapters/oracle.py 만)
+────────────────────────────────────────────────────────────────────────
+(1) 모듈 상수 추가
+    _ORA_SESSION_NLS_NUMERIC_SQL = "ALTER SESSION SET NLS_NUMERIC_CHARACTERS = '.,'"
+    + 채택 근거·다른 NLS 무영향·territory 주의사항 한글 주석
+
+(2) OracleAdapter._pin_session_nls_numeric(conn) -> bool  (신규 메서드)
+    - 커서 열어 위 문장 1회 실행 후 커서 close(누수 방지)
+    - 실패해도 예외 전파 금지(같은 파일 apply_query_timeout 방어 규약과 동일).
+      단 조용히 넘기면 거짓 불일치 위험이 되돌아오므로 warning 로그를 남긴다
+      ("[ORACLE-NLS-PIN] ... 고정 실패"). 접속정보/비밀번호는 로그에 담지 않는다.
+    - 반환값 bool = 적용 성공 여부(테스트/진단용)
+
+(3) connect() 마지막 줄
+    before: return _ora.connect(user=..., password=..., dsn=dsn)
+    after : conn = _ora.connect(user=..., password=..., dsn=dsn)
+            self._pin_session_nls_numeric(conn)
+            return conn
+
+exact_diff/dialects/oracle.py 는 지시대로 **무접촉**(회귀 위험 최소화). 세션이 고정되므로
+기존 TO_CHAR((x)) 균일 캐스트가 그대로 안전해진다 — 코드 변경 불필요.
+
+────────────────────────────────────────────────────────────────────────
+4. [요구사항] 풀 재사용 판단 — "최초 1회" 채택 및 사유
+────────────────────────────────────────────────────────────────────────
+결론: **connect() 시점 1회만 실행**. 매 checkout 재실행은 불필요.
+
+사유 (코드 근거 + 실측 근거 둘 다):
+ (a) services/connection_pool.py 는 `_is_pg(key)` 로 **PostgreSQL 만** 풀링한다.
+     비-PG(Oracle/MySQL/MSSQL)는 checkout 마다 새 물리 연결을 만들고(return_conn 에서
+     즉시 close) 풀에 보관하지 않는다. 즉 오라클은 '커넥션 1개 = 물리 세션 1개' 이므로
+     connect() 1회 실행이 곧 모든 오라클 세션 커버다.
+     실측(BEFORE/AFTER 동일): pool_is_pg_for_oracle=false,
+       checkout 1회차 reused=false / 2회차 reused=false,
+       metrics = physical_open 2, reuse 0, returned 0, closed 2, idle_total 0
+     → 반납 자체가 일어나지 않고(returned 0) 전부 close(2) 되므로 재사용 세션이 없다.
+
+ (b) ALTER SESSION 은 세션 파라미터라 그 세션이 살아있는 동안 유지된다(실측 확인).
+       - 같은 커넥션에서 왕복 3회 후: ['.,', '.,', '.,']
+       - 고정 적용 후 실 테이블 쿼리 5회 반복 후: ['.,','.,','.,','.,','.,']
+       - 대조로 세션을 ',.' 로 바꾸면 그 세션 내내 ',.' 로 유지됨(설정이 휘발되지 않음 증명)
+
+ (c) request_connection_scope 의 요청 내 커넥션 재사용도 **같은 물리 세션**이라 재실행 불필요.
+     실측: 같은 key 로 _cmn_db_connect 2회 → same_proxy=True, nls_1st='.,', nls_2nd='.,',
+           TO_CHAR((12.5))='12.5'
+
+ (d) 향후 오라클 풀링을 켠다면 여기가 아니라 checkout 경로에 재적용을 걸어야 한다
+     (DRCP 세션 purity 도 함께 검토 필요) — 해당 취지를 메서드 docstring 에 명시해 두었다.
+
+────────────────────────────────────────────────────────────────────────
+5. [요구사항] 실측 검증 ① 세션 파라미터 실제 고정 확인
+────────────────────────────────────────────────────────────────────────
+대상: 내부망 오라클 asis(:1523) / tobe(:1524), 스키마 NXDNP, 드라이버 oracledb thin.
+      접속정보/비밀번호는 프리셋에서 로드하고 출력하지 않음.
+쿼리: SELECT value FROM nls_session_parameters WHERE parameter='NLS_NUMERIC_CHARACTERS'
+
+  구분      | asis      | tobe      | TO_CHAR((12.5))
+  ----------|-----------|-----------|-----------------
+  BEFORE    | '.,'      | '.,'      | '12.5'
+  AFTER     | '.,'      | '.,'      | '12.5'
+
+주의(중요): 이 두 인스턴스는 NLS_TERRITORY=AMERICA 라 세션 기본값이 **원래부터 '.,'** 다.
+따라서 위 표만으로는 "고정이 실제로 동작하는가" 를 구분할 수 없다(무영향은 증명되지만
+고정 자체는 증명 안 됨). → 아래 §6 에서 세션 기본값이 ',.' 인 인스턴스를 충실히 재현해
+결정적으로 검증했다.
+
+────────────────────────────────────────────────────────────────────────
+6. [요구사항] 실측 검증 ② S14 지점 거짓 불일치 재현 → 해소 (결정적)
+────────────────────────────────────────────────────────────────────────
+세션 변경이 어려운 게 아니라, 두 인스턴스가 이미 '.,' 라 차이가 안 드러나는 상황이었다.
+그래서 **드라이버 경계만 가로채** 어댑터의 고정 실행 '전' 시점에 세션을 ',.' 로 만들어
+"NLS_TERRITORY=KOREA/GERMANY 인스턴스" 를 충실히 재현했다(어댑터 코드는 무수정).
+
+검증 지점: S14 5곳 중
+  · SCOPE WHERE 동등비교 — agg_contribution.py:843 / exact_diff_route.py:204
+    `TO_CHAR((col)) = '<val>'`
+  · chunk compare 균일 캐스트 — dialects/oracle.py:584 `TO_CHAR(Q0.col)`
+
+[6-1] 실 테이블 데이터(NXDNP.MV_ORA_XDIFF_SRC, 소수 표현식 C_NUM/2)
+
+  항목                              | A. 고정 미적용(수정 전) | B. 고정 적용(수정 후)
+  ----------------------------------|-------------------------|----------------------
+  세션 NLS_NUMERIC_CHARACTERS       | ',.'                    | '.,'
+  캐스트 없는 진짜 행수 (=1.5)      | 1                       | 1
+  SCOPE WHERE TO_CHAR(...)='1.5'    | 0   ← 거짓 불일치       | 1   ← 해소
+  chunk 캐스트 샘플 5건             | 1,5 / 3 / 4,5 / 6 / 7,5 | 1.5 / 3 / 4.5 / 6 / 7.5
+  판정 false_mismatch               | true                    | false
+
+  → 실제로 존재하는 1건을 0건으로 오판하던 거짓 불일치가 고정 후 사라졌다.
+
+[6-2] DUAL 리터럴 대조 + 3인자 대조군(선행 수정이 여전히 유효한지)
+
+  항목                                    | ',.' 세션 | '.,' 고정 후
+  ----------------------------------------|-----------|-------------
+  TO_CHAR((12.5))  (균일 캐스트)          | '12,5'    | '12.5'
+  COUNT WHERE TO_CHAR((12.5))='12.5'      | 0         | 1
+  TO_CHAR((12.5),'TM9',nlsparam) (대조군) | '12.5'    | '12.5'
+  → 3인자 경로는 원래부터 세션 무관(선행 수정 정상), 균일 캐스트만 세션 의존이었음이 확인됨.
+
+[6-3] 문자 컬럼 안전성 (3인자였다면 ORA-01722 로 실패했을 지점)
+  고정 적용 세션에서 `TO_CHAR((C_VARCHAR2))` 실행 → 정상 10건 반환, ORA-01722 없음.
+  → 세션 고정 방식이 타입 무관하다는 점(이번 채택의 핵심 이점)을 실증.
+
+[6-4] 원본/목적 양측 대칭 (exact_diff raw_connect 경로)
+  양측 모두 기본값 ',.' 인스턴스로 가정하고 raw_connect(=OracleAdapter.connect 재사용) 연결:
+    asis: nls='.,', TO_CHAR((12.5))='12.5'
+    tobe: nls='.,', TO_CHAR((12.5))='12.5'   → symmetric=True
+  → 양측 canonical 문자열이 동일해져 교차 인스턴스 거짓 불일치가 구조적으로 제거됨.
+
+────────────────────────────────────────────────────────────────────────
+7. [요구사항] 다른 NLS 계열 영향 확인
+────────────────────────────────────────────────────────────────────────
+nls_session_parameters 전량(17개)을 BEFORE/AFTER 스냅샷으로 대조 — asis/tobe 양쪽 모두
+NLS_NUMERIC_CHARACTERS 외 **전 항목 무변동**:
+
+  NLS_CALENDAR=GREGORIAN, NLS_COMP=BINARY, NLS_CURRENCY=$, NLS_DATE_FORMAT=DD-MON-RR,
+  NLS_DATE_LANGUAGE=AMERICAN, NLS_DUAL_CURRENCY=$, NLS_ISO_CURRENCY=AMERICA,
+  NLS_LANGUAGE=AMERICAN, NLS_LENGTH_SEMANTICS=BYTE, NLS_NCHAR_CONV_EXCP=FALSE,
+  NLS_SORT=BINARY, NLS_TERRITORY=AMERICA, NLS_TIMESTAMP_FORMAT=DD-MON-RR HH.MI.SSXFF AM,
+  NLS_TIMESTAMP_TZ_FORMAT=..., NLS_TIME_FORMAT=..., NLS_TIME_TZ_FORMAT=...
+
+  · 날짜/타임스탬프 포맷: 무영향(어차피 코드가 TO_CHAR 명시 포맷을 쓴다).
+  · NLS_SORT/NLS_COMP: 무영향(BINARY 유지) — 오라클 정렬 붕괴 이슈와 무관.
+  · 단위 테스트로도 고정(test_pin_sql_is_dot_comma_and_numeric_only): 고정 문장에
+    NLS_DATE_FORMAT/NLS_TIMESTAMP_FORMAT/NLS_SORT/NLS_COMP/NLS_LANGUAGE/NLS_TERRITORY/
+    NLS_LENGTH_SEMANTICS 가 등장하지 않음을 검사.
+  · 주의로 남긴 사항: ALTER SESSION SET NLS_TERRITORY 를 나중에 실행하면 이 값이 함께
+    초기화되지만, 이 코드베이스는 territory 를 변경하지 않는다(연결 후 ALTER SESSION 은
+    이 문장이 유일). 주석에 명시.
+
+────────────────────────────────────────────────────────────────────────
+8. 신규 자체 테스트
+────────────────────────────────────────────────────────────────────────
+tests/test_oracle_connection_nls_numeric_pin.py (신규, fake 드라이버 — 실 DB 불요) 9건 통과:
+  1) test_connect_pins_nls_numeric_characters        연결 직후 고정 SQL 정확히 1회 실행
+  2) test_pin_sql_is_dot_comma_and_numeric_only      숫자 로케일만 규정(다른 NLS 미포함)
+  3) test_cursor_closed_after_pin                    고정용 커서 close(누수 방지)
+  4) test_pin_failure_does_not_break_connect         실패해도 연결 반환 + warning 기록
+  5) test_pin_returns_bool                           성공/실패 bool 반환
+  6) test_pin_failure_logs_no_credentials            실패 로그에 비밀번호/host 미포함
+  7,8) test_dsn_branches_unchanged[service_name|sid] 기존 DSN 분기 회귀 + 양 분기 모두 고정 적용
+  9) test_driver_missing_still_raises_runtime_error  드라이버 미설치 RuntimeError 계약 유지
+
+  실행: python -m pytest tests/test_oracle_connection_nls_numeric_pin.py -q
+  결과: 9 passed in 1.77s
+
+────────────────────────────────────────────────────────────────────────
+9. 회귀 확인 (관련 서브셋 + baseline 대조)
+────────────────────────────────────────────────────────────────────────
+[9-1] CLAUDE.md 지정 회귀
+  python samples/test_virtual_cases.py  → 8/8 통과 (✅ 전체 8개 케이스 통과)
+  python samples/test_complex_cases.py  → 5/5 케이스 분석 완료
+
+[9-2] 관련 서브셋 76개 파일 (oracle|adapter|exact_diff|connection|conn_|db_query|dbms|
+      agg_contrib|pool|nls 매칭), -p no:randomly --continue-on-collection-errors
+
+  대상            | 커밋       | 결과
+  ----------------|------------|----------------------------------------------------
+  수정본(modified)| d707861    | 52 failed, 701 passed, 3 skipped, 1 xfailed, 2 errors
+  baseline        | 348ec6f    | 52 failed, 701 passed, 3 skipped, 1 xfailed, 2 errors
+  (baseline 은 임시 worktree 로 생성 — git stash 미사용)
+  (신규 테스트 파일은 baseline 에 없으므로 대조에서 제외하고 별도 실행 = 9 passed)
+
+  실패 ID 집합 정밀 차분(sort -u 후 comm):
+    baseline ids 54 / modified ids 54
+    modified 에만 있는 실패(신규회귀 후보): **0건**
+    baseline 에만 있는 실패(수정으로 해소)  : 0건
+  → **신규 회귀 0건**. 실패 집합이 완전히 동일.
+
+  참고: baseline 첫 실행은 49 failed 였으나 재실행에서 52 failed 로 수정본과 일치했다
+        (순서/상태 의존 flaky). 그래서 건수가 아니라 **실패 ID 집합 차분**으로 판정했다.
+
+[9-3] 기존 실패 54건 전체 목록 (수정 전후 동일 — 이번 작업과 무관)
+  지배적 원인: **httpx 미설치**(FastAPI TestClient 가 요구하는 테스트 전용 의존성).
+    확인: python -c "import httpx" → ModuleNotFoundError: No module named 'httpx'
+    starlette/testclient.py:38 에서 RuntimeError 로 전파되어 route 계열 테스트가 실패.
+
+  tests/test_analyze_connection_state.py                       6건
+  tests/test_single_execute_preflight_connection.py            8건
+  tests/test_db_connection_finalize_guard.py                   5건
+    (postgresql-5432 / mariadb-3306 / db2-50000 / oracle-1521 파라미터 4건 +
+     test_guard_same_connection_role_split_and_inplace_and_password)
+  tests/test_exact_diff_ui_wiring.py                           5건
+    (test_button_state_conditions_flag_on_off,
+     test_run_wiring_calls_exact_diff_api_not_key_range,
+     test_record_grid_and_kind_filter_and_order,
+     test_hold_labels_visible,
+     test_key_range_tree_labeled_as_auxiliary)
+  tests/test_same_server_pair_and_dbms_display.py              4건
+  tests/test_db_profile_connection_test.py                     4건
+  tests/test_connection_block_contract.py                      4건
+  tests/test_task11_r2_source_connection_id.py                 3건 (+ERROR 1)
+  tests/test_single_validation_view_connection.py              3건
+  tests/test_connection_pair_save_guard.py                     2건
+  tests/test_single_connection_policy.py                       1건
+  tests/test_quality_connection_guard.py                       1건
+  tests/test_connection_pair_checkbox_cr*.py                   1건
+  tests/test_connection_dbms_advanced_op*.py                   1건
+  tests/test_conn_payload_common_builder*.py                   1건
+  tests/test_dbms_capabilities.py::test_http_capability_routes 1건
+  tests/test_dbms_execute_contract.py::test_http_contract_routes 1건
+  tests/test_realworld_multidbms.py::test_http_dashboard_multidbms 1건
+  ERROR tests/test_analyze_adapter_routing_shadow_compare.py   (수집 오류, httpx)
+  ERROR tests/test_task11_r2_source_connection_id.py::TC_R2_14_15_Schema::
+        test_15_init_db_migration_adds_group_columns
+  → 전부 baseline 에도 동일하게 존재. 오라클/NLS 로직 기인 실패 0건.
+
+────────────────────────────────────────────────────────────────────────
+10. 남은 이슈 / 미해결 (정직 보고)
+────────────────────────────────────────────────────────────────────────
+(a) 어댑터를 우회하는 오라클 연결 2곳은 이번 고정이 적용되지 않는다(지시상 파일 범위 밖).
+    · services/db_connection_service.py:328 _test_oracle
+      → 접속 테스트 전용(SELECT 1 FROM DUAL 후 즉시 close). 숫자 TO_CHAR 비교를 하지 않아
+        기능상 갭 없음.
+    · validator/default_validator.py:63 (cx_Oracle 직접 연결)
+      → COUNT 등 스칼라 조회. 드라이버가 NUMBER 를 파이썬 수치로 직접 변환하므로
+        소수점 구분자 문자열 비교 경로가 아님. 기능상 갭 없음.
+    필요하다면 별건으로 어댑터 위임 통일을 권장(구조 일관성 목적, 이번 결함과는 무관).
+
+(b) exact_diff/dialects/oracle.py:59-60 의 주석은 "타입 미상 균일 캐스트는 이 고정을 쓸 수
+    없다" 고 서술한다. 3인자 nlsparam 에 한해서는 여전히 맞는 서술이지만, 이제 세션 고정이
+    그 갭을 덮는다는 사실이 그 파일에는 적혀 있지 않다. 지시대로 무접촉(회귀 위험 최소화)했다.
+    → 문서 정합만 필요한 별건(주석 1건 보강) 으로 남긴다.
+
+(c) 고정 실패 시 동작은 warning 로그 + 연결 유지다. 조용한 거짓 불일치 위험이 이론상 남지만,
+    실패 시 상태는 '수정 전과 동일'이므로 회귀는 아니다. ALTER SESSION 의 NLS 파라미터 변경은
+    별도 권한이 필요 없어 실패 가능성 자체가 낮다.
+
+────────────────────────────────────────────────────────────────────────
+11. 변경 파일 / 커밋
+────────────────────────────────────────────────────────────────────────
+커밋: d707861
+  fix(oracle): 연결 시 세션 NLS_NUMERIC_CHARACTERS '.,' 고정
+               (ORACLE-CONNECTION-NLS-NUMERIC-SESSION-PIN-FIX)
+  부모: 348ec6f (TABLE-KEY-META-ORACLE-COLUMN-QUERY-DELEGATION-FIX)
+  pre-commit 비밀번호 스캔 통과(staged 2개 파일, 지문 4건 대조)
+
+  services/db_adapters/oracle.py                    | 59 +++++++++++++++++++++-- (수정)
+  tests/test_oracle_connection_nls_numeric_pin.py   | 신규 (9건)
+
+  git diff 요약(services/db_adapters/oracle.py):
+    + _ORA_SESSION_NLS_NUMERIC_SQL = "ALTER SESSION SET NLS_NUMERIC_CHARACTERS = '.,'"
+    + OracleAdapter._pin_session_nls_numeric(conn) -> bool
+    - return _ora.connect(user=..., password=..., dsn=dsn)
+    + conn = _ora.connect(user=..., password=..., dsn=dsn)
+    + self._pin_session_nls_numeric(conn)
+    + return conn
+
+  * 코드 저장소(migration-validator) 는 로컬 커밋만 — push 하지 않음(기존 규칙).
+
+────────────────────────────────────────────────────────────────────────
+12. 실검증 상태
+────────────────────────────────────────────────────────────────────────
+실검증 상태: 실 DB 실측 완료 — 내부망 오라클 asis(:1523)/tobe(:1524) NXDNP 스키마에
+실접속하여 (1) 세션 NLS_NUMERIC_CHARACTERS 고정값 '.,' 확인, (2) 세션 기본값 ',.' 환경을
+재현해 실 테이블(MV_ORA_XDIFF_SRC) 데이터로 SCOPE WHERE 거짓 불일치 1건→0건 재현 후
+고정 적용 시 0건→1건 해소 확인, (3) nls_session_parameters 17개 전량 대조로 다른 NLS 무영향
+확인, (4) 커넥션 재사용(왕복 3·5회, request_connection_scope 동일 proxy) 및 풀 미풀링
+(reuse 0/closed 2) 확인까지 모두 실측. 화면 무관 작업이라 스크린샷 없음(지시대로).
+
+✅ 작업 완료 - ORACLE-CONNECTION-NLS-NUMERIC-SESSION-PIN-FIX - 오라클 connect() 반환 직전 ALTER SESSION 으로 NLS_NUMERIC_CHARACTERS 를 '.,' 로 1회 고정. S14 의 타입 미상 균일 캐스트 5곳이 세션 로케일에 의존해 내던 거짓 불일치를 실 DB 로 재현→해소 확인, 다른 NLS 계열 무영향, 신규회귀 0건.
