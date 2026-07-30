@@ -1,0 +1,356 @@
+작업명 : URGENT-WORKINGTREE-UNCOMMITTED-STACK-COMMIT-RECOVERY
+✅ 작업 완료 - URGENT-WORKINGTREE-UNCOMMITTED-STACK-COMMIT-RECOVERY - 미커밋으로 쌓여 있던 완료 작업 5건을 hunk 단위로 분리해 작업별 5개 커밋으로 복구(무손실 검증 완료)
+
+일시      : 2026-07-30
+대상      : C:\projects\migration-validator (브랜치 main)
+시작 HEAD : 66e4a30 fix(drilldown): 재이관 상세표 원본/목적 열 분리 ... (REIMPORT-DRILLDOWN-TAB-SCOPE-CACHE-AND-COLUMN-SPLIT-FIX)
+종료 HEAD : a900442
+푸시      : 없음 — 지시대로 코드 저장소는 로컬 커밋까지만
+
+════════════════════════════════════════════════════════════════════════
+1. 발견된 미커밋 변경 전수 (요구사항 1)
+════════════════════════════════════════════════════════════════════════
+
+git status 총 120건 = tracked 수정 7건 + 미추적 113건.
+
+[1-1] tracked 수정 7개 파일 (git diff --stat = 512 insertions / 23 deletions)
+
+  .claude/settings.local.json                          |   4 +-
+  docs/STATS_VALIDATION_CHUNKED_VS_SINGLE_TRADEOFF.md  |  16 +-
+  services/exact_diff/sampling_preflight.py            | 275 +++++-
+  services/single_validation_analyze_service.py        |  70 ++++
+  services/stats_execute_service.py                    |   7 +-
+  ui/grid_helpers.py                                   | 102 +++-
+  ui/tabler_renderer.py                                |  61 ++-
+
+  → 사전 배경에서 지목된 것은 2건(ORACLE-PRESET / COUNT-GATE)이었으나, 실제로는
+    ui/tabler_renderer.py 외의 5개 파일에 완료 작업 3건이 더 쌓여 있었다.
+    즉 미커밋 완료 작업은 2건이 아니라 5건이었다. 전부 유실 위험 상태였다.
+
+[1-2] 작업 귀속 판정
+
+  근거는 두 가지다 — (a) 추가된 코드/주석이 자기 작업명을 대괄호 태그로 명시하고 있고,
+  (b) 다섯 작업 모두 E:\verify_reports 에 증적이 존재한다(= 완료·검증 끝난 작업).
+
+  작업명                                         | 파일                                          | 증적
+  ---------------------------------------------- | --------------------------------------------- | ----------------
+  ORACLE-PRESET-DEAD-ENCODING-FIELD-CLEANUP-FIX  | ui/tabler_renderer.py (hunk @14454)           | .txt
+  COUNT-GATE-EXPORT-UI-DIALECT-GATE-CONSUME-FIX  | ui/tabler_renderer.py (hunk @24549)           | .txt
+                                                 |                                               | + 원격 디렉터리(42c91d6)
+  STRATEGY-PLAN-PK-KIND-HARDCODE-FIX             | services/single_validation_analyze_service.py | 디렉터리 + .txt
+                                                 | + ui/grid_helpers.py                          |
+  STATS-COUNT-STEP-TIMEOUT-PARITY-FIX (후속)     | docs/STATS_VALIDATION_CHUNKED_VS_SINGLE_      | 디렉터리 + .txt
+                                                 | TRADEOFF.md + services/stats_execute_service.py|
+  SAMPLING-PREFLIGHT-TIME-CAP-AND-PROGRESS-FIX   | services/exact_diff/sampling_preflight.py     | 디렉터리 + .txt
+
+  귀속 근거의 기계 검증 — 각 파일군의 추가줄에서 대문자 작업명 태그를 추출한 결과
+  파일군마다 단 하나의 작업명만 등장했다(교차 오염 0건):
+
+    services/single_validation_analyze_service.py + ui/grid_helpers.py
+        → STRATEGY-PLAN-PK-KIND-HARDCODE-FIX 7회 단독
+    docs/STATS_VALIDATION_CHUNKED_VS_SINGLE_TRADEOFF.md + services/stats_execute_service.py
+        → STATS-COUNT-STEP-TIMEOUT-PARITY-FIX 3회 단독
+    services/exact_diff/sampling_preflight.py
+        → SAMPLING-PREFLIGHT-TIME-CAP-AND-PROGRESS-FIX 10회 단독
+
+  ※ STATS-COUNT-STEP-TIMEOUT-PARITY-FIX 는 코드 조치(services/db_query_service.py)가
+    이미 47be676 로 커밋돼 있었다. 워킹트리에 남아 있던 것은 그 조치를 반영하지 못한
+    문서·주석 정정뿐이라 커밋 제목에 "후속" 을 명시했다.
+
+[1-3] 커밋하지 않고 보고만 한 항목 (요구사항 5 — 작업 특정 불가 시 임의 커밋 금지)
+
+  (a) .claude/settings.local.json  (tracked, +3 / -1)
+      추가된 2줄은 도구 실행 허용목록이며 내용은
+        Bash(timeout 1500 MV_TAG=diag2 python scripts/dev_e2e/stats_validation_execute_button_no_response_diagnose.py)
+        Bash(export MV_TAG=diag2)
+      → STATS-VALIDATION-EXECUTE-BUTTON-NO-RESPONSE-DIAGNOSE 진단 작업 중 생긴 로컬 권한
+        캐시로, 위 5개 작업 어디에도 귀속되지 않는다. 코드 변경도 아니다.
+      → 미커밋 상태로 남겨 두었다(현재 워킹트리에 유일하게 남은 tracked 변경).
+
+  (b) 미추적 113건 — 디렉터리별 집계
+        scripts/dev_e2e   98건
+        docs              13건
+        db                 2건
+      → scripts/dev_e2e(현재 추적 328건)와 docs(현재 추적 286건)는 원래 추적 대상
+        디렉터리라 원칙적으로 커밋 후보이나, 이 113건은 위 5개 작업이 아니라 수십 개의
+        서로 다른 진단/검증 작업에서 나온 것이다. 5개 작업 커밋에 끼워 넣으면 대부분이
+        오귀속되므로 임의 커밋하지 않고 보고만 한다.
+      → db/chunk_checkpoints.db-shm, db/chunk_checkpoints.db-wal 2건은 SQLite WAL 전이
+        아티팩트로 커밋 대상이 아니다. .gitignore 에 db/*.db 는 있으나 db/*.db-shm,
+        db/*.db-wal 규칙이 없어 매번 미추적으로 노출된다 → 규칙 보강 권고(별건).
+      → 전체 113건 목록은 말미 [부록 A] 참조.
+
+════════════════════════════════════════════════════════════════════════
+2. hunk 분리 판정 (요구사항 2·4)
+════════════════════════════════════════════════════════════════════════
+
+ui/tabler_renderer.py 의 diff 는 hunk 정확히 2개이며 물리적으로 겹치지 않는다.
+
+  hunk1  @@ -14454,10 +14454,14 @@  var _PROFILE_DBMS_FIELDS = {
+         → ORACLE-PRESET-DEAD-ENCODING-FIELD-CLEANUP-FIX   (+6 / -2)
+  hunk2  @@ -24545,19 +24549,58 @@ async function mvCountGateSidePreview(side) {
+         → COUNT-GATE-EXPORT-UI-DIALECT-GATE-CONSUME-FIX   (+46 / -7)
+
+  두 hunk 는 약 10,000 줄 떨어져 있고, 각 hunk 의 추가줄이 자기 작업명을 주석으로 명시한다.
+  기계 검증 결과 — hunk1 에 COUNT-GATE-EXPORT-UI-DIALECT 0건,
+                   hunk2 에 ORACLE-PRESET-DEAD-ENCODING 0건.
+  ⇒ 겹치는 줄 없음. 분리가 애매하거나 위험한 구간은 없었다
+    (요구사항 4 의 "사용자 확인 후 진행" 조건 미해당).
+
+  [참조 patch 대조 — 최종 확정 근거]
+    작업 착수 시점에는 지시된 참조 patch
+    COUNT-GATE-EXPORT-UI-DIALECT-GATE-CONSUME-FIX/git_diff_this_task.patch 가
+    로컬 E:\verify_reports 에 없었다(해당 증적이 .txt 단일 파일로만 있었다). 그래서 우선
+    코드 주석의 자기 태깅 + hunk 위치 분리를 근거로 판정하고 분리 커밋을 진행했다.
+    이후 증적 저장소를 fetch 한 결과, 동시 진행 중이던 다른 세션이 42c91d6 으로 해당
+    증적 폴더(참조 patch 포함)를 push 해 두어 원격에서 확보할 수 있었다.
+
+    확보 즉시 원래 지시대로 patch 대조를 수행했다:
+      · 참조 patch 의 hunk 수                       = 1
+      · 참조 patch 의 hunk 헤더                     = @@ -24545,19 +24549,58 @@
+      · 내 분리 커밋 080ac75 의 hunk 수             = 1
+      · 양쪽 본문(+/- 줄) 줄수                      = 53 / 53
+      · 본문 전체 diff                              = 차이 없음(완전 일치)
+    ⇒ 참조 patch 는 hunk2 만 담고 있다. 즉 hunk1 은 이 작업 소속이 아니라는 사실이
+      patch 로도 확정됐고, 내 분리 결과와 정확히 일치한다.
+      주석 태깅 근거와 patch 근거가 서로 독립적으로 같은 결론을 낸다.
+
+분리 절차(안전 우선):
+  1) ui/tabler_renderer.py 원본을 스크래치패드에 백업하고 sha256 기록
+  2) git diff 를 hunk 단위 패치 2개로 분할
+  3) git apply --cached --check 로 사전 검사 후 git apply --cached 로 hunk1 만 index 에 스테이징
+     (git add -p 는 이 환경에서 대화형 입력이 불가해 동등한 비대화형 방식을 사용)
+  4) 스테이징된 blob 을 추출해 python -m py_compile 로 중간 상태 구문 검증 → 커밋
+  5) 남은 변경(= hunk2)을 git add → 커밋
+
+════════════════════════════════════════════════════════════════════════
+3. 분리 커밋 결과 (요구사항 3)
+════════════════════════════════════════════════════════════════════════
+
+  8efbc15c620890766061670122fddaaf06ed2485
+    → ORACLE-PRESET-DEAD-ENCODING-FIELD-CLEANUP-FIX
+      fix(preset): 오라클 프리셋 Encoding/NEncoding 이 접속에 미반영임을 안내로 명시
+      ui/tabler_renderer.py  +6 / -2   (hunk1 단독)
+
+  080ac75a4ef1c1920d8e6e6b117633871f8bf59f
+    → COUNT-GATE-EXPORT-UI-DIALECT-GATE-CONSUME-FIX
+      fix(count-gate): 전체 CSV 내려받기가 서버 사전게이트 오류 JSON 을 정상 CSV 로
+                       저장하던 반쪽 배선 해소
+      ui/tabler_renderer.py  +46 / -7  (hunk2 단독)
+
+  66a5c8697395a655f73c2814258d4180d0da6c95
+    → STRATEGY-PLAN-PK-KIND-HARDCODE-FIX
+      fix(strategy): 3단계 실행계획 카드의 PK 구조 고정값(has_pk/pk_kind/pk_indexed)을
+                     근거 기반 판정으로 교체
+      services/single_validation_analyze_service.py, ui/grid_helpers.py  +170 / -2
+
+  f71d0050acf4075d927c534102cfee20a242a625
+    → STATS-COUNT-STEP-TIMEOUT-PARITY-FIX (문서·주석 후속)
+      docs(timeout): 2단계 COUNT 타임아웃 도입 후 남아 있던 "상한 없음" 서술·주석을
+                     현재 값으로 정정
+      docs/STATS_VALIDATION_CHUNKED_VS_SINGLE_TRADEOFF.md,
+      services/stats_execute_service.py  +17 / -6
+
+  a900442e95ecfed8a5467b7779bd699faf654ff4
+    → SAMPLING-PREFLIGHT-TIME-CAP-AND-PROGRESS-FIX
+      feat(sampling): 표본 preflight 게이트에 사전 비용 프로브·누적 시간 상한·진행 신호 추가
+      services/exact_diff/sampling_preflight.py  +270 / -5
+
+  전 커밋 pre-commit 비밀번호 스캔 통과(각 "지문 4건 대조").
+  전 커밋에 저장소 관례대로 Co-Authored-By / Claude-Session trailer 부착
+  (기존 1,683 커밋 중 1,648건이 동일 trailer 사용 — 관례 확인 후 적용).
+
+════════════════════════════════════════════════════════════════════════
+4. 무손실 검증
+════════════════════════════════════════════════════════════════════════
+
+  [4-1] ui/tabler_renderer.py 바이트 동일성
+        작업 전 백업     sha256 edb5139cb557c0f18ddbf51a6e87557ebf9c48af2503e4e8b7e4df45a4722ce3
+        작업 후 워킹트리 sha256 edb5139cb557c0f18ddbf51a6e87557ebf9c48af2503e4e8b7e4df45a4722ce3
+        → 완전 일치. hunk 분리 과정에서 파일 내용이 1바이트도 변형되지 않았다.
+
+  [4-2] 누적 diff 대조
+        작업 전 워킹트리 diff : 7 files, 512 insertions, 23 deletions
+        66e4a30..HEAD 누적    : 6 files, 509 insertions, 22 deletions
+        차이                  : 1 file,   3 insertions,  1 deletion
+        = 의도적으로 커밋하지 않은 .claude/settings.local.json (+3 / -1) 과 정확히 일치.
+        → 누락도 중복도 없이 전량 커밋됐다.
+
+  [4-3] 잔여 미커밋 tracked 변경
+        " M .claude/settings.local.json" 1건뿐 (의도된 보류).
+
+  [4-4] 구문 검증
+        수정된 파이썬 5개 파일 python -m py_compile 통과.
+        추가로 hunk1 만 적용된 중간 커밋 상태(8efbc15)의 blob 도 별도 추출해 컴파일 통과 확인
+        — 분리 커밋 각각이 독립적으로 체크아웃 가능한 유효 상태임을 보장한다.
+
+  [4-5] 회귀 테스트 (CLAUDE.md 자체 테스트 규칙)
+        python samples/test_virtual_cases.py  → 8/8 통과 ✅
+        python samples/test_complex_cases.py  → 5/5 통과 ✅
+        ※ 본 작업은 커밋 경계만 재구성했을 뿐 워킹트리 내용은 작업 전후 바이트 동일하므로
+          기능 변화는 0 이다. 위 결과는 트리 건전성 확인 목적이다.
+
+════════════════════════════════════════════════════════════════════════
+5. git log --oneline -10 (요구사항 6)
+════════════════════════════════════════════════════════════════════════
+
+  a900442 feat(sampling): 표본 preflight 게이트에 사전 비용 프로브·누적 시간 상한·진행 신호 추가 (SAMPLING-PREFLIGHT-TIME-CAP-AND-PROGRESS-FIX)
+  f71d005 docs(timeout): 2단계 COUNT 타임아웃 도입 후 남아 있던 '상한 없음' 서술·주석을 현재 값으로 정정 (STATS-COUNT-STEP-TIMEOUT-PARITY-FIX 후속)
+  66a5c86 fix(strategy): 3단계 실행계획 카드의 PK 구조 고정값(has_pk/pk_kind/pk_indexed)을 근거 기반 판정으로 교체 (STRATEGY-PLAN-PK-KIND-HARDCODE-FIX)
+  080ac75 fix(count-gate): 전체 CSV 내려받기가 서버 사전게이트 오류 JSON 을 정상 CSV 로 저장하던 반쪽 배선 해소 (COUNT-GATE-EXPORT-UI-DIALECT-GATE-CONSUME-FIX)
+  8efbc15 fix(preset): 오라클 프리셋 Encoding/NEncoding 이 접속에 미반영임을 안내로 명시 (ORACLE-PRESET-DEAD-ENCODING-FIELD-CLEANUP-FIX)
+  66e4a30 fix(drilldown): 재이관 상세표 원본/목적 열 분리 + 일치행 토글 라벨·상태 정합 + 준비 캐시 재사용 (REIMPORT-DRILLDOWN-TAB-SCOPE-CACHE-AND-COLUMN-SPLIT-FIX)
+  16526e7 fix(agg-diff): chunk key 확정 3개 호출에 실제 접속 방언 배선 — 오라클 ORA-03049 로 청크 고속경로가 조용히 사라지던 열화 제거 (AGG-DIFF-ROUTE-CHUNKKEY-DIALECT-DELEGATION-FIX)
+  f1a31a0 fix(exact-diff): 스트림 merge 의 키 정렬 순서 위반을 탐지해 HOLD 로 전환 — 캐릭터셋 불일치로 인한 거짓 불일치 날조 차단 (EXACT-DIFF-STREAM-MERGE-ORDER-VIOLATION-HOLD-FIX)
+  275b5a9 fix(oracle): 숫자→문자 canonical 변환의 소수점 문자를 식 자체에 고정 — 세션 NLS 차이로 인한 거짓 불일치 제거 (NLS-SESSION-INDEPENDENT-NUMERIC-TOCHAR-FIX)
+  783b9f1 fix(chunk): PK min/max·표본 조회의 별칭 참조를 실제 output alias 로 통일 — CHUNK 드릴다운 시작 직후 FAILED 제거 (CHUNK-PK-MINMAX-ALIAS-CASE-FIX)
+
+════════════════════════════════════════════════════════════════════════
+6. 남은 위험 / 후속 권고
+════════════════════════════════════════════════════════════════════════
+
+  1) 미추적 113건(scripts/dev_e2e 98 · docs 13)이 여전히 커밋되지 않은 채 남아 있다.
+     이번 작업 범위(= 완료된 코드 작업의 커밋 복구) 밖이라 임의 커밋하지 않았으나,
+     "77 passed 유실" 과 동일한 유실 위험은 그대로다. 작업별 귀속을 정한 뒤 별도
+     정리 작업으로 일괄 커밋할 것을 권고한다.
+
+  2) .gitignore 에 db/*.db-shm · db/*.db-wal 규칙이 없어 SQLite WAL 전이 파일이 매번
+     미추적으로 노출된다. git status 잡음이 진짜 미커밋 변경을 가리므로 이번 사고의
+     간접 원인이 될 수 있다 → 규칙 추가 권고.
+
+  3) .claude/settings.local.json 의 미커밋 2줄은 귀속 작업을 확인한 뒤 처리 필요.
+
+  4) 코드 저장소는 지시대로 push 하지 않았다(로컬 커밋 5건까지만).
+
+  5) [증적 저장소에서도 동일 패턴 발견] E:\verify_reports 로컬 main 에 커밋됐지만 원격에
+     push 되지 않은 증적이 1건 있다 — bb2a31d "verify: AGG-DIFF-ROUTE-CHUNKKEY-DIALECT-
+     DELEGATION-FIX 실측 보고서" (+148줄). 내 작업물이 아니라 수술적 push 원칙에 따라
+     건드리지 않았다. 소유 세션이 push 하거나, 다음 pull 시 함께 올라가야 한다.
+
+  6) [본 작업의 push 방식] 증적 저장소 공유 트리에 다른 세션의 미커밋 변경(BACKLOG.md)이
+     있었고, 원격 신규 10개 커밋이 같은 BACKLOG.md 를 수정하고 있어 pull/rebase 가 그
+     미커밋 변경을 덮을 위험이 있었다. 그래서 공유 트리를 전혀 건드리지 않고 origin/main
+     기준 별도 worktree(E:\verify_reports_wt_urgent)를 만들어 내 보고서 1개 파일만
+     커밋·push 했다. 공유 트리의 BACKLOG.md 미커밋 상태는 작업 전후 그대로 보존됐다
+     (git stash 미사용).
+
+════════════════════════════════════════════════════════════════════════
+[부록 A] 미추적 113건 전체 목록
+════════════════════════════════════════════════════════════════════════
+
+  db/chunk_checkpoints.db-shm
+  db/chunk_checkpoints.db-wal
+  docs/BATCH_VALIDATION_PROGRESS_DASHBOARD_FEASIBILITY.md
+  docs/CHARACTER_PK_SILENT_FALSE_MATCH_1M_REPRODUCE.md
+  docs/HASH_BUCKET_ORACLE_PORT_ADAPTER_DESIGN.md
+  docs/HASH_BUCKET_ORACLE_PORT_FEASIBILITY.md
+  docs/HASH_BUCKET_STRATEGY_SORT_AVOIDANCE_VIABILITY.md
+  docs/PK_RANGE_CHUNK_BOUNDARY_ORDERING_ASSUMPTION.md
+  docs/PROGRESS_TRACKING_INSTRUMENTATION_OVERHEAD.md
+  docs/REIMPORT_JOB_PROGRESS_HEARTBEAT_INTERVAL.md
+  docs/SINGLE_STEP4_BACKGROUND_WATCH_AUTO_STEP5_FEASIBILITY.md
+  docs/SINGLE_STEP4_INLINE_PROGRESS_FEASIBILITY.md
+  docs/SINGLE_STEP5_COMBO_VIEW_AND_SKEWED_GROUP_VOLUME_DIAGNOSE.md
+  docs/STATS_VALIDATION_JOB_ORPHAN_CLEANUP.md
+  docs/STEP5_PROCESSING_TIME_SCOPE_DIAGNOSE.md
+  scripts/dev_e2e/_PLAIN-JOIN-WRAPPING-EXPLAIN-PLANS.txt
+  scripts/dev_e2e/_REIMPORT-COUNTONLY-CHUNK-SIZE-DIAGNOSE.txt
+  scripts/dev_e2e/_hb_orbranch_40.py
+  scripts/dev_e2e/_hb_wave2_orbranch_scaling.py
+  scripts/dev_e2e/_hb_wave2_variance.py
+  scripts/dev_e2e/_urgent_js_recovery_verify.py
+  scripts/dev_e2e/ambiguous_admin_column_badge_current_state_verify.py
+  scripts/dev_e2e/axis_a_none_vs_false_misclassification_shot.py
+  scripts/dev_e2e/batch_count_tab_display_verify.py
+  scripts/dev_e2e/character_pk_silent_false_match_1m_reproduce.py
+  scripts/dev_e2e/combo_step5_full_surface_probe.py
+  scripts/dev_e2e/combo_view_and_skew_clickthrough.py
+  scripts/dev_e2e/combo_view_and_skew_fixture.py
+  scripts/dev_e2e/contract_utils_mutation_check.py
+  scripts/dev_e2e/count_gate_export_dialect_gate_evidence_panel.py
+  scripts/dev_e2e/count_gate_export_dialect_gate_ui_verify.py
+  scripts/dev_e2e/cte_join_cache_reuse_asis_real_replay.py
+  scripts/dev_e2e/cte_join_oneclick_idonly_gap_diagnose.py
+  scripts/dev_e2e/cte_join_reimport_pk_cache_reuse_verify.py
+  scripts/dev_e2e/db_conn_state_connectpair_trace.py
+  scripts/dev_e2e/db_conn_state_no_project_variant.py
+  scripts/dev_e2e/db_conn_state_refresh_regression_repro.py
+  scripts/dev_e2e/display_tier_d4_100record_cutoff_diagnose.py
+  scripts/dev_e2e/drilldown_group_table_header_verify.py
+  scripts/dev_e2e/first_result_display_dwell_proof.py
+  scripts/dev_e2e/first_result_display_latency_diagnose.py
+  scripts/dev_e2e/first_result_display_network_breakdown.py
+  scripts/dev_e2e/hash_bucket_oracle_port_feasibility_verify.py
+  scripts/dev_e2e/hash_bucket_sort_avoidance_probe0.py
+  scripts/dev_e2e/hash_bucket_sort_avoidance_viability_diagnose.py
+  scripts/dev_e2e/hash_bucket_wave2_realistic.py
+  scripts/dev_e2e/hash_bucket_wave_depth_and_total_cost.py
+  scripts/dev_e2e/left_menu_dead_link_precise_verify.py
+  scripts/dev_e2e/left_menu_usage_audit_verify.py
+  scripts/dev_e2e/multi_groupby_representative_axis_diagnose.py
+  scripts/dev_e2e/multi_groupby_representative_axis_fixture.py
+  scripts/dev_e2e/oracle_admin_audit_badge_browser_shot.py
+  scripts/dev_e2e/oracle_composite_string_pk_1m_fixture.py
+  scripts/dev_e2e/oracle_composite_string_pk_1m_stage123_clickthrough.py
+  scripts/dev_e2e/oracle_date_bucket_live_clickthrough.py
+  scripts/dev_e2e/oracle_demo_table_manual_browser.py
+  scripts/dev_e2e/oracle_encrypted_badge_browser_shot.py
+  scripts/dev_e2e/oracle_encrypted_comment_audit_verify.py
+  scripts/dev_e2e/oracle_fk_evidence_badge_browser_shot.py
+  scripts/dev_e2e/oracle_preset_dead_encoding_field_ui_verify.py
+  scripts/dev_e2e/orphan_job_store_reclaim_probe.py
+  scripts/dev_e2e/performance_display_stale_run_verify.py
+  scripts/dev_e2e/pk_range_chunk_boundary_ordering_diagnose.py
+  scripts/dev_e2e/plain_join_wrapping_alias_live.py
+  scripts/dev_e2e/plain_join_wrapping_alias_prepare.py
+  scripts/dev_e2e/plain_join_wrapping_cols.py
+  scripts/dev_e2e/plain_join_wrapping_cost.py
+  scripts/dev_e2e/plain_join_wrapping_cost_repeat.py
+  scripts/dev_e2e/plain_join_wrapping_explain.py
+  scripts/dev_e2e/plain_join_wrapping_inventory.py
+  scripts/dev_e2e/plain_join_wrapping_parser_shape.py
+  scripts/dev_e2e/plain_join_wrapping_pg_probe.py
+  scripts/dev_e2e/progress_dashboard_feasibility_probe.py
+  scripts/dev_e2e/progress_hidden_cost_refine.py
+  scripts/dev_e2e/progress_hidden_instrumentation_cost.py
+  scripts/dev_e2e/progress_instrumentation_overhead_measure.py
+  scripts/dev_e2e/progress_row_level_cost_isolate.py
+  scripts/dev_e2e/reg_dt_live_clickthrough_verify.py
+  scripts/dev_e2e/reimport_countonly_chunk_size_diagnose.py
+  scripts/dev_e2e/reimport_countonly_phase_cost_probe.py
+  scripts/dev_e2e/reimport_join_fanout_browser_verify.py
+  scripts/dev_e2e/reimport_join_fanout_pk_uniqueness_diagnose.py
+  scripts/dev_e2e/reimport_progress_heartbeat_gap_probe.py
+  scripts/dev_e2e/reimport_progress_heartbeat_interval_measure.py
+  scripts/dev_e2e/routes_limit_dialect_secondary_check.py
+  scripts/dev_e2e/sampling_preflight_early_stop_shot.py
+  scripts/dev_e2e/sampling_preflight_excel_gb_cols_fixture.py
+  scripts/dev_e2e/sampling_preflight_excel_gb_cols_verify.py
+  scripts/dev_e2e/sampling_preflight_excel_kind_mismatch_replay.py
+  scripts/dev_e2e/single_step4_background_watch_feasibility_verify.py
+  scripts/dev_e2e/single_step4_background_watch_timer_persistence_verify.py
+  scripts/dev_e2e/single_step4_inline_progress_feasibility_verify.py
+  scripts/dev_e2e/skew_drilldown_tier_probe.py
+  scripts/dev_e2e/skew_row_click_observe.py
+  scripts/dev_e2e/stats_chunk_tradeoff_cancel.py
+  scripts/dev_e2e/stats_chunk_tradeoff_gate_live_verify.py
+  scripts/dev_e2e/stats_chunk_tradeoff_measure.py
+  scripts/dev_e2e/stats_chunk_tradeoff_oracle_timeout_verify.py
+  scripts/dev_e2e/stats_chunk_tradeoff_scale.py
+  scripts/dev_e2e/stats_chunk_tradeoff_setup.py
+  scripts/dev_e2e/stats_plan_service_groupby_str_dict_browser.py
+  scripts/dev_e2e/stats_plan_service_groupby_str_dict_check.py
+  scripts/dev_e2e/stats_validation_execute_button_no_response_diagnose.py
+  scripts/dev_e2e/stats_validation_job_orphan_repro.py
+  scripts/dev_e2e/stats_validation_orphan_countonly_polling_repro.py
+  scripts/dev_e2e/stats_validation_orphan_polling_live_repro.py
+  scripts/dev_e2e/stats_validation_orphan_polling_spa_leave_verify.py
+  scripts/dev_e2e/step5_processing_time_scope_diagnose.py
+  scripts/dev_e2e/underscore_alias_key_range_hash_bucket_diagnose.py
+  scripts/dev_e2e/underscore_alias_key_range_live_route.py
+  scripts/dev_e2e/window_function_reimport_drilldown_e2e.py
+  scripts/dev_e2e/window_function_wrapping_gap_diagnose.py
+  scripts/dev_e2e/window_function_wrapping_live_repro.py
+
+════════════════════════════════════════════════════════════════════════
+✅ 작업 완료 - URGENT-WORKINGTREE-UNCOMMITTED-STACK-COMMIT-RECOVERY - 미커밋으로 쌓여 있던 완료 작업 5건(지목된 2건 + 추가 발견 3건)을 hunk 단위로 분리해 작업별 5개 커밋으로 복구, sha256·누적 diff 대조로 무손실 확인
