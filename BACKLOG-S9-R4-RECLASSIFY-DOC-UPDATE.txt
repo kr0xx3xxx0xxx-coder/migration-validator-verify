@@ -168,5 +168,16 @@ index 962f774..fa9af50 100644
 ■ 스크린샷
   화면·코드 무관(문서 편집)이라 불필요 — 지침에 따라 미첨부.
 
+■ 증적 push
+  BACKLOG.md 갱신 커밋 : 2916e51 (origin/main)
+  push 확인            : git ls-remote origin main → 2916e51...  (로컬 HEAD 와 일치)
+  push 방식            : E:\verify_reports 는 원격보다 3커밋 뒤처져 있고, 원격이 추가한
+                         ORACLE-PRESET-DEAD-ENCODING-FIELD-CLEANUP-FIX.txt 가 로컬에 다른 세션의
+                         untracked 초안으로 남아 있어 pull --rebase 가 그 파일을 덮어쓸 상황이었다.
+                         공유 트리를 전혀 건드리지 않기 위해 스크래치패드에 원격을 얕은 클론(clone --depth 1)
+                         해 내 파일 2개만 복사·커밋·push 했다. 커밋 변경 파일은
+                         `M BACKLOG.md` / `A BACKLOG-S9-R4-RECLASSIFY-DOC-UPDATE.txt` 2건뿐임을
+                         `git show --name-status` 로 확인(남의 파일 삭제·되돌림 0건).
+
 작업명 : BACKLOG-S9-R4-RECLASSIFY-DOC-UPDATE
 ✅ 작업 완료 - BACKLOG-S9-R4-RECLASSIFY-DOC-UPDATE - S9 를 재집계 사실(15→5지점, R1~R3 해결완료)로 갱신하고 R4 를 M16, R5 를 F13 별건으로 분리 등록(문서만 수정, 코드 무변경)
