@@ -1,0 +1,160 @@
+작업명 : BACKLOG-VERIFY-REPO-PUSH-WORKFLOW-STANDARDIZE-DOC
+✅ 작업 완료 - BACKLOG-VERIFY-REPO-PUSH-WORKFLOW-STANDARDIZE-DOC - BACKLOG.md 에 "verify 저장소 운영 규칙" 소섹션 신설(순수 추가 29줄, 기존 내용 무변경) 후 임시 worktree 방식으로 push 완료
+
+작업일 : 2026-07-30
+수정 파일 : E:\verify_reports\BACKLOG.md (1개 파일만)
+커밋 : 30abd35 (origin/main 91550f3 → 30abd35)
+
+
+────────────────────────────────────────────────────────────────────────
+1. 배경
+────────────────────────────────────────────────────────────────────────
+VERIFY-REPO-ORPHAN-COMMIT-PUSH-RECOVERY 에서 확인된 근본 원인 — verify 저장소가
+"공유 작업트리(E:\verify_reports)에 직접 커밋" 방식과 "별도 임시 worktree 에서 push"
+방식이 혼재돼 있어, 공유 트리의 로컬 main 이 다른 세션의 미커밋 변경(BACKLOG.md 등)
+때문에 영원히 origin 대비 "ahead" 로 남는 문제가 실제로 반복 발생함.
+
+사용자가 "앞으로는 항상 임시 worktree 에서 자기 작업 파일만 push 하는 방식으로 통일"
+하기로 확정(2026-07-30). 이 운영 규칙을 모든 세션이 참고하도록 BACKLOG.md 에 기록한다.
+
+
+────────────────────────────────────────────────────────────────────────
+2. 착수 시점 실제 상태 — 문제 패턴이 그대로 재확인됨
+────────────────────────────────────────────────────────────────────────
+공유 작업트리(E:\verify_reports) 상태:
+
+  $ git -C E:/verify_reports status --short
+   M BACKLOG.md                                   ← 타 세션 미커밋 변경 상주
+  ?? BACKLOG-S9-R4-RECLASSIFY-DOC-UPDATE.txt
+  ?? ... (미추적 보고서 총 22건)
+
+  $ git -C E:/verify_reports branch -vv
+  * main b4ae09a [origin/main: ahead 3, behind 15] ...
+
+→ 로컬 main 이 origin 대비 ahead 3 / behind 15.
+→ BACKLOG.md 에 타 세션 미커밋 변경이 살아 있어 pull/merge 가 거부되는, 지침에 적힌
+  바로 그 상태였다. 즉 이번 작업은 문제 패턴이 실재하는 상황에서 새 규칙을
+  그대로 적용한 첫 사례가 된다.
+
+적용 절차(이번 작업이 규정한 방식 그대로):
+
+  1) git -C E:/verify_reports fetch origin
+     → origin/main = 91550f3
+
+  2) git -C E:/verify_reports worktree add --detach \
+       <scratchpad>/wt-backlog-doc origin/main
+     → 공유 트리의 미커밋 BACKLOG.md 와 완전히 무관한 깨끗한 origin/main 사본 확보
+
+  3) 임시 worktree 안에서 BACKLOG.md 만 수정
+     → git status --short 결과: " M BACKLOG.md" 단 1건 (타 세션 변경 유입 0건)
+
+  4) git add BACKLOG.md → commit → git push origin HEAD:main
+     → 91550f3..30abd35 성공
+
+  5) 공유 트리의 미커밋 변경·ahead 상태는 손대지 않음(타 세션 소유물)
+
+
+────────────────────────────────────────────────────────────────────────
+3. 변경 내용
+────────────────────────────────────────────────────────────────────────
+- 기존 BACKLOG.md 에는 "운영 원칙"/"작업 방식" 성격의 섹션이 없었다.
+  (최상단 1~23행은 이 파일 자체의 취합 기준 설명, 26행부터 곧바로 "## 심각")
+- 따라서 지침대로 새 소섹션 "## verify 저장소 운영 규칙" 을 신설했다.
+- 위치: 전문(취합 기준) 뒤, "## 심각(정합성·안전) — 최우선" 앞.
+  → 작업 항목 섹션들보다 앞이라, 파일을 여는 모든 세션이 먼저 읽게 된다.
+- 섹션에 담은 것: ① 규칙 ② 실행 절차(복사 가능한 bash 4줄) ③ 사유 ④ 근거 보고서
+  ⑤ 확정일(2026-07-30, 사용자 확정)
+
+기존 섹션 무변경 검증:
+  $ git diff --stat
+   BACKLOG.md | 29 +++++++++++++++++++++++++++++
+   1 file changed, 29 insertions(+)
+
+  → insertions 29 / deletions 0. 순수 추가만이며 기존 줄은 단 한 줄도 바뀌지 않았다.
+  → 최상단 "최종 갱신" 줄도 의도적으로 건드리지 않았다(지침: 다른 내용 절대 수정 금지).
+
+
+────────────────────────────────────────────────────────────────────────
+4. git diff 전문
+────────────────────────────────────────────────────────────────────────
+diff --git a/BACKLOG.md b/BACKLOG.md
+index fa9af50..e6d8520 100644
+--- a/BACKLOG.md
++++ b/BACKLOG.md
+@@ -23,6 +23,35 @@
+
+ ---
+
++## verify 저장소 운영 규칙
++
++작업 항목이 아니라 **모든 세션이 지켜야 할 운영 규칙**이다. 확정일: 2026-07-30 (사용자 확정).
++
++### 규칙 — push 는 항상 임시 worktree 에서, 자기 작업 파일만
++verify 저장소(`migration-validator-verify`) push 는 **항상 `origin/main` 기반 임시 worktree 를
++새로 만들어 자기 작업 파일만 커밋·push** 하는 방식으로 통일한다.
++공유 작업트리(`E:\verify_reports`)에 직접 커밋하는 방식은 쓰지 않는다.
++
++```bash
++git -C E:/verify_reports fetch origin
++git -C E:/verify_reports worktree add --detach <임시경로> origin/main
++# <임시경로> 에서 자기 작업 파일만 수정/추가 → git add <자기 파일> → commit → push origin HEAD:main
++git -C E:/verify_reports worktree remove <임시경로>
++```
++
++### 사유
++공유 트리에 다른 세션의 미커밋 변경(`BACKLOG.md` 등)이 상주하면 pull/merge 가 계속 거부되어
++로컬 `main` 이 원격 대비 영원히 **"ahead"** 상태로 남는다. 후속 세션이 이 ahead 를
++**"미push 유실"** 로 오인하는 사고가 실제로 반복 발생했다.
++
++- 근거: `VERIFY-REPO-ORPHAN-COMMIT-PUSH-RECOVERY.txt` — 미push 로 보이던 커밋을 blob 해시로
++  대조한 결과 원격과 동일 내용인 중복 커밋이었고, 실제로는 유실이 아니었음이 밝혀졌다.
++- 같은 작업 도중 동일 패턴이 실시간으로 한 번 더 재현됐다(중복 커밋 1건 추가 확인).
++- 임시 worktree 방식은 공유 트리의 미커밋 변경과 무관하게 항상 최신 `origin/main` 위에서
++  자기 파일만 얹으므로, ahead 잔류·타 세션 변경 오염·오인 사고가 구조적으로 생기지 않는다.
++
++---
++
+ ## 심각(정합성·안전) — 최우선
+
+ ### S1. 동일 테이블 UNION 이 wrapping 판정을 못 받아 2번째 브랜치가 전량 소실된다(조용한 과소집계) + fan-out 유일성 게이트까지 꺼진다
+
+
+────────────────────────────────────────────────────────────────────────
+5. push 결과
+────────────────────────────────────────────────────────────────────────
+push 전 최신 fetch:
+  origin/main = 91550f3e86cf67a38649710b18352384bbc08e57
+  HEAD base   = 91550f3e86cf67a38649710b18352384bbc08e57   (동일 — fast-forward 보장)
+
+push:
+  $ git push origin HEAD:main
+  To https://github.com/kr0xx3xxx0xxx-coder/migration-validator-verify.git
+     91550f3..30abd35  HEAD -> main
+
+원격 반영 확인은 본 보고서 커밋과 함께 ls-remote 로 재확인한다.
+
+
+────────────────────────────────────────────────────────────────────────
+6. 병행 작업 간섭 여부
+────────────────────────────────────────────────────────────────────────
+- 이번 작업이 건드린 파일: BACKLOG.md 1개 + 본 보고서 1개(신규).
+- ORPHANED-UNTRACKED-DEV-E2E-DOCS-ATTRIBUTION-COMMIT (scripts/dev_e2e·docs·settings.local.json)
+  → 겹침 없음.
+- REIMPORT-DRILLDOWN-TREE-MERGE-AND-WARNING-HOIST-FIX (ui/tabler_renderer.py)
+  → 겹침 없음(코드 저장소 파일이라 애초에 다른 repo).
+- 임시 worktree 방식이라 공유 트리에 상주 중인 타 세션 미커밋 BACKLOG.md 변경을
+  덮어쓰거나 함께 커밋할 위험 자체가 없었다.
+
+
+────────────────────────────────────────────────────────────────────────
+7. 남은 한계 / 이번 범위 밖
+────────────────────────────────────────────────────────────────────────
+- 공유 트리(E:\verify_reports) 로컬 main 의 "ahead 3 / behind 15" 잔류는 그대로 남겨 뒀다.
+  타 세션의 미커밋 BACKLOG.md 변경이 살아 있는 상태라 정리하려면 그 세션의 변경을
+  건드려야 하므로 손대지 않았다(VERIFY-REPO-ORPHAN-COMMIT-PUSH-RECOVERY 에서도 동일 사유로 보류).
+  → 이번 규칙이 지켜지면 앞으로 ahead 가 새로 쌓이지는 않는다.
+- 이 규칙은 문서에만 기록됐고 강제 수단(pre-push 훅 등)은 없다. 훅으로 강제할지 여부는
+  별건.
+
+작업명 : BACKLOG-VERIFY-REPO-PUSH-WORKFLOW-STANDARDIZE-DOC
+✅ 작업 완료 - BACKLOG-VERIFY-REPO-PUSH-WORKFLOW-STANDARDIZE-DOC - BACKLOG.md 에 "verify 저장소 운영 규칙" 소섹션 신설(순수 추가 29줄, 기존 내용 무변경) 후 임시 worktree 방식으로 push 완료
