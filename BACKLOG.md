@@ -472,6 +472,9 @@ git -C E:/verify_reports worktree remove <임시경로>
   채우도록 배선한다. 캐릭터셋 조회(`build_db_charset_query`)는 이미 있으므로 그것을 호출해
   `ColumnMeta.charset` 을 채우는 코드만 추가하면 된다.
 - 참고: E:\verify_reports\VARCHAR2-BYTE-CHAR-CAPACITY-COMPARISON-FIX.txt
+- 우선순위: 낮음 — 이 도구의 핵심 검증 책무(이관쿼리/매핑정의서를 신뢰하고 그 기준대로 통계·전수 검증)와는
+  층위가 다른 참고용 보조 신호다. 매핑 자체의 타당성을 심사하는 기능이 아니라, 후보 컬럼 확정 전 스키마
+  레벨의 부가 경고일 뿐이다. 사용자 확정(2026-07-30).
 
 ### F15. MSSQL 도 VARCHAR/NVARCHAR 구분 미조회로 동일한 실효수용량 축소 위험이 있으나, 컬럼 메타 조회 자체가 구현돼 있지 않다
 - 발견일: 2026-07-30
@@ -488,6 +491,9 @@ git -C E:/verify_reports worktree remove <임시경로>
   이후 오라클과 같은 패턴(`char_used` 상당값 + 캐릭터셋)으로 확장한다. 기존 `_effective_char_capacity` ·
   비교 로직은 방언 중립으로 설계돼 있어 수정이 필요 없다.
 - 참고: E:\verify_reports\VARCHAR2-BYTE-CHAR-CAPACITY-COMPARISON-FIX.txt
+- 우선순위: 낮음 — 이 도구의 핵심 검증 책무(이관쿼리/매핑정의서를 신뢰하고 그 기준대로 통계·전수 검증)와는
+  층위가 다른 참고용 보조 신호다. 매핑 자체의 타당성을 심사하는 기능이 아니라, 후보 컬럼 확정 전 스키마
+  레벨의 부가 경고일 뿐이다. 사용자 확정(2026-07-30).
 
 ### F13. ✅ 해결 완료 — count_gate export 의 서버 방언 사전 게이트를 UI 가 소비하지 않는다(반쪽 배선, S9 에서 분리)
 - 해결일: 2026-07-30 (COUNT-GATE-EXPORT-UI-DIALECT-GATE-CONSUME-FIX)

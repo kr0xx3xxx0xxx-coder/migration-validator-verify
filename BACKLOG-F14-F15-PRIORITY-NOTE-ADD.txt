@@ -1,0 +1,47 @@
+작업명 : BACKLOG-F14-F15-PRIORITY-NOTE-ADD
+✅ 작업 완료 - BACKLOG-F14-F15-PRIORITY-NOTE-ADD - BACKLOG.md 의 F14·F15 각 항목 끝에 "우선순위: 낮음 —
+핵심 검증 책무와 층위가 다른 참고용 보조 신호(사용자 확정 2026-07-30)" 문구를 지시 문장 그대로 1개씩
+추가(+6줄 / -0줄)하고 verify 저장소 push 완료
+
+■ 1. 수정 범위
+- 수정 파일: BACKLOG.md (verify 저장소 루트) 1개 — 그 외 파일 변경 없음
+- 변경 성격: 순수 추가(6줄 추가 / 0줄 삭제 / 0줄 변경). 기존 상세·대응 방향·선행 과제·참고 줄 전부 불변
+- 배치: F14·F15 각 항목의 **마지막 줄(`- 참고:` 다음)** 에 `- 우선순위:` 불릿 1개씩 추가
+  (지시의 "기존 상세/대응방향은 그대로 두고 끝에 추가" 를 문자 그대로 따랐다)
+- 문구: 지시문과 동일. 100컬럼 관례에 맞춰 3줄로 줄바꿈만 했고 문자열 자체는 가감 없음
+
+■ 2. 추가된 문구(F14·F15 동일)
+- 우선순위: 낮음 — 이 도구의 핵심 검증 책무(이관쿼리/매핑정의서를 신뢰하고 그 기준대로 통계·전수 검증)와는
+  층위가 다른 참고용 보조 신호다. 매핑 자체의 타당성을 심사하는 기능이 아니라, 후보 컬럼 확정 전 스키마
+  레벨의 부가 경고일 뿐이다. 사용자 확정(2026-07-30).
+
+■ 3. 대상 파일 위치 확인(중요)
+- 지시는 "BACKLOG.md" 였으나 **코드 저장소(C:\projects\migration-validator)에는 BACKLOG.md 가 없다**
+  (glob·`git log --all -- BACKLOG.md` 모두 0건). 실제 파일은 verify 저장소 `E:\verify_reports\BACKLOG.md`
+  이며, F14·F15 는 그 파일 :460 / :476 에 등록돼 있어 대상 파일로 확정했다.
+- F14·F15 는 이미 원격에 커밋된 상태였다(origin/main `08705a9`
+  `docs(backlog): VARCHAR2 실효수용량 provider 배선 공백·MSSQL 동종 위험 2건 등록`) — 따라서 남의
+  미커밋 변경을 커밋할 위험 없이 `origin/main` 기반으로 작업할 수 있었다.
+
+■ 4. 무회귀 / 무접촉 확인
+- 임시 worktree `git status --porcelain` = ` M BACKLOG.md` 1건 → 내 파일만 staged·commit 됨을 커밋 전 확인
+- `git diff --stat` = `BACKLOG.md | 6 ++++++`, `1 file changed, 6 insertions(+)` — 삭제·수정 0줄
+- 공유 트리(`E:\verify_reports`) 무접촉 증명: 작업 전 `git status --porcelain BACKLOG.md` = ` M BACKLOG.md`,
+  작업 후에도 동일. 공유 트리에 커밋·reset·checkout 을 전혀 하지 않았다(§verify 저장소 운영 규칙 준수).
+- 코드·화면 무관 문서 작업이라 스크린샷·테스트 실행 없음
+
+■ 5. push 절차(verify 저장소 운영 규칙 준수)
+1) `git -C E:/verify_reports fetch origin`
+2) `git -C E:/verify_reports worktree add --detach <스크래치>/verify_push_f14f15 origin/main` (470755a)
+3) worktree 에서 BACKLOG.md 편집 + 이 보고서 작성 → `git add` (내 파일 2개만) → commit
+4) `git push origin HEAD:main` → `git ls-remote origin main` 로 원격 tip 대조
+5) `git worktree remove --force` 로 임시 worktree 정리
+
+■ 6. 병행 작업 간섭 확인
+- 동시 진행 중인 REIMPORT-DRILLDOWN-NOTICE-DEDUP-AND-TAB-EXPAND-STATE-PERSIST-FIX,
+  LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE 는 코드 저장소 파일을 다루므로
+  이 작업(verify 저장소 BACKLOG.md 1개)과 겹치는 파일 0건
+- 공유 트리의 남의 미커밋 BACKLOG.md 변경(214줄 삽입, 이미 원격에 반영된 내용)은 건드리지 않았다
+
+✅ 작업 완료 - BACKLOG-F14-F15-PRIORITY-NOTE-ADD - F14·F15 우선순위 참고 문구 각 1개 추가(+6/-0), 공유 트리
+무접촉 임시 worktree 에서 내 파일만 커밋·push 완료
