@@ -1,0 +1,229 @@
+작업명 : TABLE-KEY-META-ORACLE-COLUMN-QUERY-DELEGATION-FIX
+✅ 작업 완료 - TABLE-KEY-META-ORACLE-COLUMN-QUERY-DELEGATION-FIX - _table_key_meta 의 컬럼 타입/nullable 조회를 어댑터 위임 폴백으로 확장해 오라클 SCHEMA_META_MISSING 고정 결함 해소(PG 경로 무변경·무회귀)
+
+작성일: 2026-07-30
+대상 파일: services/diagnosis/key_evidence.py (지침대로 이 파일만 수정)
+코드 저장소 커밋: 348ec6fca4921f5e1a9c5f706ed084860fcc432c
+
+────────────────────────────────────────────────────────────────────────
+1. 배경 / 원인
+────────────────────────────────────────────────────────────────────────
+services/diagnosis/key_evidence.py::_table_key_meta 의 컬럼 타입/nullable 조회가
+information_schema.columns 로 PostgreSQL 전용 하드코딩돼 있었다. 오라클에는
+information_schema 가 없어 이 조회가 항상 빈 결과가 되고, 그 결과
+
+  build_chunk_key_evidence_snapshot
+    → tmeta = {} / smeta = {}
+    → source_exists=false / target_exists=false
+    → verdict=NOT_TRUSTED, reason=SCHEMA_META_MISSING
+
+로 고정됐다. PK 제약 조회는 선행 작업(MATCH-KEY-ORACLE-DIALECT-DELEGATION-FIX)에서
+이미 어댑터(get_adapter(db_type).fetch_key_metadata)로 방언 위임된 상태였고,
+컬럼 조회만 PG 전용으로 남아 있었다.
+
+근거: verify 저장소 STRATEGY-PLAN-PK-KIND-HARDCODE-FIX.txt (§2-(b) / §9-(c)), BACKLOG.md S11
+
+────────────────────────────────────────────────────────────────────────
+2. 병행 확인 (지침 요구사항)
+────────────────────────────────────────────────────────────────────────
+작업 시작 전 git status 확인 결과, services/db_adapters/oracle.py 는 워킹트리에
+변경이 없었다(S13 지침 미시작). 본 작업은 오라클 어댑터의 컬럼조회 함수를
+"읽기(재사용)"만 하고 수정하지 않았으므로 시그니처 충돌 없음.
+
+시작 시점 워킹트리 변경(모두 타 세션 작업, 본 작업과 무관):
+  M tests/test_runexecute_result_ui_static.py
+  M ui/execute_result_renderer.py
+  M ui/tabler_renderer.py
+  ?? scripts/dev_e2e/reimport_drilldown_tree_merge_and_warning_hoist_verify.py
+  ?? scripts/dev_e2e/tree_merge_multigroup_fixture.py
+
+※ 작업 도중 병행 세션이 같은 저장소에 커밋(a33251df, REIMPORT-DRILLDOWN-TREE-MERGE...)을
+   수행했다. 해당 커밋 파일 목록을 대조해 본 작업 파일이 섞이지 않았음을 확인했고,
+   본 작업 커밋은 경로를 명시(git commit -- <경로>)해 자기 3개 파일만 담았다.
+
+────────────────────────────────────────────────────────────────────────
+3. 수정 내용
+────────────────────────────────────────────────────────────────────────
+services/diagnosis/key_evidence.py — 54 insertions(+), 2 deletions(-)
+
+(a) 신설: _table_key_meta_from_adapter(conn, table, keymeta)
+    - 앱 공통 컬럼메타 경로 _fetch_columns_info(→ 어댑터 build_column_meta_query)와
+      adapter.normalize_type 을 그대로 재사용한다.
+    - 새 카탈로그 SQL 을 작성하지 않았다(지침 준수). 이미 있는 오라클 어댑터의
+      build_column_meta_query 를 공통 경로를 통해 호출한다.
+    - 같은 파일의 _columns() 가 이미 쓰고 있는 어댑터 위임 경로와 동일한 구조다.
+    - 이 경로는 readonly SELECT 가드(sqlglot)를 거치지 않으므로 오라클 어댑터 쿼리의
+      `:1` 수치 바인드가 파서에 막히지 않는다.
+
+(b) _table_key_meta 확장 — 폴백 체인 1줄 추가
+        if not out:
+            out = _table_key_meta_from_adapter(conn, table, keymeta)
+    - 1차 information_schema.columns 조회(= 기존 PostgreSQL 경로)는 문자 하나 바꾸지 않았다.
+    - 분기 기준이 db_type 인라인 if/elif 가 아니라 "1차 조회 결과 없음"이다
+      (지침의 '방언별 인라인 분기 금지' 준수, 기존 폴백체인 패턴과 동일).
+    - PK/키컬럼수는 이미 어댑터 위임된 2)의 결과(keymeta)를 그대로 재사용한다(추가 왕복 없음).
+
+(c) 폴백 경로의 nullable 취급 — 구조적 한계와 선택
+    어댑터 컬럼메타 계약(table/col/type/length — 4·5컬럼 shape)에는 nullable 이 없다.
+    전 방언 어댑터를 확인했으나 nullable 을 제공하는 함수는 존재하지 않는다
+    (build_column_meta_query / build_tgt_column_meta_query / fetch_key_metadata 전부 미포함).
+    지침이 "새 카탈로그 SQL 작성 금지 / key_evidence.py 만 수정"이므로,
+    PK 제약에서만 NOT NULL 을 도출했다(PK 컬럼은 전 방언에서 NOT NULL 강제).
+    PK 가 아닌 컬럼은 '미상'이며 안전 측(is_nullable=True)으로 둔다
+    → 잘못된 CONFIRMED 를 만들지 않고 최악이라도 HOLD 로 남는다(자동 CONFIRMED 금지 원칙).
+    이 메타의 소비처(build_chunk_key_evidence_snapshot)는 target 물리 PK 컬럼만 chunk key
+    후보로 삼고 source 도 그 PK 로 이어지는 passthrough 컬럼만 보므로 실무 판정에는 영향이 없다.
+    (잔여 한계는 §8 참고)
+
+────────────────────────────────────────────────────────────────────────
+4. 오라클 3종 픽스처 실측 — 전/후 대조
+────────────────────────────────────────────────────────────────────────
+환경: 오라클 라이브 실 DB (프리셋 Oracle_asis / Oracle_tobe, 스키마 NXDNP)
+드라이버: scripts/dev_e2e/table_key_meta_oracle_column_delegation_verify.py [before|after]
+산출: scripts/dev_e2e/_table_key_meta_oracle_delegation_{before,after}.json
+
+■ BEFORE (수정 전, 실제 실행)
+  [숫자 단일 PK] NXDNP.MV_ORA_DEMO_SRC → NXDNP.MV_ORA_DEMO_TGT
+    _table_key_meta(tgt) = {"columns": 0, "pk_cols": [], "not_null_cols": [], "types": {}}
+    _table_key_meta(src) = {"columns": 0, "pk_cols": [], "not_null_cols": [], "types": {}}
+    snapshot = verdict=NOT_TRUSTED, reason=SCHEMA_META_MISSING,
+               source_exists=false, target_exists=false
+  [문자 단일 PK] NXDNP.MV_CSPK_SRC → NXDNP.MV_CSPK_TGT
+    _table_key_meta(tgt/src) = columns 0 / 0
+    snapshot = verdict=NOT_TRUSTED, reason=SCHEMA_META_MISSING
+  [복합 PK] NXDNP.MV_CSPK_TGT → NXDNP.MV_CSPK_SRC
+    _table_key_meta(tgt/src) = columns 0 / 0
+    snapshot = verdict=NOT_TRUSTED, reason=SCHEMA_META_MISSING
+  → SCHEMA_META_MISSING 3/3건 (지침이 명시한 before 상태와 일치)
+
+■ AFTER (수정 후, 실제 실행)
+  [숫자 단일 PK] NXDNP.MV_ORA_DEMO_SRC → NXDNP.MV_ORA_DEMO_TGT
+    _table_key_meta(tgt) = {"columns": 7, "pk_cols": ["ID"], "not_null_cols": ["ID"],
+                            "types": {"NUMBER": 2, "TEXT": 5}}
+    _table_key_meta(src) = {"columns": 7, "pk_cols": ["ID"], "not_null_cols": ["ID"],
+                            "types": {"NUMBER": 2, "TEXT": 5}}
+    snapshot = verdict=TRUSTED_PHYSICAL_PK, reason="",
+               source_exists=true, target_exists=true,
+               src_column=ID, tgt_column=ID, type=NUMBER            ← 정상 확정
+  [문자 단일 PK] NXDNP.MV_CSPK_SRC → NXDNP.MV_CSPK_TGT
+    _table_key_meta(tgt) = {"columns": 6, "pk_cols": ["PK_STR"], "not_null_cols": ["PK_STR"],
+                            "types": {"TEXT": 3, "NUMBER": 2, "DATE_TIME": 1}}
+    _table_key_meta(src) = {"columns": 7, "pk_cols": ["REGION_CD","SEQ_NO"],
+                            "not_null_cols": ["REGION_CD","SEQ_NO"],
+                            "types": {"TEXT": 3, "NUMBER": 3, "DATE_TIME": 1}}
+    snapshot = verdict=NOT_TRUSTED, reason=PK_NOT_TRUSTABLE,
+               source_exists=true, target_exists=true               ← 정상 사유(문자 PK 는 범위 chunk 불가)
+  [복합 PK] NXDNP.MV_CSPK_TGT → NXDNP.MV_CSPK_SRC
+    _table_key_meta(tgt) = {"columns": 7, "pk_cols": ["REGION_CD","SEQ_NO"], ...}
+    _table_key_meta(src) = {"columns": 6, "pk_cols": ["PK_STR"], ...}
+    snapshot = verdict=NOT_TRUSTED, reason=NO_SINGLE_COLUMN_PK,
+               source_exists=true, target_exists=true               ← 정상 사유(복합 PK 제외)
+  → SCHEMA_META_MISSING 0/3건. 컬럼 메타가 실제로 조회되고(6~7컬럼), 타입 정규화도
+    NUMBER/TEXT/DATE_TIME 로 정확히 분류됐다(어댑터 normalize_type 위임 효과).
+
+핵심 전/후 차이: 오라클에서 컬럼 메타 0건 → 6~7건으로 복원되었고,
+"메타가 없어서 판단 불가(SCHEMA_META_MISSING)"가 "메타를 보고 내린 정상 판정"으로 바뀌었다.
+숫자 단일 PK 케이스는 HOLD 가 아니라 TRUSTED_PHYSICAL_PK 로 확정된다.
+
+────────────────────────────────────────────────────────────────────────
+5. PostgreSQL 경로 무회귀 검증
+────────────────────────────────────────────────────────────────────────
+실 PG 라이브 노드는 전 노드 접속 불가였다(수정과 무관한 환경 문제, 실제 확인):
+  - Neon 3계열(PostgreSQL_asis / _tobe / _NEW_asis / _NEW_tobe): OperationalError(쿼터/거부)
+  - 내부망 192.168.0.150:5433/5434 4건(Inter_asis / Inter_tobesrc / Inter_tobe / nxdnp_src):
+    timeout expired
+따라서 PG 라이브 대조 대신 DB 계층을 스텁으로 고정해 바이트 단위로 대조했다.
+
+드라이버: scripts/dev_e2e/table_key_meta_pg_no_regression_verify.py [before|after]
+검증 항목: (a) 실행 SQL 문자열 (b) params (c) 반환 dict 전체
+          (d) 어댑터 컬럼조회 경로 호출 횟수(PG 에서 0 이어야 경로 불변)
+
+  [schema 있음] SQL = SELECT column_name, data_type, is_nullable FROM information_schema.columns
+                      WHERE lower(table_name) = lower(%s) AND lower(table_schema) = lower(%s)
+                params = ['orders', 'public'] / 반환 5컬럼 / PK=['ORDER_ID']
+                어댑터 컬럼조회 호출수 = 0
+  [schema 없음] SQL = SELECT column_name, data_type, is_nullable FROM information_schema.columns
+                      WHERE lower(table_name) = lower(%s)
+                params = ['orders'] / 반환 5컬럼 / PK=['ORDER_ID']
+                어댑터 컬럼조회 호출수 = 0
+
+  결과: ✅ PG 경로 무회귀 — before/after JSON 완전 동일(SQL·params·반환 dict 전부)
+  (PG 는 정상 조회 시 1차에서 반환되므로 신설 폴백에 진입하지 않는다 = 호출수 0 으로 증명)
+
+────────────────────────────────────────────────────────────────────────
+6. pytest 회귀 — baseline 대조
+────────────────────────────────────────────────────────────────────────
+서브셋 선정: key_evidence / chunk_key_evidence / _table_key_meta / _pk_unique /
+resolve_trusted_chunk_key 를 참조하는 테스트 전체(23개 파일).
+
+  수정 전(baseline): 3 failed, 242 passed, 9 skipped, 1 xfailed (81.56s)
+  수정 후(1회차)   : 4 failed, 241 passed, 9 skipped, 1 xfailed (81.24s)
+  수정 후(2회차)   : 3 failed, 242 passed, 9 skipped, 1 xfailed (86.78s)
+
+■ 실패 테스트 전체 목록 (최종 = baseline 과 동일 집합, 전부 본 수정 이전부터 실패)
+  1) tests/test_count_gate.py::test_ui_gate_display_and_blocking
+  2) tests/test_diagnosis_phase3b.py::test_next_strategy_preview_matrix
+  3) tests/test_diagnosis_phase3b.py::test_start_passes_confirmed_chunk_key
+
+■ 1회차에만 나타난 1건 — 본 수정 무관(flaky)으로 판정
+  tests/test_metadata_collection_phase_b.py::TestHeartbeatStale::test_heartbeat_updated_and_prevents_stale
+  귀속 판정 근거:
+    - 단독 실행 2회 연속 통과, 해당 파일 전체(11건) 단독 실행도 전건 통과
+    - 서브셋 2회차 재실행에서 재현되지 않음(3 failed 로 baseline 복귀)
+    - 이 테스트는 _table_key_meta / key_evidence 경로를 전혀 경유하지 않는다
+      (metadata_collection_store 의 heartbeat·stale 판정만 사용)
+    - stale_seconds=1 의 시간 경계에 의존하는 구조라 부하에 따라 흔들린다
+  → 본 수정 귀속 회귀 0건.
+
+────────────────────────────────────────────────────────────────────────
+7. 변경/생성 파일
+────────────────────────────────────────────────────────────────────────
+수정 (1개 — 지침 대상):
+  services/diagnosis/key_evidence.py                                      (+54 / -2)
+신규 (검증 드라이버, 운영 파이프라인 아님):
+  scripts/dev_e2e/table_key_meta_oracle_column_delegation_verify.py
+  scripts/dev_e2e/table_key_meta_pg_no_regression_verify.py
+산출물 (.gitignore 대상이라 미커밋 — 내용은 §4·§5 에 전재):
+  scripts/dev_e2e/_table_key_meta_oracle_delegation_{before,after}.json
+  scripts/dev_e2e/_table_key_meta_pg_regression_{before,after}.json
+
+코드 저장소 커밋: 348ec6fca4921f5e1a9c5f706ed084860fcc432c
+  fix(diagnosis): _table_key_meta 컬럼조회 오라클 어댑터 위임 폴백
+                  (TABLE-KEY-META-ORACLE-COLUMN-QUERY-DELEGATION-FIX)
+  포함 파일 3개(경로 명시 커밋으로 타 세션 변경 미포함), pre-commit 비밀번호 스캔 통과
+
+git diff 요약 (services/diagnosis/key_evidence.py):
+  + def _table_key_meta_from_adapter(conn, table, keymeta) -> dict:   (신설, 한글 주석 포함)
+  +     info = _fetch_columns_info(conn, [tbl])            # 어댑터 위임(새 SQL 없음)
+  +     adapter.normalize_type(raw)                        # 타입 정규화도 어댑터 위임
+  +     "is_nullable": (not is_pk)                         # PK 만 NOT NULL 확정
+    def _table_key_meta(...):
+        ... (1차 information_schema 조회 — 변경 없음) ...
+  +     if not out:
+  +         out = _table_key_meta_from_adapter(conn, table, keymeta)
+
+────────────────────────────────────────────────────────────────────────
+8. 잔여 한계 / 후속 (비판적 검토)
+────────────────────────────────────────────────────────────────────────
+(a) 폴백 경로에서 비-PK 컬럼의 NOT NULL 을 알 수 없다(어댑터 계약에 nullable 부재).
+    현재 소비처가 PK 컬럼만 후보로 삼아 실무 영향은 없지만, 향후 비-PK 컬럼의
+    NOT NULL 이 판정에 필요해지면 어댑터 컬럼메타 계약에 nullable 을 추가해야 한다
+    (오라클 ALL_TAB_COLUMNS.nullable, PG information_schema.is_nullable).
+    → 어댑터 파일 수정이 필요하므로 이번 지침 범위(key_evidence.py 만) 밖. 후속 항목.
+(b) 같은 파일의 _column_meta_full(:198) 도 information_schema 하드코딩이 남아 있다.
+    현재 파일 내 호출부가 없어(사용처 0) 이번 범위에서 건드리지 않았다. 정리 대상 후보.
+(c) MySQL/MSSQL 은 이번 범위 밖(지침 명시). 두 어댑터는 build_column_meta_query 를
+    제공하므로 이 폴백 구조를 그대로 타지만, 실 DB 실측은 하지 않았다(미검증으로 남김).
+(d) 폴백은 1차 조회가 빈 결과일 때만 진입하므로, PG 에서 테이블이 실제로 존재하지 않는
+    경우에만 어댑터 조회 1회가 추가로 발생한다. 최종 반환값은 {} 로 동일하다(결과 불변).
+
+────────────────────────────────────────────────────────────────────────
+9. 실검증 상태
+────────────────────────────────────────────────────────────────────────
+실검증 상태: 완료 (오라클 라이브 실 DB — 프리셋 Oracle_asis / Oracle_tobe, 스키마 NXDNP,
+PK 구조 3종 픽스처 MV_ORA_DEMO_SRC/TGT · MV_CSPK_SRC · MV_CSPK_TGT 로 수정 전/후 각각 실제 실행.
+PostgreSQL 은 전 노드 접속 불가(Neon 쿼터 거부 + 내부망 timeout)로 라이브 대조 불가 →
+DB 계층 스텁 고정 방식으로 SQL·params·반환 dict 바이트 동일성 무회귀 증명.
+화면 무관 작업이라 스크린샷 없음)
+
+✅ 작업 완료 - TABLE-KEY-META-ORACLE-COLUMN-QUERY-DELEGATION-FIX - _table_key_meta 의 컬럼 타입/nullable 조회를 어댑터 위임 폴백으로 확장해 오라클 SCHEMA_META_MISSING 고정 결함 해소(오라클 3종 실측 전/후 대조, PG 무회귀, 회귀 0건)
