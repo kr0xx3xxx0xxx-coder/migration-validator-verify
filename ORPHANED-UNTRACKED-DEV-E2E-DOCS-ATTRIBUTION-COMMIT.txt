@@ -1,0 +1,215 @@
+작업명 : ORPHANED-UNTRACKED-DEV-E2E-DOCS-ATTRIBUTION-COMMIT
+✅ 작업 완료 - ORPHANED-UNTRACKED-DEV-E2E-DOCS-ATTRIBUTION-COMMIT - 미추적 111건 + settings.local.json 1건을 완료보고서 대조로 46개 작업에 귀속시켜 작업별 분리 커밋(귀속 불명 0건)
+
+==============================================================================
+1. 배경
+==============================================================================
+URGENT-WORKINGTREE-UNCOMMITTED-STACK-COMMIT-RECOVERY 에서 '5개 작업 어디에도 정확히
+귀속 안 됨'으로 커밋이 보류됐던 미추적 113건(scripts/dev_e2e 98, docs 13, db WAL 2)의
+귀속을 확정하고 커밋까지 마무리했다. db WAL 2건은 지침대로 건드리지 않았으며, 병행
+작업 GITIGNORE-DB-WAL-PATTERN-FIX 가 .gitignore 패턴을 커밋(2cc77bd)해 추적 대상에서
+제외됐다.
+
+==============================================================================
+2. 귀속 방법 — 증거 계층
+==============================================================================
+지침대로 E:\verify_reports 완료보고서와 대조하되, 파일명 유사도만으로는 오귀속 위험이
+커서 아래 3계층 증거를 사용했다.
+
+  S (주 증거)  : 파일 자신의 헤더(docstring/제목줄)가 선언한 작업명
+                 예) stats_chunk_tradeoff_measure.py 헤더 →
+                     'STATS-VALIDATION-CHUNKED-VS-SINGLE-TRADEOFF-DIAGNOSE'
+  E1 (교차)    : 다른 완료보고서 본문이 그 파일명을 언급
+  E3 (참고)    : 파일명 ↔ 보고서명 토큰 유사도
+
+[중요] URGENT-WORKINGTREE-UNCOMMITTED-STACK-COMMIT-RECOVERY.txt 는 111건 전체를
+나열한 인벤토리 보고서라 모든 파일에 매칭된다. 이를 증거로 쓰면 전부 그 작업으로
+오귀속되므로 증거 집합에서 제외했다.
+
+111건 중 105건은 헤더가 작업명을 스스로 선언해 S 로 확정했고, 나머지 6건은 아래와 같이
+수동 확정했다.
+
+  _hb_orbranch_40.py / _hb_wave2_orbranch_scaling.py / _hb_wave2_variance.py
+      → 헤더 선언 없음. 세 파일 모두
+        hash_bucket_sort_avoidance_viability_diagnose.py 를 import 하는 파생 측정
+        스크립트이고, 해당 완료보고서 본문이 파일명을 언급(E1) →
+        HASH-BUCKET-STRATEGY-SORT-AVOIDANCE-VIABILITY-DIAGNOSE
+  hash_bucket_wave2_realistic.py
+      → 헤더가 'HASH-BUCKET-...-VIABILITY-DIAGNOSE' 로 축약 표기돼 자동 추출 실패.
+        E1 로 동일 작업 확정
+  _PLAIN-JOIN-WRAPPING-EXPLAIN-PLANS.txt
+      → 실행계획 원문 산출물(스크립트 아님). 파일명 + 완료보고서 본문 언급 →
+        PLAIN-JOIN-WRAPPING-NECESSITY-DIAGNOSE
+  reg_dt_live_clickthrough_verify.py
+      → 헤더 선언이 'REG-DT-BADGE' 로 잘려 인식됨. 파일 내 전체 슬러그
+        'REG-DT-BADGE-LIVE-CLICKTHROUGH' 확인 후 적용
+
+==============================================================================
+3. 귀속 불명 파일 — 0건
+==============================================================================
+지침 3항이 대비한 '어느 작업에도 매칭 안 되는 파일'은 최종적으로 0건이었다.
+따라서 '귀속 불명 일괄 보존' 커밋은 만들지 않았다.
+
+다만 아래 커밋들은 자체 선언 작업명은 명확하나 E:\verify_reports 에 동명 .txt 완료
+보고서가 없다(20건). 증적 저장소가 과거 VERIFY-REPO-CLEANUP-ALL-FILES /
+VERIFY-REPO-ACCIDENTAL-DELETION-RECOVERY 를 겪어 보고서 일부가 유실된 것으로 보인다.
+작업 자체는 파일 헤더로 특정되므로 '귀속 불명'이 아니라 '보고서 미존재'로 분류했다.
+
+  747d518  [ 1건]  AMBIGUOUS-ADMIN-COLUMN-BADGE-FIX
+  a573765  [ 1건]  AXIS-A-NONE-VS-FALSE-MISCLASSIFICATION-DIAGNOSE
+  3b68634  [ 1건]  BATCH-COUNT-TAB-DISPLAY-DIAGNOSE-AND-FIX
+  9f8d3ef  [ 1건]  CACHE-REUSE-VERIFY-ASIS-REAL-FIXTURE-REPLAY
+  38acd10  [ 1건]  CONTRACT-UTILS-HELPER-SETUP
+  c60e331  [ 1건]  CTE-JOIN-REIMPORT-PK-INDEX-CACHE-REUSE-VERIFY
+  716a78d  [ 1건]  CTE-JOIN-ROW-LEVEL-REIMPORT-SUPPORT-ONECLICK-IDONLY-GAP-DIAGNOSE
+  e57a046  [ 1건]  DRILLDOWN-GROUP-TABLE-HEADER-ADD
+  3ebb0cc  [ 3건]  FIRST-RESULT-DISPLAY-25SEC-LATENCY-DIAGNOSE
+  9299cea  [ 1건]  FK-EVIDENCE-UI-DISPLAY-WIRING
+  509efbc  [ 2건]  HASH-BUCKET-ORACLE-PORT-FEASIBILITY-DIAGNOSE
+  5574e50  [ 1건]  ORACLE-DEMO-TABLE-FOR-MANUAL-BROWSER-TEST
+  ef80fbd  [ 3건]  ORACLE-LIVE-VERIFY-ENCRYPTED-COMMENT-AUDIT
+  9f128d6  [ 1건]  PERFORMANCE-DISPLAY-STALE-RUN-AND-LABEL-FIX
+  08e9819  [ 1건]  REG-DT-BADGE-LIVE-CLICKTHROUGH
+  ea244df  [ 2건]  REIMPORT-JOIN-FANOUT-PK-UNIQUENESS-GUARD-DIAGNOSE
+  fa8976e  [ 1건]  STATS-VALIDATION-DATE-BUCKET-ORACLE-LIVE-E2E-UPGRADE
+  ab512b6  [ 6건]  STATS-VALIDATION-JOB-ORPHAN-CLEANUP-DIAGNOSE
+  9417c3c  [ 2건]  UNDERSCORE-ALIAS-KEY-RANGE-HASH-BUCKET-DIAGNOSE
+  2aa8c26  [ 1건]  URGENT-SERVER-JS-BROKEN-ALL-MENU-UNRESPONSIVE
+
+==============================================================================
+4. .claude/settings.local.json 확인 결과 — 지침 4항
+==============================================================================
+추정대로 STATS-VALIDATION-EXECUTE-BUTTON-NO-RESPONSE-DIAGNOSE 소속이 맞다.
+추가된 2줄이 해당 작업의 진단 스크립트를 파일 경로째로 지목한다.
+
+  + "Bash(timeout 1500 MV_TAG=diag2 python scripts/dev_e2e/stats_validation_execute_button_no_response_diagnose.py)"
+  + "Bash(export MV_TAG=diag2)"
+
+경로가 stats_validation_execute_button_no_response_diagnose.py 이고 MV_TAG=diag2 가
+일치하므로 해당 작업명으로 커밋했다(8478677). 미커밋으로 남기지 않았다.
+
+==============================================================================
+5. 파일 유효성 사전 확인 — 지침 5항
+==============================================================================
+  · 빈 파일 0건 — 최소 672 bytes(_hb_orbranch_40.py), 합계 1,388,528 bytes
+  · 커밋 전 .py 96건 전량 python -m py_compile 통과
+    (multi_groupby_representative_axis_diagnose.py:354 에 SyntaxWarning 1건 —
+     Python 문자열 안의 JS 정규식 \s 로 인한 경고이며 구문 오류 아님)
+  · 커밋 후 무작위 5건 재확인 전량 통과:
+      cte_join_cache_reuse_asis_real_replay.py
+      _hb_wave2_orbranch_scaling.py
+      stats_validation_orphan_countonly_polling_repro.py
+      stats_plan_service_groupby_str_dict_check.py
+      reimport_countonly_phase_cost_probe.py
+
+==============================================================================
+6. 커밋 목록 — 46건 (해시 | 파일수 | 작업명)
+==============================================================================
+747d518 *[ 1건]  AMBIGUOUS-ADMIN-COLUMN-BADGE-FIX
+a573765 *[ 1건]  AXIS-A-NONE-VS-FALSE-MISCLASSIFICATION-DIAGNOSE
+3b68634 *[ 1건]  BATCH-COUNT-TAB-DISPLAY-DIAGNOSE-AND-FIX
+77b8102  [ 2건]  BATCH-VALIDATION-PROGRESS-DASHBOARD-FEASIBILITY-DIAGNOSE
+9f8d3ef *[ 1건]  CACHE-REUSE-VERIFY-ASIS-REAL-FIXTURE-REPLAY
+85fd500  [ 2건]  CHARACTER-PK-SILENT-FALSE-MATCH-1M-REPRODUCE
+38acd10 *[ 1건]  CONTRACT-UTILS-HELPER-SETUP
+57500d7  [ 2건]  COUNT-GATE-EXPORT-UI-DIALECT-GATE-CONSUME-FIX
+c60e331 *[ 1건]  CTE-JOIN-REIMPORT-PK-INDEX-CACHE-REUSE-VERIFY
+716a78d *[ 1건]  CTE-JOIN-ROW-LEVEL-REIMPORT-SUPPORT-ONECLICK-IDONLY-GAP-DIAGNOSE
+8a167cc  [ 3건]  DB-CONNECTION-STATE-LOST-ON-REFRESH-REGRESSION-DIAGNOSE
+b0b5a6d  [ 1건]  DISPLAY-TIER-D4-100RECORD-CUTOFF-BEHAVIOR-DIAGNOSE
+e57a046 *[ 1건]  DRILLDOWN-GROUP-TABLE-HEADER-ADD
+3ebb0cc *[ 3건]  FIRST-RESULT-DISPLAY-25SEC-LATENCY-DIAGNOSE
+9299cea *[ 1건]  FK-EVIDENCE-UI-DISPLAY-WIRING
+1565ec7  [ 1건]  HASH-BUCKET-ORACLE-PORT-DESIGN-FINALIZE
+509efbc *[ 2건]  HASH-BUCKET-ORACLE-PORT-FEASIBILITY-DIAGNOSE
+f3780d3  [ 8건]  HASH-BUCKET-STRATEGY-SORT-AVOIDANCE-VIABILITY-DIAGNOSE
+717ad7a  [ 2건]  LEFT-MENU-USAGE-AUDIT-AND-CONSOLIDATION-DIAGNOSE
+424f0f3  [ 2건]  ORACLE-COMPOSITE-STRING-PK-1M-FIXTURE-CREATE
+5574e50 *[ 1건]  ORACLE-DEMO-TABLE-FOR-MANUAL-BROWSER-TEST
+ef80fbd *[ 3건]  ORACLE-LIVE-VERIFY-ENCRYPTED-COMMENT-AUDIT
+fdd9915  [ 1건]  ORACLE-PRESET-DEAD-ENCODING-FIELD-CLEANUP-FIX
+9f128d6 *[ 1건]  PERFORMANCE-DISPLAY-STALE-RUN-AND-LABEL-FIX
+a520acb  [ 2건]  PK-RANGE-CHUNK-BOUNDARY-ORDERING-ASSUMPTION-DIAGNOSE
+4913528  [10건]  PLAIN-JOIN-WRAPPING-NECESSITY-DIAGNOSE
+787f34a  [ 5건]  PROGRESS-TRACKING-INSTRUMENTATION-OVERHEAD-DIAGNOSE
+08e9819 *[ 1건]  REG-DT-BADGE-LIVE-CLICKTHROUGH
+0086e2e  [ 3건]  REIMPORT-COUNTONLY-CHUNK-SIZE-DIAGNOSE
+0f648f3  [ 3건]  REIMPORT-JOB-PROGRESS-HEARTBEAT-INTERVAL-DIAGNOSE
+ea244df *[ 2건]  REIMPORT-JOIN-FANOUT-PK-UNIQUENESS-GUARD-DIAGNOSE
+bb88b97  [ 1건]  ROUTES-DIAGNOSIS-LIMIT-DIALECT-SECONDARY-CHECK
+80db397  [ 4건]  SAMPLING-PREFLIGHT-EXCEL-EXPORT-GB-COLS-CHECK-AND-FIX
+7648b54  [ 3건]  SINGLE-STEP4-BACKGROUND-WATCH-AUTO-STEP5-FEASIBILITY-DIAGNOSE
+cf0e986  [ 2건]  SINGLE-STEP4-INLINE-PROGRESS-FEASIBILITY-DIAGNOSE
+300c42b  [ 6건]  SINGLE-STEP5-COMBO-VIEW-AND-SKEWED-GROUP-VOLUME-DIAGNOSE
+1b6b1c8  [ 2건]  SINGLE-STEP5-MULTI-GROUPBY-REPRESENTATIVE-AXIS-DIAGNOSE
+2fd4efa  [ 3건]  SINGLE-TABLE-WINDOW-FUNCTION-WRAPPING-GAP-DIAGNOSE
+f7cd9fc  [ 2건]  STATS-PLAN-SERVICE-GROUPBY-STR-DICT-CHECK
+111488c  [ 6건]  STATS-VALIDATION-CHUNKED-VS-SINGLE-TRADEOFF-DIAGNOSE
+fa8976e *[ 1건]  STATS-VALIDATION-DATE-BUCKET-ORACLE-LIVE-E2E-UPGRADE
+8478677  [ 2건]  STATS-VALIDATION-EXECUTE-BUTTON-NO-RESPONSE-DIAGNOSE
+ab512b6 *[ 6건]  STATS-VALIDATION-JOB-ORPHAN-CLEANUP-DIAGNOSE
+4580252  [ 2건]  STEP5-PROCESSING-TIME-SCOPE-DIAGNOSE
+9417c3c *[ 2건]  UNDERSCORE-ALIAS-KEY-RANGE-HASH-BUCKET-DIAGNOSE
+2aa8c26 *[ 1건]  URGENT-SERVER-JS-BROKEN-ALL-MENU-UNRESPONSIVE
+
+  * = E:\verify_reports 에 동명 .txt 보고서가 없는 작업(3항 참고)
+
+==============================================================================
+7. 실측 검증
+==============================================================================
+[커밋 전]
+  git status --porcelain
+    미추적 113건 (scripts/dev_e2e 98 + docs 13 + db WAL 2)
+    tracked 수정 1건 (.claude/settings.local.json, +3/-1)
+
+[커밋 후] git status --porcelain → 출력 0줄 (완전 클린)
+  · 남은 미추적 0건 · 남은 미커밋 0건
+  · db WAL 2건(chunk_checkpoints.db-shm/-wal)은 병행 작업이 커밋한 .gitignore
+    패턴으로 추적 대상에서 제외 — 이번 지침대로 직접 건드리지 않았다
+
+[파일 수 검산]
+  git diff --name-only 2cc77bd..HEAD | wc -l  →  112
+    내역: scripts/dev_e2e 98 + docs 13 + .claude/settings.local.json 1 = 112
+    지침 기준 111건(db WAL 2건 제외) + settings.local.json 1건 = 112 — 일치
+  git rev-list --count 2cc77bd..HEAD  →  46 (작업 그룹 수와 일치)
+
+[분포 검산] git diff --name-only 디렉터리별 집계
+      1 .claude
+     13 docs
+     98 scripts/dev_e2e
+
+==============================================================================
+8. git log 결과 (최신 → 과거, 상위 12건)
+==============================================================================
+  2aa8c26 test(dev_e2e): JS 번들 붕괴 복구 확인 실 브라우저 스크립트 보존 (URGENT-SERVER-JS-BROKEN-ALL-MENU-UNRESPONSIVE)
+  9417c3c test(dev_e2e): 밑줄 별칭 KEY_RANGE/HASH_BUCKET ORA-00911 진단 스크립트 보존 (UNDERSCORE-ALIAS-KEY-RANGE-HASH-BUCKET-DIAGNOSE)
+  4580252 docs(single): 5단계 처리시간 측정범위 진단 문서·스크립트 보존 (STEP5-PROCESSING-TIME-SCOPE-DIAGNOSE)
+  ab512b6 docs(job): 좀비 job·무한 pk-records 폴링 재현·회수 진단 문서·스크립트 보존 (STATS-VALIDATION-JOB-ORPHAN-CLEANUP-DIAGNOSE)
+  8478677 test(dev_e2e): 통계검증 실행버튼 무반응 진단 스크립트·실행권한 설정 보존 (STATS-VALIDATION-EXECUTE-BUTTON-NO-RESPONSE-DIAGNOSE)
+  fa8976e test(dev_e2e): 통계검증 기간변환 오라클 라이브 클릭스루 스크립트 보존 (STATS-VALIDATION-DATE-BUCKET-ORACLE-LIVE-E2E-UPGRADE)
+  111488c test(dev_e2e): 통계검증 청크 vs 단일 실행 트레이드오프 실측 스크립트 보존 (STATS-VALIDATION-CHUNKED-VS-SINGLE-TRADEOFF-DIAGNOSE)
+  f7cd9fc test(dev_e2e): 통계 plan service GROUP BY str/dict 혼용 점검 스크립트 보존 (STATS-PLAN-SERVICE-GROUPBY-STR-DICT-CHECK)
+  2fd4efa test(dev_e2e): 윈도우함수 단일테이블 wrapping 갭 진단 스크립트 보존 (SINGLE-TABLE-WINDOW-FUNCTION-WRAPPING-GAP-DIAGNOSE)
+  1b6b1c8 test(dev_e2e): 다중 GROUP BY 대표축 진단·픽스처 스크립트 보존 (SINGLE-STEP5-MULTI-GROUPBY-REPRESENTATIVE-AXIS-DIAGNOSE)
+  300c42b docs(single): 5단계 조합뷰·편중그룹 물량 진단 문서·스크립트 보존 (SINGLE-STEP5-COMBO-VIEW-AND-SKEWED-GROUP-VOLUME-DIAGNOSE)
+  cf0e986 docs(single): 4단계 인라인 진행표시 타당성 문서·스크립트 보존 (SINGLE-STEP4-INLINE-PROGRESS-FEASIBILITY-DIAGNOSE)
+
+==============================================================================
+9. 비판적 검토
+==============================================================================
+· 커밋 46개는 이력이 길어 보이나, 지침 2항의 '작업별 분리'가 목적이므로 뭉치는 것이
+  오히려 요구를 위반한다. 대신 각 커밋 본문에 대상 파일 목록과 귀속 근거를 남겨
+  나중에 역추적 가능하게 했다.
+· 자체 선언 작업명을 주 증거로 삼았으므로, 스크립트 헤더가 실제와 다르게 적힌 경우
+  오귀속이 남을 수 있다. 완화책으로 E1(타 보고서 본문 언급)과 교차확인했고, 두 증거가
+  충돌한 사례는 없었다.
+· 보고서 .txt 가 없는 20개 작업은 증적 저장소 유실 이력과 맞물린다. 코드 저장소에는
+  이제 스크립트가 보존되므로, 반대로 증적 복원의 단서로 쓸 수 있다.
+
+==============================================================================
+10. 처리 범위 밖
+==============================================================================
+· 코드 저장소 push — 지침대로 커밋까지만 수행(push 금지)
+· db/chunk_checkpoints.db-shm, db/chunk_checkpoints.db-wal — 지침대로 미접촉
+
+✅ 작업 완료 - ORPHANED-UNTRACKED-DEV-E2E-DOCS-ATTRIBUTION-COMMIT - 미추적 111건 + settings.local.json 1건을 완료보고서 대조로 46개 작업에 귀속시켜 작업별 분리 커밋(귀속 불명 0건)
