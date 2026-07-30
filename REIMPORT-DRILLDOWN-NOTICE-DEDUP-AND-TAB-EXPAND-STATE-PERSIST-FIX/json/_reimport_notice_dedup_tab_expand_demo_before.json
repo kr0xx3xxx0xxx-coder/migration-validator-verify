@@ -1,0 +1,495 @@
+{
+  "task": "REIMPORT-DRILLDOWN-NOTICE-DEDUP-AND-TAB-EXPAND-STATE-PERSIST-FIX",
+  "tag": "BEFORE",
+  "base": "http://127.0.0.1:8000",
+  "sql": "INSERT INTO NXDNP.MV_ORA_DEMO_TGT (ID, DEPT_CD, UPD_YMD, REG_DT, STATUS_CD, AMT, CREATED_BY) SELECT ID, DEPT_CD, UPD_YMD, REG_DT, STATUS_CD, AMT, CREATED_BY FROM NXDNP.MV_ORA_DEMO_SRC",
+  "fixture": "demo",
+  "stages": {
+    "2_count": {
+      "count_status": "COUNT_MATCHED",
+      "src_count": 150,
+      "tgt_count": 150
+    }
+  },
+  "obs": {
+    "TAB_EXPAND": {
+      "mismatch_group_keys": [
+        "{\"STATUS_CD\":\"A\"}",
+        "{\"STATUS_CD\":\"C\"}",
+        "{\"STATUS_CD\":\"I\"}",
+        "{\"STATUS_CD\":\"P\"}"
+      ],
+      "open_index": 1,
+      "open_key": "{\"STATUS_CD\":\"C\"}",
+      "t0": {
+        "present": true,
+        "colFilter": "",
+        "srvMode": true,
+        "groupRows": 4,
+        "rowKeys": [
+          "{\"STATUS_CD\":\"A\"}",
+          "{\"STATUS_CD\":\"C\"}",
+          "{\"STATUS_CD\":\"I\"}",
+          "{\"STATUS_CD\":\"P\"}"
+        ],
+        "expandedKeys": [],
+        "panelCount": 0,
+        "recRowCount": 0,
+        "footCount": 0,
+        "innerTables": 0,
+        "persistState": "UNDEFINED",
+        "topLine": "",
+        "footPaging": ""
+      },
+      "opened": {
+        "phase": "B-그룹펼침",
+        "row_index": 1,
+        "wall_sec": 1.557,
+        "prepare_reqs": 1,
+        "pkrecords_reqs": 1,
+        "expand": {
+          "present": true,
+          "colFilter": "",
+          "srvMode": true,
+          "groupRows": 4,
+          "rowKeys": [
+            "{\"STATUS_CD\":\"A\"}",
+            "{\"STATUS_CD\":\"C\"}",
+            "{\"STATUS_CD\":\"I\"}",
+            "{\"STATUS_CD\":\"P\"}"
+          ],
+          "expandedKeys": [
+            "{\"STATUS_CD\":\"C\"}"
+          ],
+          "panelCount": 1,
+          "recRowCount": 5,
+          "footCount": 1,
+          "innerTables": 0,
+          "persistState": "UNDEFINED",
+          "topLine": "재이관 대상 전체 12건 · 현재 1~5 표시 · 1/3페이지",
+          "footPaging": "이전123다음1/3페이지 · 5건 단위(그룹 전용)"
+        },
+        "notice": {
+          "present": true,
+          "panel": true,
+          "headLineCount": 2,
+          "headLines": [
+            {
+              "id": "pkp_892554510_top",
+              "text": "재이관 대상 전체 12건 · 현재 1~5 표시 · 1/3페이지"
+            },
+            {
+              "id": "",
+              "text": "선택 그룹: STATUS_CD=C"
+            }
+          ],
+          "panelText": "재이관 대상 전체 12건 · 현재 1~5 표시 · 1/3페이지선택 그룹: STATUS_CD=C",
+          "hasSelectedGroupLine": true,
+          "hasThisGroupWarn": false,
+          "hasPagingInHead": true,
+          "footText": "이전123다음1/3페이지 · 5건 단위(그룹 전용)계측 — 준비확인 1346ms · scope 조회 64ms · 렌더 1ms",
+          "footPaging": "이전123다음1/3페이지 · 5건 단위(그룹 전용)",
+          "topLine": "재이관 대상 전체 12건 · 현재 1~5 표시 · 1/3페이지"
+        }
+      },
+      "away_tab": {
+        "present": true,
+        "colFilter": "AMT",
+        "srvMode": true,
+        "groupRows": 4,
+        "rowKeys": [
+          "{\"STATUS_CD\":\"I\"}",
+          "{\"STATUS_CD\":\"P\"}",
+          "{\"STATUS_CD\":\"A\"}",
+          "{\"STATUS_CD\":\"C\"}"
+        ],
+        "expandedKeys": [],
+        "panelCount": 0,
+        "recRowCount": 0,
+        "footCount": 0,
+        "innerTables": 0,
+        "persistState": "UNDEFINED",
+        "topLine": "",
+        "footPaging": "",
+        "_tab": "AMT",
+        "_clicked": true,
+        "_records_restored": false,
+        "_wall_sec": 2.727,
+        "_prepare_reqs": 0,
+        "_pkrecords_reqs": 0
+      },
+      "back_tab": {
+        "present": true,
+        "colFilter": "",
+        "srvMode": true,
+        "groupRows": 4,
+        "rowKeys": [
+          "{\"STATUS_CD\":\"A\"}",
+          "{\"STATUS_CD\":\"C\"}",
+          "{\"STATUS_CD\":\"I\"}",
+          "{\"STATUS_CD\":\"P\"}"
+        ],
+        "expandedKeys": [],
+        "panelCount": 0,
+        "recRowCount": 0,
+        "footCount": 0,
+        "innerTables": 0,
+        "persistState": "UNDEFINED",
+        "topLine": "",
+        "footPaging": "",
+        "_tab": "전체",
+        "_clicked": true,
+        "_records_restored": false,
+        "_wall_sec": 15.548,
+        "_prepare_reqs": 0,
+        "_pkrecords_reqs": 0
+      },
+      "away_tab2": {
+        "present": true,
+        "colFilter": "AMT",
+        "srvMode": true,
+        "groupRows": 4,
+        "rowKeys": [
+          "{\"STATUS_CD\":\"I\"}",
+          "{\"STATUS_CD\":\"P\"}",
+          "{\"STATUS_CD\":\"A\"}",
+          "{\"STATUS_CD\":\"C\"}"
+        ],
+        "expandedKeys": [],
+        "panelCount": 0,
+        "recRowCount": 0,
+        "footCount": 0,
+        "innerTables": 0,
+        "persistState": "UNDEFINED",
+        "topLine": "",
+        "footPaging": "",
+        "_tab": "AMT",
+        "_clicked": true,
+        "_records_restored": false,
+        "_wall_sec": 2.731,
+        "_prepare_reqs": 0,
+        "_pkrecords_reqs": 0
+      },
+      "back_tab2": {
+        "present": true,
+        "colFilter": "",
+        "srvMode": true,
+        "groupRows": 4,
+        "rowKeys": [
+          "{\"STATUS_CD\":\"A\"}",
+          "{\"STATUS_CD\":\"C\"}",
+          "{\"STATUS_CD\":\"I\"}",
+          "{\"STATUS_CD\":\"P\"}"
+        ],
+        "expandedKeys": [],
+        "panelCount": 0,
+        "recRowCount": 0,
+        "footCount": 0,
+        "innerTables": 0,
+        "persistState": "UNDEFINED",
+        "topLine": "",
+        "footPaging": "",
+        "_tab": "전체",
+        "_clicked": true,
+        "_records_restored": false,
+        "_wall_sec": 15.628,
+        "_prepare_reqs": 0,
+        "_pkrecords_reqs": 0
+      },
+      "split_cols_after_roundtrip": {
+        "present": false,
+        "rec": false
+      },
+      "notice_after_roundtrip": {
+        "present": false,
+        "panel": false
+      },
+      "closed": {
+        "present": true,
+        "colFilter": "",
+        "srvMode": true,
+        "groupRows": 4,
+        "rowKeys": [
+          "{\"STATUS_CD\":\"A\"}",
+          "{\"STATUS_CD\":\"C\"}",
+          "{\"STATUS_CD\":\"I\"}",
+          "{\"STATUS_CD\":\"P\"}"
+        ],
+        "expandedKeys": [],
+        "panelCount": 0,
+        "recRowCount": 0,
+        "footCount": 0,
+        "innerTables": 0,
+        "persistState": "UNDEFINED",
+        "topLine": "",
+        "footPaging": ""
+      },
+      "closed_after_roundtrip": {
+        "present": true,
+        "colFilter": "",
+        "srvMode": true,
+        "groupRows": 4,
+        "rowKeys": [
+          "{\"STATUS_CD\":\"A\"}",
+          "{\"STATUS_CD\":\"C\"}",
+          "{\"STATUS_CD\":\"I\"}",
+          "{\"STATUS_CD\":\"P\"}"
+        ],
+        "expandedKeys": [],
+        "panelCount": 0,
+        "recRowCount": 0,
+        "footCount": 0,
+        "innerTables": 0,
+        "persistState": "UNDEFINED",
+        "topLine": "",
+        "footPaging": "",
+        "_tab": "전체",
+        "_clicked": true,
+        "_records_restored": false,
+        "_wall_sec": 2.728,
+        "_prepare_reqs": 0,
+        "_pkrecords_reqs": 0
+      },
+      "toggle_on": {
+        "label": null,
+        "hideMatched": false,
+        "srvIncludeMatched": false,
+        "colFilter": "",
+        "groupRows": 4,
+        "okRows": 0,
+        "tabs": [
+          {
+            "label": "전체 4",
+            "active": true
+          },
+          {
+            "label": "COUNT 0",
+            "active": false
+          },
+          {
+            "label": "AMT 4",
+            "active": false
+          }
+        ]
+      },
+      "toggle_off": {
+        "label": null,
+        "hideMatched": false,
+        "srvIncludeMatched": false,
+        "colFilter": "",
+        "groupRows": 4,
+        "okRows": 0,
+        "tabs": [
+          {
+            "label": "전체 4",
+            "active": true
+          },
+          {
+            "label": "COUNT 0",
+            "active": false
+          },
+          {
+            "label": "AMT 4",
+            "active": false
+          }
+        ]
+      }
+    }
+  },
+  "notes": [],
+  "setup": {
+    "pair_rows": 1,
+    "pair_created": true,
+    "connected": true
+  },
+  "net": [
+    {
+      "t": 33.37,
+      "kind": "req",
+      "path": "/analyze",
+      "method": "POST"
+    },
+    {
+      "t": 35.28,
+      "kind": "resp",
+      "path": "/analyze",
+      "status": 200
+    },
+    {
+      "t": 132.15,
+      "kind": "req",
+      "path": "/count",
+      "method": "POST"
+    },
+    {
+      "t": 132.47,
+      "kind": "resp",
+      "path": "/count",
+      "status": "PASSED",
+      "processing_ms": 263.9
+    },
+    {
+      "t": 151.11,
+      "kind": "req",
+      "path": "/generate",
+      "method": "POST"
+    },
+    {
+      "t": 151.23,
+      "kind": "resp",
+      "path": "/generate",
+      "status": 200,
+      "processing_ms": 1.4
+    },
+    {
+      "t": 156.25,
+      "kind": "req",
+      "path": "/execute",
+      "method": "POST"
+    },
+    {
+      "t": 156.61,
+      "kind": "req",
+      "path": "/stats-result/page",
+      "method": "GET"
+    },
+    {
+      "t": 156.59,
+      "kind": "resp",
+      "path": "/execute",
+      "status": 200,
+      "processing_ms": 229.0,
+      "run_id": null
+    },
+    {
+      "t": 156.82,
+      "kind": "resp",
+      "path": "/stats-result/page",
+      "status": 200,
+      "ok": true,
+      "page": 1
+    },
+    {
+      "t": 156.93,
+      "kind": "req",
+      "path": "/analyze",
+      "method": "POST"
+    },
+    {
+      "t": 157.14,
+      "kind": "resp",
+      "path": "/analyze",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "t": 165.16,
+      "kind": "req",
+      "path": "/agg-diff/prepare",
+      "method": "POST"
+    },
+    {
+      "t": 166.49,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 166.49,
+      "kind": "resp",
+      "path": "/agg-diff/prepare",
+      "status": "READY",
+      "run_id": "PK8611C1BC288D",
+      "ok": true
+    },
+    {
+      "t": 166.56,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "READY",
+      "run_id": "PK8611C1BC288D",
+      "ok": true,
+      "total": 12,
+      "page": 1
+    },
+    {
+      "t": 169.85,
+      "kind": "req",
+      "path": "/stats-result/page",
+      "method": "GET"
+    },
+    {
+      "t": 169.9,
+      "kind": "resp",
+      "path": "/stats-result/page",
+      "status": 200,
+      "ok": true,
+      "page": 1
+    },
+    {
+      "t": 188.26,
+      "kind": "req",
+      "path": "/stats-result/page",
+      "method": "GET"
+    },
+    {
+      "t": 188.32,
+      "kind": "resp",
+      "path": "/stats-result/page",
+      "status": 200,
+      "ok": true,
+      "page": 1
+    },
+    {
+      "t": 207.65,
+      "kind": "req",
+      "path": "/stats-result/page",
+      "method": "GET"
+    },
+    {
+      "t": 207.71,
+      "kind": "resp",
+      "path": "/stats-result/page",
+      "status": 200,
+      "ok": true,
+      "page": 1
+    }
+  ],
+  "marks": [
+    {
+      "t": 32.09,
+      "mark": "1단계 분석",
+      "extra": null
+    },
+    {
+      "t": 36.95,
+      "mark": "2단계 COUNT",
+      "extra": null
+    },
+    {
+      "t": 136.24,
+      "mark": "3단계 후보선정",
+      "extra": null
+    },
+    {
+      "t": 147.87,
+      "mark": "4단계 SQL 생성 + 통계검증 실행",
+      "extra": null
+    },
+    {
+      "t": 159.36,
+      "mark": "5단계 진입",
+      "extra": null
+    },
+    {
+      "t": 165.14,
+      "mark": "[B-그룹펼침] 그룹 클릭(index=1)",
+      "extra": null
+    }
+  ],
+  "console_errors": [],
+  "dialogs": [
+    "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+    "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+  ]
+}

@@ -1,0 +1,688 @@
+{
+  "task": "REIMPORT-DRILLDOWN-NOTICE-DEDUP-AND-TAB-EXPAND-STATE-PERSIST-FIX",
+  "tag": "BEFORE",
+  "base": "http://127.0.0.1:8000",
+  "sql": "INSERT INTO NXDNP.MV_CSPK_TGT (PK_STR, AMT, QTY, REG_DT, ITEM_NM, STATUS_CD) SELECT REGION_CD || '-' || LPAD(SEQ_NO, 6, '0'), AMT, QTY, REG_DT, ITEM_NM, STATUS_CD FROM NXDNP.MV_CSPK_SRC",
+  "fixture": "cspk",
+  "stages": {
+    "2_count": {
+      "count_status": "COUNT_MINOR_DIFF",
+      "src_count": 1000000,
+      "tgt_count": 990000
+    }
+  },
+  "obs": {
+    "NOTICE": {
+      "open": {
+        "phase": "N-그룹펼침",
+        "row_index": 0,
+        "wall_sec": 6.133,
+        "prepare_reqs": 1,
+        "pkrecords_reqs": 4,
+        "expand": {
+          "present": true,
+          "colFilter": "",
+          "srvMode": true,
+          "groupRows": 1,
+          "rowKeys": [
+            "{\"STATUS_CD\":\"P\"}"
+          ],
+          "expandedKeys": [
+            "{\"STATUS_CD\":\"P\"}"
+          ],
+          "panelCount": 1,
+          "recRowCount": 5,
+          "footCount": 1,
+          "innerTables": 0,
+          "persistState": "UNDEFINED",
+          "topLine": "재이관 대상 전체 101건 (표시 상한 100건 · 실제는 100건 초과·총수 미확정) · 현재 1~5 표시 · 1/20페이지",
+          "footPaging": "이전12345… 다음1/20페이지 · 5건 단위(그룹 전용)"
+        },
+        "notice": {
+          "present": true,
+          "panel": true,
+          "headLineCount": 3,
+          "headLines": [
+            {
+              "id": "pkp_1105673829_top",
+              "text": "재이관 대상 전체 101건 (표시 상한 100건 · 실제는 100건 초과·총수 미확정) · 현재 1~5 표시 · 1/20페이지"
+            },
+            {
+              "id": "",
+              "text": "⚠ 이 그룹 — 표시 100건 / 실제 100건 초과 · 총수 미확정(조기중단)"
+            },
+            {
+              "id": "",
+              "text": "선택 그룹: STATUS_CD=P"
+            }
+          ],
+          "panelText": "재이관 대상 전체 101건 (표시 상한 100건 · 실제는 100건 초과·총수 미확정) · 현재 1~5 표시 · 1/20페이지⚠ 이 그룹 — 표시 100건 / 실제 100건 초과 · 총수 미확정(조기중단)선택 그룹: STATUS_CD=P",
+          "hasSelectedGroupLine": true,
+          "hasThisGroupWarn": true,
+          "hasPagingInHead": true,
+          "footText": "이전12345… 다음1/20페이지 · 5건 단위(그룹 전용)계측 — 준비확인 872ms · scope 조회 74ms · 렌더 2ms",
+          "footPaging": "이전12345… 다음1/20페이지 · 5건 단위(그룹 전용)",
+          "topLine": "재이관 대상 전체 101건 (표시 상한 100건 · 실제는 100건 초과·총수 미확정) · 현재 1~5 표시 · 1/20페이지"
+        }
+      },
+      "next_page": {
+        "clicked": true,
+        "notice": {
+          "present": true,
+          "panel": true,
+          "headLineCount": 3,
+          "headLines": [
+            {
+              "id": "pkp_1105673829_top",
+              "text": "재이관 대상 전체 101건 (표시 상한 100건 · 실제는 100건 초과·총수 미확정) · 현재 6~10 표시 · 2/20페이지"
+            },
+            {
+              "id": "",
+              "text": "⚠ 이 그룹 — 표시 100건 / 실제 100건 초과 · 총수 미확정(조기중단)"
+            },
+            {
+              "id": "",
+              "text": "선택 그룹: STATUS_CD=P"
+            }
+          ],
+          "panelText": "재이관 대상 전체 101건 (표시 상한 100건 · 실제는 100건 초과·총수 미확정) · 현재 6~10 표시 · 2/20페이지⚠ 이 그룹 — 표시 100건 / 실제 100건 초과 · 총수 미확정(조기중단)선택 그룹: STATUS_CD=P",
+          "hasSelectedGroupLine": true,
+          "hasThisGroupWarn": true,
+          "hasPagingInHead": true,
+          "footText": "이전123456… 다음2/20페이지 · 5건 단위(그룹 전용)계측 — 준비확인 872ms · scope 조회 75ms · 렌더 1ms",
+          "footPaging": "이전123456… 다음2/20페이지 · 5건 단위(그룹 전용)",
+          "topLine": "재이관 대상 전체 101건 (표시 상한 100건 · 실제는 100건 초과·총수 미확정) · 현재 6~10 표시 · 2/20페이지"
+        },
+        "expand": {
+          "present": true,
+          "colFilter": "",
+          "srvMode": true,
+          "groupRows": 1,
+          "rowKeys": [
+            "{\"STATUS_CD\":\"P\"}"
+          ],
+          "expandedKeys": [
+            "{\"STATUS_CD\":\"P\"}"
+          ],
+          "panelCount": 1,
+          "recRowCount": 5,
+          "footCount": 1,
+          "innerTables": 0,
+          "persistState": "UNDEFINED",
+          "topLine": "재이관 대상 전체 101건 (표시 상한 100건 · 실제는 100건 초과·총수 미확정) · 현재 6~10 표시 · 2/20페이지",
+          "footPaging": "이전123456… 다음2/20페이지 · 5건 단위(그룹 전용)"
+        }
+      },
+      "split_cols": {
+        "present": true,
+        "rec": true,
+        "tdCount": 10,
+        "distinctBg": [
+          "rgb(251, 252, 254)",
+          "rgb(234, 242, 255)",
+          "rgb(230, 247, 243)"
+        ],
+        "orangeCells": 0
+      }
+    },
+    "TAB_EXPAND": {
+      "mismatch_group_keys": [
+        "{\"STATUS_CD\":\"P\"}"
+      ],
+      "open_index": 0,
+      "open_key": "{\"STATUS_CD\":\"P\"}",
+      "t0": {
+        "present": true,
+        "colFilter": "",
+        "srvMode": true,
+        "groupRows": 1,
+        "rowKeys": [
+          "{\"STATUS_CD\":\"P\"}"
+        ],
+        "expandedKeys": [],
+        "panelCount": 0,
+        "recRowCount": 0,
+        "footCount": 0,
+        "innerTables": 0,
+        "persistState": "UNDEFINED",
+        "topLine": "",
+        "footPaging": ""
+      },
+      "opened": {
+        "phase": "B-그룹펼침",
+        "row_index": 0,
+        "wall_sec": 0.51,
+        "prepare_reqs": 0,
+        "pkrecords_reqs": 0,
+        "expand": {
+          "present": true,
+          "colFilter": "",
+          "srvMode": true,
+          "groupRows": 1,
+          "rowKeys": [
+            "{\"STATUS_CD\":\"P\"}"
+          ],
+          "expandedKeys": [
+            "{\"STATUS_CD\":\"P\"}"
+          ],
+          "panelCount": 1,
+          "recRowCount": 5,
+          "footCount": 1,
+          "innerTables": 0,
+          "persistState": "UNDEFINED",
+          "topLine": "재이관 대상 전체 101건 (표시 상한 100건 · 실제는 100건 초과·총수 미확정) · 현재 1~5 표시 · 1/20페이지",
+          "footPaging": "이전12345… 다음1/20페이지 · 5건 단위(그룹 전용)"
+        },
+        "notice": {
+          "present": true,
+          "panel": true,
+          "headLineCount": 3,
+          "headLines": [
+            {
+              "id": "pkp_1105673829_top",
+              "text": "재이관 대상 전체 101건 (표시 상한 100건 · 실제는 100건 초과·총수 미확정) · 현재 1~5 표시 · 1/20페이지"
+            },
+            {
+              "id": "",
+              "text": "⚠ 이 그룹 — 표시 100건 / 실제 100건 초과 · 총수 미확정(조기중단)"
+            },
+            {
+              "id": "",
+              "text": "선택 그룹: STATUS_CD=P"
+            }
+          ],
+          "panelText": "재이관 대상 전체 101건 (표시 상한 100건 · 실제는 100건 초과·총수 미확정) · 현재 1~5 표시 · 1/20페이지⚠ 이 그룹 — 표시 100건 / 실제 100건 초과 · 총수 미확정(조기중단)선택 그룹: STATUS_CD=P",
+          "hasSelectedGroupLine": true,
+          "hasThisGroupWarn": true,
+          "hasPagingInHead": true,
+          "footText": "이전12345… 다음1/20페이지 · 5건 단위(그룹 전용)계측 — 준비확인 0ms · scope 조회 0ms(캐시) · 렌더 1ms",
+          "footPaging": "이전12345… 다음1/20페이지 · 5건 단위(그룹 전용)",
+          "topLine": "재이관 대상 전체 101건 (표시 상한 100건 · 실제는 100건 초과·총수 미확정) · 현재 1~5 표시 · 1/20페이지"
+        }
+      },
+      "away_tab": {
+        "present": true,
+        "colFilter": "CNT",
+        "srvMode": true,
+        "groupRows": 1,
+        "rowKeys": [
+          "{\"STATUS_CD\":\"P\"}"
+        ],
+        "expandedKeys": [],
+        "panelCount": 0,
+        "recRowCount": 0,
+        "footCount": 0,
+        "innerTables": 0,
+        "persistState": "UNDEFINED",
+        "topLine": "",
+        "footPaging": "",
+        "_tab": "COUNT",
+        "_clicked": true,
+        "_records_restored": false,
+        "_wall_sec": 2.728,
+        "_prepare_reqs": 0,
+        "_pkrecords_reqs": 0
+      },
+      "back_tab": {
+        "present": true,
+        "colFilter": "",
+        "srvMode": true,
+        "groupRows": 1,
+        "rowKeys": [
+          "{\"STATUS_CD\":\"P\"}"
+        ],
+        "expandedKeys": [],
+        "panelCount": 0,
+        "recRowCount": 0,
+        "footCount": 0,
+        "innerTables": 0,
+        "persistState": "UNDEFINED",
+        "topLine": "",
+        "footPaging": "",
+        "_tab": "전체",
+        "_clicked": true,
+        "_records_restored": false,
+        "_wall_sec": 15.387,
+        "_prepare_reqs": 0,
+        "_pkrecords_reqs": 0
+      },
+      "away_tab2": {
+        "present": true,
+        "colFilter": "CNT",
+        "srvMode": true,
+        "groupRows": 1,
+        "rowKeys": [
+          "{\"STATUS_CD\":\"P\"}"
+        ],
+        "expandedKeys": [],
+        "panelCount": 0,
+        "recRowCount": 0,
+        "footCount": 0,
+        "innerTables": 0,
+        "persistState": "UNDEFINED",
+        "topLine": "",
+        "footPaging": "",
+        "_tab": "COUNT",
+        "_clicked": true,
+        "_records_restored": false,
+        "_wall_sec": 2.734,
+        "_prepare_reqs": 0,
+        "_pkrecords_reqs": 0
+      },
+      "back_tab2": {
+        "present": true,
+        "colFilter": "",
+        "srvMode": true,
+        "groupRows": 1,
+        "rowKeys": [
+          "{\"STATUS_CD\":\"P\"}"
+        ],
+        "expandedKeys": [],
+        "panelCount": 0,
+        "recRowCount": 0,
+        "footCount": 0,
+        "innerTables": 0,
+        "persistState": "UNDEFINED",
+        "topLine": "",
+        "footPaging": "",
+        "_tab": "전체",
+        "_clicked": true,
+        "_records_restored": false,
+        "_wall_sec": 15.425,
+        "_prepare_reqs": 0,
+        "_pkrecords_reqs": 0
+      },
+      "split_cols_after_roundtrip": {
+        "present": false,
+        "rec": false
+      },
+      "notice_after_roundtrip": {
+        "present": false,
+        "panel": false
+      },
+      "closed": {
+        "present": true,
+        "colFilter": "",
+        "srvMode": true,
+        "groupRows": 1,
+        "rowKeys": [
+          "{\"STATUS_CD\":\"P\"}"
+        ],
+        "expandedKeys": [],
+        "panelCount": 0,
+        "recRowCount": 0,
+        "footCount": 0,
+        "innerTables": 0,
+        "persistState": "UNDEFINED",
+        "topLine": "",
+        "footPaging": ""
+      },
+      "closed_after_roundtrip": {
+        "present": true,
+        "colFilter": "",
+        "srvMode": true,
+        "groupRows": 1,
+        "rowKeys": [
+          "{\"STATUS_CD\":\"P\"}"
+        ],
+        "expandedKeys": [],
+        "panelCount": 0,
+        "recRowCount": 0,
+        "footCount": 0,
+        "innerTables": 0,
+        "persistState": "UNDEFINED",
+        "topLine": "",
+        "footPaging": "",
+        "_tab": "전체",
+        "_clicked": true,
+        "_records_restored": false,
+        "_wall_sec": 2.73,
+        "_prepare_reqs": 0,
+        "_pkrecords_reqs": 0
+      },
+      "toggle_on": {
+        "label": "일치 행 숨기기 (3건)",
+        "hideMatched": false,
+        "srvIncludeMatched": true,
+        "colFilter": "",
+        "groupRows": 1,
+        "okRows": 3,
+        "tabs": [
+          {
+            "label": "전체 4",
+            "active": true
+          },
+          {
+            "label": "COUNT 1",
+            "active": false
+          },
+          {
+            "label": "AMT 1",
+            "active": false
+          },
+          {
+            "label": "QTY 1",
+            "active": false
+          }
+        ]
+      },
+      "toggle_off": {
+        "label": "일치 행 보기 (3건)",
+        "hideMatched": false,
+        "srvIncludeMatched": false,
+        "colFilter": "",
+        "groupRows": 1,
+        "okRows": 0,
+        "tabs": [
+          {
+            "label": "전체 4",
+            "active": true
+          },
+          {
+            "label": "COUNT 1",
+            "active": false
+          },
+          {
+            "label": "AMT 1",
+            "active": false
+          },
+          {
+            "label": "QTY 1",
+            "active": false
+          }
+        ]
+      }
+    }
+  },
+  "notes": [],
+  "setup": {
+    "pair_rows": 1,
+    "pair_created": true,
+    "connected": true
+  },
+  "net": [
+    {
+      "t": 33.42,
+      "kind": "req",
+      "path": "/analyze",
+      "method": "POST"
+    },
+    {
+      "t": 34.77,
+      "kind": "resp",
+      "path": "/analyze",
+      "status": 200
+    },
+    {
+      "t": 132.19,
+      "kind": "req",
+      "path": "/count",
+      "method": "POST"
+    },
+    {
+      "t": 132.95,
+      "kind": "resp",
+      "path": "/count",
+      "status": "FAILED",
+      "processing_ms": 703.6
+    },
+    {
+      "t": 149.6,
+      "kind": "req",
+      "path": "/generate",
+      "method": "POST"
+    },
+    {
+      "t": 149.72,
+      "kind": "resp",
+      "path": "/generate",
+      "status": 200,
+      "processing_ms": 1.7
+    },
+    {
+      "t": 154.75,
+      "kind": "req",
+      "path": "/execute",
+      "method": "POST"
+    },
+    {
+      "t": 155.39,
+      "kind": "req",
+      "path": "/stats-result/page",
+      "method": "GET"
+    },
+    {
+      "t": 155.37,
+      "kind": "resp",
+      "path": "/execute",
+      "status": 200,
+      "processing_ms": 510.3,
+      "run_id": null
+    },
+    {
+      "t": 155.6,
+      "kind": "resp",
+      "path": "/stats-result/page",
+      "status": 200,
+      "ok": true,
+      "page": 1
+    },
+    {
+      "t": 155.71,
+      "kind": "req",
+      "path": "/analyze",
+      "method": "POST"
+    },
+    {
+      "t": 155.92,
+      "kind": "resp",
+      "path": "/analyze",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "t": 163.07,
+      "kind": "req",
+      "path": "/agg-diff/prepare",
+      "method": "POST"
+    },
+    {
+      "t": 163.94,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 163.94,
+      "kind": "resp",
+      "path": "/agg-diff/prepare",
+      "status": "PREPARING",
+      "run_id": "PSFAB44DB52DE4",
+      "ok": true
+    },
+    {
+      "t": 164.0,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "PREPARING",
+      "run_id": "PSFAB44DB52DE4",
+      "ok": true
+    },
+    {
+      "t": 165.52,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 165.59,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "PREPARING",
+      "run_id": "PSFAB44DB52DE4",
+      "ok": true,
+      "total": null,
+      "page": 1
+    },
+    {
+      "t": 167.09,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 167.16,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "PREPARING",
+      "run_id": "PSFAB44DB52DE4",
+      "ok": true,
+      "total": null,
+      "page": 1
+    },
+    {
+      "t": 168.67,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 168.74,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "EARLY_STOPPED",
+      "run_id": "PSFAB44DB52DE4",
+      "ok": true,
+      "total": 101,
+      "page": 1
+    },
+    {
+      "t": 169.35,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 169.42,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "EARLY_STOPPED",
+      "run_id": "PSFAB44DB52DE4",
+      "ok": true,
+      "total": 101,
+      "page": 2
+    },
+    {
+      "t": 177.95,
+      "kind": "req",
+      "path": "/stats-result/page",
+      "method": "GET"
+    },
+    {
+      "t": 178.01,
+      "kind": "resp",
+      "path": "/stats-result/page",
+      "status": 200,
+      "ok": true,
+      "page": 1
+    },
+    {
+      "t": 196.21,
+      "kind": "req",
+      "path": "/stats-result/page",
+      "method": "GET"
+    },
+    {
+      "t": 196.28,
+      "kind": "resp",
+      "path": "/stats-result/page",
+      "status": 200,
+      "ok": true,
+      "page": 1
+    },
+    {
+      "t": 215.4,
+      "kind": "req",
+      "path": "/stats-result/page",
+      "method": "GET"
+    },
+    {
+      "t": 215.46,
+      "kind": "resp",
+      "path": "/stats-result/page",
+      "status": 200,
+      "ok": true,
+      "page": 1
+    },
+    {
+      "t": 218.27,
+      "kind": "req",
+      "path": "/stats-result/page",
+      "method": "GET"
+    },
+    {
+      "t": 218.33,
+      "kind": "resp",
+      "path": "/stats-result/page",
+      "status": 200,
+      "ok": true,
+      "page": 1
+    },
+    {
+      "t": 220.79,
+      "kind": "req",
+      "path": "/stats-result/page",
+      "method": "GET"
+    },
+    {
+      "t": 220.85,
+      "kind": "resp",
+      "path": "/stats-result/page",
+      "status": 200,
+      "ok": true,
+      "page": 1
+    }
+  ],
+  "marks": [
+    {
+      "t": 32.12,
+      "mark": "1단계 분석",
+      "extra": null
+    },
+    {
+      "t": 36.99,
+      "mark": "2단계 COUNT",
+      "extra": null
+    },
+    {
+      "t": 136.28,
+      "mark": "3단계 후보선정",
+      "extra": null
+    },
+    {
+      "t": 146.37,
+      "mark": "4단계 SQL 생성 + 통계검증 실행",
+      "extra": null
+    },
+    {
+      "t": 158.55,
+      "mark": "5단계 진입",
+      "extra": null
+    },
+    {
+      "t": 163.06,
+      "mark": "[N-그룹펼침] 그룹 클릭(index=0)",
+      "extra": null
+    },
+    {
+      "t": 174.45,
+      "mark": "[B-그룹펼침] 그룹 클릭(index=0)",
+      "extra": null
+    }
+  ],
+  "console_errors": [],
+  "dialogs": [
+    "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+    "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+  ]
+}

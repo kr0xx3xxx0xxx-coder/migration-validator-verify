@@ -1,0 +1,281 @@
+작업명 : REIMPORT-DRILLDOWN-NOTICE-DEDUP-AND-TAB-EXPAND-STATE-PERSIST-FIX
+
+════════════════════════════════════════════════════════════════════════════════
+1. 무엇을 고쳤나
+════════════════════════════════════════════════════════════════════════════════
+
+개별검증 5단계(결과 확인)의 "재이관 대상 상세" 화면에서 두 가지를 고쳤다.
+
+A) 그룹 상세 머리말 3줄 → 1줄
+   조기중단(표시 상한 초과) 그룹을 펼치면 같은 사실을 세 번 말하고 있었다.
+
+     1) 재이관 대상 전체 101건 (표시 상한 100건 · 실제는 100건 초과·총수 미확정)
+        · 현재 1~5 표시 · 1/20페이지
+     2) ⚠ 이 그룹 — 표시 100건 / 실제 100건 초과 · 총수 미확정(조기중단)
+     3) 선택 그룹: STATUS_CD=P
+
+   1)과 2)는 문장만 다를 뿐 같은 내용이고, 3)은 바로 위에 있는 그룹 행이 이미 보여주는
+   정보였다(트리 병합 이후로는 그룹 행 → 상세가 한 표에 붙어 있다). 페이지 정보
+   ("현재 1~5 표시 · 1/20페이지")도 하단 페이지 컨트롤에 그대로 또 있었다.
+
+   → 한 줄로 합쳤다.
+
+     ⚠ 재이관 대상 전체 101건 중 100건 표시 · 실제 100건 초과로 총수 미확정(조기중단)
+
+   버린 것은 '중복'뿐이다. 표시 건수 / 실제 건수(확정·미확정) / 저장 경로(대표 표본만
+   저장 · 저장 상한)라는 사실은 전부 이 한 줄에 남아 있고, 페이지 정보는 하단 페이지
+   컨트롤에 그대로 있다. 경고가 없는 정상 케이스(그룹 불일치 ≤ 경계)는 기존 머리말을
+   그대로 쓴다 — 이번 정리는 조기중단 경고 국면에만 적용된다. 다만 '선택 그룹:' 줄은
+   트리로 그려지는 경로에서만 제거했고, 그룹 행이 없는 폴백 렌더(비트리)에는 식별
+   정보가 필요하므로 그대로 남겼다.
+
+B) 탭(전체/COUNT/AMT/QTY) 전환 후 그룹 펼침 상태 유지
+   그룹을 펼쳐 레코드를 보다가 COUNT 탭에 갔다 전체 탭으로 돌아오면 펼침이 통째로
+   사라져 매번 다시 클릭해야 했다.
+
+   원인은 '펼침 상태'가 DOM 에만 존재했다는 것이다. 항목 필터 탭은 결과 tbody 를
+   innerHTML 로 통째 교체하는데(_execSetColFilter → _execRenderResultPage / _execSrvGo),
+   펼침은 "패널 <tr> 이 표 안에 꽂혀 있는가"로만 표현돼 있어 교체와 동시에 소멸했다.
+   오늘 앞서 고친 '일치 행 숨기기' 라벨 문제와 계열은 같지만(재렌더가 상태를 날린다)
+   근본 원인은 다르다 — 그쪽은 상태가 두 개라 라벨이 어긋난 것이었고, 이쪽은 상태가
+   아예 없었다.
+
+   → 펼친 그룹 하나를 기억했다가, 재배선 단일 지점에서 되살린다.
+      - 기억: data-row-key(그룹 식별) + 그룹 내부 페이지 + 방향(재이관/목적단독)
+              + 실행계획 fingerprint
+      - 복원: _mvWireRowsFromCache(탭 전환·페이지 이동·서버 페이지 렌더가 모두 지나는
+              단일 재배선 지점) 직후, 그 그룹 행이 '지금 탭 목록에도 있으면' 다시 펼친다.
+      - 데이터 재조회 로직은 손대지 않았다. 오늘 앞서 들어간 준비 캐시 재사용
+        (REIMPORT-DRILLDOWN-TAB-SCOPE-CACHE-AND-COLUMN-SPLIT-FIX) 덕분에 복원은
+        _mvPkPageCache 히트로 끝난다 — 실측에서 추가 pk-records 요청 0회.
+
+   경계 조건도 요구대로 처리했다.
+      - 해당 탭 필터 결과에 그 그룹이 없으면 자연히 접힌 채로 두되 상태는 지우지 않는다
+        → 원래 탭으로 돌아오면 다시 펼쳐진다.
+      - 여러 그룹 중 펼친 그룹만 유지되고 나머지는 접힌 채로 남는다.
+      - 사용자가 직접 접으면 상태도 지운다 → 탭을 다녀와도 되살아나지 않는다.
+      - 새 통계검증 실행/설정 변경으로 캐시를 비우는 지점(5곳)에서 펼침 상태도 같이
+        무효화하고, 복원 직전에 실행계획 fingerprint 를 한 번 더 대조한다(2중 방어).
+
+════════════════════════════════════════════════════════════════════════════════
+2. 실측 조건
+════════════════════════════════════════════════════════════════════════════════
+
+[라이브 BEFORE] Oracle_asis → Oracle_tobe (NXDNP), 서버 127.0.0.1:8000
+  - 서버 최신 코드 서빙 확인: 프로세스 시작 19:58:06 vs tabler_renderer.py 최종수정 17:54:06
+  - 픽스처 cspk : MV_CSPK_SRC(1,000,000) → MV_CSPK_TGT(990,000)
+                  불일치 그룹 1개(STATUS_CD='P') · 그룹 내 불일치 10,000건 → 조기중단(P3)
+  - 픽스처 demo : MV_ORA_DEMO_SRC → MV_ORA_DEMO_TGT(150행)
+                  불일치 그룹 4개(A/C/I/P) · 그룹당 12~13건 → 정상(P1), 탭 전체4/COUNT0/AMT4
+  - 드라이버: scripts/dev_e2e/reimport_drilldown_notice_dedup_and_tab_expand_verify.py
+
+[AFTER 를 라이브로 잇지 못한 사유 — 숨기지 않고 명시]
+  BEFORE 캡처(19:47·19:54) 직후, 오라클 호스트 192.168.0.151 의 리스너 1523/1524 가
+  TCP 레벨에서 응답하지 않게 됐다(python-oracledb DPY-6005 timeout, 소켓 connect 도
+  6초 timeout). 애플리케이션 문제가 아니라 내부망 호스트 도달 불가다. 20:05 이후 여러
+  차례 재시도했으나 회복되지 않아, AFTER 를 라이브로 이어서 캡처할 수 없었다.
+  (재시도 이력: 8000 포트 3회 · 별도 8010 포트 2회 — 모두 접속 단계에서 실패,
+   1단계 분석이 '테이블 검증 실패'로 차단됨)
+
+[대체: 합성 응답 실측 — 화면·JS 는 실제 운영 코드]
+  드라이버: scripts/dev_e2e/reimport_notice_dedup_tab_expand_stub_verify.py
+  - 실제 서버가 서빙하는 실제 페이지를 실제 브라우저로 띄우고, 실제 렌더러
+    (renderExecute / _mvToggleRowAggDiff / _mvPkLoadPage / 항목 필터 탭)를 그대로 돌린다.
+  - 합성한 것은 /agg-diff/prepare · /agg-diff/pk-records 두 응답뿐이며, 숫자는 라이브
+    BEFORE 실측값(전체 101건 · 표시 상한 100 · 조기중단 · page_size 5)과 동일하게 맞췄다.
+  - BEFORE/AFTER 를 같은 조건에서 비교하려고, 수정 전 코드(HEAD d707861)를 임시 worktree
+    에 체크아웃해 별도 포트 8010 에 올리고 같은 드라이버를 돌렸다.
+      · BEFORE = 127.0.0.1:8010 (수정 전 코드)
+      · AFTER  = 127.0.0.1:8000 (수정 후 코드)
+  - 이 합성 BEFORE 는 라이브 BEFORE 와 머리말 3줄이 글자까지 동일하게 재현됐다
+    (아래 3-A 참조) — 대체 하니스가 같은 화면을 보고 있음을 스스로 증명한다.
+
+════════════════════════════════════════════════════════════════════════════════
+3. 실측 결과
+════════════════════════════════════════════════════════════════════════════════
+
+── A. 머리말 중복 제거 ─────────────────────────────────────────────────────────
+
+[라이브 BEFORE · cspk]  머리말 3줄
+  1) 재이관 대상 전체 101건 (표시 상한 100건 · 실제는 100건 초과·총수 미확정)
+     · 현재 1~5 표시 · 1/20페이지
+  2) ⚠ 이 그룹 — 표시 100건 / 실제 100건 초과 · 총수 미확정(조기중단)
+  3) 선택 그룹: STATUS_CD=P
+  하단 페이지 컨트롤: 이전 1 2 3 4 5 … 다음 1/20페이지 · 5건 단위(그룹 전용)
+
+[합성 BEFORE · 수정 전 코드]  머리말 3줄 — 라이브와 글자까지 동일
+[합성 AFTER  · 수정 후 코드]  머리말 1줄
+  ⚠ 재이관 대상 전체 101건 중 100건 표시 · 실제 100건 초과로 총수 미확정(조기중단)
+  하단 페이지 컨트롤: 이전 1 2 3 4 5 … 다음 1/20페이지 · 5건 단위(그룹 전용)  ← 그대로 유지
+
+  머리말 내 페이지 정보: BEFORE True → AFTER False
+  '선택 그룹:' 줄       : BEFORE True → AFTER False
+  '⚠ 이 그룹' 별도 줄   : BEFORE True → AFTER False (합친 한 줄에 흡수)
+
+[정상 케이스(경고 없음) 확인 · 합성 multi, 그룹당 12건]
+  BEFORE 2줄 → AFTER 1줄
+    - 유지: 재이관 대상 전체 12건 · 현재 1~5 표시 · 1/3페이지   ← 기존 문구 그대로
+    - 제거: 선택 그룹: STATUS_CD=A                              ← 트리에서 중복
+  즉 조기중단이 아닌 경우의 머리말 문구·페이지 표기는 건드리지 않았다.
+
+  스크린샷
+    before_stub_01_group_expanded.png  /  after_stub_01_group_expanded.png
+    before_cspk_02_notice_group_expanded.png (라이브 BEFORE)
+    before_stub_multi_01_group_expanded.png / after_stub_multi_01_group_expanded.png
+
+── B. 탭 왕복 후 펼침 상태 유지 ────────────────────────────────────────────────
+
+[라이브 BEFORE · cspk] 그룹 P 펼침(레코드 5행) → COUNT 탭 → 전체 탭 복귀
+    펼침 직후 : expanded=[STATUS_CD=P] recRows=5
+    COUNT 탭  : expanded=[]            recRows=0
+    전체 복귀 : expanded=[]            recRows=0   (15.4초 대기해도 복원 없음)
+    2회차 왕복도 동일. demo(4그룹, 그룹 C)도 동일하게 소실.
+
+[합성 BEFORE / AFTER · 단일 그룹]
+    구간            BEFORE(수정 전)              AFTER(수정 후)
+    ─────────────────────────────────────────────────────────────────────
+    COUNT 탭        exp=0 rec=0                  exp=1 rec=5
+    전체 복귀       exp=0 rec=0 (10.8초 대기)    exp=1 rec=5 · 0.63초
+    2회차 복귀      exp=0 rec=0                  exp=1 rec=5 · 0.62초
+    추가 pk 요청    0                            0        ← 캐시 히트(재조회 없음)
+
+    AFTER 스크린샷의 계측 줄: "준비확인 0ms · scope 조회 0ms(캐시) · 렌더 0ms"
+    복귀 시 그룹 내부 페이지(2/20페이지)까지 보던 그대로 복원됐다.
+
+[합성 BEFORE / AFTER · 다중 그룹 4개(A/C/I/P), 그룹 A만 펼침]
+    AMT 탭(4그룹) 경유 → 전체 복귀 : AFTER exp=1(A만) rec=5 · 0.63초 / BEFORE exp=0
+    COUNT 탭(0그룹) 경유           : 양쪽 모두 exp=0 rec=0  ← 그 탭엔 그룹 자체가 없음
+    COUNT 탭에서 전체 복귀         : AFTER exp=1(A만) rec=5 · 0.61초 / BEFORE exp=0
+    → 펼친 그룹만 살아나고 C/I/P 는 접힌 채(▸) 유지됨을 스크린샷으로 확인.
+
+[역방향 회귀 — 접은 뒤 탭 왕복]
+    사용자가 직접 접은 뒤 탭을 다녀오면 AFTER 도 exp=0 rec=0 (되살아나지 않음).
+
+  스크린샷
+    before_stub_03_tab_away.png / after_stub_03_tab_away.png
+    before_stub_04_tab_back.png / after_stub_04_tab_back.png          ← 핵심 비교
+    before_stub_05_tab_back_2.png / after_stub_05_tab_back_2.png
+    before_stub_multi_06_tab_zero_groups.png / after_stub_multi_06_tab_zero_groups.png
+    before_stub_multi_07_tab_back_from_empty.png / after_stub_multi_07_tab_back_from_empty.png
+    before_stub_08_after_close_roundtrip.png / after_stub_08_after_close_roundtrip.png
+    before_cspk_10~14_*.png, before_demo_10~14_*.png (라이브 BEFORE)
+
+── C. 기존 기능 회귀 확인 ──────────────────────────────────────────────────────
+
+  그룹 내부 페이지 이동 : BEFORE/AFTER 모두 정상. AFTER 는 머리말에서 페이지 표기를
+                          뺐으므로 하단 컨트롤만 1/20 → 2/20 으로 갱신된다(의도).
+  원본/목적 열 분리     : 레코드 행 td 10개 · 배경 3종(패널 #fbfcfe / 원본 #eaf2ff /
+                          목적 #e6f7f3) — BEFORE/AFTER 동일. 탭 왕복 복원 후에도 동일.
+  트리 구조             : 레코드 행이 그룹 요약표와 같은 표 안에 유지(중첩 table 0).
+  일치 행 숨기기 토글   : 라벨 BEFORE/AFTER 동일 — '일치 행 숨기기 (3건)' ↔ '일치 행 보기 (3건)'.
+                          라이브 BEFORE 기준선과도 같다. 토글 로직·라벨 코드는 미변경.
+                          다만 토글은 탭과 같은 재렌더 지점(_mvWireRowsFromCache)을 지나므로
+                          '펼침 유지'가 토글에도 함께 적용된다 — BEFORE exp=0 rec=0 →
+                          AFTER exp=1 rec=5. 탭 전환과 같은 규칙이 걸린 것이며 라벨·필터
+                          결과는 그대로다(의도한 일관성, 숨기지 않고 명시).
+                          스크린샷: before_stub_09_toggle_matched.png / after_stub_09_toggle_matched.png
+  콘솔 오류             : 전 구간 0건(BEFORE/AFTER, 단일·다중 모두).
+
+════════════════════════════════════════════════════════════════════════════════
+4. 테스트
+════════════════════════════════════════════════════════════════════════════════
+
+신규 정적 테스트 : tests/test_reimport_drilldown_notice_dedup_and_tab_expand.py (13건 전부 통과)
+  A01~A06 머리말 합침 계약(문구 형태·페이지 정보 제거·가변 사실 보존·정상 케이스 불변·
+          '선택 그룹' 줄이 비트리 1곳만 남았는지)
+  B01~B07 펼침 상태 계약(3종 헬퍼 존재·재배선 지점 배선·현재 탭 행 존재 확인·stale plan 방어·
+          접기 시 삭제·새 실행 시 초기화·복원 경로에 신규 fetch 없음)
+
+수정한 기존 테스트 : tests/test_diagnosis_ui_workflow.py::test_row_analysis_state_guards
+  _mvToggleRowAggDiff 시그니처를 `(tr, act, r)` 고정 문자열로 매칭하고 있어 선택 인자
+  `_rs` 추가만으로 깨졌다. 시그니처 매칭만 느슨하게 하고(검사 의도 불변) 접기 시 펼침
+  상태도 지우는지를 검사 항목으로 추가했다.
+
+회귀 실행
+  · tests/test_rendered_js_syntax_guard.py                     2 passed
+  · 관련 서브셋(agg_contribution / runexecute_result_ui_static / diagnosis_ui_workflow /
+    drilldown_readiness / 신규) 91 passed, 3 failed → 시그니처 테스트 수정 후 2 failed
+  · UI·드릴다운 광역 서브셋(-k "ui or render or execute or exec_ or drill or reimport or
+    agg or group or notice or tab or tree or pk", 3,562건 수집)
+    - 작업 워킹트리에서 1회: 217 failed / 3326 passed / 19 skipped / 21 errors (943초)
+      다만 이 워킹트리에는 동시 진행 중인 다른 작업들의 미커밋 변경
+      (services/db_adapters/oracle.py · services/candidate_scoring_runner.py ·
+       services/db_query_service.py · ui/csr_display_helpers.py 등)이 섞여 있어
+      이 숫자만으로는 본 변경의 영향을 가릴 수 없다.
+    - 그래서 '내 커밋만 담긴 worktree(d3852a5)' 와 'baseline worktree(d707861)' 를 만들고
+      (양쪽에 같은 프리셋·인증 파일을 넣어 라이브 게이트 조건도 동일하게 맞춤)
+      같은 서브셋을 각각 돌려 실패 집합을 차분했다.
+      → mine(d3852a5) 213 failed / 3327 passed / 24 errors (917초)
+        base(d707861) 211 failed / 3311 passed / 24 errors (948초)
+        error 집합 완전 동일. failed 차분은 4건뿐이고 전부 아래 flaky 파일에 몰려 있다.
+          mine 에만: test_execute_r3_safe_return.py::test_route_r3_failure_isolated
+                     test_execute_route_shadow_integration.py::test_shadow_metrics_failure_isolated
+                     test_single_execute_store_skeleton_state_lock.py::test_route_off_equals_on_no_store_key
+          base 에만: test_execute_response_lossless_snapshot.py::test_route_shadow_on_equals_off
+        이 4개 파일만 따로 3회씩 반복 실행해 보면, 같은 트리에서도 실행할 때마다 실패 목록이
+        바뀐다(mine 4건→6건→4건 / base 4건→5건→4건, 공통 4건은 양쪽 동일). execute route
+        shadow 전역 상태를 공유하는 순서 의존 flaky 파일이며, 두 트리의 수집 개수 차이
+        (신규 테스트 파일 1개 = 13건)로 실행 순서가 밀리면서 어느 이름이 걸리는지가 달라졌을 뿐이다.
+        이 파일들은 렌더된 페이지를 읽지 않으므로 본 변경(JS 번들 텍스트)이 영향을 줄 경로가 없다.
+
+  · 결정적 귀속 — '본 변경이 바꾼 문자열을 실제로 검사하는 테스트'의 닫힌 집합
+    변경한 문자열('선택 그룹: ' 출력 / _pgNote / _mvPerGroupVariantNote 호출 /
+    _mvToggleRowAggDiff(tr, act, r) 시그니처 / '재이관 대상 전체 ' / '표시 상한 ' /
+    _mvWireRowsFromCache)을 tests/ 전체에서 grep 해 해당 파일 7개를 뽑고
+    (agg_contribution · diagnosis_ui_workflow · stats_result_full ·
+     count_diagnostic_result_ui_static · result_view_ui_wiring · row_limit_policy ·
+     runexecute_result_ui_static) mine/base 양쪽에서 실행 → 실패 집합이 14건으로 완전 동일.
+      diff 결과 IDENTICAL — 본 변경으로 인한 신규 실패 0건.
+    (증적: tests/closed_set_failed_MINE.txt · closed_set_failed_BASE.txt)
+
+실패 테스트 전체 목록 (전부 본 변경과 무관 · baseline 대조 완료)
+
+  [1] 관련 서브셋에서 처음 눈에 띈 2건 — 라이브 PostgreSQL 필요
+      tests/test_drilldown_readiness.py::test_live_count_only_available_and_snapshot_fields
+      tests/test_drilldown_readiness.py::test_live_manual_category_is_selected_unconfirmed_verdict_unchanged
+      수정 전 코드(d707861) worktree 에 같은 프리셋 파일을 넣고 돌린 baseline 에서도 동일하게
+      실패한다(status=ERROR step=analyze). ※ 프리셋을 넣지 않은 worktree 에서는 두 건이 skip
+      으로 빠진다 — 'worktree 에서 skip, main 에서 fail' 을 회귀로 오판하지 않도록 조건을 맞춰 대조했다.
+
+  [2] 닫힌 집합(본 변경 문자열을 검사하는 테스트 7개 파일) 14건 — mine/base 완전 동일
+      test_result_view_ui_wiring.py :: test_node_passed_uses_result_view
+                                       test_node_compare_truncated_suppresses_passed
+                                       test_node_tolerance_message_dedup
+                                       test_node_count_skipped_warning
+                                       test_node_legacy_fallback_no_result_view
+                                       test_node_legacy_compare_truncated_fallback
+      test_row_limit_policy.py      :: test_compare_covers_all_groups_beyond_display_limit
+                                       test_display_truncated_but_compare_complete
+                                       test_diff_at_250th_group_detected_even_if_not_displayed
+                                       test_status_failed_when_diff_beyond_display
+                                       test_display_truncated_only_allows_passed
+                                       test_exact_display_limit_not_truncated
+                                       test_src_only_tgt_only_counted_beyond_display
+      test_stats_result_full.py     :: test_phase4b_strategy_plan_effective_selection_display
+
+  [3] 광역 서브셋 213건(mine) / 211건(base) — 전체 목록은 증적 폴더에 파일로 보존
+      tests/broad_subset_failed_MINE_d3852a5.txt · tests/broad_subset_failed_BASE_d707861.txt
+      차분 4건은 위에 적은 execute route shadow flaky 파일 한정(반복 실행 시 이름이 바뀜).
+      상위 파일: test_task12_a(8) · test_step_tab_dom_stability(8) ·
+                 test_single_execute_preflight_connection(8) · test_operational_stability(8) ·
+                 test_groupby_safety_facade(7) 등 — 모두 baseline 에서도 동일하게 실패한다.
+
+════════════════════════════════════════════════════════════════════════════════
+5. 남은 것 / 정직한 한계
+════════════════════════════════════════════════════════════════════════════════
+
+· AFTER 를 라이브 오라클로 재확인하지 못했다. 원인은 코드가 아니라 내부망 호스트
+  192.168.0.151 도달 불가(TCP timeout)이며, 복구되면 아래 한 줄로 그대로 재현된다.
+      MV_TAG=AFTER MV_FIXTURE=cspk python scripts/dev_e2e/reimport_drilldown_notice_dedup_and_tab_expand_verify.py
+      MV_TAG=AFTER MV_FIXTURE=demo python scripts/dev_e2e/reimport_drilldown_notice_dedup_and_tab_expand_verify.py
+  라이브 BEFORE 와 합성 BEFORE 가 글자까지 일치하므로, 합성 AFTER 의 관측이 라이브에서
+  달라질 이유는 코드상 없다(관측 대상이 전부 클라이언트 표시·상태 로직이다).
+
+· 펼침 상태는 '한 번에 한 그룹'만 기억한다. 원래 화면이 동시에 한 그룹만 여는
+  SINGLE-OPEN 정책이라 정책과 일치하지만, 나중에 다중 펼침을 허용하게 되면 이 상태를
+  배열로 바꿔야 한다.
+
+· 상태는 메모리(window)에만 둔다. 새로고침하면 사라진다 — 새로고침은 '처음 진입'이라는
+  기존 화면 정책과 같은 방향이라 그대로 뒀다.
+
+작업명 : REIMPORT-DRILLDOWN-NOTICE-DEDUP-AND-TAB-EXPAND-STATE-PERSIST-FIX
