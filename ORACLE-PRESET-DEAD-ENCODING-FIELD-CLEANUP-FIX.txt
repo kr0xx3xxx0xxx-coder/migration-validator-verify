@@ -129,6 +129,18 @@
   · 입력칸은 여전히 편집·저장 가능하다(값은 무시됨). 완전 차단(readonly/disabled)은
     공통 헬퍼 _pfAdvFieldHtml 에 필드별 플래그를 추가해야 해서 코드 영향이 커져 제외했다.
 
+────────────────────────────────────────────────────────────────────────
+8. 증적 push
+────────────────────────────────────────────────────────────────────────
+  · 저장소   : migration-validator-verify (증적 전용 — 코드 저장소 push 없음)
+  · 방식     : 공유 클론(E:\verify_screenshots_only / E:\verify_reports)이 원격보다 뒤처져 있고
+               다른 세션의 untracked 초안이 있어, 스크래치패드 임시 클론에서 내 파일만 커밋·push
+               (남의 작업트리 무접촉). 이후 로컬 사본을 체크아웃 예상본과 바이트 동일화.
+  · 커밋     : da9c377  (부모 e100d64)
+  · staged 검증: A 21건(내 증적 20 + 보고서 1)만 — D/M 0건
+  · 확인     : git ls-remote → refs/heads/main = da9c377d7f426bf32655360109a7aa8eeb4b4590
+               origin/main 트리에 ORACLE-PRESET-DEAD-ENCODING-FIELD-CLEANUP-FIX/ 20개 파일 + .txt 존재
+
 실검증 상태: 실제 브라우저(Playwright Chromium) + 실제 서버(:8000, 최신 코드 재기동 후) + 실제 오라클
 프리셋(Oracle_asis)로 Before/After 실측 완료 — 모의·추정·코드 리딩만으로 판단한 항목 없음.
 
