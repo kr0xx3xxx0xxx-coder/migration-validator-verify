@@ -1,0 +1,1006 @@
+{
+  "task": "REIMPORT-DRILLDOWN-TREE-MERGE-AND-WARNING-HOIST-FIX",
+  "tag": "BEFORE",
+  "base": "http://127.0.0.1:8000",
+  "sql": "INSERT INTO NXDNP.MV_CSPK_TGT (PK_STR, AMT, QTY, REG_DT, ITEM_NM, STATUS_CD) SELECT REGION_CD || '-' || LPAD(SEQ_NO, 6, '0'), AMT, QTY, REG_DT, ITEM_NM, STATUS_CD FROM NXDNP.MV_CSPK_SRC",
+  "fixture": "cspk",
+  "stages": {
+    "2_count": {
+      "count_status": "COUNT_MINOR_DIFF",
+      "src_count": 1000000,
+      "tgt_count": 990000
+    },
+    "3_select": {
+      "gb": [
+        "STATUS_CD"
+      ],
+      "gbAll": [
+        {
+          "v": "STATUS_CD",
+          "checked": true,
+          "disabled": false
+        },
+        {
+          "v": "REG_DT",
+          "checked": false,
+          "disabled": true
+        },
+        {
+          "v": "PK_STR",
+          "checked": false,
+          "disabled": true
+        },
+        {
+          "v": "ITEM_NM",
+          "checked": false,
+          "disabled": true
+        }
+      ],
+      "sum": [
+        "AMT",
+        "QTY"
+      ]
+    }
+  },
+  "obs": {
+    "A": {
+      "t0_collapsed": {
+        "present": true,
+        "thCount": 9,
+        "headers": [
+          "STATUS_CD",
+          "STATUS_CD",
+          "COUNT(건수)",
+          "COUNT(건수)",
+          "AMT(금액)",
+          "AMT(금액)",
+          "QTY(수량)",
+          "QTY(수량)",
+          "판정(STATUS)"
+        ],
+        "headerRoles": [
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ],
+        "rowCount": 1,
+        "rows": [
+          {
+            "cls": "mv-mismatch-row",
+            "key": "{\"STATUS_CD\":\"P\"}",
+            "status": "diff",
+            "expanded": "false",
+            "tdCount": 9,
+            "colspan": "",
+            "firstCell": "P",
+            "cellLefts": [
+              319,
+              479,
+              639,
+              753,
+              867,
+              1037,
+              1207,
+              1349,
+              1491
+            ],
+            "orangeCells": 0,
+            "padLeft": "10px",
+            "text": "PP250000240000Δ +10,00014940470501434283872Δ +59,763,1781224981711760114Δ +489,703집계값 불일치"
+          }
+        ],
+        "innerTables": 0,
+        "recRowCount": 0,
+        "panelCount": 0,
+        "footCount": 0,
+        "hoistPresent": false,
+        "hoistText": "",
+        "tierInTbody": 0,
+        "tierInHost": 0,
+        "p3InTbody": 0,
+        "p3InHost": 0,
+        "tableTop": 1090,
+        "warnBoxes": [],
+        "topLine": "",
+        "measure": "",
+        "pagingText": ""
+      },
+      "t0_toggle": {
+        "label": "일치 행 보기 (3건)",
+        "hideMatched": false,
+        "srvMode": true,
+        "srvIncludeMatched": false,
+        "colFilter": "",
+        "groupRows": 1,
+        "okRows": 0,
+        "rowKeys": [
+          "{\"STATUS_CD\":\"P\"}"
+        ],
+        "tabs": [
+          {
+            "label": "전체 4",
+            "active": true
+          },
+          {
+            "label": "COUNT 1",
+            "active": false
+          },
+          {
+            "label": "AMT 1",
+            "active": false
+          },
+          {
+            "label": "QTY 1",
+            "active": false
+          }
+        ]
+      },
+      "a1_open": {
+        "phase": "A1-그룹펼침",
+        "row_index": 0,
+        "wall_sec": 4.639,
+        "prepare_reqs": 1,
+        "pkrecords_reqs": 3,
+        "shape": {
+          "present": true,
+          "thCount": 16,
+          "headers": [
+            "STATUS_CD",
+            "STATUS_CD",
+            "COUNT(건수)",
+            "COUNT(건수)",
+            "AMT(금액)",
+            "AMT(금액)",
+            "QTY(수량)",
+            "QTY(수량)",
+            "판정(STATUS)",
+            "PK_STRPK",
+            "STATUS_CD",
+            "STATUS_CD",
+            "AMT",
+            "AMT",
+            "QTY",
+            "QTY"
+          ],
+          "headerRoles": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "rowCount": 2,
+          "rows": [
+            {
+              "cls": "mv-mismatch-row",
+              "key": "{\"STATUS_CD\":\"P\"}",
+              "status": "diff",
+              "expanded": "true",
+              "tdCount": 9,
+              "colspan": "",
+              "firstCell": "P",
+              "cellLefts": [
+                319,
+                492,
+                665,
+                788,
+                910,
+                1063,
+                1216,
+                1347,
+                1478
+              ],
+              "orangeCells": 0,
+              "padLeft": "10px",
+              "text": "PP250000240000Δ +10,00014940470501434283872Δ +59,763,1781224981711760114Δ +489,703집계값 불일치"
+            },
+            {
+              "cls": "mv-ed-scope-panel",
+              "key": null,
+              "status": null,
+              "expanded": null,
+              "tdCount": 1,
+              "colspan": "99",
+              "firstCell": "표시 등급 D4 · 요약 전용(다운로드로 확보)불일치 101건 이상(그룹 1개) — 수집이 조기중단되어 정확",
+              "cellLefts": [
+                319
+              ],
+              "orangeCells": 0,
+              "padLeft": "10px",
+              "text": "표시 등급 D4 · 요약 전용(다운로드로 확보)불일치 101건 이상(그룹 1개) — 수집이 조기중단되어 정확한 총 건수는 확인하지 않았습니다. 저장된 레코드는 그룹 상세에서 표시 경계까지 나열하고,"
+            }
+          ],
+          "innerTables": 1,
+          "recRowCount": 0,
+          "panelCount": 1,
+          "footCount": 0,
+          "hoistPresent": false,
+          "hoistText": "",
+          "tierInTbody": 1,
+          "tierInHost": 1,
+          "p3InTbody": 1,
+          "p3InHost": 1,
+          "tableTop": 1090,
+          "warnBoxes": [
+            {
+              "kind": "TIER",
+              "top": 1202,
+              "inTbody": true,
+              "inHoist": false,
+              "text": "표시 등급 D4 · 요약 전용(다운로드로 확보)불일치 101건 이상(그룹 1개) — 수집이 조기중단되어 정확한 총 건수는 확인하지 않았습니다. 저장된 레코드는 그"
+            },
+            {
+              "kind": "TIER",
+              "top": 1212,
+              "inTbody": true,
+              "inHoist": false,
+              "text": "표시 등급 D4 · 요약 전용(다운로드로 확보)"
+            },
+            {
+              "kind": "P3",
+              "top": 1269,
+              "inTbody": true,
+              "inHoist": false,
+              "text": "이 그룹은 불일치가 100건을 초과합니다 — 표시 100건 / 실제 100건 초과(정확한 총수는 확인 안 됨, 조기중단). 실제 불일치 레코드 중 확보된 저장분의"
+            }
+          ],
+          "topLine": "재이관 대상 전체 101건 (표시 상한 100건 · 실제는 100건 초과·총수 미확정) · 현재 1~5 표시 · 1/20페이지",
+          "measure": "계측 — 준비확인 1003ms · scope 조회 77ms · 렌더 1ms",
+          "pagingText": "이전12345… 다음1/20페이지 · 5건 단위(그룹 전용)"
+        }
+      },
+      "a2_next_page": {
+        "clicked": true,
+        "shape": {
+          "present": true,
+          "thCount": 16,
+          "headers": [
+            "STATUS_CD",
+            "STATUS_CD",
+            "COUNT(건수)",
+            "COUNT(건수)",
+            "AMT(금액)",
+            "AMT(금액)",
+            "QTY(수량)",
+            "QTY(수량)",
+            "판정(STATUS)",
+            "PK_STRPK",
+            "STATUS_CD",
+            "STATUS_CD",
+            "AMT",
+            "AMT",
+            "QTY",
+            "QTY"
+          ],
+          "headerRoles": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "rowCount": 2,
+          "rows": [
+            {
+              "cls": "mv-mismatch-row",
+              "key": "{\"STATUS_CD\":\"P\"}",
+              "status": "diff",
+              "expanded": "true",
+              "tdCount": 9,
+              "colspan": "",
+              "firstCell": "P",
+              "cellLefts": [
+                319,
+                492,
+                665,
+                788,
+                910,
+                1063,
+                1216,
+                1347,
+                1478
+              ],
+              "orangeCells": 0,
+              "padLeft": "10px",
+              "text": "PP250000240000Δ +10,00014940470501434283872Δ +59,763,1781224981711760114Δ +489,703집계값 불일치"
+            },
+            {
+              "cls": "mv-ed-scope-panel",
+              "key": null,
+              "status": null,
+              "expanded": null,
+              "tdCount": 1,
+              "colspan": "99",
+              "firstCell": "표시 등급 D4 · 요약 전용(다운로드로 확보)불일치 101건 이상(그룹 1개) — 수집이 조기중단되어 정확",
+              "cellLefts": [
+                319
+              ],
+              "orangeCells": 0,
+              "padLeft": "10px",
+              "text": "표시 등급 D4 · 요약 전용(다운로드로 확보)불일치 101건 이상(그룹 1개) — 수집이 조기중단되어 정확한 총 건수는 확인하지 않았습니다. 저장된 레코드는 그룹 상세에서 표시 경계까지 나열하고,"
+            }
+          ],
+          "innerTables": 1,
+          "recRowCount": 0,
+          "panelCount": 1,
+          "footCount": 0,
+          "hoistPresent": false,
+          "hoistText": "",
+          "tierInTbody": 1,
+          "tierInHost": 1,
+          "p3InTbody": 1,
+          "p3InHost": 1,
+          "tableTop": 1090,
+          "warnBoxes": [
+            {
+              "kind": "TIER",
+              "top": 1202,
+              "inTbody": true,
+              "inHoist": false,
+              "text": "표시 등급 D4 · 요약 전용(다운로드로 확보)불일치 101건 이상(그룹 1개) — 수집이 조기중단되어 정확한 총 건수는 확인하지 않았습니다. 저장된 레코드는 그"
+            },
+            {
+              "kind": "TIER",
+              "top": 1212,
+              "inTbody": true,
+              "inHoist": false,
+              "text": "표시 등급 D4 · 요약 전용(다운로드로 확보)"
+            },
+            {
+              "kind": "P3",
+              "top": 1269,
+              "inTbody": true,
+              "inHoist": false,
+              "text": "이 그룹은 불일치가 100건을 초과합니다 — 표시 100건 / 실제 100건 초과(정확한 총수는 확인 안 됨, 조기중단). 실제 불일치 레코드 중 확보된 저장분의"
+            }
+          ],
+          "topLine": "재이관 대상 전체 101건 (표시 상한 100건 · 실제는 100건 초과·총수 미확정) · 현재 6~10 표시 · 2/20페이지",
+          "measure": "계측 — 준비확인 1003ms · scope 조회 79ms · 렌더 0ms",
+          "pagingText": "이전123456… 다음2/20페이지 · 5건 단위(그룹 전용)"
+        }
+      },
+      "a3_collapsed": {
+        "present": true,
+        "thCount": 9,
+        "headers": [
+          "STATUS_CD",
+          "STATUS_CD",
+          "COUNT(건수)",
+          "COUNT(건수)",
+          "AMT(금액)",
+          "AMT(금액)",
+          "QTY(수량)",
+          "QTY(수량)",
+          "판정(STATUS)"
+        ],
+        "headerRoles": [
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ],
+        "rowCount": 1,
+        "rows": [
+          {
+            "cls": "mv-mismatch-row",
+            "key": "{\"STATUS_CD\":\"P\"}",
+            "status": "diff",
+            "expanded": "false",
+            "tdCount": 9,
+            "colspan": "",
+            "firstCell": "P",
+            "cellLefts": [
+              319,
+              479,
+              639,
+              753,
+              867,
+              1037,
+              1207,
+              1349,
+              1491
+            ],
+            "orangeCells": 0,
+            "padLeft": "10px",
+            "text": "PP250000240000Δ +10,00014940470501434283872Δ +59,763,1781224981711760114Δ +489,703집계값 불일치"
+          }
+        ],
+        "innerTables": 0,
+        "recRowCount": 0,
+        "panelCount": 0,
+        "footCount": 0,
+        "hoistPresent": false,
+        "hoistText": "",
+        "tierInTbody": 0,
+        "tierInHost": 0,
+        "p3InTbody": 0,
+        "p3InHost": 0,
+        "tableTop": 1090,
+        "warnBoxes": [],
+        "topLine": "",
+        "measure": "",
+        "pagingText": ""
+      },
+      "a4_toggle_on": {
+        "label": "일치 행 숨기기 (3건)",
+        "hideMatched": false,
+        "srvMode": true,
+        "srvIncludeMatched": true,
+        "colFilter": "",
+        "groupRows": 1,
+        "okRows": 3,
+        "rowKeys": [
+          "{\"STATUS_CD\":\"P\"}"
+        ],
+        "tabs": [
+          {
+            "label": "전체 4",
+            "active": true
+          },
+          {
+            "label": "COUNT 1",
+            "active": false
+          },
+          {
+            "label": "AMT 1",
+            "active": false
+          },
+          {
+            "label": "QTY 1",
+            "active": false
+          }
+        ]
+      },
+      "a4_toggle_off": {
+        "label": "일치 행 보기 (3건)",
+        "hideMatched": false,
+        "srvMode": true,
+        "srvIncludeMatched": false,
+        "colFilter": "",
+        "groupRows": 1,
+        "okRows": 0,
+        "rowKeys": [
+          "{\"STATUS_CD\":\"P\"}"
+        ],
+        "tabs": [
+          {
+            "label": "전체 4",
+            "active": true
+          },
+          {
+            "label": "COUNT 1",
+            "active": false
+          },
+          {
+            "label": "AMT 1",
+            "active": false
+          },
+          {
+            "label": "QTY 1",
+            "active": false
+          }
+        ]
+      },
+      "a5_tabs": {
+        "COUNT": {
+          "label": "일치 행 보기 (3건)",
+          "hideMatched": false,
+          "srvMode": true,
+          "srvIncludeMatched": false,
+          "colFilter": "CNT",
+          "groupRows": 1,
+          "okRows": 0,
+          "rowKeys": [
+            "{\"STATUS_CD\":\"P\"}"
+          ],
+          "tabs": [
+            {
+              "label": "전체 4",
+              "active": false
+            },
+            {
+              "label": "COUNT 1",
+              "active": true
+            },
+            {
+              "label": "AMT 1",
+              "active": false
+            },
+            {
+              "label": "QTY 1",
+              "active": false
+            }
+          ]
+        },
+        "AMT": {
+          "label": "일치 행 보기 (3건)",
+          "hideMatched": false,
+          "srvMode": true,
+          "srvIncludeMatched": false,
+          "colFilter": "AMT",
+          "groupRows": 1,
+          "okRows": 0,
+          "rowKeys": [
+            "{\"STATUS_CD\":\"P\"}"
+          ],
+          "tabs": [
+            {
+              "label": "전체 4",
+              "active": false
+            },
+            {
+              "label": "COUNT 1",
+              "active": false
+            },
+            {
+              "label": "AMT 1",
+              "active": true
+            },
+            {
+              "label": "QTY 1",
+              "active": false
+            }
+          ]
+        },
+        "전체": {
+          "label": "일치 행 보기 (3건)",
+          "hideMatched": false,
+          "srvMode": true,
+          "srvIncludeMatched": false,
+          "colFilter": "",
+          "groupRows": 1,
+          "okRows": 0,
+          "rowKeys": [
+            "{\"STATUS_CD\":\"P\"}"
+          ],
+          "tabs": [
+            {
+              "label": "전체 4",
+              "active": true
+            },
+            {
+              "label": "COUNT 1",
+              "active": false
+            },
+            {
+              "label": "AMT 1",
+              "active": false
+            },
+            {
+              "label": "QTY 1",
+              "active": false
+            }
+          ]
+        }
+      },
+      "a6_reopen": {
+        "phase": "A6-재펼침",
+        "row_index": 0,
+        "wall_sec": 0.513,
+        "prepare_reqs": 0,
+        "pkrecords_reqs": 0,
+        "shape": {
+          "present": true,
+          "thCount": 16,
+          "headers": [
+            "STATUS_CD",
+            "STATUS_CD",
+            "COUNT(건수)",
+            "COUNT(건수)",
+            "AMT(금액)",
+            "AMT(금액)",
+            "QTY(수량)",
+            "QTY(수량)",
+            "판정(STATUS)",
+            "PK_STRPK",
+            "STATUS_CD",
+            "STATUS_CD",
+            "AMT",
+            "AMT",
+            "QTY",
+            "QTY"
+          ],
+          "headerRoles": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "rowCount": 2,
+          "rows": [
+            {
+              "cls": "mv-mismatch-row",
+              "key": "{\"STATUS_CD\":\"P\"}",
+              "status": "diff",
+              "expanded": "true",
+              "tdCount": 9,
+              "colspan": "",
+              "firstCell": "P",
+              "cellLefts": [
+                319,
+                492,
+                665,
+                788,
+                910,
+                1063,
+                1216,
+                1347,
+                1478
+              ],
+              "orangeCells": 0,
+              "padLeft": "10px",
+              "text": "PP250000240000Δ +10,00014940470501434283872Δ +59,763,1781224981711760114Δ +489,703집계값 불일치"
+            },
+            {
+              "cls": "mv-ed-scope-panel",
+              "key": null,
+              "status": null,
+              "expanded": null,
+              "tdCount": 1,
+              "colspan": "99",
+              "firstCell": "표시 등급 D4 · 요약 전용(다운로드로 확보)불일치 101건 이상(그룹 1개) — 수집이 조기중단되어 정확",
+              "cellLefts": [
+                319
+              ],
+              "orangeCells": 0,
+              "padLeft": "10px",
+              "text": "표시 등급 D4 · 요약 전용(다운로드로 확보)불일치 101건 이상(그룹 1개) — 수집이 조기중단되어 정확한 총 건수는 확인하지 않았습니다. 저장된 레코드는 그룹 상세에서 표시 경계까지 나열하고,"
+            }
+          ],
+          "innerTables": 1,
+          "recRowCount": 0,
+          "panelCount": 1,
+          "footCount": 0,
+          "hoistPresent": false,
+          "hoistText": "",
+          "tierInTbody": 1,
+          "tierInHost": 1,
+          "p3InTbody": 1,
+          "p3InHost": 1,
+          "tableTop": 1090,
+          "warnBoxes": [
+            {
+              "kind": "TIER",
+              "top": 1202,
+              "inTbody": true,
+              "inHoist": false,
+              "text": "표시 등급 D4 · 요약 전용(다운로드로 확보)불일치 101건 이상(그룹 1개) — 수집이 조기중단되어 정확한 총 건수는 확인하지 않았습니다. 저장된 레코드는 그"
+            },
+            {
+              "kind": "TIER",
+              "top": 1212,
+              "inTbody": true,
+              "inHoist": false,
+              "text": "표시 등급 D4 · 요약 전용(다운로드로 확보)"
+            },
+            {
+              "kind": "P3",
+              "top": 1269,
+              "inTbody": true,
+              "inHoist": false,
+              "text": "이 그룹은 불일치가 100건을 초과합니다 — 표시 100건 / 실제 100건 초과(정확한 총수는 확인 안 됨, 조기중단). 실제 불일치 레코드 중 확보된 저장분의"
+            }
+          ],
+          "topLine": "재이관 대상 전체 101건 (표시 상한 100건 · 실제는 100건 초과·총수 미확정) · 현재 1~5 표시 · 1/20페이지",
+          "measure": "계측 — 준비확인 0ms · scope 조회 0ms(캐시) · 렌더 1ms",
+          "pagingText": "이전12345… 다음1/20페이지 · 5건 단위(그룹 전용)"
+        }
+      }
+    },
+    "MULTI": {
+      "mismatch_group_count": 1,
+      "mismatch_group_keys": [
+        "{\"STATUS_CD\":\"P\"}"
+      ],
+      "skipped": "불일치 그룹 1개 — 다중 그룹 관측 불가"
+    }
+  },
+  "notes": [
+    "[D] 불일치 그룹이 1개뿐(픽스처 cspk) — 다중 그룹 관측 생략"
+  ],
+  "setup": {
+    "pair_rows": 1,
+    "pair_created": true,
+    "connected": true
+  },
+  "net": [
+    {
+      "t": 33.42,
+      "kind": "req",
+      "path": "/analyze",
+      "method": "POST",
+      "url": "http://127.0.0.1:8000/analyze"
+    },
+    {
+      "t": 34.34,
+      "kind": "resp",
+      "path": "/analyze",
+      "status": 200
+    },
+    {
+      "t": 131.16,
+      "kind": "req",
+      "path": "/count",
+      "method": "POST",
+      "url": "http://127.0.0.1:8000/count"
+    },
+    {
+      "t": 131.56,
+      "kind": "resp",
+      "path": "/count",
+      "status": "FAILED",
+      "processing_ms": 329.1
+    },
+    {
+      "t": 148.12,
+      "kind": "req",
+      "path": "/generate",
+      "method": "POST",
+      "url": "http://127.0.0.1:8000/generate"
+    },
+    {
+      "t": 148.24,
+      "kind": "resp",
+      "path": "/generate",
+      "status": 200,
+      "processing_ms": 1.8
+    },
+    {
+      "t": 153.27,
+      "kind": "req",
+      "path": "/execute",
+      "method": "POST",
+      "url": "http://127.0.0.1:8000/execute"
+    },
+    {
+      "t": 153.97,
+      "kind": "req",
+      "path": "/stats-result/page",
+      "method": "GET",
+      "url": "http://127.0.0.1:8000/stats-result/page?result_id=SRD55FE2C1F850&page=1&page_size=50&mismatch_only=true&fp="
+    },
+    {
+      "t": 153.96,
+      "kind": "resp",
+      "path": "/execute",
+      "status": 200,
+      "processing_ms": 562.3,
+      "run_id": null
+    },
+    {
+      "t": 154.25,
+      "kind": "resp",
+      "path": "/stats-result/page",
+      "status": 200,
+      "ok": true,
+      "page": 1
+    },
+    {
+      "t": 154.31,
+      "kind": "req",
+      "path": "/analyze",
+      "method": "POST",
+      "url": "http://127.0.0.1:8000/diagnosis/analyze"
+    },
+    {
+      "t": 154.54,
+      "kind": "resp",
+      "path": "/analyze",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "t": 161.6,
+      "kind": "req",
+      "path": "/agg-diff/prepare",
+      "method": "POST",
+      "url": "http://127.0.0.1:8000/agg-diff/prepare"
+    },
+    {
+      "t": 162.6,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET",
+      "url": "http://127.0.0.1:8000/agg-diff/pk-records?run_id=PS7D7369276B4C&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+    },
+    {
+      "t": 162.6,
+      "kind": "resp",
+      "path": "/agg-diff/prepare",
+      "status": "PREPARING",
+      "run_id": "PS7D7369276B4C",
+      "ok": true
+    },
+    {
+      "t": 162.66,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "PREPARING",
+      "run_id": "PS7D7369276B4C",
+      "ok": true
+    },
+    {
+      "t": 164.17,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET",
+      "url": "http://127.0.0.1:8000/agg-diff/pk-records?run_id=PS7D7369276B4C&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+    },
+    {
+      "t": 164.24,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "PREPARING",
+      "run_id": "PS7D7369276B4C",
+      "ok": true,
+      "total": null,
+      "page": 1
+    },
+    {
+      "t": 165.76,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET",
+      "url": "http://127.0.0.1:8000/agg-diff/pk-records?run_id=PS7D7369276B4C&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+    },
+    {
+      "t": 165.84,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "EARLY_STOPPED",
+      "run_id": "PS7D7369276B4C",
+      "ok": true,
+      "total": 101,
+      "page": 1
+    },
+    {
+      "t": 166.39,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET",
+      "url": "http://127.0.0.1:8000/agg-diff/pk-records?run_id=PS7D7369276B4C&page=2&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=P"
+    },
+    {
+      "t": 166.47,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "EARLY_STOPPED",
+      "run_id": "PS7D7369276B4C",
+      "ok": true,
+      "total": 101,
+      "page": 2
+    },
+    {
+      "t": 170.11,
+      "kind": "req",
+      "path": "/stats-result/page",
+      "method": "GET",
+      "url": "http://127.0.0.1:8000/stats-result/page?result_id=SRD55FE2C1F850&page=1&page_size=50&mismatch_only=false&fp="
+    },
+    {
+      "t": 170.17,
+      "kind": "resp",
+      "path": "/stats-result/page",
+      "status": 200,
+      "ok": true,
+      "page": 1
+    },
+    {
+      "t": 173.27,
+      "kind": "req",
+      "path": "/stats-result/page",
+      "method": "GET",
+      "url": "http://127.0.0.1:8000/stats-result/page?result_id=SRD55FE2C1F850&page=1&page_size=50&mismatch_only=true&fp="
+    },
+    {
+      "t": 173.33,
+      "kind": "resp",
+      "path": "/stats-result/page",
+      "status": 200,
+      "ok": true,
+      "page": 1
+    },
+    {
+      "t": 181.34,
+      "kind": "req",
+      "path": "/stats-result/page",
+      "method": "GET",
+      "url": "http://127.0.0.1:8000/stats-result/page?result_id=SRD55FE2C1F850&page=1&page_size=50&mismatch_only=true&fp="
+    },
+    {
+      "t": 181.4,
+      "kind": "resp",
+      "path": "/stats-result/page",
+      "status": 200,
+      "ok": true,
+      "page": 1
+    }
+  ],
+  "marks": [
+    {
+      "t": 32.15,
+      "mark": "1단계 분석",
+      "extra": null
+    },
+    {
+      "t": 36.28,
+      "mark": "2단계 COUNT",
+      "extra": null
+    },
+    {
+      "t": 135.22,
+      "mark": "3단계 후보선정",
+      "extra": null
+    },
+    {
+      "t": 144.89,
+      "mark": "4단계 SQL 생성 + 통계검증 실행 (A-기본축)",
+      "extra": null
+    },
+    {
+      "t": 157.07,
+      "mark": "5단계 진입 (A-기본축)",
+      "extra": null
+    },
+    {
+      "t": 161.59,
+      "mark": "[A1-그룹펼침] 그룹 클릭(index=0)",
+      "extra": null
+    },
+    {
+      "t": 183.96,
+      "mark": "[A6-재펼침] 그룹 클릭(index=0)",
+      "extra": null
+    }
+  ],
+  "console_errors": [],
+  "dialogs": [
+    "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+    "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+  ]
+}

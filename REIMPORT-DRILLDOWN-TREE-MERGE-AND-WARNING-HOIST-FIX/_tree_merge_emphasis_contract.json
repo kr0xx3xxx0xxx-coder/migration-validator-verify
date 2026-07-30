@@ -1,0 +1,212 @@
+{
+  "task": "REIMPORT-DRILLDOWN-TREE-MERGE-AND-WARNING-HOIST-FIX",
+  "check": "tree_row_emphasis_and_column_contract",
+  "base": "http://127.0.0.1:8000",
+  "checks": [
+    {
+      "case": "missing(목적 미존재)",
+      "passed": true,
+      "td_count": 8,
+      "expected_td": 8,
+      "na_cells": 2,
+      "tree_text": "K-1REGION_CD=A001",
+      "orange_target_cells": 2,
+      "expect_orange": true,
+      "cells": [
+        {
+          "text": "K-1REGION_CD=A001",
+          "cls": "mv-tree-cell mv-tree-rec",
+          "inlineColorOrange": false,
+          "bold": false,
+          "computedColor": "rgb(71, 85, 105)"
+        },
+        {
+          "text": "P",
+          "cls": "",
+          "inlineColorOrange": false,
+          "bold": false,
+          "computedColor": "rgb(16, 35, 63)"
+        },
+        {
+          "text": "-",
+          "cls": "",
+          "inlineColorOrange": true,
+          "bold": true,
+          "computedColor": "rgb(194, 65, 12)"
+        },
+        {
+          "text": "·",
+          "cls": "mv-tree-na",
+          "inlineColorOrange": false,
+          "bold": false,
+          "computedColor": "rgb(203, 213, 225)"
+        },
+        {
+          "text": "·",
+          "cls": "mv-tree-na",
+          "inlineColorOrange": false,
+          "bold": false,
+          "computedColor": "rgb(203, 213, 225)"
+        },
+        {
+          "text": "100",
+          "cls": "",
+          "inlineColorOrange": false,
+          "bold": false,
+          "computedColor": "rgb(16, 35, 63)"
+        },
+        {
+          "text": "-",
+          "cls": "",
+          "inlineColorOrange": true,
+          "bold": true,
+          "computedColor": "rgb(194, 65, 12)"
+        },
+        {
+          "text": "",
+          "cls": "",
+          "inlineColorOrange": false,
+          "bold": false,
+          "computedColor": "rgb(16, 35, 63)"
+        }
+      ]
+    },
+    {
+      "case": "diff(값 불일치 AMT)",
+      "passed": true,
+      "td_count": 8,
+      "expected_td": 8,
+      "na_cells": 2,
+      "tree_text": "K-2REGION_CD=A001",
+      "orange_target_cells": 1,
+      "expect_orange": true,
+      "cells": [
+        {
+          "text": "K-2REGION_CD=A001",
+          "cls": "mv-tree-cell mv-tree-rec",
+          "inlineColorOrange": false,
+          "bold": false,
+          "computedColor": "rgb(71, 85, 105)"
+        },
+        {
+          "text": "P",
+          "cls": "",
+          "inlineColorOrange": false,
+          "bold": false,
+          "computedColor": "rgb(16, 35, 63)"
+        },
+        {
+          "text": "P",
+          "cls": "",
+          "inlineColorOrange": false,
+          "bold": false,
+          "computedColor": "rgb(16, 35, 63)"
+        },
+        {
+          "text": "·",
+          "cls": "mv-tree-na",
+          "inlineColorOrange": false,
+          "bold": false,
+          "computedColor": "rgb(203, 213, 225)"
+        },
+        {
+          "text": "·",
+          "cls": "mv-tree-na",
+          "inlineColorOrange": false,
+          "bold": false,
+          "computedColor": "rgb(203, 213, 225)"
+        },
+        {
+          "text": "100",
+          "cls": "",
+          "inlineColorOrange": false,
+          "bold": false,
+          "computedColor": "rgb(16, 35, 63)"
+        },
+        {
+          "text": "150",
+          "cls": "",
+          "inlineColorOrange": true,
+          "bold": true,
+          "computedColor": "rgb(194, 65, 12)"
+        },
+        {
+          "text": "",
+          "cls": "",
+          "inlineColorOrange": false,
+          "bold": false,
+          "computedColor": "rgb(16, 35, 63)"
+        }
+      ]
+    },
+    {
+      "case": "match(완전 일치)",
+      "passed": true,
+      "td_count": 8,
+      "expected_td": 8,
+      "na_cells": 2,
+      "tree_text": "K-3REGION_CD=A001",
+      "orange_target_cells": 0,
+      "expect_orange": false,
+      "cells": [
+        {
+          "text": "K-3REGION_CD=A001",
+          "cls": "mv-tree-cell mv-tree-rec",
+          "inlineColorOrange": false,
+          "bold": false,
+          "computedColor": "rgb(71, 85, 105)"
+        },
+        {
+          "text": "P",
+          "cls": "",
+          "inlineColorOrange": false,
+          "bold": false,
+          "computedColor": "rgb(16, 35, 63)"
+        },
+        {
+          "text": "P",
+          "cls": "",
+          "inlineColorOrange": false,
+          "bold": false,
+          "computedColor": "rgb(16, 35, 63)"
+        },
+        {
+          "text": "·",
+          "cls": "mv-tree-na",
+          "inlineColorOrange": false,
+          "bold": false,
+          "computedColor": "rgb(203, 213, 225)"
+        },
+        {
+          "text": "·",
+          "cls": "mv-tree-na",
+          "inlineColorOrange": false,
+          "bold": false,
+          "computedColor": "rgb(203, 213, 225)"
+        },
+        {
+          "text": "100",
+          "cls": "",
+          "inlineColorOrange": false,
+          "bold": false,
+          "computedColor": "rgb(16, 35, 63)"
+        },
+        {
+          "text": "100",
+          "cls": "",
+          "inlineColorOrange": false,
+          "bold": false,
+          "computedColor": "rgb(16, 35, 63)"
+        },
+        {
+          "text": "",
+          "cls": "",
+          "inlineColorOrange": false,
+          "bold": false,
+          "computedColor": "rgb(16, 35, 63)"
+        }
+      ]
+    }
+  ],
+  "verdict": "PASS"
+}
