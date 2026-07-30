@@ -1,0 +1,172 @@
+작업명 : BACKLOG-S9-R4-RECLASSIFY-DOC-UPDATE
+✅ 작업 완료 - BACKLOG-S9-R4-RECLASSIFY-DOC-UPDATE - S9 를 재집계 사실(15→5지점, R1~R3 해결완료)로 갱신하고 R4 를 M16, R5 를 F13 별건으로 분리 등록(문서만 수정, 코드 무변경)
+
+■ 요청 요약
+  DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE 재집계 결과를 BACKLOG.md 에 반영한다.
+  (1) S9 본문에서 R4 서술 분리 (2) R4 를 신규 항목으로 등록 (3) S9 의 '15지점' 표기 갱신
+  (4) R5 를 별도 항목으로 등록 (5) 다른 섹션 무접촉. 코드 수정 없음 — 순수 문서 정리.
+
+■ 수정 파일
+  E:\verify_reports\BACKLOG.md  (1파일, +43 / -9)
+  ※ 코드 저장소(C:\projects\migration-validator)는 전혀 건드리지 않았다.
+
+■ 수행 내용
+  1) S9 제목·본문 갱신 (요구사항 1·3)
+     - 제목: "routes/ 방언 미위임 15지점 + count_gate 3개 엔드포인트에 방언 사전 게이트 부재"
+           → "✅ 해결 완료 — routes/ 방언 미위임(최초 15지점 표기 → 재집계 5지점) + count_gate 방언 사전 게이트 부재"
+     - 본문: 15지점 중 10지점이 4개 작업(35a168c / 25138f0 / 4db92e1 / 6a4cc8a)으로 이미 해소돼
+       실제 남은 지점 5개, 그중 실사용 UI 경로 영향은 agg_diff_route.py 의 R1 1개뿐임을 명시.
+     - R1 은 R2(/agg-diff/run)·R3(resolve_trusted_chunk_key)와 함께
+       AGG-DIFF-ROUTE-CHUNKKEY-DIALECT-DELEGATION-FIX(16526e7)로 해결 완료임을 기재.
+     - R4 서술은 S9 본문에서 제거하고 "별건 M16 으로 분리" 한 줄로 대체.
+     - count_gate 사전 게이트 항목은 "오라클 관점에서 소멸, 남은 것은 UI 미소비 1건 → F13" 으로 갱신.
+     - 근거 보고서에 DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE.txt 추가.
+
+  2) R4 신규 등록 → "## 경미/문서" 섹션 M16 (요구사항 2)
+     - 판정 문구: "위험 낮음 · 우선순위 낮음", 'LIMIT 미위임' 범주가 아니라 S9 에서 분리한 별건임을 명시.
+     - 상세: sqlglot.parse_one(read="postgres") / tree.sql(dialect="postgres") 하드코딩의 이론적 왜곡
+       가능성은 남아 있으나, 실패 시 except 로 삼켜 SIZE_UNKNOWN 으로 안전측 축약되며
+       오라클 라이브 실측에서도 정상 동작(300 반환) 확인됨.
+     - 섹션 선택 근거: 지시가 '성능' 또는 '경미/문서' 중 택일이었고, 실행 비용이 아니라
+       '위험 낮음·표기 정확성' 성격이므로 경미/문서가 맞다. 번호는 기존 최대 M15 다음인 M16.
+     - 배치는 파일 규약(섹션 안 발견일 최신순)에 따라 섹션 최상단(발견일 2026-07-30).
+
+  3) R5 신규 등록 → "## 기능 미완(설계는 끝났으나 구현 대기)" 섹션 F13 (요구사항 4)
+     - BACKLOG.md 에 R5 관련 기존 항목이 없음을 사전 확인(grep: EXPORT_DIALECT_UNSUPPORTED /
+       mvCountGateSideExport / one_side_src_records / COUNT-GATE-EXPORT → 0건)했으므로 신규 등록했다.
+     - 섹션 선택 근거: 서버측 사전 게이트는 이미 신설(설계·서버 구현 완료)이고 UI 소비만 대기 중이라
+       '기능 미완' 정의에 정확히 부합. 번호는 기존 최대 F12 다음인 F13.
+     - "진행 상태: 별도 작업(COUNT-GATE-EXPORT-UI-DIALECT-GATE-CONSUME-FIX)으로 착수 중" 한 줄만
+       언급하고 상세 서술은 진단서 R5 절 근거로 최소 기재.
+
+  4) 헤더 '최종 갱신' 줄 갱신 — 기존 항목은 '직전 갱신' 으로 밀어 보존(파일 기존 관행 그대로).
+
+■ 사실 확인(문서에 쓴 내용의 근거)
+  · S9 남은 지점 5개 / 실사용 영향 1개 : DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE.txt §진짜 남은 지점
+  · R1·R2·R3 해결 완료 : 코드 실물 확인. routes/agg_diff_route.py 의 3개 호출부
+      :899 resolve_trusted_chunk_key(... dialect=_chunk_key_dialect(req))
+      :916 resolve_confirmed_chunk_key(... dialect=_chunk_key_dialect(req))
+      :1527 resolve_confirmed_chunk_key(... dialect=_chunk_key_dialect(req))
+    전부 dialect 배선 완료(커밋 16526e7). 진단서 권고대로 R1 단독이 아니라 3곳을 한 작업으로 처리했다.
+  · R4 실측 정상(300 반환) / SIZE_UNKNOWN 안전측 축약 : 같은 진단서 R4 절
+  · R5 : 같은 진단서 R5 절 + §요구사항 3 표(서버 해소 / UI 미해소)
+
+■ 비판적 검토
+  · 지시는 S9 를 "남은 5지점(그중 실사용 영향 1=R1, 해결 완료)" 으로 갱신하라는 것이었으나, 코드 확인
+    결과 R1 뿐 아니라 R2·R3 도 같은 커밋에서 함께 해결돼 있었다. R4 를 M16 으로, R5 를 F13 으로 분리하면
+    S9 본체에 남는 미해결 항목이 0이 되므로, 파일 자체 규약(해결된 지 얼마 안 된 항목은 삭제하지 않고
+    '✅ 해결 완료' + 근거 커밋 해시 표시, S2·S4 선례)에 따라 S9 제목에 ✅ 해결 완료를 붙였다.
+    지시에 명시되지 않은 판단이므로 여기 명시한다 — 되돌리길 원하면 제목 접두만 제거하면 된다.
+  · S11 본문에 "S9(방언 미위임 일괄 정리)와 함께 처리하는 편이 자연스럽다" 라는 S9 참조가 남아 있다.
+    이제 S9 가 해결 완료라 그 문장은 다소 낡았지만, 요구사항 5(다른 섹션 무접촉)를 지켜 건드리지 않았다.
+  · R4 를 '위험 없음' 이 아니라 '위험 낮음' 으로 적었다. 4방언 렌더 동일·라이브 정상은 확인됐지만
+    base_sql 이 오라클 전용 표현식을 담는 경우는 실측되지 않았고, 실패가 except 로 삼켜져 표면화되지
+    않는 구조라 '검증되지 않은 안전' 과 '검증된 무해' 를 구분해 두는 편이 정확하다.
+
+■ 자체 테스트
+  · 코드 무변경(프로덕션·테스트·스크립트 0파일) — 실행 회귀 테스트 대상 없음.
+  · 문서 검증으로 대체:
+      git diff --stat  → BACKLOG.md 1 file changed, 43 insertions(+), 9 deletions(-)  (다른 파일 0)
+      diff 전문 육안 확인 → 변경 hunk 4개(헤더 1 · S9 1 · F13 1 · M16 1)뿐, 다른 섹션 무접촉 확인
+      번호 중복 확인 → M16 / F13 모두 기존 최대 번호(M15 / F12) 다음, 중복 없음
+      R5 중복 등록 확인 → 사전 grep 0건으로 신규 등록이 맞음을 확인
+
+■ git diff 전문
+--- 여기부터 ---
+diff --git a/BACKLOG.md b/BACKLOG.md
+index 962f774..fa9af50 100644
+--- a/BACKLOG.md
++++ b/BACKLOG.md
+@@ -10,7 +10,9 @@
+ - 대상 제외: 아직 push 되지 않은 로컬 전용 보고서 16건은 이번 취합에서 제외했다.
+   push 후 이 파일에 합류시킨다.
+ - 최초 작성: 2026-07-29 (VERIFY-REPO-BACKLOG-FILE-CREATE)
+-- 최종 갱신: 2026-07-29 (BACKLOG-CHARSET-COLLATION-AND-NLS-RESIDUAL-ADD) — 캐릭터셋 정렬 붕괴·byte/char
++- 최종 갱신: 2026-07-30 (BACKLOG-S9-R4-RECLASSIFY-DOC-UPDATE) — S9 재집계 반영(15지점 → 5지점, R1~R3
++  해결 완료) + R4 를 별건 M16 으로 분리, R5(count_gate export UI 미소비) F13 신규 등록
++- 직전 갱신: 2026-07-29 (BACKLOG-CHARSET-COLLATION-AND-NLS-RESIDUAL-ADD) — 캐릭터셋 정렬 붕괴·byte/char
+   의미 소실·NLS 잔여 위험 등록(S12·S13·S14 신규, M15 신규)
+ - 직전 갱신: 2026-07-29 (BACKLOG-STRATEGY-PLAN-PK-EVIDENCE-ROOT-CAUSES-ADD) — P8 우회 수정 후 남은
+   근본 원인 3건 등록(S10·S11 신규, P9 신규)
+@@ -244,16 +246,23 @@
+   당시 지시 범위 밖이라 수정하지 않았다.
+ - 참고: E:\verify_reports\STATS-RESULT-EXCEL-EXPORT-GB-COLS-INDEX-FIX.txt
+
+-### S9. routes/ 방언 미위임 15지점 + count_gate 3개 엔드포인트에 방언 사전 게이트 부재
++### S9. ✅ 해결 완료 — routes/ 방언 미위임(최초 15지점 표기 → 재집계 5지점) + count_gate 방언 사전 게이트 부재
+ - 발견일: 2026-07-27
+-- 근거 보고서: `ROUTES-DIAGNOSIS-LIMIT-DIALECT-SECONDARY-CHECK.txt`
+-- 상세: 정적 분석으로 15지점 확정(제한문법 3 + 방언 하드코딩 2 + 미위임 7 + 밑줄별칭 10 중 중복 제외).
+-  count_gate 3개 엔드포인트에는 방언 관련 사전 게이트가 전혀 없어 오라클 세션에서도 버튼이 그대로
+-  노출되고 **실행 후에야** 실패한다(사전 차단·사유 표시 부재).
+-  권고 순서: (1) DB 복구 후 드라이버 재실행으로 미실측 3항목 확정 → (2) P1(count_gate) 4계열 일괄 수정
+-  → (3) 밑줄별칭 정적 테스트 스캔 범위에 `routes/` 추가.
+-  ※ 이 보고서 이후 `__m`(agg_diff_route) 은 개명 완료되었으므로, 착수 전 잔존 지점 재집계가 필요하다.
++- 근거 보고서: `ROUTES-DIAGNOSIS-LIMIT-DIALECT-SECONDARY-CHECK.txt`(최초),
++  `DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE.txt`(2026-07-30 재집계·오라클 라이브 실측)
++- 상세(2026-07-30 갱신): 최초의 '15지점' 표기는 더 이상 사실이 아니다. 재집계 결과 10지점이 이후 4개 작업
++  (35a168c / 25138f0 / 4db92e1 / 6a4cc8a)으로 이미 해소돼 **실제 남은 지점은 5개**였고, 그중 **실사용 UI
++  경로에 영향이 있는 것은 `agg_diff_route.py`(R1, chunk key 확정 dialect 미위임) 1개뿐**이었다
++  (오라클에서 NULL probe 가 `LIMIT 1` 로 방출돼 ORA-03049 → 청크 고속경로를 조용히 잃는 열화).
++  R1 은 같은 파일의 R2(`/agg-diff/run` 경로)·R3(`resolve_trusted_chunk_key`)와 함께
++  **AGG-DIFF-ROUTE-CHUNKKEY-DIALECT-DELEGATION-FIX(16526e7)로 해결 완료**다.
++- 잔여 2지점(R4 = `diagnosis_route.py:1500·1503` 의 `sqlglot` postgres 하드코딩)은 'LIMIT 미위임' 범주가
++  아니고 라이브 실측에서도 정상 동작해, 재집계 진단서 권고대로 **별건 M16 으로 분리**했다.
++- count_gate 3개 엔드포인트의 '사전 게이트 부재' 는 **오라클 관점에서 소멸**했다
++  (range-diagnosis·one-side-preview 는 방언 위임으로 정상 동작, one-side-export 는 서버 사전 게이트 신설).
++  남은 것은 그 서버 게이트를 UI 가 소비하지 않는 1건(R5)뿐이며 **F13 으로 분리 등록**했다.
+ - 참고: E:\verify_reports\ROUTES-DIAGNOSIS-LIMIT-DIALECT-SECONDARY-CHECK.txt
++- 참고: E:\verify_reports\DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE.txt
+
+ ---
+
+@@ -360,6 +369,19 @@
+
+ ## 기능 미완(설계는 끝났으나 구현 대기)
+
++### F13. count_gate export 의 서버 방언 사전 게이트를 UI 가 소비하지 않는다(반쪽 배선, S9 에서 분리)
++- 발견일: 2026-07-30
++- 근거 보고서: `DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE.txt` (§진짜 남은 지점 R5 / §요구사항 3 표)
++- 상세: 서버(`count_gate_route.py:234`)는 미지원 방언(mysql/mssql)에 대해 스트리밍 전에
++  `{"ok":false,"reason_code":"EXPORT_DIALECT_UNSUPPORTED", ...}` JSON 을 반환하도록 사전 차단이 신설됐다.
++  그런데 UI(`ui/tabler_renderer.py:24521 mvCountGateSideExport`)는 `.then(resp => resp.blob())` 으로
++  응답을 무조건 blob 으로 받아 `.csv` 로 저장한다 → 사용자는 **오류 문구가 든
++  `one_side_src_records.csv` 를 내려받고 화면에는 오류가 뜨지 않는다**.
++- 대응 방향: 응답 Content-Type 이 JSON 이면 오류 표시로 분기. 동시에 mysql/mssql 에서의 버튼 노출 정책을
++  함께 정하면 range-diagnosis·one-side-preview 의 사전 게이트 잔여분까지 한 번에 닫힌다.
++- 진행 상태: 별도 작업(COUNT-GATE-EXPORT-UI-DIALECT-GATE-CONSUME-FIX)으로 착수 중 — 완료 시 이 항목 정리.
++- 참고: E:\verify_reports\DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE.txt
++
+ ### F1. HASH_BUCKET 오라클 구현체 자체가 아직 없다 (phase2 = 어댑터 분리까지만 완료)
+ - 발견일: 2026-07-29
+ - 근거 보고서: `HASH-BUCKET-ORACLE-PORT-DESIGN-FINALIZE.txt` (§5 / 다음 권장 작업)
+@@ -493,6 +515,18 @@
+
+ ## 경미/문서
+
++### M16. `diagnosis_route._count_rows` 의 sqlglot 방언이 postgres 로 하드코딩돼 있다(S9 에서 분리된 별건)
++- 발견일: 2026-07-30
++- 근거 보고서: `DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE.txt` (§진짜 남은 지점 R4 / §권장 착수 순서 3)
++- 상세: `routes/diagnosis_route.py:1500·1503` 이 `sqlglot.parse_one(..., read="postgres")` /
++  `tree.sql(dialect="postgres")` 로 고정돼 있다(크기 등급 산정 `_count_rows()` → `/diagnosis/size-strategy` 등).
++  4방언 렌더 결과가 모두 `SELECT COUNT(*) AS C FROM ...` 로 동일해 LIMIT 계열 문법오류는 발생하지 않으며,
++  **오라클 라이브 실측에서도 정상 동작(300 반환)** 을 확인했다. 잔여 위험은 `base_sql` 에 오라클 전용
++  표현식이 있을 때의 파싱·재렌더 왜곡이라는 이론적 가능성뿐이고, 실패해도 `except` 로 삼켜 None →
++  **SIZE_UNKNOWN 으로 안전측 축약**된다(조용한 열화이나 판정 자체는 안전).
++- 판정: 위험 낮음 · 우선순위 낮음. 'LIMIT 미위임' 범주가 아니므로 S9 본체에서 분리해 별건으로 둔다.
++- 참고: E:\verify_reports\DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE.txt
++
+ ### M1. 표본 게이트 skip 주석의 인과 서술이 부정확하다
+ - 발견일: 2026-07-29
+ - 근거 보고서: `PLAIN-JOIN-WRAPPING-NECESSITY-DIAGNOSE.txt` (4절 / 7절)
+--- 여기까지 ---
+
+■ 병행 작업 간섭 확인
+  동시 진행 중인 COUNT-GATE-EXPORT-UI-DIALECT-GATE-CONSUME-FIX(ui/tabler_renderer.py)와 파일 겹침 없음.
+  이번 작업이 만진 파일은 E:\verify_reports\BACKLOG.md 1개뿐이다.
+
+■ 스크린샷
+  화면·코드 무관(문서 편집)이라 불필요 — 지침에 따라 미첨부.
+
+작업명 : BACKLOG-S9-R4-RECLASSIFY-DOC-UPDATE
+✅ 작업 완료 - BACKLOG-S9-R4-RECLASSIFY-DOC-UPDATE - S9 를 재집계 사실(15→5지점, R1~R3 해결완료)로 갱신하고 R4 를 M16, R5 를 F13 별건으로 분리 등록(문서만 수정, 코드 무변경)
