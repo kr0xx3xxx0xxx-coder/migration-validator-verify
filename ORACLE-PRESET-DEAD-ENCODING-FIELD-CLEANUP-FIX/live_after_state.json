@@ -1,0 +1,68 @@
+{
+  "tag": "live_after",
+  "root": "C:\\projects\\migration-validator",
+  "oracle_profile": "Oracle_asis",
+  "detail_text": null,
+  "state": {
+    "advanced": [
+      {
+        "label": "Connect Type",
+        "field": "connect_type",
+        "tag": "SELECT",
+        "value": "service_name",
+        "disabled": false,
+        "note": "ℹ service_name: 권장 접속 방식 / sid: 구형 환경 SID 방식."
+      },
+      {
+        "label": "Encoding",
+        "field": "encoding",
+        "tag": "INPUT",
+        "value": "UTF-8",
+        "disabled": false,
+        "note": "ℹ 드라이버가 UTF-8 로 고정되어 이 값은 사용되지 않습니다(접속에 미반영)."
+      },
+      {
+        "label": "NEncoding",
+        "field": "nencoding",
+        "tag": "INPUT",
+        "value": "UTF-8",
+        "disabled": false,
+        "note": "ℹ 드라이버가 UTF-8 로 고정되어 이 값은 사용되지 않습니다(접속에 미반영)."
+      },
+      {
+        "label": "Driver Mode",
+        "field": "driver_mode",
+        "tag": "SELECT",
+        "value": "thin",
+        "disabled": false,
+        "note": "ℹ thin: 드라이버 단독(기본) / thick: Oracle Client 필요(향후)."
+      }
+    ],
+    "basic": [
+      {
+        "label": "Service Name",
+        "field": "service_name",
+        "value": "xepdb1"
+      },
+      {
+        "label": "SID",
+        "field": "sid",
+        "value": "XEPDB1"
+      },
+      {
+        "label": "Schema",
+        "field": "schema",
+        "value": "NXDNP"
+      }
+    ],
+    "adv_open": true,
+    "spec_fields": [
+      "connect_type",
+      "encoding",
+      "nencoding",
+      "driver_mode"
+    ],
+    "form_title": "DB 상세 입력 — 수정: Oracle_asis"
+  },
+  "page_errors": []
+}

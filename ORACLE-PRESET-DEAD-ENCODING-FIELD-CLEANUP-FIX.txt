@@ -1,0 +1,152 @@
+작업명 : ORACLE-PRESET-DEAD-ENCODING-FIELD-CLEANUP-FIX
+✅ 작업 완료 - ORACLE-PRESET-DEAD-ENCODING-FIELD-CLEANUP-FIX - 오라클 고급옵션 Encoding/NEncoding 입력칸에 "드라이버 UTF-8 고정 · 미사용" 안내 문구 추가(입력칸 제거 대신), 실서버 브라우저 Before/After 실측 완료
+
+────────────────────────────────────────────────────────────────────────
+1. 선택한 방식과 이유 — "제거" 가 아니라 "안내 문구"
+────────────────────────────────────────────────────────────────────────
+지침이 준 두 선택지 중 **안내 문구 추가**를 택했다. 코드 영향이 더 적을 뿐 아니라,
+"제거" 는 이번 지침이 금지한 데이터 스키마 변경을 간접적으로 유발하기 때문이다.
+
+  [제거를 택했을 때 발생하는 부작용 — 실제 코드 경로로 확인]
+   · ui/tabler_renderer.py:_pfCollectAdvanced() 는 화면에 렌더된 [data-pf-field] 요소만
+     훑어 advanced_options 를 재구성한다(:14650~14676).
+   · 따라서 spec 에서 encoding/nencoding 을 지우면, 사용자가 오라클 프로필을 한 번이라도
+     "수정→저장" 하는 순간 db_presets_*.json 의 encoding/nencoding 키가 조용히 사라진다.
+     → 지침의 "JSON 키 자체는 이번에 삭제하지 말 것(스키마 미변경)" 과 정면 충돌.
+   · 값은 JSON 에 남아 있는데 화면 어디에도 안 보이는 '숨은 상태' 가 되는 구간도 생긴다.
+
+  [안내 문구 방식의 영향 범위]
+   · 변경은 spec 항목 2개의 note 문자열뿐 — 렌더 로직·수집 로직·저장 경로 무접촉.
+   · 데이터 스키마 무변경, 기존 preset 값 보존, 사용자 오해(=설정했다고 착각)는 해소.
+
+  [죽은 설정임을 확인한 근거 — 실코드 확인]
+   · services/db_adapters/oracle.py:112~138 connect() : makedsn + user/password/dsn 만 사용.
+     encoding/nencoding 을 읽는 구문 없음.
+   · services/db_connection_service.py : 'encoding' 문자열 자체가 0건.
+   · 저장소 전체에서 이 키를 참조하는 곳은 scripts/dev_e2e/* 5개뿐이며, 전부 프리셋 JSON 의
+     키를 payload 로 복사만 할 뿐 서버가 무시한다.
+   · 즉 oracledb 4.x 가 파라미터 자체를 지원하지 않고 항상 UTF-8 로 고정 → 값은 무의미.
+
+────────────────────────────────────────────────────────────────────────
+2. 변경 파일 (지침대로 1개 파일만)
+────────────────────────────────────────────────────────────────────────
+  ui/tabler_renderer.py   (+6 / -2)   ※ _PROFILE_DBMS_FIELDS.oracle.advanced 의 note 2건 + 한글 주석
+
+    before) note:'문자셋 처리용 — 특별한 사유가 없으면 UTF-8.'
+            note:'국가문자셋 처리용 — 특별한 사유가 없으면 UTF-8.'
+    after ) note:'드라이버가 UTF-8 로 고정되어 이 값은 사용되지 않습니다(접속에 미반영).'  (Encoding)
+            note:'드라이버가 UTF-8 로 고정되어 이 값은 사용되지 않습니다(접속에 미반영).'  (NEncoding)
+
+  미변경(의도적):
+   · db_presets_src.json / db_presets_tgt.json  — encoding/nencoding 키 그대로 보존(스키마 무변경)
+   · 오라클의 다른 고급옵션(Connect Type / Driver Mode), 기본필드(Service Name/SID/Schema)
+   · Tibero 의 동일한 죽은 encoding 필드 — 이번 지침 범위(오라클) 밖이라 손대지 않음(잔여 항목)
+
+  신규(검증 전용, 운영 파이프라인 아님):
+   · scripts/dev_e2e/oracle_preset_dead_encoding_field_ui_verify.py
+
+────────────────────────────────────────────────────────────────────────
+3. 실측 조건
+────────────────────────────────────────────────────────────────────────
+  · 일시           : 2026-07-30 14:24~14:35 (KST)
+  · 서버 신선도 점검: 재기동 전 PID 22256 StartTime 2026-07-29 19:13:07
+                     vs ui/tabler_renderer.py 최종수정 2026-07-30 14:24:01 → 구코드 서빙 확인
+                     → /jobs/active 조회로 활성 job 0건(single/batch/stats/full 전부 0) 확인 후 재기동
+                     → 재기동 후 PID 6532 StartTime 2026-07-30 14:32:21 (> 파일 수정시각) = 최신 서빙
+                     ※ 동시 진행 작업(stream_merge.py 등) 보호를 위해 활성 job 0건일 때만 재기동했고,
+                       작업트리 수정 파일 5개 py_compile 선점검 후 재기동함
+  · 브라우저       : Playwright Chromium, viewport 1500x1150, Basic Auth(e2e 계정)
+  · 화면 경로      : 좌측메뉴 [데이터 준비 > DB 프로필 / 검증 경로] → DB 프로필 목록
+                     → Oracle_asis 행 [상세] → 상세영역 [수정] → [고급 옵션 펼치기]
+  · 대상 프리셋    : Oracle_asis (db_presets_src.json, db_type=oracle, 실제 사내 오라클 프로필)
+  · 캡처 4세트     :
+      live_before  : 실서버 :8000, 재기동 전(구코드)          ← 실서비스 Before
+      live_after   : 실서버 :8000, 재기동 후(수정 반영)        ← 실서비스 After
+      before       : HEAD worktree 렌더 (stub 포트 8121)      ← 순수 baseline
+      after_isolated: HEAD + 이번 수정 파일만 (stub 8123)      ← 내 변경만 격리한 After
+    ※ 작업트리에는 동시 세션의 ui/grid_helpers.py 수정이 섞여 있어(HTML 5,431 bytes 차),
+      "다른 요소 미변경" 판정은 before vs after_isolated (1파일 차이) 로 수행했다.
+
+────────────────────────────────────────────────────────────────────────
+4. Before / After (실측 결과)
+────────────────────────────────────────────────────────────────────────
+  [오라클 고급옵션 4행 렌더 결과 — live_before → live_after]
+
+   항목           값(변화없음)   안내문구 Before                          안내문구 After
+   ─────────────  ─────────────  ───────────────────────────────────────  ─────────────────────────────────────────────
+   Connect Type   service_name   service_name: 권장 접속 방식 / sid: …    (동일 — 미변경)
+   Encoding       UTF-8          문자셋 처리용 — 특별한 사유가 없으면…    드라이버가 UTF-8 로 고정되어 이 값은
+                                                                          사용되지 않습니다(접속에 미반영).
+   NEncoding      UTF-8          국가문자셋 처리용 — 특별한 사유가…       드라이버가 UTF-8 로 고정되어 이 값은
+                                                                          사용되지 않습니다(접속에 미반영).
+   Driver Mode    thin           thin: 드라이버 단독(기본) / thick: …     (동일 — 미변경)
+
+  [의도한 부분만 변경되었는지 — before vs after_isolated 구조 비교]
+   · 고급옵션 필드 목록      : ['connect_type','encoding','nencoding','driver_mode']  → 동일(4개 유지)
+   · 각 입력칸 value/disabled: 전부 동일 (UTF-8 값 보존, 비활성화하지 않음)
+   · 기본 필드              : Service Name=xepdb1 / SID=XEPDB1 / Schema=NXDNP → 동일
+   · 폼 제목·고급옵션 펼침상태: 동일
+   · 읽기전용 상세(상세보기) : 텍스트 331자 완전 일치 → 동일
+   · 변경 감지된 필드        : encoding.note, nencoding.note  (오직 2건)
+   · JS 페이지 오류          : Before 0건 / After 0건
+
+  [스크린샷] E:\verify_screenshots_only\ORACLE-PRESET-DEAD-ENCODING-FIELD-CLEANUP-FIX\
+    live_before_01_oracle_advanced_options.png        (실서버 Before — 고급옵션 확대)
+    live_after_01_oracle_advanced_options.png         (실서버 After  — 안내문구 반영)
+    live_before_02 / live_after_02_profile_screen_full.png       (프로필 화면 전체)
+    live_before_03 / live_after_03_oracle_profile_detail_readonly.png (읽기전용 상세)
+    before_* / after_isolated_*                        (1파일 격리 비교 세트)
+    *_state.json                                       (DOM 구조 수집 원본)
+
+────────────────────────────────────────────────────────────────────────
+5. 회귀 테스트
+────────────────────────────────────────────────────────────────────────
+  · python samples/test_virtual_cases.py                → 8/8 통과
+  · python samples/test_complex_cases.py                → 5/5 케이스 분석 완료
+  · pytest tests/test_rendered_js_syntax_guard.py -q    → 2 passed (렌더 JS 구문 가드)
+  · pytest tests/ -k "profile or preset or renderer or js"
+      baseline(HEAD 렌더러) : 실패/에러 33건
+      본 수정 적용          : 실패/에러 33건
+      → diff 결과 **차이 없음(실패 집합 완전 동일)** = 이번 수정에 의한 회귀 0건
+      ※ 33건은 사전 존재 실패 + 동시 세션의 다른 파일 수정에서 기인. 내 변경과 무관함을
+        동일 작업트리에서 렌더러 파일만 HEAD↔수정본으로 교체 실행해 차분으로 증명.
+
+────────────────────────────────────────────────────────────────────────
+6. 보안 점검
+────────────────────────────────────────────────────────────────────────
+  · 사용 프리셋 파일 : db_presets_src.json (Oracle_asis) — 읽기 전용, 수정 없음
+  · 증적 파일 전수(png/json) 를 실제 저장 비밀번호 4종으로 바이트 검사 → 노출 0건
+  · 화면/상세에 비밀번호는 '******** (저장됨)' 마스킹으로만 표시됨(원문 미표시)
+  · 증적에 사내 오라클 host/계정은 화면 캡처 특성상 포함(기존 프로필 화면 증적과 동일 수준)
+
+────────────────────────────────────────────────────────────────────────
+7. 남은 항목 / 권고
+────────────────────────────────────────────────────────────────────────
+  · db_presets_*.json 의 encoding/nencoding 키는 그대로 남아 있다(지침대로 미삭제).
+    추후 스키마 정리를 별도 작업으로 진행할 때 dev_e2e 스크립트 5개의 키 복사 구문도 함께 정리 권장.
+  · Tibero 고급옵션에도 동일한 죽은 encoding 필드가 있다(ui/tabler_renderer.py:14479).
+    이번 범위(오라클) 밖이라 미수정 — 동일 처리 권고.
+  · 입력칸은 여전히 편집·저장 가능하다(값은 무시됨). 완전 차단(readonly/disabled)은
+    공통 헬퍼 _pfAdvFieldHtml 에 필드별 플래그를 추가해야 해서 코드 영향이 커져 제외했다.
+
+실검증 상태: 실제 브라우저(Playwright Chromium) + 실제 서버(:8000, 최신 코드 재기동 후) + 실제 오라클
+프리셋(Oracle_asis)로 Before/After 실측 완료 — 모의·추정·코드 리딩만으로 판단한 항목 없음.
+
+최종 상태: ✅ 성공
+
+완료한 것:
+  - 오라클 고급옵션 Encoding/NEncoding 에 "드라이버 UTF-8 고정 · 미사용" 안내 문구 추가(ui/tabler_renderer.py 단일 파일)
+  - 제거 대신 안내를 택한 근거(저장 시 JSON 키 소실 부작용)를 코드 경로로 확인·문서화
+  - 실서버 재기동 전/후 브라우저 Before/After 캡처 및 DOM 구조 차분 검증
+  - 내 변경만 격리한 비교(before vs after_isolated)로 "의도한 2건 외 미변경" 증명
+실패하거나 보류한 것:
+  - 입력칸 자체 제거 / readonly 처리 — 데이터 스키마 부작용·공통 헬퍼 개조 필요로 미채택(사유 상기)
+  - Tibero 동일 죽은 필드 — 이번 지침 범위 밖으로 미수정
+테스트 또는 실행 결과:
+  - virtual 8/8, complex 5/5, JS 구문가드 2 passed, 관련 pytest 서브셋 실패집합 baseline과 동일(회귀 0)
+제한사항 위반 여부:
+  - 없음 (외부 패키지 미추가, 지정 1개 파일만 수정, README 미수정, 프리셋 JSON 미수정, 한글 주석 유지)
+다음 권장 작업:
+  - encoding/nencoding 키의 데이터 스키마 정리(별도 작업) + Tibero 동일 필드 동일 처리
+
+✅ 작업 완료 - ORACLE-PRESET-DEAD-ENCODING-FIELD-CLEANUP-FIX - 오라클 고급옵션 Encoding/NEncoding 입력칸에 "드라이버 UTF-8 고정 · 미사용" 안내 문구 추가(입력칸 제거 대신), 실서버 브라우저 Before/After 실측 완료
