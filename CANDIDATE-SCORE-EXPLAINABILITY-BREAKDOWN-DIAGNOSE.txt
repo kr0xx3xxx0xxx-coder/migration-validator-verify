@@ -1,0 +1,381 @@
+작업명 : CANDIDATE-SCORE-EXPLAINABILITY-BREAKDOWN-DIAGNOSE
+✅ 작업 완료 - CANDIDATE-SCORE-EXPLAINABILITY-BREAKDOWN-DIAGNOSE - 분해 정보는 '부분만' 서버에 존재(카디널리티/NULL 2개 기여분뿐)이고, 그마저도 UI가 의도적으로 숫자를 숨겨 사람이 점수를 검산할 수 없다
+
+작성일 : 2026-07-31
+성격   : 읽기 전용 진단 (코드 수정 없음)
+
+
+═══════════════════════════════════════════════════════════════════════
+0. 한 줄 결론
+═══════════════════════════════════════════════════════════════════════
+
+질문한 "서버에는 있는데 화면에 안 나오는가" vs "애초에 서버가 최종 점수만 계산하는가"는
+**둘 다 부분적으로 참**이며, 요소별로 갈린다.
+
+  · 카디널리티 기여분 / NULL비율 기여분 (2개)
+      → 서버에 수치 필드로 **존재**한다 (profile_evidence.card_score_adj / null_score_adj).
+      → 그러나 UI가 **의도적으로 숫자를 숨긴다**("내부 가산점(+N)는 UI에 노출하지 않는다" 주석).
+      → 즉 "서버엔 있는데 화면에 없음" 유형.
+
+  · 기본점수 / 타입 적합성 / 시맨틱 매칭 / 구조적 길이 / 시스템감사 페널티 / hard_rule 상한
+      → 서버가 하나의 `score` 변수에 누적 가감만 하고 **각 기여분을 어디에도 보존하지 않는다**.
+      → 즉 "애초에 서버가 최종 합산 점수만 남김" 유형.
+
+  · 관리컬럼 페널티 / VARCHAR2 수용량
+      → 운영 후보추천 점수에는 **애초에 반영되지 않는다**(§5 참조).
+
+결과적으로 사람이 "이 75점이 왜 75점인가"를 응답 필드만으로 검산하는 것은 **불가능**하다.
+S10(is_pk 고정값) 같은 사고가 다시 나도 점수 자체로는 드러나지 않는다.
+
+
+═══════════════════════════════════════════════════════════════════════
+1. 먼저: 점수 경로가 3개로 갈라져 있다 (조사 전제)
+═══════════════════════════════════════════════════════════════════════
+
+지침이 지목한 `services/candidate_scoring_runner.py` 는 **운영 후보추천 경로가 아니다**.
+실제 화면에 뜨는 점수의 출처를 먼저 확정해야 조사가 성립하므로 3경로를 구분한다.
+
+┌──┬──────────────────────────────────────┬─────────┬──────────────────────────────┐
+│  │ 파일                                  │ 점수범위 │ 운영 도달 여부                │
+├──┼──────────────────────────────────────┼─────────┼──────────────────────────────┤
+│A │ services/candidate_scoring.py         │ 0~100   │ ✅ 도달 — **화면 '최종 N점'** │
+│  │  score_candidates()                   │ 정수     │ /analyze 응답 candidate_scoring│
+├──┼──────────────────────────────────────┼─────────┼──────────────────────────────┤
+│B │ services/candidate_engine.py          │ 0.0~1.0 │ △ 폴백 — cs 없을 때만 표시    │
+│  │  (0.92/0.93/0.60/0.58/0.55/0.50/0.30) │ 이산값   │                              │
+├──┼──────────────────────────────────────┼─────────┼──────────────────────────────┤
+│C │ services/candidate_scoring_runner.py  │ 0~100   │ ❌ 미도달 — /csr-preview 전용 │
+│  │  (지침이 지목한 파일)                  │ float   │                              │
+└──┴──────────────────────────────────────┴─────────┴──────────────────────────────┘
+
+근거:
+  · A 배선 — services/single_validation_analyze_service.py:1565-1588, 1968
+        candidate_scoring = _disp_result["candidate_scoring"]
+        ...
+        "candidate_scoring":        candidate_scoring,
+    (enrich_candidates_for_display → services/candidate_display_enricher.py:1282
+     `from services.candidate_scoring import score_candidates`)
+
+  · A 우선 표시 — ui/tabler_renderer.py:22879-22884
+        /* 점수: candidate_scoring 점수 우선, 없으면 disp.score 폴백 */
+        var _scoreNumRaw = (_csItem && _csItem.score != null ? _csItem.score
+          : (disp.score != null ? Math.round(disp.score) : null));
+
+  · C 미도달 — docs/CODE_CLEANUP_AUDIT.md:158 "SUM/GB 스코어링 엔진 이원화 … 진짜 중복",
+    SOURCE_STRUCTURE_REVIEW_FOR_SCORE_AND_FULL_VALIDATION.md:43 "run_scoring → CSR 미리보기 전용",
+    docs/TOP_N_SELECTION_SINGLE_SOURCE.md:78 "`/csr-preview` 전용".
+    (기존 메모 project_csr_compat_unreachable_metadata_none 과도 일치)
+
+⇒ **이하 §2~§4 는 실제 운영 점수인 A(candidate_scoring.py) 를 대상으로 한다.**
+
+
+═══════════════════════════════════════════════════════════════════════
+2. [조사항목 1] 최종 점수는 몇 개 하위 요소로 구성되는가
+═══════════════════════════════════════════════════════════════════════
+
+`score_group_by_candidate()` / `score_sum_candidate()` 는 **단일 지역변수 `score` 에
+순차적으로 가감만 하는 구조**다. 요소별 변수를 따로 두지 않는다.
+
+GROUP BY 기준으로 실제 가감 지점은 다음 8종이다 (services/candidate_scoring.py).
+
+ (1) 기본점수 — `_base_score_and_reason()` (:256-267)
+        auto_selected → 40 / warn 없음 → 20 / warn 있음 → 10
+
+ (2) 타입 적합성 (:656-665)
+        비숫자형 +15 / 숫자형 +0(경고만) / 타입정보 없음 +5
+        (SUM 은 숫자형 +25 / 비숫자형 +0)
+
+ (3) 시맨틱 사전 매칭 (:670-704)
+        DIMENSION 계열 STRONG +20, WEAK +10 / context_ok=False -5
+        CAUTION(RATE_RATIO·UNIT_PRICE) +5 / EXCLUDE 계열 -10 / MEASURE 계열 +5 / 기타 +5
+        (SUM 은 MEASURE STRONG +20, WEAK +10, EXCLUDE -30)
+
+ (4) hard_rule 상한 (:729-736)
+        hard_rule 있으면 `score = min(score, 25)` — 가감이 아니라 **천장(ceiling)**
+
+ (5) profile 카디널리티 (`_apply_gb_profile` :332-353)
+        card_ratio ≤0.005 +15 / ≤0.02 +10 / ≤0.10 +5 / ≤0.60 0 / ≤0.90 -10 / 초과 -20
+        거의 고유값(>0.98) 추가 -10
+
+ (6) profile NULL 비율 (:357-362)
+        null_ratio ≥0.50 -10 / >0.20 -5
+
+ (7) catalog 저카디 보너스 (`_catalog_lowcard_gb_bonus` :227-253)
+        카디널리티 ≤+15, null 낮음 +10, 최빈값 존재 +10 → 최대 +35
+
+ (8) 구조 신호 (:811-870)
+        값기반 시스템감사 -30 (`_SYSTEM_AUDIT_VALUE_PENALTY`)
+        긴 문자열(≥100) -15 (`_LONG_TEXT_PENALTY`)
+        짧은코드+저카디 +5 (`_SHORT_CODE_HINT`)
+
+ 마지막에 `score = max(0, min(100, score))` (:872) 후 임계값으로 라벨링
+        ≥70 HIGH / ≥40 MEDIUM / 그 외 LOW (:28-29, :874-879)
+
+⇒ 하위 요소는 **최소 8종**. 가중치는 코드 상수로 하드코딩돼 있고 설정/문서 산출물이 아니다.
+
+
+═══════════════════════════════════════════════════════════════════════
+3. [조사항목 2] 하위 요소별 기여도가 서버 응답에 필드로 존재하는가
+═══════════════════════════════════════════════════════════════════════
+
+반환 dict는 아래 12개 키로 고정돼 있다 (:881-894, SUM 도 동일 :617-630).
+직접 실행으로 확인한 결과(실측):
+
+  입력 : tgt_col=STATUS_CD, tgt_type=varchar2(4), tgt_len=4, auto_selected=True
+         profile={row_count:10000, distinct_count:5, null_ratio:0.02, distinct_ratio:0.0005}
+  출력 키: ['column_name','score','score_label','blocked','blocked_reason','reasons',
+           'warnings','evidence','profile_evidence','profile_score_adjustment',
+           'profile_warnings','structural_risk_flags']
+  score = 75, score_label = "HIGH"
+  profile_evidence = { row_count:10000, distinct_count:5, distinct_ratio:0.0005,
+                       distinct_ratio_nonnull:0.0005, cardinality_basis:"non_null_rows",
+                       null_ratio:0.02, card_score_adj:15, null_score_adj:0 }
+  profile_score_adjustment = 15
+  structural_risk_flags = ["SHORT_CODE_DIMENSION_HINT"]
+
+요소별 판정:
+
+┌────────────────────────┬──────────────┬──────────────────────────────────────────┐
+│ 하위 요소               │ 수치 필드     │ 근거                                      │
+├────────────────────────┼──────────────┼──────────────────────────────────────────┤
+│ (5) 카디널리티 기여분    │ ✅ 존재       │ profile_evidence.card_score_adj (=15)     │
+│ (6) NULL비율 기여분      │ ✅ 존재       │ profile_evidence.null_score_adj (=0)      │
+│ (5)+(6) 합              │ ✅ 존재       │ profile_score_adjustment (=15)            │
+├────────────────────────┼──────────────┼──────────────────────────────────────────┤
+│ (1) 기본점수(40/20/10)  │ ❌ 없음       │ reasons[0] "분석기가 후보로 자동 선정" 문장뿐 │
+│ (2) 타입 적합성(+15)     │ ❌ 없음       │ reasons[1] 문장뿐, 폭 표기 없음            │
+│ (3) 시맨틱 매칭(±)       │ ❌ 없음       │ evidence[] 에 confidence 는 있으나 기여점수 없음│
+│ (4) hard_rule 상한       │ ❌ 없음       │ blocked=true 만, 깎인 폭 미보존            │
+│ (7) catalog 저카디 보너스│ ⚠ 문자열만    │ reasons 문자열에 "(+{n})" 삽입 (:800-803)  │
+│ (8) 구조 신호            │ ⚠ 플래그만    │ structural_risk_flags 는 이름만, 폭 없음    │
+│    └ 시스템감사 -30      │ ⚠ 문자열만    │ warnings 문자열에 "-30" 삽입 (:814-817)    │
+└────────────────────────┴──────────────┴──────────────────────────────────────────┘
+
+검산: 40(기본) + 15(타입) + 15(카디) + 0(NULL) + 5(짧은코드) = 75 ✅ 실측 score 와 일치.
+      그러나 이 5개 중 **응답 필드로 확인 가능한 것은 15와 0 두 개뿐**이다.
+      나머지 60점(40+15+5)은 코드를 읽어야만 역산된다.
+
+핵심: 요소별 기여분을 담는 컨테이너 자체가 없다. `reasons`/`warnings` 는 사람이 읽는
+      한국어 문장 배열이지 구조화된 기여도가 아니며, 대부분 점수 폭조차 적혀 있지 않다.
+
+
+═══════════════════════════════════════════════════════════════════════
+4. [조사항목 3] 프론트가 하위 요소를 화면에 표시하는가
+═══════════════════════════════════════════════════════════════════════
+
+결론: **표시하지 않는다. 그것도 우연이 아니라 명시적 정책이다.**
+
+ 4-1. 활성 렌더 경로(ui/tabler_renderer.py:22926~22993)가 숫자 노출을 금지
+
+    line 22932-22933 주석 (원문):
+        /* 내부 가산점(+N)/약어(카디+N, NULL안정+N)는 UI에 노출하지 않는다.
+           NULL 비율 운영 문구 helper */
+
+    유일하게 존재하는 분해값 card_score_adj 도 **숫자가 아니라 불리언 게이트로만** 쓰인다
+    (line 22958-22961):
+        var _cAdjG = (_pEv2.card_score_adj != null) ? _pEv2.card_score_adj : null;
+        ...
+        else if (_dc != null && _cAdjG != null && _cAdjG > 0) _gbChips.push('카디널리티 적합');
+
+    즉 "+15점 기여" 대신 "카디널리티 적합" 이라는 형용사만 화면에 나간다.
+    null_score_adj 는 UI 어디에서도 참조되지 않는다(전체 grep 0건).
+
+ 4-2. 숫자를 표시하도록 작성된 함수 2개는 **호출부가 없는 死코드**
+
+    (a) `_buildCandidateScoringHint(cs)` — ui/tabler_renderer.py:22423 정의
+          내부에 '프로파일 보정 +15점 반영' 배지 생성 코드가 있다(:22492-22497).
+          → grep 결과 파일 전체에서 **정의 1회, 호출 0회**.
+
+    (b) `_buildScoringRationale(c, selectable)` — :22383 정의
+          score_breakdown 6차원을 '타입 참고 / 통계 참고 / 제외 규칙 없음' 으로 요약.
+          → 역시 **정의 1회, 호출 0회**. CSS `.sb-rationale`(:1190)만 남아 있다.
+
+    검증 명령/결과:
+        $ grep -n "_buildScoringRationale\|_buildCandidateScoringHint\|sb-rationale" ui/tabler_renderer.py
+        1190:.sb-rationale{margin-top:4px;line-height:1.4}
+        22383:  function _buildScoringRationale(c, selectable) {
+        22406:    return '<div class="sb-rationale">'
+        22423:  function _buildCandidateScoringHint(cs) {
+        → 호출 라인 없음.
+
+ 4-3. 코드 주석이 분해 부재를 이미 자인하고 있음
+
+    ui/tabler_renderer.py:22553-22554 (원문):
+        - breakdown 수치 없음 → 텍스트 패턴 기반 분류 태그만 표시
+        - profile_score_adjustment만 별도 수치로 존재 → 이것만 숫자 표시
+
+    이 주석은 §3 의 결론(수치 분해는 profile 계열뿐)과 정확히 일치한다.
+
+ 4-4. 툴팁 경로 — 존재하나 사실상 판독 불가
+
+    services/candidate_explanation_service.py:610-613
+        _sb = candidate.get("score_breakdown")
+        if isinstance(_sb, dict) and _sb:
+            _tt_extra.append("점수 구성: " + ", ".join(
+                f"{k}={v}" for k, v in list(_sb.items())[:6]))
+
+    문제 3가지:
+      · `_sb` 는 E1 experimental breakdown(§5)이라 **운영 점수와 무관**하다.
+      · 값이 dict 이므로 파이썬 dict repr 이 그대로 문자열에 박힌다
+        ("semantic={'score': 0, 'max_score': 20, 'label': '의미 근거', ...}").
+      · `[:6]` 슬라이스인데 키 순서가 experimental, version, semantic, type_fit, stats,
+        key_constraint 이므로 앞 2개는 메타데이터로 낭비되고 compatibility·policy_adjustment
+        2개는 **잘려나간다**.
+    ⇒ 툴팁에 뜨더라도 사람이 점수를 검산하는 용도로는 쓸 수 없다.
+
+ 4-5. 세부보기 버튼 / 요소별 툴팁 → 없음
+
+    후보 그리드에는 '참고점수/최종 N점' 배지와 성격 태그(카디널리티 적합, NULL 비율 N%,
+    프로파일 기반: 고유값 N개 등)만 있고, 점수를 요소별로 펼치는 UI 요소는 존재하지 않는다.
+
+
+═══════════════════════════════════════════════════════════════════════
+5. [조사항목 4] "서버엔 있는데 화면에 없음" vs "서버가 아예 안 만듦" 구분
+═══════════════════════════════════════════════════════════════════════
+
+지침이 예로 든 5개 요소를 요청대로 명확히 갈라 적는다.
+
+┌───────────────────┬──────────┬──────────┬────────────────────────────────────────┐
+│ 요소               │ 서버 보존 │ 화면 노출 │ 판정                                    │
+├───────────────────┼──────────┼──────────┼────────────────────────────────────────┤
+│ 카디널리티 기여분   │ ✅ 수치   │ ❌ 숨김   │ **A형: 서버엔 있는데 화면이 안 보여줌**   │
+│ NULL비율 기여분     │ ✅ 수치   │ ❌ 미참조 │ **A형** (UI grep 0건)                   │
+├───────────────────┼──────────┼──────────┼────────────────────────────────────────┤
+│ 타입 호환성 기여분   │ ❌ 미보존 │ ❌        │ **B형: 서버가 합산만 하고 안 남김**      │
+│ 시맨틱 매칭 기여분   │ ❌ 미보존 │ ❌        │ **B형**                                 │
+│ 기본점수/hard_rule  │ ❌ 미보존 │ ❌        │ **B형**                                 │
+├───────────────────┼──────────┼──────────┼────────────────────────────────────────┤
+│ 관리컬럼 페널티     │ △ 부분    │ ⚠ 문자열 │ **C형: 값 기반 SYSTEM_AUDIT -30 만 존재**│
+│                   │          │          │ 이름 기반 '관리컬럼' 은 점수 아닌 배제/배지│
+│                   │          │          │ 로 처리 — 점수 기여분 자체가 없음         │
+├───────────────────┼──────────┼──────────┼────────────────────────────────────────┤
+│ VARCHAR2 수용량     │ ❌       │ ❌        │ **D형: 운영 점수 경로에 애초에 없음**     │
+│                   │          │          │ CHAR_CAPACITY_SHRINK_RISK 는 CSR 전용    │
+│                   │          │          │ (candidate_scoring_runner.py:459,        │
+│                   │          │          │  ui/csr_display_helpers.py:119 뿐)      │
+└───────────────────┴──────────┴──────────┴────────────────────────────────────────┘
+
+즉 **A형(2건) / B형(다수) / C형 / D형이 혼재**하며, 단일 원인이 아니다.
+가장 큰 비중은 B형 — 서버가 요소별 기여분을 만들지 않는다.
+
+별도로: 6차원 `score_breakdown`(E1)이 존재하지만 **운영 점수와 완전히 분리된 관찰용**이다.
+  · services/candidates/candidate_score_breakdown.py 헤더(:7-9) 원문:
+        Phase E-1 experimental score_breakdown 계산.
+        기존 score / selection_status / auto_selected / UI에는 일절 반영하지 않는다.
+        최종 점수(final_score) 합산도 이번 단계에서는 하지 않는다.
+  · `compute_final_score()` (:302-307) 는 **무조건 None 반환** — 합산 미구현.
+  · 6차원 중 compatibility(:116-125), policy_adjustment(:128-137) 는 항상 score=0 의
+    "이번 단계 미구현" 스텁.
+  · 부착 위치는 db_statistics_service.py:1160 (`merged["score_breakdown"] = _compute_gb_breakdown(merged)`)
+    으로 pg_stats enrich 경로 안이다.
+⇒ "분해 프레임은 골격만 있고, 운영 점수와 연결되지 않은 채 방치" 상태.
+   기존 작업로그도 같은 진단을 남겼다:
+   docs/work_logs/SEMANTIC-CANDIDATE-QUALITY-AUDIT-30-QUERIES.md:23
+     "사전근거 칩 31/38 보유하나 semantic 점수=0 (31건) … 사전이 evidence 로 표시되나
+      scoring 에 반영 안 됨(핵심 gap)"
+
+
+═══════════════════════════════════════════════════════════════════════
+6. [조사항목 5] 가중치 역추적 (참고 — 코드 근거 기반, 추측 아님)
+═══════════════════════════════════════════════════════════════════════
+
+§3 에서 분해 필드가 부재하다고 판정했으므로, 지침 5항에 따라 역추적을 남긴다.
+아래 표는 **코드의 상수 리터럴을 그대로 옮긴 것이므로 추측이 아니다**.
+다만 "실제 후보 집단에서 어느 요소가 결정적이었는가"라는 분포는 산출 근거가 없어 미상이다.
+
+■ GROUP BY (services/candidate_scoring.py:633-894)
+    기본점수        40 / 20 / 10        (auto_selected / warn없음 / warn있음)
+    타입            +15                 (비숫자형), 숫자형 0, 타입미상 +5
+    시맨틱 STRONG   +20                 (DIMENSION_* 9종)
+    시맨틱 WEAK     +10
+    시맨틱 EXCLUDE  -10                 (IDENTIFIER/SORT_ORDER/SYSTEM_AUDIT/CONSTANT/TECH_KEY/RAW_TEXT)
+    카디널리티      +15 ~ -30           (ratio ≤0.005 → +15, >0.98 → -20-10)
+    NULL            0 ~ -10
+    catalog 저카디  0 ~ +35             (profile 미전달 컬럼 구제 경로)
+    시스템감사(값)   -30
+    긴문자열(≥100)  -15
+    짧은코드(≤8)    +5
+    hard_rule       ceiling 25
+    임계            ≥70 HIGH / ≥40 MEDIUM
+
+■ SUM (services/candidate_scoring.py:451-630)
+    기본점수        40 / 20 / 10        (GROUP BY 와 동일)
+    타입            +25                 (숫자형), 비숫자형 0 + 경고
+    시맨틱 STRONG   +20                 (MEASURE_* 9종)
+    시맨틱 WEAK     +10
+    시맨틱 EXCLUDE  -30
+    시맨틱 CAUTION  +0                   (RATE_RATIO/UNIT_PRICE — 가산 없이 경고만, HIGH 진입 차단)
+    NULL            +5 ~ -25
+    분산(distinct)  +8 / +5 / -15       (상수컬럼 -15)
+    긴문자열(≥100)  -15
+    hard_rule       ceiling 25
+
+■ 관측 (역추적으로 드러난 구조적 특징 — 사실 진술)
+    · 기본점수 40 이 **전체 100점 중 40%** 를 차지한다. 즉 `auto_selected` 한 필드가
+      점수의 최대 지분을 갖는다. auto_selected 가 오염되면 점수 전체가 통째로 밀린다.
+    · GROUP BY 는 40(기본) + 15(타입) = 55 만으로 MEDIUM(≥40) 을 이미 통과한다.
+      즉 시맨틱·통계 근거가 전혀 없어도 '확인 후 선택' 등급이 나온다.
+    · 가중치 합계가 정규화돼 있지 않고 clamp(0~100) 로 잘린다. clamp 로 잘렸는지 여부도
+      응답에 남지 않아, 100점 후보 2개의 실제 강도 차이를 구분할 수 없다.
+
+
+═══════════════════════════════════════════════════════════════════════
+7. 위험 평가 (비판적 검토 의무 §)
+═══════════════════════════════════════════════════════════════════════
+
+ · explainability 누락 — **확인됨(주요 결함)**.
+   점수 8요소 중 응답에 수치로 남는 것은 2요소. 사용자는 물론 개발자도 서버 응답만으로는
+   점수를 재현할 수 없다. 지침이 우려한 S10형 사고(고정값이 오래 방치)가 점수 영역에서
+   재발해도 탐지 신호가 없다.
+
+ · scoring 미성숙 — **확인됨**. 가중치가 정규화·문서화 없이 코드 상수로 흩어져 있고,
+   기본점수 40 이 단일 불리언 필드(auto_selected)에 걸려 있다.
+
+ · 死코드 축적 — **확인됨**. 분해 표시용 UI 함수 2개(`_buildCandidateScoringHint`,
+   `_buildScoringRationale`)와 E1 breakdown 6차원 중 2차원이 호출/구현 없이 남아 있다.
+   "분해가 이미 있다"는 착시를 만들 수 있어 오히려 위험하다.
+
+ · heuristic 하드코딩 증가 — 해당 없음(이번 조사는 읽기 전용, 신규 규칙 추가 없음).
+
+ · 보안 위험 — 해당 없음.
+
+
+═══════════════════════════════════════════════════════════════════════
+8. 조사 방법 및 한계
+═══════════════════════════════════════════════════════════════════════
+
+방법:
+  1) 스코어링 관련 파일 전수 식별(glob) → 운영 경로 확정(§1)
+  2) services/candidate_scoring.py 전문 정독(968줄)
+  3) services/candidates/candidate_score_breakdown.py 전문 정독(327줄)
+  4) 배선 추적: single_validation_analyze_service.py → candidate_display_enricher.py
+     → candidate_scoring.py, db_statistics_service.py → candidate_score_breakdown.py
+  5) ui/tabler_renderer.py 렌더 경로 정독 + 호출부 grep 검증
+  6) score_group_by_candidate() 직접 실행으로 반환 필드 실측(§3)
+
+한계(명시):
+  · 실 DB 라이브 후보 집단에서의 요소별 기여 분포는 측정하지 않았다(코드 정적 분석 + 단건 실행).
+  · 일괄검증(batch) 경로는 `_build_core_candidates` 공유 core 를 쓴다는 문서 근거
+    (docs/work_logs/SINGLE-BATCH-CORE-CONSOLIDATION-FINAL-AUDIT.md:26)만 확인했고,
+    개별검증과 동일한 분해 부재인지는 실행으로 검증하지 않았다.
+  · 코드 변경 없음 — 따라서 스크린샷/diff 없음(지침 명시).
+
+회귀 영향: 없음(읽기 전용 조사, 파일 수정 0건).
+
+
+═══════════════════════════════════════════════════════════════════════
+9. 검토한 파일
+═══════════════════════════════════════════════════════════════════════
+
+  services/candidate_scoring.py                        968줄  (운영 점수 — 정독)
+  services/candidates/candidate_score_breakdown.py     327줄  (E1 관찰 — 정독)
+  services/candidate_scoring_runner.py               1,143줄  (CSR 전용 — 정독)
+  services/candidate_display_enricher.py                     (배선 확인)
+  services/single_validation_analyze_service.py              (응답 배선 확인)
+  services/db_statistics_service.py                          (breakdown 부착부 확인)
+  services/candidate_explanation_service.py                  (툴팁 경로 확인)
+  services/candidate_engine.py                       1,295줄  (폴백 점수 확인)
+  ui/tabler_renderer.py                                      (렌더/死코드 확인)
+
+작업명 : CANDIDATE-SCORE-EXPLAINABILITY-BREAKDOWN-DIAGNOSE
+✅ 작업 완료 - CANDIDATE-SCORE-EXPLAINABILITY-BREAKDOWN-DIAGNOSE - 분해 정보는 '부분만' 서버에 존재(카디널리티/NULL 2개 기여분뿐)이고, 그마저도 UI가 의도적으로 숫자를 숨겨 사람이 점수를 검산할 수 없다
