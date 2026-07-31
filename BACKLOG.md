@@ -10,7 +10,12 @@
 - 대상 제외: 아직 push 되지 않은 로컬 전용 보고서 16건은 이번 취합에서 제외했다.
   push 후 이 파일에 합류시킨다.
 - 최초 작성: 2026-07-29 (VERIFY-REPO-BACKLOG-FILE-CREATE)
-- 최종 갱신: 2026-07-31 (BACKLOG-AXIS-A-3STATE-AND-CD1-STRUCTURAL-SIGNAL-ADD) — 과거 세션에서만 논의되고
+- 최종 갱신: 2026-07-31 (BACKLOG-CANDIDATE-RECOMMENDATION-DIAGNOSTICS-CONSOLIDATED-ADD) — 후보추천 관련
+  진단 4건을 일괄 등록 + S10 갱신(S15 신규 — GROUP BY 안전 게이트의 3단계 프로파일 재사용·신선도 검증
+  전무 + 게이트 입력 클라이언트 조작 가능, F19 신규 — 후보 점수 설명가능성 부족, F20 신규 — 프로파일링
+  완전 단변량·조합 판정 곱셈 추정, M20 신규 — 문자 COUNT(DISTINCT) 조건부 캐릭터셋 노출(미발현),
+  S10 에 `is_pk` 고정값 영향범위 실측 24곳·복합 PK 회귀 위험·권장안 추가)
+- 직전 갱신: 2026-07-31 (BACKLOG-AXIS-A-3STATE-AND-CD1-STRUCTURAL-SIGNAL-ADD) — 과거 세션에서만 논의되고
   등록되지 않았던 관리컬럼(SYSTEM_AUDIT) 판정 항목 2건 등록(M19 신규 — axis_a 판정 2-state+`None`
   뭉뚱그림으로 업무 코드 컬럼에 "관리컬럼 미확인" 배지, F18 신규 — `cd1` 류 애매 컬럼용 구조적 신호
   미구현). 둘 다 근거 보고서 없이 세션 메모만 있던 항목이다.
@@ -66,6 +71,33 @@ git -C E:/verify_reports worktree remove <임시경로>
 ---
 
 ## 심각(정합성·안전) — 최우선
+
+### S15. GROUP BY 실행 안전 게이트가 3단계 후보 프로파일을 그대로 재사용하고 신선도 검증이 전무하다 + 게이트 입력이 클라이언트 조작 가능하다
+- 발견일: 2026-07-31
+- 근거 보고서: `CANDIDATE-SELECTION-STALENESS-DIAGNOSE.txt`
+- 상세: 검증 판정값(COUNT/SUM diff)은 매번 실 DB 재조회라 안전하다. 그러나 **GROUP BY 실행 안전
+  게이트(대량 그룹 생성 차단장치)만은 3단계 브라우저 메모리의 `candidate_snapshot_full` 을 그대로
+  재사용**한다. TTL·재조회·수집시각 대조가 전부 없다. EXACT 라벨 후보에는 안전계수도 적용되지 않는다.
+  서버 토큰(`workflow_stage_guard`)에도 만료가 없어 3→4단계 사이 간격의 상한이 없다(하루 뒤에 눌러도
+  통과한다).
+  구체 시나리오: 3단계 검토 중 원본 카디널리티가 실제로 폭증해도 게이트는 옛 값만 보고 SAFE 로 판정하고,
+  대량 GROUP BY 가 원본/목적지 양쪽에서 완주한다. 사후 hard cap 이 결과를 폐기하기는 하지만 **부하 자체는
+  이미 발생한 뒤**다 — 손실축소 장치이지 예방장치가 아니다.
+- ★ 부수 발견(신뢰경계): 코드 주석 3곳이 이 필드를 "실행 판정에 사용하지 않음" 이라고 선언하지만 실제로는
+  **1순위 판정 근거**다(오선언). 게다가 `sanitize` 는 저장 경로에만 걸리고 게이트는 sanitize 이전의 raw
+  요청 필드를 읽으므로, **클라이언트가 `distinct_count` 를 조작해 보내면 안전 게이트를 무조건 통과시킬 수
+  있다**(예: `distinct_count=1` 전송 시 항상 SAFE). staleness 와 근본 원인이 같은 **별개의 신뢰경계 문제**다.
+- 발생 조건: 단계별(클릭) 흐름 한정(원클릭은 간격이 수 초라 무관) · 검토 중 원본 카디널리티의 실제 변화 ·
+  선택 컬럼 전부가 프로파일 보유. 현실 빈도는 낮게 평가된다(보통 원본은 정지된 스냅샷)지만,
+  운영계 직접검증 · 이관배치 병행 · 세션 장기보관 시에는 실현 가능하다.
+- 대응 방향(비용 순):
+  [1] 오선언 주석 3곳 정정(위험 0, 즉시 가능) →
+  [2] 수집시각을 payload 에 실어 경과시간 표시만 한다(차단 없음, 관측 선행) →
+  [3] 임계 경과시간 초과 시 EXPLAIN 으로 강등(안전방향 단방향, 기존 `explain_required` 축 재사용) →
+  [4] `safety_scope_signature` 에 신선도 항 추가 + 대조 배선(현재는 계산만 하고 아무도 읽지 않는다) →
+  [5] 게이트 입력의 서버측 재검증(신뢰경계 해소, 영향범위가 최대이므로 최후).
+  임계값(예: 30분) 하드코딩은 **비권장** — 실측 근거 없는 heuristic 이므로 [2] 로 관측을 선행해야 한다.
+- 참고: E:\verify_reports\CANDIDATE-SELECTION-STALENESS-DIAGNOSE.txt
 
 ### S1. ✅ 해결 완료 — 동일 테이블 UNION 이 wrapping 판정을 못 받아 2번째 브랜치가 전량 소실된다(조용한 과소집계) + fan-out 유일성 게이트까지 꺼진다
 - 해결일: 2026-07-29 (UNION-SAMETABLE-WRAPPING-DETECTION-AST-FIX)
@@ -255,6 +287,21 @@ git -C E:/verify_reports worktree remove <임시경로>
   **후보추천 결과가 함께 바뀐다**(SUM 후보 제외·기본체크·점수). 착수 전 소비처 전수 파악 + 별도 사용자
   승인 + Before/After 후보추천 실측이 필요하다 — 무회귀 수정이 아니다.
 - 참고: E:\verify_reports\STRATEGY-PLAN-PK-KIND-HARDCODE-FIX.txt
+- **2026-07-31 추가 조사(영향범위 실측)**
+  - 근거: `IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-IMPACT-DIAGNOSE.txt`
+  - 소비처 **24곳** 확인됨(체감변화 12 / 무변화 9 / 실측필요 3). 축 B(`analyze_result.validated[].is_pk`)와
+    축 A(`normalized_metadata.is_pk`) 두 계보로 갈리며, 단일테이블 SQL 은 이미 일부 경로로 PK 를 안다
+    (= "전 방언에서 PK 를 전혀 모른다" 는 전제가 절반만 성립한다).
+  - ★ 회귀 위험 확인: 목적지 PK 보유 테이블 21개 중 **38%(8개)가 복합 PK** 이고, 그 구성원(저카디널리티
+    코드 컬럼)이 그대로 `is_pk=True` 가 되면 **GROUP BY 후보에서 통째로 사라진다**(지금 잘 뽑히는 축이
+    사라지는 후퇴).
+  - 권장안: `is_pk` 는 **단일 컬럼 PK 에만 True** 로 채우고, 복합 PK 는 `is_composite_key_member` 별도
+    필드로 분리한다(기존 소비처 의미 보존 + 회귀 회피).
+  - 착수 전 결정 필요 3가지: (Q1) 복합 PK 를 `is_pk=True` 로 볼지, (Q2) 단일 코드 PK(`DEPT_CD` 등)도
+    GROUP BY 에서 뺄지, (Q3) MySQL/MSSQL 도 같이 구현할지(현재 `fetch_key_metadata` 는 PG/오라클만
+    존재 — 방언 편차 발생).
+  - 예상 수정 범위: 필수 2~4파일 / 함수 3~4개 / 순증 60~100줄.
+  - 참고: E:\verify_reports\IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-IMPACT-DIAGNOSE.txt
 
 ### S11. `_table_key_meta` 의 컬럼 조회가 PostgreSQL 전용이라 오라클에서 `chunk_key_evidence` 가 항상 SCHEMA_META_MISSING 이다
 - 발견일: 2026-07-29
@@ -486,6 +533,43 @@ git -C E:/verify_reports worktree remove <임시경로>
 ---
 
 ## 기능 미완(설계는 끝났으나 구현 대기)
+
+### F19. 후보 점수의 설명가능성이 부족하다 — 8개 하위요소를 단일 변수에 누적만 하고 응답·화면 어디에도 분해가 남지 않는다
+- 발견일: 2026-07-31
+- 근거 보고서: `CANDIDATE-SCORE-EXPLAINABILITY-BREAKDOWN-DIAGNOSE.txt`
+- 상세: 운영 후보 점수(`services/candidate_scoring.py`)는 8개 하위요소를 **단일 변수에 누적 가감만** 하고
+  대부분을 응답에 보존하지 않는다. 응답 필드로 확인 가능한 것은 카디널리티/NULL 기여분 **2개뿐**이고,
+  나머지(기본점수 40점 포함)는 코드를 읽어야만 역산할 수 있다. UI 는 그 2개마저 **"내부 가산점은 UI 에
+  노출하지 않는다"는 명시적 정책**으로 화면에서 숨긴다.
+  기본점수(`auto_selected` 단일 불리언)가 100점 중 **40%** 를 차지해, 이 필드가 오염되면 점수 전체가
+  왜곡되는데 **감지 수단이 없다**(S10 형 사고가 점수 영역에서 재발해도 드러나지 않는다).
+  분해 표시용 UI 함수 2개(`_buildCandidateScoringHint`, `_buildScoringRationale`)와 실험용 6차원
+  breakdown(E1) 중 2차원이 **이미 만들어져 있으나 호출부·합산 로직이 없는 죽은 코드**다.
+- 대응 방향: 하위요소별 기여분을 **구조화된 필드로 응답에 보존**(최소 8종)하고, UI 에 툴팁/세부보기로
+  노출한다. 완료 모듈 수정이라 범위 파악 후 **별도 승인 필요**.
+- 관련: S10(`is_pk` 고정값 — 점수 오염원의 대표 사례)
+- 참고: E:\verify_reports\CANDIDATE-SCORE-EXPLAINABILITY-BREAKDOWN-DIAGNOSE.txt
+
+### F20. 후보추천 프로파일링이 완전 단변량이고, 조합 판정은 실측이 아니라 곱셈 추정이다
+- 발견일: 2026-07-31
+- 근거 보고서: `CANDIDATE-PROFILING-UNIVARIATE-VS-CORRELATION-DIAGNOSE.txt`
+- 상세: 수집(SQL) · 저장(자료구조) · 판정(함수 시그니처) **3층 모두 컬럼 단위로 닫혀 있다**.
+  같은 행의 여러 컬럼 값을 이미 손에 쥔 상태(값 샘플 조회)에서도 **즉시 컬럼별 1차원으로 해체해 행 대응
+  정보를 버린다**. 2축 PAIR/조합 후보 판정도 "교차 계산" 이 아니라 각 컬럼 distinct 의 **단순 곱**이다
+  (코드 주석에 "실측 아님", "독립성 가정" 이 명시돼 있다). `context` 인자가 컬럼 간 맥락을 넣을 자리로
+  설계됐으나 호출부 어디서도 전달되지 않아 **영구 미사용** 상태다.
+  파생 위험 2가지:
+  1) **조합 그룹수 과대추정** → 계층종속(시/도 × 시/군/구 등) 조합이 곱 기준 상한을 넘어 자동계획에서
+     부당하게 배제된다.
+  2) **의미 중복 조합이 HIGH 신뢰도를 받는다** — `STATUS_CD`+`STATUS_NM` 처럼 1:1 종속인 컬럼도
+     "업무축 2개" 로 인식돼 최우선 추천된다(추가정보 0인데 HIGH).
+  단, 이 한계들은 **조용한 버그가 아니라 필드명/주석으로 이미 스스로 고백돼 있다**(설계상 의도된 한계
+  확인, 숨은 결함 아님).
+- 대응 방향: 실제 교차 계산(`COUNT(DISTINCT a,b)` 등) 도입은 프로파일 예산(5만행 샘플 + 15초 timeout)과
+  충돌하므로, 도입한다면 (a) 샘플 위에서만 (b) 이미 추천된 소수 축에만 (c) 곱 대비 실측이 크게 작을 때만
+  **"종속 의심" 플래그를 다는 보수적 형태**를 권장한다.
+- 관련: F18(`cd1` 류 구조적 신호 미구현) · F6(다중 GROUP BY 조합 판정 부재)
+- 참고: E:\verify_reports\CANDIDATE-PROFILING-UNIVARIATE-VS-CORRELATION-DIAGNOSE.txt
 
 ### F16. CTE+OUTER JOIN+UNION 복합 쿼리에서 후보 프로파일 수집이 ORA-00904 로 조용히 실패한다(폴백은 정상)
 - 발견일: 2026-07-31
@@ -725,6 +809,20 @@ git -C E:/verify_reports worktree remove <임시경로>
 ---
 
 ## 경미/문서
+
+### M20. 후보 프로파일링 문자 COUNT(DISTINCT) 에 조건부 캐릭터셋 노출이 있다(심각도 LOW · 현재 미발현)
+- 발견일: 2026-07-31
+- 근거 보고서: `CANDIDATE-PROFILING-NLS-CHARSET-EXPOSURE-DIAGNOSE.txt`
+- 상세: 숫자 프로파일링은 `TO_CHAR` 를 쓰지 않아 NLS 노출이 없다(실측 확인 — 연결단 `'.,'` 고정까지
+  더해 2중 방어). **문자 컬럼 `COUNT(DISTINCT)` 만** `NLS_COMP=LINGUISTIC` 세션에서 실제로 붕괴함을
+  실측으로 확인했다(distinct 4 → 2).
+  다만 asis/tobe 실 세션 모두 `NLS_COMP=BINARY`(기본)이고 코드가 이 값을 절대 바꾸지 않아 **현재는
+  미발현**이다. exact_diff(S12)와 달리 **순서의존 병합이 없어**(스칼라 값 1개만 반환) 대량 오탐 자체가
+  성립하지 않는 구조적 차이가 있다.
+- 대응 방향: 급하지 않다. 손댈 경우 오라클 어댑터 `connect()` 의 기존 `_pin_session_nls_numeric` 옆에
+  `NLS_COMP=BINARY` 1줄을 고정하는 것이 가장 값싼 방법이다.
+- 관련: S12(exact_diff 캐릭터셋 정렬 붕괴) · S14(NLS 숫자 고정 잔여 위험)
+- 참고: E:\verify_reports\CANDIDATE-PROFILING-NLS-CHARSET-EXPOSURE-DIAGNOSE.txt
 
 ### M17. 재이관 드릴다운 라이브 레코드에 목적 미존재·값 불일치 강조(주황)가 서지 않는다
 - 발견일: 2026-07-30
