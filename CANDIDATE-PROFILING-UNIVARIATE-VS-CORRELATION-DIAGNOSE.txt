@@ -1,0 +1,376 @@
+작업명 : CANDIDATE-PROFILING-UNIVARIATE-VS-CORRELATION-DIAGNOSE
+✅ 작업 완료 - CANDIDATE-PROFILING-UNIVARIATE-VS-CORRELATION-DIAGNOSE - 후보추천 프로파일링은 수집·판정·조합 전 구간이 완전 단변량이며, 조합 판정조차 컬럼별 distinct 의 '독립성 가정 곱'(코드 주석에 "실측 아님" 명시)일 뿐 교차 계산은 코드베이스에 단 한 줄도 없다
+
+────────────────────────────────────────────────────────────────────────
+0. 조사 범위 / 성격
+────────────────────────────────────────────────────────────────────────
+- 성격: **조사 전용(read-only)**. 코드 변경 0건, 테스트 실행 0건, DB 접속 0건.
+- 조사 대상(실제 판독 파일):
+  · services/column_profile_service.py            (프로파일 수집 — 1차)
+  · services/profile_recollect_service.py         (프로파일 재수집)
+  · services/source_profile_service.py            (pg_stats 기반 스냅샷)
+  · services/candidate_postcount_finalize.py      (COUNT 이후 2차 보강 프로파일)
+  · services/candidate_scoring.py                 (운영 스코어링 본체)
+  · services/candidate_scoring_runner.py          (CSR — PoC 스코어링 엔진)
+  · services/candidate_subtype_service.py         (SYSTEM_AUDIT / 관리컬럼 A·B축 판정)
+  · services/candidate_engine.py                  (후보 생성)
+  · services/groupby_plan_service.py              (2축 PAIR 세트 계획)
+  · services/groupby_estimate_service.py          (예상 그룹 수 산정)
+  · services/diagnosis/candidate/recommender.py   (조합 후보 Phase 77)
+- 전수 grep 으로 부재를 확인한 키워드:
+  `상관관계 / correlation(통계 의미) / co_occur / 동시성(판정 의미) / 교차표 / crosstab /
+   조건부 분포 / functional_dep / 함수종속` → **판정 로직상 유효 히트 0건**
+  (`correlation` 히트는 전부 run_id·trace_id 의 `correlation_id`(요청 추적) 및
+   profile_snapshot_service.py:784 의 pg_stats 컬럼명 `correlation`(물리 정렬 상관도, 미사용)뿐)
+
+────────────────────────────────────────────────────────────────────────
+1. 조사항목 ① — 프로파일 수집·스코어링이 컬럼 단위 루프인가
+────────────────────────────────────────────────────────────────────────
+■ 1-1. 수집 SQL 자체가 컬럼별 독립 집계 (services/column_profile_service.py)
+
+    outer_sel_parts: list[str] = ["COUNT(*) AS pf_rc"]
+    for idx, tgt_col in indexed_cols_outer:
+        outer_sel_parts.append(f"COUNT({tgt_col}) AS pf_nn_{idx}")
+        outer_sel_parts.append(f"COUNT(DISTINCT {tgt_col}) AS pf_dc_{idx}")
+                                                  (column_profile_service.py:354-357)
+
+  한 번의 쿼리로 N개 컬럼을 훑지만, 집계식은 전부 `COUNT(단일컬럼)` /
+  `COUNT(DISTINCT 단일컬럼)` 이다. `COUNT(DISTINCT a||b)`, `GROUP BY a,b`,
+  `COUNT(DISTINCT (a,b))` 형태는 **코드베이스 전체에 존재하지 않는다**(전수 grep 확인).
+  → 쿼리 1회는 '성능 최적화(왕복 절감)'일 뿐 '함께 본다'는 의미가 아니다.
+
+  결과 파싱도 컬럼별로 완전 분리된 dict 이다:
+
+    profiles[col_name] = {
+        "row_count": row_count, "non_null_count": non_null,
+        "null_count": null_count, "null_ratio": null_ratio,
+        "distinct_count": distinct, "distinct_ratio": distinct_ratio,
+        "profile_error": None,
+    }                                              (column_profile_service.py:407-415)
+
+  → 저장 스키마에 '다른 컬럼과의 관계'를 담을 필드가 아예 없다.
+
+■ 1-2. 값 샘플은 행 정렬 상태로 가져온 뒤 **곧바로 컬럼별로 해체**된다 (결정적 증거)
+
+    sql = f"SELECT{_top} {col_list} FROM {from_table}" ...
+    rows = cur.fetchall() or []
+    ...
+    for i, (t, _) in enumerate(missing):
+        result[(t or "").upper()] = [r[i] for r in rows]
+                                              (column_profile_service.py:125-132)
+
+  LIMIT 100 샘플은 물리적으로 '같은 행의 여러 컬럼 값'을 이미 손에 쥔 상태다.
+  상관관계를 계산할 유일한 원재료가 여기 있는데, 코드는 즉시 `[r[i] for r in rows]` 로
+  **컬럼별 1차원 리스트로 쪼개 행 대응 정보를 버린다**. 이후 어떤 판정 함수도
+  '행 단위로 두 컬럼을 함께 본' 적이 없다 — 볼 수 있는 자료구조가 남지 않기 때문이다.
+
+■ 1-3. 재수집 경로도 동일 (services/profile_recollect_service.py:361)
+
+    sel = ["COUNT(*) AS pr_rc"] + ["COUNT(DISTINCT %s) AS pr_d%d" % (...)
+                                   for i, (c, _) in enumerate(pick)]
+
+■ 1-4. pg_stats 스냅샷 경로는 애초에 교차 통계를 뽑을 수 없다
+  services/source_profile_service.py:15,25 (모듈 헤더 '금지' 항목)
+
+    2. pg_stats (catalog/statistics) 기반 — COUNT DISTINCT 직접 조회 금지.
+    금지:
+      - 원본 DB COUNT(*), COUNT(DISTINCT), GROUP BY 직접 profiling
+
+  pg_stats 는 **컬럼 단위 카탈로그 통계**(n_distinct/null_frac/most_common_vals)이며,
+  PostgreSQL 의 다변량 통계(CREATE STATISTICS / pg_statistic_ext)는 사용하지 않는다
+  (전수 grep: `pg_statistic_ext`, `CREATE STATISTICS` 히트 0건).
+
+■ 1-5. 스코어링 진입점이 컬럼 단위 for 루프 (services/candidate_scoring.py:938-956)
+
+    gb_scores:  list[dict] = []
+    for cand in groupby_candidates:
+        col = cand.get("tgt_col", "")
+        matches = match_semantic_dictionary(col, comment, db_type, "column_reference", ...)
+        gb_scores.append(score_group_by_candidate(cand, matches, profile=_get_profile(col)))
+
+  `score_group_by_candidate(candidate, semantic_matches, context, profile)` 는
+  **후보 1개 + 그 컬럼의 사전매칭 + 그 컬럼의 프로파일**만 받는다. 다른 후보 리스트를
+  넘겨받는 인자가 없다. 게다가 유일하게 여지가 있던 `context` 인자는:
+
+        context:          현재 미사용 (향후 확장 예약)
+                                        (candidate_scoring.py:463, 645 — SUM/GB 양쪽 동일)
+
+  호출부 전수 확인 결과 `context` 는 **어디서도 전달되지 않는다**(candidate_scoring.py:946,
+  956 두 곳이 유일한 호출부이며 둘 다 미전달 → 항상 None). 즉 '컬럼 간 맥락'을 넣을
+  자리로 설계만 해두고 10개월째 비어 있다.
+
+■ 1-6. 프로파일 소비 함수도 단일 컬럼 dict 만 받는다
+
+    def _apply_gb_profile(profile: dict) -> tuple[int, dict, list[str]]:   (:297)
+    def _apply_sum_profile(profile: dict) -> tuple[int, dict, list[str]]:  (:379)
+
+  둘 다 인자가 `profile` 하나 = 그 컬럼의 row_count/distinct/null_ratio 뿐이다.
+
+■ 1-7. CSR(PoC 엔진)도 동일 (services/candidate_scoring_runner.py)
+
+    @dataclass
+    class ColumnStats:
+        table_name: str;  column_name: str;  row_count: int
+        n_distinct: float;  n_distinct_ratio: float;  null_frac: float
+        most_common_freq: float; is_constant_like: bool; is_high_cardinality: bool
+        cardinality_bucket: str                                    (:125-138)
+
+    for obs in obs_rows:            # 관찰 1행 = 컬럼 1개
+        ...
+        (gb_app, gb_score, gb_pre_status, gb_codes) = _evaluate_group_by(
+            obs, src_meta, src_stats, compat_status, rflags, risk_blocked)   (:977, 1001)
+
+  통계 자료구조의 키가 `(table_name, column_name)` 이라 **구조적으로 2컬럼 통계를
+  담을 수 없다**. 평가도 컬럼 단위 루프.
+
+▶ 항목 ① 결론: 수집(SQL) · 저장(dict/dataclass) · 판정(함수 시그니처) 3층 모두가
+   컬럼 단위로 닫혀 있다. 교차표·조건부 분포·상관계수 계산은 **한 곳도 없다**.
+
+────────────────────────────────────────────────────────────────────────
+2. 조사항목 ② — 관리컬럼(SYSTEM_AUDIT)에 '타 관리컬럼과의 동시성' 신호가 있는가
+────────────────────────────────────────────────────────────────────────
+■ 결론: **없다. 미구현이다.** (= 순수 단변량이라는 강한 방증)
+
+관리컬럼 판정은 A·B 두 축의 '교차확인(crosscheck)' 구조지만, 이 '교차'는
+**컬럼 간 교차가 아니라 같은 한 컬럼에 대한 근거 종류 간 교차**다.
+
+    def evaluate_admin_audit_crosscheck(
+        candidate:      dict,          # ← 컬럼 1개
+        scoring_result: dict | None = None,
+        role:           str = "group_by",
+    ) -> dict:
+        """B축(명칭=가설) × A축(값=검증) 교차확인으로 관리컬럼 여부를 최종 판정한다."""
+                                          (candidate_subtype_service.py:652-657)
+
+  · A축 = **그 컬럼의** 값 샘플 패턴 (배치 적재 스탬프 시그니처)
+        def candidate_system_audit_value_pattern(candidate: dict) -> bool:
+            vals = _candidate_sample_values(candidate)
+            return detect_system_audit_value_pattern(vals) if vals is not None else False
+                                                    (candidate_subtype_service.py:511-514)
+  · B축 = **그 컬럼의** 명칭 표준사전 매칭 + **그 컬럼의** 코멘트 키워드 가설
+        def detect_admin_audit_comment_hypothesis(comment) -> dict:   (:552)
+
+  인자는 `candidate` 단수이며, 호출부도 컬럼 단위 루프 안이다:
+
+        _audit_cc = evaluate_admin_audit_crosscheck(cand, sr, role)
+                                              (candidate_subtype_service.py:1209)
+
+  → "REG_DT 와 REG_ID 가 같은 행에서 함께 채워졌다", "UPD_DT 가 채워진 행은 반드시
+     UPD_ID 도 채워져 있다" 같은 **관리컬럼 군집(동시성) 신호는 존재하지 않는다**.
+
+■ 이 부재는 코드 주석 자체가 '알려진 한계'로 명시하고 있다
+
+    ☆ 알려진 한계(미해소, 별도 지침 대상): B=True + A=None → CONFIRMED 는 '체크박스
+      비활성(하드 배제)'까지 간다. A축이 관할 밖이라 침묵한 경우, 배제 근거는 결국
+      WEAK(0.62) 명칭매칭 단독이며 이는 세션03 경고("이름 매칭 단독 신뢰 불가")가
+      그대로 남는 지점이다. 값이 타임스탬프가 아닌 관리컬럼(BATCH_ID)과 명칭만
+      감사스러운 업무컬럼(BIZ_REG_NO)은 A축으로 구분되지 않는다 — 구분하려면
+      타임스탬프 외 관리컬럼 시그니처를 읽는 A축 확장이 필요하다(신규 판정 로직).
+                                          (candidate_subtype_service.py:689-693)
+
+  즉 BATCH_ID(값이 타임스탬프가 아님) 를 구제할 유일하게 남은 신호가 바로
+  '다른 관리컬럼과 함께 채워지는 동시성'인데, 코드는 그 방향을 "신규 판정 로직 필요"
+  로 미뤄 둔 상태다. → **교차 컬럼 신호 미구현이 명문화되어 있다.**
+
+  또 다른 주석도 동일한 취지로 남아 있다:
+    "... 가설-검증 교차확인 같은 정교화는 여전히 미구현으로 남긴다"
+                                          (candidate_subtype_service.py:1197)
+
+■ 유일하게 '컬럼 여러 개를 함께 보는' 관리컬럼 관련 코드는 **판정이 아니라 표시/집계**다
+  (관리컬럼 감사 리포트가 컬럼 목록을 순회해 결과를 모으는 수준 — 컬럼 A의 판정이
+   컬럼 B의 값/통계에 의해 바뀌는 경로는 없다).
+
+▶ 항목 ② 결론: 교차 컬럼 신호 **0건**. 지시서의 가설("구현 안 됐다면 순수 단변량이라는
+   방증")이 코드 주석 수준에서 확인됐다.
+
+────────────────────────────────────────────────────────────────────────
+3. 조사항목 ③ — 다중 GROUP BY 조합(F6 / COMBO-PAIR) 판정이 조합 자체를 계산하는가
+────────────────────────────────────────────────────────────────────────
+■ 결론: **계산하지 않는다. 각 축의 독립 통계를 곱셈으로 결합할 뿐이다.**
+  코드 주석이 스스로 "실측 아님", "독립성 가정" 이라고 못 박고 있다.
+
+■ 3-1. 2축 PAIR 세트 (services/groupby_plan_service.py:96-127)
+
+    for i in range(len(cands)):
+        for j in range(i + 1, len(cands)):
+            a, b = cands[i], cands[j]
+            da, db = _distinct_of(a), _distinct_of(b)
+            if not da or not db:
+                excluded.append(_excl([a["col"], b["col"]], None, None,
+                                      "조합 distinct 근거 부족(단일 축 계획만 실행)"))
+                continue
+            est = min(da * db, total) if total else da * db   # 조합 distinct 상한 추정(실측 아님)
+            ...
+            if not (_has_business_evidence(a) and _has_business_evidence(b)):
+                excluded.append(_excl([...], est, avg, "업무 evidence 부족(자동 조합 제외)"))
+
+  · 조합 그룹 수 = `da * db` (각 컬럼의 distinct 곱) → **주석에 "실측 아님" 명기**
+  · 업무 evidence 판정 = `_has_business_evidence(a) and _has_business_evidence(b)`
+    → 각 축을 독립 평가한 bool 두 개의 **AND 결합**. 조합 고유의 근거가 아니다.
+  · `_distinct_of(cand)` 도 "재계산 없음" 을 주석에 명시:
+        """후보 dict 에서 distinct(cardinality) 를 방어적으로 읽는다
+           (필드명 다양성 흡수 — 재계산 없음)."""            (:44)
+
+  ★ 이 곱셈이 실제와 어긋나는 구간이 바로 상관관계다.
+    예) 시/도(17) × 시/군/구(250) 는 곱하면 4,250 이지만 실제 조합은 250 근처다
+    (계층 종속). 반대로 완전 독립이면 곱에 근접한다. 현재 코드는 이 차이를 알 수 없고,
+    `min(곱, total)` 라는 거친 상한으로만 방어한다.
+
+■ 3-2. 조합 후보 추천 Phase 77 (services/diagnosis/candidate/recommender.py:296-329)
+
+    for combo in itertools.combinations(cols, k):
+        names = [c[0] for c in combo]
+        dists = [c[1]["cardinality_evidence"]["distinct"] for c in combo]
+        est = None
+        if all(d is not None for d in dists):
+            est = 1
+            for d in dists:
+                est *= max(1, d)                      # ← 컬럼별 distinct 의 단순 곱
+        ...
+        axes = sum(1 for c in combo if c[1]["dictionary_evidence"] in
+                   ("status_type_hint", "period_hint", "region_dept_hint"))
+        item["combination_reason"] = ("업무 축 조합(기간/상태/지역/부서)" if axes >= 2 ...)
+        item["confidence"] = "HIGH" if axes >= 2 else ("MEDIUM" if axes == 1 else "LOW")
+
+  · 조합 카디널리티 = 컬럼별 distinct 의 **곱**
+  · 조합 신뢰도 = 각 컬럼이 '업무 축'인지 세어(`axes`) 개수로 등급 부여
+    → 두 컬럼이 **의미상 겹치는지(예: STATUS_CD 와 STATUS_NM)** 를 볼 방법이 없다.
+      동의 컬럼 조합도 axes=2 면 HIGH 를 받는다.
+  · 조합에 대한 DB 재조회는 **없다** — `_combinations()` 는 순수 파이썬 산술이며
+    conn/cursor 를 전혀 받지 않는다(함수 시그니처 `(pool_evs, row_count, cfg)`).
+
+■ 3-3. 예상 그룹 수 산정도 동일 (services/groupby_estimate_service.py:200-266)
+
+    """... 복수 후보 고유값 곱은 '독립성 가정 상한' 일 뿐이므로 실제
+       Source COUNT(source_row_count)가 있으면
+       maximum_expected_groups = min(곱, Source COUNT) 로 제한한다(§3)."""   (:204-206)
+
+    for c in gb_selected:
+        f = estimate_group_factor(c)   # distinct + NULL 그룹(+1) 반영
+        product *= f["factor_count"]
+    ...
+    "combination_product": product,   # 독립성 가정 조합 곱(상한 산정 전)   (:256)
+
+  → 필드명 자체가 `combination_product`(조합 곱)이고 주석이 `독립성 가정` 이다.
+    상관관계를 모르기 때문에 '상한'으로만 쓰겠다는 설계 의도가 명시되어 있다.
+
+■ 3-4. 그나마 있는 '조합 세트'조차 실행은 단일축이다 (기존 백로그 F6 과 일치)
+
+  BACKLOG.md §F6 "다중 GROUP BY '조합' 판정이 아예 없다 + 4단계 조합 SQL 표시와
+  실제 단일축 실행이 불일치" 와 코드가 정확히 부합한다:
+
+    # 3) [D7-17 통합 D] 명시 복합(EXPLICIT_MULTI) 세트 생성 제거
+    #    — 복합 GROUP BY 실행 기능 삭제(독립 세트만).           (groupby_plan_service.py:138)
+    "expected_total_groups": expected_total,   # §9 — 단일 축 합산(곱 아님)   (:149)
+
+  → 즉 '조합'은 (a) 계산도 추정(곱)이고 (b) 실행도 단일축 N세트다.
+    조합 자체의 실측 통계가 파이프라인 어디에도 남지 않는다.
+
+▶ 항목 ③ 결론: **"조합 판정 시에는 교차 계산함" 은 사실이 아니다.**
+   조합 판정 = (각 축 독립 통계) × (곱셈/AND 결합) + (min 상한 클램프).
+
+────────────────────────────────────────────────────────────────────────
+4. 조사항목 ④ — 최종 판정
+────────────────────────────────────────────────────────────────────────
+■ 판정: **「완전 단변량」**
+
+  지시서가 제시한 3개 선택지 중:
+    (a) 완전 단변량                      ← ★ 이것
+    (b) 일부 교차 신호 있음(어디까지)      → 해당 없음
+    (c) 조합 판정 시에는 교차 계산함        → 해당 없음(곱셈 추정일 뿐)
+
+■ 판정 근거 요약표
+
+  | 계층            | 대표 코드                                   | 컬럼 간 신호 |
+  |-----------------|---------------------------------------------|-------------|
+  | 수집 SQL        | column_profile_service.py:354-357           | 없음 (단일컬럼 COUNT/DISTINCT) |
+  | 값 샘플         | column_profile_service.py:131-132           | 없음 (행 대응 즉시 해체) |
+  | 카탈로그 통계   | source_profile_service.py:15,25             | 없음 (pg_stats 컬럼 단위, 다변량 통계 미사용) |
+  | 재수집          | profile_recollect_service.py:361            | 없음 |
+  | 스코어링(운영)  | candidate_scoring.py:938-956, 297, 379      | 없음 (context 인자 영구 미사용) |
+  | 스코어링(CSR)   | candidate_scoring_runner.py:125-138, 977    | 없음 (통계 키 = table+column) |
+  | 관리컬럼 판정   | candidate_subtype_service.py:652, 689-693   | 없음 (A×B 는 같은 컬럼의 근거 교차) |
+  | 2축 PAIR        | groupby_plan_service.py:105                 | 없음 (da*db, "실측 아님") |
+  | 조합 추천       | recommender.py:303-310                      | 없음 (distinct 단순 곱) |
+  | 그룹수 산정     | groupby_estimate_service.py:204, 256        | 없음 ("독립성 가정 조합 곱") |
+
+■ 엄밀히 하기 위한 단서 2가지 (교차 '계산'이 아니라 교차 '비교/결합'인 사례)
+  이 둘을 "일부 교차 신호"로 오독하면 안 되므로 명시한다.
+
+  1) Top-N 순위 결정 — candidate_scoring_runner.py:794-870
+       `_apply_top_n_by_table()` 은 같은 테이블 컬럼들을 **점수로 정렬해 상위 3개**를
+       SELECTED_DEFAULT 로 만든다. 여러 컬럼을 함께 보긴 하지만, 각 컬럼 점수는
+       이미 단변량으로 확정된 값이고 여기서는 **비교(ranking)**만 한다.
+       컬럼 A의 데이터가 컬럼 B의 점수를 바꾸지 않는다.
+  2) 조합 곱 / evidence AND — 위 §3. 결합 연산이지 관측이 아니다.
+       da*db 는 데이터를 한 번도 다시 보지 않고 나온 숫자다.
+
+  → 두 사례 모두 "여러 컬럼의 **결과**를 결합"할 뿐 "여러 컬럼의 **데이터**를 함께 관측"
+    하지 않는다. 상관관계(업무 로직상 함께 움직이는지)는 후자 없이는 원리적으로 알 수 없다.
+
+────────────────────────────────────────────────────────────────────────
+5. 이 구조가 만드는 실제 리스크 (비판적 검토 — 참고, 수정 제안 아님)
+────────────────────────────────────────────────────────────────────────
+1) **조합 그룹 수 과대추정 → 조합 세트 부당 배제**
+   groupby_plan_service.py:110 은 `est > max_groups(100)` 이면 조합을 제외한다.
+   계층 종속(시/도 × 시/군/구, 대분류 × 소분류)에서 실제 조합은 곱보다 훨씬 작은데
+   곱 기준으로 상한을 넘겨 "과세분화 방지" 사유로 잘려나간다.
+   → 정작 유용한 업무 축 조합이 자동계획에서 사라진다. 반대로 `min(곱, total)` 클램프
+     때문에 대형 테이블에서는 상한이 total 로 붙어 판정이 무의미해지는 구간도 생긴다.
+
+2) **의미 중복 조합이 HIGH 신뢰도를 받는다**
+   recommender.py:318-322 는 '업무 축 2개 이상'이면 HIGH 다. STATUS_CD 와 STATUS_NM
+   처럼 사실상 1:1 종속인 두 컬럼도 axes=2 → HIGH. 조합해도 추가 정보가 0인데
+   최우선 추천이 된다. (groupby_plan_service.py:121 의 `est <= max(da,db)` 가드는
+   distinct 곱이 크게 나오므로 이 케이스를 잡지 못한다 — 곱이 곧 종속을 감춘다.)
+
+3) **관리컬럼 오탐/미탐이 A축 확장 없이는 구조적으로 안 풀린다**
+   candidate_subtype_service.py:689-693 이 자인하듯, BATCH_ID(관리컬럼인데 값이
+   타임스탬프 아님)와 BIZ_REG_NO(업무컬럼인데 이름이 감사스러움)는 단변량으로 구분
+   불가다. 이 둘을 가르는 가장 자연스러운 신호가 '다른 관리컬럼과의 동시 갱신'인데
+   그 축이 없다. 현재는 WEAK(0.62) 명칭매칭 단독으로 하드 배제까지 간다.
+   (실측 기록과도 일치: 라이브 픽스처에서 BIZ_REG_NO 만 WEAK 로 남는 케이스)
+
+4) **explainability 는 오히려 양호**
+   위 3건 모두 '조용한 실패'가 아니라 주석·필드명(`combination_product`,
+   "실측 아님", "독립성 가정", "☆ 알려진 한계")으로 드러나 있다. 즉 이 진단의
+   결론은 숨은 버그 발견이 아니라 **설계상 의도된 한계의 확인**이다.
+
+5) **교차 계산 도입 시 비용 경고(선제 메모)**
+   조합 실측(`COUNT(DISTINCT a||b)` 또는 `GROUP BY a,b`)은 현재 프로파일 예산 체계
+   (SAMPLE_SRC 5만행 CTE + statement_timeout 15초, column_profile_service.py:47,53)
+   와 정면 충돌한다. 컬럼 N개면 조합은 N(N-1)/2 로 폭증한다.
+   도입한다면 (a) 5만행 샘플 위에서만, (b) 이미 추천된 소수 축에만, (c) 곱 대비
+   실측이 크게 작을 때만 '종속 의심' 플래그를 다는 보수적 형태가 현실적이다.
+   — 단, 이는 참고 의견이며 이번 지침 범위(조사) 밖이다.
+
+────────────────────────────────────────────────────────────────────────
+6. 검증 방법 / 한계
+────────────────────────────────────────────────────────────────────────
+■ 방법: 정적 코드 판독 + 전수 grep(키워드 부재 확인) + 함수 시그니처 추적(호출부 전수).
+  특히 "부재 증명"은 다음 3중으로 교차 확인했다.
+   (1) 개념 키워드 grep 부재 (상관/교차표/조건부/함수종속/co-occur)
+   (2) SQL 형태 grep 부재 (다중컬럼 DISTINCT / GROUP BY 프로파일링)
+   (3) 자료구조 부재 (프로파일 dict·ColumnStats 에 컬럼쌍 필드 없음)
+       — (3)이 가장 강한 근거다. 계산했더라도 담을 곳이 없다.
+
+■ 한계
+  · 라이브 DB 실행 없이 코드 판독만 했다(지시서상 코드 수정·실행 없음).
+    다만 이번 결론은 '실행 결과'가 아니라 '코드에 존재하지 않음'이라
+    실행으로 뒤집히는 성격이 아니다.
+  · 프런트엔드(JS)에서 사후적으로 두 컬럼을 함께 보는 표시 로직이 있는지는
+    조사 범위(services 계층)에 넣지 않았다. 다만 서버가 교차 통계를 내려주지 않으므로
+    JS 가 만들 수 있는 것도 이미 산출된 단변량 값의 재조합뿐이다.
+  · 지시서가 언급한 "방금 등록한 백로그 항목(타 관리컬럼과의 동시성)"은 조사 시점
+    E:\verify_reports\BACKLOG.md 및 미추적 BACKLOG-*.txt 에서 찾지 못했다(동시 진행
+    세션의 미저장 항목으로 추정). 대신 동일 취지가 코드 주석
+    candidate_subtype_service.py:689-693 에 '알려진 한계'로 남아 있어 그것으로 갈음했다.
+
+■ 병행 확인: 읽기 전용 조사로, 코드/테스트/DB 무변경. 다른 진단과 파일이 겹쳐도 충돌 없음.
+
+────────────────────────────────────────────────────────────────────────
+7. 변경 파일
+────────────────────────────────────────────────────────────────────────
+없음 (조사 전용 — 코드 변경 0건). 산출물은 본 보고서 1개.
+
+✅ 작업 완료 - CANDIDATE-PROFILING-UNIVARIATE-VS-CORRELATION-DIAGNOSE - 후보추천 프로파일링은 수집·판정·조합 전 구간이 완전 단변량이며, 조합 판정조차 컬럼별 distinct 의 '독립성 가정 곱'(코드 주석에 "실측 아님" 명시)일 뿐 교차 계산은 코드베이스에 단 한 줄도 없다
