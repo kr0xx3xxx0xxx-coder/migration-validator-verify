@@ -10,7 +10,11 @@
 - 대상 제외: 아직 push 되지 않은 로컬 전용 보고서 16건은 이번 취합에서 제외했다.
   push 후 이 파일에 합류시킨다.
 - 최초 작성: 2026-07-29 (VERIFY-REPO-BACKLOG-FILE-CREATE)
-- 최종 갱신: 2026-07-30 (BACKLOG-VARCHAR2-CAPACITY-PROVIDER-GAP-AND-MSSQL-RISK-ADD) — VARCHAR2 실효
+- 최종 갱신: 2026-07-31 (BACKLOG-SCATTER-PERF-MEASURE-FINDINGS-ADD) — 대량·흩어진 불일치 추출 실측에서
+  확인된 실사용 영향 3건 등록(P10 신규 — 재이관 레코드 수집 HARD CAP 500 + 요약표 숫자 오독,
+  F16 신규 — CTE+OUTER JOIN+UNION 복합에서 프로파일 수집 ORA-00904 무성 실패,
+  F17 신규 — 재이관 PK 요약 셀 '준비 중' 고정)
+- 직전 갱신: 2026-07-30 (BACKLOG-VARCHAR2-CAPACITY-PROVIDER-GAP-AND-MSSQL-RISK-ADD) — VARCHAR2 실효
   수용량 판정이 운영 경로에 도달하지 못하는 provider 배선 공백과 MSSQL 동종 위험(컬럼 메타 조회 자체
   미구현) 2건 등록(F14·F15 신규)
 - 직전 갱신: 2026-07-30 (BACKLOG-COMPLETED-ITEMS-S1-S3-S5-S8-F13-MARK-RESOLVED) — 이미 해결된
@@ -356,6 +360,28 @@ git -C E:/verify_reports worktree remove <임시경로>
 
 ## 성능
 
+### P10. 재이관 레코드 수집이 HARD CAP 500 에 막혀 대량·흩어진 불일치의 전량 확보가 불가능하다 + 같은 화면 요약표 숫자가 실제 규모를 오독시킨다
+- 발견일: 2026-07-31
+- 근거 보고서: `LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE.txt` (§5【이상-1】/ §7-2) /
+  `LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE-RETRY.txt` (§5【이상-1】)
+- 상세: `routes/agg_diff_route.py` 의 `per_group_full_list_max` 기본값(100) → `per_group_early_stop_abs`(101)
+  에서 그룹당 수집이 중단된다. **표본 게이트가 원인이 아니라 그룹 표시정책의 수집 상한**이다.
+  상한을 올려도 `clamp_per_group_thresholds()` 의 HARD CAP 이 500 이라, 그룹당 1,000건(그룹 10개 · 총
+  10,000건) 규모에서는 **구조적으로 전량 추출이 불가능**함을 실측으로 확인했다(기본값 101건 / cap500
+  대조 측정 501건 수집, 나머지는 `EARLY_STOPPED`). 6종 쿼리 형태 전부 동일하게 재현.
+  화면은 조용한 실패는 아니다 — 붉은 "표시 등급 D4 · 요약 전용" 배너가 "수집이 조기중단되어 정확한 총
+  건수는 확인하지 않았습니다" 를 명시한다. 그러나 **같은 화면 요약표가 "재이관 대상 10건" 이라는 숫자를
+  그대로 노출**해(참값 10,000건, 실제 저장 101건) 배너를 읽지 않으면 규모를 크게 오독할 여지가 있다.
+- 성능 참고: 상한 501 에서 50,100행 스캔에 1,217ms 로 실측됐다(수집량·스캔량이 상한에 정확히 비례 —
+  101↔10,100행, 501↔50,100행). 100만행 전량 규모로 단순 환산하면 약 24초(환산 추정치 — 실측 아님).
+  값 비교·저장·페이징까지 포함된 제품 경로가 대조군(스크립트 직접 SQL 전량 추출, 2초대)보다 느린
+  이유의 정확한 원인분해는 이번 측정 범위 밖이다.
+- 대응 방향: (a) 요약표의 건수 표기를 "표시/실제" 형태로 명확히 구분한다(예: "10건 표시 / 10,000건 초과
+  추정", 또는 배너와 같은 색상으로 강조) — **정책 변경 없이 표시만으로 오독을 막을 수 있다.**
+  (b) HARD CAP 500 자체를 올릴지는 성능·저장공간 트레이드오프가 걸린 정책 판단이라 별도 결정 대기.
+- 참고: E:\verify_reports\LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE.txt
+- 참고: E:\verify_reports\LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE-RETRY.txt
+
 ### P1. pushdown 사전 판정이 없어, 청크 술어가 안 내려가는 형태에서 매 청크마다 원본 전체 정렬이 반복된다
 - 발견일: 2026-07-29
 - 근거 보고서: `PK-RANGE-CHUNK-BOUNDARY-ORDERING-ASSUMPTION-DIAGNOSE.txt` (§5 D·E / §6-2)
@@ -456,6 +482,32 @@ git -C E:/verify_reports worktree remove <임시경로>
 ---
 
 ## 기능 미완(설계는 끝났으나 구현 대기)
+
+### F16. CTE+OUTER JOIN+UNION 복합 쿼리에서 후보 프로파일 수집이 ORA-00904 로 조용히 실패한다(폴백은 정상)
+- 발견일: 2026-07-31
+- 근거 보고서: `LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE.txt` (§5【이상-3】) /
+  `LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE-RETRY.txt` (§5【이상-3】)
+- 상세: CTE 안에서 LEFT OUTER JOIN 한 결과를 UNION ALL 로 묶은 원본 SQL((f) 복합 변형)에서, 3·4단계 진입 시
+  `profile DB 실행 실패 (join=False): ORA-00904 "REGION_NM": invalid identifier` 가 **서버 로그에만** 찍힌다.
+  세 측정 세트에서 각 단계 1회씩 총 6회 재현돼 우발 오류가 아니다. (c) LEFT OUTER 단독에서는 발생하지 않으므로
+  **CTE 안에서 조인한 결과를 CTE 밖에서 참조할 때 깨지는 것**으로 추정된다.
+  화면에는 오류가 뜨지 않고 후보 선정·통계검증이 폴백으로 정상 완료되며 최종 결과값도 정확하다
+  (실사용 지장 낮음 — 단 후보 프로파일 품질 저하 가능성이 남는다).
+- 대응 방향: 원본 SQL 이 CTE+JOIN+UNION 복합일 때 프로파일 수집 쿼리가 CTE 밖에서 조인 파생 컬럼을 참조하는
+  경로를 확인·수정한다.
+- 참고: E:\verify_reports\LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE.txt
+- 참고: E:\verify_reports\LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE-RETRY.txt
+
+### F17. 재이관 PK 요약 셀이 서버 응답 완료 후에도 '준비 중' 에 고정된다
+- 발견일: 2026-07-31
+- 근거 보고서: `LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE.txt` (§5【이상-2】)
+- 상세: 서버가 `EARLY_STOPPED`(ready=true, 저장 완료)로 응답한 뒤에도 화면 전역 상태가 `status=PREPARING`
+  이고 `#mvPkSummaryCell` / `#execPkTotal` 텍스트가 "준비 중" 그대로 남는다(6종 측정 전부 재현).
+  실제 저장 건수는 그룹 드릴다운 패널이나 Excel 레코드 시트로만 확인 가능하다 — 표시 갱신 누락으로 추정.
+- 대응 방향: 해당 셀의 갱신 로직이 `EARLY_STOPPED` 상태 응답도 반영하도록 수정한다.
+- 관련: P6(대량 run 에서 '재이관 대상: 준비 중' 장시간 유지)와 증상 문구는 같으나, 이쪽은 **서버가 이미
+  완료 응답을 준 뒤의 표시 미갱신**이라 원인이 다르다.
+- 참고: E:\verify_reports\LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE.txt
 
 ### F14. 오라클 metadata provider 배선이 없어 VARCHAR2 실효수용량 경고가 운영 화면에 뜨지 않는다
 - 발견일: 2026-07-30
