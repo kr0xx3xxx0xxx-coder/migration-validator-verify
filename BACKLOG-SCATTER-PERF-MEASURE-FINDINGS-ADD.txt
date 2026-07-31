@@ -1,0 +1,195 @@
+작업명 : BACKLOG-SCATTER-PERF-MEASURE-FINDINGS-ADD
+✅ 작업 완료 - BACKLOG-SCATTER-PERF-MEASURE-FINDINGS-ADD - 흩어진 불일치 추출 실측 발견 3건을
+BACKLOG.md 에 등록(P10·F16·F17 신규) 후 verify 저장소 push 완료(7526b2b)
+
+작성일: 2026-07-31
+수정 파일: BACKLOG.md 1개 (E:\verify_reports\BACKLOG.md)
+커밋: 7526b2b (verify 저장소 origin/main)
+
+
+1. 요구사항 대비 결과
+
+  요구                                          | 결과
+  ----------------------------------------------|------------------------------------------
+  발견 3건을 성능/기능 미완 중 적절한 섹션 등록 | 완료 (P10=성능, F16·F17=기능 미완)
+  기존 문서 톤(발견일/근거 보고서/상세/대응방향)| 완료 (동일 항목 순서·표기 준수)
+  번호 이어서 부여                              | 완료 (기존 최대 P9 → P10, F15 → F16·F17)
+  다른 섹션/내용 무수정                         | 완료 (diff 53추가/1삭제, 삭제 1줄은
+                                                |       머리말 '최종 갱신' → '직전 갱신' 강등)
+  BACKLOG.md 1개 파일만 수정                    | 완료 (git status 상 M BACKLOG.md 단일)
+  verify 저장소 push                            | 완료 (e217b02..7526b2b, ls-remote 확인)
+
+
+2. 섹션 배치 판단 근거
+
+  · 항목1 → **성능 P10**
+    수집 상한(HARD CAP 500) 자체가 성능·저장공간 트레이드오프 정책이고, 근거가 상한별
+    스캔량·소요시간 실측(101↔10,100행 / 501↔50,100행, 1,217ms)이므로 성능 섹션에 배치.
+    요약표 오독 논점은 같은 항목의 '대응 방향 (a)' 로 흡수(표시만 고쳐도 해소 가능하므로
+    별건 분리보다 한 항목 안에서 정책(b)과 대비시키는 편이 판단에 유리).
+  · 항목2 → **기능 미완 F16** (프로파일 수집 경로의 미구현·미대응 — 구현 대기 성격)
+  · 항목3 → **기능 미완 F17** (표시 갱신 배선 누락 — 구현 대기 성격)
+    P6("재이관 대상: 준비 중" 장시간 유지)와 화면 문구가 같아 혼동 위험이 있어,
+    F17 에 '관련: P6 와 원인이 다르다(P6=prewarm 미동작, F17=완료 응답 후 표시 미갱신)'
+    한 줄을 명시했다. 원문에 없던 서술이지만 두 항목을 같은 건으로 오인하면 잘못된 곳을
+    고치게 되므로 필요한 구분으로 판단.
+
+  배치 위치: 두 섹션 모두 **맨 앞**(BACKLOG.md 정렬 규칙 = 섹션 안 발견일 최신순, 발견일
+  2026-07-31 이 기존 최신 2026-07-30 보다 새로움).
+
+
+3. 등록 내용 요약
+
+  P10. 재이관 레코드 수집이 HARD CAP 500 에 막혀 대량·흩어진 불일치의 전량 확보가
+       불가능하다 + 같은 화면 요약표 숫자가 실제 규모를 오독시킨다
+    - 근거: MEASURE.txt §5【이상-1】/ §7-2, -RETRY.txt §5【이상-1】
+    - 핵심: per_group_full_list_max(100) → per_group_early_stop_abs(101) 에서 중단.
+      표본 게이트가 아니라 그룹 표시정책의 수집 상한이며, clamp_per_group_thresholds()
+      HARD CAP 이 500 이라 그룹당 1,000건(총 10,000건) 규모는 구조적으로 전량 추출 불가.
+      배너는 정상 경고하나 같은 화면 요약표가 "재이관 대상 10건" 을 그대로 노출.
+    - 성능 참고: 상한 501 → 50,100행 스캔 1,217ms 실측. 100만행 환산 약 24초(추정치,
+      실측 아님). 대조군(직접 SQL 전량 추출 2초대)과의 격차 원인분해는 범위 밖으로 명시.
+    - 대응: (a) 표시만으로 오독 방지 가능(정책 무변경) (b) HARD CAP 상향은 정책 판단 대기
+
+  F16. CTE+OUTER JOIN+UNION 복합 쿼리에서 후보 프로파일 수집이 ORA-00904 로 조용히
+       실패한다(폴백은 정상)
+    - 근거: 두 보고서 §5【이상-3】
+    - 핵심: (f) 복합에서만 3·4단계 진입 시 "profile DB 실행 실패 (join=False):
+      ORA-00904 REGION_NM invalid identifier" 가 서버 로그에만 발생(6회 재현, 우발 아님).
+      (c) LEFT OUTER 단독은 미발생 → CTE 밖에서 조인 파생 컬럼 참조 시 파손 추정.
+      화면 오류 없음·결과값 정확(실사용 지장 낮음, 후보 프로파일 품질 저하 가능성).
+
+  F17. 재이관 PK 요약 셀이 서버 응답 완료 후에도 '준비 중' 에 고정된다
+    - 근거: MEASURE.txt §5【이상-2】
+    - 핵심: EARLY_STOPPED(ready=true, 저장 완료) 응답 후에도 전역 상태 PREPARING,
+      #mvPkSummaryCell / #execPkTotal 이 "준비 중" 유지(6/6 재현). 실제 건수는 그룹
+      드릴다운 패널·Excel 레코드 시트로만 확인 가능.
+
+
+4. 사실 확인(원문 대조)
+
+  등록 전 근거 보고서 원문을 직접 열어 수치를 대조했다.
+  · 101건 조기중단 / per_group_full_list_max=100 → early_stop_abs=101 : MEASURE.txt:205-219 일치
+  · cap500 대조 측정 501건 / 49,599행 / 1,217ms / Excel 501행           : MEASURE.txt:213-214 일치
+  · HARD CAP 500 = clamp_per_group_thresholds()                          : -RETRY.txt:156 일치
+  · 100만행 환산 약 24초(추정치), 대조군 2초대                           : MEASURE.txt §7-2 일치
+  · ORA-00904 REGION_NM / 6회 재현 / (c) 단독 미발생                     : MEASURE.txt:228-235 일치
+  · #mvPkSummaryCell·#execPkTotal '준비 중' 6/6 재현                     : MEASURE.txt:221-227 일치
+  근거 보고서 2건은 이미 이 저장소에 push 되어 있음을 확인(git ls-files) — 머리말의
+  "미push 로컬 보고서는 제외" 규칙에 저촉되지 않는다.
+
+
+5. push 절차(BACKLOG.md "verify 저장소 운영 규칙" 준수)
+
+  · 공유 트리(E:\verify_reports)에 직접 커밋하지 않고 origin/main 기반 임시 worktree
+    (E:\wt_bls)를 새로 만들어 BACKLOG.md 만 수정·커밋했다.
+  · 최초 push 시 원격이 앞서 있어 거부(behind) → fetch 후 origin/main(e217b02) 위로
+    rebase 하여 재push 성공: e217b02..7526b2b.
+  · git ls-remote origin main = 7526b2b 로 원격 반영 확인.
+  · 원격 BACKLOG.md 내용 재확인: P10(363행)·F16(486행)·F17(501행) 존재, 머리말
+    '최종 갱신: 2026-07-31 (BACKLOG-SCATTER-PERF-MEASURE-FINDINGS-ADD)' 반영 확인.
+  · 작업 후 임시 worktree 는 제거했다.
+
+  [주의 — 공유 트리 상태]
+  E:\verify_reports\BACKLOG.md 는 다른 세션의 미커밋 상태로 남아 있고 origin/main 보다
+  6줄 뒤처져 있다(F14·F15 의 '우선순위: 낮음' 3줄씩 누락). 이번 작업은 규칙대로 임시
+  worktree 에서만 수행했으므로 공유 트리 파일은 건드리지 않았다. 따라서 공유 트리에서
+  BACKLOG.md 를 열면 이번 3건이 보이지 않는다 — 최신 내용은 origin/main 이 기준이다.
+  (공유 트리 동기화는 이 작업 범위 밖. 다른 세션의 미커밋 변경을 덮을 위험이 있어
+   임의로 갱신하지 않았다.)
+
+
+6. git diff 전문 (커밋 7526b2b)
+
+diff --git a/BACKLOG.md b/BACKLOG.md
+index 4f6d07a..e1da0b0 100644
+--- a/BACKLOG.md
++++ b/BACKLOG.md
+@@ -10,7 +10,11 @@
+ - 대상 제외: 아직 push 되지 않은 로컬 전용 보고서 16건은 이번 취합에서 제외했다.
+   push 후 이 파일에 합류시킨다.
+ - 최초 작성: 2026-07-29 (VERIFY-REPO-BACKLOG-FILE-CREATE)
+-- 최종 갱신: 2026-07-30 (BACKLOG-VARCHAR2-CAPACITY-PROVIDER-GAP-AND-MSSQL-RISK-ADD) — VARCHAR2 실효
++- 최종 갱신: 2026-07-31 (BACKLOG-SCATTER-PERF-MEASURE-FINDINGS-ADD) — 대량·흩어진 불일치 추출 실측에서
++  확인된 실사용 영향 3건 등록(P10 신규 — 재이관 레코드 수집 HARD CAP 500 + 요약표 숫자 오독,
++  F16 신규 — CTE+OUTER JOIN+UNION 복합에서 프로파일 수집 ORA-00904 무성 실패,
++  F17 신규 — 재이관 PK 요약 셀 '준비 중' 고정)
++- 직전 갱신: 2026-07-30 (BACKLOG-VARCHAR2-CAPACITY-PROVIDER-GAP-AND-MSSQL-RISK-ADD) — VARCHAR2 실효
+   수용량 판정이 운영 경로에 도달하지 못하는 provider 배선 공백과 MSSQL 동종 위험(컬럼 메타 조회 자체
+   미구현) 2건 등록(F14·F15 신규)
+ - 직전 갱신: 2026-07-30 (BACKLOG-COMPLETED-ITEMS-S1-S3-S5-S8-F13-MARK-RESOLVED) — 이미 해결된
+@@ -356,6 +360,28 @@ git -C E:/verify_reports worktree remove <임시경로>
+
+ ## 성능
+
++### P10. 재이관 레코드 수집이 HARD CAP 500 에 막혀 대량·흩어진 불일치의 전량 확보가 불가능하다 + 같은 화면 요약표 숫자가 실제 규모를 오독시킨다
++- 발견일: 2026-07-31
++- 근거 보고서: `LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE.txt` (§5【이상-1】/ §7-2) /
++  `LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE-RETRY.txt` (§5【이상-1】)
++- 상세: `routes/agg_diff_route.py` 의 `per_group_full_list_max` 기본값(100) → `per_group_early_stop_abs`(101)
++  에서 그룹당 수집이 중단된다. **표본 게이트가 원인이 아니라 그룹 표시정책의 수집 상한**이다.
++  상한을 올려도 `clamp_per_group_thresholds()` 의 HARD CAP 이 500 이라, 그룹당 1,000건(그룹 10개 · 총
++  10,000건) 규모에서는 **구조적으로 전량 추출이 불가능**함을 실측으로 확인했다(기본값 101건 / cap500
++  대조 측정 501건 수집, 나머지는 `EARLY_STOPPED`). 6종 쿼리 형태 전부 동일하게 재현.
++  화면은 조용한 실패는 아니다 — 붉은 "표시 등급 D4 · 요약 전용" 배너가 "수집이 조기중단되어 정확한 총
++  건수는 확인하지 않았습니다" 를 명시한다. 그러나 **같은 화면 요약표가 "재이관 대상 10건" 이라는 숫자를
++  그대로 노출**해(참값 10,000건, 실제 저장 101건) 배너를 읽지 않으면 규모를 크게 오독할 여지가 있다.
++- 성능 참고: 상한 501 에서 50,100행 스캔에 1,217ms 로 실측됐다(수집량·스캔량이 상한에 정확히 비례 —
++  101↔10,100행, 501↔50,100행). 100만행 전량 규모로 단순 환산하면 약 24초(환산 추정치 — 실측 아님).
++  값 비교·저장·페이징까지 포함된 제품 경로가 대조군(스크립트 직접 SQL 전량 추출, 2초대)보다 느린
++  이유의 정확한 원인분해는 이번 측정 범위 밖이다.
++- 대응 방향: (a) 요약표의 건수 표기를 "표시/실제" 형태로 명확히 구분한다(예: "10건 표시 / 10,000건 초과
++  추정", 또는 배너와 같은 색상으로 강조) — **정책 변경 없이 표시만으로 오독을 막을 수 있다.**
++  (b) HARD CAP 500 자체를 올릴지는 성능·저장공간 트레이드오프가 걸린 정책 판단이라 별도 결정 대기.
++- 참고: E:\verify_reports\LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE.txt
++- 참고: E:\verify_reports\LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE-RETRY.txt
++
+ ### P1. pushdown 사전 판정이 없어, 청크 술어가 안 내려가는 형태에서 매 청크마다 원본 전체 정렬이 반복된다
+ - 발견일: 2026-07-29
+ - 근거 보고서: `PK-RANGE-CHUNK-BOUNDARY-ORDERING-ASSUMPTION-DIAGNOSE.txt` (§5 D·E / §6-2)
+@@ -457,6 +483,32 @@ git -C E:/verify_reports worktree remove <임시경로>
+
+ ## 기능 미완(설계는 끝났으나 구현 대기)
+
++### F16. CTE+OUTER JOIN+UNION 복합 쿼리에서 후보 프로파일 수집이 ORA-00904 로 조용히 실패한다(폴백은 정상)
++- 발견일: 2026-07-31
++- 근거 보고서: `LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE.txt` (§5【이상-3】) /
++  `LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE-RETRY.txt` (§5【이상-3】)
++- 상세: CTE 안에서 LEFT OUTER JOIN 한 결과를 UNION ALL 로 묶은 원본 SQL((f) 복합 변형)에서, 3·4단계 진입 시
++  `profile DB 실행 실패 (join=False): ORA-00904 "REGION_NM": invalid identifier` 가 **서버 로그에만** 찍힌다.
++  세 측정 세트에서 각 단계 1회씩 총 6회 재현돼 우발 오류가 아니다. (c) LEFT OUTER 단독에서는 발생하지 않으므로
++  **CTE 안에서 조인한 결과를 CTE 밖에서 참조할 때 깨지는 것**으로 추정된다.
++  화면에는 오류가 뜨지 않고 후보 선정·통계검증이 폴백으로 정상 완료되며 최종 결과값도 정확하다
++  (실사용 지장 낮음 — 단 후보 프로파일 품질 저하 가능성이 남는다).
++- 대응 방향: 원본 SQL 이 CTE+JOIN+UNION 복합일 때 프로파일 수집 쿼리가 CTE 밖에서 조인 파생 컬럼을 참조하는
++  경로를 확인·수정한다.
++- 참고: E:\verify_reports\LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE.txt
++- 참고: E:\verify_reports\LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE-RETRY.txt
++
++### F17. 재이관 PK 요약 셀이 서버 응답 완료 후에도 '준비 중' 에 고정된다
++- 발견일: 2026-07-31
++- 근거 보고서: `LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE.txt` (§5【이상-2】)
++- 상세: 서버가 `EARLY_STOPPED`(ready=true, 저장 완료)로 응답한 뒤에도 화면 전역 상태가 `status=PREPARING`
++  이고 `#mvPkSummaryCell` / `#execPkTotal` 텍스트가 "준비 중" 그대로 남는다(6종 측정 전부 재현).
++  실제 저장 건수는 그룹 드릴다운 패널이나 Excel 레코드 시트로만 확인 가능하다 — 표시 갱신 누락으로 추정.
++- 대응 방향: 해당 셀의 갱신 로직이 `EARLY_STOPPED` 상태 응답도 반영하도록 수정한다.
++- 관련: P6(대량 run 에서 '재이관 대상: 준비 중' 장시간 유지)와 증상 문구는 같으나, 이쪽은 **서버가 이미
++  완료 응답을 준 뒤의 표시 미갱신**이라 원인이 다르다.
++- 참고: E:\verify_reports\LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE.txt
++
+ ### F14. 오라클 metadata provider 배선이 없어 VARCHAR2 실효수용량 경고가 운영 화면에 뜨지 않는다
+ - 발견일: 2026-07-30
+ - 근거 보고서: `VARCHAR2-BYTE-CHAR-CAPACITY-COMPARISON-FIX.txt` (§6-2-(5))
+
+
+7. 병행 작업 간섭 여부
+
+  · 수정 파일은 BACKLOG.md 1개뿐. 동시 진행 중이던
+    SYSTEM-ACCOUNT-SYSDBA-ACCESS-VERIFY-ONLY(읽기 전용) 와 파일 충돌 없음.
+  · 다만 해당 작업이 먼저 push 되어(e217b02) 이번 push 가 한 번 거부됐고, rebase 후
+    재push 로 해소했다. 커밋 순서만 바뀌었을 뿐 내용 충돌은 없었다.
+  · 화면/코드 무관 작업이라 스크린샷 없음(지침대로).
+
+
+✅ 작업 완료 - BACKLOG-SCATTER-PERF-MEASURE-FINDINGS-ADD - 흩어진 불일치 추출 실측 발견 3건을
+BACKLOG.md 에 등록(P10·F16·F17 신규) 후 verify 저장소 push 완료(7526b2b)
