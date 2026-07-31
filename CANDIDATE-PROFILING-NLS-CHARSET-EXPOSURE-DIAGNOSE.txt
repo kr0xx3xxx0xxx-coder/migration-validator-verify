@@ -1,0 +1,279 @@
+작업명 : CANDIDATE-PROFILING-NLS-CHARSET-EXPOSURE-DIAGNOSE
+✅ 작업 완료 - CANDIDATE-PROFILING-NLS-CHARSET-EXPOSURE-DIAGNOSE - 숫자 NLS 노출은 없음(TO_CHAR 미사용), 문자 정렬은 "조건부 노출"(COUNT(DISTINCT 문자)가 NLS_COMP=LINGUISTIC 세션에서만 붕괴 — 실측 4→2, 단 asis/tobe 실 세션 모두 BINARY라 현재 미발현)
+
+작성일 : 2026-07-31
+성격   : 조사 전용(코드 수정 없음). 운영 코드 0줄 변경.
+실측환경: Oracle asis 192.168.0.151:1523 / tobe 192.168.0.151:1524 (xepdb1, NXDNP)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+0. 결론 요약
+═══════════════════════════════════════════════════════════════════════════════
+
+  항목                                    판정            근거
+  ─────────────────────────────────────── ─────────────── ─────────────────────
+  ② 숫자 컬럼 MIN/MAX·DISTINCT (NLS 숫자)  노출 없음        TO_CHAR 미사용 —
+                                                          집계가 숫자 타입 그대로
+                                                          수행됨. 실측 확인.
+  ③ 문자 컬럼 COUNT(DISTINCT) (캐릭터셋)   조건부 노출      NLS_COMP=LINGUISTIC
+                                          (현재 미발현)    세션에서 distinct 붕괴
+                                                          실측 4→2. 실 세션은
+                                                          BINARY(기본)라 미발현.
+  ③ 문자 컬럼 MIN/MAX (날짜 상한 산정)     실질 노출 없음    유일한 MIN/MAX 용도가
+                                                          '숫자문자열 날짜'라
+                                                          모든 collation에서 순서
+                                                          동일. 실측 불변.
+
+  최종 판정: **"노출 없음(다른 방식으로 처리)"에 가깝다. 단 문자 COUNT(DISTINCT) 한 곳에
+  이론적 조건부 노출이 남아 있으며, 현재 운영 조건에서는 발현하지 않는다(심각도 LOW).**
+
+  오늘 고친 exact_diff(NLS-SESSION-INDEPENDENT-NUMERIC-TOCHAR-FIX)와 **같은 패턴이 아니다.**
+  그 문제는 "DB 안에서 숫자를 문자로 바꿔(TO_CHAR) 양쪽 문자열을 비교"했기 때문에 생겼는데,
+  후보추천 프로파일링은 DB 안에서 문자 변환을 전혀 하지 않는다.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+1. 조사 항목 ① — 후보 프로파일링의 MIN/MAX·DISTINCT SQL 위치
+═══════════════════════════════════════════════════════════════════════════════
+
+지침이 지목한 services/candidate_scoring_runner.py 에는 **DB 접속 코드도 SQL도 없다.**
+이 파일은 CSV(metadata/stats/observation)를 읽어 점수만 계산하는 오프라인 러너다.
+
+  services/candidate_scoring_runner.py:226  def load_metadata(path: str) -> ...
+  services/candidate_scoring_runner.py:250  def load_stats(path: str) -> ...
+  services/candidate_scoring_runner.py:271  def load_observation(path: str) -> ...
+  → cursor()/execute() 0건 (grep 확인)
+
+실제로 원본 DB에 집계 SQL을 날리는 후보 프로파일링 경로는 아래 3곳이다.
+
+┌ (A) 후보 컬럼 분포 profile — services/column_profile_service.py
+│     호출: analyze_route / batch_runner.analyze_item → collect_column_profiles()
+│
+│   services/column_profile_service.py:354-357
+│       outer_sel_parts: list[str] = ["COUNT(*) AS pf_rc"]
+│       for idx, tgt_col in indexed_cols_outer:
+│           outer_sel_parts.append(f"COUNT({tgt_col}) AS pf_nn_{idx}")
+│           outer_sel_parts.append(f"COUNT(DISTINCT {tgt_col}) AS pf_dc_{idx}")
+│
+│   생성 SQL 형태(단일테이블·JOIN 공통, 5만행 CTE 샘플):
+│       WITH SRC AS ( SELECT <src_expr> AS <tgt_col>, ... FROM ... [WHERE ...] ),
+│       SAMPLE_SRC AS ( SELECT * FROM SRC FETCH FIRST 50000 ROWS ONLY )
+│       SELECT COUNT(*) AS pf_rc,
+│              COUNT(COL) AS pf_nn_0, COUNT(DISTINCT COL) AS pf_dc_0, ...
+│       FROM SAMPLE_SRC
+│
+│   → 여기가 카디널리티(distinct_count / distinct_ratio)의 **주 산출처**다.
+│     services/column_profile_service.py:400-413 에서 그대로 비율 계산에 쓰인다.
+│
+├ (B) 날짜 후보 버킷 상한 — services/date_bucket_evidence.py (MIN/MAX 유일 사용처)
+│     호출: services/candidate_postcount_finalize.py:451 (_collect_date_bucket_profiles, L2)
+│
+│   services/date_bucket_evidence.py:335-339
+│       parts: list[str] = ["COUNT(*) AS bkt_rc"]
+│       for idx, expr in date_cols:
+│           parts.append(f"COUNT({expr}) AS bkt_nn_{idx}")
+│           parts.append(f"MIN({expr}) AS bkt_mn_{idx}")
+│           parts.append(f"MAX({expr}) AS bkt_mx_{idx}")
+│
+│   L4(정확집계, 경계 컬럼만): date_bucket_evidence.py:390-392
+│       parts.append(f"COUNT(DISTINCT {expr}) AS bkt_draw_{idx}")
+│       parts.append(f"COUNT(DISTINCT {_trunc_expr(unit, expr)}) AS bkt_d{unit[0]}_{idx}")
+│       (_trunc_expr = DATE_TRUNC — PG 전용. 오라클은 ORA-00904 로 폴백되어 L2 범위추정 유지)
+│
+└ (C) 일괄 profile 재수집 — services/profile_recollect_service.py:361
+      sel = ["COUNT(*) AS pr_rc"] + ["COUNT(DISTINCT %s) AS pr_d%d" % ...]
+      단, 같은 파일 341-342:
+          if (dialect or "").lower() not in ("postgresql","postgres","mysql","mariadb"):
+              return out   # 지원 DBMS 만
+      → **오라클은 아예 진입 못 함**. 오라클 노출 대상 아님.
+
+MIN/MAX 는 (B) 한 곳뿐이며, 그 용도는 "날짜 컬럼의 최소~최대 범위로 월/분기/연 버킷 수의
+'상한'을 잡는 것"이다. **문자 컬럼의 카디널리티 판정에 MIN/MAX 를 쓰는 코드는 없다**
+(카디널리티는 전부 COUNT(DISTINCT)).
+
+
+═══════════════════════════════════════════════════════════════════════════════
+2. 조사 항목 ② — 숫자 컬럼: NLS_NUMERIC_CHARACTERS 노출 여부 → 노출 없음
+═══════════════════════════════════════════════════════════════════════════════
+
+2-1. 코드 근거 — 프로파일링 SQL 전량에 TO_CHAR/CAST 가 없다
+
+  grep "TO_CHAR|to_char|CAST(|::text|TO_NUMBER" 를 프로파일링 5개 파일에 적용한 결과,
+  **실행되는 SQL 에 들어가는 변환식은 0건**이었다. 유일한 히트는 주석/화면표시 문자열이다.
+
+    services/date_bucket_evidence.py:687
+        dec["src_bucket"] = f"TO_CHAR({src_expr}, '{_bucket_char_format(unit)}')  (형식매칭 — 생성기 후속 지원 필요)"
+        → 사용자에게 "이런 SQL 이 필요하다"고 안내하는 **문자열**이지 실행 SQL 이 아니다.
+
+  즉 프로파일링은 숫자를 숫자 타입 그대로 집계한다(COUNT/COUNT DISTINCT/MIN/MAX).
+  숫자→문자 변환은 드라이버가 값을 파이썬으로 넘긴 뒤에만 일어난다:
+
+    services/date_bucket_evidence.py:358-359
+        "min_value": (str(mn) if mn is not None else None),
+        "max_value": (str(mx) if mx is not None else None),
+
+  이 str() 은 파이썬 float/Decimal/datetime 의 표준 변환이라 **DB 세션 NLS 와 무관**하다.
+  (exact_diff 는 반대로 DB 안에서 TO_CHAR 를 써서 문자열을 만든 뒤 그 문자열을 양쪽 비교했기
+   때문에 세션 로케일에 노출됐다 — 구조가 다르다.)
+
+2-2. 실측 근거 — NLS_NUMERIC_CHARACTERS 를 ',.' 로 뒤집어도 집계 불변
+
+  실행: python scripts/dev_e2e/candidate_profiling_nls_charset_probe.py  (SELECT + 세션 ALTER 만)
+
+    ALTER SESSION SET NLS_NUMERIC_CHARACTERS = ',.'   (소수점을 콤마로 뒤집은 최악 조건)
+      MIN(n), MAX(n)          → 987.25 , 1234.5      ← 변화 없음(프로파일링 방식)
+      COUNT(DISTINCT n)       → 2                     ← 변화 없음(프로파일링 방식)
+      MIN(TO_CHAR(n)), MAX(…) → "1234,5" , "987,25"   ← 대조군: TO_CHAR 는 즉시 깨짐
+                                                        (문자열이 되면서 대소 순서까지 역전)
+
+  대조군이 정확히 오늘 고친 exact_diff 의 증상이고, 프로파일링 경로는 같은 조건에서 무변동이다.
+
+2-3. 추가 방어 — 연결 계층에서 이미 고정되어 있다(2층 방어)
+
+  프로파일링은 전용 접속 코드를 갖지 않고 공용 chokepoint 를 쓴다.
+
+    services/column_profile_service.py:34    from services.db_query_service import _cmn_db_connect
+    services/candidate_postcount_finalize.py:285-287
+        from services.db_query_service import _cmn_db_connect
+        conn = _cmn_db_connect(src_conn)
+    services/db_query_service.py:557           get_adapter(db_info.get('db_type')).connect(...)
+    services/db_adapters/oracle.py:62          _ORA_SESSION_NLS_NUMERIC_SQL = "ALTER SESSION SET NLS_NUMERIC_CHARACTERS = '.,'"
+    services/db_adapters/oracle.py:134-160     _pin_session_nls_numeric() — connect() 반환 직전 호출
+
+  → 설령 후속 작업으로 프로파일링 SQL 에 TO_CHAR 가 추가되더라도 연결 시점 고정('.,')이
+    1차로 막는다. 지금은 그 방어가 필요조차 없는 상태(SQL 에 변환식 자체가 없음).
+
+  판정: **② 숫자 경로 = 노출 없음.** exact_diff 와 동일 패턴 아님.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+3. 조사 항목 ③ — 문자 컬럼: 캐릭터셋/정렬(NLSSORT) 노출 여부
+═══════════════════════════════════════════════════════════════════════════════
+
+3-1. 메커니즘
+
+  오라클에서 문자값의 MIN/MAX·DISTINCT·GROUP BY 는 세션 collation(USING_NLS_COMP)을 따른다.
+  NLS_COMP=BINARY(기본)면 바이트순, NLS_COMP=LINGUISTIC 이면 NLS_SORT 의 언어정렬을 쓴다.
+  즉 언어정렬 세션에서는 '대소문자/악센트 무시' 규칙 때문에 **서로 다른 값이 같은 값으로 접혀**
+  COUNT(DISTINCT) 가 실제보다 작게 나올 수 있다.
+
+3-2. 실측 — 붕괴는 재현되며, 붕괴 대상은 MIN/MAX 가 아니라 COUNT(DISTINCT) 다
+
+  같은 probe 스크립트, 인라인 집합 {'apple','APPLE','Banana','banana'} 기준:
+
+    세션 기본(NLS_COMP=BINARY, NLS_SORT=BINARY)      — asis/tobe 둘 다 실측 확인
+      COUNT(DISTINCT c) = 4          MIN/MAX = ('APPLE','banana')
+    ALTER SESSION NLS_SORT=BINARY_CI + NLS_COMP=LINGUISTIC
+      COUNT(DISTINCT c) = 2  ← 붕괴  MIN/MAX = ('APPLE','banana')  ← 불변
+
+  즉 **카디널리티(distinct)는 collation 에 실제로 노출된다.**
+  MIN/MAX 는 이 표본에서 불변이었고(대소문자 무시라도 극값 원소 자체는 같았다), 애초에
+  문자 MIN/MAX 는 카디널리티 판정에 쓰이지 않는다(§1 참조).
+
+3-3. 그런데 현재 운영 조건에서는 발현하지 않는다
+
+  (a) 실 세션 기본값 실측 — asis(1523) / tobe(1524) 동일:
+        NLS_COMP  = BINARY        NLS_SORT = BINARY
+        NLS_CHARACTERSET = AL32UTF8   NLS_NCHAR_CHARACTERSET = AL16UTF16
+        (nls_database_parameters 도 NLS_COMP/NLS_SORT = BINARY)
+
+  (b) 코드베이스는 NLS_COMP/NLS_SORT 를 **한 번도 바꾸지 않는다.**
+      grep "NLS_SORT|NLS_COMP|ALTER SESSION" 전수 결과 세션을 변경하는 문장은 단 하나:
+        services/db_adapters/oracle.py:62  ALTER SESSION SET NLS_NUMERIC_CHARACTERS = '.,'
+      그리고 같은 파일 58-59 가 이를 명시한다:
+        # NLS_DATE_FORMAT / NLS_TIMESTAMP_FORMAT / NLS_SORT / NLS_COMP / NLS_LANGUAGE /
+        # NLS_TERRITORY 는 건드리지 않는다(실측으로 전/후 nls_session_parameters 전량 대조 …)
+      나머지 히트는 exact_diff 가 **정렬을 명시 고정**하는 코드다(=이미 방어된 쪽):
+        services/exact_diff/dialects/oracle.py:143-144
+          # 문자 키는 NLSSORT BINARY(byte 순) 정렬 — 세션 NLS_SORT 가 무엇이든 …
+          order = (f"NLSSORT(({key_col}), 'NLS_SORT=BINARY')" …)
+
+  → 붕괴가 나려면 DB 인스턴스 파라미터나 로그온 트리거로 NLS_COMP=LINGUISTIC 이 걸려야 한다.
+    현재 두 인스턴스 모두 아니다.
+
+3-4. exact_diff S12(캐릭터셋 정렬 붕괴)와 위험도가 다른 구조적 이유
+
+    exact_diff : 원본/목적지 **두 DB 의 정렬 순서가 서로 같다는 전제**로 스트림을 병합한다.
+                 한쪽 정렬이 다르면 병합이 어긋나 **조용히 대량 오탐**이 난다(순서 의존).
+    프로파일링 : 원본 한쪽만 읽고, 결과는 스칼라 1개(distinct 수)뿐이다. 두 DB 순서를
+                 맞출 필요가 없고 병합도 없다 → 같은 사고 유형이 성립하지 않는다.
+
+3-5. 문자열 날짜 MIN/MAX 는 실질 노출 없음(그러나 별개 기존 결함 있음)
+
+  이 프로젝트 오라클 픽스처처럼 날짜가 VARCHAR2 로 저장된 경우 §1(B)의 MIN/MAX 는
+  문자 비교가 되므로 collation 의존 대상이다. 그러나 실측상 무해하다:
+
+    LINGUISTIC+BINARY_CI 세션에서 MIN/MAX('20211201','20240131','20260715')
+      → ('20211201','20260715')  — BINARY 세션과 동일(숫자문자는 어떤 collation 에서도 0~9 동순)
+
+  ※ 참고(이번 주제와 무관한 기존 결함): 형식이 'DD-MON-YYYY' 처럼 연도가 앞에 없으면
+    MIN/MAX 가 애초에 연대순이 아니고, 소비부도 앞 6자리를 잘라 쓴다.
+      services/date_bucket_evidence.py:242-247
+          digits = "".join(ch for ch in s if ch.isdigit())
+          if len(digits) >= 6:  return (int(digits[0:4]), int(digits[4:6]))
+    → 이는 collation/NLS 문제가 아니라 '형식 가정' 문제다. 이번 조사 범위 밖(수정 안 함).
+
+
+═══════════════════════════════════════════════════════════════════════════════
+4. 최종 판정 + 심각도
+═══════════════════════════════════════════════════════════════════════════════
+
+  판정: 노출 없음(다른 방식으로 처리) — 단 1건 조건부 잔존.
+
+  [노출 없음] 숫자 경로(②)
+      프로파일링 SQL 에 TO_CHAR/CAST 가 0건. 숫자는 타입 그대로 집계되고, 문자화는 파이썬
+      str() 로만 일어나 세션 무관. NLS_NUMERIC_CHARACTERS=',.' 실측에서도 무변동.
+      추가로 연결 계층에서 '.,' 고정까지 이미 걸려 있다.
+
+  [조건부 노출 · 현재 미발현 · 심각도 LOW] 문자 COUNT(DISTINCT)(③)
+      위치: services/column_profile_service.py:357  COUNT(DISTINCT {tgt_col}) AS pf_dc_{idx}
+            services/date_bucket_evidence.py:390    COUNT(DISTINCT {expr}) AS bkt_draw_{idx}
+      발현 조건: 원본 오라클 세션이 NLS_COMP=LINGUISTIC + 무시형 NLS_SORT(*_CI/*_AI)일 때만.
+      영향(발현 시): distinct_count 가 실제보다 작게 잡힘 → distinct_ratio 하락 →
+            · GROUP BY 후보 적합 판정이 실제보다 관대해져(고유값 상한 규칙 통과) 카디널리티가
+              큰 컬럼이 후보로 올라올 수 있음 → 통계검증 SQL 이 과다 그룹을 생성.
+            · 반대로 '고유값 너무 적음' 쪽 배제 규칙에 잘못 걸려 정상 후보가 빠질 수도 있음.
+            어느 쪽이든 **후보추천 품질 저하**이며, 검증 결과의 PASS/WARNING 판정을 직접
+            뒤집지는 않는다(추천은 사용자가 확인/변경 가능한 보조 신호).
+      심각도 LOW 로 보는 근거: ① 실 인스턴스 2개 모두 BINARY 기본값 실측, ② 코드가 NLS_COMP/
+            NLS_SORT 를 절대 변경하지 않음(단일 ALTER SESSION 은 숫자 로케일뿐), ③ 프로파일 자체가
+            5만행 샘플 기반 '보조 signal' 로 설계돼 있고(column_profile_service.py:11-13, 502-510)
+            정확 카디널리티를 주장하지 않음, ④ 순서 의존 병합이 없어 exact_diff 형 대량 오탐 불가.
+
+  [노출 대상 아님] services/profile_recollect_service.py — 오라클 미지원(341-342 조기 반환).
+                   services/candidate_scoring_runner.py — DB SQL 없음(CSV 기반 오프라인 러너).
+                   services/cardinality_evidence.py:13 — PG 통계 추정만, 집계 실행 금지.
+
+  (조치 제안은 참고용 — 이번 지침은 조사만이므로 코드 수정 없음)
+    지금 손댈 필요는 없다고 본다. 굳이 봉인한다면 오라클 어댑터 connect() 에 이미 있는
+    _pin_session_nls_numeric 옆에 NLS_COMP=BINARY 1줄을 같은 방식으로 고정하는 것이
+    가장 값싸고 파급이 없는 방법이다(SQL 전수 수정 불필요, 기존 2층 방어 구조와 동일).
+
+
+═══════════════════════════════════════════════════════════════════════════════
+5. 증적 / 재현
+═══════════════════════════════════════════════════════════════════════════════
+
+  실측 스크립트(신규, 읽기 전용): scripts/dev_e2e/candidate_profiling_nls_charset_probe.py
+    - SELECT + 세션 한정 ALTER SESSION(NLS) 만. CREATE/INSERT/UPDATE/DELETE/DROP 없음.
+    - 실제 테이블을 읽지 않는다(DUAL 인라인 집합만) → 픽스처 영향 0.
+    - 비밀번호 미출력. 산출물 _candidate_profiling_nls_charset_probe.json (gitignore 대상).
+
+  실측 결과 원문(요약):
+    tobe 192.168.0.151:1524 / asis 192.168.0.151:1523 — 두 인스턴스 동일
+      session_nls_default : NLS_COMP=BINARY, NLS_SORT=BINARY, NLS_NUMERIC_CHARACTERS='.,'
+                            NLS_LANGUAGE=AMERICAN, NLS_TERRITORY=AMERICA, NLS_DATE_FORMAT=DD-MON-RR
+      database_nls        : NLS_CHARACTERSET=AL32UTF8, NLS_NCHAR_CHARACTERSET=AL16UTF16,
+                            NLS_COMP=BINARY, NLS_SORT=BINARY
+      binary              : distinct_char=4, minmax_char=('APPLE','banana'),
+                            minmax_datestr=('20211201','20260715'), distinct_num=2,
+                            minmax_num=('987.25','1234.5')
+      linguistic_ci       : distinct_char=2  ← 유일한 변화, minmax_char=('APPLE','banana'),
+                            minmax_datestr=('20211201','20260715'), distinct_num=2,
+                            minmax_num=('987.25','1234.5')
+      numeric_comma_locale: minmax_num=('987.25','1234.5'), distinct_num=2,
+                            tochar_num=('1234,5','987,25')  ← 대조군만 깨짐
+
+  코드 변경: 없음(운영 모듈 0줄). 신규 파일은 진단 스크립트 1개뿐.
+
+✅ 작업 완료 - CANDIDATE-PROFILING-NLS-CHARSET-EXPOSURE-DIAGNOSE - 숫자 NLS 노출은 없음(TO_CHAR 미사용, 연결단 '.,' 고정까지 2층), 문자 정렬은 COUNT(DISTINCT) 1곳에 조건부 노출(LINGUISTIC 세션 한정 실측 4→2)이나 asis/tobe 실세션 모두 BINARY라 현재 미발현 · 심각도 LOW
