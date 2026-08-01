@@ -1,0 +1,79 @@
+{
+ "label": "after",
+ "port": 1040,
+ "cases": {
+  "L1_LOOPBACK_BOTH": {
+   "desc": "원본·목적지 모두 loopback(127.0.0.1 / localhost)",
+   "src_host_masked": "127.0.0.1",
+   "tgt_host_masked": "localhost",
+   "remote": false,
+   "remote_evidence": "LOCAL_LOOPBACK_BOTH",
+   "basis_text": "원본 500건 · 숫자 단일 PK · PK 인덱스 · 로컬 DB",
+   "grade": "잠정 소형 · 예상 스캔 500행",
+   "state": "실행 가능",
+   "error": null,
+   "shot": "after_L1_LOOPBACK_BOTH.png"
+  },
+  "R1_REMOTE_BOTH": {
+   "desc": "원본·목적지 모두 실 원격 DB(Oracle 프리셋 host)",
+   "src_host_masked": "192.168***",
+   "tgt_host_masked": "192.168***",
+   "remote": true,
+   "remote_evidence": "REMOTE_NON_LOCAL_HOST_BOTH",
+   "basis_text": "원본 500건 · 숫자 단일 PK · PK 인덱스 · 원격 DB",
+   "grade": "잠정 소형 · 예상 스캔 500행",
+   "state": "실행 가능",
+   "error": null,
+   "shot": "after_R1_REMOTE_BOTH.png"
+  },
+  "M1_MIXED": {
+   "desc": "원본 loopback · 목적지 원격(혼합)",
+   "src_host_masked": "127.0.0.1",
+   "tgt_host_masked": "192.168***",
+   "remote": true,
+   "remote_evidence": "MIXED_ONE_SIDE_REMOTE",
+   "basis_text": "원본 500건 · 숫자 단일 PK · PK 인덱스 · 원격 DB",
+   "grade": "잠정 소형 · 예상 스캔 500행",
+   "state": "실행 가능",
+   "error": null,
+   "shot": "after_M1_MIXED.png"
+  },
+  "U1_HOST_EMPTY": {
+   "desc": "host 미입력(검증 경로만 접속 등) — 근거 없음",
+   "src_host_masked": "(빈값)",
+   "tgt_host_masked": "(빈값)",
+   "remote": true,
+   "remote_evidence": "HOST_UNKNOWN_KEEP_CONSERVATIVE",
+   "basis_text": "원본 500건 · 숫자 단일 PK · PK 인덱스 · 원격 DB",
+   "grade": "잠정 소형 · 예상 스캔 500행",
+   "state": "실행 가능",
+   "error": null,
+   "shot": "after_U1_HOST_EMPTY.png"
+  },
+  "L2_LOOPBACK_BAND_EDGE": {
+   "desc": "loopback + 등급 경계 규모(8,000행 · GROUP BY 1 · SUM 0)",
+   "src_host_masked": "127.0.0.1",
+   "tgt_host_masked": "localhost",
+   "remote": false,
+   "remote_evidence": "LOCAL_LOOPBACK_BOTH",
+   "basis_text": "원본 8,000건 · 숫자 단일 PK · PK 인덱스 · 로컬 DB",
+   "grade": "잠정 소형 · 예상 스캔 8,000행",
+   "state": "실행 가능",
+   "error": null,
+   "shot": "after_L2_LOOPBACK_BAND_EDGE.png"
+  },
+  "R2_REMOTE_BAND_EDGE": {
+   "desc": "원격 + 등급 경계 규모(8,000행 · GROUP BY 1 · SUM 0)",
+   "src_host_masked": "192.168***",
+   "tgt_host_masked": "192.168***",
+   "remote": true,
+   "remote_evidence": "REMOTE_NON_LOCAL_HOST_BOTH",
+   "basis_text": "원본 8,000건 · 숫자 단일 PK · PK 인덱스 · 원격 DB",
+   "grade": "잠정 중형 · 예상 스캔 8,000행",
+   "state": "실행 가능",
+   "error": null,
+   "shot": "after_R2_REMOTE_BAND_EDGE.png"
+  }
+ },
+ "page_errors": []
+}

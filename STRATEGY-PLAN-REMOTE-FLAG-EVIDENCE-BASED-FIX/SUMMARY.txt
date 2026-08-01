@@ -1,0 +1,37 @@
+작업명 : STRATEGY-PLAN-REMOTE-FLAG-EVIDENCE-BASED-FIX
+✅ 작업 완료 - STRATEGY-PLAN-REMOTE-FLAG-EVIDENCE-BASED-FIX - 실행계획 profile.remote 고정 true 제거(접속 host 근거 판정 + remote_evidence 근거코드), 전환판정 무영향 180조합 실측 확인, 신규 회귀 0건
+
+커밋: 346ea33 (코드 repo main)
+서술형 보고서: E:\verify_reports\STRATEGY-PLAN-REMOTE-FLAG-EVIDENCE-BASED-FIX.txt
+
+■ 파일 목록
+  before_L1_LOOPBACK_BOTH.png / after_L1_LOOPBACK_BOTH.png       loopback 양쪽
+  before_L2_LOOPBACK_BAND_EDGE.png / after_L2_...png             loopback + 등급 경계규모(8,000행)
+  before_R1_REMOTE_BOTH.png / after_R1_REMOTE_BOTH.png           실 오라클 원격 양쪽
+  before_R2_REMOTE_BAND_EDGE.png / after_R2_...png               원격 + 등급 경계규모
+  before_M1_MIXED.png / after_M1_MIXED.png                       원본 loopback · 목적지 원격
+  before_U1_HOST_EMPTY.png / after_U1_HOST_EMPTY.png             host 미입력
+  strategy_remote_flag_before.json / strategy_remote_flag_after.json   수집 원본
+  strategy_remote_flag_impact.json                               전환판정·등급 영향범위 실측 원본
+
+■ 브라우저 Before/After (실 서버 · 실 /strategy/plan 응답, fetch stub 없음)
+  케이스              BEFORE                    AFTER
+  L1 loopback         remote=true / 원격 DB     remote=false / 로컬 DB  (LOCAL_LOOPBACK_BOTH)
+  L2 loopback 경계    remote=true / 잠정 중형   remote=false / 잠정 소형
+  R1 원격             remote=true / 원격 DB     remote=true  / 원격 DB  (REMOTE_NON_LOCAL_HOST_BOTH)
+  R2 원격 경계        remote=true / 잠정 중형   remote=true  / 잠정 중형 (불변)
+  M1 혼합             remote=true / 원격 DB     remote=true  / 원격 DB  (MIXED_ONE_SIDE_REMOTE)
+  U1 host 미입력      remote=true / 원격 DB     remote=true  / 원격 DB  (HOST_UNKNOWN_KEEP_CONSERVATIVE)
+  → 8행 '상태' 는 12회 전부 '실행 가능' 동일. 페이지 JS 오류 before/after 모두 없음.
+
+■ 전환판정(DIRECT↔CHUNK) Before/After — 백로그 전제 반증
+  choose_compare_strategy 는 remote 를 인자로 선언만 하고 본문에서 쓰지 않는다.
+  180조합(규모6 × PK5 × 인덱스2 × throughput3) 전수 비교 → 반환 dict 100% 일치, 차이 0건.
+  달라지는 것은 통계 cost 5%(→ 잠정 등급 밴드 경계 4.76% 구간에서만 1단계)뿐이며
+  통계전략 ID·구현상태(실행 가능/HOLD)는 불변. 격자 324조합 중 등급만 달라진 건 30건(9.3%),
+  그 30건 전부 전략 ID 동일.
+
+■ 회귀
+  samples/test_virtual_cases.py 8/8, samples/test_complex_cases.py 5/5
+  신규 tests/test_strategy_remote_flag_evidence.py 20/20 통과
+  관련 서브셋 105 passed / 1 failed(사전 존재), 광역 613 passed / 18 failed(전부 baseline 동일)
