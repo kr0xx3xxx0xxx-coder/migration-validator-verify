@@ -1,0 +1,402 @@
+작업명 : STATS-SUMMARY-TABLE-STATUS-COLUMN-CONSISTENCY-DIAGNOSE
+✅ 작업 완료 - STATS-SUMMARY-TABLE-STATUS-COLUMN-CONSISTENCY-DIAGNOSE -
+[핵심 결론: 의도된 디자인이 아니라 배선 누락형 일관성 결함 — '상태' 열은 _mvKVGrid 고정 헤더의 부산물이고,
+ 2열 KV 카드를 4열 그리드로 전환할 때 8행 중 1행(실제 적용)만 status 를 부여했으며 나머지 상태성 정보는
+ 이전 버전의 값 문자열 그대로 '값' 열에 남았다. 단, 8행 전부에 배지가 필요한 것은 아니다 — 실질 결함은 3행]
+
+※ 본 작업은 진단 전용이다. 코드 변경 없음(읽기 전용 조사).
+
+════════════════════════════════════════════════════════════════════════
+0. 조사 대상 표의 정체와 렌더 위치
+════════════════════════════════════════════════════════════════════════
+
+■ 표의 정식 명칭 : 3단계(후보 컬럼 선정) 화면의 "실행계획" 요약 Grid
+■ 렌더 함수      : ui/tabler_renderer.py:27593  async function _mvRenderStrategyPlan(profile, hostId)
+■ 표 껍데기 생성 : ui/grid_helpers.py:192       function _mvKVGrid(title, rows, hint)
+■ DOM 호스트     : ui/tabler_renderer.py:2736   <div id="strategyPlanBox" ...>
+■ 호출 배선      : ui/tabler_renderer.py:23489  renderColSelect() 끝에서
+                     _mvRenderStrategyPlan(null, 'strategyPlanBox') 호출
+                   (그 외 checkLimit / _onDatePeriodChange 재렌더 배선 — 커밋 c2a8491)
+■ 서버 데이터    : routes/strategy_route.py:31  POST /strategy/plan
+                   services/strategy/stats_strategy_planner.py  (통계전략·잠정등급)
+                   services/strategy/full_compare_strategy_planner.py (불일치 추출전략)
+
+■ 표 헤더는 렌더 함수가 아니라 _mvKVGrid 가 "고정"으로 박아둔다 :
+
+    ui/grid_helpers.py:210-212
+      return _mvGridShell(title, hint,
+        '<table class="mv-sgrid"><thead><tr><th class="mv-nocol">No</th><th>항목</th><th>값</th><th>상태</th>'
+        + noteTh + '</tr></thead><tbody>' + body + '</tbody></table>');
+
+  → 즉 호출부가 상태 값을 하나도 안 주더라도 "상태" 열은 항상 그려진다. 이 사실이 이번 진단의 출발점이다.
+
+■ 상태 셀을 채우는 유일한 분기 :
+
+    ui/grid_helpers.py:202
+      var st = (r.status != null && r.status !== '') ? _mvGBadge(r.status, r.statusText) : '';
+    ui/grid_helpers.py:204-207
+      return '<tr><td class="mv-num mv-nocol">' + n + '</td>'
+           + '<td class="mv-lbl">' + esc(r.label || '') + '</td>'
+           + '<td>' + val + '</td>'
+           + '<td>' + st + '</td>' + noteTd + '</tr>';
+
+  → r.status 가 없으면 '-' 조차 아닌 빈 문자열(완전 공백 셀)이다.
+    (_mvGBadge 자체는 ui/grid_helpers.py:161-166 에서 status 가 빈 값이면 '<span class="mv-gbadge muted">-</span>'
+     를 반환하지만, 위 202행의 삼항 분기 때문에 그 경로로는 애초에 진입하지 않는다 → 화면상 무표시.)
+
+■ 행 8개인 이유(중요 — 실제 코드는 최대 9행이다)
+
+  _mvRenderStrategyPlan 은 '전역 설정' 행을 조건부로 넣는다 :
+
+    ui/tabler_renderer.py:27647-27648
+      if (cgb != null || csum != null)
+        rows.push({ label:'전역 설정', value:'GROUP BY ' + (cgb != null ? cgb : '—') + '개 · 집계컬럼 ' + ... });
+
+  cgb/csum 은 서버 응답의 configured_group_by_count / configured_aggregate_count 이고(27622),
+  그 원천은 클라이언트 프로파일 빌더가 보내는 정책 값이다 :
+
+    ui/grid_helpers.py:957-958
+      configured_group_by_count: (pol.default_groupby_limit != null ? pol.default_groupby_limit : null),
+      configured_aggregate_count: (pol.default_sum_limit  != null ? pol.default_sum_limit  : null),
+      (pol = window._mvValidationPolicy)
+
+  → window._mvValidationPolicy 가 아직 로드되지 않았거나 두 키가 없으면 둘 다 null → '전역 설정' 행이 통째로
+    사라져 표가 8행이 된다. 사용자가 관찰한 8행 구성이 정확히 이 상태다. 이 사실은 아래 5번 항목의
+    결론(1번 vs 2번이 '추정 vs 확정' 짝인가)에 결정적으로 작용한다.
+
+════════════════════════════════════════════════════════════════════════
+1. 8행 각각의 "상태" 열 표시 방식 — 행별 개별 판정
+════════════════════════════════════════════════════════════════════════
+
+행 생성부 원본 : ui/tabler_renderer.py:27645-27661
+
+  27645  var rows = [];
+  27646  rows.push({ label:'통계검증 규모', value:'<b>' + esc(d.provisional_grade || '산정 전') + '</b>' + _scanTxt, raw:true });
+  27647  if (cgb != null || csum != null)
+  27648    rows.push({ label:'전역 설정', value:'GROUP BY ' + (cgb != null ? cgb : '—') + '개 · 집계컬럼 ' + (csum != null ? csum : '—') + '개' });
+  27649  rows.push({ label:'실제 적용',
+  27650    value:'<b>GROUP BY ' + egb + '개 · 집계컬럼 ' + esum + '개</b>'
+  27651        + (mism ? ' <span style="color:#C2410C;font-size:.72rem">· 설정과 다름(후보 부족/수동/상한)</span>' : ''),
+  27652    raw:true, status:(egb + esum > 0 ? 'READY' : 'WARN'), statusText:(egb + esum > 0 ? '적용됨' : 'COUNT만') });
+  27653  rows.push({ label:'GROUP BY', value:gbCols2 });
+  27654  rows.push({ label:'집계컬럼', value:sumCols2 });
+  27655  rows.push({ label:'통계전략', value:_statsStratCell, raw:true });
+  27656  rows.push({ label:'불일치 추출전략', value:_compareCell, raw:true });
+  27657  rows.push({ label:'상태', value:'<b style="color:' + implColor + '">' + esc(implTxt) + '</b>'
+  27658    + (d.compare_auto_runnable === false && fp.fallback_strategy_id
+  27659        ? ' <span style="color:#94a3b8;font-size:.72rem">· fallback ' + esc(fp.fallback_strategy_id) + '(명시 승인 시)</span>' : ''),
+  27660    raw:true });
+  27661  rows.push({ label:'판정근거', value:(d.basis_text || '') });
+
+  → rows.push() 9개 중 status 키를 가진 것은 27652 단 하나다. 전 코드베이스에서 이 카드에 status 를 넣는
+    코드는 이 한 줄뿐임을 grep 으로 확인했다(검색어 "적용됨"/"statusText" 전수 — 다른 히트는 모두 별개
+    그리드인 _mvGridDataToHtml 계열).
+
+─── 행별 상세 ─────────────────────────────────────────────────────────
+
+[1행] 통계검증 규모
+  · 상태 열 : 비어 있음 (status 키 없음 — 27646)
+  · 값 열   : '<b>잠정 중형</b> · 예상 스캔 N행'
+  · '잠정' 은 상태 필드가 아니라 서버가 값 문자열에 직접 붙인 접두사다 :
+      services/strategy/strategy_models.py:47   PROVISIONAL_PREFIX = "잠정 "
+      services/strategy/stats_strategy_planner.py:66-70
+        def _provisional_grade(cost: float) -> str:
+            for hi, grade in _PROVISIONAL_BANDS:
+                if cost < hi:
+                    return m.PROVISIONAL_PREFIX + grade
+            return m.PROVISIONAL_PREFIX + m.GRADE_XLARGE
+  · 즉 화면은 "잠정"이라는 상태성 정보를 갖고 있으면서도 상태 열에는 아무것도 넣지 않는다.
+  · 판정 : 상태 표시 없음. 상태성 정보(잠정/산정 전/산정 불가)는 값 문자열에 내장.
+
+[2행] 실제 적용   ← 유일하게 배지가 있는 행
+  · 상태 열 : _mvGBadge('READY','적용됨') 또는 _mvGBadge('WARN','COUNT만')
+  · 조건    : (egb + esum > 0) — 즉 "체크된 GROUP BY 수 + 체크된 집계컬럼 수 > 0"
+              egb/esum 은 27627 var egb = gbArr.length, esum = sumArr.length;
+              gbArr/sumArr 는 27623-27624 에서 라이브 체크박스(_collectCheckedCols) 우선,
+              없으면 서버 effective 컬럼으로 폴백.
+  · 배지 색  : ui/grid_helpers.py:150-159 _mvBadgeCls — 'READY'→'ready', 'WARN'→'warn'
+  · 판정 : 유일한 정식 상태 표시. 조건은 "선택된 축이 하나라도 있는가"라는 이 행 고유의 의미.
+
+[3행] GROUP BY
+  · 상태 열 : 비어 있음 (27653 — status 없음, raw 도 없음 → esc 처리된 순수 텍스트)
+  · 값 열   : gbCols2 = egb ? gbArr.join(', ') : '없음'   (27628)
+  · 판정 : 상태 표시 없음. 2행의 상세 내역(같은 gbArr 파생).
+
+[4행] 집계컬럼
+  · 상태 열 : 비어 있음 (27654)
+  · 값 열   : sumCols2 = esum ? sumArr.join(', ') : '없음(COUNT만)'   (27629)
+  · 판정 : 상태 표시 없음. 2행의 상세 내역(같은 sumArr 파생).
+  · 주목 : 값이 '없음(COUNT만)' 일 때 2행 배지는 정확히 'COUNT만' 이다 — 동일 정보의 이중 표기.
+
+[5행] 통계전략   ← 사용자가 지적한 "값 열 안 인라인 태그"
+  · 상태 열 : 비어 있음 (27655)
+  · 값 열   : _statsStratCell (27636-27638)
+      var _statsStratCell = (_sLbl ? esc(_sLbl) + ' ' : '') + '<code>' + esc(_sid || '—') + '</code>'
+        + (_statsAdvisoryOnly ? ' <span style="border:1px solid #C2410C;color:#C2410C;border-radius:6px;'
+            + 'padding:0 5px;font-size:.68rem;font-weight:600;white-space:nowrap">참고용 계획</span>' : '');
+      _statsAdvisoryOnly 조건 (27634) :
+        (_sid === 'STATS_SAMPLE_ONLY' || _sid === 'STATS_BUCKET_AGG' || _sid === 'STATS_PARTITION_AGG')
+  · 값 열 안에 두 종류가 섞여 있다 :
+      (a) STATS_SAMPLE_ONLY 라는 <code> — 이것은 전략 식별자, 즉 '값' 그 자체다(정상 위치).
+      (b) '참고용 계획' 오렌지 테두리 span — 이것은 실행 가능성에 대한 상태성 한정어다(위치 논쟁 대상).
+  · 판정 : 상태 표시 없음. (b)만 상태성이며 값 열에 인라인으로 존재.
+
+[6행] 불일치 추출전략   ← 사용자가 지적한 STATS_ONLY_HOLD
+  · 상태 열 : 비어 있음 (27656)
+  · 값 열   : _compareCell (27640-27641)
+      var _cLbl = _mvStratLabel(_cmpId);
+      var _compareCell = (_cLbl ? esc(_cLbl) + ' ' : '') + '<code>' + esc(_cmpId || '—') + '</code>';
+  · STATS_ONLY_HOLD 는 배지가 아니라 compare_strategy_id 값 자체다 :
+      services/strategy/strategy_models.py:29    STATS_ONLY_HOLD = "STATS_ONLY_HOLD"
+      services/strategy/strategy_models.py:132   compare_strategy_id: str = STATS_ONLY_HOLD   (기본값)
+      services/strategy/full_compare_strategy_planner.py:38,58  안전한 분할 수단 없음 → HOLD
+  · 5행과 달리 여기엔 배지 span 자체가 없다(27632 주석: "STATS_DIRECT_AGG·full_compare 에는 참고용 배지 미부착").
+  · 판정 : 상태 표시 없음. 값은 순수 식별자(정상 위치)이나, 'HOLD'라는 상태성이 열로 승격되지 않았다.
+
+[7행] 상태   ← 가장 날카로운 불일치
+  · 상태 열 : 비어 있음 (27657-27660 — raw:true 만 있고 status 없음)
+  · 값 열   : '<b style="color:...">실행 가능 | Phase 4-B 엔진 필요 | 상세비교 보류(HOLD)</b>' (+ fallback 안내)
+      27617-27620
+        var impl = d.implementation_status;
+        var implTxt = (impl === 'AVAILABLE') ? '실행 가능'
+          : (impl === 'PHASE4_B_REQUIRED') ? 'Phase 4-B 엔진 필요' : '상세비교 보류(HOLD)';
+        var implColor = (impl === 'AVAILABLE') ? '#1f7a3d' : (impl === 'PHASE4_B_REQUIRED') ? '#C2410C' : '#b4472a';
+  · 즉 "항목=상태" 인 행의 "상태 열"이 비어 있고, 그 상태값은 '값' 열에 색상 텍스트로 들어간다.
+    이 행의 값은 이미 AVAILABLE/PHASE4_B_REQUIRED/HOLD 라는 배지화하기 딱 좋은 열거형이며,
+    _mvBadgeCls(ui/grid_helpers.py:155)는 'HOLD' 로 시작하는 문자열을 이미 'hold' 클래스로 처리한다.
+  · 판정 : 상태 표시 없음. 헤더 라벨과 행 라벨의 의미 충돌(항목명 '상태' vs 열 이름 '상태').
+
+[8행] 판정근거
+  · 상태 열 : 비어 있음 (27661)
+  · 값 열   : d.basis_text — 서버 조립 문자열
+      routes/strategy_route.py:77-83
+        basis = " · ".join([...원본 N건 · 숫자 단일 PK · PK 인덱스 · 원격 DB...])
+  · 판정 : 상태 표시 없음. 순수 서술 텍스트이므로 상태 개념 자체가 없다(정상).
+
+─── 요약표 ─────────────────────────────────────────────────────────────
+
+  No 항목            상태 열      상태성 정보의 실제 위치
+  1  통계검증 규모     (공백)      값 열 접두사 "잠정 "
+  2  실제 적용        적용됨/COUNT만  ← 유일한 정식 배지
+  3  GROUP BY        (공백)      없음(2행의 상세)
+  4  집계컬럼         (공백)      없음(2행의 상세)
+  5  통계전략         (공백)      값 열 인라인 span "참고용 계획"
+  6  불일치 추출전략   (공백)      값 열 <code>STATS_ONLY_HOLD</code> (식별자 자체)
+  7  상태            (공백)      값 열 색상 텍스트 "실행 가능/Phase 4-B 엔진 필요/상세비교 보류(HOLD)"
+  8  판정근거         (공백)      해당 없음
+
+════════════════════════════════════════════════════════════════════════
+2. 5·6행의 인라인 태그 — 별개 메커니즘인가, 실수로 값 열에 들어간 것인가
+════════════════════════════════════════════════════════════════════════
+
+■ 결론 : "실수로 값 열에 들어간 것"은 아니다. 애초에 상태 열이 존재하지 않던 시절에 작성된 코드가
+        그대로 이식된 것이다. 즉 별개 메커니즘이 맞되, 그 별개 메커니즘은 '설계된 대안'이 아니라
+        '이전 UI 형태의 잔재'다.
+
+■ 근거 1 — 두 메커니즘은 코드상 완전히 분리되어 있다.
+    · 상태 열 경로  : rows[i].status → ui/grid_helpers.py:202 → _mvGBadge → class="mv-gbadge {cls}"
+    · 인라인 경로   : 값 문자열 안에 직접 <span style="border:1px solid #C2410C;...">참고용 계획</span>
+                     (ui/tabler_renderer.py:27637-27638) — 헬퍼 함수를 거치지 않는 하드코딩 인라인 스타일
+    · 인라인 배지를 만드는 공용 헬퍼는 존재하지 않는다(전용 코드 1회성).
+
+■ 근거 2 — 커밋 이력이 결정적이다.
+    커밋 c2a8491 "fix(single): 3단계 실행계획 카드 체크박스 실시간 반영 + 그리드화 + 코드명 친화 라벨
+                  (EXECUTION-PLAN-CARD-LIVE-SELECTION-FIX)" (2026-07-23)
+    커밋 메시지 중 : "그리드화: 실행계획 카드를 1·2단계와 동일 요약 Grid(_mvKVGrid, mv-sgrid 스타일)로 전환"
+
+    이 커밋 직전(c2a8491^) 의 같은 함수는 4열 표가 아니라 2열 key-value 표였다 :
+
+      (c2a8491^:ui/tabler_renderer.py 26321-26336 발췌)
+        host.innerHTML = '<div style="background:#F8FAFC;...">'
+          + '<div style="...">실행계획</div>'
+          + '<table style="font-size:.8rem;border-collapse:collapse"><tbody>'
+          + row('통계검증 규모', '<b>' + esc(d.provisional_grade || '산정 전') + '</b>' + ...)
+          + (cgb != null || csum != null ? row('전역 설정', ...) : '')
+          + row('실제 적용', '<b>GROUP BY ' + ... + '개</b>' + (mism ? ' <span ...>· 설정과 다름...</span>' : ''))
+          + row('GROUP BY', ...)  + row('집계컬럼', ...)
+          + row('통계전략', _statsStratCell)
+          + row('불일치 추출전략', '<code>' + esc(fp.compare_strategy_id || '—') + '</code>')
+          + row('상태', '<b style="color:' + implColor + '">' + esc(implTxt) + '</b>' + ...)
+          + row('판정근거', ...)
+
+    · 이전 버전의 row() 는 (라벨, 값HTML) 2인자다 — "상태" 라는 열이 아예 없었다.
+    · 따라서 '참고용 계획' 배지, '실행 가능/HOLD' 색상 텍스트, '잠정' 접두, '· 설정과 다름' 주석은
+      모두 "값 열에 넣을 수밖에 없어서" 값에 들어간 것이며, 당시엔 그것이 유일하고 올바른 위치였다.
+    · c2a8491 이 _mvKVGrid 로 갈아끼우면서 "상태" 열이 헤더에 자동으로 생겼고, 값 문자열은 raw:true 로
+      한 글자도 안 바뀐 채 이식됐다. 상태 열을 새로 채운 것은 '실제 적용' 1행뿐이다.
+      (_statsStratCell 정의는 이전/이후가 문자 그대로 동일. 이후 버전은 _mvStratLabel 한글 라벨만 앞에 추가됨.)
+
+■ 근거 3 — 6행의 STATS_ONLY_HOLD 는 애초에 배지가 아니다.
+    27641 _compareCell 에는 span 배지 코드가 없다. 사용자가 "인라인 태그"로 본 것은 <code> 로 감싼
+    전략 식별자 문자열이다. 이는 '값'으로서 정확한 위치다. 다만 그 값이 우연히 HOLD 라는 상태어를
+    포함할 뿐이며, 상태 열에는 아무 것도 승격되지 않는다.
+
+■ 종합 판정 :
+    5행의 '참고용 계획' → 상태성 한정어가 값 열에 있음(위치 부적절, 그러나 실수 아닌 잔재)
+    6행의 STATS_ONLY_HOLD → 값으로서 정위치. 다만 상태 열 미승격은 1·7행과 동일한 누락 패턴.
+
+════════════════════════════════════════════════════════════════════════
+3. 2행에만 배지가 붙은 이유 / 3·4행에도 붙이는 것이 합당한가
+════════════════════════════════════════════════════════════════════════
+
+■ 붙는 조건(재확인) : ui/tabler_renderer.py:27652
+    status    : (egb + esum > 0) ? 'READY' : 'WARN'
+    statusText: (egb + esum > 0) ? '적용됨' : 'COUNT만'
+  · 의미 : "통계검증이 GROUP BY/집계 축을 하나라도 갖고 실행되는가, 아니면 COUNT 만으로 축소되는가".
+  · 이 배지는 사용자가 체크박스를 만질 때마다 실시간으로 바뀐다(27597-27606 라이브 선택 + 27596 시퀀스 가드).
+  · 즉 c2a8491 의 주제(= 체크박스 실시간 반영)와 직결된 행이라 그 커밋에서 유일하게 손이 닿았다.
+    나머지 7행은 그 커밋의 관심사가 아니었고, 그래서 status 배선 없이 통과했다.
+
+■ 3·4행에 같은 조건을 붙이는 것이 합당한가 → 합당하지 않다(2행 단독 유지가 설계상 옳다).
+    · 3·4행의 값은 2행과 동일한 배열에서 파생된다 :
+        27627  var egb = gbArr.length, esum = sumArr.length;      ← 2행
+        27628  var gbCols2  = egb  ? gbArr.join(', ')  : '없음';   ← 3행
+        27629  var sumCols2 = esum ? sumArr.join(', ') : '없음(COUNT만)'; ← 4행
+    · 따라서 (egb + esum > 0) 조건을 3·4행에 그대로 복제하면 같은 사실을 3번 반복 표시하게 된다.
+      특히 4행은 값이 이미 '없음(COUNT만)' 이라 2행 배지 'COUNT만' 과 문구까지 중복된다.
+    · '대표 행에만 배지, 하위 내역은 값만' 이라는 사용자 가설은 이 세 행에 한해서는 타당하며,
+      코드 구조(대표=집계 개수, 하위=컬럼 목록)와도 일치한다.
+    · 다만 이것이 "표 전체의 설계 원칙"이었다는 증거는 없다 — 아래 4번에서 상술.
+
+■ 참고 : 2행 값 안에도 상태성 문구가 하나 더 있다.
+    27651  (mism ? ' <span style="color:#C2410C;font-size:.72rem">· 설정과 다름(후보 부족/수동/상한)</span>' : '')
+    27630  var mism = (cgb != null && cgb !== egb) || (csum != null && csum !== esum);
+  · 즉 2행은 상태 열 배지 + 값 열 인라인 경고를 동시에 갖는 유일한 행이다.
+  · 게다가 cgb/csum 이 둘 다 null 인 8행 상황(0번 항목 참조)에서는 mism 이 구조적으로 항상 false 라,
+    '설정과 다름' 경고는 표가 8행일 때 절대 뜨지 않는다. (별건 관찰 — 이번 진단 범위 밖이나 기록해 둔다.)
+
+════════════════════════════════════════════════════════════════════════
+4. 1행(잠정 추정) ↔ 2행(확정)은 코드가 의도한 짝인가
+════════════════════════════════════════════════════════════════════════
+
+■ 결론 : 아니다. 사용자가 본 8행 배열은 "우연히 인접해서 짝처럼 보이는" 상태다.
+        코드가 명시적으로 의도한 '설정 vs 실제' 대비 짝은 [전역 설정] ↔ [실제 적용] 이다.
+
+■ 근거 1 — 주석이 짝을 직접 명시한다.
+    ui/tabler_renderer.py:27621
+      /* [Phase4-B §4] 전역 설정 vs 실제 적용(effective). GROUP BY/집계컬럼은 라이브 체크박스 단일 출처. */
+    routes/strategy_route.py:91
+      # [Phase4-B §4] 전역 설정 vs 실제 적용(effective) — 화면 표시용
+    tests/test_stats_result_full.py:484-491
+      def test_phase4b_strategy_plan_effective_selection_display():
+          """[Phase4-B §4] 실행계획 카드 — 전역 설정 vs 실제 적용 GB/SUM + 컬럼 목록 + 설정 불일치 사유."""
+          assert "전역 설정" in fn and "실제 적용" in fn
+    → 테스트까지 이 두 행을 한 쌍으로 묶어 검증한다. 1행은 이 쌍에 포함되지 않는다.
+
+■ 근거 2 — 1행과 2행은 측정 대상이 다르다.
+    · 1행 provisional_grade = 비용 점수 기반 규모 등급(소형/중형/대형/초대형).
+      stats_strategy_planner.py:139  provisional_grade=_provisional_grade(cost)
+    · 2행 실제 적용 = GROUP BY/집계컬럼 "개수".
+    → 같은 양의 추정치와 확정치가 아니다. 단위 자체가 다르므로 '추정 vs 확정' 짝이 될 수 없다.
+
+■ 근거 3 — 1행의 '확정' 상대는 이 카드에 존재하지 않는다.
+    · '잠정'의 해소 조건은 벤치마크 기반 등급 경계 확정이다 :
+        services/strategy/strategy_models.py:41
+          # ── 잠정 규모 등급(§4) — 벤치마크 전 임계값 하드코딩 금지 → '잠정' 접두
+        services/strategy/stats_strategy_planner.py:7
+          등급 경계 레코드 임계값은 하드코딩하지 않으며(§4) 벤치마크 전에는 '잠정' 접두로 표시한다.
+        services/strategy/stats_strategy_planner.py:24
+          # 잠정 등급 cost 밴드(§4·§9 — 벤치마크 전 잠정 ...). 벤치마크 후 교체.
+    · 즉 '잠정'은 이 실행 건의 미확정이 아니라 제품 차원의 미확정(등급 밴드 자체가 임시)이다.
+      실행 후에도 이 카드에서 '확정 등급'으로 바뀌지 않는다.
+
+■ 그래서 1행에 상태 배지가 있는 게 일관적인가 → 표시 일관성 관점에서는 그렇다. 단 의미는 재정의가 필요하다.
+    · 현재 1행은 세 가지 상태를 값 문자열만으로 구분한다 :
+        '잠정 소형/중형/대형/초대형' (PROVISIONAL_PREFIX + 등급)
+        '산정 전'   — ui/grid_helpers.py:830 (계획기 미생성·evidence 부족)
+        '산정 불가' — ui/grid_helpers.py:829 (stats_scale_estimable === false)
+      이 3분류는 배지화에 적합한 열거형이다(예: 잠정=WARN/muted, 산정 전=muted, 산정 불가=WARN).
+    · 반대로 "1행에 배지가 없는 것이 의도"라는 증거는 코드/주석/테스트 어디에도 없다.
+
+════════════════════════════════════════════════════════════════════════
+5. 이 표는 다른 화면과 렌더 함수를 공유하는가
+════════════════════════════════════════════════════════════════════════
+
+■ 결론 : 표 껍데기 헬퍼(_mvKVGrid)는 공용으로 "설계"됐으나, 실제 호출부는 이 화면 하나뿐이다(사실상 전용).
+
+■ _mvKVGrid 호출 전수(전체 코드베이스 grep) :
+    ui/tabler_renderer.py:27663   ? _mvKVGrid('실행계획', rows)      ← 유일한 실호출
+    ui/grid_helpers.py:136        (헬퍼 사용법 주석)
+    ui/grid_helpers.py:192        (정의)
+  → 호출부 1곳. 즉 "1·2단계와 동일한 요약 Grid로 통일"(27592 주석)은 스타일(mv-sgrid) 통일을 뜻하며,
+    함수 자체를 1·2단계와 공유한다는 의미가 아니다.
+
+■ 다른 단계의 요약 그리드는 별도 계열(_mvGridDataToHtml)을 쓴다 :
+    ui/grid_helpers.py:242   function _mvGridDataToHtml(gd)   — columns[].kind === 'status' 방식
+    ui/grid_helpers.py:499   _mvQueryReviewGridHtml            (쿼리검토)
+    ui/grid_helpers.py:634   (2단계 COUNT 컨텍스트 그리드)
+    ui/grid_helpers.py:663   _mvStage4CtxGridHtml              (4단계 컨텍스트)
+    ui/grid_helpers.py:706   _mvStage5CtxGridData              (5단계 컨텍스트)
+    ui/tabler_renderer.py:18958  일괄 배치 그리드
+
+■ 대조가 중요하다 — 자매 그리드들은 상태를 "행마다 반드시" 채운다 :
+    ui/grid_helpers.py:477   statusText: blocked ? (reason || '차단') : '통과'
+    ui/grid_helpers.py:515   { ..., status:'WARN', statusText:'DB 미연결', ... }
+    ui/grid_helpers.py:634   { ..., status:st, statusText:stTxt }
+    ui/grid_helpers.py:661   { ..., status:'READY', statusText:'SQL 생성됨' }
+    ui/grid_helpers.py:701   { ..., status:st, statusText:stTxt }
+    ui/grid_helpers.py:742   { ..., status:cst, statusText: cst==='MISMATCH' ? '불일치' : ... }
+    ui/grid_helpers.py:756   { ..., status:'MUTED', statusText:'미실행' }
+  → 이들은 대체로 "행 = 검증 항목 1건"이라 모든 행이 상태를 갖는다. 반면 실행계획 카드는
+    "행 = 계획 속성 1개"라 상태 개념이 없는 행이 섞인다. 구조가 다르므로 8행 전부 배지는 부적절하다.
+
+■ 공유되는 것 / 안 되는 것 정리
+    공유 O : mv-sgrid CSS, _mvGBadge/_mvBadgeCls 배지 헬퍼, No/항목/값/상태 헤더 규약
+    공유 X : 행 조립 로직(_mvRenderStrategyPlan 전용), 상태 부여 정책(문서·주석·테스트 전무)
+
+════════════════════════════════════════════════════════════════════════
+6. 최종 결론
+════════════════════════════════════════════════════════════════════════
+
+■ 의도된 디자인이 아니라 배선 누락형 일관성 결함이다. 단, "8행 전부에 배지가 없어서 결함"은 아니다.
+
+  (1) '상태' 열의 출생 자체가 의도적 설계가 아니다.
+      _mvKVGrid 의 고정 헤더(grid_helpers.py:211)가 만든 열이며, 카드가 2열 KV였던 c2a8491 이전에는
+      존재하지 않았다. 전환 커밋은 값 문자열을 raw:true 로 그대로 옮기고 '실제 적용' 1행에만
+      status 를 새로 부여했다. 나머지 7행은 "판단해서 비운 것"이 아니라 "손대지 않은 것"이다.
+
+  (2) 행별 상태 부여 정책을 규정한 주석·문서·테스트가 하나도 없다.
+      test_stats_result_full.py:484-491 은 라벨 존재만 검증하고 상태 열은 언급하지 않는다.
+      → 설계 의도라 부를 근거가 없다.
+
+  (3) 실질 결함은 3개 행이다(나머지 5행은 현행 유지가 타당).
+      · 7행 '상태' — 항목명이 상태인데 상태 열이 공백. implementation_status(AVAILABLE/
+        PHASE4_B_REQUIRED/HOLD)는 배지화에 최적이고 _mvBadgeCls 가 'HOLD' 를 이미 인식한다.
+        표 안에서 가장 명백한 모순이다.
+      · 5행 '통계전략' — '참고용 계획'은 값이 아니라 실행 가능성 한정어. 상태 열이 제자리다.
+      · 1행 '통계검증 규모' — 잠정/산정 전/산정 불가 3분류가 값 문자열에만 존재.
+      (6행은 값이 식별자라 정위치이나, HOLD 상태의 미승격은 7행과 함께 해소되는 성격이다.)
+
+      현행 유지 타당 : 2행(정위치), 3·4행(2행의 하위 내역 — 중복 배지 불필요), 8행(상태 개념 없음)
+
+  (4) 부수 관찰(이번 범위 밖, 기록만) :
+      · window._mvValidationPolicy 미로드 시 '전역 설정' 행이 조용히 사라져 표가 9행→8행이 되고,
+        동시에 mism 이 항상 false 가 되어 '설정과 다름' 경고가 구조적으로 표시 불가능해진다.
+        (ui/grid_helpers.py:957-958 → tabler_renderer.py:27630, 27647)
+      · 사용자가 관찰한 8행 구성이 바로 이 상태다.
+
+  (5) 수정 시 권장 방향(참고 — 이번 작업은 진단 전용이라 미적용) :
+      값 문자열을 건드리지 말고 rows.push 에 status/statusText 만 추가하는 표시 전용 변경으로 충분하다.
+      7행 : status:(impl==='AVAILABLE'?'READY':impl==='PHASE4_B_REQUIRED'?'WARN':'HOLD'), statusText:implTxt
+      5행 : _statsAdvisoryOnly 일 때 status:'WARN', statusText:'참고용' (값 열 span 은 중복이므로 제거 검토)
+      1행 : provisional_grade 접두 판별로 status:'WARN'|'MUTED', statusText:'잠정'|'산정 전'|'산정 불가'
+      판정 로직·SQL·plan 에 영향 없음(표시 전용). 단, 값 열 인라인 배지를 상태 열로 옮기면
+      tests/test_stats_result_full.py 의 문자열 assert 와 dev_e2e 검증 스크립트 영향 여부 확인 필요.
+
+════════════════════════════════════════════════════════════════════════
+7. 확인한 파일·라인 목록
+════════════════════════════════════════════════════════════════════════
+
+  ui/tabler_renderer.py:2736, 23486-23489, 27572-27587, 27588-27673
+  ui/grid_helpers.py:136-137, 150-166, 190-213, 215-239, 242-274, 813-855, 859-966
+  routes/strategy_route.py:31-101
+  services/strategy/strategy_models.py:20-47, 121, 132
+  services/strategy/stats_strategy_planner.py:6-7, 24, 60-140
+  services/strategy/full_compare_strategy_planner.py:19, 27-58
+  tests/test_stats_result_full.py:480-502
+  git : c2a8491 (그리드 전환 커밋), c2a8491^ (2열 KV 이전 버전)
+
+작업명 : STATS-SUMMARY-TABLE-STATUS-COLUMN-CONSISTENCY-DIAGNOSE
+✅ 작업 완료 - STATS-SUMMARY-TABLE-STATUS-COLUMN-CONSISTENCY-DIAGNOSE -
+[핵심 결론: 의도된 디자인이 아닌 일관성 결함 — 상태 열은 _mvKVGrid 고정 헤더의 부산물이고 그리드 전환
+ 커밋이 8행 중 1행(실제 적용)에만 status 를 배선했다. 실질 수정 대상은 1·5·7행 3개, 나머지 5행은 현행 타당]
