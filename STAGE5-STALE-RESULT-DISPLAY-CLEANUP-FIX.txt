@@ -1,0 +1,241 @@
+작업명 : STAGE5-STALE-RESULT-DISPLAY-CLEANUP-FIX
+작성일 : 2026-08-02
+대상   : ui/tabler_renderer.py (수정 1파일) + scripts/dev_e2e 검증 하니스 2종(신규)
+커밋   : 49edb30
+선행   : E:\verify_reports\STAGE4-5-TAB-BADGE-VS-ACTUAL-STATE-MISMATCH-DIAGNOSE.txt (§4, 권고 1·2·3)
+
+════════════════════════════════════════════════════════════════════════════
+0. 요약
+════════════════════════════════════════════════════════════════════════════
+무효화(3단계 재검증 / 후보 체크박스 변경)가 일어나도 5단계 결과 카드가 1차 실행 값을 '지금 기준
+결과'처럼 노출하던 문제를 고쳤다. 진단서가 선호안으로 제시한 방식 — 결과를 지우지 않고 카드
+최상단에 '이전 실행 기준' 배너를 띄우는 방식 — 을 채택했고, 같은 자리에서 스냅백 예외 플래그
+(_fullRunResultActive)를 함께 해제해 "잠긴 단계에는 머무르지 않는다"는 기존 정책이 일관되게
+작동하도록 했다.
+
+실측 결과 가장 큰 실효는 배너가 아니라 스냅백 복구 쪽이었다. 수정 전에는 체크박스만 건드려도
+사용자가 잠긴 5단계 화면에 그대로 남아 낡은 수치를 봤지만, 수정 후에는 화면이 3단계로 되돌아가
+낡은 결과를 애초에 보지 않는다. 배너는 그 스냅백이 닿지 않는 잔여 경로의 안전망으로 남는다
+(이 점은 §6에 한계로 명시한다).
+
+신규 회귀 0건 — 관련 테스트 서브셋 46파일을 baseline과 대조해 실패 집합이 완전히 같음을 확인했다.
+
+════════════════════════════════════════════════════════════════════════════
+1. 무엇을 고쳤나 (진단서 권고 1·2·3)
+════════════════════════════════════════════════════════════════════════════
+[권고 1] 무효화 시 5단계 결과 표시 정리
+  execResultCard(card-body) 최상단에 고지 배너 host 를 추가했다.
+      <div id="singleStaleResultBanner" style="display:none; ...">   (tabler_renderer.py:2893~2903)
+  카드를 통째로 감추는 대안 대신 배너를 택했다 — 진단서가 "사용자가 이전 결과를 참고할 여지를
+  남기는" 쪽을 낫다고 권고했기 때문이다. 스타일은 기존 경고 배너 관용구(#fffbeb 배경 · 좌측
+  amber 4px 바 · #78350f 글자)를 그대로 재사용했고 새 CSS 클래스를 만들지 않았다.
+
+  표시/해제는 헬퍼 2개로 단일화했다(tabler_renderer.py:6182~6212).
+      _singleMarkStage5ResultStale(reason)  — 배너 표시 + _fullRunResultActive 해제
+      _singleClearStage5ResultStale()       — 배너 해제
+  마킹은 결과 카드가 실제로 떠 있을 때(display!=='none')만 배너를 그린다 — 실행 전에는 고지할
+  결과 자체가 없다. 새 상태 변수는 만들지 않았고, 기존 정리 패턴(요소 innerHTML 비우기/display
+  제어)만 재사용했다.
+
+  배너 문구(reason 은 무효화 출처에 따라 달라진다):
+      ⚠ 이 결과는 이전 실행 기준입니다. (후보 선정 변경) 아래 표시된 COUNT 전체값·불일치 그룹
+      수·재이관 대상 건수는 현재 선택/조건 기준이 아닙니다. 통계검증을 다시 실행하면 최신
+      결과로 갱신됩니다.
+
+[권고 2] 체크박스 경로 비대칭 제거
+  checkLimit(23903~) 이 _singleInvalidateDownstream 을 우회하던 비대칭을 없앴다. 다만 그 우회는
+  실수가 아니라 의도된 정책이었다 — 함수 안 주석(§4, UI-CONSISTENCY-AND-SELECTION-DRAFT-FIX)이
+  "체크 변경은 draft 편집일 뿐이므로 후보표·적용 plan·생성 SQL·최종 결과를 즉시 지우지 않는다,
+  이전에 _singleInvalidateDownstream 이 즉시 삭제하던 것이 결함이었다"고 못박고 있다.
+  그래서 무효화 함수를 그대로 호출하지 않고(그러면 과거 결함이 되살아난다), 지시가 함께 제시한
+  대안인 "최소한 결과 카드 정리 로직"만 호출했다 — 즉 지우지 않는 draft 정책은 유지한 채
+  stale 배너 마킹만 추가했다. 이로써 "상태는 무효인데 화면은 전부 유효"라는 최악 조합이 사라진다.
+
+[권고 3] _fullRunResultActive 수명을 무효화와 연동
+  이 플래그를 false 로 되돌리는 지점이 6곳뿐이고 무효화 경로에 없어서, 한 번 5단계 [결과 확인]에
+  들어가면 이후 무효화가 나도 _renderSingleStepNav(6236)의 스냅백 가드가 무력화됐다.
+  마킹 헬퍼 안에서 플래그를 항상 해제하도록 해(카드 표시 여부와 무관하게, 배너보다 먼저) 두 경로
+  모두에서 수명이 맞도록 했다.
+
+배너 해제 지점은 두 곳이다.
+  · _mvRenderValidationDetail 초입(16283~) — 재실행 완료 시 카드 내용을 전부 다시 그리는 그 함수.
+    개별검증 경로에서만 해제한다(opts.hostSummary 미지정). 일괄/이력 상세는 다른 host 에 렌더하므로
+    개별 카드의 stale 여부를 건드려선 안 된다.
+  · resetAnalysisUi(15057~) — 새 작업 세션. 카드 자체가 숨겨지므로 배너도 함께 내린다.
+
+════════════════════════════════════════════════════════════════════════════
+2. 수정 중 발견해 바로잡은 회귀 1건 (기록)
+════════════════════════════════════════════════════════════════════════════
+최초 구현에서 _singleInvalidateDownstream 안의 마킹 호출에 typeof 가드를 걸지 않아, 제품 JS 함수
+원문만 뽑아 node 로 돌리는 기존 테스트 하니스들이 ReferenceError 로 깨졌다(6건).
+    ReferenceError: _singleMarkStage5ResultStale is not defined
+동일 조건 대조로 확인한 수치 — baseline 2 failed/81 passed → 수정 후 8 failed/75 passed.
+같은 함수의 기존 호출(_singleClearFinalSaveState)이 typeof 가드를 쓰는 것이 바로 이 이유였고,
+그 관행을 따르지 않은 것이 원인이었다. 가드를 추가해 baseline 과 정확히 같은 2 failed/81 passed 로
+복귀시켰고, 가드 추가 후에도 하니스 시나리오 결과는 전부 동일함을 재확인했다.
+
+════════════════════════════════════════════════════════════════════════════
+3. 실측 검증 — node 하니스(제품 JS 원문 실행)
+════════════════════════════════════════════════════════════════════════════
+scripts/dev_e2e/stage5_stale_result_display_cleanup_verify.py (신규)
+  렌더된 페이지 JS에서 함수 원문을 추출해 최소 fake DOM 위에서 실행한다. 판정 로직을 재작성하지
+  않는다. 선행 진단서의 하니스를 재사용하되 한 가지를 바꿨다 — S3(체크박스 경로)에서 플래그를
+  직접 세팅하지 않고 checkLimit 원문을 호출한다. 이번 수정의 핵심이 그 경로 배선이므로 원문
+  실행이 아니면 검증이 성립하지 않는다.
+
+  하니스 정확도 보정(중요): _fullRunResultActive 는 제품 코드에서 bare 읽기(_renderSingleStepNav)
+  와 window. prefix 쓰기(_mvExecShowResult 등)가 혼용된다. 브라우저에서는 top-level var 가 곧
+  window 프로퍼티라 같은 바인딩이지만 node 모듈 스코프에서는 분리된다. 그 시맨틱을 재현하지 않은
+  1차 측정에서는 스냅백이 '미작동'으로 잘못 나왔고, globalThis 접근자를 window 에 연결해 바로잡은
+  뒤에야 실제 동작이 관측됐다(제품 코드는 수정하지 않았다).
+
+  ── before(a342be1) vs after(49edb30) ──────────────────────────────────────
+  시나리오                     항목               before            after
+  ---------------------------------------------------------------------------
+  S1 3단계 재검증(GB 1축)      staleBanner        없음              표시
+                               fullRunActive      true(유지)        false
+                               보는 단계          candidate         candidate
+                               비워진 DOM         executeOut,       동일
+                                                  singleResultSummary
+                               잔존 결과 host     3개               3개(배너로 고지)
+  S1 3단계 재검증(GB 2축)      —                  1축과 동일        1축과 동일
+  S3 체크박스만 변경(1축)      staleBanner        없음              표시
+                               fullRunActive      true(유지)        false
+                               보는 단계          result(잠긴 5단계) candidate(스냅백)
+                               5단계 탭 배지      대기중(잠금)      재검증 필요
+                               비워진 DOM         없음              없음(draft 정책 유지)
+                               잔존 결과 host     5개 전부          5개 전부(배너로 고지)
+  S3 체크박스만 변경(2축)      —                  1축과 동일        1축과 동일
+  S6 잠긴 5단계 스냅백         보는 단계          result(머무름)    candidate(복귀)
+  S5 재실행 완료               staleBanner        없음              해제됨
+                               결과값             2차로 갱신        2차로 갱신(무회귀)
+  ---------------------------------------------------------------------------
+  GROUP BY 1축/2축이 모든 항목에서 동일했다 — 진단서 항목 6("축 개수 무관")과 일치한다.
+
+  정적 근거(수정 후): banner_host_in_html=True / invalidate_calls_mark=True /
+  checklimit_calls_mark=True / detail_clears_banner=True.
+  _singleInvalidateDownstream 이 비우는 DOM 7개 목록은 변경 없음(기존 정리 동작 보존).
+
+════════════════════════════════════════════════════════════════════════════
+4. 실측 검증 — 실제 브라우저 렌더(before/after 스크린샷)
+════════════════════════════════════════════════════════════════════════════
+scripts/dev_e2e/stage5_stale_result_display_cleanup_browser_shot.py (신규)
+  before 는 수정 전 코드가 로드돼 있던 실행 중 서버에, after 는 수정 후 재기동한 서버에 대해
+  실행했다(web_server.py 는 reload=False 이므로 .py 편집 후 재기동이 필수다).
+  각 단계의 완료 플래그만 사용자 흐름과 동일하게 세우고 실제 렌더 함수를 그대로 호출한다.
+  무효화는 제품 코드 원문 호출이다(S1=_singleInvalidateDownstream, S3=checkLimit).
+  S3 의 checkLimit 원문 호출은 before/after 모두 called=true, error=null 로 성공했다.
+
+  ── 관측 ───────────────────────────────────────────────────────────────────
+  before_03_S3_after_checkbox_change.png — 사용자가 보고한 화면과 동일하다.
+      탭: 3=재검증 필요 4=재검증 필요 5=대기중(잠금), 그런데 사용자는 5단계에 머물러 있고
+      완성된 결과가 보인다. 상단 "현재 단계: 후보 컬럼 선정" 과 하단 "현재 단계: 결과 확인" 이
+      동시에 떠 있다(진단서 항목 5의 재현).
+  before_03b_S3_result_card.png — 결과 카드가 1차 값을 아무 경고 없이 노출한다.
+      "50,000,000 / 49,500,000 · 차이 +500,000 · 불일치 11그룹 · 재이관 11건"
+  after_03_S3_after_checkbox_change.png — 화면이 3단계로 되돌아간다(스냅백 복구).
+      탭: 3=현재 4=재검증 필요 5=재검증 필요. 상단·하단 문구가 모두 "후보 컬럼 선정"으로 일치해
+      before 의 모순 표시가 사라졌다. 5단계 pane 은 잠겨 카드가 보이지 않는다(step5CardHidden=true).
+  after_03b_S3_result_card.png — 카드를 강제로 펼쳐 본 모습. 같은 1차 수치 위에 amber 배너가
+      붙어 "이 결과는 이전 실행 기준입니다"를 고지한다.
+  after_04/04b — 재실행 완료 후 2차 값(49,999,000 · 차이 +1,000 · 불일치 2그룹 · 재이관 2건)으로
+      갱신되고 배너는 해제된다(staleBannerText=""). 탭 5개 모두 '완료'.
+  pageerrors: before/after 모두 0건.
+
+  캡처 파일(E:\verify_screenshots_only\STAGE5-STALE-RESULT-DISPLAY-CLEANUP-FIX\, 총 14장)
+      before_01_completed_result_tab.png        after_01_completed_result_tab.png
+      before_02_S1_after_revalidate.png         after_02_S1_after_revalidate.png
+      before_02b_S1_result_card.png             after_02b_S1_result_card.png
+      before_03_S3_after_checkbox_change.png    after_03_S3_after_checkbox_change.png
+      before_03b_S3_result_card.png             after_03b_S3_result_card.png
+      before_04_after_reexecute_refreshed.png   after_04_after_reexecute_refreshed.png
+      before_04b_reexecute_result_card.png      after_04b_reexecute_result_card.png
+
+  ── 캡처 중 발견한 하니스 함정(기록) ───────────────────────────────────────
+  1차 캡처 시도는 _singleInvalidateDownstream 호출에서 브라우저가 195초 넘게 멈춰 실패했다.
+  분해 측정 결과 범인은 그 안의 _applySinglePane() 이었다. 3단계 pane 진입 시 _needDraw 판정
+  (5643~5660)이 참이 되어 _showCandidateTable() 재계산이 트리거되는데, seed 로 만든 부분적
+  _analyzeData 로는 그 재계산이 끝나지 않았다. 제품 결함이 아니라 seed 부실이었다 — 실제 완주
+  흐름에서는 후보표가 이미 그려져 있다. seed 에 그 전제(colSelectOut 내용)를 채워 해결했고,
+  제품 코드를 우회하지 않았다.
+
+════════════════════════════════════════════════════════════════════════════
+5. 회귀 확인
+════════════════════════════════════════════════════════════════════════════
+관련 테스트 서브셋 46파일(_singleInvalidateDownstream / checkLimit / _fullRunResultActive /
+execResultCard / _renderSingleStepNav / _mvRenderValidationDetail 을 참조하는 전체 테스트).
+
+    수정 후 (main, 49edb30)      : 35 failed, 447 passed, 8 xfailed  (939.54s)
+    baseline (worktree, a342be1) : 34 failed, 444 passed, 4 skipped, 8 xfailed  (890.53s)
+
+실패 '이름 집합' 대조 결과 차이는 단 1건이었다.
+    tests/test_candidate_plan_matrix.py::test_null_vs_empty_selection_contract
+이 1건은 worktree 에 DB 프리셋 파일이 없어 baseline 쪽에서만 skip 된 것이었다
+(SKIPPED: "PostgreSQL 프리셋/psycopg2 미준비"). 프리셋을 worktree 에 복사해 조건을 맞춘 뒤
+재실행하니 baseline 에서도 동일하게 실패했다 → 사전 존재 실패이며 이번 수정과 무관하다.
+
+  ⇒ 신규 회귀 0건. 실패 집합 완전 동일.
+
+JS 문법 검증: tests/test_bottom_command_bar.py(node --check 포함) 12 passed.
+              — JS 주석/문자열 파손으로 번들이 통째로 죽는 기존 위험에 대한 확인.
+
+실패 테스트 전체 목록(35건 — 전부 사전 존재, baseline 동일):
+  test_all_stages_timing_display_expand.py: 3건
+  test_candidate_plan_matrix.py::test_null_vs_empty_selection_contract
+  test_candidate_role_policy_grid.py, test_candidate_selection_sync.py 등 후보 계열
+  test_groupby_estimated_group_count_ui.py: 2건
+  test_one_click_critical_hold_route_to_normal_gate.py: 2건
+  test_one_click_full_run.py: 7건
+  test_shared_sticky_step_nav.py::test_invalidate_from_candidate_resets_validation_and_result
+  test_single_run_standard_ui.py: 4건
+  test_single_sql_change_stale_clear.py::test_clear_final_save_state_clears_everything
+  test_tabulator_vendor.py, test_task11_s9_r3.py::test_r3_04_individual_checklimit_4th_reverts
+  test_ui_contract_display.py: 2건, test_ui_tab4_tab5_separation.py, test_validation_plan_renderer_static.py
+  (전체 목록 원문: pytest -rf 출력 기준. baseline 과 동일 집합)
+  표본 원인 확인: test_r3_04 는 checkLimit 첫 줄 _mvMarkSelectionManual 미정의로 실패하며
+  (내 추가 코드는 함수 끝), baseline 에서도 같은 지점에서 같은 오류로 실패한다.
+
+════════════════════════════════════════════════════════════════════════════
+6. 한계와 남은 위험(정직한 기재)
+════════════════════════════════════════════════════════════════════════════
+(1) 배너가 실제로 눈에 띌 기회는 생각보다 적다.
+    권고 3(스냅백 복구)을 함께 적용한 결과, 무효화가 나면 화면이 먼저 이전 단계로 되돌아가고
+    5단계는 잠긴다. 그래서 대부분의 경로에서 사용자는 낡은 결과 화면 자체를 보지 않는다 —
+    근본 해결은 이쪽이다. 배너는 스냅백이 닿지 않는 잔여 경로(카드가 보이는 상태로 남는 재이관
+    prepare HOLD 계열 등)와, 향후 스냅백 예외가 다시 생길 때를 위한 안전망으로 남는다.
+    두 방어를 겹쳐 두는 것이 진단서 권고(둘 중 하나는 반드시 필요)보다 보수적이며, 비용은
+    배너 host 1개와 헬퍼 2개뿐이다.
+
+(2) 결과 카드 내용은 여전히 지우지 않는다 — 의도된 선택이다.
+    지우는 대신 고지하는 쪽을 택했으므로, 배너를 읽지 않는 사용자는 낡은 수치를 그대로 볼 수
+    있다. 다만 그 상태에서 5단계는 잠겨 있고 탭 배지도 '재검증 필요'이며, 저장 경로는
+    _singleClearFinalSaveState 로 이미 차단돼 있어 낡은 결과가 저장·등록될 위험은 없다.
+
+(3) 이번 범위 밖(진단서 권고 4·5·6) — 지침대로 손대지 않았다.
+    · 권고 4: 3단계 재검증 버튼의 선택값 diff 비교(무효화 자체를 줄이는 정책 변경).
+      5,000만행 규모에서 불필요한 재실행 비용을 없애는 효과가 가장 크므로 별도 지침 권장.
+    · 권고 5: 상단/하단 "현재 단계" 문구 통일. 이번 수정으로 S3 경로에서는 두 문구가 우연히
+      일치하게 됐지만(스냅백으로 보는 탭과 진행 단계가 같아짐), 원인 자체는 그대로다.
+    · 권고 6: 다중 세트 실행 완료 플래그 비대칭(26148의 무조건 플래그 설정).
+
+(4) 검증 방식의 한계.
+    브라우저 캡처의 결과 수치는 1차/2차 실행을 모사한 값이며 실 DB 산출물이 아니다. 탭 배지·
+    pane 가림·배너 노출·스냅백은 실제 렌더/제품 코드 실행 결과다.
+
+════════════════════════════════════════════════════════════════════════════
+7. 산출물
+════════════════════════════════════════════════════════════════════════════
+수정   ui/tabler_renderer.py                                          (+67줄, 로직 4곳 배선)
+신규   scripts/dev_e2e/stage5_stale_result_display_cleanup_verify.py       node 하니스(6 시나리오)
+신규   scripts/dev_e2e/stage5_stale_result_display_cleanup_browser_shot.py 브라우저 before/after 캡처
+커밋   49edb30  (3 files changed, 641 insertions)
+스크린샷 E:\verify_screenshots_only\STAGE5-STALE-RESULT-DISPLAY-CLEANUP-FIX\  14장
+
+실검증 상태 : 실 DB 미접속(PG 전 노드 불가 · 오라클 미사용) — 제품 JS 원문 실행 하니스와 실제
+브라우저 렌더로 검증했으며, 결과 수치는 모사값이다. 상태 전이·DOM 정리·배지·스냅백·배너는 실제
+제품 코드 실행 결과다.
+
+작업명 : STAGE5-STALE-RESULT-DISPLAY-CLEANUP-FIX
+✅ 작업 완료 - STAGE5-STALE-RESULT-DISPLAY-CLEANUP-FIX - 무효화 시 5단계 결과에 '이전 실행 기준'
+배너 부착 + 체크박스 경로 비대칭 제거(draft 정책 유지) + _fullRunResultActive 수명 연동으로 잠긴
+5단계 스냅백 복구, 신규 회귀 0건
