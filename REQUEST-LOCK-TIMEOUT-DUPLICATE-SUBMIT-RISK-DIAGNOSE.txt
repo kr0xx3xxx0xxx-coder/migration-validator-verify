@@ -1,0 +1,447 @@
+작업명 : REQUEST-LOCK-TIMEOUT-DUPLICATE-SUBMIT-RISK-DIAGNOSE
+
+작성일    : 2026-08-01
+대상      : 5,000만행 규모 개별검증 4단계(통계검증 실행) 중 관측된
+            "이전 요청 응답이 지연되어 버튼 잠금을 해제했습니다..." 팝업
+범위      : 읽기 전용 진단 — 코드 수정 0건, DB 실행 0건, diff 없음
+관측 상황  : 서버는 "세트 2/2 실행 중 — 경과 19초" 진행 중인데 클라이언트가 버튼 잠금을 먼저 해제
+
+
+═══════════════════════════════════════════════════════════════════════════════
+0. 결론 요약
+═══════════════════════════════════════════════════════════════════════════════
+
+  ▸ 중복요청 실질 위험 : **존재한다. 단, 팝업 직후 같은 버튼을 다시 누르는 경로는 안전하다.**
+
+  (1) 팝업 후 커맨드바의 '▶ 통계검증 실행'을 다시 눌러도 서버로 두 번째 요청은 나가지
+      않는다. runExecute() 가 자체 동기 가드 2개(_executeInProgress, _mvAnyRunActive)를
+      실행 전 구간 유지하므로 조용히 return 한다. → 이 경로는 중복 안전.
+      다만 사용자에게 아무 피드백이 없어 "눌렀는데 반응 없음"으로 보인다(별개의 UX 결함).
+
+  (2) 그러나 그 가드는 **runExecute 전용**이다. 같은 통계검증을 서버에서 돌리는 다른
+      진입점인 runFullValidation()(/single/run-standard, 원클릭 전체검증)은
+      _fullRunInProgress 만 보고 _executeInProgress / _mvAnyRunActive 를 **전혀 보지
+      않는다**. 팝업이 "잠시 후 다시 시도해 주세요"라고 안내하는 상황에서 사용자가
+      1단계로 올라가 '▶ 검증 실행'을 누르면 → 실행 중인 통계검증이 서버에서 계속 도는
+      채로 두 번째 통계검증이 추가로 발생한다. **중복 성립.**
+
+  (3) 서버측 중복 방어는 **어디에도 없다.** /execute, /execute/set, /single/run-standard
+      전부 진행중 플래그·job_id·세션 기준 in-flight 검사가 없다. workflow_stage_guard 는
+      토큰 유효성/선행단계/지문만 보고 동시성은 보지 않아, 동일 토큰의 동시 2회 요청이
+      둘 다 통과한다.
+
+  (4) 원래 요청은 취소되지 않는다. 재클릭은 abort 를 유발하지 않으며, 세션 reset 경로가
+      abort 하더라도 그것은 클라이언트 연결만 끊을 뿐 서버 스레드와 DB 쿼리는 계속 돈다.
+      다중 세트(plan-sets) 경로의 fetch 들은 abort signal 자체를 달고 있지 않다.
+
+  (5) 20초 기준값은 대량 데이터를 **전혀 고려하지 않은 값**이다. 코드 주석이 스스로
+      "count 계열 응답 대기 상한과 일관(연결 timeout 10s + 여유)"이라고 밝히고 있다.
+      5,000만행 실측 통계검증은 단일 세트만 9.71~21.08초이므로 2세트 실행에서는 20초를
+      사실상 항상 초과한다 — 대량 데이터에서 **필연적으로 발동하는 구조**다.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+1. 팝업을 발생시키는 클라이언트 로직 위치
+═══════════════════════════════════════════════════════════════════════════════
+
+  파일 : ui/tabler_renderer.py
+  함수 : mvCommandBarRunAction(btn)   — 하단 커맨드바 버튼 클릭 공통 진입점 (6353행~)
+  구간 : 6371 ~ 6392행
+
+  ── 코드 인용 (ui/tabler_renderer.py:6371-6392) ─────────────────────────────
+
+    /* COUNT-STAGE2-SYMPTOM3-LOCK-STUCK-TIMEOUT: actionId 락은 핸들러 프로미스가 settle 될 때만 풀린다(_unlock).
+       핸들러 내부 fetch 가 응답도 오류도 없이 무기한 멈추면(네트워크 스톨 등) 프로미스가 영영 미해결이라
+       락이 영구 고착되고, 이후 같은 액션 클릭이 전부 조용히 무시된다(위 6447 return — 사용자 피드백 없음).
+       '영구 고착'만 방지하는 안전 타임아웃을 건다: 일정 시간(_LOCK_MAX_MS) 지나도 안 풀렸으면 강제 해제 +
+       재렌더(다시 클릭 가능) + 지연 안내. 정상 완료/실패 시에는 _unlock 이 이 타이머를 먼저 지우므로 발동하지
+       않는다(중복 클릭 방지라는 락 본래 목적은 그대로 유지). 강제 해제 자체는 무해하다 — 핸들러들은 각자
+       내부 in-progress 가드(_countInProgress/_executeInProgress 등)로 중복 실행을 별도 차단한다. */
+    var _LOCK_MAX_MS = 20000;   /* count 계열 응답 대기 상한과 일관(연결 timeout 10s + 여유) */
+    W._mvCmdBarLockTimers = W._mvCmdBarLockTimers || {};
+    if (W._mvCmdBarLockTimers[actionId]) { try { clearTimeout(W._mvCmdBarLockTimers[actionId]); } catch (e) {} }
+    W._mvCmdBarLockTimers[actionId] = setTimeout(function () {
+      delete W._mvCmdBarLockTimers[actionId];
+      if (!W._mvCmdBarLocks[actionId]) return;   /* 이미 정상 해제됨 — no-op */
+      W._mvCmdBarLocks[actionId] = false;
+      try { if (typeof _mvRenderCmdBar === 'function') _mvRenderCmdBar(); } catch (e) {}
+      try { alert('이전 요청 응답이 지연되어 버튼 잠금을 해제했습니다. 아직 완료되지 않았다면 잠시 후 다시 시도해 주세요.'); } catch (e) {}
+    }, _LOCK_MAX_MS);
+
+  ── 동작 정리 ────────────────────────────────────────────────────────────────
+
+  · 락 단위(actionId) = fnName + ':' + argsJSON  (6365행). 4단계 통계검증은 'runExecute:[]'.
+  · 클릭 즉시 W._mvCmdBarLocks[actionId] = true (6368행) + 버튼 disabled + 스피너 (6369-6370행).
+  · 정상 완료/실패 시 _unlock()(6388-6392행)이 타이머를 먼저 clearTimeout 하므로 팝업 미발동.
+  · 핸들러가 20초 안에 settle 하지 않으면 위 타이머가 강제로 락을 풀고 커맨드바를 재렌더한 뒤
+    팝업을 띄운다. → **관측된 팝업이 정확히 이 경로다.**
+
+  · 이 타이머의 원래 도입 목적은 '중복 방지'가 아니라 '영구 고착 방지'다(주석 명시).
+    즉 팝업은 설계 의도상의 안전장치이며, 대량 데이터에서는 그 의도가 오작동으로 뒤집힌다.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+2. 타임아웃 기준값 — 20초, 완전 하드코딩
+═══════════════════════════════════════════════════════════════════════════════
+
+  기준값     : _LOCK_MAX_MS = 20000  (20초)
+  위치       : ui/tabler_renderer.py:6378 — 함수 mvCommandBarRunAction 내부 지역변수
+  설정 가능성: **불가**
+
+  ┌────────────────────────┬──────────────────────────────────────────────────┐
+  │ 조정 수단              │ 지원 여부                                        │
+  ├────────────────────────┼──────────────────────────────────────────────────┤
+  │ 환경변수               │ 없음 (MV_* 계열 훅 미배선)                       │
+  │ config/model_config.py │ 없음                                             │
+  │ 화면 설정(전역설정)     │ 없음                                             │
+  │ 액션별 차등            │ 없음 — 전 액션 공통 단일 상수                     │
+  │ 데이터 규모 연동       │ 없음 — 행수/COUNT 결과를 참조하지 않음            │
+  └────────────────────────┴──────────────────────────────────────────────────┘
+
+  · 함수 내부 var 이므로 런타임 주입도 불가하다(window 노출 없음).
+  · 액션별 차등이 없다는 점이 핵심이다. 같은 20초가 COUNT(수백ms~수십초),
+    SQL 생성(수백ms), 통계검증 실행(수초~수십초)에 동일하게 적용된다.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+3. 타임아웃 발동 후 재클릭 시 실제로 일어나는 일 (코드 추적)
+═══════════════════════════════════════════════════════════════════════════════
+
+3-1. 원래 요청은 취소되는가 → **아니다. 그대로 서버에서 계속 진행된다.**
+───────────────────────────────────────────────────────────────────────────────
+
+  · 타임아웃 콜백(6381-6387행)이 하는 일은 락 해제 + 재렌더 + alert 뿐이다.
+    fetch 를 abort 하는 코드도, 서버에 취소를 통지하는 코드도 없다.
+
+  · 유일한 취소 수단인 AbortController 는 재클릭과 무관하다:
+
+      ui/tabler_renderer.py:15089-15096
+        /* 현재 세션의 진행 중 fetch 취소 컨트롤러(가능 시). reset 마다 abort + 재생성. */
+        function _singleNewAbortSignal() {
+          try {
+            if (window._singleInflightAbort) { try { window._singleInflightAbort.abort(); } catch (e) {} }
+            window._singleInflightAbort = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+            return window._singleInflightAbort ? window._singleInflightAbort.signal : undefined;
+          } catch (e) { return undefined; }
+        }
+
+    호출처는 resetIndividualValidationWorkSession() 단 1곳뿐이다(15147행).
+    즉 '세션 초기화' 때만 abort 되고, 버튼 재클릭으로는 절대 abort 되지 않는다.
+
+  · 게다가 abort 되더라도 그것은 클라이언트 소켓만 끊는다. /execute 는 FastAPI 동기
+    엔드포인트(routes/execute_route.py:45-46 `def stats_execute`)라 threadpool 워커에서
+    돌고 있으며, 연결이 끊겨도 워커와 DB 쿼리는 완주(또는 60초 상한 도달)까지 계속된다.
+
+  · 다중 세트 경로는 더 심하다. _runExecutePlanSets(25970행~)의 /groupby-plan, /generate,
+    /execute fetch 3종에는 **signal 인자가 아예 없다.** 단일 세트 경로(28317행
+    `signal: (window._singleInflightAbort || {}).signal`)와 비대칭이다.
+    → 관측된 "세트 2/2" 상황에서는 abort 자체가 도달하지 않아, 세션을 초기화해도
+      세트 루프는 배경에서 계속 서버 요청을 이어간다.
+
+
+3-2. 같은 버튼을 다시 누르면 → **안전. 서버로 나가지 않는다(조용한 무시).**
+───────────────────────────────────────────────────────────────────────────────
+
+  팝업 후 커맨드바는 재렌더되어 '▶ 통계검증 실행'이 다시 클릭 가능해진다
+  (ui/tabler_renderer.py:6552-6554, disabled=false 고정 — run-active 상태를 보지 않음):
+
+      } else if (!execDone) {
+        info += SEP + '생성 SQL 검토 후 실행';
+        A('primary', 'runExecute', '▶ 통계검증 실행', false, { loading: '실행 중…' });
+
+  그러나 클릭 → mvCommandBarRunAction → runExecute() 진입 시 가드 2개가 모두 살아있다:
+
+      ui/tabler_renderer.py:28148-28154
+        async function runExecute() {
+          /* GATE-4-5-REVERT-TO-TWO-STEP-CONFIRM ③: '통계검증 실행' 재클릭 방지 동기 가드 ... */
+          if (_executeInProgress) return;                                    ← 가드①
+          if (typeof _mvAnyRunActive === 'function' && _mvAnyRunActive()) {   ← 가드②
+            ...
+            return;
+          }
+
+  · 가드① _executeInProgress
+      - 28197행에서 true 로 set. 위치가 중요하다 — exec-gate/preflight 등 모든 await
+        '이전'에 두어 재클릭 창을 봉합했다(28195-28197 주석).
+      - false 로 되돌리는 곳은 (a) 조기중단 _execAbort()(28201행),
+        (b) 다중 세트 경로 finally(28287행), (c) 단일 세트 경로 finally(28442행)뿐이다.
+      - 즉 실행이 실제로 끝날 때까지 true 를 유지한다. 20초 타임아웃과 무관하다.
+
+  · 가드② _mvAnyRunActive()  (26938-26956행)
+      - 26950행에서 실행 버튼들의 스피너 존재로 진행중을 판정한다:
+          var ids = ['countRunBtn', 'genColBtn', 'execBtn', 'runBtn'];
+          if (b && (b.innerHTML || '').indexOf('spinner') >= 0) return true;
+      - runExecute 는 28199행에서 execBtn 에 스피너를 심어두므로 이 가드도 true 다.
+
+  결론: 커맨드바 재클릭은 **이중으로 차단**된다. 서버에 두 번째 요청은 발생하지 않는다.
+
+  단, 부작용이 하나 있다 — runExecute 가 조용히 return 하면 async 함수가 즉시 resolve 되고
+  mvCommandBarRunAction 의 _unlock 이 곧바로 실행되어 버튼이 정상 라벨로 되돌아간다.
+  사용자 입장에서는 "버튼을 눌렀는데 아무 일도 안 일어남"으로 보인다. 팝업이 "잠시 후 다시
+  시도해 주세요"라고 재시도를 권유해놓고, 재시도하면 무반응인 모순된 안내가 된다.
+  → **그리고 이 무반응이 사용자를 다음 3-3 경로로 밀어낸다.**
+
+
+3-3. 다른 진입점을 누르면 → **중복 성립. 실질 위험.**
+───────────────────────────────────────────────────────────────────────────────
+
+  가드 2개는 runExecute() 함수 안에만 있다. 같은 통계검증을 서버에서 수행하는 또 다른
+  진입점인 원클릭 전체검증에는 그 가드가 없다:
+
+      ui/tabler_renderer.py:15845-15846
+        async function runFullValidation() {
+          if (_fullRunInProgress) return;                        /* 중복 클릭 방지 */
+
+  · 확인 결과 runFullValidation 은 _fullRunInProgress 만 검사한다.
+    _executeInProgress 도, _mvAnyRunActive() 도 호출하지 않는다.
+  · _fullRunInProgress 는 runExecute 실행 중에는 **false** 다(15914행에서만 true 로 set).
+    → 통계검증이 서버에서 도는 중에도 runFullValidation 은 그대로 통과한다.
+
+  · 통과 후 하는 일:
+      15927행: resetIndividualValidationWorkSession({ clearSql: false, reason: 'FULL_RUN' });
+               → 세션 버전 bump + _singleNewAbortSignal()(단일 세트 fetch 만 abort,
+                 다중 세트 fetch 는 signal 이 없어 영향 없음)
+      15967행: var resp = await fetch('/single/run-standard', { ... })
+               → analyze→count→generate→execute 를 서버가 통째로 재수행
+
+  · 1단계 커맨드바의 주 액션이 바로 이 계열이다(6514행 `A('primary', 'runAnalyze', '▶ 검증 실행' ...)`).
+    runAnalyze 역시 20420행에서 resetIndividualValidationWorkSession({reason:'ANALYZE'}) 를 호출한다.
+    단계 이동은 인접 이동/완료 단계 자유 정책이라 4단계에서 1단계로 되돌아가는 것은 자유롭다.
+
+  ── 재현 시나리오 (전부 정상 UI 조작만으로 성립) ─────────────────────────────
+
+     t=0초   4단계에서 '▶ 통계검증 실행' 클릭. GB 2축 → 다중 세트 경로 진입.
+             _executeInProgress=true, execBtn 스피너 ON, 커맨드바 락 ON.
+     t=19초  화면 "세트 2/2 실행 중 — 경과 19초". 서버는 2번째 세트 SQL 실행 중.
+     t=20초  _LOCK_MAX_MS 만료 → 락 강제 해제 + 커맨드바 재렌더 + 팝업.
+             팝업 문구: "...잠시 후 다시 시도해 주세요."
+     t=22초  사용자가 안내대로 '▶ 통계검증 실행' 재클릭 → 가드에 걸려 무반응(3-2).
+     t=25초  무반응에 당황한 사용자가 1단계로 이동해 '▶ 검증 실행'(원클릭) 클릭.
+             → _fullRunInProgress=false 이므로 통과.
+             → /single/run-standard 발사.
+     결과    서버에서 (A) 원래 세트 2/2 통계검증, (B) 신규 전체검증이 **동시 진행**.
+             동일 원본/목적지 테이블에 대해 5,000만행 스캔이 2벌 돈다.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+4. 서버측 중복 방어 로직 유무 → **없음**
+═══════════════════════════════════════════════════════════════════════════════
+
+  ┌──────────────────────────┬───────────────────────────────────────────────┐
+  │ 엔드포인트                │ 진행중 감지 / 중복 차단                        │
+  ├──────────────────────────┼───────────────────────────────────────────────┤
+  │ POST /execute            │ **없음** (routes/execute_route.py:45)          │
+  │ POST /execute/set        │ **없음** (routes/execute_set_route.py:49)      │
+  │ POST /single/run-standard│ **없음** (routes/single_run_route.py:28)       │
+  └──────────────────────────┴───────────────────────────────────────────────┘
+
+  · job_id 기반 관리 대상이 아니다. /execute 는 job 이 아니라 단순 동기 POST 이며,
+    진행률 조회/취소 엔드포인트가 존재하지 않는다(진행중 상태를 서버가 보유하지 않음).
+  · 세션 기준 진행중 플래그 없음. 서버는 어떤 세션이 지금 통계검증 중인지 알지 못한다.
+
+  · 유일하게 존재하는 게이트인 workflow_stage_guard 는 **동시성을 보지 않는다**:
+
+      services/workflow_stage_guard.py:323-348
+        def validate(stage: str, req, *, token_required: bool = True) -> dict | None:
+            """후속 단계 토큰/문맥/선행 검증. 차단이면 409 body, 통과면 None."""
+            ...
+            with _LOCK:
+                ctx = _TOKENS.get(token)
+                if ctx is None:                                   return _block("INVALID_WORKFLOW_TOKEN", ...)
+                if _ACTIVE_GEN.get(ctx.ctx_key) != ctx.generation: return _block("STALE_GENERATION", ...)
+                sql_hash, src_fp, tgt_fp, project = _extract(stage, req)
+                if sql_hash and sql_hash != ctx.sql_hash:         return _block("SQL_CHANGED", ...)
+                if src_fp and ctx.src_fp and src_fp != ctx.src_fp: return _block("SOURCE_PROFILE_CHANGED", ...)
+                if tgt_fp and ctx.tgt_fp and tgt_fp != ctx.tgt_fp: return _block("TARGET_PROFILE_CHANGED", ...)
+
+    검사 항목은 토큰 유효성 / generation 신선도 / SQL 해시 / 프로필 지문 / 선행단계뿐이다.
+    "이 토큰으로 지금 실행이 진행 중인가"를 보는 조건이 없다.
+    → 동일 토큰·동일 SQL·동일 프로필의 요청 2건이 동시에 와도 **둘 다 통과한다.**
+      (중복 요청은 정의상 모든 필드가 같으므로 어떤 지문 검사에도 걸리지 않는다.)
+
+  · _LOCK 은 딕셔너리 접근 보호용 threading.Lock 이며 실행 직렬화와 무관하다.
+  · /execute/set 에는 workflow_stage_guard 호출조차 없다.
+  · 그 외 방어로 볼 수 있는 것: HTTP 요청 타임아웃 없음(uvicorn 기본, reload=False).
+
+
+═══════════════════════════════════════════════════════════════════════════════
+5. 중복 요청이 실제 발생했을 때의 부작용 형태 (추정)
+═══════════════════════════════════════════════════════════════════════════════
+
+5-1. 결과값이 꼬이는가 → **확인된 경로 없음(값 오염은 아님)**
+───────────────────────────────────────────────────────────────────────────────
+
+  · 두 요청은 각각 독립적인 SELECT 를 발행하고 독립적인 응답을 받는다. 공유 가변 상태를
+    통해 중간값이 섞이는 구조가 아니다.
+  · 클라이언트는 세션 버전(_singleSessionVer)으로 늦게 도착한 stale 응답을 폐기한다
+    (예: 28342행 `if (_ver !== _singleSessionVer()) return;`). 재클릭 시나리오에서는
+    reset 으로 버전이 bump 되므로 원래 요청의 응답은 화면에 반영되지 않고 버려진다.
+  · /execute 는 persist=False 고정이라(routes/execute_route.py:49-51) 공식 저장은
+    발생하지 않는다. 공식 저장은 5단계에서 사용자가 명시적으로 누를 때 /single/save 로만 일어난다.
+
+  → 즉 "화면에 표시되는 숫자가 틀려진다"는 형태의 오염은 이번 조사에서 확인되지 않았다.
+
+5-2. 실제 피해는 DB 중복 부하와 그로 인한 **동반 타임아웃 실패**다
+───────────────────────────────────────────────────────────────────────────────
+
+  · 5,000만행 통계검증 1회는 원본·목적지 양쪽 풀스캔 + GROUP BY 다. 이것이 2벌 동시 실행되면
+    동일 테이블에 대한 I/O 경합이 발생한다.
+  · 여기서 60초 상한이 결합하며 위험이 실질화된다:
+      services/stats_execute_service.py : EXECUTE_STATEMENT_TIMEOUT_MS = 60000
+      (오라클은 services/db_adapters/oracle.py 의 conn.call_timeout 으로 적용)
+  · 5,000만행 실측 단일 세트 통계검증은 9.71~21.08초로 상한의 16~35% 지점이다. 여유가 커
+    보이지만, 같은 테이블에 대한 동시 스캔 2벌이 서로를 지연시키면 양쪽 모두 상한에 근접한다.
+  · 최악 형태: **중복 실행이 원래 성공했을 실행까지 실패로 바꾼다.**
+    타임아웃 시 반환 형태는 실측으로 확인되어 있다 —
+      "success=False · 60.4s · src_error='원본 통계 SQL 실행 시간이 제한을 초과했습니다.' · 보존행=0"
+    보존행 0 이므로 부분 결과도 남지 않는다. 사용자는 두 번의 실행을 기다린 끝에 아무것도 얻지 못한다.
+  · 부수 피해: DB 커넥션·FastAPI threadpool 워커 2배 점유. /execute 는 동기 엔드포인트라
+    워커를 실행 시간 내내 붙잡는다. 대량 검증이 겹치면 다른 화면의 응답성까지 저하된다.
+  · 증적 측면: 두 실행 모두 result_page.result_id 를 발급하고 전체 행을 저장하므로
+    동일 조건 run 이 2개 남는다. 잘못된 값은 아니지만 사후 추적 시 혼란 요인이다.
+  · 토큰 상태: 두 실행 모두 _guard.record_outcome("execute", ...) 를 호출하므로
+    마지막에 끝난 쪽이 단계 상태를 덮어쓴다(last-writer-wins).
+
+  종합 판정: **"DB에 중복 부하만 생기고 결과는 정상"에 가깝되, 부하 자체가 60초 상한을
+             건드려 양쪽 동반 실패로 번질 수 있는 형태.** 결과 오염보다 가용성 위험이 크다.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+6. 20초 기준이 대량 데이터를 고려한 값인가 → **아니다. 소규모 기준 하드코딩.**
+═══════════════════════════════════════════════════════════════════════════════
+
+6-1. 코드가 스스로 밝히고 있다
+───────────────────────────────────────────────────────────────────────────────
+
+      ui/tabler_renderer.py:6378
+        var _LOCK_MAX_MS = 20000;   /* count 계열 응답 대기 상한과 일관(연결 timeout 10s + 여유) */
+
+  · 산정 근거가 "연결 timeout 10초 + 여유"다. **네트워크 연결 수립 시간** 기준이지
+    쿼리 수행 시간 기준이 아니다.
+  · 도입 배경(6371-6377행 주석)도 "네트워크 스톨 등으로 프로미스가 영영 미해결"인 상황을
+    상정한 것이다. 즉 '정상 동작 중이지만 오래 걸리는 요청'은 애초에 고려 대상이 아니었다.
+  · 도입 맥락 태그가 COUNT-STAGE2-SYMPTOM3-LOCK-STUCK-TIMEOUT 으로, 2단계 COUNT 문제를
+    풀면서 만든 값이 커맨드바 공통부에 있다는 이유로 4단계 통계검증에도 그대로 적용된 것이다.
+
+6-2. 실측상 대량 데이터에서는 필연 발동
+───────────────────────────────────────────────────────────────────────────────
+
+  5,000만행(MV_SCATTER50M_*) 오라클 실측 — 통계검증 /execute 서버 응답 (단일 세트 기준):
+
+      변형              | 통계검증(초) | 20초 락 대비
+      ------------------|--------------|------------------------------
+      (a) 단순          |    10.22     | 단일 세트로도 절반 소진
+      (b) INNER JOIN    |    13.79     | 69% 소진
+      (c) LEFT OUTER    |     9.71     | 49% 소진
+      (d) UNION ALL     |    14.29     | 71% 소진
+      (e) CTE           |    10.20     | 51% 소진
+      (f) 복합          |    21.08     | **단일 세트만으로 이미 초과**
+      ------------------|--------------|------------------------------
+      범위              |  9.71~21.08  |
+
+  · 위 값은 통계검증 SQL 실행 구간만이다. 다중 세트 경로의 벽시계에는
+    /groupby-plan(실행계획 생성) + 세트마다 /generate(SQL 생성) 가 추가로 포함된다.
+  · 관측된 상황은 GROUP BY 2축 → 세트 2개다. 대략적 합계는
+      /groupby-plan + (generate + execute) × 2 ≈ 20~45초
+    → **20초 락은 사실상 100% 만료된다.** 관측된 "경과 19초 시점 팝업"이 정확히 이 구조다.
+  · 규모 확대 시 악화가 확정적이다. 통계검증은 규모에 대해 거의 정확히 선형(×42.7 @ ×50배)이므로
+    행수가 늘수록 20초 초과 폭이 그대로 커진다.
+
+6-3. 계층 간 기준값 불일치
+───────────────────────────────────────────────────────────────────────────────
+
+      계층                          | 상한      | 근거
+      ------------------------------|-----------|----------------------------------------
+      커맨드바 버튼 락 강제해제      | **20초**  | tabler_renderer.py:6378 (하드코딩)
+      통계검증 SQL 실행 상한         | 60초      | stats_execute_service.EXECUTE_STATEMENT_TIMEOUT_MS
+                                    |           | (env MV_EXECUTE_STATEMENT_TIMEOUT_MS 로 조정 가능)
+      COUNT SQL 실행 상한            | 60초      | db_query_service.COUNT_STATEMENT_TIMEOUT_MS
+      HTTP/ASGI 요청 타임아웃        | 없음      | uvicorn 기본(timeout 미지정)
+
+  · 가장 안쪽 계층(20초)이 가장 바깥 계층(60초)의 1/3 이다. 구조적으로 뒤집혀 있다.
+  · 서버가 정상적으로 최대 60초까지 일할 수 있도록 허용해놓고, 클라이언트는 20초에
+    "지연됐다"고 판단해 잠금을 푼다. 즉 **정상 동작 구간의 40초가 통째로 오경보 구간**이다.
+  · 조정 가능성도 역전돼 있다. 서버 상한은 env 로 조정 가능한데, 정작 오경보를 내는
+    클라이언트 20초는 조정 수단이 전혀 없다.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+7. 권장 대응책 (이번 지침 범위 밖 — 제안만, 코드 수정 없음)
+═══════════════════════════════════════════════════════════════════════════════
+
+  우선순위 1 — 공유 가드로 통일 (중복 위험의 근본 원인)
+    runFullValidation()(및 통계검증을 서버에서 수행하는 모든 진입점)이 runExecute 와
+    동일하게 _mvAnyRunActive() 를 확인하도록 한다. 현재는 진입점마다 전용 플래그
+    (_fullRunInProgress / _executeInProgress / _revalidateInProgress / _countInProgress)를
+    따로 두고 서로를 보지 않는 구조라, 진입점이 늘어날 때마다 같은 결함이 재생산된다.
+    _mvAnyRunActive() 는 이미 그 통합 판정용으로 존재하는 함수다.
+
+  우선순위 2 — 락 타임아웃을 액션별로 분리
+    20초는 COUNT/생성 계열에는 타당하다. 통계검증 실행처럼 규모 의존 액션에는 별도 상한
+    (최소한 서버 상한 60초 이상)을 부여한다. 커맨드바 액션 config 에 이미 loading 같은
+    액션별 옵션 채널이 있으므로 lockMaxMs 를 같은 방식으로 얹는 것이 구조적으로 가장 얕다.
+
+  우선순위 3 — 재클릭 무반응 해소
+    runExecute 가 가드에 걸려 return 할 때 사용자에게 "이미 실행 중" 피드백을 준다.
+    현재는 조용히 return 하므로 사용자가 다른 진입점을 찾아 나서게 되고, 그것이 곧
+    3-3 의 중복 경로다. 즉 이 UX 결함이 중복 위험의 트리거 역할을 한다.
+
+  우선순위 4 — 서버측 최소 방어
+    workflow_stage_guard 의 토큰 컨텍스트에 in-flight 표식을 두어 동일 토큰의 동시
+    execute 를 409 로 거부한다. 클라이언트 가드가 뚫려도(새로고침·다중 탭 포함)
+    중복 실행이 DB 에 도달하지 않게 하는 최후 방어선이다.
+
+  ※ 구조적 부작용 검토
+    - 우선순위 1·3 은 기존 함수의 가드 조건 추가로, 판정/실행 로직 변경이 없다.
+    - 우선순위 2 는 커맨드바 공통부에 액션별 상한 개념을 추가하므로 계약 변경이다.
+      다만 기존 20초를 기본값으로 두면 미지정 액션은 회귀가 없다.
+    - 우선순위 4 는 서버 상태를 늘리므로 좀비 표식(비정상 종료 시 해제 누락) 문제가
+      새로 생긴다. 도입 시 TTL 또는 generation 연동 해제가 함께 필요하다.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+8. 조사 방법 및 한계
+═══════════════════════════════════════════════════════════════════════════════
+
+  · 정적 코드 추적 기반. 코드 수정 0건, 서버 기동 0건, 실 DB 실행 0건이다.
+  · 3-3 의 중복 성립은 가드 부재(runFullValidation 이 _executeInProgress /
+    _mvAnyRunActive 를 참조하지 않음)로부터의 코드 근거 판정이며, 실제 동시 2요청을
+    발사해 서버 로그로 확인한 실측은 아니다(중복 부하 유발이라 진단 범위에서 제외).
+  · 5-2 의 "동반 타임아웃" 은 단일 실행 실측치와 60초 상한으로부터의 추정이다.
+    동시 2벌 실행의 실제 경합 계수는 미측정이다.
+  · 시간 실측치는 기존 증적 재인용이다:
+    E:\verify_reports\LARGE-SCALE-50M-QUERY-COMPLEXITY-MISMATCH-EXTRACTION-TEST.txt §3-1 · §6
+  · 타임아웃 계층 표는 docs/STATS_VALIDATION_CHUNKED_VS_SINGLE_TRADEOFF.md 의 실측 확인분을 참조했다.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+9. 확인한 파일·행 목록
+═══════════════════════════════════════════════════════════════════════════════
+
+  ui/tabler_renderer.py:6353-6401    mvCommandBarRunAction — 락/타임아웃/팝업 본체
+  ui/tabler_renderer.py:6378         _LOCK_MAX_MS = 20000 (하드코딩)
+  ui/tabler_renderer.py:6381-6387    강제 해제 타이머 + alert
+  ui/tabler_renderer.py:6405-6434    _mvCmdBarActionHtml — 락 해제 후 버튼 재활성 렌더
+  ui/tabler_renderer.py:6539-6577    4단계 커맨드바 어댑터(runExecute 액션, disabled=false)
+  ui/tabler_renderer.py:15089-15096  _singleNewAbortSignal (reset 전용)
+  ui/tabler_renderer.py:15147        reset 시 abort 호출 지점
+  ui/tabler_renderer.py:15845-15846  runFullValidation — _fullRunInProgress 단독 가드
+  ui/tabler_renderer.py:15927        FULL_RUN reset
+  ui/tabler_renderer.py:15967        fetch('/single/run-standard')
+  ui/tabler_renderer.py:20420        ANALYZE reset
+  ui/tabler_renderer.py:25970-26120  _runExecutePlanSets — 세트 루프(abort signal 없음)
+  ui/tabler_renderer.py:26938-26956  _mvAnyRunActive
+  ui/tabler_renderer.py:28148-28154  runExecute 진입 가드 2종
+  ui/tabler_renderer.py:28197-28206  _executeInProgress set / _execAbort
+  ui/tabler_renderer.py:28287        다중 세트 경로 가드 해제
+  ui/tabler_renderer.py:28313-28342  단일 세트 /execute fetch(signal 有) + stale 응답 폐기
+  ui/tabler_renderer.py:28442        단일 세트 경로 가드 해제
+  routes/execute_route.py:45-120     POST /execute (동기 엔드포인트, persist=False, 중복방어 없음)
+  routes/execute_set_route.py:49     POST /execute/set (가드 호출 자체 없음)
+  routes/single_run_route.py:28      POST /single/run-standard (중복방어 없음)
+  services/workflow_stage_guard.py:94-110   is_enabled (운영 항상 True)
+  services/workflow_stage_guard.py:323-348  validate (동시성 미검사)
+  services/workflow_stage_guard.py:358-377  record_outcome (last-writer-wins)
+
+
+✅ 작업 완료 - REQUEST-LOCK-TIMEOUT-DUPLICATE-SUBMIT-RISK-DIAGNOSE - 중복요청 실질 위험 존재함: 20초 하드코딩 락 해제(_LOCK_MAX_MS, ui/tabler_renderer.py:6378)는 5,000만행 통계검증(단일 세트 9.71~21.08초, 2세트면 20~45초)에서 필연 발동하며, 같은 버튼 재클릭은 runExecute 의 이중 가드(_executeInProgress/_mvAnyRunActive)로 차단되어 안전하나 원클릭 전체검증 runFullValidation 은 그 가드를 전혀 참조하지 않아(_fullRunInProgress 단독) 실행 중인 통계검증이 서버에서 계속 도는 채로 /single/run-standard 가 추가 발사되고, 서버측에는 /execute·/execute/set·/single/run-standard 어디에도 진행중 감지·job_id·세션 플래그가 없으며 workflow_stage_guard 도 토큰/지문만 볼 뿐 동시성을 보지 않아 동일 토큰 동시 2요청이 둘 다 통과함 — 부작용은 결과값 오염보다 DB 중복 부하로 60초 EXECUTE_STATEMENT_TIMEOUT_MS 를 건드려 양쪽 동반 실패(보존행 0)로 번지는 가용성 위험이 핵심임 (진단 전용, 코드 수정 0건)
