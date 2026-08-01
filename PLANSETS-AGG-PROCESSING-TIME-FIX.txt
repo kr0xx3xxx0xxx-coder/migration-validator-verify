@@ -1,0 +1,269 @@
+작업명 : PLANSETS-AGG-PROCESSING-TIME-FIX
+
+===============================================================================
+1. 배경과 수정 대상
+===============================================================================
+선행 진단(STAGE4-5-STATUS-TIMING-DISPLAY-STALE-DIAGNOSE)이 확정한 근본원인:
+
+  GROUP BY 2개 이상 선택 시 클라이언트는 다중 세트 경로(_runExecutePlanSets)로 분기하는데,
+  이 경로가 만드는 세트 합산 객체 agg 에 processing_ms 필드가 아예 없다.
+  표시 함수 _mvShowStageProcessingTime 은 `if (ms == null) return;` 로 조기 반환하므로
+
+    (A) 5단계 상단 슬롯(mvStage5ProcessingTime)에 clear 가 넣어둔 "5단계 계산 중..."
+        잠정 문구가 실행 완료 후에도 그대로 남아 영구 고착된다.
+    (B) 4단계 슬롯(mvStage4ProcessingTime)의 실행 완료 갱신도 `r.processing_ms != null`
+        가드에 막혀 /generate 시점 값("0.01초 미만")에 그대로 묶인다.
+
+같은 모양의 결함이 서버 원클릭 경로(services/single_validation_run_facade._run_multi_gb_sets)의
+agg 리터럴에도 대칭으로 존재했다(주석에 "클라 _runExecutePlanSets agg 와 동형"이라 명시돼 있음).
+
+수정 대상 파일:
+  - ui/tabler_renderer.py                      (클라 다중 세트 agg + runExecute finally 안전망)
+  - services/single_validation_run_facade.py   (서버 원클릭 경로 agg — 클라와 대칭)
+  - ui/validation_plan_renderer.py             (표시 함수에 선택 인자 label 추가)
+  - ui/js_sql_preview.py                       (4단계 생성 시점 라벨)
+
+지침이 요구한 적용 순서 (2) → (1) → (3) 을 그대로 지켰다.
+
+===============================================================================
+2. 수정 내용
+===============================================================================
+(2) 안전망 — 5단계 finally 잔여 "계산 중" 청소  [ui/tabler_renderer.py, runExecute]
+
+  runExecute 의 다중 세트 분기 finally 에, 2단계(COUNT)가 같은 증상에 붙인 청소 패턴
+  (COUNT-GATE-LIVE-SESSION-LABEL-MISMATCH-FIX)의 조건식·구조를 그대로 재사용했다.
+  새 패턴을 발명하지 않았다.
+
+      if (_ver === _singleSessionVer()) {
+        try {
+          var _s5pt = document.getElementById('mvStage5ProcessingTime');
+          if (_s5pt && (_s5pt.textContent || '').indexOf('계산 중') >= 0) _s5pt.textContent = '';
+        } catch (e) {}
+      }
+
+  세션 가드 안에 둬서 늦게 끝난 이전 세션이 새 세션 표시를 건드리지 않게 했다(§40 동일 취지).
+  근본수정 (1) 이 적용되면 정상 종료에서는 이미 처리시간으로 교체돼 있어 no-op 이다 —
+  실행계획 생성 실패·세트 없음 같은 조기 return, 예외, abort 종료에서만 실제로 발동하는
+  최후 방어선으로 남긴다.
+
+(1) 근본 수정 — agg 에 처리시간 포함 (클라/서버 대칭)
+
+  ■ 클라이언트 (ui/tabler_renderer.py, _runExecutePlanSets)
+      함수 진입 직후 벽시계 시작 → 전 세트 루프 종료 직후 경과 확정 → agg 리터럴에 포함.
+
+        var _psT0 = (window.performance && performance.now) ? performance.now() : Date.now();
+        ...(/groupby-plan → 세트별 /generate + /execute 루프)...
+        var _psWallMs = Math.round((now - _psT0) * 10) / 10;
+        var agg = { ..., processing_ms: _psWallMs };
+
+      세트별 processing_ms 단순 합산을 쓰지 않은 이유(지침 지시대로):
+      서버가 조건 충족 시 최대 2세트를 동시 실행(_stats_set_parallelism)하므로 합산값은
+      실제 벽시계보다 커져 부정확하다. 감싸는 방식은 순차/병렬 어느 쪽이든 사용자가 실제로
+      기다린 시간과 일치한다.
+      시작점을 함수 진입(= /groupby-plan 호출 이전)으로 잡은 것은, 이 경로의 4단계 진행
+      표시가 이미 "세트 계획(/groupby-plan) 구간도 실행 시간에 포함된다"고 선언하고 있는
+      것과 맞추기 위함이다.
+      단위·자릿수는 서버 라우트(routes/execute_route.py)의 round(..., 1) 규약과 동일하게 맞췄다.
+
+  ■ 서버 (services/single_validation_run_facade.py, _run_multi_gb_sets)
+      동일 구조로 세트 실행 전체를 감싸는 perf_counter 벽시계 1개를 두고 agg 에 넣었다.
+
+        import time as _pt_rt
+        _pt_t0 = _pt_rt.perf_counter()
+        ...(_stats_set_parallelism 판정 → 순차 또는 최대 2세트 병렬 실행)...
+        _pt_wall_ms = round((_pt_rt.perf_counter() - _pt_t0) * 1000.0, 1)
+        agg = { ..., "processing_ms": _pt_wall_ms }
+
+      한쪽만 고치면 단계별 수동실행(클라) 또는 원클릭(서버) 중 하나만 나아지므로 양쪽 다 고쳤다.
+
+(3) 문구 정정 — 4단계 라벨이 실행시간을 암시하는 오해 해소
+
+  ui/validation_plan_renderer.py 의 _mvShowStageProcessingTime 에 선택 인자 label 을 추가했다.
+  기존 호출부(1/2/4-실행완료/5단계)는 인자를 넘기지 않으므로 문구가 그대로다 — 기존 표기 관례
+  "N단계 XXX: 값" 을 유지했고 새 용어를 만들지 않았다.
+
+        span.textContent = label ? (' · ' + stageNum + '단계 ' + label + ': ' + _mvFmtStageDur(ms))
+                                 : (' · ' + stageNum + '단계 처리시간: ' + _mvFmtStageDur(ms));
+
+  ui/js_sql_preview.py 의 renderSQL(= SQL 생성 직후)만 label 을 넘긴다:
+
+        _mvShowStageProcessingTime(4, g.processing_ms, 'SQL 생성 시간');
+
+  → 생성 시점  : " · 4단계 SQL 생성 시간: 0.01초 미만"   (DB 접속 없음 — 진단 §4-B3 확정)
+    실행 완료  : " · 4단계 처리시간: 0.83초"             (실제 실행시간으로 덮어씀)
+
+  (1)과의 상호작용: (1)이 적용돼 다중 세트 실행 완료 후에도 4단계 슬롯이 실제 값으로 갱신되므로,
+  구분 표기는 "생성 시점"에만 해당한다. 실행 완료 시 갱신 경로(_mvRenderValidationDetail)는
+  label 을 넘기지 않아 기존 "처리시간" 라벨을 유지한다.
+
+===============================================================================
+3. 실측 검증 (실 오라클 · 실 브라우저 · 실 서비스)
+===============================================================================
+환경
+  - 서버      : 포트 8000(수정본, 재기동 후 최신 코드 서빙 확인) / 포트 8010(MV_STATS_SET_PARALLEL=1)
+                / 포트 8020(baseline 85bccc5 worktree — 서버측 before 전용)
+  - DB        : Oracle_asis(192.168.0.151:1523) → Oracle_tobe(192.168.0.151:1524)
+  - 픽스처    : NXDNP.MV_COMBO_SRC / MV_COMBO_TGT 각 1,200행 (진단서 확인대로 소규모로 100% 재현.
+                5,000만행 픽스처 불필요)
+  - GROUP BY  : 다중 = STATUS_CD + DEPT_CD (2축) / 단일 = STATUS_CD (1축), SUM = AMT
+  - 드라이버  : scripts/dev_e2e/plansets_agg_processing_time_verify.py (클릭·관측만, 강제 주입 없음)
+
+작업 시작 전 서버 상태 확인
+  기동 중이던 8000 서버가 구 모듈을 서빙 중임을 HTML 마커로 먼저 확인하고 before 를 캡처했다.
+  다만 검증 도중 중요한 사실이 하나 드러났다 — routes/single_run_route.py 는 facade 를
+  "요청 시점 지연 import" 하므로, ui/* 는 기동 시점(구) 모듈인데 services/* facade 는 첫 원클릭
+  요청 때 수정본이 적재된다. 그래서 8000 에서 찍은 원클릭 before 는 "구 클라 + 신 서버" 혼합
+  상태였다. 이를 오염으로 판단하고, 서버측 before 는 baseline worktree(85bccc5) 를 8020 에
+  따로 띄워 다시 캡처했다. 아래 원클릭 before 수치는 그 재캡처 값이다.
+
+─────────────────────────────────────────────────────────────────────────────
+3-1. 다중 세트(GROUP BY 2축) · 단계별 수동 실행  — 재현 및 해소
+─────────────────────────────────────────────────────────────────────────────
+                              before(구 코드)                after(수정본)
+  4단계 SQL 생성 직후    " · 4단계 처리시간: 0.01초 미만"  " · 4단계 SQL 생성 시간: 0.01초 미만"
+  4단계 실행 완료        " · 4단계 처리시간: 0.01초 미만"  " · 4단계 처리시간: 0.83초"
+                          (생성 시점 값에 고착)             (실제 실행시간으로 갱신)
+  5단계 진입             " · 5단계 계산 중..."             " · 5단계 처리시간: 0.83초"
+                          (완료 후에도 영구 고착)
+  agg.processing_ms       없음(false)                       828.3
+  세트 구성               [STATUS_CD], [DEPT_CD] 2세트      동일
+  세트별 /execute 시간    236.3 / 221.7 ms                  222.4 / 190.5 ms
+
+  → 증상 (A)(B) 모두 before 에서 100% 재현되고 after 에서 해소됨.
+  → 벽시계 828.3ms 는 세트별 합(412.9ms)보다 크다. 클라 경로는 세트를 순차 실행하며
+    /groupby-plan 1회 + /generate 2회 + HTTP 왕복이 그 차이다 — 사용자가 실제로 기다린 시간.
+
+  스크린샷: before_multi_A/B/C_*.png ↔ after_multi_A/B/C_*.png
+
+─────────────────────────────────────────────────────────────────────────────
+3-2. 단일 세트(GROUP BY 1축) 무회귀  — 가장 중요
+─────────────────────────────────────────────────────────────────────────────
+                              before                          after
+  4단계 실행 완료        " · 4단계 처리시간: 0.18초"       " · 4단계 처리시간: 0.18초"
+  5단계                  " · 5단계 처리시간: 0.18초"       " · 5단계 처리시간: 0.18초"
+
+  → 값·문구 완전 동일. 이번 수정은 단일 세트 경로(runExecute 의 /execute 직행 분기)를
+    코드상으로도 한 줄도 건드리지 않았다(git diff 로 확인 가능).
+  → 단일 세트에서도 생성 시점 라벨만 "4단계 SQL 생성 시간"으로 바뀌는데, 이는 (3)의 의도된
+    구분 표기이며 실행 완료 후에는 기존과 동일하게 "4단계 처리시간"으로 덮어써진다.
+
+  스크린샷: before_single_A/B/C_*.png ↔ after_single_A/B/C_*.png
+
+─────────────────────────────────────────────────────────────────────────────
+3-3. 원클릭 실행 경로(서버 agg) — 클라와 별개 경로로 별도 확인
+─────────────────────────────────────────────────────────────────────────────
+                        before(baseline 8020)        after(8000)
+  agg.processing_ms      없음(false)                  30.7
+  4단계 슬롯             "" (표시 없음)                " · 4단계 처리시간: 0.03초"
+  5단계 슬롯             "" (표시 없음)                " · 5단계 처리시간: 0.03초"
+  server_executed        true                          true
+  세트 구성              [STATUS_CD], [DEPT_CD]        동일
+
+  → 원클릭은 runExecute 를 타지 않아 "계산 중" 잠정 문구 자체가 없다. 그래서 before 증상은
+    "고착"이 아니라 "처리시간이 아예 표시되지 않음"이었고, after 에서 정상 표시된다.
+  → 서버 벽시계(30.7ms)가 클라 벽시계(828.3ms)보다 훨씬 작은 것은 정상이다. 서버 경로는
+    같은 프로세스 안에서 풀 연결로 generate+execute 를 수행해 HTTP 왕복·/groupby-plan 이
+    없다(원클릭 전체 diagnostics.total_ms 는 1,153.4ms 로 analyze/count 가 대부분을 차지).
+
+  스크린샷: before_srv_oneclick_*.png ↔ after_oneclick_*.png
+  원문 응답 근거: observed_raw_agg_probe.json (네트워크 응답에서 agg key 목록을 직접 확인)
+
+─────────────────────────────────────────────────────────────────────────────
+3-4. 세트 병렬 실행(MV_STATS_SET_PARALLEL) ON/OFF 양쪽
+─────────────────────────────────────────────────────────────────────────────
+                        OFF(기본, 순차)                    ON(병렬 2)
+  set_parallelism        1                                  2
+  판정 사유              flag_off_default                   parallel_2(diff_db+pool_headroom)
+  agg.processing_ms      30.7ms → " · 0.03초"               132.4ms → " · 0.13초"
+
+  → 양쪽 모두 합리적 범위에서 표시된다. 벽시계 방식이므로 병렬이어도 세트별 시간의 합으로
+    과대표시되지 않는다.
+  → 이 성질은 단위 테스트로도 못박았다: 세트 2개가 각각 0.30초 걸리는 stub 을 병렬(level 2)로
+    돌렸을 때 agg.processing_ms 가 합(0.60초)이 아니라 300~550ms 범위여야 통과한다
+    (tests/test_plansets_agg_processing_time_fix.py::test_server_agg_wall_clock_not_inflated_by_parallel_sets).
+  → 참고: 클라이언트 경로는 JS for-루프로 항상 순차 실행이라 병렬 설정의 영향을 받지 않는다.
+    그래도 합산이 아닌 벽시계를 쓴 것은 서버와 동형 계약을 유지하고, 향후 클라가 병렬화돼도
+    표시가 틀어지지 않게 하기 위함이다.
+
+─────────────────────────────────────────────────────────────────────────────
+3-5. 4단계 문구 구분 표시
+─────────────────────────────────────────────────────────────────────────────
+  SQL 생성 시점 : " · 4단계 SQL 생성 시간: 0.01초 미만"   (after_multi_A_step4_after_generate_slot.png)
+  실행 완료 시점: " · 4단계 처리시간: 0.83초"             (after_multi_B_step4_after_execute_slot.png)
+  → 두 시점이 서로 다른 라벨로 올바르게 구분된다. 다른 단계(1/2/3/5) 문구는 불변.
+
+===============================================================================
+4. 자체 테스트 / 회귀
+===============================================================================
+신규 회귀 테스트: tests/test_plansets_agg_processing_time_fix.py (6건, 전부 통과)
+  - 클라 agg 의 processing_ms 가 벽시계이며 측정 구간이 세트 실행 전체를 감싸는지(순서 검증)
+  - 세트별 processing_ms 합산을 쓰지 않는지
+  - 다중 세트 finally 의 "계산 중" 청소 존재 + 세션 가드 안에 있는지
+  - node 로 청소 로직 실제 동작 재현: 조기 종료면 고착 제거, 정상 종료면 no-op(값 보존)
+  - 4단계 라벨이 생성/실행 두 시점을 구분하는지 + 기존 문구 불변인지
+  - 서버 agg 의 processing_ms 가 벽시계인지 / 병렬에서 합보다 작은지(과대표시 금지)
+
+기존 테스트 계약 갱신(시그니처 확장에 따른 앵커 문자열 3개 파일 4곳):
+  tests/test_all_stages_timing_display_expand.py
+  tests/test_stage_processing_time_stale_value_fix.py
+  tests/test_stage_button_dedup_time_scope_and_gate45_fix.py
+  → 모두 통과. 표시 문구 계약("' · ' + stageNum + '단계 처리시간: '")은 그대로 남겨
+    다른 단계 표시 회귀가 없음을 계속 강제한다.
+
+관련 서브셋 회귀 (187개 테스트 파일, timing/stage/d7_/facade/standard/sql_preview/execute/
+combo/step4/step5/groupby/single/nav/processing 매칭):
+
+  수정본(main 7b955d0) : 1,660 passed · 105 failed · 4 errors · 9 skipped · 3 xfailed (24분 53초)
+  baseline(85bccc5, 별도 worktree)에서 위 실패 107개 node id 를 그대로 재실행:
+                        105 failed · 4 errors (7분 4초)
+
+  실패 node id 집합 비교 결과:
+      after 에만 있는 실패(=신규 회귀) : 0건
+      baseline 에만 있는 실패          : 0건
+      두 목록 md5 완전 일치 (f3ec3f459d6e2a904ef716cb2ee27acc)
+
+  → 105 failed + 4 errors 는 전부 이번 작업 이전부터 존재하던 실패다. 신규 회귀 0건.
+  → 표본 확인: tests/test_d7_9_gb0_fallback.py::test_stage_timing_display 는 이름이 유사해
+    관련성을 의심할 만하지만, 실제 실패 사유는 "_mvStageTimingHtml() 호출 문자열 부재"로
+    이번 수정과 무관한 별개 기능(단계 타이밍 표 HTML)의 기존 실패다.
+
+  ※ 실패 105건 + 오류 4건 전체 목록은 증적 폴더의 failed_tests_after.txt /
+    failed_tests_baseline.txt 에 그대로 저장했다(두 파일 내용 동일).
+
+===============================================================================
+5. 변경 파일 / 커밋
+===============================================================================
+커밋: 7b955d0  fix(single): 다중 세트(GROUP BY 2축↑) 처리시간 미표시로 5단계 "계산 중" 고착 수정
+                (PLANSETS-AGG-PROCESSING-TIME-FIX)
+직전 커밋(baseline): 85bccc5
+
+  services/single_validation_run_facade.py           |  15 +-   (서버 agg 벽시계)
+  ui/tabler_renderer.py                              |  37 +-   (클라 agg 벽시계 + finally 안전망)
+  ui/validation_plan_renderer.py                     |  11 +-   (label 선택 인자)
+  ui/js_sql_preview.py                               |  10 +-   (4단계 생성 시점 라벨)
+  tests/test_plansets_agg_processing_time_fix.py     | 182 +    (신규 회귀 테스트)
+  tests/test_all_stages_timing_display_expand.py     |   7 +-
+  tests/test_stage_processing_time_stale_value_fix.py|   4 +-
+  tests/test_stage_button_dedup_time_scope_and_gate45_fix.py | 2 +-
+  scripts/dev_e2e/plansets_agg_processing_time_verify.py     | 451 +  (실측 드라이버)
+  scripts/dev_e2e/plansets_oneclick_raw_agg_probe.py         |  84 +  (응답 원문 probe)
+  scripts/dev_e2e/_plansets_server_8010_parallel.py          |  15 +  (병렬 ON 기동)
+  총 11 files, 805 insertions(+), 13 deletions(-)
+
+===============================================================================
+6. 남은 관찰 / 후속 참고
+===============================================================================
+- routes/single_run_route.py 의 facade 지연 import 때문에, 서버를 재기동하지 않아도
+  services/* 수정본이 다음 요청부터 적재된다(ui/* 는 기동 시점 고정). before/after 대조 시
+  "구 클라 + 신 서버" 혼합 상태가 만들어질 수 있으므로, 서버측 before 는 반드시 baseline
+  worktree 를 별도 포트로 띄워 잡아야 한다. 이번에 실제로 겪었고 그렇게 처리했다.
+- 원클릭 경로는 5단계 슬롯에 "계산 중" 잠정 문구를 넣지 않는다(_mvClearStageProcessingTime(5)
+  호출부가 runExecute 한 곳뿐). 즉 (2) 안전망은 단계별 수동 실행 경로 전용이다. 원클릭에서
+  실행이 실패해도 슬롯이 고착되지는 않으므로 추가 안전망은 두지 않았다.
+
+실검증 상태: 실 오라클(192.168.0.151 asis 1523 / tobe 1524)·실 브라우저(Playwright)·
+실 서비스(포트 8000/8010/8020) 클릭 기반 실측 완료 — 강제 주입 없이 관측만 수행.
+
+✅ 작업 완료 - PLANSETS-AGG-PROCESSING-TIME-FIX - 다중 세트 agg 에 벽시계 processing_ms 를
+클라/서버 대칭으로 추가해 5단계 "계산 중" 고착과 4단계 생성시점 값 고착을 해소하고,
+finally 안전망과 4단계 라벨 구분(SQL 생성 시간 vs 처리시간)까지 적용

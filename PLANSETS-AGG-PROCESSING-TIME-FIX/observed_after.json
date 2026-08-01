@@ -1,0 +1,296 @@
+{
+  "tag": "after",
+  "task": "PLANSETS-AGG-PROCESSING-TIME-FIX",
+  "base": "http://localhost:8000/",
+  "cases": [
+    "multi",
+    "single",
+    "oneclick"
+  ],
+  "started": "2026-08-01 17:46:51",
+  "setup": {
+    "pair": "Oracle_asis → Oracle_tobe",
+    "connected": true,
+    "rows": 1,
+    "created": true
+  },
+  "1_analyze_multi": {
+    "blocked": false,
+    "error": "",
+    "gb_cand": [
+      "STATUS_CD",
+      "DEPT_CD"
+    ]
+  },
+  "2_count_multi": {
+    "status": "COUNT_MATCHED",
+    "src": 1200,
+    "tgt": 1200
+  },
+  "3_sel_multi": {
+    "gb": [
+      "STATUS_CD",
+      "DEPT_CD"
+    ],
+    "sum": [
+      "AMT"
+    ],
+    "unchecked": []
+  },
+  "4_after_generate_multi": {
+    "step": "validation",
+    "slot4": " · 4단계 SQL 생성 시간: 0.01초 미만",
+    "slot4_visible": true,
+    "slot5": "",
+    "slot5_visible": false,
+    "agg_has_processing_ms": false,
+    "agg_processing_ms": null,
+    "n_sets": 0,
+    "set_cols": [],
+    "server_executed": false,
+    "set_parallelism": null,
+    "set_parallelism_reason": null,
+    "set_processing_ms": [],
+    "agg_success": null
+  },
+  "4_after_execute_multi": {
+    "step": "validation",
+    "slot4": " · 4단계 처리시간: 0.83초",
+    "slot4_visible": true,
+    "slot5": " · 5단계 처리시간: 0.83초",
+    "slot5_visible": false,
+    "agg_has_processing_ms": true,
+    "agg_processing_ms": 828.3,
+    "n_sets": 2,
+    "set_cols": [
+      [
+        "STATUS_CD"
+      ],
+      [
+        "DEPT_CD"
+      ]
+    ],
+    "server_executed": false,
+    "set_parallelism": null,
+    "set_parallelism_reason": null,
+    "set_processing_ms": [
+      222.4,
+      190.5
+    ],
+    "agg_success": true,
+    "wall_elapsed_sec": 1.43,
+    "completed": true
+  },
+  "5_result_multi": {
+    "step": "result",
+    "slot4": " · 4단계 처리시간: 0.83초",
+    "slot4_visible": false,
+    "slot5": " · 5단계 처리시간: 0.83초",
+    "slot5_visible": true,
+    "agg_has_processing_ms": true,
+    "agg_processing_ms": 828.3,
+    "n_sets": 2,
+    "set_cols": [
+      [
+        "STATUS_CD"
+      ],
+      [
+        "DEPT_CD"
+      ]
+    ],
+    "server_executed": false,
+    "set_parallelism": null,
+    "set_parallelism_reason": null,
+    "set_processing_ms": [
+      222.4,
+      190.5
+    ],
+    "agg_success": true
+  },
+  "1_analyze_single": {
+    "blocked": false,
+    "error": "",
+    "gb_cand": [
+      "STATUS_CD",
+      "DEPT_CD"
+    ]
+  },
+  "2_count_single": {
+    "status": "COUNT_MATCHED",
+    "src": 1200,
+    "tgt": 1200
+  },
+  "3_sel_single": {
+    "gb": [
+      "STATUS_CD"
+    ],
+    "sum": [
+      "AMT"
+    ],
+    "unchecked": [
+      "DEPT_CD"
+    ]
+  },
+  "4_after_generate_single": {
+    "step": "validation",
+    "slot4": " · 4단계 SQL 생성 시간: 0.01초 미만",
+    "slot4_visible": true,
+    "slot5": " · 5단계 처리시간: 0.83초",
+    "slot5_visible": false,
+    "agg_has_processing_ms": true,
+    "agg_processing_ms": 828.3,
+    "n_sets": 2,
+    "set_cols": [
+      [
+        "STATUS_CD"
+      ],
+      [
+        "DEPT_CD"
+      ]
+    ],
+    "server_executed": false,
+    "set_parallelism": null,
+    "set_parallelism_reason": null,
+    "set_processing_ms": [
+      222.4,
+      190.5
+    ],
+    "agg_success": true
+  },
+  "4_after_execute_single": {
+    "step": "validation",
+    "slot4": " · 4단계 처리시간: 0.18초",
+    "slot4_visible": true,
+    "slot5": " · 5단계 처리시간: 0.18초",
+    "slot5_visible": false,
+    "agg_has_processing_ms": true,
+    "agg_processing_ms": 828.3,
+    "n_sets": 2,
+    "set_cols": [
+      [
+        "STATUS_CD"
+      ],
+      [
+        "DEPT_CD"
+      ]
+    ],
+    "server_executed": false,
+    "set_parallelism": null,
+    "set_parallelism_reason": null,
+    "set_processing_ms": [
+      222.4,
+      190.5
+    ],
+    "agg_success": true,
+    "wall_elapsed_sec": 0.72,
+    "completed": true
+  },
+  "5_result_single": {
+    "step": "result",
+    "slot4": " · 4단계 처리시간: 0.18초",
+    "slot4_visible": false,
+    "slot5": " · 5단계 처리시간: 0.18초",
+    "slot5_visible": true,
+    "agg_has_processing_ms": true,
+    "agg_processing_ms": 828.3,
+    "n_sets": 2,
+    "set_cols": [
+      [
+        "STATUS_CD"
+      ],
+      [
+        "DEPT_CD"
+      ]
+    ],
+    "server_executed": false,
+    "set_parallelism": null,
+    "set_parallelism_reason": null,
+    "set_processing_ms": [
+      222.4,
+      190.5
+    ],
+    "agg_success": true
+  },
+  "oneclick_after_run": {
+    "step": "result",
+    "slot4": " · 4단계 처리시간: 0.03초",
+    "slot4_visible": false,
+    "slot5": " · 5단계 처리시간: 0.03초",
+    "slot5_visible": true,
+    "agg_has_processing_ms": true,
+    "agg_processing_ms": 30.7,
+    "n_sets": 2,
+    "set_cols": [
+      [
+        "STATUS_CD"
+      ],
+      [
+        "DEPT_CD"
+      ]
+    ],
+    "server_executed": true,
+    "set_parallelism": 1,
+    "set_parallelism_reason": "flag_off_default",
+    "set_processing_ms": [
+      null,
+      null
+    ],
+    "agg_success": true,
+    "wall_elapsed_sec": 1.42,
+    "completed": true
+  },
+  "oneclick_step4": {
+    "step": "validation",
+    "slot4": " · 4단계 처리시간: 0.03초",
+    "slot4_visible": true,
+    "slot5": " · 5단계 처리시간: 0.03초",
+    "slot5_visible": false,
+    "agg_has_processing_ms": true,
+    "agg_processing_ms": 30.7,
+    "n_sets": 2,
+    "set_cols": [
+      [
+        "STATUS_CD"
+      ],
+      [
+        "DEPT_CD"
+      ]
+    ],
+    "server_executed": true,
+    "set_parallelism": 1,
+    "set_parallelism_reason": "flag_off_default",
+    "set_processing_ms": [
+      null,
+      null
+    ],
+    "agg_success": true
+  },
+  "oneclick_step5": {
+    "step": "result",
+    "slot4": " · 4단계 처리시간: 0.03초",
+    "slot4_visible": false,
+    "slot5": " · 5단계 처리시간: 0.03초",
+    "slot5_visible": true,
+    "agg_has_processing_ms": true,
+    "agg_processing_ms": 30.7,
+    "n_sets": 2,
+    "set_cols": [
+      [
+        "STATUS_CD"
+      ],
+      [
+        "DEPT_CD"
+      ]
+    ],
+    "server_executed": true,
+    "set_parallelism": 1,
+    "set_parallelism_reason": "flag_off_default",
+    "set_processing_ms": [
+      null,
+      null
+    ],
+    "agg_success": true
+  },
+  "errors": [],
+  "finished": "2026-08-01 17:49:58"
+}
