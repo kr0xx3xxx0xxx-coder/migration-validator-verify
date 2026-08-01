@@ -1,0 +1,326 @@
+작업명 : STAGE4-5-STATUS-TIMING-DISPLAY-STALE-DIAGNOSE
+작성일 : 2026-08-01
+성격   : 순수 진단(코드 수정 없음). 운영 코드 한 줄도 건드리지 않았다.
+결론요약: 증상 A와 B는 서로 다른 두 결함이 아니라 **같은 한 곳의 누락**에서 나온 쌍둥이 증상이다.
+         GROUP BY 를 2개 이상 선택하면 실행이 _runExecutePlanSets(다중 세트) 경로로 분기하는데,
+         이 경로가 만드는 합산 결과객체 agg 에 processing_ms 필드가 없다. 그래서
+         5단계 슬롯은 '계산 중...'에서 영원히 벗어나지 못하고(A), 4단계 슬롯은 SQL 생성 시점
+         값('0.01초 미만')에 그대로 묶인다(B).
+
+
+────────────────────────────────────────────────────────────────────────
+1. 조사 대상 증상 (사용자 관측)
+────────────────────────────────────────────────────────────────────────
+  증상A: 5단계 상단에 "5단계 계산 중..."이 계속 표시되는데, 그 아래 결과표
+         (COUNT/통계결과/불일치그룹/재이관대상/드릴다운)는 이미 전부 값이 채워진 완료 상태.
+         같은 화면에 "상세 불일치 처리 총 소요시간 31.40초" 같은 실제 계측값도 이미 표시됨.
+  증상B: 4단계 화면(조합 축 REGION_CD + STATUS_CD 검토 중)에 "4단계 처리시간: 0.01초 미만".
+         5,000만행 GROUP BY 가 0.01초에 끝나는 것은 물리적으로 불가능.
+
+  두 증상의 공통 관측 조건: **GROUP BY 를 2개(REGION_CD, STATUS_CD) 선택했다**는 점.
+  이 조건이 원인 규명의 열쇠였다.
+
+
+────────────────────────────────────────────────────────────────────────
+2. 표시 배선의 전체 구조 (먼저 확인한 사실)
+────────────────────────────────────────────────────────────────────────
+  단계별 처리시간 문구는 1~5단계가 각자 전용 DOM 슬롯(#mvStage{N}ProcessingTime)을 갖고,
+  딱 두 함수만이 그 슬롯의 텍스트를 바꾼다. 둘 다 ui/validation_plan_renderer.py 에 있다.
+
+  (a) 계산 시작 시 — 자기 슬롯에 '계산 중...' 을 써 넣는다.
+
+      ui/validation_plan_renderer.py:805-811
+        function _mvClearStageProcessingTime(stageNum) {
+          try {
+            var span = document.getElementById('mvStage' + stageNum + 'ProcessingTime');
+            if (span) span.textContent = ' · ' + stageNum + '단계 계산 중...';
+          } catch (e) {}
+          ...
+        }
+
+  (b) 완료 시 — 그 자리를 실제 처리시간으로 교체한다. **단, ms 가 null/undefined 면
+      아무것도 하지 않고 즉시 되돌아간다.**
+
+      ui/validation_plan_renderer.py:790-802
+        function _mvShowStageProcessingTime(stageNum, ms) {
+          try {
+            if (ms == null) return;                    ← 이 한 줄이 이번 증상의 방아쇠
+            if (typeof _mvCurrentTab !== 'undefined' && _mvCurrentTab !== 'analyze') return;
+            var span = document.getElementById('mvStage' + stageNum + 'ProcessingTime');
+            if (!span) return;
+            span.textContent = ' · ' + stageNum + '단계 처리시간: ' + _mvFmtStageDur(ms);
+          } catch (e) {}
+          ...
+        }
+
+  즉 이 구조는 **"완료 신호가 오지 않으면 '계산 중' 문구가 그대로 남는다"**는 성질을 갖는다.
+  청소해 주는 안전망이 따로 없다. (§7 에서 다루듯 2단계만 예외적으로 안전망이 있다.)
+
+  ms 값의 출처는 전부 서버 응답의 processing_ms 필드이며, 4개 라우트가 각자 부착한다.
+    routes/analyze  → diagnostics.total_ms   (1단계)
+    routes/count_route.py:34-37              (2단계)
+    routes/validation_set_preview_route.py:105-108 (3단계)
+    routes/generate_route.py:39-42           (4단계)
+    routes/execute_route.py:94-97            (5단계)
+      _t0 = _rt.perf_counter()
+      resp = run_single_validation_execute_flow(req, persist=False)
+      if isinstance(resp, dict):
+          resp["processing_ms"] = round((_rt.perf_counter() - _t0) * 1000.0, 1)
+
+  → 서버는 정상적으로 값을 만들어 내려준다. 문제는 서버가 아니라 **클라이언트가 그 값을
+    어디로 흘려보내는가**에 있었다.
+
+
+────────────────────────────────────────────────────────────────────────
+3. 【A 결론】"5단계 계산 중..." 고착 — 원인은 agg 에 processing_ms 가 없기 때문
+────────────────────────────────────────────────────────────────────────
+  ■ A-1. 문구를 렌더링하는 코드 위치
+    - '계산 중' 세팅: ui/tabler_renderer.py:28223 (runExecute 시작 시)
+        /* STAGE-PROCESSING-TIME-STALE-VALUE-FIX: 5단계 실행 시작 — 자기 슬롯만 초기화 */
+        if (typeof _mvClearStageProcessingTime === 'function') _mvClearStageProcessingTime(5);
+    - 완료 값 교체: ui/tabler_renderer.py:16205 (_mvRenderValidationDetail 안)
+        if (typeof _mvShowStageProcessingTime === 'function' && r) _mvShowStageProcessingTime(5, r.processing_ms);
+
+    실측으로 확인한 바, 5단계 슬롯을 만지는 코드는 **전 코드베이스에서 이 두 곳뿐**이다.
+      _mvShowStageProcessingTime(5, ...) 호출 지점 : 1곳
+      _mvClearStageProcessingTime(5)   호출 지점 : 1곳
+
+  ■ A-2. 무슨 신호를 보고 '계산 중'에서 벗어나는가
+    폴링도 타이머도 job 상태 조회도 **아니다**. 오직 위 16205 한 줄이 실행되고, 그때 넘긴
+    r.processing_ms 가 null 이 아닐 때만 벗어난다. 단발 콜백 하나가 유일한 탈출구다.
+
+  ■ A-3. 결과표와 상태 문구는 다른 상태 소스를 보는가
+    엄밀히는 "다른 소스"가 아니라 **같은 객체의 채워진 필드 vs 비어 있는 필드**다.
+    _mvRenderValidationDetail(ui/tabler_renderer.py:16199~) 은 같은 r 객체 하나로
+    상태 문구와 결과표를 둘 다 그린다.
+      · 상태 문구 → r.processing_ms       (16205)
+      · 결과표    → r.rows / opts.planRun (16241-16248), 요약 → r.matched/diff/... (16214)
+    다중 세트 경로에서 r 로 넘어오는 것은 서버 응답이 아니라 **클라이언트가 합성한 agg** 인데,
+    이 agg 는 rows·matched·diff 는 채우면서 processing_ms 는 만들지 않는다. 그래서
+    결과표는 완료 상태로 그려지고 상태 문구만 '계산 중'에 남는, 정확히 관측된 그림이 나온다.
+
+  ■ A-4. 결정적 근거 — agg 리터럴 (ui/tabler_renderer.py:26059-26061)
+
+      var agg = { success: results.every(function(x){ return x.r && x.r.success !== false; }),
+                  matched: 0, diff: 0, src_only: 0, tgt_only: 0, total_groups: 0, rows: [],
+                  val_cols: [], gb_keys: [], groupby_execution_safety: null };
+
+    이어지는 합산 루프(26062-26070)도 matched/diff/src_only/tgt_only/total_groups/rows/val_cols
+    만 더한다 — **processing_ms 는 선언되지도, 합산되지도 않는다.**
+    그리고 이 agg 가 그대로 렌더로 넘어간다 (26116-26117):
+
+      if (typeof _mvRenderValidationDetail === 'function')
+        _mvRenderValidationDetail({ r: agg, planRun: window._execPlanRun });
+
+    정적 확인 결과: _runExecutePlanSets 함수 본문(12,242자) 안에 문자열 "processing_ms" 가
+    **0회** 등장한다. 세트별 /execute 응답 r 에는 서버가 붙여 준 processing_ms 가 분명히
+    들어 있는데(26050 에서 받는다), 합산 단계에서 그 값이 통째로 버려진다.
+
+  ■ A-5. 이 경로로 들어가는 조건 (ui/tabler_renderer.py:28251)
+
+      if (gbSel.length >= 2 && typeof _runExecutePlanSets === 'function') {
+        ... await _runExecutePlanSets({...});
+        return;          ← 단일 세트 경로(28280~28347)를 통째로 건너뛴다
+      }
+
+    → **GROUP BY 2개 이상 선택이 유일한 트리거**다. 사용자는 REGION_CD + STATUS_CD 2축을
+      선택했으므로 정확히 이 분기에 들어갔다.
+
+  ■ A-6. 대용량(5,000만행) 때문에 깨진 것인가 — 아니다
+    폴링 횟수 상한도, 소규모 기준으로 하드코딩된 타임아웃도 이 배선에는 존재하지 않는다.
+    타이밍 가정 자체가 없으므로 데이터 규모와 무관하며, **GROUP BY 2개 이상이면 10행짜리
+    테이블에서도 100% 재현된다.** 5,000만행에서 유독 눈에 띈 이유는 실행이 오래 걸려
+    사용자가 그 문구를 오래 응시하게 됐기 때문이지, 규모가 원인은 아니다.
+    (규모 의존 결함이 아니라 상시 결함이라는 점이 오히려 더 나쁘다.)
+
+
+────────────────────────────────────────────────────────────────────────
+4. 【B 결론】4단계 "0.01초 미만" — 절반은 정직한 값, 절반은 배선 누락
+────────────────────────────────────────────────────────────────────────
+  ■ B-1. 계측·표시 코드 위치
+    - '계산 중' 세팅: ui/tabler_renderer.py:25688 (runGenerate 시작 시, genColBtn 클릭)
+    - 값 표시 ①    : ui/js_sql_preview.py:29 (renderSQL 안)
+        if (typeof _mvShowStageProcessingTime === 'function' && g) _mvShowStageProcessingTime(4, g.processing_ms);
+    - 값 표시 ②    : ui/tabler_renderer.py:16211 (실행 완료 시 최신 실행시간으로 덮어쓰기)
+        if (typeof _mvShowStageProcessingTime === 'function' && r && r.processing_ms != null)
+          _mvShowStageProcessingTime(4, r.processing_ms);
+    3~5단계가 공통 함수(_mvShowStageProcessingTime)를 쓰는 것은 맞으나, **함수 자체에는 결함이
+    없다.** 함수는 받은 값을 정직하게 포맷할 뿐이다.
+
+  ■ B-2. 시작점과 끝점은 무엇인가
+    표시 ①의 값은 /generate 라우트의 서버 왕복 시간이다(routes/generate_route.py:39-42).
+    화면 렌더링 시간이 아니라 **서버 처리시간**을 잰다. 다만 /generate 가 하는 일은
+    "SQL 문자열을 만드는 것"뿐이다.
+
+  ■ B-3. 이 시점에 DB 실행이 실제로 있었는가 — 없었다 (확정)
+    ① /generate 의 본체 generate_single_validation(services/single_validation_core.py:81)
+       은 DB 에 접속하지 않는다. 이것은 추정이 아니라 테스트로 강제되어 있는 계약이다:
+
+         tests/test_individual_connection_scope.py:46-47
+           g = s[s.index("def generate_single_validation"):s.index("def count_single_validation")]
+           assert "_cmn_db_fetch" not in g and "_cmn_db_connect" not in g and "request_connection_scope" not in g
+
+    ② 화면에 보이던 조합 축 SQL(REGION_CD + STATUS_CD) 자체가 실행 대상이 아니다.
+       ui/js_sql_preview.py:48-52 주석이 이를 명시한다:
+
+         [STATS-EXECUTE-STEP4-GENERATED-SQL-LABEL-ACCURACY-FIX] GROUP BY 2개 이상 선택 시 아래
+         조합 SQL(GROUP BY A, B)은 '참고용 표시'일 뿐 실제로는 한 번도 실행되지 않는다 —
+         runExecute 가 gbSel.length >= 2 를 _runExecutePlanSets 로 분기시켜 축별 단일 세트를
+         /generate·/execute 로 각각 재생성·실행하기 때문이다.
+
+    → 따라서 **SQL 생성 직후 시점의 "0.01초 미만"은 계측 누락이 아니라 정직한 값**이다.
+      DB 를 타지 않는 수 ms 작업이므로 그 숫자가 맞다.
+
+  ■ B-4. 그런데 여기서 끝이 아니다 — 실행이 끝난 뒤에도 갱신되지 않는다
+    사용자가 본 화면은 이미 5단계 결과표가 완료 상태였다(증상A). 즉 **5,000만행 통계검증이
+    이미 실행된 뒤**인데도 4단계 슬롯은 여전히 '0.01초 미만'이었다.
+    원래 그 상황을 위해 만들어진 장치가 16211 의 덮어쓰기다. 주석은 이렇게 선언한다:
+
+      ui/tabler_renderer.py:16206-16210
+        STAGE4-STALE-TIMING-SLOT-REFRESH-FIX: 4단계(통계검증 실행) 슬롯도 실행 완료 이벤트에
+        맞춰 갱신한다. ... 실행 완료 시 최신 실행 시간으로 덮어써 stale 표시를 없앤다.
+
+    그러나 그 줄의 가드가 `r.processing_ms != null` 이다. 다중 세트 경로에서 r 은 agg 이고
+    agg.processing_ms 는 undefined 이므로 **가드에 막혀 덮어쓰기가 실행되지 않는다.**
+    STAGE4-STALE-TIMING-SLOT-REFRESH-FIX 가 고치려던 바로 그 stale 표시가, 다중 세트 경로
+    에서만 그대로 살아 있다.
+
+  ■ B-5. 지침 B-4 가 요구한 재분류 — 복합이다
+    · SQL 생성 직후 표시(0.01초 미만) ......... **문구 표현 문제**.
+      값은 정직하나 "4단계 처리시간"이라는 라벨이 통계검증 실행시간을 암시해 오해를 낳는다.
+      실제로 재는 것은 'SQL 문자열 생성에 걸린 서버 시간'이다.
+    · 실행 완료 후에도 그 값이 남는 것 ........ **배선 누락**.
+      갱신 장치는 이미 존재하는데 agg 에 값이 없어 무력화됐다. A 와 동일 원인.
+
+
+────────────────────────────────────────────────────────────────────────
+5. 실측 재현 (실 DB 불필요 — 표시 배선은 순수 클라이언트 로직)
+────────────────────────────────────────────────────────────────────────
+  스크립트: scripts/dev_e2e/stage45_status_timing_display_stale_diagnose.py
+  방법    : 실제 렌더된 HTML(get_ui_renderer().render_full_page())에서 표시/초기화/포맷 함수
+            원문을 추출해 node 로 실행. agg 리터럴은 tabler_renderer.py:26059-26061 을 그대로
+            재현. 픽스처(MV_SCATTER50M_*)는 조회조차 하지 않았다(읽기 전용 원칙 준수).
+
+  정적 확인
+    _runExecutePlanSets 본문 내 "processing_ms" 등장 횟수 ......... 0회
+    agg 리터럴에 processing_ms 존재 여부 ......................... False
+    _mvShowStageProcessingTime 의 `if (ms == null) return;` 가드 ... 존재
+    _mvClearStageProcessingTime 의 '계산 중...' 세팅 .............. 존재
+    5단계 슬롯 show/clear 호출 지점 .............................. 각 1곳(폴링·타이머 없음)
+
+  동적 재현 결과
+    ┌ 시나리오 ─────────────────────────┬ 5단계 슬롯 최종 표시 ──────────┐
+    │ 단일 세트(GB 1개, r.processing_ms=31400) │ " · 5단계 처리시간: 31.40초"  │ ← 정상
+    │ 다중 세트(GB 2개, agg.processing_ms 없음)│ " · 5단계 계산 중..."         │ ← 증상A 재현
+    └───────────────────────────────────┴───────────────────────────────┘
+    ┌ 4단계 슬롯 ───────────────────────────────────────────────────────┐
+    │ /generate 직후 (g.processing_ms=6.6ms)      │ " · 4단계 처리시간: 0.01초 미만" │
+    │ 다중 세트 실행 완료 후(16211 가드 통과 실패)│ " · 4단계 처리시간: 0.01초 미만" │ ← 증상B 재현
+    │ 단일 세트 실행 완료 후(가드 통과)           │ " · 4단계 처리시간: 31.40초"     │ ← 정상 대조군
+    └───────────────────────────────────────────────────────────────────┘
+    포맷 경계값: 6.6ms→'0.01초 미만', 9.9ms→'0.01초 미만', 10ms→'0.01초', 31400ms→'31.40초'
+
+  → 두 증상 모두 재현됐고, **단일 세트에서는 둘 다 발생하지 않는다**는 대조까지 확인됐다.
+    이로써 원인이 "다중 세트 경로의 agg 필드 누락" 하나임이 실측으로 확정된다.
+
+
+────────────────────────────────────────────────────────────────────────
+6. 【C 결론】A 와 B 는 같은 원인인가 / §6【이상-2】와는 같은가
+────────────────────────────────────────────────────────────────────────
+  ■ C-1. A 와 B — **같은 원인이다(단일 결함).**
+    agg(ui/tabler_renderer.py:26059-26061)에 processing_ms 가 없다는 사실 하나가
+      · 16205 의 show(5, undefined) → `ms == null` 조기 반환 → 5단계 '계산 중' 고착 (A)
+      · 16211 의 `r.processing_ms != null` 가드 실패 → 4단계 슬롯 미갱신 (B 후반부)
+    를 동시에 만든다. 두 증상은 한 뿌리에서 갈라진 가지다.
+    다만 B 의 앞부분(생성 직후 0.01초 미만 표시 자체)은 별개의 성격 — 값은 정직하고
+    라벨이 오해를 부르는 **문구 문제**다. 그래서 B 는 '단일 원인 + 문구 문제'의 복합이다.
+
+  ■ C-2. 결함 범위는 단계별 수동 실행에 그치지 않는다
+    같은 shape 의 agg 를 **서버도 만든다**. services/single_validation_run_facade.py:507-510
+    은 주석에서 스스로 "클라 _runExecutePlanSets agg 와 동형"이라고 밝히며, 역시
+    processing_ms 를 담지 않는다:
+
+      # 세트 합산(표시 전용) — 클라 _runExecutePlanSets agg 와 동형(matched/diff/...·rows concat).
+      agg = {"success": ..., "matched": 0, "diff": 0, "src_only": 0, "tgt_only": 0,
+             "total_groups": 0, "rows": [], "val_cols": [], "gb_keys": [],
+             "groupby_execution_safety": None}
+
+    이 agg 는 원클릭(run-standard) 다축 경로에서 그대로 렌더된다
+    (ui/tabler_renderer.py:20169  _mvRenderValidationDetail({ r: _epr.agg, planRun: _epr })).
+    → **단계별 수동 실행과 원클릭 실행 양쪽 모두** GROUP BY 2축 이상이면 같은 증상이 난다.
+
+  ■ C-3. 오늘 §6【이상-2】(드릴다운 계측 과소표현)와는 — **다른 결함이다.**
+    ┌────────┬─────────────────────────────┬─────────────────────────────┐
+    │        │ §6【이상-2】                │ 이번 A/B                    │
+    ├────────┼─────────────────────────────┼─────────────────────────────┤
+    │ 메커니즘│ 계측 '구간'이 잘못 잡힘      │ 값 자체가 객체에 없음        │
+    │        │ (비동기 prepare 대기를 제외) │ (agg 에 필드 미생성)         │
+    │ 증상   │ 값은 표시되나 실제보다 짧음  │ 값이 아예 갱신되지 않음      │
+    │        │ 54.46초 → "2.5초"           │ '계산 중' 고착 / 옛 값 고정  │
+    │ 오해방향│ 실제보다 빠르다고 오인      │ 아직 처리 중이라고 오인      │
+    │ 트리거 │ 드릴다운(규모 클수록 악화)   │ GROUP BY 2축 이상(규모 무관) │
+    └────────┴─────────────────────────────┴─────────────────────────────┘
+    코드 레벨의 근본 원인은 서로 다르다. 다만 **상위 설계 결함은 공유한다**:
+    화면의 시간 문구가 "사용자가 실제로 기다린 시간"이 아니라 "특정 단발 서버 응답 필드"에만
+    의존하도록 설계돼 있고, 여러 단계·비동기 작업이 얽히면 그 필드가 실제 대기시간을
+    대표하지 못한다는 점이다. 세 사례(이상-2, A, B) 모두 이 설계에서 파생됐다.
+
+  ■ C-4. 같은 결함 클래스가 이미 한 번 우회 패치된 전례가 있다
+    2단계는 동일한 '계산 중 고착'을 이미 겪고 finally 안전망을 붙였다
+    (ui/tabler_renderer.py:24430-24439):
+
+      /* COUNT-GATE-LIVE-SESSION-LABEL-MISMATCH-FIX(증상1): '2단계 계산 중...' 잠정 문구는 성공
+         렌더(...processing_ms 有)에서만 교체된다. 서버 오류(catch)·processing_ms 누락으로 그
+         교체가 일어나지 않은 종료 경로에서는 그 문구가 남아 '진행 정체'처럼 보인다
+         (실측 재현: HTTP500/abort 시 stage2 슬롯이 '계산 중...' 고착). */
+      var _s2pt = document.getElementById('mvStage2ProcessingTime');
+      if (_s2pt && (_s2pt.textContent || '').indexOf('계산 중') >= 0) _s2pt.textContent = '';
+
+    5단계 runExecute 의 finally(다중 세트 분기 28262-28277 포함)에는 이 안전망이 없다.
+    당시 진단이 "processing_ms 누락 종료 경로에서 문구가 고착된다"는 것을 이미 알고 있었으나,
+    2단계에서만 국소 대응했고 5단계에는 적용되지 않은 채 남았다.
+
+
+────────────────────────────────────────────────────────────────────────
+7. 영향과 위험 (판단 근거)
+────────────────────────────────────────────────────────────────────────
+  · 판정·데이터 정확성에는 영향 없음. 표시 전용 결함이며 검증 결과값·PASS/WARNING/SKIP 판정,
+    저장·재이관 대상 산출은 모두 정상이다(결과표가 완료 상태로 정확히 렌더된 것이 그 증거).
+  · 그러나 운영 신뢰성 훼손은 실질적이다:
+    - 사용자가 완료된 작업을 '아직 처리 중'으로 오인해 불필요하게 대기하거나 재실행할 수 있다.
+      대용량 재실행은 비용이 크다(5,000만행 기준 수십 초~수 분).
+    - 성능 회귀를 화면 숫자로 판단하면 놓친다. 다중 세트 실행은 화면상 항상 '0.01초 미만'
+      (4단계) 또는 '계산 중'(5단계)이라 성능 추이 관측 자체가 불가능하다.
+    - §6【이상-2】와 합치면, 대용량 경로에서 화면 시간 문구를 신뢰할 수 있는 구간이 사실상
+      단일 세트 실행뿐이다.
+  · 재현 난이도가 낮다(GROUP BY 2개 선택이면 끝)는 점에서, 대용량 전용 희귀 결함이 아니라
+    상시 노출 결함으로 봐야 한다.
+
+
+────────────────────────────────────────────────────────────────────────
+8. 권장 대응 방향 (이번 작업 범위 아님 — 참고용)
+────────────────────────────────────────────────────────────────────────
+  본 지침은 진단만 요구했으므로 코드는 수정하지 않았다. 향후 수정 시 방향만 적어 둔다.
+
+  (1) 근본 수정 — agg 합산에 처리시간을 포함시킨다. 클라(tabler_renderer.py:26062-26070)와
+      서버(single_validation_run_facade.py:511-524) **양쪽 대칭**으로 넣어야 한다(한쪽만
+      고치면 단계별/원클릭 중 하나만 낫는다). 세트가 순차 실행이면 합, 병렬 실행이면
+      합이 실제 벽시계보다 커지므로 실행 방식(_stats_set_parallelism)에 따라 의미가 갈린다 —
+      단순 합산보다 '세트 실행 전체를 감싸는 벽시계 1개'를 새로 재는 편이 정확하다.
+  (2) 안전망 — 5단계 runExecute 의 finally 에 2단계와 동일한 잔여 '계산 중' 청소를 둔다.
+      근본 수정과 별개로, 어떤 종료 경로에서도 문구가 영구 고착되지 않게 하는 방어선이다.
+  (3) 문구 — 4단계 라벨이 실행시간을 암시하는 문제(B-5)는 표기 정정으로 다룬다.
+      예: 'SQL 생성 시간'과 '통계검증 실행 시간'을 구분 표기.
+  (4) 우선순위 참고 — (2)는 국소·저위험, (1)은 클라/서버 대칭 수정이라 회귀 검증 범위가
+      더 넓다. 구조 안정성 관점에서 (2) → (1) → (3) 순이 안전하다.
+
+
+────────────────────────────────────────────────────────────────────────
+9. 조사 산출물 / 변경 없음 확인
+────────────────────────────────────────────────────────────────────────
+  추가 파일 : scripts/dev_e2e/stage45_status_timing_display_stale_diagnose.py (진단 전용)
+  산출 JSON : scripts/dev_e2e/_stage45_status_timing_display_stale_diagnose.json (gitignore 대상)
+  운영 코드 변경 : 없음 (ui/, routes/, services/ 일절 미수정)
+  픽스처 변경   : 없음 (MV_SCATTER50M_* 조회·변경 모두 없음 — 클라이언트 배선 진단이라 불필요)
+
+✅ 작업 완료 - STAGE4-5-STATUS-TIMING-DISPLAY-STALE-DIAGNOSE - 두 증상은 같은 원인이다: GROUP BY 2축 이상에서 타는 다중 세트 경로의 합산객체 agg 에 processing_ms 가 없어 5단계는 '계산 중'에 고착되고(A) 4단계는 SQL 생성 시점 값(0.01초 미만)에 묶인다(B) — 오늘 §6【이상-2】(계측 구간 누락)와는 다른 결함이나 "화면 시간 = 단발 응답 필드"라는 상위 설계 결함은 공유한다
