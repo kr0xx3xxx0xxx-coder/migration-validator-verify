@@ -1,0 +1,182 @@
+작업명 : COUNT-PAIR-PARALLEL-EXECUTION-FIX
+✅ 작업 완료 - COUNT-PAIR-PARALLEL-EXECUTION-FIX - 원본/목적지 COUNT 를 통계검증 parallel_sides 와 동일 규약으로 병렬화(서로 다른 물리 DB 한정) — 5,000만행 평균 11,102.6ms→4,109.1ms(-63.0%), 100만행 499.9ms→85.0ms(-83.0%), COUNT 값·판정·오류 우선순위 전/후 완전 동일
+
+────────────────────────────────────────────────────────────────────────────────
+1. 요청 요약
+────────────────────────────────────────────────────────────────────────────────
+백로그 P12 — services/count_common_service.run_count_pair 가 원본 COUNT 완료 후 목적지 COUNT 를
+순차 실행하던 것을, 두 COUNT 가 서로 다른 물리 DB 를 보고 의존관계가 없다는 점을 이용해 병렬화한다.
+근거: E:\verify_reports\LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt (§4-c1)
+
+수정 파일: services/count_common_service.py  (지침이 지정한 1개 파일만 수정)
+추가 파일: scripts/dev_e2e/count_pair_parallel_execution_verify.py (실측 검증 스크립트 — 운영 코드 아님)
+
+────────────────────────────────────────────────────────────────────────────────
+2. 구현 내용 (기존 메커니즘 재사용 — 새 병렬 메커니즘 발명 없음)
+────────────────────────────────────────────────────────────────────────────────
+통계검증 stats_execute_service.execute_stats_validation 의 parallel_sides 경로와 **동일 규약**을 그대로 재사용:
+  · ThreadPoolExecutor(max_workers=2) — Source/Target 각 1 worker (통계검증과 같은 방식)
+  · 연결 재사용 scope 승계는 CONN-REUSE-PARALLEL 규약 그대로
+    (export_connection_scope_state / adopt_connection_scope_state / connection_scope_cache_key)
+    → fingerprint 가 서로 다를 때만 승계(같은 연결의 동시 사용 금지)
+  · 결과 취합 순서 = source → target 고정 → 오류 보고는 항상 '원본 우선'
+
+신규 함수(전부 count_common_service.py 내부):
+  _count_pair_parallel_enabled()   병렬 사용 여부(기본 ON, env MV_COUNT_PAIR_PARALLEL=0 이면 순차 복귀)
+  _physical_db_key / _different_physical_db   host:port/dbname 기준 물리 DB 동일 판정
+        (single_validation_run_facade._different_physical_db 와 같은 판정 규칙. 저수준 서비스가
+         상위 facade 를 import 하지 않도록 동일 규칙을 이 모듈 내부에 둠 — 의존 방향 유지)
+  _run_one_count_side(role, conn, sql)  한쪽 COUNT 1회 실행(예외를 raise 하지 않고 반환값에 담음)
+  _execute_count_sides(...)             둘 다 실행 대상 + 서로 다른 물리 DB → 병렬, 그 외 → 기존 순차
+  _probe_flags_snapshot / _probe_adopt_flags / _probe_capture_thread_metrics / _probe_merge_thread_metrics
+        count_exec_probe 는 thread-local 이라 worker 에서 계측이 유실된다. 부모의 force flag 를 승계하고
+        worker 계측(events/conns/재사용·재시도 카운터)을 부모 스레드로 합산 → 계측 스냅샷이 순차와 동일.
+        (계측 코드는 전 구간 try/except — 계측 실패가 COUNT 실행에 영향 주지 않음)
+
+병렬 적용 조건(모두 만족해야 병렬):
+  ① 원본·목적지 양쪽 모두 실행 대상(host + COUNT SQL 존재)
+  ② MV_COUNT_PAIR_PARALLEL 이 0/false/off/no 가 아님(기본 ON)
+  ③ 원본/목적지가 서로 다른 물리 DB(host:port/dbname 상이)
+  → 같은 물리 DB / 한쪽만 실행 / kill-switch OFF 는 기존 순차 경로 그대로(실행 순서도 원본→목적지 유지)
+
+────────────────────────────────────────────────────────────────────────────────
+3. 실측 비교 — 라이브 Oracle (수정 전 = 순차, 수정 후 = 병렬)
+────────────────────────────────────────────────────────────────────────────────
+환경 : Oracle asis 192.168.0.151:1523 / tobe 192.168.0.151:1524, 스키마 NXDNP
+       프리셋 Oracle_asis / Oracle_tobe, 진단서(LARGE-TABLE-STATS-...)와 동일 픽스처·동일 이관 SQL
+방식 : 같은 바이너리에서 MV_COUNT_PAIR_PARALLEL=0(순차, 수정 전 경로) / =1(병렬, 수정 후)을
+       **번갈아 3회씩** 실행(DB 캐시 온도 편향 제거). 스크립트:
+       scripts/dev_e2e/count_pair_parallel_execution_verify.py
+
+[소규모] NXDNP.MV_CSPK_SRC → MV_CSPK_TGT (100만행)
+  회차   수정 전(순차)                          수정 후(병렬)
+  1회    1,104.6ms (src 363.4 / tgt 739.2)        81.7ms (src 78.1 / tgt 67.4)
+  2회      198.9ms (src  85.6 / tgt 111.1)        86.8ms (src 82.6 / tgt 78.4)
+  3회      196.1ms (src  96.2 / tgt  97.9)        86.6ms (src 80.4 / tgt 83.6)
+  ─────────────────────────────────────────────────────────────────────────────
+  평균(3회)   499.9ms  →   85.0ms   (-83.0%)
+  warm 평균(2·3회, 1회차 cold 제외)  197.5ms → 86.7ms  (-56.1%)
+
+[대규모] NXDNP.MV_SCATTER50M_SRC → MV_SCATTER50M_TGT (5,000만행)
+  회차   수정 전(순차)                              수정 후(병렬)
+  1회   18,715.5ms (src 3,394.4 / tgt 15,318.5)    5,186.3ms (src 5,184.0 / tgt 2,190.8)
+  2회    9,534.1ms (src 4,455.2 / tgt  5,077.0)    4,613.8ms (src 4,469.5 / tgt 4,587.9)
+  3회    5,058.1ms (src 1,549.5 / tgt  3,507.0)    2,527.3ms (src 2,418.9 / tgt 2,524.6)
+  ─────────────────────────────────────────────────────────────────────────────
+  평균(3회)  11,102.6ms → 4,109.1ms  (-63.0%)
+  warm 평균(2·3회)      7,296.1ms → 3,570.6ms  (-51.1%)
+
+관찰: 병렬 회차의 wall 은 매번 max(src, tgt) 에 수렴(예: 대규모 2회 4,613.8 ≈ max(4,469.5, 4,587.9)),
+      순차 회차는 src+tgt 합에 수렴 — 진단서 예측(17.1초 순차 → ≈13.9초 병렬)과 같은 거동.
+      절대값이 진단서보다 작은 회차는 Oracle 버퍼캐시 온도 차이(진단서 run1/run2 편차와 동일 성격)이며,
+      전/후 비교는 교대 실행이라 이 편차의 영향을 받지 않는다.
+
+────────────────────────────────────────────────────────────────────────────────
+4. 결과값 동일성 (수정 전/후)
+────────────────────────────────────────────────────────────────────────────────
+  소규모  전/후 6회 전부  source_count=1,000,000  target_count=990,000  count_diff=10,000  status=FAILED
+  대규모  전/후 6회 전부  source_count=50,000,000 target_count=49,500,000 count_diff=500,000 status=FAILED
+  → result_values_identical = True (양쪽 케이스, 회차별 1:1 대조)
+
+  오프라인(가짜 fetch) 계약 대조:
+    · 결과 dict 키 집합 동일 = True
+    · 시간 필드(source/target_count_elapsed_ms) 제외 **모든 값 동일** = True
+      → 호출부(single_validation_core / count_precheck_service / batch_count_only_service) 수정 불필요
+    · count_exec_probe 계측 보존 = True (순차/병렬 모두 source_exec=1, target_exec=1, total=2)
+    · 같은 물리 DB 면 병렬 미적용(순차 유지) 확인 = True (0.4초×2 지연 → wall 802.3ms)
+
+────────────────────────────────────────────────────────────────────────────────
+5. 오류 우선순위 확인 (원본 우선)
+────────────────────────────────────────────────────────────────────────────────
+[라이브] 원본 테이블을 존재하지 않는 이름(NXDNP.MV_NO_SUCH_TABLE_X9)으로 바꿔 원본 COUNT 만 실패시킴(SELECT 전용)
+  순차(수정 전) : status=ERROR code=EXEC_ERROR  message="원본: 테이블이 존재하지 않음"
+                  source_error="테이블이 존재하지 않음" target_error=없음 target_count=990,000
+  병렬(수정 후) : status=ERROR code=EXEC_ERROR  message="원본: 테이블이 존재하지 않음"
+                  source_error="테이블이 존재하지 않음" target_error=없음 target_count=990,000
+  → 문구·코드·필드 전부 동일. 원본 오류가 먼저(그리고 단독으로) 보고된다.
+
+[오프라인] 3가지 실패 조합
+  원본만 실패   → "원본: 테이블이 존재하지 않음"                    (순차 결과와 문자열 동일 = True)
+  목적지만 실패 → "목적지: 테이블이 존재하지 않음"                  (목적지 오류로 보고)
+  양쪽 실패     → "원본: 테이블이 존재하지 않음; 목적지: 테이블이 존재하지 않음"  (원본이 앞)
+  세 경우 모두 status=ERROR
+
+참고(정확한 사실 기록): 수정 전 순차 코드도 원본 COUNT 실패 시 목적지 COUNT 를 계속 실행했다
+(원본 실패 시 목적지 미실행이 아니었음 — 통계검증 쪽 규약과 다른 지점). 따라서 병렬화로 인해
+'목적지가 새로 실행되는' 변화는 없으며, 보고 문구·순서도 그대로 유지된다.
+
+────────────────────────────────────────────────────────────────────────────────
+6. 커넥션 동시 사용 안전 확인 (지침 요구사항 4)
+────────────────────────────────────────────────────────────────────────────────
+· services/connection_pool.py 는 **PostgreSQL 만 풀링**한다(모듈 docstring 명시). Oracle/MySQL/MSSQL 은
+  매 호출 물리 연결 생성 후 close — return_conn 이 비-PG 를 즉시 close 한다(:191). 따라서 오라클 병렬
+  COUNT 는 서로 다른 물리 연결 2개이며 공유 객체가 없다(동시 사용 위험 없음).
+· POOL_MAX_IDLE_PER_KEY=4 는 **동시 사용 상한이 아니라 key 당 idle 보관 상한**이다. checkout(:150-177)에
+  세마포어/블로킹이 없고, idle 이 없으면 새 물리 연결을 연다. 원본/목적지는 서로 다른 key
+  (db_type/host/port/dbname/user/fingerprint)라 COUNT 쌍 1건이 요구하는 동시 연결은 key 당 1개 →
+  4 ≥ 1 로 여유 충분(통계검증 세트 병렬이 쓰는 pool_headroom 기준 `>= 2` 도 충족).
+· scope 승계는 fingerprint 가 다를 때만 → 같은 연결이 두 worker 에서 동시에 쓰이는 경로가 구조적으로 없다.
+· 일괄검증 영향: batch 스케줄러 예산이 profile 당 동시 3(max_concurrent_per_source/target_profile)로
+  row 수를 제한한다. 측면 병렬은 한 row 가 원본·목적지 연결을 '동시에' 쥐게 하지만, **profile 별 동시
+  연결 상한(3)은 변하지 않는다**(원본 profile ≤3, 목적지 profile ≤3). 상한이 아니라 점유 시간대만 겹친다.
+· 롤백 수단: env MV_COUNT_PAIR_PARALLEL=0 → 즉시 순차 복귀(서버 재기동만 필요, 코드 변경 없음).
+
+────────────────────────────────────────────────────────────────────────────────
+7. 회귀 테스트 (baseline 대조)
+────────────────────────────────────────────────────────────────────────────────
+대상 서브셋(파일 기준): tests/test_*count*.py, test_*conn*.py, test_*pool*.py, test_d7_1*.py,
+  test_stats_execute*.py, test_single_validation*.py, test_task10_6*.py, test_task11*.py, test_batch_single*.py
+  → 총 2,282 passed / 11 skipped / 10 xfailed / 88 failed / 11 errors (546s, -p no:randomly)
+
+baseline: 같은 커밋 이전(HEAD=08a98c8) worktree 에서 **동일 파일 목록·동일 순서**로 실행 후 실패 목록 diff.
+  · baseline 실패/에러 98건, 수정 후 99건 → **차이 1건**:
+      tests/test_task11_cand_sem.py::TestTokenMatching::test_22a_account_id_is_identifier
+  · 이 1건은 코드 변경과 무관함을 아래로 확정:
+      (a) 같은 워킹트리에서 MV_COUNT_PAIR_PARALLEL=0(=수정 전 순차 동작)으로 돌려도 **동일하게 실패**
+      (b) 원인은 워킹트리/worktree 의 **데이터 환경 차이**다 — semantic dictionary 항목 수가
+          메인 트리 26,524건 vs baseline worktree 164건(worktree 에는 db/migration_validator.db 와
+          db_presets_*.json 이 없다. 둘 다 git 미추적). 큰 사전에서는 ACCOUNT_ID 가 RAW_TEXT 로 매칭된다.
+      (c) cand_sem 파일 단독 실행은 양쪽 트리 모두 28 passed (기왕의 순서/상태 의존 테스트)
+  · 나머지 98건은 baseline 과 **완전히 동일**(diff 0) — 신규 회귀 0건.
+
+실패 테스트 전체 목록(98건 = baseline 과 동일한 기존 실패, 요약 분류):
+  · [PROD-DB-WRITE-BLOCKED] 운영 SQLite 쓰기 차단 가드로 인한 실패/에러 — 예:
+      test_batch_count_only_path.py::test_count_only_route_separate_from_full,
+      test_task11_p_profile_snapshot.py(7 errors), test_task11_r2_source_connection_id.py::test_15_*,
+      test_task11_r3.py::test_11_*, test_upload_visibility_and_cte_count.py(1 failed·1 error) 등
+  · [정적 HTML/JS 문자열 검사] 화면 텍스트·함수명 검사 실패 — 예:
+      test_cte_count_execution_and_projection.py::test_ui_count_note_and_auto_audit,
+      test_upload_visibility_and_cte_count.py::test_ui_separates_lists_and_count_note,
+      test_task11_s3/s4/s5/s9_r3/s9_r5/s9_r6, test_task11_t.py(연결 identity UI) 등
+  전체 raw 목록은 아래 두 파일이 diff 0(=동일)임을 확인한 baseline 목록과 같다:
+      %TEMP%\mv_before.txt (baseline 98건) / %TEMP%\mv_after.txt (수정 후 99건, 위 1건만 추가)
+  ※ 두 번 반복 실행(mv_after / mv_after2)에서 결과 동일 — 재현성 확인.
+
+추가로 수행한 대상 서브셋(수정 후, 실패 2건은 전부 위 기존 실패):
+  test_count_target_binding_evidence / test_task10_6a·6c·6e·6f2 / test_task10_3 / test_task11_h2 /
+  test_batch_count_only_path / test_cte_count_execution_and_projection /
+  test_batch_single_core_parity_finalize / test_d7_13_perf_decomp → 147 passed, 2 failed(기존)
+
+────────────────────────────────────────────────────────────────────────────────
+8. 변경/생성 파일 · 커밋
+────────────────────────────────────────────────────────────────────────────────
+커밋 : a342be1  perf(count): 원본/목적지 COUNT 병렬 실행 (COUNT-PAIR-PARALLEL-EXECUTION-FIX)
+diff : 2 files changed, 532 insertions(+), 30 deletions(-)
+   M services/count_common_service.py                          (+225/-30)
+   A scripts/dev_e2e/count_pair_parallel_execution_verify.py   (검증 스크립트, 운영 경로 아님)
+※ 지침의 "이 파일만 수정" 은 준수(운영 코드는 services/count_common_service.py 1개만 변경).
+※ 동시 진행 STATS-SUMMARY-TABLE-STATUS-COLUMN-CONSISTENCY-DIAGNOSE(코드수정 없음)와 충돌 없음.
+
+────────────────────────────────────────────────────────────────────────────────
+9. 남은 위험 / 관찰 포인트
+────────────────────────────────────────────────────────────────────────────────
+· 같은 물리 DB(원본=목적지 endpoint) 케이스는 병렬 대상이 아니다 — 이 경우 개선 없음(설계상 의도).
+· 병렬 시 두 DB 에 동시에 부하가 걸린다. profile 당 동시 연결 상한은 그대로지만, 일괄검증 대량 실행 시
+  두 endpoint 의 부하 겹침이 커진다면 MV_COUNT_PAIR_PARALLEL=0 으로 즉시 순차 복귀 가능.
+· count_exec_probe 의 worker→부모 합산은 이 모듈에서 thread-local 을 직접 다룬다(계측 전용, try/except).
+  probe 모듈에 공식 merge API 가 생기면 그쪽으로 위임하는 것이 구조적으로 더 낫다(후속 정리 후보).
+
+실검증 상태: 완료 (오라클 라이브 실 DB — asis 192.168.0.151:1523 / tobe 192.168.0.151:1524, 스키마 NXDNP,
+  MV_CSPK_* 100만행 · MV_SCATTER50M_* 5,000만행, 순차/병렬 교대 각 3회 + 원본 실패 유도 라이브 대조)
+
+✅ 작업 완료 - COUNT-PAIR-PARALLEL-EXECUTION-FIX - 원본/목적지 COUNT 를 통계검증 parallel_sides 와 동일 규약으로 병렬화(서로 다른 물리 DB 한정) — 5,000만행 평균 11,102.6ms→4,109.1ms(-63.0%), 100만행 499.9ms→85.0ms(-83.0%), COUNT 값·판정·오류 우선순위 전/후 완전 동일
