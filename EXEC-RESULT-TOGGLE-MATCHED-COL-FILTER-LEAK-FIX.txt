@@ -1,0 +1,293 @@
+작업명 : EXEC-RESULT-TOGGLE-MATCHED-COL-FILTER-LEAK-FIX
+작성일시 : 2026-08-01 (KST)
+대상 파일 : ui/execute_result_renderer.py (1개 파일만 수정)
+커밋 : (본문 §8 참조)
+
+────────────────────────────────────────────────────────────────────────
+1. 요청 요약
+────────────────────────────────────────────────────────────────────────
+5단계 '결과 확인' 화면의 "일치 행 숨기기/보기" 버튼(_execToggleMatched)이,
+바로 앞 작업(EXEC-RESULT-TAB-FILTER-PAGE-NAV-AND-PAGESIZE-FIX)에서 고친
+_execGoResultPage / _execSetPageSize 와 완전히 같은 결함을 그대로 갖고 있었다.
+
+  세 함수 모두 "서버 페이지 모드인가"만 window._execSrv 하나로 판단했고,
+  "지표 탭(항목 필터)이 걸려 있는가"(window._execColFilter)는 보지 않았다.
+
+그래서 COUNT/AMT/QTY 같은 지표 탭이 걸린 상태에서 이 버튼을 누르면
+_execSrvGo(1) 로 빠져 서버가 '전체' 결과 1페이지를 내려주고, 그 응답이 결과표
+tbody 를 통째로 덮어써 화면상 필터가 조용히 풀렸다. 탭 버튼은 계속 활성(주황
+좌측선)으로 남아 사용자는 여전히 필터가 걸려 있다고 오인한다.
+
+근거: verify 저장소 EXEC-RESULT-TAB-FILTER-PAGE-NAV-AND-PAGESIZE-FIX.txt §6-(1)
+
+────────────────────────────────────────────────────────────────────────
+2. 수정 내용 (ui/execute_result_renderer.py 1개 파일, 함수 1개)
+────────────────────────────────────────────────────────────────────────
+_execToggleMatched() (ui/execute_result_renderer.py:264 부근)
+
+수정 전:
+    function _execToggleMatched(btn) {
+      if (window._execSrv) {
+        window._execSrv.includeMatched = !window._execSrv.includeMatched;
+        _execSyncToggleLabel();
+        _execSrvGo(1);            ← 지표 탭이어도 무조건 서버 왕복
+        return;
+      }
+      ...
+
+수정 후:
+    function _execToggleMatched(btn) {
+      if (window._execSrv) {
+        window._execSrv.includeMatched = !window._execSrv.includeMatched;
+        _execSyncToggleLabel();
+        if (window._execSrv && !window._execColFilter) { _execSrvGo(1); return; }
+        /* 지표 탭(항목 필터 ON) — 상태만 바꾸고 렌더는 클라이언트로(필터 유지). */
+        window._execResultPage = 1;
+        _execRenderResultPage();
+        return;
+      }
+      ...
+
+설계 원칙 (요구사항 그대로 준수)
+ (1) 새 조건 어휘를 만들지 않았다. 분기 조건은 오늘 이미 고친
+     _execGoResultPage / _execSetPageSize 및 그 이전부터 있던 _execSetColFilter 가
+     쓰는 `window._execSrv && !window._execColFilter` 를 **글자 그대로** 재사용했다.
+     이제 결과표의 렌더 경로를 가르는 네 함수의 조건식이 모두 동일 문자열이다.
+ (2) 서버 모드 상태값 window._execSrv.includeMatched 는 **두 경로 모두에서 그대로
+     토글**한다. 상태 보관 위치를 바꾸지 않았으므로 '전체' 탭으로 돌아갔을 때의
+     서버 요청(mismatch_only)도 사용자가 마지막에 고른 값을 그대로 따른다.
+ (3) 필터가 걸린 동안에는 렌더만 클라이언트로 돌린다. 보고서가 짚은 대로
+     _execHideMatchedEffective() 가 서버 모드에서 _execSrv.includeMatched 를 읽는
+     구조(:106~109)라, 상태만 정확히 갱신되면 클라이언트 렌더 경로가 같은 실효
+     상태를 본다 — 실측으로 사실임을 확인했다(§5-A1: includeMatched 가 뒤집히고
+     라벨도 '일치 행 보기'↔'일치 행 숨기기' 로 정상 전환).
+ (4) '전체' 탭(필터 없음)의 기존 동작(서버 왕복)은 한 줄도 건드리지 않았다.
+     클라이언트 전용 모드(_execSrv 없음)의 기존 분기도 그대로다.
+
+────────────────────────────────────────────────────────────────────────
+3. 실측 환경 / 서버 신선도
+────────────────────────────────────────────────────────────────────────
+DB       : Oracle asis(원본) / tobe(목적지) — 실 DB 라이브
+스키마    : NXDNP
+이관 SQL  : (b) INNER JOIN
+            INSERT INTO NXDNP.MV_SCATTER_TGT (...)
+            SELECT s.*, d.REGION_NM
+              FROM NXDNP.MV_SCATTER_SRC s
+              JOIN NXDNP.MV_SCATTER_DIM d ON s.REGION_CD = d.REGION_CD
+GROUP BY : STATUS_CD (G01~G10, 그룹당 10만 행)
+COUNT    : 원본 995,000 / 목적지 990,000 (차이 +5,000)
+
+서버 신선도:
+  검증 드라이버가 MV_AUTH_DISABLED=1 인프로세스 서버를 **매 실행마다 새 포트로
+  기동**한다(실행 시각 16:50, 포트 10414). 즉 모듈 로드 시각 > 대상 파일 수정
+  시각이 항상 보장되므로 "옛 모듈을 서빙하는 서버" 문제가 원천적으로 없다.
+  운영 포트(8000) 서버는 건드리지 않았다 — 동시 진행 중인
+  LARGE-SCALE-50M-QUERY-COMPLEXITY-MISMATCH-EXTRACTION-TEST 를 방해하지 않기
+  위해 재기동을 하지 않는 이 방식을 택했다(활성 job 확인 없이도 무간섭).
+
+재현 조건에서 딱 하나 바꾼 것 — SUM 미선택(COUNT 전용 검증):
+  1차 실행에서 토글 버튼이 아예 렌더되지 않아 측정이 무효였다. 원인은 렌더러가
+  `matched > 0` 일 때만 버튼을 그리기 때문이다(execute_result_renderer.py:1390).
+  SUM AMT,QTY 를 넣으면 이 픽스처는 10개 그룹이 **전부** 불일치(matched=0)라
+  '일치 행'이 없어 버튼 자체가 없다.
+  SUM 없이 COUNT 만 비교하면 짝수 그룹(G02·G04·G06·G08·G10)은 COUNT 가 같아
+  일치 행이 5건 생기고 버튼이 렌더된다. 나머지 조건(테이블·JOIN·GROUP BY·
+  G01~G10)은 선행 작업과 동일하다. 결함이 발생하는 코드 경로는 탭 개수와 무관
+  하므로 이 조정이 검증의 유효성을 해치지 않는다.
+
+  4단계 실행 결과: 전체 10그룹 · 일치 5 · 불일치 5 (처리시간 0.30초)
+  탭 구성: [전체 10] [COUNT 5]
+  기준값(DB 직접 SELECT): G01·G03·G05·G07·G09 = COUNT 다름 / 짝수 5개 = COUNT 같음
+
+────────────────────────────────────────────────────────────────────────
+4. 검증 드라이버
+────────────────────────────────────────────────────────────────────────
+scripts/dev_e2e/exec_result_toggle_matched_colfilter_verify.py (신규)
+  1~4단계 클릭스루는 scatter_mismatch_perf_measure.py,
+  탭/페이징 관측 JS 는 tab_filter_metric_divergence_diagnose.py 것을 그대로 재사용
+  (선행 작업과 조건 동일성 보장).
+  한 세션·같은 데이터에서 AFTER(실제 수정 코드)를 먼저 재고, 그다음 수정 전
+  _execToggleMatched 본문을 전역 재정의로 되살려 BEFORE 를 재현한다.
+  관측 항목: 항목 필터 변수 / 표시 행 집합 / 페이징 문구 / 토글 버튼 라벨 /
+  _execSrv.includeMatched / **/stats-result/page 서버 요청 발생 여부와
+  mismatch_only 파라미터**(= 서버 왕복으로 샜는지의 직접 증거).
+
+────────────────────────────────────────────────────────────────────────
+5. 실측 결과 (before / after)
+────────────────────────────────────────────────────────────────────────
+[A5 / B] 완전히 동일한 조건에서의 1:1 대조 — 표시 건수 2건 · COUNT 탭 1페이지
+  (AFTER 와 BEFORE 가 같은 관측 함수(_paired_probe)를 쓴다)
+
+  BEFORE (수정 전 코드 재현)
+    토글 전 : COUNT 탭 · 표시 ['G01','G03'] · '총 5건 · 1/3 페이지 (1–2)'
+    토글 후 : 표시 ['G01','G03','G05','G07','G09']  ← 클라이언트 필터·페이지가
+              통째로 날아가고 서버 렌더로 교체
+              페이징 문구도 '1 / 1 페이지(전체 무절단)'(서버 페이징)으로 바뀜
+              /stats-result/page 요청 **1회 발생** (page=1, page_size=50)
+              탭 버튼 'COUNT 5' 는 계속 활성 → 필터가 걸려 있다고 오인
+    스크린샷: b_before_B_metric_size2_before_toggle.png
+              b_before_B_metric_size2_after_toggle.png
+
+  AFTER (수정 코드)
+    토글 전 : COUNT 탭 · 표시 ['G01','G03'] · '총 5건 · 1/3 페이지 (1–2)'
+    토글 후 : 표시 ['G01','G03']  ← 행 집합·페이징 그대로 유지
+              /stats-result/page 요청 **0회** (서버 왕복 없음)
+              필터 변수 'CNT' 유지, 버튼 라벨만 '일치 행 숨기기 (5건)' 로 전환
+    스크린샷: b_after_A5_metric_size2_before_toggle.png
+              b_after_A5_metric_size2_after_toggle.png
+
+[A1] COUNT 탭 기본 상태에서 토글 1회
+    필터 'CNT' 유지 · 표시 ['G01','G03','G05','G07','G09'] 불변 ·
+    서버 왕복 0회 · includeMatched False→True · 라벨 '일치 행 보기 (5건)' →
+    '일치 행 숨기기 (5건)'  → 상태·라벨·필터가 모두 일관
+    스크린샷: b_after_A1_count_before_toggle.png / b_after_A1_count_after_toggle.png
+
+[A2] 한 번 더 토글(원복)
+    includeMatched True→False 원복 · 라벨 원복 · 행 집합 원복(row_keys 동일) ·
+    서버 왕복 0회
+    스크린샷: b_after_A2_count_toggle_back.png
+
+[A3] 오늘 고친 두 함수와의 상호작용 (요구사항)
+    전체 탭 → COUNT 탭 전환 → 토글 → 2페이지 이동
+      필터 'CNT' 3개 지점 모두 유지 · 표시 ['G05','G07'] ·
+      '총 5건 · 2 / 3 페이지 (3–4)'  → 페이지 이동도 클라이언트 경로 유지
+    역순(2페이지에서 토글)
+      필터 'CNT' 유지 · 표시 ['G01','G03'](1페이지로 리셋) · 서버 왕복 0회
+    → 탭 전환 / 토글 / 페이지 이동 / 표시 건수 네 조작의 어떤 조합에서도
+      필터가 풀리는 경우 없음
+    스크린샷: b_after_A3_metric_toggle_page2.png
+
+[A4] '전체' 탭 회귀 — 기존 서버 왕복 경로 불변 확인
+    토글 1회 : /stats-result/page 요청 1회 (mismatch_only=false) ·
+               includeMatched False→True · 라벨 전환 정상
+    토글 2회 : 요청 1회 (mismatch_only=true) · includeMatched 원복
+    → '전체' 탭에서는 수정 전과 완전히 동일하게 서버 왕복으로 동작한다
+    스크린샷: b_after_A4_all_before_toggle.png / b_after_A4_all_after_toggle.png
+
+판정 요약 (드라이버 자동 판정 19항목)
+  ✅ A0_토글버튼_렌더됨
+  ✅ A1_지표탭_토글_필터유지 / 짝수그룹_미노출 / 서버왕복_없음 / includeMatched_상태_토글됨
+  ✅ A2_재토글_상태원복 / 행복원 / 필터유지
+  ✅ A3_탭전환_토글_페이지이동_필터유지 / 역순_페이지이동후_토글_필터유지
+  ✅ A4_전체탭_토글_서버왕복_유지 / mismatch_only_반영 / 토글_원복
+  ✅ A5_동일조건_행집합_유지 / 서버왕복_없음 / 필터유지
+  ✅ B_수정전_행집합_덮임(필터·페이지 유실) / 서버왕복_유출_재현
+  ❌ B_수정전_짝수그룹_누수_재현  ← 아래 §6 참조(결함 미재현이 아니라 관측 한계)
+
+────────────────────────────────────────────────────────────────────────
+6. 숨기지 않고 보고하는 사항
+────────────────────────────────────────────────────────────────────────
+(1) BEFORE 에서 '짝수 그룹(일치 행) 노출'은 관측되지 않았다 — 판정 1건 ❌
+    결함이 재현되지 않은 것이 아니다. 이 픽스처를 COUNT 전용으로 돌리면
+    '전체 불일치 그룹'과 'COUNT 탭 필터 결과'가 **같은 5개 그룹**이라, 필터가
+    풀려 서버 결과로 덮여도 그룹 목록만으로는 차이가 드러나지 않는다.
+    필터 유실은 대신 더 직접적인 두 증거로 확인했다:
+      · 표시 행 집합 2행 → 5행 교체(클라이언트 페이지가 서버 렌더로 대체)
+      · 페이징 문구 '총 5건 · 1/3 페이지' → '1 / 1 페이지(전체 무절단)'
+      · /stats-result/page 요청 1회 발생(수정 후 0회)
+    §3에서 적었듯 SUM 을 넣으면 그룹 식별 차이는 드러나지만 matched=0 이라
+    토글 버튼 자체가 사라진다. 이 픽스처에서 두 조건은 동시 성립이 불가능하다.
+
+(2) 이번 수정과 무관한 별개 관측 — '전체' 탭에서 '일치 행 보기'를 눌러도
+    일치 행이 표시되지 않는다.
+    A4 에서 mismatch_only=false 로 서버 요청이 정상 전송됐는데도 응답 렌더 결과는
+    불일치 5행 그대로였다(표시 5행, 상단 문구 '1/1 페이지(전체 무절단)').
+    즉 저장 결과 서버 페이지 경로가 이 케이스에서 일치 행을 돌려주지 않는다.
+    · 이번 수정이 만든 문제가 아니다 — 요청/응답 경로(_execSrvGo, /stats-result/page)는
+      한 줄도 건드리지 않았고, 수정 전 코드에서도 동일하게 관측된다.
+    · 다만 사용자 눈에는 '일치 행 보기'가 아무 일도 안 하는 것으로 보이므로
+      별도 작업으로 다룰 가치가 있다. 이번 작업 범위 밖이라 수정하지 않았다.
+
+(3) 스크린샷 폴더의 _superseded_run2/ 3개 파일은 중간 실행(토글 버튼 미렌더 조건
+    보정 전) 산출물이다. 최종 판정 근거가 아니며 추적용으로만 남겼다.
+
+────────────────────────────────────────────────────────────────────────
+7. 테스트 (서브셋 + baseline 대조)
+────────────────────────────────────────────────────────────────────────
+서브셋 선정: execute_result_renderer / _execToggleMatched / _execSetColFilter /
+_execGoResultPage / _execSetPageSize / _execHideMatchedEffective 를 참조하는
+테스트 파일 전체 + tab·page·filter·toggle·matched 키워드 관련 파일 = 29개 파일
+
+baseline : git worktree(HEAD=008457a, 수정 전) 에서 동일 서브셋 실행
+after    : 수정된 워킹트리에서 동일 서브셋 실행
+
+  baseline : 37 failed, 327 passed, 5 xfailed (31.80s)
+  after    : 37 failed, 327 passed, 5 xfailed (33.31s)
+  실패 테스트 목록 diff : **완전 동일(차이 0줄)** → 이번 수정으로 인한 회귀 0
+
+사전 존재 실패 37건 전체 목록(모두 baseline 에도 동일하게 실패 — 이번 수정과 무관):
+  tests/test_count_only_validation_ui.py::test_group_result_uses_normal_renderer_unchanged
+  tests/test_execution_safety_result_rendering.py::test_consistency_notice_absent_when_no_timing
+  tests/test_execution_safety_result_rendering.py::test_normal_result_shows_consistency_notice_once
+  tests/test_result_view_ui_wiring.py::test_node_compare_truncated_suppresses_passed
+  tests/test_result_view_ui_wiring.py::test_node_count_skipped_warning
+  tests/test_result_view_ui_wiring.py::test_node_legacy_compare_truncated_fallback
+  tests/test_result_view_ui_wiring.py::test_node_legacy_fallback_no_result_view
+  tests/test_result_view_ui_wiring.py::test_node_passed_uses_result_view
+  tests/test_result_view_ui_wiring.py::test_node_tolerance_message_dedup
+  tests/test_statistics_execution_safety.py::test_consistency_notice_renders_when_timing_present
+  tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+  tests/test_step_tab_dom_stability.py::test_active_moves_in_place_and_persists
+  tests/test_step_tab_dom_stability.py::test_delegated_click_works_after_inplace_update
+  tests/test_step_tab_dom_stability.py::test_first_render_creates_nodes_once
+  tests/test_step_tab_dom_stability.py::test_no_innerhtml_replace_on_repeated_render
+  tests/test_step_tab_dom_stability.py::test_node_identity_preserved_across_rerenders
+  tests/test_step_tab_dom_stability.py::test_node_identity_preserved_on_status_change
+  tests/test_step_tab_dom_stability.py::test_single_listener_no_duplicate
+  tests/test_step_tab_dom_stability.py::test_struct_change_rebuilds_once
+  tests/test_task12_a.py::TestCountOnlyExecution::test_03_count_only_with_empty_sum
+  tests/test_task12_a.py::TestCountOnlyExecution::test_03_no_groupby_no_sum_count_only
+  tests/test_task12_a.py::TestDbErrorDisplay::test_12_src_error_in_response
+  tests/test_task12_a.py::TestDbErrorDisplay::test_12_tgt_error_in_response
+  tests/test_task12_a.py::TestExecuteResultStructure::test_06_src_only_has_none_tgt
+  tests/test_task12_a.py::TestExecuteResultStructure::test_06_summary_counts_correct
+  tests/test_task12_a.py::TestExecuteResultStructure::test_07_diff_row_has_src_tgt_values
+  tests/test_task12_a.py::TestExecuteResultStructure::test_08_src_only_tgt_only_separate_status
+  tests/test_task12_a.py::TestGlobalAggregateDisplay::test_05_internal_all_key_not_in_response
+  tests/test_task12_a.py::TestGlobalAggregateDisplay::test_05_to_dict_global_key_is_tuple_but_not_exposed
+  tests/test_task12_a.py::TestRunExecuteJsPayload::test_15_runExecute_reads_from_dataset
+  tests/test_task12_a.py::TestTruncationWarning::test_09_is_truncated_flag
+  tests/test_ui_active_tab_persistence.py::test_batch_skip_does_not_reveal_before_restore
+  tests/test_ui_active_tab_persistence.py::test_hash_priority_restore_for_history_tab
+  tests/test_ui_active_tab_persistence.py::test_no_forced_batch_redirect_on_default_restore
+  tests/test_ui_active_tab_persistence.py::test_persist_only_valid_tabs
+  tests/test_ui_active_tab_persistence.py::test_restore_priority_hash_then_localstorage_then_default
+  tests/test_ui_tab4_tab5_separation.py::test_target_only_display
+
+JS 번들 파싱 가드:
+  ui/execute_result_renderer.py 의 _JS 블록(75,883자)을 추출해 `node --check` 통과.
+  (주석 안에 '*/' 를 넣어 script 태그를 붕괴시키는 과거 사고 패턴 재발 없음)
+
+────────────────────────────────────────────────────────────────────────
+8. 변경 파일 / 커밋
+────────────────────────────────────────────────────────────────────────
+수정  : ui/execute_result_renderer.py  (+14 / -1, 함수 1개 — _execToggleMatched)
+신규  : scripts/dev_e2e/exec_result_toggle_matched_colfilter_verify.py (검증 드라이버)
+
+커밋 해시 / 메시지: 아래 "커밋" 절 참조(코드 저장소 main).
+
+증적:
+  E:\verify_screenshots_only\EXEC-RESULT-TOGGLE-MATCHED-COL-FILTER-LEAK-FIX\
+    b_after_A1_count_before_toggle.png / b_after_A1_count_after_toggle.png
+    b_after_A2_count_toggle_back.png
+    b_after_A3_metric_toggle_page2.png
+    b_after_A4_all_before_toggle.png / b_after_A4_all_after_toggle.png
+    b_after_A5_metric_size2_before_toggle.png / b_after_A5_metric_size2_after_toggle.png
+    b_before_B_metric_size2_before_toggle.png / b_before_B_metric_size2_after_toggle.png
+    b_inner_step1~4 / b_step5_enter.png (1~5단계 진행 증적)
+    _exec_result_toggle_matched_colfilter.json (판정 원자료)
+    _driver_stdout.txt (드라이버 표준출력 전문)
+    _pytest_baseline.txt / _pytest_after.txt (테스트 원문)
+    _superseded_run2/ (중간 실행 산출물 3개 — 판정 근거 아님)
+
+────────────────────────────────────────────────────────────────────────
+9. 실검증 상태
+────────────────────────────────────────────────────────────────────────
+실검증 상태 : 실 DB(Oracle asis/tobe) 라이브 클릭스루로 before/after 실측 완료 —
+브라우저 실제 DOM 클릭(탭·토글·페이지 버튼) 기반, 서버 요청(/stats-result/page)
+발생 여부까지 관측해 대조함. 단정적 추정 없음.
+
+✅ 작업 완료 - EXEC-RESULT-TOGGLE-MATCHED-COL-FILTER-LEAK-FIX - 지표 탭에서 '일치 행
+숨기기/보기' 클릭 시 서버 왕복으로 새어 항목 필터가 풀리던 결함 제거(분기 조건을
+기존 `window._execSrv && !window._execColFilter` 로 통일, 상태는 토글하되 렌더만
+클라이언트로), '전체' 탭 서버 왕복 동작 불변 · 회귀 0

@@ -1,0 +1,1194 @@
+................xx..xxx..F.............................................. [ 19%]
+...................FFFFFF............................................... [ 39%]
+................FF........F............................................. [ 58%]
+...........................................FFF..FFFFFFF......FF......... [ 78%]
+.................FF.F.....FF.........FFFFFFFF...F....................... [ 97%]
+........F                                                                [100%]
+================================== FAILURES ===================================
+___________ test_phase4b_strategy_plan_effective_selection_display ____________
+
+    def test_phase4b_strategy_plan_effective_selection_display():
+        """[Phase4-B \xa74] \uc2e4\ud589\uacc4\ud68d \uce74\ub4dc \u2014 \uc804\uc5ed \uc124\uc815 vs \uc2e4\uc81c \uc801\uc6a9 GB/SUM + \uceec\ub7fc \ubaa9\ub85d + \uc124\uc815 \ubd88\uc77c\uce58 \uc0ac\uc720."""
+        html = _page()
+        fn = re.search(r"async function _mvRenderStrategyPlan\([^)]*\)\s*\{.*?\n\}\n", html, re.S).group(0)
+        assert "전역 설정" in fn and "실제 적용" in fn
+>       assert "effective_group_by_count" in fn and "effective_aggregate_count" in fn
+E       assert ('effective_group_by_count' in 'async function _mvRenderStrategyPlan(profile, hostId) {\n  var host = document.getElementById(hostId || \'strategyPla...:.74rem;color:#C2410C;margin-top:4px">미구현 전략은 자동 실행하지 않습니다. 기존 전체 비교 fallback 은 명시 승인 시에만 사용합니다.</div>\' : \'\');\n}\n')
+
+tests\test_stats_result_full.py:489: AssertionError
+______________________ test_node_passed_uses_result_view ______________________
+
+    def test_node_passed_uses_result_view():
+        if not _NODE:
+            import pytest; pytest.skip("node 미설치")
+        obj = _with_view(
+            status_code="PASSED", status_label="일치", status_level="success",
+            summary_counts={"matched": 288, "diff": 0, "src_only": 0, "tgt_only": 0,
+                            "total_groups": 288, "compared_groups": 288},
+            warning_messages=["전체 288개 그룹 비교 완료. 화면에는 200개만 표시합니다 (표시 상한 200개). 카운트/상태는 전체 그룹 기준입니다."],
+            evidence_messages=[])
+>       out = _run_node(obj)
+              ^^^^^^^^^^^^^^
+
+tests\test_result_view_ui_wiring.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+result_obj = {'compare_truncated': False, 'compared_groups': 288, 'diff': 0, 'display_truncated': True, ...}
+
+    def _run_node(result_obj: dict) -> str:
+        """renderExecute(result_obj) 실행 후 캡처된 innerHTML 반환(node)."""
+        js = (
+            _HARNESS_PRELUDE
+            + _src() + "\n"
+            + "renderExecute(" + json.dumps(result_obj, ensure_ascii=False) + ", 'x');\n"
+            + "console.log(captured);\n"
+        )
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+            f.write(js)
+            path = f.name
+        try:
+            r = subprocess.run(["node", path], capture_output=True, text=True, encoding="utf-8")
+        finally:
+            os.unlink(path)
+>       assert r.returncode == 0, r.stderr
+E       AssertionError: C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpemi5huy4.js:1340
+E           const _globalBtn = (opts.globalExport !== false)
+E                                    ^
+E         
+E         TypeError: Cannot read properties of undefined (reading 'globalExport')
+E             at renderExecute (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpemi5huy4.js:1340:28)
+E             at Object.<anonymous> (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpemi5huy4.js:1429:1)
+E             at Module._compile (node:internal/modules/cjs/loader:1830:14)
+E             at Object..js (node:internal/modules/cjs/loader:1961:10)
+E             at Module.load (node:internal/modules/cjs/loader:1553:32)
+E             at Module._load (node:internal/modules/cjs/loader:1355:12)
+E             at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+E             at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+E             at node:internal/main/run_main_module:33:47
+E         
+E         Node.js v24.15.0
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmpemi5huy4.js'], returncode=1, st...unMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v24.15.0\n").returncode
+
+tests\test_result_view_ui_wiring.py:99: AssertionError
+________________ test_node_compare_truncated_suppresses_passed ________________
+
+    def test_node_compare_truncated_suppresses_passed():
+        if not _NODE:
+            import pytest; pytest.skip("node 미설치")
+        obj = _with_view(
+            _top={"compare_truncated": True},
+            status_code="PARTIAL", status_label="부분 검증 (전체 비교 불가)", status_level="warning",
+            summary_counts={"matched": 200, "diff": 0, "src_only": 0, "tgt_only": 0, "total_groups": 288},
+            warning_messages=["일부 그룹만 비교되었습니다. 전체 검증 결과로 볼 수 없습니다."],
+            evidence_messages=[])
+>       out = _run_node(obj)
+              ^^^^^^^^^^^^^^
+
+tests\test_result_view_ui_wiring.py:136: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+result_obj = {'compare_truncated': True, 'compared_groups': 288, 'diff': 0, 'display_truncated': True, ...}
+
+    def _run_node(result_obj: dict) -> str:
+        """renderExecute(result_obj) 실행 후 캡처된 innerHTML 반환(node)."""
+        js = (
+            _HARNESS_PRELUDE
+            + _src() + "\n"
+            + "renderExecute(" + json.dumps(result_obj, ensure_ascii=False) + ", 'x');\n"
+            + "console.log(captured);\n"
+        )
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+            f.write(js)
+            path = f.name
+        try:
+            r = subprocess.run(["node", path], capture_output=True, text=True, encoding="utf-8")
+        finally:
+            os.unlink(path)
+>       assert r.returncode == 0, r.stderr
+E       AssertionError: C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpz5_r5see.js:1340
+E           const _globalBtn = (opts.globalExport !== false)
+E                                    ^
+E         
+E         TypeError: Cannot read properties of undefined (reading 'globalExport')
+E             at renderExecute (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpz5_r5see.js:1340:28)
+E             at Object.<anonymous> (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpz5_r5see.js:1429:1)
+E             at Module._compile (node:internal/modules/cjs/loader:1830:14)
+E             at Object..js (node:internal/modules/cjs/loader:1961:10)
+E             at Module.load (node:internal/modules/cjs/loader:1553:32)
+E             at Module._load (node:internal/modules/cjs/loader:1355:12)
+E             at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+E             at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+E             at node:internal/main/run_main_module:33:47
+E         
+E         Node.js v24.15.0
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmpz5_r5see.js'], returncode=1, st...unMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v24.15.0\n").returncode
+
+tests\test_result_view_ui_wiring.py:99: AssertionError
+______________________ test_node_tolerance_message_dedup ______________________
+
+    def test_node_tolerance_message_dedup():
+        if not _NODE:
+            import pytest; pytest.skip("node 미설치")
+        msg = "허용오차 내 일치 3건 (COUNT 정확 비교 / SUM 절대 허용오차 1E-9)."
+        obj = _with_view(
+            status_code="PASSED", status_label="일치", status_level="success",
+            summary_counts={"matched": 288, "total_groups": 288},
+            warning_messages=[msg], evidence_messages=[msg])
+>       out = _run_node(obj)
+              ^^^^^^^^^^^^^^
+
+tests\test_result_view_ui_wiring.py:151: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+result_obj = {'compare_truncated': False, 'compared_groups': 288, 'diff': 0, 'display_truncated': True, ...}
+
+    def _run_node(result_obj: dict) -> str:
+        """renderExecute(result_obj) 실행 후 캡처된 innerHTML 반환(node)."""
+        js = (
+            _HARNESS_PRELUDE
+            + _src() + "\n"
+            + "renderExecute(" + json.dumps(result_obj, ensure_ascii=False) + ", 'x');\n"
+            + "console.log(captured);\n"
+        )
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+            f.write(js)
+            path = f.name
+        try:
+            r = subprocess.run(["node", path], capture_output=True, text=True, encoding="utf-8")
+        finally:
+            os.unlink(path)
+>       assert r.returncode == 0, r.stderr
+E       AssertionError: C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpls_yaqst.js:1340
+E           const _globalBtn = (opts.globalExport !== false)
+E                                    ^
+E         
+E         TypeError: Cannot read properties of undefined (reading 'globalExport')
+E             at renderExecute (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpls_yaqst.js:1340:28)
+E             at Object.<anonymous> (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpls_yaqst.js:1429:1)
+E             at Module._compile (node:internal/modules/cjs/loader:1830:14)
+E             at Object..js (node:internal/modules/cjs/loader:1961:10)
+E             at Module.load (node:internal/modules/cjs/loader:1553:32)
+E             at Module._load (node:internal/modules/cjs/loader:1355:12)
+E             at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+E             at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+E             at node:internal/main/run_main_module:33:47
+E         
+E         Node.js v24.15.0
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmpls_yaqst.js'], returncode=1, st...unMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v24.15.0\n").returncode
+
+tests\test_result_view_ui_wiring.py:99: AssertionError
+_______________________ test_node_count_skipped_warning _______________________
+
+    def test_node_count_skipped_warning():
+        if not _NODE:
+            import pytest; pytest.skip("node 미설치")
+        obj = _with_view(
+            status_code="PASSED", status_label="일치", status_level="success",
+            summary_counts={"matched": 288, "total_groups": 288},
+            warning_messages=["COUNT \uc0ac\uc804\uac80\uc99d \ubbf8\uc218\ud589 \u2014 \uac74\uc218 \uc77c\uce58 \uc5ec\ubd80\ub294 \ud655\uc778\ub418\uc9c0 \uc54a\uc558\uc2b5\ub2c8\ub2e4."],
+            evidence_messages=[])
+>       out = _run_node(obj)
+              ^^^^^^^^^^^^^^
+
+tests\test_result_view_ui_wiring.py:163: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+result_obj = {'compare_truncated': False, 'compared_groups': 288, 'diff': 0, 'display_truncated': True, ...}
+
+    def _run_node(result_obj: dict) -> str:
+        """renderExecute(result_obj) 실행 후 캡처된 innerHTML 반환(node)."""
+        js = (
+            _HARNESS_PRELUDE
+            + _src() + "\n"
+            + "renderExecute(" + json.dumps(result_obj, ensure_ascii=False) + ", 'x');\n"
+            + "console.log(captured);\n"
+        )
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+            f.write(js)
+            path = f.name
+        try:
+            r = subprocess.run(["node", path], capture_output=True, text=True, encoding="utf-8")
+        finally:
+            os.unlink(path)
+>       assert r.returncode == 0, r.stderr
+E       AssertionError: C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpbrx3c38e.js:1340
+E           const _globalBtn = (opts.globalExport !== false)
+E                                    ^
+E         
+E         TypeError: Cannot read properties of undefined (reading 'globalExport')
+E             at renderExecute (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpbrx3c38e.js:1340:28)
+E             at Object.<anonymous> (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpbrx3c38e.js:1429:1)
+E             at Module._compile (node:internal/modules/cjs/loader:1830:14)
+E             at Object..js (node:internal/modules/cjs/loader:1961:10)
+E             at Module.load (node:internal/modules/cjs/loader:1553:32)
+E             at Module._load (node:internal/modules/cjs/loader:1355:12)
+E             at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+E             at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+E             at node:internal/main/run_main_module:33:47
+E         
+E         Node.js v24.15.0
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmpbrx3c38e.js'], returncode=1, st...unMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v24.15.0\n").returncode
+
+tests\test_result_view_ui_wiring.py:99: AssertionError
+__________________ test_node_legacy_fallback_no_result_view ___________________
+
+    def test_node_legacy_fallback_no_result_view():
+        if not _NODE:
+            import pytest; pytest.skip("node 미설치")
+        obj = dict(_BASE)   # result_view 없음
+>       out = _run_node(obj)
+              ^^^^^^^^^^^^^^
+
+tests\test_result_view_ui_wiring.py:172: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+result_obj = {'compare_truncated': False, 'compared_groups': 288, 'diff': 0, 'display_truncated': True, ...}
+
+    def _run_node(result_obj: dict) -> str:
+        """renderExecute(result_obj) 실행 후 캡처된 innerHTML 반환(node)."""
+        js = (
+            _HARNESS_PRELUDE
+            + _src() + "\n"
+            + "renderExecute(" + json.dumps(result_obj, ensure_ascii=False) + ", 'x');\n"
+            + "console.log(captured);\n"
+        )
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+            f.write(js)
+            path = f.name
+        try:
+            r = subprocess.run(["node", path], capture_output=True, text=True, encoding="utf-8")
+        finally:
+            os.unlink(path)
+>       assert r.returncode == 0, r.stderr
+E       AssertionError: C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpr55pi5qp.js:1340
+E           const _globalBtn = (opts.globalExport !== false)
+E                                    ^
+E         
+E         TypeError: Cannot read properties of undefined (reading 'globalExport')
+E             at renderExecute (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpr55pi5qp.js:1340:28)
+E             at Object.<anonymous> (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpr55pi5qp.js:1429:1)
+E             at Module._compile (node:internal/modules/cjs/loader:1830:14)
+E             at Object..js (node:internal/modules/cjs/loader:1961:10)
+E             at Module.load (node:internal/modules/cjs/loader:1553:32)
+E             at Module._load (node:internal/modules/cjs/loader:1355:12)
+E             at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+E             at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+E             at node:internal/main/run_main_module:33:47
+E         
+E         Node.js v24.15.0
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmpr55pi5qp.js'], returncode=1, st...unMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v24.15.0\n").returncode
+
+tests\test_result_view_ui_wiring.py:99: AssertionError
+_________________ test_node_legacy_compare_truncated_fallback _________________
+
+    def test_node_legacy_compare_truncated_fallback():
+        if not _NODE:
+            import pytest; pytest.skip("node 미설치")
+        obj = dict(_BASE); obj["compare_truncated"] = True
+>       out = _run_node(obj)
+              ^^^^^^^^^^^^^^
+
+tests\test_result_view_ui_wiring.py:183: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+result_obj = {'compare_truncated': True, 'compared_groups': 288, 'diff': 0, 'display_truncated': True, ...}
+
+    def _run_node(result_obj: dict) -> str:
+        """renderExecute(result_obj) 실행 후 캡처된 innerHTML 반환(node)."""
+        js = (
+            _HARNESS_PRELUDE
+            + _src() + "\n"
+            + "renderExecute(" + json.dumps(result_obj, ensure_ascii=False) + ", 'x');\n"
+            + "console.log(captured);\n"
+        )
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+            f.write(js)
+            path = f.name
+        try:
+            r = subprocess.run(["node", path], capture_output=True, text=True, encoding="utf-8")
+        finally:
+            os.unlink(path)
+>       assert r.returncode == 0, r.stderr
+E       AssertionError: C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp_z295iwl.js:1340
+E           const _globalBtn = (opts.globalExport !== false)
+E                                    ^
+E         
+E         TypeError: Cannot read properties of undefined (reading 'globalExport')
+E             at renderExecute (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp_z295iwl.js:1340:28)
+E             at Object.<anonymous> (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp_z295iwl.js:1429:1)
+E             at Module._compile (node:internal/modules/cjs/loader:1830:14)
+E             at Object..js (node:internal/modules/cjs/loader:1961:10)
+E             at Module.load (node:internal/modules/cjs/loader:1553:32)
+E             at Module._load (node:internal/modules/cjs/loader:1355:12)
+E             at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+E             at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+E             at node:internal/main/run_main_module:33:47
+E         
+E         Node.js v24.15.0
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmp_z295iwl.js'], returncode=1, st...unMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v24.15.0\n").returncode
+
+tests\test_result_view_ui_wiring.py:99: AssertionError
+______________ test_normal_result_shows_consistency_notice_once _______________
+
+    def test_normal_result_shows_consistency_notice_once():
+        r = {"success": True, "gb_keys": ["GRP"], "val_cols": ["CNT"],
+             "matched": 1, "diff": 0, "src_only": 0, "tgt_only": 0, "total_src": 1, "total_tgt": 1,
+             "rows": [{"key": {"GRP": "A"}, "src": {"CNT": "1"}, "tgt": {"CNT": "1"}, "status": "ok"}],
+             "query_timing": {"consistency_guarantee": "NOT_GUARANTEED"}}
+>       h = _render(r)
+            ^^^^^^^^^^
+
+tests\test_execution_safety_result_rendering.py:52: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+r = {'diff': 0, 'gb_keys': ['GRP'], 'matched': 1, 'query_timing': {'consistency_guarantee': 'NOT_GUARANTEED'}, ...}
+
+    def _render(r):
+        if not shutil.which("node"):
+            pytest.skip("node 미설치")
+        from ui.execute_result_renderer import build_execute_result_js
+        harness = ("function esc(s){return String(s==null?'':s);}\nfunction escNl(s){return esc(s);}\n"
+                   "var window={};\nvar _els={};\nfunction _getEl(id){if(!_els[id])_els[id]={innerHTML:''};return _els[id];}\n"
+                   "var document={getElementById:function(id){return _getEl(id);}};\n"
+                   + build_execute_result_js() + "\nrenderExecute(" + json.dumps(r) + ",'x');\n"
+                   "console.log(JSON.stringify({html:_getEl('x').innerHTML}));\n")
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+            f.write(harness)
+            path = f.name
+        try:
+            p = subprocess.run(["node", path], capture_output=True, encoding="utf-8", errors="replace")
+>           assert p.returncode == 0, p.stderr[:500]
+E           AssertionError: C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpe9j3wur3.js:1341
+E               const _globalBtn = (opts.globalExport !== false)
+E                                        ^
+E             
+E             TypeError: Cannot read properties of undefined (reading 'globalExport')
+E                 at renderExecute (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpe9j3wur3.js:1341:28)
+E                 at Object.<anonymous> (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpe9j3wur3.js:1430:1)
+E                 at Module._compile (node:internal/modules/cjs/loader:1830:14)
+E                 at Object..js (node:int
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmpe9j3wur3.js'], returncode=1, st...unMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v24.15.0\n").returncode
+
+tests\test_execution_safety_result_rendering.py:40: AssertionError
+________________ test_consistency_notice_absent_when_no_timing ________________
+
+    def test_consistency_notice_absent_when_no_timing():
+        r = {"success": True, "gb_keys": ["GRP"], "val_cols": ["CNT"],
+             "matched": 1, "diff": 0, "src_only": 0, "tgt_only": 0, "total_src": 1, "total_tgt": 1,
+             "rows": [{"key": {"GRP": "A"}, "src": {"CNT": "1"}, "tgt": {"CNT": "1"}, "status": "ok"}]}
+>       h = _render(r)
+            ^^^^^^^^^^
+
+tests\test_execution_safety_result_rendering.py:62: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+r = {'diff': 0, 'gb_keys': ['GRP'], 'matched': 1, 'rows': [{'key': {'GRP': 'A'}, 'src': {'CNT': '1'}, 'status': 'ok', 'tgt': {'CNT': '1'}}], ...}
+
+    def _render(r):
+        if not shutil.which("node"):
+            pytest.skip("node 미설치")
+        from ui.execute_result_renderer import build_execute_result_js
+        harness = ("function esc(s){return String(s==null?'':s);}\nfunction escNl(s){return esc(s);}\n"
+                   "var window={};\nvar _els={};\nfunction _getEl(id){if(!_els[id])_els[id]={innerHTML:''};return _els[id];}\n"
+                   "var document={getElementById:function(id){return _getEl(id);}};\n"
+                   + build_execute_result_js() + "\nrenderExecute(" + json.dumps(r) + ",'x');\n"
+                   "console.log(JSON.stringify({html:_getEl('x').innerHTML}));\n")
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+            f.write(harness)
+            path = f.name
+        try:
+            p = subprocess.run(["node", path], capture_output=True, encoding="utf-8", errors="replace")
+>           assert p.returncode == 0, p.stderr[:500]
+E           AssertionError: C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpke7wo28y.js:1341
+E               const _globalBtn = (opts.globalExport !== false)
+E                                        ^
+E             
+E             TypeError: Cannot read properties of undefined (reading 'globalExport')
+E                 at renderExecute (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpke7wo28y.js:1341:28)
+E                 at Object.<anonymous> (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpke7wo28y.js:1430:1)
+E                 at Module._compile (node:internal/modules/cjs/loader:1830:14)
+E                 at Object..js (node:int
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmpke7wo28y.js'], returncode=1, st...unMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v24.15.0\n").returncode
+
+tests\test_execution_safety_result_rendering.py:40: AssertionError
+______________ test_group_result_uses_normal_renderer_unchanged _______________
+
+    def test_group_result_uses_normal_renderer_unchanged():
+        # §4: 일반 GROUP BY/SUM 결과는 전용 renderer 로 빠지지 않고 기존 그룹 UI 유지.
+>       h = _render(_GROUP_RESULT)
+            ^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_count_only_validation_ui.py:113: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+r = {'diff': 0, 'gb_keys': ['JOIN_YM'], 'matched': 2, 'rows': [{'key': {'JOIN_YM': '202401'}, 'src': {'CNT': '5', 'SUM_AMT': '100'}, 'status': 'ok', 'tgt': {'CNT': '5', 'SUM_AMT': '100'}}], ...}
+
+    def _render(r):
+        """renderExecute 를 실제 실행해 #executeOut innerHTML 을 반환(node)."""
+        if not shutil.which("node"):
+            pytest.skip("node 미설치")
+        from ui.execute_result_renderer import build_execute_result_js
+        # renderExecute 는 본문을 targetId('x') 엘리먼트에 쓰고, 이후 결과 페이지네이션을
+        # exec-result-tbody/exec-result-paging 등 별도 엘리먼트에 쓴다(+window._exec* 상태 사용).
+        # 과거 하네스는 모든 id 에 동일 _el 을 반환해 본문이 페이지네이션으로 덮였고 window 미정의로 깨졌다.
+        # 실제 브라우저 DOM 과 동일하게 id 별 개별 엘리먼트 + window stub 을 제공하고 본문(id='x')만 읽는다.
+        harness = (
+            "function esc(s){return String(s==null?'':s);}\nfunction escNl(s){return esc(s);}\n"
+            "var window={};\n"
+            "var _els={};\nfunction _getEl(id){if(!_els[id])_els[id]={innerHTML:''};return _els[id];}\n"
+            "var document={getElementById:function(id){return _getEl(id);}};\n"
+            + build_execute_result_js() + "\n"
+            "renderExecute(" + json.dumps(r) + ",'x');\n"
+            "console.log(JSON.stringify({html:_getEl('x').innerHTML}));\n"
+        )
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+            f.write(harness)
+            path = f.name
+        try:
+            p = subprocess.run(["node", path], capture_output=True, encoding="utf-8", errors="replace")
+>           assert p.returncode == 0, p.stderr[:600]
+E           AssertionError: C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpfaogpfj9.js:1341
+E               const _globalBtn = (opts.globalExport !== false)
+E                                        ^
+E             
+E             TypeError: Cannot read properties of undefined (reading 'globalExport')
+E                 at renderExecute (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpfaogpfj9.js:1341:28)
+E                 at Object.<anonymous> (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpfaogpfj9.js:1430:1)
+E                 at Module._compile (node:internal/modules/cjs/loader:1830:14)
+E                 at Object..js (node:internal/modules/cjs/loader:1961:10)
+E                 at Module.load (node:internal/modules/cjs/loader:1553:32)
+E                 
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmpfaogpfj9.js'], returncode=1, st...unMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v24.15.0\n").returncode
+
+tests\test_count_only_validation_ui.py:50: AssertionError
+________ TestRunExecuteJsPayload.test_15_runExecute_reads_from_dataset ________
+
+self = <test_task12_a.TestRunExecuteJsPayload testMethod=test_15_runExecute_reads_from_dataset>
+
+    def test_15_runExecute_reads_from_dataset(self):
+        """TC-12A-15: runExecute가 sqlOut.dataset에서 gbSel/sumSel을 읽어야 한다."""
+        # runExecute 함수 본문 범위 내에 dataset 참조가 있어야 함
+        idx = self.js.find("async function runExecute(")
+        self.assertGreaterEqual(idx, 0, "runExecute 함수 없음")
+        body = self.js[idx:idx + 2000]
+>       self.assertIn("dataset", body, "runExecute에서 dataset 참조 없음")
+E       AssertionError: 'dataset' not found in "async function runExecute() {\\n  /* GATE-4-5-REVERT-TO-TWO-STEP-CONFIRM \u2462: '\ud1b5\uacc4\uac80\uc99d \uc2e4\ud589' \uc7ac\ud074\ub9ad \ubc29\uc9c0 \ub3d9\uae30 \uac00\ub4dc \u2014 exec-gate/preflight\\n     await \uc774\uc804\uc5d0 \ud310\uc815\ub418\uc5b4\uc57c \ud55c\ub2e4(runRevalidateFromCandidate \uc758 _revalidateInProgress \ud328\ud134 \uc7ac\uc0ac\uc6a9). */\\n  if (_executeInProgress) return;\\n  /* [\uae34\uae09 \uc218\uc815 \xa71] \ud604\uc7ac \uc5b4\ub5a4 \uc2e4\ud589\uc774\ub77c\ub3c4 \uc9c4\ud589\uc911(COUNT/\ud1b5\uacc4/\uc0c1\uc138\ube44\uad50/Exact Diff/PK \ucd94\ucd9c/\uc7ac\uc774\uad00 \uc0b0\ucd9c/Pause\xb7Resume)\uc774\uba74\\n     '\ucc98\uc74c\ubd80\ud130 \ub2e4\uc2dc \uc2e4\ud589' \ud074\ub9ad\uc744 \uc989\uc2dc \ucc28\ub2e8\ud55c\ub2e4(\uc911\ubcf5 \uc2e4\ud589 \ubc29\uc9c0). Completed/Failed/Cancelled \uc5d0\uc11c\ub9cc \uc9c4\ud589. */\\n  if (typeof _mvAnyRunActive === 'function' && _mvAnyRunActive()) {\\n    try { console.warn('\ucc98\uc74c\ubd80\ud130 \ub2e4\uc2dc \uc2e4\ud589 \ucc28\ub2e8 \u2014 \uc2e4\ud589 \uc9c4\ud589 \uc911'); } catch (e) {}\\n    /* \u2461b: \ucc28\ub2e8 return \uc2dc\uc5d0\ub3c4 \uc0c1\ud0dc \uc815\ub9ac \u2014 \uc774\uc804 \ud074\ub9ad\uc774 \ucf1c\ub454 \ucc44 \ub0a8\uc740 execBtn \uc2a4\ud53c\ub108\ub97c \ubcf5\uad6c\ud558\uace0(\uc9c4\uc785 \uc790\uccb4\uac00\\n       \ub9c9\ud614\uc73c\ubbc0\ub85c \uc2a4\ud53c\ub108\uac00 \ub0a8\uc544\uc788\uc73c\uba74 \uc548 \ub428), '\uc2e4\ud589 \uc885\ub8cc\ub410\ub294\ub370 \uc794\ub958 \ud50c\ub798\uadf8\ub85c \uc624\ud310\ub41c' \uacbd\uc6b0\ub97c \uc2a4\uc2a4\ub85c \ubd09\ud569\ud55c\ub2e4:\\n       \uc2e4\uc81c\ub85c \uc5b4\ub5a4 \uc2e4\ud589\ub3c4 \uc9c4\ud589 \uc911\uc774 \uc544\ub2c8\uba74(_mvReimportStatus \ube44-RUNNING & \ud3f4\ub9c1 \uc5c6\uc74c) \uc794\ub958 \ud328\ub110 \ud50c\ub798\uadf8\ub97c \uc815\ub9ac\ud55c\ub2e4. */\\n    try {\\n      var _eb = document.getElementById('execBtn');\\n      if (_eb && (_eb.innerHTML || '').indexOf('spinner') >= 0 && !_executeInProgress && !_revalidateInProgress && !_fullRunInProgress) {\\n        _eb.disabled = false;\\n        _eb.innerHTML = (typeof _singleValidationExecuted !== 'undefined' && _singleValidationExecuted) ? '\u25b6 \ud1b5\uacc4\uac80\uc99d \ub2e4\uc2dc \uc2e4\ud589' : '\u25b6 \ud1b5\uacc4\uac80\uc99d \uc2e4\ud589';\\n      }\\n      var _rs = String(window._mvReimportStatus || '').toUpperCase();\\n      var _riRunning = (_rs === 'PREPARING' || _rs === 'RUNNING' || _rs === 'STREAMING' || _rs === 'QUEUED'\\n                        || _rs === 'PAUSE_REQUESTED' || _rs === 'CANCEL_REQUESTED');\\n      var _poll = !!((window._mvRiState || {})._pollTimer);\\n      if (!_riRunning && !_poll && window._mvExecPaused !== true) {\\n        /* \uc2e4\uc81c \uc9c4\ud589 \uc5c6\uc74c\uc778\ub370 \ud328\ub110 \ud50c\ub798\uadf8\ub9cc \uc794\ub958 \u2192 \uc815\ub9ac\ud574 \ub2e4\uc74c \ud074\ub9ad\uc774 \uc815\uc0c1 \ub3d9\uc791\ud558\ub3c4\ub85d(\uc2a4\ud131 \uc790\uae30\uce58\uc720). */\\n        window._mvExecPanelActive = false; window._mvExecTerminal = true;\\n        if (typeof _renderSingleStepNav === 'function') { try { _renderSingleStepNav(); } catch (e2) {} }\\n      }\\n    } catch (e) {}\\n    return;\\n  }\\n  /* [Phase2 \xa71] \uccab \uacb0\uacfc \ud654\uba74 \ud45c\uc2dc\uc2dc\uac04 \uae30\uc900\uc810 \u2014 \uc2e4\ud589 \ud074\ub9ad \uc2dc\uac01(\ud074\ub9ad\u2192\uccab 20\ud589 DOM \uae4c\uc9c0). \ub9e4 \uc2e4\ud589\ub9c8\ub2e4 \ucd08\uae30\ud654.\\n     [PERFORMANCE-DISPLAY-STALE-RUN-AND-LABEL-FIX] \uc2dc\uc791\uc810\xb7\uacc4\uce21 \ucd08\uae30\ud654\ub97c \uc6d0\ud074\ub9ad \uacbd\ub85c\uc640 \uacf5\ud1b5 \ud568\uc218\ub85c \ud1b5\uc77c\ud55c\ub2e4. */\\n  _mvPerfStartGen(" : runExecute\uc5d0\uc11c dataset \ucc38\uc870 \uc5c6\uc74c
+
+tests\test_task12_a.py:103: AssertionError
+__________ TestCountOnlyExecution.test_03_count_only_with_empty_sum ___________
+
+self = <test_task12_a.TestCountOnlyExecution testMethod=test_03_count_only_with_empty_sum>
+
+    def test_03_count_only_with_empty_sum(self):
+        """TC-12A-03: sum_cols=[]이어도 execute 서비스가 성공적으로 동작."""
+        req = _make_mock_req(gb_cols=["STATUS_CD"], sum_cols=[])
+    
+        mock_src_cols = ["STATUS_CD", "CNT"]
+        mock_src_rows = [["A", 100], ["B", 200]]
+        mock_tgt_cols = ["STATUS_CD", "CNT"]
+        mock_tgt_rows = [["A", 100], ["B", 200]]
+    
+        with patch("services.stats_execute_service._cmn_db_fetch_all",
+                   side_effect=[
+                       (mock_src_cols, mock_src_rows),
+                       (mock_tgt_cols, mock_tgt_rows),
+                   ]):
+            result = execute_stats_validation(req)
+    
+>       self.assertTrue(result["success"])
+E       AssertionError: False is not true
+
+tests\test_task12_a.py:127: AssertionError
+_________ TestCountOnlyExecution.test_03_no_groupby_no_sum_count_only _________
+
+self = <test_task12_a.TestCountOnlyExecution testMethod=test_03_no_groupby_no_sum_count_only>
+
+    def test_03_no_groupby_no_sum_count_only(self):
+        """TC-12A-03: GROUP BY도 SUM도 없는 전체 COUNT-only 실행."""
+        req = _make_mock_req(gb_cols=[], sum_cols=[])
+    
+        with patch("services.stats_execute_service._cmn_db_fetch_all",
+                   side_effect=[
+                       (["CNT"], [[5000]]),
+                       (["CNT"], [[5000]]),
+                   ]):
+            result = execute_stats_validation(req)
+    
+>       self.assertTrue(result["success"])
+E       AssertionError: False is not true
+
+tests\test_task12_a.py:142: AssertionError
+_____ TestGlobalAggregateDisplay.test_05_internal_all_key_not_in_response _____
+
+self = <test_task12_a.TestGlobalAggregateDisplay testMethod=test_05_internal_all_key_not_in_response>
+
+    def test_05_internal_all_key_not_in_response(self):
+        """TC-12A-05: stats_execute_service의 응답 row key가 {} (('__all__',) 아님)."""
+        req = _make_mock_req(gb_cols=[], sum_cols=[])
+    
+        with patch("services.stats_execute_service._cmn_db_fetch_all",
+                   side_effect=[
+                       (["CNT"], [[100]]),
+                       (["CNT"], [[100]]),
+                   ]):
+            result = execute_stats_validation(req)
+    
+>       row = result["rows"][0]
+              ^^^^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+tests\test_task12_a.py:171: IndexError
+_ TestGlobalAggregateDisplay.test_05_to_dict_global_key_is_tuple_but_not_exposed _
+
+self = <test_task12_a.TestGlobalAggregateDisplay testMethod=test_05_to_dict_global_key_is_tuple_but_not_exposed>
+
+    def test_05_to_dict_global_key_is_tuple_but_not_exposed(self):
+        """TC-12A-05: _to_dict 내부는 ('__all__',) 사용하나 외부 응답 key_dict는 {}."""
+        # 내부 dict 키 확인
+        internal = _to_dict(["CNT"], [[100]], [])
+        self.assertIn(("__all__",), internal,
+            "\ub0b4\ubd80 ('__all__',) \ud0a4\uac00 \uc5c6\uc74c \u2014 \ub0b4\ubd80 \uad6c\uc870 \ubcc0\uacbd \uc758\uc2ec")
+        # 응답 key_dict는 {} 이어야 함 (stats_execute_service 응답 구조)
+        req = _make_mock_req(gb_cols=[], sum_cols=[])
+        with patch("services.stats_execute_service._cmn_db_fetch_all",
+                   side_effect=[(["CNT"], [[100]]), (["CNT"], [[100]])]):
+            result = execute_stats_validation(req)
+>       self.assertEqual(result["rows"][0]["key"], {})
+                         ^^^^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+tests\test_task12_a.py:188: IndexError
+__________ TestExecuteResultStructure.test_06_src_only_has_none_tgt ___________
+
+self = <test_task12_a.TestExecuteResultStructure testMethod=test_06_src_only_has_none_tgt>
+
+    def test_06_src_only_has_none_tgt(self):
+        """TC-12A-06: src_only 행의 tgt 값은 None이어야 한다."""
+        result = self._run(
+            src_rows=[["A", 100], ["B", 200]],
+            tgt_rows=[["A", 100]],
+        )
+        src_only_rows = [r for r in result["rows"] if r["status"] == "src_only"]
+>       self.assertEqual(len(src_only_rows), 1)
+E       AssertionError: 0 != 1
+
+tests\test_task12_a.py:253: AssertionError
+__________ TestExecuteResultStructure.test_06_summary_counts_correct __________
+
+self = <test_task12_a.TestExecuteResultStructure testMethod=test_06_summary_counts_correct>
+
+    def test_06_summary_counts_correct(self):
+        """TC-12A-06: matched/diff/src_only/tgt_only summary count가 올바름."""
+        result = self._run(
+            src_rows=[["A", 100], ["B", 200], ["C", 300]],
+            tgt_rows=[["A", 100], ["B", 250]],  # B: diff, C: src_only, (없는 D: tgt_only)
+        )
+>       self.assertTrue(result["success"])
+E       AssertionError: False is not true
+
+tests\test_task12_a.py:215: AssertionError
+_______ TestExecuteResultStructure.test_07_diff_row_has_src_tgt_values ________
+
+self = <test_task12_a.TestExecuteResultStructure testMethod=test_07_diff_row_has_src_tgt_values>
+
+    def test_07_diff_row_has_src_tgt_values(self):
+        """TC-12A-07: diff 행에 src/tgt value가 존재한다."""
+        result = self._run(
+            src_rows=[["A", 100]],
+            tgt_rows=[["A", 200]],
+        )
+        diff_rows = [r for r in result["rows"] if r["status"] == "diff"]
+>       self.assertEqual(len(diff_rows), 1)
+E       AssertionError: 0 != 1
+
+tests\test_task12_a.py:227: AssertionError
+____ TestExecuteResultStructure.test_08_src_only_tgt_only_separate_status _____
+
+self = <test_task12_a.TestExecuteResultStructure testMethod=test_08_src_only_tgt_only_separate_status>
+
+    def test_08_src_only_tgt_only_separate_status(self):
+        """TC-12A-08: src_only/tgt_only가 별도 상태로 구분된다."""
+        result = self._run(
+            src_rows=[["A", 100], ["B", 200]],
+            tgt_rows=[["A", 100], ["C", 300]],
+        )
+        statuses = {r["status"] for r in result["rows"]}
+>       self.assertIn("src_only", statuses, "src_only 상태 없음")
+E       AssertionError: 'src_only' not found in set() : src_only 상태 없음
+
+tests\test_task12_a.py:243: AssertionError
+_______________ TestTruncationWarning.test_09_is_truncated_flag _______________
+
+self = <test_task12_a.TestTruncationWarning testMethod=test_09_is_truncated_flag>
+
+    def test_09_is_truncated_flag(self):
+        """TC-12A-09: 200건 초과 시 is_truncated=True가 응답에 포함된다."""
+        req = _make_mock_req(gb_cols=["GRP"])
+        # 201개 row 생성
+        many_rows = [[str(i), i * 10] for i in range(201)]
+    
+        with patch("services.stats_execute_service._cmn_db_fetch_all",
+                   side_effect=[
+                       (["GRP", "CNT"], many_rows),
+                       (["GRP", "CNT"], many_rows),
+                   ]):
+            result = execute_stats_validation(req)
+    
+>       self.assertTrue(result["is_truncated"])
+                        ^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'is_truncated'
+
+tests\test_task12_a.py:276: KeyError
+______________ TestDbErrorDisplay.test_12_src_error_in_response _______________
+
+self = <test_task12_a.TestDbErrorDisplay testMethod=test_12_src_error_in_response>
+
+    def test_12_src_error_in_response(self):
+        """TC-12A-12: 원본 DB 오류 시 success=False, src_error 포함."""
+        req = _make_mock_req()
+        with patch("services.stats_execute_service._cmn_db_fetch_all",
+                   side_effect=Exception("connection refused")):
+            result = execute_stats_validation(req)
+        self.assertFalse(result["success"])
+>       self.assertIsNotNone(result.get("src_error"))
+E       AssertionError: unexpectedly None
+
+tests\test_task12_a.py:341: AssertionError
+______________ TestDbErrorDisplay.test_12_tgt_error_in_response _______________
+
+self = <test_task12_a.TestDbErrorDisplay testMethod=test_12_tgt_error_in_response>
+
+    def test_12_tgt_error_in_response(self):
+        """TC-12A-12: 목적지 DB 오류 시 success=False, tgt_error 포함."""
+        req = _make_mock_req()
+        with patch("services.stats_execute_service._cmn_db_fetch_all",
+                   side_effect=[
+                       (["CNT"], [[100]]),
+                       Exception("target db error"),
+                   ]):
+            result = execute_stats_validation(req)
+        self.assertFalse(result["success"])
+>       self.assertIsNotNone(result.get("tgt_error"))
+E       AssertionError: unexpectedly None
+
+tests\test_task12_a.py:353: AssertionError
+________________________ test_persist_only_valid_tabs _________________________
+
+    def test_persist_only_valid_tabs():
+        """\uc720\ud6a8 \ud0ed(_MV_TABS)\ub9cc \uc800\uc7a5 \u2014 handoff 'single' \ub4f1 \ube44\uc720\ud6a8 \uc774\ub984\uc740 \uc800\uc7a5 \uc548 \ud568."""
+        js = _js()
+        fn = js[js.find("function _persistActiveTab("):]
+        fn = fn[:fn.find("\nfunction showTab")]
+>       assert "_MV_TABS.indexOf(name) < 0) return" in fn
+E       AssertionError: assert '_MV_TABS.indexOf(name) < 0) return' in 'function _persistActiveTab(name) {\\n  if (_MV_TABS.indexOf(name) < 0) {\\n    /* BEFOREUNLOAD-WARNING-EXPAND-AND-DESYN...y \uc870\uc791 \uc5c6\uc774 UI \ub9cc \ub3d9\uae30\ud654.\\n   opts.replace: \ucd08\uae30 \uc9c4\uc785 \u2014 replaceState(\uc0c8 history entry \uc5c6\uc74c). \uae30\ubcf8(\uba54\ub274/Header): pushState(\uc911\ubcf5 push \uae08\uc9c0). */'
+
+tests\test_ui_active_tab_persistence.py:58: AssertionError
+__________ test_restore_priority_hash_then_localstorage_then_default __________
+
+    def test_restore_priority_hash_then_localstorage_then_default():
+        js = _js()
+        fn = js[js.find("function _restoreActiveTab("):]
+        fn = fn[:fn.find("/* 수동 hash")]
+        # hash 우선
+        assert "location.hash" in fn and "replace(/^#tab-/" in fn
+        # localStorage 차순위
+        assert "localStorage.getItem('mv_active_tab')" in fn
+        # 기본 fallback = batch
+>       assert "name = 'batch'" in fn
+E       assert "name = 'batch'" in 'function _restoreActiveTab() {\n  /* 새로고침 = 처음 진입. 우선순위: URL hash(#tab-xxx, 명시적 deep-link) > localStorage 마지막 탭 > 검증 ...dow.loadResultsDetail = loadResultsDetail; window.goToResultsDetail = goToResultsDetail; window.resExport = resExport;'
+
+tests\test_ui_active_tab_persistence.py:73: AssertionError
+______________ test_no_forced_batch_redirect_on_default_restore _______________
+
+    def test_no_forced_batch_redirect_on_default_restore():
+        """기본(home) 복원 시 showTab 재호출하지 않아 현재 동작을 보존(강제 이동 없음)."""
+        js = _js()
+        fn = js[js.find("function _restoreActiveTab("):]
+        fn = fn[:fn.find("/* 수동 hash")]
+>       assert "if (name !== 'home') showTab(name)" in fn
+E       assert "if (name !== 'home') showTab(name)" in 'function _restoreActiveTab() {\n  /* 새로고침 = 처음 진입. 우선순위: URL hash(#tab-xxx, 명시적 deep-link) > localStorage 마지막 탭 > 검증 ...dow.loadResultsDetail = loadResultsDetail; window.goToResultsDetail = goToResultsDetail; window.resExport = resExport;'
+
+tests\test_ui_active_tab_persistence.py:91: AssertionError
+_________________ test_hash_priority_restore_for_history_tab __________________
+
+    def test_hash_priority_restore_for_history_tab():
+        """#tab-history 같은 hash 가 있으면 localStorage 와 무관하게 hash 우선으로 복원(query string 무관)."""
+        js = _js()
+        fn = js[js.find("function _restoreActiveTab("):]
+        fn = fn[:fn.find("/* 수동 hash")]
+        # hash 우선 → localStorage 차순위 순서
+        h_at = fn.find("location.hash")
+        ls_at = fn.find("localStorage.getItem('mv_active_tab')")
+>       assert h_at != -1 and ls_at != -1 and h_at < ls_at, "hash 가 localStorage 보다 먼저 평가되어야 함"
+E       AssertionError: hash 가 localStorage 보다 먼저 평가되어야 함
+E       assert (425 != -1 and 224 != -1 and 425 < 224)
+
+tests\test_ui_active_tab_persistence.py:155: AssertionError
+_______________ test_batch_skip_does_not_reveal_before_restore ________________
+
+    def test_batch_skip_does_not_reveal_before_restore():
+        """\uae30\ubcf8 batch \ubcf5\uc6d0 \uc2dc\uc5d0\ub3c4 reveal(restoring \uc81c\uac70)\uc740 finally \uc5d0\uc11c\ub9cc \u2014 batch \uc0dd\ub7b5\uc774 \uc870\uae30 \ub178\ucd9c\uc744 \uc720\ubc1c\ud558\uc9c0 \uc54a\uc74c."""
+        js = _js()
+        fn = js[js.find("function _restoreActiveTab("):]
+        fn = fn[:fn.find("/* 수동 hash")]
+        # reveal(remove)은 finally 블록 안에만 존재
+        rm_idx = fn.find("documentElement.classList.remove('mv-tabs-restoring')")
+        fin_idx = fn.find("} finally {")
+        assert rm_idx != -1 and fin_idx != -1 and rm_idx > fin_idx, "reveal 은 finally 이후(복원 완료 시점)에만"
+        # 기본(home) 생략 로직 유지
+>       assert "if (name !== 'home') showTab(name)" in fn
+E       assert "if (name !== 'home') showTab(name)" in 'function _restoreActiveTab() {\n  /* 새로고침 = 처음 진입. 우선순위: URL hash(#tab-xxx, 명시적 deep-link) > localStorage 마지막 탭 > 검증 ...dow.loadResultsDetail = loadResultsDetail; window.goToResultsDetail = goToResultsDetail; window.resExport = resExport;'
+
+tests\test_ui_active_tab_persistence.py:170: AssertionError
+____________________ test_first_render_creates_nodes_once _____________________
+
+    def test_first_render_creates_nodes_once():
+>       assert _res()["innerHtml_after_first"] == 1
+               ^^^^^^
+
+tests\test_step_tab_dom_stability.py:205: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_step_tab_dom_stability.py:200: in _res
+    _R = _run()
+         ^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    def _run():
+        if not shutil.which("node"):
+            pytest.skip("node 미설치")
+        harness = _HARNESS.replace("__INJECT__", _extract_js())
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+            f.write(harness)
+            path = f.name
+        try:
+            p = subprocess.run(["node", path], capture_output=True, encoding="utf-8", errors="replace")
+>           assert p.returncode == 0, p.stderr[:1000]
+E           AssertionError: C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp4s7zqls3.js:207
+E             out.q_first_uid = q_first._uid;
+E                                       ^
+E             
+E             TypeError: Cannot read properties of null (reading '_uid')
+E                 at Object.<anonymous> (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp4s7zqls3.js:207:27)
+E                 at Module._compile (node:internal/modules/cjs/loader:1830:14)
+E                 at Object..js (node:internal/modules/cjs/loader:1961:10)
+E                 at Module.load (node:internal/modules/cjs/loader:1553:32)
+E                 at Module._load (node:internal/modules/cjs/loader:1355:12)
+E                 at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+E                 at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+E                 at node:internal/main/run_main_module:33:47
+E             
+E             Node.js v24.15.0
+E             
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmp4s7zqls3.js'], returncode=1, st...unMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v24.15.0\n").returncode
+
+tests\test_step_tab_dom_stability.py:188: AssertionError
+________________ test_no_innerhtml_replace_on_repeated_render _________________
+
+    def test_no_innerhtml_replace_on_repeated_render():
+        # 같은 구성 10회 재렌더 후에도 innerHTML 교체는 최초 1회뿐(탭 재생성 없음)
+>       assert _res()["innerHtml_after_10"] == 1
+               ^^^^^^
+
+tests\test_step_tab_dom_stability.py:210: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_step_tab_dom_stability.py:200: in _res
+    _R = _run()
+         ^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    def _run():
+        if not shutil.which("node"):
+            pytest.skip("node 미설치")
+        harness = _HARNESS.replace("__INJECT__", _extract_js())
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+            f.write(harness)
+            path = f.name
+        try:
+            p = subprocess.run(["node", path], capture_output=True, encoding="utf-8", errors="replace")
+>           assert p.returncode == 0, p.stderr[:1000]
+E           AssertionError: C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpt6zgq_lr.js:207
+E             out.q_first_uid = q_first._uid;
+E                                       ^
+E             
+E             TypeError: Cannot read properties of null (reading '_uid')
+E                 at Object.<anonymous> (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpt6zgq_lr.js:207:27)
+E                 at Module._compile (node:internal/modules/cjs/loader:1830:14)
+E                 at Object..js (node:internal/modules/cjs/loader:1961:10)
+E                 at Module.load (node:internal/modules/cjs/loader:1553:32)
+E                 at Module._load (node:internal/modules/cjs/loader:1355:12)
+E                 at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+E                 at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+E                 at node:internal/main/run_main_module:33:47
+E             
+E             Node.js v24.15.0
+E             
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmpt6zgq_lr.js'], returncode=1, st...unMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v24.15.0\n").returncode
+
+tests\test_step_tab_dom_stability.py:188: AssertionError
+________________ test_node_identity_preserved_across_rerenders ________________
+
+    def test_node_identity_preserved_across_rerenders():
+>       assert _res()["q_same_after_10"] is True
+               ^^^^^^
+
+tests\test_step_tab_dom_stability.py:214: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_step_tab_dom_stability.py:200: in _res
+    _R = _run()
+         ^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    def _run():
+        if not shutil.which("node"):
+            pytest.skip("node 미설치")
+        harness = _HARNESS.replace("__INJECT__", _extract_js())
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+            f.write(harness)
+            path = f.name
+        try:
+            p = subprocess.run(["node", path], capture_output=True, encoding="utf-8", errors="replace")
+>           assert p.returncode == 0, p.stderr[:1000]
+E           AssertionError: C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp1umq3abq.js:207
+E             out.q_first_uid = q_first._uid;
+E                                       ^
+E             
+E             TypeError: Cannot read properties of null (reading '_uid')
+E                 at Object.<anonymous> (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp1umq3abq.js:207:27)
+E                 at Module._compile (node:internal/modules/cjs/loader:1830:14)
+E                 at Object..js (node:internal/modules/cjs/loader:1961:10)
+E                 at Module.load (node:internal/modules/cjs/loader:1553:32)
+E                 at Module._load (node:internal/modules/cjs/loader:1355:12)
+E                 at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+E                 at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+E                 at node:internal/main/run_main_module:33:47
+E             
+E             Node.js v24.15.0
+E             
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmp1umq3abq.js'], returncode=1, st...unMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v24.15.0\n").returncode
+
+tests\test_step_tab_dom_stability.py:188: AssertionError
+________________ test_node_identity_preserved_on_status_change ________________
+
+    def test_node_identity_preserved_on_status_change():
+        # 상태 변경(active 이동) 렌더에도 같은 노드 재사용 + innerHTML 추가 없음
+>       assert _res()["q_same_after_status"] is True
+               ^^^^^^
+
+tests\test_step_tab_dom_stability.py:219: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_step_tab_dom_stability.py:200: in _res
+    _R = _run()
+         ^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    def _run():
+        if not shutil.which("node"):
+            pytest.skip("node 미설치")
+        harness = _HARNESS.replace("__INJECT__", _extract_js())
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+            f.write(harness)
+            path = f.name
+        try:
+            p = subprocess.run(["node", path], capture_output=True, encoding="utf-8", errors="replace")
+>           assert p.returncode == 0, p.stderr[:1000]
+E           AssertionError: C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpfx617b7p.js:207
+E             out.q_first_uid = q_first._uid;
+E                                       ^
+E             
+E             TypeError: Cannot read properties of null (reading '_uid')
+E                 at Object.<anonymous> (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpfx617b7p.js:207:27)
+E                 at Module._compile (node:internal/modules/cjs/loader:1830:14)
+E                 at Object..js (node:internal/modules/cjs/loader:1961:10)
+E                 at Module.load (node:internal/modules/cjs/loader:1553:32)
+E                 at Module._load (node:internal/modules/cjs/loader:1355:12)
+E                 at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+E                 at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+E                 at node:internal/main/run_main_module:33:47
+E             
+E             Node.js v24.15.0
+E             
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmpfx617b7p.js'], returncode=1, st...unMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v24.15.0\n").returncode
+
+tests\test_step_tab_dom_stability.py:188: AssertionError
+___________________ test_active_moves_in_place_and_persists ___________________
+
+    def test_active_moves_in_place_and_persists():
+>       assert _res()["active_idx_after_query"] == 0      # query 탭 active
+               ^^^^^^
+
+tests\test_step_tab_dom_stability.py:224: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_step_tab_dom_stability.py:200: in _res
+    _R = _run()
+         ^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    def _run():
+        if not shutil.which("node"):
+            pytest.skip("node 미설치")
+        harness = _HARNESS.replace("__INJECT__", _extract_js())
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+            f.write(harness)
+            path = f.name
+        try:
+            p = subprocess.run(["node", path], capture_output=True, encoding="utf-8", errors="replace")
+>           assert p.returncode == 0, p.stderr[:1000]
+E           AssertionError: C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpa15lnwhb.js:207
+E             out.q_first_uid = q_first._uid;
+E                                       ^
+E             
+E             TypeError: Cannot read properties of null (reading '_uid')
+E                 at Object.<anonymous> (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpa15lnwhb.js:207:27)
+E                 at Module._compile (node:internal/modules/cjs/loader:1830:14)
+E                 at Object..js (node:internal/modules/cjs/loader:1961:10)
+E                 at Module.load (node:internal/modules/cjs/loader:1553:32)
+E                 at Module._load (node:internal/modules/cjs/loader:1355:12)
+E                 at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+E                 at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+E                 at node:internal/main/run_main_module:33:47
+E             
+E             Node.js v24.15.0
+E             
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmpa15lnwhb.js'], returncode=1, st...unMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v24.15.0\n").returncode
+
+tests\test_step_tab_dom_stability.py:188: AssertionError
+_______________ test_delegated_click_works_after_inplace_update _______________
+
+    def test_delegated_click_works_after_inplace_update():
+>       assert _res()["click_query"] == ["query"]
+               ^^^^^^
+
+tests\test_step_tab_dom_stability.py:229: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_step_tab_dom_stability.py:200: in _res
+    _R = _run()
+         ^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    def _run():
+        if not shutil.which("node"):
+            pytest.skip("node 미설치")
+        harness = _HARNESS.replace("__INJECT__", _extract_js())
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+            f.write(harness)
+            path = f.name
+        try:
+            p = subprocess.run(["node", path], capture_output=True, encoding="utf-8", errors="replace")
+>           assert p.returncode == 0, p.stderr[:1000]
+E           AssertionError: C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpfkqvqefw.js:207
+E             out.q_first_uid = q_first._uid;
+E                                       ^
+E             
+E             TypeError: Cannot read properties of null (reading '_uid')
+E                 at Object.<anonymous> (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpfkqvqefw.js:207:27)
+E                 at Module._compile (node:internal/modules/cjs/loader:1830:14)
+E                 at Object..js (node:internal/modules/cjs/loader:1961:10)
+E                 at Module.load (node:internal/modules/cjs/loader:1553:32)
+E                 at Module._load (node:internal/modules/cjs/loader:1355:12)
+E                 at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+E                 at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+E                 at node:internal/main/run_main_module:33:47
+E             
+E             Node.js v24.15.0
+E             
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmpfkqvqefw.js'], returncode=1, st...unMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v24.15.0\n").returncode
+
+tests\test_step_tab_dom_stability.py:188: AssertionError
+______________________ test_single_listener_no_duplicate ______________________
+
+    def test_single_listener_no_duplicate():
+>       assert _res()["click_listener_count"] == 1
+               ^^^^^^
+
+tests\test_step_tab_dom_stability.py:234: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_step_tab_dom_stability.py:200: in _res
+    _R = _run()
+         ^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    def _run():
+        if not shutil.which("node"):
+            pytest.skip("node 미설치")
+        harness = _HARNESS.replace("__INJECT__", _extract_js())
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+            f.write(harness)
+            path = f.name
+        try:
+            p = subprocess.run(["node", path], capture_output=True, encoding="utf-8", errors="replace")
+>           assert p.returncode == 0, p.stderr[:1000]
+E           AssertionError: C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpj3ml6ni7.js:207
+E             out.q_first_uid = q_first._uid;
+E                                       ^
+E             
+E             TypeError: Cannot read properties of null (reading '_uid')
+E                 at Object.<anonymous> (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpj3ml6ni7.js:207:27)
+E                 at Module._compile (node:internal/modules/cjs/loader:1830:14)
+E                 at Object..js (node:internal/modules/cjs/loader:1961:10)
+E                 at Module.load (node:internal/modules/cjs/loader:1553:32)
+E                 at Module._load (node:internal/modules/cjs/loader:1355:12)
+E                 at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+E                 at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+E                 at node:internal/main/run_main_module:33:47
+E             
+E             Node.js v24.15.0
+E             
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmpj3ml6ni7.js'], returncode=1, st...unMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v24.15.0\n").returncode
+
+tests\test_step_tab_dom_stability.py:188: AssertionError
+______________________ test_struct_change_rebuilds_once _______________________
+
+    def test_struct_change_rebuilds_once():
+        # 단계 구성(소유자/키/개수) 변경 시에만 1회 재생성
+>       assert _res()["innerHtml_after_struct_change"] == 1
+               ^^^^^^
+
+tests\test_step_tab_dom_stability.py:239: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_step_tab_dom_stability.py:200: in _res
+    _R = _run()
+         ^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    def _run():
+        if not shutil.which("node"):
+            pytest.skip("node 미설치")
+        harness = _HARNESS.replace("__INJECT__", _extract_js())
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+            f.write(harness)
+            path = f.name
+        try:
+            p = subprocess.run(["node", path], capture_output=True, encoding="utf-8", errors="replace")
+>           assert p.returncode == 0, p.stderr[:1000]
+E           AssertionError: C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp3qa540wp.js:207
+E             out.q_first_uid = q_first._uid;
+E                                       ^
+E             
+E             TypeError: Cannot read properties of null (reading '_uid')
+E                 at Object.<anonymous> (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp3qa540wp.js:207:27)
+E                 at Module._compile (node:internal/modules/cjs/loader:1830:14)
+E                 at Object..js (node:internal/modules/cjs/loader:1961:10)
+E                 at Module.load (node:internal/modules/cjs/loader:1553:32)
+E                 at Module._load (node:internal/modules/cjs/loader:1355:12)
+E                 at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+E                 at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+E                 at node:internal/main/run_main_module:33:47
+E             
+E             Node.js v24.15.0
+E             
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmp3qa540wp.js'], returncode=1, st...unMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v24.15.0\n").returncode
+
+tests\test_step_tab_dom_stability.py:188: AssertionError
+__________________________ test_target_only_display ___________________________
+
+    def test_target_only_display():
+        up = _fn(r"function _mvProgressModalUpdate\(d\)\s*\{.*?\n\}\nwindow\._mvProgressModalUpdate")
+        # 진행 중 라인은 payload d.excluded_target_only 를 그대로 표시(진행 partial)
+        assert "d.excluded_target_only" in up
+>       assert "현재 재이관 대상 / 목적 단독" in up
+E       assert '현재 재이관 대상 / 목적 단독' in 'function _mvProgressModalUpdate(d) {\n  if (!window._mvExecPanelActive) return;\n  var panel = document.getElementByI...+ (reqPending ? \'default\' : \'pointer\') + \'">실행 중단</button>\'\n    + \'</div>\';\n}\nwindow._mvProgressModalUpdate'
+
+tests\test_ui_tab4_tab5_separation.py:60: AssertionError
+_____________ test_consistency_notice_renders_when_timing_present _____________
+
+    def test_consistency_notice_renders_when_timing_present():
+        # 결과 상세에 '조회 시점 동시점 미보장' 짧은 안내가 표시된다(NOT_GUARANTEED 일 때).
+        import json
+        import shutil
+        import subprocess
+        import tempfile
+        if not shutil.which("node"):
+            pytest.skip("node 미설치")
+        from ui.execute_result_renderer import build_execute_result_js
+        r = {"success": True, "gb_keys": ["GRP"], "val_cols": ["SUM_AMT", "CNT"],
+             "matched": 1, "diff": 0, "src_only": 0, "tgt_only": 0, "total_src": 1, "total_tgt": 1,
+             "rows": [{"key": {"GRP": "A"}, "src": {"SUM_AMT": "1", "CNT": "1"},
+                       "tgt": {"SUM_AMT": "1", "CNT": "1"}, "status": "ok"}],
+             "query_timing": {"consistency_guarantee": "NOT_GUARANTEED",
+                              "source_query_started_at": "2026-06-29T00:00:00Z"}}
+        harness = ("function esc(s){return String(s==null?'':s);}\nfunction escNl(s){return esc(s);}\n"
+                   "var window={};\nvar _els={};\nfunction _getEl(id){if(!_els[id])_els[id]={innerHTML:''};return _els[id];}\n"
+                   "var document={getElementById:function(id){return _getEl(id);}};\n"
+                   + build_execute_result_js() + "\nrenderExecute(" + json.dumps(r) + ",'x');\n"
+                   "console.log(JSON.stringify({html:_getEl('x').innerHTML}));\n")
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+            f.write(harness)
+            path = f.name
+        try:
+            p = subprocess.run(["node", path], capture_output=True, encoding="utf-8", errors="replace")
+>           assert p.returncode == 0, p.stderr[:500]
+E           AssertionError: C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmps81vph08.js:1341
+E               const _globalBtn = (opts.globalExport !== false)
+E                                        ^
+E             
+E             TypeError: Cannot read properties of undefined (reading 'globalExport')
+E                 at renderExecute (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmps81vph08.js:1341:28)
+E                 at Object.<anonymous> (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmps81vph08.js:1430:1)
+E                 at Module._compile (node:internal/modules/cjs/loader:1830:14)
+E                 at Object..js (node:int
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmps81vph08.js'], returncode=1, st...unMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v24.15.0\n").returncode
+
+tests\test_statistics_execution_safety.py:277: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+FAILED tests/test_result_view_ui_wiring.py::test_node_passed_uses_result_view
+FAILED tests/test_result_view_ui_wiring.py::test_node_compare_truncated_suppresses_passed
+FAILED tests/test_result_view_ui_wiring.py::test_node_tolerance_message_dedup
+FAILED tests/test_result_view_ui_wiring.py::test_node_count_skipped_warning
+FAILED tests/test_result_view_ui_wiring.py::test_node_legacy_fallback_no_result_view
+FAILED tests/test_result_view_ui_wiring.py::test_node_legacy_compare_truncated_fallback
+FAILED tests/test_execution_safety_result_rendering.py::test_normal_result_shows_consistency_notice_once
+FAILED tests/test_execution_safety_result_rendering.py::test_consistency_notice_absent_when_no_timing
+FAILED tests/test_count_only_validation_ui.py::test_group_result_uses_normal_renderer_unchanged
+FAILED tests/test_task12_a.py::TestRunExecuteJsPayload::test_15_runExecute_reads_from_dataset
+FAILED tests/test_task12_a.py::TestCountOnlyExecution::test_03_count_only_with_empty_sum
+FAILED tests/test_task12_a.py::TestCountOnlyExecution::test_03_no_groupby_no_sum_count_only
+FAILED tests/test_task12_a.py::TestGlobalAggregateDisplay::test_05_internal_all_key_not_in_response
+FAILED tests/test_task12_a.py::TestGlobalAggregateDisplay::test_05_to_dict_global_key_is_tuple_but_not_exposed
+FAILED tests/test_task12_a.py::TestExecuteResultStructure::test_06_src_only_has_none_tgt
+FAILED tests/test_task12_a.py::TestExecuteResultStructure::test_06_summary_counts_correct
+FAILED tests/test_task12_a.py::TestExecuteResultStructure::test_07_diff_row_has_src_tgt_values
+FAILED tests/test_task12_a.py::TestExecuteResultStructure::test_08_src_only_tgt_only_separate_status
+FAILED tests/test_task12_a.py::TestTruncationWarning::test_09_is_truncated_flag
+FAILED tests/test_task12_a.py::TestDbErrorDisplay::test_12_src_error_in_response
+FAILED tests/test_task12_a.py::TestDbErrorDisplay::test_12_tgt_error_in_response
+FAILED tests/test_ui_active_tab_persistence.py::test_persist_only_valid_tabs
+FAILED tests/test_ui_active_tab_persistence.py::test_restore_priority_hash_then_localstorage_then_default
+FAILED tests/test_ui_active_tab_persistence.py::test_no_forced_batch_redirect_on_default_restore
+FAILED tests/test_ui_active_tab_persistence.py::test_hash_priority_restore_for_history_tab
+FAILED tests/test_ui_active_tab_persistence.py::test_batch_skip_does_not_reveal_before_restore
+FAILED tests/test_step_tab_dom_stability.py::test_first_render_creates_nodes_once
+FAILED tests/test_step_tab_dom_stability.py::test_no_innerhtml_replace_on_repeated_render
+FAILED tests/test_step_tab_dom_stability.py::test_node_identity_preserved_across_rerenders
+FAILED tests/test_step_tab_dom_stability.py::test_node_identity_preserved_on_status_change
+FAILED tests/test_step_tab_dom_stability.py::test_active_moves_in_place_and_persists
+FAILED tests/test_step_tab_dom_stability.py::test_delegated_click_works_after_inplace_update
+FAILED tests/test_step_tab_dom_stability.py::test_single_listener_no_duplicate
+FAILED tests/test_step_tab_dom_stability.py::test_struct_change_rebuilds_once
+FAILED tests/test_ui_tab4_tab5_separation.py::test_target_only_display - asse...
+FAILED tests/test_statistics_execution_safety.py::test_consistency_notice_renders_when_timing_present
+37 failed, 327 passed, 5 xfailed in 31.80s

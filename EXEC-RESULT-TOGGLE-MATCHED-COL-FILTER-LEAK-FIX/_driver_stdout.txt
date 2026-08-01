@@ -1,0 +1,77 @@
+================================================================================================
+ EXEC-RESULT-TOGGLE-MATCHED-COL-FILTER-LEAK-FIX — 지표 탭 '일치 행 숨기기' 토글 필터 유실 수정 실측 검증
+================================================================================================
+
+[0] 기준값(ground truth) — DB 직접 SELECT
+   G01: COUNT ≠ · AMT ≠ · QTY ≠
+   G02: COUNT = · AMT ≠ · QTY ≠
+   G03: COUNT ≠ · AMT ≠ · QTY ≠
+   G04: COUNT = · AMT ≠ · QTY ≠
+   G05: COUNT ≠ · AMT ≠ · QTY ≠
+   G06: COUNT = · AMT ≠ · QTY ≠
+   G07: COUNT ≠ · AMT ≠ · QTY ≠
+   G08: COUNT = · AMT ≠ · QTY ≠
+   G09: COUNT ≠ · AMT ≠ · QTY ≠
+   G10: COUNT = · AMT ≠ · QTY ≠
+
+서버 http://127.0.0.1:10414/ (MV_AUTH_DISABLED=1, 별도 포트 인프로세스)
+  [setup] {"pair_rows": 1, "pair_created": true, "connected": true}
+   [캡처] b_inner_step1_query_review.png
+  [1단계] {"blocked": false, "err": null, "from_table": "MV_SCATTER_SRC", "tgt_table": "MV_SCATTER_TGT", "mapping_n": null, "sql_shape": null, "wall_sec": 3.44, "slots": {"s1": "· 1단계 처리시간: 0.76초", "s2": "", "s3": "", "s4": "", "s5": ""}}
+   [캡처] b_inner_step2_count.png
+  [2단계] {"count_status": "COUNT_MINOR_DIFF", "src_count": 995000, "tgt_count": 990000, "wall_sec": 2.72, "click_count": 2, "count_resp_ms": 211.2, "count_resp_diff": 5000, "force_btn": false, "slots": {"s1": "· 1단계 처리시간: 0.76초", "s2": "· 2단계 처리시간: 0.21초", "s3": "", "s4": "", "s5": ""}}
+   [캡처] b_inner_step3_candidate.png
+  [3단계] gb= ["STATUS_CD"]  sum= []
+   [캡처] b_inner_step4_sql_generated.png
+   [캡처] b_inner_step4_executed.png
+  [4단계] {"matched": 5, "diff": 5, "src_only": 0, "tgt_only": 0, "total_groups": 10, "processing_ms": 334.0, "exec_wall_sec": 3.22}  slot4= · 4단계 처리시간: 0.33초
+   [캡처] b_step5_enter.png
+
+[A] AFTER — 수정 코드 실측
+  [탭] [{"i": 0, "text": "전체 10", "active": true}, {"i": 1, "text": "COUNT 5", "active": false}]
+   [캡처] b_after_A1_count_before_toggle.png
+  [A1] COUNT 탭 진입 · 필터='CNT' 그룹 ['G01', 'G03', 'G05', 'G07', 'G09'] 라벨='일치 행 보기 (5건)' includeMatched=False
+   [캡처] b_after_A1_count_after_toggle.png
+  [A1] 토글 1회 → 필터='CNT' 그룹 ['G01', 'G03', 'G05', 'G07', 'G09'] 짝수누수=[] 서버왕복=0회 includeMatched=True 라벨='일치 행 숨기기 (5건)'
+   [캡처] b_after_A2_count_toggle_back.png
+  [A2] 토글 2회(원복) → 필터='CNT' 그룹 ['G01', 'G03', 'G05', 'G07', 'G09'] includeMatched=False 라벨='일치 행 보기 (5건)' 행복원=True 서버왕복=0회
+   [캡처] b_after_A3_metric_toggle_page2.png
+  [A3] 전체 탭 → CNT 탭 전환 → 토글 → 2페이지 이동(True) · 필터 유지=True 그룹 ['G05', 'G07'] '이전총 5건 · 2 / 3 페이지 (3–4)123다음'
+  [A3] (역순) 2페이지에서 토글 → 필터='CNT' 그룹 ['G01', 'G03'] 서버왕복=0회
+   [캡처] b_after_A4_all_before_toggle.png
+   [캡처] b_after_A4_all_after_toggle.png
+  [A4] 전체 탭 토글 → 서버왕복=1회 [{'t': 85.05, 'page': '1', 'page_size': '50', 'mismatch_only': 'false'}] includeMatched=True 라벨='일치 행 숨기기 (5건)' 표시 5행
+  [A4] 전체 탭 토글 원복 → 서버왕복=1회 includeMatched=False 표시 5행
+   [캡처] b_after_A5_metric_size2_before_toggle.png
+   [캡처] b_after_A5_metric_size2_after_toggle.png
+  [after_A5] 표시2건·CNT 탭 1페이지 ['G01', 'G03'] → 토글 → ['G01', 'G03'] · 행집합유지=True 서버왕복=0회 필터='CNT'
+
+[B] BEFORE — 수정 전 코드 재현
+  [B] 수정 전 함수 복원: prefix
+   [캡처] b_before_B_metric_size2_before_toggle.png
+   [캡처] b_before_B_metric_size2_after_toggle.png
+  [before_B] 표시2건·CNT 탭 1페이지 ['G01', 'G03'] → 토글 → ['G01', 'G03', 'G05', 'G07', 'G09'] · 행집합유지=False 서버왕복=1회 필터='CNT'
+  [B] 토글 결과 → 그룹 ['G01', 'G03', 'G05', 'G07', 'G09'] · 짝수누수=[] 필터변수='CNT'(탭버튼활성=True) 행집합바뀜=True 서버왕복=1회 [{'t': 96.48, 'page': '1', 'page_size': '50', 'mismatch_only': 'true'}]
+  [B] 복구: fixed
+
+================================================================================================
+  ✅ A0_토글버튼_렌더됨: True
+  ✅ A1_지표탭_토글_필터유지: True
+  ✅ A1_지표탭_토글_짝수그룹_미노출: True
+  ✅ A1_지표탭_토글_서버왕복_없음: True
+  ✅ A1_includeMatched_상태_토글됨: True
+  ✅ A2_재토글_상태원복: True
+  ✅ A2_재토글_행복원: True
+  ✅ A2_재토글_필터유지: True
+  ✅ A3_탭전환_토글_페이지이동_필터유지: True
+  ✅ A3_역순_페이지이동후_토글_필터유지: True
+  ✅ A4_전체탭_토글_서버왕복_유지: True
+  ✅ A4_전체탭_mismatch_only_반영: True
+  ✅ A4_전체탭_토글_원복: True
+  ✅ A5_동일조건_행집합_유지: True
+  ✅ A5_동일조건_서버왕복_없음: True
+  ✅ A5_동일조건_필터유지: True
+  ✅ B_수정전_행집합_덮임(필터·페이지 유실): True
+  ✅ B_수정전_서버왕복_유출_재현: True
+  ❌ B_수정전_짝수그룹_누수_재현: False
+=== 완료 · 결과 C:\projects\migration-validator\scripts\dev_e2e\_exec_result_toggle_matched_colfilter.json ===
