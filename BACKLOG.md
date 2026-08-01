@@ -354,7 +354,19 @@ git -C E:/verify_reports worktree remove <임시경로>
   설계해야 한다(4방언 처리 원칙).
 - 참고: E:\verify_reports\ORACLE-CHARSET-COLLATION-EXACT-DIFF-DIAGNOSE.txt
 
-### S14. NLS 숫자 고정이 타입 미상 균일 캐스트 5곳에는 적용되지 않았다(NLS 고정 수정의 잔여 위험 R1)
+### S14. ✅ 해결 완료 — NLS 숫자 고정이 타입 미상 균일 캐스트 5곳에는 적용되지 않았다(NLS 고정 수정의 잔여 위험 R1)
+- 해결일: 2026-07-31 (ORACLE-CONNECTION-NLS-NUMERIC-SESSION-PIN-FIX)
+- 근거 커밋: 코드 저장소 `d707861` — `fix(oracle): 연결 시 세션 NLS_NUMERIC_CHARACTERS '.,' 고정
+  (ORACLE-CONNECTION-NLS-NUMERIC-SESSION-PIN-FIX)`
+- 근거 보고서 커밋: 이 저장소 `20825df`(완료보고 `ORACLE-CONNECTION-NLS-NUMERIC-SESSION-PIN-FIX`)
+- 해결 요약: 아래 **권장 대응 방향을 그대로 채택**해, 3인자 `nlsparam` 을 못 붙이던 5곳(타입 미상 균일 캐스트)을
+  **코드 수정 없이** 세션 고정 방식으로 해소했다 — 오라클 연결 시점(`services/db_adapters/oracle.py` 의 `connect()`)에
+  `ALTER SESSION SET NLS_NUMERIC_CHARACTERS = '.,'` 를 1회 실행한다. `services/exact_diff/dialects/oracle.py` 는 **무수정**이다.
+  실측 확인: ① 다른 NLS 설정(NLS_SORT/NLS_COMP 정렬, NLS_DATE_FORMAT 등 날짜포맷 포함) 무영향,
+  ② 문자 컬럼 안전성 — 고정 적용 세션에서 `TO_CHAR((C_VARCHAR2))` 정상 반환, ORA-01722 없음,
+  ③ 커넥션 풀 재사용 시나리오에서도 세션 고정 유지 — 오라클은 PG 와 달리 `connection_pool` 풀링 대상이 아니라
+  '커넥션 1개 = 물리 세션 1개' 이고, 요청 내 커넥션 재사용(`request_connection_scope`)도 같은 물리 세션이라 재실행이 불필요하다
+  (향후 오라클 풀링을 켜면 checkout 경로에 재적용이 필요하다는 조건만 남는다).
 - 발견일: 2026-07-29
 - 근거 보고서: `NLS-SESSION-INDEPENDENT-NUMERIC-TOCHAR-FIX.txt` (§5-R1)
 - 상세: `services/exact_diff/dialects/oracle.py` 의 `pk_agg_sql._txt` 와 `make_ora_fetch_chunk` 의 compare 컬럼,
