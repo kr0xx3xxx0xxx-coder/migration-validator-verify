@@ -1,0 +1,52 @@
+﻿diff --git a/ui/tabler_renderer.py b/ui/tabler_renderer.py
+index e163bb8..49b65d0 100644
+--- a/ui/tabler_renderer.py
++++ b/ui/tabler_renderer.py
+@@ -27641,9 +27641,23 @@ async function _mvRenderStrategyPlan(profile, hostId) {
+   var _compareCell = (_cLbl ? esc(_cLbl) + ' ' : '') + '<code>' + esc(_cmpId || '—') + '</code>';
+   var _scanTxt = (fp.expected_scan_rows != null)
+     ? ' <span style="color:#94a3b8;font-size:.72rem">· 예상 스캔 ' + Number(fp.expected_scan_rows).toLocaleString() + '행</span>' : '';
++  /* STRATEGY-PLAN-GRID-STATUS-COLUMN-BACKFILL-FIX(1행): '통계검증 규모'의 잠정/산정 전/산정 불가 한정어를
++     상태 열 배지로 노출한다. 판별 조건은 ui/grid_helpers.py 의 _mvStatsScaleText(829-830) 와 동일한 것을
++     그대로 재사용한다(새 조건 발명 금지). '잠정 ' 접두는 services/strategy/strategy_models.py 의
++     PROVISIONAL_PREFIX 와 같은 값이다. 값 문자열은 건드리지 않고 상태 열만 추가. */
++  var _MV_PROVISIONAL_PREFIX = '잠정 ';      /* = strategy_models.PROVISIONAL_PREFIX */
++  var _grade = String(d.provisional_grade || '');
++  var _scaleSt = '', _scaleStTxt = '';
++  if (_grade.indexOf(_MV_PROVISIONAL_PREFIX) === 0) { _scaleSt = 'WARN'; _scaleStTxt = '잠정'; }
++  else if (!_grade) {
++    /* 등급 미산출 — grid_helpers 와 동일하게 stats_scale_estimable === false 만 '산정 불가', 그 외 '산정 전'. */
++    if ((profile || {}).stats_scale_estimable === false) { _scaleSt = 'WARN'; _scaleStTxt = '산정 불가'; }
++    else { _scaleSt = 'MUTED'; _scaleStTxt = '산정 전'; }
++  }
+   /* 1·2단계와 동일한 요약 Grid(_mvKVGrid, mv-sgrid 스타일)로 렌더 — 값은 raw HTML 허용. */
+   var rows = [];
+-  rows.push({ label:'통계검증 규모', value:'<b>' + esc(d.provisional_grade || '산정 전') + '</b>' + _scanTxt, raw:true });
++  rows.push({ label:'통계검증 규모', value:'<b>' + esc(d.provisional_grade || '산정 전') + '</b>' + _scanTxt, raw:true,
++    status:_scaleSt, statusText:_scaleStTxt });
+   if (cgb != null || csum != null)
+     rows.push({ label:'전역 설정', value:'GROUP BY ' + (cgb != null ? cgb : '—') + '개 · 집계컬럼 ' + (csum != null ? csum : '—') + '개' });
+   rows.push({ label:'실제 적용',
+@@ -27652,12 +27666,20 @@ async function _mvRenderStrategyPlan(profile, hostId) {
+     raw:true, status:(egb + esum > 0 ? 'READY' : 'WARN'), statusText:(egb + esum > 0 ? '적용됨' : 'COUNT만') });
+   rows.push({ label:'GROUP BY', value:gbCols2 });
+   rows.push({ label:'집계컬럼', value:sumCols2 });
+-  rows.push({ label:'통계전략', value:_statsStratCell, raw:true });
++  /* STRATEGY-PLAN-GRID-STATUS-COLUMN-BACKFILL-FIX(5행): '참고용 계획'(실행가능성 한정어)을 상태 열에도 표시.
++     값 열의 인라인 '참고용 계획' span 은 유지(중복 제거는 별도 판단). */
++  rows.push({ label:'통계전략', value:_statsStratCell, raw:true,
++    status:(_statsAdvisoryOnly ? 'WARN' : ''), statusText:(_statsAdvisoryOnly ? '참고용' : '') });
+   rows.push({ label:'불일치 추출전략', value:_compareCell, raw:true });
++  /* STRATEGY-PLAN-GRID-STATUS-COLUMN-BACKFILL-FIX(7행): 항목명이 '상태'인데 상태 열이 공백이던 모순 해소.
++     _mvBadgeCls(ui/grid_helpers.py:155)가 'HOLD' 접두를 인식하므로 별도 매핑 불필요.
++     값 열의 색상 텍스트(implColor/implTxt)는 그대로 유지(중복이지만 문자열 검사 테스트 보호). */
+   rows.push({ label:'상태', value:'<b style="color:' + implColor + '">' + esc(implTxt) + '</b>'
+     + (d.compare_auto_runnable === false && fp.fallback_strategy_id
+         ? ' <span style="color:#94a3b8;font-size:.72rem">· fallback ' + esc(fp.fallback_strategy_id) + '(명시 승인 시)</span>' : ''),
+-    raw:true });
++    raw:true,
++    status:((impl === 'AVAILABLE') ? 'READY' : (impl === 'PHASE4_B_REQUIRED') ? 'WARN' : 'HOLD'),
++    statusText:implTxt });
+   rows.push({ label:'판정근거', value:(d.basis_text || '') });
+   var _grid = (typeof _mvKVGrid === 'function')
+     ? _mvKVGrid('실행계획', rows)

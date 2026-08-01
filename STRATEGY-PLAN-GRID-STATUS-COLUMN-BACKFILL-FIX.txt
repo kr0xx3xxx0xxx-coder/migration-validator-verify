@@ -1,0 +1,167 @@
+작업명 : STRATEGY-PLAN-GRID-STATUS-COLUMN-BACKFILL-FIX
+작성일 : 2026-08-01
+대상 파일 : ui/tabler_renderer.py (1개)
+커밋 : 2ad2cce  ("fix(single): 3단계 실행계획 그리드 상태 열 미배선 3행 보강")
+
+────────────────────────────────────────────────────────────────────────
+1. 배경과 범위
+────────────────────────────────────────────────────────────────────────
+STATS-SUMMARY-TABLE-STATUS-COLUMN-CONSISTENCY-DIAGNOSE(§6-(5))에서, 3단계 "실행계획"
+요약 그리드(_mvRenderStrategyPlan, ui/tabler_renderer.py:27593)의 "상태" 열이 2026-07-23
+그리드 전환 커밋(c2a8491) 이후 '실제 적용' 1행에만 배선되고 나머지는 방치됐음이 확정됐다.
+진단서 결론대로 실질 수정 대상은 3개 행(1·5·7행)뿐이며, 나머지 5행은 현행 유지가 타당하다.
+
+이번 작업은 순수 표시(display-only) 변경이다. 값 문자열·판정 로직·SQL·plan 생성 로직은
+일절 건드리지 않았고, rows.push 호출에 status/statusText 필드만 추가했다.
+
+행 번호 대응(실제 렌더 그리드는 '전역 설정' 행이 조건부로 붙어 9행이 되므로 번호가 1칸 밀린다):
+  진단서 1행 = 통계검증 규모      (렌더 No.1)   ← 수정
+  진단서 2행 = 실제 적용          (렌더 No.3)   ← 유일하게 기존 배선돼 있던 행(미변경)
+  진단서 3행 = GROUP BY           (렌더 No.4)   ← 미변경
+  진단서 4행 = 집계컬럼           (렌더 No.5)   ← 미변경
+  진단서 5행 = 통계전략           (렌더 No.6)   ← 수정
+  진단서 6행 = 불일치 추출전략    (렌더 No.7)   ← 미변경
+  진단서 7행 = 상태               (렌더 No.8)   ← 수정
+  진단서 8행 = 판정근거           (렌더 No.9)   ← 미변경
+
+────────────────────────────────────────────────────────────────────────
+2. 수정 내용
+────────────────────────────────────────────────────────────────────────
+(1) 7행 '상태' — 항목명이 '상태'인데 상태 열이 공백이던 가장 명백한 모순
+    status     : impl === 'AVAILABLE' ? 'READY'
+               : impl === 'PHASE4_B_REQUIRED' ? 'WARN' : 'HOLD'
+    statusText : implTxt (실행 가능 / Phase 4-B 엔진 필요 / 상세비교 보류(HOLD))
+    _mvBadgeCls(ui/grid_helpers.py:155)가 'HOLD' 접두를 이미 인식하므로 별도 매핑 없음.
+    값 열의 색상 텍스트(implColor/implTxt)는 지침대로 그대로 두었다(중복이지만 기존 문자열
+    검사 테스트 보호).
+
+(2) 5행 '통계전략' — 실행가능성 한정어가 값 열에만 있던 문제
+    status     : _statsAdvisoryOnly ? 'WARN' : ''   (빈 값이면 _mvKVGrid 가 배지 미표시)
+    statusText : _statsAdvisoryOnly ? '참고용' : ''
+    값 열의 인라인 '참고용 계획' span 은 지침대로 유지(제거는 별도 판단 사안).
+
+(3) 1행 '통계검증 규모' — 잠정/산정 전/산정 불가 3분류
+    새 조건을 발명하지 않고 ui/grid_helpers.py 의 _mvStatsScaleText(829-830) 판별 조건과
+    services/strategy/strategy_models.py:47 의 PROVISIONAL_PREFIX('잠정 ')를 그대로 재사용:
+      - provisional_grade 가 '잠정 ' 로 시작        → WARN  / '잠정'
+      - 등급 없음 + stats_scale_estimable === false → WARN  / '산정 불가'
+      - 등급 없음 + 그 외                           → MUTED / '산정 전'
+      - 확정 등급(잠정 접두 없음)                   → 배지 없음
+    ※ PROVISIONAL_PREFIX 는 Python 상수라 JS 쪽에 같은 리터럴을 두되 출처를 주석에 명시했다
+      (지침이 이 파일만 수정하도록 제한했으므로 grid_helpers.py 에 상수 주입은 하지 않음).
+
+미변경(진단서가 "현행 유지가 타당"으로 결론낸 행): 전역 설정 / 실제 적용 / GROUP BY /
+집계컬럼 / 불일치 추출전략 / 판정근거. window._mvValidationPolicy 미로드 시 '전역 설정' 행이
+사라지는 부수 문제(진단서 §6-(4))도 지침 범위 밖이므로 손대지 않았다.
+
+────────────────────────────────────────────────────────────────────────
+3. 실측 검증 방법 (강제주입 아님)
+────────────────────────────────────────────────────────────────────────
+before/after 를 같은 스크립트로 각각 독립 서버에 붙여 수집했다.
+  - BEFORE : git worktree(HEAD=08a98c8, 수정 전 코드) → 127.0.0.1:8021
+  - AFTER  : 작업 디렉터리(수정본)                     → 127.0.0.1:8022
+  - 운영 8000 인스턴스는 건드리지 않았다(별도 포트로 기동).
+  - 검증 스크립트: scripts/dev_e2e/strategy_plan_grid_status_backfill_verify.py
+
+각 케이스는 실 /strategy/plan API 응답을 그대로 제품 렌더 _mvRenderStrategyPlan 에 투입해
+(strategyPlanBox 생성 후 호출) 9행 전량의 [항목명/값/배지텍스트/배지class]를 DOM 에서 수집했다.
+
+  케이스                     실 API 결과                                     비고
+  A_AVAILABLE_DIRECT_AGG     impl=AVAILABLE,         stats=STATS_DIRECT_AGG   실 API
+  B_AVAILABLE_SAMPLE_ONLY    impl=AVAILABLE,         stats=STATS_SAMPLE_ONLY  실 API
+  B2_PHASE4B_PARTITION_AGG   impl=PHASE4_B_REQUIRED, stats=STATS_PARTITION_AGG 실 API
+  C_HOLD_NO_PK               impl=HOLD,              stats=STATS_DIRECT_AGG   실 API
+  D_STUB_NOT_ESTIMABLE       (1행 '산정 불가' 방어분기)                        stub
+  E_STUB_NOT_YET_ESTIMATED   (1행 '산정 전' 방어분기)                          stub
+
+[한계 명시] 1행의 '산정 전'/'산정 불가' 분기는 실 API 로 재현 불가하다. /strategy/plan 은
+stats_strategy_planner._provisional_grade() 로 provisional_grade 를 항상 채우기 때문에,
+API 가 성공하는 한 이 카드의 1행은 항상 '잠정 X' 다. 따라서 D/E 는 실 응답에서
+provisional_grade 필드만 제거한 stub 으로 방어 분기만 확인했다(값 열은 기존과 동일하게
+'산정 전' 으로 표시됨 — 값 열은 손대지 않았으므로). 즉 D/E 는 실운영 재현 케이스가 아니라
+코드 경로 도달 확인이다.
+
+또한 지침이 예시로 든 "42M·인덱스 없음 → PHASE4_B_REQUIRED" 는 실제로는 성립하지 않았다.
+strategy_route 가 DIRECT↔CHUNK 전환 정책(choose_compare_strategy)으로 최종 전략을 다시
+확정하면서 DIRECT_STREAM_COMPARE(=AVAILABLE)를 유지했기 때문이다. PHASE4_B_REQUIRED 는
+파티션 보유 프로파일(PARTITION_BUCKET_COMPARE)로 실 API 재현했다(케이스 B2).
+
+────────────────────────────────────────────────────────────────────────
+4. before / after 결과
+────────────────────────────────────────────────────────────────────────
+BEFORE — 6개 케이스 전부에서 1·5·7행 상태 열이 공백. 배지가 있는 행은 '실제 적용'(적용됨/ready) 1행뿐.
+
+AFTER — 상태 열 배지(값 열 문자열은 before 와 완전 동일):
+  케이스                     1행 통계검증 규모   5행 통계전략   7행 상태
+  A_AVAILABLE_DIRECT_AGG     잠정 (warn)         (없음)         실행 가능 (ready)
+  B_AVAILABLE_SAMPLE_ONLY    잠정 (warn)         참고용 (warn)  실행 가능 (ready)
+  B2_PHASE4B_PARTITION_AGG   잠정 (warn)         참고용 (warn)  Phase 4-B 엔진 필요 (warn)
+  C_HOLD_NO_PK               잠정 (warn)         (없음)         상세비교 보류(HOLD) (hold)
+  D_STUB_NOT_ESTIMABLE       산정 불가 (warn)    (없음)         실행 가능 (ready)
+  E_STUB_NOT_YET_ESTIMATED   산정 전 (muted)     (없음)         실행 가능 (ready)
+
+무회귀 대조(기계적, 행 단위 문자열 일치):
+  - 6케이스 × 9행 = 54행 전수 대조 → OK 54 / FAIL 0
+  - 비대상 6행(전역 설정/실제 적용/GROUP BY/집계컬럼/불일치 추출전략/판정근거)은
+    값·배지텍스트·배지class 까지 before 와 완전 동일
+  - 대상 3행도 '값' 문자열은 before 와 완전 동일(배지만 추가) — 표시 전용 변경임을 입증
+  - 페이지 JS 오류: before/after 모두 0건
+
+증적:
+  E:\verify_screenshots_only\STRATEGY-PLAN-GRID-STATUS-COLUMN-BACKFILL-FIX\
+    before_*.png / after_*.png                  (케이스별 카드 스크린샷 6+6)
+    strategy_plan_grid_status_before.json/_after.json  (행 단위 원시 수집값)
+    change.diff, failed_tests_after.txt, failed_tests_before_baseline.txt
+
+────────────────────────────────────────────────────────────────────────
+5. 테스트 결과
+────────────────────────────────────────────────────────────────────────
+(1) 지침이 지목한 tests/test_stats_result_full.py
+    27 passed / 2 failed / 5 xfailed (JS 문법 가드·helper 중복 가드 포함 4개 파일 동시 실행)
+    실패 2건은 모두 사전 존재 실패이며 baseline(수정 전 worktree)에서 동일 라인·동일 사유로
+    재현됨:
+      - tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+        → line 489 assert "effective_group_by_count" in fn (현재·baseline 동일 실패)
+      - tests/test_global_js_helper_dedup.py::test_no_duplicate_global_function_definitions
+        → {'batchLoadCandidateState': 2} (본 작업과 무관한 전역 함수 중복)
+    ※ 진단서가 우려한 "값 열 인라인 배지를 상태 열로 옮기면 문자열 assert 영향" 은 발생하지
+      않았다. 이번 변경은 값 열을 옮기지 않고 상태 열만 추가했기 때문이다.
+
+(2) JS 문법 가드
+    tests/test_rendered_js_syntax_guard.py 통과 — 번들 파싱 붕괴 없음.
+
+(3) 관련 서브셋 회귀 (-k "strategy or grid or renderer or plan or kvgrid or badge")
+    AFTER   : 36 failed / 790 passed / 4 skipped / 1 xfailed (10,710 deselected, 363초)
+    BASELINE: 36 failed (동일 조건, db_presets 의존 2파일 제외 후)
+    실패 건수 동일. 목록 차집합은 각 1건이나 둘 다 회귀가 아님을 개별 확인:
+      - tests/test_candidate_plan_matrix.py::test_null_vs_empty_selection_contract
+        AFTER 만 목록에 있으나, worktree 에서는 db_presets 부재로 skip 됐던 것.
+        worktree 에 프리셋을 복사해 재실행하니 baseline 에서도 동일하게 FAIL
+        (effective_group_by_columns ['PAY_METHOD','PAY_DATE'] != ['PAY_DATE']).
+        → 사전 존재 실패. 실 PG 대상 서버측 후보 선정 계약 테스트로 본 변경과 무관.
+        (확인 후 복사한 프리셋 파일은 즉시 삭제함)
+      - tests/test_candidate_scoring_dashboard_static.py::TestFallbackDisplay::
+        test_round1_html_contains_fallback_badge
+        BASELINE 에만 있으며 worktree 산출물 부재로 인한 FileNotFoundError.
+        작업 디렉터리에서는 통과 → worktree 혼동(confound), 회귀 아님.
+    → 신규 회귀 0건.
+    전체 실패 목록은 failed_tests_after.txt / failed_tests_before_baseline.txt 참조.
+
+────────────────────────────────────────────────────────────────────────
+6. 위험·잔여 과제
+────────────────────────────────────────────────────────────────────────
+- 값 열과 상태 열의 정보 중복이 3행에서 발생한다(1행 '잠정 X'/'잠정', 5행 '참고용 계획'/'참고용',
+  7행 '실행 가능'/'실행 가능'). 지침이 값 열 유지를 명시했으므로 그대로 뒀다. 중복 제거는
+  기존 문자열 검사 테스트 영향 검토와 함께 별도 판단이 필요하다.
+- '잠정 ' 접두 리터럴이 Python(strategy_models.PROVISIONAL_PREFIX)과 JS 두 곳에 존재한다.
+  이번 지침이 ui/tabler_renderer.py 만 수정하도록 제한해 상수 주입(_pk_type_vocab_js 방식)은
+  하지 않았다. 접두어가 바뀌면 JS 쪽도 함께 고쳐야 한다 — 주석에 출처를 명시해 뒀다.
+- 1행의 '산정 전'/'산정 불가' 분기는 현재 서버 응답 특성상 실운영에서 도달하지 않는
+  방어 코드다(위 §3 한계 참조).
+
+────────────────────────────────────────────────────────────────────────
+실검증 상태: 실측 완료 — 실 /strategy/plan API 응답 4종을 제품 렌더에 투입해 before(8021)/
+after(8022) 두 서버에서 9행 전량을 수집·대조(54행 OK, FAIL 0), 스크린샷 12장 확보.
+1행의 '산정 전'/'산정 불가' 2종만 실 API 재현 불가로 stub 방어분기 확인(본문에 명시).
+────────────────────────────────────────────────────────────────────────
+✅ 작업 완료 - STRATEGY-PLAN-GRID-STATUS-COLUMN-BACKFILL-FIX - 실행계획 그리드 1·5·7행 상태 열 배선(값·로직 불변, 비대상 6행 무회귀 54행 대조 FAIL 0, 신규 회귀 0건)

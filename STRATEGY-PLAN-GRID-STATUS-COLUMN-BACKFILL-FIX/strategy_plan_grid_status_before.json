@@ -1,0 +1,415 @@
+{
+ "label": "before",
+ "port": 8021,
+ "cases": {
+  "A_AVAILABLE_DIRECT_AGG": {
+   "stub": false,
+   "rows": [
+    {
+     "no": "1",
+     "label": "통계검증 규모",
+     "value": "잠정 중형 · 예상 스캔 5,000행",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "2",
+     "label": "전역 설정",
+     "value": "GROUP BY 2개 · 집계컬럼 2개",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "3",
+     "label": "실제 적용",
+     "value": "GROUP BY 1개 · 집계컬럼 1개 · 설정과 다름(후보 부족/수동/상한)",
+     "badge": "적용됨",
+     "badge_cls": "ready"
+    },
+    {
+     "no": "4",
+     "label": "GROUP BY",
+     "value": "DEPT_CD",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "5",
+     "label": "집계컬럼",
+     "value": "AMT",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "6",
+     "label": "통계전략",
+     "value": "직접 집계(전체스캔 EXACT · 원본↔목적 그룹별 COUNT/SUM 비교) STATS_DIRECT_AGG",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "7",
+     "label": "불일치 추출전략",
+     "value": "직접 스트림 비교(원본·목적 전체를 한 번에 정렬·대조) DIRECT_STREAM_COMPARE",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "8",
+     "label": "상태",
+     "value": "실행 가능",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "9",
+     "label": "판정근거",
+     "value": "원본 5,000건 · PK_SINGLE_NUMERIC · PK 인덱스 · 원격 DB",
+     "badge": "",
+     "badge_cls": ""
+    }
+   ]
+  },
+  "B_AVAILABLE_SAMPLE_ONLY": {
+   "stub": false,
+   "rows": [
+    {
+     "no": "1",
+     "label": "통계검증 규모",
+     "value": "잠정 대형 · 예상 스캔 42,000,000행",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "2",
+     "label": "전역 설정",
+     "value": "GROUP BY 2개 · 집계컬럼 2개",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "3",
+     "label": "실제 적용",
+     "value": "GROUP BY 1개 · 집계컬럼 0개 · 설정과 다름(후보 부족/수동/상한)",
+     "badge": "적용됨",
+     "badge_cls": "ready"
+    },
+    {
+     "no": "4",
+     "label": "GROUP BY",
+     "value": "STAT_CD",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "5",
+     "label": "집계컬럼",
+     "value": "없음(COUNT만)",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "6",
+     "label": "통계전략",
+     "value": "표본 집계(참고용 · 실제 실행은 전체스캔) STATS_SAMPLE_ONLY 참고용 계획",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "7",
+     "label": "불일치 추출전략",
+     "value": "직접 스트림 비교(원본·목적 전체를 한 번에 정렬·대조) DIRECT_STREAM_COMPARE",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "8",
+     "label": "상태",
+     "value": "실행 가능",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "9",
+     "label": "판정근거",
+     "value": "원본 42,000,000건 · PK_SINGLE_NUMERIC · PK 인덱스 · 원격 DB",
+     "badge": "",
+     "badge_cls": ""
+    }
+   ]
+  },
+  "B2_PHASE4B_PARTITION_AGG": {
+   "stub": false,
+   "rows": [
+    {
+     "no": "1",
+     "label": "통계검증 규모",
+     "value": "잠정 대형 · 예상 스캔 42,000,000행",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "2",
+     "label": "전역 설정",
+     "value": "GROUP BY 2개 · 집계컬럼 2개",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "3",
+     "label": "실제 적용",
+     "value": "GROUP BY 1개 · 집계컬럼 1개 · 설정과 다름(후보 부족/수동/상한)",
+     "badge": "적용됨",
+     "badge_cls": "ready"
+    },
+    {
+     "no": "4",
+     "label": "GROUP BY",
+     "value": "PART_YM",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "5",
+     "label": "집계컬럼",
+     "value": "AMT",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "6",
+     "label": "통계전략",
+     "value": "파티션 집계(참고용 · 실제 실행은 전체스캔) STATS_PARTITION_AGG 참고용 계획",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "7",
+     "label": "불일치 추출전략",
+     "value": "PARTITION_BUCKET_COMPARE",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "8",
+     "label": "상태",
+     "value": "Phase 4-B 엔진 필요 · fallback DIRECT_STREAM_COMPARE(명시 승인 시)",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "9",
+     "label": "판정근거",
+     "value": "원본 42,000,000건 · PK_SINGLE_NUMERIC · PK 인덱스 · 파티션 · 원격 DB",
+     "badge": "",
+     "badge_cls": ""
+    }
+   ]
+  },
+  "C_HOLD_NO_PK": {
+   "stub": false,
+   "rows": [
+    {
+     "no": "1",
+     "label": "통계검증 규모",
+     "value": "잠정 대형 · 예상 스캔 120,000행",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "2",
+     "label": "전역 설정",
+     "value": "GROUP BY 2개 · 집계컬럼 2개",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "3",
+     "label": "실제 적용",
+     "value": "GROUP BY 1개 · 집계컬럼 1개 · 설정과 다름(후보 부족/수동/상한)",
+     "badge": "적용됨",
+     "badge_cls": "ready"
+    },
+    {
+     "no": "4",
+     "label": "GROUP BY",
+     "value": "REG_YM",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "5",
+     "label": "집계컬럼",
+     "value": "AMT",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "6",
+     "label": "통계전략",
+     "value": "직접 집계(전체스캔 EXACT · 원본↔목적 그룹별 COUNT/SUM 비교) STATS_DIRECT_AGG",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "7",
+     "label": "불일치 추출전략",
+     "value": "STATS_ONLY_HOLD",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "8",
+     "label": "상태",
+     "value": "상세비교 보류(HOLD)",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "9",
+     "label": "판정근거",
+     "value": "원본 120,000건 · PK_NONE · 원격 DB",
+     "badge": "",
+     "badge_cls": ""
+    }
+   ]
+  },
+  "D_STUB_NOT_ESTIMABLE": {
+   "stub": true,
+   "rows": [
+    {
+     "no": "1",
+     "label": "통계검증 규모",
+     "value": "산정 전 · 예상 스캔 5,000행",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "2",
+     "label": "전역 설정",
+     "value": "GROUP BY 2개 · 집계컬럼 2개",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "3",
+     "label": "실제 적용",
+     "value": "GROUP BY 1개 · 집계컬럼 1개 · 설정과 다름(후보 부족/수동/상한)",
+     "badge": "적용됨",
+     "badge_cls": "ready"
+    },
+    {
+     "no": "4",
+     "label": "GROUP BY",
+     "value": "DEPT_CD",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "5",
+     "label": "집계컬럼",
+     "value": "AMT",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "6",
+     "label": "통계전략",
+     "value": "직접 집계(전체스캔 EXACT · 원본↔목적 그룹별 COUNT/SUM 비교) STATS_DIRECT_AGG",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "7",
+     "label": "불일치 추출전략",
+     "value": "직접 스트림 비교(원본·목적 전체를 한 번에 정렬·대조) DIRECT_STREAM_COMPARE",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "8",
+     "label": "상태",
+     "value": "실행 가능",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "9",
+     "label": "판정근거",
+     "value": "원본 5,000건 · PK_SINGLE_NUMERIC · PK 인덱스 · 원격 DB",
+     "badge": "",
+     "badge_cls": ""
+    }
+   ]
+  },
+  "E_STUB_NOT_YET_ESTIMATED": {
+   "stub": true,
+   "rows": [
+    {
+     "no": "1",
+     "label": "통계검증 규모",
+     "value": "산정 전 · 예상 스캔 5,000행",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "2",
+     "label": "전역 설정",
+     "value": "GROUP BY 2개 · 집계컬럼 2개",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "3",
+     "label": "실제 적용",
+     "value": "GROUP BY 1개 · 집계컬럼 1개 · 설정과 다름(후보 부족/수동/상한)",
+     "badge": "적용됨",
+     "badge_cls": "ready"
+    },
+    {
+     "no": "4",
+     "label": "GROUP BY",
+     "value": "DEPT_CD",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "5",
+     "label": "집계컬럼",
+     "value": "AMT",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "6",
+     "label": "통계전략",
+     "value": "직접 집계(전체스캔 EXACT · 원본↔목적 그룹별 COUNT/SUM 비교) STATS_DIRECT_AGG",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "7",
+     "label": "불일치 추출전략",
+     "value": "직접 스트림 비교(원본·목적 전체를 한 번에 정렬·대조) DIRECT_STREAM_COMPARE",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "8",
+     "label": "상태",
+     "value": "실행 가능",
+     "badge": "",
+     "badge_cls": ""
+    },
+    {
+     "no": "9",
+     "label": "판정근거",
+     "value": "원본 5,000건 · PK_SINGLE_NUMERIC · PK 인덱스 · 원격 DB",
+     "badge": "",
+     "badge_cls": ""
+    }
+   ]
+  }
+ },
+ "page_errors": []
+}
