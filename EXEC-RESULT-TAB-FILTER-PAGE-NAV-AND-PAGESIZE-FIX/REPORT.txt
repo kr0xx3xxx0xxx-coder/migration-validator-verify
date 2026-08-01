@@ -1,0 +1,310 @@
+작업명 : EXEC-RESULT-TAB-FILTER-PAGE-NAV-AND-PAGESIZE-FIX
+작성일 : 2026-08-01
+커밋   : 008457a (main)
+수정파일: ui/execute_result_renderer.py (1개) + scripts/dev_e2e/exec_result_tab_filter_page_nav_verify.py (검증 드라이버 신규)
+
+================================================================================
+1. 무엇이 문제였나
+================================================================================
+5단계 '통계검증 실행 결과' 표 위에는 항목 필터 탭(전체 / COUNT / AMT / QTY)이 있다.
+지표 탭을 누르면 그 지표가 실제로 차이난 그룹만 남는다(재실행 없이 클라이언트 렌더).
+
+그런데 그 상태에서 **페이지 번호를 누르면 필터가 조용히 풀렸다.**
+탭 버튼은 계속 활성(주황)으로 남아 있어서, 사용자는 여전히 그 지표로 걸러진 화면을
+보고 있다고 믿는다. 실제로는 '전체' 결과의 그 페이지가 통째로 덮어써진 상태다.
+
+원인은 한 줄이다.
+
+    function _execGoResultPage(p) {
+      if (window._execSrv) { _execSrvGo(p); return; }      // ← 필터 상태를 보지 않는다
+      ...
+
+_execSrvGo() 는 항목 필터(col filter)를 서버에 넘기지 않는다. 그래서 서버는 '전체'
+기준 페이지를 돌려주고, tbody 가 그것으로 교체되면서 필터가 사라진다.
+
+표시 건수 드롭다운(20/50/100)도 같은 계열의 누락이었다.
+
+    function _execSetPageSize(v) {
+      if (window._execSrv) { window._execSrv.page_size = ...; _execSrvGo(1); return; }
+      window._execResultPageSize = ...                     // ← 서버 모드면 여기에 못 온다
+
+지표 탭은 클라이언트 렌더라 window._execResultPageSize 를 쓰는데, 서버 페이지 모드면
+첫 줄에서 return 해버려 그 값이 영원히 갱신되지 않았다. 즉 지표 탭에서는 표시 건수를
+바꿔도 아무 일도 일어나지 않았다.
+
+두 결함 모두, 오늘 REIMPORT-DRILLDOWN-TAB-SCOPE-CACHE-AND-COLUMN-SPLIT-FIX(66e4a30)가
+_execSetColFilter() 에 넣은 조건
+
+    if (window._execSrv && !window._execColFilter) { _execSrvGo(...); return; }
+
+과 같은 판단이 필요한 자리인데, 그 조건이 이 두 함수에는 안 들어가서 생긴 누락이다.
+
+================================================================================
+2. 무엇을 고쳤나
+================================================================================
+새 조건 어휘를 만들지 않고, _execSetColFilter 가 이미 쓰던 조건식을 **글자 그대로**
+두 함수에 재사용했다(코드베이스 일관성 요구사항).
+
+    function _execGoResultPage(p) {
+      if (window._execSrv && !window._execColFilter) { _execSrvGo(p); return; }
+      window._execResultPage = p; _execRenderResultPage();
+    }
+    function _execSetPageSize(v) {
+      if (window._execSrv && !window._execColFilter) {
+        window._execSrv.page_size = parseInt(v, 10) || 50; _execSrvGo(1); return;
+      }
+      window._execResultPageSize = parseInt(v, 10) || 20; window._execResultPage = 1;
+      _execRenderResultPage();
+    }
+
+동작 요약:
+  · 항목 필터 ON  → 서버로 안 보낸다. 클라이언트 렌더로 페이지 이동/표시 건수 처리.
+  · 항목 필터 OFF('전체' 탭) → 기존 서버 페이지 경로 그대로. 아무것도 바뀌지 않는다.
+
+'전체' 탭의 서버 페이지 유지·복원(오늘 고친 그 기능)은 조건상 도달 경로가 동일하므로
+불변이며, 실측으로도 확인했다(아래 4-C).
+
+================================================================================
+3. 실측 재현 조건
+================================================================================
+진단서(TAB-FILTER-COUNT-SUM-DIVERGENCE-VERIFY-DIAGNOSE)와 동일 조건이다.
+1~4단계 클릭스루와 탭/페이징 관측 JS 는 진단 드라이버를 그대로 재사용했다.
+
+  원본 : NXDNP.MV_SCATTER_SRC JOIN NXDNP.MV_SCATTER_DIM (INNER JOIN, 변형 b)
+  목적지: NXDNP.MV_SCATTER_TGT
+  기준 : GROUP BY STATUS_CD · SUM AMT, QTY
+  COUNT: 995,000 / 990,000 (차이 +5,000) → 불일치 수동 진행
+  결과 : 전체 10그룹, 불일치 10그룹
+
+DB 직접 SELECT 기준값(정답표):
+  G01 G03 G05 G07 G09 → COUNT ≠ , AMT ≠ , QTY ≠   (COUNT 탭에 나와야 함)
+  G02 G04 G06 G08 G10 → COUNT = , AMT ≠ , QTY ≠   (COUNT 탭에 나오면 안 됨)
+
+서버 신선도: ui/execute_result_renderer.py 수정 16:01:41 < 검증 서버 기동 16:05:34.
+인프로세스 서버를 빈 포트로 새로 띄우므로 최신 코드 서빙이 보장되고, 운영 8000 서버나
+동시 진행 작업(NOARCHIVELOG 전환, 5천만행 측정)을 건드리지 않는다.
+
+BEFORE 는 같은 세션·같은 데이터에서 수정 전 두 함수 본문을 전역 재정의로 되살려
+재현했다(커밋 520eecb 시점 원문 그대로). AFTER 를 먼저 측정해 실제 배포 코드가
+오염되지 않게 했다.
+
+================================================================================
+4. 실측 결과
+================================================================================
+
+── A. 핵심: COUNT 탭에서 페이지 이동 ───────────────────────────────────────
+
+BEFORE (수정 전 코드 재현)
+  COUNT 탭(활성 유지) · 표시건수 2건
+    2페이지 → [G03, G04]   ← G04 노출(COUNT 일치 그룹)  필터='CNT' 버튼활성=True
+    3페이지 → [G05, G06]   ← G06 노출(COUNT 일치 그룹)  필터='CNT' 버튼활성=True
+    페이징 표기: "3 / 5 페이지(전체 무절단)"  ← 서버(전체 10그룹) 기준으로 바뀜
+    srv_page 가 2→3 으로 실제 이동 = 서버 페이지가 tbody 를 덮어썼다는 직접 증거
+  캡처: b_before_B_count_p2.png / b_before_B_count_p3.png
+  b_before_B_count_p3.png 의 G06 행: COUNT 99000/99000 (Δ 없음), AMT Δ-1,000 · QTY Δ-30
+  → COUNT 는 완전히 같은 그룹이 COUNT 탭에 앉아 있다.
+
+AFTER (수정 코드)
+  COUNT 탭 · 표시건수 2건 → 총 5건이 3페이지로 정확히 분할
+    1페이지 → [G05, G03]  "총 5건 · 1 / 3 페이지 (1–2)"
+    2페이지 → [G07, G09]  "총 5건 · 2 / 3 페이지 (3–4)"
+    3페이지 → [G01]       "총 5건 · 3 / 3 페이지 (5–5)"
+    짝수(COUNT 일치) 그룹 노출: 0건 · 필터 'CNT' 전 페이지 유지
+    srv_page = 1 고정(서버 왕복 없음)
+  캡처: b_after_A1_count_p1.png / p2 / p3
+  b_after_A1_count_p3.png 의 G01 행: COUNT Δ+1,000 → 실제 COUNT 차이 그룹만 남음
+
+  요구사항 4(페이지 표기 정확성)도 같이 확인됐다. "총 N건 · P/M페이지"의 N 이
+  전체 10 이 아니라 그 탭 기준 5 로 계산된다.
+
+── B. 표시 건수 드롭다운 ────────────────────────────────────────────────────
+
+BEFORE: COUNT 탭에서 _execSetPageSize('2') 호출 →
+        srv.page_size 만 2 로 바뀌고 _execResultPageSize 는 50 그대로(client_unchanged=True)
+        → 지표 탭 표시량 변화 없음
+
+AFTER : 화면 드롭다운(select#execPageSize)을 실제 선택 조작
+        20건 선택 → _execResultPageSize=20 (srv 50 불변)
+        100건 선택 → _execResultPageSize=100 (srv 50 불변)
+        50건 선택 → _execResultPageSize=50  (srv 50 불변)
+        표시건수 2 적용 시 3페이지로 실제 분할(위 A 참조)
+
+  ※ 정직한 한계: COUNT 탭의 그룹이 5개뿐이라 20/50/100 사이에서는 **화면에 보이는 행 수가
+    달라질 수 없다**(셋 다 5행 전부 표시). 그래서 "값이 실제로 반영되는가"는
+    _execResultPageSize 갱신 + 페이징 재계산으로 확인했고, 눈에 보이는 분할 변화는
+    표시건수 2건 케이스로 확인했다. 드롭다운 3개 값 모두 client 값이 정확히 따라간다.
+  ※ 서버 값(srv.page_size)은 지표 탭 조작으로 바뀌지 않는다 — '전체' 탭 복귀 시
+    서버 페이지 기준이 흔들리지 않게 하기 위함이며 실측으로 불변 확인.
+
+── C. 회귀: '전체' 탭 서버 페이지 유지·복원 ────────────────────────────────
+   (오늘 고친 REIMPORT-DRILLDOWN-TAB-SCOPE-CACHE-AND-COLUMN-SPLIT-FIX 확인)
+
+  '전체' 탭 · 표시건수 2건 → 3페이지 이동 → srv_page=3, 표시 [G05, G06]
+    → COUNT 탭 경유 (필터 CNT, 5그룹 정상)
+    → AMT 탭 경유 (필터 AMT, 10그룹 — AMT 는 10그룹 전부 실제 불일치라 정상)
+    → '전체' 탭 복귀 → srv_page=3 복원, 표시 [G05, G06], 행 키 완전 동일(True)
+
+  깨지지 않았다. 지표 탭에서의 클라이언트 페이지 이동이 srv.page 를 건드리지 않기 때문에
+  복원 기준값이 보존된다.
+
+── D. 판정 요약 (9/9 통과) ──────────────────────────────────────────────────
+  [O] A1 지표탭 페이지이동 짝수그룹 미노출
+  [O] A1 지표탭 페이지이동 필터유지
+  [O] A2 표시건수 지표탭 반영
+  [O] A2 표시건수 2건 지표탭 적용
+  [O] A2 표시건수 서버값 불변
+  [O] A3 전체탭 서버페이지 복원
+  [O] A3 전체탭 복원행 동일
+  [O] B  수정전 짝수그룹 누수 재현
+  [O] B  수정전 드롭다운 클라이언트 미반영
+
+================================================================================
+5. 자동 테스트
+================================================================================
+── 5-1. 관련 서브셋 + baseline 대조 ────────────────────────────────────────
+명령: python -m pytest tests -k "execute_result or exec_result or tab or page or paging or filter"
+      -q -p no:randomly --tb=no       (10,522건 deselect, 선택 981건)
+
+  수정 후 : 46 failed, 932 passed, 3 skipped, 3 xfailed, 5 errors  (314.12s)
+  baseline: 48 failed, 930 passed, 3 skipped, 3 xfailed, 6 errors  (333.93s)
+  (baseline 은 워킹트리에서 ui/execute_result_renderer.py 만 520eecb 로 되돌려 측정.
+   worktree 로 재던 1차 시도는 gitignore 대상 파일(db_presets_*.json) 부재로 수집 단계부터
+   환경이 달라져 폐기했다 — 같은 환경에서 파일 1개만 바꾼 대조가 정확하다.)
+
+  ▶ 수정으로 새로 깨진 테스트: **0건** (fix 실패집합 ⊂ baseline 실패집합)
+  ▶ baseline 에만 실패한 3건:
+      tests/test_results_detail_server_pagination.py::test_batch_summary_stays_full_while_summary_follows_filter
+      tests/test_single_execute_result_envelope_store_skeleton.py::test_route_on_equals_off
+      tests/test_workflow_stage_gate.py::test_locked_tab_and_can_run
+    이 3건을 pre-fix 파일 그대로 단독 실행하면 2건은 통과하고, 나머지 1건은
+    `processing_ms: 0.1 != 5.7` 로 실패한다 — 즉 **순서 의존/타이밍 flaky** 이지
+    이번 수정의 효과가 아니다. "수정 덕분에 3건이 고쳐졌다"고 주장하지 않는다.
+
+  46건 실패는 수정 전에도 동일하게 실패하는 기존 실패다(배치/메뉴 IA/step tab DOM/
+  operational_stability 등, 이번 변경과 무관한 영역). 전체 목록은 아래 5-3.
+
+── 5-2. 직접 관련 JS 계약 테스트(별도 실행) ────────────────────────────────
+  -k 필터가 "pagination" 을 못 잡아(문자열에 'page' 가 없다) 정작 가장 관련 깊은 파일이
+  서브셋에서 빠져 있었다. 별도로 실행했다.
+
+  python -m pytest tests/test_individual_validation_result_pagination.py
+                   tests/test_stats_result_full.py tests/test_unified_result_detail.py
+    → 32 passed, 5 xfailed, 1 failed
+
+  · test_individual_validation_result_pagination.py 전건 통과.
+    이 파일은 _execGoResultPage(2) / _execSetPageSize('50') 을 **클라이언트 모드**
+    (window._execSrv 없음)로 검증한다. 새 가드는 `window._execSrv && ...` 이므로
+    _execSrv 가 없으면 이전과 완전히 동일하게 클라이언트 경로로 떨어진다 — 계약 불변.
+  · 유일한 실패 test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+    은 실행계획 카드(_mvRenderStrategyPlan)의 effective_group_by_count 문자열 검사로
+    이번 변경과 무관하며, **pre-fix 파일에서도 완전히 동일하게 실패**함을 확인했다.
+
+── 5-3. 실패 테스트 전체 목록(수정 후 46 failed + 5 errors = 51건) ─────────
+ERROR tests/test_single_group_registration.py::test_missing_target_table_is_error
+ERROR tests/test_single_official_register_hardening.py::test_same_table_two_groups_isolated_no_overwrite
+ERROR tests/test_task11_r2_source_connection_id.py::TC_R2_11_13_BatchConnectionFlow::test_11_get_group_connection_ids_importable
+ERROR tests/test_task11_r3.py::TC_R3_09_11_CandidateIntegrity::test_11_has_group_connection_identity_importable
+ERROR tests/test_task11_t.py::TC_T_07_10_UIAndAPI::test_10_task11_s_table_structure_unchanged
+FAILED tests/test_batch_display_unification.py::test_unified_table_shell_shared
+FAILED tests/test_batch_flow2_e2e_smoke.py::test_e2e_target_filter_excludes_non_passed
+FAILED tests/test_batch_flow2_multirow_e2e_smoke.py::test_db_valid_status_filter
+FAILED tests/test_batch_step_tabs_workflow.py::test_completed_tab_green_priority_in_nav
+FAILED tests/test_batch_step_tabs_workflow.py::test_next_step_buttons_removed
+FAILED tests/test_batch_step_tabs_workflow.py::test_targets_tab_no_next_button
+FAILED tests/test_candidate_contract.py::test_live_product_selectable_not_auto_selected
+FAILED tests/test_candidate_draft_selection.py::test_checkbox_change_keeps_table_and_plan_marks_draft
+FAILED tests/test_cte_alias_scope_and_derived_validation.py::test_real_physical_table_missing_still_failed
+FAILED tests/test_design_refresh_full_validation.py::test_showtab_includes_fullvalidation
+FAILED tests/test_exact_diff_ui_wiring.py::test_record_grid_and_kind_filter_and_order
+FAILED tests/test_final_from_cte_table_presence.py::test_missing_physical_base_table_still_blocked
+FAILED tests/test_operational_stability.py::TestAdditionalExecution::test_K_execute_additional_true_runs_additional
+FAILED tests/test_operational_stability.py::TestAdditionalExecution::test_L_additional_failure_batch_continues
+FAILED tests/test_operational_stability.py::TestAdditionalExecution::test_M_history_run_id_per_set
+FAILED tests/test_operational_stability.py::TestAdditionalExecution::test_N_existing_execute_default_regression
+FAILED tests/test_operational_stability.py::TestNumericTolerance::test_A_sum_tolerance_zero_exact_match
+FAILED tests/test_operational_stability.py::TestNumericTolerance::test_B_sum_tolerance_within_matched
+FAILED tests/test_operational_stability.py::TestNumericTolerance::test_C_sum_tolerance_exceeded_diff
+FAILED tests/test_operational_stability.py::TestNumericTolerance::test_D_count_not_affected_by_tolerance
+FAILED tests/test_project_menu_shell.py::test_existing_tabs_preserved
+FAILED tests/test_quality_ui_labels.py::TestQualityUiLabels::test_self_filter_default_all
+FAILED tests/test_results_menu_batch_detail_page.py::test_results_reuses_unified_renderer
+FAILED tests/test_single_facade_legacy_parity.py::test_execute_result_view_status_parity
+FAILED tests/test_step_tab_dom_stability.py::test_active_moves_in_place_and_persists
+FAILED tests/test_step_tab_dom_stability.py::test_delegated_click_works_after_inplace_update
+FAILED tests/test_step_tab_dom_stability.py::test_first_render_creates_nodes_once
+FAILED tests/test_step_tab_dom_stability.py::test_no_innerhtml_replace_on_repeated_render
+FAILED tests/test_step_tab_dom_stability.py::test_node_identity_preserved_across_rerenders
+FAILED tests/test_step_tab_dom_stability.py::test_node_identity_preserved_on_status_change
+FAILED tests/test_step_tab_dom_stability.py::test_single_listener_no_duplicate
+FAILED tests/test_step_tab_dom_stability.py::test_struct_change_rebuilds_once
+FAILED tests/test_table_presence_live_db.py::TestCmnListTablesDbError::test_D4_unsupported_db_type_skips_db
+FAILED tests/test_tabulator_vendor.py::test_candidate_summary_grid_removed_and_pairing
+FAILED tests/test_task11_m_plan_tag_filter.py::TC_PlanTagFilter_JS::test_06_date_bucket_fallback_keeps_check_impossible
+FAILED tests/test_task11_s.py::TC_S_01_04_TableStructure::test_01b_table_headers_present
+FAILED tests/test_task11_s5.py::TestConsistentTagNormalization::test_14_same_rmkSkip_filter
+FAILED tests/test_ui_active_tab_persistence.py::test_batch_skip_does_not_reveal_before_restore
+FAILED tests/test_ui_active_tab_persistence.py::test_hash_priority_restore_for_history_tab
+FAILED tests/test_ui_active_tab_persistence.py::test_no_forced_batch_redirect_on_default_restore
+FAILED tests/test_ui_active_tab_persistence.py::test_persist_only_valid_tabs
+FAILED tests/test_ui_active_tab_persistence.py::test_restore_priority_hash_then_localstorage_then_default
+FAILED tests/test_ui_menu_accordion_groups.py::test_implemented_tabs_and_showtab_unchanged
+FAILED tests/test_ui_menu_ia_restructure.py::test_showtab_contract_unchanged
+FAILED tests/test_ui_tab4_tab5_separation.py::test_target_only_display
+FAILED tests/test_upload_audit_store.py::TestPersistAndCurrent::test_current_keyed_by_schema_and_table
+(위 51건은 전부 baseline 에서도 동일하게 실패한다 — 이번 수정이 만든 실패는 없다.)
+
+── 5-4. JS 문법 가드 ────────────────────────────────────────────────────────
+  python -m pytest tests/test_rendered_js_syntax_guard.py -q → 2 passed
+  (주석에 '*/' 를 넣어 번들을 깨뜨리는 사고 방지 — 이번 추가 주석 포함해 통과)
+
+================================================================================
+6. 이번 수정으로 해결되지 않은 것 (사용자 판단 필요)
+================================================================================
+(1) [같은 계열 결함 잔존] _execToggleMatched() — '일치 행 숨기기/보기' 버튼
+    ui/execute_result_renderer.py:264
+
+        function _execToggleMatched(btn) {
+          if (window._execSrv) {          ← 여기도 _execColFilter 를 보지 않는다
+            window._execSrv.includeMatched = !window._execSrv.includeMatched;
+            _execSyncToggleLabel();
+            _execSrvGo(1);
+            return;
+          }
+
+    지표 탭이 걸린 상태에서 이 버튼을 누르면 _execSrvGo(1) 로 빠져 **같은 방식으로
+    필터가 조용히 풀린다.** 이번 지시가 _execGoResultPage / _execSetPageSize 두 함수로
+    명시적으로 한정돼 있어 손대지 않았다.
+    고칠 경우 판단이 하나 필요하다 — 필터가 걸린 상태의 토글은 srv.includeMatched 를
+    바꾸되 렌더는 클라이언트로 해야 한다(_execHideMatchedEffective 가 서버 모드에서
+    srv.includeMatched 를 읽으므로 같은 가드만 넣으면 의도대로 동작할 가능성이 높다).
+    → 별도 작업으로 지시 주시면 같은 방식으로 실측까지 붙여 처리하겠습니다.
+
+(2) [표시 불일치·이번 수정 이전부터 존재] 상단 요약줄 execSrvLine
+    지표 탭에서는 갱신되지 않아 서버 기준 문구가 남는다.
+    AFTER 캡처(b_after_A1_count_p3.png)에서 표는 "총 5건 · 3/3페이지"인데
+    상단은 "현재 불일치 그룹 1~10 표시 · 1/1페이지"로 서로 다르다.
+    이 줄은 _execSrvGo() 안에서만 쓰이므로 이번 변경과 무관하며(수정 전에도 지표 탭
+    진입 시 동일하게 남았다), 이번 지시 범위 밖이라 그대로 뒀다.
+
+(3) [테스트 커버리지] 이번 가드에 대한 단위 테스트는 추가하지 않았다.
+    "ui/execute_result_renderer.py 이 파일만 수정" 지시를 지키기 위해서다.
+    tests/test_individual_validation_result_pagination.py 가 같은 두 함수를
+    클라이언트 모드로 이미 검증하고 있고(통과 확인), 서버 모드 + 필터 조합 케이스만
+    비어 있다. 지시 주시면 그 파일에 케이스 1개로 붙일 수 있다.
+
+================================================================================
+7. 산출물
+================================================================================
+  커밋       : 008457a  fix(single): 5단계 지표 탭에서 페이지 이동 시 필터 유실 +
+                        표시 건수 미반영 수정
+  수정 파일  : ui/execute_result_renderer.py (12 insertions, 2 deletions)
+  검증 드라이버: scripts/dev_e2e/exec_result_tab_filter_page_nav_verify.py (신규)
+  실측 산출물 : scripts/dev_e2e/_exec_result_tab_filter_page_nav.json (gitignore 대상)
+  스크린샷    : E:\verify_screenshots_only\EXEC-RESULT-TAB-FILTER-PAGE-NAV-AND-PAGESIZE-FIX\
+
+  핵심 before/after 대조:
+    BEFORE  b_before_B_count_p3.png   COUNT 탭 3페이지 = [G05, G06]  ← G06 노출
+    AFTER   b_after_A1_count_p3.png   COUNT 탭 3페이지 = [G01]       ← G06 사라짐
+
+실검증 상태: 실 DB(오라클 asis/tobe) 실 브라우저 클릭스루로 1~5단계 전 구간 실측 완료.
+             BEFORE/AFTER 동일 세션·동일 데이터 대조, 판정 9/9 통과.
