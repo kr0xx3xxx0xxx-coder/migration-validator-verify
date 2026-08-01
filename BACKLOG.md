@@ -10,11 +10,13 @@
 - 대상 제외: 아직 push 되지 않은 로컬 전용 보고서 16건은 이번 취합에서 제외했다.
   push 후 이 파일에 합류시킨다.
 - 최초 작성: 2026-07-29 (VERIFY-REPO-BACKLOG-FILE-CREATE)
-- 최종 갱신: 2026-08-02 (BACKLOG-S6-S7-S11-P12-MARK-RESOLVED) — 이미 해결된 4개 항목을 해결 완료로 표시
+- 최종 갱신: 2026-08-02 (BACKLOG-S6-S7-S11-P12-MARK-RESOLVED) — 이미 해결된 5개 항목을 해결 완료로 표시
   (S6 해결 — 오라클 연결 시점 세션 NLS 고정으로 exact_diff 포함 일괄 해소, S7 **부분 해결** — 4계열 중
   3계열(count_execution_planner·stats_validation_plan_service·select_star_expansion) 해소하고 남은
   agg_diff_route FP 측은 성격이 달라 S17 로 분리, S11 해결 — 컬럼 조회 어댑터 위임으로
-  SCHEMA_META_MISSING 3/3→0/3, P12 해결 — 사용자 승인 후 COUNT 병렬화 구현(5천만행 -63.0%))
+  SCHEMA_META_MISSING 3/3→0/3, S12 해결(최우선급) — stream_merge 에 order_violation 탐지 추가로
+  캐릭터셋 불일치 거짓 불일치 날조 0건(보조 방향인 사전 NLS_CHARACTERSET 게이트는 미포함),
+  P12 해결 — 사용자 승인 후 COUNT 병렬화 구현(5천만행 -63.0%))
 - 직전 갱신: 2026-08-01 (BACKLOG-PERF-TIMING-DUPLICATE-SUBMIT-DEFERRED-ITEMS-ADD) — 성능·타이밍정확성·
   중복제출위험 진단 3건에서 승인이 필요하거나 이번 배치에서 구현하지 않기로 한 항목 6건 등록
   (S16 신규 — 서버측 중복 실행 방어 전무, P11 신규 — 세트 병렬 기본값 조정(실측 -41~55%, 승인 필요),
@@ -401,7 +403,23 @@ git -C E:/verify_reports worktree remove <임시경로>
   S9(방언 미위임 일괄 정리)와 함께 처리하는 편이 자연스럽다.
 - 참고: E:\verify_reports\STRATEGY-PLAN-PK-KIND-HARDCODE-FIX.txt
 
-### S12. (최우선급) exact_diff 문자 키 병합이 원본/목적지 캐릭터셋이 다르면 조용히 붕괴한다
+### S12. ✅ 해결 완료 — (최우선급) exact_diff 문자 키 병합이 원본/목적지 캐릭터셋이 다르면 조용히 붕괴한다
+- 해결일: 2026-07-30 (EXACT-DIFF-STREAM-MERGE-ORDER-VIOLATION-HOLD-FIX)
+- 근거 커밋: 코드 저장소 `f1a31a0` — `fix(exact-diff): 스트림 merge 의 키 정렬 순서 위반을 탐지해 HOLD 로
+  전환 — 캐릭터셋 불일치로 인한 거짓 불일치 날조 차단 (EXACT-DIFF-STREAM-MERGE-ORDER-VIOLATION-HOLD-FIX)`
+- 근거 보고서 커밋: 이 저장소 `e100d64`(증적 `EXACT-DIFF-STREAM-MERGE-ORDER-VIOLATION-HOLD-FIX`)
+- 해결 요약: 아래 **대응 방향(주)을 적힌 그대로** 채택했다 — `stream_merge.merge_compare` 에
+  `order_violation` 탐지를 추가해, 직전 키보다 작은 키가 나오면 **즉시 중단하고 HOLD** 로 전환한다.
+  전량 메모리 적재 금지 경로이므로 **재정렬은 시도하지 않는다**(진단서가 지목한 그대로).
+  실측: 진단서와 동일 조건 재현(동일 데이터를 원본은 CP949 순, 목적지는 UTF-8 순으로 흘림 · 한글 키) —
+  수정 전 거짓 불일치가 대량 재현됐고, 수정 후에는 `order_violation` 으로 즉시 HOLD 되어
+  **날조 0건**이 됐다. 정상 케이스(양측 순서 일치)는 전/후 동일(무회귀).
+- 범위 초과분과 그 사유: 지침 범위는 `stream_merge.py` 1파일이었으나 `engine.py`(+9줄)·
+  `contracts.py`(+1줄)까지 **최소 침습으로 함께 수정**했다 — HOLD 사유를 `order_violation` 으로
+  정확히 표면화하려면 그 사유 값이 계약(contracts)과 엔진 반환 경로를 통과해야 하기 때문이며,
+  사유 문구 정확성을 위해 불가피했다. 그 판단 근거는 근거 보고서에 명시돼 있다.
+- 잔여: 대응 방향(보조)인 "실행 전 `NLS_CHARACTERSET` 사전 조회 후 문자 키 exact_diff 사전 HOLD" 는
+  이번 범위에 포함되지 않았다. 지금은 **사후 탐지(HOLD)** 로 날조를 막는 단계다.
 - 발견일: 2026-07-29
 - 근거 보고서: `ORACLE-CHARSET-COLLATION-EXACT-DIFF-DIAGNOSE.txt` (§3 / §5-P1)
 - 상세: `services/exact_diff/dialects/oracle.py` 의 `key_hash_stream_sql` 이
