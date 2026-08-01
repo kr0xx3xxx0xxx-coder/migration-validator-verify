@@ -1,0 +1,100 @@
+작업명 : BACKLOG-S14-MARK-RESOLVED
+✅ 작업 완료 - BACKLOG-S14-MARK-RESOLVED - BACKLOG.md 의 S14 항목을 기존 관례대로 '✅ 해결 완료'(해결일 2026-07-31 / 근거 커밋 d707861)로 갱신하고 verify 저장소 push 완료
+
+────────────────────────────────────────────────────────────────────────
+1. 요청 요약
+────────────────────────────────────────────────────────────────────────
+이미 ORACLE-CONNECTION-NLS-NUMERIC-SESSION-PIN-FIX 로 해결된 S14 가 BACKLOG.md 에
+미해결로 남아 있는 문서 갱신 누락을 바로잡는다. 수정 대상은 BACKLOG.md 1개 파일뿐.
+
+────────────────────────────────────────────────────────────────────────
+2. 근거 확인(추정 아님)
+────────────────────────────────────────────────────────────────────────
+- 근거 커밋 해시: 완료보고서 E:\verify_reports\ORACLE-CONNECTION-NLS-NUMERIC-SESSION-PIN-FIX.txt
+  §11 '변경 파일 / 커밋' 에서 `커밋: d707861` 확인 →
+  코드 저장소에서 `git log -1 d707861` 로 교차 검증
+    d707861c2c9bea96d246c47ded9d20dd87360f31
+    fix(oracle): 연결 시 세션 NLS_NUMERIC_CHARACTERS '.,' 고정
+                 (ORACLE-CONNECTION-NLS-NUMERIC-SESSION-PIN-FIX)
+- 근거 보고서 커밋: verify 저장소 `20825df`
+  (`verify: ORACLE-CONNECTION-NLS-NUMERIC-SESSION-PIN-FIX 완료보고 …`, origin/main 포함 확인)
+- 해결 요약 문구의 실측 근거도 보고서에서 대조:
+    §6-3  문자 컬럼 안전성 — `TO_CHAR((C_VARCHAR2))` 정상 10건, ORA-01722 없음
+    §6-4  다른 NLS 무영향 — NLS_SORT/NLS_COMP(BINARY 유지)·NLS_DATE_FORMAT 등 변화 없음
+    §4    풀 재사용 — connection_pool 은 PG 만 풀링, 오라클은 '커넥션 1개 = 물리 세션 1개',
+          request_connection_scope 재사용도 같은 물리 세션이라 재실행 불필요
+
+────────────────────────────────────────────────────────────────────────
+3. 수정 내용
+────────────────────────────────────────────────────────────────────────
+- 제목 앞에 '✅ 해결 완료 —' 추가 (S1/S2/S8/S9 표기 관례와 동일)
+- 해결일 / 근거 커밋 / 근거 보고서 커밋 / 해결 요약 4줄 블록을 제목 바로 아래에 삽입
+  (S8 항목의 줄 순서와 동일: 해결 블록 → 기존 발견일·근거 보고서·상세·참고)
+- 기존 상세 서술(문제 설명, 5곳 목록), 대응 방향/대안, 참고 경로는 **한 줄도 삭제하지 않음**
+- 다른 섹션·항목은 무수정(아래 diff 로 확인 — 추가 12줄 + 제목 1줄 치환이 전부)
+
+────────────────────────────────────────────────────────────────────────
+4. git diff 전문 (verify 저장소, origin/main 기준)
+────────────────────────────────────────────────────────────────────────
+diff --git a/BACKLOG.md b/BACKLOG.md
+index 89b23cf..725625d 100644
+--- a/BACKLOG.md
++++ b/BACKLOG.md
+@@ -354,7 +354,19 @@ git -C E:/verify_reports worktree remove <임시경로>
+   설계해야 한다(4방언 처리 원칙).
+ - 참고: E:\verify_reports\ORACLE-CHARSET-COLLATION-EXACT-DIFF-DIAGNOSE.txt
+
+-### S14. NLS 숫자 고정이 타입 미상 균일 캐스트 5곳에는 적용되지 않았다(NLS 고정 수정의 잔여 위험 R1)
++### S14. ✅ 해결 완료 — NLS 숫자 고정이 타입 미상 균일 캐스트 5곳에는 적용되지 않았다(NLS 고정 수정의 잔여 위험 R1)
++- 해결일: 2026-07-31 (ORACLE-CONNECTION-NLS-NUMERIC-SESSION-PIN-FIX)
++- 근거 커밋: 코드 저장소 `d707861` — `fix(oracle): 연결 시 세션 NLS_NUMERIC_CHARACTERS '.,' 고정
++  (ORACLE-CONNECTION-NLS-NUMERIC-SESSION-PIN-FIX)`
++- 근거 보고서 커밋: 이 저장소 `20825df`(완료보고 `ORACLE-CONNECTION-NLS-NUMERIC-SESSION-PIN-FIX`)
++- 해결 요약: 아래 **권장 대응 방향을 그대로 채택**해, 3인자 `nlsparam` 을 못 붙이던 5곳(타입 미상 균일 캐스트)을
++  **코드 수정 없이** 세션 고정 방식으로 해소했다 — 오라클 연결 시점(`services/db_adapters/oracle.py` 의 `connect()`)에
++  `ALTER SESSION SET NLS_NUMERIC_CHARACTERS = '.,'` 를 1회 실행한다. `services/exact_diff/dialects/oracle.py` 는 **무수정**이다.
++  실측 확인: ① 다른 NLS 설정(NLS_SORT/NLS_COMP 정렬, NLS_DATE_FORMAT 등 날짜포맷 포함) 무영향,
++  ② 문자 컬럼 안전성 — 고정 적용 세션에서 `TO_CHAR((C_VARCHAR2))` 정상 반환, ORA-01722 없음,
++  ③ 커넥션 풀 재사용 시나리오에서도 세션 고정 유지 — 오라클은 PG 와 달리 `connection_pool` 풀링 대상이 아니라
++  '커넥션 1개 = 물리 세션 1개' 이고, 요청 내 커넥션 재사용(`request_connection_scope`)도 같은 물리 세션이라 재실행이 불필요하다
++  (향후 오라클 풀링을 켜면 checkout 경로에 재적용이 필요하다는 조건만 남는다).
+ - 발견일: 2026-07-29
+ - 근거 보고서: `NLS-SESSION-INDEPENDENT-NUMERIC-TOCHAR-FIX.txt` (§5-R1)
+ - 상세: `services/exact_diff/dialects/oracle.py` 의 `pk_agg_sql._txt` 와 `make_ora_fetch_chunk` 의 compare 컬럼,
+
+────────────────────────────────────────────────────────────────────────
+5. push 결과 (verify 저장소)
+────────────────────────────────────────────────────────────────────────
+BACKLOG.md 운영 규칙대로 공유 트리(E:\verify_reports)에 직접 커밋하지 않고,
+origin/main 기반 임시 worktree(E:\_wt_s14, sparse-checkout 으로 BACKLOG.md 만)에서
+자기 파일만 커밋·push 했다.
+
+  커밋 : 961d994  docs(backlog): S14 를 ✅ 해결 완료 로 표시 —
+                  ORACLE-CONNECTION-NLS-NUMERIC-SESSION-PIN-FIX(d707861) (BACKLOG-S14-MARK-RESOLVED)
+  push : git push origin HEAD:main → 성공
+  확인 : git ls-remote origin main
+         961d994795c2d8db6e68c2a4b5d3bd3ce94e589e  refs/heads/main
+         git show origin/main:BACKLOG.md | grep '^### S14'
+         357:### S14. ✅ 해결 완료 — NLS 숫자 고정이 타입 미상 균일 캐스트 5곳에는 …
+  정리 : worktree remove 완료(worktree list 에 E:/verify_reports 만 남음)
+
+────────────────────────────────────────────────────────────────────────
+6. 참고 — 공유 트리 E:\verify_reports 의 BACKLOG.md 는 현재 stale
+────────────────────────────────────────────────────────────────────────
+작업 중 확인된 사실(수정하지 않음, 정보 공유 목적):
+  - E:\verify_reports 의 로컬 HEAD 는 b4ae09a(main)로 origin/main 보다 뒤처져 있고,
+    BACKLOG.md 는 미커밋 변경 상태(' M BACKLOG.md')다.
+  - `git diff origin/main -- BACKLOG.md` 기준 공유 트리 사본이 191줄 적다
+    (= 다른 세션이 origin 에 올린 최신 항목들이 로컬 사본에 반영돼 있지 않음).
+  - 이번 갱신은 origin/main 최신본 위에 얹었으므로 원격은 정상이다.
+    공유 트리에서 최신 내용을 보려면 해당 트리에서 pull 이 필요하다(운영 규칙상 임의 pull/커밋은 하지 않았다).
+
+────────────────────────────────────────────────────────────────────────
+7. 범위 확인
+────────────────────────────────────────────────────────────────────────
+- 변경 파일: BACKLOG.md 1개(+ 본 완료보고 txt). 코드 저장소는 무수정·무커밋.
+- 화면/코드 무관한 문서 편집이라 스크린샷·자체 테스트 대상 없음.
+- 병행 작업(ORACLE-ASIS-NOARCHIVELOG-CONVERSION-VERIFY,
+  EXEC-RESULT-TAB-FILTER-PAGE-NAV-AND-PAGESIZE-FIX)과 파일 충돌 없음.
+
+✅ 작업 완료 - BACKLOG-S14-MARK-RESOLVED - BACKLOG.md 의 S14 항목을 기존 관례대로 '✅ 해결 완료'(해결일 2026-07-31 / 근거 커밋 d707861)로 갱신하고 verify 저장소 push 완료
