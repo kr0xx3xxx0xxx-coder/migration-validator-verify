@@ -1,0 +1,1550 @@
+{
+  "task": "REIMPORT-DRILLDOWN-M17-M18-FIX",
+  "tag": "BEFORE",
+  "base": "http://127.0.0.1:8000",
+  "sql": "INSERT INTO NXDNP.MV_M17_TGT (ID, STATUS_CD, AMT, QTY, ITEM_NM, REG_DT) SELECT ID, STATUS_CD, AMT, QTY, ITEM_NM, REG_DT FROM NXDNP.MV_M17_SRC",
+  "stages": {
+    "2_count": {
+      "count_status": "COUNT_MINOR_DIFF",
+      "src_count": 30,
+      "tgt_count": 27
+    },
+    "3_select": {
+      "gb": [
+        "STATUS_CD"
+      ],
+      "sum": [
+        "AMT",
+        "QTY"
+      ]
+    }
+  },
+  "obs": {
+    "M17": {
+      "t0": {
+        "present": true,
+        "thCount": 10,
+        "headers": [
+          "그룹 / PK(GROUP / PK)",
+          "STATUS_CD",
+          "STATUS_CD",
+          "COUNT(건수)",
+          "COUNT(건수)",
+          "AMT(금액)",
+          "AMT(금액)",
+          "QTY(수량)",
+          "QTY(수량)",
+          "판정(STATUS)"
+        ],
+        "headerRoles": [
+          "tree",
+          "gb-src",
+          "gb-tgt",
+          "val-src",
+          "val-tgt",
+          "val-src",
+          "val-tgt",
+          "val-src",
+          "val-tgt",
+          "verdict"
+        ],
+        "rowCount": 3,
+        "rows": [
+          {
+            "cls": "mv-mismatch-row",
+            "key": "{\"STATUS_CD\":\"A\"}",
+            "status": "diff",
+            "expanded": "false",
+            "tdCount": 10,
+            "cells": [
+              {
+                "t": "STATUS_CD=A",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "A",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "A",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "10",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "9Δ +1",
+                "orange": true,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "14500",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "14600Δ -100",
+                "orange": true,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "145",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "141Δ +4",
+                "orange": true,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "집계값 불일치",
+                "orange": true,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              }
+            ],
+            "orangeCells": 4,
+            "text": "STATUS_CD=AAA109Δ +11450014600Δ -100145141Δ +4집계값 불일치"
+          },
+          {
+            "cls": "mv-mismatch-row",
+            "key": "{\"STATUS_CD\":\"B\"}",
+            "status": "diff",
+            "expanded": "false",
+            "tdCount": 10,
+            "cells": [
+              {
+                "t": "STATUS_CD=B",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "B",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "B",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "10",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "9Δ +1",
+                "orange": true,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "15500",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "15500",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "155",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "150Δ +5",
+                "orange": true,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "집계값 불일치",
+                "orange": true,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              }
+            ],
+            "orangeCells": 3,
+            "text": "STATUS_CD=BBB109Δ +11550015500155150Δ +5집계값 불일치"
+          },
+          {
+            "cls": "mv-mismatch-row",
+            "key": "{\"STATUS_CD\":\"C\"}",
+            "status": "diff",
+            "expanded": "false",
+            "tdCount": 10,
+            "cells": [
+              {
+                "t": "STATUS_CD=C",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "C",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "C",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "10",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "9Δ +1",
+                "orange": true,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "16500",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "16400Δ +100",
+                "orange": true,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "165",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "159Δ +6",
+                "orange": true,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "집계값 불일치",
+                "orange": true,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              }
+            ],
+            "orangeCells": 4,
+            "text": "STATUS_CD=CCC109Δ +11650016400Δ +100165159Δ +6집계값 불일치"
+          }
+        ],
+        "recRowCount": 0,
+        "panelCount": 0
+      },
+      "group0_open": {
+        "present": true,
+        "thCount": 10,
+        "headers": [
+          "그룹 / PK(GROUP / PK)",
+          "STATUS_CD",
+          "STATUS_CD",
+          "COUNT(건수)",
+          "COUNT(건수)",
+          "AMT(금액)",
+          "AMT(금액)",
+          "QTY(수량)",
+          "QTY(수량)",
+          "판정(STATUS)"
+        ],
+        "headerRoles": [
+          "tree",
+          "gb-src",
+          "gb-tgt",
+          "val-src",
+          "val-tgt",
+          "val-src",
+          "val-tgt",
+          "val-src",
+          "val-tgt",
+          "verdict"
+        ],
+        "rowCount": 7,
+        "rows": [
+          {
+            "cls": "mv-mismatch-row",
+            "key": "{\"STATUS_CD\":\"A\"}",
+            "status": "diff",
+            "expanded": "true",
+            "tdCount": 10,
+            "cells": [
+              {
+                "t": "STATUS_CD=A",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "A",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "A",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "10",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "9Δ +1",
+                "orange": true,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "14500",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "14600Δ -100",
+                "orange": true,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "145",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "141Δ +4",
+                "orange": true,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "집계값 불일치",
+                "orange": true,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              }
+            ],
+            "orangeCells": 4,
+            "text": "STATUS_CD=AAA109Δ +11450014600Δ -100145141Δ +4집계값 불일치"
+          },
+          {
+            "cls": "mv-ed-scope-panel",
+            "key": null,
+            "status": null,
+            "expanded": null,
+            "tdCount": 1,
+            "cells": [
+              {
+                "t": "재이관 대상 전체 2건 · 현재 1~2 표시 ·",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              }
+            ],
+            "orangeCells": 0,
+            "text": "재이관 대상 전체 2건 · 현재 1~2 표시 · 1/1페이지"
+          },
+          {
+            "cls": "mv-pk-rec-row",
+            "key": null,
+            "status": null,
+            "expanded": null,
+            "tdCount": 10,
+            "cells": [
+              {
+                "t": "1",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "A",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "A",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "·",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": true
+              },
+              {
+                "t": "·",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": true
+              },
+              {
+                "t": "100",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "600",
+                "orange": false,
+                "tdInlineOrange": true,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": true,
+                "na": false
+              },
+              {
+                "t": "1",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "1",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              }
+            ],
+            "orangeCells": 0,
+            "text": "1AA··10060011"
+          },
+          {
+            "cls": "mv-pk-rec-row",
+            "key": null,
+            "status": null,
+            "expanded": null,
+            "tdCount": 10,
+            "cells": [
+              {
+                "t": "4",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "A",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "-",
+                "orange": false,
+                "tdInlineOrange": true,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": true,
+                "na": false
+              },
+              {
+                "t": "·",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": true
+              },
+              {
+                "t": "·",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": true
+              },
+              {
+                "t": "400",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "-",
+                "orange": false,
+                "tdInlineOrange": true,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": true,
+                "na": false
+              },
+              {
+                "t": "4",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "-",
+                "orange": false,
+                "tdInlineOrange": true,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": true,
+                "na": false
+              },
+              {
+                "t": "",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              }
+            ],
+            "orangeCells": 0,
+            "text": "4A-··400-4-"
+          },
+          {
+            "cls": "mv-pk-foot-row",
+            "key": null,
+            "status": null,
+            "expanded": null,
+            "tdCount": 1,
+            "cells": [
+              {
+                "t": "이전1다음1/1페이지 · 5건 단위(그룹 전용)",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              }
+            ],
+            "orangeCells": 0,
+            "text": "이전1다음1/1페이지 · 5건 단위(그룹 전용)계측 — 준비확인 154ms · scope 조회 74ms · 렌더 1ms"
+          },
+          {
+            "cls": "mv-mismatch-row",
+            "key": "{\"STATUS_CD\":\"B\"}",
+            "status": "diff",
+            "expanded": "false",
+            "tdCount": 10,
+            "cells": [
+              {
+                "t": "STATUS_CD=B",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "B",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "B",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "10",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "9Δ +1",
+                "orange": true,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "15500",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "15500",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "155",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "150Δ +5",
+                "orange": true,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "집계값 불일치",
+                "orange": true,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              }
+            ],
+            "orangeCells": 3,
+            "text": "STATUS_CD=BBB109Δ +11550015500155150Δ +5집계값 불일치"
+          },
+          {
+            "cls": "mv-mismatch-row",
+            "key": "{\"STATUS_CD\":\"C\"}",
+            "status": "diff",
+            "expanded": "false",
+            "tdCount": 10,
+            "cells": [
+              {
+                "t": "STATUS_CD=C",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "C",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "C",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "10",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "9Δ +1",
+                "orange": true,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "16500",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "16400Δ +100",
+                "orange": true,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "165",
+                "orange": false,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "159Δ +6",
+                "orange": true,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              },
+              {
+                "t": "집계값 불일치",
+                "orange": true,
+                "tdInlineOrange": false,
+                "tdComputedColor": "rgb(16, 35, 63)",
+                "bold": false,
+                "na": false
+              }
+            ],
+            "orangeCells": 4,
+            "text": "STATUS_CD=CCC109Δ +11650016400Δ +100165159Δ +6집계값 불일치"
+          }
+        ],
+        "recRowCount": 2,
+        "panelCount": 1
+      },
+      "record_rows": [
+        {
+          "cls": "mv-pk-rec-row",
+          "key": null,
+          "status": null,
+          "expanded": null,
+          "tdCount": 10,
+          "cells": [
+            {
+              "t": "1",
+              "orange": false,
+              "tdInlineOrange": false,
+              "tdComputedColor": "rgb(16, 35, 63)",
+              "bold": false,
+              "na": false
+            },
+            {
+              "t": "A",
+              "orange": false,
+              "tdInlineOrange": false,
+              "tdComputedColor": "rgb(16, 35, 63)",
+              "bold": false,
+              "na": false
+            },
+            {
+              "t": "A",
+              "orange": false,
+              "tdInlineOrange": false,
+              "tdComputedColor": "rgb(16, 35, 63)",
+              "bold": false,
+              "na": false
+            },
+            {
+              "t": "·",
+              "orange": false,
+              "tdInlineOrange": false,
+              "tdComputedColor": "rgb(16, 35, 63)",
+              "bold": false,
+              "na": true
+            },
+            {
+              "t": "·",
+              "orange": false,
+              "tdInlineOrange": false,
+              "tdComputedColor": "rgb(16, 35, 63)",
+              "bold": false,
+              "na": true
+            },
+            {
+              "t": "100",
+              "orange": false,
+              "tdInlineOrange": false,
+              "tdComputedColor": "rgb(16, 35, 63)",
+              "bold": false,
+              "na": false
+            },
+            {
+              "t": "600",
+              "orange": false,
+              "tdInlineOrange": true,
+              "tdComputedColor": "rgb(16, 35, 63)",
+              "bold": true,
+              "na": false
+            },
+            {
+              "t": "1",
+              "orange": false,
+              "tdInlineOrange": false,
+              "tdComputedColor": "rgb(16, 35, 63)",
+              "bold": false,
+              "na": false
+            },
+            {
+              "t": "1",
+              "orange": false,
+              "tdInlineOrange": false,
+              "tdComputedColor": "rgb(16, 35, 63)",
+              "bold": false,
+              "na": false
+            },
+            {
+              "t": "",
+              "orange": false,
+              "tdInlineOrange": false,
+              "tdComputedColor": "rgb(16, 35, 63)",
+              "bold": false,
+              "na": false
+            }
+          ],
+          "orangeCells": 0,
+          "text": "1AA··10060011"
+        },
+        {
+          "cls": "mv-pk-rec-row",
+          "key": null,
+          "status": null,
+          "expanded": null,
+          "tdCount": 10,
+          "cells": [
+            {
+              "t": "4",
+              "orange": false,
+              "tdInlineOrange": false,
+              "tdComputedColor": "rgb(16, 35, 63)",
+              "bold": false,
+              "na": false
+            },
+            {
+              "t": "A",
+              "orange": false,
+              "tdInlineOrange": false,
+              "tdComputedColor": "rgb(16, 35, 63)",
+              "bold": false,
+              "na": false
+            },
+            {
+              "t": "-",
+              "orange": false,
+              "tdInlineOrange": true,
+              "tdComputedColor": "rgb(16, 35, 63)",
+              "bold": true,
+              "na": false
+            },
+            {
+              "t": "·",
+              "orange": false,
+              "tdInlineOrange": false,
+              "tdComputedColor": "rgb(16, 35, 63)",
+              "bold": false,
+              "na": true
+            },
+            {
+              "t": "·",
+              "orange": false,
+              "tdInlineOrange": false,
+              "tdComputedColor": "rgb(16, 35, 63)",
+              "bold": false,
+              "na": true
+            },
+            {
+              "t": "400",
+              "orange": false,
+              "tdInlineOrange": false,
+              "tdComputedColor": "rgb(16, 35, 63)",
+              "bold": false,
+              "na": false
+            },
+            {
+              "t": "-",
+              "orange": false,
+              "tdInlineOrange": true,
+              "tdComputedColor": "rgb(16, 35, 63)",
+              "bold": true,
+              "na": false
+            },
+            {
+              "t": "4",
+              "orange": false,
+              "tdInlineOrange": false,
+              "tdComputedColor": "rgb(16, 35, 63)",
+              "bold": false,
+              "na": false
+            },
+            {
+              "t": "-",
+              "orange": false,
+              "tdInlineOrange": true,
+              "tdComputedColor": "rgb(16, 35, 63)",
+              "bold": true,
+              "na": false
+            },
+            {
+              "t": "",
+              "orange": false,
+              "tdInlineOrange": false,
+              "tdComputedColor": "rgb(16, 35, 63)",
+              "bold": false,
+              "na": false
+            }
+          ],
+          "orangeCells": 0,
+          "text": "4A-··400-4-"
+        }
+      ],
+      "orange_total": 0
+    },
+    "M18": {
+      "group_keys": [
+        "{\"STATUS_CD\":\"A\"}",
+        "{\"STATUS_CD\":\"B\"}",
+        "{\"STATUS_CD\":\"C\"}"
+      ],
+      "sequence": [
+        {
+          "present": true,
+          "groups": [
+            {
+              "key": "{\"STATUS_CD\":\"A\"}",
+              "status": "diff",
+              "expanded": "true",
+              "caretChar": "▾",
+              "caretDown": true,
+              "caretRight": false
+            },
+            {
+              "key": "{\"STATUS_CD\":\"B\"}",
+              "status": "diff",
+              "expanded": "false",
+              "caretChar": "▸",
+              "caretDown": false,
+              "caretRight": true
+            },
+            {
+              "key": "{\"STATUS_CD\":\"C\"}",
+              "status": "diff",
+              "expanded": "false",
+              "caretChar": "▸",
+              "caretDown": false,
+              "caretRight": true
+            }
+          ],
+          "expandedTrue": 1,
+          "caretDownCount": 1,
+          "panelCount": 1,
+          "recRowCount": 2,
+          "step": "그룹0 펼침"
+        },
+        {
+          "present": true,
+          "groups": [
+            {
+              "key": "{\"STATUS_CD\":\"A\"}",
+              "status": "diff",
+              "expanded": "true",
+              "caretChar": "▾",
+              "caretDown": true,
+              "caretRight": false
+            },
+            {
+              "key": "{\"STATUS_CD\":\"B\"}",
+              "status": "diff",
+              "expanded": "true",
+              "caretChar": "▾",
+              "caretDown": true,
+              "caretRight": false
+            },
+            {
+              "key": "{\"STATUS_CD\":\"C\"}",
+              "status": "diff",
+              "expanded": "false",
+              "caretChar": "▸",
+              "caretDown": false,
+              "caretRight": true
+            }
+          ],
+          "expandedTrue": 2,
+          "caretDownCount": 2,
+          "panelCount": 1,
+          "recRowCount": 2,
+          "step": "그룹1 펼침"
+        },
+        {
+          "present": true,
+          "groups": [
+            {
+              "key": "{\"STATUS_CD\":\"A\"}",
+              "status": "diff",
+              "expanded": "true",
+              "caretChar": "▾",
+              "caretDown": true,
+              "caretRight": false
+            },
+            {
+              "key": "{\"STATUS_CD\":\"B\"}",
+              "status": "diff",
+              "expanded": "true",
+              "caretChar": "▾",
+              "caretDown": true,
+              "caretRight": false
+            },
+            {
+              "key": "{\"STATUS_CD\":\"C\"}",
+              "status": "diff",
+              "expanded": "true",
+              "caretChar": "▾",
+              "caretDown": true,
+              "caretRight": false
+            }
+          ],
+          "expandedTrue": 3,
+          "caretDownCount": 3,
+          "panelCount": 1,
+          "recRowCount": 2,
+          "step": "그룹2 펼침"
+        }
+      ],
+      "end": {
+        "present": true,
+        "groups": [
+          {
+            "key": "{\"STATUS_CD\":\"A\"}",
+            "status": "diff",
+            "expanded": "true",
+            "caretChar": "▾",
+            "caretDown": true,
+            "caretRight": false
+          },
+          {
+            "key": "{\"STATUS_CD\":\"B\"}",
+            "status": "diff",
+            "expanded": "true",
+            "caretChar": "▾",
+            "caretDown": true,
+            "caretRight": false
+          },
+          {
+            "key": "{\"STATUS_CD\":\"C\"}",
+            "status": "diff",
+            "expanded": "true",
+            "caretChar": "▾",
+            "caretDown": true,
+            "caretRight": false
+          }
+        ],
+        "expandedTrue": 3,
+        "caretDownCount": 3,
+        "panelCount": 1,
+        "recRowCount": 2
+      }
+    }
+  },
+  "notes": [],
+  "setup": {
+    "pair_rows": 1,
+    "pair_created": true,
+    "connected": true
+  },
+  "pk_records_responses": [
+    {
+      "t": 162.61,
+      "url": "http://127.0.0.1:8000/agg-diff/pk-records?run_id=PK9CE16EE6F735&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=A",
+      "status": "READY",
+      "run_id": "PK9CE16EE6F735",
+      "view": "reimport",
+      "key_col": "id",
+      "gb_cols": [
+        "STATUS_CD"
+      ],
+      "sum_labels": [
+        "AMT",
+        "QTY"
+      ],
+      "row_compare_columns": [],
+      "numeric_pk": false,
+      "total": 2,
+      "missing_migration": 3,
+      "value_mismatch": 3,
+      "records": [
+        {
+          "key": "1",
+          "diff_cols": [
+            "AMT"
+          ],
+          "tgt_is_null": false,
+          "src": {
+            "STATUS_CD": "A",
+            "AMT": "100",
+            "QTY": "1"
+          },
+          "tgt": {
+            "STATUS_CD": "A",
+            "AMT": "600",
+            "QTY": "1"
+          }
+        },
+        {
+          "key": "4",
+          "diff_cols": [],
+          "tgt_is_null": true,
+          "src": {
+            "STATUS_CD": "A",
+            "AMT": "400",
+            "QTY": "4"
+          },
+          "tgt": null
+        }
+      ]
+    },
+    {
+      "t": 166.4,
+      "url": "http://127.0.0.1:8000/agg-diff/pk-records?run_id=PK9CE16EE6F735&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=B",
+      "status": "READY",
+      "run_id": "PK9CE16EE6F735",
+      "view": "reimport",
+      "key_col": "id",
+      "gb_cols": [
+        "STATUS_CD"
+      ],
+      "sum_labels": [
+        "AMT",
+        "QTY"
+      ],
+      "row_compare_columns": [],
+      "numeric_pk": false,
+      "total": 2,
+      "missing_migration": 3,
+      "value_mismatch": 3,
+      "records": [
+        {
+          "key": "2",
+          "diff_cols": [
+            "AMT"
+          ],
+          "tgt_is_null": false,
+          "src": {
+            "STATUS_CD": "B",
+            "AMT": "200",
+            "QTY": "2"
+          },
+          "tgt": {
+            "STATUS_CD": "B",
+            "AMT": "700",
+            "QTY": "2"
+          }
+        },
+        {
+          "key": "5",
+          "diff_cols": [],
+          "tgt_is_null": true,
+          "src": {
+            "STATUS_CD": "B",
+            "AMT": "500",
+            "QTY": "5"
+          },
+          "tgt": null
+        }
+      ]
+    },
+    {
+      "t": 167.87,
+      "url": "http://127.0.0.1:8000/agg-diff/pk-records?run_id=PK9CE16EE6F735&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=C",
+      "status": "READY",
+      "run_id": "PK9CE16EE6F735",
+      "view": "reimport",
+      "key_col": "id",
+      "gb_cols": [
+        "STATUS_CD"
+      ],
+      "sum_labels": [
+        "AMT",
+        "QTY"
+      ],
+      "row_compare_columns": [],
+      "numeric_pk": false,
+      "total": 2,
+      "missing_migration": 3,
+      "value_mismatch": 3,
+      "records": [
+        {
+          "key": "3",
+          "diff_cols": [
+            "AMT"
+          ],
+          "tgt_is_null": false,
+          "src": {
+            "STATUS_CD": "C",
+            "AMT": "300",
+            "QTY": "3"
+          },
+          "tgt": {
+            "STATUS_CD": "C",
+            "AMT": "800",
+            "QTY": "3"
+          }
+        },
+        {
+          "key": "6",
+          "diff_cols": [],
+          "tgt_is_null": true,
+          "src": {
+            "STATUS_CD": "C",
+            "AMT": "600",
+            "QTY": "6"
+          },
+          "tgt": null
+        }
+      ]
+    }
+  ],
+  "net": [
+    {
+      "t": 33.64,
+      "kind": "req",
+      "path": "/analyze",
+      "method": "POST",
+      "url": "http://127.0.0.1:8000/analyze"
+    },
+    {
+      "t": 35.52,
+      "kind": "resp",
+      "path": "/analyze",
+      "status": 200
+    },
+    {
+      "t": 132.01,
+      "kind": "req",
+      "path": "/count",
+      "method": "POST",
+      "url": "http://127.0.0.1:8000/count"
+    },
+    {
+      "t": 132.14,
+      "kind": "resp",
+      "path": "/count",
+      "status": "FAILED",
+      "processing_ms": 77.6
+    },
+    {
+      "t": 149.59,
+      "kind": "req",
+      "path": "/generate",
+      "method": "POST",
+      "url": "http://127.0.0.1:8000/generate"
+    },
+    {
+      "t": 149.7,
+      "kind": "resp",
+      "path": "/generate",
+      "status": 200,
+      "processing_ms": 1.5
+    },
+    {
+      "t": 154.72,
+      "kind": "req",
+      "path": "/execute",
+      "method": "POST",
+      "url": "http://127.0.0.1:8000/execute"
+    },
+    {
+      "t": 155.07,
+      "kind": "req",
+      "path": "/stats-result/page",
+      "method": "GET",
+      "url": "http://127.0.0.1:8000/stats-result/page?result_id=SRB92B8D73A1E0&page=1&page_size=50&mismatch_only=true&fp="
+    },
+    {
+      "t": 155.05,
+      "kind": "resp",
+      "path": "/execute",
+      "status": 200,
+      "processing_ms": 214.5,
+      "run_id": null
+    },
+    {
+      "t": 155.28,
+      "kind": "resp",
+      "path": "/stats-result/page",
+      "status": 200,
+      "ok": true,
+      "page": 1
+    },
+    {
+      "t": 155.39,
+      "kind": "req",
+      "path": "/analyze",
+      "method": "POST",
+      "url": "http://127.0.0.1:8000/diagnosis/analyze"
+    },
+    {
+      "t": 155.7,
+      "kind": "resp",
+      "path": "/analyze",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "t": 162.38,
+      "kind": "req",
+      "path": "/agg-diff/prepare",
+      "method": "POST",
+      "url": "http://127.0.0.1:8000/agg-diff/prepare"
+    },
+    {
+      "t": 162.53,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET",
+      "url": "http://127.0.0.1:8000/agg-diff/pk-records?run_id=PK9CE16EE6F735&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=A"
+    },
+    {
+      "t": 162.53,
+      "kind": "resp",
+      "path": "/agg-diff/prepare",
+      "status": "READY",
+      "run_id": "PK9CE16EE6F735",
+      "ok": true
+    },
+    {
+      "t": 162.6,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "READY",
+      "run_id": "PK9CE16EE6F735",
+      "ok": true,
+      "total": 2,
+      "page": 1
+    },
+    {
+      "t": 166.34,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET",
+      "url": "http://127.0.0.1:8000/agg-diff/pk-records?run_id=PK9CE16EE6F735&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=B"
+    },
+    {
+      "t": 166.4,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "READY",
+      "run_id": "PK9CE16EE6F735",
+      "ok": true,
+      "total": 2,
+      "page": 1
+    },
+    {
+      "t": 167.81,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET",
+      "url": "http://127.0.0.1:8000/agg-diff/pk-records?run_id=PK9CE16EE6F735&page=1&page_size=5&view=reimport&scope_col=STATUS_CD&scope_val=C"
+    },
+    {
+      "t": 167.87,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": "READY",
+      "run_id": "PK9CE16EE6F735",
+      "ok": true,
+      "total": 2,
+      "page": 1
+    }
+  ],
+  "marks": [
+    {
+      "t": 32.35,
+      "mark": "1단계 분석",
+      "extra": null
+    },
+    {
+      "t": 37.24,
+      "mark": "2단계 COUNT",
+      "extra": null
+    },
+    {
+      "t": 136.16,
+      "mark": "3단계 후보선정",
+      "extra": null
+    },
+    {
+      "t": 146.33,
+      "mark": "4단계 SQL 생성 + 통계검증 실행",
+      "extra": null
+    },
+    {
+      "t": 157.82,
+      "mark": "5단계 진입",
+      "extra": null
+    },
+    {
+      "t": 162.37,
+      "mark": "그룹 클릭(index=0)",
+      "extra": null
+    },
+    {
+      "t": 164.85,
+      "mark": "그룹 클릭(index=0)",
+      "extra": null
+    },
+    {
+      "t": 166.33,
+      "mark": "그룹 클릭(index=1)",
+      "extra": null
+    },
+    {
+      "t": 167.8,
+      "mark": "그룹 클릭(index=2)",
+      "extra": null
+    }
+  ],
+  "console_errors": [],
+  "dialogs": [
+    "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+    "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+  ]
+}

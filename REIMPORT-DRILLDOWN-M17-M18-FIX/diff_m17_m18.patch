@@ -1,0 +1,133 @@
+commit 6267a1a0878a87d6fc3e567f2703491be84a3e05
+Author: migration-validator <dev@migration-validator.local>
+Date:   Sun Aug 2 07:37:19 2026 +0900
+
+    fix(single): 재이관 드릴다운 강조 미표시(.mtbl td !important) + 그룹 화살표 미복귀 (REIMPORT-DRILLDOWN-M17-M18-FIX)
+    
+    M17 — 목적 미존재/값 불일치 주황 강조가 화면에 뜨지 않던 결함.
+      실측 결과 서버 /agg-diff/pk-records 응답은 정상이었다(tgt=null, diff_cols=[AMT] 모두 채워짐).
+      실제 원인은 클라이언트 CSS 충돌 — 5단계 결과표가 table.mtbl 이고 전역 규칙
+      `.mtbl td{... color:var(--text)!important}` 가 _mvPkCellSplit 이 td 인라인으로 준
+      color:#C2410C 를 덮어써 font-weight 만 남았다(굵지만 검은 글씨).
+      판정 로직(missing/isDiff)은 그대로 두고, 같은 파일의 기존 형제 헬퍼
+      (_mvPkCellHtml·_mvPkCell2)가 이미 쓰는 span 강조 관례로 마크업만 맞춘다 — 새 CSS 없음.
+    
+    M18 — 다른 그룹을 펼쳐도 이전 그룹의 펼침 화살표(▾)가 닫히지 않던 결함.
+      패널 일괄 제거 경로가 tr.mv-ed-scope-panel 만 지우고 직전 형제 행의 aria-expanded 를
+      남겨 두었다. _mvCloseOtherScopePanels 가 이미 쓰는 처리(제거 시 직전 형제 행
+      aria-expanded=false)를 공통 헬퍼 _mvRemoveAllScopePanels 로 뽑아 두 호출부
+      (_mvToggleRowAggDiff·_mvToggleRowExactDiff)에서 재사용한다.
+    
+    실측(오라클 라이브 asis/tobe · 픽스처 NXDNP.MV_M17_SRC 30행/MV_M17_TGT 27행):
+      M17 주황 강조 셀  Before 0개 → After 4개(값불일치 1 · 목적미존재 3, 일치 셀은 0 유지)
+      M18 펼침 화살표   Before 1→2→3 누적(접기 후에도 3) → After 항상 1(접기 후 0)
+      기존 드릴다운 기능(트리병합·캐시재사용·컬럼분리·문구정리·탭유지) 13개 관측항목 전부 이전과 동일.
+      회귀: UI/렌더러 750건 baseline(49edb30) 대조 54 failed 동일 — 차분 0건(전부 사전 존재).
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_01X7Ed7BT4fEkzBFUL7N7UiB
+
+diff --git a/tests/test_diagnosis_ui_workflow.py b/tests/test_diagnosis_ui_workflow.py
+index d816e01..a8a7824 100644
+--- a/tests/test_diagnosis_ui_workflow.py
++++ b/tests/test_diagnosis_ui_workflow.py
+@@ -319,6 +319,10 @@ def test_row_analysis_state_guards(page_html):
+     복원하려고 선택 인자(_rs = {page, view})가 추가됐다. 인자 목록을 고정 문자열로 박아 두면
+     선택 인자 하나에도 깨지므로 시그니처 매칭만 느슨하게 하고, 검사 의도(재클릭 닫힘·동시 1개·
+     prepare 공유)는 그대로 둔다. 닫힘 시 펼침 상태도 함께 삭제하는지를 추가로 확인한다.
++
++    [REIMPORT-DRILLDOWN-M18-FIX] 패널 일괄 제거가 인라인 removeChild 에서 공통 헬퍼
++    (_mvRemoveAllScopePanels)로 바뀌었다. 헬퍼는 '패널 제거'에 더해 '직전 형제 행의 aria-expanded
++    되돌리기'까지 하므로(이전 그룹 ▾ 잔존 결함 수정), 검사 대상도 호출부 + 헬퍼 본문으로 옮긴다.
+     """
+     assert "async function _mvToggleRowAnalysis" not in page_html      # 제거 확인(전용 렌더 잔존 금지)
+     m = re.search(r"async function _mvToggleRowAggDiff\(tr, act, r[^)]*\) \{.*?\n\}", page_html, re.S)
+@@ -326,7 +330,12 @@ def test_row_analysis_state_guards(page_html):
+     fn = m.group(0)
+     assert "tr.setAttribute('aria-expanded', 'false');" in fn          # 재클릭 — 닫힘(추가 API 0)
+     assert "_mvPkExpandForget(ref);" in fn                             # 닫으면 펼침 상태도 삭제(탭 전환 부활 금지)
+-    assert "removeChild" in fn                                        # 닫힘 시 상세 DOM 제거(렌더 잔존 금지)
++    assert "_mvRemoveAllScopePanels();" in fn                          # 닫힘 시 상세 DOM 제거(렌더 잔존 금지)
++    # 일괄 제거 헬퍼 — 제거 + 직전 형제 행 aria-expanded='false'(이전 그룹 화살표 복귀, M18)
++    hm = re.search(r"function _mvRemoveAllScopePanels\(\) \{.*?\n\}", page_html, re.S)
++    assert hm, "_mvRemoveAllScopePanels 없음"
++    assert "removeChild" in hm.group(0)
++    assert "setAttribute('aria-expanded', 'false')" in hm.group(0)
+     assert "_mvCloseOtherScopePanels('');" in fn                      # 동시에 상세 1개만 유지
+     assert "_mvPkEnsurePrepared(r, body)" in fn                       # prewarm/진행 공유 — 중복 prepare 금지
+     # 공통 fetch(유지): 분석 API 1회 + max_depth 전달 + ref 당 중복 API 차단
+diff --git a/ui/tabler_renderer.py b/ui/tabler_renderer.py
+index 3438ba4..8ad25f3 100644
+--- a/ui/tabler_renderer.py
++++ b/ui/tabler_renderer.py
+@@ -16665,8 +16665,9 @@ async function _mvToggleRowExactDiff(tr, act, r) {
+   /* SINGLE-OPEN — 다른 상세 닫기(기존 scope 패널 로직 재사용), 같은 행 재클릭은 닫기 */
+   var existing = document.querySelector('tr[data-panel-for="' + ref + '"]');
+   _mvCloseOtherScopePanels('');                     /* KEY_RANGE 패널 포함 모두 닫기 */
+-  var other = document.querySelectorAll('tr.mv-ed-scope-panel');
+-  other.forEach(function(p){ if (p.parentNode) p.parentNode.removeChild(p); });
++  /* [REIMPORT-DRILLDOWN-M18-FIX] 같은 결함이 이 경로(전수검증 상세)에도 있었다 — 패널만 지우고
++     직전 형제 행의 aria-expanded 를 남기면 이전 행의 ▾ 가 닫히지 않는다. 공통 헬퍼로 통일. */
++  _mvRemoveAllScopePanels();
+   if (typeof _mvPkClearTreeRows === 'function') _mvPkClearTreeRows('');   /* 트리 병합 레코드/페이징 행도 제거 */
+   if (existing) { tr.setAttribute('aria-expanded', 'false'); return; }
+   var panel = document.createElement('tr');
+@@ -16839,7 +16840,9 @@ async function _mvToggleRowAggDiff(tr, act, r, _rs) {
+                      (act.set_id || act.scope_ref || ''), scopeCols, scopeVals].join('|');
+   var existing = document.querySelector('tr[data-panel-for="' + ref + '"]');
+   _mvCloseOtherScopePanels('');
+-  document.querySelectorAll('tr.mv-ed-scope-panel').forEach(function(p){ if (p.parentNode) p.parentNode.removeChild(p); });
++  /* [REIMPORT-DRILLDOWN-M18-FIX] 일괄 제거도 '패널 제거 + 직전 형제 행 aria-expanded=false' 로 한다
++     (이전 그룹의 ▾ 화살표가 열린 채 남지 않게 — _mvCloseOtherScopePanels 와 동일 처리). */
++  _mvRemoveAllScopePanels();
+   /* [REIMPORT-DRILLDOWN-TREE-MERGE] 패널 행과 함께 삽입돼 있던 레코드/페이징 행도 같이 걷어낸다
+      (접기·다른 그룹 열기 모두 동일 — 표에 남은 레코드 행이 유령으로 남지 않게). */
+   if (typeof _mvPkClearTreeRows === 'function') _mvPkClearTreeRows('');
+@@ -17164,16 +17167,24 @@ var _MV_SRC_BG = 'background:#eaf2ff';   /* 원본 열 — 파랑 계열 (5단
+ var _MV_TGT_BG = 'background:#e6f7f3';   /* 목적 열 — 청록 계열 (5단계 _EXEC_TGT_BG 동일값) */
+ /* 원본/목적 값을 별도 셀(색상 구분)로 렌더 — 원본은 파랑 열, 목적은 청록 열. 화살표 압축 없음.
+    목적 미존재(missing)/불일치(isDiff)는 목적 셀 값을 주황(#C2410C)으로 강조해 불일치 신호를 유지한다
+-   (일치 컬럼은 양쪽 동일 값을 일반 색으로 표시). isCode=true 는 GROUP BY 코드값 — 천 단위 쉼표 미적용. */
++   (일치 컬럼은 양쪽 동일 값을 일반 색으로 표시). isCode=true 는 GROUP BY 코드값 — 천 단위 쉼표 미적용.
++
++   [REIMPORT-DRILLDOWN-M17-FIX] 강조 색은 반드시 '자식 span' 에 준다(td 인라인 style 금지).
++   5단계 결과표는 `<table class="mtbl">` 이고 전역 CSS 에 `.mtbl td{... color:var(--text)!important}`
++   가 있어, td 인라인 색은 !important 선언에 져서 화면에 표시되지 않았다(font-weight 만 남아
++   '굵지만 검은 글씨'). 판정 로직(missing/isDiff)은 그대로 두고 마크업만 같은 파일의 기존 형제
++   헬퍼(_mvPkCellHtml·_mvPkCell2)가 이미 쓰는 span 강조 관례로 맞춘다 — 새 패턴/새 CSS 없음. */
+ function _mvPkCellSplit(sv, tv, missing, isDiff, isCode, num) {
+   var a = isCode ? String(sv == null ? '' : sv) : _mvPkFmtVal(sv);
+   if (sv == null || sv === '') a = '-';
+   var b = missing ? '-' : (isCode ? String(tv == null ? '' : tv) : _mvPkFmtVal(tv));
+   if (!missing && (tv == null || tv === '')) b = '-';
+   var alignR = num ? 'text-align:right;' : '';
+-  var tgtStyle = (isDiff || missing) ? ';color:#C2410C;font-weight:700' : '';
++  var tgtVal = (isDiff || missing)
++    ? '<span style="color:#C2410C;font-weight:700">' + esc(b) + '</span>'
++    : esc(b);
+   return '<td style="' + alignR + _MV_SRC_BG + '">' + esc(a) + '</td>'
+-       + '<td style="' + alignR + _MV_TGT_BG + tgtStyle + '">' + esc(b) + '</td>';
++       + '<td style="' + alignR + _MV_TGT_BG + '">' + tgtVal + '</td>';
+ }
+ /* 레코드 값 조회 — 저장 컬럼명 대/소문자 차이를 흡수(실명 저장 vs UI 대문자 라벨). */
+ function _mvPkGet(o, col) {
+@@ -17887,6 +17898,19 @@ function _mvPkPrewarm(r) {
+ window._mvPkPrewarm = _mvPkPrewarm;
+ window._mvToggleRowAggDiff = _mvToggleRowAggDiff;
+ 
++/* [REIMPORT-DRILLDOWN-M18-FIX] 열린 상세 패널(tr.mv-ed-scope-panel)을 '일괄' 제거하는 경로 공통 헬퍼.
++   패널만 지우고 직전 형제 행의 aria-expanded 를 그대로 두면 이전 그룹의 펼침 화살표(▾)가 닫히지 않고
++   남아(화면상 여러 그룹이 동시에 열린 것처럼 보임), 아래 _mvCloseOtherScopePanels 가 이미 쓰는 처리
++   (제거 시 직전 형제 행 aria-expanded='false')를 그대로 재사용한다 — 새 패턴 없음. */
++function _mvRemoveAllScopePanels() {
++  document.querySelectorAll('tr.mv-ed-scope-panel').forEach(function(p){
++    var prev = p.previousSibling;
++    if (prev && prev.setAttribute) prev.setAttribute('aria-expanded', 'false');
++    if (p.parentNode) p.parentNode.removeChild(p);
++  });
++}
++window._mvRemoveAllScopePanels = _mvRemoveAllScopePanels;
++
+ /* SINGLE-OPEN: 다른 행의 열린 상세 패널을 모두 닫는다(DOM 제거 — 동시에 상세 1개만 유지, 렌더 잔존 금지). */
+ function _mvCloseOtherScopePanels(exceptRef) {
+   for (var k in _mvScopeAnalysisExpanded) {

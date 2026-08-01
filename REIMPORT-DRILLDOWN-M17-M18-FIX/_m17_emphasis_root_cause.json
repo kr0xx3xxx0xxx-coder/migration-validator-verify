@@ -1,0 +1,164 @@
+{
+  "task": "REIMPORT-DRILLDOWN-M17-M18-FIX",
+  "check": "emphasis_root_cause",
+  "stages": {
+    "2_count": {
+      "count_status": "COUNT_MINOR_DIFF",
+      "src_count": 30,
+      "tgt_count": 27
+    }
+  },
+  "obs": {},
+  "notes": [],
+  "setup": {
+    "pair_rows": 1,
+    "pair_created": true,
+    "connected": true
+  },
+  "dump": {
+    "headers": [
+      {
+        "role": "tree",
+        "name": null,
+        "text": "그룹 / PK(GROUP / PK)"
+      },
+      {
+        "role": "gb-src",
+        "name": "STATUS_CD",
+        "text": "STATUS_CD"
+      },
+      {
+        "role": "gb-tgt",
+        "name": "STATUS_CD",
+        "text": "STATUS_CD"
+      },
+      {
+        "role": "val-src",
+        "name": "CNT",
+        "text": "COUNT(건수)"
+      },
+      {
+        "role": "val-tgt",
+        "name": "CNT",
+        "text": "COUNT(건수)"
+      },
+      {
+        "role": "val-src",
+        "name": "AMT",
+        "text": "AMT(금액)"
+      },
+      {
+        "role": "val-tgt",
+        "name": "AMT",
+        "text": "AMT(금액)"
+      },
+      {
+        "role": "val-src",
+        "name": "QTY",
+        "text": "QTY(수량)"
+      },
+      {
+        "role": "val-tgt",
+        "name": "QTY",
+        "text": "QTY(수량)"
+      },
+      {
+        "role": "verdict",
+        "name": null,
+        "text": "판정(STATUS)"
+      }
+    ],
+    "recRowsHtml": [
+      "<tr class=\"mv-pk-rec-row\" data-tree-for=\"pkp_277021506\"><td class=\"mv-tree-cell mv-tree-rec\"><span class=\"mv-tree-pk\">1</span></td><td style=\"background:#eaf2ff\">A</td><td style=\"background:#e6f7f3\">A</td><td class=\"mv-tree-na\" style=\"background:#eaf2ff\" title=\"레코드 단위로는 제공되지 않는 열입니다(그룹 집계 전용). 이 표의 그룹 요약 행에서 확인하세요.\">·</td><td class=\"mv-tree-na\" style=\"background:#e6f7f3\" title=\"레코드 단위로는 제공되지 않는 열입니다(그룹 집계 전용). 이 표의 그룹 요약 행에서 확인하세요.\">·</td><td style=\"text-align:right;background:#eaf2ff\">100</td><td style=\"text-align:right;background:#e6f7f3;color:#C2410C;font-weight:700\">600</td><td style=\"text-align:right;background:#eaf2ff\">1</td><td style=\"text-align:right;background:#e6f7f3\">1</td><td></td></tr>",
+      "<tr class=\"mv-pk-rec-row\" data-tree-for=\"pkp_277021506\"><td class=\"mv-tree-cell mv-tree-rec\"><span class=\"mv-tree-pk\">4</span></td><td style=\"background:#eaf2ff\">A</td><td style=\"background:#e6f7f3;color:#C2410C;font-weight:700\">-</td><td class=\"mv-tree-na\" style=\"background:#eaf2ff\" title=\"레코드 단위로는 제공되지 않는 열입니다(그룹 집계 전용). 이 표의 그룹 요약 행에서 확인하세요.\">·</td><td class=\"mv-tree-na\" style=\"background:#e6f7f3\" title=\"레코드 단위로는 제공되지 않는 열입니다(그룹 집계 전용). 이 표의 그룹 요약 행에서 확인하세요.\">·</td><td style=\"text-align:right;background:#eaf2ff\">400</td><td style=\"text-align:right;background:#e6f7f3;color:#C2410C;font-weight:700\">-</td><td style=\"text-align:right;background:#eaf2ff\">4</td><td style=\"text-align:right;background:#e6f7f3;color:#C2410C;font-weight:700\">-</td><td></td></tr>"
+    ],
+    "cacheKeys": [
+      "PK8B8E7443A68E|STATUS_CD|A|reimport|1"
+    ],
+    "cacheRecords": [
+      {
+        "key": "1",
+        "diff_cols": [
+          "AMT"
+        ],
+        "tgt": {
+          "STATUS_CD": "A",
+          "AMT": "600",
+          "QTY": "1"
+        },
+        "src": {
+          "STATUS_CD": "A",
+          "AMT": "100",
+          "QTY": "1"
+        },
+        "tgtIsNull": false,
+        "tgtType": "object"
+      },
+      {
+        "key": "4",
+        "diff_cols": [],
+        "tgt": null,
+        "src": {
+          "STATUS_CD": "A",
+          "AMT": "400",
+          "QTY": "4"
+        },
+        "tgtIsNull": true,
+        "tgtType": "object"
+      }
+    ],
+    "cacheSums": [
+      "AMT",
+      "QTY"
+    ],
+    "cacheGb": [
+      "STATUS_CD"
+    ],
+    "treeCols": [
+      {
+        "role": "tree",
+        "name": ""
+      },
+      {
+        "role": "gb-src",
+        "name": "STATUS_CD"
+      },
+      {
+        "role": "gb-tgt",
+        "name": "STATUS_CD"
+      },
+      {
+        "role": "val-src",
+        "name": "CNT"
+      },
+      {
+        "role": "val-tgt",
+        "name": "CNT"
+      },
+      {
+        "role": "val-src",
+        "name": "AMT"
+      },
+      {
+        "role": "val-tgt",
+        "name": "AMT"
+      },
+      {
+        "role": "val-src",
+        "name": "QTY"
+      },
+      {
+        "role": "val-tgt",
+        "name": "QTY"
+      },
+      {
+        "role": "verdict",
+        "name": ""
+      }
+    ],
+    "rerender": [
+      "<tr class=\"mv-pk-rec-row\" data-tree-for=\"DIAG\"><td class=\"mv-tree-cell mv-tree-rec\"><span class=\"mv-tree-pk\">1</span></td><td style=\"background:#eaf2ff\">A</td><td style=\"background:#e6f7f3\">A</td><td class=\"mv-tree-na\" style=\"background:#eaf2ff\" title=\"레코드 단위로는 제공되지 않는 열입니다(그룹 집계 전용). 이 표의 그룹 요약 행에서 확인하세요.\">·</td><td class=\"mv-tree-na\" style=\"background:#e6f7f3\" title=\"레코드 단위로는 제공되지 않는 열입니다(그룹 집계 전용). 이 표의 그룹 요약 행에서 확인하세요.\">·</td><td style=\"text-align:right;background:#eaf2ff\">100</td><td style=\"text-align:right;background:#e6f7f3;color:#C2410C;font-weight:700\">600</td><td style=\"text-align:right;background:#eaf2ff\">1</td><td style=\"text-align:right;background:#e6f7f3\">1</td><td></td></tr>",
+      "<tr class=\"mv-pk-rec-row\" data-tree-for=\"DIAG\"><td class=\"mv-tree-cell mv-tree-rec\"><span class=\"mv-tree-pk\">4</span></td><td style=\"background:#eaf2ff\">A</td><td style=\"background:#e6f7f3;color:#C2410C;font-weight:700\">-</td><td class=\"mv-tree-na\" style=\"background:#eaf2ff\" title=\"레코드 단위로는 제공되지 않는 열입니다(그룹 집계 전용). 이 표의 그룹 요약 행에서 확인하세요.\">·</td><td class=\"mv-tree-na\" style=\"background:#e6f7f3\" title=\"레코드 단위로는 제공되지 않는 열입니다(그룹 집계 전용). 이 표의 그룹 요약 행에서 확인하세요.\">·</td><td style=\"text-align:right;background:#eaf2ff\">400</td><td style=\"text-align:right;background:#e6f7f3;color:#C2410C;font-weight:700\">-</td><td style=\"text-align:right;background:#eaf2ff\">4</td><td style=\"text-align:right;background:#e6f7f3;color:#C2410C;font-weight:700\">-</td><td></td></tr>"
+    ]
+  }
+}

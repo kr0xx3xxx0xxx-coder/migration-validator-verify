@@ -1,0 +1,20 @@
+commit 6267a1a0878a87d6fc3e567f2703491be84a3e05
+Author: migration-validator <dev@migration-validator.local>
+Date:   Sun Aug 2 07:37:19 2026 +0900
+
+    fix(single): 재이관 드릴다운 강조 미표시(.mtbl td !important) + 그룹 화살표 미복귀 (REIMPORT-DRILLDOWN-M17-M18-FIX)
+    
+    M17 — 목적 미존재/값 불일치 주황 강조가 화면에 뜨지 않던 결함.
+      실측 결과 서버 /agg-diff/pk-records 응답은 정상이었다(tgt=null, diff_cols=[AMT] 모두 채워짐).
+      실제 원인은 클라이언트 CSS 충돌 — 5단계 결과표가 table.mtbl 이고 전역 규칙
+      `.mtbl td{... color:var(--text)!important}` 가 _mvPkCellSplit 이 td 인라인으로 준
+      color:#C2410C 를 덮어써 font-weight 만 남았다(굵지만 검은 글씨).
+      판정 로직(missing/isDiff)은 그대로 두고, 같은 파일의 기존 형제 헬퍼
+      (_mvPkCellHtml·_mvPkCell2)가 이미 쓰는 span 강조 관례로 마크업만 맞춘다 — 새 CSS 없음.
+    
+    M18 — 다른 그룹을 펼쳐도 이전 그룹의 펼침 화살표(▾)가 닫히지 않던 결함.
+      패널 일괄 제거 경로가 tr.mv-ed-scope-panel 만 지우고 직전 형제 행의 aria-expanded 를
+      남겨 두었다. _mvCloseOtherScopePanels 가 이미 쓰는 처리(제거 시 직전 형제 행
+      aria-expanded=false)를 공통 헬퍼 _mvRemoveAllScopePanels 로 뽑아 두 호출부
+      (_mvToggleRowAggDiff·_mvToggleRowExactDiff)에서 재사용한다.
+    
