@@ -10,7 +10,12 @@
 - 대상 제외: 아직 push 되지 않은 로컬 전용 보고서 16건은 이번 취합에서 제외했다.
   push 후 이 파일에 합류시킨다.
 - 최초 작성: 2026-07-29 (VERIFY-REPO-BACKLOG-FILE-CREATE)
-- 최종 갱신: 2026-07-31 (BACKLOG-CANDIDATE-RECOMMENDATION-DIAGNOSTICS-CONSOLIDATED-ADD) — 후보추천 관련
+- 최종 갱신: 2026-08-01 (BACKLOG-PERF-TIMING-DUPLICATE-SUBMIT-DEFERRED-ITEMS-ADD) — 성능·타이밍정확성·
+  중복제출위험 진단 3건에서 승인이 필요하거나 이번 배치에서 구현하지 않기로 한 항목 6건 등록
+  (S16 신규 — 서버측 중복 실행 방어 전무, P11 신규 — 세트 병렬 기본값 조정(실측 -41~55%, 승인 필요),
+  P12 신규 — COUNT 원본/목적지 병렬(승인 필요), P13 신규 — parallel_sides 효과 불안정(LOW),
+  M21 신규 — 다축 통계검증 반복 풀스캔(장기·지금 권하지 않음), F21 신규 — 4단계 후처리 진행 표시 부재)
+- 직전 갱신: 2026-07-31 (BACKLOG-CANDIDATE-RECOMMENDATION-DIAGNOSTICS-CONSOLIDATED-ADD) — 후보추천 관련
   진단 4건을 일괄 등록 + S10 갱신(S15 신규 — GROUP BY 안전 게이트의 3단계 프로파일 재사용·신선도 검증
   전무 + 게이트 입력 클라이언트 조작 가능, F19 신규 — 후보 점수 설명가능성 부족, F20 신규 — 프로파일링
   완전 단변량·조합 판정 곱셈 추정, M20 신규 — 문자 COUNT(DISTINCT) 조건부 캐릭터셋 노출(미발현),
@@ -71,6 +76,24 @@ git -C E:/verify_reports worktree remove <임시경로>
 ---
 
 ## 심각(정합성·안전) — 최우선
+
+### S16. 서버측 중복 실행 방어가 전무하다 — 클라이언트 가드가 우회되면 최후 방어선이 없다
+- 발견일: 2026-08-01
+- 근거 보고서: `REQUEST-LOCK-TIMEOUT-DUPLICATE-SUBMIT-RISK-DIAGNOSE.txt` (§7-우선순위4)
+- 상세: `/execute` · `/execute/set` · `/single/run-standard` **어디에도** 진행중 감지 · `job_id` ·
+  세션 플래그가 없다(`routes/single_run_route.py:28` 등). `workflow_stage_guard` 도 토큰/지문만 볼 뿐
+  **동시성은 보지 않아**, 동일 토큰의 동시 2요청이 둘 다 통과한다.
+  오늘 `STAGE4-5-TIMING-LABEL-AND-DUPLICATE-SUBMIT-GUARD-FIX` 로 **클라이언트 쪽(공유가드 통일)은
+  막았으나**, 새로고침 · 다중 탭 등으로 클라이언트 가드 자체가 우회되는 경로에는 여전히 무방비다.
+- 위험: 동일 원본/목적지 테이블에 대량 통계검증이 중복 실행되면 60초
+  `EXECUTE_STATEMENT_TIMEOUT_MS`(`services/stats_execute_service.py`)를 **함께** 건드려 양쪽 동반
+  실패(보존행 0)로 번질 수 있다. 결과 오염보다 **가용성 위험**이다 — 두 번의 실행을 기다린 끝에
+  부분 결과조차 남지 않는다.
+- 대응 방향: `workflow_stage_guard` 의 토큰 컨텍스트에 in-flight 표식을 두어 동일 토큰의 동시 execute 를
+  **409 로 거부**한다. 단, 서버 상태가 늘어나므로 좀비 표식(비정상 종료 시 해제 누락) 위험이 새로 생긴다 —
+  TTL 또는 generation 연동 해제 설계가 함께 필요하다. **별도 설계 검토 후 승인.**
+- 관련: S15(같은 `workflow_stage_guard` 토큰에 만료가 없다는 문제 — 대응 시 함께 볼 것)
+- 참고: E:\verify_reports\REQUEST-LOCK-TIMEOUT-DUPLICATE-SUBMIT-RISK-DIAGNOSE.txt
 
 ### S15. GROUP BY 실행 안전 게이트가 3단계 후보 프로파일을 그대로 재사용하고 신선도 검증이 전무하다 + 게이트 입력이 클라이언트 조작 가능하다
 - 발견일: 2026-07-31
@@ -423,6 +446,60 @@ git -C E:/verify_reports worktree remove <임시경로>
 
 ## 성능
 
+### P11. 세트 병렬 실행(`_stats_set_parallelism`) 기본값 조정 — 대규모에서 실측 -41~55%(승인 필요)
+- 발견일: 2026-08-01
+- 근거 보고서: `LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt` (§4-b)
+- 상세: 5,000만행 GROUP BY 2축 통계검증에서 `services/single_validation_run_facade._stats_set_parallelism`
+  을 켜면 22.2초 → 10.0초(**-55.2%**), 20.4초 → 12.0초(**-41.2%**). **결과값은 순차와 완전 동일**함을
+  대조로 확인했다. 소규모(1,200행)에서 효과가 안 보였던 것(132ms)은 규모 문제였고, 대규모에서
+  이번 진단의 **최대 레버**로 드러났다. 현재 기본값은 OFF 다.
+- 위험: DB 커넥션을 동시에 2개 쓴다. 확인 필요 사항 —
+  · 커넥션 풀 여유(현재 판정은 `POOL_MAX_IDLE_PER_KEY ≥ 2` 만 본다)
+  · **오라클은 풀링을 우회해 checkout 마다 물리 연결을 새로 만든다**(`services/db_adapters/oracle.py`) →
+    동시 세션 2개가 그대로 DB 부하가 된다
+  · 세트 실패 시 형제 세트 처리 정책 재검토(현 구현은 중도취소 없이 완료시킴 — 그대로가 안전)
+- 대응 방향: **전면 기본 ON 이 아니라 대규모 조건부 ON.** 예: 대상 테이블 추정 행수가 임계치(예 100만)
+  이상이고 기존 조건(다른 물리 DB · 풀 여유)을 만족할 때만 level 2. 소규모는 지금처럼 순차 유지.
+  **정책 변경이므로 승인 필요** — 진단 작업에서는 기본값을 바꾸지 않았다.
+- 참고: E:\verify_reports\LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt
+
+### P12. COUNT 원본/목적지가 순차 실행이라 두 DB 시간이 그대로 합산된다 — 병렬화 시 효과 큼(승인 필요)
+- 발견일: 2026-08-01
+- 근거 보고서: `LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt` (§4-c1)
+- 상세: `services/count_common_service.run_count_pair` 는 **원본 COUNT 완료 후 목적지 COUNT** 를 실행한다.
+  두 COUNT 는 서로 다른 물리 DB 를 보므로 **의존관계가 없다.**
+  효과: run1 기준 원본 13.9초 + 목적지 3.2초 = 17.1초가 병렬이면 max(13.9, 3.2) ≈ **13.9초**.
+  양쪽이 비슷한 회차(run2: 4.6+4.7초)면 9.3초 → 4.7초로 **거의 반감**된다.
+- 위험: "원본 오류 시 목적지 미실행" 이라는 현재 동작이 바뀐다(병렬이면 둘 다 실행된다).
+  오류 보고 순서를 지금처럼 **'원본 우선'** 으로 유지하면 사용자 체감은 동일하게 만들 수 있다.
+  통계검증 쪽에는 이미 같은 개념의 스위치(`parallel_sides`)가 있으므로 새 개념은 아니다.
+- 대응 방향: **승인 필요.**
+- 참고: E:\verify_reports\LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt
+
+### P13. 통계검증 src/tgt 병렬(`parallel_sides`)은 효과가 불안정하다 — P11 적용 후 재측정 권장(심각도 LOW)
+- 발견일: 2026-08-01
+- 근거 보고서: `LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt` (§4-c2)
+- 상세: 실측에서 **한쪽이 빨라지면 다른 쪽이 느려지는** 현상이 관측됐다.
+  1회차 REGION_CD 11,718.6ms → 8,055.3ms / STATUS_CD 11,375.1ms → 7,069.6ms 로 개선됐으나,
+  2회차는 9,739.2ms → 10,149.6ms 로 되레 느려졌다(src 개별 쿼리 4,930 → 7,977ms).
+  원인은 검증 환경의 **같은 물리 호스트에 두 인스턴스가 올라가 있어 디스크 I/O 를 공유**하기 때문으로
+  추정한다. 고객사처럼 원본/목적지가 **물리적으로 분리된 환경에서는 결과가 다를 수 있다.**
+- 대응 방향: P11(세트 병렬)을 **먼저** 적용하고 그 다음에 재측정하는 순서를 권한다. 승인 필요.
+- 관련: P11(선행), P12(같은 '측면 병렬' 개념)
+- 참고: E:\verify_reports\LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt
+
+### M21. 다축 통계검증이 축 수만큼 같은 테이블을 반복 풀스캔한다(구조적 개선 여지 — 장기, 지금 권하지 않음)
+- 발견일: 2026-08-01
+- 근거 보고서: `LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt` (§4-c4)
+- 상세: GROUP BY 2축이면 같은 3GB 테이블을 **2번 통째로** 읽는다. 축 수에 비례해 스캔량이 늘어난다.
+  `GROUPING SETS` 로 한 번의 스캔에서 축별 집계를 동시에 얻어 스캔을 1회로 줄이는 아이디어가 있다.
+- 위험: 결과 shape 가 크게 바뀌고(집계 행에 NULL 축이 섞인다), 세트별 `result_id` · 저장 · 화면 렌더가
+  **전부 세트 단위로 짜여 있어 파급이 매우 크다.** 정합성 리스크 대비 이득이 불확실하다.
+- 대응 방향: **지금 권하지 않는다.** P11 로 얻는 -41~55% 를 먼저 취하고, 그래도 부족할 때
+  별도 설계 검토 대상으로 남긴다.
+- 비고: 성능 항목이지만 `M`(경미·장기) 번호를 부여했다 — 지금 착수 대상이 아님을 번호로 드러내기 위함이다.
+- 참고: E:\verify_reports\LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt
+
 ### P10. 재이관 레코드 수집이 HARD CAP 500 에 막혀 대량·흩어진 불일치의 전량 확보가 불가능하다 + 같은 화면 요약표 숫자가 실제 규모를 오독시킨다
 - 발견일: 2026-07-31
 - 근거 보고서: `LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE.txt` (§5【이상-1】/ §7-2) /
@@ -545,6 +622,18 @@ git -C E:/verify_reports worktree remove <임시경로>
 ---
 
 ## 기능 미완(설계는 끝났으나 구현 대기)
+
+### F21. 4단계 후처리(재이관 대상 수집)에 진행 표시가 없어 40~51초 무음 구간이 생긴다
+- 발견일: 2026-08-01
+- 근거 보고서: `STAGE4-5-COMPLETION-DISPLAY-TIMING-ACCURACY-DIAGNOSE.txt` (§7-(3))
+- 상세: 4단계 통계검증 완료 표시 직후(스피너 꺼짐 · [다음 ▶] 활성화, `_mvShowExecStepResult` →
+  `_mvClearExecStepProgress`) 실제로는 **재이관 대상 백그라운드 수집이 40~51초(5,000만행 기준) 더
+  진행**되는데, 4단계 화면에는 이 진행 중임을 알리는 **어떤 표시도 없다.**
+  오늘 `STAGE4-5-TIMING-LABEL-AND-DUPLICATE-SUBMIT-GUARD-FIX` 에서는 라벨 문구 정정(A-1: "4단계
+  통계검증 실행 … (상세 추출 별도)")만 적용했고, **진행 표시 자체는 화면 요소 추가라 범위 밖으로 미뤘다.**
+- 대응 방향: "상세 추출 진행 중 · 완료 후 결과 확인" 같은 **한 줄 안내 패널** 추가 검토.
+  단, 4단계 pane 에 표시 영역이 하나 더 느는 구조 비용이 있다(이미 오류/성공/진행 3개가 있다).
+- 참고: E:\verify_reports\STAGE4-5-COMPLETION-DISPLAY-TIMING-ACCURACY-DIAGNOSE.txt
 
 ### F19. 후보 점수의 설명가능성이 부족하다 — 8개 하위요소를 단일 변수에 누적만 하고 응답·화면 어디에도 분해가 남지 않는다
 - 발견일: 2026-07-31
