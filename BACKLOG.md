@@ -10,7 +10,12 @@
 - 대상 제외: 아직 push 되지 않은 로컬 전용 보고서 16건은 이번 취합에서 제외했다.
   push 후 이 파일에 합류시킨다.
 - 최초 작성: 2026-07-29 (VERIFY-REPO-BACKLOG-FILE-CREATE)
-- 최종 갱신: 2026-08-01 (BACKLOG-PERF-TIMING-DUPLICATE-SUBMIT-DEFERRED-ITEMS-ADD) — 성능·타이밍정확성·
+- 최종 갱신: 2026-08-02 (BACKLOG-S6-S7-S11-P12-MARK-RESOLVED) — 이미 해결된 4개 항목을 해결 완료로 표시
+  (S6 해결 — 오라클 연결 시점 세션 NLS 고정으로 exact_diff 포함 일괄 해소, S7 **부분 해결** — 4계열 중
+  3계열(count_execution_planner·stats_validation_plan_service·select_star_expansion) 해소하고 남은
+  agg_diff_route FP 측은 성격이 달라 S17 로 분리, S11 해결 — 컬럼 조회 어댑터 위임으로
+  SCHEMA_META_MISSING 3/3→0/3, P12 해결 — 사용자 승인 후 COUNT 병렬화 구현(5천만행 -63.0%))
+- 직전 갱신: 2026-08-01 (BACKLOG-PERF-TIMING-DUPLICATE-SUBMIT-DEFERRED-ITEMS-ADD) — 성능·타이밍정확성·
   중복제출위험 진단 3건에서 승인이 필요하거나 이번 배치에서 구현하지 않기로 한 항목 6건 등록
   (S16 신규 — 서버측 중복 실행 방어 전무, P11 신규 — 세트 병렬 기본값 조정(실측 -41~55%, 승인 필요),
   P12 신규 — COUNT 원본/목적지 병렬(승인 필요), P13 신규 — parallel_sides 효과 불안정(LOW),
@@ -76,6 +81,22 @@ git -C E:/verify_reports worktree remove <임시경로>
 ---
 
 ## 심각(정합성·안전) — 최우선
+
+### S17. `_reimport_source_needs_wrapping` FP 측 — wrapping 추출 실패 시 정상 단순 SQL 이 HOLD 로 바뀔 수 있다(S7 에서 분리)
+- 발견일: 2026-07-29 (등록일 2026-08-02 · BACKLOG-S6-S7-S11-P12-MARK-RESOLVED 에서 S7 분리)
+- 근거 보고서: `SQLGLOT-USAGE-CONSISTENCY-AUDIT-DIAGNOSE.txt` (P2-4)
+- 분리 사유: S7 의 나머지 3계열은 **리터럴/주석 안 키워드 오인**이라
+  `analyze_service._strip_sql_literals_and_comments` 재사용으로 일괄 해소됐다(S7 해결 완료 표시).
+  이 항목만 원인이 다르다 — 오인이 아니라 **wrapping 대상 추출 실패 시나리오**라서 같은 전처리로는
+  해소되지 않는다. 그래서 S7 에 묶어 두면 "해결됐다"로 오독될 위험이 있어 별도 번호로 분리했다.
+- 상세: `routes/agg_diff_route.py:759` FP 측 — 안전한 wrapping 으로 가는 방향이라 정합성 사고는 아니지만,
+  `_extract_aliased_inner_select` 가 실패하면 **정상 동작하던 단순 SQL 이 HOLD 로 바뀔 수 있다**
+  (기능이 죽고 사유가 사실과 다른 계열). 사용자 입장에서는 되던 재이관 상세가 갑자기 안 열리는 형태다.
+- 대응 방향: 미착수. 추출 실패 자체를 줄이는 방향(AST 기반 추출)과, 실패 시 HOLD 대신 기존 경로를
+  유지하되 사유를 정확히 표기하는 방향 중 어느 쪽이 안전한지 판단이 먼저 필요하다.
+  S1 에서 이미 같은 함수의 **UNION 판정부**는 AST 로 교체됐으므로(`_raw_union_present`), 그 작업과
+  일관된 방식으로 확장할 수 있는지 함께 검토한다.
+- 참고: E:\verify_reports\SQLGLOT-USAGE-CONSISTENCY-AUDIT-DIAGNOSE.txt
 
 ### S16. 서버측 중복 실행 방어가 전무하다 — 클라이언트 가드가 우회되면 최후 방어선이 없다
 - 발견일: 2026-08-01
@@ -265,7 +286,19 @@ git -C E:/verify_reports worktree remove <임시경로>
   즉 설계의 "계약을 얻지 못하면 빌더가 SQL 자체를 만들 수 없다"는 **팩토리 경로에만 성립**한다.
 - 참고: E:\verify_reports\HASH-BUCKET-STRATEGY-SORT-AVOIDANCE-VIABILITY-DIAGNOSE.txt
 
-### S6. NLS 세션 의존 — 오라클 src/tgt 세션 설정이 다르면 거짓 불일치(exact_diff 포함, 기존 노출분)
+### S6. ✅ 해결 완료 — NLS 세션 의존 — 오라클 src/tgt 세션 설정이 다르면 거짓 불일치(exact_diff 포함, 기존 노출분)
+- 해결일: 2026-07-31 (ORACLE-CONNECTION-NLS-NUMERIC-SESSION-PIN-FIX)
+- 근거 커밋: 코드 저장소 `d707861` — `fix(oracle): 연결 시 세션 NLS_NUMERIC_CHARACTERS '.,' 고정
+  (ORACLE-CONNECTION-NLS-NUMERIC-SESSION-PIN-FIX)`
+- 근거 보고서 커밋: 이 저장소 `20825df`(완료보고 `ORACLE-CONNECTION-NLS-NUMERIC-SESSION-PIN-FIX`)
+- 해결 요약: 아래 상세가 남겨 둔 **별도 판단 대기**(exact_diff 까지 함께 고칠지)를 "함께 고친다"로 결정하되,
+  당초 설계(hash_contract 만 3인자 `nlsparam` 으로 식에 고정)보다 **더 포괄적인 해법**을 택했다 —
+  오라클 연결 시점(`services/db_adapters/oracle.py` 의 `connect()`)에
+  `ALTER SESSION SET NLS_NUMERIC_CHARACTERS = '.,'` 를 1회 실행한다. 그 결과 exact_diff 를 포함해
+  **이 연결을 거치는 모든 오라클 숫자→문자 변환 경로가 세션 설정과 무관하게 안전**해졌고,
+  `services/exact_diff/dialects/oracle.py` 는 무수정으로 해소됐다.
+  실측: 세션 NLS 를 실제로 바꿔가며 재현 — 수정 전 hash 불일치(거짓 불일치 발생), 수정 후 일치 확인.
+- 잔여: 타입 미상 균일 캐스트 5곳은 S14 로 분리 추적했고 같은 수정으로 함께 해소됐다(S14 해결 완료 표시).
 - 발견일: 2026-07-29
 - 근거 보고서: `HASH-BUCKET-ORACLE-PORT-DESIGN-FINALIZE.txt` (신규3 / 다음 권장 작업 4)
 - 상세: `TO_CHAR(x,'TM9')` 는 `NLS_NUMERIC_CHARACTERS` 의 소수점 문자를 따른다(`,` 세션이면 `12,5`).
@@ -274,7 +307,24 @@ git -C E:/verify_reports worktree remove <임시경로>
   설계가 확정됐으나, exact_diff 까지 함께 고칠지는 범위 확대라 **별도 판단 대기**.
 - 참고: E:\verify_reports\HASH-BUCKET-ORACLE-PORT-DESIGN-FINALIZE.txt
 
-### S7. 정상 SQL 을 막는 차단 오탐 4계열(P2) — 리터럴·주석 안의 키워드를 실제 구문으로 오인
+### S7. ✅ 해결 완료(부분 — 4계열 중 3계열) — 정상 SQL 을 막는 차단 오탐 4계열(P2) — 리터럴·주석 안의 키워드를 실제 구문으로 오인
+- 해결일: 2026-07-30 (COUNT-PLANNER-LITERAL-COMMENT-FALSE-POSITIVE-FIX /
+  STATS-PLAN-LITERAL-COMMENT-FALSE-POSITIVE-FIX / SELECT-STAR-EXPANSION-LITERAL-COMMENT-FALSE-POSITIVE-FIX)
+- 근거 커밋: 코드 저장소 `49b3fb2` — `fix(count-plan): COUNT 실행판정이 리터럴/주석 안 키워드를 구문으로
+  오인하는 오탐 제거 (COUNT-PLANNER-LITERAL-COMMENT-FALSE-POSITIVE-FIX)` /
+  `01cbb10` — `fix(stats-plan): 통계검증 계획 판정이 리터럴/주석 안 키워드를 미지원 구문으로 오인하던
+  오탐 제거 (STATS-PLAN-LITERAL-COMMENT-FALSE-POSITIVE-FIX)` /
+  `590b315` — `fix(select-star): 리터럴/주석 안 JOIN·UNION 키워드 오탐으로 analyze 전체가 차단되던 문제
+  수정 (SELECT-STAR-EXPANSION-LITERAL-COMMENT-FALSE-POSITIVE-FIX)`
+- 근거 보고서 커밋: 이 저장소 `3c3cb8b`(COUNT-PLANNER) / `512f4d3`(STATS-PLAN) / `8a278c6`(SELECT-STAR)
+- 해결 요약: 아래 대응 방향(보고서 권고 P2 = `analyze_service._strip_sql_literals_and_comments` 재사용)을
+  그대로 적용해 3계열을 해소했다. `services/count_execution_planner.py`,
+  `services/stats_validation_plan_service.py`, `services/select_star_expansion.py` 모두 판정 전에 같은
+  전처리를 통과시키는 방식이며, 새 파서를 만들지 않았다. 실측 **오탐 9건 전부 해소**,
+  실제 미지원 구문에 대한 차단은 전/후 동일(무회귀 확인).
+- **미해결 잔존 → S17 로 분리**: `routes/agg_diff_route.py:759` FP 측(아래 상세 4번째 항목)은 이번 3건과
+  성격이 다르다 — 리터럴/주석 오인이 아니라 `_extract_aliased_inner_select` **추출 실패 시나리오**라
+  같은 전처리로 해소되지 않는다. 미착수 상태로 S17 에서 계속 추적한다.
 - 발견일: 2026-07-29
 - 근거 보고서: `SQLGLOT-USAGE-CONSISTENCY-AUDIT-DIAGNOSE.txt` (P2-1 ~ P2-4)
 - 상세: 오답이 아니라 **기능이 죽고 사유가 사실과 다른** 계열이다. 전부 실행 재현됨.
@@ -326,7 +376,16 @@ git -C E:/verify_reports worktree remove <임시경로>
   - 예상 수정 범위: 필수 2~4파일 / 함수 3~4개 / 순증 60~100줄.
   - 참고: E:\verify_reports\IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-IMPACT-DIAGNOSE.txt
 
-### S11. `_table_key_meta` 의 컬럼 조회가 PostgreSQL 전용이라 오라클에서 `chunk_key_evidence` 가 항상 SCHEMA_META_MISSING 이다
+### S11. ✅ 해결 완료 — `_table_key_meta` 의 컬럼 조회가 PostgreSQL 전용이라 오라클에서 `chunk_key_evidence` 가 항상 SCHEMA_META_MISSING 이다
+- 해결일: 2026-07-31 (TABLE-KEY-META-ORACLE-COLUMN-QUERY-DELEGATION-FIX)
+- 근거 커밋: 코드 저장소 `348ec6f` — `fix(diagnosis): _table_key_meta 컬럼조회 오라클 어댑터 위임 폴백
+  (TABLE-KEY-META-ORACLE-COLUMN-QUERY-DELEGATION-FIX)`
+- 근거 보고서 커밋: 이 저장소 `63cdbd7`(완료보고 `TABLE-KEY-META-ORACLE-COLUMN-QUERY-DELEGATION-FIX`
+  — 오라클 3종 실측 전/후 + PG 무회귀)
+- 해결 요약: 아래 대응 방향대로 컬럼 조회를 **어댑터 위임 패턴으로 확장**했다
+  (`build_tgt_column_meta_query` 재사용 — 새 카탈로그 쿼리를 만들지 않았다).
+  오라클 3종 픽스처 실측에서 `SCHEMA_META_MISSING` 이 **3/3 → 0/3** 으로 교정됐고,
+  PostgreSQL 경로는 전/후 완전히 동일한 결과를 유지했다(무회귀).
 - 발견일: 2026-07-29
 - 근거 보고서: `STRATEGY-PLAN-PK-KIND-HARDCODE-FIX.txt` (§2-(b) / §9-(c))
 - 상세: `services/diagnosis/key_evidence.py:228` 의 컬럼 타입/nullable 조회가 `information_schema.columns`
@@ -463,7 +522,17 @@ git -C E:/verify_reports worktree remove <임시경로>
   **정책 변경이므로 승인 필요** — 진단 작업에서는 기본값을 바꾸지 않았다.
 - 참고: E:\verify_reports\LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt
 
-### P12. COUNT 원본/목적지가 순차 실행이라 두 DB 시간이 그대로 합산된다 — 병렬화 시 효과 큼(승인 필요)
+### P12. ✅ 해결 완료 — COUNT 원본/목적지가 순차 실행이라 두 DB 시간이 그대로 합산된다 — 병렬화 시 효과 큼(승인 필요)
+- 해결일: 2026-08-01 (COUNT-PAIR-PARALLEL-EXECUTION-FIX)
+- 근거 커밋: 코드 저장소 `a342be1` — `perf(count): 원본/목적지 COUNT 병렬 실행
+  (COUNT-PAIR-PARALLEL-EXECUTION-FIX)`
+- 근거 보고서 커밋: 이 저장소 `9eff89e`(완료보고 `COUNT-PAIR-PARALLEL-EXECUTION-FIX` — 전/후 실측·
+  결과값 동일성·오류 우선순위 증적)
+- 해결 요약: 아래 **"승인 필요"에 대해 사용자 승인을 받은 뒤** 구현했다.
+  실측 개선 — 5천만행 평균 **11,102.6ms → 4,109.1ms(-63.0%)**, 100만행 **499.9ms → 85.0ms(-83.0%)**.
+  아래 '위험'으로 적어 둔 동작 변화는 그대로 통제됐다: 결과값과 **오류 보고 우선순위(원본 우선)** 가
+  전/후 완전히 동일함을 확인했다. 원본/목적지가 **같은 물리 DB 인 경우에는 순차 유지**하며,
+  kill-switch `MV_COUNT_PAIR_PARALLEL=0` 으로 언제든 순차 복귀할 수 있다.
 - 발견일: 2026-08-01
 - 근거 보고서: `LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt` (§4-c1)
 - 상세: `services/count_common_service.run_count_pair` 는 **원본 COUNT 완료 후 목적지 COUNT** 를 실행한다.
