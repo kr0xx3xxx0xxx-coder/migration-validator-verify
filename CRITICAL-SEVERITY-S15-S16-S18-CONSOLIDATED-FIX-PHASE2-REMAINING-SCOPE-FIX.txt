@@ -1,0 +1,278 @@
+작업명 : CRITICAL-SEVERITY-S15-S16-S18-CONSOLIDATED-FIX-PHASE2-REMAINING-SCOPE-FIX
+✅ 작업 완료 - 직전 통합수정(0cab51e)이 범위 밖으로 남긴 3갈래를 모두 처리 - 파싱 가드 전수 적용(운영 25파일 53곳)·신뢰경계 해소(왕복 제거)·/execute/set 배선(원 전제 반증)
+
+■ 배경
+0cab51e(CRITICAL-SEVERITY-S15-S16-S18-CONSOLIDATED-FIX)가 "범위 밖"으로 명시한 잔여 3건을 처리했다.
+파트별로 성격이 달라 결론도 다르다 — A는 기계적 전수 교체, B는 제시된 대응방향(HMAC 서명)보다 강한
+대안을 채택, C는 조사 결과 원 전제 자체가 사실과 달라 확인만으로 끝내지 않고 배선까지 진행했다.
+
+════════════════════════════════════════════════════════════════════
+[파트 A] S18 잔여 — 가드 미적용 sqlglot 호출부 전수 교체
+════════════════════════════════════════════════════════════════════
+
+■ 전수 확인 결과
+운영 코드(.venv/tests/samples/scripts 제외)의 sqlglot 직접 파싱 호출부는 25개 파일 53곳이었다
+(작업 지시의 "25개 파일 53곳"과 일치). 전부 parser/sqlglot_safe_parse 의 가드 래퍼로 교체했고,
+교체 후 재검색에서 운영 코드 잔여 직접 호출은 0건이다.
+
+  routes/agg_diff_route.py(2)             routes/diagnosis_route.py(1)
+  parser/sql_parser.py(1 + transpile 1)   services/count_sql_builder.py(1)
+  services/validation_sql/source_stats_sql_builder.py(3)
+  services/sql_cte_utils.py(3)            services/readonly_sql_guard.py(1, sqlglot.parse)
+  services/validation_context_builder.py(1)   services/metadata_column_lineage.py(1)
+  services/metadata_collection_safety.py(1)   services/sql_canonical.py(1)
+  services/sql_structure_check.py(2)      services/sql_scope_inject.py(2)
+  services/sql_expression_cardinality.py(2)   services/sql_dependency_pruning.py(2)
+  services/analysis/sql_lineage_extractor.py(4)
+  services/analysis/advanced_sql_shape_normalizer.py(2)
+  services/exhaustive_candidates/result_set_evidence.py(1)
+  services/diagnosis/key_evidence.py(4)   services/diagnosis/match_key_evidence.py(2)
+  services/diagnosis/row_diff.py(4)       services/diagnosis/profiler.py(1)
+  services/diagnosis/strategies/key_range.py(9)
+  services/diagnosis/strategies/hash_bucket.py(4)
+  services/diagnosis/strategies/group_scope.py(2)
+
+■ 새 타임아웃 메커니즘은 만들지 않았다(지시대로 기존 것 재사용)
+기존 parse_one_guarded 가 dialect= 키워드만 받고 error_level 을 항상 전달하는 형태였는데, 실제
+호출부는 read= 표기·무방언 호출·복수 statement(sqlglot.parse)까지 있어 그대로는 못 붙였다.
+그래서 **타임아웃 로직은 손대지 않고** 인자 수용 범위만 넓혔다:
+  - parse_one_guarded(sql, dialect=None, read=None, error_level=None, **opts)
+    · read/dialect 양쪽 수용(sqlglot 은 `read or dialect` 로 해석 — 동등)
+    · error_level=None 이면 **인자 자체를 전달하지 않는다**(뒤의 실측 결과와 직결 — 중요)
+  - parse_guarded(...)  : sqlglot.parse(복수 statement)용. 같은 negative cache·스레드 join 정책 공유
+  - _guarded_call(...)  : 두 래퍼가 캐시/타임아웃 정책을 공유하도록 분리한 공통 경로
+
+추가로 parser/sql_parser.py 의 sqlglot.transpile 도 같은 파서를 타므로 기존 run_with_timeout 으로
+감쌌다(요구 목록에는 없었으나 동일 결함 부류 — 방어 누락으로 남기지 않았다).
+
+■ 각 호출부의 타임아웃 처리(요구사항 3) — 전수 확인
+SqlParseTimeout 은 Exception 하위라 기존 `except Exception` 폴백이 수정 없이 그대로 받는다.
+교체하면서 각 호출부의 폴백 방향을 확인했고, 재시도 낭비가 생기는 2곳만 명시적으로 손봤다:
+  - services/sql_expression_cardinality.py : 방언 3종(None/oracle/postgres) 순차 재시도 루프.
+    타임아웃은 '방언을 바꾸면 되는' 실패가 아니라 같은 파서 루프에 다시 걸릴 뿐이고 제한시간이
+    방언 수만큼 곱해진다 → SqlParseTimeout 은 재시도 없이 즉시 판정불가로 종료.
+  - services/sql_dependency_pruning.py : 방언 지정 실패 시 무방언 재시도 → 같은 이유로 타임아웃은
+    재시도 없이 fallback_reason 기록 후 종료(제한시간 2배 방지).
+
+폴백 없이 예외를 상위로 올리는 경로는 5곳이며(row_diff._strip_to_rows, group_scope.build_axis_
+extended_sql, key_range.build_bounds_sql, profiler._scoped_count_sql, result_set_evidence.
+build_null_probe_sql), 여기에는 새 except 를 **추가하지 않았다**. 근거:
+  (1) 이 경로들은 가드 도입 전에도 ParseError 를 동일하게 전파했다 — 새 예외 부류가 아니다.
+  (2) 상위에 이미 폴백이 있다: profiler(except Exception → 해당 지표 None), multi_scope._run_*_wave
+      (except Exception → EXECUTION_ERROR 보류), probe_side(except Exception → error 필드).
+      execute_row_diff 는 라우트 예외 → 오류 응답으로 끝난다(요청이 매달리지 않는다 = 목적 달성).
+  (3) 진단 엔진에서 파싱 실패를 삼키면 '조용한 오판'(불일치 미검출)이 생긴다 — 전파가 안전측이다.
+
+■ 실측 — hang 유발 SQL 이 더 이상 멈추지 않는가
+스크립트: scripts/dev_e2e/sqlglot_guard_callsite_timeout_verify.py
+재현 SQL: "INSERT INTO tgt (a) SELECT * FROM t WITH x AS (SELECT 1) SELECT * FROM x" (oracle)
+방식     : 경로 1개당 자식 프로세스 1개(회수 불가 스레드 격리) + 부모 subprocess timeout 으로
+           '영구 정지' 자체를 감지. 제한시간 1.5초, 31개 경로 × 3모드.
+
+  모드                       결과
+  ─────────────────────────  ────────────────────────────────────────────────────
+  ① hang SQL                 31/31 유한 시간 반환. hang 0건. child_error 0건.
+                             그중 11경로가 실제로 무한루프에 걸렸다가 제한시간에 끊겼다
+                             (1653~2154ms — 제한시간 1.5초 + 프로세스/폴백 오버헤드).
+  ② 정상 SQL(무회귀)          31/31 정상 반환, 전부 1.5초 미만(최대 465ms).
+  ③ 강제 타임아웃 주입         31/31 유한 시간 반환. 각 호출부가 자기 폴백값으로 떨어짐
+                             (None/False/''/빈맵/HOLD/차단) 또는 상위로 전파(위 5곳).
+
+  ① 에서 실제 타임아웃이 발동한 11경로:
+    parser.sql_parser.parse 1668ms          parser.sql_parser.transpile 1673ms
+    count_sql_builder.build_subquery_wrapped_count_sql 1654ms
+    source_stats._extract_aliased_inner_select 1670ms
+    source_stats._original_select_is_aggregated 1671ms
+    source_stats._raw_shape 1676ms
+    sql_cte_utils.extract_cte_names 1653ms  sql_cte_utils.extract_physical_source_tables 1667ms
+    sql_cte_utils.extract_cte_lineage 1663ms
+    agg_diff_route._raw_union_present 2154ms
+    agg_diff_route._wrapping_extract_feasibility 2022ms
+
+■ 실측 중 새로 확인한 사실 — hang 발동 조건
+나머지 20경로는 같은 재현 SQL 에서 hang 하지 않고 5ms 만에 ParseError 를 냈다. 원인을 별도 실측으로
+규명했다(oracle 방언, 동일 SQL):
+    parse_one(sql, read='oracle')                        → ParseError 5ms
+    parse_one(sql, dialect='oracle')                     → ParseError 5ms
+    parse_one(sql, read='oracle', error_level=IGNORE)    → HANG(8초 초과)
+    parse_one(sql, read='oracle', error_level=RAISE)     → HANG(8초 초과)
+    parse_one(sql, read='postgres')                      → ParseError 6ms
+  → **error_level 을 명시 전달할 때만** 무한루프에 빠진다(값은 무관). 방언 문제가 아니다.
+  이 사실은 두 가지를 뜻한다:
+    (a) 가드 래퍼가 error_level=None 일 때 인자를 전달하지 않도록 만든 설계가 옳았다(동작 보존).
+    (b) error_level 을 넘기지 않는 20경로는 '이 SQL 로는' 재현되지 않을 뿐, 파서 루프 일반에
+        안전하다는 보장이 아니다 → 그래서 ③ 강제 주입 모드로 폴백 동작을 따로 실증했다.
+
+════════════════════════════════════════════════════════════════════
+[파트 B] S15 잔여 — 신뢰경계([4] 신선도 서명 + [5] 서버측 재검증)
+════════════════════════════════════════════════════════════════════
+
+■ 설계안 — 제시된 [4] HMAC 서명을 채택하지 않았다
+지시받은 방향은 "collected_at 을 서버 비밀키로 HMAC 서명해 위조를 검출"이다. 검토 결과 이 방향은
+문제의 절반만 막는다:
+  - 서명은 '시각 위조' 축만 막는다. 실제 게이트 우회는 distinct_count 를 낮추는 **값 위조**로도
+    성립하며(TC-6 이 고정한 위험의 본체), 서명은 여기에 아무 영향이 없다.
+  - 값까지 서명하려면 후보 pool 전체를 서명해 왕복시켜야 하고, 그러려면 UI 가 서명을 되돌려 보내도록
+    클라이언트 배선을 전부 고쳐야 한다. 서명 누락 시 정상 실행이 강등되는 회귀 위험도 크다.
+
+그래서 **왕복 자체를 없애는** 방식을 택했다. 위조를 검출하는 대신 위조가 성립하지 않게 만든다:
+  1) /analyze 가 산출한 GROUP BY 후보 pool(profile_evidence 포함)을 서버가 workflow_token 에 보관한다
+     (workflow_stage_guard.store_stage_artifact — stage_times 와 같은 저장소/같은 generation 규칙).
+  2) 실행 안전 게이트는 토큰이 있으면 그 서버 원본을 **우선** 사용한다. 클라이언트가 보낸
+     candidate_snapshot_full 은 토큰이 없을 때만 근거가 된다.
+  3) 판정 계약에 근거 출처를 노출한다 — candidate_evidence_source(SERVER_TOKEN|CLIENT_PAYLOAD|NONE),
+     candidate_evidence_trusted(bool).
+이 방식이 서명보다 강한 이유: 판정 근거가 클라이언트를 거치지 않으므로 서명 검증 없이도 조작이
+불가능하고, 클라이언트(UI) 수정이 **전혀 필요 없다**(workflow_token 은 이미 요청에 실려 온다 —
+S15 의 SERVER_TOKEN 시각 우선 채택이 쓰는 채널을 그대로 확장했다).
+
+■ [5] 서버측 재검증 — 옵트인 골격만 제공(기본 OFF)
+"클라이언트 distinct_count 를 표본 재조회로 교차검증"은 이미 존재하는 EXPLAIN 강등 축과 사실상
+같은 일을 한다(실 DB 에서 예상 그룹 수를 다시 확인). 새 재조회 경로를 만드는 대신 기존 축을 썼다:
+  config: GROUPBY_REQUIRE_TRUSTED_EVIDENCE (env MV_GROUPBY_REQUIRE_TRUSTED_EVIDENCE, 기본 0=OFF)
+  동작  : 켜면 근거 출처가 CLIENT_PAYLOAD 일 때 explain_required 로 강등(EXPLAIN 근거 없으면 차단).
+기본 OFF 로 둔 근거: 토큰을 동반하지 않는 정상 경로(일괄검증 등)가 전부 EXPLAIN 필수가 되고,
+EXPLAIN 을 얻지 못하는 환경에서는 실행이 통째로 차단된다 — 운영 영향이 커서 기본값으로 켤 수 없다.
+
+■ 구현까지 진행한 판단 근거(지시: 설계만 할지 스스로 판단하고 근거 명시)
+  - 범위가 작다: 실제 변경 5파일(guard/analyze_route/facade/gate/config) + 주석 1파일 + 테스트 1파일.
+    클라이언트(JS/UI) 변경 0건 — 서명 방식이었다면 여기서 배선 범위가 몇 배가 됐다.
+  - 되돌리기 쉽다: 토큰 보관본이 없으면 기존 payload 경로로 자동 폴백한다(단방향 폴백, 구조 변경 아님).
+  - 테스트 가능하다: 실 DB 없이 토큰 발급→보관→판정까지 in-process 로 재현된다(신규 6건 전부 통과).
+  - 반대로 [5] 를 기본 ON 으로 구현하는 것은 운영 차단 위험이 있어 옵트인에서 멈췄다.
+
+■ 잔여(정직한 한계)
+  - 토큰 미동반 경로(일괄검증 등)는 여전히 클라이언트 값을 근거로 쓴다. 이 경로는 출처가
+    CLIENT_PAYLOAD 로 남아 드러나며, 옵트인을 켜면 EXPLAIN 으로 강등된다.
+  - 보관소는 프로세스 메모리(LRU)다 — 서버 재시작 시 보관본이 사라지고 payload 폴백으로 내려간다
+    (안전 방향). 이는 workflow_token 자체의 기존 성질과 동일하다.
+  - 기존 tests/test_groupby_profile_staleness_gate.py TC-6 은 '토큰 미동반' 시나리오라 여전히 유효하며,
+    그대로 통과한다(문구만 후속 사실을 가리키도록 갱신).
+
+════════════════════════════════════════════════════════════════════
+[파트 C] S16 잔여 — /execute/set 미배선 + 다중 프로세스 미대응
+════════════════════════════════════════════════════════════════════
+
+■ 조사 1 — /execute/set 은 "여전히 미사용"이 아니었다(원 전제 반증)
+지시는 "ui/tabler_renderer.py 전수 검색 → 없으면 미사용으로 확인만" 이었으나, 검색 범위를 UI 전체로
+넓히자 호출부가 나왔다:
+    ui/validation_plan_renderer.py:518   var resp = await fetch('/execute/set', {...})
+    → 함수 runValidationSet(각 검증세트 행의 [▶ 실행] 버튼)
+    → 이 JS 는 ui/tabler_renderer.py:31372 의 build_validation_plan_js() 로 페이지에 주입된다
+즉 tabler_renderer.py 안에 문자열이 없었을 뿐, **실제 서비스 화면에서 호출되는 활성 엔드포인트**다.
+"미사용이므로 배선 불필요"라는 종전 판단의 전제가 사실과 다르다.
+
+■ 조치 — 배선하되 '세트 단위'로 배선했다
+그대로 기존 ctx_key 로 막으면 안 된다는 점이 조사 중 드러났다. ctx_key 는 (이관 SQL, 원본/목적지
+profile, project) 로만 산출되므로, 같은 SQL 을 GROUP BY/SUM 조합만 바꿔 실행하는 검증 세트들은
+세트가 달라도 ctx_key 가 같다 → '세트 A 실행 중 세트 B 실행'(각 세트 행의 개별 [▶ 실행] — 정당한
+별개 실행)까지 409 로 막혀 기능이 깨진다.
+그래서 가드에 보조 식별자를 도입했다:
+  - workflow_stage_guard._inflight_key(stage, req, extra_key="") / begin_execution(..., extra_key="")
+    extra_key 가 빈 값이면 키 산출이 기존과 완전히 동일하다(기존 호출부 무영향 — TC-4 로 고정).
+  - routes/execute_set_route.py: begin_execution("execute", req, extra_key=_inflight_extra_key(req))
+    _inflight_extra_key = set_id + 정렬된 selected_groupby/selected_sum + tgt_where
+    → 같은 세트 재요청만 409(EXECUTION_ALREADY_IN_PROGRESS), 다른 세트 동시 실행은 허용.
+    표식은 finally 에서 해제하며 기존 TTL 자동 만료가 그대로 적용된다.
+
+■ 조사 2 — 다중 프로세스/인스턴스 배포 계획: 없음(구현하지 않음)
+  - web_server.py:363  uvicorn.run(app, host="127.0.0.1", port=8000, reload=False) — workers 옵션 없음
+  - docs/AUTH_SETUP.md  "현재(로컬 전용)" 단일 프로세스 기동만 문서화
+  - README.md:115       포트 8000 점유 시 기존 프로세스를 종료 후 재기동(= 단일 인스턴스 전제)
+  - gunicorn/--workers/멀티 인스턴스 배포 문서·설정 파일 없음
+  → **현재 단일 프로세스 운영 확인. 다중화 시 별도 설계 필요**(in-flight 표식·workflow_token·후보
+    보관본이 모두 프로세스 메모리라 공유 저장소가 필요해진다). 실체 없는 요구사항이므로 구현하지 않았다.
+  참고로 이번 파트 B 의 후보 보관본도 같은 제약을 공유한다 — 다중화 시 함께 설계해야 한다.
+
+════════════════════════════════════════════════════════════════════
+■ 테스트
+════════════════════════════════════════════════════════════════════
+신규 2파일 12건 전부 통과:
+  tests/test_groupby_evidence_trust_boundary.py (6건)
+    TC-1 조작된 낮은 distinct_count 를 보내도 서버 원본으로 판정해 차단(신뢰경계 해소 실증)
+    TC-2 판정 계약에 근거 출처/신뢰 여부 노출   TC-3 토큰 없으면 payload 폴백(무회귀)
+    TC-4 재분석으로 무효화된 generation 의 보관본은 미사용   TC-5 옵트인 강등  TC-6 기본 OFF 동작 불변
+  tests/test_execute_set_inflight_guard.py (6건)
+    TC-1 같은 세트 재요청 차단  TC-2 다른 세트 병렬 허용  TC-3 해제 후 재실행 가능
+    TC-4 extra_key 미전달 시 키 산출 불변  TC-5 라우트 배선 확인  TC-6 UI 호출 사실 고정
+
+기존 회귀:
+  samples/test_virtual_cases.py    8/8 통과
+  samples/test_complex_cases.py    5/5 통과
+  tests/test_sqlglot_parse_timeout_guard.py + test_groupby_profile_staleness_gate.py 등 23건 통과
+  samples/test_count_sql_builder.py 46통과/3실패 — 3건은 **사전 존재 실패**(baseline worktree(0cab51e)
+    에서 동일 3건이 동일하게 실패함을 대조 확인): TC-13b / TC-13c / TC-15
+  관련 스위트 배치(변경 파일과 관련된 tests/ 64개 파일, 934건):
+    17 failed / 895 passed / 22 skipped / 1 xfailed / 18 subtests passed (219.6초)
+    → **신규 실패 0건**. 실패 17건 전부 baseline(0cab51e) 동일 실패로 대조 확인.
+
+  실패 17건 전체 목록(전부 사전 존재 실패):
+    tests/test_batch_single_core_wrapper_foundation.py::test_ui_advanced_diagnostics_render
+    tests/test_batch_single_core_wrapper_foundation.py::test_ui_diagnostics_analyze_subrows
+    tests/test_batch_single_core_wrapper_foundation.py::test_ui_diagnostics_dependency_rows
+    tests/test_batch_single_core_wrapper_foundation.py::test_ui_dependency_applied_rows
+    tests/test_diagnosis_phase3b.py::test_next_strategy_preview_matrix
+    tests/test_diagnosis_phase3b.py::test_start_passes_confirmed_chunk_key
+    tests/test_execution_safety_result_rendering.py::test_normal_result_shows_consistency_notice_once
+    tests/test_execution_safety_result_rendering.py::test_consistency_notice_absent_when_no_timing
+    tests/test_full_run_token.py::test_front_common_token_capture
+    tests/test_global_settings_gate.py::test_client_analyze_payload_carries_snapshot
+    tests/test_global_settings_gate.py::test_client_gate_confirm_cancel_and_fetch_fail_node
+    tests/test_groupby_safety_facade.py::test_19_default_date_groupby_safe_one_click
+    tests/test_groupby_safety_ui.py::test_static_labels_updated
+    tests/test_statistics_execution_safety.py::test_consistency_notice_renders_when_timing_present
+    tests/test_task11_g.py::TestSqlglotImportRestriction::test_TC_PIPELINE_01_sqlglot_restricted_to_parser
+    tests/test_task11_g.py::TestAdapterUsage::test_TC_PIPELINE_04_analyze_route_uses_adapter
+    tests/test_task11_g.py::TestCandidateEngineEvidence::test_TC_PIPELINE_09_lineage_sum_evidence
+
+  ■ baseline 대조 방법과 함정(기록해 둘 가치가 있음)
+    16건은 baseline worktree(0cab51e detached)에서 그대로 재현돼 즉시 사전 존재 실패로 확인됐다.
+    남은 1건(test_groupby_safety_facade.py::test_19)은 baseline 에서 '통과'가 아니라 **skip** 이었다 —
+    이 테스트는 db_presets_src/tgt.json(gitignore 대상)을 보고 라이브 여부를 판단하는데 worktree 에는
+    그 파일이 없어 _skip_if_no_live() 로 빠진 것이다. skip 을 '통과'로 읽으면 신규 실패로 오판한다.
+    프리셋 2개를 worktree 에 복사한 뒤 재실행하니 **동일 메시지·동일 로그로 실패**했다
+    (assert None == 'SAFE', groupby_execution_safety 가 빈 dict). → 사전 존재 실패 확정.
+
+  ■ 전체 스위트를 돌리지 못한 사유(정직하게 기록)
+    tests/ services/ parser/ 전체 스위트는 규모가 커서(1만 건대) 백그라운드 실행이 3회 모두 시간
+    초과로 중단됐다. 그래서 변경 파일과 직접 관련된 64개 파일(sqlglot/파싱/진단/게이트/가드/
+    execute_set 키워드로 선별)로 범위를 좁혀 실행했다. 선별 범위 밖의 회귀 가능성은 배제하지 못한다.
+
+════════════════════════════════════════════════════════════════════
+■ 변경 파일
+════════════════════════════════════════════════════════════════════
+파트 A(파싱 가드) 26파일:
+  parser/sqlglot_safe_parse.py(래퍼 확장)  parser/sql_parser.py
+  routes/agg_diff_route.py  routes/diagnosis_route.py
+  services/count_sql_builder.py  services/validation_sql/source_stats_sql_builder.py
+  services/sql_cte_utils.py  services/readonly_sql_guard.py  services/validation_context_builder.py
+  services/metadata_column_lineage.py  services/metadata_collection_safety.py
+  services/sql_canonical.py  services/sql_structure_check.py  services/sql_scope_inject.py
+  services/sql_expression_cardinality.py  services/sql_dependency_pruning.py
+  services/analysis/sql_lineage_extractor.py  services/analysis/advanced_sql_shape_normalizer.py
+  services/exhaustive_candidates/result_set_evidence.py
+  services/diagnosis/{key_evidence,match_key_evidence,row_diff,profiler}.py
+  services/diagnosis/strategies/{key_range,hash_bucket,group_scope}.py
+파트 B(신뢰경계): services/workflow_stage_guard.py  routes/analyze_route.py
+  services/single_validation_run_facade.py  services/groupby_execution_safety_gate.py
+  config/model_config.py  schemas/request_models.py(주석 정정)
+  tests/test_groupby_profile_staleness_gate.py(문구 갱신)
+파트 C(배선): services/workflow_stage_guard.py  routes/execute_set_route.py
+신규: tests/test_groupby_evidence_trust_boundary.py  tests/test_execute_set_inflight_guard.py
+      scripts/dev_e2e/sqlglot_guard_callsite_timeout_verify.py(+ .json 실측 산출물)
+
+git diff --stat: 37 files changed, 958 insertions(+), 102 deletions(-)
+커밋 해시     : 15b9d68 (직전 HEAD 0cab51e — 커밋 직전/직후 재확인, 다른 세션 미커밋 파일 30건 그대로 보존)
+
+════════════════════════════════════════════════════════════════════
+■ 실검증 상태
+════════════════════════════════════════════════════════════════════
+실검증 상태 : 코드 실측 완료 / 실 DB 라이브 미실행 / 브라우저 미실행
+  - 파트 A: 실제 파서 무한루프 재현 SQL 로 31경로 × 3모드 실측(자식 프로세스 격리). DB 불필요한
+    순수 파싱 경로만 검증했으며, 실 DB 를 경유하는 실행 결과까지는 확인하지 않았다.
+  - 파트 B: 토큰 발급→서버 보관→게이트 판정을 in-process 로 실측. 실제 /analyze HTTP 요청과
+    브라우저 화면에서의 표시(candidate_evidence_source 노출)는 확인하지 않았다.
+  - 파트 C: 가드 키 산출·차단/허용을 함수 단위로 실측하고 라우트 배선은 정적 확인. 실제 UI 에서
+    세트 2개를 동시 클릭한 브라우저 실증은 하지 않았다.
+
+✅ 작업 완료 - 파트 A 운영 25파일 53곳 가드 전수 적용(실측 31경로 hang 0건) · 파트 B 신뢰경계를 서명 대신 왕복 제거로 해소 · 파트 C 원 전제(미사용) 반증 후 세트 단위 배선 + 다중 프로세스는 계획 부재 확인으로 미구현

@@ -1,0 +1,960 @@
+{
+  "timeout_seconds": 1.5,
+  "hang_sql": "INSERT INTO tgt (a) SELECT * FROM t WITH x AS (SELECT 1) SELECT * FROM x",
+  "ok_sql": "INSERT INTO TGT_T (ID, AMT) WITH SRC AS (SELECT ID, AMT FROM ASIS_T WHERE AMT > 0) SELECT ID, AMT FROM SRC",
+  "hang_cases": [
+    {
+      "label": "parser.sql_parser.parse",
+      "verdict": "OK",
+      "ok": true,
+      "result": "ParsedSql(mappings=[{'tgt_col': 'A', 'src_expr': '*'}], from_clause={'table': 'T WITH X AS (SELECT 1) SELECT * FROM X', 'alias': ''}, join_clauses=[], where_clause='', union_type=None, union_branches=",
+      "elapsed_ms": 1667.6242999965325,
+      "abandoned": 1,
+      "hung": false,
+      "wall_ms": 2300.947099982295
+    },
+    {
+      "label": "parser.sql_parser.transpile",
+      "verdict": "OK",
+      "ok": true,
+      "result": "'INSERT INTO tgt (a) SELECT * FROM t WITH x AS (SELECT 1) SELECT * FROM x'",
+      "elapsed_ms": 1673.330400022678,
+      "abandoned": 1,
+      "hung": false,
+      "wall_ms": 2327.8103999909945
+    },
+    {
+      "label": "readonly_sql_guard.assert_single_select",
+      "verdict": "OK",
+      "ok": false,
+      "exc_type": "UnsafeStatementError",
+      "exc": "SQL 을 구문 분석할 수 없어 실행을 차단합니다: Found multiple 'WITH' clauses. Line 1, Col: 40.\n  INSERT INTO tgt (a) SELECT * FROM t \u001b[4mWITH\u001b[0m x AS (SELECT 1) SELEC",
+      "elapsed_ms": 142.0016000047326,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 259.7529999911785
+    },
+    {
+      "label": "count_sql_builder.build_subquery_wrapped_count_sql",
+      "verdict": "OK",
+      "ok": true,
+      "result": "None",
+      "elapsed_ms": 1654.2132999747992,
+      "abandoned": 1,
+      "hung": false,
+      "wall_ms": 2278.7606000201777
+    },
+    {
+      "label": "source_stats._extract_aliased_inner_select",
+      "verdict": "OK",
+      "ok": true,
+      "result": "None",
+      "elapsed_ms": 1670.3755999915302,
+      "abandoned": 1,
+      "hung": false,
+      "wall_ms": 2315.8212999696843
+    },
+    {
+      "label": "source_stats._original_select_is_aggregated",
+      "verdict": "OK",
+      "ok": true,
+      "result": "False",
+      "elapsed_ms": 1670.8041000529192,
+      "abandoned": 1,
+      "hung": false,
+      "wall_ms": 2319.102199980989
+    },
+    {
+      "label": "source_stats._raw_shape",
+      "verdict": "OK",
+      "ok": true,
+      "result": "''",
+      "elapsed_ms": 1676.192799990531,
+      "abandoned": 1,
+      "hung": false,
+      "wall_ms": 2306.7777999676764
+    },
+    {
+      "label": "sql_cte_utils.extract_cte_names",
+      "verdict": "OK",
+      "ok": true,
+      "result": "{'X'}",
+      "elapsed_ms": 1652.5834000203758,
+      "abandoned": 1,
+      "hung": false,
+      "wall_ms": 2311.864699993748
+    },
+    {
+      "label": "sql_cte_utils.extract_physical_source_tables",
+      "verdict": "OK",
+      "ok": true,
+      "result": "['T']",
+      "elapsed_ms": 1667.1614000224508,
+      "abandoned": 1,
+      "hung": false,
+      "wall_ms": 2345.294800004922
+    },
+    {
+      "label": "sql_cte_utils.extract_cte_lineage",
+      "verdict": "OK",
+      "ok": true,
+      "result": "{'cte_names': set(), 'alias_to_physical': {}, 'cte_derived_cols': {}, 'cte_explicit': {}, 'cte_star': {}, 'ambiguous_aliases': set()}",
+      "elapsed_ms": 1663.4669000050053,
+      "abandoned": 1,
+      "hung": false,
+      "wall_ms": 2300.6211000028998
+    },
+    {
+      "label": "sql_structure_check.check_insert_select_count",
+      "verdict": "OK",
+      "ok": true,
+      "result": "None",
+      "elapsed_ms": 143.67530000163242,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 225.02120002172887
+    },
+    {
+      "label": "sql_structure_check.extract_unqualified_columns",
+      "verdict": "OK",
+      "ok": true,
+      "result": "[]",
+      "elapsed_ms": 145.99629997974262,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 225.15579999890178
+    },
+    {
+      "label": "metadata_collection_safety.analyze_collection_safety",
+      "verdict": "OK",
+      "ok": true,
+      "result": "{'collectible': False, 'hold_reason': 'PARSE_FAILED', 'physical_columns': []}",
+      "elapsed_ms": 140.20570000866428,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 219.39849999034777
+    },
+    {
+      "label": "metadata_column_lineage.analyze_query_columns",
+      "verdict": "OK",
+      "ok": true,
+      "result": "{'source_refs': [], 'source_columns': [], 'source_tables': [], 'target_columns': [], 'source_column_count': 0, 'source_table_count': 0, 'target_column_count': 0, 'lineage_ok': False, 'target_ok': Fals",
+      "elapsed_ms": 142.36289996188134,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 221.71889996388927
+    },
+    {
+      "label": "sql_canonical.canonical_sql",
+      "verdict": "OK",
+      "ok": true,
+      "result": "(None, 'PARSE_ERROR:ParseError')",
+      "elapsed_ms": 145.40690003195778,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 219.2636000108905
+    },
+    {
+      "label": "validation_context_builder._extract_display_tables",
+      "verdict": "OK",
+      "ok": true,
+      "result": "([], None)",
+      "elapsed_ms": 141.64539997000247,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 222.29170001810417
+    },
+    {
+      "label": "sql_dependency_pruning.build_dependency_map",
+      "verdict": "OK",
+      "ok": true,
+      "result": "{'available': False, 'dependency_pruning_detected': False, 'target_table': '', 'target_columns': {}, 'required_source_columns_by_table': {}, 'required_source_table_count': 0, 'required_source_column_c",
+      "elapsed_ms": 140.61790000414476,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 215.25350003503263
+    },
+    {
+      "label": "sql_lineage_extractor.extract_derived_lineage",
+      "verdict": "OK",
+      "ok": true,
+      "result": "None",
+      "elapsed_ms": 149.76790000218898,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 225.09510000236332
+    },
+    {
+      "label": "advanced_sql_shape_normalizer.normalize_single_sql_shape",
+      "verdict": "OK",
+      "ok": true,
+      "result": "('INSERT INTO tgt (a) SELECT * FROM t WITH x AS (SELECT 1) SELECT * FROM x', False, None)",
+      "elapsed_ms": 151.69770002830774,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 238.62329998519272
+    },
+    {
+      "label": "agg_diff_route._raw_union_present",
+      "verdict": "OK",
+      "ok": true,
+      "result": "None",
+      "elapsed_ms": 2154.261099989526,
+      "abandoned": 1,
+      "hung": false,
+      "wall_ms": 2910.741399973631
+    },
+    {
+      "label": "agg_diff_route._wrapping_extract_feasibility",
+      "verdict": "OK",
+      "ok": true,
+      "result": "(False, 'PARSE_FAILED', '원본 이관 SQL 을 파싱하지 못했습니다')",
+      "elapsed_ms": 2021.8544999952428,
+      "abandoned": 1,
+      "hung": false,
+      "wall_ms": 2714.9974000058137
+    },
+    {
+      "label": "sql_scope_inject.inject_group_scope_predicates",
+      "verdict": "OK",
+      "ok": false,
+      "exc_type": "ValueError",
+      "exc": "통계 SQL 구문 분석 실패로 범위 조건을 주입할 수 없습니다: Found multiple 'WITH' clauses. Line 1, Col: 40.\n  INSERT INTO tgt (a) SELECT * FROM t \u001b[4mWITH\u001b[0m x AS (SELECT 1) SELEC",
+      "elapsed_ms": 139.6369999856688,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 215.05769999930635
+    },
+    {
+      "label": "sql_expression_cardinality.analyze_case_literal_cardinality",
+      "verdict": "OK",
+      "ok": true,
+      "result": "None",
+      "elapsed_ms": 2.993399975821376,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 70.59449999360368
+    },
+    {
+      "label": "diagnosis.key_evidence._from_table",
+      "verdict": "OK",
+      "ok": true,
+      "result": "None",
+      "elapsed_ms": 147.10929995635524,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 224.4903999962844
+    },
+    {
+      "label": "diagnosis.key_evidence._direct_column_name",
+      "verdict": "OK",
+      "ok": true,
+      "result": "None",
+      "elapsed_ms": 138.25630000792444,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 216.0130999982357
+    },
+    {
+      "label": "diagnosis.row_diff._strip_to_rows",
+      "verdict": "OK",
+      "ok": false,
+      "exc_type": "ParseError",
+      "exc": "Found multiple 'WITH' clauses. Line 1, Col: 40.\n  INSERT INTO tgt (a) SELECT * FROM t \u001b[4mWITH\u001b[0m x AS (SELECT 1) SELECT * FROM x",
+      "elapsed_ms": 144.93259997107089,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 219.94310000445694
+    },
+    {
+      "label": "diagnosis.group_scope.build_axis_extended_sql",
+      "verdict": "OK",
+      "ok": false,
+      "exc_type": "ParseError",
+      "exc": "Found multiple 'WITH' clauses. Line 1, Col: 40.\n  INSERT INTO tgt (a) SELECT * FROM t \u001b[4mWITH\u001b[0m x AS (SELECT 1) SELECT * FROM x",
+      "elapsed_ms": 144.88879998680204,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 220.7590999896638
+    },
+    {
+      "label": "diagnosis.key_range.build_bounds_sql",
+      "verdict": "OK",
+      "ok": false,
+      "exc_type": "ParseError",
+      "exc": "Found multiple 'WITH' clauses. Line 1, Col: 40.\n  INSERT INTO tgt (a) SELECT * FROM t \u001b[4mWITH\u001b[0m x AS (SELECT 1) SELECT * FROM x",
+      "elapsed_ms": 142.3848999547772,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 222.25759999128059
+    },
+    {
+      "label": "diagnosis.hash_bucket.build_hash_bucket_agg_sql",
+      "verdict": "OK",
+      "ok": false,
+      "exc_type": "ParseError",
+      "exc": "Invalid expression / Unexpected token. Line 1, Col: 40.\n  INSERT INTO tgt (a) SELECT * FROM t \u001b[4mWITH\u001b[0m x AS (SELECT 1) SELECT * FROM x",
+      "elapsed_ms": 142.37150002736598,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 218.88210001634434
+    },
+    {
+      "label": "diagnosis.profiler._scoped_count_sql",
+      "verdict": "OK",
+      "ok": false,
+      "exc_type": "ParseError",
+      "exc": "Found multiple 'WITH' clauses. Line 1, Col: 40.\n  INSERT INTO tgt (a) SELECT * FROM t \u001b[4mWITH\u001b[0m x AS (SELECT 1) SELECT * FROM x",
+      "elapsed_ms": 144.80479998746887,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 221.85029997490346
+    },
+    {
+      "label": "result_set_evidence.build_null_probe_sql",
+      "verdict": "OK",
+      "ok": false,
+      "exc_type": "ParseError",
+      "exc": "Found multiple 'WITH' clauses. Line 1, Col: 40.\n  INSERT INTO tgt (a) SELECT * FROM t \u001b[4mWITH\u001b[0m x AS (SELECT 1) SELECT * FROM x",
+      "elapsed_ms": 152.98600000096485,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 230.2130000316538
+    }
+  ],
+  "normal_cases": [
+    {
+      "label": "parser.sql_parser.parse",
+      "verdict": "OK",
+      "ok": true,
+      "result": "ParsedSql(mappings=[{'tgt_col': 'ID', 'src_expr': 'ID'}, {'tgt_col': 'AMT', 'src_expr': 'AMT'}], from_clause={'table': 'SRC', 'alias': ''}, join_clauses=[], where_clause='', union_type=None, union_bra",
+      "elapsed_ms": 138.5034999693744,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 218.8046999508515
+    },
+    {
+      "label": "parser.sql_parser.transpile",
+      "verdict": "OK",
+      "ok": true,
+      "result": "'INSERT INTO TGT_T (ID, AMT) WITH SRC AS (SELECT ID, AMT FROM ASIS_T WHERE AMT > 0) SELECT ID, AMT FROM SRC'",
+      "elapsed_ms": 143.4222999960184,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 217.46830001939088
+    },
+    {
+      "label": "readonly_sql_guard.assert_single_select",
+      "verdict": "OK",
+      "ok": false,
+      "exc_type": "UnsafeStatementError",
+      "exc": "SELECT 문만 실행할 수 있습니다(검출 유형: Insert).",
+      "elapsed_ms": 144.33600002666935,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 222.61260001687333
+    },
+    {
+      "label": "count_sql_builder.build_subquery_wrapped_count_sql",
+      "verdict": "OK",
+      "ok": true,
+      "result": "'SELECT COUNT(*) AS CNT\\nFROM (\\nWITH SRC AS (\\n  SELECT\\n    ID,\\n    AMT\\n  FROM ASIS_T\\n  WHERE\\n    AMT > 0\\n)\\nSELECT\\n  1 AS mv_count_marker\\nFROM SRC\\n) src_count'",
+      "elapsed_ms": 143.6884999857284,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 221.72849997878075
+    },
+    {
+      "label": "source_stats._extract_aliased_inner_select",
+      "verdict": "OK",
+      "ok": true,
+      "result": "'WITH SRC AS (\\n  SELECT\\n    ID,\\n    AMT\\n  FROM ASIS_T\\n  WHERE\\n    AMT > 0\\n)\\nSELECT\\n  ID AS ID,\\n  AMT AS AMT\\nFROM SRC'",
+      "elapsed_ms": 162.1937999734655,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 242.97859997022897
+    },
+    {
+      "label": "source_stats._original_select_is_aggregated",
+      "verdict": "OK",
+      "ok": true,
+      "result": "False",
+      "elapsed_ms": 165.34330003196374,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 245.69579999661073
+    },
+    {
+      "label": "source_stats._raw_shape",
+      "verdict": "OK",
+      "ok": true,
+      "result": "'PLAIN'",
+      "elapsed_ms": 159.5210999948904,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 239.8846999858506
+    },
+    {
+      "label": "sql_cte_utils.extract_cte_names",
+      "verdict": "OK",
+      "ok": true,
+      "result": "{'SRC'}",
+      "elapsed_ms": 147.10100000957027,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 225.8993000141345
+    },
+    {
+      "label": "sql_cte_utils.extract_physical_source_tables",
+      "verdict": "OK",
+      "ok": true,
+      "result": "['ASIS_T']",
+      "elapsed_ms": 135.88169997092336,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 212.1053999871947
+    },
+    {
+      "label": "sql_cte_utils.extract_cte_lineage",
+      "verdict": "OK",
+      "ok": true,
+      "result": "{'cte_names': {'SRC'}, 'alias_to_physical': {}, 'cte_derived_cols': {}, 'cte_explicit': {}, 'cte_star': {}, 'ambiguous_aliases': set()}",
+      "elapsed_ms": 145.2529999660328,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 220.08780000032857
+    },
+    {
+      "label": "sql_structure_check.check_insert_select_count",
+      "verdict": "OK",
+      "ok": true,
+      "result": "None",
+      "elapsed_ms": 145.27409995207563,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 221.73789999214932
+    },
+    {
+      "label": "sql_structure_check.extract_unqualified_columns",
+      "verdict": "OK",
+      "ok": true,
+      "result": "[{'alias': '', 'col': 'ID', 'ref': 'ID', 'clause': 'SELECT'}, {'alias': '', 'col': 'AMT', 'ref': 'AMT', 'clause': 'SELECT'}]",
+      "elapsed_ms": 139.07999999355525,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 216.62050002487376
+    },
+    {
+      "label": "metadata_collection_safety.analyze_collection_safety",
+      "verdict": "OK",
+      "ok": true,
+      "result": "{'collectible': False, 'hold_reason': 'SCHEMA_UNQUALIFIED', 'physical_columns': [], 'schema_unqualified': ['ASIS_T', 'TGT_T']}",
+      "elapsed_ms": 140.49670001259074,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 218.03789999103174
+    },
+    {
+      "label": "metadata_column_lineage.analyze_query_columns",
+      "verdict": "OK",
+      "ok": true,
+      "result": "{'source_refs': [{'table': '', 'col': 'ID', 'ref': 'ID'}, {'table': '', 'col': 'AMT', 'ref': 'AMT'}], 'source_columns': ['AMT', 'ID'], 'source_tables': ['ASIS_T', 'SRC'], 'target_columns': ['ID', 'AMT",
+      "elapsed_ms": 146.17499994346872,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 227.4889000109397
+    },
+    {
+      "label": "sql_canonical.canonical_sql",
+      "verdict": "OK",
+      "ok": true,
+      "result": "('INSERT INTO TGT_T (ID, AMT) WITH SRC AS (SELECT ID, AMT FROM ASIS_T WHERE AMT > 0) SELECT ID, AMT FROM SRC', 'OK')",
+      "elapsed_ms": 140.1733999955468,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 217.31640002690256
+    },
+    {
+      "label": "validation_context_builder._extract_display_tables",
+      "verdict": "OK",
+      "ok": true,
+      "result": "(['ASIS_T'], 'TGT_T')",
+      "elapsed_ms": 141.3940999773331,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 216.73799998825416
+    },
+    {
+      "label": "sql_dependency_pruning.build_dependency_map",
+      "verdict": "OK",
+      "ok": true,
+      "result": "{'available': True, 'dependency_pruning_detected': True, 'target_table': 'TGT_T', 'target_columns': {'ID': [], 'AMT': []}, 'required_source_columns_by_table': {}, 'required_source_table_count': 0, 're",
+      "elapsed_ms": 141.5802999981679,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 217.20770001411438
+    },
+    {
+      "label": "sql_lineage_extractor.extract_derived_lineage",
+      "verdict": "OK",
+      "ok": true,
+      "result": "None",
+      "elapsed_ms": 188.2686000317335,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 261.9820999680087
+    },
+    {
+      "label": "advanced_sql_shape_normalizer.normalize_single_sql_shape",
+      "verdict": "OK",
+      "ok": true,
+      "result": "('INSERT INTO TGT_T (ID, AMT) SELECT ID, AMT FROM ASIS_T SRC WHERE AMT > 0', True, 'CTE')",
+      "elapsed_ms": 144.0077000297606,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 224.28760002367198
+    },
+    {
+      "label": "agg_diff_route._raw_union_present",
+      "verdict": "OK",
+      "ok": true,
+      "result": "False",
+      "elapsed_ms": 498.7193000270054,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 630.1803999813274
+    },
+    {
+      "label": "agg_diff_route._wrapping_extract_feasibility",
+      "verdict": "OK",
+      "ok": true,
+      "result": "(True, 'OK', '')",
+      "elapsed_ms": 506.0885999700986,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 636.7549999849871
+    },
+    {
+      "label": "sql_scope_inject.inject_group_scope_predicates",
+      "verdict": "OK",
+      "ok": false,
+      "exc_type": "ValueError",
+      "exc": "GROUP BY 절이 없어 그룹 동등 조건을 주입할 수 없습니다.",
+      "elapsed_ms": 139.35670000500977,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 215.72480001486838
+    },
+    {
+      "label": "sql_expression_cardinality.analyze_case_literal_cardinality",
+      "verdict": "OK",
+      "ok": true,
+      "result": "None",
+      "elapsed_ms": 2.967999957036227,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 70.07649994920939
+    },
+    {
+      "label": "diagnosis.key_evidence._from_table",
+      "verdict": "OK",
+      "ok": true,
+      "result": "None",
+      "elapsed_ms": 136.83689996832982,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 219.32869998272508
+    },
+    {
+      "label": "diagnosis.key_evidence._direct_column_name",
+      "verdict": "OK",
+      "ok": true,
+      "result": "None",
+      "elapsed_ms": 145.3662000130862,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 221.64449997944757
+    },
+    {
+      "label": "diagnosis.row_diff._strip_to_rows",
+      "verdict": "OK",
+      "ok": true,
+      "result": "(Insert(\n  is_function=False,\n  this=Schema(\n    this=Table(\n      this=Identifier(this=TGT_T, quoted=False)),\n    expressions=[\n      Identifier(this=ID, quoted=False),\n      Identifier(this=AMT, quo",
+      "elapsed_ms": 144.47569998446852,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 218.02740002749488
+    },
+    {
+      "label": "diagnosis.group_scope.build_axis_extended_sql",
+      "verdict": "OK",
+      "ok": true,
+      "result": "'INSERT INTO TGT_T (ID, AMT) WITH SRC AS (SELECT ID, AMT FROM ASIS_T WHERE AMT > 0) SELECT ID, AMT FROM SRC'",
+      "elapsed_ms": 141.31650002673268,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 217.75179996620864
+    },
+    {
+      "label": "diagnosis.key_range.build_bounds_sql",
+      "verdict": "OK",
+      "ok": false,
+      "exc_type": "AttributeError",
+      "exc": "'bool' object has no attribute 'this'",
+      "elapsed_ms": 144.8513999930583,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 219.88320001401007
+    },
+    {
+      "label": "diagnosis.hash_bucket.build_hash_bucket_agg_sql",
+      "verdict": "OK",
+      "ok": true,
+      "result": "'INSERT INTO TGT_T (ID, AMT) WITH SRC AS (SELECT ID, AMT FROM ASIS_T WHERE AMT > 0) SELECT ID, AMT FROM SRC'",
+      "elapsed_ms": 141.39790000626817,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 230.24069995153695
+    },
+    {
+      "label": "diagnosis.profiler._scoped_count_sql",
+      "verdict": "OK",
+      "ok": true,
+      "result": "('INSERT INTO TGT_T (ID, AMT) WITH SRC AS (SELECT ID, AMT FROM ASIS_T WHERE AMT > 0) SELECT ID, AMT FROM SRC', [])",
+      "elapsed_ms": 141.23309997376055,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 217.6525999675505
+    },
+    {
+      "label": "result_set_evidence.build_null_probe_sql",
+      "verdict": "OK",
+      "ok": true,
+      "result": "'SELECT 1 FROM (INSERT INTO TGT_T (ID, AMT) WITH SRC AS (SELECT ID, AMT FROM ASIS_T WHERE AMT > 0) SELECT ID, AMT FROM SRC) q WHERE q.ID IS NULL FETCH FIRST 1 ROWS ONLY'",
+      "elapsed_ms": 160.49819998443127,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 239.97669998789206
+    }
+  ],
+  "forced_timeout_cases": [
+    {
+      "label": "parser.sql_parser.parse",
+      "verdict": "OK",
+      "ok": true,
+      "result": "ParsedSql(mappings=[{'tgt_col': 'ID', 'src_expr': 'ID'}, {'tgt_col': 'AMT', 'src_expr': 'AMT'}], from_clause={'table': 'SRC', 'alias': ''}, join_clauses=[], where_clause='', union_type=None, union_bra",
+      "elapsed_ms": 128.99519997881725,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 214.35529994778335
+    },
+    {
+      "label": "parser.sql_parser.transpile",
+      "verdict": "OK",
+      "ok": true,
+      "result": "'INSERT INTO TGT_T (ID, AMT) WITH SRC AS (SELECT ID, AMT FROM ASIS_T WHERE AMT > 0) SELECT ID, AMT FROM SRC'",
+      "elapsed_ms": 125.86249999003485,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 210.76470002299175
+    },
+    {
+      "label": "readonly_sql_guard.assert_single_select",
+      "verdict": "OK",
+      "ok": false,
+      "exc_type": "UnsafeStatementError",
+      "exc": "SQL 을 구문 분석할 수 없어 실행을 차단합니다: 강제 타임아웃(실측 전용) — 폴백 경로 확인",
+      "elapsed_ms": 126.75989995477721,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 211.99300000444055
+    },
+    {
+      "label": "count_sql_builder.build_subquery_wrapped_count_sql",
+      "verdict": "OK",
+      "ok": true,
+      "result": "None",
+      "elapsed_ms": 122.94219998875633,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 207.47119997395203
+    },
+    {
+      "label": "source_stats._extract_aliased_inner_select",
+      "verdict": "OK",
+      "ok": true,
+      "result": "None",
+      "elapsed_ms": 135.7597999740392,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 224.28220004076138
+    },
+    {
+      "label": "source_stats._original_select_is_aggregated",
+      "verdict": "OK",
+      "ok": true,
+      "result": "False",
+      "elapsed_ms": 134.7861999529414,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 219.62720004376024
+    },
+    {
+      "label": "source_stats._raw_shape",
+      "verdict": "OK",
+      "ok": true,
+      "result": "''",
+      "elapsed_ms": 139.23590001650155,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 225.54420004598796
+    },
+    {
+      "label": "sql_cte_utils.extract_cte_names",
+      "verdict": "OK",
+      "ok": true,
+      "result": "{'SRC'}",
+      "elapsed_ms": 129.54709999030456,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 218.16280001075938
+    },
+    {
+      "label": "sql_cte_utils.extract_physical_source_tables",
+      "verdict": "OK",
+      "ok": true,
+      "result": "['ASIS_T']",
+      "elapsed_ms": 125.07310003275052,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 211.74669999163598
+    },
+    {
+      "label": "sql_cte_utils.extract_cte_lineage",
+      "verdict": "OK",
+      "ok": true,
+      "result": "{'cte_names': set(), 'alias_to_physical': {}, 'cte_derived_cols': {}, 'cte_explicit': {}, 'cte_star': {}, 'ambiguous_aliases': set()}",
+      "elapsed_ms": 124.41049999324605,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 213.34689995273948
+    },
+    {
+      "label": "sql_structure_check.check_insert_select_count",
+      "verdict": "OK",
+      "ok": true,
+      "result": "None",
+      "elapsed_ms": 134.4886000151746,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 223.10790000483394
+    },
+    {
+      "label": "sql_structure_check.extract_unqualified_columns",
+      "verdict": "OK",
+      "ok": true,
+      "result": "[]",
+      "elapsed_ms": 130.2981000044383,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 218.73349999077618
+    },
+    {
+      "label": "metadata_collection_safety.analyze_collection_safety",
+      "verdict": "OK",
+      "ok": true,
+      "result": "{'collectible': False, 'hold_reason': 'PARSE_FAILED', 'physical_columns': []}",
+      "elapsed_ms": 130.93749998370185,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 221.51050000684336
+    },
+    {
+      "label": "metadata_column_lineage.analyze_query_columns",
+      "verdict": "OK",
+      "ok": true,
+      "result": "{'source_refs': [], 'source_columns': [], 'source_tables': [], 'target_columns': [], 'source_column_count': 0, 'source_table_count': 0, 'target_column_count': 0, 'lineage_ok': False, 'target_ok': Fals",
+      "elapsed_ms": 126.4884999836795,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 212.41199999349192
+    },
+    {
+      "label": "sql_canonical.canonical_sql",
+      "verdict": "OK",
+      "ok": true,
+      "result": "(None, 'PARSE_ERROR:SqlParseTimeout')",
+      "elapsed_ms": 151.5392999863252,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 236.36780004017055
+    },
+    {
+      "label": "validation_context_builder._extract_display_tables",
+      "verdict": "OK",
+      "ok": true,
+      "result": "([], None)",
+      "elapsed_ms": 130.6101999944076,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 219.6354999905452
+    },
+    {
+      "label": "sql_dependency_pruning.build_dependency_map",
+      "verdict": "OK",
+      "ok": true,
+      "result": "{'available': False, 'dependency_pruning_detected': False, 'target_table': '', 'target_columns': {}, 'required_source_columns_by_table': {}, 'required_source_table_count': 0, 'required_source_column_c",
+      "elapsed_ms": 131.8087000399828,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 215.53759998641908
+    },
+    {
+      "label": "sql_lineage_extractor.extract_derived_lineage",
+      "verdict": "OK",
+      "ok": true,
+      "result": "None",
+      "elapsed_ms": 141.31320000160486,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 226.11170000163838
+    },
+    {
+      "label": "advanced_sql_shape_normalizer.normalize_single_sql_shape",
+      "verdict": "OK",
+      "ok": true,
+      "result": "('INSERT INTO TGT_T (ID, AMT) WITH SRC AS (SELECT ID, AMT FROM ASIS_T WHERE AMT > 0) SELECT ID, AMT FROM SRC', False, None)",
+      "elapsed_ms": 133.3378999843262,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 216.40040003694594
+    },
+    {
+      "label": "agg_diff_route._raw_union_present",
+      "verdict": "OK",
+      "ok": true,
+      "result": "None",
+      "elapsed_ms": 533.4973999997601,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 674.6746999560855
+    },
+    {
+      "label": "agg_diff_route._wrapping_extract_feasibility",
+      "verdict": "OK",
+      "ok": true,
+      "result": "(False, 'PARSE_FAILED', '원본 이관 SQL 을 파싱하지 못했습니다')",
+      "elapsed_ms": 474.24559999490157,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 597.6454000337981
+    },
+    {
+      "label": "sql_scope_inject.inject_group_scope_predicates",
+      "verdict": "OK",
+      "ok": false,
+      "exc_type": "ValueError",
+      "exc": "통계 SQL 구문 분석 실패로 범위 조건을 주입할 수 없습니다: 강제 타임아웃(실측 전용) — 폴백 경로 확인",
+      "elapsed_ms": 120.93279999680817,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 199.24899999750778
+    },
+    {
+      "label": "sql_expression_cardinality.analyze_case_literal_cardinality",
+      "verdict": "OK",
+      "ok": true,
+      "result": "None",
+      "elapsed_ms": 12.552000000141561,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 77.27209996664897
+    },
+    {
+      "label": "diagnosis.key_evidence._from_table",
+      "verdict": "OK",
+      "ok": true,
+      "result": "None",
+      "elapsed_ms": 132.99520005239174,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 211.95329999318346
+    },
+    {
+      "label": "diagnosis.key_evidence._direct_column_name",
+      "verdict": "OK",
+      "ok": true,
+      "result": "None",
+      "elapsed_ms": 130.28410001425073,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 216.90320002380759
+    },
+    {
+      "label": "diagnosis.row_diff._strip_to_rows",
+      "verdict": "OK",
+      "ok": false,
+      "exc_type": "SqlParseTimeout",
+      "exc": "강제 타임아웃(실측 전용) — 폴백 경로 확인",
+      "elapsed_ms": 132.40880001103505,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 215.09370004059747
+    },
+    {
+      "label": "diagnosis.group_scope.build_axis_extended_sql",
+      "verdict": "OK",
+      "ok": false,
+      "exc_type": "SqlParseTimeout",
+      "exc": "강제 타임아웃(실측 전용) — 폴백 경로 확인",
+      "elapsed_ms": 123.28650004928932,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 208.06529995752499
+    },
+    {
+      "label": "diagnosis.key_range.build_bounds_sql",
+      "verdict": "OK",
+      "ok": false,
+      "exc_type": "SqlParseTimeout",
+      "exc": "강제 타임아웃(실측 전용) — 폴백 경로 확인",
+      "elapsed_ms": 130.5096999858506,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 215.0217000162229
+    },
+    {
+      "label": "diagnosis.hash_bucket.build_hash_bucket_agg_sql",
+      "verdict": "OK",
+      "ok": false,
+      "exc_type": "SqlParseTimeout",
+      "exc": "강제 타임아웃(실측 전용) — 폴백 경로 확인",
+      "elapsed_ms": 124.44310000864789,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 209.36719997553155
+    },
+    {
+      "label": "diagnosis.profiler._scoped_count_sql",
+      "verdict": "OK",
+      "ok": false,
+      "exc_type": "SqlParseTimeout",
+      "exc": "강제 타임아웃(실측 전용) — 폴백 경로 확인",
+      "elapsed_ms": 135.51059999736026,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 220.67750000860542
+    },
+    {
+      "label": "result_set_evidence.build_null_probe_sql",
+      "verdict": "OK",
+      "ok": false,
+      "exc_type": "SqlParseTimeout",
+      "exc": "강제 타임아웃(실측 전용) — 폴백 경로 확인",
+      "elapsed_ms": 139.06359998509288,
+      "abandoned": 0,
+      "hung": false,
+      "wall_ms": 227.47139999410138
+    }
+  ]
+}
