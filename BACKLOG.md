@@ -95,7 +95,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 
 ## 심각(정합성·안전) — 최우선
 
-### S18. sqlglot 30.8.0 의 오라클 방언 파서가 인식 안 되는 WITH 절 입력에서 서버 스레드째 무한 hang 한다 — try/except 로 못 막고 타임아웃 가드도 없음
+### S18. sqlglot 30.8.0 의 오라클 방언 파서가 인식 안 되는 WITH 절 입력에서 서버 스레드째 무한 hang 한다 — try/except 로 못 막고 타임아웃 가드도 없음 (2026-08-02 추가 실측: 타임아웃 가드로도 방어 안 되는 메모리 고갈 위험 확인 — 긴급 재상향)
 - 발견일: 2026-08-02
 - 근거 보고서: `DEPENDENCY-VERSION-AND-CHANGELOG-RELEVANCE-DIAGNOSE.txt` (§2 · §4)
 - 상세: sqlglot 상류 PR #7881 이 지적한 결함(오라클 WITH 모디파이어가 파싱 결과를 리스트로 감싸
@@ -124,6 +124,35 @@ git -C E:/verify_reports worktree remove <임시경로>
      현재 스위트엔 `pytest-timeout` 이 없어 이런 hang 을 못 잡는다)
 - 관련: F29(requirements.txt 버전 핀 부재 — 어느 설치본이 노출돼 있는지 알 수 없게 만드는 원인)
 - 참고: E:\verify_reports\DEPENDENCY-VERSION-AND-CHANGELOG-RELEVANCE-DIAGNOSE.txt
+
+- **2026-08-02 추가 실측(긴급 재상향)** — 근거 보고서
+  `SQLGLOT-HANG-MEMORY-GROWTH-INCIDENT-URGENT-CHECK.txt`:
+  - **타임아웃 가드는 메모리 방어가 전혀 안 된다.** 오늘 도입한 파싱 타임아웃 가드
+    (`parser/sqlglot_safe_parse.py`)는 **응답만 되돌려줄 뿐**, 타임아웃된 스레드는 파이썬
+    구조상 강제종료 수단이 없어 백그라운드에서 계속 메모리를 할당한다. 실측 증가율 —
+    raw(가드 없음) **151.6MB/s** vs guard(가드 있음) **145.8MB/s** →
+    **가드 유무가 메모리 증가에 사실상 차이가 없다.**
+  - **단일 hang SQL 1건만으로 호스트가 마비될 수 있다.** 초당 약 150MB 선형 증가 →
+    3분(170초)이면 **24.87GB**, 5~6분이면 물리메모리(**31.92GB**) 소진. 실제 사고에서
+    터미널(Bun) 프로세스가 메모리 고갈로 세그폴트로 죽었다.
+  - **negative cache 는 방어선이 못 된다.** (a) 프로세스 재시작 시 리셋되고,
+    (b) 키가 `방언+SQL 해시`라 SQL 을 살짝만 변형해도(같은 취지의 다른 이관 SQL 등)
+    매번 새 캐시 키가 되어 우회된다 — 실제 사고가 변형 SQL 3종 연속 제출로 발생했다.
+  - **sqlglot 버전과 무관하다**(30.7.0 / 30.8.0 동일 재현). 근본 원인은 이 저장소의 가드
+    코드가 아니라 **sqlglot 파서 자체의 무한루프 할당 패턴**이다(raw 모드 = 스레드 개입
+    없는 직접 호출에서도 동일하게 폭주).
+  - **위험도 재분류**: 기존 "CPU 열화" 수준 → **"호스트 전체 마비 가능한 메모리 고갈"**
+    수준으로 상향.
+  - 대응 방향(보고서 4가지, 우선순위):
+    1. **파서 진입 전 사전 차단**(보고서 2번) — 값싸고 즉시 적용 가능. 이번에 별도 지침
+       (SQLGLOT-PRE-PARSE-HEURISTIC-BLOCK-FIX)으로 착수.
+    2. **프로세스 격리**(보고서 1번) — 근본 해결이나 비용이 크고 별도 설계 필요.
+    3. **negative cache 정규화 키 확장**(보고서 3번) — 부분 완화(첫 1회 폭주는 여전히 못 막음).
+    4. **sqlglot 버전 상향**(보고서 4번) — 이 결함 자체엔 근본 해결이 아니다. 환경별 버전
+       통일 문제와 별개로 병행할 것.
+  - 부수 발견: 사내 두 파이썬 인터프리터가 **서로 다른 sqlglot 버전**을 쓰고 있다
+    (글로벌 **30.7.0** / `.venv` **30.8.0**) — F29(버전 핀 부재)와 직결된다.
+  - 근거: E:\verify_reports\SQLGLOT-HANG-MEMORY-GROWTH-INCIDENT-URGENT-CHECK.txt
 
 ### S17. ✅ 해결 완료(지침 전제 1건 정정 — 추출부는 이미 AST 기반이었다) — `_reimport_source_needs_wrapping` FP 측 — wrapping 추출 실패 시 정상 단순 SQL 이 HOLD 로 바뀔 수 있다(S7 에서 분리)
 - 해결일: 2026-08-02 (REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX)
