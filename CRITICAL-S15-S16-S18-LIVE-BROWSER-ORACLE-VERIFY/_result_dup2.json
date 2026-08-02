@@ -1,0 +1,228 @@
+{
+  "task": "CRITICAL-S15-S16-S18-LIVE-BROWSER-ORACLE-VERIFY",
+  "case": "dup2",
+  "base": "http://127.0.0.1:8457/",
+  "env": {
+    "MV_BIG": "1",
+    "MV_CASE": "dup2",
+    "MV_EXEC_WAIT": "1500",
+    "MV_AUTH_DISABLED": "1"
+  },
+  "notes": [],
+  "setup": {
+    "pair_rows": 1,
+    "pair_created": true,
+    "connected": true
+  },
+  "s1": {
+    "blocked": false,
+    "err": "",
+    "from_table": "MV_SCATTER50M_SRC",
+    "tgt_table": "MV_SCATTER50M_TGT",
+    "wall_sec": 5.08
+  },
+  "s2": {
+    "count_status": "COUNT_MINOR_DIFF",
+    "src_count": 50000000,
+    "tgt_count": 49500000,
+    "wall_sec": 13.96,
+    "click_count": 2,
+    "force_btn": false
+  },
+  "s3": {
+    "wall_sec": 4.36,
+    "gb": [
+      "STATUS_CD"
+    ],
+    "sum": [
+      "AMT",
+      "QTY"
+    ],
+    "client_collected_at": "2026-08-02T09:48:39.300Z"
+  },
+  "s4_gen": {
+    "exec_btn_ready": true
+  },
+  "dup2": {
+    "execute_req_sent": true,
+    "req_wait_sec": 0.22,
+    "same_button_reclick": {
+      "btn_before": {
+        "disabled": true,
+        "label": "실행 중…",
+        "visible": true
+      },
+      "clicked": false,
+      "execute_after": [],
+      "alerts": [],
+      "dialogs": [
+        "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+        "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+      ]
+    },
+    "concurrent_refire": {
+      "status": 409,
+      "code": "EXECUTION_ALREADY_IN_PROGRESS",
+      "blocked": true,
+      "error": "같은 검증 문맥의 '통계검증 실행' 이(가) 이미 실행 중입니다(2초 경과). 진행 중인 실행이 끝난 뒤 '통계검증 실행' 을(를) 다시 시도하세요.",
+      "running_stage": "execute"
+    },
+    "first_execute": {
+      "status": 200,
+      "matched": 0,
+      "diff": 10,
+      "total_groups": 10,
+      "wall_sec": 11.86
+    },
+    "rerun_after_done": {
+      "status": 200,
+      "code": null,
+      "matched": 0,
+      "diff": 10,
+      "wall_sec": 11.05
+    }
+  },
+  "total_wall_sec": 92.57,
+  "net": [
+    {
+      "t": 35.56,
+      "kind": "req",
+      "path": "/analyze",
+      "method": "POST"
+    },
+    {
+      "t": 38.46,
+      "kind": "resp",
+      "path": "/analyze",
+      "status": 200,
+      "error": null,
+      "success": true
+    },
+    {
+      "t": 43.09,
+      "kind": "req",
+      "path": "/count",
+      "method": "POST"
+    },
+    {
+      "t": 53.68,
+      "kind": "resp",
+      "path": "/count",
+      "status": 200,
+      "processing_ms": 10586.6,
+      "diff": 500000
+    },
+    {
+      "t": 69.18,
+      "kind": "req",
+      "path": "/generate",
+      "method": "POST"
+    },
+    {
+      "t": 69.19,
+      "kind": "resp",
+      "path": "/generate",
+      "status": 200,
+      "processing_ms": 3.9,
+      "success": true
+    },
+    {
+      "t": 71.44,
+      "kind": "req",
+      "path": "/execute",
+      "method": "POST"
+    },
+    {
+      "t": 74.34,
+      "kind": "req",
+      "path": "/execute",
+      "method": "POST"
+    },
+    {
+      "t": 74.34,
+      "kind": "resp",
+      "path": "/execute",
+      "status": 409,
+      "code": "EXECUTION_ALREADY_IN_PROGRESS",
+      "error": "같은 검증 문맥의 '통계검증 실행' 이(가) 이미 실행 중입니다(2초 경과). 진행 중인 실행이 끝난 뒤 '통계검증 실행' 을(를) 다시 시도하세요.",
+      "success": false,
+      "blocked": true
+    },
+    {
+      "t": 80.07,
+      "kind": "resp",
+      "path": "/execute",
+      "status": 200,
+      "processing_ms": 8621.1,
+      "success": true,
+      "matched": 0,
+      "diff": 10,
+      "src_only": 0,
+      "tgt_only": 0,
+      "total_groups": 10,
+      "gs": {
+        "status": "SAFE",
+        "reason": null,
+        "estimate_kind": "EXACT_UPPER_BOUND",
+        "profile_collected_at": "2026-08-02 09:48:39 UTC",
+        "profile_age_seconds": 33.0,
+        "profile_age_source": "SERVER_TOKEN",
+        "profile_max_age_seconds": 1800,
+        "profile_stale": false,
+        "explain_required_by_staleness": false,
+        "detail": "raw 10 · 판정값 10 ≤ 한도 100,000"
+      }
+    },
+    {
+      "t": 80.1,
+      "kind": "req",
+      "path": "/analyze",
+      "method": "POST"
+    },
+    {
+      "t": 80.68,
+      "kind": "resp",
+      "path": "/analyze",
+      "status": 200
+    },
+    {
+      "t": 83.43,
+      "kind": "req",
+      "path": "/execute",
+      "method": "POST"
+    },
+    {
+      "t": 94.31,
+      "kind": "resp",
+      "path": "/execute",
+      "status": 200,
+      "processing_ms": 10864.0,
+      "success": true,
+      "matched": 0,
+      "diff": 10,
+      "src_only": 0,
+      "tgt_only": 0,
+      "total_groups": 10,
+      "gs": {
+        "status": "SAFE",
+        "reason": null,
+        "estimate_kind": "EXACT_UPPER_BOUND",
+        "profile_collected_at": "2026-08-02 09:48:39 UTC",
+        "profile_age_seconds": 45.0,
+        "profile_age_source": "SERVER_TOKEN",
+        "profile_max_age_seconds": 1800,
+        "profile_stale": false,
+        "explain_required_by_staleness": false,
+        "detail": "raw 10 · 판정값 10 ≤ 한도 100,000"
+      }
+    }
+  ],
+  "console_errors": [
+    "[tab1] error: Failed to load resource: the server responded with a status of 409 (Conflict)"
+  ],
+  "pageerrors": [],
+  "dialogs": [
+    "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+    "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+  ]
+}

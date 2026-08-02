@@ -1,0 +1,174 @@
+{
+  "task": "CRITICAL-S15-S16-S18-LIVE-BROWSER-ORACLE-VERIFY",
+  "case": "parse",
+  "base": "http://127.0.0.1:8171/",
+  "env": {
+    "MV_CASE": "parse",
+    "MV_AUTH_DISABLED": "1"
+  },
+  "notes": [],
+  "parse_timeout_config_sec": 15.0,
+  "setup": {
+    "pair_rows": 1,
+    "pair_created": true,
+    "connected": true
+  },
+  "hang": {
+    "raw": {
+      "sql": "SELECT * FROM t WITH x AS (SELECT 1) SELECT * FROM x",
+      "wall_sec_total": 183.59,
+      "wall_sec_from_click": 182.14,
+      "analyze_req_count": 0,
+      "analyze_resp": null,
+      "screen": {
+        "alerts": [],
+        "analyzeOut": null,
+        "mvResultArea": "",
+        "fmtBanner": null,
+        "queryReviewOut": null,
+        "errText": "",
+        "blocked": false
+      }
+    },
+    "insert": {
+      "sql": "INSERT INTO tgt (a) SELECT * FROM t WITH x AS (SELECT 1) SELECT * FROM x",
+      "wall_sec_total": 3.67,
+      "wall_sec_from_click": 2.23,
+      "analyze_req_count": 1,
+      "analyze_resp": {
+        "t": 222.31,
+        "kind": "resp",
+        "path": "/analyze",
+        "status": 200,
+        "error": "SELECT * 확장을 위해 원본 metadata 가 필요합니다. metadata 조회 실패로 컬럼을 확정할 수 없습니다.",
+        "success": false,
+        "blocked": true
+      },
+      "screen": {
+        "alerts": [],
+        "analyzeOut": null,
+        "mvResultArea": null,
+        "fmtBanner": null,
+        "queryReviewOut": null,
+        "errText": "SELECT * 확장을 위해 원본 metadata 가 필요합니다. metadata 조회 실패로 컬럼을 확정할 수 없습니다.",
+        "blocked": true
+      }
+    },
+    "real": {
+      "sql": "INSERT INTO NXDNP.MV_SCATTER_TGT (PK_STR, REGION_CD, SEQ_NO, AMT, QTY, ITEM_NM, STATUS_CD)\nSELECT PK_STR, REGION_CD, SEQ_NO, AMT, QTY, ITEM_NM, STATUS_CD\n  FROM NXDNP.MV_SCATTER_SRC WITH x AS (SELECT 1)\nSELECT PK_STR, REGION_CD, SEQ_NO, AMT, QTY, ITEM_NM, STATUS_CD FROM x",
+      "wall_sec_total": 4.37,
+      "wall_sec_from_click": 2.94,
+      "analyze_req_count": 1,
+      "analyze_resp": {
+        "t": 226.83,
+        "kind": "resp",
+        "path": "/analyze",
+        "status": 200,
+        "error": null,
+        "success": true
+      },
+      "screen": {
+        "alerts": [],
+        "analyzeOut": null,
+        "mvResultArea": null,
+        "fmtBanner": null,
+        "queryReviewOut": null,
+        "errText": "",
+        "blocked": false
+      }
+    }
+  },
+  "after_hang": {
+    "ok": true,
+    "wall_sec": 4.42,
+    "s1": {
+      "blocked": false,
+      "err": "",
+      "from_table": "MV_SCATTER_SRC",
+      "tgt_table": "MV_SCATTER_TGT",
+      "wall_sec": 2.95
+    }
+  },
+  "after_hang2": {
+    "ok": true,
+    "wall_sec": 3.71,
+    "s1": {
+      "blocked": false,
+      "err": "",
+      "from_table": "MV_SCATTER_SRC",
+      "tgt_table": "MV_SCATTER_TGT",
+      "wall_sec": 2.24
+    }
+  },
+  "server_thread_count": 4,
+  "total_wall_sec": 233.38,
+  "net": [
+    {
+      "t": 222.06,
+      "kind": "req",
+      "path": "/analyze",
+      "method": "POST"
+    },
+    {
+      "t": 222.31,
+      "kind": "resp",
+      "path": "/analyze",
+      "status": 200,
+      "error": "SELECT * 확장을 위해 원본 metadata 가 필요합니다. metadata 조회 실패로 컬럼을 확정할 수 없습니다.",
+      "success": false,
+      "blocked": true
+    },
+    {
+      "t": 225.79,
+      "kind": "req",
+      "path": "/analyze",
+      "method": "POST"
+    },
+    {
+      "t": 226.83,
+      "kind": "resp",
+      "path": "/analyze",
+      "status": 200,
+      "error": null,
+      "success": true
+    },
+    {
+      "t": 230.27,
+      "kind": "req",
+      "path": "/analyze",
+      "method": "POST"
+    },
+    {
+      "t": 231.35,
+      "kind": "resp",
+      "path": "/analyze",
+      "status": 200,
+      "error": null,
+      "success": true
+    },
+    {
+      "t": 234.75,
+      "kind": "req",
+      "path": "/analyze",
+      "method": "POST"
+    },
+    {
+      "t": 235.35,
+      "kind": "resp",
+      "path": "/analyze",
+      "status": 200,
+      "error": null,
+      "success": true
+    }
+  ],
+  "console_errors": [],
+  "pageerrors": [],
+  "dialogs": [
+    "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+    "검증 경로 접속 성공: Oracle_asis → Oracle_tobe",
+    "분석 오류: Cannot set properties of null (setting 'innerHTML')",
+    "분석 오류: Cannot set properties of null (setting 'innerHTML')",
+    "분석 오류: Cannot set properties of null (setting 'innerHTML')",
+    "분석 오류: Cannot set properties of null (setting 'innerHTML')"
+  ]
+}

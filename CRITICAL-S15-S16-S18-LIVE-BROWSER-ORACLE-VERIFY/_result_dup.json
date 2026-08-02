@@ -1,0 +1,482 @@
+{
+  "task": "CRITICAL-S15-S16-S18-LIVE-BROWSER-ORACLE-VERIFY",
+  "case": "dup",
+  "base": "http://127.0.0.1:8298/",
+  "env": {
+    "MV_BIG": "1",
+    "MV_CASE": "dup",
+    "MV_EXEC_WAIT": "1500",
+    "MV_AUTH_DISABLED": "1"
+  },
+  "notes": [],
+  "setup": {
+    "pair_rows": 1,
+    "pair_created": true,
+    "connected": true
+  },
+  "s1": {
+    "blocked": false,
+    "err": "",
+    "from_table": "MV_SCATTER50M_SRC",
+    "tgt_table": "MV_SCATTER50M_TGT",
+    "wall_sec": 2.97
+  },
+  "s2": {
+    "count_status": "COUNT_MINOR_DIFF",
+    "src_count": 50000000,
+    "tgt_count": 49500000,
+    "wall_sec": 23.21,
+    "click_count": 2,
+    "force_btn": false
+  },
+  "s3": {
+    "wall_sec": 4.32,
+    "gb": [
+      "STATUS_CD"
+    ],
+    "sum": [
+      "AMT",
+      "QTY"
+    ],
+    "client_collected_at": "2026-08-02T09:42:38.595Z"
+  },
+  "s4_gen": {
+    "exec_btn_ready": true
+  },
+  "setup2": {
+    "sql_input_visible": true,
+    "run_btn": {
+      "disabled": true,
+      "label": "▶ 검증 실행"
+    }
+  },
+  "dup": {
+    "execute_req_sent": false,
+    "execute_req_wait_sec": 30.09,
+    "same_tab": {
+      "clicked": true,
+      "btn_state": {
+        "disabled": false,
+        "label": "▶ 다시 검증 실행",
+        "visible": false
+      },
+      "run_standard_after": [
+        {
+          "t": 135.02,
+          "kind": "req",
+          "path": "/single/run-standard",
+          "method": "POST"
+        }
+      ],
+      "screen_alert": []
+    },
+    "second_tab": {
+      "clicked": false,
+      "btn_state": {
+        "disabled": false,
+        "label": "▶ 검증 실행"
+      },
+      "error": "Locator.click: Timeout 15000ms exceeded.\nCall log:\n  - waiting for locator(\"#runBtn\")\n    - locator resolved to <button id=\"runBtn\" onclick=\"runFullValidation()\" class=\"btn-run mv-btn-primary\" title=\"",
+      "run_standard_resp": {
+        "t": 165.27,
+        "kind": "resp",
+        "path": "/single/run-standard",
+        "status": 200,
+        "error_message": ""
+      },
+      "screen_text": {
+        "alerts": [],
+        "analyzeOut": null,
+        "mvResultArea": null,
+        "bodyHead": "M Migration Validator 데이터 이관 검증 플랫폼 프로젝트 ▸ 데이터 준비 ▸ 검증 실행 ▸ 현황 ▸ 결과 / 진단 ▸ 검증 기준 ▸ 기반정보 / 설정 ▸ 작업 프로젝트 TESTONLY_REG ⌄ 작업 프로젝트 해제 Source DB Oracle_asis [ORACLE] · 접속중 Target DB Oracle_tobe [ORACLE] · 접속중 ♢ 4 ? AD 개별검증 검증 SQL 1건 임시 분석·확인(보조 도구) 1 쿼리검토 현재 2 COUNT 사전검증 잠김 3 후보 컬럼 선정 잠김 4 통계검증 실행 잠김 5 결과 확인 대기중(잠금) 현재 단계: 쿼리검토 · SQL을 입력하고 쿼리분석을 실행하세요. 개별검증은 SQL 1건을 임시로 분석·확인하는 보조 도구입니다. 공식 검증 작업에 포함할 누락 쿼리는 [일괄검증] 메뉴에서 같은 검증 작업명(batch_name)으로 보완 업로드하세요. SQL 입력 입력 내용 지우기 목적지 검증 범위 조건 WHERE 선택 목적지에 기존 데이터가 섞여 있을 때만 입력합니다. 이번 이관분만 검증해야 하는 경우, 목적지 검증 SQL에 추가할 WHERE 조건입니다. 미입력 시 목적지 테이블 전체 기준으로 검증 SQL이 생성될 수 있습니다. ℹ️ 미입력 시 목적지 테이블 전체를 기준으로 검증 SQL이 생성될 수 있습니다. 목적지에 기존 데이터가 포함되어 있다면 이번 이관분만 검증할 수 있도록 조건"
+      }
+    },
+    "first_execute": {
+      "status": 200,
+      "matched": 0,
+      "diff": 10,
+      "total_groups": 10,
+      "wall_sec": 65.62
+    },
+    "rerun_after_done": {
+      "status": null,
+      "matched": null,
+      "diff": null,
+      "code": null,
+      "wall_sec": 17.19
+    }
+  },
+  "total_wall_sec": 186.04,
+  "net": [
+    {
+      "t": 35.3,
+      "kind": "req",
+      "path": "/analyze",
+      "method": "POST"
+    },
+    {
+      "t": 36.41,
+      "kind": "resp",
+      "path": "/analyze",
+      "status": 200,
+      "error": null,
+      "success": true
+    },
+    {
+      "t": 40.69,
+      "kind": "req",
+      "path": "/count",
+      "method": "POST"
+    },
+    {
+      "t": 60.8,
+      "kind": "resp",
+      "path": "/count",
+      "status": 200,
+      "processing_ms": 20099.1,
+      "diff": 500000
+    },
+    {
+      "t": 75.98,
+      "kind": "req",
+      "path": "/generate",
+      "method": "POST"
+    },
+    {
+      "t": 75.99,
+      "kind": "resp",
+      "path": "/generate",
+      "status": 200,
+      "processing_ms": 3.4,
+      "success": true
+    },
+    {
+      "t": 134.99,
+      "kind": "req",
+      "path": "/execute",
+      "method": "POST"
+    },
+    {
+      "t": 135.0,
+      "kind": "req",
+      "path": "/analyze",
+      "method": "POST"
+    },
+    {
+      "t": 134.99,
+      "kind": "resp",
+      "path": "/execute",
+      "status": 200,
+      "processing_ms": 10743.5,
+      "success": true,
+      "matched": 0,
+      "diff": 10,
+      "src_only": 0,
+      "tgt_only": 0,
+      "total_groups": 10,
+      "gs": {
+        "status": "SAFE",
+        "reason": null,
+        "estimate_kind": "EXACT_UPPER_BOUND",
+        "profile_collected_at": "2026-08-02 09:42:38 UTC",
+        "profile_age_seconds": 68.7,
+        "profile_age_source": "SERVER_TOKEN",
+        "profile_max_age_seconds": 1800,
+        "profile_stale": false,
+        "explain_required_by_staleness": false,
+        "detail": "raw 10 · 판정값 10 ≤ 한도 100,000"
+      }
+    },
+    {
+      "t": 135.0,
+      "kind": "resp",
+      "path": "/analyze",
+      "status": 200
+    },
+    {
+      "t": 135.02,
+      "kind": "req",
+      "path": "/single/run-standard",
+      "method": "POST"
+    },
+    {
+      "t": 165.29,
+      "kind": "req",
+      "path": "/agg-diff/prepare",
+      "method": "POST"
+    },
+    {
+      "t": 165.27,
+      "kind": "resp",
+      "path": "/single/run-standard",
+      "status": 200,
+      "error_message": ""
+    },
+    {
+      "t": 166.48,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 166.47,
+      "kind": "resp",
+      "path": "/agg-diff/prepare",
+      "status": 200,
+      "error_message": null
+    },
+    {
+      "t": 166.49,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": 200
+    },
+    {
+      "t": 167.49,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 167.49,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": 200
+    },
+    {
+      "t": 168.5,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 168.51,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": 200
+    },
+    {
+      "t": 169.52,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 169.53,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": 200
+    },
+    {
+      "t": 170.56,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 170.56,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": 200
+    },
+    {
+      "t": 171.58,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 171.58,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": 200
+    },
+    {
+      "t": 172.59,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 172.62,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": 200
+    },
+    {
+      "t": 173.64,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 173.66,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": 200
+    },
+    {
+      "t": 174.67,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 174.69,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": 200
+    },
+    {
+      "t": 175.7,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 175.74,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": 200
+    },
+    {
+      "t": 176.75,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 176.77,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": 200
+    },
+    {
+      "t": 177.78,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 177.79,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": 200
+    },
+    {
+      "t": 178.81,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 178.83,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": 200
+    },
+    {
+      "t": 179.83,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 179.85,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": 200
+    },
+    {
+      "t": 180.86,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 180.88,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": 200
+    },
+    {
+      "t": 181.89,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 181.91,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": 200
+    },
+    {
+      "t": 182.93,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 182.94,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": 200
+    },
+    {
+      "t": 183.96,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 183.98,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": 200
+    },
+    {
+      "t": 184.99,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 185.01,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": 200
+    },
+    {
+      "t": 186.02,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 186.04,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": 200
+    },
+    {
+      "t": 187.05,
+      "kind": "req",
+      "path": "/agg-diff/pk-records",
+      "method": "GET"
+    },
+    {
+      "t": 187.06,
+      "kind": "resp",
+      "path": "/agg-diff/pk-records",
+      "status": 200
+    }
+  ],
+  "console_errors": [],
+  "pageerrors": [],
+  "dialogs": [
+    "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+    "검증 경로 접속 성공: Oracle_asis → Oracle_tobe",
+    "이전 요청 응답이 지연되어 버튼 잠금을 해제했습니다. 아직 완료되지 않았다면 잠시 후 다시 시도해 주세요."
+  ]
+}

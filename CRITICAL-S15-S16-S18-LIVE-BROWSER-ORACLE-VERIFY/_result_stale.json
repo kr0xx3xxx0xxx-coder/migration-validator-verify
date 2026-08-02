@@ -1,0 +1,292 @@
+{
+  "task": "CRITICAL-S15-S16-S18-LIVE-BROWSER-ORACLE-VERIFY",
+  "case": "stale",
+  "base": "http://127.0.0.1:8260/",
+  "env": {
+    "MV_CASE": "stale",
+    "MV_GROUPBY_PROFILE_MAX_AGE_SECONDS": "5",
+    "MV_AUTH_DISABLED": "1"
+  },
+  "notes": [],
+  "setup": {
+    "pair_rows": 1,
+    "pair_created": true,
+    "connected": true
+  },
+  "s1": {
+    "blocked": false,
+    "err": "",
+    "from_table": "MV_SCATTER_SRC",
+    "tgt_table": "MV_SCATTER_TGT",
+    "wall_sec": 2.95
+  },
+  "s2": {
+    "count_status": "COUNT_MINOR_DIFF",
+    "src_count": 1000000,
+    "tgt_count": 990000,
+    "wall_sec": 3.96,
+    "click_count": 2,
+    "force_btn": false
+  },
+  "s3": {
+    "wall_sec": 4.31,
+    "gb": [
+      "STATUS_CD"
+    ],
+    "sum": [
+      "AMT",
+      "QTY"
+    ],
+    "client_collected_at": "2026-08-02T09:40:59.366Z"
+  },
+  "s4_gen": {
+    "exec_btn_ready": true
+  },
+  "s4_exec": {
+    "exec_wall_sec": 3.24,
+    "execute_status": 200,
+    "gs": {
+      "status": "SAFE",
+      "reason": null,
+      "estimate_kind": "EXACT",
+      "profile_collected_at": "2026-08-02 09:40:59 UTC",
+      "profile_age_seconds": 23.0,
+      "profile_age_source": "SERVER_TOKEN",
+      "profile_max_age_seconds": 5,
+      "profile_stale": true,
+      "explain_required_by_staleness": true,
+      "detail": "raw 10 · 판정값 10 ≤ 한도 100,000 · 후보 프로파일 경과 23초 > 허용 5초 → EXPLAIN 확인 강제"
+    },
+    "matched": 0,
+    "diff": 10,
+    "total_groups": 10,
+    "processing_ms": 634.4
+  },
+  "basis": {
+    "stage4": {
+      "found": 1,
+      "cards": [
+        {
+          "idx": 0,
+          "parent_id": "singleResultSummary",
+          "text": "실행 기준GROUP BY 1 · STATUS_CDSUM 2 · AMT, QTY그룹 예상 최대 10 · 생성 10 · 화면 표시 10후보 프로파일 경과 23초 (서버 기록) — 허용 0분 초과 → EXPLAIN 확인 강제",
+          "html_has_age": true,
+          "visible": false,
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "color": "rgb(51, 65, 85)",
+          "font_size": "12.8px",
+          "rect": {
+            "w": 0,
+            "h": 0,
+            "top": 0
+          },
+          "age_lines": [
+            {
+              "tag": "DIV",
+              "text": "후보 프로파일 경과 23초 (서버 기록) — 허용 0분 초과 → EXPLAIN 확인 강제",
+              "color": "rgb(51, 65, 85)",
+              "font_weight": "400",
+              "display": "block",
+              "visibility": "visible",
+              "opacity": "1",
+              "visible": false,
+              "rect": {
+                "w": 0,
+                "h": 0
+              },
+              "has_stale_phrase": true
+            },
+            {
+              "tag": "SPAN",
+              "text": "후보 프로파일 경과 23초 (서버 기록) — 허용 0분 초과 → EXPLAIN 확인 강제",
+              "color": "rgb(180, 83, 9)",
+              "font_weight": "600",
+              "display": "inline",
+              "visibility": "visible",
+              "opacity": "1",
+              "visible": false,
+              "rect": {
+                "w": 0,
+                "h": 0
+              },
+              "has_stale_phrase": true
+            }
+          ]
+        }
+      ],
+      "client_gs": {
+        "status": "SAFE",
+        "profile_age_seconds": 23,
+        "profile_age_source": "SERVER_TOKEN",
+        "profile_max_age_seconds": 5,
+        "profile_stale": true,
+        "explain_required_by_staleness": true,
+        "estimate_kind": "EXACT",
+        "detail": "raw 10 · 판정값 10 ≤ 한도 100,000 · 후보 프로파일 경과 23초 > 허용 5초 → EXPLAIN 확인 강제"
+      }
+    },
+    "stage5": {
+      "found": 1,
+      "cards": [
+        {
+          "idx": 0,
+          "parent_id": "singleResultSummary",
+          "text": "실행 기준 GROUP BY 1 · STATUS_CD SUM 2 · AMT, QTY 그룹 예상 최대 10 · 생성 10 · 화면 표시 10 후보 프로파일 경과 23초 (서버 기록) — 허용 0분 초과 → EXPLAIN 확인 강제",
+          "html_has_age": true,
+          "visible": true,
+          "display": "block",
+          "visibility": "visible",
+          "opacity": "1",
+          "color": "rgb(51, 65, 85)",
+          "font_size": "12.8px",
+          "rect": {
+            "w": 1222,
+            "h": 123,
+            "top": 759
+          },
+          "age_lines": [
+            {
+              "tag": "DIV",
+              "text": "후보 프로파일 경과 23초 (서버 기록) — 허용 0분 초과 → EXPLAIN 확인 강제",
+              "color": "rgb(51, 65, 85)",
+              "font_weight": "400",
+              "display": "block",
+              "visibility": "visible",
+              "opacity": "1",
+              "visible": true,
+              "rect": {
+                "w": 1196,
+                "h": 21
+              },
+              "has_stale_phrase": true
+            },
+            {
+              "tag": "SPAN",
+              "text": "후보 프로파일 경과 23초 (서버 기록) — 허용 0분 초과 → EXPLAIN 확인 강제",
+              "color": "rgb(180, 83, 9)",
+              "font_weight": "600",
+              "display": "inline",
+              "visibility": "visible",
+              "opacity": "1",
+              "visible": true,
+              "rect": {
+                "w": 416,
+                "h": 19
+              },
+              "has_stale_phrase": true
+            }
+          ]
+        }
+      ],
+      "client_gs": {
+        "status": "SAFE",
+        "profile_age_seconds": 23,
+        "profile_age_source": "SERVER_TOKEN",
+        "profile_max_age_seconds": 5,
+        "profile_stale": true,
+        "explain_required_by_staleness": true,
+        "estimate_kind": "EXACT",
+        "detail": "raw 10 · 판정값 10 ≤ 한도 100,000 · 후보 프로파일 경과 23초 > 허용 5초 → EXPLAIN 확인 강제"
+      }
+    }
+  },
+  "s5": {
+    "view": "result"
+  },
+  "total_wall_sec": 65.34,
+  "net": [
+    {
+      "t": 35.51,
+      "kind": "req",
+      "path": "/analyze",
+      "method": "POST"
+    },
+    {
+      "t": 36.51,
+      "kind": "resp",
+      "path": "/analyze",
+      "status": 200,
+      "error": null,
+      "success": true
+    },
+    {
+      "t": 40.97,
+      "kind": "req",
+      "path": "/count",
+      "method": "POST"
+    },
+    {
+      "t": 41.14,
+      "kind": "resp",
+      "path": "/count",
+      "status": 200,
+      "processing_ms": 165.7,
+      "diff": 10000
+    },
+    {
+      "t": 57.22,
+      "kind": "req",
+      "path": "/generate",
+      "method": "POST"
+    },
+    {
+      "t": 57.23,
+      "kind": "resp",
+      "path": "/generate",
+      "status": 200,
+      "processing_ms": 3.1,
+      "success": true
+    },
+    {
+      "t": 59.54,
+      "kind": "req",
+      "path": "/execute",
+      "method": "POST"
+    },
+    {
+      "t": 60.19,
+      "kind": "resp",
+      "path": "/execute",
+      "status": 200,
+      "processing_ms": 634.4,
+      "success": true,
+      "matched": 0,
+      "diff": 10,
+      "src_only": 0,
+      "tgt_only": 0,
+      "total_groups": 10,
+      "gs": {
+        "status": "SAFE",
+        "reason": null,
+        "estimate_kind": "EXACT",
+        "profile_collected_at": "2026-08-02 09:40:59 UTC",
+        "profile_age_seconds": 23.0,
+        "profile_age_source": "SERVER_TOKEN",
+        "profile_max_age_seconds": 5,
+        "profile_stale": true,
+        "explain_required_by_staleness": true,
+        "detail": "raw 10 · 판정값 10 ≤ 한도 100,000 · 후보 프로파일 경과 23초 > 허용 5초 → EXPLAIN 확인 강제"
+      }
+    },
+    {
+      "t": 60.22,
+      "kind": "req",
+      "path": "/analyze",
+      "method": "POST"
+    },
+    {
+      "t": 60.33,
+      "kind": "resp",
+      "path": "/analyze",
+      "status": 200
+    }
+  ],
+  "console_errors": [],
+  "pageerrors": [],
+  "dialogs": [
+    "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+    "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+  ]
+}
