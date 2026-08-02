@@ -1,0 +1,93 @@
+{
+  "task": "SQLGLOT-HANG-MEMORY-GROWTH-INCIDENT-URGENT-CHECK",
+  "hang_sql": "SELECT * FROM t WITH x AS (SELECT 1) SELECT * FROM x",
+  "results": {
+    "multi": {
+      "mode": "multi",
+      "samples": [
+        {
+          "t": 0.0,
+          "ws_mb": 76.5,
+          "private_mb": 67.8,
+          "threads": 8
+        },
+        {
+          "t": 2.6,
+          "ws_mb": 472.7,
+          "private_mb": 464.3,
+          "threads": 8
+        },
+        {
+          "t": 5.2,
+          "ws_mb": 885.4,
+          "private_mb": 878.8,
+          "threads": 9
+        },
+        {
+          "t": 7.8,
+          "ws_mb": 1314.2,
+          "private_mb": 1308.2,
+          "threads": 9
+        },
+        {
+          "t": 10.4,
+          "ws_mb": 1741.1,
+          "private_mb": 1737.4,
+          "threads": 10
+        },
+        {
+          "t": 13.0,
+          "ws_mb": 2178.1,
+          "private_mb": 2174.5,
+          "threads": 10
+        },
+        {
+          "t": 15.6,
+          "ws_mb": 2631.5,
+          "private_mb": 2628.7,
+          "threads": 10
+        },
+        {
+          "t": 18.1,
+          "ws_mb": 3074.4,
+          "private_mb": 3071.8,
+          "threads": 10
+        },
+        {
+          "t": 20.8,
+          "ws_mb": 3488.4,
+          "private_mb": 3488.2,
+          "threads": 10
+        },
+        {
+          "t": 23.3,
+          "ws_mb": 3836.2,
+          "private_mb": 3836.9,
+          "threads": 10
+        },
+        {
+          "t": 25.9,
+          "ws_mb": 4321.0,
+          "private_mb": 4322.2,
+          "threads": 10
+        }
+      ],
+      "killed": true,
+      "kill_reason": "메모리 상한(4096MB) 초과 — 즉시 종료",
+      "child_stdout": [
+        "CHILD_READY sqlglot=30.8.0",
+        "CHILD_GUARD_TIMEOUT abandoned=1",
+        "CHILD_ALIVE_THREADS=2",
+        "CHILD_MULTI abandoned=2 threads=3",
+        "CHILD_MULTI abandoned=3 threads=4"
+      ],
+      "observe_sec": 45.0,
+      "mem_limit_mb": 4096.0,
+      "child_alive_after": false,
+      "growth_mb_per_sec": 164.26,
+      "private_delta_mb": 4254.4,
+      "projected_34min_gb": 327.24
+    }
+  },
+  "sqlglot_version": "30.8.0"
+}

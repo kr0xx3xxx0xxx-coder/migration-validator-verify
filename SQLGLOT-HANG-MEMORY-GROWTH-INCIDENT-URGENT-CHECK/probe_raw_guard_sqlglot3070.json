@@ -1,0 +1,113 @@
+{
+  "task": "SQLGLOT-HANG-MEMORY-GROWTH-INCIDENT-URGENT-CHECK",
+  "hang_sql": "SELECT * FROM t WITH x AS (SELECT 1) SELECT * FROM x",
+  "results": {
+    "raw": {
+      "mode": "raw",
+      "samples": [
+        {
+          "t": 0.0,
+          "ws_mb": 63.7,
+          "private_mb": 58.9,
+          "threads": 4
+        },
+        {
+          "t": 5.5,
+          "ws_mb": 913.1,
+          "private_mb": 910.3,
+          "threads": 4
+        },
+        {
+          "t": 11.1,
+          "ws_mb": 1771.1,
+          "private_mb": 1771.3,
+          "threads": 4
+        },
+        {
+          "t": 16.6,
+          "ws_mb": 2659.4,
+          "private_mb": 2660.5,
+          "threads": 4
+        },
+        {
+          "t": 22.1,
+          "ws_mb": 3475.9,
+          "private_mb": 3480.9,
+          "threads": 4
+        },
+        {
+          "t": 27.6,
+          "ws_mb": 4308.4,
+          "private_mb": 4312.8,
+          "threads": 4
+        }
+      ],
+      "killed": true,
+      "kill_reason": "메모리 상한(4096MB) 초과 — 즉시 종료",
+      "child_stdout": [
+        "CHILD_READY sqlglot=30.7.0"
+      ],
+      "observe_sec": 30.0,
+      "mem_limit_mb": 4096.0,
+      "child_alive_after": false,
+      "growth_mb_per_sec": 154.13,
+      "private_delta_mb": 4253.9,
+      "projected_34min_gb": 307.06
+    },
+    "guard": {
+      "mode": "guard",
+      "samples": [
+        {
+          "t": 0.0,
+          "ws_mb": 64.8,
+          "private_mb": 58.6,
+          "threads": 5
+        },
+        {
+          "t": 5.5,
+          "ws_mb": 886.9,
+          "private_mb": 882.1,
+          "threads": 5
+        },
+        {
+          "t": 11.1,
+          "ws_mb": 1733.9,
+          "private_mb": 1731.3,
+          "threads": 5
+        },
+        {
+          "t": 16.6,
+          "ws_mb": 2562.5,
+          "private_mb": 2561.6,
+          "threads": 5
+        },
+        {
+          "t": 22.1,
+          "ws_mb": 3389.0,
+          "private_mb": 3389.1,
+          "threads": 5
+        },
+        {
+          "t": 27.6,
+          "ws_mb": 4185.3,
+          "private_mb": 4187.2,
+          "threads": 5
+        }
+      ],
+      "killed": true,
+      "kill_reason": "메모리 상한(4096MB) 초과 — 즉시 종료",
+      "child_stdout": [
+        "CHILD_READY sqlglot=30.7.0",
+        "CHILD_GUARD_TIMEOUT abandoned=1",
+        "CHILD_ALIVE_THREADS=2"
+      ],
+      "observe_sec": 30.0,
+      "mem_limit_mb": 4096.0,
+      "child_alive_after": false,
+      "growth_mb_per_sec": 149.59,
+      "private_delta_mb": 4128.6,
+      "projected_34min_gb": 298.01
+    }
+  },
+  "sqlglot_version": "30.7.0"
+}
