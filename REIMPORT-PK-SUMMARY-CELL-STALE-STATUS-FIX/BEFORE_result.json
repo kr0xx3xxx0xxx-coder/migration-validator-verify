@@ -1,0 +1,127 @@
+{
+  "C1_PREPARING_TRUE": {
+    "srvStatus": "EARLY_STOPPED",
+    "srvEarly": true,
+    "srvMissing": 0,
+    "srvValue": 101,
+    "srvStored": 101,
+    "srvTotal": 101,
+    "hasAdoptFn": false,
+    "fed": null,
+    "before": {
+      "tag": "렌더 직후",
+      "cellText": "준비 중",
+      "cellTitle": "",
+      "cellColor": "rgb(16, 35, 63)",
+      "topText": "준비 중",
+      "topTitle": ""
+    },
+    "after": {
+      "tag": "폴링 콜백 이후",
+      "cellText": "준비 중",
+      "cellTitle": "",
+      "cellColor": "rgb(16, 35, 63)",
+      "topText": "준비 중",
+      "topTitle": ""
+    },
+    "case": "C1_PREPARING_TRUE",
+    "expect": "진짜 준비 중(prepare 응답 전) — '준비 중' 유지가 정답"
+  },
+  "C2_PREPARING_POLL": {
+    "srvStatus": "EARLY_STOPPED",
+    "srvEarly": true,
+    "srvMissing": 0,
+    "srvValue": 101,
+    "srvStored": 101,
+    "srvTotal": 101,
+    "hasAdoptFn": false,
+    "fed": {
+      "status": "PREPARING",
+      "note": "구성 payload(서버 확정 응답에서 status 만 PREPARING 으로 되돌림)"
+    },
+    "before": {
+      "tag": "렌더 직후",
+      "cellText": "준비 중",
+      "cellTitle": "",
+      "cellColor": "rgb(16, 35, 63)",
+      "topText": "준비 중",
+      "topTitle": ""
+    },
+    "after": {
+      "tag": "폴링 콜백 이후",
+      "cellText": "준비 중",
+      "cellTitle": "",
+      "cellColor": "rgb(16, 35, 63)",
+      "topText": "준비 중",
+      "topTitle": ""
+    },
+    "case": "C2_PREPARING_POLL",
+    "expect": "폴링 진행 중(PREPARING) — '준비 중' 유지가 정답"
+  },
+  "C3_EARLY_STOPPED": {
+    "srvStatus": "EARLY_STOPPED",
+    "srvEarly": true,
+    "srvMissing": 0,
+    "srvValue": 101,
+    "srvStored": 101,
+    "srvTotal": 101,
+    "hasAdoptFn": false,
+    "fed": {
+      "status": "EARLY_STOPPED",
+      "early_stopped": true,
+      "missing_migration": 0,
+      "value_mismatch": 101
+    },
+    "before": {
+      "tag": "렌더 직후",
+      "cellText": "준비 중",
+      "cellTitle": "",
+      "cellColor": "rgb(16, 35, 63)",
+      "topText": "준비 중",
+      "topTitle": ""
+    },
+    "after": {
+      "tag": "폴링 콜백 이후",
+      "cellText": "준비 중",
+      "cellTitle": "",
+      "cellColor": "rgb(16, 35, 63)",
+      "topText": "준비 중",
+      "topTitle": ""
+    },
+    "case": "C3_EARLY_STOPPED",
+    "expect": "서버 EARLY_STOPPED 확정 — 실제 저장 건수 + 하한 표기가 정답"
+  },
+  "C4_READY_OK": {
+    "srvStatus": "READY",
+    "srvEarly": false,
+    "srvMissing": 0,
+    "srvValue": 50,
+    "srvStored": 50,
+    "srvTotal": 50,
+    "hasAdoptFn": false,
+    "fed": {
+      "status": "READY",
+      "early_stopped": false,
+      "missing_migration": 0,
+      "value_mismatch": 50
+    },
+    "before": {
+      "tag": "렌더 직후",
+      "cellText": "준비 중",
+      "cellTitle": "",
+      "cellColor": "rgb(16, 35, 63)",
+      "topText": "준비 중",
+      "topTitle": ""
+    },
+    "after": {
+      "tag": "폴링 콜백 이후",
+      "cellText": "준비 중",
+      "cellTitle": "",
+      "cellColor": "rgb(16, 35, 63)",
+      "topText": "준비 중",
+      "topTitle": ""
+    },
+    "case": "C4_READY_OK",
+    "expect": "정상 READY 확정 — 기존과 동일 표기여야 함(무회귀)"
+  }
+}

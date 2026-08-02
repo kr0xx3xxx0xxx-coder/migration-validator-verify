@@ -1,0 +1,168 @@
+작업명 : REIMPORT-PK-SUMMARY-CELL-STALE-STATUS-FIX
+작성일 : 2026-08-02
+커밋   : 3dfafaa (main)
+수정   : ui/tabler_renderer.py 1개 파일
+증적   : E:\verify_screenshots_only\REIMPORT-PK-SUMMARY-CELL-STALE-STATUS-FIX\
+
+
+────────────────────────────────────────────────────────────────────────
+1. 배경과 문제
+────────────────────────────────────────────────────────────────────────
+백로그 F17. 서버가 EARLY_STOPPED(ready=true, 저장 완료)로 응답한 뒤에도 화면의
+#mvPkSummaryCell(요약표 '재이관 PK' 셀) / #execPkTotal(결과표 상단 요약)이 '준비 중'에
+고정된다. 실제 저장 건수는 드릴다운/Excel 로만 확인 가능했다.
+근거: E:\verify_reports\LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE.txt §5-이상2
+      (6종 측정 전부 재현)
+
+같은 화면 안에서 서로 모순된 두 표시가 동시에 떠 있었다.
+  · 5단계 요약 카드   : "재이관 대상 101건 이상 [조기 중단]" + "표시(저장)분 기준 하한"
+  · 요약표 재이관 PK 셀: "준비 중"
+  · 결과표 상단 요약   : "재이관 대상 준비 중"
+
+
+────────────────────────────────────────────────────────────────────────
+2. 원인 규명 (지침 요구사항 1 — '상태 미갱신' vs '재렌더 누락' 구분)
+────────────────────────────────────────────────────────────────────────
+결론: **상태 자체가 안 바뀌었다.** 재렌더 호출 누락도 동시에 있었다(둘 다).
+
+  ① 전역 상태 window._mvPkState.resp 는 /agg-diff/prepare 응답이다.
+     원본 5만행 초과(stream 준비) 경로에서 prepare 는 status=PREPARING 으로만 응답하고,
+     완료(READY / EARLY_STOPPED)는 오직 /agg-diff/pk-records 폴링 응답으로만 온다.
+     그런데 그 폴링 payload 는 _mvPkState 에 **한 번도 반영되지 않는다** → resp.status 는
+     끝까지 PREPARING. (측정 보고서의 "화면 전역 상태는 status=PREPARING" 이 이것이다.)
+
+  ② _mvUpdatePkSummaryCell() 은 READY / HOLD / promise 세 갈래뿐이라 EARLY_STOPPED 는
+     어느 분기에도 걸리지 않았고, 애초에 폴링 경로에서 **호출되지도 않았다**
+     (호출처는 prewarm 2곳과 _mvRenderResultGrid 1곳뿐).
+
+부수 확인(보고서보다 넓은 범위): BEFORE 실측 C4 를 보면 **정상 READY(50건) 케이스도 똑같이
+'준비 중'에 고착**된다. 즉 이 결함은 EARLY_STOPPED 고유가 아니라 '완료가 폴링으로 도착하는
+모든 경우'에 발생한다. 보고서가 조기중단에서만 관측한 것은 그 측정이 전부 stream 경로였기 때문이다.
+
+
+────────────────────────────────────────────────────────────────────────
+3. 수정 내용 (ui/tabler_renderer.py)
+────────────────────────────────────────────────────────────────────────
+(1) _mvPkAdoptDetail(d) 신규 — 상세비교 확정 응답을 요약 셀의 표시 근거로 '채택'만 한다.
+    · 확정(READY / EARLY_STOPPED*)만 채택. PREPARING·CANCEL_REQUESTED·PAUSED 등 진행 중
+      상태는 채택하지 않는다 → '준비 중' 유지(요구사항 4).
+    · 표본 조기중단(EARLY_STOPPED_HIGH_MISMATCH_ESTIMATE)은 전체 재이관 건수를 아예 구하지
+      않은 상태(대표 표본만 저장)라 건수를 단정하지 않고 기존 표시를 그대로 둔다.
+    · 채택값은 window._mvPkState.detail 에 매단다 → 기존 무효화 경로(재실행/재개/복구/
+      세션 리셋에서 _mvPkState = null)가 그대로 stale 을 제거한다(새 무효화 규칙 없음).
+
+(2) 호출 배선 — 요약 카드(_mvRiSummaryHtml)를 그리는 바로 그 두 지점에서 같은 payload 로 호출.
+    · _mvRiApplyProgress(d) : 폴링이 확정 상태를 받는 지점(= 화면이 서버 완료를 처음 아는 곳)
+    · _mvRiApply(d, ...)    : 최종 1회 렌더·재조회·복원 경로
+    카드와 셀이 서로 다른 시점의 상태를 보이는 일이 구조적으로 없어진다.
+
+(3) 표시 값 — 새 계산 로직 없음(요구사항 2).
+    건수 = missing_migration + value_mismatch (요약 카드·드릴다운·Excel 이 이미 쓰는 값 그대로)
+    조기중단 판정 = mismatch_limit_stopped || early_stopped || status.startsWith('EARLY_STOPPED')
+                   (P10 이 쓰는 _esUncertain 식 그대로)
+
+(4) 어휘 — P10 것을 그대로 재사용(요구사항 3, 새 용어 없음).
+    · 접미사   : 조기중단이면 '건' 이 아니라 '건 이상'
+    · 보조 문구: '조기중단 · 표시(저장)분 기준 하한'
+    · tooltip  : '수집이 조기중단되어 이 건수는 표시(저장)분 기준 하한입니다 — 실제는 그
+                 이상이며 정확한 총수는 확인하지 않았습니다.'
+    정상 케이스는 uncertain=false 라 접미사 '건' + 보조문구/ tooltip 없음 = 기존과 동일.
+
+(5) 부수 정리 — #mvPkSummaryCell 이 없을 때 즉시 return 하던 코드를 고쳐 #execPkTotal 은
+    독립적으로 갱신되게 했다(두 표시가 같은 값 하나에서 나온다는 §12 규칙 유지).
+
+
+────────────────────────────────────────────────────────────────────────
+4. 실측 검증 (브라우저 · before/after 별도 서버 프로세스)
+────────────────────────────────────────────────────────────────────────
+하니스 : scripts/dev_e2e/reimport_pk_summary_cell_stale_status_verify.py (신규)
+서버   : scripts/dev_e2e/_f17_server.py (신규) — BEFORE=8211(git worktree @469de98), AFTER=8210(main)
+픽스처 : scripts/dev_e2e/p10_summary_count_disambiguation_fixture.py 재사용(지침대로)
+         P10_ES_MULTI(조기중단 · 참값 10,000 / 저장 101) · P10_OK_MULTI(정상 · 참값 50 / 저장 50)
+
+재현 경로는 제품 코드를 그대로 탄다 — prepare 는 PREPARING 으로만 응답한 상태로 두고,
+서버 실제 /agg-diff/pk-records 응답을 제품 폴링 콜백 _mvRiApplyProgress(d) 에 그대로 넣는다
+(폴링 타이머만 생략, 콜백·렌더 함수는 동일). 요약표 1행은 제품 함수 _mvRenderResultGrid 로 그린다.
+
+┌──────────────────────┬──────────────────┬────────────────────────────────────────────┐
+│ 케이스                │ BEFORE           │ AFTER                                      │
+├──────────────────────┼──────────────────┼────────────────────────────────────────────┤
+│ C1 prepare 응답 전     │ 준비 중 / 준비 중 │ 준비 중 / 준비 중            (무회귀 OK)     │
+│ C2 폴링 PREPARING     │ 준비 중 / 준비 중 │ 준비 중 / 준비 중            (무회귀 OK)     │
+│ C3 EARLY_STOPPED      │ 준비 중 / 준비 중 │ 101건 이상 / 101건 이상       (수정 확인)    │
+│    (서버 저장 101건)   │  ← 고착 재현      │  + '조기중단 · 표시(저장)분 기준 하한'        │
+│                      │                  │  + tooltip · 색 rgb(194,65,12)              │
+│ C4 READY 정상         │ 준비 중 / 준비 중 │ 50건 / 50건                  (수정 확인)     │
+│    (서버 저장 50건)    │  ← 정상도 고착    │  접미사 '건' · 보조문구/ tooltip 없음         │
+└──────────────────────┴──────────────────┴────────────────────────────────────────────┘
+   표기는 "#mvPkSummaryCell / #execPkTotal".
+
+서버 응답값(양쪽 동일 · 조작 없음):
+  P10_ES_MULTI : status=EARLY_STOPPED, early_stopped=true, missing=0, value=101, 저장=101
+  P10_OK_MULTI : status=READY,         early_stopped=false, missing=0, value=50,  저장=50
+  → AFTER 표시 101 / 50 은 서버 저장 건수와 정확히 일치(드릴다운·Excel 과 같은 값).
+
+스크린샷(각 케이스 before/after 8장) — 위 증적 폴더:
+  BEFORE_C1..C4_*.png / AFTER_C1..C4_*.png, 원시 측정값 BEFORE_result.json / AFTER_result.json
+
+
+────────────────────────────────────────────────────────────────────────
+5. 오늘 완료된 다른 5단계 기능과의 상호작용
+────────────────────────────────────────────────────────────────────────
+· P10 하한표기      : 같은 문구·같은 판정식을 재사용 — AFTER_C3 스크린샷에서 요약 카드의
+                      "재이관 대상 101건 이상 [조기 중단] / 표시(저장)분 기준 하한" 과
+                      셀의 "101건 이상 / 조기중단 · 표시(저장)분 기준 하한" 이 일치한다.
+· STAGE5-M9 문구    : 카드의 '행 레코드 기준' 안내, 요약표 헤더의 '집계 그룹 기준' 꼬리표 모두
+                      그대로 렌더됨(스크린샷 확인). 건드리지 않았다.
+· 표시 등급 D1~D4   : D4 배너 '표시 등급 D4 · 요약 전용' 정상 표시(스크린샷 확인).
+· 처리시간 라벨      : '상세 불일치 처리 총 소요시간' 줄 정상(스크린샷 확인).
+· 스냅백/무효화      : 채택값을 _mvPkState 에 매달았으므로 기존 무효화 6곳
+                      (_mvPkState = null/{})이 그대로 지운다 — 새 run 에 이전 건수가 남지 않는다.
+· 트리병합/캐시      : 드릴다운·페이지 캐시 경로는 손대지 않았다(진입점 추가 2줄뿐).
+
+
+────────────────────────────────────────────────────────────────────────
+6. 회귀 확인
+────────────────────────────────────────────────────────────────────────
+(a) CLAUDE.md 필수
+    python samples/test_virtual_cases.py  → 8/8 통과
+    python samples/test_complex_cases.py  → 5/5 케이스 분석 완료
+
+(b) 관련 서브셋 8파일 (baseline 동일 명령 대조)
+    AFTER  : 3 failed, 71 passed, 5 xfailed
+    BEFORE : 3 failed, 71 passed, 5 xfailed   → 완전 동일(신규 회귀 0)
+    실패 3건(양쪽 동일 · 사전 존재):
+      tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+      tests/test_d7_8_inline_drill_time.py::test_ui_advanced_perf_position_and_title
+      tests/test_ui_tab4_tab5_separation.py::test_target_only_display
+
+(c) 광역 UI 스위트 286파일(tabler_renderer / mvRi / mvPk 참조 전부)
+    AFTER  : 162 failed, 3138 passed, 12 skipped, 23 xfailed, 11 errors (24분 30초)
+    BEFORE : 162 failed, 3132 passed, 19 skipped, 22 xfailed, 10 errors (23분 35초)
+    실패 항목 집합 차이 7건 — 전부 환경/순서 요인으로 확인:
+      · AFTER 에만 FAILED 1건
+        tests/test_candidate_plan_matrix.py::test_null_vs_empty_selection_contract
+        → LIVE PostgreSQL 게이트 테스트. worktree 에는 db_presets_*.json 이 없어 skip 되고,
+          main 에서는 실행되어 Neon PG 접속 불가로 실패한다(문서화된 worktree 혼동 사례).
+          단독 재현 확인: AFTER=fail(라이브 PG 미가용), BEFORE=skip(프리셋 없음).
+      · 나머지 6건은 ERROR(수집/teardown)이며 before/after 에서 서로 다른 항목이 번갈아 발생.
+        단독 재현 시 PROD-DB-WRITE-BLOCKED 가드 및 localhost:5432 접속 거부가 원인으로,
+        코드 변경과 무관한 환경 요인이다.
+    전체 실패 목록 원본: 증적 폴더 AFTER_failed_tests.txt / BEFORE_failed_tests.txt
+
+(d) JS 번들 파싱 — 렌더된 페이지의 script 블록 4개 전부 node --check 통과.
+
+
+────────────────────────────────────────────────────────────────────────
+7. 남은 한계 (정직 고지)
+────────────────────────────────────────────────────────────────────────
+· 표본 조기중단(EARLY_STOPPED_HIGH_MISMATCH_ESTIMATE)에서는 요약 셀이 여전히 '준비 중'으로
+  남는다. 그 상태는 전체 재이관 건수를 아예 구하지 않으므로(대표 표본만 저장) 건수를 표시하면
+  거짓이 된다 — 의도적으로 채택하지 않았다. 별도 문구가 필요하면 후속 작업 대상이다.
+· 이번 수정은 표시 계층만 바꾼다. 백로그 F17 과 별개인 P6(대량 run 에서 '준비 중'이 오래
+  유지됨 — 서버가 아직 실제로 준비 중인 경우)와 §5-이상1(수집 상한 101 · HARD CAP 500)은
+  그대로다. 수집 상한·판정·저장 로직은 한 줄도 건드리지 않았다.
+· 실측은 P10 픽스처(실 DB 접속 없이 영속 store 에 적재한 run)로 수행했다. 실 DB 라이브 run
+  으로는 재확인하지 않았다 — 현재 PostgreSQL 전 노드 사용 불가.
+
+실검증 상태 : 브라우저 실측 완료(제품 렌더·폴링 콜백 경유, 서버 실제 응답 사용) · 실 DB 라이브 run 미수행
