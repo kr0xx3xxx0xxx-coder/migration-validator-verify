@@ -95,7 +95,23 @@ git -C E:/verify_reports worktree remove <임시경로>
 
 ## 심각(정합성·안전) — 최우선
 
-### S17. `_reimport_source_needs_wrapping` FP 측 — wrapping 추출 실패 시 정상 단순 SQL 이 HOLD 로 바뀔 수 있다(S7 에서 분리)
+### S17. ✅ 해결 완료(지침 전제 1건 정정 — 추출부는 이미 AST 기반이었다) — `_reimport_source_needs_wrapping` FP 측 — wrapping 추출 실패 시 정상 단순 SQL 이 HOLD 로 바뀔 수 있다(S7 에서 분리)
+- 해결일: 2026-08-02 (REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX)
+- 근거 커밋: 코드 저장소 `bd7c366` — `fix(reimport): wrapping 별칭 추출 실패를 AST 로 사전 판정 —
+  사유 정확화 + 파서 부재 시 단순 1:1 HOLD 해소 (REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX)`
+- 근거 보고서 커밋: 이 저장소 `89ca0a9`(완료보고 `REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX` —
+  14케이스 전/후 판정 매트릭스 실측 · 파서 차단 시뮬레이션 포함)
+- 해결 요약: 위 '대응 방향'이 전제했던 **"문자열 파싱 → AST 전환"** 자체가 이 지점에는 해당 사항이
+  없음을 먼저 확인했다 — `_extract_aliased_inner_select` 는 **이미 sqlglot AST 기반**이다.
+  실제 결함은 2건이었고 둘 다 **호출측 AST 사전판정 함수 신설**로 해결했다(추출기 본체 무접촉).
+  ① 추출 실패 '원인' 이 호출측에 전달되지 않아 표시 사유가 사실과 달랐다 → 실패 원인 코드 8종으로
+     사유를 구체화. HOLD 사유 정확도 **3/7 → 7/7**(기존 문구 "SELECT * 또는 INSERT 컬럼 수 불일치 등"
+     은 6건 중 4건이 실제 원인과 무관했다 — 실제로는 INSERT 컬럼 목록 미기재·INSERT 문 아님).
+  ② S1 이 도입한 '파싱 불가 → 안전측 True' 폴백이 **파서 자체를 못 쓰는 환경에서는 확정 HOLD** 로
+     작동해 단순 1:1 이관까지 전부 죽었다 → 파서 차단 시뮬레이션에서 **13건 전 HOLD → 단순 1:1 3건만
+     복구**. UNION/CTE/JOIN 10건은 **의도적으로 안전측 그대로 유지**했다(조용한 과소집계 위험이
+     S1 에서 실측된 케이스라 되살리지 않는다).
+  sqlglot 가용 환경의 판정은 **완전 무변경**(정상 경로 추가 파싱 0회)이다.
 - 발견일: 2026-07-29 (등록일 2026-08-02 · BACKLOG-S6-S7-S11-P12-MARK-RESOLVED 에서 S7 분리)
 - 근거 보고서: `SQLGLOT-USAGE-CONSISTENCY-AUDIT-DIAGNOSE.txt` (P2-4)
 - 분리 사유: S7 의 나머지 3계열은 **리터럴/주석 안 키워드 오인**이라
@@ -667,7 +683,20 @@ git -C E:/verify_reports worktree remove <임시경로>
   DISTINCT/GROUP BY/집계/UNION 이 있는지 검사 → 불가하면 청크 전략을 선택하지 않는다.
 - 참고: E:\verify_reports\PK-RANGE-CHUNK-BOUNDARY-ORDERING-ASSUMPTION-DIAGNOSE.txt
 
-### P2. profile 재수집에 샘플링·WHERE·timeout 이 전부 없다(방어 전무)
+### P2. ✅ 해결 완료 — profile 재수집에 샘플링·WHERE·timeout 이 전부 없다(방어 전무)
+- 해결일: 2026-08-02 (PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX)
+- 근거 커밋: 코드 저장소 `52c22fc` — `fix(profile): 재수집 고유값 수집에 3단계와 동일한
+  표본(5만행)·timeout·WHERE 방어 적용 (PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX)`
+- 근거 보고서 커밋: 이 저장소 `0939995`(완료보고 `PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX` —
+  42M/30M/38K 3개 테이블 전/후 실측)
+- 해결 요약: 3단계 profile 의 표본(`_SAMPLE_LIMIT=50,000`)·timeout(15초 `apply_query_timeout`)·
+  WHERE scope 방어를 재수집 경로에 **동일하게** 적용했다(3단계 자산 재사용 — 새 heuristic 없음).
+  실측: 42M×8컬럼 **>1200초(취소) → 0.24초**, 30M **64.13초 → 0.06초(x1069)**,
+  38K 소규모는 값·결과 **완전 동일(무회귀)**.
+  위 '주의' 로 적어 둔 explainability 요구도 반영 — **표본이 절단된 경우에만** "표본 5만행 기준"
+  근거를 저장한다(조용한 과소추정 방지). 단, 화면 표시 배선은 범위 밖이라 미완(F27 참조).
+  부수 효과: PostgreSQL 에서 고유값 수집이 **스키마 미한정 조회 실패로 조용히 전멸**하던 선행 결함도
+  rollback 추가로 함께 해소했다(근본 원인 자체는 F28 로 잔존).
 - 발견일: 2026-07-29
 - 근거 보고서: `LARGE-DATA-SORT-EXPOSURE-DIAGNOSE.txt` (§4 / §5 A-3)
 - 상세: `services/profile_recollect_service.py:361-377` — 컬럼 상한 30 뿐이고 그 외 방어가 없다.
@@ -783,6 +812,43 @@ git -C E:/verify_reports worktree remove <임시경로>
 ---
 
 ## 기능 미완(설계는 끝났으나 구현 대기)
+
+### F26. `NO_INSERT_COLUMN_LIST` 원인은 원리상 지원 가능하나 추출기 본체 변경이 필요해 미착수다
+- 발견일: 2026-08-02
+- 근거 보고서: `REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX.txt` (§6-②)
+- 상세: wrapping 추출 실패 원인 중 **INSERT 컬럼 목록 미기재**(`NO_INSERT_COLUMN_LIST`) 케이스는
+  현재 HOLD 로 떨어진다. 그러나 `parse_result.insert_cols` 를 **위치 기준으로 빌려 쓰면 원리상
+  지원 가능**하다 — 즉 지금 HOLD 인 것 중 일부는 기능적으로 복구할 여지가 있다.
+  S17 수정은 **추출기 본체(다른 파일)** 를 건드리지 않는 범위였기에 착수하지 않았다.
+- 대응 방향: 별도 승인 후 검토(추출기 본체 수정 필요). 위치 기준 매핑은 컬럼 순서를 신뢰하는
+  가정이 새로 생기므로, 지원 여부와 함께 **오매핑 위험**을 같이 판단해야 한다.
+- 관련: S17(해결 완료 — 이 갭이 확인된 작업) · M24(같은 작업의 사유 문구 잔여)
+- 참고: E:\verify_reports\REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX.txt
+
+### F27. '표본 5만행 기준' 근거가 저장만 되고 화면에 뜨지 않는다(UI 배선 미완)
+- 발견일: 2026-08-02
+- 근거 보고서: `PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX.txt` (§7)
+- 상세: P2 수정으로 표본 절단 시 "표본 5만행 기준" 근거가 재수집 반환 자료구조와 snapshot 의
+  `column_profiles(_json)` 에 저장되지만, **화면에는 아직 뜨지 않는다** —
+  `get_profile_stats_from_snapshot` 이 **고정 5개 키로 평탄화**하면서 이 근거 필드를 버리고,
+  렌더러도 이 키를 읽지 않는다.
+- 영향: 고유값이 표본 기반 추정치인데 화면에는 그 사실이 안 보인다 = **조용한 과소추정** 위험이
+  화면 단에서는 그대로 남아 있다(explainability 갭). 값 자체는 정확히 저장돼 있다.
+- 대응 방향: `ui/` 및 `services/profile_snapshot_service.py` 수정 필요 — **별도 승인** 후 진행.
+- 관련: P2(해결 완료 — 저장까지는 완료)
+- 참고: E:\verify_reports\PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX.txt
+
+### F28. `MetaCollector._fetch_samples` 의 스키마 미한정 조회가 근본적으로 남아 있다
+- 발견일: 2026-08-02
+- 근거 보고서: `PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX.txt` (§7 · §5)
+- 상세: `db/meta_collector.py` 의 `_fetch_samples` 가 **스키마를 한정하지 않고** 조회해,
+  `search_path` 밖 스키마의 테이블에서는 실패한다. PostgreSQL 에서는 이 실패가 트랜잭션을 abort 시켜
+  **같은 커넥션의 후속 쿼리까지 전멸**시켰다(재수집 고유값 수집이 조용히 0건이 되던 원인).
+  P2 수정은 rollback 을 추가해 **후속 쿼리 오염만 차단**했을 뿐, 이 조회 자체는 고치지 않았다 —
+  즉 해당 테이블의 샘플 수집은 여전히 실패한다.
+- 대응 방향: 별도 작업으로 **스키마 한정 조회**를 구현한다(파일 범위 밖이라 이번엔 미착수).
+- 관련: P2(해결 완료 — 오염 차단까지만)
+- 참고: E:\verify_reports\PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX.txt
 
 ### F22. `evidence_contract.pk` 게이트가 JOIN 경로에서 여전히 안 열린다 — 목적지 PK 를 채워도 계약이 None 이다
 - 발견일: 2026-08-02
@@ -1117,6 +1183,41 @@ git -C E:/verify_reports worktree remove <임시경로>
 ---
 
 ## 경미/문서
+
+### M24. `_derive_row_sqls_wrapped` 의 뭉뚱그린 HOLD 사유 **원문**은 아직 정정되지 않았다
+- 발견일: 2026-08-02
+- 근거 보고서: `REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX.txt` (§6-①)
+- 상세: S17 수정은 수정 대상 파일 지정에 따라 **호출측(`routes/agg_diff_route.py`)에서 원인을
+  덧붙이기(append)** 하는 방식으로만 사유를 정확화했다. 하위
+  `routes/exact_diff_route.py:168` 의 **원문 문구 자체**("SELECT * 또는 INSERT 컬럼 수 불일치 등")
+  는 그대로 뭉뚱그려져 있다.
+- 영향: 호출측을 거치는 경로에서는 정확한 원인이 함께 표시되므로 현재 사용자 체감 문제는 없다.
+  다만 이 원문을 직접 쓰는 다른 경로가 있거나 append 가 누락되면 같은 오안내가 재발한다.
+- 대응 방향: 해당 파일 수정 승인 시 **원문 자체를 정정**한다.
+- 관련: S17(해결 완료 — 호출측만 정정) · F26(같은 작업의 기능 잔여)
+- 참고: E:\verify_reports\REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX.txt
+
+### M25. 파서 부재 환경의 UNION 감지가 LegacyParser 정규식(`parse_result`)에 의존한다(심각도 하)
+- 발견일: 2026-08-02
+- 근거 보고서: `REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX.txt` (§6-③)
+- 상세: sqlglot 을 쓸 수 없는 환경에서 S17 이 도입한 2차 근거는 `parse_result`(LegacyParser 정규식)
+  이다. `parse_result` 가 **stale 하면 근거가 틀릴 수 있다.**
+- 영향: **새로 생기는 위험은 아니다** — 그 경우 기존 단순 경로도 동일한 `parse_result` 로 SQL 을
+  만들기 때문이다(위험의 출처가 동일).
+- 대응 방향: 낮은 우선순위 — 모니터링만.
+- 관련: S17(해결 완료)
+- 참고: E:\verify_reports\REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX.txt
+
+### M26. 재수집 표본이 무작위가 아니라 스캔 선두 5만행(LIMIT)이라 편향될 수 있다(심각도 하)
+- 발견일: 2026-08-02
+- 근거 보고서: `PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX.txt` (§7)
+- 상세: P2 수정이 적용한 `LIMIT 50,000` 은 무작위 표본이 아니라 **스캔 선두 5만행**이다.
+  정렬 적재된 테이블에서는 앞부분에 치우친 표본이 되어 고유값 추정이 편향될 수 있다.
+- 영향: 3단계 profile 과 **동일한 성질**이라 이번에 새로 생긴 편향은 아니다(기존 위험의 확산).
+- 대응 방향: 낮은 우선순위. 무작위 표본(TABLESAMPLE 등)은 방언별 지원·비용 차이가 커서
+  도입 시 4방언 전수 검토가 선행돼야 한다.
+- 관련: P2(해결 완료) · F27(표본 근거의 화면 노출 미완 — 함께 보면 편향 고지 가능)
+- 참고: E:\verify_reports\PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX.txt
 
 ### M22. `.mtbl td { color: … !important }` 규칙이 다른 인라인 색상 렌더 지점도 죽일 수 있다(전수 미점검)
 - 발견일: 2026-08-02
