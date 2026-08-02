@@ -1,0 +1,356 @@
+작업명 : DEPENDENCY-VERSION-AND-CHANGELOG-RELEVANCE-DIAGNOSE
+✅ 작업 완료 - DEPENDENCY-VERSION-AND-CHANGELOG-RELEVANCE-DIAGNOSE - 오늘 다룬 UNION 오판정·wrapping 별칭 추출 실패는 sqlglot 결함이 아니라 자체 코드 문제라 업그레이드로 해결되지 않는다. 다만 그와 무관하게 현행 30.8.0 에는 오라클 방언 파서가 서버 스레드째 무한 hang 하는 결함이 실측 확인됐고 30.13.0 에서 수정돼 있어, 업그레이드 가치는 "오늘 문제 해결"이 아니라 "미발견 가용성 결함 제거"에 있다.
+
+────────────────────────────────────────────────────────────────────────
+0. 조사 전제 정정 (지침 전제와 실제가 둘 다 다름)
+────────────────────────────────────────────────────────────────────────
+지침 전제: 설치본 30.7.0 / 최신 30.12.0 / 격차 5 마이너
+실측 결과: 설치본 30.8.0 / 최신 30.14.0 / 격차 6 마이너
+
+(1) 설치본 — 같은 PC 에 sqlglot 이 두 벌 있다.
+    - 전역 Python 3.14 사용자 사이트: 30.7.0
+      (`pip show sqlglot` → Location: C:\Users\nextobe_lyk\AppData\Roaming\Python\Python314\site-packages,
+       Required-by: ibis-framework — 이 프로젝트와 무관한 다른 패키지의 의존물)
+    - 프로젝트 런타임 `.venv` (Python 3.14.4): **30.8.0**
+      (`.venv\Scripts\python.exe -m pip list` → sqlglot 30.8.0)
+    README.md:100 / INTERNAL_DEMO_RUN_CHECKLIST.md:22-23 이 `.venv\Scripts\Activate.ps1` 로 구동을
+    규정하므로 **유효 버전은 30.8.0** 이다. 지침이 근거로 삼은 30.7.0 은 전역 쪽 값이다.
+    → 이 차이는 결론을 바꾸지 않는다(아래 결함은 30.8.0 에도 그대로 있다). 다만 이후 조사·검증은
+      반드시 `.venv` 인터프리터로 해야 한다.
+
+(2) 최신 — 30.12.0(2026-06-26)은 최신이 아니다.
+    CHANGELOG.md 상단 기준 v30.14.0(2026-07-27)이 최신이며, PyPI 조회도 30.14.0 / 2026-07-27 로 일치.
+    따라서 조사 구간은 30.9.0 → 30.14.0 (6개 마이너)로 넓혀 수행했다.
+      v30.14.0 2026-07-27 / v30.13.0 2026-07-20 / v30.12.0 2026-06-26
+      v30.11.0 2026-06-11 / v30.10.0 2026-06-09 / v30.9.0  2026-06-04
+
+조사 방법: raw CHANGELOG.md(1,978,131 bytes) 직접 내려받아 로컬에서 버전 구간 절단 후 전수 검색.
+           GitHub PR 본문·이슈 목록은 별도 확인.
+
+────────────────────────────────────────────────────────────────────────
+1. sqlglot changelog — 지침이 지정한 6개 축별 결과
+────────────────────────────────────────────────────────────────────────
+
+【1-1. UNION/UNION ALL 파싱 관련】 → 파서 레벨 변경 0건 (오늘 문제와 무관)
+  구간 내 "union" 매칭 2건, 둘 다 우리 경로가 아니다.
+    - v30.9.0  f173fde  optimizer: `unnest_subqueries` produces invalid column references
+                        when subquery contains a UNION (#7667)
+                        → sqlglot.optimizer 전용. 본 프로젝트는 optimizer 를 import 하지 않음(1-7 참조).
+    - v30.14.0 ba0bff3  jsonpath: preserve falsey union members (#7957)
+                        → JSONPath 의 union(`$[0,1]`) 이지 SQL UNION 이 아님.
+  즉 `exp.Union` 노드 생성·구조를 바꾼 커밋은 구간 내 없다.
+  → 오늘의 `_raw_union_present`(agg_diff_route.py:767) 판정 결과는 버전을 올려도 달라질 근거가 없다.
+    (실측으로도 동일 — 3장 참조)
+
+【1-2. CTE(WITH절) 파싱 관련】 → ★ 이번 조사 최대 발견 1건
+    - v30.13.0 a7058d6  **oracle: unrecognized WITH hangs the parser [CLAUDE] (PR #7881)**
+      PR 본문 인용(요지):
+        "The Oracle SQL dialect parser would hang indefinitely when encountering an unrecognized
+         `WITH` clause. This affected error levels IGNORE, WARN, and RAISE."
+        "Oracle's `WITH` modifier wrapped its parse result in a list: `[self._parse_query_restrictions()]`.
+         When `_parse_query_restrictions()` returned `None`, this became `[None]` — a truthy value.
+         The falsy check `if expression:` passed, but since the `WITH` token was never consumed,
+         the enclosing `while True` loop re-entered on the same token infinitely."
+        "This was the only one of 25 QUERY_MODIFIER_PARSERS that wrapped results in a list."
+      재현 입력(PR 제시): `sqlglot.parse_one("SELECT * FROM tbl WITH", read="oracle")`
+                          현실 케이스: `"SELECT * FROM t WITH x AS (SELECT 1) SELECT * FROM x"`
+                          (CTE 앞 세미콜론 누락 등 흔한 오타)
+      수정: 리스트 래핑을 `ensure_list()` 로 교체. 정상 `WITH READ ONLY` / `WITH CHECK OPTION` 는
+            변화 없이 round-trip.
+      → 본 프로젝트 영향: **직격**. 4장에서 실측·경로 확인.
+
+  같은 축의 나머지는 전부 optimizer 또는 타 방언 전용이라 무영향:
+    - v30.13.0 199547a  optimizer: keep columns a recursive CTE reads from itself (#7899)
+    - v30.13.0 bbb376d  tighten the self-referencing cte check in projection pushdown
+    - v30.11.0 6ae4b49  tsql: do not bubble up CTEs in TVF DDLs with inline RETURN queries (#7721)
+    - v30.9.0  c19bb4b  parser: Avoid `__tmp#` CTEs getting replaced with outer CTEs for pipe syntax
+                        (#7659) → BigQuery pipe 문법 전용
+
+【1-3. INSERT INTO ... SELECT 파싱 관련】 → 우리 방언(oracle/postgres) AST 형태 변경 0건
+    - v30.14.0 ee5a989  mysql: support INSERT ... SET ... syntax (#7929)
+                        → 신규 문법 추가일 뿐 기존 INSERT..SELECT 파스 결과는 불변
+    - v30.13.0 c2fac5d  optimizer: annotate insert for mysql (#7836)  → annotate_types 전용
+    - v30.9.0  cd06eb6  sqlite: support INSERT IGNORE and offset-only limits (#7674) → sqlite 전용
+  → `_wrapping_extract_feasibility`(agg_diff_route.py:830)가 의존하는
+    `exp.Insert` → `.this`(exp.Schema) → `.expressions`(INSERT 컬럼 목록) → `.expression`(본문 SELECT/Union)
+    구조를 바꾸는 커밋은 구간 내 없다.
+
+【1-4. 별칭(alias) 처리 관련】 → 관련 커밋 5건, **전부 optimizer 계열**이라 무영향
+    - v30.14.0 acb635a  [BREAKING] optimizer: don't normalize quoted derived output aliases
+                        in qualify_outputs (#7921)
+    - v30.14.0 c090f35  [BREAKING] optimizer: dedupe colliding star expanded aliases (#7872)
+    - v30.13.0 e9b0140  [BREAKING] optimizer: normalization of synthesized output aliases (#7816)
+    - v30.13.0 7099d89  optimizer: incorrect merge with literal alias collision (#7847)
+    - v30.12.0 4c2cd15  clickhouse: `SETTINGS` cannot act as an alias token (#7749)
+  세 BREAKING 은 모두 `sqlglot.optimizer.qualify_outputs` / `merge_subqueries` 의 출력 별칭 정규화
+  규칙 변경이다. 본 프로젝트의 wrapping 별칭 부여는 sqlglot 이 아니라 자체 코드
+  (`_extract_aliased_inner_select`)가 INSERT 컬럼 목록을 위치 기준으로 붙이는 방식이므로 경로가 겹치지 않는다.
+  → **오늘 겪은 "wrapping 별칭 추출 실패"는 sqlglot 의 alias 처리 결함이 아니다.**
+    실제 원인은 이미 규명된 대로 원본 SQL 형태(INSERT 컬럼 목록 미기재 2건, INSERT 문 아님 2건 등,
+    scripts/dev_e2e/reimport_wrapping_ast_extraction_repro.py 실측 6케이스 중 4건)이고,
+    그래서 REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX 가 사유를 AST 로 사전 확정하는 방향으로 해결했다.
+    이 문제는 sqlglot 버전을 올려도 그대로다(해결도 악화도 없음).
+
+【1-5. 오라클 방언(read="oracle") 관련】 → 4건
+    - v30.13.0 a7058d6  unrecognized WITH hangs the parser (#7881)          ★ 1-2 참조
+    - v30.13.0 5e08bb9  oracle: preserve UNPIVOT IN-list literal labels (#7877)
+    - v30.9.0  6084d34  oracle: add support for `^=` not-equals operator (#7662)
+    - v30.9.0  bd4a397  oracle: support `DEFAULT` clause in `TO_NUMBER` func (#7685)
+  뒤 3건은 "지금까지 파싱 못 하던 오라클 문법을 파싱하게 됨" — 즉 sqlglot 실패 → LegacyParser 폴백으로
+  떨어지던 케이스가 줄어드는 방향이다. 기존 성공 케이스의 결과를 바꾸지 않으므로 안전한 개선이다.
+  (`^=`, `TO_NUMBER(... DEFAULT ... ON CONVERSION ERROR)`, `UNPIVOT` 은 실제 국내 오라클 이관 SQL 에
+   드물지 않게 등장하므로 실무 가치가 있다.)
+
+【1-6. Breaking change 여부와 오늘 만든 코드에 대한 영향】
+  30.9.0~30.14.0 의 BREAKING CHANGES 항목은 수십 건이지만 유형이 사실상 세 가지뿐이다.
+    (a) 압도적 다수 — `optimizer.annotate_types` 의 함수별 반환 타입 주석 추가/변경
+        (databricks NANVL·SIGN·SHIFTLEFT, mysql UTC_DATE·UTC_TIME·UNHEX·LPAD·FORMAT·REGEXP_SUBSTR,
+         hive/spark DIV·TYPEOF, bigquery date 함수 인자 coercion 등)
+    (b) optimizer 의 qualify/merge 규칙 변경 (1-4 의 3건, lateral subquery 컬럼 해석 b1a0070 등)
+    (c) 특정 방언의 생성(generate) 표기 변경
+        (postgres `x IS NOT NULL` 보존 2aae7f7, snowflake UNDROP, json extract roundtrip 등)
+  세 유형 모두 `sqlglot.optimizer` 사용 또는 `.sql()` 재생성 결과 문자열 비교에 의존할 때만 깨진다.
+
+  본 프로젝트의 sqlglot 사용 표면(전수 확인):
+    - `sqlglot.parse_one(...)` + `sqlglot.expressions`(exp) 노드 순회 — 이것이 전부
+    - `sqlglot.optimizer` import: **코드 전역 0건** (검색어 `sqlglot.optimizer` 무매칭)
+    - `sqlglot.transpile`: 0건
+    - `.sql(dialect=...)` 재생성은 쓰지만(parser/sqlglot_parser.py 179~324행 등) 이는 SELECT 항목·WHERE·
+      JOIN ON 절 원문 복원용이며, 위 (c) 의 변경 대상 함수(UNDROP·json extract·IS NOT NULL 정규화)와
+      겹치는 표현이 이관 SQL 에 나올 여지는 사실상 없다.
+  → **오늘 만든 `_raw_union_present` / `_wrapping_extract_feasibility` 가 의존하는 지점
+    (exp.Insert / exp.Schema / exp.Select / exp.Union 의 노드 종류와 `.this`·`.expression`·`.expressions`
+     구조, `ErrorLevel.IGNORE` 의 부분 파싱 허용 동작)은 구간 내 BREAKING 대상이 아니다.**
+    분석에 이어 실측으로도 확인했다(3장).
+
+【1-7. 참고 — 우리 코드가 sqlglot 을 쓰는 파일】
+  parser/sqlglot_parser.py · services/analysis/sql_lineage_extractor.py ·
+  services/analysis/advanced_sql_shape_normalizer.py · services/sql_cte_utils.py ·
+  services/count_sql_builder.py · services/validation_sql/source_stats_sql_builder.py ·
+  routes/agg_diff_route.py (오늘 추가분) 등. 전부 parse_one + exp 순회 패턴이다.
+
+────────────────────────────────────────────────────────────────────────
+2. ★ 실측 — 현행 30.8.0 이 오라클 WITH 입력에서 무한 hang (재현 성공)
+────────────────────────────────────────────────────────────────────────
+PR #7881 이 지적한 결함이 우리 설치본에 실제로 있는지 직접 확인했다.
+(hang 결함이므로 반드시 타임아웃 있는 자식 프로세스로만 실행 — 부모까지 멈추지 않도록)
+
+  실행: .venv\Scripts\python.exe, 자식 프로세스 타임아웃 15초
+
+  케이스                                          방언      30.8.0(현행)      30.14.0(격리)
+  ------------------------------------------------------------------------------------------
+  "SELECT * FROM tbl WITH"                        oracle    HANG_TIMEOUT      RAISED:ParseError
+  "SELECT * FROM t WITH x AS (SELECT 1)
+   SELECT * FROM x"  (세미콜론 누락)              oracle    HANG_TIMEOUT      RAISED:ParseError
+  "WITH x AS (SELECT 1 AS c FROM dual)
+   SELECT c FROM x"  (정상 CTE, 대조군)           oracle    RETURNED_OK       RETURNED_OK
+  "SELECT a FROM t1 UNION ALL SELECT a FROM t2"
+                     (정상 UNION, 대조군)         oracle    RETURNED_OK       RETURNED_OK
+  "SELECT * FROM tbl WITH"                        postgres  RAISED:ParseError RAISED:ParseError
+
+  error_level 별 (입력: 세미콜론 누락 케이스, oracle)
+  ------------------------------------------------------------------------------------------
+  error_level     30.8.0(현행)       30.14.0(격리)
+  IGNORE          HANG_TIMEOUT       RETURNED_OK
+  WARN            HANG_TIMEOUT       RETURNED_OK
+  RAISE           HANG_TIMEOUT       RAISED:ParseError
+
+  판정:
+   - PR 본문의 "IGNORE, WARN, RAISE 모두 영향" 이 우리 설치본에서 그대로 재현된다.
+   - 오라클 방언 한정이다(같은 입력이 postgres 에서는 즉시 ParseError). 지원 4방언 중 oracle 만 노출.
+   - 정상 CTE·정상 UNION 은 두 버전 모두 동일하게 통과 — 수정이 정상 경로를 건드리지 않았음을 확인.
+
+────────────────────────────────────────────────────────────────────────
+3. ★ 실측 — 30.14.0 으로 올렸을 때 기존 동작이 바뀌는가 (회귀 0건)
+────────────────────────────────────────────────────────────────────────
+지침의 "실제 업그레이드 금지"를 지키기 위해 **설치는 하지 않았다.**
+30.14.0 휠을 스크래치패드에만 풀어(`pip download --no-deps` → 압축 해제) 격리된 `PYTHONPATH` 로만
+로드했다. `.venv` 내용물과 requirements.txt 는 전혀 변경되지 않았다(검증: 격리 세션에서만
+`sqlglot.__file__` 이 스크래치패드 경로를 가리킴, 평시 세션은 여전히 30.8.0).
+
+  대상: sqlglot/AST 에 실제로 의존하는 파서·방언 테스트 10개 파일
+    tests/test_reimport_wrapping_ast_extraction.py   ← 오늘 만든 AST 사전판정 함수 전용 테스트
+    tests/test_sql_parser_outer_join.py
+    tests/test_sql_canonical.py
+    tests/test_11def_scenarios.py
+    tests/test_12k_stress.py
+    tests/test_demox_r3_complex_sql.py
+    tests/test_demox_r3_cast_dialect_fix.py
+    tests/test_underscore_alias_oracle_regression_static.py
+    tests/test_dialect_resolver.py
+    tests/test_demo_complex_10_dataset.py
+
+  결과
+  ------------------------------------------------------------------------------------------
+  sqlglot 30.8.0 (현행 .venv)   168 passed, 1 xfailed, 6 subtests passed   28.55s
+  sqlglot 30.14.0 (격리)        168 passed, 1 xfailed, 6 subtests passed   27.48s
+  ------------------------------------------------------------------------------------------
+  → 통과/실패/xfail 건수와 구성이 완전히 동일. 회귀 0건.
+
+  특히 `test_reimport_wrapping_ast_extraction.py`(오늘 커밋 bd7c366 의 자체 테스트)가 두 버전에서
+  똑같이 통과했다. 이 테스트는 `_wrapping_extract_feasibility` 의 8개 원인코드
+  (NOT_INSERT / NO_INSERT_COLUMN_LIST / SELECT_STAR / PROJECTION_COUNT_MISMATCH /
+   UNION_BRANCH_NOT_SELECT / NOT_SELECT_BODY / PARSE_FAILED / SQLGLOT_UNAVAILABLE)를
+  실 DB 없이 AST 로 판정하므로, 1-6 의 분석 결론(노드 구조 불변)을 실측이 뒷받침한다.
+
+────────────────────────────────────────────────────────────────────────
+4. hang 결함의 실제 노출 경로 — 조사 중 확인된 별건 위험
+────────────────────────────────────────────────────────────────────────
+2장의 hang 이 서버 요청 경로에 닿는지 확인했다. **닿는다.**
+
+  parser/sqlglot_parser.py:132-140
+      sg_dialect = _DIALECT_MAP.get(dialect.lower(), 'oracle')     ← 기본값이 oracle
+      try:
+          tree = sqlglot.parse_one(
+              sql_norm,
+              dialect=sg_dialect,
+              error_level=sqlglot.ErrorLevel.RAISE,                ← 2장에서 hang 확인된 조합
+          )
+      except Exception as e:
+          return ParseResult(error_message=f"sqlglot 파싱 오류: {e}")
+
+  이 `parse()` 는 `get_sql_parser().parse()` 공용 진입점이며 호출처가 웹 요청 경로다:
+      services/validation_sql_parse_service.py:372   (개별검증 1단계 분석)
+      services/sql_validation_service.py:797
+      services/sql_change_detection.py:53            (/sql/change-check)
+
+  위험의 성질:
+   - **try/except 로 못 막는다.** 예외가 아니라 `while True` 무한 루프이므로 except 절에 도달하지 않는다.
+   - 타임아웃 가드도 없다. FastAPI/uvicorn 워커 스레드 하나가 영구 점유되고, 요청은 응답 없이 매달린다.
+   - 트리거 난도가 낮다. 사용자가 이관 SQL 을 붙여넣는 도구인데, 오라클 선택 + CTE 앞 세미콜론 누락
+     같은 흔한 오타 하나면 재현된다(2장 두 번째 케이스가 정확히 그 형태).
+   - 지원 4방언 중 oracle 이 주력 대상이라 노출면이 작지 않다.
+   - 다만 **현재까지 이 현상이 보고된 기록은 없다.** 잠재 결함이지 발생한 장애가 아니다.
+     (오늘 다룬 UNION·wrapping 문제와도 증상이 다르다 — 그쪽은 오판정, 이쪽은 무응답)
+
+────────────────────────────────────────────────────────────────────────
+5. 다른 핵심 의존성 버전 대조 (2026-08-02 PyPI 조회 기준)
+────────────────────────────────────────────────────────────────────────
+현재 버전은 `.venv\Scripts\python.exe -m pip list` 실측값.
+
+  패키지                    현재(.venv)  최신      최신 릴리스   차이 규모      비고
+  ---------------------------------------------------------------------------------------------
+  sqlglot                   30.8.0       30.14.0   2026-07-27   마이너 ×6     ★ 4장 hang, 1-5 오라클 4건
+  oracledb                  4.0.1        4.0.2     2026-07-14   패치  ×1      (Thin 모드)
+  psycopg2-binary           2.9.12       2.9.12    2026-04-20   동일          최신
+  PyMySQL                   1.1.3        1.2.0     2026-05-19   마이너 ×1
+  pandas                    3.0.3        3.0.5     2026-07-22   패치  ×2      analyzer 폴백용
+  fastapi                   0.136.1      0.141.1   2026-07-29   마이너 ×5     (0.x — 마이너가 사실상 메이저)
+  uvicorn                   0.46.0       0.52.1    2026-08-01   마이너 ×6     (0.x)
+  starlette                 1.0.0        1.3.1     2026-06-12   마이너 ×3     fastapi 전이 의존
+  pydantic                  2.13.4       2.13.4    2026-05-06   동일          최신
+  openpyxl                  3.1.5        3.1.5     2024-06-28   동일          최신(상류가 2년째 무릴리스)
+  ibm_db                    3.2.9        3.2.9     2026-04-22   동일          최신
+  ---------------------------------------------------------------------------------------------
+  pyodbc (MSSQL)            미설치       5.3.0     2025-10-17   —   requirements.txt:24 에 주석 처리
+  cx_Oracle                 미설치       8.3.0     2021-11-04   —   requirements.txt:23 주석. 상류가
+                                                                     python-oracledb 로 대체돼 사실상 EOL.
+                                                                     신규 채택 대상 아님(현행 oracledb 유지가 정답)
+  mysql-connector-python    미설치       26.7.0    2026-07-29   —   본 프로젝트는 PyMySQL 채택
+  playwright (dev 전용)     미설치       1.62.0    2026-07-31   —   requirements-dev.txt, 운영 배포 제외
+
+  지침대로 sqlglot 외에는 changelog 상세 조사를 하지 않았다. 오늘 다룬 문제(SQL 파싱·별칭·UNION)와
+  직접 관련된 것은 sqlglot 뿐이고, 나머지는 전부 접속 드라이버·웹 프레임워크 계층이라 무관하다.
+  psycopg2-binary·pydantic·openpyxl·ibm_db 는 이미 최신이며, oracledb·pandas 는 패치 차이라 사실상 최신이다.
+
+  ⚠ 표보다 중요한 발견 — **requirements.txt 에 버전 핀이 하나도 없다.**
+    11개 항목 전부 `fastapi`, `sqlglot`, `pandas` 처럼 이름만 적혀 있다(requirements.txt:2-17).
+    결과:
+     - 오늘 `pip install -r requirements.txt` 를 새로 하면 sqlglot 30.14.0 이 들어온다. 즉 이 조사가
+       비교한 "현재 30.8.0" 은 이 PC 의 우연한 스냅샷일 뿐, **배포 대상 환경마다 버전이 다를 수 있다.**
+     - 고객사 폐쇄망에 각각 다른 시점에 설치하면 서로 다른 sqlglot 이 깔리고, 파싱 결과 차이는
+       "이 고객사에서만 재현되는 검증 오류"로 나타난다. 재현·디버깅이 매우 어려운 형태다.
+     - 4장 hang 도 마찬가지다. 어떤 고객사는 이미 30.13.0+ 라 안전하고, 어떤 곳은 30.8.0 이라 노출된다 —
+       그런데 우리는 어느 쪽인지 모른다.
+    이건 sqlglot 업그레이드 여부보다 우선순위가 높은 구조 문제로 판단한다(7장 권고).
+
+────────────────────────────────────────────────────────────────────────
+6. 커뮤니티 이슈 대조 — 오늘 다룬 현상과 일치하는가
+────────────────────────────────────────────────────────────────────────
+sqlglot 저장소의 최근 오라클 관련 이슈(생성일 역순):
+    #7811  TSQL dialect with quoted columns                        Closed  2026-06-29
+    #7685  ORACLE DEFAULT 0 ON CONVERSION ERROR causes exception   Closed  2026-05-28  → 30.9.0 bd4a397 수정
+    #7663  Oracle query parse error when using "WITH FUNCTION"     Not planned 2026-05-21
+    #7662  Oracle Query Error with '^=' inequality operator        Closed  2026-05-20  → 30.9.0 6084d34 수정
+    #7643  Oracle parsing fails in LISTAGG with "on overflow"      Closed  2026-05-14
+    #7634  Oracle concat operator (||) fails with spaces           Not planned 2026-05-11
+    #7118  Error parsing Oracle query with LIKE and variable in parenthesis  Closed  2026-02-22
+
+  대조 결과:
+   - **오늘 다룬 "별칭 추출 실패"·"UNION 오판정"과 일치하는 이슈는 없다.** 예상된 결과다 —
+     그 둘은 sqlglot 이 잘못 파싱한 게 아니라 우리 코드가 (a) 문자열 `" UNION "` 검사를 썼고
+     (b) 실패 사유를 뭉뚱그려 표시했던 자체 결함이었고, 이미 각각
+     UNION-SAMETABLE-WRAPPING-DETECTION-AST-FIX 와 REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX 로 해결됐다.
+   - 미해결(Not planned) 2건은 참고할 만하다. #7663 `WITH FUNCTION`(PL/SQL 인라인 함수)과
+     #7634 `||` 공백 케이스는 여전히 파싱 실패하며, 우리 구조에서는 sqlglot 실패 → LegacyParser 폴백으로
+     흡수된다. 즉 업그레이드해도 이 두 형태는 개선되지 않는다.
+   - hang 결함(#7881)은 이슈로 신고된 게 아니라 기여자가 직접 발견해 PR 로 올린 건이다.
+     즉 "다들 겪는데 우리만 모르는" 유형이 아니라, 트리거 조건이 좁아 아무도 신고하지 않은 잠복 결함이다.
+     우리가 오라클을 주력으로 쓰기 때문에 상대적으로 노출도가 높다.
+
+────────────────────────────────────────────────────────────────────────
+7. 업그레이드 위험도 평가 및 권고 (지침대로 의견만 — 구현하지 않음)
+────────────────────────────────────────────────────────────────────────
+- 요청 요약: sqlglot 30.8.0 → 30.14.0 업그레이드가 오늘 다룬 파싱 문제 해결에 도움이 되는가.
+
+- 긍정적 효과:
+    (1) 오라클 방언 무한 hang 제거(4장) — 이것만으로 업그레이드 명분이 선다. 서버 스레드 영구 점유는
+        검증 오류보다 등급이 높은 가용성 문제다.
+    (2) 오라클 `^=` · `TO_NUMBER(... DEFAULT ...)` · `UNPIVOT` 파싱 지원(1-5) — sqlglot 실패 후
+        LegacyParser 로 떨어지던 케이스가 줄어 파싱 정확도가 올라간다.
+    (3) 반면 **오늘 다룬 UNION 오판정·wrapping 별칭 추출 실패는 전혀 개선되지 않는다.**
+        원인이 sqlglot 이 아니었기 때문이다(1-1, 1-4, 6장). 이 점은 분명히 해둘 필요가 있다 —
+        "최신 버전이면 오늘 문제가 없었을 것"은 사실이 아니다.
+
+- 위험도: **낮음** (근거는 추측이 아니라 실측)
+    · 우리 sqlglot 사용 표면이 `parse_one` + `exp` 노드 순회로 한정되고 optimizer 를 전혀 안 쓴다(1-6).
+      구간 BREAKING 의 대부분(annotate_types/qualify_outputs/merge_subqueries)이 정의상 무관하다.
+    · AST 의존 테스트 10파일 168건이 두 버전에서 동일 통과(3장). 오늘 만든 AST 사전판정 함수 전용
+      테스트도 포함된다.
+    · 남은 미검증 영역은 방언별 `.sql()` 재생성 문자열이다. 구간 내 postgres `IS NOT NULL` 보존 변경
+      (2aae7f7)이 이론상 WHERE 원문 복원 표기를 바꿀 수 있다 — 다만 이는 `NOT x IS NULL` 로 정규화하던
+      것을 원문 `x IS NOT NULL` 로 **되돌리는** 방향이라 우리에겐 오히려 개선이다.
+
+- 기존 테스트 스위트로 충분히 검증 가능한가: **대체로 가능하나, 전수 실행이 전제다.**
+    · 이번엔 sqlglot 의존 10파일만 돌렸다(28초). 전체 스위트는 11,000건대·60분 규모라 이번 조사 범위를
+      넘어 실행하지 않았다. 실제 업그레이드 시에는 전수 회귀가 필요하다.
+    · 취약점: 현재 스위트에 **오라클 방언 파서 hang 을 잡는 테스트가 없다.** 이번 결함이 스위트를
+      그대로 통과한다는 뜻이다(hang 은 실패가 아니라 무응답이라, 타임아웃 없는 pytest 는 영구 정지한다 —
+      실제로 이번 조사에서도 자식 프로세스 타임아웃을 걸고서야 관측할 수 있었다).
+    · 참고로 이 환경에는 pytest-timeout 이 없다(`--timeout` 미인식 확인). 파서 hang 류를 스위트에서
+      잡으려면 자식 프로세스 + 타임아웃 방식의 전용 테스트가 필요하다.
+
+- 구조적 문제점 / heuristic·scoring·explainability 영향:
+    · 없음. 버전 교체이며 코드·판정 로직·근거 저장 방식이 그대로다. web_server.py 비대화와 무관.
+
+- 운영상 위험:
+    · 폐쇄망 배포 특성상 버전 교체는 오프라인 휠 재배포를 동반한다. 롤백은 이전 휠 보관으로 대응 가능.
+    · 진짜 위험은 업그레이드 자체가 아니라 **5장의 버전 핀 부재**다. 핀이 없으면 이번에 30.14.0 으로
+      맞춰도 다음 설치 시점에 또 달라진다. 업그레이드를 하든 안 하든 핀 고정이 선행되어야 한다.
+
+- 권장 대응책 (우선순위 순, 전부 별도 작업 — 이번 지침 범위 밖):
+    1) requirements.txt 버전 핀 고정 (`sqlglot==30.14.0` 등). 5장 문제의 유일한 해법이며 가장 싸다.
+    2) sqlglot 30.14.0 으로 상향 + 전수 회귀 1회. 위험도 낮음, 이득은 hang 제거 + 오라클 문법 3종.
+       1)과 함께 한 번에 처리하는 게 효율적이다.
+    3) 상향 여부와 무관한 방어 — `get_sql_parser().parse()` 진입점에 파싱 타임아웃 가드.
+       버전을 올려도 다른 형태의 파서 무한루프가 재발하지 않는다는 보장은 없고, 폐쇄망 고객사가
+       구버전으로 설치할 가능성(5장)도 남는다. 서버가 사용자 입력 SQL 을 파싱하는 구조인 이상
+       "파서는 반드시 유한 시간에 돌아온다"를 코드로 강제하는 편이 안전하다.
+    4) 오라클 방언 hang 회귀 테스트 추가(자식 프로세스 + 타임아웃). 3장 방식 그대로 재사용 가능.
+
+- 지금 구현 여부: **보류(문서화 우선)**
+    이번 지침이 "조사만" 으로 명시했으므로 코드·requirements 는 일절 건드리지 않았다.
+    위 1)~4)는 각각 별도 작업으로 승인받아 진행할 사안이다.
+
+────────────────────────────────────────────────────────────────────────
+8. 지침 준수 확인
+────────────────────────────────────────────────────────────────────────
+  [O] pip install / 업그레이드 미실행 — `.venv` 의 sqlglot 은 조사 전후 30.8.0 그대로.
+      30.14.0 은 `pip download`(다운로드만) 후 스크래치패드 압축 해제 + 격리 PYTHONPATH 로만 로드했고,
+      site-packages 에는 쓰지 않았다.
+  [O] requirements.txt / requirements-dev.txt 미수정 (읽기만).
+  [O] 코드 변경 0건 — diff 없음. 프로젝트 파일 신규 생성·수정 0건.
+      (조사용 프로브 스크립트는 전부 세션 스크래치패드에만 생성)
+  [O] BACKLOG-S17-P2-RESIDUALS-ADD(BACKLOG.md) 와 미충돌 — 이 작업은 BACKLOG.md 를 열지도 않았다.
+
+✅ 작업 완료 - DEPENDENCY-VERSION-AND-CHANGELOG-RELEVANCE-DIAGNOSE - 오늘 다룬 UNION 오판정·wrapping 별칭 추출 실패는 sqlglot 결함이 아니라 자체 코드 문제라 업그레이드로 해결되지 않는다. 다만 그와 무관하게 현행 30.8.0 에는 오라클 방언 파서가 서버 스레드째 무한 hang 하는 결함이 실측 확인됐고 30.13.0 에서 수정돼 있어, 업그레이드 가치는 "오늘 문제 해결"이 아니라 "미발견 가용성 결함 제거"에 있다.
