@@ -237,6 +237,33 @@ git -C E:/verify_reports worktree remove <임시경로>
   임계값(예: 30분) 하드코딩은 **비권장** — 실측 근거 없는 heuristic 이므로 [2] 로 관측을 선행해야 한다.
 - 참고: E:\verify_reports\CANDIDATE-SELECTION-STALENESS-DIAGNOSE.txt
 
+### G4. 3단계 실행계획 카드가 복합/문자 PK 를 "보류(HOLD)" 로 표시하지만, 실제 4·5단계 실행은 DIRECT_COMPOSITE_PK 로 정상 성공한다(반대 신호)
+- 발견일: 2026-08-02
+- 근거 보고서: `PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt` (§2 · §7-G4)
+- 상세: `full_compare_strategy_planner.py` 가 복합/문자 PK 를 `STATS_ONLY_HOLD` 로 계획해 카드에
+  "상세비교 보류" 로 표시하지만, 실제 실행 시점(`_resolve_execution_strategy`)은
+  `_unique_native_key`(정식 PK → UK → 안정 업무키 순 매칭)가 서면 이 계획을 완전히 우회하고
+  DIRECT_COMPOSITE_PK 로 곧장 실행한다. 5,000만행 6종 쿼리 전부 이 경로로 참값 일치가 확인됐다
+  (`LARGE-SCALE-50M-QUERY-COMPLEXITY-MISMATCH-EXTRACTION-TEST`). 카드가 표시 전용이라 잘못된
+  실행을 유발하지는 않으나, 사용자에게 "보류" 라고 안내하고 실제로는 잘 돌아가는 **반대 신호**를
+  줘서 신뢰도를 해친다.
+- 대응 방향: 계획 계층이 `_unique_native_key` 판정을 미리 조회해 카드에 반영하거나, 최소한
+  "계획상 보류이나 네이티브 키 확정 시 실행 가능할 수 있음" 같은 안내를 추가한다.
+- 참고: E:\verify_reports\PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt
+
+### G1. 날짜 단일 PK 는 계획 계층에서 "실행 가능" 으로 표시되나 엔진은 항상 HOLD 한다(계획-엔진 불일치)
+- 발견일: 2026-08-02
+- 근거 보고서: `PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt` (§1-6 · §7-G1)
+- 상세: `full_compare_strategy_planner.py:45` 와 `strategy_transition.py:58` 은 `PK_SINGLE_DATE` 를
+  CHUNK 자격으로 인정하지만, 키 확정(`key_evidence.py:377` — `norm_type != "NUMBER"` 면 탈락)과
+  엔진(`build_chunk_bounds` 의 `int()`)은 날짜를 절대 통과시키지 않는다. 날짜 단일 PK 테이블은
+  카드에 "PK 범위 분할 비교 · 실행 가능" 으로 뜨지만 실행하면 `HOLD_NON_NUMERIC_PK` 로 실패한다.
+  `confirm_chunk_key` 는 DATE_TIME 을 받아들여 chunk key 확정까지는 진행되므로, **비용을 다 쓰고
+  나서야 실패하는** 형태다.
+- 대응 방향: 계획 계층에서 `PK_SINGLE_DATE` 를 CHUNK 자격에서 제외하거나, 엔진이 날짜를 지원하도록
+  확장(날짜→숫자 변환 등) — 둘 중 하나로 계획/엔진을 일치시켜야 한다.
+- 참고: E:\verify_reports\PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt
+
 ### S1. ✅ 해결 완료 — 동일 테이블 UNION 이 wrapping 판정을 못 받아 2번째 브랜치가 전량 소실된다(조용한 과소집계) + fan-out 유일성 게이트까지 꺼진다
 - 해결일: 2026-07-29 (UNION-SAMETABLE-WRAPPING-DETECTION-AST-FIX)
 - 근거 커밋: 코드 저장소 `6a0a430` — `fix(reimport): 동일 테이블 UNION wrapping 미탐지를 AST 판정으로 교정
@@ -874,6 +901,17 @@ git -C E:/verify_reports worktree remove <임시경로>
   방언을 순차 재시도하면서 지연이 증폭된다. 기존 미수정 이슈.
 - 참고: E:\verify_reports\DIAGNOSIS-ROUTE-CONTRACT-KEY-DIALECT-CONSISTENCY-FIX.txt
 
+### G2. `execution_settings.py` 의 청크 크기 min/max 상한이 사장돼 있다(소비처 0건)
+- 발견일: 2026-08-02
+- 근거 보고서: `PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt` (§6-1 · §7-G2)
+- 상세: `services/exact_diff/execution_settings.py:29-31` 에 `default_chunk_size=50000`,
+  `min_chunk_size=10000`, `max_chunk_size=200000` 이 정의돼 있으나 이를 실제로 참조하는 코드가
+  어디에도 없다. 정책 override 로 청크 크기에 1 이나 10,000,000 을 넣어도
+  `max(1, int(chunk_size))`(`pk_range_chunk.py:248`)만 통과해 사실상 무제한이다.
+- 대응 방향: 이 상수를 실제 청크 크기 결정 경로(`strategy_transition.py` 등)에 연결하거나, 안 쓸
+  거면 죽은 코드로 제거를 검토한다.
+- 참고: E:\verify_reports\PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt
+
 ---
 
 ## 기능 미완(설계는 끝났으나 구현 대기)
@@ -1101,6 +1139,18 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 진행 상태: 별도 작업(COUNT-GATE-EXPORT-UI-DIALECT-GATE-CONSUME-FIX)으로 착수 중 — 완료 시 이 항목 정리.
   → 2026-07-30 완료(위 `해결 요약` 참조).
 - 참고: E:\verify_reports\DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE.txt
+
+### G7. HASH_BUCKET 해시 계약에 오라클이 등록돼 있지 않아, same-DBMS(오라클↔오라클)여도 영구 불가다
+- 발견일: 2026-08-02
+- 근거 보고서: `PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt` (§4-2 · §7-G7)
+- 상세: `services/diagnosis/hash_contract.py:118-120` 의 `_HASH_CONTRACTS` 딕셔너리에 `postgresql`
+  하나만 등록돼 있다. 주석에 "oracle 은 후속 단계에서 등록한다" 고 돼 있으나 아직 미등록이라,
+  same-DBMS 가드(S5, 이미 해결 완료)를 통과해도 오라클↔오라클 조합조차 `HR_HASH_CONTRACT_NA` 로
+  차단된다. 현재 실질 가용 조합은 **PG↔PG 뿐**이다. F1(HASH_BUCKET 오라클 구현체 phase3 부재)과
+  직결된 선행 과제다.
+- 대응 방향: F1 착수 시 오라클 해시 계약(`dialects_hash.oracle.OracleHashContract`) 등록이 포함돼야 한다.
+- 관련: F1, S5(이미 해결 완료)
+- 참고: E:\verify_reports\PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt
 
 ### F1. HASH_BUCKET 오라클 구현체 자체가 아직 없다 (phase2 = 어댑터 분리까지만 완료)
 - 발견일: 2026-07-29
