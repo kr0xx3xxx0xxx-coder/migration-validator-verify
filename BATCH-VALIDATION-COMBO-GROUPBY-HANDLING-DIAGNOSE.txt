@@ -1,0 +1,510 @@
+작업명 : BATCH-VALIDATION-COMBO-GROUPBY-HANDLING-DIAGNOSE
+구분   : 진단 전용 (코드 변경 0 · 읽기 전용 조사)
+일자   : 2026-08-02
+기준   : main / HEAD f8ff6f9 (fix(single): PK index prewarm 5만행 상한 2단 정책 확장)
+
+
+═══════════════════════════════════════════════════════════════════════
+0. 한 줄 결론
+═══════════════════════════════════════════════════════════════════════
+
+일괄검증에는 '조합(COMBO)도 함께 검증' 옵션이 **어떤 형태로도 존재하지 않는다**.
+include_pair 는 단일검증 화면의 클라이언트 JS 전용 배선이고, 일괄검증이 재사용하는
+서버 facade 는 조합 세트를 만드는 코드 자체가 없다(kind="SINGLE" 하드코딩).
+
+반면 **항목(테이블)별 개별 설정 구조는 이미 완비되어 있다** — 일괄검증은 row 단위
+후보/계획 snapshot 을 DB에 저장하고, 실행 직전에 row 별 GROUP BY 를 실제로 읽어
+주입한다. 따라서 "테이블마다 GROUP BY 개수가 달라서 못 한다"는 것은 사실이 아니고,
+진짜 병목은 **facade 에 조합 실행 통로가 없다**는 점 하나다.
+
+
+═══════════════════════════════════════════════════════════════════════
+1. 조사 항목 1 — 일괄검증의 GROUP BY 선택은 어디서 결정되는가
+═══════════════════════════════════════════════════════════════════════
+
+결론: **업로드 엑셀이 아니라, 업로드 후 서버가 별도로 돌리는 '후보추천 → 계획생성'
+단계에서 row 단위로 결정되어 SQLite 에 저장된다.**
+
+── 1-1. 업로드 엑셀에는 GROUP BY 열이 없다 ──────────────────────────
+
+BATCH_EXCEL_INPUT_SPEC.md §3.1 필수 컬럼 5종:
+    validation_group_name / batch_name / query_id / target_table / migration_sql
+
+BATCH_EXCEL_INPUT_SPEC.md §3.3 선택 컬럼 9종:
+    source_name / target_where / owner / note / ddl_text /
+    active_yn / priority / expected_row_count /
+    connection_id_source / connection_id_target
+
+→ GROUP BY 컬럼도, SUM 컬럼도, 조합 여부 플래그도 **없다**. 알 수 없는 헤더는
+  item.extra_fields 로 보존되고 경고만 남는다(§3.4) — 즉 엑셀에 임의 열을 추가해도
+  실행 로직에는 전달되지 않는다.
+
+── 1-2. 실제 결정 지점: 후보 snapshot (row 단위) ────────────────────
+
+services/column_candidate_gen_service.py:148 `_ensure_snapshot_table`
+
+    CREATE TABLE IF NOT EXISTS policy_column_candidate_snapshot (
+        id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+        group_id             TEXT NOT NULL,
+        row_id               INTEGER NOT NULL,        ← 항목(테이블) 단위 키
+        target_table         TEXT,
+        ...
+        group_by_candidates_json TEXT,
+        sum_candidates_json      TEXT,
+        selected_group_by_json   TEXT,                ← 여기가 GROUP BY 선택 저장소
+        selected_sum_json        TEXT,
+        ...
+        UNIQUE(group_id, row_id, policy)
+    )
+
+초기값은 candidate_engine 의 auto_selected 결과를 그대로 쓴다(일괄 전용 재선정 금지):
+
+    services/column_candidate_gen_service.py:105 `_select_auto_selected_candidates`
+    """candidate_engine이 확정한 auto_selected=True 후보만 반환.
+       - score top-N 재선정 금지 — candidate_engine 결과 순서 그대로 유지
+       주의: ... 개별검증 core 와 동일한 selected 를 유지하기 위해(일괄 전용 분기 금지)"""
+
+생성 진입점: POST /api/batch-groups/{group_id}/column-candidates/generate
+             (routes/column_candidate_gen_route.py:53)
+
+── 1-3. 사용자 수동 조정 경로도 이미 있다 (row 단위) ────────────────
+
+    routes/column_candidate_gen_route.py:595
+    @router.patch("/api/column-candidate-snapshots/{snapshot_id}/selection")
+    def api_save_candidate_selection(snapshot_id: int, body: SaveSelectionRequest):
+        """후보 컬럼 선택 저장 (PATCH)."""
+        ...
+        result = save_candidate_selection(
+            snapshot_id=snapshot_id,
+            selected_group_by=body.selected_group_by,
+            selected_sum=body.selected_sum,
+        )
+
+    services/column_candidate_gen_service.py:1294
+        "SET selected_group_by_json=?, selected_sum_json=?, updated_at=? "
+
+→ 일괄검증 화면에서 **테이블 1건씩 GROUP BY 선택을 바꿔 저장할 수 있다.**
+
+── 1-4. 계획(plan) snapshot 으로 승격 ──────────────────────────────
+
+services/stats_validation_plan_service.py:276
+
+    CREATE TABLE policy_stats_validation_plan_snapshot (
+        id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+        group_id                TEXT NOT NULL,
+        row_id                  INTEGER NOT NULL,     ← 항목 단위
+        plan_type               TEXT NOT NULL DEFAULT 'BASIC_GROUPED',
+        candidate_snapshot_id   INTEGER,
+        ...
+        selected_group_by_json  TEXT,
+        selected_sum_json       TEXT,
+        source_sql_preview      TEXT,
+        target_sql_preview      TEXT,
+        plan_json               TEXT,                 ← 자유형 JSON 컬럼(중요, §3에서 재론)
+        warning_json            TEXT,
+        ...
+        UNIQUE(group_id, row_id, policy, plan_type)
+    )
+
+plan_type 은 이미 3종으로 분기한다(services/stats_validation_plan_service.py:53~55):
+    COUNT_ONLY / GLOBAL_COUNT_SUM / BASIC_GROUPED
+
+── 1-5. 실행 시 주입 경로 ──────────────────────────────────────────
+
+routes/column_candidate_gen_route.py:445~481 (공식 전체검증 run-wrapper):
+
+    # 등록된 통계검증 plan snapshot 로드(§49) — validation_target_id(=plan row_id) → 저장 plan(선택 GROUP BY/SUM).
+    # 공식 full 은 이 등록 plan 을 '실행 입력'으로 쓴다(batch 재추천 금지 §48). plan 미존재 row 는 차단(§47).
+    _plan_by_vid: dict = {}
+    for _p in (get_stats_validation_plans(group_id).get("items") or []):
+        _rid = str(_p.get("row_id") or "")
+        ...
+    for it in items:
+        _plan = _plan_by_vid.get(str(_vid))
+        ...
+        if _plan:
+            # 등록 plan 의 선택 GROUP BY/SUM 을 실행 입력으로 전달(effective_fill=False → 그대로 실행 §48/§49).
+            _row["selected_group_by"] = _plan.get("selected_group_by") or []
+            _row["selected_sum"] = _plan.get("selected_sum") or []
+
+이후 row → 개별 core 입력 변환:
+
+    services/batch_single_core_wrapper.py:94 `_row_selection`
+        gb = r.get("selected_group_by")
+        if gb is None:
+            gb = r.get("group_by_cols")
+
+    services/batch_single_core_wrapper.py:349~356
+        gb = req.selected_group_by if req.selected_group_by is not None else req.group_by_cols
+        #   selected_group_by/selected_sum 가 명시(None 아님)면 effective_fill=False → 저장 plan 그대로 실행.
+        _plan_provided = (req.selected_group_by is not None) or (req.selected_sum is not None)
+        if _plan_provided:
+            return single_run_fn(req, selected_group_by=gb, selected_sum=sm, effective_fill=False, ...)
+
+→ **저장 plan 이 곧 실행 축**이며 서버가 임의로 재추천하지 않는다(effective_fill=False).
+
+【요약】GROUP BY 결정 위치 체인
+  엑셀(GROUP BY 없음)
+   → 후보추천(column_candidate_gen_service, row 단위 auto_selected)
+   → [선택] 사용자 PATCH 수정(row 단위)
+   → 계획 등록(stats_validation_plan_service, row 단위)
+   → 실행 직전 route 가 row 별 주입(column_candidate_gen_route:477~481)
+   → wrapper → facade(effective_fill=False, 그대로 실행)
+
+
+═══════════════════════════════════════════════════════════════════════
+2. 조사 항목 2 — COMBO 옵션이 일괄 경로에 노출/저장되는가
+═══════════════════════════════════════════════════════════════════════
+
+결론: **없다. 개별검증 전용이며, 그것도 서버가 아니라 클라이언트 JS 전용이다.**
+
+── 2-1. include_pair 의 전체 존재 범위 (전수 grep) ─────────────────
+
+정의 2곳:
+    routes/groupby_plan_route.py:23
+        include_pair: bool = False       # '보강 분석' 명시 요청 시에만 2축 최대 1세트(§23)
+    services/groupby_plan_service.py:67,134
+        def build_groupby_execution_plan(candidates, total_rows, *, include_pair: bool = False, ...)
+        ...
+        if include_pair and max_pair_sets > 0:
+            pair_pick.set_id = f"S{len(sets)+1}"
+            sets.append(pair_pick)
+
+호출자 1곳 — 단일검증 화면 JS 뿐:
+    ui/tabler_renderer.py:26270~26272
+        var pr = await fetch('/groupby-plan', { method: 'POST', ...
+          body: JSON.stringify({ candidates: ctx.gbSel.map(_mvPlanCandidateEvidence),
+                                 total_rows: totalRows, include_pair: includePair }) });
+
+체크박스 → 실행 배선:
+    ui/js_sql_preview.py:92~93   <input type="checkbox" id="gbIncludePair" ...>
+    ui/tabler_renderer.py:28666~28667
+        var _incPair = !!window._mvIncludePairOnce
+          || !!((document.getElementById('gbIncludePair') || {}).checked);
+
+→ `build_groupby_execution_plan` / `/groupby-plan` 을 호출하는 **일괄 서비스는 0개**다.
+  (routes/batch_route.py, services/batch_*.py, services/batch/ 전수 grep 결과 없음)
+
+── 2-2. 일괄이 재사용하는 facade 에는 조합 세트 생성 코드가 없다 ────
+
+일괄 공식 경로는 개별검증 facade 를 그대로 위임한다:
+    services/batch_single_core_wrapper.py:9
+      → services.single_validation_run_facade.run_single_validation_standard
+
+그런데 facade 의 다중 GROUP BY 처리는 **/groupby-plan 을 쓰지 않고 자체 구현**이다:
+
+    services/single_validation_run_facade.py:1367~1373
+        # [D7-8-1 A] multi-GB(≥2축)면 서버가 세트별(단일축)로 실행해 execute_plan_run 을 만든다(클라 재실행 제거).
+        #   단일 GB(≤1축)는 기존 단일 복합 execute 경로를 그대로 사용(검증된 경로 무변경).
+        _multi_gb = len([c for c in (sel_gb or []) if c]) >= 2
+        if _multi_gb:
+            _pr = _run_multi_gb_sets(req, analyze_res, sel_gb, sel_sum, count_res, ...)
+
+    services/single_validation_run_facade.py:485~493
+        def _run_multi_gb_sets(...):
+            """multi-GB(≥2축) 통계검증을 서버 full-run 이 세트별(단일축)로 실행한다 ..."""
+            _axes = [c for c in (sel_gb or []) if c]      ← 축 목록 = 선택 축 그대로
+
+    services/single_validation_run_facade.py:377
+        st = {"set_id": _axis, "kind": "SINGLE", "cols": [_axis]}
+             ↑ kind 는 "SINGLE" 하드코딩 · cols 는 항상 단일 축 1개
+
+→ facade 에는 include_pair 파라미터도, PAIR 세트를 만드는 분기도 **존재하지 않는다.**
+  결과적으로 일괄검증은 GROUP BY 2축 선택 시 항상 '단일축 2세트'만 실행하고,
+  조합(A+B)은 영구 미검증이다. 이는 F6(다중 GROUP BY 조합 판정 부재)이 일괄 경로에서는
+  **회피 수단조차 없는 상태**로 존재한다는 뜻이다.
+
+── 2-3. (중요) 개별검증 원클릭 경로도 조합 불가 ────────────────────
+
+같은 facade 를 쓰므로, 개별검증이라도 `POST /single/run-standard`(원클릭 전체검증)로
+실행하면 조합 옵션이 적용되지 않는다. 체크박스가 실효를 갖는 것은 **4단계에서 버튼을
+눌러 단계별로 진행하는 클라이언트 경로(_runExecutePlanSets)** 뿐이다.
+→ "개별검증은 조합 가능"이라는 전제 자체가 경로 한정 조건부다. 기본값 ON 정책을
+   논의할 때 이 비대칭을 먼저 인지해야 한다.
+
+── 2-4. (경고) 일괄에는 축 분해를 하지 않는 다른 실행 경로가 하나 더 있다 ──
+
+    services/batch_stats_execute_service.py:488~541 `_execute_one_plan`
+        src_sql = (plan.get("source_sql_preview") or "").strip()
+        tgt_sql = (plan.get("target_sql_preview") or "").strip()
+        gb_cols = _plan_group_by_cols(plan.get("selected_group_by", []))
+        ...
+        req = ExecuteRequest(src_sql=src_sql, tgt_sql=tgt_sql, ..., groupby_cols=gb_cols)
+        result = execute_stats_validation(req, cancel_token=cancel_token)
+
+이 경로는 plan snapshot 에 저장된 preview SQL 을 **그대로 1회 실행**한다. preview SQL 은
+선택 GROUP BY 를 한 문장에 모두 넣어 생성되므로(GROUP BY A, B), 이 경로만은 사실상
+**조합 실행에 가깝고 축별 분해를 하지 않는다.**
+호출 진입점: routes/stats_validation_plan_route.py:181 `start_batch_execute` 등.
+
+→ 즉 일괄검증 안에서도 실행 경로에 따라 축 처리 방식이 정반대다:
+     · run-wrapper(공식 full)      : 축별 단일 N세트, 조합 없음
+     · stats-validation-plan 실행  : 결합 GROUP BY 1회, 축별 분해 없음
+  정책을 넣기 전에 **이 두 경로의 의미론 불일치부터 정리하지 않으면**, 어느 쪽에
+  기본값을 걸었느냐에 따라 사용자가 받는 결과의 성격이 달라진다(운영상 최대 위험).
+
+【참고 — 활성 일괄 실행 경로 3종】
+  · Wrapper(정식)     POST /batch/runs/{id}/run-wrapper,
+                      POST /api/batch-groups/{gid}/run-wrapper  → facade 재사용 ✅
+  · Legacy            services/batch_runner.py — 기본 OFF(MV_BATCH_LEGACY_EXEC=1 일 때만)
+  · 전수검증          POST /diagnosis/batch-exhaustive/start → run_batch_row → facade ✅
+  (docs/PHASE_4_D8_BATCH_INDIVIDUAL_PARITY_PLAN.md §1-2)
+
+  ※ 위 문서 §2 Parity Gap 표 3행은 "plan 생성 | groupby_plan_service | wrapper→facade |
+     차이 없음(이미 재사용)" 으로 적혀 있으나, 실제 코드상 facade 는 groupby_plan_service 를
+     호출하지 않는다. **문서가 부정확하다** — 조합 정책을 이 표에 근거해 판단하면 안 된다.
+
+
+═══════════════════════════════════════════════════════════════════════
+3. 조사 항목 3 — "기본값 ON" 정책을 적용할 방법이 있는가
+═══════════════════════════════════════════════════════════════════════
+
+── 3-1. 항목별 개별 설정 구조: **이미 있다** ──────────────────────
+
+배경에서 우려한 "테이블마다 구조가 달라 개별검증 방식이 그대로 안 될 것" 이라는 가정은
+저장 구조 측면에서는 성립하지 않는다. 근거:
+
+  (a) 후보/계획 snapshot 이 모두 (group_id, row_id) 단위 — 항목별 독립 레코드
+      policy_column_candidate_snapshot   UNIQUE(group_id, row_id, policy)
+      policy_stats_validation_plan_snapshot UNIQUE(group_id, row_id, policy, plan_type)
+  (b) row 단위 수정 API 가 이미 운영 중 — PATCH /api/column-candidate-snapshots/{id}/selection
+  (c) 실행 route 가 row 단위로 plan 을 읽어 주입 — column_candidate_gen_route.py:477~481
+  (d) plan_json TEXT 자유형 컬럼 존재 → **DDL 변경 없이** per-row 플래그 저장 가능
+  (e) plan_type 이 이미 항목별로 다른 값을 갖는 선례
+      (COUNT_ONLY / GLOBAL_COUNT_SUM / BASIC_GROUPED)
+
+→ 부족한 것은 저장 구조가 아니라 **실행 통로(facade 의 조합 세트 생성)** 뿐이다.
+
+── 3-2. 전역 일괄 vs 항목별 개별 — 의견 ────────────────────────────
+
+권장: **2층 구조(전역 기본값 + 항목별 override)**. 단, 순수 전역 강제는 반대한다.
+
+  순수 전역 방식의 문제
+    · 대상 규모가 수백~수천 row(§5) → 조합 세트 1개씩 무조건 추가 = 대상 테이블
+      전체 집계가 row 수만큼 추가된다. 비용을 사용자가 통제할 수단이 사라진다.
+    · 개별검증에서 조합을 자동 ON 하지 않기로 한 원래 근거와 정면 충돌:
+        ui/js_sql_preview.py:67~68
+        "자동 ON 하지 않는 이유: 조합 세트 1개 = 대상 테이블 전체 집계 1회 추가이며,
+         과세분화 가드는 예상 그룹 수만 보고 스캔 비용은 막지 못한다(진단 §4 비용 실측).
+         비용은 사용자가 통제한다."
+      일괄은 이 비용이 row 수만큼 곱해지므로, 개별보다 **더 보수적이어야** 정합적이다.
+    · 3축 선택 row 에서는 조합 후보가 여러 쌍이 되어 어느 쌍을 고를지 판단이 필요하다
+      (groupby_plan_service 는 max_pair_sets=1 로 1쌍만 채택하고 나머지는 제외 사유로 기록).
+
+  권장 형태
+    · 전역 기본값 : validation_policy_service 정책 JSON 에 키 1개
+                    (batch_scheduler_config 가 같은 방식으로 정책에 얹혀 있음 — 선례 존재)
+    · 항목별 override : plan_json 안에 per-row 플래그(스키마 변경 불필요)
+    · 우선순위 : 항목별 override > 전역 기본값 (기존 effective_fill 우선순위 규약과 동형)
+    · 기본값은 **OFF 유지**를 권장. 필요한 그룹만 켜는 opt-in 이 기존 비용 통제 철학과 일치.
+
+── 3-3. 아키텍처 적합성 판단 ──────────────────────────────────────
+
+  · 항목별 저장 : 기존 구조에 자연스럽게 맞음 (snapshot 이 이미 row 단위, plan_json 존재)
+  · 전역 기본값 : 기존 구조에 자연스럽게 맞음 (validation_policy_service 선례)
+  · 실행 통로   : **맞지 않음.** facade 를 고쳐야 하는데, facade 는 개별검증 완료 모듈이며
+                  CLAUDE.md '1~6단계 완료 모듈 임의 리팩토링 금지' 대상이다.
+                  → 사용자 승인 없이는 착수 불가한 구간. 이번 진단에서 구현하지 않는다.
+
+
+═══════════════════════════════════════════════════════════════════════
+4. 조사 항목 4 — 조건부 정책(2축일 때만 자동 ON) 적용 가능성
+═══════════════════════════════════════════════════════════════════════
+
+결론: **판단 자체는 가능하다(실행 전에 축 개수를 정확히 안다). 끼워넣을 지점도
+명확하다. 다만 그 지점 이후로 값을 전달할 통로가 facade 에 없다.**
+
+── 4-1. 일괄은 실행 전에 GROUP BY 개수를 아는가 → 안다 ────────────
+
+  (a) 사전 후보추천 단계가 일괄에도 있다
+      POST /api/batch-groups/{group_id}/column-candidates/generate
+      → policy_column_candidate_snapshot.selected_group_by_json (실행과 별개의 선행 단계)
+  (b) 실행 route 가 rows 를 조립하는 시점에 이미 축 목록을 손에 쥐고 있다
+      routes/column_candidate_gen_route.py:477~481
+          if _plan:
+              _row["selected_group_by"] = _plan.get("selected_group_by") or []
+      → 이 자리에서 len(_row["selected_group_by"]) 로 축 개수 판정 가능. row 별로 개별 판정된다.
+  (c) 그 개수가 실제 실행 축과 일치한다
+      effective_fill=False 로 넘어가므로(batch_single_core_wrapper.py:354~356) facade 가
+      축을 재선정하지 않는다. 즉 route 시점 개수 == 실행 세트 수. 판정이 빗나가지 않는다.
+  (d) UI 도 이미 row 별 GB 개수를 표시하고 있다
+      ui/js_batch_display.py:91,113 `_batchEffSelGbCount` — '검증용 selected' 기준 개수 산출
+
+── 4-2. 조건부 로직을 끼워넣을 지점 ────────────────────────────────
+
+  지점 A (권장) : routes/column_candidate_gen_route.py:477~481 rows 조립부
+                  — row 단위 판정, 실행 직전, plan 을 이미 읽은 상태. 가장 자연스럽다.
+  지점 B        : services/batch_single_core_wrapper.py:349 `_call_single`
+                  — 개별/일괄 공통 진입점이라 파급이 크다(개별 원클릭도 함께 바뀜).
+  지점 C        : plan 생성 시점(stats_validation_plan_service) — 저장 시 결정.
+                  실행 시점 정책 변경이 반영되지 않는 단점.
+
+── 4-3. 그럼에도 지금은 동작하지 않는 이유 ────────────────────────
+
+  지점 A 에서 `_row["include_pair"] = True` 를 넣어도 소비하는 코드가 없다.
+    · batch_single_core_wrapper._row_selection 은 selected_group_by / selected_sum 만 읽는다
+    · SingleRunStandardRequest 에 해당 필드가 없다
+    · run_single_validation_standard 시그니처(:737~743)에 include_pair 파라미터가 없다
+    · _run_multi_gb_sets 는 kind="SINGLE" 고정이라 PAIR 세트를 만들 수 없다
+  → **facade 개조(완료 모듈 수정)가 선행 조건.** 이것이 유일한 실질 병목이다.
+
+── 4-4. 3축 이상 처리는 서비스에 이미 정책이 있다(재사용 가능) ────
+
+  services/groupby_plan_service.py:66~70,122~136
+      max_pair_sets: int = PLAN_MAX_AUTO_PAIR_SETS      ← 조합 세트 최대 개수 상한
+      ...
+      excluded.append(_excl([a["col"], b["col"]], est, avg, "단일 축 대비 추가 구분 효과 없음"))
+      ...
+      if pair_pick is None or est > pair_pick.expected_groups:
+          pair_pick = PlanSet(kind=SET_PAIR, cols=[a["col"], b["col"]], ...,
+                              reason="자동 보강 2축(조건 충족 — 원인 구분 보강)")
+
+  즉 "3축이면 최적 1쌍만 채택 + 나머지는 제외 사유 기록", "예상 그룹 수 상한 / 그룹당
+  평균 행 수 하한 / 구분 효과 없음이면 자동 제외" 같은 조건부 판단이 **이미 구현되어
+  있고 설명가능성(제외 사유)까지 갖춰져 있다.** facade 가 이 서비스를 호출하도록
+  바꾸면 조건부 정책 로직을 새로 만들 필요가 없다.
+
+  → 권장 방향: 일괄용 조건부 로직을 신규 작성하지 말고(§3 '일괄 전용 신설 금지' 원칙),
+     facade 가 build_groupby_execution_plan 을 호출하도록 통일하는 쪽이
+     구조적으로 옳다. 다만 이는 완료 모듈 수정이므로 별도 승인 대상이다.
+
+  ※ 참고 — 개별검증에는 COUNT MAJOR 상태에서 조합을 금지하는 안전장치도 있다.
+     일괄에 정책을 넣는다면 동일 가드가 필요하다.
+        ui/tabler_renderer.py:26256~26260
+        /* §25 — MAJOR COUNT 상태에서는 보강(pair) 금지(단일축만) */
+        if (_gateSt === 'COUNT_MAJOR_DIFF' && includePair) { ... includePair = false; }
+     현재 이 가드는 클라이언트 JS 에만 있다 — 서버에는 없다. 일괄로 확장하면
+     서버측에 같은 가드를 반드시 함께 넣어야 한다(클라 가드는 일괄에서 무의미).
+
+
+═══════════════════════════════════════════════════════════════════════
+5. 조사 항목 5 — 처리 시간·리소스 영향 규모 감각
+═══════════════════════════════════════════════════════════════════════
+
+── 5-1. 일괄검증 규모 (코드/문서 근거) ────────────────────────────
+
+  · 등록 row 수
+      docs/BATCH_VALIDATION_SPEED_IMPROVEMENT_DESIGN.md:92
+      "Queue 크기: row 수(수백~수천) 수준이라 메모리 부담 작음"
+      → 설계 문서가 상정하는 규모는 **수백~수천 건**.
+
+  · 동시 실행 예산 (기본값)
+      services/batch/wrapper_parallel_runner.py:49~58
+        def default_parallel_budget_config() -> dict:
+            """보수적 기본 병렬 예산 ... 전역 4 · 프로필당 3 · heavy 2."""
+            return {"batch_parallel_enabled": True,
+                    "batch_max_concurrent_tables": 4,
+                    "max_concurrent_per_source_profile": 3,
+                    "max_concurrent_per_target_profile": 3,
+                    "max_concurrent_heavy_tables": 2}
+      → 전역 동시 4건. 조합 세트 추가분은 이 4개 슬롯을 그대로 더 오래 점유한다.
+
+  · GROUP BY 축 상한
+      services/candidate_engine.py:345  effective_max_group_by: int = 3
+      services/candidate_input_builder.py:62  "effective_max_group_by": 3
+      → 축은 최대 3개. 조합 대상이 되는 것은 2축 이상 row.
+
+── 5-2. 추가 비용의 성격 ──────────────────────────────────────────
+
+  · 조합 1세트 = 대상 테이블 전체 집계 1회 추가 (원본 + 목적지 양쪽)
+      ui/js_sql_preview.py:84~85
+      "대상 테이블 전체 집계가 1회 추가되므로 대용량 테이블에서는 실행 시간이 늘어납니다."
+  · 세트는 기본 순차 실행이다 — 세트 병렬은 기본 OFF
+      services/single_validation_run_facade.py:420~421
+        # 기본 OFF(벤치 결론: 클릭→5탭 <15%) — 명시적 1/true/on/yes 로만 활성.
+        flag_on = _os.getenv("MV_STATS_SET_PARALLEL", "").strip().lower() in ("1","true","on","yes")
+    → 조합 세트 추가분은 해당 row 의 실행 시간에 **그대로 가산**된다(병렬 흡수 없음).
+  · 산술 상한: 2축 row 는 세트 2개 → 3개 (+50%), 3축 row 는 3개 → 4개 (+33%).
+    전체 배치 영향은 '2축 이상 row 비율 × 해당 row 의 집계 비중'에 비례.
+
+── 5-3. 확인하지 못한 것 (정직한 한계) ────────────────────────────
+
+  · **실제 등록 테이블 수의 운영 실적치는 코드·문서·과거 세션 기록에 없다.**
+    "수백~수천"은 설계 문서의 상정치이지 실측이 아니다.
+  · **2축 이상을 선택하는 row 의 비율 통계가 없다.** 조합 정책의 실제 비용은 이 비율에
+    전적으로 좌우되는데, 이를 산출한 자료가 저장소에 존재하지 않는다.
+    → 정책 결정 전에 실 그룹의 policy_stats_validation_plan_snapshot 을 집계해
+      (selected_group_by_json 의 길이 분포) 확인하는 것을 선행 권장한다. 이 집계는
+      DB 읽기만으로 가능하며 실행 비용이 없다.
+  · 참고 규모 감각(다른 단계 수치, 통계검증 세트와 직접 비교 불가):
+      docs/BATCH_VALIDATION_PROGRESS_DASHBOARD_FEASIBILITY.md:20,66
+      "나이스 4세대급 대형 테이블 1건의 재이관 상세 비교는 대략 1시간 ~ 10시간 범위"
+
+
+═══════════════════════════════════════════════════════════════════════
+6. 정책 적용 방향 의견 (구현하지 않음 — 의견만)
+═══════════════════════════════════════════════════════════════════════
+
+■ 요청 요약
+  개별검증의 '조합도 함께 검증' 기본값 ON 정책을 일괄검증에도 적용 가능한지 진단.
+
+■ 긍정적 효과
+  · 조합에서만 드러나는 불일치(축별 집계에서 상쇄되어 사라지는 차이)를 일괄에서도 포착.
+  · F6(다중 GROUP BY 조합 판정 부재)가 일괄에서는 회피 수단조차 없는 현 상태가 해소된다.
+  · 저장 구조가 이미 row 단위라 항목별 정책 표현에 스키마 변경이 필요 없다.
+
+■ 구조적 문제점
+  · facade 가 groupby_plan_service 를 쓰지 않고 세트 계획을 자체 구현(kind="SINGLE" 고정)한
+    상태 — 세트 계획 로직이 사실상 2벌이다. 여기에 일괄용 3벌째를 만들면 안 된다
+    (docs/PHASE_4_D8_BATCH_INDIVIDUAL_PARITY_PLAN.md §3 "일괄 전용 신설 금지").
+  · 일괄 내부 두 실행 경로(run-wrapper=축별 분해 / stats-validation-plan=결합 1회)의
+    축 처리 의미론이 이미 어긋나 있다. 조합 정책을 얹기 전에 이 불일치부터 정리해야 한다.
+  · 파급 대상이 개별검증 완료 모듈(single_validation_run_facade.py)이다 — 승인 필요 구간.
+
+■ 운영상 위험
+  · 전역 무조건 ON 은 수백~수천 row × 전체 집계 1회 추가. 동시 실행 예산이 전역 4건이라
+    큐 대기가 선형 증가하고, 세트 병렬은 기본 OFF라 가산분이 그대로 노출된다.
+  · COUNT MAJOR 상태 조합 금지 가드가 **클라이언트에만** 있다. 일괄로 확장하면 서버측
+    동일 가드 없이는 큰 COUNT 차이 상태에서도 조합이 실행된다(개별보다 안전성이 낮아짐).
+  · 롤백성은 양호 — 정책 키 기본값 OFF 로 두면 즉시 원복 가능하다.
+
+■ heuristic / scoring / explainability 영향
+  · 신규 heuristic 은 불필요하다. 조건부 판단(그룹 수 상한·평균 행 수 하한·구분 효과 없음
+    자동 제외·최대 1쌍)이 groupby_plan_service 에 이미 있고 제외 사유도 기록된다.
+  · 오히려 facade 를 그 서비스로 통일하면 현재 없는 explainability(왜 조합을 넣었는지/
+    왜 뺐는지)가 일괄에도 생긴다 — 하드코딩 증가가 아니라 감소 방향.
+  · 반대로 route 에 `len(gb)==2` 같은 판정을 직접 넣으면 그것이 새 heuristic 하드코딩이
+    되고 근거도 남지 않는다. 권장하지 않는다.
+
+■ 권장 대응책 (순서)
+  1) 선행 실측(무비용): 실 그룹의 selected_group_by_json 길이 분포를 집계해
+     '2축 이상 row 비율'을 확인한다. 이 값 없이는 비용 논의가 추정에 머문다.
+  2) 일괄 두 실행 경로의 축 처리 의미론 불일치를 먼저 정리(별도 과제).
+  3) facade 가 build_groupby_execution_plan 을 호출하도록 통일 — 조합 통로 확보와
+     세트 계획 이중화 해소를 동시에 달성. **완료 모듈 수정이므로 사용자 승인 필요.**
+  4) 정책은 2층(전역 기본값 + plan_json per-row override), **기본값 OFF** 로 시작.
+  5) 서버측 COUNT MAJOR 조합 금지 가드를 함께 추가.
+
+■ 지금 구현 여부
+  **보류** — 이번 지침이 진단 전용이며, 실행 통로 확보가 완료 모듈(facade) 수정을
+  요구하고, 비용 판단에 필요한 '2축 이상 row 비율' 실측치가 아직 없다.
+
+
+═══════════════════════════════════════════════════════════════════════
+7. 인용 파일 목록 (읽기 전용 — 변경 0)
+═══════════════════════════════════════════════════════════════════════
+
+  routes/groupby_plan_route.py                     :23,26~33
+  services/groupby_plan_service.py                 :66~70,122~136
+  services/single_validation_run_facade.py         :283~304,324~351,368~399,
+                                                    420~421,485~493,1367~1385
+  services/batch_single_core_wrapper.py            :9,94~103,144~201,341~360
+  services/batch_stats_execute_service.py          :456~485,488~541
+  services/column_candidate_gen_service.py         :105~125,148~174,1294
+  services/stats_validation_plan_service.py        :53~55,276~297
+  services/batch/wrapper_parallel_runner.py        :49~58,61~81
+  routes/column_candidate_gen_route.py             :53,405~481,595~613
+  ui/js_sql_preview.py                             :63~98,169~180
+  ui/tabler_renderer.py                            :26255~26272,28661~28670
+  ui/js_batch_display.py                           :86~113
+  services/candidate_engine.py                     :345
+  services/candidate_input_builder.py              :62
+  BATCH_EXCEL_INPUT_SPEC.md                        :§3.1,§3.3,§3.4
+  docs/PHASE_4_D8_BATCH_INDIVIDUAL_PARITY_PLAN.md  :§1-2,§2,§3
+  docs/BATCH_VALIDATION_SPEED_IMPROVEMENT_DESIGN.md:92
+  docs/BATCH_VALIDATION_PROGRESS_DASHBOARD_FEASIBILITY.md:20,66
+  docs/COMBO_PAIR_ENTRY_POINT_RESTORE_FEASIBILITY.md:209,333
+
+  ※ 코드 변경 없음 · 서버 기동 없음 · DB 쓰기 없음 · 스크린샷/diff 불필요(진단 전용).
+
+✅ 작업 완료 - BATCH-VALIDATION-COMBO-GROUPBY-HANDLING-DIAGNOSE - 일괄검증에는 조합 옵션이 전무(include_pair 는 단일검증 클라 JS 전용이고 일괄이 쓰는 facade 는 kind="SINGLE" 하드코딩)하나, row 단위 후보/계획 snapshot·수정 API·plan_json 자유형 컬럼이 이미 있어 항목별 설정은 스키마 변경 없이 가능하며 진짜 병목은 facade 의 조합 실행 통로 부재 하나다
