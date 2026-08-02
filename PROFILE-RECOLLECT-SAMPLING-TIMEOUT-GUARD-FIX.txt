@@ -1,0 +1,256 @@
+작업명 : PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX
+
+════════════════════════════════════════════════════════════════════════════════
+0. 결론 요약
+════════════════════════════════════════════════════════════════════════════════
+백로그 P2(진단서 LARGE-DATA-SORT-EXPOSURE-DIAGNOSE §4 / §5 A-3) 대로,
+후보추천 profile 재수집 경로의 무제한 COUNT(DISTINCT) 전체 스캔에
+3단계 후보추천 profile 이 이미 쓰는 방어를 **그대로 재사용**해 적용했다.
+
+  ① 표본  : SAMPLE_SRC(_SAMPLE_LIMIT = 50,000행) CTE — services/column_profile_service 재사용
+  ② 상한  : statement timeout 15,000ms — 동일 어댑터 경로(apply_query_timeout) 위임
+  ③ scope : side 전용 WHERE 절 제한(호출부가 줄 때만 · 원본 조건의 목적지 누수 금지)
+  ④ 근거  : 표본이 실제로 잘린 경우에만 '표본 5만행 기준' 표기 저장(조용한 과소추정 방지)
+  ⑤ 컬럼 상한 30 은 요구대로 그대로 유지 — 새 샘플링 로직 신설 0건
+
+실측 결과(요약) — 42M×8컬럼은 20분 상한에서도 못 끝나던 것이 0.24초가 됐다.
+
+  대상                                     before        after      비율
+  ───────────────────────────────────────  ───────────   ────────   ────────
+  asis01.t_as_n_etl01  42,000,024행 × 8컬럼  >1200s(취소)   0.24s     측정불가(>5000배)
+  mvbench.bench_30m    30,000,000행 × 3컬럼    64.13s       0.06s     x1069
+  ntb.gt_budget_ledger     38,000행 × 8컬럼     0.86s       0.66s     동일 수준(무회귀)
+
+추가로, 이 경로에서 **고유값 수집이 PostgreSQL 에서 사실상 항상 조용히 실패하고 있던
+선행 결함**을 실측으로 발견해 같은 파일 안에서 함께 해소했다(§5).
+
+════════════════════════════════════════════════════════════════════════════════
+1. 수정 내용 (services/profile_recollect_service.py — 지정된 이 파일만)
+════════════════════════════════════════════════════════════════════════════════
+[1-1] _sampling_guard() 신설 — 3단계 자산 재사용 chokepoint
+      services/column_profile_service 의 _SAMPLE_LIMIT(50,000) /
+      _PROFILE_STATEMENT_TIMEOUT_MS(15,000) / _build_sample_cte_select 를 그대로 가져온다.
+      → 상수를 복제하지 않으므로 3단계 값이 바뀌면 재수집도 같이 바뀐다(단일 출처).
+      → import 실패 시 (None,None,None) 을 돌려 **수집을 생략**한다. 무제한 스캔으로
+        되돌아가는 폴백은 두지 않았다(이 방어의 존재 이유가 사라지므로).
+
+[1-2] _build_sampled_distinct_sql() — 3단계 _build_join_profile_sql 과 동형 구조
+
+      before(수정 전):
+        SELECT COUNT(*) AS pr_rc, COUNT(DISTINCT "c1") AS pr_d0, ... FROM "schema"."table"
+
+      after(수정 후):
+        WITH SRC AS (
+          SELECT "c1", "c2", ...
+          FROM "schema"."table"
+          [WHERE <side 전용 조건>]
+        ),
+        SAMPLE_SRC AS (
+          SELECT * FROM SRC LIMIT 50000        ← _build_sample_cte_select(방언 위임)
+        )
+        SELECT COUNT(*) AS pr_rc, COUNT(DISTINCT "c1") AS pr_d0, ...
+        FROM SAMPLE_SRC
+
+      별칭 'pr_' 문자 시작 컨벤션(ORA-00911 회피)은 그대로 유지했다.
+
+[1-3] statement timeout — get_adapter(dialect).apply_query_timeout(conn, cur, 15000)
+      3단계 profile 과 동일한 어댑터 경로. 미지원 방언은 조용히 건너뛴다(비치명적).
+
+[1-4] WHERE scope 제한
+      _collect_distinct_counts(..., where_clause=...) 파라미터 추가.
+      _recollect_one_side 는 side 전용 키만 읽는다 —
+        source → target["src_where_clause"] / target → target["tgt_where_clause"]
+      (원본 조건을 목적지에 복사하지 않는다. 현행 호출부는 이 키를 주지 않으므로 동작 불변.)
+      _sanitize_where(): 선행 'WHERE' 제거, 세미콜론 포함 시 통째 폐기(다중문 주입 차단).
+
+[1-5] 표본 근거 표기 — '표본 5만행 기준'
+      판정: 수집행수(rc) >= 표본 상한(50,000) 일 때만 '표본 절단'으로 본다.
+        · rc < 50,000 → 표본 = 전수이므로 값이 정확 → 표기 없음(기존과 완전 동일한 dict)
+        · rc >= 50,000 → 표본 기반 → 근거 표기 부착
+      저장 위치(재수집 snapshot 의 column_profiles / column_profiles_json):
+        "sampled": true, "sample_limit": 50000,
+        "distinct_basis": "표본 5만행 기준", "row_count_basis": "표본 5만행 기준"
+      row_count 도 표본 건수이므로 함께 표기한다.
+
+[1-6] 컬럼 상한(max_cols=30) — 변경 없음(요구사항 4).
+
+════════════════════════════════════════════════════════════════════════════════
+2. 실측 ① 소요시간 before/after
+════════════════════════════════════════════════════════════════════════════════
+스크립트 : scripts/dev_e2e/profile_recollect_sampling_timeout_perf_measure.py
+대상 DB  : PostgreSQL_Inter_asis (192.168.0.150:5433 / asis, PostgreSQL 16.11) — SELECT 전용
+측정법   : before = 수정 전 SQL 형태를 **동일한 컬럼 선정 로직**으로 재구성해 발행(코드 되돌리기 없음)
+           after  = 수정된 실제 함수 _collect_distinct_counts 호출
+           before 폭주 방지 statement_timeout = 1200초(초과 시 '>1200s'로 기록)
+
+ 대상 테이블                     행수         컬럼   before      after    표본근거
+ ──────────────────────────────  ───────────  ────  ──────────  ───────  ─────────────
+ asis01.t_as_n_etl01             42,000,024    8    >1200s(취소) 0.24s    표본 5만행 기준
+ mvbench.bench_30m               30,000,000    3     64.13s      0.06s    표본 5만행 기준
+ ntb.gt_budget_ledger                38,000    8      0.86s      0.66s    (표본 미절단)
+
+ · t_as_n_etl01 은 42M행 × 8컬럼 전부 GROUP BY 후보 가능 타입이라 진단서 [3-3]
+   "30M×8컬럼 158초"와 같은 부하 형태다. 이 PostgreSQL 인스턴스에서는 158초가 아니라
+   **20분 상한을 넘겨 취소**됐다(취소 시점까지 병렬 워커 3개가 계속 물려 있었다 —
+   pg_stat_activity 로 817초 시점 active 확인). 진단서의 158초는 오라클 Free 인스턴스
+   측정치이므로, 절대값은 인스턴스마다 다르고 **노출의 크기는 진단서보다 크다**.
+ · bench_30m 은 30M행 규모의 직접 대조군이다. 64.13초 → 0.06초(x1069).
+ · 진단서 외삽(30컬럼이면 500초 이상)은 이제 컬럼 수와 무관하게 표본 5만행으로 상한된다.
+
+════════════════════════════════════════════════════════════════════════════════
+3. 실측 ② 표본 근거 표기 — 실제 응답 예시
+════════════════════════════════════════════════════════════════════════════════
+스크립트 : scripts/dev_e2e/profile_recollect_sample_basis_evidence_verify.py
+방식     : 재수집 실경로 _recollect_one_side 를 그대로 실행하되, 저장 함수
+           (collect_and_save_profile_snapshot)를 가로채 **저장 없이 내용만 캡처**.
+           → 운영 SQLite(profile_snapshot)에 아무 것도 쓰지 않았다. DB 는 SELECT 전용.
+
+[대형] asis01.t_as_n_etl01 (42,000,024행) — 결과=collected · 8컬럼 전부 고유값 수집
+
+  "STU_ID": {
+    "type": "CHARACTER VARYING",
+    "distinct_count": 50000, "n_distinct": 50000,
+    "row_count": 50000, "distinct_ratio": 1.0,
+    "sampled": true, "sample_limit": 50000,
+    "distinct_basis": "표본 5만행 기준",
+    "row_count_basis": "표본 5만행 기준"
+  }
+  "EXAM_ID": { ... "distinct_count": 10000, "row_count": 50000,
+               "distinct_basis": "표본 5만행 기준", ... }
+  "EXAM_DATE": { "type": "DATE", "distinct_count": 30, "row_count": 50000,
+                 "distinct_ratio": 0.0006, "distinct_basis": "표본 5만행 기준", ... }
+
+  → 8컬럼 전부 basis_values = ["표본 5만행 기준"] 로 확인.
+
+[소규모] ntb.gt_budget_ledger (38,000행) — 결과=collected · 8컬럼 고유값 수집
+
+  "BGT_NO":   { "type": "CHARACTER VARYING", "distinct_count": 38000, "row_count": 38000,
+                "distinct_ratio": 1.0 }              ← 표본 관련 키 **없음**(기존과 동일)
+  "ACNT_NM":  { ... "distinct_count": 5,  "distinct_ratio": 0.000132 }
+  "ORGN_NM":  { ... "distinct_count": 2,  "distinct_ratio": 5.3e-05 }
+
+  → basis_values = [""] (표기 없음). 표본이 전수를 덮었으므로 정확값이고, 근거 표기도 붙이지 않는다.
+
+[표본 기반이 실제로 무엇을 잃는가 — 정직한 기록]
+  bench_30m 3컬럼 전수 vs 표본 비교(같은 스크립트 결과)
+    REG_DT : 전수 730       / 표본 730        ← 저카디널리티 축(=GROUP BY 후보)은 영향 없음
+    AMT    : 전수 100,000   / 표본 50,000     ← 표본 상한에 걸려 절반으로 과소
+    ID     : 전수 30,000,000/ 표본 50,000     ← 식별자성 컬럼, 어차피 GROUP BY 제외 대상
+  즉 손실은 '고카디널리티 컬럼의 절대 고유값 수'에 집중되고, 그 값들은 표기('표본 5만행 기준')
+  로 표본 기반임이 드러난다. GROUP BY 후보 판정에 실제로 쓰이는 저카디널리티 축은 무손실이었다.
+
+════════════════════════════════════════════════════════════════════════════════
+4. 실측 ③ 무회귀
+════════════════════════════════════════════════════════════════════════════════
+ · ntb.gt_budget_ledger(38,000행) before/after distinct 8컬럼 **완전 동일**:
+     BGT_NO 38000 · ACNT_NM 5 · ORGN_NM 2 · FULL_ADDR 950 · PLAN_AMT 19000 ·
+     FSCL_YR 5 · BASE_DT 1140 · STTS_NO 5     (values_identical = True)
+   반환 dict 형태도 기존과 동일( {"distinct_count":…, "row_count":…} — 추가 키 없음 ).
+ · MariaDB 11.1(192.168.0.211:3309, nxdnp) 방언 확인 — CTE 경로 정상 동작.
+     TMD_MAPPING_DEFINITION_MANAGER_HIST(40,048행) 8컬럼 정상 수집, 표본 미절단.
+   (MySQL/MariaDB 는 CTE 지원 버전이 필요하다. 3단계 profile 이 이미 같은 요구를 갖고 있어
+    방어 수준을 통일한 것이며, 실패해도 '고유값 수집 실패'로 표시될 뿐 흐름은 막지 않는다.)
+ · 오라클/MSSQL 은 기존과 동일하게 이 함수에서 {} 반환(미지원 → 미수집 정직 표시). 변화 없음.
+
+════════════════════════════════════════════════════════════════════════════════
+5. 부수 발견 및 함께 처리 — 고유값 수집이 PG 에서 조용히 전멸하고 있었다
+════════════════════════════════════════════════════════════════════════════════
+현상 : 재수집 실경로에서 고유값 수집 결과가 항상 0컬럼이고
+       _last_error = "테이블 식별자 해소 실패(information_schema 미발견)" 로 남았다.
+원인 : _recollect_one_side 는 MetaCollector().collect() 를 먼저 호출한다. MetaCollector 의
+       샘플 조회(_fetch_samples)는 **스키마 미한정** `SELECT ... FROM <table> LIMIT 100` 을
+       발행하고, 대상 테이블이 search_path 밖 스키마(예: ntb, asis01)면 실패한다.
+       MetaCollector 는 이 예외를 삼키지만(except: pass), PostgreSQL 트랜잭션은 abort 상태로
+       남아 **같은 커넥션의 이후 모든 쿼리가 InFailedSqlTransaction 으로 죽는다**.
+       그래서 뒤따르는 information_schema 조회와 distinct 쿼리가 통째로 실패했다.
+       (실측 재현: search_path = "$user", public / 대상 스키마 ntb → relation does not exist
+        → 직후 information_schema 조회가 InFailedSqlTransaction)
+조치 : distinct 수집 직전 conn.rollback() (SELECT 전용 경로라 되돌릴 변경 없음, 실패해도 무시).
+       수정 대상 파일(services/profile_recollect_service.py) 안에서만 처리했다.
+영향 : 이 조치로 고유값 수집이 실제로 **처음 동작**하게 되므로, 표본/타임아웃 방어가
+       먼저 들어간 지금 순서로 적용하는 것이 맞다(방어 없이 먼저 살렸다면 §2 의 20분 스캔이
+       그대로 발화했을 것이다).
+
+════════════════════════════════════════════════════════════════════════════════
+6. 자체 테스트 / 회귀
+════════════════════════════════════════════════════════════════════════════════
+[6-1] 신규 자체 테스트 — tests/test_profile_recollect_sampling_guard.py (14건 전부 통과)
+      표본 CTE 발행 · 3단계 빌더 재사용 · timeout 선적용 순서 · WHERE scope · 다중문 차단 ·
+      side 전용 WHERE · 근거 문구 · 표본 절단 시 표기 · 소규모 무회귀 · 컬럼 상한 30 ·
+      미지원 방언 {} · 방어 모듈 로드 실패 시 수집 생략 · rollback 선행.
+
+[6-2] CLAUDE.md 필수 회귀
+      python samples/test_virtual_cases.py   → 8/8 통과
+      python samples/test_complex_cases.py   → 5/5 케이스 분석 완료
+
+[6-3] 관련 서브셋 (pytest -k "profile or recollect or snapshot", 851건)
+      수정본 : 28 failed / 820 passed / 8 skipped / 11 errors
+      baseline: 27 failed / 814 passed / 8 skipped /  4 errors   (worktree = HEAD)
+
+      차이 8건(수정본에만 등장)은 **전부 사전 존재**임을 아래로 확정했다.
+        · 8건 모두 tests/conftest.py 의 PROD-DB-WRITE-BLOCKED(운영 SQLite 쓰기 차단) 가드다.
+          이 가드는 저장소 디렉터리에 db/*.db 실파일이 있느냐에만 반응하며(worktree 에는 없다),
+          본 수정은 sqlite3 연결을 한 줄도 열지 않는다.
+        · 결정적 확인: 같은 저장소에서 **이 파일만 HEAD 버전으로 되돌린 뒤** 같은 8건을 실행 →
+          동일하게 1 failed / 7 errors 재현(직후 수정본 복원, diff 동일 확인).
+        · 신규 테스트 파일을 제외하고 서브셋을 다시 돌려도 차이 8건은 그대로였다(수집 순서 무관).
+
+      실패 테스트 전체 목록(사전 존재 · 본 수정과 무관)
+        [PROD-DB-WRITE-BLOCKED 계열 — 저장소에 운영 SQLite 가 있을 때만 발생]
+          tests/test_batch_profile_candidate_parity.py::test_calc_profile_present_parity
+          tests/test_batch_profile_recollect_control.py::test_candidate_freshness_service_empty
+          tests/test_batch_profile_recollect_control.py::test_recollect_snapshot_roundtrip_surfaces_distinct_and_type
+          tests/test_task11_p_profile_snapshot.py::TC06_08_EnricherIntegration::test_06/07/08
+          tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_09/10/11/12
+          tests/test_task11_r2_source_connection_id.py::TC_R2_01_04::test_04_different_batch_different_snapshot
+          tests/test_task11_r3.py::TC_R3_09_11::test_10_selected_not_affected_by_source_profile_skip
+          tests/test_task11_t.py::TC_T_07_10_UIAndAPI::test_08b_ui_shows_source_profile_message
+          tests/test_single_save_source_binding.py::test_single_source_binding_uses_profile_name
+          그 외 baseline 과 동일하게 실패하는 batch_row_snapshot / batch_flow2 / snapshot_preview 계열
+        [UI JS 어서션 계열 — HEAD 에서도 동일 실패]
+          tests/test_batch_single_core_wrapper_foundation.py::test_ui_advanced_diagnostics_render
+          tests/test_batch_single_core_wrapper_foundation.py::test_ui_diagnostics_analyze_subrows
+          tests/test_batch_single_core_wrapper_foundation.py::test_ui_diagnostics_dependency_rows
+          tests/test_batch_single_core_wrapper_foundation.py::test_ui_dependency_applied_rows
+      → 본 수정으로 생긴 신규 회귀: **0건**
+
+════════════════════════════════════════════════════════════════════════════════
+7. 남는 위험 / 후속 필요
+════════════════════════════════════════════════════════════════════════════════
+ · [표시 배선 미완] '표본 5만행 기준'은 snapshot 의 column_profiles(_json)와 재수집 반환
+   자료구조에 저장되지만, 화면 렌더러는 아직 이 키를 읽지 않는다
+   (get_profile_stats_from_snapshot 이 고정 5개 키로 평탄화하며 추가 키를 버린다).
+   → UI 노출은 ui/ 및 services/profile_snapshot_service.py 수정이 필요해 이번 범위
+     ("이 파일만 수정") 밖이다. **후속 작업 필요**로 명시한다.
+ · [표본 편향] LIMIT 5만은 무작위 표본이 아니라 스캔 선두 5만행이다. 3단계 profile 과 동일한
+   성질이며 이번에 새로 생긴 편향은 아니지만, 정렬 적재된 테이블에서는 앞부분에 치우친다.
+ · [MySQL/MariaDB] CTE 미지원 구버전에서는 고유값 미수집으로 떨어진다(3단계와 동일 조건).
+ · [MetaCollector 스키마 미한정 조회] §5 의 근본 원인 자체(db/meta_collector.py 의
+   스키마 미한정 SELECT)는 그대로 남아 있다. rollback 으로 후속 쿼리 오염만 차단했다.
+   → 별도 작업 필요(파일 범위 밖).
+
+════════════════════════════════════════════════════════════════════════════════
+8. 변경/생성 파일 · 커밋
+════════════════════════════════════════════════════════════════════════════════
+커밋 : 52c22fc
+  fix(profile): 재수집 고유값 수집에 3단계와 동일한 표본(5만행)·timeout·WHERE 방어 적용
+                (PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX)
+
+  services/profile_recollect_service.py              | 141 +++++++++++++--   (수정)
+  tests/test_profile_recollect_sampling_guard.py     | 184 ++++++++++++++++  (신규)
+  scripts/dev_e2e/profile_recollect_sampling_timeout_perf_measure.py | 197 ++ (신규)
+  scripts/dev_e2e/profile_recollect_sample_basis_evidence_verify.py  |  94 ++ (신규)
+  4 files changed, 605 insertions(+), 11 deletions(-)
+
+동시 진행 작업(ui/tabler_renderer.py, routes/agg_diff_route.py)과 겹친 파일 0건 —
+커밋에는 위 4개 파일만 포함했고, 다른 세션의 미커밋 변경은 건드리지 않았다.
+
+════════════════════════════════════════════════════════════════════════════════
+9. 실검증 상태
+════════════════════════════════════════════════════════════════════════════════
+실검증 상태: 실 DB 실측 완료(PostgreSQL 192.168.0.150:5433 asis — 42M/30M/38K 3개 테이블
+before·after 소요시간 측정, MariaDB 11.1 방언 확인). 브라우저 UI 검증은 미실시 —
+'표본 5만행 기준' 표기의 화면 노출 배선이 이번 파일 범위 밖이라 표시할 UI 자체가 없다(§7).
+DB 는 전 과정 SELECT 전용이며, 운영 SQLite 저장은 캡처로 차단해 기록 0건이다.
+
+✅ 작업 완료 - PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX - 재수집 고유값 수집에 3단계와 동일한 표본(5만행)·timeout(15초)·WHERE scope 방어 적용, 42M×8컬럼 >1200초(취소) → 0.24초 / 30M 64.13초 → 0.06초, 표본 절단 시 '표본 5만행 기준' 근거 저장, 소규모 테이블 값 완전 동일(무회귀), 신규 회귀 0건
