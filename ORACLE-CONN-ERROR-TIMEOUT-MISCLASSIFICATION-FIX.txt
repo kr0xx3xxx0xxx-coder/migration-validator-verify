@@ -1,0 +1,280 @@
+작업명 : ORACLE-CONN-ERROR-TIMEOUT-MISCLASSIFICATION-FIX
+✅ 작업 완료 - ORACLE-CONN-ERROR-TIMEOUT-MISCLASSIFICATION-FIX - ORA-03136을 접속 실패(연결 시간 초과) 계열로 재분류하고 오류코드 기반 판정 단계를 앞세움, 요구사항 3(방언별 실행 상한)은 조사 결과 2026-07-28 커밋 53d61bb에서 이미 구현 완료로 확인되어 신규 구현 없음
+
+────────────────────────────────────────────────────────────────────────
+1. 결함 요지
+────────────────────────────────────────────────────────────────────────
+ORA-03136(inbound connection timed out)은 클라이언트가 SQLNET.INBOUND_CONNECT_TIMEOUT 안에
+**인증을 마치지 못해** 서버가 접속을 끊을 때 나는 오류다. 즉 쿼리는커녕 접속조차 성립하지
+않은 상태이므로 의미상 접속 실패다.
+
+그런데 판별기가 이를 쿼리 타임아웃으로 보고 있었다.
+
+  services/db_adapters/oracle.py:126 (수정 전)
+    def is_query_timeout_error(self, exc) -> bool:
+        s = str(exc).lower()
+        return "dpi-1067" in s or "ora-03136" in s or "call timeout" in s
+                                   ^^^^^^^^^^^^^^^^^ 접속 단계 오류가 쿼리 타임아웃 표지에 섞여 있음
+
+이 판정이 상위 categorize_conn_error 로 그대로 전파되어, 접속조차 안 된 상황에서
+아래 문구가 사용자에게 나갔다 — **사실과 정반대의 안내**다.
+
+  "쿼리 실행 시간 초과 (접속은 정상 — 실행 시간이 제한을 초과했습니다).
+   현재 제한: 60초 (환경변수 MV_COUNT_STATEMENT_TIMEOUT_MS = 60000 ms). …"
+
+부수 피해가 하나 더 있었다. db_query_service.is_connection_lost_error 는 '연결 시간 초과'를
+재시도 대상으로 보지만 위 정정 문구는 재시도 대상이 아니다(쿼리 타임아웃은 재접속해도 같은
+상한에 걸리므로 의도된 설계). 따라서 오분류된 ORA-03136 은 **일시적 접속 장애인데도 재시도
+경로에서 제외**되고 있었다.
+
+────────────────────────────────────────────────────────────────────────
+2. 수정 내용 (커밋 9cc5d08)
+────────────────────────────────────────────────────────────────────────
+[요구사항 1·2]
+
+(1) services/db_adapters/oracle.py — 표지 목록을 두 개로 분리
+
+  _ORA_QUERY_TIMEOUT_MARKERS          = ("dpi-1067", "dpy-4024", "call timeout")
+  _ORA_CONNECT_PHASE_TIMEOUT_MARKERS  = ("ora-03136", "inbound connection timed out",
+                                         "ora-12170", "tns:connect timeout",
+                                         "ora-12535", "ora-12609")
+
+  is_query_timeout_error 는 접속 단계 표지를 **먼저** 보고, 걸리면 메시지에 timeout 문자열이
+  있어도 False 를 돌린다. 즉 'timeout 이 들어있나'가 아니라 '어느 단계의 오류인가'로 판정한다.
+
+  dpy-4024(oracledb thin 의 call timeout 코드)를 표지에 명시했다. 기존에도 메시지 본문의
+  'call timeout' 으로 잡히고 있었으므로 **판정 결과는 변하지 않는다**(커버리지 문서화 목적).
+
+(2) services/count_common_service.py — 오류 '코드' 기반 확정 단계를 앞세움
+
+  categorize_conn_error 의 분류 순서를 다음처럼 바꿨다.
+
+    ① _is_connect_phase_timeout(m)  → '연결 시간 초과'   ← 신규. 오류 코드로 접속 단계 확정
+    ② _is_query_timeout(...)        → 쿼리 타임아웃 정정 문구
+    ③ 'timeout' / 'timed out'       → '연결 시간 초과'   ← 기존 fallback(그대로 유지)
+
+  ①의 근거 목록 _CONNECT_PHASE_TIMEOUT_CODES 는 ora-03136 / inbound connection timed out /
+  ora-12170 / ora-12535 / ora-12609 로, 전부 '접속 단계 시간 초과' 성격이라 **기존 '연결 시간
+  초과' 카테고리를 그대로 재사용**한다(신규 카테고리 발명 없음 — 지시 요구사항 1 준수).
+
+  ①은 어댑터 판별기를 타지 않는 호출 경로(db_type 미상으로 들어오는 일괄검증 경로 등)까지
+  덮기 위한 두 번째 방어선이다. 어댑터만 고쳐도 결과는 같지만, 코드 기반 확정 경로를 남겨
+  드라이버 메시지 문장이 바뀌어도 판정이 흔들리지 않게 했다.
+
+  추가로 문장 표지 _CONNECT_PHASE_MARKERS 에 'cannot connect to' 를 보강했다 —
+  이 프로젝트가 실제로 쓰는 oracledb(thin) 이 접속 실패 시 뱉는 DPY-6005 메시지 표지다
+  (아래 [L1] 실측에서 확인).
+
+(3) 테스트
+  tests/test_oracle_conn_error_timeout_misclassification.py  신규 24건
+  tests/test_dbms_query_timeout_adapter.py                   ORA-03136 기대값 True→False 정정,
+                                                             DPY-4024·ORA-12170 케이스 추가
+  tests/test_count_timeout_error_message_category.py         ORA-03136 관련 주석 갱신(픽스처 변화 없음)
+
+(4) 실측 하니스
+  scripts/dev_e2e/oracle_conn_error_timeout_misclassification_verify.py  신규
+
+────────────────────────────────────────────────────────────────────────
+3. 전/후 분류 결과 (실측)
+────────────────────────────────────────────────────────────────────────
+실행: python scripts/dev_e2e/oracle_conn_error_timeout_misclassification_verify.py
+      (Before 열은 수정 전 categorize_conn_error 오라클 경로를 하니스 안에서 원문 재현)
+
+[S] 오프라인 문자열 매트릭스 — 16건 전부 OK, 정정 2건
+
+  케이스                    Before 분류                  After 분류              판정
+  ─────────────────────────────────────────────────────────────────────────────
+  ORA-03136 코드+본문       쿼리 실행 시간 초과(정정문구)  연결 시간 초과          OK  ← 정정됨
+  ORA-03136 DPY 래핑        쿼리 실행 시간 초과(정정문구)  연결 시간 초과          OK  ← 정정됨
+  ORA-03136 본문만          연결 시간 초과                연결 시간 초과          OK
+  ORA-12170 TNS connect     연결 시간 초과                연결 시간 초과          OK
+  ORA-12535 operation       연결 시간 초과                연결 시간 초과          OK
+  ORA-12609 receive         연결 시간 초과                연결 시간 초과          OK
+  DPI-1067 call timeout     쿼리 실행 시간 초과(정정문구)  쿼리 실행 시간 초과      OK
+  DPY-4024 call timeout     쿼리 실행 시간 초과(정정문구)  쿼리 실행 시간 초과      OK
+  PG statement timeout      쿼리 실행 시간 초과(정정문구)  쿼리 실행 시간 초과      OK
+  PG connect timeout        연결 시간 초과                연결 시간 초과          OK
+  MSSQL query timeout       쿼리 실행 시간 초과(정정문구)  쿼리 실행 시간 초과      OK
+  MSSQL login timeout       연결 시간 초과                연결 시간 초과          OK
+  MySQL max exec time       쿼리 실행 시간 초과(정정문구)  쿼리 실행 시간 초과      OK
+  MySQL can't connect       연결 시간 초과                연결 시간 초과          OK
+  Oracle 포트 거부          포트 연결 거부                포트 연결 거부          OK
+  PG 인증 실패              패스워드 인증 실패            패스워드 인증 실패      OK
+
+  → 바뀐 것은 ORA-03136 2건뿐. 진짜 쿼리 타임아웃 5건, 접속 실패 6건, 기타 3건은 전부 불변
+    = 무회귀(지시 실측검증 2번 요구사항 충족).
+
+[L1] 실 DB 접속 단계 실패 — 오라클 라이브 호스트의 닫힌 포트(1599)로 실제 접속 시도
+  raw     : DPY-6005: cannot connect to database (CONNECTION_ID=…). timed out
+  elapsed : 20.2s
+  판별    : is_query_timeout_error = False   (접속 단계이므로 False 가 정답)
+  분류    : 연결 시간 초과
+  판정    : OK
+
+[L2] 실 DB 쿼리 타임아웃 — asis 접속 성공 후 call_timeout 2000ms + 250k×250k 카티전 COUNT
+  raw     : DPY-4024: call timeout of 2000 ms exceeded
+  elapsed : 2.1s
+  판별    : is_query_timeout_error = True    (쿼리 타임아웃이므로 True 가 정답)
+  분류    : 쿼리 실행 시간 초과 (접속은 정상 — …)
+  판정    : OK  ← 이번 수정으로 진짜 쿼리 타임아웃 경로가 깨지지 않았음을 실 DB로 확인
+
+■ ORA-03136 실 DB 재현 불가 사유 (지시 실측검증 1번의 예외 사유 명시)
+  ORA-03136 은 서버측 sqlnet.ora 의 SQLNET.INBOUND_CONNECT_TIMEOUT 을 낮추고(기본 60초)
+  클라이언트 인증을 인위적으로 지연시켜야 발화한다. 대상은 공유 개발 오라클 인스턴스라
+  sqlnet.ora 수정 및 리스너 재기동 권한/작업 창이 없다. 잘못된 포트로 접속하면 리스너
+  자체에 닿지 못해 ORA-12541/DPY-6005 가 나올 뿐 ORA-03136 은 발화하지 않는다([L1] 실측).
+  따라서 ORA-03136 은 오류 메시지 문자열 주입 단위테스트로 검증했고([S] 3변형 + 테스트 24건),
+  실 DB로는 '접속 단계 실패'와 '쿼리 타임아웃'의 경계가 유지되는지를 [L1]/[L2]로 확인했다.
+
+────────────────────────────────────────────────────────────────────────
+4. 요구사항 3 조사 결과 — MySQL/MariaDB/MSSQL 60초 실행 상한 (구현 없음)
+────────────────────────────────────────────────────────────────────────
+■ 결론: **이미 구현되어 있다. 백로그 항목이 stale 이다. 이번 지침에서 신규 구현 없음.**
+
+  커밋 53d61bb (2026-07-28)
+    "fix(adapter): MySQL/MariaDB/MSSQL 쿼리 타임아웃 no-op 해소 (DIALECT-TIMEOUT-NOOP-FIX)"
+  HEAD 조상 여부 확인: git merge-base --is-ancestor 53d61bb HEAD → YES (반영 완료)
+
+■ 각 방언 실행 타임아웃 설정 방법과 현재 구현 상태
+
+  방언      설정 방법                                     단위 변환            구현 위치
+  ─────────────────────────────────────────────────────────────────────────────────────
+  MySQL     SET SESSION max_execution_time = <ms>         ms 그대로            mysql.py:62
+  MariaDB   SET SESSION max_statement_time = <초, 소수>   ms/1000, 하한 0.001  mariadb.py:33
+  MSSQL     pyodbc connection.timeout = <초>              ms→초 올림, 최소 1   mssql.py:62
+            (ODBC SQL_ATTR_QUERY_TIMEOUT)
+  Oracle    connection.call_timeout = <ms>                ms 그대로            oracle.py(기존)
+  PG        SET statement_timeout = <ms>                  ms 그대로            postgresql.py:90
+
+  세 방언 모두 supports_statement_timeout() = True 이고, 공통 계약(None=무변경 / 0=명시적 무제한 /
+  실패해도 예외 전파 금지)을 PostgreSQL·Oracle 어댑터와 동일하게 지킨다. 호출부
+  db_query_service.py:607 은 방언 분기 없이 get_adapter(db_type).apply_query_timeout(conn, cur, _to)
+  만 호출하므로 COUNT 경로(COUNT_STATEMENT_TIMEOUT_MS 기본 60000ms)에 그대로 적용된다.
+
+■ 다만 남는 조건부 no-op (백로그에 남길 값어치가 있는 잔여 위험)
+  · MySQL 5.7.8 미만 / MariaDB 10.1.1 미만 — 해당 세션 변수가 없어 SET 이 실패하고
+    코드가 조용히 no-op 으로 폴백한다(mysql.py:86, mariadb.py:60의 except pass).
+    상한이 안 걸렸다는 사실이 사용자·로그 어디에도 드러나지 않는다.
+  · MySQL max_execution_time 은 서버 사양상 **읽기 전용 SELECT 에만** 적용된다.
+    이 도구는 read-only 이므로 실질 영향은 없지만 계약상 차이로 기록해 둔다.
+  · 세 방언 모두 실 DB 실측은 MariaDB만 있고(scripts/dev_e2e/dialect_timeout_noop_fix_
+    mariadb_live_verify.py) MySQL/MSSQL 은 실 인스턴스가 없어 미실측이다.
+  → 이번 작업 범위 밖. 별도 지침 후보로 남긴다.
+
+────────────────────────────────────────────────────────────────────────
+5. 요구사항 4 조사 결과 — 표지 목록 커버리지와 확장성
+────────────────────────────────────────────────────────────────────────
+■ 현재 등록된 표지 전량 (수정 후 기준)
+
+  (a) 쿼리 타임아웃 표지 — 방언 어댑터별, 양성 판정
+      PostgreSQL  postgresql.py:318  pgcode 57014 우선 + 'canceling statement due to statement timeout'
+      Oracle      oracle.py          dpi-1067 / dpy-4024 / call timeout
+      MySQL       mysql.py:124       errno 3024 + 'max_execution_time' / 'maximum statement execution time'
+      MariaDB     mariadb.py:96      errno 1969 + 'max_statement_time'
+      MSSQL       mssql.py:112       'hyt00' / 'hyt01' / 'timeout expired'
+      Tibero/CUBRID/DB2/unsupported  전부 False(추정 구현 없음 — 의도된 보수 기본값)
+
+  (b) 접속 단계 표지 — count_common_service.py, 음성 판정(쿼리 타임아웃 거부권)
+      문장 표지 _CONNECT_PHASE_MARKERS 8건
+        connection to server / login timeout / could not connect / unable to connect /
+        can't connect to / cannot connect to(신규) / tns:connect timeout / connect timeout occurred
+      코드 표지 _CONNECT_PHASE_TIMEOUT_CODES 5건 (신규)
+        ora-03136 / inbound connection timed out / ora-12170 / ora-12535 / ora-12609
+
+■ 확장성 평가
+  · 확장 자체는 쉽다 — 전부 평면 튜플이고 소문자 부분문자열 매칭이라 한 줄 추가로 끝난다.
+    새 표지를 추가해도 다른 분기에 영향이 없고, 위 (b)는 음성 판정이라 오탐 방향이 안전하다
+    (모르는 메시지는 기존 fallback ③ '연결 시간 초과'로 떨어진다).
+  · 그러나 **배치가 구조적으로 잘못돼 있다.** (b)는 오라클/PG/MySQL/MSSQL 표지가 방언 중립
+    서비스 파일 하나에 뒤섞여 있다. 새 방언·새 드라이버 메시지를 지원하려면 어댑터가 아니라
+    공용 서비스 파일을 고쳐야 하고, 이는 CLAUDE.md 가 경계하는 'heuristic 하드코딩 증가' 그 자체다.
+    (a)는 어댑터가 소유하는데 (b)만 밖에 있어 비대칭이기도 하다.
+  · 권장 방향(이번 범위 밖, 별도 지침 필요):
+      BaseDbmsAdapter.is_connect_phase_error(exc) 를 추가하고 (b)를 방언별 어댑터로 이관.
+      기본 구현 False, 각 어댑터가 자기 표지만 소유. 인터페이스 추가라 어댑터 9종을 모두
+      건드리므로 사용자 승인이 필요한 규모다.
+  · 표지 미등록 시 실제 위험도: 접속 단계 오류가 (b)에 없으면 (a)의 방언 표지에 걸리는
+    경우에만 오분류가 난다. 즉 '표지가 없다 = 즉시 오분류'가 아니라 '(a)와 문자열이 겹칠 때만
+    오분류'다. 이번 ORA-03136 은 (a)에 명시적으로 들어 있어 확정 오분류였던 특수 사례다.
+
+────────────────────────────────────────────────────────────────────────
+6. 회귀 시험 (baseline 대조)
+────────────────────────────────────────────────────────────────────────
+baseline: 6267a1a 를 임시 worktree 로 체크아웃해 동일 명령으로 대조(git stash 미사용)
+
+  ① 신규·직접 영향 테스트
+     tests/test_oracle_conn_error_timeout_misclassification.py  24건 전부 통과(신규)
+     tests/test_dbms_query_timeout_adapter.py                   통과
+     tests/test_count_timeout_error_message_category.py         통과
+     tests/test_task10_6a.py / test_error_contract.py           통과
+     합계 98 passed, 0 failed
+
+  ② 영향 서브셋(count_common_service·db_adapters.oracle 참조 테스트 전량 22파일)
+     결과: 1 failed, 299 passed, 3 skipped
+     실패 1건: tests/test_cte_count_execution_and_projection.py::test_ui_count_note_and_auto_audit
+       → baseline worktree 에서 동일 명령 실행 시 **동일하게 실패**(1 failed, 10 passed).
+         UI HTML 에 loadUploadAudit 함수가 없다는 어서션으로 이번 수정과 무관한 사전 존재 결함.
+
+  ③ 추가 확인 서브셋
+     tests/test_task10_1.py                     1 failed (PROD-DB-WRITE-BLOCKED, 사전 존재)
+     tests/test_stats_execute_error_handling.py 6 failed → baseline 동일 6건 실패 확인(사전 존재)
+     tests/test_sql_structure_check.py          45 passed ('cannot connect' 표지 추가 영향 확인용)
+
+■ 실패 테스트 전체 목록 (전부 baseline 동일 = 이번 수정 기인 0건)
+     tests/test_cte_count_execution_and_projection.py::test_ui_count_note_and_auto_audit
+     tests/test_task10_1.py::TestCountConnSeparation::test_TC_COUNT_CONN_01_source_sql_runs_on_src_conn
+     tests/test_stats_execute_error_handling.py::test_tgt_error_returns_tgt_error_field
+     tests/test_stats_execute_error_handling.py::test_tgt_error_message_label
+     tests/test_stats_execute_error_handling.py::test_credential_in_src_error_is_masked
+     tests/test_stats_execute_error_handling.py::test_credential_in_tgt_error_is_masked
+     tests/test_stats_execute_error_handling.py::test_success_true_when_both_ok
+     tests/test_stats_execute_error_handling.py::test_success_true_empty_rows
+
+────────────────────────────────────────────────────────────────────────
+7. 변경 파일 / 커밋
+────────────────────────────────────────────────────────────────────────
+커밋 : 9cc5d0833c5e08430fd4d7ff1de300a8a1603493  (migration-validator, main)
+       fix(adapter): ORA-03136 접속단계 오류의 쿼리 타임아웃 오분류 정정
+                     (ORACLE-CONN-ERROR-TIMEOUT-MISCLASSIFICATION-FIX)
+
+  M services/count_common_service.py                              +46 -3
+  M services/db_adapters/oracle.py                                +45 -3
+  M tests/test_dbms_query_timeout_adapter.py                      +5 -1
+  M tests/test_count_timeout_error_message_category.py            +3 -2
+  A tests/test_oracle_conn_error_timeout_misclassification.py     신규 24건
+  A scripts/dev_e2e/oracle_conn_error_timeout_misclassification_verify.py  신규 하니스
+
+  ※ 동시 진행 중인 P10 작업의 ui/tabler_renderer.py 변경은 커밋에 포함하지 않았다(파일 지정 add).
+
+핵심 diff:
+  - services/db_adapters/oracle.py
+      - return "dpi-1067" in s or "ora-03136" in s or "call timeout" in s
+      + if any(mk in s for mk in _ORA_CONNECT_PHASE_TIMEOUT_MARKERS):
+      +     return False
+      + return any(mk in s for mk in _ORA_QUERY_TIMEOUT_MARKERS)
+  - services/count_common_service.py
+      + if _is_connect_phase_timeout(m):
+      +     return _CONN_TIMEOUT_CATEGORY
+        if _is_query_timeout(msg, exc, db_type):
+            return _query_timeout_message()
+
+────────────────────────────────────────────────────────────────────────
+8. 비판적 검토 (남는 위험)
+────────────────────────────────────────────────────────────────────────
+· fallback ③('timeout' 문자열 → 연결 시간 초과)은 그대로 남겼다. 어댑터 표지에도 없고 접속
+  단계 표지에도 없는 미지의 쿼리 타임아웃 메시지는 여전히 '연결 시간 초과'로 떨어진다.
+  이 기본값을 바꾸려면 새 카테고리('분류 불가' 등)가 필요한데 지시가 신규 카테고리를 금지했고,
+  기존 테스트가 이 기본값에 의존한다(MySQL "Can't connect to … (timed out)" 등). 현행 유지가
+  안전하다고 판단했다. → 요구사항 2의 하한선("표지가 명확한 접속단계 오류는 정확히 분류")은 충족.
+· 재시도 정책 변화: ORA-03136 이 '연결 시간 초과'가 되면서 is_connection_lost_error 가 True 가
+  되어 재시도 대상에 다시 포함된다. 접속 단계 타임아웃은 일시적 요인이라 재시도가 타당하지만,
+  서버측 INBOUND_CONNECT_TIMEOUT 이 상시 짧게 설정된 환경이라면 재시도가 반복될 수 있다.
+  현재 재시도는 상한이 있는 구조라 무한 반복은 아니다(테스트로 True 임을 명시적으로 고정).
+· ORA-12535/ORA-12609 는 실측 없이 오라클 공식 의미(접속 협상 단계 timeout)만 근거로 추가했다.
+  둘 다 수정 전에도 '연결 시간 초과'로 분류되던 메시지라 판정 변화는 없고(위 [S] 표 확인),
+  코드 표지 목록에 넣어 문장 변화에 강해지도록 한 것이다.
+
+실검증 상태: 실 DB(오라클 라이브 asis 192.168.0.151:1523) 접속 단계 실패·쿼리 타임아웃 실측 완료 +
+ORA-03136 은 서버 sqlnet.ora 권한 부재로 재현 불가하여 문자열 주입 단위테스트로 검증 — 시뮬레이션 아님.
+
+✅ 작업 완료 - ORACLE-CONN-ERROR-TIMEOUT-MISCLASSIFICATION-FIX - ORA-03136을 쿼리 타임아웃에서 접속 실패(연결 시간 초과) 계열로 정정하고 오류코드 기반 판정 단계를 앞세움(문자열 매트릭스 16건 무회귀·라이브 L1/L2 OK), 요구사항 3은 53d61bb에서 이미 구현 완료 확인으로 조사만 수행
