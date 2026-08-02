@@ -353,7 +353,31 @@ git -C E:/verify_reports worktree remove <임시경로>
   (378-431) 재사용**. 이 전처리를 가진 2곳은 실측 오탐 0건이었다.
 - 참고: E:\verify_reports\SQLGLOT-USAGE-CONSISTENCY-AUDIT-DIAGNOSE.txt
 
-### S10. `_cmn_fetch_tgt_col_meta` 가 `is_pk` 를 항상 False 로 고정 반환한다 — 전 방언에서 목적지 PK 정보가 소실된다
+### S10. ✅ 해결 완료 — `_cmn_fetch_tgt_col_meta` 가 `is_pk` 를 항상 False 로 고정 반환한다 — 전 방언에서 목적지 PK 정보가 소실된다
+- 해결일: 2026-08-02 (IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX)
+- 근거 커밋: 코드 저장소 `469de98` — `fix(candidate): 목적지 is_pk 고정 False 제거 — 단일 PK만 True +
+  복합키 별도 필드 (IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX)`
+- 근거 보고서 커밋: 이 저장소 `eef2b2a`(완료보고 `IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX`
+  — 오라클 라이브 10케이스 before/after 실측 + baseline 실패목록 대조)
+- 해결 요약: 아래 '착수 전 결정 필요 3가지'에 대한 **사용자 결정을 그대로 구현**했다
+  (Q1 복합 PK 는 `is_pk=True` 로 보지 않고 별도 필드로 분리 / Q2 단일 PK 는 GROUP BY 후보에서 배제 /
+  Q3 오라클만). `services/db_query_service.py` 가 어댑터 `fetch_key_metadata` 를 **재사용**해
+  (새 카탈로그 SQL 없이) 목적지 `is_pk` 를 실값으로 배선한다. 진단서의 권장안대로 **단일 컬럼 PK 에만
+  True**, 복합 PK 구성원은 `is_composite_key_member` 별도 필드로 분리했고, 이 필드는 **값이 있을 때만
+  추가**한다(무조건 추가하면 provider parity 회귀가 발생함을 실측으로 확인한 뒤 수정).
+  **진단서에 없던 Step3(시맨틱 전용) DIMENSION 분기의 키 게이트 누락을 실측으로 발견해 함께 막았다**
+  (`services/candidate_engine.py`).
+- 실측: 오라클 라이브 10케이스 전수(단일 PK / 복합 PK / PK 없음 × 단일테이블 / JOIN) —
+  ① 단일 PK 는 GROUP BY 에서 배제되고 사유가 `PK_IDENTIFIER` 로 정확히 표기된다(수정 전
+  `NUMERIC_SEMANTIC_EXCLUDED` 등 부정확한 사유였던 것도 함께 정정), ② 복합 PK 전 항목 무회귀,
+  ③ PK 없음 완전 동일, ④ SUM 정책(배포 JS 판정식 원문 평가) 변화 0건.
+  진단서의 "체감변화 12곳" 을 재실측한 결과 **실제 변화는 5곳뿐**임을 확인했다(진단서 수치 정정).
+- 회귀: 관련 서브셋 실패 node id 가 baseline 과 완전 일치(회귀 0). 구현 중 자체 발견한 provider parity
+  회귀 1건은 원인 규명 후 즉시 해소했다.
+- 잔여: R1(키메타 중복 조회) → **P14**, R2(evidence_contract.pk 게이트 JOIN 경로 미개방) → **F22**,
+  R3(MySQL/MSSQL 방언 비대칭) → **F23**, R4(tier3 GROUP BY 순서 변화) → **F24**,
+  R5(진단서 자체 누락 기록) → **F25** 로 각각 분리 등록했다.
+- 근거 보고서: E:\verify_reports\IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX.txt
 - 발견일: 2026-07-29
 - 근거 보고서: `STRATEGY-PLAN-PK-KIND-HARDCODE-FIX.txt` (§2-(a) / §9-(c))
 - 상세: `services/db_query_service.py:1248` 이 목적지 컬럼 메타를 조립하면서 row 마다 `'is_pk': False` 를
@@ -533,6 +557,18 @@ git -C E:/verify_reports worktree remove <임시경로>
 ---
 
 ## 성능
+
+### P14. 목적지 키메타를 요청당 2회 중복 조회한다(`_cmn_fetch_tgt_col_meta` + `_build_target_pk_evidence`)
+- 발견일: 2026-08-02
+- 근거 보고서: `IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX.txt` (§11-R1)
+- 상세: `_cmn_fetch_tgt_col_meta` 와 `_build_target_pk_evidence` 가 **같은 어댑터 `fetch_key_metadata` 를
+  요청당 각각 1회씩, 총 2회** 호출한다. 진단서(IS-PK-...-IMPACT-DIAGNOSE §6-3)도 지적한 항목이며
+  is_pk 배선 작업의 범위 밖으로 두었다.
+- 대응 방향: 단순 캐시/1회 조회로 통합하기 전에, **두 함수의 실패 처리 의미가 다르다**는 점을 감안한
+  별도 검토가 필요하다(한쪽은 조회 실패 시 메타 전체를 포기하지 않아야 하고, 다른 쪽은 근거 부재로
+  귀결돼야 한다).
+- 관련: S10(해결 완료 — 이 항목의 발원 작업)
+- 참고: E:\verify_reports\IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX.txt
 
 ### P11. 세트 병렬 실행(`_stats_set_parallelism`) 기본값 조정 — 대규모에서 실측 -41~55%(승인 필요)
 - 발견일: 2026-08-01
@@ -747,6 +783,52 @@ git -C E:/verify_reports worktree remove <임시경로>
 ---
 
 ## 기능 미완(설계는 끝났으나 구현 대기)
+
+### F22. `evidence_contract.pk` 게이트가 JOIN 경로에서 여전히 안 열린다 — 목적지 PK 를 채워도 계약이 None 이다
+- 발견일: 2026-08-02
+- 근거 보고서: `IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX.txt` (§11-R2)
+- 상세: 이 게이트는 **원본** key_metadata 수집 여부(`key_collected`)로 열리는데, JOIN 경로는 원본 통계·
+  키메타 조회 자체를 하지 않는다. 따라서 S10 수정으로 **목적지** PK 를 실값으로 채워도 JOIN 경로의
+  `evidence_contract.pk` 는 여전히 None 이다. 진단서
+  (`IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-IMPACT-DIAGNOSE`)가 예측한 **"근거부족 배지 감소"
+  효과가 이번 수정만으로는 발생하지 않는 원인**이 이것이다.
+- 대응 방향: 별도 판단 필요(원본 키메타 수집을 JOIN 경로까지 확대할지, 게이트 조건을 목적지 근거로도
+  열지 — 두 방향의 비용·의미가 다르다).
+- 관련: S10(해결 완료)
+- 참고: E:\verify_reports\IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX.txt
+
+### F23. MySQL/MSSQL 은 `fetch_key_metadata` 미구현(no-op)이라 목적지 `is_pk` 가 계속 False 다(방언 비대칭)
+- 발견일: 2026-08-02
+- 근거 보고서: `IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX.txt` (§11-R3 / §8)
+- 상세: S10 수정으로 PostgreSQL/오라클은 목적지 `is_pk` 가 실값이 됐으나, MySQL/MSSQL 어댑터는
+  `fetch_key_metadata` 가 **미구현(no-op)** 이라 `is_pk` 가 계속 False 로 남는다. 해당 작업 지침이
+  Q3 으로 **명시적으로 범위 밖**(오라클만)으로 정한 결과지만, CLAUDE.md 의 4방언 처리 원칙과는
+  계속 어긋난 상태다.
+- 대응 방향: 별도 지침으로 MySQL/MSSQL 어댑터에 키메타 조회를 구현한다.
+- 관련: S10(해결 완료) · F15(MSSQL 컬럼 메타 조회 자체가 미구현)
+- 참고: E:\verify_reports\IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX.txt
+
+### F24. tier3(시계열 단일 PK) 자동선정 GROUP BY 순서 변화 — Q2 를 엄격 적용하려면 완료 모듈 수정이 필요하다
+- 발견일: 2026-08-02
+- 근거 보고서: `IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX.txt` (§11-R4 / B-4)
+- 상세: 시계열 명칭을 가진 단일 PK 가 자동선정 GROUP BY 목록에서 tier1 → tier3 로 강등돼 **순서만**
+  바뀐다(목록에서 사라지지는 않는다). 지침 Q2("단일 PK 는 GROUP BY 후보에서 배제")를 엄격히 적용하면
+  tier3 편입 자체를 막아야 하지만, 해당 코드가 **완료된 1~6단계 모듈**(`analyzer/column_analyzer.py`)이고
+  지침의 수정 대상 파일 목록에도 없어 손대지 않았다.
+- 대응 방향: 완료 모듈 수정이 필요한 사안이라 **별도 승인 후 진행**한다.
+- 관련: S10(해결 완료)
+- 참고: E:\verify_reports\IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX.txt
+
+### F25. (문서 기록) IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-IMPACT-DIAGNOSE 진단서 자체에 누락이 있었다
+- 발견일: 2026-08-02
+- 근거 보고서: `IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX.txt` (§11-R5 / §2-B)
+- 상세: 그 진단서 §2(소비처 24곳 열거)가 **Step3(시맨틱 전용) 경로의 키 게이트 부재를 열거하지
+  못했다**. 이 누락은 진단이 아니라 **후속 수정 작업의 실측 과정에서 처음 발견**됐고, 같은 작업에서
+  함께 막았다. 진단서 자체의 완전성에 공백이 있었다는 기록이다(구현 대기 항목이 아니라 문서 기록).
+- 대응 방향: 향후 유사 진단 시 소비처 전수 조사 범위에 **완료 모듈 외 시맨틱/레거시 경로**도 반드시
+  포함하도록 참고한다.
+- 관련: S10(해결 완료)
+- 참고: E:\verify_reports\IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX.txt
 
 ### F21. 4단계 후처리(재이관 대상 수집)에 진행 표시가 없어 40~51초 무음 구간이 생긴다
 - 발견일: 2026-08-01
