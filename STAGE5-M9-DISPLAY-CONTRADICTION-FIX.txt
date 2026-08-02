@@ -1,0 +1,279 @@
+작업명 : STAGE5-M9-DISPLAY-CONTRADICTION-FIX
+
+================================================================================
+0. 요약
+================================================================================
+백로그 M9 — 5단계(결과 확인) 화면의 문구 충돌 2건을 '표시'만 고쳤다. 판정 로직(집계/그룹
+판정, 조합 판정 부재 F6, 수집 조기중단·HARD CAP)은 한 줄도 건드리지 않았다.
+
+  ① 분포표 vs 그룹 펼침 문구
+     조사 결과 '분포표가 거짓말을 하는 것'이 아니라 '펼침 문구가 이미 아는 값을 버리는 것'
+     이었다. 분포표 건수는 walk 중 누적한 실제 관측치이고, 펼침 문구는 그 값을 무시한 채
+     표시 경계(100)만 말하고 있었다. 펼침 문구가 분포표와 같은 값을 참조하도록 배선을 고쳤다.
+     (부수로, 같은 표의 '비율'이 1000.00% 로 찍히던 분모 불일치도 함께 바로잡았다 — §4)
+
+  ② COMBO 요약표 vs 재이관 대상 건수
+     두 수치는 각각 '집계 그룹 기준'과 '행 레코드 기준'이라 서로 다른 것이 정상이다.
+     둘 다 유지하고, 각각 어떤 기준인지만 화면에 라벨링했다. 이미 있는 '조합(다축 동시)
+     검증 미수행' 경고와 같은 말을 반복하지 않고 연결되도록 문구를 짧게 잡았다.
+
+근거 문서: E:\verify_reports\SINGLE-STEP5-COMBO-VIEW-AND-SKEWED-GROUP-VOLUME-DIAGNOSE.txt
+           (§3-4 부수 관측 2건 — 이번 작업의 출발점)
+
+================================================================================
+1. 조사 — 두 숫자가 어디서 오는지 먼저 확정했다
+================================================================================
+■ 모순 ① — 분포표 건수는 '추정치'가 아니라 '실제 관측치'였다
+
+  요구사항이 "분포표가 정확한 값을 갖고 있는지, 아니면 표기만 정확해 보이는지 먼저 확인"
+  이었다. 코드 두 경로를 모두 확인한 결과:
+
+    services/exact_diff/pk_range_chunk.py:397 _build_grp_dist()
+      → walk 중 누적한 _grp_dist_by_axis 를 그대로 쓴다. 저장(store) trim 과 무관하게
+        '실제로 만난 불일치 수'다.
+    routes/agg_diff_route.py:700 _group_dist_from_store()
+      → basis 에 분포가 없는 DIRECT merge 경로에서만 쓰이며, 저장분을 집계한다.
+
+  둘 다 조기중단이 걸리면 walk 가 끊기므로 '하한'이 되고, 끊기지 않으면 '확정값'이다.
+  즉 분포표 숫자는 언제나 '펼침 문구가 말하는 하한(경계 100)보다 강한 정보'다.
+
+  반면 펼침 문구(ui/tabler_renderer.py _mvPerGroupBannerP3)는 조기중단일 때
+  '실제 <fl>건 초과' 로만 말했다. fl 은 그룹당 표시 경계(기본 100)이지 데이터가 아니다.
+  같은 그룹에 대해 위(분포표)는 200 을, 아래(펼침)는 100 을 말하는 구조였다.
+
+  ★ 판단: 분포표 표기를 '약 200건' 으로 낮추는 방향이 아니라, 펼침 문구가 분포표 값을
+    참조하도록 올리는 방향이 맞다. 분포표 값이 더 정확한 정보이기 때문이다.
+    (요구사항의 두 갈래 중 첫 번째 갈래 — 조사 결과에 따라 이쪽으로 확정)
+
+  연결 지점은 이미 코드에 있었다 — ui/tabler_renderer.py _mvRiLoadGroupPage:
+      var _realN = Math.max(total, _grpCnt);   // _grpCnt = 분포표가 보여준 그 그룹 건수
+      var _dec2  = _mvPerGroupDecide(_realN, _uncertain);
+  즉 dec.n 에 분포표 값이 이미 들어와 있는데, 문구 생성부가 그 값을 쓰지 않고 있었다.
+
+■ 모순 ② — 두 수치는 기준이 다르며, 둘 다 맞다
+
+    요약표 통계결과/최종상태 : ui/grid_helpers.py _mvTargetSummaryView
+        mism = (r.diff||0) + (r.src_only||0) + (r.tgt_only||0)   ← 그룹 단위
+    재이관 대상 건수         : ui/tabler_renderer.py _mvRiSummaryHtml
+        reimport = missing_migration + value_mismatch            ← 행(PK) 단위
+
+  COMBO 실측에서 축별 집계의 +10/−10 이 상쇄되어 그룹은 '일치'(0그룹), 행 비교는 400건
+  불일치가 됐다. 두 숫자가 다른 것 자체는 결함이 아니라 '세는 단위가 다르다'는 사실이다.
+  화면에 그 사실이 적혀 있지 않은 것이 문제였다.
+
+================================================================================
+2. 수정 내용
+================================================================================
+[모순 ①] ui/tabler_renderer.py — 조기중단 문구의 하한을 '경계' → '이미 아는 값' 으로
+
+  변경 4곳(모두 같은 규칙: Math.max(dec.n, dec.fl) 을 하한으로 쓰고 '초과' → '이상'):
+    _mvPerGroupBannerP3        (P3 안내 배너 본문)
+    _mvPerGroupVariantNote     (그룹별 가변 한 줄)
+    _mvPerGroupMergedNoticeP3  (트리 병합 화면의 합친 머리말)
+    _mvPkLoadPage              (드릴다운 패널 상단 '표시 상한' 괄호 안 문구)
+
+  BEFORE : 실제 100건 초과(정확한 총수는 확인 안 됨, 조기중단)
+  AFTER  : 실제 200건 이상(총수 미확정 — 수집이 조기중단되어 정확한 총수는 확인 안 됨)
+
+  조기중단이 아닌 경우(dec.uncertain=false)는 분기 자체를 타지 않아 기존과 동일하다.
+
+[모순 ②] 기준 라벨링(양쪽 수치 모두 유지)
+
+  ui/grid_helpers.py
+    _mvTargetSummaryHeaderHtml : '통계결과'·'최종상태' 헤더 아래 '집계 그룹 기준' 꼬리표
+                                 (행마다 반복하지 않고 표당 1회)
+    _mvTargetSummaryView       : basisTip 신설 — 무엇을 센 값인지 tooltip 근거
+    _mvTargetSummaryCellsHtml  : 기존 '조합 미검증' tooltip 과 한 title 안에서 합침
+                                 (서로 덮어쓰지 않게)
+
+  ui/tabler_renderer.py
+    _mvRiSummaryHtml : 재이관 대상 건수 바로 아래 한 줄 —
+      "이 건수는 행 레코드 기준(PK 단위 비교)입니다 — 위 요약표의 통계결과·최종상태는
+       집계 그룹 기준이라 세는 단위가 다릅니다."
+
+  기존 '⚠ 각 축 개별 검증 완료 · 조합(다축 동시) 검증은 수행되지 않았습니다' 배너는
+  그대로 두고, 그 배너가 말하는 '집계 기준 판정'과 이 카드의 '행 기준 건수'를 연결만 했다
+  (조합 이야기를 다시 하지 않는다 — 중복 설명 회피).
+
+  ※ 판정 로직(조합 판정 부재 F6)은 건드리지 않았다. 요구사항대로 표시 명확화만이다.
+
+================================================================================
+3. 실측 검증 (실 브라우저 · playwright)
+================================================================================
+실 DB 접속 없이 실제 엔진에 chunk fetch 만 주입해 영속 store(db/exact_diff_runs.db)에
+run 을 적재하고, 서버가 그 run 을 그대로 조회하게 했다(표시 정책 검증은 DB 무관).
+
+  픽스처 : scripts/dev_e2e/stage5_m9_display_contradiction_fixture.py
+  하니스 : scripts/dev_e2e/stage5_m9_display_contradiction_verify.py
+
+  M9CONTRA_CHUNK200  실제 불일치 400건(그룹 P/A 각 200) · mismatch_limit 도달 →
+                     저장분은 대표 20건으로 trim · 분포표는 200/200 을 그대로 안다 → 모순 재현
+  M9CONTRA_NORMAL150 실제 불일치 300건(그룹당 150) · 조기중단 없음 → 무회귀 대조
+
+BEFORE 서버(8193) = HEAD(9cc5d08) + 병행작업 P10 미커밋분 (내 변경 없음, '집계 그룹 기준' 0건)
+AFTER  서버(8192) = 위 + 이번 변경                        ('집계 그룹 기준' 5건)
+  → 두 서버를 별도 worktree/포트로 완전히 분리해 내 변경분만 대조된다.
+
+■ 모순 ① — M9CONTRA_CHUNK200 (조기중단)
+
+  BEFORE  분포표 : ▸ P | 200건 이상 | 1000.00% | 대표 PK 1, 3, 5
+          펼침   : 이 그룹은 불일치가 100건을 초과합니다 — 표시 10건 /
+                   실제 100건 초과(정확한 총수는 확인 안 됨, 조기중단).
+          → 위는 200, 아래는 100. 같은 그룹인데 서로 다른 수·다른 확실성.
+
+  AFTER   분포표 : ▸ P | 200건 이상 |   50.00% | 대표 PK 1, 3, 5
+          펼침   : 이 그룹은 불일치가 100건을 초과합니다 — 표시 10건 /
+                   실제 200건 이상(총수 미확정 — 수집이 조기중단되어 정확한 총수는 확인 안 됨).
+          → 위·아래가 같은 수(200), 같은 확실성(하한)을 말한다. 충돌 해소.
+
+  스크린샷 : BEFORE_c1_contra.png / AFTER_c1_contra.png
+
+■ 모순 ① 무회귀 — M9CONTRA_NORMAL150 (조기중단 아님)
+
+  BEFORE  분포표 : ▸ P | 150건 | 50.00%
+          펼침   : 표시 100건 / 실제 150건(확정).
+  AFTER   완전히 동일 (한 글자도 달라지지 않음)
+
+  스크린샷 : BEFORE_c1_normal.png / AFTER_c1_normal.png
+
+■ 모순 ② — COMBO 요약표 + 재이관 카드
+
+  BEFORE  요약표 : 통계결과 '일치' / 최종상태 '정상' (기준 표기 없음)
+          카드   : 재이관 대상 400건(33.33%)              (기준 표기 없음)
+          → 요약표만 보면 '정상'으로 읽힌다.
+
+  AFTER   요약표 : 통계결과[집계 그룹 기준] '일치' / 최종상태[집계 그룹 기준] '정상'
+          카드   : 재이관 대상 400건(33.33%)
+                   이 건수는 행 레코드 기준(PK 단위 비교)입니다 — 위 요약표의
+                   통계결과·최종상태는 집계 그룹 기준이라 세는 단위가 다릅니다.
+          → 두 수치를 모두 유지한 채 각각의 기준이 화면에 명시된다.
+             기존 조합 미검증 경고/꼬리표('조합 미검증')는 그대로 공존한다.
+
+  스크린샷 : BEFORE_c2_combo.png / AFTER_c2_combo.png
+  JSON 증적 : _m9_before.json / _m9_after.json
+
+================================================================================
+4. 조사 중 함께 발견해 고친 인접 결함 — 분포표 비율 1000.00%
+================================================================================
+BEFORE 캡처에서 분포표 '비율' 열이 1000.00% 로 찍혔다(실측). 원인은 분자와 분모의 기준이
+서로 달랐던 것이다.
+
+  분자 g.count      = walk 중 누적한 '실제 불일치 수'      (200)
+  분모 _reimpTot    = counts.reimport_pks = '저장(trim)분'  (20)
+
+조기중단으로 대표표본만 남는 경우(mismatch_limit 도달 → representative_limit trim)에만
+드러난다. 서버가 실제 총계를 reimport_total(400)로 함께 내려주므로 그 값을 우선 쓰도록
+분모를 분자와 같은 기준으로 맞췄다. trim 이 없는 정상 케이스는 두 값이 같아 표시가 전혀
+달라지지 않는다(위 무회귀 대조에서 50.00% 그대로 확인).
+
+이번 작업 범위에 명시된 항목은 아니지만, '같은 표 안에서 저장분 기준과 실제 기준을 섞는다'
+는 모순 ①과 완전히 같은 뿌리이고, 100% 를 넘는 비율은 그 자체로 명백한 오표시라 함께 고쳤다.
+
+================================================================================
+5. 테스트
+================================================================================
+■ CLAUDE.md 지정 회귀
+    python samples/test_virtual_cases.py        → 8/8 통과
+    python samples/test_complex_cases.py        → 5/5 케이스 분석 완료
+    python samples/test_per_group_display_policy.py → 50/50 통과
+
+■ 변경 지점을 참조하는 테스트 전수(grep 기반 선정) + 요약표/드릴다운 관련
+    tests/test_grid_helpers.py, test_unified_result_detail.py, test_stats_result_full.py,
+    test_reimport_drilldown_notice_dedup_and_tab_expand.py, test_agg_contribution.py,
+    test_d6_group_record_separation.py, test_d7_11_prepare_gate.py, test_d7_15_gb_group_first.py,
+    test_d7_16_representative_axis.py, test_d7_16_ui_modal_return.py, test_d7_18_exec_tab.py,
+    test_d7_2_ui_paging.py, test_d7_3_restore_guard.py, test_d7_4_active_gate_summary.py,
+    test_d7_5_chunk100k_count.py, test_d7_6_progress_earlystop.py, test_d7_7_scale_drilldown.py,
+    test_d7_8_1_dedup_gate.py, test_d7_8_inline_drill_time.py, test_groupby_plan.py,
+    test_reimport_run_isolation.py, test_stage45_timing_label_and_dup_guard_fix.py,
+    test_ui_exec_result_fixes.py, test_ui_tab4_tab5_separation.py,
+    test_urgent_target_only_and_reuse.py, test_drilldown_readiness.py,
+    test_drilldown_snapshot_timestamp.py, test_single_step5_representative_axis_single_source.py,
+    test_pk_range_chunk_representative_axis_unify.py
+      → 결과: 223 passed / 2 skipped / 6 xfailed / 4 failed
+        (2회 분할 실행 합산: 93+130 passed, 1+3 failed, 2+0 skipped, 5+1 xfailed)
+
+■ 정적 검증
+    scripts/dev_e2e/combo_decomposition_warning_static_verify.py → 14/14 통과
+    node --check (생성 JS 번들 · grid_helpers JS) → 둘 다 OK (문법 붕괴 없음)
+
+■ 실패 테스트 전체 목록 (4건 — 전부 사전 존재, 이번 변경과 무관)
+    깨끗한 baseline worktree(9cc5d08, 내 변경 0)에서 동일하게 실패함을 대조 확인했다.
+
+    1) tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+    2) tests/test_agg_contribution.py::test_exact_diff_separated_and_terms_removed
+    3) tests/test_d7_8_inline_drill_time.py::test_ui_advanced_perf_position_and_title
+    4) tests/test_ui_tab4_tab5_separation.py::test_target_only_display
+
+    ※ 수정 과정에서 내가 유발했다가 고친 실패 1건 있음 —
+      test_unified_result_detail.py::test_batch_compact_row_grid. 헤더 꼬리표를 문자열
+      연결로 쪼개는 바람에 소스 텍스트에서 '>통계결과<' 가 끊겼다(이 테스트는 렌더 결과가
+      아니라 JS 소스를 검사한다). 한 리터럴 안에 붙여 해소했고 현재 통과한다.
+
+================================================================================
+6. 병행 작업(P10) 처리
+================================================================================
+착수 시 git status 확인 결과 ui/tabler_renderer.py 에 P10-SUMMARY-COUNT-DISPLAY-
+DISAMBIGUATION-FIX 의 미커밋 변경(44줄)이 있었고, 그 변경이 건드리는 함수
+(_mvRiSummaryHtml, _mvRiRenderGroupView)가 이번 모순 ①·②와 같은 영역이었다.
+
+지시대로 공유 파일 직접 편집을 미루고 다음과 같이 진행했다:
+  - main 작업트리는 건드리지 않은 채, P10 미커밋분을 그대로 얹은 전용 worktree 를 만들어
+    그 위에서 개발·실측했다(BEFORE/AFTER 서버도 각각 별도 worktree·포트).
+  - 그 사이 main 에 잠깐 넣었던 내 grid_helpers.py 변경은 P10 세션이 `git commit -a` 로
+    쓸어담는 사고를 막기 위해 되돌리고 패치로 보관했다(작업물은 worktree 에 온전히 보존).
+  - P10 커밋을 약 1시간(20초 간격 폴링) 기다렸으나 계속 미커밋이라 무한 대기를 피하고,
+    **내 변경만 담은 커밋**을 만드는 방식으로 마무리했다 — index 에는 'HEAD + 내 변경'
+    블롭만 스테이징(git hash-object + update-index --cacheinfo)하고 P10 미커밋분은
+    커밋에 포함하지 않았다. 커밋 전 `git diff --cached` 로 P10 마커 0건을 확인했다.
+
+  ■ 사고 1건과 복구(정직 고지)
+    위 방식으로 커밋한 직후 확인해 보니 **P10 의 미커밋 변경이 main 작업트리에서 사라져
+    있었다**(`git status` 클린, 파일 내 P10 마커 0건). index 를 plumbing 으로 직접 세운
+    뒤 commit/--amend 를 거치면서 작업트리가 커밋 내용으로 정렬된 것으로 보인다.
+    착수 시점에 P10 미커밋분을 패치로 떠 두었고 개발용 worktree 에도 원본이 그대로
+    있었으므로 즉시 복구했다. 복구 후 대조 결과:
+        원본 변경줄 44 / 복구 변경줄 44 · 내용 동일: True (+/- 라인 전량 문자열 대조)
+    현재 main 작업트리는 'HEAD(내 커밋) + P10 미커밋분 44줄' 상태이고,
+    `git diff` 에 내 마커는 0건 · P10 마커만 4건으로 서로 침범이 없음을 확인했다.
+    → P10 세션은 평소대로 자기 변경을 커밋하면 되고, 내 변경이 그 커밋에 섞이지 않는다.
+    ※ 교훈: 공유 파일에서 `update-index --cacheinfo` 로 부분 커밋을 만들 때는 커밋 직후
+      반드시 남의 미커밋분 잔존 여부를 재확인해야 한다(이번에 확인해서 잡았다).
+
+커밋 : e232d89  fix(single): 5단계 문구 충돌 2건 — 펼침 문구가 분포표 값 참조 +
+                집계/행 기준 라벨링 (STAGE5-M9-DISPLAY-CONTRADICTION-FIX)
+        4 files changed, 398 insertions(+), 9 deletions(-)
+        (코드 저장소는 push 하지 않는다 — 원격은 증적 저장소다)
+
+커밋 후 main 트리 재확인 : 116 passed / 4 failed(위 사전 존재 4건과 동일)
+
+================================================================================
+7. 남은 간극(이번에 고치지 않은 것 — 정직 고지)
+================================================================================
+1) services/per_group_display_policy.py::_build_message 에도 같은 결함이 그대로 있다
+   (f"실제 {fl}건 초과" — 경계를 하한으로 씀). 다만 이 함수의 산출물(pg_display_message)은
+   현재 어떤 route 응답에도 실리지 않아 화면에 나오지 않는다(grep 확인: policy 와 자체
+   테스트에서만 참조). 화면 문구는 전적으로 JS 쪽이 만든다. 완료 모듈 임의 수정을 피하려
+   이번에는 건드리지 않았으나, '표시 문구 생성기가 Python/JS 로 이중화되어 한쪽만 고쳐진'
+   상태이므로 별도 작업으로 정리하는 편이 낫다.
+
+2) 통계검증 그룹 드릴다운 패널(_mvPkLoadPage)의 하한도 같은 규칙으로 올렸지만, 그 화면의
+   '위쪽 숫자'는 재이관 분포표가 아니라 통계검증 그룹표라서 이번 실측 대조에는 포함하지
+   않았다(모순 ①의 대상 화면이 아님). 문구가 약해지는 방향의 변경은 아니다.
+
+3) 조합 기준 판정 자체(F6 — 다축 동시 GROUP BY 세트 미실행)는 요구사항대로 손대지 않았다.
+   화면은 여전히 '조합은 검증되지 않았다'고 고지할 뿐, 조합 불일치를 집계로 잡지 못한다.
+
+================================================================================
+8. 변경 파일
+================================================================================
+  ui/tabler_renderer.py   — 모순① 문구 4곳, 모순② 기준 라벨 1곳, 분포표 비율 분모 1곳
+  ui/grid_helpers.py      — 요약표 헤더 기준 꼬리표 2곳, basisTip 신설, tooltip 병합
+  scripts/dev_e2e/stage5_m9_display_contradiction_fixture.py  (신규 · 진단/실측 전용)
+  scripts/dev_e2e/stage5_m9_display_contradiction_verify.py   (신규 · 진단/실측 전용)
+
+실검증 상태 : 실 브라우저(playwright) 실측 완료 — 실 DB 접속 없음(표시 정책 검증이라 DB 무관,
+              실제 엔진에 이터레이터만 주입해 영속 store 에 run 을 적재하고 서버가 그대로 조회).
+              모순 ①·② 각각 BEFORE/AFTER 스크린샷 확보, 무회귀 대조 케이스 동일 확인.
+
+✅ 작업 완료 - STAGE5-M9-DISPLAY-CONTRADICTION-FIX - 5단계 문구 충돌 2건 표시 정합화(펼침 문구가 분포표 값을 참조 + 집계 그룹/행 레코드 기준 라벨링) 및 분포표 비율 1000% 분모 정정
