@@ -1,0 +1,453 @@
+작업명 : IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX
+✅ 작업 완료 - IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX - 목적지 is_pk 고정 False 를
+어댑터 실값으로 배선(단일 PK 만 True·복합 PK 는 별도 필드)하고, 시맨틱 전용 후보 경로에 없던
+단일 PK GROUP BY 게이트를 추가 — 오라클 라이브 10케이스 실측으로 단일 PK 배제·복합 PK 무회귀·
+SUM 정책 불변 확인, 회귀 0건
+
+작업일 : 2026-08-02
+유형   : 코드 수정 + 오라클 라이브 실측
+근거   : E:\verify_reports\IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-IMPACT-DIAGNOSE.txt
+커밋   : 469de98  (직전 HEAD 56572a5)
+
+================================================================================
+0. 요약
+================================================================================
+- 결함: `services/db_query_service.py::_cmn_fetch_tgt_col_meta` 가 `'is_pk': False` 를 고정
+  반환해, 목적지 접속이 있는 모든 경로에서 후보추천이 목적지 PK 를 모르는 상태로 동작했다.
+  오라클 목적지 12개 테이블 전수에서 카탈로그에 PK 가 있는데도 100% False 인 것을 재현했다.
+- 수정 3파일 / 순증 77줄:
+    · db_query_service.py     — 어댑터 fetch_key_metadata 재사용, 단일 PK 만 is_pk=True
+    · candidate_engine.py     — Step 3(시맨틱 전용) DIMENSION 분기에 단일 PK 게이트 추가
+    · metadata_provider.py    — 복합키 구성원 사실 전파(참일 때만 키 추가)
+- 실측: 오라클 asis(1523)/tobe(1524) 라이브 10케이스 before/after. 단일 PK 는 GROUP BY 후보
+  에서 실제 배제되고 사유가 PK_IDENTIFIER 로 표기되며, 복합 PK 구성원은 전 항목 무회귀,
+  PK 없는 테이블은 완전 동일. SUM 후보·자동선정 SUM·프런트 SUM 정책 변화 0건.
+- 회귀: 관련 서브셋 1,677 passed / 36 failed + 2 error → 전부 baseline(HEAD)에도 존재.
+  구현 도중 발견한 실제 회귀 1건(provider parity)은 원인 규명 후 수정하여 해소했다(§6).
+
+================================================================================
+1. 지침 요구사항 대비 이행 결과
+================================================================================
+요구1 is_pk 실값 배선(JOIN/파생 경로 포함, 새 PK 조회 로직 발명 금지)
+   → 이행. `get_adapter(db_type).fetch_key_metadata(conn_info, bare_table)` 를 그대로 재사용
+     했다(`_build_target_pk_evidence` / `agg_diff_route` 와 동일 호출·동일 bare 테이블명 규약).
+     새 카탈로그 SQL·새 엔드포인트 없음. JOIN/파생 경로는 `_cmn_fetch_tgt_col_meta` → tgt_map
+     → CandidateInputBuilder → from_tgt_map 으로 값이 흘러 실제로 채워짐을 실측 확인(§3 a2/d2/e2).
+
+요구2 복합 PK 는 is_pk=True 로 만들지 말 것 + is_composite_key_member 별도 필드
+   → 이행. `'is_pk': _km_is_pk and not _km_comp`. 복합 PK 구성원은 is_pk=False 를 유지하고
+     `is_composite_key_member: true` (+`key_column_count`)를 **값이 있을 때만** 덧붙인다
+     (VARCHAR2 char_used/data_length 확장과 동일 규약 — 복합키 없는 테이블 dict 는 키 개수까지
+     불변). 이 구분은 이미 코드베이스에 있는 규약과 동일하다
+     (db_statistics_service._apply_key_metadata_adjustments: `(is_pk or is_unique) and not
+      is_composite` → IDENTIFIER_LIKE / `is_composite` → COMPOSITE_KEY_MEMBER).
+   ※ 지침대로 이 신규 필드를 판정에 쓰는 소비처는 만들지 않았다. 단 하나의 예외가
+     candidate_engine 의 새 게이트인데, 이는 "복합 PK 를 배제하지 않기 위한 안전장치"로만
+     쓰인다(값이 True 면 게이트를 통과시킴 — 배제를 늘리지 않고 줄이는 방향).
+
+요구3 단일 컬럼 PK 를 GROUP BY 후보에서 배제(risk_flags 또는 제외 사유 명시) / SUM 정책 불변
+   → 이행. 다만 **진단서가 열거하지 않은 누락 경로가 하나 있어 그곳을 함께 막았다**(§2-B).
+     배제 사유는 신규 문구를 만들지 않고 기존 `_gb_non_candidate_reason` 의 PK_IDENTIFIER
+     ("PK/유니크 식별자 — 행마다 고유값이라 그룹 기준 부적합")가 그대로 표기된다.
+     SUM 쪽은 코드를 한 줄도 건드리지 않았고, 실측에서도 SUM 후보·자동선정 SUM·프런트
+     `_sumPolicyExcl` 판정 모두 변화 0건이었다(§4).
+
+요구4 진단서의 '체감변화 12곳' 각각 실측 확인 → §4 에 12곳 전수 기록.
+
+================================================================================
+2. 수정 내용
+================================================================================
+[2-A] services/db_query_service.py  `_cmn_fetch_tgt_col_meta`
+  ① 어댑터 키메타 1회 조회를 추가(캐시 조회 이후 · 컬럼 메타 SQL 실행 이전).
+     조회 실패·미지원 방언은 `{}` 로 보수 폴백 — 'PK 없음'으로 단정하지 않고 기존 동작 유지.
+  ② `_entry` 조립부의 `'is_pk': False` 고정값을 실값으로 교체.
+       is_pk                    = (어댑터 is_pk) AND NOT (복합키 구성원)
+       is_composite_key_member  = 복합 PK 구성원일 때만 True 로 추가
+       key_column_count         = 위와 동일 조건에서만 추가
+  ③ docstring 에 새 계약 명시.
+  · [D8-6] batch 메모이즈와 자연 정합 — 캐시에 PK 포함본이 담긴다(캐시 갱신 로직 무변경).
+  · 성능: 목적지 테이블당 카탈로그 쿼리 1회 추가. 진단서 §6-3 이 지적한
+    `_build_target_pk_evidence` 와의 중복 조회(요청당 2회)는 이번 범위에서 통합하지 않았다(§7).
+
+[2-B] services/candidate_engine.py  Step 3 (시맨틱 사전 전용 후보) DIMENSION 분기
+  ★ 진단서 §2 에 없던 누락 경로다. 진단서는 is_pk 게이트로 A-1(NUMBER→SUM)/A-2(DATE_TIME→GB)/
+    A-3(저카디→GB) 세 관문만 열거했으나, 실제로는 **Step 3 의 DIMENSION_* → GROUP BY 분기에
+    키 게이트가 없다**. 그래서 코드성 단일 PK(DEPT_CD → DIMENSION_ORG, CODE → DIMENSION_CODE)는
+    is_pk 를 실값으로 채워도 여전히 GROUP BY 후보로 생성됐다.
+    실측으로 확인(d2/e2: is_pk=True 인데 후보 목록에 잔존) 후 게이트를 추가했다:
+        if cm.get("is_pk") and not cm.get("is_composite_key_member"): continue
+  · `not is_composite_key_member` 를 함께 보는 이유는 §2-C 에 기재(회귀 실측 근거).
+  · SUM(MEASURE_*) 분기는 건드리지 않았다 — GROUP BY 배제만 이번 범위.
+
+[2-C] services/metadata_provider.py  from_tgt_map / from_pg_stats (2개소)
+  복합키 구성원 사실을 normalized_metadata 로 전파한다. **is_pk 값 자체는 손대지 않아**
+  기존 관문(`not is_pk`)의 동작은 완전히 불변이다.
+  · 필요했던 이유(실측 근거): 단일테이블 SQL 은 `from_pg_stats(_pg_stats, _key_meta, ...)` 로
+    **원본** key_metadata 를 싣는데, 오라클 어댑터는 복합 PK 구성원에게도 is_pk=True 를 준다.
+    §2-B 게이트를 is_pk 만으로 두면 b1(복합 PK 단일테이블)에서 CO_CD 가 GB 후보에서 소멸했다
+    (중간 측정에서 실제 재현: GB후보 2 → 1). 복합키 신호를 전파해 게이트를 좁혀 해소했다.
+  · 키는 **참일 때만** 추가한다(§6 참조 — 무조건 추가하면 provider parity 가 깨진다).
+
+================================================================================
+3. 실측 방법
+================================================================================
+접속 : Oracle_asis(192.168.0.151:1523) / Oracle_tobe(192.168.0.151:1524)  ※비밀번호 미출력
+하니스: scripts/dev_e2e/is_pk_candidate_impact_measure.py  (analyze 파이프라인 in-process 실행)
+        scripts/dev_e2e/is_pk_fixture_probe.py             (픽스처 카탈로그 사전조사)
+        scripts/dev_e2e/is_pk_column_analyzer_branch_check.py (축B 자동선정 분기 직접 실측)
+        scripts/dev_e2e/is_pk_dialect_delegation_check.py  (방언 위임 결과)
+        scripts/dev_e2e/is_pk_sum_policy_front_check.js    (프런트 SUM 정책 — 배포 JS 원문 평가)
+조회 : SELECT / 카탈로그 조회만. INSERT/DDL 실행 없음. 프리셋 파일 수정 없음.
+
+[before 측정의 신뢰성]
+  1차 before 는 **수정 전 실제 코드**로 6케이스를 측정해 저장했다.
+  이후 케이스를 4개 추가해야 해서, 수정 전 동작을 재현하는 legacy shim
+  (`_cmn_fetch_tgt_col_meta` 반환 dict 에서만 PK 정보를 제거 — 수정의 유일한 입력이 이 dict)
+  으로 10케이스를 다시 측정했다. shim 의 충실성은 **기존 6케이스의 legacy 결과 == 실제
+  수정 전 스냅샷** 전 항목 일치로 검증했다(verify_shim: 6/6 일치). 이후의 before 는 legacy 값이다.
+
+[측정 케이스 10건]
+  a1 단일 PK(ORDER_ID, NUMBER)   · 단일테이블   MV_ORA_TEST_SRC   → MV_ORA_TEST_TGT
+  a2 단일 PK(ID, NUMBER)         · JOIN  ★핵심  MV_ORA_DEMO_SRC   → MV_ORA_DEMO_TGT
+  d1 단일 코드 PK(DEPT_CD, VC2)  · 단일테이블   MV_ORA_DEPT_MASTER → 동명
+  d2 단일 코드 PK(DEPT_CD)       · JOIN         MV_ORA_DEPT_MASTER → 동명
+  e1 단일 문자 PK(CODE, VC2)     · 단일테이블   T_SPKFIX_TXT_SRC  → T_SPKFIX_TXT_TGT
+  e2 단일 문자 PK(CODE)          · JOIN         T_SPKFIX_TXT_SRC  → T_SPKFIX_TXT_TGT
+  b1 복합 PK(CO_CD, SEQ)         · 단일테이블   T_SPKFIX_CMP_SRC  → T_SPKFIX_CMP_TGT
+  b2 복합 PK(CO_CD, SEQ)         · JOIN  ★무회귀 T_SPKFIX_CMP_SRC → T_SPKFIX_CMP_TGT
+  c1 PK 없음                     · 단일테이블   MV_ORA_NOPK_SRC   → MV_ORA_NOPK_TGT
+  c2 PK 없음                     · JOIN         MV_ORA_NOPK_SRC   → MV_ORA_NOPK_TGT
+
+[후보 생성기 계보 — 실측으로 확인한 사실]
+  단일테이블 SQL → candidate_source=DB_STATISTICS (원본 통계·원본 key_metadata 기반)
+  JOIN     SQL → candidate_source=LEGACY        (candidate_engine · 목적지 메타 기반)
+  ⇒ 이번 수정이 새로 여는 것은 **JOIN/파생 경로**다. 단일테이블은 원본 PK 로 이미 일부 알고
+    있었다(진단서 §1 축A 진술과 일치).
+
+================================================================================
+4. (a)(b)(c) before/after 비교표 — 오라클 라이브 실측
+================================================================================
+[표기] ─ 값은 실제 측정치. `→` 왼쪽이 before(수정 전), 오른쪽이 after(수정 후).
+
+── (a) 단일 PK ─────────────────────────────────────────────────────────────────
+케이스 a1 (단일테이블, PK=ORDER_ID NUMBER)
+  목적지메타 is_pk=True      [] → [ORDER_ID]                          ★결함 해소
+  PK 배지(validated.is_pk)   [] → [ORDER_ID]                          ★화면 신규 표시
+  자동선정 GB                [ORDER_YM, CHANNEL_CD, REGION_CD] → 동일  (무변화)
+  자동선정 SUM               [AMT, QTY] → 동일                        (무변화)
+  GB 후보                    [CHANNEL_CD, CREATED_TS, ORDER_DT, ORDER_YM, REGION_CD] → 동일
+  SUM 후보                   [AMT, QTY] → 동일
+  비후보 사유                ORDER_ID=PK_IDENTIFIER → 동일 (원본 PK 로 이미 배제 중이었음)
+
+케이스 a2 (JOIN, PK=ID NUMBER)  ★이번 수정의 핵심 경로
+  목적지메타 is_pk=True      [] → [ID]                                ★결함 해소
+  PK 배지                    [] → [ID]                                ★화면 신규 표시
+  자동선정 GB                [REG_DT, DEPT_CD, STATUS_CD] → 동일
+  자동선정 SUM               [AMT] → 동일
+  GB 후보                    [CREATED_BY, DEPT_CD, REG_DT, STATUS_CD, UPD_YMD] → 동일
+  SUM 후보                   [AMT] → 동일
+  비후보 사유                ID: NUMERIC_SEMANTIC_EXCLUDED → **PK_IDENTIFIER**   ★사유 정정
+       (수정 전에는 PK 라는 사실을 몰라 '숫자형 시맨틱 제외'라는 부정확한 사유가 표시됐다)
+
+케이스 d1 / d2 (단일 코드성 PK = DEPT_CD)   ※d1=단일테이블, d2=JOIN — 결과 동일
+  목적지메타 is_pk=True      [] → [DEPT_CD]
+  PK 배지                    [] → [DEPT_CD]
+  자동선정 GB                [DEPT_CD] → **[]**                        ★단일 PK 배제
+  GB 후보                    [DEPT_CD, DEPT_NAME] → **[DEPT_NAME]**    ★DEPT_CD 소멸
+  비후보 사유                {} → **{DEPT_CD: PK_IDENTIFIER}**         ★사유 명시
+  SUM 후보 / 자동선정 SUM    [] → [] (변화 없음)
+  count_only·경고            True/동일 문구 → 동일
+
+케이스 e1 / e2 (단일 문자 PK = CODE)        ※e1=단일테이블, e2=JOIN — 결과 동일
+  목적지메타 is_pk=True      [] → [CODE]
+  PK 배지                    [] → [CODE]
+  자동선정 GB                [CODE, DEPT_CD] → **[DEPT_CD]**           ★단일 PK 배제
+  GB 후보                    [CODE, DEPT_CD] → **[DEPT_CD]**           ★CODE 소멸
+  비후보 사유                {AMT:NUMERIC_SUM_ONLY} → **{CODE:PK_IDENTIFIER, AMT:NUMERIC_SUM_ONLY}**
+  SUM 후보 / 자동선정 SUM    [AMT] → [AMT] (변화 없음)                 ★SUM 정책 불변
+
+── (b) 복합 PK — 무회귀 확인 ────────────────────────────────────────────────────
+케이스 b1 (단일테이블, PK=(CO_CD, SEQ))
+  목적지메타 is_pk=True      [] → **[]**                    ★복합은 True 로 만들지 않음(요구2)
+  목적지메타 복합구성원      (필드 없음) → **[CO_CD, SEQ]** (key_column_count=2)
+  PK 배지                    [] → []                        (복합은 배지 없음 — 의도)
+  자동선정 GB                [CO_CD, DEPT_CD] → **동일**     ★CO_CD 유지
+  자동선정 SUM               [AMT] → 동일
+  GB 후보                    [CO_CD, DEPT_CD] → **동일**     ★소멸 0건
+  SUM 후보                   [AMT] → 동일
+  비후보 사유                {SEQ:PK_IDENTIFIER, AMT:NUMERIC_SUM_ONLY} → 동일
+  후보별 세부(점수/risk/warn) 전 항목 동일 (CO_CD risk_flags=[COMPOSITE_KEY_MEMBER] 유지)
+
+케이스 b2 (JOIN, PK=(CO_CD, SEQ))  ★무회귀 확인 핵심
+  목적지메타 is_pk=True      [] → **[]**
+  목적지메타 복합구성원      (필드 없음) → **[CO_CD, SEQ]**
+  자동선정 GB / SUM          [CO_CD, DEPT_CD] / [AMT] → **전부 동일**
+  GB 후보 / SUM 후보         [CO_CD, DEPT_CD] / [AMT] → **전부 동일**  ★소멸 0건
+  비후보 사유                {SEQ:NUMERIC_SEMANTIC_EXCLUDED, AMT:NUMERIC_SUM_ONLY} → 동일
+  ⇒ 진단서 §5-7 이 경고한 "복합 PK 구성원 코드 컬럼이 GROUP BY 후보에서 사라진다"는 후퇴가
+    발생하지 않음을 두 케이스로 확인.
+
+── (c) PK 없는 테이블 — 완전 동일 ──────────────────────────────────────────────
+케이스 c1 (단일테이블) / c2 (JOIN)
+  목적지메타 is_pk / 복합구성원   [] → []  (필드 추가 없음 = dict 완전 불변)
+  PK 배지                         [] → []
+  자동선정 GB / SUM               [] / [] → 동일
+  GB 후보                         c1: [C_NUM] → 동일 / c2: [] → 동일
+  SUM 후보                        [C_NUM] → 동일
+  비후보 사유                     c1: {C_VARCHAR2:HIGH_CARDINALITY} → 동일
+                                  c2: {C_NUM:NUMERIC_SUM_ONLY, C_VARCHAR2:NO_EVIDENCE} → 동일
+  count_only·경고                 True / "…숫자 컬럼 없음, COUNT(*) 만 수행합니다." → 동일
+  target_pk_evidence              available=False, reason=KEY_METADATA_UNAVAILABLE → 동일
+
+================================================================================
+5. 진단서 '체감변화 12곳' 전수 실측 결과
+================================================================================
+B-1  classified/validated 의 is_pk 원천
+     실측: 목적지 단일 PK 만 True 로 채워짐(a1 ORDER_ID / a2 ID / d DEPT_CD / e CODE).
+           복합(b) 는 False 유지. PK 없음(c) 는 불변. → 예측대로 변화.
+
+B-2  _select_sum_columns (숫자 PK 의 자동선정 SUM 제외)
+     라이브 실측: 10케이스 전부 자동선정 SUM **무변화**. 라이브 픽스처의 숫자 단일 PK
+       (ORDER_ID/ID)는 `_RE_MEANINGLESS_PK`(…_ID) 로 이미 제외돼 있어 중복 판정이었다.
+     분기 직접 실측(is_pk_column_analyzer_branch_check): 이름에 PK 신호가 없는 숫자 단일 PK
+       (AMOUNT)를 넣으면 자동SUM [AMOUNT, QTY] → [QTY] 로 실제 배제됨을 확인.
+     ⇒ 분기는 예측대로 동작하나, 현재 라이브 픽스처에서는 사용자 체감 변화가 0건.
+     ⇒ count_only 전환(진단서 §5-10 우려)도 10케이스 전부 발생하지 않음.
+
+B-3  _select_groupby_columns tier1/tier2 (코드성/시계열 PK 탈락)
+     라이브 실측: d1/d2 자동GB [DEPT_CD] → [], e1/e2 [CODE, DEPT_CD] → [DEPT_CD]. ★변화 발생.
+     분기 직접 실측: 코드성 단일 PK 탈락 시 뒤 순위가 승격함을 확인
+       ([DEPT_CD, REGION_CD, STATUS_CD] → [REGION_CD, STATUS_CD, GRP_CD]).
+     ⇒ 진단서 §5-9 예측("목록이 비는 게 아니라 바뀐다")과 일치.
+
+B-4  tier3 (시계열 PK) ─ 진단서 분류 (b) 무변화
+     라이브 픽스처에 시계열 명칭 단일 PK 가 없어 분기 직접 실측으로 확인.
+       [ORDER_YM(시계열+단일PK), STATUS_CD] → 자동GB [ORDER_YM, STATUS_CD] → [STATUS_CD, ORDER_YM]
+       tier1/2 포화 시  [ORDER_YM, REG_YMD, STATUS_CD] → [REGION_CD, STATUS_CD, ORDER_YM]
+     ⇒ **목록 구성은 유지되고 순서만 바뀐다**(tier1 → tier3 강등). 진단서의 "실질 변화 거의
+       없음"은 대체로 맞으나 '순서 변화'는 발생한다 — 정정 기록.
+
+B-12 검증대상 컬럼 목록의 PK 배지
+     실측: a1/a2/d1/d2/e1/e2 에서 validated[].is_pk 가 True 로 채워짐 → 배지가 새로 표시된다.
+     복합(b)·PK없음(c) 는 배지 없음 유지.
+
+B-13 _sumPolicyExcl 4개소 (SUM 체크박스 비활성·참고영역 이동)
+B-14 _isInitChecked 최초 기본체크
+     프런트 실측(is_pk_sum_policy_front_check.js — ui/tabler_renderer.py 의 판정식 원문을
+     파일에서 추출해 그대로 평가, 재구현 아님. 판정식 일치 개소 2/2 확인):
+       SUM 후보 판정 9건 중 변화 **0건**.
+       (새로 is_pk=True 가 된 컬럼이 SUM 후보 목록에 아예 없기 때문 — 이미 상위 관문에서 제외)
+     ⇒ **4단계 통계검증 SQL 의 SUM 구성은 바뀌지 않는다**(진단서 §5-11 우려 미발생).
+
+A-1  NUMBER → SUM 후보 관문
+     실측: SUM 후보 목록 10케이스 전부 소멸 0 / 신규 0. 변화 없음.
+
+A-2  DATE_TIME → GROUP BY 후보 관문
+     실측: 날짜형 GB 후보(CREATED_TS/ORDER_DT/REG_DT) 전부 유지. 날짜형 단일 PK 픽스처가 없어
+     '소멸' 사례는 관측되지 않음(구조상 `not is_pk` 로 배제되는 것은 코드로 확인).
+
+A-3  저카디널리티 → GROUP BY 후보 관문
+     실측: **복합 PK 구성원(CO_CD)이 이 관문으로 소멸하지 않음**을 b1/b2 로 확인
+     (진단서가 "가장 위험한 지점"으로 지목한 오탈락이 발생하지 않음).
+     단일 PK 의 소멸은 이 관문이 아니라 §2-B 의 Step 3 게이트에서 일어난다.
+
+A-5  _gb_non_candidate_reason (비후보 사유 배지)
+     실측: d1/d2 {} → {DEPT_CD: PK_IDENTIFIER}, e1/e2 에 {CODE: PK_IDENTIFIER} 신규,
+           a2 ID: NUMERIC_SEMANTIC_EXCLUDED → PK_IDENTIFIER 로 **사유 정정**. ★변화 발생.
+
+A-6  evidence_contract.pk
+     실측: **JOIN 경로에서는 변화 없음**. `key_collected` 가 **원본** key_meta 수집 여부인데
+     JOIN 경로는 원본 통계·키메타 조회 자체를 하지 않아 게이트가 닫힌 채다(ev_pk=None 유지).
+     단일테이블 경로는 수정 전에 이미 원본 PK 로 채워져 있었다(b1 CO_CD ev_pk=True).
+     ⇒ 진단서가 예측한 "근거부족 배지 감소" 효과는 **이번 수정만으로는 발생하지 않는다** — 정정.
+
+A-7  _is_profilable_role_candidate (PK 프로파일 제외)
+A-8  _nm_from_contracts (재확정 단계 PK 전파)
+     실측: A-6 이 열리지 않으므로 JOIN 경로에서 변화 없음. 단일테이블 경로는 수정 전과 동일
+     (프로파일 대상 목록 before/after 완전 일치).
+
+A-9  effective_candidate_selection (임시 자동선택 금지)
+     실측: 후보 자체가 이미 배제돼 도달하지 않음 — 중복 판정. 관측 가능한 변화 없음.
+
+[집계] 진단서 '체감변화 12곳' 중 실제로 사용자 화면이 바뀌는 곳은 **5곳**
+       (B-1/B-12 PK 배지, B-3 자동선정 GB, A-3·Step3 경유 GB 후보 소멸, A-5 비후보 사유).
+       나머지 7곳은 중복 판정·게이트 미개방·픽스처 부재로 **실측상 변화 0건**이었다.
+
+================================================================================
+6. 구현 도중 발견하고 해소한 실제 회귀 1건
+================================================================================
+증상: tests/test_task11_s9_a_provider_parity.py::test_a_05_same_context_same_normalized_metadata
+      FAILED — 개별검증 nm 에 `is_composite_key_member: False` 키가 늘어 일괄검증 provider 가
+      만든 nm 과 dict 동등 비교가 깨짐(PROD_CD 등 복합키와 무관한 일반 컬럼에서 발생).
+원인: metadata_provider 에서 신규 키를 **무조건** 추가한 것.
+조치: 참인 경우에만 키를 추가하도록 변경(db_query_service 의 char_used/data_length 확장과
+      동일한 '값이 있을 때만 키 추가' 규약). 재실행 후 baseline 과 완전 동일.
+확인: 직접 소비처 테스트 24파일 — 수정 후 9 failed / 595 passed = baseline(9 failed / 595
+      passed)과 실패 목록까지 정확히 일치.
+
+================================================================================
+7. 무변화 9곳(진단서 분류 b) 무회귀 확인
+================================================================================
+B-4  tier3        → §5 참조. 목록 유지(순서만 변화). 사용자 체감 결과 동일.
+B-5  sql_generator pk_cols → pk_range_sql 등의 **문자열 내용은 바뀌지만**
+     유일 호출부 services/stats_sql_builder.py:178 이 `return gen.stats_src_sql,
+     gen.stats_tgt_sql, warnings` 로 두 SQL 만 반환 — 실행 통계검증 SQL 불변, 화면 노출 경로 없음.
+B-6  stats_sql_builder classified 재구성 → B-5 로만 흘러가 동일하게 무변화.
+B-7  analyze_service:166  _stats_build_groupby_candidates_legacy → **호출부 0건**(미사용)
+B-8  analyze_service:221  동 legacy                             → 호출부 0건
+B-9  analyze_service:243  동 legacy                             → 호출부 0건
+B-10 analyze_service:312  _stats_build_sum_candidates_legacy    → **호출부 0건**(미사용)
+A-4  SYSTEM_AUDIT 위임 가드 → 드롭 사유 문구만 바뀌는 지점. 측정 10케이스에 SYSTEM_AUDIT 단일
+     PK 컬럼이 없어 발동 0건, 후보 목록 결과 동일.
+(+)  ui/tabler_renderer.py `_getMappingRisk` → 파일 전체 출현 1건(정의뿐) = 죽은 코드, 무변화.
+(+)  services/batch_runner.py → DDL 메타만 사용하고 목적지 DB 에 연결하지 않음
+     (batch_runner.py:325 "batch 모드: ddl_text만 사용, DB 연결 없음") — 영향 없음.
+⇒ 9곳 전부 무변화 확인.
+
+[B-11 (진단서 '실측 필요')]
+  target_pk_evidence 는 10케이스 전부 before==after 로 완전 동일
+  (a: available=True/kcc=1, b: available=True/kcc=2, c: available=False/KEY_METADATA_UNAVAILABLE).
+  두 조회가 서로 다른 접속인데도 한쪽만 성공하는 조합은 관측되지 않았다.
+
+================================================================================
+8. 방언 처리 (지침 Q3 = 오라클만, 4방언 원칙 대조)
+================================================================================
+새 방언 분기를 만들지 않고 어댑터 위임에 맡겼다. 실접속/계약 확인 결과:
+  oracle      MV_ORA_TEST_TGT    is_pk=[ORDER_ID]  복합=[]                    kcc=[]
+              MV_ORA_DEPT_MASTER is_pk=[DEPT_CD]   복합=[]                    kcc=[]
+              T_SPKFIX_CMP_TGT   is_pk=[]          복합=[CO_CD, SEQ]          kcc=[2]
+              CDC_TB_ORDER_ITEM  is_pk=[]          복합=[ORDER_NO,ITEM_SEQ,CD_LOAD_NO] kcc=[3]
+              MV_ORA_NOPK_TGT    is_pk=[]          복합=[]                    kcc=[]
+  postgresql  g100_tgt           is_pk=[RID]       복합=[]                    kcc=[]
+              g100c_tgt          is_pk=[]          복합=[K1, K2]              kcc=[2]
+              (192.168.0.150:5434 tobe 실접속. 프리셋 sslmode 로는 서버가 SSL 미지원이라 접속이
+               안 돼, 조회용 메모리 dict 에서만 sslmode 를 낮춰 확인했다 — 프리셋 파일 무수정)
+  mysql       fetch_key_metadata → {}  (base no-op) ⇒ is_pk 전부 False 유지 = 기존 동작
+  mssql       fetch_key_metadata → {}  (base no-op) ⇒ is_pk 전부 False 유지 = 기존 동작
+⇒ 지침 Q3("오라클만 구현")대로 새 구현은 하지 않았다. PostgreSQL 은 어댑터에 이미 있던 구현이
+  위임으로 자연히 동작하며 오라클과 동일한 단일/복합 판정을 내는 것을 실접속으로 확인했다.
+  MySQL/MSSQL 은 값이 안 채워져 수정 전과 완전히 동일하다.
+⚠ 잔존: 진단서 §5-13 이 지적한 "PG·오라클은 PK 를 알고 MySQL·MSSQL 은 모르는" 방언 비대칭은
+  그대로 남아 있다(지침이 명시적으로 범위 밖으로 정한 항목 — 별도 지침 필요).
+
+================================================================================
+9. 테스트 결과
+================================================================================
+[9-1] CLAUDE.md 규정 기존 테스트
+  python samples/test_virtual_cases.py   → 8/8 통과
+  python samples/test_complex_cases.py   → 5/5 통과
+  pytest samples/test_display_consistency.py samples/test_hard_rule_consistency.py
+         samples/test_raw_stats_score.py samples/test_score_breakdown_experimental.py
+                                          → 373 passed
+
+[9-2] 관련 서브셋 (진단서 §6-3 권장 범위 + display_consistency)
+  pytest tests/ -k "is_pk or candidate or metadata or pg_stats or display_consistency"
+    수정본 : 1677 passed, 36 failed, 2 errors, 6 skipped, 3 xfailed  (538초)
+    baseline(HEAD 56572a5, 별도 worktree) : 실패 목록 대조 결과 **수정본에서만 실패 0건**
+    ※ baseline worktree 는 gitignore 대상 산출물(candidate_scoring 대시보드 HTML 등)이 없어
+      실패 건수가 더 많다(75건). 건수가 아니라 **실패 node id 차집합**으로 판정했다.
+
+  차집합상 "수정본에서만 실패"로 뜬 2건은 환경 요인으로 확인:
+    ERROR tests/test_task11_p_profile_snapshot.py::TC06_08_EnricherIntegration::
+          test_06_candidate_input_builder_accepts_snapshot
+    FAILED tests/test_batch_profile_recollect_control.py::test_candidate_freshness_service_empty
+    → 둘 다 conftest 의 [PROD-DB-WRITE-BLOCKED] 가드(운영 SQLite 쓰기 차단)로 실패한다.
+      baseline worktree 에 db/migration_validator.db 를 복사해 환경을 동일화한 뒤 재실행하니
+      **baseline 에서도 동일하게 실패** — 사전 존재 실패, 이번 변경과 무관.
+
+[9-3] 직접 소비처 테스트 파일 24개 전수 (from_tgt_map/from_pg_stats/metadata_provider/
+      _cmn_fetch_tgt_col_meta/is_composite_key_member 참조 파일)
+    수정본  : 595 passed, 9 failed, 5 skipped
+    baseline: 595 passed, 9 failed, 5 skipped
+    → 실패 node id 완전 일치. 회귀 0건.
+
+[실패 테스트 전체 목록 — 38건, 전부 사전 존재(baseline 동일)]
+  ERROR  tests/test_task11_p_profile_snapshot.py::TC06_08_EnricherIntegration::test_06_candidate_input_builder_accepts_snapshot
+  ERROR  tests/test_task11_r3.py::TC_R3_09_11_CandidateIntegrity::test_11_has_group_connection_identity_importable
+  FAILED tests/test_batch_flow2_candidate_core_parity.py::test_coalesce_cast_flow2_core_parity
+  FAILED tests/test_batch_flow2_e2e_smoke.py::test_e2e_generate_candidates_then_snapshots
+  FAILED tests/test_batch_flow2_e2e_smoke.py::test_plan_modes_share_same_selected_candidates
+  FAILED tests/test_batch_profile_candidate_parity.py::test_calc_profile_present_parity
+  FAILED tests/test_batch_profile_recollect_control.py::test_candidate_freshness_service_empty
+  FAILED tests/test_candidate_contract.py::test_live_payment_contract_clean_and_defaults_preserved
+  FAILED tests/test_candidate_contract.py::test_live_product_selectable_not_auto_selected
+  FAILED tests/test_candidate_decision_evidence.py::test_evidence_role_split_strings
+  FAILED tests/test_candidate_display_policy.py::test_04_group_by_default
+  FAILED tests/test_candidate_display_policy.py::test_05_sum_default
+  FAILED tests/test_candidate_display_policy.py::test_06_net_amt
+  FAILED tests/test_candidate_draft_selection.py::test_candidate_notice_sticky_fix_uses_common_offset
+  FAILED tests/test_candidate_draft_selection.py::test_candidate_selection_bar_present_and_populated
+  FAILED tests/test_candidate_draft_selection.py::test_checkbox_change_keeps_table_and_plan_marks_draft
+  FAILED tests/test_candidate_draft_selection.py::test_restore_to_applied_clears_draft_notice
+  FAILED tests/test_candidate_draft_selection.py::test_uncheck_all_does_not_switch_to_count_only_before_apply
+  FAILED tests/test_candidate_evidence_display_policy.py::test_net_amt_vs_unit_price_distinct
+  FAILED tests/test_candidate_explainability.py::test_01_default_has_primary
+  FAILED tests/test_candidate_explainability.py::test_05_line_amt_computed
+  FAILED tests/test_candidate_explainability.py::test_06_group_by_profile
+  FAILED tests/test_candidate_explanation_display.py::test_candidate_score_separate_column
+  FAILED tests/test_candidate_plan_matrix.py::test_null_vs_empty_selection_contract
+  FAILED tests/test_candidate_role_policy_grid.py::test_global_limit_banner_and_count_same_input_no_lock
+  FAILED tests/test_date_candidate_ui_cleanup.py::test_date_cap_guard_and_hold
+  FAILED tests/test_single_validation_candidate_audit.py::test_audit_fixture_cases_all_pass
+  FAILED tests/test_single_validation_candidate_audit.py::test_fallback_promote_golden
+  FAILED tests/test_single_validation_final_flow_check.py::test_analyze_candidates_business_first_and_source_expression
+  FAILED tests/test_tabulator_vendor.py::test_candidate_summary_grid_removed_and_pairing
+  FAILED tests/test_task11_g.py::TestCandidateEngineEvidence::test_TC_PIPELINE_09_lineage_sum_evidence
+  FAILED tests/test_task11_i.py::TestBatchCandidateMetaPath::test_02_no_metadata_warning_uses_sql_only_message
+  FAILED tests/test_task11_r3.py::TC_R3_09_11_CandidateIntegrity::test_10_selected_not_affected_by_source_profile_skip
+  FAILED tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_dedup_logic_present
+  FAILED tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_hidden_when_empty
+  FAILED tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_only_individual_screen
+  FAILED tests/test_task_single_candidate_evidence_preview.py::test_cap3_unchanged
+  FAILED tests/test_upload_quality_check.py::TestPhaseDAutoConfirmAndGate::test_error_blocks_confirm_and_metadata
+  (+ 직접 소비처 24파일 실행분 9건은 위 목록과 중복 또는 baseline 동일 — §9-3)
+
+================================================================================
+10. 변경 파일 / git
+================================================================================
+커밋 469de98  (3 files changed, 77 insertions(+), 1 deletion(-) — 서비스 코드 기준)
+  M services/candidate_engine.py      +18   Step3 DIMENSION 분기 단일 PK 게이트
+  M services/db_query_service.py      +40/-1 어댑터 키메타 조회 + is_pk 실값/복합키 필드
+  M services/metadata_provider.py     +19   복합키 구성원 전파(참일 때만 키 추가) 3개소
+  A scripts/dev_e2e/is_pk_fixture_probe.py
+  A scripts/dev_e2e/is_pk_candidate_impact_measure.py
+  A scripts/dev_e2e/is_pk_column_analyzer_branch_check.py
+  A scripts/dev_e2e/is_pk_dialect_delegation_check.py
+  A scripts/dev_e2e/is_pk_sum_policy_front_check.js
+※ 완료된 1~6단계 모듈(analyzer/column_analyzer.py 등)은 수정하지 않았다.
+※ ui/tabler_renderer.py 는 손대지 않았다(동시 진행 작업과 무충돌).
+
+================================================================================
+11. 남은 문제 / 후속 필요
+================================================================================
+R1 (중) 목적지 키메타 중복 조회 — `_cmn_fetch_tgt_col_meta` 와 `_build_target_pk_evidence` 가
+        같은 어댑터 fetch_key_metadata 를 요청당 각각 1회씩, 총 2회 호출한다. 진단서 §6-3 이
+        지적한 항목이며 이번 범위 밖으로 두었다(통합 시 두 함수의 실패 처리 의미가 달라
+        별도 검토 필요).
+R2 (중) evidence_contract.pk 게이트가 **원본** key_meta 수집 여부(`key_collected`)로 열려,
+        목적지 PK 를 채워도 JOIN 경로에서는 계약이 여전히 None 이다. 진단서가 예측한
+        "근거부족 배지 감소" 효과가 발생하지 않는 원인 — 별도 판단 필요.
+R3 (하) 방언 비대칭 잔존 — MySQL/MSSQL 에 fetch_key_metadata 미구현(§8). 지침이 명시적으로
+        범위 밖으로 정했으나 CLAUDE.md 4방언 원칙과는 계속 어긋난 상태다.
+R4 (하) B-4 tier3 — 시계열 명칭 단일 PK 가 자동선정 GROUP BY 목록에서 tier1 → tier3 로
+        강등되어 **순서만** 바뀐다. 지침 Q2("단일 PK 는 GROUP BY 후보에서 배제")를 엄격히
+        적용하면 tier3 편입 자체를 막아야 하지만, 해당 코드는 완료된 1~6단계 모듈
+        (analyzer/column_analyzer.py)이고 지침의 수정 대상 파일에도 없어 손대지 않았다.
+R5 (하) 진단서 §2 에 Step 3(시맨틱 전용) 경로의 키 게이트 부재가 누락돼 있었다(§2-B).
+        진단서를 갱신하거나 BACKLOG 에 반영해두는 편이 좋다.
+
+================================================================================
+12. 실검증 상태
+================================================================================
+실검증 상태 : 실 DB 실행 검증 완료 — Oracle asis(1523)/tobe(1524) 라이브 접속으로
+before/after 10케이스 analyze 파이프라인을 실제 실행해 측정했으며(SELECT/카탈로그 조회 전용,
+INSERT·DDL 미실행), PostgreSQL(192.168.0.150:5434) 목적지 메타 조회도 실접속으로 확인했다.
+프런트 SUM 정책은 배포 JS 판정식 원문을 추출해 평가했다. 브라우저 화면 조작(Playwright)
+검증은 수행하지 않았다 — PK 배지 표시(B-12)는 서버 응답값(validated[].is_pk) 확인까지가 근거다.
+
+작업명 : IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX
+✅ 작업 완료 - IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX - 목적지 is_pk 고정 False 를
+어댑터 실값으로 배선(단일 PK 만 True·복합 PK 는 is_composite_key_member 별도 필드)하고,
+진단서에 없던 시맨틱 전용 후보 경로의 키 게이트 누락까지 함께 막아 단일 PK 의 GROUP BY 배제를
+실현 — 오라클 라이브 10케이스 실측으로 (a)배제·사유표기, (b)복합 PK 무회귀, (c)PK없음 완전동일,
+SUM 정책 변화 0건을 확인했고 회귀 테스트 차집합 0건

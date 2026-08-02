@@ -1,0 +1,150 @@
+==============================================================================
+a1_single_pk_singletable  (a) 단일 PK(ORDER_ID, NUMBER) · 단일테이블
+  [메타] is_pk=True  before=[]  after=['ORDER_ID']
+         is_composite_key_member after=[]
+  [B-1/B-12 PK배지] before=[]  after=['ORDER_ID']
+  [B-3 자동GB] before=['ORDER_YM', 'CHANNEL_CD', 'REGION_CD']  after=['ORDER_YM', 'CHANNEL_CD', 'REGION_CD']
+  [B-2 자동SUM] before=['AMT', 'QTY']  after=['AMT', 'QTY']
+  [B-2 count_only] before=False  after=False  경고 before=[] after=[]
+  [A-2/A-3 GB후보] before=['CHANNEL_CD', 'CREATED_TS', 'ORDER_DT', 'ORDER_YM', 'REGION_CD']
+                   after =['CHANNEL_CD', 'CREATED_TS', 'ORDER_DT', 'ORDER_YM', 'REGION_CD']   소멸=[] 신규=[]
+  [A-1 SUM후보]    before=['AMT', 'QTY']
+                   after =['AMT', 'QTY']   소멸=[] 신규=[]
+  [A-5 비후보사유] before={'ORDER_ID': 'PK_IDENTIFIER', 'AMT': 'NUMERIC_SUM_ONLY', 'QTY': 'NUMERIC_SUM_ONLY', 'RATIO': 'HIGH_CARDINALITY', 'MEMO': 'FREE_TEXT'}  after={'ORDER_ID': 'PK_IDENTIFIER', 'AMT': 'NUMERIC_SUM_ONLY', 'QTY': 'NUMERIC_SUM_ONLY', 'RATIO': 'HIGH_CARDINALITY', 'MEMO': 'FREE_TEXT'}
+  [B-11 target_pk_evidence] before={'available': True, 'pk_columns': ['ORDER_ID'], 'kcc': 1, 'reason': ''}
+                            after ={'available': True, 'pk_columns': ['ORDER_ID'], 'kcc': 1, 'reason': ''}
+==============================================================================
+a2_single_pk_join  (a) 단일 PK(ID, NUMBER) · JOIN  ★이번 수정의 핵심 경로
+  [메타] is_pk=True  before=[]  after=['ID']
+         is_composite_key_member after=[]
+  [B-1/B-12 PK배지] before=[]  after=['ID']
+  [B-3 자동GB] before=['REG_DT', 'DEPT_CD', 'STATUS_CD']  after=['REG_DT', 'DEPT_CD', 'STATUS_CD']
+  [B-2 자동SUM] before=['AMT']  after=['AMT']
+  [B-2 count_only] before=False  after=False  경고 before=[] after=[]
+  [A-2/A-3 GB후보] before=['CREATED_BY', 'DEPT_CD', 'REG_DT', 'STATUS_CD', 'UPD_YMD']
+                   after =['CREATED_BY', 'DEPT_CD', 'REG_DT', 'STATUS_CD', 'UPD_YMD']   소멸=[] 신규=[]
+  [A-1 SUM후보]    before=['AMT']
+                   after =['AMT']   소멸=[] 신규=[]
+  [A-5 비후보사유] before={'ID': 'NUMERIC_SEMANTIC_EXCLUDED', 'AMT': 'NUMERIC_SUM_ONLY'}  after={'ID': 'PK_IDENTIFIER', 'AMT': 'NUMERIC_SUM_ONLY'}
+  [B-11 target_pk_evidence] before={'available': True, 'pk_columns': ['ID'], 'kcc': 1, 'reason': ''}
+                            after ={'available': True, 'pk_columns': ['ID'], 'kcc': 1, 'reason': ''}
+==============================================================================
+b1_composite_pk_singletable  (b) 복합 PK(CO_CD, SEQ) · 단일테이블
+  [메타] is_pk=True  before=[]  after=[]
+         is_composite_key_member after=['CO_CD', 'SEQ']
+  [B-1/B-12 PK배지] before=[]  after=[]
+  [B-3 자동GB] before=['CO_CD', 'DEPT_CD']  after=['CO_CD', 'DEPT_CD']
+  [B-2 자동SUM] before=['AMT']  after=['AMT']
+  [B-2 count_only] before=False  after=False  경고 before=[] after=[]
+  [A-2/A-3 GB후보] before=['CO_CD', 'DEPT_CD']
+                   after =['CO_CD', 'DEPT_CD']   소멸=[] 신규=[]
+  [A-1 SUM후보]    before=['AMT']
+                   after =['AMT']   소멸=[] 신규=[]
+  [A-5 비후보사유] before={'SEQ': 'PK_IDENTIFIER', 'AMT': 'NUMERIC_SUM_ONLY'}  after={'SEQ': 'PK_IDENTIFIER', 'AMT': 'NUMERIC_SUM_ONLY'}
+  [B-11 target_pk_evidence] before={'available': True, 'pk_columns': ['CO_CD', 'SEQ'], 'kcc': 2, 'reason': ''}
+                            after ={'available': True, 'pk_columns': ['CO_CD', 'SEQ'], 'kcc': 2, 'reason': ''}
+==============================================================================
+b2_composite_pk_join  (b) 복합 PK(CO_CD, SEQ) · JOIN  ★무회귀 확인 핵심
+  [메타] is_pk=True  before=[]  after=[]
+         is_composite_key_member after=['CO_CD', 'SEQ']
+  [B-1/B-12 PK배지] before=[]  after=[]
+  [B-3 자동GB] before=['CO_CD', 'DEPT_CD']  after=['CO_CD', 'DEPT_CD']
+  [B-2 자동SUM] before=['AMT']  after=['AMT']
+  [B-2 count_only] before=False  after=False  경고 before=[] after=[]
+  [A-2/A-3 GB후보] before=['CO_CD', 'DEPT_CD']
+                   after =['CO_CD', 'DEPT_CD']   소멸=[] 신규=[]
+  [A-1 SUM후보]    before=['AMT']
+                   after =['AMT']   소멸=[] 신규=[]
+  [A-5 비후보사유] before={'SEQ': 'NUMERIC_SEMANTIC_EXCLUDED', 'AMT': 'NUMERIC_SUM_ONLY'}  after={'SEQ': 'NUMERIC_SEMANTIC_EXCLUDED', 'AMT': 'NUMERIC_SUM_ONLY'}
+  [B-11 target_pk_evidence] before={'available': True, 'pk_columns': ['CO_CD', 'SEQ'], 'kcc': 2, 'reason': ''}
+                            after ={'available': True, 'pk_columns': ['CO_CD', 'SEQ'], 'kcc': 2, 'reason': ''}
+==============================================================================
+d1_single_code_pk_singletable  (a') 단일 코드성 PK(DEPT_CD, VARCHAR2) · 단일테이블 — Q2 배제 효과 관측
+  [메타] is_pk=True  before=[]  after=['DEPT_CD']
+         is_composite_key_member after=[]
+  [B-1/B-12 PK배지] before=[]  after=['DEPT_CD']
+  [B-3 자동GB] before=['DEPT_CD']  after=[]
+  [B-2 자동SUM] before=[]  after=[]
+  [B-2 count_only] before=True  after=True  경고 before=['DDL 메타 기반 분석 완료 — 숫자 컬럼 없음, COUNT(*) 만 수행합니다.'] after=['DDL 메타 기반 분석 완료 — 숫자 컬럼 없음, COUNT(*) 만 수행합니다.']
+  [A-2/A-3 GB후보] before=['DEPT_CD', 'DEPT_NAME']
+                   after =['DEPT_NAME']   소멸=['DEPT_CD'] 신규=[]
+  [A-1 SUM후보]    before=[]
+                   after =[]   소멸=[] 신규=[]
+  [A-5 비후보사유] before={}  after={'DEPT_CD': 'PK_IDENTIFIER'}
+  [B-11 target_pk_evidence] before={'available': True, 'pk_columns': ['DEPT_CD'], 'kcc': 1, 'reason': ''}
+                            after ={'available': True, 'pk_columns': ['DEPT_CD'], 'kcc': 1, 'reason': ''}
+==============================================================================
+d2_single_code_pk_join  (a') 단일 코드성 PK(DEPT_CD) · JOIN — Q2 배제 효과 관측
+  [메타] is_pk=True  before=[]  after=['DEPT_CD']
+         is_composite_key_member after=[]
+  [B-1/B-12 PK배지] before=[]  after=['DEPT_CD']
+  [B-3 자동GB] before=['DEPT_CD']  after=[]
+  [B-2 자동SUM] before=[]  after=[]
+  [B-2 count_only] before=True  after=True  경고 before=['DDL 메타 기반 분석 완료 — 숫자 컬럼 없음, COUNT(*) 만 수행합니다.'] after=['DDL 메타 기반 분석 완료 — 숫자 컬럼 없음, COUNT(*) 만 수행합니다.']
+  [A-2/A-3 GB후보] before=['DEPT_CD', 'DEPT_NAME']
+                   after =['DEPT_NAME']   소멸=['DEPT_CD'] 신규=[]
+  [A-1 SUM후보]    before=[]
+                   after =[]   소멸=[] 신규=[]
+  [A-5 비후보사유] before={}  after={'DEPT_CD': 'PK_IDENTIFIER'}
+  [B-11 target_pk_evidence] before={'available': True, 'pk_columns': ['DEPT_CD'], 'kcc': 1, 'reason': ''}
+                            after ={'available': True, 'pk_columns': ['DEPT_CD'], 'kcc': 1, 'reason': ''}
+==============================================================================
+e1_single_text_pk_singletable  (a') 단일 문자 PK(CODE, VARCHAR2) · 단일테이블 — 저카디 코드 PK
+  [메타] is_pk=True  before=[]  after=['CODE']
+         is_composite_key_member after=[]
+  [B-1/B-12 PK배지] before=[]  after=['CODE']
+  [B-3 자동GB] before=['CODE', 'DEPT_CD']  after=['DEPT_CD']
+  [B-2 자동SUM] before=['AMT']  after=['AMT']
+  [B-2 count_only] before=False  after=False  경고 before=[] after=[]
+  [A-2/A-3 GB후보] before=['CODE', 'DEPT_CD']
+                   after =['DEPT_CD']   소멸=['CODE'] 신규=[]
+  [A-1 SUM후보]    before=['AMT']
+                   after =['AMT']   소멸=[] 신규=[]
+  [A-5 비후보사유] before={'AMT': 'NUMERIC_SUM_ONLY'}  after={'CODE': 'PK_IDENTIFIER', 'AMT': 'NUMERIC_SUM_ONLY'}
+  [B-11 target_pk_evidence] before={'available': True, 'pk_columns': ['CODE'], 'kcc': 1, 'reason': ''}
+                            after ={'available': True, 'pk_columns': ['CODE'], 'kcc': 1, 'reason': ''}
+==============================================================================
+e2_single_text_pk_join  (a') 단일 문자 PK(CODE) · JOIN — 저카디 코드 PK
+  [메타] is_pk=True  before=[]  after=['CODE']
+         is_composite_key_member after=[]
+  [B-1/B-12 PK배지] before=[]  after=['CODE']
+  [B-3 자동GB] before=['CODE', 'DEPT_CD']  after=['DEPT_CD']
+  [B-2 자동SUM] before=['AMT']  after=['AMT']
+  [B-2 count_only] before=False  after=False  경고 before=[] after=[]
+  [A-2/A-3 GB후보] before=['CODE', 'DEPT_CD']
+                   after =['DEPT_CD']   소멸=['CODE'] 신규=[]
+  [A-1 SUM후보]    before=['AMT']
+                   after =['AMT']   소멸=[] 신규=[]
+  [A-5 비후보사유] before={'AMT': 'NUMERIC_SUM_ONLY'}  after={'CODE': 'PK_IDENTIFIER', 'AMT': 'NUMERIC_SUM_ONLY'}
+  [B-11 target_pk_evidence] before={'available': True, 'pk_columns': ['CODE'], 'kcc': 1, 'reason': ''}
+                            after ={'available': True, 'pk_columns': ['CODE'], 'kcc': 1, 'reason': ''}
+==============================================================================
+c1_no_pk_singletable  (c) PK 없음 · 단일테이블
+  [메타] is_pk=True  before=[]  after=[]
+         is_composite_key_member after=[]
+  [B-1/B-12 PK배지] before=[]  after=[]
+  [B-3 자동GB] before=[]  after=[]
+  [B-2 자동SUM] before=[]  after=[]
+  [B-2 count_only] before=True  after=True  경고 before=['DDL 메타 기반 분석 완료 — 숫자 컬럼 없음, COUNT(*) 만 수행합니다.'] after=['DDL 메타 기반 분석 완료 — 숫자 컬럼 없음, COUNT(*) 만 수행합니다.']
+  [A-2/A-3 GB후보] before=['C_NUM']
+                   after =['C_NUM']   소멸=[] 신규=[]
+  [A-1 SUM후보]    before=['C_NUM']
+                   after =['C_NUM']   소멸=[] 신규=[]
+  [A-5 비후보사유] before={'C_VARCHAR2': 'HIGH_CARDINALITY'}  after={'C_VARCHAR2': 'HIGH_CARDINALITY'}
+  [B-11 target_pk_evidence] before={'available': False, 'pk_columns': [], 'kcc': 0, 'reason': 'KEY_METADATA_UNAVAILABLE'}
+                            after ={'available': False, 'pk_columns': [], 'kcc': 0, 'reason': 'KEY_METADATA_UNAVAILABLE'}
+==============================================================================
+c2_no_pk_join  (c) PK 없음 · JOIN
+  [메타] is_pk=True  before=[]  after=[]
+         is_composite_key_member after=[]
+  [B-1/B-12 PK배지] before=[]  after=[]
+  [B-3 자동GB] before=[]  after=[]
+  [B-2 자동SUM] before=[]  after=[]
+  [B-2 count_only] before=True  after=True  경고 before=['DDL 메타 기반 분석 완료 — 숫자 컬럼 없음, COUNT(*) 만 수행합니다.'] after=['DDL 메타 기반 분석 완료 — 숫자 컬럼 없음, COUNT(*) 만 수행합니다.']
+  [A-2/A-3 GB후보] before=[]
+                   after =[]   소멸=[] 신규=[]
+  [A-1 SUM후보]    before=['C_NUM']
+                   after =['C_NUM']   소멸=[] 신규=[]
+  [A-5 비후보사유] before={'C_NUM': 'NUMERIC_SUM_ONLY', 'C_VARCHAR2': 'NO_EVIDENCE'}  after={'C_NUM': 'NUMERIC_SUM_ONLY', 'C_VARCHAR2': 'NO_EVIDENCE'}
+  [B-11 target_pk_evidence] before={'available': False, 'pk_columns': [], 'kcc': 0, 'reason': 'KEY_METADATA_UNAVAILABLE'}
+                            after ={'available': False, 'pk_columns': [], 'kcc': 0, 'reason': 'KEY_METADATA_UNAVAILABLE'}

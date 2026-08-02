@@ -1,0 +1,960 @@
+[
+ {
+  "id": "a1_single_pk_singletable",
+  "desc": "(a) 단일 PK(ORDER_ID, NUMBER) · 단일테이블",
+  "tgt_meta": {
+   "ORDER_ID": {
+    "is_pk": true,
+    "ckm": null,
+    "kcc": null
+   },
+   "AMT": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   },
+   "QTY": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   },
+   "RATIO": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   },
+   "ORDER_YM": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   },
+   "REGION_CD": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   },
+   "CHANNEL_CD": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   },
+   "MEMO": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   },
+   "DESCR": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   },
+   "ORDER_DT": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   },
+   "CREATED_TS": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   },
+   "UPDATED_TS": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   }
+  },
+  "validated_is_pk": {
+   "ORDER_ID": true,
+   "AMT": false,
+   "QTY": false,
+   "RATIO": false,
+   "ORDER_YM": false,
+   "REGION_CD": false,
+   "CHANNEL_CD": false,
+   "MEMO": false,
+   "ORDER_DT": false,
+   "CREATED_TS": false
+  },
+  "auto_gb": [
+   "ORDER_YM",
+   "CHANNEL_CD",
+   "REGION_CD"
+  ],
+  "auto_sum": [
+   "AMT",
+   "QTY"
+  ],
+  "count_only": false,
+  "warnings": [],
+  "gb_cands": [
+   {
+    "col": "CHANNEL_CD",
+    "auto": true,
+    "score": 0.58,
+    "is_pk": null,
+    "warn_reason": "",
+    "src": "DB_STATISTICS",
+    "risk_flags": [],
+    "ev_pk": false
+   },
+   {
+    "col": "CREATED_TS",
+    "auto": false,
+    "score": 0.6,
+    "is_pk": null,
+    "warn_reason": "날짜형 타입 기반 GROUP BY 후보 — 수동 확인 필요",
+    "src": "DB_STATISTICS",
+    "risk_flags": [
+     "CONSTANT_VALUE"
+    ],
+    "ev_pk": false
+   },
+   {
+    "col": "ORDER_DT",
+    "auto": false,
+    "score": 0.45,
+    "is_pk": null,
+    "warn_reason": "일 단위 날짜 컬럼 — 월/연 단위 변환 후 GROUP BY 사용 권장",
+    "src": "DB_STATISTICS",
+    "risk_flags": [
+     "HIGH_CARDINALITY",
+     "UNIQUE_LIKE"
+    ],
+    "ev_pk": false
+   },
+   {
+    "col": "ORDER_YM",
+    "auto": true,
+    "score": 0.58,
+    "is_pk": null,
+    "warn_reason": "",
+    "src": "DB_STATISTICS",
+    "risk_flags": [],
+    "ev_pk": false
+   },
+   {
+    "col": "REGION_CD",
+    "auto": true,
+    "score": 0.58,
+    "is_pk": null,
+    "warn_reason": "",
+    "src": "DB_STATISTICS",
+    "risk_flags": [],
+    "ev_pk": false
+   }
+  ],
+  "sum_cands": [
+   {
+    "col": "AMT",
+    "auto": true,
+    "score": 0.6,
+    "is_pk": null,
+    "warn_reason": "",
+    "src": "DB_STATISTICS",
+    "risk_flags": [],
+    "ev_pk": false
+   },
+   {
+    "col": "QTY",
+    "auto": true,
+    "score": 0.6,
+    "is_pk": null,
+    "warn_reason": "",
+    "src": "DB_STATISTICS",
+    "risk_flags": [],
+    "ev_pk": false
+   }
+  ],
+  "gb_noncand": {
+   "ORDER_ID": "PK_IDENTIFIER",
+   "AMT": "NUMERIC_SUM_ONLY",
+   "QTY": "NUMERIC_SUM_ONLY",
+   "RATIO": "HIGH_CARDINALITY",
+   "MEMO": "FREE_TEXT"
+  },
+  "gb_summary_counts": {
+   "total": 9,
+   "scored": 4,
+   "selectable": 3
+  },
+  "profiled": [
+   "CHANNEL_CD",
+   "CREATED_TS",
+   "ORDER_DT",
+   "ORDER_YM",
+   "REGION_CD"
+  ],
+  "tgt_pk_evidence": {
+   "available": true,
+   "pk_columns": [
+    "ORDER_ID"
+   ],
+   "kcc": 1,
+   "reason": ""
+  },
+  "provider_mode": "real",
+  "error_message": "",
+  "status": ""
+ },
+ {
+  "id": "a2_single_pk_join",
+  "desc": "(a) 단일 PK(ID, NUMBER) · JOIN  ★이번 수정의 핵심 경로",
+  "tgt_meta": {
+   "ID": {
+    "is_pk": true,
+    "ckm": null,
+    "kcc": null
+   },
+   "DEPT_CD": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   },
+   "UPD_YMD": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   },
+   "REG_DT": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   },
+   "STATUS_CD": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   },
+   "AMT": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   },
+   "CREATED_BY": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   }
+  },
+  "validated_is_pk": {
+   "ID": true,
+   "DEPT_CD": false,
+   "UPD_YMD": false,
+   "REG_DT": false,
+   "STATUS_CD": false,
+   "AMT": false,
+   "CREATED_BY": false
+  },
+  "auto_gb": [
+   "REG_DT",
+   "DEPT_CD",
+   "STATUS_CD"
+  ],
+  "auto_sum": [
+   "AMT"
+  ],
+  "count_only": false,
+  "warnings": [],
+  "gb_cands": [
+   {
+    "col": "CREATED_BY",
+    "auto": false,
+    "score": 0.576,
+    "is_pk": null,
+    "warn_reason": "관리컬럼(명칭/코멘트 매칭) 후보 — 값(A축) 교차확인 후 최종 판정",
+    "src": "LEGACY",
+    "risk_flags": [],
+    "ev_pk": null
+   },
+   {
+    "col": "DEPT_CD",
+    "auto": false,
+    "score": 0.45,
+    "is_pk": null,
+    "warn_reason": "고유값 수 미수집 · 카디널리티 판단 제한 — profile 재수집 후 재선정 권장",
+    "src": "LEGACY",
+    "risk_flags": [],
+    "ev_pk": null
+   },
+   {
+    "col": "REG_DT",
+    "auto": false,
+    "score": 0.64,
+    "is_pk": null,
+    "warn_reason": "관리컬럼(명칭/코멘트 매칭) 후보 — 값(A축) 교차확인 후 최종 판정",
+    "src": "LEGACY",
+    "risk_flags": [],
+    "ev_pk": null
+   },
+   {
+    "col": "STATUS_CD",
+    "auto": false,
+    "score": 0.45,
+    "is_pk": null,
+    "warn_reason": "고유값 수 미수집 · 카디널리티 판단 제한 — profile 재수집 후 재선정 권장",
+    "src": "LEGACY",
+    "risk_flags": [],
+    "ev_pk": null
+   },
+   {
+    "col": "UPD_YMD",
+    "auto": false,
+    "score": 0.496,
+    "is_pk": null,
+    "warn_reason": "관리컬럼(명칭/코멘트 매칭) 후보 — 값(A축) 교차확인 후 최종 판정",
+    "src": "LEGACY",
+    "risk_flags": [],
+    "ev_pk": null
+   }
+  ],
+  "sum_cands": [
+   {
+    "col": "AMT",
+    "auto": true,
+    "score": 0.6,
+    "is_pk": null,
+    "warn_reason": "",
+    "src": "LEGACY",
+    "risk_flags": [],
+    "ev_pk": null
+   }
+  ],
+  "gb_noncand": {
+   "ID": "PK_IDENTIFIER",
+   "AMT": "NUMERIC_SUM_ONLY"
+  },
+  "gb_summary_counts": {
+   "total": 5,
+   "scored": 3,
+   "selectable": 0
+  },
+  "profiled": [],
+  "tgt_pk_evidence": {
+   "available": true,
+   "pk_columns": [
+    "ID"
+   ],
+   "kcc": 1,
+   "reason": ""
+  },
+  "provider_mode": "real",
+  "error_message": "",
+  "status": ""
+ },
+ {
+  "id": "b1_composite_pk_singletable",
+  "desc": "(b) 복합 PK(CO_CD, SEQ) · 단일테이블",
+  "tgt_meta": {
+   "CO_CD": {
+    "is_pk": false,
+    "ckm": true,
+    "kcc": 2
+   },
+   "SEQ": {
+    "is_pk": false,
+    "ckm": true,
+    "kcc": 2
+   },
+   "DEPT_CD": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   },
+   "AMT": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   }
+  },
+  "validated_is_pk": {
+   "CO_CD": false,
+   "SEQ": false,
+   "DEPT_CD": false,
+   "AMT": false
+  },
+  "auto_gb": [
+   "CO_CD",
+   "DEPT_CD"
+  ],
+  "auto_sum": [
+   "AMT"
+  ],
+  "count_only": false,
+  "warnings": [],
+  "gb_cands": [
+   {
+    "col": "CO_CD",
+    "auto": false,
+    "score": 0.45,
+    "is_pk": null,
+    "warn_reason": "PK/UNIQUE — 자동추천 제외(§22)",
+    "src": "DB_STATISTICS",
+    "risk_flags": [
+     "COMPOSITE_KEY_MEMBER"
+    ],
+    "ev_pk": true
+   },
+   {
+    "col": "DEPT_CD",
+    "auto": true,
+    "score": 0.58,
+    "is_pk": null,
+    "warn_reason": "",
+    "src": "DB_STATISTICS",
+    "risk_flags": [],
+    "ev_pk": false
+   }
+  ],
+  "sum_cands": [
+   {
+    "col": "AMT",
+    "auto": true,
+    "score": 0.6,
+    "is_pk": null,
+    "warn_reason": "",
+    "src": "DB_STATISTICS",
+    "risk_flags": [],
+    "ev_pk": false
+   }
+  ],
+  "gb_noncand": {
+   "SEQ": "PK_IDENTIFIER",
+   "AMT": "NUMERIC_SUM_ONLY"
+  },
+  "gb_summary_counts": {
+   "total": 4,
+   "scored": 2,
+   "selectable": 1
+  },
+  "profiled": [
+   "CO_CD",
+   "DEPT_CD"
+  ],
+  "tgt_pk_evidence": {
+   "available": true,
+   "pk_columns": [
+    "CO_CD",
+    "SEQ"
+   ],
+   "kcc": 2,
+   "reason": ""
+  },
+  "provider_mode": "real",
+  "error_message": "",
+  "status": ""
+ },
+ {
+  "id": "b2_composite_pk_join",
+  "desc": "(b) 복합 PK(CO_CD, SEQ) · JOIN  ★무회귀 확인 핵심",
+  "tgt_meta": {
+   "CO_CD": {
+    "is_pk": false,
+    "ckm": true,
+    "kcc": 2
+   },
+   "SEQ": {
+    "is_pk": false,
+    "ckm": true,
+    "kcc": 2
+   },
+   "DEPT_CD": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   },
+   "AMT": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   }
+  },
+  "validated_is_pk": {
+   "CO_CD": false,
+   "SEQ": false,
+   "DEPT_CD": false,
+   "AMT": false
+  },
+  "auto_gb": [
+   "CO_CD",
+   "DEPT_CD"
+  ],
+  "auto_sum": [
+   "AMT"
+  ],
+  "count_only": false,
+  "warnings": [],
+  "gb_cands": [
+   {
+    "col": "CO_CD",
+    "auto": false,
+    "score": 0.45,
+    "is_pk": null,
+    "warn_reason": "고유값 수 미수집 · 카디널리티 판단 제한 — profile 재수집 후 재선정 권장",
+    "src": "LEGACY",
+    "risk_flags": [],
+    "ev_pk": null
+   },
+   {
+    "col": "DEPT_CD",
+    "auto": false,
+    "score": 0.45,
+    "is_pk": null,
+    "warn_reason": "고유값 수 미수집 · 카디널리티 판단 제한 — profile 재수집 후 재선정 권장",
+    "src": "LEGACY",
+    "risk_flags": [],
+    "ev_pk": null
+   }
+  ],
+  "sum_cands": [
+   {
+    "col": "AMT",
+    "auto": true,
+    "score": 0.6,
+    "is_pk": null,
+    "warn_reason": "",
+    "src": "LEGACY",
+    "risk_flags": [],
+    "ev_pk": null
+   }
+  ],
+  "gb_noncand": {
+   "SEQ": "NUMERIC_SEMANTIC_EXCLUDED",
+   "AMT": "NUMERIC_SUM_ONLY"
+  },
+  "gb_summary_counts": {
+   "total": 4,
+   "scored": 2,
+   "selectable": 0
+  },
+  "profiled": [],
+  "tgt_pk_evidence": {
+   "available": true,
+   "pk_columns": [
+    "CO_CD",
+    "SEQ"
+   ],
+   "kcc": 2,
+   "reason": ""
+  },
+  "provider_mode": "real",
+  "error_message": "",
+  "status": ""
+ },
+ {
+  "id": "d1_single_code_pk_singletable",
+  "desc": "(a') 단일 코드성 PK(DEPT_CD, VARCHAR2) · 단일테이블 — Q2 배제 효과 관측",
+  "tgt_meta": {
+   "DEPT_CD": {
+    "is_pk": true,
+    "ckm": null,
+    "kcc": null
+   },
+   "DEPT_NAME": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   }
+  },
+  "validated_is_pk": {
+   "DEPT_CD": true,
+   "DEPT_NAME": false
+  },
+  "auto_gb": [],
+  "auto_sum": [],
+  "count_only": true,
+  "warnings": [
+   "DDL 메타 기반 분석 완료 — 숫자 컬럼 없음, COUNT(*) 만 수행합니다."
+  ],
+  "gb_cands": [
+   {
+    "col": "DEPT_NAME",
+    "auto": false,
+    "score": 0.45,
+    "is_pk": null,
+    "warn_reason": "높은 카디널리티 — GROUP BY 기본추천 제외",
+    "src": "DB_STATISTICS",
+    "risk_flags": [
+     "UNIQUE_LIKE"
+    ],
+    "ev_pk": false
+   }
+  ],
+  "sum_cands": [],
+  "gb_noncand": {
+   "DEPT_CD": "PK_IDENTIFIER"
+  },
+  "gb_summary_counts": {
+   "total": 2,
+   "scored": 1,
+   "selectable": 0
+  },
+  "profiled": [
+   "DEPT_NAME"
+  ],
+  "tgt_pk_evidence": {
+   "available": true,
+   "pk_columns": [
+    "DEPT_CD"
+   ],
+   "kcc": 1,
+   "reason": ""
+  },
+  "provider_mode": "real",
+  "error_message": "",
+  "status": ""
+ },
+ {
+  "id": "d2_single_code_pk_join",
+  "desc": "(a') 단일 코드성 PK(DEPT_CD) · JOIN — Q2 배제 효과 관측",
+  "tgt_meta": {
+   "DEPT_CD": {
+    "is_pk": true,
+    "ckm": null,
+    "kcc": null
+   },
+   "DEPT_NAME": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   }
+  },
+  "validated_is_pk": {
+   "DEPT_CD": true,
+   "DEPT_NAME": false
+  },
+  "auto_gb": [],
+  "auto_sum": [],
+  "count_only": true,
+  "warnings": [
+   "DDL 메타 기반 분석 완료 — 숫자 컬럼 없음, COUNT(*) 만 수행합니다."
+  ],
+  "gb_cands": [
+   {
+    "col": "DEPT_NAME",
+    "auto": false,
+    "score": 0.45,
+    "is_pk": null,
+    "warn_reason": "고유값 수 미수집 · 카디널리티 판단 제한 — profile 재수집 후 재선정 권장",
+    "src": "LEGACY",
+    "risk_flags": [],
+    "ev_pk": null
+   }
+  ],
+  "sum_cands": [],
+  "gb_noncand": {
+   "DEPT_CD": "PK_IDENTIFIER"
+  },
+  "gb_summary_counts": {
+   "total": 2,
+   "scored": 1,
+   "selectable": 0
+  },
+  "profiled": [],
+  "tgt_pk_evidence": {
+   "available": true,
+   "pk_columns": [
+    "DEPT_CD"
+   ],
+   "kcc": 1,
+   "reason": ""
+  },
+  "provider_mode": "real",
+  "error_message": "",
+  "status": ""
+ },
+ {
+  "id": "e1_single_text_pk_singletable",
+  "desc": "(a') 단일 문자 PK(CODE, VARCHAR2) · 단일테이블 — 저카디 코드 PK",
+  "tgt_meta": {
+   "CODE": {
+    "is_pk": true,
+    "ckm": null,
+    "kcc": null
+   },
+   "DEPT_CD": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   },
+   "AMT": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   }
+  },
+  "validated_is_pk": {
+   "CODE": true,
+   "DEPT_CD": false,
+   "AMT": false
+  },
+  "auto_gb": [
+   "DEPT_CD"
+  ],
+  "auto_sum": [
+   "AMT"
+  ],
+  "count_only": false,
+  "warnings": [],
+  "gb_cands": [
+   {
+    "col": "DEPT_CD",
+    "auto": true,
+    "score": 0.58,
+    "is_pk": null,
+    "warn_reason": "",
+    "src": "DB_STATISTICS",
+    "risk_flags": [],
+    "ev_pk": false
+   }
+  ],
+  "sum_cands": [
+   {
+    "col": "AMT",
+    "auto": true,
+    "score": 0.6,
+    "is_pk": null,
+    "warn_reason": "",
+    "src": "DB_STATISTICS",
+    "risk_flags": [],
+    "ev_pk": false
+   }
+  ],
+  "gb_noncand": {
+   "CODE": "PK_IDENTIFIER",
+   "AMT": "NUMERIC_SUM_ONLY"
+  },
+  "gb_summary_counts": {
+   "total": 3,
+   "scored": 1,
+   "selectable": 1
+  },
+  "profiled": [
+   "DEPT_CD"
+  ],
+  "tgt_pk_evidence": {
+   "available": true,
+   "pk_columns": [
+    "CODE"
+   ],
+   "kcc": 1,
+   "reason": ""
+  },
+  "provider_mode": "real",
+  "error_message": "",
+  "status": ""
+ },
+ {
+  "id": "e2_single_text_pk_join",
+  "desc": "(a') 단일 문자 PK(CODE) · JOIN — 저카디 코드 PK",
+  "tgt_meta": {
+   "CODE": {
+    "is_pk": true,
+    "ckm": null,
+    "kcc": null
+   },
+   "DEPT_CD": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   },
+   "AMT": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   }
+  },
+  "validated_is_pk": {
+   "CODE": true,
+   "DEPT_CD": false,
+   "AMT": false
+  },
+  "auto_gb": [
+   "DEPT_CD"
+  ],
+  "auto_sum": [
+   "AMT"
+  ],
+  "count_only": false,
+  "warnings": [],
+  "gb_cands": [
+   {
+    "col": "DEPT_CD",
+    "auto": false,
+    "score": 0.45,
+    "is_pk": null,
+    "warn_reason": "고유값 수 미수집 · 카디널리티 판단 제한 — profile 재수집 후 재선정 권장",
+    "src": "LEGACY",
+    "risk_flags": [],
+    "ev_pk": null
+   }
+  ],
+  "sum_cands": [
+   {
+    "col": "AMT",
+    "auto": true,
+    "score": 0.6,
+    "is_pk": null,
+    "warn_reason": "",
+    "src": "LEGACY",
+    "risk_flags": [],
+    "ev_pk": null
+   }
+  ],
+  "gb_noncand": {
+   "CODE": "PK_IDENTIFIER",
+   "AMT": "NUMERIC_SUM_ONLY"
+  },
+  "gb_summary_counts": {
+   "total": 3,
+   "scored": 1,
+   "selectable": 0
+  },
+  "profiled": [],
+  "tgt_pk_evidence": {
+   "available": true,
+   "pk_columns": [
+    "CODE"
+   ],
+   "kcc": 1,
+   "reason": ""
+  },
+  "provider_mode": "real",
+  "error_message": "",
+  "status": ""
+ },
+ {
+  "id": "c1_no_pk_singletable",
+  "desc": "(c) PK 없음 · 단일테이블",
+  "tgt_meta": {
+   "C_NUM": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   },
+   "C_VARCHAR2": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   }
+  },
+  "validated_is_pk": {
+   "C_NUM": false,
+   "C_VARCHAR2": false
+  },
+  "auto_gb": [],
+  "auto_sum": [],
+  "count_only": true,
+  "warnings": [
+   "DDL 메타 기반 분석 완료 — 숫자 컬럼 없음, COUNT(*) 만 수행합니다."
+  ],
+  "gb_cands": [
+   {
+    "col": "C_NUM",
+    "auto": false,
+    "score": 0.3,
+    "is_pk": null,
+    "warn_reason": "정상 GROUP BY 후보 없음 — 참고용 최후수단(불일치 위치 좁히기 보조)",
+    "src": "DB_STATISTICS",
+    "risk_flags": [
+     "LAST_RESORT_GROUP_BY"
+    ],
+    "ev_pk": false
+   }
+  ],
+  "sum_cands": [
+   {
+    "col": "C_NUM",
+    "auto": false,
+    "score": 0.55,
+    "is_pk": null,
+    "warn_reason": "식별자/순번/비율 계열 수치 — 합계 비교 의미 없음(SUM 기본추천 제외)",
+    "src": "DB_STATISTICS",
+    "risk_flags": [
+     "SUM_SEMANTIC_REVIEW_REQUIRED"
+    ],
+    "ev_pk": false
+   }
+  ],
+  "gb_noncand": {
+   "C_VARCHAR2": "HIGH_CARDINALITY"
+  },
+  "gb_summary_counts": {
+   "total": 2,
+   "scored": 1,
+   "selectable": 0
+  },
+  "profiled": [
+   "C_NUM"
+  ],
+  "tgt_pk_evidence": {
+   "available": false,
+   "pk_columns": [],
+   "kcc": 0,
+   "reason": "KEY_METADATA_UNAVAILABLE"
+  },
+  "provider_mode": "real",
+  "error_message": "",
+  "status": ""
+ },
+ {
+  "id": "c2_no_pk_join",
+  "desc": "(c) PK 없음 · JOIN",
+  "tgt_meta": {
+   "C_NUM": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   },
+   "C_VARCHAR2": {
+    "is_pk": false,
+    "ckm": null,
+    "kcc": null
+   }
+  },
+  "validated_is_pk": {
+   "C_NUM": false,
+   "C_VARCHAR2": false
+  },
+  "auto_gb": [],
+  "auto_sum": [],
+  "count_only": true,
+  "warnings": [
+   "DDL 메타 기반 분석 완료 — 숫자 컬럼 없음, COUNT(*) 만 수행합니다."
+  ],
+  "gb_cands": [],
+  "sum_cands": [
+   {
+    "col": "C_NUM",
+    "auto": false,
+    "score": 0.55,
+    "is_pk": null,
+    "warn_reason": "식별자/순번/비율 계열 수치 — 합계 비교 의미 없음(SUM 기본추천 제외)",
+    "src": "LEGACY",
+    "risk_flags": [
+     "SUM_SEMANTIC_REVIEW_REQUIRED"
+    ],
+    "ev_pk": null
+   }
+  ],
+  "gb_noncand": {
+   "C_NUM": "NUMERIC_SUM_ONLY",
+   "C_VARCHAR2": "NO_EVIDENCE"
+  },
+  "gb_summary_counts": {
+   "total": 2,
+   "scored": 0,
+   "selectable": 0
+  },
+  "profiled": [],
+  "tgt_pk_evidence": {
+   "available": false,
+   "pk_columns": [],
+   "kcc": 0,
+   "reason": "KEY_METADATA_UNAVAILABLE"
+  },
+  "provider_mode": "real",
+  "error_message": "",
+  "status": ""
+ }
+]

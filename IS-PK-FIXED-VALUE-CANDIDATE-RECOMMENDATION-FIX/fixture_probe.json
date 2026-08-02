@@ -1,0 +1,1627 @@
+{
+ "src": {
+  "label": "Oracle_asis",
+  "pk": {
+   "BIN$U+DL1D8KNnbgYwIAEqxdoQ==$0": {
+    "cols": [
+     "ORDER_NO",
+     "ITEM_SEQ"
+    ],
+    "key_column_count": 2
+   },
+   "BIN$U+DL1D8NNnbgYwIAEqxdoQ==$0": {
+    "cols": [
+     "ORDER_NO"
+    ],
+    "key_column_count": 1
+   },
+   "BIN$U+DL1D8QNnbgYwIAEqxdoQ==$0": {
+    "cols": [
+     "PRODUCT_ID"
+    ],
+    "key_column_count": 1
+   },
+   "BIN$U+DL1D8TNnbgYwIAEqxdoQ==$0": {
+    "cols": [
+     "EMP_ID"
+    ],
+    "key_column_count": 1
+   },
+   "BIN$Vx1cakguXL/gYwMAEqz/ng==$0": {
+    "cols": [
+     "ID"
+    ],
+    "key_column_count": 1
+   },
+   "BIN$Vx1cakgxXL/gYwMAEqz/ng==$0": {
+    "cols": [
+     "ID"
+    ],
+    "key_column_count": 1
+   },
+   "MV_COMBO_SRC": {
+    "cols": [
+     "ID"
+    ],
+    "key_column_count": 1
+   },
+   "MV_CSPK_SRC": {
+    "cols": [
+     "REGION_CD",
+     "SEQ_NO"
+    ],
+    "key_column_count": 2
+   },
+   "MV_DTIER_SRC": {
+    "cols": [
+     "ID"
+    ],
+    "key_column_count": 1
+   },
+   "MV_FANOUT_SRC": {
+    "cols": [
+     "ID"
+    ],
+    "key_column_count": 1
+   },
+   "MV_M17_SRC": {
+    "cols": [
+     "ID"
+    ],
+    "key_column_count": 1
+   },
+   "MV_ORA_DATEB_SRC": {
+    "cols": [
+     "ID"
+    ],
+    "key_column_count": 1
+   },
+   "MV_ORA_DEMO_SRC": {
+    "cols": [
+     "ID"
+    ],
+    "key_column_count": 1
+   },
+   "MV_ORA_DEPT_MASTER": {
+    "cols": [
+     "DEPT_CD"
+    ],
+    "key_column_count": 1
+   },
+   "MV_ORA_NOPK_SRC": {
+    "cols": [
+     "ID"
+    ],
+    "key_column_count": 1
+   },
+   "MV_ORA_TEST_SRC": {
+    "cols": [
+     "ORDER_ID"
+    ],
+    "key_column_count": 1
+   },
+   "MV_ORA_TEST_TGT": {
+    "cols": [
+     "ORDER_ID"
+    ],
+    "key_column_count": 1
+   },
+   "MV_ORA_XDIFF_SRC": {
+    "cols": [
+     "ID"
+    ],
+    "key_column_count": 1
+   },
+   "MV_SCATTER50M_DIM": {
+    "cols": [
+     "REGION_CD"
+    ],
+    "key_column_count": 1
+   },
+   "MV_SCATTER50M_SRC": {
+    "cols": [
+     "PK_STR"
+    ],
+    "key_column_count": 1
+   },
+   "MV_SCATTER_DIM": {
+    "cols": [
+     "REGION_CD"
+    ],
+    "key_column_count": 1
+   },
+   "MV_SCATTER_SRC": {
+    "cols": [
+     "PK_STR"
+    ],
+    "key_column_count": 1
+   },
+   "MV_WINFN_SRC": {
+    "cols": [
+     "ID"
+    ],
+    "key_column_count": 1
+   },
+   "TB_DEPT": {
+    "cols": [
+     "DEPT_ID"
+    ],
+    "key_column_count": 1
+   },
+   "TB_EMP": {
+    "cols": [
+     "EMP_ID"
+    ],
+    "key_column_count": 1
+   },
+   "TB_ORDER": {
+    "cols": [
+     "ORDER_NO"
+    ],
+    "key_column_count": 1
+   },
+   "TB_ORDER_ITEM": {
+    "cols": [
+     "ORDER_NO",
+     "ITEM_SEQ"
+    ],
+    "key_column_count": 2
+   },
+   "TB_PRODUCT": {
+    "cols": [
+     "PRODUCT_ID"
+    ],
+    "key_column_count": 1
+   },
+   "T_SPKFIX_CMP_SRC": {
+    "cols": [
+     "CO_CD",
+     "SEQ"
+    ],
+    "key_column_count": 2
+   },
+   "T_SPKFIX_NUM_SRC": {
+    "cols": [
+     "ID"
+    ],
+    "key_column_count": 1
+   },
+   "T_SPKFIX_TXT_SRC": {
+    "cols": [
+     "CODE"
+    ],
+    "key_column_count": 1
+   },
+   "T_WINFN_SRC": {
+    "cols": [
+     "ID"
+    ],
+    "key_column_count": 1
+   }
+  },
+  "cols": {
+   "MVQ_DEPT": [
+    {
+     "col": "DEPT_NO",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "DEPT_NM",
+     "type": "VARCHAR2"
+    }
+   ],
+   "MVQ_EMP": [
+    {
+     "col": "EMP_NO",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "DEPT_NO",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "SALARY",
+     "type": "NUMBER"
+    },
+    {
+     "col": "STATUS",
+     "type": "VARCHAR2"
+    }
+   ],
+   "MVQ_TGT": [
+    {
+     "col": "EMP_NO",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "DEPT_NM",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "SALARY",
+     "type": "NUMBER"
+    }
+   ],
+   "MV_COMBO_SRC": [
+    {
+     "col": "ID",
+     "type": "NUMBER"
+    },
+    {
+     "col": "STATUS_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "DEPT_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "AMT",
+     "type": "NUMBER"
+    }
+   ],
+   "MV_CSPK_SRC": [
+    {
+     "col": "REGION_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "SEQ_NO",
+     "type": "NUMBER"
+    },
+    {
+     "col": "AMT",
+     "type": "NUMBER"
+    },
+    {
+     "col": "QTY",
+     "type": "NUMBER"
+    },
+    {
+     "col": "REG_DT",
+     "type": "DATE"
+    },
+    {
+     "col": "ITEM_NM",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "STATUS_CD",
+     "type": "VARCHAR2"
+    }
+   ],
+   "MV_DTIER_SRC": [
+    {
+     "col": "ID",
+     "type": "NUMBER"
+    },
+    {
+     "col": "REGION_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "CHAN_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "AMT",
+     "type": "NUMBER"
+    }
+   ],
+   "MV_FANOUT_DETAIL": [
+    {
+     "col": "SRC_ID",
+     "type": "NUMBER"
+    },
+    {
+     "col": "DETAIL_COL",
+     "type": "VARCHAR2"
+    }
+   ],
+   "MV_FANOUT_SRC": [
+    {
+     "col": "ID",
+     "type": "NUMBER"
+    },
+    {
+     "col": "COL_A",
+     "type": "NUMBER"
+    }
+   ],
+   "MV_M17_SRC": [
+    {
+     "col": "ID",
+     "type": "NUMBER"
+    },
+    {
+     "col": "STATUS_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "AMT",
+     "type": "NUMBER"
+    },
+    {
+     "col": "QTY",
+     "type": "NUMBER"
+    },
+    {
+     "col": "ITEM_NM",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "REG_DT",
+     "type": "DATE"
+    }
+   ],
+   "MV_ORA_DATEB_SRC": [
+    {
+     "col": "ID",
+     "type": "NUMBER"
+    },
+    {
+     "col": "ORDER_DT",
+     "type": "DATE"
+    },
+    {
+     "col": "CATEGORY",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "AMT",
+     "type": "NUMBER"
+    }
+   ],
+   "MV_ORA_DEMO_SRC": [
+    {
+     "col": "ID",
+     "type": "NUMBER"
+    },
+    {
+     "col": "DEPT_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "UPD_YMD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "REG_DT",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "STATUS_CD",
+     "type": "CHAR"
+    },
+    {
+     "col": "AMT",
+     "type": "NUMBER"
+    },
+    {
+     "col": "CREATED_BY",
+     "type": "VARCHAR2"
+    }
+   ],
+   "MV_ORA_DEPT_MASTER": [
+    {
+     "col": "DEPT_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "DEPT_NAME",
+     "type": "VARCHAR2"
+    }
+   ],
+   "MV_ORA_NOPK_SRC": [
+    {
+     "col": "ID",
+     "type": "NUMBER"
+    },
+    {
+     "col": "C_NUM",
+     "type": "NUMBER"
+    },
+    {
+     "col": "C_VARCHAR2",
+     "type": "VARCHAR2"
+    }
+   ],
+   "MV_ORA_TEST_SRC": [
+    {
+     "col": "ORDER_ID",
+     "type": "NUMBER"
+    },
+    {
+     "col": "AMT",
+     "type": "NUMBER"
+    },
+    {
+     "col": "QTY",
+     "type": "NUMBER"
+    },
+    {
+     "col": "RATIO",
+     "type": "BINARY_DOUBLE"
+    },
+    {
+     "col": "ORDER_YM",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "REGION_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "CHANNEL_CD",
+     "type": "CHAR"
+    },
+    {
+     "col": "MEMO",
+     "type": "NVARCHAR2"
+    },
+    {
+     "col": "DESCR",
+     "type": "CLOB"
+    },
+    {
+     "col": "ORDER_DT",
+     "type": "DATE"
+    },
+    {
+     "col": "CREATED_TS",
+     "type": "TIMESTAMP(6)"
+    },
+    {
+     "col": "UPDATED_TS",
+     "type": "TIMESTAMP(6)"
+    }
+   ],
+   "MV_ORA_TEST_TGT": [
+    {
+     "col": "ORDER_ID",
+     "type": "NUMBER"
+    },
+    {
+     "col": "AMT",
+     "type": "NUMBER"
+    },
+    {
+     "col": "QTY",
+     "type": "NUMBER"
+    },
+    {
+     "col": "RATIO",
+     "type": "BINARY_DOUBLE"
+    },
+    {
+     "col": "ORDER_YM",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "REGION_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "CHANNEL_CD",
+     "type": "CHAR"
+    },
+    {
+     "col": "MEMO",
+     "type": "NVARCHAR2"
+    },
+    {
+     "col": "DESCR",
+     "type": "CLOB"
+    },
+    {
+     "col": "ORDER_DT",
+     "type": "DATE"
+    },
+    {
+     "col": "CREATED_TS",
+     "type": "TIMESTAMP(6)"
+    },
+    {
+     "col": "UPDATED_TS",
+     "type": "TIMESTAMP(6)"
+    }
+   ],
+   "MV_ORA_XDIFF_SRC": [
+    {
+     "col": "ID",
+     "type": "NUMBER"
+    },
+    {
+     "col": "C_NUM",
+     "type": "NUMBER"
+    },
+    {
+     "col": "C_NUM_PS",
+     "type": "NUMBER"
+    },
+    {
+     "col": "C_VARCHAR2",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "C_CHAR",
+     "type": "CHAR"
+    },
+    {
+     "col": "C_NVARCHAR2",
+     "type": "NVARCHAR2"
+    },
+    {
+     "col": "C_CLOB",
+     "type": "CLOB"
+    },
+    {
+     "col": "C_DATE",
+     "type": "DATE"
+    },
+    {
+     "col": "C_TS",
+     "type": "TIMESTAMP(6)"
+    },
+    {
+     "col": "C_TS3",
+     "type": "TIMESTAMP(3)"
+    },
+    {
+     "col": "C_TS6",
+     "type": "TIMESTAMP(6)"
+    }
+   ],
+   "MV_SCATTER50M_DIM": [
+    {
+     "col": "REGION_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "REGION_NM",
+     "type": "VARCHAR2"
+    }
+   ],
+   "MV_SCATTER50M_SRC": [
+    {
+     "col": "PK_STR",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "REGION_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "SEQ_NO",
+     "type": "NUMBER"
+    },
+    {
+     "col": "AMT",
+     "type": "NUMBER"
+    },
+    {
+     "col": "QTY",
+     "type": "NUMBER"
+    },
+    {
+     "col": "ITEM_NM",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "STATUS_CD",
+     "type": "VARCHAR2"
+    }
+   ],
+   "MV_SCATTER_DIM": [
+    {
+     "col": "REGION_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "REGION_NM",
+     "type": "VARCHAR2"
+    }
+   ],
+   "MV_SCATTER_SRC": [
+    {
+     "col": "PK_STR",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "REGION_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "SEQ_NO",
+     "type": "NUMBER"
+    },
+    {
+     "col": "AMT",
+     "type": "NUMBER"
+    },
+    {
+     "col": "QTY",
+     "type": "NUMBER"
+    },
+    {
+     "col": "ITEM_NM",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "STATUS_CD",
+     "type": "VARCHAR2"
+    }
+   ],
+   "MV_WINFN_SRC": [
+    {
+     "col": "ID",
+     "type": "NUMBER"
+    },
+    {
+     "col": "COL_A",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "COL_B",
+     "type": "VARCHAR2"
+    }
+   ],
+   "TB_DEPT": [
+    {
+     "col": "DEPT_ID",
+     "type": "CHAR"
+    },
+    {
+     "col": "DEPT_NAME",
+     "type": "VARCHAR2"
+    }
+   ],
+   "TB_EMP": [
+    {
+     "col": "EMP_ID",
+     "type": "CHAR"
+    },
+    {
+     "col": "DEPT_ID",
+     "type": "CHAR"
+    },
+    {
+     "col": "EMP_NAME",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "EMAIL",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "HIRE_DT",
+     "type": "VARCHAR2"
+    }
+   ],
+   "TB_ORDER": [
+    {
+     "col": "ORDER_NO",
+     "type": "CHAR"
+    },
+    {
+     "col": "EMP_ID",
+     "type": "CHAR"
+    },
+    {
+     "col": "ORDER_DT",
+     "type": "VARCHAR2"
+    }
+   ],
+   "TB_ORDER_ITEM": [
+    {
+     "col": "ORDER_NO",
+     "type": "CHAR"
+    },
+    {
+     "col": "ITEM_SEQ",
+     "type": "NUMBER"
+    },
+    {
+     "col": "PRODUCT_ID",
+     "type": "CHAR"
+    },
+    {
+     "col": "ORDER_QTY",
+     "type": "NUMBER"
+    }
+   ],
+   "TB_PRODUCT": [
+    {
+     "col": "PRODUCT_ID",
+     "type": "CHAR"
+    },
+    {
+     "col": "PRODUCT_NAME",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "PRICE",
+     "type": "NUMBER"
+    }
+   ],
+   "T_SPKFIX_CMP_SRC": [
+    {
+     "col": "CO_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "SEQ",
+     "type": "NUMBER"
+    },
+    {
+     "col": "DEPT_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "AMT",
+     "type": "NUMBER"
+    }
+   ],
+   "T_SPKFIX_NUM_SRC": [
+    {
+     "col": "ID",
+     "type": "NUMBER"
+    },
+    {
+     "col": "DEPT_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "AMT",
+     "type": "NUMBER"
+    }
+   ],
+   "T_SPKFIX_TXT_SRC": [
+    {
+     "col": "CODE",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "DEPT_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "AMT",
+     "type": "NUMBER"
+    }
+   ],
+   "T_WINFN_SRC": [
+    {
+     "col": "ID",
+     "type": "NUMBER"
+    },
+    {
+     "col": "COL_A",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "COL_B",
+     "type": "VARCHAR2"
+    }
+   ]
+  }
+ },
+ "tgt": {
+  "label": "Oracle_tobe",
+  "pk": {
+   "CDC_ALL_HIST": {
+    "cols": [
+     "CD_LOAD_NO",
+     "CD_NODE_ALIAS"
+    ],
+    "key_column_count": 2
+   },
+   "CDC_EVENT_HIST": {
+    "cols": [
+     "CD_EVNT_SEQ",
+     "CD_NODE_ALIAS"
+    ],
+    "key_column_count": 2
+   },
+   "CDC_TB_DEPT": {
+    "cols": [
+     "DEPT_ID",
+     "CD_LOAD_NO"
+    ],
+    "key_column_count": 2
+   },
+   "CDC_TB_EMP": {
+    "cols": [
+     "EMP_ID",
+     "CD_LOAD_NO"
+    ],
+    "key_column_count": 2
+   },
+   "CDC_TB_ORDER": {
+    "cols": [
+     "ORDER_NO",
+     "CD_LOAD_NO"
+    ],
+    "key_column_count": 2
+   },
+   "CDC_TB_ORDER_ITEM": {
+    "cols": [
+     "ORDER_NO",
+     "ITEM_SEQ",
+     "CD_LOAD_NO"
+    ],
+    "key_column_count": 3
+   },
+   "CDC_TB_PRODUCT": {
+    "cols": [
+     "PRODUCT_ID",
+     "CD_LOAD_NO"
+    ],
+    "key_column_count": 2
+   },
+   "MV_COMBO_TGT": {
+    "cols": [
+     "ID"
+    ],
+    "key_column_count": 1
+   },
+   "MV_CSPK_TGT": {
+    "cols": [
+     "PK_STR"
+    ],
+    "key_column_count": 1
+   },
+   "MV_DTIER_TGT": {
+    "cols": [
+     "ID"
+    ],
+    "key_column_count": 1
+   },
+   "MV_FANOUT_TGT": {
+    "cols": [
+     "ID"
+    ],
+    "key_column_count": 1
+   },
+   "MV_M17_TGT": {
+    "cols": [
+     "ID"
+    ],
+    "key_column_count": 1
+   },
+   "MV_ORA_DATEB_TGT": {
+    "cols": [
+     "ID"
+    ],
+    "key_column_count": 1
+   },
+   "MV_ORA_DEMO_TGT": {
+    "cols": [
+     "ID"
+    ],
+    "key_column_count": 1
+   },
+   "MV_ORA_DEPT_MASTER": {
+    "cols": [
+     "DEPT_CD"
+    ],
+    "key_column_count": 1
+   },
+   "MV_ORA_TEST_TGT": {
+    "cols": [
+     "ORDER_ID"
+    ],
+    "key_column_count": 1
+   },
+   "MV_ORA_XDIFF_TGT": {
+    "cols": [
+     "ID"
+    ],
+    "key_column_count": 1
+   },
+   "MV_SCATTER50M_TGT": {
+    "cols": [
+     "PK_STR"
+    ],
+    "key_column_count": 1
+   },
+   "MV_SCATTER_TGT": {
+    "cols": [
+     "PK_STR"
+    ],
+    "key_column_count": 1
+   },
+   "MV_WINFN_TGT": {
+    "cols": [
+     "ID"
+    ],
+    "key_column_count": 1
+   },
+   "T_SPKFIX_CMP_TGT": {
+    "cols": [
+     "CO_CD",
+     "SEQ"
+    ],
+    "key_column_count": 2
+   },
+   "T_SPKFIX_NUM_TGT": {
+    "cols": [
+     "ID"
+    ],
+    "key_column_count": 1
+   },
+   "T_SPKFIX_TXT_TGT": {
+    "cols": [
+     "CODE"
+    ],
+    "key_column_count": 1
+   }
+  },
+  "cols": {
+   "CDC_ALL_HIST": [
+    {
+     "col": "CD_LOAD_NO",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "CD_NODE_ALIAS",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "CD_SCHEMA",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "CD_TABLE",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "CD_OFFSET",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "CD_TS",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "CD_DT",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "CD_XID_LSN",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "CD_OP",
+     "type": "CHAR"
+    },
+    {
+     "col": "CD_BEFORE",
+     "type": "CLOB"
+    },
+    {
+     "col": "CD_AFTER",
+     "type": "CLOB"
+    },
+    {
+     "col": "CD_PK_EXIST_YN",
+     "type": "CHAR"
+    },
+    {
+     "col": "CD_CDC_REG_YN",
+     "type": "CHAR"
+    },
+    {
+     "col": "CD_REG_DT",
+     "type": "VARCHAR2"
+    }
+   ],
+   "CDC_EVENT_HIST": [
+    {
+     "col": "CD_EVNT_SEQ",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "CD_NODE_ALIAS",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "CD_EVNT_TYPE",
+     "type": "CHAR"
+    },
+    {
+     "col": "CD_EVNT_TOPIC",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "CD_EVNT_SUBTITLE",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "CD_EVNT_MSG",
+     "type": "CLOB"
+    },
+    {
+     "col": "CD_EVNT_LINK_VAL",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "CD_EVNT_CHK_STATE",
+     "type": "CHAR"
+    },
+    {
+     "col": "CD_REG_DT",
+     "type": "VARCHAR2"
+    }
+   ],
+   "CDC_TB_DEPT": [
+    {
+     "col": "DEPT_ID",
+     "type": "CHAR"
+    },
+    {
+     "col": "CD_LOAD_NO",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "CD_OP",
+     "type": "CHAR"
+    },
+    {
+     "col": "CD_BEFORE",
+     "type": "CLOB"
+    },
+    {
+     "col": "CD_AFTER",
+     "type": "CLOB"
+    },
+    {
+     "col": "CD_TRANS_YN",
+     "type": "CHAR"
+    },
+    {
+     "col": "CD_REG_DT",
+     "type": "VARCHAR2"
+    }
+   ],
+   "CDC_TB_EMP": [
+    {
+     "col": "EMP_ID",
+     "type": "CHAR"
+    },
+    {
+     "col": "CD_LOAD_NO",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "CD_OP",
+     "type": "CHAR"
+    },
+    {
+     "col": "CD_BEFORE",
+     "type": "CLOB"
+    },
+    {
+     "col": "CD_AFTER",
+     "type": "CLOB"
+    },
+    {
+     "col": "CD_TRANS_YN",
+     "type": "CHAR"
+    },
+    {
+     "col": "CD_REG_DT",
+     "type": "VARCHAR2"
+    }
+   ],
+   "CDC_TB_ORDER": [
+    {
+     "col": "ORDER_NO",
+     "type": "CHAR"
+    },
+    {
+     "col": "CD_LOAD_NO",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "CD_OP",
+     "type": "CHAR"
+    },
+    {
+     "col": "CD_BEFORE",
+     "type": "CLOB"
+    },
+    {
+     "col": "CD_AFTER",
+     "type": "CLOB"
+    },
+    {
+     "col": "CD_TRANS_YN",
+     "type": "CHAR"
+    },
+    {
+     "col": "CD_REG_DT",
+     "type": "VARCHAR2"
+    }
+   ],
+   "CDC_TB_ORDER_ITEM": [
+    {
+     "col": "ORDER_NO",
+     "type": "CHAR"
+    },
+    {
+     "col": "ITEM_SEQ",
+     "type": "NUMBER"
+    },
+    {
+     "col": "CD_LOAD_NO",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "CD_OP",
+     "type": "CHAR"
+    },
+    {
+     "col": "CD_BEFORE",
+     "type": "CLOB"
+    },
+    {
+     "col": "CD_AFTER",
+     "type": "CLOB"
+    },
+    {
+     "col": "CD_TRANS_YN",
+     "type": "CHAR"
+    },
+    {
+     "col": "CD_REG_DT",
+     "type": "VARCHAR2"
+    }
+   ],
+   "CDC_TB_PRODUCT": [
+    {
+     "col": "PRODUCT_ID",
+     "type": "CHAR"
+    },
+    {
+     "col": "CD_LOAD_NO",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "CD_OP",
+     "type": "CHAR"
+    },
+    {
+     "col": "CD_BEFORE",
+     "type": "CLOB"
+    },
+    {
+     "col": "CD_AFTER",
+     "type": "CLOB"
+    },
+    {
+     "col": "CD_TRANS_YN",
+     "type": "CHAR"
+    },
+    {
+     "col": "CD_REG_DT",
+     "type": "VARCHAR2"
+    }
+   ],
+   "MV_COMBO_TGT": [
+    {
+     "col": "ID",
+     "type": "NUMBER"
+    },
+    {
+     "col": "STATUS_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "DEPT_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "AMT",
+     "type": "NUMBER"
+    }
+   ],
+   "MV_CSPK_TGT": [
+    {
+     "col": "PK_STR",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "AMT",
+     "type": "NUMBER"
+    },
+    {
+     "col": "QTY",
+     "type": "NUMBER"
+    },
+    {
+     "col": "REG_DT",
+     "type": "DATE"
+    },
+    {
+     "col": "ITEM_NM",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "STATUS_CD",
+     "type": "VARCHAR2"
+    }
+   ],
+   "MV_DTIER_TGT": [
+    {
+     "col": "ID",
+     "type": "NUMBER"
+    },
+    {
+     "col": "REGION_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "CHAN_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "AMT",
+     "type": "NUMBER"
+    }
+   ],
+   "MV_FANOUT_TGT": [
+    {
+     "col": "ID",
+     "type": "NUMBER"
+    },
+    {
+     "col": "COL_A",
+     "type": "NUMBER"
+    },
+    {
+     "col": "DETAIL_COL",
+     "type": "VARCHAR2"
+    }
+   ],
+   "MV_M17_TGT": [
+    {
+     "col": "ID",
+     "type": "NUMBER"
+    },
+    {
+     "col": "STATUS_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "AMT",
+     "type": "NUMBER"
+    },
+    {
+     "col": "QTY",
+     "type": "NUMBER"
+    },
+    {
+     "col": "ITEM_NM",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "REG_DT",
+     "type": "DATE"
+    }
+   ],
+   "MV_ORA_DATEB_TGT": [
+    {
+     "col": "ID",
+     "type": "NUMBER"
+    },
+    {
+     "col": "ORDER_DT",
+     "type": "DATE"
+    },
+    {
+     "col": "CATEGORY",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "AMT",
+     "type": "NUMBER"
+    }
+   ],
+   "MV_ORA_DEMO_TGT": [
+    {
+     "col": "ID",
+     "type": "NUMBER"
+    },
+    {
+     "col": "DEPT_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "UPD_YMD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "REG_DT",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "STATUS_CD",
+     "type": "CHAR"
+    },
+    {
+     "col": "AMT",
+     "type": "NUMBER"
+    },
+    {
+     "col": "CREATED_BY",
+     "type": "VARCHAR2"
+    }
+   ],
+   "MV_ORA_DEPT_MASTER": [
+    {
+     "col": "DEPT_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "DEPT_NAME",
+     "type": "VARCHAR2"
+    }
+   ],
+   "MV_ORA_NOPK_TGT": [
+    {
+     "col": "C_NUM",
+     "type": "NUMBER"
+    },
+    {
+     "col": "C_VARCHAR2",
+     "type": "VARCHAR2"
+    }
+   ],
+   "MV_ORA_TEST_TGT": [
+    {
+     "col": "ORDER_ID",
+     "type": "NUMBER"
+    },
+    {
+     "col": "AMT",
+     "type": "NUMBER"
+    },
+    {
+     "col": "QTY",
+     "type": "NUMBER"
+    },
+    {
+     "col": "RATIO",
+     "type": "BINARY_DOUBLE"
+    },
+    {
+     "col": "ORDER_YM",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "REGION_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "CHANNEL_CD",
+     "type": "CHAR"
+    },
+    {
+     "col": "MEMO",
+     "type": "NVARCHAR2"
+    },
+    {
+     "col": "DESCR",
+     "type": "CLOB"
+    },
+    {
+     "col": "ORDER_DT",
+     "type": "DATE"
+    },
+    {
+     "col": "CREATED_TS",
+     "type": "TIMESTAMP(6)"
+    },
+    {
+     "col": "UPDATED_TS",
+     "type": "TIMESTAMP(6)"
+    }
+   ],
+   "MV_ORA_XDIFF_TGT": [
+    {
+     "col": "ID",
+     "type": "NUMBER"
+    },
+    {
+     "col": "C_NUM",
+     "type": "NUMBER"
+    },
+    {
+     "col": "C_NUM_PS",
+     "type": "NUMBER"
+    },
+    {
+     "col": "C_VARCHAR2",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "C_CHAR",
+     "type": "CHAR"
+    },
+    {
+     "col": "C_NVARCHAR2",
+     "type": "NVARCHAR2"
+    },
+    {
+     "col": "C_CLOB",
+     "type": "CLOB"
+    },
+    {
+     "col": "C_DATE",
+     "type": "DATE"
+    },
+    {
+     "col": "C_TS",
+     "type": "TIMESTAMP(6)"
+    },
+    {
+     "col": "C_TS3",
+     "type": "TIMESTAMP(3)"
+    },
+    {
+     "col": "C_TS6",
+     "type": "TIMESTAMP(6)"
+    }
+   ],
+   "MV_SCATTER50M_TGT": [
+    {
+     "col": "PK_STR",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "REGION_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "SEQ_NO",
+     "type": "NUMBER"
+    },
+    {
+     "col": "AMT",
+     "type": "NUMBER"
+    },
+    {
+     "col": "QTY",
+     "type": "NUMBER"
+    },
+    {
+     "col": "ITEM_NM",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "STATUS_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "REGION_NM",
+     "type": "VARCHAR2"
+    }
+   ],
+   "MV_SCATTER_TGT": [
+    {
+     "col": "PK_STR",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "REGION_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "SEQ_NO",
+     "type": "NUMBER"
+    },
+    {
+     "col": "AMT",
+     "type": "NUMBER"
+    },
+    {
+     "col": "QTY",
+     "type": "NUMBER"
+    },
+    {
+     "col": "ITEM_NM",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "STATUS_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "REGION_NM",
+     "type": "VARCHAR2"
+    }
+   ],
+   "MV_WINFN_TGT": [
+    {
+     "col": "ID",
+     "type": "NUMBER"
+    },
+    {
+     "col": "COL_A",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "RN",
+     "type": "NUMBER"
+    }
+   ],
+   "T_SPKFIX_CMP_TGT": [
+    {
+     "col": "CO_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "SEQ",
+     "type": "NUMBER"
+    },
+    {
+     "col": "DEPT_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "AMT",
+     "type": "NUMBER"
+    }
+   ],
+   "T_SPKFIX_NUM_TGT": [
+    {
+     "col": "ID",
+     "type": "NUMBER"
+    },
+    {
+     "col": "DEPT_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "AMT",
+     "type": "NUMBER"
+    }
+   ],
+   "T_SPKFIX_TXT_TGT": [
+    {
+     "col": "CODE",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "DEPT_CD",
+     "type": "VARCHAR2"
+    },
+    {
+     "col": "AMT",
+     "type": "NUMBER"
+    }
+   ]
+  }
+ },
+ "classified": {
+  "single": [
+   [
+    "MV_ORA_DEPT_MASTER",
+    2,
+    [
+     "DEPT_CD"
+    ]
+   ],
+   [
+    "MV_ORA_TEST_TGT",
+    12,
+    [
+     "ORDER_ID"
+    ]
+   ]
+  ],
+  "composite": [],
+  "nopk": []
+ }
+}
