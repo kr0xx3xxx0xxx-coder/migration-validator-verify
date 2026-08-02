@@ -10,7 +10,13 @@
 - 대상 제외: 아직 push 되지 않은 로컬 전용 보고서 16건은 이번 취합에서 제외했다.
   push 후 이 파일에 합류시킨다.
 - 최초 작성: 2026-07-29 (VERIFY-REPO-BACKLOG-FILE-CREATE)
-- 최종 갱신: 2026-08-02 (BACKLOG-P9-M17-M18-MARK-RESOLVED-AND-NEW-RESIDUALS-ADD) — 해결된 3개 항목을
+- 최종 갱신: 2026-08-02 (BACKLOG-DOC-SYNC-AND-P6-M8-SEQUENTIAL-FIX 파트 A) — 이미 해결된 M6·M7 2개
+  항목을 해결 완료로 표시(신규 등록·삭제 없음)
+  (M6 해결 — 오라클 어댑터 표지를 '쿼리 타임아웃'/'접속 단계 타임아웃' 둘로 분리하고 접속 단계를
+  먼저 확인해 ORA-03136 을 `connection` 계열로 재분류, M7 해결 — `categorize_conn_error` 가 접속 단계
+  **오류 코드**를 가장 먼저 확인하도록 순서 변경 + MySQL/MariaDB/MSSQL 60초 상한 no-op 축은
+  **선행 커밋 53d61bb 에서 이미 해결돼 있음을 확인**해 중복 구현 회피. 정상 타임아웃 분류 무회귀)
+- 직전 갱신: 2026-08-02 (BACKLOG-P9-M17-M18-MARK-RESOLVED-AND-NEW-RESIDUALS-ADD) — 해결된 3개 항목을
   해결 완료로 표시 + 그 과정에서 확인된 잔여 항목 2건 등록
   (P9 해결 — `remote` 고정 true 제거하고 접속 host 근거 판정 + `remote_evidence` 근거코드.
   **원 서술의 '전환판정 관여' 전제는 180조합 전수비교로 반증** — 실제 영향은 통계전략 cost ×1.05 뿐이고
@@ -1464,14 +1470,59 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 상세: nav/step 계열인데 Tier 1 8파일 목록에 없었다. 파일럿이 지적한 '죽은 빨간 불' 과 같은 성격.
 - 참고: E:\verify_reports\WHITEBOX-TEST-CONTRACT-CONVERSION-PHASE1.txt
 
-### M6. ORA-03136(inbound connection timed out)을 오라클 어댑터가 timeout 으로 판정한다
+### M6. ✅ 해결 완료 — ORA-03136(inbound connection timed out)을 오라클 어댑터가 timeout 으로 판정한다
+- 해결일: 2026-08-02 (ORACLE-CONN-ERROR-TIMEOUT-MISCLASSIFICATION-FIX)
+- 근거 커밋: 코드 저장소 `9cc5d08` — `fix(adapter): ORA-03136 접속단계 오류의 쿼리 타임아웃 오분류 정정
+  (ORACLE-CONN-ERROR-TIMEOUT-MISCLASSIFICATION-FIX)`
+- 근거 보고서 커밋: 이 저장소 `562f61e`(완료보고 `ORACLE-CONN-ERROR-TIMEOUT-MISCLASSIFICATION-FIX`
+  — 문자열 매트릭스 16건 Before/After + 오라클 라이브 L1/L2 실측)
+- 해결 요약: 오라클 어댑터의 표지 목록을 **쿼리 타임아웃 표지**(`dpi-1067`/`dpy-4024`/`call timeout`)와
+  **접속 단계 타임아웃 표지**(`ora-03136`/`inbound connection timed out`/`ora-12170`/`ora-12535`/`ora-12609`)
+  둘로 분리하고, `is_query_timeout_error` 가 접속 단계 표지를 **먼저** 확인해 걸리면 메시지에 `timeout`
+  문자열이 있어도 False 를 돌리도록 바꿨다. 즉 'timeout 이 들어있나'가 아니라 '어느 단계의 오류인가'로
+  판정한다. ORA-03136 은 `connection`(접속 실패) 계열인 **기존 '연결 시간 초과' 카테고리로 재분류**했고
+  신규 카테고리는 만들지 않았다. 부수 효과로 `is_connection_lost_error` 재시도 대상에 다시 포함된다.
+  실측: 오프라인 문자열 매트릭스 16건 중 **바뀐 것은 ORA-03136 2건뿐**이고 진짜 쿼리 타임아웃 5건·
+  접속 실패 6건·기타 3건은 전부 불변(무회귀). 라이브 오라클로 [L1] 접속 단계 실패(DPY-6005, 20.2s →
+  `연결 시간 초과`)·[L2] 진짜 쿼리 타임아웃(DPY-4024, 2.1s → `쿼리 실행 시간 초과`) 경계 유지 확인.
+  ORA-03136 자체는 서버 `sqlnet.ora` 수정 권한이 없어 실 DB 재현 불가 → 문자열 주입 단위테스트
+  24건으로 검증(사유 명시).
+- 잔여(이번 범위 밖): 접속 단계 표지가 방언 중립 서비스 파일(`count_common_service.py`)에 모여 있어
+  어댑터 소유인 쿼리 타임아웃 표지와 비대칭이다. `BaseDbmsAdapter.is_connect_phase_error()` 로
+  이관하는 방향이 정답이나 어댑터 9종을 모두 건드리므로 별도 승인이 필요하다.
 - 발견일: 2026-07-29
 - 근거 보고서: `COUNT-TIMEOUT-ERROR-MESSAGE-CATEGORY-FIX.txt` (잔여 논점)
 - 상세: 의미상 접속 단계인데 timeout 으로 분류된다. 어댑터 판별기 수정 사안이라 범위 밖으로 뒀고
   테스트 픽스처에서도 제외했다. 아울러 표지 없는 새 드라이버 메시지가 나타나면 표지 목록 보강이 필요하다.
 - 참고: E:\verify_reports\COUNT-TIMEOUT-ERROR-MESSAGE-CATEGORY-FIX.txt
 
-### M7. `categorize_conn_error` 가 'timeout' 포함 메시지를 무조건 "연결 시간 초과" 로 분류 + MySQL/MariaDB/MSSQL 실행 상한 no-op
+### M7. ✅ 해결 완료 — `categorize_conn_error` 가 'timeout' 포함 메시지를 무조건 "연결 시간 초과" 로 분류 + MySQL/MariaDB/MSSQL 실행 상한 no-op
+- 해결일: 2026-08-02 (ORACLE-CONN-ERROR-TIMEOUT-MISCLASSIFICATION-FIX)
+- 근거 커밋: 코드 저장소 `9cc5d08`(분류 순서 변경) / `53d61bb`(방언 실행 상한 — **2026-07-28 선행 커밋**,
+  `fix(adapter): MySQL/MariaDB/MSSQL 쿼리 타임아웃 no-op 해소 (DIALECT-TIMEOUT-NOOP-FIX)`)
+- 근거 보고서 커밋: 이 저장소 `562f61e`(완료보고 `ORACLE-CONN-ERROR-TIMEOUT-MISCLASSIFICATION-FIX` §3·§4)
+- 해결 요약: 두 축을 나눠 처리했다.
+  **(축 1) 분류 순서** — `categorize_conn_error` 가 **접속 단계 표지를 가장 먼저** 확인하도록 순서를 바꿨다.
+  ① `_is_connect_phase_timeout(m)` → '연결 시간 초과'(신규, 오류 **코드** 기반 확정)
+  ② `_is_query_timeout(...)` → 쿼리 타임아웃 정정 문구
+  ③ `timeout`/`timed out` 문자열 → '연결 시간 초과'(기존 fallback 유지)
+  ①의 코드 표지 `_CONNECT_PHASE_TIMEOUT_CODES` 5건은 어댑터 판별기를 타지 않는 호출 경로
+  (`db_type` 미상으로 들어오는 일괄검증 경로 등)까지 덮는 **두 번째 방어선**이다. 문장 표지에는
+  oracledb(thin) 이 실제로 뱉는 `cannot connect to`(DPY-6005) 를 보강했다.
+  **(축 2) MySQL/MariaDB/MSSQL 60초 상한 no-op** — 조사 결과 **이미 다른 커밋(`53d61bb`, 2026-07-28)에서
+  해결돼 있었다**(`merge-base --is-ancestor 53d61bb HEAD` = YES). 즉 이 항목의 이 축은 stale 이었고,
+  **중복 구현을 회피**해 신규 코드를 넣지 않았다. 현재 구현 —
+  MySQL `SET SESSION max_execution_time`(mysql.py:62) / MariaDB `SET SESSION max_statement_time`
+  (mariadb.py:33) / MSSQL `pyodbc connection.timeout`(mssql.py:62), 세 방언 모두
+  `supports_statement_timeout()=True` 이고 호출부 `db_query_service.py:607` 이 방언 분기 없이
+  `apply_query_timeout` 만 호출하므로 COUNT 경로에 그대로 적용된다.
+  **정상 타임아웃 분류는 무회귀** — 문자열 매트릭스 16건 중 진짜 쿼리 타임아웃 5건(DPI-1067·DPY-4024·
+  PG statement timeout·MSSQL query timeout·MySQL max exec time)과 접속 실패 6건 전부 판정 불변.
+- 잔여(이번 범위 밖): ③ fallback 은 그대로다 — 어댑터 표지에도 접속 단계 표지에도 없는 **미지의**
+  쿼리 타임아웃 메시지는 여전히 '연결 시간 초과'로 떨어진다(기본값 변경은 신규 카테고리가 필요해
+  보류). 조건부 no-op 도 남는다 — MySQL 5.7.8 미만 / MariaDB 10.1.1 미만은 세션 변수가 없어 SET 이
+  조용히 실패하며(`except pass`) 상한 미적용 사실이 로그에도 안 남는다. MySQL/MSSQL 실 인스턴스
+  실측은 미수행(MariaDB 만 실측 존재).
 - 발견일: 2026-07-28
 - 근거 보고서: `STATS-COUNT-STEP-TIMEOUT-PARITY-FIX.txt` (잔여 과제 1·3) /
   `STATS-EXECUTE-TIMEOUT-CLARITY-FIX.txt` (남는 위험)
