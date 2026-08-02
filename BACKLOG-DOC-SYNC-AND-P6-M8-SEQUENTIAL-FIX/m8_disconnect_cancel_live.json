@@ -1,0 +1,138 @@
+{
+  "task": "BACKLOG-DOC-SYNC-AND-P6-M8-SEQUENTIAL-FIX/PARTC",
+  "measure": "클라이언트 소켓 종료 후 원본 DB 쿼리가 실제로 사라지기까지의 시간",
+  "observation": "pg_stat_activity(별도 연결) 폴링",
+  "cases": [
+    {
+      "label": "BEFORE",
+      "endpoint": "/count",
+      "observed": true,
+      "released_after_abort_s": 29.07,
+      "query_seconds": 30
+    },
+    {
+      "label": "BEFORE",
+      "endpoint": "/execute",
+      "observed": true,
+      "released_after_abort_s": 29.12,
+      "query_seconds": 30
+    },
+    {
+      "label": "AFTER",
+      "endpoint": "/count",
+      "observed": true,
+      "released_after_abort_s": 0.22,
+      "query_seconds": 30
+    },
+    {
+      "label": "AFTER",
+      "endpoint": "/execute",
+      "observed": true,
+      "released_after_abort_s": 0.22,
+      "query_seconds": 30
+    }
+  ],
+  "token_before": {
+    "analyze": {
+      "http": 200,
+      "token": true,
+      "error": null
+    },
+    "count": {
+      "http": 200,
+      "status": "PASSED",
+      "src": 120000,
+      "tgt": 120000
+    },
+    "generate": {
+      "http": 200,
+      "has_sql": true,
+      "gb": [
+        "STATUS_CD"
+      ],
+      "error": null
+    }
+  },
+  "token_after": {
+    "analyze": {
+      "http": 200,
+      "token": true,
+      "error": null
+    },
+    "count": {
+      "http": 200,
+      "status": "PASSED",
+      "src": 120000,
+      "tgt": 120000
+    },
+    "generate": {
+      "http": 200,
+      "has_sql": true,
+      "gb": [
+        "STATUS_CD"
+      ],
+      "error": null
+    }
+  },
+  "normal_completion": {
+    "BEFORE": [
+      {
+        "http": 200,
+        "status": "PASSED",
+        "src": 120000,
+        "tgt": 120000,
+        "is_matched": true,
+        "wall_ms": 52.1,
+        "processing_ms": 27.0
+      },
+      {
+        "http": 200,
+        "status": "PASSED",
+        "src": 120000,
+        "tgt": 120000,
+        "is_matched": true,
+        "wall_ms": 24.2,
+        "processing_ms": 21.1
+      },
+      {
+        "http": 200,
+        "status": "PASSED",
+        "src": 120000,
+        "tgt": 120000,
+        "is_matched": true,
+        "wall_ms": 68.9,
+        "processing_ms": 21.8
+      }
+    ],
+    "AFTER": [
+      {
+        "http": 200,
+        "status": "PASSED",
+        "src": 120000,
+        "tgt": 120000,
+        "is_matched": true,
+        "wall_ms": 71.9,
+        "processing_ms": 21.3
+      },
+      {
+        "http": 200,
+        "status": "PASSED",
+        "src": 120000,
+        "tgt": 120000,
+        "is_matched": true,
+        "wall_ms": 71.8,
+        "processing_ms": 19.7
+      },
+      {
+        "http": 200,
+        "status": "PASSED",
+        "src": 120000,
+        "tgt": 120000,
+        "is_matched": true,
+        "wall_ms": 73.6,
+        "processing_ms": 18.9
+      }
+    ]
+  },
+  "normal_identical": true
+}

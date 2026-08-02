@@ -1,0 +1,344 @@
+작업명 : BACKLOG-DOC-SYNC-AND-P6-M8-SEQUENTIAL-FIX
+✅ 작업 완료 - BACKLOG-DOC-SYNC-AND-P6-M8-SEQUENTIAL-FIX - 파트 A(M6·M7 해결 완료 표시)·파트 B(prewarm 5만 상한을 2단 정책으로 확장, 12만행에서 미발동→발동)·파트 C(/count·4단계 실행 이탈 즉시 중단, DB 해제 29초→0.22초) 3개 파트 전부 완료·파트별 즉시 커밋·전 파트 baseline 대조 회귀 0건
+
+════════════════════════════════════════════════════════════════════════
+[파트 A] 문서 동기화 — M6/M7 해결 완료 표시
+════════════════════════════════════════════════════════════════════════
+
+■ 결론: 완료. BACKLOG.md 의 M6·M7 을 기존 `✅ 해결 완료` 관례(해결일/근거 커밋/근거 보고서 커밋/
+  해결 요약/잔여)로 갱신했고, 상세 서술은 삭제 없이 그대로 뒀다.
+
+■ 근거 확인(추정 아님)
+  · 코드 커밋 `9cc5d08` 이 HEAD 조상인지 : `git merge-base --is-ancestor 9cc5d08 HEAD` → YES
+  · 선행 커밋 `53d61bb` 이 HEAD 조상인지 : YES (요구사항의 '이미 해결됨' 주장 확인)
+  · 근거 보고서가 verify 저장소에 커밋돼 있는지 : `562f61e` 로 확인
+    (ORACLE-CONN-ERROR-TIMEOUT-MISCLASSIFICATION-FIX.txt)
+
+■ 기록한 내용
+  M6 — 오라클 어댑터 표지를 '쿼리 타임아웃'(dpi-1067/dpy-4024/call timeout)과 '접속 단계 타임아웃'
+       (ora-03136/inbound connection timed out/ora-12170/ora-12535/ora-12609) 둘로 분리하고,
+       is_query_timeout_error 가 접속 단계 표지를 **먼저** 확인해 걸리면 메시지에 timeout 문자열이
+       있어도 False 를 돌린다. ORA-03136 은 기존 '연결 시간 초과' 카테고리로 재분류(신규 카테고리 없음).
+  M7 — (축 1) categorize_conn_error 가 접속 단계 **오류 코드**를 가장 먼저 확인하도록 순서 변경
+       (① 코드 기반 접속단계 확정 → ② 쿼리 타임아웃 → ③ 기존 timeout 문자열 fallback).
+       (축 2) MySQL/MariaDB/MSSQL 60초 상한 no-op 은 **선행 커밋 53d61bb 에서 이미 해결**돼 있어
+       중복 구현을 회피했다는 사실과 현재 구현 위치(mysql.py:62 / mariadb.py:33 / mssql.py:62)를 명시.
+       정상 타임아웃 분류 무회귀 — 문자열 매트릭스 16건 중 진짜 쿼리 타임아웃 5건·접속 실패 6건 판정 불변.
+  두 항목 모두 '잔여(이번 범위 밖)' 를 함께 적었다 — M6: 접속 단계 표지가 방언 중립 서비스 파일에 모여
+  어댑터 소유인 쿼리 타임아웃 표지와 비대칭. M7: fallback ③ 존치(미지의 쿼리 타임아웃은 여전히
+  '연결 시간 초과'), MySQL 5.7.8 미만·MariaDB 10.1.1 미만 조건부 no-op 이 로그에도 안 남음.
+
+■ 내용 소실 0건 증명
+  `### ` 헤딩 개수 전/후 **90 → 90** (동일)
+  diff : 1 file changed, 54 insertions(+), 3 deletions(-)
+  삭제 3줄 = M6 제목 1줄 + M7 제목 1줄 + '최종 갱신' 머리말 1줄 (전부 교체분, 내용 소실 없음)
+  ※ 편집은 공유 트리(E:\verify_reports) 사본이 아니라 **origin/main 기반 임시 worktree(E:\_wtvr)** 에서
+    수행했다(공유 사본은 stale 이라 그대로 편집하면 최근 등록분이 소멸한다 — 문서 §운영 규칙).
+
+■ 커밋 : verify 저장소 `cd3abc2` (push 후 `git ls-remote origin main` = cd3abc2 로 일치 확인)
+
+════════════════════════════════════════════════════════════════════════
+[파트 B] P6 — PK index prewarm 이 5만행 이하만 동작
+════════════════════════════════════════════════════════════════════════
+
+■ 위치 확인 결과 (지침이 "위치 확인 후 진행" 이라 명시한 부분)
+  `ui/tabler_renderer.py` 의 `_mvPkPrewarm` — 수정 전 게이트 한 줄:
+      if (!(mism > 0) || dbt !== 'postgresql' || totalRows == null || totalRows > 50000) return;
+  '준비 중' 문구의 출처는 별개다 — `ui/grid_helpers.py:1180` 의 초기값
+      var pkTxt = (ctx && ctx.pkTxt) || '준비 중';
+  즉 prewarm 이 안 돌면 이 초기값을 **아무도 갱신하지 않아** 그대로 굳는다.
+
+■ 요구사항 1 — 5만 상한의 근거: **성능/메모리 한계가 아니라 stale 잔여**(git 이력으로 확정)
+  · `099b74b`(2026-07-04) prewarm 과 5만 상한이 함께 도입. 이 시점의 `/agg-diff/prepare` 는
+    **동기 해시 경로뿐**이라 5만 초과는 전체 스캔 끝에 HOLD 로 떨어졌다 → "해봐야 비용만 쓰는" 상황.
+  · `b940708`(2026-07-05) stream(merge-join) 경로 도입
+  · `d8775ab`(2026-07-06) PK 50K chunk 경로 도입
+  → 이후 `_mvPkPayload` 는 5만 초과를 `stream=true` + `PK_RANGE_CHUNK_COMPARE` 로 보내고 서버는
+    run_id 바인딩 직후 **즉시 PREPARING(accepted)** 로 반환한다. 상한을 둔 이유가 이때 사라졌는데
+    게이트만 남았다.
+  · 이 판단은 추론이 아니라 실 DB 로 재현했다 — 아래 [L-B2] 참조(동기 경로는 지금도 HOLD 를 돌려준다).
+
+■ 요구사항 2·3 — 채택한 방향: **상한 상향(2단 정책) + 상한 초과분의 표시 정직화**
+  ~5만        : 동기(해시) 경로 — 기존과 완전히 동일하게 발동(무회귀)
+  5만 ~ 1M    : 비동기(stream) job — prepare 가 즉시 반환하므로 클라이언트 대기는 늘지 않는다
+  1M 초과     : 자동 준비 안 함. 다만 '준비 중'(진행 중처럼 보임)을 그대로 두지 않고
+                `_mvPkState.deferred` 로 **'자동 준비 안 함' + 사유 tooltip** 을 표시한다.
+                (지침 요구사항 3의 "'준비 중' 표시를 실제 상황 반영으로 개선" 을 이 지점에 적용했다.
+                 상한 초과는 이번 변경이 새로 만드는 케이스이므로, 조용한 고착을 남기지 않는다.)
+  상한 기본값 1,000,000 은 **새로 지어낸 숫자가 아니다** — 이미 벤치마크로 정해진 정책값
+  `strategy_resource_weights.direct_stream_max_rows_provisional`(routes/strategy_route.py:41,
+  "1M cross-host global merge ~22s")에 맞췄다. 운영 조정은 `window.MV_PK_PREWARM_MAX_ROWS` 로
+  코드 수정 없이 가능하며, 동기 경계(5만)보다 낮게는 내려가지 않도록 막았다.
+
+■ 실측 ① 브라우저 게이트 BEFORE/AFTER (제품 함수 `_mvPkPrewarm` 직접 호출, 9케이스)
+  하니스: scripts/dev_e2e/pk_prewarm_row_limit_verify.py
+  BEFORE 서버 = **baseline worktree(E:\_wtcode @ 281d9f8) 기동, 포트 8253**
+  AFTER  서버 = 수정 트리 기동, 포트 8252
+  (같은 하니스·같은 9케이스를 서로 다른 코드 트리에 붙여 측정 — 캡처 파일명도 케이스와 일치한다)
+
+  케이스                     src_count    BEFORE                    AFTER
+  ─────────────────────────────────────────────────────────────────────────────────────
+  R1 10K   PG              10,000      prepare 1회 · 셀 '7건'      동일(무회귀)
+  R2 50K   PG              50,000      prepare 1회 · 셀 '7건'      동일(무회귀)
+  R3 50K+1 PG              50,001      prepare 0회 · 셀 '준비 중'  prepare 1회(stream/CHUNK) · '준비 중'
+  R4 120K  PG (P6 근거규모) 120,000     prepare 0회 · 셀 '준비 중'  prepare 1회(stream/CHUNK) · '준비 중'
+  R5 1M    PG           1,000,000      prepare 0회 · 셀 '준비 중'  prepare 1회(stream/CHUNK) · '준비 중'
+  R6 1M+1  PG           1,000,001      prepare 0회 · 셀 '준비 중'  prepare 0회 · 셀 '자동 준비 안 함'
+  R7 COUNT 미실행            null      prepare 0회 · '준비 중'     동일(무회귀)
+  R8 10K   ORACLE          10,000      prepare 0회 · '준비 중'     동일(무회귀 — PG 전용 게이트 유지)
+  R9 불일치 0 PG            10,000      prepare 0회 · '준비 중'     동일(무회귀)
+
+  R3~R5 의 AFTER 가 여전히 '준비 중' 인 것은 **정확한 표시**다 — BEFORE 는 아무 것도 돌지 않는데
+  '준비 중' 이었고(거짓), AFTER 는 백그라운드 job 이 실제로 도는 중이다(참). 완료 값 반영은
+  기존 폴링 경로(REIMPORT-PK-SUMMARY-CELL-STALE-STATUS-FIX, 3dfafaa)가 담당한다.
+  R6 tooltip 원문: "원본 1,000,001행이 자동 준비 상한(1,000,000행)을 넘어, 통계검증 직후 자동 준비를
+  하지 않았습니다. 지금 진행 중인 작업은 없으며 5단계 결과 확인(재이관 대상)에 들어가면 그때
+  준비가 시작됩니다."
+
+■ 실측 ② 실 DB — 상한을 올려도 되는지의 정량 근거
+  하니스: scripts/dev_e2e/pk_prewarm_large_run_live_measure.py
+  픽스처: 내부망 PG `asis01.t_skew_src`(120,000행) / `tobe01.t_skew_tgt`(120,000행)
+          = P6 근거 보고서(SINGLE-STEP5-COMBO-VIEW-AND-SKEWED-GROUP-VOLUME-DIAGNOSE)의 SKEW 와 동일 규모
+  [L-B1] stream=true (= AFTER 의 prewarm 이 실제로 보내는 요청)
+         prepare 접수까지 **155.7 ms** (내부: key_evidence 0.0 / fingerprint 6.6 / enqueue 0.4 /
+         run_id_bind 50.6 ms) → 클라이언트가 붙잡히는 시간은 이게 전부
+         백그라운드 비교 **2.1초** 만에 EARLY_STOPPED_MISMATCH_LIMIT(value_mismatch 12,000) 완료
+  [L-B2] stream=false (= 5만 상한이 만들어졌을 때의 동기 경로) — 같은 데이터로 대조
+         **HOLD / AGG_SCOPE_TOO_LARGE — "키 수가 한도(60,000)를 초과합니다"**
+         ⇒ 옛 상한의 원래 근거(초과분은 해봐야 HOLD)가 지금도 그대로 재현된다 = 위 §요구사항1 확정
+  [L-B3] 신규 상한 지점 1,000,000행 (`mvbench.bench_1m` 자기비교로 접수 지연 측정)
+         prepare 접수 **80.1 ms** · 백그라운드 **6.2초** 후 READY
+         ⇒ 상한 지점에서도 클라이언트 대기는 0.1초 미만, 백그라운드는 10초 미만.
+
+■ 변경 파일 / 커밋
+  커밋 : f8ff6f9  fix(single): PK index prewarm 5만행 상한을 2단 정책으로 확장 —
+                  대량 run '재이관 대상: 준비 중' 고착 해소 (BACKLOG-P6-PREWARM-ROW-LIMIT-FIX)
+    M ui/tabler_renderer.py                                     (+59 -8)
+    A tests/test_pk_prewarm_row_limit.py                        신규 4건
+    A scripts/dev_e2e/pk_prewarm_row_limit_verify.py            신규 하니스(브라우저 게이트)
+    A scripts/dev_e2e/pk_prewarm_large_run_live_measure.py      신규 하니스(실 DB)
+
+  핵심 diff:
+    - if (!(mism > 0) || dbt !== 'postgresql' || totalRows == null || totalRows > 50000) return;
+    + var _MV_PK_SYNC_MAX_ROWS = 50000;
+    + var _MV_PK_PREWARM_MAX_ROWS = 1000000;   // window.MV_PK_PREWARM_MAX_ROWS 로 override
+    + if (!(mism > 0) || dbt !== 'postgresql' || totalRows == null) return;
+    + if (Number(totalRows) > _MV_PK_PREWARM_MAX_ROWS) { st0.deferred = {...}; ...; return; }
+    그리고 _mvUpdatePkSummaryCell 에 deferred 분기 추가('자동 준비 안 함' + 사유 title).
+
+■ 회귀 (baseline 대조 — git stash 미사용, HEAD 281d9f8 를 E:\_wtcode worktree 로 체크아웃)
+  · 영향 서브셋 43파일 + JS 구문 가드
+    AFTER  : 14 failed, 378 passed, 6 xfailed, 5 errors
+    BEFORE : 14 failed, 378 passed, 6 xfailed, 5 errors   ← 실패 테스트 ID 목록도 완전 동일
+  · 필수 회귀 : samples/test_virtual_cases.py 8/8 통과, samples/test_complex_cases.py 5/5 통과
+  · 신규 테스트 tests/test_pk_prewarm_row_limit.py 4건 통과
+  · 기존 계약 유지 확인 : tests/test_agg_contribution.py 가 `"50000" in prew and "postgresql" in prew`
+    를 잠그고 있는데 둘 다 그대로 남아 통과한다.
+
+■ 잔여(이번 범위 밖 — 백로그 P6 항목에도 함께 기록)
+  · prewarm 의 **PostgreSQL 전용 게이트는 그대로 뒀다**. 오라클은 재이관 비교키 카탈로그가 PG 전용이라
+    대부분 HOLD 로 떨어져 열어도 실익이 없고, 별도 실 DB 실측이 필요하다.
+  · 오라클 / COUNT 미실행 / 집계 불일치 0 인 경우의 셀은 여전히 초기값 '준비 중'으로 남는다.
+    이번 변경이 새로 만든 케이스가 아니라 기존 표시 갭이라 손대지 않았다(범위 확대 회피).
+
+════════════════════════════════════════════════════════════════════════
+[파트 C] M8 — /count 및 4단계 실행이 CancelToken 미사용
+════════════════════════════════════════════════════════════════════════
+
+■ 요구사항 1 — 기존 CancelToken 패턴 확인 결과: **있다. 새로 만들지 않고 재사용했다.**
+  `services/db_query_service.CancelToken` (12-H) — PostgreSQL/Oracle 은 conn.cancel(), MySQL/MSSQL 은
+  conn.close() 폴백. `batch_stats_execute_service` 가 timeout 시 이미 쓰고 있다.
+
+■ 위치 확인 결과 + 진짜 원인
+  · `/count`  : routes/count_route.py → services/single_validation_core.count_single_validation
+                → count_common_service.run_count_pair → _execute_count_sides → _run_one_count_side
+                → db_query_service._cmn_db_fetch_count.  **체인 전체에 cancel_token 인자가 없었다.**
+  · `/execute`: routes/execute_route.py → single_validation_execute_orchestrator
+                → single_validation_core.execute_single_validation → stats_execute_service.
+                **인자 배선은 orchestrator 부터 아래로 이미 다 있었는데 라우트가 아무것도 넘기지 않아
+                항상 None** 이었다(`run_single_validation_execute_flow(req, persist=False)`).
+  ⇒ 즉 "취소 수단이 없어서"가 아니라 **"이탈을 감지해 토큰을 당겨줄 주체가 없어서"** 못 멈추고 있었다.
+
+■ 요구사항 2·3 — 구현
+  (1) 신규 `services/request_cancel_scope.py` (routes 보조, 서비스 로직 아님)
+      blocking 본문은 **기존과 동일하게 워커 스레드**에서 돌리고(FastAPI 가 `def` 라우트를 돌리던 방식
+      그대로), 이벤트 루프가 `Request.is_disconnected()` 를 주기적으로 확인해 이탈 시 토큰을 취소한다.
+      kill-switch `MV_REQUEST_CANCEL_ON_DISCONNECT=0`(끄면 배선 이전과 동일), 주기
+      `MV_DISCONNECT_POLL_INTERVAL_S`(기본 0.25초). 감시 실패는 fail-open(실행을 망치지 않음).
+  (2) 신규 `CancelTokenGroup` + `cancel_child()` 어댑터
+      `CancelToken` 은 연결을 **1개만** 보관한다 → 원본/목적지를 병렬 실행하는 경로에 토큰 하나를
+      돌려쓰면 나중 등록분이 앞 연결 참조를 덮어써 **한쪽만 취소**된다. side 마다 자식 토큰을 발급해
+      해소했다(COUNT 병렬 · 통계검증 `parallel_sides` 양쪽). 취소 이후 발급되는 자식도 취소 상태로 난다.
+  (3) `CancelToken.set_connection` 이 '취소 요청 뒤 늦게 등록된 연결'도 즉시 정리 — 이 창이 없으면
+      '취소 → (직후) 연결 성립 → 실행' 순서에서 취소가 통째로 무시된다.
+  (4) 라우트는 **async 진입점 + 동기 본문**으로 분리했다. 기존 테스트/하니스가
+      `stats_execute(req)` · `cmn_count_compare(req)` 를 **직접 동기 호출**하기 때문에 라우트 함수
+      자체를 async 로 바꾸면 그 호출들이 coroutine 을 받아 전부 깨진다.
+  (5) 토큰이 없으면(직접 동기 호출) **하위 호출 형태를 바꾸지 않는다** — 테스트 대역이 시그니처를
+      고정하고 있어(예: `_cmn_db_fetch_count` fake, orchestrator fake) 항상 인자를 붙이면 깨진다.
+
+■ 요구사항 4 실측 — 정상 완료 흐름 영향 (아래 [L-C3])
+
+■ 실측 (실 DB · 외부 관측 · 같은 빌드 ablation)
+  하니스: scripts/dev_e2e/count_execute_disconnect_cancel_live_verify.py
+  측정 대상: 응답 시간이 아니라 **"클라이언트가 떠난 뒤 원본 DB 쿼리가 실제로 언제 사라지는가"**
+  관측 방법: 별도 연결로 `pg_stat_activity` 폴링(서버 응답·로그에 의존하지 않는 외부 관측)
+  느린 쿼리: `pg_sleep(30)` — 테이블 크기·캐시에 흔들리지 않는 결정적 30초
+  절차: 요청 전송 → 1.0초 유지 → 소켓 종료(브라우저 이탈) → 쿼리 소멸 시각 측정
+  전/후 대조: 같은 빌드에서 kill-switch 로 만든 ablation(코드 되돌림 없음)
+    BEFORE = MV_REQUEST_CANCEL_ON_DISCONNECT=0 (포트 8262) / AFTER = 기본값 ON (포트 8261)
+
+  [L-C1] /count
+         BEFORE : 이탈 후 **29.07초** 만에 해제 (= 30초 쿼리를 끝까지 다 돌았다)
+         AFTER  : 이탈 후 **0.22초** 만에 해제
+  [L-C2] /execute
+         BEFORE : 이탈 후 **29.12초**
+         AFTER  : 이탈 후 **0.22초**
+         ※ 서버 단계 가드(P3)는 운영에서 항상 ON 이라 토큰 없이는 409 다. 가드를 끄거나 우회하지 않고
+           **실제 순서대로 analyze → count → generate 를 태워 workflow_token 을 얻은 뒤** 측정했다
+           (analyze 200/token 발급, count 200/PASSED/120,000·120,000, generate 200/SQL 생성 확인).
+  [L-C3] 정상 완료(중단하지 않는 대다수 케이스) 무회귀
+         /count 3회 반복 : 양쪽 다 status=PASSED ×3, src/tgt=120,000/120,000, is_matched=true — 판정값 동일
+         지연 10회 반복 중앙값(2세트 교차 측정, 같은 DB·같은 SQL):
+           BEFORE wall 45.2 / 44.4 ms   서버 processing_ms 20.9 / 21.0 ms
+           AFTER  wall 50.5 / 23.1 ms   서버 processing_ms 27.1 / 20.4 ms
+         ⇒ 두 값의 분포가 서로 겹친다(AFTER 가 더 빠른 세트도 있다) = 체감 가능한 추가 지연 없음.
+           폴링은 본문이 주기(0.25초)보다 빨리 끝나면 사실상 0회다.
+
+■ 변경 파일 / 커밋
+  커밋 : 54533f9  fix(safety): /count·4단계 실행에 CancelToken 배선 — 브라우저 이탈 시 즉시 중단
+                  (COUNT-EXECUTE-CLIENT-DISCONNECT-CANCEL-FIX)
+    A services/request_cancel_scope.py                                신규(이탈 감시 스코프)
+    M services/db_query_service.py                          (+98 -1)  CancelTokenGroup/cancel_child/
+                                                                      set_connection 경쟁 창 차단/
+                                                                      _cmn_db_fetch_count cancel_token
+    M services/count_common_service.py                      (+42 -13) COUNT 체인 배선(side 별 자식 토큰)
+    M services/single_validation_core.py                    (+23 -8)  count core 배선
+    M services/stats_execute_service.py                     (+12 -3)  src/tgt side 별 자식 토큰
+    M services/groupby_execution_safety_gate.py             (+6 -2)   explain_fn 에 자식 토큰
+    M routes/count_route.py                                 (+26 -4)  async 진입점 분리 + 감시
+    M routes/execute_route.py                               (+35 -6)  async 진입점 분리 + 감시 + 토큰 전달
+    A tests/test_request_cancel_scope.py                              신규 16건
+    M tests/test_individual_connection_scope.py             (+4 -1)   호출부 문자열 계약 갱신(사유 주석 포함)
+    A scripts/dev_e2e/count_execute_disconnect_cancel_live_verify.py  신규 하니스
+
+  핵심 diff:
+    - resp = run_single_validation_execute_flow(req, persist=False)
+    + resp = (run_single_validation_execute_flow(req, persist=False) if cancel_token is None
+    +         else run_single_validation_execute_flow(req, cancel_token, persist=False))
+    + async def count_compare_route(req, request): return await run_with_disconnect_cancel(
+    +     request, lambda _tok: cmn_count_compare(req, cancel_token=_tok))
+
+■ 회귀 (baseline 대조 — E:\_wtcode worktree, git stash 미사용)
+  · 영향 서브셋 34파일(+신규 1파일)
+    AFTER  : 38 failed, 407 passed, 5 skipped, 9 errors, 20 subtests passed
+    BEFORE : 38 failed, 391 passed, 5 skipped, 9 errors, 20 subtests passed
+    실패/에러 테스트 ID 집합 **완전 동일**(AFTER 에만 있는 실패 0건, BEFORE 에만 있는 실패 0건).
+    passed 차이 +16 = 신규 tests/test_request_cancel_scope.py 16건.
+  · 필수 회귀 : samples/test_virtual_cases.py 8/8, samples/test_complex_cases.py 5/5 통과
+
+■ 작업 중 실제로 발생시켰다가 고친 회귀 4건 (숨기지 않고 기록)
+  1) `_cmn_db_fetch_count` 에 항상 `cancel_token=` 을 붙였더니 test_task10_1 의 fake 4건이
+     "unexpected keyword argument" 로 깨짐 → 토큰이 None 이면 kwarg 를 붙이지 않도록 수정.
+  2) `run_single_validation_execute_flow(req, cancel_token, persist=False)` 를 무조건 쓰니
+     test_workflow_stage_guard_inflight 의 orchestrator fake 가 "multiple values for persist" 로 깨짐
+     → 같은 원칙(토큰 없으면 호출 형태 불변) 적용.
+  3) test_individual_connection_scope 가 `"_count_single_validation_impl(req)"` 문자열을 잠그고 있어
+     인자 추가로 깨짐 → 이 테스트가 잠그는 계약은 '인자'가 아니라 'impl 이 공통 scope 안에서 호출되는가'
+     이므로 시작 문자열(`_count_single_validation_impl(req`)만 갱신하고 사유를 주석으로 남김.
+  4) 라우트를 통째로 async 로 바꿨더니 직접 동기 호출 테스트가 전부 깨질 상황 → 진입점/본문 분리로 회피.
+
+■ 잔여(이번 범위 밖 — 백로그 M8 항목에도 함께 기록)
+  · 취소 신호의 실효성은 방언별로 다르다 — PostgreSQL/Oracle 은 실제 쿼리 취소, MySQL/MSSQL 은
+    연결 close 폴백(CancelToken 기존 계약). 위 실측은 PostgreSQL 1방언이다.
+  · `/analyze`·`/generate` 등 다른 blocking 라우트에는 아직 같은 감시를 걸지 않았다.
+
+════════════════════════════════════════════════════════════════════════
+[공통] 실패 테스트 전체 목록 (전부 baseline 동일 = 이번 수정 기인 0건)
+════════════════════════════════════════════════════════════════════════
+아래는 파트 C 영향 서브셋 실행 결과다. 파트 B 서브셋의 14건도 baseline 과 ID 집합이 동일했다.
+
+  tests/test_count_gate.py::test_ui_gate_display_and_blocking
+  tests/test_count_schema_qualified.py::test_get_root_200
+  tests/test_groupby_safety_common_gate.py::test_execute_route_gate_safe
+  tests/test_groupby_safety_common_gate.py::test_execute_route_gate_block
+  tests/test_groupby_safety_facade.py::test_17_count_only_not_applicable
+  tests/test_groupby_safety_facade.py::test_18_count_sum_not_applicable
+  tests/test_groupby_safety_facade.py::test_19_default_date_groupby_safe_one_click
+  tests/test_groupby_safety_facade.py::test_21_manual_groupby_safe_one_click_via_explain
+  tests/test_groupby_safety_facade.py::test_04_recommendation_provenance_unchanged_after_safe
+  tests/test_groupby_safety_facade.py::test_05_block_no_execution_verdict_blocked
+  tests/test_groupby_safety_facade.py::test_06_unverifiable_block_when_no_explain
+  tests/test_statistics_execution_safety.py::test_consistency_notice_renders_when_timing_present
+  tests/test_stats_execute_error_handling.py::(6건)
+  tests/test_error_contract_routes.py::(4건)
+  tests/test_error_contract_route_coverage.py::test_cancel_path_attaches_contract (+ ERROR 9건)
+  tests/test_task12_h.py::test_12h_07b_execute_stats_propagates_token
+  tests/test_batch_count_only_path.py::test_count_only_route_separate_from_full
+  tests/test_validation_execute_core.py::(4건)
+  tests/test_row_limit_policy.py::(7건)
+  tests/test_execute_r3_safe_return.py::test_route_on_equals_off / test_route_on_uses_mapped
+  tests/test_task10_1.py::TestCountConnSeparation::test_TC_COUNT_CONN_01_source_sql_runs_on_src_conn
+  (파트 B 서브셋 추가분) tests/test_agg_contribution.py::test_exact_diff_separated_and_terms_removed,
+  tests/test_all_stages_timing_display_expand.py, tests/test_d7_1/d7_8/d7_9,
+  tests/test_diagnosis_strategy_explain.py, tests/test_pg_operational_focus.py,
+  tests/test_stats_result_full.py(2), tests/test_ui_tab4_tab5_separation.py,
+  tests/test_urgent_target_only_and_reuse.py(3), tests/test_job_registry_completed.py(ERROR 5),
+  tests/test_execute_route_shadow_integration.py, tests/test_execute_r3_shadow_build_reuse.py(3)
+
+  ※ 다수는 `httpx` 미설치(starlette TestClient 요구) 또는 실 DB 미가용 등 환경 요인이다.
+  ※ 판정 시 주의한 함정 2가지(둘 다 실제로 겪음):
+    - **worktree 혼동**: `db_presets_*.json` 이 .gitignore 대상이라 baseline worktree 에 없어
+      groupby_safety 계열이 baseline 에서만 skip 됐다. 프리셋을 worktree 로 복사해 **같은 조건**으로
+      재대조한 뒤에야 "전/후 동일(7 failed vs 7 failed)"이 확인됐다(검증 후 복사본 삭제).
+    - **순서 의존·타이밍 flake**: tests/test_execute_route_shadow_integration.py 는 응답 전체를
+      `processing_ms`(0.1ms 단위)까지 비교해 baseline·AFTER 양쪽에서 1~2 failed 를 오간다
+      (각 5회 반복으로 확인). tests/test_rendered_js_syntax_guard.py 도 대형 조합 실행에서 1회
+      ERROR 가 났으나 단독 5회 연속 통과로 flake 확정.
+
+════════════════════════════════════════════════════════════════════════
+[공통] 커밋 / 증적
+════════════════════════════════════════════════════════════════════════
+코드 저장소(migration-validator, main) — push 하지 않음(규칙)
+  f8ff6f9  파트 B  BACKLOG-P6-PREWARM-ROW-LIMIT-FIX
+  54533f9  파트 C  COUNT-EXECUTE-CLIENT-DISCONNECT-CANCEL-FIX
+
+verify 저장소(migration-validator-verify, main) — 파트별 즉시 커밋·push
+  cd3abc2  파트 A  BACKLOG.md M6·M7 해결 완료 표시
+  2336823  파트 B·C 완료 후 BACKLOG.md P6·M8 해결 완료 표시(헤딩 94 → 94, 유실 0건)
+  ※ 지침의 "파트를 다 모아뒀다가 한 번에 커밋하지 말 것"에 따라 파트 A 는 파트 B 착수 전에 push 완료.
+  ※ 편집·커밋은 전부 origin/main 기반 임시 worktree(E:\_wtvr)에서 수행 — 공유 트리 무접촉.
+
+증적 디렉터리: E:\verify_screenshots_only\BACKLOG-DOC-SYNC-AND-P6-M8-SEQUENTIAL-FIX\
+  BEFORE_R1~R9.png / AFTER_R1~R9.png   파트 B 브라우저 게이트 9케이스 전/후 캡처
+  BEFORE_result.json / AFTER_result.json
+  LIVE_p6_live.json                     파트 B 실 DB 측정
+  m8_disconnect_cancel_live.json        파트 C 실 DB 측정
+
+════════════════════════════════════════════════════════════════════════
+[공통] 비판적 검토 (남는 위험)
+════════════════════════════════════════════════════════════════════════
+· 파트 B 의 1M 상한은 '접수 지연'과 '백그라운드 완료시간'을 근거로 정했지, 동시에 여러 사용자가
+  대량 run 을 돌릴 때의 **DB 총부하**는 측정하지 않았다. 자동 준비가 늘어난 만큼 원본/목적지 DB 의
+  백그라운드 스캔도 늘어난다. 부하가 문제되면 `window.MV_PK_PREWARM_MAX_ROWS` 를 낮추면 되지만,
+  이 값이 클라이언트 전역이라 **서버 정책으로 강제할 수단이 없다**(운영 표준화가 필요하면 별도 배선).
+· 파트 C 의 이탈 감지는 `Request.is_disconnected()` 에 의존한다. 프록시/로드밸런서가 클라이언트
+  연결 종료를 서버까지 전파하지 않는 배포 형태에서는 감지가 늦거나 안 될 수 있다(폴백은 기존
+  실행 상한 60초 그대로 — 즉 나빠지지는 않는다).
+· 파트 C 는 취소 성공/실패를 사용자에게 알리지 않는다. 이탈한 사용자에게 보여줄 화면이 없으므로
+  의도한 설계지만, 서버 로그에도 남기지 않아 "왜 쿼리가 끊겼는지" 추적 근거가 없다.
+· 파트 A 의 M7 은 제목이 두 축(분류 순서 + 방언 상한)을 묶고 있어 '해결 완료' 한 단어로는
+  두 축의 성격 차이(하나는 이번 수정, 하나는 선행 커밋 기확인)가 드러나지 않는다. 해결 요약 안에서
+  축을 나눠 적었지만, 항목 자체를 분리하는 편이 더 정확했을 수 있다(기존 항목 분할은 지침 범위 밖).
+
+실검증 상태: 실 DB(내부망 PostgreSQL 192.168.0.150 asis/tobe) 라이브 실측 완료 — 시뮬레이션 아님.
+  파트 B: SKEW 12만행 실 픽스처로 stream 접수 155.7ms/백그라운드 2.1초, 동기 경로 HOLD 재현,
+          1M 픽스처 접수 80.1ms/백그라운드 6.2초. 브라우저 게이트는 실 서버 2대(BEFORE/AFTER)에
+          Playwright 로 제품 함수를 직접 호출해 9케이스 전/후 캡처.
+  파트 C: 실 서버 2대(kill-switch ablation)에 실제 소켓 종료를 일으키고, 서버 응답이 아니라
+          별도 연결의 pg_stat_activity 로 쿼리 소멸 시각을 외부 관측(29.07초 → 0.22초).
+          /execute 는 가드를 우회하지 않고 실제 analyze→count→generate 로 토큰을 얻어 측정.
+  파트 A: 코드 변경이 없는 문서 작업이라 화면 증적이 없다. 대신 근거 커밋 3건의 ancestor 여부와
+          보고서 커밋 존재를 git 으로 직접 확인했고, 헤딩 개수 전/후 대조로 내용 유실 0건을 증명했다.
+
+✅ 작업 완료 - BACKLOG-DOC-SYNC-AND-P6-M8-SEQUENTIAL-FIX - 파트 A(M6·M7 해결 완료 표시, 헤딩 90→90 유실 0건)·파트 B(prewarm 상한을 2단 정책으로 확장 — 12만행 미발동→발동, 상한 초과는 '자동 준비 안 함' 명시 고지)·파트 C(/count·4단계 실행 이탈 즉시 중단 — DB 해제 29.07초→0.22초, 정상 완료 무회귀) 3개 파트 전부 완료, 파트별 즉시 커밋·push, 전 파트 baseline 대조 실패 집합 완전 동일(회귀 0건)

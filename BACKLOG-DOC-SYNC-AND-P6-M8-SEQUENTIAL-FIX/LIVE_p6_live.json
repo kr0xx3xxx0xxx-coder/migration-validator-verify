@@ -1,0 +1,71 @@
+{
+  "task": "BACKLOG-DOC-SYNC-AND-P6-M8-SEQUENTIAL-FIX/PARTB",
+  "fixture": {
+    "src": "asis01.t_skew_src",
+    "tgt": "tobe01.t_skew_tgt",
+    "rows": 120000
+  },
+  "base": "http://127.0.0.1:8252",
+  "stream_prepare": {
+    "accepted_ms": 155.7,
+    "body": {
+      "ok": true,
+      "status": "PREPARING",
+      "run_id": "PSAC082A15E987",
+      "accepted": true,
+      "reused": false,
+      "error_message": null,
+      "prepare_timing_ms": {
+        "key_evidence_validate_ms": 0.0,
+        "trusted_physical_pk": false,
+        "fingerprint_validate_ms": 6.6,
+        "enqueue_ms": 0.4,
+        "run_id_bind_ms": 50.6,
+        "total_accepted_ms": 57.6
+      }
+    }
+  },
+  "stream_background": {
+    "elapsed_s": 2.1,
+    "final": {
+      "status": "EARLY_STOPPED_MISMATCH_LIMIT",
+      "total": 20,
+      "missing_migration": 0,
+      "value_mismatch": 12000,
+      "early_stopped": true,
+      "ok": true
+    }
+  },
+  "sync_prepare": {
+    "blocking_ms": 225.1,
+    "body": {
+      "ok": true,
+      "status": "HOLD",
+      "run_id": "",
+      "stop_reason": "AGG_SCOPE_TOO_LARGE",
+      "error_message": "키 수가 한도(60,000)를 초과합니다."
+    }
+  },
+  "big_prepare": {
+    "accepted_ms": 80.1,
+    "body": {
+      "ok": true,
+      "status": "PREPARING",
+      "run_id": "PS14E7F7C9AF23",
+      "accepted": true,
+      "error_message": null,
+      "prepare_timing_ms": {
+        "key_evidence_validate_ms": 0.0,
+        "trusted_physical_pk": false,
+        "fingerprint_validate_ms": 6.2,
+        "enqueue_ms": 0.3,
+        "run_id_bind_ms": 50.7,
+        "total_accepted_ms": 57.2
+      }
+    }
+  },
+  "big_background": {
+    "elapsed_s": 6.2,
+    "last_status": "READY"
+  }
+}
