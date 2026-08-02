@@ -95,6 +95,36 @@ git -C E:/verify_reports worktree remove <임시경로>
 
 ## 심각(정합성·안전) — 최우선
 
+### S18. sqlglot 30.8.0 의 오라클 방언 파서가 인식 안 되는 WITH 절 입력에서 서버 스레드째 무한 hang 한다 — try/except 로 못 막고 타임아웃 가드도 없음
+- 발견일: 2026-08-02
+- 근거 보고서: `DEPENDENCY-VERSION-AND-CHANGELOG-RELEVANCE-DIAGNOSE.txt` (§2 · §4)
+- 상세: sqlglot 상류 PR #7881 이 지적한 결함(오라클 WITH 모디파이어가 파싱 결과를 리스트로 감싸
+  falsy 체크를 우회 → 토큰이 소비되지 않은 채 `while True` 루프가 같은 토큰에 무한 재진입)이
+  이 프로젝트 `.venv` 설치본(**30.8.0**)에 **실측 재현**됐다. 트리거 난도가 낮다 —
+  **"CTE 앞 세미콜론 누락" 같은 흔한 오타 하나**로 재현된다
+  (예: `"SELECT * FROM t WITH x AS (SELECT 1) SELECT * FROM x"`).
+  `error_level`(IGNORE/WARN/RAISE) **전부에서** hang 재현. 정상 CTE·정상 UNION 은 두 버전 모두
+  동일하게 정상 통과(회귀 아님).
+  **서버 요청 경로까지 직접 닿는다**: `parser/sqlglot_parser.py:132-140` 이
+  `error_level=sqlglot.ErrorLevel.RAISE` 로 파싱하며 예외 처리(try/except)를 두고 있으나,
+  이건 **예외가 아니라 무한루프**라 except 절에 도달하지 못한다. 타임아웃 가드도 없어
+  uvicorn 워커 스레드 하나가 **영구 점유**되고 요청이 응답 없이 매달린다.
+  호출처는 `services/validation_sql_parse_service.py:372`(개별검증 1단계 분석) ·
+  `services/sql_validation_service.py:797` · `services/sql_change_detection.py:53`
+  (`/sql/change-check`) — **전부 사용자가 이관 SQL 을 직접 붙여넣는 경로**다.
+  오라클이 이 도구의 주력 대상이라 노출면이 작지 않다.
+- 현재 상태: 이 현상이 **실제 장애로 보고된 기록은 없다**(잠재 결함이며 발생한 사고가 아니다).
+- 대응 방향(진단서 §7 우선순위 — 전부 미구현):
+  1) `requirements.txt` 버전 핀 고정(가장 싸고 필수 — F29 와 연동)
+  2) sqlglot **30.14.0** 으로 상향 + 전수 회귀 1회(위험도 낮음 — AST 의존 10파일 168건이
+     구버전/신버전 동일 통과함을 실측 확인, optimizer 미사용이라 BREAKING 대상 대부분 무관)
+  3) **버전 상향과 무관하게** `get_sql_parser().parse()` 진입점에 **파싱 타임아웃 가드** 추가 —
+     폐쇄망 고객사가 구버전으로 설치할 가능성이 남아 있어 이게 진짜 안전망이다(**3번 권장 우선**)
+  4) 오라클 방언 hang 회귀 테스트 추가(자식 프로세스+타임아웃 방식, 진단서 실측 방식 재사용 가능 —
+     현재 스위트엔 `pytest-timeout` 이 없어 이런 hang 을 못 잡는다)
+- 관련: F29(requirements.txt 버전 핀 부재 — 어느 설치본이 노출돼 있는지 알 수 없게 만드는 원인)
+- 참고: E:\verify_reports\DEPENDENCY-VERSION-AND-CHANGELOG-RELEVANCE-DIAGNOSE.txt
+
 ### S17. ✅ 해결 완료(지침 전제 1건 정정 — 추출부는 이미 AST 기반이었다) — `_reimport_source_needs_wrapping` FP 측 — wrapping 추출 실패 시 정상 단순 SQL 이 HOLD 로 바뀔 수 있다(S7 에서 분리)
 - 해결일: 2026-08-02 (REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX)
 - 근거 커밋: 코드 저장소 `bd7c366` — `fix(reimport): wrapping 별칭 추출 실패를 AST 로 사전 판정 —
@@ -1183,6 +1213,21 @@ git -C E:/verify_reports worktree remove <임시경로>
 ---
 
 ## 경미/문서
+
+### F29. `requirements.txt` 에 버전 핀이 하나도 없다 — 설치 시점마다 다른 의존성 버전이 깔릴 수 있음
+- 발견일: 2026-08-02
+- 근거 보고서: `DEPENDENCY-VERSION-AND-CHANGELOG-RELEVANCE-DIAGNOSE.txt` (§5)
+- 상세: `requirements.txt` 의 **11개 항목 전부**가 이름만 있고 버전 고정이 없다(`sqlglot`,
+  `fastapi` 등). 오늘 `pip install -r requirements.txt` 를 새로 하면 sqlglot **30.14.0** 이
+  들어오므로, 이번 조사의 "현재 30.8.0" 은 **이 PC 의 우연한 스냅샷**일 뿐이다.
+  폐쇄망 고객사마다 설치 시점이 다르면 서로 다른 sqlglot 이 깔리고, 파싱 결과 차이가
+  **"이 고객사에서만 재현되는 검증 오류"** 로 나타나 재현·디버깅이 매우 어려워진다.
+  S18(hang 결함)도 이 버전 부재 때문에 **"어느 고객사가 노출돼 있는지 우리가 모른다"** 는
+  문제가 함께 생긴다. `fastapi`(마이너 5차)·`uvicorn`(마이너 6차)도 핀 없이 방치돼 있다.
+- 대응 방향: `requirements.txt` 전체에 `==` 버전 핀 고정. S18 대응 방향 1)과 함께 처리하는 것이
+  효율적이다.
+- 관련: S18(sqlglot hang — 이 부재로 인해 노출 여부를 알 수 없는 문제)
+- 참고: E:\verify_reports\DEPENDENCY-VERSION-AND-CHANGELOG-RELEVANCE-DIAGNOSE.txt
 
 ### M24. `_derive_row_sqls_wrapped` 의 뭉뚱그린 HOLD 사유 **원문**은 아직 정정되지 않았다
 - 발견일: 2026-08-02
