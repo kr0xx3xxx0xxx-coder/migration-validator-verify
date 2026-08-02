@@ -1,0 +1,236 @@
+작업명 : BACKLOG-S17-P2-RESIDUALS-ADD
+✅ 작업 완료 - BACKLOG-S17-P2-RESIDUALS-ADD - S17·P2 를 해결 완료로 표시하고, 두 작업이 남긴 잔여 항목 6건(F26·F27·F28 / M24·M25·M26)을 신규 등록 — BACKLOG.md 1개 파일만 수정, 기존 항목 유실 0건, verify 저장소 push 완료
+
+════════════════════════════════════════════════════════════════════════════════
+1. 요청 요약 / 수행 범위
+════════════════════════════════════════════════════════════════════════════════
+ 요청: BACKLOG.md 에서 ① S17 해결 완료 표시 ② P2 해결 완료 표시 ③ 두 작업의 잔여 항목 6건 신규 등록.
+ 수정 대상: BACKLOG.md 1개 파일만(지침 명시). 코드 저장소 무접촉.
+ 화면/코드 무관 작업이라 스크린샷·자체 테스트 실행 없음(지침 명시).
+
+ ▶ 편집 위치 주의(사고 예방):
+   `E:\verify_reports\BACKLOG.md`(공유 작업트리) 사본은 origin/main 보다 stale 하다(상시 ` M` 상태).
+   그 사본을 편집하면 최근 등록분이 통째로 소멸하므로, 이번에도 **origin/main 기반 임시 worktree
+   (E:\_wtvr)** 에서만 편집·커밋·push 했고 공유 트리는 전혀 건드리지 않았다.
+   실제로 원격 파일은 1,390줄(S1~S17 · P1~P14 · F1~F25 · M1~M23)이었다.
+
+════════════════════════════════════════════════════════════════════════════════
+2. 변경 내역 (3건)
+════════════════════════════════════════════════════════════════════════════════
+ [1] S17 → ✅ 해결 완료 표시
+     제목에 "✅ 해결 완료(지침 전제 1건 정정 — 추출부는 이미 AST 기반이었다)" 를 붙이고
+     해결일/근거 커밋/근거 보고서 커밋/해결 요약 5줄 블록을 추가했다.
+       · 해결일   : 2026-08-02 (REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX)
+       · 근거 커밋 : 코드 저장소 bd7c366
+       · 보고서    : 이 저장소 89ca0a9
+     요약 요지 — 지침 전제(문자열파싱→AST 전환)가 이 지점엔 해당 없음(이미 AST 기반)을 확인하고,
+     실제 결함 2건(추출 실패 원인 미전달 / 파서 부재 시 S1 폴백이 단순 1:1 까지 전부 HOLD)을
+     AST 사전판정 함수 신설로 해결. sqlglot 가용 환경 판정 완전 무변경, 파서 차단 시뮬레이션에서
+     13건 전 HOLD → 단순 1:1 3건만 복구(UNION/CTE/JOIN 10건은 조용한 과소집계 위험 실측 케이스라
+     안전측 의도 유지). HOLD 사유 정확도 3/7 → 7/7.
+     ※ 원래 항목의 '발견일/근거 보고서/분리 사유/상세/대응 방향/참고' 6줄 계열은 **그대로 보존**.
+
+ [2] P2 → ✅ 해결 완료 표시
+       · 해결일   : 2026-08-02 (PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX)
+       · 근거 커밋 : 코드 저장소 52c22fc
+       · 보고서    : 이 저장소 0939995
+     요약 요지 — 3단계 profile 의 표본(5만행)·timeout(15초)·WHERE scope 방어를 재수집 경로에 동일 적용.
+     42M×8컬럼 >1200초(취소) → 0.24초, 30M 64.13초 → 0.06초(x1069), 38K 소규모는 완전 동일(무회귀).
+     표본 절단 시에만 "표본 5만행 기준" 근거 표기. 부수로 PostgreSQL 고유값 수집이 스키마 미한정
+     조회로 조용히 전멸하던 선행 결함도 rollback 추가로 함께 해소.
+     ※ 원래 항목의 '발견일/근거 보고서/상세/주의/참고' 계열은 **그대로 보존**.
+
+ [3] 잔여 항목 6건 신규 등록 (각 섹션 최상단 = 최신 항목 우선 배치, 기존 관례 유지)
+
+     ── ## 기능 미완(설계는 끝났으나 구현 대기) ── 다음 번호 F26~F28
+       F26. `NO_INSERT_COLUMN_LIST` 원인은 원리상 지원 가능하나 추출기 본체 변경이 필요해 미착수다
+            (출처 S17 · 보고서 §6-②) — parse_result.insert_cols 위치 기준 차용 가능, 별도 승인 후 검토.
+       F27. '표본 5만행 기준' 근거가 저장만 되고 화면에 뜨지 않는다(UI 배선 미완)
+            (출처 P2 · 보고서 §7) — get_profile_stats_from_snapshot 이 고정 5개 키로 평탄화하며 버림.
+            ui/ 및 services/profile_snapshot_service.py 수정 필요 — 별도 승인.
+       F28. `MetaCollector._fetch_samples` 의 스키마 미한정 조회가 근본적으로 남아 있다
+            (출처 P2 · 보고서 §7·§5) — 이번엔 rollback 으로 후속 쿼리 오염만 차단. 스키마 한정 조회는 별도 작업.
+
+     ── ## 경미/문서 ── 다음 번호 M24~M26
+       M24. `_derive_row_sqls_wrapped` 의 뭉뚱그린 HOLD 사유 **원문**은 아직 정정되지 않았다
+            (출처 S17 · 보고서 §6-①) — routes/exact_diff_route.py:168 원문은 그대로. 해당 파일 승인 시 정정.
+       M25. 파서 부재 환경의 UNION 감지가 LegacyParser 정규식(parse_result)에 의존한다(심각도 하)
+            (출처 S17 · 보고서 §6-③) — stale 시 근거 오류 가능하나 새로 생기는 위험은 아님. 모니터링만.
+       M26. 재수집 표본이 무작위가 아니라 스캔 선두 5만행(LIMIT)이라 편향될 수 있다(심각도 하)
+            (출처 P2 · 보고서 §7) — 3단계 profile 과 동일 성질. 낮은 우선순위.
+
+════════════════════════════════════════════════════════════════════════════════
+3. 무손실 검증 (기존 섹션/내용 무접촉 증명)
+════════════════════════════════════════════════════════════════════════════════
+ · `### ` 항목 헤딩 개수 : 82 → 88 (+6, 신규 등록 6건과 정확히 일치)
+ · 줄 수                 : 1,390 → 1,491 (+101, 전부 추가분)
+ · git diff 삭제 줄(`-`) 전수 : **2줄뿐**이며 둘 다 '✅ 해결 완료' 접두를 붙인 제목 교체분이다.
+       -### S17. `_reimport_source_needs_wrapping` FP 측 — …
+       -### P2. profile 재수집에 샘플링·WHERE·timeout 이 전부 없다(방어 전무)
+   → 본문 삭제 0줄. 다른 섹션(심각/성능/기능 미완/신규 전략 검토/경미/부록/운영 규칙) 내용 변경 0건.
+ · 변경 파일 : `git status --porcelain` = ` M BACKLOG.md` 단 1개.
+ · 번호 충돌 없음 : 편집 전 원격 기준 최대 번호가 F25 · M23 임을 확인하고 F26~ · M24~ 로 이어 붙였다.
+
+════════════════════════════════════════════════════════════════════════════════
+4. 커밋 / push
+════════════════════════════════════════════════════════════════════════════════
+ 방식 : origin/main 기반 임시 worktree(E:\_wtvr) — 공유 트리(E:\verify_reports) 무접촉.
+ 커밋 : bdf1b54
+   docs(backlog): S17·P2 해결 완료 표시 + 잔여 항목 6건 신규 등록 (BACKLOG-S17-P2-RESIDUALS-ADD)
+ staged 목록 확인 : BACKLOG.md 1개뿐(남의 변경 혼입 0건).
+ push : 6d0ff74..bdf1b54  HEAD -> main
+ 원격 재확인 : git ls-remote origin main
+   bdf1b54b5f092b81099b8a6dfdfda8712631e005  refs/heads/main   (= 로컬 HEAD 동일)
+
+════════════════════════════════════════════════════════════════════════════════
+5. git diff 전문
+════════════════════════════════════════════════════════════════════════════════
+diff --git a/BACKLOG.md b/BACKLOG.md
+index 3adbe17..59bf176 100644
+--- a/BACKLOG.md
++++ b/BACKLOG.md
+@@ -95,7 +95,23 @@ git -C E:/verify_reports worktree remove <임시경로>
+ 
+ ## 심각(정합성·안전) — 최우선
+ 
+-### S17. `_reimport_source_needs_wrapping` FP 측 — wrapping 추출 실패 시 정상 단순 SQL 이 HOLD 로 바뀔 수 있다(S7 에서 분리)
++### S17. ✅ 해결 완료(지침 전제 1건 정정 — 추출부는 이미 AST 기반이었다) — `_reimport_source_needs_wrapping` FP 측 — wrapping 추출 실패 시 정상 단순 SQL 이 HOLD 로 바뀔 수 있다(S7 에서 분리)
++- 해결일: 2026-08-02 (REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX)
++- 근거 커밋: 코드 저장소 `bd7c366` — `fix(reimport): wrapping 별칭 추출 실패를 AST 로 사전 판정 —
++  사유 정확화 + 파서 부재 시 단순 1:1 HOLD 해소 (REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX)`
++- 근거 보고서 커밋: 이 저장소 `89ca0a9`(완료보고 `REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX` —
++  14케이스 전/후 판정 매트릭스 실측 · 파서 차단 시뮬레이션 포함)
++- 해결 요약: 위 '대응 방향'이 전제했던 **"문자열 파싱 → AST 전환"** 자체가 이 지점에는 해당 사항이
++  없음을 먼저 확인했다 — `_extract_aliased_inner_select` 는 **이미 sqlglot AST 기반**이다.
++  실제 결함은 2건이었고 둘 다 **호출측 AST 사전판정 함수 신설**로 해결했다(추출기 본체 무접촉).
++  ① 추출 실패 '원인' 이 호출측에 전달되지 않아 표시 사유가 사실과 달랐다 → 실패 원인 코드 8종으로
++     사유를 구체화. HOLD 사유 정확도 **3/7 → 7/7**(기존 문구 "SELECT * 또는 INSERT 컬럼 수 불일치 등"
++     은 6건 중 4건이 실제 원인과 무관했다 — 실제로는 INSERT 컬럼 목록 미기재·INSERT 문 아님).
++  ② S1 이 도입한 '파싱 불가 → 안전측 True' 폴백이 **파서 자체를 못 쓰는 환경에서는 확정 HOLD** 로
++     작동해 단순 1:1 이관까지 전부 죽었다 → 파서 차단 시뮬레이션에서 **13건 전 HOLD → 단순 1:1 3건만
++     복구**. UNION/CTE/JOIN 10건은 **의도적으로 안전측 그대로 유지**했다(조용한 과소집계 위험이
++     S1 에서 실측된 케이스라 되살리지 않는다).
++  sqlglot 가용 환경의 판정은 **완전 무변경**(정상 경로 추가 파싱 0회)이다.
+ - 발견일: 2026-07-29 (등록일 2026-08-02 · BACKLOG-S6-S7-S11-P12-MARK-RESOLVED 에서 S7 분리)
+ - 근거 보고서: `SQLGLOT-USAGE-CONSISTENCY-AUDIT-DIAGNOSE.txt` (P2-4)
+ - 분리 사유: S7 의 나머지 3계열은 **리터럴/주석 안 키워드 오인**이라
+@@ -667,7 +683,20 @@ git -C E:/verify_reports worktree remove <임시경로>
+   DISTINCT/GROUP BY/집계/UNION 이 있는지 검사 → 불가하면 청크 전략을 선택하지 않는다.
+ - 참고: E:\verify_reports\PK-RANGE-CHUNK-BOUNDARY-ORDERING-ASSUMPTION-DIAGNOSE.txt
+ 
+-### P2. profile 재수집에 샘플링·WHERE·timeout 이 전부 없다(방어 전무)
++### P2. ✅ 해결 완료 — profile 재수집에 샘플링·WHERE·timeout 이 전부 없다(방어 전무)
++- 해결일: 2026-08-02 (PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX)
++- 근거 커밋: 코드 저장소 `52c22fc` — `fix(profile): 재수집 고유값 수집에 3단계와 동일한
++  표본(5만행)·timeout·WHERE 방어 적용 (PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX)`
++- 근거 보고서 커밋: 이 저장소 `0939995`(완료보고 `PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX` —
++  42M/30M/38K 3개 테이블 전/후 실측)
++- 해결 요약: 3단계 profile 의 표본(`_SAMPLE_LIMIT=50,000`)·timeout(15초 `apply_query_timeout`)·
++  WHERE scope 방어를 재수집 경로에 **동일하게** 적용했다(3단계 자산 재사용 — 새 heuristic 없음).
++  실측: 42M×8컬럼 **>1200초(취소) → 0.24초**, 30M **64.13초 → 0.06초(x1069)**,
++  38K 소규모는 값·결과 **완전 동일(무회귀)**.
++  위 '주의' 로 적어 둔 explainability 요구도 반영 — **표본이 절단된 경우에만** "표본 5만행 기준"
++  근거를 저장한다(조용한 과소추정 방지). 단, 화면 표시 배선은 범위 밖이라 미완(F27 참조).
++  부수 효과: PostgreSQL 에서 고유값 수집이 **스키마 미한정 조회 실패로 조용히 전멸**하던 선행 결함도
++  rollback 추가로 함께 해소했다(근본 원인 자체는 F28 로 잔존).
+ - 발견일: 2026-07-29
+ - 근거 보고서: `LARGE-DATA-SORT-EXPOSURE-DIAGNOSE.txt` (§4 / §5 A-3)
+ - 상세: `services/profile_recollect_service.py:361-377` — 컬럼 상한 30 뿐이고 그 외 방어가 없다.
+@@ -784,6 +813,43 @@ git -C E:/verify_reports worktree remove <임시경로>
+ 
+ ## 기능 미완(설계는 끝났으나 구현 대기)
+ 
++### F26. `NO_INSERT_COLUMN_LIST` 원인은 원리상 지원 가능하나 추출기 본체 변경이 필요해 미착수다
++- 발견일: 2026-08-02
++- 근거 보고서: `REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX.txt` (§6-②)
++- 상세: wrapping 추출 실패 원인 중 **INSERT 컬럼 목록 미기재**(`NO_INSERT_COLUMN_LIST`) 케이스는
++  현재 HOLD 로 떨어진다. 그러나 `parse_result.insert_cols` 를 **위치 기준으로 빌려 쓰면 원리상
++  지원 가능**하다 — 즉 지금 HOLD 인 것 중 일부는 기능적으로 복구할 여지가 있다.
++  S17 수정은 **추출기 본체(다른 파일)** 를 건드리지 않는 범위였기에 착수하지 않았다.
++- 대응 방향: 별도 승인 후 검토(추출기 본체 수정 필요). 위치 기준 매핑은 컬럼 순서를 신뢰하는
++  가정이 새로 생기므로, 지원 여부와 함께 **오매핑 위험**을 같이 판단해야 한다.
++- 관련: S17(해결 완료 — 이 갭이 확인된 작업) · M24(같은 작업의 사유 문구 잔여)
++- 참고: E:\verify_reports\REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX.txt
++
++### F27. '표본 5만행 기준' 근거가 저장만 되고 화면에 뜨지 않는다(UI 배선 미완)
++- 발견일: 2026-08-02
++- 근거 보고서: `PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX.txt` (§7)
++- 상세: P2 수정으로 표본 절단 시 "표본 5만행 기준" 근거가 재수집 반환 자료구조와 snapshot 의
++  `column_profiles(_json)` 에 저장되지만, **화면에는 아직 뜨지 않는다** —
++  `get_profile_stats_from_snapshot` 이 **고정 5개 키로 평탄화**하면서 이 근거 필드를 버리고,
++  렌더러도 이 키를 읽지 않는다.
++- 영향: 고유값이 표본 기반 추정치인데 화면에는 그 사실이 안 보인다 = **조용한 과소추정** 위험이
++  화면 단에서는 그대로 남아 있다(explainability 갭). 값 자체는 정확히 저장돼 있다.
++- 대응 방향: `ui/` 및 `services/profile_snapshot_service.py` 수정 필요 — **별도 승인** 후 진행.
++- 관련: P2(해결 완료 — 저장까지는 완료)
++- 참고: E:\verify_reports\PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX.txt
++
++### F28. `MetaCollector._fetch_samples` 의 스키마 미한정 조회가 근본적으로 남아 있다
++- 발견일: 2026-08-02
++- 근거 보고서: `PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX.txt` (§7 · §5)
++- 상세: `db/meta_collector.py` 의 `_fetch_samples` 가 **스키마를 한정하지 않고** 조회해,
++  `search_path` 밖 스키마의 테이블에서는 실패한다. PostgreSQL 에서는 이 실패가 트랜잭션을 abort 시켜
++  **같은 커넥션의 후속 쿼리까지 전멸**시켰다(재수집 고유값 수집이 조용히 0건이 되던 원인).
++  P2 수정은 rollback 을 추가해 **후속 쿼리 오염만 차단**했을 뿐, 이 조회 자체는 고치지 않았다 —
++  즉 해당 테이블의 샘플 수집은 여전히 실패한다.
++- 대응 방향: 별도 작업으로 **스키마 한정 조회**를 구현한다(파일 범위 밖이라 이번엔 미착수).
++- 관련: P2(해결 완료 — 오염 차단까지만)
++- 참고: E:\verify_reports\PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX.txt
++
+ ### F22. `evidence_contract.pk` 게이트가 JOIN 경로에서 여전히 안 열린다 — 목적지 PK 를 채워도 계약이 None 이다
+ - 발견일: 2026-08-02
+ - 근거 보고서: `IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX.txt` (§11-R2)
+@@ -1118,6 +1184,41 @@ git -C E:/verify_reports worktree remove <임시경로>
+ 
+ ## 경미/문서
+ 
++### M24. `_derive_row_sqls_wrapped` 의 뭉뚱그린 HOLD 사유 **원문**은 아직 정정되지 않았다
++- 발견일: 2026-08-02
++- 근거 보고서: `REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX.txt` (§6-①)
++- 상세: S17 수정은 수정 대상 파일 지정에 따라 **호출측(`routes/agg_diff_route.py`)에서 원인을
++  덧붙이기(append)** 하는 방식으로만 사유를 정확화했다. 하위
++  `routes/exact_diff_route.py:168` 의 **원문 문구 자체**("SELECT * 또는 INSERT 컬럼 수 불일치 등")
++  는 그대로 뭉뚱그려져 있다.
++- 영향: 호출측을 거치는 경로에서는 정확한 원인이 함께 표시되므로 현재 사용자 체감 문제는 없다.
++  다만 이 원문을 직접 쓰는 다른 경로가 있거나 append 가 누락되면 같은 오안내가 재발한다.
++- 대응 방향: 해당 파일 수정 승인 시 **원문 자체를 정정**한다.
++- 관련: S17(해결 완료 — 호출측만 정정) · F26(같은 작업의 기능 잔여)
++- 참고: E:\verify_reports\REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX.txt
++
++### M25. 파서 부재 환경의 UNION 감지가 LegacyParser 정규식(`parse_result`)에 의존한다(심각도 하)
++- 발견일: 2026-08-02
++- 근거 보고서: `REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX.txt` (§6-③)
++- 상세: sqlglot 을 쓸 수 없는 환경에서 S17 이 도입한 2차 근거는 `parse_result`(LegacyParser 정규식)
++  이다. `parse_result` 가 **stale 하면 근거가 틀릴 수 있다.**
++- 영향: **새로 생기는 위험은 아니다** — 그 경우 기존 단순 경로도 동일한 `parse_result` 로 SQL 을
++  만들기 때문이다(위험의 출처가 동일).
++- 대응 방향: 낮은 우선순위 — 모니터링만.
++- 관련: S17(해결 완료)
++- 참고: E:\verify_reports\REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX.txt
++
++### M26. 재수집 표본이 무작위가 아니라 스캔 선두 5만행(LIMIT)이라 편향될 수 있다(심각도 하)
++- 발견일: 2026-08-02
++- 근거 보고서: `PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX.txt` (§7)
++- 상세: P2 수정이 적용한 `LIMIT 50,000` 은 무작위 표본이 아니라 **스캔 선두 5만행**이다.
++  정렬 적재된 테이블에서는 앞부분에 치우친 표본이 되어 고유값 추정이 편향될 수 있다.
++- 영향: 3단계 profile 과 **동일한 성질**이라 이번에 새로 생긴 편향은 아니다(기존 위험의 확산).
++- 대응 방향: 낮은 우선순위. 무작위 표본(TABLESAMPLE 등)은 방언별 지원·비용 차이가 커서
++  도입 시 4방언 전수 검토가 선행돼야 한다.
++- 관련: P2(해결 완료) · F27(표본 근거의 화면 노출 미완 — 함께 보면 편향 고지 가능)
++- 참고: E:\verify_reports\PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX.txt
++
+ ### M22. `.mtbl td { color: … !important }` 규칙이 다른 인라인 색상 렌더 지점도 죽일 수 있다(전수 미점검)
+ - 발견일: 2026-08-02
+ - 근거 보고서: `REIMPORT-DRILLDOWN-M17-M18-FIX/REPORT.md` (§8-1)
+
+════════════════════════════════════════════════════════════════════════════════
+6. 병행 확인 / 실검증 상태
+════════════════════════════════════════════════════════════════════════════════
+ · 병행 작업(DEPENDENCY-VERSION-AND-CHANGELOG-RELEVANCE-DIAGNOSE)과 겹친 파일 0건 — 이 작업은
+   verify 저장소 BACKLOG.md 1개만 만졌고 코드 저장소는 전혀 건드리지 않았다.
+ · 공유 트리 무접촉 확인 : 편집·커밋·push 전 과정을 임시 worktree(E:\_wtvr)에서 수행했고,
+   작업 종료 후 worktree 는 제거했다.
+ · 실검증 상태 : 문서 편집 작업 — 실 DB 미사용, 브라우저 검증 없음(화면 무관), 스크린샷 없음(지침 명시).
+   코드 변경이 없으므로 자체 테스트 대상도 없다.
+
+✅ 작업 완료 - BACKLOG-S17-P2-RESIDUALS-ADD - S17·P2 를 해결 완료로 표시하고, 두 작업이 남긴 잔여 항목 6건(F26·F27·F28 / M24·M25·M26)을 신규 등록 — BACKLOG.md 1개 파일만 수정, 기존 항목 유실 0건, verify 저장소 push 완료
