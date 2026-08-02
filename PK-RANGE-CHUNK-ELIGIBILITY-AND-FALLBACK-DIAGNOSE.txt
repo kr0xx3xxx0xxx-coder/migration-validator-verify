@@ -1,0 +1,456 @@
+작업명 : PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE
+✅ 작업 완료 - PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE - PK_RANGE_CHUNK 실행 자격은 '단일 컬럼 + 숫자 + PG/오라클' 3조건이고(날짜 PK는 계획만 허용·엔진은 항상 HOLD), 미충족 시 대안은 HASH_BUCKET이 아니라 DIRECT merge + 네이티브 PK 고속경로다 — HASH_BUCKET은 전수 계층 엔진 자체가 없고 진단 계층은 PG↔PG 에서만 가능하다
+
+════════════════════════════════════════════════════════════════════════════
+0. 조사 범위 및 용어 정리 — 이름이 같은 두 계층을 먼저 분리한다
+════════════════════════════════════════════════════════════════════════════
+
+지침이 지목한 `services/diagnosis/strategies/key_range.py` 는 PK_RANGE_CHUNK 가
+아니다. 이름이 비슷한 별개 계층이므로 자격 조건도 다르다.
+
+  계층                     파일                                        역할
+  ──────────────────────  ──────────────────────────────────────────  ─────────────────────────────
+  ① 전수/재이관 비교       services/exact_diff/pk_range_chunk.py       PK_RANGE_CHUNK_COMPARE 실엔진
+     (= 이번 조사 대상)                                                 PK 구간별 merge-join
+  ② 진단 드릴다운          services/diagnosis/strategies/key_range.py  KEY_RANGE — 불일치 그룹을
+                                                                        min/max 이분해 재검증
+  ③ 전략 '계획'(표시)      services/strategy/full_compare_strategy_    3단계 실행계획 카드가 부르는
+                          planner.py + strategy_transition.py          계획기(실행 엔진 미호출)
+
+  ▶ 사용자가 물은 "PK_RANGE_CHUNK 가 실질적 이점을 가지려면…" 은 ① 이고,
+    "문자 단일 PK·HOLD / 복합 PK·HOLD" 표시는 ③ 이다. 둘은 서로 다른 판정을 한다(§4에서 상술).
+
+
+════════════════════════════════════════════════════════════════════════════
+1. PK_RANGE_CHUNK 실제 자격 조건 — 3층 게이트 전수 확인
+════════════════════════════════════════════════════════════════════════════
+
+1-1. 계층 A — 계획(표시): `services/strategy/full_compare_strategy_planner.py:44-51`
+
+  # 4) 단일 숫자/날짜 PK + 인덱스 + 범위분할 가능 → PK_RANGE_CHUNK 후보
+  elif pk_kind in (m.PK_SINGLE_NUMERIC, m.PK_SINGLE_DATE) and profile.pk_indexed:
+      big = (direct_stream_max_rows is not None and (profile.source_count or 0) > direct_stream_max_rows)
+      sid = m.PK_RANGE_CHUNK_COMPARE if big else m.DIRECT_STREAM_COMPARE
+
+  → 숫자 **또는 날짜** 단일 PK + pk_indexed. 규모(기본 1,000,000 초과)까지 넘어야 CHUNK.
+
+1-2. 계층 B — 전환 판정: `services/strategy/strategy_transition.py:57-58`
+
+  # 지원 범위: 단일 숫자 PK + 인덱스만 CHUNK 대상(그 외는 DIRECT 또는 상위 계획에서 HOLD).
+  chunk_capable = (pk_kind in (m.PK_SINGLE_NUMERIC, m.PK_SINGLE_DATE) and pk_indexed)
+
+  → 계층 A 와 동일 조건. 미충족이면 reason `NOT_CHUNK_CAPABLE_PK` + DIRECT_STREAM(L77-79).
+
+1-3. 계층 C — 실행(엔진 진입): `routes/agg_diff_route.py:272-280`
+
+  # [Phase4-D7 §4·§10] 단일 숫자 PK 가 아니면 chunk 불가 — DIRECT 로 조용히 fallback 하지 않고 HOLD(명시 사유).
+  try:
+      _smn, _smx, _tmn, _tmx = int(smin), int(smax), int(tmin), int(tmax)
+  except (TypeError, ValueError):
+      job.setdefault("meta", {})["job_status_detail"] = "HOLD_NON_NUMERIC_PK"
+      return {"ok": True, "status": "HOLD", "stop_reason": "NON_NUMERIC_PK", ...}
+
+  그리고 `services/exact_diff/pk_range_chunk.py:246-248`
+
+  def build_chunk_bounds(pk_min, pk_max, chunk_size):
+      pk_min, pk_max, chunk_size = int(pk_min), int(pk_max), max(1, int(chunk_size))
+
+  → 엔진은 `int()` 로만 범위를 만든다. **숫자 외 타입은 물리적으로 불가.**
+
+1-4. 키 확정 게이트: `services/diagnosis/key_evidence.py:335-406`
+     (verdict = TRUSTED_PHYSICAL_PK 조건 — 데이터 스캔 0, constraint+lineage 만)
+
+  · JOIN 있으면 즉시 탈락(L355-356 `JOIN_MULTIPLICITY_RISK`)
+  · 목적지 **단일 컬럼 물리 PK** 만 후보(L370-373, `key_column_count == 1`,
+    복합키 멤버 제외 → 아니면 `NO_SINGLE_COLUMN_PK`)
+  · `norm_type != "NUMBER"` → continue (L377-378) ← **날짜도 여기서 탈락**
+  · nullable → continue (L379-380)
+  · select_item 이 단일 mapping 이어야 함(L382-384)
+  · 함수/CAST/CASE 없는 **직접 passthrough** 여야 함(L386-388)
+  · 원본 컬럼도 숫자 + NOT NULL 이어야 함(L390-392)
+  · 하나라도 불충족 → `PK_NOT_TRUSTABLE`
+
+1-5. 방언 게이트: `services/exact_diff/pk_range_chunk.py:700-705`
+
+  _CHUNK_FETCH_ADAPTERS = { "postgresql": (...), "oracle": (...) }
+
+  → MySQL·MSSQL 은 `HOLD_UNSUPPORTED_CHUNK_DIALECT`(agg_diff_route.py:198-204).
+
+1-6. 자격조건 종합표
+
+  조건                      계획 계층(③)   실행 계층(①)      실제 판정 코드
+  ───────────────────────  ─────────────  ────────────────  ─────────────────────────────────
+  단일 컬럼 PK              필수           필수              key_evidence.py:370-373
+  복합 PK                   불가(HOLD)     불가              NO_SINGLE_COLUMN_PK
+  숫자 타입                 숫자 or 날짜   **숫자만**        key_evidence.py:377 / int() 게이트
+  날짜 단일 PK              자격 있음      **항상 HOLD**     ← 계획/실행 불일치(갭 G1, §7)
+  문자 단일 PK              불가(HOLD)     불가              int() 게이트가 HOLD_NON_NUMERIC_PK
+  NOT NULL 보장             —              필수              key_evidence.py:379,391
+  직접 passthrough          —              필수              key_evidence.py:386-388
+  JOIN 없음                 —              필수              key_evidence.py:355
+  **PK 인덱스 실재 확인**   **없음**       **없음**          ← 갭 G3, 아래 1-7
+  DBMS                      무관           PG / 오라클만     pk_range_chunk.py:700
+
+1-7. 사용자 가정("PK=인덱스=이미 정렬됨")이 코드에 반영돼 있는가 — **가정만 있고 검증은 없다**
+
+  · `pk_indexed` 를 채우는 유일한 출처는 화면이다(`ui/grid_helpers.py:_mvDerivePkProfile`).
+    그 함수의 **모든 반환 분기가 `pk_indexed` 를 PK 존재 여부와 동일하게 취급**한다:
+
+      L904  return { has_pk:true, pk_kind:'COMPOSITE',       pk_indexed:true, ... }
+      L908  return { has_pk:true, pk_kind:k1,                pk_indexed:true, ... }
+      L912  return { has_pk:true, pk_kind:'SINGLE_NUMERIC',  pk_indexed:true, ... }   /* 물리 PK 는 인덱스를 수반한다 */
+      L919  return { has_pk:true, pk_kind:'COMPOSITE',       pk_indexed:true, ... }
+      L925  return { has_pk:true, pk_kind:kind,              pk_indexed:true, ... }
+
+    즉 PK 가 있으면 `pk_indexed=true`, 없으면 `has_pk=false` 라서 조건 자체가 무의미해진다.
+    **`pk_indexed=true & has_pk=false` 조합은 발생할 수 없고, 반대도 없다.**
+
+  · 인덱스 카탈로그를 실제로 조회하는 코드는 운영 경로에 **0건**이다
+    (`pg_index`/`pg_indexes`/`USER_INDEXES`/`ALL_INDEXES`/`sys.indexes` 전수 검색 결과 없음.
+     `ALL_TAB_COL_STATISTICS`·`pg_stats` 는 컬럼 통계용이지 인덱스 확인이 아니다).
+
+  · 가정 자체의 타당성: PG·오라클 모두 PK 제약은 고유 인덱스를 자동 생성하므로
+    "물리 PK 가 있으면 인덱스가 있다" 는 **대체로 참**이다. 위험한 것은 그 다음 두 전제다.
+      (a) 인덱스가 **쓰이는가** — 원본이 CTE/JOIN/윈도우로 감싸지면 청크 술어가 하강하지 않아
+          매 청크마다 원본 전체 정렬이 재실행된다(백로그 P1, 실측 배율 1.03→1.46배·빈 청크도 0.343s).
+      (b) 인덱스 순서가 **비교 의미와 같은가** — 문자 PK 는 인덱스가 있어도 문자 정렬이라
+          merge-join 의 'PK 오름차순' 전제가 깨진다(백로그 S2 축 B, 5만행 청크 1개에서 역전 4,500회).
+          이 축은 2026-07-29 `PK-RANGE-CHUNK-SORT-ORDER-ALIGNMENT-FIX`(934c293)로 해결됐다.
+
+  ▶ 결론: 사용자 가정은 코드에 **반영돼 있으나 검증되지 않는다.** 정합성 위험은 S2 로 이미 해소됐고,
+    남은 위험은 성능 축(P1)이다.
+
+
+════════════════════════════════════════════════════════════════════════════
+2. "문자 단일 PK·HOLD" / "복합 PK·HOLD" 의 의미 — 구조적 불가이지 확인 요청이 아니다
+════════════════════════════════════════════════════════════════════════════
+
+  `services/strategy/full_compare_strategy_planner.py:52-59`
+
+  # 5) 복합·문자 PK → HASH_BUCKET 후보(범위분할 부적합)
+  elif pk_kind in (m.PK_COMPOSITE, m.PK_SINGLE_TEXT):
+      if profile.hash_bucket_available:
+          sid = m.HASH_BUCKET_COMPARE
+          reasons.append("COMPOSITE_OR_TEXT_PK_HASH_BUCKET")
+      else:
+          sid = m.STATS_ONLY_HOLD                # 안전한 분할 수단 없음 → HOLD(§7)
+          reasons.append("NO_SAFE_SPLIT_FOR_TEXT_PK")
+
+  · `hash_bucket_available` 은 **화면이 아예 보내지 않는다**
+    (`ui/grid_helpers.py:1016-1025` 프로파일 payload 에 해당 키 없음 → StrategyProfile 기본값 False).
+    → 문자/복합 PK 는 **항상** STATS_ONLY_HOLD 로 떨어진다.
+
+  · STATS_ONLY_HOLD → `_impl_status()` → `IMPL_HOLD`(L19-20) → is_auto_runnable=False(L84-86)
+  · fallback: `if impl == m.IMPL_PHASE4_B_REQUIRED: fallback = DIRECT_STREAM_COMPARE`(L67-68)
+    — **HOLD 는 이 분기에 걸리지 않으므로 `fallback_strategy_id` 가 빈 문자열이다. 대안 제시 자체가 없다.**
+
+  ▶ 판정: "가능하지만 위험해서 사용자 확인" 이 아니라 **"이 계층에서는 안전한 분할 수단이 없어 계획을 세울 수 없음"** 이다.
+    단, 이 HOLD 는 **표시 전용**이며 실제 실행을 막지 않는다(§4 · 갭 G4).
+
+
+════════════════════════════════════════════════════════════════════════════
+3. 조건 미충족 시 실제 동작 — fallback 경로 다이어그램
+════════════════════════════════════════════════════════════════════════════
+
+  POST /agg-diff/prepare   (4·5단계 재이관/상세비교의 실제 진입점)
+   │
+   ├─ [L1146] _pk_resolve(req)  ─────────────────────────────────────────────────────┐
+   │    │                                                                            │
+   │    ├─ ① resolve_trusted_chunk_key            [key_evidence.py:409]              │
+   │    │     단일컬럼 숫자 물리PK · 양측 NOT NULL · passthrough · JOIN 없음          │
+   │    │     └ 충족 → chunk key 확정 (_chunk_key_trusted=True) ───────────┐         │
+   │    │                                                                  │         │
+   │    ├─ ② resolve_confirmed_chunk_key          [key_evidence.py:439]    │         │
+   │    │     contract 후보(단일컬럼 NUMBER/DATE_TIME) → 양측 NULL 없음 재확인│        │
+   │    │     └ 충족 → chunk key 확정 ─────────────────────────────────────┤         │
+   │    │                                                                  │         │
+   │    └─ ③ _resolve_native_pk_key               [agg_diff_route.py:629]  │         │
+   │          정식 PK → UK → 데이터상 안정 업무키 (①②가 실패한 경우만)      │         │
+   │          ├ 확정 → _unique_native_key = True  (fan-out 없을 때만)      │         │
+   │          │        [L1093-1104]                                        │         │
+   │          └ 실패 → key 없음 → HOLD_UNSUPPORTED_SHAPE [L1151-1153]      │         │
+   │                                                                        │         │
+   ├─ [L1211] _resolve_execution_strategy(req)  ← 판정 순서가 중요하다 ─────┴─────────┘
+   │    │
+   │    ├─ (1) _unique_native_key == True  [L46-48]   ★ 최우선 · 다른 모든 판정을 건너뜀
+   │    │        req.compare_strategy = ""
+   │    │        return (False, "DIRECT_COMPOSITE_PK", "DIRECT_STREAM_COMPARE")
+   │    │        · live 설정·규모·클라이언트 명시 요청 전부 무시
+   │    │        · [L1160-1163] early_stop_abs = 101 자동 설정
+   │    │
+   │    ├─ (2) 클라이언트가 PK_RANGE_CHUNK_COMPARE 명시  [L55-56]
+   │    │        ui/tabler_renderer.py:17106 — src_count > 50,000 이면 항상 이 값을 보냄
+   │    │        return (True, "SCHEDULER_PATH", "PK_RANGE_CHUNK_COMPARE")
+   │    │
+   │    ├─ (3) live_enabled OFF  [L57-59]  → ("LEGACY_PATH", DIRECT_STREAM_COMPARE)
+   │    │
+   │    └─ (4) live ON + 미지정  [L61-72] → choose_compare_strategy(pk_kind=SINGLE_NUMERIC,
+   │             pk_indexed=True, remote=True)  ← 인자 하드코딩(실 PK 구조 미참조)
+   │
+   └─ 실행 [L1244-1273 _run_fn]
+        ├ compare_strategy == PK_RANGE_CHUNK_COMPARE
+        │    → _run_pk_range_chunk [L179]
+        │        ├ 방언 미지원        → HOLD_UNSUPPORTED_CHUNK_DIALECT
+        │        ├ int(MIN/MAX) 실패  → HOLD_NON_NUMERIC_PK   ★ 여기서 최종 차단
+        │        └ 통과              → pk_range_chunk.run_pk_range_chunk_compare
+        └ 그 외
+             → prepare_reimport_pk_index_stream(..., unique_key=_unique_native_key)
+                 unique_key=True 면 PK 네이티브 정렬(Index Scan) merge 고속경로
+                 [agg_contribution.py:97·114·126 `_pk_agg_sql(..., unique_key=...)`]
+
+  ▶ 요약: **복합 PK·문자 PK의 실제 대안은 DIRECT_STREAM_COMPARE / 실행경로 DIRECT_COMPOSITE_PK 이다.**
+    "전체 스캔으로 완전히 폴백" 이 맞지만, 그냥 폴백이 아니라 `unique_key=True` 네이티브 PK 정렬
+    고속경로 + 조기중단(101) 이 함께 붙는다.
+
+  ▶ 실측 근거(E:\verify_reports\LARGE-SCALE-50M-QUERY-COMPLEXITY-MISMATCH-EXTRACTION-TEST.txt §3-2):
+    5,000만행 오라클 픽스처 6종(단순/INNER JOIN/LEFT OUTER/UNION ALL/CTE/복합) **전부**
+    `DIRECT_STREAM_COMPARE / DIRECT_COMPOSITE_PK` 선택. PK_RANGE_CHUNK·HASH_BUCKET 미선택
+    (PK_STR 이 문자 PK · numeric_pk=false). 보고서 원문: "규모가 50배로 커져도 전략 선택은 바뀌지 않는다."
+
+
+════════════════════════════════════════════════════════════════════════════
+4. HASH_BUCKET 은 이 상황의 대안이 되는가 — **되지 않는다**(두 계층 모두)
+════════════════════════════════════════════════════════════════════════════
+
+4-1. 전수 계층 HASH_BUCKET_COMPARE — **엔진 자체가 없다**
+
+  `services/strategy/strategy_models.py:36-39`
+    # 실제 구현되어 자동 실행 가능한 전수 전략. Phase 4-B 에서 PK_RANGE_CHUNK_COMPARE 엔진 구현 → AVAILABLE(§7).
+    # PARTITION_BUCKET/HASH_BUCKET 은 여전히 미구현(PHASE4_B_REQUIRED 유지).
+    AVAILABLE_COMPARE_STRATEGIES = frozenset({DIRECT_STREAM_COMPARE, SAMPLE_ONLY_EARLY_STOP,
+                                              PK_RANGE_CHUNK_COMPARE})
+
+  → HASH_BUCKET_COMPARE 는 `IMPL_PHASE4_B_REQUIRED` → `is_auto_runnable()` False.
+    설령 `hash_bucket_available=True` 를 보내도 계획에만 뜨고 실행되지 않는다.
+
+4-2. 진단 드릴다운 HASH_BUCKET — SQL 빌더는 구현됐으나 **PG↔PG 조합에서만 가능**
+
+  구현 확인: `services/diagnosis/strategies/hash_bucket.py:102 build_hash_bucket_agg_sql`
+             실호출 `services/diagnosis/multi_scope.py:552-554`
+
+  제약 1 — same-DBMS 한정(영구 차단):
+    `services/diagnosis/hash_contract.py:159-160`
+      if s != t:
+          return None, HR_HASH_CROSS_DBMS           # 혼합 방언 — 영구 차단(정합성)
+    사유(L145-149): 방언 간 canonical 발산 — PG `trim_scale(x::numeric)::text` vs 오라클 `TO_CHAR(x,'TM9')`,
+    빈문자열 PG `'S:0:'` vs 오라클 `''=NULL → 'S#N'` → 같은 논리값이 다른 bucket → **거짓 불일치 대량 발생**.
+    → 지침에서 확인 요청한 "same-DBMS 제약이 추가로 걸리는가" = **예, 걸린다.**
+
+  제약 2 — 등록 방언이 postgresql 하나뿐:
+    `services/diagnosis/hash_contract.py:118-120`
+      # oracle 은 후속 단계에서 ("services.diagnosis.dialects_hash.oracle", "OracleHashContract") 로 등록한다.
+      _HASH_CONTRACTS = {
+          "postgresql": ("services.diagnosis.dialects_hash.postgresql", "PgHashContract"),
+      }
+    → **오라클↔오라클도 `HR_HASH_CONTRACT_NA` 로 차단된다.** 현재 실질 가용 조합은 PG↔PG 뿐.
+
+  제약 3 — 계층이 다르다: 이건 '전수 비교' 가 아니라 '불일치 그룹을 좁히는 진단' 이다.
+    라우터(`services/diagnosis/strategies/router.py:49-51`)에서 문자/UUID 키만 남으면
+    `ROUTE_HASH_BUCKET` 로 가는데, 주석에도 "문자/UUID 키만 → 해시 구간 필요(**미구현**)" 로 남아 있다.
+
+  ▶ 종합: 사용자가 "HASH_BUCKET 이 PK 정렬에 의존 안 하는 대안" 으로 이해한 것은 **설계 의도로는 맞지만
+    현재 코드에서는 복합/비숫자 PK 상황의 실행 가능한 대안이 아니다.** 오라클 환경(현 실 DB 픽스처)에서는
+    전수·진단 양쪽 모두 영구 불가다.
+
+
+════════════════════════════════════════════════════════════════════════════
+5. 대량 데이터에서 DIRECT 경로의 성능·안전 장치 — 있는 것과 없는 것
+════════════════════════════════════════════════════════════════════════════
+
+5-1. 실제로 걸리는 장치
+
+  ① 표본 preflight 게이트  [agg_diff_route.py:344 `_run_sampling_gate`]
+     전체 merge 시작 전 표본으로 EARLY_STOPPED 판정 시 전체 merge 미시작(대표 표본만 저장).
+     ※ 단, 두 경우는 게이트를 건너뛴다:
+        · 혼합 방언(L358-359) — engine 이 어차피 HOLD_UNSUPPORTED_DB
+        · CTE/JOIN/UNION wrapping 소스(L368-369) — anchor 1개당 원본 전체 재스캔이 되어
+          실측 471.5초(표본) vs 2.7초(전수 merge) = **표본이 전수보다 175배 비싼 역전**
+          (REIMPORT-COUNTONLY-CHUNK-SIZE-DIAGNOSE)
+
+  ② 불일치 누적 조기중단  [agg_diff_route.py:135 `_mismatch_limit_from_policy`]
+     정책의 비율 기준과 절대 상한 중 **작은 값** 도달 시 즉시 중단, 대표 20건만 보존.
+     하드코딩 없음(3%·20,000 등 코드 고정 금지).
+
+  ③ 그룹 드릴다운 조기중단 101  [agg_diff_route.py:1160-1163]
+     `_unique_native_key` 경로에 `early_stop_abs = per_group_full_list_max + 1` 자동 설정.
+
+  ④ PK index prewarm 2단 정책  [오늘 커밋 f8ff6f9, BACKLOG-P6-PREWARM-ROW-LIMIT-FIX]
+     5만행 고정 상한 → (~5만 동기 / 5만~상한 비동기 job / 상한 초과 deferred 명시 고지).
+
+  ⑤ Source/Target 동시 조회  [agg_diff_route.py:104 `_parallel_read_decision`]
+     서로 다른 물리 DB 일 때만 병렬(같은 endpoint 는 부하 보호로 순차).
+
+5-2. **없는 것 — 규모 기반 사전 HOLD 게이트가 없다**
+
+  · `_resolve_execution_strategy` 는 `_unique_native_key` 가 서면 **L46-48 에서 즉시 반환**하므로
+    `choose_compare_strategy`(예상 전체시간·resume 필요성 판정)를 **호출조차 하지 않는다.**
+    → 복합/문자 PK + 수억행이면 규모 판정 없이 곧장 DIRECT merge 로 들어간다.
+  · 조기중단 임계에 도달할 때까지는 전량 스트리밍 merge 를 그대로 수행한다.
+    불일치가 임계 미만이면(= 대부분 정상인 대형 테이블) 끝까지 다 읽는다.
+  · 레코드 수집 HARD CAP 500 은 여전히 미해결(백로그 P10) — 5,000만행에서 확보율 0.02%.
+
+  ▶ 즉 "대량 + 복합/비숫자 PK" 조합의 실질적 방어선은 **조기중단(②③) 하나뿐**이고,
+    구조적 사전 차단은 없다.
+
+
+════════════════════════════════════════════════════════════════════════════
+6. 청크 크기 — 상수 위치 전수 + 고정 여부 + 백로그 P5 대조
+════════════════════════════════════════════════════════════════════════════
+
+6-1. 상수 위치 4곳과 실효 여부
+
+  위치                                                       값                     실효
+  ────────────────────────────────────────────────────────  ────────────────────  ──────────────────────
+  ui/tabler_renderer.py:17107  `chunk_size: (useStream ? 50000 : 0)`  50,000       ✅ **라이브 UI 실제값**
+     └ 같은 줄 17106 `compare_strategy: (useStream ? 'PK_RANGE_CHUNK_COMPARE' : '')`
+       useStream = (src_count > 50,000)  ← 17089
+  routes/agg_diff_route.py:176  `_pk_range_chunk_size` 최종 폴백       50,000       ✅ 요청값 없을 때
+  routes/agg_diff_route.py:171  정책 `strategy_resource_weights.pk_range_chunk_size`  미설정  ✅ 설정 시 우선
+  services/strategy/strategy_transition.py:21 `default_chunk_size`     50,000       ✅ transition 반환 → L69
+  services/exact_diff/execution_settings.py:29-31
+     default_chunk_size=50000 / min_chunk_size=10000 / max_chunk_size=200000        ❌ **소비처 0건(사장)**
+  services/strategy/strategy_transition.py:20 `chunk_sizes:[10000,50000,100000]`    ❌ 참조 0건
+
+  ▶ **테이블 규모·PK 분포와 무관하게 고정 50,000.** 규모 비례 조정 로직은 어디에도 없다.
+    바뀌는 경로는 (a) 클라이언트가 다른 값을 보내거나 (b) 정책 override 를 넣는 두 가지뿐.
+  ▶ **신규 발견**: `execution_settings` 의 min/max 청크 크기 상한·하한이 **어디서도 강제되지 않는다.**
+    정책 override 로 1 이나 10,000,000 을 넣어도 `max(1, int(chunk_size))`(pk_range_chunk.py:248)만 통과한다.
+
+6-2. 백로그 P5 서술 vs 실제 코드 — **전 항목 일치(불일치 0건)**
+
+  P5 서술                                    코드 확인                                                    판정
+  ────────────────────────────────────────  ──────────────────────────────────────────────────────────  ─────
+  "PK 분포 조사 자체가 없어"                 build_chunk_bounds(pk_range_chunk.py:246-255)는 MIN/MAX 와   ✅ 일치
+                                             chunk_size 만 사용. 히스토그램·분포 조회 0건.
+  "최대/평균 4.95배 편차"                    값 범위 균등 분할이므로 행 수 균등은 구조적으로 미보장.       ✅ 일치
+  "빈 chunk 대량"                            ENDS_HEAVY 시나리오 3/6 이 빈 chunk(실측표).                 ✅ 일치
+  "P7 에서 chunk 2,000개 중 1,994개가 빈 chunk"  이상치 PK 1건(99,999,999)이 pk_max 를 끌어올리면          ✅ 일치
+                                             bounds 길이 = (max-min)/50000 으로 그대로 증가. 상한 없음.
+  "metrics/진행률에 표기 없음"               엔진은 chunks_total/chunks_done 만 발행(pk_range_chunk.py:590).  ✅ 일치
+                                             chunk 별 실제 행 수·빈 chunk 비율·최대 배수 필드 없음.
+  "chunk 수 정책 임계 초과 시 실행 전 HOLD"  그런 게이트 없음(_run_pk_range_chunk 에 chunk 수 검사 부재).  ✅ 일치(미구현)
+
+6-3. 청크 개수 폭증의 실제 심각도 — "대량이면 위험" 은 절반만 맞다
+
+  · **오늘 5,000만행 테스트에서는 관측되지 않았다.** 청크 경로에 진입하지 못했기 때문이다
+    (오라클 픽스처가 문자 PK → numeric_pk=false → DIRECT_COMPOSITE_PK, §3 실측 근거).
+    즉 5,000만행 실측은 청크 불균형 문제에 대해 아무 증거도 제공하지 않는다.
+
+  · 산술 위험 산정(chunk_size 50,000 고정 기준):
+      PK 1~50,000,000 조밀        → 1,000 chunk
+      + 이상치 PK 1건 10^10        → 200,000 chunk (199,000개가 빈 chunk)
+    빈 chunk 1회 고정비 실측(PK-RANGE-CHUNK-BOUNDARY-ORDERING-ASSUMPTION-DIAGNOSE):
+      PLAIN(단순 SELECT)   0.002~0.003s  → 199,000개여도 약 10분
+      WRAPPED(CTE/JOIN/윈도우) 0.257~0.343s → 199,000개면 **약 19시간**(0행을 돌려주려고 매번 전체 스캔+정렬 완주)
+
+  · ▶ 심각도의 결정 변수는 **행 수가 아니라 (a) PK 범위의 희소성/이상치, (b) 원본 SQL 이 wrapping 형태인가** 다.
+    조밀한 PK + 단순 SELECT 면 5,000만행 1,000 chunk 의 빈 chunk 고정비는 3초로 무시 가능하다.
+    반대로 25만행이어도 이상치 1건 + CTE 형태면 11.4분을 순수 낭비한다(P5 원문 실측).
+
+  · ⚠ P5 보고서의 명시적 경고(§6 "하지 말 것") — 오늘 세션의 "청크 크기를 테이블별로 다르게" 논의와 직결:
+    "**청크 크기를 규모에 비례해 키운다**" 를 정렬 비용 대책으로 삼지 말 것.
+    pushdown 가능 형태엔 애초에 정렬 비용이 없고, 불가 형태에선 총 정렬 비용이 청크 **개수**에 비례하므로
+    종착점이 "청크 1개 = 청크 미사용" 이 된다. 규모 비례 확장은 **부분 결과 노출 주기를 정하는 문제**이지
+    정렬 비용 문제가 아니다.
+
+
+════════════════════════════════════════════════════════════════════════════
+7. 이번 조사에서 확인된 미해결 갭
+════════════════════════════════════════════════════════════════════════════
+
+  G1 [신규] 날짜 PK 계획/실행 불일치
+     계획(full_compare_strategy_planner.py:45)·전환(strategy_transition.py:58)은 `PK_SINGLE_DATE` 를
+     CHUNK 자격으로 인정하지만, 키 확정(key_evidence.py:377 `norm_type != "NUMBER" → continue`)과
+     엔진(build_chunk_bounds 의 `int()`)은 날짜를 절대 통과시키지 않는다.
+     → 날짜 단일 PK 테이블은 카드에 "PK 범위 분할 비교 · 실행 가능" 으로 뜨고 실행하면 HOLD_NON_NUMERIC_PK.
+       (confirm_chunk_key(key_evidence.py:461)는 DATE_TIME 을 받아들이므로 chunk key 확정까지 가고
+        엔진 진입 직전에 죽는다 — 비용을 다 쓰고 실패하는 형태다.)
+
+  G2 [신규] execution_settings 의 min/max_chunk_size 사장
+     `services/exact_diff/execution_settings.py:29-31` 세 값 모두 소비처 0건.
+     청크 크기 상·하한이 코드상 존재하지만 강제되지 않는다.
+
+  G3 [잔존] pk_indexed 는 인덱스 실재를 확인하지 않는다
+     P8(STRATEGY-PLAN-PK-KIND-HARDCODE-FIX, 66a5c86) 이후에도 `pk_indexed` 는 여전히
+     'PK 제약이 있으면 true' 이며, 인덱스 카탈로그 조회는 운영 경로에 0건.
+     현재는 PG/오라클 PK 가 인덱스를 수반하므로 실해는 없으나, 조건식이 사실상 무효(항상 참)다.
+
+  G4 [신규] 카드 HOLD 표시 vs 실행 DIRECT 성공 — 의미 불일치
+     복합/문자 PK 테이블에서
+       · 3단계 실행계획 카드: STATS_ONLY_HOLD → "상세비교 보류"(compare_auto_runnable=false)
+       · 4·5단계 실제 실행:   DIRECT_COMPOSITE_PK 로 **정상 수행됨**(5,000만행 6종 전부 참값 일치)
+     카드가 표시 전용(`_mvRenderStrategyPlan` — 실행 엔진 미호출)이라 잘못된 실행을 유발하진 않지만,
+     사용자에게는 "보류" 라고 안내하고 실제로는 잘 돌아가는 반대 신호를 준다.
+
+  G5 [백로그 P5, 미해결] chunk 불균형·빈 chunk 고정비 미노출 + 이상치 chunk 폭증 방어 없음 (§6-2)
+  G6 [백로그 P1, 미해결] pushdown 사전 판정 없음 — wrapping 형태에서 매 청크 원본 전체 정렬
+  G7 [신규] HASH_BUCKET 해시 계약이 postgresql 만 등록 — 오라클은 same-DBMS 여도 영구 불가 (§4-2)
+
+
+════════════════════════════════════════════════════════════════════════════
+8. 사용자 질문에 대한 직접 답변
+════════════════════════════════════════════════════════════════════════════
+
+  Q1. "PK_RANGE_CHUNK 가 실질적 이점을 가지려면 단일 컬럼 + 숫자여야 하는 것 아닌가?"
+  A1. 맞다. 실행 계층의 실제 요구는 **단일 컬럼 물리 PK + 숫자 + NOT NULL + 직접 passthrough +
+      JOIN 없음 + PostgreSQL/오라클** 이다. 계획 계층만 날짜를 추가로 허용하는데 그건 엔진과
+      불일치하는 잘못된 자격이다(G1).
+
+  Q2. "PK 는 인덱스가 있고 그건 이미 정렬돼 있다는 뜻이니까 — 이 가정이 코드에 있나?"
+  A2. 가정은 있고 검증은 없다. `pk_indexed` 는 PK 제약 존재로부터 무조건 true 로 세팅되며
+      인덱스 카탈로그를 조회하는 코드가 없다. 다만 '인덱스가 존재하는가' 보다 '인덱스가 쓰이는가(P1)'
+      와 '인덱스 순서가 비교 의미와 같은가(S2, 해결됨)' 가 실제 위험이었다.
+
+  Q3. "목적지가 숫자/PK 가 아니거나, 원본 PK 가 복합키/비숫자면 무슨 대안을 쓰는가?"
+  A3. **DIRECT_STREAM_COMPARE + 실행경로 DIRECT_COMPOSITE_PK** 다.
+      `_resolve_native_pk_key` 가 정식 PK → UK → 데이터상 안정 업무키 순으로 매칭키를 확정하고
+      `unique_key=True` 네이티브 PK 정렬(Index Scan) merge 고속경로 + 조기중단(101)을 붙인다.
+      키 확정도 실패하면 HOLD_UNSUPPORTED_SHAPE.
+
+  Q4. "HASH_BUCKET 이 이 경우의 대안인가?"
+  A4. **아니다.** 전수 계층(HASH_BUCKET_COMPARE)은 엔진 자체가 미구현이고,
+      진단 계층(diagnosis/strategies/hash_bucket.py)은 same-DBMS 한정 + 계약이 postgresql 만 등록돼
+      **PG↔PG 조합에서만** 동작한다. 현 오라클 실 DB 환경에서는 양쪽 모두 불가.
+      지침이 물은 "same-DBMS 제약이 추가로 걸리는가" = 예, 걸리고 그 위에 방언 등록 제약이 하나 더 있다.
+
+  Q5. "대량에서 어떤 성능/안전 장치가 있나?"
+  A5. 표본 preflight 게이트 · 불일치 누적 조기중단 · 그룹당 101 조기중단 · prewarm 2단 정책 ·
+      Source/Target 동시조회. **규모 기반 사전 HOLD 는 없다** — `_unique_native_key` 경로는
+      전환 판정(choose_compare_strategy)을 호출조차 하지 않는다.
+
+  Q6. "청크 크기를 테이블별로 다르게 가져가야 하나?"
+  A6. 현재는 고정 50,000 이고 규모 비례 로직이 없다. 다만 P5 보고서가 명시적으로 경고하듯
+      **정렬 비용을 이유로 청크를 키우는 것은 방향이 반대다.** 우선순위는 청크 크기 조정이 아니라
+      (1) 이상치 방어(청크 수 임계 초과 시 실행 전 HOLD) (2) 불균형 관측성(빈 chunk 비율·최대 배수 노출)
+      (3) pushdown 사전 판정(wrapping 형태면 청크 전략 미선택) 순이다.
+
+
+════════════════════════════════════════════════════════════════════════════
+9. 확인한 파일 목록(코드 변경 0건 — 읽기 전용 진단)
+════════════════════════════════════════════════════════════════════════════
+
+  services/strategy/full_compare_strategy_planner.py     자격 조건 계층 A
+  services/strategy/strategy_transition.py               자격 조건 계층 B · 전환 정책 · 청크 크기
+  services/strategy/strategy_models.py                   전략 ID · AVAILABLE 집합 · PK 종류 상수
+  services/exact_diff/pk_range_chunk.py                  실엔진 · build_chunk_bounds · 방언 위임표
+  services/exact_diff/execution_settings.py              사장된 min/max 청크 상수
+  services/diagnosis/key_evidence.py                     TRUSTED_PHYSICAL_PK 판정 · 후보 계약
+  services/diagnosis/strategies/key_range.py             (별개 계층) 진단 KEY_RANGE
+  services/diagnosis/strategies/hash_bucket.py           진단 HASH_BUCKET 빌더 · 계약 가드
+  services/diagnosis/strategies/router.py                진단 라우팅 분기
+  services/diagnosis/hash_contract.py                    same-DBMS 가드 · 방언 등록표
+  services/single_validation_analyze_service.py          _build_target_pk_evidence(목적지 PK 증거)
+  services/exact_diff/agg_contribution.py                unique_key 고속경로
+  routes/agg_diff_route.py                               실행 경로 확정 · 청크 실행 · 게이트 전체
+  routes/strategy_route.py                               /strategy/plan 표시 계층
+  ui/grid_helpers.py                                     _mvDerivePkProfile · pk_indexed 산출
+  ui/tabler_renderer.py                                  _mvPkPayload(전략·청크 크기 클라이언트 지정)
+
+  참고 보고서:
+  E:\verify_reports\PK-RANGE-CHUNK-BOUNDARY-ORDERING-ASSUMPTION-DIAGNOSE.txt
+  E:\verify_reports\LARGE-SCALE-50M-QUERY-COMPLEXITY-MISMATCH-EXTRACTION-TEST.txt
+  E:\verify_reports\REIMPORT-COUNTONLY-CHUNK-SIZE-DIAGNOSE.txt
+  E:\verify_reports\BACKLOG.md (origin/main 사본 — 로컬 822줄은 stale, 원격 1,616줄 기준으로 대조)
+
+작업명 : PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE
+✅ 작업 완료 - PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE - PK_RANGE_CHUNK 실행 자격은 '단일 컬럼 + 숫자 + PG/오라클' 3조건이고(날짜 PK는 계획만 허용·엔진은 항상 HOLD), 미충족 시 대안은 HASH_BUCKET이 아니라 DIRECT merge + 네이티브 PK 고속경로다 — HASH_BUCKET은 전수 계층 엔진 자체가 없고 진단 계층은 PG↔PG 에서만 가능하다
