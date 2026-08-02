@@ -10,7 +10,18 @@
 - 대상 제외: 아직 push 되지 않은 로컬 전용 보고서 16건은 이번 취합에서 제외했다.
   push 후 이 파일에 합류시킨다.
 - 최초 작성: 2026-07-29 (VERIFY-REPO-BACKLOG-FILE-CREATE)
-- 최종 갱신: 2026-08-02 (BACKLOG-S6-S7-S11-P12-MARK-RESOLVED) — 이미 해결된 5개 항목을 해결 완료로 표시
+- 최종 갱신: 2026-08-02 (BACKLOG-P9-M17-M18-MARK-RESOLVED-AND-NEW-RESIDUALS-ADD) — 해결된 3개 항목을
+  해결 완료로 표시 + 그 과정에서 확인된 잔여 항목 2건 등록
+  (P9 해결 — `remote` 고정 true 제거하고 접속 host 근거 판정 + `remote_evidence` 근거코드.
+  **원 서술의 '전환판정 관여' 전제는 180조합 전수비교로 반증** — 실제 영향은 통계전략 cost ×1.05 뿐이고
+  등급 경계구간(밴드 폭 4.76%)에서만 표시 등급이 갈리며 전략 ID 는 324조합 전부 불변,
+  M17 해결 — **원인 추정(서버 배선 누락)이 틀렸음을 실측으로 확인**하고 진범인 `.mtbl td !important`
+  CSS 충돌을 자식 span 마크업으로 해소(주황 강조 셀 0개→4개, 오탐 0건),
+  M18 해결 — 패널 일괄 제거 경로에 `aria-expanded` 복귀를 공통 헬퍼로 적용 + 지시 범위 밖의 동일 결함
+  두 번째 인스턴스(`_mvToggleRowExactDiff`)도 함께 정리(▾ 항상 최대 1개),
+  M22 신규 — `.mtbl td{color:…!important}` 규칙 자체는 잔존해 다른 인라인 색 지점도 죽일 수 있음(전수 미점검),
+  M23 신규 — `choose_compare_strategy` 의 `remote` 인자가 미사용 상태로 방치(정책 결정 대기))
+- 직전 갱신: 2026-08-02 (BACKLOG-S6-S7-S11-P12-MARK-RESOLVED) — 이미 해결된 5개 항목을 해결 완료로 표시
   (S6 해결 — 오라클 연결 시점 세션 NLS 고정으로 exact_diff 포함 일괄 해소, S7 **부분 해결** — 4계열 중
   3계열(count_execution_planner·stats_validation_plan_service·select_star_expansion) 해소하고 남은
   agg_diff_route FP 측은 성격이 달라 S17 로 분리, S11 해결 — 컬럼 조회 어댑터 위임으로
@@ -679,7 +690,34 @@ git -C E:/verify_reports worktree remove <임시경로>
   하드코딩을 그 근거 기반 산정으로 대체한다.
 - 참고: E:\verify_reports\CHARACTER-PK-SILENT-FALSE-MATCH-1M-REPRODUCE.txt
 
-### P9. 실행계획 프로파일의 `remote` 가 `true` 로 하드코딩돼 DIRECT↔CHUNK 전환 판정이 항상 원격 가정으로 계산된다
+### P9. ✅ 해결 완료(원제 전제 일부 오류 — 전환판정에는 미관여) — 실행계획 프로파일의 `remote` 가 `true` 로 하드코딩돼 DIRECT↔CHUNK 전환 판정이 항상 원격 가정으로 계산된다
+- 해결일: 2026-08-02 (STRATEGY-PLAN-REMOTE-FLAG-EVIDENCE-BASED-FIX)
+- 근거 커밋: 코드 저장소 `346ea33` — `fix(single): 실행계획 remote 플래그 고정 true 제거 —
+  접속 host 근거 판정 + 근거코드 (STRATEGY-PLAN-REMOTE-FLAG-EVIDENCE-BASED-FIX)`
+- 근거 보고서 커밋: 이 저장소 `f19d48f`(서술형 보고서) · `507f0bf`(브라우저 Before/After 캡처 12장 +
+  실측 JSON 3건)
+- **중요 정정 — 아래 '상세'의 전제가 사실이 아니었다**: "이 값이
+  `choose_compare_strategy(remote=...)` 입력으로 **DIRECT↔CHUNK 전환 판정에 관여한다**"고 적었으나,
+  `services/strategy/strategy_transition.choose_compare_strategy` 는 `remote` 를 **인자로 선언만 하고
+  본문 어디에서도 참조하지 않는다**(사실상 미사용 인자). 180조합 전수비교
+  (규모 6종 × PK 5종 × 인덱스 2종 × throughput 3종)를 `remote=True/False` 로 각각 호출한 결과
+  **반환 dict 전체가 180건 100% 완전 일치**했다(전략 ID·chunk size·reason_codes·예상시간·confidence
+  모두 차이 0건). 즉 이 수정은 전환정책 결과를 바꾸지 않는다.
+- 실제 영향 범위: **통계전략 계획의 cost 계산(`stats_strategy_planner.py:56` — `cost *= 1.05`)**,
+  `reason_codes` 의 `REMOTE_CONNECTION`, 판정근거 문구('원격 DB'/'로컬 DB') 세 곳뿐이다.
+  cost 는 일률 -5.00% 이동하므로 **등급 경계구간(밴드 폭의 4.76%)에 걸친 경우에만** 표시 등급이
+  한 단계 갈린다 — 소규모 격자 324조합 전수 스캔에서 30조합(9.3%)이 등급만 달라졌고,
+  **그 30조합 전부 통계전략 ID 는 동일**했다.
+- 해결 요약: `ui/grid_helpers.py` `_mvBuildStatsScaleProfile()` 의 `remote: true` 고정을 제거하고,
+  화면이 이미 가진 접속 host 정보(loopback 여부 · 페이지 origin 과 동일 호스트 여부)로 **확정 가능한
+  경우에만 참값으로 판정**하도록 바꿨다(추가 왕복 없음). 확정 불가 시에는 기존 보수값 `true` 를
+  그대로 유지한다. 판정 근거를 `remote_evidence` 근거코드로 함께 남겨 추적 가능하게 했다.
+  실 서버 브라우저 실측 6케이스 + 신규 계약 테스트(`tests/test_strategy_remote_flag_evidence.py`)로
+  무회귀 확인.
+- 잔여(별건 등록): `choose_compare_strategy` 의 `remote` 인자 미사용 상태 자체는 **M23** 으로 분리했다.
+  DB host 가 사설 IP/FQDN 이면서 실제로는 앱 서버 자신인 배치는 화면 근거만으로 확정할 수 없어
+  계속 '원격'(보수측)으로 보고된다.
+- 근거 보고서(해결): E:\verify_reports\STRATEGY-PLAN-REMOTE-FLAG-EVIDENCE-BASED-FIX.txt (§3 · §6)
 - 발견일: 2026-07-29
 - 근거 보고서: `STRATEGY-PLAN-PK-KIND-HARDCODE-FIX.txt` (§9-(b))
 - 상세: `ui/grid_helpers.py` `_mvBuildStatsScaleProfile()` 의 `remote: true` 는 P8 수정 범위
@@ -998,6 +1036,38 @@ git -C E:/verify_reports worktree remove <임시경로>
 
 ## 경미/문서
 
+### M22. `.mtbl td { color: … !important }` 규칙이 다른 인라인 색상 렌더 지점도 죽일 수 있다(전수 미점검)
+- 발견일: 2026-08-02
+- 근거 보고서: `REIMPORT-DRILLDOWN-M17-M18-FIX/REPORT.md` (§8-1)
+- 상세: M17 수정으로 `_mvPkCellSplit` 의 td 인라인 색 문제는 해소했으나(색을 자식 `span` 으로 이동),
+  **원인이었던 CSS 규칙 `.mtbl td { color: … !important }` 자체는 그대로 남아 있다.**
+  `.mtbl` 표 안에서 td 에 인라인 `color` 를 직접 주는 다른 렌더 지점이 있다면 동일하게 색이 죽는다
+  (같은 파일의 형제 헬퍼들은 이미 span 관례를 쓰고 있어 안전하다 — 확인 완료).
+- 영향: 발생하더라도 값 자체는 정확히 표시되므로 데이터 정합성 문제가 아니라 설명성·UX 문제다
+  (M17 과 동일 성격). 현재 알려진 발현 지점은 없다.
+- 대응 방향: `.mtbl` 컨텍스트 안의 td 인라인 `color` 사용처를 전수 점검한다. 규칙 자체를 손대는 것은
+  광범위 CSS 영향 분석이 필요해 회귀 위험이 크므로 **별도 작업으로 분리**한다 — 우선순위 낮음.
+- 관련: M17(해결 완료 — 이 규칙 때문에 발생한 첫 인스턴스)
+- 참고: E:\verify_reports\REIMPORT-DRILLDOWN-M17-M18-FIX.txt /
+  REIMPORT-DRILLDOWN-M17-M18-FIX\REPORT.md (§8-1)
+
+### M23. `choose_compare_strategy` 의 `remote` 인자가 설계 의도와 다르게 미사용 상태로 방치돼 있다
+- 발견일: 2026-08-02
+- 근거 보고서: `STRATEGY-PLAN-REMOTE-FLAG-EVIDENCE-BASED-FIX.txt` (§3 · §6)
+- 상세: `services/strategy/strategy_transition.choose_compare_strategy` 는 시그니처에 `remote`
+  파라미터를 선언(49-51행)해 두었으나 **본문 어디에서도 참조하지 않는다.** 180조합 전수비교에서
+  `remote=True/False` 의 반환 dict 가 100% 완전 일치함으로 확인했다(P9 참조).
+  설계 의도('원격이면 전환판정에 반영')와 실제 구현이 어긋난 상태다.
+- 영향: 지금 당장의 오작동은 없다(호출부가 기대하는 동작이 '무시' 이므로 결과는 일관적이다).
+  다만 백로그 P9 의 원래 서술이 이 시그니처만 보고 "전환판정에 관여한다"고 오판했던 것처럼,
+  **읽는 사람을 오도한다**는 것이 실질 비용이다.
+- 대응 방향: 이 인자를 실제로 전환정책에 배선할지, 아니면 죽은 파라미터로 제거할지는 **정책 결정
+  사항**이라 STRATEGY-PLAN-REMOTE-FLAG-EVIDENCE-BASED-FIX 에서는 건드리지 않았다.
+  배선하는 순간 전환판정 결과가 바뀌므로, 신규 계약 테스트
+  (`tests/test_strategy_remote_flag_evidence.py`)가 그 변화를 즉시 감지하도록 이미 고정해 두었다.
+- 관련: P9(해결 완료 — 이 사실이 확인된 작업)
+- 참고: E:\verify_reports\STRATEGY-PLAN-REMOTE-FLAG-EVIDENCE-BASED-FIX.txt (§6)
+
 ### M20. 후보 프로파일링 문자 COUNT(DISTINCT) 에 조건부 캐릭터셋 노출이 있다(심각도 LOW · 현재 미발현)
 - 발견일: 2026-07-31
 - 근거 보고서: `CANDIDATE-PROFILING-NLS-CHARSET-EXPOSURE-DIAGNOSE.txt`
@@ -1012,7 +1082,30 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: S12(exact_diff 캐릭터셋 정렬 붕괴) · S14(NLS 숫자 고정 잔여 위험)
 - 참고: E:\verify_reports\CANDIDATE-PROFILING-NLS-CHARSET-EXPOSURE-DIAGNOSE.txt
 
-### M17. 재이관 드릴다운 라이브 레코드에 목적 미존재·값 불일치 강조(주황)가 서지 않는다
+### M17. ✅ 해결 완료(원인 추정 정정 — 서버 아니라 CSS 우선순위) — 재이관 드릴다운 라이브 레코드에 목적 미존재·값 불일치 강조(주황)가 서지 않는다
+- 해결일: 2026-08-02 (REIMPORT-DRILLDOWN-M17-M18-FIX)
+- 근거 커밋: 코드 저장소 `6267a1a` — `fix(single): 재이관 드릴다운 강조 미표시(.mtbl td !important)
+  + 그룹 화살표 미복귀 (REIMPORT-DRILLDOWN-M17-M18-FIX)`
+- 근거 보고서 커밋: 이 저장소 `638bf81`(Before/After 실측 증적 + 서술형 REPORT.md) ·
+  `5ea56b1`(서술형 보고서)
+- **중요 정정 — 아래 '대응 방향'의 추정이 틀렸다**: "`/agg-diff/pk-records` 응답에서 `missing`
+  (`rec.tgt` 가 null)과 `rec.diff_cols` 가 서지 않는 것으로 추정" 했으나, Before 실측에서 **서버 응답
+  원문을 그대로 수집한 결과 서버는 처음부터 정상**이었다(`key=1 diff_cols=['AMT']`,
+  `key=4 tgt=None` 등 정확히 채워 보냄). `routes/agg_diff_route.py` 의 pk-records 직렬화도,
+  그 입력을 만드는 `services/exact_diff/agg_contribution.py` / `pk_range_chunk.py` 도 배선 누락이
+  없어 **서버측 수정 대상은 없었다.**
+  진짜 원인은 클라이언트 CSS 우선순위 충돌이다 — `.mtbl td { color: … !important }` 가
+  `_mvPkCellSplit` 이 td 에 직접 준 인라인 강조색을 이겼다. 직접 증거: Before 에서 td `style` 에
+  `#C2410C` 는 **붙어 있었는데**(ID 1 의 7번째 td, ID 4 의 3·7·9번째 td) computed color 는 전부
+  `rgb(16,35,63)` 이었다 — "스타일은 붙었는데 화면엔 안 보이는" 상태.
+- 해결 요약: **강조 판정 로직(`missing`/`isDiff`)은 전혀 건드리지 않고 출력 마크업만** 인라인 style →
+  자식 `span` 으로 옮겼다(같은 파일의 기존 형제 헬퍼가 이미 쓰던 관례를 재사용).
+  실측(td 자신 + 셀 안 모든 자손의 computed color 기준) — **주황 강조 셀 0개 → 4개**
+  (값 불일치 1 + 목적 미존재 3). 같은 행의 일치 셀(QTY `1/1`, STATUS_CD `A/A`)은 Before/After 모두
+  무강조로 **오탐 0건**. 실 DB(오라클 라이브) + 실 브라우저 Before/After 대조.
+- 잔여(별건 등록): `.mtbl td{color:…!important}` 규칙 자체는 그대로 두었다 → **M22** 로 분리.
+- 근거 보고서(해결): E:\verify_reports\REIMPORT-DRILLDOWN-M17-M18-FIX.txt /
+  REIMPORT-DRILLDOWN-M17-M18-FIX\REPORT.md (§0 · §1 · §4)
 - 발견일: 2026-07-30
 - 근거 보고서: `REIMPORT-DRILLDOWN-TREE-MERGE-AND-WARNING-HOIST-FIX/ADDENDUM_emphasis_and_preexisting_defects.md`
   (§1 / §2-2)
@@ -1030,7 +1123,22 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\REIMPORT-DRILLDOWN-TREE-MERGE-AND-WARNING-HOIST-FIX\
   ADDENDUM_emphasis_and_preexisting_defects.md
 
-### M18. 다른 그룹을 펼치면 이전 그룹의 펼침 화살표(▾)가 닫힌 채로 안 돌아온다
+### M18. ✅ 해결 완료 — 다른 그룹을 펼치면 이전 그룹의 펼침 화살표(▾)가 닫힌 채로 안 돌아온다
+- 해결일: 2026-08-02 (REIMPORT-DRILLDOWN-M17-M18-FIX — M17 과 동일 작업)
+- 근거 커밋: 코드 저장소 `6267a1a` — `fix(single): 재이관 드릴다운 강조 미표시(.mtbl td !important)
+  + 그룹 화살표 미복귀 (REIMPORT-DRILLDOWN-M17-M18-FIX)`
+- 근거 보고서 커밋: 이 저장소 `638bf81` · `5ea56b1`
+- 해결 요약: 아래 '대응 방향' 그대로, `_mvCloseOtherScopePanels` 가 이미 하고 있던 처리(패널 제거 시
+  직전 형제 행 `aria-expanded='false'` 복귀)를 공통 헬퍼 `_mvRemoveAllScopePanels` 로 추출해
+  지시 대상인 `_mvToggleRowAggDiff` 의 일괄 제거 경로에 적용했다.
+  **지시 범위를 넘어 동일 결함의 두 번째 인스턴스 `_mvToggleRowExactDiff`(전수검증 상세)도 함께
+  정리**했다(사유: 완전히 같은 버그 패턴 — 한쪽만 고치면 재발한다).
+  실측(그룹0→1→2 순차 클릭, 매 단계 전 그룹 행의 `aria-expanded` 와 실제 렌더 화살표 전수 수집) —
+  Before 는 ▾ 가 1→2→3개로 누적되고 접은 뒤에도 3개가 잔존했으나, After 는 **항상 ▾ 최대 1개**,
+  마지막 접기 후 0개로 SINGLE-OPEN 정책과 화면 표시가 일치한다.
+  회귀 방지 계약 테스트(`aria-expanded` 검사)를 헬퍼 본문까지 확장했다.
+- 근거 보고서(해결): E:\verify_reports\REIMPORT-DRILLDOWN-M17-M18-FIX.txt /
+  REIMPORT-DRILLDOWN-M17-M18-FIX\REPORT.md (§2-2 · §5)
 - 발견일: 2026-07-30
 - 근거 보고서: `REIMPORT-DRILLDOWN-TREE-MERGE-AND-WARNING-HOIST-FIX/ADDENDUM_emphasis_and_preexisting_defects.md`
   (§2-1)
