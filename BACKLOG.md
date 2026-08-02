@@ -10,7 +10,14 @@
 - 대상 제외: 아직 push 되지 않은 로컬 전용 보고서 16건은 이번 취합에서 제외했다.
   push 후 이 파일에 합류시킨다.
 - 최초 작성: 2026-07-29 (VERIFY-REPO-BACKLOG-FILE-CREATE)
-- 최종 갱신: 2026-08-02 (BACKLOG-DOC-SYNC-AND-P6-M8-SEQUENTIAL-FIX 파트 A) — 이미 해결된 M6·M7 2개
+- 최종 갱신: 2026-08-02 (BACKLOG-DOC-SYNC-AND-P6-M8-SEQUENTIAL-FIX 파트 B·C) — 이번 작업에서 실제로
+  해결한 P6·M8 2개 항목을 해결 완료로 표시(신규 등록·삭제 없음)
+  (P6 해결 — prewarm 5만 상한이 동기 prepare 시절의 stale 잔여임을 커밋 이력으로 확인하고 2단 정책
+  (~5만 동기 / 5만~1M 비동기 / 1M 초과는 '자동 준비 안 함' 명시 고지)으로 교체. 상한 기본값은
+  기존 벤치마크 정책값 `direct_stream_max_rows_provisional` 에 맞춤,
+  M8 해결 — 취소 수단이 아니라 '이탈 감지 주체'가 없던 것이 원인. 이탈 감시 스코프 신규 +
+  CancelTokenGroup 으로 원본/목적지 양쪽 취소 + 라우트 배선. 이탈 후 DB 해제 29초 → 0.22초)
+- 직전 갱신: 2026-08-02 (BACKLOG-DOC-SYNC-AND-P6-M8-SEQUENTIAL-FIX 파트 A) — 이미 해결된 M6·M7 2개
   항목을 해결 완료로 표시(신규 등록·삭제 없음)
   (M6 해결 — 오라클 어댑터 표지를 '쿼리 타임아웃'/'접속 단계 타임아웃' 둘로 분리하고 접속 단계를
   먼저 확인해 ORA-03136 을 `connection` 계열로 재분류, M7 해결 — `categorize_conn_error` 가 접속 단계
@@ -887,7 +894,32 @@ git -C E:/verify_reports worktree remove <임시경로>
   함께 바뀌므로 현행 `true` 유지가 보수적(기존 동작 보존)이라는 점을 감안해 영향 범위를 먼저 파악한다.
 - 참고: E:\verify_reports\STRATEGY-PLAN-PK-KIND-HARDCODE-FIX.txt
 
-### P6. PK index prewarm 이 5만행 이하만 동작해 대량 run 은 '재이관 대상: 준비 중' 이 장시간 유지된다
+### P6. ✅ 해결 완료 — PK index prewarm 이 5만행 이하만 동작해 대량 run 은 '재이관 대상: 준비 중' 이 장시간 유지된다
+- 해결일: 2026-08-02 (BACKLOG-DOC-SYNC-AND-P6-M8-SEQUENTIAL-FIX 파트 B)
+- 근거 커밋: 코드 저장소 `f8ff6f9` — `fix(single): PK index prewarm 5만행 상한을 2단 정책으로 확장
+  (BACKLOG-P6-PREWARM-ROW-LIMIT-FIX)`
+- 해결 요약: **상한의 원래 근거가 이미 사라져 있었다.** prewarm 과 5만 상한은 `099b74b`(2026-07-04)에
+  함께 들어왔는데, 그때는 `/agg-diff/prepare` 가 동기 해시 경로뿐이라 5만 초과는 전체 스캔 끝에
+  HOLD 로 떨어졌다(= 해봐야 비용만 쓰는 상황). 그 다음날/다다음날 stream 경로(`b940708`)와
+  PK 50K chunk 경로(`d8775ab`)가 들어오면서 5만 초과는 비동기 job 으로 **즉시 접수**되는데
+  게이트만 stale 하게 남았다. 그 결과 대량 run 은 이 경로에서 prepare 가 아예 나가지 않아
+  요약표 재이관 PK 셀이 초기값 '준비 중'(`ui/grid_helpers.py:1180`) 그대로 굳었다.
+  새 정책은 무제한 확장이 아니라 2단이다 — **~5만 동기(기존 그대로) / 5만~1M 비동기 job /
+  1M 초과는 자동 준비 안 함 + 명시 상태 고지**. 상한 기본값 1,000,000 은 새로 지어낸 숫자가 아니라
+  이미 벤치마크로 정해진 `direct_stream_max_rows_provisional`(routes/strategy_route.py:41)에 맞췄고,
+  `window.MV_PK_PREWARM_MAX_ROWS` 로 코드 수정 없이 조정할 수 있다.
+  상한 초과 시 '준비 중'을 그대로 두지 않고 '자동 준비 안 함'으로 고지하는 이유는, 아무 것도 돌지
+  않는데 진행 중처럼 보이는 것이 이 항목의 증상 그 자체이기 때문이다.
+- 실측(내부망 PG, SKEW 12만행 `asis01.t_skew_src`/`tobe01.t_skew_tgt` — 근거 보고서와 동일 규모):
+  stream prepare 접수 **155.7ms**, 백그라운드 비교 **2.1초** 완료. 같은 데이터의 동기 경로 대조는
+  **HOLD/AGG_SCOPE_TOO_LARGE(키 수 한도 6만 초과)** — 옛 상한의 원래 근거가 그대로 재현됐다.
+  상한 지점 1M(`mvbench.bench_1m`) 접수 **80.1ms** · 백그라운드 **6.2초**.
+  브라우저 게이트 9케이스 BEFORE/AFTER: 50,001 / 120,000 / 1,000,000 이 미발동→발동,
+  1,000,001 은 '준비 중'→'자동 준비 안 함', 나머지 6케이스 전/후 동일(무회귀).
+- 잔여(이번 범위 밖): prewarm 의 **PostgreSQL 전용 게이트는 그대로 뒀다** — 오라클은 재이관 비교키
+  카탈로그가 PG 전용이라 대부분 HOLD 로 떨어지므로 열어봐야 실익이 없고 별도 실측이 필요하다.
+  또한 오라클·COUNT 미실행·집계 불일치 0 인 경우의 셀은 여전히 초기값 '준비 중'으로 남는다
+  (이번 수정이 새로 만든 케이스가 아니라 기존 표시 갭).
 - 발견일: 2026-07-28
 - 근거 보고서: `SINGLE-STEP5-COMBO-VIEW-AND-SKEWED-GROUP-VOLUME-DIAGNOSE.txt` (부수 관측)
 - 상세: 12만행 SKEW 픽스처에서 그룹 드릴다운 완료 후에도 `_mvPkState=PREPARING` 이 15분간 유지됐다.
@@ -1582,7 +1614,32 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\STATS-COUNT-STEP-TIMEOUT-PARITY-FIX.txt
 - 참고: E:\verify_reports\STATS-EXECUTE-TIMEOUT-CLARITY-FIX.txt
 
-### M8. `/count` 및 4단계 실행이 CancelToken 을 쓰지 않아 즉시 중단이 불가능하다
+### M8. ✅ 해결 완료 — `/count` 및 4단계 실행이 CancelToken 을 쓰지 않아 즉시 중단이 불가능하다
+- 해결일: 2026-08-02 (BACKLOG-DOC-SYNC-AND-P6-M8-SEQUENTIAL-FIX 파트 C)
+- 근거 커밋: 코드 저장소 `54533f9` — `fix(safety): /count·4단계 실행에 CancelToken 배선 — 브라우저
+  이탈 시 즉시 중단 (COUNT-EXECUTE-CLIENT-DISCONNECT-CANCEL-FIX)`
+- 해결 요약: **취소 수단이 없어서가 아니라 이탈을 감지해 토큰을 당겨줄 주체가 없어서** 못 멈추고 있었다.
+  `CancelToken` 은 이미 있었고 `/execute` 는 orchestrator→core→stats_execute_service 까지 인자 배선도
+  이미 있었으나 **라우트가 아무것도 넘기지 않아 항상 None** 이었다. `/count` 는 체인 자체에 인자가 없었다.
+  · 신규 `services/request_cancel_scope.py` — blocking 본문은 기존과 동일하게 워커 스레드에서 돌리고,
+    이벤트 루프가 `Request.is_disconnected()` 를 폴링해 이탈 시 토큰을 취소한다.
+    kill-switch `MV_REQUEST_CANCEL_ON_DISCONNECT=0`, 주기 `MV_DISCONNECT_POLL_INTERVAL_S`(기본 0.25s).
+  · 신규 `CancelTokenGroup` — `CancelToken` 은 연결을 **1개만** 보관해, 원본/목적지를 병렬 실행하면
+    나중 등록분이 앞 연결을 덮어써 **한쪽만** 취소됐다. side 별 자식 토큰으로 해소했다
+    (COUNT 병렬·통계검증 `parallel_sides` 양쪽에 적용).
+  · `CancelToken.set_connection` 이 '취소 요청 뒤 늦게 등록된 연결'도 즉시 정리한다(경쟁 창 차단).
+  · 라우트는 **async 진입점 + 동기 본문**으로 분리했다 — 기존 테스트/하니스가 `stats_execute(req)` /
+    `cmn_count_compare(req)` 를 직접 동기 호출하기 때문이다.
+  · 토큰이 없을 때는 하위 호출 형태를 바꾸지 않는다(기존 테스트 대역이 시그니처를 고정하고 있다).
+- 실측(내부망 PG · `pg_sleep(30)` 으로 결정적 느린 쿼리 · 요청 1초 뒤 소켓 종료 ·
+  **별도 연결의 `pg_stat_activity` 폴링으로 외부 관측** — 응답이나 서버 로그에 의존하지 않음):
+  `/count` 이탈 후 DB 해제 **29.07초 → 0.22초**, `/execute` **29.12초 → 0.22초**.
+  `/execute` 는 가드를 우회하지 않고 실제 analyze→count→generate 순서로 workflow_token 을 얻어 측정했다.
+  정상 완료 무회귀 — `/count` 판정값 동일(PASSED · 120,000/120,000), 서버 처리시간 중앙값 20.9ms vs 20.4ms.
+  전/후 대조는 같은 빌드에서 kill-switch 로 만든 ablation 이다(코드 되돌림 없음).
+- 잔여(이번 범위 밖): 취소 신호의 실효성은 방언별로 다르다 — PostgreSQL/Oracle 은 실제 쿼리 취소,
+  MySQL/MSSQL 은 연결 close 폴백이다(`CancelToken._CANCEL_SUPPORTED` 기존 계약). 위 실측은 PostgreSQL 1방언.
+  `/analyze`·`/generate` 등 다른 blocking 라우트에는 아직 같은 감시를 걸지 않았다.
 - 발견일: 2026-07-28
 - 근거 보고서: `STATS-COUNT-STEP-TIMEOUT-PARITY-FIX.txt` (잔여 과제 4) /
   `SINGLE-STEP4-EXEC-STATUS-DISPLAY-IMPLEMENT.txt` (:98)
