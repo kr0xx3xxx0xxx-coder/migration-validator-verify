@@ -1,0 +1,309 @@
+작업명 : P10-SUMMARY-COUNT-DISPLAY-DISAMBIGUATION-FIX
+✅ 작업 완료 - P10-SUMMARY-COUNT-DISPLAY-DISAMBIGUATION-FIX - 조기중단 시 5단계 요약 카드·그룹 요약표 건수를 '표시(저장)분 기준 하한'으로 구분 표기(정상 케이스 출력 HTML 바이트 단위 무변경), 작업 중 발생시킨 동시 세션 커밋 덮어쓰기 사고 1건은 복구 완료
+
+────────────────────────────────────────────────────────────────────────────
+0. 먼저 보고해야 할 사고 1건 — 동시 세션 커밋을 덮어썼다가 복구
+────────────────────────────────────────────────────────────────────────────
+1차 커밋 d1fd540 이 동시 진행 중이던 다른 세션의 커밋 e232d89
+(STAGE5-M9-DISPLAY-CONTRADICTION-FIX)가 ui/tabler_renderer.py 에 넣은 변경을 통째로
+되돌린 채 커밋됐다.
+
+  원인 : baseline 회귀 대조를 위해 `git checkout HEAD -- ui/tabler_renderer.py` 로 파일을
+         되돌렸다가, 측정이 끝난 뒤 **미리 떠 둔 백업 파일**로 복원했다. 그 11분 사이에
+         HEAD 가 9cc5d08 → e232d89 로 전진했는데, 내 백업은 그 이전 내용 기반이라
+         복원하는 순간 e232d89 의 변경이 사라졌다. 백업을 파일로 뜬 것이 잘못이었다
+         (되돌릴 때도 복원할 때도 git 에서 가져왔어야 했다).
+  탐지 : verify 저장소 push 준비 중 원격 tip 의 STAGE5-M9 완료보고를 읽다가 같은 함수
+         (_mvRiSummaryHtml / _mvRiRenderGroupView)를 건드린 사실을 발견 → git log 확인.
+  복구 : `git checkout e232d89 -- ui/tabler_renderer.py` 로 상대 변경을 원본 그대로 되살린 뒤
+         내 P10 편집 6곳만 다시 얹어 커밋 56572a5.
+         검증 — `git diff e232d89 -- ui/tabler_renderer.py` = 39 insertions / 7 deletions 이고
+         삭제 7줄이 전부 내 편집 지점(6곳)뿐임을 라인 단위로 확인했다. 즉 e232d89 의
+         M9 변경(하한 상향 4곳 · _basisNote · 비율 분모 정정)은 전부 살아 있다.
+         브라우저 실측에서도 BEFORE/AFTER 양쪽 모두 M9 문구('행 레코드 기준')가 보인다.
+  재발 방지: 되돌림/복원은 항상 `git checkout <커밋> -- <파일>` 로만 한다(파일 백업 금지).
+         공유 작업트리에서 baseline 을 뜰 때는 되돌리기 직전에 `git rev-parse HEAD` 를 찍고
+         복원 시 그 해시로 되돌아왔는지 대조한다.
+
+  ※ 최종 상태는 정상이다(아래 5·6장 실측은 전부 복구 후 코드 56572a5 기준으로 다시 측정).
+
+────────────────────────────────────────────────────────────────────────────
+1. 요청 요약과 처리 범위
+────────────────────────────────────────────────────────────────────────────
+백로그 P10 대응방향(a) — HARD CAP 상향 같은 정책 변경 없이 **표시 문구만** "표시/실제" 로
+구분하는 저위험 개선. 판정 로직·수집 상한·HARD CAP(500)은 손대지 않았다.
+근거: E:\verify_reports\LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE.txt
+      §5【이상-1】"같은 화면 요약표는 '재이관 대상 10건'을 숫자로 노출한다(참값 10,000, 저장 101).
+                    배너를 읽지 않으면 10건으로 오독할 여지가 있다."
+
+────────────────────────────────────────────────────────────────────────────
+2. 수정 대상 파일 특정(지시사항 — 값 생성 지점 / 화면 표시 지점을 각각 확인)
+────────────────────────────────────────────────────────────────────────────
+■ per_group_full_list_max / per_group_early_stop_abs 가 '만들어지는' 지점 (서버) — 미변경
+  - services/per_group_display_policy.py
+      clamp_per_group_thresholds()  : HARD CAP 500 clamp
+      per_group_policy_dict()       : {per_group_full_list_max=100,
+                                       per_group_early_stop_abs=101,
+                                       per_group_partial_display_max=100}
+  - routes/agg_diff_route.py
+      _per_group_policy()       (81~95행)   : 위 dict 단일 출처
+      req.early_stop_abs = ...  (996행)     : 실제 '수집 조기중단' 임계값 주입
+      응답 "per_group_policy"   (1392행)    : 클라이언트로 경계 전달
+      early_stopped / status    (1371~1375행): EARLY_STOPPED / EARLY_STOPPED_MISMATCH_LIMIT 판정
+    → routes/agg_diff_route.py 에는 "N건" 문구가 없다(숫자 문자열을 만들지 않는다). 미수정.
+
+■ 화면에 "N건"으로 '표시되는' 지점 (클라이언트) — 이번 수정 대상
+  - ui/tabler_renderer.py  _mvRiSummaryHtml()      : 상단 요약 카드 "재이관 대상 N건(비율)"
+  - ui/tabler_renderer.py  _mvRiRenderGroupView()  : 대표 GROUP BY 불일치 분포 요약표
+                                                     (그룹행 "N건" · 기타행 "N건" · 열 헤더)
+  → 요구된 두 후보 중 실제 렌더 파일은 ui/tabler_renderer.py 단독이다.
+
+■ 손대지 않은 인접 표시 지점(사유 명시)
+  - ui/execute_result_renderer.py:240 "재이관 대상 <span id=execPkTotal>" 는 status==='READY'
+    에서만 숫자를 넣고 조기중단에서는 "준비 중" 으로 남는다 — 같은 보고서 §5【이상-2】
+    (표시 갱신 누락)이며 P10(표시 문구 오독)과 다른 결함이라 이번 범위에서 제외했다.
+
+────────────────────────────────────────────────────────────────────────────
+3. 변경 내용 (순수 표시 문구 — 판정/수집/저장 계층 무접촉)
+────────────────────────────────────────────────────────────────────────────
+[A] _mvRiSummaryHtml() — 상단 요약 카드
+    (A-1) 하한 표기 조건 확장
+          before : var _more = d.mismatch_limit_stopped ? '건 이상' : '건';
+          after  : var _esUncertain = !!(d.mismatch_limit_stopped || d.early_stopped
+                                         || String(st||'').indexOf('EARLY_STOPPED') === 0);
+                   var _more = _esUncertain ? '건 이상' : '건';
+          사유   : 기존 하한 표기(D7-6 G)가 '누적 불일치율 강제중단' 에서만 걸려, 실제로 훨씬
+                   자주 걸리는 '레코드 수집 조기중단(per_group_early_stop_abs 도달)' 에서는
+                   저장 건수가 확정값처럼 노출됐다. 어휘는 기존 것을 그대로 재사용한다.
+    (A-2) 근거 한 줄 고지 추가(조기중단일 때만)
+          "※ 수집이 조기중단되어 위 건수는 표시(저장)분 기준 하한입니다 — 실제는 그 이상이며
+            정확한 총수는 확인하지 않았습니다."
+
+[B] _mvRiRenderGroupView() — 대표 GROUP BY 불일치 분포 요약표
+    (B-1) 그룹 행 건수 : "10건" → "10건 이상" (+ td title 툴팁)
+    (B-2) 기타 행 건수 : 동일 처리
+    (B-3) 표 상단 고지 : "※ 수집 조기중단 — 아래 불일치 건수는 표시(저장)분 기준 하한입니다.
+                          실제는 그 이상이며 정확한 총수는 확인하지 않았습니다(비율도 같은 표시분 기준)."
+    (B-4) '불일치 건수' 열 헤더 title 에 하한 사실 추가
+    * (B-1)~(B-4) 전부 st._earlyStopped(= d.early_stopped || d.mismatch_limit_stopped) 가 true 일 때만
+      적용된다. false 면 접미어가 '건' 그대로이고 고지 문자열이 '' 이라 HTML 이 기존과 동일하다.
+
+■ 새 용어 발명 최소화(요구사항 1) — 사용한 어휘는 전부 기존 화면/코드에 이미 있던 것이다.
+  '건 이상'(D7-6 G 상단 카드 · STAGE5-M9 가 펼침 문구에 쓴 어휘와 동일) ·
+  '표시 N건 / 실제 …'(services/per_group_display_policy._build_message) ·
+  '조기중단' · '총수 미확정'(그룹 드릴다운 라벨).
+  → 결과적으로 같은 화면의 위(요약표)·아래(그룹 펼침 문구)가 같은 어휘로 같은 사실을 말한다.
+
+────────────────────────────────────────────────────────────────────────────
+4. 실측 검증 — 픽스처(실 DB 접속 0회)
+────────────────────────────────────────────────────────────────────────────
+scripts/dev_e2e/p10_summary_count_disambiguation_fixture.py build
+  [P10_ES_MULTI] 조기중단 케이스 — 원본 100,000행 · 10그룹 · 참값 불일치 10,000건(그룹당 1,000건)
+      status=EARLY_STOPPED / early_stop=ABSOLUTE / src_rows=1,001 → store 저장 101건
+      그룹 분포(요약표 입력값): G01 11 · G02~G10 각 10
+      → 보고서 §5【이상-1】과 동일한 상황(참값 그룹당 1,000건인데 표에는 10건)을 정확히 재현
+  [P10_OK_MULTI] 정상 케이스 — 원본 5,000행 · 10그룹 · 참값 불일치 50건(그룹당 5건)
+      status=READY / early_stop=None → store 저장 50건(전량), 그룹 분포 각 5건
+
+  ※ 실제 엔진(prepare_reimport_pk_index_stream)에 이터레이터만 주입해 그대로 돌렸다.
+    수집 상한·조기중단은 제품 코드가 판정한 값이며 하니스가 조작하지 않았다.
+
+────────────────────────────────────────────────────────────────────────────
+5. 실측 검증 — Before/After 브라우저 대조 (복구 후 코드 기준으로 재촬영)
+────────────────────────────────────────────────────────────────────────────
+방식 : BEFORE = e232d89 worktree(= 내 변경 직전의 진짜 baseline, M9 포함) → 127.0.0.1:8199
+       AFTER  = 56572a5 작업트리(= M9 + 내 P10)                            → 127.0.0.1:8198
+       두 서버를 uvicorn 으로 직접 띄우고 같은 픽스처 run 을 각각 렌더(제품 함수
+       _mvRiSummaryHtml / _mvRiRenderGroupView 를 Chromium 에서 직접 호출).
+       코드 버전 교차확인 — 서빙 HTML 내 출현 횟수
+         BEFORE : _esHdrNote 0회 (P10 없음) / _basisNote 2회 (M9 있음)
+         AFTER  : _esHdrNote 2회 (P10 있음) / _basisNote 2회 (M9 보존)
+       → stale 모듈 서빙이 아니고, M9 가 두 쪽 모두에 살아 있음을 함께 증명한다.
+
+■ 케이스 1 — 조기중단(P10_ES_MULTI, 참값 10,000건 / 저장 101건)
+  서버 응답: status=EARLY_STOPPED · early_stopped=true · reimport_pks=101
+
+  ① 상단 요약 카드
+     BEFORE : 재이관 대상 101건(—)   (현재 목록) [조기 중단]
+     AFTER  : 재이관 대상 101건 이상(—)   (현재 목록) [조기 중단]
+              ※ 수집이 조기중단되어 위 건수는 표시(저장)분 기준 하한입니다 — 실제는 그 이상이며
+                정확한 총수는 확인하지 않았습니다.
+
+  ② 대표 GROUP BY 요약표 — 표 상단
+     BEFORE : 대표 GROUP BY(GRP) 불일치 분포  전체 10개 그룹 · 그룹 클릭 시 행 아래 상세
+     AFTER  : (동일) + ※ 수집 조기중단 — 아래 불일치 건수는 표시(저장)분 기준 하한입니다.
+                          실제는 그 이상이며 정확한 총수는 확인하지 않았습니다(비율도 같은 표시분 기준).
+
+  ③ 대표 GROUP BY 요약표 — 그룹별 건수 셀(10행 전량)
+     BEFORE : G01 11건 / G02~G10 각 10건
+     AFTER  : G01 11건 이상 / G02~G10 각 10건 이상
+
+  ④ '불일치 건수' 열 헤더 title
+     BEFORE : "해당 그룹의 불일치(재이관 대상) 건수"
+     AFTER  : "해당 그룹의 불일치(재이관 대상) 건수 — 수집 조기중단이라 표시(저장)분 기준
+               하한값입니다(실제는 그 이상·총수 미확정)"
+
+  ⑤ 요약 카드 HTML 길이 : 3,104 → 3,247 byte (고지 1줄 + '건 이상' 3자 증가분)
+
+■ 케이스 2 — 정상 / 전량 수집(P10_OK_MULTI, 참값 50건 / 저장 50건) — 무회귀 확인
+  서버 응답: status=READY · early_stopped=false · reimport_pks=50
+
+  항목                       BEFORE                       AFTER              일치?
+  ------------------------- ---------------------------- ------------------ -----
+  상단 요약 카드 전체 텍스트   "…재이관 대상 50건(—) (현재 목록)…"  (문자열 완전 동일)  동일
+  상단 요약 카드 HTML 길이     2,863 byte                   2,863 byte         동일
+  요약표 상단 문구            "…전체 10개 그룹 · 그룹 클릭…"   (동일)             동일
+  그룹별 건수 셀 10행         G01~G10 각 "5건"              각 "5건"           동일
+  건수 열 헤더 title          "해당 그룹의 불일치(재이관 대상) 건수" (동일)         동일
+
+  → 정상 케이스는 생성 HTML 이 길이까지 같다(2,863 == 2,863). 표시 변화 0.
+
+  스크린샷(4장) : E:\verify_screenshots_only\P10-SUMMARY-COUNT-DISPLAY-DISAMBIGUATION-FIX\
+      BEFORE_P10_ES_MULTI.png / AFTER_P10_ES_MULTI.png   (조기중단 케이스)
+      BEFORE_P10_OK_MULTI.png / AFTER_P10_OK_MULTI.png   (정상 케이스)
+      BEFORE_result.json / AFTER_result.json             (위 표의 원시 측정값 전문)
+
+────────────────────────────────────────────────────────────────────────────
+6. 테스트 결과
+────────────────────────────────────────────────────────────────────────────
+■ CLAUDE.md 규정 기존 테스트
+    python samples/test_virtual_cases.py   → 8/8 통과
+    python samples/test_complex_cases.py   → 5/5 케이스 분석 완료(신뢰도 판정 전건 정상)
+
+■ 관련 서브셋(그룹 드릴다운·요약·렌더 JS) 17파일 — 복구 후 코드 기준
+    python -m pytest tests/test_d7_15_gb_group_first.py tests/test_d7_16_ui_modal_return.py
+      tests/test_d7_18_exec_tab.py tests/test_d7_2_ui_paging.py tests/test_d7_3_restore_guard.py
+      tests/test_d7_4_active_gate_summary.py tests/test_d7_5_chunk100k_count.py
+      tests/test_d7_7_scale_drilldown.py tests/test_d7_8_1_dedup_gate.py
+      tests/test_d7_8_inline_drill_time.py tests/test_drilldown_snapshot_timestamp.py
+      tests/test_stage45_timing_label_and_dup_guard_fix.py tests/test_stats_result_full.py
+      tests/test_ui_exec_result_fixes.py tests/test_ui_tab4_tab5_separation.py
+      tests/test_rendered_js_syntax_guard.py samples/test_per_group_display_policy.py -q -p no:randomly
+    → 3 failed, 118 passed, 5 xfailed
+
+    실패 3건 전체 목록(전부 baseline 에서도 동일하게 실패 — 내 변경과 무관):
+      FAILED tests/test_d7_8_inline_drill_time.py::test_ui_advanced_perf_position_and_title
+      FAILED tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+      FAILED tests/test_ui_tab4_tab5_separation.py::test_target_only_display
+    원인: 테스트가 소스에서 뽑은 한글 문자열을 비교하는데 그 문자열이 mojibake(???)로 읽히는
+          환경 인코딩 문제. baseline 에서 같은 3파일 실행 → 동일하게 3 failed / 33 passed.
+
+■ baseline 대조(광범위 서브셋) — 같은 작업트리에서 ui/tabler_renderer.py 만 교체해 공정 비교
+    python -m pytest tests/ -q -k "ui or drill or reimport or display or group or exec
+                                   or stage5 or step5 or js" -p no:randomly
+      AFTER    (56572a5) : 200 failed, 3102 passed, 22 skipped, 7 xfailed, 24 errors  (685.27s)
+      BASELINE (e232d89) : 202 failed, 3100 passed, 22 skipped, 7 xfailed, 25 errors  (683.86s)
+      * 되돌림/복원 모두 `git checkout <커밋> -- <파일>` 로만 수행했고, 끝난 뒤
+        `git status --short -- ui/tabler_renderer.py` 가 빈 출력(=HEAD 와 일치)임을 확인했다.
+
+    실패 집합 차집합(FAILED+ERROR ID 정렬 후 comm) — AFTER 224줄 vs BASELINE 227줄
+    (227 − baseline전용 4 + after전용 1 = 224 로 정합):
+      · BASELINE 에만 있는 실패 4건(내 변경과 무관한 flaky):
+          ERROR  tests/test_batch_execution_lock_and_cancel.py::test_full_validation_cooperative_cancel
+          ERROR  tests/test_batch_row_run_result_shadow_skeleton.py::test_on_execute_wrap
+          FAILED tests/test_execute_route_shadow_integration.py::test_shadow_metrics_failure_isolated
+          FAILED tests/test_execute_route_shadow_integration.py::test_shadow_on_equals_off
+      · AFTER 에만 있는 항목 1건:
+          ERROR  tests/test_rerun_exec_gate_reuse.py::test_gate_helper_branches_node
+          → 같은 테스트의 FAILED 는 **BASELINE·AFTER 양쪽에 모두** 있다(이미 실패 중인 테스트의
+            teardown ERROR 가 한 번 더 붙은 것). 직접 확인:
+              baseline(e232d89) 단독 실행 → 1 failed, 4 passed   (node 하니스 60초 타임아웃)
+              현재  (56572a5) 단독 실행 2회 → 1 failed, 4 passed (동일, ERROR 미재현)
+            즉 신규 실패가 아니라 사전 존재 hang 이며 teardown ERROR 만 비결정적으로 붙는다.
+      결론: 이번 변경으로 인한 신규 실패 0건. 나머지 224건(FAILED 200 + ERROR 24)은
+            전부 사전 존재 실패이며 baseline 과 사실상 동일 집합이다.
+
+    실패 ID 전체 목록은 증적으로 함께 저장:
+      E:\verify_screenshots_only\P10-...-FIX\regression_AFTER_56572a5_failed_ids.txt    (224줄)
+      E:\verify_screenshots_only\P10-...-FIX\regression_BASELINE_e232d89_failed_ids.txt (227줄)
+    파일별 상위 집계(AFTER): test_task12_a 11 · test_single_execute_preflight_connection 8 ·
+      test_single_group_registration 7 · test_row_limit_policy 7 · test_stats_execute_error_handling 6 ·
+      test_single_validation_e2e_core 6 · test_single_group_targets 6 · test_result_view_ui_wiring 6 ·
+      test_group_master_crud 6 · test_batch_report_service 6 · (이하 5건 이하 다수)
+
+■ 렌더 JS 문법 가드
+    python -m pytest tests/test_rendered_js_syntax_guard.py -q → 2 passed
+    (JS 주석 안에 '*/' 를 넣지 않았고 번들 파싱이 깨지지 않음을 확인)
+
+────────────────────────────────────────────────────────────────────────────
+7. 비판적 검토(CLAUDE.md 의무 — 긍정 효과만 적지 않는다)
+────────────────────────────────────────────────────────────────────────────
+■ 긍정적 효과
+  붉은 D4 배너를 읽지 않는 사용자도 숫자 옆에서 "이건 하한이다" 를 즉시 알 수 있다.
+  기존 어휘를 재사용해 새 용어가 늘지 않았고, 서버/저장/판정 계층은 전혀 건드리지 않았다.
+  마침 같은 시점에 들어간 STAGE5-M9(그룹 펼침 문구를 분포표 값에 맞춤)와 어휘가 일치해,
+  요약표(위)와 펼침 문구(아래)가 같은 말로 같은 사실을 말하게 됐다.
+
+■ 구조적 문제점
+  - web_server.py 는 건드리지 않았으나 ui/tabler_renderer.py 는 이미 3만 줄 규모이고 이번에
+    표시 분기 3개(_esUncertain/_esU/_cntSfx)가 더 늘었다. 같은 '조기중단=하한' 사실을
+    _mvRiSummaryHtml · _mvRiRenderGroupView · _mvRiLoadGroupPage · _mvPerGroupBannerP3 등이
+    각자 재계산한다(M9 작업으로 소비처가 더 늘었다).
+    권장: `_mvUncertaintyOf(d)` 같은 단일 판정 헬퍼로 합칠 것(완료 모듈 리팩토링이라 범위 밖).
+  - 값 생성은 서버(per_group_display_policy)인데 '하한이냐' 표기는 클라이언트가 판단한다.
+    서버가 `count_is_lower_bound: true` 를 내려주는 편이 단일 출처로 더 옳다.
+  - 한 파일(ui/tabler_renderer.py)에 여러 세션이 동시에 손대는 구조 자체가 이번 사고(0장)의
+    배경이다. 파일 분할이 늦어질수록 같은 사고가 반복될 여지가 크다.
+
+■ 운영상 위험
+  - 정적 문구 추가라 롤백은 커밋 되돌리기로 끝난다(마이그레이션·저장 포맷 영향 0).
+  - 오히려 남는 위험은 '표시가 정직해졌을 뿐 데이터는 여전히 없다' 는 점이다. 참값 10,000건
+    중 101건만 확보되는 구조 자체는 그대로이고, HARD CAP 500 이라 상한을 최대로 올려도
+    501건이다. 이번 수정은 그 사실을 **가리지 않게** 만들 뿐 해결하지 않는다(대응방향 b 별도 필요).
+
+■ heuristic / scoring / explainability 영향
+  - heuristic 하드코딩 증가 없음(임계값·경계값을 새로 만들지 않았다. 기존 서버 플래그만 읽는다).
+  - explainability 는 개선됐다 — 숫자 옆·열 헤더 title·표 상단 3곳에 근거 문구가 남는다.
+  - 보안 위험 없음(자격증명·SQL·개인정보 노출 경로 무관).
+  - 테스트 가능성: 렌더 함수 문자열 검사로 회귀 검증 가능하며, DB 없이 재현하는
+    픽스처/하니스 2개를 함께 남겼다.
+
+■ 남은(이번 범위 밖) 항목
+  - 보고서 §5【이상-2】 execPkTotal 이 조기중단 후 '준비 중' 고착 — 별도 결함.
+  - '비율' 열도 표시분 기준이라 참값 비율과 다르다. 이번엔 문구로만 고지하고 값은 그대로 뒀다
+    (분자·분모가 함께 잘려 방향성은 유지되므로, 값 변경이 오히려 오해를 키울 수 있다고 판단).
+
+────────────────────────────────────────────────────────────────────────────
+8. 병행 작업 충돌 확인(지시사항)
+────────────────────────────────────────────────────────────────────────────
+  착수 시 git status : ui/grid_helpers.py 가 타 세션(STAGE5-M9-DISPLAY-CONTRADICTION-FIX)에 의해
+  미커밋 수정 중이었다. 내 변경은 ui/tabler_renderer.py 두 함수뿐이라 grid_helpers.py 의
+  _mvTargetSummary* 계열과 함수 단위로 겹치지 않는다. 커밋 전 `git diff --cached --name-only` 로
+  staged 목록이 내 파일뿐임을 확인했고, 남의 파일은 add/checkout/reset 어느 것도 하지 않았다.
+  ORACLE-CONN-ERROR-TIMEOUT-MISCLASSIFICATION-FIX(9cc5d08, services/db_adapters 계열) 및
+  services/candidate_engine.py·db_query_service.py·metadata_provider.py(타 세션 진행 중)와도 무접촉.
+  BACKLOG.md 는 이번 작업에서 편집하지 않았다.
+
+  ★ 다만 STAGE5-M9 는 같은 파일의 **같은 두 함수**를 건드렸고, 그 커밋이 내 작업 중간에
+    들어오면서 0장의 사고로 이어졌다. "파일이 다르면 안전" 이 아니라 "같은 파일이면 커밋
+    직전에 HEAD 를 다시 확인해야 한다" 가 이번 교훈이다.
+
+────────────────────────────────────────────────────────────────────────────
+9. 변경/생성 파일 · 커밋
+────────────────────────────────────────────────────────────────────────────
+  d1fd540  fix(single): 조기중단 시 요약표·요약 카드 건수 '표시/실제' 구분
+           → P10 변경은 맞으나 e232d89 를 덮어쓴 결함 커밋(0장)
+  56572a5  fix(single): P10 커밋이 덮어쓴 STAGE5-M9 변경 복원 + P10 표시 문구 재적용
+           → 최종 상태. e232d89 대비 39 insertions / 7 deletions(삭제는 전부 P10 편집 지점)
+
+  M ui/tabler_renderer.py
+      _mvRiSummaryHtml()     : _esUncertain / _more 확장 + _esNote 고지
+      _mvRiRenderGroupView() : _esU / _cntSfx / _cntTip / _esHdrNote + 열 헤더 title
+  A scripts/dev_e2e/p10_summary_count_disambiguation_fixture.py   (조기중단·정상 run 적재)
+  A scripts/dev_e2e/p10_summary_count_disambiguation_verify.py    (before/after 브라우저 계측)
+
+  * 코드 저장소(migration-validator) push 는 규칙대로 하지 않았다(로컬 커밋까지만).
+  * baseline 비교용 worktree C:\_wtp10 은 측정 후 `git worktree remove --force` + prune 로 제거
+    (git stash 미사용). 다른 세션의 worktree(scratchpad/baseline_wt)는 건드리지 않았다.
+
+────────────────────────────────────────────────────────────────────────────
+10. 실검증 상태
+────────────────────────────────────────────────────────────────────────────
+실검증 상태: 실 DB 미접속(오라클/PG 라이브 접속 0회). 실제 엔진(prepare_reimport_pk_index_stream)에
+  이터레이터를 주입해 영속 store(db/exact_diff_runs.db)에 조기중단/정상 두 run 을 적재한 뒤,
+  제품 서버 2개(baseline e232d89 → 8199 / 수정본 56572a5 → 8198)를 실제로 띄워
+  Chromium(Playwright)으로 제품 렌더 함수를 호출해 DOM 을 측정했다 — 표시 계층은 실제 브라우저
+  실측이고, DB 접속 구간만 픽스처다. 조기중단 여부·저장 건수·그룹 분포는 하니스가 아니라
+  제품 코드가 판정·저장한 값이다.
+
+✅ 작업 완료 - P10-SUMMARY-COUNT-DISPLAY-DISAMBIGUATION-FIX - 조기중단 시 5단계 요약 카드·그룹 요약표 건수를 '표시(저장)분 기준 하한'으로 구분 표기(정상 케이스 출력 HTML 바이트 단위 무변경), 작업 중 발생시킨 동시 세션 커밋 덮어쓰기 사고 1건은 복구 완료
