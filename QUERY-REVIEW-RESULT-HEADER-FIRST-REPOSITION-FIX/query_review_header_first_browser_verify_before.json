@@ -1,0 +1,366 @@
+{
+ "phase": "before",
+ "pair": [
+  "PostgreSQL_Inter_asis",
+  "PostgreSQL_Inter_tobe"
+ ],
+ "sql": "INSERT INTO tobe01.t_to_n_etl04 (student_id, activity_id, participation, activity_score, fb_summary, last_updated) SELECT stu_id, activity_id, participation, score, feedback, last_updated FROM asis01.t_as_n_etl04",
+ "setup": {
+  "pair_label": "PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe",
+  "pair_existed": false,
+  "pair_rows_after": 1,
+  "connect_clicked": true,
+  "pair_row_text": "접속중PostgreSQL_Inter_asis → PostgreSQL_Inter_tobePostgreSQL_Inter_asisPOSTGRESQLPostgreSQL_Inter_tobePOSTGRESQL상세접속 끊기삭제",
+  "current_tab": "analyze"
+ },
+ "A_탭진입직후": {
+  "보는탭": "query",
+  "표_카드_존재": true,
+  "표_카드_display": "none",
+  "표_카드_화면노출": false,
+  "표_카드_박스": {
+   "top": 0,
+   "bottom": 0,
+   "left": 0,
+   "right": 0,
+   "width": 0,
+   "height": 0
+  },
+  "SQL입력_카드_박스": {
+   "top": 250,
+   "bottom": 627,
+   "left": 302,
+   "right": 1558,
+   "width": 1256,
+   "height": 377
+  },
+  "표가_SQL입력_위": true,
+  "표와_SQL입력_겹침": false,
+  "표_SQL입력_간격_px": 250,
+  "헤더_라벨": [],
+  "값_행수": 0,
+  "값_첫행": null,
+  "라벨별_값": {},
+  "처리시간_슬롯": {
+   "stage1": {
+    "화면표시": false,
+    "display": "",
+    "값": ""
+   },
+   "stage2": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   },
+   "stage3": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   },
+   "stage4": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   },
+   "stage5": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   }
+  },
+  "단계탭바_텍스트": "1 쿼리검토 현재 2 COUNT 사전검증 잠김 3 후보 컬럼 선정 잠김 4 통계검증 실행 잠김 5 결과 확인 대기중(잠금)",
+  "단계탭바에_1단계처리시간문구": false,
+  "파싱_원본테이블": null,
+  "파싱_목적테이블": null,
+  "응답_diagnostics_total_ms": null,
+  "분석데이터_존재": false
+ },
+ "B_SQL입력후_실행전": {
+  "보는탭": "query",
+  "표_카드_존재": true,
+  "표_카드_display": "none",
+  "표_카드_화면노출": false,
+  "표_카드_박스": {
+   "top": 0,
+   "bottom": 0,
+   "left": 0,
+   "right": 0,
+   "width": 0,
+   "height": 0
+  },
+  "SQL입력_카드_박스": {
+   "top": 250,
+   "bottom": 627,
+   "left": 302,
+   "right": 1558,
+   "width": 1256,
+   "height": 377
+  },
+  "표가_SQL입력_위": true,
+  "표와_SQL입력_겹침": false,
+  "표_SQL입력_간격_px": 250,
+  "헤더_라벨": [],
+  "값_행수": 0,
+  "값_첫행": null,
+  "라벨별_값": {},
+  "처리시간_슬롯": {
+   "stage1": {
+    "화면표시": false,
+    "display": "",
+    "값": ""
+   },
+   "stage2": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   },
+   "stage3": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   },
+   "stage4": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   },
+   "stage5": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   }
+  },
+  "단계탭바_텍스트": "1 쿼리검토 현재 2 COUNT 사전검증 잠김 3 후보 컬럼 선정 잠김 4 통계검증 실행 잠김 5 결과 확인 대기중(잠금)",
+  "단계탭바에_1단계처리시간문구": false,
+  "파싱_원본테이블": null,
+  "파싱_목적테이블": null,
+  "응답_diagnostics_total_ms": null,
+  "분석데이터_존재": false
+ },
+ "실행결과": {
+  "step": "query",
+  "blocked": false,
+  "err": null,
+  "from_table": "T_AS_N_ETL04",
+  "target_table": ""
+ },
+ "C_쿼리검토_실행후": {
+  "보는탭": "query",
+  "표_카드_존재": true,
+  "표_카드_display": "flex",
+  "표_카드_화면노출": true,
+  "표_카드_박스": {
+   "top": 651,
+   "bottom": 838,
+   "left": 302,
+   "right": 1558,
+   "width": 1256,
+   "height": 187
+  },
+  "SQL입력_카드_박스": {
+   "top": 250,
+   "bottom": 627,
+   "left": 302,
+   "right": 1558,
+   "width": 1256,
+   "height": 377
+  },
+  "표가_SQL입력_위": false,
+  "표와_SQL입력_겹침": true,
+  "표_SQL입력_간격_px": -588,
+  "헤더_라벨": [
+   "No",
+   "원본 테이블",
+   "목적 테이블",
+   "입력 컬럼수",
+   "추출 컬럼수",
+   "매핑",
+   "조건",
+   "조인",
+   "상태"
+  ],
+  "값_행수": 1,
+  "값_첫행": [
+   "1",
+   "asis01.t_as_n_etl04",
+   "tobe01.t_to_n_etl04",
+   "6",
+   "6",
+   "6/6",
+   "없음",
+   "없음",
+   "● 정상"
+  ],
+  "라벨별_값": {
+   "No": "1",
+   "원본 테이블": "asis01.t_as_n_etl04",
+   "목적 테이블": "tobe01.t_to_n_etl04",
+   "입력 컬럼수": "6",
+   "추출 컬럼수": "6",
+   "매핑": "6/6",
+   "조건": "없음",
+   "조인": "없음",
+   "상태": "● 정상"
+  },
+  "처리시간_슬롯": {
+   "stage1": {
+    "화면표시": true,
+    "display": "",
+    "값": "· 1단계 처리시간: 0.72초"
+   },
+   "stage2": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   },
+   "stage3": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   },
+   "stage4": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   },
+   "stage5": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   }
+  },
+  "단계탭바_텍스트": "1 쿼리검토 현재 2 COUNT 사전검증 대기 3 후보 컬럼 선정 잠김 4 통계검증 실행 잠김 5 결과 확인 대기중(잠금) · 1단계 처리시간: 0.72초",
+  "단계탭바에_1단계처리시간문구": true,
+  "파싱_원본테이블": "T_AS_N_ETL04",
+  "파싱_목적테이블": "T_TO_N_ETL04",
+  "응답_diagnostics_total_ms": 721.5,
+  "분석데이터_존재": true
+ },
+ "D_타단계_슬롯_관측": {
+  "2단계": {
+   "보는탭": "count",
+   "처리시간_슬롯": {
+    "stage1": {
+     "화면표시": false,
+     "display": "none",
+     "값": "· 1단계 처리시간: 0.72초"
+    },
+    "stage2": {
+     "화면표시": false,
+     "display": "",
+     "값": ""
+    },
+    "stage3": {
+     "화면표시": false,
+     "display": "none",
+     "값": ""
+    },
+    "stage4": {
+     "화면표시": false,
+     "display": "none",
+     "값": ""
+    },
+    "stage5": {
+     "화면표시": false,
+     "display": "none",
+     "값": ""
+    }
+   },
+   "쿼리검토표_노출": false
+  },
+  "3단계": {
+   "보는탭": "count",
+   "처리시간_슬롯": {
+    "stage1": {
+     "화면표시": false,
+     "display": "none",
+     "값": "· 1단계 처리시간: 0.72초"
+    },
+    "stage2": {
+     "화면표시": false,
+     "display": "",
+     "값": ""
+    },
+    "stage3": {
+     "화면표시": false,
+     "display": "none",
+     "값": ""
+    },
+    "stage4": {
+     "화면표시": false,
+     "display": "none",
+     "값": ""
+    },
+    "stage5": {
+     "화면표시": false,
+     "display": "none",
+     "값": ""
+    }
+   },
+   "쿼리검토표_노출": false
+  },
+  "4단계": {
+   "보는탭": "count",
+   "처리시간_슬롯": {
+    "stage1": {
+     "화면표시": false,
+     "display": "none",
+     "값": "· 1단계 처리시간: 0.72초"
+    },
+    "stage2": {
+     "화면표시": false,
+     "display": "",
+     "값": ""
+    },
+    "stage3": {
+     "화면표시": false,
+     "display": "none",
+     "값": ""
+    },
+    "stage4": {
+     "화면표시": false,
+     "display": "none",
+     "값": ""
+    },
+    "stage5": {
+     "화면표시": false,
+     "display": "none",
+     "값": ""
+    }
+   },
+   "쿼리검토표_노출": false
+  },
+  "5단계": {
+   "보는탭": "count",
+   "처리시간_슬롯": {
+    "stage1": {
+     "화면표시": false,
+     "display": "none",
+     "값": "· 1단계 처리시간: 0.72초"
+    },
+    "stage2": {
+     "화면표시": false,
+     "display": "",
+     "값": ""
+    },
+    "stage3": {
+     "화면표시": false,
+     "display": "none",
+     "값": ""
+    },
+    "stage4": {
+     "화면표시": false,
+     "display": "none",
+     "값": ""
+    },
+    "stage5": {
+     "화면표시": false,
+     "display": "none",
+     "값": ""
+    }
+   },
+   "쿼리검토표_노출": false
+  }
+ },
+ "pageerrors": []
+}
