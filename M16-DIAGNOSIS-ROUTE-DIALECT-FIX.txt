@@ -1,0 +1,211 @@
+작업명 : M16-DIAGNOSIS-ROUTE-DIALECT-FIX
+========================================================================================
+백로그 M16 — routes/diagnosis_route.py `_count_rows` 의 sqlglot 방언 하드코딩 제거
+========================================================================================
+
+■ 1. 요청 요약
+  백로그 M16(위험 낮음·우선순위 낮음): `routes/diagnosis_route.py` 의 `_count_rows()` 가
+  sqlglot 파싱 read 방언과 렌더 dialect 를 둘 다 문자열 리터럴 "postgres" 로 고정하고 있어,
+  오라클 등 비-PG 접속에서도 PG 문법으로 재렌더된 COUNT SQL 이 나갔다.
+  오늘 확립된 '방언 위임' 패턴(같은 파일 `_routing_dialect`, agg_diff_route, exact_diff_route,
+  count_gate_route 에 이미 적용)과 일관되게 정리한다.
+  근거 문서: E:\verify_reports\DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE.txt
+
+■ 2. 수정 대상
+  routes/diagnosis_route.py  (지시대로 이 파일 1개만 수정)
+  scripts/dev_e2e/m16_diagnosis_route_dialect_verify.py  (신규 — 검증 전용, 운영 경로 아님)
+
+■ 3. 수정 전 상태(실측)
+  routes/diagnosis_route.py:1494~1509 (수정 전 행번호)
+
+    def _count_rows(conn, base_sql):
+        ...
+        tree = _parse_one_guarded(base_sql, read="postgres")          ← 하드코딩 ①
+        ...
+        _c, rows, _t = cmn_db_fetch_select_readonly(
+            conn, tree.sql(dialect="postgres"), ...)                   ← 하드코딩 ②
+
+  - 호출부는 `_resolve_size_class(req)` 1곳(운영). req.src_count/tgt_count 가 둘 다 없고
+    src/tgt 접속·SQL 이 모두 있을 때만 호출된다 → POST /diagnosis/size-strategy,
+    /diagnosis/drilldown-strategy 등 크기 등급 산정 경로.
+  - 기존 진단 스크립트 `scripts/dev_e2e/routes_limit_dialect_secondary_check.py:275` 도
+    "read/dialect 둘 다 'postgres' 리터럴이라 항상 postgres 렌더" 로 이 지점을 이미 기록해 두었다.
+
+  [실제 영향 범위 — 사실관계]
+  이 함수가 만드는 SQL 은 base SQL 의 SELECT 목록을 `COUNT(*) AS C` 로 갈아끼우고
+  GROUP BY/ORDER BY/HAVING 을 제거한 형태다. LIMIT·FETCH FIRST·캐스트 같은
+  방언 민감 요소를 새로 붙이지 않기 때문에, 단순 base SQL 에서는 PG 렌더와 오라클 렌더가
+  실제로 동일한 문자열이 되는 경우가 많다(아래 [5-2] 실측에서 확인).
+  즉 M16 은 '지금 당장 깨지는 결함'이 아니라 **잠재 결함 + 패턴 불일치**이며,
+  백로그가 위험 낮음으로 평가한 것과 일치한다. 다만 base SQL 에 방언 고유 문법
+  (오라클 FETCH FIRST / ROWNUM, MSSQL TOP, MySQL 백틱 등)이 들어오면 read="postgres"
+  파싱이 실패해 조용히 None → SIZE_UNKNOWN 으로 열화되므로 정리 가치는 있다.
+
+■ 4. 수정 내용
+  (1) `_count_rows(conn, base_sql, dialect: str = "postgres")` — 방언을 인자로 받아
+      파싱 read 와 렌더 dialect 에 그대로 위임한다. 함수 안에 DBMS 분기를 만들지 않았다.
+      기본값 "postgres" 를 둔 이유: 방언을 넘기지 않는 기존 2인자 호출부
+      (dev 검증 스크립트 routes_limit_dialect_secondary_check.py:334)의 동작을 그대로 보존.
+  (2) `_resolve_size_class(req)` 가 **같은 파일의 기존 헬퍼 `_routing_dialect(req)`** 로
+      접속 db_type → sqlglot 방언을 도출해 넘긴다. 새 매핑표/새 도출 로직을 만들지 않았고,
+      공통 헬퍼 `services.sql_dependency_pruning._to_sqlglot_dialect` 단일 출처를 그대로 탄다.
+  (3) 혼합 방언(src≠tgt) 규약: `_routing_dialect` 가 이미
+      `s if s == t else "postgres"` 를 구현하고 있어, 기존 3개 수정본
+      (agg_diff_route._chunkkey_dialect / exact_diff_route._resolve_key /
+       diagnosis_route._confirm_routing)과 **동일 규약이 그대로 적용**된다.
+  (4) 안전측 축약 유지: try/except 로 감싼 구조 불변 → 파싱/렌더/실행 실패 시 None 반환,
+      classify_table_size(None, None) → SIZE_UNKNOWN. 등급 없이 진행되는 일은 없다.
+  (5) S18 가드 파서 경로 불변: `parser.sqlglot_safe_parse.parse_one_guarded` 를 계속 사용한다
+      (sqlglot 오라클 WITH 무한 hang 방어). 사용되지 않던 `import sqlglot` 만 함께 제거.
+
+■ 5. 실측 검증
+  검증 스크립트: scripts/dev_e2e/m16_diagnosis_route_dialect_verify.py
+  실행: python scripts/dev_e2e/m16_diagnosis_route_dialect_verify.py
+  결과: 전부 통과 (FAIL 0건)
+
+  [5-1] 정적 — 하드코딩 제거 / 헬퍼 재사용
+    [PASS] _count_rows 시그니처 (conn, base_sql, dialect: 'str' = 'postgres')
+    [PASS] dialect 기본값 'postgres' — 기존 2인자 호출부 동작 보존
+    [PASS] _count_rows 본문에 read=/dialect= 'postgres' 리터럴 없음
+    [PASS] 파싱 read 방언 위임(S18 가드 파서 경로 그대로)
+    [PASS] 렌더 dialect 위임
+    [PASS] SQLGLOT-PARSE-TIMEOUT-GUARD 유지
+    [PASS] 실패 시 None(SIZE_UNKNOWN 안전측 축약) 유지
+    [PASS] _resolve_size_class 가 기존 헬퍼 _routing_dialect 재사용(새 로직 발명 없음)
+    [PASS] 혼합 방언 규약 `_sd if _sd == _td else 'postgres'` 동일 적용
+
+  [5-2] 결정적 실측 — 실행 직전 SQL 가로채기(공통 read-only 실행 함수 monkeypatch)
+    입력 base: SELECT REGION_CD, COUNT(*) AS C FROM NXDNP.MV_ORA_TEST_SRC GROUP BY REGION_CD
+      postgres  → SELECT COUNT(*) AS C FROM NXDNP.MV_ORA_TEST_SRC
+      oracle    → SELECT COUNT(*) AS C FROM NXDNP.MV_ORA_TEST_SRC
+      mysql     → SELECT COUNT(*) AS C FROM NXDNP.MV_ORA_TEST_SRC
+      tsql      → SELECT COUNT(*) AS C FROM NXDNP.MV_ORA_TEST_SRC
+    [PASS] 4개 지원 방언 전부 렌더·실행 도달
+    [PASS] 오라클 렌더에 PG식 강제 큰따옴표 없음
+    (참고) oracle 렌더 == postgres 렌더 ? True
+           → 이 base SQL 에서는 결과 SQL 이 동일. 위 [3]의 '영향 범위' 서술을 실측이 뒷받침한다.
+    [PASS] 2인자 호출(기존 시그니처)은 종전과 동일 postgres 렌더 — 하위호환 확인
+
+  [5-3] 혼합 방언 fold — _routing_dialect 규약
+    src=oracle     tgt=oracle     → oracle    [PASS]
+    src=postgresql tgt=postgresql → postgres  [PASS]
+    src=mysql      tgt=mysql      → mysql     [PASS]
+    src=mssql      tgt=mssql      → tsql      [PASS]
+    src=oracle     tgt=postgresql → postgres  [PASS]  ← 기존 3개 수정본과 동일 fold
+    src=mysql      tgt=oracle     → postgres  [PASS]
+
+  [5-4] 안전측 축약 유지
+    [PASS] 파싱 불가 입력("NOT A SQL @@@ ###", read=oracle) → 반환 None
+    [PASS] classify_table_size(None, None) → SIZE_UNKNOWN
+
+  [5-5] 라이브 실측 — 오라클 (지시 3)
+    픽스처: NXDNP.MV_ORA_TEST_SRC / MV_ORA_TEST_TGT (Oracle_asis / Oracle_tobe 프리셋)
+    TCP 도달성: asis/tobe 도달 ✓
+    도출 방언: oracle                                       [PASS]
+    _count_rows(dialect=oracle  ) = 300
+    _count_rows(dialect=postgres) = 300   ← 수정 전 고정 경로
+    [PASS] 오라클 방언 위임 COUNT 정상 반환
+    [PASS] 수정 전/후 결과 동일(회귀 없음) — 300 → 300
+    POST /diagnosis/size-strategy 종단 호출:
+      ok=True  source_count=300  target_count=300  selected_strategy=ROW_DIFF_ALLOWED
+    [PASS] 라우트 정상 응답
+    [PASS] 원본/목적지 COUNT 모두 수집(SIZE_UNKNOWN 아님)
+
+    → 지시대로 "기존에도 정상 동작했음"이 방언 위임 후에도 **동일 결과**임을 재확인했다.
+
+  [5-6] PG 대조군
+    ok=True 이나 source_count/target_count 는 None.
+    원인은 내부망 PG(192.168.0.150:5434) 프리셋의 SSL 설정 불일치
+    ("server does not support SSL, but SSL was required") — 접속 단계 실패이며
+    방언과 무관한 사전 존재 환경 이슈다. 이 경우에도 설계대로 None → SIZE_UNKNOWN 으로
+    안전측 축약됐고 라우트는 정상 응답했다(요구사항 3 동작 확인).
+
+■ 6. 테스트 — baseline 대조
+  대상 서브셋(진단/전략/방언 관련 10개 파일):
+    tests/test_diagnosis_size_strategy.py, test_diagnosis_drilldown_strategy.py,
+    test_diagnosis_ui_workflow.py, test_diagnosis_level_batch.py, test_diagnosis_phase3b.py,
+    test_diagnosis_keyrange_e2e.py, test_diagnosis_groupby_scoring.py,
+    test_engine_cardinality_parity.py, test_dialect_resolver.py, test_task_dialect_align.py
+
+    수정 후 (작업 트리)          : 3 failed, 115 passed, 8 skipped in 9.52s
+    baseline (git worktree @ef440ee): 3 failed, 115 passed, 8 skipped in 9.57s
+    → 통과/실패/스킵 건수 및 실패 항목이 완전히 동일. 회귀 없음.
+    (baseline 은 git worktree 로 HEAD 를 별도 체크아웃해 대조했다 — git stash 미사용)
+
+  실패 테스트 전체 목록 (3건 — baseline 에서도 동일하게 실패하는 사전 존재 실패):
+    1) tests/test_diagnosis_phase3b.py::test_next_strategy_preview_matrix
+    2) tests/test_diagnosis_phase3b.py::test_start_passes_confirmed_chunk_key
+    3) tests/test_engine_cardinality_parity.py::test_engine_stats_change_groupby_candidacy
+       - assert 'CHANNEL_CD' not in {'CHANNEL_CD': False}
+    → 3건 모두 이번 수정과 무관(수정 전 HEAD 에서 동일 실패 재현 확인).
+
+  CLAUDE.md 규정 회귀 스위트:
+    python samples/test_virtual_cases.py  → 8/8 통과 ✅
+    python samples/test_complex_cases.py  → 5/5 케이스 분석 완료 ✅
+
+■ 7. git diff / 커밋
+  커밋 해시: 1b233b3
+  제목: fix(dialect): 크기등급 COUNT 재렌더 방언 위임 — postgres 하드코딩 제거
+        (M16-DIAGNOSIS-ROUTE-DIALECT-FIX)
+  직전 HEAD: ef440ee (S15-GROUPBY-GATE-TOKENLESS-PATH-TRUST-FIX)
+  변경 파일: routes/diagnosis_route.py (+16/-7),
+             scripts/dev_e2e/m16_diagnosis_route_dialect_verify.py (신규)
+
+  --- a/routes/diagnosis_route.py
+  +++ b/routes/diagnosis_route.py
+  @@ _resolve_size_class @@
+       if sc is None and tc is None and req.src_conn and req.tgt_conn and req.src_sql and req.tgt_sql:
+  -        sc = _count_rows(req.src_conn, req.src_sql)
+  -        tc = _count_rows(req.tgt_conn, req.tgt_sql)
+  +        # [M16-DIAGNOSIS-ROUTE-DIALECT-FIX] COUNT 재렌더 방언을 접속에서 도출해 위임한다
+  +        # (같은 파일의 기존 _routing_dialect 재사용 — 새 매핑/새 로직 만들지 않음).
+  +        _dia = _routing_dialect(req)
+  +        sc = _count_rows(req.src_conn, req.src_sql, dialect=_dia)
+  +        tc = _count_rows(req.tgt_conn, req.tgt_sql, dialect=_dia)
+  @@ _count_rows @@
+  -def _count_rows(conn, base_sql):
+  +def _count_rows(conn, base_sql, dialect: str = "postgres"):
+       try:
+  -        import sqlglot
+           from sqlglot import exp
+           from services.db_query_service import cmn_db_fetch_select_readonly
+           from parser.sqlglot_safe_parse import parse_one_guarded as _parse_one_guarded
+  -        tree = _parse_one_guarded(base_sql, read="postgres")
+  +        _dia = dialect or "postgres"
+  +        tree = _parse_one_guarded(base_sql, read=_dia)
+           tree.set("expressions", [exp.Count(this=exp.Star()).as_("C")])
+           tree.set("group", None); tree.set("order", None); tree.set("having", None)
+  -        _c, rows, _t = cmn_db_fetch_select_readonly(conn, tree.sql(dialect="postgres"), params=[], statement_timeout_ms=60000)
+  +        _c, rows, _t = cmn_db_fetch_select_readonly(conn, tree.sql(dialect=_dia), params=[], statement_timeout_ms=60000)
+           return int(rows[0][0]) if rows else None
+       except Exception:  # noqa: BLE001
+           return None
+
+■ 8. 비판적 검토
+  - 긍정적 효과: routes/ 방언 하드코딩 지점 1곳 해소. base SQL 에 방언 고유 문법이 들어올 때
+    파싱 실패로 조용히 SIZE_UNKNOWN 열화되던 잠재 경로가 닫힌다. 패턴 일관성 확보.
+  - 구조적 문제점: 없음. 새 함수·새 매핑표·인라인 DBMS 분기를 추가하지 않고 기존 헬퍼만 재사용해
+    web_server.py/라우트 비대화에 기여하지 않는다. 방언 도출 단일 출처
+    (services.sql_dependency_pruning._to_sqlglot_dialect)를 그대로 유지.
+  - 운영상 위험: 낮음. 실패 경로가 종전과 동일하게 None→SIZE_UNKNOWN 으로 축약되고,
+    오라클 라이브에서 수정 전/후 결과가 동일(300/300)임을 실측했다. 롤백은 커밋 1개 revert.
+  - heuristic/scoring/explainability 영향: heuristic 규칙 증가 없음(순수 위임).
+    근거 저장 방식 변경 없음.
+  - 남은 한계(이번 범위 밖): 혼합 방언(src≠tgt)은 기존 규약대로 "postgres" 로 접히므로,
+    오라클↔PG 혼합 접속에서는 여전히 한쪽 방언으로 렌더된다. 이는 이번 수정에서 새로 생긴
+    것이 아니라 기존 3개 수정본과 동일한 의도적 안전판이며, 상위 하드게이트가 혼합 방언을
+    차단한다는 전제에 기대고 있다. 별도 항목으로 남긴다.
+
+■ 9. 실검증 상태
+  실검증 상태: 라이브 오라클 DB 실행 검증 완료 (Oracle_asis/Oracle_tobe TCP 도달,
+  NXDNP.MV_ORA_TEST_SRC/TGT 300행, POST /diagnosis/size-strategy 종단 호출 ok=True,
+  방언 위임 전/후 COUNT 동일 300→300). PG 대조군은 내부망 PG 프리셋 SSL 불일치로 접속 실패
+  (사전 존재 환경 이슈, 방언 무관) — 안전측 SIZE_UNKNOWN 축약 동작만 확인.
+  화면 검증 불필요(백엔드 전용 변경 — 지시상 스크린샷 제외).
+
+========================================================================================
+✅ 작업 완료 - M16-DIAGNOSIS-ROUTE-DIALECT-FIX - routes/diagnosis_route.py `_count_rows`
+의 sqlglot read/렌더 "postgres" 하드코딩 2곳을 기존 `_routing_dialect` 헬퍼 위임으로 교체
+(혼합 방언은 기존 규약대로 postgres fold, 파싱 실패 시 SIZE_UNKNOWN 축약 유지).
+오라클 라이브 실측 300/300 동일·서브셋 115 passed(실패 3건 baseline 동일)·커밋 1b233b3.
+========================================================================================
