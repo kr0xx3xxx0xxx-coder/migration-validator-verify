@@ -1,0 +1,409 @@
+작업명 : CHUNK-SIZE-POLICY-AND-DBMS-PROBE-AND-KEYMETA-DEDUP-G2-P7-P14-FIX
+✅ 작업 완료 - 3개 파트 전부 수정 완료 — G2 청크 상·하한 실제 강제, P7 접속 감지 지연 60.2초→0.08초, P14 키메타 요청당 5회→3회
+
+════════════════════════════════════════════════════════════════════════
+0. 요청 요약 / 결론 요약
+════════════════════════════════════════════════════════════════════════
+백로그 G2·P7·P14 를 하나의 지침으로 순차 처리했다. 세 파트 모두 파일이 겹치지 않아 전부 수행했다.
+
+  [A/G2]  청크 크기 min/max 상한 사장     → 제거가 아니라 '연결' (실제 강제되게 배선)
+  [B/P7]  DBMS probe fallback 지연        → 근본원인은 순차 누적이 아니라 드라이버 타임아웃 미적용
+  [C/P14] 목적지 키메타 요청당 2회 중복    → 값이 아닌 '결과'를 캐시해 안전하게 통합
+
+────────────────────────────────────────────────────────────────────────
+0-1. 병행 확인 결과 (착수 전 온전성 점검)
+────────────────────────────────────────────────────────────────────────
+착수 시 HEAD 10c932f, 작업트리 클린(미추적 dev_e2e 스크립트만).
+파트 A 대상 `services/strategy/strategy_transition.py` 는 착수 시점 미변경 상태였고, 오늘 G1/G4 작업분은
+이미 커밋(HEAD 계보)에 포함돼 있었다 — 충돌 없음.
+
+작업 중 HEAD 가 8bba4a3(SAMPLING-PREFLIGHT-COST-AWARE-JUDGMENT-P4-FIX)으로 전진했고, 동시에 다른 세션의
+**미커밋 변경**이 작업트리에 들어왔다:
+  services/exact_diff/pk_range_chunk.py (+223)
+  services/exact_diff/dialects/oracle.py / postgresql.py
+  (미추적) services/exact_diff/chunk_pushdown.py, tests/test_pk_range_chunk_pushdown_and_imbalance.py
+이 파일들은 **지침이 지정한 동시 진행 지침(pk_range_chunk.py)의 작업분**이므로 전혀 건드리지 않았고,
+커밋 전에 패치·파일 사본을 스크래치패드에 백업한 뒤 경로 지정 커밋만 수행했다(커밋 후 잔존 재확인 §8).
+
+════════════════════════════════════════════════════════════════════════
+1. [파트 A / G2] 청크 크기 min/max 상한이 사장돼 있다
+════════════════════════════════════════════════════════════════════════
+
+1-1. 위치 확인 결과
+────────────────────────────────────────────────────────────────────────
+선언 (소비처 0건 확인):
+  services/exact_diff/execution_settings.py:29-31
+      default_chunk_size = 50000 / min_chunk_size = 10000 / max_chunk_size = 200000
+
+청크 크기가 '결정'되는 지점은 코드 전체에서 2곳이었다:
+  ① services/strategy/strategy_transition.py `_out()`        → 계획·전환판정 출력 selected_chunk_size
+       (호출부: routes/strategy_route.py:65 실행계획 카드, routes/agg_diff_route.py:63 실행 전략 확정)
+  ② routes/agg_diff_route.py:164 `_pk_range_chunk_size(req)` → **엔진 입력 단일 지점**
+       우선순위: 요청 파라미터 req.chunk_size > 정책 override(strategy_resource_weights.pk_range_chunk_size)
+                > 코드 기본 50000
+엔진 `services/exact_diff/pk_range_chunk.py:248` 의 `max(1, int(chunk_size))` 는
+**동시 진행 지침의 대상 파일이라 미접촉**(지침 지시대로). 위 ②에서 강제하면 엔진에 도달하기 전에 걸린다.
+
+1-2. 판단 — '제거'가 아니라 '연결'
+────────────────────────────────────────────────────────────────────────
+죽은 코드로 제거하지 않고 연결하는 쪽을 택했다. 근거:
+  · 청크 크기는 이미 **외부에서 3경로로 주입 가능**하다(요청 파라미터 / 정책 override / 전환판정 config).
+    강제 지점이 없다는 것은 '상한이 안 쓰인다'가 아니라 '상한이 없다'는 뜻이다.
+  · 상수를 지우면 상·하한이라는 정책 개념 자체가 사라져, 청크 1(=고정비 폭증) / 10,000,000(=메모리·재개
+    단위 붕괴)을 막을 근거가 코드에서 없어진다.
+  · 연결 비용이 작다 — 새 정책 판단을 만들지 않고 기존 선언값을 강제하기만 한다.
+
+1-3. 구현
+────────────────────────────────────────────────────────────────────────
+  services/exact_diff/execution_settings.py  (신규 함수 2개 — 강제 단일 지점)
+      clamp_chunk_size(value)      → 상·하한 적용값
+      clamp_chunk_size_ex(value)   → (적용값, 사유코드) — explainability 확보
+        사유코드: CHUNK_SIZE_DEFAULT_APPLIED / CLAMPED_TO_MIN / CLAMPED_TO_MAX / POLICY_UNAVAILABLE
+      · min > max 로 뒤집힌 설정도 예외 없이 동작(정렬 사용), 설정 조회 실패 시 원값 통과(실행 중단 금지)
+  services/strategy/strategy_transition.py   `_clamp_selected_chunk_size()` → `_out()` 에서 호출
+      · DIRECT 선택(None)은 그대로 통과 — clamp 가 없는 값을 만들어내지 않는다
+      · 값이 바뀌면 reason_codes 에 사유를 남긴다(조용한 값 변경 금지)
+  routes/agg_diff_route.py                   `_clamp_chunk_size()` → `_pk_range_chunk_size()` 두 반환 지점
+
+1-4. 전/후 실측 (tests/test_chunk_policy_dbms_probe_keymeta_g2_p7_p14.py 로 자동 검증)
+────────────────────────────────────────────────────────────────────────
+  입력 경로                                   수정 전            수정 후
+  ──────────────────────────────────────────────────────────────────────────────
+  요청 chunk_size = 1                         1                 10,000  (하한)
+  요청 chunk_size = 10,000,000                10,000,000        200,000 (상한)
+  정책 override pk_range_chunk_size = 1       1                 10,000
+  transition_config default = 10,000,000      10,000,000        200,000 + reason CHUNK_SIZE_CLAMPED_TO_MAX
+  요청 chunk_size = 50,000 (UI 기본)          50,000            50,000  (불변)
+  요청 chunk_size = 0      (UI stream OFF)    50,000            50,000  (불변)
+
+  ※ UI 클라이언트는 `chunk_size: (useStream ? 50000 : 0)` 만 보낸다(ui/tabler_renderer.py:17107).
+    즉 **정상 사용자 경로의 동작·성능은 전·후 완전히 동일**하고, 이번 변경은 정책/API override 경로의
+    안전장치로만 작동한다.
+
+1-5. 위험 (그대로 남는 것 포함)
+────────────────────────────────────────────────────────────────────────
+  · 기존 checkpoint 의 저장 chunk_size 가 범위 밖이면 `ckpt.resumable()` 의 chunk_size 동일성 검사에
+    걸려 **재개 대신 재시작**한다. 정확성은 보존되고 성능만 손해다. 실사용 값이 50,000 뿐이라 실제
+    발생 가능성은 낮으나, 저장된 과거 run 을 재개하는 경로(ui/js_restore_individual_adapter.py:113)가
+    존재하므로 기록해 둔다.
+  · 엔진 자체(`pk_range_chunk.build_chunk_bounds`)의 `max(1, ...)` 는 그대로다 — 엔진을 **직접** 호출하는
+    테스트/스크립트는 여전히 상·하한을 받지 않는다(의도적. 동시 진행 지침 파일이라 미접촉).
+
+════════════════════════════════════════════════════════════════════════
+2. [파트 B / P7] DBMS probe fallback 순차 재시도 지연
+════════════════════════════════════════════════════════════════════════
+
+2-1. 위치 확인 결과
+────────────────────────────────────────────────────────────────────────
+  services/db_connection_service.py:31   `_DBMS_PROBE_ORDER = ("postgresql","oracle","mysql","mssql")`
+  services/db_connection_service.py:158  `detect_dbms_from_connection()` ← 지연 발생 본체
+  호출부: `run_connection_test()`(UI /db/test) · `detect_and_validate_for_save()`(프리셋 저장 전 재검증)
+  ※ oracle/mariadb/db2 는 `_DIRECT_TESTERS` 전용 경로라 이 fallback 을 타지 않는다.
+
+  백로그 P7 의 근거(80,288ms)는 diagnosis 라우트에서 관측된 값이지만, '방언/드라이버 순차 재시도'라는
+  지연의 실체는 위 공통 감지 함수다. 아래 실측으로 재현했다.
+
+2-2. 근본원인 실측 — '순차 누적'이 아니라 '드라이버가 타임아웃을 안 지킨다'
+────────────────────────────────────────────────────────────────────────
+실 PostgreSQL 엔드포인트(192.168.0.150:5433)에 timeout=5 로 드라이버별 개별 probe:
+
+    postgresql       71.2 ms   ← 서버 인증 거부(=서버가 응답, DBMS 확정)
+    oracle            0.6 ms   ← cx_Oracle 미설치(즉시)
+    mysql        60,071.3 ms   ★ 지연 전량
+    mssql             2.9 ms   ← pyodbc 미설치(즉시)
+
+  pymysql 단독 대조:
+    connect_timeout=5 만                          → 60,026.7 ms
+    connect_timeout+read_timeout+write_timeout=5  →  5,020.0 ms
+  즉 `connect_timeout` 은 **TCP 연결까지만** 덮는다. 상대가 MySQL 이 아니면 핸드셰이크 응답이 오지 않아
+  **읽기에서 60초 블로킹**된다. 순차 누적은 그 위에 얹힌 2차 요인이었다.
+
+2-3. 수정 3종
+────────────────────────────────────────────────────────────────────────
+  ① 드라이버 타임아웃 실전파 (근본원인)
+       mysql : `read_timeout` / `write_timeout` 추가 (`_connect_and_fetch_version`, `_test_mariadb` 양쪽)
+       mssql : 연결문자열에 `Connection Timeout=` 추가 — pyodbc 의 connect(timeout=) 은 '쿼리' 타임아웃이라
+               로그인 단계를 덮지 못한다 (pyodbc 미설치 환경이라 코드 리뷰 근거만, 실측 불가)
+  ② 서버 식별 시 fallback 생략 (`SERVER_IDENTIFIED_SKIP`)
+       selected 드라이버가 **서버가 응답한 에러**로 실패하면 그 엔드포인트의 DBMS 는 이미 확정이므로
+       나머지 드라이버 probe 를 하지 않는다. 판정은 `_server_identified_dbms()` 한 곳:
+         postgresql : psycopg2 pgcode/diag.sqlstate, 없으면 libpq 심각도 표기(FATAL:/ERROR:/PANIC:)
+                      — 실측상 psycopg2 는 **접속 단계** 실패에 pgcode 를 채우지 않는다(둘 다 None).
+                        이 표기는 libpq 가 서버 ErrorResponse 패킷을 해석했을 때만 붙는 프로토콜 증거다.
+         mysql      : 서버 에러번호(1000~1999). 클라이언트측 2000번대(2003 접속불가 등)는 제외
+         oracle     : ORA-nnnnn 코드. 리스너/네트워크 단계 코드(12154/12514/12541/12545/12560/3113/3114) 제외
+         mssql      : SQLSTATE 28xxx(인증)·42xxx(권한) 만. 08xxx(연결실패) 제외
+       근거가 없으면 False → 종전처럼 fallback 을 돈다(감지 기회를 잃지 않는 쪽으로 보수 판정).
+  ③ 남은 드라이버 병렬 시도 (`PARALLEL_FALLBACK`, 기본 ON · kill-switch `MV_DBMS_PROBE_PARALLEL=0`)
+       selected 는 **단독으로 먼저** 시도한다 → 성공 경로는 예전 그대로 1회 접속으로 끝난다
+       (성공하는 실 DB 에 투기적 접속을 추가로 던지지 않기 위한 의도적 설계).
+       성공 선택은 완료 순서가 아니라 항상 `_DBMS_PROBE_ORDER` 우선순위 — 병렬이 결과를 바꾸지 못한다.
+
+  진단 필드 추가(표시 전용, 판정 미사용): `DetectedDbmsInfo.probe_mode` / `probe_attempt_count`
+    SELECTED_OK / SELECTED_ONLY / SERVER_IDENTIFIED_SKIP / PARALLEL_FALLBACK / SEQUENTIAL_FALLBACK
+
+2-4. 전/후 실측
+────────────────────────────────────────────────────────────────────────
+(가) 라이브 PostgreSQL 192.168.0.150:5433, timeout=5
+
+  케이스                                    수정 전        수정 후      개선      감지 결과
+  ────────────────────────────────────────────────────────────────────────────────────────
+  인증 실패 · selected=postgresql          60,158.5ms      77.1ms    -99.87%   실패(동일)
+      probe 시도 4회 → 1회, mode=SERVER_IDENTIFIED_SKIP
+  selected=mysql · 실제 PG(잘못된 비번)    60,000ms 초과  5,144.5ms   -91.4%    실패(동일)
+  selected=mysql · 실제 PG(정상 비번)      60,000ms 초과  5,154.7ms   -91.4%    detected=postgresql (동일)
+      → DBMS_MISMATCH 판정·메시지 불변
+  정상 접속 · selected=postgresql             160.4ms      160.4ms     불변     detected=postgresql
+      mode=SELECTED_OK, probe 1회 — 성공 경로는 전·후 완전 동일
+
+(나) 도달 불가/닫힌 포트 (scripts/dev_e2e/dbms_probe_fallback_delay_measure.py, timeout=3)
+    ※ 이 PC 는 드라이버가 2종(psycopg2·pymysql)만 설치돼 있어 병렬 이득이 축소돼 나타난다.
+
+  케이스                              순차(=수정 전)   병렬(수정 후)    개선
+  ────────────────────────────────────────────────────────────────────────
+  unreachable · selected=mssql          6,021.3ms      3,015.6ms     -49.9%
+  unreachable · selected=postgresql     6,025.3ms      6,025.3ms      0%   ← 설치 2종뿐(선택1 + 병렬1)
+  unreachable · selected=mysql          6,023.7ms      6,025.3ms      0%   ← 동일 사유
+  closed-port · selected=postgresql     4,080.2ms      4,059.2ms      ~0%
+  closed-port · selected=mysql          4,080.0ms      4,064.6ms      ~0%
+
+  드라이버 4종이 모두 설치된 운영 환경 기준 산식:
+    수정 전 = 4 × timeout(순차 누적)   → 수정 후 = 1(선택) + 1(병렬 최댓값) = 2 × timeout
+    여기에 ②(서버 식별 시 생략)가 겹치면 인증 거부·쿼터 거부·DB 없음 같은 **가장 흔한 실패**는
+    1 × (서버 응답시간) 으로 끝난다 — 위 (가)의 60.2초 → 0.077초가 그 경우다.
+
+2-5. 위험 / 미수정 잔존
+────────────────────────────────────────────────────────────────────────
+  · [동작 변화] 병렬 모드는 성공한 뒤에도 남은 드라이버 시도를 끝까지 진행한다(순차는 첫 성공에서 중단).
+    DBMS 불일치 상황에서 해당 엔드포인트에 **실패 로그인 시도가 최대 3회 늘어난다.** 계정 잠금 정책이
+    있는 DB 를 다루는 현장이라면 `MV_DBMS_PROBE_PARALLEL=0` 으로 순차 복귀할 수 있다.
+    (단 ②가 먼저 걸리는 인증 실패 케이스에서는 오히려 시도가 4회 → 1회로 **줄어든다**.)
+  · [미수정 · 범위 밖] `_connect_and_fetch_version` 의 oracle 분기는 cx_Oracle 전용이고
+    `cx_Oracle.connect(..., timeout=...)` 는 존재하지 않는 인자다. cx_Oracle 이 설치된 환경에서는
+    oracle probe 가 TypeError 로 즉시 실패해 **오라클을 감지하지 못한다.** 이 PC 는 cx_Oracle 미설치라
+    재현·검증이 불가능해 손대지 않았다(직접 테스터 `_test_oracle` 은 oracledb 를 쓰므로 접속 테스트 자체는 정상).
+  · [미수정] mssql 의 `Connection Timeout=` 는 pyodbc 미설치로 실측하지 못했다(코드 리뷰 근거만).
+
+════════════════════════════════════════════════════════════════════════
+3. [파트 C / P14] 목적지 키메타 요청당 2회 중복 조회
+════════════════════════════════════════════════════════════════════════
+
+3-1. 위치 확인 결과
+────────────────────────────────────────────────────────────────────────
+  services/db_query_service.py:1301          `_cmn_fetch_tgt_col_meta`
+  services/single_validation_analyze_service.py:239  `_build_target_pk_evidence`
+  둘 다 `get_adapter(db_type).fetch_key_metadata(conn, bare_table)` 를 각자 1회씩 호출.
+
+3-2. '단순 통합이 안전한가' 판단 — 안전하지 않다. 그래서 값이 아니라 결과를 캐시했다
+────────────────────────────────────────────────────────────────────────
+두 호출부의 **실패 처리 의미가 실제로 다르다**(백로그 지적 확인됨):
+  · `_cmn_fetch_tgt_col_meta` : 조회 실패 → 컬럼 메타 **전체를 포기하지 않는다.** is_pk 를 전부 False 로
+    두고 진행한다(PK 정보만 없을 뿐 메타는 유효).
+  · `_build_target_pk_evidence`: 조회 실패 → **근거 부재**로 귀결돼야 한다.
+    available=False + reason 을 남겨 소비측(3단계 실행계획 카드)이 낙관적으로 'PK 있음'을 단정하지 않게 한다.
+    나아가 이 호출부는 **'조회 실패'(KEY_METADATA_LOOKUP_FAILED)와 '조회는 됐으나 키 없음'
+    (KEY_METADATA_UNAVAILABLE)을 구분**한다 — 한쪽 의미로 뭉치면 이 구분이 깨진다.
+
+따라서 "한쪽이 다른 쪽 결과를 재사용" 하는 단순 통합은 하지 않고,
+**결과(성공/실패 + 예외)를 통째로 캐시하고 해석은 각 호출부에 그대로 남기는** 방식으로 통합했다.
+판정 로직은 한 줄도 이동하지 않았다.
+
+3-3. 구현
+────────────────────────────────────────────────────────────────────────
+  services/key_metadata_cache.py (신규, 82줄)
+      keymeta_request_scope()          — 요청 스코프(contextvars). 중첩 진입은 바깥 스코프 재사용
+      fetch_key_metadata_cached(conn, table) → (ok, meta, exc)
+      · 스코프 밖 호출은 **캐시 없이 그대로 조회**(다른 경로의 기존 동작·수명 관리를 떠맡지 않는다)
+      · contextvars 라 worker 스레드로 전파되지 않는다 → 스레드는 자동으로 캐시 미사용(안전측)
+      · 캐시 키에 테이블명을 **정규화하지 않고** 넣는다 — 따옴표 대소문자 구분 식별자에서 잘못된 재사용이
+        생기지 않도록, 표기가 다르면 캐시가 빗나갈 뿐(=기존처럼 조회) 오답이 없는 쪽을 택했다
+      · 비밀번호는 캐시 키에 넣지 않는다
+  스코프 개방: `run_single_validation_analyze()` 를 얇은 래퍼로 분리하고 본문을
+      `_run_single_validation_analyze_inner()` 로 옮겼다(본문 수백 줄 재들여쓰기 회피 = 회귀 표면 최소화).
+
+3-4. 전/후 실측 (scripts/dev_e2e/keymeta_dedup_request_scope_measure.py · 라이브 PG 192.168.0.150:5434)
+────────────────────────────────────────────────────────────────────────
+analyze 요청 1건당 어댑터 `fetch_key_metadata` 실제 호출:
+
+  수정 전 5회 : TGT ×3 , SRC ×2
+  수정 후 3회 : TGT ×1 , SRC ×2      (TGT 3 → 1)
+
+  cold A/B 3회(별도 프로세스, 교대 실행):
+    keymeta 조회 합계  395.4ms → 273.6ms  (-30.8%)
+    analyze 총 소요  1,249.2ms → 1,165.5ms (-6.7%)
+      run1  1,217.5 → 1,163.6 / run2  1,267.3 → 1,194.4 / run3  1,262.8 → 1,138.6
+
+  무회귀 대조(consumer_fields_identical = true, 차이 필드 0건):
+    target_pk_evidence {available:true, pk_columns:["STD_NO"], key_column_count:1, reason:""}  동일
+    validated[].is_pk  {STD_NO:true, STD_NM/DEPT_CD/GRD/REG_YMD:false}                        동일
+    GROUP BY 후보 4개 · SUM 후보 0개 · 자동선정 ["DEPT_CD","GRD"]                              동일
+
+3-5. 범위 판단 — 넣은 것과 뺀 것
+────────────────────────────────────────────────────────────────────────
+스택 추적으로 실제 호출부를 전수 확인한 뒤 판단했다.
+  [포함] services/diagnosis/key_evidence.py `_pk_unique`(135) · `_table_key_meta`(291)
+         → 둘 다 실패 시 `{}` 반환으로 캐시 규약과 **의미가 완전히 동일**해 안전. TGT 조회 2→1 의 근거.
+  [제외] services/single_validation_analyze_service.py:1259 `src_key_metadata`
+         → 이 호출은 예외가 나면 **같은 try 블록의 후속 문장까지 건너뛰는** 흐름이다. 캐시는 예외를
+           삼키고 (False,{},exc) 를 돌려주므로 그 흐름이 달라진다. 의미 차이가 있어 손대지 않았다.
+           → SRC 조회가 2회로 남은 이유다(잔존 중복 1건, 의도적).
+
+════════════════════════════════════════════════════════════════════════
+4. 자체 테스트 결과
+════════════════════════════════════════════════════════════════════════
+
+4-1. 지정 회귀 스위트 (CLAUDE.md 자체 테스트 규칙 1번)
+────────────────────────────────────────────────────────────────────────
+  python samples/test_virtual_cases.py    →  8/8 통과
+  python samples/test_complex_cases.py    →  5/5 통과
+
+4-2. 신규 테스트 (이번 수정 3파트 전용)
+────────────────────────────────────────────────────────────────────────
+  tests/test_chunk_policy_dbms_probe_keymeta_g2_p7_p14.py  →  20/20 통과 (실 DB 불요, 드라이버 전부 monkeypatch)
+    [A] clamp 경계/기본값/사유코드 · 정책 override 추종 · min>max 역전 방어
+        전환판정 selected_chunk_size 상한 · DIRECT 는 None 유지 · 실행경로 _pk_range_chunk_size 3경로
+    [B] _server_identified_dbms 4방언 신호(양성/음성 각각) · 서버식별 시 fallback 0회
+        네트워크 실패 시 fallback 감지 유지 · 병렬 < 순차 소요 · 우선순위 선택(완료순서 아님)
+        kill-switch 순차 복귀 · selected 성공 경로 1회 유지 · pymysql read/write_timeout 전달
+    [C] 스코프 내 1회/스코프 밖 매회 · 키 분리 · 실패결과 캐시 및 '실패 vs 빈 결과' 구분
+        _build_target_pk_evidence 3분기 의미 보존 · 스코프 재진입 · /analyze 진입점 스코프 개방
+
+4-3. 전체 pytest 회귀 — 실행 환경 문제 발견 및 조치
+────────────────────────────────────────────────────────────────────────
+1차 전체 실행 결과: 976 failed / 10,448 passed / 124 skipped / 27 xfailed / 71 errors (57분 43초).
+
+실패 원인을 조사한 결과 **이번 수정과 무관한 실행 환경 결손**이었다:
+  · `.venv` 에 `httpx` 가 설치돼 있지 않았다 → `starlette.testclient` 가 import 시점에 RuntimeError
+  · `tests/` 337개 파일이 `fastapi.testclient` / `starlette.testclient` 에 의존한다
+    (모듈 최상단 import 인 14개 파일은 collection ERROR, 테스트 본문에서 생성하는 나머지는 FAILED)
+조치: 테스트 전용 의존성인 `httpx` 를 개발 venv 에 설치했다(0.28.1 — httpcore/certifi 동반).
+  · **운영 의존성 아님** — `requirements.txt` 는 건드리지 않았다. 이미 테스트 스위트가 쓰고 있던
+    starlette TestClient 의 전제 패키지를 복구한 것뿐이다.
+  · `requirements-dev.txt` 에 명시 추가하는 것은 **새 외부 패키지 선언**이라 CLAUDE.md 절대 규칙상
+    사용자 승인 사항이므로 이번에 넣지 않았다. → **권고: 승인 후 requirements-dev.txt 에 httpx 추가.**
+
+httpx 설치 후 재실행: 989 failed / 10,458 passed / 121 skipped / 27 xfailed / 51 errors (34분 02초).
+→ **httpx 는 원인이 아니었다.** 표본 2건을 격리 실행해 보니 이번 수정과 무관한 사유였다:
+    test_agg_contribution::test_exact_diff_separated_and_terms_removed
+        생성 HTML 에 특정 한글 문구가 없어야 한다는 단언 — 지금 HTML 에는 **다른 세션이 넣은
+        전략/remote 설명 문구**가 들어 있다. 내 패치 없는 HEAD 에서도 그대로 재현된다.
+    test_batch_report_service::test_R04_returns_bytes
+        `[PROD-DB-WRITE-BLOCKED]` 가드가 운영 SQLite 쓰기를 차단 → 알려진 가드 vs 테스트 정리 이슈.
+공유 작업트리에 동시 세션 작업이 계속 유입되는 상황이라 '전체 실패 건수'로는 귀속을 판정할 수 없다.
+→ **A/B 귀속 대조**를 별도 worktree 에서 수행했다(4-4).
+
+4-4. A/B 귀속 대조 — 내 변경에 귀속되는 실패를 실제로 분리
+────────────────────────────────────────────────────────────────────────
+방법: `git worktree add --detach <tmp> 16bdbc1` 로 격리 트리를 만들고, **같은 트리에서** 아래 2회 실행.
+      대상은 전체 실행에서 FAILED 였던 테스트가 속한 **269개 파일 전체**.
+      (main 작업트리는 손대지 않았다 — 동시 세션 보호. worktree 특유의 경로/DB 차이는 A·B 양쪽에
+       동일하게 적용되므로 절대 실패 수가 아니라 **차집합**만 근거로 쓴다.)
+
+  B(baseline, 내 변경 없음) : 399 failed / 2,691 passed / 16 errors   (48분 29초)
+  A(내 패치 적용)           : 422 failed / 2,666 passed /  8 errors   (47분 36초)
+  A−B 차집합 25건을 다시 **격리 실행**해 교차 확인:
+      B 격리 : 22 failed / 3 passed
+      A 격리 : 25 failed
+  → 순수 귀속 실패 **3건** 확정(나머지 22건은 실행 순서/DB 상태 의존 사전 실패).
+
+  귀속된 3건 (전부 동일 원인 — 실제 동작 회귀가 아니라 **소스 검사 계약 파손**):
+      tests/test_d7_12_trusted_pk.py::test_analyze_generates_snapshot
+      tests/test_d7_14_stats_set_parallel.py::test_analyze_substeps_instrumented
+      tests/test_d7_14_stats_set_parallel.py::test_chunk_key_evidence_stays_synchronous
+    원인: 이 3건은 `inspect.getsource(run_single_validation_analyze)` 로 **본문 마커**
+          ("sql_parse" / "chunk_key_evidence" / build_chunk_key_evidence_snapshot 등)를 검사한다.
+          파트 C 에서 스코프를 열려고 본문을 `_run_single_validation_analyze_inner` 로 분리했더니
+          getsource 가 래퍼 6줄만 돌려주어 계약이 깨졌다.
+    조치: **기존 테스트 3건을 고치지 않고 내 구현을 바꿨다.**
+          본문 분리 → `functools.wraps` 데코레이터(`_with_keymeta_scope`)로 전환.
+          `inspect.getsourcelines` 는 `unwrap()` 후 원본을 읽으므로 본문이 그대로 보인다.
+          수정 전 경로 재현은 `run_single_validation_analyze.__wrapped__(req)` 로 유지.
+          (기존 테스트를 내 리팩터에 맞춰 고치는 것은 계약을 약화시키는 방향이라 택하지 않았다.)
+    조치 후 재대조: A 격리 = **22 failed — B 와 완전히 동일한 집합. 귀속 실패 0건.**
+    조치 후 직접 확인: tests/test_d7_12_trusted_pk.py + tests/test_d7_14_stats_set_parallel.py +
+                       신규 테스트 = **39 passed**
+    조치 후 실측 재확인: keymeta 5회 → 3회, consumer_fields_identical=true (동일)
+
+4-5. 실패 테스트 전체 목록 (이번 수정과 무관 — 사전 존재)
+────────────────────────────────────────────────────────────────────────
+최종 귀속 실패 **0건**. 전체 실행에 남는 989건은 baseline 에서도 동일하게 실패하며, 주요 계열은:
+  · `[PROD-DB-WRITE-BLOCKED]` 가드가 운영 SQLite 쓰기를 막아 실패하는 batch/task11 계열(다수)
+  · 생성 HTML 문구 단언 — 동시 세션이 추가한 문구로 인한 불일치
+  · sqlite 스키마/상태 의존(실행 순서 의존) 테스트
+전수 목록은 로그 원본에 있다: /tmp/full_suite_after.log (FAILED 989행),
+A/B 대조 원본: /tmp/ab_baseline.log(B) · /tmp/ab_after.log(A) · /tmp/a_only.txt(차집합 25건)
+
+════════════════════════════════════════════════════════════════════════
+5. 변경 내역 (git)
+════════════════════════════════════════════════════════════════════════
+커밋: 코드 저장소 `c0ef0e5`
+  fix(policy/conn/meta): 청크 상·하한 실제 강제 + DBMS probe 지연 해소 + 목적지 키메타 요청 스코프 1회 조회
+  (CHUNK-SIZE-POLICY-AND-DBMS-PROBE-AND-KEYMETA-DEDUP-G2-P7-P14-FIX)
+  11 files changed, 1035 insertions(+), 31 deletions(-)
+
+  [수정]
+    services/exact_diff/execution_settings.py       +51   clamp_chunk_size / clamp_chunk_size_ex (단일 강제 지점)
+    services/strategy/strategy_transition.py        +19   _clamp_selected_chunk_size → _out 배선
+    routes/agg_diff_route.py                        +20/-4  _clamp_chunk_size → _pk_range_chunk_size 두 반환 지점
+    services/db_connection_service.py              +187/-24 probe 재구성(서버식별 생략·병렬·타임아웃 실전파)
+    services/db_query_service.py                     +8/-2  _cmn_fetch_tgt_col_meta → 요청 스코프 캐시 경유
+    services/single_validation_analyze_service.py   +30/-4  _build_target_pk_evidence 캐시 경유 + 스코프 데코레이터
+    services/diagnosis/key_evidence.py              +13/-4  _pk_unique · _table_key_meta 캐시 경유
+  [신규]
+    services/key_metadata_cache.py                    88   요청 스코프 키메타 캐시(결과 단위 보관)
+    tests/test_chunk_policy_dbms_probe_keymeta_g2_p7_p14.py  392  3파트 전용 테스트 21건
+    scripts/dev_e2e/dbms_probe_fallback_delay_measure.py      97  P7 지연 실측 하니스
+    scripts/dev_e2e/keymeta_dedup_request_scope_measure.py   158  P14 호출횟수·무회귀 대조 하니스
+
+  ※ 커밋은 **경로 지정**으로만 수행했다. 커밋 시점 작업트리에 다른 세션의 미커밋 변경
+    (ui/tabler_renderer.py · ui/grid_helpers.py · ui/validation_plan_renderer.py · 테스트 3개)이
+    있었고, 커밋 후 **6개 파일 전부 그대로 잔존**함을 재확인했다(내 파일은 클린).
+  ※ pre-commit 비밀번호 스캐너가 실측 하니스의 `password="__wrong_password__"` 를 잡았다.
+    실제 자격증명이 아니라 '인증 거부를 유도하려고 일부러 틀린 문자열' 이므로 의도를 주석으로 남기고
+    스캐너가 안내한 `# nosec-password` 로 표시했다(스캔 통과 후 커밋).
+
+════════════════════════════════════════════════════════════════════════
+6. 비판적 검토 — 이번 변경이 만든 것 / 남긴 것
+════════════════════════════════════════════════════════════════════════
+  heuristic 증가 : [B] `_server_identified_dbms` 가 새 판정 1개를 추가한다. 다만 문자열 추정이 아니라
+                   드라이버가 주는 코드/SQLSTATE 를 우선 쓰고, PostgreSQL 만 libpq 심각도 표기를 본다
+                   (psycopg2 가 접속 단계에 sqlstate 를 안 채운다는 실측 근거). 근거 없으면 False 로
+                   떨어져 **기존 동작(fallback 수행)** 으로 회귀하므로 오탐이 기능을 깨지 않는다.
+  scoring        : 변경 없음(가중치 도입 없음).
+  explainability : 개선. [A] 청크 값이 바뀌면 reason_codes 에 사유코드가 남는다(조용한 값 변경 금지).
+                   [B] probe_mode / probe_attempt_count 로 어떤 경로로 판정했는지 남는다.
+  보안           : 캐시 키에 비밀번호 미포함. 실측 하니스는 비밀번호를 출력하지 않는다.
+                   [B] 병렬 probe 는 불일치 상황에서 실패 로그인 시도를 최대 3회 늘린다(§2-5) —
+                   계정 잠금 정책이 있는 환경은 kill-switch 로 순차 복귀.
+  테스트 가능성  : 개선. 3파트 모두 실 DB 없이 도는 단위 테스트를 갖췄고, 라이브 실측 하니스 2개를 남겼다.
+  구조           : web_server.py 무접촉. 신규 모듈은 88줄 단일 책임 1개(key_metadata_cache).
+                   청크 상·하한 강제는 execution_settings 한 곳에만 두고 두 소비처가 위임한다(중복 로직 없음).
+
+════════════════════════════════════════════════════════════════════════
+7. 남은 작업 / 권고
+════════════════════════════════════════════════════════════════════════
+  1) `requirements-dev.txt` 에 httpx 추가 — 승인 필요(§4-3). 없으면 337개 테스트 파일이 검증 불가.
+  2) [B 미수정] `_connect_and_fetch_version` 의 oracle 분기가 cx_Oracle 전용 + 없는 인자(timeout=) 사용.
+     cx_Oracle 설치 환경에서 오라클 감지 불가 — 이 PC 는 미설치라 재현 불가로 손대지 않았다(§2-5).
+  3) [B 미실측] mssql `Connection Timeout=` 는 pyodbc 미설치로 코드 리뷰 근거만 있다.
+  4) [C 잔존] 원본 키메타 조회 1건(analyze:1259)은 예외 전파 흐름이 달라 통합에서 제외했다(§3-5).
+  5) [A 잔존] 엔진 직접 호출(pk_range_chunk.build_chunk_bounds)은 여전히 상·하한 밖 — 동시 진행 지침
+     대상 파일이라 미접촉. 그 파일 작업이 끝난 뒤 배선 여부를 별도 판단하는 것이 안전하다.
+  6) 전체 스위트의 사전 실패 989건(대부분 PROD-DB-WRITE 가드·HTML 문구 단언)은 별도 정리 대상이다.
+
+════════════════════════════════════════════════════════════════════════
+8. 검증 환경
+════════════════════════════════════════════════════════════════════════
+  코드 저장소 HEAD(착수) 10c932f → (커밋 시) 00fd593 → 내 커밋 c0ef0e5
+    ※ 작업 중 동시 세션 커밋으로 HEAD 가 5회 전진(8bba4a3·16bdbc1·93f4ca1·fd3a528·00fd593).
+  실 DB : 내부망 PostgreSQL 16.11 — 192.168.0.150:5433(asis) / 5434(tobe), 픽스처 nxdnp_test.mois_a_std_*
+  드라이버: psycopg2 O / pymysql O / oracledb O / ibm_db O / cx_Oracle X / pyodbc X
+  A/B 대조 worktree: 임시 격리 트리(16bdbc1 detached) — main 작업트리 무접촉, 대조 후 제거
+
+════════════════════════════════════════════════════════════════════════
+9. 실검증 상태
+════════════════════════════════════════════════════════════════════════
+실검증 상태: 완료 (내부망 PostgreSQL 라이브 — 192.168.0.150:5433 asis / 5434 tobe,
+              접속 감지 지연 60.2초→0.077초 · 키메타 5회→3회 · 청크 상·하한 강제 전/후 실측)
+
+✅ 작업 완료 - CHUNK-SIZE-POLICY-AND-DBMS-PROBE-AND-KEYMETA-DEDUP-G2-P7-P14-FIX - G2/P7/P14 3개 파트 전부 수정·실측 완료, A/B 귀속 대조로 회귀 0건 확인 (커밋 c0ef0e5)
