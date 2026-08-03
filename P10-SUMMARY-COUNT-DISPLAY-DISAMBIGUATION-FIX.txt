@@ -307,3 +307,90 @@ scripts/dev_e2e/p10_summary_count_disambiguation_fixture.py build
   제품 코드가 판정·저장한 값이다.
 
 ✅ 작업 완료 - P10-SUMMARY-COUNT-DISPLAY-DISAMBIGUATION-FIX - 조기중단 시 5단계 요약 카드·그룹 요약표 건수를 '표시(저장)분 기준 하한'으로 구분 표기(정상 케이스 출력 HTML 바이트 단위 무변경), 작업 중 발생시킨 동시 세션 커밋 덮어쓰기 사고 1건은 복구 완료
+
+════════════════════════════════════════════════════════════════════════════
+11. 2026-08-03 재검증 — 동일 작업 재요청에 대한 처리 (증적 push 완료)
+════════════════════════════════════════════════════════════════════════════
+2026-08-03 에 같은 작업명(P10-SUMMARY-COUNT-DISPLAY-DISAMBIGUATION-FIX)이 다시 요청됐다.
+착수 전 확인 결과 이 작업의 코드 수정은 2026-08-02 에 이미 커밋되어 main HEAD 에 포함돼
+있었고(d1fd540 → 56572a5), 남아 있던 미완 항목은 **증적 저장소 push 단 하나**였다.
+따라서 코드를 다시 고치지 않고, (1) 현재 HEAD 기준 유효성 재실측 → (2) 무회귀 재확인 →
+(3) 미완료였던 증적 push 를 수행했다.
+
+■ 착수 시점 상태 확인
+  - 코드      : ui/tabler_renderer.py 의 P10 편집 6곳 전부 현재 HEAD(54533f9)에 존재
+                (_esUncertain/_more/_esNote · _esU/_cntSfx/_cntTip/_esHdrNote · 열 헤더 title)
+  - 워킹트리  : 추적 파일 수정 0건(untracked dev_e2e 스크립트 31개뿐) — 온전
+  - 증적      : E:\verify_screenshots_only\P10-... 및 E:\verify_reports\P10-....txt 가
+                양쪽 저장소 모두에서 **untracked(미커밋·미push)** 상태였다  ← 이번에 해소
+  - 병행 작업 : 지시된 3개 동시 작업(services/strategy/*, parser/*,
+                services/groupby_execution_safety_gate.py)과 파일 겹침 0건
+
+■ 요구사항 3 (판정·수집 상한·HARD CAP 불변) 재확인
+  git diff e232d89 56572a5 전체에서 HARD CAP / per_group_full_list_max /
+  per_group_early_stop_abs 를 '대입·변경'하는 줄은 0건이다. 해당 식별자는 주석 설명과
+  픽스처 상수(EARLY_STOP_ABS=101, 서버 기본값과 동일)에서만 등장한다 — 순수 표시 변경.
+
+■ 재실측 (현재 HEAD 기준 · 2026-08-03)
+  BEFORE : e232d89 를 git worktree 로 격리 체크아웃 → 127.0.0.1:8199
+  AFTER  : 현재 main HEAD 54533f9 작업트리                → 127.0.0.1:8198
+  픽스처 : 실제 엔진 재실행으로 재적재
+           P10_ES_MULTI status=EARLY_STOPPED · 참값 10,000건 → store 저장 101건
+                        그룹 분포 G01 11 / G02~G10 각 10
+           P10_OK_MULTI status=READY         · 참값 50건    → store 저장 50건(전량)
+
+  [케이스 1] 조기중단 P10_ES_MULTI — '표시/실제' 구분이 나오는가
+    ① 상단 요약 카드
+       BEFORE : 재이관 대상 101건(—)   (현재 목록) [조기 중단]
+       AFTER  : 재이관 대상 101건 이상(—)   (현재 목록) [조기 중단]
+                ※ 수집이 조기중단되어 위 건수는 표시(저장)분 기준 하한입니다 — 실제는
+                  그 이상이며 정확한 총수는 확인하지 않았습니다.
+    ② 요약표 상단
+       BEFORE : (고지 없음)
+       AFTER  : ※ 수집 조기중단 — 아래 불일치 건수는 표시(저장)분 기준 하한입니다.
+                실제는 그 이상이며 정확한 총수는 확인하지 않았습니다(비율도 같은 표시분 기준).
+    ③ 그룹별 건수 셀 10행
+       BEFORE : G01 11건 / G02~G10 각 10건
+       AFTER  : G01 11건 이상 / G02~G10 각 10건 이상
+    ④ '불일치 건수' 열 헤더 title
+       BEFORE : 해당 그룹의 불일치(재이관 대상) 건수
+       AFTER  : 〃 — 수집 조기중단이라 표시(저장)분 기준 하한값입니다(실제는 그 이상·총수 미확정)
+    ⑤ 요약 카드 HTML 길이 : 3,104 → 3,247 byte
+    → 대조 항목 5개 전부 변경됨(어제 측정치와 완전히 일치 — HEAD 가 5커밋 전진해도 유지).
+
+  [케이스 2] 정상 P10_OK_MULTI — 무회귀
+    대조 항목 5개(summaryText / groupHeadText / countThTitle / countCells / summaryHtmlLen)
+    **전부 동일**, HTML 길이 2,863 == 2,863.
+    ★ 이번에는 스크린샷 자체의 MD5 까지 대조했다 — BEFORE/AFTER 모두 a1775dc07d6af1bbe26561542852da34
+      로 **픽셀 단위 완전 동일**이다(조기중단 케이스는 0dd90c3e… vs bce0df2d… 로 상이).
+      정상 케이스 표시가 조금도 달라지지 않았음을 이미지 해시로 확정한다.
+
+■ 회귀 테스트 (양쪽 동일 명령 · 동일 서브셋 6개 파일)
+  BASELINE e232d89 : 3 failed, 37 passed, 5 xfailed
+  CURRENT  54533f9 : 3 failed, 37 passed, 5 xfailed   → 신규 실패 0건
+
+  실패 3건 전체 목록(양쪽 동일 = P10 무관 사전 존재 실패)
+    tests/test_stats_result_full.py::test_task30_root_page_no_cache
+    tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+    tests/test_ui_tab4_tab5_separation.py::test_target_only_display
+      → _mvProgressModalUpdate(진행 모달) 문구 검사로, P10 이 건드린 두 함수와 다른 함수다.
+
+  CLAUDE.md 필수 회귀 : samples/test_virtual_cases.py 8/8 통과 ·
+                        samples/test_complex_cases.py 5/5 케이스 분석 완료
+
+■ 이번에 추가된 증적 파일 (E:\verify_screenshots_only\P10-...\)
+  RECHECK_20260803_BEFORE_e232d89_ES_MULTI.png / RECHECK_20260803_AFTER_HEAD54533f9_ES_MULTI.png
+  RECHECK_20260803_BEFORE_e232d89_OK_MULTI.png / RECHECK_20260803_AFTER_HEAD54533f9_OK_MULTI.png
+  RECHECK_20260803_BEFORE_result.json / RECHECK_20260803_AFTER_result.json
+  RECHECK_20260803_regression_subset.txt
+
+■ 코드 변경
+  이번 재검증에서 코드는 한 줄도 바꾸지 않았다(작업트리 추적 파일 수정 0건).
+  최종 코드 상태는 어제와 동일한 56572a5 (현재 HEAD 54533f9 에 포함).
+
+실검증 상태: 실 DB 미접속(오라클/PG 라이브 접속 0회). 제품 서버 2개(baseline e232d89 → 8199,
+  현재 HEAD 54533f9 → 8198)를 실제로 띄우고 Chromium(Playwright)으로 제품 렌더 함수를 호출해
+  DOM 을 측정했다. 조기중단 판정·저장 건수·그룹 분포는 하니스가 아니라 제품 엔진
+  (prepare_reimport_pk_index_stream)이 산출한 값이며, DB 접속 구간만 이터레이터 픽스처다.
+
+✅ 작업 완료 - P10-SUMMARY-COUNT-DISPLAY-DISAMBIGUATION-FIX - 코드는 2026-08-02 커밋분이 현재 HEAD 에서 그대로 유효함을 재실측으로 확인(조기중단 5항목 변경 / 정상 케이스 스크린샷 MD5 동일), 미완이던 증적 저장소 push 완료

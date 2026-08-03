@@ -1,0 +1,37 @@
+P10-SUMMARY-COUNT-DISPLAY-DISAMBIGUATION-FIX — 2026-08-03 재검증(서브셋 회귀 대조)
+
+목적: 어제(2026-08-02) 커밋된 P10 표시 변경이, 그 뒤 main 에 5개 커밋이 더 쌓인
+      현재 HEAD(54533f9) 에서도 그대로 유효하고 회귀가 없는지 재확인한다.
+
+■ 대조 축
+  BASELINE : e232d89 (P10 직전 커밋, STAGE5-M9 포함) — git worktree 로 격리 체크아웃
+  CURRENT  : 54533f9 (현재 main HEAD, P10 포함)
+
+■ 실행 서브셋 (동일 6개 파일 · 양쪽 동일 명령)
+  samples/test_per_group_display_policy.py
+  samples/test_display_limit_policy.py
+  tests/test_stats_result_full.py
+  tests/test_d7_6_progress_earlystop.py
+  tests/test_ui_tab4_tab5_separation.py
+  tests/test_d7_18_exec_tab.py
+
+■ 결과 (완전 동일 — 신규 실패 0건)
+  BASELINE e232d89 : 3 failed, 37 passed, 5 xfailed
+  CURRENT  54533f9 : 3 failed, 37 passed, 5 xfailed
+
+■ 실패 3건 전체 목록 (양쪽 동일 = P10 무관 사전 존재 실패)
+  tests/test_stats_result_full.py::test_task30_root_page_no_cache
+  tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+  tests/test_ui_tab4_tab5_separation.py::test_target_only_display
+
+  · test_target_only_display 는 _mvProgressModalUpdate(진행 모달) 문구를 검사한다.
+    P10 이 건드린 함수(_mvRiSummaryHtml / _mvRiRenderGroupView)와 다른 함수다.
+  · 나머지 2건도 P10 편집 지점과 무관하며, baseline 에서 동일하게 실패한다.
+
+■ CLAUDE.md 필수 회귀 2종 (현재 HEAD)
+  samples/test_virtual_cases.py : 8/8 통과
+  samples/test_complex_cases.py : 5/5 케이스 분석 완료
+
+■ 참고: 어제 전체 스위트 대조 결과(같은 폴더)
+  regression_BASELINE_e232d89_failed_ids.txt : 227줄
+  regression_AFTER_56572a5_failed_ids.txt    : 224줄  (after 가 3건 적음 — 회귀 없음)
