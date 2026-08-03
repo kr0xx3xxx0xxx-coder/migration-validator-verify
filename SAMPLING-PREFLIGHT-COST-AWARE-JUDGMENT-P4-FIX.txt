@@ -1,0 +1,250 @@
+작업명 : SAMPLING-PREFLIGHT-COST-AWARE-JUDGMENT-P4-FIX
+✅ 작업 완료 - SAMPLING-PREFLIGHT-COST-AWARE-JUDGMENT-P4-FIX - 표본 preflight 진입 판정을 '형태(CTE/JOIN/UNION)'에서 P3 사전 프로브의 '실측 비용'으로 이전, 형태는 프로브 예산을 정하는 1차 필터로만 축소
+
+════════════════════════════════════════════════════════════════════════
+1. 요청 요약
+════════════════════════════════════════════════════════════════════════
+BACKLOG P4 — 표본 preflight 판정이 '형태'만 보고 '비용'을 보지 않는다.
+오늘 P3(a900442)가 같은 파일에 추가한 사전 프로브 인프라를 재사용해 비용 기반 판정으로 바꾼다.
+
+════════════════════════════════════════════════════════════════════════
+2. 요구 1 — 현재 '형태' 판정 로직의 실체 (조사 결과)
+════════════════════════════════════════════════════════════════════════
+판정 위치는 대상 파일이 아니라 route 였다.
+
+  routes/agg_diff_route.py:368 (수정 전)
+      if _reimport_source_needs_wrapping(req):
+          return None                      ← 표본 게이트 '본문 진입 전' 무조건 스킵
+
+  _reimport_source_needs_wrapping (agg_diff_route.py:965) 이 보는 신호 3종 — 전부 '형태'다:
+    ① AST 기준 UNION 존재 여부 (_raw_union_present)
+    ② CTE(WITH) 존재 여부      (extract_cte_names)
+    ③ 물리 원본 테이블 2개 이상 (extract_physical_source_tables — JOIN/다중소스)
+  셋 중 하나라도 참이면 표본 게이트를 통째로 건너뛴다. 비용 관측 0회.
+
+즉 P3 가 만든 사전 프로브는 **wrapping 소스에 대해 실행될 기회 자체가 없었다**.
+이것이 P4 의 실체다.
+
+  · 형태는 복잡한데 실제로는 싼 소스(옵티마이저 view merging/pushdown 성공) → 표본 기회를 통째로 상실
+  · 형태는 단순한데 실제로는 비싼 소스(비인덱스 대량 테이블 단순 SELECT) → 형태 필터를 그냥 통과
+
+════════════════════════════════════════════════════════════════════════
+3. 요구 2 — P3 인프라 재사용 가능 여부 (판단: 재사용, 신규 로직 없음)
+════════════════════════════════════════════════════════════════════════
+P3 의 probe_expansion_cost() 는 이미 다음을 한다.
+  · anchor 를 2단계(8 → 32)로 시범 실행해 실제 소요를 측정
+  · '고정비 + anchor 단가' 로 분해 (1단계만 재면 고정비가 단가로 잡혀 정상 소스를 과대추정하므로 분해 필수)
+  · 최악 총 anchor(단계 합)로 환산 → 상한 × 여유배수 초과 시 확장 단계 미진입
+
+이것이 곧 비용 기반 판정이다. 따라서 새 판정기를 만들지 않고 **입력(형태 신호)을 이 프로브에 연결**하고
+**예산 파라미터만 확장**했다. 새로 만든 것은 판정기가 아니라 '형태 → 프로브 예산' 매핑 1개다.
+
+════════════════════════════════════════════════════════════════════════
+4. 요구 3 — 변경 내용 (services/exact_diff/sampling_preflight.py 중심)
+════════════════════════════════════════════════════════════════════════
+(1) 형태를 1차 필터로만 남김 — shape_cost_policy() / skip_by_shape() 신설
+    형태 신호의 소비처를 딱 둘로 좁혔다.
+      (a) 프로브를 아예 생략할지 말지  — 위험 형태는 프로브가 필수
+      (b) 프로브 예산을 얼마로 줄지    — 위험 형태만 프로브 자체 예산 + 여유배수 1.0
+    진입/보류 판정 자체는 이 함수가 하지 않는다. 프로브의 실측이 한다.
+    정책은 sampling_preflight 단일 출처이고 route 는 skip_by_shape() 한 줄만 호출한다.
+
+(2) 위험 형태의 '프로브 자체' 예산 — probe_expansion_cost(probe_cap_ms=...) 추가
+    위험 형태는 anchor 1개 조회가 원본 전체 재스캔이 될 수 있어 '재는 행위'가 전수 merge 보다 비싸질 수
+    있다. 다음 프로브 단계 진입 **전에** 직전 단계 실측으로 보수적 환산(직전 비용 전부를 anchor 단가로
+    간주 — 재스캔형이면 실제로 선형이다)해 예산 초과가 예상되면 진입하지 않는다.
+    기본 3초 근거: 문제 사례의 전수 merge 실측이 2.7초였다 → 재는 비용이 그것을 넘지 않게 잡았다.
+
+(3) 오거절 비용의 비대칭을 설계에 명시 — 위험 형태 여유배수 1.0 / 안전 형태 3.0 유지
+    위험 형태의 과잉 거절 = INCONCLUSIVE = 기존 전수 merge = **오늘의 동작과 정확히 동일**(손해 0).
+    안전 형태의 과잉 거절 = 순수한 기회 상실.
+    따라서 위험 형태만 조이고 안전 형태(P3 경로)는 그대로 둔다.
+
+(4) 비용 근거를 못 얻으면 형태 필터로 복귀 — 조용한 스킵 없음
+    kill-switch OFF(MV_SAMPLING_COST_AWARE_SHAPE=0) 또는 프로브 anchor 0 이면 종전 즉시 스킵으로
+    되돌리고 사유를 reason=SHAPE_WRAPPING_SKIPPED 로 드러낸다.
+
+신설/변경 심볼:
+  cost_aware_shape_enabled() / shape_probe_cap_ms() / shape_probe_margin()
+  shape_cost_policy() / skip_by_shape() / _env_bool()
+  probe_expansion_cost(..., probe_cap_ms=0)  → 반환에 probe_cap_ms · budget_exceeded 추가
+  run_sampling_preflight  → sampling.shape_policy 노출, time_capped 는 형태 스킵 제외
+  REASON_SHAPE_SKIPPED / REASON_PROBE_BUDGET_EXCEEDED
+  조정 env: MV_SAMPLING_COST_AWARE_SHAPE / MV_SAMPLING_SHAPE_PROBE_CAP_MS / MV_SAMPLING_SHAPE_PROBE_MARGIN
+
+route 변경은 최소 1개 훅(3줄)이다 — 형태 즉시 return 을 정책 위임으로 바꾸고 형태 신호를 설정에 실어 보낸다.
+게이트 판정 분기를 route 에 늘리지 않았다(web_server/route 비대화 억제 원칙 유지).
+
+════════════════════════════════════════════════════════════════════════
+5. 실측 검증 — 오라클 라이브 (필수 항목)
+════════════════════════════════════════════════════════════════════════
+환경: Oracle asis 192.168.0.151:1523 / tobe :1524 (xepdb1, NXDNP)
+픽스처: MV_ORA_XDIFF_SRC 250,000행 / MV_ORA_XDIFF_TGT 249,950행 (PK ID 인덱스)
+        MV_ORA_TEST_SRC 300행 (JOIN 상대)
+스크립트: scripts/dev_e2e/sampling_cost_aware_judgment_live_measure.py  (SELECT 전용, DDL/DML 없음)
+BEFORE 재현: kill-switch(MV_SAMPLING_COST_AWARE_SHAPE=0) — 종전 '형태 즉시 스킵' 과 동일 코드경로
+AFTER      : 운영 경로 그대로 routes.agg_diff_route._run_sampling_gate 호출
+'실제 단가'는 표본 어댑터로 100 anchor 독립 실측(프로브 환산치 대조용)
+
+── 케이스 A. 형태 단순 · 실제 비쌈 (비인덱스 숫자키 C_NUM, 25만행 단순 SELECT) ──
+  형태(wrapping)        = False
+  실제 단가             = 18.572 ms/anchor  (100 anchor = 1,857.2ms)
+  BEFORE : 진입=True  status=SAMPLING_INCONCLUSIVE  reason=PROBE_PROJECTED_TIME_EXCEEDED  1,021.1ms
+  AFTER  : 진입=True  status=SAMPLING_INCONCLUSIVE  reason=PROBE_PROJECTED_TIME_EXCEEDED    996.9ms
+  프로브 : 단계[8, 32] = [184.89, 617.23]ms → 단가 18.0143ms → 환산 306,364.6ms(306초) > 상한
+  → 판정: 확장 단계 미진입(보류). **형태만 보는 판정으로는 원리적으로 잡히지 않던 케이스**이며,
+    BEFORE/AFTER 동일하게 P3 프로브가 방어한다(= P4 가 이 경로를 회귀시키지 않음을 함께 확인).
+  프로브 환산 단가 18.0143 vs 실제 18.572 → 오차 3.0%
+
+── 케이스 B. 형태 복잡(단순 CTE, 윈도우함수 없음) · 실제 쌈 ──
+  형태(wrapping)        = True   (CTE 존재 → 종전엔 무조건 스킵)
+  실제 단가             = 1.180 ms/anchor  (100 anchor = 118.0ms)
+  BEFORE : 진입=False status=None(표본 없음)                                     4.8ms
+  AFTER  : 진입=True  status=FULL_COMPARE_APPROVED  reason=None              2,651.0ms
+  프로브 : 단계[8, 32] = [34.57, 59.38]ms → 단가 1.0338ms → 환산 17,653.9ms(17.7초) < 상한
+  → 판정: 게이트 진입 후 **실제 표본 판정(FULL_COMPARE_APPROVED)을 산출**. BEFORE 는 4.8ms 만에
+    스킵해 판정 자체가 존재하지 않았다 — 이것이 P4 가 회복한 기회다.
+  프로브 환산 단가 1.0338 vs 실제 1.180 → 오차 12.4%
+
+── 케이스 C. 형태 복잡(CTE+JOIN+ROW_NUMBER) · 실제 비쌈 (기존 471.5초 사례) ──
+  형태(wrapping)        = True
+  실제 단가             = 124.042 ms/anchor  (100 anchor = 12,404.2ms)
+  BEFORE : 진입=False status=None(표본 없음)                                    16.9ms
+  AFTER  : 진입=True  status=SAMPLING_INCONCLUSIVE  reason=PROBE_BUDGET_EXCEEDED 1,303.2ms
+  프로브 : 단계[8] = [999.51]ms 만 측정 → 단가 124.9387ms → 2단계 미진입, 예산초과=True
+  → 판정: 보류(결과는 종전 스킵과 동일하되 근거가 '형태'가 아니라 '실측'이다).
+    예산 초과를 실측으로 사지 않고 1단계만 재고 끝냈다(프로브 2단계 미진입).
+  프로브 환산 단가 124.9387 vs 실제 124.042 → 오차 0.7%
+
+── 요약: 판정이 형태가 아니라 비용을 따라가는가 ──
+  케이스   형태        실제 단가        BEFORE(형태 판정)      AFTER(비용 판정)         일치?
+  A       단순        18.57ms/anchor   진입(형태로 못 막음)    보류(환산 306초)         비용 반영 ✅
+  B       복잡         1.18ms/anchor   스킵(기회 상실)         진입 + 판정 산출         비용 반영 ✅
+  C       복잡       124.04ms/anchor   스킵(우연히 맞음)       보류(실측 근거)          비용 반영 ✅
+  형태가 같아도(B·C 둘 다 wrapping) 비용이 다르면 판정이 갈린다 → 판정 주체가 형태가 아님이 실증됨.
+  프로브 환산 단가와 실제 단가의 오차 0.7 ~ 12.4% — 환산이 실제 비용을 신뢰할 수준으로 반영한다.
+
+── P4 도입 비용(정직하게 명시) ──
+  케이스 C 는 종전 16.9ms 스킵 → 1,303.2ms 소요로 늘었다(실측 비용을 사는 대가).
+  같은 소스의 전수 merge 실측이 2.7초이므로 프로브 예산 3초는 그 아래에 있고, 실제 소비는 1.3초였다.
+  케이스 B 는 2,651ms 를 쓰지만 그 대가로 조기중단 기회를 얻는다(이번 데이터는 불일치 0.02%라
+  APPROVED — 불일치가 임계를 넘는 소스에서는 전수 merge 를 통째로 아낀다).
+
+════════════════════════════════════════════════════════════════════════
+6. 실측 검증 — P3 안전장치 상호작용 무회귀
+════════════════════════════════════════════════════════════════════════
+tests/test_sampling_cost_aware_judgment.py 로 비용을 주입한 어댑터(anchor 수에 비례해 실제 sleep)를
+써서 결정적으로 확인했다.
+
+  · 누적 시간 상한        — P4 로 진입시킨 위험 형태에서도 확장 단계 사전 차단이 그대로 동작
+                            (test_p3_time_cap_still_wins_after_admission)
+  · INCONCLUSIVE 조기판정 — 모든 보류 경로(프로브 예산 / 형태 복귀 / 환산 초과)에서 status 는 항상
+                            INCONCLUSIVE. EARLY_STOPPED/APPROVED 를 부분 표본으로 만들지 않는다
+                            (test_final_verdict_unchanged_on_any_hold_path)
+  · progress_cb          — 진입한 위험 형태에서도 PROBE/STEP 두 phase 신호가 기존 페이로드 규약
+                            (processed_src/available/progress_at)대로 발행
+                            (test_p3_progress_cb_fires_for_admitted_wrapping_source)
+  · 안전 형태 무회귀      — 프로브 자체 예산 미적용(probe_cap_ms=0), 여유배수 3.0 유지
+                            (test_probe_budget_does_not_apply_to_safe_shape)
+  · 기존 호출자 무회귀    — shape_wrapping 미전달 시 안전 형태와 완전히 동일
+                            (test_no_shape_signal_behaves_exactly_as_before)
+
+════════════════════════════════════════════════════════════════════════
+7. 테스트 결과 · baseline 대조
+════════════════════════════════════════════════════════════════════════
+[대상 서브셋 직접 테스트]
+  tests/test_sampling_cost_aware_judgment.py  (신규 13건)
+  tests/test_sampling_gate_wrapping_skip.py   (P4 계약으로 갱신, 8건)
+  tests/test_sampling_preflight.py            (기존 13건, 무수정)
+  → 34 passed in 4.94s   (수정 전 동일 3파일 baseline: 18 passed — 신규/갱신분 증가)
+
+[CLAUDE.md 필수 회귀]
+  python samples/test_virtual_cases.py   → 8/8 통과
+  python samples/test_complex_cases.py   → 5/5 케이스 분석 완료
+
+[관련 서브셋 + baseline 대조]
+  명령: pytest tests/ -k "sampling or exact_diff or agg_diff or preflight or reimport or chunk"
+        -p no:randomly --continue-on-collection-errors
+  AFTER    : 실패 23건
+  BASELINE : HEAD(10c932f) 임시 worktree — 실패 23건
+  차집합   : comm -13 (AFTER 에만 있는 실패) = 0건
+             comm -23 (BASELINE 에만 있는 실패) = 0건
+  → 실패 집합이 완전히 동일. 이번 변경으로 새로 깨진 테스트는 0건이다.
+
+[실패 테스트 전체 목록 — 전부 사전 존재, 이번 변경과 무관]
+  tests/test_agg_contribution.py::test_exact_diff_separated_and_terms_removed
+  tests/test_d7_14_stats_set_parallel.py::test_chunk_key_evidence_stays_synchronous
+  tests/test_diagnosis_phase3b.py::test_start_passes_confirmed_chunk_key
+  tests/test_exact_diff_ui_wiring.py::test_button_state_conditions_flag_on_off
+  tests/test_exact_diff_ui_wiring.py::test_hold_labels_visible
+  tests/test_exact_diff_ui_wiring.py::test_key_range_tree_labeled_as_auxiliary
+  tests/test_exact_diff_ui_wiring.py::test_record_grid_and_kind_filter_and_order
+  tests/test_exact_diff_ui_wiring.py::test_run_wiring_calls_exact_diff_api_not_key_range
+  tests/test_group_master_crud.py::TestQueryUploadResultRender::test_preflight_official_flow_elements
+  tests/test_preflight_vs_official_upload.py::TestPreflightVsOfficial::test_failed_official_upload_remains_in_history
+  tests/test_preflight_vs_official_upload.py::TestPreflightVsOfficial::test_official_full_baseline_recorded_in_history
+  tests/test_preflight_vs_official_upload.py::TestPreflightVsOfficial::test_official_persists_history_and_current
+  tests/test_preflight_vs_official_upload.py::TestPreflightVsOfficial::test_preflight_leaves_no_history_or_current
+  tests/test_preflight_vs_official_upload.py::TestPreflightVsOfficial::test_preflight_returns_baseline_preview
+  tests/test_preflight_vs_official_upload.py::TestPreflightVsOfficial::test_preflight_then_official_counts_once
+  tests/test_single_execute_preflight_connection.py::test_both_fail_shows_both
+  tests/test_single_execute_preflight_connection.py::test_both_ok_proceeds
+  tests/test_single_execute_preflight_connection.py::test_no_password_leak
+  tests/test_single_execute_preflight_connection.py::test_no_path_skips_preflight
+  tests/test_single_execute_preflight_connection.py::test_non_pg_skips_preflight
+  tests/test_single_execute_preflight_connection.py::test_preflight_wired_into_execute_entries
+  tests/test_single_execute_preflight_connection.py::test_source_fail_blocks_with_message
+  tests/test_single_execute_preflight_connection.py::test_target_fail_blocks_with_message
+  (이 중 preflight 계열은 '업로드 프리플라이트'·'접속 프리플라이트'로 표본 preflight 와 다른 기능이며,
+   -k 키워드에 우연히 걸린 것이다. 수집 오류 14건은 httpx 미설치 환경 사유로 역시 사전 존재다.)
+
+════════════════════════════════════════════════════════════════════════
+8. 비판적 검토 (CLAUDE.md 의무 항목)
+════════════════════════════════════════════════════════════════════════
+· heuristic 하드코딩 증가 : 상수 3개(3초 / 1.0 / kill-switch) 추가. 전부 실측 근거를 주석에 남기고
+                           env + settings 로 조정 가능하게 했다. 형태 신호 자체는 늘리지 않았고,
+                           오히려 형태의 소비처를 '판정' → '예산'으로 축소했다.
+· scoring 미성숙          : 가중치 없는 단락 평가를 줄였다 — 종전 형태 boolean 단락 판정을
+                           실측 단가(연속값) 환산 비교로 대체했다.
+· explainability          : sampling.shape_policy(형태·정책근거·예산·여유배수)와 probe(단계별 실측·
+                           단가·환산·예산초과)를 결과에 저장해 '왜 진입/보류했나'가 재구성 가능하다.
+                           보류 사유도 4종으로 분리(SHAPE_WRAPPING_SKIPPED / PROBE_BUDGET_EXCEEDED /
+                           PROBE_PROJECTED_TIME_EXCEEDED / SAMPLING_TIME_CAP_EXCEEDED).
+· 보안                    : 신규 입력·SQL 조립 없음. 프로브는 기존 표본 어댑터를 그대로 쓴다.
+                           실측 스크립트는 SELECT 전용이며 비밀번호를 출력하지 않는다(pre-commit 스캔 통과).
+· 테스트 가능성           : 정책을 순수 함수(shape_cost_policy/skip_by_shape)로 분리해 DB 없이 단위
+                           테스트가 가능하다. 비용 주입 어댑터로 판정 경로 전체를 결정적으로 검증했다.
+· 남는 위험               : 위험 형태에서 프로브 비용(케이스 C 1.3초)이 새로 발생한다. kill-switch 로
+                           즉시 종전 동작 복귀 가능하다. 프로브 예산 기본 3초는 25만행 실측 기준이라
+                           훨씬 큰 테이블에서는 재조정이 필요할 수 있다(env 로 조정).
+
+════════════════════════════════════════════════════════════════════════
+9. 변경 파일 · git
+════════════════════════════════════════════════════════════════════════
+커밋 : 8bba4a3  feat(sampling): 표본 preflight 진입 판정을 '형태'에서 '실측 비용'으로 이전
+                (SAMPLING-PREFLIGHT-COST-AWARE-JUDGMENT-P4-FIX)
+직전 : 10c932f
+
+ routes/agg_diff_route.py                                    |  21 +-   (훅 1개 3줄 + 주석)
+ services/exact_diff/sampling_preflight.py                   | 164 ++-   (주 수정 대상)
+ tests/test_sampling_cost_aware_judgment.py                  | 205 +++   (신규 13건)
+ tests/test_sampling_gate_wrapping_skip.py                   |  63 +-    (P4 계약 갱신)
+ scripts/dev_e2e/sampling_cost_aware_fixture_probe.py        | 122 +++   (신규, 픽스처 조사)
+ scripts/dev_e2e/sampling_cost_aware_judgment_live_measure.py| 230 +++   (신규, 라이브 실측)
+ 6 files changed, 778 insertions(+), 27 deletions(-)
+
+동시 세션 보호:
+  routes/agg_diff_route.py 는 다른 세션의 미커밋 변경(CHUNK-SIZE-POLICY-G2-FIX, _clamp_chunk_size)과
+  같은 파일이라, 작업트리 백업 후 **인덱스 한정 부분 스테이징**(git apply --cached, 내 hunk 1개만)으로
+  커밋했다. 커밋 후 작업트리 파일이 백업본과 완전히 동일함(diff 무출력)과 타 세션 hunk 잔존을 재확인했다.
+  git stash · update-index --cacheinfo 는 사용하지 않았다.
+
+════════════════════════════════════════════════════════════════════════
+10. 실검증 상태
+════════════════════════════════════════════════════════════════════════
+실검증 상태: 실 DB 실측 완료 (Oracle asis 1523 / tobe 1524, NXDNP.MV_ORA_XDIFF_SRC 250,000행 ·
+MV_ORA_XDIFF_TGT 249,950행) — 3케이스(형태 단순·비쌈 / 형태 복잡·쌈 / 형태 복잡·비쌈) BEFORE·AFTER
+대조 실측, 프로브 환산 단가와 실제 단가 오차 0.7~12.4%. 화면 무관 작업이라 스크린샷 없음.
+단위 테스트 34건 통과, 관련 서브셋 실패 23건은 baseline(HEAD worktree) 과 집합 완전 동일(차집합 0).
+
+✅ 작업 완료 - SAMPLING-PREFLIGHT-COST-AWARE-JUDGMENT-P4-FIX - 표본 preflight 진입 판정을 '형태(CTE/JOIN/UNION)'에서 P3 사전 프로브의 '실측 비용'으로 이전, 형태는 프로브 예산을 정하는 1차 필터로만 축소

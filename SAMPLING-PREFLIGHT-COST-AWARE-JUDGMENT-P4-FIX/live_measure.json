@@ -1,0 +1,197 @@
+{
+  "measure_anchors": 100,
+  "cases": [
+    {
+      "id": "A",
+      "label": "형태 단순 · 실제 비쌈(비인덱스 숫자키)",
+      "shape_wrapping": false,
+      "src_sql": "SELECT C_NUM AS ID, C_NUM_PS AS C_NUM_PS FROM NXDNP.MV_ORA_XDIFF_SRC",
+      "actual": {
+        "anchors": 100,
+        "elapsed_ms": 1857.2,
+        "per_anchor_ms": 18.572,
+        "pk_min": 3,
+        "pk_max": 750000,
+        "rows": 100
+      },
+      "before": {
+        "elapsed_ms": 1021.1,
+        "entered_gate": true,
+        "status": "SAMPLING_INCONCLUSIVE",
+        "reason": "PROBE_PROJECTED_TIME_EXCEEDED",
+        "valid_sample_count": 0,
+        "sample_target_n": 0,
+        "shape_policy": {
+          "shape_wrapping": false,
+          "cost_aware": false,
+          "probe_anchors": 8,
+          "probe_cap_ms": 0,
+          "margin": 3.0,
+          "skip_by_shape": false,
+          "basis": "SHAPE_SAFE_DEFAULT_PROBE"
+        },
+        "probe_stages": [
+          8,
+          32
+        ],
+        "probe_stage_ms": [
+          193.87,
+          632.61
+        ],
+        "probe_per_anchor_ms": 18.281,
+        "probe_projected_ms": 310919.43,
+        "probe_budget_exceeded": false,
+        "probe_elapsed_ms": 826.48,
+        "gate_return": "None(전수 merge 진행)"
+      },
+      "after": {
+        "elapsed_ms": 996.9,
+        "entered_gate": true,
+        "status": "SAMPLING_INCONCLUSIVE",
+        "reason": "PROBE_PROJECTED_TIME_EXCEEDED",
+        "valid_sample_count": 0,
+        "sample_target_n": 0,
+        "shape_policy": {
+          "shape_wrapping": false,
+          "cost_aware": true,
+          "probe_anchors": 8,
+          "probe_cap_ms": 0,
+          "margin": 3.0,
+          "skip_by_shape": false,
+          "basis": "SHAPE_SAFE_DEFAULT_PROBE"
+        },
+        "probe_stages": [
+          8,
+          32
+        ],
+        "probe_stage_ms": [
+          184.89,
+          617.23
+        ],
+        "probe_per_anchor_ms": 18.0143,
+        "probe_projected_ms": 306364.64,
+        "probe_budget_exceeded": false,
+        "probe_elapsed_ms": 802.11,
+        "gate_return": "None(전수 merge 진행)"
+      }
+    },
+    {
+      "id": "B",
+      "label": "형태 복잡(단순 CTE) · 실제 쌈",
+      "shape_wrapping": true,
+      "src_sql": "SELECT * FROM (\nWITH t AS (\n  SELECT\n    ID,\n    C_NUM\n  FROM NXDNP.MV_ORA_XDIFF_SRC\n)\nSELECT\n  ID AS ID,\n  C_NUM AS C_NUM\nFROM t\n) mv_reimport_src",
+      "actual": {
+        "anchors": 100,
+        "elapsed_ms": 118.0,
+        "per_anchor_ms": 1.18,
+        "pk_min": 1,
+        "pk_max": 250000,
+        "rows": 100
+      },
+      "before": {
+        "elapsed_ms": 4.8,
+        "entered_gate": false,
+        "status": null,
+        "reason": null,
+        "valid_sample_count": null,
+        "sample_target_n": null,
+        "shape_policy": null,
+        "probe_stages": null,
+        "probe_stage_ms": null,
+        "probe_per_anchor_ms": null,
+        "probe_projected_ms": null,
+        "probe_budget_exceeded": null,
+        "probe_elapsed_ms": null,
+        "gate_return": "None(전수 merge 진행)"
+      },
+      "after": {
+        "elapsed_ms": 2651.0,
+        "entered_gate": true,
+        "status": "FULL_COMPARE_APPROVED",
+        "reason": null,
+        "valid_sample_count": 2000,
+        "sample_target_n": 2000,
+        "shape_policy": {
+          "shape_wrapping": true,
+          "cost_aware": true,
+          "probe_anchors": 8,
+          "probe_cap_ms": 3000,
+          "margin": 1.0,
+          "skip_by_shape": false,
+          "basis": "SHAPE_RISK_PROBE_REQUIRED"
+        },
+        "probe_stages": [
+          8,
+          32
+        ],
+        "probe_stage_ms": [
+          34.57,
+          59.38
+        ],
+        "probe_per_anchor_ms": 1.0338,
+        "probe_projected_ms": 17653.92,
+        "probe_budget_exceeded": false,
+        "probe_elapsed_ms": 93.95,
+        "gate_return": "None(전수 merge 진행)"
+      }
+    },
+    {
+      "id": "C",
+      "label": "형태 복잡(CTE+JOIN+윈도우) · 실제 비쌈",
+      "shape_wrapping": true,
+      "src_sql": "SELECT * FROM (\nWITH ranked AS (\n  SELECT\n    x.ID,\n    x.C_NUM,\n    CASE WHEN t.AMT IS NULL THEN x.C_NUM_PS ELSE x.C_NUM_PS + t.AMT END AS C_NUM_PS,\n    ROW_NUMBER() OVER (PARTITION BY x.C_CHAR ORDER BY x.ID) AS rn\n  FROM NXDNP.MV_ORA_XDIFF_SRC x\n  LEFT JOIN NXDNP.MV_ORA_TEST_SRC t\n    ON MOD(x.ID, 300) + 1 = t.ORDER_ID\n)\nSELECT\n  ID AS ID,\n  C_NUM AS C_NUM,\n  C_NUM_PS AS C_NUM_PS\nFROM ranked\nWHERE\n  rn >= 1\n) mv_reimport_src",
+      "actual": {
+        "anchors": 100,
+        "elapsed_ms": 12404.2,
+        "per_anchor_ms": 124.042,
+        "pk_min": 1,
+        "pk_max": 250000,
+        "rows": 100
+      },
+      "before": {
+        "elapsed_ms": 16.9,
+        "entered_gate": false,
+        "status": null,
+        "reason": null,
+        "valid_sample_count": null,
+        "sample_target_n": null,
+        "shape_policy": null,
+        "probe_stages": null,
+        "probe_stage_ms": null,
+        "probe_per_anchor_ms": null,
+        "probe_projected_ms": null,
+        "probe_budget_exceeded": null,
+        "probe_elapsed_ms": null,
+        "gate_return": "None(전수 merge 진행)"
+      },
+      "after": {
+        "elapsed_ms": 1303.2,
+        "entered_gate": true,
+        "status": "SAMPLING_INCONCLUSIVE",
+        "reason": "PROBE_BUDGET_EXCEEDED",
+        "valid_sample_count": 0,
+        "sample_target_n": 0,
+        "shape_policy": {
+          "shape_wrapping": true,
+          "cost_aware": true,
+          "probe_anchors": 8,
+          "probe_cap_ms": 3000,
+          "margin": 1.0,
+          "skip_by_shape": false,
+          "basis": "SHAPE_RISK_PROBE_REQUIRED"
+        },
+        "probe_stages": [
+          8
+        ],
+        "probe_stage_ms": [
+          999.51
+        ],
+        "probe_per_anchor_ms": 124.9387,
+        "probe_projected_ms": 2123957.9,
+        "probe_budget_exceeded": true,
+        "probe_elapsed_ms": 999.51,
+        "gate_return": "None(전수 merge 진행)"
+      }
+    }
+  ]
+}

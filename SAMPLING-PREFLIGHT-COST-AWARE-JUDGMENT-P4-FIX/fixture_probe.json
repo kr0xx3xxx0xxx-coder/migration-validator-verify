@@ -1,0 +1,362 @@
+{
+  "src": {
+    "owner": "NXDNP",
+    "tables": [
+      {
+        "table": "MV_ORA_XDIFF_SRC",
+        "columns": [
+          [
+            "ID",
+            "NUMBER"
+          ],
+          [
+            "C_NUM",
+            "NUMBER"
+          ],
+          [
+            "C_NUM_PS",
+            "NUMBER"
+          ],
+          [
+            "C_VARCHAR2",
+            "VARCHAR2"
+          ],
+          [
+            "C_CHAR",
+            "CHAR"
+          ],
+          [
+            "C_NVARCHAR2",
+            "NVARCHAR2"
+          ],
+          [
+            "C_CLOB",
+            "CLOB"
+          ],
+          [
+            "C_DATE",
+            "DATE"
+          ],
+          [
+            "C_TS",
+            "TIMESTAMP(6)"
+          ],
+          [
+            "C_TS3",
+            "TIMESTAMP(3)"
+          ],
+          [
+            "C_TS6",
+            "TIMESTAMP(6)"
+          ]
+        ],
+        "count": 250000,
+        "indexed_columns": [
+          [
+            "PK_MV_ORA_XDIFF_SRC",
+            "ID"
+          ]
+        ],
+        "pk_columns": [
+          "ID"
+        ]
+      },
+      {
+        "table": "MV_ORA_NOPK_SRC",
+        "columns": [
+          [
+            "ID",
+            "NUMBER"
+          ],
+          [
+            "C_NUM",
+            "NUMBER"
+          ],
+          [
+            "C_VARCHAR2",
+            "VARCHAR2"
+          ]
+        ],
+        "count": 30,
+        "indexed_columns": [
+          [
+            "SYS_C008696",
+            "ID"
+          ]
+        ],
+        "pk_columns": [
+          "ID"
+        ]
+      },
+      {
+        "table": "MV_ORA_TEST_SRC",
+        "columns": [
+          [
+            "ORDER_ID",
+            "NUMBER"
+          ],
+          [
+            "AMT",
+            "NUMBER"
+          ],
+          [
+            "QTY",
+            "NUMBER"
+          ],
+          [
+            "RATIO",
+            "BINARY_DOUBLE"
+          ],
+          [
+            "ORDER_YM",
+            "VARCHAR2"
+          ],
+          [
+            "REGION_CD",
+            "VARCHAR2"
+          ],
+          [
+            "CHANNEL_CD",
+            "CHAR"
+          ],
+          [
+            "MEMO",
+            "NVARCHAR2"
+          ],
+          [
+            "DESCR",
+            "CLOB"
+          ],
+          [
+            "ORDER_DT",
+            "DATE"
+          ],
+          [
+            "CREATED_TS",
+            "TIMESTAMP(6)"
+          ],
+          [
+            "UPDATED_TS",
+            "TIMESTAMP(6)"
+          ]
+        ],
+        "count": 300,
+        "indexed_columns": [
+          [
+            "PK_MV_ORA_SRC",
+            "ORDER_ID"
+          ]
+        ],
+        "pk_columns": [
+          "ORDER_ID"
+        ]
+      },
+      {
+        "table": "MV_ORA_TEST_TGT",
+        "columns": [
+          [
+            "ORDER_ID",
+            "NUMBER"
+          ],
+          [
+            "AMT",
+            "NUMBER"
+          ],
+          [
+            "QTY",
+            "NUMBER"
+          ],
+          [
+            "RATIO",
+            "BINARY_DOUBLE"
+          ],
+          [
+            "ORDER_YM",
+            "VARCHAR2"
+          ],
+          [
+            "REGION_CD",
+            "VARCHAR2"
+          ],
+          [
+            "CHANNEL_CD",
+            "CHAR"
+          ],
+          [
+            "MEMO",
+            "NVARCHAR2"
+          ],
+          [
+            "DESCR",
+            "CLOB"
+          ],
+          [
+            "ORDER_DT",
+            "DATE"
+          ],
+          [
+            "CREATED_TS",
+            "TIMESTAMP(6)"
+          ],
+          [
+            "UPDATED_TS",
+            "TIMESTAMP(6)"
+          ]
+        ],
+        "count": 300,
+        "indexed_columns": [
+          [
+            "PK_MV_ORA_TGT",
+            "ORDER_ID"
+          ]
+        ],
+        "pk_columns": [
+          "ORDER_ID"
+        ]
+      }
+    ]
+  },
+  "tgt": {
+    "owner": "NXDNP",
+    "tables": [
+      {
+        "table": "MV_ORA_XDIFF_TGT",
+        "columns": [
+          [
+            "ID",
+            "NUMBER"
+          ],
+          [
+            "C_NUM",
+            "NUMBER"
+          ],
+          [
+            "C_NUM_PS",
+            "NUMBER"
+          ],
+          [
+            "C_VARCHAR2",
+            "VARCHAR2"
+          ],
+          [
+            "C_CHAR",
+            "CHAR"
+          ],
+          [
+            "C_NVARCHAR2",
+            "NVARCHAR2"
+          ],
+          [
+            "C_CLOB",
+            "CLOB"
+          ],
+          [
+            "C_DATE",
+            "DATE"
+          ],
+          [
+            "C_TS",
+            "TIMESTAMP(6)"
+          ],
+          [
+            "C_TS3",
+            "TIMESTAMP(3)"
+          ],
+          [
+            "C_TS6",
+            "TIMESTAMP(6)"
+          ]
+        ],
+        "count": 249950,
+        "indexed_columns": [
+          [
+            "PK_MV_ORA_XDIFF_TGT",
+            "ID"
+          ]
+        ],
+        "pk_columns": [
+          "ID"
+        ]
+      },
+      {
+        "table": "MV_ORA_NOPK_TGT",
+        "columns": [
+          [
+            "C_NUM",
+            "NUMBER"
+          ],
+          [
+            "C_VARCHAR2",
+            "VARCHAR2"
+          ]
+        ],
+        "count": 27,
+        "indexed_columns": [],
+        "pk_columns": []
+      },
+      {
+        "table": "MV_ORA_TEST_TGT",
+        "columns": [
+          [
+            "ORDER_ID",
+            "NUMBER"
+          ],
+          [
+            "AMT",
+            "NUMBER"
+          ],
+          [
+            "QTY",
+            "NUMBER"
+          ],
+          [
+            "RATIO",
+            "BINARY_DOUBLE"
+          ],
+          [
+            "ORDER_YM",
+            "VARCHAR2"
+          ],
+          [
+            "REGION_CD",
+            "VARCHAR2"
+          ],
+          [
+            "CHANNEL_CD",
+            "CHAR"
+          ],
+          [
+            "MEMO",
+            "NVARCHAR2"
+          ],
+          [
+            "DESCR",
+            "CLOB"
+          ],
+          [
+            "ORDER_DT",
+            "DATE"
+          ],
+          [
+            "CREATED_TS",
+            "TIMESTAMP(6)"
+          ],
+          [
+            "UPDATED_TS",
+            "TIMESTAMP(6)"
+          ]
+        ],
+        "count": 300,
+        "indexed_columns": [
+          [
+            "PK_MV_ORA_TEST_TGT",
+            "ORDER_ID"
+          ]
+        ],
+        "pk_columns": [
+          "ORDER_ID"
+        ]
+      }
+    ]
+  }
+}
