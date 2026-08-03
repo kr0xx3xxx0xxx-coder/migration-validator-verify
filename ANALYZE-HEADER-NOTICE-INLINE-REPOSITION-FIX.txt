@@ -1,0 +1,182 @@
+작업명 : ANALYZE-HEADER-NOTICE-INLINE-REPOSITION-FIX
+작성일 : 2026-08-03
+커밋   : 00fd593 (main, 부모 fd3a528)
+수정   : ui/tabler_renderer.py
+동반   : tests/test_shared_sticky_step_nav.py (계약 갱신),
+         scripts/dev_e2e/analyze_header_notice_inline_browser_shot.py (실측 하니스 신규)
+
+════════════════════════════════════════════════════════════════════════
+1. 요청 요약
+════════════════════════════════════════════════════════════════════════
+직전 작업(STAGE-STEP-HINT-REMOVE)에서 적용범위 안내 배너를 단계 탭 '바로 위'로 옮겼는데,
+위치를 한 번 더 조정한다.
+  ① 좌측 상단 "개별검증" 제목 아래 부제("SQL 1건 임시 분석·확인(보조 도구)") 삭제
+  ② 안내 배너를 "개별검증" 제목과 '같은 행'으로 올리고 그 행의 오른쪽 끝에 배치
+  ③ 배너 앞 장식(파란 세로 막대 = border-left, 배경 박스) 제거 — 텍스트만
+  ④ 문구·[일괄검증] 링크는 그대로
+  ⑤ 옛 자리(탭 바로 위)의 빈 여백도 함께 정리
+  ⑥ 개별검증에만 적용, 일괄검증 화면은 미변경
+
+════════════════════════════════════════════════════════════════════════
+2. 구현 내용
+════════════════════════════════════════════════════════════════════════
+[A] 공용 shell 에서 안내 요소 제거 (ui/tabler_renderer.py ~L2370)
+    단계 탭(#mvStepNavBar) 바로 위에 있던
+      <div id="mvAnalyzeScopeNotice" style="display:none;text-align:right">
+        <div class="analyze-info-banner" ...>…</div>
+      </div>
+    블록을 통째로 삭제하고 주석만 남겼다. 요소 자체가 사라지므로 그 자리의 여백도 함께 사라진다
+    (요구사항 ⑤ — placeholder 를 남기지 않는 이 프로젝트의 SubNav 규칙과 동일한 처리).
+
+[B] 페이지 Header action 영역으로 이동 (_MV_PAGE_HEADERS.analyze)
+    기존:  analyze: { title:'개별검증', subtitle:'SQL 1건 임시 분석·확인(보조 도구)', badge:'검증' }
+    변경:  analyze: { title:'개별검증', badge:'검증',
+                      actions: '<div id="mvAnalyzeScopeNotice" style="text-align:right;
+                                 font-size:.8rem;color:#6b7280;line-height:1.5">…</div>' }
+    · 부제 키를 제거 → 부제 DOM 자체가 렌더되지 않는다(요구사항 ①).
+    · renderPageHeader 는 이미 `display:flex; justify-content:space-between` 구조라
+      제목(좌) / actions(우)가 한 행에 배치된다(요구사항 ②).
+    · class="analyze-info-banner" 를 떼어냈다 → 그 클래스의 CSS(배경 #f0f6ff, border-left
+      3px solid #3b82f6, padding 9px 14px, border-radius 7px, 모두 !important)가 적용되지
+      않는다. 인라인 스타일에도 배경·테두리·padding 을 두지 않아 '텍스트만' 남는다(요구사항 ③).
+    · onclick 중첩 따옴표는 이 파일의 기존 관행대로 &#39; 엔티티를 사용했다
+      (JS 문자열 조기 종료 방지 — 파일 내 다수 선례 존재, L17414 주석에 관행이 명시돼 있다).
+      innerHTML 파싱 시 &#39; → ' 로 복원되므로 브라우저 DOM 상의 링크 마크업은 종전과 동일하다
+      (실측: outerHTML = <a href="#" onclick="showTab('batch');return false"><strong>[일괄검증]</strong></a>).
+
+[C] renderPageHeader 정렬 보정
+    부제가 없으면 제목이 한 줄뿐이라 flex-start 정렬 시 우측 안내가 제목 위쪽에 붙어 어긋난다.
+      var _align = subtitle ? 'flex-start' : 'center';
+    부제가 있는 페이지(일괄검증 등)는 종전 flex-start 그대로 — 회귀 없음.
+
+[D] 표시 토글 코드는 그대로 유지
+    _mvShowStepNavBar / _mvHideStepNavBar 의 #mvAnalyzeScopeNotice 토글은 삭제하지 않았다.
+    이 요소는 이제 analyze Header 안에만 렌더되어 다른 화면에서는 getElementById 가 null 이고,
+    두 함수 모두 null-safe 이므로 무해하다. 방어 로직을 남겨 기존 계약 테스트도 유지된다.
+
+════════════════════════════════════════════════════════════════════════
+3. 실측 검증 (실제 운영 서버 + 브라우저)
+════════════════════════════════════════════════════════════════════════
+[검증 방법]
+· before 캡처를 '수정 전'에 먼저 확보했다. 실행 중이던 서버(PID 24296, reload=False)는
+  .py 편집을 반영하지 않으므로 구 마크업을 그대로 서빙 중이었고, 이를 HTTP 로 확인한 뒤 캡처했다
+  (OLD_shell_notice_div=True / OLD_subtitle=True / NEW_actions=False).
+· 재기동 전 활성 job 확인: GET /jobs/active → items 0건, counts.total=0 → 재기동 안전.
+  이후 web_server.py 재기동(포트 8000 자동 회수) → NEW_actions=True 확인 후 after 캡처.
+· 하니스: scripts/dev_e2e/analyze_header_notice_inline_browser_shot.py before|after
+  Playwright Chromium 1600x1000. 1~5단계는 각 단계의 '진짜 완료 플래그'만 세우고 실제 렌더
+  함수(_renderSingleStepNav / _applySinglePane)와 실제 클릭 경로(_mvNavClick)를 그대로 호출.
+  (한계: 실 DB 완주가 아니라 완료 플래그 seed — 탭 배지·처리시간·레이아웃은 실제 렌더 결과다.)
+
+[실측 대조 — 개별검증 1단계 기준, 1~5단계 모두 동일 결과]
+  항목                              before                         after
+  ────────────────────────────────────────────────────────────────────────────────
+  부제 DOM 존재                     true                           false
+  부제 문구                         SQL 1건 임시 분석·확인(보조 도구)  (없음)
+  제목 box (top~bottom)             123 ~ 147                      123 ~ 147
+  안내 box (top~bottom)             189 ~ 239                      125 ~ 145
+  제목과 같은 행                    false                          true
+  안내가 제목보다 오른쪽            false                          true
+  안내 부모                         .container-xl(공용 shell)      .mv-page-actions(Header 안)
+  안내 Header 안                    false                          true
+  Header 우측여백(hdr.right-note.right) 0px                        0px  (행 오른쪽 끝)
+  문구요소 클래스                   analyze-info-banner            (id:mvAnalyzeScopeNotice)
+  문구요소 border-left              3px solid rgb(59,130,246)      0px none
+  문구요소 배경색                   rgb(240,246,255)               rgba(0,0,0,0)
+  문구요소 padding                  9px 14px                       0px
+  .analyze-info-banner 존재         true                           false
+  Header하단~단계탭상단 간격        62px                           12px
+  ────────────────────────────────────────────────────────────────────────────────
+  → ① 부제 삭제 확인 ② 같은 행·오른쪽 끝 확인 ③ 파란 세로막대/배경/여백 장식 제거 확인
+    ⑤ 옛 자리 여백 62px→12px 로 정리 확인(빈 배너 공간 소멸)
+
+[요구사항 ④ — 문구·링크 유지]
+  안내 문구(after): "단일테이블 1개만을 검증 및 등록하는 기능입니다.
+                     다수 테이블의 검증은 [일괄검증] 메뉴를 사용합니다."  (before 와 동일)
+  링크 DOM(after) : <a href="#" onclick="showTab('batch');return false"><strong>[일괄검증]</strong></a>
+  링크 클릭 실행  : 클릭 → _mvCurrentTab = 'batch'  (before/after 모두 동일하게 정상 전환)
+  스크린샷        : after_notice_link_to_batch.png
+
+[요구사항 ⑥ — 일괄검증 무변경]
+  before: 안내 DOM 존재 true(단, 박스 0x0 = display:none 으로 미표시), 부제 '개별검증 core 반복 실행'
+  after : 안내 DOM 존재 false(analyze Header 에만 렌더되므로 아예 생성 안 됨),
+          부제 '개별검증 core 반복 실행' 유지, Header 정렬 flex-start 유지
+  → 일괄검증 화면 표시 결과는 before/after 동일. 스크린샷 after_batch.png
+
+[무회귀 — 탭·처리시간·커맨드바]
+  탭 배지(5단계 진입 시): ['1 쿼리검토 완료','2 COUNT 사전검증 완료','3 후보 컬럼 선정 완료',
+                          '4 통계검증 실행 완료','5 결과 확인 현재'] — before/after 동일
+  처리시간 슬롯: 1단계 '· 1단계 처리시간: 1.80초' / 5단계 '· 5단계 처리시간: 24.12초' — 동일
+  단계 탭 바(#mvStepNavBar) 및 하단 커맨드바 렌더 정상, 페이지 JS 오류(pageerrors) 0건.
+
+════════════════════════════════════════════════════════════════════════
+4. 자체 테스트
+════════════════════════════════════════════════════════════════════════
+[기존 회귀]
+  python samples/test_virtual_cases.py   → 8/8 통과
+  python samples/test_complex_cases.py   → 5/5 케이스 분석 완료
+
+[JS 문법 가드]
+  렌더된 인라인 스크립트 전량(2,000,566자) 추출 → node --check → JS_SYNTAX_OK
+  (JS 주석/따옴표로 번들이 깨지는 기존 사고 유형 사전 차단)
+
+[Header/네비 계약 테스트]
+  tests/test_shared_sticky_step_nav.py, test_page_header.py, test_step_nav_scope.py,
+  test_subnav_pages.py, test_navigation_sync.py, test_save_time_label_and_nav.py
+    → 96 passed
+  갱신한 계약(직전 작업 기준이라 그대로 두면 거짓 통과/거짓 실패):
+    · test_analyze_scope_notice_above_tabs_and_right_aligned
+      → test_analyze_scope_notice_inline_in_page_header 로 교체
+        (Header action 소속 / 오른쪽 정렬 / 장식 클래스·border-left 부재 / 부제 문구 제거 /
+         [일괄검증] 링크 / owner 기준 토글 유지)
+    · test_page_header_aligns_center_without_subtitle 신규
+      (부제 없는 Header 는 center 정렬)
+
+[광역 UI 스윕 및 baseline 대조]
+  python -m pytest tests/ -k "header or nav or subnav or tab or banner or notice or hint"
+    → 855 passed / 49 failed (7분 45초)
+  실패가 이번 변경 탓인지 확인하기 위해 부모 커밋(fd3a528) worktree 를 만들어 동일 파일을
+  동일 조건으로 실행해 실패 집합을 diff 했다(git stash 미사용).
+    대상 UI 정적 테스트 7개 파일(test_step_tab_dom_stability / test_tabulator_vendor /
+    test_ui_active_tab_persistence / test_ui_menu_accordion_groups / test_ui_menu_ia_restructure /
+    test_ui_tab4_tab5_separation / test_table_presence_live_db)
+      baseline 19건 실패  vs  patched 19건 실패  →  diff 결과 완전 동일, 신규 실패 0건
+  나머지 실패(test_upload_audit_store / test_task11_*)는 이번 변경과 무관함을 개별 확인:
+    · test_task11_s::test_01b — 일괄검증 후보 상세패널 JS 의 '추천/점수' 문구 부재 주장
+      (건드리지 않은 _batchBuildCandDetailPanel 대상), baseline 에서도 동일 실패
+    · test_task11_t::test_10 — conftest 의 PROD-DB-WRITE-BLOCKED 가드가 raise
+      (운영 SQLite 쓰기 차단 — 환경 문제, 코드 무관)
+    · test_upload_audit_store 6건 — baseline 에서도 동일 실패
+  → 결론: 이번 변경으로 새로 깨진 테스트 없음.
+
+════════════════════════════════════════════════════════════════════════
+5. 비판적 검토 (위험·한계)
+════════════════════════════════════════════════════════════════════════
+· [구조] 안내 문구가 공용 shell HTML → JS 설정(_MV_PAGE_HEADERS)으로 옮겨져, 문구 수정 지점이
+  HTML 이 아니라 JS 문자열이 됐다. 대신 '개별검증 화면에만 렌더' 가 설정 자체로 보장되어
+  owner 기반 토글에 의존하던 표시 조건이 구조적으로 단순해졌다(토글은 방어로만 잔존).
+· [잠재 이슈] 좁은 화면에서는 제목과 안내가 한 행을 나눠 쓰므로 안내 문구가 2~3줄로 접힐 수 있다.
+  1600px 뷰포트 실측에서는 546px 폭 1줄. 요구사항이 '한 행 배치'이므로 반응형 접힘 규칙은
+  이번 범위에 넣지 않았다(추후 필요 시 별건).
+· [잔여] .analyze-info-banner CSS 규칙(2곳)은 이제 어떤 요소에도 적용되지 않는 사문 규칙이 됐다.
+  선택자 하나가 `#tab-analyze > .mv-tab > div:first-child` 와 묶여 있어 섣불리 지우면 다른
+  요소에 영향 가능성이 있어 이번엔 남겼다(표시 결과에는 영향 없음 — 실측으로 확인).
+· [보안/설명가능성] 문구·링크만 다루는 표시 변경이라 heuristic·scoring·근거저장 영향 없음.
+
+════════════════════════════════════════════════════════════════════════
+6. 산출물
+════════════════════════════════════════════════════════════════════════
+커밋 00fd593  ui/tabler_renderer.py                                  (+40 / -26 상당)
+              tests/test_shared_sticky_step_nav.py                   (계약 교체·신규)
+              scripts/dev_e2e/analyze_header_notice_inline_browser_shot.py (신규 224줄)
+
+스크린샷/실측 JSON: E:\verify_screenshots_only\ANALYZE-HEADER-NOTICE-INLINE-REPOSITION-FIX\
+  before_single_head_clip.png / after_single_head_clip.png   ← 제목 행 배치 대조(핵심)
+  before_single_1~5단계.png  / after_single_1~5단계.png
+  before_batch.png           / after_batch.png               ← 일괄검증 무변경
+  before_notice_link_to_batch.png / after_notice_link_to_batch.png ← [일괄검증] 링크 동작
+  analyze_header_notice_inline_browser_shot_before.json / _after.json ← 좌표·computed style 실측
+
+✅ 작업 완료 - ANALYZE-HEADER-NOTICE-INLINE-REPOSITION-FIX - 개별검증 부제 삭제 + 적용범위 안내를
+'개별검증' 제목과 같은 행 오른쪽 끝으로 이동하고 장식(배경·파란 세로막대·padding) 제거,
+옛 자리 여백 62px→12px 정리, 문구·[일괄검증] 링크 및 일괄검증 화면 무회귀 실측 확인
