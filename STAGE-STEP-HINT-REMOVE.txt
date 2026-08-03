@@ -1,0 +1,186 @@
+작업명 : STAGE-STEP-HINT-REMOVE
+작성일 : 2026-08-03
+커밋   : fd3a528  (직전 HEAD 93f4ca1)
+대상   : ui/tabler_renderer.py (+ 관련 테스트 5종, 실측 스크립트 1종)
+
+
+────────────────────────────────────────────────────────────────────────
+1. 배경과 요청
+────────────────────────────────────────────────────────────────────────
+개별검증 화면 상단, 단계 탭 아래에 있던 "현재 단계: [설명]" 안내문구(mvStepHint)가
+계속 잘못된 값을 보여주는 문제가 직전 수정(93f4ca1, 보는 탭 기준으로 통일)에도
+해소되지 않아, 사용자가 문구와 그 자리(공간) 자체를 완전히 제거하기로 결정했다.
+
+작업 중 추가 요구사항이 들어왔다 — 개별검증 화면의 안내 박스를 단계 탭 '위'로 옮기고
+오른쪽 정렬, 문구는 적용범위 안내로 교체.
+
+
+────────────────────────────────────────────────────────────────────────
+2. 수정 내용
+────────────────────────────────────────────────────────────────────────
+
+[A] mvStepHint 완전 제거 (개별 · 일괄 모두)
+
+  ① DOM        : <div id="mvStepHint" class="mv-step-hint"> 삭제 (mvStepNavBar 내부)
+  ② CSS        : .mv-step-hint{...} / .mv-step-hint b{...} 삭제
+                 → 문구뿐 아니라 그 요소가 차지하던 padding(5px 2px 7px) 공간까지 소멸
+  ③ setter     : _mvSetStepHint(html) / _mvSetStepHintOwned(owner, html) 삭제
+  ④ 문구 테이블 : _MV_SINGLE_HINT(개별 5단계) / _MV_BATCH_HINT(일괄 5단계) 삭제
+  ⑤ 호출부     : 개별 nav 렌더(_renderSingleStepNav) 1곳,
+                 일괄 nav 렌더(renderBatchStepNav) 1곳,
+                 이동 차단 안내 4곳 — 전부 제거 또는 대체(아래 [B])
+  ⑥ 파생 죽은코드: _batchGateIdToNum(Gate 단계 id → 일괄 단계번호) 삭제.
+                 이 함수의 용도는 '현재단계 문구 매핑' 단 하나였고, 문구 제거로
+                 유일 호출부가 사라져 함께 정리했다.
+                 (_mvHideStepNavBar 안의 hint 정리 코드도 함께 제거)
+
+[B] 이동 차단 사유는 유지 (안내 위치만 교체)
+
+  안내문구 줄이 사라지면서, 잠긴 단계를 클릭했을 때 아무 반응이 없어지는 문제가
+  생긴다. 사용자가 '왜 안 넘어가는지' 알 수 없게 되므로, 새 UI 컴포넌트를 만들지 않고
+  이 코드베이스가 이미 같은 목적으로 쓰는 alert 패턴(_mvNotifyRunActiveBlocked 와 동일
+  방식)을 재사용한 _mvNotifyNavBlocked 로 4개 메시지를 옮겼다.
+
+    · 변경으로 재검증이 필요한 단계입니다. 먼저 재분석/선행 단계를 완료하세요.
+    · 아직 완료하지 않은 단계로는 건너뛸 수 없습니다. (완료한 단계는 상단 탭에서 자유 이동)
+    · 현재 단계의 변경을 먼저 적용(실행 버튼)해야 다음 단계로 이동할 수 있습니다.  (탭/하단 버튼 2경로)
+    · 선행 단계를 먼저 완료하세요. (잠긴 단계로 이동 불가)
+
+  ※ 이는 지침에 명시된 항목은 아니지만, 문구 제거를 문자 그대로만 적용하면 차단이
+     '무반응'이 되는 회귀가 생기므로 판단해 유지했다. 판정·이동 허용 로직은 불변이다.
+
+[C] 개별검증 안내 배너 이동 + 문구 교체 (추가 요구사항)
+
+  · 위치  : #tab-analyze 내부 최상단  →  단계 탭 바로 위(#mvAnalyzeScopeNotice)
+  · 정렬  : 좌측 정렬(전폭)          →  오른쪽 정렬(내용 폭, inline-block)
+  · 문구  : (구) 개별검증은 SQL 1건을 임시로 분석·확인하는 보조 도구입니다.
+                공식 검증 작업에 포함할 누락 쿼리는 [일괄검증] 메뉴에서 같은
+                검증 작업명(batch_name)으로 보완 업로드하세요.
+            (신) 단일테이블 1개만을 검증 및 등록하는 기능입니다.
+                다수 테이블의 검증은 [일괄검증] 메뉴를 사용합니다.
+  · 링크  : [일괄검증] 은 이 화면이 이미 쓰는 좌측 메뉴 링크 마크업을 그대로 재사용
+            → <a href="#" onclick="showTab('batch');return false"><strong>[일괄검증]</strong></a>
+            (구 문구에서는 [일괄검증] 이 <strong> 텍스트일 뿐 링크가 아니었다.
+             요청대로 '기존 링크 마크업 재사용'을 적용해 실제 링크가 되었다 — 실측 확인)
+  · 스타일: 배경·테두리·모서리·글자크기 모두 종전 그대로.
+            배너가 #tab-analyze 밖으로 나가면서 CSS selector 의 `#tab-analyze ` 한정만
+            떼어냈다(`#tab-analyze .analyze-info-banner` → `.analyze-info-banner`).
+            선언 자체는 한 글자도 바꾸지 않아 외형 동일 — 실측 computed 값으로 확인.
+  · 범위  : 개별검증 전용. 공용 shell 에 두되 표시 토글을 _mvShowStepNavBar 의
+            owner('analyze') 기준으로 걸어 일괄검증 화면에서는 나오지 않는다.
+            비검증 화면에서는 _mvHideStepNavBar 가 함께 접는다(여백 0).
+
+[D] 건드리지 않은 것 (지침 5)
+  · 단계 탭 배지(1~5 · 완료/현재/잠김)
+  · "N단계 처리시간" 슬롯
+  · 하단 커맨드바의 "현재 단계: ..." 표시
+  · 일괄검증 화면의 다른 안내 문구(추가 요구사항 4에 따라 문구 교체는 개별 전용)
+
+
+────────────────────────────────────────────────────────────────────────
+3. 실측 검증 (실제 운영 서버 · 실제 브라우저)
+────────────────────────────────────────────────────────────────────────
+서버   : 127.0.0.1:8000 (web_server.py, HTTP Basic Auth)
+재기동 : 사전에 /jobs/active 조회 → 실행 중 job 0건 확인 후 재기동(PID 30224 → 24296)
+         (.py 편집은 reload=False 라 재기동해야 반영된다)
+방법   : Playwright 로 실제 페이지 로드 → 각 단계의 '진짜 완료 플래그'만 사용자 흐름과
+         동일하게 세우고 실제 렌더 함수(_renderSingleStepNav/_applySinglePane)를 그대로
+         호출. 탭 이동도 실제 클릭 경로(_mvNavClick → showSingleStep) 사용.
+         스크립트: scripts/dev_e2e/stage_step_hint_remove_browser_shot.py (before/after 동일)
+
+  ┌───────────────────────┬───────────────────────────┬──────────────────────────┐
+  │ 항목                  │ BEFORE                    │ AFTER                    │
+  ├───────────────────────┼───────────────────────────┼──────────────────────────┤
+  │ 안내문구 DOM 존재     │ true (개별 1~5 · 일괄)    │ false (개별 1~5 · 일괄)  │
+  │ 안내문구 텍스트       │ "현재 단계: 결과 확인 …"  │ "" (요소 없음)           │
+  │ 안내문구 박스 높이    │ 29px                      │ null (요소 없음)         │
+  │ 단계 탭바 전체 높이   │ 99px                      │ 70px                     │
+  │ 배너 부모             │ tab-analyze               │ mvAnalyzeScopeNotice     │
+  │ 배너가 탭바보다 위?   │ false (탭 아래, top 300)  │ true (top 189 < 239)     │
+  │ 배너 정렬 / 폭        │ start / 1256px(전폭)      │ right / 591px(내용 폭)   │
+  │ 배너 좌측 x좌표       │ 302                       │ 967 (우측단 1558 일치)   │
+  │ 배너 배경색           │ rgb(240,246,255)          │ rgb(240,246,255) 동일    │
+  │ 배너 좌측 테두리      │ 3px solid rgb(59,130,246) │ 동일                     │
+  │ 배너 링크             │ 없음(<strong> 텍스트)     │ <a onclick=showTab(batch)│
+  │ 일괄화면 배너 노출    │ 0×0 (미노출)              │ 0×0 (미노출, 의도)       │
+  │ pageerror             │ 0건                       │ 0건                      │
+  └───────────────────────┴───────────────────────────┴──────────────────────────┘
+
+  · 빈 공간 검증: 탭바 높이가 정확히 29px(=제거된 문구 줄 높이)만큼 줄었다.
+    즉 문구만 지우고 자리는 남는 형태가 아니라, 요소·여백이 함께 사라져 탭과 아래
+    내용이 자연스럽게 붙는다. after_single_head_clip.png 로 육안 확인.
+  · [일괄검증] 링크 동작: 실제 클릭 → _mvCurrentTab === 'batch' 전환 확인
+    (after_banner_link_to_batch.png)
+  · 두 변경이 같은 영역이라 함께 확인 — 배너가 탭 위로 올라오고 문구 줄이 빠진 뒤에도
+    레이아웃 깨짐/겹침 없음.
+
+스크린샷 (E:\verify_screenshots_only\STAGE-STEP-HINT-REMOVE\):
+  before_single_1~5단계.png / _navbar.png   after_single_1~5단계.png / _navbar.png
+  before_batch.png / _navbar.png            after_batch.png / _navbar.png
+  before_single_head_clip.png               after_single_head_clip.png
+                                            after_banner_link_to_batch.png
+
+
+────────────────────────────────────────────────────────────────────────
+4. 자체 테스트 (회귀)
+────────────────────────────────────────────────────────────────────────
+[1] 제거된 마크업을 단언하던 테스트 5개 파일을 '제거 계약' 기준으로 갱신
+    · tests/test_shared_sticky_step_nav.py
+        test_current_step_hint_present → test_current_step_hint_removed 로 전환
+        (DOM·CSS·setter·문구테이블·호출부·_batchGateIdToNum 부재를 모두 단언)
+        문구 소유권 테스트 3종(_run_step_hint 기반) 삭제 → 대체 테스트 2종 신설:
+          test_nav_blocked_reason_still_notified          (차단 사유 유지)
+          test_analyze_scope_notice_above_tabs_and_right_aligned (배너 위치·정렬·문구·링크)
+    · tests/test_stage_gate_unified_contract.py  : _MV_SINGLE_HINT/_MV_BATCH_HINT 부재로 전환
+    · tests/test_step_nav_scope.py               : 숨김 대상 검사를 배너 접힘으로 전환
+    · tests/test_navigation_sync.py              : DOM 스텁 교체
+    · tests/test_tab_badge_waiting_until_clicked.py : node 하니스 스텁 교체
+
+[2] 직접 영향 스위트 : 99건 통과 (5개 파일, 실패 0)
+
+[3] 광역 회귀 subset : tests/ -k "step or nav or tab or banner or hint or cmdbar or
+    sticky or single_view or layout"  → 1,015건 수집
+      · 수정 후 : 966 passed / 46 failed / 3 errors
+      · baseline(HEAD 93f4ca1 worktree, 동일 조건) : 동일 선택에서 49 failed+errors
+      · 실패 집합 차집합 결과 — **수정 후에만 발생한 실패 0건**
+        (baseline 에만 있던 4건은 worktree 에 gitignore 산출물이 없어 생긴
+         test_candidate_scoring_dashboard_static ERROR 로, 코드와 무관)
+      → 즉 46개 실패는 전부 이번 수정 이전부터 존재하던 것이다.
+
+[4] JS 번들 파싱 : node --check 통과 (script 블록 4개 중 본 번들 1,999,299자)
+
+
+────────────────────────────────────────────────────────────────────────
+5. 변경 파일
+────────────────────────────────────────────────────────────────────────
+ M ui/tabler_renderer.py                            (핵심 — DOM/CSS/JS)
+ M tests/test_shared_sticky_step_nav.py
+ M tests/test_stage_gate_unified_contract.py
+ M tests/test_step_nav_scope.py
+ M tests/test_navigation_sync.py
+ M tests/test_tab_badge_waiting_until_clicked.py
+ A scripts/dev_e2e/stage_step_hint_remove_browser_shot.py   (before/after 실측 스크립트)
+ 총 7 files changed, 306 insertions(+), 124 deletions(-)
+
+
+────────────────────────────────────────────────────────────────────────
+6. 비판적 검토 (남는 위험 / 판단이 필요했던 지점)
+────────────────────────────────────────────────────────────────────────
+· [차단 안내를 alert 로 옮긴 것] 지침에는 '호출 자체를 없애라'고 되어 있었으나, 그대로
+  적용하면 잠긴 탭 클릭이 무반응이 된다. 기존 코드베이스가 같은 상황에 이미 쓰는 alert
+  패턴을 재사용해 사유만 남겼다. 다만 문구 줄(수동적 안내)과 달리 alert 는 능동적
+  차단이라 잠긴 탭을 반복 클릭하면 팝업이 반복된다. 거슬리면 제거 또는 토스트 전환을
+  별도로 요청하면 된다.
+· [배너를 공용 shell 로 옮긴 점] 개별검증 전용 요소가 개별/일괄 공용 컨테이너 영역에
+  놓였다. 표시 토글을 owner 기준 한 곳(_mvShowStepNavBar/_mvHideStepNavBar)에만 두어
+  분기가 흩어지지 않게 했지만, 향후 세 번째 검증 화면이 생기면 이 토글을 반드시
+  같이 봐야 한다.
+· [현재 단계 표시의 단일 출처] 문구 제거로 '현재 단계'를 알리는 표시는 탭 배지 ·
+  N단계 처리시간 · 하단 커맨드바 3곳으로 줄었다. 셋 다 _singleViewStep(보는 탭) 기준
+  이라 이번 제거로 표시 불일치 소지가 오히려 줄었다.
+· heuristic/scoring/explainability 영향 없음 — 판정 로직 무변경, 표시 계층만 수정.
+· 보안 영향 없음 — 입력/접속/쿼리 경로 무관.
+
+
+✅ 작업 완료 - STAGE-STEP-HINT-REMOVE - 상단 '현재 단계' 안내문구와 그 공간을 개별·일괄
+   양쪽에서 제거하고, 개별검증 적용범위 안내를 단계 탭 위 오른쪽으로 이동·문구 교체
