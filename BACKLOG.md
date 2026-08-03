@@ -10,7 +10,17 @@
 - 대상 제외: 아직 push 되지 않은 로컬 전용 보고서 16건은 이번 취합에서 제외했다.
   push 후 이 파일에 합류시킨다.
 - 최초 작성: 2026-07-29 (VERIFY-REPO-BACKLOG-FILE-CREATE)
-- 최종 갱신: 2026-08-02 (BACKLOG-DOC-SYNC-AND-P6-M8-SEQUENTIAL-FIX 파트 B·C) — 이번 작업에서 실제로
+- 최종 갱신: 2026-08-03 (BACKLOG-RESOLVED-BATCH2-DOC-SYNC) — 오늘까지 해결된 8개 항목
+  (G1·G4·S15·S16·S18·P10·P8·M9)을 `✅ 해결 완료` 로 표시(신규 등록·삭제 없음)
+  (G1·G4 해결 — 날짜 단일 PK 를 CHUNK 자격에서 제외해 DIRECT_STREAM_COMPARE 로 폴백 +
+  목적지 물리 PK 전량 매핑 시 카드에 '대체키 확정' 반영(왕복 0회),
+  S15 해결 — 게이트가 아예 없던 실 UI 경로 `/execute/set` 배선 + 빈 서버 pool 의 클라이언트 폴백 차단,
+  S16 해결 — `ctx_key` 단위 in-flight 표식 + TTL 자동만료 + fail-open,
+  S18 해결 — 워커 프로세스 풀 격리로 3단 방어 완성(hang 시 메모리 실제 회수 실증),
+  P10 해결 — 조기중단 시 "N건" → "N건 이상" 하한 고지(정상 케이스 화면 무변경),
+  P8 해결 — `pk_kind` 하드코딩을 `target_pk_evidence` 실제 근거로 교체,
+  M9 해결 — 분포표 실제값과 펼침 문구 정합 + COMBO 요약표 기준 라벨 분리 + 비율 분모 정정)
+- 직전 갱신: 2026-08-02 (BACKLOG-DOC-SYNC-AND-P6-M8-SEQUENTIAL-FIX 파트 B·C) — 이번 작업에서 실제로
   해결한 P6·M8 2개 항목을 해결 완료로 표시(신규 등록·삭제 없음)
   (P6 해결 — prewarm 5만 상한이 동기 prepare 시절의 stale 잔여임을 커밋 이력으로 확인하고 2단 정책
   (~5만 동기 / 5만~1M 비동기 / 1M 초과는 '자동 준비 안 함' 명시 고지)으로 교체. 상한 기본값은
@@ -108,7 +118,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 
 ## 심각(정합성·안전) — 최우선
 
-### S18. sqlglot 30.8.0 의 오라클 방언 파서가 인식 안 되는 WITH 절 입력에서 서버 스레드째 무한 hang 한다 — try/except 로 못 막고 타임아웃 가드도 없음 (2026-08-02 추가 실측: 타임아웃 가드로도 방어 안 되는 메모리 고갈 위험 확인 — 긴급 재상향)
+### S18. ✅ 해결 완료(3단 방어 완성 — sqlglot 자체 결함은 상류에 잔존) — sqlglot 30.8.0 의 오라클 방언 파서가 인식 안 되는 WITH 절 입력에서 서버 스레드째 무한 hang 한다 — try/except 로 못 막고 타임아웃 가드도 없음 (2026-08-02 추가 실측: 타임아웃 가드로도 방어 안 되는 메모리 고갈 위험 확인 — 긴급 재상향)
 - 발견일: 2026-08-02
 - 근거 보고서: `DEPENDENCY-VERSION-AND-CHANGELOG-RELEVANCE-DIAGNOSE.txt` (§2 · §4)
 - 상세: sqlglot 상류 PR #7881 이 지적한 결함(오라클 WITH 모디파이어가 파싱 결과를 리스트로 감싸
@@ -167,6 +177,25 @@ git -C E:/verify_reports worktree remove <임시경로>
     (글로벌 **30.7.0** / `.venv` **30.8.0**) — F29(버전 핀 부재)와 직결된다.
   - 근거: E:\verify_reports\SQLGLOT-HANG-MEMORY-GROWTH-INCIDENT-URGENT-CHECK.txt
 
+- **✅ 해결 완료(2026-08-03 · 근본 방어까지)** — 해결일: 2026-08-03
+  (S18-SQLGLOT-PROCESS-ISOLATION-DESIGN-AND-IMPLEMENT)
+  - 근거 커밋: 코드 저장소 `8b40179` — `fix(safety): sqlglot 파싱을 강제 종료 가능한 별도 프로세스로
+    격리 — hang 시 메모리 실제 회수 (S18-SQLGLOT-PROCESS-ISOLATION-DESIGN-AND-IMPLEMENT)`
+    (선행 1차 방어 `281d9f8` — `fix(safety): sqlglot 파서 무한루프를 파서 진입 전에 차단
+    (SQLGLOT-PRE-PARSE-HEURISTIC-BLOCK-FIX)`, 가드 전수 적용 `15b9d68`)
+  - 근거 보고서 커밋: 이 저장소 `610ab68`(완료보고 `S18-SQLGLOT-PROCESS-ISOLATION-DESIGN-AND-IMPLEMENT`
+    — 설계·구현 + 오버헤드/메모리 회수 실측) / 선행 `52a58bb`(사전차단 실측) ·
+    `1941cc8`(메모리 폭주 사고 긴급확인)
+  - 해결 요약: 위 대응 방향 1·2번을 모두 구현해 **3단 방어**가 완성됐다 —
+    ① 파서 진입 전 사전 차단(`281d9f8`) → ② **파싱 워커 프로세스 풀 격리**(`8b40179`,
+    이번 근본 방어) → ③ 프로세스 사용 불가 환경용 스레드 가드 폴백.
+    프로세스 격리는 파이썬 스레드로는 불가능했던 **강제 종료**를 가능하게 해, 위 추가 실측이 지적한
+    "타임아웃 가드는 메모리 방어가 전혀 안 된다" 는 지점을 정면으로 해소한다.
+    실측: hang 시 메모리가 3GB 까지 무한 증가하던 것이 **431MB 정점 후 25MB 로 회수**됐다.
+    정상 SQL 오버헤드는 무시할 수준(+0.53ms, **짧은 식은 오히려 -0.05ms** 로 스레드 가드보다 빠름).
+  - 잔여(이번 범위 밖): **sqlglot 파서 자체의 무한루프 결함은 상류에 그대로 남아 있다** — 이 저장소는
+    노출면을 막았을 뿐이다. 버전 상향(대응 방향 4번)과 버전 핀 고정은 별개 과제로 F29 에서 계속 추적한다.
+
 ### S17. ✅ 해결 완료(지침 전제 1건 정정 — 추출부는 이미 AST 기반이었다) — `_reimport_source_needs_wrapping` FP 측 — wrapping 추출 실패 시 정상 단순 SQL 이 HOLD 로 바뀔 수 있다(S7 에서 분리)
 - 해결일: 2026-08-02 (REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX)
 - 근거 커밋: 코드 저장소 `bd7c366` — `fix(reimport): wrapping 별칭 추출 실패를 AST 로 사전 판정 —
@@ -199,7 +228,19 @@ git -C E:/verify_reports worktree remove <임시경로>
   일관된 방식으로 확장할 수 있는지 함께 검토한다.
 - 참고: E:\verify_reports\SQLGLOT-USAGE-CONSISTENCY-AUDIT-DIAGNOSE.txt
 
-### S16. 서버측 중복 실행 방어가 전무하다 — 클라이언트 가드가 우회되면 최후 방어선이 없다
+### S16. ✅ 해결 완료 — 서버측 중복 실행 방어가 전무하다 — 클라이언트 가드가 우회되면 최후 방어선이 없다
+- 해결일: 2026-08-02 (CRITICAL-SEVERITY-S15-S16-S18-CONSOLIDATED-FIX + PHASE2 `/execute/set` 배선)
+- 근거 커밋: 코드 저장소 `0cab51e` — `fix(safety): 심각 3건 통합 수정 — sqlglot 파싱 무한루프·후보
+  프로파일 staleness·서버측 중복 실행 (CRITICAL-SEVERITY-S15-S16-S18-CONSOLIDATED-FIX)` /
+  `15b9d68` — `fix(safety): S15·S16·S18 잔여 범위 처리 — 파싱 가드 전수 적용·신뢰경계 해소·
+  /execute/set 배선 (CRITICAL-SEVERITY-S15-S16-S18-CONSOLIDATED-FIX-PHASE2-REMAINING-SCOPE-FIX)`
+- 근거 보고서 커밋: 이 저장소 `31b8297`(통합 수정 완료보고) / `52128be`(PHASE2 잔여 3갈래 완료보고) /
+  `a2287a6`(실 오라클 + 실 브라우저 S15/S16/S18 실증 증적)
+- 해결 요약: 대응 방향대로 서버측 in-flight 표식을 도입하되, 키를 토큰이 아니라
+  **`ctx_key`(SQL 해시 + 프로파일 지문 + 프로젝트)** 단위로 잡아 동일 문맥의 동시 execute 만
+  409 로 거부한다(정당한 병렬 실행은 죽이지 않는다). 대응 방향이 우려했던 좀비 표식은
+  **TTL 자동 만료 + fail-open(표식 저장소 이상 시 요청을 막지 않음) + 자기 marker 만 해제**
+  3가지 규칙으로 해소했다. 2차 배선(`15b9d68`)에서 `/execute/set` 까지 같은 방식으로 덮었다.
 - 발견일: 2026-08-01
 - 근거 보고서: `REQUEST-LOCK-TIMEOUT-DUPLICATE-SUBMIT-RISK-DIAGNOSE.txt` (§7-우선순위4)
 - 상세: `/execute` · `/execute/set` · `/single/run-standard` **어디에도** 진행중 감지 · `job_id` ·
@@ -217,7 +258,21 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: S15(같은 `workflow_stage_guard` 토큰에 만료가 없다는 문제 — 대응 시 함께 볼 것)
 - 참고: E:\verify_reports\REQUEST-LOCK-TIMEOUT-DUPLICATE-SUBMIT-RISK-DIAGNOSE.txt
 
-### S15. GROUP BY 실행 안전 게이트가 3단계 후보 프로파일을 그대로 재사용하고 신선도 검증이 전무하다 + 게이트 입력이 클라이언트 조작 가능하다
+### S15. ✅ 해결 완료(잔여 신뢰경계까지) — GROUP BY 실행 안전 게이트가 3단계 후보 프로파일을 그대로 재사용하고 신선도 검증이 전무하다 + 게이트 입력이 클라이언트 조작 가능하다
+- 해결일: 2026-08-03 (S15-GROUPBY-GATE-TOKENLESS-PATH-TRUST-FIX)
+- 근거 커밋: 코드 저장소 `ef440ee` — `fix(safety): 세트 실행 경로에 GROUP BY 안전 게이트 적용·
+  클라이언트 후보 근거 배제 (S15-GROUPBY-GATE-TOKENLESS-PATH-TRUST-FIX)`
+  (선행 — `0cab51e` / `15b9d68` CRITICAL-SEVERITY-S15-S16-S18-CONSOLIDATED-FIX 계열에서
+  신선도 축(대응 방향 [1]~[3])과 오선언 주석 정정을 먼저 처리)
+- 근거 보고서 커밋: 이 저장소 `879b5cb`(완료보고 `S15-GROUPBY-GATE-TOKENLESS-PATH-TRUST-FIX` —
+  게이트 경로 전수 조사 + 수정 전/후 실측) / `a2287a6`(실 오라클 + 실 브라우저 실증)
+- 해결 요약: 게이트 호출 경로를 전수 조사해 **잔여 신뢰경계 구멍 2건**을 막았다 —
+  ① **실 UI 버튼이 타는 `/execute/set` 에 안전 게이트가 아예 걸려 있지 않았다**(게이트가 있는 경로만
+  보고 "적용됨"으로 오판하기 쉬운 형태였다) → 세트 단위로 게이트 적용,
+  ② 서버 후보 pool 이 비면 **클라이언트가 보낸 값으로 폴백**해 조작된 `distinct_count` 가 다시
+  1순위 근거가 될 수 있었다 → 폴백 제거.
+  결과적으로 **토큰이 없으면 클라이언트 후보를 판정 근거로 쓰지 않고 실 DB EXPLAIN 재확인으로
+  귀결**한다(안전측 단방향 — 막히는 쪽으로만 바뀐다).
 - 발견일: 2026-07-31
 - 근거 보고서: `CANDIDATE-SELECTION-STALENESS-DIAGNOSE.txt`
 - 상세: 검증 판정값(COUNT/SUM diff)은 매번 실 DB 재조회라 안전하다. 그러나 **GROUP BY 실행 안전
@@ -244,7 +299,18 @@ git -C E:/verify_reports worktree remove <임시경로>
   임계값(예: 30분) 하드코딩은 **비권장** — 실측 근거 없는 heuristic 이므로 [2] 로 관측을 선행해야 한다.
 - 참고: E:\verify_reports\CANDIDATE-SELECTION-STALENESS-DIAGNOSE.txt
 
-### G4. 3단계 실행계획 카드가 복합/문자 PK 를 "보류(HOLD)" 로 표시하지만, 실제 4·5단계 실행은 DIRECT_COMPOSITE_PK 로 정상 성공한다(반대 신호)
+### G4. ✅ 해결 완료 — 3단계 실행계획 카드가 복합/문자 PK 를 "보류(HOLD)" 로 표시하지만, 실제 4·5단계 실행은 DIRECT_COMPOSITE_PK 로 정상 성공한다(반대 신호)
+- 해결일: 2026-08-03 (PK-RANGE-CHUNK-PLAN-ENGINE-MISMATCH-G1-G4-FIX — G1 과 동일 작업)
+- 근거 커밋: 코드 저장소 `a758782` — `fix(strategy): 계획-엔진 불일치 2건 해소 — 날짜 PK CHUNK 자격
+  제외·네이티브 대체키 확정 반영 (PK-RANGE-CHUNK-PLAN-ENGINE-MISMATCH-G1-G4-FIX)`
+- 근거 보고서 커밋: 이 저장소 `a62ca2b`(완료보고 `PK-RANGE-CHUNK-PLAN-ENGINE-MISMATCH-G1-G4-FIX` —
+  계획-엔진 불일치 2건 실측 증적 + 서술형 REPORT)
+- 해결 요약: 대응 방향의 앞쪽(계획 계층이 네이티브 키 판정을 미리 반영)을 택했다.
+  **목적지 물리 PK 가 매핑에 전부 포함되면(= 정식 PK 매칭이 확실한 경우)** 카드가
+  "상세비교 보류" 대신 **"실행 가능 — 대체키(목적지 PK) 확정"** 으로 표시되도록 근거 필드 2개를
+  추가했다. 이미 수집돼 있는 목적지 PK 근거를 재사용하므로 **추가 DB 왕복은 0회**다.
+- 잔여(이번 범위 밖): UK · 안정 업무키 경로는 확정에 **데이터 probe 가 필요**해 판정에는 넣지 않고,
+  "네이티브 키가 서면 실행 가능할 수 있음" 안내 문구로만 처리했다(대응 방향의 뒤쪽 절충안).
 - 발견일: 2026-08-02
 - 근거 보고서: `PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt` (§2 · §7-G4)
 - 상세: `full_compare_strategy_planner.py` 가 복합/문자 PK 를 `STATS_ONLY_HOLD` 로 계획해 카드에
@@ -258,7 +324,18 @@ git -C E:/verify_reports worktree remove <임시경로>
   "계획상 보류이나 네이티브 키 확정 시 실행 가능할 수 있음" 같은 안내를 추가한다.
 - 참고: E:\verify_reports\PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt
 
-### G1. 날짜 단일 PK 는 계획 계층에서 "실행 가능" 으로 표시되나 엔진은 항상 HOLD 한다(계획-엔진 불일치)
+### G1. ✅ 해결 완료 — 날짜 단일 PK 는 계획 계층에서 "실행 가능" 으로 표시되나 엔진은 항상 HOLD 한다(계획-엔진 불일치)
+- 해결일: 2026-08-03 (PK-RANGE-CHUNK-PLAN-ENGINE-MISMATCH-G1-G4-FIX)
+- 근거 커밋: 코드 저장소 `a758782` — `fix(strategy): 계획-엔진 불일치 2건 해소 — 날짜 PK CHUNK 자격
+  제외·네이티브 대체키 확정 반영 (PK-RANGE-CHUNK-PLAN-ENGINE-MISMATCH-G1-G4-FIX)`
+- 근거 보고서 커밋: 이 저장소 `a62ca2b`(완료보고 `PK-RANGE-CHUNK-PLAN-ENGINE-MISMATCH-G1-G4-FIX` —
+  계획-엔진 불일치 2건 실측 증적 + 서술형 REPORT)
+- 해결 요약: 대응 방향 두 갈래 중 **계획 계층에서 제외**를 택했다(엔진의 날짜 지원 확장은 비용이 크고
+  이 항목의 증상인 '비용 다 쓰고 실패'를 없애는 데 필요하지 않다). `PK_SINGLE_DATE` 를 CHUNK 자격에서
+  빼고 **DIRECT_STREAM_COMPARE 로 폴백**하며, 사유를 `SINGLE_DATE_PK_NOT_CHUNK_CAPABLE` 로 명시한다.
+  이제 카드 표시와 엔진 판정이 일치한다.
+- 부수 수정: 작업 중 **벤치마크 순서 버그**를 함께 발견해 고쳤다 — 자격 게이트가 벤치마크 일치 판정보다
+  **뒤에** 있어, 자격이 없는 조합도 먼저 벤치마크 경로를 타는 순서였다. 게이트를 앞으로 옮겼다.
 - 발견일: 2026-08-02
 - 근거 보고서: `PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt` (§1-6 · §7-G1)
 - 상세: `full_compare_strategy_planner.py:45` 와 `strategy_transition.py:58` 은 `PK_SINGLE_DATE` 를
@@ -749,7 +826,21 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 비고: 성능 항목이지만 `M`(경미·장기) 번호를 부여했다 — 지금 착수 대상이 아님을 번호로 드러내기 위함이다.
 - 참고: E:\verify_reports\LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt
 
-### P10. 재이관 레코드 수집이 HARD CAP 500 에 막혀 대량·흩어진 불일치의 전량 확보가 불가능하다 + 같은 화면 요약표 숫자가 실제 규모를 오독시킨다
+### P10. ✅ 해결 완료 — 재이관 레코드 수집이 HARD CAP 500 에 막혀 대량·흩어진 불일치의 전량 확보가 불가능하다 + 같은 화면 요약표 숫자가 실제 규모를 오독시킨다
+- 해결일: 2026-08-02 (P10-SUMMARY-COUNT-DISPLAY-DISAMBIGUATION-FIX · 2026-08-03 재검증)
+- 근거 커밋: 코드 저장소 `d1fd540` — `fix(single): 조기중단 시 요약표·요약 카드 건수 '표시/실제' 구분
+  (P10-SUMMARY-COUNT-DISPLAY-DISAMBIGUATION-FIX)` / `56572a5` — `fix(single): P10 커밋이 덮어쓴
+  STAGE5-M9 변경 복원 + P10 표시 문구 재적용 (P10-SUMMARY-COUNT-DISPLAY-DISAMBIGUATION-FIX)`
+- 근거 보고서 커밋: 이 저장소 `9ffe1a1`(완료보고 + before/after 실측 4장) /
+  `330bddb`(2026-08-03 현재 HEAD 기준 재실측) / `66ece78`(AFTER 측정 환경 고지 보강)
+- 해결 요약: 대응 방향 (a) — **정책 변경 없이 표시만으로 오독을 막는** 쪽을 구현했다.
+  조기중단(`EARLY_STOPPED`) 상태에서는 요약표·요약 카드의 건수를 `"N건"` 이 아니라
+  **`"N건 이상"` + 하한 고지 문구**로 렌더한다(수집된 값이 참값이 아니라 하한임을 숫자 옆에서 바로
+  읽을 수 있게 했다 — 배너를 읽지 않아도 규모를 오독하지 않는다).
+  **정상 케이스(조기중단 아님)는 HTML 이 바이트 단위로 무변경**임을 확인했다(스크린샷 MD5 동일).
+- 잔여(이번 범위 밖): 대응 방향 (b) — **HARD CAP 500 자체를 올릴지는 그대로 정책 판단 대기**다.
+  즉 대량·흩어진 불일치의 **전량 추출 불가라는 구조적 한계는 해소되지 않았고**, 이번 수정은
+  그 한계를 숫자에 정직하게 드러낸 것이다.
 - 발견일: 2026-07-31
 - 근거 보고서: `LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE.txt` (§5【이상-1】/ §7-2) /
   `LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE-RETRY.txt` (§5【이상-1】)
@@ -835,7 +926,17 @@ git -C E:/verify_reports worktree remove <임시경로>
   chunk 수가 정책 임계를 넘으면 실행 전 HOLD + 사유 표시.
 - 참고: E:\verify_reports\PK-RANGE-CHUNK-BOUNDARY-ORDERING-ASSUMPTION-DIAGNOSE.txt
 
-### P8. 3단계 실행계획 카드의 PK 종류가 하드코딩돼, HOLD 여야 할 문자/복합 PK 테이블이 '실행 가능' 으로 표시된다
+### P8. ✅ 해결 완료 — 3단계 실행계획 카드의 PK 종류가 하드코딩돼, HOLD 여야 할 문자/복합 PK 테이블이 '실행 가능' 으로 표시된다
+- 해결일: 2026-07-30 (STRATEGY-PLAN-PK-KIND-HARDCODE-FIX)
+- 근거 커밋: 코드 저장소 `66a5c86` — `fix(strategy): 3단계 실행계획 카드의 PK 구조 고정값
+  (has_pk/pk_kind/pk_indexed)을 근거 기반 판정으로 교체 (STRATEGY-PLAN-PK-KIND-HARDCODE-FIX)`
+- 근거 보고서 커밋: 이 저장소 `2f8e6b9`(실측 증적 + 서술형 REPORT) / `d0e3949`(완료보고)
+- 해결 요약: 대응 방향대로 `has_pk` / `pk_kind` / `pk_indexed` 고정값을 폐기하고
+  **`target_pk_evidence` 의 실제 근거**(chunk key evidence · 물리 PK 카탈로그)로 산정하도록 교체했다.
+  그 결과 문자 PK · 복합 PK 테이블이 카드에서 **정확히 HOLD 로 표시**된다
+  (`SINGLE_TEXT` → `NO_SAFE_SPLIT_FOR_TEXT_PK`, `COMPOSITE` → `STATS_ONLY_HOLD`).
+- 관련: 이 수정 뒤에 남은 근본 원인 3건은 S10·S11·P9 로 분리 등록했고 셋 다 해결 완료다
+  (`remote` 고정값 축은 P9 에서 별도로 처리됐다).
 - 발견일: 2026-07-29
 - 근거 보고서: `CHARACTER-PK-SILENT-FALSE-MATCH-1M-REPRODUCE.txt` (§5)
 - 상세: `ui/grid_helpers.py:866` `_mvBuildStatsScaleProfile()` 마지막 줄이
@@ -1735,7 +1836,17 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\STATS-COUNT-STEP-TIMEOUT-PARITY-FIX.txt
 - 참고: E:\verify_reports\SINGLE-STEP4-EXEC-STATUS-DISPLAY-IMPLEMENT.txt
 
-### M9. 5단계 문구 충돌 2건(분포표 정확 건수 vs '확인하지 않았습니다', COMBO 요약표 기준 혼재)
+### M9. ✅ 해결 완료 — 5단계 문구 충돌 2건(분포표 정확 건수 vs '확인하지 않았습니다', COMBO 요약표 기준 혼재)
+- 해결일: 2026-08-02 (STAGE5-M9-DISPLAY-CONTRADICTION-FIX)
+- 근거 커밋: 코드 저장소 `e232d89` — `fix(single): 5단계 문구 충돌 2건 — 펼침 문구가 분포표 값 참조 +
+  집계/행 기준 라벨링 (STAGE5-M9-DISPLAY-CONTRADICTION-FIX)`
+  (이 변경은 뒤이은 P10 커밋이 일부 덮어써 `56572a5` 에서 복원됐다 — 현재 HEAD 에 반영돼 있다)
+- 근거 보고서 커밋: 이 저장소 `2774c57`(완료보고 `STAGE5-M9-DISPLAY-CONTRADICTION-FIX`)
+- 해결 요약: ① 펼침 문구가 **분포표의 실제값을 참조**하도록 정정했다 — '정확한 수는 확인하지
+  않았습니다' 대신 하한을 명시한다(100건 초과 → "200건 이상"). ② COMBO 요약표는
+  **'집계 그룹 기준' / '행 레코드 기준'** 을 라벨로 분리해 기준 혼재를 없앴다
+  ('불일치 그룹 0개' 와 '재이관 대상 400건' 이 서로 다른 기준임이 화면에서 드러난다).
+  ③ 같은 분포표에서 함께 확인된 **비율 분모 오류(1000.00% 표시)** 도 정정했다.
 - 발견일: 2026-07-28
 - 근거 보고서: `SINGLE-STEP5-COMBO-VIEW-AND-SKEWED-GROUP-VOLUME-DIAGNOSE.txt` (부수 관측)
 - 상세: 분포표는 'P 200건' 으로 정확한 수를 보여주는데 펼치면 '정확한 수는 확인하지 않았습니다' 가 뜬다.
