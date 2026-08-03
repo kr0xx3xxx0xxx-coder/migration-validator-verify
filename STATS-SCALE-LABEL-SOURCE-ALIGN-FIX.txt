@@ -1,0 +1,182 @@
+작업명 : STATS-SCALE-LABEL-SOURCE-ALIGN-FIX
+✅ 작업 완료 - STATS-SCALE-LABEL-SOURCE-ALIGN-FIX - '통계검증 규모' 타일의 "예상 스캔 N행"을 COUNT 출처에 맞춰 "원본 실측 N행"/"원본 N행(저장 시점)"으로 정정(F30)하고, 스캔값 출처를 full_compare_plan.expected_scan_rows → stats_plan.estimated_scan_rows 로 정렬(F35). 브라우저 실측으로 표시값 무회귀·'잠정 <등급>' 불변 확인 (코드 커밋 8e65b1f)
+
+────────────────────────────────────────────────────────────────────────
+0. 요약
+────────────────────────────────────────────────────────────────────────
+STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE 가 확정한 저위험 표시 수정 2건을
+반영했다. 수정 파일은 지시대로 ui/tabler_renderer.py 한 개이며, 판정 로직·서버 계획기·
+자료구조는 전혀 건드리지 않았다(표시 문자열과 읽는 필드만 변경).
+
+  F30  "예상 스캔 N행"  →  라이브 COUNT: "원본 실측 N행"
+                           저장 복원   : "원본 N행(저장 시점)"
+  F35  스캔값 출처       →  fp.expected_scan_rows  →  sp.estimated_scan_rows
+                           (라벨 '통계검증 규모'에 맞는 통계검증 계획 쪽 값)
+
+  '잠정 <등급>' 은 손대지 않았다(F32 별건). 실측에서도 before/after 모두 그대로다.
+
+선행 조건 확인: 같은 파일을 건드리는 STEP2-STEP3-COLUMN-ORDER-LABEL-AND-PLAN-DETAIL-
+REPOSITION-FIX-RESUME 이 커밋(7df9dbc)된 것과 ui/tabler_renderer.py 가 clean 인 것을
+git status 로 먼저 확인한 뒤 착수했다.
+
+────────────────────────────────────────────────────────────────────────
+1. 수정 내용
+────────────────────────────────────────────────────────────────────────
+파일: ui/tabler_renderer.py  (함수 _mvRenderStrategyPlan — 3단계 실행계획 카드)
+전체 diff: STATS-SCALE-LABEL-SOURCE-ALIGN-FIX/tabler_renderer_diff.txt
+
+(1) 스캔 문구 생성부 (28122 부근)
+
+  [before]
+    var _scanTxt = (fp.expected_scan_rows != null)
+      ? ' <span ...>· 예상 스캔 ' + Number(fp.expected_scan_rows).toLocaleString() + '행</span>' : '';
+
+  [after]
+    var _cntR = ((typeof _lastCountResult !== 'undefined' && _lastCountResult)
+              || (typeof window !== 'undefined' && window._lastCountResult) || {});
+    var _scanRows = (sp.estimated_scan_rows != null) ? sp.estimated_scan_rows
+                  : ((fp.expected_scan_rows != null) ? fp.expected_scan_rows : null);
+    var _scanPlain = (_scanRows != null)
+      ? ((_cntR.restored === true)
+          ? ('원본 ' + Number(_scanRows).toLocaleString() + '행(저장 시점)')
+          : ('원본 실측 ' + Number(_scanRows).toLocaleString() + '행'))
+      : '';
+    var _scanTxt = _scanPlain ? ' <span ...>· ' + _scanPlain + '</span>' : '';
+
+  · 판단 근거는 지시대로 기존 필드 _lastCountResult.restored 재사용 — 새 조회·새 상태 없음.
+    restored 를 세팅하는 유일한 생산자는 ui/js_restore_individual_adapter.py:191
+    (저장 완료 결과 복원 시 window._lastCountResult = {..., restored: true}).
+  · fp 폴백을 남긴 이유: sp.estimated_scan_rows 가 null 인데 fp 만 값이 있는 경우에도
+    표기가 사라지지 않게 하기 위함(현재 그런 케이스는 없음 — §3).
+
+(2) 3단계 통합 타일 단일 출처 (28189 부근)
+
+  [before]  scaleText: (d.provisional_grade || '산정 전')
+              + ((fp.expected_scan_rows != null) ? (' · 예상 스캔 ' + ... + '행') : ''),
+  [after]   scaleText: (d.provisional_grade || '산정 전') + (_scanPlain ? (' · ' + _scanPlain) : ''),
+
+  표(_scanTxt)와 타일(scaleText)이 같은 _scanPlain 을 쓰도록 묶었다 — 종전엔 같은 식이
+  두 곳에 중복돼 있어 한쪽만 바뀌면 문구가 갈릴 수 있었다.
+
+────────────────────────────────────────────────────────────────────────
+2. 실측 검증 — 브라우저(Chromium) 렌더
+────────────────────────────────────────────────────────────────────────
+하니스: scripts/dev_e2e/stats_scale_label_source_align_verify.py (이번에 신규 작성, 커밋 포함)
+  · /strategy/plan 라우트 함수를 같은 프로세스에서 호출해 실 planner 응답을 얻는다
+    (서버를 띄우지 않아 다른 세션의 8000 서버·공유 SQLite 무영향).
+  · TablerRenderer().render_full_page() 결과를 file:// 로 열고 제품 함수
+    _mvRenderStrategyPlan → _mvRenderCandidateGrid 를 그대로 호출해 3단계 통합 타일을
+    실물로 그린 뒤, '통계검증규모' 타일 텍스트를 읽고 스크린샷을 찍는다(문자열 주입 없음).
+  · COUNT 상태 3종을 제품이 읽는 그 전역(window._lastCountResult)에만 세팅해 구분한다.
+  · baseline(before)은 git worktree 로 HEAD(7df9dbc)를 꺼내 같은 하니스로 실행했다.
+
+관측 결과 — '통계검증규모' 타일 문구
+
+  케이스                    before(7df9dbc)                after(8e65b1f)
+  ----------------------------------------------------------------------------------
+  A_SMALL  라이브 COUNT     잠정 중형 · 예상 스캔 5,000행       잠정 중형 · 원본 실측 5,000행
+  A_SMALL  저장 복원        잠정 중형 · 예상 스캔 5,000행       잠정 중형 · 원본 5,000행(저장 시점)
+  A_SMALL  COUNT 전         잠정 중형 · 예상 스캔 5,000행       잠정 중형 · 원본 실측 5,000행
+  B_42M    라이브 COUNT     잠정 대형 · 예상 스캔 42,000,000행  잠정 대형 · 원본 실측 42,000,000행
+  B_42M    저장 복원        잠정 대형 · 예상 스캔 42,000,000행  잠정 대형 · 원본 42,000,000행(저장 시점)
+  B_42M    COUNT 전         잠정 대형 · 예상 스캔 42,000,000행  잠정 대형 · 원본 실측 42,000,000행
+
+  판정
+   · 라이브 COUNT 케이스 → "원본 실측 N행"          ✅ 요구대로
+   · 저장 복원(restored=true) → "원본 N행(저장 시점)" ✅ 요구대로
+   · 숫자(5,000 / 42,000,000)는 before/after 완전 동일 ✅ 무회귀
+   · '잠정 중형'·'잠정 대형' 은 before/after 글자 그대로 유지 ✅ 손 안 댐
+   · 페이지 JS 오류: before/after 모두 "없음"
+   · COUNT 전(전역 null) 은 restored 가 아니므로 '원본 실측' 쪽으로 떨어진다. 이 상태에서는
+     애초에 계획 자체가 만들어지지 않아(profile 없음 → 카드 비움) 화면에는 도달하지 않는
+     경로이며, 하니스에서 응답을 강제로 준 방어 확인용이다.
+
+스크린샷 (폴더 STATS-SCALE-LABEL-SOURCE-ALIGN-FIX/)
+  before: stats_scale_label_before_A_SMALL__LIVE_COUNT.png
+          stats_scale_label_before_A_SMALL__RESTORED.png
+          stats_scale_label_before_B_42M__LIVE_COUNT.png
+          stats_scale_label_before_B_42M__RESTORED.png   (+ __NO_COUNT 2건)
+  after : stats_scale_label_after_A_SMALL__LIVE_COUNT.png
+          stats_scale_label_after_A_SMALL__RESTORED.png
+          stats_scale_label_after_B_42M__LIVE_COUNT.png
+          stats_scale_label_after_B_42M__RESTORED.png    (+ __NO_COUNT 2건)
+  원시 수집값: stats_scale_label_source_align_verify_before.json / _after.json
+
+────────────────────────────────────────────────────────────────────────
+3. F35 — 두 출처 값이 실제로 다를 수 있는가 (요구사항: 조건 명시)
+────────────────────────────────────────────────────────────────────────
+결론: 현재 코드 경로에서는 두 값이 다를 수 없다. 같은 profile 하나로 두 계획기가 각각
+      동일한 식을 유도하기 때문이다.
+
+  services/strategy/stats_strategy_planner.py:47
+    scan = profile.estimated_scan_rows if profile.estimated_scan_rows is not None
+           else profile.source_count
+    → basis["estimated_scan_rows"] → StatsStrategyPlan.estimated_scan_rows (134행)
+
+  services/strategy/full_compare_strategy_planner.py:102
+    expected_scan_rows = (profile.estimated_scan_rows if profile.estimated_scan_rows is not None
+                          else profile.source_count)
+
+  routes/strategy_route.py:52-55 이 같은 profile 객체를 두 계획기에 넘기며, 각 계획기는
+  단일 return 경로만 갖는다(조기 반환 없음). 이후 transition 보정(58-73)도
+  compare_strategy_id/reason_codes/implementation_status 만 바꾸고 스캔값은 건드리지 않는다.
+
+실측(하니스 ①, planner 직접 호출) — 차이를 노린 프로파일까지 넣어 확인
+
+  프로파일                       입력                        stats_plan   full_compare_plan  일치
+  ---------------------------------------------------------------------------------------------
+  A_SMALL          scan=5000,      count=5000                5,000        5,000              동일
+  B_42M            scan=42000000,  count=42000000            42,000,000   42,000,000         동일
+  C_SCAN_NONE      scan=None,      count=777000              777,000      777,000            동일
+  D_SCAN_NE_COUNT  scan=250000,    count=1000000             250,000      250,000            동일
+
+  · C_SCAN_NONE(스캔 미지정 → source_count 폴백), D_SCAN_NE_COUNT(스캔 ≠ 건수) 처럼
+    두 값이 갈릴 만한 입력을 넣어도 결과는 동일하다.
+  · 값이 달라지는 조건은 "두 계획기 중 한쪽만 profile.estimated_scan_rows 유도식을
+    바꾸는 변경이 생길 때" 뿐이다. 즉 지금은 무회귀이고, 앞으로 통계검증 쪽 스캔량이
+    별도 추정(WHERE 선택도·파티션 프루닝 등)으로 분화되면 그때부터 두 값이 갈리며,
+    이번 정렬 덕분에 '통계검증 규모' 타일은 통계검증 쪽 값을 따라가게 된다.
+
+  참고: 이 값의 실제 출처는 ui/grid_helpers.py:1181 의 프로파일 조립이다.
+        estimated_scan_rows = count.src_count (2단계 COUNT 결과 그대로) — F30 의
+        "'예상'이 아니라 실측" 근거가 여기다.
+
+────────────────────────────────────────────────────────────────────────
+4. 회귀 확인
+────────────────────────────────────────────────────────────────────────
+· JS 문법: render_full_page() 산출 script 블록 4개 전부 node --check 통과.
+· 관련 테스트
+    tests/test_strategy_planner.py, test_strategy_remote_flag_evidence.py,
+    test_strategy_transition.py, test_diagnosis_cost_estimator.py,
+    test_candidate_pane_morph_flicker.py, test_count_precheck_tile_layout.py,
+    test_query_review_tile_layout.py      → 76 passed
+    tests/test_grid_helpers.py, tests/test_stats_result_full.py
+                                          → 33 passed, 5 xfailed, 1 failed
+· 유일한 실패 test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+  는 사전 존재 실패다. baseline worktree(HEAD=7df9dbc, 이번 수정 없음)에서 같은 테스트를
+  돌려 동일하게 실패함을 대조 확인했다(HEAD 소스 + HEAD 테스트 → 1 failed).
+  원인은 이 테스트가 함수 본문을 정규식 `async function _mvRenderStrategyPlan...\n\}\n` 으로
+  잘라내는데, 선행 커밋 7df9dbc 의 본문 구조 변경으로 그 경계가 조기 종료되는 것이다.
+  이번 수정과 무관하며 별건으로 남긴다.
+· 다른 세션의 미커밋 변경(ui/grid_helpers.py, tests/test_stats_result_full.py)은 커밋에
+  포함하지 않았고, 커밋 후 작업트리에 그대로 남아 있음을 git status/diff 로 재확인했다.
+
+────────────────────────────────────────────────────────────────────────
+5. 커밋 / 변경 파일
+────────────────────────────────────────────────────────────────────────
+커밋: 8e65b1f
+  fix(ui): 통계검증 규모 타일의 행수 표기 정정·출처 정렬 (STATS-SCALE-LABEL-SOURCE-ALIGN-FIX)
+직전 HEAD: 7df9dbc
+
+  ui/tabler_renderer.py                                    | 28 ++-   (수정)
+  scripts/dev_e2e/stats_scale_label_source_align_verify.py | 192 +++  (신규 하니스)
+
+────────────────────────────────────────────────────────────────────────
+6. 남은 사항
+────────────────────────────────────────────────────────────────────────
+· F32('잠정 <등급>' 밴드 근거) 는 이번 범위 밖 — 그대로 둠.
+· ui/grid_helpers.py 의 목록 화면 '통계검증 규모' 셀(_mvStatsScaleText)은 등급만 표시하고
+  행수를 붙이지 않으므로 이번 문구 변경의 영향을 받지 않는다.
+· 위 사전 존재 테스트 실패(정규식 함수 경계)는 별도 처리 필요.
+
+✅ 작업 완료 - STATS-SCALE-LABEL-SOURCE-ALIGN-FIX - "예상 스캔 N행" → "원본 실측 N행"/"원본 N행(저장 시점)" 표기 정정(F30) 및 스캔값 출처를 stats_plan 으로 정렬(F35), 브라우저 before/after 실측으로 표시값 무회귀·'잠정 <등급>' 불변 확인 (코드 커밋 8e65b1f)
