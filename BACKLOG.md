@@ -10,7 +10,17 @@
 - 대상 제외: 아직 push 되지 않은 로컬 전용 보고서 16건은 이번 취합에서 제외했다.
   push 후 이 파일에 합류시킨다.
 - 최초 작성: 2026-07-29 (VERIFY-REPO-BACKLOG-FILE-CREATE)
-- 최종 갱신: 2026-08-03 (BACKLOG-RESOLVED-BATCH2-DOC-SYNC) — 오늘까지 해결된 8개 항목
+- 최종 갱신: 2026-08-03 (BACKLOG-M16-F17-M13-P3-DOC-SYNC) — 해결된 4개 항목(M16·F17·M13·P3)을
+  `✅ 해결 완료` 로 표시(신규 등록·삭제 없음)
+  (M16 해결 — `_count_rows` 의 postgres 하드코딩을 같은 파일의 기존 `_routing_dialect` 헬퍼 위임으로
+  교체(새 매핑 없음), 오라클 라이브 실측 src/tgt 300/300 동일로 무회귀 확인,
+  F17 해결(2단계) — 완료 응답이 폴링으로만 오는 소비처 2곳(요약 셀·결과표 상단 요약)이 각각 별도로
+  '준비 중' 에 고착되던 것을 단일 판정함수 `_mvUpdatePkSummaryCell` 위임으로 통일 + P10 어휘 재사용,
+  M13 해결 — `batch_execution_state` 에 `updated_at` 순수 추가(기존 DB 파일 ALTER 보강 포함) +
+  상태 변화 6지점 배선, job_registry 읽기 경로 무회귀,
+  P3 해결 — 사전 비용 프로브(anchor 8개)로 임계 초과 시 즉시 INCONCLUSIVE + 누적 시간 상한 +
+  `progress_cb` 로 `/jobs/active` 진행 신호 발행(라우트 배선까지 완료))
+- 직전 갱신: 2026-08-03 (BACKLOG-RESOLVED-BATCH2-DOC-SYNC) — 오늘까지 해결된 8개 항목
   (G1·G4·S15·S16·S18·P10·P8·M9)을 `✅ 해결 완료` 로 표시(신규 등록·삭제 없음)
   (G1·G4 해결 — 날짜 단일 PK 를 CHUNK 자격에서 제외해 DIRECT_STREAM_COMPARE 로 폴백 +
   목적지 물리 PK 전량 매핑 시 카드에 '대체키 확정' 반영(왕복 0회),
@@ -896,7 +906,33 @@ git -C E:/verify_reports worktree remove <임시경로>
   (없으면 explainability 훼손 = 조용한 과소추정).
 - 참고: E:\verify_reports\LARGE-DATA-SORT-EXPOSURE-DIAGNOSE.txt
 
-### P3. 표본 preflight 확장 단계(2,000→5,000→10,000)에 누적 시간 상한·타임아웃이 없다 + 진행 신호 미발행
+### P3. ✅ 해결 완료 — 표본 preflight 확장 단계(2,000→5,000→10,000)에 누적 시간 상한·타임아웃이 없다 + 진행 신호 미발행
+- 해결일: 2026-07-30 (SAMPLING-PREFLIGHT-TIME-CAP-AND-PROGRESS-FIX +
+  SAMPLING-PREFLIGHT-PROGRESS-CB-ROUTE-WIRING-FIX)
+- 근거 커밋: 코드 저장소 `a900442` — `feat(sampling): 표본 preflight 게이트에 사전 비용 프로브·누적
+  시간 상한·진행 신호 추가 (SAMPLING-PREFLIGHT-TIME-CAP-AND-PROGRESS-FIX)` /
+  `a741a80` — `fix(reimport): 표본 preflight 진행신호를 실 HTTP 경로에 배선 — /jobs/active
+  START_ONLY→PROGRESS (SAMPLING-PREFLIGHT-PROGRESS-CB-ROUTE-WIRING-FIX)`
+- 근거 보고서 커밋: 이 저장소 `bc35d7a`(완료보고 `SAMPLING-PREFLIGHT-TIME-CAP-AND-PROGRESS-FIX` —
+  라이브/결정적 harness 증적) / `5ff89df`(완료보고 `SAMPLING-PREFLIGHT-PROGRESS-CB-ROUTE-WIRING-FIX` —
+  실 HTTP 진행신호 Before/After 증적)
+- 해결 요약: 위 '대응 방향' 3가지를 모두 구현하고, 진행 신호는 **라우트 소비자 배선까지** 마쳤다.
+  ① **사전 비용 프로브** `probe_expansion_cost()` — 확장 단계 진입 전에 소수 anchor 를 2단계
+     (기본 **8 → 32**)로 시범 실행해 비용을 '고정비 + anchor 단가' 로 분해하고, 최악 총 anchor 환산
+     예상 시간이 상한의 여유 배수(기본 3.0)를 넘으면 **확장 단계에 진입하지 않고 즉시 INCONCLUSIVE**
+     로 보류한다. 1단계만 재면 쿼리 고정비가 anchor 단가로 잡혀 정상 소스를 과대추정하므로
+     분해가 필수였고(정상 케이스 오판이 이 기능의 핵심 위험), 간격 x4 도 실측 근거로 정했다
+     (4→8 구간은 한계비용이 0 으로 잡혀 73.9초 단계를 그대로 통과시켰다).
+  ② **누적 시간 상한** `sampling_time_cap_ms()`(기본 60초, 기존 `*_STATEMENT_TIMEOUT_MS` 관례 준용,
+     0 이하면 '상한 없음' 으로 기존 동작) — 단계 시작 전/후로 검사하고, 단계 예상치는 완료된 단계
+     실측으로 갱신한다(`estimate_basis=MEASURED_STEP`). 초과 시 **부분 결과를 담아 INCONCLUSIVE**
+     로 보류하며 부분 표본으로 조기중단/승인 판정을 만들지 않는다.
+  ③ **진행 신호** `_emit_progress()` + `run_sampling_preflight(progress_cb=...)`, 그리고 엔진만
+     발행하고 소비자가 없어 실서비스가 여전히 무신호였던 문제를 `routes/agg_diff_route.py` 호출부에
+     `progress_cb` 를 연결해 해소했다(chunk 경로 `_pcb` 와 동일 페이로드 규약 재사용 — 새 메커니즘 없음).
+  실측(오라클 asis1523/tobe1524 · 25만행): 비인덱스 키 표본 구간에서 `/jobs/active` 가
+  **Before 68.0초 무신호(START_ONLY) → After 4.36초에 PROGRESS 전이**, 판정은 불변
+  (양측 total=150 · 미이관 100 · 값불일치 50 · 목적지단독 50 · 대상 PK 150건 목록 동일).
 - 발견일: 2026-07-29
 - 근거 보고서: `REIMPORT-SAMPLING-PREFLIGHT-SKIP-FOR-WRAPPING-SOURCE-FIX.txt` (§8-(4)) /
   `REIMPORT-COUNTONLY-CHUNK-SIZE-DIAGNOSE.txt` (권고 C)
@@ -1196,7 +1232,33 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE.txt
 - 참고: E:\verify_reports\LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE-RETRY.txt
 
-### F17. 재이관 PK 요약 셀이 서버 응답 완료 후에도 '준비 중' 에 고정된다
+### F17. ✅ 해결 완료(2단계 — 소비처 2곳 · 원 서술의 '표시 갱신 누락' 추정은 정정) — 재이관 PK 요약 셀이 서버 응답 완료 후에도 '준비 중' 에 고정된다
+- 해결일: 2026-08-03 (REIMPORT-PK-SUMMARY-CELL-STALE-STATUS-FIX · 1차 2026-08-02 / 2차 2026-08-03)
+- 근거 커밋: 코드 저장소 `3dfafaa`(1차 · `ui/tabler_renderer.py`) — `fix(single): 서버 완료 응답
+  후에도 재이관 PK 요약이 '준비 중'에 고착되는 문제 수정 (REIMPORT-PK-SUMMARY-CELL-STALE-STATUS-FIX)` /
+  `10c932f`(2차 · `ui/execute_result_renderer.py`) — `fix(single): 결과표 상단 요약도 조기중단/완료
+  응답을 반영 — 재이관 대상 '준비 중' 고착 잔여 경로 해소 (REIMPORT-PK-SUMMARY-CELL-STALE-STATUS-FIX)`
+- 근거 보고서 커밋: 이 저장소 `6d0ff74`(1차 완료보고 + 서술형 REPORT) /
+  `e5ab30d`(2차 완료보고 `REPORT_PHASE2` — 결과표 상단 요약 `#execPkTotal` 잔여 경로 실측 증적)
+- 해결 요약: 원 서술이 추정했던 "표시 갱신 누락" 이 아니라 **완료 응답을 채택하는 주체가 없었던 것**이
+  원인이었다. stream 준비 경로에서 `/agg-diff/prepare` 는 `PREPARING` 으로만 응답하고 완료
+  (`READY`/`EARLY_STOPPED`)는 `/agg-diff/pk-records` **폴링 응답으로만** 오는데, 그 payload 를
+  소비하는 지점이 두 곳 다 비어 있었다. 그래서 **소비처별로 2단계에 걸쳐** 해소했다.
+  ① 1차(`3dfafaa`) — 확정 응답만 채택하는 `_mvPkAdoptDetail(d)` 신설 + 요약 카드를 그리는 두 지점
+     (`_mvRiApplyProgress`·`_mvRiApply`)에서 같은 payload 로 함께 호출해 카드와 셀
+     (`#mvPkSummaryCell`)이 서로 다른 시점을 보이지 않게 했다.
+  ② 2차(`10c932f`) — 같은 값을 그리는 **'두 번째 작성자'** 가 남아 있었다. `_execSrvGo()` 가
+     `/stats-result/page` 응답으로 결과표 상단 요약(`#execSrvLine`)을 innerHTML 로 통째 재생성하며
+     `#execPkTotal` 을 새로 만들고 그 자리에서 `status === 'READY'` 일 때만 숫자를 넣어,
+     조기중단은 물론 **정상 READY 도 이 경로에서는 고착**이었고 서버 페이지를 넘길 때마다 다시
+     '준비 중' 으로 덮였다. 판정 로직을 복제하지 않고(갈라진 것이 결함 원인 자체) 자리표시자만 그린 뒤
+     **단일 판정함수 `_mvUpdatePkSummaryCell` 에 위임**하도록 통일했다.
+  건수는 새로 계산하지 않고 카드/드릴다운/Excel 이 이미 쓰는 값을 재사용하며, 조기중단이면
+  **P10 어휘("N건 이상" + '표시(저장)분 기준 하한' 고지)를 그대로 재사용**한다(새 용어 없음).
+  실측(P10 픽스처 · before/after 별도 서버 프로세스, 1·2차 동일 케이스):
+  응답 전·폴링 PREPARING 은 '준비 중' 유지(무회귀), `EARLY_STOPPED` → '101건 이상'+하한 title,
+  `READY` → '50건', run 무효화 후 옛 숫자 잔류 없음, 페이지 재이동 반복에도 값 유지(덮어쓰기 소멸).
+  2차 동일 환경 A/B 서브셋 1,263건 실패 목록 완전 동일(69건) — **신규 회귀 0건**.
 - 발견일: 2026-07-31
 - 근거 보고서: `LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE.txt` (§5【이상-2】)
 - 상세: 서버가 `EARLY_STOPPED`(ready=true, 저장 완료)로 응답한 뒤에도 화면 전역 상태가 `status=PREPARING`
@@ -1685,7 +1747,19 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\REIMPORT-DRILLDOWN-TREE-MERGE-AND-WARNING-HOIST-FIX\
   ADDENDUM_emphasis_and_preexisting_defects.md
 
-### M16. `diagnosis_route._count_rows` 의 sqlglot 방언이 postgres 로 하드코딩돼 있다(S9 에서 분리된 별건)
+### M16. ✅ 해결 완료 — `diagnosis_route._count_rows` 의 sqlglot 방언이 postgres 로 하드코딩돼 있다(S9 에서 분리된 별건)
+- 해결일: 2026-08-03 (M16-DIAGNOSIS-ROUTE-DIALECT-FIX)
+- 근거 커밋: 코드 저장소 `1b233b3` — `fix(dialect): 크기등급 COUNT 재렌더 방언 위임 — postgres
+  하드코딩 제거 (M16-DIAGNOSIS-ROUTE-DIALECT-FIX)`
+- 근거 보고서 커밋: 이 저장소 `f398d20`(완료보고 `M16-DIAGNOSIS-ROUTE-DIALECT-FIX` — 오라클 라이브 실측)
+- 해결 요약: `_count_rows` 의 `read="postgres"` / `dialect="postgres"` 리터럴 고정을 폐기하고,
+  **같은 파일에 이미 있던 헬퍼 `_routing_dialect` 로 접속에서 방언을 도출해 위임**하도록 교체했다
+  (새 매핑·새 heuristic·인라인 DBMS 분기 없음 — S9 계열 3개 선행 수정본과 동일 규약).
+  `_count_rows` 에 `dialect` 파라미터를 추가하되 기본값을 `"postgres"` 로 둬 기존 2인자 호출부 동작을
+  보존했고, 혼합 방언(src≠tgt)은 선행 수정본과 같은 규약(`_sd if _sd == _td else "postgres"`)을 따른다.
+  파싱 실패 시 `None` → `SIZE_UNKNOWN` 안전측 축약과 S18 가드 파서 경로는 **불변**이다.
+  실측: 오라클 라이브 `/diagnosis/size-strategy` 종단 호출 **src=300 / tgt=300 동일**(무회귀),
+  관련 테스트 서브셋 115 passed(실패 3건은 baseline 동일 — 사전 존재분).
 - 발견일: 2026-07-30
 - 근거 보고서: `DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE.txt` (§진짜 남은 지점 R4 / §권장 착수 순서 3)
 - 상세: `routes/diagnosis_route.py:1500·1503` 이 `sqlglot.parse_one(..., read="postgres")` /
@@ -1876,7 +1950,23 @@ git -C E:/verify_reports worktree remove <임시경로>
   상류 게이트가 바뀌면 살아나는 종류라 기록해 둔다.
 - 참고: E:\verify_reports\STATS-PLAN-SERVICE-GROUPBY-STR-DICT-CHECK.txt
 
-### M13. job_registry 원본 저장소에 `updated_at` 이 없다
+### M13. ✅ 해결 완료 — job_registry 원본 저장소에 `updated_at` 이 없다
+- 해결일: 2026-08-03 (JOB-REGISTRY-UPDATED-AT-FIELD-ADD)
+- 근거 커밋: 코드 저장소 `b5dd218` — `feat(batch-state): batch_execution_state 에 updated_at 컬럼
+  추가·상태 변화 지점 배선 (JOB-REGISTRY-UPDATED-AT-FIELD-ADD)`
+- 근거 보고서 커밋: 이 저장소 `be6b1de`(완료보고 `JOB-REGISTRY-UPDATED-AT-FIELD-ADD` — 저장소 실측 13/13)
+- 해결 요약: '별도 단계' 로 미뤄 뒀던 원본 저장소 B(`services/batch_execution_state_service.py`)에
+  `updated_at` 을 **순수 추가**했다(기존 필드 변경 없음). `_CREATE_SQL` 에
+  `updated_at TEXT NOT NULL DEFAULT ''` 를 추가하고, **이미 만들어진 DB 파일은
+  `_ensure_updated_at_column()` 이 `ALTER TABLE` 로 1회 보강**한다(경로별 캐시 — 연결을 새로 열지 않아
+  round-trip 계측 불변). 상태 변화 **6지점**(`acquire_run_lock` 생성 / `update_progress` per-call /
+  `_BatchProgressSession.update_progress` / `request_cancel` / `complete_run` / `_cleanup_stale`)에
+  배선했고, `get_execution_status` 의 IDLE 응답도 키 구성을 맞췄다.
+  기존 행의 `updated_at` 은 **빈 문자열 유지**로 두어 추측값을 만들어 넣지 않는다.
+  실측 13/13 통과(`scripts/dev_e2e/batch_state_updated_at_field_verify.py`) ·
+  job_registry 읽기 경로 무회귀.
+- 잔여(이번 범위 밖): 화면 노출과 F7~F10 활용(통합 조회 계층이 이 소스를 `last_progress_at` 으로
+  실제 사용하는 배선)은 포함하지 않았다 — 필드 추가까지가 이번 범위다.
 - 발견일: 2026-07-27
 - 근거 보고서: `JOB-REGISTRY-STAGE2-READONLY-INTEGRATION.txt` (:147)
 - 상세: 필요하면 원본 저장소에 `updated_at` 을 추가하는 별도 단계가 있어야 한다(이번 범위 밖).
