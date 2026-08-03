@@ -1,0 +1,189 @@
+{
+  "C1_PREPARING_TRUE": {
+    "srvStatus": "EARLY_STOPPED",
+    "srvEarly": true,
+    "srvMissing": 0,
+    "srvValue": 101,
+    "srvStored": 101,
+    "srvTotal": 101,
+    "resultId": "SRF249D09ECB37",
+    "goErr": null,
+    "fed": null,
+    "beforeGo": {
+      "tag": "① _execSrvGo 호출 전(폴링 콜백까지 반영)",
+      "cellText": "준비 중",
+      "topText": null,
+      "topTitle": null,
+      "lineText": ""
+    },
+    "afterGo": {
+      "tag": "② _execSrvGo 렌더 이후",
+      "cellText": "준비 중",
+      "topText": "준비 중",
+      "topTitle": "",
+      "lineText": "전체 그룹 10 · 불일치 그룹 10 · 재이관 대상 준비 중현재 불일치 그룹 1~10 표시 · 1/1페이지"
+    },
+    "afterGo2": {
+      "tag": "③ 페이지 재이동 이후(재렌더 반복)",
+      "cellText": "준비 중",
+      "topText": "준비 중",
+      "topTitle": "",
+      "lineText": "전체 그룹 10 · 불일치 그룹 10 · 재이관 대상 준비 중현재 불일치 그룹 1~10 표시 · 1/1페이지"
+    },
+    "case": "C1_PREPARING_TRUE",
+    "expect": "진짜 준비 중(prepare 응답 전) — '준비 중' 유지가 정답"
+  },
+  "C2_PREPARING_POLL": {
+    "srvStatus": "EARLY_STOPPED",
+    "srvEarly": true,
+    "srvMissing": 0,
+    "srvValue": 101,
+    "srvStored": 101,
+    "srvTotal": 101,
+    "resultId": "SRF249D09ECB37",
+    "goErr": null,
+    "fed": {
+      "status": "PREPARING",
+      "note": "구성 payload(서버 확정 응답에서 status 만 PREPARING 으로 되돌림)"
+    },
+    "beforeGo": {
+      "tag": "① _execSrvGo 호출 전(폴링 콜백까지 반영)",
+      "cellText": "준비 중",
+      "topText": null,
+      "topTitle": null,
+      "lineText": ""
+    },
+    "afterGo": {
+      "tag": "② _execSrvGo 렌더 이후",
+      "cellText": "준비 중",
+      "topText": "준비 중",
+      "topTitle": "",
+      "lineText": "전체 그룹 10 · 불일치 그룹 10 · 재이관 대상 준비 중현재 불일치 그룹 1~10 표시 · 1/1페이지"
+    },
+    "afterGo2": {
+      "tag": "③ 페이지 재이동 이후(재렌더 반복)",
+      "cellText": "준비 중",
+      "topText": "준비 중",
+      "topTitle": "",
+      "lineText": "전체 그룹 10 · 불일치 그룹 10 · 재이관 대상 준비 중현재 불일치 그룹 1~10 표시 · 1/1페이지"
+    },
+    "case": "C2_PREPARING_POLL",
+    "expect": "폴링 진행 중(PREPARING) — '준비 중' 유지가 정답"
+  },
+  "C3_EARLY_STOPPED": {
+    "srvStatus": "EARLY_STOPPED",
+    "srvEarly": true,
+    "srvMissing": 0,
+    "srvValue": 101,
+    "srvStored": 101,
+    "srvTotal": 101,
+    "resultId": "SRF249D09ECB37",
+    "goErr": null,
+    "fed": {
+      "status": "EARLY_STOPPED",
+      "early_stopped": true,
+      "missing_migration": 0,
+      "value_mismatch": 101
+    },
+    "beforeGo": {
+      "tag": "① _execSrvGo 호출 전(폴링 콜백까지 반영)",
+      "cellText": "101건 이상조기중단 · 표시(저장)분 기준 하한",
+      "topText": null,
+      "topTitle": null,
+      "lineText": ""
+    },
+    "afterGo": {
+      "tag": "② _execSrvGo 렌더 이후",
+      "cellText": "101건 이상조기중단 · 표시(저장)분 기준 하한",
+      "topText": "101건 이상",
+      "topTitle": "수집이 조기중단되어 이 건수는 표시(저장)분 기준 하한입니다 — 실제는 그 이상이며 정확한 총수는 확인하지 않았습니다.",
+      "lineText": "전체 그룹 10 · 불일치 그룹 10 · 재이관 대상 101건 이상현재 불일치 그룹 1~10 표시 · 1/1페이지"
+    },
+    "afterGo2": {
+      "tag": "③ 페이지 재이동 이후(재렌더 반복)",
+      "cellText": "101건 이상조기중단 · 표시(저장)분 기준 하한",
+      "topText": "101건 이상",
+      "topTitle": "수집이 조기중단되어 이 건수는 표시(저장)분 기준 하한입니다 — 실제는 그 이상이며 정확한 총수는 확인하지 않았습니다.",
+      "lineText": "전체 그룹 10 · 불일치 그룹 10 · 재이관 대상 101건 이상현재 불일치 그룹 1~10 표시 · 1/1페이지"
+    },
+    "case": "C3_EARLY_STOPPED",
+    "expect": "서버 EARLY_STOPPED 확정 — 실제 저장 건수 + 하한 표기가 정답"
+  },
+  "C4_READY_OK": {
+    "srvStatus": "READY",
+    "srvEarly": false,
+    "srvMissing": 0,
+    "srvValue": 50,
+    "srvStored": 50,
+    "srvTotal": 50,
+    "resultId": "SRF249D09ECB37",
+    "goErr": null,
+    "fed": {
+      "status": "READY",
+      "early_stopped": false,
+      "missing_migration": 0,
+      "value_mismatch": 50
+    },
+    "beforeGo": {
+      "tag": "① _execSrvGo 호출 전(폴링 콜백까지 반영)",
+      "cellText": "50건",
+      "topText": null,
+      "topTitle": null,
+      "lineText": ""
+    },
+    "afterGo": {
+      "tag": "② _execSrvGo 렌더 이후",
+      "cellText": "50건",
+      "topText": "50건",
+      "topTitle": "",
+      "lineText": "전체 그룹 10 · 불일치 그룹 10 · 재이관 대상 50건현재 불일치 그룹 1~10 표시 · 1/1페이지"
+    },
+    "afterGo2": {
+      "tag": "③ 페이지 재이동 이후(재렌더 반복)",
+      "cellText": "50건",
+      "topText": "50건",
+      "topTitle": "",
+      "lineText": "전체 그룹 10 · 불일치 그룹 10 · 재이관 대상 50건현재 불일치 그룹 1~10 표시 · 1/1페이지"
+    },
+    "case": "C4_READY_OK",
+    "expect": "정상 READY 확정 — 기존과 동일 표기여야 함(무회귀)"
+  },
+  "C5_INVALIDATED": {
+    "srvStatus": "READY",
+    "srvEarly": false,
+    "srvMissing": 0,
+    "srvValue": 50,
+    "srvStored": 50,
+    "srvTotal": 50,
+    "resultId": "SRF249D09ECB37",
+    "goErr": null,
+    "fed": {
+      "status": "READY",
+      "note": "확정 표시 후 _mvPkState=null 로 무효화",
+      "midCell": "50건"
+    },
+    "beforeGo": {
+      "tag": "① _execSrvGo 호출 전(폴링 콜백까지 반영)",
+      "cellText": "50건",
+      "topText": null,
+      "topTitle": null,
+      "lineText": ""
+    },
+    "afterGo": {
+      "tag": "② _execSrvGo 렌더 이후",
+      "cellText": "50건",
+      "topText": "준비 중",
+      "topTitle": "",
+      "lineText": "전체 그룹 10 · 불일치 그룹 10 · 재이관 대상 준비 중현재 불일치 그룹 1~10 표시 · 1/1페이지"
+    },
+    "afterGo2": {
+      "tag": "③ 페이지 재이동 이후(재렌더 반복)",
+      "cellText": "50건",
+      "topText": "준비 중",
+      "topTitle": "",
+      "lineText": "전체 그룹 10 · 불일치 그룹 10 · 재이관 대상 준비 중현재 불일치 그룹 1~10 표시 · 1/1페이지"
+    },
+    "case": "C5_INVALIDATED",
+    "expect": "확정 표시 후 run 무효화(_mvPkState=null) — 재렌더 시 옛 숫자가 남지 않고 '준비 중' 으로 돌아가야 함"
+  }
+}
