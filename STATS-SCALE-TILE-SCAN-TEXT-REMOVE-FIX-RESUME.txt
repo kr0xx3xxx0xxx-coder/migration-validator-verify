@@ -1,0 +1,140 @@
+작업명 : STATS-SCALE-TILE-SCAN-TEXT-REMOVE-FIX-RESUME
+일시   : 2026-08-04
+커밋   : 1b53fff (코드 repo, main)
+대상   : ui/tabler_renderer.py (_mvRenderStrategyPlan)
+        scripts/dev_e2e/stats_scale_tile_scan_text_remove_verify.py (신규 실측 스크립트)
+
+────────────────────────────────────────────────────────────────────────
+1. 재개 시점 온전성 확인 (지침 1단계) — 어디까지 돼 있었나
+────────────────────────────────────────────────────────────────────────
+중단 직전 세션은 "코드 수정 착수 전" 상태였다. 확인 결과는 다음과 같다.
+
+  · git status(tracked) : 미커밋 변경 0건 → 코드 본체는 전혀 손대지 않은 상태였다.
+  · git log             : 이 작업 관련 커밋 없음. 최신은 1862899
+                          (CANDIDATE-MANUAL-CONFIRM-BUTTON-VISUAL-DISTINCTION-FIX,
+                          다른 세션이 중단 사이에 넣은 커밋).
+  · untracked 잔여      : scripts/dev_e2e/stats_scale_tile_scan_text_remove_verify.py
+                          (중단 전 작성해 둔 브라우저 실측 스크립트 1개. 실행 직전에 중단됨)
+  · 운영 서버(8000)     : 서빙 HTML 안에 '원본 실측 ' + Number(...) 조립 코드가 그대로
+                          존재 → 미반영 확인. 서버는 1862899 반영본으로 이미 재기동돼 있었다.
+
+즉 "실측 스크립트만 만들어 둔 상태"였고, before 캡처·코드 수정·after 캡처·커밋은 전부
+이번 재개에서 수행했다. 처음부터 다시 하지 않고 스크립트를 그대로 이어 썼다.
+
+────────────────────────────────────────────────────────────────────────
+2. '통계검증규모' 타일 소유 파일 특정 (지침 1단계-3)
+────────────────────────────────────────────────────────────────────────
+전용 파일이 따로 있는지 저장소 전체를 훑어 소유 관계를 확정했다.
+
+  · 타일 껍데기(라벨·열 정의·값 배치) : ui/grid_helpers.py
+      _mvCandidateColumns()  { title:'통계검증규모', field:'scale' }
+      _mvCandidateTileRow(a) scale: plan ? plan.scaleText : ''
+      → window._mvStage3PlanInfo.scaleText 를 "가공 없이 그대로" 읽기만 하는 소비자다.
+  · 값 문자열 생산(유일)             : ui/tabler_renderer.py  _mvRenderStrategyPlan()
+      28213~ window._mvStage3PlanInfo = { scaleText: ... }
+      스캔행수 문구(_scanPlain)를 만드는 코드도 이 함수 안에만 있었다.
+  · 다른 전용 파일(js_admin_column_override.py 같은 단독 소유자)은 없었다.
+    _mvStage3PlanInfo 를 쓰는 다른 운영 파일은 grid_helpers.py(읽기) 뿐이고, 나머지 히트는
+    tests/ 와 scripts/dev_e2e/ 의 관측 코드였다.
+
+결론: 원래 지침의 대상 파일 지정(ui/tabler_renderer.py)이 정확했고, grid_helpers.py 는
+소비자이므로 수정 대상이 아니다.
+
+────────────────────────────────────────────────────────────────────────
+3. 변경 내용 (표시 전용 — 판정/등급 산정 로직 불변)
+────────────────────────────────────────────────────────────────────────
+ui/tabler_renderer.py  _mvRenderStrategyPlan()  (+14 / -25 줄)
+
+  ⓐ 실행계획 rows 의 '통계검증 규모' 값
+       - value:'<b>'+esc(d.provisional_grade||'산정 전')+'</b>' + _scanTxt
+       + value:'<b>'+esc(d.provisional_grade||'산정 전')+'</b>'
+  ⓑ 3단계 통합 타일 단일 출처
+       - scaleText: (d.provisional_grade || '산정 전') + (_scanPlain ? (' · '+_scanPlain) : '')
+       + scaleText: (d.provisional_grade || '산정 전')
+  ⓒ 죽은 코드 정리 — ⓐ·ⓑ 가 유일한 소비처였으므로 조립용 지역변수를 동반 제거했다.
+       _cntR(_lastCountResult 참조) / _scanRows / _scanPlain / _scanTxt
+       남겨두면 참조 0인 죽은 코드가 되므로 지우는 쪽이 맞다고 판단했다(지침 3항 재량).
+
+유지한 것:
+  · 값의 원천 필드 stats_plan.estimated_scan_rows / full_compare_plan.expected_scan_rows
+    (planner 산출물 자체는 그대로 — 다른 소비처가 계속 쓴다)
+  · 등급 산정(provisional_grade), 상태 배지('잠정'/'산정 전'), 라벨 '통계검증 규모'
+    → 문자열 검사 테스트 계약 보호
+  · tooltip(scaleTip) '통계검증 규모: 잠정 소형 (잠정)' 도 종전 그대로(행수 미포함이었음)
+
+────────────────────────────────────────────────────────────────────────
+4. 실측 검증 — 실 서버·실 브라우저 (필수 항목)
+────────────────────────────────────────────────────────────────────────
+스크립트 : scripts/dev_e2e/stats_scale_tile_scan_text_remove_verify.py
+환경     : 운영 서버 127.0.0.1:8000 (Basic 인증 ON), 실 브라우저 Chromium 클릭스루
+           내부망 PostgreSQL 페어 PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe
+           SQL 케이스 etl02 (asis01.t_as_1_etl02 → tobe01.t_to_1_etl02, 원본 5,000행)
+절차     : 접속 → 개별검증 진입 → 1단계 분석 → 2단계 COUNT 실행 → 3단계 진입 →
+           후보 계산 완료 후 타일/실행계획 상세 관측 및 캡처
+           (3단계 타일 값은 후보 계산이 끝나야 채워지므로 계산 후 시점에서 캡처)
+before   : 변경 전 모듈을 로드한 실행 중 서버 그대로
+after    : 코드 수정 후 서버 재기동(uvicorn reload=False 이므로 재기동 필수) 후 동일 절차
+
+  관측 지점                       BEFORE                          AFTER
+  ─────────────────────────────  ──────────────────────────────  ──────────
+  타일 '통계검증규모' 값          잠정 소형 · 원본 실측 5,000행    잠정 소형
+  window._mvStage3PlanInfo
+      .scaleText                  잠정 소형 · 원본 실측 5,000행    잠정 소형
+  타일 tooltip                    통계검증 규모: 잠정 소형 (잠정)  동일(무변화)
+  실행계획 상세표 스캔문구        없음                             없음
+  실행계획 박스 전체 스캔문구     없음                             없음
+
+  스캔문구 잔존 판정(정규식 '원본 (실측 )?N행' 4지점 검사)
+      BEFORE : 타일값 O / scaleText O / 상세표 X / 박스전체 X → 전부제거 = False
+      AFTER  : 4지점 모두 X                                     → 전부제거 = True
+
+  ※ 요구사항 2(다른 표시 지점) : '통계검증 규모' 행은 이미 통합 타일로 이동돼
+    실행계획 상세표에서는 제외(_TILE_MOVED)되어 있었다. 따라서 화면상 중복 노출은
+    없었으나, 코드상 rows 값에 남아 있던 _scanTxt 도 함께 제거해 두 표시 지점의
+    값 규칙을 동일하게 맞췄다. after 상세표 캡처로 잔존 0건을 확인했다.
+  ※ 실행계획 상세 '판정근거'의 '원본 5,000건'은 planner 가 만든 별개 근거 문자열
+    (basis_text)로, 이번 제거 대상인 '통계검증 규모 값의 스캔행수 꼬리표'가 아니다.
+
+스크린샷 (E:\verify_screenshots_only\STATS-SCALE-TILE-SCAN-TEXT-REMOVE-FIX-RESUME\)
+  before_etl02_step3_tiles.png        3단계 타일 9개 — '잠정 소형 · 원본 실측 5,000행'
+  before_etl02_step3_full.png         3단계 화면 전체
+  before_etl02_step3_plan_detail.png  실행계획 상세(참고) 표
+  after_etl02_step3_tiles.png         3단계 타일 9개 — '잠정 소형'
+  after_etl02_step3_full.png          3단계 화면 전체
+  after_etl02_step3_plan_detail.png   실행계획 상세(참고) 표
+
+결과 JSON(코드 repo, gitignore 대상이라 폴더 사본이 보존본):
+  scripts/dev_e2e/stats_scale_tile_scan_text_remove_verify_before_etl02.json
+  scripts/dev_e2e/stats_scale_tile_scan_text_remove_verify_after_etl02.json
+
+────────────────────────────────────────────────────────────────────────
+5. 회귀 테스트
+────────────────────────────────────────────────────────────────────────
+  samples/test_virtual_cases.py                8/8 통과
+  samples/test_complex_cases.py                5/5 케이스 분석 완료
+  pytest tests/test_stats_result_full.py
+         tests/test_grid_helpers.py
+         tests/test_step2_step3_tile_immediate_display.py
+         tests/test_strategy_planner.py        60 passed, 5 xfailed, 1 failed
+  node --check (렌더 script 블록 2개)          2/2 OK
+
+  실패 1건은 사전 존재 실패이며 이번 변경과 무관하다.
+    test_phase4b_strategy_plan_effective_selection_display
+    → 함수 본문에 "effective_group_by_count" 문자열이 있어야 한다는 검사인데,
+      제품 코드는 configured_group_by_count / effective_group_by_columns 를 쓴다.
+      HEAD(1862899) 원본에도 해당 문자열이 0건임을 git show 로 대조 확인했다.
+
+────────────────────────────────────────────────────────────────────────
+6. 위험·영향 검토
+────────────────────────────────────────────────────────────────────────
+  · 구조 : 함수 내부 지역변수 4개와 문자열 조합 2곳만 줄였다. 모듈 결합도·web_server.py
+           비대화에 영향 없음. 오히려 표시 경로가 단순해졌다(-25/+14 줄).
+  · 운영 : 표시 문자열만 바뀌므로 판정·저장·재조회 동작 변화 없음. 롤백은 커밋 1건 revert.
+  · 정보 손실 : 원본 건수 자체는 2단계 COUNT 타일과 실행계획 '판정근거'에서 계속 확인
+           가능하므로, 이 타일에서 빠져도 화면에서 사라지는 정보는 아니다.
+  · heuristic/scoring/explainability : 신규 하드코딩 없음, 근거 저장 경로 불변.
+  · 남은 참고사항 : 저장 복원(restored=true) 분기 표기('원본 N행(저장 시점)')는 이번
+           제거로 화면에서 완전히 사라졌다. 저장 시점 값과 라이브 값을 구분해 보여줄
+           필요가 다시 생기면 tooltip 쪽에 붙이는 편이 값 열을 더럽히지 않는다.
+
+작업 완료 - STATS-SCALE-TILE-SCAN-TEXT-REMOVE-FIX-RESUME
