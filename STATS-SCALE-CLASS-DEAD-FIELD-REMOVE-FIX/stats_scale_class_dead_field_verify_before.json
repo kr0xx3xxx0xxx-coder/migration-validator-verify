@@ -1,0 +1,129 @@
+{
+  "label": "before",
+  "facts": {
+    "source_origin": "HEAD",
+    "js_len": 86789,
+    "has_stats_scale_class_code": true,
+    "has_stats_scale_class_anywhere": true,
+    "has_stats_scale_estimable_code": true,
+    "has_xlarge_grade_literal": true,
+    "has_provisional_branch": true
+  },
+  "cases": [
+    {
+      "name": "R1_EMPTY_PROFILE",
+      "desc": "실경로 — 프로파일 없음(초기 렌더)",
+      "profile": {},
+      "plan": null,
+      "text": "산정 전",
+      "error": null
+    },
+    {
+      "name": "R2_COUNT_ONLY",
+      "desc": "실경로 — COUNT 만 있음(계획 미생성)",
+      "profile": {
+        "source_count": 1000000
+      },
+      "plan": null,
+      "text": "산정 전",
+      "error": null
+    },
+    {
+      "name": "R3_NOT_ESTIMABLE",
+      "desc": "실경로 — 명시적 산정 실패",
+      "profile": {
+        "stats_scale_estimable": false
+      },
+      "plan": null,
+      "text": "산정 불가",
+      "error": null
+    },
+    {
+      "name": "R4_PROVISIONAL_GRADE",
+      "desc": "실경로 — planner 잠정 등급 우선(3단계 '통계검증규모' 타일 정상 경로)",
+      "profile": {
+        "source_count": 5000
+      },
+      "plan": {
+        "provisional_grade": "잠정 소형"
+      },
+      "text": "잠정 소형",
+      "error": null
+    },
+    {
+      "name": "R4b_PROVISIONAL_XLARGE",
+      "desc": "실경로 — planner 잠정 초대형",
+      "profile": {
+        "source_count": 100000000
+      },
+      "plan": {
+        "provisional_grade": "잠정 초대형"
+      },
+      "text": "잠정 초대형",
+      "error": null
+    },
+    {
+      "name": "S1_CLASS_SMALL",
+      "desc": "합성 — 생산자 없는 죽은 필드 주입(SMALL)",
+      "profile": {
+        "stats_scale_class": "SMALL"
+      },
+      "plan": null,
+      "text": "소형",
+      "error": null
+    },
+    {
+      "name": "S2_CLASS_MEDIUM",
+      "desc": "합성 — 죽은 필드 주입(소문자 medium)",
+      "profile": {
+        "stats_scale_class": "medium"
+      },
+      "plan": null,
+      "text": "중형",
+      "error": null
+    },
+    {
+      "name": "S3_CLASS_LARGE",
+      "desc": "합성 — 죽은 필드 주입(LARGE)",
+      "profile": {
+        "stats_scale_class": "LARGE"
+      },
+      "plan": null,
+      "text": "대형",
+      "error": null
+    },
+    {
+      "name": "S4_CLASS_XLARGE",
+      "desc": "합성 — 죽은 필드 주입(XLARGE)",
+      "profile": {
+        "stats_scale_class": "XLARGE"
+      },
+      "plan": null,
+      "text": "초대형",
+      "error": null
+    },
+    {
+      "name": "S5_CLASS_WITH_PROVISIONAL",
+      "desc": "합성 — 죽은 필드 + planner 등급 동시(우선순위 확인)",
+      "profile": {
+        "stats_scale_class": "XLARGE"
+      },
+      "plan": {
+        "provisional_grade": "잠정 중형"
+      },
+      "text": "잠정 중형",
+      "error": null
+    },
+    {
+      "name": "S6_CLASS_AND_NOT_ESTIMABLE",
+      "desc": "합성 — 미지 등급값 + 산정 실패(폴백 순서 확인)",
+      "profile": {
+        "stats_scale_class": "BOGUS",
+        "stats_scale_estimable": false
+      },
+      "plan": null,
+      "text": "산정 불가",
+      "error": null
+    }
+  ]
+}

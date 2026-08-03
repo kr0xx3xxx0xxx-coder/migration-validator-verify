@@ -1,0 +1,1450 @@
+{
+ "phase": "before",
+ "pair": [
+  "PostgreSQL_Inter_asis",
+  "PostgreSQL_Inter_tobe"
+ ],
+ "sql": "INSERT INTO tobe01.t_to_n_etl04 (student_id, activity_id, participation, activity_score, fb_summary, last_updated) SELECT stu_id, activity_id, participation, score, feedback, last_updated FROM asis01.t_as_n_etl04",
+ "기대_라벨순서": [
+  "목적테이블",
+  "원본테이블",
+  "입력컬럼수",
+  "추출컬럼수",
+  "컬럼매핑수",
+  "조건문",
+  "조인",
+  "처리시간",
+  "상태"
+ ],
+ "setup": {
+  "pair_label": "PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe",
+  "pair_existed": false,
+  "pair_rows_after": 1,
+  "connect_clicked": true,
+  "pair_row_text": "접속중PostgreSQL_Inter_asis → PostgreSQL_Inter_tobePostgreSQL_Inter_asisPOSTGRESQLPostgreSQL_Inter_tobePOSTGRESQL상세접속 끊기삭제",
+  "current_tab": "analyze"
+ },
+ "A_탭진입직후": {
+  "보는탭": "query",
+  "카드_화면노출": true,
+  "카드_박스": {
+   "top": 226,
+   "bottom": 402,
+   "left": 302,
+   "right": 1558,
+   "width": 1256,
+   "height": 176
+  },
+  "SQL입력_카드_박스": {
+   "top": 414,
+   "bottom": 791,
+   "left": 302,
+   "right": 1558,
+   "width": 1256,
+   "height": 377
+  },
+  "카드가_SQL입력_위": true,
+  "헤더": {
+   "헤더_전체텍스트": "쿼리 검토 결과 FROM → 목적지 매핑 · JOIN · WHERE",
+   "제목_텍스트": "쿼리 검토 결과 FROM → 목적지 매핑 · JOIN · WHERE",
+   "제목_유지": true,
+   "보조span수": 1,
+   "보조span": [
+    {
+     "텍스트": "FROM → 목적지 매핑 · JOIN · WHERE",
+     "클래스": "text-muted ms-2",
+     "표시": {
+      "top": 242,
+      "bottom": 260,
+      "left": 418,
+      "right": 621,
+      "width": 203,
+      "height": 18
+     }
+    }
+   ],
+   "보조문구_존재": true,
+   "헤더박스": {
+    "top": 227,
+    "bottom": 275,
+    "left": 303,
+    "right": 1557,
+    "width": 1254,
+    "height": 48
+   }
+  },
+  "타일수": 9,
+  "타일": [
+   {
+    "라벨": "목적테이블",
+    "값": "—",
+    "박스": {
+     "top": 310,
+     "bottom": 378,
+     "left": 319,
+     "right": 446,
+     "width": 127,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 288,
+     "bottom": 305,
+     "left": 319,
+     "right": 446,
+     "width": 127,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 319,
+     "right": 375,
+     "width": 56
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 71,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": true,
+    "배지": 0,
+    "tooltip": ""
+   },
+   {
+    "라벨": "원본테이블",
+    "값": "—",
+    "박스": {
+     "top": 310,
+     "bottom": 378,
+     "left": 456,
+     "right": 583,
+     "width": 127,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 288,
+     "bottom": 305,
+     "left": 456,
+     "right": 583,
+     "width": 127,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 456,
+     "right": 512,
+     "width": 56
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 71,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": true,
+    "배지": 0,
+    "tooltip": ""
+   },
+   {
+    "라벨": "입력컬럼수",
+    "값": "—",
+    "박스": {
+     "top": 310,
+     "bottom": 378,
+     "left": 593,
+     "right": 720,
+     "width": 127,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 288,
+     "bottom": 305,
+     "left": 593,
+     "right": 720,
+     "width": 127,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 593,
+     "right": 649,
+     "width": 56
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 71,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": true,
+    "배지": 0,
+    "tooltip": ""
+   },
+   {
+    "라벨": "추출컬럼수",
+    "값": "—",
+    "박스": {
+     "top": 310,
+     "bottom": 378,
+     "left": 730,
+     "right": 857,
+     "width": 127,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 288,
+     "bottom": 305,
+     "left": 730,
+     "right": 857,
+     "width": 127,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 730,
+     "right": 786,
+     "width": 56
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 71,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": true,
+    "배지": 0,
+    "tooltip": ""
+   },
+   {
+    "라벨": "컬럼매핑수",
+    "값": "—",
+    "박스": {
+     "top": 310,
+     "bottom": 378,
+     "left": 867,
+     "right": 993,
+     "width": 127,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 288,
+     "bottom": 305,
+     "left": 867,
+     "right": 993,
+     "width": 127,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 867,
+     "right": 922,
+     "width": 56
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 71,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": true,
+    "배지": 0,
+    "tooltip": ""
+   },
+   {
+    "라벨": "조건문",
+    "값": "—",
+    "박스": {
+     "top": 310,
+     "bottom": 378,
+     "left": 1003,
+     "right": 1130,
+     "width": 127,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 288,
+     "bottom": 305,
+     "left": 1003,
+     "right": 1130,
+     "width": 127,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 1003,
+     "right": 1037,
+     "width": 34
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 93,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": true,
+    "배지": 0,
+    "tooltip": ""
+   },
+   {
+    "라벨": "조인",
+    "값": "—",
+    "박스": {
+     "top": 310,
+     "bottom": 378,
+     "left": 1140,
+     "right": 1267,
+     "width": 127,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 288,
+     "bottom": 305,
+     "left": 1140,
+     "right": 1267,
+     "width": 127,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 1140,
+     "right": 1163,
+     "width": 22
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 104,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": true,
+    "배지": 0,
+    "tooltip": ""
+   },
+   {
+    "라벨": "처리시간",
+    "값": "—",
+    "박스": {
+     "top": 310,
+     "bottom": 378,
+     "left": 1277,
+     "right": 1404,
+     "width": 127,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 288,
+     "bottom": 305,
+     "left": 1277,
+     "right": 1404,
+     "width": 127,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 1277,
+     "right": 1322,
+     "width": 45
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 82,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": true,
+    "배지": 0,
+    "tooltip": ""
+   },
+   {
+    "라벨": "상태",
+    "값": "—",
+    "박스": {
+     "top": 310,
+     "bottom": 378,
+     "left": 1414,
+     "right": 1541,
+     "width": 127,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 288,
+     "bottom": 305,
+     "left": 1414,
+     "right": 1541,
+     "width": 127,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 1414,
+     "right": 1436,
+     "width": 22
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 105,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": true,
+    "배지": 0,
+    "tooltip": ""
+   }
+  ],
+  "타일라벨목록": [
+   "목적테이블",
+   "원본테이블",
+   "입력컬럼수",
+   "추출컬럼수",
+   "컬럼매핑수",
+   "조건문",
+   "조인",
+   "처리시간",
+   "상태"
+  ],
+  "타일값목록": [
+   "—",
+   "—",
+   "—",
+   "—",
+   "—",
+   "—",
+   "—",
+   "—",
+   "—"
+  ],
+  "라벨정렬_집합": [
+   "start"
+  ],
+  "박스높이_집합": [
+   68
+  ],
+  "박스minHeight_집합": [
+   "68px"
+  ],
+  "높이통계": {
+   "최소": 68,
+   "최대": 68,
+   "평균": 68
+  },
+  "타일컨테이너_박스": {
+   "top": 288,
+   "bottom": 378,
+   "left": 319,
+   "right": 1541,
+   "width": 1222,
+   "height": 90
+  },
+  "카드본문_박스": {
+   "top": 275,
+   "bottom": 401,
+   "left": 303,
+   "right": 1557,
+   "width": 1254,
+   "height": 126
+  },
+  "타일_우측여백_px": 0,
+  "타일_최대우측": 1541,
+  "타일_줄수": 1,
+  "그리드잔재": {
+   "table요소수": 0,
+   "tabulator컬럼헤더수": 0,
+   "th요소수": 0,
+   "정렬화살표수": 0,
+   "페이지네이션문구": false,
+   "초기순서버튼": false,
+   "tabulator루트수": 0
+  },
+  "파싱_원본테이블": null,
+  "파싱_목적테이블": null,
+  "분석데이터_존재": false
+ },
+ "실행결과": {
+  "step": "query",
+  "blocked": false,
+  "err": null,
+  "from_table": "T_AS_N_ETL04",
+  "target_table": ""
+ },
+ "C_쿼리검토_실행후": {
+  "보는탭": "query",
+  "카드_화면노출": true,
+  "카드_박스": {
+   "top": 226,
+   "bottom": 402,
+   "left": 302,
+   "right": 1558,
+   "width": 1256,
+   "height": 176
+  },
+  "SQL입력_카드_박스": {
+   "top": 414,
+   "bottom": 791,
+   "left": 302,
+   "right": 1558,
+   "width": 1256,
+   "height": 377
+  },
+  "카드가_SQL입력_위": true,
+  "헤더": {
+   "헤더_전체텍스트": "쿼리 검토 결과 FROM → 목적지 매핑 · JOIN · WHERE",
+   "제목_텍스트": "쿼리 검토 결과 FROM → 목적지 매핑 · JOIN · WHERE",
+   "제목_유지": true,
+   "보조span수": 1,
+   "보조span": [
+    {
+     "텍스트": "FROM → 목적지 매핑 · JOIN · WHERE",
+     "클래스": "text-muted ms-2",
+     "표시": {
+      "top": 242,
+      "bottom": 260,
+      "left": 418,
+      "right": 621,
+      "width": 203,
+      "height": 18
+     }
+    }
+   ],
+   "보조문구_존재": true,
+   "헤더박스": {
+    "top": 227,
+    "bottom": 275,
+    "left": 303,
+    "right": 1557,
+    "width": 1254,
+    "height": 48
+   }
+  },
+  "타일수": 9,
+  "타일": [
+   {
+    "라벨": "목적테이블",
+    "값": "tobe01.t_to_n_etl04",
+    "박스": {
+     "top": 310,
+     "bottom": 378,
+     "left": 319,
+     "right": 446,
+     "width": 127,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 288,
+     "bottom": 305,
+     "left": 319,
+     "right": 446,
+     "width": 127,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 319,
+     "right": 375,
+     "width": 56
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 71,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": false,
+    "배지": 0,
+    "tooltip": "tobe01.t_to_n_etl04"
+   },
+   {
+    "라벨": "원본테이블",
+    "값": "asis01.t_as_n_etl04",
+    "박스": {
+     "top": 310,
+     "bottom": 378,
+     "left": 456,
+     "right": 583,
+     "width": 127,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 288,
+     "bottom": 305,
+     "left": 456,
+     "right": 583,
+     "width": 127,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 456,
+     "right": 512,
+     "width": 56
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 71,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": false,
+    "배지": 0,
+    "tooltip": "asis01.t_as_n_etl04"
+   },
+   {
+    "라벨": "입력컬럼수",
+    "값": "6",
+    "박스": {
+     "top": 310,
+     "bottom": 378,
+     "left": 593,
+     "right": 720,
+     "width": 127,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 288,
+     "bottom": 305,
+     "left": 593,
+     "right": 720,
+     "width": 127,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 593,
+     "right": 649,
+     "width": 56
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 71,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": false,
+    "배지": 0,
+    "tooltip": "STUDENT_ID, ACTIVITY_ID, PARTICIPATION, ACTIVITY_SCORE, FB_SUMMARY, LAST_UPDATED"
+   },
+   {
+    "라벨": "추출컬럼수",
+    "값": "6",
+    "박스": {
+     "top": 310,
+     "bottom": 378,
+     "left": 730,
+     "right": 857,
+     "width": 127,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 288,
+     "bottom": 305,
+     "left": 730,
+     "right": 857,
+     "width": 127,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 730,
+     "right": 786,
+     "width": 56
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 71,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": false,
+    "배지": 0,
+    "tooltip": "STUDENT_ID, ACTIVITY_ID, PARTICIPATION, ACTIVITY_SCORE, FB_SUMMARY, LAST_UPDATED"
+   },
+   {
+    "라벨": "컬럼매핑수",
+    "값": "6/6",
+    "박스": {
+     "top": 310,
+     "bottom": 378,
+     "left": 867,
+     "right": 993,
+     "width": 127,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 288,
+     "bottom": 305,
+     "left": 867,
+     "right": 993,
+     "width": 127,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 867,
+     "right": 922,
+     "width": 56
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 71,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": false,
+    "배지": 0,
+    "tooltip": "입력 컬럼 6개 / 추출 컬럼 6개 / 매핑 가능"
+   },
+   {
+    "라벨": "조건문",
+    "값": "없음",
+    "박스": {
+     "top": 310,
+     "bottom": 378,
+     "left": 1003,
+     "right": 1130,
+     "width": 127,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 288,
+     "bottom": 305,
+     "left": 1003,
+     "right": 1130,
+     "width": 127,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 1003,
+     "right": 1037,
+     "width": 34
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 93,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": false,
+    "배지": 0,
+    "tooltip": "조건 없음"
+   },
+   {
+    "라벨": "조인",
+    "값": "없음",
+    "박스": {
+     "top": 310,
+     "bottom": 378,
+     "left": 1140,
+     "right": 1267,
+     "width": 127,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 288,
+     "bottom": 305,
+     "left": 1140,
+     "right": 1267,
+     "width": 127,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 1140,
+     "right": 1163,
+     "width": 22
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 104,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": false,
+    "배지": 0,
+    "tooltip": "조인 없음"
+   },
+   {
+    "라벨": "처리시간",
+    "값": "0.54초",
+    "박스": {
+     "top": 310,
+     "bottom": 378,
+     "left": 1277,
+     "right": 1404,
+     "width": 127,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 288,
+     "bottom": 305,
+     "left": 1277,
+     "right": 1404,
+     "width": 127,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 1277,
+     "right": 1322,
+     "width": 45
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 82,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": false,
+    "배지": 0,
+    "tooltip": "쿼리검토 1회 실행 처리시간 — 0.54초 (538.4ms)"
+   },
+   {
+    "라벨": "상태",
+    "값": "● 정상",
+    "박스": {
+     "top": 310,
+     "bottom": 378,
+     "left": 1414,
+     "right": 1541,
+     "width": 127,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 288,
+     "bottom": 305,
+     "left": 1414,
+     "right": 1541,
+     "width": 127,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 1414,
+     "right": 1436,
+     "width": 22
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 105,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": false,
+    "배지": 1,
+    "tooltip": "통과"
+   }
+  ],
+  "타일라벨목록": [
+   "목적테이블",
+   "원본테이블",
+   "입력컬럼수",
+   "추출컬럼수",
+   "컬럼매핑수",
+   "조건문",
+   "조인",
+   "처리시간",
+   "상태"
+  ],
+  "타일값목록": [
+   "tobe01.t_to_n_etl04",
+   "asis01.t_as_n_etl04",
+   "6",
+   "6",
+   "6/6",
+   "없음",
+   "없음",
+   "0.54초",
+   "● 정상"
+  ],
+  "라벨정렬_집합": [
+   "start"
+  ],
+  "박스높이_집합": [
+   68
+  ],
+  "박스minHeight_집합": [
+   "68px"
+  ],
+  "높이통계": {
+   "최소": 68,
+   "최대": 68,
+   "평균": 68
+  },
+  "타일컨테이너_박스": {
+   "top": 288,
+   "bottom": 378,
+   "left": 319,
+   "right": 1541,
+   "width": 1222,
+   "height": 90
+  },
+  "카드본문_박스": {
+   "top": 275,
+   "bottom": 401,
+   "left": 303,
+   "right": 1557,
+   "width": 1254,
+   "height": 126
+  },
+  "타일_우측여백_px": 0,
+  "타일_최대우측": 1541,
+  "타일_줄수": 1,
+  "그리드잔재": {
+   "table요소수": 0,
+   "tabulator컬럼헤더수": 0,
+   "th요소수": 0,
+   "정렬화살표수": 0,
+   "페이지네이션문구": false,
+   "초기순서버튼": false,
+   "tabulator루트수": 0
+  },
+  "파싱_원본테이블": "T_AS_N_ETL04",
+  "파싱_목적테이블": "T_TO_N_ETL04",
+  "분석데이터_존재": true
+ },
+ "G_좁은폭_900": {
+  "보는탭": "query",
+  "카드_화면노출": true,
+  "카드_박스": {
+   "top": 402,
+   "bottom": 779,
+   "left": 172,
+   "right": 728,
+   "width": 556,
+   "height": 377
+  },
+  "SQL입력_카드_박스": {
+   "top": 791,
+   "bottom": 1205,
+   "left": 172,
+   "right": 728,
+   "width": 556,
+   "height": 414
+  },
+  "카드가_SQL입력_위": true,
+  "헤더": {
+   "헤더_전체텍스트": "쿼리 검토 결과 FROM → 목적지 매핑 · JOIN · WHERE",
+   "제목_텍스트": "쿼리 검토 결과 FROM → 목적지 매핑 · JOIN · WHERE",
+   "제목_유지": true,
+   "보조span수": 1,
+   "보조span": [
+    {
+     "텍스트": "FROM → 목적지 매핑 · JOIN · WHERE",
+     "클래스": "text-muted ms-2",
+     "표시": {
+      "top": 418,
+      "bottom": 436,
+      "left": 288,
+      "right": 491,
+      "width": 203,
+      "height": 18
+     }
+    }
+   ],
+   "보조문구_존재": true,
+   "헤더박스": {
+    "top": 403,
+    "bottom": 451,
+    "left": 173,
+    "right": 727,
+    "width": 554,
+    "height": 48
+   }
+  },
+  "타일수": 9,
+  "타일": [
+   {
+    "라벨": "목적테이블",
+    "값": "tobe01.t_to_n_etl04",
+    "박스": {
+     "top": 486,
+     "bottom": 554,
+     "left": 189,
+     "right": 312,
+     "width": 123,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 464,
+     "bottom": 481,
+     "left": 189,
+     "right": 312,
+     "width": 123,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 189,
+     "right": 245,
+     "width": 56
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 67,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": false,
+    "배지": 0,
+    "tooltip": "tobe01.t_to_n_etl04"
+   },
+   {
+    "라벨": "원본테이블",
+    "값": "asis01.t_as_n_etl04",
+    "박스": {
+     "top": 486,
+     "bottom": 554,
+     "left": 322,
+     "right": 445,
+     "width": 123,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 464,
+     "bottom": 481,
+     "left": 322,
+     "right": 445,
+     "width": 123,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 322,
+     "right": 378,
+     "width": 56
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 67,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": false,
+    "배지": 0,
+    "tooltip": "asis01.t_as_n_etl04"
+   },
+   {
+    "라벨": "입력컬럼수",
+    "값": "6",
+    "박스": {
+     "top": 486,
+     "bottom": 554,
+     "left": 455,
+     "right": 578,
+     "width": 123,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 464,
+     "bottom": 481,
+     "left": 455,
+     "right": 578,
+     "width": 123,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 455,
+     "right": 511,
+     "width": 56
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 67,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": false,
+    "배지": 0,
+    "tooltip": "STUDENT_ID, ACTIVITY_ID, PARTICIPATION, ACTIVITY_SCORE, FB_SUMMARY, LAST_UPDATED"
+   },
+   {
+    "라벨": "추출컬럼수",
+    "값": "6",
+    "박스": {
+     "top": 486,
+     "bottom": 554,
+     "left": 588,
+     "right": 711,
+     "width": 123,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 464,
+     "bottom": 481,
+     "left": 588,
+     "right": 711,
+     "width": 123,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 588,
+     "right": 644,
+     "width": 56
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 67,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": false,
+    "배지": 0,
+    "tooltip": "STUDENT_ID, ACTIVITY_ID, PARTICIPATION, ACTIVITY_SCORE, FB_SUMMARY, LAST_UPDATED"
+   },
+   {
+    "라벨": "컬럼매핑수",
+    "값": "6/6",
+    "박스": {
+     "top": 587,
+     "bottom": 655,
+     "left": 189,
+     "right": 312,
+     "width": 123,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 564,
+     "bottom": 582,
+     "left": 189,
+     "right": 312,
+     "width": 123,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 189,
+     "right": 245,
+     "width": 56
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 67,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": false,
+    "배지": 0,
+    "tooltip": "입력 컬럼 6개 / 추출 컬럼 6개 / 매핑 가능"
+   },
+   {
+    "라벨": "조건문",
+    "값": "없음",
+    "박스": {
+     "top": 587,
+     "bottom": 655,
+     "left": 322,
+     "right": 445,
+     "width": 123,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 564,
+     "bottom": 582,
+     "left": 322,
+     "right": 445,
+     "width": 123,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 322,
+     "right": 356,
+     "width": 34
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 89,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": false,
+    "배지": 0,
+    "tooltip": "조건 없음"
+   },
+   {
+    "라벨": "조인",
+    "값": "없음",
+    "박스": {
+     "top": 587,
+     "bottom": 655,
+     "left": 455,
+     "right": 578,
+     "width": 123,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 564,
+     "bottom": 582,
+     "left": 455,
+     "right": 578,
+     "width": 123,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 455,
+     "right": 477,
+     "width": 22
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 101,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": false,
+    "배지": 0,
+    "tooltip": "조인 없음"
+   },
+   {
+    "라벨": "처리시간",
+    "값": "0.54초",
+    "박스": {
+     "top": 587,
+     "bottom": 655,
+     "left": 588,
+     "right": 711,
+     "width": 123,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 564,
+     "bottom": 582,
+     "left": 588,
+     "right": 711,
+     "width": 123,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 588,
+     "right": 633,
+     "width": 45
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 78,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": false,
+    "배지": 0,
+    "tooltip": "쿼리검토 1회 실행 처리시간 — 0.54초 (538.4ms)"
+   },
+   {
+    "라벨": "상태",
+    "값": "● 정상",
+    "박스": {
+     "top": 687,
+     "bottom": 755,
+     "left": 189,
+     "right": 312,
+     "width": 123,
+     "height": 68
+    },
+    "라벨_textAlign": "start",
+    "라벨박스": {
+     "top": 665,
+     "bottom": 682,
+     "left": 189,
+     "right": 312,
+     "width": 123,
+     "height": 17
+    },
+    "라벨텍스트_렌더영역": {
+     "left": 189,
+     "right": 211,
+     "width": 22
+    },
+    "라벨_좌여백": 0,
+    "라벨_우여백": 101,
+    "박스높이": 68,
+    "박스_minHeight": "68px",
+    "박스_paddingTop": "10px",
+    "박스_paddingBottom": "10px",
+    "박스_paddingLeft": "12px",
+    "박스_justifyContent": "center",
+    "박스_alignItems": "center",
+    "박스_textAlign": "center",
+    "값비었음": false,
+    "배지": 1,
+    "tooltip": "통과"
+   }
+  ],
+  "타일라벨목록": [
+   "목적테이블",
+   "원본테이블",
+   "입력컬럼수",
+   "추출컬럼수",
+   "컬럼매핑수",
+   "조건문",
+   "조인",
+   "처리시간",
+   "상태"
+  ],
+  "타일값목록": [
+   "tobe01.t_to_n_etl04",
+   "asis01.t_as_n_etl04",
+   "6",
+   "6",
+   "6/6",
+   "없음",
+   "없음",
+   "0.54초",
+   "● 정상"
+  ],
+  "라벨정렬_집합": [
+   "start"
+  ],
+  "박스높이_집합": [
+   68
+  ],
+  "박스minHeight_집합": [
+   "68px"
+  ],
+  "높이통계": {
+   "최소": 68,
+   "최대": 68,
+   "평균": 68
+  },
+  "타일컨테이너_박스": {
+   "top": 464,
+   "bottom": 755,
+   "left": 189,
+   "right": 711,
+   "width": 522,
+   "height": 291
+  },
+  "카드본문_박스": {
+   "top": 451,
+   "bottom": 778,
+   "left": 173,
+   "right": 727,
+   "width": 554,
+   "height": 327
+  },
+  "타일_우측여백_px": 0,
+  "타일_최대우측": 711,
+  "타일_줄수": 3,
+  "그리드잔재": {
+   "table요소수": 0,
+   "tabulator컬럼헤더수": 0,
+   "th요소수": 0,
+   "정렬화살표수": 0,
+   "페이지네이션문구": false,
+   "초기순서버튼": false,
+   "tabulator루트수": 0
+  },
+  "파싱_원본테이블": "T_AS_N_ETL04",
+  "파싱_목적테이블": "T_TO_N_ETL04",
+  "분석데이터_존재": true
+ },
+ "pageerrors": [
+  "CONSOLE.error: Failed to load resource: the server responded with a status of 404 (Not Found)"
+ ]
+}

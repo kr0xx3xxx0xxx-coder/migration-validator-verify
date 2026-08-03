@@ -1,0 +1,313 @@
+작업명 : STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE
+✅ 작업 완료 - STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE - '잠정'은 스캔 행수가 아니라 등급(중형)에만 붙은 한정어이며 벤치마크 미확정 cost 밴드 때문에 정당하다. 다만 같은 줄의 '예상 스캔 1,000,000행'은 추정이 아니라 2단계 COUNT 실측값 그대로라 '예상' 표기가 부정확하다(코드 수정 없음 · 진단 전용)
+
+────────────────────────────────────────────────────────────────────────
+0. 요약 (결론 먼저)
+────────────────────────────────────────────────────────────────────────
+사용자가 본 문구 "잠정 중형 · 예상 스캔 1,000,000행" 은 한 덩어리처럼 보이지만
+코드상 서로 다른 두 값이 이어 붙은 것이다.
+
+  · "잠정 중형"          → 통계검증 규모 '등급'. 서버 계획기가 cost score 를 계산해
+                           벤치마크 미확정 임시 밴드(8/16/24)로 나눈 값.
+                           '잠정' 접두는 이 밴드가 실측 검증 전이라 붙는다. → 정당하다.
+  · "예상 스캔 1,000,000행" → 2단계 COUNT 사전검증이 실제 DB 에서 실행해 받은 원본
+                           건수(src_count)를 그대로 재전송한 값. 추정 로직이 전혀
+                           개입하지 않는다. → '예상' 이라는 수식이 부정확하다.
+
+시나리오 판정: **(c)** 이다.
+  - (a) 아님: '잠정' 이 붙는 이유는 WHERE/JOIN 때문에 스캔량이 불확실해서가 아니다.
+             코드 어디에도 그런 보정이 없다(§3).
+  - (b) 아님: 등급은 "COUNT 값을 그대로 쓰면서 관례적으로 잠정을 붙인 것" 이 아니라,
+             cost score → 밴드 매핑이라는 별도 계산을 거친다. 그 밴드의 근거가 없어서
+             '잠정' 이다(§4). 다만 실측 결과 그 cost 의 97.7% 가 COUNT 항이라
+             **결과적으로는** COUNT 단독 분류에 가깝다 — 이건 별개의 결함(§6).
+
+────────────────────────────────────────────────────────────────────────
+1. 조사 항목 ① — 값을 만드는 코드 위치
+────────────────────────────────────────────────────────────────────────
+표시 문구를 만드는 지점(3단계 통합 타일 '통계검증규모'):
+
+  ui/tabler_renderer.py:28131-28134
+    window._mvStage3PlanInfo = {
+      scaleText: (d.provisional_grade || '산정 전')
+        + ((fp.expected_scan_rows != null) ? (' · 예상 스캔 ' + Number(fp.expected_scan_rows).toLocaleString() + '행') : ''),
+      ...
+
+  같은 값이 실행계획 카드 표에도 나간다:
+  ui/tabler_renderer.py:28083-28084, 28100-28101
+    var _scanTxt = (fp.expected_scan_rows != null)
+      ? ' <span ...>· 예상 스캔 ' + Number(fp.expected_scan_rows).toLocaleString() + '행</span>' : '';
+    rows.push({ label:'통계검증 규모', value:'<b>' + esc(d.provisional_grade || '산정 전') + '</b>' + _scanTxt, ... });
+
+  d = POST /strategy/plan 응답 (ui/tabler_renderer.py:28046)
+  sp = d.stats_plan / fp = d.full_compare_plan (28054)
+
+등급 문자열 생산자(서버):
+
+  services/strategy/stats_strategy_planner.py:66-70
+    def _provisional_grade(cost: float) -> str:
+        for hi, grade in _PROVISIONAL_BANDS:
+            if cost < hi:
+                return m.PROVISIONAL_PREFIX + grade
+        return m.PROVISIONAL_PREFIX + m.GRADE_XLARGE
+
+  services/strategy/strategy_models.py:42-47
+    GRADE_SMALL="소형" / GRADE_MEDIUM="중형" / GRADE_LARGE="대형" / GRADE_XLARGE="초대형"
+    PROVISIONAL_PREFIX = "잠정 "
+
+스캔 행수 생산자(서버):
+
+  services/strategy/full_compare_strategy_planner.py:102
+    expected_scan_rows=(profile.estimated_scan_rows if profile.estimated_scan_rows is not None
+                        else profile.source_count),
+
+  (참고) 부수 발견 — 화면이 읽는 스캔값은 stats_plan 이 아니라 full_compare_plan(전수/레코드
+  비교 계획)의 필드다. stats_plan.estimated_scan_rows(planner:134) 에도 같은 값이 있어
+  현재는 결과가 동일하지만, 라벨('통계검증 규모')과 데이터 출처(전수비교 계획)가 어긋나 있다.
+
+────────────────────────────────────────────────────────────────────────
+2. 조사 항목 ② — 이 숫자는 어디서 오는가 (COUNT 재사용 여부)
+────────────────────────────────────────────────────────────────────────
+결론: **2단계 COUNT 사전검증 결과를 그대로 재사용한다. 별도 추정 로직은 없다.**
+
+배선 전체 경로:
+
+  (1) 2단계 COUNT 실행 결과 저장
+      ui/tabler_renderer.py:24990   function renderCountResult(c) { _lastCountResult = c || null; ...
+      ui/tabler_renderer.py:24878   var _lastCountResult = null;
+
+  (2) 3단계 프로파일 빌더가 그 값을 두 필드에 동시에 넣어 서버로 보냄
+      ui/grid_helpers.py:1153-1156, 1184
+        function _mvBuildStatsScaleProfile(){
+          var count = (typeof _lastCountResult !== 'undefined' && _lastCountResult) || {};
+          if (count.src_count == null) return null;          ← COUNT 전이면 아예 계획을 안 만든다
+          ...
+          return {
+            table_key: (srcTables[0] || ''), source_count: count.src_count,
+            estimated_scan_rows: count.src_count,            ← ★ 여기가 핵심
+            ...
+
+  (3) 서버는 받은 값을 가공 없이 되돌려준다
+      full_compare_strategy_planner.py:102 (위 §1 인용) → 화면 표시
+
+즉 1,000,000 은 COUNT 실측치와 **같은 값 · 같은 출처** 이며,
+"1,000,000 을 근거로 다시 추정한 값" 이 아니라 "1,000,000 그 자체" 다.
+
+COUNT 값 자체의 성격(정확성 근거):
+  services/count_sql_builder.py:99-104 — 원본 COUNT SQL 은 이관 SELECT 의
+  from_table / joins / where 를 그대로 반영해 만든다. 따라서 src_count 는
+  '이관 대상 원본 논리 행수' 의 실측값이며, 통계검증이 집계할 대상 범위와 동일하다.
+
+────────────────────────────────────────────────────────────────────────
+3. 조사 항목 ③ — '잠정' 이 붙는 정확한 이유 (코드 근거)
+────────────────────────────────────────────────────────────────────────
+'잠정' 은 스캔 행수가 아니라 **등급 문자열 앞에만** 붙는다. 소스 주석이 이유를 직접 밝힌다.
+
+  services/strategy/stats_strategy_planner.py:5-7 (모듈 docstring)
+    통계검증 전략계획 — 레코드 수만으로 판정하지 않는다(§2). ...
+    등급 경계 레코드 임계값은 하드코딩하지 않으며(§4) 벤치마크 전에는 '잠정' 접두로 표시한다.
+
+  services/strategy/stats_strategy_planner.py:24-25
+    # 잠정 등급 cost 밴드(§4·§9 — 벤치마크 전 잠정, 하드코딩 레코드 임계값 아님). 벤치마크 후 교체.
+    _PROVISIONAL_BANDS = [(8.0, m.GRADE_SMALL), (16.0, m.GRADE_MEDIUM), (24.0, m.GRADE_LARGE)]
+
+  services/strategy/strategy_models.py:41
+    # ── 잠정 규모 등급(§4) — 벤치마크 전 임계값 하드코딩 금지 → '잠정' 접두
+
+정리하면 '잠정' 의 의미는 다음과 같다.
+  "이 테이블의 행수가 불확실하다" (X)
+  "이 행수라면 중형이라고 부르기로 한 경계선이 아직 실측 벤치마크로 검증되지 않았다" (O)
+
+즉 불확실한 대상은 **입력(행수)이 아니라 분류 기준(밴드)** 이다.
+따라서 (a)·(b) 어느 쪽도 아니고 (c) 다.
+
+UI 쪽도 이 접두를 그대로 신뢰해 배지로 전환할 뿐, 별도 판단을 하지 않는다:
+  ui/tabler_renderer.py:28089-28092
+    var _MV_PROVISIONAL_PREFIX = '잠정 ';      /* = strategy_models.PROVISIONAL_PREFIX */
+    var _grade = String(d.provisional_grade || '');
+    if (_grade.indexOf(_MV_PROVISIONAL_PREFIX) === 0) { _scaleSt = 'WARN'; _scaleStTxt = '잠정'; }
+
+────────────────────────────────────────────────────────────────────────
+4. 조사 항목 ④ — '잠정' 을 빼고 정확한 값으로 바꿔도 되는가
+────────────────────────────────────────────────────────────────────────
+두 조각을 분리해서 판단해야 한다.
+
+[4-1] 등급("잠정 중형") — **'잠정' 제거 불가. 지금 표기가 맞다.**
+  근거: 밴드 8/16/24 는 벤치마크 전 임시값이라고 코드가 명시(§3). 실측 근거가 생기기
+  전에 접두를 떼면 "검증된 등급" 이라는 잘못된 신호가 된다. 더구나 §6 에서 보듯 현재
+  등급은 사실상 COUNT 단독 분류라, 접두 제거는 오히려 위험을 키운다.
+
+[4-2] 스캔 행수("예상 스캔 1,000,000행") — **'예상' 은 부정확. 정확값 표기로 바꿀 수 있다.
+  단 무조건은 아니고 아래 조건 구분이 필요하다.**
+
+  ● 정확값으로 불러도 되는 경우(현재 사용자가 본 상황)
+    - 방금 2단계 COUNT 를 실행해 src_count 를 받았고, 그 값이 그대로 표시된 경우.
+      값의 성격: 원본 이관대상(FROM+JOIN+WHERE 반영) 논리 행수의 실측치.
+      → "원본 실측 1,000,000행" 같은 표현이 사실에 부합한다.
+
+  ● 여전히 '추정/기준시각 병기' 가 필요한 경우 (실측으로 확인한 예외들)
+    (1) 저장 결과 재조회로 복원된 COUNT
+        ui/js_restore_individual_adapter.py:191
+          window._lastCountResult = { src_count: ri.source_count, tgt_count: ri.target_count, restored: true };
+        → 지금 DB 를 센 값이 아니라 과거 snapshot 값이다. restored 플래그가 이미 있으므로
+          "(저장 시점 기준)" 병기로 구분 가능하다.
+    (2) COUNT 실행 이후 원본 DB 가 변한 경우
+        _lastCountResult 에 신선도(측정시각) 검사가 없다. 오래 열어둔 화면에서는 stale 이다.
+    (3) 표시값은 '원본 한쪽' 만이다
+        통계검증 실행은 원본·목적지 양쪽을 집계하므로 실제 총 스캔은 대략 src+tgt 인데
+        화면은 src_count 만 보여준다. '스캔' 이라는 단어를 유지하려면 이 점 고지가 필요하다.
+    (4) 논리 행수 ≠ DB 물리 스캔 행수
+        JOIN 중간결과·인덱스 스캔 등 실제 물리 I/O 행수는 다를 수 있다.
+        (단 이건 '예상' 이라는 단어가 원래 노린 의미도 아니다 — 코드에 그런 보정이 없다.)
+    (5) COUNT 미실행/DB 미설정
+        _mvBuildStatsScaleProfile 이 null 을 반환해(grid_helpers.py:1156) 카드 자체가
+        비워지고 '산정 전' 이 된다. 이 경우엔 애초에 숫자가 표시되지 않는다.
+
+  ● WHERE / JOIN 은 예외 사유가 되지 않는다(중요)
+    COUNT SQL 이 이미 원본 WHERE·JOIN 을 반영해 생성되므로(services/count_sql_builder.py:99-104,
+    docstring 21-27: "source WHERE 조건 반영", "LEFT OUTER JOIN / INNER JOIN ... 지원"),
+    WHERE·JOIN 이 있어도 src_count 는 그 조건을 통과한 실제 행수다. 사용자가 3단계에서
+    바꾸는 것은 GROUP BY/SUM 선택뿐이고 이는 원본 행수를 바꾸지 않는다.
+    → "WHERE 가 있으니 추정이다" 는 성립하지 않는다.
+
+  권장 표기(코드 수정은 이번 범위 밖 — 제안만):
+    · 라이브 COUNT: "잠정 중형 · 원본 실측 1,000,000행"
+    · 복원 snapshot: "잠정 중형 · 원본 1,000,000행(저장 시점)"
+
+────────────────────────────────────────────────────────────────────────
+5. 조사 항목 ⑤ — '중형' 분류 기준값의 근거
+────────────────────────────────────────────────────────────────────────
+기준은 '행수 임계값' 이 아니라 **cost score 밴드** 다.
+
+  _PROVISIONAL_BANDS = [(8.0, 소형), (16.0, 중형), (24.0, 대형)]   (planner:25)
+  cost = 3.0*log10(그룹수+1) + 2.0*log10(스캔+1) + 2.0*log10(최대카디널리티+1)
+       + 0.6*log10(SUM부하+1) + 0.4*where_complexity     (planner:17-23, 51-55)
+  remote 면 ×1.05 (planner:56-57)
+
+실측(로컬 프로브, 화면이 실제 보내는 프로파일 그대로 재현):
+  scan=1,000,000 → cost=12.901 → '잠정 중형', confidence=LOW
+  grade_basis = {"estimated_scan_rows":1000000, "axis_group_sum":null,
+                 "estimated_group_count":null, "max_cardinality":0, ...}
+
+cost 구성비(scan=1,000,000):
+  scan 항  2.0*log10(1,000,001) = 12.000   ← 전체의 97.7%
+  group 항 3.0*log10(0+1)       =  0.000
+  card  항 2.0*log10(0+1)       =  0.000
+  sum   항 0.6*log10(2+1)       =  0.286
+  where 항                       =  0.000
+  합계 ×1.05(remote)             = 12.901
+
+등급 경계를 행수로 역산한 실측값(이분탐색):
+  [remote=True · SUM 2개 = 화면 기본]
+     잠정 중형   최초 진입 =        4,636 행
+     잠정 대형   최초 진입 =   29,900,134 행
+     잠정 초대형 최초 진입 =  192,839,926,338 행 (사실상 도달 불가)
+  [remote=False(로컬 DB)]
+     중형 7,188 행 / 대형 71,880,919 행 / 초대형 718,809,194,372 행
+  [remote=True · SUM 0개(COUNT-only)]
+     중형 6,445 행 / 대형 41,572,823 행 / 초대형 268,122,545,185 행
+
+판정: **근거가 있다고 보기 어렵다.**
+  · '중형' 구간이 4,636행 ~ 2,990만행으로 4자리수 폭이라 변별력이 거의 없다.
+  · 같은 테이블이라도 접속이 로컬이냐 원격이냐(cost ×1.05)만으로 경계가 4,636 ↔ 7,188,
+    2,990만 ↔ 7,188만으로 이동한다 — 규모 등급이 접속 위치에 흔들린다.
+  · '초대형' 은 1,900억 행부터라 실무 도달 불가능한 사실상 사문(死文) 밴드다.
+  · 코드 주석 자체가 "벤치마크 후 교체" 를 전제한 임시값임을 인정한다.
+  → 그래서 '잠정' 접두는 정직한 표기다(§4-1 결론과 일치).
+
+참고: config/size_threshold_registry.py 에는 별도의 행수 등급 상수들이 있으나
+(SIZE_STRATEGY_SMALL_MAX=100,000 / MEDIUM_MAX=5,000,000 / LARGE_MAX=50,000,000 등)
+이 통계검증 규모 등급은 그 값을 쓰지 않는다(다른 분류 체계).
+
+────────────────────────────────────────────────────────────────────────
+6. 부수 발견 — 설계 원칙과 실제 배선의 괴리 (수정 안 함, 보고만)
+────────────────────────────────────────────────────────────────────────
+[6-1] "COUNT 만으로 등급 결정 금지" 원칙이 실질적으로 무력화돼 있다.
+  선언:
+    ui/grid_helpers.py:938-941
+      핵심 문제 #1·#2: 통계검증 규모는 원본 COUNT 가 아니라 GROUP BY·SUM·스캔량·인덱스 등
+      종합 실행부하다. - 원본 COUNT(1,000,000 등)를 규모 값으로 표시 금지, COUNT 만으로 등급 결정 금지.
+  실제:
+    _mvBuildStatsScaleProfile(grid_helpers.py:1183-1193) 이 서버로 보내는 profile 에
+    group_cardinalities / estimated_group_count / where_complexity / groupby_index_usable /
+    sum_expr_complexity 가 **하나도 없다.** 그래서 계획기의 group·cardinality 가중항이
+    전부 0 이 되고 cost 의 97.7% 가 COUNT 단독으로 결정된다(§5 실측).
+    GROUP BY 축 개수(group_axis_count)는 전달되지만 cost 식에 쓰이지 않는다(basis 기록 전용).
+
+  실측 대조(같은 scan=1,000,000):
+    GROUP BY 0개 → 3개 변경     : cost 12.901 (변화 0.000) — 등급 불변
+    SUM 0개 → 3개 변경          : cost 12.600 → 12.979 (+0.379) — 등급 불변
+    cardinality 10만을 전달했다면: cost 39.151 → '잠정 초대형' (+26.250)
+    예상 그룹수 50만을 전달했다면: cost 30.852 → '잠정 초대형' (+17.951)
+  → 즉 값을 실어 보내기만 하면 등급이 실제 부하를 반영한다. 안 보내고 있을 뿐이다.
+
+[6-2] 필요한 근거를 화면이 이미 갖고 있다.
+  3단계 후보 체크박스는 data-distinct 를 갖고 있고, 그것으로 '예상 최대 그룹 수' 를
+  이미 계산해 보여준다(ui/tabler_renderer.py:24308-24310 _updateGroupCountEstimate).
+  GROUP BY 안전게이트도 estimated_group_count 와 estimate_kind(EXACT/EXACT_UPPER_BOUND)를
+  산출한다(tabler_renderer.py:20154-20158). 추가 DB 왕복 없이 profile 에 실을 수 있다.
+
+[6-3] confidence 가 항상 LOW 인데 화면에 안 나온다.
+  planner:138 — confidence="HIGH" 는 (scan 있음 AND 그룹수 있음) 일 때만. 그룹수를 안
+  보내므로 실운영에서 항상 LOW 다. 화면은 이 필드를 표시하지 않는다.
+
+[6-4] 폴백 등급 경로는 죽어 있다.
+  _mvStatsScaleText(grid_helpers.py:949-953) 는 profile.stats_scale_class 를 등급으로
+  매핑하지만, 이 필드를 **생산하는 코드가 저장소 전체에 없다**(소비처만 3곳).
+  따라서 /strategy/plan 응답이 없으면 항상 '산정 전' 이다.
+
+[6-5] 라벨과 데이터 출처 불일치.
+  '통계검증 규모' 줄의 스캔값은 stats_plan 이 아니라 full_compare_plan(전수비교 계획)의
+  expected_scan_rows 다(tabler_renderer.py:28083). 현재는 값이 같아 증상이 없다.
+
+────────────────────────────────────────────────────────────────────────
+7. 개선 방향 (제안 — 이번 지침은 진단만이므로 코드 미수정)
+────────────────────────────────────────────────────────────────────────
+우선순위 순으로, 구조를 해치지 않는 범위:
+
+  P1 (표시 정확성 · 저위험) '예상 스캔' → 실측/스냅샷 구분 표기
+      라이브 COUNT 면 "원본 실측 N행", restored=true 면 "원본 N행(저장 시점)".
+      판단 근거(_lastCountResult.restored)가 이미 있어 새 조회·새 상태가 필요 없다.
+      '잠정 <등급>' 문자열은 손대지 않는다.
+
+  P2 (신뢰성) 등급 산정에 이미 보유한 카디널리티/예상 그룹 수 전달
+      _mvBuildStatsScaleProfile 에 group_cardinalities / estimated_group_count 추가.
+      추가 DB 왕복 0회. 다만 등급이 크게 이동하므로(실측: 중형 → 초대형) 밴드
+      재조정과 함께 해야 한다 — 단독 적용 시 대다수 테이블이 '초대형' 으로 몰린다.
+
+  P3 (근거화) 밴드 8/16/24 를 실측 벤치마크로 교체하고 그때 '잠정' 접두 제거
+      교체 전까지는 접두 유지가 정직하다. 밴드는 상수로 남기지 말고
+      config/size_threshold_registry.py 처럼 단일 출처로 옮기는 것이 일관적이다.
+
+  P4 (사소) 스캔값 출처를 stats_plan.estimated_scan_rows 로 정렬(라벨-데이터 일치).
+
+  ※ 위험 고지: P1 만 해도 사용자 의문(왜 확정값을 '예상' 이라 하나)은 해소된다.
+    P2 는 표시가 아니라 판정(전략 ID·SAMPLE_ONLY 전환 조건까지)에 영향을 주므로
+    회귀 범위가 넓다 — 별도 지침으로 분리하는 것을 권한다.
+
+────────────────────────────────────────────────────────────────────────
+8. 검증 방법 · 재현
+────────────────────────────────────────────────────────────────────────
+· 코드 정적 추적: 표시 지점(tabler_renderer.py:28131) → /strategy/plan(28046) →
+  프로파일 빌더(grid_helpers.py:1153-1194) → COUNT 저장(tabler_renderer.py:24990) 전 구간 확인.
+· 계획기 실측: .venv 파이썬으로 services.strategy.stats_strategy_planner.plan_stats_strategy 를
+  화면과 동일한 프로파일(estimated_scan_rows=source_count=1,000,000, gb 2, sum 2, remote)로
+  직접 호출 → '잠정 중형' · cost 12.901 재현. 등급 경계는 등급 인덱스 이분탐색으로 역산.
+· 코드 변경 0건(읽기 전용 진단). 서버 재기동·DB 접속·UI 조작 없음.
+  실행 스크립트는 세션 scratchpad 에만 두었고 저장소에 남기지 않았다.
+
+────────────────────────────────────────────────────────────────────────
+9. 근거 파일 목록
+────────────────────────────────────────────────────────────────────────
+  ui/tabler_renderer.py            24878, 24990, 28046, 28054, 28083-28101, 28131-28134
+  ui/grid_helpers.py               938-956, 1153-1194
+  ui/js_restore_individual_adapter.py                       191
+  services/strategy/stats_strategy_planner.py               5-7, 17-25, 43-70, 132-140
+  services/strategy/strategy_models.py                      41-47, 62-64, 120, 129
+  services/strategy/full_compare_strategy_planner.py        102
+  services/count_sql_builder.py                             21-27, 99-104
+  routes/strategy_route.py                                  86-94
+  config/size_threshold_registry.py                         21-23 (별도 체계 — 미사용 확인용)
+
+작업명 : STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE
+✅ 작업 완료 - STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE - '잠정'은 스캔 행수가 아니라 등급(중형)에만 붙은 한정어이며 벤치마크 미확정 cost 밴드 때문에 정당하다. 다만 같은 줄의 '예상 스캔 1,000,000행'은 추정이 아니라 2단계 COUNT 실측값 그대로라 '예상' 표기가 부정확하다(코드 수정 없음 · 진단 전용)

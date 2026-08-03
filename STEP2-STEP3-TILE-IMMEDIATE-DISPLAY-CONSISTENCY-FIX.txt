@@ -1,0 +1,183 @@
+작업명 : STEP2-STEP3-TILE-IMMEDIATE-DISPLAY-CONSISTENCY-FIX
+작성일 : 2026-08-03
+커밋   : e803d1c (코드 repo main)
+대상   : ui/tabler_renderer.py · ui/grid_helpers.py (표시 계층 전용)
+
+════════════════════════════════════════════════════════════════════════
+1. 요청 요약
+════════════════════════════════════════════════════════════════════════
+"헤더는 즉시 표시, 값은 실제로 알게 된 시점에만 채운다"는 원칙이 2·3단계에서 서로 반대
+방향으로 어긋나 있었다.
+
+  · 2단계(COUNT 사전검증) : 탭 진입 직후 목적/원본 테이블명까지 전부 '—' — 1단계에서 이미
+    확정된 정보인데 숨기고 있었다(부족).
+  · 3단계(후보 컬럼 선정) : 탭 진입 직후 목적그룹/원본그룹/목적집계/원본집계까지 이미
+    채워져 보였다 — 후보 계산이 아직 실행되지 않았는데 값이 있었다(과잉).
+
+두 단계를 같은 원칙으로 통일했다: 이미 확정된 정보(목적/원본 테이블명, 2단계 고정 상수
+'검증항목')는 탭 진입 즉시 표시, 그 외 모든 값은 그 단계의 실제 계산/실행이 끝난 뒤에만 표시.
+
+════════════════════════════════════════════════════════════════════════
+2. 파트 B 원인 판정 — (a)/(b) 중 무엇이었나
+════════════════════════════════════════════════════════════════════════
+판정 : (b) — 탭 렌더 시점에 실제 계산 없이 이전 상태(1단계 응답 잔여 pool)를 재사용했다.
+       (a) '계산이 매우 빨라 즉시 끝난 정상값' 이 아니다.
+
+근거(실 브라우저 실측 · 내부망 PostgreSQL asis→tobe · 케이스 etl02):
+
+ 근거①  3단계 진입 직후 상태 플래그가 모두 '미계산'
+         _analyzeData._candidateComputed = false
+         _analyzeData._candidateEverComputed = false
+         후보표 체크박스 gb 0개 / sum 0개 · 후보표 DOM 없음
+         후보 계산 안내 게이트(candCalcGate) 노출 중
+ 근거②  진입 시점 서버 요청 0건 (fetch 후킹 계측 — 계산이 돌았다면 요청이 있어야 한다)
+ 근거③  값의 출처가 1단계 /analyze 응답의 후보 pool 그대로였다
+         _analyzeData.all_groupby_candidates
+           = [SCHOOL_CODE, SUBJECT, UPDATED_AT, HIRE_DATE, RETIRE_DATE]
+         → 진입 직후 목적그룹 타일 표시값과 정확히 일치(5개 전량)
+ 근거④  결정적 — 계산 전 값과 실제 계산 결과가 다르다
+         '후보 계산' 클릭 → 실제 계산 소요 391ms, 서버 왕복 5회
+           (/validation-sets/preview · /strategy/plan ×2 · /csr-preview ×2)
+         계산 후 목적그룹 = [SCHOOL_CODE, SUBJECT] (2개)
+         즉 진입 직후 화면은 '아직 계산되지 않은, 그리고 결과와도 다른 값'을 계산 결과처럼
+         보여주고 있었다. (a) 라면 두 값이 같아야 한다.
+
+코드상 위치 : ui/grid_helpers.py _mvCandidateTileRow() 의 폴백 2단
+  체크박스가 없으면 → ① candidate_recommendation.recommended → ② all_*_candidates 전량
+  두 폴백 모두 1단계 응답에 실려 온 '예비 목록'이지 3단계 계산 결과가 아니다.
+
+════════════════════════════════════════════════════════════════════════
+3. 수정 내용
+════════════════════════════════════════════════════════════════════════
+[파트 A] ui/tabler_renderer.py — 2단계 확정 정보 즉시 표시
+  · _mvCountPreknownRow(srcT, tgtT) 신설
+      - 목적/원본 테이블명 : 기존 _mvTablesOf(_analyzeData) 재사용(1단계 확정값).
+      - 검증항목 : 2단계 고정 상수 'COUNT'(_mvCountRows 의 base.check 와 같은 값).
+      - 새 계산·서버 왕복 없음. 1단계 분석 전(테이블 미확정)이면 검증항목도 비운다.
+  · _mvCountTilesHtml(c=null) 이 위 값을 채우고, 나머지 5칸(목적건수/원본 건수/차이/
+    처리시간/상태)은 COUNT 실행 전까지 '—' 유지 — 판정 로직 무수정.
+  · 다중 원본(JOIN/UNION) 합쳐 표시(srcAll)도 c 유무와 무관하게 적용 — 실행 전/후 표기 일치.
+  · 실행 후라도 테이블명/검증항목이 비었거나 '-' 면 확정 정보로 보완(표시 일관성만 보정).
+
+[파트 B] ui/grid_helpers.py — 3단계 미계산 값 노출 제거
+  · _mvCandidateTileRow : 폴백 2단(rec / pool) 제거. 체크박스 미존재 = 후보 계산 전이므로
+    gbCols/sumCols 를 null 로 유지하고, _split() 이 null 을 그대로 돌려준다.
+  · _mvCandidateTilesHtml : kind='multi' 값이
+      null      → '—'  (미계산)
+      빈 배열   → '없음'(계산 결과가 0개)
+    로 구분 표시 — 두 상태가 섞이지 않게 했다.
+  · 목적/원본 테이블명은 2단계와 동일 원칙으로 계속 즉시 표시.
+  · 계산 완료 후 표시(라이브 체크박스 단일 출처)와 판정 로직은 전혀 건드리지 않았다.
+
+════════════════════════════════════════════════════════════════════════
+4. 실측 검증 (실 브라우저 · 실 DB)
+════════════════════════════════════════════════════════════════════════
+하니스 : scripts/dev_e2e/step2_step3_tile_immediate_display_browser_verify.py (신설)
+페어   : PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe · 케이스 etl02(5,000행)
+before : 변경 전 모듈을 로드 중이던 실행 서버 / after : 재기동 후 동일 절차
+
+[A1] 2단계 탭 진입 직후(COUNT 실행 전)
+  항목        before      after
+  목적 테이블  —          tobe01.t_to_1_etl02
+  원본 테이블  —          asis01.t_as_1_etl02
+  검증항목     —          COUNT
+  목적건수     —          —
+  원본 건수    —          —
+  차이         —          —
+  처리시간     —          —
+  상태         —          —
+  판정: before 위반 3건(즉시표시 대상이 '—') → after 원칙준수 true
+
+[A2] COUNT 실행 후(무회귀)
+  before/after 동일 : 목적건수 5,000 · 원본 건수 5,000 · 차이 0 · 상태 ● 정상
+  처리시간 0.03초(before) / 0.04초(after) — 실행시간 자연 편차
+
+[B1] 3단계 탭 진입 직후(후보 계산 전)
+  항목          before                                             after
+  목적테이블    tobe01.t_to_1_etl02                                (동일)
+  원본테이블    asis01.t_as_1_etl02                                (동일)
+  통계검증규모  —                                                  —
+  목적그룹      SCHOOL_CODE SUBJECT UPDATED_AT HIRE_DATE RETIRE_DATE  —
+  원본그룹      school_code subject last_updated hire_date retire_date —
+  목적집계      SERVICE_YEARS                                       —
+  원본집계      years_service                                       —
+  처리시간      —                                                   —
+  상태          —                                                   —
+  판정: before 위반 4건(계산 전 값 노출) → after 원칙준수 true
+
+[B2] 후보 계산 실행 후(무회귀)
+  before/after 동일 : 목적그룹 SCHOOL_CODE·SUBJECT / 원본그룹 school_code·subject /
+                      목적집계 SERVICE_YEARS / 원본집계 years_service / 상태 ● 정상
+  계산 소요 : before 375ms · after 391ms (서버 왕복 5회 동일)
+
+[B3] 체크박스 토글(HIRE_DATE 추가) — 라이브 반영 무회귀
+  before/after 동일 : 목적그룹 SCHOOL_CODE·HIRE_DATE·SUBJECT 로 즉시 갱신
+
+[B4] 2단계 재진입 — 값 보존 무회귀
+  before/after 동일 : 8칸 전부 정상 값 유지(재진입이 결과를 라벨로 덮지 않음)
+
+콘솔 오류 : before 1건 / after 1건 — 동일한 404 리소스 로드 실패이며 이번 변경과 무관(무회귀).
+
+주의(이번 수정과 무관한 차이) : 통계검증규모 문구가 before '잠정 소형 · 예상 스캔 5,000행'
+→ after '잠정 소형 · 원본 실측 5,000행' 으로 달라졌다. 이는 앞선 작업
+STATS-SCALE-LABEL-SOURCE-ALIGN-FIX(8e65b1f)가 이미 커밋돼 있었으나 실행 중이던 서버가
+옛 모듈을 들고 있었고(uvicorn reload=False), 이번 재기동으로 반영된 것이다.
+
+════════════════════════════════════════════════════════════════════════
+5. 자체 테스트
+════════════════════════════════════════════════════════════════════════
+신설 : tests/test_step2_step3_tile_immediate_display.py — 6건 전부 통과
+   [A1] 2단계 실행 전 테이블명·검증항목만 즉시 표시
+   [A2] 1단계 분석 전(_analyzeData 없음)에는 8칸 전부 '—' (없는 정보를 지어내지 않음)
+   [A3] 2단계 COUNT 실행 후 값 무회귀
+   [B1] 3단계 계산 전 pool 이 있어도 그룹/집계 4칸 '—' + pool 값 미노출
+   [B2] 3단계 계산 후 라이브 선택 표시 무회귀
+   [B3] 계산 후 선택 0개는 '없음'(미계산 '—' 과 구분)
+   + 소스 가드 2건(폴백 코드 잔존 금지 / 즉시표시에 fetch·await 유입 금지)
+
+계약이 바뀌어 갱신한 기존 테스트 2건
+   tests/test_count_precheck_tile_layout.py :: test_tiles_labels_order_and_empty_placeholder
+     - '실행 전 8칸 전부 —' → '확정 3칸은 값 + 나머지 5칸 —' 로 계약 갱신
+   tests/test_grid_helpers.py :: test_candidate_grid_render_and_muted
+     - harness 에 체크박스 스텁(_CHK) 도입: 계산 후(축 분리 검증 유지) / 계산 전(값 '—' 검증) 분리
+
+회귀
+   타일·그리드 계층 8개 파일 63건 통과
+   samples/test_virtual_cases.py 8/8 통과 · samples/test_complex_cases.py 5/5 통과
+   렌더 번들 JS 문법 node --check 전체 통과(script block 2개)
+
+무관한 사전 존재 실패 1건
+   tests/test_all_stages_timing_display_expand.py ::
+     test_count_generate_execute_routes_add_processing_ms
+   routes/execute_route.py 의 stats_execute 가 inner 함수로 분리돼 getsource 본문 마커
+   검사가 깨진 사례(이번 변경 파일 아님 — git diff 0줄).
+
+════════════════════════════════════════════════════════════════════════
+6. 변경 파일
+════════════════════════════════════════════════════════════════════════
+ ui/tabler_renderer.py                                      +43 / -8   (2단계 타일)
+ ui/grid_helpers.py                                         +36 / -18  (3단계 타일)
+ tests/test_count_precheck_tile_layout.py                   +17 / -4   (계약 갱신)
+ tests/test_grid_helpers.py                                 +37 / -4   (계약 갱신)
+ tests/test_step2_step3_tile_immediate_display.py           신설 229줄
+ scripts/dev_e2e/step2_step3_tile_immediate_display_browser_verify.py  신설 403줄
+
+════════════════════════════════════════════════════════════════════════
+7. 비판적 검토
+════════════════════════════════════════════════════════════════════════
+ · 긍정적 효과 : 화면이 '아직 모르는 값'과 '계산된 값'을 구분해 말하게 됐다. 특히 3단계는
+   계산 결과와 다른 값을 결과처럼 보여주던 상태여서, 사용자가 계산 전 목록을 최종 선정으로
+   오인할 여지가 있었다(실측상 5개 vs 2개).
+ · 구조 영향 : 두 파일 모두 표시 계층 내부에서만 변경했고 web_server.py 는 건드리지 않았다.
+   신규 헬퍼 1개(_mvCountPreknownRow)만 늘었고, 3단계는 오히려 폴백 분기 2단이 제거돼
+   코드가 줄었다(-18줄).
+ · heuristic/scoring/explainability : 새 규칙·가중치·판정 없음. 값 계산·판정 로직 무수정.
+ · 남은 위험 : 3단계 '미계산' 판정 근거가 '후보표 체크박스가 DOM 에 있는가' 라는 간접 신호다.
+   체크박스를 렌더하지 않는 새 표시 경로가 생기면 값이 '—' 로 남을 수 있다. 다만 현재
+   후보 계산 완료의 유일한 가시적 산출물이 그 표이고, _candidateComputed 는 체크 변경 시
+   무효화(false)되므로 그것을 기준으로 쓰면 사용자가 체크를 바꾸는 순간 값이 사라지는 더 큰
+   회귀가 생긴다 — 체크박스 존재 기준이 현 구조에서 가장 안정적이다(실측으로 확인).
+ · 미해결(범위 밖) : 2단계 '검증항목'은 항상 'COUNT' 인 고정 상수이며, 값이 하나뿐인 타일을
+   계속 유지할지는 표시 정책 판단 사항으로 남겼다(이번엔 요구대로 즉시 표시만 적용).
+
+✅ 작업 완료 - STEP2-STEP3-TILE-IMMEDIATE-DISPLAY-CONSISTENCY-FIX

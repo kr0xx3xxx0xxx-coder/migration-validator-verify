@@ -1,0 +1,187 @@
+작업명 : SQL-INPUT-HEIGHT-AND-WHERE-NOTICE-CONSOLIDATE-FIX
+작성일 : 2026-08-03
+커밋   : 2a11db26fbe66713d129d8a4660df5cb74074328 (코드 repo, main)
+직전 HEAD : 9aacff0b602252b447fe70edddcc0cbc08d50f6f (QUERY-REVIEW-TILE-CENTER-HEIGHT-HEADER-CLEANUP-FIX)
+
+
+■ 1. 착수 전 확인
+
+같은 파일(ui/tabler_renderer.py)을 건드리는 직전 작업과 순서대로 진행하라는 지시가 있어,
+시작 전에 워킹트리 온전성부터 확인했다. HEAD 는 9aacff0(직전 작업 커밋)이고 ui/ 에
+미커밋 변경이 없어 직전 작업이 온전히 마무리된 상태임을 확인한 뒤 착수했다.
+
+
+■ 2. 요청 범위
+
+  (1) SQL 입력란(#sqlInput) 높이를 현재의 1.5배로 확대.
+  (2) 목적지 검증 범위 조건(WHERE) 안내를 3단락 → 2단락으로 통합.
+      1단락은 유지, 2단락은 기존 문구를 버리고 하단 안내박스 문구로 교체,
+      하단 안내박스는 완전히 제거하되 그 공간까지 없앨 것(빈 여백 금지).
+
+
+■ 3. 수정 전 상태 실측 (before)
+
+수정 전에 먼저 캡처했다. 실행 중인 서버는 수정 전 모듈을 이미 메모리에 올린 상태
+(web_server 는 reload=False 라 .py 편집이 자동 반영되지 않는다)이므로 그대로 두고
+브라우저로 관측했다. 실 DB 는 내부망 PostgreSQL 페어
+(PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe)에 실제 접속했다.
+
+  · SQL 입력란 렌더 높이     : 150px (computed min-height 150px, rows=5)
+  · WHERE 안내 단락 수       : 3단락
+      1단락: 목적지 검증 범위 조건 WHERE 선택 / 목적지에 기존 데이터가 섞여 있을 때만 입력합니다.
+      2단락: 이번 이관분만 검증해야 하는 경우, 목적지 검증 SQL에 추가할 WHERE 조건입니다. …
+      3단락: ℹ️ 미입력 시 목적지 테이블 전체를 기준으로 … 조건을 입력하세요. (하단 안내박스)
+  · 하단 안내박스(#tgtWhereWarn) : 존재·표시됨, 높이 34px
+  · WHERE 섹션 전체 높이     : 153px
+  · WHERE input 아래 여백    : 52px
+
+즉 요청 2건 모두 '고쳐야 할 상태'임이 수치로 확인됐다.
+
+
+■ 4. 착수 전에 발견한 위험 — 제거 대상이 JS 에서 참조되고 있었다
+
+안내박스를 지우기 전에 참조 관계를 먼저 조사했는데, #tgtWhereWarn 이 화면 요소일 뿐
+아니라 JS 3곳에서 참조되고 있었다.
+
+  · onTgtWhereInput (WHERE 입력 핸들러)
+      document.getElementById('tgtWhereWarn').style.display = ...
+      → null 가드가 없다. 엘리먼트만 지우고 이 줄을 두면 사용자가 WHERE 칸에
+        타이핑하는 순간 TypeError 가 나고, 같은 핸들러 뒤쪽의 하위단계 무효화
+        (_singleInvalidateDownstream) 까지 실행되지 않는다.
+  · resetAnalysisUi        : 가드 있음(if (_whereWarn)) — 즉시 터지지는 않지만 죽은 코드
+  · resetIndividualValidationWorkSession : 가드 있음 — 역시 죽은 코드
+
+따라서 '엘리먼트만 삭제'는 안전하지 않다고 판단하고, 세 곳의 참조를 함께 정리하는
+방향으로 진행했다. 이 프로젝트에서 과거 JS 가 깨져 UI 전체가 무반응이 된 이력이 있어
+특히 조심해서 다뤘다.
+
+
+■ 5. 수정 내용
+
+ui/tabler_renderer.py
+
+  (1) #sqlInput min-height 150px → 225px (정확히 1.5배)
+      padding·font-size·line-height·border 는 불변. 줄 수가 많아지면 기존
+      _adjustSqlRows 가 rows 를 늘려 225px 보다 커지는 동작도 그대로다
+      (min-height 는 하한선이지 고정 높이가 아니다).
+
+  (2) WHERE 안내 2단락 통합
+      · 1단락(라벨 + 선택 안내)은 손대지 않았다.
+      · 2단락의 기존 문구를 삭제하고, 하단 안내박스에 있던 문구
+        ('미입력 시 목적지 테이블 전체를 기준으로 … 조건을 입력하세요.')로 교체했다.
+      · 하단 안내박스 <div id="tgtWhereWarn"> 를 엘리먼트째 제거하고,
+        전용 CSS 규칙 #tgtWhereWarn{...} 도 함께 삭제했다(남기면 죽은 규칙).
+      · 동적 안내박스 #tgtWhereInfo 는 용도가 달라 그대로 유지했다.
+
+  (3) JS 참조 정리 3곳
+      · onTgtWhereInput : 가드 없던 제어 줄 삭제(위 4항의 TypeError 원인 제거).
+        #tgtWhereInfo 숨김 처리와 하위단계 무효화 호출은 그대로 둔다.
+      · resetAnalysisUi : _whereWarn 선언·복원 2줄 삭제.
+      · resetIndividualValidationWorkSession : 잔여 숨김 처리 1줄 삭제.
+      · 다른 주석 2곳에 남아 있던 '미입력 안내는 #tgtWhereWarn 이 담당' 설명도
+        현재 구조(입력창 위 정적 문구가 담당)에 맞게 갱신했다.
+
+tests/test_single_where_preserve_on_reset.py
+      이 테스트가 'id="tgtWhereWarn" 가 렌더에 존재한다'를 단언하고 있어 이번 변경으로
+      깨진다. 이 파일은 UI 계약이 바뀔 때마다 계약을 갱신해 온 이력이 문서화돼 있어
+      같은 방식으로 새 계약을 반영했다.
+      · 기존: 안내박스가 있어야 한다 → 변경: 없어야 한다(#tgtWhereInfo 는 유지)
+      · 추가: 안내가 2단락인지(1·2단락 문구 존재 + 삭제된 기존 2단락 문구 부재)
+      · 추가: min-height 225px 고정(150px 잔존 금지)
+
+
+■ 6. 수정 후 상태 실측 (after)
+
+.py 편집은 실행 중 서버에 반영되지 않으므로 서버를 재기동(자식 프로세스까지 종료 후
+재시작)했다. 재기동 후 서빙되는 HTML 을 직접 받아 반영 여부를 먼저 확인한 뒤
+(min-height:225px 1건 / 150px 0건, id="tgtWhereWarn" 0건, 삭제 문구 0건) 같은 절차로
+브라우저 관측을 반복했다.
+
+  항목                      before      after
+  ──────────────────────────────────────────────
+  SQL 입력란 렌더 높이        150px       225px      (정확히 1.5배)
+  SQL 입력란 computed min-height 150px    225px
+  SQL 입력란 rows            5           5          (불변)
+  WHERE 안내 단락 수          3단락        2단락
+  하단 안내박스 존재          True        False      (DOM 에서 제거)
+  WHERE 섹션 전체 높이        153px       113px      (-40px)
+  WHERE input 아래 여백       52px        12px
+
+  after 2단락 내용
+    1단락: 목적지 검증 범위 조건 WHERE 선택 / 목적지에 기존 데이터가 섞여 있을 때만 입력합니다.
+           (요청대로 기존 1단락 그대로 유지)
+    2단락: 미입력 시 목적지 테이블 전체를 기준으로 검증 SQL이 생성될 수 있습니다.
+           목적지에 기존 데이터가 포함되어 있다면 이번 이관분만 검증할 수 있도록 조건을 입력하세요.
+           (요청대로 기존 3단락 문구가 2단락 자리로 이동)
+
+  '빈 여백이 남지 않았는지' 확인
+    input 아래 12px 이 남는데, 이는 삭제된 박스의 잔재가 아니라 WHERE 섹션 자체의
+    padding-bottom 11px + border 1px 이다. before 의 52px 을 분해하면
+    안내박스 34px + margin-top 6px + 이 12px = 52px 로, 12px 은 변경 전에도 있던
+    섹션 고유 여백이다. 즉 박스가 차지하던 40px 이 정확히 사라졌고 빈 공간은 남지 않았다.
+    섹션 직계 자식도 5개 → 4개로 줄어(라벨/안내문/input/tgtWhereInfo) 잔존 요소가 없다.
+
+
+■ 7. 무회귀 확인
+
+  · WHERE 입력창 실제 타이핑("BASE_YM = '202512'") → 신규 JS 오류 0건.
+    4항에서 짚은 TypeError 위험이 실제로 발생하지 않음을 실측으로 확인했다.
+    입력값을 다시 비우는 왕복에서도 오류 없음(핸들러 재동작 정상).
+  · SQL 입력 후에도 높이 225px 유지, rows 정상.
+  · 1단계 쿼리검토 실 실행 정상(blocked=false, err=null,
+    원본 테이블 T_AS_N_ETL04 파싱 정상).
+  · #tgtWhereInfo(동적 안내박스)는 존재·동작 유지.
+  · 콘솔 오류는 before·after 모두 동일 수준으로 신규 오류 없음.
+
+
+■ 8. 자체 테스트
+
+  · samples/test_virtual_cases.py            → 8/8 통과
+  · samples/test_complex_cases.py            → 5/5 케이스 분석 완료
+  · tests/test_rendered_js_syntax_guard.py   → 통과(렌더 JS 번들 구문 가드)
+  · tests/test_single_where_preserve_on_reset.py → 8건 통과(계약 갱신 후)
+  · ui/tabler_renderer.py 컴파일·import 정상
+  · 운영 코드 내 #tgtWhereWarn 실참조 0건(남은 5건은 전부 변경 사유 주석)
+
+  렌더러/JS/WHERE 관련 서브셋에서 9건이 실패했으나 전부 이번 변경과 무관한 사전 존재
+  실패다. HEAD(9aacff0)를 worktree 로 띄워 같은 서브셋을 돌려 8건이 동일하게 실패했고,
+  나머지 1건(test_batch_report_service::test_R10_no_payload_json_in_excel)은 단독 실행 시
+  HEAD 베이스라인과 작업본 양쪽에서 똑같이 실패했다. 이 테스트는 운영 SQLite 존재 여부와
+  실행 순서에 따라 결과가 달라지는 환경 의존 실패이며, 해당 테스트도
+  services/batch_report_service.py 도 tabler_renderer 를 import 하지 않는다.
+  결론적으로 이번 작업이 만든 신규 실패는 0건이다.
+
+
+■ 9. 산출물
+
+  코드 커밋 : 2a11db2
+  변경 파일 : ui/tabler_renderer.py                                   (수정)
+              tests/test_single_where_preserve_on_reset.py            (계약 갱신)
+              scripts/dev_e2e/sql_input_height_where_notice_browser_verify.py (신규)
+
+  스크린샷 : E:\verify_screenshots_only\SQL-INPUT-HEIGHT-AND-WHERE-NOTICE-CONSOLIDATE-FIX\
+    before_A_sqlcard_clip.png / after_A_sqlcard_clip.png
+        SQL 입력 카드 전체 — 입력란 높이와 WHERE 안내 변화가 한 장에 모두 보이는 핵심 컷
+    before_B_where_typed_clip.png / after_B_where_typed_clip.png
+        WHERE 입력 후 상태 — before 는 안내박스가 숨겨지는 동작, after 는 그 개념 자체가 없음
+    before_D_sql_filled_clip.png / after_D_sql_filled_clip.png
+        실제 SQL 을 채운 상태의 입력란 높이 비교
+    before_A_default_full.png / after_A_default_full.png / before_E_after_analyze.png /
+    after_E_after_analyze.png   전체 페이지(주변 무회귀 확인용)
+    sql_input_height_where_notice_browser_verify_{before,after}.json
+        위 수치의 원본 실측 데이터(높이·computed style·섹션 자식블록·여백 전부 포함)
+    sql_input_height_where_notice_browser_verify.py
+        실측에 쓴 브라우저 하니스 (dev_e2e JSON 산출물은 코드 repo 에서 gitignore
+        대상이라 이 증적 폴더 사본만이 보존본이다)
+
+  보고서 : E:\verify_reports\SQL-INPUT-HEIGHT-AND-WHERE-NOTICE-CONSOLIDATE-FIX.txt (본 문서)
+
+
+■ 10. 참고사항
+
+직전 작업 보고에서 '삭제한 문구가 HTML 주석에 인용돼 페이지 소스에 남는다'는 점을
+지적했는데, 이번에는 처음에 같은 실수를 했다가 새로 추가한 테스트(삭제 문구 부재 단언)에
+바로 걸렸다. 주석에서 원문 인용을 빼고 설명으로 바꿔 해결했고, 결과적으로 삭제된 문구는
+페이지 소스 어디에도 남지 않는다.
+
+✅ 작업 완료 - SQL-INPUT-HEIGHT-AND-WHERE-NOTICE-CONSOLIDATE-FIX - SQL 입력란 높이 150→225px(1.5배), WHERE 안내 3단락→2단락 통합, 하단 안내박스 및 그 공간(40px) 제거, 제거로 깨질 뻔한 JS 참조 3곳 정리 및 실 브라우저 무오류 확인

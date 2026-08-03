@@ -1,0 +1,150 @@
+작업명 : CANDIDATE-MANUAL-CONFIRM-BUTTON-VISUAL-DISTINCTION-FIX
+작성일 : 2026-08-03
+코드 커밋 : 1862899 (직전 HEAD e803d1c)
+증적 폴더 : E:\verify_screenshots_only\CANDIDATE-MANUAL-CONFIRM-BUTTON-VISUAL-DISTINCTION-FIX\
+
+────────────────────────────────────────────────────────────────────────
+1. 배경 — 무엇이 문제였나
+────────────────────────────────────────────────────────────────────────
+개별검증 3단계 "후보 컬럼 선정" 표의 '비고' 열에는 성격이 전혀 다른 두 종류가 섞여 있다.
+
+  (가) 누를 수 있는 확정 컨트롤
+       "관리컬럼 확정: [관리컬럼 맞음] [관리컬럼 아님]" / 확정 후 "[확정 해제]"
+       → 클릭하면 서버에 사용자 판정이 저장되고 자동판정을 덮는다(되돌리기 가능하지만
+         프로젝트 스코프로 영속되는 실제 결정이다).
+
+  (나) 읽기 전용 정보 태그(.ict-rmk-tag)
+       "프로파일 기반: 고유값 4개", "NULL 비율 …", "수치 집계값", "🔗 FK: … 참조" 등
+       → 근거를 보여줄 뿐 아무 동작도 하지 않는다.
+
+수정 전에는 둘 다 비슷한 크기의 연한 캡슐이라, 사용자가 화면만 보고 무엇이 버튼인지
+구분할 수 없었다. BEFORE 실측 computed style 이 이를 그대로 보여준다.
+
+  · 버튼      배경 rgb(255,255,255) / 테두리 1px rgb(203,213,225) / font-weight 400
+  · 정보 태그  배경 rgb(240,244,255) / 테두리 1px rgb(200,216,240) / font-weight 400
+  · '관리컬럼 맞음' 과 '관리컬럼 아님' 의 색상·테두리·굵기가 **완전히 동일**
+    (테두리 rgb(203,213,225), 글자 rgb(51,65,85)) — 정반대 결정인데 구분 신호가 없었다.
+
+즉 (1) 버튼과 설명이 안 갈리고, (2) 서로 반대인 두 액션도 안 갈리는 이중 문제였다.
+
+────────────────────────────────────────────────────────────────────────
+2. 수정 내용 (파일 1개 — 순수 시각, 기능 무변경)
+────────────────────────────────────────────────────────────────────────
+수정 파일 : ui/js_admin_column_override.py
+  ※ 후보표 자체는 ui/tabler_renderer.py 가 그리지만, 비고 셀의 확정 컨트롤은 설계상
+    이 파일이 단독으로 소유한다(tabler_renderer.py 비대화 억제 원칙). 그래서 이번 변경은
+    tabler_renderer.py 를 한 줄도 건드리지 않았다.
+
+(1) 스타일 주입 방식
+    hover / :disabled / :active 는 인라인 style 로 표현할 수 없어, 이 파일 안에서
+    <style id="mv-adm-ovr-css"> 를 1회만 주입한다(id 로 중복 차단, head 없으면
+    documentElement 폴백). CSS 를 tabler_renderer.py 스타일시트로 옮기지 않은 이유는
+    같다 — 컨트롤의 소유 파일을 하나로 유지하기 위해서다.
+
+(2) 버튼을 '버튼처럼' 승격
+    display:inline-flex / font-weight:700 / 1.5px 유색 테두리 / border-radius 5px /
+    padding 2px 8px / box-shadow(떠 있음) / cursor:pointer / hover 시 그림자·배경 강화 /
+    :active 시 inset 그림자(눌리는 느낌).
+
+(3) 서로 다른 액션을 색과 아이콘으로 분리
+    · ✔ 관리컬럼 맞음  — 초록 계열(테두리 #6ee7b7, 배경 #ecfdf5, 글자 #047857)
+    · ✕ 관리컬럼 아님  — 로즈 계열(테두리 #fda4af, 배경 #fff1f2, 글자 #be123c)
+    · 확정 해제        — 중립 회색(테두리 #cbd5e1, 흰 배경) : 파괴적이지 않은 되돌리기라
+                         주목도를 일부러 낮췄다.
+
+(4) 현재 확정 상태 표시 — '눌린 버튼'
+    확정되면 테두리형 버튼 자리에 채운 배경 + inset 그림자 배지가 들어간다.
+    · ✔ AUDIT 확정      배경 #047857(초록 채움) / 흰 글자
+    · ✕ NOT_AUDIT 확정  배경 #be123c(로즈 채움) / 흰 글자
+    미확정(옅은 테두리형) ↔ 확정(진한 채움형)이 한눈에 갈리고, 어느 쪽으로 확정했는지도
+    같은 색 규약(초록=맞음 / 로즈=아님)으로 읽힌다.
+    STALE('⚠ 자동판정 변경됨')은 결정이 아니라 정보이므로 채우지 않고 종전 톤을 유지했다.
+
+(5) 비활성(프로젝트 미선택) 상태
+    :disabled → 회색 톤 + cursor:not-allowed + 그림자 제거. 못 누른다는 사실이 색으로 보인다.
+
+(6) 정보 태그(.ict-rmk-tag)는 **의도적으로 손대지 않았다**
+    구분은 상대적이라, 한쪽만 바꿔야 대비가 생긴다. 정보 태그는 종전 그대로
+    얇은 테두리·보통 굵기·cursor 기본값을 유지한다.
+
+(7) 기능은 한 줄도 바꾸지 않았다
+    onclick 핸들러(_mvAdmOvrDecide/_mvAdmOvrRelease), 저장 payload, 낙관적 반영
+    (_mvAdmOvrLocalApply), 재렌더(_mvAdmOvrRerender), 체크박스 복원 로직 모두 불변.
+    배지 문구('AUDIT 확정'/'NOT_AUDIT 확정')와 '확정 해제' 라벨도 그대로 두어 기존 검증
+    스크립트의 라벨 계약을 깨지 않았다(작업 중 '↺ 확정 해제'로 아이콘을 붙였다가, 기존
+    스크립트가 라벨 정확일치로 단언하는 것을 실측으로 확인하고 되돌렸다).
+
+────────────────────────────────────────────────────────────────────────
+3. 실측 검증 — 실 오라클 + 실 브라우저
+────────────────────────────────────────────────────────────────────────
+신규 검증 스크립트 : scripts/dev_e2e/candidate_manual_confirm_button_visual_distinction_verify.py
+환경 : 인증 ON 로컬 서버(127.0.0.1:8000), Chromium(playwright), viewport 1600x1500
+픽스처 : 실 오라클 NXDNP.MV_ORA_DEMO_SRC → NXDNP.MV_ORA_DEMO_TGT (150행)
+         · DEPT_CD    자동판정 '관리컬럼 아님'(정상 후보) → 화면에서 '맞음' 확정
+         · CREATED_BY 자동판정 CONFIRMED(명칭 단독)      → 화면에서 '아님' 확정
+확정/해제는 검증 전용 프로젝트(MV-ADMOVR-VISUAL-VERIFY) 범위에서만 일어나고 종료 시 정리한다.
+
+[BEFORE] PASS=20 / FAIL=2   ← 문제 재현
+  FAIL  버튼 글자굵기가 정보뱃지보다 굵음
+        버튼 400 vs 정보태그 400/600 — 오히려 정보 태그가 더 굵은 경우도 있었다.
+  FAIL  '맞음'과 '아님' 버튼이 서로 다른 색으로 구분
+        두 버튼 테두리·글자·배경이 완전 동일.
+
+[AFTER]  PASS=22 / FAIL=0   ← 전부 해소
+  OK  버튼 배경 ≠ 정보태그 배경
+      버튼 rgb(236,253,245)/rgb(255,241,242)  vs  태그 rgb(238,246,255)/rgb(240,244,255)
+  OK  버튼 테두리색 ≠ 정보태그 테두리색
+      버튼 rgb(110,231,183)/rgb(253,164,175)  vs  태그 rgb(182,212,240)/rgb(200,216,240)
+  OK  버튼 cursor=pointer / 정보태그 cursor=auto
+  OK  버튼 font-weight 700 > 정보태그 최대 600
+  OK  '맞음'(초록 #047857) 과 '아님'(로즈 #be123c) 이 색·아이콘으로 구분
+  OK  AUDIT 확정 표시(#047857 채움) ≠ NOT_AUDIT 확정 표시(#be123c 채움)
+  OK  확정 표시 배경이 미확정 버튼 배경과 다름 — 눌린 상태로 구분됨
+
+  무회귀(같은 실행 안에서 실제 클릭으로 확인)
+  OK  '관리컬럼 맞음' 클릭 → 즉시 'AUDIT 확정' 배지 갱신
+  OK  저장소에 AUDIT 확정 영속(TABLE_COLUMN 범위, resolve_override 로 직접 확인)
+  OK  '관리컬럼 아님' 클릭 → 즉시 'NOT_AUDIT 확정' 배지 갱신
+  OK  확정 후 버튼은 '확정 해제' 하나
+  OK  '확정 해제' 클릭 → 저장소에서 제거 + 버튼 2개로 복귀
+  OK  JS 페이지 에러 0건
+
+[기존 검증 스크립트 재실행 — 회귀 없음]
+  scripts/dev_e2e/admin_column_manual_override_ui_connect_verify.py AFTER
+  → PASS=39 / FAIL=0
+    확정 우선순위(자동판정보다 사용자 확정이 이김), 재분석 후 판정 유지, STALE 경고,
+    프로젝트 미선택 시 버튼 비활성 + 사유 title, 일반 컬럼 배지·체크박스 불변까지 전부 통과.
+
+[표준 테스트]
+  python samples/test_virtual_cases.py            → 8/8 통과
+  python samples/test_complex_cases.py            → 5/5 분석 완료
+  python -m pytest tests/ -k "admin_column or override" -q → 99 passed
+  node --check (생성 JS 구문 검사)                 → OK
+
+────────────────────────────────────────────────────────────────────────
+4. 증적 파일
+────────────────────────────────────────────────────────────────────────
+E:\verify_screenshots_only\CANDIDATE-MANUAL-CONFIRM-BUTTON-VISUAL-DISTINCTION-FIX\
+  BEFORE_1_cell_unconfirmed_DEPT_CD.png          미확정 비고 셀 확대 — 버튼/태그 구분 불가
+  AFTER_1_cell_unconfirmed_DEPT_CD.png           미확정 비고 셀 확대 — 초록/로즈 버튼 대비
+  BEFORE_2_cell_audit_confirmed_DEPT_CD.png      AUDIT 확정 — 옅은 캡슐
+  AFTER_2_cell_audit_confirmed_DEPT_CD.png       AUDIT 확정 — 초록 채움(눌린 상태)
+  BEFORE_3_cell_not_audit_confirmed_CREATED_BY.png / AFTER_3_… 동 NOT_AUDIT
+  BEFORE_4_cell_released_DEPT_CD.png / AFTER_4_… 해제 후 복귀
+  BEFORE_1_table_unconfirmed.png / AFTER_1_…     후보표 전체
+  BEFORE_3_table_confirmed.png   / AFTER_3_…     확정 반영된 후보표 전체
+  BEFORE_styles.json / AFTER_styles.json         computed style 원본 실측값
+  code_commit_1862899.diff                       코드 diff 전문
+
+────────────────────────────────────────────────────────────────────────
+5. 남은 위험 / 판단 근거
+────────────────────────────────────────────────────────────────────────
+· heuristic / scoring / explainability 영향 없음 — 판정 로직·근거 저장을 건드리지 않았다.
+· 색만으로 정보를 전달하지 않도록 ✔/✕ 아이콘과 액션별 title(누르면 무슨 일이 일어나는지)을
+  함께 붙였다. 색각 이상 사용자도 아이콘·모양으로 구분 가능하다.
+· 확정 배지의 로즈 채움(#be123c)은 '오류'가 아니라 '아님으로 확정'이라는 결정을 뜻한다.
+  오해 소지를 줄이려 title 에 "사용자가 관리컬럼이 아님으로 확정했습니다"를 그대로 유지했다.
+· CSS 주입이 렌더 경로(_admOvrCellHtml)와 모듈 로드 시점 두 곳에서 보장되며 id 로 중복을
+  막는다. 확정 컨트롤이 없는 화면(일괄검증·구 스냅샷)에는 클래스가 쓰이지 않아 영향 없다.
+
+✅ 작업 완료 - CANDIDATE-MANUAL-CONFIRM-BUTTON-VISUAL-DISTINCTION-FIX - 후보표 비고 셀의 관리컬럼 확정 버튼을 정보 뱃지와 시각적으로 분리(초록 ✔ 맞음 / 로즈 ✕ 아님 / 중립 해제, 확정 시 채움형 '눌린 상태')하고 기능 무변경을 실측으로 확인

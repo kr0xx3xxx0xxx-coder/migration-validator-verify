@@ -1,0 +1,266 @@
+작업명 : COUNT-SQL-SECTION-COLLAPSE-INDENT-HEIGHT-COPY-REMOVE-FIX
+작성일 : 2026-08-03
+코드 커밋 : 9b2e82d (main)
+수정 파일 : ui/tabler_renderer.py
+            tests/test_individual_validation_stage_layout.py
+            tests/test_shared_sticky_step_nav.py
+            scripts/dev_e2e/count_sql_section_collapse_indent_height_copy_browser_verify.py (신규 실측 하니스)
+
+
+────────────────────────────────────────────────────────────────────────
+1. 요청 요약
+────────────────────────────────────────────────────────────────────────
+2단계(COUNT 사전검증) 화면의 "COUNT SQL 보기 (원본 · 목적지)" 접힘 섹션을 다음과 같이
+조정한다.
+
+  ① 토글 헤더 전체 제거 + 그 공간까지 회수(빈 여백 금지), SQL 은 항상 펼쳐진 상태로 표시
+  ② "원본 COUNT SQL" 라벨 소폭 들여쓰기
+  ③ "목적지 COUNT SQL" 라벨도 ②와 정확히 같은 값으로 들여쓰기(같은 CSS 값 재사용)
+  ④ 원본/목적지 SQL 코드 박스 높이를 기존 대비 2배
+  ⑤ 복사 버튼 2개 제거 — DOM 요소뿐 아니라 연결된 클릭 핸들러도 함께 제거(죽은 코드 금지)
+
+
+────────────────────────────────────────────────────────────────────────
+2. 수정 전 구조 — 무엇이 어떻게 그려지고 있었나
+────────────────────────────────────────────────────────────────────────
+COUNT SQL 섹션은 `ui/tabler_renderer.py` 의 `buildCountSql()` 이 `#countOut` 에
+innerHTML 로 통째 조립한다(정적 HTML 이 아니라 JS 템플릿 문자열).
+
+  <div id="countResult"></div>
+  <details class="mv-sql-fold" style="margin-top:12px" open>
+    <summary onclick="return false;" style="cursor:default">COUNT SQL 보기 (원본 · 목적지)</summary>
+    <div class="grid2 mv-count-sql-grid" style="margin-top:10px">
+      <div class="sql-panel">
+        <div class="sql-hdr">
+          <h3>원본 COUNT SQL</h3>
+          <button class="btn-copy" onclick="copySQL('cntSrcBox',this)">📋 복사</button>
+        </div>
+        <pre class="sql-box mv-count-sql-box" id="cntSrcBox">...</pre>
+      </div>
+      ... (목적지도 대칭 구조)
+    </div>
+  </details>
+
+여기서 확인된 사실 두 가지가 이번 수정의 전제였다.
+
+  · 이 <details> 는 이미 `open` + `summary onclick="return false;"` 라 실제로는
+    접기/펼치기가 동작하지 않는 '항상 펼쳐진 상태'의 껍데기였다. 즉 토글 헤더는
+    35px 짜리 라벨 줄만 차지하고 기능은 제공하지 않고 있었다 → 요구 ①의 "토글 자체 삭제,
+    항상 보이게" 는 기능 손실 없이 성립한다.
+  · 라벨(h3)에는 들여쓰기가 전혀 없었고(computed padding-left/margin-left 모두 0px),
+    SQL 박스에도 고정 높이가 없어(min-height:0 / height:auto) 내용 줄 수만큼만 자라는
+    자연 높이였다. 요구 ④의 "기존 min-height 가 N px 이면 2N px" 은 그대로 적용할 수 없어,
+    실제 렌더 높이를 먼저 실측한 뒤 그 2배를 부여하는 방식으로 해석했다(아래 5-④).
+
+
+────────────────────────────────────────────────────────────────────────
+3. JS 참조 관계 사전 확인 (요구사항: 오늘 SQL-INPUT-HEIGHT 작업 때처럼 먼저 확인)
+────────────────────────────────────────────────────────────────────────
+복사 버튼을 지우기 전에 `copySQL` 과 `cntSrcBox`/`cntTgtBox` 의 참조처를 전수 조사했다.
+
+  [copySQL 정의]
+    ui/js_sql_preview.py:205  function copySQL(id, btn)      ← 유일 정의
+    ui/tabler_renderer.py:29677  window.copySQL = copySQL     ← 전역 export
+
+  [copySQL 호출처]
+    ui/tabler_renderer.py:24688  copySQL('cntSrcBox',this)   ← 이번에 제거
+    ui/tabler_renderer.py:24695  copySQL('cntTgtBox',this)   ← 이번에 제거
+    ui/js_sql_preview.py:151     copySQL('srcBox',this)      ← 통계검증 SQL preview(존치)
+    ui/js_sql_preview.py:158     copySQL('tgtBox',this)      ← 통계검증 SQL preview(존치)
+    ui/tabler_renderer.py:11564  btn.onclick = copySQL(data-copy-target) ← 배치 SQL 패널(존치)
+
+  [cntSrcBox / cntTgtBox 를 쓰는 다른 코드]
+    ui/tabler_renderer.py:25053~25056  renderCountResult() 가 COUNT 실행 후 실제 실행된
+      전체 SQL(source_count_sql / target_count_sql)을 두 <pre> 의 textContent 로 덮어쓴다.
+      → <pre> id 계약은 반드시 유지해야 하며, 이번 수정에서 id/클래스는 그대로 두었다.
+    tests/test_count_gate_cmdbar_rewire.py:115  cntSrcBox 존재 여부만 확인 → 영향 없음
+
+판단:
+  · 인라인 클릭 핸들러(onclick 속성)는 버튼과 함께 사라지므로 이 화면의 복사 기능은 완전 제거된다.
+  · 전역 `copySQL` 함수 자체는 통계검증 SQL preview 와 배치 SQL 패널이 여전히 호출하는
+    공용 함수이므로 삭제 대상이 아니다. 이를 지우면 4단계 통계검증 SQL 복사와 배치 화면
+    복사가 ReferenceError 로 깨진다. 따라서 "죽은 코드"가 되는 것은 버튼과 그 onclick 뿐이며,
+    그 둘만 제거했다. (실측으로도 제거 후 전역 copySQL 존재 = true 확인 — 아래 5-⑤)
+
+
+────────────────────────────────────────────────────────────────────────
+4. 수정 내용
+────────────────────────────────────────────────────────────────────────
+[4-1] ui/tabler_renderer.py — buildCountSql() 의 #countOut 템플릿
+
+  · <details class="mv-sql-fold" open> + <summary>COUNT SQL 보기 (원본 · 목적지)</summary>
+      → <div class="mv-count-sql-section"> 으로 교체(토글 헤더·접힘 컨테이너 동시 제거)
+  · 복사 버튼 2개 및 onclick="copySQL('cntSrcBox'/'cntTgtBox',this)" 삭제
+  · grid 의 인라인 style="margin-top:10px" 제거(섹션 CSS 로 이관)
+  · <pre id="cntSrcBox"> / <pre id="cntTgtBox"> 의 id·클래스는 불변(renderCountResult 계약 유지)
+
+[4-2] ui/tabler_renderer.py — CSS
+
+  :root{--mv-count-sql-box-h:149.25px;--mv-count-sql-label-indent:10px}
+  .mv-count-sql-section{margin-top:12px}
+  .mv-count-sql-grid .sql-hdr h3{padding-left:var(--mv-count-sql-label-indent)}
+  .mv-count-sql-box{... 기존 그대로 ... ;min-height:var(--mv-count-sql-box-h)}
+
+  · 들여쓰기는 규칙 '한 개'가 두 라벨을 동시에 잡는다. 칸별 개별 지정을 만들지 않았으므로
+    두 값이 어긋날 수 있는 경로 자체가 없다(요구 ③의 "같은 CSS 값 재사용"을 구조로 보장).
+  · 높이는 min-height 만 부여했다. 기존 규칙(height:auto / max-height:none /
+    overflow-y:visible)은 그대로 남겨, 2배 높이보다 긴 SQL 은 예전처럼 자연 확장되고
+    잘리지 않는다. 즉 '하한만 2배'이지 클리핑을 새로 만들지 않는다.
+  · margin-top:12px 은 기존 <details> 의 인라인 값을 그대로 승계했다. 바깥 요소와의 간격은
+    변하지 않고, 사라진 것은 토글 헤더가 쓰던 세로 공간뿐이다.
+
+[4-3] 테스트 계약 갱신(기존 UI 계약을 못박고 있던 3곳)
+
+  · tests/test_individual_validation_stage_layout.py
+      test_count_sql_2col_then_result_title_order — "mv-sql-fold 안에 있어야 함" →
+        ".mv-count-sql-section(상시 노출) 안에 있어야 함 + 접힘 마크업 부재"로 교체
+      test_count_sql_full_no_truncation_and_copy → ..._copy_removed 로 개명,
+        COUNT 복사 onclick 부재 + 공용 copySQL 사용처(srcBox/tgtBox) 생존을 함께 검사
+      (신규) test_count_sql_label_indent_shared_and_box_height_doubled —
+        들여쓰기 단일 규칙·박스 높이 변수(149.25px)·min-height 배선을 정적 검사
+  · tests/test_shared_sticky_step_nav.py
+      test_count_screen_redesigned_no_skip_checkbox — mv-sql-fold 기대 →
+        .mv-count-sql-section 기대 + 제거된 summary 마크업 원문 부재로 교체
+
+
+────────────────────────────────────────────────────────────────────────
+5. 실측 검증 (실 운영 서버 + 실 브라우저, before/after)
+────────────────────────────────────────────────────────────────────────
+하니스 : scripts/dev_e2e/count_sql_section_collapse_indent_height_copy_browser_verify.py
+실 DB  : 내부망 PostgreSQL 페어 PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe
+경로   : 프로젝트 진입 → 검증 경로 접속 → 개별검증 1단계 실행 → 2단계 COUNT 실행
+전제   : before 는 '수정 전 모듈을 이미 로드한 실행 중 서버'(uvicorn reload=False 라
+         .py 편집이 반영되지 않는 상태)에서, after 는 서버 재기동 후 동일 절차로 측정.
+         before 를 코드 수정보다 먼저 캡처했다(수정 후에는 그 창이 사라짐).
+COUNT 결과(양쪽 동일) : 원본 12,000,000 / 목적 11,399,411 / 차이 +600,589 / 불일치
+
+  ① 토글 헤더 제거 + 공간 회수
+     항목                                   before        after
+     details.mv-sql-fold 존재               true          false
+     summary 존재                           true          false
+     summary 박스 높이                      35px          (없음)
+     'COUNT SQL 보기' 문구 화면 노출         true          false
+     SQL 2열 그리드 표시                     true          true   ← 항상 보임
+     결과Grid 하단→SQL그리드 상단 간격        146px         100px  ← 46px 회수
+     → 토글 헤더(35px)와 접힘 컨테이너 테두리/여백(11px)이 함께 사라졌고, 그 자리에
+       빈 여백이 남지 않았다(간격이 그만큼 실제로 줄었다). SQL 은 접기 조작 없이 항상 노출.
+
+  ② / ③ 라벨 들여쓰기 — computed 스타일로 확인
+     항목                        before(원본/목적지)   after(원본/목적지)
+     computed padding-left       0px / 0px            10px / 10px
+     computed margin-left        0px / 0px            0px  / 0px
+     computed text-indent        0px / 0px            0px  / 0px
+     텍스트 실제 좌측 오프셋       0px / 0px            10px / 10px
+       (Range 로 잰 텍스트 시작점 − 패널 좌변)
+     두 라벨 동일 판정            —                    true
+     → 두 라벨의 computed 값과 실제 렌더 텍스트 시작 위치가 완전히 같다(각 10px).
+
+  ④ SQL 박스 높이 — 기존 대비 정확히 2배
+     항목                    before      after       비고
+     #cntSrcBox 렌더 높이     74.63px     149.25px    2.000배
+     #cntTgtBox 렌더 높이     74.63px     149.25px    2.000배
+     computed min-height     0px         149.25px
+     computed max-height     none        none        ← 클리핑 미도입
+     padding(상/하)          14px/14px   14px/14px   ← 불변
+     내용 줄 수              2줄         2줄         ← 동일 SQL 기준 비교
+     → before 자연 높이 74.625px = padding 14×2 + border 1×2 + line-height 22.304×2.
+       그 2배인 149.25px 을 min-height 로 부여해 실측 149.25px(정확히 2.000배)을 얻었다.
+
+  ⑤ 복사 버튼 제거 + JS 참조 안전성
+     항목                              before                          after
+     #countOut 내 .btn-copy 개수        2                               0
+     버튼 onclick 속성                  copySQL('cntSrcBox',this)       (없음)
+                                       copySQL('cntTgtBox',this)       (없음)
+     #countOut HTML 내 'copySQL' 잔재   true                            false
+     화면 텍스트 '복사' 잔재            true                            false
+     전역 window.copySQL 함수           존재(true)                      존재(true) ← 공용 함수 존치
+     → 버튼과 인라인 핸들러가 함께 사라졌고, 이 화면에서 copySQL 을 부르는 코드는 0 이다.
+       동시에 전역 copySQL 은 살아 있어 통계검증 SQL preview(srcBox/tgtBox)·배치 SQL 패널의
+       복사는 그대로 동작한다(정적 검사에서도 copySQL('srcBox',this)/('tgtBox',this) 존치 확인).
+     → 신규 pageerror/console error 0. before/after 모두 동일한 기존 404 리소스 경고 1건만
+       관측됐고 이번 변경으로 추가된 오류는 없다.
+
+  ⑥ 다른 요소 무회귀
+     항목                    before                                after
+     COUNT 타일 수            7                                     7
+     타일 라벨               원본 테이블/목적 테이블/검증항목/       동일
+                            원본 건수/대상 건수/차이/상태
+     타일 값                 asis01.t_as_n_etl04 / tobe01.t_to_n_etl04 /
+                            COUNT / 12,000,000 / 11,399,411 /
+                            +600,589 / ● 불일치                     동일
+     COUNT 게이트 카드        '소규모 COUNT 차이 … 적재율 95.0% …'    동일(문구·수치 일치)
+     하단 액션 버튼           '▶ COUNT 다시 실행'(비활성 아님)        동일
+     countCard 전체 높이      451px                                 479px
+       (= −46px 토글 제거 + 74.6px 박스 확대 ⇒ +28px, 의도한 변화량과 일치)
+     2단계 진입 직후(COUNT 실행 전) 화면도 동일하게 토글 없음 상태로 정상 렌더.
+
+
+────────────────────────────────────────────────────────────────────────
+6. 자체 테스트 결과
+────────────────────────────────────────────────────────────────────────
+[필수 회귀]
+  python samples/test_virtual_cases.py   → 8/8 통과
+  python samples/test_complex_cases.py   → 5/5 케이스 분석 완료(신뢰도 판정 정상)
+
+[직접 관련 테스트]
+  pytest tests/test_count_sql_full_visibility.py tests/test_individual_validation_stage_layout.py
+         tests/test_shared_sticky_step_nav.py tests/test_count_gate_cmdbar_rewire.py
+    수정 전 : 83 passed, 2 failed
+    수정 후 : 84 passed, 2 failed   (신규 테스트 1건 추가로 passed +1)
+  잔존 2건은 이번 변경과 무관한 사전 존재 실패이며 수정 전에도 동일하게 실패했다:
+    · test_count_sql_pre_boxes_no_clip_and_order — 이전 작업에서 제거된
+      'mv-count-result-title' 존재를 아직 기대하는 낡은 단언
+    · test_render_count_result_full_sql_and_copy_equivalence — node 하니스 스텁에
+      _fullRunInProgress 전역이 없어 ReferenceError(테스트 하니스 문제)
+
+[렌더 JS 문법 가드]
+  pytest tests/test_rendered_js_syntax_guard.py → 2 passed
+  (JS 주석 안 '*/' 로 인한 번들 붕괴 사례가 있어 반드시 확인 — 정상)
+
+[광범위 회귀 — count/sql/layout/sticky/cmdbar 관련 전량]
+  pytest tests/ -k "count or sql_preview or step_layout or sticky or cmdbar"
+    수정 후 : 40 failed, 1380 passed, 18 skipped, 4 xfailed, 2 errors (8분 59초)
+    기준선  : 동일 선택으로 HEAD(2b83a4a) worktree 에서 재실행
+              39 failed, 1376 passed, 21 skipped, 4 xfailed, 3 errors (8분 46초)
+    실패 목록 diff:
+      · 수정 후에만 실패 : test_batch_report_service::test_R07_items_sheet_row_count
+      · 기준선에만 실패 : test_candidate_scoring_dashboard_static::test_unknown_reason_counts_match_summary
+    두 건 모두 이번 변경과 무관한 환경 차이다. R07 은 배치 Excel 리포트 테스트로 UI 렌더와
+    접점이 없고, 단독 실행 시 운영 SQLite 쓰기 차단(PROD-DB-WRITE-BLOCKED) 경고와 함께
+    실패한다 — 기준선 worktree 에는 db/migration_validator.db 가 없어 통과했을 뿐이다.
+    ⇒ 이번 수정으로 새로 깨진 테스트는 없다.
+
+
+────────────────────────────────────────────────────────────────────────
+7. 비판적 검토 (구조·운영·부채 관점)
+────────────────────────────────────────────────────────────────────────
+· 긍정적 효과 : 기능하지 않던 껍데기 토글(항상 open + onclick return false)을 걷어내
+  DOM 과 화면을 동시에 단순화했다. 들여쓰기·높이를 인라인 style 이 아닌 CSS 변수로
+  단일 출처화해, 이후 값 조정이 한 줄 수정으로 끝난다.
+· 구조적 문제점 : 이 섹션은 여전히 web_server/tabler_renderer 안의 JS 템플릿 문자열이라
+  HTML 구조 변경이 파이썬 문자열 편집으로 이뤄진다(비대화 지속). 이번엔 순증 없이
+  치환·삭제 위주라 라인 수는 늘지 않았으나, 구조적 부채 자체는 남아 있다.
+· 운영상 위험 : 낮음. 서버 재기동만으로 반영되고, 되돌리려면 커밋 1개 revert 로 충분하다.
+  다만 uvicorn reload=False 라 .py 편집만으로는 반영되지 않는다는 점은 유지된다.
+· heuristic/scoring/explainability 영향 : 없음(표시 계층 전용, 판정 로직 무변경).
+· 남은 판단 여지 : 박스 높이 '2배'는 고정 높이가 없던 기존 구조상 "COUNT SQL 2줄 기준
+  자연 높이의 2배"로 해석해 min-height 149.25px 을 부여한 것이다. SQL 이 6줄을 넘어
+  149.25px 보다 길어지면 그때는 예전처럼 내용 높이대로 자라므로 '항상 2배'는 아니다.
+  잘림을 만들지 않기 위한 의도적 선택이며, 필요 시 --mv-count-sql-box-h 한 값만 바꾸면 된다.
+
+
+────────────────────────────────────────────────────────────────────────
+8. 증적 파일
+────────────────────────────────────────────────────────────────────────
+E:\verify_screenshots_only\COUNT-SQL-SECTION-COLLAPSE-INDENT-HEIGHT-COPY-REMOVE-FIX\
+  before_A_step2_enter.png / after_A_step2_enter.png            2단계 진입 직후 전체 화면
+  before_C_after_count_run.png / after_C_after_count_run.png    COUNT 실행 후 전체 화면
+  before_C_count_card_clip.png / after_C_count_card_clip.png    COUNT 카드 클립
+  before_D_count_sql_section.png / after_D_count_sql_section.png COUNT SQL 섹션 클립(핵심 비교)
+  before_A_count_card_clip.png / after_A_count_card_clip.png    진입 직후 카드 클립
+  measure_before.json / measure_after.json                      실측 원본 JSON
+  code_diff_9b2e82d.txt                                         소스 diff
+
+코드 커밋 : 9b2e82d  (직전 HEAD 2b83a4a)
+
+✅ 작업 완료 - COUNT-SQL-SECTION-COLLAPSE-INDENT-HEIGHT-COPY-REMOVE-FIX

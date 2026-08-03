@@ -760,7 +760,44 @@ git -C E:/verify_reports worktree remove <임시경로>
 
 ## 성능
 
-### P14. 목적지 키메타를 요청당 2회 중복 조회한다(`_cmn_fetch_tgt_col_meta` + `_build_target_pk_evidence`)
+### P15. 결과 그룹 상한 초과가 사전차단이 아니라 **시간을 다 쓴 뒤 사후차단**된다(이 섹션 내 상대 우선순위 높음)
+- 발견일: 2026-08-03
+- 근거 보고서: `STATS-SCALE-COST-BAND-BENCHMARK-MEASURE.txt` (§7-1)
+- 상세: 결과 그룹이 허용 한도(100,000개)를 넘는 케이스가 **56,255ms 를 전부 소모한 뒤에야**
+  "허용 한도 100,000개 초과" 로 BLOCKED 됐다(측정 케이스 `C-10000000-id` — 1,000만행 · 결과 그룹
+  1,000만 개). 사전 차단이 아니라 **사후 차단**이라 사용자는 **56초를 기다린 뒤 아무 결과도 받지 못한다.**
+  게다가 이 케이스의 화면 등급 표시는 **'잠정 중형'(cost 14.181)** 이라 **사전 경고조차 없다.**
+- 대응 방향: ① 카디널리티를 프로파일에 실으면 이 케이스는 **사전 예측이 가능**해진다 —
+  단 단독 적용은 금지이며 **F31 의 가중치 재조정과 반드시 함께** 해야 한다(F31 정정 문단 참조).
+  ② 또는 결과 그룹 카운트 자체를 **스캔 중간에 조기 확인**해 상한 초과 시점에 즉시 중단하는 방식을 검토한다.
+- 관련: F31(카디널리티 전송 — 선행 조건이자 제약) · F32(밴드) · M32(같은 차단 케이스의 timing 누락)
+- 참고: E:\verify_reports\STATS-SCALE-COST-BAND-BENCHMARK-MEASURE.txt (§7-1)
+
+### P14. ✅ 해결 완료 — 목적지 키메타를 요청당 2회 중복 조회한다(`_cmn_fetch_tgt_col_meta` + `_build_target_pk_evidence`)
+- 해결일: 2026-08-03 (CHUNK-SIZE-POLICY-AND-DBMS-PROBE-AND-KEYMETA-DEDUP-G2-P7-P14-FIX)
+- 근거 커밋: 코드 저장소 `c0ef0e5` — `fix(policy/conn/meta): 청크 상·하한 실제 강제 + DBMS probe 지연
+  해소 + 목적지 키메타 요청 스코프 1회 조회 (CHUNK-SIZE-POLICY-AND-DBMS-PROBE-AND-KEYMETA-DEDUP-G2-P7-P14-FIX)`
+- 근거 보고서 커밋: 이 저장소 `e7140a8`(완료보고 `CHUNK-SIZE-POLICY-AND-DBMS-PROBE-AND-KEYMETA-DEDUP-G2-P7-P14-FIX`
+  — 3파트 실측·A/B 귀속 대조 증적)
+- 해결 요약: 위 '대응 방향'이 요구한 **별도 검토를 먼저 수행했고, 그 결과 단순 통합을 택하지 않았다.**
+  두 호출부의 실패 처리 의미가 실제로 다름을 확인했다(`_cmn_fetch_tgt_col_meta` = 실패해도 메타 전체를
+  포기하지 않고 is_pk 만 False / `_build_target_pk_evidence` = 근거 부재로 귀결, 게다가 '조회 실패
+  KEY_METADATA_LOOKUP_FAILED' 와 '조회는 됐으나 키 없음 KEY_METADATA_UNAVAILABLE' 을 구분).
+  그래서 **값이 아니라 결과(성공/실패 + 예외)를 요청 스코프에 캐시**하고 해석은 각 호출부에 그대로
+  남겼다 — 판정 로직 이동 0줄. 신규 `services/key_metadata_cache.py`(88줄, contextvars 요청 스코프,
+  스코프 밖 호출은 캐시 없이 그대로 조회, 비밀번호는 캐시 키 미포함).
+  같은 의미(실패 시 `{}` 반환)인 `services/diagnosis/key_evidence.py` 의 `_pk_unique`·`_table_key_meta`
+  2곳도 캐시를 경유시켰다.
+  실측(라이브 PG 192.168.0.150:5434) — analyze 요청 1건당 어댑터 `fetch_key_metadata` 호출
+  **5회 → 3회**(TGT 3→1, SRC 2 유지), keymeta 조회 합계 395.4ms → 273.6ms(**-30.8%**),
+  analyze 총 소요 1,249.2ms → 1,165.5ms(-6.7%). 소비 필드 무회귀 대조 차이 0건
+  (target_pk_evidence · validated[].is_pk · GROUP BY/SUM 후보 · 자동선정 전부 동일).
+- 잔여: 원본 키메타 조회 1건(`single_validation_analyze_service.py:1259` `src_key_metadata`)은
+  예외 발생 시 같은 try 블록의 후속 문장까지 건너뛰는 흐름이라 의미가 달라 통합에서 **의도적으로 제외**했다
+  (SRC 조회가 2회로 남은 이유).
+- 함정(기록): 스코프를 열려고 `run_single_validation_analyze` 본문을 inner 함수로 쪼갰더니
+  `inspect.getsource` 로 본문 마커를 검사하는 기존 테스트 3건이 조용히 깨졌다. 테스트를 고치지 않고
+  구현을 `functools.wraps` 데코레이터로 바꿔 해소했다(수정 전 경로는 `__wrapped__` 로 재현 가능).
 - 발견일: 2026-08-02
 - 근거 보고서: `IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX.txt` (§11-R1)
 - 상세: `_cmn_fetch_tgt_col_meta` 와 `_build_target_pk_evidence` 가 **같은 어댑터 `fetch_key_metadata` 를
@@ -968,7 +1005,35 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\REIMPORT-SAMPLING-PREFLIGHT-SKIP-FOR-WRAPPING-SOURCE-FIX.txt
 - 참고: E:\verify_reports\REIMPORT-COUNTONLY-CHUNK-SIZE-DIAGNOSE.txt
 
-### P4. 표본 preflight 판정이 '형태'만 보고 '비용'을 보지 않는다
+### P4. ✅ 해결 완료 — 표본 preflight 판정이 '형태'만 보고 '비용'을 보지 않는다
+- 해결일: 2026-08-03 (SAMPLING-PREFLIGHT-COST-AWARE-JUDGMENT-P4-FIX)
+- 근거 커밋: 코드 저장소 `8bba4a3` — `feat(sampling): 표본 preflight 진입 판정을 '형태'에서 '실측 비용'으로
+  이전 (SAMPLING-PREFLIGHT-COST-AWARE-JUDGMENT-P4-FIX)`
+- 근거 보고서 커밋: 이 저장소 `5f4de29`(완료보고 `SAMPLING-PREFLIGHT-COST-AWARE-JUDGMENT-P4-FIX`
+  — 오라클 라이브 3케이스 BEFORE/AFTER 실측 증적)
+- 해결 요약: 원 서술의 전제 1건이 정정됐다 — 형태 판정 위치는 `_reimport_source_needs_wrapping` 이 아니라
+  그것을 소비하는 **route**(`routes/agg_diff_route.py:368`)였고, 게이트 **본문 진입 전에** 무조건 return 해서
+  P3 가 만든 사전 비용 프로브가 wrapping 소스에 대해 **실행될 기회 자체가 없었다.** 그것이 P4 의 실체다.
+  새 판정기를 만들지 않고 P3 의 `probe_expansion_cost()`(anchor 2단계 8→32 실측 → 고정비/단가 분해 → 환산)를
+  그대로 재사용하고, 형태 신호의 소비처를 **판정 → 예산**으로 축소했다(`shape_cost_policy()`/`skip_by_shape()`,
+  정책은 `sampling_preflight` 단일 출처 · route 훅은 3줄).
+  · 위험 형태에는 '프로브 자체' 예산(`probe_cap_ms` 기본 3초 — 문제 사례 전수 merge 실측 2.7초 아래)과
+    여유배수 1.0 을, 안전 형태에는 종전 3.0 을 유지했다(오거절 비용의 비대칭: 위험 형태의 과잉 거절은
+    INCONCLUSIVE = 기존 전수 merge = 손해 0, 안전 형태의 과잉 거절은 순수한 기회 상실).
+  · 비용 근거를 못 얻으면(kill-switch `MV_SAMPLING_COST_AWARE_SHAPE=0` 또는 프로브 anchor 0) 형태 필터로
+    복귀하고 사유를 `SHAPE_WRAPPING_SKIPPED` 로 드러낸다 — 조용한 스킵 없음.
+  오라클 라이브 실측(NXDNP.MV_ORA_XDIFF_SRC 250,000행 / TGT 249,950행) — **형태가 같아도 비용이 다르면
+  판정이 갈림**을 실증:
+    A 형태 단순·실제 비쌈(비인덱스 숫자키 18.57ms/anchor) → 환산 306초로 보류(형태 판정으로는 원리상
+      못 잡던 케이스, BEFORE/AFTER 동일하게 P3 가 방어 = 회귀 없음)
+    B 형태 복잡(단순 CTE)·실제 쌈(1.18ms/anchor) → BEFORE 4.8ms 만에 스킵(판정 부재) → AFTER 진입해
+      `FULL_COMPARE_APPROVED` 산출(**회복한 기회**)
+    C 형태 복잡·실제 비쌈(CTE+JOIN+ROW_NUMBER, 124.04ms/anchor) → 프로브 1단계만으로 예산 초과 확정,
+      1.3초에 보류(결과는 종전 스킵과 같되 근거가 '형태' 아닌 '실측')
+  프로브 환산 단가 vs 실제 단가 오차 **0.7~12.4%**. 테스트 34건 통과(신규 13 + 갱신 8 + 기존 13),
+  관련 서브셋 실패 23건은 baseline worktree 와 집합 완전 동일(차집합 0).
+- 도입 비용(명시): 케이스 C 는 16.9ms 스킵 → 1,303.2ms 로 늘었다(실측을 사는 대가, 프로브 예산 3초 이내).
+  프로브 예산 기본 3초는 25만행 실측 기준이라 훨씬 큰 테이블에서는 env 로 재조정이 필요할 수 있다.
 - 발견일: 2026-07-29
 - 근거 보고서: `REIMPORT-SAMPLING-PREFLIGHT-SKIP-FOR-WRAPPING-SOURCE-FIX.txt` (§8-(3))
 - 상세: `_reimport_source_needs_wrapping` 은 CTE/다중원본/UNION 이라는 형태만 본다. 형태가 wrapping 이어도
@@ -1111,14 +1176,67 @@ git -C E:/verify_reports worktree remove <임시경로>
   그룹 드릴다운 자체는 정상.
 - 참고: E:\verify_reports\SINGLE-STEP5-COMBO-VIEW-AND-SKEWED-GROUP-VOLUME-DIAGNOSE.txt
 
-### P7. DBMS probe fallback 순차 재시도로 접속 불가 시 80초 지연
+### P7. ✅ 해결 완료(원인 진단 정정 — '순차 누적'이 아니라 '드라이버가 timeout 을 안 지킨다') — DBMS probe fallback 순차 재시도로 접속 불가 시 80초 지연
+- 해결일: 2026-08-03 (CHUNK-SIZE-POLICY-AND-DBMS-PROBE-AND-KEYMETA-DEDUP-G2-P7-P14-FIX)
+- 근거 커밋: 코드 저장소 `c0ef0e5` — `fix(policy/conn/meta): 청크 상·하한 실제 강제 + DBMS probe 지연
+  해소 + 목적지 키메타 요청 스코프 1회 조회 (CHUNK-SIZE-POLICY-AND-DBMS-PROBE-AND-KEYMETA-DEDUP-G2-P7-P14-FIX)`
+- 근거 보고서 커밋: 이 저장소 `e7140a8`(완료보고 `CHUNK-SIZE-POLICY-AND-DBMS-PROBE-AND-KEYMETA-DEDUP-G2-P7-P14-FIX`
+  — 드라이버별 개별 실측·전후 대조 증적)
+- 해결 요약: 지연의 본체는 `services/db_connection_service.py:158 detect_dbms_from_connection()` 이었고,
+  **근본원인은 원 서술의 '순차 재시도 누적'이 아니었다.** 실 PG 엔드포인트에 timeout=5 로 드라이버별
+  개별 probe 를 재보니 postgresql 71.2ms / oracle 0.6ms / mssql 2.9ms 인데 **mysql 만 60,071.3ms** 였다 —
+  `pymysql` 의 `connect_timeout` 은 TCP 연결까지만 덮어 상대가 MySQL 이 아니면 핸드셰이크 **읽기에서
+  60초 블로킹**한다(단독 대조: connect_timeout 만 60,026.7ms → read/write_timeout 동반 5,020.0ms).
+  순차 누적은 그 위에 얹힌 2차 요인이었다. 수정 3종 —
+  ① 드라이버 타임아웃 실전파(mysql `read_timeout`/`write_timeout`, mssql 연결문자열 `Connection Timeout=`)
+  ② **서버가 응답한 에러면 DBMS 가 이미 확정**이므로 나머지 probe 생략(`SERVER_IDENTIFIED_SKIP`,
+     판정은 `_server_identified_dbms()` 한 곳 — pgcode/libpq 심각도 표기 · MySQL 서버 에러번호 1000~1999 ·
+     ORA-nnnnn 중 리스너/네트워크 코드 제외 · SQLSTATE 28xxx/42xxx 만. 근거 없으면 False → 종전 fallback)
+  ③ 남은 드라이버 병렬 시도(기본 ON, kill-switch `MV_DBMS_PROBE_PARALLEL=0`). selected 는 단독으로 먼저
+     시도해 **성공 경로는 예전 그대로 1회 접속**이고, 성공 선택은 완료 순서가 아니라 항상
+     `_DBMS_PROBE_ORDER` 우선순위라 병렬이 결과를 바꾸지 않는다.
+  라이브 실측(PG 192.168.0.150:5433, timeout=5) — 인증 실패 · selected=postgresql
+  **60,158.5ms → 77.1ms(-99.87%)**, probe 시도 **4회 → 1회**. selected=mysql·실제 PG 는 60초 초과 →
+  5,144.5ms(-91.4%), 감지 결과·`DBMS_MISMATCH` 메시지 불변. 정상 접속 경로는 160.4ms 로 전·후 동일.
+  진단 필드 `probe_mode`/`probe_attempt_count` 추가(표시 전용, 판정 미사용).
+- 잔여/위험: (a) 병렬 모드는 성공 후에도 남은 드라이버 시도를 끝까지 진행하므로 DBMS 불일치 상황에서
+  **실패 로그인 시도가 최대 3회 늘어난다** — 계정 잠금 정책이 있는 환경은 kill-switch 로 순차 복귀
+  (단 ②가 먼저 걸리는 인증 실패 케이스는 오히려 4회 → 1회로 줄어든다).
+  (b) **미수정** — `_connect_and_fetch_version` 의 oracle 분기는 cx_Oracle 전용인데 `cx_Oracle.connect()`
+  에 존재하지 않는 `timeout=` 인자를 넘긴다. cx_Oracle 설치 환경에서는 oracle probe 가 TypeError 로 즉시
+  실패해 **오라클을 감지하지 못한다**(이 PC 미설치라 재현 불가로 미접촉. 직접 테스터 `_test_oracle` 은
+  oracledb 를 쓰므로 접속 테스트 자체는 정상).
+  (c) mssql `Connection Timeout=` 는 pyodbc 미설치로 코드 리뷰 근거만 있고 실측하지 못했다.
 - 발견일: 2026-07-27
 - 근거 보고서: `DIAGNOSIS-ROUTE-CONTRACT-KEY-DIALECT-CONSISTENCY-FIX.txt` (:65-66)
 - 상세: 키 복원 실패 시 예외 없이 HOLD 계획을 반환하는 방어 자체는 정상이나, `db_type` 미지정 시
   방언을 순차 재시도하면서 지연이 증폭된다. 기존 미수정 이슈.
 - 참고: E:\verify_reports\DIAGNOSIS-ROUTE-CONTRACT-KEY-DIALECT-CONSISTENCY-FIX.txt
 
-### G2. `execution_settings.py` 의 청크 크기 min/max 상한이 사장돼 있다(소비처 0건)
+### G2. ✅ 해결 완료(제거가 아니라 '연결'을 택함) — `execution_settings.py` 의 청크 크기 min/max 상한이 사장돼 있다(소비처 0건)
+- 해결일: 2026-08-03 (CHUNK-SIZE-POLICY-AND-DBMS-PROBE-AND-KEYMETA-DEDUP-G2-P7-P14-FIX)
+- 근거 커밋: 코드 저장소 `c0ef0e5` — `fix(policy/conn/meta): 청크 상·하한 실제 강제 + DBMS probe 지연
+  해소 + 목적지 키메타 요청 스코프 1회 조회 (CHUNK-SIZE-POLICY-AND-DBMS-PROBE-AND-KEYMETA-DEDUP-G2-P7-P14-FIX)`
+- 근거 보고서 커밋: 이 저장소 `e7140a8`(완료보고 `CHUNK-SIZE-POLICY-AND-DBMS-PROBE-AND-KEYMETA-DEDUP-G2-P7-P14-FIX`
+  — 입력 경로별 전/후 표 및 무회귀 증적)
+- 해결 요약: '대응 방향'의 두 갈래(연결 / 죽은 코드 제거) 중 **연결**을 택했다. 근거 — 청크 크기는 이미
+  요청 파라미터·정책 override·전환판정 config 3경로로 외부 주입이 가능하므로, 강제 지점이 없다는 것은
+  '상한이 안 쓰인다'가 아니라 **'상한이 없다'** 는 뜻이고, 상수를 지우면 청크 1(고정비 폭증) /
+  10,000,000(메모리·재개 단위 붕괴)을 막을 근거 자체가 사라진다.
+  강제는 `execution_settings.py` 한 곳에만 두고(신규 `clamp_chunk_size()` / `clamp_chunk_size_ex()` —
+  사유코드 `CHUNK_SIZE_DEFAULT_APPLIED`/`CLAMPED_TO_MIN`/`CLAMPED_TO_MAX`/`POLICY_UNAVAILABLE` 동반,
+  min>max 역전 설정도 예외 없이 동작, 설정 조회 실패 시 원값 통과로 실행 중단 금지), 결정 지점 2곳이
+  위임한다 — `strategy_transition._out()`(계획·전환판정, 값이 바뀌면 `reason_codes` 에 사유를 남겨
+  조용한 값 변경 금지 · DIRECT 의 None 은 그대로 통과)과 `agg_diff_route._pk_range_chunk_size()`(엔진 입력).
+  전/후 실측 — 요청 `chunk_size=1` → 10,000(하한) · `10,000,000` → 200,000(상한) · 정책 override 1 →
+  10,000 · transition_config 10,000,000 → 200,000 + `CHUNK_SIZE_CLAMPED_TO_MAX`.
+  **UI 클라이언트는 `chunk_size: (useStream ? 50000 : 0)` 만 보내므로 정상 사용자 경로의 동작·성능은
+  전·후 완전히 동일**하고, 이번 변경은 정책/API override 경로의 안전장치로만 작동한다.
+- 잔여: 엔진 자체(`pk_range_chunk.build_chunk_bounds` 의 `max(1, int(chunk_size))`)는 그대로다 —
+  당시 동시 진행 지침의 대상 파일이라 의도적으로 미접촉. 엔진을 **직접** 호출하는 테스트/스크립트는
+  여전히 상·하한을 받지 않는다. 또 기존 checkpoint 의 저장 chunk_size 가 범위 밖이면
+  `ckpt.resumable()` 의 동일성 검사에 걸려 재개 대신 재시작한다(정확성은 보존, 성능만 손해 ·
+  실사용 값이 50,000 뿐이라 발생 가능성은 낮음).
 - 발견일: 2026-08-02
 - 근거 보고서: `PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt` (§6-1 · §7-G2)
 - 상세: `services/exact_diff/execution_settings.py:29-31` 에 `default_chunk_size=50000`,
@@ -1132,6 +1250,87 @@ git -C E:/verify_reports worktree remove <임시경로>
 ---
 
 ## 기능 미완(설계는 끝났으나 구현 대기)
+
+### F31. 통계검증 규모 등급이 "GROUP BY/SUM/카디널리티 종합 반영" 원칙과 달리 사실상 COUNT 단독으로 결정된다(이 섹션 내 상대 우선순위 높음)
+- 발견일: 2026-08-03
+- 근거 보고서: `STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt` (§6-1 · §6-2 · §7-P2)
+- 상세: `ui/grid_helpers.py` 의 코드 주석은 **"원본 COUNT 만으로 등급 결정 금지"** 를 명시하지만,
+  실제로 `_mvBuildStatsScaleProfile` 이 서버로 보내는 profile 에 카디널리티·예상 그룹 수 등이
+  **하나도 실려 있지 않아** 계획기의 group·cardinality 가중항이 전부 0 이 된다 →
+  **cost 의 97.7% 가 COUNT 단독으로 결정**된다(실측: GROUP BY 0개 → 3개로 바꿔도 cost 변화 0.000).
+  그 결과 **"중형" 구간이 4,636행 ~ 2,990만행(4자리수 폭)** 이라 변별력이 거의 없고,
+  로컬/원격 접속 위치만으로 등급 경계가 이동한다.
+- 대응 방향: 화면이 **이미 계산해서 갖고 있는** 카디널리티(`data-distinct`)·예상 그룹 수
+  (`_updateGroupCountEstimate`, GROUP BY 안전게이트의 `estimated_group_count`)를
+  `_mvBuildStatsScaleProfile` 에 함께 실어 보낸다 — **추가 DB 왕복 0회**.
+  단 등급이 크게 이동하므로(실측: 중형 → 초대형) **밴드 재조정과 함께** 해야 하고,
+  표시가 아니라 **판정**(전략 ID · SAMPLE_ONLY 전환 조건)에 영향을 주는 회귀범위 넓은 변경이라
+  **별도 지침·승인**이 필요하다.
+- **정정(2026-08-03 실측 · STATS-SCALE-COST-BAND-BENCHMARK-MEASURE)**: 위 '대응 방향'은 실측으로
+  **반박됐다**. 카디널리티가 5,000배 늘어도(20 → 100,000) 실측 소요시간은 **+12.6%** 뿐인데,
+  현행 가중치(group 3.0 + cardinality 2.0 = 실질 **5.0**×log10)로는 cost 가 **3등급 점프**한다
+  (대형 → 초대형). 그대로 실어 보내면 순위상관이 **+0.854 → +0.499** 로 악화되고,
+  **최적 밴드를 다시 잘라도 일치율이 75% → 60% 로 나빠진다**. 회귀분석(R²=0.766, n=40) 결과
+  scan:groups 실제 비중은 **4.3 : 1** 인데 현행은 **1 : 2.5** 로 약 **11배 뒤집혀** 있다 —
+  **가중치를 먼저 낮추지 않고는 이 대응 방향을 적용하지 말 것.**
+  대신 **밴드 재조정(8/16/24 → 12.5/13.25/14.5) + 세트 수 반영**만으로 시간대 일치율
+  **0% → 80%** 개선을 확인했고, 이는 **별도 항목으로 해결**한다(`STATS-SCALE-BAND-AND-SETCOUNT-ADJUST-FIX`).
+- 관련: F32(밴드 자체가 임시값 — 함께 처리해야 함) · F33(confidence 는 이 항목 해결 시 자연 개선) ·
+  P15(사후차단 케이스는 이 항목이 해결돼야 사전 예측이 가능해진다)
+- 참고: E:\verify_reports\STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt
+- 참고: E:\verify_reports\STATS-SCALE-COST-BAND-BENCHMARK-MEASURE.txt (§4 · §6-3)
+
+### F30. "예상 스캔 N행" 표기가 실측값인데 '예상' 으로 오표기된다(표시 전용 · 저위험)
+- 발견일: 2026-08-03
+- 근거 보고서: `STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt` (§4-2 · §7-P1)
+- 상세: 3단계 "통계검증규모" 타일의 스캔 행수는 **2단계 COUNT 사전검증의 실측값(`src_count`)을
+  그대로 재전송**한 것으로, 추정 로직이 전혀 없다. 따라서 **"예상" 이라는 단어가 부정확한 인상**을 준다.
+  ※ 같은 문구의 **"잠정 <등급>" 부분은 별개**다 — 벤치마크 미확정 cost 밴드 때문이라 **정당하며 유지해야 한다**(F32 참조).
+- 대응 방향: 라이브 COUNT 면 **"원본 실측 N행"**, 저장 복원(`restored=true`)이면
+  **"원본 N행 (저장 시점)"** 으로 구분 표기한다. 판단 근거(`_lastCountResult.restored`)가
+  **이미 있어 새 조회가 불필요**하다.
+- 관련: F35(같은 줄의 스캔값 출처 불일치) · F32('잠정' 접두는 이 항목의 범위가 아님)
+- 참고: E:\verify_reports\STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt
+
+### F32. 통계검증 규모 cost 밴드(8/16/24)가 벤치마크 없는 임시값이다(심각도 LOW)
+- 발견일: 2026-08-03
+- 근거 보고서: `STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt` (§5 · §7-P3)
+- 상세: 등급 경계 8/16/24 는 실측 벤치마크 없이 정해진 임시값이고, 코드 스스로 **"벤치마크 후 교체"**
+  전제를 인정하고 있다(그래서 화면에 '잠정' 접두가 붙는다 — 표기 자체는 정직하다).
+  현재 밴드로는 **"초대형" 이 1,900억행부터**라 실무에서 도달 불가능한 **사문 밴드**다.
+- 대응 방향: 실측 벤치마크로 밴드를 교체한 뒤 **'잠정' 접두를 제거**한다. 상수는
+  `config/size_threshold_registry.py` 처럼 **단일 출처로 이전**하는 것을 권장한다.
+- 관련: F31(밴드 재조정은 프로파일 전달과 함께 해야 함) · F30('잠정' 과 '예상' 은 별개 사안)
+- 참고: E:\verify_reports\STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt
+
+### F33. 규모 산정 `confidence` 필드가 실운영에서 항상 LOW 인데 화면에 표시되지 않는다(심각도 LOW)
+- 발견일: 2026-08-03
+- 근거 보고서: `STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt` (§6-3)
+- 상세: `confidence="HIGH"` 는 (스캔 행수 있음 AND 그룹 수 있음) 일 때만 되는데 **그룹 수를 안 보내므로**
+  실운영에서 confidence 는 **항상 LOW** 다. 게다가 화면이 이 필드 자체를 표시하지 않아
+  **사용자는 이 사실을 알 수 없다**(explainability 갭).
+- 대응 방향: F31 의 카디널리티/그룹 수 전달이 해결되면 자연히 개선될 수 있다 — 그때 화면 노출 여부를 함께 판단한다.
+- 관련: F31(선행 조건)
+- 참고: E:\verify_reports\STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt
+
+### F34. 폴백 등급 필드 `stats_scale_class` 가 소비처만 있고 생산 코드가 없다(죽은 필드 · 심각도 LOW)
+- 발견일: 2026-08-03
+- 근거 보고서: `STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt` (§6-4)
+- 상세: `_mvStatsScaleText` 가 `profile.stats_scale_class` 를 등급으로 매핑하지만,
+  **이 필드를 만드는 코드가 저장소 전체에 없다**(소비처만 3곳). 따라서 `/strategy/plan` 응답이 없으면
+  폴백 경로는 **항상 '산정 전'** 이다 — 폴백이 사실상 죽어 있다.
+- 대응 방향: 죽은 필드 제거를 검토하거나, 실제 생산 로직을 구현할지 여부를 결정해야 한다.
+- 참고: E:\verify_reports\STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt
+
+### F35. "통계검증 규모" 라벨과 실제 데이터 출처(전수비교 계획)가 불일치한다(현재 무증상 · 심각도 LOW)
+- 발견일: 2026-08-03
+- 근거 보고서: `STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt` (§6-5 · §7-P4)
+- 상세: '통계검증 규모' 줄의 스캔값이 `stats_plan` 이 아니라 **`full_compare_plan`(전수비교 계획)의
+  `expected_scan_rows`** 에서 온다. 현재는 두 값이 같아 증상이 없지만, 라벨과 데이터 출처가 어긋나 있어
+  향후 한쪽만 바뀌면 조용한 오표시가 된다.
+- 대응 방향: 스캔값 출처를 `stats_plan.estimated_scan_rows` 로 정렬한다(라벨 - 데이터 일치).
+- 관련: F30(같은 줄의 표기 정확성)
+- 참고: E:\verify_reports\STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt
 
 ### F26. `NO_INSERT_COLUMN_LIST` 원인은 원리상 지원 가능하나 추출기 본체 변경이 필요해 미착수다
 - 발견일: 2026-08-02
@@ -1158,7 +1357,22 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: P2(해결 완료 — 저장까지는 완료)
 - 참고: E:\verify_reports\PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX.txt
 
-### F28. `MetaCollector._fetch_samples` 의 스키마 미한정 조회가 근본적으로 남아 있다
+### F28. ✅ 해결 완료 — `MetaCollector._fetch_samples` 의 스키마 미한정 조회가 근본적으로 남아 있다
+- 해결일: 2026-08-03 (METACOLLECTOR-SCHEMA-QUALIFIED-SAMPLE-FETCH-FIX)
+- 근거 커밋: 코드 저장소 `75bfbd0` — `fix(db): MetaCollector 샘플 조회를 스키마 한정으로 전환
+  (METACOLLECTOR-SCHEMA-QUALIFIED-SAMPLE-FETCH-FIX)`
+- 근거 보고서 커밋: 이 저장소 `fa66dea`(완료보고 `METACOLLECTOR-SCHEMA-QUALIFIED-SAMPLE-FETCH-FIX`)
+- 해결 요약: 대응 방향대로 `_fetch_samples` 가 bare 테이블명으로 조회하던 것을,
+  **메타 조회에서 얻은 실제 스키마로 한정 조회**(방언별 식별자 인용)하도록 전환했다.
+  `search_path` 밖 스키마 테이블의 샘플 0건 문제가 해소됐다 —
+  실측: PostgreSQL 재현 케이스가 Before 메타 8 / 샘플 0 → After 메타 8 / 샘플 4.
+  **값 대조로 정답 스키마임을 확인**했다(수정 후 C1 = 이미 확정된 케이스 C3 과 완전 동일값).
+  트랜잭션 abort 전파도 rollback 으로 근원 차단했다.
+  MariaDB / Oracle 도 `schema.table` 경로 해소 + 무회귀를 확인했고, MSSQL 은 드라이버 부재로
+  유닛테스트까지만 검증했다.
+- 잔여(미해결): ① 동명 테이블이 여러 스키마에 있고 인자가 bare 인 케이스는 여전히 미수집이다
+  (의도된 안전 설계 — 잘못된 스키마를 고르지 않기 위함). ② 컬럼 식별자는 아직 인용하지 않는다.
+  ③ "샘플 0건" 의 사유가 결과에 explainability 로 남지 않는다.
 - 발견일: 2026-08-02
 - 근거 보고서: `PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX.txt` (§7 · §5)
 - 상세: `db/meta_collector.py` 의 `_fetch_samples` 가 **스키마를 한정하지 않고** 조회해,
@@ -1167,6 +1381,7 @@ git -C E:/verify_reports worktree remove <임시경로>
   P2 수정은 rollback 을 추가해 **후속 쿼리 오염만 차단**했을 뿐, 이 조회 자체는 고치지 않았다 —
   즉 해당 테이블의 샘플 수집은 여전히 실패한다.
 - 대응 방향: 별도 작업으로 **스키마 한정 조회**를 구현한다(파일 범위 밖이라 이번엔 미착수).
+  → 2026-08-03 완료(위 `해결 요약` 참조).
 - 관련: P2(해결 완료 — 오염 차단까지만)
 - 참고: E:\verify_reports\PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX.txt
 
@@ -1564,6 +1779,32 @@ git -C E:/verify_reports worktree remove <임시경로>
   ② 배너 미표시 원인은 별도 조사(결과 영역 표시 순서/CSS 우선순위 후보).
 - 관련: S18(같은 SQL 로 발견됐으나 경로가 다름 — 이쪽은 서버 미도달) · M28
 - 참고: E:\verify_reports\CRITICAL-S15-S16-S18-LIVE-BROWSER-ORACLE-VERIFY\_REPORT.txt (§3-3)
+
+### M32. BLOCKED 응답에는 `query_timing` 이 없어 성능 추적에서 조용히 누락된다(심각도 LOW)
+- 발견일: 2026-08-03
+- 근거 보고서: `STATS-SCALE-COST-BAND-BENCHMARK-MEASURE.txt` (§7-2)
+- 상세: 결과 그룹 상한 초과로 차단된 케이스는 **DB 구간이 0ms 로 기록되고 56초가 통째로 '앱 구간'** 에
+  잡힌다. `query_timing` 을 **성공 경로에서만 채우기** 때문이다. 이 필드로 성능 회귀를 추적하면
+  **차단 케이스가 통계에서 조용히 사라진다**(가장 오래 걸린 케이스가 집계에서 빠지는 방향의 왜곡).
+- 대응 방향: BLOCKED 응답에도 **실제 소요시간을 채워 넣는 배선**을 검토한다 — 구간 분리(DB/앱)가
+  어렵다면 **총 소요시간만이라도** 기록하는 것으로 충분하다.
+- 관련: P15(같은 차단 케이스의 사후차단 문제)
+- 참고: E:\verify_reports\STATS-SCALE-COST-BAND-BENCHMARK-MEASURE.txt (§7-2)
+
+### M33. 실행이 원인불명으로 13분 넘게 정지한 사례 1회(약 90회 중 1회 · 재현율 낮음 · 관찰 대상)
+- 발견일: 2026-08-03
+- 근거 보고서: `STATS-SCALE-COST-BAND-BENCHMARK-MEASURE.txt` (§7-3)
+- 상세: 10만 그룹 케이스(`C-100000-amt`) 실행 중 진행이 멈춰 **13분 이상 정지**했다. 당시 상태 —
+  · 서버측 세션: `idle in transaction / ClientRead`(= 결과를 다 보내고 **클라이언트 응답 대기**)
+  · 클라이언트 프로세스: **CPU 0.64초 고정 · 메모리 57MB 고정**(CPU 를 전혀 쓰지 않음)
+  · 목적지 연결: **아직 열리지도 않은 상태**
+  즉 **원본 fetch 반환 ~ 목적지 fetch 시작 사이 구간**에서 정지했다. 프로세스 재시작 후 **같은 케이스가
+  2,493ms 에 정상 완료**했고 이후 전체 재측정에서도 재발하지 않았다.
+  함께 관측된 것: 당시 남아 있던 **다른 유휴 연결 1개가 `SET statement_timeout = 0` 상태로 25분간 idle**
+  이었다 — **연결 반납 경로**도 함께 볼 필요가 있다.
+- 대응 방향: 재현율이 낮아(**1/약 90**) 원인 미확정. 측정 하니스에 **faulthandler 주기 덤프**를 걸어 두었으니
+  재발 시 그 덤프로 원인 규명을 시도한다. **당장 조치 불필요 — 관찰 대상으로 등록.**
+- 참고: E:\verify_reports\STATS-SCALE-COST-BAND-BENCHMARK-MEASURE.txt (§7-3)
 
 ### M28. S18 사전차단을 통과한 뒤, 문법상 잘못된 SQL 이 오류 없이 `success=true` 로 진행된다
 - 발견일: 2026-08-02

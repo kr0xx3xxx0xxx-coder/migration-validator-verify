@@ -1,0 +1,526 @@
+{
+ "phase": "before",
+ "pair": [
+  "PostgreSQL_Inter_asis",
+  "PostgreSQL_Inter_tobe"
+ ],
+ "sql": "INSERT INTO tobe01.t_to_n_etl04 (student_id, activity_id, participation, activity_score, fb_summary, last_updated) SELECT stu_id, activity_id, participation, score, feedback, last_updated FROM asis01.t_as_n_etl04",
+ "기대_라벨순서": [
+  "목적테이블",
+  "원본테이블",
+  "입력컬럼수",
+  "추출컬럼수",
+  "컬럼매핑수",
+  "조건문",
+  "조인",
+  "처리시간",
+  "상태"
+ ],
+ "setup": {
+  "pair_label": "PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe",
+  "pair_existed": false,
+  "pair_rows_after": 1,
+  "connect_clicked": true,
+  "pair_row_text": "접속중PostgreSQL_Inter_asis → PostgreSQL_Inter_tobePostgreSQL_Inter_asisPOSTGRESQLPostgreSQL_Inter_tobePOSTGRESQL상세접속 끊기삭제",
+  "current_tab": "analyze"
+ },
+ "A_탭진입직후": {
+  "보는탭": "query",
+  "카드_화면노출": true,
+  "카드_박스": {
+   "top": 226,
+   "bottom": 433,
+   "left": 302,
+   "right": 1558,
+   "width": 1256,
+   "height": 207
+  },
+  "SQL입력_카드_박스": {
+   "top": 445,
+   "bottom": 822,
+   "left": 302,
+   "right": 1558,
+   "width": 1256,
+   "height": 377
+  },
+  "카드가_SQL입력_위": true,
+  "타일수": 0,
+  "타일": [],
+  "타일라벨목록": [],
+  "타일컨테이너_박스": null,
+  "카드본문_박스": {
+   "top": 275,
+   "bottom": 432,
+   "left": 303,
+   "right": 1557,
+   "width": 1254,
+   "height": 157
+  },
+  "타일_우측여백_px": null,
+  "타일_최대우측": null,
+  "타일_줄수": null,
+  "그리드잔재": {
+   "table요소수": 0,
+   "tabulator컬럼헤더수": 9,
+   "th요소수": 0,
+   "정렬화살표수": 9,
+   "페이지네이션문구": true,
+   "초기순서버튼": true,
+   "tabulator루트수": 1
+  },
+  "구Grid_헤더": [
+   "목적테이블",
+   "원본테이블",
+   "입력컬럼수",
+   "추출컬럼수",
+   "컬럼매핑수",
+   "조건문",
+   "조인",
+   "처리시간",
+   "상태"
+  ],
+  "구Grid_값행수": 0,
+  "구Grid_첫행": null,
+  "처리시간_슬롯": {
+   "stage1": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   },
+   "stage2": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   },
+   "stage3": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   },
+   "stage4": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   },
+   "stage5": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   }
+  },
+  "단계탭바에_1단계처리시간문구": false,
+  "파싱_원본테이블": null,
+  "파싱_목적테이블": null,
+  "응답_diagnostics_total_ms": null,
+  "분석데이터_존재": false
+ },
+ "실행결과": {
+  "step": "query",
+  "blocked": false,
+  "err": null,
+  "from_table": "T_AS_N_ETL04",
+  "target_table": ""
+ },
+ "C_쿼리검토_실행후": {
+  "보는탭": "query",
+  "카드_화면노출": true,
+  "카드_박스": {
+   "top": 226,
+   "bottom": 413,
+   "left": 302,
+   "right": 1558,
+   "width": 1256,
+   "height": 187
+  },
+  "SQL입력_카드_박스": {
+   "top": 425,
+   "bottom": 802,
+   "left": 302,
+   "right": 1558,
+   "width": 1256,
+   "height": 377
+  },
+  "카드가_SQL입력_위": true,
+  "타일수": 0,
+  "타일": [],
+  "타일라벨목록": [],
+  "타일컨테이너_박스": null,
+  "카드본문_박스": {
+   "top": 275,
+   "bottom": 412,
+   "left": 303,
+   "right": 1557,
+   "width": 1254,
+   "height": 137
+  },
+  "타일_우측여백_px": null,
+  "타일_최대우측": null,
+  "타일_줄수": null,
+  "그리드잔재": {
+   "table요소수": 0,
+   "tabulator컬럼헤더수": 9,
+   "th요소수": 0,
+   "정렬화살표수": 9,
+   "페이지네이션문구": true,
+   "초기순서버튼": true,
+   "tabulator루트수": 1
+  },
+  "구Grid_헤더": [
+   "목적테이블",
+   "원본테이블",
+   "입력컬럼수",
+   "추출컬럼수",
+   "컬럼매핑수",
+   "조건문",
+   "조인",
+   "처리시간",
+   "상태"
+  ],
+  "구Grid_값행수": 1,
+  "구Grid_첫행": [
+   "tobe01.t_to_n_etl04",
+   "asis01.t_as_n_etl04",
+   "6",
+   "6",
+   "6/6",
+   "없음",
+   "없음",
+   "0.58초",
+   "● 정상"
+  ],
+  "처리시간_슬롯": {
+   "stage1": {
+    "화면표시": false,
+    "display": "none",
+    "값": "· 1단계 처리시간: 0.58초"
+   },
+   "stage2": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   },
+   "stage3": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   },
+   "stage4": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   },
+   "stage5": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   }
+  },
+  "단계탭바에_1단계처리시간문구": false,
+  "파싱_원본테이블": "T_AS_N_ETL04",
+  "파싱_목적테이블": "T_TO_N_ETL04",
+  "응답_diagnostics_total_ms": 577.8,
+  "분석데이터_존재": true
+ },
+ "COUNT실행결과": {
+  "moved": true,
+  "clicks": 2,
+  "count_status": "COUNT_MINOR_DIFF",
+  "src_count": 12000000,
+  "tgt_count": 11399411,
+  "force_btn": false,
+  "gate_excerpt": "소규모 COUNT 차이원본 12,000,000 · 목적 11,399,411 · 순 차이 600,589 · 목적지 적재율 95.0%소규모 COUNT 차이(순 차이 600,589건) — 통계검증과 Exact Diff 로 실제 누락/과잉/값 불일치를 확인하세요(차이만으로 종료하지 않음).다음 단계: 통계검증 계속통계검증 계속 →"
+ },
+ "E_2단계_COUNT후": {
+  "보는탭": "count",
+  "카드_화면노출": false,
+  "카드_박스": {
+   "top": 0,
+   "bottom": 0,
+   "left": 0,
+   "right": 0,
+   "width": 0,
+   "height": 0
+  },
+  "SQL입력_카드_박스": {
+   "top": 0,
+   "bottom": 0,
+   "left": 0,
+   "right": 0,
+   "width": 0,
+   "height": 0
+  },
+  "카드가_SQL입력_위": false,
+  "타일수": 0,
+  "타일": [],
+  "타일라벨목록": [],
+  "타일컨테이너_박스": null,
+  "카드본문_박스": {
+   "top": 0,
+   "bottom": 0,
+   "left": 0,
+   "right": 0,
+   "width": 0,
+   "height": 0
+  },
+  "타일_우측여백_px": null,
+  "타일_최대우측": null,
+  "타일_줄수": null,
+  "그리드잔재": {
+   "table요소수": 0,
+   "tabulator컬럼헤더수": 9,
+   "th요소수": 0,
+   "정렬화살표수": 9,
+   "페이지네이션문구": true,
+   "초기순서버튼": true,
+   "tabulator루트수": 1
+  },
+  "구Grid_헤더": [
+   "목적테이블",
+   "원본테이블",
+   "입력컬럼수",
+   "추출컬럼수",
+   "컬럼매핑수",
+   "조건문",
+   "조인",
+   "처리시간",
+   "상태"
+  ],
+  "구Grid_값행수": 0,
+  "구Grid_첫행": null,
+  "처리시간_슬롯": {
+   "stage1": {
+    "화면표시": false,
+    "display": "none",
+    "값": "· 1단계 처리시간: 0.58초"
+   },
+   "stage2": {
+    "화면표시": true,
+    "display": "",
+    "값": "· 2단계 처리시간: 10.47초"
+   },
+   "stage3": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   },
+   "stage4": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   },
+   "stage5": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   }
+  },
+  "단계탭바에_1단계처리시간문구": false,
+  "파싱_원본테이블": "T_AS_N_ETL04",
+  "파싱_목적테이블": "T_TO_N_ETL04",
+  "응답_diagnostics_total_ms": 577.8,
+  "분석데이터_존재": true
+ },
+ "F_1단계_재진입": {
+  "보는탭": "query",
+  "카드_화면노출": true,
+  "카드_박스": {
+   "top": 226,
+   "bottom": 413,
+   "left": 302,
+   "right": 1558,
+   "width": 1256,
+   "height": 187
+  },
+  "SQL입력_카드_박스": {
+   "top": 425,
+   "bottom": 802,
+   "left": 302,
+   "right": 1558,
+   "width": 1256,
+   "height": 377
+  },
+  "카드가_SQL입력_위": true,
+  "타일수": 0,
+  "타일": [],
+  "타일라벨목록": [],
+  "타일컨테이너_박스": null,
+  "카드본문_박스": {
+   "top": 275,
+   "bottom": 412,
+   "left": 303,
+   "right": 1557,
+   "width": 1254,
+   "height": 137
+  },
+  "타일_우측여백_px": null,
+  "타일_최대우측": null,
+  "타일_줄수": null,
+  "그리드잔재": {
+   "table요소수": 0,
+   "tabulator컬럼헤더수": 9,
+   "th요소수": 0,
+   "정렬화살표수": 9,
+   "페이지네이션문구": true,
+   "초기순서버튼": true,
+   "tabulator루트수": 1
+  },
+  "구Grid_헤더": [
+   "목적테이블",
+   "원본테이블",
+   "입력컬럼수",
+   "추출컬럼수",
+   "컬럼매핑수",
+   "조건문",
+   "조인",
+   "처리시간",
+   "상태"
+  ],
+  "구Grid_값행수": 1,
+  "구Grid_첫행": [
+   "tobe01.t_to_n_etl04",
+   "asis01.t_as_n_etl04",
+   "6",
+   "6",
+   "6/6",
+   "없음",
+   "없음",
+   "0.58초",
+   "● 정상"
+  ],
+  "처리시간_슬롯": {
+   "stage1": {
+    "화면표시": false,
+    "display": "none",
+    "값": "· 1단계 처리시간: 0.58초"
+   },
+   "stage2": {
+    "화면표시": false,
+    "display": "none",
+    "값": "· 2단계 처리시간: 10.47초"
+   },
+   "stage3": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   },
+   "stage4": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   },
+   "stage5": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   }
+  },
+  "단계탭바에_1단계처리시간문구": false,
+  "파싱_원본테이블": "T_AS_N_ETL04",
+  "파싱_목적테이블": "T_TO_N_ETL04",
+  "응답_diagnostics_total_ms": 577.8,
+  "분석데이터_존재": true
+ },
+ "G_좁은폭_900": {
+  "보는탭": "query",
+  "카드_화면노출": true,
+  "카드_박스": {
+   "top": 402,
+   "bottom": 589,
+   "left": 172,
+   "right": 728,
+   "width": 556,
+   "height": 187
+  },
+  "SQL입력_카드_박스": {
+   "top": 601,
+   "bottom": 1015,
+   "left": 172,
+   "right": 728,
+   "width": 556,
+   "height": 414
+  },
+  "카드가_SQL입력_위": true,
+  "타일수": 0,
+  "타일": [],
+  "타일라벨목록": [],
+  "타일컨테이너_박스": null,
+  "카드본문_박스": {
+   "top": 451,
+   "bottom": 588,
+   "left": 173,
+   "right": 727,
+   "width": 554,
+   "height": 137
+  },
+  "타일_우측여백_px": null,
+  "타일_최대우측": null,
+  "타일_줄수": null,
+  "그리드잔재": {
+   "table요소수": 0,
+   "tabulator컬럼헤더수": 9,
+   "th요소수": 0,
+   "정렬화살표수": 9,
+   "페이지네이션문구": true,
+   "초기순서버튼": true,
+   "tabulator루트수": 1
+  },
+  "구Grid_헤더": [
+   "목적테이블",
+   "원본테이블",
+   "입력컬럼수",
+   "추출컬럼수",
+   "컬럼매핑수",
+   "조건문",
+   "조인",
+   "처리시간",
+   "상태"
+  ],
+  "구Grid_값행수": 1,
+  "구Grid_첫행": [
+   "tobe01.t_to_n_etl04",
+   "asis01.t_as_n_etl04",
+   "6",
+   "6",
+   "6/6",
+   "없음",
+   "없음",
+   "0.58초",
+   "● 정상"
+  ],
+  "처리시간_슬롯": {
+   "stage1": {
+    "화면표시": false,
+    "display": "none",
+    "값": "· 1단계 처리시간: 0.58초"
+   },
+   "stage2": {
+    "화면표시": false,
+    "display": "none",
+    "값": "· 2단계 처리시간: 10.47초"
+   },
+   "stage3": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   },
+   "stage4": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   },
+   "stage5": {
+    "화면표시": false,
+    "display": "none",
+    "값": ""
+   }
+  },
+  "단계탭바에_1단계처리시간문구": false,
+  "파싱_원본테이블": "T_AS_N_ETL04",
+  "파싱_목적테이블": "T_TO_N_ETL04",
+  "응답_diagnostics_total_ms": 577.8,
+  "분석데이터_존재": true
+ },
+ "pageerrors": [
+  "CONSOLE.error: Failed to load resource: the server responded with a status of 404 (Not Found)"
+ ]
+}
