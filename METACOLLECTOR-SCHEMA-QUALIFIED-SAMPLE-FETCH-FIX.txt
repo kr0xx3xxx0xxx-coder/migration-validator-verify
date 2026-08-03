@@ -1,0 +1,214 @@
+작업명 : METACOLLECTOR-SCHEMA-QUALIFIED-SAMPLE-FETCH-FIX
+✅ 작업 완료 - METACOLLECTOR-SCHEMA-QUALIFIED-SAMPLE-FETCH-FIX - MetaCollector 샘플 조회를 메타에서 해소한 스키마로 한정(방언별 인용)해 search_path 밖 스키마 테이블의 샘플 0건 결함(F28)을 해소하고, 실패 시 rollback 으로 트랜잭션 abort 전파까지 차단
+
+작성일 : 2026-08-03
+코드 커밋 : 75bfbd0 (main)
+검증 DB : 내부망 PostgreSQL(PostgreSQL_Inter_asis, dbname=asis) / MariaDB(MariaDB_asis, nxdnp) / Oracle(Oracle_asis, NXDNP)
+
+──────────────────────────────────────────────────────────────────────────────
+§1. 배경과 실제 원인
+──────────────────────────────────────────────────────────────────────────────
+백로그 F28. db/meta_collector.py 의 _fetch_samples 는 샘플 100건 조회 SQL 을
+스키마 없이 테이블명만으로 만들었다.
+
+  (수정 전)
+    tbl = table_name
+    sql = f"SELECT {col_list} FROM {tbl} LIMIT 100"      # postgresql/mysql
+    sql = f"SELECT {col_list} FROM {tbl} WHERE ROWNUM <= 100"   # oracle
+    sql = f"SELECT TOP 100 {col_list} FROM {tbl}"        # mssql
+
+메타 조회(_fetch_meta)는 information_schema/all_tab_columns 를 스키마 무관하게
+검색하므로 테이블을 찾아낸다. 그런데 샘플 조회는 세션의 search_path(PostgreSQL) /
+현재 스키마에 의존하므로, search_path 밖 스키마의 테이블이면 relation 미존재로 실패한다.
+collect() 는 그 예외를 `except Exception: pass` 로 삼켰기 때문에
+
+  - 샘플이 조용히 0건이 되고(품질 저하가 겉으로 안 드러남),
+  - PostgreSQL 에서는 실패 문장이 트랜잭션을 abort 상태로 남겨
+    같은 커넥션의 후속 쿼리(재수집 distinct 등)까지 전멸시켰다.
+
+PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX(§5,§7)의 P2 는 호출부
+(services/profile_recollect_service.py `_recollect_one_side`)에서 rollback 을 넣어
+"후속 오염"만 막았고, 조회 자체는 미수정으로 남아 있었다. 이번 작업이 그 조회를 고쳤다.
+
+추가로 드러난 인접 결함(같은 함수 계열, 함께 수정):
+  - table_name 이 'schema.table' 로 들어오면 _fetch_meta 가 그 문자열을 통째로
+    테이블명과 비교(LOWER(c.table_name) = 'ntb.gt_hr_employee')해서 메타가 0건이 됐다.
+    호출부(routes/batch_route.py, services/profile_recollect_service.py)는 파싱된
+    원본/목적 테이블명을 그대로 넘기므로 스키마가 붙은 값이 실제로 올 수 있다.
+
+──────────────────────────────────────────────────────────────────────────────
+§2. 요구사항 대비 처리 결과
+──────────────────────────────────────────────────────────────────────────────
+요구 1 (스키마 미한정 지점 확인)
+  → db/meta_collector.py `_fetch_samples` 의 FROM 절 4방언 전부가 bare 테이블명.
+    (ARCHITECTURE.md 1380 행에 이미 "컬럼별 조회" 로 기재된 그 지점)
+
+요구 2 (기존 식별자 구성 패턴 재사용)
+  → 기존 패턴 2곳을 확인해 같은 규약을 채택했다.
+      · services/profile_recollect_service.py `_quote_ident` (mysql 백틱 / 그 외 큰따옴표)
+      · services/diagnosis/dbms/basic_stats_contract.py `quote_ident` + `qualify(schema, table, dbms)`
+    다만 db 계층이 services 를 import 하면 의존 방향이 역전되고
+    (services/profile_recollect_service 가 db/meta_collector 를 import 한다) 순환이 생기므로,
+    같은 규약의 `_quote_ident` / `_split_schema_table` 을 db/meta_collector.py 안에 두고
+    mssql 대괄호까지 4방언으로 확장했다. 주석에 출처 규약을 명시했다.
+
+요구 3 (스키마 전달 여부 / 호출부 배선)
+  → 호출부는 스키마를 별도 인자로 넘기지 않는다(collect 시그니처에 schema 인자 없음).
+    새 왕복을 추가하지 않기 위해, 이미 실행하던 메타 쿼리 SELECT 목록에
+    스키마·테이블 실제 표기 2컬럼을 추가해서 해소했다.
+    → 호출부(batch_route / profile_recollect_service) 코드 변경 0줄.
+      'schema.table' 을 넘기는 호출부도 이제 그대로 동작한다(§1 인접 결함 해소).
+
+──────────────────────────────────────────────────────────────────────────────
+§3. 수정 내용 (db/meta_collector.py 1개 파일)
+──────────────────────────────────────────────────────────────────────────────
+1) `_quote_ident(name, dialect)` 신설 — mysql/mariadb 백틱, mssql 대괄호, 그 외 큰따옴표.
+   인용부호는 이스케이프(`a"b` → `"a""b"`, `a]b` → `[a]]b]`).
+2) `_split_schema_table(table_name)` 신설 — 'schema.table' / bare / 인용부호 / 3-part 분리.
+3) `_fetch_meta` : 반환을 (meta, schema, real_table) 튜플로 확장.
+   - SELECT 에 스키마/테이블 실제 표기 추가 (pg: table_schema·table_name,
+     oracle: owner·table_name, mysql: table_schema·table_name, mssql: TABLE_SCHEMA·TABLE_NAME)
+   - table_name 에 스키마가 붙어 있으면 그 스키마를 WHERE 조건으로 한정
+     (pg/mssql: `(%s = '' OR LOWER(table_schema) = %s)`, oracle: `(:sch IS NULL OR UPPER(owner) = :sch)`,
+      mysql: `table_schema = COALESCE(NULLIF(%s,''), DATABASE())`) — 전부 바인드 파라미터, 문자열 결합 없음.
+   - 결과 row 의 스키마/테이블이 **하나로 확정될 때만** 반환한다.
+     동명 테이블이 여러 스키마에 있으면 임의 선택하지 않고 ''(기존 bare 동작 유지).
+4) `_fetch_samples(..., schema='')` : schema 가 있으면
+   `"스키마"."테이블"`(방언 인용) 로 한정 조회, 없으면 종전과 동일한 bare 조회.
+   테이블 표기는 호출부가 준 문자열이 아니라 **카탈로그의 실제 표기**를 쓴다
+   (대문자로 넘겨도 PG 소문자 실제명으로 조회).
+5) `_safe_rollback(conn)` 신설 + collect() 의 메타 실패/샘플 실패 두 경로에서 호출.
+   읽기 전용 수집 경로라 되돌릴 변경이 없고, PostgreSQL 트랜잭션 abort 전파를 근원에서 차단한다.
+   (호출부 P2 rollback 과 중복되어도 무해)
+
+의도적으로 하지 않은 것:
+  - 컬럼명은 종전대로 인용하지 않는다(대문자 bare → PG 소문자 폴딩 동작 유지, 회귀 위험 최소화).
+  - 동명 테이블 모호 케이스는 스키마를 임의 선택하지 않는다(조용한 오답 방지). 이 경우
+    정답 경로는 호출부가 'schema.table' 을 넘기는 것이고, 그 경로가 이번에 동작하게 됐다.
+
+──────────────────────────────────────────────────────────────────────────────
+§4. 실측 — PostgreSQL (핵심 재현)
+──────────────────────────────────────────────────────────────────────────────
+하니스 : scripts/dev_e2e/metacollector_schema_qualified_sample_fetch_verify.py <before|after>
+환경   : 내부망 PG(asis). search_path = "$user", public
+         → ntb / asis01 / mvbench 스키마는 전부 search_path 밖 (재현 조건 성립)
+픽스처 : ntb.gt_hr_employee (8컬럼, 샘플 대상 4컬럼)
+         t_as_1_etl03 (asis01 · ntb 두 스키마에 동명 존재 — 모호 케이스)
+
+  케이스                       인자                         수정 전                                수정 후
+  --------------------------------------------------------------------------------------------------------------------
+  C1 search_path 밖 bare       gt_hr_employee               메타 8 / 샘플 0 / tx=INERROR /         메타 8 / 샘플 4 /
+                                                            후속쿼리 실패                          tx=INTRANS / 후속쿼리 정상
+  C2 schema.table 인자         ntb.gt_hr_employee           메타 0 / 샘플 0                        메타 8 / 샘플 4
+  C3 search_path 안 (무회귀)   gt_hr_employee (sp=ntb)      메타 8 / 샘플 4                        메타 8 / 샘플 4  (동일)
+  C4 동명테이블 모호 bare      t_as_1_etl03                 메타 11 / 샘플 0 / tx=INERROR /        메타 11 / 샘플 0 /
+                                                            후속쿼리 실패                          tx=IDLE / 후속쿼리 정상
+  C5 동명테이블 스키마명시     asis01.t_as_1_etl03          메타 0 / 샘플 0                        메타 11 / 샘플 3
+
+샘플 출처 검증 : C1(수정 후) 의 값이 C3(search_path 를 ntb 로 강제한 확정 케이스) 와 완전히 동일
+  SAL_AMT=[1100,2000,3000] · CNSVC_MCNT=[7,14,21] · BASE_DT=[2021-01-14,2021-01-27,2021-02-09]
+  → 다른 스키마의 동명 테이블이 아니라 정확히 ntb 스키마에서 읽었음이 값으로 확인된다.
+
+C4 는 설계대로 샘플 미수집(모호 → 임의 선택 금지)이지만, 수정 전과 달리 트랜잭션이
+오염되지 않는다(INERROR/후속쿼리 실패 → IDLE/후속쿼리 정상). F28 의 2차 피해는 이 케이스에서도 제거됐다.
+
+증적 JSON :
+  scripts/dev_e2e/metacollector_schema_qualified_sample_fetch_verify_before.json
+  scripts/dev_e2e/metacollector_schema_qualified_sample_fetch_verify_after.json
+  (본 보고서와 함께 verify 저장소 METACOLLECTOR-SCHEMA-QUALIFIED-SAMPLE-FETCH-FIX/ 폴더에 보존)
+
+──────────────────────────────────────────────────────────────────────────────
+§5. 실측 — MariaDB(mysql 분기) / Oracle
+──────────────────────────────────────────────────────────────────────────────
+하니스 : scripts/dev_e2e/metacollector_schema_qualified_other_dialects_verify.py <before|after>
+         (before 는 HEAD 기준 임시 worktree 에서 실행 — 코드만 다르고 DB 는 동일)
+
+  방언      케이스                인자                              수정 전            수정 후
+  ---------------------------------------------------------------------------------------------------
+  mysql     M1 bare               TMD_SYNC_PERFORM_MASTER           6컬럼 / 샘플 2     6컬럼 / 샘플 2 (무회귀)
+  mysql     M2 db.table           nxdnp.TMD_SYNC_PERFORM_MASTER     0컬럼 / 샘플 0     6컬럼 / 샘플 2
+  oracle    O1 bare               MVQ_DEPT                          2컬럼 / 샘플 1     2컬럼 / 샘플 1 (무회귀)
+  oracle    O2 OWNER.TABLE        NXDNP.MVQ_DEPT                    0컬럼 / 샘플 0     2컬럼 / 샘플 1
+
+mssql 은 이 PC 에 드라이버(pyodbc)가 없어 실 DB 실측 불가 — 유닛 테스트(가짜 커넥션)로
+`[dbo].[T_X]` + `TOP 100` 생성만 검증했다. 이 한 방언은 실측 미도달임을 명시한다.
+
+──────────────────────────────────────────────────────────────────────────────
+§6. 테스트
+──────────────────────────────────────────────────────────────────────────────
+신규 : tests/test_metacollector_schema_qualified_sample_fetch.py (10 tests, 3 subtests) — 전부 통과
+  · 방언별 인용/이스케이프, 'schema.table' 분리
+  · PG 샘플 SQL 이 "ntb"."gt_hr_employee" 로 한정되는지
+  · 호출부 대문자 인자에도 카탈로그 실제 표기(소문자)를 쓰는지
+  · 'schema.table' 인자가 메타 쿼리 파라미터로 전달되는지
+  · 동명 테이블 모호 시 bare 유지
+  · 스키마 컬럼이 없는 구형 row 형태에서도 예외 없이 동작
+  · oracle/mysql/mssql 한정 SQL + LIMIT 구문
+  · 샘플 실패 시 rollback 1회 호출 + 메타는 그대로 반환
+
+회귀 서브셋 (수정본):
+  tests/test_metacollector_schema_qualified_sample_fetch.py
+  tests/test_task9_5b.py  tests/test_task11_h3.py
+  tests/test_profile_recollect_sampling_guard.py
+    → 통과 (test_task9_5b / task11_h3 / profile_recollect_sampling_guard 50 passed, 1 skipped)
+
+profile·sample·meta 관련 전체 서브셋 (tests/test_*profile*.py, *sample*, *meta*):
+  655 passed, 3 skipped, 7 failed, 7 errors (139초)
+
+baseline 대조 (동일 파일 집합·동일 순서, main 작업트리에서 db/meta_collector.py 만
+HEAD 로 되돌려 실행 → 다시 수정본 복원):
+  BEFORE : 7 failed, 107 passed, 7 errors
+  AFTER  : 7 failed, 107 passed, 7 errors      ← 완전 동일 (신규 실패 0)
+
+사전 존재 실패 전체 목록 (전부 conftest 의 [PROD-DB-WRITE-BLOCKED] 운영 SQLite 쓰기 가드
+또는 기존 문구 불일치 — 이번 변경과 무관, baseline 에서 동일하게 재현):
+  FAILED tests/test_active_path_header_and_profile_order.py::test_active_source_then_target_on_top
+  FAILED tests/test_batch_profile_candidate_parity.py::test_calc_profile_present_parity
+  FAILED tests/test_batch_profile_recollect_control.py::test_candidate_freshness_service_empty
+  FAILED tests/test_batch_profile_recollect_control.py::test_candidate_freshness_stale_when_profile_newer
+  FAILED tests/test_batch_profile_recollect_control.py::test_recollect_snapshot_roundtrip_surfaces_distinct_and_type
+  FAILED tests/test_task11_q_profile_lookup.py::TC17_18_SchemaAndMigration::test_18_init_db_migration_adds_columns
+  FAILED tests/test_task11_r_source_profile.py::TC04_08_SourceSnapshotStore::test_06_source_or_target_source_stored
+  ERROR  tests/test_task11_p_profile_snapshot.py::TC06_08_EnricherIntegration::test_06_candidate_input_builder_accepts_snapshot
+  ERROR  tests/test_task11_p_profile_snapshot.py::TC06_08_EnricherIntegration::test_07_enricher_uses_profile_stats_for_display_score
+  ERROR  tests/test_task11_p_profile_snapshot.py::TC06_08_EnricherIntegration::test_08_individual_batch_same_snapshot_same_score
+  ERROR  tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_09_job_type_equal
+  ERROR  tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_10_department_code_equal
+  ERROR  tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_11_hire_date_equal
+  ERROR  tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_12_salary_equal
+  (test_batch_profile_recollect_control.py 는 단독 실행 시 3건 실패 — BEFORE/AFTER 각각 단독 실행해
+   3 failed, 31 passed 로 동일함을 별도 확인. 조합에 따라 목록이 3↔2 로 흔들리는 순서 의존은 기존 성질)
+
+──────────────────────────────────────────────────────────────────────────────
+§7. git
+──────────────────────────────────────────────────────────────────────────────
+커밋 : 75bfbd0  fix(db): MetaCollector 샘플 조회를 스키마 한정으로 전환 (METACOLLECTOR-SCHEMA-QUALIFIED-SAMPLE-FETCH-FIX)
+직전 HEAD : a06827e (커밋 직전 재확인 — 동시 세션 커밋 위에 올렸고, 타 세션 미커밋 변경은
+            커밋 시점에 남아 있지 않았다. 커밋 후 작업트리 미커밋 변경 0)
+
+  db/meta_collector.py                                                    | 146 +++++++++---
+  scripts/dev_e2e/metacollector_schema_qualified_other_dialects_verify.py | 124 ++++++++++
+  scripts/dev_e2e/metacollector_schema_qualified_sample_fetch_verify.py   | 141 ++++++++++++
+  tests/test_metacollector_schema_qualified_sample_fetch.py               | 165 ++++++++++++
+  4 files changed, 553 insertions(+), 23 deletions(-)
+
+pre-commit 비밀번호 스캔 통과(staged 4개 파일, 지문 4건 대조). 하니스는 접속정보를
+db_presets_src.json 에서 읽고 비밀번호를 출력하지 않는다(보고서에도 미포함).
+
+──────────────────────────────────────────────────────────────────────────────
+§8. 남은 한계 / 후속 후보
+──────────────────────────────────────────────────────────────────────────────
+1. 동명 테이블이 여러 스키마에 있고 호출부가 bare 이름만 주면 여전히 샘플 0건이다
+   (임의 선택 금지 정책). 메타도 두 스키마 컬럼이 섞여 반환되는 기존 성질은 그대로다.
+   근본 해소는 호출부가 스키마를 붙여 넘기는 것이며, 그 경로는 이번에 동작하게 됐다.
+2. 컬럼 식별자는 여전히 인용하지 않는다(예약어/특수문자 컬럼은 기존과 동일하게 취약).
+3. mssql 은 실 DB 실측 미도달(드라이버 부재) — 유닛 테스트 수준까지만 검증됐다.
+4. collect() 는 여전히 샘플 실패를 조용히 삼킨다(메타만 반환). 이제 트랜잭션은 오염되지
+   않지만, "샘플 0건" 사유가 결과 객체에 남지 않는 explainability 갭은 남아 있다.
+
+──────────────────────────────────────────────────────────────────────────────
+실검증 상태 : 실 DB 실측 완료 — 내부망 PostgreSQL(search_path 밖 ntb 스키마) 재현/해소 확인,
+              MariaDB·Oracle 무회귀 + schema.table 경로 해소 확인, mssql 은 드라이버 부재로 유닛 검증까지만.
+──────────────────────────────────────────────────────────────────────────────
+
+✅ 작업 완료 - METACOLLECTOR-SCHEMA-QUALIFIED-SAMPLE-FETCH-FIX - MetaCollector 샘플 조회를 스키마 한정으로 전환해 search_path 밖 스키마 샘플 0건(F28)과 트랜잭션 abort 전파를 함께 해소(커밋 75bfbd0)

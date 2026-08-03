@@ -1,0 +1,81 @@
+{
+  "phase": "after",
+  "cases": [
+    {
+      "dialect": "mysql(MariaDB_asis)",
+      "cases": [
+        {
+          "label": "M1_bare",
+          "table_arg": "TMD_SYNC_PERFORM_MASTER",
+          "result": {
+            "column_count": 6,
+            "sampled_column_count": 2,
+            "non_excluded_count": 2,
+            "sample_example": {
+              "SYNC_MASTER_ID": [
+                "61153",
+                "61154"
+              ],
+              "SYNC_PERFORM_ID": [
+                "333",
+                "333"
+              ]
+            }
+          }
+        },
+        {
+          "label": "M2_db_qualified",
+          "table_arg": "nxdnp.TMD_SYNC_PERFORM_MASTER",
+          "result": {
+            "column_count": 6,
+            "sampled_column_count": 2,
+            "non_excluded_count": 2,
+            "sample_example": {
+              "SYNC_MASTER_ID": [
+                "61153",
+                "61154"
+              ],
+              "SYNC_PERFORM_ID": [
+                "333",
+                "333"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "dialect": "oracle(Oracle_asis)",
+      "cases": [
+        {
+          "label": "O1_bare",
+          "table_arg": "MVQ_DEPT",
+          "result": {
+            "column_count": 2,
+            "sampled_column_count": 1,
+            "non_excluded_count": 1,
+            "sample_example": {
+              "DEPT_NO": [
+                "D1"
+              ]
+            }
+          }
+        },
+        {
+          "label": "O2_owner_qualified",
+          "table_arg": "NXDNP.MVQ_DEPT",
+          "result": {
+            "column_count": 2,
+            "sampled_column_count": 1,
+            "non_excluded_count": 1,
+            "sample_example": {
+              "DEPT_NO": [
+                "D1"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
