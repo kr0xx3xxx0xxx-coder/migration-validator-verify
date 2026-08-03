@@ -1,0 +1,214 @@
+================================================================================
+작업명 : QUERY-REVIEW-RESULT-HEADER-FIRST-REPOSITION-FIX
+검증 보고서 (서술형)
+작성일 : 2026-08-03
+코드 커밋 : 7152096  (main)
+증적 폴더 : E:\verify_screenshots_only\QUERY-REVIEW-RESULT-HEADER-FIRST-REPOSITION-FIX\
+================================================================================
+
+■ 1. 요청 내용과 이번 작업의 범위
+
+개별검증 1단계(쿼리검토) 화면의 "쿼리 검토 결과" 표를 아래와 같이 재구성했다.
+
+  (1) 표의 위치를 "SQL 입력" 박스 아래에서 위(상단 단계 탭과 SQL 입력 사이)로 옮긴다.
+  (2) 표시 방식을 바꾼다 — 탭에 진입한 순간부터 헤더(컬럼명)는 항상 보이고,
+      값(데이터 행)은 쿼리검토 실행 후에만 그 아래 채워지도록 한다.
+  (3) 헤더 항목과 순서를 바꾼다(No 열 제거, 목적/원본 순서 교체, 라벨 변경).
+  (4) [추가 요구] 헤더에 "처리시간" 열을 상태 바로 앞에 추가하고, 값은 기존 계측값을 재사용한다.
+  (5) [추가 요구] 탭 아래 별도로 떠 있던 "· 1단계 처리시간: N초" 표시 줄을 제거한다.
+
+범위는 사용자가 명시한 대로 1단계(쿼리검토) 화면 하나로 한정했다. 2~5단계의 유사한 표·요약
+카드는 이번에 손대지 않았다.
+
+
+■ 2. 현재 구조 파악 결과 (수정 전에 먼저 확인한 사실)
+
+"쿼리 검토 결과" 표는 다음 3개 지점이 협력해 그려지고 있었다.
+
+  · DOM      : ui/tabler_renderer.py 의 #queryReviewCard > #qrSummary
+  · 렌더 함수 : renderQueryReviewSummary(data)  — /analyze 응답을 받아 그리드를 그린다
+  · 그리드 정의: ui/grid_helpers.py 의 _mvQueryReviewColumns() / _mvQueryReviewRows(a)
+                (Tabulator 로 그리고, 미로드/실패 시 _mvGridDataToHtml 의 HTML table 로 폴백)
+
+데이터 출처는 전부 /analyze 응답이다. 원본/목적 테이블은 _mvTablesOf(a), 입력·추출 컬럼수와
+매핑은 _mvColsOf(a)(parse_result.insert_cols / select_items), 조건은 parse_result.where 유무,
+조인은 parse_result.joins 개수, 상태는 blocked/success 로 판정한다.
+
+여기서 "왜 실행 전에는 헤더조차 안 보였는가"의 원인이 드러났다. #queryReviewCard 는
+#mvResultArea(분석 결과 영역) 안에 있었고, 이 영역은 분석 전 display:none 이다. 즉 표가 늦게
+그려져서가 아니라 표를 담은 영역 자체가 감춰져 있었던 것이다. 따라서 "헤더 먼저 노출"은
+렌더 타이밍만 손대서는 해결되지 않고 DOM 위치 이동이 반드시 함께 필요했다.
+
+"1단계 처리시간" 줄은 단계 탭 옆 슬롯(#mvStage1ProcessingTime)에 표시되며, 값의 출처는
+/analyze 응답의 diagnostics.total_ms 다. 이 값을 쓰는 표시 함수(_mvShowStageProcessingTime /
+_mvClearStageProcessingTime / _mvSyncStageProcessingTimeVisibility)는 1·2·4·5단계가 공유한다.
+
+
+■ 3. 실제 수정 내용
+
+(1) 표 위치 이동 — ui/tabler_renderer.py
+    #queryReviewCard 블록을 #mvResultArea 안에서 꺼내 #sqlInputCard 바로 위로 옮겼다.
+    카드는 여전히 SINGLE_STEP_CARDS.query 소속이므로 2~5단계 pane 에서는 기존과 동일하게
+    가려진다(단계별 pane 가림은 id 기준이라 DOM 위치 이동의 영향을 받지 않는다).
+
+(2) 헤더 상시 노출 — ui/tabler_renderer.py
+    _mvRenderQueryReviewHeaderOnly(force) 를 신설했다. 값 행이 0개인 '같은 그리드'를 그리는
+    함수로, 컬럼 정의와 렌더러를 실행 후 렌더와 완전히 동일하게 재사용한다(테두리·글자체·색상이
+    같고 새 디자인을 만들지 않았다). 호출 지점은 두 곳이다.
+      · _applySinglePane() — 1단계 pane 진입 시. 단 이미 값 행이 있으면 덮어쓰지 않는다
+        (탭을 다시 눌러도 결과가 사라지지 않는다).
+      · resetAnalysisUi() — 분석 초기화/차단 시. 기존에는 카드를 통째로 display:none 처리해
+        잔상을 지웠는데, 이제 카드는 상시 노출 자리이므로 값 행만 비우고 헤더를 다시 그린다.
+
+(3) 헤더 구성 변경 — ui/grid_helpers.py
+    최종 순서: 목적테이블 · 원본테이블 · 입력컬럼수 · 추출컬럼수 · 컬럼매핑수 · 조건문 · 조인 ·
+    처리시간 · 상태.
+      · No 열 제거: 자동 No 열은 모든 단계 그리드가 공유하는 helper(_mvGridDataToHtml,
+        _mvRenderTabulatorGrid)가 붙인다. 공용 동작을 바꾸면 2~5단계까지 영향을 받으므로
+        gridData.noRowNumber 라는 opt-in 플래그를 만들어 1단계 그리드만 선언하도록 했다.
+        다른 단계 그리드는 플래그를 지정하지 않으므로 No 열이 그대로 유지된다.
+      · 목적/원본 순서 교체, '매핑'→'컬럼매핑수', '조건'→'조건문' 으로 라벨만 변경했다.
+        각 열이 읽는 field(값 출처)는 전부 그대로다.
+
+(4) 처리시간 열 — ui/grid_helpers.py
+    _mvQueryReviewProcMs(a) 를 추가해 /analyze 응답의 diagnostics.total_ms 를 그대로 읽는다.
+    새로 계측하지 않으며, 포맷도 기존 _mvFmtStageDur() 를 그대로 쓴다(값·표기 규약 동일).
+    미계측(실행 전)이면 '-' 로 표시한다.
+
+(5) '1단계 처리시간' 줄 제거 — ui/validation_plan_renderer.py
+    표시 함수가 1·2·4·5단계 공유라는 점을 근거로, 함수를 삭제하거나 계측을 끊지 않고
+    _mvSyncStageProcessingTimeVisibility() 안에서 1단계 슬롯만 상시 숨기도록 했다.
+    슬롯 DOM 과 저장 값(textContent)은 그대로 유지된다 — 값을 기록하는 다른 로직과 회귀
+    테스트가 깨지지 않게 하기 위해서다. 2~5단계 표시는 종전과 완전히 동일하다.
+    (이 판단 근거는 사용자 지시의 "공유 함수라면 조건부로 1단계만 제외" 요건을 따른 것이다.)
+
+
+■ 4. 실측 검증 (실 브라우저 · 실 DB)
+
+하니스: scripts/dev_e2e/query_review_header_first_browser_verify.py (before|after)
+  · 접속/검증 경로 생성/개별검증 진입/1단계 실행은 검증된 클릭스루 하니스
+    (oracle_date_bucket_live_clickthrough.py)의 절차를 재사용했다. 다만 사이드바 메뉴 그룹명이
+    '주요 검증'에서 '검증 실행'으로 바뀌어 원본 setup 이 그 지점에서 멈추므로, 개별검증 진입만
+    현행 사이드바(#nav-analyze 실제 클릭)에 맞춰 다시 작성했다.
+  · 실 DB: 내부망 PostgreSQL 페어(PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe),
+    asis01.t_as_n_etl04 → tobe01.t_to_n_etl04 (원본 12,000,000행).
+  · before 는 '수정 전 모듈을 이미 로드한 실행 중 서버'를 상대로 캡처했다. 이 서버는
+    reload=False 로 떠 있어 .py 편집이 반영되지 않으므로 수정 전 화면이 그대로 남아 있었다.
+    이후 서버를 재기동(활성 job 0건 확인 후)하고 같은 절차로 after 를 캡처했다.
+
+■ 4-1. 탭 진입 직후 — 헤더만 보이는가
+
+  before : 표 카드가 화면에 아예 없음(표_카드_화면노출=False, 높이 0). 헤더 라벨 0개.
+  after  : 표 카드 노출됨. 헤더 9개가 요구한 순서 그대로 표시되고 값 행은 0개
+           (그리드 본문은 '데이터 없음' 플레이스홀더).
+           헤더 = 목적테이블 · 원본테이블 · 입력컬럼수 · 추출컬럼수 · 컬럼매핑수 · 조건문 ·
+                  조인 · 처리시간 · 상태
+  SQL 을 입력하고 아직 실행하지 않은 상태(B 시점)에서도 값 행은 0개로 유지됐다 —
+  값이 채워지는 시점이 '쿼리검토 실행 후'라는 요구가 그대로 지켜졌다.
+
+  증적: after_A_tab_enter_header_only(_viewport).png / before_A_tab_enter_header_only.png
+        after_B_sql_typed_before_run.png
+
+■ 4-2. 표의 위치와 레이아웃 무결성
+
+  before : 표 상단 y=651, SQL 입력 카드 상단 y=250 → 표가 SQL 입력 '아래'.
+  after  : 표 상단 y=226, SQL 입력 카드 상단 y=445 → 표가 SQL 입력 '위'.
+           표 하단(413)과 SQL 입력 상단(425) 간격 12px, 겹침 없음(표와_SQL입력_겹침=False).
+           표 폭은 SQL 입력 카드와 동일(1256px)하여 좌우 정렬이 어긋나지 않는다.
+  pageerror / console error : 0건.
+
+■ 4-3. 실행 후 값이 헤더와 올바르게 매칭되는가
+
+  after (실행 후 1행):
+      목적테이블  = tobe01.t_to_n_etl04     ← 실제 목적 테이블명이 목적테이블 열에 들어감
+      원본테이블  = asis01.t_as_n_etl04     ← 실제 원본 테이블명이 원본테이블 열에 들어감
+      입력컬럼수  = 6
+      추출컬럼수  = 6
+      컬럼매핑수  = 6/6
+      조건문      = 없음
+      조인        = 없음
+      처리시간    = 0.31초
+      상태        = ● 정상
+
+  before (실행 후 1행, 참고):
+      No=1 · 원본 테이블=asis01.t_as_n_etl04 · 목적 테이블=tobe01.t_to_n_etl04 ·
+      입력 컬럼수=6 · 추출 컬럼수=6 · 매핑=6/6 · 조건=없음 · 조인=없음 · 상태=● 정상
+
+  즉 값 자체(6 / 6 / 6/6 / 없음 / 없음 / 정상)는 before·after 가 완전히 동일하고,
+  달라진 것은 열의 순서·이름과 No 열 제거, 그리고 처리시간 열 추가뿐이다. 값 계산 로직을
+  건드리지 않았다는 점이 실데이터로 확인됐다(무회귀).
+
+  증적: after_C_after_query_review_run(_viewport).png, after_C_grid_clip.png,
+        before_C_after_query_review_run(_viewport).png, before_C_grid_clip.png
+
+■ 4-4. 처리시간 값의 출처가 기존 계측과 같은가
+
+  after 실행 시 /analyze 응답 diagnostics.total_ms = 314.2 ms 였고,
+  표의 처리시간 열 = "0.31초", 숨겨진 1단계 슬롯에 저장된 값 = "· 1단계 처리시간: 0.31초".
+  두 값이 정확히 일치한다 — 새로 계측한 값이 아니라 같은 소스를 옮겨 표시한 것임이 확인됐다.
+  (첫 회차 측정에서도 total_ms=985.6 / 표 "0.99초" / 슬롯 "0.99초" 로 동일하게 일치했다.)
+
+■ 4-5. '1단계 처리시간' 줄 제거와 2~5단계 유지
+
+  before : 단계 탭 아래에 "· 1단계 처리시간: 0.72초" 줄이 실제로 보였다
+           (단계탭바에_1단계처리시간문구=True, 슬롯 display='').
+  after  : 그 줄이 화면에서 사라졌다(슬롯 display='none', 단계탭바에_1단계처리시간문구=False).
+           슬롯에 저장된 값 자체는 남아 있다("· 1단계 처리시간: 0.31초") — 표시만 껐다.
+
+  범위가 1단계로 한정됐는지는 2단계 COUNT 를 실제로 실행해 확인했다.
+           2단계 COUNT 실행 후 → 2단계 슬롯 화면표시=True, 값 "· 2단계 처리시간: 8.90초"
+           같은 시점 1단계 슬롯 화면표시=False
+  즉 공유 함수를 쓰면서도 1단계만 숨고 2단계는 종전대로 표시된다는 것이 실데이터로 확인됐다.
+  (COUNT 결과: 원본 12,000,000 · 목적 11,399,411 · 소규모 COUNT 차이 — 이번 변경과 무관한
+   픽스처 자체의 데이터 차이이며, 파이프라인이 정상 동작했음을 보여준다.)
+
+  증적: after_E_stage2_count_time_kept.png, before_C_after_query_review_run.png
+
+
+■ 5. 회귀 검증
+
+(1) CLAUDE.md 지정 회귀 스크립트
+      samples/test_virtual_cases.py   → 8/8 통과
+      samples/test_complex_cases.py   → 5/5 통과
+
+(2) UI 관련 pytest 부분집합 (-k "renderer or grid or stage or ui_ or step_nav or command_bar or js")
+      총 1,124건 수집. baseline 비교를 위해 HEAD(00fd593) 로 git worktree 를 만들어 동일 명령을
+      돌린 뒤 실패 목록을 대조했다.
+        · baseline 실패 : 59건
+        · 수정 후 실패  : 59건 (집합 동일)
+      → 이번 변경으로 새로 깨진 테스트 0건. 사전 존재 실패 59건은 이번 작업과 무관한 항목들이다
+        (예: test_individual_validation_stage_content::test_sql_shape_object_label_extraction 은
+         HEAD 에서도 동일하게 실패). 부분집합 실행 순서 차이로 한 건
+        (test_batch_report_service::test_R10_no_payload_json_in_excel)이 목록에 더 잡혔으나,
+        HEAD 워크트리에서 단독 실행해도 동일하게 실패해 사전 존재 실패임을 확인했다.
+
+(3) 이번 변경으로 기대값이 바뀌어 함께 수정한 테스트 3건 (사양 변경 반영 — 코드가 아니라
+    테스트가 옛 사양을 박제하고 있던 항목들)
+      · tests/test_grid_helpers.py
+          쿼리검토 헤더 라벨/순서/처리시간 열/No 열 부재를 새 사양으로 갱신.
+          field 목록 기대값을 [tgtTable, srcTable, insCols, selCols, mapping, cond, join,
+          proc, status] 로 갱신(값 출처 field 는 proc 추가 외 변동 없음).
+      · tests/test_individual_validation_stage_layout.py
+          DOM 순서 기대값을 queryReviewCard < sqlInputCard < tgtWhere < runBtn 으로 갱신.
+      · tests/test_stage_button_dedup_time_scope_and_gate45_fix.py
+          1단계 슬롯이 더 이상 노출되지 않음을 반영(2~5단계 기대값은 그대로 유지).
+
+(4) 렌더 JS 문법 가드(tests/test_rendered_js_syntax_guard.py) 통과.
+
+
+■ 6. 남은 사항 / 참고
+
+· 이번 범위는 1단계 한정이다. 2~5단계의 유사 표(COUNT 그리드 등)는 No 열·라벨·처리시간 줄
+  모두 종전 그대로 두었다. 다른 탭 적용은 별도 지침으로 진행한다.
+· No 열 제거는 1단계 그리드만 opt-in 하는 방식이라, Tabulator 툴바의 "↕ 초기 순서" 버튼은
+  이 그리드에서만 정렬 기준(No)이 없어 동작하지 않는다. 이 그리드는 원본이 1개면 1행,
+  다중 원본이어도 원본 수만큼의 행이라 실사용 영향은 없다고 판단해 그대로 두었다.
+· 1단계 슬롯은 숨겼을 뿐 값 기록은 계속된다. 표시 재개가 필요하면
+  _mvSyncStageProcessingTimeVisibility 안의 숨김 목록 한 줄만 되돌리면 된다.
+
+================================================================================
+결론 : 요청한 5개 항목(위치 이동 / 헤더 상시 노출 / 헤더 구성 변경 / 처리시간 열 신설 /
+       1단계 처리시간 줄 제거)이 모두 실 브라우저·실 DB 에서 확인됐고, 값 계산 로직 불변으로
+       기존 판정 결과에 왜곡이 없음을 before/after 동일 값으로 확인했다. 신규 회귀 0건.
+코드 커밋 : 7152096
+================================================================================
