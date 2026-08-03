@@ -1,0 +1,223 @@
+작업명 : S15-GROUPBY-GATE-TOKENLESS-PATH-TRUST-FIX
+✅ 작업 완료 - 실질적 우회 경로 2건 확인·수정(/execute/set 게이트 부재, 빈 서버 pool 폴백)
+
+────────────────────────────────────────────────────────────────────────────
+1. 1단계 조사 — GROUP BY 실행 안전 게이트 호출 경로 전수
+────────────────────────────────────────────────────────────────────────────
+
+게이트(services/groupby_execution_safety_gate.run_gate)를 호출하는 코드는 운영 전체에서
+services/single_validation_core.py:426 단 한 곳이며, 그 진입은 아래 두 경로뿐이다.
+나머지 통계 실행 경로는 services/stats_execute_service.execute_stats_validation 을 직접
+호출해 게이트를 아예 거치지 않는다. 즉 조사 착수 시 가설이었던 "토큰 없는 경로가 게이트를
+클라이언트 값으로 통과한다"는 실제와 달랐다 — 토큰 없는 경로는 게이트에 도달조차 하지 않았다.
+
+  경로                              | 진입점                              | 게이트 | workflow_token   | 판정 근거 출처
+  ----------------------------------|-------------------------------------|--------|------------------|----------------------
+  단계별 통계검증 /execute          | routes/execute_route.py:79          | 있음   | 필수(없으면 409) | SERVER_TOKEN
+  원클릭 전체검증(run-standard)     | single_validation_run_facade:1170   | 있음   | 서버가 자체 발급 | SERVER_TOKEN
+  검증 세트 실행 /execute/set       | routes/execute_set_route.py:137     | 없음   | 필드 자체가 없음 | 클라이언트 전량 제공
+  일괄검증 batch_runner             | services/batch_runner.py:652,771    | 없음   | 해당 없음        | 서버 analyze 산출
+  전수검증 plan 실행                | batch_stats_execute_service.py:541  | 없음   | 해당 없음        | 서버 저장 plan
+  진단 드릴다운 재검증              | services/diagnosis/adapters/base:119| 없음   | 해당 없음        | 직전 실행 GB 승계
+
+  * /execute 의 토큰 필수는 workflow_stage_guard.validate("execute", req) 기본값(token_required=True)이며,
+    가드는 운영에서 항상 ON 이다(is_enabled 는 비-pytest 에서 무조건 True).
+  * /analyze 성공 시 routes/analyze_route.py:193 이 서버 산출 후보 pool 을 토큰에 보관하므로,
+    위 두 경로는 정상 흐름에서 SERVER_TOKEN 근거로 판정된다(PHASE2 에서 해소된 부분).
+
+────────────────────────────────────────────────────────────────────────────
+2. 실질적 우회 가능성 판단
+────────────────────────────────────────────────────────────────────────────
+
+[우회 A — 실재·심각] /execute/set 은 게이트가 아예 없다
+  - 이 엔드포인트는 "미사용"이 아니라 UI 활성 경로다. ui/validation_plan_renderer.py:518
+    runValidationSet(각 검증세트 행의 [▶ 실행] 버튼)이 fetch('/execute/set') 로 호출하고,
+    그 스크립트는 ui/tabler_renderer.py:31372 build_validation_plan_js() 로 페이지에 주입된다.
+  - 요청 본문(ExecuteSetRequest)은 selected_groupby 와 all_groupby_candidates(후보 evidence)를
+    클라이언트가 전량 제공한다. 그런데 서버는 이 값들로 통계 SQL 을 만들어 곧바로 실행했다.
+    distinct_count 위조가 "먹히는" 수준이 아니라, 위조할 필요조차 없이 사전 방어가 없었다.
+  - 유일한 방어선은 실행 '후' 결과 상한(STATISTICS_RESULT_LIMIT_EXCEEDED)이었다. 이미 원본·목적지
+    양측에서 통계 SELECT 를 실행한 뒤 중단하므로 DB 부하 방어로는 기능하지 않는다(실측 3절 확인).
+  - 판정: 이론적 우회가 아니라 브라우저에서 버튼 한 번으로 도달하는 실제 경로.
+
+[우회 B — 실재·조건부] 토큰 경로의 '빈 서버 pool' 폴백
+  - _candidates_of 는 서버 보관본을 `isinstance(srv, list) and srv` 로 판정해, 빈 목록을
+    '보관본 없음'과 동일하게 취급하고 CLIENT_PAYLOAD 로 폴백했다.
+  - /analyze 가 GROUP BY 후보를 0개 산출한 분석에서도 토큰은 정상 발급되고 빈 목록이 보관된다.
+    이 유효 토큰으로 조작된 후보 pool 을 실어 보내면 게이트가 그 값을 1순위 근거로 신뢰했다.
+  - 판정: 후보 0개는 서버가 아는 사실이므로 클라이언트가 뒤집을 수 없어야 한다 — 폴백 구멍.
+
+[우회 아님으로 분류한 것]
+  - 일괄검증(batch_runner)·전수검증(batch_stats_execute_service)·진단 드릴다운은 게이트가 없지만
+    GROUP BY 선택과 후보 evidence 를 서버가 스스로 산출·저장한 값에서 얻는다(클라이언트 왕복 없음).
+    따라서 '신뢰경계' 문제는 아니다. 다만 고 cardinality 사전 차단이 없다는 별개 결손은 남는다(6절).
+
+────────────────────────────────────────────────────────────────────────────
+3. 2단계 구현 — 채택한 방법과 이유
+────────────────────────────────────────────────────────────────────────────
+
+PHASE2 원칙(왕복 최소화·서버 권위 우선·HMAC 같은 새 메커니즘보다 기존 패턴 확장)을 그대로 따랐다.
+
+(1) /execute/set 실행을 개별검증 공통 core 로 경유시킨다
+    routes/execute_set_route.py: execute_stats_validation 직접 호출 →
+    services.single_validation_core.execute_single_validation 호출로 전환.
+    게이트는 그 core 안에서 1회 평가되므로 route 에 게이트 로직을 복제하지 않는다
+    (게이트 파일이 선언한 "route 별 복제 금지"를 실제로 충족시키는 방향).
+    비교/판정 로직은 불변 — core 는 게이트 통과 후 동일한 execute_stats_validation 을 호출한다.
+    차단 시에는 통계 SQL 미실행 + 이력 저장 없이 세트 메타(set_id/set_type/stats_*_sql 등)만 붙여
+    반환하므로 화면의 기존 응답 구조가 유지된다.
+
+(2) 클라이언트 후보 pool 을 판정 근거로 '싣지 않는다'
+    ExecuteRequest 를 만들 때 candidate_snapshot_full 을 채우지 않는다. 요청의
+    all_groupby_candidates 는 통계 SQL 생성 입력으로만 쓴다.
+    → 토큰이 있으면 서버 원본(workflow_stage_guard.stage_artifact)이 근거,
+      토큰이 없거나 무효면 근거 없음 → 게이트가 실 DB EXPLAIN 재확인 경로로 내려간다.
+    이 선택이 중요한 이유: /execute 와 달리 이 경로에는 토큰 강제가 없어서, 폴백을 허용하면
+    "토큰을 빼기만 하면 조작값이 근거로 인정"되는 우회가 그대로 남는다. 근거를 아예 싣지 않으면
+    토큰 생략이 방어 해제가 아니라 서버 자체 확인(EXPLAIN)으로 귀결된다.
+    (참고: 토큰을 필수화하는 방안은 채택하지 않았다. workflow_stage_guard.validate 는 선행 단계
+     candidate=SUCCESS 를 요구하는데 세트 실행은 /generate 를 거치지 않고 자체적으로 SQL 을
+     생성하므로, 필수화하면 정상 세트 실행이 409 로 죽을 위험이 크다.)
+
+(3) UI 가 workflow_token 을 함께 보낸다
+    ui/validation_plan_renderer.py runValidationSet 에 workflow_token 전송 추가.
+    토큰 전역(_singleWorkflowToken)은 tabler_renderer 쪽 스크립트 선언이라 typeof 가드로 감쌌다.
+    schemas/request_models.ExecuteSetRequest 에 workflow_token 필드(기본값 "") 추가.
+
+(4) 빈 서버 pool 도 SERVER_TOKEN 으로 확정
+    services/groupby_execution_safety_gate._candidates_of: `isinstance(srv, list) and srv`
+    → `isinstance(srv, list)`. 선택 컬럼이 매칭되지 않으면 EXPLAIN 재확인 → 근거 없으면 차단이라는
+    안전 방향으로만 귀결된다. 토큰 없음/무효 generation 경로는 종전대로 폴백한다(무회귀).
+
+────────────────────────────────────────────────────────────────────────────
+4. 실측 검증 — 실 DB·실 서버·실 HTTP(BEFORE/AFTER 대조)
+────────────────────────────────────────────────────────────────────────────
+
+스크립트: scripts/dev_e2e/s15_execute_set_gate_trust_live_verify.py
+실 DB   : PostgreSQL_Inter_asis(192.168.0.150 / asis) — SELECT only, 데이터 변경 없음
+서버    : AFTER=수정본 :8261 / BEFORE=수정 전 커밋(54533f9) worktree :8262
+           양쪽 모두 MV_AUTH_DISABLED=1, MV_INTERACTIVE_GROUPBY_MAX_GROUPS=3
+           (한도만 낮춰 동일 로직을 재현 — 픽스처 distinct 4 를 '한도 초과'로 만들기 위함)
+대상    : 차단 = asis01.t_grpcnt_src.REGION(실제 distinct 4) / 무회귀 = asis01.t_mgb_src.STATUS_CD(실제 2)
+조작    : 클라이언트가 보내는 후보의 distinct_count/profile_evidence 를 1 로 위조
+
+  케이스                                     | HTTP | success | 차단 | safety 판정                       | 근거 출처
+  -------------------------------------------|------|---------|------|-----------------------------------|-------------
+  BEFORE 토큰+조작 payload(고 cardinality)   | 200  | False   | 예   | BLOCKED_HIGH_CARDINALITY /        | None
+                                             |      |         |      | STATISTICS_RESULT_LIMIT_EXCEEDED  | (실행 '후' 상한)
+  AFTER  토큰+조작 payload(고 cardinality)   | 200  | False   | 예   | BLOCKED_HIGH_CARDINALITY /        | SERVER_TOKEN
+                                             |      |         |      | PLAN_ESTIMATE_EXCEEDS_LIMIT est=4 | (실행 '전' 차단)
+  AFTER  토큰 생략 + 조작 payload(우회 시도) | 200  | False   | 예   | BLOCKED_HIGH_CARDINALITY /        | NONE
+                                             |      |         |      | PLAN_ESTIMATE_EXCEEDS_LIMIT est=4 | (실 DB EXPLAIN)
+  BEFORE 정상 저 cardinality 세트            | 200  | True    | 아니오| (safety 계약 없음)                | None
+  AFTER  정상 저 cardinality 세트(무회귀)    | 200  | True    | 아니오| SAFE / FINITE_DOMAIN_CONFIRMED    | SERVER_TOKEN
+
+해석
+  - BEFORE 도 결과적으로 막히긴 했지만, 사유가 STATISTICS_RESULT_LIMIT_EXCEEDED 다. 즉 통계 SQL 을
+    원본·목적지에서 실제로 실행한 뒤 결과 그룹 수를 보고 중단한 것으로, 사전 게이트가 아니다.
+    조작된 distinct_count 는 판정에 아무 영향이 없었다(애초에 판정 자체가 없었기 때문).
+  - AFTER 는 실행 전에 차단되며(est=4 > 한도 3), 근거 출처가 SERVER_TOKEN 으로 기록된다.
+    클라이언트가 보낸 distinct_count=1 은 판정에 쓰이지 않았다.
+  - 토큰을 생략한 우회 시도도 차단됐다. 근거 출처가 NONE(클라이언트 값 미사용)이 되고 실 DB
+    EXPLAIN 추정치(4 × 안전계수 2 = 8 > 3)로 판정했다.
+  - 정상 세트는 BEFORE/AFTER 모두 실행되어 동일하게 2개 그룹을 비교했다(무회귀).
+
+산출물: scripts/dev_e2e/s15_execute_set_gate_trust_live_verify.json (실행 원본 응답 요약)
+
+────────────────────────────────────────────────────────────────────────────
+5. 테스트 결과
+────────────────────────────────────────────────────────────────────────────
+
+신규 회귀 테스트: tests/test_groupby_gate_tokenless_path_trust.py (7건, 전부 통과)
+  TC-1  /execute/set 이 공통 core 를 경유한다(게이트 미적용 경로 복귀 방지)
+  TC-2  고 cardinality 세트를 사전 게이트가 차단한다(post_execution 아님을 함께 고정)
+  TC-3  정상 저 cardinality 세트는 그대로 실행(SERVER_TOKEN·SAFE)
+  TC-4  토큰 동반 시 조작 payload 대신 서버 원본으로 판정
+  TC-4b 토큰 없으면 클라이언트 pool 을 근거로 쓰지 않는다(토큰 생략 우회 차단)
+  TC-5  서버 보관본이 빈 목록이어도 SERVER_TOKEN 확정
+  TC-6  토큰 없는 기존 경로(게이트 직접 호출)는 종전대로 CLIENT_PAYLOAD 사용 — 무회귀
+
+수정 전(54533f9) 동일 테스트 대조: 5 failed / 1 passed
+  → TC-1·TC-2·TC-3·TC-4·TC-5 가 수정 전에는 실패한다(결함이 실제로 재현됨).
+    TC-6(무회귀 항목)만 양쪽 모두 통과.
+
+관련 서브셋(수정본): tests/test_groupby_gate_tokenless_path_trust.py, test_groupby_evidence_trust_boundary,
+  test_validation_set_execute_payload, test_single_explicit_final_save_gate, test_execute_set_inflight_guard,
+  test_groupby_profile_staleness_gate, test_rendered_js_syntax_guard → 52 passed
+
+광역 서브셋(-k "execute or groupby or safety or validation_set or single_validation or request_model or schema")
+  수정본  : 122 failed / 1169 passed / 18 skipped / 18 errors
+  수정 전 : 115 failed / 1157 passed / 30 skipped / 20 errors
+  실패 목록 diff 결과 '수정본에만 있는 실패' 9건은 전부 baseline worktree 에 untracked 자산
+  (db_presets_*.json)이 없어 skip 된 라이브 테스트였다. worktree 에 프리셋을 복사해 넣고 재실행하니
+  수정 전에서도 동일하게 9건 실패 → 사전 존재 실패로 확정. **신규 회귀 0건.**
+  (대조 후 프리셋 사본 삭제 + worktree 제거 완료 — 평문 비밀번호 잔존 없음)
+
+실패 테스트 전체 목록(사전 존재·코드 무관, 수정 전후 동일)
+  tests/test_groupby_safety_facade.py::test_04_recommendation_provenance_unchanged_after_safe
+  tests/test_groupby_safety_facade.py::test_05_block_no_execution_verdict_blocked
+  tests/test_groupby_safety_facade.py::test_06_unverifiable_block_when_no_explain
+  tests/test_groupby_safety_facade.py::test_17_count_only_not_applicable
+  tests/test_groupby_safety_facade.py::test_18_count_sum_not_applicable
+  tests/test_groupby_safety_facade.py::test_19_default_date_groupby_safe_one_click
+  tests/test_groupby_safety_facade.py::test_21_manual_groupby_safe_one_click_via_explain
+  tests/test_groupby_safety_common_gate.py::test_execute_route_gate_safe      (httpx 미설치 — TestClient 불가)
+  tests/test_groupby_safety_common_gate.py::test_execute_route_gate_block     (httpx 미설치 — TestClient 불가)
+  tests/test_statistics_execution_safety.py::test_consistency_notice_renders_when_timing_present
+  tests/test_execution_safety_result_rendering.py::test_normal_result_shows_consistency_notice_once
+  tests/test_execution_safety_result_rendering.py::test_consistency_notice_absent_when_no_timing
+  tests/test_validation_plan_renderer_static.py::test_v05_count_only_explicit_confirm_gate
+  tests/test_global_js_helper_dedup.py::test_no_duplicate_global_function_definitions
+  tests/test_single_run_standard_ui.py::test_facade_in_advanced_dev_collapsible_default_collapsed
+  tests/test_single_run_standard_ui.py::test_result_render_uses_textcontent_not_innerhtml
+  tests/test_single_run_standard_ui.py::test_existing_generate_execute_flow_preserved
+  tests/test_single_run_standard_ui.py::test_single_group_ui_removed
+  (광역 서브셋의 나머지 사전 존재 실패는 위 diff 대조로 수정 전후 동일함을 확인했다)
+
+────────────────────────────────────────────────────────────────────────────
+6. 남은 위험 / 후속 권고(이번 범위 밖 — 코드 변경 없음)
+────────────────────────────────────────────────────────────────────────────
+
+  - 일괄검증(batch_runner)·전수검증(batch_stats_execute_service)·진단 드릴다운(diagnosis/adapters/base)
+    3개 경로에는 여전히 사전 GROUP BY 안전 게이트가 없다. 근거가 서버 산출값이라 조작 위험은 없지만,
+    고 cardinality 폭주를 실행 전에 막지 못한다(사후 결과 상한만 작동). 별도 작업으로 분리 권고.
+  - /execute/set 은 여전히 workflow_stage_guard.validate 를 거치지 않는다(선행 단계 강제 없음).
+    이번에는 판정 근거 신뢰만 확보했고 단계 선행조건 강제는 회귀 위험 때문에 손대지 않았다.
+  - 토큰 없는 세트 실행은 실 DB EXPLAIN 에 의존한다. EXPLAIN 근거를 얻지 못하는 환경에서는
+    차단으로 귀결된다(안전 방향이지만 운영 관찰 필요). 긴급 우회는 MV_GROUPBY_SAFETY_GATE_ENABLED=0.
+
+────────────────────────────────────────────────────────────────────────────
+7. 변경 파일 / 커밋
+────────────────────────────────────────────────────────────────────────────
+
+커밋: ef440ee  (직전 HEAD 8b40179 — 병행 세션 2건 커밋 이후 기준으로 커밋)
+  fix(safety): 세트 실행 경로에 GROUP BY 안전 게이트 적용·클라이언트 후보 근거 배제
+               (S15-GROUPBY-GATE-TOKENLESS-PATH-TRUST-FIX)
+
+  routes/execute_set_route.py                   | 35 ++++++++++++++++++++++++---
+  schemas/request_models.py                     |  6 +++++
+  services/groupby_execution_safety_gate.py     |  9 ++++++-
+  ui/validation_plan_renderer.py                |  6 +++++
+  tests/test_single_explicit_final_save_gate.py |  3 ++-
+  tests/test_validation_set_execute_payload.py  |  9 +++++--
+  tests/test_groupby_gate_tokenless_path_trust.py           (신규)
+  scripts/dev_e2e/s15_execute_set_gate_trust_live_verify.py (신규)
+  8 files changed, 463 insertions(+), 8 deletions(-)
+
+핵심 diff
+  - execute_set_route: `from services.stats_execute_service import execute_stats_validation`
+                     → `from services.single_validation_core import execute_single_validation`
+                       `result = execute_stats_validation(exec_req)` → `execute_single_validation(exec_req)`
+                       ExecuteRequest 에 workflow_token 전달, candidate_snapshot_full 미전달
+                       게이트 차단 시 세트 메타만 붙여 조기 반환(이력 저장 skip)
+  - groupby_execution_safety_gate: `if isinstance(srv, list) and srv:` → `if isinstance(srv, list):`
+  - validation_plan_renderer: runValidationSet 요청에 workflow_token 추가(typeof 가드)
+  - request_models: ExecuteSetRequest.workflow_token 필드 추가(기본 "")
+
+────────────────────────────────────────────────────────────────────────────
+실검증 상태: 실 DB(PostgreSQL_Inter_asis) + 실 서버 2대(BEFORE/AFTER) + 실 HTTP /execute/set 5케이스
+             실행 완료. 조작 payload 차단·토큰 생략 우회 차단·정상 세트 무회귀를 실측으로 확인했다.
+             브라우저 UI 클릭 검증은 미수행(서버 응답 계약과 UI 전송 배선은 렌더 HTML 로 확인).
+────────────────────────────────────────────────────────────────────────────
+
+✅ 작업 완료 - 실질적 우회 경로 2건 확인·수정(/execute/set 게이트 부재, 빈 서버 pool 폴백)
