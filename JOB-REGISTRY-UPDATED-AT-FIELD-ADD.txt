@@ -1,0 +1,191 @@
+작업명 : JOB-REGISTRY-UPDATED-AT-FIELD-ADD
+✅ 작업 완료 - JOB-REGISTRY-UPDATED-AT-FIELD-ADD - batch_execution_state 에 updated_at 컬럼을 순수 추가하고 상태 변화 6지점에 배선, 실측 13/13 통과·기존 소비처 무회귀
+
+작성일: 2026-08-03
+커밋: b5dd218 (직전 HEAD 1b233b3)
+
+────────────────────────────────────────────────────────────────────────
+1. 대상 확정 — 어느 '원본 저장소'인가
+────────────────────────────────────────────────────────────────────────
+백로그 M13 근거: E:\verify_reports\JOB-REGISTRY-STAGE2-READONLY-INTEGRATION.txt
+  :26  "C stats : ... updated_at→last_progress_at"
+  :112 "일괄검증(B) 진행 시각 부재는 통합 계층에서 메울 수 없음
+        — 원본 저장소 updated_at 추가는 별도 단계."
+
+services/job_registry.py 헤더 매핑표(:24)와 일치:
+  | 진행 시각 | A 개별 progress.last_progress_at | B 일괄 **없음**→None | C 통계 updated_at |
+
+→ 대상 파일은 services/batch_execution_state_service.py (B 저장소 = batch_execution_state).
+   A/C 는 이미 진행 시각을 갖고 있으므로 이번 추가 대상이 아니다.
+   services/job_registry.py 는 읽기 전용 통합 계층이며 스키마를 갖지 않는다 — 미수정.
+
+────────────────────────────────────────────────────────────────────────
+2. 수정 내용 (순수 추가 — 기존 필드 변경 0건)
+────────────────────────────────────────────────────────────────────────
+services/batch_execution_state_service.py
+
+(1) 스키마
+  _CREATE_SQL 끝에 `updated_at TEXT NOT NULL DEFAULT ''` 추가.
+  형식은 기존 시각 컬럼과 동일한 ISO UTC "%Y-%m-%dT%H:%M:%SZ" (C 저장소 updated_at 과도 동형).
+
+(2) 기존 DB 파일 보강 — _ensure_updated_at_column()
+  `CREATE TABLE IF NOT EXISTS` 는 이미 있는 테이블의 컬럼을 늘리지 못한다.
+  운영 중이던 db/migration_validator.db 를 위해 ALTER TABLE ADD COLUMN 을 1회 수행한다.
+  · 경로별 캐시(_UPDATED_AT_READY)로 프로세스당 경로마다 PRAGMA 1회만 점검.
+  · _connect() 안에서 수행 — 연결을 새로 열지 않으므로 D8-5 round-trip 계측값 불변
+    (tests/test_d8_5_batch_ceremony_reduction.py 의 sess_rt==1 / per_call==2N 전제 유지).
+  · 보강 실패해도 raise 하지 않는다(프로젝트 규칙) — 실패 시 부가 필드만 비고 기존 동작은 그대로.
+  · 기존 행의 updated_at 은 '' 로 남긴다 — 0 이나 현재시각 같은 추측값을 만들어 넣지 않는다.
+
+(3) 상태 변화 지점 배선 (6곳 — 누락 없이 전수)
+  · acquire_run_lock()          생성  : INSERT 시 updated_at = started_at 과 동일 ts
+  · update_progress()           진행  : per-call UPDATE 에 updated_at=?
+  · _BatchProgressSession.update_progress()  진행 : 세션(단일 연결) 경로에도 동일 쿼리·동일 값
+  · request_cancel()            취소  : STOP_REQUESTED 전환 시 갱신
+                                        (stop_requested_at 은 '최초 요청 시각'이라 멱등 보존,
+                                         updated_at 은 '마지막 변화 시각'이라 중복 요청도 갱신 — 의미 분리)
+  · complete_run()              종료  : COMPLETED/STOPPED/FAILED 기록 시 갱신
+  · _cleanup_stale()            stale : FAILED_INTERRUPTED 전환 시 갱신
+
+(4) 응답 형상 대칭
+  get_execution_status() 의 IDLE(실행 이력 없음) 분기에도 "updated_at": "" 추가.
+  행이 있을 때는 dict(row) 로 자동 포함되므로, 두 분기의 키 구성이 어긋나지 않게 맞춘 것.
+
+(5) 범위 밖(의도적 미시행)
+  · services/job_registry.py 의 B 어댑터를 updated_at → last_progress_at 으로 매핑하지 않았다.
+  · 화면 노출·F7~F10 개편에 활용하지 않았다.
+  · updated_at 을 근거로 한 정체 판정/자동 개입을 넣지 않았다(모듈 헤더에 '포함하지 않음'으로 명시).
+  지시 4항 그대로 — 저장소에 값이 정확히 쌓이는 것까지만.
+
+────────────────────────────────────────────────────────────────────────
+3. 실측 — 전/후 (scripts/dev_e2e/batch_state_updated_at_field_verify.py)
+────────────────────────────────────────────────────────────────────────
+실행: PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe scripts/dev_e2e/batch_state_updated_at_field_verify.py
+결과: 13/13 통과 (all_ok=true)
+
+[수정 전] batch_execution_state 컬럼 13개 — updated_at 없음.
+  execution_run_id, group_id, batch_run_id, run_type, status, started_at,
+  stop_requested_at, stopped_at, completed_at, processed_rows, total_rows,
+  current_target_table, message
+  → 어떤 상태 변화가 일어나도 '마지막 변화 시각'을 알 수 없었다(started_at 만 존재).
+
+[수정 후] 컬럼 14개 — 위 13개 + updated_at. 실제 갱신 실측:
+
+  [1] 신규 DB — 생성/진행/취소/종료 (형식이 초 단위라 각 단계 1.1초 이상 간격을 둠)
+    [OK] 생성(acquire_run_lock)       started_at=2026-08-03T02:20:20Z  updated_at=2026-08-03T02:20:20Z (동일)
+    [OK] 진행(update_progress)        before=02:20:20Z → after=02:20:21Z  (processed_rows=5)
+    [OK] 세션(batch_progress_session) before=02:20:21Z → after=02:20:22Z  (processed_rows=7, tbl_b)
+    [OK] 취소(request_cancel)         before=02:20:22Z → after=02:20:23Z  (status=STOP_REQUESTED)
+    [OK] 종료(complete_run)           before=02:20:23Z → after=02:20:24Z  (status=STOPPED)
+
+  [2] stale 정리
+    [OK] started_at=2020-01-01 인 RUNNING 1건 → FAILED_INTERRUPTED,
+         updated_at 2020-01-01T00:00:00Z → 2026-08-03T02:20:24Z 로 갱신(cleaned=1)
+
+  [3] 구 스키마 DB 보강 (updated_at 없던 파일 + 기존 행 1건)
+    [OK] before_cols 13개 → after_cols 14개, before ⊂ after (순수 추가 — 기존 컬럼 소실 0)
+    [OK] 기존 행 무손실: status=COMPLETED, started_at=2026-07-01T00:00:00Z,
+         processed_rows=11, total_rows=22, current_target_table=t_old, message='예전 실행',
+         updated_at='' (추측값 미생성)
+    [OK] 보강된 기존 행도 이후 update_progress 시 updated_at 채워짐(2026-08-03T02:20:24Z)
+
+  [4] 기존 소비처 무회귀
+    [OK] get_execution_status 기존 키(status/run_type/execution_run_id/processed_rows/
+         total_rows/current_target_table/is_running) 전부 유지 + updated_at 추가
+    [OK] IDLE 응답도 키 구성 동일(updated_at='')
+    [OK] job_registry B 어댑터(get_batch) DTO 동일 — source=batch, total=9, completed=3,
+         last_progress_at=None, extra.last_progress_at_available=False
+         (컬럼이 늘어도 SELECT * → dict 경로라 DTO 가 한 글자도 바뀌지 않음.
+          활용은 범위 밖이므로 이것이 의도된 결과)
+    [OK] job_registry.active_jobs(sources=('batch',)) is_matched=True, count=1, warnings=[]
+
+산출물: scripts/dev_e2e/batch_state_updated_at_field_verify.json
+        (dev_e2e JSON 은 gitignore 대상 — 위 수치가 그 내용의 전문에 해당)
+
+────────────────────────────────────────────────────────────────────────
+4. 회귀 테스트 — baseline 대조
+────────────────────────────────────────────────────────────────────────
+서브셋(9개 파일 — batch state 저장소 + job_registry + 그 소비 라우트 전부):
+  tests/test_batch_execution_lock_and_cancel.py
+  tests/test_d8_5_batch_ceremony_reduction.py
+  tests/test_job_registry.py
+  tests/test_job_registry_completed.py
+  tests/test_batch_route_scope_guard.py
+  tests/test_shared_execution_context.py
+  tests/test_batch_async_parallel_wrapper.py
+  tests/test_error_contract_route_coverage.py
+  tests/test_column_candidate_scope_guard.py
+
+baseline: git worktree(HEAD=1b233b3, 내 변경 없음)에서 동일 서브셋·동일 venv 실행 후 제거.
+
+  수정 전(baseline) : 107 failed, 83 passed, 17 errors  (63.28s)
+  수정 후(작업트리) : 107 failed, 83 passed, 17 errors  (64.45s)
+
+실패 항목 이름 집합까지 diff → 완전 동일(124줄, 차이 0건).
+  diff before.txt after.txt → DIFF_NONE
+
+[실패 테스트 전체 목록 — 124건, 전부 사전 존재·코드 무관]
+  단일 원인: .venv 에 httpx 미설치.
+    ModuleNotFoundError: No module named 'httpx'
+    → RuntimeError: The starlette.testclient module requires the httpx package to be installed.
+    (starlette TestClient 를 쓰는 테스트가 전부 이 지점에서 실패)
+
+  파일별 내역(합계 124건):
+    FAILED tests/test_column_candidate_scope_guard.py      55건
+    FAILED tests/test_batch_route_scope_guard.py           50건
+    ERROR  tests/test_error_contract_route_coverage.py      9건
+    ERROR  tests/test_job_registry_completed.py             5건
+    ERROR  tests/test_job_registry.py                       3건
+    FAILED tests/test_batch_execution_lock_and_cancel.py    1건
+             └ test_route_409_when_running (라우트 409 확인 — TestClient 필요)
+    FAILED tests/test_shared_execution_context.py           1건
+             └ test_server_root_and_single_run_response_context (TestClient 필요)
+  개별 확인: 위 대표 케이스들의 실패 트레이스가 모두 위 httpx 메시지로 끝남을 직접 확인.
+  baseline 에서도 동일한 124건이 동일한 이름으로 실패 → 이번 변경으로 늘거나 준 실패 0건.
+
+  ※ TestClient 를 쓰지 않는 순수 저장소 계층 테스트는 전부 통과:
+     tests/test_batch_execution_lock_and_cancel.py  15 passed (위 1건 제외 전부)
+       — lock 획득/충돌, cancel→STOP_REQUESTED, complete 후 lock 해제, stale 정리, 조회
+     tests/test_d8_5_batch_ceremony_reduction.py     전부 통과
+       — 세션/per-call 동치, round-trip 계측(sess_rt==1, per_call==2N), cancel 감지 동치
+       → 이번 ALTER 보강이 D8-5 ceremony 축소 계약을 깨지 않았음이 테스트로 확인됨.
+
+────────────────────────────────────────────────────────────────────────
+5. git
+────────────────────────────────────────────────────────────────────────
+커밋: b5dd218
+  feat(batch-state): batch_execution_state 에 updated_at 컬럼 추가·상태 변화 지점 배선
+                     (JOB-REGISTRY-UPDATED-AT-FIELD-ADD)
+  2 files changed, 330 insertions(+), 16 deletions(-)
+
+diff --stat:
+  services/batch_execution_state_service.py               |  67 +++++++++--- , 16 -
+      (16 삭제는 전부 기존 UPDATE/INSERT 문에 updated_at 절을 붙이며 재작성된 줄)
+  scripts/dev_e2e/batch_state_updated_at_field_verify.py  | 263 ++++++++++ (신규)
+
+동시 세션 보호:
+  착수 시 HEAD ef440ee → 커밋 직전 재확인 시 1b233b3
+  (타 세션이 그 사이 M16-DIAGNOSIS-ROUTE-DIALECT-FIX 를 커밋).
+  작업트리에 타 세션 미커밋 변경 ui/execute_result_renderer.py 존재
+  → 경로 지정 add(git add <내 파일 2개>)로 제외.
+  커밋 후 재확인에서 ' M ui/execute_result_renderer.py' 가 그대로 살아 있음을 확인(덮어쓰기 0건).
+  baseline 비교용 worktree 는 대조 완료 후 제거(git worktree remove --force + prune).
+
+────────────────────────────────────────────────────────────────────────
+6. 실검증 상태
+────────────────────────────────────────────────────────────────────────
+실검증 상태: 실측 완료 — SQLite 저장소 레벨 실측 13/13 통과(신규 DB 생성·진행(per-call/세션)·
+취소·종료·stale 정리 6지점 전부 시각 갱신 확인, 구 스키마 DB ALTER 보강 및 기존 행 무손실 확인,
+job_registry 읽기 경로 및 get_execution_status 무회귀 확인). 외부 DB(오라클/PG)를 쓰지 않는
+작업이라 라이브 DB 미사용, 화면 무관이라 브라우저 검증·스크린샷 불필요.
+회귀는 baseline worktree 대조로 실패 항목 집합 완전 동일(124건, 전부 httpx 미설치 환경 원인) 확인.
+
+────────────────────────────────────────────────────────────────────────
+7. 남은 것(범위 밖 — 후속 지침 필요)
+────────────────────────────────────────────────────────────────────────
+· services/job_registry.py B 어댑터는 여전히 last_progress_at=None /
+  extra.last_progress_at_available=False 를 반환한다. 이제 원본에 값이 쌓이므로 매핑만 바꾸면
+  되지만, 지시 4항(활용은 범위 밖)에 따라 손대지 않았다.
+· 백로그 M13 의 해소 표기(BACKLOG.md 갱신)는 병행 중인 BACKLOG.md 담당 지침과 겹치므로 미수정.
+
+✅ 작업 완료 - JOB-REGISTRY-UPDATED-AT-FIELD-ADD - batch_execution_state 에 updated_at 컬럼을 순수 추가하고 상태 변화 6지점에 배선, 실측 13/13 통과·기존 소비처 무회귀
