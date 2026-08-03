@@ -1,0 +1,1703 @@
+{
+ "phase": "after",
+ "case": "etl02",
+ "pair": [
+  "PostgreSQL_Inter_asis",
+  "PostgreSQL_Inter_tobe"
+ ],
+ "sql": "INSERT INTO tobe01.t_to_1_etl02 (\n  teacher_id, teacher_name, school_code, subject, service_years,\n  hire_date, retire_date, phone_number, email_address, office_location, updated_at, comments\n)\nSELECT teacher_id, teacher_name, school_code, subject, years_service,\n       hire_date, retire_date, contact_number, email, office_room, last_updated, remark\nFROM asis01.t_as_1_etl02",
+ "기대_2단계_타일순서": [
+  "목적 테이블",
+  "원본 테이블",
+  "검증항목",
+  "목적건수",
+  "원본 건수",
+  "차이",
+  "처리시간",
+  "상태"
+ ],
+ "setup": {
+  "pair_label": "PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe",
+  "pair_existed": false,
+  "pair_rows_after": 1,
+  "connect_clicked": true
+ },
+ "1단계_실행결과": {
+  "step": "query",
+  "blocked": false,
+  "err": null,
+  "from_table": "T_AS_1_ETL02",
+  "target_table": ""
+ },
+ "2단계_실행결과": {
+  "moved": true,
+  "clicks": 2,
+  "count_status": "COUNT_MATCHED",
+  "src_count": 5000,
+  "tgt_count": 5000,
+  "force_btn": false,
+  "gate_excerpt": "COUNT 일치원본 5,000 · 목적 5,000 · 순 차이 0 · 목적지 적재율 100.0%COUNT 일치 — 값 불일치/교차 누락·과잉 확인을 위해 통계검증·Exact Diff 진행 가능."
+ },
+ "S2_2단계": {
+  "보는탭": "count",
+  "countState": "OK",
+  "A_2단계타일": {
+   "타일": [
+    {
+     "라벨": "목적 테이블",
+     "값": "tobe01.t_to_1_etl02",
+     "tooltip": "tobe01.t_to_1_etl02"
+    },
+    {
+     "라벨": "원본 테이블",
+     "값": "asis01.t_as_1_etl02",
+     "tooltip": "asis01.t_as_1_etl02"
+    },
+    {
+     "라벨": "검증항목",
+     "값": "COUNT",
+     "tooltip": ""
+    },
+    {
+     "라벨": "목적건수",
+     "값": "5,000",
+     "tooltip": ""
+    },
+    {
+     "라벨": "원본 건수",
+     "값": "5,000",
+     "tooltip": ""
+    },
+    {
+     "라벨": "차이",
+     "값": "0",
+     "tooltip": ""
+    },
+    {
+     "라벨": "처리시간",
+     "값": "0.28초",
+     "tooltip": "COUNT 1회 실행 처리시간 — 0.28초 (280.7ms)"
+    },
+    {
+     "라벨": "상태",
+     "값": "● 정상",
+     "tooltip": "일치"
+    }
+   ],
+   "라벨순서": [
+    "목적 테이블",
+    "원본 테이블",
+    "검증항목",
+    "목적건수",
+    "원본 건수",
+    "차이",
+    "처리시간",
+    "상태"
+   ],
+   "'목적건수'라벨존재": true,
+   "'대상 건수'라벨존재": false,
+   "목적테이블_인덱스": 0,
+   "원본테이블_인덱스": 1,
+   "목적건수_인덱스": 3,
+   "원본건수_인덱스": 4,
+   "원천": {
+    "src_count": 5000,
+    "tgt_count": 5000,
+    "diff": 0,
+    "is_matched": true,
+    "processing_ms": 280.7
+   }
+  },
+  "B_3단계제목": {
+   "제목텍스트": "후보 컬럼 선정",
+   "'및 수작업 조정'포함": false,
+   "정확히_'후보 컬럼 선정'": true
+  },
+  "C_실행계획상세": {
+   "존재": true,
+   "화면노출": false,
+   "박스": {
+    "top": 0,
+    "bottom": 0,
+    "height": 0,
+    "width": 0
+   },
+   "details(토글)존재": false,
+   "summary(토글)존재": false,
+   "'▸'화살표포함": false,
+   "제목문구_포함": false,
+   "표(mv-sgrid)존재": false,
+   "표_화면노출": false,
+   "항목라벨": [],
+   "텍스트": null,
+   "card_body_자식순서": [
+    {
+     "i": 0,
+     "id": "mvStage3CtxGrid",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 1,
+     "id": "loadProfileOut",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 2,
+     "id": "cteInfoOut",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 3,
+     "id": "candidateSelBar",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 4,
+     "id": "astCriticalWarn",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 5,
+     "id": "stage3StaleWarn",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 6,
+     "id": "candCalcGate",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 7,
+     "id": "colSelectOut",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 8,
+     "id": "strategyPlanBox",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 9,
+     "id": "datePeriodCandidateArea",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 10,
+     "id": "resetRecResult",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 11,
+     "id": "validationPlanPreview",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 12,
+     "id": "countOnlyConfirmBox",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 13,
+     "id": "execSelectionSummary",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 14,
+     "id": "candidateDraftNotice",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 15,
+     "id": "dateBucketPeriodWarn",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 16,
+     "id": "genColBtnWrap",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 17,
+     "id": "csrPreviewDetails",
+     "tag": "details",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    }
+   ],
+   "참고제외섹션": {
+    "존재": false,
+    "화면노출": false,
+    "열림": null,
+    "요약문구": null,
+    "박스": null
+   },
+   "colSelectOut_박스": {
+    "top": 0,
+    "bottom": 0,
+    "height": 0,
+    "width": 0
+   },
+   "validationPlanPreview": {
+    "존재": true,
+    "화면노출": false,
+    "박스": {
+     "top": 0,
+     "bottom": 0,
+     "height": 0,
+     "width": 0
+    },
+    "텍스트": null
+   },
+   "candidateSelBar_박스": {
+    "top": 0,
+    "bottom": 0,
+    "height": 0,
+    "width": 0
+   },
+   "통합타일_박스": {
+    "top": 0,
+    "bottom": 0,
+    "height": 0,
+    "width": 0
+   },
+   "실행계획y_minus_참고제외y": null,
+   "실행계획y_minus_colSelectOut하단y": 0
+  },
+  "D_후보선택표_무회귀": {
+   "표존재": false,
+   "gb": [],
+   "sum": [],
+   "checked_gb": [],
+   "checked_sum": [],
+   "진행버튼": {
+    "라벨": "▶ 후보 컬럼 추천",
+    "비활성": false
+   },
+   "실행예정문구": null
+  }
+ },
+ "S3_진입직후": {
+  "보는탭": "candidate",
+  "countState": "OK",
+  "A_2단계타일": {
+   "타일": [
+    {
+     "라벨": "목적 테이블",
+     "값": "tobe01.t_to_1_etl02",
+     "tooltip": "tobe01.t_to_1_etl02"
+    },
+    {
+     "라벨": "원본 테이블",
+     "값": "asis01.t_as_1_etl02",
+     "tooltip": "asis01.t_as_1_etl02"
+    },
+    {
+     "라벨": "검증항목",
+     "값": "COUNT",
+     "tooltip": ""
+    },
+    {
+     "라벨": "목적건수",
+     "값": "5,000",
+     "tooltip": ""
+    },
+    {
+     "라벨": "원본 건수",
+     "값": "5,000",
+     "tooltip": ""
+    },
+    {
+     "라벨": "차이",
+     "값": "0",
+     "tooltip": ""
+    },
+    {
+     "라벨": "처리시간",
+     "값": "0.28초",
+     "tooltip": "COUNT 1회 실행 처리시간 — 0.28초 (280.7ms)"
+    },
+    {
+     "라벨": "상태",
+     "값": "● 정상",
+     "tooltip": "일치"
+    }
+   ],
+   "라벨순서": [
+    "목적 테이블",
+    "원본 테이블",
+    "검증항목",
+    "목적건수",
+    "원본 건수",
+    "차이",
+    "처리시간",
+    "상태"
+   ],
+   "'목적건수'라벨존재": true,
+   "'대상 건수'라벨존재": false,
+   "목적테이블_인덱스": 0,
+   "원본테이블_인덱스": 1,
+   "목적건수_인덱스": 3,
+   "원본건수_인덱스": 4,
+   "원천": {
+    "src_count": 5000,
+    "tgt_count": 5000,
+    "diff": 0,
+    "is_matched": true,
+    "processing_ms": 280.7
+   }
+  },
+  "B_3단계제목": {
+   "제목텍스트": "후보 컬럼 선정",
+   "'및 수작업 조정'포함": false,
+   "정확히_'후보 컬럼 선정'": true
+  },
+  "C_실행계획상세": {
+   "존재": true,
+   "화면노출": false,
+   "박스": {
+    "top": 497.34,
+    "bottom": 497.34,
+    "height": 0,
+    "width": 1222
+   },
+   "details(토글)존재": false,
+   "summary(토글)존재": false,
+   "'▸'화살표포함": false,
+   "제목문구_포함": false,
+   "표(mv-sgrid)존재": false,
+   "표_화면노출": false,
+   "항목라벨": [],
+   "텍스트": null,
+   "card_body_자식순서": [
+    {
+     "i": 0,
+     "id": "singleCandidateCountNotice",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 1,
+     "id": "mvStage3CtxGrid",
+     "tag": "div",
+     "화면노출": true,
+     "박스": {
+      "top": 286.98,
+      "bottom": 425.94,
+      "height": 138.95,
+      "width": 1222
+     }
+    },
+    {
+     "i": 2,
+     "id": "loadProfileOut",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 3,
+     "id": "cteInfoOut",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 4,
+     "id": "candidateSelBar",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 5,
+     "id": "astCriticalWarn",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 6,
+     "id": "stage3StaleWarn",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 7,
+     "id": "candCalcGate",
+     "tag": "div",
+     "화면노출": true,
+     "박스": {
+      "top": 425.94,
+      "bottom": 487.34,
+      "height": 61.41,
+      "width": 1222
+     }
+    },
+    {
+     "i": 8,
+     "id": "colSelectOut",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 487.34,
+      "bottom": 487.34,
+      "height": 0,
+      "width": 1222
+     }
+    },
+    {
+     "i": 9,
+     "id": "strategyPlanBox",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 497.34,
+      "bottom": 497.34,
+      "height": 0,
+      "width": 1222
+     }
+    },
+    {
+     "i": 10,
+     "id": "datePeriodCandidateArea",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 11,
+     "id": "resetRecResult",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 497.34,
+      "bottom": 497.34,
+      "height": 0,
+      "width": 1222
+     }
+    },
+    {
+     "i": 12,
+     "id": "validationPlanPreview",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 13,
+     "id": "countOnlyConfirmBox",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 14,
+     "id": "execSelectionSummary",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 15,
+     "id": "candidateDraftNotice",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 16,
+     "id": "dateBucketPeriodWarn",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 17,
+     "id": "genColBtnWrap",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 18,
+     "id": "csrPreviewDetails",
+     "tag": "details",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    }
+   ],
+   "참고제외섹션": {
+    "존재": false,
+    "화면노출": false,
+    "열림": null,
+    "요약문구": null,
+    "박스": null
+   },
+   "colSelectOut_박스": {
+    "top": 487.34,
+    "bottom": 487.34,
+    "height": 0,
+    "width": 1222
+   },
+   "validationPlanPreview": {
+    "존재": true,
+    "화면노출": false,
+    "박스": {
+     "top": 0,
+     "bottom": 0,
+     "height": 0,
+     "width": 0
+    },
+    "텍스트": null
+   },
+   "candidateSelBar_박스": {
+    "top": 0,
+    "bottom": 0,
+    "height": 0,
+    "width": 0
+   },
+   "통합타일_박스": {
+    "top": 286.98,
+    "bottom": 425.94,
+    "height": 138.95,
+    "width": 1222
+   },
+   "실행계획y_minus_참고제외y": null,
+   "실행계획y_minus_colSelectOut하단y": 10
+  },
+  "D_후보선택표_무회귀": {
+   "표존재": false,
+   "gb": [],
+   "sum": [],
+   "checked_gb": [],
+   "checked_sum": [],
+   "진행버튼": {
+    "라벨": "▶ 후보 컬럼 추천",
+    "비활성": false
+   },
+   "실행예정문구": null
+  }
+ },
+ "S3_후보계산후": {
+  "보는탭": "candidate",
+  "countState": "OK",
+  "A_2단계타일": {
+   "타일": [
+    {
+     "라벨": "목적 테이블",
+     "값": "tobe01.t_to_1_etl02",
+     "tooltip": "tobe01.t_to_1_etl02"
+    },
+    {
+     "라벨": "원본 테이블",
+     "값": "asis01.t_as_1_etl02",
+     "tooltip": "asis01.t_as_1_etl02"
+    },
+    {
+     "라벨": "검증항목",
+     "값": "COUNT",
+     "tooltip": ""
+    },
+    {
+     "라벨": "목적건수",
+     "값": "5,000",
+     "tooltip": ""
+    },
+    {
+     "라벨": "원본 건수",
+     "값": "5,000",
+     "tooltip": ""
+    },
+    {
+     "라벨": "차이",
+     "값": "0",
+     "tooltip": ""
+    },
+    {
+     "라벨": "처리시간",
+     "값": "0.28초",
+     "tooltip": "COUNT 1회 실행 처리시간 — 0.28초 (280.7ms)"
+    },
+    {
+     "라벨": "상태",
+     "값": "● 정상",
+     "tooltip": "일치"
+    }
+   ],
+   "라벨순서": [
+    "목적 테이블",
+    "원본 테이블",
+    "검증항목",
+    "목적건수",
+    "원본 건수",
+    "차이",
+    "처리시간",
+    "상태"
+   ],
+   "'목적건수'라벨존재": true,
+   "'대상 건수'라벨존재": false,
+   "목적테이블_인덱스": 0,
+   "원본테이블_인덱스": 1,
+   "목적건수_인덱스": 3,
+   "원본건수_인덱스": 4,
+   "원천": {
+    "src_count": 5000,
+    "tgt_count": 5000,
+    "diff": 0,
+    "is_matched": true,
+    "processing_ms": 280.7
+   }
+  },
+  "B_3단계제목": {
+   "제목텍스트": "후보 컬럼 선정",
+   "'및 수작업 조정'포함": false,
+   "정확히_'후보 컬럼 선정'": true
+  },
+  "C_실행계획상세": {
+   "존재": true,
+   "화면노출": true,
+   "박스": {
+    "top": 1510.72,
+    "bottom": 1723.8,
+    "height": 213.08,
+    "width": 1222
+   },
+   "details(토글)존재": false,
+   "summary(토글)존재": false,
+   "'▸'화살표포함": false,
+   "제목문구_포함": true,
+   "표(mv-sgrid)존재": true,
+   "표_화면노출": true,
+   "항목라벨": [
+    "No",
+    "1",
+    "실제 적용",
+    "2",
+    "통계전략",
+    "3",
+    "불일치 추출전략",
+    "4",
+    "판정근거"
+   ],
+   "텍스트": "실행계획 상세 (참고) 실행계획 No 항목 값 상태 1 실제 적용 GROUP BY 2개 · 집계컬럼 1개 적용됨 2 통계전략 직접 집계(전체스캔 EXACT · 원본↔목적 그룹별 COUNT/SUM 비교) STATS_DIRECT_AGG 3 불일치 추출전략 직접 스트림 비교(원본·목적 전체를 한 번에 정렬·대조) DIRECT_STREAM_COMPARE 4 판정근거 원본 5,000건 · 문자 단일 PK · 대체키(목적지 PK) 확정 · PK 인덱스 · 원격 DB",
+   "card_body_자식순서": [
+    {
+     "i": 0,
+     "id": "singleCandidateCountNotice",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 1,
+     "id": "mvStage3CtxGrid",
+     "tag": "div",
+     "화면노출": true,
+     "박스": {
+      "top": 199.98,
+      "bottom": 318.36,
+      "height": 118.38,
+      "width": 1222
+     }
+    },
+    {
+     "i": 2,
+     "id": "loadProfileOut",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 3,
+     "id": "cteInfoOut",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 4,
+     "id": "candidateSelBar",
+     "tag": "div",
+     "화면노출": true,
+     "박스": {
+      "top": 318.36,
+      "bottom": 357.11,
+      "height": 38.75,
+      "width": 1222
+     }
+    },
+    {
+     "i": 5,
+     "id": "astCriticalWarn",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 6,
+     "id": "stage3StaleWarn",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 7,
+     "id": "candCalcGate",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 8,
+     "id": "colSelectOut",
+     "tag": "div",
+     "화면노출": true,
+     "박스": {
+      "top": 369.11,
+      "bottom": 1500.72,
+      "height": 1131.61,
+      "width": 1222
+     }
+    },
+    {
+     "i": 9,
+     "id": "strategyPlanBox",
+     "tag": "div",
+     "화면노출": true,
+     "박스": {
+      "top": 1510.72,
+      "bottom": 1723.8,
+      "height": 213.08,
+      "width": 1222
+     }
+    },
+    {
+     "i": 10,
+     "id": "datePeriodCandidateArea",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 11,
+     "id": "resetRecResult",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 1735.8,
+      "bottom": 1735.8,
+      "height": 0,
+      "width": 1222
+     }
+    },
+    {
+     "i": 12,
+     "id": "validationPlanPreview",
+     "tag": "div",
+     "화면노출": true,
+     "박스": {
+      "top": 1735.8,
+      "bottom": 1772.77,
+      "height": 36.97,
+      "width": 1222
+     }
+    },
+    {
+     "i": 13,
+     "id": "countOnlyConfirmBox",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 14,
+     "id": "execSelectionSummary",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 15,
+     "id": "candidateDraftNotice",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 16,
+     "id": "dateBucketPeriodWarn",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 17,
+     "id": "genColBtnWrap",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 1790.77,
+      "bottom": 1790.77,
+      "height": 0,
+      "width": 1222
+     }
+    },
+    {
+     "i": 18,
+     "id": "csrPreviewDetails",
+     "tag": "details",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    }
+   ],
+   "참고제외섹션": {
+    "존재": true,
+    "화면노출": true,
+    "열림": true,
+    "요약문구": "참고/제외 후보 보기 · 기본계획 미포함 (7개)",
+    "박스": {
+     "top": 1084.47,
+     "bottom": 1500.72,
+     "height": 416.25,
+     "width": 1222
+    }
+   },
+   "colSelectOut_박스": {
+    "top": 369.11,
+    "bottom": 1500.72,
+    "height": 1131.61,
+    "width": 1222
+   },
+   "validationPlanPreview": {
+    "존재": true,
+    "화면노출": true,
+    "박스": {
+     "top": 1735.8,
+     "bottom": 1772.77,
+     "height": 36.97,
+     "width": 1222
+    },
+    "텍스트": "실행 예정: COUNT(*) + GROUP BY 2개(school_code→SCHOOL_CODE, subject→SUBJECT) + SUM 1개(years_service→SERVICE_YEARS)"
+   },
+   "candidateSelBar_박스": {
+    "top": 318.36,
+    "bottom": 357.11,
+    "height": 38.75,
+    "width": 1222
+   },
+   "통합타일_박스": {
+    "top": 199.98,
+    "bottom": 318.36,
+    "height": 118.38,
+    "width": 1222
+   },
+   "실행계획y_minus_참고제외y": 426.25,
+   "실행계획y_minus_colSelectOut하단y": 10
+  },
+  "D_후보선택표_무회귀": {
+   "표존재": true,
+   "gb": [
+    {
+     "값": "SCHOOL_CODE",
+     "체크": true,
+     "비활성": false
+    },
+    {
+     "값": "HIRE_DATE",
+     "체크": false,
+     "비활성": false
+    },
+    {
+     "값": "RETIRE_DATE",
+     "체크": false,
+     "비활성": false
+    },
+    {
+     "값": "SUBJECT",
+     "체크": true,
+     "비활성": false
+    },
+    {
+     "값": "UPDATED_AT",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "TEACHER_ID",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "TEACHER_NAME",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "PHONE_NUMBER",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "EMAIL_ADDRESS",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "OFFICE_LOCATION",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "COMMENTS",
+     "체크": false,
+     "비활성": true
+    }
+   ],
+   "sum": [
+    {
+     "값": "SERVICE_YEARS",
+     "체크": true,
+     "비활성": false
+    }
+   ],
+   "checked_gb": [
+    "SCHOOL_CODE",
+    "SUBJECT"
+   ],
+   "checked_sum": [
+    "SERVICE_YEARS"
+   ],
+   "진행버튼": {
+    "라벨": "▶ 선택 적용 후 통계검증 진행",
+    "비활성": false
+   },
+   "실행예정문구": "실행 예정: COUNT(*) + GROUP BY 2개(school_code→SCHOOL_CODE, subject→SUBJECT) + SUM 1개(years_service→SERVICE_YEARS)"
+  }
+ },
+ "체크한_후보": {
+  "gb": [
+   "SCHOOL_CODE",
+   "HIRE_DATE"
+  ],
+  "sum": [
+   "SERVICE_YEARS"
+  ]
+ },
+ "S4_체크후": {
+  "보는탭": "candidate",
+  "countState": "OK",
+  "A_2단계타일": {
+   "타일": [
+    {
+     "라벨": "목적 테이블",
+     "값": "tobe01.t_to_1_etl02",
+     "tooltip": "tobe01.t_to_1_etl02"
+    },
+    {
+     "라벨": "원본 테이블",
+     "값": "asis01.t_as_1_etl02",
+     "tooltip": "asis01.t_as_1_etl02"
+    },
+    {
+     "라벨": "검증항목",
+     "값": "COUNT",
+     "tooltip": ""
+    },
+    {
+     "라벨": "목적건수",
+     "값": "5,000",
+     "tooltip": ""
+    },
+    {
+     "라벨": "원본 건수",
+     "값": "5,000",
+     "tooltip": ""
+    },
+    {
+     "라벨": "차이",
+     "값": "0",
+     "tooltip": ""
+    },
+    {
+     "라벨": "처리시간",
+     "값": "0.28초",
+     "tooltip": "COUNT 1회 실행 처리시간 — 0.28초 (280.7ms)"
+    },
+    {
+     "라벨": "상태",
+     "값": "● 정상",
+     "tooltip": "일치"
+    }
+   ],
+   "라벨순서": [
+    "목적 테이블",
+    "원본 테이블",
+    "검증항목",
+    "목적건수",
+    "원본 건수",
+    "차이",
+    "처리시간",
+    "상태"
+   ],
+   "'목적건수'라벨존재": true,
+   "'대상 건수'라벨존재": false,
+   "목적테이블_인덱스": 0,
+   "원본테이블_인덱스": 1,
+   "목적건수_인덱스": 3,
+   "원본건수_인덱스": 4,
+   "원천": {
+    "src_count": 5000,
+    "tgt_count": 5000,
+    "diff": 0,
+    "is_matched": true,
+    "processing_ms": 280.7
+   }
+  },
+  "B_3단계제목": {
+   "제목텍스트": "후보 컬럼 선정",
+   "'및 수작업 조정'포함": false,
+   "정확히_'후보 컬럼 선정'": true
+  },
+  "C_실행계획상세": {
+   "존재": true,
+   "화면노출": true,
+   "박스": {
+    "top": 1440.72,
+    "bottom": 1653.8,
+    "height": 213.08,
+    "width": 1222
+   },
+   "details(토글)존재": false,
+   "summary(토글)존재": false,
+   "'▸'화살표포함": false,
+   "제목문구_포함": true,
+   "표(mv-sgrid)존재": true,
+   "표_화면노출": true,
+   "항목라벨": [
+    "No",
+    "1",
+    "실제 적용",
+    "2",
+    "통계전략",
+    "3",
+    "불일치 추출전략",
+    "4",
+    "판정근거"
+   ],
+   "텍스트": "실행계획 상세 (참고) 실행계획 No 항목 값 상태 1 실제 적용 GROUP BY 3개 · 집계컬럼 1개 적용됨 2 통계전략 직접 집계(전체스캔 EXACT · 원본↔목적 그룹별 COUNT/SUM 비교) STATS_DIRECT_AGG 3 불일치 추출전략 직접 스트림 비교(원본·목적 전체를 한 번에 정렬·대조) DIRECT_STREAM_COMPARE 4 판정근거 원본 5,000건 · 문자 단일 PK · 대체키(목적지 PK) 확정 · PK 인덱스 · 원격 DB",
+   "card_body_자식순서": [
+    {
+     "i": 0,
+     "id": "singleCandidateCountNotice",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 1,
+     "id": "mvStage3CtxGrid",
+     "tag": "div",
+     "화면노출": true,
+     "박스": {
+      "top": 129.98,
+      "bottom": 248.36,
+      "height": 118.38,
+      "width": 1222
+     }
+    },
+    {
+     "i": 2,
+     "id": "loadProfileOut",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 3,
+     "id": "cteInfoOut",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 4,
+     "id": "candidateSelBar",
+     "tag": "div",
+     "화면노출": true,
+     "박스": {
+      "top": 248.36,
+      "bottom": 287.11,
+      "height": 38.75,
+      "width": 1222
+     }
+    },
+    {
+     "i": 5,
+     "id": "astCriticalWarn",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 6,
+     "id": "stage3StaleWarn",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 7,
+     "id": "candCalcGate",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 8,
+     "id": "colSelectOut",
+     "tag": "div",
+     "화면노출": true,
+     "박스": {
+      "top": 299.11,
+      "bottom": 1430.72,
+      "height": 1131.61,
+      "width": 1222
+     }
+    },
+    {
+     "i": 9,
+     "id": "strategyPlanBox",
+     "tag": "div",
+     "화면노출": true,
+     "박스": {
+      "top": 1440.72,
+      "bottom": 1653.8,
+      "height": 213.08,
+      "width": 1222
+     }
+    },
+    {
+     "i": 10,
+     "id": "datePeriodCandidateArea",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 11,
+     "id": "resetRecResult",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 1665.8,
+      "bottom": 1665.8,
+      "height": 0,
+      "width": 1222
+     }
+    },
+    {
+     "i": 12,
+     "id": "validationPlanPreview",
+     "tag": "div",
+     "화면노출": true,
+     "박스": {
+      "top": 1665.8,
+      "bottom": 1741.05,
+      "height": 75.25,
+      "width": 1222
+     }
+    },
+    {
+     "i": 13,
+     "id": "countOnlyConfirmBox",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 14,
+     "id": "execSelectionSummary",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 15,
+     "id": "candidateDraftNotice",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 16,
+     "id": "dateBucketPeriodWarn",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    },
+    {
+     "i": 17,
+     "id": "genColBtnWrap",
+     "tag": "div",
+     "화면노출": false,
+     "박스": {
+      "top": 1759.05,
+      "bottom": 1759.05,
+      "height": 0,
+      "width": 1222
+     }
+    },
+    {
+     "i": 18,
+     "id": "csrPreviewDetails",
+     "tag": "details",
+     "화면노출": false,
+     "박스": {
+      "top": 0,
+      "bottom": 0,
+      "height": 0,
+      "width": 0
+     }
+    }
+   ],
+   "참고제외섹션": {
+    "존재": true,
+    "화면노출": true,
+    "열림": true,
+    "요약문구": "참고/제외 후보 보기 · 기본계획 미포함 (7개)",
+    "박스": {
+     "top": 1014.47,
+     "bottom": 1430.72,
+     "height": 416.25,
+     "width": 1222
+    }
+   },
+   "colSelectOut_박스": {
+    "top": 299.11,
+    "bottom": 1430.72,
+    "height": 1131.61,
+    "width": 1222
+   },
+   "validationPlanPreview": {
+    "존재": true,
+    "화면노출": true,
+    "박스": {
+     "top": 1665.8,
+     "bottom": 1741.05,
+     "height": 75.25,
+     "width": 1222
+    },
+    "텍스트": "실행 예정: COUNT(*) + GROUP BY 3개(school_code→SCHOOL_CODE, hire_date→HIRE_DATE 월 단위, subject→SUBJECT) + SUM 1개(years_service→SERVICE_YEARS) ℹ GROUP BY 안전성은 아직 평가되지 "
+   },
+   "candidateSelBar_박스": {
+    "top": 248.36,
+    "bottom": 287.11,
+    "height": 38.75,
+    "width": 1222
+   },
+   "통합타일_박스": {
+    "top": 129.98,
+    "bottom": 248.36,
+    "height": 118.38,
+    "width": 1222
+   },
+   "실행계획y_minus_참고제외y": 426.25,
+   "실행계획y_minus_colSelectOut하단y": 10
+  },
+  "D_후보선택표_무회귀": {
+   "표존재": true,
+   "gb": [
+    {
+     "값": "SCHOOL_CODE",
+     "체크": true,
+     "비활성": false
+    },
+    {
+     "값": "HIRE_DATE",
+     "체크": true,
+     "비활성": false
+    },
+    {
+     "값": "RETIRE_DATE",
+     "체크": false,
+     "비활성": false
+    },
+    {
+     "값": "SUBJECT",
+     "체크": true,
+     "비활성": false
+    },
+    {
+     "값": "UPDATED_AT",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "TEACHER_ID",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "TEACHER_NAME",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "PHONE_NUMBER",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "EMAIL_ADDRESS",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "OFFICE_LOCATION",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "COMMENTS",
+     "체크": false,
+     "비활성": true
+    }
+   ],
+   "sum": [
+    {
+     "값": "SERVICE_YEARS",
+     "체크": true,
+     "비활성": false
+    }
+   ],
+   "checked_gb": [
+    "SCHOOL_CODE",
+    "HIRE_DATE",
+    "SUBJECT"
+   ],
+   "checked_sum": [
+    "SERVICE_YEARS"
+   ],
+   "진행버튼": {
+    "라벨": "▶ 선택 적용 후 통계검증 진행",
+    "비활성": false
+   },
+   "실행예정문구": "실행 예정: COUNT(*) + GROUP BY 3개(school_code→SCHOOL_CODE, hire_date→HIRE_DATE 월 단위, subject→SUBJECT) + SUM 1개(years_service→SERVICE_YEARS) ℹ GROUP BY 안전성은 아직 평가되지 "
+  }
+ },
+ "notes": [],
+ "pageerrors": [
+  "CONSOLE.error: Failed to load resource: the server responded with a status of 404 (Not Found)"
+ ]
+}
