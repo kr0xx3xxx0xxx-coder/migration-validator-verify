@@ -1,0 +1,184 @@
+작업명 : PK-RANGE-CHUNK-PUSHDOWN-AND-IMBALANCE-P1-P5-FIX
+✅ 작업 완료
+
+────────────────────────────────────────────────────────────────────────────
+[파트 A] P1 — pushdown 사전 판정 부재
+────────────────────────────────────────────────────────────────────────────
+
+■ 지시 3 먼저 — "AST 인가 EXPLAIN 인가" 조사 결과
+진단(PK-RANGE-CHUNK-BOUNDARY-ORDERING-ASSUMPTION-DIAGNOSE §3-2)의 대조 실험이 갈림길을 이미
+'구문 성질'로 확정해 두었다 — 윈도우 함수의 존재가 아니라 "청크 키가 그 윈도우의 PARTITION BY
+컬럼 집합에 들어 있는가". 통계값이 아니라 SQL 구조가 결정하므로 AST 로 판정할 수 있다.
+EXPLAIN 실행을 택하지 않은 이유(3가지):
+  ① 왕복 추가 — 판정 지점은 이미 MIN/MAX 2회를 지불한 자리다. 정작 문제 형태(WRAPPED)에서는
+     그 EXPLAIN 자체가 전체 스캔 계획 산정을 요구한다.
+  ② 재현 불변성 상실 — 옵티마이저 판단은 통계·바인드 peeking 에 따라 같은 SQL 에서도 달라진다.
+     "같은 입력 → 같은 판정"이 깨지면 게이트가 신뢰를 잃는다(P4 가 표본 게이트에서 같은 이유로
+     '형태 기반·판정 불변'을 안전한 쪽으로 기록했다).
+  ③ 방언 파편화 — PG `EXPLAIN (FORMAT JSON)` vs Oracle `EXPLAIN PLAN FOR`+PLAN_TABLE 권한+DBMS_XPLAN.
+     계획 텍스트 파싱은 버전마다 깨진다.
+→ sqlglot AST 정적 판정을 채택하되, AST 가 인덱스·옵티마이저를 볼 수 없다는 한계를 3값 판정으로 정직하게
+   반영했다: PUSHDOWN_LIKELY / PUSHDOWN_BLOCKED / UNKNOWN. **UNKNOWN 은 어떤 동작도 바꾸지 않는다.**
+
+■ 구현 (신규 services/exact_diff/chunk_pushdown.py — DB 접속·store 접근 0)
+검사 항목은 백로그 원안 그대로 + 1개 추가:
+  (a) 윈도우 PARTITION BY 에 청크 키가 있는가 (없으면 WINDOW_PARTITION_MISMATCH / PARTITION BY 자체가
+      없으면 WINDOW_NO_PARTITION)
+  (b) 파생 척추(FROM·CTE spine) 위 SELECT 에 DISTINCT / GROUP BY / 전체집계 / 중복제거 집합연산
+  (c) [추가] 청크 키가 단순 컬럼이 아니라 표현식 결과라 인덱스를 못 타는 경우(KEY_NOT_PLAIN_COLUMN)
+오탐 방지 2건: UNION ALL 은 정렬 barrier 가 아니므로 차단 사유가 아니고(정보만), SELECT 목록 안
+스칼라 서브쿼리의 집계는 행집합 경로의 성질이 아니므로 척추 순회에서 제외한다.
+sqlglot 호출은 S18 방어 래퍼(parse_one_guarded) 경유 필수 — error_level 은 넘기지 않는다(명시 전달
+자체가 오라클 파서 hang 트리거인 사례가 실측돼 있다).
+
+■ 실측 — 정적 판정 vs 실 오라클 실행계획 vs 빈 chunk 고정비 (L1)
+대상: 실 오라클 tobe(1524) NXDNP.MV_ORA_XDIFF_TGT 249,950행 · chunk 50,000 · 빈 chunk 3회 median
+
+  원본 형태                    AST 판정          실행계획(운영 chunk 조회 SQL)                 top card   빈 chunk
+  ───────────────────────────  ───────────────  ──────────────────────────────────────────  ────────  ─────────
+  PLAIN(단순 SELECT)           PUSHDOWN_LIKELY  INDEX RANGE SCAN (정렬 연산 없음)              49,980    0.0031s
+  WRAPPED PARTITION BY C_CHAR  PUSHDOWN_BLOCKED WINDOW SORT ← HASH/NL ← TABLE ACCESS FULL    249,950    0.1289s
+  WRAPPED PARTITION BY ID      PUSHDOWN_LIKELY  WINDOW NOSORT ← INDEX RANGE SCAN              49,980    0.0024s
+
+  → 3형태 전부 AST 판정 = 실행계획(ast_matches_plan=true). BLOCKED 형태만 빈 chunk 고정비가
+    PLAIN 대비 **41.6배**(0.1289s vs 0.0031s) — "청크마다 원본 전체 재정렬 1회"의 직접 증거.
+  → 판정 비용: 1.92~2.60ms (1회, DB 왕복 0회)
+
+■ 지시 2 "대응 수준" 판단
+전략을 조용히 바꾸지 않는다(pk_range_chunk 헤더 §7 '자동 fallback 없음'). 기본은 **경고** —
+사유·근거를 응답 `chunk_plan_guard` 와 `metrics.pushdown_verdict/pushdown_blockers/pushdown_warning`
+에 남기고 실행은 그대로 한다. 청크 수가 상한을 넘을 때만 **실행 전 HOLD**(아래 파트 B 와 결합).
+
+────────────────────────────────────────────────────────────────────────────
+[파트 B] P5 — chunk 불균형·이상치 방어 없음
+────────────────────────────────────────────────────────────────────────────
+
+■ 요구 1 — chunk 별 실제 행 수 분포 계측/노출
+metrics.chunk_imbalance (+ flatten 별칭) · 진행신호 payload(P3 의 progress_cb 패턴 그대로)에 실린다:
+  chunks_executed / rows_total / rows_max / rows_min / rows_avg / max_to_avg_ratio /
+  empty_chunks / empty_chunk_ratio / **empty_chunk_read_seconds(빈 chunk 가 실제 소비한 시간=순수 낭비)** /
+  rows_sample(상한 100, chunk 수가 커도 메모리 일정) / imbalance_warning + 한글 사유
+추가 조회 0회 — 이미 읽은 행 수만 집계한다.
+
+  실측(오라클 라이브, 분포는 WHERE 로만 변형 · 데이터 변경 없음):
+  시나리오      chunk  최대/평균   빈 chunk   경고
+  ───────────  ─────  ─────────  ────────  ────
+  UNIFORM        6      1.20배     0/6       false
+  HEAD_HEAVY     5      4.95배     0/5       true
+  ENDS_HEAVY     6      2.99배     3/6       true
+  → 진단 §2-1 이 기록한 수치(4.95배 / 빈 3/6)를 그대로 재현. 수정 전에는 이 값이 어디에도 없었다.
+
+■ 요구 2 — chunk 폭증 시 실행 전 HOLD
+  전(게이트 OFF, MV_CHUNK_PLAN_GUARD=0)  : READY · chunk 2,000개 전부 조회(2,000회) · **28.869초** ·
+                                            빈 chunk 1,993/2,000
+  후(게이트 ON, 기본)                     : **HOLD · CHUNK_COUNT_EXPLOSION · 0.307초 · 조회 0회**
+                                            (0.307초는 MIN/MAX 조회분, chunk 조회는 1회도 없음)
+  절감 28.562초. 재현 조건은 진단 §2-2 와 동일 — 목적지 PK 이상치 1건(99,999,999)이 합집합 범위를
+  늘려 chunk 6개 → 2,000개. 사유 문구에 실제 수치가 들어간다:
+    "PK 범위(1 ~ 99999999)와 청크 크기(50000)로 청크가 2000개 생성됩니다(상한 1000개, 실제 행 수
+     249951건 대비 밀도 0.25%(빈 청크가 대부분)) — PK 이상치로 범위가 비정상 확장됐을 가능성이 높아
+     실행 전 보류합니다. PK 이상치를 확인하거나 청크 크기를 키우십시오."
+  ※ 이 형태는 PLAIN(빈 chunk 0.003s)이라 28.9초에 그쳤다. pushdown 불가 형태였다면 같은 2,000개가
+    0.129s × 2,000 ≈ 258초다.
+
+■ 요구 3 — 두 파트가 만나는 지점(순서를 신중히 정한 부분)
+같은 파일(pk_range_chunk.py)에서 만나므로 게이트를 하나의 함수(evaluate_chunk_plan_guard)로 합치고
+순서를 이렇게 정했다:
+  ① pushdown 판정을 먼저 한다(정적·DB 왕복 0회)
+  ② pushdown 불가면 chunk 수 상한을 낮춘다 — **BLOCKED 200개 / 절대 1,000개의 2단**
+     근거: 빈 chunk 고정비가 형태마다 41배 다르다(실측). pushdown 되는 형태의 chunk 500개는 사실상
+     공짜지만, 막힌 형태의 500개는 '원본 전체 정렬 500회'다. 상한을 하나로 두면 둘 중 하나가 틀린다.
+  ③ 절대 상한은 **밀도 조건과 AND** 로 묶는다 — chunk 수만 보면 '이상치로 퍼진 25만행'(2,000 chunk,
+     밀도 0.25%)과 '정직하게 큰 6,000만행'(1,200 chunk, 밀도 ~100%)을 구분하지 못해 **정상 대량 실행까지
+     막는다**. 행 수(source/target count)를 알 때만 밀도로 구분하고, 모르면 chunk 수 단독으로 보수적 판정.
+     BLOCKED 상한에는 밀도를 붙이지 않는다 — 그 비용은 행 수가 아니라 청크 개수에 비례하므로.
+  ④ HOLD 는 store.create_run 보다 앞에서 반환한다 — 빈 run·checkpoint 잔여물을 만들지 않는다.
+백로그 P5 원문 경고("규모 비례 청크 확대를 정렬 비용 대책으로 삼지 말 것")는 그대로 지켰다 —
+청크 크기 정책은 건드리지 않았고, HOLD 문구도 크기 조정/DIRECT_STREAM 선택을 사용자 판단으로 남긴다.
+운영 kill-switch: MV_CHUNK_PLAN_GUARD=0 → HOLD 만 즉시 해제(계측·판정 증적은 유지).
+
+────────────────────────────────────────────────────────────────────────────
+무회귀 실측 (정상 케이스 — 균등 분포 · pushdown 가능)
+────────────────────────────────────────────────────────────────────────────
+동일 픽스처(249,950행 · 목적지에서 ID 12345 제외 → 재이관 1건)를 baseline(HEAD) 작업트리와 수정본에서
+각각 3~4회 실행:
+  판정   : 수정 후 재이관 1건·값불일치 0건  ==  baseline 재이관 1건·값불일치 0건 (전 회차 동일)
+  wall   : 수정 후 15.322 / 15.826 / 15.863 / 15.929초
+           baseline  15.345 / 15.388 / 15.613 / 16.235초  → 두 범위가 겹친다(회귀 없음)
+  엔진 내부 추가비용만 격리 측정(DB 없이 스텁 2,000 chunk × 100행 · 3회 median):
+           baseline 0.194초 → 수정 후 0.204초 = **+0.010초**(chunk 당 +5μs). 실 실행에서는 DB 조회
+           15초 대비 반올림 오차 수준.
+  pushdown 판정 = PUSHDOWN_LIKELY · imbalance_warning = false · 빈 chunk 0 (오탐 없음)
+
+────────────────────────────────────────────────────────────────────────────
+테스트 결과
+────────────────────────────────────────────────────────────────────────────
+신규: tests/test_pk_range_chunk_pushdown_and_imbalance.py — **13건 전부 통과**
+  A1 윈도우 PARTITION BY 불일치 → BLOCKED / A2 pushdown 가능 3형태 × 2방언 → LIKELY /
+  A3 DISTINCT·GROUP BY·UNION·표현식 키 각각 고유 사유 / A4 UNION ALL·스칼라 서브쿼리 집계 오탐 없음 /
+  A5 UNKNOWN 은 동작 불변 / B1 불균형 metrics 실값 / B2 폭증 HOLD 시 조회 0회 / B3 BLOCKED 상한 하향 /
+  B3b 밀도 구분(희소 HOLD·조밀 통과·미상 보수) / B4 kill-switch / B5 정상 무회귀 /
+  B6 어댑터 계약 확장 / B7 count_chunks == build_chunk_bounds 길이
+
+CLAUDE.md 필수 회귀:
+  python samples/test_virtual_cases.py  → 8/8 통과
+  python samples/test_complex_cases.py  → 5/5 통과
+
+관련 서브셋 + baseline 대조(worktree C:\_wtbase = HEAD):
+  chunk/exact/pk/oracle/dialect/reimport/agg_diff/drill 관련 38파일
+    수정 후 : 397 passed, 6 failed, 2 skipped, 1 xfailed
+    baseline: 364 passed, 6 failed, 2 skipped, 1 xfailed   (차이 33건 = 신규 13 + 동시 세션 신규파일 20)
+  chunk 엔진 핵심 10파일
+    수정 후 : 62 passed, 4 failed  /  baseline: 62 passed, 4 failed (동일)
+
+실패 테스트 전체 목록 — **전부 수정 전부터 실패(baseline 동일), 이번 작업과 무관**:
+  1. tests/test_d7_8_inline_drill_time.py::test_ui_advanced_perf_position_and_title
+  2. tests/test_exact_diff_ui_wiring.py::test_button_state_conditions_flag_on_off
+  3. tests/test_exact_diff_ui_wiring.py::test_run_wiring_calls_exact_diff_api_not_key_range
+  4. tests/test_exact_diff_ui_wiring.py::test_record_grid_and_kind_filter_and_order
+  5. tests/test_exact_diff_ui_wiring.py::test_hold_labels_visible
+  6. tests/test_exact_diff_ui_wiring.py::test_key_range_tree_labeled_as_auxiliary
+  7. tests/test_execution_path.py::test_parallel_read_decision_off_by_default
+  8. tests/test_execution_path.py::test_parallel_read_decision_diff_host_true
+  9. tests/test_execution_path.py::test_parallel_read_decision_same_host_sequential
+  (1~6은 UI 문자열/렌더 계약, 7~9는 _parallel_read_decision 이 튜플을 반환하도록 바뀐 뒤의 옛 단언)
+
+────────────────────────────────────────────────────────────────────────────
+변경 파일 / 커밋
+────────────────────────────────────────────────────────────────────────────
+커밋: 코드 저장소 `16bdbc1`
+  feat(chunk): PK range chunk 실행 전 pushdown 사전 판정 + 불균형·이상치 방어
+               (PK-RANGE-CHUNK-PUSHDOWN-AND-IMBALANCE-P1-P5-FIX)
+
+ A  services/exact_diff/chunk_pushdown.py                        (신규 · pushdown 정적 판정)
+ M  services/exact_diff/pk_range_chunk.py                        (+계획 게이트 · 불균형 계측)
+ M  services/exact_diff/dialects/oracle.py                       (어댑터 계약 확장 3줄)
+ M  services/exact_diff/dialects/postgresql.py                   (어댑터 계약 확장 3줄)
+ A  tests/test_pk_range_chunk_pushdown_and_imbalance.py          (신규 13건)
+ A  scripts/dev_e2e/pk_range_chunk_pushdown_imbalance_verify.py  (신규 · 라이브 실측 드라이버)
+
+동시 작업 회피: `routes/agg_diff_route.py` 는 **손대지 않았다**. 착수 시점에 다른 세션이 같은 파일에서
+G2(청크 크기 clamp)·P4(표본 비용 판정) 를 미커밋 상태로 작업 중이어서, 그 파일을 커밋하면 남의 진행 중
+작업이 내 커밋에 딸려 들어간다. 대신 방언 어댑터가 조회 클로저에 원본 SQL/키/방언을 노출하는 **계약 확장**
+(`fetch.mv_chunk_source_sql` / `mv_chunk_key_col` / `mv_chunk_dbms`, 선택 필드)으로 배선했다 —
+엔진이 route 를 경유하지 않고 판정 입력을 얻는다. 커밋 직전 `git diff --cached --name-status` 로 내 6개
+파일만 staged 인지 확인했다.
+
+────────────────────────────────────────────────────────────────────────────
+잔여/한계 (정직 고지)
+────────────────────────────────────────────────────────────────────────────
+- **화면 표시 미배선**: 경고·HOLD 사유는 응답(`chunk_plan_guard`, `error_message`)과 `metrics` ·
+  저장 basis 에 모두 실리지만, 이를 배지/배너로 그리는 UI 렌더러 수정은 범위 밖이다.
+- **job.meta.job_status_detail 미기록**: route 를 안 건드린 결과로 HOLD_CHUNK_* 가 job.meta 에는 안 실린다
+  (응답 status/stop_reason/error_message 는 정상). route 가 자유로워지면 3줄로 배선 가능.
+- **PostgreSQL 라이브 미실측**: 내부망 PG(5433/5434)가 "server does not support SSL, but SSL was required"
+  로 접속 실패해 오라클로만 실측했다. PG 방언 정적 판정은 단위 테스트로만 검증했다(A2).
+- 진단 §6 의 1번(경계 신뢰성 게이트)·4번(경계 산정 비용 회피)은 이번 지시 범위 밖이라 미착수.
+- 진행률 메인 축은 여전히 `chunks_done/chunks_total` 이다 — 불균형 값은 노출되지만 축 보정은 안 했다.
+
+실검증 상태: 실 DB(오라클 tobe 1524 · NXDNP.MV_ORA_XDIFF_TGT 249,950행) 라이브 실측 완료 —
+pushdown 판정 3형태를 실행계획과 대조(전부 일치), 불균형 3시나리오 계측, 이상치 HOLD 전/후 대조
+(28.869초 → 0.307초), 정상 케이스 baseline 대조까지 모두 실제 DB 에서 측정했다. PostgreSQL 은 접속
+불가로 미실측(위 고지).
+
+✅ 작업 완료

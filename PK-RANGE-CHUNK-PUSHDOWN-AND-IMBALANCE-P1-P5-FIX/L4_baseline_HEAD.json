@@ -1,0 +1,38 @@
+{
+  "env": {
+    "table": "NXDNP.MV_ORA_XDIFF_TGT",
+    "chunk_size": 50000,
+    "baseline": true,
+    "has_guard": false
+  },
+  "phases": {
+    "L4": {
+      "status": "READY",
+      "counts": {
+        "missing_migration": 1,
+        "value_mismatch": 0,
+        "reimport_pks": 1,
+        "reimport_total": 1,
+        "excluded_target_only": 0,
+        "target_only_stored": 0,
+        "mismatch_limit_stopped": false
+      },
+      "ratios": {
+        "reimport_ratio": 0.0004,
+        "missing_ratio": 0.0004,
+        "value_ratio": 0.0,
+        "target_only_ratio": 0.0
+      },
+      "wall_seconds": 15.613,
+      "pk_range": [
+        1,
+        250050
+      ],
+      "chunks_total": 6,
+      "src_rows": null,
+      "pushdown_verdict": null,
+      "source_read_seconds": 7.61,
+      "target_read_seconds": 7.64
+    }
+  }
+}

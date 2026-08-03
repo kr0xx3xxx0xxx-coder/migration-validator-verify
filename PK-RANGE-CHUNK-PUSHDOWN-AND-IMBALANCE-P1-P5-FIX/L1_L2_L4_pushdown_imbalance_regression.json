@@ -1,0 +1,270 @@
+{
+  "env": {
+    "table": "NXDNP.MV_ORA_XDIFF_TGT",
+    "chunk_size": 50000,
+    "baseline": false,
+    "has_guard": true
+  },
+  "phases": {
+    "L1": {
+      "PLAIN": {
+        "ast_verdict": "PUSHDOWN_LIKELY",
+        "ast_blockers": [],
+        "ast_elapsed_ms": 210.07,
+        "plan": {
+          "ops": [
+            "SELECT STATEMENT",
+            "TABLE ACCESS BY INDEX ROWID",
+            "INDEX RANGE SCAN"
+          ],
+          "top_card": 49980,
+          "window_sort": false,
+          "window_nosort": false,
+          "index_range_scan": true,
+          "table_access_full": false
+        },
+        "empty_chunk_seconds": [
+          0.0086,
+          0.0031,
+          0.0027
+        ],
+        "empty_chunk_median": 0.0031
+      },
+      "WRAPPED_PART_C_CHAR": {
+        "ast_verdict": "PUSHDOWN_BLOCKED",
+        "ast_blockers": [
+          "WINDOW_PARTITION_MISMATCH"
+        ],
+        "ast_elapsed_ms": 7.56,
+        "plan": {
+          "ops": [
+            "SELECT STATEMENT",
+            "SORT ORDER BY",
+            "VIEW",
+            "WINDOW SORT",
+            "NESTED LOOPS OUTER",
+            "TABLE ACCESS FULL",
+            "INDEX UNIQUE SCAN"
+          ],
+          "top_card": 249950,
+          "window_sort": true,
+          "window_nosort": false,
+          "index_range_scan": false,
+          "table_access_full": true
+        },
+        "empty_chunk_seconds": [
+          0.1438,
+          0.1263,
+          0.1289
+        ],
+        "empty_chunk_median": 0.1289
+      },
+      "WRAPPED_PART_ID": {
+        "ast_verdict": "PUSHDOWN_LIKELY",
+        "ast_blockers": [],
+        "ast_elapsed_ms": 1.88,
+        "plan": {
+          "ops": [
+            "SELECT STATEMENT",
+            "VIEW",
+            "WINDOW NOSORT",
+            "NESTED LOOPS OUTER",
+            "TABLE ACCESS BY INDEX ROWID",
+            "INDEX RANGE SCAN",
+            "INDEX UNIQUE SCAN"
+          ],
+          "top_card": 49980,
+          "window_sort": false,
+          "window_nosort": true,
+          "index_range_scan": true,
+          "table_access_full": false
+        },
+        "empty_chunk_seconds": [
+          0.0036,
+          0.0022,
+          0.0024
+        ],
+        "empty_chunk_median": 0.0024
+      },
+      "_agreement": {
+        "blocked_shape_is_slowest": true,
+        "blocked_ratio_vs_plain": 41.6,
+        "ast_matches_plan": true
+      }
+    },
+    "L2": {
+      "UNIFORM": {
+        "status": "READY",
+        "wall_seconds": 15.8,
+        "pk_range": [
+          1,
+          250050
+        ],
+        "counts": {
+          "missing_migration": 0,
+          "value_mismatch": 0,
+          "reimport_pks": 0,
+          "reimport_total": 0,
+          "excluded_target_only": 0,
+          "target_only_stored": 0,
+          "mismatch_limit_stopped": false
+        },
+        "chunk_imbalance": {
+          "chunks_executed": 6,
+          "chunks_total": 6,
+          "rows_total": 499900,
+          "rows_max": 99960,
+          "rows_min": 100,
+          "rows_avg": 83316.67,
+          "max_to_avg_ratio": 1.2,
+          "empty_chunks": 0,
+          "empty_chunk_ratio": 0.0,
+          "empty_chunk_read_seconds": 0.0,
+          "rows_sample": [
+            99960,
+            99960,
+            99960,
+            99960,
+            99960,
+            100
+          ],
+          "sample_capped": false,
+          "imbalance_warning": false,
+          "warning_text": ""
+        },
+        "pushdown_verdict": "PUSHDOWN_LIKELY"
+      },
+      "HEAD_HEAVY": {
+        "status": "READY",
+        "wall_seconds": 2.601,
+        "pk_range": [
+          1,
+          250000
+        ],
+        "counts": {
+          "missing_migration": 0,
+          "value_mismatch": 0,
+          "reimport_pks": 0,
+          "reimport_total": 0,
+          "excluded_target_only": 0,
+          "target_only_stored": 0,
+          "mismatch_limit_stopped": false
+        },
+        "chunk_imbalance": {
+          "chunks_executed": 5,
+          "chunks_total": 5,
+          "rows_total": 80808,
+          "rows_max": 80008,
+          "rows_min": 200,
+          "rows_avg": 16161.6,
+          "max_to_avg_ratio": 4.95,
+          "empty_chunks": 0,
+          "empty_chunk_ratio": 0.0,
+          "empty_chunk_read_seconds": 0.0,
+          "rows_sample": [
+            80008,
+            200,
+            200,
+            200,
+            200
+          ],
+          "sample_capped": false,
+          "imbalance_warning": true,
+          "warning_text": "chunk 행 수가 고르지 않습니다 — 최대 chunk 가 평균의 4.95배, 빈 chunk 0/5개"
+        },
+        "pushdown_verdict": "PUSHDOWN_LIKELY"
+      },
+      "ENDS_HEAVY": {
+        "status": "READY",
+        "wall_seconds": 0.685,
+        "pk_range": [
+          1,
+          250050
+        ],
+        "counts": {
+          "missing_migration": 0,
+          "value_mismatch": 0,
+          "reimport_pks": 0,
+          "reimport_total": 0,
+          "excluded_target_only": 0,
+          "target_only_stored": 0,
+          "mismatch_limit_stopped": false
+        },
+        "chunk_imbalance": {
+          "chunks_executed": 6,
+          "chunks_total": 6,
+          "rows_total": 20092,
+          "rows_max": 9996,
+          "rows_min": 0,
+          "rows_avg": 3348.67,
+          "max_to_avg_ratio": 2.99,
+          "empty_chunks": 3,
+          "empty_chunk_ratio": 0.5,
+          "empty_chunk_read_seconds": 0.034,
+          "rows_sample": [
+            9996,
+            0,
+            0,
+            0,
+            9996,
+            100
+          ],
+          "sample_capped": false,
+          "imbalance_warning": true,
+          "warning_text": "chunk 행 수가 고르지 않습니다 — 최대 chunk 가 평균의 2.99배, 빈 chunk 3/6개"
+        },
+        "pushdown_verdict": "PUSHDOWN_LIKELY"
+      }
+    },
+    "L4": {
+      "status": "READY",
+      "counts": {
+        "missing_migration": 1,
+        "value_mismatch": 0,
+        "reimport_pks": 1,
+        "reimport_total": 1,
+        "excluded_target_only": 0,
+        "target_only_stored": 0,
+        "mismatch_limit_stopped": false
+      },
+      "ratios": {
+        "reimport_ratio": 0.0004,
+        "missing_ratio": 0.0004,
+        "value_ratio": 0.0,
+        "target_only_ratio": 0.0
+      },
+      "wall_seconds": 15.322,
+      "pk_range": [
+        1,
+        250050
+      ],
+      "chunks_total": 6,
+      "src_rows": {
+        "chunks_executed": 6,
+        "chunks_total": 6,
+        "rows_total": 499899,
+        "rows_max": 99960,
+        "rows_min": 100,
+        "rows_avg": 83316.5,
+        "max_to_avg_ratio": 1.2,
+        "empty_chunks": 0,
+        "empty_chunk_ratio": 0.0,
+        "empty_chunk_read_seconds": 0.0,
+        "rows_sample": [
+          99959,
+          99960,
+          99960,
+          99960,
+          99960,
+          100
+        ],
+        "sample_capped": false,
+        "imbalance_warning": false,
+        "warning_text": ""
+      },
+      "pushdown_verdict": "PUSHDOWN_LIKELY",
+      "source_read_seconds": 7.57,
+      "target_read_seconds": 7.4
+    }
+  }
+}

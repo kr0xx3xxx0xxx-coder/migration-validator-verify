@@ -872,7 +872,30 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE.txt
 - 참고: E:\verify_reports\LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE-RETRY.txt
 
-### P1. pushdown 사전 판정이 없어, 청크 술어가 안 내려가는 형태에서 매 청크마다 원본 전체 정렬이 반복된다
+### P1. ✅ 해결 완료 — pushdown 사전 판정이 없어, 청크 술어가 안 내려가는 형태에서 매 청크마다 원본 전체 정렬이 반복된다
+- 해결일: 2026-08-03 (PK-RANGE-CHUNK-PUSHDOWN-AND-IMBALANCE-P1-P5-FIX)
+- 근거 커밋: 코드 저장소 `16bdbc1` — `feat(chunk): PK range chunk 실행 전 pushdown 사전 판정 +
+  불균형·이상치 방어 (PK-RANGE-CHUNK-PUSHDOWN-AND-IMBALANCE-P1-P5-FIX)`
+- 해결 요약: 대응 방향대로 **sqlglot AST 정적 판정**(신규 `services/exact_diff/chunk_pushdown.py`, DB 왕복 0회)을
+  실행 전 게이트로 넣었다. 검사 항목은 원안 그대로 — (a) 윈도우 PARTITION BY 에 청크 키가 있는가
+  (b) 파생 척추(FROM/CTE spine) 위에 DISTINCT/GROUP BY/집계/중복제거 집합연산이 있는가 —
+  여기에 (c) 청크 키가 표현식이라 인덱스를 못 타는 경우를 더했다. 판정은 3값(LIKELY/BLOCKED/UNKNOWN)이고
+  **UNKNOWN 은 어떤 동작도 바꾸지 않는다**(파싱 차단·타임아웃·sqlglot 부재 → 기존 동작 유지).
+  · **EXPLAIN 실행이 아니라 AST 를 택한 근거**(지시 3의 '먼저 조사'): 갈림길이 통계값이 아니라 구문 성질이고
+    (§3-2 대조실험), EXPLAIN 은 ① 왕복 추가 ② 통계·바인드에 따라 같은 SQL 이 다른 판정을 내 재현 불변성이
+    깨짐 ③ PG/Oracle 계획 파싱 파편화(PLAN_TABLE 권한 포함) 때문. 모듈 docstring 에 근거를 남겼다.
+  · **실 오라클 대조 검증**(NXDNP.MV_ORA_XDIFF_TGT 249,950행): 3형태 전부 AST 판정 = 실행계획.
+    `PARTITION BY C_CHAR`(키 불일치) → BLOCKED · `WINDOW SORT` + `TABLE ACCESS FULL` · 최상위 card 249,950 ·
+    빈 chunk 고정비 **0.1289s**; `PARTITION BY ID` → LIKELY · `WINDOW NOSORT` + `INDEX RANGE SCAN` ·
+    card 49,980 · **0.0024s**; PLAIN → LIKELY · `INDEX RANGE SCAN` · **0.0031s**(BLOCKED 가 PLAIN 대비 41.6배).
+    판정 자체의 비용은 1.9~2.6ms(1회).
+  · **대응 수준**(지시 2의 '조사 후 판단'): 판정만으로 전략을 조용히 바꾸지 않는다(§7 자동 fallback 금지).
+    기본은 **경고**(사유·근거를 응답 `chunk_plan_guard` + `metrics.pushdown_*` 에 기록), 청크 수가 상한을
+    넘을 때만 **실행 전 HOLD**(P5 와 결합 — 아래 참조).
+- 잔여: 화면 배지/배너 렌더 배선은 범위 밖(경고 payload 는 이미 응답·metrics 에 실려 있다).
+  route(`routes/agg_diff_route.py`) 는 동시 세션 작업 중이라 건드리지 않고, 방언 어댑터가 조회 클로저에
+  원본 SQL/키/방언을 노출하는 계약 확장(`fetch.mv_chunk_source_sql` 등)으로 배선했다 — 그 결과
+  `job.meta.job_status_detail` 에 HOLD_* 가 실리지 않는다(응답 status/stop_reason/error_message 는 정상).
 - 발견일: 2026-07-29
 - 근거 보고서: `PK-RANGE-CHUNK-BOUNDARY-ORDERING-ASSUMPTION-DIAGNOSE.txt` (§5 D·E / §6-2)
 - 상세: 갈림길은 "윈도우 유무"가 아니라 **"청크 키가 PARTITION BY 컬럼에 있는가"** 다.
@@ -953,7 +976,32 @@ git -C E:/verify_reports worktree remove <임시경로>
   비용 상한 기반 판정이 더 정밀하나 미구현. 현재 선택은 "결정적이고 판정 불변" 이라는 점에서 안전한 쪽.
 - 참고: E:\verify_reports\REIMPORT-SAMPLING-PREFLIGHT-SKIP-FOR-WRAPPING-SOURCE-FIX.txt
 
-### P5. chunk 불균형·빈 chunk 고정비가 어디에도 노출되지 않는다 + 이상치 chunk 폭증 방어 없음
+### P5. ✅ 해결 완료 — chunk 불균형·빈 chunk 고정비가 어디에도 노출되지 않는다 + 이상치 chunk 폭증 방어 없음
+- 해결일: 2026-08-03 (PK-RANGE-CHUNK-PUSHDOWN-AND-IMBALANCE-P1-P5-FIX)
+- 근거 커밋: 코드 저장소 `16bdbc1`(P1 과 동일 커밋 — 같은 파일에서 만나 순서를 함께 정해야 했다)
+- 해결 요약: 대응 방향 3개 중 관측성·이상치 방어를 구현했다.
+  · **관측성** — chunk 별 실제 행 수를 실행 중 누적해 `metrics.chunk_imbalance`(+ flatten 별칭)와 진행신호
+    payload 에 싣는다: `max_to_avg_ratio` · `empty_chunks`/`empty_chunk_ratio` ·
+    **`empty_chunk_read_seconds`(빈 chunk 가 실제로 소비한 시간 = 순수 낭비)** · 행 수 표본(상한 100) ·
+    임계 초과 시 `imbalance_warning`+한글 사유. 추가 조회 0회(이미 읽은 행 수만 집계).
+    실측 재현(오라클 라이브): UNIFORM **1.20배**·빈 0/6 / HEAD_HEAVY **4.95배** / ENDS_HEAVY **2.99배**·빈 3/6
+    — 진단 §2-1 수치와 일치. 지금까지 이 값들은 어디에도 남지 않았다.
+  · **이상치 방어** — chunk 수가 정책 임계를 넘으면 실행 전 HOLD + 사유 표시. 실측: 목적지 PK 이상치 1건
+    (99,999,999) → chunk **2,000개**(빈 1,993개). 게이트 OFF 대조군은 2,000회 조회로 **28.869초**를 쓰고
+    끝났고, 게이트 ON 은 **0.307초**에 `CHUNK_COUNT_EXPLOSION` 으로 HOLD(조회 0회, 28.6초 절감).
+  · **P1 과의 결합**(지시 3 — 같은 파일에서 만나는 지점): 상한을 하나로 두지 않았다. 빈 chunk 고정비가
+    형태마다 40~50배 다르므로(PLAIN 0.003s vs WRAPPED 0.129s) **pushdown 불가면 200개, 그 외 절대 상한
+    1,000개**의 2단이다. 또 절대 상한은 **밀도 조건과 AND** 로 묶었다 — chunk 수만 보면 '이상치로 퍼진
+    25만행'(2,000 chunk·밀도 0.25%)과 '정직하게 큰 6,000만행'(1,200 chunk·밀도 ~100%)을 구분하지 못해
+    정상 대량 실행까지 막는다. 행 수 미상이면 밀도 조건 없이 보수적으로 판정한다.
+    반면 pushdown 불가 상한에는 밀도를 붙이지 않았다(그 비용은 행 수가 아니라 청크 개수에 비례).
+  · kill-switch `MV_CHUNK_PLAN_GUARD=0` 로 HOLD 만 즉시 해제 가능(계측·증적은 유지).
+  · 원문 경고("규모 비례 청크 확대를 정렬 비용 대책으로 쓰지 말 것")는 그대로 지켰다 — 청크 크기 정책은
+    건드리지 않았고 HOLD 문구도 '청크 크기를 키우거나 DIRECT_STREAM 사용'을 사용자 판단으로 남긴다.
+  · 무회귀: 균등·pushdown 가능 정상 케이스 판정/건수 동일, wall 15.3~15.9초로 baseline(15.3~16.2초) 범위 내.
+    엔진 내부 추가비용은 2,000 chunk 기준 **+0.010초**(0.194→0.204s, 스텁 격리 측정).
+- 잔여: 진행률 메인 축을 `chunks_done` 에서 처리 행 수 기준으로 바꾸는 건은 미적용(값은 노출되나 축은 그대로).
+  대응 방향 §6-4(경계 산정 비용 회피)와 §6-1(경계 신뢰성 게이트)은 이번 범위 밖.
 - 발견일: 2026-07-29
 - 근거 보고서: `PK-RANGE-CHUNK-BOUNDARY-ORDERING-ASSUMPTION-DIAGNOSE.txt` (§5 C / §6-3, §6-5)
 - 상세: PK 분포 조사 자체가 없어 최대/평균 4.95배 편차와 빈 chunk 대량 발생이 관측되지 않는다.
