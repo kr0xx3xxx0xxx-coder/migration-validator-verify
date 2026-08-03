@@ -1,0 +1,72 @@
+{
+ "phase": "after",
+ "case": "etl02",
+ "pair": [
+  "PostgreSQL_Inter_asis",
+  "PostgreSQL_Inter_tobe"
+ ],
+ "sql": "INSERT INTO tobe01.t_to_1_etl02 (\n  teacher_id, teacher_name, school_code, subject, service_years,\n  hire_date, retire_date, phone_number, email_address, office_location, updated_at, comments\n)\nSELECT teacher_id, teacher_name, school_code, subject, years_service,\n       hire_date, retire_date, contact_number, email, office_room, last_updated, remark\nFROM asis01.t_as_1_etl02",
+ "setup": {
+  "pair_label": "PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe",
+  "pair_existed": false,
+  "pair_rows_after": 1,
+  "connect_clicked": true
+ },
+ "1단계_실행결과": {
+  "step": "query",
+  "blocked": false,
+  "err": null,
+  "from_table": "T_AS_1_ETL02",
+  "target_table": ""
+ },
+ "COUNT_게이트문구": "COUNT 일치 원본 5,000 · 목적 5,000 · 순 차이 0 · 목적지 적재율 100.0% COUNT 일치 — 값 불일치/교차 누락·과잉 확인을 위해 통계검증·Exact Diff 진행 가능.",
+ "후보계산_클릭": true,
+ "3단계_계산후": {
+  "보는탭": "candidate",
+  "타일_통계검증규모": {
+   "값": "잠정 소형",
+   "박스텍스트": "잠정 소형",
+   "tooltip": "통계검증 규모: 잠정 소형 (잠정)"
+  },
+  "타일_라벨순서": [
+   "목적테이블",
+   "원본테이블",
+   "통계검증규모",
+   "목적그룹",
+   "원본그룹",
+   "목적집계",
+   "원본집계",
+   "처리시간",
+   "상태"
+  ],
+  "planInfo": {
+   "scaleText": "잠정 소형",
+   "scaleTip": "통계검증 규모: 잠정 소형 (잠정)",
+   "implStatus": "READY",
+   "implText": "실행 가능 — 대체키(목적지 PK) 확정"
+  },
+  "실행계획상세_텍스트": "실행계획 상세 (참고) 실행계획 No 항목 값 상태 1 실제 적용 GROUP BY 2개 · 집계컬럼 1개 적용됨 2 통계전략 직접 집계(전체스캔 EXACT · 원본↔목적 그룹별 COUNT/SUM 비교) STATS_DIRECT_AGG 3 불일치 추출전략 직접 스트림 비교(원본·목적 전체를 한 번에 정렬·대조) DIRECT_STREAM_COMPARE 4 판정근거 원본 5,000건 · 문자 단일 PK · 대체키(목적지 PK) 확정 · PK 인덱스 · 원격 DB",
+  "실행계획박스_텍스트": "실행계획 상세 (참고) 실행계획 No 항목 값 상태 1 실제 적용 GROUP BY 2개 · 집계컬럼 1개 적용됨 2 통계전략 직접 집계(전체스캔 EXACT · 원본↔목적 그룹별 COUNT/SUM 비교) STATS_DIRECT_AGG 3 불일치 추출전략 직접 스트림 비교(원본·목적 전체를 한 번에 정렬·대조) DIRECT_STREAM_COMPARE 4 판정근거 원본 5,000건 · 문자 단일 PK · 대체키(목적지 PK) 확정 · PK 인덱스 · 원격 DB",
+  "strategyPlan_provisional_grade": null,
+  "lastCount": {
+   "src_count": 5000,
+   "tgt_count": 5000,
+   "restored": false
+  }
+ },
+ "판정": {
+  "타일값": "잠정 소형",
+  "scaleText": "잠정 소형",
+  "스캔문구_잔존": {
+   "타일값": false,
+   "planInfo.scaleText": false,
+   "실행계획상세표": false,
+   "실행계획박스전체": false
+  },
+  "스캔문구_전부제거": true
+ },
+ "notes": [],
+ "pageerrors": [
+  "CONSOLE.error: Failed to load resource: the server responded with a status of 404 (Not Found)"
+ ]
+}
