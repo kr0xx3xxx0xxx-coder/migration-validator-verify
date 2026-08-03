@@ -1,0 +1,179 @@
+작업명 : STAGE-TAB-STEP-HINT-VIEWSTEP-SOURCE-FIX
+일자   : 2026-08-03
+성격   : 개별검증 상단 '현재 단계' 안내문구의 소스 통일(1줄 수정) + 계약 테스트 갱신 + before/after 실측
+결론   : 안내문구(ui/tabler_renderer.py:6373)가 읽던 소스를 wfCurrent(Gate 가 계산한 워크플로 진행
+         현재단계) → _singleViewStep(보고 있는 탭)으로 바꿨다. 진단서가 재현한 시나리오 A/B 를
+         브라우저에서 그대로 재현해 before 5건 불일치 → after 0건(6케이스 전부 일치)을 실측했다.
+         같은 화면의 대조군(탭 배지 · N단계 처리시간 · 하단 커맨드바)은 before/after 값이 완전히
+         동일해(회귀 없음), '한 화면에 현재 단계가 두 기준으로 뜨던' 모순만 사라졌다.
+
+═══════════════════════════════════════════════════════════════════════════════
+1. 수정 내용
+═══════════════════════════════════════════════════════════════════════════════
+[코드] ui/tabler_renderer.py:6373 (_renderSingleStepNav 마지막부)
+
+  (before)
+    _mvSetStepHintOwned('analyze', _MV_SINGLE_HINT[_mvGateToStageKey(wfCurrent)] || '');
+                                                              /* 실제 현재단계 기준 문구 */
+  (after)
+    /* STAGE-TAB-STEP-HINT-VIEWSTEP-SOURCE-FIX: 안내문구는 '보고 있는 탭'(_singleViewStep) 기준으로 통일한다.
+       … (한글 주석 5줄) … wfCurrent 는 위 스냅백(잠긴 탭 복귀) 판정에서 계속 사용한다. */
+    _mvSetStepHintOwned('analyze', _MV_SINGLE_HINT[_singleViewStep] || '');   /* 보고 있는 탭 기준 문구 */
+
+  · 진단서 §4 후보 A 그대로다. 새 로직·새 분기·새 상태는 추가하지 않았다.
+  · 키 형식 검증(요구사항 2): _MV_SINGLE_HINT 의 키는 nav 단계키
+      query / count / candidate / validation / result   (ui/tabler_renderer.py:5514~5520)
+    이고 _singleViewStep 의 값도 같은 nav 단계키다(5587 초기값 'query',
+    6149 showSingleStep / 6163 _singleAdvanceTo / 6288 스냅백 대입 모두 nav 단계키).
+    _mvGateToStageKey 는 Gate id('execute')만 nav 키('validation')로 바꾸는 변환이므로,
+    _singleViewStep 을 직접 쓰는 지금은 변환이 필요 없다(변환 생략이 정당함을 코드로 확인).
+  · wfCurrent 삭제하지 않음(요구사항 3): 6282 정의 · 6285~6289 스냅백(잠긴 탭에 머물면 현재 단계로
+    되돌림) · 6301 isCur 계산에서 계속 사용된다. 이번 수정은 6373 한 줄(문구 소스)만이다.
+
+[테스트] 옛 계약(wfCurrent 기준)을 문자열로 고정하고 있던 계약 테스트 3건을 새 계약으로 갱신했다.
+  · tests/test_shared_sticky_step_nav.py::test_current_step_hint_present
+  · tests/test_shared_sticky_step_nav.py::test_step_hint_setters_are_ownership_aware
+        → "_mvSetStepHintOwned('analyze', _MV_SINGLE_HINT[_singleViewStep]" 로 갱신
+          (일괄 쪽 계약 "_MV_BATCH_HINT[_batchGateIdToNum(view && view.current_stage)]" 은 그대로 유지)
+  · tests/test_stage_gate_unified_contract.py::test_individual_renderer_badge_follows_active_viewed_tab
+        → "_MV_SINGLE_HINT[_singleViewStep]" 존재 + 옛 표현 부재 + wfCurrent 스냅백 대입 존재(삭제 금지)
+          3가지를 함께 고정하도록 갱신
+  (지침은 'ui/tabler_renderer.py 만 수정'이었으나, 이 3건은 바로 이 한 줄의 옛 계약을 고정하던
+   테스트라 갱신하지 않으면 새 정책이 영구 실패로 남는다. 코드 로직 변경은 없고 계약 문자열만
+   새 정책으로 옮겼음을 명시한다.)
+
+[실측 하니스] scripts/dev_e2e/stage_tab_step_hint_viewstep_source_verify.py (신규)
+  진단서 브라우저 하니스(stage_tab_current_step_banner_browser_shot.py)를 그대로 계승하되,
+  ① before/after 두 repo(baseline worktree / 수정본)에서 각각 자체 포트로 서버를 띄워 대조하고,
+  ② 진단서가 캡처에서 제외했던 3단계(candidate) 탭까지 후보표(colSelectOut)를 채워 실측하며,
+  ③ 하단 커맨드바 '현재 단계'까지 스냅샷에 포함해 한 화면 내 일치 여부를 판정한다.
+
+═══════════════════════════════════════════════════════════════════════════════
+2. 실측 결과 — 시나리오 A(1~5단계 완주 후 탭 이동), 진단서 재현 시나리오 그대로
+═══════════════════════════════════════════════════════════════════════════════
+방법과 한계(진단서와 동일하게 명시): 실 DB 로 완주하는 대신 각 단계의 '진짜 완료 플래그'만 사용자
+흐름과 같은 값으로 세우고 실제 렌더 함수(_renderSingleStepNav / _applySinglePane / _mvRenderCmdBar)
+를 그대로 호출한다. 탭 이동은 실제 클릭 경로(_mvNavClick → showSingleStep)를 호출한다. 따라서
+배지·안내문구·처리시간·커맨드바는 운영과 동일한 실제 렌더 결과다. pageerror 는 before/after 모두 0건.
+
+  보는 탭      Gate현재단계   before 안내문구            after 안내문구              판정
+  ─────────────────────────────────────────────────────────────────────────────────────
+  result(5)   result        현재 단계: 결과 확인        현재 단계: 결과 확인         동일(원래 정상)
+  query(1)    result        현재 단계: 결과 확인  ← 고착 현재 단계: 쿼리검토         해소
+  count(2)    result        현재 단계: 결과 확인  ← 고착 현재 단계: COUNT 사전검증   해소
+  candidate(3) result       현재 단계: 결과 확인  ← 고착 현재 단계: 후보 컬럼 선정   해소
+  validation(4) result      현재 단계: 결과 확인  ← 고착 현재 단계: 통계검증 실행    해소
+
+  · before 는 진단서 [A] 표(1·2·3·4단계 전부 '결과 확인' 고착)와 정확히 일치한다 — 재현 성공.
+  · 진단서가 캡처에서 제외했던 3단계(candidate)도 이번엔 실제 탭 이동으로 확인했다(후보표를 채우면
+    pane 전환이 정상 동작). before 고착 · after 해소로 node 하니스 [A] candidate 행과 일치한다.
+
+시나리오 B(완주 전 · 3단계까지만 완료해 Gate현재단계=execute, 보는 탭은 1단계)
+  before : 보는 탭 query / Gate현재단계 execute → 안내문구 "현재 단계: 통계검증 실행" (보는 탭과 불일치)
+  after  : 보는 탭 query / Gate현재단계 execute → 안내문구 "현재 단계: 쿼리검토"      (보는 탭과 일치)
+  ※ 완주하지 않아도 불일치가 발생한다는 진단서 [B] 결론도 그대로 재현·해소됐다.
+
+═══════════════════════════════════════════════════════════════════════════════
+3. 한 화면 내 일관성 — 대조군 3종과의 일치 여부
+═══════════════════════════════════════════════════════════════════════════════
+같은 화면에서 '현재 단계'를 말하는 표시는 4개다. before 는 이 중 안내문구만 기준이 달랐다.
+
+  케이스        탭 배지 '현재'    N단계 처리시간   커맨드바 '현재 단계'  안내문구(before) 안내문구(after)
+  ────────────────────────────────────────────────────────────────────────────────────────────
+  1단계 탭      1 쿼리검토 현재    1단계 1.80초     현재 단계: 쿼리검토    결과 확인 ✗      쿼리검토 ✓
+  2단계 탭      2 COUNT… 현재     2단계 3.40초     현재 단계: COUNT…     결과 확인 ✗      COUNT… ✓
+  3단계 탭      3 후보… 현재      3단계 0.01초미만  현재 단계: 후보…      결과 확인 ✗      후보… ✓
+  4단계 탭      4 통계검증 현재    4단계 24.12초    현재 단계: 통계검증…   결과 확인 ✗      통계검증… ✓
+  5단계 탭      5 결과 확인 현재   5단계 24.12초    현재 단계: 결과 확인   결과 확인 ✓      결과 확인 ✓
+
+  · 대조군 3종(탭 배지 문자열 · 노출된 처리시간 · 커맨드바 문구)은 6개 케이스 전부에서
+    before 값과 after 값이 문자열 단위로 완전히 동일하다(회귀 0). 바뀐 것은 안내문구뿐이다.
+  · 즉 "한 화면에 현재 단계가 서로 다르게 두 번 뜨던" 모순이 해소됐고, 4개 표시가 모두
+    _singleViewStep(보는 탭) 한 기준을 따른다.
+
+과거 문제(2026-06-27 ac76e9d "완료 탭을 클릭하면 그 탭이 현재로 보이던 문제") 재발 여부
+  · 배지 기준은 이번에 건드리지 않았고(6300 active 기준, 2026-07-08 1c10a54 이후 정책), 실측에서도
+    배지 문자열이 before/after 동일하다. 즉 "완료 탭 클릭 → 그 탭이 '현재' 배지" 는 이번 수정 전에도
+    이미 현행 정책이었으며, 이번 수정은 안내문구를 그 정책에 맞춘 것이다.
+  · 완료 탭의 다른 탭들은 여전히 '완료'로 남고(예: 1단계 탭에서 2~5단계는 완료), 잠긴 탭 스냅백도
+    wfCurrent 기준으로 유지된다 — 되돌리는 회귀가 아니라 표시 기준 통일이다.
+
+═══════════════════════════════════════════════════════════════════════════════
+4. 일괄검증(ui/tabler_renderer.py:8574) 동일 패턴 확인 — 결론: 수정하지 않음(정당)
+═══════════════════════════════════════════════════════════════════════════════
+  8574:  _mvSetStepHintOwned('batch', _MV_BATCH_HINT[_batchGateIdToNum(view && view.current_stage)] || '');
+
+  실측(시나리오 C — 1~5단계 완료 상태에서 1단계 탭을 보는 경우, after 빌드):
+    탭 배지  : ["1 그룹/업로드 완료", "2 검증대상 / COUNT 완료", "3 후보 컬럼 선정 완료",
+                "4 전체 통계검증 완료", "5 결과 요약 진행 중"]
+    안내문구 : "현재 단계: 결과 요약 · 검증 결과 요약을 확인하세요."
+
+  판단: 일괄은 개별과 표시 정책 자체가 다르다. renderBatchStepNav(8558~8571)는 배지를 공통 Gate
+  state 만으로 매핑하고 active(_batchStep)는 스타일로만 쓴다 — 즉 '보는 탭'에는 '현재' 배지가 붙지
+  않는다. 그래서 배지도 문구도 똑같이 '실제 진행 현재단계' 기준이라 한 화면 안에서 서로 어긋나지
+  않는다(개별에서 문제였던 '두 기준 공존'이 없다).
+  여기서 문구만 _batchStep 기준으로 바꾸면, 배지는 5단계를 '진행 중'이라 하는데 문구는 "현재 단계:
+  그룹/업로드"라고 말하는 새 모순이 생긴다. 따라서 이번엔 개별검증만 통일하고 일괄은 그대로 둔다.
+  (일괄까지 '보는 탭' 기준으로 옮기려면 배지 정책부터 함께 바꿔야 하므로 별건으로 남긴다.)
+
+═══════════════════════════════════════════════════════════════════════════════
+5. 테스트 — 관련 서브셋 + baseline 대조
+═══════════════════════════════════════════════════════════════════════════════
+1차(수정 직후, 갱신 전): 3 failed / 89 passed — 실패 3건 모두 옛 계약을 고정하던 위 테스트들.
+계약 갱신 후 동일 4파일: 92 passed / 0 failed.
+
+관련 서브셋 17파일(step nav · stage gate · tab badge · command bar · JS 문법 가드 · 일괄 탭 · 타이밍):
+  수정본  : 13 failed, 204 passed  (33.00s)
+  baseline: 13 failed, 204 passed  (33.00s)   ← 동일 커밋 16bdbc1 worktree, 동일 파일 목록
+  ⇒ 신규 회귀 0건. 실패 13건은 수정 전부터 동일하게 실패하던 사전 존재 실패다.
+
+사전 존재 실패 전체 목록(before/after 동일, 이번 수정과 무관):
+  tests/test_step_tab_dom_stability.py::test_first_render_creates_nodes_once
+  tests/test_step_tab_dom_stability.py::test_no_innerhtml_replace_on_repeated_render
+  tests/test_step_tab_dom_stability.py::test_node_identity_preserved_across_rerenders
+  tests/test_step_tab_dom_stability.py::test_node_identity_preserved_on_status_change
+  tests/test_step_tab_dom_stability.py::test_active_moves_in_place_and_persists
+  tests/test_step_tab_dom_stability.py::test_delegated_click_works_after_inplace_update
+  tests/test_step_tab_dom_stability.py::test_single_listener_no_duplicate
+  tests/test_step_tab_dom_stability.py::test_struct_change_rebuilds_once
+  tests/test_batch_step_tabs_workflow.py::test_next_step_buttons_removed
+  tests/test_batch_step_tabs_workflow.py::test_targets_tab_no_next_button
+  tests/test_batch_step_tabs_workflow.py::test_completed_tab_green_priority_in_nav
+  tests/test_batch_step_tabs_workflow.py::test_state_endpoint_backend
+  tests/test_all_stages_timing_display_expand.py::test_count_generate_execute_routes_add_processing_ms
+
+═══════════════════════════════════════════════════════════════════════════════
+6. 스크린샷 (before/after)
+═══════════════════════════════════════════════════════════════════════════════
+E:\verify_screenshots_only\STAGE-TAB-STEP-HINT-VIEWSTEP-SOURCE-FIX\
+  before\  A01_completed_step5_tab.png / A01b_navbar_step5.png
+           A02_1단계_tab_hint.png · A02b_navbar_1단계.png   ← 안내문구 "결과 확인" 고착
+           A02_2단계_tab_hint.png · A02b_navbar_2단계.png   ← 고착
+           A02_3단계_tab_hint.png · A02b_navbar_3단계.png   ← 고착
+           A02_4단계_tab_hint.png · A02b_navbar_4단계.png   ← 고착
+           B01_partial_step1_tab.png · B01b_navbar_partial_step1.png ← "통계검증 실행"(보는 탭 아님)
+  after\   같은 파일 구성 + C01_batch_step1_tab.png(일괄 확인용)
+           1·2·3·4단계 탭 모두 안내문구가 보는 탭 라벨과 일치
+
+navbar 캡처(#mvStepNavBar)는 탭 배지 + 안내문구 + N단계 처리시간이 한 프레임에 들어가므로,
+before 는 "1 쿼리검토 [현재] … 안내: 현재 단계: 결과 확인 … 1단계 처리시간 1.80초"라는 모순이,
+after 는 세 줄이 모두 1단계를 가리키는 모습이 그대로 보인다.
+
+═══════════════════════════════════════════════════════════════════════════════
+7. 커밋
+═══════════════════════════════════════════════════════════════════════════════
+93f4ca1  fix(single): 상단 현재 단계 안내문구를 보는 탭(_singleViewStep) 기준으로 통일
+                     (STAGE-TAB-STEP-HINT-VIEWSTEP-SOURCE-FIX)
+  변경 파일 4개 / +295 -7
+    ui/tabler_renderer.py                        (+7 -1  — 6373 한 줄 + 한글 주석 5줄)
+    tests/test_shared_sticky_step_nav.py         (+6 -4)
+    tests/test_stage_gate_unified_contract.py    (+6 -2)
+    scripts/dev_e2e/stage_tab_step_hint_viewstep_source_verify.py (신규, 실측 하니스)
+  직전 HEAD 16bdbc1 확인 후 커밋했고, 동시 진행 중인 다른 세션의 미커밋 파일
+  (tests/test_chunk_policy_dbms_probe_keymeta_g2_p7_p14.py)은 커밋 후에도 작업트리에 그대로 남아 있다.
+
+실검증 상태: 실제 브라우저(Chromium/Playwright) · 실제 서버(자체 포트 기동, 운영 8000 포트 미간섭) ·
+             실제 렌더 함수 호출로 before/after 6케이스 실측 완료(pageerror 0건). 단계 완료 상태는
+             실 DB 완주 대신 각 단계의 진짜 완료 플래그를 사용자 흐름과 동일한 값으로 세운 모사이며
+             (진단서 하니스와 동일한 한계), 이번 대상인 안내문구는 순수 표시 로직이라 이 모사로
+             재현·검증이 성립한다. 실 DB 접속·COUNT/통계검증 실행은 이번 검증에 포함하지 않았다.
