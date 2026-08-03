@@ -1238,6 +1238,76 @@ git -C E:/verify_reports worktree remove <임시경로>
 
 ## 기능 미완(설계는 끝났으나 구현 대기)
 
+### F31. 통계검증 규모 등급이 "GROUP BY/SUM/카디널리티 종합 반영" 원칙과 달리 사실상 COUNT 단독으로 결정된다(이 섹션 내 상대 우선순위 높음)
+- 발견일: 2026-08-03
+- 근거 보고서: `STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt` (§6-1 · §6-2 · §7-P2)
+- 상세: `ui/grid_helpers.py` 의 코드 주석은 **"원본 COUNT 만으로 등급 결정 금지"** 를 명시하지만,
+  실제로 `_mvBuildStatsScaleProfile` 이 서버로 보내는 profile 에 카디널리티·예상 그룹 수 등이
+  **하나도 실려 있지 않아** 계획기의 group·cardinality 가중항이 전부 0 이 된다 →
+  **cost 의 97.7% 가 COUNT 단독으로 결정**된다(실측: GROUP BY 0개 → 3개로 바꿔도 cost 변화 0.000).
+  그 결과 **"중형" 구간이 4,636행 ~ 2,990만행(4자리수 폭)** 이라 변별력이 거의 없고,
+  로컬/원격 접속 위치만으로 등급 경계가 이동한다.
+- 대응 방향: 화면이 **이미 계산해서 갖고 있는** 카디널리티(`data-distinct`)·예상 그룹 수
+  (`_updateGroupCountEstimate`, GROUP BY 안전게이트의 `estimated_group_count`)를
+  `_mvBuildStatsScaleProfile` 에 함께 실어 보낸다 — **추가 DB 왕복 0회**.
+  단 등급이 크게 이동하므로(실측: 중형 → 초대형) **밴드 재조정과 함께** 해야 하고,
+  표시가 아니라 **판정**(전략 ID · SAMPLE_ONLY 전환 조건)에 영향을 주는 회귀범위 넓은 변경이라
+  **별도 지침·승인**이 필요하다.
+- 관련: F32(밴드 자체가 임시값 — 함께 처리해야 함) · F33(confidence 는 이 항목 해결 시 자연 개선)
+- 참고: E:\verify_reports\STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt
+
+### F30. "예상 스캔 N행" 표기가 실측값인데 '예상' 으로 오표기된다(표시 전용 · 저위험)
+- 발견일: 2026-08-03
+- 근거 보고서: `STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt` (§4-2 · §7-P1)
+- 상세: 3단계 "통계검증규모" 타일의 스캔 행수는 **2단계 COUNT 사전검증의 실측값(`src_count`)을
+  그대로 재전송**한 것으로, 추정 로직이 전혀 없다. 따라서 **"예상" 이라는 단어가 부정확한 인상**을 준다.
+  ※ 같은 문구의 **"잠정 <등급>" 부분은 별개**다 — 벤치마크 미확정 cost 밴드 때문이라 **정당하며 유지해야 한다**(F32 참조).
+- 대응 방향: 라이브 COUNT 면 **"원본 실측 N행"**, 저장 복원(`restored=true`)이면
+  **"원본 N행 (저장 시점)"** 으로 구분 표기한다. 판단 근거(`_lastCountResult.restored`)가
+  **이미 있어 새 조회가 불필요**하다.
+- 관련: F35(같은 줄의 스캔값 출처 불일치) · F32('잠정' 접두는 이 항목의 범위가 아님)
+- 참고: E:\verify_reports\STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt
+
+### F32. 통계검증 규모 cost 밴드(8/16/24)가 벤치마크 없는 임시값이다(심각도 LOW)
+- 발견일: 2026-08-03
+- 근거 보고서: `STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt` (§5 · §7-P3)
+- 상세: 등급 경계 8/16/24 는 실측 벤치마크 없이 정해진 임시값이고, 코드 스스로 **"벤치마크 후 교체"**
+  전제를 인정하고 있다(그래서 화면에 '잠정' 접두가 붙는다 — 표기 자체는 정직하다).
+  현재 밴드로는 **"초대형" 이 1,900억행부터**라 실무에서 도달 불가능한 **사문 밴드**다.
+- 대응 방향: 실측 벤치마크로 밴드를 교체한 뒤 **'잠정' 접두를 제거**한다. 상수는
+  `config/size_threshold_registry.py` 처럼 **단일 출처로 이전**하는 것을 권장한다.
+- 관련: F31(밴드 재조정은 프로파일 전달과 함께 해야 함) · F30('잠정' 과 '예상' 은 별개 사안)
+- 참고: E:\verify_reports\STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt
+
+### F33. 규모 산정 `confidence` 필드가 실운영에서 항상 LOW 인데 화면에 표시되지 않는다(심각도 LOW)
+- 발견일: 2026-08-03
+- 근거 보고서: `STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt` (§6-3)
+- 상세: `confidence="HIGH"` 는 (스캔 행수 있음 AND 그룹 수 있음) 일 때만 되는데 **그룹 수를 안 보내므로**
+  실운영에서 confidence 는 **항상 LOW** 다. 게다가 화면이 이 필드 자체를 표시하지 않아
+  **사용자는 이 사실을 알 수 없다**(explainability 갭).
+- 대응 방향: F31 의 카디널리티/그룹 수 전달이 해결되면 자연히 개선될 수 있다 — 그때 화면 노출 여부를 함께 판단한다.
+- 관련: F31(선행 조건)
+- 참고: E:\verify_reports\STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt
+
+### F34. 폴백 등급 필드 `stats_scale_class` 가 소비처만 있고 생산 코드가 없다(죽은 필드 · 심각도 LOW)
+- 발견일: 2026-08-03
+- 근거 보고서: `STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt` (§6-4)
+- 상세: `_mvStatsScaleText` 가 `profile.stats_scale_class` 를 등급으로 매핑하지만,
+  **이 필드를 만드는 코드가 저장소 전체에 없다**(소비처만 3곳). 따라서 `/strategy/plan` 응답이 없으면
+  폴백 경로는 **항상 '산정 전'** 이다 — 폴백이 사실상 죽어 있다.
+- 대응 방향: 죽은 필드 제거를 검토하거나, 실제 생산 로직을 구현할지 여부를 결정해야 한다.
+- 참고: E:\verify_reports\STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt
+
+### F35. "통계검증 규모" 라벨과 실제 데이터 출처(전수비교 계획)가 불일치한다(현재 무증상 · 심각도 LOW)
+- 발견일: 2026-08-03
+- 근거 보고서: `STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt` (§6-5 · §7-P4)
+- 상세: '통계검증 규모' 줄의 스캔값이 `stats_plan` 이 아니라 **`full_compare_plan`(전수비교 계획)의
+  `expected_scan_rows`** 에서 온다. 현재는 두 값이 같아 증상이 없지만, 라벨과 데이터 출처가 어긋나 있어
+  향후 한쪽만 바뀌면 조용한 오표시가 된다.
+- 대응 방향: 스캔값 출처를 `stats_plan.estimated_scan_rows` 로 정렬한다(라벨 - 데이터 일치).
+- 관련: F30(같은 줄의 표기 정확성)
+- 참고: E:\verify_reports\STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt
+
 ### F26. `NO_INSERT_COLUMN_LIST` 원인은 원리상 지원 가능하나 추출기 본체 변경이 필요해 미착수다
 - 발견일: 2026-08-02
 - 근거 보고서: `REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX.txt` (§6-②)
@@ -1263,7 +1333,22 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: P2(해결 완료 — 저장까지는 완료)
 - 참고: E:\verify_reports\PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX.txt
 
-### F28. `MetaCollector._fetch_samples` 의 스키마 미한정 조회가 근본적으로 남아 있다
+### F28. ✅ 해결 완료 — `MetaCollector._fetch_samples` 의 스키마 미한정 조회가 근본적으로 남아 있다
+- 해결일: 2026-08-03 (METACOLLECTOR-SCHEMA-QUALIFIED-SAMPLE-FETCH-FIX)
+- 근거 커밋: 코드 저장소 `75bfbd0` — `fix(db): MetaCollector 샘플 조회를 스키마 한정으로 전환
+  (METACOLLECTOR-SCHEMA-QUALIFIED-SAMPLE-FETCH-FIX)`
+- 근거 보고서 커밋: 이 저장소 `fa66dea`(완료보고 `METACOLLECTOR-SCHEMA-QUALIFIED-SAMPLE-FETCH-FIX`)
+- 해결 요약: 대응 방향대로 `_fetch_samples` 가 bare 테이블명으로 조회하던 것을,
+  **메타 조회에서 얻은 실제 스키마로 한정 조회**(방언별 식별자 인용)하도록 전환했다.
+  `search_path` 밖 스키마 테이블의 샘플 0건 문제가 해소됐다 —
+  실측: PostgreSQL 재현 케이스가 Before 메타 8 / 샘플 0 → After 메타 8 / 샘플 4.
+  **값 대조로 정답 스키마임을 확인**했다(수정 후 C1 = 이미 확정된 케이스 C3 과 완전 동일값).
+  트랜잭션 abort 전파도 rollback 으로 근원 차단했다.
+  MariaDB / Oracle 도 `schema.table` 경로 해소 + 무회귀를 확인했고, MSSQL 은 드라이버 부재로
+  유닛테스트까지만 검증했다.
+- 잔여(미해결): ① 동명 테이블이 여러 스키마에 있고 인자가 bare 인 케이스는 여전히 미수집이다
+  (의도된 안전 설계 — 잘못된 스키마를 고르지 않기 위함). ② 컬럼 식별자는 아직 인용하지 않는다.
+  ③ "샘플 0건" 의 사유가 결과에 explainability 로 남지 않는다.
 - 발견일: 2026-08-02
 - 근거 보고서: `PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX.txt` (§7 · §5)
 - 상세: `db/meta_collector.py` 의 `_fetch_samples` 가 **스키마를 한정하지 않고** 조회해,
@@ -1272,6 +1357,7 @@ git -C E:/verify_reports worktree remove <임시경로>
   P2 수정은 rollback 을 추가해 **후속 쿼리 오염만 차단**했을 뿐, 이 조회 자체는 고치지 않았다 —
   즉 해당 테이블의 샘플 수집은 여전히 실패한다.
 - 대응 방향: 별도 작업으로 **스키마 한정 조회**를 구현한다(파일 범위 밖이라 이번엔 미착수).
+  → 2026-08-03 완료(위 `해결 요약` 참조).
 - 관련: P2(해결 완료 — 오염 차단까지만)
 - 참고: E:\verify_reports\PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX.txt
 
