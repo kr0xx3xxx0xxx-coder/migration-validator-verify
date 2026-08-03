@@ -1,0 +1,1352 @@
+{
+ "phase": "before_etl03",
+ "case": "etl03",
+ "pair": [
+  "PostgreSQL_Inter_asis",
+  "PostgreSQL_Inter_tobe"
+ ],
+ "sql": "INSERT INTO tobe01.t_to_1_etl03 (\n  school_code, school_name, region, found_year, school_category, max_capacity,\n  principal, contact_number, email_address, updated_at, remarks\n)\nSELECT\n  school_code, school_name, location, established_year, school_type, student_cap,\n  principal_name, contact_number, email, last_updated, remark\nFROM asis01.t_as_1_etl03",
+ "기대_타일순서": [
+  "목적테이블",
+  "원본테이블",
+  "통계검증규모",
+  "목적그룹",
+  "원본그룹",
+  "목적집계",
+  "원본집계",
+  "처리시간",
+  "상태"
+ ],
+ "setup": {
+  "pair_label": "PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe",
+  "pair_existed": false,
+  "pair_rows_after": 1,
+  "connect_clicked": true
+ },
+ "1단계_실행결과": {
+  "step": "query",
+  "blocked": false,
+  "err": null,
+  "from_table": "T_AS_1_ETL03",
+  "target_table": ""
+ },
+ "2단계_실행결과": {
+  "moved": true,
+  "clicks": 2,
+  "count_status": "COUNT_MATCHED",
+  "src_count": 200,
+  "tgt_count": 200,
+  "force_btn": false,
+  "gate_excerpt": "COUNT 일치원본 200 · 목적 200 · 순 차이 0 · 목적지 적재율 100.0%COUNT 일치 — 값 불일치/교차 누락·과잉 확인을 위해 통계검증·Exact Diff 진행 가능.다음 단계: 통계검증 계속통계검증 계속 →"
+ },
+ "S2_2단계": {
+  "보는탭": "count",
+  "countState": "OK",
+  "A_2단계_안내박스": {
+   "존재": true,
+   "화면노출": true,
+   "전체텍스트": "COUNT 일치 원본 200 · 목적 200 · 순 차이 0 · 목적지 적재율 100.0% COUNT 일치 — 값 불일치/교차 누락·과잉 확인을 위해 통계검증·Exact Diff 진행 가능. 다음 단계: 통계검증 계속 통계검증 계속 →",
+   "'다음 단계:'포함": true,
+   "'통계검증 계속'포함": true,
+   "배지": "COUNT 일치",
+   "count_status": "COUNT_MATCHED",
+   "severity_label": "COUNT 일치",
+   "next_action_label": "통계검증 계속"
+  },
+  "B1_3단계처리시간줄": {
+   "슬롯": [
+    {
+     "단계": 1,
+     "존재": true,
+     "텍스트": "· 1단계 처리시간: 0.36초",
+     "computed_display": "none",
+     "화면노출": false
+    },
+    {
+     "단계": 2,
+     "존재": true,
+     "텍스트": "· 2단계 처리시간: 0.02초",
+     "computed_display": "none",
+     "화면노출": false
+    },
+    {
+     "단계": 3,
+     "존재": true,
+     "텍스트": "",
+     "computed_display": "none",
+     "화면노출": false
+    },
+    {
+     "단계": 4,
+     "존재": true,
+     "텍스트": "",
+     "computed_display": "none",
+     "화면노출": false
+    },
+    {
+     "단계": 5,
+     "존재": true,
+     "텍스트": "",
+     "computed_display": "none",
+     "화면노출": false
+    }
+   ],
+   "3단계슬롯_화면노출": false,
+   "3단계슬롯_텍스트": "",
+   "'단계 처리시간'문구_탭바에_보임": false,
+   "'계산 중'문구_탭바에_보임": false,
+   "단계탭바_텍스트": "1 쿼리검토 완료 2 COUNT 사전검증 현재 3 후보 컬럼 선정 대기 4 통계검증 실행 잠김 5 결과 확인 대기중(잠금)"
+  },
+  "B2_제목보조설명": {
+   "제목텍스트": "후보 컬럼 선정 및 수작업 조정 그룹기준 / 합계대상 후보 확인 후 최종 확정",
+   "보조설명_포함": true,
+   "보조span수": 1
+  },
+  "B3_후보추천요약표": {
+   "ctx_존재": true,
+   "ctx_화면노출": false,
+   "표(mv-sgrid)여부": false,
+   "타일(mv-qr-tiles)여부": false,
+   "제목": null,
+   "헤더셀": [],
+   "본문_요약": null
+  },
+  "B4_카디널리티배너": {
+   "존재": true,
+   "화면노출": false,
+   "텍스트": "",
+   "'카디널리티 반영 확정치'포함": false,
+   "'1차 추정치'포함": false,
+   "candidateComputed": false
+  },
+  "B5_추천결과요약": {
+   "카드(.rec-summary-card)존재": false,
+   "'추천 결과 요약'문구_화면": false,
+   "'그룹기준 기본추천'문구_화면": false,
+   "'COUNT(*) 비교'문구_화면": false
+  },
+  "C_후보선택표": {
+   "표존재": false,
+   "gb": [],
+   "sum": [],
+   "참고/제외 접힘존재": false,
+   "실행예정문구": null,
+   "진행버튼": {
+    "라벨": "▶ 후보 컬럼 추천",
+    "비활성": false
+   }
+  },
+  "D_통합타일": {
+   "타일": [],
+   "라벨순서": [],
+   "타일수": 0,
+   "strategyPlanBox": {
+    "존재": true,
+    "화면노출": false,
+    "접힘(details)여부": false,
+    "표헤더": [],
+    "텍스트": null
+   },
+   "planInfo": null,
+   "stage3ProcMs": null,
+   "preview_processing_ms": null,
+   "checked_gb": [],
+   "checked_sum": [],
+   "select_items": [
+    {
+     "src": "school_code",
+     "tgt": "SCHOOL_CODE"
+    },
+    {
+     "src": "school_name",
+     "tgt": "SCHOOL_NAME"
+    },
+    {
+     "src": "location",
+     "tgt": "REGION"
+    },
+    {
+     "src": "established_year",
+     "tgt": "FOUND_YEAR"
+    },
+    {
+     "src": "school_type",
+     "tgt": "SCHOOL_CATEGORY"
+    },
+    {
+     "src": "student_cap",
+     "tgt": "MAX_CAPACITY"
+    },
+    {
+     "src": "principal_name",
+     "tgt": "PRINCIPAL"
+    },
+    {
+     "src": "contact_number",
+     "tgt": "CONTACT_NUMBER"
+    },
+    {
+     "src": "email",
+     "tgt": "EMAIL_ADDRESS"
+    },
+    {
+     "src": "last_updated",
+     "tgt": "UPDATED_AT"
+    },
+    {
+     "src": "remark",
+     "tgt": "REMARKS"
+    }
+   ]
+  }
+ },
+ "S3_진입직후": {
+  "보는탭": "candidate",
+  "countState": "OK",
+  "A_2단계_안내박스": {
+   "존재": true,
+   "화면노출": false,
+   "전체텍스트": "COUNT 일치원본 200 · 목적 200 · 순 차이 0 · 목적지 적재율 100.0%COUNT 일치 — 값 불일치/교차 누락·과잉 확인을 위해 통계검증·Exact Diff 진행 가능.다음 단계: 통계검증 계속통계검증 계속 →",
+   "'다음 단계:'포함": true,
+   "'통계검증 계속'포함": true,
+   "배지": "COUNT 일치",
+   "count_status": "COUNT_MATCHED",
+   "severity_label": "COUNT 일치",
+   "next_action_label": "통계검증 계속"
+  },
+  "B1_3단계처리시간줄": {
+   "슬롯": [
+    {
+     "단계": 1,
+     "존재": true,
+     "텍스트": "· 1단계 처리시간: 0.36초",
+     "computed_display": "none",
+     "화면노출": false
+    },
+    {
+     "단계": 2,
+     "존재": true,
+     "텍스트": "· 2단계 처리시간: 0.02초",
+     "computed_display": "none",
+     "화면노출": false
+    },
+    {
+     "단계": 3,
+     "존재": true,
+     "텍스트": "",
+     "computed_display": "inline",
+     "화면노출": true
+    },
+    {
+     "단계": 4,
+     "존재": true,
+     "텍스트": "",
+     "computed_display": "none",
+     "화면노출": false
+    },
+    {
+     "단계": 5,
+     "존재": true,
+     "텍스트": "",
+     "computed_display": "none",
+     "화면노출": false
+    }
+   ],
+   "3단계슬롯_화면노출": true,
+   "3단계슬롯_텍스트": "",
+   "'단계 처리시간'문구_탭바에_보임": false,
+   "'계산 중'문구_탭바에_보임": false,
+   "단계탭바_텍스트": "1 쿼리검토 완료 2 COUNT 사전검증 완료 3 후보 컬럼 선정 현재 4 통계검증 실행 잠김 5 결과 확인 대기중(잠금)"
+  },
+  "B2_제목보조설명": {
+   "제목텍스트": "후보 컬럼 선정 및 수작업 조정 그룹기준 / 합계대상 후보 확인 후 최종 확정",
+   "보조설명_포함": true,
+   "보조span수": 1
+  },
+  "B3_후보추천요약표": {
+   "ctx_존재": true,
+   "ctx_화면노출": true,
+   "표(mv-sgrid)여부": true,
+   "타일(mv-qr-tiles)여부": false,
+   "제목": "후보추천 요약",
+   "헤더셀": [
+    "No",
+    "원본 테이블",
+    "목적 테이블",
+    "쿼리검토",
+    "COUNT",
+    "GROUP BY",
+    "SUM",
+    "상태"
+   ],
+   "본문_요약": "후보추천 요약 No 원본 테이블 목적 테이블 쿼리검토 COUNT GROUP BY SUM 상태 1 asis01.t_as_1_etl03 tobe01.t_to_1_etl03 ● 정상 ● 정상 school_type ↔ SCHOOL_CATEGORY, last_updated ↔ UPDATED_AT, location ↔ REGION established_year ↔ FOUND_YEAR, student_cap ↔ MAX_CAPACITY ● 정상"
+  },
+  "B4_카디널리티배너": {
+   "존재": true,
+   "화면노출": false,
+   "텍스트": "",
+   "'카디널리티 반영 확정치'포함": false,
+   "'1차 추정치'포함": false,
+   "candidateComputed": false
+  },
+  "B5_추천결과요약": {
+   "카드(.rec-summary-card)존재": false,
+   "'추천 결과 요약'문구_화면": false,
+   "'그룹기준 기본추천'문구_화면": false,
+   "'COUNT(*) 비교'문구_화면": false
+  },
+  "C_후보선택표": {
+   "표존재": false,
+   "gb": [],
+   "sum": [],
+   "참고/제외 접힘존재": false,
+   "실행예정문구": null,
+   "진행버튼": {
+    "라벨": "▶ 후보 컬럼 추천",
+    "비활성": false
+   }
+  },
+  "D_통합타일": {
+   "타일": [],
+   "라벨순서": [],
+   "타일수": 0,
+   "strategyPlanBox": {
+    "존재": true,
+    "화면노출": false,
+    "접힘(details)여부": false,
+    "표헤더": [],
+    "텍스트": null
+   },
+   "planInfo": null,
+   "stage3ProcMs": null,
+   "preview_processing_ms": null,
+   "checked_gb": [],
+   "checked_sum": [],
+   "select_items": [
+    {
+     "src": "school_code",
+     "tgt": "SCHOOL_CODE"
+    },
+    {
+     "src": "school_name",
+     "tgt": "SCHOOL_NAME"
+    },
+    {
+     "src": "location",
+     "tgt": "REGION"
+    },
+    {
+     "src": "established_year",
+     "tgt": "FOUND_YEAR"
+    },
+    {
+     "src": "school_type",
+     "tgt": "SCHOOL_CATEGORY"
+    },
+    {
+     "src": "student_cap",
+     "tgt": "MAX_CAPACITY"
+    },
+    {
+     "src": "principal_name",
+     "tgt": "PRINCIPAL"
+    },
+    {
+     "src": "contact_number",
+     "tgt": "CONTACT_NUMBER"
+    },
+    {
+     "src": "email",
+     "tgt": "EMAIL_ADDRESS"
+    },
+    {
+     "src": "last_updated",
+     "tgt": "UPDATED_AT"
+    },
+    {
+     "src": "remark",
+     "tgt": "REMARKS"
+    }
+   ]
+  }
+ },
+ "S3_후보계산후": {
+  "보는탭": "candidate",
+  "countState": "OK",
+  "A_2단계_안내박스": {
+   "존재": true,
+   "화면노출": false,
+   "전체텍스트": "COUNT 일치원본 200 · 목적 200 · 순 차이 0 · 목적지 적재율 100.0%COUNT 일치 — 값 불일치/교차 누락·과잉 확인을 위해 통계검증·Exact Diff 진행 가능.다음 단계: 통계검증 계속통계검증 계속 →",
+   "'다음 단계:'포함": true,
+   "'통계검증 계속'포함": true,
+   "배지": "COUNT 일치",
+   "count_status": "COUNT_MATCHED",
+   "severity_label": "COUNT 일치",
+   "next_action_label": "통계검증 계속"
+  },
+  "B1_3단계처리시간줄": {
+   "슬롯": [
+    {
+     "단계": 1,
+     "존재": true,
+     "텍스트": "· 1단계 처리시간: 0.36초",
+     "computed_display": "none",
+     "화면노출": false
+    },
+    {
+     "단계": 2,
+     "존재": true,
+     "텍스트": "· 2단계 처리시간: 0.02초",
+     "computed_display": "none",
+     "화면노출": false
+    },
+    {
+     "단계": 3,
+     "존재": true,
+     "텍스트": "· 3단계 계산 중...",
+     "computed_display": "inline",
+     "화면노출": true
+    },
+    {
+     "단계": 4,
+     "존재": true,
+     "텍스트": "",
+     "computed_display": "none",
+     "화면노출": false
+    },
+    {
+     "단계": 5,
+     "존재": true,
+     "텍스트": "",
+     "computed_display": "none",
+     "화면노출": false
+    }
+   ],
+   "3단계슬롯_화면노출": true,
+   "3단계슬롯_텍스트": "· 3단계 계산 중...",
+   "'단계 처리시간'문구_탭바에_보임": false,
+   "'계산 중'문구_탭바에_보임": true,
+   "단계탭바_텍스트": "1 쿼리검토 완료 2 COUNT 사전검증 완료 3 후보 컬럼 선정 현재 4 통계검증 실행 대기 5 결과 확인 대기중(잠금) · 3단계 계산 중..."
+  },
+  "B2_제목보조설명": {
+   "제목텍스트": "후보 컬럼 선정 및 수작업 조정 그룹기준 / 합계대상 후보 확인 후 최종 확정",
+   "보조설명_포함": true,
+   "보조span수": 1
+  },
+  "B3_후보추천요약표": {
+   "ctx_존재": true,
+   "ctx_화면노출": true,
+   "표(mv-sgrid)여부": true,
+   "타일(mv-qr-tiles)여부": false,
+   "제목": "후보추천 요약",
+   "헤더셀": [
+    "No",
+    "원본 테이블",
+    "목적 테이블",
+    "쿼리검토",
+    "COUNT",
+    "GROUP BY",
+    "SUM",
+    "상태"
+   ],
+   "본문_요약": "후보추천 요약 No 원본 테이블 목적 테이블 쿼리검토 COUNT GROUP BY SUM 상태 1 asis01.t_as_1_etl03 tobe01.t_to_1_etl03 ● 정상 ● 정상 school_type ↔ SCHOOL_CATEGORY established_year ↔ FOUND_YEAR, student_cap ↔ MAX_CAPACITY ● 정상"
+  },
+  "B4_카디널리티배너": {
+   "존재": true,
+   "화면노출": true,
+   "텍스트": "✅ 카디널리티 반영 확정치 — [선택 적용 후 통계검증 진행]이(가) 실행되어 고유값(카디널리티)까지 반영된 점수입니다.",
+   "'카디널리티 반영 확정치'포함": true,
+   "'1차 추정치'포함": false,
+   "candidateComputed": true
+  },
+  "B5_추천결과요약": {
+   "카드(.rec-summary-card)존재": true,
+   "'추천 결과 요약'문구_화면": true,
+   "'그룹기준 기본추천'문구_화면": true,
+   "'COUNT(*) 비교'문구_화면": true
+  },
+  "C_후보선택표": {
+   "표존재": true,
+   "gb": [
+    {
+     "값": "SCHOOL_CATEGORY",
+     "체크": true,
+     "비활성": false
+    },
+    {
+     "값": "REGION",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "UPDATED_AT",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "SCHOOL_CODE",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "SCHOOL_NAME",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "PRINCIPAL",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "CONTACT_NUMBER",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "EMAIL_ADDRESS",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "REMARKS",
+     "체크": false,
+     "비활성": true
+    }
+   ],
+   "sum": [
+    {
+     "값": "FOUND_YEAR",
+     "체크": true,
+     "비활성": false
+    },
+    {
+     "값": "MAX_CAPACITY",
+     "체크": true,
+     "비활성": false
+    }
+   ],
+   "참고/제외 접힘존재": true,
+   "실행예정문구": "GROUP BY 1 / 3 SUM 2 / 3 COUNT(*) 항상 포함 전역 설정: GROUP BY 최대 3개 · SUM 최대 3개",
+   "진행버튼": {
+    "라벨": "▶ 선택 적용 후 통계검증 진행",
+    "비활성": false
+   }
+  },
+  "D_통합타일": {
+   "타일": [],
+   "라벨순서": [],
+   "타일수": 0,
+   "strategyPlanBox": {
+    "존재": true,
+    "화면노출": true,
+    "접힘(details)여부": false,
+    "표헤더": [
+     "통계검증 규모",
+     "실제 적용",
+     "GROUP BY",
+     "집계컬럼",
+     "통계전략",
+     "불일치 추출전략",
+     "상태",
+     "판정근거"
+    ],
+    "텍스트": "실행계획 No 항목 값 상태 1 통계검증 규모 잠정 소형 · 예상 스캔 200행 잠정 2 실제 적용 GROUP BY 1개 · 집계컬럼 2개 적용됨 3 GROUP BY SCHOOL_CATEGORY 4 집계컬럼 FOUND_YEAR, MAX_CAPACITY 5 통계전략 직접 집계(전체스캔 EXACT · 원본↔목적 그룹별 COUNT/SUM 비교) STATS_DIRECT_AGG 6 불일치 추출전략 직접 스트림 비교(원본·목적 전체를 한 번에 정렬·대조) DIRECT_STREAM_COMPARE 7 상태 실행 가능 — 대체키(목적지 PK) 확정 실행 가능 — 대체키(목적지 PK) 확정 8 판정근거 원본 200건 · 문자 단일 PK · 대체키(목적지 PK) 확정 · PK 인덱스 · 원격 DB"
+   },
+   "planInfo": null,
+   "stage3ProcMs": null,
+   "preview_processing_ms": 56,
+   "checked_gb": [
+    "SCHOOL_CATEGORY"
+   ],
+   "checked_sum": [
+    "FOUND_YEAR",
+    "MAX_CAPACITY"
+   ],
+   "select_items": [
+    {
+     "src": "school_code",
+     "tgt": "SCHOOL_CODE"
+    },
+    {
+     "src": "school_name",
+     "tgt": "SCHOOL_NAME"
+    },
+    {
+     "src": "location",
+     "tgt": "REGION"
+    },
+    {
+     "src": "established_year",
+     "tgt": "FOUND_YEAR"
+    },
+    {
+     "src": "school_type",
+     "tgt": "SCHOOL_CATEGORY"
+    },
+    {
+     "src": "student_cap",
+     "tgt": "MAX_CAPACITY"
+    },
+    {
+     "src": "principal_name",
+     "tgt": "PRINCIPAL"
+    },
+    {
+     "src": "contact_number",
+     "tgt": "CONTACT_NUMBER"
+    },
+    {
+     "src": "email",
+     "tgt": "EMAIL_ADDRESS"
+    },
+    {
+     "src": "last_updated",
+     "tgt": "UPDATED_AT"
+    },
+    {
+     "src": "remark",
+     "tgt": "REMARKS"
+    }
+   ]
+  }
+ },
+ "체크한_후보": {
+  "gb": [
+   "SCHOOL_CATEGORY"
+  ],
+  "sum": [
+   "FOUND_YEAR",
+   "MAX_CAPACITY"
+  ]
+ },
+ "S3_다중선택후": {
+  "보는탭": "candidate",
+  "countState": "OK",
+  "A_2단계_안내박스": {
+   "존재": true,
+   "화면노출": false,
+   "전체텍스트": "COUNT 일치원본 200 · 목적 200 · 순 차이 0 · 목적지 적재율 100.0%COUNT 일치 — 값 불일치/교차 누락·과잉 확인을 위해 통계검증·Exact Diff 진행 가능.다음 단계: 통계검증 계속통계검증 계속 →",
+   "'다음 단계:'포함": true,
+   "'통계검증 계속'포함": true,
+   "배지": "COUNT 일치",
+   "count_status": "COUNT_MATCHED",
+   "severity_label": "COUNT 일치",
+   "next_action_label": "통계검증 계속"
+  },
+  "B1_3단계처리시간줄": {
+   "슬롯": [
+    {
+     "단계": 1,
+     "존재": true,
+     "텍스트": "· 1단계 처리시간: 0.36초",
+     "computed_display": "none",
+     "화면노출": false
+    },
+    {
+     "단계": 2,
+     "존재": true,
+     "텍스트": "· 2단계 처리시간: 0.02초",
+     "computed_display": "none",
+     "화면노출": false
+    },
+    {
+     "단계": 3,
+     "존재": true,
+     "텍스트": "· 3단계 계산 중...",
+     "computed_display": "inline",
+     "화면노출": true
+    },
+    {
+     "단계": 4,
+     "존재": true,
+     "텍스트": "",
+     "computed_display": "none",
+     "화면노출": false
+    },
+    {
+     "단계": 5,
+     "존재": true,
+     "텍스트": "",
+     "computed_display": "none",
+     "화면노출": false
+    }
+   ],
+   "3단계슬롯_화면노출": true,
+   "3단계슬롯_텍스트": "· 3단계 계산 중...",
+   "'단계 처리시간'문구_탭바에_보임": false,
+   "'계산 중'문구_탭바에_보임": true,
+   "단계탭바_텍스트": "1 쿼리검토 완료 2 COUNT 사전검증 완료 3 후보 컬럼 선정 현재 4 통계검증 실행 대기 5 결과 확인 대기중(잠금) · 3단계 계산 중..."
+  },
+  "B2_제목보조설명": {
+   "제목텍스트": "후보 컬럼 선정 및 수작업 조정 그룹기준 / 합계대상 후보 확인 후 최종 확정",
+   "보조설명_포함": true,
+   "보조span수": 1
+  },
+  "B3_후보추천요약표": {
+   "ctx_존재": true,
+   "ctx_화면노출": true,
+   "표(mv-sgrid)여부": true,
+   "타일(mv-qr-tiles)여부": false,
+   "제목": "후보추천 요약",
+   "헤더셀": [
+    "No",
+    "원본 테이블",
+    "목적 테이블",
+    "쿼리검토",
+    "COUNT",
+    "GROUP BY",
+    "SUM",
+    "상태"
+   ],
+   "본문_요약": "후보추천 요약 No 원본 테이블 목적 테이블 쿼리검토 COUNT GROUP BY SUM 상태 1 asis01.t_as_1_etl03 tobe01.t_to_1_etl03 ● 정상 ● 정상 school_type ↔ SCHOOL_CATEGORY established_year ↔ FOUND_YEAR, student_cap ↔ MAX_CAPACITY ● 정상"
+  },
+  "B4_카디널리티배너": {
+   "존재": true,
+   "화면노출": true,
+   "텍스트": "✅ 카디널리티 반영 확정치 — [선택 적용 후 통계검증 진행]이(가) 실행되어 고유값(카디널리티)까지 반영된 점수입니다.",
+   "'카디널리티 반영 확정치'포함": true,
+   "'1차 추정치'포함": false,
+   "candidateComputed": true
+  },
+  "B5_추천결과요약": {
+   "카드(.rec-summary-card)존재": true,
+   "'추천 결과 요약'문구_화면": true,
+   "'그룹기준 기본추천'문구_화면": true,
+   "'COUNT(*) 비교'문구_화면": true
+  },
+  "C_후보선택표": {
+   "표존재": true,
+   "gb": [
+    {
+     "값": "SCHOOL_CATEGORY",
+     "체크": true,
+     "비활성": false
+    },
+    {
+     "값": "REGION",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "UPDATED_AT",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "SCHOOL_CODE",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "SCHOOL_NAME",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "PRINCIPAL",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "CONTACT_NUMBER",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "EMAIL_ADDRESS",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "REMARKS",
+     "체크": false,
+     "비활성": true
+    }
+   ],
+   "sum": [
+    {
+     "값": "FOUND_YEAR",
+     "체크": true,
+     "비활성": false
+    },
+    {
+     "값": "MAX_CAPACITY",
+     "체크": true,
+     "비활성": false
+    }
+   ],
+   "참고/제외 접힘존재": true,
+   "실행예정문구": "GROUP BY 1 / 3 SUM 2 / 3 COUNT(*) 항상 포함 전역 설정: GROUP BY 최대 3개 · SUM 최대 3개",
+   "진행버튼": {
+    "라벨": "▶ 선택 적용 후 통계검증 진행",
+    "비활성": false
+   }
+  },
+  "D_통합타일": {
+   "타일": [],
+   "라벨순서": [],
+   "타일수": 0,
+   "strategyPlanBox": {
+    "존재": true,
+    "화면노출": true,
+    "접힘(details)여부": false,
+    "표헤더": [
+     "통계검증 규모",
+     "실제 적용",
+     "GROUP BY",
+     "집계컬럼",
+     "통계전략",
+     "불일치 추출전략",
+     "상태",
+     "판정근거"
+    ],
+    "텍스트": "실행계획 No 항목 값 상태 1 통계검증 규모 잠정 소형 · 예상 스캔 200행 잠정 2 실제 적용 GROUP BY 1개 · 집계컬럼 2개 적용됨 3 GROUP BY SCHOOL_CATEGORY 4 집계컬럼 FOUND_YEAR, MAX_CAPACITY 5 통계전략 직접 집계(전체스캔 EXACT · 원본↔목적 그룹별 COUNT/SUM 비교) STATS_DIRECT_AGG 6 불일치 추출전략 직접 스트림 비교(원본·목적 전체를 한 번에 정렬·대조) DIRECT_STREAM_COMPARE 7 상태 실행 가능 — 대체키(목적지 PK) 확정 실행 가능 — 대체키(목적지 PK) 확정 8 판정근거 원본 200건 · 문자 단일 PK · 대체키(목적지 PK) 확정 · PK 인덱스 · 원격 DB"
+   },
+   "planInfo": null,
+   "stage3ProcMs": null,
+   "preview_processing_ms": 56,
+   "checked_gb": [
+    "SCHOOL_CATEGORY"
+   ],
+   "checked_sum": [
+    "FOUND_YEAR",
+    "MAX_CAPACITY"
+   ],
+   "select_items": [
+    {
+     "src": "school_code",
+     "tgt": "SCHOOL_CODE"
+    },
+    {
+     "src": "school_name",
+     "tgt": "SCHOOL_NAME"
+    },
+    {
+     "src": "location",
+     "tgt": "REGION"
+    },
+    {
+     "src": "established_year",
+     "tgt": "FOUND_YEAR"
+    },
+    {
+     "src": "school_type",
+     "tgt": "SCHOOL_CATEGORY"
+    },
+    {
+     "src": "student_cap",
+     "tgt": "MAX_CAPACITY"
+    },
+    {
+     "src": "principal_name",
+     "tgt": "PRINCIPAL"
+    },
+    {
+     "src": "contact_number",
+     "tgt": "CONTACT_NUMBER"
+    },
+    {
+     "src": "email",
+     "tgt": "EMAIL_ADDRESS"
+    },
+    {
+     "src": "last_updated",
+     "tgt": "UPDATED_AT"
+    },
+    {
+     "src": "remark",
+     "tgt": "REMARKS"
+    }
+   ]
+  }
+ },
+ "선택적용_클릭": true,
+ "S4_적용후": {
+  "보는탭": "candidate",
+  "countState": "OK",
+  "A_2단계_안내박스": {
+   "존재": true,
+   "화면노출": false,
+   "전체텍스트": "COUNT 일치원본 200 · 목적 200 · 순 차이 0 · 목적지 적재율 100.0%COUNT 일치 — 값 불일치/교차 누락·과잉 확인을 위해 통계검증·Exact Diff 진행 가능.다음 단계: 통계검증 계속통계검증 계속 →",
+   "'다음 단계:'포함": true,
+   "'통계검증 계속'포함": true,
+   "배지": "COUNT 일치",
+   "count_status": "COUNT_MATCHED",
+   "severity_label": "COUNT 일치",
+   "next_action_label": "통계검증 계속"
+  },
+  "B1_3단계처리시간줄": {
+   "슬롯": [
+    {
+     "단계": 1,
+     "존재": true,
+     "텍스트": "· 1단계 처리시간: 0.36초",
+     "computed_display": "none",
+     "화면노출": false
+    },
+    {
+     "단계": 2,
+     "존재": true,
+     "텍스트": "· 2단계 처리시간: 0.02초",
+     "computed_display": "none",
+     "화면노출": false
+    },
+    {
+     "단계": 3,
+     "존재": true,
+     "텍스트": "· 3단계 계산 중...",
+     "computed_display": "inline",
+     "화면노출": true
+    },
+    {
+     "단계": 4,
+     "존재": true,
+     "텍스트": "",
+     "computed_display": "none",
+     "화면노출": false
+    },
+    {
+     "단계": 5,
+     "존재": true,
+     "텍스트": "",
+     "computed_display": "none",
+     "화면노출": false
+    }
+   ],
+   "3단계슬롯_화면노출": true,
+   "3단계슬롯_텍스트": "· 3단계 계산 중...",
+   "'단계 처리시간'문구_탭바에_보임": false,
+   "'계산 중'문구_탭바에_보임": true,
+   "단계탭바_텍스트": "1 쿼리검토 완료 2 COUNT 사전검증 완료 3 후보 컬럼 선정 현재 4 통계검증 실행 대기 5 결과 확인 대기중(잠금) · 3단계 계산 중..."
+  },
+  "B2_제목보조설명": {
+   "제목텍스트": "후보 컬럼 선정 및 수작업 조정 그룹기준 / 합계대상 후보 확인 후 최종 확정",
+   "보조설명_포함": true,
+   "보조span수": 1
+  },
+  "B3_후보추천요약표": {
+   "ctx_존재": true,
+   "ctx_화면노출": true,
+   "표(mv-sgrid)여부": true,
+   "타일(mv-qr-tiles)여부": false,
+   "제목": "후보추천 요약",
+   "헤더셀": [
+    "No",
+    "원본 테이블",
+    "목적 테이블",
+    "쿼리검토",
+    "COUNT",
+    "GROUP BY",
+    "SUM",
+    "상태"
+   ],
+   "본문_요약": "후보추천 요약 No 원본 테이블 목적 테이블 쿼리검토 COUNT GROUP BY SUM 상태 1 asis01.t_as_1_etl03 tobe01.t_to_1_etl03 ● 정상 ● 정상 school_type ↔ SCHOOL_CATEGORY established_year ↔ FOUND_YEAR, student_cap ↔ MAX_CAPACITY ● 정상"
+  },
+  "B4_카디널리티배너": {
+   "존재": true,
+   "화면노출": true,
+   "텍스트": "✅ 카디널리티 반영 확정치 — [선택 적용 후 통계검증 진행]이(가) 실행되어 고유값(카디널리티)까지 반영된 점수입니다.",
+   "'카디널리티 반영 확정치'포함": true,
+   "'1차 추정치'포함": false,
+   "candidateComputed": true
+  },
+  "B5_추천결과요약": {
+   "카드(.rec-summary-card)존재": true,
+   "'추천 결과 요약'문구_화면": true,
+   "'그룹기준 기본추천'문구_화면": true,
+   "'COUNT(*) 비교'문구_화면": true
+  },
+  "C_후보선택표": {
+   "표존재": true,
+   "gb": [
+    {
+     "값": "SCHOOL_CATEGORY",
+     "체크": true,
+     "비활성": false
+    },
+    {
+     "값": "REGION",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "UPDATED_AT",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "SCHOOL_CODE",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "SCHOOL_NAME",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "PRINCIPAL",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "CONTACT_NUMBER",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "EMAIL_ADDRESS",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "REMARKS",
+     "체크": false,
+     "비활성": true
+    }
+   ],
+   "sum": [
+    {
+     "값": "FOUND_YEAR",
+     "체크": true,
+     "비활성": false
+    },
+    {
+     "값": "MAX_CAPACITY",
+     "체크": true,
+     "비활성": false
+    }
+   ],
+   "참고/제외 접힘존재": true,
+   "실행예정문구": "GROUP BY 1 / 3 SUM 2 / 3 COUNT(*) 항상 포함 전역 설정: GROUP BY 최대 3개 · SUM 최대 3개",
+   "진행버튼": {
+    "라벨": "▶ 선택 적용 후 통계검증 진행",
+    "비활성": false
+   }
+  },
+  "D_통합타일": {
+   "타일": [],
+   "라벨순서": [],
+   "타일수": 0,
+   "strategyPlanBox": {
+    "존재": true,
+    "화면노출": true,
+    "접힘(details)여부": false,
+    "표헤더": [
+     "통계검증 규모",
+     "실제 적용",
+     "GROUP BY",
+     "집계컬럼",
+     "통계전략",
+     "불일치 추출전략",
+     "상태",
+     "판정근거"
+    ],
+    "텍스트": "실행계획 No 항목 값 상태 1 통계검증 규모 잠정 소형 · 예상 스캔 200행 잠정 2 실제 적용 GROUP BY 1개 · 집계컬럼 2개 적용됨 3 GROUP BY SCHOOL_CATEGORY 4 집계컬럼 FOUND_YEAR, MAX_CAPACITY 5 통계전략 직접 집계(전체스캔 EXACT · 원본↔목적 그룹별 COUNT/SUM 비교) STATS_DIRECT_AGG 6 불일치 추출전략 직접 스트림 비교(원본·목적 전체를 한 번에 정렬·대조) DIRECT_STREAM_COMPARE 7 상태 실행 가능 — 대체키(목적지 PK) 확정 실행 가능 — 대체키(목적지 PK) 확정 8 판정근거 원본 200건 · 문자 단일 PK · 대체키(목적지 PK) 확정 · PK 인덱스 · 원격 DB"
+   },
+   "planInfo": null,
+   "stage3ProcMs": null,
+   "preview_processing_ms": 2.6,
+   "checked_gb": [
+    "SCHOOL_CATEGORY"
+   ],
+   "checked_sum": [
+    "FOUND_YEAR",
+    "MAX_CAPACITY"
+   ],
+   "select_items": [
+    {
+     "src": "school_code",
+     "tgt": "SCHOOL_CODE"
+    },
+    {
+     "src": "school_name",
+     "tgt": "SCHOOL_NAME"
+    },
+    {
+     "src": "location",
+     "tgt": "REGION"
+    },
+    {
+     "src": "established_year",
+     "tgt": "FOUND_YEAR"
+    },
+    {
+     "src": "school_type",
+     "tgt": "SCHOOL_CATEGORY"
+    },
+    {
+     "src": "student_cap",
+     "tgt": "MAX_CAPACITY"
+    },
+    {
+     "src": "principal_name",
+     "tgt": "PRINCIPAL"
+    },
+    {
+     "src": "contact_number",
+     "tgt": "CONTACT_NUMBER"
+    },
+    {
+     "src": "email",
+     "tgt": "EMAIL_ADDRESS"
+    },
+    {
+     "src": "last_updated",
+     "tgt": "UPDATED_AT"
+    },
+    {
+     "src": "remark",
+     "tgt": "REMARKS"
+    }
+   ]
+  }
+ },
+ "S4_현재탭": "candidate",
+ "S5_재진입": {
+  "보는탭": "candidate",
+  "countState": "OK",
+  "A_2단계_안내박스": {
+   "존재": true,
+   "화면노출": false,
+   "전체텍스트": "COUNT 일치원본 200 · 목적 200 · 순 차이 0 · 목적지 적재율 100.0%COUNT 일치 — 값 불일치/교차 누락·과잉 확인을 위해 통계검증·Exact Diff 진행 가능.다음 단계: 통계검증 계속통계검증 계속 →",
+   "'다음 단계:'포함": true,
+   "'통계검증 계속'포함": true,
+   "배지": "COUNT 일치",
+   "count_status": "COUNT_MATCHED",
+   "severity_label": "COUNT 일치",
+   "next_action_label": "통계검증 계속"
+  },
+  "B1_3단계처리시간줄": {
+   "슬롯": [
+    {
+     "단계": 1,
+     "존재": true,
+     "텍스트": "· 1단계 처리시간: 0.36초",
+     "computed_display": "none",
+     "화면노출": false
+    },
+    {
+     "단계": 2,
+     "존재": true,
+     "텍스트": "· 2단계 처리시간: 0.02초",
+     "computed_display": "none",
+     "화면노출": false
+    },
+    {
+     "단계": 3,
+     "존재": true,
+     "텍스트": "· 3단계 계산 중...",
+     "computed_display": "inline",
+     "화면노출": true
+    },
+    {
+     "단계": 4,
+     "존재": true,
+     "텍스트": "",
+     "computed_display": "none",
+     "화면노출": false
+    },
+    {
+     "단계": 5,
+     "존재": true,
+     "텍스트": "",
+     "computed_display": "none",
+     "화면노출": false
+    }
+   ],
+   "3단계슬롯_화면노출": true,
+   "3단계슬롯_텍스트": "· 3단계 계산 중...",
+   "'단계 처리시간'문구_탭바에_보임": false,
+   "'계산 중'문구_탭바에_보임": true,
+   "단계탭바_텍스트": "1 쿼리검토 완료 2 COUNT 사전검증 완료 3 후보 컬럼 선정 현재 4 통계검증 실행 대기 5 결과 확인 대기중(잠금) · 3단계 계산 중..."
+  },
+  "B2_제목보조설명": {
+   "제목텍스트": "후보 컬럼 선정 및 수작업 조정 그룹기준 / 합계대상 후보 확인 후 최종 확정",
+   "보조설명_포함": true,
+   "보조span수": 1
+  },
+  "B3_후보추천요약표": {
+   "ctx_존재": true,
+   "ctx_화면노출": true,
+   "표(mv-sgrid)여부": true,
+   "타일(mv-qr-tiles)여부": false,
+   "제목": "후보추천 요약",
+   "헤더셀": [
+    "No",
+    "원본 테이블",
+    "목적 테이블",
+    "쿼리검토",
+    "COUNT",
+    "GROUP BY",
+    "SUM",
+    "상태"
+   ],
+   "본문_요약": "후보추천 요약 No 원본 테이블 목적 테이블 쿼리검토 COUNT GROUP BY SUM 상태 1 asis01.t_as_1_etl03 tobe01.t_to_1_etl03 ● 정상 ● 정상 school_type ↔ SCHOOL_CATEGORY established_year ↔ FOUND_YEAR, student_cap ↔ MAX_CAPACITY ● 정상"
+  },
+  "B4_카디널리티배너": {
+   "존재": true,
+   "화면노출": true,
+   "텍스트": "✅ 카디널리티 반영 확정치 — [선택 적용 후 통계검증 진행]이(가) 실행되어 고유값(카디널리티)까지 반영된 점수입니다.",
+   "'카디널리티 반영 확정치'포함": true,
+   "'1차 추정치'포함": false,
+   "candidateComputed": true
+  },
+  "B5_추천결과요약": {
+   "카드(.rec-summary-card)존재": true,
+   "'추천 결과 요약'문구_화면": true,
+   "'그룹기준 기본추천'문구_화면": true,
+   "'COUNT(*) 비교'문구_화면": true
+  },
+  "C_후보선택표": {
+   "표존재": true,
+   "gb": [
+    {
+     "값": "SCHOOL_CATEGORY",
+     "체크": true,
+     "비활성": false
+    },
+    {
+     "값": "REGION",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "UPDATED_AT",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "SCHOOL_CODE",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "SCHOOL_NAME",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "PRINCIPAL",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "CONTACT_NUMBER",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "EMAIL_ADDRESS",
+     "체크": false,
+     "비활성": true
+    },
+    {
+     "값": "REMARKS",
+     "체크": false,
+     "비활성": true
+    }
+   ],
+   "sum": [
+    {
+     "값": "FOUND_YEAR",
+     "체크": true,
+     "비활성": false
+    },
+    {
+     "값": "MAX_CAPACITY",
+     "체크": true,
+     "비활성": false
+    }
+   ],
+   "참고/제외 접힘존재": true,
+   "실행예정문구": "GROUP BY 1 / 3 SUM 2 / 3 COUNT(*) 항상 포함 전역 설정: GROUP BY 최대 3개 · SUM 최대 3개",
+   "진행버튼": {
+    "라벨": "▶ 선택 적용 후 통계검증 진행",
+    "비활성": false
+   }
+  },
+  "D_통합타일": {
+   "타일": [],
+   "라벨순서": [],
+   "타일수": 0,
+   "strategyPlanBox": {
+    "존재": true,
+    "화면노출": true,
+    "접힘(details)여부": false,
+    "표헤더": [
+     "통계검증 규모",
+     "실제 적용",
+     "GROUP BY",
+     "집계컬럼",
+     "통계전략",
+     "불일치 추출전략",
+     "상태",
+     "판정근거"
+    ],
+    "텍스트": "실행계획 No 항목 값 상태 1 통계검증 규모 잠정 소형 · 예상 스캔 200행 잠정 2 실제 적용 GROUP BY 1개 · 집계컬럼 2개 적용됨 3 GROUP BY SCHOOL_CATEGORY 4 집계컬럼 FOUND_YEAR, MAX_CAPACITY 5 통계전략 직접 집계(전체스캔 EXACT · 원본↔목적 그룹별 COUNT/SUM 비교) STATS_DIRECT_AGG 6 불일치 추출전략 직접 스트림 비교(원본·목적 전체를 한 번에 정렬·대조) DIRECT_STREAM_COMPARE 7 상태 실행 가능 — 대체키(목적지 PK) 확정 실행 가능 — 대체키(목적지 PK) 확정 8 판정근거 원본 200건 · 문자 단일 PK · 대체키(목적지 PK) 확정 · PK 인덱스 · 원격 DB"
+   },
+   "planInfo": null,
+   "stage3ProcMs": null,
+   "preview_processing_ms": 2.6,
+   "checked_gb": [
+    "SCHOOL_CATEGORY"
+   ],
+   "checked_sum": [
+    "FOUND_YEAR",
+    "MAX_CAPACITY"
+   ],
+   "select_items": [
+    {
+     "src": "school_code",
+     "tgt": "SCHOOL_CODE"
+    },
+    {
+     "src": "school_name",
+     "tgt": "SCHOOL_NAME"
+    },
+    {
+     "src": "location",
+     "tgt": "REGION"
+    },
+    {
+     "src": "established_year",
+     "tgt": "FOUND_YEAR"
+    },
+    {
+     "src": "school_type",
+     "tgt": "SCHOOL_CATEGORY"
+    },
+    {
+     "src": "student_cap",
+     "tgt": "MAX_CAPACITY"
+    },
+    {
+     "src": "principal_name",
+     "tgt": "PRINCIPAL"
+    },
+    {
+     "src": "contact_number",
+     "tgt": "CONTACT_NUMBER"
+    },
+    {
+     "src": "email",
+     "tgt": "EMAIL_ADDRESS"
+    },
+    {
+     "src": "last_updated",
+     "tgt": "UPDATED_AT"
+    },
+    {
+     "src": "remark",
+     "tgt": "REMARKS"
+    }
+   ]
+  }
+ },
+ "notes": [],
+ "pageerrors": [
+  "CONSOLE.error: Failed to load resource: the server responded with a status of 404 (Not Found)"
+ ]
+}
