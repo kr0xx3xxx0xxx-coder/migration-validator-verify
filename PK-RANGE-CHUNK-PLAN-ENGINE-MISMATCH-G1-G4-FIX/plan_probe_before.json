@@ -1,0 +1,254 @@
+{
+ "root": "C:\\Users\\NEXTOB~1\\AppData\\Local\\Temp\\claude\\C--projects-migration-validator\\7413834a-85d6-44c0-bd9d-3bc27db79c48\\scratchpad\\base_head",
+ "planner": {
+  "G1-날짜PK-50M": {
+   "strategy": "PK_RANGE_CHUNK_COMPARE",
+   "impl": "AVAILABLE",
+   "auto_runnable": true,
+   "reasons": [
+    "SINGLE_DATE_PK_INDEXED",
+    "SIZE_ABOVE_DIRECT_THRESHOLD_PROVISIONAL"
+   ],
+   "fallback": ""
+  },
+  "G1-날짜PK-1M(벤치점)": {
+   "strategy": "DIRECT_STREAM_COMPARE",
+   "impl": "AVAILABLE",
+   "auto_runnable": true,
+   "reasons": [
+    "SINGLE_DATE_PK_INDEXED"
+   ],
+   "fallback": ""
+  },
+  "G1-날짜PK-10만": {
+   "strategy": "DIRECT_STREAM_COMPARE",
+   "impl": "AVAILABLE",
+   "auto_runnable": true,
+   "reasons": [
+    "SINGLE_DATE_PK_INDEXED"
+   ],
+   "fallback": ""
+  },
+  "_unknown_fields": [
+   "G4-복합PK+대체키.native_key_available",
+   "G4-복합PK+대체키.native_key_evidence",
+   "G4-문자PK+대체키.native_key_available",
+   "G4-문자PK+대체키.native_key_evidence",
+   "무회귀-HASH가능.native_key_available",
+   "무회귀-파티션.native_key_available"
+  ],
+  "G4-복합PK+대체키": {
+   "strategy": "STATS_ONLY_HOLD",
+   "impl": "HOLD",
+   "auto_runnable": false,
+   "reasons": [
+    "NO_SAFE_SPLIT_FOR_TEXT_PK"
+   ],
+   "fallback": ""
+  },
+  "G4-문자PK+대체키": {
+   "strategy": "STATS_ONLY_HOLD",
+   "impl": "HOLD",
+   "auto_runnable": false,
+   "reasons": [
+    "NO_SAFE_SPLIT_FOR_TEXT_PK"
+   ],
+   "fallback": ""
+  },
+  "무회귀-숫자PK-50M": {
+   "strategy": "PK_RANGE_CHUNK_COMPARE",
+   "impl": "AVAILABLE",
+   "auto_runnable": true,
+   "reasons": [
+    "SINGLE_NUMERIC_PK_INDEXED",
+    "SIZE_ABOVE_DIRECT_THRESHOLD_PROVISIONAL"
+   ],
+   "fallback": ""
+  },
+  "무회귀-숫자PK-1M": {
+   "strategy": "DIRECT_STREAM_COMPARE",
+   "impl": "AVAILABLE",
+   "auto_runnable": true,
+   "reasons": [
+    "SINGLE_NUMERIC_PK_INDEXED"
+   ],
+   "fallback": ""
+  },
+  "무회귀-숫자PK-10만": {
+   "strategy": "DIRECT_STREAM_COMPARE",
+   "impl": "AVAILABLE",
+   "auto_runnable": true,
+   "reasons": [
+    "SINGLE_NUMERIC_PK_INDEXED"
+   ],
+   "fallback": ""
+  },
+  "무회귀-복합PK(키없음)": {
+   "strategy": "STATS_ONLY_HOLD",
+   "impl": "HOLD",
+   "auto_runnable": false,
+   "reasons": [
+    "NO_SAFE_SPLIT_FOR_TEXT_PK"
+   ],
+   "fallback": ""
+  },
+  "무회귀-문자PK(키없음)": {
+   "strategy": "STATS_ONLY_HOLD",
+   "impl": "HOLD",
+   "auto_runnable": false,
+   "reasons": [
+    "NO_SAFE_SPLIT_FOR_TEXT_PK"
+   ],
+   "fallback": ""
+  },
+  "무회귀-PK없음": {
+   "strategy": "STATS_ONLY_HOLD",
+   "impl": "HOLD",
+   "auto_runnable": false,
+   "reasons": [
+    "NO_STABLE_PK"
+   ],
+   "fallback": ""
+  },
+  "무회귀-HASH가능": {
+   "strategy": "HASH_BUCKET_COMPARE",
+   "impl": "PHASE4_B_REQUIRED",
+   "auto_runnable": false,
+   "reasons": [
+    "COMPOSITE_OR_TEXT_PK_HASH_BUCKET",
+    "FALLBACK_REQUIRES_EXPLICIT_APPROVAL"
+   ],
+   "fallback": "DIRECT_STREAM_COMPARE"
+  },
+  "무회귀-파티션": {
+   "strategy": "PARTITION_BUCKET_COMPARE",
+   "impl": "PHASE4_B_REQUIRED",
+   "auto_runnable": false,
+   "reasons": [
+    "PARTITION_PRESENT",
+    "FALLBACK_REQUIRES_EXPLICIT_APPROVAL"
+   ],
+   "fallback": "DIRECT_STREAM_COMPARE"
+  },
+  "무회귀-표본조기중단": {
+   "strategy": "SAMPLE_ONLY_EARLY_STOP",
+   "impl": "AVAILABLE",
+   "auto_runnable": true,
+   "reasons": [
+    "SAMPLE_CI_LOW_GE_THRESHOLD"
+   ],
+   "fallback": ""
+  }
+ },
+ "route": {
+  "route-날짜PK-1M": {
+   "ok": true,
+   "strategy": "PK_RANGE_CHUNK_COMPARE",
+   "impl": "AVAILABLE",
+   "auto_runnable": true,
+   "reasons": [
+    "SINGLE_DATE_PK_INDEXED",
+    "BENCHMARK_CHUNK_PREFERRED"
+   ],
+   "transition_strategy": "PK_RANGE_CHUNK_COMPARE",
+   "transition_reasons": [
+    "BENCHMARK_CHUNK_PREFERRED"
+   ],
+   "basis_text": "원본 1,000,000건 · 날짜 단일 PK · PK 인덱스 · 로컬 DB",
+   "elapsed_ms": 11.01
+  },
+  "route-날짜PK-50M": {
+   "ok": true,
+   "strategy": "PK_RANGE_CHUNK_COMPARE",
+   "impl": "AVAILABLE",
+   "auto_runnable": true,
+   "reasons": [
+    "SINGLE_DATE_PK_INDEXED",
+    "SIZE_ABOVE_DIRECT_THRESHOLD_PROVISIONAL",
+    "EST_TOTAL_OVER_RESUME_THRESHOLD",
+    "PROVISIONAL_NO_BENCHMARK_AT_SIZE"
+   ],
+   "transition_strategy": "PK_RANGE_CHUNK_COMPARE",
+   "transition_reasons": [
+    "EST_TOTAL_OVER_RESUME_THRESHOLD",
+    "PROVISIONAL_NO_BENCHMARK_AT_SIZE"
+   ],
+   "basis_text": "원본 50,000,000건 · 날짜 단일 PK · PK 인덱스 · 로컬 DB",
+   "elapsed_ms": 3.83
+  },
+  "route-숫자PK-1M": {
+   "ok": true,
+   "strategy": "PK_RANGE_CHUNK_COMPARE",
+   "impl": "AVAILABLE",
+   "auto_runnable": true,
+   "reasons": [
+    "SINGLE_NUMERIC_PK_INDEXED",
+    "BENCHMARK_CHUNK_PREFERRED"
+   ],
+   "transition_strategy": "PK_RANGE_CHUNK_COMPARE",
+   "transition_reasons": [
+    "BENCHMARK_CHUNK_PREFERRED"
+   ],
+   "basis_text": "원본 1,000,000건 · 숫자 단일 PK · PK 인덱스 · 로컬 DB",
+   "elapsed_ms": 4.16
+  },
+  "route-숫자PK-50M": {
+   "ok": true,
+   "strategy": "PK_RANGE_CHUNK_COMPARE",
+   "impl": "AVAILABLE",
+   "auto_runnable": true,
+   "reasons": [
+    "SINGLE_NUMERIC_PK_INDEXED",
+    "SIZE_ABOVE_DIRECT_THRESHOLD_PROVISIONAL",
+    "EST_TOTAL_OVER_RESUME_THRESHOLD",
+    "PROVISIONAL_NO_BENCHMARK_AT_SIZE"
+   ],
+   "transition_strategy": "PK_RANGE_CHUNK_COMPARE",
+   "transition_reasons": [
+    "EST_TOTAL_OVER_RESUME_THRESHOLD",
+    "PROVISIONAL_NO_BENCHMARK_AT_SIZE"
+   ],
+   "basis_text": "원본 50,000,000건 · 숫자 단일 PK · PK 인덱스 · 로컬 DB",
+   "elapsed_ms": 3.59
+  },
+  "route-복합PK+대체키": {
+   "ok": true,
+   "strategy": "STATS_ONLY_HOLD",
+   "impl": "HOLD",
+   "auto_runnable": false,
+   "reasons": [
+    "NO_SAFE_SPLIT_FOR_TEXT_PK"
+   ],
+   "transition_strategy": null,
+   "transition_reasons": [],
+   "basis_text": "원본 50,000,000건 · 복합 PK · PK 인덱스 · 로컬 DB",
+   "elapsed_ms": 1.83
+  },
+  "route-복합PK(키없음)": {
+   "ok": true,
+   "strategy": "STATS_ONLY_HOLD",
+   "impl": "HOLD",
+   "auto_runnable": false,
+   "reasons": [
+    "NO_SAFE_SPLIT_FOR_TEXT_PK"
+   ],
+   "transition_strategy": null,
+   "transition_reasons": [],
+   "basis_text": "원본 50,000,000건 · 복합 PK · PK 인덱스 · 로컬 DB",
+   "elapsed_ms": 1.82
+  },
+  "route-문자PK+대체키": {
+   "ok": true,
+   "strategy": "STATS_ONLY_HOLD",
+   "impl": "HOLD",
+   "auto_runnable": false,
+   "reasons": [
+    "NO_SAFE_SPLIT_FOR_TEXT_PK"
+   ],
+   "transition_strategy": null,
+   "transition_reasons": [],
+   "basis_text": "원본 1,000,000건 · 문자 단일 PK · PK 인덱스 · 로컬 DB",
+   "elapsed_ms": 1.83
+  }
+ }
+}

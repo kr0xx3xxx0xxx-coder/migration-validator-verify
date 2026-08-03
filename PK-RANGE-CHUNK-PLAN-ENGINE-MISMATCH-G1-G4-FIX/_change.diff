@@ -1,0 +1,357 @@
+diff --git a/routes/strategy_route.py b/routes/strategy_route.py
+index 1f22236..44156a2 100644
+--- a/routes/strategy_route.py
++++ b/routes/strategy_route.py
+@@ -77,6 +77,9 @@ def strategy_plan(req: StrategyPlanRequest):
+         basis = " · ".join([x for x in [
+             ("원본 " + format(profile.source_count, ",") + "건") if profile.source_count else "",
+             pk_txt.get(full.pk_structure, full.pk_structure),
++            # [PK-RANGE-CHUNK-PLAN-ENGINE-MISMATCH-G4-FIX] 범위분할은 불가하지만 목적지 물리 PK 를
++            #   매칭키로 확정해 DIRECT merge 로 실행되는 경우를 판정근거에 명시한다.
++            ("대체키(목적지 PK) 확정" if "NATIVE_UNIQUE_KEY_CONFIRMED" in (full.reason_codes or []) else ""),
+             ("PK 인덱스" if profile.pk_indexed else ""),
+             ("파티션" if profile.partition_available else ""),
+             ("원격 DB" if profile.remote else "로컬 DB"),
+diff --git a/services/strategy/full_compare_strategy_planner.py b/services/strategy/full_compare_strategy_planner.py
+index f9224af..142a53d 100644
+--- a/services/strategy/full_compare_strategy_planner.py
++++ b/services/strategy/full_compare_strategy_planner.py
+@@ -41,12 +41,19 @@ def plan_full_compare_strategy(profile: m.StrategyProfile, *,
+     elif profile.partition_available and (profile.source_count or 0) > 0:
+         sid = m.PARTITION_BUCKET_COMPARE
+         reasons.append("PARTITION_PRESENT")
+-    # 4) 단일 숫자/날짜 PK + 인덱스 + 범위분할 가능 → PK_RANGE_CHUNK 후보
+-    elif pk_kind in (m.PK_SINGLE_NUMERIC, m.PK_SINGLE_DATE) and profile.pk_indexed:
++    # 4) 단일 '숫자' PK + 인덱스 + 범위분할 가능 → PK_RANGE_CHUNK 후보
++    #    [PK-RANGE-CHUNK-PLAN-ENGINE-MISMATCH-G1-FIX] 날짜 단일 PK(PK_SINGLE_DATE)는 여기서 제외한다.
++    #    실행 엔진은 날짜를 물리적으로 통과시키지 못한다 — 키 확정(services/diagnosis/key_evidence.py:
++    #    build_chunk_key_evidence_snapshot 의 norm_type != "NUMBER" → continue)과 청크 경계 생성
++    #    (services/exact_diff/pk_range_chunk.py build_chunk_bounds 의 int()) 둘 다 숫자 전용이라
++    #    날짜 PK 로 CHUNK 를 실행하면 routes/agg_diff_route.py 가 HOLD_NON_NUMERIC_PK 로 종료한다.
++    #    계획이 '실행 가능' 이라고 표시해두면 사용자가 비용(키 확정·준비)을 다 쓴 뒤에야 실패한다.
++    #    → 계획을 엔진 실제 능력에 맞춘다. 날짜 PK 는 아래 기본 분기(DIRECT_STREAM)로 내려간다.
++    elif pk_kind == m.PK_SINGLE_NUMERIC and profile.pk_indexed:
+         # 잠정 임계 초과면 CHUNK 후보, 아니면 DIRECT 가 유리(둘 다 계획 — 실행 가능은 impl_status 로)
+         big = (direct_stream_max_rows is not None and (profile.source_count or 0) > direct_stream_max_rows)
+         sid = m.PK_RANGE_CHUNK_COMPARE if big else m.DIRECT_STREAM_COMPARE
+-        reasons.append("SINGLE_NUMERIC_PK_INDEXED" if pk_kind == m.PK_SINGLE_NUMERIC else "SINGLE_DATE_PK_INDEXED")
++        reasons.append("SINGLE_NUMERIC_PK_INDEXED")
+         if big:
+             reasons.append("SIZE_ABOVE_DIRECT_THRESHOLD_PROVISIONAL")
+     # 5) 복합·문자 PK → HASH_BUCKET 후보(범위분할 부적합)
+@@ -59,8 +66,26 @@ def plan_full_compare_strategy(profile: m.StrategyProfile, *,
+             reasons.append("NO_SAFE_SPLIT_FOR_TEXT_PK")
+     else:
+         sid = m.DIRECT_STREAM_COMPARE
++        # [PK-RANGE-CHUNK-PLAN-ENGINE-MISMATCH-G1-FIX] 날짜 단일 PK 가 여기로 내려온 사유를 명시한다
++        # (새 처리 경로가 아니라 기존 기본 분기 재사용 — 사유코드만 추가해 설명가능성 확보).
++        if pk_kind == m.PK_SINGLE_DATE:
++            reasons.append("SINGLE_DATE_PK_NOT_CHUNK_CAPABLE")
+         reasons.append("DEFAULT_DIRECT_STREAM")
+ 
++    # [PK-RANGE-CHUNK-PLAN-ENGINE-MISMATCH-G4-FIX] '계획 HOLD ↔ 실행 성공' 반대신호 해소.
++    #   위 분기는 '범위분할(chunk/bucket) 수단이 있는가' 만 본다. 복합/문자 PK 는 그 수단이 없어
++    #   STATS_ONLY_HOLD 로 떨어지지만, 실행 계층은 목적지 물리 PK 를 네이티브 매칭키로 확정하면
++    #   (routes/agg_diff_route.py `_resolve_native_pk_key` ① → `_unique_native_key=True` →
++    #    `_resolve_execution_strategy` 가 DIRECT_STREAM_COMPARE / 실행경로 DIRECT_COMPOSITE_PK 반환)
++    #   범위분할 없이 DIRECT merge 로 정상 수행한다(5,000만행 6종 실측 전부 참값 일치).
++    #   근거가 확정된 경우에만 계획을 실행 계층과 같은 결론으로 맞춘다 — 근거 없으면 HOLD 유지(무회귀).
++    #   새 전략 ID 를 만들지 않고 실행 계층이 실제로 고르는 기존 DIRECT_STREAM_COMPARE 를 그대로 쓴다.
++    if sid == m.STATS_ONLY_HOLD and profile.native_key_available:
++        sid = m.DIRECT_STREAM_COMPARE
++        reasons.append("NATIVE_UNIQUE_KEY_CONFIRMED")
++        if profile.native_key_evidence:
++            reasons.append(str(profile.native_key_evidence))
++
+     impl = _impl_status(sid)
+     # fallback 은 '제안'만(자동 실행 금지 §3·§14) — DIRECT_STREAM 이 안전 기본, HOLD 는 fallback 없음.
+     fallback = ""
+diff --git a/services/strategy/strategy_models.py b/services/strategy/strategy_models.py
+index ed0ef2b..1822970 100644
+--- a/services/strategy/strategy_models.py
++++ b/services/strategy/strategy_models.py
+@@ -95,6 +95,14 @@ class StrategyProfile:
+     pk_max: int | None = None
+     pk_skew_evidence: str = ""
+     compare_column_count: int = 0
++    # [PK-RANGE-CHUNK-PLAN-ENGINE-MISMATCH-G4-FIX] 네이티브 대체키(목적지 물리 PK) 확정 여부.
++    #   복합/문자 PK 는 범위분할이 불가해 계획상 STATS_ONLY_HOLD 지만, 실행 계층
++    #   (routes/agg_diff_route.py `_resolve_native_pk_key` ① 정식 PK)이 목적지 물리 PK 를 매칭키로
++    #   확정하면 DIRECT merge(실행경로 DIRECT_COMPOSITE_PK)로 정상 수행된다. 그 사실을 계획에 반영해
++    #   '보류' 라고 안내하고 실제로는 잘 돌아가는 반대 신호를 없앤다. 근거 없이 True 로 두지 말 것
++    #   (기본 False = 기존 동작 그대로).
++    native_key_available: bool = False
++    native_key_evidence: str = ""              # 판정 근거코드(설명가능성) — 표시/감사 전용
+     hash_bucket_available: bool = False
+     range_split_available: bool = False
+     expected_mismatch_density: float | None = None
+diff --git a/services/strategy/strategy_transition.py b/services/strategy/strategy_transition.py
+index e3d4610..356456c 100644
+--- a/services/strategy/strategy_transition.py
++++ b/services/strategy/strategy_transition.py
+@@ -55,12 +55,22 @@ def choose_compare_strategy(*, source_count, row_width=None, pk_kind=m.PK_SINGLE
+     cfg.update({k: v for k, v in (transition_config or {}).items() if v is not None})
+     reasons = []
+     # 지원 범위: 단일 숫자 PK + 인덱스만 CHUNK 대상(그 외는 DIRECT 또는 상위 계획에서 HOLD).
+-    chunk_capable = (pk_kind in (m.PK_SINGLE_NUMERIC, m.PK_SINGLE_DATE) and pk_indexed)
++    # [PK-RANGE-CHUNK-PLAN-ENGINE-MISMATCH-G1-FIX] PK_SINGLE_DATE 제외 — 엔진(build_chunk_bounds 의 int())과
++    #   키 확정(key_evidence: norm_type != "NUMBER" 탈락)이 날짜를 통과시키지 못해 실행하면 HOLD_NON_NUMERIC_PK 다.
++    chunk_capable = (pk_kind == m.PK_SINGLE_NUMERIC and pk_indexed)
+     bp = _nearest_benchmark(benchmarks if benchmarks is not None else cfg.get("benchmarks"), source_count)
+     est_total = _est_total_seconds(source_count, benchmark_point=bp,
+                                    recent_throughput=recent_throughput_rows_per_sec,
+                                    default_throughput=cfg["default_throughput_rows_per_sec"])
+ 
++    # [PK-RANGE-CHUNK-PLAN-ENGINE-MISMATCH-G1-FIX] 자격 게이트를 벤치 비교보다 '먼저' 본다.
++    #   기존 순서에서는 source_count 가 벤치 지점과 정확히 일치하면(기본 벤치 1,000,000) PK 종류를 보기 전에
++    #   BENCHMARK_CHUNK_PREFERRED 로 CHUNK 를 반환했다 — 날짜·문자·복합 PK 도 CHUNK 로 계획되는 구멍이다
++    #   (벤치는 '단일 숫자 PK 로 측정한 속도' 이므로 자격 없는 PK 에 적용할 근거가 없다).
++    if not chunk_capable:
++        reasons.append("NOT_CHUNK_CAPABLE_PK")
++        return _out(m.DIRECT_STREAM_COMPARE, None, reasons, None, est_total, "LOW", cfg)
++
+     # 1) 측정 벤치가 이 크기에 있으면 직접 비교(§8 — DIRECT 총시간·첫결과 우세면 DIRECT).
+     if bp and bp.get("source_count") == source_count and bp.get("direct_total_seconds") and bp.get("chunk_total_seconds"):
+         direct_better = (bp["direct_total_seconds"] <= bp["chunk_total_seconds"])
+@@ -74,10 +84,6 @@ def choose_compare_strategy(*, source_count, row_width=None, pk_kind=m.PK_SINGLE
+         return _out(m.PK_RANGE_CHUNK_COMPARE, cfg["default_chunk_size"], reasons,
+                     bp.get("first_result_seconds"), bp["chunk_total_seconds"], "HIGH", cfg)
+ 
+-    if not chunk_capable:
+-        reasons.append("NOT_CHUNK_CAPABLE_PK")
+-        return _out(m.DIRECT_STREAM_COMPARE, None, reasons, None, est_total, "LOW", cfg)
+-
+     # 2) 측정 없음 → 예상 전체시간 기반(§8). resume 임계 초과면 CHUNK(중단 복구 유리), 아니면 DIRECT.
+     if est_total is not None and est_total > cfg["resume_threshold_seconds"]:
+         reasons.append("EST_TOTAL_OVER_RESUME_THRESHOLD")
+diff --git a/tests/test_strategy_planner.py b/tests/test_strategy_planner.py
+index 7afc0c9..87d6c18 100644
+--- a/tests/test_strategy_planner.py
++++ b/tests/test_strategy_planner.py
+@@ -156,6 +156,87 @@ def test_strategy_plan_transition_time_based_not_rowcount():
+     assert r50["transition"]["confidence"] == "LOW"        # 측정 없음 → 잠정
+ 
+ 
++def test_single_date_pk_is_not_chunk_capable():
++    # [PK-RANGE-CHUNK-PLAN-ENGINE-MISMATCH-G1-FIX] 날짜 단일 PK 는 엔진(build_chunk_bounds 의 int())이
++    #   물리적으로 통과시키지 못한다 → 계획도 PK_RANGE_CHUNK 로 세우지 않는다(기존 기본 분기 DIRECT 재사용).
++    p = _p(table_key="DT", source_count=50_000_000, has_pk=True, pk_kind=m.PK_SINGLE_DATE, pk_indexed=True)
++    plan = plan_full_compare_strategy(p, direct_stream_max_rows=1_000_000)
++    assert plan.compare_strategy_id == m.DIRECT_STREAM_COMPARE      # 규모가 커도 CHUNK 아님
++    assert "SINGLE_DATE_PK_NOT_CHUNK_CAPABLE" in plan.reason_codes  # 사유 명시(설명가능성)
++    assert plan.implementation_status == m.IMPL_AVAILABLE and is_auto_runnable(plan)
++
++
++def test_single_numeric_pk_chunk_unaffected_by_date_exclusion():
++    # 무회귀 — 날짜 제외가 숫자 단일 PK 의 CHUNK 계획을 건드리지 않는다.
++    p = _p(table_key="NM", source_count=50_000_000, has_pk=True, pk_kind=m.PK_SINGLE_NUMERIC, pk_indexed=True)
++    plan = plan_full_compare_strategy(p, direct_stream_max_rows=1_000_000)
++    assert plan.compare_strategy_id == m.PK_RANGE_CHUNK_COMPARE
++    assert "SINGLE_NUMERIC_PK_INDEXED" in plan.reason_codes
++    assert "SINGLE_DATE_PK_NOT_CHUNK_CAPABLE" not in plan.reason_codes
++
++
++def test_date_pk_route_at_benchmark_size_is_not_chunk():
++    # [G1] 전환 판정의 벤치 분기가 PK 자격보다 먼저 돌면 벤치 지점(1M)에서 날짜 PK 도 CHUNK 가 됐다.
++    #   자격 게이트를 앞으로 옮겨 그 구멍을 막았는지 라우트 레벨에서 확인한다.
++    import routes.strategy_route as sr
++    r = sr.strategy_plan(sr.StrategyPlanRequest(profile={
++        "table_key": "dt1m", "source_count": 1_000_000, "group_cardinalities": [12],
++        "has_pk": True, "pk_kind": m.PK_SINGLE_DATE, "pk_indexed": True}))
++    assert r["ok"]
++    assert r["full_compare_plan"]["compare_strategy_id"] == m.DIRECT_STREAM_COMPARE
++    assert "NOT_CHUNK_CAPABLE_PK" in r["transition"]["reason_codes"]
++
++
++def test_native_key_confirmed_upgrades_hold_to_direct():
++    # [PK-RANGE-CHUNK-PLAN-ENGINE-MISMATCH-G4-FIX] 복합/문자 PK 라도 목적지 물리 PK 가 매칭키로 확정되면
++    #   실행 계층은 DIRECT merge(DIRECT_COMPOSITE_PK)로 정상 수행한다 → 계획도 '실행 가능' 으로 맞춘다.
++    for kind in (m.PK_COMPOSITE, m.PK_SINGLE_TEXT):
++        p = _p(table_key="NK", source_count=50_000_000, has_pk=True, pk_kind=kind,
++               native_key_available=True, native_key_evidence="NATIVE_KEY_TARGET_PK_MAPPED")
++        plan = plan_full_compare_strategy(p, direct_stream_max_rows=1_000_000)
++        assert plan.compare_strategy_id == m.DIRECT_STREAM_COMPARE, kind
++        assert "NATIVE_UNIQUE_KEY_CONFIRMED" in plan.reason_codes
++        assert "NATIVE_KEY_TARGET_PK_MAPPED" in plan.reason_codes      # 근거코드 보존(설명가능성)
++        assert plan.implementation_status == m.IMPL_AVAILABLE and is_auto_runnable(plan)
++
++
++def test_native_key_absent_keeps_hold():
++    # 무회귀 — '보류인데 실제로도 보류' 는 그대로 보류다(근거 없으면 절대 실행 가능으로 바꾸지 않는다).
++    for kw in (dict(pk_kind=m.PK_COMPOSITE, has_pk=True),
++               dict(pk_kind=m.PK_SINGLE_TEXT, has_pk=True),
++               dict(pk_kind=m.PK_NONE, has_pk=False)):
++        plan = plan_full_compare_strategy(_p(table_key="HK", source_count=2_000_000, **kw))
++        assert plan.compare_strategy_id == m.STATS_ONLY_HOLD, kw
++        assert plan.implementation_status == m.IMPL_HOLD and not is_auto_runnable(plan)
++        assert "NATIVE_UNIQUE_KEY_CONFIRMED" not in plan.reason_codes
++
++
++def test_native_key_does_not_override_hash_bucket_or_partition():
++    # 무회귀 — HOLD 가 아닌 계획(HASH_BUCKET/PARTITION_BUCKET)은 네이티브 키가 있어도 바뀌지 않는다.
++    hb = plan_full_compare_strategy(_p(table_key="HB", source_count=2_000_000, has_pk=True,
++                                       pk_kind=m.PK_COMPOSITE, hash_bucket_available=True,
++                                       native_key_available=True))
++    assert hb.compare_strategy_id == m.HASH_BUCKET_COMPARE
++    pb = plan_full_compare_strategy(_p(table_key="PB2", source_count=80_000_000, has_pk=True,
++                                       pk_kind=m.PK_SINGLE_NUMERIC, pk_indexed=True,
++                                       partition_available=True, native_key_available=True))
++    assert pb.compare_strategy_id == m.PARTITION_BUCKET_COMPARE
++
++
++def test_native_key_route_composite_pk_is_runnable():
++    # 라우트 레벨 — 복합 PK + 네이티브 키 확정이면 카드가 '실행 가능' 근거를 받는다(판정근거 문구 포함).
++    import routes.strategy_route as sr
++    r = sr.strategy_plan(sr.StrategyPlanRequest(profile={
++        "table_key": "cmp", "source_count": 50_000_000, "group_cardinalities": [12],
++        "has_pk": True, "pk_kind": m.PK_COMPOSITE, "pk_indexed": True,
++        "native_key_available": True, "native_key_evidence": "NATIVE_KEY_TARGET_PK_MAPPED"}))
++    assert r["ok"]
++    assert r["full_compare_plan"]["compare_strategy_id"] == m.DIRECT_STREAM_COMPARE
++    assert r["compare_auto_runnable"] is True and r["implementation_status"] == m.IMPL_AVAILABLE
++    assert "대체키(목적지 PK) 확정" in r["basis_text"]
++    assert "NOT_CHUNK_CAPABLE_PK" in r["transition"]["reason_codes"]   # 복합 PK 는 CHUNK 로 되돌아가지 않는다
++
++
+ def test_scheduler_hold_job_never_runs():
+     # §15.8·§15.9·§13 — 자동실행 불가(미구현/HOLD) 작업은 스케줄러가 RUNNING 으로 전환하지 않는다.
+     from services.batch.resource_budget import ResourceBudget
+diff --git a/tests/test_strategy_transition.py b/tests/test_strategy_transition.py
+index 5c599c9..abe137f 100644
+--- a/tests/test_strategy_transition.py
++++ b/tests/test_strategy_transition.py
+@@ -54,6 +54,29 @@ def test_non_chunk_capable_pk_is_direct():
+     assert r["selected_strategy_id"] == m.DIRECT_STREAM_COMPARE and "NOT_CHUNK_CAPABLE_PK" in r["reason_codes"]
+ 
+ 
++def test_date_pk_is_not_chunk_capable():
++    # [PK-RANGE-CHUNK-PLAN-ENGINE-MISMATCH-G1-FIX] 날짜 단일 PK 는 CHUNK 대상 아님(엔진 int() 범위 전용).
++    r = choose_compare_strategy(source_count=50_000_000, pk_kind=m.PK_SINGLE_DATE, pk_indexed=True,
++                                recent_throughput_rows_per_sec=45000)   # 예상시간은 임계 초과지만 자격 없음
++    assert r["selected_strategy_id"] == m.DIRECT_STREAM_COMPARE
++    assert "NOT_CHUNK_CAPABLE_PK" in r["reason_codes"]
++
++
++def test_benchmark_point_does_not_override_pk_capability():
++    # [G1] 벤치 지점과 크기가 정확히 일치해도 자격 없는 PK 를 CHUNK 로 보내지 않는다.
++    #   (벤치는 '단일 숫자 PK 로 측정한 속도' — 자격 없는 PK 에 적용할 근거가 없다.)
++    bench = [{"source_count": 1_000_000, "direct_total_seconds": 158.0, "chunk_total_seconds": 68.0,
++              "chunk_size": 50000, "direct_peak_mb": 30, "chunk_peak_mb": 122}]
++    for kind in (m.PK_SINGLE_DATE, m.PK_SINGLE_TEXT, m.PK_COMPOSITE):
++        r = choose_compare_strategy(source_count=1_000_000, pk_kind=kind, pk_indexed=True, benchmarks=bench)
++        assert r["selected_strategy_id"] == m.DIRECT_STREAM_COMPARE, kind
++        assert "NOT_CHUNK_CAPABLE_PK" in r["reason_codes"]
++    # 자격 있는 숫자 PK 는 기존대로 벤치 우세 판정을 그대로 받는다(무회귀).
++    rn = choose_compare_strategy(source_count=1_000_000, pk_kind=m.PK_SINGLE_NUMERIC, pk_indexed=True,
++                                 benchmarks=bench)
++    assert rn["selected_strategy_id"] == m.PK_RANGE_CHUNK_COMPARE and rn["confidence"] == "HIGH"
++
++
+ if __name__ == "__main__":
+     import pytest
+     sys.exit(pytest.main([__file__, "-q"]))
+diff --git a/ui/grid_helpers.py b/ui/grid_helpers.py
+index 1fc25bd..57e6660 100644
+--- a/ui/grid_helpers.py
++++ b/ui/grid_helpers.py
+@@ -928,6 +928,45 @@ function _mvDerivePkProfile(ad){
+   return UNKNOWN;
+ }
+ if (typeof window !== 'undefined') { window._mvPkTypeKind = _mvPkTypeKind; window._mvDerivePkProfile = _mvDerivePkProfile; }
++/* ══ [PK-RANGE-CHUNK-PLAN-ENGINE-MISMATCH-G4-FIX] 네이티브 대체키 확정 근거 ═══════════════
++   기존 결함: 복합/문자 PK 테이블은 실행계획 카드가 STATS_ONLY_HOLD('상세비교 보류')로 표시되지만,
++     실제 4·5단계 실행은 목적지 물리 PK 를 매칭키로 확정해(routes/agg_diff_route.py
++     `_resolve_native_pk_key` ① 정식 PK → `_unique_native_key=true`) DIRECT merge(실행경로
++     DIRECT_COMPOSITE_PK)로 정상 수행된다(5,000만행 6종 실측 전부 참값 일치). 카드가 '보류'라고
++     안내하고 실제로는 잘 돌아가는 반대 신호를 준다.
++   이 수정: 실행 계층의 ① 단계와 '같은 근거' 를 화면이 이미 가진 analyze 응답만으로 미리 판정한다.
++     · 목적지 물리 PK 목록: ad.target_pk_evidence.pk_columns
++       — 서버가 `get_adapter(db_type).fetch_key_metadata` 로 조회한 값이며, 실행 계층의
++         `_introspect_pk_cols` 가 쓰는 것과 동일한 어댑터 호출 결과다(같은 출처·같은 값).
++     · 매핑 포함 여부: ad.parse_result.insert_cols ⊇ pk_columns
++       — 실행 계층의 `if pk_cols and (not _ins or all(c in _ins))` 조건을 그대로 옮긴 것.
++         insert_cols 가 비어 있으면 실행 계층도 통과시키므로 동일하게 통과시킨다.
++   왜 표시 시점에 미리 조회하지 않는가(비용 판단):
++     `_resolve_native_pk_key` 를 그대로 호출하려면 목적지 접속·parse_result·파생 SQL 이 필요하고,
++     ②③(UK·업무키)은 결과집합 NULL/중복 재확인이라 데이터 probe 가 들어간다. /strategy/plan 은 현재
++     DB 왕복 0회의 순수 계산 엔드포인트이고 카드는 체크박스 변경마다 재호출되므로, 거기에 DB 조회를
++     넣는 것은 구조·성능 양쪽에서 손해다. 반면 ①(정식 PK)의 근거는 analyze 응답에 이미 실려 있어
++     추가 왕복 0회로 정확히 재현할 수 있다 → ① 은 확정 표시, ②③ 은 '실행 시 확정 가능' 안내로 나눈다.
++   안전측 원칙: 근거가 없거나 PK 가 매핑에 없으면 false(= 기존 HOLD 표시 유지, 무회귀). */
++function _mvDeriveNativeKeyProfile(ad){
++  ad = ad || {};
++  var tpe = ad.target_pk_evidence || {};
++  /* available=false 는 '조회 못함' 이지 'PK 없음' 이 아니다 — 낙관적 확정 금지. */
++  if (tpe.available !== true)
++    return { native_key_available:false, native_key_evidence:'NATIVE_KEY_EVIDENCE_UNAVAILABLE' };
++  var cols = tpe.pk_columns || [];
++  if (!cols.length)
++    return { native_key_available:false, native_key_evidence:'NATIVE_KEY_NO_TARGET_PK' };
++  var ins = (((ad.parse_result || {}).insert_cols) || []).map(function(c){ return String(c).toUpperCase(); });
++  if (ins.length) {
++    for (var i = 0; i < cols.length; i++) {
++      if (ins.indexOf(String(cols[i]).toUpperCase()) < 0)     /* PK 컬럼이 이관 매핑에 없음 → 매칭키 불가 */
++        return { native_key_available:false, native_key_evidence:'NATIVE_KEY_PK_NOT_MAPPED' };
++    }
++  }
++  return { native_key_available:true, native_key_evidence:'NATIVE_KEY_TARGET_PK_MAPPED' };
++}
++if (typeof window !== 'undefined') window._mvDeriveNativeKeyProfile = _mvDeriveNativeKeyProfile;
+ /* ══ [STRATEGY-PLAN-REMOTE-FLAG-EVIDENCE-BASED-FIX] 실행계획 remote 플래그 근거화 ═══════
+    기존 결함: _mvBuildStatsScaleProfile() 이 remote 를 실제 접속과 무관하게 항상 true 로 고정 전송했다.
+      서버는 이 값으로 (1) 통계 cost 를 1.05배 보정하고(services/strategy/stats_strategy_planner.py:56)
+@@ -1013,6 +1052,9 @@ function _mvBuildStatsScaleProfile(){
+   /* [STRATEGY-PLAN-REMOTE-FLAG-EVIDENCE-BASED-FIX] remote 고정 true 제거 — 접속 host 근거로 판정.
+      확정 불가면 true 유지(무회귀). */
+   var rmt = _mvDeriveRemoteProfile();
++  /* [PK-RANGE-CHUNK-PLAN-ENGINE-MISMATCH-G4-FIX] 범위분할 불가(복합/문자 PK)여도 목적지 물리 PK 가
++     매칭키로 확정되면 실행은 DIRECT merge 로 진행된다 — 그 근거를 계획기에 전달(추가 왕복 0회). */
++  var nk = _mvDeriveNativeKeyProfile(ad);
+   return {
+     table_key: (srcTables[0] || ''), source_count: count.src_count, estimated_scan_rows: count.src_count,
+     configured_group_by_count: (pol.default_groupby_limit != null ? pol.default_groupby_limit : null),
+@@ -1021,6 +1063,7 @@ function _mvBuildStatsScaleProfile(){
+     effective_group_by_columns: effGb, effective_aggregate_columns: effSum,
+     group_axis_count: effGb.length, sum_column_count: effSum.length,
+     has_pk: pk.has_pk, pk_kind: pk.pk_kind, pk_indexed: pk.pk_indexed,
++    native_key_available: nk.native_key_available, native_key_evidence: nk.native_key_evidence,
+     /* 판정 근거코드(설명가능성) — StrategyProfile 에 없는 키라 서버는 무시하고 화면 진단에만 쓰인다. */
+     pk_evidence: pk.pk_evidence, remote_evidence: rmt.remote_evidence, remote: rmt.remote };
+ }
+diff --git a/ui/tabler_renderer.py b/ui/tabler_renderer.py
+index ef1320c..b95df88 100644
+--- a/ui/tabler_renderer.py
++++ b/ui/tabler_renderer.py
+@@ -27876,7 +27876,10 @@ async function _mvRenderStrategyPlan(profile, hostId) {
+   if (!d || d.ok === false) { host.innerHTML = '<div style="color:#b4472a;font-size:.78rem">' + esc((d && d.error) || '전략계획 실패') + '</div>'; return; }
+   var sp = d.stats_plan || {}, fp = d.full_compare_plan || {};
+   var impl = d.implementation_status;
+-  var implTxt = (impl === 'AVAILABLE') ? '실행 가능'
++  /* [PK-RANGE-CHUNK-PLAN-ENGINE-MISMATCH-G4-FIX] 범위분할은 불가하지만 목적지 물리 PK 가 매칭키로
++     확정돼 DIRECT merge(실행경로 DIRECT_COMPOSITE_PK)로 실행되는 계획인지 — 계획기 사유코드로 판정. */
++  var _nativeKeyPlan = ((fp.reason_codes || []).indexOf('NATIVE_UNIQUE_KEY_CONFIRMED') >= 0);
++  var implTxt = (impl === 'AVAILABLE') ? (_nativeKeyPlan ? '실행 가능 — 대체키(목적지 PK) 확정' : '실행 가능')
+     : (impl === 'PHASE4_B_REQUIRED') ? 'Phase 4-B 엔진 필요' : '상세비교 보류(HOLD)';
+   var implColor = (impl === 'AVAILABLE') ? '#1f7a3d' : (impl === 'PHASE4_B_REQUIRED') ? '#C2410C' : '#b4472a';
+   /* [Phase4-B §4] 전역 설정 vs 실제 적용(effective). GROUP BY/집계컬럼은 라이브 체크박스 단일 출처. */
+@@ -27951,7 +27954,19 @@ async function _mvRenderStrategyPlan(profile, hostId) {
+         + '⚠ <b>' + esc(_sid) + '</b> 은 참고용 계획이며, 실제 통계검증 실행은 항상 전체스캔(EXACT) 방식으로 이루어집니다 '
+         + '— 표본만으로 실행되지 않습니다. 결과 그룹이 100,000개를 초과하면 실행이 차단됩니다(샘플/버킷/파티션 집계 '
+         + '실행 엔진은 미구현).</div>' : '')
+-    + (d.compare_auto_runnable === false ? '<div style="font-size:.74rem;color:#C2410C;margin-top:4px">미구현 전략은 자동 실행하지 않습니다. 기존 전체 비교 fallback 은 명시 승인 시에만 사용합니다.</div>' : '');
++    + (d.compare_auto_runnable === false ? '<div style="font-size:.74rem;color:#C2410C;margin-top:4px">미구현 전략은 자동 실행하지 않습니다. 기존 전체 비교 fallback 은 명시 승인 시에만 사용합니다.</div>' : '')
++    /* [PK-RANGE-CHUNK-PLAN-ENGINE-MISMATCH-G4-FIX] 계획 HOLD ↔ 실행 성공 반대신호 고지.
++       목적지 물리 PK 근거로는 확정하지 못했더라도(카탈로그 조회 실패·PK 미매핑 등) 실행 계층은 UK·
++       데이터상 안정 업무키까지 재확인(NULL·중복 없음)해 매칭키를 확정할 수 있고, 확정되면 범위분할
++       없이 DIRECT merge 로 정상 수행된다. 그 가능성을 숨기지 않는다 — 반대로 여기서 '실행 가능' 이라고
++       단정하지도 않는다(확정에는 결과집합 재확인이 필요해 카드 시점에는 알 수 없다). */
++    + ((d.compare_auto_runnable === false && fp.compare_strategy_id === 'STATS_ONLY_HOLD')
++        ? '<div style="font-size:.74rem;color:#475569;background:#f1f5f9;border-left:3px solid #94a3b8;'
++          + 'border-radius:4px;padding:6px 9px;margin-top:6px;line-height:1.5">'
++          + 'ℹ 이 보류는 <b>범위 분할(청크/버킷) 수단이 없다</b>는 뜻입니다. 실행 시점에 네이티브 대체키'
++          + '(목적지 PK · UK · 데이터상 안정 업무키)가 확정되면 분할 없이 <b>직접 병합 비교</b>'
++          + '(DIRECT_COMPOSITE_PK)로 진행될 수 있습니다 — 대체키까지 확정하지 못한 경우에만 실제로 보류됩니다.</div>'
++        : '');
+ }
+ if (typeof window !== 'undefined') window._mvRenderStrategyPlan = _mvRenderStrategyPlan;
+ /* [Phase4-C §4] 일괄 queue UI — scheduler snapshot(counts/budget/jobs) 렌더. polling 은 이 함수로 상단·행 상태만

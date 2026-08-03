@@ -1,0 +1,280 @@
+작업명 : PK-RANGE-CHUNK-PLAN-ENGINE-MISMATCH-G1-G4-FIX
+✅ 작업 완료 - PK-RANGE-CHUNK-PLAN-ENGINE-MISMATCH-G1-G4-FIX - 계획 계층이 날짜 단일 PK 를 CHUNK 자격에서 제외하고(G1), 목적지 물리 PK 가 매칭키로 확정되는 복합/문자 PK 는 실행 계층과 같은 결론(DIRECT · 실행 가능)으로 표시하도록 맞췄다(G4) — 계획/실행 판정 7건이 바뀌고 나머지 14건은 불변
+
+════════════════════════════════════════════════════════════════════════════
+0. 요약 — 무엇이 어긋나 있었고 무엇을 맞췄나
+════════════════════════════════════════════════════════════════════════════
+
+이 작업은 '계획(3단계 실행계획 카드)' 계층과 '실행(4·5단계 엔진)' 계층이 서로 다른 답을
+내놓던 두 지점을 계획 쪽에 맞춰 봉합한 것이다. 실행 엔진은 한 줄도 고치지 않았다.
+
+  갭   증상(수정 전)                                     실제 실행                       수정 후 계획
+  ───  ────────────────────────────────────────────────  ──────────────────────────────  ─────────────────────────
+  G1   날짜 단일 PK → 카드 'PK 범위 분할 비교 · 실행 가능'  HOLD_NON_NUMERIC_PK 로 실패     DIRECT_STREAM_COMPARE
+       (비용을 다 쓴 뒤 엔진 진입 직전에 죽는 형태)                                        (사유: SINGLE_DATE_PK_
+                                                                                          NOT_CHUNK_CAPABLE)
+  G4   복합/문자 PK → 카드 '상세비교 보류(HOLD)'            DIRECT_COMPOSITE_PK 로 정상    대체키 확정 근거가 있으면
+                                                          수행(5,000만행 6종 참값 일치)   DIRECT_STREAM_COMPARE
+                                                                                          '실행 가능 — 대체키 확정'
+
+근거 진단서: E:\verify_reports\PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt (§1-6, §2, §7-G1/G4)
+
+
+════════════════════════════════════════════════════════════════════════════
+1. [파트 A] G1 — 날짜 단일 PK 를 CHUNK 자격에서 제외
+════════════════════════════════════════════════════════════════════════════
+
+1-1. 채택 방향과 그 이유
+
+지침이 제시한 두 방향 중 '계획을 엔진 실제 능력에 맞춘다' 를 택했다(엔진 확장 아님). 엔진을
+날짜 지원으로 확장하려면 청크 경계 산술·키 확정·방언별 날짜 연산까지 건드려야 해서 범위가
+크고, 그 능력이 지금 필요하다는 근거도 없다. 반대로 계획 쪽은 조건식 한 줄이다.
+
+1-2. '엔진은 날짜를 통과시키지 못한다' 를 주장이 아니라 실행으로 확인
+
+  scripts/dev_e2e/pk_range_chunk_plan_engine_mismatch_g1_g4_verify.py engine (DB 불필요)
+
+    입력값           build_chunk_bounds 결과                                 라우트 게이트 판정
+    ──────────────  ─────────────────────────────────────────────────────  ─────────────────────────
+    datetime         TypeError: int() argument must be ... not 'datetime'   HOLD_NON_NUMERIC_PK
+    date             TypeError: int() argument must be ... not 'date'       HOLD_NON_NUMERIC_PK
+    '2024-01-01'     ValueError: invalid literal for int() with base 10     HOLD_NON_NUMERIC_PK
+    1 ~ 5,000,000    생성 성공 · 청크 100개                                  통과
+
+  → 날짜 3종 전부 청크 경계 생성 자체가 불가. 숫자만 가능. 계획이 '실행 가능' 이라고 표시하면
+    사용자는 키 확정·준비 비용을 다 쓴 뒤에야 실패를 본다.
+
+1-3. 수정 내용
+
+  (1) services/strategy/full_compare_strategy_planner.py:45
+      elif pk_kind in (PK_SINGLE_NUMERIC, PK_SINGLE_DATE) and pk_indexed:
+        → elif pk_kind == PK_SINGLE_NUMERIC and pk_indexed:
+      제외된 날짜 PK 는 새 분기를 만들지 않고 기존 기본 분기(else → DIRECT_STREAM_COMPARE)로
+      그대로 내려간다. 사유코드 SINGLE_DATE_PK_NOT_CHUNK_CAPABLE 만 추가해 '왜 내려왔는지' 를 남겼다.
+
+  (2) services/strategy/strategy_transition.py:58 — 동일하게 PK_SINGLE_DATE 제외.
+
+  (3) [수정 중 새로 발견한 구멍] 전환 판정에서 자격 게이트를 벤치 비교보다 '앞으로' 옮겼다.
+      기존 순서는 (벤치 일치 → 자격 확인) 이라, source_count 가 벤치 지점(기본 1,000,000)과
+      정확히 일치하면 PK 종류를 보기 전에 BENCHMARK_CHUNK_PREFERRED 로 CHUNK 를 반환했다.
+      실측으로 재현됨 — 수정 전 route-날짜PK-1M 의 사유코드가 정확히
+      `SINGLE_DATE_PK_INDEXED, BENCHMARK_CHUNK_PREFERRED` 였다.
+      벤치는 '단일 숫자 PK 로 측정한 속도' 이므로 자격 없는 PK 에 적용할 근거가 없다.
+      ※ 이 순서를 고치지 않으면 파트 B 가 오히려 새 오류를 만든다 — 복합 PK 계획이
+        STATS_ONLY_HOLD 에서 DIRECT_STREAM 으로 올라가면서 전환 판정을 타게 되는데,
+        1,000,000행 복합 PK 가 벤치 분기에 걸려 CHUNK 로 뒤집힌다. 파트 A·B 가 같은 파일에서
+        만나는 지점이 바로 여기였다.
+
+1-4. 실측 전/후 (planner 직접 호출)
+
+    케이스                수정 전                                수정 후
+    ───────────────────  ────────────────────────────────────  ──────────────────────────────
+    날짜PK · 5,000만행     PK_RANGE_CHUNK_COMPARE / AVAILABLE     DIRECT_STREAM_COMPARE / AVAILABLE
+    날짜PK · 100만행(벤치)  DIRECT_STREAM_COMPARE / AVAILABLE      동일(planner 단독)
+    날짜PK · 10만행        DIRECT_STREAM_COMPARE / AVAILABLE      동일
+    숫자PK · 5,000만행     PK_RANGE_CHUNK_COMPARE / AVAILABLE     동일 ← 무회귀 대조군
+
+  라우트(/strategy/plan, 전환 판정 포함):
+    route-날짜PK-1M    PK_RANGE_CHUNK_COMPARE → DIRECT_STREAM_COMPARE
+                       (전 사유 SINGLE_DATE_PK_INDEXED, BENCHMARK_CHUNK_PREFERRED
+                        후 사유 SINGLE_DATE_PK_NOT_CHUNK_CAPABLE, DEFAULT_DIRECT_STREAM,
+                                NOT_CHUNK_CAPABLE_PK)
+    route-날짜PK-50M   PK_RANGE_CHUNK_COMPARE → DIRECT_STREAM_COMPARE
+    route-숫자PK-1M    PK_RANGE_CHUNK_COMPARE (불변)
+    route-숫자PK-50M   PK_RANGE_CHUNK_COMPARE (불변)
+
+1-5. 카드 표시 전/후 (실 브라우저 · 실 /strategy/plan · 강제 주입 없음)
+
+  날짜 단일 PK 5,000만행 — 7행 '상태' / 6행 '불일치 추출전략'
+    전: 불일치 추출전략  PK 범위 분할 비교(대용량 — PK 구간별 조각 비교) PK_RANGE_CHUNK_COMPARE
+        상태            실행 가능
+    후: 불일치 추출전략  직접 스트림 비교(원본·목적 전체를 한 번에 정렬·대조) DIRECT_STREAM_COMPARE
+        상태            실행 가능
+    판정근거는 전후 모두 '원본 50,000,000건 · 날짜 단일 PK · PK 인덱스 · 원격 DB'(P8 표시 배선 그대로 재사용).
+  스크린샷: before_card_A_date_pk_50m.png / after_card_A_date_pk_50m.png
+
+1-6. 판단 근거 — 왜 HOLD 가 아니라 DIRECT 인가(지침이 열어둔 선택지 중)
+
+  지침은 "HOLD 또는 DIRECT_STREAM 등 적절한 대체 전략" 을 허용했다. DIRECT 를 택한 이유는
+  날짜 PK 가 DIRECT 경로에서는 실제로 실행 가능하기 때문이다. 코드 경로상
+  `_pk_resolve` ②(resolve_confirmed_chunk_key)가 DATE_TIME 타입을 받아들여 키를 확정하고,
+  DIRECT 스트림 merge 경로에는 숫자 전용 게이트가 없다(숫자 게이트는 청크 경계 산술에만 있다).
+  즉 날짜 PK 에서 실패하는 것은 '상세비교' 자체가 아니라 '범위 분할' 이다. 여기서 HOLD 로
+  표시하면 이번엔 반대 방향의 거짓 신호(실행 가능한데 보류)를 만들게 되며, 그것이 바로
+  파트 B 에서 고치고 있는 G4 와 같은 유형의 결함이다.
+  ※ 한계 명시: 이 판단은 코드 경로 확인과 계획 계층 실측에 근거한다. 날짜 단일 PK 실 픽스처로
+    DIRECT 상세비교를 끝까지 돌린 라이브 측정은 이번 범위에 포함하지 않았다(픽스처 신규 구축
+    필요). 청크가 불가하다는 사실만은 §1-2 에서 실행으로 확인했다.
+
+
+════════════════════════════════════════════════════════════════════════════
+2. [파트 B] G4 — 카드 '보류' vs 실행 DIRECT 성공
+════════════════════════════════════════════════════════════════════════════
+
+2-1. 지침 요구사항 1 vs 2 중 어느 쪽으로 갔나 — 실측 근거로 '1+2 분할'
+
+  지침은 (1) 표시 시점에 `_unique_native_key` 판정을 미리 조회해 반영, (2) 비용이 크면 안내
+  문구로 대체 중 하나를 실측 근거와 함께 고르라고 했다. 실제로 조사해보니 그 판정은 단일
+  비용이 아니라 3단으로 나뉘고, 단계마다 비용이 다르다.
+
+    실행 계층 `_resolve_native_pk_key` 의 3단계        표시 시점 선반영 가능?    비용
+    ───────────────────────────────────────────────  ──────────────────────  ────────────────────────
+    ① 정식 PK (목적지 물리 PK ⊆ 이관 매핑)             가능                    추가 왕복 0회
+                                                                              (analyze 응답에 이미 있음)
+    ② UK 확정 (결과집합 NULL·중복 재확인)              불가                    데이터 probe 필요
+    ③ 데이터상 안정 업무키 (동일 재확인)                불가                    데이터 probe 필요
+
+  ①이 표시 시점에 공짜인 이유: 그 근거인 목적지 물리 PK 목록을 서버가 이미
+  `get_adapter(db_type).fetch_key_metadata` 로 조회해 analyze 응답의 `target_pk_evidence` 에
+  실어 보내고 있다. 실행 계층의 `_introspect_pk_cols` 가 쓰는 것과 **같은 어댑터 호출 결과**다.
+  매핑 포함 여부(`insert_cols ⊇ pk_columns`)도 응답 안의 parse_result 로 판정된다.
+
+  반대로 ②③을 표시 시점에 하려면 /strategy/plan 에 목적지 접속·파생 SQL·데이터 probe 를
+  들여와야 한다. 이 엔드포인트는 현재 DB 왕복 0회의 순수 계산이고, 카드는 3단계 체크박스를
+  건드릴 때마다 다시 호출된다(_mvRenderStrategyPlan). 거기에 데이터 조회를 넣는 것은 구조·성능
+  양쪽에서 손해다.
+
+  실측(브라우저 network 계측): 카드 렌더 1회의 요청 수 = **1건**(/strategy/plan)이며 4개 프로파일
+  전부 동일. 즉 이번 수정으로 추가된 왕복은 0회다. /strategy/plan 자체 처리시간은 2.10~10.42ms
+  (in-process, DB 왕복 0회).
+
+  → 결론: ①은 (1)번 방식으로 확정 표시하고, ②③은 (2)번 방식의 안내 문구로 남긴다.
+
+2-2. 수정 내용
+
+  (1) services/strategy/strategy_models.py — StrategyProfile 에 근거 필드 2개 추가
+        native_key_available: bool  / native_key_evidence: str
+      기본 False = 기존 동작 그대로(근거 없으면 아무것도 안 바뀐다).
+
+  (2) services/strategy/full_compare_strategy_planner.py — 분기 판정 뒤 한 단계 추가
+        if sid == STATS_ONLY_HOLD and profile.native_key_available:
+            sid = DIRECT_STREAM_COMPARE + 사유 NATIVE_UNIQUE_KEY_CONFIRMED
+      기존 분기 조건은 하나도 건드리지 않았다(파트 A 의 날짜 분기와 충돌하지 않는다 —
+      날짜 PK 는 애초에 STATS_ONLY_HOLD 로 가지 않는다). 새 전략 ID 도 만들지 않고,
+      실행 계층이 실제로 고르는 DIRECT_STREAM_COMPARE 를 그대로 쓴다.
+
+  (3) ui/grid_helpers.py — `_mvDeriveNativeKeyProfile(ad)` 신설(추가 왕복 0회).
+      실행 계층 ①의 조건을 그대로 옮겼다: target_pk_evidence.available=true → pk_columns 존재
+      → insert_cols 가 그 컬럼을 전부 포함(insert_cols 가 비면 실행 계층과 동일하게 통과).
+      근거 부족·PK 미매핑이면 false(= 기존 HOLD 표시 유지).
+
+  (4) routes/strategy_route.py — 판정근거 문구에 '대체키(목적지 PK) 확정' 추가.
+
+  (5) ui/tabler_renderer.py — 카드 표시
+      · 확정 시:   상태 = '실행 가능 — 대체키(목적지 PK) 확정'
+      · 미확정 시: 기존 '상세비교 보류(HOLD)' 를 유지하되 그 의미를 고지하는 안내 추가
+        "이 보류는 범위 분할(청크/버킷) 수단이 없다는 뜻입니다. 실행 시점에 네이티브 대체키
+         (목적지 PK · UK · 데이터상 안정 업무키)가 확정되면 분할 없이 직접 병합 비교
+         (DIRECT_COMPOSITE_PK)로 진행될 수 있습니다 — 대체키까지 확정하지 못한 경우에만
+         실제로 보류됩니다."
+        여기서 '실행 가능' 이라고 단정하지 않는다(②③ 확정에는 결과집합 재확인이 필요해
+        카드 시점에는 알 수 없다).
+
+2-3. 실측 전/후
+
+  planner:
+    복합PK + 대체키   STATS_ONLY_HOLD / HOLD / auto=False → DIRECT_STREAM_COMPARE / AVAILABLE / auto=True
+    문자PK + 대체키   STATS_ONLY_HOLD / HOLD / auto=False → DIRECT_STREAM_COMPARE / AVAILABLE / auto=True
+    복합PK(키 없음)   STATS_ONLY_HOLD / HOLD / auto=False → 동일 ← 무회귀
+    문자PK(키 없음)   STATS_ONLY_HOLD / HOLD / auto=False → 동일 ← 무회귀
+    PK 없음           STATS_ONLY_HOLD / HOLD / auto=False → 동일 ← 무회귀
+    HASH 가능(대체키 함께 줌)      HASH_BUCKET_COMPARE / PHASE4_B_REQUIRED → 동일 ← 무회귀
+    파티션(대체키 함께 줌)         PARTITION_BUCKET_COMPARE / PHASE4_B_REQUIRED → 동일 ← 무회귀
+    표본 조기중단                  SAMPLE_ONLY_EARLY_STOP / AVAILABLE → 동일 ← 무회귀
+
+  카드(실 브라우저):
+    복합 PK + 대체키 확정
+      전: 불일치 추출전략 STATS_ONLY_HOLD / 상태 '상세비교 보류(HOLD)'
+      후: 불일치 추출전략 직접 스트림 비교 DIRECT_STREAM_COMPARE
+          상태 '실행 가능 — 대체키(목적지 PK) 확정'
+          판정근거 '원본 50,000,000건 · 복합 PK · 대체키(목적지 PK) 확정 · PK 인덱스 · 원격 DB'
+      스크린샷: before_card_B_composite_pk_nativekey.png / after_card_B_composite_pk_nativekey.png
+
+    복합 PK · 대체키 근거 없음(실제로도 보류) ← 무회귀 확인
+      전/후 모두 STATS_ONLY_HOLD · '상세비교 보류(HOLD)'. 후에는 보류의 의미 안내가 덧붙는다.
+      스크린샷: before_card_C_composite_pk_nokey.png / after_card_C_composite_pk_nokey.png
+
+2-4. 클라이언트 근거 판정 단위 확인 (브라우저에서 제품 함수 직접 호출, 7케이스 전부 통과)
+
+    입력                                              기대                              결과
+    ────────────────────────────────────────────────  ────────────────────────────────  ────
+    목적지 PK 2컬럼이 매핑에 모두 있음                  true  / TARGET_PK_MAPPED          OK
+    목적지 PK 1컬럼(문자)이 매핑에 있음                 true  / TARGET_PK_MAPPED          OK
+    PK 컬럼이 이관 매핑에 없음                          false / PK_NOT_MAPPED             OK
+    목적지에 PK 없음                                   false / NO_TARGET_PK              OK
+    PK 근거 조회 실패(available=false)                  false / EVIDENCE_UNAVAILABLE      OK
+    analyze 응답 자체가 없음                            false / EVIDENCE_UNAVAILABLE      OK
+    insert_cols 미상(빈 목록) — 실행 계층과 동일 통과    true  / TARGET_PK_MAPPED          OK
+
+
+════════════════════════════════════════════════════════════════════════════
+3. 전체 실측 집계
+════════════════════════════════════════════════════════════════════════════
+
+  계획 계층 판정 매트릭스(planner 14 + route 7 = 21 케이스)
+    변경 7건 · 불변 14건. 변경 7건은 전부 의도한 G1(3) · G4(4) 케이스다.
+    수정 전 JSON: plan_probe_before.json (baseline worktree = HEAD 54533f9)
+    수정 후 JSON: plan_probe_after.json
+
+  카드 브라우저 검증: PASS 26 / FAIL 0 (표시문구 14 + 클라이언트 단위 7 + 네트워크 4 + JS 오류 1)
+    수정 후 JSON: card_verify_after.json · 수정 전 카드 텍스트: card_text_before.json
+
+  ※ 전/후 측정 방식: git worktree 로 HEAD(54533f9)를 별도 체크아웃해 동일 하니스를 양쪽에서
+    실행했다(파일 백업 복원·git stash 미사용). 카드 화면 전/후는 baseline 트리에서 별도 포트로
+    서버를 띄워(8012) 같은 프로파일을 렌더한 것이다 — 운영 중인 8000 포트 서버는 건드리지 않았다.
+
+
+════════════════════════════════════════════════════════════════════════════
+4. 테스트
+════════════════════════════════════════════════════════════════════════════
+
+4-1. 신규 자체 테스트 9건 — 전부 통과
+
+  tests/test_strategy_planner.py (7건)
+    test_single_date_pk_is_not_chunk_capable                     날짜 PK 5,000만행 → CHUNK 아님
+    test_single_numeric_pk_chunk_unaffected_by_date_exclusion    숫자 PK 무회귀
+    test_date_pk_route_at_benchmark_size_is_not_chunk            벤치 지점 구멍 방어(라우트)
+    test_native_key_confirmed_upgrades_hold_to_direct            복합·문자 PK 둘 다 확인
+    test_native_key_absent_keeps_hold                            근거 없으면 HOLD 유지(3종)
+    test_native_key_does_not_override_hash_bucket_or_partition   HOLD 아닌 계획은 불변
+    test_native_key_route_composite_pk_is_runnable               라우트 응답·판정근거 문구
+
+  tests/test_strategy_transition.py (2건)
+    test_date_pk_is_not_chunk_capable
+    test_benchmark_point_does_not_override_pk_capability         날짜·문자·복합 3종 + 숫자 무회귀
+
+4-2. 회귀 — 신규 실패 0건
+
+  필수 회귀(CLAUDE.md 자체 테스트 규칙):
+    python samples/test_virtual_cases.py   → 8/8 통과
+    python samples/test_complex_cases.py   → 5/5 케이스 분석 완료
+
+  변경 표면 관련 9개 파일 일괄:
+    수정 후    90 passed · 5 failed · 5 xfailed
+    baseline   81 passed · 5 failed · 5 xfailed   (증가분 9 = 신규 테스트)
+    실패 5건은 **전부 baseline(HEAD 54533f9)에서도 동일하게 실패**하는 사전 존재 실패다:
+      tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+        — 카드에 'effective_group_by_count' 문자열을 요구하나 렌더는 '..._columns' 를 쓴다(이 작업과 무관)
+      tests/test_global_js_helper_dedup.py::test_no_duplicate_global_function_definitions
+        — batchLoadCandidateState 중복 정의 2건(이 작업과 무관)
+      tests/test_execution_path.py::test_parallel_read_decision_* (3건)
+        — _parallel_read_decision 이 tuple 을 반환하는데 테스트는 bool 기대(이 작업과 무관)
+
+
+════════════════════════════════════════════════════════════════════════════
+5. 남은 갭 / 이 수정이 하지 않은 것
+════════════════════════════════════════════════════════════════════════════
+
+  · ②③(UK·업무키) 경로는 여전히 카드 시점에 알 수 없다 — 안내 문구로만 고지한다. 데이터 probe
+    없이는 원리상 확정 불가라 '표시를 위해 probe 를 돌린다' 는 선택지는 취하지 않았다.
+  · fan-out(1:N JOIN 으로 목적지 PK 가 원본 결과셋에서 중복) 여부도 카드 시점에 알 수 없다.
+    다만 fan-out 이어도 전략은 여전히 DIRECT_STREAM_COMPARE 이고 실행이 막히지도 않는다
+    (유일성 고속경로 대신 GROUP BY count 경로로 폴백할 뿐). 카드가 주장하는 범위 밖이다.
+  · G2(execution_settings min/max_chunk_size 사장) · G3(pk_indexed 가 인덱스 실재 미확인) ·
+    G5~G7 은 이번 범위 밖으로 그대로 남는다.
+  · 날짜 단일 PK 의 DIRECT 상세비교 라이브 완주 측정은 하지 않았다(§1-6 한계 명시).
+
+실검증 상태: 실제 재현·측정 완료 — 계획 계층 21케이스 전/후 매트릭스(baseline worktree 대조),
+엔진 청크 경계 생성 4종 실행 확인, 실 브라우저 카드 렌더 전/후 스크린샷 8장(수정 전은 baseline
+트리 서버 8012, 수정 후는 작업 트리 서버 8011), 카드 검증 26/26 PASS, 신규 테스트 9건 통과,
+회귀 신규 실패 0건(사전 존재 실패 5건은 baseline 에서도 동일 재현).

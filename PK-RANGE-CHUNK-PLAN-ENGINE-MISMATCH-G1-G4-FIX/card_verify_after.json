@@ -1,0 +1,148 @@
+{
+ "base": "http://127.0.0.1:8011",
+ "api": {
+  "A_date_pk_50m": {
+   "strategy": "DIRECT_STREAM_COMPARE",
+   "impl": "AVAILABLE",
+   "auto_runnable": true,
+   "reasons": [
+    "SINGLE_DATE_PK_NOT_CHUNK_CAPABLE",
+    "DEFAULT_DIRECT_STREAM",
+    "NOT_CHUNK_CAPABLE_PK"
+   ],
+   "basis": "원본 50,000,000건 · 날짜 단일 PK · PK 인덱스 · 원격 DB"
+  },
+  "B_composite_pk_nativekey": {
+   "strategy": "DIRECT_STREAM_COMPARE",
+   "impl": "AVAILABLE",
+   "auto_runnable": true,
+   "reasons": [
+    "NO_SAFE_SPLIT_FOR_TEXT_PK",
+    "NATIVE_UNIQUE_KEY_CONFIRMED",
+    "NATIVE_KEY_TARGET_PK_MAPPED",
+    "NOT_CHUNK_CAPABLE_PK"
+   ],
+   "basis": "원본 50,000,000건 · 복합 PK · 대체키(목적지 PK) 확정 · PK 인덱스 · 원격 DB"
+  },
+  "C_composite_pk_nokey": {
+   "strategy": "STATS_ONLY_HOLD",
+   "impl": "HOLD",
+   "auto_runnable": false,
+   "reasons": [
+    "NO_SAFE_SPLIT_FOR_TEXT_PK"
+   ],
+   "basis": "원본 50,000,000건 · 복합 PK · PK 인덱스 · 원격 DB"
+  },
+  "D_numeric_pk_50m": {
+   "strategy": "PK_RANGE_CHUNK_COMPARE",
+   "impl": "AVAILABLE",
+   "auto_runnable": true,
+   "reasons": [
+    "SINGLE_NUMERIC_PK_INDEXED",
+    "SIZE_ABOVE_DIRECT_THRESHOLD_PROVISIONAL",
+    "EST_TOTAL_OVER_RESUME_THRESHOLD",
+    "PROVISIONAL_NO_BENCHMARK_AT_SIZE"
+   ],
+   "basis": "원본 50,000,000건 · 숫자 단일 PK · PK 인덱스 · 원격 DB"
+  }
+ },
+ "card_text": {
+  "A_date_pk_50m": "실행계획No항목값상태1통계검증 규모잠정 대형 · 예상 스캔 50,000,000행잠정2실제 적용GROUP BY 0개 · 집계컬럼 0개COUNT만3GROUP BY없음4집계컬럼없음(COUNT만)5통계전략표본 집계(참고용 · 실제 실행은 전체스캔) STATS_SAMPLE_ONLY 참고용 계획참고용6불일치 추출전략직접 스트림 비교(원본·목적 전체를 한 번에 정렬·대조) DIRECT_STREAM_COMPARE7상태실행 가능실행 가능8판정근거원본 50,000,000건 · 날짜 단일 PK · PK 인덱스 · 원격 DB⚠ STATS_SAMPLE_ONLY 은 참고용 계획이며, 실제 통계검증 실행은 항상 전체스캔(EXACT) 방식으로 이루어집니다 — 표본만으로 실행되지 않습니다. 결과 그룹이 100,000개를 초과하면 실행이 차단됩니다(샘플/버킷/파티션 집계 실행 엔진은 미구현).",
+  "B_composite_pk_nativekey": "실행계획No항목값상태1통계검증 규모잠정 대형 · 예상 스캔 50,000,000행잠정2실제 적용GROUP BY 0개 · 집계컬럼 0개COUNT만3GROUP BY없음4집계컬럼없음(COUNT만)5통계전략표본 집계(참고용 · 실제 실행은 전체스캔) STATS_SAMPLE_ONLY 참고용 계획참고용6불일치 추출전략직접 스트림 비교(원본·목적 전체를 한 번에 정렬·대조) DIRECT_STREAM_COMPARE7상태실행 가능 — 대체키(목적지 PK) 확정실행 가능 — 대체키(목적지 PK) 확정8판정근거원본 50,000,000건 · 복합 PK · 대체키(목적지 PK) 확정 · PK 인덱스 · 원격 DB⚠ STATS_SAMPLE_ONLY 은 참고용 계획이며, 실제 통계검증 실행은 항상 전체스캔(EXACT) 방식으로 이루어집니다 — 표본만으로 실행되지 않습니다. 결과 그룹이 100,000개를 초과하면 실행이 차단됩니다(샘플/버킷/파티션 집계 실행 엔진은 미구현).",
+  "C_composite_pk_nokey": "실행계획No항목값상태1통계검증 규모잠정 대형 · 예상 스캔 50,000,000행잠정2실제 적용GROUP BY 0개 · 집계컬럼 0개COUNT만3GROUP BY없음4집계컬럼없음(COUNT만)5통계전략표본 집계(참고용 · 실제 실행은 전체스캔) STATS_SAMPLE_ONLY 참고용 계획참고용6불일치 추출전략STATS_ONLY_HOLD7상태상세비교 보류(HOLD)상세비교 보류(HOLD)8판정근거원본 50,000,000건 · 복합 PK · PK 인덱스 · 원격 DB⚠ STATS_SAMPLE_ONLY 은 참고용 계획이며, 실제 통계검증 실행은 항상 전체스캔(EXACT) 방식으로 이루어집니다 — 표본만으로 실행되지 않습니다. 결과 그룹이 100,000개를 초과하면 실행이 차단됩니다(샘플/버킷/파티션 집계 실행 엔진은 미구현).미구현 전략은 자동 실행하지 않습니다. 기존 전체 비교 fallback 은 명시 승인 시에만 사용합니다.ℹ 이 보류는 범위 분할(청크/버킷) 수단이 없다는 뜻입니다. 실행 시점에 네이티브 대체키(목적지 PK · UK · 데이터상 안정 업무키)가 확정되면 분할 없이 직접 병합 비교(DIRECT_COMPOSITE_PK)로 진행될 수 있습니다 — 대체키까지 확정하지 못한 경우에만 실제로 보류됩니다.",
+  "D_numeric_pk_50m": "실행계획No항목값상태1통계검증 규모잠정 대형 · 예상 스캔 50,000,000행잠정2실제 적용GROUP BY 0개 · 집계컬럼 0개COUNT만3GROUP BY없음4집계컬럼없음(COUNT만)5통계전략표본 집계(참고용 · 실제 실행은 전체스캔) STATS_SAMPLE_ONLY 참고용 계획참고용6불일치 추출전략PK 범위 분할 비교(대용량 — PK 구간별 조각 비교) PK_RANGE_CHUNK_COMPARE7상태실행 가능실행 가능8판정근거원본 50,000,000건 · 숫자 단일 PK · PK 인덱스 · 원격 DB⚠ STATS_SAMPLE_ONLY 은 참고용 계획이며, 실제 통계검증 실행은 항상 전체스캔(EXACT) 방식으로 이루어집니다 — 표본만으로 실행되지 않습니다. 결과 그룹이 100,000개를 초과하면 실행이 차단됩니다(샘플/버킷/파티션 집계 실행 엔진은 미구현)."
+ },
+ "native_key_unit": [
+  {
+   "case": "목적지 PK 2컬럼이 매핑에 모두 있음",
+   "expected": [
+    true,
+    "NATIVE_KEY_TARGET_PK_MAPPED"
+   ],
+   "got": {
+    "native_key_available": true,
+    "native_key_evidence": "NATIVE_KEY_TARGET_PK_MAPPED"
+   }
+  },
+  {
+   "case": "목적지 PK 1컬럼(문자)이 매핑에 있음",
+   "expected": [
+    true,
+    "NATIVE_KEY_TARGET_PK_MAPPED"
+   ],
+   "got": {
+    "native_key_available": true,
+    "native_key_evidence": "NATIVE_KEY_TARGET_PK_MAPPED"
+   }
+  },
+  {
+   "case": "PK 컬럼이 이관 매핑에 없음",
+   "expected": [
+    false,
+    "NATIVE_KEY_PK_NOT_MAPPED"
+   ],
+   "got": {
+    "native_key_available": false,
+    "native_key_evidence": "NATIVE_KEY_PK_NOT_MAPPED"
+   }
+  },
+  {
+   "case": "목적지에 PK 없음",
+   "expected": [
+    false,
+    "NATIVE_KEY_NO_TARGET_PK"
+   ],
+   "got": {
+    "native_key_available": false,
+    "native_key_evidence": "NATIVE_KEY_NO_TARGET_PK"
+   }
+  },
+  {
+   "case": "PK 근거 조회 실패(available=false)",
+   "expected": [
+    false,
+    "NATIVE_KEY_EVIDENCE_UNAVAILABLE"
+   ],
+   "got": {
+    "native_key_available": false,
+    "native_key_evidence": "NATIVE_KEY_EVIDENCE_UNAVAILABLE"
+   }
+  },
+  {
+   "case": "analyze 응답 자체가 없음",
+   "expected": [
+    false,
+    "NATIVE_KEY_EVIDENCE_UNAVAILABLE"
+   ],
+   "got": {
+    "native_key_available": false,
+    "native_key_evidence": "NATIVE_KEY_EVIDENCE_UNAVAILABLE"
+   }
+  },
+  {
+   "case": "insert_cols 미상(빈 목록) — 실행 계층과 동일하게 통과",
+   "expected": [
+    true,
+    "NATIVE_KEY_TARGET_PK_MAPPED"
+   ],
+   "got": {
+    "native_key_available": true,
+    "native_key_evidence": "NATIVE_KEY_TARGET_PK_MAPPED"
+   }
+  }
+ ],
+ "render_requests": {
+  "A_date_pk_50m": [
+   "http://127.0.0.1:8011/strategy/plan"
+  ],
+  "B_composite_pk_nativekey": [
+   "http://127.0.0.1:8011/strategy/plan"
+  ],
+  "C_composite_pk_nokey": [
+   "http://127.0.0.1:8011/strategy/plan"
+  ],
+  "D_numeric_pk_50m": [
+   "http://127.0.0.1:8011/strategy/plan"
+  ]
+ }
+}
