@@ -1,0 +1,93 @@
+diff --git a/scripts/dev_e2e/strategy_plan_grid_status_backfill_verify.py b/scripts/dev_e2e/strategy_plan_grid_status_backfill_verify.py
+index 55cc4c7..5749357 100644
+--- a/scripts/dev_e2e/strategy_plan_grid_status_backfill_verify.py
++++ b/scripts/dev_e2e/strategy_plan_grid_status_backfill_verify.py
+@@ -13,8 +13,12 @@ scripts/dev_e2e/strategy_plan_grid_status_backfill_verify.py
+   B : 42M·인덱스 없음     → implementation_status=AVAILABLE(전환정책이 DIRECT 유지), stats=STATS_SAMPLE_ONLY(참고용)
+   B2: 42M·파티션 보유     → implementation_status=PHASE4_B_REQUIRED,  stats=STATS_PARTITION_AGG(참고용)
+   C : PK 없음             → implementation_status=HOLD,               stats=STATS_DIRECT_AGG
+-  D/E: 1행 '산정 불가'/'산정 전' 분기는 /strategy/plan 이 provisional_grade 를 항상 채우므로 실 API 로는
++  D/E: 1행 '산정 전' 분기는 /strategy/plan 이 provisional_grade 를 항상 채우므로 실 API 로는
+        도달 불가 → 응답에서 provisional_grade 만 제거한 stub 으로 방어 분기만 확인(그 사실을 출력에 명시).
++       [STATS-SCALE-CLASS-DEAD-FIELD-REMOVE-FIX] 계약 변경 — 종전 D 는 profile.stats_scale_estimable=False
++       로 '산정 불가' 를 재현했으나, 그 필드는 생산 코드가 저장소 전체에 없는(생산자 0) 죽은 필드여서
++       소비 분기를 제거했다. 이제 D 는 E 와 같은 '산정 전' 이 정상이며, D 를 남겨둔 이유는 죽은 필드를
++       주입해도 표시가 흔들리지 않음(회귀 감시)을 계속 확인하기 위해서다.
+ 
+ 사용법:  python scripts/dev_e2e/strategy_plan_grid_status_backfill_verify.py <port> <label>
+ """
+@@ -97,8 +101,10 @@ def main():
+     # D/E — 실 API 로는 도달 불가한 1행 방어 분기(provisional_grade 제거 stub). 값 열은 '산정 전' 그대로.
+     base = json.loads(json.dumps(cases[0]["resp"]))
+     d_resp = json.loads(json.dumps(base)); d_resp.pop("provisional_grade", None)
++    # [STATS-SCALE-CLASS-DEAD-FIELD-REMOVE-FIX] 죽은 필드 주입 — 소비 분기를 제거했으므로 이제 D 도
++    # E 와 같은 '산정 전'(배지 MUTED)이 정상이다. 케이스는 회귀 감시용으로 유지한다.
+     prof_d = dict(PROF_A); prof_d["stats_scale_estimable"] = False
+-    cases.append({"name": "D_STUB_NOT_ESTIMABLE", "profile": prof_d, "resp": d_resp, "stub": True})
++    cases.append({"name": "D_STUB_DEAD_FIELD_IGNORED", "profile": prof_d, "resp": d_resp, "stub": True})
+     e_resp = json.loads(json.dumps(base)); e_resp.pop("provisional_grade", None)
+     cases.append({"name": "E_STUB_NOT_YET_ESTIMATED", "profile": dict(PROF_A), "resp": e_resp, "stub": True})
+     print("[stub]  D/E 는 /strategy/plan 이 provisional_grade 를 항상 채워 실 API 로 재현 불가 —"
+diff --git a/tests/test_stats_result_full.py b/tests/test_stats_result_full.py
+index e54bfd5..97eb95a 100644
+--- a/tests/test_stats_result_full.py
++++ b/tests/test_stats_result_full.py
+@@ -617,7 +617,11 @@ def test_task31_target_list_info_and_no_sequence():
+     assert "' 외 ' + (srcList.length - 1)" in gjs.replace('"', "'")
+     assert "'소형'" in gjs.replace('"', "'") and "'미상'" in gjs.replace('"', "'")
+     assert "function _mvStatsScaleText" in gjs and "'산정 전'" in gjs.replace('"', "'")
+-    assert "'초대형'" in gjs.replace('"', "'") and "'산정 불가'" in gjs.replace('"', "'")
++    assert "'산정 불가'" in gjs.replace('"', "'")
++    # [STATS-SCALE-CLASS-DEAD-FIELD-REMOVE-FIX] 계약 변경 — 등급 산정은 planner provisional_grade 일원화.
++    # 죽은 필드 profile.stats_scale_class 폴백 분기(소형/중형/대형/초대형 매핑)는 제거됐다(생산자 0).
++    assert "p.stats_scale_class" not in gjs
++    assert "'초대형'" not in gjs.replace('"', "'")
+ 
+ 
+ def test_phase4d53_first_run_paging_and_run_isolation():
+diff --git a/ui/grid_helpers.py b/ui/grid_helpers.py
+index 035a5da..7ac06ff 100644
+--- a/ui/grid_helpers.py
++++ b/ui/grid_helpers.py
+@@ -939,18 +939,15 @@ function _mvSourceSizeText(sourceCount, sizeClass){
+    핵심 문제 #1·#2: 통계검증 규모는 원본 COUNT 가 아니라 GROUP BY·SUM·스캔량·인덱스 등 종합 실행부하다.
+    - 원본 COUNT(1,000,000 등)를 규모 값으로 표시 금지, COUNT 만으로 등급 결정 금지.
+    - 실측 기반 등급 경계 확정 전(§3)에는 '산정 전'. 명시적 산정 실패 시 '산정 불가'.
+-   - profile.stats_scale_class(향후 계획기 산출)가 있을 때만 등급 매핑(임계치 하드코딩 없음 §1·§3). */
++   - [STATS-SCALE-CLASS-DEAD-FIELD-REMOVE-FIX] 등급 산정은 planner 의 provisional_grade 한 곳으로 일원화한다.
++     과거 여기 있던 profile.stats_scale_class 폴백 분기는 생산 코드가 저장소 전체에 없어(생산자 0) 실행 중
++     도달 불가한 죽은 분기였으므로 제거했다 — 표시 결과는 종전과 동일하다. */
+ function _mvStatsScaleText(profile){
+   var p = profile || {};
+   /* [Phase4-D5 §3] planner 잠정 등급 우선 — /strategy/plan 결과(window._mvStrategyPlan.provisional_grade)가 있으면 표시.
+      evidence(COUNT·GB/SUM·cardinality) 있으면 '산정 전'이 아니라 '잠정 소형/중형/대형/초대형'. 목록·실행계획 동일 plan. */
+   var sp = (typeof window !== 'undefined' && window._mvStrategyPlan) || null;
+   if (sp && sp.provisional_grade) return sp.provisional_grade;
+-  var c = String(p.stats_scale_class || '').toUpperCase();
+-  if (c === 'SMALL') return '소형';
+-  if (c === 'MEDIUM') return '중형';
+-  if (c === 'LARGE') return '대형';
+-  if (c === 'XLARGE') return '초대형';
+   if (p.stats_scale_estimable === false) return '산정 불가';
+   return '산정 전';                                // 계획기 미생성·evidence 부족 시(§3)
+ }
+diff --git a/ui/tabler_renderer.py b/ui/tabler_renderer.py
+index a5ca3fc..f52c2a1 100644
+--- a/ui/tabler_renderer.py
++++ b/ui/tabler_renderer.py
+@@ -28148,11 +28148,10 @@ async function _mvRenderStrategyPlan(profile, hostId) {
+   var _grade = String(d.provisional_grade || '');
+   var _scaleSt = '', _scaleStTxt = '';
+   if (_grade.indexOf(_MV_PROVISIONAL_PREFIX) === 0) { _scaleSt = 'WARN'; _scaleStTxt = '잠정'; }
+-  else if (!_grade) {
+-    /* 등급 미산출 — grid_helpers 와 동일하게 stats_scale_estimable === false 만 '산정 불가', 그 외 '산정 전'. */
+-    if ((profile || {}).stats_scale_estimable === false) { _scaleSt = 'WARN'; _scaleStTxt = '산정 불가'; }
+-    else { _scaleSt = 'MUTED'; _scaleStTxt = '산정 전'; }
+-  }
++  /* [STATS-SCALE-CLASS-DEAD-FIELD-REMOVE-FIX] 등급 미산출이면 '산정 전'. 과거 여기 있던
++     profile.stats_scale_estimable === false → '산정 불가' 분기는 그 필드를 채우는 생산 코드가 저장소
++     전체에 없어(생산자 0) 실행 중 도달 불가한 죽은 분기였으므로 제거했다 — 표시 결과는 종전과 동일하다. */
++  else if (!_grade) { _scaleSt = 'MUTED'; _scaleStTxt = '산정 전'; }
+   /* 1·2단계와 동일한 요약 Grid(_mvKVGrid, mv-sgrid 스타일)로 렌더 — 값은 raw HTML 허용. */
+   var rows = [];
+   rows.push({ label:'통계검증 규모', value:'<b>' + esc(d.provisional_grade || '산정 전') + '</b>' + _scanTxt, raw:true,

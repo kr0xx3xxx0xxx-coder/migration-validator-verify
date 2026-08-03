@@ -1,0 +1,318 @@
+작업명 : STATS-SCALE-CLASS-DEAD-FIELD-REMOVE-FIX
+✅ 작업 완료 - STATS-SCALE-CLASS-DEAD-FIELD-REMOVE-FIX - 죽은 필드 stats_scale_class / stats_scale_estimable 의 소비 분기를 두 파일에서 모두 제거, 실경로 표시 전/후 완전 동일(스크린샷 9쌍 픽셀 동일)·신규 회귀 0
+
+════════════════════════════════════════════════════════════════════════════
+1. 배경과 범위
+════════════════════════════════════════════════════════════════════════════
+TABLE-SIZE-CLASSIFICATION-SURVEY-AND-F34-DECISION(§5·§5-4) 에서 확정된 대로,
+stats_scale_class 가 참조하려던 체계(통계검증 cost 등급)는 이미 planner 의
+provisional_grade 로 대체 구현되어 재사용 여지가 없다. 동반 죽은 필드
+stats_scale_estimable 까지 두 필드의 소비 분기를 제거했다.
+
+지시서는 ui/tabler_renderer.py 쪽을 동시 작업(STEP2-STEP3-COLUMN-ORDER-LABEL-AND-
+PLAN-DETAIL-REPOSITION-FIX-RESUME) 종료 후로 미뤄도 된다고 했으나, 작업 중
+해당 세션이 커밋을 마쳐 파일이 해제되었으므로 요구사항 1·2 를 모두 수행했다.
+경과는 §7 에 그대로 기록한다(중간에 한 번 되돌렸다가 재적용).
+
+────────────────────────────────────────────────────────────────────────────
+1-1. 요구사항 대비 이행 현황
+────────────────────────────────────────────────────────────────────────────
+  요구사항 1  ui/grid_helpers.py  stats_scale_class 폴백 분기 + 주석 제거     → 완료
+  요구사항 2  ui/tabler_renderer.py  stats_scale_estimable 소비 분기 제거     → 완료
+  요구사항 3  참조 테스트/스크립트 전수 확인 후 계약 갱신                      → 완료
+  요구사항 4  값 계산/전달 로직 불변, 소비처 죽은 분기만 제거                  → 준수
+
+════════════════════════════════════════════════════════════════════════════
+2. "생산자 0" 확인 — 제거 정당성의 핵심 근거
+════════════════════════════════════════════════════════════════════════════
+두 필드를 저장소 전체에서 전수 grep 했다. 값을 '쓰는' 코드(생산자)는 한 곳도 없고
+모두 '읽는' 코드(소비자) 또는 테스트 주입뿐이었다.
+
+  stats_scale_class
+    ui/grid_helpers.py:949-953        소비자(등급 매핑)          → 이번에 제거
+    scratchpad/*.html, *.js           과거 렌더 산출물 사본(코드 아님)
+    ※ services/ routes/ analyzer/ validator/ 어디에도 생산자 없음
+
+  stats_scale_estimable
+    ui/tabler_renderer.py:28152-28153 소비자(상태 배지)          → 이번에 제거
+    ui/grid_helpers.py:951            소비자('산정 불가' 반환)    → 유지(§6 참조)
+    scripts/dev_e2e/strategy_plan_grid_status_backfill_verify.py:100  테스트 주입
+    ※ 생산자 없음
+
+따라서 실행 중 이 분기에 도달하는 경로가 존재하지 않으며, 제거해도 실사용 표시는
+바뀌지 않는다 — 진단서 예측대로다. 아래 §3~§5 가 그 예측을 실측으로 확인한다.
+
+════════════════════════════════════════════════════════════════════════════
+3. 실측 ① — _mvStatsScaleText 함수 레벨 (제품 JS 직접 로드)
+════════════════════════════════════════════════════════════════════════════
+하니스: scripts/dev_e2e/stats_scale_class_dead_field_verify.py
+        ui/grid_helpers.py 의 build_grid_helpers_js() 산출 제품 JS 를 node 로 그대로
+        로드해 _mvStatsScaleText(profile) 를 호출. BEFORE 는 git show 로 제거 전
+        리비전의 모듈을 꺼내 로드했다(grid_helpers.py 는 프로젝트 내부 import 가
+        없는 자립 모듈이라 이 방식이 안전).
+
+  CASE                           BEFORE     AFTER      판정
+  R1_EMPTY_PROFILE               산정 전     산정 전     동일
+  R2_COUNT_ONLY                  산정 전     산정 전     동일
+  R3_NOT_ESTIMABLE               산정 불가   산정 불가   동일
+  R4_PROVISIONAL_GRADE           잠정 소형   잠정 소형   동일
+  R4b_PROVISIONAL_XLARGE         잠정 초대형 잠정 초대형 동일
+  S1_CLASS_SMALL                 소형       산정 전     변경(합성)
+  S2_CLASS_MEDIUM                중형       산정 전     변경(합성)
+  S3_CLASS_LARGE                 대형       산정 전     변경(합성)
+  S4_CLASS_XLARGE                초대형     산정 전     변경(합성)
+  S5_CLASS_WITH_PROVISIONAL      잠정 중형   잠정 중형   동일
+  S6_CLASS_AND_NOT_ESTIMABLE     산정 불가   산정 불가   동일
+
+  → 실경로(R*) 5케이스 전부 동일. 변경된 4건은 모두 죽은 필드를 강제 주입한
+    합성 케이스(S1~S4)로, 생산자가 없어 실행 중 도달 불가하다. 이 4건이 '산정 전'
+    으로 떨어지는 것이 제거의 목적 그 자체다.
+
+  소스 사실(제품 JS 기준):
+    has_stats_scale_class_code   True → False   (p.stats_scale_class 실행 분기 소멸)
+    has_xlarge_grade_literal     True → False   ('초대형' 리터럴은 이 분기 전용이었음)
+    has_provisional_branch       True → True    (provisional_grade 우선 분기 보존)
+
+════════════════════════════════════════════════════════════════════════════
+4. 실측 ② — 브라우저: 개별검증 요약 Grid '통계검증 규모' 셀
+════════════════════════════════════════════════════════════════════════════
+하니스: scripts/dev_e2e/stats_scale_class_dead_field_browser_shot.py
+        _mvStatsScaleText 가 실제로 값을 채우는 화면 요소 #mvSizeSummaryCell
+        (_mvUpdateSizeSummaryCell 이 갱신)을 실 브라우저에서 렌더·캡처.
+        서버는 띄우지 않았다 — render_full_page() 산출 HTML 을 file:// 로 열어
+        다른 세션의 8000 서버·공유 SQLite 에 전혀 영향을 주지 않았다.
+
+  CASE                    BEFORE     AFTER      스크린샷 대조
+  C1_BEFORE_COUNT         산정 전     산정 전     픽셀 동일
+  C2_COUNT_NO_PLAN        산정 전     산정 전     픽셀 동일
+  C3_PROVISIONAL_GRADE    잠정 소형   잠정 소형   픽셀 동일   ← provisional_grade 우선 분기 정상
+  C4_NOT_ESTIMABLE        산정 불가   산정 불가   픽셀 동일
+
+  페이지 JS 오류: BEFORE 없음 / AFTER 없음
+  스크린샷: stats_scale_cell_{before,after}_C1~C4.png (8개, md5 4쌍 전부 일치)
+
+  ※ 하니스 함정 기록: _analyzeData 는 페이지 최상위 `let`(ui/tabler_renderer.py:5368)
+    이라 window 프로퍼티가 아니다. 처음에 window._analyzeData 로 주입했더니 제품
+    코드가 못 봐서 C4 가 '산정 전' 으로 잘못 나왔고, 전역 렉시컬 바인딩에 맨이름으로
+    대입하도록 고친 뒤 '산정 불가' 가 정상 재현됐다. 이 정정 전 수치는 폐기했다.
+
+════════════════════════════════════════════════════════════════════════════
+5. 실측 ③ — 브라우저: 3단계 실행계획 카드(상태 배지 / 통합 타일 출처)
+════════════════════════════════════════════════════════════════════════════
+하니스: scripts/dev_e2e/stats_scale_estimable_dead_field_verify.py
+        /strategy/plan 라우트 함수를 같은 프로세스에서 직접 호출해 실 planner 응답을
+        얻고(서버 미기동), _mvRenderStrategyPlan 을 실 브라우저에서 호출.
+        '통계검증 규모' 행은 CANDIDATE-STEP3-CONSOLIDATE-TILE-REDESIGN-FIX 이후 표에서
+        빠지고 통합 타일로 이동했으므로, 타일이 그대로 읽어가는 단일 출처
+        window._mvStage3PlanInfo 를 관측 대상으로 삼았다.
+  BEFORE = 클린 워크트리 8e65b1f / AFTER = 8e65b1f + 본 변경
+
+  CASE                       BEFORE scaleText / scaleTip            AFTER            판정
+  A_SMALL_INDEXED            잠정 중형 · 원본 실측 5,000행 / (잠정)      동일             동일
+  B_42M_NO_INDEX             잠정 대형 · 원본 실측 42,000,000행 / (잠정) 동일             동일
+  C_NO_PK                    잠정 대형 · 원본 실측 120,000행 / (잠정)    동일             동일
+  D_STUB(죽은 필드 주입)      산정 전 · 원본 실측 5,000행 / (산정 불가)   … / (산정 전)    tooltip 한정어만 변경
+  E_STUB(등급 미산출)         산정 전 · 원본 실측 5,000행 / (산정 전)     동일             동일
+
+  → 화면에 보이는 타일 문구(scaleText)는 5케이스 전부 동일. 유일한 차이는 D 케이스의
+    tooltip 한정어 '(산정 불가)' → '(산정 전)' 인데, D 는 stats_scale_estimable 을
+    강제 주입한 합성 케이스라 실행 중 도달하지 않는다(§2).
+  페이지 JS 오류: BEFORE 없음 / AFTER 없음
+  스크린샷: stats_scale_estimable_{before,after}_A~E.png (10개, md5 5쌍 전부 일치)
+
+════════════════════════════════════════════════════════════════════════════
+6. 남긴 잔여물과 판단 근거 (중요)
+════════════════════════════════════════════════════════════════════════════
+ui/grid_helpers.py:951 의 `if (p.stats_scale_estimable === false) return '산정 불가';`
+는 그대로 두었다. 이유:
+
+  · 지시서 요구사항이 stats_scale_estimable 제거 대상을 ui/tabler_renderer.py 로
+    명시했고, grid_helpers 쪽은 stats_scale_class 만 지목했다. 임의 확대를 피했다.
+  · 이 줄을 지우면 '산정 불가' 리터럴이 grid_helpers 에서 사라져
+    tests/test_stats_result_full.py:619 등 문자열 검사 계약을 추가로 흔든다.
+  · 관측상 부작용은 없다 — 생산자가 없으므로 실사용 표시는 항상 '산정 전' 이다.
+    즉 tabler 쪽만 제거해도 화면 불일치는 생기지 않는다(§5 D/E 케이스가 근거).
+
+  권고: 이 한 줄까지 정리할지는 별도 판단 항목으로 남긴다. 지우려면 위 테스트 1건의
+        '산정 불가' assert 를 함께 계약 변경해야 한다(회귀 위험은 여전히 없음).
+
+════════════════════════════════════════════════════════════════════════════
+7. 동시 작업과의 충돌 처리 경과 (숨기지 않고 기록)
+════════════════════════════════════════════════════════════════════════════
+작업 중 ui/tabler_renderer.py 를 다른 세션이 두 차례 점유했다.
+
+  ① 착수 시점  STEP2-STEP3-...-RESUME 이 미커밋 상태로 해당 함수를 수정 중
+               → 지시서 지침대로 grid_helpers.py 부터 진행.
+  ② 중간       위 세션이 7df9dbc 로 커밋해 파일이 잠깐 해제 → tabler 수정 적용.
+  ③ 직후       STATS-SCALE-LABEL-SOURCE-ALIGN-FIX 의 미커밋 변경이 같은 파일에
+               새로 나타남을 발견 → 내 수정을 즉시 수술적으로 되돌렸다.
+               (그 상태로 커밋하면 남의 미완성 작업이 내 커밋에 딸려 들어가거나
+                작업트리에서 소실될 수 있다 — 과거 실제 사고 이력이 있는 경로다.)
+  ④ 최종       위 세션이 8e65b1f 로 커밋 완료 → 파일 해제 확인 후 tabler 수정 재적용,
+               8e65b1f 기준으로 BEFORE/AFTER 를 다시 측정하고 커밋.
+
+커밋 직전 HEAD 재확인 및 staged 목록 검증을 거쳐 내 7개 파일만 커밋했다.
+
+════════════════════════════════════════════════════════════════════════════
+8. 테스트 — 계약 갱신 및 회귀 대조
+════════════════════════════════════════════════════════════════════════════
+────────────────────────────────────────────────────────────────────────────
+8-1. 참조 전수 확인 결과
+────────────────────────────────────────────────────────────────────────────
+두 필드명·관련 리터럴을 tests/ 와 scripts/ 전수 grep 한 결과 갱신 대상은 2건뿐:
+
+  tests/test_stats_result_full.py:620
+    기존: assert "'초대형'" in gjs ...
+    사유: '초대형' 리터럴이 제거 대상 분기에만 있었다(다른 '소형/중형/대형' 은
+          _mvSourceGrade 에 남아 있어 영향 없음).
+    갱신: '산정 불가' assert 는 유지하고, 제거를 확인하는 방향으로 계약 전환
+          → assert "p.stats_scale_class" not in gjs
+          → assert "'초대형'" not in gjs
+
+  scripts/dev_e2e/strategy_plan_grid_status_backfill_verify.py
+    D 케이스가 stats_scale_estimable=False 로 '산정 불가' 를 재현하던 계약을 갱신.
+    케이스명 D_STUB_NOT_ESTIMABLE → D_STUB_DEAD_FIELD_IGNORED 로 바꾸고,
+    이제 E 와 같은 '산정 전' 이 정상임을 docstring·주석에 명시(회귀 감시용 존치).
+
+  ※ 그 밖에 두 필드를 참조하는 테스트는 없었다(tests/ 전수 0건).
+
+────────────────────────────────────────────────────────────────────────────
+8-2. 관련 서브셋 + baseline 대조
+────────────────────────────────────────────────────────────────────────────
+대조 방식: 메인 작업트리는 동시 세션의 미커밋 변경으로 오염되어 있어, 격리
+           워크트리 2개를 같은 베이스(8e65b1f)로 만들어 '내 변경만' 차이가 나도록
+           구성한 뒤 동일 명령으로 비교했다.
+
+  대상: grid_helpers / _mvRenderStrategyPlan / provisional_grade / 통계검증 규모 /
+        strategy_plan / _mvStatsScaleText 를 참조하는 테스트 10파일
+
+  BASELINE (클린 8e65b1f)        : 1 failed, 122 passed, 5 xfailed  (14.50s)
+  AFTER    (8e65b1f + 내 변경)   : 1 failed, 122 passed, 5 xfailed  (14.81s)
+
+  → 신규 실패 0건. 통과/xfail 건수 완전 동일.
+
+  (앞서 7df9dbc 기준으로 돌린 8파일 서브셋도 동일하게 94 passed / 5 xfailed 로
+   before·after 일치했다.)
+
+────────────────────────────────────────────────────────────────────────────
+8-3. 실패 테스트 전체 목록
+────────────────────────────────────────────────────────────────────────────
+  FAILED tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+
+  본 작업과 무관한 사전 존재 실패다. 근거:
+    · 클린 7df9dbc, 클린 8e65b1f 두 리비전 모두에서 동일하게 실패한다(내 변경 없이).
+    · 실패 원인은 assert "effective_group_by_count" in fn 인데, 이 심볼은
+      2026-07-23 커밋 c2a8491(EXECUTION-PLAN-CARD-LIVE-SELECTION-FIX)에서
+      ui/tabler_renderer.py 에서 제거됐고 테스트가 따라 갱신되지 않았다.
+      그 이후 현재까지 214개 커밋이 쌓인, 오래된 미갱신 계약이다.
+    · 내가 건드린 코드(_scaleSt / _mvStatsScaleText)와 무관한 assert 다.
+  → 본 작업 범위 밖이므로 수정하지 않았다. 별도 정리 대상으로 남긴다.
+
+────────────────────────────────────────────────────────────────────────────
+8-4. 광범위 스윕(보강) — 194파일 pair
+────────────────────────────────────────────────────────────────────────────
+서브셋만으로는 부족할 수 있어, strateg|stats|plan|scale|tile|grid|stage|step|render|
+result|candidate 에 해당하는 테스트 194파일을 같은 두 워크트리에서 각각 완주시켰다.
+
+  BASELINE (클린 8e65b1f)      : 69 failed, 2418 passed, 28 skipped, 7 xfailed, 32 errors (519.04s)
+  AFTER    (8e65b1f + 내 변경) : 68 failed, 2419 passed, 28 skipped, 7 xfailed, 32 errors (518.56s)
+
+  공통 실패 66건 · errors 32건은 양쪽 동일(사전 존재).
+  차이가 난 5건은 전부 tests/test_storage_unify_results.py 한 파일에 몰려 있고,
+  방향도 뒤섞여 있다(baseline 에만 3건 실패, after 에만 2건 실패 — 서로 다른 테스트).
+
+    baseline 에만 실패: test_idempotency_completed_only_after_result_tx
+                        test_result_detail_read
+                        test_test_only_zero
+    after 에만 실패   : test_execution_id_dedup
+                        test_migration_lossless_and_idempotent
+
+  본 변경 때문이 아니라 스위트 순서 의존(공유 SQLite) 흔들림이라고 판정한 근거:
+    · 이 파일을 단독 실행하면 양쪽 모두 10 passed (BASELINE 3.11s / AFTER 3.15s).
+    · 실패 집합이 실행마다 바뀌고, 내 변경 쪽이 오히려 1건 적다(개선일 리 없다).
+    · 내 변경은 UI 렌더러의 JS 문자열 2곳뿐이라 SQLite 저장 경로와 접점이 없다.
+
+  → 광범위 스윕에서도 본 변경에 귀속되는 신규 실패는 0건이다.
+  전체 실패 목록은 broad_sweep_baseline_failures.txt / broad_sweep_after_failures.txt.
+
+════════════════════════════════════════════════════════════════════════════
+9. 변경 파일 / 커밋
+════════════════════════════════════════════════════════════════════════════
+커밋: e46c0e84f2a37681b9cdf5e89e3eb7bf3f8c8ea5
+      refactor(ui): 통계검증 규모 표시의 죽은 필드 소비 분기 제거
+                    (STATS-SCALE-CLASS-DEAD-FIELD-REMOVE-FIX)
+직전 HEAD: 8e65b1f (STATS-SCALE-LABEL-SOURCE-ALIGN-FIX)
+
+  ui/grid_helpers.py                                              9 +++---
+  ui/tabler_renderer.py                                           9 +++---
+  tests/test_stats_result_full.py                                 6 ++-
+  scripts/dev_e2e/strategy_plan_grid_status_backfill_verify.py   10 ++-
+  scripts/dev_e2e/stats_scale_class_dead_field_verify.py        169 +++ (신규 하니스)
+  scripts/dev_e2e/stats_scale_class_dead_field_browser_shot.py  128 +++ (신규 하니스)
+  scripts/dev_e2e/stats_scale_estimable_dead_field_verify.py    171 +++ (신규 하니스)
+  총 7 files changed, 488 insertions(+), 14 deletions(-)
+
+핵심 diff (전체는 code_diff.patch):
+
+  --- ui/grid_helpers.py
+     - profile.stats_scale_class(향후 계획기 산출)가 있을 때만 등급 매핑(...). */
+  +  - [STATS-SCALE-CLASS-DEAD-FIELD-REMOVE-FIX] 등급 산정은 planner 의 provisional_grade
+  +    한 곳으로 일원화한다. 과거 여기 있던 profile.stats_scale_class 폴백 분기는 생산
+  +    코드가 저장소 전체에 없어(생산자 0) 실행 중 도달 불가한 죽은 분기였으므로 제거했다. */
+     var sp = (typeof window !== 'undefined' && window._mvStrategyPlan) || null;
+     if (sp && sp.provisional_grade) return sp.provisional_grade;
+  -  var c = String(p.stats_scale_class || '').toUpperCase();
+  -  if (c === 'SMALL') return '소형';
+  -  if (c === 'MEDIUM') return '중형';
+  -  if (c === 'LARGE') return '대형';
+  -  if (c === 'XLARGE') return '초대형';
+     if (p.stats_scale_estimable === false) return '산정 불가';
+     return '산정 전';
+
+  --- ui/tabler_renderer.py
+     if (_grade.indexOf(_MV_PROVISIONAL_PREFIX) === 0) { _scaleSt='WARN'; _scaleStTxt='잠정'; }
+  -  else if (!_grade) {
+  -    /* 등급 미산출 — grid_helpers 와 동일하게 stats_scale_estimable === false 만 ... */
+  -    if ((profile || {}).stats_scale_estimable === false) { _scaleSt='WARN'; _scaleStTxt='산정 불가'; }
+  -    else { _scaleSt = 'MUTED'; _scaleStTxt = '산정 전'; }
+  -  }
+  +  /* [STATS-SCALE-CLASS-DEAD-FIELD-REMOVE-FIX] 등급 미산출이면 '산정 전'. ... 제거했다. */
+  +  else if (!_grade) { _scaleSt = 'MUTED'; _scaleStTxt = '산정 전'; }
+
+  ※ 주석 블록의 '*/' 종결자는 양쪽 모두 보존했다(JS 번들 붕괴 방지).
+    실제로 두 하니스 모두 node --check + 브라우저 로드로 파싱 정상을 확인했다.
+
+════════════════════════════════════════════════════════════════════════════
+10. 비판적 검토 (요청 형식)
+════════════════════════════════════════════════════════════════════════════
+  긍정적 효과
+    - 등급 산정 경로가 provisional_grade 단일 출처로 정리돼, 앞으로 '왜 여기서
+      등급이 나오지?' 를 두 곳에서 찾을 필요가 없다.
+    - 미래 계획기가 이 필드명을 재사용하려다 죽은 매핑에 걸려 오작동할 여지 제거.
+
+  구조적 문제점
+    - 없음. 순수 삭제이며 web_server.py 비대화·모듈 결합도와 무관하다.
+    - 다만 §6 잔여물 1줄 때문에 '죽은 필드 완전 소거' 는 아니다(의도적 보류).
+
+  운영상 위험
+    - 사실상 없음. 실경로 표시가 전/후 픽셀 단위로 동일함을 실측했다.
+    - 롤백은 커밋 1개 revert 로 충분하다.
+
+  heuristic / scoring / explainability 영향
+    - heuristic 하드코딩이 5줄 줄었다(SMALL/MEDIUM/LARGE/XLARGE 문자열 매핑).
+      이 매핑은 임계값 근거가 없는 단순 문자열 분기였으므로 제거가 explainability
+      에 유리하다. scoring 은 planner 쪽이 담당하므로 영향 없음.
+
+  지금 구현 여부: 진행 (완료)
+
+════════════════════════════════════════════════════════════════════════════
+11. 실검증 상태
+════════════════════════════════════════════════════════════════════════════
+실검증 상태: 완료 (실 DB 미사용 작업 — 표시 로직 전용 변경이라 DB 접속이 필요 없다.
+             대신 ① 제품 JS node 직접 로드 11케이스, ② 실 브라우저 file:// 렌더
+             #mvSizeSummaryCell 4케이스, ③ 실 planner 응답 + 실 브라우저
+             _mvRenderStrategyPlan 5케이스로 before/after 를 전부 실측했고,
+             스크린샷 9쌍이 md5 기준 픽셀 동일했다. 서버·공유 SQLite 는 건드리지
+             않았다 — 동시 세션 보호를 위해 서버 미기동 file:// 방식을 택했다.)
+
+✅ 작업 완료 - STATS-SCALE-CLASS-DEAD-FIELD-REMOVE-FIX - 죽은 필드 stats_scale_class / stats_scale_estimable 의 소비 분기를 두 파일에서 모두 제거, 실경로 표시 전/후 완전 동일(스크린샷 9쌍 픽셀 동일)·신규 회귀 0
