@@ -1,0 +1,1384 @@
+{
+ "phase": "before",
+ "pair": [
+  "PostgreSQL_Inter_asis",
+  "PostgreSQL_Inter_tobe"
+ ],
+ "sql": "INSERT INTO tobe01.t_combo_tgt (id, status_cd, dept_cd, amt)\nSELECT id, status_cd, dept_cd, amt\nFROM asis01.t_combo_src",
+ "setup": {
+  "pair_label": "PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe",
+  "pair_existed": false,
+  "pair_rows_after": 1,
+  "connect_clicked": true
+ },
+ "1단계": {
+  "step": "query",
+  "blocked": false,
+  "err": null,
+  "from_table": "T_COMBO_SRC",
+  "target_table": ""
+ },
+ "2단계": {
+  "click1_sql": true,
+  "click2_run": true,
+  "result_arrived": true
+ },
+ "3단계": {
+  "picked": {
+   "gb": [
+    "STATUS_CD",
+    "DEPT_CD"
+   ],
+   "sum": [
+    "AMT"
+   ]
+  }
+ },
+ "A1_4단계_진입직후": {
+  "본문폭": 1600,
+  "S4": {
+   "존재": true,
+   "타일수": 9,
+   "타일라벨목록": [
+    "목적테이블",
+    "원본테이블",
+    "검증항목",
+    "목적그룹",
+    "원본그룹",
+    "목적집계",
+    "원본집계",
+    "처리시간",
+    "상태"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "—",
+    "—",
+    "—",
+    "—",
+    "—",
+    "—",
+    "—"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 273,
+      "left": 302,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "원본테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 273,
+      "left": 443,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "검증항목",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 273,
+      "left": 583,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "목적그룹",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 273,
+      "left": 724,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "원본그룹",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 273,
+      "left": 865,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "목적집계",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 273,
+      "left": 1005,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "원본집계",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 273,
+      "left": 1146,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "처리시간",
+     "값": "—",
+     "tooltip": "처리시간 미계측(통계검증 SQL 생성 전이거나 계측값 없음)",
+     "박스": {
+      "top": 273,
+      "left": 1287,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "상태",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 273,
+      "left": 1427,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    }
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": [],
+    "정렬요소수": 0
+   },
+   "박스": {
+    "top": 250,
+    "left": 302,
+    "width": 1256,
+    "height": 107
+   },
+   "HTML길이": 1509,
+   "텍스트": "목적테이블 tobe01.t_combo_tgt 원본테이블 asis01.t_combo_src 검증항목 — 목적그룹 — 원본그룹 — 목적집계 — 원본집계 — 처리시간 — 상태 —"
+  },
+  "S4_검증항목잔재": {
+   "라벨": true,
+   "값문구": false,
+   "툴팁": false
+  },
+  "S5_ctx": {
+   "존재": true,
+   "타일수": 0,
+   "타일라벨목록": [],
+   "타일값목록": [],
+   "타일상세": [],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": [],
+    "정렬요소수": 0
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "HTML길이": 0,
+   "텍스트": ""
+  },
+  "S5_target": {
+   "존재": false
+  },
+  "S5_basis": {
+   "존재": true,
+   "타일수": 0,
+   "타일라벨목록": [],
+   "타일값목록": [],
+   "타일상세": [],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": [],
+    "정렬요소수": 0
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "HTML길이": 0,
+   "텍스트": ""
+  },
+  "S5_statsgrid": {
+   "존재": false
+  },
+  "하단무회귀": {
+   "executeOut_존재": true,
+   "executeOut_텍스트길이": 0,
+   "executeOut_표수": 0,
+   "executeOut_행수": 0,
+   "executeOut_th목록": [],
+   "일치행보기": [],
+   "다운로드버튼": [
+    "템플릿 다운로드",
+    "충돌 리포트 다운로드",
+    "⬇ 전체 결과 다운로드(CSV)",
+    "⬇ 전체 결과 다운로드(XLSX)",
+    "📥 템플릿 다운로드",
+    "📊 결과 다운로드",
+    "⬇ Excel 리포트 다운로드"
+   ],
+   "필터버튼": [],
+   "세부기준접힘": [],
+   "불일치항목요약길이": 0
+  }
+ },
+ "B1_5단계_실행전": {
+  "본문폭": 1600,
+  "S4": {
+   "존재": true,
+   "타일수": 9,
+   "타일라벨목록": [
+    "목적테이블",
+    "원본테이블",
+    "검증항목",
+    "목적그룹",
+    "원본그룹",
+    "목적집계",
+    "원본집계",
+    "처리시간",
+    "상태"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "—",
+    "—",
+    "—",
+    "—",
+    "—",
+    "—",
+    "—"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 273,
+      "left": 302,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "원본테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 273,
+      "left": 443,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "검증항목",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 273,
+      "left": 583,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "목적그룹",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 273,
+      "left": 724,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "원본그룹",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 273,
+      "left": 865,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "목적집계",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 273,
+      "left": 1005,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "원본집계",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 273,
+      "left": 1146,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "처리시간",
+     "값": "—",
+     "tooltip": "처리시간 미계측(통계검증 SQL 생성 전이거나 계측값 없음)",
+     "박스": {
+      "top": 273,
+      "left": 1287,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "상태",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 273,
+      "left": 1427,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    }
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": [],
+    "정렬요소수": 0
+   },
+   "박스": {
+    "top": 250,
+    "left": 302,
+    "width": 1256,
+    "height": 107
+   },
+   "HTML길이": 1509,
+   "텍스트": "목적테이블 tobe01.t_combo_tgt 원본테이블 asis01.t_combo_src 검증항목 — 목적그룹 — 원본그룹 — 목적집계 — 원본집계 — 처리시간 — 상태 —"
+  },
+  "S4_검증항목잔재": {
+   "라벨": true,
+   "값문구": false,
+   "툴팁": false
+  },
+  "S5_ctx": {
+   "존재": true,
+   "타일수": 0,
+   "타일라벨목록": [],
+   "타일값목록": [],
+   "타일상세": [],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": [],
+    "정렬요소수": 0
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "HTML길이": 0,
+   "텍스트": ""
+  },
+  "S5_target": {
+   "존재": false
+  },
+  "S5_basis": {
+   "존재": true,
+   "타일수": 0,
+   "타일라벨목록": [],
+   "타일값목록": [],
+   "타일상세": [],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": [],
+    "정렬요소수": 0
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "HTML길이": 0,
+   "텍스트": ""
+  },
+  "S5_statsgrid": {
+   "존재": false
+  },
+  "하단무회귀": {
+   "executeOut_존재": true,
+   "executeOut_텍스트길이": 0,
+   "executeOut_표수": 0,
+   "executeOut_행수": 0,
+   "executeOut_th목록": [],
+   "일치행보기": [],
+   "다운로드버튼": [
+    "템플릿 다운로드",
+    "충돌 리포트 다운로드",
+    "⬇ 전체 결과 다운로드(CSV)",
+    "⬇ 전체 결과 다운로드(XLSX)",
+    "📥 템플릿 다운로드",
+    "📊 결과 다운로드",
+    "⬇ Excel 리포트 다운로드"
+   ],
+   "필터버튼": [],
+   "세부기준접힘": [],
+   "불일치항목요약길이": 0
+  }
+ },
+ "A2_4단계_생성후": {
+  "본문폭": 1600,
+  "S4": {
+   "존재": true,
+   "타일수": 9,
+   "타일라벨목록": [
+    "목적테이블",
+    "원본테이블",
+    "검증항목",
+    "목적그룹",
+    "원본그룹",
+    "목적집계",
+    "원본집계",
+    "처리시간",
+    "상태"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "COUNT · GB 2 · SUM 1",
+    "STATUS_CD DEPT_CD",
+    "status_cd dept_cd",
+    "AMT",
+    "amt",
+    "0.01초 미만",
+    "● 정상"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 273,
+      "left": 302,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "원본테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 273,
+      "left": 443,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "검증항목",
+     "값": "COUNT · GB 2 · SUM 1",
+     "tooltip": "COUNT(*) 는 항상 포함됩니다 · GROUP BY 2개 · 집계컬럼 1개",
+     "박스": {
+      "top": 273,
+      "left": 583,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "목적그룹",
+     "값": "STATUS_CD DEPT_CD",
+     "tooltip": "STATUS_CD, DEPT_CD",
+     "박스": {
+      "top": 273,
+      "left": 724,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "원본그룹",
+     "값": "status_cd dept_cd",
+     "tooltip": "status_cd, dept_cd",
+     "박스": {
+      "top": 273,
+      "left": 865,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "목적집계",
+     "값": "AMT",
+     "tooltip": "AMT",
+     "박스": {
+      "top": 273,
+      "left": 1005,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "원본집계",
+     "값": "amt",
+     "tooltip": "amt",
+     "박스": {
+      "top": 273,
+      "left": 1146,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "처리시간",
+     "값": "0.01초 미만",
+     "tooltip": "4단계 SQL 생성 시간 — 0.01초 미만 (4.7ms)",
+     "박스": {
+      "top": 273,
+      "left": 1287,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "상태",
+     "값": "● 정상",
+     "tooltip": "SQL 생성됨",
+     "박스": {
+      "top": 273,
+      "left": 1427,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    }
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": [],
+    "정렬요소수": 0
+   },
+   "박스": {
+    "top": 250,
+    "left": 302,
+    "width": 1256,
+    "height": 107
+   },
+   "HTML길이": 1788,
+   "텍스트": "목적테이블 tobe01.t_combo_tgt 원본테이블 asis01.t_combo_src 검증항목 COUNT · GB 2 · SUM 1 목적그룹 STATUS_CD DEPT_CD 원본그룹 status_cd dept_cd 목적집계 AMT 원본집계 amt 처리시간 0.01초 미만 상태 ● 정상"
+  },
+  "S4_검증항목잔재": {
+   "라벨": true,
+   "값문구": true,
+   "툴팁": true
+  },
+  "S5_ctx": {
+   "존재": true,
+   "타일수": 0,
+   "타일라벨목록": [],
+   "타일값목록": [],
+   "타일상세": [],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": [],
+    "정렬요소수": 0
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "HTML길이": 0,
+   "텍스트": ""
+  },
+  "S5_target": {
+   "존재": false
+  },
+  "S5_basis": {
+   "존재": true,
+   "타일수": 0,
+   "타일라벨목록": [],
+   "타일값목록": [],
+   "타일상세": [],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": [],
+    "정렬요소수": 0
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "HTML길이": 0,
+   "텍스트": ""
+  },
+  "S5_statsgrid": {
+   "존재": false
+  },
+  "하단무회귀": {
+   "executeOut_존재": true,
+   "executeOut_텍스트길이": 0,
+   "executeOut_표수": 0,
+   "executeOut_행수": 0,
+   "executeOut_th목록": [],
+   "일치행보기": [],
+   "다운로드버튼": [
+    "템플릿 다운로드",
+    "충돌 리포트 다운로드",
+    "⬇ 전체 결과 다운로드(CSV)",
+    "⬇ 전체 결과 다운로드(XLSX)",
+    "📥 템플릿 다운로드",
+    "📊 결과 다운로드",
+    "⬇ Excel 리포트 다운로드"
+   ],
+   "필터버튼": [],
+   "세부기준접힘": [],
+   "불일치항목요약길이": 0
+  },
+  "gen_clicked": true
+ },
+ "A3_4단계_실행후": {
+  "본문폭": 1600,
+  "S4": {
+   "존재": true,
+   "타일수": 9,
+   "타일라벨목록": [
+    "목적테이블",
+    "원본테이블",
+    "검증항목",
+    "목적그룹",
+    "원본그룹",
+    "목적집계",
+    "원본집계",
+    "처리시간",
+    "상태"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "COUNT · GB 2 · SUM 1",
+    "STATUS_CD DEPT_CD",
+    "status_cd dept_cd",
+    "AMT",
+    "amt",
+    "0.53초",
+    "● 정상"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 273,
+      "left": 302,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "원본테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 273,
+      "left": 443,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "검증항목",
+     "값": "COUNT · GB 2 · SUM 1",
+     "tooltip": "COUNT(*) 는 항상 포함됩니다 · GROUP BY 2개 · 집계컬럼 1개",
+     "박스": {
+      "top": 273,
+      "left": 583,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "목적그룹",
+     "값": "STATUS_CD DEPT_CD",
+     "tooltip": "STATUS_CD, DEPT_CD",
+     "박스": {
+      "top": 273,
+      "left": 724,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "원본그룹",
+     "값": "status_cd dept_cd",
+     "tooltip": "status_cd, dept_cd",
+     "박스": {
+      "top": 273,
+      "left": 865,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "목적집계",
+     "값": "AMT",
+     "tooltip": "AMT",
+     "박스": {
+      "top": 273,
+      "left": 1005,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "원본집계",
+     "값": "amt",
+     "tooltip": "amt",
+     "박스": {
+      "top": 273,
+      "left": 1146,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "처리시간",
+     "값": "0.53초",
+     "tooltip": "4단계 통계검증 실행(상세 추출 별도) — 0.53초 (529.8ms)",
+     "박스": {
+      "top": 273,
+      "left": 1287,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "상태",
+     "값": "● 정상",
+     "tooltip": "SQL 생성됨",
+     "박스": {
+      "top": 273,
+      "left": 1427,
+      "width": 131,
+      "height": 85
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    }
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": [],
+    "정렬요소수": 0
+   },
+   "박스": {
+    "top": 250,
+    "left": 302,
+    "width": 1256,
+    "height": 107
+   },
+   "HTML길이": 1792,
+   "텍스트": "목적테이블 tobe01.t_combo_tgt 원본테이블 asis01.t_combo_src 검증항목 COUNT · GB 2 · SUM 1 목적그룹 STATUS_CD DEPT_CD 원본그룹 status_cd dept_cd 목적집계 AMT 원본집계 amt 처리시간 0.53초 상태 ● 정상"
+  },
+  "S4_검증항목잔재": {
+   "라벨": true,
+   "값문구": true,
+   "툴팁": true
+  },
+  "S5_ctx": {
+   "존재": true,
+   "타일수": 0,
+   "타일라벨목록": [],
+   "타일값목록": [],
+   "타일상세": [],
+   "그리드잔재": {
+    "table수": 1,
+    "th목록": [
+     "No",
+     "원본 테이블",
+     "목적 테이블",
+     "쿼리검토",
+     "COUNT",
+     "후보컬럼",
+     "통계검증",
+     "COUNT(원본/대상/차이)",
+     "불일치 그룹",
+     "재이관 대상",
+     "상태"
+    ],
+    "정렬요소수": 0
+   },
+   "박스": {
+    "top": 138,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "HTML길이": 1202,
+   "텍스트": "결과 확인 요약No원본 테이블목적 테이블쿼리검토COUNT후보컬럼통계검증COUNT(원본/대상/차이)불일치 그룹재이관 대상상태1asis01.t_combo_srctobe01.t_combo_tgt● 정상● 정상● 정상● 정상1,200 / 1,200 · 차이 00개0건● 정상"
+  },
+  "S5_target": {
+   "존재": true,
+   "타일수": 0,
+   "타일라벨목록": [],
+   "타일값목록": [],
+   "타일상세": [],
+   "그리드잔재": {
+    "table수": 1,
+    "th목록": [
+     "No",
+     "원본 테이블",
+     "목적 테이블",
+     "통계검증 규모",
+     "쿼리검토",
+     "COUNT",
+     "실행계획",
+     "통계결과집계 그룹 기준",
+     "재이관 PK",
+     "최종상태집계 그룹 기준"
+    ],
+    "정렬요소수": 0
+   },
+   "박스": {
+    "top": 138,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "HTML길이": 3319,
+   "텍스트": "⚠ 각 축 개별 검증 완료 · 조합(다축 동시) 검증은 수행되지 않았습니다선택한 GROUP BY 2개 축(STATUS_CD, DEPT_CD)은 축마다 독립 세트로 나누어 개별로만 비교했습니다. 따라서 위 통계결과·최종상태는 각 축 개별 기준이며, STATUS_CD + DEPT_CD 조합에서만 드러나는 불일치(축별 집계에서 서로 상쇄되어 사라지는 차이)는 이 판정에 포함되어 있지 않습니다.조합 기준 확인이 필요하면 아래 상세비교(재이관 대상 레코드) 결과를 함께 확인하세요 — 행 단위 비교는 조합 불일치를 그대로 검출합니다.전체 대상 1건No원본 테이블목적 테이블통계검증 규모쿼리검토COUNT실행계획통계결과집계 그룹 기준재이관 PK최종상태집계 그룹 기준1asis01.t_combo_srctobe01.t_combo_tgt소형통과1,200 / 1,200단일축 2세트 · 7그룹일치조합 미검증400건정상조합 미검증"
+  },
+  "S5_basis": {
+   "존재": true,
+   "타일수": 0,
+   "타일라벨목록": [],
+   "타일값목록": [],
+   "타일상세": [],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": [],
+    "정렬요소수": 0
+   },
+   "박스": {
+    "top": 138,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "HTML길이": 383,
+   "텍스트": "실행 기준단일 축 2세트: STATUS_CD / DEPT_CD예상 그룹 7개 · 실제 생성 7개 · SUM 1 · AMT"
+  },
+  "S5_statsgrid": {
+   "존재": false
+  },
+  "하단무회귀": {
+   "executeOut_존재": true,
+   "executeOut_텍스트길이": 1266,
+   "executeOut_표수": 2,
+   "executeOut_행수": 20,
+   "executeOut_th목록": [
+    "그룹값(DEPT_CD)",
+    "불일치 건수",
+    "비율",
+    "대표 PK"
+   ],
+   "일치행보기": [],
+   "다운로드버튼": [
+    "⬇ 상세 불일치 레코드 Excel 다운로드",
+    "템플릿 다운로드",
+    "충돌 리포트 다운로드",
+    "⬇ 전체 결과 다운로드(CSV)",
+    "⬇ 전체 결과 다운로드(XLSX)",
+    "📥 템플릿 다운로드",
+    "📊 결과 다운로드",
+    "⬇ Excel 리포트 다운로드"
+   ],
+   "필터버튼": [],
+   "세부기준접힘": [],
+   "불일치항목요약길이": 0
+  },
+  "exec_clicked": true
+ },
+ "B2_5단계_실행후": {
+  "본문폭": 1600,
+  "S4": {
+   "존재": true,
+   "타일수": 9,
+   "타일라벨목록": [
+    "목적테이블",
+    "원본테이블",
+    "검증항목",
+    "목적그룹",
+    "원본그룹",
+    "목적집계",
+    "원본집계",
+    "처리시간",
+    "상태"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "COUNT · GB 2 · SUM 1",
+    "STATUS_CDDEPT_CD",
+    "status_cddept_cd",
+    "AMT",
+    "amt",
+    "0.53초",
+    "● 정상"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "원본테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "검증항목",
+     "값": "COUNT · GB 2 · SUM 1",
+     "tooltip": "COUNT(*) 는 항상 포함됩니다 · GROUP BY 2개 · 집계컬럼 1개",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "목적그룹",
+     "값": "STATUS_CDDEPT_CD",
+     "tooltip": "STATUS_CD, DEPT_CD",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "원본그룹",
+     "값": "status_cddept_cd",
+     "tooltip": "status_cd, dept_cd",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "목적집계",
+     "값": "AMT",
+     "tooltip": "AMT",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "원본집계",
+     "값": "amt",
+     "tooltip": "amt",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "처리시간",
+     "값": "0.53초",
+     "tooltip": "4단계 통계검증 실행(상세 추출 별도) — 0.53초 (529.8ms)",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    },
+    {
+     "라벨": "상태",
+     "값": "● 정상",
+     "tooltip": "SQL 생성됨",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     },
+     "박스규격": {
+      "minHeight": "85px",
+      "padding": "13px 12px"
+     }
+    }
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": [],
+    "정렬요소수": 0
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "HTML길이": 1792,
+   "텍스트": "목적테이블tobe01.t_combo_tgt원본테이블asis01.t_combo_src검증항목COUNT · GB 2 · SUM 1목적그룹STATUS_CDDEPT_CD원본그룹status_cddept_cd목적집계AMT원본집계amt처리시간0.53초상태● 정상"
+  },
+  "S4_검증항목잔재": {
+   "라벨": true,
+   "값문구": true,
+   "툴팁": true
+  },
+  "S5_ctx": {
+   "존재": true,
+   "타일수": 0,
+   "타일라벨목록": [],
+   "타일값목록": [],
+   "타일상세": [],
+   "그리드잔재": {
+    "table수": 1,
+    "th목록": [
+     "No",
+     "원본 테이블",
+     "목적 테이블",
+     "쿼리검토",
+     "COUNT",
+     "후보컬럼",
+     "통계검증",
+     "COUNT(원본/대상/차이)",
+     "불일치 그룹",
+     "재이관 대상",
+     "상태"
+    ],
+    "정렬요소수": 0
+   },
+   "박스": {
+    "top": 433,
+    "left": 319,
+    "width": 1222,
+    "height": 89
+   },
+   "HTML길이": 1202,
+   "텍스트": "결과 확인 요약 No 원본 테이블 목적 테이블 쿼리검토 COUNT 후보컬럼 통계검증 COUNT(원본/대상/차이) 불일치 그룹 재이관 대상 상태 1 asis01.t_combo_src tobe01.t_combo_tgt ● 정상 ● 정상 ● 정상 ● 정상 1,200 / 1,200 · 차이 0 0개 0건 ● 정상"
+  },
+  "S5_target": {
+   "존재": true,
+   "타일수": 0,
+   "타일라벨목록": [],
+   "타일값목록": [],
+   "타일상세": [],
+   "그리드잔재": {
+    "table수": 1,
+    "th목록": [
+     "No",
+     "원본 테이블",
+     "목적 테이블",
+     "통계검증 규모",
+     "쿼리검토",
+     "COUNT",
+     "실행계획",
+     "통계결과 집계 그룹 기준",
+     "재이관 PK",
+     "최종상태 집계 그룹 기준"
+    ],
+    "정렬요소수": 0
+   },
+   "박스": {
+    "top": 534,
+    "left": 319,
+    "width": 1222,
+    "height": 236
+   },
+   "HTML길이": 3319,
+   "텍스트": "⚠ 각 축 개별 검증 완료 · 조합(다축 동시) 검증은 수행되지 않았습니다 선택한 GROUP BY 2개 축(STATUS_CD, DEPT_CD)은 축마다 독립 세트로 나누어 개별로만 비교했습니다. 따라서 위 통계결과·최종상태는 각 축 개별 기준이며, STATUS_CD + DEPT_CD 조합에서만 드러나는 불일치(축별 집계에서 서로 상쇄되어 사라지는 차이)는 이 판정에 포함되어 있지 않습니다. 조합 기준 확인이 필요하면 아래 상세비교(재이관 대상 레코드) 결과를 함께 확인하세요 — 행 단위 비교는 조합 불일치를 그대로 검출합니다. 전체 대상 1건 No 원본 테이블 목적 테이블 통계검증 규모 쿼리검토 COUNT 실행계획 통계결과 집계 그룹 기준 재이관 PK 최종상태 집계 그룹 기준 1 asis01.t_combo_src tobe01.t_combo_tgt 소형 통과 1,200 / 1,200 단일축 2세트 · 7그룹 일치 조합 미검증 400건 정상 조합 미검증"
+  },
+  "S5_basis": {
+   "존재": true,
+   "타일수": 0,
+   "타일라벨목록": [],
+   "타일값목록": [],
+   "타일상세": [],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": [],
+    "정렬요소수": 0
+   },
+   "박스": {
+    "top": 778,
+    "left": 319,
+    "width": 1222,
+    "height": 81
+   },
+   "HTML길이": 383,
+   "텍스트": "실행 기준 단일 축 2세트: STATUS_CD / DEPT_CD 예상 그룹 7개 · 실제 생성 7개 · SUM 1 · AMT"
+  },
+  "S5_statsgrid": {
+   "존재": false
+  },
+  "하단무회귀": {
+   "executeOut_존재": true,
+   "executeOut_텍스트길이": 805,
+   "executeOut_표수": 2,
+   "executeOut_행수": 20,
+   "executeOut_th목록": [
+    "그룹값(DEPT_CD)",
+    "불일치 건수",
+    "비율",
+    "대표 PK"
+   ],
+   "일치행보기": [],
+   "다운로드버튼": [
+    "⬇ 상세 불일치 레코드 Excel 다운로드",
+    "템플릿 다운로드",
+    "충돌 리포트 다운로드",
+    "⬇ 전체 결과 다운로드(CSV)",
+    "⬇ 전체 결과 다운로드(XLSX)",
+    "📥 템플릿 다운로드",
+    "📊 결과 다운로드",
+    "⬇ Excel 리포트 다운로드"
+   ],
+   "필터버튼": [],
+   "세부기준접힘": [],
+   "불일치항목요약길이": 0
+  }
+ },
+ "pageerrors": [
+  "CONSOLE.error: Failed to load resource: the server responded with a status of 404 (Not Found)"
+ ]
+}
