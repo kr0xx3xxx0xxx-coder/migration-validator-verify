@@ -1,0 +1,349 @@
+작업명 : STAGE4-5-TILE-CLEANUP-AND-LAYOUT-SEQUENTIAL-FIX
+✅ 작업 완료
+
+작성일 : 2026-08-04
+커밋   : 파트 A = e3c6e76 / 파트 B = 2b1cb01  (브랜치 main)
+증적   : E:\verify_screenshots_only\STAGE4-5-TILE-CLEANUP-AND-LAYOUT-SEQUENTIAL-FIX\
+
+
+═══════════════════════════════════════════════════════════════════════════
+0. 시작 전 확인
+═══════════════════════════════════════════════════════════════════════════
+지침이 요구한 대로 선행 작업 상태를 먼저 확인했다.
+
+  · SAMPLE-BASIS-EVIDENCE-UI-EXPOSE-FIX 는 커밋 2b45c01 로 이미 완료돼 있었다.
+  · ui/grid_helpers.py · ui/tabler_renderer.py · ui/validation_plan_renderer.py
+    세 파일 모두 미커밋 변경 0건(클린)이었다.
+
+따라서 지침대로 파트 A → 커밋 → 파트 B 순서로 순차 진행했다.
+
+
+═══════════════════════════════════════════════════════════════════════════
+[파트 A] STAGE4-VALIDATION-ITEM-TILE-REMOVE-FIX      커밋 e3c6e76
+═══════════════════════════════════════════════════════════════════════════
+
+■ 무엇을 했나
+4단계(통계검증 실행) 상단 타일 9칸에서 '검증항목' 타일을 삭제해 8칸으로 줄였다.
+
+  최종 타일 순서(8칸)
+    목적테이블 · 원본테이블 · 목적그룹 · 원본그룹 · 목적집계 · 원본집계 · 처리시간 · 상태
+
+■ 어디를 고쳤나
+  ui/grid_helpers.py
+    - `_mvStage4Columns()` 에서 { title:'검증항목', field:'items' } 항목 삭제
+    - `_mvStage4TileRow()` 에서 items / itemsTip 값 생성 삭제
+  ui/js_sql_preview.py
+    - 주석만 갱신. 종전 주석이 '생성된 SQL 기준 안내박스를 지운 이유는 검증항목 타일이
+      COUNT(*) 항상 포함 사실을 담기 때문' 이라고 적혀 있었는데, 그 타일이 사라졌으므로
+      근거를 다시 적었다(코드 변경 없음).
+  tests/test_stage4_stats_validation_tile_layout.py
+    - 타일 계약을 9칸 → 8칸으로 갱신 + 회귀 테스트 신규 1건
+
+■ items 값까지 지운 이유 (지침 3항 '값 계산 로직은 건드리지 말 것' 과의 관계)
+지침은 순수 타일 제거를 요구했다. items / itemsTip 은 이 타일 하나만을 위해 만들어지던
+표시값이고 다른 값의 계산에 전혀 쓰이지 않는다. 남겨두면
+  (a) 아무도 읽지 않는 죽은 필드가 되고,
+  (b) itemsTip 문구 'COUNT(*) 는 항상 포함됩니다' 가 툴팁 경로로 다시 노출될 여지가 남는다.
+지침 2항이 "이 정보는 더 이상 화면 어디에도 안 남아도 된다" 이므로 함께 걷어냈다.
+그룹/집계/처리시간/상태 등 나머지 값 계산 로직은 한 줄도 건드리지 않았다.
+생성되는 SQL 은 종전대로 COUNT(*) 를 항상 포함한다 — 표시만 사라진 것이다.
+
+■ before / after 실측 (실 브라우저, 운영 서버)
+  픽스처 : PostgreSQL_Inter (asis01.t_combo_src → tobe01.t_combo_tgt), GROUP BY 2축 + SUM 1
+  하니스 : scripts/dev_e2e/stage45_tile_cleanup_layout_verify.py (before | afterA | afterB)
+           — 기존 검증된 클릭스루 하니스를 재사용했다.
+
+  시점              before                                     afterA
+  ─────────────────────────────────────────────────────────────────────────────
+  진입 직후         9칸 (검증항목 값 '—')                       8칸
+  SQL 생성 후       9칸 (검증항목 값 'COUNT · GB 2 · SUM 1')    8칸
+  실행 후           9칸 (동일)                                  8칸
+
+  '검증항목' 잔재 검사(라벨 / 값 문구 'COUNT · GB' / 툴팁 '항상 포함')
+    before : true / true / true
+    afterA : false / false / false      ← 세 시점 모두
+
+  그리드 잔재 : before·after 모두 table 0 · th 0 · 정렬요소 0 (타일 전환은 이전 작업에서 완료)
+
+■ 요구사항 4 — 8칸 가로 배치 확인
+타일 컨테이너 CSS 는 grid-template-columns: repeat(auto-fit, minmax(118px,1fr)) · gap 10px 이다.
+칸이 줄면 남는 폭을 나머지 칸이 나눠 갖는 구조라, 실측에서도 다음과 같이 한 줄을 그대로 채웠다.
+
+    before 9칸 : 각 폭 131px, 302px ~ 1558px, 모든 타일 top 273 (한 줄)
+    afterA 8칸 : 각 폭 148px, 302px ~ 1558px, 모든 타일 top 273 (한 줄)
+
+즉 좌우 끝 좌표가 동일하고 칸 폭만 131 → 148px 로 늘었다. 줄바꿈·여백 남음 없음.
+
+■ 스크린샷
+  before_A1_stage4_enter.png / before_A1_stage4_enter_tiles.png
+  before_A2_stage4_generated.png / before_A2_stage4_generated_tiles.png
+  before_A3_stage4_executed.png / before_A3_stage4_executed_tiles.png
+  afterA_A1_stage4_enter.png / afterA_A1_stage4_enter_tiles.png
+  afterA_A2_stage4_generated.png / afterA_A2_stage4_generated_tiles.png
+  afterA_A3_stage4_executed.png / afterA_A3_stage4_executed_tiles.png
+  (*_tiles.png 는 4단계 상단 컨텍스트 영역만 잘라낸 확대 컷)
+
+■ git diff (파트 A)
+  scripts/dev_e2e/stage45_tile_cleanup_layout_verify.py  | 301 +++ (신규)
+  tests/test_stage4_stats_validation_tile_layout.py      |  49 +-
+  ui/grid_helpers.py                                     |  16 +-
+  ui/js_sql_preview.py                                   |   8 +-
+  4 files changed, 352 insertions(+), 22 deletions(-)
+
+
+═══════════════════════════════════════════════════════════════════════════
+[파트 B] STAGE5-RESULT-SUMMARY-TILE-LAYOUT-FIX       커밋 2b1cb01
+═══════════════════════════════════════════════════════════════════════════
+
+■ 종전 상태 — 같은 화면에 요약 표가 둘이었다
+  ① '결과 확인 요약'   host #mvStage5CtxGrid  (_mvStage5CtxGridData → _mvGridDataToHtml)
+     No | 원본 테이블 | 목적 테이블 | 쿼리검토 | COUNT | 후보컬럼 | 통계검증 |
+     COUNT(원본/대상/차이) | 불일치 그룹 | 재이관 대상 | 상태            (th 11개)
+  ② '전체 대상 1건'    host #mvSummary_singleResultSummary (_mvRenderResultGrid)
+     No | 원본 테이블 | 목적 테이블 | 통계검증 규모 | 쿼리검토 | COUNT |
+     실행계획 | 통계결과 | 재이관 PK | 최종상태                            (th 10개)
+
+  둘 다 '1 대상 = 1 행' 요약이지 다행 그리드가 아니고, 테이블명·쿼리검토·COUNT·상태를
+  서로 중복 표시했다.
+
+■ 결과 — 하나의 타일 세트 9칸으로 통합 (host #mvStage5CtxGrid)
+    목적테이블 · 원본테이블 · 통계검증규모 · COUNT · 불일치그룹 · 재이관대상 ·
+    재이관PK · 처리시간 · 상태
+  1~4단계와 동일한 타일 CSS(.mv-qr-tiles / .mv-qr-tile-label / .mv-qr-tile-box)와
+  동일한 빌더(_mvQrTileHtml, _mvTilesHtmlFromCols)를 그대로 재사용했다 — 새 CSS·새 규격 없음.
+  처리시간은 상태 바로 앞(3·4단계와 동일 규약).
+
+■ 컬럼 정리 판단 근거 (지침 2항 — 임의로 지우지 않고 근거를 남김)
+
+  [제거] 쿼리검토 / COUNT(상태) / 후보컬럼 / 통계검증
+    이전 단계 '상태' 반복이다. 상단 단계 탭 배지가 이미 담당한다 — 3·4단계 타일이 같은
+    이유로 _mvWithPrevStageStatus 를 걷어낸 것과 동일한 원칙 재사용.
+
+  [유지] 목적테이블 / 원본테이블  (목적 먼저 · 원본 다음)
+    표 ①은 원본이 먼저였고 원본이 2개 이상이면 행을 나눴다(_mvExpandRowsPerSrcTable).
+    타일은 행 개념이 없으므로 3·4단계와 동일하게 한 타일에 전부 합쳐 표시한다.
+
+  [유지] 통계검증규모
+    3단계와 같은 값·같은 근거 툴팁을 쓴다(_mvTargetSummaryView 의 size / sizeTip 재사용 —
+    새 계산 없음). 실측 툴팁: "원본 레코드 1,200건(규모 등급 아님) · GROUP BY 단일축 2개 ·
+    SUM 컬럼 1개 · …".
+
+  [유지] COUNT(원본/대상/차이)   ← 지침이 판단을 요구한 항목
+    유지로 판단했다. 근거 : 이것은 이전 단계의 '상태 배지'가 아니라 실측 수치이고, 탭 배지는
+    수치를 담지 않으므로 중복이 아니다. 특히 이 화면에는 '불일치 그룹 0개' 와 '재이관 대상
+    N건' 이 동시에 뜰 수 있는데(전자는 집계 그룹 단위, 후자는 행 레코드 단위), 그 차이를
+    해석할 때 전체 행 수 차이가 기준값이 된다. 값은 표 ②가 쓰던 _mvTargetSummaryView 의
+    count 를 그대로 쓴다(차이 0 이면 표기 생략 — 표 ②의 기존 규약 그대로).
+
+  [툴팁 격하] 실행계획       ← 지침이 판단을 요구한 항목
+    타일 칸에서 빼고 '불일치그룹' 타일 툴팁으로 옮겼다. 근거는 두 가지다.
+      (기하) 타일 그리드가 minmax(118px,1fr) · gap 10px 이라 5단계 본문 폭(실측 1222px)에서
+             한 줄에 9칸까지만 들어간다. 10칸이면 9+1 로 줄이 갈라져 1~4단계의 '한 줄 한 세트'
+             규격이 깨진다.  (9칸: 9×118+8×10 = 1142 ≤ 1222 / 10칸: 10×118+9×10 = 1270 > 1222)
+      (의미) '몇 세트·몇 그룹을 비교했는가'는 불일치 그룹 수의 분모다. 같은 타일 툴팁에
+             붙이는 편이 읽는 순서에도 맞다.
+
+  [제거] 통계결과
+    중복이다. 표 ②의 '불일치 N그룹 / 일치' 는 표 ①의 '불일치 그룹 N개' 와 같은 값이다.
+    숫자 표기인 '불일치그룹' 을 남기고, 판정 기준 설명(집계 그룹 기준 basisTip)과 조합
+    미검증 꼬리표는 그 타일 툴팁으로 옮겨 보존했다(정보 손실 없음).
+
+  [유지] 불일치 그룹 / 재이관 대상
+    이 단계 고유 핵심 정보다. 두 값은 서로 다른 사실이다 — 재이관 대상은 집계 그룹 기준
+    근사값(src_only + diff), 재이관 PK 는 행 레코드 기준 확정값이다. 툴팁에 그 구분을 적었다.
+
+  [유지] 재이관 PK
+    _mvUpdatePkSummaryCell 이 prewarm / 상세비교 응답으로 이 칸만 갱신하므로 id 를 유지했다.
+
+  [신규] 처리시간 (상태 바로 앞)
+    새로 재지 않는다. 이미 기록되는 5단계 계측값(_mvShowStageProcessingTime(5, …))을 4단계와
+    같은 방식으로 보관해 읽기만 한다. 실측 표시 '0.53초', 툴팁 '5단계 통계검증 실행(상세 추출
+    별도) — 0.53초 (525.4ms)'.
+
+  [유지] 최종상태 → '상태' 타일(마지막)
+    표 ②의 final(정상 / 불일치 / 게이트 종료 / 실패)이 표 ①의 status 보다 상태를 더 세분하므로
+    그쪽을 채택했다.
+
+  [미도입] GROUP BY / SUM 표기 (지침 3항 — '필요하면' 조건부)
+    넣지 않았다. 같은 화면의 '실행 기준' 줄(#singleResultSummary)이 이미
+    "단일 축 2세트: STATUS_CD / DEPT_CD · 예상 그룹 7개 · 실제 생성 7개 · SUM 1 · AMT" 로
+    축·SUM 목록을 문장으로 보여주고 있다. 타일에 또 넣으면 그 줄과 중복이고, 그 줄은 파트 B
+    범위 밖 영역이라 손대지 않았다.
+
+■ ★ 범위 한정을 지키기 위해 발견하고 우회한 구조 문제
+표 ②의 셀 빌더(_mvTargetSummaryHeaderHtml / _mvTargetSummaryCellsHtml / _mvTargetSummaryView)는
+개별검증 전용이 아니라 **일괄검증 다건 목록과 공유**하는 코드였다(ui/tabler_renderer.py 의
+mvResCompactRowHtml). 또 _mvRenderResultGrid 자체도 일괄/이력 검증 상세가 hostSummary:'resVdSummary'
+로 호출하고 있었다. 거기서는 여러 대상을 나열하는 진짜 다행 그리드라 타일로 바꾸면 안 된다.
+
+  대응 : 셀 빌더는 한 줄도 건드리지 않았다. _mvRenderResultGrid 는 host 로 갈라
+         · 개별(기본 host)   → 경고 배너만 남기고 표를 그리지 않는다
+         · 일괄/이력(host 명시) → 종전 표를 그대로 렌더한다
+  이 분기는 테스트로 고정했다(test_batch_detail_result_grid_render_and_hold 는 종전 10개 컬럼을
+  그대로 요구하고, test_single_result_summary_host_keeps_banners_only 는 개별에서 표가 사라졌음을
+  요구한다).
+
+  개별 host 에 남긴 것 : 설정 차이 안내 배너 + 조합 미검증 배너. 이 둘은 '요약 표'가 아니라
+  경고이므로 통합 대상이 아니다(실측에서도 그대로 남아 있음을 확인).
+
+■ 값 계산 로직 불변 (지침 5항)
+새로 계산하는 값이 하나도 없다. 전부 기존 함수 재사용이다.
+  _mvTargetSummaryView (규모·COUNT·실행계획·재이관PK·최종상태) / _mvTablesOf (테이블명) /
+  _mvSourceTablesList (다중 원본 합치기) / 표 ①의 불일치·재이관 산식(그대로 이전) /
+  _mvStage5ProcInfo (기존 계측값 읽기). SQL·판정·집계는 전혀 바뀌지 않았다.
+
+■ 실측 중 발견해 함께 고친 결함 2건
+  (1) 값과 툴팁이 어긋남 — 실측에서 잡았다.
+      통계검증규모 타일이 값은 '소형' 인데 툴팁은 '(현재: 산정 전)' 이었다.
+      원인 : _mvUpdateSizeSummaryCell 은 자기가 찾은 노드(id)에 값과 title 을 함께 쓰는데,
+             타일에서는 툴팁이 바깥 박스에 달려 있어 갱신기가 값만 바꾸고 박스 툴팁은
+             렌더 시점 문구로 남았다(종전 표에서는 같은 <td> 라 함께 교체됐다).
+      수정 : cellId 가 지정된 칸은 툴팁도 그 값 span 이 갖도록 했다 → 갱신기가 값·툴팁을 함께
+             교체한다. 실측 재확인: 두 칸(통계검증규모·재이관PK)의 박스 툴팁이 사라지고
+             값 span 이 툴팁을 갖는다. 테스트로도 고정했다.
+  (2) 드릴다운 분석 후 요약 동기화 누락
+      _mvNoteScopeRun 이 _mvRenderResultGrid 를 다시 부르는데, 개별 경로는 이제 배너만 그리므로
+      요약 값이 갱신되지 않았다. 보관된 실행 결과로 타일을 다시 그리도록 _mvRepaintStage5Tiles
+      호출을 추가했다.
+
+■ before / after 실측 (같은 픽스처·같은 하니스)
+
+  구분        표 ① #mvStage5CtxGrid        표 ② #mvSummary_singleResultSummary
+  ──────────────────────────────────────────────────────────────────────────────
+  before      table 1개 · th 11개           table 1개 · th 10개
+  afterB      table 0개 · 타일 9칸          table 0개 (조합 미검증 배너만 남음)
+
+  afterB 타일 실측값 (5단계 실행 후)
+    목적테이블   tobe01.t_combo_tgt
+    원본테이블   asis01.t_combo_src
+    통계검증규모 소형
+    COUNT        1,200 / 1,200
+    불일치그룹   0개      (툴팁: 집계 그룹 기준 판정 … / 실행계획: 단일축 2세트 · 7그룹 / 조합 미검증 …)
+    재이관대상   0건
+    재이관PK     400건
+    처리시간     0.53초
+    상태         ● 정상
+
+  레이아웃 : 9칸 전부 top 455 로 동일(한 줄), 각 폭 127px, 319px ~ 1541px.
+             1~4단계와 동일한 박스 규격(min-height 85px · padding 13px 12px).
+
+  5단계 탭 진입 직후(실행 전) : host 가 비어 있음 — before / afterB 동일(무회귀).
+    ※ 참고로 1~4단계는 진입 즉시 라벨만 먼저 그리는 placeholder 규약이 있는데, 5단계는 종전에도
+      실행 전에는 아무것도 그리지 않았다. 이번 작업은 표→타일 전환이 범위라 그 동작을 바꾸지
+      않았다. 5단계에도 라벨 우선 표시를 넣을지는 별도 판단 사항으로 남긴다.
+
+■ ★ 하단 그리드 무회귀 확인 (지침 범위 한정 항목)
+지침이 "절대 건드리지 말 것" 으로 못박은 하단 영역을 before / afterA / afterB 세 번 모두 같은
+지표로 측정했다. 세 번 모두 완전히 동일하다.
+
+  항목                       before        afterA        afterB
+  ────────────────────────────────────────────────────────────────
+  #executeOut 표 수            2             2             2
+  #executeOut 행 수           20            20            20
+  #executeOut th 목록       그룹값(DEPT_CD) / 불일치 건수 / 비율 / 대표 PK   (3회 동일)
+  #executeOut 텍스트 길이    805           805           805
+  다운로드 버튼 목록        8종 동일 (⬇ 상세 불일치 레코드 Excel 다운로드 포함)
+  일치 행 보기 토글         이번 픽스처는 matched 행이 없어 미표출 — 3회 동일
+  세부 기준 및 SQL 접힘      3회 동일
+
+  코드 수준으로도 ui/execute_result_renderer.py 는 이번 작업에서 한 줄도 수정하지 않았다
+  (git diff 파일 목록에 없음).
+
+■ 1~4단계와의 시각 일관성
+  같은 CSS 클래스·같은 빌더·같은 host 클래스(mv-sgrid-host)를 쓴다.
+  박스 규격 실측 : min-height 85px · padding 13px 12px — 3·4단계와 동일.
+  타일 수 : 3단계 9칸 / 4단계 8칸 / 5단계 9칸, 전부 한 줄.
+
+■ 스크린샷
+  before_B1_stage5_before_exec.png / before_B2_stage5_after_exec.png
+  before_B2_stage5_ctx.png (표 ①) / before_B2_stage5_target_summary.png (표 ②)
+  afterB_B1_stage5_before_exec.png / afterB_B2_stage5_after_exec.png
+  afterB_B2_stage5_ctx.png (통합 타일 9칸) / afterB_B2_stage5_target_summary.png (배너만)
+  (afterA_* 는 파트 A 적용 시점 — 5단계는 파트 A 에서 바뀌지 않았음을 보여주는 중간 대조 컷)
+
+■ git diff (파트 B)
+  tests/test_grid_helpers.py     |  94 +++++++++++++--
+  ui/grid_helpers.py             | 217 ++++++++++++++++++++++++++++---------
+  ui/tabler_renderer.py          |   9 +-
+  ui/validation_plan_renderer.py |   7 +
+  4 files changed, 274 insertions(+), 53 deletions(-)
+
+
+═══════════════════════════════════════════════════════════════════════════
+테스트 결과
+═══════════════════════════════════════════════════════════════════════════
+
+■ 기본 회귀 (CLAUDE.md 자체 테스트 규칙)
+  python samples/test_virtual_cases.py   → 8/8 통과
+  python samples/test_complex_cases.py   → 5/5 통과
+
+■ 직접 관련 서브셋
+  tests/test_grid_helpers.py
+  tests/test_stage4_stats_validation_tile_layout.py
+  tests/test_rendered_js_syntax_guard.py
+  tests/test_count_precheck_tile_layout.py
+  tests/test_step2_step3_tile_immediate_display.py
+  + -k "tile or stage4 or stage3 or grid_helpers or sql_preview or candidate_pane or step2 or step3"
+    → 전부 통과 (마지막 확인 시점 42 passed / 앞서 127 passed)
+
+■ 신규·수정 테스트
+  [신규] test_check_items_tile_removed              — 파트 A. 라벨·값 문구·툴팁·죽은 필드까지 검사
+  [신규] test_single_result_summary_host_keeps_banners_only — 파트 B. 개별에서 표가 사라졌는지
+  [신규] test_stage5_unified_tiles                  — 파트 B. 9칸 구성·순서·id·툴팁 보유 노드·그리드 잔재
+  [신규] test_stage5_tiles_before_execution_show_labels_only — 파트 B. 미실행을 0 으로 단정하지 않는지
+  [수정] test_tile_labels_and_order / test_tile_layout_matches_stage3_skeleton /
+         test_before_generate_shows_labels_only / test_after_generate_multi_values_wrap /
+         test_zero_selection_is_none_not_dash      — 파트 A. 9칸 → 8칸 계약
+  [개명] test_result_grid_render_and_hold → test_batch_detail_result_grid_render_and_hold
+         — 대상이 개별에서 일괄/이력 상세로 바뀌었음을 이름으로 드러냄(컬럼 단언은 그대로 유지)
+
+■ 실패 테스트 전체 목록 — 전부 '사전 존재', 이번 작업과 무관
+관련 파일을 넓게 돌렸을 때 17건이 실패했다. 이번 작업이 원인인지 확인하기 위해 파트 A 커밋
+시점(e3c6e76, 파트 B 미적용) worktree 에서 같은 6개 파일을 그대로 재실행해 대조했다.
+
+  현재 트리 : 17 failed  /  baseline(e3c6e76) : 17 failed  — 실패 목록이 완전히 동일
+
+  1. test_all_stages_timing_display_expand.py::test_count_generate_execute_routes_add_processing_ms
+  2. test_candidate_draft_selection.py::test_checkbox_change_keeps_table_and_plan_marks_draft
+  3. test_candidate_draft_selection.py::test_uncheck_all_does_not_switch_to_count_only_before_apply
+  4. test_candidate_draft_selection.py::test_restore_to_applied_clears_draft_notice
+  5. test_candidate_draft_selection.py::test_candidate_notice_sticky_fix_uses_common_offset
+  6. test_candidate_draft_selection.py::test_candidate_selection_bar_present_and_populated
+  7. test_one_click_full_run.py::test_full_run_blocked_stays_on_failed_stage_not_result
+  8. test_one_click_full_run.py::test_full_run_success_marks_steps_done_and_injects_state
+  9. test_one_click_full_run.py::test_full_run_blocked_locks_downstream_via_gate
+ 10. test_one_click_full_run.py::test_count_chip_no_manual_progress_badge
+ 11. test_one_click_full_run.py::test_result_summary_unified_content
+ 12. test_one_click_full_run.py::test_result_kpi_not_duplicated_summary_vs_detail
+ 13. test_one_click_full_run.py::test_result_summary_neutral_hierarchy
+ 14. test_one_click_full_run.py::test_full_run_populates_official_save_state
+ 15. test_stage_button_dedup_time_scope_and_gate45_fix.py::test_switching_tab_hides_previous_slot_but_keeps_its_value
+ 16. test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+ 17. test_ui_tab4_tab5_separation.py::test_target_only_display
+
+  ※ 11·13번은 이름이 '5단계 요약' 이라 이번 작업과 관련 있어 보이지만, 파트 B 를 적용하지 않은
+    baseline 에서도 똑같이 실패한다. 실패 사유도 node 하니스 60초 타임아웃 등 별개 원인이다.
+  ※ 별도로 test_global_js_helper_dedup.py::test_no_duplicate_global_function_definitions 도
+    실패하는데, 원인은 ui/tabler_renderer.py:8804 / 8837 의 batchLoadCandidateState 중복 정의로
+    이번 작업의 diff 범위 밖이다(사전 존재).
+
+
+═══════════════════════════════════════════════════════════════════════════
+리스크 / 남은 사항
+═══════════════════════════════════════════════════════════════════════════
+1. 5단계 탭 진입 직후 placeholder 없음 — 위 파트 B 실측 항목 참고. 종전 동작 유지이며 이번
+   범위 밖으로 남겼다. 1~4단계처럼 라벨 우선 표시를 넣을지는 별도 판단이 필요하다.
+2. 일괄/이력 검증 상세(hostSummary 지정)에서 _mvRenderStage5CtxGrid 가 hostStage5Ctx 미지정 시
+   개별 5단계 host 를 그대로 쓰는 배선은 종전 그대로 두었다(이번 작업 이전부터 있던 구조).
+   표가 타일로 바뀌었을 뿐 대상 host 는 달라지지 않았다.
+3. 재이관대상·재이관PK 두 타일이 이름이 비슷해 혼동될 수 있다. 지침이 둘 다 유지를 요구했고
+   서로 다른 사실이므로 남기되, 각 타일 툴팁에 '집계 그룹 단위' / '행 레코드 단위' 구분을 적었다.
+
+
+실검증 상태: 실제 운영 서버(127.0.0.1:8000)에 실 DB(PostgreSQL_Inter asis/tobe)를 연결하고
+Playwright 브라우저로 1→5단계를 직접 클릭해 통과시킨 실측이다. before(수정 전 모듈을 로드한
+실행 중 서버) / afterA(파트 A 적용 후 재기동) / afterB(파트 B 적용 후 재기동) 3회를 같은
+픽스처·같은 절차로 수집했으며, 스크린샷과 측정 JSON을 증적 폴더에 함께 보관했다.
+
+작업명 : STAGE4-5-TILE-CLEANUP-AND-LAYOUT-SEQUENTIAL-FIX
+✅ 작업 완료
