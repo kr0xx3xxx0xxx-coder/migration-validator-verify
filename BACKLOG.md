@@ -10,7 +10,13 @@
 - 대상 제외: 아직 push 되지 않은 로컬 전용 보고서 16건은 이번 취합에서 제외했다.
   push 후 이 파일에 합류시킨다.
 - 최초 작성: 2026-07-29 (VERIFY-REPO-BACKLOG-FILE-CREATE)
-- 최종 갱신: 2026-08-05 (BACKLOG-M32-F27-RESOLVED-MARK) — 해결된 2개 항목(M32·F27)을
+- 최종 갱신: 2026-08-05 (BACKLOG-M23-RESOLVED-MARK) — 해결된 1개 항목(M23)을
+  `✅ 해결 완료` 로 표시(신규 등록·삭제 없음)
+  (M23 해결 — 정책 결정을 '제거' 로 확정. `choose_compare_strategy` 의 죽은 `remote` 파라미터와
+  호출부 인자 전달을 함께 제거하고, 180조합 전/후 반환값 완전 동일(불일치 0건 — 애초에 안 쓰였으므로
+  당연한 결과) 확인. 옛 방식 호출 시 `TypeError` 로 걸리도록 계약 테스트도 함께 강화.
+  baseline 과 완전히 동일한 5건 사전존재 실패 확인, 신규 회귀 0건)
+- 직전 갱신: 2026-08-05 (BACKLOG-M32-F27-RESOLVED-MARK) — 해결된 2개 항목(M32·F27)을
   `✅ 해결 완료` 로 표시(신규 등록·삭제 없음)
   (M32 해결 — 실제 상한(`MV_STATISTICS_RESULT_LIMIT=5`)까지 낮춰 진짜 BLOCKED 를 재현하고,
   724.2ms 무기록 → 658.7ms(벽시계 일치) · src 98ms/tgt 102ms 로 분해. 공식 저장 계약(8개 키
@@ -2184,7 +2190,33 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\REIMPORT-DRILLDOWN-M17-M18-FIX.txt /
   REIMPORT-DRILLDOWN-M17-M18-FIX\REPORT.md (§8-1)
 
-### M23. `choose_compare_strategy` 의 `remote` 인자가 설계 의도와 다르게 미사용 상태로 방치돼 있다
+### M23. ✅ 해결 완료 — `choose_compare_strategy` 의 `remote` 인자가 설계 의도와 다르게 미사용 상태로 방치돼 있다
+- 해결일: 2026-08-05 (STRATEGY-TRANSITION-DEAD-REMOTE-PARAM-CLEANUP-FIX)
+- 근거 커밋: 코드 저장소 `de02174` — `fix(strategy): 전환판정 죽은 파라미터 remote 제거
+  (STRATEGY-TRANSITION-DEAD-REMOTE-PARAM-CLEANUP-FIX)`
+- 근거 보고서 커밋: 이 저장소 `e908ad6`
+- 해결 요약: '배선할지 제거할지' 정책 결정을 **제거**로 확정했다. `choose_compare_strategy` 시그니처의
+  죽은 `remote` 파라미터와, 그 값을 계산해 넘기던 **호출부 인자 전달**(`routes/strategy_route.py:73`
+  `remote=profile.remote` · `routes/agg_diff_route.py:64` `remote=True`)을 함께 제거했다.
+  판정 분기·다른 파라미터·반환 dict 는 한 줄도 건드리지 않았다.
+  180조합(크기 6 × PK종류 5 × 인덱스 2 × throughput 3) 전/후 반환값 전수 대조에서 **불일치 0건**
+  (`selected_strategy_id` · `selected_chunk_size` · `reason_codes` · 예상시간 · `confidence` ·
+  `benchmark_profile_version` 전 필드 동일) — 애초에 본문에서 참조되지 않던 인자이므로 **당연히 같아야
+  하는 결과**이고, 실제로 바뀐 것은 시그니처 문자열 하나뿐이다.
+- 계약 테스트 강화: 기존 `tests/test_strategy_remote_flag_evidence.py` 는 `remote=` 를 넘겨 '무시됨'을
+  단언하던 형태라 제거 후에는 실행 자체가 불가능하다. 이를 **옛 방식 호출 시 `TypeError` 로 걸리도록**
+  격상했다(`inspect` 로 `remote` 파라미터 부재 확인 + `remote=` 전달 시 `TypeError` 발생 확인).
+- 회귀: 관련 32개 테스트 파일 서브셋에서 baseline(HEAD `5b851fd`) **5 failed / 342 passed** vs
+  수정 후 **5 failed / 343 passed** — 실패 5건이 baseline 과 **완전히 동일한 사전존재 실패**
+  (`test_agg_contribution` 1 · `test_execution_path` 3 · `test_stats_result_full` 1)로 **신규 회귀 0건**,
+  passed +1 은 이번에 추가한 시그니처 계약 테스트다.
+- 무회귀 확인(다른 소비처): `profile.remote` 자체는 그대로 살아 있어 판정근거 문구("원격 DB"/"로컬 DB")와
+  통계전략 cost 가산에서 계속 쓰인다 — probe 재실행에서 등급이 갈리는 51/324 조합을 포함해 전략 ID 는
+  전부 동일해, 이번 제거로 그 경로는 아무것도 달라지지 않았음을 확인했다.
+- 잔여(별건 미등록): `ui/grid_helpers.py:1462` 의 설명 주석("`choose_compare_strategy` 은 remote 를
+  인자로 받기만 하고 본문에서 쓰지 않는다")이 이제 문구상 stale 하다. 동시 작업 충돌 위험이 있는 대형
+  공유 파일이라 이번 범위 밖으로 남겼다(주석 텍스트 — 동작 영향 없음).
+- 근거 보고서(해결): E:\verify_reports\STRATEGY-TRANSITION-DEAD-REMOTE-PARAM-CLEANUP-FIX.txt
 - 발견일: 2026-08-02
 - 근거 보고서: `STRATEGY-PLAN-REMOTE-FLAG-EVIDENCE-BASED-FIX.txt` (§3 · §6)
 - 상세: `services/strategy/strategy_transition.choose_compare_strategy` 는 시그니처에 `remote`
