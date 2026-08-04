@@ -1,0 +1,368 @@
+작업명 : STAGE4-STATS-VALIDATION-TILE-LAYOUT-FIX
+일자   : 2026-08-04
+커밋   : 4546941  (직전 HEAD 0d46913)
+증적   : E:\verify_screenshots_only\STAGE4-STATS-VALIDATION-TILE-LAYOUT-FIX\
+
+
+■ 1. 무엇을 바꿨나
+
+4단계(통계검증 실행) 상단의 '통계검증 구성 요약'은 10열짜리 표였다.
+
+  before : No | 원본 테이블 | 목적 테이블 | 쿼리검토 | COUNT | 후보컬럼 |
+           GROUP BY 구성 | SUM 구성 | 검증항목 | 상태
+           (GROUP BY 구성 = "status_cd ↔ STATUS_CD · dept_cd ↔ DEPT_CD" 화살표 표기)
+
+이 표시도 '1 SQL = 1 세트 요약'이지 여러 행을 다루는 그리드가 아니다. 1~3단계가 이미 확립한
+타일 디자인 시스템으로 바꿨다.
+
+  after  : 목적테이블 | 원본테이블 | 검증항목 | 목적그룹 | 원본그룹 | 목적집계 | 원본집계 |
+           처리시간 | 상태   (타일 9개)
+
+새 CSS·새 규격은 만들지 않았다. 타일 CSS(.mv-qr-tiles/.mv-qr-tile/.mv-qr-tile-label/
+.mv-qr-tile-box/.mv-qr-tile-val)와 타일 1개 빌더(_mvQrTileHtml)를 그대로 재사용했고, 값 렌더
+규칙(multi 줄바꿈 / mono / statusicon / 미계산 '—')은 3단계 것을 공용부(_mvTilesHtmlFromCols)로
+뽑아 두 단계가 함께 쓴다. 실측에서 4단계 타일 박스 규격이 3단계와 완전히 같음을 확인했다
+(min-height 85px · padding 13px 12px — 브라우저 computed style 대조).
+
+같은 화면에서 중복 표시를 하던 '생성된 SQL 기준' 안내박스(.gen-sql-basis, 높이 114px)도 함께
+삭제했다(추가 지침).
+
+
+■ 2. 컬럼 정리 판단 근거
+
+지침이 판단을 요구한 세 항목이다. 임의로 지우지 않고 그 정보가 화면 다른 곳에 이미 있는지
+먼저 확인한 뒤 결정했다.
+
+  (a) 쿼리검토 / COUNT / 후보컬럼  →  제거
+      이 셋은 1·2·3단계의 최종 상태를 4단계에서 다시 보여주는 열이다(_mvWithPrevStageStatus 가
+      주입). 같은 판단을 3단계 타일이 이미 내려놓았다 — grid_helpers.py 의 3단계 타일 주석에
+      "이전 단계 상태 열(쿼리검토/COUNT)은 상단 단계 탭 배지가 이미 담당하므로 타일에 넣지
+      않는다(1·2단계 타일이 같은 이유로 _mvWithPrevStageStatus 를 거치지 않는 것과 동일)"고
+      명시돼 있다. 4단계만 예외로 둘 이유가 없어 같은 규칙을 적용했다. 상단 1~5단계 탭 배지가
+      각 단계 상태를 상시 표시하므로 정보 손실이 아니다(실측 스크린샷의 단계 탭 참조).
+
+  (b) GROUP BY 구성 / SUM 구성  →  목적그룹·원본그룹·목적집계·원본집계 4타일로 분리
+      3단계가 확립한 '화살표(↔) 대신 목적/원본 축 분리 + 줄바꿈 다중값' 규칙을 그대로 재사용
+      했다(_mvColPairParts). 새 표기를 발명하지 않았다. before 의 "status_cd ↔ STATUS_CD ·
+      dept_cd ↔ DEPT_CD" 한 칸이 after 에서는 목적그룹 "STATUS_CD / DEPT_CD"(줄바꿈) + 원본그룹
+      "status_cd / dept_cd"(줄바꿈) 두 타일로 나뉜다.
+
+  (c) 검증항목('COUNT · GB 1 · SUM 2')  →  유지
+      GB/SUM '개수'는 위 (b) 타일에서 세면 알 수 있어 그 부분은 중복이다. 그러나 'COUNT(*) 는
+      항상 포함된다'는 사실은 다른 타일 어디에서도 유추할 수 없다. 더구나 이번에 함께 삭제하는
+      '생성된 SQL 기준' 안내박스가 바로 그 사실("COUNT(*): 항상 포함")을 담고 있던 유일한 자리라,
+      검증항목까지 지우면 그 정보가 화면에서 완전히 사라진다. 그래서 유지하고, 툴팁에
+      "COUNT(*) 는 항상 포함됩니다 · GROUP BY n개 · 집계컬럼 m개"로 근거를 붙였다.
+
+  (d) 목적/원본 테이블  →  유지, 다른 단계와 같은 순서(목적 먼저)로 통일
+      before 표는 '원본 테이블 → 목적 테이블' 순이었는데 1~3단계 타일은 '목적테이블 →
+      원본테이블' 순이다. 타일로 오면서 다른 단계와 같은 순서로 맞췄다(지침 3의 "목적 먼저,
+      원본 다음" 요구와도 일치).
+
+  (e) 처리시간  →  신규 추가(지침 4), 상태 바로 앞
+      값은 새로 계측하지 않는다. 기존 _mvShowStageProcessingTime(4, ...) 이 이미 재던 값을
+      타일이 읽도록 보관만 추가했다. 4단계 슬롯에는 성격이 다른 두 값이 순서대로 들어오므로
+      (SQL 생성 시간 → 통계검증 실행 시간) 라벨도 함께 보관해 툴팁에서 구분한다.
+
+  (f) 원본 테이블 2개 이상(JOIN/UNION)  →  행 분할 제거
+      표 시절에는 _mvExpandRowsPerSrcTable 이 원본당 한 행으로 펼쳤다. 타일은 행 개념이 없으므로
+      1·2·3단계 타일과 동일하게 한 타일에 전부 합쳐 표시한다.
+
+
+■ 3. '생성된 SQL 기준' 안내박스 삭제 (추가 지침)
+
+박스가 보여주던 세 줄은 전부 타일이 대체한다 — GROUP BY/SUM 은 (b)의 4타일, 'COUNT(*) 항상
+포함'은 (c)의 검증항목 타일. 따라서 껍데기와 그 여백(margin-bottom:12px · padding:9px 12px)을
+통째로 걷어냈다.
+
+다만 그 박스 '안에' 중복이 아닌 요소 셋이 함께 들어 있었다. 이들은 껍데기 없이 그대로 남겼다.
+  · genSqlComboDecomposeNotice — GROUP BY 2축 이상일 때 '조합은 따로 실행된다' 경고와
+    조합 opt-in 체크박스(#gbIncludePair). 실행 동작에 직접 관여하므로 지우면 기능 회귀다.
+  · _wrapBadge — 원본 SELECT wrapping 적용 배지.
+  · #genSqlRegenNotice — 선택 변경 시 _updateExecSelectionSummary 가 id 로 찾아 채우는
+    재생성 안내 placeholder. 지우면 그 함수가 대상 DOM 을 잃는다.
+실측에서 combo 케이스(GB 2축)의 조합 경고가 before/after 동일하게 표시됨을 확인했다.
+
+
+■ 4. 구현 중 발견해 고친 결함 (실측이 잡아낸 것)
+
+1차 구현 후 after 실측에서 타일 값이 전부 '—' 로 남고 처리시간만 'NaN초'로 나왔다. 브라우저
+probe 로 원인을 확정했다: **전역 함수명과 window 보관 변수명 충돌**이다.
+
+  브라우저에서 최상위 `function _mvStage4ProcMs(){...}` 는 곧 `window._mvStage4ProcMs` 다.
+  그런데 처리시간을 같은 이름(`window._mvStage4ProcMs = ms`)으로 보관했더니, 값이 들어오는
+  순간 함수가 숫자로 덮여 사라졌다 → `_mvStage4ProcMs is not a function` 예외 → 타일 렌더가
+  통째로 죽어 이전 렌더(라벨만)가 그대로 남았고, 그 전까지는 `Number(함수)` = NaN 이 찍혔다.
+
+헬퍼를 `_mvStage4ProcInfo()` 로 분리해 해소했다(3단계가 `_mvCandidateProcMs()` 함수 +
+`window._mvStage3ProcMs` 값으로 이름을 나눠 둔 것과 같은 형태). node 하니스는 window 가 별개
+객체라 이 충돌을 재현하지 못해 테스트 30건이 전부 통과하면서 놓쳤다 — 그래서 소스 수준 정적
+검사(test_no_global_function_vs_window_slot_collision)를 재발 방지로 추가했다.
+
+또한 host 를 #sqlOut 밖으로 옮기면서 생긴 stale 노출 경로 4곳을 모두 배선했다. 종전에는 표가
+#sqlOut 안에 있어 `_clr('sqlOut')` 한 줄로 함께 지워졌지만, 이제는 경로마다 따로 비우지 않으면
+무효화 후에도 옛 GROUP BY/SUM 구성이 남는다.
+  _singleInvalidateDownstream · resetAnalysisUi · resetAfterGenerateStart ·
+  _clearCountDownstreamUi · refreshFinalSelectionState(유효 SQL 미생성 분기)
+이 중 resetAfterGenerateStart / _clearCountDownstreamUi 두 곳은 처음에 놓쳤는데, 'sqlOut 을
+비우는 모든 경로가 타일도 처리하는가'를 검사하는 테스트가 잡아냈다.
+
+
+■ 5. 변경 파일
+
+  ui/grid_helpers.py
+      + _mvTilesHtmlFromCols(cols,row)   3·4단계 공용 값 렌더부(3단계에서 추출 — 출력 불변)
+      + _mvStage4Columns / _mvStage4TileRow / _mvStage4TilesHtml
+      + _mvStage4ProcInfo / _mvPaintStage4Tiles / _mvRenderStage4HeaderOnly / _mvRepaintStage4Tiles
+      - _mvStage4CtxGridData / _mvStage4CtxGridHtml (옛 표 빌더 — 죽은 코드 방지로 제거)
+  ui/js_sql_preview.py
+      - .gen-sql-basis 안내박스 마크업(제목 + COUNT/GROUP BY/SUM 세 줄)
+      - #sqlOut 안에 host 를 그리던 코드 → _mvPaintStage4Tiles 호출로 대체
+  ui/tabler_renderer.py
+      + #mvStage4CtxGrid host 고정 선언(sqlCard 밖), SINGLE_STEP_CARDS.validation 등록
+      + 4단계 pane 진입 훅(_mvRenderStage4HeaderOnly), stale clear 4경로
+  ui/validation_plan_renderer.py
+      + 4단계 처리시간 보관 + 타일 repaint (계측 로직 불변)
+  tests/test_stage4_stats_validation_tile_layout.py   신규 25건
+  scripts/dev_e2e/stage4_stats_validation_tile_layout_verify.py   신규(브라우저 실측)
+  scripts/dev_e2e/stage4_tile_wiring_diagnose.py                  신규(원인 진단 보조)
+
+값 계산 로직은 건드리지 않았다 — 표시 위치·형태만 바뀐다(SQL 생성/실행/판정 불변).
+
+
+■ 6. 실측 검증 — 실 브라우저(PostgreSQL 내부망 asis→tobe), before/after 각 2케이스
+
+before 는 '수정 전 모듈을 이미 로드한 실행 중 서버'(reload=False 라 .py 편집 미반영)에서,
+after 는 최종 코드로 서버를 재기동한 뒤 같은 절차로 찍었다.
+  케이스 etl04 : t_as_n_etl04 → t_to_n_etl04 (GROUP BY 후보 0개 — '전체 기준 집계' 경로)
+  케이스 combo : t_combo_src → t_combo_tgt   (GROUP BY 2축 STATUS_CD·DEPT_CD + SUM AMT)
+
+  ① 탭 진입 직후(SQL 생성 전)
+     before : 컨텍스트 영역 자체가 DOM 에 없음(타일 0개, table 0개) — host 가 #sqlOut 안에
+              있어 SQL 을 생성해야만 생겼다. 그래서 before 에는 진입 직후 clip 스크린샷이 없다.
+     after  : 타일 9개 라벨 표시, 확정 정보(목적/원본 테이블)만 값이 있고 나머지 7칸은 '—'
+              → 1·2단계와 같은 '라벨 먼저, 값은 실행 후' 동작 확보
+  ② 통계검증 SQL 생성 후
+     etl04 : ["tobe01.t_to_n_etl04","asis01.t_as_n_etl04","COUNT · GB 0 · SUM 1","없음","없음",
+              "ACTIVITY_SCORE","score","0.01초 미만","● 정상"]
+     combo : ["tobe01.t_combo_tgt","asis01.t_combo_src","COUNT · GB 2 · SUM 1",
+              "STATUS_CD DEPT_CD","status_cd dept_cd","AMT","amt","0.01초 미만","● 정상"]
+              → GROUP BY 2개가 목적/원본으로 나뉘고 각각 <br> 줄바꿈으로 나열됨(요구사항 확인)
+  ③ 통계검증 실행 후 — 처리시간이 실행 시간으로 갱신됨(etl04 24.23초 / combo 0.54초).
+     같은 슬롯의 두 값(생성 0.01초 미만 → 실행)이 라벨과 함께 정상 교체된다.
+  ④ 그리드 요소 제거 — 두 케이스·세 시점 모두 table 0개 · th 0개 · 정렬요소 0개
+     (before 는 생성 후 table 1개 · th 10개: No/원본 테이블/목적 테이블/쿼리검토/COUNT/
+      후보컬럼/GROUP BY 구성/SUM 구성/검증항목/상태)
+  ⑤ 안내박스 삭제 — before 존재(높이 114px, "생성된 SQL 기준 … COUNT(*): 항상 포함 …"),
+     after 미존재(.gen-sql-basis 0개). 조합 경고·opt-in 체크박스는 그대로 표시됨.
+  ⑥ 화면 폭 활용 — 컨텍스트 영역 폭 1222 → 1256px(본문폭 1600 기준), 9타일 가로 나열.
+  ⑦ 1~3단계와 시각 일관성 — 4단계 타일 박스 computed style 이 3단계와 동일
+     (min-height 85px · padding 13px 12px).
+  ⑧ 무회귀 — 원본/목적 SQL 박스 길이(159/159), 실행 결과 길이(1263), 조합 안내 문구가
+     before/after 동일. pageerror 도 before/after 동일하게 1건(사전 존재 404 리소스)뿐.
+
+  스크린샷 30장: {before,after}[_combo]_{A_stage4_enter, B_stage4_generated, C_stage4_executed}
+                 {,_ctx}.png + S3_stage3_tiles.png
+  원본 JSON 4건: stage4_stats_validation_tile_layout_verify_{before,after}[_combo].json
+                 (타일 라벨·값·툴팁·박스 규격·그리드 잔재·안내박스 원문 포함)
+
+
+■ 7. 자체 테스트 / 회귀
+
+  신규   tests/test_stage4_stats_validation_tile_layout.py  25건 통과
+         [A] 타일 구성·순서(처리시간→상태) 및 3단계 골격 일치
+         [B] 생성 전 라벨만  [C] 생성 후 값·다중값 줄바꿈·처리시간  [D] 선택 0개 '없음'
+         [E] 그리드 잔재 없음  [F] 이전 단계 상태 열 제거 + 라이브 체크박스 미참조
+         [G] 3단계 무회귀 + 공용부 위임  [H] 안내박스 삭제·기능 요소 보존
+         [I] host 위치/pane 등록/진입 훅/처리시간 보관/무효화 4경로/이름 충돌 가드
+  회귀   tests/test_step2_step3_tile_immediate_display.py 6건 통과(3단계 타일 출력 불변 실증)
+  문법   렌더된 페이지의 인라인 script 4블록 전부 node --check 통과
+
+  서브셋 pytest -k "tile or stage or grid or sql or validation or step or candidate or count"
+  실행 5회(각 약 23분)로 대조했다.
+    ① 현재 코드(본 저장소)      4240 passed / 119 failed / 13 errors  → 실패 ID 131건
+    ② baseline 0d46913(worktree) 4161 passed / 129 failed / 44 errors  → 실패 ID 172건 (2회 동일)
+    ③ 새 테스트 파일만 제외한 현재 코드                                → 131건(①과 동일 양상)
+
+    ①과 ②를 그대로 비교하면 신규로 보이는 항목이 1건 나왔다:
+      tests/test_task11_cand_sem.py::TestTokenMatching::test_22a_account_id_is_identifier
+    그런데 ①은 본 저장소, ②는 worktree 라 실행 환경이 다르다(skipped 26 vs 38, errors 13 vs 44).
+    이 교란을 없애기 위해 **동일 환경(worktree) A/B** 를 따로 돌렸다 — 같은 커밋을 두 벌 체크아웃해
+    한쪽만 ui/ 4파일을 직전 버전으로 되돌리고, 양쪽 모두 신규 테스트 파일을 제거해 순서 변수까지
+    제거했다.
+      W1 = 4546941 그대로(UI 변경 포함)        4161 passed / 129 failed / 44 errors → 172건
+      W2 = 4546941 에서 ui/ 4파일만 0d46913    4160 passed / 130 failed / 44 errors → 173건
+
+    → **W1 대비 W2 신규 0건 = 이번 변경으로 인한 신규 회귀 0건.**
+      test_22a 는 W1·W2 어느 쪽에서도 나오지 않는다(양쪽 0건). 즉 그 실패는 본 저장소 실행 환경
+      특유의 순서 의존이며 UI 변경과 인과가 없다. 방증 3가지:
+        · 해당 파일 단독 실행 28건 전부 통과, 신규 테스트와의 2파일 조합 53건도 전부 통과
+        · 새 테스트 파일을 제외해도(③) 그대로 나옴 → '파일 추가로 인한 순서 변화'도 원인이 아님
+        · 테스트 내용이 'ACCOUNT_ID → IDENTIFIER' 시맨틱 판정(analyzer)이라 ui/ 표시 코드와
+          코드 경로가 전혀 겹치지 않음
+      반대로 W2 에만 있는 1건(test_partial_persistence.py::test_batch_real_sqlite_fail_then_retry)도
+      같은 성격의 순서 의존이다 — 변경 전 코드에서만 났으므로 이번 작업과 무관하다.
+
+
+■ 8. 남는 한계 / 비판적 검토
+
+  · 지침의 '수정 대상 파일: ui/tabler_renderer.py' 는 실제 구조와 달랐다. 4단계 요약 표는
+    ui/grid_helpers.py 에, 안내박스는 ui/js_sql_preview.py 에 있어 그 두 파일이 주 수정 대상이
+    됐다(tabler_renderer.py 는 host 선언·pane 등록·clear 배선만). 파일이 늘었지만 각 모듈의
+    기존 책임 경계를 그대로 따른 것이라 결합도가 늘지는 않았다.
+  · 3단계 타일 함수(_mvCandidateTilesHtml)의 본문을 공용부로 추출했다. '완료된 모듈은 임의
+    리팩토링 금지' 규칙과 접점이 있으나, 렌더 규칙을 4단계에 복제하면 같은 규약이 두 벌이
+    되어 부채가 커진다고 판단했다. 출력 동일성은 기존 node 하니스 테스트(6건)가 그대로
+    통과하는 것으로 실증했고, 위임 여부를 검사하는 테스트를 추가해 재복제를 막았다.
+  · 검증항목 타일은 GB/SUM 개수가 다른 타일과 중복이다. 완전히 없애려면 'COUNT(*) 항상 포함'
+    을 다른 자리에 옮겨야 하는데, 그건 이번 지침 범위(4단계 요약 재구성) 밖의 화면 설계
+    변경이라 유지 쪽을 택했다.
+  · combo 픽스처에 SUM 후보가 AMT 하나뿐이라 '실 브라우저에서 SUM 2개' 케이스는 만들지
+    못했다(GROUP BY 2개는 실측했다). SUM 2개 다중값은 단위 테스트에서 검증했다
+    (test_after_generate_multi_values_wrap — 목적집계 'AMT | QTY').
+  · heuristic·scoring 변화 없음. explainability 는 소폭 증가(검증항목·처리시간 툴팁에 근거 추가).
+
+
+■ 9. 실검증 상태
+
+  실검증 상태: 실 DB(PostgreSQL 내부망 asis01→tobe01) 실 브라우저 클릭스루로 1~5단계를 실제
+  통과하며 before/after 각 2케이스 실측 완료 — 통계검증 SQL 생성·실행까지 실제 수행(실행 결과
+  1196·1263자 수신). 스텁·모킹 없음.
+
+
+■ 10. 실패 테스트 전체 목록 (131건 — 현재 코드 본 저장소 기준, 전부 사전 존재)
+
+  tests/test_all_stages_timing_display_expand.py::test_count_generate_execute_routes_add_processing_ms
+  tests/test_batch_flow2_candidate_core_parity.py::test_coalesce_cast_flow2_core_parity
+  tests/test_batch_flow2_e2e_smoke.py::test_e2e_generate_candidates_then_snapshots
+  tests/test_batch_flow2_e2e_smoke.py::test_plan_mode_count_sum_only
+  tests/test_batch_flow2_e2e_smoke.py::test_plan_modes_share_same_selected_candidates
+  tests/test_batch_group_current_workflow_scope.py::test_reload_restore_group_step
+  tests/test_batch_group_current_workflow_scope.py::test_storage_step_migration_6_to_5
+  tests/test_batch_profile_candidate_parity.py::test_calc_profile_present_parity
+  tests/test_batch_report_service.py::TestBuildBatchExcelReport::test_R07_items_sheet_row_count
+  tests/test_batch_step_tabs_workflow.py::test_completed_tab_green_priority_in_nav
+  tests/test_batch_step_tabs_workflow.py::test_next_step_buttons_removed
+  tests/test_batch_step_tabs_workflow.py::test_targets_tab_no_next_button
+  tests/test_batch_upload_audit.py::test_audit_counts_and_missing_reasons
+  tests/test_candidate_contract.py::test_live_payment_contract_clean_and_defaults_preserved
+  tests/test_candidate_contract.py::test_live_product_selectable_not_auto_selected
+  tests/test_candidate_decision_evidence.py::test_evidence_role_split_strings
+  tests/test_candidate_display_policy.py::test_04_group_by_default
+  tests/test_candidate_display_policy.py::test_05_sum_default
+  tests/test_candidate_display_policy.py::test_06_net_amt
+  tests/test_candidate_draft_selection.py::test_candidate_notice_sticky_fix_uses_common_offset
+  tests/test_candidate_draft_selection.py::test_candidate_selection_bar_present_and_populated
+  tests/test_candidate_draft_selection.py::test_checkbox_change_keeps_table_and_plan_marks_draft
+  tests/test_candidate_draft_selection.py::test_restore_to_applied_clears_draft_notice
+  tests/test_candidate_draft_selection.py::test_uncheck_all_does_not_switch_to_count_only_before_apply
+  tests/test_candidate_evidence_display_policy.py::test_net_amt_vs_unit_price_distinct
+  tests/test_candidate_explainability.py::test_01_default_has_primary
+  tests/test_candidate_explainability.py::test_05_line_amt_computed
+  tests/test_candidate_explainability.py::test_06_group_by_profile
+  tests/test_candidate_explanation_display.py::test_candidate_score_separate_column
+  tests/test_candidate_plan_matrix.py::test_null_vs_empty_selection_contract
+  tests/test_candidate_role_policy_grid.py::test_global_limit_banner_and_count_same_input_no_lock
+  tests/test_conn_payload_common_builder.py::test_run_full_validation_uses_common_builder
+  tests/test_count_gate.py::test_ui_gate_display_and_blocking
+  tests/test_count_only_validation_ui.py::test_group_result_uses_normal_renderer_unchanged
+  tests/test_count_sql_full_visibility.py::test_count_sql_pre_boxes_no_clip_and_order
+  tests/test_count_sql_full_visibility.py::test_render_count_result_full_sql_and_copy_equivalence
+  tests/test_cte_alias_scope_and_derived_validation.py::test_real_physical_column_missing_still_failed
+  tests/test_cte_alias_scope_and_derived_validation.py::test_real_physical_table_missing_still_failed
+  tests/test_cte_count_execution_and_projection.py::test_ui_count_note_and_auto_audit
+  tests/test_d7_9_gb0_fallback.py::test_gate_gb0_always_grid
+  tests/test_d7_9_gb0_fallback.py::test_stage_timing_display
+  tests/test_date_candidate_ui_cleanup.py::test_date_cap_guard_and_hold
+  tests/test_design_refresh_full_validation.py::test_showtab_includes_fullvalidation
+  tests/test_error_contract_route_coverage.py::test_count_mismatch_keeps_data_contract_not_exec
+  tests/test_error_contract_route_coverage.py::test_count_source_error
+  tests/test_error_contract_route_coverage.py::test_count_target_error
+  tests/test_exact_diff_ui_wiring.py::test_record_grid_and_kind_filter_and_order
+  tests/test_fallback_provenance_already_count_fix.py::test_frontend_no_alternative_risk_flag_shows_distinct_text
+  tests/test_fallback_provenance_already_count_fix.py::test_frontend_uses_server_warn_reason_not_hardcoded_text
+  tests/test_generate_route_contract.py::test_g07_sql_generation_uses_common_builder
+  tests/test_group_master_crud.py::TestQueryUploadResultRender::test_count_message_format
+  tests/test_groupby_estimated_group_count_ui.py::test_estimate_uses_cardinality_evidence
+  tests/test_groupby_estimated_group_count_ui.py::test_renderer_estimate_summary_evidence_wiring
+  tests/test_individual_validation_stage_content.py::test_sql_shape_object_label_extraction
+  tests/test_iv08_iv11_final_fix.py::test_count_only_pane_makes_header_non_sticky
+  tests/test_numeric_tolerance_policy.py::test_15_count_skip_regression
+  tests/test_one_click_critical_hold_route_to_normal_gate.py::test_real_count_error_still_uses_error_panel_unchanged
+  tests/test_one_click_full_run.py::test_count_chip_no_manual_progress_badge
+  tests/test_one_click_full_run.py::test_full_run_blocked_stays_on_failed_stage_not_result
+  tests/test_one_click_full_run.py::test_full_run_success_marks_steps_done_and_injects_state
+  tests/test_operational_stability.py::TestNumericTolerance::test_D_count_not_affected_by_tolerance
+  tests/test_result_view_ui_wiring.py::test_node_count_skipped_warning
+  tests/test_row_error_save_block.py::TestRowErrorCounts::test_21_rows_1_error
+  tests/test_row_limit_policy.py::test_src_only_tgt_only_counted_beyond_display
+  tests/test_selection_baseline_dirty.py::test_count_only_notice_uses_live_selection
+  tests/test_single_batch_execute_parity.py::test_count_skipped_executes_with_warning
+  tests/test_single_group_registration.py::test_response_has_no_raw_sql_or_credentials
+  tests/test_single_official_register_hardening.py::test_global_candidate_policy_snapshot_not_overwritten
+  tests/test_single_official_register_hardening.py::test_same_sql_different_metadata_fp_not_skipped
+  tests/test_single_official_register_hardening.py::test_same_sql_same_everything_idempotent
+  tests/test_single_save_group_registration.py::test_migration_sql_not_executed
+  tests/test_single_save_group_registration.py::test_resave_changed_sql_requires_confirmation_then_replaces
+  tests/test_single_save_group_registration.py::test_resave_same_sql_idempotent
+  tests/test_single_save_group_registration.py::test_save_registers_target_and_count_increases
+  tests/test_single_sql_change_stale_clear.py::test_clear_final_save_state_clears_everything
+  tests/test_single_sql_stale_preserve_and_reset_scope.py::test_reset_current_work_is_single_scoped
+  tests/test_single_sql_stale_preserve_and_reset_scope.py::test_save_blocked_when_stale
+  tests/test_single_sql_stale_preserve_and_reset_scope.py::test_sql_edit_marks_stale_not_clear
+  tests/test_single_status_ux_cleanup.py::test_ui_count_mismatch_clarified
+  tests/test_single_validation_candidate_audit.py::test_audit_fixture_cases_all_pass
+  tests/test_single_validation_candidate_audit.py::test_fallback_promote_golden
+  tests/test_single_validation_e2e_core.py::test_e2e_analyze_pools_and_defaults
+  tests/test_single_validation_e2e_core.py::test_e2e_execute_classification
+  tests/test_single_validation_e2e_core.py::test_e2e_execute_count_exact_sum_tolerance
+  tests/test_single_validation_e2e_core.py::test_e2e_execute_error_separation
+  tests/test_single_validation_e2e_core.py::test_e2e_execute_max_rows_truncation
+  tests/test_single_validation_e2e_core.py::test_e2e_execute_no_groupby_total_aggregate
+  tests/test_single_validation_e2e_core.py::test_e2e_full_chain_analyze_generate_execute
+  tests/test_single_validation_final_flow_check.py::test_analyze_candidates_business_first_and_source_expression
+  tests/test_single_validation_result_view_persistence.py::test_count_precheck_not_run
+  tests/test_single_validation_result_view_persistence.py::test_execute_attaches_job_id_and_saves
+  tests/test_single_validation_result_view_persistence.py::test_failure_saved_for_evidence
+  tests/test_single_validation_result_view_persistence.py::test_no_connection_info
+  tests/test_single_validation_result_view_persistence.py::test_status_code_consistent
+  tests/test_single_validation_result_view_persistence.py::test_truncated_tolerance_saved
+  tests/test_single_validation_server_guards.py::test_single_missing_conn_blocked_preflight
+  tests/test_single_validation_server_guards.py::test_single_pg_normal_flow_not_broken_by_preflight
+  tests/test_single_validation_view_connection.py::SingleViewConnectionTest::test_02_result_summary_uses_shared_verdict_badge
+  tests/test_single_validation_view_connection.py::SingleViewConnectionTest::test_03_save_result_uses_shared_persistence_badge
+  tests/test_single_validation_view_connection.py::SingleViewConnectionTest::test_10_no_bypassing_verdict_mapping
+  tests/test_sql_limit_warning_ui_static.py::test_ddl_missing_warning_message
+  tests/test_stage_button_dedup_time_scope_and_gate45_fix.py::test_switching_tab_hides_previous_slot_but_keeps_its_value
+  tests/test_stats_sql_complex_source_wrap.py::test_union_still_blocked_at_gate
+  tests/test_task11_cand_sem.py::TestTokenMatching::test_22a_account_id_is_identifier
+  tests/test_task11_g.py::TestCandidateEngineEvidence::test_TC_PIPELINE_09_lineage_sum_evidence
+  tests/test_task11_g.py::TestSqlglotImportRestriction::test_TC_PIPELINE_01_sqlglot_restricted_to_parser
+  tests/test_task11_i.py::TestBatchCandidateMetaPath::test_02_no_metadata_warning_uses_sql_only_message
+  tests/test_task11_p_profile_snapshot.py::TC06_08_EnricherIntegration::test_06_candidate_input_builder_accepts_snapshot
+  tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_09_job_type_equal
+  tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_10_department_code_equal
+  tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_11_hire_date_equal
+  tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_12_salary_equal
+  tests/test_task11_r2_source_connection_id.py::TC_R2_14_15_Schema::test_14_validation_batch_group_has_connection_columns
+  tests/test_task11_r3.py::TC_R3_09_11_CandidateIntegrity::test_10_selected_not_affected_by_source_profile_skip
+  tests/test_task11_r3.py::TC_R3_09_11_CandidateIntegrity::test_11_has_group_connection_identity_importable
+  tests/test_task12_a.py::TestCountOnlyExecution::test_03_count_only_with_empty_sum
+  tests/test_task12_a.py::TestCountOnlyExecution::test_03_no_groupby_no_sum_count_only
+  tests/test_task12_a.py::TestExecuteResultStructure::test_06_summary_counts_correct
+  tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_dedup_logic_present
+  tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_hidden_when_empty
+  tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_only_individual_screen
+  tests/test_task_single_candidate_evidence_preview.py::test_cap3_unchanged
+  tests/test_upload_audit_store.py::TestCollectionTargets::test_source_and_target_listed_dedup_and_sql_count
+  tests/test_upload_audit_store.py::TestPersistAndCurrent::test_latest_replaces_previous_and_prev_count
+  tests/test_upload_visibility_and_cte_count.py::test_audit_shows_all_rows_with_summary
+  tests/test_upload_visibility_and_cte_count.py::test_ui_separates_lists_and_count_note
+  tests/test_validation_execute_core.py::test_execute_diff_failed
+  tests/test_validation_execute_core.py::test_execute_matched_passed
+  tests/test_validation_execute_core.py::test_execute_source_error_distinct
+  tests/test_validation_execute_core.py::test_execute_target_error_distinct
+  tests/test_validation_plan_renderer_static.py::test_v05_count_only_explicit_confirm_gate
+
+✅ 작업 완료 - STAGE4-STATS-VALIDATION-TILE-LAYOUT-FIX - 4단계 통계검증 구성 요약을 표에서
+   1~3단계와 동일 규격의 타일 9개로 재구성하고 중복 안내박스 삭제

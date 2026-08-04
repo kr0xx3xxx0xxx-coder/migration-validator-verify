@@ -1,0 +1,902 @@
+{
+ "phase": "after_combo",
+ "pair": [
+  "PostgreSQL_Inter_asis",
+  "PostgreSQL_Inter_tobe"
+ ],
+ "sql": "INSERT INTO tobe01.t_combo_tgt (id, status_cd, dept_cd, amt)\nSELECT id, status_cd, dept_cd, amt\nFROM asis01.t_combo_src",
+ "setup": {
+  "pair_label": "PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe",
+  "pair_existed": false,
+  "pair_rows_after": 1,
+  "connect_clicked": true
+ },
+ "1단계": {
+  "step": "query",
+  "blocked": false,
+  "err": null,
+  "from_table": "T_COMBO_SRC",
+  "target_table": ""
+ },
+ "2단계": {
+  "click1_sql": true,
+  "click2_run": true,
+  "result_arrived": true
+ },
+ "3단계": {
+  "picked": {
+   "gb": [
+    "STATUS_CD",
+    "DEPT_CD"
+   ],
+   "sum": [
+    "AMT"
+   ]
+  }
+ },
+ "S3_타일": {
+  "타일수": 9,
+  "타일라벨목록": [
+   "목적테이블",
+   "원본테이블",
+   "검증항목",
+   "목적그룹",
+   "원본그룹",
+   "목적집계",
+   "원본집계",
+   "처리시간",
+   "상태"
+  ],
+  "타일값목록": [
+   "tobe01.t_combo_tgt",
+   "asis01.t_combo_src",
+   "—",
+   "—",
+   "—",
+   "—",
+   "—",
+   "—",
+   "—"
+  ],
+  "타일상세": [
+   {
+    "라벨": "목적테이블",
+    "값": "tobe01.t_combo_tgt",
+    "값_HTML": "tobe01.t_combo_tgt",
+    "값비었음": false,
+    "tooltip": "tobe01.t_combo_tgt",
+    "박스": {
+     "top": 87,
+     "left": 0,
+     "width": 0,
+     "height": 0
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "원본테이블",
+    "값": "asis01.t_combo_src",
+    "값_HTML": "asis01.t_combo_src",
+    "값비었음": false,
+    "tooltip": "asis01.t_combo_src",
+    "박스": {
+     "top": 87,
+     "left": 0,
+     "width": 0,
+     "height": 0
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "검증항목",
+    "값": "—",
+    "값_HTML": "—",
+    "값비었음": true,
+    "tooltip": "",
+    "박스": {
+     "top": 87,
+     "left": 0,
+     "width": 0,
+     "height": 0
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "목적그룹",
+    "값": "—",
+    "값_HTML": "—",
+    "값비었음": true,
+    "tooltip": "",
+    "박스": {
+     "top": 87,
+     "left": 0,
+     "width": 0,
+     "height": 0
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "원본그룹",
+    "값": "—",
+    "값_HTML": "—",
+    "값비었음": true,
+    "tooltip": "",
+    "박스": {
+     "top": 87,
+     "left": 0,
+     "width": 0,
+     "height": 0
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "목적집계",
+    "값": "—",
+    "값_HTML": "—",
+    "값비었음": true,
+    "tooltip": "",
+    "박스": {
+     "top": 87,
+     "left": 0,
+     "width": 0,
+     "height": 0
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "원본집계",
+    "값": "—",
+    "값_HTML": "—",
+    "값비었음": true,
+    "tooltip": "",
+    "박스": {
+     "top": 87,
+     "left": 0,
+     "width": 0,
+     "height": 0
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "처리시간",
+    "값": "—",
+    "값_HTML": "—",
+    "값비었음": true,
+    "tooltip": "처리시간 미계측(통계검증 SQL 생성 전이거나 계측값 없음)",
+    "박스": {
+     "top": 87,
+     "left": 0,
+     "width": 0,
+     "height": 0
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "상태",
+    "값": "—",
+    "값_HTML": "—",
+    "값비었음": true,
+    "tooltip": "",
+    "박스": {
+     "top": 87,
+     "left": 0,
+     "width": 0,
+     "height": 0
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   }
+  ],
+  "그리드잔재": {
+   "table수": 0,
+   "th목록": [],
+   "정렬요소수": 0
+  },
+  "컨텍스트박스": {
+   "top": 87,
+   "left": 0,
+   "width": 0,
+   "height": 0
+  },
+  "컨텍스트_HTML길이": 1509,
+  "생성기준박스": {
+   "존재": false
+  },
+  "조합안내": null,
+  "원본SQL길이": null,
+  "목적SQL길이": null,
+  "실행결과길이": 0,
+  "3단계타일라벨": [
+   "목적테이블",
+   "원본테이블",
+   "통계검증규모",
+   "목적그룹",
+   "원본그룹",
+   "목적집계",
+   "원본집계",
+   "처리시간",
+   "상태"
+  ],
+  "3단계타일규격": {
+   "minHeight": "85px",
+   "padding": "13px 12px"
+  },
+  "본문폭": 1600
+ },
+ "A_진입직후": {
+  "타일수": 9,
+  "타일라벨목록": [
+   "목적테이블",
+   "원본테이블",
+   "검증항목",
+   "목적그룹",
+   "원본그룹",
+   "목적집계",
+   "원본집계",
+   "처리시간",
+   "상태"
+  ],
+  "타일값목록": [
+   "tobe01.t_combo_tgt",
+   "asis01.t_combo_src",
+   "—",
+   "—",
+   "—",
+   "—",
+   "—",
+   "—",
+   "—"
+  ],
+  "타일상세": [
+   {
+    "라벨": "목적테이블",
+    "값": "tobe01.t_combo_tgt",
+    "값_HTML": "tobe01.t_combo_tgt",
+    "값비었음": false,
+    "tooltip": "tobe01.t_combo_tgt",
+    "박스": {
+     "top": 273,
+     "left": 302,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "원본테이블",
+    "값": "asis01.t_combo_src",
+    "값_HTML": "asis01.t_combo_src",
+    "값비었음": false,
+    "tooltip": "asis01.t_combo_src",
+    "박스": {
+     "top": 273,
+     "left": 443,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "검증항목",
+    "값": "—",
+    "값_HTML": "—",
+    "값비었음": true,
+    "tooltip": "",
+    "박스": {
+     "top": 273,
+     "left": 583,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "목적그룹",
+    "값": "—",
+    "값_HTML": "—",
+    "값비었음": true,
+    "tooltip": "",
+    "박스": {
+     "top": 273,
+     "left": 724,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "원본그룹",
+    "값": "—",
+    "값_HTML": "—",
+    "값비었음": true,
+    "tooltip": "",
+    "박스": {
+     "top": 273,
+     "left": 865,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "목적집계",
+    "값": "—",
+    "값_HTML": "—",
+    "값비었음": true,
+    "tooltip": "",
+    "박스": {
+     "top": 273,
+     "left": 1005,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "원본집계",
+    "값": "—",
+    "값_HTML": "—",
+    "값비었음": true,
+    "tooltip": "",
+    "박스": {
+     "top": 273,
+     "left": 1146,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "처리시간",
+    "값": "—",
+    "값_HTML": "—",
+    "값비었음": true,
+    "tooltip": "처리시간 미계측(통계검증 SQL 생성 전이거나 계측값 없음)",
+    "박스": {
+     "top": 273,
+     "left": 1287,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "상태",
+    "값": "—",
+    "값_HTML": "—",
+    "값비었음": true,
+    "tooltip": "",
+    "박스": {
+     "top": 273,
+     "left": 1427,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   }
+  ],
+  "그리드잔재": {
+   "table수": 0,
+   "th목록": [],
+   "정렬요소수": 0
+  },
+  "컨텍스트박스": {
+   "top": 250,
+   "left": 302,
+   "width": 1256,
+   "height": 107
+  },
+  "컨텍스트_HTML길이": 1509,
+  "생성기준박스": {
+   "존재": false
+  },
+  "조합안내": null,
+  "원본SQL길이": null,
+  "목적SQL길이": null,
+  "실행결과길이": 0,
+  "3단계타일라벨": [
+   "목적테이블",
+   "원본테이블",
+   "통계검증규모",
+   "목적그룹",
+   "원본그룹",
+   "목적집계",
+   "원본집계",
+   "처리시간",
+   "상태"
+  ],
+  "3단계타일규격": {
+   "minHeight": "85px",
+   "padding": "13px 12px"
+  },
+  "본문폭": 1600
+ },
+ "B_SQL생성후": {
+  "타일수": 9,
+  "타일라벨목록": [
+   "목적테이블",
+   "원본테이블",
+   "검증항목",
+   "목적그룹",
+   "원본그룹",
+   "목적집계",
+   "원본집계",
+   "처리시간",
+   "상태"
+  ],
+  "타일값목록": [
+   "tobe01.t_combo_tgt",
+   "asis01.t_combo_src",
+   "COUNT · GB 2 · SUM 1",
+   "STATUS_CD DEPT_CD",
+   "status_cd dept_cd",
+   "AMT",
+   "amt",
+   "0.01초 미만",
+   "● 정상"
+  ],
+  "타일상세": [
+   {
+    "라벨": "목적테이블",
+    "값": "tobe01.t_combo_tgt",
+    "값_HTML": "tobe01.t_combo_tgt",
+    "값비었음": false,
+    "tooltip": "tobe01.t_combo_tgt",
+    "박스": {
+     "top": 273,
+     "left": 302,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "원본테이블",
+    "값": "asis01.t_combo_src",
+    "값_HTML": "asis01.t_combo_src",
+    "값비었음": false,
+    "tooltip": "asis01.t_combo_src",
+    "박스": {
+     "top": 273,
+     "left": 443,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "검증항목",
+    "값": "COUNT · GB 2 · SUM 1",
+    "값_HTML": "COUNT · GB 2 · SUM 1",
+    "값비었음": false,
+    "tooltip": "COUNT(*) 는 항상 포함됩니다 · GROUP BY 2개 · 집계컬럼 1개",
+    "박스": {
+     "top": 273,
+     "left": 583,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "목적그룹",
+    "값": "STATUS_CD DEPT_CD",
+    "값_HTML": "STATUS_CD<br>DEPT_CD",
+    "값비었음": false,
+    "tooltip": "STATUS_CD, DEPT_CD",
+    "박스": {
+     "top": 273,
+     "left": 724,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "원본그룹",
+    "값": "status_cd dept_cd",
+    "값_HTML": "status_cd<br>dept_cd",
+    "값비었음": false,
+    "tooltip": "status_cd, dept_cd",
+    "박스": {
+     "top": 273,
+     "left": 865,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "목적집계",
+    "값": "AMT",
+    "값_HTML": "AMT",
+    "값비었음": false,
+    "tooltip": "AMT",
+    "박스": {
+     "top": 273,
+     "left": 1005,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "원본집계",
+    "값": "amt",
+    "값_HTML": "amt",
+    "값비었음": false,
+    "tooltip": "amt",
+    "박스": {
+     "top": 273,
+     "left": 1146,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "처리시간",
+    "값": "0.01초 미만",
+    "값_HTML": "0.01초 미만",
+    "값비었음": false,
+    "tooltip": "4단계 SQL 생성 시간 — 0.01초 미만 (2.8ms)",
+    "박스": {
+     "top": 273,
+     "left": 1287,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "상태",
+    "값": "● 정상",
+    "값_HTML": "<span class=\"mv-sicon mv-sicon-blue\" title=\"SQL 생성됨\">●</span> <span class=\"mv-sicon-txt\">정상</span>",
+    "값비었음": false,
+    "tooltip": "SQL 생성됨",
+    "박스": {
+     "top": 273,
+     "left": 1427,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   }
+  ],
+  "그리드잔재": {
+   "table수": 0,
+   "th목록": [],
+   "정렬요소수": 0
+  },
+  "컨텍스트박스": {
+   "top": 250,
+   "left": 302,
+   "width": 1256,
+   "height": 107
+  },
+  "컨텍스트_HTML길이": 1788,
+  "생성기준박스": {
+   "존재": false
+  },
+  "조합안내": "⚠️ 이 SQL은 참고용입니다 — 실제로는 각 축을 독립적으로 실행합니다. 아래 조합 SQL(GROUP BY STATUS_CD, DEPT_CD)은 실행되지 않습니다. 통계검증 실행 시 단일 축 2세트(STATUS_CD / DEPT_CD)로 분해해 축별로 따로 집계·비교합니다. 실제 실행된 SQL과 세트 구성은 5단계(결과 확인)에서 확인할 수 있습니다. 조",
+  "원본SQL길이": 159,
+  "목적SQL길이": 159,
+  "실행결과길이": 0,
+  "3단계타일라벨": [
+   "목적테이블",
+   "원본테이블",
+   "통계검증규모",
+   "목적그룹",
+   "원본그룹",
+   "목적집계",
+   "원본집계",
+   "처리시간",
+   "상태"
+  ],
+  "3단계타일규격": {
+   "minHeight": "85px",
+   "padding": "13px 12px"
+  },
+  "본문폭": 1600,
+  "gen_clicked": true
+ },
+ "C_실행후": {
+  "타일수": 9,
+  "타일라벨목록": [
+   "목적테이블",
+   "원본테이블",
+   "검증항목",
+   "목적그룹",
+   "원본그룹",
+   "목적집계",
+   "원본집계",
+   "처리시간",
+   "상태"
+  ],
+  "타일값목록": [
+   "tobe01.t_combo_tgt",
+   "asis01.t_combo_src",
+   "COUNT · GB 2 · SUM 1",
+   "STATUS_CD DEPT_CD",
+   "status_cd dept_cd",
+   "AMT",
+   "amt",
+   "0.54초",
+   "● 정상"
+  ],
+  "타일상세": [
+   {
+    "라벨": "목적테이블",
+    "값": "tobe01.t_combo_tgt",
+    "값_HTML": "tobe01.t_combo_tgt",
+    "값비었음": false,
+    "tooltip": "tobe01.t_combo_tgt",
+    "박스": {
+     "top": 273,
+     "left": 302,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "원본테이블",
+    "값": "asis01.t_combo_src",
+    "값_HTML": "asis01.t_combo_src",
+    "값비었음": false,
+    "tooltip": "asis01.t_combo_src",
+    "박스": {
+     "top": 273,
+     "left": 443,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "검증항목",
+    "값": "COUNT · GB 2 · SUM 1",
+    "값_HTML": "COUNT · GB 2 · SUM 1",
+    "값비었음": false,
+    "tooltip": "COUNT(*) 는 항상 포함됩니다 · GROUP BY 2개 · 집계컬럼 1개",
+    "박스": {
+     "top": 273,
+     "left": 583,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "목적그룹",
+    "값": "STATUS_CD DEPT_CD",
+    "값_HTML": "STATUS_CD<br>DEPT_CD",
+    "값비었음": false,
+    "tooltip": "STATUS_CD, DEPT_CD",
+    "박스": {
+     "top": 273,
+     "left": 724,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "원본그룹",
+    "값": "status_cd dept_cd",
+    "값_HTML": "status_cd<br>dept_cd",
+    "값비었음": false,
+    "tooltip": "status_cd, dept_cd",
+    "박스": {
+     "top": 273,
+     "left": 865,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "목적집계",
+    "값": "AMT",
+    "값_HTML": "AMT",
+    "값비었음": false,
+    "tooltip": "AMT",
+    "박스": {
+     "top": 273,
+     "left": 1005,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "원본집계",
+    "값": "amt",
+    "값_HTML": "amt",
+    "값비었음": false,
+    "tooltip": "amt",
+    "박스": {
+     "top": 273,
+     "left": 1146,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "처리시간",
+    "값": "0.54초",
+    "값_HTML": "0.54초",
+    "값비었음": false,
+    "tooltip": "4단계 통계검증 실행(상세 추출 별도) — 0.54초 (539.4ms)",
+    "박스": {
+     "top": 273,
+     "left": 1287,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   },
+   {
+    "라벨": "상태",
+    "값": "● 정상",
+    "값_HTML": "<span class=\"mv-sicon mv-sicon-blue\" title=\"SQL 생성됨\">●</span> <span class=\"mv-sicon-txt\">정상</span>",
+    "값비었음": false,
+    "tooltip": "SQL 생성됨",
+    "박스": {
+     "top": 273,
+     "left": 1427,
+     "width": 131,
+     "height": 85
+    },
+    "박스규격": {
+     "minHeight": "85px",
+     "padding": "13px 12px"
+    }
+   }
+  ],
+  "그리드잔재": {
+   "table수": 0,
+   "th목록": [],
+   "정렬요소수": 0
+  },
+  "컨텍스트박스": {
+   "top": 250,
+   "left": 302,
+   "width": 1256,
+   "height": 107
+  },
+  "컨텍스트_HTML길이": 1792,
+  "생성기준박스": {
+   "존재": false
+  },
+  "조합안내": "⚠️ 이 SQL은 참고용입니다 — 실제로는 각 축을 독립적으로 실행합니다. 아래 조합 SQL(GROUP BY STATUS_CD, DEPT_CD)은 실행되지 않습니다. 통계검증 실행 시 단일 축 2세트(STATUS_CD / DEPT_CD)로 분해해 축별로 따로 집계·비교합니다. 실제 실행된 SQL과 세트 구성은 5단계(결과 확인)에서 확인할 수 있습니다. 조",
+  "원본SQL길이": 159,
+  "목적SQL길이": 159,
+  "실행결과길이": 1263,
+  "3단계타일라벨": [
+   "목적테이블",
+   "원본테이블",
+   "통계검증규모",
+   "목적그룹",
+   "원본그룹",
+   "목적집계",
+   "원본집계",
+   "처리시간",
+   "상태"
+  ],
+  "3단계타일규격": {
+   "minHeight": "85px",
+   "padding": "13px 12px"
+  },
+  "본문폭": 1600,
+  "exec_clicked": true
+ },
+ "pageerrors": [
+  "CONSOLE.error: Failed to load resource: the server responded with a status of 404 (Not Found)"
+ ]
+}

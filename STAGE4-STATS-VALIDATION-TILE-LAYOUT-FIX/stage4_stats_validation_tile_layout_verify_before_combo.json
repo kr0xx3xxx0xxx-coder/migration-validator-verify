@@ -1,0 +1,232 @@
+{
+ "phase": "before_combo",
+ "pair": [
+  "PostgreSQL_Inter_asis",
+  "PostgreSQL_Inter_tobe"
+ ],
+ "sql": "INSERT INTO tobe01.t_combo_tgt (id, status_cd, dept_cd, amt)\nSELECT id, status_cd, dept_cd, amt\nFROM asis01.t_combo_src",
+ "setup": {
+  "pair_label": "PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe",
+  "pair_existed": false,
+  "pair_rows_after": 1,
+  "connect_clicked": true
+ },
+ "1단계": {
+  "step": "query",
+  "blocked": false,
+  "err": null,
+  "from_table": "T_COMBO_SRC",
+  "target_table": ""
+ },
+ "2단계": {
+  "click1_sql": true,
+  "click2_run": true,
+  "result_arrived": true
+ },
+ "3단계": {
+  "picked": {
+   "gb": [
+    "STATUS_CD",
+    "DEPT_CD"
+   ],
+   "sum": [
+    "AMT"
+   ]
+  }
+ },
+ "S3_타일": {
+  "타일수": 0,
+  "타일라벨목록": [],
+  "타일값목록": [],
+  "타일상세": [],
+  "그리드잔재": {
+   "table수": 0,
+   "th목록": [],
+   "정렬요소수": 0
+  },
+  "컨텍스트박스": null,
+  "컨텍스트_HTML길이": null,
+  "생성기준박스": {
+   "존재": false
+  },
+  "조합안내": null,
+  "원본SQL길이": null,
+  "목적SQL길이": null,
+  "실행결과길이": 0,
+  "3단계타일라벨": [
+   "목적테이블",
+   "원본테이블",
+   "통계검증규모",
+   "목적그룹",
+   "원본그룹",
+   "목적집계",
+   "원본집계",
+   "처리시간",
+   "상태"
+  ],
+  "3단계타일규격": {
+   "minHeight": "85px",
+   "padding": "13px 12px"
+  },
+  "본문폭": 1600
+ },
+ "A_진입직후": {
+  "타일수": 0,
+  "타일라벨목록": [],
+  "타일값목록": [],
+  "타일상세": [],
+  "그리드잔재": {
+   "table수": 0,
+   "th목록": [],
+   "정렬요소수": 0
+  },
+  "컨텍스트박스": null,
+  "컨텍스트_HTML길이": null,
+  "생성기준박스": {
+   "존재": false
+  },
+  "조합안내": null,
+  "원본SQL길이": null,
+  "목적SQL길이": null,
+  "실행결과길이": 0,
+  "3단계타일라벨": [
+   "목적테이블",
+   "원본테이블",
+   "통계검증규모",
+   "목적그룹",
+   "원본그룹",
+   "목적집계",
+   "원본집계",
+   "처리시간",
+   "상태"
+  ],
+  "3단계타일규격": {
+   "minHeight": "85px",
+   "padding": "13px 12px"
+  },
+  "본문폭": 1600
+ },
+ "B_SQL생성후": {
+  "타일수": 0,
+  "타일라벨목록": [],
+  "타일값목록": [],
+  "타일상세": [],
+  "그리드잔재": {
+   "table수": 1,
+   "th목록": [
+    "No",
+    "원본 테이블",
+    "목적 테이블",
+    "쿼리검토",
+    "COUNT",
+    "후보컬럼",
+    "GROUP BY 구성",
+    "SUM 구성",
+    "검증항목",
+    "상태"
+   ],
+   "정렬요소수": 0
+  },
+  "컨텍스트박스": {
+   "top": 311,
+   "left": 319,
+   "width": 1222,
+   "height": 89
+  },
+  "컨텍스트_HTML길이": 1111,
+  "생성기준박스": {
+   "존재": true,
+   "텍스트": "생성된 SQL 기준 (아래 SQL은 이 선택 기준으로 생성됨) COUNT(*): 항상 포함 GROUP BY: STATUS_CD, DEPT_CD SUM: AMT ⚠️ 이 SQL은 참고용입니다 — 실제로는 각 축을 독립적으로 실행합니다. 아래 조합 SQL(GROUP BY STATUS_CD, DEPT_CD)은 실행되지 않습니다. 통계검증 실행 시 단일 축 2세트(STATUS_CD / DEPT_CD)로 분해해 축별로 따로 집계·비교합니다. 실제 실행된 SQL과 세트 구성은 5단계(결과 확인)에서 확인할 수 있습니다. 조합(STATUS_CD + DEPT_CD)도 함께 검증 — 세트 1개 추가 실행",
+   "박스": {
+    "top": 412,
+    "left": 319,
+    "width": 1222,
+    "height": 242
+   }
+  },
+  "조합안내": "⚠️ 이 SQL은 참고용입니다 — 실제로는 각 축을 독립적으로 실행합니다. 아래 조합 SQL(GROUP BY STATUS_CD, DEPT_CD)은 실행되지 않습니다. 통계검증 실행 시 단일 축 2세트(STATUS_CD / DEPT_CD)로 분해해 축별로 따로 집계·비교합니다. 실제 실행된 SQL과 세트 구성은 5단계(결과 확인)에서 확인할 수 있습니다. 조",
+  "원본SQL길이": 159,
+  "목적SQL길이": 159,
+  "실행결과길이": 0,
+  "3단계타일라벨": [
+   "목적테이블",
+   "원본테이블",
+   "통계검증규모",
+   "목적그룹",
+   "원본그룹",
+   "목적집계",
+   "원본집계",
+   "처리시간",
+   "상태"
+  ],
+  "3단계타일규격": {
+   "minHeight": "85px",
+   "padding": "13px 12px"
+  },
+  "본문폭": 1600,
+  "gen_clicked": true
+ },
+ "C_실행후": {
+  "타일수": 0,
+  "타일라벨목록": [],
+  "타일값목록": [],
+  "타일상세": [],
+  "그리드잔재": {
+   "table수": 1,
+   "th목록": [
+    "No",
+    "원본 테이블",
+    "목적 테이블",
+    "쿼리검토",
+    "COUNT",
+    "후보컬럼",
+    "GROUP BY 구성",
+    "SUM 구성",
+    "검증항목",
+    "상태"
+   ],
+   "정렬요소수": 0
+  },
+  "컨텍스트박스": {
+   "top": 311,
+   "left": 319,
+   "width": 1222,
+   "height": 89
+  },
+  "컨텍스트_HTML길이": 1111,
+  "생성기준박스": {
+   "존재": true,
+   "텍스트": "생성된 SQL 기준 (아래 SQL은 이 선택 기준으로 생성됨) COUNT(*): 항상 포함 GROUP BY: STATUS_CD, DEPT_CD SUM: AMT ⚠️ 이 SQL은 참고용입니다 — 실제로는 각 축을 독립적으로 실행합니다. 아래 조합 SQL(GROUP BY STATUS_CD, DEPT_CD)은 실행되지 않습니다. 통계검증 실행 시 단일 축 2세트(STATUS_CD / DEPT_CD)로 분해해 축별로 따로 집계·비교합니다. 실제 실행된 SQL과 세트 구성은 5단계(결과 확인)에서 확인할 수 있습니다. 조합(STATUS_CD + DEPT_CD)도 함께 검증 — 세트 1개 추가 실행",
+   "박스": {
+    "top": 412,
+    "left": 319,
+    "width": 1222,
+    "height": 242
+   }
+  },
+  "조합안내": "⚠️ 이 SQL은 참고용입니다 — 실제로는 각 축을 독립적으로 실행합니다. 아래 조합 SQL(GROUP BY STATUS_CD, DEPT_CD)은 실행되지 않습니다. 통계검증 실행 시 단일 축 2세트(STATUS_CD / DEPT_CD)로 분해해 축별로 따로 집계·비교합니다. 실제 실행된 SQL과 세트 구성은 5단계(결과 확인)에서 확인할 수 있습니다. 조",
+  "원본SQL길이": 159,
+  "목적SQL길이": 159,
+  "실행결과길이": 1263,
+  "3단계타일라벨": [
+   "목적테이블",
+   "원본테이블",
+   "통계검증규모",
+   "목적그룹",
+   "원본그룹",
+   "목적집계",
+   "원본집계",
+   "처리시간",
+   "상태"
+  ],
+  "3단계타일규격": {
+   "minHeight": "85px",
+   "padding": "13px 12px"
+  },
+  "본문폭": 1600,
+  "exec_clicked": true
+ },
+ "pageerrors": [
+  "CONSOLE.error: Failed to load resource: the server responded with a status of 404 (Not Found)"
+ ]
+}
