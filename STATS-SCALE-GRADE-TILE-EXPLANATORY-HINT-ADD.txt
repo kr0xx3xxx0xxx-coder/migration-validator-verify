@@ -1,0 +1,227 @@
+작업명 : STATS-SCALE-GRADE-TILE-EXPLANATORY-HINT-ADD
+작성일 : 2026-08-04
+대상   : 3단계 '통계검증규모' 타일 — 등급명에 예상 소요시간대 부가설명 추가
+수정   : services/strategy/stats_strategy_planner.py, routes/strategy_route.py,
+         ui/tabler_renderer.py
+
+
+────────────────────────────────────────────────────────────────────────────
+1. 요청 요약과 배경
+────────────────────────────────────────────────────────────────────────────
+'통계검증규모' 타일이 오늘 순수 등급명('중형')만 남도록 정리되면서, 사용자가 "그래서 대략
+얼마나 걸린다는 건지" 감을 잡을 수 없게 됐다. 등급 경계 cost 를 이미 있는 cost→ms 환산식으로
+되돌리면 각 등급의 시간대가 그대로 나온다(오늘 실측 §6-3):
+  cost 12.90 → 1.91초 (소형/중형 경계) · 14.15 → 6.23초 (중형/대형) · 15.50 → 22.28초 (대형/초대형)
+이 값을 재사용해 등급 뒤에 시간대를 병기한다. 등급 산정 로직은 건드리지 않는다.
+
+
+────────────────────────────────────────────────────────────────────────────
+2. 구현
+────────────────────────────────────────────────────────────────────────────
+■ services/strategy/stats_strategy_planner.py (값 생성 — 단일 출처)
+   · grade_time_bands()     : [(등급, lo_ms, hi_ms), …]. lo/hi 는 _GRADE_BANDS 의 cost 경계를
+                              _cost_to_ms() 로 환산해 '매번 계산'한다. 최하위 lo=None,
+                              최상위 hi=None(개방형).
+   · grade_time_hint()      : '약 2초 이하' / '약 2~6초' / '약 6~22초' / '약 22초 이상'
+   · grade_time_hint_full() : 툴팁용 — 시간대 + '로컬 접속 기준' + 원격 고정 가산 안내
+   · _fmt_sec_num()         : ms→초 표시(1초 미만 소수 1자리, 그 이상 정수 반올림)
+   ★ 요구사항 3 — 경계 숫자·시간 문자열을 어디에도 하드코딩하지 않았다. 상수는 _GRADE_BANDS 와
+     _COST_MS_SLOPE/_COST_MS_INTERCEPT 뿐이며, 둘 중 무엇이 바뀌어도 문구가 자동으로 따라간다
+     (테스트 [C]에서 monkeypatch 로 실증).
+   ★ 요구사항 5 — _scale_grade(등급 산정)는 한 줄도 바꾸지 않았다. 부가설명은 별도 함수다.
+
+■ routes/strategy_route.py (전달)
+   · 응답에 grade_time_hint / grade_time_hint_full 추가. planner 함수를 그대로 호출한다
+     (라우트에서 따로 계산하지 않음). provisional_grade 는 종전대로 순수 등급명 — 기존 소비처
+     및 "잠정 접두 없음" 계약(tests/test_strategy_planner.py) 불변.
+
+■ ui/tabler_renderer.py (표시)
+   · 인라인 : 타일 값 = '중형 (약 2~6초)'  ← 등급만으로는 정보가 부족해 한 눈에 보이게 병기
+   · 툴팁   : '통계검증 규모: 중형 (실측 기준) · 예상 소요: 약 2~6초(로컬 접속 기준) — 원격 DB 는
+              접속·왕복 고정 가산이 더 붙습니다.'
+              → 오늘 COUNT 소요 타일이 쓴 '값은 짧게 · 근거는 툴팁' 관례를 그대로 재사용.
+   · 화면은 서버 문구를 그대로 쓴다. 경계 cost·환산 계수를 화면에서 다시 만들지 않는다
+     (테스트 [G]가 12.9/14.15/15.5/0.4100/2.0076 유출 여부를 검사).
+   · 표시 지점 일치: 타일 scaleText 와 실행계획 상세 rows 의 '통계검증 규모' 행을 같은 문자열로
+     조립한다. 단 후자는 _TILE_MOVED 필터가 걷어내므로 실제로는 렌더되지 않는다(타일로 이동됨) —
+     실측에서 확인했고, 코드 주석에 그 사실을 명시했다.
+
+■ 줄바꿈 규칙 보정 (.mv-qr-tile-val, 같은 파일)
+   부가설명을 붙이자 종전 CSS word-break:break-all 이 '중형 (약 2~6' / '초)' 처럼 숫자와 단위
+   사이를 갈랐다(실측 스크린샷 확인). 한글은 어절 단위로 끊는 keep-all 이 맞다:
+     .mv-qr-tile-val      : word-break:keep-all + overflow-wrap:anywhere
+     .mv-qr-tile-val.is-mono : word-break:break-all 유지(테이블명 등 식별자는 어절이 없다)
+   → 한글 값은 공백에서만 끊기고, 긴 식별자는 종전대로 중간에서 끊긴다(테이블명 표시 무회귀는
+     §3-⑤ 에서 2단계 COUNT 타일로 실측 확인).
+
+
+────────────────────────────────────────────────────────────────────────────
+3. 실측 검증 — 실제 운영 서버 + 실 브라우저
+────────────────────────────────────────────────────────────────────────────
+하니스 : scripts/dev_e2e/stats_scale_grade_time_hint_verify.py (신규, before|after)
+페어   : PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe (내부망 실 DB)
+절차   : 1단계 분석 → 2단계 COUNT 실행 → 3단계 후보 계산(타일 host 실제 생성) →
+         등급별 profile 로 실제 렌더 함수 _mvRenderStrategyPlan(profile,'strategyPlanBox') 호출
+         (= 화면이 평소 쓰는 바로 그 경로, 실 /strategy/plan 왕복 발생)
+서버   : before = 수정 전 모듈을 로드한 실행 중 서버 / after = 재기동 후 동일 절차
+
+■ ① 4개 등급 부가설명 (before → after, 등급 판정은 before/after 동일)
+   등급     서버 cost   before 타일     after 타일              서버 hint        경계 대조
+   소형      6.442      '소형'          '소형 (약 2초 이하)'      약 2초 이하      1.91초 ✔
+   중형     13.562      '중형'          '중형 (약 2~6초)'        약 2~6초         1.91/6.23초 ✔
+   대형     14.915      '대형'          '대형 (약 6~22초)'       약 6~22초        6.23/22.28초 ✔
+   초대형   16.662      '초대형'        '초대형 (약 22초 이상)'   약 22초 이상     22.28초 ✔
+   → 4개 등급 모두 오늘 실측 경계값(1.91 / 6.23 / 22.28초)의 반올림 표기(2 / 6 / 22초)와 일치.
+   (스크린샷 before_G0~G3_*_tiles.png / after_G0~G3_*_tiles.png)
+
+■ ② 초대형 개방형 표기 (요구사항 4)
+   '약 22초 이상' — '이상' 포함 True, 범위기호 '~' 없음 True. 상한이 있는 것처럼 보이지 않는다.
+   (after_G3_xlarge_tiles.png)
+
+■ ③ 원격 케이스 '로컬 기준' 한정어 (요구사항 2)
+   같은 profile 에 remote=true 만 준 케이스: cost 13.562(로컬) → 13.943(원격) 으로 고정 가산이
+   실제로 반영됐고, 표시 문구는 로컬 기준선을 유지한 채 그 사실을 툴팁으로 고지한다:
+     '… 예상 소요: 약 2~6초(로컬 접속 기준) — 원격 DB 는 접속·왕복 고정 가산이 더 붙습니다.'
+   '로컬 접속 기준' 포함 True · 원격 가산 안내 포함 True.
+   (after_G4_medium_remote_tiles.png)
+
+■ ④ 같은 화면 다른 타일 8개 무회귀 (3단계 통합 타일, 중형 케이스 기준)
+   타일 라벨/순서 동일 — 목적테이블·원본테이블·통계검증규모·목적그룹·원본그룹·목적집계·
+   원본집계·처리시간·상태
+     목적테이블  tobe01.t_to_n_etl04  = 동일       목적그룹 '없음'            = 동일
+     원본테이블  asis01.t_as_n_etl04  = 동일       원본그룹 '없음'            = 동일
+     목적집계   ACTIVITY_SCORE       = 동일       원본집계 score             = 동일
+     상태      ● 대기                = 동일
+     통계검증규모 '중형' → '중형 (약 2~6초)'  ← 이번 작업의 의도된 변경
+     처리시간   11.91초 vs 12.13초  ← 표시 회귀 아님(각 실행의 실측 3단계 시간, 서로 다른 실행)
+   등급 판정 자체(provisional_grade)는 5개 케이스 전부 before=after 동일.
+   pageerror : before/after 모두 기존 404 콘솔 경고 1건뿐, 신규 오류 0건.
+
+■ ⑤ 공용 타일 CSS(word-break) 변경 무회귀 — 2단계 COUNT 타일 8개
+   같은 CSS 를 쓰는 2단계 타일을 같은 픽스처로 실측해, CSS 변경 직전 실측값
+   (직전 작업 COUNT-PRECHECK-ELAPSED-TIME-TILE-REPLACE-FIX after)과 대조했다.
+     목적 테이블 tobe01.t_to_n_etl04 = 동일     목적건수 11,399,411 = 동일
+     원본 테이블 asis01.t_as_n_etl04 = 동일     원본 건수 12,000,000 = 동일
+     차이 +600,589 = 동일                       상태 ● 불일치 = 동일
+     COUNT 소요 / 처리시간 — 실행마다 다른 실측 시간이며 표시 형식은 동일
+   스크린샷상 테이블명은 종전과 똑같이 'tobe01.t_to_n_' / 'etl04' 로 중간에서 끊긴다
+   (is-mono 는 break-all 유지). 숫자 값도 넘침 없이 그대로.
+   (after_S2_count_tiles.png)
+
+
+────────────────────────────────────────────────────────────────────────────
+4. 자체 테스트
+────────────────────────────────────────────────────────────────────────────
+■ 신규 tests/test_stats_scale_grade_time_hint.py — 18건 전부 통과
+   [A] 경계가 _GRADE_BANDS × _cost_to_ms 와 정확히 일치(독립 재계산) + 구간 연속성(빈틈/겹침 0)
+       + 오늘 실측 경계값(1.91/6.23/22.28초)과 ±0.1초 이내
+   [B] 4개 등급 문구 형태(정규식) + 초대형 개방형 + 인접 등급 경계 숫자 연결
+       + 등급 미상('산정 불가'/공백)이면 없는 시간대를 지어내지 않는다
+   [C] ★ _GRADE_BANDS 를 monkeypatch 로 바꾸면 문구가 자동으로 바뀐다(하드코딩 아님의 실증)
+       ★ cost→ms 환산 계수를 바꿔도 따라간다
+   [D] 툴팁 문구에 '로컬' + '원격'·'가산' 안내 포함
+   [E] _scale_grade 8개 경계 케이스 종전 그대로 + provisional_grade 에 부가설명 미혼입
+   [F] 라우트가 planner 단일 출처를 쓰고 시간대 문자열을 하드코딩하지 않음
+   [G] 화면이 서버 문구를 그대로 쓰고 경계 cost·환산 계수를 복제하지 않음
+
+■ 인접 계약 테스트 무회귀(갱신 없이 통과)
+   tests/test_query_review_tile_layout.py · tests/test_count_precheck_tile_layout.py ·
+   tests/test_grid_helpers.py · tests/test_strategy_planner.py ·
+   tests/test_strategy_remote_flag_evidence.py · tests/test_step2_step3_tile_immediate_display.py
+   → 4개 파일 동시 실행 46 passed / 별도 실행분 포함 실패 0
+
+■ 관련 서브셋 + baseline 대조 (신규 회귀 확인)
+   대상: pytest tests/ -k "strategy or stats or scale or tile or grid or plan or renderer or size"
+         -p no:randomly  (test_11def_scenarios / test_12k_stress 는 worktree 절대경로 오염으로 --ignore)
+   baseline: git worktree(fdacbd9 = 이번 작업 직전 커밋)
+
+   baseline : 32 failed, 1099 passed, 8 skipped, 4 errors   (FAILED+ERROR 36줄)
+   after    : 33 failed, 1123 passed, 4 skipped, 1 error    (FAILED+ERROR 34줄)
+
+   차집합 4건은 전부 '라이브 게이트 skip' 착시였고, 게이트를 열어 재확인한 결과 신규 회귀 0건:
+     · after 에만: tests/test_candidate_plan_matrix.py::test_null_vs_empty_selection_contract
+       → 이 파일은 db_presets_*.json(gitignore) 가 있어야 실행되고 없으면 skip 한다. worktree 에는
+         프리셋이 없어 baseline 에서 skip 됐을 뿐이다. 프리셋을 worktree 로 복사해 게이트를 열고
+         baseline 에서 다시 돌리자 **동일하게 FAILED** — 사전 존재 실패다(기본추천 GROUP BY 계약
+         관련이며 이번 변경 영역과 무관).
+     · base 에만: tests/test_single_official_register_txn.py 3건 ERROR — 같은 이유(라이브 준비물
+       유무 차이)로 worktree 에서만 발생. 본 저장소에서는 오류 없이 통과한다.
+   결론: 이번 수정으로 새로 깨진 테스트 0건.
+
+■ 실패 테스트 전체 목록 (서브셋 실행 기준 34줄 — 전부 사전 존재)
+   ERROR  tests/test_task11_p_profile_snapshot.py::TC06_08_EnricherIntegration::test_07_enricher_uses_profile_stats_for_display_score
+   FAILED tests/test_batch_flow2_e2e_smoke.py::test_plan_mode_count_sum_only
+   FAILED tests/test_batch_flow2_e2e_smoke.py::test_plan_mode_default_selected_only
+   FAILED tests/test_batch_flow2_e2e_smoke.py::test_plan_mode_global_and_grouped
+   FAILED tests/test_batch_flow2_e2e_smoke.py::test_plan_mode_grouped_only
+   FAILED tests/test_batch_flow2_e2e_smoke.py::test_plan_modes_share_same_selected_candidates
+   FAILED tests/test_batch_flow2_multirow_e2e_smoke.py::test_old_snapshot_not_in_latest_plan
+   FAILED tests/test_batch_flow2_multirow_e2e_smoke.py::test_two_normal_rows_each_snapshot_and_plan
+   FAILED tests/test_candidate_draft_selection.py::test_checkbox_change_keeps_table_and_plan_marks_draft
+   FAILED tests/test_candidate_explanation_display.py::test_candidate_score_separate_column
+   FAILED tests/test_candidate_plan_matrix.py::test_null_vs_empty_selection_contract   ← 위 참고(사전 존재)
+   FAILED tests/test_candidate_role_policy_grid.py::test_global_limit_banner_and_count_same_input_no_lock
+   FAILED tests/test_count_only_validation_ui.py::test_group_result_uses_normal_renderer_unchanged
+   FAILED tests/test_d7_9_gb0_fallback.py::test_gate_gb0_always_grid
+   FAILED tests/test_diagnosis_phase3b.py::test_next_strategy_preview_matrix
+   FAILED tests/test_engine_cardinality_parity.py::test_engine_stats_change_groupby_candidacy
+   FAILED tests/test_exact_diff_ui_wiring.py::test_record_grid_and_kind_filter_and_order
+   FAILED tests/test_groupby_estimated_group_count_ui.py::test_renderer_estimate_summary_evidence_wiring
+   FAILED tests/test_policy_settings_plan_mode_order.py::test_disabled_hint_elements_present
+   FAILED tests/test_policy_settings_plan_mode_order.py::test_limit_options_preserved_not_removed
+   FAILED tests/test_policy_settings_plan_mode_order.py::test_sync_input_states_disable_rules
+   FAILED tests/test_results_menu_batch_detail_page.py::test_results_reuses_unified_renderer
+   FAILED tests/test_single_batch_plan_parity.py::test_case_single_batch_plan_parity
+   FAILED tests/test_stats_execute_error_handling.py::test_credential_in_src_error_is_masked
+   FAILED tests/test_stats_execute_error_handling.py::test_credential_in_tgt_error_is_masked
+   FAILED tests/test_stats_execute_error_handling.py::test_success_true_empty_rows
+   FAILED tests/test_stats_execute_error_handling.py::test_success_true_when_both_ok
+   FAILED tests/test_stats_execute_error_handling.py::test_tgt_error_message_label
+   FAILED tests/test_stats_execute_error_handling.py::test_tgt_error_returns_tgt_error_field
+   FAILED tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+   FAILED tests/test_stats_sql_complex_source_wrap.py::test_union_still_blocked_at_gate
+   FAILED tests/test_task11_m_plan_tag_filter.py::TC_PlanTagFilter_JS::test_06_date_bucket_fallback_keeps_check_impossible
+   FAILED tests/test_task12_h.py::test_12h_07b_execute_stats_propagates_token
+   FAILED tests/test_validation_plan_renderer_static.py::test_v05_count_only_explicit_confirm_gate
+   참고: test_stats_result_full.py::test_phase4b_... 는 'effective_group_by_count' 문자열이
+   _mvRenderStrategyPlan 안에 있는지 보는데, 그 문자열은 수정 전 커밋(HEAD)에도 파일 전체에
+   존재하지 않는다(직접 확인) — 이번 변경과 무관한 사전 존재 실패다.
+
+
+────────────────────────────────────────────────────────────────────────────
+5. 비판적 검토 (위험과 대응)
+────────────────────────────────────────────────────────────────────────────
+· 하드코딩 재발 위험 — 가장 큰 위험이었다. 문구를 상수 문자열로 박아두면 밴드 재조정 때 조용히
+  거짓말이 된다. 전부 _GRADE_BANDS + 환산식에서 계산하도록 했고, monkeypatch 테스트로 추종을
+  실증했다. 라우트·화면에도 시간대 문자열·경계 숫자가 남지 않았음을 테스트로 막아 둔다.
+· 정확도 한계(명시 필요) — 이 시간대는 로컬 실측 37건 회귀식 기반이고 밴드 일치율은 85.0%다.
+  '약'·범위 표기와 '로컬 접속 기준' 한정어로 단정적 예측처럼 보이지 않게 했다. 원격은 고정
+  가산이 더해진다는 사실을 툴팁에 명시한다.
+· 화면 공간 — 타일이 좁아(≈150px) 인라인 병기는 두 줄로 접힌다. 종전 CSS 가 숫자와 단위 사이를
+  갈라 읽기 어려웠으므로 한글 어절 단위 줄바꿈(keep-all)으로 바로잡았고, 식별자(is-mono)는
+  종전 동작을 유지해 테이블명 표시 회귀를 막았다(§3-⑤ 실측).
+· 등급 판정 영향 — 없음. _scale_grade 무수정이고 실측 5개 케이스 전부 before=after 동일.
+· 남은 사실(범위 밖) — 실행계획 상세표의 '통계검증 규모' 행은 _TILE_MOVED 필터로 렌더되지
+  않는다(타일로 이동됨). 같은 문자열을 계속 조립해 두되 주석으로 명시했다.
+
+
+────────────────────────────────────────────────────────────────────────────
+6. 변경 파일
+────────────────────────────────────────────────────────────────────────────
+제품 코드 (3개)
+  services/strategy/stats_strategy_planner.py   등급→시간대 환산·문구 생성(단일 출처)
+  routes/strategy_route.py                      응답에 grade_time_hint / _full 추가
+  ui/tabler_renderer.py                         타일 인라인 병기 + 툴팁 + 한글 줄바꿈 CSS 보정
+테스트 (1개, 신규)
+  tests/test_stats_scale_grade_time_hint.py     18건
+검증 하니스 (1개, 신규)
+  scripts/dev_e2e/stats_scale_grade_time_hint_verify.py
+
+
+────────────────────────────────────────────────────────────────────────────
+7. 실검증 상태
+────────────────────────────────────────────────────────────────────────────
+실검증 상태: 실제 운영 서버 + 실 브라우저로 4개 등급(소형/중형/대형/초대형) 및 원격 케이스를
+before/after 완주 실측 — 부가설명 시간대가 오늘 실측 경계값과 일치함을 확인, 초대형 개방형
+표기 확인, 원격에서 '로컬 접속 기준' 한정어 확인, 등급 판정·다른 타일(3단계 8개 · 2단계 8개)
+무회귀 확인, 신규 pageerror 0건.
