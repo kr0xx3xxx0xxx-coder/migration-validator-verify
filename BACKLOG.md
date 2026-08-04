@@ -1272,7 +1272,22 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: F4(관리컬럼 수동 확정 잔여 한계) · F37(PROJECT_COLUMN 범위 미노출) · M34(disabled 사유 미표시)
 - 참고: E:\verify_reports\ADMIN-COLUMN-CONFIRM-BUTTON-NONFUNCTIONAL-AND-BATCH-SCOPE-DIAGNOSE.txt
 
-### F37. 프로젝트 전체 일괄 적용(`PROJECT_COLUMN` 범위)이 백엔드엔 있으나 화면에 없다(심각도 LOW)
+### F37. ✅ 해결 완료 — 프로젝트 전체 일괄 적용(`PROJECT_COLUMN` 범위)이 백엔드엔 있으나 화면에 없다(심각도 LOW)
+- 해결일: 2026-08-04 (ADMIN-COLUMN-OVERRIDE-PROJECT-SCOPE-UI-EXPOSE-FIX)
+- 근거 커밋: 코드 저장소 `49d8287` — `feat(ui): 관리컬럼 확정에 적용 범위 선택(이 테이블/프로젝트 전체)
+  + 확인 모달·영향 대상 미리보기 (ADMIN-COLUMN-OVERRIDE-PROJECT-SCOPE-UI-EXPOSE-FIX)`
+- 근거 보고서 커밋: 이 저장소 `5c3aa0f`(완료보고 `ADMIN-COLUMN-OVERRIDE-PROJECT-SCOPE-UI-EXPOSE-FIX`)
+- 해결 요약: 저장계층이 **이미 지원하던** `SCOPE_PROJECT_COLUMN` 을 화면에 노출했다. 기본값은
+  **좁은 범위(`TABLE_COLUMN`) 고정**이고, "프로젝트 전체" 를 선택했을 때만 **확인 모달 + 영향 대상
+  미리보기**(등록된 검증대상 기준, 상한 200개, 절단 시 명시)를 거쳐야 저장된다 — 이 항목이
+  대응 방향으로 요구한 "확인 단계 + 적용 대상 미리보기" 를 그대로 충족한다.
+  배지에 **"프로젝트 전체" 태그를 병기**해 다른 테이블에서 무심코 해제하는 오해를 막았고,
+  **해제도 대칭으로 확인을 거치게** 했다.
+- 실측 중 발견·반영: 확정 키(스키마 없는 순수 테이블명)와 그룹 등록 검증대상(스키마 한정명)의
+  **키 축이 서로 다름**을 발견해 매칭 로직에 반영했다(그대로 뒀다면 미리보기가 대상을 0건으로 셌다).
+- 실측: **44/44 통과**(범위 선택 노출 · 무회귀 · 미리보기 · 다른 테이블 전파 · 해제 전 과정).
+- 관련: F36(일괄검증 미배선 — 같은 클러스터) · F4
+- 참고: E:\verify_reports\ADMIN-COLUMN-OVERRIDE-PROJECT-SCOPE-UI-EXPOSE-FIX\report.txt
 - 발견일: 2026-08-04
 - 근거 보고서: `ADMIN-COLUMN-CONFIRM-BUTTON-NONFUNCTIONAL-AND-BATCH-SCOPE-DIAGNOSE.txt` (§3-4 · §5-P3)
 - 상세: `services/admin_column_override_store.py:44-46` 이 `SCOPE_TABLE_COLUMN` / `SCOPE_PROJECT_COLUMN` 을
@@ -1876,6 +1891,17 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: S18(같은 SQL 로 발견됐으나 경로가 다름 — 이쪽은 서버 미도달) · M28
 - 참고: E:\verify_reports\CRITICAL-S15-S16-S18-LIVE-BROWSER-ORACLE-VERIFY\_REPORT.txt (§3-3)
 
+### M35. Tibero 고급옵션에도 오라클과 동종의 죽은 encoding 필드가 있다(심각도 LOW)
+- 발견일: 2026-08-04
+- 근거 보고서: `ORACLE-PRESET-ENCODING-DEAD-FIELD-FIX.txt` (§5)
+- 상세: `ui/tabler_renderer.py:14673` 근처, Tibero 고급옵션의 `encoding` 필드 note 가
+  **"문자셋 처리용 — 특별한 사유가 없으면 UTF-8."** 로만 돼 있어, 같은 작업에서 오라클에 넣은
+  **"접속에 미반영"** 이라는 명확한 안내가 없다. 즉 M15 와 **동종의 죽은 설정**이다.
+  다만 Tibero 는 현재 `implemented:false`(**실접속 미지원 skeleton**)라 당장 오해 소지는 낮다.
+- 대응 방향: **Tibero 실접속 구현 시점에 함께 정리**한다(그 전엔 급하지 않음).
+- 관련: M15(오라클 쪽 동종 항목 — 해결 완료)
+- 참고: E:\verify_reports\ORACLE-PRESET-ENCODING-DEAD-FIELD-FIX.txt (§5)
+
 ### M34. 관리컬럼 확정 버튼이 disabled 일 때 그 사유가 화면에 안 보인다(심각도 LOW)
 - 발견일: 2026-08-04
 - 근거 보고서: `ADMIN-COLUMN-CONFIRM-BUTTON-NONFUNCTIONAL-AND-BATCH-SCOPE-DIAGNOSE.txt` (§2-3 · §5-P1)
@@ -2217,7 +2243,20 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 상세: `test_batch_report_service.py` 등. 회귀 신호를 가리는 노이즈라 별도 작업으로 고치는 편이 낫다.
 - 참고: E:\verify_reports\COMBO-PAIR-ENTRY-POINT-RESTORE-IMPLEMENT-RESUME.txt
 
-### M15. 오라클 연결 프리셋의 encoding/nencoding 필드가 죽은 설정이다
+### M15. ✅ 해결 완료(선행 커밋으로 이미 적용돼 있었음을 재확인) — 오라클 연결 프리셋의 encoding/nencoding 필드가 죽은 설정이다
+- 해결일: 2026-08-04 재확인 (ORACLE-PRESET-ENCODING-DEAD-FIELD-FIX) / 실제 적용은 선행 커밋 시점
+- 근거 커밋: 코드 저장소 `8efbc15` — `fix(preset): 오라클 프리셋 Encoding/NEncoding 이 접속에
+  미반영임을 안내로 명시 (ORACLE-PRESET-DEAD-ENCODING-FIELD-CLEANUP-FIX)`
+- 근거 보고서 커밋: 이 저장소 `58b45d6`(완료보고 `ORACLE-PRESET-ENCODING-DEAD-FIELD-FIX`
+  — 수정 위치 확인 중 **이미 적용돼 있음**을 발견, 운영 서버 브라우저 실측으로 안내문구 노출 확인)
+- 해결 요약: 이 항목의 두 대응 방향 중 **(b) 안내 표기**를 채택했다 — 입력칸은 유지하되
+  **"드라이버가 UTF-8로 고정되어 이 값은 사용되지 않습니다(접속에 미반영)"** 안내문구를 추가했다.
+  **(a)(입력칸 제거)를 쓰지 않은 이유**: 제거하면 저장 폼이 만드는 dict 에서 키가 빠져
+  **기존 preset 파일의 저장값이 조용히 소실될 위험**이 있다. 이 화면의 다른 고급옵션
+  (Connect Type 등)이 이미 쓰고 있는 **note 관례를 따르는 (b) 가 더 안전**하다고 판단했다.
+- 회귀 안전: 기존 프리셋 불러오기 무회귀 확인(`Oracle_asis` / `Oracle_tobe` 등 **14건 정상**).
+- 잔여: Tibero 고급옵션에 **동종의 죽은 encoding 필드**가 있다 → M35 로 신규 등록.
+- 참고: E:\verify_reports\ORACLE-PRESET-ENCODING-DEAD-FIELD-FIX.txt
 - 발견일: 2026-07-29
 - 근거 보고서: `ORACLE-CHARSET-COLLATION-EXACT-DIFF-DIAGNOSE.txt` (§1-4 / §5-P3)
 - 상세: `db_presets_*.json` 에 `encoding`/`nencoding` 값이 있고 UI 에도 입력칸이 있으나, 코드 어디서도 이 값을
