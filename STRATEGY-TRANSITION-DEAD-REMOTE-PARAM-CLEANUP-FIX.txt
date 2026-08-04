@@ -1,0 +1,167 @@
+작업명 : STRATEGY-TRANSITION-DEAD-REMOTE-PARAM-CLEANUP-FIX
+✅ 작업 완료 - STRATEGY-TRANSITION-DEAD-REMOTE-PARAM-CLEANUP-FIX - choose_compare_strategy 의 죽은 파라미터 remote 를 시그니처에서 제거하고 호출부 2곳·테스트 1곳·probe 스크립트 1곳을 함께 정리, 180조합 전/후 반환값 불일치 0건·신규 회귀 0건
+
+================================================================================
+1. 배경 / 문제
+================================================================================
+백로그 M23.
+services/strategy/strategy_transition.choose_compare_strategy 가 시그니처(49~51행)에
+`remote=False` 를 선언해 두었으나 함수 본문 어디에서도 이 값을 읽지 않았다.
+
+- 오작동은 없었다("무시"가 곧 일관된 동작).
+- 실질 비용은 "전환판정이 원격 여부를 본다"고 읽히는 오독이며, 실제 오독 사례가 있었다(P9).
+- 선행 실측 근거: E:\verify_reports\STRATEGY-PLAN-REMOTE-FLAG-EVIDENCE-BASED-FIX.txt (§3, §6)
+  — 180조합 전수비교에서 remote=True/False 반환값 100% 동일.
+
+================================================================================
+2. 수정 내용 (죽은 파라미터 제거만 — 판정 로직 무변경)
+================================================================================
+(1) services/strategy/strategy_transition.py
+    - choose_compare_strategy 시그니처에서 `remote=False` 삭제.
+    - 제거 사유·근거를 docstring 에 명시(다시 배선하려는 사람이 근거를 보고 판단하도록).
+    - 다른 파라미터/기본값/반환 dict/판정 분기(chunk_capable·벤치 비교·resume 임계·_out)는
+      한 줄도 건드리지 않음.
+
+(2) 호출부 — remote 값을 계산해 넘기는데 받는 쪽이 안 쓰는 상태를 제거
+    - routes/strategy_route.py:73  `remote=profile.remote` 인자 삭제.
+      profile.remote 자체는 그대로 남아 있고 아래 판정근거 문구("원격 DB"/"로컬 DB")와
+      통계 cost 에서 계속 쓰인다 — 그 용도는 무변경.
+    - routes/agg_diff_route.py:64  `remote=True` 인자 삭제.
+
+(3) 시그니처를 참조하던 테스트 갱신
+    - tests/test_strategy_remote_flag_evidence.py
+      · test_transition_ignores_remote (remote=True/False 반환값 동일성 검증)
+        → 파라미터가 사라졌으므로 그대로 두면 TypeError 로 깨진다. 계약을 더 강한 형태로 격상:
+        · test_transition_signature_has_no_remote_param
+            : inspect 로 remote 파라미터 부재 확인 + remote= 전달 시 TypeError 발생 확인
+              (= 옛 호출부가 남아 있으면 조용히 통과하지 않는다)
+        · test_transition_result_is_remote_independent (기존 9개 파라미터 조합 유지)
+            : remote 인자 없이 호출해 기존과 동일한 판정을 얻는지 확인
+      · 모듈 docstring §3 계약 설명도 현재 상태에 맞게 갱신.
+
+(4) scripts/dev_e2e/strategy_remote_flag_impact_probe.py
+    - (A) 구간이 choose_compare_strategy(remote=True/False) 를 두 번 호출하는 형태여서
+      제거 후 TypeError 로 실행 불가 → "시그니처에 remote 없음 + 반환값 불변" 측정으로 대체.
+    - (B)(C)(D) 통계전략 cost/등급 측정 구간은 무변경(그쪽 remote 는 살아 있는 입력이다).
+
+================================================================================
+3. 실측 검증 — 전 / 후 반환값 대조
+================================================================================
+[방법] 180조합 전수(크기 6 × PK종류 5 × 인덱스 2 × throughput 3 = 180)를 동일 입력으로
+       호출해 반환 dict 전체를 JSON 으로 캡처하고 전/후를 비교.
+       크기      : 5,000 / 120,000 / 1,000,000 / 3,000,000 / 42,000,000 / 50,000,000
+       PK종류    : SINGLE_NUMERIC / SINGLE_DATE / SINGLE_TEXT / COMPOSITE / NONE
+       pk_indexed: True / False
+       throughput: None / 7,000 / 250,000
+
+[전(前) — 파라미터 존재 상태]
+  시그니처: (*, source_count, row_width=None, pk_kind='SINGLE_NUMERIC', pk_indexed=True,
+             remote=False, recent_throughput_rows_per_sec=None, first_result_sla_seconds=None,
+             transition_config=None, benchmarks=None)
+  has_remote_param : True
+  180조합 각각에서 remote=True 와 remote=False 반환값 동일 여부 : 180/180 동일 (assert 통과)
+
+[후(後) — 파라미터 제거 상태]
+  시그니처: (*, source_count, row_width=None, pk_kind='SINGLE_NUMERIC', pk_indexed=True,
+             recent_throughput_rows_per_sec=None, first_result_sla_seconds=None,
+             transition_config=None, benchmarks=None)
+  has_remote_param : False
+  케이스 수 : 180 / 180 (동일)
+
+[전 vs 후 반환값 대조]
+  반환값 불일치 건수 : 0건 / 180건
+  → selected_strategy_id, selected_chunk_size, reason_codes, expected_first_result_seconds,
+    expected_total_seconds, confidence, benchmark_profile_version 전 필드 완전 동일.
+    실제로 바뀐 것은 시그니처 문자열 하나뿐이다.
+
+[probe 스크립트 실측 재실행 — scripts/dev_e2e/strategy_remote_flag_impact_probe.py]
+  ── (A) DIRECT↔CHUNK 전환판정: remote 파라미터 존재 여부 = False
+     케이스 180건 중 결과가 달라진 건수: 0건
+     예) 5000행/SINGLE_NUMERIC/idx=True → DIRECT_STREAM_COMPARE
+  ── (B) 통계전략 계획: remote=True vs False   ← 이 경로의 remote 는 살아 있음(무회귀 확인)
+     소형 5천행·GB1·SUM1       cost 12.688 / 7.817   (+62.31%)  등급 소형/소형   전략ID 동일 True
+     중형 25만행·GB1·SUM1      cost 12.978 / 11.497  (+12.88%)  등급 중형/소형   전략ID 동일 True
+     대형 100만행·GB2·SUM2     cost 13.992 / 13.630  (+2.66%)   등급 중형/중형   전략ID 동일 True
+     초대형 5천만행·GB2·SUM2   cost 17.473 / 17.461  (+0.07%)   등급 초대형/초대형 전략ID 동일 True
+  ── (D) 등급이 실제로 뒤집히는 프로파일 : 51/324 조합(15.7%) — 전략ID 는 모두 동일: True
+  → 다른 소비처(통계전략 계획/실행계획 화면 cost·등급)는 이번 수정으로 아무것도 달라지지 않았다.
+
+================================================================================
+4. 회귀 시험 — 서브셋 + baseline 대조
+================================================================================
+[대상 선정] choose_compare_strategy·strategy_route·agg_diff_route·plan_full_compare_strategy 를
+            참조하는 테스트 파일 전수 grep → 32개 파일.
+
+[baseline] git worktree (HEAD 5b851fd, 수정 전 코드) — E:\_wt_m23 에서 동일 명령 실행
+  5 failed, 342 passed, 1 skipped, 7 xfailed, 6 subtests passed in 48.87s
+
+[after] 작업 트리(수정 후)
+  5 failed, 343 passed, 1 skipped, 7 xfailed, 6 subtests passed in 50.45s
+  (passed +1 = 이번에 추가한 test_transition_signature_has_no_remote_param)
+
+[실패 테스트 전체 목록 — 5건, baseline 과 완전히 동일 = 신규 회귀 0건]
+  1) tests/test_agg_contribution.py::test_exact_diff_separated_and_terms_removed
+  2) tests/test_execution_path.py::test_parallel_read_decision_off_by_default
+  3) tests/test_execution_path.py::test_parallel_read_decision_diff_host_true
+  4) tests/test_execution_path.py::test_parallel_read_decision_same_host_sequential
+  5) tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+  → 5건 모두 이번 수정과 무관(사전 존재 실패).
+     2~4)는 _parallel_read_decision 이 튜플 (False,'SAME_PHYSICAL_DB') 을 반환하는데 테스트가
+     bool 단일값을 기대하는 계약 불일치, 1)·5)는 다른 세션의 UI 렌더러 작업 진행 중 상태에서
+     발생하는 화면 문자열 단언 — 수정 전 baseline 에서도 동일하게 실패한다.
+
+[전략 서브셋 단독 재확인]
+  tests/test_strategy_transition.py + test_strategy_remote_flag_evidence.py
+  + test_chunk_policy_dbms_probe_keymeta_g2_p7_p14.py
+    수정 전 : 48 passed in 6.94s
+    수정 후 : 49 passed in 6.93s   (실패 0)
+
+================================================================================
+5. 잔여 / 미처리 (의도적)
+================================================================================
+- ui/grid_helpers.py:1462 의 설명 주석 "choose_compare_strategy 은 remote 를 인자로 받기만 하고
+  본문에서 쓰지 않는다" 는 과거 상태 서술이라 이제 문구상 stale 하다(호출부 아님 — 주석 텍스트).
+  이번 커밋에서 손대지 않았다: grid_helpers.py 는 동시 진행 중인 5단계 그리드 작업과 충돌
+  위험이 있는 대형 공유 파일이고, 요구사항 2의 "remote 인자를 넘기는 호출부" 에 해당하지 않는다.
+  → 별도 정리 대상으로 남긴다.
+- BACKLOG.md 의 M23 항목 갱신은 다른 지침(BACKLOG.md 담당)과 겹치므로 이번 작업 범위 밖.
+
+================================================================================
+6. git
+================================================================================
+커밋 : de02174  fix(strategy): 전환판정 죽은 파라미터 remote 제거
+                (STRATEGY-TRANSITION-DEAD-REMOTE-PARAM-CLEANUP-FIX)
+직전 HEAD : 5b851fd (커밋 직전 재확인 — 동시 세션 커밋 없음)
+
+변경 파일 (5개, +56 / -20)
+  routes/agg_diff_route.py                            |  3 +-
+  routes/strategy_route.py                            |  4 +-
+  scripts/dev_e2e/strategy_remote_flag_impact_probe.py| 25 ++++++----
+  services/strategy/strategy_transition.py            | 10 ++++--
+  tests/test_strategy_remote_flag_evidence.py         | 34 ++++++++++++-----
+삭제 파일 : 0건 (^D 0건 확인)
+다른 세션 미커밋 파일 보존 확인 : services/db_adapters/mssql.py, mysql.py,
+  services/db_query_service.py, ui/execute_result_renderer.py, ui/tabler_renderer.py 모두 M 상태 유지.
+
+핵심 diff (services/strategy/strategy_transition.py)
+--------------------------------------------------------------------------------
+ def choose_compare_strategy(*, source_count, row_width=None, pk_kind=m.PK_SINGLE_NUMERIC,
+-                            pk_indexed=True, remote=False, recent_throughput_rows_per_sec=None,
++                            pk_indexed=True, recent_throughput_rows_per_sec=None,
+                             first_result_sla_seconds=None, transition_config=None, benchmarks=None):
+     """전환 판정(§8). ... 반환 dict(정책 출력 §8).
++
++    [STRATEGY-TRANSITION-DEAD-REMOTE-PARAM-CLEANUP-FIX] 죽은 파라미터 `remote` 제거(백로그 M23).
++      시그니처에만 선언돼 있고 본문 어디서도 참조하지 않았다 — 180조합 전수비교에서 반환값
++      100% 동일함이 실측으로 확정됐다. ... 원격 여부는 통계전략 cost(고정 가산)에만 작용한다."""
+--------------------------------------------------------------------------------
+
+================================================================================
+7. 실검증 상태
+================================================================================
+실검증 상태 : 실측 완료 — 180조합 전/후 반환값 전수 대조(불일치 0건) + probe 스크립트 재실행 +
+              서브셋 348건 baseline(worktree HEAD 5b851fd) 대조 실행. 실 DB 접속·브라우저 불필요
+              (순수 함수 시그니처 정리, 화면 무관 — 스크린샷 없음).
+
+작업명 : STRATEGY-TRANSITION-DEAD-REMOTE-PARAM-CLEANUP-FIX
+✅ 작업 완료 - STRATEGY-TRANSITION-DEAD-REMOTE-PARAM-CLEANUP-FIX - choose_compare_strategy 의 죽은 파라미터 remote 를 시그니처에서 제거하고 호출부 2곳·테스트 1곳·probe 스크립트 1곳을 함께 정리, 180조합 전/후 반환값 불일치 0건·신규 회귀 0건
