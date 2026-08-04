@@ -1,0 +1,292 @@
+작업명 : MYSQL-MSSQL-FETCH-KEY-METADATA-IMPLEMENT-FIX
+✅ 작업 완료 - MYSQL-MSSQL-FETCH-KEY-METADATA-IMPLEMENT-FIX - MySQL/MSSQL 어댑터의 fetch_key_metadata 를 base no-op({}) 에서 카탈로그 실조회로 이식(오라클 구현과 동일 인터페이스·shape·집계 규칙), 라이브 MySQL 호환 서버 5케이스 정확 + 단일 PK 의 GROUP BY 후보 배제(PK_IDENTIFIER)·복합 PK 구성원 유지 실측, 신규 회귀 0건
+
+================================================================================
+1. 배경 / 문제
+================================================================================
+백로그 F23. 어댑터 계층에서 목적지 PK/UNIQUE 메타를 조회하는 fetch_key_metadata 가
+oracle / postgresql 에만 구현돼 있고 mysql / mssql 은 BaseDbmsAdapter 의 no-op({}) 이었다.
+
+  services/db_adapters/base.py:161
+      def fetch_key_metadata(self, conn_info, table) -> dict:
+          """PK/유니크 등 키 메타 조회. 기본 no-op({}) — 미지원 DBMS."""
+          return {}
+
+그 결과 소비처(services/db_query_service._cmn_fetch_tgt_col_meta)에서 목적지 컬럼 메타의
+is_pk 가 MySQL/MSSQL 목적지에서는 **항상 False** 였다(방언 비대칭). 같은 파일의 주석도
+"mysql/mssql 은 base no-op({}) 이라 값이 안 채워져 기존 동작(전부 False)이 유지된다"고
+그 상태를 명시하고 있었다(db_query_service.py:1347~1348, 수정 전).
+
+선행 결정: 오늘(2026-08-05) IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX 작업 시
+사용자 결정으로 "오라클만 먼저, MySQL/MSSQL 은 별도(Q3)" 로 분리했고, 이번이 그 별도 작업이다.
+근거: E:\verify_reports\IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX.txt (§Q3)
+
+================================================================================
+2. 수정 내용 (신규 인터페이스 없음 — 기존 어댑터 패턴 그대로 재사용)
+================================================================================
+(1) services/db_adapters/mysql.py — fetch_key_metadata 신규 구현(+110줄)
+    - 카탈로그: information_schema.TABLE_CONSTRAINTS + information_schema.KEY_COLUMN_USAGE
+    - 복합키 컬럼 수: 파생테이블 GROUP BY 로 집계(윈도우 함수 미사용 → MySQL 5.7 호환).
+      오라클 impl 은 COUNT(*) OVER(PARTITION BY …) 을 쓰지만, MySQL 8.0 미만 호환을 위해
+      같은 값을 내는 파생테이블 형태로 대체했다(결과 shape 동일).
+    - 바인딩: %s (pymysql/psycopg2 계열 paramstyle), 대문자 정규화 후 UPPER(table_name) 매칭
+    - 범위: table_schema = DATABASE() — 이 어댑터의 다른 카탈로그 쿼리
+      (build_column_meta_query / build_tgt_column_meta_query)와 동일 규약이며, 동명 테이블이
+      다른 스키마에 있을 때 제약이 섞이는 것을 막는다.
+    - 가드 헬퍼 2개 추가: _is_mysql_conn(db_type 가드 — PG/오라클의 _is_pg_conn/_is_oracle_conn 대칭),
+      _bare_table_name('schema.table'·백틱·대괄호 제거 후 대문자화)
+    - MariaDB 는 별도 어댑터라 aliases 가 달라 이 가드를 통과하지 않는다(이 파일에서 MariaDB 를
+      섞지 않는 기존 모듈 규칙 유지 — MariaDB 는 이번 범위 밖, 여전히 base no-op).
+
+(2) services/db_adapters/mssql.py — fetch_key_metadata 신규 구현(+112줄)
+    - 카탈로그: INFORMATION_SCHEMA.TABLE_CONSTRAINTS + KEY_COLUMN_USAGE
+    - **sys.indexes 대신 information_schema 를 택한 근거**(요구 3의 선택지 중 후자):
+      sys.indexes/sys.index_columns 는 '제약 없는 UNIQUE 인덱스'까지 포함해 PG/오라클 구현
+      (제약 기반)보다 넓은 집합을 돌려준다 → 같은 테이블인데 방언마다 is_unique 가 달라지는
+      비대칭이 생긴다. 이번 작업의 요구가 "오라클과 동일 동작" 이므로 제약 기반으로 맞췄다.
+    - 바인딩: ? (pyodbc qmark). 조인/카운트 키에 catalog+schema+constraint_name+table_name 을
+      모두 포함해 동명 테이블의 제약 컬럼 수가 섞이지 않게 했다.
+    - 헬퍼 2개: _is_mssql_conn, _bare_table_name([dbo].[T] 형태 정규화)
+
+(3) 공통 규칙 — 오라클/PG impl 과 완전히 동일하게 맞춘 부분
+    - 반환 shape: {COLUMN_NAME(대문자): {is_pk, is_unique, is_composite_key_member,
+                   key_column_count, constraint_name, constraint_type}}
+    - constraint_type 문자열: 'PRIMARY KEY' / 'UNIQUE'
+      (오라클만 'P'/'U' → 정규화가 필요했고, MySQL/MSSQL 카탈로그는 이미 이 문자열을 준다)
+    - 컬럼별 최우선 제약: PRIMARY KEY > UNIQUE (행 순서와 무관하게 PK 로 덮어씀)
+    - 단일/복합 구분: key_column_count > 1 → is_composite_key_member=True
+      · 소비처(db_query_service._cmn_fetch_tgt_col_meta)가 `is_pk and not is_composite` 로
+        **단일 컬럼 PK 만 is_pk=True** 를 싣고, 복합 PK 구성원은 is_composite_key_member(+
+        key_column_count)로만 사실을 보존한다 → 오늘 S10(오라클)에서 확정한 원칙 그대로 적용.
+        어댑터는 사실만 담고 정책은 소비처가 적용하는 기존 구조를 유지했다(정책 중복 구현 없음).
+    - 안전 폴백: 비대상 db_type / 파생 SQL('(' 시작) / 빈 테이블명은 **연결조차 하지 않고** {},
+      연결 실패·조회 실패도 {}(예외 미전파, 연결 close 보장). {} 는 '키 정보 없음' 이라
+      소비처에서 수정 전(전부 False)과 동일하게 흐른다.
+
+(4) services/db_query_service.py — 주석 2곳 갱신(코드 변경 없음)
+    "미지원 방언(mysql/mssql) … base no-op({})" 이라는 서술이 이번 이식으로 거짓이 되므로
+    현재 상태로 고쳤다. git diff 상 변경은 주석 6줄 추가/3줄 삭제뿐이며 실행 경로는 무변경이다.
+
+(5) scripts/dev_e2e/is_pk_dialect_delegation_check.py — S10 증적 스크립트의 stale 주석 갱신
+    "mysql/mssql : base no-op({})" 설명에 이번 작업 이후 상태와 connect() 미구현 사실을 덧붙였다.
+    (이 스크립트의 실제 출력은 변하지 않는다 — 아래 §6 잔존 제약 참고)
+
+(6) 신규 파일 2개
+    - scripts/dev_e2e/mysql_mssql_key_metadata_verify.py (348줄) — 실측 하니스(§3~§5)
+    - tests/test_mysql_mssql_key_metadata.py (263줄, 16건) — 단위 회귀 테스트
+
+================================================================================
+3. 실측 검증 (A) MySQL — 라이브 MySQL 호환 서버, 방언별 3케이스 + 2케이스
+================================================================================
+[환경] MariaDB 11.1.3 (192.168.0.211:3309 / nxdnp). MariaDB 의 information_schema
+       (TABLE_CONSTRAINTS/KEY_COLUMN_USAGE)는 MySQL 과 동일 규격이라 이 SQL 의 라이브
+       검증에 그대로 쓸 수 있다. conn_info 의 db_type 을 'mysql' 로 두어 **MySQLAdapter 의
+       구현이 그대로 실행**되게 했다(MariaDBAdapter 아님).
+       기존 테이블만 조회했다 — 테이블 생성/변경/삭제 없음(조회 전용).
+       ※ MySQLAdapter.connect() 는 아직 미구현(base RuntimeError)이라 하니스에서 pymysql
+         연결만 주입했다. 주입 범위는 '연결 생성' 뿐이고 조회 SQL·집계·폴백은 운영 코드 그대로다.
+
+  케이스               테이블                 전(前)  후(後)
+  ------------------- --------------------- ------- ---------------------------------------
+  ① 단일 PK           SYS_CODE_GROUP         {}     GROUP_CODE[is_pk=True 복합=False n=1 PRIMARY KEY]
+  ② 복합 PK(2컬럼)    SYS_CODE               {}     CODE[is_pk=True 복합=True n=2 PRIMARY KEY]
+                                                     GROUP_CODE[is_pk=True 복합=True n=2 PRIMARY KEY]
+  ③ PK 없음           SDT_PTH_TRN_LOG        {}     {} (키 정보 없음)
+  ④ 단일PK+단일UNIQUE SYS_USER               {}     USER_ID[is_pk=True 복합=False n=1 PRIMARY KEY]
+                                                     LOGIN_ID[is_pk=False 복합=False n=1 UNIQUE]
+  ⑤ 단일PK+복합UNIQUE SYS_USER_PERMISSION    {}     USER_PERMISSION_ID[is_pk=True 복합=False n=1 PRIMARY KEY]
+                                                     PERMISSION_CODE / USER_ID / VALID_FROM
+                                                       [is_pk=False 복합=True n=3 UNIQUE]
+
+  → 5케이스 모두 PK 컬럼 기대값과 실제값 일치(불일치 0건).
+    단일 PK(is_pk=True & 복합아님) 판정: ① GROUP_CODE, ④ USER_ID, ⑤ USER_PERMISSION_ID
+    복합키 구성원 판정: ② CODE·GROUP_CODE, ⑤ PERMISSION_CODE·USER_ID·VALID_FROM
+
+  [게이트/폴백 실측]
+    비-MySQL(db_type=postgresql)  → {}   (연결 시도 없음)
+    파생 SQL '(SELECT 1)'          → {}
+    빈 테이블명                     → {}
+    없는 테이블                     → {}
+    'nxdnp.SYS_CODE'(schema 한정)   → 복합 PK 2컬럼 정상 조회
+    '`SYS_CODE`'(백틱)              → 복합 PK 2컬럼 정상 조회
+    연결 실패(127.0.0.1:1)          → {}  (예외 미전파)
+
+================================================================================
+4. 실측 검증 (B) MSSQL — 계약 실측(가짜 커서), 실 서버 미보유
+================================================================================
+[제약] 사내 SQL Server 인스턴스 부재 + pyodbc 미설치(이 PC 실측: import pyodbc → ModuleNotFoundError).
+       이 파일의 기존 timeout 구현과 동일한 제약이며, 파일 docstring 에도 같은 문구로 명시했다.
+       따라서 카탈로그 응답을 가짜 커서로 주입해 **SQL 배선·바인딩·집계 규칙**만 확인했다.
+
+  케이스                          테이블     전(前)  후(後)
+  ------------------------------ --------- ------- ------------------------------------------
+  ① 단일 PK                       T_SINGLE  {}     ID[is_pk=True 복합=False n=1 PRIMARY KEY]
+  ② 복합 PK(2컬럼)                T_COMP    {}     CO_CD / SEQ [is_pk=True 복합=True n=2 PRIMARY KEY]
+  ③ PK 없음                       T_NOPK    {}     {} (키 정보 없음)
+  ④ 단일PK+단일UNIQUE             T_MIX     {}     ID[PK] / LOGIN_ID[is_pk=False n=1 UNIQUE]
+  ⑤ UNIQUE 행이 먼저 온 뒤 PK 행  T_ORDER   {}     ID[constraint_type=PRIMARY KEY]  ← PK 우선 규칙
+
+  [실행 SQL 계약]
+    파라미터 : ('T_ORDER', 'T_ORDER') · '?' 개수 = 2   (qmark 바인딩, %s 없음)
+    카탈로그 : information_schema 사용=True · sys.indexes 미사용=True · PK/UNIQUE 한정=True
+    문법     : sqlglot T-SQL 파서 파싱 성공(최상위 Select) — 실 서버가 없어 문법만 별도 확인,
+               카탈로그 존재 여부는 검증 불가(정직하게 미검증으로 남긴다)
+    연결 close 보장 = True (전 케이스)
+
+  [게이트/폴백 실측]
+    비-MSSQL(db_type=mysql) → {} / 파생 SQL → {} / '[dbo].[T_SINGLE]' → 'T_SINGLE' 정규화 /
+    연결 실패 → {} (안전 폴백)
+
+================================================================================
+5. 실측 검증 (C) GROUP BY 후보 영향 — 라이브 analyze 전/후 대조
+================================================================================
+[방법] db_type='mysql' 로 analyze(run_single_validation_analyze)를 라이브 실행.
+       '전(前)' 은 S10 하니스와 동일한 legacy shim(=목적지 컬럼 메타에서 is_pk/
+       is_composite_key_member/key_column_count 만 제거)으로 수정 전 입력을 재현했고,
+       shim 오염을 피하려고 legacy/after 를 각각 별도 프로세스로 돌렸다.
+
+  ① 단일 PK — SYS_CODE_GROUP
+     전: meta_pk=[]            GB후보=[GROUP_CODE, STATUS]  자동GB=[GROUP_CODE, STATUS]
+     후: meta_pk=[GROUP_CODE]  GB후보=[STATUS]              자동GB=[STATUS]
+         비후보사유: GROUP_CODE = PK_IDENTIFIER   ★ 단일 PK 가 GROUP BY 후보에서 배제됨
+                    (오라클 S10 과 동일 동작 확인)
+
+  ② 복합 PK — SYS_CODE  ★ 무회귀 확인 핵심
+     전: meta_pk=[] meta_ckm=[]                 GB후보=[CODE, CODE_NAME, GROUP_CODE, STATUS]
+     후: meta_pk=[] meta_ckm=[CODE, GROUP_CODE] GB후보=[CODE, CODE_NAME, GROUP_CODE, STATUS]
+         자동GB 전/후 동일 [GROUP_CODE, CODE, STATUS] — 복합 PK 구성원은 그대로 후보로 남는다.
+         (is_pk 는 False 를 유지하고 복합키 사실만 별도 키로 보존 = S10 확정 원칙과 일치)
+
+  ③ PK 없음 — SDT_PTH_TRN_LOG
+     전/후 완전 동일: GB후보=[STATUS], 비후보사유 4건 동일(ID_BATCH/LINES_READ=NUMERIC_SUM_ONLY,
+     CHANNEL_ID/TRANSNAME=NO_EVIDENCE) — 무변화.
+
+================================================================================
+6. 오라클 무회귀 + 잔존 제약
+================================================================================
+[오라클 무회귀 — 라이브 재실행] OracleAdapter.fetch_key_metadata(이번 변경 대상 아님)
+   단일 PK  MV_ORA_TEST_TGT   → ORDER_ID[is_pk=True 복합=False n=1 PRIMARY KEY]
+   복합 PK  T_SPKFIX_CMP_TGT  → CO_CD / SEQ [is_pk=True 복합=True n=2 PRIMARY KEY]
+   PK 없음  MV_ORA_NOPK_TGT   → {} (키 정보 없음)
+   → S10 직후 값과 동일. oracle.py 는 이번 커밋에서 한 줄도 건드리지 않았다.
+
+[잔존 제약 1 — 운영 경로에서 실제로 값이 흐르려면 connect() 가 필요하다]
+   MySQLAdapter / MSSQLAdapter 는 connect() 가 여전히 미구현이다(BaseDbmsAdapter.connect →
+   RuntimeError "connect 미지원"). 실측:
+       get_adapter('mysql').connect({...}) → RuntimeError: mysql: connect 미지원(어댑터 미구현)
+   fetch_key_metadata 는 _cmn_db_connect → 어댑터 connect 를 타므로, 운영 경로에서는 지금도
+   연결 단계에서 실패해 {} 로 폴백한다(= 사용자 관점 동작은 수정 전과 동일).
+   즉 이번 작업은 "카탈로그 조회·판정 계층"을 오라클과 대칭으로 맞춘 것이고, 두 방언의 값이
+   실제 화면까지 흐르려면 별도 작업(어댑터 connect 이식)이 선행돼야 한다. 이번 지침의 수정
+   대상 파일 범위(어댑터의 fetch_key_metadata)를 넘어서므로 여기서는 구현하지 않았다.
+   ※ 그래서 §3 하니스는 connect 만 주입해 라이브 검증을 성립시켰다 — 조회 SQL/집계/폴백은
+     운영 코드 그대로이므로, connect 가 이식되는 즉시 §3 값이 그대로 운영에서 재현된다.
+
+[잔존 제약 2 — MSSQL 라이브 미검증]
+   인스턴스/pyodbc 부재로 실 서버 실행은 못 했다(§4). 어댑터 docstring 에 같은 문구로 명시.
+
+[잔존 제약 3 — MariaDB 는 범위 밖]
+   MariaDBAdapter 는 여전히 base no-op({})이다. 지침이 MySQL/MSSQL 2방언으로 한정했고,
+   지원 DB 4종(oracle/mysql/postgresql/mssql) 목록에도 MariaDB 는 없다.
+   (테스트 test_untouched_dialects_still_noop 로 이 상태를 고정했다)
+
+================================================================================
+7. 테스트
+================================================================================
+[신규 단위 테스트] tests/test_mysql_mssql_key_metadata.py — 16건 전부 통과 (1.93s)
+   단일PK / 복합PK / PK없음(양 방언) · PK>UNIQUE 우선순위(행 순서 무관) · UNIQUE 전용 컬럼 ·
+   비대상 방언에서 연결 시도조차 없음 · 파생/빈 테이블명 skip · 연결 실패 폴백 ·
+   조회 예외 시 close 보장 · schema.table/백틱/[dbo].[T] 정규화 ·
+   MySQL SQL 계약(%s·DATABASE()·PK/UNIQUE 한정) · MSSQL SQL 계약(?·sys.indexes 미사용) ·
+   T-SQL 문법 파싱 · 미이식 방언(MariaDB/base) no-op 고정
+
+[기존 회귀 — CLAUDE.md 지정]
+   python samples/test_virtual_cases.py  → 8/8 통과
+   python samples/test_complex_cases.py  → 5/5 통과
+
+[서브셋 + baseline 대조]
+   대상: tests/ 중 adapter|keymeta|key_metadata|_pk|pk_|dialect|candidate|db_query|
+         column_stats|metadata 패턴 117파일
+   after (작업 트리)            : 30 failed, 1683 passed, 5 skipped, 2 xfailed  (516.41s)
+   baseline (worktree HEAD de02174): 33 failed, 1614 passed, 23 skipped, 2 xfailed, 32 errors (423.81s)
+
+   · baseline 전용 실패/에러 35건은 전부 tests/test_candidate_scoring_dashboard_static.py 로,
+     worktree 에 생성물 HTML 이 없어서 나는 환경 아티팩트다(코드 무관).
+   · after 에만 있던 3건(test_candidate_contract 2건, test_candidate_plan_matrix 1건)은
+     worktree 에 untracked 인 db_presets_*.json 이 없어 baseline 에서 SKIP 된 것이었다.
+     프리셋을 worktree 에 복사해 재실행하니 **baseline 에서도 동일하게 3건 실패**(3 failed,
+     16 passed) → 사전 존재 실패로 확정.
+   ⇒ 신규 회귀 0건.
+
+[실패 테스트 전체 목록 — 30건, 전부 baseline 에서도 실패(사전 존재)]
+   tests/test_analyze_adapter_routing_shadow_compare.py::test_http_200_via_testclient
+   tests/test_analyze_adapter_routing_shadow_compare.py::test_independent_from_shadow_flag
+   tests/test_analyze_adapter_routing_shadow_compare.py::test_routing_on_equals_off
+   tests/test_batch_flow2_candidate_core_parity.py::test_coalesce_cast_flow2_core_parity
+   tests/test_batch_profile_candidate_parity.py::test_calc_profile_present_parity
+   tests/test_candidate_contract.py::test_live_payment_contract_clean_and_defaults_preserved
+   tests/test_candidate_contract.py::test_live_product_selectable_not_auto_selected
+   tests/test_candidate_decision_evidence.py::test_evidence_role_split_strings
+   tests/test_candidate_display_policy.py::test_04_group_by_default
+   tests/test_candidate_display_policy.py::test_05_sum_default
+   tests/test_candidate_display_policy.py::test_06_net_amt
+   tests/test_candidate_draft_selection.py::test_candidate_notice_sticky_fix_uses_common_offset
+   tests/test_candidate_draft_selection.py::test_candidate_selection_bar_present_and_populated
+   tests/test_candidate_draft_selection.py::test_checkbox_change_keeps_table_and_plan_marks_draft
+   tests/test_candidate_draft_selection.py::test_restore_to_applied_clears_draft_notice
+   tests/test_candidate_draft_selection.py::test_uncheck_all_does_not_switch_to_count_only_before_apply
+   tests/test_candidate_evidence_display_policy.py::test_net_amt_vs_unit_price_distinct
+   tests/test_candidate_explainability.py::test_01_default_has_primary
+   tests/test_candidate_explainability.py::test_05_line_amt_computed
+   tests/test_candidate_explainability.py::test_06_group_by_profile
+   tests/test_candidate_explanation_display.py::test_candidate_score_separate_column
+   tests/test_candidate_plan_matrix.py::test_null_vs_empty_selection_contract
+   tests/test_candidate_role_policy_grid.py::test_global_limit_banner_and_count_same_input_no_lock
+   tests/test_date_candidate_ui_cleanup.py::test_date_cap_guard_and_hold
+   tests/test_single_validation_candidate_audit.py::test_audit_fixture_cases_all_pass
+   tests/test_single_validation_candidate_audit.py::test_fallback_promote_golden
+   tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_dedup_logic_present
+   tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_hidden_when_empty
+   tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_only_individual_screen
+   tests/test_task_single_candidate_evidence_preview.py::test_cap3_unchanged
+   ※ 이 중 UI 소스 검사형 실패군(candidate_draft_selection / task_single_candidate_evidence_preview
+     등)은 동시 진행 중인 다른 세션의 ui/*.py 작업 영역이며, baseline(HEAD)에서도 동일하게 실패한다.
+
+================================================================================
+8. 변경 파일 / 커밋
+================================================================================
+커밋: 60d5cf28ec9a4e992186d493c52754e1710ca11f  (main)
+  feat(adapters): MySQL/MSSQL fetch_key_metadata 이식 — 목적지 PK 실값
+                  (MYSQL-MSSQL-FETCH-KEY-METADATA-IMPLEMENT-FIX)
+
+  scripts/dev_e2e/is_pk_dialect_delegation_check.py  |  10 +-   (주석 갱신)
+  scripts/dev_e2e/mysql_mssql_key_metadata_verify.py | 348 +++   (신규 — 실측 하니스)
+  services/db_adapters/mssql.py                      | 112 +++   (fetch_key_metadata 신규)
+  services/db_adapters/mysql.py                      | 110 +++   (fetch_key_metadata 신규)
+  services/db_query_service.py                       |   9 +-   (주석 2곳만, 실행 경로 무변경)
+  tests/test_mysql_mssql_key_metadata.py             | 263 +++   (신규 — 16건)
+  6 files changed, 847 insertions(+), 5 deletions(-)
+
+  ※ 동시 진행 중인 다른 세션의 미커밋 변경(ui/execute_result_renderer.py, ui/tabler_renderer.py,
+    services/candidate_postcount_finalize.py 등)은 스테이징하지 않았고, 커밋 후 작업트리에
+    그대로 남아 있음을 확인했다.
+
+재현 명령:
+  python -m pytest tests/test_mysql_mssql_key_metadata.py -q
+  python scripts/dev_e2e/mysql_mssql_key_metadata_verify.py all
+      (mysql | mssql | groupby | oracle 로 구간 실행 가능. mysql/groupby 는 사내 MySQL 호환
+       서버 접속 필요, mssql/oracle 구간은 각각 스텁/오라클 라이브)
+
+================================================================================
+9. 실검증 상태
+================================================================================
+실검증 상태 : 실측 완료 — MySQL 은 라이브 MySQL 호환 서버(MariaDB 11.1.3) 카탈로그로 5케이스
+              전/후 실측 + 라이브 analyze 로 GROUP BY 후보 영향(단일 PK 배제 / 복합 PK 유지)
+              전/후 대조 완료, 오라클 라이브 무회귀 재확인 완료.
+              MSSQL 은 사내 인스턴스·pyodbc 부재로 라이브 미검증 — 가짜 커서 계약 실측 +
+              sqlglot T-SQL 문법 파싱까지만(정직하게 미검증 구간으로 표기).
+              두 방언 모두 어댑터 connect() 미구현이라 운영 경로에서는 아직 연결 단계에서
+              폴백한다(§6 잔존 제약 1). 화면 무관 — 스크린샷 없음.
+
+작업명 : MYSQL-MSSQL-FETCH-KEY-METADATA-IMPLEMENT-FIX
+✅ 작업 완료 - MYSQL-MSSQL-FETCH-KEY-METADATA-IMPLEMENT-FIX - MySQL/MSSQL 어댑터의 fetch_key_metadata 를 base no-op({}) 에서 카탈로그 실조회로 이식(오라클 구현과 동일 인터페이스·shape·집계 규칙), 라이브 MySQL 호환 서버 5케이스 정확 + 단일 PK 의 GROUP BY 후보 배제(PK_IDENTIFIER)·복합 PK 구성원 유지 실측, 신규 회귀 0건
