@@ -1,0 +1,3941 @@
+{
+ "phase": "after1axis",
+ "pair": [
+  "PostgreSQL_Inter_asis",
+  "PostgreSQL_Inter_tobe"
+ ],
+ "sql": "INSERT INTO tobe01.t_combo_tgt (id, status_cd, dept_cd, amt)\nSELECT id, status_cd, dept_cd, amt\nFROM asis01.t_combo_src",
+ "setup": {
+  "pair_label": "PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe",
+  "pair_existed": false,
+  "pair_rows_after": 1,
+  "connect_clicked": true
+ },
+ "1단계실행": {
+  "step": "query",
+  "blocked": false,
+  "err": null,
+  "from_table": "T_COMBO_SRC",
+  "target_table": ""
+ },
+ "C1_1단계": {
+  "본문폭": 1600,
+  "S1": {
+   "존재": true,
+   "타일수": 8,
+   "타일라벨목록": [
+    "목적테이블",
+    "원본테이블",
+    "입력컬럼수",
+    "추출컬럼수",
+    "조건문",
+    "조인",
+    "처리시간",
+    "상태"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "4",
+    "4",
+    "없음",
+    "없음",
+    "0.35초",
+    "● 정상"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 309,
+      "left": 319,
+      "width": 144,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "원본테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 309,
+      "left": 473,
+      "width": 144,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "입력컬럼수",
+     "값": "4",
+     "tooltip": "ID, STATUS_CD, DEPT_CD, AMT",
+     "박스": {
+      "top": 309,
+      "left": 627,
+      "width": 144,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "추출컬럼수",
+     "값": "4",
+     "tooltip": "ID, STATUS_CD, DEPT_CD, AMT",
+     "박스": {
+      "top": 309,
+      "left": 781,
+      "width": 144,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "조건문",
+     "값": "없음",
+     "tooltip": "조건 없음",
+     "박스": {
+      "top": 309,
+      "left": 935,
+      "width": 144,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "조인",
+     "값": "없음",
+     "tooltip": "조인 없음",
+     "박스": {
+      "top": 309,
+      "left": 1089,
+      "width": 144,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "처리시간",
+     "값": "0.35초",
+     "tooltip": "쿼리검토 1회 실행 처리시간 — 0.35초 (348.6ms)",
+     "박스": {
+      "top": 309,
+      "left": 1243,
+      "width": 144,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "상태",
+     "값": "● 정상",
+     "tooltip": "통과",
+     "박스": {
+      "top": 309,
+      "left": 1397,
+      "width": 144,
+      "height": 85
+     }
+    }
+   ],
+   "줄수": 1,
+   "줄별칸수": [
+    8
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 287,
+    "left": 319,
+    "width": 1222,
+    "height": 107
+   },
+   "텍스트": "목적테이블 tobe01.t_combo_tgt 원본테이블 asis01.t_combo_src 입력컬럼수 4 추출컬럼수 4 조건문 없음 조인 없음 처리시간 0.35초 상태 ● 정상"
+  },
+  "S2": {
+   "존재": true,
+   "타일수": 8,
+   "타일라벨목록": [
+    "목적 테이블",
+    "원본 테이블",
+    "COUNT 소요",
+    "목적건수",
+    "원본 건수",
+    "차이",
+    "COUNT 총시간",
+    "상태"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "—",
+    "—",
+    "—",
+    "—",
+    "—",
+    "—"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적 테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본 테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "COUNT 소요",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "목적건수",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본 건수",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "차이",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "COUNT 총시간",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "상태",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    }
+   ],
+   "줄수": 1,
+   "줄별칸수": [
+    8
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "텍스트": "목적 테이블tobe01.t_combo_tgt원본 테이블asis01.t_combo_srcCOUNT 소요—목적건수—원본 건수—차이—COUNT 총시간—상태—"
+  },
+  "S4": {
+   "존재": true,
+   "타일수": 0,
+   "타일라벨목록": [],
+   "타일값목록": [],
+   "타일상세": [],
+   "줄수": 0,
+   "줄별칸수": [],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "텍스트": ""
+  },
+  "S5_ctx": {
+   "존재": true,
+   "타일수": 0,
+   "타일라벨목록": [],
+   "타일값목록": [],
+   "타일상세": [],
+   "줄수": 0,
+   "줄별칸수": [],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "텍스트": ""
+  },
+  "S5_target": {
+   "존재": false
+  },
+  "S5_statsgrid": {
+   "존재": false
+  },
+  "파트A": {
+   "exec보관": null,
+   "다중세트": false,
+   "SQL생성시간보관": {
+    "ms": null,
+    "label": ""
+   },
+   "s5처리시간보관": {
+    "ms": null,
+    "label": ""
+   }
+  },
+  "파트B": {
+   "규모셀존재": false,
+   "PK셀존재": false,
+   "s5html에_통계검증규모": false,
+   "strategyPlan": null,
+   "stage3PlanInfo_scale": null,
+   "ensure함수존재": true
+  },
+  "파트C": {
+   "s1에_컬럼매핑수": false,
+   "s2에_처리시간라벨": false,
+   "s4에_상태라벨": false,
+   "s4에_조합검증": false,
+   "조합체크박스": {
+    "존재": false
+   },
+   "includePairFlag": false
+  },
+  "하단무회귀": {
+   "executeOut_존재": true,
+   "executeOut_표수": 0,
+   "executeOut_행수": 0,
+   "executeOut_텍스트길이": 0,
+   "불일치항목요약길이": 0
+  }
+ },
+ "2단계실행": {
+  "click1_sql": true,
+  "click2_run": true,
+  "result_arrived": true
+ },
+ "C2_2단계": {
+  "본문폭": 1600,
+  "S1": {
+   "존재": true,
+   "타일수": 8,
+   "타일라벨목록": [
+    "목적테이블",
+    "원본테이블",
+    "입력컬럼수",
+    "추출컬럼수",
+    "조건문",
+    "조인",
+    "처리시간",
+    "상태"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "4",
+    "4",
+    "없음",
+    "없음",
+    "0.35초",
+    "● 정상"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "입력컬럼수",
+     "값": "4",
+     "tooltip": "ID, STATUS_CD, DEPT_CD, AMT",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "추출컬럼수",
+     "값": "4",
+     "tooltip": "ID, STATUS_CD, DEPT_CD, AMT",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "조건문",
+     "값": "없음",
+     "tooltip": "조건 없음",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "조인",
+     "값": "없음",
+     "tooltip": "조인 없음",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "처리시간",
+     "값": "0.35초",
+     "tooltip": "쿼리검토 1회 실행 처리시간 — 0.35초 (348.6ms)",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "상태",
+     "값": "● 정상",
+     "tooltip": "통과",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    }
+   ],
+   "줄수": 1,
+   "줄별칸수": [
+    8
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "텍스트": "목적테이블tobe01.t_combo_tgt원본테이블asis01.t_combo_src입력컬럼수4추출컬럼수4조건문없음조인없음처리시간0.35초상태● 정상"
+  },
+  "S2": {
+   "존재": true,
+   "타일수": 8,
+   "타일라벨목록": [
+    "목적 테이블",
+    "원본 테이블",
+    "COUNT 소요",
+    "목적건수",
+    "원본 건수",
+    "차이",
+    "COUNT 총시간",
+    "상태"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "원본 0.01초 목적 0.01초",
+    "1,200",
+    "1,200",
+    "0",
+    "0.02초",
+    "● 정상"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적 테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 309,
+      "left": 319,
+      "width": 144,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "원본 테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 309,
+      "left": 473,
+      "width": 144,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "COUNT 소요",
+     "값": "원본 0.01초 목적 0.01초",
+     "tooltip": "원본 14.9ms / 목적지 14.1ms · 총 18.7ms(병렬 실행, 차액은 서버 파싱·COUNT SQL 생성 오버헤드) · COUNT SQL 생성방식: PARSED_MODEL_COUNT_SQL",
+     "박스": {
+      "top": 309,
+      "left": 627,
+      "width": 144,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "목적건수",
+     "값": "1,200",
+     "tooltip": "",
+     "박스": {
+      "top": 309,
+      "left": 781,
+      "width": 144,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "원본 건수",
+     "값": "1,200",
+     "tooltip": "",
+     "박스": {
+      "top": 309,
+      "left": 935,
+      "width": 144,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "차이",
+     "값": "0",
+     "tooltip": "",
+     "박스": {
+      "top": 309,
+      "left": 1089,
+      "width": 144,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "COUNT 총시간",
+     "값": "0.02초",
+     "tooltip": "COUNT 1회 실행 처리시간 — 0.02초 (18.7ms)",
+     "박스": {
+      "top": 309,
+      "left": 1243,
+      "width": 144,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "상태",
+     "값": "● 정상",
+     "tooltip": "일치",
+     "박스": {
+      "top": 309,
+      "left": 1397,
+      "width": 144,
+      "height": 85
+     }
+    }
+   ],
+   "줄수": 1,
+   "줄별칸수": [
+    8
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 287,
+    "left": 319,
+    "width": 1222,
+    "height": 107
+   },
+   "텍스트": "목적 테이블 tobe01.t_combo_tgt 원본 테이블 asis01.t_combo_src COUNT 소요 원본 0.01초 목적 0.01초 목적건수 1,200 원본 건수 1,200 차이 0 COUNT 총시간 0.02초 상태 ● 정상"
+  },
+  "S4": {
+   "존재": true,
+   "타일수": 9,
+   "타일라벨목록": [
+    "목적테이블",
+    "원본테이블",
+    "목적그룹",
+    "원본그룹",
+    "목적집계",
+    "원본집계",
+    "SQL생성시간",
+    "실행시간",
+    "조합검증"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "—",
+    "—",
+    "—",
+    "—",
+    "—",
+    "—",
+    "—"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "목적그룹",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본그룹",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "목적집계",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본집계",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "SQL생성시간",
+     "값": "—",
+     "tooltip": "SQL 생성시간 미계측(통계검증 SQL 생성 전이거나 계측값 없음)",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "실행시간",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "조합검증",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    }
+   ],
+   "줄수": 1,
+   "줄별칸수": [
+    9
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "텍스트": "목적테이블tobe01.t_combo_tgt원본테이블asis01.t_combo_src목적그룹—원본그룹—목적집계—원본집계—SQL생성시간—실행시간—조합검증—"
+  },
+  "S5_ctx": {
+   "존재": true,
+   "타일수": 0,
+   "타일라벨목록": [],
+   "타일값목록": [],
+   "타일상세": [],
+   "줄수": 0,
+   "줄별칸수": [],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "텍스트": ""
+  },
+  "S5_target": {
+   "존재": false
+  },
+  "S5_statsgrid": {
+   "존재": false
+  },
+  "파트A": {
+   "exec보관": null,
+   "다중세트": false,
+   "SQL생성시간보관": {
+    "ms": null,
+    "label": ""
+   },
+   "s5처리시간보관": {
+    "ms": null,
+    "label": ""
+   }
+  },
+  "파트B": {
+   "규모셀존재": false,
+   "PK셀존재": false,
+   "s5html에_통계검증규모": false,
+   "strategyPlan": {
+    "provisional_grade": "소형",
+    "policy_version": null,
+    "effective_group_by_count": 2
+   },
+   "stage3PlanInfo_scale": null,
+   "ensure함수존재": true
+  },
+  "파트C": {
+   "s1에_컬럼매핑수": false,
+   "s2에_처리시간라벨": false,
+   "s4에_상태라벨": false,
+   "s4에_조합검증": true,
+   "조합체크박스": {
+    "존재": false
+   },
+   "includePairFlag": false
+  },
+  "하단무회귀": {
+   "executeOut_존재": true,
+   "executeOut_표수": 0,
+   "executeOut_행수": 0,
+   "executeOut_텍스트길이": 0,
+   "불일치항목요약길이": 0
+  }
+ },
+ "3단계": {
+  "본문폭": 1600,
+  "S1": {
+   "존재": true,
+   "타일수": 8,
+   "타일라벨목록": [
+    "목적테이블",
+    "원본테이블",
+    "입력컬럼수",
+    "추출컬럼수",
+    "조건문",
+    "조인",
+    "처리시간",
+    "상태"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "4",
+    "4",
+    "없음",
+    "없음",
+    "0.35초",
+    "● 정상"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 87,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 87,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "입력컬럼수",
+     "값": "4",
+     "tooltip": "ID, STATUS_CD, DEPT_CD, AMT",
+     "박스": {
+      "top": 87,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "추출컬럼수",
+     "값": "4",
+     "tooltip": "ID, STATUS_CD, DEPT_CD, AMT",
+     "박스": {
+      "top": 87,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "조건문",
+     "값": "없음",
+     "tooltip": "조건 없음",
+     "박스": {
+      "top": 87,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "조인",
+     "값": "없음",
+     "tooltip": "조인 없음",
+     "박스": {
+      "top": 87,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "처리시간",
+     "값": "0.35초",
+     "tooltip": "쿼리검토 1회 실행 처리시간 — 0.35초 (348.6ms)",
+     "박스": {
+      "top": 87,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "상태",
+     "값": "● 정상",
+     "tooltip": "통과",
+     "박스": {
+      "top": 87,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    }
+   ],
+   "줄수": 1,
+   "줄별칸수": [
+    8
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 87,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "텍스트": "목적테이블tobe01.t_combo_tgt원본테이블asis01.t_combo_src입력컬럼수4추출컬럼수4조건문없음조인없음처리시간0.35초상태● 정상"
+  },
+  "S2": {
+   "존재": true,
+   "타일수": 8,
+   "타일라벨목록": [
+    "목적 테이블",
+    "원본 테이블",
+    "COUNT 소요",
+    "목적건수",
+    "원본 건수",
+    "차이",
+    "COUNT 총시간",
+    "상태"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "원본 0.01초목적 0.01초",
+    "1,200",
+    "1,200",
+    "0",
+    "0.02초",
+    "● 정상"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적 테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 87,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본 테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 87,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "COUNT 소요",
+     "값": "원본 0.01초목적 0.01초",
+     "tooltip": "원본 14.9ms / 목적지 14.1ms · 총 18.7ms(병렬 실행, 차액은 서버 파싱·COUNT SQL 생성 오버헤드) · COUNT SQL 생성방식: PARSED_MODEL_COUNT_SQL",
+     "박스": {
+      "top": 87,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "목적건수",
+     "값": "1,200",
+     "tooltip": "",
+     "박스": {
+      "top": 87,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본 건수",
+     "값": "1,200",
+     "tooltip": "",
+     "박스": {
+      "top": 87,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "차이",
+     "값": "0",
+     "tooltip": "",
+     "박스": {
+      "top": 87,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "COUNT 총시간",
+     "값": "0.02초",
+     "tooltip": "COUNT 1회 실행 처리시간 — 0.02초 (18.7ms)",
+     "박스": {
+      "top": 87,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "상태",
+     "값": "● 정상",
+     "tooltip": "일치",
+     "박스": {
+      "top": 87,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    }
+   ],
+   "줄수": 1,
+   "줄별칸수": [
+    8
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 87,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "텍스트": "목적 테이블tobe01.t_combo_tgt원본 테이블asis01.t_combo_srcCOUNT 소요원본 0.01초목적 0.01초목적건수1,200원본 건수1,200차이0COUNT 총시간0.02초상태● 정상"
+  },
+  "S4": {
+   "존재": true,
+   "타일수": 9,
+   "타일라벨목록": [
+    "목적테이블",
+    "원본테이블",
+    "목적그룹",
+    "원본그룹",
+    "목적집계",
+    "원본집계",
+    "SQL생성시간",
+    "실행시간",
+    "조합검증"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "—",
+    "—",
+    "—",
+    "—",
+    "—",
+    "—",
+    "—"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 87,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 87,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "목적그룹",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 87,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본그룹",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 87,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "목적집계",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 87,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본집계",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 87,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "SQL생성시간",
+     "값": "—",
+     "tooltip": "SQL 생성시간 미계측(통계검증 SQL 생성 전이거나 계측값 없음)",
+     "박스": {
+      "top": 87,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "실행시간",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 87,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "조합검증",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 87,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    }
+   ],
+   "줄수": 1,
+   "줄별칸수": [
+    9
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 87,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "텍스트": "목적테이블tobe01.t_combo_tgt원본테이블asis01.t_combo_src목적그룹—원본그룹—목적집계—원본집계—SQL생성시간—실행시간—조합검증—"
+  },
+  "S5_ctx": {
+   "존재": true,
+   "타일수": 0,
+   "타일라벨목록": [],
+   "타일값목록": [],
+   "타일상세": [],
+   "줄수": 0,
+   "줄별칸수": [],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 87,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "텍스트": ""
+  },
+  "S5_target": {
+   "존재": false
+  },
+  "S5_statsgrid": {
+   "존재": false
+  },
+  "파트A": {
+   "exec보관": null,
+   "다중세트": false,
+   "SQL생성시간보관": {
+    "ms": null,
+    "label": ""
+   },
+   "s5처리시간보관": {
+    "ms": null,
+    "label": ""
+   }
+  },
+  "파트B": {
+   "규모셀존재": false,
+   "PK셀존재": false,
+   "s5html에_통계검증규모": false,
+   "strategyPlan": {
+    "provisional_grade": "소형",
+    "policy_version": null,
+    "effective_group_by_count": 2
+   },
+   "stage3PlanInfo_scale": "소형 (cost 12.68)",
+   "ensure함수존재": true
+  },
+  "파트C": {
+   "s1에_컬럼매핑수": false,
+   "s2에_처리시간라벨": false,
+   "s4에_상태라벨": false,
+   "s4에_조합검증": true,
+   "조합체크박스": {
+    "존재": false
+   },
+   "includePairFlag": false
+  },
+  "하단무회귀": {
+   "executeOut_존재": true,
+   "executeOut_표수": 0,
+   "executeOut_행수": 0,
+   "executeOut_텍스트길이": 0,
+   "불일치항목요약길이": 0
+  },
+  "picked": {
+   "gb": [
+    "STATUS_CD"
+   ],
+   "sum": [
+    "AMT"
+   ],
+   "gb_checked_final": [
+    "STATUS_CD"
+   ]
+  }
+ },
+ "A1_4단계_진입직후": {
+  "본문폭": 1600,
+  "S1": {
+   "존재": true,
+   "타일수": 8,
+   "타일라벨목록": [
+    "목적테이블",
+    "원본테이블",
+    "입력컬럼수",
+    "추출컬럼수",
+    "조건문",
+    "조인",
+    "처리시간",
+    "상태"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "4",
+    "4",
+    "없음",
+    "없음",
+    "0.35초",
+    "● 정상"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "입력컬럼수",
+     "값": "4",
+     "tooltip": "ID, STATUS_CD, DEPT_CD, AMT",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "추출컬럼수",
+     "값": "4",
+     "tooltip": "ID, STATUS_CD, DEPT_CD, AMT",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "조건문",
+     "값": "없음",
+     "tooltip": "조건 없음",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "조인",
+     "값": "없음",
+     "tooltip": "조인 없음",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "처리시간",
+     "값": "0.35초",
+     "tooltip": "쿼리검토 1회 실행 처리시간 — 0.35초 (348.6ms)",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "상태",
+     "값": "● 정상",
+     "tooltip": "통과",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    }
+   ],
+   "줄수": 1,
+   "줄별칸수": [
+    8
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "텍스트": "목적테이블tobe01.t_combo_tgt원본테이블asis01.t_combo_src입력컬럼수4추출컬럼수4조건문없음조인없음처리시간0.35초상태● 정상"
+  },
+  "S2": {
+   "존재": true,
+   "타일수": 8,
+   "타일라벨목록": [
+    "목적 테이블",
+    "원본 테이블",
+    "COUNT 소요",
+    "목적건수",
+    "원본 건수",
+    "차이",
+    "COUNT 총시간",
+    "상태"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "원본 0.01초목적 0.01초",
+    "1,200",
+    "1,200",
+    "0",
+    "0.02초",
+    "● 정상"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적 테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본 테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "COUNT 소요",
+     "값": "원본 0.01초목적 0.01초",
+     "tooltip": "원본 14.9ms / 목적지 14.1ms · 총 18.7ms(병렬 실행, 차액은 서버 파싱·COUNT SQL 생성 오버헤드) · COUNT SQL 생성방식: PARSED_MODEL_COUNT_SQL",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "목적건수",
+     "값": "1,200",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본 건수",
+     "값": "1,200",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "차이",
+     "값": "0",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "COUNT 총시간",
+     "값": "0.02초",
+     "tooltip": "COUNT 1회 실행 처리시간 — 0.02초 (18.7ms)",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "상태",
+     "값": "● 정상",
+     "tooltip": "일치",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    }
+   ],
+   "줄수": 1,
+   "줄별칸수": [
+    8
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "텍스트": "목적 테이블tobe01.t_combo_tgt원본 테이블asis01.t_combo_srcCOUNT 소요원본 0.01초목적 0.01초목적건수1,200원본 건수1,200차이0COUNT 총시간0.02초상태● 정상"
+  },
+  "S4": {
+   "존재": true,
+   "타일수": 9,
+   "타일라벨목록": [
+    "목적테이블",
+    "원본테이블",
+    "목적그룹",
+    "원본그룹",
+    "목적집계",
+    "원본집계",
+    "SQL생성시간",
+    "실행시간",
+    "조합검증"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "—",
+    "—",
+    "—",
+    "—",
+    "—",
+    "—",
+    "—"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 273,
+      "left": 302,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "원본테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 273,
+      "left": 443,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "목적그룹",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 273,
+      "left": 583,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "원본그룹",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 273,
+      "left": 724,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "목적집계",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 273,
+      "left": 865,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "원본집계",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 273,
+      "left": 1005,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "SQL생성시간",
+     "값": "—",
+     "tooltip": "SQL 생성시간 미계측(통계검증 SQL 생성 전이거나 계측값 없음)",
+     "박스": {
+      "top": 273,
+      "left": 1146,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "실행시간",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 273,
+      "left": 1287,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "조합검증",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 273,
+      "left": 1427,
+      "width": 131,
+      "height": 85
+     }
+    }
+   ],
+   "줄수": 1,
+   "줄별칸수": [
+    9
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 250,
+    "left": 302,
+    "width": 1256,
+    "height": 107
+   },
+   "텍스트": "목적테이블 tobe01.t_combo_tgt 원본테이블 asis01.t_combo_src 목적그룹 — 원본그룹 — 목적집계 — 원본집계 — SQL생성시간 — 실행시간 — 조합검증 —"
+  },
+  "S5_ctx": {
+   "존재": true,
+   "타일수": 0,
+   "타일라벨목록": [],
+   "타일값목록": [],
+   "타일상세": [],
+   "줄수": 0,
+   "줄별칸수": [],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "텍스트": ""
+  },
+  "S5_target": {
+   "존재": false
+  },
+  "S5_statsgrid": {
+   "존재": false
+  },
+  "파트A": {
+   "exec보관": null,
+   "다중세트": false,
+   "SQL생성시간보관": {
+    "ms": null,
+    "label": ""
+   },
+   "s5처리시간보관": {
+    "ms": null,
+    "label": ""
+   }
+  },
+  "파트B": {
+   "규모셀존재": false,
+   "PK셀존재": false,
+   "s5html에_통계검증규모": false,
+   "strategyPlan": {
+    "provisional_grade": "소형",
+    "policy_version": null,
+    "effective_group_by_count": 2
+   },
+   "stage3PlanInfo_scale": "소형 (cost 12.68)",
+   "ensure함수존재": true
+  },
+  "파트C": {
+   "s1에_컬럼매핑수": false,
+   "s2에_처리시간라벨": false,
+   "s4에_상태라벨": false,
+   "s4에_조합검증": true,
+   "조합체크박스": {
+    "존재": false
+   },
+   "includePairFlag": false
+  },
+  "하단무회귀": {
+   "executeOut_존재": true,
+   "executeOut_표수": 0,
+   "executeOut_행수": 0,
+   "executeOut_텍스트길이": 0,
+   "불일치항목요약길이": 0
+  }
+ },
+ "A2_4단계_생성후": {
+  "본문폭": 1600,
+  "S1": {
+   "존재": true,
+   "타일수": 8,
+   "타일라벨목록": [
+    "목적테이블",
+    "원본테이블",
+    "입력컬럼수",
+    "추출컬럼수",
+    "조건문",
+    "조인",
+    "처리시간",
+    "상태"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "4",
+    "4",
+    "없음",
+    "없음",
+    "0.35초",
+    "● 정상"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "입력컬럼수",
+     "값": "4",
+     "tooltip": "ID, STATUS_CD, DEPT_CD, AMT",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "추출컬럼수",
+     "값": "4",
+     "tooltip": "ID, STATUS_CD, DEPT_CD, AMT",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "조건문",
+     "값": "없음",
+     "tooltip": "조건 없음",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "조인",
+     "값": "없음",
+     "tooltip": "조인 없음",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "처리시간",
+     "값": "0.35초",
+     "tooltip": "쿼리검토 1회 실행 처리시간 — 0.35초 (348.6ms)",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "상태",
+     "값": "● 정상",
+     "tooltip": "통과",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    }
+   ],
+   "줄수": 1,
+   "줄별칸수": [
+    8
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "텍스트": "목적테이블tobe01.t_combo_tgt원본테이블asis01.t_combo_src입력컬럼수4추출컬럼수4조건문없음조인없음처리시간0.35초상태● 정상"
+  },
+  "S2": {
+   "존재": true,
+   "타일수": 8,
+   "타일라벨목록": [
+    "목적 테이블",
+    "원본 테이블",
+    "COUNT 소요",
+    "목적건수",
+    "원본 건수",
+    "차이",
+    "COUNT 총시간",
+    "상태"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "원본 0.01초목적 0.01초",
+    "1,200",
+    "1,200",
+    "0",
+    "0.02초",
+    "● 정상"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적 테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본 테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "COUNT 소요",
+     "값": "원본 0.01초목적 0.01초",
+     "tooltip": "원본 14.9ms / 목적지 14.1ms · 총 18.7ms(병렬 실행, 차액은 서버 파싱·COUNT SQL 생성 오버헤드) · COUNT SQL 생성방식: PARSED_MODEL_COUNT_SQL",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "목적건수",
+     "값": "1,200",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본 건수",
+     "값": "1,200",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "차이",
+     "값": "0",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "COUNT 총시간",
+     "값": "0.02초",
+     "tooltip": "COUNT 1회 실행 처리시간 — 0.02초 (18.7ms)",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "상태",
+     "값": "● 정상",
+     "tooltip": "일치",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    }
+   ],
+   "줄수": 1,
+   "줄별칸수": [
+    8
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "텍스트": "목적 테이블tobe01.t_combo_tgt원본 테이블asis01.t_combo_srcCOUNT 소요원본 0.01초목적 0.01초목적건수1,200원본 건수1,200차이0COUNT 총시간0.02초상태● 정상"
+  },
+  "S4": {
+   "존재": true,
+   "타일수": 9,
+   "타일라벨목록": [
+    "목적테이블",
+    "원본테이블",
+    "목적그룹",
+    "원본그룹",
+    "목적집계",
+    "원본집계",
+    "SQL생성시간",
+    "실행시간",
+    "조합검증"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "STATUS_CD",
+    "status_cd",
+    "AMT",
+    "amt",
+    "0.01초 미만",
+    "—",
+    "해당 없음"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 273,
+      "left": 302,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "원본테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 273,
+      "left": 443,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "목적그룹",
+     "값": "STATUS_CD",
+     "tooltip": "STATUS_CD",
+     "박스": {
+      "top": 273,
+      "left": 583,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "원본그룹",
+     "값": "status_cd",
+     "tooltip": "status_cd",
+     "박스": {
+      "top": 273,
+      "left": 724,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "목적집계",
+     "값": "AMT",
+     "tooltip": "AMT",
+     "박스": {
+      "top": 273,
+      "left": 865,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "원본집계",
+     "값": "amt",
+     "tooltip": "amt",
+     "박스": {
+      "top": 273,
+      "left": 1005,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "SQL생성시간",
+     "값": "0.01초 미만",
+     "tooltip": "4단계 SQL 생성 시간 — 0.01초 미만 (2.6ms)",
+     "박스": {
+      "top": 273,
+      "left": 1146,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "실행시간",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 273,
+      "left": 1287,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "조합검증",
+     "값": "해당 없음",
+     "tooltip": "조합(PAIR) 검증은 그룹 기준이 2개 이상일 때만 성립합니다 — 현재 그룹 기준 1개.",
+     "박스": {
+      "top": 273,
+      "left": 1427,
+      "width": 131,
+      "height": 85
+     }
+    }
+   ],
+   "줄수": 1,
+   "줄별칸수": [
+    9
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 250,
+    "left": 302,
+    "width": 1256,
+    "height": 107
+   },
+   "텍스트": "목적테이블 tobe01.t_combo_tgt 원본테이블 asis01.t_combo_src 목적그룹 STATUS_CD 원본그룹 status_cd 목적집계 AMT 원본집계 amt SQL생성시간 0.01초 미만 실행시간 — 조합검증 해당 없음"
+  },
+  "S5_ctx": {
+   "존재": true,
+   "타일수": 0,
+   "타일라벨목록": [],
+   "타일값목록": [],
+   "타일상세": [],
+   "줄수": 0,
+   "줄별칸수": [],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "텍스트": ""
+  },
+  "S5_target": {
+   "존재": false
+  },
+  "S5_statsgrid": {
+   "존재": false
+  },
+  "파트A": {
+   "exec보관": null,
+   "다중세트": false,
+   "SQL생성시간보관": {
+    "ms": 2.6,
+    "label": "SQL 생성 시간"
+   },
+   "s5처리시간보관": {
+    "ms": null,
+    "label": ""
+   }
+  },
+  "파트B": {
+   "규모셀존재": false,
+   "PK셀존재": false,
+   "s5html에_통계검증규모": false,
+   "strategyPlan": {
+    "provisional_grade": "소형",
+    "policy_version": null,
+    "effective_group_by_count": 2
+   },
+   "stage3PlanInfo_scale": "소형 (cost 12.68)",
+   "ensure함수존재": true
+  },
+  "파트C": {
+   "s1에_컬럼매핑수": false,
+   "s2에_처리시간라벨": false,
+   "s4에_상태라벨": false,
+   "s4에_조합검증": true,
+   "조합체크박스": {
+    "존재": false
+   },
+   "includePairFlag": false
+  },
+  "하단무회귀": {
+   "executeOut_존재": true,
+   "executeOut_표수": 0,
+   "executeOut_행수": 0,
+   "executeOut_텍스트길이": 0,
+   "불일치항목요약길이": 0
+  },
+  "gen_clicked": true
+ },
+ "C4_조합ON": {
+  "본문폭": 1600,
+  "S1": {
+   "존재": true,
+   "타일수": 8,
+   "타일라벨목록": [
+    "목적테이블",
+    "원본테이블",
+    "입력컬럼수",
+    "추출컬럼수",
+    "조건문",
+    "조인",
+    "처리시간",
+    "상태"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "4",
+    "4",
+    "없음",
+    "없음",
+    "0.35초",
+    "● 정상"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "입력컬럼수",
+     "값": "4",
+     "tooltip": "ID, STATUS_CD, DEPT_CD, AMT",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "추출컬럼수",
+     "값": "4",
+     "tooltip": "ID, STATUS_CD, DEPT_CD, AMT",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "조건문",
+     "값": "없음",
+     "tooltip": "조건 없음",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "조인",
+     "값": "없음",
+     "tooltip": "조인 없음",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "처리시간",
+     "값": "0.35초",
+     "tooltip": "쿼리검토 1회 실행 처리시간 — 0.35초 (348.6ms)",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "상태",
+     "값": "● 정상",
+     "tooltip": "통과",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    }
+   ],
+   "줄수": 1,
+   "줄별칸수": [
+    8
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "텍스트": "목적테이블tobe01.t_combo_tgt원본테이블asis01.t_combo_src입력컬럼수4추출컬럼수4조건문없음조인없음처리시간0.35초상태● 정상"
+  },
+  "S2": {
+   "존재": true,
+   "타일수": 8,
+   "타일라벨목록": [
+    "목적 테이블",
+    "원본 테이블",
+    "COUNT 소요",
+    "목적건수",
+    "원본 건수",
+    "차이",
+    "COUNT 총시간",
+    "상태"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "원본 0.01초목적 0.01초",
+    "1,200",
+    "1,200",
+    "0",
+    "0.02초",
+    "● 정상"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적 테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본 테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "COUNT 소요",
+     "값": "원본 0.01초목적 0.01초",
+     "tooltip": "원본 14.9ms / 목적지 14.1ms · 총 18.7ms(병렬 실행, 차액은 서버 파싱·COUNT SQL 생성 오버헤드) · COUNT SQL 생성방식: PARSED_MODEL_COUNT_SQL",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "목적건수",
+     "값": "1,200",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본 건수",
+     "값": "1,200",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "차이",
+     "값": "0",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "COUNT 총시간",
+     "값": "0.02초",
+     "tooltip": "COUNT 1회 실행 처리시간 — 0.02초 (18.7ms)",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "상태",
+     "값": "● 정상",
+     "tooltip": "일치",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    }
+   ],
+   "줄수": 1,
+   "줄별칸수": [
+    8
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "텍스트": "목적 테이블tobe01.t_combo_tgt원본 테이블asis01.t_combo_srcCOUNT 소요원본 0.01초목적 0.01초목적건수1,200원본 건수1,200차이0COUNT 총시간0.02초상태● 정상"
+  },
+  "S4": {
+   "존재": true,
+   "타일수": 9,
+   "타일라벨목록": [
+    "목적테이블",
+    "원본테이블",
+    "목적그룹",
+    "원본그룹",
+    "목적집계",
+    "원본집계",
+    "SQL생성시간",
+    "실행시간",
+    "조합검증"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "STATUS_CD",
+    "status_cd",
+    "AMT",
+    "amt",
+    "0.01초 미만",
+    "—",
+    "해당 없음"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 273,
+      "left": 302,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "원본테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 273,
+      "left": 443,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "목적그룹",
+     "값": "STATUS_CD",
+     "tooltip": "STATUS_CD",
+     "박스": {
+      "top": 273,
+      "left": 583,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "원본그룹",
+     "값": "status_cd",
+     "tooltip": "status_cd",
+     "박스": {
+      "top": 273,
+      "left": 724,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "목적집계",
+     "값": "AMT",
+     "tooltip": "AMT",
+     "박스": {
+      "top": 273,
+      "left": 865,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "원본집계",
+     "값": "amt",
+     "tooltip": "amt",
+     "박스": {
+      "top": 273,
+      "left": 1005,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "SQL생성시간",
+     "값": "0.01초 미만",
+     "tooltip": "4단계 SQL 생성 시간 — 0.01초 미만 (2.6ms)",
+     "박스": {
+      "top": 273,
+      "left": 1146,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "실행시간",
+     "값": "—",
+     "tooltip": "",
+     "박스": {
+      "top": 273,
+      "left": 1287,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "조합검증",
+     "값": "해당 없음",
+     "tooltip": "조합(PAIR) 검증은 그룹 기준이 2개 이상일 때만 성립합니다 — 현재 그룹 기준 1개.",
+     "박스": {
+      "top": 273,
+      "left": 1427,
+      "width": 131,
+      "height": 85
+     }
+    }
+   ],
+   "줄수": 1,
+   "줄별칸수": [
+    9
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 250,
+    "left": 302,
+    "width": 1256,
+    "height": 107
+   },
+   "텍스트": "목적테이블 tobe01.t_combo_tgt 원본테이블 asis01.t_combo_src 목적그룹 STATUS_CD 원본그룹 status_cd 목적집계 AMT 원본집계 amt SQL생성시간 0.01초 미만 실행시간 — 조합검증 해당 없음"
+  },
+  "S5_ctx": {
+   "존재": true,
+   "타일수": 0,
+   "타일라벨목록": [],
+   "타일값목록": [],
+   "타일상세": [],
+   "줄수": 0,
+   "줄별칸수": [],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "텍스트": ""
+  },
+  "S5_target": {
+   "존재": false
+  },
+  "S5_statsgrid": {
+   "존재": false
+  },
+  "파트A": {
+   "exec보관": null,
+   "다중세트": false,
+   "SQL생성시간보관": {
+    "ms": 2.6,
+    "label": "SQL 생성 시간"
+   },
+   "s5처리시간보관": {
+    "ms": null,
+    "label": ""
+   }
+  },
+  "파트B": {
+   "규모셀존재": false,
+   "PK셀존재": false,
+   "s5html에_통계검증규모": false,
+   "strategyPlan": {
+    "provisional_grade": "소형",
+    "policy_version": null,
+    "effective_group_by_count": 2
+   },
+   "stage3PlanInfo_scale": "소형 (cost 12.68)",
+   "ensure함수존재": true
+  },
+  "파트C": {
+   "s1에_컬럼매핑수": false,
+   "s2에_처리시간라벨": false,
+   "s4에_상태라벨": false,
+   "s4에_조합검증": true,
+   "조합체크박스": {
+    "존재": false
+   },
+   "includePairFlag": false
+  },
+  "하단무회귀": {
+   "executeOut_존재": true,
+   "executeOut_표수": 0,
+   "executeOut_행수": 0,
+   "executeOut_텍스트길이": 0,
+   "불일치항목요약길이": 0
+  },
+  "toggled": {
+   "ok": false
+  }
+ },
+ "A3_4단계_실행후": {
+  "본문폭": 1600,
+  "S1": {
+   "존재": true,
+   "타일수": 8,
+   "타일라벨목록": [
+    "목적테이블",
+    "원본테이블",
+    "입력컬럼수",
+    "추출컬럼수",
+    "조건문",
+    "조인",
+    "처리시간",
+    "상태"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "4",
+    "4",
+    "없음",
+    "없음",
+    "0.35초",
+    "● 정상"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "입력컬럼수",
+     "값": "4",
+     "tooltip": "ID, STATUS_CD, DEPT_CD, AMT",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "추출컬럼수",
+     "값": "4",
+     "tooltip": "ID, STATUS_CD, DEPT_CD, AMT",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "조건문",
+     "값": "없음",
+     "tooltip": "조건 없음",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "조인",
+     "값": "없음",
+     "tooltip": "조인 없음",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "처리시간",
+     "값": "0.35초",
+     "tooltip": "쿼리검토 1회 실행 처리시간 — 0.35초 (348.6ms)",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "상태",
+     "값": "● 정상",
+     "tooltip": "통과",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    }
+   ],
+   "줄수": 1,
+   "줄별칸수": [
+    8
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "텍스트": "목적테이블tobe01.t_combo_tgt원본테이블asis01.t_combo_src입력컬럼수4추출컬럼수4조건문없음조인없음처리시간0.35초상태● 정상"
+  },
+  "S2": {
+   "존재": true,
+   "타일수": 8,
+   "타일라벨목록": [
+    "목적 테이블",
+    "원본 테이블",
+    "COUNT 소요",
+    "목적건수",
+    "원본 건수",
+    "차이",
+    "COUNT 총시간",
+    "상태"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "원본 0.01초목적 0.01초",
+    "1,200",
+    "1,200",
+    "0",
+    "0.02초",
+    "● 정상"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적 테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본 테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "COUNT 소요",
+     "값": "원본 0.01초목적 0.01초",
+     "tooltip": "원본 14.9ms / 목적지 14.1ms · 총 18.7ms(병렬 실행, 차액은 서버 파싱·COUNT SQL 생성 오버헤드) · COUNT SQL 생성방식: PARSED_MODEL_COUNT_SQL",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "목적건수",
+     "값": "1,200",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본 건수",
+     "값": "1,200",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "차이",
+     "값": "0",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "COUNT 총시간",
+     "값": "0.02초",
+     "tooltip": "COUNT 1회 실행 처리시간 — 0.02초 (18.7ms)",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "상태",
+     "값": "● 정상",
+     "tooltip": "일치",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    }
+   ],
+   "줄수": 1,
+   "줄별칸수": [
+    8
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "텍스트": "목적 테이블tobe01.t_combo_tgt원본 테이블asis01.t_combo_srcCOUNT 소요원본 0.01초목적 0.01초목적건수1,200원본 건수1,200차이0COUNT 총시간0.02초상태● 정상"
+  },
+  "S4": {
+   "존재": true,
+   "타일수": 9,
+   "타일라벨목록": [
+    "목적테이블",
+    "원본테이블",
+    "목적그룹",
+    "원본그룹",
+    "목적집계",
+    "원본집계",
+    "SQL생성시간",
+    "실행시간",
+    "조합검증"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "STATUS_CD",
+    "status_cd",
+    "AMT",
+    "amt",
+    "0.01초 미만",
+    "원본 0.01초 미만 목적 0.01초 미만",
+    "해당 없음"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 273,
+      "left": 302,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "원본테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 273,
+      "left": 443,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "목적그룹",
+     "값": "STATUS_CD",
+     "tooltip": "STATUS_CD",
+     "박스": {
+      "top": 273,
+      "left": 583,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "원본그룹",
+     "값": "status_cd",
+     "tooltip": "status_cd",
+     "박스": {
+      "top": 273,
+      "left": 724,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "목적집계",
+     "값": "AMT",
+     "tooltip": "AMT",
+     "박스": {
+      "top": 273,
+      "left": 865,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "원본집계",
+     "값": "amt",
+     "tooltip": "amt",
+     "박스": {
+      "top": 273,
+      "left": 1005,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "SQL생성시간",
+     "값": "0.01초 미만",
+     "tooltip": "4단계 SQL 생성 시간 — 0.01초 미만 (2.6ms)",
+     "박스": {
+      "top": 273,
+      "left": 1146,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "실행시간",
+     "값": "원본 0.01초 미만 목적 0.01초 미만",
+     "tooltip": "원본 3ms / 목적지 4ms · 총 47ms(순차 실행, 차액은 그룹 비교·직렬화 등 앱 처리시간) · 원본↔목적 간격 20ms",
+     "박스": {
+      "top": 273,
+      "left": 1287,
+      "width": 131,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "조합검증",
+     "값": "해당 없음",
+     "tooltip": "조합(PAIR) 검증은 그룹 기준이 2개 이상일 때만 성립합니다 — 현재 그룹 기준 1개.",
+     "박스": {
+      "top": 273,
+      "left": 1427,
+      "width": 131,
+      "height": 85
+     }
+    }
+   ],
+   "줄수": 1,
+   "줄별칸수": [
+    9
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 250,
+    "left": 302,
+    "width": 1256,
+    "height": 107
+   },
+   "텍스트": "목적테이블 tobe01.t_combo_tgt 원본테이블 asis01.t_combo_src 목적그룹 STATUS_CD 원본그룹 status_cd 목적집계 AMT 원본집계 amt SQL생성시간 0.01초 미만 실행시간 원본 0.01초 미만 목적 0.01초 미만 조합검증 해당 없음"
+  },
+  "S5_ctx": {
+   "존재": true,
+   "타일수": 8,
+   "타일라벨목록": [
+    "목적테이블",
+    "원본테이블",
+    "COUNT(2단계)",
+    "불일치그룹",
+    "재이관대상",
+    "재이관PK",
+    "처리시간",
+    "상태"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "1,200 / 1,200",
+    "0개",
+    "0건",
+    "준비 중",
+    "0.05초",
+    "● 정상"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "COUNT(2단계)",
+     "값": "1,200 / 1,200",
+     "tooltip": "COUNT 비교(2단계) — 원본 / 대상 (차이가 있을 때만 차이 병기)",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "불일치그룹",
+     "값": "0개",
+     "tooltip": "집계 그룹 기준 판정 — 통계검증 SQL 의 GROUP BY 집계 결과를 그룹 단위로 비교한 값입니다. 아래 상세비교의 '재이관 대상' 건수는 PK 를 행 레코드 단위로 비교한 값이라 세는 단위가 다르며, 집계에서 서로 상쇄된 차이(예: 같은 그룹 안 +10/−10)는 그룹 단위 판정에 나타나지 않습니다. / 실행계획: 단일축 1세트 · 3그룹",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "재이관대상",
+     "값": "0건",
+     "tooltip": "재이관 대상(근사) — 목적지에 통째로 없는 그룹(src_only) + 값이 다른 그룹(diff)의 합계입니다. 집계 그룹 단위 값이며, 행 레코드 단위 확정 목록은 옆의 재이관 PK 와 아래 상세비교가 담당합니다.",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "재이관PK",
+     "값": "준비 중",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "처리시간",
+     "값": "0.05초",
+     "tooltip": "5단계 통계검증 실행(상세 추출 별도) — 0.05초 (46.6ms)",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "상태",
+     "값": "● 정상",
+     "tooltip": "정상",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    }
+   ],
+   "줄수": 1,
+   "줄별칸수": [
+    8
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "텍스트": "목적테이블tobe01.t_combo_tgt원본테이블asis01.t_combo_srcCOUNT(2단계)1,200 / 1,200불일치그룹0개재이관대상0건재이관PK준비 중처리시간0.05초상태● 정상"
+  },
+  "S5_target": {
+   "존재": true,
+   "타일수": 0,
+   "타일라벨목록": [],
+   "타일값목록": [],
+   "타일상세": [],
+   "줄수": 0,
+   "줄별칸수": [],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "텍스트": ""
+  },
+  "S5_statsgrid": {
+   "존재": false
+  },
+  "파트A": {
+   "exec보관": {
+    "processing_ms": 46.6,
+    "source_duration_ms": 3,
+    "target_duration_ms": 4,
+    "source_target_gap_ms": 20
+   },
+   "다중세트": false,
+   "SQL생성시간보관": {
+    "ms": 2.6,
+    "label": "SQL 생성 시간"
+   },
+   "s5처리시간보관": {
+    "ms": 46.6,
+    "label": "통계검증 실행(상세 추출 별도)"
+   }
+  },
+  "파트B": {
+   "규모셀존재": false,
+   "PK셀존재": true,
+   "s5html에_통계검증규모": false,
+   "strategyPlan": {
+    "provisional_grade": "소형",
+    "policy_version": null,
+    "effective_group_by_count": 2
+   },
+   "stage3PlanInfo_scale": "소형 (cost 12.68)",
+   "ensure함수존재": true
+  },
+  "파트C": {
+   "s1에_컬럼매핑수": false,
+   "s2에_처리시간라벨": false,
+   "s4에_상태라벨": false,
+   "s4에_조합검증": true,
+   "조합체크박스": {
+    "존재": false
+   },
+   "includePairFlag": false
+  },
+  "하단무회귀": {
+   "executeOut_존재": true,
+   "executeOut_표수": 1,
+   "executeOut_행수": 1,
+   "executeOut_텍스트길이": 904,
+   "불일치항목요약길이": 0
+  },
+  "exec_clicked": true
+ },
+ "B2_5단계_실행후": {
+  "본문폭": 1600,
+  "S1": {
+   "존재": true,
+   "타일수": 8,
+   "타일라벨목록": [
+    "목적테이블",
+    "원본테이블",
+    "입력컬럼수",
+    "추출컬럼수",
+    "조건문",
+    "조인",
+    "처리시간",
+    "상태"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "4",
+    "4",
+    "없음",
+    "없음",
+    "0.35초",
+    "● 정상"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "입력컬럼수",
+     "값": "4",
+     "tooltip": "ID, STATUS_CD, DEPT_CD, AMT",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "추출컬럼수",
+     "값": "4",
+     "tooltip": "ID, STATUS_CD, DEPT_CD, AMT",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "조건문",
+     "값": "없음",
+     "tooltip": "조건 없음",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "조인",
+     "값": "없음",
+     "tooltip": "조인 없음",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "처리시간",
+     "값": "0.35초",
+     "tooltip": "쿼리검토 1회 실행 처리시간 — 0.35초 (348.6ms)",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "상태",
+     "값": "● 정상",
+     "tooltip": "통과",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    }
+   ],
+   "줄수": 1,
+   "줄별칸수": [
+    8
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "텍스트": "목적테이블tobe01.t_combo_tgt원본테이블asis01.t_combo_src입력컬럼수4추출컬럼수4조건문없음조인없음처리시간0.35초상태● 정상"
+  },
+  "S2": {
+   "존재": true,
+   "타일수": 8,
+   "타일라벨목록": [
+    "목적 테이블",
+    "원본 테이블",
+    "COUNT 소요",
+    "목적건수",
+    "원본 건수",
+    "차이",
+    "COUNT 총시간",
+    "상태"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "원본 0.01초목적 0.01초",
+    "1,200",
+    "1,200",
+    "0",
+    "0.02초",
+    "● 정상"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적 테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본 테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "COUNT 소요",
+     "값": "원본 0.01초목적 0.01초",
+     "tooltip": "원본 14.9ms / 목적지 14.1ms · 총 18.7ms(병렬 실행, 차액은 서버 파싱·COUNT SQL 생성 오버헤드) · COUNT SQL 생성방식: PARSED_MODEL_COUNT_SQL",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "목적건수",
+     "값": "1,200",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본 건수",
+     "값": "1,200",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "차이",
+     "값": "0",
+     "tooltip": "",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "COUNT 총시간",
+     "값": "0.02초",
+     "tooltip": "COUNT 1회 실행 처리시간 — 0.02초 (18.7ms)",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "상태",
+     "값": "● 정상",
+     "tooltip": "일치",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    }
+   ],
+   "줄수": 1,
+   "줄별칸수": [
+    8
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "텍스트": "목적 테이블tobe01.t_combo_tgt원본 테이블asis01.t_combo_srcCOUNT 소요원본 0.01초목적 0.01초목적건수1,200원본 건수1,200차이0COUNT 총시간0.02초상태● 정상"
+  },
+  "S4": {
+   "존재": true,
+   "타일수": 9,
+   "타일라벨목록": [
+    "목적테이블",
+    "원본테이블",
+    "목적그룹",
+    "원본그룹",
+    "목적집계",
+    "원본집계",
+    "SQL생성시간",
+    "실행시간",
+    "조합검증"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "STATUS_CD",
+    "status_cd",
+    "AMT",
+    "amt",
+    "0.01초 미만",
+    "원본 0.01초 미만목적 0.01초 미만",
+    "해당 없음"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "목적그룹",
+     "값": "STATUS_CD",
+     "tooltip": "STATUS_CD",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본그룹",
+     "값": "status_cd",
+     "tooltip": "status_cd",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "목적집계",
+     "값": "AMT",
+     "tooltip": "AMT",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "원본집계",
+     "값": "amt",
+     "tooltip": "amt",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "SQL생성시간",
+     "값": "0.01초 미만",
+     "tooltip": "4단계 SQL 생성 시간 — 0.01초 미만 (2.6ms)",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "실행시간",
+     "값": "원본 0.01초 미만목적 0.01초 미만",
+     "tooltip": "원본 3ms / 목적지 4ms · 총 47ms(순차 실행, 차액은 그룹 비교·직렬화 등 앱 처리시간) · 원본↔목적 간격 20ms",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    },
+    {
+     "라벨": "조합검증",
+     "값": "해당 없음",
+     "tooltip": "조합(PAIR) 검증은 그룹 기준이 2개 이상일 때만 성립합니다 — 현재 그룹 기준 1개.",
+     "박스": {
+      "top": 0,
+      "left": 0,
+      "width": 0,
+      "height": 0
+     }
+    }
+   ],
+   "줄수": 1,
+   "줄별칸수": [
+    9
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 0,
+    "left": 0,
+    "width": 0,
+    "height": 0
+   },
+   "텍스트": "목적테이블tobe01.t_combo_tgt원본테이블asis01.t_combo_src목적그룹STATUS_CD원본그룹status_cd목적집계AMT원본집계amtSQL생성시간0.01초 미만실행시간원본 0.01초 미만목적 0.01초 미만조합검증해당 없음"
+  },
+  "S5_ctx": {
+   "존재": true,
+   "타일수": 8,
+   "타일라벨목록": [
+    "목적테이블",
+    "원본테이블",
+    "COUNT(2단계)",
+    "불일치그룹",
+    "재이관대상",
+    "재이관PK",
+    "처리시간",
+    "상태"
+   ],
+   "타일값목록": [
+    "tobe01.t_combo_tgt",
+    "asis01.t_combo_src",
+    "1,200 / 1,200",
+    "0개",
+    "0건",
+    "준비 중",
+    "0.05초",
+    "● 정상"
+   ],
+   "타일상세": [
+    {
+     "라벨": "목적테이블",
+     "값": "tobe01.t_combo_tgt",
+     "tooltip": "tobe01.t_combo_tgt",
+     "박스": {
+      "top": 455,
+      "left": 319,
+      "width": 144,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "원본테이블",
+     "값": "asis01.t_combo_src",
+     "tooltip": "asis01.t_combo_src",
+     "박스": {
+      "top": 455,
+      "left": 473,
+      "width": 144,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "COUNT(2단계)",
+     "값": "1,200 / 1,200",
+     "tooltip": "COUNT 비교(2단계) — 원본 / 대상 (차이가 있을 때만 차이 병기)",
+     "박스": {
+      "top": 455,
+      "left": 627,
+      "width": 144,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "불일치그룹",
+     "값": "0개",
+     "tooltip": "집계 그룹 기준 판정 — 통계검증 SQL 의 GROUP BY 집계 결과를 그룹 단위로 비교한 값입니다. 아래 상세비교의 '재이관 대상' 건수는 PK 를 행 레코드 단위로 비교한 값이라 세는 단위가 다르며, 집계에서 서로 상쇄된 차이(예: 같은 그룹 안 +10/−10)는 그룹 단위 판정에 나타나지 않습니다. / 실행계획: 단일축 1세트 · 3그룹",
+     "박스": {
+      "top": 455,
+      "left": 781,
+      "width": 144,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "재이관대상",
+     "값": "0건",
+     "tooltip": "재이관 대상(근사) — 목적지에 통째로 없는 그룹(src_only) + 값이 다른 그룹(diff)의 합계입니다. 집계 그룹 단위 값이며, 행 레코드 단위 확정 목록은 옆의 재이관 PK 와 아래 상세비교가 담당합니다.",
+     "박스": {
+      "top": 455,
+      "left": 935,
+      "width": 144,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "재이관PK",
+     "값": "준비 중",
+     "tooltip": "",
+     "박스": {
+      "top": 455,
+      "left": 1089,
+      "width": 144,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "처리시간",
+     "값": "0.05초",
+     "tooltip": "5단계 통계검증 실행(상세 추출 별도) — 0.05초 (46.6ms)",
+     "박스": {
+      "top": 455,
+      "left": 1243,
+      "width": 144,
+      "height": 85
+     }
+    },
+    {
+     "라벨": "상태",
+     "값": "● 정상",
+     "tooltip": "정상",
+     "박스": {
+      "top": 455,
+      "left": 1397,
+      "width": 144,
+      "height": 85
+     }
+    }
+   ],
+   "줄수": 1,
+   "줄별칸수": [
+    8
+   ],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 433,
+    "left": 319,
+    "width": 1222,
+    "height": 107
+   },
+   "텍스트": "목적테이블 tobe01.t_combo_tgt 원본테이블 asis01.t_combo_src COUNT(2단계) 1,200 / 1,200 불일치그룹 0개 재이관대상 0건 재이관PK 준비 중 처리시간 0.05초 상태 ● 정상"
+  },
+  "S5_target": {
+   "존재": true,
+   "타일수": 0,
+   "타일라벨목록": [],
+   "타일값목록": [],
+   "타일상세": [],
+   "줄수": 0,
+   "줄별칸수": [],
+   "그리드잔재": {
+    "table수": 0,
+    "th목록": []
+   },
+   "박스": {
+    "top": 540,
+    "left": 319,
+    "width": 1222,
+    "height": 0
+   },
+   "텍스트": ""
+  },
+  "S5_statsgrid": {
+   "존재": false
+  },
+  "파트A": {
+   "exec보관": {
+    "processing_ms": 46.6,
+    "source_duration_ms": 3,
+    "target_duration_ms": 4,
+    "source_target_gap_ms": 20
+   },
+   "다중세트": false,
+   "SQL생성시간보관": {
+    "ms": 2.6,
+    "label": "SQL 생성 시간"
+   },
+   "s5처리시간보관": {
+    "ms": 46.6,
+    "label": "통계검증 실행(상세 추출 별도)"
+   }
+  },
+  "파트B": {
+   "규모셀존재": false,
+   "PK셀존재": true,
+   "s5html에_통계검증규모": false,
+   "strategyPlan": {
+    "provisional_grade": "소형",
+    "policy_version": null,
+    "effective_group_by_count": 2
+   },
+   "stage3PlanInfo_scale": "소형 (cost 12.68)",
+   "ensure함수존재": true
+  },
+  "파트C": {
+   "s1에_컬럼매핑수": false,
+   "s2에_처리시간라벨": false,
+   "s4에_상태라벨": false,
+   "s4에_조합검증": true,
+   "조합체크박스": {
+    "존재": false
+   },
+   "includePairFlag": false
+  },
+  "하단무회귀": {
+   "executeOut_존재": true,
+   "executeOut_표수": 1,
+   "executeOut_행수": 1,
+   "executeOut_텍스트길이": 428,
+   "불일치항목요약길이": 0
+  }
+ },
+ "pageerrors": [
+  "CONSOLE.error: Failed to load resource: the server responded with a status of 404 (Not Found)"
+ ]
+}
