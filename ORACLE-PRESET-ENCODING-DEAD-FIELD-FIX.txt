@@ -1,0 +1,182 @@
+작업명 : ORACLE-PRESET-ENCODING-DEAD-FIELD-FIX
+작성일 : 2026-08-04
+결과   : ⚠️ 추가 작업 필요 - 파일 겹침 확인, 위치만 보고 (코드 변경 0건)
+
+================================================================================
+0. 결론 요약
+================================================================================
+(1) 지시서의 중단 조건에 해당한다.
+    - 지시서 "수정 대상 파일": "`ui/tabler_renderer.py`, `ui/js_admin_column_override.py`와
+      겹치면 진행하지 말고 보고할 것"
+    - 실제 대상 위치: **ui/tabler_renderer.py:14643~14656** (오라클 프리셋 고급옵션 정의)
+    - → 겹침 파일이므로 코드 수정을 진행하지 않았다. git diff 0건.
+
+(2) 별개로, 이 작업이 요구한 수정은 **이미 적용되어 있다**(선행 커밋 8efbc15).
+    - 채택된 대응방향: (b) "드라이버가 UTF-8로 고정(설정 불가)" 안내문구
+    - 운영 서버(127.0.0.1:8000) 브라우저 실측으로 화면에 안내문구가 렌더되는 것을 확인했다.
+    - 따라서 본 작업의 잔여 구현 사항은 없다(오라클 한정). Tibero 의 동종 필드만 잔여 — §5.
+
+================================================================================
+1. 위치 확인 (지시서 요구사항 1)
+================================================================================
+파일   : ui/tabler_renderer.py
+심볼   : var _PROFILE_DBMS_FIELDS = { ... oracle: { advanced: [...] } }
+행범위 : 14643 ~ 14656
+
+  14643  oracle: { label:'Oracle', port:1521, implemented:false, connect_test:true,
+  14644    basic:[['service_name','Service Name'],['sid','SID'],['schema','Schema']],
+  14645    advanced:[{field:'connect_type', ...},
+  14647              /* Encoding/NEncoding 은 접속에 반영되지 않는 표시 전용 값이다
+  14648                 (ORACLE-PRESET-DEAD-ENCODING-FIELD-CLEANUP-FIX).
+  14649                 oracledb 4.x 는 encoding/nencoding 파라미터 자체를 지원하지 않고
+  14650                 항상 UTF-8 로 고정하므로, 실제 연결(services/db_adapters/oracle.py
+  14651                 connect)은 이 값을 읽지 않는다. */
+  14651              {field:'encoding',  label:'Encoding',  type:'text', 'default':'UTF-8',
+  14652               note:'드라이버가 UTF-8 로 고정되어 이 값은 사용되지 않습니다(접속에 미반영).'},
+  14653              {field:'nencoding', label:'NEncoding', type:'text', 'default':'UTF-8',
+  14654               note:'드라이버가 UTF-8 로 고정되어 이 값은 사용되지 않습니다(접속에 미반영).'},
+  14655              {field:'driver_mode', ...}] },
+
+렌더 경로 : #pfAdvExtra ← syncProfileDbmsFields() / toggleAdvancedOptions()
+화면 진입 : 좌측 메뉴 "DB 프로필 / 검증 경로" → [+ 신규 DB 추가] → DB 종류=Oracle
+            → [고급 옵션 펼치기 ▾]
+
+겹침 판정:
+  - ui/tabler_renderer.py            → 지시서가 명시한 중단 대상 겹침 파일 (해당)
+  - ui/js_admin_column_override.py   → 대상 아님(오라클 프리셋 폼 코드 없음)
+  - routes/agg_diff_route.py         → 대상 아님(BLOCKED-RESPONSE-… 건과 무관)
+  ※ 병행 작업 ADMIN-COLUMN-OVERRIDE-PROJECT-SCOPE-UI-EXPOSE-FIX 는
+     ui/js_admin_column_override.py 를 건드리므로 본 건과 파일 겹침 없음.
+     본 건이 걸린 겹침은 오직 ui/tabler_renderer.py 이다.
+
+================================================================================
+2. 참조 코드 재확인 (지시서 요구사항 4 — 진단서 누락 가능성 배제)
+================================================================================
+전수 grep 결과, preset 의 encoding/nencoding 값을 읽는 운영 코드는 **0건**이다.
+
+  $ grep -rn "encoding" services/ routes/ validator/ checker/ generator/ \
+                        analyzer/ parser/ config/ db/ ui/ web_server.py \
+      | grep -viE "utf-?8|reconfigure"
+  → 매치 전부가 무관: exact_diff 의 "canonical encoding"(해시 규격 용어) 주석 4건,
+    routes/agg_diff_route.py:371 주석 1건. preset 키 참조는 없음.
+
+  $ grep -rn "nencoding" (repo 전체)
+  → ui/tabler_renderer.py 2건(폼 정의) + scripts/dev_e2e/*.py 4건(프리셋 dict 복사 시
+    키 이름 나열 — 값을 접속에 쓰지 않고 그대로 전달만) + scratchpad 사본.
+    services/db_adapters/oracle.py connect(db_info, *, connect_timeout=10) 는
+    encoding/nencoding 을 읽지 않는다.
+
+결론: 진단서(§1-4, §5-P3)의 "죽은 설정" 판정은 정확하다. 기능 위험 없음.
+
+================================================================================
+3. 실측 검증 (운영 서버 브라우저)
+================================================================================
+서버   : http://127.0.0.1:8000 (이미 기동 중인 운영 서버, Basic Auth)
+브라우저: chromium-1223 (playwright, executable_path 직접 지정)
+스크립트: 읽기 전용 캡처 2종(임시 scratchpad — 저장소 미추가)
+
+[3-1] 신규 오라클 프리셋 폼 — 고급 옵션 렌더 실측
+  증적: ORACLE-PRESET-ENCODING-DEAD-FIELD-FIX/current_oracle_preset_advanced.png
+        ORACLE-PRESET-ENCODING-DEAD-FIELD-FIX/oracle_preset_encoding_facts.json
+
+  렌더된 고급 옵션 4개:
+    Connect Type  (pfX_connect_type, SELECT) = service_name
+    Encoding      (pfX_encoding,     INPUT)  = UTF-8
+    NEncoding     (pfX_nencoding,    INPUT)  = UTF-8
+    Driver Mode   (pfX_driver_mode,  SELECT) = thin
+
+  안내문구(실제 DOM 텍스트):
+    ℹ service_name: 권장 접속 방식 / sid: 구형 환경 SID 방식.
+    ℹ 드라이버가 UTF-8 로 고정되어 이 값은 사용되지 않습니다(접속에 미반영).   ← Encoding
+    ℹ 드라이버가 UTF-8 로 고정되어 이 값은 사용되지 않습니다(접속에 미반영).   ← NEncoding
+    ℹ thin: 드라이버 단독(기본) / thick: Oracle Client 필요(향후).
+
+    encoding_note_present = true
+
+[3-2] 기존 저장 프리셋 불러오기 무회귀
+  증적: ORACLE-PRESET-ENCODING-DEAD-FIELD-FIX/profile_list_after.png
+        ORACLE-PRESET-ENCODING-DEAD-FIELD-FIX/existing_oracle_preset_loaded.png
+        ORACLE-PRESET-ENCODING-DEAD-FIELD-FIX/oracle_preset_load_regression_facts.json
+
+  프로필 목록 정상 렌더 14건(Oracle_asis / Oracle_tobe 포함).
+  Oracle_asis 를 수정 폼으로 로드한 결과:
+    프로필명 = Oracle_asis, DB 종류 = oracle, 호스트 채워짐 = true
+    Encoding = UTF-8, NEncoding = UTF-8, Connect Type = service_name, Driver Mode = thin
+    encoding_note_present = true
+
+  preset 파일 원본값(비교 기준):
+    db_presets_src.json:Oracle_asis → encoding=UTF-8, nencoding=UTF-8
+    db_presets_tgt.json:Oracle_tobe → encoding=UTF-8, nencoding=UTF-8
+  → 파일 값이 그대로 폼에 로드된다. 저장된 프리셋 마이그레이션 불필요(지시서 요구사항 3 충족,
+    파일은 손대지 않았다). 저장 버튼은 누르지 않았다(프리셋 파일 변경 0건).
+
+[3-3] before/after 스크린샷에 대하여
+  본 세션의 코드 변경이 0건이므로 before == after 이며, 첨부한 스크린샷은
+  **현행(=선행 커밋 8efbc15 적용 후) 상태**이다. 별도의 before 화면은 재현하지 않았다
+  (재현하려면 겹침 파일을 되돌려야 하므로 중단 조건에 저촉).
+
+================================================================================
+4. 대응방향 선택 근거 — (b) 안내문구 (선행 커밋에서 채택, 본 보고서에서 타당성 재확인)
+================================================================================
+채택: (b) 입력칸 유지 + "드라이버가 UTF-8 로 고정되어 이 값은 사용되지 않습니다(접속에 미반영)"
+
+근거 3가지:
+  1) 화면 관례 일치 — 같은 폼의 고급 옵션 항목은 전부 note 문구를 달고 있다
+     (Connect Type / Driver Mode / PostgreSQL sslmode·connect_timeout / MySQL charset 등).
+     "설명 note 로 제약을 알린다"가 이 화면의 기존 규약이며, (b)가 여기에 정확히 부합한다.
+  2) 기존 preset 키 보존 — db_presets_*.json 에 encoding/nencoding 키가 이미 있다.
+     입력칸을 제거하면(a안) 수정→저장 시 폼이 만든 dict 에서 해당 키가 빠져
+     기존 저장값이 조용히 소실될 수 있다. 무해한 값이지만 "저장하면 없어지는" 부작용을
+     피하는 쪽이 안전하다.
+  3) 오해 해소라는 목적 자체는 note 로 충족된다 — 사용자가 "설정했는데 반영된 줄 아는"
+     상황은 note 노출로 해소되며, 입력칸 제거보다 변경 범위(=회귀 위험)가 작다.
+
+(a안 제거를 택하지 않은 이유의 요약: 목적 달성도는 동일한데 회귀 표면이 더 크다.)
+
+================================================================================
+5. 잔여 사항 (본 작업 범위 밖 — 별도 백로그 후보)
+================================================================================
+- ui/tabler_renderer.py:14673 — Tibero 고급옵션에도 encoding 입력칸이 있고,
+  note 는 "문자셋 처리용 — 특별한 사유가 없으면 UTF-8." 로 남아 있다.
+  Tibero 는 implemented:false(실접속 미지원 skeleton)라 현재는 오해 소지가 낮지만,
+  오라클과 동종의 "죽은 설정" 후보다. 실접속 구현 시 함께 정리 필요.
+- 오라클 항목의 note 는 "미반영"만 알리고 입력값 자체는 계속 저장된다.
+  저장 자체가 무해하다는 판단(§4-2) 하의 의도된 동작이며, 이후 정책 변경 시 재검토 대상.
+
+================================================================================
+6. 테스트
+================================================================================
+코드 변경이 0건이므로 baseline 대조 대상 diff 가 없다. 회귀 테스트 서브셋은 실행하지 않았다.
+(변경 없는 트리에 대한 대조는 정의상 동일 결과이며, 실행해도 §신규회귀 판정에 기여하지 않는다.)
+실패 테스트 목록: 해당 없음(미실행).
+대신 §3 의 운영 서버 브라우저 실측으로 화면 동작·프리셋 로드 무회귀를 직접 확인했다.
+
+================================================================================
+7. git 상태
+================================================================================
+코드 저장소 : C:\projects\migration-validator (main)
+본 작업 커밋: 없음 (코드 변경 0건)
+git diff (본 작업 관련 파일):
+  $ git status --short ui/tabler_renderer.py db_presets_src.json db_presets_tgt.json
+  → 출력 없음 (3개 파일 모두 미변경)
+  ※ 작업트리에 있는 services/stats_execute_service.py 변경은 다른 세션 작업분으로 본 건과 무관.
+
+관련 선행 커밋(이미 (b) 적용):
+  8efbc15  fix(preset): 오라클 프리셋 Encoding/NEncoding 이 접속에 미반영임을 안내로 명시
+           (ORACLE-PRESET-DEAD-ENCODING-FIELD-CLEANUP-FIX)
+
+================================================================================
+8. 증적 파일 목록
+================================================================================
+ORACLE-PRESET-ENCODING-DEAD-FIELD-FIX/
+  current_oracle_preset_advanced.png        신규 오라클 프리셋 폼 고급옵션(안내문구 노출)
+  current_oracle_preset_fullpage.png        같은 화면 전체
+  current_profile_list.png                  DB 프로필 목록
+  profile_list_after.png                    DB 프로필 목록(무회귀 확인 시점)
+  existing_oracle_preset_loaded.png         기존 Oracle_asis 불러오기 결과
+  existing_oracle_preset_loaded_page.png    같은 화면 전체
+  oracle_preset_encoding_facts.json         고급옵션 필드/문구 실측 raw
+  oracle_preset_load_regression_facts.json  불러오기 무회귀 실측 raw
+
+작업명 : ORACLE-PRESET-ENCODING-DEAD-FIELD-FIX
+⚠️ 추가 작업 필요 - ORACLE-PRESET-ENCODING-DEAD-FIELD-FIX - 대상이 겹침 파일 ui/tabler_renderer.py:14643~14656 로 확인되어 코드 수정 미진행(위치만 보고), 다만 요구된 (b) 안내문구는 선행 커밋 8efbc15 로 이미 적용·운영 서버 실측 확인됨
