@@ -1,0 +1,471 @@
+작업명 : ADMIN-COLUMN-CONTROL-SCOPE-AND-HEURISTIC-INTEGRATION-DIAGNOSE
+✅ 작업 완료 - ADMIN-COLUMN-CONTROL-SCOPE-AND-HEURISTIC-INTEGRATION-DIAGNOSE - [핵심 결론: SUM에 버튼이 붙는 것 자체는 정당(SUM은 값 반증축이 아예 없어 오배제를 되돌릴 유일한 수단)이나 SUM 전용 표시 배선이 비어 부적절해 보이는 것이고, 자동 교차확인은 이미 상시 동작 중이며 '관리컬럼 아님'을 침묵으로 표현하도록 설계돼 화면에 안 보일 뿐]
+
+조사 일자   : 2026-08-04
+조사 범위   : 읽기 전용(코드 수정 0건). 개별검증 3단계 후보표 '비고' 셀의 관리컬럼 수동 확정 컨트롤 +
+              관리컬럼(SYSTEM_AUDIT) 자동 교차확인(B축 가설 × A축 검증) 구현 실태
+조사 대상 파일:
+  ui/js_admin_column_override.py                  (확정 컨트롤 렌더/저장/해제 JS)
+  ui/tabler_renderer.py                           (후보표 buildRow, 배지/사유 렌더)
+  services/candidate_subtype_service.py           (교차확인 판정 단일 출처 + override 적용)
+  services/candidate_display_enricher.py          (자동선정 pool 배제 + override 호출부)
+  services/candidate_explanation_service.py       (비고 chip 생성 — 프로파일 계열)
+  services/validation_set_builder.py              (실행 시 도메인 제외)
+  samples/mock_semantic_dictionary.json           (SYSTEM_AUDIT 사전 항목 실측)
+
+
+================================================================================
+[요약 — 먼저 결론]
+================================================================================
+Q1. 확정 버튼은 어떤 컬럼에 붙는가?
+    → GROUP BY/SUM 구분 없이, 데이터타입·이름패턴 조건 없이 **모든 후보 행에 무조건** 붙는다.
+      유일한 조건은 (a) tgt_col 존재, (b) 미대상 합성행 아님, (c) 서버가 override context를 부착한
+      경로(=개별검증 3단계)일 것. 일괄검증·구 스냅샷에서는 아예 안 붙는다.
+
+Q2. '관리컬럼'은 날짜 전용 개념인가?
+    → 아니다. **판정 축 중 A축(값 검증)만 타임스탬프 전용**이고, B축(이름/코멘트 가설)은 타입 무관이다.
+      표준사전 SYSTEM_AUDIT 22개 항목 중 9개가 numeric 타입을 명시적으로 허용한다(실측).
+      게다가 A축은 role=="group_by"에서만 수행되므로 **SUM 역할의 관리컬럼 판정은 구조적으로
+      B축(이름/코멘트) 단독**이다.
+
+Q3. AMT/QTY가 관리컬럼으로 확정될 현실 시나리오가 있는가?
+    → AMT/QTY 그 자체(순수 업무 금액/수량)에는 [관리컬럼 맞음]이 개념적으로 무의미하다. 그러나
+      **반대 방향([관리컬럼 아님])은 SUM에서 반드시 필요하다.** 코드가 스스로 남긴 실측 기록에
+      BATCH_BALANCE / REG_BALANCE(금액류)가 B축 SYSTEM_AUDIT로 잡힌 사례가 있고, SUM에는 이를
+      반증할 A축이 없어 자동으로는 영원히 CONFIRMED(=합계 대상에서 배제)로 남는다.
+
+Q4. SUM에서 버튼을 없애야 하나?
+    → **없애면 안 된다(권장: 유지).** 없애는 순간 SUM의 이름 기반 오배제를 되돌릴 수단이 0이 된다.
+      진짜 결함은 버튼의 존재가 아니라 **SUM 경로의 표시 배선이 비어 있는 것**이다 —
+      _isAdminAuditCol(cand, isGb)가 isGb 게이트라 SUM 후보는 관리컬럼 배지·전용 사유·참고표 이동을
+      전부 못 받는다. 그래서 버튼만 덩그러니 남아 "왜 여기 있지?"로 보인다.
+
+Q5. 자동 교차확인이 실제로 도는가?
+    → **돈다. 모든 후보에 대해 상시 호출된다**(설계만 되고 미구현이 아님). 다만 4개 verdict 중
+      NOT_AUDIT_CONFIRMED(=대다수 정상 컬럼)는 **의도적으로 아무것도 표시하지 않게** 바뀌었다
+      (AXIS-A-N2-AMBIGUOUS-BADGE-DEACTIVATE-FIX). STATUS_CD가 바로 이 케이스다.
+
+Q6. '프로파일 기반: 고유값 4개'는 교차확인 결과인가?
+    → **완전히 별개**다. profile_evidence의 distinct_count/null_ratio만 읽는 카디널리티 통계 chip이다.
+
+Q7. 자동 결과를 버튼 옆에 노출하면 도움이 되는가?
+    → 도움이 된다. 특히 **SUM은 "값 검증을 아예 수행하지 않았다"는 사실 자체를 고지해야** 한다.
+      필요한 데이터는 이미 후보 객체에 다 실려 있고(확정 저장 payload에도 실려 서버로 감), 화면
+      표시만 없다. 단 톤은 '경고'가 아니라 '중립 정보'여야 한다(N2 침묵화 취지 보존).
+
+
+================================================================================
+[항목 1] "관리컬럼 확정" 버튼이 어떤 컬럼 유형에 노출되는가
+================================================================================
+
+■ 1-1. 버튼을 붙이는 조건 — 유형 구분 없이 무조건
+
+렌더 호출부(ui/tabler_renderer.py:23481-23484, buildRow 내부):
+
+    if (typeof _admOvrCellHtml === 'function') {
+      var _ovrCtl = _admOvrCellHtml(c, role);
+      if (_ovrCtl) remarksHtml = _ovrCtl + remarksHtml;
+    }
+
+buildRow 호출부(ui/tabler_renderer.py:23727-23728) — GB/SUM 양쪽 모두 같은 함수를 탄다:
+
+    var _gr = gbList.map(function(c){ return buildRow(c, 'gb'); }).join('');
+    var _sr = sumList.map(function(c){ return buildRow(c, 'sum'); }).join('');
+
+컨트롤 본체(ui/js_admin_column_override.py:135-149) — 조건은 3개뿐:
+
+    function _admOvrCellHtml(c, role) {
+      if (!c || !c.tgt_col) return '';
+      if (c._non_candidate) return '';   /* 미대상 컬럼 합성 행(후보 아님) — 확정 대상 아님 */
+      var ctx = _admOvrCtx(c);
+      if (!ctx) return '';               /* 서버가 컨텍스트를 안 붙인 경로(일괄/구 스냅샷) — 컨트롤 없음 */
+      ...
+      var dis = ctx.project_id_present ? '' : ' disabled';
+
+→ 확인된 사실:
+  · 데이터타입 분기 **없음**(숫자/문자/날짜 무관)
+  · 이름 패턴 분기 **없음**
+  · 역할(GROUP BY / SUM) 분기 **없음** — role 인자는 저장 시 후보를 찾을 리스트를 고르는 데만 쓰인다
+    (_mvAdmOvrFindCand: role==='sum' ? all_sum_candidates : all_groupby_candidates, js:168-177)
+  · 자동판정 결과(verdict)에 따른 분기도 **없음** — CONFIRMED든 NOT_AUDIT든 동일하게 버튼이 뜬다
+    (확정 이력이 있으면 배지+[확정 해제], 없으면 [✔ 관리컬럼 맞음][✕ 관리컬럼 아님])
+
+서버 측 컨텍스트 부착도 GB/SUM을 한 덩어리로 처리한다
+(services/candidate_display_enricher.py:1395-1397):
+
+    from services.candidate_subtype_service import apply_admin_column_overrides
+    _ovr_n = apply_admin_column_overrides(
+        gb_sub + sum_sub, project_id=project_id, table_key=(override_table_key or ""))
+
+→ 즉 SUM 후보(AMT/QTY)에 버튼이 뜨는 것은 버그가 아니라 **설계상 의도된 전 후보 균일 노출**이다.
+   (일괄검증 경로는 project_id/table_key 미전달이라 context가 안 붙어 버튼 자체가 없다 — 기존 진단
+    project_admin_override_disabled_and_batch_gap 과 일치.)
+
+
+================================================================================
+[항목 2] 코드베이스에서 '관리컬럼'의 정확한 정의 — 날짜 한정 개념인가
+================================================================================
+
+■ 2-1. 판정 단일 출처 : evaluate_admin_audit_crosscheck
+        (services/candidate_subtype_service.py:652-797)
+
+판정표(원문 docstring 그대로):
+
+    B=True  + A=True  → CONFIRMED               (가설을 값이 확증)
+    B=True  + A=False → NAMING_VALUE_MISMATCH   (값이 가설을 반증 — 값 우선, 후보 유지)
+    B=True  + A=None  → CONFIRMED               (반증할 값이 없음 → B축 배제 유지, 보수적)
+    B=False + A=True  → CONFIRMED               (값이 결정적)
+    B=False + A=False → NOT_AUDIT_CONFIRMED     (값이 확실히 반증)
+    B=False + A=None + 값 미배선(N1)   → NOT_AUDIT_AMBIGUOUS   (근거부족 — 검토 권장 배지)
+    B=False + A=None + 값 있음·비TS(N2)→ NOT_AUDIT_CONFIRMED   (정상 업무 컬럼 — 배지 없음)
+    B=False + A=None + SUM 역할        → NOT_AUDIT_CONFIRMED   (A축 미수행 — 배지 없음)
+
+■ 2-2. A축(값 검증)만 타임스탬프 전용이다
+
+    (candidate_subtype_service.py:456-497, detect_system_audit_value_verdict)
+    """이 판별기의 '관할(다룰 수 있는 입력)'은 **타임스탬프(날짜+시각) 값**뿐이다. 그 밖의 값
+       (코드/번호/순수 날짜 등)은 이 판별기가 답할 근거 자체가 없으므로 반증이 아니라 판정 불가다."""
+
+    True  : 시각 성분이 모든 값에서 고정(자정 아님) + 고유 날짜 ≤ 1500 (배치 회차 상한)
+    False : 타임스탬프로 파싱은 됐으나 조건 불충족(시각 다양=실측 이벤트 / 자정=순수 날짜형 / 고유일자 과다)
+    None  : 값 없음 또는 타임스탬프 아님(관할 밖)
+
+■ 2-3. B축(이름/코멘트 가설)은 타입 무관 — **숫자형도 설계상 정식 대상**
+
+  실측(samples/mock_semantic_dictionary.json, semantic_type == "SYSTEM_AUDIT" 22건 전수):
+
+    term            match_type  conf   allowed db_type_categories
+    ------------------------------------------------------------------
+    생성일시        COMMENT     0.78   date, text
+    수정일시        COMMENT     0.78   date, text
+    DTTM            TOKEN       0.62   date, text
+    DTM             TOKEN       0.62   date, text
+    ETL             TOKEN       0.65   date, text, numeric   ★
+    MIGRATE         TOKEN       0.65   date, text, numeric   ★
+    MIGRATION       TOKEN       0.65   date, text, numeric   ★
+    BATCH           TOKEN       0.62   date, text, numeric   ★
+    REG             TOKEN       0.62   date, text, numeric   ★
+    UPD             TOKEN       0.62   date, text, numeric   ★
+    MOD             TOKEN       0.62   date, text
+    UPDATE          TOKEN       0.62   date, text, numeric   ★
+    UPDATED         TOKEN       0.62   date, text, numeric   ★
+    CREATE          TOKEN       0.62   date, text, numeric   ★
+    CREATED_AT      EXACT       0.78   date, text
+    UPDATED_AT      EXACT       0.78   date, text
+    CREATED_BY      EXACT       0.72   text
+    UPDATED_BY      EXACT       0.72   text
+    REG_DT          EXACT       0.68   date, text
+    MOD_DT          EXACT       0.68   date, text
+    MIGRATE_DT      EXACT       0.68   date, text
+    등록일시        COMMENT     0.80   date, text
+    ------------------------------------------------------------------
+    → 22건 중 **9건(★)이 numeric 타입을 명시 허용**. 즉 사전 자체가 '숫자형 관리컬럼'을 상정한다.
+
+  코멘트 가설 키워드(candidate_subtype_service.py:532-549)에도 비-날짜 항목이 포함된다:
+    KO: … "등록자","수정자","작성자","변경자","처리자","등록아이디","수정아이디",
+        "배치아이디","배치식별자","이관식별자","이관배치"
+    EN: … "CREATED_BY","UPDATED_BY","MODIFIED_BY","BATCH_ID","MIGRATION_ID","ETL_JOB","LOAD_DATE"
+
+■ 2-4. SUM 역할은 A축을 **구조적으로 수행하지 않는다**
+
+    (candidate_subtype_service.py:751)
+    axis_a = candidate_system_audit_value_verdict(candidate) if _role == "group_by" else None
+
+    (같은 파일 695-697 docstring)
+    """A축은 group_by 역할에서만 값 판정을 수행한다(배치 적재 스탬프는 GB 축 맥락의 판정).
+       SUM 역할은 A축을 None(판정 불가)으로 두므로 B축 단독 배제가 그대로 유지된다"""
+
+→ 결론(항목 2 답): '관리컬럼'은 **날짜/타임스탬프 한정 개념이 아니다.** 임의 타입(숫자·문자 포함)에
+  적용 가능하도록 설계됐고 사전도 그렇게 구성돼 있다. 다만 **값으로 검증할 수 있는 범위만 타임스탬프
+  전용**이며, 이 비대칭이 SUM에서 특히 크게 벌어진다(SUM = 검증 없는 가설 단독 판정).
+
+
+================================================================================
+[항목 3] SUM 대상 컬럼이 실제로 관리컬럼으로 확정될 현실 시나리오
+================================================================================
+
+■ 3-1. 코드가 스스로 남긴 실측 반례 — 금액류가 SYSTEM_AUDIT로 잡힌다
+
+    (candidate_subtype_service.py:728-733, SEMANTIC-MATCH-ENGINE-DUALITY-DIAGNOSE 실측 기록)
+    # 어느 한쪽으로 통합하면 axis_b 탐지가 '줄어든다'(실측):
+    #   · ②로 통합 → BATCH_ID/MIGRATION_ID/ETL_JOB_ID/REG_USER_ID/MOD_SEQ 등이 axis_b=False 로 역행
+    #   · ①로 통합 → BATCH_BALANCE/REG_BALANCE(문자열 적재 금액류)가 axis_b=False 로 역행
+
+  → BATCH_BALANCE / REG_BALANCE = **금액류인데 BATCH/REG 토큰 때문에 B축 SYSTEM_AUDIT 성립**.
+    SUM 후보로 들어오면 판정표상 B=True + A=None(SUM은 A축 미수행) → **CONFIRMED**.
+
+■ 3-2. CONFIRMED가 SUM에서 실제로 일으키는 결과(조용한 제외가 아님 — 실질 배제)
+
+  (a) 자동선정 pool 배제 — GB/SUM 공통(services/candidate_display_enricher.py:1084-1091):
+        for c in cands:
+            if _eff(c) in _AUTOSEL_ELIGIBLE_STATUS and _admin_audit_confirmed(c):
+                c["selection_status"]           = "EXCLUDED_BY_RULE"
+                c["simulated_selection_status"] = "EXCLUDED_BY_RULE"
+                c["auto_selected"]              = False
+                c["_sum_admin_audit_demoted" if is_sum else "_gb_admin_audit_demoted"] = True
+      (같은 파일 1150-1155) "관리컬럼 확정은 GB/SUM 공통으로 자동선정 pool 에서 제외한다"
+
+  (b) 실행 단계 도메인 제외(services/validation_set_builder.py:54-61):
+        _SUM_EXCLUDE_DOMAINS = frozenset({"IDENTIFIER","TECH_KEY","RAW_TEXT","SORT_ORDER",
+                                          "SYSTEM_AUDIT","CONSTANT"})
+
+  → 즉 SUM에서도 관리컬럼 확정은 '표시상 배제'가 아니라 **기본추천 박탈 + EXCLUDED_BY_RULE 강등**이라는
+    실질 효과를 갖는다. 되돌릴 자동 수단은 없다(A축이 SUM에서 아예 안 돌기 때문).
+
+■ 3-3. 숫자형 관리컬럼이 SUM 후보가 되는 정방향 시나리오
+
+  · NUMBER(8) YYYYMMDD 적재일자 / LOAD_DT NUMBER — 숫자형이라 SUM 후보로 진입, 합산은 완전 무의미
+  · BATCH_NO / LOAD_SEQ / MIGRATION_SEQ NUMBER — 회차 번호. 합계는 의미 없음
+  · REG_USER_ID NUMBER — 등록자 ID 숫자 코드. 합계 무의미
+  이런 컬럼에 [✔ 관리컬럼 맞음]은 **의미 있는 선택지**다(SORT_ORDER/IDENTIFIER 게이트가 못 잡은 잔여를
+  사람이 마감).
+
+■ 3-4. 그럼에도 '순수 AMT/QTY'에는 무의미한가 → 절반만 맞다
+
+  · [✔ 관리컬럼 맞음] : 순수 업무 금액/수량에는 개념적으로 무의미. 맞는 지적이다.
+  · [✕ 관리컬럼 아님] : **무의미하지 않다.** 이름에 REG/BATCH/UPD/CREATE 토큰이 섞인 금액·수량
+    (REG_AMT, BATCH_QTY, UPD_AMT …)은 3-1 실측처럼 B축에 걸릴 수 있고, SUM에서는 값으로 반증되지
+    않으므로 사용자가 눌러 되돌리지 않으면 영구히 합계 대상에서 빠진다.
+  · 다만 화면상 문제는 이것이다 — **AMT/QTY가 이미 NOT_AUDIT_CONFIRMED인데도 두 버튼이 대칭으로
+    노출**되어, 시스템이 아무 판단도 못 한 것처럼 보인다(항목 7에서 다룸).
+
+
+================================================================================
+[항목 4] SUM에는 버튼을 감춰야 하는가 — 의견(구현 안 함)
+================================================================================
+
+■ 결론 : **GROUP BY 전용으로 제한하는 것에 반대한다.** 대신 SUM 경로의 표시 배선을 채우는 쪽을 권장.
+
+■ 반대 근거
+  (1) 판정과 실행 배제가 이미 GB/SUM 공통이다(항목 3-2). 판정의 효과는 양쪽에 미치는데 교정 수단만
+      한쪽에 두면, SUM은 '오배제를 인지할 수도 되돌릴 수도 없는' 상태가 된다.
+  (2) SUM은 자동 반증축(A축)이 구조적으로 없다. 즉 **SUM에서 수동 확정은 '보조 기능'이 아니라
+      유일한 교정 경로**다. GB에서 값이 하던 역할을 SUM에서는 사람이 대신하는 구조다.
+  (3) 세션03 원칙("이름 매칭 단독 신뢰 불가")이 가장 심하게 남아 있는 곳이 정확히 SUM이다
+      (B축 단독 CONFIRMED가 항상 성립). 여기서 버튼을 빼면 그 원칙의 유일한 안전판을 제거하는 셈이다.
+
+■ 그러나 지금 SUM 경로에는 실제 결함이 있다 — "버튼이 어색한" 진짜 원인
+
+  (결함 A) 관리컬럼 표시가 GB 전용으로 게이트돼 있다
+      (ui/tabler_renderer.py:23813-23815)
+        function _isAdminAuditCol(cand, isGb) {
+          return !!(isGb && _isAdminAuditConfirmed(cand));
+        }
+      이 헬퍼를 쓰는 곳이 전부 SUM에서 무력화된다:
+        · 23134 selectable 계산 → SUM은 관리컬럼이어도 isAdminAudit=false
+        · 23142 disabledTitle('관리컬럼이므로 …') → SUM은 일반 문구('정책상 합계대상으로 선택할 수 없습니다')
+        · 23651 참고/제외표 이동(REFERENCE) → SUM은 이동 안 함
+        · 23874 _adminAuditExclusionBadge('🔒 관리컬럼 확정 배제' / '⚠ 이름 매칭만 — 재검토 권장') → SUM은 '' 반환
+        · 23003 _candDecisionReason의 관리컬럼 전용 사유 → SUM은 진입 못 함
+      결과: SUM에서 [✔ 관리컬럼 맞음]을 눌러도 화면에는 확정 배지만 뜨고, **왜 배제되는지의 정식
+      표기가 어디에도 안 나온다**. 버튼만 있고 결과 표시가 없으니 "이게 여기 왜 있나"로 읽힌다.
+
+  (결함 B) 확정 직후 즉시 반영이 GB/SUM 비대칭
+      _mvAdmOvrLocalApply(js:188-209)는 verdict/is_admin_audit_column/reason_text만 갱신하고
+      selection_status·is_selectable_by_subtype는 건드리지 않는다. GB는 verdict만으로 참고표 이동이
+      일어나 변화가 눈에 보이지만, SUM은 EXCLUDED_BY_RULE 강등이 서버 재분석 때만 일어나므로
+      **확정 직후에는 체크박스가 그대로 활성**이다. 토스트가 '기본추천 재배치는 다음 분석 실행 시
+      반영'이라고 고지는 하지만, 사용자 눈에는 '눌러도 아무 일 없음'으로 보인다.
+
+■ 권장 대응(우선순위 순, 구현은 이번 지침 범위 밖)
+  P1. SUM에도 관리컬럼 표시를 배선한다 — _isAdminAuditCol의 isGb 게이트를 '역할별 문구 분기'로 대체.
+      (GB: '그룹 기준에서 제외' / SUM: '합계 대상에서 제외 — 값 검증 미수행, 이름·코멘트 근거만')
+      위험: _isAdminAuditCol은 날짜버킷 UI 가드로도 쓰여(23498, 11127) 무분별히 풀면 SUM 행의 기간
+      컨트롤 판정에 영향. 문구·배지 계열과 날짜가드 계열을 분리한 뒤 손대야 한다.
+  P2. SUM에서는 [✔ 관리컬럼 맞음]보다 [✕ 관리컬럼 아님]이 주 액션임을 시각적으로 반영
+      (자동판정이 이미 NOT_AUDIT면 '맞음'을 보조 톤으로) — 버튼을 없애지 않고 무의미한 선택지의
+      존재감만 낮춘다.
+  P3. 확정 직후 SUM 행에도 즉시 반영(체크 해제 + 비활성)하거나, 최소한 행 단위 '재분석 필요' 표식.
+      위험: 클라이언트가 selection_status를 만들면 '화면이 판정을 재계산하지 않는다'는 이 파일의
+      대원칙을 깬다 → 행 표식(고지) 쪽이 구조적으로 안전.
+
+
+================================================================================
+[항목 5] GROUP BY 후보의 자동 교차확인이 실제로 동작하는가
+================================================================================
+
+■ 5-1. **동작한다. 설계만 되고 미구현인 상태가 아니다.**
+
+  호출 지점(services/candidate_subtype_service.py:1209, enrich_candidates_with_subtype 루프 내부 —
+  즉 GB/SUM 모든 후보에 대해 예외 없이 실행):
+
+        _audit_cc          = evaluate_admin_audit_crosscheck(cand, sr, role)
+        _audit_by_value    = _audit_cc["axis_a_value"] is True
+        _audit_by_semantic = _audit_cc["axis_b_naming"]
+        _audit_by_comment  = bool(_audit_cc.get("axis_b_comment"))
+        _is_admin_audit    = _audit_cc["is_admin_audit"]
+        _audit_mismatch    = _audit_cc["naming_value_mismatch_flag"]
+
+  후보 객체에 부착되는 근거 필드(같은 파일 1325-1333) — 설명가능성은 이미 보존되고 있다:
+
+        "is_admin_audit_column":       _is_admin_audit,
+        "admin_audit_verdict":         _audit_cc["verdict"],
+        "admin_audit_axis_b_naming":   _audit_cc["axis_b_naming"],
+        "admin_audit_axis_b_comment":  _audit_by_comment,
+        "admin_audit_comment_keyword": _audit_comment_kw,
+        "admin_audit_axis_a_value":    _audit_cc["axis_a_value"],
+        "naming_value_mismatch_flag":  _audit_mismatch,
+
+■ 5-2. 그런데 왜 STATUS_CD 같은 GB 후보의 비고 셀에는 아무 근거도 안 보이는가
+
+  verdict별 화면 노출 매트릭스(ui/tabler_renderer.py 실측):
+
+    verdict                 | 행 위치        | 배지                              | 사유 셀
+    ------------------------|----------------|-----------------------------------|---------------------------
+    CONFIRMED (A축 확증)    | 참고/제외표    | 🔒 관리컬럼 확정 배제 (23889-23892)| 배제 근거 축 명시 (23016-23017)
+    CONFIRMED (B축 단독)    | 참고/제외표    | ⚠ 이름 매칭만 — 재검토 권장(23883-23887)| 근거+재검토 권장 (23019-23021)
+    NAMING_VALUE_MISMATCH   | 기본 후보표    | ⚠ 명칭-값 불일치 (23913-23925)     | 경고 병기 (22975-22985)
+    NOT_AUDIT_AMBIGUOUS(N1) | 기본 후보표    | ⚠ 관리컬럼 미확인 (23898-23905)    | (없음)
+    NOT_AUDIT_CONFIRMED     | 기본 후보표    | **없음**                          | **없음**
+
+  STATUS_CD(정상 CD류 코드값)의 실제 경로:
+    · B축 : 표준사전에 STATUS/CD는 SYSTEM_AUDIT 아님 → axis_b_naming=False, 코멘트('상태코드')도 미매칭 → B=False
+    · A축 : 값이 'A','C','X' 등 코드 → 타임스탬프 파싱 실패 → **A=None(관할 밖, N2)**
+    · 판정 : B=False + A=None + 값 있음(N2) → **NOT_AUDIT_CONFIRMED** → 배지 없음, 사유 없음
+
+  그리고 이 침묵은 **의도된 설계**다(candidate_subtype_service.py:672-678 원문):
+
+    AXIS-A-N2-AMBIGUOUS-BADGE-DEACTIVATE-FIX: A=None 은 다시 두 하위 케이스로 갈린다 —
+      · N1(값 미배선): 판단 근거가 아예 없음 → 근거부족 애매 배지 유지(경고 유효).
+      · N2(값은 있으나 타임스탬프가 아님=A축 관할 밖): … 근거부족이 아니라 정상 업무 컬럼으로
+        확정(NOT_AUDIT_CONFIRMED·배지 없음). SCHOOL_CATEGORY 같은 저카디 업무코드가 GROUP BY
+        기본추천이면서 '관리컬럼 미확인' 배지를 받던 모순을 제거한다. **N2 가 대부분이라 이 배지는
+        near-dead 가 되며 의도된 결과다.**
+
+  → 항목 5 답변: 교차확인은 **존재하고 호출되며 결과도 후보에 저장된다.** 화면에 안 보이는 이유는
+    (a) '관리컬럼 아님'을 무표시(침묵)로 표현하기로 한 결정, (b) 대다수 컬럼이 N2로 떨어져 그 침묵
+    분기에 들어가기 때문이다. 미구현이 아니라 **표시 정책의 결과**다.
+
+■ 5-3. 부수적으로 확인된 위치 문제 — 근거와 컨트롤이 다른 열에 있다
+
+    · 자동판정 배지 3종 → **'추천' 셀**에 붙는다(23215-23223)
+    · 확정 버튼        → **'비고' 셀**에 붙는다(23481-23484)
+  같은 판정에 대한 '근거'와 '조작'이 서로 다른 컬럼에 떨어져 있어, 배지가 뜨는 경우조차 버튼 옆에서는
+  근거를 볼 수 없다.
+
+
+================================================================================
+[항목 6] 비고 셀의 다른 태그들이 교차확인의 일부인가
+================================================================================
+
+■ 결론 : **'프로파일 기반: 고유값 N개' / 'NULL 없음'은 교차확인과 무관한 별개 정보다.**
+
+  출처(services/candidate_explanation_service.py:403-426, _profile_chips):
+
+        pe = candidate.get("profile_evidence") or {}
+        if not pe: return []
+        dc = pe.get("distinct_count"); nr = pe.get("null_ratio")
+        if is_gb:
+            if dc is not None: chips.append(f"프로파일 기반: 고유값 {dc}개")
+            elif pe.get("distinct_ratio") is not None: chips.append("프로파일 기반")
+            if nr is not None and nr < 0.001: chips.append("NULL 없음")
+
+  → 읽는 입력은 profile_evidence.distinct_count / null_ratio / distinct_ratio 뿐. 관리컬럼 판정 필드
+    (admin_audit_*)를 일절 참조하지 않는다. **카디널리티·NULL 통계**이며 GROUP BY 적합성 근거다.
+
+■ 비고 셀에 섞여 있는 3계열 구분(실측):
+
+    계열                     | 예시                                            | 출처
+    -------------------------|-------------------------------------------------|--------------------------------
+    (1) 기술/프로파일 근거   | 프로파일 기반: 고유값 4개 / NULL 없음 /          | candidate_explanation_service
+        chip (.ict-rmk-tag)  | 타입 변환 / CASE 고정매핑 N개 출력값             | → explanation.evidence_chips
+    -------------------------|-------------------------------------------------|--------------------------------
+    (2) 관리컬럼 판정 note   | 정책상 제외(관리컬럼-값패턴)                    | candidate_subtype_service
+                             | 정책상 제외(관리컬럼-명칭매칭)                  | :1271-1282 (note_tags)
+                             | 정책상 제외(관리컬럼-코멘트가설)                |
+                             | 명칭/코멘트-값 불일치(검토 필요)                |
+    -------------------------|-------------------------------------------------|--------------------------------
+    (3) 수동 확정 컨트롤     | 관리컬럼 확정: [✔ 맞음][✕ 아님] / 확정 배지     | js_admin_column_override
+        (.mv-adm-ovr-*)      |                                                 | :135-165
+
+  (2)는 관리컬럼 판정 결과지만 **CONFIRMED/MISMATCH일 때만 생성**된다. NOT_AUDIT_CONFIRMED에는
+  note가 하나도 안 붙으므로, AMT/QTY·STATUS_CD의 비고 셀에는 (1)+(3)만 남는다 — 사용자가 본
+  "근거 없는 맞음/아님 버튼" 화면이 정확히 이 조합이다.
+
+  참고: (1)과 (3)의 시각 구분은 이미 한 차례 손봤다(js_admin_column_override.py:54-65,
+  CANDIDATE-MANUAL-CONFIRM-BUTTON-VISUAL-DISTINCTION-FIX — 버튼은 굵은 글씨+1.5px 유색 테두리+그림자,
+  정보 태그는 얇은 테두리). 즉 '무엇이 클릭 가능한가'는 해결됐고, 남은 문제는 '무엇을 근거로
+  누르라는 건가'다.
+
+
+================================================================================
+[항목 7] 자동판정 결과를 확정 버튼 옆에 노출하는 것에 대한 의견
+================================================================================
+
+■ 결론 : **노출을 권장한다.** 특히 SUM에서는 '값 검증을 수행하지 않았다'는 사실 자체가 정보다.
+
+■ 지금 상태의 문제(사용자 지적이 정확한 지점)
+  · NOT_AUDIT_CONFIRMED 후보(=대다수)의 비고 셀은 '관리컬럼 확정: [✔ 맞음][✕ 아님]' 두 버튼만 대칭
+    노출된다 → 시스템이 **아무 판단도 못 한 것처럼** 보인다. 실제로는 판단했고(NOT_AUDIT_CONFIRMED)
+    그 근거도 있다(axis_a=None/N2, axis_b=False).
+  · 더 결정적으로, **데이터는 이미 화면에 와 있다.** 확정 버튼을 누르면 서버로 보내는 payload가
+    바로 그 근거다(js_admin_column_override.py:282-285):
+        auto_verdict_at_decision: _admOvrAutoVerdict(cand),
+        axis_a_at_decision: (cand && cand.admin_audit_axis_a_value != null)
+                              ? cand.admin_audit_axis_a_value : null,
+        axis_b_at_decision: _admOvrAxisB(cand),
+    → 저장할 땐 근거를 붙여 보내면서 **보여줄 땐 안 보여준다**. 표시 배선만 없는 상태다.
+
+■ 제안(구현 안 함) — 버튼 앞 읽기전용 요약 태그 1개
+
+    [자동판정: 관리컬럼 아님 ⓘ]  관리컬럼 확정: [✔ 관리컬럼 맞음] [✕ 관리컬럼 아님]
+
+  title(툴팁)에 축별 근거를 분리 서술(근거 뭉뚱그리기 금지 원칙 준수):
+    · GB / N2  : "값 근거: 타임스탬프 아님(값 패턴 판정 관할 밖) · 이름·코멘트 신호 없음"
+    · GB / N1  : "값 근거: 값 미수집(판정 불가) · 이름·코멘트 신호 없음" → 기존 '⚠ 관리컬럼 미확인'과 동일 톤
+    · SUM      : "이름·코멘트 신호 없음 · **값 검증 미수행(SUM 역할은 값 판정을 하지 않음)**"
+    · CONFIRMED(B축 단독) : 기존 '⚠ 이름 매칭만 — 재검토 권장'을 추천 셀뿐 아니라 버튼 옆에도 동반
+    · MISMATCH : 기존 '⚠ 명칭-값 불일치' 동반
+
+■ 기대 효과
+  · 사용자가 '무엇을 뒤집는 것인지' 알고 누른다 — 지금은 자동판정을 확인할 수단이 화면에 없다.
+  · SUM에서 A축 미수행 사실이 드러나 (항목 4 결함 A의) 정보 공백이 메워진다.
+  · 확정 payload에 이미 실려 서버에 저장되는 값과 화면 표기가 일치해, 확정 이력·STALE 판정과 사용자
+    인지가 어긋나지 않는다.
+
+■ 위험·비용(비판적 검토 의무에 따라 함께 제시)
+  (1) 비고 셀 밀도 증가 : 이미 프로파일 chip 2~5개 + 기간 컨트롤 + 확정 버튼 2개가 들어있다.
+      → 축약 태그 1개 + title 상세로 제한해야 하며, 여러 태그로 쪼개면 안 된다.
+  (2) N2 침묵화 취지 훼손 위험 : AXIS-A-N2 수정은 정상 업무 컬럼에서 '⚠ 관리컬럼 미확인' 경고를
+      **일부러 없앤** 것이다. 새 태그가 경고 톤(⚠/앰버)이면 그 수정을 통째로 되돌리게 된다.
+      → 반드시 중립 톤(회색 정보 태그, .ict-rmk-tag 계열)이어야 하고 '⚠' 아이콘 금지.
+  (3) heuristic 증가는 없음 : 새 판정 로직이 아니라 서버가 이미 부착한 필드를 문구로 옮기는 것뿐
+      (기존 _adminAuditEvidenceParts 23858-23868 재사용 가능). 판정 단일 출처 원칙 유지.
+  (4) 검증 스크립트 라벨 계약 : scripts/dev_e2e의 여러 스크립트가 비고 셀 텍스트를 정확일치로
+      단언한다(reference_tabler_js_harness_traps). 태그 추가 시 기존 단언이 깨질 수 있어 전수 확인 필요.
+  (5) 구조 영향 : tabler_renderer.py 비대화 억제 원칙상, 신규 문구 조립은 ui/js_admin_column_override.py
+      안에 두고 tabler_renderer에는 호출만 남기는 현행 구도를 유지해야 한다.
+
+■ 지금 구현 여부 판단 : **문서화 우선** (이번 지침이 진단 전용이므로 코드 변경 없음)
+  구현 우선순위 권고 — (P1) SUM 관리컬럼 표시 배선 공백[항목 4 결함 A] > (P2) 자동판정 요약 태그
+  [항목 7] > (P3) 확정 직후 SUM 즉시 반영[항목 4 결함 B].
+  P1이 먼저인 이유: 근거 태그를 붙여도 SUM에서 확정 결과가 화면에 안 나타나는 문제는 그대로 남는다.
+
+
+================================================================================
+[부록] 확인된 사실 목록(재현용 파일:라인)
+================================================================================
+ 1. 버튼은 GB/SUM 무차별 노출          ui/tabler_renderer.py:23481-23484, 23727-23728
+ 2. 노출 조건은 3개뿐(타입·이름 무관)  ui/js_admin_column_override.py:135-149
+ 3. 서버 context 부착도 GB+SUM 일괄    services/candidate_display_enricher.py:1395-1397
+ 4. 교차확인 판정표                    services/candidate_subtype_service.py:652-797
+ 5. A축은 타임스탬프 전용(3-state)     services/candidate_subtype_service.py:456-497
+ 6. A축은 group_by에서만 수행          services/candidate_subtype_service.py:751, 695-697
+ 7. 사전 SYSTEM_AUDIT 22건 중 9건 numeric 허용   samples/mock_semantic_dictionary.json
+ 8. 코멘트 키워드에 비-날짜 포함       services/candidate_subtype_service.py:532-549
+ 9. 금액류 B축 매칭 실측(BATCH_BALANCE/REG_BALANCE)  services/candidate_subtype_service.py:728-733
+10. CONFIRMED → GB/SUM 공통 자동선정 배제  services/candidate_display_enricher.py:1084-1091, 1150-1155
+11. 실행 단계 SUM 도메인 제외에 SYSTEM_AUDIT   services/validation_set_builder.py:54-61
+12. 교차확인 상시 호출 + 근거 필드 부착  services/candidate_subtype_service.py:1209, 1325-1333
+13. N2 침묵은 의도된 설계              services/candidate_subtype_service.py:672-678, 763-778
+14. 관리컬럼 표시가 isGb 게이트        ui/tabler_renderer.py:23813-23815 (+23134,23142,23651,23874,23003)
+15. 배지는 추천 셀 / 버튼은 비고 셀    ui/tabler_renderer.py:23215-23223 vs 23481-23484
+16. 프로파일 chip은 별개 출처          services/candidate_explanation_service.py:403-426
+17. 확정 payload에 축 근거 이미 포함   ui/js_admin_column_override.py:282-285
+18. 즉시 반영이 selection_status 미갱신 ui/js_admin_column_override.py:188-209
+
+코드 변경 : 없음(읽기 전용 진단)
+테스트    : 해당 없음(코드 미변경)
+
+작업명 : ADMIN-COLUMN-CONTROL-SCOPE-AND-HEURISTIC-INTEGRATION-DIAGNOSE
+✅ 작업 완료 - ADMIN-COLUMN-CONTROL-SCOPE-AND-HEURISTIC-INTEGRATION-DIAGNOSE - [핵심 결론: SUM에 버튼이 붙는 것 자체는 정당(SUM은 값 반증축이 아예 없어 오배제를 되돌릴 유일한 수단)이나 SUM 전용 표시 배선이 비어 부적절해 보이는 것이고, 자동 교차확인은 이미 상시 동작 중이며 '관리컬럼 아님'을 침묵으로 표현하도록 설계돼 화면에 안 보일 뿐]
