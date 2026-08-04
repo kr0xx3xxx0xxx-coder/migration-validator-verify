@@ -1,0 +1,86 @@
+{
+  "results": {
+    "blocked": {
+      "limit_env": "5",
+      "success": false,
+      "blocked": true,
+      "safety_status": "BLOCKED_HIGH_CARDINALITY",
+      "reason_code": "STATISTICS_RESULT_LIMIT_EXCEEDED",
+      "error": "실제 생성된 결과 그룹이 허용 한도를 초과하여 검증을 중단했습니다. 허용 한도: 5개",
+      "total_groups": null,
+      "harness_wall_ms": 658.7,
+      "has_query_timing": true,
+      "query_timing": {
+        "source_query_started_at": "2026-08-04T08:22:09Z",
+        "source_query_finished_at": "2026-08-04T08:22:09Z",
+        "source_duration_ms": 98,
+        "target_query_started_at": "2026-08-04T08:22:09Z",
+        "target_query_finished_at": "2026-08-04T08:22:09Z",
+        "target_duration_ms": 102,
+        "source_target_gap_ms": 39,
+        "consistency_guarantee": "NOT_GUARANTEED",
+        "total_elapsed_ms": 658
+      }
+    },
+    "success": {
+      "limit_env": null,
+      "success": true,
+      "blocked": false,
+      "safety_status": null,
+      "reason_code": null,
+      "error": "",
+      "total_groups": 20,
+      "harness_wall_ms": 318.6,
+      "has_query_timing": true,
+      "query_timing": {
+        "source_query_started_at": "2026-08-04T08:22:09Z",
+        "source_query_finished_at": "2026-08-04T08:22:09Z",
+        "source_duration_ms": 105,
+        "target_query_started_at": "2026-08-04T08:22:10Z",
+        "target_query_finished_at": "2026-08-04T08:22:10Z",
+        "target_duration_ms": 97,
+        "source_target_gap_ms": 62,
+        "consistency_guarantee": "NOT_GUARANTEED"
+      }
+    }
+  },
+  "checks": [
+    {
+      "label": "BLOCKED 재현(blocked=True, success=False)",
+      "ok": true
+    },
+    {
+      "label": "BLOCKED 응답에 query_timing 존재",
+      "ok": true
+    },
+    {
+      "label": "BLOCKED total_elapsed_ms > 0",
+      "ok": true
+    },
+    {
+      "label": "BLOCKED source_duration_ms > 0",
+      "ok": true
+    },
+    {
+      "label": "BLOCKED target_duration_ms > 0",
+      "ok": true
+    },
+    {
+      "label": "BLOCKED total_elapsed_ms ≥ src+tgt DB 구간",
+      "ok": true
+    },
+    {
+      "label": "성공 경로 정상(success=True, 그룹 20)",
+      "ok": true
+    },
+    {
+      "label": "성공 경로 query_timing 8개 키 유지(total_elapsed_ms 미포함)",
+      "ok": true
+    },
+    {
+      "label": "성공 경로 source/target duration > 0",
+      "ok": true
+    }
+  ],
+  "verdict": "PASS"
+}

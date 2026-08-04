@@ -1,0 +1,208 @@
+작업명 : BLOCKED-RESPONSE-TOTAL-ELAPSED-TIME-ADD-FIX
+작성일 : 2026-08-04
+대상   : services/stats_execute_service.py (제품) / scripts/dev_e2e/blocked_response_total_elapsed_time_verify.py (실측 하니스)
+커밋   : 4ddbbb4
+
+────────────────────────────────────────────────────────────────────────
+1. 배경 · 요청
+────────────────────────────────────────────────────────────────────────
+백로그 M32 — 결과 그룹 상한 초과로 차단(BLOCKED)된 케이스는 query_timing 이 성공 경로에서만
+채워져 DB 구간이 0ms 로 기록되고 전체 소요가 통째로 '앱 구간'으로 잡힌다. 차단은 보통 가장
+오래 걸린 실행에서 발생하므로, 이 필드로 성능 회귀를 추적하면 최악 케이스가 조용히 통계에서
+사라진다.
+근거: E:\verify_reports\STATS-SCALE-COST-BAND-BENCHMARK-MEASURE.txt §7-2
+
+요구사항
+  ① query_timing 을 채우는 코드가 성공 경로에만 있는지 확인
+  ② BLOCKED 응답에도 실제 소요시간 기록(구간 분리가 어려우면 총 소요시간만이라도)
+  ③ 기존 성공 경로 query_timing 동작 무회귀
+
+────────────────────────────────────────────────────────────────────────
+2. 위치 확인 결과 (요구사항 ①)
+────────────────────────────────────────────────────────────────────────
+query_timing 을 만드는 지점은 제품 코드에서 단 한 곳이었다.
+
+  services/stats_execute_service.py : execute_stats_validation()
+    - 543~552행(수정 전) : 성공 반환 직전에서만 query_timing 조립
+    - 603행(수정 전)     : 성공 응답 dict 에만 "query_timing" 키 포함
+
+반면 BLOCKED 응답을 만드는 _exec_blocked_result() 는 query_timing 키 자체를 넣지 않았다.
+호출부는 3곳이며 전부 '실행 후' 차단이다.
+
+  (a) 결과 그룹 상한 초과      STATISTICS_RESULT_LIMIT_EXCEEDED   ← 양쪽 fetch 완료 후 차단
+  (b) 목적지 read-only 강제 실패 READ_ONLY_SESSION_ENFORCEMENT_FAILED
+  (c) 원본 read-only 강제 실패  READ_ONLY_SESSION_ENFORCEMENT_FAILED
+
+즉 (a)는 DB 조회를 이미 다 끝낸 뒤 차단하면서도 그 구간 시간을 응답에 남기지 않았다.
+소비처: 저장 스냅샷(services/single_validation_result_store.py `_query_timing_for_snapshot`,
+8개 키 whitelist)과 성능 측정 하니스(scripts/dev_e2e/stats_scale_cost_band_benchmark.py 의
+db_ms/app_ms 분해)가 이 필드를 읽는다. → 차단 케이스는 db_ms=0 으로 집계됐다.
+
+────────────────────────────────────────────────────────────────────────
+3. 수정 내용 (요구사항 ②·③)
+────────────────────────────────────────────────────────────────────────
+services/stats_execute_service.py
+
+  [신설] _blocked_query_timing(total_elapsed_ms, src_timing=None, tgt_timing=None)
+      성공 경로와 동일한 8개 키 + 차단 전용 total_elapsed_ms(총 소요시간, ms).
+      gap 규칙(target 시작 − source 종료, 한쪽이라도 없으면 None)도 성공 경로와 동일.
+      구간 timing 이 없는 경우 시각을 임의로 만들지 않고 성공 경로와 같은 '빈 값' 형태를 유지한다.
+
+  [확장] _exec_blocked_result(..., query_timing=None)
+      dict 가 전달된 경우에만 응답에 "query_timing" 키를 넣는다(None 이면 과거 계약 그대로).
+
+  [배선] execute_stats_validation() 진입 시점(_t_entry)을 기준으로 _elapsed_ms() 계산 후
+      차단 3경로에 각각 전달
+        (a) 결과 상한 초과       → src/tgt DB 구간 + 총 소요시간 모두 실측값
+        (b) 목적지 read-only 실패 → 원본 구간(실측) 보존 + 총 소요시간
+        (c) 원본 read-only 실패   → 총 소요시간만(예외로 끝나 구간 분리 불가)
+
+  [무변경] 성공 경로 query_timing 조립 코드(540~552행)는 한 줄도 바꾸지 않았다.
+           공식 스냅샷의 8개 키 whitelist 도 그대로다 → 저장 계약 영향 0
+           (total_elapsed_ms 는 whitelist 밖이라 저장 스냅샷에 섞이지 않는다).
+
+판정 로직·상한값·타임아웃·비교 결과는 일절 변경하지 않았다(계측 필드 추가 전용).
+
+────────────────────────────────────────────────────────────────────────
+4. 실측 검증 (전/후)
+────────────────────────────────────────────────────────────────────────
+하니스 : scripts/dev_e2e/blocked_response_total_elapsed_time_verify.py (신규, 개발/테스트 전용)
+픽스처 : 내부망 PostgreSQL mvbench.bench_1m (100만행) · GB grp_cd(distinct 20) · SUM amt
+재현법 : MV_STATISTICS_RESULT_LIMIT=5 (실제 그룹 20 > 상한 5) → 결과 그룹 상한 초과 BLOCKED
+비교군 : 같은 하니스를 baseline(HEAD 4546941) worktree(E:\_wt_blk)에서 그대로 실행
+
+[4-1] 차단 케이스 — BLOCKED 재현은 전/후 동일(blocked=True, BLOCKED_HIGH_CARDINALITY,
+      STATISTICS_RESULT_LIMIT_EXCEEDED). 소요시간 기록만 달라졌다.
+
+  수정 전  하니스 실측 벽시계 724.2ms
+           query_timing            : 없음 (키 자체 부재)
+           → DB 구간 0ms 로 집계, 724ms 전부 앱 구간으로 잡힘
+
+  수정 후  하니스 실측 벽시계 658.7ms
+           query_timing.total_elapsed_ms   : 658      (0 아님 · 벽시계와 일치)
+           query_timing.source_duration_ms : 98
+           query_timing.target_duration_ms : 102
+           query_timing.source_target_gap_ms : 39
+           source/target_query_started_at·finished_at : 2026-08-04T08:22:09Z (실측 시각)
+           consistency_guarantee : NOT_GUARANTEED
+           → DB 구간 200ms / 앱 구간 458ms 으로 분해 가능(과거에는 전부 앱 구간)
+
+  (별도 회차) total_elapsed_ms=695 · src=117 · tgt=95 — 회차 간 편차 범위 내 동일 경향
+
+[4-2] 성공 케이스 무회귀 — 상한 기본값으로 같은 SQL 실행
+
+  수정 전  success=True · total_groups=20 · query_timing 8개 키 · src 95ms / tgt 98ms
+  수정 후  success=True · total_groups=20 · query_timing 8개 키 · src 105ms / tgt 97ms
+  → 키 집합 동일(total_elapsed_ms 미포함), 값 성격 동일. 성공 응답 계약 변화 없음.
+
+[4-3] 하니스 자동 판정 9항목
+
+  PASS  BLOCKED 재현(blocked=True, success=False)
+  PASS  BLOCKED 응답에 query_timing 존재          (수정 전 FAIL)
+  PASS  BLOCKED total_elapsed_ms > 0              (수정 전 FAIL)
+  PASS  BLOCKED source_duration_ms > 0            (수정 전 FAIL)
+  PASS  BLOCKED target_duration_ms > 0            (수정 전 FAIL)
+  PASS  BLOCKED total_elapsed_ms ≥ src+tgt DB 구간
+  PASS  성공 경로 정상(success=True, 그룹 20)
+  PASS  성공 경로 query_timing 8개 키 유지(total_elapsed_ms 미포함)
+  PASS  성공 경로 source/target duration > 0
+
+  종합판정  수정 전 FAIL / 수정 후 PASS
+
+────────────────────────────────────────────────────────────────────────
+5. 회귀 테스트 (baseline 대조)
+────────────────────────────────────────────────────────────────────────
+서브셋 : stats_execute_service / execute_stats_validation / _exec_blocked_result /
+         query_timing / STATISTICS_RESULT_LIMIT 을 참조하는 테스트 84개 파일
+         (test_11def_scenarios.py·test_12k_stress.py 는 baseline 대조 시 sys.path 오염으로 제외)
+baseline: HEAD 4546941 worktree(E:\_wt_blk) 에서 동일 명령·동일 순서(-p no:randomly)
+
+  수정 후   92 failed, 1278 passed, 8 skipped, 1 error   (646.10s)
+  baseline  96 failed, 1274 passed, 8 skipped            (625.67s)
+
+차이 대조(실패 ID 정렬 비교)
+
+  after 에만 나타난 4건 — 전부 이번 수정과 무관함을 개별 확인
+    1) tests/test_batch_count_only_path.py::test_count_only_route_separate_from_full
+         → baseline worktree 단독 실행에서도 동일 실패
+           (PROD-DB-WRITE-BLOCKED: 운영 SQLite 쓰기 차단 가드, 환경 의존)
+    2) tests/test_execute_route_shadow_integration.py::test_shadow_on_equals_off
+         → baseline 단독 실행에서도 동일 실패
+           (processing_ms 0.1 vs 5.0/6.0 — 실행시간 값 비교라 상시 타이밍 flaky)
+    3) tests/test_single_execute_store_skeleton_state_lock.py::test_route_store_failure_isolated
+         → 수정 후/baseline 모두 단독 실행 시 PASS (스위트 순서 의존)
+    4) tests/test_validation_set_execute_payload.py::TestExecuteSetRoute::
+       test_H_stats_sql_uses_count_star_only (ERROR)
+         → 수정 후/baseline 모두 단독 실행 시 PASS (스위트 순서 의존)
+
+  baseline 에만 있던 7건(demox_r2/r3 데이터셋 산출물 존재 여부, test_12f1_10_cleanup_unknown_run_id)
+    → worktree 에 데모 산출 파일이 없어서 발생. 수정 후 저장소에서는 통과.
+
+핵심 파일 실패 건수 — baseline 과 완전히 동일(신규 0)
+    test_query_timing_persistence            after 0 / base 0
+    test_statistics_execution_safety         after 1 / base 1
+    test_execution_safety_result_rendering   after 2 / base 2
+    test_row_limit_policy                    after 7 / base 7
+    test_stats_execute_error_handling        after 6 / base 6
+
+  ※ 위 사전 존재 실패의 성격(샘플 확인)
+     - test_stats_execute_error_handling : fetch 를 2-tuple 로 patch 하는 옛 하니스라
+       3-tuple(cols, rows, timing) 계약과 불일치 → baseline 에서도 동일 실패
+     - test_execution_safety_result_rendering : node 하니스가 renderExecute 를 인자 1개로
+       호출해 opts undefined → baseline 에서도 동일 실패
+
+  판정: 이번 수정으로 인한 신규 회귀 0건.
+
+────────────────────────────────────────────────────────────────────────
+6. 화면 영향
+────────────────────────────────────────────────────────────────────────
+없음. ui/execute_result_renderer.py 의 동시점 안내(consistencyNoteHtml)는 이미 ''(표시 제거)
+상태이며, BLOCKED 응답은 별도 차단 렌더 경로를 탄다. 필드 추가만으로 화면 표시는 바뀌지 않는다.
+(지침대로 스크린샷 불필요 — 화면 무관 수정)
+
+────────────────────────────────────────────────────────────────────────
+7. 남는 갭 (이번 범위 밖 · 사실만 기록)
+────────────────────────────────────────────────────────────────────────
+[7-1] 실행 '오류' 응답(_err_response — 원본/목적지 SQL 실행 오류, statement_timeout 60초 등)에는
+      여전히 query_timing 이 없다. 타임아웃 실패는 60초를 소모하고도 시간 기록이 남지 않는다.
+      이번 지침 범위(BLOCKED)가 아니라 손대지 않았다.
+[7-2] 사전 차단 게이트(services/groupby_execution_safety_gate.py 의 BLOCKED)도 query_timing 이
+      없다. 실행 전 차단이라 통계 SQL 시간은 0 이지만, 게이트 자체의 catalog/EXPLAIN 조회 시간은
+      기록되지 않는다.
+[7-3] total_elapsed_ms 는 공식 스냅샷 whitelist(8개 키) 밖이라 저장·재조회로는 보존되지 않는다.
+      차단 결과는 current/history 를 바꾸지 않는 설계이므로 응답 소비(측정 하니스)에는 충분하나,
+      차단 케이스의 시간을 영속 추적하려면 별도 결정이 필요하다.
+
+────────────────────────────────────────────────────────────────────────
+8. 병행 작업 충돌 확인
+────────────────────────────────────────────────────────────────────────
+이번 변경 파일 : services/stats_execute_service.py, scripts/dev_e2e/blocked_response_total_elapsed_time_verify.py
+다른 지침 대상 : services/batch_runner.py, ui/js_admin_column_override.py, ui/tabler_renderer.py
+  → 겹침 0건. 커밋도 위 2개 파일만 명시적으로 staged(작업트리의 타 세션 미커밋 변경 미포함).
+  커밋 직전 HEAD 재확인 결과 타 세션 커밋(49d8287)이 들어와 있었고, 그 위에 얹어 커밋했다.
+
+────────────────────────────────────────────────────────────────────────
+9. 안전성
+────────────────────────────────────────────────────────────────────────
+전 과정 SELECT 전용. DDL/DML 0건. 서버 재기동 0건. 픽스처 생성/변경/삭제 0건.
+비밀번호는 어떤 출력·로그·산출 JSON·보고서에도 포함하지 않았다(pre-commit 비밀번호 스캔 통과).
+
+────────────────────────────────────────────────────────────────────────
+10. 변경 파일 · 커밋
+────────────────────────────────────────────────────────────────────────
+커밋 4ddbbb4  fix(perf): 차단(BLOCKED) 응답에 실제 소요시간 기록 — query_timing 성공 경로 전용 해소
+              (BLOCKED-RESPONSE-TOTAL-ELAPSED-TIME-ADD-FIX)
+
+  services/stats_execute_service.py                             +62 -5
+  scripts/dev_e2e/blocked_response_total_elapsed_time_verify.py +172 (신규)
+  합계 2 files changed, 234 insertions(+), 5 deletions(-)
+
+증적 산출(JSON, 저장소 .gitignore 대상이라 증적 폴더로 복사)
+  BLOCKED-RESPONSE-TOTAL-ELAPSED-TIME-ADD-FIX/after_verify.json
+  BLOCKED-RESPONSE-TOTAL-ELAPSED-TIME-ADD-FIX/before_baseline_verify.json
+
+실검증 상태 : 실 DB 실측 완료(내부망 PostgreSQL 192.168.0.150:5433 mvbench.bench_1m 100만행) —
+              차단 재현 + 전/후 값 대조 + baseline 회귀 대조 전부 실행함(추정·미실행 없음)
+
+작업명 : BLOCKED-RESPONSE-TOTAL-ELAPSED-TIME-ADD-FIX
+✅ 작업 완료 - BLOCKED-RESPONSE-TOTAL-ELAPSED-TIME-ADD-FIX - 차단 응답에 query_timing 이 아예 없던 것을(DB 구간 0ms·전 시간 앱 구간) 총 소요시간 + src/tgt DB 구간까지 실측 기록하도록 수정, 실측 전 724ms 무기록 → 후 total_elapsed_ms=658·src 98·tgt 102, 성공 경로 8개 키 무변경·신규 회귀 0건
