@@ -1931,6 +1931,64 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: S18(같은 SQL 로 발견됐으나 경로가 다름 — 이쪽은 서버 미도달) · M28
 - 참고: E:\verify_reports\CRITICAL-S15-S16-S18-LIVE-BROWSER-ORACLE-VERIFY\_REPORT.txt (§3-3)
 
+### M36. 🗑 삭제됨(참고 기록) — 대량 불일치 '표시 등급 D1~D4' 체계가 무엇이었는지
+- 기록일: 2026-08-05 (DISPLAY-GRADE-TIER-SYSTEM-DOCUMENT-FOR-BACKLOG)
+- 상태: **결함 아님 · 해결 완료 아님.** 5단계 화면의 "표시 등급 D4 · 요약 전용" 표기가
+  `STAGE5-MISMATCH-GRID-HEADER-CLEANUP-FIX` 로 제거되는 중이라, 사라지기 전에 **무엇을 하던
+  체계였는지만 남기는 참고 기록**이다. 되돌릴 대상이 아니다.
+- 대응 방향: **없음 — 기록 목적.**
+- 조사 시점 코드 상태: 조사(2026-08-05) 시점에는 판정 모듈 `services/display_limit_policy.py`(256줄)이
+  워킹트리에 **온전히 살아 있었다**. 즉 아래 내용은 삭제 전 코드를 직접 읽어 확인한 것이며,
+  git 이력 복원에 의존한 추정이 아니다.
+- 등급 구조: 알파벳 `D` 는 **Display(표시)** 축을 뜻하고, 숫자 1~4 는 화면에 레코드를 얼마나
+  나열할지의 강도다(숫자가 클수록 덜 보여준다). 판정 상태값(PASS/WARNING/SKIP)이나 신뢰도
+  (HIGH/LOW/FAIL)와는 **완전히 별개 축**이다.
+  - D1 `FULL_LIST`       — 전체 레코드 나열
+  - D2 `GROUPED_DETAIL`  — 그룹 집계표 + 그룹 진입 시 레코드 페이지
+  - D3 `GROUPED_SAMPLE`  — 그룹표 + 그룹당 대표 PK 20건만(상세는 다운로드)
+  - D4 `SUMMARY_ONLY`    — 요약 통계만, 개별 레코드 화면 나열 금지(CSV 스트리밍으로만 확보)
+- 결정 조건(2축 중 무거운 쪽 + 조기중단 강제):
+  - 축 A(불일치 레코드 건수) 밴드 `1,000 / 10,000 / 60,000` — `DISPLAY_FULL_LIST_MAX` /
+    `DISPLAY_GROUPED_DETAIL_MAX` / `DISPLAY_GROUPED_SAMPLE_MAX`(`config/size_threshold_registry.py:79-82`)
+  - 축 B(불일치 그룹 수) 밴드 `1,000 / 10,000 / 100,000` — 마지막 값은 `INTERACTIVE_GROUPBY_MAX_GROUPS`
+  - 최종 등급 = `max(축A, 축B)`. **조기중단(`early_stopped`)이면 축과 무관하게 강제 D4.**
+    판정 중 예외가 나면 가장 보수적인 D4(`ERROR_FALLBACK`)로 폴백한다(레코드 나열 금지).
+  - 신규 밴드를 만들지 않고 **기존 상수만 재사용**한 것이 설계 원칙이었다.
+- 다른 판정에 쓰였는가 — **아니다. 순수 표시(배너 문구) 전용이었다.**
+  판정 dict 은 동작 플래그 6종(`show_full_list` / `show_group_table` / `show_group_drilldown` /
+  `show_group_sample_only` / `summary_only` / `download_only_detail`)을 함께 실어 보냈지만,
+  **이 플래그를 실제로 읽어 동작을 바꾸는 소비처는 0건**이었다(전수 grep 확인 — 유일한 등장이
+  `services/single_validation_result_store.py:390-391` 인데 그것도 snapshot 보존 whitelist 일 뿐).
+  실사용 필드는 `display_tier` 와 `display_message` 뿐이고, 실제 표시 축소는 별개 축이 담당했다
+  — `MAX_DISPLAY_ROWS`(200) + 페이징, 그리고 그룹당 표시는 `services/per_group_display_policy.py`
+  의 P1/P3. **안전판정·실행전략·상태판정 어디에도 영향이 없었다**(등급이 틀려도 화면 멈춤이나
+  차단은 구조적으로 발생하지 않고, 위험은 문구 오도로 한정).
+- 구조상 알려진 한계(삭제와 무관하게 사실로 남는 것):
+  - **축 A 정의가 경로마다 달랐다.** `services/stats_execute_service.py:616` 은 불일치 **그룹 수**를
+    축 A 로 넘기는데(`diff+src_only+tgt_only`), 축 B 가 전체 그룹 수라 항상 축A ≤ 축B 가 성립해
+    **축 A 가 등급에 영향을 주지 못했다**(2축이 사실상 1축으로 붕괴). 반면
+    `routes/agg_diff_route.py:1570` 은 실제 **레코드 건수**를 넘긴다.
+  - **D2·D3 밴드는 실무상 거의 도달하지 않았다.** 후보엔진 `GENERAL_COLUMN_MAX_GROUPS=60` 과
+    날짜형 버킷 축소가 그룹 수를 억제하고, 재이관 경로는 조기중단(`early_stop_abs=101`)이 D2 진입
+    전에 발화해 강제 D4 가 된다. 라이브로는 D1·D4 만 도달 가능했다.
+- 도입/변경 이력:
+  - `a9b9137`(2026-07-24) `LARGE-SCALE-MISMATCH-DISPLAY-TIER-IMPLEMENTATION` — 최초 도입.
+    판정 모듈 + registry 4상수 + 서버 2곳(`stats_execute_service` · `agg_diff_route`) 주입 +
+    클라이언트 배너 3경로 + 엑셀 시트 하드리밋 가드(`STATS-EXPORT-EXCEL-SAFETY-GUARD`).
+  - `96fb91a` `PER-GROUP-RECORD-DISPLAY-TIER-IMPLEMENTATION` — **별개 축**인 그룹당 표시(P1~P3) 도입.
+  - `a31e725`(2026-07-27) `SNAPSHOT-DISPLAY-TIER-INFO-FIELD-ADD` — 재조회 시 배너가 사라지던 갭 보완
+    (snapshot 에 판정 dict 18키 whitelist 보존, 재계산 없음).
+  - `b0b5a6d`(2026-07-30) `DISPLAY-TIER-D4-100RECORD-CUTOFF-BEHAVIOR-DIAGNOSE` — D4 100건 절단 진단 스크립트.
+- P10 과의 관계: **직접적이다.** P10(HARD CAP 500 · 조기중단으로 전량 확보 불가)의 화면 근거가 바로
+  이 붉은 "표시 등급 D4 · 요약 전용" 배너였다 — P10 본문의 "화면은 조용한 실패는 아니다" 라는 판단이
+  이 배너에 근거한다. 배너가 사라지면 **조기중단 사실을 알리는 고지가 한 겹 줄어든다.** 다만 P10 의
+  해결(`d1fd540` · `56572a5`)이 요약표·요약 카드 숫자 자체를 `"N건 이상"` + 하한 고지로 바꿔
+  **배너를 읽지 않아도 오독하지 않게** 만들었으므로, 고지 자체가 없어지는 것은 아니다.
+- 잔여 자산(삭제 범위에 따라 남아 있을 수 있음): `services/display_limit_policy.py`,
+  `samples/test_display_limit_policy.py`(경계값 단위 테스트), `scripts/dev_e2e/display_tier_*.py` 3종,
+  `LARGE_SCALE_MISMATCH_DISPLAY_LIMIT_PROPOSAL.md`(설계 제안서 279줄).
+- 관련: P10(HARD CAP 500 · 조기중단) · M9(5단계 문구 충돌 — 해결 완료)
+
 ### M35. Tibero 고급옵션에도 오라클과 동종의 죽은 encoding 필드가 있다(심각도 LOW)
 - 발견일: 2026-08-04
 - 근거 보고서: `ORACLE-PRESET-ENCODING-DEAD-FIELD-FIX.txt` (§5)

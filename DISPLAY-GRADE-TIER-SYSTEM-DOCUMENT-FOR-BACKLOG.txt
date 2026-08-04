@@ -1,0 +1,118 @@
+작업명 : DISPLAY-GRADE-TIER-SYSTEM-DOCUMENT-FOR-BACKLOG
+✅ 작업 완료 - DISPLAY-GRADE-TIER-SYSTEM-DOCUMENT-FOR-BACKLOG - 표시 등급 D1~D4는 불일치 레코드
+건수·그룹 수 2축 중 무거운 쪽(조기중단이면 강제 D4)으로 정한 '화면에 레코드를 얼마나 나열할지'의
+배너 문구 전용 등급이며, 안전판정·실행전략에는 전혀 쓰이지 않았다.
+
+■ 0. 조사 조건 — 코드는 아직 살아 있었다
+지침은 "STAGE5-MISMATCH-GRID-HEADER-CLEANUP-FIX 로 이미 삭제됐을 수 있다"고 전제했으나,
+조사 시점(2026-08-05) 워킹트리에는 판정 모듈 services/display_limit_policy.py(256줄)와
+소비처가 전부 온전히 남아 있었다. git diff 확인 결과 해당 정리 작업의 표시등급 삭제분은
+아직 워킹트리에 반영되지 않은 상태였다.
+→ 따라서 아래는 git 이력 복원 추정이 아니라 **현행 소스를 직접 읽어 확인한 사실**이다.
+   코드는 읽기만 했고 일절 수정하지 않았다(되돌림도 하지 않음).
+
+■ 1. 등급 체계의 전체 구조 (조사 항목 1)
+알파벳 D = Display(표시) 축. 숫자 1~4 = 나열 강도(클수록 덜 보여줌).
+판정 상태값(PASS/WARNING/SKIP)·신뢰도(HIGH/LOW/FAIL)와 완전히 별개 축이다.
+
+  D1  FULL_LIST        전체 레코드 나열
+  D2  GROUPED_DETAIL   그룹 집계표 + 그룹 진입 시 레코드 페이지
+  D3  GROUPED_SAMPLE   그룹표 + 그룹당 대표 PK 20건만(상세는 다운로드)
+  D4  SUMMARY_ONLY     요약 통계만, 개별 레코드 화면 나열 금지(CSV 스트리밍으로만 확보)
+
+근거: services/display_limit_policy.py:35-46(MODE_* 상수 · _MODE_TO_TIER 매핑)
+
+■ 2. 등급 결정 조건 (조사 항목 2)
+2축 판정 후 무거운 쪽을 취하고, 조기중단이면 축을 무시하고 D4로 강제한다.
+
+  축 A — 불일치 레코드 건수 : 1,000 / 10,000 / 60,000
+         DISPLAY_FULL_LIST_MAX / DISPLAY_GROUPED_DETAIL_MAX / DISPLAY_GROUPED_SAMPLE_MAX
+         (config/size_threshold_registry.py:79-82)
+  축 B — 불일치 그룹 수     : 1,000 / 10,000 / 100,000
+         마지막 값은 INTERACTIVE_GROUPBY_MAX_GROUPS(실행 안전게이트와 같은 값 참조)
+
+  최종 등급 = max(축A, 축B)
+  early_stopped=True 이면 축과 무관하게 강제 D4 (display_limit_policy.py:182)
+  판정 중 예외 발생 시 가장 보수적인 D4(ERROR_FALLBACK)로 폴백 — 레코드 나열 금지 (218-231)
+
+설계 원칙상 신규 밴드를 만들지 않고 이미 존재하던 상수만 재사용했다(모듈 docstring §2).
+근거 코드는 display_reason_code(AXIS_A_MISMATCH_T*/AXIS_B_GROUP_T*/EARLY_STOPPED)로
+어느 축이 등급을 지배했는지 남긴다.
+
+■ 3. 표시 외 다른 판정에 쓰였는가 (조사 항목 3) — 아니다. 순수 표시 전용
+판정 결과 dict은 동작 플래그 6종을 함께 실어 보냈다:
+  show_full_list / show_group_table / show_group_drilldown /
+  show_group_sample_only / summary_only / download_only_detail
+
+그러나 **이 플래그를 읽어 동작을 바꾸는 소비처는 0건**이다(운영코드 전수 grep).
+유일한 등장은 services/single_validation_result_store.py:390-391 인데, 이것도 snapshot
+보존 whitelist(저장할 키 목록)일 뿐 동작 분기가 아니다.
+
+실제로 쓰인 필드는 display_tier(배너 라벨)와 display_message(배너 문구) 둘뿐이다.
+실제 표시 축소를 담당한 것은 별개 축이었다:
+  - 전체 표시 상한 : MAX_DISPLAY_ROWS(200) + 페이징
+  - 그룹당 표시    : services/per_group_display_policy.py 의 P1/P3 (완전히 다른 모듈·상수·응답필드)
+
+결론: 안전판정·실행전략·상태판정(PASS/WARNING/SKIP) 어디에도 영향이 없었다.
+등급이 틀려도 화면 멈춤이나 실행 차단은 구조적으로 발생하지 않으며, 위험은 문구 오도로 한정된다.
+
+■ 3-1. 구조상 알려진 한계 (삭제와 무관하게 사실로 남는 것)
+(a) 축 A 정의가 경로마다 달랐다.
+    services/stats_execute_service.py:616 은 불일치 '그룹 수'(diff+src_only+tgt_only)를 축 A 로
+    넘기는데, 축 B 가 전체 그룹 수(total_groups)라 항상 축A ≤ 축B 가 성립한다.
+    → max() 가 언제나 축 B 를 고르므로 **축 A 가 등급에 영향을 주지 못한다**(2축이 1축으로 붕괴).
+    반면 routes/agg_diff_route.py:1570 은 실제 '레코드 건수'를 넘긴다. 같은 함수를 두 경로가
+    서로 다른 의미의 값으로 호출한 셈이다.
+(b) D2·D3 밴드는 실무상 거의 도달하지 않았다.
+    후보엔진 GENERAL_COLUMN_MAX_GROUPS=60 과 날짜형 버킷 축소가 그룹 수를 억제하고,
+    재이관 경로는 조기중단(early_stop_abs=101)이 D2 진입(1,001건) 전에 발화해 강제 D4가 된다.
+    라이브 브라우저로 도달 가능한 등급은 사실상 D1 과 D4 뿐이었다.
+
+■ 4. 도입 이력 (조사 항목 4)
+  a9b9137 (2026-07-24) LARGE-SCALE-MISMATCH-DISPLAY-TIER-IMPLEMENTATION — 최초 도입
+     판정 모듈 신규 + registry DISPLAY_* 4상수 + 서버 2곳 주입
+     (services/stats_execute_service.py · routes/agg_diff_route.py) +
+     클라이언트 배너 3경로(renderExecute · _mvRiSummaryHtml · _mvPkLoadPage) +
+     엑셀 시트 하드리밋 가드(STATS-EXPORT-EXCEL-SAFETY-GUARD, 1,048,576 초과 시 CSV 유도).
+     설계 제안서 LARGE_SCALE_MISMATCH_DISPLAY_LIMIT_PROPOSAL.md(279줄) 동반.
+  96fb91a PER-GROUP-RECORD-DISPLAY-TIER-IMPLEMENTATION — **별개 축**인 그룹당 표시(P1~P3) 도입.
+     (이름이 비슷하지만 D1~D4 와 다른 축이다. 이후 단일기준 2단계로 단순화됨)
+  a31e725 (2026-07-27) SNAPSHOT-DISPLAY-TIER-INFO-FIELD-ADD — 같은 run 을 재조회하면 배너가
+     통째로 사라지던 갭 보완. snapshot 에 판정 dict 을 18키 whitelist 로 보존(재계산 없음).
+  b0b5a6d (2026-07-30) DISPLAY-TIER-D4-100RECORD-CUTOFF-BEHAVIOR-DIAGNOSE — D4 100건 절단 진단 스크립트 보존.
+
+■ 4-1. P10(HARD CAP 조기중단)과의 관계 — 직접적이다
+P10 본문이 "화면은 조용한 실패는 아니다"라고 판단한 근거가 바로 이 붉은
+"표시 등급 D4 · 요약 전용" 배너다("수집이 조기중단되어 정확한 총 건수는 확인하지 않았습니다").
+즉 배너가 사라지면 조기중단 사실을 알리는 고지가 한 겹 줄어든다.
+다만 P10 해결(d1fd540 · 56572a5)이 요약표·요약 카드의 숫자 자체를 "N건 이상" + 하한 고지로
+바꿔 배너를 읽지 않아도 오독하지 않게 만들었으므로, 고지 자체가 없어지는 것은 아니다.
+
+■ 5. 잔여 자산 (삭제 범위에 따라 남아 있을 수 있음)
+  services/display_limit_policy.py            판정 순수함수(256줄)
+  samples/test_display_limit_policy.py        경계값 단위 테스트
+  scripts/dev_e2e/display_tier_live_clickthrough.py / display_tier_reimport_d1.py /
+  display_tier_stats_d3.py / display_tier_d4_100record_cutoff_diagnose.py
+  LARGE_SCALE_MISMATCH_DISPLAY_LIMIT_PROPOSAL.md   설계 제안서(279줄)
+  config/size_threshold_registry.py:79-82     DISPLAY_* 4상수
+  services/single_validation_result_store.py:376-414  snapshot 보존 경로
+※ 배너 표기만 지우는 정리라면 위 서버측 자산은 그대로 남아 응답 필드로 계속 흐를 수 있다.
+  이는 이번 작업의 판단 범위 밖이며, 확인·정리 여부는 정리 작업 담당 범위다.
+
+■ 6. 백로그 등록
+BACKLOG.md "## 경미/문서" 섹션에 M36 신규 등록(M27 다음 · M35 앞).
+  제목: 🗑 삭제됨(참고 기록) — 대량 불일치 '표시 등급 D1~D4' 체계가 무엇이었는지
+  표기: "해결 완료" 아님 — **삭제됨(참고 기록)** / 대응 방향: **없음 — 기록 목적**
+편집 안전성 검증: git diff 58 insertions / **0 deletions**, ### 헤딩 112 → 113(+1).
+다른 섹션·항목은 한 줄도 건드리지 않았다.
+
+■ 7. 코드 변경 없음
+읽기 전용 조사 + BACKLOG.md 신규 항목 등록만 수행했다.
+코드 저장소(migration-validator)에는 어떤 파일도 수정·커밋하지 않았고, 이미 삭제된 부분을
+되돌리지도 않았다. 병행 작업(STAGE5-MISMATCH-GRID-HEADER-CLEANUP-FIX ·
+MYSQL-MSSQL-FETCH-KEY-METADATA-IMPLEMENT-FIX)과 파일 충돌 없음.
+코드 변경이 없으므로 스크린샷·자체 테스트 실행은 해당 없음.
+
+✅ 작업 완료 - DISPLAY-GRADE-TIER-SYSTEM-DOCUMENT-FOR-BACKLOG - 표시 등급 D1~D4는 불일치 레코드
+건수·그룹 수 2축 중 무거운 쪽(조기중단이면 강제 D4)으로 정한 '화면에 레코드를 얼마나 나열할지'의
+배너 문구 전용 등급이며, 안전판정·실행전략에는 전혀 쓰이지 않았다.
