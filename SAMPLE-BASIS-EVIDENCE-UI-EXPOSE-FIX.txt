@@ -1,0 +1,262 @@
+작업명 : SAMPLE-BASIS-EVIDENCE-UI-EXPOSE-FIX
+✅ 작업 완료 - SAMPLE-BASIS-EVIDENCE-UI-EXPOSE-FIX - 표본(5만행) 절단으로 수집된 고유값에 '표본 5만행 기준' 근거를 저장→평탄화→화면(비고·선정사유·툴팁)까지 배선, 전수 스캔은 표기 없이 무회귀
+
+════════════════════════════════════════════════════════════════════════════════
+1. 배경 — 무엇이 갭이었나
+════════════════════════════════════════════════════════════════════════════════
+백로그 F27. 직전 작업(PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX)이 재수집 distinct 수집에
+SAMPLE_SRC(5만행) 상한을 걸면서, 표본이 실제로 잘린 경우 각 컬럼 근거에 '표본 5만행 기준'
+(sampled / sample_limit / distinct_basis / row_count_basis)을 snapshot 의 column_profiles_json 에
+저장하도록 해 두었다. 그런데
+
+  services/profile_snapshot_service.py :: _load_profile_stats_from_snapshot_impl
+
+이 snapshot → profile_stats 변환에서 고정 5개 키(row_count / non_null_count / null_ratio /
+distinct_count / distinct_ratio)만 남기고 근거 필드를 버렸다. 소비자(후보 표시)는 그 뒤 어디에서도
+'이 고유값이 표본 추정치'라는 사실을 알 수 없었고, 화면에는 전수 값과 똑같은 모양으로 표시됐다
+= 조용한 과소추정(explainability 훼손).
+
+실측으로 확인한 규모: asis01.t_as_n_etl01(42,000,024행) 재수집 시 row_count 는 50,000 으로 잘리고
+distinct 도 그 표본에서만 계산되는데, before 화면은 '프로파일 기반: 고유값 1개'로만 표시했다.
+
+════════════════════════════════════════════════════════════════════════════════
+2. 위치 확인 — 지침의 '겹침 시 보류' 조건 처리
+════════════════════════════════════════════════════════════════════════════════
+지침: "렌더러가 ui/tabler_renderer.py, ui/js_admin_column_override.py 와 겹치면 진행하지 말고 보고".
+
+확인 결과 — 후보 표의 비고 chip 은 **서버가 문자열까지 만들어 내려보내는 단일 source** 였다.
+  · ui/tabler_renderer.py:11138  "비고 chip 단일 source = explanation.evidence_chips" (일괄 상세 패널)
+  · ui/tabler_renderer.py:23465  개별 후보표도 같은 주석/같은 source
+  · 두 렌더 지점 모두 evidence_chips 배열을 그대로 출력할 뿐 문구를 만들지 않는다.
+
+따라서 표시 문구를 만드는 실제 위치는 services/candidate_explanation_service.py 이고,
+ui/tabler_renderer.py · ui/js_admin_column_override.py 는 **한 줄도 건드리지 않고** 요구사항 2
+(화면 병기)를 충족했다. 보류 조건에 걸리지 않아 렌더 부분까지 완료했다.
+
+병행 확인: 이번에 수정한 3개 파일은 동시 진행 지침 3건
+(ORACLE-PRESET-ENCODING-DEAD-FIELD-FIX / ADMIN-COLUMN-OVERRIDE-PROJECT-SCOPE-UI-EXPOSE-FIX /
+BLOCKED-RESPONSE-TOTAL-ELAPSED-TIME-ADD-FIX)과 겹치지 않는다. 작업 중 다른 세션이 커밋한
+49d8287(ADMOVR-PROJSCOPE) · 4ddbbb4(BLOCKED-ELAPSED)의 변경 파일과도 교집합 0.
+
+════════════════════════════════════════════════════════════════════════════════
+3. 수정 내용 (커밋 2b45c01)
+════════════════════════════════════════════════════════════════════════════════
+[1] services/profile_snapshot_service.py (+23/-2)
+    · _SAMPLE_BASIS_KEYS = ("sampled","sample_limit","distinct_basis","row_count_basis") 신설
+    · _load_profile_stats_from_snapshot_impl 이 평탄화 시 이 키들을 함께 싣는다.
+      **저장된 값이 있을 때만** 추가 — 전수 스캔 snapshot 은 키셋이 기존 5개 그대로다(무회귀).
+
+[2] services/candidate_display_enricher.py (+31)
+    · _sample_basis_of(profile_stats, column) 신설 — 래퍼({"profiles":…})/직접 형태 모두 처리,
+      sampled=True 인 컬럼만 근거 dict 반환.
+    · _enrich_display 가 표시용 profile_evidence 에 근거 키만 얹는다.
+      candidate_scoring 은 손대지 않았다 → 점수·selection·순위 불변.
+
+[3] services/candidate_explanation_service.py (+50/-3)
+    · _sample_basis_text(pe) — sampled 일 때만 문구 반환. 문구는 새로 만들지 않고 수집 시점에
+      저장된 distinct_basis 를 그대로 쓰고, 없을 때만 같은 생성기(_sample_basis_note)로
+      sample_limit 에서 되만든다(단일 출처).
+    · _with_sample_basis(text, pe) — '값 (근거)' 형식.
+      요구사항 3 대로 오늘 확정된 통계검증규모 타일 인라인 패턴('중형 (cost 13.56)', 커밋 0d46913)을
+      그대로 따랐다. 새 표기 방식을 발명하지 않았다.
+    · 적용 지점 3곳
+        비고 chip   : '프로파일 기반: 고유값 4개' → '프로파일 기반: 고유값 4개 (표본 5만행 기준)'
+        선정 사유   : '고유값 4개 · 그룹당 평균 …' → '고유값 4개 (표본 5만행 기준) · 그룹당 평균 …'
+        툴팁 통계줄 : '통계: 고유값 4, 행수 50000' → '… (표본 5만행 기준)'
+    · 안전장치 — 고유값이 profile 이 아닌 다른 근거(SQL CASE literal 상한 등)에서 온 경우
+      (pe.distinct_count 와 값이 다름) 표본 꼬리표를 붙이지 않는다.
+
+[4] tests/test_sample_basis_evidence_ui_expose.py (신규 12건)
+[5] scripts/dev_e2e/ 3종 신규
+    · sample_basis_evidence_ui_expose_verify.py       실 DB 재수집→평탄화→chip 서버 경로 실측
+    · sample_basis_evidence_batch_fixture_setup.py    브라우저 실측용 일괄검증 픽스처 생성
+    · sample_basis_evidence_browser_verify.py         실 브라우저 before/after 실측·스크린샷
+
+git diff --stat (2b45c01)
+    scripts/dev_e2e/sample_basis_evidence_batch_fixture_setup.py | 118 +++++
+    scripts/dev_e2e/sample_basis_evidence_browser_verify.py      | 179 +++++
+    scripts/dev_e2e/sample_basis_evidence_ui_expose_verify.py    | 140 +++++
+    services/candidate_display_enricher.py                       |  31 ++
+    services/candidate_explanation_service.py                    |  50 +-
+    services/profile_snapshot_service.py                         |  23 +-
+    tests/test_sample_basis_evidence_ui_expose.py                | 160 ++++++
+    7 files changed, 696 insertions(+), 5 deletions(-)
+
+════════════════════════════════════════════════════════════════════════════════
+4. 실측 ① 서버 경로 (내부망 PostgreSQL 라이브, 실제 재수집)
+════════════════════════════════════════════════════════════════════════════════
+스크립트: scripts/dev_e2e/sample_basis_evidence_ui_expose_verify.py
+경로     : _recollect_one_side(실 DB) → collect_and_save_profile_snapshot →
+           get_latest_valid_profile_snapshot → load_profile_stats_from_snapshot →
+           enrich_candidates_for_display → build_candidate_explanation
+안전     : snapshot 저장소를 스크래치 SQLite 로 격리(운영 DB 미기록), 실 DB 는 SELECT 전용.
+
+[A] asis01.t_as_n_etl01 — 42,000,024행 (표본 절단 발생)
+    평탄화 결과(첫 컬럼)
+      before: {"row_count":50000,"non_null_count":50000,"null_ratio":0.0,
+               "distinct_count":50000,"distinct_ratio":1.0}
+      after : {… 동일 …,"sampled":true,"sample_limit":50000,
+               "distinct_basis":"표본 5만행 기준","row_count_basis":"표본 5만행 기준"}
+    후보 chip (EXAM_DATE)
+      before: ["프로파일 기반: 고유값 30개", "NULL 없음"]
+      after : ["프로파일 기반: 고유값 30개 (표본 5만행 기준)", "NULL 없음"]
+    선정 사유
+      before: 고유값 30개 · 그룹당 평균 1,667행
+      after : 고유값 30개 (표본 5만행 기준) · 그룹당 평균 1,667행
+    → 값(30개 / 1,667행)은 before 와 완전히 동일. 근거만 추가됐다.
+
+[B] ntb.gt_budget_ledger — 38,000행 (전수 스캔)
+      before/after 완전 동일:
+        ACNT_NM ["프로파일 기반: 고유값 5개","NULL 없음"] / 사유 '고유값 5개 · 그룹당 평균 7,600행'
+        ORGN_NM ["프로파일 기반: 고유값 2개","NULL 없음"] / 사유 '고유값 2개 · 그룹당 평균 19,000행'
+      '표본' 문구 0건 → 정확한 값에는 꼬리표를 붙이지 않는다는 원칙대로 동작.
+
+════════════════════════════════════════════════════════════════════════════════
+5. 실측 ② 실 브라우저 (일괄검증 '후보 결과' 화면)
+════════════════════════════════════════════════════════════════════════════════
+픽스처: 실 DB 재수집(표본 근거 저장) → 실제 후보 컬럼 선정(candidate snapshot 저장)까지 수행한
+        신규 그룹. after = 현행 코드 서버(:8020), before = baseline worktree 코드 서버(:8021,
+        동일 DB 사본에 baseline 코드로 후보를 다시 생성). 두 서버 모두 운영 8000 포트를 건드리지 않음.
+
+스크린샷: E:\verify_screenshots_only\SAMPLE-BASIS-EVIDENCE-UI-EXPOSE-FIX\
+    before_t_as_n_etl01.png / after_t_as_n_etl01.png            (표본 절단 케이스)
+    before_gt_budget_ledger.png / after_gt_budget_ledger.png    (전수 스캔 케이스)
+    *_full.png                                                   (화면 전체 맥락)
+
+[표본 절단 케이스 — t_as_n_etl01, 후보 표 1행 SUBJECT_CODE]
+  before  선정사유 : 고유값 1개 · 그룹당 평균 50,000행
+          비고     : 프로파일 기반: 고유값 1개 | NULL 없음
+  after   선정사유 : 고유값 1개 (표본 5만행 기준) · 그룹당 평균 50,000행
+          비고     : 프로파일 기반: 고유값 1개 (표본 5만행 기준) | NULL 없음
+  추천상태 '기본추천' · 점수 70점 · 타입 varchar 모두 before 와 동일(판정 무회귀).
+
+[전수 스캔 케이스 — gt_budget_ledger]
+  before/after 패널 전체 텍스트에 '표본' 0건. 후보/점수/비고 동일.
+
+pageerror 0건(before/after 공통).
+
+════════════════════════════════════════════════════════════════════════════════
+6. 테스트 — 신규 + 회귀(baseline 대조)
+════════════════════════════════════════════════════════════════════════════════
+[신규] tests/test_sample_basis_evidence_ui_expose.py — 12/12 통과
+   평탄화 보존 / 전수 키셋 불변 / 근거 문구 helper / chip / 선정사유·툴팁 /
+   다른 출처 고유값에 꼬리표 미부착 / enricher end-to-end (표본·전수 각각)
+
+[회귀] candidate|profile|explan|evidence|groupby|snapshot 매칭 테스트 전량
+   after(현행)     : 1,862 passed · 53 failed · 8 errors · 13 skipped · 2 xfailed (530초)
+   baseline(49d8287, 임시 worktree E:\_wt_sbe)
+                   : 동일 서브셋 실행 후 실패 목록 대조
+
+   after 에만 있던 실패 4건 → **전부 baseline 에서도 동일 실패 재현(사전 존재, 내 변경 무관)**
+     · tests/test_candidate_contract.py::test_live_payment_contract_clean_and_defaults_preserved
+     · tests/test_candidate_contract.py::test_live_product_selectable_not_auto_selected
+     · tests/test_candidate_plan_matrix.py::test_null_vs_empty_selection_contract
+     · tests/test_groupby_safety_facade.py::test_19_default_date_groupby_safe_one_click
+       (라이브 게이트 테스트 — worktree 에는 db_presets 가 없어 skip 되던 것들이라
+        프리셋을 복사해 환경을 맞춘 뒤 재실행해 동일 실패를 확인했다)
+   baseline 에만 있던 실패 39건은 worktree 환경차(생성물 HTML 부재 등) — 코드 무관.
+   ⇒ 신규 회귀 0건.
+
+   [after 실패 전체 목록 60건 — 모두 사전 존재]
+     ERROR tests/test_task11_p_profile_snapshot.py::TC06_08_EnricherIntegration::test_06_candidate_input_builder_accepts_snapshot
+     ERROR tests/test_task11_p_profile_snapshot.py::TC06_08_EnricherIntegration::test_07_enricher_uses_profile_stats_for_display_score
+     ERROR tests/test_task11_p_profile_snapshot.py::TC06_08_EnricherIntegration::test_08_individual_batch_same_snapshot_same_score
+     ERROR tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_09_job_type_equal
+     ERROR tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_10_department_code_equal
+     ERROR tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_11_hire_date_equal
+     ERROR tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_12_salary_equal
+     FAILED tests/test_active_path_header_and_profile_order.py::test_active_source_then_target_on_top
+     FAILED tests/test_active_path_header_and_profile_order.py::test_order_logic_active_first_display_only
+     FAILED tests/test_batch_flow2_candidate_core_parity.py::test_coalesce_cast_flow2_core_parity
+     FAILED tests/test_batch_profile_candidate_parity.py::test_calc_profile_present_parity
+     FAILED tests/test_batch_profile_recollect_control.py::test_candidate_freshness_service_empty
+     FAILED tests/test_batch_profile_recollect_control.py::test_recollect_snapshot_roundtrip_surfaces_distinct_and_type
+     FAILED tests/test_batch_row_snapshot_build_and_save.py::test_flag_off_no_save
+     FAILED tests/test_batch_row_snapshot_build_and_save.py::test_flag_on_no_secret_saved
+     FAILED tests/test_batch_row_snapshot_build_and_save.py::test_flag_on_saves - ...
+     FAILED tests/test_batch_row_snapshot_build_and_save.py::test_save_failure_is_fire_and_forget
+     FAILED tests/test_batch_row_snapshot_flag_on_observation.py::test_flag_on_saves_success_and_failure_rows
+     FAILED tests/test_batch_row_snapshot_flag_on_observation.py::test_no_secret_in_saved_snapshot
+     FAILED tests/test_batch_row_snapshot_flag_on_observation.py::test_save_failure_is_fire_and_forget
+     FAILED tests/test_batch_snapshot_preview_baseline.py::test_ui_off_empty_container
+     FAILED tests/test_batch_ui_snapshot_preview_flagged.py::test_ui_off_empty_hidden_container_and_funcs
+     FAILED tests/test_candidate_contract.py::test_live_payment_contract_clean_and_defaults_preserved
+     FAILED tests/test_candidate_contract.py::test_live_product_selectable_not_auto_selected
+     FAILED tests/test_candidate_decision_evidence.py::test_evidence_role_split_strings
+     FAILED tests/test_candidate_display_policy.py::test_04_group_by_default - Ass...
+     FAILED tests/test_candidate_display_policy.py::test_05_sum_default - Assertio...
+     FAILED tests/test_candidate_display_policy.py::test_06_net_amt - AssertionErr...
+     FAILED tests/test_candidate_draft_selection.py::test_candidate_notice_sticky_fix_uses_common_offset
+     FAILED tests/test_candidate_draft_selection.py::test_candidate_selection_bar_present_and_populated
+     FAILED tests/test_candidate_draft_selection.py::test_checkbox_change_keeps_table_and_plan_marks_draft
+     FAILED tests/test_candidate_draft_selection.py::test_restore_to_applied_clears_draft_notice
+     FAILED tests/test_candidate_draft_selection.py::test_uncheck_all_does_not_switch_to_count_only_before_apply
+     FAILED tests/test_candidate_evidence_display_policy.py::test_net_amt_vs_unit_price_distinct
+     FAILED tests/test_candidate_explainability.py::test_01_default_has_primary - ...
+     FAILED tests/test_candidate_explainability.py::test_05_line_amt_computed - As...
+     FAILED tests/test_candidate_explainability.py::test_06_group_by_profile - Ass...
+     FAILED tests/test_candidate_explanation_display.py::test_candidate_score_separate_column
+     FAILED tests/test_candidate_plan_matrix.py::test_null_vs_empty_selection_contract
+     FAILED tests/test_candidate_role_policy_grid.py::test_global_limit_banner_and_count_same_input_no_lock
+     FAILED tests/test_date_bucket_recommendation_evidence.py::ScreenEvidenceTest::test_fallback_labels
+     FAILED tests/test_date_candidate_ui_cleanup.py::test_date_cap_guard_and_hold
+     FAILED tests/test_expression_groupby_cardinality_reason.py::test_case_string_reason_unchanged
+     FAILED tests/test_groupby_estimate_excel_evidence.py::test_batch_excel_includes_groupby_estimate_column
+     FAILED tests/test_groupby_estimate_excel_evidence.py::test_single_excel_includes_groupby_estimate
+     FAILED tests/test_groupby_estimate_excel_evidence.py::test_single_excel_null_group_in_evidence
+     FAILED tests/test_groupby_estimate_excel_evidence.py::test_single_excel_unknown_and_full_cases
+     FAILED tests/test_groupby_estimate_service.py::test_js_service_null_factor_parity
+     FAILED tests/test_groupby_estimated_group_count_ui.py::test_estimate_uses_cardinality_evidence
+     FAILED tests/test_groupby_estimated_group_count_ui.py::test_renderer_estimate_summary_evidence_wiring
+     FAILED tests/test_groupby_safety_facade.py::test_19_default_date_groupby_safe_one_click
+     FAILED tests/test_groupby_safety_ui.py::test_static_labels_updated - assert (...
+     FAILED tests/test_single_validation_candidate_audit.py::test_audit_fixture_cases_all_pass
+     FAILED tests/test_single_validation_candidate_audit.py::test_fallback_promote_golden
+     FAILED tests/test_task11_q_profile_lookup.py::TC17_18_SchemaAndMigration::test_18_init_db_migration_adds_columns
+     FAILED tests/test_task11_r_source_profile.py::TC04_08_SourceSnapshotStore::test_06_source_or_target_source_stored
+     FAILED tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_dedup_logic_present
+     FAILED tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_hidden_when_empty
+     FAILED tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_only_individual_screen
+     FAILED tests/test_task_single_candidate_evidence_preview.py::test_cap3_unchanged
+
+[samples 회귀] CLAUDE.md 규정 순서
+   python samples/test_virtual_cases.py  → 8/8 통과
+   python samples/test_complex_cases.py  → 5/5 케이스 분석 완료
+
+주: tests/test_task11_p_profile_snapshot.py 7건 ERROR + test_task11_q…test_18 1건 FAILED 는
+    '운영 SQLite 가 존재하는 환경'에서만 발생하는 conftest 쓰기 차단 가드 때문이다
+    (worktree 에 운영 DB 사본을 넣어 환경을 맞추면 baseline 에서도 동일하게 발생 — 확인 완료).
+
+════════════════════════════════════════════════════════════════════════════════
+7. 비판적 검토 — 남는 위험과 미해결 갭
+════════════════════════════════════════════════════════════════════════════════
+(1) '그룹당 평균 N행'은 여전히 무근거로 읽힌다.
+    선정 사유의 '그룹당 평균'은 row_count/고유값으로 계산되는데, 표본 절단 시 row_count 도 표본
+    건수(50,000)라 실제 평균과 다르다. 이번엔 근거를 '고유값' 값에만 정확히 귀속시켰다
+    (row_count 출처가 evidence_contract 인 경로가 있어 문장 전체에 꼬리표를 달면 거짓이 될 수 있음).
+    → 후속 과제: 표본 기반 row_count 를 쓰는 파생 지표(그룹당 평균/예상 그룹 수)의 근거 표기.
+
+(2) 개별검증 라이브 profile 경로에는 이 근거가 아예 없다.
+    services/column_profile_service.py 는 같은 _SAMPLE_LIMIT(5만)로 표본을 뜨면서 sampled 플래그를
+    남기지 않는다. 즉 '표본인데 표기 없음'이 개별검증 라이브 수집 경로에 그대로 남아 있다
+    (이번 지침 범위는 재수집→snapshot 경로). 같은 방식으로 확장 가능 — 별도 지침 권장.
+
+(3) 표기 대상이 GROUP BY 비고에 한정된다.
+    SUM 후보 비고는 NULL 계열 chip 이라 표본 근거를 싣지 않았다(툴팁 통계줄에는 공통 적용).
+
+(4) 화면 폭 — chip 이 '프로파일 기반: 고유값 1개 (표본 5만행 기준)'로 길어졌다. 비고 열은 chip
+    2개 초과 시 tooltip 으로 접히는 기존 규칙이 있어 레이아웃 붕괴는 실측에서 확인되지 않았다.
+
+(5) heuristic/scoring 영향 없음 — 하드코딩 규칙 추가 0, 점수·선정 로직 미변경(표시 전용).
+    근거 문자열은 수집 시점 저장값을 재사용하므로 표기와 실제 수집 조건이 어긋날 수 없다.
+
+════════════════════════════════════════════════════════════════════════════════
+8. 산출물
+════════════════════════════════════════════════════════════════════════════════
+커밋      : 2b45c01 (main, 로컬 커밋)
+스크린샷  : E:\\verify_screenshots_only\\SAMPLE-BASIS-EVIDENCE-UI-EXPOSE-FIX\\ (8장)
+실측 JSON : scripts/dev_e2e/_sample_basis_evidence_ui_expose_{before,after}.json
+            scripts/dev_e2e/_sample_basis_evidence_browser_{before,after}.json
+            (dev_e2e JSON 산출물은 .gitignore 대상 — 값은 본 보고서 §4·§5 에 옮겨 적었다)
+
+✅ 작업 완료 - SAMPLE-BASIS-EVIDENCE-UI-EXPOSE-FIX - 표본(5만행) 절단으로 수집된 고유값에 '표본 5만행 기준' 근거를 저장→평탄화→화면(비고·선정사유·툴팁)까지 배선, 전수 스캔은 표기 없이 무회귀
