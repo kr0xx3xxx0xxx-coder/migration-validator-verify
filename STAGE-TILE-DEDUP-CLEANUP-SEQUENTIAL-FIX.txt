@@ -1,0 +1,308 @@
+작업명 : STAGE-TILE-DEDUP-CLEANUP-SEQUENTIAL-FIX
+✅ 작업 완료
+
+작성일: 2026-08-05
+대상  : 개별검증 1~5단계 상단 타일 — 단계 간 중복 표시 제거(파트 A/B/C 순차 처리)
+
+
+════════════════════════════════════════════════════════════════════════
+0. 실검증 상태
+════════════════════════════════════════════════════════════════════════
+실검증 상태: 실 브라우저(playwright, 내부망 PostgreSQL 실 DB) 클릭스루 1→5단계
+             before / after(GB 2축) / after(GB 1축) 3회 완주 + node JS 하니스 3종
+             + 전체 pytest 스위트 baseline 대조(양쪽 11,000건 이상, 각 62~66분) 완료.
+
+
+════════════════════════════════════════════════════════════════════════
+1. 개요 · 커밋
+════════════════════════════════════════════════════════════════════════
+STAGE-TILE-CROSS-STAGE-DUPLICATION-SURVEY-AND-REDESIGN-PROPOSE 에서 확정된 개선사항을
+파트 A → B → C 순으로 처리했다. 세 파트 모두 표시 계층 전용이며 SQL 생성·실행·판정 로직은
+일절 건드리지 않았다. 파트별로 즉시 커밋했다.
+
+  파트 A  049c89a95f078a02585a191c4c475e242461f0fe
+          ui/grid_helpers.py · ui/tabler_renderer.py · tests/test_stage4_stats_validation_tile_layout.py
+          (3 files, +207/-32)
+  파트 B  e6ce3c1f73335dc4c6d447163f8b674e771362c5
+          ui/grid_helpers.py · ui/tabler_renderer.py · tests/test_grid_helpers.py
+          · tests/test_stats_result_full.py  (4 files, +99/-31)
+  파트 C  891a37fedeb28afdc4c4edadac9e779537c36d67
+          ui/grid_helpers.py · ui/tabler_renderer.py · ui/js_sql_preview.py + 테스트 5개
+          (8 files, +126/-32)
+  검증SC  bb6de5b  scripts/dev_e2e/stage_tile_dedup_cleanup_sequential_verify.py
+  후속    5b851fd  tests/test_plansets_agg_processing_time_fix.py
+                   tests/test_stage45_timing_label_and_dup_guard_fix.py
+                   (전체 스위트 대조에서 드러난 계약 갱신 2건 — 아래 6장)
+
+
+════════════════════════════════════════════════════════════════════════
+2. 파트 A — 4단계 '실행시간' 원본/목적 2행 분리
+════════════════════════════════════════════════════════════════════════
+■ 문제 (실측으로 확인)
+  4단계 '처리시간' 한 칸에 성격이 다른 두 값이 순서대로 들어갔다.
+    ① /generate 의 SQL 문자열 생성 시간  →  ② 통계검증 실행 시간
+  실행이 끝나는 순간 ②로 덮여 5단계 '처리시간'과 완전히 같은 값이 됐다.
+
+  before 실측 (실 브라우저):
+    4단계 처리시간 = 0.51초  (window._mvStage4ProcMs = 510.9,
+                              label='통계검증 실행(상세 추출 별도)')
+    5단계 처리시간 = 0.51초  (window._mvStage5ProcMs = 510.9,
+                              label='통계검증 실행(상세 추출 별도)')
+    → 값도 라벨도 완전히 동일. 지침이 지적한 중복이 그대로 재현됐다.
+
+■ 조치
+  · _mvStage4Columns : '처리시간' → 'SQL생성시간', '실행시간'(kind:'multi') 추가 → 9칸
+  · _mvStage4ExecElapsed(r, isMulti) 신설
+      서버가 이미 응답에 담아 보내던 query_timing.source_duration_ms /
+      target_duration_ms 를 '읽기만' 한다. 새 계측·새 서버 왕복 0.
+      (서버는 값을 보내는데 UI 소비처가 0건이었다 — 지침 지적 그대로.)
+      값 규격은 2단계 COUNT 개별 소요시간 타일과 동일한 배열 → <br> 다줄.
+  · _mvRenderValidationDetail 의 _mvShowStageProcessingTime(4, r.processing_ms, ...)
+    덮어쓰기 제거. 같은 자리에서 실행 결과(window._mvStage4ExecResult)와
+    단일/다중 세트 여부(window._mvStage4ExecMulti = !!opts.planRun)만 보관하고
+    4단계 타일만 재렌더한다.
+    개별검증 경로(!opts.hostSummary)에서만 보관 — 일괄/이력 상세가 개별 화면 타일을
+    오염시키지 않게 한다(바로 위 stale 해제와 같은 조건).
+  · 무효화 5경로 전부 보관된 실행 결과도 함께 폐기(stale 실행시간 노출 방지).
+
+■ 툴팁 — 2단계 것을 복사하지 않았다
+  2단계 COUNT 는 원본/목적지를 '병렬' 실행해 개별시간 합 > 총시간이 될 수 있지만,
+  통계검증 실행은 '순차'라 개별시간 합 < 총시간이고 그 차액이 앱 처리시간이다.
+
+  after(1축) 실측 툴팁 원문:
+    "원본 3ms / 목적지 4ms · 총 47ms(순차 실행, 차액은 그룹 비교·직렬화 등 앱 처리시간)
+     · 원본↔목적 간격 20ms"
+    → 개별 합 7ms < 총 47ms 로 '순차' 설명과 실측이 정합한다.
+    → source_target_gap_ms 도 같은 응답에 있어 추가 왕복 0으로 병기했다(지침 요구 4).
+
+■ 다중 세트(GROUP BY 2축 이상) — 지침 요구사항 5 대로 이번 범위 제외
+  세트마다 query_timing 이 따로 오고 합산 로직이 새로 필요하므로 분리를 적용하지 않고
+  기존 방식(합쳐진 processing_ms) 한 줄만 유지한다.
+  단일/다중 판별은 planRun 유무(window._mvStage4ExecMulti)로 정확히 분기한다.
+  after(2축) 실측: 실행시간 '총 0.53초'
+    툴팁 "다중 세트(GROUP BY 2축 이상) 합산 총시간 527ms — 세트마다 원본/목적 조회가
+          따로 일어나므로 개별 실행시간은 나누어 표시하지 않습니다(기존 표기 유지)."
+  집계 응답에 총시간조차 없으면 값을 지어내지 않고 '—' + 사유 툴팁(node 하니스로 확인).
+
+■ before/after 실측 대조 (4단계 · 5단계 시간)
+  before(2축)   : 4단계 처리시간 0.51초 (510.9ms)  == 5단계 처리시간 0.51초 (510.9ms)
+  after(1축)    : 4단계 SQL생성시간 0.01초 미만(2.6ms)
+                  4단계 실행시간   '원본 0.01초 미만 / 목적 0.01초 미만'
+                                   (src 3ms · tgt 4ms · gap 20ms)
+                  5단계 처리시간   0.05초 (46.6ms)
+                  → 세 값이 전부 다르다(중복 해소)
+  after(2축)    : 4단계 SQL생성시간 0.01초 미만(2.6ms)
+                  4단계 실행시간   총 0.53초 (527ms)
+                  5단계 처리시간   0.53초 (527.3ms)
+                  → SQL생성시간 중복은 해소, 실행시간↔5단계는 다중세트라 동일 유지(범위 제외)
+
+
+════════════════════════════════════════════════════════════════════════
+3. 파트 B — 5단계 '통계검증규모' 제거 + 재산정 트리거 분리
+════════════════════════════════════════════════════════════════════════
+■ 삭제 근거 (실측으로 뒷받침)
+  3단계가 같은 이름으로 이미 보여주는 값의 사본인데 산출 경로가 서로 다르다.
+    3단계 = 실행계획 카드(_mvRenderStrategyPlan)의 /strategy/plan 응답
+            → window._mvStage3PlanInfo.scaleText
+    5단계 = window._mvStrategyPlan 을 읽는 _mvStatsScaleText
+  갱신 시점이 어긋나면 같은 화면 흐름에서 다른 등급이 보일 수 있고, 5단계 쪽은 근거를
+  싣지 못하는 열화 사본이다.
+  before 실측이 이를 그대로 보여줬다:
+    3단계 통계검증규모 = '소형 (cost 12.68)'   ← 판정 근거 포함
+    5단계 통계검증규모 = '소형'                 ← 근거 없음(열화 사본)
+  → '권장(단순)' 방향 채택, 삭제. 9칸 → 8칸.
+
+■ ★ cellId 삭제의 부작용 처리 (지침이 지목한 항목)
+  cellId='mvSizeSummaryCell' 이 사라지면 _mvUpdateSizeSummaryCell 이 맨 앞에서 조용히
+  return 한다(셀 부재 시 조기 return 하는 구조임을 먼저 확인했다). 그 안에 묻혀 있던
+  '잠정 등급 재산정' 트리거는 셀 하나가 아니라 일괄검증 목록·검증 상세가 함께 읽는
+  공용 값(window._mvStrategyPlan)을 만들므로 함께 죽으면 안 된다.
+  → DOM 과 무관한 _mvEnsureStatsScalePlan() 으로 분리하고,
+     실제 트리거 이벤트인 COUNT 도착(renderCountResult)과
+     목록 요약 표 렌더(_mvRenderResultGrid) 두 곳에서 직접 호출한다.
+  → 죽은 호출이 된 _mvRenderStage5CtxGrid 안의 _mvUpdateSizeSummaryCell() 호출은 제거
+     (그 id 를 여전히 갖는 화면은 표 렌더가 끝나는 자리에서 자기가 직접 갱신 — 커버리지 불변).
+
+  ※ 지침 문구와 다르게 판단한 점(사유 명시):
+    지침은 '3단계 목록 규모 셀의 트리거 지점으로 옮기라'고 했으나, 실측 결과 3단계 규모
+    타일은 window._mvStrategyPlan 을 쓰지 않는다(실행계획 카드가 만든 별도 값 scaleText 를
+    읽는다). 즉 지침이 전제한 '이미 이 값을 쓰는 3단계 소비처'는 실재하지 않아 그쪽에
+    붙이면 잘못된 자리가 된다. 요구의 본질('트리거 자체가 완전히 없어지면 안 됨')은
+    실제 트리거 이벤트인 'COUNT 도착'에 두는 것으로 동일하게 충족했다.
+
+■ ★ 트리거 이전 확인 — node 하니스 (scratchpad/_pb_out.txt, 증적 폴더 node_harness_partB.txt)
+    ① COUNT 전 재산정 호출수                : 0  (기대 0)
+    ② COUNT 후 · 규모셀 없음 재산정 호출수  : 1  (기대 1) ← 셀이 없어도 산다
+    ②-b 셀 갱신기만 호출 시 재산정          : 0  (기대 0) ← 분리됐다는 증거
+    ③ 계획 존재 시 2회 호출 → 재산정        : 0  (기대 0, 중복 가드)
+    ④ policy_version 변경 시 재산정         : 1  (기대 1, stale plan 폐기)
+    ⑤ 규모셀 있는 화면 셀 텍스트            : '중형'  (무회귀)
+
+■ ★ 트리거 이전 확인 — 실 브라우저
+    before : 2단계(COUNT 완료) 시점 window._mvStrategyPlan = null
+             → 5단계 규모 셀이 렌더된 뒤에야 생성됐다.
+    after  : 2단계 시점(규모셀 부재)에 이미
+             window._mvStrategyPlan = {provisional_grade:'소형',
+                                       effective_group_by_count:2}
+             → 셀이 없어도 산정된다. 오히려 COUNT 도착 즉시로 앞당겨졌다.
+    3단계 규모 타일 : '소형 (cost 12.68)' — before/after 동일(무회귀).
+    5단계          : 규모셀존재=false / PK셀존재=true(재이관 PK 갱신기 id 유지).
+
+■ 빈 칸(9→8) 판단 — 채우지 않고 8칸으로 둔다
+  후보였던 '실행세트'(세트·그룹 수)는 바로 옆 '불일치그룹' 타일의 툴팁이 이미
+  '실행계획: N세트 / M그룹'으로 담고 있다(불일치 그룹 수의 분모라서 거기 붙였다).
+  타일로 승격하면 이번 작업이 없애려는 중복을 새로 만든다.
+  9칸이 한 줄 상한이므로 8칸은 레이아웃 위험도 없다(실측 줄수=1).
+
+
+════════════════════════════════════════════════════════════════════════
+4. 파트 C — 소소한 정리 4건
+════════════════════════════════════════════════════════════════════════
+C-1) 1단계 '컬럼매핑수' 제거  (9칸 → 8칸)
+     before 실측 값 '4/4' = 앞 두 칸(입력컬럼수 4 · 추출컬럼수 4)의 문자열 재조합.
+     툴팁의 '매핑 가능'도 두 수를 이어 붙일 뿐 실제 매핑 성립 판정이 아니었다.
+     지침대로 대체 항목은 두지 않았다('매핑불명확' 표시는 새 판정 로직이 필요해 범위 밖).
+     죽은 필드(_mvColsOf 의 mapping/mappingTip, row 의 mapping) 동시 제거.
+     after 실측: 목적테이블 | 원본테이블 | 입력컬럼수 | 추출컬럼수 | 조건문 | 조인 | 처리시간 | 상태
+
+C-2) 2단계 'proc' 라벨 '처리시간' → 'COUNT 총시간'  (값·툴팁·계산 불변)
+     같은 줄에 'COUNT 소요'(원본/목적 개별)가 있는데 옆 칸이 '처리시간'이면 개별 vs 총
+     관계를 라벨만으로 알 수 없었다.
+     타일 표시 계층(_MV_COUNT_TILE_LABEL)에서만 바꿔 공유 컬럼정의(_mvCountColumns)는
+     무수정 → 일괄검증 COUNT 그리드 무회귀.
+     after 실측: COUNT 소요 '원본 0.02초 / 목적 0.02초' · COUNT 총시간 '0.02초'
+
+C-3) 5단계 'COUNT' → 'COUNT(2단계)'  (값·툴팁 불변)
+     이 단계가 새로 잰 값이 아니라 2단계 결과의 인용임을 라벨로 명시.
+     after 실측: COUNT(2단계) = '1,200 / 1,200'
+
+C-4) 4단계 '상태' → '조합검증' 교체
+     상태 타일은 SQL 생성 후 언제나 'SQL 생성됨' 하나뿐이라 정보량 0이었고, 그 사실은
+     옆 그룹·집계 타일이 '—' vs 실제 컬럼으로 이미 드러낸다.
+     값 출처는 opt-in 체크박스가 보존하는 window._mvIncludePairChecked 하나뿐(새 판정 0).
+       GB 2축↑ · ON  → '포함(+1세트)'
+       GB 2축↑ · OFF → '미포함'
+       GB 1축 이하   → '해당 없음'   (조합 자체가 성립하지 않음 — '—'(미생성)과 구분)
+       SQL 생성 전   → '—'
+     mvToggleComboPair 에 기존 _mvRepaintStage4Tiles 호출을 걸어 토글 즉시 반영.
+     after 실측(2축): 토글 ON 순간 '미포함' → '포함(+1세트)' 즉시 전환(9칸 유지)
+       ON  툴팁: "단일 축 2세트 + 조합 1세트(총 3세트)를 실행합니다 — 축별 집계에서
+                  서로 상쇄되어 사라지는 차이까지 검증됩니다. …"
+       OFF 툴팁: "단일 축 2세트로만 분해 실행합니다 — 조합(STATUS_CD + DEPT_CD)에서만
+                  드러나는 불일치는 검증되지 않습니다. …"
+     after 실측(1축): '해당 없음'
+       툴팁: "조합(PAIR) 검증은 그룹 기준이 2개 이상일 때만 성립합니다 — 현재 그룹 기준 1개."
+
+■ ★ 9칸 상한 계산 근거 (지침 C-4 요구)
+     파트 A 이전                       8칸
+     파트 A '실행시간' 추가          → 9칸
+     파트 C-4 '상태' → '조합검증'    = 교체(추가 아님) → 9칸 그대로
+     ∴ 10칸이 되지 않으므로 상태 교체를 보류할 이유가 없다 → 진행.
+
+     실측 확인(브라우저 렌더 좌표 — 타일 박스 top 좌표의 서로 다른 값 개수로 줄 수 측정):
+       4단계 A1(진입 직후) / A2(생성 후) / C4(조합 ON) / A3(실행 후) 전부
+       줄수 = 1, 줄별칸수 = [9]  → 한 줄에 9칸이 들어간다.
+       (만약 '추가'였다면 10칸 → 9+1 로 줄이 갈라진다.)
+
+■ 단계별 최종 칸수 (after 실측)
+     1단계 8칸 / 2단계 8칸 / 3단계 9칸(불변) / 4단계 9칸 / 5단계 8칸 — 전부 한 줄.
+
+
+════════════════════════════════════════════════════════════════════════
+5. 무회귀 확인
+════════════════════════════════════════════════════════════════════════
+· 하단 상세(파트 범위 밖) — before(2축) vs after(2축) 완전 동일:
+    executeOut 표수 2 / 행수 20 / 텍스트길이 805 / 불일치항목요약길이 0
+· 3단계 타일: 라벨 9칸·값·규모 문구('소형 (cost 12.68)') 모두 before/after 동일.
+· 일괄검증 공유부 무수정: _mvCountColumns(공유 컬럼정의)·_mvTargetSummaryHeaderHtml/
+  CellsHtml·_mvTargetSummaryView 의 size/sizeTip 은 그대로 두었다.
+· 페이지 오류: PAGEERROR 0건.
+  (CONSOLE 404 1건은 before/after 공통이며 이번 변경과 무관한 정적 리소스.)
+
+
+════════════════════════════════════════════════════════════════════════
+6. 테스트 — 전체 스위트 baseline 대조
+════════════════════════════════════════════════════════════════════════
+방법: baseline = 2b1cb01(작업 직전 HEAD)을 E:\_wt_tiledd worktree 로 체크아웃해 실행,
+      after = 작업 브랜치(main) 실행. 양쪽 동일 옵션
+      (--ignore=test_11def_scenarios.py --ignore=test_12k_stress.py — 이 둘은 sys.path 에
+       본 저장소 절대경로를 박아 baseline 이 수정 코드를 로드하므로 대조에서 제외).
+      두 스위트를 동시 실행해 환경 경합이 섞였으므로 절대 실패 수가 부풀려져 있다.
+      동일 조건이므로 '차집합'만 유효한 신호로 본다.
+
+  baseline : 439 failed, 11,231 passed, 149 skipped, 25 xfailed, 73 errors  (1:02:16)
+  after    : 421 failed, 11,328 passed, 110 skipped, 26 xfailed, 42 errors  (1:06:04)
+
+  after 에만 있는 실패(신규 회귀 후보) : 9건
+  baseline 에만 있는 실패              : 27건
+
+  ■ 신규 9건 판정 (전부 개별 격리 실행으로 확인)
+    [실제 회귀 — 계약 갱신으로 해소, 커밋 5b851fd] 2건
+      tests/test_plansets_agg_processing_time_fix.py::test_stage4_label_distinguishes_generation_from_execution
+      tests/test_stage45_timing_label_and_dup_guard_fix.py::test_a1_stage45_slot_label_states_scope
+        → 두 테스트는 파트 A 가 '의도적으로 제거한' 4단계 덮어쓰기 호출
+          (_mvShowStageProcessingTime(4, r.processing_ms, '통계검증 실행(상세 추출 별도)'))
+          을 소스 수준에서 검사하고 있었다. 그 덮어쓰기가 곧 이번에 없애려던 중복의
+          직접 원인이므로 테스트 계약을 새 동작으로 갱신했다:
+            · 4단계 슬롯은 'SQL 생성 시점 값'만 담는다(덮어쓰기 부재를 부정 단언)
+            · 대신 실행 결과 보관 + 4단계 타일 재렌더를 요구
+            · 5단계 라벨 계약은 불변(무회귀 가드 유지)
+          갱신 후 두 파일 16건 전부 통과.
+
+    [이번 변경과 무관한 사전 실패] 7건
+      tests/test_batch_upload_to_wrapper_e2e.py::test_upload_then_run_wrapper_e2e
+      tests/test_candidate_contract.py::test_live_payment_contract_clean_and_defaults_preserved
+      tests/test_candidate_contract.py::test_live_product_selectable_not_auto_selected
+      tests/test_candidate_plan_matrix.py::test_null_vs_empty_selection_contract
+      tests/test_groupby_safety_facade.py::test_19_default_date_groupby_safe_one_click
+      tests/test_single_execute_result_envelope_store_skeleton.py::test_route_store_failure_isolated
+      tests/test_task11_cand_sem.py::TestTokenMatching::test_22a_account_id_is_identifier
+        → 이들이 '신규'로 보인 이유: baseline worktree 에는 라이브 DB 픽스처가 없어
+          skip 되고, main 저장소에서는 fail 한다(worktree 혼동).
+          정확히 대조하기 위해 main 작업트리에서 ui/ 와 tests/ 를 2b1cb01 로 되돌려
+          같은 7건을 실행한 결과 6건이 baseline 에서도 동일하게 실패했고
+          (test_single_execute_result_envelope_store_skeleton 은 격리 시 통과 —
+           순서 의존 flaky), 1건도 재현되지 않아 이번 변경과 인과가 없음을 확인했다.
+          확인 후 작업트리는 즉시 HEAD 로 원복했다(git status 0건 확인).
+
+  ■ 관련 서브셋 최종 (11개 파일)
+      171 passed, 5 xfailed, 1 failed
+      유일한 실패: tests/test_stats_result_full.py::
+                   test_phase4b_strategy_plan_effective_selection_display
+                   → baseline 에서도 동일하게 실패하는 사전 존재 실패(이번 변경 무관).
+
+
+════════════════════════════════════════════════════════════════════════
+7. 남은 간극 (정직 보고)
+════════════════════════════════════════════════════════════════════════
+① 다중 세트(GROUP BY 2축 이상)에서는 4단계 '실행시간'(527ms)과 5단계 '처리시간'(527.3ms)이
+   여전히 같은 값이다. 지침 요구사항 5(다중 세트는 이번 범위 제외, 기존 방식 유지)를 따른
+   결과이며, 세트별 query_timing 합산 로직이 생겨야 해소된다. 단일 세트에서는 완전히 해소됐다.
+② 2단계 'COUNT 총시간' 툴팁은 종전 문구('COUNT 1회 실행 처리시간') 그대로다.
+   지침이 '값 불변, 라벨만'이라 툴팁은 건드리지 않았다.
+③ 5단계는 8칸을 유지하고 빈 칸을 '실행세트'로 채우지 않았다(3장 근거 — 새 중복 방지).
+④ 전체 스위트 절대 실패 수(439/421)는 두 스위트 동시 실행 + 실행 중 서버로 인한 환경 경합이
+   섞인 값이다. 차집합 대조만 신뢰 근거로 사용했다.
+
+
+════════════════════════════════════════════════════════════════════════
+8. 증적
+════════════════════════════════════════════════════════════════════════
+E:\verify_screenshots_only\STAGE-TILE-DEDUP-CLEANUP-SEQUENTIAL-FIX\  (49개, push 완료)
+  스크린샷(각 phase × 단계): before_* / after_* / after1axis_*
+    C1_stage1(+_tiles) · C2_stage2(+_tiles) · C3_stage3
+    A1_stage4_enter(+_tiles) · A2_stage4_generated(+_tiles)
+    C4_stage4_combo_on · A3_stage4_executed(+_tiles)
+    B2_stage5_after_exec · B2_stage5_ctx_tiles
+  실측 원본 JSON:
+    verify_facts_before.json / verify_facts_after_2axis.json / verify_facts_after_1axis.json
+  node 하니스 결과:
+    node_harness_partA.txt / node_harness_partB.txt / node_harness_partC.txt
+  툴팁 원문 대조:
+    tooltips_before_after.txt
+
+검증 스크립트(코드 저장소):
+  scripts/dev_e2e/stage_tile_dedup_cleanup_sequential_verify.py   (before|after|after1axis)
+
+작업명 : STAGE-TILE-DEDUP-CLEANUP-SEQUENTIAL-FIX
+✅ 작업 완료
