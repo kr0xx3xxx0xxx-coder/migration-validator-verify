@@ -1,0 +1,103 @@
+{
+ "phase": "before",
+ "gb": 2,
+ "pair": [
+  "PostgreSQL_Inter_asis",
+  "PostgreSQL_Inter_tobe"
+ ],
+ "sql": "INSERT INTO tobe01.t_combo_tgt (id, status_cd, dept_cd, amt)\nSELECT id, status_cd, dept_cd, amt\nFROM asis01.t_combo_src",
+ "setup": {
+  "pair_label": "PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe",
+  "pair_existed": false,
+  "pair_rows_after": 1,
+  "connect_clicked": true
+ },
+ "1단계실행": {
+  "step": "query",
+  "blocked": false,
+  "err": null,
+  "from_table": "T_COMBO_SRC",
+  "target_table": ""
+ },
+ "2단계실행": {
+  "click1_sql": true,
+  "click2_run": true,
+  "result_arrived": true
+ },
+ "3단계선택": {
+  "gb": [
+   "STATUS_CD",
+   "DEPT_CD"
+  ],
+  "sum": [
+   "AMT"
+  ],
+  "gb_final": [
+   "STATUS_CD",
+   "DEPT_CD"
+  ],
+  "sum_final": [
+   "AMT"
+  ]
+ },
+ "4단계": {
+  "gen_clicked": true,
+  "exec_clicked": true
+ },
+ "S5_결과표": {
+  "결과표": {
+   "존재": false,
+   "표수": 2,
+   "헤더": [],
+   "헤더열수": 0,
+   "그룹행수": 0,
+   "레코드행수": 0,
+   "그룹행": [],
+   "레코드행": [],
+   "박스": {
+    "top": 747,
+    "left": 319,
+    "width": 1222,
+    "height": 565
+   }
+  },
+  "항목1_범례": {
+   "범례텍스트": false,
+   "칩마크업": false
+  },
+  "삭제섹션": {
+   "실행기준박스": true,
+   "세부기준접힘": false,
+   "실행기준산출근거": false,
+   "검증실행기준": false,
+   "실행된통계검증SQL": false,
+   "표시등급배너": true,
+   "그룹당표시상한": false,
+   "hoist영역": false
+  },
+  "실행기준host": {
+   "텍스트": "실행 기준 단일 축 2세트: STATUS_CD / DEPT_CD 예상 그룹 7개 · 실제 생성 7개 · SUM 1 · AMT",
+   "높이": 81,
+   "자식수": 1
+  },
+  "무회귀": {
+   "Excel버튼": true,
+   "전체Excel버튼": true,
+   "페이지크기선택": false,
+   "페이징영역": false,
+   "페이징텍스트": null,
+   "일치행토글": false,
+   "요약줄": null,
+   "불일치항목요약길이": 0,
+   "결과텍스트길이": 805
+  }
+ },
+ "드릴다운클릭": false,
+ "페이지크기변경후": {
+  "행수": 0,
+  "페이징": null
+ },
+ "pageerrors": [
+  "CONSOLE.error: Failed to load resource: the server responded with a status of 404 (Not Found)"
+ ]
+}

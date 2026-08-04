@@ -1,0 +1,597 @@
+{
+ "phase": "after",
+ "gb": 1,
+ "sum": 1,
+ "pair": [
+  "PostgreSQL_Inter_asis",
+  "PostgreSQL_Inter_tobe"
+ ],
+ "sql": "INSERT INTO tobe01.t_to_1_etl03 (\n  school_code, school_name, region, found_year, school_category,\n  max_capacity, principal, contact_number, email_address, updated_at, remarks\n)\nSELECT\n  school_code, school_name, location, established_year, school_type,\n  student_cap, principal_name, contact_number, email, last_updated, remark\nFROM asis01.t_as_1_etl03\nWHERE school_code NOT IN (\n  SELECT school_code FROM asis01.t_as_1_etl03 ORDER BY school_code LIMIT 50\n)",
+ "setup": {
+  "pair_label": "PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe",
+  "pair_existed": false,
+  "pair_rows_after": 1,
+  "connect_clicked": true
+ },
+ "1단계실행": {
+  "step": "query",
+  "blocked": false,
+  "err": null,
+  "from_table": "T_AS_1_ETL03",
+  "target_table": ""
+ },
+ "2단계실행": {
+  "click1_sql": true,
+  "click2_run": true,
+  "result_arrived": true
+ },
+ "count게이트우회": false,
+ "3단계선택": {
+  "gb": [
+   "SCHOOL_CATEGORY"
+  ],
+  "sum": [
+   "FOUND_YEAR"
+  ],
+  "gb_final": [
+   "SCHOOL_CATEGORY"
+  ],
+  "sum_final": [
+   "FOUND_YEAR"
+  ]
+ },
+ "4단계": {
+  "gen_clicked": true,
+  "exec_clicked": true
+ },
+ "S5_결과표": {
+  "결과표": {
+   "존재": true,
+   "표수": 1,
+   "헤더": [
+    {
+     "role": "tree",
+     "name": "",
+     "텍스트": "그룹 / PK (GROUP / PK)",
+     "side라벨": null,
+     "배경": "rgb(238, 243, 251)"
+    },
+    {
+     "role": "gb-tgt",
+     "name": "SCHOOL_CATEGORY",
+     "텍스트": "SCHOOL_CATEGORY (학교 유형) (목적)",
+     "side라벨": "(목적)",
+     "배경": "rgb(238, 243, 251)"
+    },
+    {
+     "role": "gb-src",
+     "name": "SCHOOL_CATEGORY",
+     "텍스트": "SCHOOL_TYPE (학교 유형) (원본)",
+     "side라벨": "(원본)",
+     "배경": "rgb(238, 243, 251)"
+    },
+    {
+     "role": "val-tgt",
+     "name": "CNT",
+     "텍스트": "COUNT (건수) (목적)",
+     "side라벨": "(목적)",
+     "배경": "rgb(238, 243, 251)"
+    },
+    {
+     "role": "val-src",
+     "name": "CNT",
+     "텍스트": "COUNT (건수) (원본)",
+     "side라벨": "(원본)",
+     "배경": "rgb(238, 243, 251)"
+    },
+    {
+     "role": "val-tgt",
+     "name": "FOUND_YEAR",
+     "텍스트": "FOUND_YEAR (설립 연도) (목적)",
+     "side라벨": "(목적)",
+     "배경": "rgb(238, 243, 251)"
+    },
+    {
+     "role": "val-src",
+     "name": "FOUND_YEAR",
+     "텍스트": "FOUND_YEAR (설립 연도) (원본)",
+     "side라벨": "(원본)",
+     "배경": "rgb(238, 243, 251)"
+    },
+    {
+     "role": "verdict",
+     "name": "",
+     "텍스트": "판정 (STATUS)",
+     "side라벨": null,
+     "배경": "rgb(238, 243, 251)"
+    }
+   ],
+   "헤더열수": 8,
+   "그룹행수": 3,
+   "레코드행수": 0,
+   "그룹행": [
+    {
+     "klass": "mv-mismatch-row",
+     "status": "diff",
+     "셀수": 8,
+     "셀": [
+      {
+       "텍스트": "SCHOOL_CATEGORY=고등",
+       "배경": "rgba(0, 0, 0, 0)",
+       "cls": "mv-tree-cell mv-tree-group",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "고등",
+       "배경": "rgb(230, 247, 243)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "고등",
+       "배경": "rgb(234, 242, 255)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "67 Δ -17",
+       "배경": "rgb(230, 247, 243)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "50",
+       "배경": "rgb(234, 242, 255)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "132,970 Δ -33,745",
+       "배경": "rgb(230, 247, 243)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "99,225",
+       "배경": "rgb(234, 242, 255)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "집계값 불일치",
+       "배경": "rgba(0, 0, 0, 0)",
+       "cls": "",
+       "role": "verdict",
+       "title": ""
+      }
+     ]
+    },
+    {
+     "klass": "mv-mismatch-row",
+     "status": "diff",
+     "셀수": 8,
+     "셀": [
+      {
+       "텍스트": "SCHOOL_CATEGORY=중등",
+       "배경": "rgba(0, 0, 0, 0)",
+       "cls": "mv-tree-cell mv-tree-group",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "중등",
+       "배경": "rgb(230, 247, 243)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "중등",
+       "배경": "rgb(234, 242, 255)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "67 Δ -17",
+       "배경": "rgb(230, 247, 243)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "50",
+       "배경": "rgb(234, 242, 255)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "132,953 Δ -33,728",
+       "배경": "rgb(230, 247, 243)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "99,225",
+       "배경": "rgb(234, 242, 255)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "집계값 불일치",
+       "배경": "rgba(0, 0, 0, 0)",
+       "cls": "",
+       "role": "verdict",
+       "title": ""
+      }
+     ]
+    }
+   ],
+   "레코드행": [],
+   "박스": {
+    "top": 594,
+    "left": 319,
+    "width": 1222,
+    "height": 446
+   }
+  },
+  "항목1_범례": {
+   "범례텍스트": false,
+   "칩마크업": false
+  },
+  "삭제섹션": {
+   "실행기준박스": false,
+   "세부기준접힘": false,
+   "실행기준산출근거": false,
+   "검증실행기준": false,
+   "실행된통계검증SQL": false,
+   "표시등급배너": false,
+   "그룹당표시상한": false,
+   "hoist영역": false
+  },
+  "실행기준host": {
+   "텍스트": "",
+   "높이": 0,
+   "자식수": 0
+  },
+  "무회귀": {
+   "Excel버튼": true,
+   "전체Excel버튼": true,
+   "페이지크기선택": true,
+   "페이징영역": true,
+   "페이징텍스트": "11 / 1 페이지(전체 무절단)",
+   "일치행토글": false,
+   "요약줄": "전체 그룹 3 · 불일치 그룹 3 · 재이관 대상 0건 현재 불일치 그룹 1~3 표시 · 1/1페이지",
+   "불일치항목요약길이": 146,
+   "결과텍스트길이": 755
+  }
+ },
+ "드릴다운클릭": true,
+ "S5_드릴다운": {
+  "결과표": {
+   "존재": true,
+   "표수": 1,
+   "헤더": [
+    {
+     "role": "tree",
+     "name": "",
+     "텍스트": "그룹 / PK (GROUP / PK)",
+     "side라벨": null,
+     "배경": "rgb(238, 243, 251)"
+    },
+    {
+     "role": "gb-tgt",
+     "name": "SCHOOL_CATEGORY",
+     "텍스트": "SCHOOL_CATEGORY (학교 유형) (목적)",
+     "side라벨": "(목적)",
+     "배경": "rgb(238, 243, 251)"
+    },
+    {
+     "role": "gb-src",
+     "name": "SCHOOL_CATEGORY",
+     "텍스트": "SCHOOL_TYPE (학교 유형) (원본)",
+     "side라벨": "(원본)",
+     "배경": "rgb(238, 243, 251)"
+    },
+    {
+     "role": "val-tgt",
+     "name": "CNT",
+     "텍스트": "COUNT (건수) (목적)",
+     "side라벨": "(목적)",
+     "배경": "rgb(238, 243, 251)"
+    },
+    {
+     "role": "val-src",
+     "name": "CNT",
+     "텍스트": "COUNT (건수) (원본)",
+     "side라벨": "(원본)",
+     "배경": "rgb(238, 243, 251)"
+    },
+    {
+     "role": "val-tgt",
+     "name": "FOUND_YEAR",
+     "텍스트": "FOUND_YEAR (설립 연도) (목적)",
+     "side라벨": "(목적)",
+     "배경": "rgb(238, 243, 251)"
+    },
+    {
+     "role": "val-src",
+     "name": "FOUND_YEAR",
+     "텍스트": "FOUND_YEAR (설립 연도) (원본)",
+     "side라벨": "(원본)",
+     "배경": "rgb(238, 243, 251)"
+    },
+    {
+     "role": "verdict",
+     "name": "",
+     "텍스트": "판정 (STATUS)",
+     "side라벨": null,
+     "배경": "rgb(238, 243, 251)"
+    }
+   ],
+   "헤더열수": 8,
+   "그룹행수": 4,
+   "레코드행수": 5,
+   "그룹행": [
+    {
+     "klass": "mv-mismatch-row",
+     "status": "diff",
+     "셀수": 8,
+     "셀": [
+      {
+       "텍스트": "SCHOOL_CATEGORY=고등",
+       "배경": "rgba(0, 0, 0, 0)",
+       "cls": "mv-tree-cell mv-tree-group",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "고등",
+       "배경": "rgb(230, 247, 243)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "고등",
+       "배경": "rgb(234, 242, 255)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "67 Δ -17",
+       "배경": "rgb(230, 247, 243)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "50",
+       "배경": "rgb(234, 242, 255)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "132,970 Δ -33,745",
+       "배경": "rgb(230, 247, 243)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "99,225",
+       "배경": "rgb(234, 242, 255)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "집계값 불일치",
+       "배경": "rgba(0, 0, 0, 0)",
+       "cls": "",
+       "role": "verdict",
+       "title": ""
+      }
+     ]
+    },
+    {
+     "klass": "mv-ed-scope-panel",
+     "status": "",
+     "셀수": 1,
+     "셀": [
+      {
+       "텍스트": "목적 단독(과잉) 전체 17건 · 현재 1~5 표시 · 1/4페이지",
+       "배경": "rgb(251, 252, 254)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      }
+     ]
+    }
+   ],
+   "레코드행": [
+    {
+     "klass": "mv-pk-rec-row",
+     "status": "",
+     "셀수": 8,
+     "셀": [
+      {
+       "텍스트": "SC0104",
+       "배경": "rgb(251, 252, 254)",
+       "cls": "mv-tree-cell mv-tree-rec",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "고등",
+       "배경": "rgb(230, 247, 243)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "-",
+       "배경": "rgb(234, 242, 255)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "·",
+       "배경": "rgb(230, 247, 243)",
+       "cls": "mv-tree-na",
+       "role": "",
+       "title": "레코드 단위로는 제공되지 않는 열입니다(그룹 집계 전용). 이 표의 그룹 요약 행에서 확인하세요."
+      },
+      {
+       "텍스트": "·",
+       "배경": "rgb(234, 242, 255)",
+       "cls": "mv-tree-na",
+       "role": "",
+       "title": "레코드 단위로는 제공되지 않는 열입니다(그룹 집계 전용). 이 표의 그룹 요약 행에서 확인하세요."
+      },
+      {
+       "텍스트": "1,964",
+       "배경": "rgb(230, 247, 243)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "-",
+       "배경": "rgb(234, 242, 255)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "·",
+       "배경": "rgb(251, 252, 254)",
+       "cls": "mv-tree-na",
+       "role": "",
+       "title": "판정은 그룹 단위로만 산출됩니다(레코드 단위 판정 없음). 위 그룹 요약 행의 판정을 확인하세요."
+      }
+     ]
+    },
+    {
+     "klass": "mv-pk-rec-row",
+     "status": "",
+     "셀수": 8,
+     "셀": [
+      {
+       "텍스트": "SC0110",
+       "배경": "rgb(251, 252, 254)",
+       "cls": "mv-tree-cell mv-tree-rec",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "고등",
+       "배경": "rgb(230, 247, 243)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "-",
+       "배경": "rgb(234, 242, 255)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "·",
+       "배경": "rgb(230, 247, 243)",
+       "cls": "mv-tree-na",
+       "role": "",
+       "title": "레코드 단위로는 제공되지 않는 열입니다(그룹 집계 전용). 이 표의 그룹 요약 행에서 확인하세요."
+      },
+      {
+       "텍스트": "·",
+       "배경": "rgb(234, 242, 255)",
+       "cls": "mv-tree-na",
+       "role": "",
+       "title": "레코드 단위로는 제공되지 않는 열입니다(그룹 집계 전용). 이 표의 그룹 요약 행에서 확인하세요."
+      },
+      {
+       "텍스트": "1,970",
+       "배경": "rgb(230, 247, 243)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "-",
+       "배경": "rgb(234, 242, 255)",
+       "cls": "",
+       "role": "",
+       "title": ""
+      },
+      {
+       "텍스트": "·",
+       "배경": "rgb(251, 252, 254)",
+       "cls": "mv-tree-na",
+       "role": "",
+       "title": "판정은 그룹 단위로만 산출됩니다(레코드 단위 판정 없음). 위 그룹 요약 행의 판정을 확인하세요."
+      }
+     ]
+    }
+   ],
+   "박스": {
+    "top": 594,
+    "left": 319,
+    "width": 1222,
+    "height": 747
+   }
+  },
+  "항목1_범례": {
+   "범례텍스트": false,
+   "칩마크업": false
+  },
+  "삭제섹션": {
+   "실행기준박스": false,
+   "세부기준접힘": false,
+   "실행기준산출근거": false,
+   "검증실행기준": false,
+   "실행된통계검증SQL": false,
+   "표시등급배너": false,
+   "그룹당표시상한": false,
+   "hoist영역": false
+  },
+  "실행기준host": {
+   "텍스트": "",
+   "높이": 0,
+   "자식수": 0
+  },
+  "무회귀": {
+   "Excel버튼": true,
+   "전체Excel버튼": true,
+   "페이지크기선택": true,
+   "페이징영역": true,
+   "페이징텍스트": "11 / 1 페이지(전체 무절단)",
+   "일치행토글": false,
+   "요약줄": "전체 그룹 3 · 불일치 그룹 3 · 재이관 대상 0건 현재 불일치 그룹 1~3 표시 · 1/1페이지",
+   "불일치항목요약길이": 146,
+   "결과텍스트길이": 1008
+  }
+ },
+ "페이지크기변경후": {
+  "행수": 10,
+  "페이징": "11 / 1 페이지(전체 무절단)"
+ },
+ "pageerrors": [
+  "CONSOLE.error: Failed to load resource: the server responded with a status of 404 (Not Found)"
+ ]
+}
