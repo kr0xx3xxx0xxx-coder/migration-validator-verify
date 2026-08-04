@@ -1,0 +1,189 @@
+작업명 : ADMIN-COLUMN-OVERRIDE-PROJECT-SCOPE-UI-EXPOSE-FIX
+작성일 : 2026-08-04
+커밋   : 49d8287 (main)
+증적   : E:\verify_screenshots_only\ADMIN-COLUMN-OVERRIDE-PROJECT-SCOPE-UI-EXPOSE-FIX\
+
+================================================================================
+1. 배경과 결함
+================================================================================
+백로그 F37 / 진단서 ADMIN-COLUMN-CONFIRM-BUTTON-NONFUNCTIONAL-AND-BATCH-SCOPE-DIAGNOSE
+(§3-4, §5-P3)가 지적한 대로, 관리컬럼 수동 확정(override)의 저장 계층은 처음부터 두 가지
+적용 범위를 지원하고 있었다.
+
+  services/admin_column_override_store.py
+    SCOPE_TABLE_COLUMN   = 'TABLE_COLUMN'    이 테이블의 이 컬럼에만
+    SCOPE_PROJECT_COLUMN = 'PROJECT_COLUMN'  프로젝트 전체의 같은 컬럼명
+
+API(routes/admin_column_override_route.py)도 두 값을 모두 받고, 우선순위
+(TABLE_COLUMN > PROJECT_COLUMN > 자동판정)도 resolve_override 에 이미 구현돼 있었다.
+그런데 화면(ui/js_admin_column_override.py:281)이 저장 요청의 scope 를 문자열
+'TABLE_COLUMN' 으로 하드코딩해, **사용자가 프로젝트 전체 범위를 고를 방법 자체가 없었다.**
+
+결과적으로 CREATED_BY/REG_DT 처럼 프로젝트 전반에서 반복되는 관리컬럼을 테이블마다 한 번씩
+확정해야 했고, 테이블이 많은 프로젝트에서는 같은 판단을 수십 번 반복하게 된다.
+
+수정 전 실측(before 모드, 13/13 재현 성공):
+  · 비고 셀에 범위 선택 컨트롤이 아예 없음(select 요소 0개)
+  · 확정 클릭 시 요청 본문 scope 가 항상 "TABLE_COLUMN"
+      {"project_id":"960","table_key":"MV_ORA_DEMO_TGT","column_name":"DEPT_CD",
+       "decision":"AUDIT","scope":"TABLE_COLUMN", ...}
+  · 같은 프로젝트의 다른 테이블(MV_COMBO_TGT)을 분석하면 그 확정이 전혀 반영되지 않음
+  증적: before_S1_cell_controls.png, before_S3_other_table_no_effect.png,
+        before_S4_no_scope_ui_page.png, verify_facts_before.json
+
+================================================================================
+2. 되돌리기 부담에 대한 설계 판단
+================================================================================
+프로젝트 전체 확정은 한 번 누르면 그 프로젝트에서 분석하는 모든 테이블의 같은 컬럼명에
+적용된다. 라디오 버튼만 추가하면 "잘못 눌렀는데 어디까지 퍼졌는지 모르는" 상태가 된다.
+그래서 다음 4가지를 함께 구현했다.
+
+ (1) 기본값은 좁은 쪽(TABLE_COLUMN) 고정
+     아무것도 고르지 않으면 종전과 완전히 동일하게 동작한다. 범위가 넓어지는 것은 사용자가
+     명시적으로 고른 결과여야 한다(무회귀 + '시스템이 임의로 일반화하지 않는다' 원칙).
+
+ (2) 넓은 범위는 저장 전에 확인 모달을 거친다
+     '프로젝트 전체'를 고른 상태에서 확정 버튼을 누르면 즉시 저장하지 않고,
+     서버에서 영향 대상을 조회해 모달로 보여준 뒤 사용자가 [프로젝트 전체로 확정]을
+     눌러야만 저장한다. 모달 기본 포커스는 [취소]이고, Esc/배경 클릭도 취소로 떨어진다
+     (엔터 연타로 넓은 범위가 확정되지 않게).
+
+ (3) 영향 대상 미리보기를 서버가 계산해 보여준다
+     - 이 프로젝트에 등록된 검증대상 테이블 목록/개수(그룹 × 등록대상 조인 결과)
+     - 각 항목에 '현재 화면' / '테이블 확정 유지(AUDIT|NOT_AUDIT)' 태그
+     - 이미 걸린 테이블 단위 확정 건수 + 우선순위 안내(테이블 확정이 계속 이긴다)
+     - 기존 프로젝트 전체 확정이 있으면 '덮어씁니다' 경고
+     - 한계 고지: 목록은 등록 검증대상 기준이며, 등록되지 않은 테이블이라도 이 프로젝트에서
+       분석하면 같은 컬럼명에 동일하게 적용된다(목록을 '영향 범위 전부'로 오해하지 않도록)
+     - 되돌리기 안내: 확정 후에도 [확정 해제] 로 언제든 되돌릴 수 있다
+
+ (4) 해제도 대칭으로 확인을 거친다
+     프로젝트 전체 확정의 해제는 모든 테이블에서 동시에 걷히는 조작이므로 같은 모달로 한 번
+     확인한다. 반면 테이블 단위 해제는 종전대로 즉시 실행된다(무회귀).
+
+추가로, 프로젝트 전체 확정에는 배지 옆에 '프로젝트 전체' 태그를 붙였다. 태그 없이 tooltip
+에만 두면, 다른 테이블에서 배지를 본 사용자가 "여기서 확정한 것"으로 오해하고 해제해
+프로젝트 전체 확정을 통째로 날릴 수 있다. 기존 배지 문구('AUDIT 확정'/'NOT_AUDIT 확정')는
+검증 스크립트·사용자 학습 표기라 건드리지 않고 별도 태그만 덧붙였다.
+
+================================================================================
+3. 변경 파일
+================================================================================
+[수정] ui/js_admin_column_override.py                       (+377 / -16)
+   · _admOvrScopeSelectHtml / _mvAdmOvrScopeChanged / _mvAdmOvrReadScope 추가
+     - 범위 상태는 DOM select.value 만을 단일 출처로 쓴다. 확정/해제 때 후보표가 통째로
+       다시 그려지므로(_mvAdmOvrRerender) 별도 JS 상태를 들면 '고른 범위 ≠ 저장된 범위'가
+       생긴다. 재렌더 후 기본값으로 돌아가는 것은 안전한 방향의 초기화다.
+     - 범위를 못 읽으면 좁은 쪽(TABLE_COLUMN)으로 폴백한다(모를 때 넓은 쪽 폴백은 사고).
+   · _mvAdmOvrOpenModal / _mvAdmOvrCloseModal — 확인 모달 shell(이 파일 안에서 DOM 생성)
+     tabler_renderer.py 를 키우지 않기 위해 고정 HTML 껍데기 대신 동적 생성 방식을 썼다.
+   · _mvAdmOvrFetchPreview / _mvAdmOvrScopeModalBody — 미리보기 조회·렌더
+   · _mvAdmOvrDecide 를 '분기'와 '저장(_mvAdmOvrSave)'으로 분리, scope 인자화
+   · _mvAdmOvrRelease 를 '분기'와 '해제(_mvAdmOvrReleaseGo)'로 분리
+   · 확정 배지에 프로젝트 범위 태그(.mv-adm-ovr-scopetag) 추가
+   · CSS: 범위 select / 모달 / 범위 태그 스타일(기존 <style> 1개 주입 방식 그대로)
+
+[신규] services/admin_column_override_scope_preview.py        (194줄)
+   · build_scope_preview(project_id, column_name, table_key, limit) — 조회 전용
+   · 프로젝트 게이트는 저장 API 와 동일(sentinel/미실재 거부)
+   · 등록 검증대상: validation_batch_group × policy_target_table_config 조인 단일 쿼리
+     (화면이 그룹목록→그룹별대상 N+1 로 긁지 않게 서버가 한 번에 계산)
+   · project_id TEXT/INTEGER 혼재 대응(count_project_refs 와 동일한 2형 비교)
+   · 고지 문구(NOTICE/PRIORITY_NOTICE/REVERT_NOTICE)를 서버가 소유
+
+[수정] routes/admin_column_override_route.py                  (+15)
+   · GET /admin-column-overrides/scope-preview (200 / 게이트 실패 400)
+
+[신규] tests/test_admin_column_override_scope_preview.py      (11건)
+[신규] scripts/dev_e2e/admin_column_override_project_scope_ui_verify.py (before/after 하니스)
+
+================================================================================
+4. 실측 중 확인된 사실 — 키 축이 두 개다(설계에 반영)
+================================================================================
+확정 저장 키(table_key)는 파서의 tgt_table 이라 **스키마가 빠진 순수 테이블명**이고
+('MV_ORA_DEMO_TGT'), 그룹 등록 검증대상은 **스키마 한정명**이다('NXDNP.MV_ORA_DEMO_TGT').
+두 축을 그대로 비교하면 미리보기가 '현재 화면' 표시와 '이미 테이블 확정 있음' 표시를 전부
+놓쳐, 사용자가 "이 테이블은 영향을 안 받는다"를 알 수 없게 된다.
+→ _match_key() 로 스키마를 떼고 대문자화해 비교한다(표시는 원본 이름 그대로).
+   실측 확인: 확정키 MV_ORA_DEMO_TGT ↔ 등록명 NXDNP.MV_ORA_DEMO_TGT 매칭 성공.
+
+================================================================================
+5. 실측 검증 (실 오라클 + 실 브라우저 클릭)
+================================================================================
+환경: web_server.py localhost:8000 / Chromium(playwright) 실제 마우스 클릭
+DB  : Oracle asis(1523) → tobe(1524), 스키마 NXDNP (상시 픽스처, DDL 생성 없음)
+대상: A) NXDNP.MV_ORA_DEMO_SRC → MV_ORA_DEMO_TGT  (확정을 수행하는 화면)
+      B) NXDNP.MV_COMBO_SRC    → MV_COMBO_TGT     (전파 확인용 다른 테이블)
+      공통 컬럼 DEPT_CD(양쪽 모두 저카디널리티 GROUP BY 후보)
+프로젝트: MV-ADMOVR-PROJSCOPE(project_id=960), 그룹 1개에 A/B 두 테이블 등록
+
+  실행: python scripts/dev_e2e/admin_column_override_project_scope_ui_verify.py [before|after]
+
+  before : PASS 13 / FAIL 0   (결함 재현)
+  after  : PASS 44 / FAIL 0
+
+ [S1] 범위 선택 UI 노출 · 기본값 TABLE_COLUMN · 선택지 2개 · 프로젝트 선택 시 활성
+ [S2] 무회귀 — 기본 범위에서는 확인 모달 없이 즉시 저장, scope=TABLE_COLUMN,
+      table_key=MV_ORA_DEMO_TGT, 해제까지 종전과 동일
+ [S3] 기준선 — 테이블 범위 확정은 B 테이블에 전파되지 않음(정상)
+ [S4] 미리보기 API 200, 등록 테이블 2건 목록에 A/B 모두 포함, 프로젝트명·고지 문구 포함,
+      스키마 한정 차이에도 현재 테이블 식별 성공
+ [S5] '프로젝트 전체' 선택 → 확인 모달 표시, **저장 요청은 나가지 않음**(scope-preview 만 호출),
+      모달에 대상 목록/개수 표시 → [취소] 클릭 시 저장 0건, 모달 정상 종료
+ [S6] 다시 확정 → [프로젝트 전체로 확정] → 요청 본문 scope="PROJECT_COLUMN", table_key="",
+      저장소 행 scope=PROJECT_COLUMN / table_key='' 확인, 배지에 '프로젝트 전체' 태그 표시,
+      JS 페이지 에러 0건
+ [S7] **다른 테이블(MV_COMBO_TGT) 분석 시 확정 반영 확인** — 배지 '✔ AUDIT 확정' +
+      matched_scope=PROJECT_COLUMN + '프로젝트 전체' 태그
+ [S8] 잘못 눌렀을 때 해제 — 다른 테이블 화면에서 [확정 해제] → 해제 확인 모달 →
+      저장소 0건, 배지 소멸, A 테이블에서도 확정 버튼 2개로 복귀
+ [S9] 무회귀 — 프로젝트 미선택이면 확정 버튼과 범위 select 모두 disabled
+
+증적 스크린샷:
+  before_S1_cell_controls.png            수정 전 비고 셀(범위 선택 없음)
+  after_S1_cell_controls.png             수정 후 비고 셀(범위 select 노출)
+  after_S5_confirm_modal_preview.png     확인 모달 + 영향 대상 미리보기
+  after_S5_confirm_modal_page.png        모달 전체 화면
+  after_S6_project_scope_confirmed.png   프로젝트 전체 확정 직후(범위 태그)
+  before_S3_other_table_no_effect.png    수정 전 다른 테이블 미반영
+  after_S7_other_table_applied.png       수정 후 다른 테이블 반영
+  after_S8_release_confirm_modal.png     해제 확인 모달
+  after_S8_released.png                  해제 후
+  after_S9_no_project_disabled.png       프로젝트 미선택 비활성
+  verify_facts_before.json / verify_facts_after.json  전 단계 원시 실측값
+
+================================================================================
+6. 무회귀 검증
+================================================================================
+ · samples/test_virtual_cases.py            8/8 통과
+ · samples/test_complex_cases.py            5/5 통과
+ · tests/test_admin_column_override.py 외 override 관련 5개 파일   72건 통과
+ · tests/test_admin_column_override_scope_preview.py(신규)         11건 통과
+ · scripts/dev_e2e/admin_column_override_context_stage3_preserve_verify.py after
+     26/26 통과 (3단계 재확정 후 확정/해제 기존 플로우 무손상)
+ · scripts/dev_e2e/candidate_manual_confirm_button_visual_distinction_verify.py after
+     22/22 통과 (비고 셀 시각 규약·클릭 회귀 무손상)
+ · 기존 하니스의 배지 수집 선택자는 .mv-adm-ovr-badge / .mv-adm-ovr-stale 로,
+   신규 클래스(.mv-adm-ovr-scopetag)와 겹치지 않아 라벨 계약이 깨지지 않음을 확인
+ · 전체 페이지 JS 번들 node --check 통과(주석/문자열 파손 없음)
+
+================================================================================
+7. 남는 한계 (숨기지 않고 기록)
+================================================================================
+ (1) 미리보기의 '영향받을 테이블'은 **등록된 검증대상** 기준이다. 프로젝트에서 분석만 하고
+     그룹에 등록하지 않은 테이블은 목록에 없지만 실제로는 확정이 적용된다. 이 사실은 모달
+     본문 고지 문구로 명시했다(계산으로 메울 수 없는 정보 — 확정 시점에 그 테이블이 무엇인지
+     시스템이 알 방법이 없다).
+ (2) 목록 표시 상한은 200개다. 초과 시 개수는 전체값을 보여주고 truncated 로 잘린 사실을
+     드러낸다(조용한 절단 없음).
+ (3) 범위 select 는 확정/해제 후 후보표 재렌더 시 기본값(이 테이블만)으로 돌아간다.
+     의도된 동작이다 — 넓은 범위가 화면에 남아 다음 확정에 딸려가지 않게 한다.
+ (4) 프로젝트 전체 확정이 걸린 상태에서 그 컬럼을 특정 테이블만 예외 처리하려면 그 테이블에서
+     테이블 단위 확정을 따로 걸어야 한다(우선순위상 테이블 확정이 이긴다). 이 규칙은 모달
+     문구로 안내하지만, '예외 걸기' 전용 UI는 이번 범위 밖이다.
+
+================================================================================
+✅ 작업 완료 - ADMIN-COLUMN-OVERRIDE-PROJECT-SCOPE-UI-EXPOSE-FIX -
+   관리컬럼 확정에 적용 범위 선택(기본 이 테이블/선택 시 프로젝트 전체) 노출 + 프로젝트 전체
+   선택 시 영향 대상 미리보기가 담긴 확인 모달 + 다른 테이블 반영·해제까지 실측 44/44 통과
+================================================================================

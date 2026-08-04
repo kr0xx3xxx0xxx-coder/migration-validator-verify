@@ -1,0 +1,97 @@
+{
+  "mode": "before",
+  "project": {
+    "project_id": "960",
+    "project_name": "MV-ADMOVR-PROJSCOPE",
+    "group": {
+      "group_id": "GRP_202608040825141639",
+      "registered": [
+        {
+          "table": "NXDNP.MV_ORA_DEMO_TGT",
+          "status": "DUPLICATE_SKIPPED"
+        },
+        {
+          "table": "NXDNP.MV_COMBO_TGT",
+          "status": "DUPLICATE_SKIPPED"
+        }
+      ],
+      "targets_now": [
+        "NXDNP.MV_COMBO_TGT",
+        "NXDNP.MV_ORA_DEMO_TGT"
+      ]
+    }
+  },
+  "S1": {
+    "buttons": [
+      [
+        "✔ 관리컬럼 맞음",
+        false
+      ],
+      [
+        "✕ 관리컬럼 아님",
+        false
+      ]
+    ],
+    "scope_select": null,
+    "ctx": {
+      "project_id": "960",
+      "table_key": "MV_ORA_DEMO_TGT",
+      "project_id_present": true,
+      "disabled_reason": ""
+    }
+  },
+  "S2": {
+    "click": {
+      "outcome": "CLICKED",
+      "why": "",
+      "requests": [
+        {
+          "method": "POST",
+          "url": "http://localhost:8000/admin-column-overrides/save",
+          "body": "{\"project_id\":\"960\",\"table_key\":\"MV_ORA_DEMO_TGT\",\"column_name\":\"DEPT_CD\",\"decision\":\"AUDIT\",\"scope\":\"TABLE_COLUMN\",\"auto_verdict_at_decision\":\"NOT_AUDIT_CONFIRMED\",\"axis_a_at_decision\":null,\"axis_b_at_decision\":\"none\",\"decided_by\":\"\",\"memo\":\"\"}"
+        }
+      ],
+      "page_errors": []
+    },
+    "modal": {
+      "open": false
+    },
+    "stored": [
+      {
+        "scope": "TABLE_COLUMN",
+        "table_key": "MV_ORA_DEMO_TGT",
+        "column_name": "DEPT_CD",
+        "decision": "AUDIT",
+        "updated_at": "2026-08-04T08:26:36Z"
+      }
+    ]
+  },
+  "S2_release": {
+    "click": "CLICKED",
+    "stored": []
+  },
+  "S3_other_table_after_table_scope": {
+    "analyze": {
+      "success": true,
+      "tgt_table": "MV_COMBO_TGT",
+      "gb": 2,
+      "error": ""
+    },
+    "badge": "",
+    "buttons": [
+      [
+        "✔ 관리컬럼 맞음",
+        false
+      ],
+      [
+        "✕ 관리컬럼 아님",
+        false
+      ]
+    ],
+    "scope_select": null
+  },
+  "S4_before_scope_attempt": {
+    "found": false,
+    "why": "TimeoutError('Locator.select_option: Timeout 5000ms exceeded.\\nCall log:\\n  - waiting for locator(\".mv-adm-ovr[data-col=\\'DEPT_CD\\'] select\").first\\n')"
+  }
+}

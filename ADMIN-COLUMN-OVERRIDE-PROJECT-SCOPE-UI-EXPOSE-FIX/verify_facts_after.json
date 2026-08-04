@@ -1,0 +1,299 @@
+{
+  "mode": "after",
+  "project": {
+    "project_id": "960",
+    "project_name": "MV-ADMOVR-PROJSCOPE",
+    "group": {
+      "group_id": "GRP_202608040825141639",
+      "registered": [
+        {
+          "table": "NXDNP.MV_ORA_DEMO_TGT",
+          "status": "DUPLICATE_SKIPPED"
+        },
+        {
+          "table": "NXDNP.MV_COMBO_TGT",
+          "status": "DUPLICATE_SKIPPED"
+        }
+      ],
+      "targets_now": [
+        "NXDNP.MV_COMBO_TGT",
+        "NXDNP.MV_ORA_DEMO_TGT"
+      ]
+    }
+  },
+  "S1": {
+    "buttons": [
+      [
+        "✔ 관리컬럼 맞음",
+        false
+      ],
+      [
+        "✕ 관리컬럼 아님",
+        false
+      ]
+    ],
+    "scope_select": {
+      "value": "TABLE_COLUMN",
+      "disabled": false,
+      "options": [
+        [
+          "TABLE_COLUMN",
+          "이 테이블만"
+        ],
+        [
+          "PROJECT_COLUMN",
+          "프로젝트 전체(같은 컬럼명)"
+        ]
+      ]
+    },
+    "ctx": {
+      "project_id": "960",
+      "table_key": "MV_ORA_DEMO_TGT",
+      "project_id_present": true,
+      "disabled_reason": ""
+    }
+  },
+  "S2": {
+    "click": {
+      "outcome": "CLICKED",
+      "why": "",
+      "requests": [
+        {
+          "method": "POST",
+          "url": "http://localhost:8000/admin-column-overrides/save",
+          "body": "{\"project_id\":\"960\",\"table_key\":\"MV_ORA_DEMO_TGT\",\"column_name\":\"DEPT_CD\",\"decision\":\"AUDIT\",\"scope\":\"TABLE_COLUMN\",\"auto_verdict_at_decision\":\"NOT_AUDIT_CONFIRMED\",\"axis_a_at_decision\":null,\"axis_b_at_decision\":\"none\",\"decided_by\":\"\",\"memo\":\"\"}"
+        }
+      ],
+      "page_errors": []
+    },
+    "modal": {
+      "open": false
+    },
+    "stored": [
+      {
+        "scope": "TABLE_COLUMN",
+        "table_key": "MV_ORA_DEMO_TGT",
+        "column_name": "DEPT_CD",
+        "decision": "AUDIT",
+        "updated_at": "2026-08-04T08:35:13Z"
+      }
+    ]
+  },
+  "S2_release": {
+    "click": "CLICKED",
+    "stored": []
+  },
+  "S3_other_table_after_table_scope": {
+    "analyze": {
+      "success": true,
+      "tgt_table": "MV_COMBO_TGT",
+      "gb": 2,
+      "error": ""
+    },
+    "badge": "",
+    "buttons": [
+      [
+        "✔ 관리컬럼 맞음",
+        false
+      ],
+      [
+        "✕ 관리컬럼 아님",
+        false
+      ]
+    ],
+    "scope_select": {
+      "value": "TABLE_COLUMN",
+      "disabled": false,
+      "options": [
+        [
+          "TABLE_COLUMN",
+          "이 테이블만"
+        ],
+        [
+          "PROJECT_COLUMN",
+          "프로젝트 전체(같은 컬럼명)"
+        ]
+      ]
+    }
+  },
+  "S4_preview_api": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "project_id": "960",
+      "project_name": "MV-ADMOVR-PROJSCOPE",
+      "column_name": "DEPT_CD",
+      "current_table_key": "MV_ORA_DEMO_TGT",
+      "registered_tables": [
+        {
+          "table_key": "NXDNP.MV_COMBO_TGT",
+          "match_key": "MV_COMBO_TGT",
+          "groups": [
+            "MV-ADMOVR-PROJSCOPE-G1"
+          ],
+          "is_current": false,
+          "table_override": null
+        },
+        {
+          "table_key": "NXDNP.MV_ORA_DEMO_TGT",
+          "match_key": "MV_ORA_DEMO_TGT",
+          "groups": [
+            "MV-ADMOVR-PROJSCOPE-G1"
+          ],
+          "is_current": true,
+          "table_override": null
+        }
+      ],
+      "registered_table_count": 2,
+      "listed_count": 2,
+      "truncated": false,
+      "table_override_rows": [],
+      "table_override_count": 0,
+      "project_override": null,
+      "notice": "아래 목록은 이 프로젝트에 등록된 검증대상 기준입니다. 등록되지 않은 테이블이라도 이 프로젝트에서 분석하면 같은 컬럼명에 동일하게 적용됩니다.",
+      "priority_notice": "테이블 단위 확정이 이미 있는 컬럼은 그 확정이 계속 우선 적용됩니다(테이블 확정 > 프로젝트 전체 확정).",
+      "revert_notice": "확정 후에도 후보표의 [확정 해제] 버튼으로 언제든 되돌릴 수 있습니다."
+    }
+  },
+  "S5_modal": {
+    "open": true,
+    "text": "프로젝트 전체에 적용할까요?컬럼 DEPT_CD 을(를) 관리컬럼 맞음(검증 대상에서 제외)으로 프로젝트 [MV-ADMOVR-PROJSCOPE] 전체에 확정합니다. 이 프로젝트에서 분석하는 모든 테이블의 같은 컬럼명에 적용됩니다.영향받을 등록 검증대상 테이블: 2개NXDNP.MV_COMBO_TGTNXDNP.MV_ORA_DEMO_TGT현재 화면아래 목록은 이 프로젝트에 등록된 검증대상 기준입니다. 등록되지 않은 테이블이라도 이 프로젝트에서 분석하면 같은 컬럼명에 동일하게 적용됩니다. 확정 후에도 후보표의 [확정 해제] 버튼으로 언제든 되돌릴 수 있습니다.취소프로젝트 전체로 확정",
+    "buttons": [
+      {
+        "text": "취소",
+        "role": "cancel"
+      },
+      {
+        "text": "프로젝트 전체로 확정",
+        "role": "confirm"
+      }
+    ],
+    "list_items": [
+      "NXDNP.MV_COMBO_TGT",
+      "NXDNP.MV_ORA_DEMO_TGT현재 화면"
+    ]
+  },
+  "S5_cancel": {
+    "click": "CLICKED",
+    "stored": [],
+    "modal_after": {
+      "open": false
+    }
+  },
+  "S6": {
+    "click": {
+      "outcome": "CLICKED",
+      "why": "",
+      "requests": [
+        {
+          "method": "POST",
+          "url": "http://localhost:8000/admin-column-overrides/save",
+          "body": "{\"project_id\":\"960\",\"table_key\":\"\",\"column_name\":\"DEPT_CD\",\"decision\":\"AUDIT\",\"scope\":\"PROJECT_COLUMN\",\"auto_verdict_at_decision\":\"NOT_AUDIT_CONFIRMED\",\"axis_a_at_decision\":null,\"axis_b_at_decision\":\"none\",\"decided_by\":\"\",\"memo\":\"\"}"
+        }
+      ],
+      "page_errors": []
+    },
+    "stored": [
+      {
+        "scope": "PROJECT_COLUMN",
+        "table_key": "",
+        "column_name": "DEPT_CD",
+        "decision": "AUDIT",
+        "updated_at": "2026-08-04T08:35:30Z"
+      }
+    ],
+    "badge": "✔ AUDIT 확정",
+    "badge_title": "사용자가 관리컬럼으로 확정했습니다. 적용 범위: 프로젝트 전체 · 확정 당시 자동판정: NOT_AUDIT_CONFIRMED · 확정 시각: 2026-08-04T08:35:30Z"
+  },
+  "S7_other_table": {
+    "analyze": {
+      "success": true,
+      "tgt_table": "MV_COMBO_TGT",
+      "gb": 2,
+      "error": ""
+    },
+    "badge": "✔ AUDIT 확정",
+    "scope_tag": "프로젝트 전체",
+    "override": {
+      "decision": "AUDIT",
+      "scope": "PROJECT_COLUMN",
+      "matched_scope": "PROJECT_COLUMN",
+      "table_key": "",
+      "column_name": "DEPT_CD",
+      "status_effective": "ACTIVE",
+      "is_stale": false,
+      "stale_reason": "",
+      "auto_verdict_at_decision": "NOT_AUDIT_CONFIRMED",
+      "auto_verdict_current": "NOT_AUDIT_CONFIRMED",
+      "memo": "",
+      "decided_by": "",
+      "updated_at": "2026-08-04T08:35:30Z"
+    },
+    "buttons": [
+      [
+        "확정 해제",
+        false
+      ]
+    ]
+  },
+  "S8_release_modal": {
+    "open": true,
+    "text": "프로젝트 전체 확정을 해제할까요?컬럼 DEPT_CD 의 프로젝트 전체 확정을 해제합니다. 이 프로젝트의 모든 테이블에서 이 확정이 함께 사라지고, 각 컬럼은 자동판정으로 돌아갑니다. (테이블 단위로 따로 확정한 항목은 그대로 남습니다.)취소프로젝트 전체 확정 해제",
+    "buttons": [
+      {
+        "text": "취소",
+        "role": "cancel"
+      },
+      {
+        "text": "프로젝트 전체 확정 해제",
+        "role": "confirm"
+      }
+    ],
+    "list_items": []
+  },
+  "S8": {
+    "click": "CLICKED",
+    "stored": [],
+    "badge": "",
+    "modal_shown": true
+  },
+  "S8_table_a_after_release": {
+    "badge": "",
+    "buttons": [
+      [
+        "✔ 관리컬럼 맞음",
+        false
+      ],
+      [
+        "✕ 관리컬럼 아님",
+        false
+      ]
+    ]
+  },
+  "S9_no_project": {
+    "buttons": [
+      [
+        "✔ 관리컬럼 맞음",
+        true
+      ],
+      [
+        "✕ 관리컬럼 아님",
+        true
+      ]
+    ],
+    "scope_select": {
+      "value": "TABLE_COLUMN",
+      "disabled": true,
+      "options": [
+        [
+          "TABLE_COLUMN",
+          "이 테이블만"
+        ],
+        [
+          "PROJECT_COLUMN",
+          "프로젝트 전체(같은 컬럼명)"
+        ]
+      ]
+    }
+  }
+}
