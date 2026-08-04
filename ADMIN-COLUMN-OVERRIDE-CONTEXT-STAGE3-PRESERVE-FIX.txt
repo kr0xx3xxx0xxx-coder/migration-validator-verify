@@ -1,0 +1,252 @@
+작업명 : ADMIN-COLUMN-OVERRIDE-CONTEXT-STAGE3-PRESERVE-FIX
+
+════════════════════════════════════════════════════════════════════════
+0. 한 줄 결론
+════════════════════════════════════════════════════════════════════════
+3단계 후보 재확정이 서버로 project_id/table_key 를 보내지 않아 관리컬럼 확정 컨텍스트가
+빈 값으로 덮이던 4단 배선 공백을 모두 이었다. 실 DB + 실제 브라우저 + 실제 마우스 클릭으로
+수정 전(버튼 disabled 재현) / 수정 후(버튼 활성 유지 + 확정→해제 전 과정 동작)를 각각 실측했다.
+
+════════════════════════════════════════════════════════════════════════
+1. 배경 — 무엇이 왜 깨졌나
+════════════════════════════════════════════════════════════════════════
+선행 진단서(E:\verify_reports\ADMIN-COLUMN-OVERRIDE-BUTTON-STILL-DISABLED-WITH-
+PROJECT-SELECTED-DIAGNOSE.txt §3/§4)가 확정한 인과는 다음과 같다.
+
+  [1] 1단계 /analyze 는 project_id 를 정상 전달 → 후보에 ctx{project_id:'957',
+      table_key:'MV_ORA_DEMO_TGT'} 부착 → 관리컬럼 확정 버튼 활성.
+  [2] 3단계 후보 계산은 POST /validation-sets/preview 를 호출하는데, 이 요청은
+      project_id 를 아예 싣지 않는다.
+  [3] 서버가 authoritative 재확정(_maybe_finalize_postcount → enrich_candidates_for_display)
+      을 project_id 없이 다시 돌리면서 후보의 admin_column_override_context 를
+      {project_id:'', table_key:'', project_id_present:false} 로 무조건 덮는다.
+  [4] 클라이언트는 그 authoritative 후보로 all_groupby_candidates 를 통째 교체하고
+      후보표를 재렌더 → 버튼이 disabled 로 되돌아간다.
+
+즉 '프로젝트를 안 골라서'가 아니라 **정상 순서(1→2→3단계)로 진행하는 행위 자체가
+프로젝트 컨텍스트를 지우는** 결함이었다. 실사용에서는 거의 항상 발생한다.
+
+파급의 실제 모습도 진단서가 정정해 두었다: override 값은 setdefault 로 보존되고 ctx 만
+덮이므로 **확정 배지는 남고 [확정 해제] 버튼만 비활성**이 된다 — 한 번 확정하면 그
+화면에서는 되돌릴 수 없다.
+
+════════════════════════════════════════════════════════════════════════
+2. 수정 내용 — 4단 배선(요청→스키마→라우트→서비스)
+════════════════════════════════════════════════════════════════════════
+새 상태를 만들지 않았다. 1단계 analyze 가 이미 쓰는 소스를 그대로 재사용한다.
+
+■ ① ui/validation_plan_renderer.py — 요청 본문에 조회 키 동봉
+  공통 헬퍼 _previewOverrideKeyFields(ad) 를 기존 _previewSrcConnFields() 옆에 신설:
+      project_id -> mvGetWorkProjectId()        (tabler_renderer.py 의 /analyze 요청과 동일)
+      table_key  -> parse_result.tgt_table      (서버 analyze 의 override_table_key 와 동일 값)
+  typeof 가드로 함수 부재 시에도 빈 문자열을 반환한다(하니스/부분 로드 안전).
+
+  ★ 지침이 지목한 871-885행(_refreshValidationPlanWithRowCount) 외에,
+    **같은 파일의 두 번째 호출부 _refreshVspOnCheckChange('선택 적용 후 다시 검증' 경로)도
+    같은 엔드포인트를 타므로 함께 배선**했다. 여기를 빼면 체크박스를 한 번만 건드려도
+    버튼이 다시 죽어 수정이 무의미해진다(실측 S5 로 확인).
+
+■ ② schemas/request_models.py — ValidationSetPreviewRequest
+      project_id: str | None = None
+      table_key:  str | None = None
+  둘 다 선택. 미전달이면 기존과 완전히 동일하게 동작한다(다른 호출부 무영향).
+  타입은 이 파일의 기존 관례(project_id: str | None = None, 7곳)를 따랐다.
+
+■ ③ routes/validation_set_preview_route.py — 재확정 서비스로 전달
+      project_id=(req.project_id or ""), override_table_key=_tbl_key
+  _tbl_key 는 req.table_key 우선, 없으면 parse_result.tgt_table / target_table 폴백.
+  폴백을 둔 이유: 확정 저장 키는 '프로젝트 × 테이블 × 컬럼' 3축이라 테이블 축이
+  analyze 와 어긋나면 확정이 조회되지 않는다. analyze 는 서버에서 tgt_table 을 쓰므로
+  같은 출처로 수렴시켜 두 경로의 키가 문자열까지 동일해지게 했다.
+
+■ ④ services/candidate_postcount_finalize.py — enrich 재실행에 키 전달
+  finalize_recommendation_postcount() 에 project_id / override_table_key 키워드 추가,
+  ③ 단계의 enrich_candidates_for_display 호출에 그대로 넘긴다
+  (single_validation_analyze_service.py:1614-1615 와 동일 패턴 재사용).
+
+■ 이번 범위 밖(지침대로 손대지 않음)
+  services/validation_job_core.py:314(원클릭/전체검증), services/batch_runner.py:139(일괄검증),
+  services/column_candidate_gen_service.py:845 의 같은 미배선 — 별도 백로그(F36 등).
+  disabled 사유 화면 노출(M34) 도 별도 항목.
+
+════════════════════════════════════════════════════════════════════════
+3. 실측 — 하니스와 환경
+════════════════════════════════════════════════════════════════════════
+하니스 : scripts/dev_e2e/admin_column_override_context_stage3_preserve_verify.py
+         (선행 진단 하니스의 시나리오 S1~S6 를 그대로 재현하되 모드로 기대값을 뒤집는다:
+          before=결함 재현이 성공해야 PASS / after=보존이 성공해야 PASS)
+환경   : 실 DB(오라클 asis→tobe, NXDNP.MV_ORA_DEMO_SRC→MV_ORA_DEMO_TGT, 150행)
+         실제 브라우저(chromium-1223) + **실제 마우스 클릭**(locator.click)
+대상행 : DEPT_CD (자동 NOT_AUDIT — '맞음/아님' 버튼 2개가 그려지는 행)
+작업 프로젝트 : project_id=957 (MV-ADMOVR-NONFUNC-DIAG)
+before 캡처 : 수정 전 코드가 아직 메모리에 올라가 있던 구 서버에서 먼저 실행(창 소실 방지)
+after  캡처 : 서버 재기동(새 모듈 로드, 서빙 JS 에 _previewOverrideKeyFields 3회 포함 확인) 후 실행
+
+■ 결과 요약
+    before : PASS=18 / FAIL=0   (결함이 그대로 재현됨)
+    after  : PASS=26 / FAIL=0   (전 항목 보존·동작)
+
+════════════════════════════════════════════════════════════════════════
+4. 실측 상세 — before(수정 전) vs after(수정 후)
+════════════════════════════════════════════════════════════════════════
+■ [S1] 1단계 /analyze 직후 — 두 모드 동일(기준선)
+    ctx : {"project_id":"957","table_key":"MV_ORA_DEMO_TGT","project_id_present":true}
+    버튼: ✔ 관리컬럼 맞음 / ✕ 관리컬럼 아님 → 둘 다 활성
+    증적: before_S1_after_analyze.png / after_S1_after_analyze.png
+
+■ [S2] /count — src=150, tgt=150 (3단계 재확정 입력 확보)
+
+■ [S3] 3단계 후보 계산(POST /validation-sets/preview) — 요청 본문 네트워크 캡처
+  before 요청 본문 키:
+    candidate_scoring, groupby_candidates, parse_result, row_count, src_conn, src_db,
+    sum_candidates, user_selected_groupby_cols, user_selected_sum_cols
+    → project_id / table_key **없음**
+  after 요청 본문 키:
+    candidate_scoring, groupby_candidates, parse_result, **project_id**, row_count,
+    src_conn, src_db, sum_candidates, **table_key**, user_selected_groupby_cols,
+    user_selected_sum_cols
+    → project_id="957", table_key="MV_ORA_DEMO_TGT" 실제로 담겨 나감
+  두 모드 모두 서버는 authoritative 재확정을 수행(authoritative=true, gb=5).
+
+■ [S4] 3단계 계산 직후 후보표 — 이번 수정의 핵심
+  before ctx : {"project_id":"","table_key":"","project_id_present":false,
+                "disabled_reason":"프로젝트를 먼저 선택해야 관리컬럼 확정을 저장할 수 있습니다."}
+         버튼: [('✔ 관리컬럼 맞음', disabled=True), ('✕ 관리컬럼 아님', disabled=True)]
+  after  ctx : {"project_id":"957","table_key":"MV_ORA_DEMO_TGT","project_id_present":true,
+                "disabled_reason":""}
+         버튼: [('✔ 관리컬럼 맞음', disabled=False), ('✕ 관리컬럼 아님', disabled=False)]
+  ★ table_key 도 1단계 값과 문자열까지 동일하게 보존됨(S1 'MV_ORA_DEMO_TGT' == S4 동일).
+  localStorage 는 두 모드 모두 불변(work_project_id="957") — 원인이 클라이언트 상태가
+  아니라 서버가 내려준 ctx 였다는 진단서 결론과 일치한다.
+  증적: before_S4_after_stage3.png(회색 비활성) / after_S4_after_stage3.png(색상 활성)
+
+■ [S5] 체크박스 변경 재확정 경로(_refreshVspOnCheckChange) — 함께 배선한 두 번째 호출부
+  before : 요청에 project_id 없음 → ctx 빈 값, 버튼 disabled=True
+  after  : 요청 project_id="957" → ctx 보존, 버튼 disabled=False
+
+■ [S6] 3단계 계산 **이후** 실제 마우스 클릭 전 과정
+  before : ✔ 관리컬럼 맞음 클릭 → CLICK_FAILED
+           (playwright 가 disabled 버튼을 6초 대기 후 timeout, 네트워크 요청 0건,
+            콘솔 에러 0건 = 조용한 무반응 — 사용자가 겪던 그 상태)
+  after  : ✔ 관리컬럼 맞음 클릭 → CLICKED
+             POST /admin-column-overrides/save
+             저장소 확인: id=119 project_id=957 scope=TABLE_COLUMN
+                          table_key=MV_ORA_DEMO_TGT column_name=DEPT_CD
+                          decision=AUDIT status=ACTIVE
+             (table_key 축까지 포함한 resolve_override 조회로 확인 — 요구사항 5)
+           확정 배지 표시 확인 → [확정 해제] 버튼 disabled=False
+           확정 해제 클릭 → CLICKED
+             DELETE /admin-column-overrides?project_id=957&column_name=DEPT_CD
+                    &table_key=MV_ORA_DEMO_TGT&scope=TABLE_COLUMN
+             저장소 재조회 결과 없음(확정 제거 확인)
+  증적: before_S6_1_click_failed_after_stage3.png
+        after_S6_1_confirmed_after_stage3.png / after_S6_2_released_after_stage3.png
+
+■ [S7] 무회귀 — 프로젝트를 진짜로 미선택한 채 진행한 경우
+  before / after 모두 동일:
+    analyze 직후부터 버튼 disabled=True, 3단계 계산 후에도 disabled=True 유지,
+    서버 재확정은 정상 수행(authoritative=true, 오류 없음).
+  after 의 요청 본문에는 project_id="" 가 실려 나가고 서버는 기존과 같은 비활성 컨텍스트를
+  만든다. 요구사항 6("있는데 전달이 안 되던 것만 고친다")대로 동작한다.
+  단, ctx.table_key 는 after 에서 'MV_ORA_DEMO_TGT'(parse_result 폴백)로 채워진다 —
+  project_id_present=false 가 버튼 활성 여부의 유일한 근거이므로 화면 동작은 완전히 동일하다.
+  증적: before_S7_no_project_disabled.png / after_S7_no_project_disabled.png
+
+════════════════════════════════════════════════════════════════════════
+5. 무회귀 — 자동화 테스트
+════════════════════════════════════════════════════════════════════════
+대상 서브셋 : /validation-sets/preview · validation_plan_renderer ·
+              ValidationSetPreviewRequest · finalize_recommendation_postcount ·
+              admin_column_override · enrich_candidates_for_display 를 참조하는
+              테스트 파일 전수(63개 파일)
+대조 방법   : git worktree(E:\_wt_admovr, HEAD=9514e2d)로 baseline 을 만들어
+              동일 파일 목록·동일 명령으로 실행 후 FAILED/ERROR 노드 ID 집합을 diff
+              (git stash 미사용 — 동시 세션 미커밋 작업 보호)
+
+  baseline(9514e2d) : 25 failed, 842 passed, 5 skipped, 8 xfailed, 8 errors → 실패 노드 33건
+  수정 후            : 25 failed, 853 passed, 5 skipped, 8 xfailed, 8 errors → 실패 노드 33건
+  (passed 건수 차이 11건은 동시 세션이 작업트리에 들고 있는 미커밋 테스트 변경
+   tests/test_count_precheck_tile_layout.py 등에서 온 것으로, 실패 노드 집합에는 영향이 없다)
+  노드 ID 집합 diff  : **차이 없음 → 신규 회귀 0건**
+
+실패 33건은 모두 수정 전부터 존재하던 사전 실패이며 이번 변경과 무관하다(집합이 완전히 동일).
+전체 목록(baseline·수정 후 양쪽에서 동일하게 관측된 33건 — 두 집합의 diff 는 공집합):
+  ERROR  tests/test_task11_p_profile_snapshot.py::TC06_08_EnricherIntegration::test_06_candidate_input_builder_accepts_snapshot
+  ERROR  tests/test_task11_p_profile_snapshot.py::TC06_08_EnricherIntegration::test_07_enricher_uses_profile_stats_for_display_score
+  ERROR  tests/test_task11_p_profile_snapshot.py::TC06_08_EnricherIntegration::test_08_individual_batch_same_snapshot_same_score
+  ERROR  tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_09_job_type_equal
+  ERROR  tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_10_department_code_equal
+  ERROR  tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_11_hire_date_equal
+  ERROR  tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_12_salary_equal
+  ERROR  tests/test_task11_r3.py::TC_R3_09_11_CandidateIntegrity::test_11_has_group_connection_identity_importable
+  FAILED tests/test_batch_profile_candidate_parity.py::test_calc_profile_present_parity
+  FAILED tests/test_csr_apply_selection.py::TestRunGeneratePayloadUnchanged::test_checkboxes_still_source_of_selection
+  FAILED tests/test_d9_4_top_n_single_source.py::test_score_and_top_n_are_separate_modules
+  FAILED tests/test_engine_cardinality_parity.py::test_engine_stats_change_groupby_candidacy
+  FAILED tests/test_global_js_helper_dedup.py::test_no_duplicate_global_function_definitions
+  FAILED tests/test_single_run_standard_ui.py::test_existing_generate_execute_flow_preserved
+  FAILED tests/test_single_run_standard_ui.py::test_facade_in_advanced_dev_collapsible_default_collapsed
+  FAILED tests/test_single_run_standard_ui.py::test_result_render_uses_textcontent_not_innerhtml
+  FAILED tests/test_single_run_standard_ui.py::test_single_group_ui_removed
+  FAILED tests/test_single_validation_candidate_audit.py::test_audit_fixture_cases_all_pass
+  FAILED tests/test_single_validation_candidate_audit.py::test_fallback_promote_golden
+  FAILED tests/test_task11_q_profile_lookup.py::TC17_18_SchemaAndMigration::test_18_init_db_migration_adds_columns
+  FAILED tests/test_task11_r3.py::TC_R3_07_08_UploadPath::test_07_upload_without_src_conn_leaves_none
+  FAILED tests/test_task11_r3.py::TC_R3_07_08_UploadPath::test_08_upload_with_src_conn_stores_connection_id
+  FAILED tests/test_task11_r3.py::TC_R3_09_11_CandidateIntegrity::test_10_selected_not_affected_by_source_profile_skip
+  FAILED tests/test_task11_r_source_profile.py::TC04_08_SourceSnapshotStore::test_06_source_or_target_source_stored
+  FAILED tests/test_task11_s.py::TC_S_01_04_TableStructure::test_01b_table_headers_present
+  FAILED tests/test_task11_s4.py::TestS4BatchTagLogic::test_08_date_bucket_tags_preserved
+  FAILED tests/test_task11_s5.py::TestConsistentTagNormalization::test_14_same_rmkSkip_filter
+  FAILED tests/test_task11_s9_r6.py::test_r6_01_unified_sort_used_by_both
+  FAILED tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_dedup_logic_present
+  FAILED tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_hidden_when_empty
+  FAILED tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_only_individual_screen
+  FAILED tests/test_task_single_candidate_evidence_preview.py::test_cap3_unchanged
+  FAILED tests/test_validation_plan_renderer_static.py::test_v05_count_only_explicit_confirm_gate
+
+추가로 직접 관련 3개 파일 단독 재실행: 35 passed
+  tests/test_rendered_js_syntax_guard.py (렌더 JS 문법 가드 — 번들 붕괴 방지)
+  tests/test_admin_column_override.py
+  tests/test_postcount_finalize.py
+node --check 로 build_validation_plan_js() 산출물 단독 문법 검사도 통과.
+
+════════════════════════════════════════════════════════════════════════
+6. 변경 파일 / 커밋
+════════════════════════════════════════════════════════════════════════
+커밋 : c0e2e57
+  fix(ui): 3단계 후보 재확정이 관리컬럼 확정 컨텍스트를 지우는 문제 — 조회 키 배선
+           (ADMIN-COLUMN-OVERRIDE-CONTEXT-STAGE3-PRESERVE-FIX)
+
+  routes/validation_set_preview_route.py   |  5 +++++
+  schemas/request_models.py                |  6 ++++++
+  services/candidate_postcount_finalize.py | 10 ++++++++++
+  ui/validation_plan_renderer.py           | 31 +++++++++++++++++++++++++++++++
+  scripts/dev_e2e/admin_column_override_context_stage3_preserve_verify.py (신규, 검증 하니스)
+  총 52줄 추가, 삭제 0줄.
+
+동시 진행 중인 다른 세션의 미커밋 변경(ui/tabler_renderer.py,
+tests/test_count_precheck_tile_layout.py, tests/test_step2_step3_tile_immediate_display.py)은
+커밋 대상에서 제외했고 커밋 후에도 작업트리에 그대로 남아 있음을 확인했다.
+
+════════════════════════════════════════════════════════════════════════
+7. 비판적 검토
+════════════════════════════════════════════════════════════════════════
+· heuristic 증가 : 없음. 판정 로직 변경 0 — 이미 존재하던 인자를 전달만 한다.
+· explainability : ctx.disabled_reason(서버 단일 출처)은 그대로다. 다만 사용자는 여전히
+                   '왜 비활성인지'를 tooltip 으로만 볼 수 있다(M34 별도 항목).
+· 남은 위험     : 같은 미배선이 원클릭/전체검증(validation_job_core.py:314),
+                  일괄검증(batch_runner.py:139), column_candidate_gen_service.py:845 에
+                  그대로 남아 있다. 그 경로로 진입하면 이번 수정과 무관하게 여전히
+                  비활성이다(지침상 이번 범위 밖 — 별도 백로그).
+· 테스트 가능성 : 이번 배선에 대한 단위 테스트는 추가하지 않았고 e2e 하니스로만 덮었다.
+                  요청 본문 키 존재는 정적 소스 검사로도 가둘 수 있으나, 기존
+                  test_validation_plan_renderer_static.py 가 이미 사전 실패 상태라
+                  같은 파일에 얹지 않았다(별도 정리 필요).
+
+════════════════════════════════════════════════════════════════════════
+8. 실검증 상태
+════════════════════════════════════════════════════════════════════════
+실검증 상태: 실 DB(오라클 asis→tobe) + 실제 브라우저(chromium-1223) + 실제 마우스 클릭으로
+before/after 양쪽 실측 완료 — before PASS=18/FAIL=0(결함 재현), after PASS=26/FAIL=0,
+관련 서브셋(63개 파일) baseline(9514e2d) 대조 신규회귀 0건(실패 33건 집합 완전 동일).
