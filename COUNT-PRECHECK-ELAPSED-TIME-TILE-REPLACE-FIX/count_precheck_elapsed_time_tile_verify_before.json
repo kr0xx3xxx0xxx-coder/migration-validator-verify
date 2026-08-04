@@ -1,0 +1,457 @@
+{
+ "phase": "before",
+ "pair": [
+  "PostgreSQL_Inter_asis",
+  "PostgreSQL_Inter_tobe"
+ ],
+ "sql": "INSERT INTO tobe01.t_to_n_etl04 (student_id, activity_id, participation, activity_score, fb_summary, last_updated) SELECT stu_id, activity_id, participation, score, feedback, last_updated FROM asis01.t_as_n_etl04",
+ "setup": {
+  "pair_label": "PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe",
+  "pair_existed": false,
+  "pair_rows_after": 1,
+  "connect_clicked": true,
+  "pair_row_text": "접속중PostgreSQL_Inter_asis → PostgreSQL_Inter_tobePostgreSQL_Inter_asisPOSTGRESQLPostgreSQL_Inter_tobePOSTGRESQL상세접속 끊기삭제",
+  "current_tab": "analyze"
+ },
+ "SHARED_공유컬럼정의": {
+  "available": true,
+  "columns": [
+   {
+    "title": "원본 테이블",
+    "field": "srcTable",
+    "kind": "mono",
+    "width": null,
+    "hozAlign": null,
+    "formatter": "_mvMonoFormatter"
+   },
+   {
+    "title": "목적 테이블",
+    "field": "tgtTable",
+    "kind": "mono",
+    "width": null,
+    "hozAlign": null,
+    "formatter": "_mvMonoFormatter"
+   },
+   {
+    "title": "검증항목",
+    "field": "check",
+    "kind": null,
+    "width": 90,
+    "hozAlign": null,
+    "formatter": null
+   },
+   {
+    "title": "원본 건수",
+    "field": "src",
+    "kind": "num",
+    "width": null,
+    "hozAlign": "right",
+    "formatter": null
+   },
+   {
+    "title": "대상 건수",
+    "field": "tgt",
+    "kind": "num",
+    "width": null,
+    "hozAlign": "right",
+    "formatter": null
+   },
+   {
+    "title": "차이",
+    "field": "diff",
+    "kind": "num",
+    "width": null,
+    "hozAlign": "right",
+    "formatter": null
+   },
+   {
+    "title": "처리시간",
+    "field": "proc",
+    "kind": null,
+    "width": null,
+    "hozAlign": "center",
+    "formatter": null
+   },
+   {
+    "title": "상태",
+    "field": "status",
+    "kind": "statusicon",
+    "width": 110,
+    "hozAlign": "center",
+    "formatter": "_mvStatusIconFormatter"
+   }
+  ],
+  "gridHtml": "<div class=\"mv-sgrid-wrap\"><div class=\"mv-sgrid-title\">COUNT 사전검증</div><table class=\"mv-sgrid\"><thead><tr><th class=\"mv-nocol\">No</th><th>원본 테이블</th><th>목적 테이블</th><th>쿼리검토</th><th>검증항목</th><th>원본 건수</th><th>대상 건수</th><th>차이</th><th>처리시간</th><th>상태</th></tr></thead><tbody><tr><td class=\"mv-num mv-nocol\">1</td><td class=\"\" title=\"a.s\"><code>a.s</code></td><td class=\"\" title=\"b.t\"><code>b.t</code></td><td class=\"mv-center\"><span class=\"mv-sicon-txt\">-</span></td><td class=\"\">COUNT</td><td class=\"mv-num\">200,000</td><td class=\"mv-num\">199,499</td><td class=\"mv-num\">-501</td><td class=\"\" title=\"COUNT 1회 실행 처리시간 — 1.23초 (1234.5ms)\">1.23초</td><td class=\"mv-center\"><span class=\"mv-sicon mv-sicon-orange\" title=\"불일치 발견\">●</span> <span class=\"mv-sicon-txt\">불일치</span></td></tr></tbody></table></div>",
+  "gridDataTitles": [
+   "원본 테이블",
+   "목적 테이블",
+   "쿼리검토",
+   "검증항목",
+   "원본 건수",
+   "대상 건수",
+   "차이",
+   "처리시간",
+   "상태"
+  ],
+  "gridDataRows": "[{\"src\":\"200,000\",\"tgt\":\"199,499\",\"diff\":\"-501\",\"status\":\"MISMATCH\",\"statusText\":\"불일치 발견\",\"next\":\"통계검증 진행(불일치 비차단)\",\"pageNo\":1,\"sqlNo\":1,\"tgtTable\":\"b.t\",\"tgtTableTip\":\"b.t\",\"srcTable\":\"a.s\",\"srcTableTip\":\"a.s\",\"insCols\":\"-\",\"insColsTip\":\"-\",\"selCols\":\"-\",\"selColsTip\":\"-\",\"check\":\"COUNT\",\"proc\":\"1.23초\",\"procTip\":\"COUNT 1회 실행 처리시간 — 1.23초 (1234.5ms)\",\"prevSt1\":\"\",\"prevSt1Text\":\"\"}]"
+ },
+ "1단계_실행결과": {
+  "step": "query",
+  "blocked": false,
+  "err": null,
+  "from_table": "T_AS_N_ETL04",
+  "target_table": ""
+ },
+ "A_2단계_진입직후": {
+  "보는탭": "count",
+  "countState": null,
+  "카드_박스": {
+   "top": 226,
+   "left": 302,
+   "width": 1256,
+   "height": 230
+  },
+  "타일수": 8,
+  "타일": [
+   {
+    "라벨": "목적 테이블",
+    "값": "tobe01.t_to_n_etl04",
+    "값_HTML": "tobe01.t_to_n_etl04",
+    "줄수": 1,
+    "값비었음": false,
+    "배지": 0,
+    "tooltip": "tobe01.t_to_n_etl04"
+   },
+   {
+    "라벨": "원본 테이블",
+    "값": "asis01.t_as_n_etl04",
+    "값_HTML": "asis01.t_as_n_etl04",
+    "줄수": 1,
+    "값비었음": false,
+    "배지": 0,
+    "tooltip": "asis01.t_as_n_etl04"
+   },
+   {
+    "라벨": "검증항목",
+    "값": "COUNT",
+    "값_HTML": "COUNT",
+    "줄수": 1,
+    "값비었음": false,
+    "배지": 0,
+    "tooltip": ""
+   },
+   {
+    "라벨": "목적건수",
+    "값": "—",
+    "값_HTML": "—",
+    "줄수": 1,
+    "값비었음": true,
+    "배지": 0,
+    "tooltip": ""
+   },
+   {
+    "라벨": "원본 건수",
+    "값": "—",
+    "값_HTML": "—",
+    "줄수": 1,
+    "값비었음": true,
+    "배지": 0,
+    "tooltip": ""
+   },
+   {
+    "라벨": "차이",
+    "값": "—",
+    "값_HTML": "—",
+    "줄수": 1,
+    "값비었음": true,
+    "배지": 0,
+    "tooltip": ""
+   },
+   {
+    "라벨": "처리시간",
+    "값": "—",
+    "값_HTML": "—",
+    "줄수": 1,
+    "값비었음": true,
+    "배지": 0,
+    "tooltip": ""
+   },
+   {
+    "라벨": "상태",
+    "값": "—",
+    "값_HTML": "—",
+    "줄수": 1,
+    "값비었음": true,
+    "배지": 0,
+    "tooltip": ""
+   }
+  ],
+  "타일라벨목록": [
+   "목적 테이블",
+   "원본 테이블",
+   "검증항목",
+   "목적건수",
+   "원본 건수",
+   "차이",
+   "처리시간",
+   "상태"
+  ],
+  "타일값목록": [
+   "tobe01.t_to_n_etl04",
+   "asis01.t_as_n_etl04",
+   "COUNT",
+   "—",
+   "—",
+   "—",
+   "—",
+   "—"
+  ],
+  "타일툴팁목록": [
+   "tobe01.t_to_n_etl04",
+   "asis01.t_as_n_etl04",
+   "",
+   "",
+   "",
+   "",
+   "",
+   ""
+  ],
+  "검증항목_라벨존재": true,
+  "COUNT소요_라벨존재": false,
+  "COUNT응답_원본": null
+ },
+ "2단계_실행결과": {
+  "click1_sql": true,
+  "sql_generated": true,
+  "click2_run": true,
+  "result_arrived": true,
+  "count_status": "COUNT_MINOR_DIFF"
+ },
+ "C_COUNT_실행후": {
+  "보는탭": "count",
+  "countState": "MISMATCH",
+  "카드_박스": {
+   "top": 226,
+   "left": 302,
+   "width": 1256,
+   "height": 456
+  },
+  "타일수": 8,
+  "타일": [
+   {
+    "라벨": "목적 테이블",
+    "값": "tobe01.t_to_n_etl04",
+    "값_HTML": "tobe01.t_to_n_etl04",
+    "줄수": 1,
+    "값비었음": false,
+    "배지": 0,
+    "tooltip": "tobe01.t_to_n_etl04"
+   },
+   {
+    "라벨": "원본 테이블",
+    "값": "asis01.t_as_n_etl04",
+    "값_HTML": "asis01.t_as_n_etl04",
+    "줄수": 1,
+    "값비었음": false,
+    "배지": 0,
+    "tooltip": "asis01.t_as_n_etl04"
+   },
+   {
+    "라벨": "검증항목",
+    "값": "COUNT",
+    "값_HTML": "COUNT",
+    "줄수": 1,
+    "값비었음": false,
+    "배지": 0,
+    "tooltip": ""
+   },
+   {
+    "라벨": "목적건수",
+    "값": "11,399,411",
+    "값_HTML": "11,399,411",
+    "줄수": 1,
+    "값비었음": false,
+    "배지": 0,
+    "tooltip": ""
+   },
+   {
+    "라벨": "원본 건수",
+    "값": "12,000,000",
+    "값_HTML": "12,000,000",
+    "줄수": 1,
+    "값비었음": false,
+    "배지": 0,
+    "tooltip": ""
+   },
+   {
+    "라벨": "차이",
+    "값": "+600,589",
+    "값_HTML": "+600,589",
+    "줄수": 1,
+    "값비었음": false,
+    "배지": 0,
+    "tooltip": ""
+   },
+   {
+    "라벨": "처리시간",
+    "값": "21.19초",
+    "값_HTML": "21.19초",
+    "줄수": 1,
+    "값비었음": false,
+    "배지": 0,
+    "tooltip": "COUNT 1회 실행 처리시간 — 21.19초 (21190.4ms)"
+   },
+   {
+    "라벨": "상태",
+    "값": "● 불일치",
+    "값_HTML": "<span class=\"mv-sicon mv-sicon-orange\" title=\"불일치 발견\">●</span> <span class=\"mv-sicon-txt\">불일치</span>",
+    "줄수": 1,
+    "값비었음": false,
+    "배지": 1,
+    "tooltip": "불일치 발견"
+   }
+  ],
+  "타일라벨목록": [
+   "목적 테이블",
+   "원본 테이블",
+   "검증항목",
+   "목적건수",
+   "원본 건수",
+   "차이",
+   "처리시간",
+   "상태"
+  ],
+  "타일값목록": [
+   "tobe01.t_to_n_etl04",
+   "asis01.t_as_n_etl04",
+   "COUNT",
+   "11,399,411",
+   "12,000,000",
+   "+600,589",
+   "21.19초",
+   "● 불일치"
+  ],
+  "타일툴팁목록": [
+   "tobe01.t_to_n_etl04",
+   "asis01.t_as_n_etl04",
+   "",
+   "",
+   "",
+   "",
+   "COUNT 1회 실행 처리시간 — 21.19초 (21190.4ms)",
+   "불일치 발견"
+  ],
+  "검증항목_라벨존재": true,
+  "COUNT소요_라벨존재": false,
+  "COUNT응답_원본": {
+   "source_count_elapsed_ms": 21186,
+   "target_count_elapsed_ms": 19301.1,
+   "processing_ms": 21190.4,
+   "count_generation_method": "PARSED_MODEL_COUNT_SQL",
+   "src_count": 12000000,
+   "tgt_count": 11399411,
+   "diff": 600589,
+   "is_matched": false,
+   "status": "FAILED"
+  }
+ },
+ "D_툴팁_대상라벨": "검증항목",
+ "D_툴팁_전문": "",
+ "E_공유컬럼정의_실행후": {
+  "available": true,
+  "columns": [
+   {
+    "title": "원본 테이블",
+    "field": "srcTable",
+    "kind": "mono",
+    "width": null,
+    "hozAlign": null,
+    "formatter": "_mvMonoFormatter"
+   },
+   {
+    "title": "목적 테이블",
+    "field": "tgtTable",
+    "kind": "mono",
+    "width": null,
+    "hozAlign": null,
+    "formatter": "_mvMonoFormatter"
+   },
+   {
+    "title": "검증항목",
+    "field": "check",
+    "kind": null,
+    "width": 90,
+    "hozAlign": null,
+    "formatter": null
+   },
+   {
+    "title": "원본 건수",
+    "field": "src",
+    "kind": "num",
+    "width": null,
+    "hozAlign": "right",
+    "formatter": null
+   },
+   {
+    "title": "대상 건수",
+    "field": "tgt",
+    "kind": "num",
+    "width": null,
+    "hozAlign": "right",
+    "formatter": null
+   },
+   {
+    "title": "차이",
+    "field": "diff",
+    "kind": "num",
+    "width": null,
+    "hozAlign": "right",
+    "formatter": null
+   },
+   {
+    "title": "처리시간",
+    "field": "proc",
+    "kind": null,
+    "width": null,
+    "hozAlign": "center",
+    "formatter": null
+   },
+   {
+    "title": "상태",
+    "field": "status",
+    "kind": "statusicon",
+    "width": 110,
+    "hozAlign": "center",
+    "formatter": "_mvStatusIconFormatter"
+   }
+  ],
+  "gridHtml": "<div class=\"mv-sgrid-wrap\"><div class=\"mv-sgrid-title\">COUNT 사전검증</div><table class=\"mv-sgrid\"><thead><tr><th class=\"mv-nocol\">No</th><th>원본 테이블</th><th>목적 테이블</th><th>쿼리검토</th><th>검증항목</th><th>원본 건수</th><th>대상 건수</th><th>차이</th><th>처리시간</th><th>상태</th></tr></thead><tbody><tr><td class=\"mv-num mv-nocol\">1</td><td class=\"\" title=\"a.s\"><code>a.s</code></td><td class=\"\" title=\"b.t\"><code>b.t</code></td><td class=\"mv-center\"><span class=\"mv-sicon mv-sicon-blue\" title=\"통과\">●</span> <span class=\"mv-sicon-txt\">정상</span></td><td class=\"\">COUNT</td><td class=\"mv-num\">200,000</td><td class=\"mv-num\">199,499</td><td class=\"mv-num\">-501</td><td class=\"\" title=\"COUNT 1회 실행 처리시간 — 1.23초 (1234.5ms)\">1.23초</td><td class=\"mv-center\"><span class=\"mv-sicon mv-sicon-orange\" title=\"불일치 발견\">●</span> <span class=\"mv-sicon-txt\">불일치</span></td></tr></tbody></table></div>",
+  "gridDataTitles": [
+   "원본 테이블",
+   "목적 테이블",
+   "쿼리검토",
+   "검증항목",
+   "원본 건수",
+   "대상 건수",
+   "차이",
+   "처리시간",
+   "상태"
+  ],
+  "gridDataRows": "[{\"src\":\"200,000\",\"tgt\":\"199,499\",\"diff\":\"-501\",\"status\":\"MISMATCH\",\"statusText\":\"불일치 발견\",\"next\":\"통계검증 진행(불일치 비차단)\",\"pageNo\":1,\"sqlNo\":1,\"tgtTable\":\"b.t\",\"tgtTableTip\":\"b.t\",\"srcTable\":\"a.s\",\"srcTableTip\":\"a.s\",\"insCols\":\"STUDENT_ID, ACTIVITY_ID, PARTICIPATION 외 3개\",\"insColsTip\":\"STUDENT_ID, ACTIVITY_ID, PARTICIPATION, ACTIVITY_SCORE, FB_SUMMARY, LAST_UPDATED\",\"selCols\":\"STUDENT_ID, ACTIVITY_ID, PARTICIPATION 외 3개\",\"selColsTip\":\"STUDENT_ID, ACTIVITY_ID, PARTICIPATION, ACTIVITY_SCORE, FB_SUMMARY, LAST_UPDATED\",\"check\":\"COUNT\",\"proc\":\"1.23초\",\"procTip\":\"COUNT 1회 실행 처리시간 — 1.23초 (1234.5ms)\",\"prevSt1\":\"PASS\",\"prevSt1Text\":\"통과\"}]"
+ },
+ "F_일괄검증_COUNT표": {
+  "표_존재": true,
+  "헤더": [
+   "목적지 테이블",
+   "COUNT(원본)",
+   "COUNT(목적지)",
+   "COUNT 판정"
+  ],
+  "행수": 0,
+  "첫행": [],
+  "본문텍스트": ""
+ },
+ "pageerrors": [
+  "CONSOLE.error: Failed to load resource: the server responded with a status of 404 (Not Found)"
+ ]
+}
