@@ -1,0 +1,491 @@
+작업명 : STAGE-TILE-CROSS-STAGE-DUPLICATION-SURVEY-AND-REDESIGN-PROPOSE
+작성일 : 2026-08-04
+성격   : 읽기 전용 조사 + 재설계 제안 (코드 변경 0건)
+대상   : 개별검증 1~5단계 상단 컨텍스트 타일
+정정   : 작업 도중 "타일 안 행 분리 통합 검토는 '처리시간'에만 한정, 그룹/집계 타일은 제외"
+         지침을 받아 §7 을 그 범위로 다시 작성했다(§7 이 이번 정정의 답이다).
+
+================================================================================
+0. 결론 요약 (먼저 읽는 부분)
+================================================================================
+
+전체 43칸(1단계 9 + 2단계 8 + 3단계 9 + 4단계 8 + 5단계 9) 중
+  - 테이블명(목적/원본) 10칸  : 사용자가 "겹쳐도 된다"고 명시한 공통 축 → 그대로 유지
+  - 나머지 33칸 중 **진짜 중복(순수 재출력) 7칸 + 정보량 0 인 칸 1칸 = 8칸** 확인
+
+진짜 중복 7칸 (b 분류)
+  ① 4단계 '목적그룹'     ← 3단계 '목적그룹' 과 동일 값
+  ② 4단계 '원본그룹'     ← 3단계 '원본그룹' 과 동일 값
+  ③ 4단계 '목적집계'     ← 3단계 '목적집계' 과 동일 값
+  ④ 4단계 '원본집계'     ← 3단계 '원본집계' 과 동일 값
+  ⑤ 4단계 '처리시간'     ← 실행 완료 후 5단계 '처리시간' 과 **완전 동일 값**
+                            (tabler_renderer.py:16448·16454 — 같은 r.processing_ms, 같은 라벨을
+                             4단계·5단계에 동시 기록한다)
+  ⑥ 5단계 '통계검증규모' ← 3단계 '통계검증규모' 와 같은 API·같은 필드(provisional_grade)
+  ⑦ 1단계 '컬럼매핑수'   ← 같은 탭 안의 '입력컬럼수'·'추출컬럼수' 를 'n/m' 으로 다시 쓴 값
+
+정보량 0 인 칸 1칸
+  ⑧ 4단계 '상태' — 값이 항상 'READY / SQL 생성됨' 하나뿐 (생성 전은 '—')
+     ※ 2단계 '검증항목'(항상 'COUNT')이 같은 사유로 이미 제거된 선례가 있다.
+
+가장 심각한 곳은 **4단계**다. 8칸 중 테이블명 2 + 중복 5 + 무정보 1 = 8칸 전부가 4단계
+고유 정보가 아니다(실행 전 한정으로 '처리시간'이 SQL 생성 시간이라 잠깐 고유할 뿐,
+실행이 끝나면 그것마저 5단계와 같아진다). 즉 4단계 타일은 현재 "3단계 선택 + 5단계 시간의 사본"이다.
+
+한 줄 처방:
+  4단계 → 그룹/집계 4칸은 **그대로 두고**(정정 지침), 처리시간을 'SQL생성시간'과
+          '실행시간(원본/목적 2행)'으로 분리하고, '상태' 자리에 4단계에만 있는 사실
+          (조합검증 ON/OFF · SQL 경고 등)을 넣는다.
+  5단계 → '통계검증규모' 를 빼거나 '실행 시점 재산정값' 으로 의미를 바꾼다(현재는 순수 재출력이며,
+          §5 처럼 3단계 값보다 오래된 값일 수 있는 구조적 문제까지 있다).
+  1단계 → '컬럼매핑수' 를 빼고 '매핑불명확 컬럼수' 같은 실제 판단값으로 대체한다.
+
+
+================================================================================
+1. 각 탭의 현재 타일 구성 전수 (코드 기준 · 2026-08-04 HEAD 2b1cb01)
+================================================================================
+
+■ 1단계 — 쿼리검토 (host: #qrSummary)
+  정의: ui/grid_helpers.py:499 _mvQueryReviewColumns()
+  렌더: ui/tabler_renderer.py:21475 _mvQueryReviewTilesHtml → _mvQrTileHtml
+  값  : ui/grid_helpers.py:474 _mvQueryReviewRows(a)  (출처 /analyze 응답)
+
+    순서  라벨          field      값의 정체
+    ----  ------------  ---------  --------------------------------------------
+     1    목적테이블    tgtTable   validation_context.target_table
+     2    원본테이블    srcTable   validation_context.primary_source_table
+     3    입력컬럼수    insCols    parse_result.insert_cols.length
+     4    추출컬럼수    selCols    parse_result.select_items.length
+     5    컬럼매핑수    mapping    "입력수/추출수" 문자열 (예: 12/12)
+     6    조건문        cond       WHERE 유무 → '있음'/'없음'
+     7    조인          join       joins.length → 'N개'/'없음'
+     8    처리시간      proc       diagnostics.total_ms
+     9    상태          status     blocked → ERROR / 그 외 PASS
+
+■ 2단계 — COUNT 사전검증 (host: #countResult)
+  정의: ui/grid_helpers.py:567 _mvCountColumns() + tabler_renderer.py:25010
+        _MV_COUNT_TILE_ORDER / _MV_COUNT_TILE_LABEL / _MV_COUNT_TILE_DROP / _MV_COUNT_TILE_VIRTUAL
+  렌더: ui/tabler_renderer.py:25080 _mvCountTilesHtml
+  값  : _mvCountRows(c, srcT, tgtT)  (출처 /count 응답)
+
+    순서  라벨          field      값의 정체
+    ----  ------------  ---------  --------------------------------------------
+     1    목적 테이블   tgtTable
+     2    원본 테이블   srcTable
+     3    COUNT 소요    elapsed    source_count_elapsed_ms / target_count_elapsed_ms (2줄)
+     4    목적건수      tgt        tgt_count
+     5    원본 건수     src        src_count
+     6    차이          diff       diff (부호 포함)
+     7    처리시간      proc       processing_ms (총 시간 — 병렬이라 3번의 합과 다름)
+     8    상태          status     PASS / MISMATCH / ERROR / WARN(DB 미연결)
+
+■ 3단계 — 후보 컬럼 선정 (host: #mvStage3CtxGrid)
+  정의: ui/grid_helpers.py:644 _mvCandidateColumns()
+  렌더: ui/grid_helpers.py:783 _mvRenderCandidateGrid → _mvTilesHtmlFromCols
+  값  : ui/grid_helpers.py:668 _mvCandidateTileRow(a)
+
+    순서  라벨          field      값의 정체
+    ----  ------------  ---------  --------------------------------------------
+     1    목적테이블    tgtTable
+     2    원본테이블    srcTable
+     3    통계검증규모  scale      window._mvStage3PlanInfo.scaleText
+                                   = /strategy/plan 의 provisional_grade + " (cost N)"
+     4    목적그룹      tgtGroup   체크박스 라이브 수집(_collectCheckedCols('gb')) 의 목적축
+     5    원본그룹      srcGroup   같은 값의 원본축(_mvColPairParts)
+     6    목적집계      tgtAgg     _collectCheckedCols('sum') 의 목적축
+     7    원본집계      srcAgg     같은 값의 원본축
+     8    처리시간      proc       window._mvStage3ProcMs (후보 재확정 1회)
+     9    상태          status     window._mvStage3PlanInfo.implStatus
+                                   (READY/WARN/HOLD — '실행계획 구현 상태')
+
+■ 4단계 — 통계검증 SQL 생성·실행 (host: #mvStage4CtxGrid)
+  정의: ui/grid_helpers.py:808 _mvStage4Columns()
+  렌더: ui/grid_helpers.py:875 _mvPaintStage4Tiles (renderSQL 이 호출)
+  값  : ui/grid_helpers.py:840 _mvStage4TileRow(gbSel, sumSel)
+
+    순서  라벨          field      값의 정체
+    ----  ------------  ---------  --------------------------------------------
+     1    목적테이블    tgtTable
+     2    원본테이블    srcTable
+     3    목적그룹      tgtGroup   renderSQL 이 넘긴 gbSel (= SQL 생성 시점 체크박스 스냅샷)
+     4    원본그룹      srcGroup   같은 값의 원본축
+     5    목적집계      tgtAgg     sumSel
+     6    원본집계      srcAgg     같은 값의 원본축
+     7    처리시간      proc       window._mvStage4ProcMs
+                                   생성 직후 = /generate processing_ms('SQL 생성 시간')
+                                   실행 완료 후 = /execute processing_ms 로 덮임(5단계와 동일 값)
+     8    상태          status     생성됨이면 'READY'/'SQL 생성됨', 아니면 '—' (2値)
+
+    ※ '검증항목' 타일은 STAGE4-VALIDATION-ITEM-TILE-REMOVE-FIX 로 오늘 제거되어 9→8칸.
+
+■ 5단계 — 결과 확인 (host: #mvStage5CtxGrid)
+  정의: ui/grid_helpers.py:957 _mvStage5Columns()
+  렌더: ui/grid_helpers.py:1031 _mvRenderStage5CtxGrid
+  값  : ui/grid_helpers.py:986 _mvStage5TileRow(r, ctx) → 대부분 _mvTargetSummaryView(r,ctx)
+
+    순서  라벨          field      값의 정체
+    ----  ------------  ---------  --------------------------------------------
+     1    목적테이블    tgtTable
+     2    원본테이블    srcTable
+     3    통계검증규모  scale      _mvStatsScaleText() = window._mvStrategyPlan.provisional_grade
+                                   (cellId=mvSizeSummaryCell)
+     4    COUNT         count      _lastCountResult 의 "원본 / 목적 · 차이 N" (2단계 값)
+     5    불일치그룹    mismatch   diff + src_only + tgt_only
+     6    재이관대상    reimport   src_only + diff (그룹 단위 근사)
+     7    재이관PK      pk         상세비교/prewarm 응답 (cellId=mvPkSummaryCell)
+     8    처리시간      proc       window._mvStage5ProcMs = /execute processing_ms
+     9    상태          status     최종상태(정상/불일치/게이트 종료/실패)
+
+
+================================================================================
+2. 각 탭의 고유 목적 재정의 (코드/화면 흐름 확인 후 다듬은 것)
+================================================================================
+
+1단계  "이 SQL을 검증할 수 있는가, 무엇이 무엇으로 매핑되는가?"
+       → 답해야 할 것: 파싱 성공 여부, 매핑 가능/불가 컬럼, 검증을 막는 요소(WHERE/JOIN 복잡도)
+
+2단계  "원본과 목적지의 전체 건수가 얼마나 다른가, 그 비교에 얼마가 드는가?"
+       → COUNT 는 이 탭이 유일한 원산지다(5단계는 인용자)
+
+3단계  "무엇으로 비교할지 어떻게 고를 것인가, 그 선택의 대가는 얼마인가?"
+       → '통계검증규모' 가 이 탭에 있는 이유는 "선택을 바꾸면 등급이 즉시 따라오는" 피드백 루프
+         (체크박스 변경마다 _mvRenderStrategyPlan 재호출 — tabler_renderer.py:24210)
+
+4단계  "그 선택이 실제로 어떤 SQL·어떤 실행 단위가 되었고, 실행은 어떻게 진행되는가?"
+       → 답해야 할 것: 생성된 SQL, 실행 옵션(조합 검증 여부), 생성 시 경고, 실행 진행/소요
+       → **답하지 말아야 할 것: 선택 그 자체**(선택은 3단계의 산출물)
+       → 단, 이번 정정 지침에 따라 그룹/집계 타일은 현행 유지한다(§7-C)
+
+5단계  "불일치가 있는가, 무엇을 얼마나 재이관해야 하는가?"
+       → 규모 '등급'은 이 질문의 답이 아니다(사전 예측값이며 결과가 아님)
+
+
+================================================================================
+3. 분류표 — (a) 고유 / (b) 진짜 중복 / (c) 이름은 비슷하나 다른 값
+================================================================================
+
+[1단계]
+ 목적/원본테이블 (공통축)
+ 입력컬럼수     (a)
+ 추출컬럼수     (a)
+ 컬럼매핑수     (b)  값이 "insN + '/' + selN"(grid_helpers.py:459) — 앞 두 타일의 문자열 결합
+ 조건문         (a)
+ 조인           (a)
+ 처리시간       (c)  /analyze diagnostics.total_ms — 1단계 고유 계측
+ 상태           (c)  '파싱 통과/차단'
+
+[2단계]
+ COUNT 소요     (a)  원본/목적 개별 소요. 2단계에만 존재
+ 목적건수       (a)  COUNT 원산지
+ 원본 건수      (a)  COUNT 원산지
+ 차이           (a)  COUNT 원산지
+ 처리시간       (c)  총 소요(병렬이라 'COUNT 소요' 합과 불일치 — 툴팁이 이미 설명)
+ 상태           (c)  '건수 일치/불일치'
+
+[3단계]
+ 통계검증규모   (a)  원산지. 선택 변경 → 재산정 루프가 이 탭에 있다
+ 목적그룹/원본그룹/목적집계/원본집계  (a)  선택 자체가 3단계 산출물
+ 처리시간       (c)  후보 재확정 1회 시간
+ 상태           (c)  '실행계획 구현 상태(READY/WARN/HOLD)' — 다른 탭 상태와 축이 다름
+
+[4단계]
+ 목적그룹       (b)  3단계와 동일 값 (단, 이번 정정으로 **변경 대상에서 제외** — §7-C)
+ 원본그룹       (b)   〃
+ 목적집계       (b)   〃
+ 원본집계       (b)   〃
+   └ 엄밀히는 "3단계=라이브 체크박스 / 4단계=SQL 생성 시점 스냅샷"이라 (c) 여지가 있다.
+     값이 갈리는 경우(체크만 바꾸고 SQL 재생성 안 함)는 #genSqlRegenNotice 재생성 안내와
+     3단계 '미적용' 배지가 별도로 경고한다. 정정 지침에 따라 현행 유지한다.
+ 처리시간       (b)  ★ 실행 완료 후 5단계 '처리시간'과 값·라벨이 완전히 같다
+                     (tabler_renderer.py:16448 → 5단계, 16454 → 4단계, 둘 다 r.processing_ms
+                      + 라벨 '통계검증 실행(상세 추출 별도)'). 실행 전에만 'SQL 생성 시간'으로
+                      고유하다 → §7 의 분리 제안으로 (a) 로 되돌릴 수 있다.
+ 상태           (b)준 값이 'READY(SQL 생성됨)' 1가지뿐
+
+[5단계]
+ 통계검증규모   (b)  3단계와 같은 API(/strategy/plan)·같은 필드(provisional_grade). §5 참조
+ COUNT          (c)  2단계 값의 인용. "불일치그룹 0인데 재이관 N건" 해석의 분모라서 남긴다는
+                     판단이 코드 주석에 명시(grid_helpers.py:935-938). 툴팁에 '(2단계)' 명시됨
+                     → 유지하되 라벨을 'COUNT(2단계)' 로 바꿔 인용임을 드러낼 것
+ 불일치그룹     (a)  5단계 핵심
+ 재이관대상     (a)  그룹 단위 근사
+ 재이관PK       (a)  행 레코드 단위 확정 — 위와 세는 단위가 달라 둘 다 필요
+ 처리시간       (c)  /execute 서버 시간. 4단계와 같은 값이지만 5단계가 '실행 결과' 탭이므로
+                     원산지 판단은 4단계 → 5단계 쪽을 남기고 4단계를 분리하는 것이 §7 제안
+ 상태           (c)  최종상태 — 가장 세분화된 상태
+
+
+================================================================================
+4. 4단계 '고유 정보 공백' — 무엇으로 채울 수 있는가
+================================================================================
+
+원칙: "이미 4단계 화면 어딘가에 있는데 타일엔 없는 것"을 우선한다(새 계측·새 API 0건).
+     ※ 정정 지침에 따라 '그룹/집계 4칸을 실행세트 1칸으로 압축' 안은 철회한다.
+       아래는 **비어 있는 칸('상태')과 분리로 늘어나는 칸에 넣을 후보**다.
+
+우선순위 1 — 실행시간의 원본/목적 분리   → §7 에서 상세히 다룬다 (이번 정정의 핵심)
+
+우선순위 2 — 조합검증 ON/OFF
+  현재 위치 : #gbIncludePair 체크박스(4단계 화면 안, js_sql_preview.py:92)
+  값 출처   : window._mvIncludePairChecked
+  왜 4단계인가: 이 결정은 4단계에서만 내릴 수 있고 5단계 '조합 미검증' 경고를 좌우한다.
+              지금은 스크롤해서 체크박스를 봐야만 상태를 알 수 있다.
+  제안 라벨/값: '조합검증' / "포함(+1세트)" 또는 "미포함"
+
+우선순위 3 — SQL 경고 건수
+  현재 위치 : renderSQL 의 warnHtml (warnings 배열, #sqlOut 최상단)
+  제안 라벨 : 'SQL경고' / "2건"(툴팁에 전문) · 없으면 '없음'
+
+우선순위 4 — 실행세트 구성
+  현재 위치 : renderSQL 의 _comboNotice ("단일 축 2세트(A / B)로 분해해…")
+  값 출처   : gbSel.length (+ 조합 포함 시 +1)
+  비고      : 그룹/집계 타일을 유지하기로 했으므로 축 목록은 이미 화면에 있다.
+              그래도 '몇 번 실행되는가'는 축 개수와 다른 사실이라(조합 opt-in 시 +1) 여전히 유효.
+              단 우선순위 2 를 채택하면 상당 부분 커버되므로 후순위.
+
+우선순위 5 — 원본 SELECT wrapping 적용
+  현재 위치 : _wrapBadge (g.wrapped_source_select 기반 파란 배지)
+  비고      : 복잡쿼리에서만 값이 갈려 정보량이 낮음
+
+채택하지 않은 후보
+  · 통계전략 ID — 개념상 '계획'이라 3단계 #strategyPlanBox 에 두는 편이 낫다
+  · 예상 그룹 수 — 3단계 선택바가 담당하고, 실측 그룹 수는 5단계 소관
+
+
+================================================================================
+5. 5단계 '통계검증규모' 중복 여부 — 확정
+================================================================================
+
+결론: **순수 재출력이며 (b) 진짜 중복이다. 게다가 3단계 값보다 오래된 값일 수 있다.**
+
+경로 대조
+  3단계 : renderColSelect / 체크박스 변경 / 날짜기간 변경
+          → _mvRenderStrategyPlan(null,'strategyPlanBox')     (tabler_renderer.py:23859,24115,24210)
+          → _mvBuildStatsScaleProfile() (체크박스 라이브 반영) → POST /strategy/plan
+          → window._mvStage3PlanInfo.scaleText = provisional_grade + " (grade_cost_hint)"
+                                                                (tabler_renderer.py:28364-28375)
+  5단계 : _mvRenderStage5CtxGrid → _mvUpdateSizeSummaryCell()  (grid_helpers.py:1037)
+          → _mvStatsScaleText(lp)                              (grid_helpers.py:1165)
+          → return window._mvStrategyPlan.provisional_grade    (grid_helpers.py:1170)
+          ※ window._mvStrategyPlan 을 채우는 곳은 _mvComputeStatsScale() 한 곳뿐(grid_helpers.py:1449)
+
+같은 점
+  · 두 경로 모두 같은 엔드포인트 POST /strategy/plan · 같은 응답 필드 provisional_grade
+  · 프로파일 빌더도 같은 함수(_mvBuildStatsScaleProfile) 공유
+  · 5단계는 실행 결과(r)를 규모 산정에 **전혀 쓰지 않는다** — "실행 후 재산정"이 아니다
+
+다른 점 (그래서 더 나쁘다)
+  ① 5단계 값에는 판정 근거(cost)가 빠져 있다. 3단계 "중형 (cost 13.56)" vs 5단계 "중형"
+     → 5단계는 같은 값의 '열화 사본'
+  ② 갱신 시점이 다르다. 재산정 조건이
+        if (!_sp || _stale) { _mvComputeStatsScale(); }        (grid_helpers.py:1188-1195)
+     이라 window._mvStrategyPlan 이 한 번 채워지면(2단계 COUNT 직후) 정책 버전이 바뀌지 않는 한
+     다시 계산하지 않는다. 그 최초 산정 시점에는 3단계 체크박스가 아직 DOM 에 없어
+     _mvBuildStatsScaleProfile 이 AUTO 폴백(_mvEffectiveGbCols = 분석 시점 DEFAULT 세트)을 쓴다.
+     → 3단계에서 후보를 바꾸면 3단계 타일은 즉시 따라가지만 5단계는 따라가지 않는다.
+       두 탭이 같은 라벨로 다른 등급을 보여줄 수 있다(등급 경계를 넘는 변경일 때 눈에 보인다).
+  ③ 결과적으로 5단계 '통계검증규모'는 "실행 전 예측값의, 근거가 빠진, 갱신이 멈춘 사본"이다.
+
+판정: 제거하거나 의미를 바꾼다.
+  · 권장(단순)   : 5단계에서 삭제. 규모 등급은 '실행 전 계획' 정보이고 5단계 질문의 답이 아니다.
+  · 대안(정보보존): '실행규모' 로 라벨을 바꾸고 값을 실행 실측으로 교체
+                   — 예: "2세트 · 1,240그룹"(r.total_groups / _execEvidence.plan.actual_total_groups).
+                   (b)가 (a)로 바뀌고 예측 vs 실측 대비도 가능. 단 값 계산 신설이라 별도 작업.
+
+
+================================================================================
+6. 탭별 최종 권장 타일 구성(안) — 제안까지만, 구현 없음
+================================================================================
+
+■ 1단계 (9 → 9칸, 1칸 교체)
+    목적테이블 | 원본테이블 | 입력컬럼수 | 추출컬럼수 | [컬럼매핑수 → 매핑불명확] |
+    조건문 | 조인 | 처리시간 | 상태
+  · '컬럼매핑수'(n/m) 제거 — 앞 두 타일의 재조합이라 정보 0
+  · 대체 후보 '매핑불명확': _mvColPairParts 가 이미 판정하는 "select_items 에서 짝을 못 찾은
+    컬럼"의 개수. 3단계 후보에 '매핑 불명확'이 뜨는 원인을 한 단계 앞에서 알려준다.
+  · 대체가 부담되면 8칸으로 줄이는 것만으로도 개선(정보 손실 0)
+  · 처리시간은 현행 유지(§7-A 표 참조 — 분리 부적합)
+
+■ 2단계 (8 → 8칸, 변경 없음)
+  · 이미 목적에 맞다. COUNT 원산지 3칸 + 비용 2칸 + 상태
+  · 유일한 개선점: '처리시간' 라벨을 'COUNT 총시간' 으로 바꿔 3번 'COUNT 소요'와의 관계를
+    라벨만으로 알 수 있게(현재는 툴팁에만 설명)
+  · 처리시간 원본/목적 분리는 하지 않는다 — 'COUNT 소요' 타일이 이미 그 일을 한다(§7-A)
+
+■ 3단계 (9 → 9칸, 변경 없음)
+  · 전 칸이 3단계 고유. 손대지 않는다
+  · 개선점: '상태'가 '실행계획 구현 상태'임을 라벨/툴팁으로 드러낼 것
+    (다른 탭 '상태'는 검증 판정, 여기만 실행 가능성 판정)
+
+■ 4단계 (8 → 9칸) ★핵심 변경 — 그룹/집계는 그대로 두고 처리시간·상태만 손댄다
+    목적테이블 | 원본테이블 | 목적그룹 | 원본그룹 | 목적집계 | 원본집계 |
+    SQL생성시간 | 실행시간(원본/목적 2행) | 조합검증
+      · 목적그룹/원본그룹/목적집계/원본집계 : **현행 그대로 유지**(정정 지침 §7-C)
+      · SQL생성시간   /generate processing_ms — 기존 처리시간의 전반부
+      · 실행시간      /execute query_timing 의 원본/목적 2행 (§7-B)
+      · 조합검증      "미포함" / "포함(+1세트)"  ← §4 우선순위 2. 정보량 0 인 '상태' 자리를 대체
+    (9칸 상한 준수 — 한 줄에 9칸까지만 들어간다)
+  · '상태'를 남기고 싶다면 '조합검증' 대신 상태 값 종류를 늘린다
+    ('생성됨/실행중/완료/실패' 4値). 둘 다 넣으면 10칸이라 줄이 갈라진다.
+
+■ 5단계 (9 → 9칸, 1~2칸 교체)
+    목적테이블 | 원본테이블 | [통계검증규모 → 실행규모 또는 삭제] | COUNT(2단계) |
+    불일치그룹 | 재이관대상 | 재이관PK | 처리시간 | 상태
+  · '통계검증규모' 처리는 §5 의 두 안 중 하나
+      - 삭제하면 8칸이 되고, 빈 칸은 '실행세트'(실측 세트·그룹 수)로 채우는 것을 권장
+      - 교체(실행규모)하면 9칸 유지
+  · 'COUNT' → 'COUNT(2단계)' 로 라벨 변경. 값·툴팁 그대로
+  · '처리시간'은 5단계에 남긴다(§7-B) — 4단계가 SQL생성/실행으로 쪼개지면 중복이 해소된다.
+    다만 5단계 처리시간의 라벨은 '실행 총시간'으로 바꿔 4단계 실행시간(원본+목적 DB 시간)과
+    의 차액(앱 비교·직렬화 시간)이 읽히게 하는 편이 낫다.
+
+■ 전 탭 공통 권고
+  · '처리시간'·'상태'는 각 탭에서 무엇을 잰/판정한 값인지 툴팁 첫 문장에 단계명을 넣는다
+  · 새 타일 추가 시 판정 기준(이번 조사에서 도출):
+      ① 이 값이 이 탭에서 처음 만들어지는가? (아니면 인용 — 라벨에 출처를 적는다)
+      ② 값의 종류가 2가지 이상인가? (1가지면 정보량 0 — 넣지 않는다)
+      ③ 같은 탭의 다른 타일에서 계산해 낼 수 있는가? (가능하면 넣지 않는다)
+
+
+================================================================================
+7. [정정 반영] '처리시간' 타일의 원본/목적 행 분리 — 단계별 판정
+================================================================================
+
+──────────────────────────────────────────────────────────────────────────────
+A. 단계별 조사 결과 — 원본/목적을 나눠 실행하는가, 서버가 개별 소요를 주는가
+──────────────────────────────────────────────────────────────────────────────
+
+ 단계  처리시간 값 소스              원본/목적 별도실행?   서버 개별 소요 필드            판정
+ ----  ---------------------------  -------------------  ----------------------------  --------
+  1    /analyze diagnostics.total_ms 부분(메타조회만)      source_metadata_lookup_ms /   분리 부적합
+                                                          target_metadata_lookup_ms
+                                                          (count_exec_probe.py:275-276,
+                                                           이미 응답에 있음·UI 미소비)
+  2    /count processing_ms          ✅ 병렬 실행          source_count_elapsed_ms /     **이미 완료**
+                                                          target_count_elapsed_ms
+                                                          (count_common_service.py:951)
+  3    /validation-sets/preview      ❌ 원본 기준 단일     없음(processing_steps_ms 만)   분리 불필요
+       processing_ms                    (목적 conn 미사용)
+  4    /generate processing_ms       ❌ DB 접속 자체 없음   없음                          분리 불필요
+       (SQL 생성)                       (문자열 생성)
+ 4·5   /execute processing_ms        ✅ 원본 SQL·목적 SQL   query_timing.                 ★적용 대상
+       (통계검증 실행)                   각각 실행(순차)    source_duration_ms /
+                                                          target_duration_ms
+                                                          (stats_execute_service.py:
+                                                           600-609)
+
+ 근거 상세
+  · 1단계: /analyze 는 파싱(양쪽 공통) + 원본 메타조회 + 목적 메타조회로 구성된다.
+    diagnostics 에 parse_ms / source_metadata_lookup_ms / target_metadata_lookup_ms 가
+    이미 들어 있다(count_exec_probe.py:258-280). 그러나 총시간에서 큰 몫이 '양쪽 공통'인
+    파싱·후보준비라, 원본/목적 2행으로 나누면 나머지가 사라져 합이 총시간과 크게 어긋난다.
+    나누려면 3행(파싱 / 원본메타 / 목적메타)이 필요한데 이는 '원본/목적 분리'라는 이번
+    요구의 형태가 아니다 → **현행 유지 권장**.
+  · 2단계: 이미 'COUNT 소요' 타일이 정확히 그 형태(원본 N초 / 목적 N초, kind:'multi' 2행)로
+    존재한다(tabler_renderer.py:25059 _mvCountTileElapsed). 처리시간 타일까지 나누면
+    같은 칸이 두 개가 된다 → **추가 작업 없음**.
+  · 3단계: routes/validation_set_preview_route.py 요청 스키마에 tgt_conn 이 없다.
+    목적 DB 를 조회하지 않으므로 나눌 축 자체가 없다.
+  · 4단계 SQL 생성: js_sql_preview.py:29 주석에 "이 시점에는 DB 접속 자체가 없다"고 명시.
+  · 4·5단계 실행: /execute 응답에 query_timing 8키가 이미 있고 그중 source_duration_ms /
+    target_duration_ms 가 정확히 원본/목적 개별 소요다. **UI 소비처는 0건**이다
+    (grep 결과 ui/ 아래 참조 0, scripts/dev_e2e 진단 스크립트만 읽는다).
+
+──────────────────────────────────────────────────────────────────────────────
+B. 제안 — 4단계 '실행시간' 타일 한 칸에 원본/목적 2행
+──────────────────────────────────────────────────────────────────────────────
+
+ 적용 대상: **통계검증 실행 시간 단 한 곳**(4단계 실행시간). 다른 단계는 A 표대로 대상 아님.
+
+ 형태(2단계 'COUNT 소요' 타일 패턴 그대로 재사용):
+
+     [라벨: 실행시간]
+     ┌──────────────┐
+     │ 원본 12.30초  │
+     │ 목적  8.10초  │
+     └──────────────┘
+
+ 구현 형태(제안 — 구현은 하지 않음)
+  · 컬럼 정의  : _mvStage4Columns() 에 { title:'실행시간', field:'execElapsed', kind:'multi' }
+                 — kind:'multi' 는 배열을 <br> 로 잇는 기존 규격이며 'COUNT 소요'와 동일
+  · 값 빌더    : _mvCountTileElapsed(c) 와 같은 모양의 _mvStage4ExecElapsed(r) 를 두고
+                 r.query_timing.source_duration_ms / target_duration_ms 를 읽어
+                 ['원본 12.30초', '목적 8.10초'] 를 만든다. 포맷은 기존 _mvFmtStageDur 재사용
+  · 새 계측 0  : 서버는 이미 보내고 있다. **UI 가 읽기만 하면 된다**
+  · 미실행/미보유 시 : 다른 미실행 타일과 같이 '—'
+
+ ★ 툴팁 문구는 'COUNT 소요' 것을 그대로 복사하면 안 된다 — 실행 방식이 반대다.
+   · COUNT      : 원본/목적 **병렬** → 개별시간의 합이 총시간보다 **클 수** 있다
+                  (실측 21,186 + 19,301 vs 총 21,190)
+   · 통계검증 실행: 원본/목적 **순차** → 개별시간의 합이 총시간보다 **작다**.
+                  차액 = 그룹 비교·직렬화 등 앱 시간
+                  (근거: stats_execute_service.py:596 "순차 실행이라 음수 없음",
+                   그리고 query_timing.source_target_gap_ms = target 시작 − source 종료)
+   권장 툴팁: "원본 12,300ms / 목적지 8,100ms · 총 21,000ms(순차 실행, 차액은 그룹 비교·
+              직렬화 등 앱 처리시간) · 원본↔목적 간격 40ms"
+   ※ source_target_gap_ms 도 같은 응답에 있으므로 툴팁에 함께 넣을 수 있다(추가 왕복 0).
+
+ 부수 효과(중요)
+  · §0 의 진짜 중복 ⑤(4단계 처리시간 = 5단계 처리시간)가 이 분리로 해소된다.
+    4단계 = 'SQL생성시간' + '실행시간(원본/목적 DB 시간)',
+    5단계 = '처리시간(실행 총시간 = DB 시간 + 앱 시간)' 으로 서로 다른 사실이 된다.
+  · 지금까지 툴팁으로만 구분되던 '같은 슬롯 두 값'(SQL 생성 시간 → 실행 시간 덮어쓰기)
+    문제도 함께 사라진다.
+
+ 위험/주의
+  · 다중 세트 실행(_runExecutePlanSets, GROUP BY 2축 이상)에서는 /execute 가 세트마다
+    호출되므로 query_timing 도 세트마다 온다. 마지막 세트 값만 보이면 오해를 부른다
+    → 세트별 합계를 쓰거나, 라벨에 "(마지막 세트)"를 명시해야 한다. 어느 쪽이든
+      값 집계 로직이 새로 필요하므로 **단일 세트부터 적용**하는 것을 권장한다.
+      (관련 기지 결함: 다중세트 agg 경로에는 processing_ms 자체가 없다)
+  · BLOCKED 응답 경로도 query_timing 을 담지만 키가 하나 더 많다(total_elapsed_ms 포함,
+    stats_execute_service.py:68-101). source/target duration 키 이름은 동일하므로
+    같은 빌더로 읽어도 안전하다.
+
+──────────────────────────────────────────────────────────────────────────────
+C. 확인 — 그룹/집계 타일은 이번 통합 검토 대상이 아니다
+──────────────────────────────────────────────────────────────────────────────
+
+ 목적그룹 / 원본그룹 / 목적집계 / 원본집계 4개 타일은 **현재의 분리된 형태를 그대로 유지**한다.
+ 한 타일 안에서 원본/목적을 행으로 나누는 통합은 검토하지 않으며, 이번 제안의 변경 대상이
+ 아니다(3단계·4단계 모두 해당). §3 분류표에 4단계 그룹/집계가 (b) 로 남아 있는 것은 사실
+ 기록이며, 정정 지침에 따라 §6 권장안에서는 유지 대상으로 처리했다.
+
+
+================================================================================
+8. 위험·주의 (구현 시 참고)
+================================================================================
+
+· _mvTilesHtmlFromCols 는 3·4·5단계 공용이다. 값 렌더 규칙(kind:'multi' 등)을 건드리면
+  3·5단계까지 함께 바뀐다 — 컬럼 정의(_mvStage4Columns)만 수정할 것.
+· 5단계 '통계검증규모' 제거 시 cellId='mvSizeSummaryCell' 이 사라진다.
+  _mvUpdateSizeSummaryCell 은 셀이 없으면 조용히 return 하므로 즉시 깨지지는 않으나,
+  그 함수 안의 _mvComputeStatsScale 재산정 트리거도 함께 죽는다.
+  → window._mvStrategyPlan 은 3단계 목록 규모 셀·일괄검증에서도 쓰므로 트리거를 어디로
+    옮길지 먼저 정해야 한다. 단순 삭제로 끝나지 않는 유일한 항목이다.
+· 5단계 요약 빌더(_mvTargetSummary*)는 일괄검증 다건 목록과 공유된다. 개별 5단계만 바꾸려면
+  _mvStage5Columns 만 수정하고 _mvTargetSummaryView/CellsHtml 은 손대지 말 것.
+· 타일은 한 줄에 9칸까지만 들어간다(폭 실측 1256px · minmax(118px,1fr) · gap 10px).
+  10칸이 되면 9+1 로 줄이 갈라진다 — 어떤 안이든 9칸을 넘기지 않는다.
+  → 4단계 권장안이 정확히 9칸인 이유이며, '조합검증'과 '상태'를 동시에 넣을 수 없다.
+· 4단계 실행시간 분리는 '값 읽기 추가'라 SQL/판정 로직에 영향이 없다(표시 전용).
+  단 window._mvStage4ProcMs 를 쓰던 기존 슬롯 덮어쓰기 흐름(_mvShowStageProcessingTime(4,…))
+  을 어떻게 남길지 함께 정해야 한다 — 라벨 이원화가 사라지므로 정리 기회이기도 하다.
+
+================================================================================
+9. 조사 방법·범위
+================================================================================
+· 코드 정적 조사만 수행(서버 기동·브라우저 실행·코드 수정 0건).
+· 확인한 파일: ui/grid_helpers.py, ui/tabler_renderer.py, ui/js_sql_preview.py,
+  services/stats_execute_service.py, services/count_common_service.py,
+  services/count_exec_probe.py, routes/analyze_route.py, routes/count_route.py,
+  routes/generate_route.py, routes/execute_route.py, routes/validation_set_preview_route.py
+· 확인한 정의 함수: _mvQueryReviewColumns / _mvCountColumns + _MV_COUNT_TILE_* /
+  _mvCandidateColumns / _mvStage4Columns / _mvStage5Columns
+· 확인한 값 함수: _mvQueryReviewRows, _mvCountRows, _mvCountTileElapsed, _mvCandidateTileRow,
+  _mvStage4TileRow, _mvStage5TileRow, _mvTargetSummaryView, _mvStatsScaleText,
+  _mvUpdateSizeSummaryCell, _mvComputeStatsScale, _mvBuildStatsScaleProfile, _mvExecBasisHtml,
+  build_single_diagnostics, execute_stats_validation(query_timing)
+· 스크린샷 미첨부(코드 변경 없는 조사).
+
+✅ 작업 완료 - STAGE-TILE-CROSS-STAGE-DUPLICATION-SURVEY-AND-REDESIGN-PROPOSE - 진짜 중복 7칸(4단계 그룹/집계 4칸 + 4단계 처리시간=5단계 처리시간 + 5단계 통계검증규모 + 1단계 컬럼매핑수)과 정보량 0인 4단계 상태 1칸 확인, 처리시간 원본/목적 2행 분리는 서버가 이미 query_timing.source/target_duration_ms 를 보내는 통계검증 실행(4단계) 한 곳만 적용 대상이며(2단계는 COUNT 소요 타일로 이미 완료·1/3단계 및 SQL생성은 분리 불필요) 그룹/집계 타일은 현행 분리 형태 유지
