@@ -1251,7 +1251,59 @@ git -C E:/verify_reports worktree remove <임시경로>
 
 ## 기능 미완(설계는 끝났으나 구현 대기)
 
-### F31. 통계검증 규모 등급이 "GROUP BY/SUM/카디널리티 종합 반영" 원칙과 달리 사실상 COUNT 단독으로 결정된다(이 섹션 내 상대 우선순위 높음)
+### F36. 일괄검증이 개별검증에서 저장한 관리컬럼 확정(override)을 완전히 무시한다(이 섹션 내 상대 우선순위 높음)
+- 발견일: 2026-08-04
+- 근거 보고서: `ADMIN-COLUMN-CONFIRM-BUTTON-NONFUNCTIONAL-AND-BATCH-SCOPE-DIAGNOSE.txt` (§3-2)
+- 상세: `services/batch_runner.py` 의 `_build_core_candidates`(90-95행) 는 **`project_id` 파라미터가 아예 없고**,
+  `enrich_candidates_for_display` 호출부(139-146행)도 **`project_id` / `override_table_key` 를 전달하지 않는다**
+  (대조: `services/single_validation_analyze_service.py:1614-1615` 는 둘 다 전달).
+  그래서 사용자가 개별검증에서 "이 컬럼은 관리컬럼이 맞다" 고 확정해 두어도 **같은 프로젝트의 일괄검증은
+  그 지식을 무시**한다. 실측(`scripts/dev_e2e/admin_column_override_batch_scope_probe.py`, PASS=10 FAIL=0):
+  같은 프로젝트·같은 테이블·같은 컬럼인데 **개별검증 = `CONFIRMED`(`is_admin_audit_column=True`) /
+  일괄검증 = `NOT_AUDIT_AMBIGUOUS`(False)** 로 판정이 갈린다.
+  **성격은 미구현이지 설계상 배제가 아니다** — enricher 는 `project_id` 정식 인자를 이미 갖고 있고
+  (`services/candidate_display_enricher.py:1245-1246`), 그 함수 주석(1393행)도 "project_id 미전달(일괄검증 등)이면
+  조회 없이 컨텍스트만 붙는다" 라고 적어 **일괄을 인지한 채 배선을 미룬 상태**임이 확인된다.
+  덧붙여 일괄검증 경로에는 자동판정을 사람이 교정할 다른 수단이 **0건**이다(§3-3).
+- 대응 방향: `batch_runner` 호출부에 `project_id` / `override_table_key` 전달 배선을 추가한다
+  (**회귀 없음** — `project_id` 가 없으면 현재와 동일 동작이 유지되는 구조다).
+  단 **위험 항목**: 테이블 수가 많으면 컬럼당 1회 조회가 그대로 곱해지므로,
+  **프로젝트 단위 일괄 조회로 바꾸는 것을 함께** 해야 한다.
+- 관련: F4(관리컬럼 수동 확정 잔여 한계) · F37(PROJECT_COLUMN 범위 미노출) · M34(disabled 사유 미표시)
+- 참고: E:\verify_reports\ADMIN-COLUMN-CONFIRM-BUTTON-NONFUNCTIONAL-AND-BATCH-SCOPE-DIAGNOSE.txt
+
+### F37. 프로젝트 전체 일괄 적용(`PROJECT_COLUMN` 범위)이 백엔드엔 있으나 화면에 없다(심각도 LOW)
+- 발견일: 2026-08-04
+- 근거 보고서: `ADMIN-COLUMN-CONFIRM-BUTTON-NONFUNCTIONAL-AND-BATCH-SCOPE-DIAGNOSE.txt` (§3-4 · §5-P3)
+- 상세: `services/admin_column_override_store.py:44-46` 이 `SCOPE_TABLE_COLUMN` / `SCOPE_PROJECT_COLUMN` 을
+  **이미 지원**하고 API(`routes/admin_column_override_route.py:31`)도 두 값을 받는다. 실측으로
+  `PROJECT_COLUMN` 저장분이 다른 테이블 조회에서 `matched_scope='PROJECT_COLUMN'` 으로 **정상 해석**됨을 확인했다.
+  그런데 화면(`ui/js_admin_column_override.py:281`)이 `scope: 'TABLE_COLUMN'` 으로 **하드코딩**해
+  **항상 테이블 단위로만 저장**된다. 그 결과 `CREATED_BY` / `REG_DT` 처럼 전 테이블에 반복되는 관리컬럼을
+  **프로젝트당 1회로 확정할 수 없어**, 수백 테이블 규모에서는 반복 클릭이 필요해 사실상 사용 불가다.
+- 대응 방향: 화면에 `PROJECT_COLUMN` 범위 선택을 노출한다. 단 **되돌리기 부담이 크므로
+  확인 단계 + 적용 대상 미리보기**가 함께 필요하다.
+- 관련: F36(일괄검증 미배선 — 같은 클러스터) · F4
+- 참고: E:\verify_reports\ADMIN-COLUMN-CONFIRM-BUTTON-NONFUNCTIONAL-AND-BATCH-SCOPE-DIAGNOSE.txt
+
+### F31. ✅ 해결 완료(가중치를 먼저 낮춘 뒤 배선 — '잠정' 접두도 함께 제거) — 통계검증 규모 등급이 "GROUP BY/SUM/카디널리티 종합 반영" 원칙과 달리 사실상 COUNT 단독으로 결정된다
+- 해결일: 2026-08-04 (STATS-SCALE-REMOTE-FIXED-OVERHEAD-AND-CARDINALITY-WEIGHT-REBALANCE-FIX-RESUME)
+- 근거 커밋: 코드 저장소 `9514e2d` — `fix(strategy): 원격 고정가산 전환 + 카디널리티 배선·가중치 재조정
+  — '잠정' 접두 제거 (STATS-SCALE-REMOTE-FIXED-OVERHEAD-AND-CARDINALITY-WEIGHT-REBALANCE-FIX)`
+- 근거 보고서 커밋: 이 저장소 `5f8de17`(완료보고 `STATS-SCALE-REMOTE-FIXED-OVERHEAD-AND-CARDINALITY-WEIGHT-REBALANCE-FIX-RESUME`)
+- 해결 요약: 아래 '정정' 이 요구한 **순서(가중치 선(先)조정 → 배선 후(後)적용)** 를 그대로 지켰다.
+  ① 화면이 **이미 계산해서 갖고 있는** 축별 카디널리티를 `_mvBuildStatsScaleProfile` 에 실어
+  서버로 배선했다 — **추가 DB 왕복 0회**(원 대응 방향과 동일). ② 그 전에 그룹 계열 가중치를
+  **5.0 → 0.25** 로 재조정했다. 실측 41건 그리드서치로 최적값을 확정했고,
+  **지침이 제시한 0.46 은 실측에서 오히려 이전보다 나빴음을 반증**해 채택하지 않았다.
+  ③ 원격 보정을 배수에서 **고정가산**으로 전환했다.
+- **가장 큰 사용자 가시 변화**: 이 작업으로 **'잠정' 접두 자체가 최종 제거**됐다
+  (`잠정 중형` → `중형`). F32 의 밴드 실측 재조정으로 시간대 일치율이 85.0% 에 도달해,
+  "벤치마크 후 교체" 전제가 해소됐기 때문이다.
+- 회귀 안전: 전략 선택 게이트의 입력을 cost 보정값과 **분리**해, 화면 경로 **41/41 전략 ID 불변**을
+  확인했다(등급 표시만 이동하고 실행 전략은 바뀌지 않는다).
+- 관련: F32(밴드 재조정 — 같은 클러스터로 함께 해결) · F33(confidence 는 이 배선으로 자연 개선 여지 생김)
+- 참고: E:\verify_reports\STATS-SCALE-REMOTE-FIXED-OVERHEAD-AND-CARDINALITY-WEIGHT-REBALANCE-FIX-RESUME.txt
 - 발견일: 2026-08-03
 - 근거 보고서: `STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt` (§6-1 · §6-2 · §7-P2)
 - 상세: `ui/grid_helpers.py` 의 코드 주석은 **"원본 COUNT 만으로 등급 결정 금지"** 를 명시하지만,
@@ -1280,7 +1332,19 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt
 - 참고: E:\verify_reports\STATS-SCALE-COST-BAND-BENCHMARK-MEASURE.txt (§4 · §6-3)
 
-### F30. "예상 스캔 N행" 표기가 실측값인데 '예상' 으로 오표기된다(표시 전용 · 저위험)
+### F30. ✅ 해결 완료(2단 — 표기 정정 후 꼬리표 자체 제거) — "예상 스캔 N행" 표기가 실측값인데 '예상' 으로 오표기된다(표시 전용 · 저위험)
+- 해결일: 2026-08-04 (STATS-SCALE-TILE-SCAN-TEXT-REMOVE-FIX-RESUME)
+- 근거 커밋: 코드 저장소 `8e65b1f`(1차 — `fix(ui): 통계검증 규모 타일의 행수 표기 정정·출처 정렬
+  (STATS-SCALE-LABEL-SOURCE-ALIGN-FIX)`) → `1b53fff`(최종 — `fix(ui): 통계검증 규모 표시에서
+  스캔 행수 꼬리표 제거 — 등급만 표시 (STATS-SCALE-TILE-SCAN-TEXT-REMOVE-FIX-RESUME)`)
+- 근거 보고서 커밋: 이 저장소 `3aedd47`(1차) · `e3073eb`(최종)
+- 해결 요약: 1차로 대응 방향대로 **"예상 스캔 N행" → "원본 실측 N행"**(라이브) /
+  **"원본 N행 (저장 시점)"**(복원) 으로 정정했고, 최종적으로 **스캔 행수 표기 자체를 완전히 제거**해
+  `"잠정 <등급> · 원본 실측 N행"` 에서 `· 원본 실측 N행` 부분이 사라졌다(현재는 등급만 표시).
+  제거와 함께 **죽은 지역변수(`_scanPlain` 등)도 정리**했다. **등급 산정 로직은 무변경**이다.
+  (같은 줄의 '잠정' 접두는 이 항목의 범위가 아니었고, F31/F32 해결로 별도 제거됐다.)
+- 관련: F35(같은 줄의 스캔값 출처 불일치 — 1차에서 함께 해결) · F31/F32('잠정' 접두 제거)
+- 참고: E:\verify_reports\STATS-SCALE-TILE-SCAN-TEXT-REMOVE-FIX-RESUME.txt
 - 발견일: 2026-08-03
 - 근거 보고서: `STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt` (§4-2 · §7-P1)
 - 상세: 3단계 "통계검증규모" 타일의 스캔 행수는 **2단계 COUNT 사전검증의 실측값(`src_count`)을
@@ -1292,7 +1356,21 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: F35(같은 줄의 스캔값 출처 불일치) · F32('잠정' 접두는 이 항목의 범위가 아님)
 - 참고: E:\verify_reports\STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt
 
-### F32. 통계검증 규모 cost 밴드(8/16/24)가 벤치마크 없는 임시값이다(심각도 LOW)
+### F32. ✅ 해결 완료(F31 과 같은 클러스터 · 2단 조정) — 통계검증 규모 cost 밴드(8/16/24)가 벤치마크 없는 임시값이다(심각도 LOW)
+- 해결일: 2026-08-04 (STATS-SCALE-REMOTE-FIXED-OVERHEAD-AND-CARDINALITY-WEIGHT-REBALANCE-FIX-RESUME)
+- 근거 커밋: 코드 저장소 `7370489`(1차 — `fix(strategy): 통계검증 cost 밴드 실측 재조정 + 유효 스캔에
+  세트 수 반영 (STATS-SCALE-BAND-AND-SETCOUNT-ADJUST-FIX)`) → `9514e2d`(최종 — 위 F31 커밋)
+- 근거 보고서 커밋: 이 저장소 `c5ce4e2`(1차) · `5f8de17`(최종)
+- 해결 요약: 대응 방향대로 **실측 벤치마크 기반 회귀로 밴드를 교체**했다 —
+  **8/16/24 → 12.5/13.25/14.5(1차) → 12.9/14.15/15.5(최종)**. 1차에서 유효 스캔에 세트 수를
+  반영했고, 최종에서 F31 의 카디널리티 배선·가중치 재조정과 함께 밴드를 다시 잘랐다.
+  시간대 일치율 **80.0% → 85.0%**(LOO 교차검증 **70.0% → 85.0%**)로 개선을 확인했다.
+- 이에 따라 코드가 스스로 인정하던 "벤치마크 후 교체" 전제가 해소돼 **화면의 '잠정' 접두를 제거**했다
+  (F31 항목의 '가장 큰 사용자 가시 변화' 참조).
+- 잔여(미해결): 상수의 `config/size_threshold_registry.py` **단일 출처 이전은 미적용**이다(권장 사항이었음).
+- 관련: F31(카디널리티 배선 — 함께 해결) · F30('예상' 표기는 별건으로 해결)
+- 참고: E:\verify_reports\STATS-SCALE-BAND-AND-SETCOUNT-ADJUST-FIX.txt
+- 참고: E:\verify_reports\STATS-SCALE-REMOTE-FIXED-OVERHEAD-AND-CARDINALITY-WEIGHT-REBALANCE-FIX-RESUME.txt
 - 발견일: 2026-08-03
 - 근거 보고서: `STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt` (§5 · §7-P3)
 - 상세: 등급 경계 8/16/24 는 실측 벤치마크 없이 정해진 임시값이고, 코드 스스로 **"벤치마크 후 교체"**
@@ -1313,7 +1391,16 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: F31(선행 조건)
 - 참고: E:\verify_reports\STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt
 
-### F34. 폴백 등급 필드 `stats_scale_class` 가 소비처만 있고 생산 코드가 없다(죽은 필드 · 심각도 LOW)
+### F34. ✅ 해결 완료(제거를 택함) — 폴백 등급 필드 `stats_scale_class` 가 소비처만 있고 생산 코드가 없다(죽은 필드 · 심각도 LOW)
+- 해결일: 2026-08-04 (STATS-SCALE-CLASS-DEAD-FIELD-REMOVE-FIX)
+- 근거 커밋: 코드 저장소 `e46c0e8` — `refactor(ui): 통계검증 규모 표시의 죽은 필드 소비 분기 제거
+  (STATS-SCALE-CLASS-DEAD-FIELD-REMOVE-FIX)`
+- 근거 보고서 커밋: 이 저장소 `0a7c51e`(완료보고 `STATS-SCALE-CLASS-DEAD-FIELD-REMOVE-FIX`)
+- 해결 요약: 대응 방향의 두 선택지 중 **'죽은 필드 제거'** 를 택했다. 생산 코드가
+  **저장소 전체에 0곳**임을 전수 확인한 뒤 폴백 필드 `stats_scale_class` / `stats_scale_estimable`
+  소비 분기를 제거했다. **동작 변화 0** — 제거 전/후 브라우저 스크린샷 **9쌍이 md5 완전 동일**함을
+  실측으로 확인했고 신규 회귀 0건이다.
+- 참고: E:\verify_reports\STATS-SCALE-CLASS-DEAD-FIELD-REMOVE-FIX.txt
 - 발견일: 2026-08-03
 - 근거 보고서: `STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt` (§6-4)
 - 상세: `_mvStatsScaleText` 가 `profile.stats_scale_class` 를 등급으로 매핑하지만,
@@ -1322,7 +1409,16 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 대응 방향: 죽은 필드 제거를 검토하거나, 실제 생산 로직을 구현할지 여부를 결정해야 한다.
 - 참고: E:\verify_reports\STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt
 
-### F35. "통계검증 규모" 라벨과 실제 데이터 출처(전수비교 계획)가 불일치한다(현재 무증상 · 심각도 LOW)
+### F35. ✅ 해결 완료(선제 정렬 — 무회귀) — "통계검증 규모" 라벨과 실제 데이터 출처(전수비교 계획)가 불일치한다(현재 무증상 · 심각도 LOW)
+- 해결일: 2026-08-04 (STATS-SCALE-LABEL-SOURCE-ALIGN-FIX)
+- 근거 커밋: 코드 저장소 `8e65b1f` — `fix(ui): 통계검증 규모 타일의 행수 표기 정정·출처 정렬
+  (STATS-SCALE-LABEL-SOURCE-ALIGN-FIX)`
+- 근거 보고서 커밋: 이 저장소 `3aedd47`(완료보고 `STATS-SCALE-LABEL-SOURCE-ALIGN-FIX`)
+- 해결 요약: 대응 방향대로 스캔값 출처를 `full_compare_plan` 에서 **`stats_plan` 으로 정렬**해
+  라벨과 데이터가 일치하도록 고쳤다. 현재 두 값이 **항상 같다는 것을 실측으로 확인**했으므로
+  화면 숫자 변화는 없다(무회귀) — **향후 두 계획이 분화될 때를 대비한 선제 정렬**이다.
+- 관련: F30(같은 줄의 표기 정확성 — 같은 커밋에서 1차 해결, 이후 꼬리표 자체 제거)
+- 참고: E:\verify_reports\STATS-SCALE-LABEL-SOURCE-ALIGN-FIX.txt
 - 발견일: 2026-08-03
 - 근거 보고서: `STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt` (§6-5 · §7-P4)
 - 상세: '통계검증 규모' 줄의 스캔값이 `stats_plan` 이 아니라 **`full_compare_plan`(전수비교 계획)의
@@ -1780,6 +1876,20 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: S18(같은 SQL 로 발견됐으나 경로가 다름 — 이쪽은 서버 미도달) · M28
 - 참고: E:\verify_reports\CRITICAL-S15-S16-S18-LIVE-BROWSER-ORACLE-VERIFY\_REPORT.txt (§3-3)
 
+### M34. 관리컬럼 확정 버튼이 disabled 일 때 그 사유가 화면에 안 보인다(심각도 LOW)
+- 발견일: 2026-08-04
+- 근거 보고서: `ADMIN-COLUMN-CONFIRM-BUTTON-NONFUNCTIONAL-AND-BATCH-SCOPE-DIAGNOSE.txt` (§2-3 · §5-P1)
+- 상세: 작업 프로젝트 미선택 시 버튼이 `disabled` 로 렌더되고, 서버는 사유 문구를 `title` 속성에
+  정확히 실어 보낸다. 그런데 **브라우저가 disabled 요소에는 포인터 이벤트 자체를 주지 않아
+  `title` 이 도달 불가**하다(실제 마우스 클릭이 "element is not enabled" 로 timeout 난 것이 증거).
+  그래서 사용자에게는 **"버튼이 눌리지 않는다" 는 사실만 남고 "왜"(프로젝트를 먼저 선택하라)는 보이지 않는다**.
+  직전 작업(`1862899`)이 개선한 것은 "무엇이 클릭 가능한가" 의 구분이었고, "왜 지금 클릭할 수 없는가" 는
+  여전히 화면에 드러나지 않는다.
+- 대응 방향: 컨트롤을 감싸는 `span` 에 `title` 을 달거나(포인터 이벤트가 살아 있는 요소로 이동),
+  짧은 안내 문구를 텍스트로 병기한다.
+- 관련: F36 · F37(같은 진단서에서 나온 관리컬럼 확정 클러스터)
+- 참고: E:\verify_reports\ADMIN-COLUMN-CONFIRM-BUTTON-NONFUNCTIONAL-AND-BATCH-SCOPE-DIAGNOSE.txt
+
 ### M32. BLOCKED 응답에는 `query_timing` 이 없어 성능 추적에서 조용히 누락된다(심각도 LOW)
 - 발견일: 2026-08-03
 - 근거 보고서: `STATS-SCALE-COST-BAND-BENCHMARK-MEASURE.txt` (§7-2)
@@ -2082,7 +2192,26 @@ git -C E:/verify_reports worktree remove <임시경로>
   이제 1분 안에 명확한 메시지로 실패하므로 원인 조사가 가능한 상태다.
 - 참고: E:\verify_reports\TEST-NODE-SUBPROCESS-TIMEOUT-GUARD-ADD.txt
 
-### M4. 운영 SQLite 가드에 막혀 상시 실패하는 테스트군을 tmp_path 기반으로 전환
+### M4. ✅ 해결 완료(원인 진단 정정 — SQLite 가드가 아니었다) — 운영 SQLite 가드에 막혀 상시 실패하는 테스트군을 tmp_path 기반으로 전환
+- 해결일: 2026-08-03 (STEP-TAB-DOM-STABILITY-TEST-SQLITE-GUARD-FIX)
+- 근거 커밋: 코드 저장소 `a06827e` — `test(ui): 단계 탭 DOM 안정성 테스트 하니스의 개별 nav
+  소유자 계약 갱신 (STEP-TAB-DOM-STABILITY-TEST-SQLITE-GUARD-FIX)`
+- 근거 보고서 커밋: 이 저장소 `7d5fd96`(완료보고 `STEP-TAB-DOM-STABILITY-TEST-SQLITE-GUARD-FIX`)
+- 해결 요약: `tests/test_step_tab_dom_stability.py` **8건 전부가 통과**해, 회귀 신호를 가리던
+  '죽은 빨간 불' 이 해소됐다(**8 failed → 8 passed**, 운영 코드 무수정 · +7/-3 한 파일).
+  통과가 허위가 아님을 **돌연변이 검사**로 증명했다(노드 재사용 분기를 죽이면 8건 중 4건이 실패).
+- **원인 진단 정정(실측)**: 이 항목이 전제한 "운영 SQLite 가드([PROD-DB-WRITE-BLOCKED])에 막힌다" 는
+  **사실이 아니었다** — 해당 파일에는 운영 SQLite 경로 참조·`sqlite3` import 가 **아예 없고**,
+  실패 메시지에도 가드 문구가 없었다(실제는 node 런타임 `TypeError: … reading '_uid'`).
+  따라서 **`tmp_path` 전환은 대상 자체가 없어 적용 불가**였다. 진짜 원인은 **테스트 하니스의 낡은 계약** —
+  개별 nav 스텁 이름이 `showSingleStep` 이라 `renderMvStepNav` 가 소유자 판정(`onClick === _mvNavClick`)에서
+  일괄 writer 로 오판해 **조기 return** 했고, DOM 이 0개라 이후 단정이 전부 null 참조로 붕괴한 것이었다.
+  스텁 이름을 `_mvNavClick` 으로 맞춰 해소했다.
+- 잔여(미해결): 이 항목이 예시로 든 **`test_batch_report_service.py` 등 다른 테스트군은 이번 범위 밖**이다.
+  또한 M5 는 같은 파일(`test_step_tab_dom_stability.py`)을 가리키므로 사실상 함께 해소됐으나,
+  본 등록 지침의 범위가 M4 뿐이라 M5 항목 표기는 그대로 두었다(다음 정리 대상).
+- 관련: M5(같은 파일·같은 8건 — 원인 진단 문구 정정 필요)
+- 참고: E:\verify_reports\STEP-TAB-DOM-STABILITY-TEST-SQLITE-GUARD-FIX.txt
 - 발견일: 2026-07-29
 - 근거 보고서: `COMBO-PAIR-ENTRY-POINT-RESTORE-IMPLEMENT-RESUME.txt` (§6)
 - 상세: `test_batch_report_service.py` 등. 회귀 신호를 가리는 노이즈라 별도 작업으로 고치는 편이 낫다.
