@@ -1,0 +1,232 @@
+작업명 : COUNT-PRECHECK-ELAPSED-TIME-TILE-REPLACE-FIX
+작성일 : 2026-08-04
+대상   : 개별검증 2단계(COUNT 사전검증) 상단 타일 — '검증항목' → 'COUNT 소요' 교체
+수정   : ui/tabler_renderer.py 1개 (제품 코드)
+
+
+────────────────────────────────────────────────────────────────────────────
+1. 요청 요약과 배경
+────────────────────────────────────────────────────────────────────────────
+2단계 타일의 3번째 칸 '검증항목'은 값이 항상 'COUNT' 로 고정이라 타일 한 칸을 차지하면서
+정보량이 0이었다. 그 자리에 서버가 이미 /count 응답에 담아 보내는 원본/목적지 개별 COUNT
+소요시간(source_count_elapsed_ms / target_count_elapsed_ms)을 표시한다.
+
+지금 특히 필요한 이유(실측으로 재확인):
+  오늘 완료된 COUNT-PAIR-PARALLEL-EXECUTION-FIX 이후 원본/목적지 COUNT 는 병렬로 실행된다.
+  이번 실측에서 원본 21,876.8ms + 목적 20,329.0ms = 42,205.8ms 인데 총시간(processing_ms)은
+  21,888.7ms 였다. 즉 총시간에서 개별 소요를 역산하는 것이 원리적으로 불가능하다.
+  개별값은 응답에서 직접 읽어 표시하는 방법밖에 없다.
+
+
+────────────────────────────────────────────────────────────────────────────
+2. 구현 — 공유 정의 오염 없이 '타일 표시 계층에서만' 교체 (진단서 R1 대응)
+────────────────────────────────────────────────────────────────────────────
+공유 컬럼정의 `_mvCountColumns()`(ui/grid_helpers.py, 567행)는 한 글자도 건드리지 않았다.
+교체는 전부 ui/tabler_renderer.py 의 2단계 타일 계층에서만 이뤄진다.
+
+  · `_MV_COUNT_TILE_ORDER`   : 'check' → 'elapsed' (순서 규약)
+  · `_MV_COUNT_TILE_DROP`    : 신설 — 타일에서만 'check'(검증항목) 컬럼을 숨긴다
+  · `_MV_COUNT_TILE_VIRTUAL` : 신설 — 타일에만 있는 가상 컬럼 'elapsed'(COUNT 소요) 주입
+  · `_mvCountTileCols()`     : 위 두 규약을 반영해 컬럼 배열을 재구성(원본 배열 비파괴)
+  · `_mvCountTileElapsed(c)` : 신설 — 값/툴팁 생성. 응답 필드를 그대로 읽는다(새 계측 없음)
+  · `_mvCountTilesHtml()`    : 'elapsed' 필드만 별도 분기로 다줄 렌더
+  · `_mvCountPreknownRow()`  : 실행 전 즉시표시에서 `check:'COUNT'` 제거 (요구사항 3)
+
+값/표시 규격은 전부 기존 것을 재사용했다(새 포맷 발명 없음).
+  · 다줄 값  : 3단계 GROUP BY 타일의 kind:'multi' 규격 그대로 — 배열을 `<br>` 로 이어
+               `<span class="mv-qr-tile-val is-mono">` 안에 표시
+  · ms→초    : 기존 `_mvFmtStageDur`(처리시간 타일이 쓰는 것) 그대로. 소수 2자리,
+               10ms 미만은 '0.01초 미만'
+  · 값 부재  : 기존 '—'(is-empty) 경로 재사용. 새 분기를 만들지 않았다(진단서 R4)
+
+툴팁(요구사항 1 + 차선안 절충):
+  원본 {source}ms / 목적지 {target}ms · 총 {processing}ms(병렬 실행, 차액은 서버 파싱·COUNT
+  SQL 생성 오버헤드) · COUNT SQL 생성방식: {count_generation_method}
+
+
+────────────────────────────────────────────────────────────────────────────
+3. 실측 검증 — 실제 운영 서버 + 실 DB 브라우저 실측
+────────────────────────────────────────────────────────────────────────────
+하니스 : scripts/dev_e2e/count_precheck_elapsed_time_tile_verify.py (신규, before|after)
+페어   : PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe (내부망 실 DB)
+대상   : asis01.t_as_n_etl04(12,000,000행) → tobe01.t_to_n_etl04(11,399,411행)
+서버   : before = 수정 전 모듈을 로드한 실행 중 서버 / after = 재기동 후 동일 절차
+
+■ ① 탭 진입 직후(COUNT 실행 전)
+   before : 목적 테이블 | 원본 테이블 | [검증항목='COUNT'] | — | — | — | — | —
+   after  : 목적 테이블 | 원본 테이블 | [COUNT 소요='—' ] | — | — | — | — | —
+   → 소요시간은 실행 결과이므로 실행 전에는 '—'. 즉시표시 원칙과 일치.
+   (before_A_count_card_clip.png / after_A_count_card_clip.png)
+
+■ ② COUNT 실행 후
+   서버 응답 원본값 : source_count_elapsed_ms=21876.8, target_count_elapsed_ms=20329.0,
+                      processing_ms=21888.7, count_generation_method=PARSED_MODEL_COUNT_SQL
+   화면 표시        : "원본 21.88초" / "목적 20.33초" (2줄)
+   반올림 검산      : 21876.8ms → 21.88초 ✔ / 20329.0ms → 20.33초 ✔ (소수 2자리 반올림 일치)
+   (after_C_count_card_clip.png)
+
+■ ③ 툴팁 (DOM title 속성 실측 전문)
+   "원본 21876.8ms / 목적지 20329ms · 총 21888.7ms(병렬 실행, 차액은 서버 파싱·COUNT SQL
+    생성 오버헤드) · COUNT SQL 생성방식: PARSED_MODEL_COUNT_SQL"
+   → 개별시간 + 총시간 + 오버헤드 설명 + 차선안(생성방식) 전부 정확히 표시됨.
+   ※ 이 툴팁은 다른 모든 타일과 동일한 브라우저 네이티브 title 속성이다. 네이티브 툴팁은
+     OS 레이어에 그려져 Playwright 스크린샷에 찍히지 않으므로, 위 전문은 DOM 속성 직접
+     판독으로 확인했다(JSON 증적 D_툴팁_전문 필드). before 의 같은 자리는 툴팁이 '' 였다.
+
+■ ④ 나머지 7개 타일 무회귀 (before vs after)
+   목적 테이블  tobe01.t_to_n_etl04  =  tobe01.t_to_n_etl04   동일
+   원본 테이블  asis01.t_as_n_etl04  =  asis01.t_as_n_etl04   동일
+   목적건수     11,399,411           =  11,399,411            동일
+   원본 건수    12,000,000           =  12,000,000            동일
+   차이         +600,589             =  +600,589              동일
+   상태         ● 불일치             =  ● 불일치              동일
+   처리시간     21.19초              vs 21.89초               ← 표시 회귀 아님
+     · 이 값은 그 실행의 실측 DB 시간(processing_ms)이다. before 21190.4ms / after 21888.7ms
+       로 서로 다른 실행이므로 값이 다른 것이 정상이며, 두 값 모두 각자의 응답값을 정확히
+       포맷한 결과다(21190.4→21.19초, 21888.7→21.89초).
+   pageerror : before/after 모두 동일하게 기존 404 콘솔 경고 1건뿐, 신규 오류 0건.
+
+■ ⑤ 일괄검증 COUNT 그리드 무회귀 (공유 정의 미오염의 최종 증거)
+   같은 페이지 컨텍스트에서 공유 함수를 직접 호출해 before/after 를 문자열 비교했다.
+     · `_mvCountColumns()` 정의       : 완전 동일 (진입 직후·COUNT 실행 후 두 시점 모두)
+       after 실측 titles = ['원본 테이블','목적 테이블','검증항목','원본 건수','대상 건수',
+                            '차이','처리시간','상태']  ← '검증항목' 그대로 살아 있음
+     · `_mvCountGridHtml(샘플)` 출력  : 완전 동일 (799자 / 실행 후 857자, 바이트 단위 일치)
+     · `_mvCountGridData(샘플)` 컬럼  : 완전 동일
+       (['원본 테이블','목적 테이블','쿼리검토','검증항목','원본 건수','대상 건수','차이',
+         '처리시간','상태'])
+     · `_mvCountGridData(샘플)` rows  : 완전 동일
+   일괄검증 화면 테이블별 COUNT 결과표(#batchValidTable)
+     · 헤더 ['목적지 테이블','COUNT(원본)','COUNT(목적지)','COUNT 판정'] — before/after 동일
+     · 이 표는 정적 HTML 헤더를 쓰며 `_mvCountColumns()` 를 경유하지 않는다(구조상 무영향).
+   (before_F_batch_count_grid.png / after_F_batch_count_grid.png)
+
+
+────────────────────────────────────────────────────────────────────────────
+4. 자체 테스트
+────────────────────────────────────────────────────────────────────────────
+■ 계약 갱신한 테스트 (실패가 아니라 계약 변경)
+   tests/test_count_precheck_tile_layout.py
+     · EXPECT_LABELS 3번째를 '검증항목' → 'COUNT 소요' 로 갱신
+     · 즉시표시 대상(IMMEDIATE)에서 '검증항목' 제거
+     · 실행 후 값 단정에 'COUNT 소요' == "원본 1.18초 목적 0.90초" 추가
+     · SKIPPED(값 부재) 케이스에 'COUNT 소요' == "—" 추가
+     · 신규 test_elapsed_tile_value_tooltip_and_null_handling  — 다줄 규격/툴팁 4요소/
+       10ms 미만 '0.01초 미만'/한쪽만 계측/실행 전 '—' 5가지 단정
+     · 신규 test_shared_count_columns_definition_untouched     — R1 재발 방지 가드
+       (공유 정의에 '검증항목'이 그대로 있고 'elapsed'·'COUNT 소요'가 새어 들지 않았음을
+        grid_helpers 소스에서 직접 검사)
+   tests/test_step2_step3_tile_immediate_display.py
+     · S2_LABELS 3번째 갱신, [A1] 즉시표시 목록에서 '검증항목' 제거(대신 '검증항목' 라벨이
+       화면에서 사라졌음을 단정), [A3] 실행 후 'COUNT 소요' 2줄 표시 단정 추가
+
+■ 지침이 지정한 무회귀 게이트
+   tests/test_grid_helpers.py — 갱신 없이 그대로 통과 ✔ (공유 정의 미오염의 테스트 증거)
+
+■ 3개 파일 동시 실행
+   python -m pytest tests/test_count_precheck_tile_layout.py \
+                    tests/test_step2_step3_tile_immediate_display.py \
+                    tests/test_grid_helpers.py -q
+   → 28 passed in 5.21s (실패 0)
+
+■ 관련 서브셋 + baseline 대조 (신규 회귀 확인)
+   대상: pytest tests/ -k "tile or count or step2 or step3 or grid or tabler or renderer or
+                           js_bundle or syntax" -p no:randomly
+   baseline: git worktree(9514e2d, 수정 전) — 지침대로 test_11def_scenarios.py /
+             test_12k_stress.py 는 --ignore (worktree 에서 절대경로 오염으로 수집 실패)
+
+   baseline : 42 failed, 1437 passed, 25 skipped, 3 errors  (FAILED+ERROR 45줄)
+   after    : 43 failed, 1445 passed, 18 skipped, 3 errors  (FAILED+ERROR 45줄)
+
+   양쪽 실패목록 차집합 2건뿐이며, 둘 다 단독 실행 시 통과하는 순서 의존(flaky) 항목이고
+   이번 변경 영역(타일 렌더)과 무관하다:
+     · after 에만: tests/test_task11_cand_sem.py::TestTokenMatching::test_22a_account_id_is_identifier
+     · base  에만: tests/test_candidate_scoring_dashboard_static.py::TestDataIntegrity::
+                   test_unknown_reason_counts_match_summary
+   → 단독 재실행 결과: `2 passed in 1.73s` (둘 다 통과)
+   결론: 이번 수정으로 인한 신규 회귀 0건.
+
+■ 실패 테스트 전체 목록 (서브셋 실행 기준, 45줄 — 표시 없는 항목은 baseline 에서도 동일하게
+  실패하는 사전 존재 실패다. 이번 변경으로 새로 깨진 테스트는 0건)
+   ERROR tests/test_batch_upload_audit.py::test_audit_counts_and_missing_reasons
+   ERROR tests/test_upload_visibility_and_cte_count.py::test_audit_shows_all_rows_with_summary
+   FAILED tests/test_all_stages_timing_display_expand.py::test_count_generate_execute_routes_add_processing_ms
+   FAILED tests/test_batch_flow2_e2e_smoke.py::test_plan_mode_count_sum_only
+   FAILED tests/test_batch_report_service.py::TestBuildBatchExcelReport::test_R07_items_sheet_row_count
+   FAILED tests/test_candidate_draft_selection.py::test_uncheck_all_does_not_switch_to_count_only_before_apply
+   FAILED tests/test_candidate_role_policy_grid.py::test_global_limit_banner_and_count_same_input_no_lock
+   FAILED tests/test_count_gate.py::test_ui_gate_display_and_blocking
+   FAILED tests/test_count_only_validation_ui.py::test_group_result_uses_normal_renderer_unchanged
+   FAILED tests/test_count_sql_full_visibility.py::test_count_sql_pre_boxes_no_clip_and_order
+   FAILED tests/test_count_sql_full_visibility.py::test_render_count_result_full_sql_and_copy_equivalence
+   FAILED tests/test_cte_count_execution_and_projection.py::test_ui_count_note_and_auto_audit
+   FAILED tests/test_d7_9_gb0_fallback.py::test_gate_gb0_always_grid
+   FAILED tests/test_error_contract_route_coverage.py::test_count_mismatch_keeps_data_contract_not_exec
+   FAILED tests/test_error_contract_route_coverage.py::test_count_source_error
+   FAILED tests/test_error_contract_route_coverage.py::test_count_target_error
+   FAILED tests/test_exact_diff_ui_wiring.py::test_record_grid_and_kind_filter_and_order
+   FAILED tests/test_fallback_provenance_already_count_fix.py::test_frontend_no_alternative_risk_flag_shows_distinct_text
+   FAILED tests/test_fallback_provenance_already_count_fix.py::test_frontend_uses_server_warn_reason_not_hardcoded_text
+   FAILED tests/test_group_master_crud.py::TestQueryUploadResultRender::test_count_message_format
+   FAILED tests/test_groupby_estimated_group_count_ui.py::test_estimate_uses_cardinality_evidence
+   FAILED tests/test_groupby_estimated_group_count_ui.py::test_renderer_estimate_summary_evidence_wiring
+   FAILED tests/test_iv08_iv11_final_fix.py::test_count_only_pane_makes_header_non_sticky
+   FAILED tests/test_numeric_tolerance_policy.py::test_15_count_skip_regression
+   FAILED tests/test_one_click_critical_hold_route_to_normal_gate.py::test_real_count_error_still_uses_error_panel_unchanged
+   FAILED tests/test_one_click_full_run.py::test_count_chip_no_manual_progress_badge
+   FAILED tests/test_operational_stability.py::TestNumericTolerance::test_D_count_not_affected_by_tolerance
+   FAILED tests/test_result_view_ui_wiring.py::test_node_count_skipped_warning
+   FAILED tests/test_results_menu_batch_detail_page.py::test_results_reuses_unified_renderer
+   FAILED tests/test_row_error_save_block.py::TestRowErrorCounts::test_21_rows_1_error
+   FAILED tests/test_row_limit_policy.py::test_src_only_tgt_only_counted_beyond_display
+   FAILED tests/test_selection_baseline_dirty.py::test_count_only_notice_uses_live_selection
+   FAILED tests/test_single_batch_execute_parity.py::test_count_skipped_executes_with_warning
+   FAILED tests/test_single_save_group_registration.py::test_save_registers_target_and_count_increases
+   FAILED tests/test_single_status_ux_cleanup.py::test_ui_count_mismatch_clarified
+   FAILED tests/test_single_validation_e2e_core.py::test_e2e_execute_count_exact_sum_tolerance
+   FAILED tests/test_single_validation_result_view_persistence.py::test_count_precheck_not_run
+   FAILED tests/test_task11_cand_sem.py::TestTokenMatching::test_22a_account_id_is_identifier   ← baseline 미포함(단독 실행 시 통과 — 순서 의존)
+   FAILED tests/test_task12_a.py::TestCountOnlyExecution::test_03_count_only_with_empty_sum
+   FAILED tests/test_task12_a.py::TestCountOnlyExecution::test_03_no_groupby_no_sum_count_only
+   FAILED tests/test_task12_a.py::TestExecuteResultStructure::test_06_summary_counts_correct
+   FAILED tests/test_upload_audit_store.py::TestCollectionTargets::test_source_and_target_listed_dedup_and_sql_count
+   FAILED tests/test_upload_audit_store.py::TestPersistAndCurrent::test_latest_replaces_previous_and_prev_count
+   FAILED tests/test_upload_visibility_and_cte_count.py::test_ui_separates_lists_and_count_note
+   FAILED tests/test_validation_plan_renderer_static.py::test_v05_count_only_explicit_confirm_gate
+
+────────────────────────────────────────────────────────────────────────────
+5. 비판적 검토 (위험과 대응)
+────────────────────────────────────────────────────────────────────────────
+· 공유 정의 오염(R1) — 가장 큰 위험이었다. DROP/VIRTUAL 두 규약으로 타일 계층에만
+  국한했고, grid_helpers.py 는 diff 0줄이다. 재발 방지 가드 테스트도 추가했다.
+· heuristic 증가 — 없음. 새 판정·새 임계값·새 계측이 없고, 서버가 이미 보내는 필드를
+  포맷만 바꿔 표시한다.
+· explainability — 오히려 개선. 병렬 실행 때문에 총시간에서 역산 불가였던 개별 소요를
+  화면에 드러내고, 근거(개별 ms·총 ms·차액의 정체)를 툴팁에 남긴다.
+· 남은 사실(이번 범위 밖, 참고) — 2단계 커맨드바 버튼을 결과 렌더 후 한 번 더 누르면
+  `_mvShowCountSqlGate` → `_mvRenderCountHeaderOnly(true)` 가 #countResult 를 placeholder
+  로 되돌려 방금 채운 타일 값이 전부 '—' 로 지워진다(before/after 동일하게 재현). 이번
+  변경과 무관한 기존 동작이며, 이 실측에서는 클릭을 정확히 2회로 제한해 회피했다.
+
+
+────────────────────────────────────────────────────────────────────────────
+6. 변경 파일
+────────────────────────────────────────────────────────────────────────────
+제품 코드 (1개)
+  ui/tabler_renderer.py
+계약 테스트 (2개)
+  tests/test_count_precheck_tile_layout.py
+  tests/test_step2_step3_tile_immediate_display.py
+검증 하니스 (1개, 신규)
+  scripts/dev_e2e/count_precheck_elapsed_time_tile_verify.py
+무수정 확인
+  ui/grid_helpers.py (공유 컬럼정의) — 변경 0줄
+  tests/test_grid_helpers.py         — 변경 0줄, 그대로 통과
+
+
+────────────────────────────────────────────────────────────────────────────
+7. 실검증 상태
+────────────────────────────────────────────────────────────────────────────
+실검증 상태: 실 DB(내부망 PostgreSQL asis→tobe, 12,000,000행) 실제 운영 서버 브라우저
+실측 완료 — before/after 각 1회 완주, 서버 응답 원본값과 화면 표시·툴팁 대조 확인,
+일괄검증 COUNT 그리드 무회귀 확인, 신규 pageerror 0건.
