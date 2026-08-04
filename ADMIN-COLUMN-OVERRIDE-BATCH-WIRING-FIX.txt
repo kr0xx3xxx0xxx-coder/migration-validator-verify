@@ -1,0 +1,255 @@
+작업명 : ADMIN-COLUMN-OVERRIDE-BATCH-WIRING-FIX
+✅ 작업 완료 - ADMIN-COLUMN-OVERRIDE-BATCH-WIRING-FIX - 개별검증에서 저장한 관리컬럼 확정이 일괄검증
+판정에 반영되도록 배선하고, 지침이 지목한 성능 위험(컬럼당 조회 곱셈)은 프로젝트 단위 1회 조회 색인으로
+차단했다(20테이블 실측 조회 1회 · 단순 배선이었다면 159회)
+
+작성일: 2026-08-04
+커밋: 0544546  (직전 HEAD 4546941)
+
+════════════════════════════════════════════════════════════════════════════════
+0. 결론 요약
+════════════════════════════════════════════════════════════════════════════════
+  · 요구 1~2(배선)   : 완료. batch_runner 가 project_id / override_table_key 를 enricher 에
+                      전달한다. 개별검증에서 AUDIT 확정한 컬럼이 일괄검증에서도
+                      is_admin_audit_column=True / admin_audit_verdict=CONFIRMED 로 나온다.
+  · 요구 3(성능 위험) : 완료. 프로젝트 확정 전체를 **1회 조회**해 메모리 색인을 만들고 컬럼별 판정은
+                      순수 함수로 해결한다. run 당 1회 · item 당 0회.
+  · 요구 4(무회귀)   : 완료. project_id 가 없으면 조회를 **아예 하지 않는다**(0회). 자동판정 값도
+                      수정 전과 동일하다.
+  · 추가 발견 및 처리 : 지침이 지목한 batch_runner 는 **legacy 경로**였다(D8-2, 기본 차단).
+                      실제 UI 일괄검증이 타는 공식 경로(batch_single_core_wrapper →
+                      run_single_validation_standard)도 project_id 를 떨어뜨리고 있어,
+                      batch_runner 만 고치면 사용자 화면에서는 아무것도 달라지지 않는다.
+                      → 공식 경로 1줄도 함께 배선했다(아래 §2-4). 이 판단 근거를 §2-4에 명시한다.
+
+════════════════════════════════════════════════════════════════════════════════
+1. 문제 (수정 전)
+════════════════════════════════════════════════════════════════════════════════
+services/batch_runner.py:91  _build_core_candidates(...) 에 project_id 파라미터가 없고,
+services/batch_runner.py:139 enrich_candidates_for_display(...) 호출부도 project_id /
+override_table_key 를 넘기지 않았다. enricher 는 project_id 가 없으면 확정 조회를 건너뛰므로
+(candidate_display_enricher.py:1393 주석이 이 갭을 인지한 채 배선을 미뤄둔 상태), 개별검증에서
+저장한 확정은 일괄검증에서 통째로 무시됐다.
+
+근거: E:\verify_reports\ADMIN-COLUMN-CONFIRM-BUTTON-NONFUNCTIONAL-AND-BATCH-SCOPE-DIAGNOSE.txt §3-2
+
+════════════════════════════════════════════════════════════════════════════════
+2. 수정 내용
+════════════════════════════════════════════════════════════════════════════════
+
+2-1. services/admin_column_override_store.py  (+93행) — 프로젝트 단위 일괄 조회 API 신설
+─────────────────────────────────────────────────────────────
+  build_override_index(project_id, db_path=None) -> dict | None
+      프로젝트의 확정 전체를 **SELECT 1회**로 읽어 색인 생성.
+      { project_id, table_column:{(TABLE,COL):row}, project_column:{COL:row}, row_count }
+      project_id 가 비면 None(조회하지 않음). 조회 실패는 raise 하지 않고 빈 색인 + error 필드.
+
+  resolve_override_from_index(index, column_name, table_key, current_auto_verdict) -> dict|None
+      DB 미접속 **순수 함수**. 우선순위(TABLE_COLUMN > PROJECT_COLUMN > 자동판정)와 STALE 계산은
+      기존 resolve_override 와 같은 단일 출처(evaluate_staleness)를 그대로 쓴다 — 판정 규칙을
+      두 벌 두지 않았다. 기존 resolve_override / get_override 는 **한 줄도 바꾸지 않았다**.
+
+2-2. services/candidate_subtype_service.py  (+35/-9행) — 조회 방식 전환(판정 로직 불변)
+─────────────────────────────────────────────────────────────
+  apply_admin_column_overrides(..., override_index=None) 인자 추가.
+    ① 주입 색인이 있고 project_id 가 일치하면 그 색인으로 해결(조회 0회).
+    ② 주입 색인이 없으면 **이 호출 한정으로 1회만** 색인을 만든다.
+       이 함수는 한 테이블의 후보 전체를 한 번에 받으므로, 컬럼마다 resolve_override 를 도는
+       기존 방식(컬럼당 최대 2회 connect+SELECT)보다 항상 적다 — 컬럼 M개 기준 2M회 → 1회.
+       (개별검증 경로도 이 개선을 그대로 받는다.)
+    ③ 다른 프로젝트의 색인이 섞여 들어오면 쓰지 않는다(교차 오염 차단 — 실측 검증됨).
+  덮어쓰기 규칙 / *_auto 보존 / note_tags 처리는 **전혀 건드리지 않았다**.
+
+2-3. services/candidate_display_enricher.py  (+7/-2행) — 전달 통로
+─────────────────────────────────────────────────────────────
+  enrich_candidates_for_display(..., admin_override_index=None) 인자 추가 → Step 4-a 로 위임.
+  기존 인자·순서·반환값 불변(키워드 전용 인자 추가).
+
+2-4. services/batch_runner.py  (+85/-4행) — 지침의 주 수정 대상
+─────────────────────────────────────────────────────────────
+  _build_core_candidates(..., project_id, override_table_key, admin_override_index) 추가.
+    enrich 호출부에 개별검증(single_validation_analyze_service.py:1614-1615)과 **동일 패턴**으로
+    전달. override_table_key 미지정이면 그 item 의 목적지 테이블을 키로 쓴다.
+  analyze_item(..., project_id, admin_override_index) 추가.
+    인자 > item["project_id"] 순으로 조회 키를 정하고, 색인이 주입되지 않은 단건 호출(재처리 등)은
+    이 호출 한정으로 1회만 색인을 만든다. profile 재산출로 _build_core_candidates 가 2회 호출돼도
+    같은 색인을 재사용한다(추가 조회 0).
+  run_batch(..., project_id) 추가.
+    **run 당 1회** 색인을 만들어 모든 item 이 공유(item 당 추가 조회 0). project_id 미전달이면
+    items 가 실어온 project_id 로 폴백하고, 그것도 없으면 색인을 만들지 않는다.
+  retry_batch_item: 재구성 item 에 project_id 를 실어 재처리도 동일하게 확정을 적용.
+
+2-5. services/batch_single_core_wrapper.py  (+5행) — 공식 일괄 경로 (지침 범위 밖 · 판단 근거 명시)
+─────────────────────────────────────────────────────────────
+  batch_row_to_single_standard_request() 가 SingleRunStandardRequest 에 project_id 를 싣지 않아,
+  공식 경로도 개별 core 에서 getattr(req,"project_id","") == "" 가 되어 확정을 무시하고 있었다.
+
+  이 1줄을 함께 넣은 이유:
+    · batch_runner 는 D8-2 로 **기본 차단된 legacy** 다(legacy_batch_exec_disabled() 기본 True,
+      UI/API 라우트가 호출하지 않음). 지침의 실측 요구("같은 프로젝트로 일괄검증을 실행해서 반영되는지")
+      는 batch_runner 만 고쳐서는 화면에서 충족되지 않는다.
+    · SingleRunStandardRequest 는 AnalyzeRequest 를 상속해 project_id 필드를 **이미** 갖고 있었고,
+      개별 core 는 그 값을 이미 소비하고 있었다 — 값을 채우지 않고 있었을 뿐이다(신규 구조 0).
+    · 조회 비용은 컬럼별이 아니라 테이블당 1회다(§2-2 ②). row 단위 실행이라 run 단위 색인은
+      공유할 수 없으므로 테이블당 1회가 이 경로의 하한이다.
+  ※ 지침이 명시한 범위를 넘는 변경이므로 여기 별도 항목으로 고지한다. 되돌리려면 이 5줄만 제거하면
+    되고 나머지 배선은 그대로 유효하다.
+
+════════════════════════════════════════════════════════════════════════════════
+3. 실측 — 전/후 (개별↔일괄 판정 일치)
+════════════════════════════════════════════════════════════════════════════════
+스크립트: scripts/dev_e2e/admin_column_override_batch_wiring_verify.py   **PASS=28 FAIL=0**
+(DB 접속 불필요 — 저장소 SQLite + 후보 enrich 계약. 검증 전용 프로젝트 자동 생성/정리)
+
+사전 조건 — 개별검증에서 확정했다고 가정한 2건 저장
+    DEPT_CD    scope=TABLE_COLUMN   table=MV_ADMOVR_TGT_01   decision=AUDIT
+    CREATED_BY scope=PROJECT_COLUMN table=(전체)             decision=AUDIT
+
+  ┌ BEFORE 재현 (project_id 미전달 = 수정 전 batch_runner 와 동일 배선) ─────────────────
+  │   batch_runner.analyze_item(item, "oracle", "oracle")
+  │     DEPT_CD    : verdict=NOT_AUDIT_AMBIGUOUS  is_admin_audit_column=False  override=None
+  │     CREATED_BY : verdict=CONFIRMED            is_admin_audit_column=True   override=None
+  │     ctx.project_id_present=False              저장소 조회 0회
+  └ → 저장한 확정이 판정에 전혀 반영되지 않음(진단 §3-2 재현)
+
+  ┌ AFTER (project_id 전달 = 수정 후 배선) ─────────────────────────────────────────
+  │   batch_runner.analyze_item(dict(item, project_id=<PID>), "oracle", "oracle")
+  │     DEPT_CD    : verdict=CONFIRMED  is_admin_audit_column=True  override=AUDIT
+  │                  matched_scope=TABLE_COLUMN
+  │                  admin_audit_verdict_auto=NOT_AUDIT_AMBIGUOUS ← 자동판정 원값 보존
+  │     CREATED_BY : verdict=CONFIRMED  is_admin_audit_column=True  override=AUDIT
+  │                  matched_scope=PROJECT_COLUMN (테이블 무관 범위도 정상 매칭)
+  │     ctx.project_id_present=True
+  └ → ★ 같은 컬럼 판정이 BEFORE False → AFTER True 로 뒤집힘
+
+  ┌ 개별 ↔ 일괄 일치 ────────────────────────────────────────────────────────────
+  │   개별검증 경로(enrich_candidates_for_display(project_id=..., override_table_key=...))
+  │       DEPT_CD : verdict=CONFIRMED  is_admin=True
+  │   일괄검증 경로(batch_runner.analyze_item)
+  │       DEPT_CD : verdict=CONFIRMED  is_admin=True
+  └ → 진단이 지적한 "개별 CONFIRMED / 일괄 NOT_AUDIT_AMBIGUOUS" 분기 해소
+
+════════════════════════════════════════════════════════════════════════════════
+4. 실측 — 조회 횟수 계측 (지침 ⚠️ 위험 항목 대응)
+════════════════════════════════════════════════════════════════════════════════
+계측 방법: admin_column_override_store._connect 를 카운터로 감싼다(커넥션 1회 = 저장소 조회 1회).
+대상: 목적지 테이블 20개 × 컬럼 4개(DEPT_CD / CREATED_BY / SALE_AMT / SALE_QTY).
+
+  경로                                                   조회 횟수
+  ─────────────────────────────────────────────────────  ────────
+  run_batch(20 테이블, project_id 전달)  ← 수정 후 실제      **1회**
+  단순 배선이었다면(컬럼마다 resolve_override)              159회   ← 대조 실측
+  analyze_item 단건(색인 미주입 — 재처리 경로)               1회
+  project_id 미전달(무회귀 경로)                             0회
+
+  · run_batch 20건 전부 ANALYZE_OK, 확정 적용 20/20 테이블(PROJECT_COLUMN 범위 정상 전파).
+  · 159회는 20×4×2 = 160 에서 1을 뺀 값이다(DEPT_CD/테이블01 은 TABLE_COLUMN 에서 즉시 적중해
+    PROJECT_COLUMN 조회를 건너뛴다). 즉 **159배** 차이다.
+  · 테이블이 늘어도 run 당 1회로 고정된다(색인은 프로젝트 단위이므로 테이블 수에 비례하지 않는다).
+
+════════════════════════════════════════════════════════════════════════════════
+5. 실측 — 무회귀 (project_id 미전달 경로)
+════════════════════════════════════════════════════════════════════════════════
+  · run_batch(5건, project_id 없음) → 5건 ANALYZE_OK, 저장소 조회 **0회**, 확정 적용 0건.
+  · 판정값이 BEFORE 와 동일(DEPT_CD verdict=NOT_AUDIT_AMBIGUOUS 불변).
+  · 다른 프로젝트의 색인을 주입해도 무시하고 올바른 확정을 적용(교차 오염 차단 확인).
+  · 색인 해결 결과 == 기존 resolve_override 결과: decision / matched_scope / status_effective 동일.
+  · STALE 계산도 동일 문구까지 일치
+    ("확정 당시 자동판정(NOT_AUDIT_AMBIGUOUS)과 현재 자동판정(CONFIRMED)이 다릅니다.")
+  · project_id 가 비면 build_override_index 는 None 을 반환(조회 자체를 하지 않음).
+
+════════════════════════════════════════════════════════════════════════════════
+6. 회귀 테스트 (baseline 대조)
+════════════════════════════════════════════════════════════════════════════════
+6-1. 관련 서브셋 25개 파일 — baseline(4546941, 임시 worktree) vs 수정 후
+─────────────────────────────────────────────────────────────
+    baseline : 24 failed, 309 passed  (53.32s)
+    수정 후  : 24 failed, 309 passed  (55.54s)
+    FAILED/ERROR 전체 목록 **차분 0건** (Compare-Object 결과 빈 출력)
+    → 신규 회귀 0건. 24건은 모두 수정 전부터 실패하던 사전 존재 실패다.
+
+  실패 테스트 전체 목록(24건 — baseline 과 동일, 이번 수정과 무관):
+    tests/test_batch_flow2_candidate_core_parity.py::test_coalesce_cast_flow2_core_parity
+    tests/test_batch_flow2_e2e_smoke.py::test_e2e_generate_candidates_then_snapshots
+    tests/test_batch_flow2_e2e_smoke.py::test_e2e_groupby_estimate_in_responses
+    tests/test_batch_flow2_e2e_smoke.py::test_e2e_target_filter_excludes_non_passed
+    tests/test_batch_flow2_e2e_smoke.py::test_plan_mode_default_selected_only
+    tests/test_batch_flow2_e2e_smoke.py::test_plan_mode_count_sum_only
+    tests/test_batch_flow2_e2e_smoke.py::test_plan_mode_grouped_only
+    tests/test_batch_flow2_e2e_smoke.py::test_plan_mode_global_and_grouped
+    tests/test_batch_flow2_e2e_smoke.py::test_plan_modes_share_same_selected_candidates
+    tests/test_batch_flow2_multirow_e2e_smoke.py::test_two_normal_rows_each_snapshot_and_plan
+    tests/test_batch_flow2_multirow_e2e_smoke.py::test_db_valid_status_filter
+    tests/test_batch_flow2_multirow_e2e_smoke.py::test_is_current_latest_only
+    tests/test_batch_flow2_multirow_e2e_smoke.py::test_soft_deleted_batch_excluded
+    tests/test_batch_flow2_multirow_e2e_smoke.py::test_row_failure_isolation
+    tests/test_batch_flow2_multirow_e2e_smoke.py::test_old_snapshot_not_in_latest_plan
+    tests/test_batch_profile_candidate_parity.py::test_calc_profile_present_parity
+    tests/test_batch_single_core_wrapper_foundation.py::test_ui_advanced_diagnostics_render
+    tests/test_batch_single_core_wrapper_foundation.py::test_ui_diagnostics_analyze_subrows
+    tests/test_batch_single_core_wrapper_foundation.py::test_ui_diagnostics_dependency_rows
+    tests/test_batch_single_core_wrapper_foundation.py::test_ui_dependency_applied_rows
+    tests/test_batch_single_status_preview_and_save_point.py::test_shadow_report_carries_status_preview
+    tests/test_candidate_display_policy.py::test_04_group_by_default
+    tests/test_candidate_display_policy.py::test_05_sum_default
+    tests/test_candidate_display_policy.py::test_06_net_amt
+    (24건 전부 baseline 목록과 문자열 단위로 동일)
+
+    ※ 최초 1회 실행에서 ERROR 2건
+      (test_batch_single_core_wrapper_foundation.py::test_row_failure_isolated_in_batch,
+       test_system_audit_gate_number_defer.py::TestAxisAIntegerInput::test_timestamp_still_confirms)
+      이 나왔으나 재실행 시 사라졌고, 두 건을 단독 실행하면 2 passed 다. 순서/상태 의존
+      flakiness 로 판단했으며 재현되지 않는다.
+
+6-2. CLAUDE.md 규정 기존 회귀 2종
+─────────────────────────────────────────────────────────────
+    python samples/test_virtual_cases.py   → 8/8 통과
+    python samples/test_complex_cases.py   → 5/5 케이스 분석 완료
+
+════════════════════════════════════════════════════════════════════════════════
+7. 변경 파일 / 커밋
+════════════════════════════════════════════════════════════════════════════════
+커밋: 0544546  "fix(batch): 개별검증 관리컬럼 확정을 일괄검증 판정에 배선 + 프로젝트당 1회 조회 색인"
+직전 HEAD: 4546941
+
+  scripts/dev_e2e/admin_column_override_batch_wiring_verify.py   | 333 +++  (신규, 실측 스크립트)
+  services/admin_column_override_store.py                        |  93 ++   (색인 API 신설)
+  services/batch_runner.py                                       |  85 ++-  (지침 주 대상)
+  services/batch_single_core_wrapper.py                          |   5 +    (공식 경로 §2-4)
+  services/candidate_display_enricher.py                         |   7 +-   (전달 통로)
+  services/candidate_subtype_service.py                          |  35 ++-  (색인 우선 조회)
+  6 files changed, 549 insertions(+), 9 deletions(-)
+
+  ※ 동시 세션 파일 보호: services/stats_execute_service.py 는 다른 세션의 미커밋 변경이라
+    스테이징하지 않았고, 커밋 후에도 작업트리에 그대로 남아 있음을 확인했다.
+    services/admin_column_override_scope_preview.py(untracked, 타 세션 신규)도 건드리지 않았다.
+
+════════════════════════════════════════════════════════════════════════════════
+8. 비판적 검토 (CLAUDE.md 비판적 검토 의무)
+════════════════════════════════════════════════════════════════════════════════
+  · heuristic 하드코딩 : 증가 0. 판정 규칙(우선순위/STALE)은 기존 단일 출처를 그대로 호출한다.
+                        새로 만든 것은 '조회 방식'뿐이고 '판정'은 한 줄도 추가하지 않았다.
+  · scoring           : 영향 없음(scoring 단계 이전/이후 어디도 건드리지 않음).
+  · explainability    : 유지·강화. admin_audit_verdict_auto 등 자동판정 원값 보존은 그대로이고,
+                        matched_scope/status_effective/stale_reason 도 색인 경로에서 동일하게 나온다.
+  · 보안              : 색인은 project_id 로만 한정 조회하고, 프로젝트가 다르면 쓰지 않는다.
+                        민감정보 미포함. 평문 비밀번호 관련 없음(pre-commit 비밀번호 스캔 통과).
+  · 테스트 가능성     : build_override_index/resolve_override_from_index 는 db_path 주입 가능하고
+                        후자는 DB 미접속 순수 함수라 단위 테스트가 쉽다.
+  · 남는 위험 ①       : 색인은 **호출 시점 스냅샷**이다. 긴 run 도중 사용자가 확정을 바꾸면 그 run 은
+                        옛 값으로 끝난다. 다만 기존 컬럼별 조회도 item 시작 시점 값이라 실질 차이는
+                        작고, run 중간에 판정 기준이 바뀌는 편이 오히려 설명하기 어렵다.
+  · 남는 위험 ②       : 확정이 매우 많은 프로젝트에서는 색인이 전건을 메모리에 올린다. 확정은 사용자가
+                        수동으로 만드는 레코드라 규모가 작지만, 수만 건 규모가 되면 컬럼 필터를 건
+                        부분 색인이 필요하다(현재는 불필요 — 과설계 회피).
+  · 남는 갭(미구현)   : 진단 §3-4 의 P3(화면에 PROJECT_COLUMN 범위 선택 노출)은 이번 범위 밖이다.
+                        저장소·판정은 이번 수정으로 완전히 동작하나(실측 확인), 화면은 여전히
+                        scope='TABLE_COLUMN' 하드코딩이라 사용자가 프로젝트 전체 확정을 만들 수 없다.
+
+실검증 상태 : 실 DB 미접속(저장소 SQLite + 후보 enrich 계약 실측). 브라우저 화면 검증 없음(화면 무관 작업).
+              조회 횟수는 커넥션 계측으로 실측했고, 회귀는 baseline worktree 대조로 확인했다.
+
+작업명 : ADMIN-COLUMN-OVERRIDE-BATCH-WIRING-FIX
+✅ 작업 완료 - ADMIN-COLUMN-OVERRIDE-BATCH-WIRING-FIX - 개별검증에서 저장한 관리컬럼 확정이 일괄검증
+판정에 반영되도록 배선하고, 지침이 지목한 성능 위험(컬럼당 조회 곱셈)은 프로젝트 단위 1회 조회 색인으로
+차단했다(20테이블 실측 조회 1회 · 단순 배선이었다면 159회)
