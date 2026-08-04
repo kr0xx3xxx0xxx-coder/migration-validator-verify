@@ -1251,7 +1251,24 @@ git -C E:/verify_reports worktree remove <임시경로>
 
 ## 기능 미완(설계는 끝났으나 구현 대기)
 
-### F36. 일괄검증이 개별검증에서 저장한 관리컬럼 확정(override)을 완전히 무시한다(이 섹션 내 상대 우선순위 높음)
+### F36. ✅ 해결 완료 — 일괄검증이 개별검증에서 저장한 관리컬럼 확정(override)을 완전히 무시한다(이 섹션 내 상대 우선순위 높음)
+- 해결일: 2026-08-04 (ADMIN-COLUMN-OVERRIDE-BATCH-WIRING-FIX)
+- 근거 커밋: 코드 저장소 `0544546` — `fix(batch): 개별검증 관리컬럼 확정을 일괄검증 판정에 배선
+  + 프로젝트당 1회 조회 색인 (ADMIN-COLUMN-OVERRIDE-BATCH-WIRING-FIX)`
+- 근거 보고서 커밋: 이 저장소 `c5efeba`(완료보고 `ADMIN-COLUMN-OVERRIDE-BATCH-WIRING-FIX`)
+- 해결 요약: `services/batch_runner.py::_build_core_candidates` 에 `project_id` 파라미터를 추가하고,
+  `enrich_candidates_for_display` 호출부에 `project_id` / `override_table_key` 를 배선했다.
+  이 항목이 **위험 항목으로 지목한 성능 문제(컬럼당 반복 조회)** 에는 대응 방향대로
+  **프로젝트 단위 확정목록을 run 당 1회만 조회해 캐시하는 방식**을 채택했다
+  (20테이블 × 4컬럼 기준 **159회 → 1회**, 159배 차이 실측). 판정 로직은 새로 만들지 않고
+  기존 단일 출처(`evaluate_staleness`)를 그대로 재사용했다.
+- 지침 범위를 넘어선 추가 조치(투명 고지): `batch_runner.py` 가 D8-2 로 **기본 차단된 legacy 경로**임을
+  발견하고, 실제 UI 일괄검증이 타는 `batch_single_core_wrapper.py → run_single_validation_standard` 에도
+  **동일 배선(5줄)** 을 추가했다 — 이게 없었으면 배선을 마쳐도 **화면상 아무것도 바뀌지 않을 뻔했다**.
+  되돌리려면 그 5줄만 제거하면 된다.
+- 실측: `DEPT_CD` 판정이 **BEFORE False → AFTER True** 로 뒤집히며 개별검증과 동일 결과임을 확인했다.
+  `project_id` 미전달 시 조회 0회로 **무회귀**.
+- 참고: E:\verify_reports\ADMIN-COLUMN-OVERRIDE-BATCH-WIRING-FIX.txt
 - 발견일: 2026-08-04
 - 근거 보고서: `ADMIN-COLUMN-CONFIRM-BUTTON-NONFUNCTIONAL-AND-BATCH-SCOPE-DIAGNOSE.txt` (§3-2)
 - 상세: `services/batch_runner.py` 의 `_build_core_candidates`(90-95행) 는 **`project_id` 파라미터가 아예 없고**,

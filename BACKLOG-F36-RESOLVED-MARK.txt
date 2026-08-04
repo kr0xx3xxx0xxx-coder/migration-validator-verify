@@ -1,0 +1,74 @@
+작업명 : BACKLOG-F36-RESOLVED-MARK
+✅ 작업 완료 - BACKLOG-F36-RESOLVED-MARK - BACKLOG.md 의 F36 항목을 기존 관례(F37 형식)대로 '해결 완료' 로 표시하고 근거 커밋·해결 요약·실측을 추가했다
+
+■ 작업 범위
+- 수정 파일: BACKLOG.md (1개) — 지시대로 이 파일만 수정
+- 편집 위치: E:\_wt_f36 (origin/main 기반 임시 worktree, E:\verify_screenshots_only 클론에서 생성)
+  * E:\verify_reports\BACKLOG.md 공유 사본은 origin/main 보다 stale 하므로 직접 편집하지 않았다
+
+■ 확인한 근거
+- 코드 저장소 커밋: 0544546
+  fix(batch): 개별검증 관리컬럼 확정을 일괄검증 판정에 배선 + 프로젝트당 1회 조회 색인
+  (ADMIN-COLUMN-OVERRIDE-BATCH-WIRING-FIX)
+- 증적 저장소 보고서 커밋: c5efeba
+  evidence: ADMIN-COLUMN-OVERRIDE-BATCH-WIRING-FIX — 개별검증 관리컬럼 확정의 일괄검증 배선
+  + 프로젝트당 1회 조회 색인 실측 보고
+- 근거 보고서 파일: E:\verify_reports\ADMIN-COLUMN-OVERRIDE-BATCH-WIRING-FIX.txt (존재 확인)
+
+■ 적용한 표기 관례
+같은 섹션의 F37(✅ 해결 완료) 형식을 그대로 따랐다.
+- 제목에 '✅ 해결 완료 — ' 접두 추가
+- 제목 바로 아래에 해결일 / 근거 커밋 / 근거 보고서 커밋 / 해결 요약 / 실측 / 참고 블록 삽입
+- 기존 상세 서술(발견일·근거 보고서·상세·대응 방향·관련·참고)은 삭제하지 않고 그대로 아래에 유지
+
+■ 무결성 확인
+- git diff --stat : BACKLOG.md | 19 ++++++++++++++++++- (1 file changed, 18 insertions(+), 1 deletion(-))
+- 삭제 1줄은 F36 제목줄 1개뿐이며 같은 줄이 '✅ 해결 완료' 제목으로 교체된 것이다(내용 소실 없음)
+- '### ' 헤딩 개수 : 수정 전 112개 = 수정 후 112개 (증감 없음)
+- 다른 섹션/항목 변경 0건 (F36 이외 어떤 줄도 diff 에 나타나지 않음)
+- F36 을 참조하는 다른 항목(F37 등)의 '관련:' 줄은 지시 범위 밖이므로 손대지 않았다
+
+■ git diff 전문
+diff --git a/BACKLOG.md b/BACKLOG.md
+index 0774818..025be9f 100644
+--- a/BACKLOG.md
++++ b/BACKLOG.md
+@@ -1251,7 +1251,24 @@ git -C E:/verify_reports worktree remove <임시경로>
+
+ ## 기능 미완(설계는 끝났으나 구현 대기)
+
+-### F36. 일괄검증이 개별검증에서 저장한 관리컬럼 확정(override)을 완전히 무시한다(이 섹션 내 상대 우선순위 높음)
++### F36. ✅ 해결 완료 — 일괄검증이 개별검증에서 저장한 관리컬럼 확정(override)을 완전히 무시한다(이 섹션 내 상대 우선순위 높음)
++- 해결일: 2026-08-04 (ADMIN-COLUMN-OVERRIDE-BATCH-WIRING-FIX)
++- 근거 커밋: 코드 저장소 `0544546` — `fix(batch): 개별검증 관리컬럼 확정을 일괄검증 판정에 배선
++  + 프로젝트당 1회 조회 색인 (ADMIN-COLUMN-OVERRIDE-BATCH-WIRING-FIX)`
++- 근거 보고서 커밋: 이 저장소 `c5efeba`(완료보고 `ADMIN-COLUMN-OVERRIDE-BATCH-WIRING-FIX`)
++- 해결 요약: `services/batch_runner.py::_build_core_candidates` 에 `project_id` 파라미터를 추가하고,
++  `enrich_candidates_for_display` 호출부에 `project_id` / `override_table_key` 를 배선했다.
++  이 항목이 **위험 항목으로 지목한 성능 문제(컬럼당 반복 조회)** 에는 대응 방향대로
++  **프로젝트 단위 확정목록을 run 당 1회만 조회해 캐시하는 방식**을 채택했다
++  (20테이블 × 4컬럼 기준 **159회 → 1회**, 159배 차이 실측). 판정 로직은 새로 만들지 않고
++  기존 단일 출처(`evaluate_staleness`)를 그대로 재사용했다.
++- 지침 범위를 넘어선 추가 조치(투명 고지): `batch_runner.py` 가 D8-2 로 **기본 차단된 legacy 경로**임을
++  발견하고, 실제 UI 일괄검증이 타는 `batch_single_core_wrapper.py → run_single_validation_standard` 에도
++  **동일 배선(5줄)** 을 추가했다 — 이게 없었으면 배선을 마쳐도 **화면상 아무것도 바뀌지 않을 뻔했다**.
++  되돌리려면 그 5줄만 제거하면 된다.
++- 실측: `DEPT_CD` 판정이 **BEFORE False → AFTER True** 로 뒤집히며 개별검증과 동일 결과임을 확인했다.
++  `project_id` 미전달 시 조회 0회로 **무회귀**.
++- 참고: E:\verify_reports\ADMIN-COLUMN-OVERRIDE-BATCH-WIRING-FIX.txt
+ - 발견일: 2026-08-04
+ - 근거 보고서: `ADMIN-COLUMN-CONFIRM-BUTTON-NONFUNCTIONAL-AND-BATCH-SCOPE-DIAGNOSE.txt` (§3-2)
+ - 상세: `services/batch_runner.py` 의 `_build_core_candidates`(90-95행) 는 **`project_id` 파라미터가 아예 없고**,
+
+■ 비판적 검토
+- 문서 전용 변경이라 코드·화면 영향 0건, 롤백은 해당 커밋 revert 만으로 충분하다.
+- 남는 불일치: F37(1289행) 과 M34 계열(1916행) 의 '관련:' 줄이 여전히 F36 을 '일괄검증 미배선'
+  으로 서술한다. 지시가 'F36 외 다른 섹션은 절대 건드리지 말 것' 이므로 수정하지 않았고,
+  후속 정리가 필요하면 별도 작업으로 요청하면 된다.
+- F36 이 '기능 미완' 섹션에 남아 있는 점도 F37·F31 등 기존 해결 완료 항목과 동일한 관례이므로
+  섹션 이동은 하지 않았다.
+
+■ 스크린샷
+화면/코드 무관 문서 변경이므로 지시대로 불필요(0장).
+
+✅ 작업 완료 - BACKLOG-F36-RESOLVED-MARK - BACKLOG.md 의 F36 항목을 기존 관례(F37 형식)대로 '해결 완료' 로 표시하고 근거 커밋·해결 요약·실측을 추가했다
