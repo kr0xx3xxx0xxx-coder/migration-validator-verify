@@ -197,11 +197,36 @@ after 는 서버 재기동 후 동일 절차.
 ════════════════════════════════════════════════════════════════════════
 - JS 문법: 전체 페이지 script 블록 2개 node --check 통과.
 - 단위 렌더(node): renderExecute 9조합 + _mvPkTreeRecRow 열 계약 검증 통과.
-- UI 관련 테스트 일괄(회귀): 본문 아래 '테스트 결과' 절 참고.
-- 사전 존재 실패(내 수정과 무관 — HEAD 워크트리에서 동일 실패 재현 확인):
+- 오류 경로/COUNT-only 경로 단위 확인: 실행 실패 응답에서 오류 패널 + 실패 SQL 증적 정상 렌더,
+  COUNT-only 전용 렌더 정상(표시 등급/접힘 없음).
+
+■ 회귀 스위트 대조 (같은 대상 파일 295개, baseline = 수정 직전 커밋 60d5cf2 워크트리)
+    baseline : 166 failed / 3278 passed / 18 skipped / 21 xfailed  (22분 45초)
+    수정 후  : 165 failed / 3284 passed / 12 skipped / 22 xfailed / 1 error (24분 40초)
+    → 실패 건수 동수(166 vs 166, error 포함). 목록 대조 결과 **내 수정으로 생긴 회귀 0건**.
+
+  목록 차이(양쪽 5건씩)는 전부 순서/실 DB 상태 의존 flaky 로 확인:
+   · 수정 후에만 실패한 5건
+       tests/test_task11_t.py (ConnectionIdentity 4건 + 구조 검사 1 error)
+         → baseline 워크트리에서 단독 실행해도 동일하게 4 failed + 1 error(무관 확인)
+       tests/test_candidate_plan_matrix.py::test_null_vs_empty_selection_contract
+         → 워크트리는 프리셋이 없어 skip 되므로, 프리셋을 넣고 baseline 에서 단독 실행 →
+           동일 AssertionError(effective_group_by_columns 가 PAY_METHOD 포함) 재현.
+           서버 후보추천 결과에 대한 실 DB 의존 단언이라 UI 렌더 수정과 무관.
+   · baseline 에만 실패한 5건(수정 후 통과)
+       tests/test_task10_2.py 2건 · test_task10_3.py 1건 · test_task10_6b.py 2건
+       tests/test_d7_8_inline_drill_time.py::test_ui_advanced_perf_position_and_title
+       → 같은 파일을 단독 실행하면 결과가 뒤집히는 순서 의존 항목(내 수정이 고친 것 아님).
+
+■ 이번 수정으로 계약을 갱신한 테스트 3건은 갱신 후 전부 통과(25 passed).
+■ 착수 시점 기준 사전 존재 실패(수정 전후 동일):
     tests/test_agg_contribution.py::test_exact_diff_separated_and_terms_removed
       (ui/grid_helpers.py 주석의 '전수 비교' 문구 — 선행 작업 산물)
     tests/test_count_only_validation_ui.py::test_group_result_uses_normal_renderer_unchanged
       (하니스가 opts 미전달 → opts.globalExport TypeError)
     tests/test_d7_8_inline_drill_time.py::test_ui_advanced_perf_position_and_title
-      (_mvRiSummaryHtml 안에 'return _limitBanner' 부재)
+      (_mvRiSummaryHtml 안에 'return _limitBanner' 부재 — 순서 의존)
+
+■ 커밋
+    코드 저장소 : a1e4b7c  (fix(ui): 5단계 불일치 그리드 정리 6건 + 하단 안내 섹션 4건 삭제)
+    증적 저장소 : 80c8015 (스크린샷·JSON·매트릭스) / 0b34cb4 (본 보고서) — origin/main push 완료
