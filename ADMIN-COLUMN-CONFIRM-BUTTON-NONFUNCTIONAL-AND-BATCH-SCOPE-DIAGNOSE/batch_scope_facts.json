@@ -1,0 +1,46 @@
+{
+  "A_single": {
+    "verdict": "CONFIRMED",
+    "is_admin": true,
+    "override": {
+      "decision": "AUDIT",
+      "scope": "TABLE_COLUMN",
+      "matched_scope": "TABLE_COLUMN",
+      "table_key": "MV_ORA_DEMO_TGT",
+      "column_name": "DEPT_CD",
+      "status_effective": "STALE",
+      "is_stale": true,
+      "stale_reason": "확정 당시 자동판정(NOT_AUDIT)과 현재 자동판정(NOT_AUDIT_AMBIGUOUS)이 다릅니다.",
+      "auto_verdict_at_decision": "NOT_AUDIT",
+      "auto_verdict_current": "NOT_AUDIT_AMBIGUOUS",
+      "memo": "",
+      "decided_by": "",
+      "updated_at": "2026-08-04T03:55:54Z"
+    },
+    "ctx": {
+      "project_id": "958",
+      "table_key": "MV_ORA_DEMO_TGT",
+      "project_id_present": true,
+      "disabled_reason": ""
+    }
+  },
+  "B_batch": {
+    "verdict": "NOT_AUDIT_AMBIGUOUS",
+    "is_admin": false,
+    "override": null,
+    "ctx": {
+      "project_id": "",
+      "table_key": "",
+      "project_id_present": false,
+      "disabled_reason": "프로젝트를 먼저 선택해야 관리컬럼 확정을 저장할 수 있습니다."
+    }
+  },
+  "batch_signature": [
+    "parsed_model",
+    "migration_sql",
+    "target_table",
+    "ddl_text",
+    "tgt_map",
+    "column_profiles"
+  ]
+}

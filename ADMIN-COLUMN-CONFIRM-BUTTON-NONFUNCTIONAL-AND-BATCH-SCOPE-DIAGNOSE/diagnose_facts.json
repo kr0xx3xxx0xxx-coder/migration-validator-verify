@@ -1,0 +1,173 @@
+{
+  "A_probe": {
+    "row_found": true,
+    "ctl_found": true,
+    "buttons": [
+      {
+        "text": "✔ 관리컬럼 맞음",
+        "tag": "button",
+        "cls": "mv-adm-ovr-btn mv-adm-ovr-btn--yes",
+        "disabled": true,
+        "cursor": "not-allowed",
+        "pointer_events": "auto",
+        "bg": "rgb(248, 250, 252)",
+        "color": "rgb(203, 213, 225)",
+        "visible": false,
+        "w": 0,
+        "h": 0,
+        "title": "프로젝트를 먼저 선택해야 관리컬럼 확정을 저장할 수 있습니다."
+      },
+      {
+        "text": "✕ 관리컬럼 아님",
+        "tag": "button",
+        "cls": "mv-adm-ovr-btn mv-adm-ovr-btn--no",
+        "disabled": true,
+        "cursor": "not-allowed",
+        "pointer_events": "auto",
+        "bg": "rgb(248, 250, 252)",
+        "color": "rgb(203, 213, 225)",
+        "visible": false,
+        "w": 0,
+        "h": 0,
+        "title": "프로젝트를 먼저 선택해야 관리컬럼 확정을 저장할 수 있습니다."
+      }
+    ],
+    "info_tags": [
+      {
+        "text": "🔗 FK: MV_ORA_DEPT_MASTER.DEPT",
+        "tag": "span",
+        "cls": "ict-rmk-tag",
+        "disabled": false,
+        "cursor": "auto",
+        "pointer_events": "auto",
+        "bg": "rgb(238, 246, 255)",
+        "color": "rgb(31, 92, 158)",
+        "visible": false,
+        "w": 0,
+        "h": 0,
+        "title": "FK: MV_ORA_DEPT_MASTER.DEPT_CD 참조 (제약: FK_MV_DEMO_DEPT) · 목적 스키마 기준"
+      },
+      {
+        "text": "프로파일 기반: 고유값 6개",
+        "tag": "span",
+        "cls": "ict-rmk-tag",
+        "disabled": false,
+        "cursor": "auto",
+        "pointer_events": "auto",
+        "bg": "rgb(240, 244, 255)",
+        "color": "rgb(61, 90, 138)",
+        "visible": false,
+        "w": 0,
+        "h": 0,
+        "title": ""
+      }
+    ],
+    "ctx": {
+      "project_id": "",
+      "table_key": "MV_ORA_DEMO_TGT",
+      "project_id_present": false,
+      "disabled_reason": "프로젝트를 먼저 선택해야 관리컬럼 확정을 저장할 수 있습니다."
+    },
+    "handler_types": {
+      "_mvAdmOvrDecide": "function",
+      "_mvAdmOvrRelease": "function",
+      "_admOvrCellHtml": "function"
+    }
+  },
+  "A_click": {
+    "outcome": "CLICK_FAILED",
+    "why": "TimeoutError('Locator.click: Timeout 6000ms exceeded.\\nCall log:\\n  - waiting for locator(\".mv-adm-ovr[data-col=\\'DEPT_CD\\'] button\").filter(has_text=\"맞음\").first\\n    - locator resolved to <button disabled type=\"button\" ",
+    "requests": [],
+    "page_errors": []
+  },
+  "A_legacy_click": {
+    "result": {
+      "ok": true,
+      "disabled_ignored": true
+    },
+    "requests": []
+  },
+  "B_probe": {
+    "row_found": true,
+    "ctl_found": true,
+    "buttons": [
+      {
+        "text": "✔ 관리컬럼 맞음",
+        "tag": "button",
+        "cls": "mv-adm-ovr-btn mv-adm-ovr-btn--yes",
+        "disabled": false,
+        "cursor": "pointer",
+        "pointer_events": "auto",
+        "bg": "rgb(236, 253, 245)",
+        "color": "rgb(4, 120, 87)",
+        "visible": true,
+        "w": 94,
+        "h": 22,
+        "title": "이 컬럼을 관리컬럼으로 확정합니다(검증 대상에서 제외)."
+      },
+      {
+        "text": "✕ 관리컬럼 아님",
+        "tag": "button",
+        "cls": "mv-adm-ovr-btn mv-adm-ovr-btn--no",
+        "disabled": false,
+        "cursor": "pointer",
+        "pointer_events": "auto",
+        "bg": "rgb(255, 241, 242)",
+        "color": "rgb(190, 18, 60)",
+        "visible": true,
+        "w": 94,
+        "h": 22,
+        "title": "이 컬럼은 관리컬럼이 아님으로 확정합니다(검증 대상 후보로 유지)."
+      }
+    ],
+    "info_tags": [
+      {
+        "text": "🔗 FK: MV_ORA_DEPT_MASTER.DEPT",
+        "tag": "span",
+        "cls": "ict-rmk-tag",
+        "disabled": false,
+        "cursor": "auto",
+        "pointer_events": "auto",
+        "bg": "rgb(238, 246, 255)",
+        "color": "rgb(31, 92, 158)",
+        "visible": true,
+        "w": 265,
+        "h": 20,
+        "title": "FK: MV_ORA_DEPT_MASTER.DEPT_CD 참조 (제약: FK_MV_DEMO_DEPT) · 목적 스키마 기준"
+      },
+      {
+        "text": "프로파일 기반: 고유값 6개",
+        "tag": "span",
+        "cls": "ict-rmk-tag",
+        "disabled": false,
+        "cursor": "auto",
+        "pointer_events": "auto",
+        "bg": "rgb(240, 244, 255)",
+        "color": "rgb(61, 90, 138)",
+        "visible": true,
+        "w": 136,
+        "h": 20,
+        "title": ""
+      }
+    ],
+    "ctx": {
+      "project_id": "957",
+      "table_key": "MV_ORA_DEMO_TGT",
+      "project_id_present": true,
+      "disabled_reason": ""
+    },
+    "handler_types": {
+      "_mvAdmOvrDecide": "function",
+      "_mvAdmOvrRelease": "function",
+      "_admOvrCellHtml": "function"
+    }
+  },
+  "B_click": {
+    "outcome": "CLICKED",
+    "why": "",
+    "requests": [
+      "POST http://localhost:8000/admin-column-overrides/save"
+    ],
+    "page_errors": []
+  }
+}

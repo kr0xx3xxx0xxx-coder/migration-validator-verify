@@ -1,0 +1,299 @@
+작업명 : ADMIN-COLUMN-CONFIRM-BUTTON-NONFUNCTIONAL-AND-BATCH-SCOPE-DIAGNOSE
+✅ 작업 완료 - ADMIN-COLUMN-CONFIRM-BUTTON-NONFUNCTIONAL-AND-BATCH-SCOPE-DIAGNOSE - 버튼이 안 눌린 원인은
+재기동 누락이 아니라 '작업 프로젝트 미선택 → disabled 렌더'였고(재기동 누락은 '잠정 중형'의 원인으로
+별건 확정), 일괄검증에는 이 기능이 없을 뿐 아니라 저장된 확정이 판정에 적용조차 되지 않는다
+
+작성일: 2026-08-04
+성격: 읽기 전용 진단 — 운영 코드 변경 0건(추가된 것은 dev_e2e 진단 스크립트 2개뿐)
+
+════════════════════════════════════════════════════════════════════════════════
+0. 결론 요약
+════════════════════════════════════════════════════════════════════════════════
+증상이 두 개 섞여 있었고, 원인은 서로 다르다.
+
+  [증상 1] "잠정 중형"이 그대로 뜬다        → 원인: 운영 서버 재기동 누락 (확정)
+  [증상 2] "관리컬럼 맞음/아님" 버튼이 안 눌린다 → 원인: 작업 프로젝트 미선택 → 버튼이
+                                              disabled 로 렌더 (재기동과 무관, 확정)
+
+사용자의 정황 추론("둘 다 반영이 안 된 것처럼 보이니 재기동 누락일 것")은 증상 1에 대해서는
+정확했다. 다만 증상 2는 재기동 누락으로 설명되지 않는다 — 버튼 시각분리 커밋(1862899)의 코드는
+재기동 전 서버에도 **이미 로드되어 있었다**(아래 §1-2 근거). 재기동 후에도 프로젝트를 선택하지
+않으면 버튼은 여전히 눌리지 않는다.
+
+일괄검증에는 이 기능이 아예 없다(설계 의도). 더 중요한 사실은, 개별검증에서 저장한 확정이
+일괄검증 판정에 **적용조차 되지 않는다**는 것이다(§3).
+
+════════════════════════════════════════════════════════════════════════════════
+1. 재기동 누락 확인 (지침 조사항목 1 / 추가 요구사항 1~3)
+════════════════════════════════════════════════════════════════════════════════
+
+1-1. 재기동 누락은 사실이다 — 서버가 오래된 모듈을 들고 있었다
+─────────────────────────────────────────────────────────────
+  운영 서버 프로세스 시작시각 : 2026-08-04 00:20:15 (PID 20452 / 27952)
+    C:\projects\migration-validator\.venv\Scripts\python.exe web_server.py
+
+  그 시각 이후에 수정된 운영 파일(.py, 테스트/스크립트 제외) — 4개:
+    01:59:06  services\strategy\strategy_models.py
+    01:59:38  ui\grid_helpers.py
+    02:01:14  services\strategy\stats_strategy_planner.py
+    02:02:06  ui\tabler_renderer.py
+
+  관련 커밋 시각:
+    1862899  00:05:04  CANDIDATE-MANUAL-CONFIRM-BUTTON-VISUAL-DISTINCTION-FIX  ← 서버 시작 '이전'
+    1b53fff  00:22:10  STATS-SCALE-TILE-SCAN-TEXT-REMOVE-FIX-RESUME            ← 서버 시작 '이후'
+    9514e2d  02:20:29  STATS-SCALE-REMOTE-...-REBALANCE-FIX ('잠정' 접두 제거)  ← 서버 시작 '이후'
+
+  → 서버는 reload=False 로 뜨므로(.py 편집은 재기동 필요), 1b53fff·9514e2d 두 커밋은
+    화면에 전혀 반영되지 않은 상태였다. "잠정 중형"이 그대로 보인 것은 이 때문이다.
+
+1-2. 그러나 버튼 커밋(1862899)은 재기동 전에도 이미 로드돼 있었다
+─────────────────────────────────────────────────────────────
+    ui\js_admin_column_override.py  mtime = 00:02:17  <  서버 시작 00:20:15
+
+  재기동 '전' 서버가 실제로 내려준 HTML 번들을 받아 문자열을 세어 확인:
+    BEFORE '_mvAdmOvrDecide'  -> 5건
+    BEFORE 'mv-adm-ovr-btn'   -> 16건   (1862899 가 새로 도입한 클래스)
+    BEFORE '✔ 관리컬럼 맞음'   -> 1건
+    BEFORE '잠정'             -> 26건   ← 이것만 stale
+
+  → 버튼의 새 시각 규약과 핸들러는 재기동 전에도 정상 배포돼 있었다.
+    즉 증상 2는 재기동 누락으로 설명되지 않는다.
+
+1-3. 재기동 수행 및 검증 (활성 job 0건 확인 후 진행)
+─────────────────────────────────────────────────────────────
+  재기동 전 GET /jobs/active → {"items":[], "counts":{"total":0}}  (활성 job 없음 — 안전)
+  재기동 완료: 새 PID 20172 / 6968, 시작시각 2026-08-04 12:50:09
+
+  재기동 후 서버가 실제로 산출하는 등급 문자열 실측(POST /strategy/plan):
+      provisional_grade = '소형'      ← '잠정 ' 접두 없음 (9514e2d 반영 확인)
+
+  참고(사용자 화면에서 추가로 필요한 조치): 서버는 최신이 되었으나, 이미 열려 있던 브라우저 탭은
+  재기동 전에 받은 옛 JS 번들과 옛 window._mvStrategyPlan 값을 그대로 들고 있다. 해당 탭에서
+  강제 새로고침(Ctrl+F5)을 해야 "중형" 표기가 보인다. 서버 재기동만으로는 이미 로드된 탭이
+  갱신되지 않는다.
+
+1-4. 남아 있는 '잠정' 문자열에 대한 정정
+─────────────────────────────────────────────────────────────
+  재기동 후 번들에도 '잠정'이 28건 남아 있다. 이는 미반영이 아니라 **다른 맥락**이다:
+    · 주석 문구 ("과거 저장 문자열 판별용", "잠정 등급 재산정" 등)
+    · 로딩 메시지 ('잠정 후보 계산 중...')
+    · 집계 진행 중 표시 ('(잠정·저장분)')
+    · 과거에 저장된 '잠정 중형' 문자열을 복원 표시할 때를 위한 **의도적 호환 분기**
+      (ui/tabler_renderer.py:28164  var _MV_PROVISIONAL_PREFIX = '잠정 ';)
+  등급 값 생산부(services/strategy/strategy_models.py GRADE_* / stats_strategy_planner._scale_grade)는
+  접두를 붙이지 않는다 — §1-3 의 '소형' 실측이 그 증거다.
+
+════════════════════════════════════════════════════════════════════════════════
+2. 버튼이 안 눌리는 진짜 원인 (지침 조사항목 1-2, 1-3)
+════════════════════════════════════════════════════════════════════════════════
+
+2-1. 원인: 작업 프로젝트가 선택돼 있지 않으면 버튼이 disabled 로 렌더된다
+─────────────────────────────────────────────────────────────
+  코드 근거 — 서버가 확정 컨트롤의 가용 여부를 확정해 내려준다:
+    services/candidate_subtype_service.py:1367-1377  _override_context()
+        "project_id_present": bool(pid),
+        "disabled_reason": ("" if pid else
+                            "프로젝트를 먼저 선택해야 관리컬럼 확정을 저장할 수 있습니다."),
+    services/candidate_subtype_service.py:1401-1402
+        if not ctx["project_id_present"] or not cands:
+            return 0                      # 조회조차 하지 않고 컨텍스트만 부착
+
+  화면은 그 값을 그대로 버튼 속성으로 옮긴다:
+    ui/js_admin_column_override.py:144
+        var dis = ctx.project_id_present ? '' : ' disabled';
+
+  project_id 의 출처는 브라우저 localStorage 이다(서버 세션 아님):
+    ui/tabler_renderer.py:20800  project_id: mvGetWorkProjectId() || ''
+    ui/tabler_renderer.py:31122  function mvGetWorkProjectId(){ ... localStorage.getItem(MV_WORK_PROJECT_KEY) ... }
+  → 좌측에서 작업 프로젝트를 고르지 않은 채 SQL 분석만 하면 project_id 는 빈 문자열이고,
+    후보표의 확정 버튼은 전부 disabled 로 그려진다.
+
+2-2. 실화면 재현 결과 (실 오라클 페어 · 인증 ON 8000 포트 · 실제 마우스 클릭)
+─────────────────────────────────────────────────────────────
+  스크립트: scripts/dev_e2e/admin_column_confirm_button_nonfunctional_diagnose.py
+  결과: PASS=15 FAIL=0
+  픽스처: NXDNP.MV_ORA_DEMO_SRC → MV_ORA_DEMO_TGT, 대상 컬럼 DEPT_CD(자동 NOT_AUDIT — 미확정 행)
+
+  [A] 프로젝트 미선택 (= 사용자가 본 상태)
+      핸들러 window export        : _mvAdmOvrDecide=function, _mvAdmOvrRelease=function  (정상)
+      비고 셀 컨트롤 렌더          : 있음
+      버튼                        : ['✔ 관리컬럼 맞음', '✕ 관리컬럼 아님'] 2개
+      disabled                    : [True, True]              ★ 직접 원인
+      cursor                      : ['not-allowed', 'not-allowed']
+      배경/글자색                  : bg rgb(248,250,252) / color rgb(203,213,225)  (거의 백지에 연회색)
+      title                       : "프로젝트를 먼저 선택해야 관리컬럼 확정을 저장할 수 있습니다."
+
+      실제 마우스 클릭(playwright locator.click, 6초) →
+          outcome        : CLICK_FAILED
+          why            : TimeoutError — "locator resolved to <button disabled type=button ..."
+          네트워크 요청   : 0건
+          콘솔 페이지 에러: 0건
+      → 클릭해도 요청도 안 나가고 에러도 안 뜬다. 정확히 사용자가 말한 "아무 반응 없음"이다.
+
+  [B] 프로젝트 선택 (대조군, project_id=957)
+      disabled : [False, False]     cursor : ['pointer','pointer']
+      실제 마우스 클릭 → outcome=CLICKED
+          네트워크 요청 : POST http://localhost:8000/admin-column-overrides/save
+          저장소 영속   : {'decision':'AUDIT','table_key':'MV_ORA_DEMO_TGT','column_name':'DEPT_CD',
+                          'status':'ACTIVE', ...}
+      → 프로젝트만 선택돼 있으면 실제 마우스 클릭으로도 정상 동작한다(기능 자체는 살아 있다).
+
+  증적 스크린샷(E:\verify_screenshots_only\ADMIN-COLUMN-CONFIRM-BUTTON-NONFUNCTIONAL-AND-BATCH-SCOPE-DIAGNOSE\):
+      A_1_cell_project_unselected.png  — 확정 버튼이 정보태그(파란 FK chip, 회색 프로파일 태그)보다
+                                          오히려 더 흐리게 보인다. 사용자가 "버튼이 아니다"라고
+                                          느낄 만한 화면이다.
+      B_1_cell_project_selected.png    — 같은 셀이 초록(맞음)/로즈(아님) 진한 버튼으로 보인다.
+      B_2_cell_after_click.png         — 클릭 후 'AUDIT 확정' 배지 + [확정 해제] 로 전환.
+
+2-3. 왜 사용자가 사유를 알 수 없었나
+─────────────────────────────────────────────────────────────
+  서버는 사유 문구를 정확히 만들어 title 속성에 실어 보낸다(§2-2 [A] title 참조).
+  그런데 disabled 버튼은 브라우저가 포인터 상호작용 자체를 주지 않는다 — 실제 마우스 클릭이
+  "element is not enabled" 로 timeout 난 것이 그 증거다. 그래서 화면에는
+    · 눌리지 않는다는 사실만 있고
+    · 왜 눌리지 않는지(프로젝트를 먼저 선택하라)는 도달할 수 없다.
+  1862899 가 개선한 것은 "무엇이 클릭 가능한가"의 구분이었고, "왜 지금 클릭할 수 없는가"는
+  여전히 화면에 드러나지 않는다. (이번 지침은 진단만이므로 수정하지 않았다 — §5 권고 참조.)
+
+2-4. 이전 완료보고(1862899)의 "클릭→확정→저장→해제 실측 확인" 주장 재검증
+─────────────────────────────────────────────────────────────
+  결론: 그 주장은 **거짓이 아니다. 단, 프로젝트가 선택된 경로에 한해서만 참**이다.
+        사용자가 지금 보는 조건(프로젝트 미선택)은 그 검증이 한 번도 통과하지 않았다.
+
+  근거 — scripts/dev_e2e/candidate_manual_confirm_button_visual_distinction_verify.py:
+    (a) 검증 전용 프로젝트를 항상 만들어 주입한다 → project_id 가 비는 경우가 발생하지 않는다
+          210-221행 _ensure_project()
+          234-235행 payload = {..., "project_id": pid}
+    (b) 클릭을 JS b.click() 으로 한다 — disabled 여부를 보지 않고 곧바로 {ok:true} 를 반환한다
+          254-264행 _click_ovr()  →  b.click(); return {ok:true};
+    (c) pane 가시성을 강제한다(_reveal 이 조상들의 display/visibility/opacity 를 덮어씀)
+          155-167행
+
+  (b)의 맹점을 이번에 실측으로 재현했다(케이스 A-2):
+      프로젝트 미선택 상태에서 같은 방식으로 호출 →
+          {"ok": true, "disabled_ignored": true},  실제 네트워크 요청 0건
+      즉 구 검증 방식은 disabled 버튼에도 "클릭 동작 OK" 를 돌려준다.
+      (다만 그 스크립트는 project_id 를 주입했으므로, 그 실행 자체는 정상 경로였다.)
+
+  → 재발 방지 관점의 사실: 이 저장소의 UI 검증 하니스는 '실제 사용자가 마주치는 초기 상태'
+    (프로젝트 미선택 등)를 재현하지 않고, 검증이 스스로 만든 이상적 상태만 확인해 왔다.
+
+════════════════════════════════════════════════════════════════════════════════
+3. 일괄검증에서 이 기능은 어떻게 동작하는가 (지침 조사항목 4~6)
+════════════════════════════════════════════════════════════════════════════════
+
+3-1. 일괄검증에는 이 기능이 없다 — 설계 의도이며, 코드에 명시돼 있다
+─────────────────────────────────────────────────────────────
+  ui/tabler_renderer.py:23468-23478 (확정 컨트롤을 비고 셀에 붙이는 유일한 호출부)
+      "서버가 admin_column_override_context 를 부착한 경로(개별검증 3단계)에서만 나타나고,
+       그 외 (일괄검증·구 스냅샷)에서는 빈 문자열이라 기존 행이 그대로다(회귀 없음)."
+
+  일괄검증 후보표는 별도 렌더 경로(ui/tabler_renderer.py:11140~11225 부근)이며 _admOvrCellHtml
+  호출이 없다. 저장소 전체에서 _admOvrCellHtml 호출부는 23475행 한 곳뿐이다.
+  일괄 후보표는 체크박스도 disabled 인 읽기 전용 성격이다(11215행 주석).
+
+3-2. 더 중요한 사실 — 개별에서 저장한 확정이 일괄검증 판정에 '적용조차' 되지 않는다
+─────────────────────────────────────────────────────────────
+  이것은 "UI 버튼이 없다"보다 훨씬 무거운 문제다. 사용자가 개별검증에서
+  "이 컬럼은 관리컬럼이 맞다"고 확정해 두어도, 같은 프로젝트의 일괄검증은 그 지식을 무시한다.
+
+  코드 근거:
+    services/batch_runner.py:90-95   def _build_core_candidates(parsed_model, migration_sql,
+                                         target_table, ddl_text, tgt_map, column_profiles)
+                                     → project_id 파라미터가 아예 없다
+    services/batch_runner.py:139-146 enrich_candidates_for_display(... top_n_gb, top_n_sum,
+                                         column_profiles, plan_generation_mode)
+                                     → project_id / override_table_key 미전달
+    (대조) services/single_validation_analyze_service.py:1614-1615
+                                         project_id = req.project_id,
+                                         override_table_key = str(tgt_table)
+
+  실측(scripts/dev_e2e/admin_column_override_batch_scope_probe.py, PASS=10 FAIL=0):
+    저장소에 DEPT_CD = AUDIT 확정 1건을 넣고 같은 후보를 두 방식으로 enrich:
+      [A] 개별검증 방식(project_id 전달)
+            admin_audit_verdict = 'CONFIRMED',  is_admin_audit_column = True,
+            admin_column_override = {decision:'AUDIT', ...},  ctx.project_id_present = True
+      [B] 일괄검증 방식(batch_runner 와 동일하게 미전달)
+            admin_audit_verdict = 'NOT_AUDIT_AMBIGUOUS',  is_admin_audit_column = False,
+            admin_column_override = None,  ctx.project_id_present = False
+      → ★ 같은 프로젝트·같은 테이블·같은 컬럼인데 개별 True / 일괄 False 로 판정이 갈린다.
+
+  성격 판단: 미구현이다(설계상 배제가 아니다). 근거 —
+    · enricher 는 project_id 를 받는 정식 인자를 이미 갖고 있다
+      (services/candidate_display_enricher.py:1245-1246)
+    · 그 함수의 주석도 "project_id 미전달(일괄검증 등)이면 조회 없이 컨텍스트만 붙고 판정은
+      그대로다(회귀 없음)" 라고 적어 **일괄을 명시적으로 인지한 채 배선을 미룬 상태**다(1393행)
+    · 즉 배선 지점은 열려 있고 batch 호출부만 값을 넘기지 않는다
+
+3-3. 일괄검증에서 자동판정이 틀렸을 때 개입할 다른 수단이 있는가 — 없다
+─────────────────────────────────────────────────────────────
+  전역 설정(services/validation_policy_service.py 등)·별도 예외처리 파일에서 관리컬럼 관련
+  항목을 찾았으나 0건이다. 일괄검증 경로에서 관리컬럼 자동판정을 사람이 교정할 수단은
+  현재 존재하지 않는다. 남은 우회는 "해당 테이블만 개별검증으로 다시 도는 것"뿐이며,
+  그렇게 확정해도 §3-2 때문에 일괄검증 결과에는 반영되지 않는다.
+
+3-4. 이 기능이 일괄검증 규모(수십~수백 테이블)에서 쓸 만한 UX인가
+─────────────────────────────────────────────────────────────
+  판단: 현재 형태(개별 컬럼 × 개별 테이블 클릭)는 일괄 규모에 부적합하다. 다만 그것은
+  "이 기능이 불필요하다"가 아니라 "대량 적용 축이 화면에 노출되지 않았다"는 뜻이다.
+
+  근거 — 저장소와 API 는 이미 프로젝트 전체 범위를 완전히 구현해 두었다:
+    services/admin_column_override_store.py:44-46
+        SCOPE_TABLE_COLUMN   = "TABLE_COLUMN"     # 이 테이블의 이 컬럼에만
+        SCOPE_PROJECT_COLUMN = "PROJECT_COLUMN"   # 프로젝트 전체 동일 컬럼명
+    routes/admin_column_override_route.py:31   scope: TABLE_COLUMN | PROJECT_COLUMN
+    실측: PROJECT_COLUMN 으로 저장한 CREATED_BY 확정이 table_key='ANY_OTHER_TABLE' 조회에서도
+          matched_scope='PROJECT_COLUMN' 으로 해석됨 (probe PASS)
+
+  그런데 화면은 scope 를 하드코딩으로 TABLE_COLUMN 만 보낸다:
+    ui/js_admin_column_override.py:281   scope: 'TABLE_COLUMN',
+
+  → CREATED_BY / REG_DT 처럼 전 테이블에 반복되는 관리컬럼은 원래 "프로젝트에 1회 확정"으로
+    끝날 수 있는 구조인데, 지금은 테이블마다 반복 클릭해야 한다. 수백 테이블에서는 사실상
+    사용 불가다. 결론적으로 이 기능은 **개별검증 전용 보조 기능으로 출발한 것이 맞고,
+    일괄 규모로 확장할 자리(PROJECT_COLUMN)는 이미 백엔드에 마련돼 있으나 화면에 없다.**
+
+════════════════════════════════════════════════════════════════════════════════
+4. 실측 산출물
+════════════════════════════════════════════════════════════════════════════════
+  신규(진단 전용, 운영 코드 아님):
+    scripts/dev_e2e/admin_column_confirm_button_nonfunctional_diagnose.py   PASS=15 FAIL=0
+    scripts/dev_e2e/admin_column_override_batch_scope_probe.py              PASS=10 FAIL=0
+  운영 코드 변경: 0건 (git diff 없음 — 진단 지침에 따름)
+
+  증적(E:\verify_screenshots_only\ADMIN-COLUMN-CONFIRM-BUTTON-NONFUNCTIONAL-AND-BATCH-SCOPE-DIAGNOSE\):
+    A_1_cell_project_unselected.png   프로젝트 미선택 — 흐린 disabled 버튼(재현)
+    B_1_cell_project_selected.png     프로젝트 선택 — 정상 버튼(대조군)
+    B_2_cell_after_click.png          실제 마우스 클릭 후 확정 배지 전환
+    diagnose_facts.json               computed style / 클릭 결과 / 네트워크 요청 원자료
+    batch_scope_facts.json            개별 vs 일괄 판정 분기 원자료
+
+════════════════════════════════════════════════════════════════════════════════
+5. 권고 (구현하지 않음 — 사용자 판단 대기)
+════════════════════════════════════════════════════════════════════════════════
+  P1  버튼 옆에 사유를 '보이게' 노출한다. disabled 버튼의 title 은 브라우저가 포인터 이벤트를
+      주지 않아 도달 불가하다(§2-3 실측). 컨트롤을 감싸는 span 에 title 을 달거나, 짧은 안내
+      문구("프로젝트 선택 필요")를 텍스트로 병기하면 "왜 안 눌리는지"가 화면에서 닫힌다.
+      — 위험: 비고 셀 chip 과다. 문구는 1개로 제한할 것.
+
+  P2  batch_runner._build_core_candidates → enrich_candidates_for_display 에 project_id /
+      override_table_key 를 배선한다(§3-2). 인자는 이미 존재하므로 호출부만 값을 넘기면 되고,
+      project_id 가 없는 일괄 실행은 지금과 완전히 동일하게 동작한다(회귀 없음).
+      — 이 배선 없이는 "개별에서 고쳐도 일괄에서 되살아나는" 모순이 남는다.
+      — 위험: batch 항목마다 저장소 조회 1회가 추가된다. 테이블 수가 많으면 프로젝트 단위
+        일괄 조회 후 메모리 매칭으로 바꿔야 한다(현재 resolve_override 는 컬럼당 1회 조회).
+
+  P3  화면에 PROJECT_COLUMN 범위 선택을 노출한다(§3-4). 저장소·API·STALE 계산은 이미 완비돼
+      있어 UI 한 곳만 열면 된다. 다만 '프로젝트 전체 적용'은 되돌리기 부담이 큰 조작이므로
+      확인 단계와 적용 대상 미리보기가 함께 필요하다.
+
+  P4  UI 검증 하니스가 '초기 상태'를 재현하도록 한다(§2-4). 최소한 (a) 프로젝트 미선택,
+      (b) programmatic click 대신 실제 마우스 클릭 두 가지는 회귀 검증에 포함시킬 것.
+
+  참고: 사용자 브라우저에서 "잠정 중형"이 아직 보인다면 강제 새로고침(Ctrl+F5)이 필요하다.
+        서버는 12:50:09 재기동으로 이미 최신이다(§1-3).
+
+작업명 : ADMIN-COLUMN-CONFIRM-BUTTON-NONFUNCTIONAL-AND-BATCH-SCOPE-DIAGNOSE
+✅ 작업 완료 - ADMIN-COLUMN-CONFIRM-BUTTON-NONFUNCTIONAL-AND-BATCH-SCOPE-DIAGNOSE - 버튼이 안 눌린 원인은
+재기동 누락이 아니라 '작업 프로젝트 미선택 → disabled 렌더'였고(재기동 누락은 '잠정 중형'의 원인으로
+별건 확정), 일괄검증에는 이 기능이 없을 뿐 아니라 저장된 확정이 판정에 적용조차 되지 않는다
