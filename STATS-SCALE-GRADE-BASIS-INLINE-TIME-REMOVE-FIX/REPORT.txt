@@ -1,0 +1,231 @@
+작업명 : STATS-SCALE-GRADE-BASIS-INLINE-TIME-REMOVE-FIX
+일자   : 2026-08-04
+커밋   : 0d46913  (직전 HEAD e4916d0)
+증적   : E:\verify_screenshots_only\STATS-SCALE-GRADE-BASIS-INLINE-TIME-REMOVE-FIX\
+
+
+■ 1. 무엇을 왜 바꿨나
+
+직전 작업(STATS-SCALE-GRADE-TILE-EXPLANATORY-HINT-ADD, e4916d0)이 3단계 '통계검증규모'
+타일 인라인 값에 "중형 (약 2~6초)" 처럼 예상 소요시간대를 병기했다. 그런데 이 타일은
+등급의 '판정 근거'를 보여주는 자리이지 시간을 보여주는 자리가 아니다. 시간 정보는 같은
+화면의 별도 '처리시간' 타일이 이미 단독으로 담당하고 있다 — 이번 실측에서도 같은 타일
+행 8번에 "12.33초"가 그대로 표시되고 있음을 확인했다. 즉 인라인의 시간대 표기는 한 화면
+안의 중복이었다.
+
+그래서 인라인에서는 시간대를 걷어내고, 대신 "왜 이 등급으로 판정됐는지"를 한눈에 보여주는
+짧은 근거를 병기한다. 시간 정보는 삭제하지 않고 툴팁으로 옮긴다 — 툴팁은 부가 설명 공간
+이므로 시간 정보가 있어도 되고, 오히려 등급의 일반 시간대는 그쪽이 제자리다.
+
+      인라인   '중형 (약 2~6초)'   →   '중형 (cost 13.56)'
+      툴팁     통계검증 규모: 중형 (실측 기준)
+               · 판정 근거: cost 13.56 (중형 범위 12.90~14.15) · 이 케이스 예상 약 3.6초
+               · 예상 소요: 약 2~6초(로컬 접속 기준) — 원격 DB 는 접속·왕복 고정 가산이 …
+
+툴팁 순서는 '상태 → 이 케이스 고유 근거 → 등급 일반 안내' 다. 앞쪽일수록 이 케이스에만
+해당하는 정보이고, 뒤의 시간대는 등급이 같으면 누구에게나 같은 일반 문구다.
+
+
+■ 2. 근거 표기로 'cost' 를 고른 이유 (지침이 제시한 대안: 지배 요인 = 스캔 행수)
+
+지침은 cost 값 그대로("중형 (cost 13.56)")와 지배 요인("중형 (스캔 1,180만행)") 중
+화면 공간과 가독성을 고려해 고르라고 했다. cost 를 골랐다. 근거 세 가지다.
+
+  ① 스캔 행수는 '방금 제거된 표기'다. 바로 앞 커밋 1b53fff(STATS-SCALE-TILE-SCAN-TEXT-
+     REMOVE-FIX)가 이 타일에서 '· 원본 실측 N행' 꼬리표를 걷어냈고, 그 사유가 정확히
+     "행수는 값이 아니라 근거이고, 같은 원본 건수는 2단계 COUNT 타일이 이미 단독으로
+     표시한다(중복 표기)" 였다. 지금 다시 스캔 행수를 인라인에 넣으면 그 판단을 뒤집는
+     회귀가 되고, 이번 작업이 없애려는 '한 화면 안 중복'을 형태만 바꿔 되살리는 셈이다.
+
+  ② cost 가 더 직접적인 근거다. 등급은 _scale_grade(cost) 가 cost 를 밴드 경계
+     (12.9 / 14.15 / 15.5)와 직접 비교해 정한다. 스캔 행수는 그 cost 를 만드는 여러
+     입력 중 하나일 뿐이다 — 회귀식에서 지배적(log10(scan) 계수 0.819)인 것은 맞지만
+     어디까지나 간접 근거이고, 스캔이 작아도 세트 수·SUM·WHERE 로 등급이 올라가는
+     케이스에서는 오히려 오해를 부른다(아래 5절 다중세트/SUM·WHERE 케이스 참고).
+
+  ③ 타일 폭(약 150px, 값 영역은 그보다 좁다)에서 'cost 13.56'(10자)이 '스캔 1,180만행'
+     (11자·한글 폭)보다 짧다. 실측 스크린샷상 before("중형 (약 2~6초)")와 동일하게
+     2줄로 안착하며 타일 높이 변화가 없다.
+
+값은 하드코딩하지 않는다. 인라인 숫자는 실제 산정에 쓰인 expected_cost_score 를, 툴팁의
+경계는 _GRADE_BANDS 를, 예상 소요는 grade_basis.estimated_elapsed_ms(원격 고정 가산이
+이미 반영된 값)를 그대로 읽는다. 밴드가 다시 조정되면 문구도 자동으로 따라간다 —
+monkeypatch 테스트로 실증했다.
+
+
+■ 3. 변경 파일
+
+  services/strategy/stats_strategy_planner.py   +85   신규 함수 3개 + 포맷 헬퍼 2개
+      grade_cost_range(grade)              등급 → cost 경계 (lo, hi). _GRADE_BANDS 에서 파생
+      grade_cost_hint(cost)                인라인용 'cost 13.56'
+      grade_cost_hint_full(g, cost, ms)    툴팁용 '판정 근거: … (범위 …) · 이 케이스 예상 …'
+      _fmt_cost / _fmt_elapsed_case        표시 포맷(아래 4절)
+      ※ _scale_grade 및 기존 grade_time_hint* 는 무수정
+
+  routes/strategy_route.py                      +14   grade_cost_hint / grade_cost_hint_full
+      응답 추가. grade_time_hint* 는 툴팁 소비처가 있으므로 계약 그대로 유지
+
+  ui/tabler_renderer.py                         +39/-18
+      인라인(_gradeHint)의 출처를 d.grade_time_hint → d.grade_cost_hint 로 교체,
+      툴팁(scaleTip)에 상세 근거를 넣고 기존 시간대 문구는 뒤에 유지
+
+  tests/test_stats_scale_grade_basis_inline.py  신규 268줄 (33건)
+  tests/test_stats_scale_grade_time_hint.py     주석/단언 1곳 갱신 (아래 6절)
+  scripts/dev_e2e/stats_scale_grade_basis_inline_verify.py  신규 333줄 (브라우저 실측)
+
+
+■ 4. 표시 포맷에서 한 가지 판단
+
+'이 케이스 예상 소요'를 초 단위 소수 1자리로 통일했더니 소형 케이스가 "약 0.0초"가 되어
+정보가 사라졌다(실제 4ms). 그래서 케이스 예상값만 단위를 나눴다.
+
+      1초 미만    → ms 정수        예) 4ms
+      10초 미만   → 초 소수 1자리  예) 3.6초
+      그 이상     → 초 정수        예) 67초
+
+등급 '경계' 표기(_fmt_sec_num, 기존 함수)는 종전 규칙 그대로 두었다 — 경계는 등급 전체를
+가리키는 대략값이라 해상도를 올릴 이유가 없고, 건드리면 직전 작업의 실측 대조값
+(1.91 / 6.23 / 22.28초)이 흔들린다.
+
+
+■ 5. 실측 검증 — 실 브라우저(PostgreSQL 내부망 asis→tobe), before/after
+
+before 는 '수정 전 모듈을 이미 로드한 실행 중 서버'(reload=False 라 .py 편집 미반영)에서,
+after 는 서버 재기동 후 같은 절차로 찍었다. 등급 케이스는 화면이 평소 쓰는 렌더 함수
+_mvRenderStrategyPlan(profile,'strategyPlanBox') 를 그대로 호출해 재현했다(실 /strategy/plan
+왕복 발생). 7개 케이스 — 4개 등급 + 지배 요인이 서로 다른 2케이스 + 원격 1케이스.
+
+  케이스              서버등급  cost    before 인라인       after 인라인
+  ─────────────────────────────────────────────────────────────────────────
+  소형                소형      6.442   소형 (약 2초 이하)   소형 (cost 6.44)
+  중형                중형     13.562   중형 (약 2~6초)      중형 (cost 13.56)
+  대형                대형     14.915   대형 (약 6~22초)     대형 (cost 14.91)
+  초대형              초대형   16.662   초대형 (약 22초 이상) 초대형 (cost 16.66)
+  중형(다중세트 지배) 중형     13.314   중형 (약 2~6초)      중형 (cost 13.31)
+  중형(SUM·WHERE)     중형     13.489   중형 (약 2~6초)      중형 (cost 13.49)
+  중형(원격)          중형     13.943   중형 (약 2~6초)      중형 (cost 13.94)
+
+주목할 대조: before 에서는 '중형' 4케이스의 인라인이 전부 "중형 (약 2~6초)" 로 똑같아
+서로 구분되지 않았다. after 는 13.56 / 13.31 / 13.49 / 13.94 로 갈린다 — 근거값이 케이스별
+실제 산정값을 따라간다는 실증이자, 하드코딩이 아니라는 화면 레벨 증거다. 다중세트 케이스
+(스캔 80만행인데 세트 3개)와 SUM·WHERE 케이스(스캔 70만행)는 스캔이 작은데도 중형이라,
+'스캔 행수'를 인라인 근거로 썼다면 오히려 등급과 어긋나 보였을 것이다(2절 ②의 실물 증거).
+
+  ① 인라인에서 시간 제거    — 7케이스 전부 확인. '초'·'약'·'~' 문자 없음
+  ② 툴팁에 상세 유지        — 7케이스 전부에서 '판정 근거: cost … (… 범위 …) · 이 케이스
+                              예상 약 … · 예상 소요: 약 …(로컬 접속 기준) — 원격 DB 는 …'
+                              확인. 원격 케이스에서도 '로컬 접속 기준' 한정어 유지
+  ③ 등급 판정 무회귀        — 7케이스 등급·cost 가 before 와 소수점까지 동일
+  ④ 다른 타일 무회귀        — 3단계 타일 9개 중 규모 타일만 변경. 나머지 8개 동일
+                              (처리시간 12.16초→12.33초는 매 실행 실측값이라 자연 변동)
+  ⑤ 신규 pageerror 없음     — before/after 모두 동일하게 1건(사전 존재 404 리소스)
+
+  스크린샷: {before,after}_G0_small_tiles.png … G6_medium_remote_tiles.png (타일 클립),
+            *_full.png(전체 페이지), *_plandetail.png(실행계획 상세), *_N_natural.png
+  원본 JSON: stats_scale_grade_basis_inline_verify_{before,after}.json (타일 값·툴팁 원문 포함)
+
+
+■ 6. 자체 테스트 / 회귀
+
+  신규   tests/test_stats_scale_grade_basis_inline.py   33건 전부 통과
+         [A] cost 경계가 _GRADE_BANDS 파생 · 연속성  [B] 인라인에 시간 표기 없음(요구사항 1)
+         [C] 툴팁 상세(밴드 위치·케이스 예상·원격 가산 반영)  [D] 밴드 변경 자동 추종
+         [E] _scale_grade 8케이스 무회귀 + 시간대 함수 생존  [F] 라우트 응답  [G] 화면 배선
+
+  갱신   tests/test_stats_scale_grade_time_hint.py (직전 작업 18건)
+         [G] 화면 배선 단언 1곳만 손봤다. 종전에는 짧은 시간대(d.grade_time_hint)와 툴팁
+         문구(_full)를 함께 요구했는데, 시간대의 표시 위치가 인라인→툴팁으로 바뀌었으므로
+         대상 필드를 _full 로 좁혔다. 이 테스트가 지키는 계약('화면이 서버 문구를 그대로
+         쓴다')은 그대로이며, 시간대 산출 자체의 검증 [A]~[D] 는 손대지 않았다. 18건 통과.
+
+  회귀   서브셋 pytest -k "strategy or scale or tile or stage3 or candidate or grid or plan"
+         현재 코드   2036 passed, 50 failed, 2 errors  (52건 실패)
+         baseline    (worktree, e4916d0) 로 동일 서브셋 실행 후 실패 ID 대조
+
+         → 신규 회귀 0건. 대조 결과 baseline 목록에 없던 3건이 나왔으나, 이는 baseline
+           worktree 에 라이브 게이트용 프리셋(db_presets_*.json, gitignore 대상)이 없어
+           skip 된 것이었다. 프리셋을 넣고 baseline 에서 다시 돌리니 수정 전 코드에서도
+           동일하게 3건 실패 — 사전 존재 실패다.
+             tests/test_candidate_contract.py::test_live_payment_contract_clean_and_defaults_preserved
+             tests/test_candidate_contract.py::test_live_product_selectable_not_auto_selected
+             tests/test_candidate_plan_matrix.py::test_null_vs_empty_selection_contract
+           (실패 사유도 후보 컬럼 선정 결과 PAY_DATE 포함 여부로, 이번 변경 범위와 무관하다)
+
+         실패 52건 전체 목록은 아래 8절에 적었다. 전부 사전 존재 실패이며 이번 변경과
+         무관하다(후보추천·배치 flow2·정책설정 등 다른 계열).
+
+
+■ 7. 남는 한계 / 비판적 검토
+
+  · 'cost' 는 사용자에게 익숙한 단어가 아니다. 숫자만으로는 크고 작음의 감이 없다는 약점이
+    있고, 이는 툴팁의 '(중형 범위 12.90~14.15)' 로만 해소된다 — 툴팁을 열지 않는 사용자
+    에게는 여전히 불투명한 값이다. 대안(스캔 행수)은 이해는 쉽지만 2절의 이유로 택하지
+    않았다. 더 낫게 하려면 밴드 내 위치를 게이지로 시각화하는 편이 맞고, 그것은 타일 규격
+    변경이라 이번 범위 밖이다.
+  · 타일 값 영역에서 '중형 (cost' / '13.56)' 으로 줄이 갈린다. 괄호 절을 nowrap 으로 묶으면
+    보기는 낫지만 값 폰트(1.05rem) 기준 폭을 넘겨 타일 밖으로 삐져나온다 — before 도 동일
+    하게 2줄이었고 타일 높이 변화가 없어 그대로 두었다.
+  · heuristic 증가 없음(판정 규칙을 새로 만들지 않았다). explainability 는 오히려 늘었다 —
+    종전에는 화면 어디에도 없던 cost 와 밴드 위치가 사용자에게 노출된다.
+  · 서버 응답 필드가 2개 늘었다(grade_cost_hint, grade_cost_hint_full). 문구 조립을 화면이
+    아닌 planner 한 곳에 둔다는 기존 원칙을 따른 것이라 결합도 증가는 없다.
+
+
+■ 8. 실패 테스트 전체 목록 (52건 — 전부 사전 존재, baseline 동일)
+
+  ERROR  tests/test_task11_p_profile_snapshot.py::TC06_08_EnricherIntegration::test_06_candidate_input_builder_accepts_snapshot
+  ERROR  tests/test_task11_r3.py::TC_R3_09_11_CandidateIntegrity::test_11_has_group_connection_identity_importable
+  FAILED tests/test_batch_flow2_candidate_core_parity.py::test_coalesce_cast_flow2_core_parity
+  FAILED tests/test_batch_flow2_e2e_smoke.py::test_e2e_generate_candidates_then_snapshots
+  FAILED tests/test_batch_flow2_e2e_smoke.py::test_plan_mode_count_sum_only
+  FAILED tests/test_batch_flow2_e2e_smoke.py::test_plan_mode_default_selected_only
+  FAILED tests/test_batch_flow2_e2e_smoke.py::test_plan_mode_global_and_grouped
+  FAILED tests/test_batch_flow2_e2e_smoke.py::test_plan_mode_grouped_only
+  FAILED tests/test_batch_flow2_e2e_smoke.py::test_plan_modes_share_same_selected_candidates
+  FAILED tests/test_batch_flow2_multirow_e2e_smoke.py::test_old_snapshot_not_in_latest_plan
+  FAILED tests/test_batch_flow2_multirow_e2e_smoke.py::test_two_normal_rows_each_snapshot_and_plan
+  FAILED tests/test_batch_profile_candidate_parity.py::test_calc_profile_present_parity
+  FAILED tests/test_batch_profile_recollect_control.py::test_candidate_freshness_service_empty
+  FAILED tests/test_candidate_contract.py::test_live_payment_contract_clean_and_defaults_preserved
+  FAILED tests/test_candidate_contract.py::test_live_product_selectable_not_auto_selected
+  FAILED tests/test_candidate_decision_evidence.py::test_evidence_role_split_strings
+  FAILED tests/test_candidate_display_policy.py::test_04_group_by_default
+  FAILED tests/test_candidate_display_policy.py::test_05_sum_default
+  FAILED tests/test_candidate_display_policy.py::test_06_net_amt
+  FAILED tests/test_candidate_draft_selection.py::test_candidate_notice_sticky_fix_uses_common_offset
+  FAILED tests/test_candidate_draft_selection.py::test_candidate_selection_bar_present_and_populated
+  FAILED tests/test_candidate_draft_selection.py::test_checkbox_change_keeps_table_and_plan_marks_draft
+  FAILED tests/test_candidate_draft_selection.py::test_restore_to_applied_clears_draft_notice
+  FAILED tests/test_candidate_draft_selection.py::test_uncheck_all_does_not_switch_to_count_only_before_apply
+  FAILED tests/test_candidate_evidence_display_policy.py::test_net_amt_vs_unit_price_distinct
+  FAILED tests/test_candidate_explainability.py::test_01_default_has_primary
+  FAILED tests/test_candidate_explainability.py::test_05_line_amt_computed
+  FAILED tests/test_candidate_explainability.py::test_06_group_by_profile
+  FAILED tests/test_candidate_explanation_display.py::test_candidate_score_separate_column
+  FAILED tests/test_candidate_plan_matrix.py::test_null_vs_empty_selection_contract
+  FAILED tests/test_candidate_role_policy_grid.py::test_global_limit_banner_and_count_same_input_no_lock
+  FAILED tests/test_d7_9_gb0_fallback.py::test_gate_gb0_always_grid
+  FAILED tests/test_date_candidate_ui_cleanup.py::test_date_cap_guard_and_hold
+  FAILED tests/test_diagnosis_phase3b.py::test_next_strategy_preview_matrix
+  FAILED tests/test_exact_diff_ui_wiring.py::test_record_grid_and_kind_filter_and_order
+  FAILED tests/test_policy_settings_plan_mode_order.py::test_disabled_hint_elements_present
+  FAILED tests/test_policy_settings_plan_mode_order.py::test_limit_options_preserved_not_removed
+  FAILED tests/test_policy_settings_plan_mode_order.py::test_sync_input_states_disable_rules
+  FAILED tests/test_single_batch_plan_parity.py::test_case_single_batch_plan_parity
+  FAILED tests/test_single_validation_candidate_audit.py::test_audit_fixture_cases_all_pass
+  FAILED tests/test_single_validation_candidate_audit.py::test_fallback_promote_golden
+  FAILED tests/test_single_validation_final_flow_check.py::test_analyze_candidates_business_first_and_source_expression
+  FAILED tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+  FAILED tests/test_task11_g.py::TestCandidateEngineEvidence::test_TC_PIPELINE_09_lineage_sum_evidence
+  FAILED tests/test_task11_i.py::TestBatchCandidateMetaPath::test_02_no_metadata_warning_uses_sql_only_message
+  FAILED tests/test_task11_m_plan_tag_filter.py::TC_PlanTagFilter_JS::test_06_date_bucket_fallback_keeps_check_impossible
+  FAILED tests/test_task11_r3.py::TC_R3_09_11_CandidateIntegrity::test_10_selected_not_affected_by_source_profile_skip
+  FAILED tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_dedup_logic_present
+  FAILED tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_hidden_when_empty
+  FAILED tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_only_individual_screen
+  FAILED tests/test_task_single_candidate_evidence_preview.py::test_cap3_unchanged
+  FAILED tests/test_validation_plan_renderer_static.py::test_v05_count_only_explicit_confirm_gate
+
+
+✅ 작업 완료 - STATS-SCALE-GRADE-BASIS-INLINE-TIME-REMOVE-FIX - 통계검증규모 타일 인라인의
+   시간대를 판정 근거(cost)로 교체하고 시간 정보는 툴팁으로 이관, 등급 산정 무회귀
