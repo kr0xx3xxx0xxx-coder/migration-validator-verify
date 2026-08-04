@@ -1,0 +1,236 @@
+작업명 : ADMIN-COLUMN-OVERRIDE-BUTTON-STILL-DISABLED-WITH-PROJECT-SELECTED-DIAGNOSE
+✅ 작업 완료 - 관리컬럼 확정 버튼 비활성 진단 - [핵심 결론: 프로젝트 선택은 정상이며, 3단계 후보 계산이 호출하는 /validation-sets/preview 가 project_id 를 아예 전달하지 않아 서버 재확정이 후보의 admin_column_override_context 를 project_id='' 로 덮어쓰고, 그 후보로 후보표를 통째 교체하면서 버튼이 disabled 로 되돌아간다]
+
+════════════════════════════════════════════════════════════════════════
+1. 결론 요약
+════════════════════════════════════════════════════════════════════════
+직전 진단(ADMIN-COLUMN-CONFIRM-BUTTON-NONFUNCTIONAL-AND-BATCH-SCOPE-DIAGNOSE)의
+"작업 프로젝트 미선택이 근본원인" 은 **틀렸다**. 사용자 말이 맞다.
+
+실측된 진짜 인과:
+
+  [1] 프로젝트 선택 → localStorage/mvGetWorkProjectId() 모두 정상. 상단 표시와 저장값 일치.
+  [2] 1단계 /analyze → 후보에 ctx{project_id:'957'} 부착 → 버튼 **활성**. 여기까지 정상.
+  [3] 3단계 후보 계산(▶ 후보 컬럼 추천 / 선택 적용 후 다시 검증)
+      → runRevalidateFromCandidate → _refreshValidationPlanWithRowCount
+      → POST /validation-sets/preview  ← **요청 본문에 project_id 가 없다**
+  [4] 서버가 authoritative 재확정(_maybe_finalize_postcount)을 수행하면서
+      enrich 를 project_id 없이 다시 돌린다 → 후보의 ctx 가
+      {project_id:'', table_key:'', project_id_present:false} 로 **덮어써진다**
+  [5] 클라이언트는 그 authoritative 후보로 all_groupby_candidates 를 **통째 교체**하고
+      후보표를 재렌더 → 버튼이 disabled 로 되돌아간다
+
+즉 버튼 비활성은 '프로젝트를 안 골라서'가 아니라 **정상적인 3단계 진행 자체가
+프로젝트 컨텍스트를 지우기 때문**이다. 사용자는 프로젝트를 고른 뒤 정상 순서로
+1→2→3단계를 밟았고, 그래서 항상 비활성 버튼만 보게 된다.
+
+직전 진단이 이걸 놓친 이유: 그 스크립트는 /analyze 응답을 곧바로 _analyzeData 에 넣고
+후보표를 강제 렌더했을 뿐(위 [2] 시점), 실제 UI 흐름의 3단계 계산([3])을 한 번도
+밟지 않았다. 그래서 대조군 B 가 '활성'으로 나왔고 결론이 프로젝트 선택 여부로 귀결됐다.
+
+════════════════════════════════════════════════════════════════════════
+2. 실측 결과 (PASS=24 / FAIL=0)
+════════════════════════════════════════════════════════════════════════
+하니스 : scripts/dev_e2e/admin_column_override_button_still_disabled_diagnose.py
+환경   : 실 DB(오라클 asis→tobe, NXDNP.MV_ORA_DEMO_SRC→MV_ORA_DEMO_TGT, 150행)
+         실제 브라우저(chromium-1223) + **실제 마우스 클릭**(locator.click)
+대상행 : DEPT_CD (자동 NOT_AUDIT — '맞음/아님' 버튼 2개가 그려지는 행)
+작업 프로젝트 : project_id=957 (MV-ADMOVR-NONFUNC-DIAG)
+
+■ [P0] 프로젝트 선택 상태 실측 — 화면 표시와 저장값이 일치하는가
+    localStorage 실제 키   : MV_WORK_PROJECT_KEY = 'work_project_id'
+    work_project_id        : "957"          ← 실제로 저장돼 있음
+    work_project_name      : "MV-ADMOVR-NONFUNC-DIAG"
+    mv_work_project(구 키) : null           ← 구 키 잔존 없음
+    mvGetWorkProjectId()   : "957"          ← 진단서가 지목한 함수가 정상 반환
+    상단 표시(topbarProjectName) : "MV-ADMOVR-NONFUNC-DIAG"
+    → 화면에서 '선택됨'으로 보이는 상태와 localStorage 값은 **완전히 일치**한다.
+      조사항목 1의 가설(표시와 저장값 불일치)은 **반증됨**.
+
+■ [S1] /analyze 직후 (프로젝트 선택 상태)
+    후보 ctx : {"project_id":"957","table_key":"MV_ORA_DEMO_TGT",
+                "project_id_present":true,"disabled_reason":""}
+    버튼     : ✔ 관리컬럼 맞음 / ✕ 관리컬럼 아님  → disabled=False, cursor=pointer
+    → 정상. (증적: S1_after_analyze_enabled.png)
+
+■ [S2] /count 실행 — 3단계 재확정 입력 확보
+    src_count=150, tgt_count=150
+
+■ [S3] 3단계 후보 계산 (운영 클라이언트 함수 _refreshValidationPlanWithRowCount 직접 호출)
+    POST /validation-sets/preview 요청 본문 키 (실제 캡처):
+      candidate_scoring, groupby_candidates, parse_result, row_count,
+      src_conn, src_db, sum_candidates,
+      user_selected_groupby_cols, user_selected_sum_cols
+    → **project_id 없음** (★ 결정적 증거)
+    보낼 때 후보 안의 ctx : {"project_id":"957", ..., "project_id_present":true}
+      (= 클라이언트는 정상 ctx 를 들고 있었고, 그대로 서버로 보냈다)
+    서버 응답 : authoritative=true, groupby_candidates=5건, processing_ms=306.1
+
+■ [S4] 재확정 후 — 프로젝트는 여전히 선택 상태
+    localStorage           : work_project_id="957" (불변)
+    mvGetWorkProjectId()   : "957" (불변)
+    후보 ctx (덮어써진 값) : {"project_id":"", "table_key":"",
+                              "project_id_present":false,
+                              "disabled_reason":"프로젝트를 먼저 선택해야 관리컬럼
+                                                 확정을 저장할 수 있습니다."}
+    버튼                   : disabled=True, cursor=not-allowed
+    **실제 마우스 클릭**   : CLICK_FAILED (playwright 가 disabled 버튼을 6초 대기 후 timeout)
+                             네트워크 요청 0건 / 콘솔 페이지 에러 0건 → 조용한 무반응
+    → 사용자가 본 그 상태가 정확히 재현됐다. (증적: S4_after_stage3_disabled.png)
+    ※ table_key 까지 '' 로 지워진다 — 버튼이 활성이더라도 TABLE_COLUMN 범위 확정 키가 없다.
+
+■ [S5] 강제 새로고침(Ctrl+F5 동등) 전/후
+    새로고침 후 : work_project_id="957" 유지, 후보표 자체는 사라짐(분석 결과는 비영속)
+    다시 analyze → 버튼 활성(False,False)
+    다시 3단계 계산 → 버튼 비활성(True,True), ctx.project_id=''
+    → **새로고침으로 해결되지 않는다.** 조사항목 3의 가설('옛 탭이 옛 상태를 들고 있다')은
+      **반증됨**. 서버 재기동/캐시와 무관하게 3단계 계산 때마다 결정적으로 재현된다.
+    (증적: S5_reproduced_after_reload_disabled.png)
+
+■ [S6] 파급 — 이미 확정된 행은 어떻게 되는가
+    analyze 직후 실제 클릭으로 AUDIT 확정 저장 성공
+      (POST /admin-column-overrides/save, 저장소 id=118 decision=AUDIT ACTIVE)
+    확정 배지 : 3단계 계산 후에도 **살아남음**
+      (override 값은 setdefault 로 보존되고 ctx 만 무조건 덮이기 때문)
+    [확정 해제] 버튼 : disabled=True
+    → 파급은 '배지 소실'이 아니라 **확정을 되돌릴 수 없게 되는 것**이다.
+      한 번 확정하면 그 화면에서는 해제 불가. 저장소에는 확정이 그대로 남는다.
+    (증적: S6_1_confirmed_badge.png / S6_2_badge_lost_after_stage3.png)
+    ※ 파일명 S6_2 는 최초 가설(배지 소실)로 지어진 이름이다. 실측으로 가설이 반증되어
+      실제 내용은 '배지는 남고 해제 버튼만 비활성'이다.
+
+════════════════════════════════════════════════════════════════════════
+3. 코드 근거 (인용 — 이번 작업은 진단 전용, 코드 변경 0)
+════════════════════════════════════════════════════════════════════════
+■ 버튼 활성 여부의 유일한 판단 근거 = 서버가 후보에 실어준 ctx
+  ui/js_admin_column_override.py:144
+      var dis = ctx.project_id_present ? '' : ' disabled';
+  → 클라이언트는 mvGetWorkProjectId() 를 보지 않는다. 오직 후보 dict 의
+    admin_column_override_context 만 본다. 그래서 localStorage 가 멀쩡해도 무의미하다.
+
+■ ctx 를 만드는 유일한 지점 — project_id 없으면 비활성 컨텍스트
+  services/candidate_subtype_service.py:1367-1377  _override_context()
+      pid = str(project_id if project_id is not None else "").strip()
+      "project_id_present": bool(pid)
+  services/candidate_subtype_service.py:1397-1402
+      ctx = _override_context(project_id, table_key)
+      for c in cands:
+          c[ADMIN_OVERRIDE_CONTEXT_FIELD] = dict(ctx)   ← ★ 무조건 덮어쓰기
+          c.setdefault(ADMIN_OVERRIDE_FIELD, None)      ←   override 값은 보존
+      if not ctx["project_id_present"] or not cands: return 0
+  → ctx 는 덮고 override 는 보존하는 이 비대칭이 S6 의 '배지는 남고 해제만 불가'를 만든다.
+
+■ 정상 경로(1단계 /analyze) — project_id 를 제대로 전달한다
+  ui/tabler_renderer.py:20800   project_id: mvGetWorkProjectId() || ''
+  services/single_validation_analyze_service.py:1614-1615
+      project_id         = (getattr(req, "project_id", "") or ""),
+      override_table_key = (str(tgt_table) if tgt_table else ""),
+
+■ 결함 경로(3단계 재확정) — 4단 전부에서 project_id 가 빠진다
+  ① 클라이언트 요청에 없음
+     ui/validation_plan_renderer.py:871-885
+        fetch('/validation-sets/preview', { body: JSON.stringify({
+          groupby_candidates, sum_candidates, row_count, candidate_scoring,
+          user_selected_sum_cols, user_selected_groupby_cols,
+          src_conn, src_db, parse_result })   ← project_id 없음
+  ② 요청 스키마에 필드 자체가 없음(서버가 받을 방법이 없다)
+     schemas/request_models.py:302-320  class ValidationSetPreviewRequest
+  ③ 라우트가 재확정 서비스에 넘기지 않음
+     routes/validation_set_preview_route.py:22-30  finalize_recommendation_postcount(...)
+        → project_id / table_key 인자 없음
+  ④ 재확정 서비스가 enrich 를 project_id 없이 재실행
+     services/candidate_postcount_finalize.py:705-712
+        enrich_candidates_for_display(gb, sm, top_n_gb=..., ...)  ← project_id 미전달
+     services/candidate_display_enricher.py:1245-1246 (기본값)
+        project_id: str | None = None
+        override_table_key: str | None = None
+     services/candidate_display_enricher.py:1396-1397
+        apply_admin_column_overrides(gb_sub + sum_sub,
+                                     project_id=project_id,        ← None
+                                     table_key=(override_table_key or ""))  ← ''
+
+■ 덮어쓴 결과가 화면에 반영되는 지점
+  ui/validation_plan_renderer.py:894-901
+      if (vsp.authoritative && Array.isArray(vsp.groupby_candidates) && ...) {
+        ad.all_groupby_candidates = vsp.groupby_candidates;   ← 후보 풀 통째 교체
+        ad.all_sum_candidates     = vsp.sum_candidates;
+        _rerenderCandidateTablePreservingSelection();          ← 후보표 재렌더
+      }
+  → 교체된 후보에는 project_id 가 없는 ctx 가 붙어 있으므로 버튼이 disabled 로 그려진다.
+
+════════════════════════════════════════════════════════════════════════
+4. 조사항목별 답 (지침 1~5)
+════════════════════════════════════════════════════════════════════════
+1) 화면 '선택됨' 과 localStorage 일치 여부
+   → **일치한다.** work_project_id="957", mvGetWorkProjectId()="957",
+     상단 표시 "MV-ADMOVR-NONFUNC-DIAG". 불일치 가설 반증.
+     (단, 직전 진단 스크립트가 지운 키 'mv_work_project_id' 는 존재하지 않는 이름이다.
+      실제 키는 'work_project_id' — 그 스크립트가 A 시나리오를 만든 방식 자체가
+      우연히만 맞았다. 새 브라우저 컨텍스트라 어차피 비어 있었기 때문.)
+
+2) 서버로 전달되는 project_id 가 빈 값인가, 값은 있는데 다른 이유인가
+   → **전달 자체가 없다.** 형변환/형식 불일치/서버측 존재 검증 실패가 아니다.
+     /validation-sets/preview 요청 본문에 project_id 키가 없고, 요청 스키마에도
+     필드가 없다. 서버는 기본값 None 으로 enrich 를 돌려 ctx 를 비활성으로 만든다.
+     (반대로 /analyze 요청에는 정상적으로 실려 가고, 그 응답의 ctx 는 정상이다.)
+
+3) '서버 재기동 후에도 옛 탭이 옛 상태' 패턴인가
+   → **아니다.** 강제 새로고침 후 다시 analyze→3단계 계산을 밟아도 동일하게 재현된다.
+     새로고침은 후보표를 지울 뿐 결함을 없애지 못한다.
+
+4) 프로젝트 선택 시점과 후보표 렌더 시점 사이의 타이밍 문제인가
+   → **부분적으로 맞지만 방향이 반대다.** 문제는 '선택이 늦어서'가 아니라,
+     선택이 이미 반영된 정상 후보표를 **3단계 계산이 나중에 덮어써서** 생긴다.
+     프로젝트를 먼저 선택하고 새로고침까지 해도 3단계 계산이 다시 지운다.
+
+5) 사용자가 처음 본 상태의 조건 역추정
+   → 특별한 조건이 필요 없다. **프로젝트 선택 + 정상 순서(1→2→3단계) = 항상 재현.**
+     사용자가 3단계 후보표를 보는 시점은 대부분 '후보 컬럼 추천'을 누른 뒤이므로,
+     실사용에서는 사실상 항상 비활성 버튼만 보게 된다. 버튼이 활성인 순간은
+     /analyze 직후 3단계 계산 전(운영 화면에서는 거의 노출되지 않는 짧은 구간)뿐이다.
+
+════════════════════════════════════════════════════════════════════════
+5. 영향 범위 / 추가로 드러난 사실 (미수정 — 이번 지침은 진단 전용)
+════════════════════════════════════════════════════════════════════════
+- table_key 도 함께 '' 로 지워진다. 확정 저장 키(프로젝트×테이블×컬럼) 중 두 축이
+  동시에 사라지므로, 버튼 활성화만 고쳐서는 부족하고 table_key 도 함께 보존해야 한다.
+- 한 번 확정한 행은 3단계 계산 후 [확정 해제] 가 불가능해진다(저장소에는 남음).
+- 같은 형태의 미배선이 다른 3개 enrich 호출부에도 있다(**이번 실측 범위 밖 — 코드 근거만**):
+    services/validation_job_core.py:314        (원클릭/전체검증 공통 core)
+    services/batch_runner.py:139               (일괄검증)
+    services/column_candidate_gen_service.py:845
+  전부 project_id / override_table_key 를 전달하지 않는다. 반면 project_id 를 넘기는
+  프로덕션 호출부는 services/single_validation_analyze_service.py:1614 한 곳뿐이다.
+  → 개별검증 1단계 analyze 경로만 확정 컨트롤이 살아 있고, 나머지 경로는 구조적으로
+    비활성일 가능성이 높다(BACKLOG 의 '일괄검증이 저장된 확정을 조회조차 안 함' 과 동일 뿌리).
+- 조용한 무반응(요청 0건·에러 0건)이라 사용자가 원인을 알 수 없다. disabled 사유 문구는
+  title 속성에만 있어 마우스를 올려야 보이고, 그나마 내용이 사실과 다르다
+  ("프로젝트를 먼저 선택해야" — 사용자는 이미 선택했다).
+
+════════════════════════════════════════════════════════════════════════
+6. 증적 파일
+════════════════════════════════════════════════════════════════════════
+E:\verify_screenshots_only\ADMIN-COLUMN-OVERRIDE-BUTTON-STILL-DISABLED-WITH-PROJECT-SELECTED-DIAGNOSE\
+  S1_after_analyze_enabled.png            /analyze 직후 — 버튼 활성(초록/로즈 테두리)
+  S4_after_stage3_disabled.png            3단계 계산 후 — 버튼 회색 비활성(재현된 증상)
+  S5_reproduced_after_reload_disabled.png 강제 새로고침 후에도 동일 재현
+  S6_1_confirmed_badge.png                확정 직후 배지 표시
+  S6_2_badge_lost_after_stage3.png        3단계 계산 후 — 배지는 남고 [확정 해제] 비활성
+  diagnose_facts.json                     전 구간 원시 실측값(ctx/localStorage/요청본문/클릭결과)
+
+하니스(신규, 진단 전용):
+  scripts/dev_e2e/admin_column_override_button_still_disabled_diagnose.py
+
+코드 변경 : 없음 (진단 전용 지침 — diff 불필요)
+
+════════════════════════════════════════════════════════════════════════
+7. 자체 테스트
+════════════════════════════════════════════════════════════════════════
+진단 하니스 전 구간 : PASS=24 / FAIL=0
+  P0 프로젝트 선택 상태 2건 · S1 analyze 직후 4건 · S2 COUNT 1건 ·
+  S3 preview 요청/응답 4건 · S4 재확정 후 5건(실제 마우스 클릭 포함) ·
+  S5 새로고침 전후 3건 · S6 파급 5건
+코드 변경이 없으므로 기존 테스트 회귀 대상 없음.
+
+작업명 : ADMIN-COLUMN-OVERRIDE-BUTTON-STILL-DISABLED-WITH-PROJECT-SELECTED-DIAGNOSE
+✅ 작업 완료 - 관리컬럼 확정 버튼 비활성 진단 - [핵심 결론: 프로젝트 선택은 정상이며, 3단계 후보 계산이 호출하는 /validation-sets/preview 가 project_id 를 아예 전달하지 않아 서버 재확정이 후보의 admin_column_override_context 를 project_id='' 로 덮어쓰고, 그 후보로 후보표를 통째 교체하면서 버튼이 disabled 로 되돌아간다]
