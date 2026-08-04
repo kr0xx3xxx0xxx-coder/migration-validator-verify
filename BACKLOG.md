@@ -10,7 +10,15 @@
 - 대상 제외: 아직 push 되지 않은 로컬 전용 보고서 16건은 이번 취합에서 제외했다.
   push 후 이 파일에 합류시킨다.
 - 최초 작성: 2026-07-29 (VERIFY-REPO-BACKLOG-FILE-CREATE)
-- 최종 갱신: 2026-08-03 (BACKLOG-M16-F17-M13-P3-DOC-SYNC) — 해결된 4개 항목(M16·F17·M13·P3)을
+- 최종 갱신: 2026-08-05 (BACKLOG-M32-F27-RESOLVED-MARK) — 해결된 2개 항목(M32·F27)을
+  `✅ 해결 완료` 로 표시(신규 등록·삭제 없음)
+  (M32 해결 — 실제 상한(`MV_STATISTICS_RESULT_LIMIT=5`)까지 낮춰 진짜 BLOCKED 를 재현하고,
+  724.2ms 무기록 → 658.7ms(벽시계 일치) · src 98ms/tgt 102ms 로 분해. 공식 저장 계약(8개 키
+  whitelist)과 성공 경로는 무수정,
+  F27 해결 — 렌더 파일 무접촉. 문구 생성 지점(`services/candidate_explanation_service.py`)만 수정해
+  저장이 있을 때만 근거 4개 키 추가(전수 스캔은 기존 5개 키 그대로 무회귀).
+  "값 (근거)" 표기 패턴 재사용 + 다른 근거에서 온 고유값엔 꼬리표를 안 붙이는 안전장치 포함)
+- 직전 갱신: 2026-08-03 (BACKLOG-M16-F17-M13-P3-DOC-SYNC) — 해결된 4개 항목(M16·F17·M13·P3)을
   `✅ 해결 완료` 로 표시(신규 등록·삭제 없음)
   (M16 해결 — `_count_rows` 의 postgres 하드코딩을 같은 파일의 기존 `_routing_dialect` 헬퍼 위임으로
   교체(새 매핑 없음), 오라클 라이브 실측 src/tgt 300/300 동일로 무회귀 확인,
@@ -1472,7 +1480,22 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: S17(해결 완료 — 이 갭이 확인된 작업) · M24(같은 작업의 사유 문구 잔여)
 - 참고: E:\verify_reports\REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX.txt
 
-### F27. '표본 5만행 기준' 근거가 저장만 되고 화면에 뜨지 않는다(UI 배선 미완)
+### F27. ✅ 해결 완료 — '표본 5만행 기준' 근거가 저장만 되고 화면에 뜨지 않는다(UI 배선 미완)
+- 해결일: 2026-08-04 (SAMPLE-BASIS-EVIDENCE-UI-EXPOSE-FIX)
+- 근거 커밋: 코드 저장소 `2b45c01` — `fix(ui): 표본(5만행) 기반 고유값에 '표본 5만행 기준' 근거 병기
+  — 저장은 되나 화면이 못 읽던 갭 해소 (SAMPLE-BASIS-EVIDENCE-UI-EXPOSE-FIX)`
+- 근거 보고서 커밋: 이 저장소 `d46454f`(완료보고 `SAMPLE-BASIS-EVIDENCE-UI-EXPOSE-FIX`)
+- 해결 요약: 대응 방향은 `ui/` 수정이었으나, **렌더 파일은 전혀 건드리지 않고 문구 생성 지점
+  (`services/candidate_explanation_service.py`)만 수정**하는 쪽으로 잡았다 — 후보 비고 chip 은
+  서버가 만드는 단일 출처라 렌더러 변경이 불필요하다. **저장이 있을 때만 근거 4개 키를 추가**하고,
+  전수 스캔 경로는 **기존 5개 키 그대로**라 무회귀다. 표기는 오늘 확립된 **"값 (근거)" 패턴**을
+  재사용해 비고·선정사유·툴팁에 병기했다. **다른 근거에서 온 고유값에는 꼬리표를 붙이지 않는
+  안전장치**를 포함해, 표기와 실제 수집 조건이 어긋날 수 없다.
+- 잔여(미해결): ① 표본 기반 `row_count` 에서 파생되는 지표(그룹당 평균/예상 그룹 수)는 여전히
+  무근거로 읽힌다 — 근거를 '고유값' 값에만 정확히 귀속시켰기 때문(문장 전체에 붙이면 거짓이 됨).
+  ② 개별검증 라이브 profile 경로(`services/column_profile_service.py`)는 같은 5만 표본을 뜨면서
+  `sampled` 플래그를 남기지 않아 '표본인데 표기 없음' 이 그대로다(별도 지침 권장).
+  ③ 표기 대상은 GROUP BY 비고에 한정 — SUM 후보 비고는 NULL 계열 chip 이라 제외(툴팁에는 공통 적용).
 - 발견일: 2026-08-02
 - 근거 보고서: `PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX.txt` (§7)
 - 상세: P2 수정으로 표본 절단 시 "표본 5만행 기준" 근거가 재수집 반환 자료구조와 snapshot 의
@@ -1933,7 +1956,22 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: F36 · F37(같은 진단서에서 나온 관리컬럼 확정 클러스터)
 - 참고: E:\verify_reports\ADMIN-COLUMN-CONFIRM-BUTTON-NONFUNCTIONAL-AND-BATCH-SCOPE-DIAGNOSE.txt
 
-### M32. BLOCKED 응답에는 `query_timing` 이 없어 성능 추적에서 조용히 누락된다(심각도 LOW)
+### M32. ✅ 해결 완료 — BLOCKED 응답에는 `query_timing` 이 없어 성능 추적에서 조용히 누락된다(심각도 LOW)
+- 해결일: 2026-08-04 (BLOCKED-RESPONSE-TOTAL-ELAPSED-TIME-ADD-FIX)
+- 근거 커밋: 코드 저장소 `4ddbbb4` — `fix(perf): 차단(BLOCKED) 응답에 실제 소요시간 기록 —
+  query_timing 성공 경로 전용 해소 (BLOCKED-RESPONSE-TOTAL-ELAPSED-TIME-ADD-FIX)`
+- 근거 보고서 커밋: 이 저장소 `2eadf3e`(완료보고 `BLOCKED-RESPONSE-TOTAL-ELAPSED-TIME-ADD-FIX`)
+- 해결 요약: 대응 방향대로 **BLOCKED 응답에도 실제 소요시간을 채워 넣었다**.
+  재현이 관건이었는데, 실제 상한(`MV_STATISTICS_RESULT_LIMIT=5`)까지 낮춰 **진짜 BLOCKED 를 재현**해
+  실측했다 — Before 724.2ms 가 **무기록(시간 필드 없음)**, After 658.7ms 로 기록되며
+  **벽시계와 일치**했고 `src 98ms / tgt 102ms` 로 구간까지 분해됐다.
+  공식 저장 계약(스냅샷 whitelist 8개 키)은 **무수정**, 성공 경로도 **무수정**이라 회귀 위험이 없다.
+  read-only 강제실패 2경로는 **구간 분리가 가능한 경우/불가능한 경우**로 성격을 구분해 처리했다.
+- 잔여(미해결): ① 실행 '오류' 응답(`_err_response` — statement_timeout 60초 등)에는 여전히
+  `query_timing` 이 없다(이번 지침 범위 밖). ② 사전 차단 게이트
+  (`services/groupby_execution_safety_gate.py`)의 BLOCKED 도 게이트 자체의 catalog/EXPLAIN 시간이
+  기록되지 않는다. ③ `total_elapsed_ms` 는 whitelist 밖이라 저장·재조회로는 보존되지 않는다
+  (차단 결과가 current/history 를 바꾸지 않는 설계 — 영속 추적이 필요하면 별도 결정).
 - 발견일: 2026-08-03
 - 근거 보고서: `STATS-SCALE-COST-BAND-BENCHMARK-MEASURE.txt` (§7-2)
 - 상세: 결과 그룹 상한 초과로 차단된 케이스는 **DB 구간이 0ms 로 기록되고 56초가 통째로 '앱 구간'** 에
