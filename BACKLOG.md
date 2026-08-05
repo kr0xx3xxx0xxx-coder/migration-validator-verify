@@ -786,7 +786,32 @@ git -C E:/verify_reports worktree remove <임시경로>
 
 ## 성능
 
-### P15. 결과 그룹 상한 초과가 사전차단이 아니라 **시간을 다 쓴 뒤 사후차단**된다(이 섹션 내 상대 우선순위 높음)
+### P15. ✅ 해결 완료 — 결과 그룹 상한 초과가 사전차단이 아니라 **시간을 다 쓴 뒤 사후차단**된다(이 섹션 내 상대 우선순위 높음)
+- 해결일: 2026-08-05 (RESULT-GROUP-LIMIT-PRECHECK-FIX)
+- 근거 커밋: 코드 저장소 `1c262e9` — `fix(execute): 결과 그룹 상한을 실행 전에 차단 — 56초 소모 후
+  사후차단 해소 (RESULT-GROUP-LIMIT-PRECHECK-FIX)`
+- 근거 보고서 커밋: 이 저장소 `df613a0`(완료보고 `RESULT-GROUP-LIMIT-PRECHECK-FIX`) ·
+  `711953c`(재확인 `RESULT-GROUP-LIMIT-PRECHECK-USING-F31-CARDINALITY-FIX` — 중복 지침 판정)
+- 해결 요약: 대응 방향 ①·②를 실행 core 의 **사전 판정 1곳**으로 통합해 적용했다 — 통계 SELECT 를
+  **발행하기 전에** 결과 그룹 수를 판정하고, 허용 한도(100,000) 초과가 확실할 때만 차단한다
+  (`services/result_group_limit_precheck.py` 신설 · `services/stats_execute_service.py` 에서 호출).
+  재현 케이스(1,000만행 · GROUP BY id · 결과 그룹 1,000만)가 **58,308ms 사후차단 → 170~214ms
+  사전차단**(단축률 **99.6%**, DB 집계 미실행 — 통계 SELECT 를 한 번도 보내지 않음)으로 바뀌었다.
+  기존 **사후 안전망은 그대로 유지(이중 방어)** 하며, 추정이 안전으로 나오지만 실제로는 초과인
+  **경계 케이스에서 기존 사후차단이 정상 작동**함을 실 DB 로 확인했다.
+  근거 없음 / 산정 실패 / 접속대상 불명은 **차단하지 않고 진행**한다. 정상 케이스에 새로 붙는 비용은
+  **0.13~0.23초**(무회귀). 신규 단위 테스트 16건(`tests/test_result_group_limit_precheck.py`) 전건 통과.
+- **대응 방향 ①(F31 카디널리티)의 전제 정정**: 실행 경로에서 F31 카디널리티를 그대로 읽는 구현은
+  **배선상 성립하지 않는다** — 실행 요청 스키마(`schemas/request_models.py` 의 `ExecuteRequest`)에
+  해당 필드 자체가 없다(F31 이 실은 카디널리티의 소비처는 전략 계획기 프로파일뿐). 그래서 같은 의미의
+  근거로 **안전게이트가 이미 쓰던 후보표 distinct 를 재사용**해 `estimate_groupby_count` 로 조합
+  판정한다(추가 DB 조회 0회) — **새 추정식은 만들지 않았다.**
+- 재확인(2026-08-05): 후속 재지시(`RESULT-GROUP-LIMIT-PRECHECK-USING-F31-CARDINALITY-FIX`)가
+  문서 대조가 아니라 **현재 코드를 직접 검사**해 요구사항 4개 전부 충족(사전차단 모듈 존재 · 통계
+  SELECT 발행 전 호출 · 한도 100,000 · 사후 안전망 유지 · 기존 계산 재사용)과 **신규 테스트 16건
+  재실행 전건 통과**를 재확인했다. 중복 지침으로 판정돼 코드 변경은 없다.
+- 근거 보고서(해결): E:\verify_reports\RESULT-GROUP-LIMIT-PRECHECK-FIX.txt
+- 근거 보고서(재확인): E:\verify_reports\RESULT-GROUP-LIMIT-PRECHECK-USING-F31-CARDINALITY-FIX.txt
 - 발견일: 2026-08-03
 - 근거 보고서: `STATS-SCALE-COST-BAND-BENCHMARK-MEASURE.txt` (§7-1)
 - 상세: 결과 그룹이 허용 한도(100,000개)를 넘는 케이스가 **56,255ms 를 전부 소모한 뒤에야**
