@@ -1,0 +1,124 @@
+════ [A] 이관 전(BEFORE) — MV_AUTH_STORE=file · 인스턴스 :8021 ════
+2026-08-06 08:19:16 +0900
+--- [무인증] GET /api/build-info
+HTTP/1.1 401 Unauthorized
+date: Wed, 05 Aug 2026 23:19:15 GMT
+server: uvicorn
+www-authenticate: Basic realm="Migration Validator", charset="UTF-8"
+content-type: application/json; charset=utf-8
+content-length: 65
+cache-control: no-store
+
+--- [오답] curl -u lee:<wrong> GET /api/build-info
+HTTP 401
+--- [오답] curl -u e2e:<wrong> GET /api/build-info
+HTTP 401
+--- [오답] curl -u mv_verify:<wrong> GET /api/build-info
+HTTP 401
+--- [오답] curl -u ghost_user:<wrong> GET /api/build-info
+HTTP 401
+
+════ [B] 실제 이관 실행 ════
+════════════════════════════════════════════════════════════════════════
+auth_users.json → SQLite auth_user 이관
+  원본 파일 : C:\projects\migration-validator\auth_users.json
+  대상 DB   : C:\projects\migration-validator\db\migration_validator.db  (테이블 auth_user)
+  모드      : 실제 이관
+════════════════════════════════════════════════════════════════════════
+  파일 사용자 3명: e2e, lee, mv_verify
+  ✓ 'e2e' 삽입 완료
+  ✓ 'lee' 삽입 완료
+  ✓ 'mv_verify' 삽입 완료
+────────────────────────────────────────────────────────────────────────
+  대조 결과(파일 레코드 vs DB 레코드 — 값 원문 미출력):
+    ✓ e2e: 7개 필드(algo/n/r/p/dklen/salt/hash) 전부 동일
+    ✓ lee: 7개 필드(algo/n/r/p/dklen/salt/hash) 전부 동일
+    ✓ mv_verify: 7개 필드(algo/n/r/p/dklen/salt/hash) 전부 동일
+────────────────────────────────────────────────────────────────────────
+  요약: 삽입 3 · 갱신 0 · 기존유지(건너뜀) 0 · 실패 0 · 불일치 0
+  현재 DB 등록 사용자 3명: e2e, lee, mv_verify
+  원본 auth_users.json 은 삭제하지 않았습니다(롤백용 보존 — MV_AUTH_STORE=file).
+════════════════════════════════════════════════════════════════════════
+종료코드: 0
+
+════ [B-2] 재실행 멱등성(같은 스크립트 2회차) ════
+════════════════════════════════════════════════════════════════════════
+  파일 사용자 3명: e2e, lee, mv_verify
+────────────────────────────────────────────────────────────────────────
+  대조 결과(파일 레코드 vs DB 레코드 — 값 원문 미출력):
+    ✓ e2e: 7개 필드(algo/n/r/p/dklen/salt/hash) 전부 동일
+    ✓ lee: 7개 필드(algo/n/r/p/dklen/salt/hash) 전부 동일
+    ✓ mv_verify: 7개 필드(algo/n/r/p/dklen/salt/hash) 전부 동일
+────────────────────────────────────────────────────────────────────────
+  요약: 삽입 0 · 갱신 0 · 기존유지(건너뜀) 3 · 실패 0 · 불일치 0
+  현재 DB 등록 사용자 3명: e2e, lee, mv_verify
+  원본 auth_users.json 은 삭제하지 않았습니다(롤백용 보존 — MV_AUTH_STORE=file).
+════════════════════════════════════════════════════════════════════════
+
+════ [C] 신규 계정 생성(create_user.py → DB) ════
+  ✓ 사용자 'mv_authmig' 생성 완료 → db:C:\projects\migration-validator\db\migration_validator.db (auth_user)
+     (비밀번호는 scrypt 해시로만 저장됨. 저장소 파일은 커밋 금지.)
+     인증은 요청마다 저장소를 재조회하므로 서버 재시작 없이 즉시 적용됩니다.
+--- create_user.py --list ---
+등록 사용자 4명 (저장소: db:C:\projects\migration-validator\db\migration_validator.db (auth_user)):
+  · e2e  status=ACTIVE  updated=2026-08-05T23:19:23Z  memo=migrated from auth_users.json
+  · lee  status=ACTIVE  updated=2026-08-05T23:19:23Z  memo=migrated from auth_users.json
+  · mv_authmig  status=ACTIVE  updated=2026-08-05T23:19:49Z  memo=AUTH-USERS-JSON-TO-SQLITE-MIGRATION 검증용
+  · mv_verify  status=ACTIVE  updated=2026-08-05T23:19:23Z  memo=migrated from auth_users.json
+
+════ [D] 이관 후(AFTER) — MV_AUTH_STORE 미설정(기본 db) · 인스턴스 :8022 ════
+2026-08-06 08:20:03 +0900
+--- [무인증] GET /api/build-info (기대 401)
+HTTP/1.1 401 Unauthorized
+date: Wed, 05 Aug 2026 23:20:02 GMT
+server: uvicorn
+www-authenticate: Basic realm="Migration Validator", charset="UTF-8"
+content-type: application/json; charset=utf-8
+content-length: 65
+cache-control: no-store
+
+--- [오답] curl -u lee:<wrong> (기대 401)
+HTTP 401
+--- [오답] curl -u e2e:<wrong> (기대 401)
+HTTP 401
+--- [오답] curl -u mv_verify:<wrong> (기대 401)
+HTTP 401
+--- [오답] curl -u ghost_user:<wrong> (기대 401)
+HTTP 401
+--- [정답/신규계정] curl -u mv_authmig:<known> (기대 200)
+HTTP/1.1 200 OK
+date: Wed, 05 Aug 2026 23:20:03 GMT
+server: uvicorn
+cache-control: no-cache, no-store, must-revalidate
+content-length: 30
+content-type: application/json
+--- [오답/신규계정] curl -u mv_authmig:<wrong> (기대 401)
+HTTP 401
+--- [정답/신규계정] 화면 진입점 GET / (기대 200)
+HTTP 200  content-type=text/html; charset=utf-8
+
+════ [E] 기존 3계정 — 파일 레코드 vs DB 레코드 동일성 증명(값 원문 미출력) ════
+파일 사용자: ['e2e', 'lee', 'mv_verify']
+DB   사용자: ['e2e', 'lee', 'mv_authmig', 'mv_verify']
+  e2e: 레코드 7필드 완전동일=True  ·  오답 4종 판정동일=True
+  lee: 레코드 7필드 완전동일=True  ·  오답 4종 판정동일=True
+  mv_verify: 레코드 7필드 완전동일=True  ·  오답 4종 판정동일=True
+결론: 3계정 레코드 완전동일 = True → 임의 비밀번호(실제 비밀번호 포함)에 대한 verify 결과는 저장소와 무관하게 동일
+
+════ [F] kill-switch(MV_AUTH_STORE) 실효성 ════
+--- :8021(file 저장소·실제 auth_users.json)에 DB 전용 계정으로 로그인 (기대 401 — 파일에는 없음)
+HTTP 401
+--- :8023(file 저장소·동일 레코드 임시 JSON) 같은 계정 로그인 (기대 401→200)
+  무인증        HTTP 401
+  오답          HTTP 401
+  정답(file)    HTTP 200
+  정답(db:8022) HTTP 200
+  → 동일 scrypt 레코드는 file/db 어느 저장소로 읽어도 실제 HTTP 인증 결과가 같다.
+
+════ [G] status 컬럼 동작 확인 + 검증계정 비활성화(정리) ════
+  mv_authmig → status=DISABLED (검증 종료 후 정리)
+  ACTIVE 로드 사용자: ['e2e', 'lee', 'mv_verify']
+--- 비활성 계정 로그인 재시도 :8022 (기대 401 — status 게이트)
+HTTP 401
+--- 기존 3계정 오답 재확인 :8022 (기대 401)
+lee HTTP 401

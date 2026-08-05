@@ -1,0 +1,148 @@
+작업명 : AUTH-USERS-JSON-TO-SQLITE-MIGRATION
+
+✅ 작업 완료 - 인증 자격증명을 auth_users.json → SQLite auth_user 테이블로 이관하고 실 HTTP 401/200 로 검증(기존 3계정 레코드 완전동일, 신규 1계정 로그인 재현)
+
+════════════════════════════════════════════════════════════════════════
+1. 요청 요약 / 사전 검토 (CLAUDE.md 기능·구조 변경 응답 형식)
+════════════════════════════════════════════════════════════════════════
+- 요청 요약: Basic Auth 자격증명 저장소를 JSON 파일에서 SQLite(auth_user)로 옮기고,
+             kill-switch(MV_AUTH_STORE)로 즉시 롤백 가능하게 한다.
+- 긍정적 효과: 계정에 status/시각/메모 등 운영 메타를 붙일 수 있고, 다른 영속 데이터와
+             저장소가 일원화된다(파일 5종 분산 완화). 계정별 상태 게이트가 생긴다.
+- 구조적 문제점: 인증 계층이 SQLite 에 새로 의존한다. web_server.py 는 손대지 않았고
+             services/auth 안에서 닫히지만, DB 파일 손상 시 401 이 아니라 503(미설정)로
+             전 요청이 막히는 단일 실패지점이 하나 늘어난다.
+- 운영상 위험: ① 요청마다 DB 조회(캐시 없음) — 정적파일 포함 전 요청이 SQLite 를 연다.
+             현재 계정 4행 규모에서는 무시 가능하나 잠금 경합 시 인증이 느려질 수 있다.
+             ② 이미 떠 있는 서버는 옛 모듈을 들고 있어 재기동 전까지 JSON 을 계속 읽는다.
+             ③ db/migration_validator.db 를 복사·공유하면 해시가 함께 딸려간다(파일과 동일 위험).
+- heuristic/scoring/explainability 영향: heuristic 증가 없음. 판정 규칙은 password_hash 하나로
+             유지되고 저장소는 조회 경로만 바뀐다. created_at/updated_at/memo 로 근거 보존은 오히려 개선.
+- 권장 대응책(적용함): kill-switch 로 파일 복귀 1초 전환, 원본 JSON 미삭제 보존, 이관 스크립트 멱등,
+             CLI/미들웨어 인터페이스 불변(호출부 0곳 수정), 실패 시 예외 대신 빈 목록 → 503 fail-safe 유지.
+- 지금 구현 여부: 진행(요청 범위 그대로 완료).
+
+════════════════════════════════════════════════════════════════════════
+2. 변경/생성 파일 (지정된 3개 외 수정 없음)
+════════════════════════════════════════════════════════════════════════
+[수정] services/auth/credential_store.py       (+271/-31 라인)
+[수정] scripts/auth/create_user.py             (CLI 인터페이스 유지, 저장 경로만 DB 로)
+[신규] scripts/migrate_auth_users_to_sqlite.py (1회성 이관, 멱등)
+
+- auth_users.json : 삭제하지 않음(롤백용 보존). 파일 타임스탬프 무변경(Jul 25 21:55) 확인.
+- db/schema.sql   : 수정하지 않음. auth_user DDL 은 credential_store 가 멱등 생성(CREATE IF NOT EXISTS).
+- web_server.py / middleware.py / tests / dev_e2e : 무수정.
+
+■ auth_user 테이블
+  username PK, algo, n, r, p, dklen, salt, hash,
+  status DEFAULT 'ACTIVE', created_at, updated_at, last_login_at, memo
+  위치: db/migration_validator.db (env MV_AUTH_DB_FILE 로 경로 override 가능)
+
+■ 저장소 판정 규칙(MV_AUTH_STORE)
+  db(기본) / file(롤백). 값이 없거나 알 수 없으면 db.
+  단, MV_AUTH_STORE 미지정 + MV_AUTH_USERS_FILE 설정 시에는 file 로 판정한다.
+  └ 사유: tests/test_auth_basic.py 와 scripts/dev_e2e/* 가 "임시 계정 파일로 인증을 격리"하는
+     기존 관행을 쓰는데, 그 파일들은 이번 작업 범위 밖(수정 금지)이라 규칙으로 보존했다.
+     운영 서버는 MV_AUTH_USERS_FILE 을 설정하지 않으므로 항상 db 로 동작한다.
+
+■ 이번 범위에서 의도적으로 하지 않은 것
+  - last_login_at 기록: 컬럼만 만들고 쓰지 않는다. 로그인 성공마다 UPDATE 하면 정적파일 요청까지
+    DB 쓰기가 발생해 경합을 만든다(요청마다 재조회 유지 지시와 별개의 성능 이슈) → 별도 작업 권장.
+  - 조회 캐시: 요청 인식 즉시 반영 동작을 유지하라는 지시대로 캐시 미도입.
+
+════════════════════════════════════════════════════════════════════════
+3. 검증 결과 — 실 HTTP 실측 (전량 curl, 서버 인스턴스 별도 기동)
+════════════════════════════════════════════════════════════════════════
+운영 서버(:8000)는 건드리지 않았다(PID 16976 LISTENING 유지 확인).
+검증은 :8021(file) / :8022(db 기본) / :8023(file·임시 JSON) 별도 인스턴스로 수행 후 전부 종료.
+
+[A] 이관 전 (MV_AUTH_STORE=file · 실제 auth_users.json) — :8021
+    무인증          GET /api/build-info → HTTP/1.1 401 Unauthorized
+                    www-authenticate: Basic realm="Migration Validator", charset="UTF-8"
+    lee/오답        → 401     e2e/오답  → 401
+    mv_verify/오답  → 401     없는계정  → 401
+
+[B] 이관 실행 (scripts/migrate_auth_users_to_sqlite.py)
+    파일 사용자 3명: e2e, lee, mv_verify → 삽입 3 · 실패 0 · 불일치 0 (종료코드 0)
+    대조: e2e / lee / mv_verify 각각 7필드(algo/n/r/p/dklen/salt/hash) 전부 동일
+    ※ salt/hash 원문은 스크립트가 절대 출력하지 않는다(동일 여부만).
+[B-2] 재실행(멱등성): 삽입 0 · 갱신 0 · 기존유지 3 · 실패 0 · 불일치 0
+
+[C] 신규 계정 생성 — python scripts/auth/create_user.py --user mv_authmig --from-env
+    ✓ 'mv_authmig' 생성 완료 → db:...\db\migration_validator.db (auth_user)
+    --list 출력: 4명(e2e/lee/mv_authmig/mv_verify), status·updated·memo 표시 정상
+
+[D] 이관 후 (MV_AUTH_STORE 미설정 = 기본 db) — :8022
+    무인증                  → HTTP/1.1 401 Unauthorized (+ WWW-Authenticate 동일)
+    lee/e2e/mv_verify 오답  → 401 · 401 · 401       없는계정 → 401
+    mv_authmig 정답         → HTTP/1.1 200 OK        (401 → 200 전환 실측)
+    mv_authmig 오답         → 401
+    화면 진입점 GET /       → 200 (text/html)
+
+[E] 기존 3계정 이관 전/후 동일성 증명 (값 원문 미출력)
+    e2e / lee / mv_verify : 레코드 7필드 완전동일 = True, 오답 4종 판정동일 = True
+    → verify_password 는 (비밀번호, 레코드)만의 순수 함수이므로, 레코드가 완전 동일하면
+      실제 비밀번호를 포함한 임의 입력에 대해 이관 전/후 판정이 동일하다.
+
+[F] kill-switch 실효성
+    :8021(file·실제 JSON) 에 DB 전용 계정 mv_authmig 정답 로그인 → 401 (파일에는 없음 = 출처가 실제로 바뀜)
+    :8023(file·mv_authmig 레코드만 담은 임시 JSON) 무인증 401 → 오답 401 → 정답 200
+    같은 시각 :8022(db) 정답 200
+    → 동일 scrypt 레코드는 file/db 어느 저장소로 읽어도 실 HTTP 인증 결과가 같다(교차 검증).
+
+[G] status 게이트 + 검증계정 정리
+    mv_authmig → status='DISABLED' 로 변경 후 정답 비밀번호 로그인 재시도 → 401
+    ACTIVE 로드 사용자: e2e, lee, mv_verify (운영 계정 3명만 로그인 가능 상태로 복귀)
+
+■ 한계(명시) — 기존 3계정의 "정답 비밀번호 200" 은 실측하지 못했다
+    scrypt 는 단방향이라 lee/e2e/mv_verify 의 평문 비밀번호를 알 수 없다. 대신 위 [E](레코드 완전동일)
+    + [F](같은 레코드의 file/db 교차 200 실측) + [D](세 계정 모두 DB 조회 경로까지 도달해 401 판정)
+    로 동치를 증명했다. 실제 비밀번호를 아시는 상태에서 브라우저로 :8000 재기동 후 1회 로그인해
+    보시면 최종 확인이 끝난다(재기동 전까지는 기존 서버가 옛 모듈 = JSON 을 계속 읽어 무중단).
+
+════════════════════════════════════════════════════════════════════════
+4. 테스트 — 관련 서브셋 + baseline 대조
+════════════════════════════════════════════════════════════════════════
+서브셋 8파일: test_auth_basic / test_db_path_isolation / test_index_no_cache /
+             test_admin_column_override / test_batch_ui / test_basic_stats_contract /
+             test_source_table_search / test_collection_summary_ui
+
+  baseline (worktree E:\_wtauth = HEAD 2042b40, db 3종 복사) : 1 failed, 66 passed, 1 skipped
+  변경 후  (작업 트리)                                        : 1 failed, 66 passed, 1 skipped
+  → 회귀 0건. 실패 1건은 test_batch_ui.py::test_node_row_list_render 로 baseline 에서도 동일하게
+    실패하는 사전 존재 실패(인증과 무관, 이번 변경 전후 동일). worktree 는 검증 후 제거했다.
+
+  단독 재확인: tests/test_auth_basic.py 9건 — 변경 전 9 passed / 변경 후 9 passed
+
+════════════════════════════════════════════════════════════════════════
+5. git
+════════════════════════════════════════════════════════════════════════
+  커밋: 08030f2  feat(auth): 인증 자격증명 저장소 auth_users.json → SQLite auth_user 이관
+        (AUTH-USERS-JSON-TO-SQLITE-MIGRATION)
+  diffstat:
+    scripts/auth/create_user.py             |  60 ++++---
+    scripts/migrate_auth_users_to_sqlite.py | 203 ++++++++++++++++++++++++
+    services/auth/credential_store.py       | 271 ++++++++++++++++++++++++++++++--
+    3 files changed, 503 insertions(+), 31 deletions(-)
+  pre-commit 비밀번호 스캔 통과(staged 3파일, 지문 4건 대조).
+  코드 저장소는 remote 미설정 → push 없음(규칙대로 증적만 verify 저장소에 push).
+  ※ 착수 시점에 없던 타 세션 미커밋 5파일(routes/diagnosis_route.py, services/count_precheck_service.py,
+    services/db_preset_service.py, services/semantic_dictionary_service.py, services/semantic_seed_pilot.py)이
+    작업 중 생겨, staged 목록이 내 3파일뿐임을 확인한 뒤 커밋했다(타 세션 변경 무접촉).
+
+════════════════════════════════════════════════════════════════════════
+6. 운영 인계 사항
+════════════════════════════════════════════════════════════════════════
+  1) 현재 떠 있는 :8000 서버는 기동 시점 모듈(JSON 경로)을 들고 있어 재기동 전까지 동작 무변화다.
+     재기동하면 그 순간부터 SQLite(auth_user) 를 읽는다. 계정 3명은 이미 이관 완료 상태다.
+  2) 롤백: MV_AUTH_STORE=file 로 서버를 재기동하면 즉시 auth_users.json 으로 되돌아간다.
+     (JSON 원본을 보존했으므로 데이터 복구 작업이 따로 필요 없다.)
+  3) 검증용 계정 mv_authmig 는 status='DISABLED' 로 남겨 두었다(로그인 불가).
+     불필요하면 DELETE FROM auth_user WHERE username='mv_authmig'; 로 지우면 된다.
+     비밀번호는 임시 파일에만 있었고 검증 종료 후 삭제했으므로 아무도 로그인할 수 없다.
+  4) db/migration_validator.db 는 .gitignore 대상이지만, 이제 계정 해시를 담고 있으므로
+     DB 파일 복사·공유 시 자격증명이 함께 이동한다는 점을 주의해야 한다(백업본도 동일).
+  5) docs/AUTH_SETUP.md 는 이번 범위(지정 3파일) 밖이라 갱신하지 않았다 — 저장 위치 설명이
+     아직 "auth_users.json" 기준이므로 별도 요청 시 문서만 갱신하겠다.
+
+✅ 작업 완료 - 인증 자격증명을 auth_users.json → SQLite auth_user 테이블로 이관하고 실 HTTP 401/200 로 검증(기존 3계정 레코드 완전동일, 신규 1계정 로그인 재현)
