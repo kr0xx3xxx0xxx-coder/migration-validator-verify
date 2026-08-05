@@ -1,0 +1,513 @@
+작업명 : CANDIDATE-CROSS-COLUMN-CORRELATION-SCOPE-DIAGNOSE
+✅ 작업 완료 - CANDIDATE-CROSS-COLUMN-CORRELATION-SCOPE-DIAGNOSE - 7-31 이후 3층 구조는 그대로(교차 계산 0건)이고, 끼워넣을 자리는 이미 존재한다(postcount ⑦ 직후 + groupby_plan_service:105). 착수 시 코드 4~5파일 + 테스트 2파일, 신규 쿼리 1개(PG)/2개(오라클), 비용 +40~120ms 로 현재 예산 안에 들어온다
+
+작성일 : 2026-08-05
+성격   : 읽기 전용 착수범위 조사 (코드 수정 0건 · 테스트 실행 0건 · DB 접속 0건)
+선행    : CANDIDATE-PROFILING-UNIVARIATE-VS-CORRELATION-DIAGNOSE (2026-07-31, 백로그 F20)
+
+
+═══════════════════════════════════════════════════════════════════════
+0. 한 줄 결론 (조사항목 5개 요약)
+═══════════════════════════════════════════════════════════════════════
+
+① 변경 여부  : 관련 11개 파일 중 5개가 7-31 이후 커밋됐지만, **단변량 구조를 바꾼
+                커밋은 0건**이다. 전부 scope 필터·표본 방어·배지 문구 계층이며,
+                수집 SQL 형태(`COUNT(DISTINCT 단일컬럼)`)와 프로파일 dict 스키마는
+                바이트 단위로 동일하다. 진단서 결론은 그대로 유효하다.
+② 삽입 지점  : **있다. 두 곳이 이미 열려 있다.**
+                (A) `finalize_recommendation_postcount()` ⑦ 직후(:875 부근) —
+                    추천 축 목록이 확정되는 유일한 authoritative 지점.
+                (B) `groupby_plan_service.py:105` — 곱 추정(`da*db`)이 실제로
+                    쓰이는 단 한 줄. 여기가 판정에 가장 직접적이다.
+                ⑥ 날짜 버킷(L4 EXACT)이 **이미 gate 이후 추가 DB 조회를 하는 선례**라
+                구조를 새로 만들 필요가 없다.
+③ 추가 쿼리  : PostgreSQL **1개**(기존 SAMPLE_SRC CTE 에 pair 표현식 3개 추가 →
+                왕복 1회 추가), 오라클 **1~2개**(`COUNT(DISTINCT a,b)` 미지원 →
+                concat 우회 필요). 실측 근거로 **+40~120ms** 수준이며 5만행 표본·
+                15초 timeout 예산 안에 들어온다. 컬럼 폭증 위험도 없다(최대 3쌍).
+④ 플래그 효과: **대응방향이 명시 안 한 부분이 맞다.** 다만 코드에
+                `_dedup_lineage()`(§36 — "동일 축 중복 추천 제거")라는 **정확히 같은
+                형태의 선례**가 이미 있어, 설계 옵션이 공중에 뜨지 않는다.
+                4개 옵션을 §4 에 정리했고 **옵션 B(배지+plan 사유 표기, 추천 순위 불변)**
+                을 1차로 권장한다.
+⑤ 예상 범위  : 코드 4~5파일 + 테스트 2파일. **1~6단계 완료 모듈 해당 없음**
+                (전부 services/ 응용계층 + routes/ 1파일). 신규 쿼리 1~2개.
+
+▶ 착수 전 반드시 알아야 할 사실 1건(진단서에 없던 것):
+  **2축 PAIR 조합은 기본 실행계획에 들어가지 않는다.** `include_pair` 기본값 False
+  (groupby_plan_service.py:69, routes/groupby_plan_route.py:23)이고, 조건 충족 조합은
+  세트가 아니라 `pair_candidate`(§23 — '보강 분석' 버튼용 힌트)로만 나간다.
+  → F20 이 말한 "곱셈 추정 때문에 부당 배제" 의 실제 피해 범위는 **'보강 분석 버튼이
+    안 뜬다'** 이지 '검증이 안 된다'가 아니다. 심각도 재평가가 필요하다(§6-4).
+
+
+═══════════════════════════════════════════════════════════════════════
+1. [조사항목 1] 7-31 진단 이후 3층(수집/저장/판정) 변경 여부 — 구조 변경 0건
+═══════════════════════════════════════════════════════════════════════
+
+1-1. git log 전수 (2026-07-31 ~ 2026-08-05, 진단서가 지목한 11개 파일)
+
+  $ for f in <11개 파일>; do git log --oneline --since=2026-07-31 -- $f; done
+
+  ┌─ 파일 ────────────────────────────────┬─ 7-31 이후 ─┬─ 마지막 커밋 ──────────┐
+  │ services/column_profile_service.py     │ 1건 f02da5f │ 2026-08-05 01:14      │
+  │ services/profile_recollect_service.py  │ 1건 52c22fc │ 2026-08-02 13:06      │
+  │ services/candidate_postcount_finalize  │ 3건         │ 2026-08-05 09:07      │
+  │ services/candidate_subtype_service.py  │ 2건         │ 2026-08-05 08:57      │
+  │ services/candidate_engine.py           │ 1건 469de98 │ 2026-08-02 11:00      │
+  │ services/source_profile_service.py     │ 0건         │ 2026-06-27 15:49      │
+  │ services/candidate_scoring.py          │ 0건         │ 2026-07-20 21:21      │
+  │ services/candidate_scoring_runner.py   │ 0건         │ 2026-07-30 20:30      │
+  │ services/groupby_plan_service.py       │ 0건         │ 2026-07-07 22:52      │
+  │ services/groupby_estimate_service.py   │ 0건         │ 2026-07-03 14:42      │
+  │ services/diagnosis/candidate/recommender.py │ 0건    │ 2026-07-25 21:58      │
+  └────────────────────────────────────────┴─────────────┴───────────────────────┘
+
+  ★ 곱셈 추정을 담당하는 3개 파일(groupby_plan_service / groupby_estimate_service /
+    recommender)은 **한 건도 바뀌지 않았다**. F20 의 핵심 대상은 정지 상태다.
+
+1-2. 변경된 5개 파일이 단변량 구조를 건드렸는가 — **전부 아니다**
+
+  · f02da5f (column_profile_service +42줄) — CTE 평탄화 시 base 테이블에 없는 컬럼을
+    **화이트리스트로 제외**하는 필터만 추가했다. 집계식은 손대지 않았다.
+    현재 코드 실측:
+        outer_sel_parts.append(f"COUNT({tgt_col}) AS pf_nn_{idx}")          (:366)
+        outer_sel_parts.append(f"COUNT(DISTINCT {tgt_col}) AS pf_dc_{idx}")  (:367)
+    → 진단서가 인용한 :354-357 이 :365-367 로 **행 번호만 밀렸고 내용 동일**.
+  · 52c22fc (profile_recollect) — 재수집에 5만행 표본·15초 timeout·WHERE scope 방어
+    적용. 여전히 `COUNT(DISTINCT 단일컬럼)` (:382).
+    ※ 이 커밋은 §3 비용 추정의 **가장 좋은 실측 근거**를 남겼다(§3-3).
+  · dca1558 / c0e2e57 / f02da5f (postcount_finalize) — evidence_contract.pk 게이트 완화,
+    관리컬럼 override 조회 키 배선, CTE scope 전달. 판정식 변경 없음.
+  · 9211e2c / 0544546 (subtype) — A축 '판정불가'를 값 형태로 분리, 일괄 배선.
+    여전히 인자는 `candidate` 단수(컬럼 1개).
+  · 469de98 (candidate_engine) — 목적지 is_pk 고정 False 제거. 컬럼 단위 메타.
+
+1-3. 부재 재확인 (전수 grep, 오늘 시점)
+
+  $ grep -rE "COUNT\(DISTINCT[^)]*,[^)]*\)|DISTINCT.*\|\|" services/
+    → 유효 히트 **0건**
+      (유일 히트 date_bucket_evidence.py:392 는 `COUNT(DISTINCT DATE_TRUNC(unit, expr))`
+       = 단일 컬럼 변환식이지 다중 컬럼이 아니다)
+
+  ⇒ **결론: 상황 변화 없음.** 진단서(7-31)의 「완전 단변량」 판정을 그대로 승계한다.
+
+
+═══════════════════════════════════════════════════════════════════════
+2. [조사항목 2] "이미 추천된 소수 축" 은 어디서 확정되는가 — 삽입 자리 있음
+═══════════════════════════════════════════════════════════════════════
+
+2-1. 추천 축 확정의 단일 지점 = `finalize_recommendation_postcount()`
+
+  services/candidate_postcount_finalize.py:634 — 모듈 헤더가 스스로 이 함수를
+  "후보추천 '최종(authoritative)' 재확정 core" 로 규정한다(:4). 개별검증·일괄검증이
+  **같은 core 를 공유**하므로(:15-16) 여기 한 곳만 손대면 양쪽에 동시 반영된다.
+
+  함수 내부 실행 순서(실측 — 주석 번호 그대로):
+
+    ① _run_bounded_sample()            :690  catalog 근거 없는 최종후보만 표본 profile
+    ② _inject_profile_evidence()       :709  row_count+distinct 주입 / 잔여선택 초기화
+    ②-b resolve_candidate_sample_values :731  값 샘플(LIMIT 100) 배선
+    ③ enrich_candidates_for_display()  :737  ★ 점수·기본추천 top-N '선정'
+    ④ attach_evidence_contracts()      :765  근거 계약 재부착
+    ⑤ apply_recommendation_gates()     :778  ★ demote-only gate (강등만)
+    ⑥ _collect_date_bucket_profiles()  :788  ★ gate 이후 '추가 DB 조회' + promote
+    ⑦ 근거 가드 + 대체 기본추천 승격    :805  enforce_guard / promote_fallback /
+                                              normalize_candidate_contract / 배지 동기화
+    return                             :877
+
+  ▶ **"추천된 축 목록" 이 확정되는 정확한 시점 = ⑦ 종료 직후(:875 부근).**
+    근거:
+      · ③ 이 `auto_selected` 를 '선정'하고(주석 :738 "자동추천 '선정' 은 enricher 가 담당"),
+      · ⑤ 는 demote-only 라 선정을 넓히지 않으며,
+      · ⑥⑦ 이 마지막으로 promote(날짜 버킷 구제 / 대체 기본추천)를 수행하고
+      · ⑦-c `normalize_candidate_contract()` 가 recommendation_status 를 표준화한다.
+    ⑦ 이전 어느 지점에서 읽어도 축 목록이 뒤에서 바뀐다. ⑦ 이후만 안정적이다.
+
+2-2. **⑥ 이 결정적 선례다 — gate 이후 추가 DB 조회 구조가 이미 있다**
+
+  ⑥ `_collect_date_bucket_profiles()`(:400)는 다음을 이미 하고 있다:
+    · gate(⑤) **이후에** 실행 — 주석 :409-410 "gate 재적용(⑤) 이후에 수행"
+    · 대상을 **소수로 한정** — `select_exact_collection_targets(max_cols=_MAX_EXACT_DATE_COLS)`
+      (_MAX_EXACT_DATE_COLS = 2, :35)
+    · 예산·timeout 내 `COUNT(DISTINCT DATE_TRUNC(...))` 추가 조회 (L4 EXACT, :406)
+    · 실패/timeout 은 **해당 컬럼만** 범위추정으로 fallback, profile 전체는 안 깨짐
+    · caller 가 try/except 로 감싸 "실패는 무시(보조정보)"(:411)
+
+  → F20 대응방향의 (a)샘플 위에서만 (b)소수 축에만 (c)보수적 플래그 는
+    **이 함수의 설계 패턴을 그대로 복제하면 된다.** 새 아키텍처를 만들 필요가 없다.
+
+2-3. 두 번째(그리고 더 직접적인) 지점 — 곱이 실제로 쓰이는 단 한 줄
+
+  services/groupby_plan_service.py:105
+
+      est = min(da * db, total) if total else da * db   # 조합 distinct 상한 추정(실측 아님)
+
+  이 `est` 가 곧바로 3개 판정에 쓰인다:
+      :110  if est > max_groups:      → "예상 N그룹 — 자동계획 상한(100) 초과" 배제
+      :116  if avg < min_avg_rows:    → "평균 M행/그룹 — 최소 기준(100행) 미만" 배제
+      :121  if est <= max(da, db):    → "단일 축 대비 추가 구분 효과 없음" 배제
+
+  ★ F20 이 지적한 두 결함이 **정확히 이 세 줄에 대응한다**:
+    - "계층종속 조합이 곱셈 추정 때문에 상한 초과로 배제" → :110
+    - "1:1 종속 컬럼이 중복 추천" → :121 이 잡아야 하는데 **곱이 종속을 감춰서 못 잡는다**
+      (STATUS_CD distinct 5 × STATUS_NM distinct 5 = 25 > max(5,5)=5 → 통과해버림.
+       실측하면 5 라서 :121 에 정확히 걸린다.)
+    → **교차 실측값을 `est` 에 넣기만 하면 :121 가드가 자동으로 작동한다.**
+      새 판정 로직 없이 기존 가드가 되살아난다 — 이번 조사에서 가장 유리한 발견이다.
+
+  호출부는 단 하나: routes/groupby_plan_route.py:31 (`POST /groupby-plan`).
+  요청 body 의 `candidates` 는 **사용자가 3단계에서 확정한 축**(최대 3개)이다.
+
+2-4. 삽입 자리 요약
+
+  ┌ 지점 ──────────────────────────┬ 축 개수 ─┬ 장점 ───────────────┬ 단점 ──────────┐
+  │ (A) postcount ⑦ 직후 :875      │ GB≤3     │ 개별·일괄 동시 반영 │ 사용자 재선택 후 │
+  │     (신규 ⑧ 단계)              │ (+SUM≤3) │ ⑥ 패턴 복제만       │ stale 가능       │
+  │ (B) groupby_plan_service:105   │ 확정 3축 │ 판정에 직접 반영    │ route 가 접속정보 │
+  │                                │          │ :121 가드 부활      │ 를 안 받음(§6-3) │
+  └────────────────────────────────┴──────────┴─────────────────────┴──────────────────┘
+
+  권장: **(A) 에서 측정해 후보 dict 에 저장 → (B) 는 저장된 값을 읽기만.**
+        (B) 단독은 route 에 원본 DB 접속정보가 없어 새 배선이 필요하고, 4단계 실행 중
+        동기 DB 왕복이 추가돼 상호작용 지연으로 직결된다. (A) 는 이미 DB 를 잡고 있는
+        3단계 재확정 안이라 왕복이 기존 조회에 흡수된다.
+
+
+═══════════════════════════════════════════════════════════════════════
+3. [조사항목 3] 추가 쿼리 수와 비용 — 예산 안에 들어온다
+═══════════════════════════════════════════════════════════════════════
+
+3-1. 현재 예산 (실측 확인)
+
+    _SAMPLE_LIMIT                 = 50_000   (column_profile_service.py:47)
+    _PROFILE_STATEMENT_TIMEOUT_MS = 15_000   (column_profile_service.py:53)
+    _MAX_PROFILE_SAMPLE_COLS      = 30       (candidate_postcount_finalize.py:30)
+    _MAX_EXACT_DATE_COLS          = 2        (candidate_postcount_finalize.py:35)
+    _DATE_PROFILE_TIMEOUT_MS      = 15_000   (candidate_postcount_finalize.py:36)
+
+3-2. 추가되는 쿼리 개수 — 조합 폭증은 일어나지 않는다
+
+  대상 축이 최대 3개(GROUP BY 상한, CLAUDE.md 절대 규칙)이므로 **쌍은 최대 3개**
+  (C(3,2)=3). 진단서가 경고한 `N(N-1)/2 폭증`은 "이미 추천된 소수 축에만" 제한하는
+  순간 사라진다 — 30컬럼이면 435쌍이지만 3축이면 3쌍이다.
+
+  ┌ 방언 ────────┬ 추가 쿼리 ┬ 형태 ────────────────────────────────────────┐
+  │ PostgreSQL   │ **1개**   │ 기존 SAMPLE_SRC CTE 의 외부 SELECT 에         │
+  │              │           │ `COUNT(DISTINCT (a,b)) AS pf_px_0` 3개 추가.  │
+  │              │           │ ROW 생성자 지원 → 왕복 1회만 늘어난다.        │
+  │ 오라클       │ 1~2개     │ `COUNT(DISTINCT a,b)` **미지원**.             │
+  │              │           │ concat 우회(`a||CHR(1)||b`) 또는              │
+  │              │           │ `COUNT(*) FROM (SELECT DISTINCT a,b ...)`.    │
+  │              │           │ 후자는 별도 쿼리 1개가 더 붙는다.             │
+  │ MySQL        │ (1개)     │ `COUNT(DISTINCT a,b)` 네이티브 지원.          │
+  │ MSSQL        │ (2개)     │ 미지원 — 파생 테이블 필요.                    │
+  └──────────────┴───────────┴───────────────────────────────────────────────┘
+  ※ 실행 지원 DBMS 는 PostgreSQL·오라클 2개뿐이므로(capabilities.py:67
+    `EXECUTION_SUPPORTED_DBMS = ("postgresql", "oracle")`), 실질 대상은 위 2개다.
+    MySQL/MSSQL 은 어차피 이 경로를 타지 않는다(⑥ 날짜 버킷과 동일한 게이트).
+
+3-3. 비용 추정 — 실측 근거 3건에서 외삽
+
+  근거 ① candidate_postcount_finalize.py:28-29 주석(실측)
+        "실측 11컬럼 45ms(≈4ms/컬럼) → 30컬럼 ≈120ms"
+  근거 ② PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX 실측(2026-08-02)
+        42M행 × 8컬럼 : >1200초(취소) → **0.24초** (표본 5만행 적용 후)
+        30M행 × 8컬럼 : 64.13초      → **0.06초**
+        ⇒ 5만행 표본 위에서는 **컬럼 수와 무관하게 0.1~0.3초 수준**으로 상한된다.
+  근거 ③ 대상 쌍 최대 3개 = 단일컬럼 환산 최대 6컬럼분 미만의 부하.
+
+  추정:
+    · PostgreSQL(쿼리 1개 추가) : **+40~120ms**
+      (표본 5만행 위 pair 3개 ≈ 단일컬럼 6~10개분 ≒ 4ms×10 + 왕복 1회)
+    · 오라클(concat 우회)       : **+80~250ms**
+      (문자 결합·NLS 정렬 비용 가산. 별도 쿼리 방식이면 왕복 1회 더)
+
+  ▶ 판정: **예산 안에 들어온다.** 15초 timeout 대비 1% 미만이고, 3단계 진입
+    상호작용 지연 임계(수백 ms, :28 주석의 기존 판단 기준)에도 들어온다.
+    ⑥ 날짜 버킷이 이미 **표본 없이 전체 스캔**(build_date_bucket_profile_sql:393
+    `FROM {from_part}` — SAMPLE_SRC 미사용, 15초 timeout 으로만 방어)을 하고 있으므로,
+    표본 위에서 도는 교차 계산은 **기존 ⑥보다 오히려 가볍다**.
+
+3-4. 비용 외 위험 3건 (반드시 설계에 반영해야 하는 것)
+
+  (가) **concat 충돌** — 오라클 우회 `a||b` 는 (a='X|', b='Y') 와 (a='X', b='|Y') 를
+       같은 값으로 세어 **종속을 과대 탐지**한다. 구분자는 데이터에 나올 수 없는
+       제어문자(CHR(1))를 써야 하고, 그래도 이론적 충돌은 남는다 →
+       "종속 '의심'" 이라는 보수적 표현이 정당화되는 근거다(확정 아님).
+  (나) **NULL 의미 차이** — `COUNT(DISTINCT)` 는 NULL 을 세지 않는다. PG 에서
+       `NULL||'x'` = NULL(행 통째로 누락), 오라클에서 `NULL||'x'` = 'x'(NULL 과 ''
+       구분 못함). **같은 데이터에서 방언별 결과가 달라진다.** ROW 생성자 방식
+       `COUNT(DISTINCT (a,b))` 는 NULL 을 포함한 튜플을 세므로 또 다른 값이 나온다.
+       → 방언 간 판정 일관성이 깨질 수 있어, 방언별 기대값을 테스트로 못 박아야 한다.
+  (다) **표본 편향** — 5만행 표본에서 종속으로 보여도 전체에서는 아닐 수 있다
+       (특히 계층 데이터가 시간순 적재된 경우). 표본 절단 여부를 근거에 반드시
+       남겨야 한다 — 52c22fc 가 도입한 "표본 5만행 기준" 표기 규약을 재사용할 것.
+
+
+═══════════════════════════════════════════════════════════════════════
+4. [조사항목 4] "종속 의심" 플래그가 실제로 무엇을 바꾸는가 — 설계 옵션
+═══════════════════════════════════════════════════════════════════════
+
+지시서 지적대로 대응방향이 이 부분을 명시하지 않았다. 다만 **코드에 이미 같은 형태의
+선례가 있어** 옵션이 추상적이지 않다.
+
+4-0. 기존 선례 — `_dedup_lineage()` (candidate_recommendation_policy.py:300)
+
+    """CASE/DECODE 결과 후보와 그 입력 원본 컬럼이 둘 다 자동추천이면 점수 낮은 쪽을
+       후보보존으로 강등(§36).
+       lineage 기준(expression_evidence.input_columns ↔ 다른 후보 target_column) —
+       컬럼명 단어 추정이 아니라 표현식 트리에서 추출한 입력 컬럼만 사용한다.
+       후보 자체는 보존(삭제 없음)."""
+
+    _set_status(loser, ..., REC_CANDIDATE_ONLY,
+                "입력 컬럼 중복(lineage) — 동일 축 중복 추천 제거(§36)")   (:324-325)
+
+  ★ 이것이 정확히 F20 이 원하는 동작이다 — 단, **표현식 계보(lineage)에만** 작동한다.
+    STATUS_CD/STATUS_NM 처럼 SQL 상 아무 관계 없이 데이터에서만 1:1 인 쌍은 못 잡는다.
+    → "종속 의심" 은 **_dedup_lineage 의 '데이터 근거' 판이며, 강등 배선(`_set_status` +
+      `exclusion_reasons`)은 이미 존재한다.** 새로 만들 것은 판정 신호뿐이다.
+
+4-1. 옵션 4종
+
+  ┌ 옵션 ─────────────────────┬ 동작 ──────────────────────┬ 위험 ─────────────┐
+  │ A. 자동 배제(하드)         │ 종속 의심 쌍 중 점수 낮은  │ ★높음. 표본 편향· │
+  │    = _dedup_lineage 그대로 │ 쪽을 REC_CANDIDATE_ONLY 로 │ concat 충돌 오탐이│
+  │                            │ 강등(체크박스는 남음)      │ 곧 후보 소실.     │
+  │                            │                            │ 근거 WEAK 인데    │
+  │                            │                            │ 배제까지 감(세션03│
+  │                            │                            │ 경고 재현)        │
+  ├───────────────────────────┼────────────────────────────┼───────────────────┤
+  │ B. 표기만 (권장)           │ ① 후보 배지 "종속 의심     │ 낮음. 판정 불변 = │
+  │    배지 + plan 사유        │    (STATUS_NM 과 1:1)"     │ 회귀 위험 0.      │
+  │                            │ ② groupby_plan excluded    │ 사용자가 무시하면 │
+  │                            │    /reason 에 실측 근거    │ 중복 추천은 유지  │
+  │                            │    "곱 25 → 실측 5"        │                   │
+  │                            │ ③ 추천 순위·선정 불변      │                   │
+  ├───────────────────────────┼────────────────────────────┼───────────────────┤
+  │ C. 추정치 교정(est 치환)   │ groupby_plan_service:105   │ 중간. 값이 바뀌니 │
+  │                            │ 의 `da*db` 를 실측값으로   │ 계획이 실제로     │
+  │                            │ 치환 → :110/:121 기존      │ 달라진다. 다만    │
+  │                            │ 가드가 자동으로 정상 작동  │ **더 정확해지는** │
+  │                            │ (계층종속 구제 + 1:1 차단  │ 방향이고 판정식은 │
+  │                            │  이 동시에 해결)           │ 한 줄도 안 바꿈   │
+  ├───────────────────────────┼────────────────────────────┼───────────────────┤
+  │ D. 순위 감점(점수 조정)    │ candidate_scoring 에서     │ ★높음. 점수 단일  │
+  │                            │ 종속 컬럼 감점             │ 출처를 흔든다.    │
+  │                            │                            │ F19(설명가능성)이 │
+  │                            │                            │ 미해소인 상태에서 │
+  │                            │                            │ 요소를 더하면     │
+  │                            │                            │ 검산 불가 악화    │
+  └───────────────────────────┴────────────────────────────┴───────────────────┘
+
+4-2. 권장: **B → C 순차** (한 번에 한 단계 규칙)
+
+  1차 = B(표기만). 실측값을 수집·저장·표시만 하고 **판정은 한 줄도 바꾸지 않는다.**
+        → 라이브 데이터에서 "곱 대비 실측" 분포가 실제로 어떻게 나오는지 관측할 수 있고,
+          그 관측 없이 임계치(예: 실측 ≤ 곱×0.3 이면 종속 의심)를 정하는 것은
+          전형적인 "scoring 미성숙 — 가중치 없는 단락 평가"다(CLAUDE.md 비판적 검토 의무).
+  2차 = C(est 치환). 1차에서 임계치를 실측으로 정한 뒤에만 진행.
+        C 는 새 판정을 추가하지 않고 **입력값만 정확하게 만드는** 접근이라
+        heuristic 증가가 없다는 점에서 구조적으로 가장 깨끗하다.
+
+  A·D 는 권장하지 않는다. A 는 근거 강도(표본·concat 충돌)에 비해 결과가 과하고,
+  D 는 F19(점수 분해 미노출)가 해소되기 전에는 점수를 더 불투명하게 만든다.
+
+4-3. 어느 옵션이든 반드시 저장해야 하는 근거(explainability)
+
+  후보 dict / evidence 에 다음을 남긴다 — 값만 남기고 판정 문구는 파생시킨다:
+      {"pair_col": "STATUS_NM", "product_estimate": 25, "measured_distinct": 5,
+       "ratio": 0.20, "basis": "표본 5만행", "dialect_method": "ROW_TUPLE|CONCAT",
+       "truncated": true}
+  근거를 안 남기면 "종속 의심" 배지가 왜 붙었는지 사용자가 검증할 수 없고,
+  이는 F19 가 지적한 것과 같은 종류의 부채를 새로 만드는 것이다.
+
+
+═══════════════════════════════════════════════════════════════════════
+5. [조사항목 5] 착수 시 예상 범위 (F19 조사와 동일 형식)
+═══════════════════════════════════════════════════════════════════════
+
+5-1. 수정 파일 — 옵션 B 기준 **코드 4~5 + 테스트 2**
+
+  ┌─ # ─┬ 파일 ────────────────────────────────┬ 규모 ─┬ 작업 ─────────────────────┐
+  │  1  │ services/column_profile_service.py   │ 642줄 │ pair 표현식 빌더 신규      │
+  │     │                                      │       │ (_build_pair_distinct_expr)│
+  │     │                                      │       │ + 외부 SELECT 에 부착      │
+  │     │                                      │       │ + 파서(pf_px_{i}) 대칭 추가│
+  │     │                                      │       │ ≈ +80~120줄               │
+  │  2  │ services/candidate_postcount_finalize│ 888줄 │ ⑧ 신규 단계 — ⑦ 직후에     │
+  │     │ .py                                  │       │ 추천 축 쌍 수집·부착.      │
+  │     │                                      │       │ ⑥ 패턴 복제 ≈ +60~90줄     │
+  │  3  │ services/dialects/{postgresql,oracle}│ 각각  │ pair distinct 표현식 방언  │
+  │     │ _dialect.py (+base.py 인터페이스)    │       │ 메서드 신규. **base 에 없어│
+  │     │                                      │       │ 새로 추가해야 함**(§5-3)   │
+  │     │                                      │       │ ≈ +15줄 × 3파일           │
+  │  4  │ ui/tabler_renderer.py                │ 32k줄 │ 후보 배지에 "종속 의심"    │
+  │     │  또는 candidate_display_enricher.py  │       │ 표기 ≈ +20~40줄           │
+  │  5  │ services/groupby_plan_service.py     │ 175줄 │ (옵션 C 진행 시에만)       │
+  │     │                                      │       │ :105 est 를 실측값 우선으로│
+  │     │                                      │       │ ≈ +10줄. **1차 범위 아님** │
+  ├─────┼──────────────────────────────────────┼───────┼───────────────────────────┤
+  │  T1 │ tests/test_column_profile_service.py │ 기존  │ pair SQL 형태·방언 분기·   │
+  │     │                                      │       │ NULL 의미 회귀 가드        │
+  │  T2 │ tests/test_postcount_finalize.py     │ 기존  │ ⑧ 단계 무회귀(비활성 시    │
+  │     │                                      │       │ no-op) + 근거 부착 계약    │
+  └─────┴──────────────────────────────────────┴───────┴───────────────────────────┘
+
+  ※ 옵션 C 까지 가면 tests/test_groupby_plan.py 1개가 추가된다(코드 5 + 테스트 3).
+
+5-2. 완료 모듈 해당 여부 — **해당 없음**
+
+  CLAUDE.md 가 임의 수정을 금지한 대상은 1~6단계 완료 모듈
+  (parser → analyzer → generator → checker → validator)이다.
+  위 파일은 전부 services/ 응용계층 · services/dialects/ · ui/ 렌더 계층으로 그 범위 밖.
+  → 사용자 사전 확인 없이 착수 가능(자율 진행 규칙 적용 대상).
+
+  다만 실질 위험도는 다음 이유로 완료 모듈에 준한다:
+   · column_profile_service.collect_column_profiles 는 **개별·일괄·재수집이 공유하는
+     단일 프로파일 수집 경로**다. SQL 한 줄이 잘못되면 후보 근거가 통째로 유실된다
+     (f02da5f 가 고친 ORA-00904 가 정확히 그 사고였다 — 컬럼 하나 때문에 전체 FAILED).
+   · candidate_postcount_finalize 는 3단계 진입 시 매번 도는 상호작용 경로다.
+
+5-3. 신규 쿼리 수 / 신규 인터페이스
+
+  · 신규 쿼리 : **PostgreSQL 1개 · 오라클 1~2개** (§3-2). 기존 쿼리 수정이 아니라
+                별도 발행을 권장한다 — 기존 profile SQL 에 섞으면 pair 표현식 실패가
+                단일컬럼 근거까지 날린다(f02da5f 와 동형 사고).
+  · 신규 인터페이스 : `services/dialects/base.py` 에 **다중컬럼 distinct 표현식 메서드가
+    없다**(전수 확인 — concat/CONCAT 헬퍼도 없음). BaseDialect 에 신규 메서드를 추가하고
+    4개 방언 전부 구현해야 한다(CLAUDE.md "DB 방언 분기는 항상 4개 모두 처리").
+    미지원 방언(MSSQL 등)은 `None` 반환 → 호출측 no-op 로 처리.
+
+5-4. 예상 공수 감각
+
+  · 1차(옵션 B, 표기만) : 코드 4파일 ≈ +200줄, 테스트 2파일. **화면 판정 변화 0**.
+  · 2차(옵션 C, est 치환) : 코드 1파일 ≈ +10줄, 테스트 1파일. 판정 변화 있음 → 실 DB
+    전/후 대조(계획 세트·excluded 사유) 증적 필수.
+
+5-5. F19 조사와의 대조 (같은 형식으로 비교)
+
+  ┌ 항목 ───────────┬ F19(점수 분해)      ┬ F20(교차 상관, 이번)          ┐
+  │ 수정 코드 파일  │ 4                    │ 4~5                           │
+  │ 수정 테스트     │ 2                    │ 2 (옵션 C 포함 시 3)          │
+  │ 완료 모듈 해당  │ 없음                 │ 없음                          │
+  │ 신규 DB 쿼리    │ 0 (기존 값 재구성)   │ 1~2 (PG 1 / 오라클 1~2)       │
+  │ 판정 변화       │ 없음(append-only)    │ 1차 없음 / 2차 있음           │
+  │ 실 DB 실측 필요 │ 선택                 │ **필수**(방언별 NULL 의미 차) │
+  │ 최대 위험       │ 점수값 흔들림        │ 프로파일 SQL 실패 → 근거 유실 │
+  └─────────────────┴──────────────────────┴───────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════════
+6. 비판적 검토 (CLAUDE.md 비판적 검토 의무)
+═══════════════════════════════════════════════════════════════════════
+
+6-1. 긍정적 효과
+  · 계층종속 조합(시/도 × 시/군/구)이 부당 배제되지 않는다 → 유용한 업무 축 조합 회복.
+  · 1:1 종속 쌍(STATUS_CD/STATUS_NM)의 무의미한 중복 추천이 드러난다.
+  · 곱 추정이 **"실측 아님"에서 "실측"으로** 바뀌는 유일한 경로다 —
+    groupby_plan/groupby_estimate/recommender 3파일의 주석이 10개월째 자인해 온 한계다.
+
+6-2. 구조적 문제점
+  · **heuristic 하나 증가**: "실측/곱 비율이 얼마 이하면 종속 의심" 이라는 새 임계치가
+    생긴다. 근거 없이 정하면 전형적 하드코딩이다 → §4-2 의 B 선행(관측 후 임계치 결정)이
+    이 문제를 정면으로 회피하는 유일한 순서다.
+  · **방언 분기 확대**: BaseDialect 에 신규 메서드가 추가되고 4방언 구현 의무가 생긴다.
+    다만 실행 지원은 PG·오라클 2개뿐이라 나머지 2개는 None 반환 stub 로 족하다.
+  · web_server.py 비대화와는 무관(전부 services/ 계층).
+
+6-3. 운영상 위험
+  · **최대 위험은 성능이 아니라 SQL 실패다.** pair 표현식이 방언/타입(CLOB, BLOB,
+    XMLTYPE 등 DISTINCT 불가 타입)에서 깨지면, 같은 SELECT 에 있는 단일컬럼 근거까지
+    함께 잃는다. → **반드시 별도 쿼리로 발행하고 try/except 로 격리**해야 한다
+    (⑥ 날짜 버킷이 이미 그렇게 하고 있다 — :417 "실패는 무시(보조정보)").
+  · 오라클 concat 우회는 NLS 정렬·캐릭터셋 이슈 이력이 있는 영역이다
+    (기존 project_oracle_charset_collation_merge_break 계열). 문자 결합은 그 위험을
+    직접 건드린다 → 오라클은 `SELECT COUNT(*) FROM (SELECT DISTINCT a,b ...)` 형태가
+    concat 보다 안전하다(쿼리 1개 더 들지만 충돌·NLS 위험 없음). **이쪽을 권장한다.**
+  · (B) groupby_plan_route 는 원본 DB 접속정보를 받지 않는다(GroupbyPlanRequest 는
+    candidates/total_rows/include_pair 3필드뿐 — routes/groupby_plan_route.py:18-23).
+    여기서 직접 조회하려면 요청 스키마 확장 + 접속정보 전달이 필요하고, 이는
+    "평문 비밀번호 전달 경로 확대" 위험이다. → §2-4 권장(A에서 측정, B는 읽기만)이
+    보안상으로도 옳다.
+
+6-4. ★ 심각도 재평가 — F20 의 실제 피해는 생각보다 작다
+  진단서와 지시서는 "조합이 부당 배제된다"를 주요 피해로 들었으나, 조사 결과
+  **2축 조합은 애초에 기본 실행계획에 없다**:
+      include_pair: bool = False       (groupby_plan_service.py:69, route:23)
+      "§23(v2): 2축 보강은 기본 실행에서 제외 — '보강 분석' 명시 요청(include_pair)일
+       때만 세트로 추가."                                  (groupby_plan_service.py:130-131)
+  즉 곱 과대추정의 결과는 "검증에서 빠진다"가 아니라 **"'보강 분석' 버튼이 안 뜬다"**이다.
+  반대로 1:1 종속 중복 추천(:121 가드가 곱 때문에 무력화)은 **기본 추천 3슬롯을 실제로
+  낭비**하므로 이쪽이 더 실질적인 피해다.
+  → 착수 시 **우선순위를 '중복 추천 탐지'에 두고, '조합 구제'는 부수 효과로 다루는 것**이
+    비용 대비 효과가 크다. 지시서의 문제 서술 순서와는 반대다.
+
+6-5. 지금 구현 여부 판단
+  **문서화 우선 → 이후 옵션 B 진행.**
+  이유: (1) 임계치를 정할 실측 데이터가 아직 없다. (2) 병행 작업 2건
+  (STAGE4-5-STRATEGY-TIMING-AND-TEXT-CLEANUP-FIX / CANDIDATE-SCORE-CONTRIBUTION-
+  SERVER-STORAGE-FIX)이 진행 중이고, 후자는 같은 후보 dict 에 필드를 추가하는 작업이라
+  **응답 payload 증가가 겹친다**. F19 착수가 끝난 뒤 순차 진행이 안전하다.
+
+
+═══════════════════════════════════════════════════════════════════════
+7. 조사 방법 및 한계
+═══════════════════════════════════════════════════════════════════════
+
+방법:
+  1) git log --since=2026-07-31 로 진단서 지목 11개 파일 전수 확인 + 변경 5건 diff 정독
+  2) 전수 grep 으로 다중컬럼 DISTINCT / concat 형태 부재 재확인(오늘 시점)
+  3) finalize_recommendation_postcount 본문 정독으로 ①~⑦ 실행 순서·확정 시점 특정
+  4) _collect_date_bucket_profiles / select_exact_collection_targets 정독 —
+     'gate 이후 소수 대상 추가 조회' 선례 구조 확인
+  5) groupby_plan_service 전문(175줄) 정독 + 호출부 전수(routes/groupby_plan_route.py)
+  6) candidate_recommendation_policy._dedup_lineage 정독 — 기존 중복 강등 배선 확인
+  7) 비용은 코드 주석 실측치(11컬럼 45ms) + PROFILE-RECOLLECT 실측 보고서
+     (42M×8컬럼 0.24초 / 30M 0.06초)에서 외삽
+
+한계(명시):
+  · **실 DB 실행 0건.** 방언별 `COUNT(DISTINCT (a,b))` 동작·NULL 의미·오라클 미지원은
+    문법 지식과 코드 기반 판단이며, 착수 시 실 DB 로 반드시 확인해야 한다(§3-4 나).
+  · 비용 추정(+40~120ms)은 기존 실측치 외삽이다. pair 표현식의 정렬/해시 비용은
+    단일컬럼보다 클 수 있어 실측 시 상향될 여지가 있다(그래도 15초 예산 대비 여유는 큼).
+  · "종속 의심" 임계치(곱 대비 비율)는 이번 조사에서 정하지 않았다 — 정할 근거가 없다.
+    §4-2 가 그 이유와 순서를 명시했다.
+  · 프런트엔드 표시 위치(배지 vs 툴팁 vs 계획 사유)는 확정하지 않았다 — 옵션 B 착수 시
+    기존 배지 우선순위(sync_display_badge_label_from_structured)와의 충돌 검토가 필요하다.
+
+회귀 영향: 없음(읽기 전용, 파일 수정 0건, 테스트 실행 0건, DB 접속 0건).
+병행 확인: STAGE4-5-STRATEGY-TIMING-AND-TEXT-CLEANUP-FIX(ui/) ·
+           CANDIDATE-SCORE-CONTRIBUTION-SERVER-STORAGE-FIX(services/candidate_scoring)
+           와 파일 충돌 없음 — 이 조사는 읽기만 했다.
+           단 §6-5 에서 지적했듯 **후자와는 payload 증가가 겹치므로 순차 진행 권고**.
+
+
+═══════════════════════════════════════════════════════════════════════
+8. 확인한 파일 / 명령
+═══════════════════════════════════════════════════════════════════════
+
+  services/column_profile_service.py                 642줄  (:47/:53 예산, :366-367 집계식)
+  services/candidate_postcount_finalize.py           888줄  (:30/:35 예산, :157/:634 흐름,
+                                                             :400 날짜버킷, :737~:805 ①~⑦)
+  services/groupby_plan_service.py                   175줄  (전문 정독 — :105 곱, :121 가드,
+                                                             :69/:130 include_pair)
+  services/candidate_recommendation_policy.py        373줄  (:300 _dedup_lineage 선례)
+  services/date_bucket_evidence.py                   846줄  (:295 예산 선정, :372 SQL 빌더)
+  services/diagnosis/candidate/recommender.py               (:296 _combinations, :45 cfg)
+  services/diagnosis/dbms/capabilities.py                   (:67 EXECUTION_SUPPORTED_DBMS)
+  services/dialects/base.py                                 (다중컬럼 distinct 메서드 부재 확인)
+  routes/groupby_plan_route.py                              (:18-23 요청 스키마, :31 호출)
+  services/profile_recollect_service.py                     (:382 재수집 집계식)
+  E:\verify_reports\CANDIDATE-PROFILING-UNIVARIATE-VS-CORRELATION-DIAGNOSE.txt (선행 진단서)
+  E:\verify_reports\PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX.txt          (비용 실측 근거)
+
+  $ git log --oneline --since=2026-07-31 -- <11개 파일>
+  $ git show --stat f02da5f 52c22fc dca1558 c0e2e57 9211e2c 0544546 469de98
+  $ grep -rE "COUNT\(DISTINCT[^)]*,[^)]*\)|DISTINCT.*\|\|" services/
+  $ grep -rn "build_groupby_execution_plan|include_pair|pair_candidate" --include=*.py
+
+변경 파일: 없음 (조사 전용 — 코드 변경 0건). 산출물은 본 보고서 1개.
+
+작업명 : CANDIDATE-CROSS-COLUMN-CORRELATION-SCOPE-DIAGNOSE
+✅ 작업 완료 - CANDIDATE-CROSS-COLUMN-CORRELATION-SCOPE-DIAGNOSE - 7-31 이후 3층 구조는 그대로(교차 계산 0건)이고, 끼워넣을 자리는 이미 존재한다(postcount ⑦ 직후 + groupby_plan_service:105). 착수 시 코드 4~5파일 + 테스트 2파일, 신규 쿼리 1개(PG)/2개(오라클), 비용 +40~120ms 로 현재 예산 안에 들어온다
