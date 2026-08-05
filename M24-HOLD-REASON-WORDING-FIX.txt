@@ -1,0 +1,237 @@
+작업명 : M24-HOLD-REASON-WORDING-FIX
+✅ 작업 완료 - M24-HOLD-REASON-WORDING-FIX - [wrapping 재이관 HOLD 사유에서 원인을 뭉뚱그린 "(SELECT * 또는 INSERT 컬럼 수 불일치 등)" 원문을 제거하고, 실제 원인(파서 미가용·파싱 실패·INSERT 문 아님·본문 VALUES·UNION 브랜치 비SELECT·컬럼목록 미기재·projection 수 불일치·SELECT *)을 케이스별로 표기하게 했다 — 실측 11 케이스 구체표기 0/11 → 11/11, 판정 규칙은 신설 없이 기존 단일 출처에 위임]
+
+작성일   : 2026-08-05
+기준커밋 : a2a6871 (변경 전) → 1fedcd8 (이번 변경)
+           ※ 테스트 baseline 대조는 ddc5834 워크트리 기준(E:\_wt_m24) — 상세 §5
+수정파일 : routes/exact_diff_route.py (원문 정정 · 원인 위임 헬퍼 신설)
+           routes/agg_diff_route.py  (호출측 중복 append 차단 2줄 + 주석)
+           scripts/dev_e2e/m24_hold_reason_wording_repro.py (신규 실측 드라이버)
+
+
+════════════════════════════════════════════════════════════════════════
+0. 한 줄 결론
+════════════════════════════════════════════════════════════════════════
+  변경 전, 생산측(_derive_row_sqls_wrapped)이 돌려주는 HOLD 사유는 11개 재현 케이스 전부에서
+  똑같은 문장이었고, 그 안에 박힌 원인 표기는 "(SELECT * 또는 INSERT 컬럼 수 불일치 등)" 하나뿐이었다.
+  실제 원인이 그 둘인 케이스는 11개 중 2개뿐이고 나머지 9개는 사실과 다른 안내였다.
+  변경 후 11개 전부가 자기 원인을 달고 나온다(구체표기 0/11 → 11/11, 뭉뚱그린 원문 잔존 11 → 0).
+
+  덤으로 드러난 사실 하나 — 변경 전 SELECT * 케이스에서는 뭉뚱그린 원문의 "SELECT *" 와
+  호출측이 덧붙인 "[원인: SELECT * 는 ...]" 가 한 문장에 2번 실려 중복 표기였다(변경 후 0건).
+
+
+════════════════════════════════════════════════════════════════════════
+1. 무엇을 왜 고쳤는가
+════════════════════════════════════════════════════════════════════════
+1-1. 문제 (BACKLOG M24)
+     routes/exact_diff_route.py `_derive_row_sqls_wrapped` 는 원본 이관 SELECT 재구성
+     (_extract_aliased_inner_select)에 실패하면 HOLD 사유를 돌려준다. 그 원문이
+
+         "... 행 단위 재이관 상세를 제공할 수 없습니다(SELECT * 또는 INSERT 컬럼 수 불일치 등)."
+
+     로 원인을 두 가지로만 뭉뚱그리고 있었다. 실제 실패 경로는 그 둘 말고도
+       · sqlglot 미가용(선택적 의존 — LegacyParser 폴백 환경)
+       · 파싱 실패/타임아웃(SQLGLOT-PARSE-TIMEOUT-GUARD)
+       · INSERT ... SELECT 문이 아님(MERGE · SELECT 원문)
+       · INSERT 본문이 SELECT/UNION 이 아님(VALUES 등)
+       · UNION 브랜치에 SELECT 아닌 항목
+       · INSERT 컬럼 목록 미기재 + 목적지 ordinal 위치 매핑도 불가
+     가 있다. S17(REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX)이 호출측에서 구체 사유를
+     덧붙이도록 고쳤지만, 이 **원문 자체**는 정정되지 않은 채 남아 있었다.
+
+1-2. 이번 변경
+     (a) routes/exact_diff_route.py — 원문에서 "(SELECT * 또는 INSERT 컬럼 수 불일치 등)" 제거,
+         실제 원인을 "[원인: ...]" 로 접미 표기.
+     (b) 원인 판정 규칙은 **새로 만들지 않았다**. 이미 확립된 단일 출처
+         agg_diff_route._wrapping_extract_feasibility (S17 + NO-INSERT-COLUMN-LIST-
+         POSITION-BASED-SUPPORT-FIX)에 위임한다(_wrapped_extract_cause).
+         → 규칙을 복제하면 두 벌이 갈라져 사유가 다시 사실과 어긋난다. heuristic 하드코딩을
+           늘리지 않는 것이 이 작업의 핵심 제약이었다.
+     (c) 원인을 특정하지 못하면 "" 를 받아 "사전 형태 판정으로는 원인을 특정하지 못했습니다"
+         로 남긴다 — 없는 원인을 지어내지 않는다(문구 날조 금지).
+
+1-3. 왜 agg_diff_route.py 도 2줄 건드렸는가 (요구 파일 외 최소 변경 — 명시 보고)
+     생산측이 원인을 실어 보내면 호출측 `_wrapping_hold_reason` 이 **같은 원인을 한 번 더**
+     덧붙여 문구가 중복되고, 목적지 컬럼 메타 조회(DB 왕복)까지 두 번 돈다.
+     그래서 '[원인: ' 마커가 이미 있으면 조기 반환하도록 2줄을 넣었다.
+       · 마커 없는 사유(예: "행 단위 재이관 상세를 파생할 정보가 부족합니다")는 종전 동작 그대로.
+       · 판정 로직·문구 사전은 손대지 않았다(이동/리팩토링 없음).
+
+
+════════════════════════════════════════════════════════════════════════
+2. 요구사항 2 — 이 원문을 직접 쓰는 다른 경로 확인
+════════════════════════════════════════════════════════════════════════
+2-1. `_derive_row_sqls_wrapped` 운영 호출부 전수 (routes/ services/ ui/ web_server.py)
+       routes/agg_diff_route.py:1105  (_pk_resolve) ......... 유일. 호출측 append 있음.
+     → 운영 경로에서 append 없는 호출부는 **없다**.
+
+2-2. append 가 없는 비운영 경로 = dev_e2e 드라이버 3종 + 테스트
+       scripts/dev_e2e/no_insert_column_list_positional_live_verify.py
+       scripts/dev_e2e/sampling_cost_aware_judgment_live_measure.py
+       scripts/dev_e2e/reimport_wrapping_ast_extraction_repro.py (자체 append 있음)
+     변경 전 이 경로들은 뭉뚱그린 원문만 받았다(실제로
+     no_insert_column_list_positional_live_verify.txt 47행에 그 문구가 그대로 박혀 있다).
+     변경 후에는 생산측이 직접 원인을 실으므로 append 없이도 구체 사유가 나온다 — §3 "생산측 사유" 열이 그 증거.
+
+2-3. 호출측 append 가 '동작하지 않는' 경로도 함께 확인
+     `_wrapping_hold_reason` 은 feasibility 가 False 가 아니면 원문을 그대로 돌려준다.
+     즉 사전판정이 '가능'인데 실제 추출만 실패한 경우 변경 전에는 뭉뚱그린 원문만 남았다.
+     변경 후 이 경우는 "사전 형태 판정으로는 원인을 특정하지 못했습니다" 로 사실대로 표기된다.
+
+2-4. 옛 문구 잔존 위치 (전수 grep) — 모두 '과거를 서술하는 주석/과거 증적'이며 표시 문자열 아님
+       routes/agg_diff_route.py:838            (S17 주석 — 과거 서술)
+       routes/exact_diff_route.py:143,228      (이번 변경 주석 — 과거 서술)
+       scripts/dev_e2e/m24_hold_reason_wording_repro.py:5,67 (판정 기준 문자열)
+       scripts/dev_e2e/no_insert_column_list_positional_live_verify.txt:47 (과거 실측 증적 — 불변 기록)
+     → 살아 있는 사용자 표시 문자열 중 이 문구를 쓰는 곳은 0건.
+
+
+════════════════════════════════════════════════════════════════════════
+3. 실측 전/후 (scripts/dev_e2e/m24_hold_reason_wording_repro.py)
+════════════════════════════════════════════════════════════════════════
+  실행 방법 : 실 DB 없이 원인별 HOLD 를 재현. 목적지 컬럼 메타는 주입(_cmn_fetch_tgt_col_meta 대체),
+              파서 미가용/타임아웃은 import 차단·예외 주입으로 재현.
+  before 실행: E:\_wt_m24 (ddc5834 워크트리, 같은 드라이버 복사) → exit=1
+  after  실행: C:\projects\migration-validator (1fedcd8)          → exit=0
+
+  ┌ 케이스 ─────────────────────────┬ 변경 전 생산측 사유 ──┬ 변경 후 생산측 사유 ─────────────────┐
+  │ NOT_INSERT (MERGE)              │ 뭉뚱그린 원문(동일)   │ 원본 이관 SQL 이 INSERT ... SELECT   │
+  │                                 │                      │ 문이 아닙니다(SELECT 원문·MERGE 등)  │
+  │ NOT_INSERT (SELECT 원문)        │ 뭉뚱그린 원문(동일)   │ 〃                                   │
+  │ NOT_SELECT_BODY (VALUES)        │ 뭉뚱그린 원문(동일)   │ INSERT 본문이 SELECT/UNION 이        │
+  │                                 │                      │ 아닙니다(VALUES 등)                  │
+  │ NOT_SELECT_BODY (문법 깨진 원문)│ 뭉뚱그린 원문(동일)   │ 〃                                   │
+  │ SELECT_STAR                     │ 뭉뚱그린 원문(동일)   │ SELECT * 는 INSERT 컬럼으로 위치     │
+  │                                 │                      │ 기준 alias 를 할 수 없습니다         │
+  │ PROJECTION_COUNT_MISMATCH       │ 뭉뚱그린 원문(동일)   │ INSERT 컬럼 수와 SELECT projection   │
+  │                                 │                      │ 수가 다릅니다(INSERT 2개/SELECT 3개) │
+  │ NO_INSERT_COLUMN_LIST (접속없음)│ 뭉뚱그린 원문(동일)   │ INSERT 대상 컬럼 목록이 SQL 에 명시  │
+  │                                 │                      │ 돼 있지 않고, 목적지 컬럼 정의 순서로│
+  │                                 │                      │ 위치 기준 매핑도 확정할 수 없습니다  │
+  │ NO_INSERT_COLUMN_LIST (개수불일)│ 뭉뚱그린 원문(동일)   │ 〃 + [SELECT projection 수(2)와      │
+  │                                 │                      │ 목적지 컬럼 수(3개)가 달라 위치 기준 │
+  │                                 │                      │ 으로 맞출 수 없습니다]               │
+  │ NO_INSERT_COLUMN_LIST (메타없음)│ 뭉뚱그린 원문(동일)   │ 〃 + [목적지 테이블의 컬럼 메타가    │
+  │                                 │                      │ 비어 있습니다(테이블 미존재 등)]     │
+  │ SQLGLOT_UNAVAILABLE             │ 뭉뚱그린 원문(동일)   │ SQL 파서(sqlglot)를 사용할 수 없어   │
+  │                                 │                      │ 원본 SELECT 를 재구성할 수 없습니다  │
+  │ PARSE_FAILED (파서 타임아웃)    │ 뭉뚱그린 원문(동일)   │ 원본 이관 SQL 을 파싱하지 못했습니다 │
+  └─────────────────────────────────┴──────────────────────┴──────────────────────────────────────┘
+
+  집계 (드라이버 자체 판정)
+    ┌─────────────────────────────┬ 변경 전 ┬ 변경 후 ┐
+    │ 생산측 사유에 구체 원인 표기│  0 / 11 │ 11 / 11 │
+    │ 생산측 사유에 뭉뚱그린 원문 │ 11 / 11 │  0 / 11 │
+    │ 최종 사유에 원인 중복 표기  │  1 / 11 │  0 / 11 │   ← SELECT * 케이스
+    │ 드라이버 종합 판정          │  FAIL   │  PASS   │
+    └─────────────────────────────┴─────────┴─────────┘
+
+  변경 전/후 최종 사유 원문 비교 (SELECT_STAR 케이스)
+    변경 전: 이 SQL 형태는 원본 이관 SELECT 재구성에 실패해 행 단위 재이관 상세를 제공할 수
+             없습니다(SELECT * 또는 INSERT 컬럼 수 불일치 등). 통계검증(COUNT·SUM) 결과는
+             정상입니다. [원인: SELECT * 는 INSERT 컬럼으로 위치 기준 alias 를 할 수 없습니다]
+    변경 후: 이 SQL 형태는 원본 이관 SELECT 재구성에 실패해 행 단위 재이관 상세를 제공할 수
+             없습니다. 통계검증(COUNT·SUM) 결과는 정상입니다. [원인: SELECT * 는 INSERT 컬럼
+             으로 위치 기준 alias 를 할 수 없습니다]
+
+
+════════════════════════════════════════════════════════════════════════
+4. 관련 테스트 서브셋
+════════════════════════════════════════════════════════════════════════
+  핵심 4파일 (wrapping/재이관 파생 직접 관련)
+    tests/test_reimport_wrapping_ast_extraction.py
+    tests/test_no_insert_column_list_positional.py
+    tests/test_reimport_unsupported_shape.py
+    tests/test_alias_derive_row_sqls_wrapping.py
+      → 39 passed (실패 0)
+
+  확장 서브셋 31파일 (reimport|exact_diff|agg|wrapping|drilldown|positional|union|derive)
+      변경 후   : 9 failed, 256 passed, 1 skipped, 1 error  (75.36s)
+      baseline  : 9 failed, 254 passed, 3 skipped           (65.99s)
+
+
+════════════════════════════════════════════════════════════════════════
+5. baseline 대조 + 실패 테스트 전체 목록
+════════════════════════════════════════════════════════════════════════
+5-1. baseline 구성
+     E:\_wt_m24 = ddc5834 워크트리(git worktree --detach). 대조 공정성을 위해 그 시점
+     동시 세션의 미커밋 파일 2개(services/exact_diff/agg_contribution.py,
+     ui/js_admin_column_override.py)를 복사해 넣었다. 즉 baseline = "현재 트리에서 내 변경만 뺀 상태".
+     (작업 중 동시 세션이 c87837c·a2a6871 로 커밋을 올렸으나 두 커밋 모두 내 수정 파일과 무관하다.)
+
+5-2. 실패 테스트 전체 목록 — baseline 9건 / 변경 후 9건, **목록 완전 동일**
+     FAILED tests/test_agg_contribution.py::test_exact_diff_separated_and_terms_removed
+     FAILED tests/test_batch_ui_snapshot_preview_flagged.py::test_ui_off_empty_hidden_container_and_funcs
+     FAILED tests/test_cte_alias_scope_and_derived_validation.py::test_real_physical_column_missing_still_failed
+     FAILED tests/test_cte_alias_scope_and_derived_validation.py::test_real_physical_table_missing_still_failed
+     FAILED tests/test_exact_diff_ui_wiring.py::test_button_state_conditions_flag_on_off
+     FAILED tests/test_exact_diff_ui_wiring.py::test_hold_labels_visible
+     FAILED tests/test_exact_diff_ui_wiring.py::test_key_range_tree_labeled_as_auxiliary
+     FAILED tests/test_exact_diff_ui_wiring.py::test_record_grid_and_kind_filter_and_order
+     FAILED tests/test_exact_diff_ui_wiring.py::test_run_wiring_calls_exact_diff_api_not_key_range
+
+     diff 결과: 신규 실패 0건 / 해소된 실패 0건. 9건 모두 이번 변경과 무관한 사전 존재 실패다
+     (전부 UI 문자열·CTE scope 계열로, 이번에 건드린 HOLD 사유 문자열과 접점 없음).
+
+5-3. 변경 후에만 보인 1 error 의 정체 (신규 결함 아님 — 근거 3가지)
+     ERROR at teardown ... [PROD-DB-MUTATED] db\migration_validator.db
+     ① 세션 스코프 teardown 가드라 "마지막에 실행된 테스트"에 붙는다. 실제로 재실행할 때마다
+        붙는 테스트가 바뀌었다(test_semantic_aggregate_expr_chip_surfacing → test_drilldown_snapshot_timestamp).
+        특정 테스트의 실패가 아니다.
+     ② baseline(워크트리)에서 안 뜬 이유는 무결성이 아니라 **skip 차이**다. 워크트리에서는
+        live PG 의존 테스트가 skip(3 skipped) 되지만 main 에서는 실행(1 skipped)된다.
+        가드 대상 db 파일 3개를 워크트리에 복사해 재실행해도 결과는 동일했다(9 failed, 254 passed, 3 skipped).
+     ③ 이번 변경은 SQLite 접근 코드가 0줄이다. 추가된 호출은 AST 판정 1회이며
+        목적지 컬럼 메타 조회는 호출측 조기 반환으로 상쇄돼 총 왕복 횟수가 늘지 않는다.
+
+
+════════════════════════════════════════════════════════════════════════
+6. 구조·위험 검토
+════════════════════════════════════════════════════════════════════════
+  긍정적 효과   : HOLD 안내가 사실과 일치. 사용자가 "컬럼 목록만 쓰면 되는지 / SQL 형태 자체가
+                  지원 밖인지" 를 문구만 보고 구분할 수 있다.
+  heuristic     : 규칙 신설 0건. 판정은 기존 단일 출처 위임이라 하드코딩이 늘지 않았다.
+  explainability: 원인 미특정 시 '특정하지 못했다'를 남겨 근거 없는 단정이 생기지 않는다.
+  결합도        : routes 간 함수 참조가 1건 생겼다(exact_diff_route → agg_diff_route, 함수 안 지연 import).
+                  ※ 남은 부채로 명시 : 판정기(_wrapping_extract_feasibility)의 제자리는 services/
+                    쪽이다. 다만 이번엔 요구 범위(문구 정정) 밖의 완료 모듈 리팩토링이라 미실시.
+                    옮길 때는 agg_diff_route 에 별칭을 남겨야 한다(테스트가 ar._wrapping_* 를 직접 참조).
+  성능          : 실패(HOLD) 경로 한정. 마커 조기 반환으로 파싱·목적지 메타 조회 횟수는 종전 이하.
+  보안          : 변경 없음. 사유 문구에 접속정보·값이 실리지 않는다(테이블/컬럼 '개수'만 표기).
+
+
+════════════════════════════════════════════════════════════════════════
+7. 변경 내역
+════════════════════════════════════════════════════════════════════════
+  커밋 : 1fedcd833cc11ebc1603827d11938f306cd0b3d5
+         fix(reimport): wrapping 재이관 HOLD 사유를 실제 원인별로 구분 표기 (M24-HOLD-REASON-WORDING-FIX)
+
+   routes/agg_diff_route.py                         |   9 +-
+   routes/exact_diff_route.py                       |  47 +++++-
+   scripts/dev_e2e/m24_hold_reason_wording_repro.py | 198 +++++++++++++++++++++++
+   3 files changed, 250 insertions(+), 4 deletions(-)
+
+  핵심 diff (routes/exact_diff_route.py)
+    -            "이 SQL 형태는 원본 이관 SELECT 재구성에 실패해 행 단위 재이관 상세를 제공할 수 없습니다"
+    -            "(SELECT * 또는 INSERT 컬럼 수 불일치 등). 통계검증(COUNT·SUM) 결과는 정상입니다.")
+    +        _cause = _wrapped_extract_cause(raw, dialect or "postgresql", tgt_conn)
+    +        return None, None, (
+    +            "이 SQL 형태는 원본 이관 SELECT 재구성에 실패해 행 단위 재이관 상세를 제공할 수 없습니다."
+    +            " 통계검증(COUNT·SUM) 결과는 정상입니다."
+    +            + (" %s%s]" % (_WRAP_CAUSE_MARK, _cause) if _cause
+    +               else " %s사전 형태 판정으로는 원인을 특정하지 못했습니다]" % _WRAP_CAUSE_MARK))
+
+  핵심 diff (routes/agg_diff_route.py — _wrapping_hold_reason 진입부)
+    +    if "[원인: " in (err or ""):
+    +        return err
+
+
+실검증 상태: 실 DB 미사용 — 순수 판정 경로라 실 DB 접속 없이 검증함. 목적지 컬럼 메타 조회는
+             주입(_cmn_fetch_tgt_col_meta 대체)으로, 파서 미가용·파싱 타임아웃은 import 차단·
+             예외 주입으로 재현했다. 11개 원인 케이스를 변경 전(ddc5834 워크트리)/변경 후(1fedcd8)
+             동일 드라이버로 대조해 생산측 사유가 0/11 → 11/11 로 바뀐 것을 확인했다.
+             화면 표시 무관 작업이라 브라우저 스크린샷은 없다(작업 지시에 명시).
+             관련 서브셋 31파일 baseline 대조 결과 신규 실패 0건(실패 목록 9건 완전 동일).
+
+✅ 작업 완료 - M24-HOLD-REASON-WORDING-FIX - [HOLD 사유의 뭉뚱그린 원문을 실제 원인별 표기로 정정 — 구체표기 0/11 → 11/11, 중복표기 1 → 0, 판정 규칙 신설 없이 기존 단일 출처 위임, 신규 실패 0건]
