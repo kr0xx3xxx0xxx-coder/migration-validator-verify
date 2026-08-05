@@ -1,0 +1,122 @@
+작업명 : M1-M2-COMMENT-CORRECTION-FIX
+✅ 작업 완료 - M1-M2-COMMENT-CORRECTION-FIX - 표본 게이트 skip 사유(M1)·PK 정렬 근거(M2) 주석의 인과 서술을 사실에 맞게 정정(코드 동작 무변경)
+
+■ 수정 내용 (순수 주석 정정 — 로직·분기 무변경)
+
+[M1] routes/agg_diff_route.py:376~ (_run_sampling_gate)
+  - 기존 서술: "CTE/JOIN/UNION wrapping 소스는 anchor 1개당 조회가 매번 원본 전체 재스캔이 될 수 있다"
+    → 형태(wrapping) 자체를 재스캔의 원인으로 지목.
+  - 정정 후: 재스캔을 만드는 것은 형태가 아니라 **anchor 술어의 pushdown 불가**임을 명시.
+    실측 사례(25만행 CTE+JOIN+ROW_NUMBER: anchor 2,000개 471.5초 / 전수 merge 2.7초)에서 비용을 만든
+    직접 원인은 윈도우함수(ROW_NUMBER)이며, 계산 범위가 파티션 전체라 술어를 그 아래로 내릴 수 없다.
+    CTE/JOIN/UNION 은 그 자체로 pushdown 을 막지 않는다(인라인 가능한 CTE 는 병합될 수 있다).
+    → _reimport_source_needs_wrapping 이 보는 '형태'는 pushdown 불가의 **대리 신호**임을 명시.
+  - 바로 아래 [SAMPLING-PREFLIGHT-COST-AWARE-JUDGMENT-P4-FIX] 주석("형태는 비용의 대리 신호일 뿐")과
+    서술이 일치하게 되어, 같은 블록 안의 인과 설명 충돌이 해소된다.
+
+[M2] services/exact_diff/agg_contribution.py:114~ (_pk_agg_sql)
+  - 기존 서술: "네이티브 PK 컬럼 ORDER BY 로 정렬해 PK 인덱스(Index Scan)를 타게 하고" +
+    "12M 복합 PK 조기중단 0.16초 실측" → 정렬이 회피되는 것처럼, 또 방언 구분 없이 읽힘.
+  - 정정 후:
+    · 정렬은 스트리밍 merge-join 의 **알고리즘 요건**(stream_merge 계약: 양측 정렬 입력)이므로
+      **정렬 자체는 제거 불가**임을 명시. 네이티브 컬럼 표기가 주는 것은 '정렬 비용을 플래너가
+      PK 인덱스 순서로 대신할 수 있는 형태'일 뿐이다.
+    · 그 대체가 실제로 일어난 근거는 **PG 실측 1건**(PG 12M 복합 PK, 조기중단 0.16초)임을 명시하고,
+      이 근거를 **Oracle 로 확대하지 말 것**을 못박음 — Oracle 은 진입 분기에서
+      dialects/oracle.pk_agg_sql 로 위임되며 해당 실행계획 실측 근거가 없다.
+    · 본문 `GROUP BY 없음 → Index Scan` 인라인 주석도 PG 플래너의 기대 계획일 뿐 보장이 아님을 부기.
+
+■ 코드 동작 무변경 근거
+  - 변경 라인은 전부 `#` 주석 / docstring 문자열. 실행 문장 추가·삭제·수정 0건.
+  - docstring 을 소스 검사(getsource/파일 read)로 단언하는 테스트 없음 확인:
+      grep 결과 tests/test_sampling_gate_wrapping_skip.py 는 마커를 자기 docstring 에만 언급,
+      tests/test_d6_2_row_compare_contract.py 는 _pk_agg_sql 을 호출해 생성 SQL 문자열만 단언.
+  - 두 파일 ast.parse 통과.
+
+■ 자체 테스트 결과 (무회귀)
+  1) 직접 관련 테스트
+     python -m pytest tests/test_sampling_gate_wrapping_skip.py tests/test_d6_2_row_compare_contract.py -q
+     → 13 passed (실패 0)
+  2) 광역 선택 실행
+     python -m pytest tests -q -k "sampling or agg_contribution or pk_agg or exact_diff or agg_diff"
+       (--ignore=tests/test_11def_scenarios.py --ignore=tests/test_12k_stress.py — sys.path 오염 회피)
+     → 수정 후 : 6 failed, 117 passed, 1 skipped
+     → 기준선(worktree, HEAD=ddc5834 동일 명령) : 6 failed, 117 passed, 1 skipped
+     → **실패 6건 목록 완전 동일 = 사전 존재 실패**(전부 ui/tabler_renderer 의 렌더 페이지 텍스트 단언):
+        tests/test_agg_contribution.py::test_exact_diff_separated_and_terms_removed
+        tests/test_exact_diff_ui_wiring.py::test_button_state_conditions_flag_on_off
+        tests/test_exact_diff_ui_wiring.py::test_run_wiring_calls_exact_diff_api_not_key_range
+        tests/test_exact_diff_ui_wiring.py::test_record_grid_and_kind_filter_and_order
+        tests/test_exact_diff_ui_wiring.py::test_hold_labels_visible
+        tests/test_exact_diff_ui_wiring.py::test_key_range_tree_labeled_as_auxiliary
+        (_page() = TablerRenderer().render_full_page() 로, 이번에 고친 두 파일과 무관한 경로)
+  3) CLAUDE.md 지정 회귀
+     python samples/test_virtual_cases.py    → 8/8 통과
+     python samples/test_complex_cases.py    → 5/5 케이스 분석 완료
+
+■ 커밋 격리 (동시 세션 보호)
+  - 작업 중 동일 파일(routes/agg_diff_route.py)에 **다른 세션의 미커밋 변경**([M24-HOLD-REASON-WORDING-FIX],
+    _wrapping_hold_reason)이 존재함을 확인.
+  - `git diff` 를 hunk 단위로 분해해 **내 hunk만** 패치로 추출(타 세션 마커 혼입 0건 단언) →
+    `git apply --cached` 로 인덱스에만 적용 → 커밋. 작업트리는 미변경.
+  - 커밋 후 확인: 변경 파일 2개(M/M), 삭제 0건, 타 세션 hunk 작업트리 잔존 확인(grep 1건, 여전히 미커밋).
+  - 커밋 : c87837c (코드 저장소는 규칙대로 push 하지 않음)
+
+■ 변경 파일
+  - routes/agg_diff_route.py                    (주석 3줄 → 8줄)
+  - services/exact_diff/agg_contribution.py     (docstring 6줄 → 13줄)
+
+■ git diff 전문
+
+diff --git a/routes/agg_diff_route.py b/routes/agg_diff_route.py
+index c99c0eb..d7aa313 100644
+--- a/routes/agg_diff_route.py
++++ b/routes/agg_diff_route.py
+@@ -373,9 +373,14 @@ def _run_sampling_gate(req, src_sql, tgt_sql, key_src, key_tgt, sum_pairs, fp, j
+     if dbms != tgt_dbms:
+         return None
+     from services.exact_diff import sampling_preflight as spf
+-    # [REIMPORT-SAMPLING-PREFLIGHT-SKIP-FOR-WRAPPING-SOURCE-FIX] CTE/JOIN/UNION wrapping 소스는 표본 어댑터의
+-    # anchor 1개당 조회가 매번 '원본 전체 재스캔'이 될 수 있다(윈도우함수/CTE 가 view merging 을 막는다).
+-    # 실측(25만행 CTE+JOIN+ROW_NUMBER)에서 anchor 2,000개 = 471.5초인데 전수 merge 는 2.7초였다.
++    # [REIMPORT-SAMPLING-PREFLIGHT-SKIP-FOR-WRAPPING-SOURCE-FIX] 표본 어댑터는 anchor 1개당 원본 SQL 을 다시
++    # 조회하는데, anchor 술어를 원본 안으로 내려보낼 수 없는(pushdown 불가) 소스에서는 그 조회가 매번
++    # '원본 전체 재스캔'이 된다.
++    # [M1-M2-COMMENT-CORRECTION-FIX] 인과 서술을 사실에 맞게 정정한다 — 재스캔을 만드는 것은 'CTE/JOIN/UNION
++    # wrapping 형태' 자체가 아니라 pushdown 불가다. 실측(25만행 CTE+JOIN+ROW_NUMBER: anchor 2,000개 = 471.5초,
++    # 전수 merge 는 2.7초)에서 비용을 만든 직접 원인은 윈도우함수(ROW_NUMBER)로, 계산 범위가 파티션 전체라
++    # 술어를 그 아래로 내릴 수 없다. CTE/JOIN/UNION 은 그 자체로 pushdown 을 막지 않는다(인라인 가능한 CTE 는
++    # 병합될 수 있다). 즉 아래 _reimport_source_needs_wrapping 이 보는 '형태'는 pushdown 불가의 대리 신호다.
+     # [SAMPLING-PREFLIGHT-COST-AWARE-JUDGMENT-P4-FIX] 다만 '형태'는 비용의 대리 신호일 뿐이라(BACKLOG P4)
+     # 여기서 형태만 보고 즉시 끊지 않는다. 형태는 게이트 안에서 **프로브 예산을 정하는 1차 필터**로만 쓰이고,
+     # 진입/보류 판정은 사전 프로브의 실측 비용이 내린다(정책 단일 출처 = sampling_preflight.shape_cost_policy).
+diff --git a/services/exact_diff/agg_contribution.py b/services/exact_diff/agg_contribution.py
+index f0aab6f..e2bfd6f 100644
+--- a/services/exact_diff/agg_contribution.py
++++ b/services/exact_diff/agg_contribution.py
+@@ -112,11 +112,18 @@ def _pk_agg_sql(logical_sql: str, key_col: str, gb_cols: list, sum_cols: list,
+     모든 컬럼 차이를 검출한다(통계 GB/SUM 선택과 독립).
+ 
+     [COMPOSITE-PK-DIRECT-MERGE-DRILLDOWN-FIX] unique_key=True 면 '유일 PK(단일/복합)' 고속 경로를 쓴다.
+-    key_col 을 콤마로 분해한 네이티브 PK 컬럼들을 그대로 `ORDER BY col1, col2 ...` 로 정렬해 PK 인덱스
+-    (Index Scan)를 타게 하고, PK 유일성(키당 1행)을 근거로 per-key GROUP BY 를 제거한다. 비교키 __K 는
+-    컬럼들을 chr(1)(데이터에 없는 최저 문자)로 연결한 단일 문자열이라 merge 의 단일값 비교(s[0]<t[0])와
+-    정렬 순서가 일치한다. 이 경로가 복합/문자 PK 대용량 테이블 그룹 드릴다운을 HASH_BUCKET 없이 가능케 한다.
+-    (진단 COMPOSITE-PK-...-COMPATIBILITY-CHECK: 네이티브 ORDER BY 시 12M 복합 PK 조기중단 0.16초 실측.)
++    key_col 을 콤마로 분해한 네이티브 PK 컬럼들을 그대로 `ORDER BY col1, col2 ...` 로 정렬하고, PK 유일성
++    (키당 1행)을 근거로 per-key GROUP BY 를 제거한다. 비교키 __K 는 컬럼들을 chr(1)(데이터에 없는 최저 문자)로
++    연결한 단일 문자열이라 merge 의 단일값 비교(s[0]<t[0])와 정렬 순서가 일치한다. 이 경로가 복합/문자 PK
++    대용량 테이블 그룹 드릴다운을 HASH_BUCKET 없이 가능케 한다.
++
++    [M1-M2-COMMENT-CORRECTION-FIX] 위 ORDER BY 를 '정렬 회피'로 서술했던 기록을 정정한다 — 스트리밍
++    merge-join 이 양측의 정렬된 입력을 알고리즘 요건으로 요구하므로(stream_merge 계약) 정렬 자체는 제거할
++    수 없다. 네이티브 컬럼 표기가 주는 것은 '정렬 비용을 플래너가 PK 인덱스 순서로 대신할 수 있는 형태'일
++    뿐이고, 그 대체가 실제로 일어난 근거는 PG 실측 1건이다(진단 COMPOSITE-PK-...-COMPATIBILITY-CHECK:
++    PG 12M 복합 PK, 네이티브 ORDER BY 시 조기중단 0.16초). 이 PG 근거를 Oracle 로 확대하지 말 것 —
++    Oracle 은 위 진입 분기에서 dialects/oracle.pk_agg_sql 로 위임되며 해당 실행계획 실측 근거가 없다.
++    아래 본문의 `GROUP BY 없음 → Index Scan` 주석도 PG 플래너의 기대 계획일 뿐 보장이 아니다.
+     """
+     if str(db_type or "postgresql").lower() == "oracle":
+         # 방언 분기는 이 한 줄만 — Oracle SQL 렌더는 dialects/oracle.pk_agg_sql 이 책임진다(위임).
+
+✅ 작업 완료 - M1-M2-COMMENT-CORRECTION-FIX - 표본 게이트 skip 사유(M1)·PK 정렬 근거(M2) 주석의 인과 서술을 사실에 맞게 정정(코드 동작 무변경)
