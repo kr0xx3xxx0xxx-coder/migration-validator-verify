@@ -130,12 +130,30 @@ index 5cecb1e..0111f02 100644
   · push 후 `git ls-remote` 로 local == remote 재확인
 
 [6-2] 실측
-  커밋 직전 staged 요약 : {STAGED_SUMMARY}
-  커밋                 : {COMMIT_HASH}
-  커밋 파일            : {COMMIT_FILES}
-  커밋 내 삭제(^D) 건수 : {DELETE_COUNT}
-  push                 : {PUSH_RESULT}
-  ls-remote 확인       : {LSREMOTE}
+  커밋 직전 staged 요약 : `A ` 1건 · `M ` 1건 · `D ` 0건
+                         (git status --porcelain | awk '{print substr($0,1,2)}' | sort | uniq -c
+                          — head 로 자르지 않고 전체 확인)
+  커밋 파일            : A  BACKLOG-P15-RESOLVED-MARK.txt
+                         M  BACKLOG.md
+  커밋 내 삭제(^D) 건수 : 0
+                         ※ `git show --name-status <hash> | grep -c "^D"` 는 1 을 반환하는데,
+                           이는 커밋 헤더 `Date:   Wed Aug 5 ...` 줄이 잡히는 오탐이다.
+                           `--format=""` 를 붙여 헤더를 제외하면 0 이다(원문 확인 완료).
+  push 1차            : 거부(non-fast-forward) — 그 사이 다른 세션이 origin/main 을
+                         dff6650 → accbdc2 로 밀었다
+                         (accbdc2 "verify: M27-M30-M31-STAGE-DISPLAY-FIXES-SEQUENTIAL 완료보고").
+                         해당 커밋이 BACKLOG.md 를 건드렸는지 확인 → `git log dff6650..accbdc2
+                         -- BACKLOG.md` 0건, accbdc2 의 P15 제목 줄도 원문 그대로임을 확인한 뒤
+                         `git rebase origin/main` (충돌 0건). 삭제 0건 재확인.
+  push 2차            : 성공 — `accbdc2..d6acc8e  HEAD -> main`
+  커밋                 : d6acc8e "docs(backlog): P15 해결 완료 표시 (BACKLOG-P15-RESOLVED-MARK)"
+  ls-remote 확인       : local HEAD = d6acc8e9d9db6dcc293f4b90683fa9c4fee4e712
+                         remote main = d6acc8e9d9db6dcc293f4b90683fa9c4fee4e712  → 일치
+  원격 반영 재확인      : origin/main 의 BACKLOG.md:789 =
+                         "### P15. ✅ 해결 완료 — 결과 그룹 상한 초과가 …"
+                         원격 `### ` 헤딩 개수 113 (편집 전과 동일)
+
+  ※ 이 §6-2 실측값을 채우는 후속 커밋이 1건 더 있다(보고서 파일만 수정, BACKLOG.md 무변경).
 
 ════════════════════════════════════════════════════════════════════════
 7. 미수행 · 한계
