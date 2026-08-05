@@ -1,0 +1,326 @@
+작업명 : STAGE4-5-STRATEGY-TIMING-AND-TEXT-CLEANUP-FIX
+작성일 : 2026-08-05
+대상   : 개별검증 4·5단계 표시 정리 (요구사항 1~6)
+코드   : ui/grid_helpers.py · ui/js_sql_preview.py · ui/tabler_renderer.py
+기준   : 961f2d5 (STAGE3-4-STATUS-TIMING-AND-BANNER-CLEANUP-FIX 직후)
+
+
+────────────────────────────────────────────────────────────────────────
+1. 요약
+────────────────────────────────────────────────────────────────────────
+4·5단계 화면 조정 6건을 모두 반영했다. 전부 '표시 계층' 변경이며, 값 계산·SQL 생성·
+집계·판정 로직은 한 줄도 건드리지 않았다.
+
+  1) 4단계 '통계전략' 타일을 **SQL 생성 직후**부터 표시하도록 되돌렸다(직전 작업의 파트 E 정정).
+  2) 4단계 '이 SQL은 참고용입니다 …' 경고박스를 코드·DOM·토글까지 완전히 제거했다.
+  3) '조합도 함께 검증' 체크 시 설명을 264자 → 90자(3줄 → 1줄)로 줄이고, 걷어낸 상세는
+     같은 박스의 툴팁(228자)으로 옮겼다.
+  4) 5단계 '처리시간'을 **상세비교(재이관 대상 준비) 완료 후**에 표시하도록 늦췄다.
+  5) 4단계 '통계전략' 인라인에서 '참고용 계획' 배지와 판정근거 줄을 뺐다(툴팁에 그대로 있음).
+  6) 4단계 '상세 추출 진행 중/완료' 배너(#mvExecStepPostProgress)를 대체 UI 없이 제거했다.
+
+실 DB(Oracle asis/tobe) 1~5단계 클릭스루 실측: 요구사항별 판정 **전 항목 PASS**,
+페이지 오류 0건, 5단계 결과표 무회귀.
+
+
+────────────────────────────────────────────────────────────────────────
+2. 요구사항별 before / after
+────────────────────────────────────────────────────────────────────────
+
+■ 요구사항 1 — 4단계 '통계전략' 표시 시점 정정 (실행 후 → SQL 생성 후)
+
+  판단 근거: '통계전략'은 3단계에서 이미 정해져 그 전략으로 SQL 을 만드는 **계획(plan)**
+  정보이지 실행 결과가 아니다. 같은 성격의 값(목적그룹/원본그룹/목적집계/원본집계/조합검증)이
+  모두 SQL 생성 시점에 채워지므로 같은 시점에 함께 채운다. 진짜 실행 결과인 '실행시간'·'상태'
+  만 계속 실행 후에만 채운다.
+
+  신호: 새 신호를 만들지 않고, 같은 함수가 이미 쓰고 있는 `generated`
+        (= gbSel/sumSel 둘 다 null 이 아님 = renderSQL 이 생성에 쓴 선택값이 도착)를 재사용.
+        직전 작업이 쓰던 window._mvStage4ExecResult(실행 응답) 게이트를 걷어냈다.
+
+  코드: ui/grid_helpers.py `_mvStage4TileRow`
+        before: statsStrategy: (_ex ? _statsStrat : null)
+        after : statsStrategy: (generated ? _statsStrat : null)
+
+  실측(SQL 생성 직후, 실행 전):
+        before  통계전략 '—' / 실행시간 '—' / 상태 '—'
+        after   통계전략 '직접 집계 STATS_DIRECT_AGG' / 실행시간 '—' / 상태 '—'   ← 의도대로
+        (스크린샷 before_04 · after_04, 03_stage4_tiles_viewport)
+
+
+■ 요구사항 2 — 4단계 '이 SQL은 참고용입니다 …' 경고박스 삭제
+
+  삭제 범위(코드째 — 화면 숨김 아님):
+    · DOM #genSqlComboOffText 및 그 안의 3줄 문구(ui/js_sql_preview.py)
+    · mvToggleComboPair 의 OFF 요소 조회·토글 2줄
+    · 문구 조립에만 쓰이던 지역변수 _sumArr / _gbLine / _sumLine (참조 0이 되어 함께 제거)
+
+  정보 손실 없음: 같은 사실(조합은 축별 단일 세트로 분해 실행된다)을 4단계 상단
+  '조합검증' 타일이 값 '미포함' + 툴팁("단일 축 N세트로만 분해 실행합니다 — 조합(…)에서만
+  드러나는 불일치는 검증되지 않습니다.")으로 이미 담고 있고, 실제 실행된 세트 구성은
+  5단계 실행근거가 사실대로 표기한다.
+
+  실행 동작 무회귀: opt-in 체크박스 #gbIncludePair · onchange 배선 · runExecute 의
+  include_pair 전달 · 기본 OFF 규약 전부 불변.
+
+  실측: 박스 높이 122px → 53px(체크박스 한 줄만 남음), '이 SQL은 참고용입니다' 문구
+        화면 부재, #genSqlComboOffText DOM 부재, mvToggleComboPair 내 OFF 조회 부재.
+        (스크린샷 before_04 · after_04)
+
+
+■ 요구사항 3 — '조합도 함께 검증' 체크 시 설명 문구 축약
+
+  before (264자 / 3줄):
+    ✅ 단일 축 2세트 + 조합 1세트(총 3세트)를 실행합니다.
+       조합(STATUS_CD + DEPT_CD)에서만 드러나는 불일치 — 축별 집계에서 서로 상쇄되어
+       사라지는 차이 — 까지 검증됩니다. 대상 테이블 전체 집계가 1회 추가되므로 대용량
+       테이블에서는 실행 시간이 늘어납니다.
+       데이터 조건(예상 그룹 수 상한·그룹당 평균 행 수 하한·구분 효과 등)에 따라 조합
+       세트가 자동 제외될 수 있습니다. 그 경우 5단계에 제외 사유와 '조합 미검증' 경고가
+       그대로 표시됩니다.
+
+  after (90자 / 1줄):
+    ✅ 단일 축 2세트 + 조합 1세트(총 3세트)를 실행합니다. 축별 집계에서 상쇄되는 차이까지
+       검증되며, 전체 집계 1회가 추가되어 실행 시간이 늘 수 있습니다.
+
+  걷어낸 상세(축별 상쇄 설명 전문 · 자동 제외 조건 · 5단계 표시)는 사라지지 않고 같은 박스의
+  title 툴팁(228자)으로 옮겼다. 값 판단 로직(_pairOn·체크박스 배선)은 불변.
+  실측: 박스 높이 122px → 79px. (스크린샷 before_05 · after_05)
+
+
+■ 요구사항 4 — 5단계 '처리시간' 표시 시점 조사 및 조정
+
+  [조사 1] 이 값이 재는 구간
+    window._mvStage5ProcMs = /execute 응답의 processing_ms 이며, **통계검증 세트 실행
+    루프가 끝난 시각까지**만 잰다. 그 직후 비동기로 시작하는 재이관 대상 상세 추출
+    (/agg-diff/prepare → pk-records 폴링)은 포함하지 않는다. 이 사실은 이미 라벨에
+    드러나 있다 — '5단계 통계검증 실행(상세 추출 별도)'. 즉 사용자가 본 21.57초는
+    '통계검증 실행시간'이 맞고 값 자체는 정확했다. 문제는 **표시 시점**이었다.
+
+  [조사 2] '실행/상세' 2줄이 1줄로만 보인 이유
+    오늘 ④-2 로 만든 2줄 표기의 '상세' 줄은 window._mvStage5DetailMs 를 읽는데, 이 값은
+    **불일치 그룹 상세 패널을 사용자가 펼칠 때**(_mvPkLoadPage) 기록된다. 화면 아래의
+    '상세비교 진행 중' / '재이관 대상 준비 중'(= /agg-diff/prepare 백그라운드 수집)과는
+    다른 것이다. 그룹을 아직 펼치지 않았으므로 '상세' 줄이 없어 1줄로 보인 것이고,
+    이는 결함이 아니라 설계대로다(자동 펼침 미발생 문제도 아님).
+
+  [조정] 표시 시점을 상세비교 완료 시점으로 늦춤 — 가능했고, 적용했다.
+    · 진행 여부 판정은 **새 신호를 만들지 않고**, 같은 화면의 '재이관PK' 타일이 '준비 중'
+      을 그릴 때 쓰는 상태(window._mvPkState)와 그 확정/미확정 구분식을 그대로 쓴다
+      (_mvPkPrepRunning — ui/tabler_renderer.py, _mvUpdatePkSummaryCell 바로 위).
+    · 상세비교가 진행 중이면 처리시간 칸을 '—' 로 두고, 사유를 툴팁으로 밝힌다
+      ("상세비교(재이관 대상 레코드 수집)가 진행 중입니다 — 완료 후 표시합니다. …").
+    · 완료를 화면이 처음 아는 지점(_mvPkAdoptDetail, 폴링 종료 분기, prepare 응답 도착)
+      에서 기존 _mvRepaintStage5Tiles 를 불러 값이 '—' 로 굳지 않게 한다(새 렌더 경로 없음).
+    · 값 자체(계측·보관·라벨·변환기)는 전혀 손대지 않았다.
+
+    ★ 영구 미표시 방지(중요): 상세비교가 **아예 시작되지 않는** 경로가 있다 —
+      불일치 0건(prewarm 조기 return), 자동 준비 상한 초과(deferred), 계획 HOLD,
+      일괄/이력 상세 복원 화면. 이 경우 진행 신호가 없으므로 종전대로 값을 그린다.
+      또 stream 경로는 prepare 가 PREPARING 으로만 응답하고 완료는 폴링으로만 오므로,
+      폴링이 종료를 이미 본 경우(_mvExecTerminal)는 진행 중으로 보지 않는다 —
+      표본 조기중단처럼 종료 payload 를 채택하지 않는 상태에서 값이 영영 안 나오는 것을
+      막는다. 오판은 항상 '조금 일찍 보여준다'(= 종전 동작) 쪽으로만 기운다.
+
+  실측:
+    · 실 흐름(Oracle, 원본 150건): 상세비교가 1초 안에 READY 로 끝나 '진행 중' 구간이
+      화면에 잡히지 않았다 — 처리시간 0.95초가 종전처럼 표시됐다(무회귀 확인).
+    · 표시규칙 프로브(상태만 강제, 서버 호출 없음):
+        진행 중  → before: '0.84초' 표시  /  after: '—' + 사유 툴팁      ← 의도대로
+        완료     → before: '0.84초'       /  after: '0.95초'             ← 값 복귀
+        미시작   → before: '0.84초'       /  after: '0.95초'             ← 영구숨김 없음
+      (스크린샷 before_11/12 · after_11/12)
+      ★ before_11 은 이번 요청의 문제 화면 그 자체다 — 같은 타일 줄에서 '처리시간 0.84초'(끝난 것처럼)
+        와 '재이관PK 준비 중'(아직 진행 중)이 동시에 떠 있다. after_11 은 '처리시간 —' + '재이관PK
+        준비 중' 으로 두 칸이 같은 시점을 말한다.
+
+
+■ 요구사항 5 — 4단계 '통계전략' 타일 인라인 부가정보 제거
+
+  제거: 인라인의 '참고용 계획' 한정어 배지(span.mv-qr-strat-note)와 판정근거 축약 줄
+        (span.mv-qr-strat-basis). 참조 0이 된 CSS 2규칙도 함께 삭제.
+  유지: 값(전략명) + 코드 배지, 그리고 툴팁 전문
+        ('… · 참고용 계획 — 실제 실행은 항상 전체스캔(EXACT)입니다.' + ' · 판정근거: <원문>').
+  값 객체(note/basis 필드)와 그 산출(_statsAdvisoryOnly / _mvBasisShort), 툴팁 조립은
+  건드리지 않았다 — 인라인 렌더만 걷어냈다.
+
+  실측(실행 후 타일):
+    before  인라인 '직접 집계 STATS_DIRECT_AGG 숫자 단일 PK · PK 인덱스'
+    after   인라인 '직접 집계 STATS_DIRECT_AGG'
+    툴팁(양쪽 동일) '통계검증 전략 STATS_DIRECT_AGG — 직접 집계(전체스캔 EXACT · …)
+                     · 판정근거: 원본 150건 · 숫자 단일 PK · PK 인덱스 · 원격 DB'
+    (스크린샷 before_03 · after_03)
+
+
+■ 요구사항 6 — 4단계 '상세 추출 진행 중/완료' 배너 제거
+
+  삭제 범위(코드째): host <div id="mvExecStepPostProgress">, 4단계 pane 등록,
+    _MV_EXEC_POST_SHOW_DELAY_MS · _mvExecStepPostState,
+    _mvExecStepPostDoneInfo / _mvExecStepPostTick / _mvExecStepPostRender,
+    _mvShowExecStepPostProgress / _mvNoteExecStepPostAvail /
+    _mvFinishExecStepPostProgress / _mvClearExecStepPostProgress (window 노출 4건 포함),
+    호출부 8곳 전부. 순삭 약 200줄.
+
+  대체 UI 없음(지시대로): 하단 상태바 반영·실행 버튼 비활성화·스피너 등 일체 추가하지 않았다.
+  빈 공백 없음: host div 자체가 없으므로 margin 도 남지 않는다.
+    실측 — 4단계 pane 안 '높이는 있는데 내용이 없는 블록' 0건(before 0건, after 0건),
+    배너 host: before 존재(hostH 0 — 지연 노출 임계값 안에 수집이 끝난 케이스) → after 부재.
+
+  5단계 무회귀: 상세 추출의 소요시간·수집 건수는 5단계 재이관 대상 요약(_mvRiSummaryHtml)이
+  서버 payload(elapsed_ms / missing_migration·value_mismatch)로 계속 단독 표시한다.
+  삭제한 배너의 값(클라이언트 시계 t0)과 출처가 전혀 달라 영향받지 않는다.
+  실측 — 5단계 요약의 '상세 불일치 처리 총 소요시간'(before 0.39초 / after 0.09초 — 실행마다 다른
+  실측값), '재이관 대상 50건(33.33%)', '목적 미존재 0건 · 값 불일치 50건', '고급 성능정보 ·
+  DIRECT_STREAM_COMPARE' 가 before/after 모두 동일한 형태로 표시됐다(before_11 · after_11).
+
+
+────────────────────────────────────────────────────────────────────────
+3. 구조·위험 검토
+────────────────────────────────────────────────────────────────────────
+· heuristic 하드코딩 증가: 없음. 요구사항 4 의 판정은 새 임계값·새 규칙이 아니라 기존
+  '재이관PK 준비 중' 판정축(window._mvPkState)의 재사용이며, 함수 하나로 단일화했다.
+· explainability: 값을 감추는 유일한 자리(처리시간 '—')에 사유 툴팁을 붙여 조용한 공백을
+  만들지 않았다.
+· web_server.py 비대화: 해당 없음(수정 0). ui/tabler_renderer.py 는 순감(-200여 줄).
+· 서버·백엔드: 변경 0줄. 라우트·SQL·집계·저장 스키마 무관.
+· 잔여 위험: 요구사항 4 의 게이트가 '진행 중'을 좁게 판정하므로, 상세비교가 진행 중인데도
+  값이 잠깐 먼저 보이는 경우는 있을 수 있다(= 종전 동작). 반대로 값이 영영 안 나오는 경우는
+  설계상 만들지 않았다. 대규모(수십 초 수집) 케이스의 '진행 중' 구간 실측은 이번 픽스처
+  (원본 150건)로는 잡히지 않아 표시규칙 프로브로 대체했다 — 대규모 실측은 별도 확인 권장.
+
+
+────────────────────────────────────────────────────────────────────────
+4. 자체 테스트
+────────────────────────────────────────────────────────────────────────
+■ 관련 서브셋 A/B (105 파일 — 변경한 UI 모듈을 참조하는 테스트 중 단계/타일/SQL/조합/그룹/
+  재이관/전략/실행/타이밍/결과 계열)
+    baseline(961f2d5, 별도 worktree C:\mvbase) : 60 failed · 1,074 passed · 1 skipped · 8 xfailed (269.70s)
+    after   (486b1a1, 작업 트리)               : 60 failed · 1,065 passed · 1 skipped · 8 xfailed (275.98s)
+    실패 집합 **완전 동일** — 신규회귀 0건, 해소 0건.
+      comm -13 baseline after → 0줄 (after 에만 있는 실패 없음)
+      comm -23 baseline after → 0줄 (baseline 에만 있는 실패 없음)
+    ※ 실패 60건은 전부 이번 작업과 무관한 사전 존재 실패다(전체 목록: 아래 §5, 증적
+      subset_ab_failures_baseline.txt / subset_ab_failures_after.txt — 두 파일 내용 동일).
+    ※ passed 가 9건 준 것은 이번 작업의 의도된 테스트 재작성 결과다 —
+      test_stage4_postcount_progress_indicator.py 가 '배너 신설 계약' 15건에서 '배너 제거 계약'
+      6건으로 바뀌었다(삭제된 기능의 계약 테스트를 남겨둘 수 없다). 대신 신규
+      test_stage45_strategy_timing_and_text_cleanup.py 10건이 추가돼 총 테스트 수는 63 → 64 로 늘었다
+      (이 신규 파일은 baseline 에 존재하지 않아 A/B 목록에서 제외했다).
+
+■ 이번 작업 직접 관련 파일 (after, 신규 포함)
+    test_stage45_strategy_timing_and_text_cleanup.py   10 passed  (요구사항 2·3·4)
+    test_stage4_stats_validation_tile_layout.py        40 passed  (요구사항 1·5 포함)
+    test_stage45_strategy_info_relocate.py              8 passed  (요구사항 5)
+    test_stage4_postcount_progress_indicator.py         6 passed  (요구사항 6 — 제거 계약)
+    test_groupby_plan.py                               13 passed  (조합 opt-in 무회귀)
+    → 합계 77 passed / 0 failed
+
+■ 신규·개정 테스트가 지키는 계약
+    · 요구사항 1: SQL 생성 전 '—' → 생성 후 값, 같은 시점 '실행시간'·'상태'는 '—' 유지
+    · 요구사항 2: OFF 문구·DOM·토글 조회 부재 + 체크박스/배선 무회귀
+    · 요구사항 3: 인라인 축약 + 걷어낸 상세의 툴팁 존치 + runExecute include_pair 불변
+    · 요구사항 4: 진행 중 '—', 완료/미시작/deferred/ctx(일괄·이력) 는 표시(영구 미표시 방지),
+                  _mvPkPrepRunning 판정 8케이스, 완료 지점 repaint 배선
+    · 요구사항 5: 인라인 span 2종 부재 + 코드 배지 존치 + 툴팁 판정근거 존치
+    · 요구사항 6: host·함수·상태·문구 부재 + pane 목록 제거 + 대체 UI 부재(실행 버튼 미잠금)
+                  + 5단계 요약 소요시간·건수 무회귀
+
+
+────────────────────────────────────────────────────────────────────────
+5. 실패 테스트 전체 목록 (60건 — baseline·after 동일, 사전 존재)
+────────────────────────────────────────────────────────────────────────
+FAILED tests/test_all_stages_timing_display_expand.py::test_count_generate_execute_routes_add_processing_ms
+FAILED tests/test_batch_group_current_workflow_scope.py::test_beforeunload_warning_only_when_running
+FAILED tests/test_batch_group_current_workflow_scope.py::test_reload_restore_group_step
+FAILED tests/test_batch_group_current_workflow_scope.py::test_storage_step_migration_6_to_5
+FAILED tests/test_batch_single_core_wrapper_foundation.py::test_ui_advanced_diagnostics_render
+FAILED tests/test_batch_single_core_wrapper_foundation.py::test_ui_dependency_applied_rows
+FAILED tests/test_batch_single_core_wrapper_foundation.py::test_ui_diagnostics_analyze_subrows
+FAILED tests/test_batch_single_core_wrapper_foundation.py::test_ui_diagnostics_dependency_rows
+FAILED tests/test_batch_step_tabs_workflow.py::test_completed_tab_green_priority_in_nav
+FAILED tests/test_batch_step_tabs_workflow.py::test_next_step_buttons_removed
+FAILED tests/test_batch_step_tabs_workflow.py::test_state_endpoint_backend
+FAILED tests/test_batch_step_tabs_workflow.py::test_targets_tab_no_next_button
+FAILED tests/test_batch_ui.py::test_node_row_list_render
+FAILED tests/test_batch_ui_snapshot_preview_flagged.py::test_ui_off_empty_hidden_container_and_funcs
+FAILED tests/test_count_sql_full_visibility.py::test_count_sql_pre_boxes_no_clip_and_order
+FAILED tests/test_count_sql_full_visibility.py::test_render_count_result_full_sql_and_copy_equivalence
+FAILED tests/test_detail_compare_rerun_reuse_ux.py::test_dialog_wiring_view_restores_rerun_forces_new_run
+FAILED tests/test_groupby_estimate_service.py::test_js_service_null_factor_parity
+FAILED tests/test_groupby_estimated_group_count_ui.py::test_estimate_uses_cardinality_evidence
+FAILED tests/test_groupby_estimated_group_count_ui.py::test_renderer_estimate_summary_evidence_wiring
+FAILED tests/test_groupby_safety_ui.py::test_static_labels_updated
+FAILED tests/test_individual_validation_stage_content.py::test_sql_shape_object_label_extraction
+FAILED tests/test_rerun_exec_gate_reuse.py::test_gate_helper_branches_node
+FAILED tests/test_results_menu_batch_detail_page.py::test_results_reuses_unified_renderer
+FAILED tests/test_review_batch_status_detail.py::TestUiBlock::test_status_wording_present
+FAILED tests/test_scope_execution.py::test_sample_only
+FAILED tests/test_single_auto_restore.py::test_contract_in_function_body
+FAILED tests/test_single_auto_restore.py::test_node_auto_restore_and_idempotent
+FAILED tests/test_single_auto_restore.py::test_present_and_wired_into_init_chain
+FAILED tests/test_single_batch_project_gate.py::test_single_group_unselected_test_only_notice
+FAILED tests/test_single_batch_project_gate.py::test_single_handlers_have_project_gate
+FAILED tests/test_single_execute_preflight_connection.py::test_both_fail_shows_both
+FAILED tests/test_single_execute_preflight_connection.py::test_both_ok_proceeds
+FAILED tests/test_single_execute_preflight_connection.py::test_no_password_leak
+FAILED tests/test_single_execute_preflight_connection.py::test_no_path_skips_preflight
+FAILED tests/test_single_execute_preflight_connection.py::test_non_pg_skips_preflight
+FAILED tests/test_single_execute_preflight_connection.py::test_preflight_wired_into_execute_entries
+FAILED tests/test_single_execute_preflight_connection.py::test_source_fail_blocks_with_message
+FAILED tests/test_single_execute_preflight_connection.py::test_target_fail_blocks_with_message
+FAILED tests/test_single_registered_source_ui_hidden.py::test_history_all_single_drops_source_column
+FAILED tests/test_single_registered_source_ui_hidden.py::test_history_mixed_batch_shows_single_dash
+FAILED tests/test_single_registered_source_ui_hidden.py::test_list_single_registered_no_source_badge
+FAILED tests/test_single_run_standard_ui.py::test_existing_generate_execute_flow_preserved
+FAILED tests/test_single_run_standard_ui.py::test_facade_in_advanced_dev_collapsible_default_collapsed
+FAILED tests/test_single_run_standard_ui.py::test_result_render_uses_textcontent_not_innerhtml
+FAILED tests/test_single_run_standard_ui.py::test_single_group_ui_removed
+FAILED tests/test_single_sql_change_stale_clear.py::test_clear_final_save_state_clears_everything
+FAILED tests/test_single_sql_stale_preserve_and_reset_scope.py::test_reset_current_work_is_single_scoped
+FAILED tests/test_single_sql_stale_preserve_and_reset_scope.py::test_save_blocked_when_stale
+FAILED tests/test_single_sql_stale_preserve_and_reset_scope.py::test_sql_edit_marks_stale_not_clear
+FAILED tests/test_single_validation_view_connection.py::SingleViewConnectionTest::test_02_result_summary_uses_shared_verdict_badge
+FAILED tests/test_single_validation_view_connection.py::SingleViewConnectionTest::test_03_save_result_uses_shared_persistence_badge
+FAILED tests/test_single_validation_view_connection.py::SingleViewConnectionTest::test_10_no_bypassing_verdict_mapping
+FAILED tests/test_sql_limit_warning_ui_static.py::test_ddl_missing_warning_message
+FAILED tests/test_stage_button_dedup_time_scope_and_gate45_fix.py::test_switching_tab_hides_previous_slot_but_keeps_its_value
+FAILED tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+FAILED tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_dedup_logic_present
+FAILED tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_hidden_when_empty
+FAILED tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_only_individual_screen
+FAILED tests/test_task_single_candidate_evidence_preview.py::test_cap3_unchanged
+
+
+────────────────────────────────────────────────────────────────────────
+6. 변경 파일 / 커밋
+────────────────────────────────────────────────────────────────────────
+커밋: 486b1a1 (기준 961f2d5)
+  ui/grid_helpers.py                                  +59/-  (요구사항 1·4·5)
+  ui/js_sql_preview.py                                +61/-  (요구사항 2·3)
+  ui/tabler_renderer.py                              +277/-  (요구사항 4·5·6, 순감 약 200줄)
+  tests/test_stage45_strategy_timing_and_text_cleanup.py   신규 (요구사항 2·3·4)
+  tests/test_stage4_stats_validation_tile_layout.py        개정 (요구사항 1·5)
+  tests/test_stage45_strategy_info_relocate.py             개정 (요구사항 5)
+  tests/test_stage4_postcount_progress_indicator.py        개정 (요구사항 6 — 제거 계약으로 전환)
+  scripts/dev_e2e/stage45_strategy_timing_text_cleanup_verify.py  신규 실측 드라이버
+  합계 8 files changed, 1,222 insertions(+), 560 deletions(-)
+
+※ 같은 작업트리에 다른 세션의 미커밋 변경(services/candidate_scoring.py,
+  tests/test_candidate_score_contribution.py)이 있어 스테이징에서 명시적으로 제외했다.
+  커밋 후 `git status --porcelain` 로 두 파일이 그대로 미커밋 상태임을 확인했다(무접촉).
+
+
+────────────────────────────────────────────────────────────────────────
+7. 실검증 상태
+────────────────────────────────────────────────────────────────────────
+실검증 상태: 실 DB 검증 완료 — Oracle asis/tobe(NXDNP.MV_ORA_DEMO_SRC → MV_ORA_DEMO_TGT,
+원본 150건 · GROUP BY STATUS_CD+DEPT_CD · SUM AMT) 개별검증 1~5단계 클릭스루를 before/after
+각 1회 실행. 요구사항 1~6 판정 전 항목 PASS(after), before 는 문제 상태를 그대로 재현.
+페이지 오류 0건 · 다이얼로그 0건. 요구사항 4 의 '상세비교 진행 중' 구간은 이 픽스처에서
+1초 내 종료되어 실 흐름으로는 관측되지 않아, 표시 규칙은 상태만 강제한 프로브(서버 호출 0)로
+실측했다 — 대규모(수십 초 수집) 실 흐름 확인은 남아 있다.
+
+증적: E:\verify_screenshots_only\STAGE4-5-STRATEGY-TIMING-AND-TEXT-CLEANUP-FIX\
+  before_/after_ PNG 각 12장, measure_before.json / measure_after.json,
+  driver_stage45_strategy_timing_text_cleanup_verify.py,
+  subset_ab_* (파일 목록 · 전체 출력 · 실패 목록 baseline/after)
