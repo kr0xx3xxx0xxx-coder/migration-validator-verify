@@ -1,0 +1,278 @@
+작업명: DB-PRESET-JSON-TO-SQLITE-MIGRATION
+✅ 작업 완료 - DB 접속 프리셋 14건을 db_presets_*.json → SQLite mv_db_preset 으로 이관, 동시저장 유실 제거
+
+일자: 2026-08-06
+코드 커밋: fdeb1d6 (C:\projects\migration-validator, 코드 repo 는 push 안 함 — 커밋까지)
+
+════════════════════════════════════════════════════════════════════
+0. 먼저 알림 — 지시한 파일 목록 밖의 파일 2개를 수정했습니다
+════════════════════════════════════════════════════════════════════
+지시서는 수정 대상을 3개 파일로 한정했지만, 요구사항 5의
+"운영 도달 가능한 것이 있으면 db_preset_service 경유로 고치고" 를 지키려면
+아래 2개를 고치는 것 외에 방법이 없었습니다. 각각 함수 본문만 교체했고
+시그니처·반환형·선택규칙은 그대로입니다.
+
+  (1) routes/diagnosis_route.py  — _load_presets_for()  (+13/-8줄)
+      POST /diagnosis/dbms-execute-contract-smoke 에서 도달합니다.
+      is_execute_enabled() 가 postgresql=True / oracle=True 라 현재도 실제로 열립니다
+      (mysql/mariadb/mssql/db2 는 False). 고치지 않으면 이관 시점에 고정된
+      낡은 JSON 사본을 계속 읽습니다.
+  (2) services/count_precheck_service.py — _load_src_preset/_load_tgt_preset (+44/-32줄)
+      routes/count_precheck_route.py 가 src_conn 미제공 시 사용하는 폴백 경로입니다.
+
+  되돌리려면:  git checkout fdeb1d6~1 -- routes/diagnosis_route.py services/count_precheck_service.py
+
+  추가로 검증 하니스 1개를 신규 작성했습니다(스크린샷 요구사항 이행용):
+    scripts/dev_e2e/db_preset_store_migration_browser_verify.py + 스냅샷 JSON 3개
+
+  routes/db_preset_route.py 는 결과적으로 수정이 필요 없었습니다(0줄 변경).
+  _cmn_load_presets/_cmn_save_presets 의 계약을 그대로 지킨 덕분입니다.
+
+════════════════════════════════════════════════════════════════════
+1. 변경 파일
+════════════════════════════════════════════════════════════════════
+  services/db_preset_service.py                              +380 / -39   (수정)
+  scripts/migrate_db_presets_to_sqlite.py                    +227         (신규)
+  routes/diagnosis_route.py                                  +13  / -8    (수정, 범위 밖)
+  services/count_precheck_service.py                         +44  / -32   (수정, 범위 밖)
+  scripts/dev_e2e/db_preset_store_migration_browser_verify.py +166        (신규, 검증용)
+  scripts/dev_e2e/db_preset_store_migration_{before,after,rollback}.json  (신규, 실측 스냅샷)
+  routes/db_preset_route.py                                  변경 없음
+  db_presets_src.json / db_presets_tgt.json                  변경 없음(롤백용 보존)
+  db/schema.sql                                              변경 없음(아래 §8 참고)
+
+════════════════════════════════════════════════════════════════════
+2. 요구사항 1 — 스키마 마이그레이션
+════════════════════════════════════════════════════════════════════
+기존 컬럼은 하나도 건드리지 않고 추가만 했습니다(멱등, ALTER TABLE ADD COLUMN).
+
+  + is_deleted            INTEGER NOT NULL DEFAULT 0   (soft delete)
+  + last_used_at          TEXT                          (load_preset_conn 경유 접속 시 갱신)
+  + advanced_options_json TEXT                          ← 지시서에 없던 추가 컬럼(사유 아래)
+  + UNIQUE INDEX ux_mv_db_preset_key
+        ON mv_db_preset(IFNULL(project_id,-1), preset_nm, preset_type) WHERE is_deleted=0
+
+■ advanced_options_json 을 추가한 이유(무손실 이관의 필수 조건)
+  기존 mv_db_preset 에는 sslmode / sid / schema / charset / connect_timeout /
+  connect_type / driver_mode / encoding / nencoding 을 담을 컬럼이 아예 없었습니다.
+  JSON 14건 중 12건이 advanced_options 를 갖고 있어(SRC 7 / TGT 5), 이 컬럼 없이
+  이관하면 오라클 sid·PG sslmode 가 통째로 사라져 접속 자체가 깨집니다.
+  기존 컬럼 변경이 아니라 추가이므로 지시의 "기존 컬럼 변경 없음" 은 지켰습니다.
+
+■ UNIQUE 를 부분 인덱스로 만든 이유(그냥 UNIQUE 로 하면 무효였습니다)
+  SQLite 는 UNIQUE 제약에서 NULL 을 서로 다른 값으로 취급합니다. 요구사항 2 에 따라
+  project_id 를 전부 NULL 로 넣으므로, UNIQUE(project_id, preset_nm, preset_type) 을
+  그대로 걸면 14건 전부가 "서로 다른 키" 로 판정돼 **중복이 전혀 막히지 않습니다**.
+  IFNULL(project_id,-1) 식 인덱스로 만들어 의도한 유일성을 실제로 강제했습니다.
+  soft delete 행은 WHERE is_deleted=0 으로 제외해, 삭제 후 같은 이름 재생성이 막히지
+  않게 했습니다(재생성 시 죽은 행을 되살려 재사용하므로 행이 누적되지도 않습니다).
+
+════════════════════════════════════════════════════════════════════
+3. 요구사항 2 — 1회성 이관 실행 결과
+════════════════════════════════════════════════════════════════════
+  scripts/migrate_db_presets_to_sqlite.py  (멱등 / --dry-run / --overwrite)
+
+  --dry-run 결과 : SRC 8건 / TGT 6건 = 신규 14 · 갱신 0 · 건너뜀 0
+  실제 실행 결과 : mv_db_preset 행수 0 → 14
+      [SRC] 8건 — 비밀번호 보유 8건, advanced_options 보유 7건
+            PostgreSQL_asis, MariaDB_asis, PostgreSQL_NEW_asis, DB2_asis,
+            PostgreSQL_Inter_asis, PostgreSQL_Inter_tobesrc, PostgreSQL_nxdnp_src, Oracle_asis
+      [TGT] 6건 — 비밀번호 보유 6건, advanced_options 보유 5건
+            PostgreSQL_tobe, DB2_tobe, MariaDB_tobe, PostgreSQL_NEW_tobe,
+            PostgreSQL_Inter_tobe, Oracle_tobe
+  스크립트 자체 검증 : [검증 통과] JSON 14건이 mv_db_preset 에 **필드 단위로 동일**하게 존재
+
+  project_id : 14건 전부 NULL(전역). 현재 JSON 에 프로젝트 구분 필드가 없어
+               **어떤 프로젝트로도 추정 배정하지 않았습니다.**
+  ▶ 후속 과제(이번 범위 아님): 전역 프리셋을 프로젝트 스코프로 지정하는 작업.
+    스키마·조회 경로는 이미 project_id 를 갖고 있으므로 UI/정책만 추가하면 됩니다.
+
+  비밀번호 : 저장 위치만 이동했고 평문 저장 방식은 그대로입니다(암호화 도입 없음 — 요구사항 6).
+             이 보고서와 스크립트는 비밀번호 값을 한 번도 출력하지 않으며, 보유 건수(14/14)와
+             길이 일치 여부만 대조했습니다.
+
+════════════════════════════════════════════════════════════════════
+4. 요구사항 3 — 내부 구현만 교체(시그니처 불변) + 동시저장 유실 제거
+════════════════════════════════════════════════════════════════════
+■ 시그니처·반환형 불변
+  _cmn_load_presets(path) -> list  /  _cmn_save_presets(path, presets) -> None
+  반환 dict 키·순서까지 종전과 동일합니다(name, db_type, host, port, dbname, user,
+  password + advanced_options 는 비어 있으면 키 자체를 넣지 않음).
+  호출자 30여 곳 무수정, routes/db_preset_route.py 도 0줄 변경으로 동작합니다.
+
+  ▶ 여기서 걸린 함정 하나: `path` 인자는 단순 경로가 아니라 **src/tgt 판별자**로 쓰이고 있고,
+    테스트 4개(test_db_presets_password_masking / test_db2_mariadb_profile_connectivity /
+    test_db_connection_finalize_guard / test_profile_role_edit_and_duplicate_conn)가
+    `_PRESETS_SRC/_TGT` 를 임시 JSON 파일 경로로 monkeypatch 합니다.
+    무조건 DB 로 보내면 이 테스트들이 자기 픽스처 대신 운영 DB 를 읽어 전부 깨집니다.
+    → import 시점에 정경로를 _CANON_SRC/_CANON_TGT 로 얼려두고, 들어온 path 가
+      **정경로일 때만** DB 로 보냅니다. monkeypatch 된 임시 경로는 자동으로 JSON 파일 처리 →
+      기존 테스트 무수정 통과(실측 확인, §6).
+
+■ lost update 제거 방식
+  '통째 덮어쓰기' 를 버리고 **직전 load 스냅샷 대비 delta** 를 단일 BEGIN IMMEDIATE
+  트랜잭션으로 적용합니다.
+    - 스냅샷에 있었는데 저장 목록에 없다 → soft delete
+    - 저장 목록의 프리셋 → upsert (내용 동일하면 write 자체를 생략)
+  삭제는 **스냅샷 시점 내용과 현재 DB 내용이 같을 때만** 수행합니다(compare-and-swap).
+  그 사이 다른 요청이 그 프리셋을 바꿨다면 삭제를 건너뜁니다 — 남의 변경을 조용히 지우지 않습니다.
+
+■ 동시저장 2건 실측 재현 (요구사항: 실제로 재현해서 확인할 것)
+  시나리오: 시드 [A,B,C] → 두 스레드가 동시에 목록을 읽고(barrier 로 읽기 시점 정렬)
+            각각 D / E 를 추가해 저장.
+
+    [이관 전(JSON 파일 통째 덮어쓰기)]
+       최종 목록 : ['A', 'B', 'C', 'E']   (총 4건)
+       유실      : ['D']                  ← 결함 재현됨
+    [이관 후(SQLite 트랜잭션 delta)]
+       최종 목록 : ['A', 'B', 'C', 'E', 'D']  (총 5건)
+       유실      : 없음
+
+    판정: PASS — 재현되던 유실이 이관 후 사라졌다
+
+════════════════════════════════════════════════════════════════════
+5. 요구사항 4 — kill-switch
+════════════════════════════════════════════════════════════════════
+  MV_DB_PRESET_STORE = db(기본) | file
+  호출마다 환경변수를 읽으므로 재기동만으로 즉시 되돌아갑니다.
+  JSON 파일은 삭제하지 않고 그대로 두었으므로 file 모드는 이관 전과 100% 동일 동작입니다.
+
+  실서버 실측: MV_DB_PRESET_STORE=file 로 재기동 → 화면·API 가 이관 전과 완전히 동일
+  (§7 의 rollback 컬럼 참고). 되돌린 뒤 다시 기본(db) 모드로 재기동해 정상 확인했습니다.
+
+════════════════════════════════════════════════════════════════════
+6. 요구사항 5 — JSON 직접 접근 지점 전수 분류 (일괄 수정 안 함)
+════════════════════════════════════════════════════════════════════
+전수 스캔(.venv/scratchpad 제외, 주석 줄 제외) — 파일 294개 / 지점 565개
+
+  분류                                        파일   지점   조치
+  ─────────────────────────────────────────────────────────────────────
+  ★ 운영 도달 가능                              2      3    → 고침(§0)
+      routes/diagnosis_route.py                              _load_presets_for
+      services/count_precheck_service.py                     _load_{src,tgt}_preset
+  scripts/dev_e2e/  (개발 진단·실측 하니스)     220    419    → 그대로 둠
+  tests/            (테스트)                     35     54    → 그대로 둠
+  samples/          (샘플·데모 셋업)             15     37    → 그대로 둠
+  scripts/          (운영 외 1회성 스크립트)     13     32    → 그대로 둠
+  저장소 루트 러너  (데모/스모크)                 4      9    → 그대로 둠
+      demo_rehearsal_runner.py / op_scenario_runner.py
+      smoke_e2e_runner.py / smoke_generate_debug.py
+  scripts/dev_fixtures/ (개발 픽스처 생성)        4      6    → 그대로 둠
+      mois_matchkey_edge_fixture.py / ora_xdiff_fixture.py
+      pgtier_per_group_fixture.py / tobe_mismatch_fixture_generate.py
+
+  ■ 개발 전용을 그대로 둔 판단 근거
+    전부 사람이 직접 실행하는 진단/픽스처/스모크 스크립트이고, 웹 서버 요청 경로에서
+    import 되지 않습니다. 지금은 JSON 이 이관 시점 사본으로 정확히 남아 있어 동작에
+    문제가 없습니다. 다만 **앞으로 화면에서 프리셋을 수정하면 JSON 은 갱신되지 않으므로
+    이 스크립트들은 점점 낡은 접속정보를 쓰게 됩니다.** 지시대로 일괄 수정은 하지
+    않았고, 필요 시 각 스크립트의 `_load_preset` 을 `load_preset_conn()` 으로 바꾸는
+    별도 작업으로 처리할 것을 권합니다(220개는 한 작업으로 묶기에 과합니다).
+
+  ■ 조치 후 재확인
+    운영 코드(routes/ services/ ui/ config/ web_server.py)에 남은
+    `open(...db_presets...)` / `json.load(...db_presets...)` = **0곳**.
+    남은 3개 파일의 참조는 전부 서술(docstring/에러문구) 또는 저장소 모듈 자신의
+    경로 상수입니다:
+      routes/count_precheck_route.py:204,294,330  — docstring 2 / 에러 메시지 1
+      services/source_profile_resolver.py:10      — docstring
+      services/db_preset_service.py:42,43         — 저장소 모듈의 경로 상수(정경로 판별자)
+
+════════════════════════════════════════════════════════════════════
+7. 검증 — 서버 재기동 후 실제 화면 전/후 대조
+════════════════════════════════════════════════════════════════════
+하니스: scripts/dev_e2e/db_preset_store_migration_browser_verify.py before|after|rollback
+  before   = 이관 전 모듈이 올라간 실행 중 서버(PID 16976, 2026-08-05 20:48 기동 → JSON 저장소)
+  after    = 새 코드로 재기동한 서버(PID 31572 → SQLite 저장소)
+  rollback = MV_DB_PRESET_STORE=file 로 재기동한 서버(PID 28052 → kill-switch 복귀)
+
+  항목                              before   after   rollback   판정
+  ────────────────────────────────────────────────────────────────────
+  GET /db/presets/src                  8건     8건      8건     완전 동일
+  GET /db/presets/tgt                  6건     6건      6건     완전 동일
+  GET /db/presets/src/names            8건     8건      8건     완전 동일
+  GET /db/presets/tgt/names            6건     6건      6건     완전 동일
+  DB 프로필 목록 화면(행 추출)         15행    15행     15행    완전 동일
+  검증경로 추가 바 DB 선택 목록      원8/목6  원8/목6  원8/목6   완전 동일
+
+  ■ 스크린샷 (E:\verify_screenshots_only\DB-PRESET-JSON-TO-SQLITE-MIGRATION\)
+      {before,after,rollback}_01_db_profile_list.png     md5 483ff8829c94d9c5fb2aaf93d5dbeeab
+      {before,after,rollback}_02_db_pick_list.png        md5 94dd84edd14dec07efd1c030bc6eb2e8
+      {before,after,rollback}_03_single_validation.png   md5 b410171af1c72b9979dd6324d4033c15
+    → 3개 모드의 같은 화면끼리 **md5 가 완전히 일치**합니다. "내용이 같아야 하므로
+      동일함을 증명하는 스크린샷" 이라는 요구를 픽셀 단위 동일로 충족했습니다.
+
+  ■ 저장/삭제 경로도 실서버 HTTP 로 실측(임시 프리셋 ZZZ_MIGRATION_PROBE)
+      POST /db/presets/src        → {"success":true}
+        mv_db_preset preset_id=15 로 INSERT 확인(project_id=NULL, is_deleted=0)
+        db_presets_src.json md5 2be4b91833c2a45bc4bcdf4f59238d17 — 저장 전후 **불변**
+      DELETE /db/presets/src/ZZZ_MIGRATION_PROBE → {"success":true}
+        해당 행 is_deleted=1 (soft delete), 활성 14건 / API src 8건 복귀
+        db_presets_tgt.json md5 67447415f52fb0d0a7fe62a3b3c72a67 — 역시 불변
+      → 실제로 SQLite 에 쓰고 JSON 은 더 이상 쓰기 대상이 아님이 실측으로 확인됐습니다.
+      probe 행은 검증 후 제거해 mv_db_preset 은 14행으로 정리했습니다.
+
+  ■ 모듈 단위 동등성(파일 모드 vs DB 모드, 같은 프로세스에서 교차 실행)
+      목록 dict 전체        SRC 8/8 · TGT 6/6 완전일치(순서 포함)
+      비밀번호 보존         (이름,보유,길이) 튜플 완전일치 — 값은 출력하지 않음
+      load_preset_conn      14개 프리셋 전부 평탄화 결과 일치(sslmode/sid/charset 포함)
+      resolve_password_for_conn  14/14건 동일 비밀번호 반환
+
+════════════════════════════════════════════════════════════════════
+8. 회귀 — baseline 대조
+════════════════════════════════════════════════════════════════════
+baseline: HEAD(2042b40) worktree(E:\_wtcode) + 타 세션 미커밋 WIP 동일 적용 + db 파일 복사
+          (교란 요인 제거)
+
+  ① 프리셋 직결 서브셋 8파일
+       BEFORE : 1 failed / 91 passed / 3 skipped
+       AFTER  : 1 failed / 91 passed / 3 skipped
+       실패 1건은 양쪽 동일 —
+         tests/test_group_hard_reset.py::TestUiButtons::test_delete_buttons_and_confirm
+         ('function projectHardDelete' 문자열 부재. ui/tabler_renderer.py 렌더 단언으로
+          이번 변경과 무관한 사전 존재 실패)
+
+  ② 확대 서브셋 80파일 (connection / precheck / preset / diagnosis / db_profile 계열, 733건)
+       BEFORE : 23 failed / 673 passed / 37 skipped / 1 error
+       AFTER  : 23 failed / 673 passed / 37 skipped / 1 error
+       실패 nodeid 집합 diff:
+         AFTER 에만 있는 실패(신규 회귀) : 0건
+         BEFORE 에만 있는 실패(해소)      : 0건
+
+  ▶ 신규 회귀 0건.
+
+════════════════════════════════════════════════════════════════════
+9. 남은 위험 / 후속 과제
+════════════════════════════════════════════════════════════════════
+  (a) db/schema.sql 미갱신 — 지시한 파일 목록 밖이라 건드리지 않았습니다. 신규 컬럼/인덱스는
+      db_preset_service._ensure_schema 가 런타임에 멱등 생성하므로 새 설치에서도 동작하지만,
+      스키마 파일과 실제 테이블이 어긋난 상태가 남습니다(auth_user 도 같은 상태 — 커밋 08030f2).
+      스키마 파일 동기화를 별도 항목으로 등록할 것을 권합니다.
+  (b) 개발 전용 스크립트 292개는 여전히 JSON 을 직접 읽습니다(§6). 지금은 값이 같지만,
+      화면에서 프리셋을 수정하는 순간부터 낡아집니다.
+  (c) 비밀번호 평문 저장은 그대로입니다(요구사항 6대로 위치만 이동). 오히려 JSON 파일과
+      SQLite 두 곳에 평문이 존재하게 됐습니다 — 롤백 확인이 끝나면 JSON 쪽 정리를 권합니다.
+  (d) 스냅샷 기반 delta 는 '동시 추가' 를 모두 살리는 대신, 매우 오래된 스냅샷으로 저장할 경우
+      다른 세션이 지운 프리셋이 되살아날 수 있습니다. 실제 호출 흐름(load 직후 save)에서는
+      발생하지 않고, 삭제 쪽은 compare-and-swap 으로 막아 두었습니다.
+  (e) 전역(project_id NULL) → 프로젝트 스코프 지정은 이번 범위 밖입니다(§3).
+
+════════════════════════════════════════════════════════════════════
+10. 결론
+════════════════════════════════════════════════════════════════════
+프리셋 14건이 mv_db_preset 으로 무손실 이관됐고, 화면 3종이 이관 전과 픽셀 단위로 동일합니다.
+이번 작업의 실질 이득은 '저장 위치 이동' 자체가 아니라 두 가지입니다. 첫째, 실제로 재현되던
+동시저장 유실(D 유실)이 사라졌습니다 — 트랜잭션만 씌운 게 아니라 저장 의미를 통째 덮어쓰기에서
+delta 로 바꿨기 때문이며, 단순히 BEGIN 으로 감싸기만 했다면 유실은 그대로 재현됐을 것입니다.
+둘째, group_hard_reset_service 의 삭제금지 보호(mv_db_preset)가 빈 테이블이 아니라 실데이터를
+지키게 됐습니다.
+
+반면 이번 작업으로 새로 생긴 부담도 분명합니다. 평문 비밀번호가 JSON 과 SQLite 두 곳에 존재하게
+됐고(롤백을 위해 의도한 것이지만 롤백 창이 닫히면 정리 대상), 개발 스크립트 292개가 조용히
+낡아가는 시한이 시작됐습니다. 둘 다 지금은 무해하지만 방치하면 "왜 스크립트만 옛 접속정보로
+붙지" 라는 형태로 되돌아옵니다.
+
+지시 범위를 벗어난 파일 2개를 고친 점은 §0 에 따로 적었습니다. 요구사항 5 를 지키려면 불가피했고,
+한 줄 명령으로 되돌릴 수 있게 커밋을 분리하지 않고 경로만 명시해 두었습니다.
+
+✅ 작업 완료 - DB 접속 프리셋 14건을 db_presets_*.json → SQLite mv_db_preset 으로 이관, 동시저장 유실 제거
