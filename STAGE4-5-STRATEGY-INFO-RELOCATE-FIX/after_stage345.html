@@ -1,0 +1,2483 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<style>
+/* 활성 탭 복원 전 모든 탭 콘텐츠 숨김(flicker 방지) — head 에서 documentElement(html)에 class 부여,
+   JS 가 복원 후 mv-tabs-restoring 제거. JS 미실행 시 class 미추가 → 탭 정상 표시(영구 blank 방지). */
+html.mv-tabs-restoring .mv-tab { display: none !important; }
+:root {
+  --font-base:"Noto Sans KR","Pretendard","Inter","Segoe UI","Malgun Gothic","맑은 고딕","Apple SD Gothic Neo",sans-serif;
+  /* DESIGN-REFRESH: SaaS dashboard 톤 — 연한 블루 배경/흰 카드/부드러운 shadow/큰 radius */
+  --bg:#f5f8fc; --card:#fff; --text:#10233f; --sub:#667085;
+  --border:#e6ecf5; --primary:#2563eb; --primary-d:#1d4ed8;
+  --high:#22c55e; --low:#f59e0b; --fail:#ef4444;
+  --active-bg:#eaf2ff; --hover-bg:#f3f7fe; --muted-line:#e5eaf2;
+  --code-bg:#f1f5f9; --code-fg:#334155;
+  --r:14px; --sh:0 8px 24px rgba(15,23,42,.06),0 0 0 1px rgba(230,236,245,.7);
+  /* ── status semantic tokens (Phase 1 — 상태 의미별 단일 출처. 기존 mv-badge 색과 동일) ──
+     success=성공/일치/확인됨, warning=주의/부분(profile 누락 등), danger=오류/불일치/실패(COUNT 불일치 포함),
+     muted=미수행/산정불가/근거없음/중립, info=정보/안내. 의미는 섞지 않는다(표시 전용). */
+  --st-success-bg:#dcfce7; --st-success-fg:#15803d; --st-success-bd:#86efac;
+  --st-warning-bg:#fef3c7; --st-warning-fg:#92400e; --st-warning-bd:#fcd34d;
+  --st-danger-bg:#fee2e2;  --st-danger-fg:#b91c1c;  --st-danger-bd:#fca5a5;
+  --st-muted-bg:#f1f5f9;   --st-muted-fg:#475569;   --st-muted-bd:#cbd5e1;
+  --st-info-bg:#dbeafe;    --st-info-fg:#1e40af;    --st-info-bd:#93c5fd;
+  /* ── action(button) semantic tokens (primary=주 흐름, secondary=보조, danger=파괴적) ── */
+  --act-primary:#3b82f6; --act-primary-d:#2563eb;
+  --act-secondary-bg:#f1f5f9; --act-secondary-fg:#334155; --act-secondary-bd:#cbd5e1;
+  --act-danger:#dc2626; --act-danger-d:#b91c1c;
+}
+/* ── INDIVIDUAL-VALIDATION-REMOVE-GREEN ──────────────────────────────────────────
+   개별검증(#tab-analyze) 한정: '성공=초록' 관성을 버리고 success 토큰을 블루/중립으로 재정의한다.
+   token 기반 초록(신뢰도/Provider/sample/진행카드/badge/결과 등)이 이 subtree 안에서만 블루로 바뀐다.
+   일괄검증/히스토리(다른 탭 subtree)는 토큰 원값(초록)을 그대로 사용 — 영향 없음. */
+#tab-analyze{
+  --st-success-bg:#eef4fb; --st-success-fg:#1f5c9e; --st-success-bd:#bcd3ee;
+  --high:#3b82f6;
+}
+/* ── DESIGN-REFRESH: SaaS dashboard helper (카드/버튼/hero/요약/topbar) ── */
+.mv-btn-disabled{ background:#eef1f6!important; color:#9aa4b2!important; border:1px solid var(--border)!important;
+  border-radius:10px!important; cursor:not-allowed!important; box-shadow:none!important; }
+/* hero 카드 */
+.mv-hero{ background:linear-gradient(120deg,#e6efff 0%,#eef4fd 55%,#ffffff 100%);
+  border:1px solid var(--border); border-radius:18px; padding:28px 30px; box-shadow:var(--sh); }
+.mv-hero h2{ font-size:1.62rem; font-weight:800; color:var(--text); margin:0 0 8px; }
+.mv-hero p{ font-size:1.06rem; color:var(--sub); margin:0 0 16px; line-height:1.65; max-width:760px; }
+.mv-hero-actions{ display:flex; flex-wrap:wrap; gap:10px; }
+/* 요약/기능 카드 grid — 더 꽉 차게 */
+.mv-summary-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; margin-top:14px; }
+.mv-sumcard{ background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px 16px;
+  box-shadow:var(--sh); display:flex; flex-direction:column; gap:6px; }
+.mv-sumcard .mv-sum-top{ display:flex; align-items:center; justify-content:space-between; }
+.mv-sumcard .mv-sum-ico{ width:34px; height:34px; border-radius:10px; background:var(--active-bg); color:var(--primary);
+  display:flex; align-items:center; justify-content:center; font-size:1rem; }
+.mv-sumcard .mv-sum-num{ font-size:1.5rem; font-weight:800; color:var(--text); line-height:1.1; }
+.mv-sumcard .mv-sum-label{ font-size:.82rem; font-weight:600; color:var(--text); }
+.mv-sumcard .mv-sum-desc{ font-size:.74rem; color:var(--sub); }
+/* workflow stepper */
+.mv-flow{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:6px; }
+.mv-flow-step{ display:flex; align-items:center; gap:8px; background:var(--hover-bg); border:1px solid var(--border);
+  border-radius:999px; padding:6px 12px; font-size:.78rem; color:var(--text); }
+.mv-flow-step .mv-flow-no{ width:18px; height:18px; border-radius:50%; background:var(--primary); color:#fff;
+  font-size:.68rem; display:flex; align-items:center; justify-content:center; font-weight:700; }
+.mv-flow-sep{ color:#c0cadb; font-size:.8rem; }
+/* topbar 상태 카드 */
+.mv-topcards{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+.mv-topcard{ background:var(--card); border:1px solid var(--border); border-radius:12px; padding:6px 12px;
+  display:flex; flex-direction:column; min-width:120px; box-shadow:0 1px 2px rgba(15,23,42,.04); }
+.mv-topcard .mv-tc-label{ font-size:.66rem; color:var(--sub); text-transform:uppercase; letter-spacing:.04em; }
+.mv-topcard .mv-tc-val{ font-size:.82rem; font-weight:600; color:var(--text); display:flex; align-items:center; gap:6px; }
+.mv-dot{ width:8px; height:8px; border-radius:50%; display:inline-block; background:#cbd5e1; }
+.mv-dot.ok{ background:var(--high); } .mv-dot.off{ background:#cbd5e1; }
+/* 홈 하단 2단 카드(최근 활동 / 추천 시작 작업) */
+.mv-home-2col{ display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:16px; margin-top:18px; }
+.mv-empty{ display:flex; align-items:center; gap:12px; padding:18px; color:var(--sub); font-size:.96rem; line-height:1.55;
+  background:#f8fafd; border:1px dashed var(--border); border-radius:12px; margin-top:8px; }
+.mv-empty-ico{ font-size:1.6rem; flex:0 0 auto; }
+.mv-reco{ list-style:none; margin:10px 0 0; padding:0; }
+.mv-reco li{ display:flex; align-items:center; gap:11px; min-height:56px; padding:12px 14px; border:1px solid var(--border); border-radius:10px;
+  margin-bottom:10px; cursor:pointer; font-size:16px; color:var(--text); transition:background .12s,border-color .12s; }
+.mv-reco li:hover{ background:var(--hover-bg); border-color:#cdddfb; }
+.mv-reco-no{ width:22px; height:22px; border-radius:50%; background:var(--active-bg); color:var(--primary);
+  font-size:.78rem; font-weight:700; display:flex; align-items:center; justify-content:center; flex:0 0 auto; }
+.mv-reco-go{ margin-left:auto; color:var(--primary); font-weight:700; }
+/* ── 랜딩 화면 정밀 레이아웃(DESIGN-REFRESH-EXACT) — [JOB-DASHBOARD-STAGE3] 랜딩이 홈 대시보드에서
+      검증 현황판으로 대체되면서 selector 를 옮겼다(.mv-home-top 등은 검증 그룹 화면이 계속 사용). ── */
+#tab-job-dashboard{ min-height:calc(100vh - 134px); }
+.mv-home-top{ display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:24px; align-items:stretch; margin-bottom:16px; }
+@media (max-width:1100px){ .mv-home-top{ grid-template-columns:1fr; } }
+.mv-hero{ display:flex; align-items:center; justify-content:space-between; gap:24px; min-height:240px; padding:34px; }
+.mv-hero-body{ flex:1 1 auto; }
+.mv-hero h2{ font-size:30px; font-weight:800; line-height:1.2; margin:0 0 10px; color:var(--text); }
+.mv-hero p{ font-size:16px; line-height:1.6; color:var(--sub); max-width:640px; margin:0 0 18px; }
+.mv-cta{ min-height:44px; font-size:14.5px!important; border-radius:10px!important; padding:0 16px!important; display:inline-flex; align-items:center; }
+.mv-hero-art{ flex:0 0 180px; position:relative; height:180px; display:none; }
+@media (min-width:1300px){ .mv-hero-art{ display:block; } }
+.mv-art-circle{ position:absolute; inset:0; border-radius:50%; background:radial-gradient(circle at 35% 30%,#cfe1ff,#eaf2ff 70%); box-shadow:0 12px 30px rgba(37,99,235,.18); }
+.mv-art-ico{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:78px; }
+.mv-recent-panel{ margin:0; } .mv-recent-panel .card-body{ height:100%; }
+/* 요약 카드 정밀 수치 */
+.mv-summary-grid{ grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); }
+.mv-sumcard{ min-height:145px; padding:22px; border-radius:16px; justify-content:space-between; }
+.mv-sumcard .mv-sum-num{ font-size:28px; } .mv-sumcard .mv-sum-ico{ width:34px; height:34px; font-size:20px; }
+.mv-sumcard .mv-sum-label{ font-size:15px; display:flex; align-items:center; } .mv-sumcard .mv-sum-desc{ font-size:12.5px; }
+/* 워크플로우 카드 */
+.mv-flow-card{ margin-top:16px; } .mv-flow-card .card-body{ min-height:170px; } .mv-flow-card .mv-flow{ flex-wrap:wrap; gap:12px; }
+.mv-flow-card .mv-flow-step{ font-size:16px!important; padding:11px 16px; }
+.mv-flow-card .mv-flow-no{ width:36px; height:36px; font-size:1rem; }
+.mv-flow-legend{ display:flex; gap:18px; margin-top:14px; font-size:13.5px; color:var(--sub); }
+.mv-lg{ display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; vertical-align:middle; }
+.mv-lg.ok{ background:var(--high); } .mv-lg.cur{ background:var(--primary); } .mv-lg.wait{ background:#cbd5e1; } .mv-lg.err{ background:var(--fail); }
+/* 하단 3영역 */
+.mv-home-3col{ display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:18px; margin-top:16px; }
+.mv-home-3col .card-body{ min-height:245px; }
+.mv-prep{ display:flex; align-items:center; gap:18px; margin-top:10px; }
+.mv-prep-ring{ width:96px; height:96px; border-radius:50%; flex:0 0 auto; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  background:conic-gradient(var(--border) 0 100%); box-shadow:inset 0 0 0 12px #fff; }
+.mv-prep-ring span{ font-size:26px; font-weight:800; color:var(--text); line-height:1; } .mv-prep-ring small{ font-size:11.5px; color:var(--sub); }
+.mv-prep-list{ list-style:none; margin:0; padding:0; font-size:14.5px; } .mv-prep-list li{ padding:5px 0; color:var(--text); } .mv-prep-list b{ margin-left:4px; }
+/* 참고 이미지 매칭: hero 장식(여러 겹) · 최근 활동 · 요약 chevron · 최근 프로젝트 row */
+.mv-art-circle{ background:radial-gradient(circle at 38% 32%,#cfe1ff,#eaf2ff 72%); box-shadow:0 14px 34px rgba(37,99,235,.2); }
+.mv-art-chip{ position:absolute; display:flex; align-items:center; justify-content:center; border-radius:14px; background:#fff;
+  box-shadow:0 6px 16px rgba(15,23,42,.12); font-size:26px; width:54px; height:54px; }
+.mv-art-db{ top:6px; left:30px; } .mv-art-shield{ top:60px; left:90px; background:#eaf2ff; color:#2563eb; }
+.mv-art-check{ top:108px; left:24px; background:#e6f7ee; color:#16a34a; font-weight:800; }
+.mv-recent-head{ display:flex; align-items:center; justify-content:space-between; }
+.mv-recent-all{ font-size:13px; color:var(--primary); text-decoration:none; }
+.mv-recent-panel .card-body{ min-height:570px; }
+.mv-act{ list-style:none; margin:12px 0 0; padding:0; }
+.mv-act li{ display:flex; align-items:center; gap:12px; min-height:72px; border-bottom:1px solid #f0f3f8; }
+.mv-act li:last-child{ border-bottom:none; }
+.mv-act-ico{ width:42px; height:42px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:20px; flex:0 0 auto; }
+.mv-act-b{ flex:1 1 auto; min-width:0; } .mv-act-t{ font-size:14.5px; font-weight:600; color:var(--text); }
+.mv-act-s{ font-size:13px; color:var(--sub); } .mv-act-time{ font-size:12.5px; color:#98a2b3; flex:0 0 auto; }
+.mv-act-note{ font-size:12px; color:#98a2b3; margin:10px 0 0; }
+.mv-sum-go{ margin-left:auto; color:#c0cadb; font-size:18px; font-weight:700; }
+.mv-proj-list{ list-style:none; margin:10px 0 0; padding:0; }
+.mv-proj-list li{ display:flex; align-items:center; gap:11px; min-height:60px; padding:6px 0; border-bottom:1px solid #f0f3f8; cursor:pointer; }
+.mv-proj-list li:last-child{ border-bottom:none; }
+.mv-proj-ico{ width:38px; height:38px; border-radius:10px; background:#eaf2ff; display:flex; align-items:center; justify-content:center; font-size:18px; flex:0 0 auto; }
+/* ── 워크플로우 rich(아이콘+상태) / 도넛 차트 / 진행률 bar / 추천 작업(바로가기) ── */
+.mv-flow-rich .mv-flow-step{ display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:12px; background:#f6f9fd; border:1px solid var(--border); }
+.mv-flow-rich .mv-flow-ic{ width:40px; height:40px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:19px; background:#fff; box-shadow:0 2px 6px rgba(15,23,42,.08); flex:0 0 auto; }
+.mv-flow-rich .mv-flow-lb{ display:flex; flex-direction:column; line-height:1.25; } .mv-flow-rich .mv-flow-lb b{ font-size:14.5px; color:var(--text); font-weight:700; } .mv-flow-rich .mv-flow-lb i{ font-style:normal; font-size:12px; color:var(--sub); }
+.mv-flow-rich .mv-flow-step.ok .mv-flow-ic{ background:#e6f7ee; } .mv-flow-rich .mv-flow-step.ok .mv-flow-lb i{ color:var(--high); }
+.mv-flow-rich .mv-flow-step.cur{ border-color:#bcd5fb; background:#eef5ff; } .mv-flow-rich .mv-flow-step.cur .mv-flow-ic{ background:#eaf2ff; color:var(--primary); } .mv-flow-rich .mv-flow-step.cur .mv-flow-lb i{ color:var(--primary); font-weight:700; }
+.mv-flow-rich .mv-flow-step.wait{ opacity:.75; } .mv-flow-rich .mv-flow-step.wait .mv-flow-lb i{ color:#98a2b3; }
+.mv-donut-wrap{ display:flex; align-items:center; gap:22px; margin-top:14px; flex-wrap:wrap; }
+.mv-donut{ width:156px; height:156px; border-radius:50%; flex:0 0 auto; display:flex; align-items:center; justify-content:center; box-shadow:0 4px 14px rgba(15,23,42,.08); }
+.mv-donut-hole{ width:108px; height:108px; border-radius:50%; background:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+.mv-donut-hole b{ font-size:30px; font-weight:800; color:var(--text); line-height:1; } .mv-donut-hole small{ font-size:14px; color:var(--sub); margin-top:3px; }
+.mv-donut-legend{ list-style:none; margin:0; padding:0; font-size:14.5px; flex:1 1 150px; }
+.mv-donut-legend li{ display:flex; align-items:center; padding:5px 0; color:var(--text); } .mv-donut-legend li b{ margin-left:6px; } .mv-donut-legend li span{ margin-left:auto; color:var(--sub); font-size:13px; }
+.mv-proj-list li .mv-proj-b{ flex:1 1 auto; min-width:0; }
+.mv-proj-top{ display:flex; align-items:center; justify-content:space-between; }
+.mv-proj-top .mv-act-t{ font-size:15px; font-weight:600; } .mv-proj-pct{ font-size:13px; font-weight:700; color:var(--primary); }
+.mv-proj-meta{ font-size:12.5px; color:var(--sub); margin:2px 0 6px; }
+.mv-bar{ height:8px; border-radius:6px; background:#eef2f8; overflow:hidden; } .mv-bar i{ display:block; height:100%; background:var(--primary); border-radius:6px; }
+.mv-reco-rich li{ min-height:60px; } .mv-reco-rich .mv-reco-ic{ width:38px; height:38px; border-radius:10px; background:#eaf2ff; display:flex; align-items:center; justify-content:center; font-size:18px; flex:0 0 auto; }
+.mv-reco-rich .btn{ margin-left:auto; flex:0 0 auto; }
+/* reference: 우측 패널 추천 시작 작업(recommend-box) + 하단 2그리드 */
+.mv-recommend-box{ margin-top:16px; padding-top:14px; border-top:1px solid var(--border); }
+.mv-recommend-title{ font-size:15px; font-weight:700; color:var(--text); margin:0 0 10px; }
+.mv-recommend-box .mv-reco li{ min-height:54px; }
+.mv-recommend-box .mv-reco-ic{ width:34px; height:34px; font-size:16px; }
+.mv-recommend-box .btn{ font-size:13px; padding:5px 11px; }
+.mv-home-2grid{ grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); }
+/* nxDTV 타이포 위계 — 3차: 전반 +2pt 상향(위계 유지, 가독성 강화) */
+.page-wrapper{ font-size:17px; }
+.page-wrapper .card-title{ font-size:1.32rem!important; font-weight:700!important; color:var(--text)!important; letter-spacing:-.01em; }
+.page-wrapper h4{ font-size:1.1rem; font-weight:700; color:var(--text); }
+.page-wrapper .card-body{ font-size:17px; }
+.page-wrapper .table,.page-wrapper table{ font-size:1rem; }
+.page-wrapper .table thead th,.page-wrapper table thead th{ background:#eef3fb!important; color:#1f2d4d!important; font-weight:700!important; font-size:.94rem!important; }
+.page-wrapper .btn{ font-size:16px; }
+.page-wrapper .page-title{ font-size:26px!important; font-weight:800!important; color:var(--text)!important; }
+.page-wrapper label,.page-wrapper .form-label{ color:var(--text); font-size:.98rem; }
+.page-wrapper .text-secondary,.page-wrapper small,.page-wrapper .small{ font-size:.92rem; }
+/* 메타데이터 수집 화면 — 글자 밀도/가독성 향상(기능 불변, 스타일만) */
+#tab-metadata .card-title{ font-size:20px!important; }
+#tab-metadata label,#tab-metadata .form-label{ font-size:16px!important; font-weight:600!important; color:var(--text)!important; }
+#tab-metadata .form-select,#tab-metadata .form-control,#tab-metadata .btn{ font-size:16px!important; min-height:44px!important; }
+#tab-metadata table{ font-size:16px!important; width:100%; }
+#tab-metadata table thead th{ font-size:16px!important; padding:13px 14px!important; }
+#tab-metadata table td{ padding:12px 14px!important; vertical-align:middle; }
+#tab-metadata #mdListMsg{ font-size:16px!important; }
+#tab-metadata .text-secondary{ color:#5a6577!important; }
+/* 사이드바 메뉴 폰트 — 실제 px 기준(메뉴 15px, 섹션 13px, 브랜드 18/12.5px) */
+.navbar-vertical .nav-item.mv-nav-child .nav-link .nav-link-title{ font-size:13.5px!important; font-weight:600!important; color:#475569!important; }
+.navbar-vertical .nav-link-title{ font-size:13.5px!important; }
+.navbar-vertical .mv-grouphead .nav-link-title{ font-size:12px!important; font-weight:800!important; color:#7f8fa4!important; letter-spacing:.01em; }
+.mv-brand .mv-brand-title{ font-size:16px!important; font-weight:800!important; } .mv-brand .mv-brand-sub{ font-size:11.5px!important; font-weight:500!important; }
+.mv-hero h2{ font-size:1.62rem; } .mv-hero p{ font-size:1.06rem; }
+.mv-sumcard .mv-sum-num{ font-size:1.9rem; } .mv-sumcard .mv-sum-label{ font-size:1rem; } .mv-sumcard .mv-sum-desc{ font-size:.9rem; }
+.mv-flow-step{ font-size:.88rem!important; }
+/* ── 레이아웃 보정 + 전역 폰트 ── */
+body { background:var(--bg)!important; font-family:var(--font-base)!important; color:var(--text); }
+.page-body { background:var(--bg)!important; }
+input,select,textarea,button,th,td,pre,code,span,div,p,li,label,a {
+  font-family:var(--font-base)!important;
+}
+.navbar-vertical .nav-link-title { font-size:13.5px!important; }
+/* ── 커스텀 배너/배지 ── */
+.conf-banner{border-radius:var(--r);padding:12px 16px;
+  margin-bottom:16px;display:flex;align-items:center;gap:10px;
+  font-size:.87rem;flex-wrap:wrap;border:1px solid transparent}
+.conf-banner.HIGH{background:#eef4fb;border-left:4px solid var(--high);border-color:#bcd3ee}
+.conf-banner.LOW {background:#fffbeb;border-left:4px solid var(--low);border-color:#fde68a}
+.conf-banner.FAIL{background:#fef2f2;border-left:4px solid var(--fail);border-color:#fecaca}
+.cbadge{display:inline-block;padding:3px 12px;border-radius:20px;
+  color:#fff;font-weight:700;font-size:.78rem;white-space:nowrap}
+.cbadge.HIGH{background:var(--high)}
+.cbadge.LOW {background:var(--low)}
+.cbadge.FAIL{background:var(--fail)}
+.cbadge-sub{display:inline-block;padding:2px 10px;border-radius:12px;
+  font-size:.73rem;font-weight:700;white-space:nowrap;margin-left:4px}
+.cbadge-sub.warn{background:var(--fail);color:#fff}
+.cbadge-sub.caut{background:var(--low);color:#fff}
+.cbadge-sub.info{background:var(--primary);color:#fff}
+/* ── mv-badge: 연한 배경 + 진한 글자 파스텔 배지 (status 토큰 참조 — 색은 기존과 동일) ── */
+.mv-badge-success{background-color:var(--st-success-bg)!important;color:var(--st-success-fg)!important;font-weight:700!important;opacity:1!important;border:1px solid var(--st-success-bd)!important}
+.mv-badge-danger {background-color:var(--st-danger-bg)!important;color:var(--st-danger-fg)!important;font-weight:700!important;opacity:1!important;border:1px solid var(--st-danger-bd)!important}
+.mv-badge-warning{background-color:var(--st-warning-bg)!important;color:var(--st-warning-fg)!important;font-weight:700!important;opacity:1!important;border:1px solid var(--st-warning-bd)!important}
+.mv-badge-muted  {background-color:var(--st-muted-bg)!important;color:var(--st-muted-fg)!important;font-weight:600!important;opacity:1!important;border:1px solid var(--st-muted-bd)!important}
+.mv-badge-info   {background-color:var(--st-info-bg)!important;color:var(--st-info-fg)!important;font-weight:700!important;opacity:1!important;border:1px solid var(--st-info-bd)!important}
+/* ── mv-alert: 의미별 안내/경고/오류 박스 (Phase 1 토큰 — additive, 기존 conf-banner/warn-box 톤) ── */
+.mv-alert-info   {background:var(--st-info-bg);color:var(--st-info-fg);border:1px solid var(--st-info-bd);border-left:4px solid var(--st-info-fg);border-radius:6px;padding:9px 13px;font-size:.82rem}
+.mv-alert-warning{background:var(--st-warning-bg);color:var(--st-warning-fg);border:1px solid var(--st-warning-bd);border-left:4px solid var(--st-warning-fg);border-radius:6px;padding:9px 13px;font-size:.82rem}
+.mv-alert-danger {background:var(--st-danger-bg);color:var(--st-danger-fg);border:1px solid var(--st-danger-bd);border-left:4px solid var(--st-danger-fg);border-radius:6px;padding:9px 13px;font-size:.82rem}
+/* ── [버튼 통일] 공통 버튼 디자인 — outline 기본. 기능/onclick/disabled 조건은 불변, 스타일만 통일.
+   기존 공유 클래스(.btn-run/.mv-btn-primary/.mv-btn-secondary/.btn-copy)를 같은 톤으로 흡수한다.
+   solid blue 남발 금지 — 강조 filled 는 .mv-btn-filled(또는 inline)로만 명시 허용. ── */
+.mv-btn,.mv-btn-primary,.mv-btn-secondary,.btn-run,.btn-copy{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  background:#ffffff;border:1px solid #1d6fd8;color:#0b65c2;
+  border-radius:10px;min-height:38px;padding:0 17px;
+  font-size:14px;font-weight:600;line-height:1.2;box-shadow:none;cursor:pointer;transition:all .15s}
+.mv-btn:hover,.mv-btn-primary:hover,.mv-btn-secondary:hover,.btn-run:hover,.btn-copy:hover{
+  background:#eef6ff;border-color:#0b65c2;color:#0b65c2}
+/* 강조 filled(꼭 필요할 때만) */
+.mv-btn-filled{background:#1d6fd8;border-color:#1d6fd8;color:#fff}
+.mv-btn-filled:hover{background:#0b65c2;border-color:#0b65c2;color:#fff}
+/* danger(위험) */
+.mv-btn-danger{display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  background:#ffffff;border:1px solid #ef4444;color:#dc2626;border-radius:10px;min-height:38px;padding:0 17px;
+  font-size:14px;font-weight:600;line-height:1.2;box-shadow:none;cursor:pointer;transition:all .15s}
+.mv-btn-danger:hover{background:#fff1f2;border-color:#dc2626;color:#dc2626}
+/* warning(일시중지/주의) */
+.mv-btn-warning{display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  background:#ffffff;border:1px solid #f59e0b;color:#d97706;border-radius:10px;min-height:38px;padding:0 17px;
+  font-size:14px;font-weight:600;line-height:1.2;box-shadow:none;cursor:pointer;transition:all .15s}
+.mv-btn-warning:hover{background:#fffbeb;border-color:#d97706;color:#d97706}
+/* muted / 비활성 — hover 효과 없음(색/배경 고정) */
+.mv-btn-muted,
+.mv-btn:disabled,.mv-btn-primary:disabled,.mv-btn-secondary:disabled,.btn-run:disabled,.btn-copy:disabled,
+.mv-btn-danger:disabled,.mv-btn-warning:disabled,.mv-btn-disabled{
+  background:#f3f4f6!important;border:1px solid #d1d5db!important;color:#9ca3af!important;
+  cursor:not-allowed!important;box-shadow:none!important;opacity:1!important;filter:none!important}
+.mv-btn-muted:hover,
+.mv-btn:disabled:hover,.mv-btn-primary:disabled:hover,.mv-btn-secondary:disabled:hover,
+.btn-run:disabled:hover,.btn-copy:disabled:hover,.mv-btn-danger:disabled:hover,.mv-btn-warning:disabled:hover{
+  background:#f3f4f6!important;border-color:#d1d5db!important;color:#9ca3af!important}
+/* ── [Command Bar] 개별검증 액션/상태 바 — 단계 요약·수치·주요 액션 통합. 기능 불변(핸들러 재사용). ── */
+/* [Fixed 하단 고정 — STAGE-COMMAND-BAR-FIXED-BOTTOM-POSITION]
+   기존 position:sticky 는 본문 흐름 안에 있어 콘텐츠 길이가 바뀌면(예: 쿼리검토 실행 전/후 결과 테이블 추가)
+   화면상 세로 위치가 함께 위아래로 이동했다. 뷰포트 기준 하단 고정으로 바꿔, 스크롤·콘텐츠 길이·해상도와
+   무관하게 항상 화면 하단 같은 자리에 붙게 한다.
+   - position:fixed; bottom:0 → 뷰포트 하단 고정(콘텐츠 흐름 영향 없음).
+   - left:0 기본(<992px: 사이드바가 상단 오프캔버스라 좌측 여백 없음) → ≥992px 에서 left:260px(사이드바 폭)로 침범 방지.
+   - margin auto + max-width(검증화면 container-xl 와 동일 공식) + 좌우 padding 20px(container-xl 와 동일)
+     → 바 콘텐츠 좌/우 끝선이 본문 카드 좌/우 끝선과 그대로 정렬(fixed 라도 위치 어긋남 없음).
+   - 가려지는 본문 방지 padding-bottom 은 아래 body.mv-has-cmdbar .page-body 에서 부여(바 표시 시에만).
+   - z-index 290 유지: 사이드바(Tabler navbar, 높은 z-index)와는 데스크톱에서 left:260 로 물리적 비겹침. */
+.mv-cmdbar{position:fixed;left:0;right:0;bottom:0;z-index:290;box-sizing:border-box;
+  margin-left:auto;margin-right:auto;max-width:min(1960px, calc(100vw - 304px));
+  padding-left:20px;padding-right:20px;
+  min-height:46px;background:#ffffff;border-top:1px solid #dbe3ef;box-shadow:0 -2px 8px rgba(15,23,42,.06)}
+@media(min-width:992px){.mv-cmdbar{left:260px}}
+/* 하단 고정바에 가려지는 본문이 없도록 스크롤 콘텐츠에 하단 여백 확보(바 표시 시에만).
+   좁은 화면(≤720px)에서 바가 2줄 stack 으로 높아질 수 있어 넉넉히 84px. */
+body.mv-has-cmdbar .page-body{padding-bottom:84px!important}
+/* [§3 compact 기준] 1줄 compact bar. 높이 44~48px. inner 는 container-xl 콘텐츠 폭에 그대로 흐른다(별도 max-width/정렬 없음). */
+.mv-cmdbar-inner{padding:6px 0;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:nowrap}
+/* 좌측 summary: 한 줄 ellipsis(길면 …). 우측 actions: nowrap(오른쪽 정렬).
+   [§2] '현재 단계:' 문구가 카드 좌측 끝에 딱 붙지 않게 2칸(≈12px) 좌측 여백. 바 전체(inner)는 여전히 카드 좌우
+   끝선과 정렬되고, actions(버튼) 우측 끝선도 카드 우측 끝선과 유지(여백은 summary 텍스트에만 적용). */
+.mv-cmdbar-info{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:.82rem;color:#334155;padding-left:12px}
+.mv-cmdbar-info>*{vertical-align:middle}
+.mv-cmdbar-stage{font-weight:700;color:#0f172a}
+.mv-cmdbar-sep{color:#cbd5e1;margin:0 2px}
+.mv-cmdbar-lock{font-size:.78rem;color:#94a3b8}
+.mv-cmdbar-actions{flex:0 0 auto;display:flex;align-items:center;gap:8px;flex-wrap:nowrap;white-space:nowrap}
+.mv-cmdbar .mv-btn,.mv-cmdbar .mv-btn-primary,.mv-cmdbar .mv-btn-warning,.mv-cmdbar .mv-btn-danger,.mv-cmdbar .mv-btn-muted{min-height:34px;padding:0 14px;font-size:13px}
+/* 좁은 화면 — 2줄 stack(summary 위 / actions 아래, 버튼 우측 정렬). summary 는 stack 시 ellipsis 해제. */
+@media(max-width:720px){.mv-cmdbar-inner{flex-direction:column;align-items:stretch;gap:7px}
+  .mv-cmdbar-info{white-space:normal;overflow:visible;text-overflow:clip}
+  .mv-cmdbar-actions{justify-content:flex-end;flex-wrap:wrap}}
+/* [중복 제거] Command Bar 활성 시 진행패널의 인라인 액션 버튼 행은 숨긴다(진행바/수치는 본문 유지, 액션은 바로 통합). */
+body.mv-has-cmdbar .mv-exec-panel-actions{display:none!important}
+/* [UI 수정 §2] Command Bar 활성 시 본문 중앙/하단 단계 실행 버튼은 숨기고, 액션은 바 한 곳에만 둔다
+   (검증 실행 runBtn / COUNT 비교 countRunBtn / 통계검증 SQL 생성 genColBtn / 통계검증 실행 execBtn — 모두 바가 대체).
+   보조 버튼(복사·조회·초기화 링크·필터·상세 보기)은 유지.
+   STAGE3-BUTTON-DOM-DEDUP-AND-GATE45-REAL-FIX: candCalcBtn(3단계 최초 계산 안내 영역 버튼)이 이
+   목록에 빠져 있어, cmdbar 활성 시에도 안내 영역 버튼과 cmdbar 자체 버튼("▶ 선택 적용 후 다시
+   검증")이 동시에 표시되는 물리적 중복이 있었다 — singleCandRevalidateBtn 과 동일하게 추가. */
+body.mv-has-cmdbar #runBtn,
+body.mv-has-cmdbar #countRunBtn,
+body.mv-has-cmdbar #genColBtn,
+body.mv-has-cmdbar #candCalcBtn,
+body.mv-has-cmdbar #singleCandRevalidateBtn,
+body.mv-has-cmdbar #execBtn{display:none!important}
+/* ── 그리드 ── */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:680px){.grid2{grid-template-columns:1fr}}
+.ibox h3{font-size:.75rem;text-transform:uppercase;letter-spacing:.5px;
+  color:var(--sub);margin-bottom:8px}
+/* ── 태그 ── */
+.tag-list{display:flex;flex-wrap:wrap;gap:5px}
+.tag{display:inline-block;padding:3px 9px;background:#eff6ff;
+  color:#1e40af;border-radius:20px;font-size:.76rem;border:1px solid #bfdbfe}
+/* ── JOIN ── */
+.join-item{font-size:.8rem;margin-bottom:5px;padding:6px 10px;
+  background:#f8fafc;border-radius:6px;border:1px solid #e8ecf0}
+.jtype{display:inline-block;padding:1px 7px;border-radius:4px;
+  font-size:.7rem;font-weight:700;color:#fff;margin-right:6px}
+.jtype.IMP{background:var(--low)}.jtype.INN{background:var(--primary)}
+.jtype.LEF{background:#8e44ad}.jtype.FUL{background:#16a085}
+.jtype.CRS{background:var(--fail)}
+/* ── WHERE ── */
+.where-box{font-size:.8rem;padding:9px 12px;
+  background:#f8fafc;border-radius:6px;border-left:3px solid var(--border);
+  word-break:break-all;white-space:pre-wrap;color:var(--text)}
+/* ── 매핑 테이블 ── */
+.mtbl{width:100%;border-collapse:collapse;font-size:.81rem;margin-top:6px}
+.mtbl th{background:#f0f4f8;padding:7px 10px;text-align:left;
+  font-weight:600;border-bottom:2px solid #dbe4ee;
+  font-size:.75rem;color:#475569;letter-spacing:.01em}
+.mtbl td{padding:6px 10px;border-bottom:1px solid #f1f5f9;
+  word-break:break-all;color:var(--text)}
+.mtbl tr:last-child td{border-bottom:none}
+.mtbl tr:hover td{background:#f8fafc}
+hr.div{border:none;border-top:1px solid var(--border);margin:14px 0}
+/* ── 컬럼 분류 ── */
+.col-item{display:flex;align-items:flex-start;gap:7px;
+  padding:6px 10px;border-radius:6px;margin-bottom:4px;font-size:.8rem;
+  flex-wrap:wrap}
+.col-item.vld{background:#eef4fb;border:1px solid #bcd3ee}.col-item.exc{background:#fef2f2;border:1px solid #fecaca}
+.col-item.sel{background:#eff6ff;border:1px solid #bfdbfe}.col-item.cst{background:#fffbeb;border:1px solid #fde68a}
+.col-nm{font-weight:700;min-width:120px;color:var(--text)}
+.col-ex{color:var(--sub);flex:1;word-break:break-all}
+.col-rs{font-size:.74rem;color:#888;margin-left:auto;white-space:nowrap}
+.bsm{display:inline-block;padding:1px 7px;border-radius:4px;
+  font-size:.7rem;font-weight:700;white-space:nowrap}
+.b-pk{background:#ffd700;color:#333}.b-sum{background:var(--primary);color:#fff}
+.b-gb{background:#8e44ad;color:#fff}.b-exc{background:var(--fail);color:#fff}
+.b-cast{background:var(--low);color:#fff}
+.sec-ttl{font-size:.76rem;font-weight:700;color:var(--sub);
+  text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+/* ── SQL 박스 ── */
+.sql-panel{margin-bottom:18px}
+.sql-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
+.sql-hdr h3{font-size:.85rem;font-weight:700;color:var(--sub)}
+/* [버튼 통일] .btn-copy 는 위 공통 정의(outline)로 통일. 복사 완료 상태(.copied)만 유지. */
+.btn-copy.copied{background:var(--high)!important;color:#fff!important;border-color:var(--high)!important}
+.sql-box{background:var(--code-bg);color:var(--code-fg);
+  padding:14px 16px;border-radius:var(--r);border:1px solid #e2e8f0;
+  font-size:.82rem;white-space:pre;overflow-x:auto;line-height:1.7}
+/* COUNT SQL 카드: SQL 전문 전체 높이만큼 자연 확장(가림/겹침 방지) — 고정 height/max-height/세로
+   overflow:hidden 없이 세로 내용 전부 표시, 긴 SQL 은 가로 스크롤만 허용. */
+.mv-count-sql-box{display:block;margin:0;height:auto;max-height:none;min-width:0;max-width:100%;
+  overflow-y:visible;overflow-x:auto;white-space:pre;word-break:normal;
+  min-height:var(--mv-count-sql-box-h)}
+/* [COUNT-SQL-SECTION-COLLAPSE-INDENT-HEIGHT-COPY-REMOVE-FIX]
+   ① 토글(details.mv-sql-fold + summary 'COUNT SQL 보기') 제거 후의 상시 노출 섹션.
+      접힘 컨테이너가 갖던 헤더/테두리/배경 없이 SQL 2열만 바로 표시한다(빈 여백 미발생).
+      바깥 위 간격은 기존 details 의 인라인 margin-top:12px 을 그대로 승계해 다른 요소와의
+      간격은 변하지 않고, 사라진 것은 토글 헤더가 쓰던 세로 공간뿐이다.
+   ② 원본/목적지 COUNT SQL 라벨 들여쓰기 — 규칙 하나(--mv-count-sql-label-indent)로 두 라벨에
+      같은 값을 적용한다. 칸별 개별 지정을 두지 않으므로 값이 어긋날 수 없다.
+   ③ SQL 박스 높이 = 기존의 정확히 2배. 기존은 고정 높이 없이 내용만큼 자란 자연 높이로,
+      COUNT SQL(2줄) 기준 실측 74.625px = padding 14×2 + border 1×2 + line-height 22.304×2.
+      그 2배인 149.25px 을 min-height 로 준다(max-height/overflow 강제 아님 — 더 긴 SQL 은
+      기존처럼 자연 확장되어 잘리지 않는다). */
+:root{--mv-count-sql-box-h:149.25px;--mv-count-sql-label-indent:10px}
+.mv-count-sql-section{margin-top:12px}
+.mv-count-sql-grid .sql-hdr h3{padding-left:var(--mv-count-sql-label-indent)}
+/* 원인 부모 수정: .page-wrapper .card{overflow:hidden} 이 COUNT SQL 칸을 클립할 수 있는 유일한 상위다
+   (DevTools/Playwright ancestor 측정으로 확정 — 이 카드만 overflow:hidden 보유). 이 카드만 overflow 해제해
+   세로 내용이 절대 잘리지 않게 하고, 가로 스크롤은 안쪽 <pre>(overflow-x:auto)가 담당한다.
+   자식 박스를 임의로 키우는 방식이 아니라 클립을 일으키는 부모 자체를 수정한다. */
+#countCard{overflow:visible!important}
+/* grid item(원본/목적지 칸)이 긴 SQL 한 줄의 min-content 너비로 blowout 되지 않도록 min-width:0 으로
+   축소 허용 → 안쪽 <pre> 가 가로 스크롤한다. 좌우 칸은 동일 너비(1fr 1fr)·상단 정렬(stretch)로 일치한다. */
+.mv-count-sql-grid{align-items:stretch;height:auto}
+.mv-count-sql-grid > .sql-panel{min-width:0;margin-bottom:0}
+.mv-count-sql-grid > .sql-panel .sql-box{max-width:100%}
+/* [UI 개선 §3·§4] 통계검증 원본/목적지 SQL 좌우 비교(flex) — 좌 50%/우 50%·동일 높이·각각 독립 스크롤.
+   화면이 좁으면(≤720px) 상하 Stack. srcBox/tgtBox id 계약 유지. table layout 미사용.
+   [STAGE4-SQL-BOX-COPY-SCROLLSYNC-REMOVE-AND-REORDER-FIX] 4단계 SQL 라벨 들여쓰기 — 2단계 COUNT SQL
+   라벨이 쓰는 규칙(--mv-count-sql-label-indent, 위 ②)의 값을 그대로 재사용한다. 값을 새로 만들지
+   않으므로 두 단계의 라벨 들여쓰기가 항상 같고, 규칙 하나가 목적지·원본 두 라벨을 함께 잡으므로
+   칸별로 어긋날 수 없다.
+   ★ 선택자를 #sqlOut(4단계 SQL 출력 host)로 한정하는 이유: .mv-sql-cmp-grid 는 일괄검증 SQL 상세
+     패널도 함께 쓰는 공용 클래스라, 한정하지 않으면 이번 작업 범위 밖인 일괄검증 라벨까지 들여쓰기가
+     생긴다. .mv-sql-cmp-bar/.mv-sql-sync-toggle 정의를 남기는 것도 같은 이유다(그 패널이 계속 쓴다
+     — 4단계에서만 해당 마크업을 걷어냈다). */
+#sqlOut .mv-sql-cmp-grid .sql-hdr h3{padding-left:var(--mv-count-sql-label-indent)}
+.mv-sql-cmp-bar{display:flex;justify-content:flex-end;align-items:center;margin-bottom:6px}
+.mv-sql-sync-toggle{display:inline-flex;align-items:center;gap:5px;font-size:.78rem;color:#475569;cursor:pointer;user-select:none}
+.mv-sql-sync-toggle input{margin:0;cursor:pointer}
+.mv-sql-cmp-grid{display:flex;gap:12px;align-items:stretch}
+.mv-sql-cmp-grid > .sql-panel{flex:1 1 0;min-width:0;margin-bottom:0;display:flex;flex-direction:column}
+.mv-sql-cmp-grid .mv-sql-cmp-box{flex:1 1 auto;max-height:440px;max-width:100%;overflow-y:auto;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'D2Coding',monospace}
+@media(max-width:720px){.mv-sql-cmp-grid{flex-direction:column}.mv-sql-cmp-grid .mv-sql-cmp-box{max-height:300px}}
+.warn-box{background:var(--st-warning-bg);border-left:4px solid var(--st-warning-fg);
+  padding:9px 13px;border-radius:6px;margin-bottom:10px;font-size:.8rem;color:var(--st-warning-fg)}
+.warn-box.fail{background:var(--st-danger-bg);border-color:var(--st-danger-fg);color:var(--st-danger-fg)}
+.empty{text-align:center;padding:24px;color:var(--sub);font-size:.85rem}
+.from-row{display:flex;gap:8px;align-items:center;
+  font-size:.83rem;padding:8px 12px;background:#f8fafc;
+  border-radius:6px;flex-wrap:wrap;border:1px solid var(--border)}
+.arrow{color:var(--sub)}
+/* ── 버튼 ── */
+/* [버튼 통일] .btn-run 은 위 공통 정의(outline)로 통일 — 구 solid 정의 제거(중복). */
+.spinner{display:inline-block;width:14px;height:14px;
+  border:2px solid #fff;border-top-color:transparent;
+  border-radius:50%;animation:spin .6s linear infinite;
+  vertical-align:middle;margin-right:4px}
+.spinner-dark{display:inline-block;width:13px;height:13px;
+  border:2px solid #aaa;border-top-color:transparent;
+  border-radius:50%;animation:spin .6s linear infinite;
+  vertical-align:middle;margin-right:5px}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* ── 경량 링크형 액션('+ 새 그룹 만들기' 류) — 평소 텍스트, hover 시 배경/테두리 생겨 버튼처럼 보임 ── */
+.mv-link-action{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;
+  background:transparent;border:1px solid transparent;border-radius:6px;
+  color:var(--primary);font-size:.82rem;font-weight:600;line-height:1.2;
+  cursor:pointer;white-space:nowrap;transition:background .12s,border-color .12s,color .12s}
+.mv-link-action:hover{background:#eef4fb;border-color:#c5d8f0;color:var(--primary-d)}
+.mv-link-action:active{background:#e1ecf8}
+/* ── 활성 파일 표 레이아웃·상태(REFINE-UPLOAD-FILE-TABLE-LAYOUT-AND-CONFIRMATION-STATUS) ──
+   이 표(#quActiveFileTable)에만 범위 한정 — 공통 .table 스타일에 영향 주지 않음.
+   table-layout:auto + class 기반 min/max 폭(원본파일명 무제한 가변 금지). 데이터/의미/API 불변. */
+#quActiveFileTable{width:100%;table-layout:auto}
+#quActiveFileTable th,#quActiveFileTable td{padding-left:8px;padding-right:8px;vertical-align:middle}
+#quActiveFileTable .qu-af-chk{width:36px;padding-left:6px;padding-right:6px;text-align:center}
+#quActiveFileTable .qu-af-file{width:38%;min-width:380px;max-width:620px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#quActiveFileTable .qu-af-batch{min-width:155px;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.7rem}
+#quActiveFileTable .qu-af-sub{min-width:105px;width:105px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#quActiveFileTable .qu-af-dt{width:130px;text-align:center;line-height:1.25;white-space:nowrap}
+#quActiveFileTable .qu-af-row{width:60px;text-align:center;padding-left:4px;padding-right:4px;white-space:nowrap}
+#quActiveFileTable .qu-af-st{min-width:90px;max-width:105px;text-align:center}
+#quActiveFileTable .qu-af-cf{min-width:120px;max-width:140px;text-align:center}
+/* ── 컬럼 선택 ── */
+.cs-item{display:flex;align-items:flex-start;gap:8px;padding:8px 10px;
+  border-radius:6px;margin-bottom:4px;font-size:.82rem;cursor:pointer;
+  user-select:none;transition:filter .1s;flex-wrap:wrap}
+.cs-item:hover{filter:brightness(.97)}
+.cs-item input[type=checkbox]{margin-top:2px;flex-shrink:0;cursor:pointer;
+  accent-color:var(--primary);width:14px;height:14px}
+.cs-auto{background:#eef7ff;border-left:3px solid var(--primary)}
+.cs-plain{background:#f8f8f8;border-left:3px solid #ddd}
+.cs-warn{background:#fff9f0;border-left:3px solid var(--low)}
+.cs-col{font-weight:700;min-width:120px;color:var(--text)}
+.cs-reason{color:var(--sub);flex:1;font-size:.78rem;line-height:1.4;
+  word-break:break-all}
+.cs-auto-tag{display:inline-block;padding:1px 7px;border-radius:4px;
+  background:var(--primary);color:#fff;font-size:.7rem;font-weight:700;
+  white-space:nowrap;margin-left:4px;vertical-align:middle}
+.cs-warn-tag{display:inline-block;padding:1px 7px;border-radius:4px;
+  background:var(--low);color:#fff;font-size:.7rem;font-weight:700;
+  white-space:nowrap;margin-left:4px;vertical-align:middle}
+.cs-infer-tag{display:inline-block;padding:1px 7px;border-radius:4px;
+  background:var(--st-success-fg);color:#fff;font-size:.7rem;font-weight:700;
+  white-space:nowrap;margin-left:4px;vertical-align:middle}
+.exceed-warn{display:none;margin-top:6px;padding:7px 11px;
+  background:#fdecea;border-left:3px solid var(--fail);border-radius:4px;
+  font-size:.79rem;color:var(--fail)}
+.cs-sec-hdr{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.cs-max-sel{display:flex;align-items:center;gap:5px;margin-left:auto;
+  font-size:.8rem;color:var(--sub)}
+.cs-max-sel select{padding:4px 8px;font-size:.8rem}
+/* ── 관찰 정보 표시 (16-H) ── */
+.cs-sim-badge{display:inline-block;padding:1px 5px;border-radius:4px;
+  font-size:.67rem;font-weight:600;white-space:nowrap;margin-left:4px;
+  vertical-align:middle;border:1px solid currentColor}
+.cs-sim-selected{background:#e3f0fc;color:#1255a0}
+.cs-sim-available{background:var(--st-success-bg);color:#256830}
+.cs-sim-manual{background:#fff4e0;color:#b55c00}
+.cs-sim-excluded{background:#fce8ea;color:#a81a1a}
+.cs-rf-badge{display:inline-block;padding:0 5px;border-radius:3px;
+  font-size:.66rem;font-weight:500;background:#eaebec;color:#555;
+  white-space:nowrap;vertical-align:middle}
+.cs-meta-line{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;
+  gap:3px;padding-left:22px;margin-top:3px}
+.cs-score-lbl{font-size:.68rem;color:#aaa;margin-left:auto}
+.cs-sem-strong{color:#1255a0;font-weight:600;font-size:.71rem}
+.cs-sem-weak{color:#999;font-size:.71rem}
+.cs-obs-notice{font-size:.74rem;color:#777;padding:5px 10px;
+  background:#fafafa;border-left:3px solid #ddd;border-radius:4px;margin-bottom:8px}
+.cs-count-pass-notice{font-size:.8rem;font-weight:500;color:var(--st-success-fg);padding:8px 12px;
+  background:#e6f5ec;border-left:4px solid var(--high);border-radius:var(--r);margin-bottom:12px}
+/* ── 26-D: CSR 추천값 적용 섹션 ── */
+.csr-apply-section{padding:10px 14px;background:#f0f7ff;
+  border:1px solid #c5d9f5;border-radius:6px;margin-top:14px}
+.btn-csr-apply{padding:7px 18px;background:#8e44ad;color:#fff;
+  border:none;border-radius:6px;font-size:.85rem;font-weight:700;
+  cursor:pointer;transition:background .15s;white-space:nowrap}
+.btn-csr-apply:hover:not(:disabled){background:#7d3c98}
+.btn-csr-apply:disabled{background:#95a5a6;cursor:not-allowed}
+.csr-apply-result-ok{padding:7px 11px;background:var(--st-success-bg);
+  border-left:3px solid var(--high);border-radius:4px;font-size:.8rem}
+.csr-apply-result-blocked{padding:7px 11px;background:#fef5e7;
+  border-left:3px solid var(--low);border-radius:4px;font-size:.8rem}
+/* ── 26-C: CSR 배지 (NullProvider 기반 미리보기 전용) ── */
+.cs-csr-badge{display:inline-block;padding:1px 6px;border-radius:4px;
+  font-size:.67rem;font-weight:700;white-space:nowrap;margin-left:4px;
+  vertical-align:middle;border:1px solid currentColor;cursor:help}
+.cs-csr-selected{background:#d1f0d8;color:#0d5e1e}
+.cs-csr-available{background:#d4e8ff;color:#0a4e8a}
+.cs-csr-manual{background:#fff3cd;color:#7a4d00}
+.cs-csr-excluded{background:#ffe0e0;color:#8b0000}
+.cs-csr-na{background:#efefef;color:#666}
+.cs-csr-critical{outline:2px solid #dc3545;outline-offset:1px}
+/* ── 자동 추가 검증 계획 (Adaptive Validation Set Preview) ── */
+.avsp-details{margin-top:16px;border:1px solid #dde2ea;border-radius:5px;overflow:hidden}
+.avsp-summary{font-size:.81rem;font-weight:600;color:#4a5568;padding:8px 13px;
+  background:#f4f6fa;cursor:pointer;user-select:none;list-style:none;
+  display:flex;align-items:center;gap:8px}
+.avsp-summary::-webkit-details-marker{display:none}
+.avsp-strat{font-size:.73rem;font-weight:400;color:#777;margin-left:auto;
+  background:#e8eaf0;padding:2px 8px;border-radius:10px;white-space:nowrap}
+.avsp-body{padding:10px 12px 12px;background:#fff}
+.avsp-tbl{width:100%;border-collapse:collapse;font-size:.78rem}
+.avsp-tbl th{padding:6px 9px;background:#f0f4f8;text-align:left;
+  border-bottom:2px solid #dbe4ee;font-weight:600;color:#475569;white-space:nowrap}
+.avsp-tbl td{padding:5px 9px;border-bottom:1px solid #f1f5f9;vertical-align:top}
+.avsp-tbl tr:last-child td{border-bottom:none}
+.avsp-cols{font-size:.75rem;word-break:break-all}
+/* ── 통계 검증 실행 계획/실행 대상 요약: 컬럼을 콤마 나열 대신 줄 단위 '영문 (한글)' 표시 ──
+   한글명은 후보표와 동일한 .ict-col-ko-inline(보조색/작은글씨) 재사용. 줄 간격 과하지 않게. */
+.mv-plan-col-list{display:flex;flex-direction:column;gap:1px;line-height:1.5}
+.mv-plan-col-list>div{font-size:.78rem;white-space:normal;word-break:keep-all}
+.avsp-warn{font-size:.75rem;color:#92400e;margin-top:8px;padding:5px 9px;
+  background:#fefce8;border-left:3px solid #d97706;border-radius:3px}
+/* ── set 단위 실행 버튼 / 결과 영역 ── */
+.avsp-run-btn{padding:3px 11px;background:var(--high);color:#fff;
+  border:none;border-radius:4px;font-size:.74rem;font-weight:600;
+  cursor:pointer;white-space:nowrap;transition:background .15s}
+.avsp-run-btn:hover:not(:disabled){background:#1a7a3c}
+.avsp-run-btn:disabled{background:#aaa;cursor:not-allowed}
+.avsp-tbl tr.avsp-result-row td{padding:0 !important;border-bottom:none}
+.avsp-result-box{padding:6px 10px;background:#fafafa;
+  border:1px solid #e0e4ea;border-radius:4px;margin:3px 0 5px 0}
+.avsp-exec-header{font-size:.8rem;font-weight:700;color:#2c3e50;
+  margin-bottom:4px;padding-bottom:3px;border-bottom:1px solid #e8eaed;
+  display:flex;align-items:center;gap:6px}
+.avsp-type-badge{padding:1px 7px;border-radius:3px;font-size:.68rem;
+  font-weight:600;background:#e8edf5;color:#3a5a8a;white-space:nowrap}
+.avsp-set-warn{font-size:.73rem;color:#92400e;padding:3px 8px 4px;
+  background:#fffbeb;border-left:2px solid #f59e0b;border-radius:2px;
+  margin:1px 0 3px}
+/* 중립 정보(경고 아님) — 목적지 필터 미입력 등 단순 안내. 연한 청회색 박스(경고/오류처럼 보이지 않게). */
+.avsp-info{font-size:.75rem;color:#475569;margin-top:8px;padding:5px 9px;
+  background:#f1f5f9;border-left:3px solid #94a3b8;border-radius:3px}
+.avsp-set-info{font-size:.73rem;color:#475569;padding:3px 8px 4px;
+  background:#f1f5f9;border-left:2px solid #94a3b8;border-radius:2px;margin:1px 0 3px}
+/* ── 계획 행 실행 결과 compact 상태 (A안: 상세는 하단 execResultCard에만 표시) ── */
+.avsp-exec-status{font-size:.78rem;color:#333;display:flex;
+  align-items:center;flex-wrap:wrap;gap:6px}
+.avsp-exec-runid{font-size:.68rem;color:#94a3b8;
+  padding:1px 5px;background:#f1f5f9;border-radius:3px;white-space:nowrap;border:1px solid #e2e8f0}
+.avsp-exec-hint{font-size:.72rem;color:#6b7280;margin-left:auto;
+  white-space:nowrap;font-style:italic}
+/* ── COUNT 불일치 진단 모드 (17-C) ── */
+.cm-diag-block{margin-top:14px;padding:14px 16px;background:#fdf8f0;
+  border:1px solid #e8c88a;border-radius:var(--r)}
+.cm-diag-title{font-weight:700;color:#7a3800;margin-bottom:5px;font-size:.88rem}
+/* ── 진단 후보명 표시 (17-M) ── */
+.cm-diag-cand-names{margin-top:10px;padding:8px 10px;background:#f9f6f0;
+  border-top:1px dashed #d4b483;border-radius:4px}
+.cm-diag-cand-title{font-weight:600;font-size:.77rem;color:#7a4f00;margin-bottom:4px}
+.cm-diag-cand-row{font-size:.76rem;color:#555;margin-bottom:3px;line-height:1.4}
+.cm-diag-cand-lbl{color:#888;font-size:.72rem;margin-right:4px}
+.cm-diag-cand-col{background:#fef3c7;padding:1px 5px;border-radius:3px;
+  font-size:.72rem;color:#78350f;border:1px solid #fde68a}
+.cm-diag-desc{font-size:.81rem;color:#666;margin:0 0 12px}
+.cm-diag-items{display:flex;flex-direction:column;gap:9px;margin-bottom:12px}
+.cm-diag-item{display:flex;gap:10px;align-items:flex-start}
+.cm-diag-num{display:inline-flex;align-items:center;justify-content:center;
+  width:21px;height:21px;border-radius:50%;background:#b05000;color:#fff;
+  font-size:.7rem;font-weight:700;flex-shrink:0;margin-top:1px}
+.cm-diag-item-ttl{font-size:.82rem;font-weight:600;color:#444}
+.cm-diag-item-desc{font-size:.75rem;color:#777;margin-top:2px}
+.cm-diag-badge-future{display:inline-block;padding:0 5px;border-radius:3px;
+  font-size:.65rem;background:#e0e0e0;color:#888;margin-top:4px;vertical-align:middle}
+.cm-diag-scope{font-size:.75rem;color:#888;padding:6px 10px;background:#f5f0e8;
+  border-left:3px solid #d0a860;border-radius:4px;margin-bottom:8px}
+.cm-diag-future{font-size:.73rem;color:#aaa;font-style:italic}
+/* ── A/B유형 COUNT 진단 결과 표시 CSS (diagnostic_result_renderer.py) ── */
+.cm-diagr-block{margin-top:12px;padding:12px 14px;background:#f4f8ff;
+  border:1px solid #a8c4e8;border-radius:var(--r)}
+.cm-diagr-poc-notice{font-size:.74rem;color:#1a4a7a;padding:5px 10px;
+  background:#e0ecfa;border-left:3px solid #5b9bd5;border-radius:4px;margin-bottom:8px}
+.cm-diagr-stored-notice{font-size:.72rem;color:#666;font-style:italic;margin-bottom:6px}
+.cm-diagr-summary{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.cm-diagr-card{padding:4px 10px;border-radius:4px;font-size:.76rem;font-weight:600;
+  display:inline-flex;align-items:center;gap:4px}
+.cm-diagr-card.matched{background:#e6f5ec;color:var(--st-success-fg);border:1px solid #a3d9b4}
+.cm-diagr-card.diff{background:#fdecea;color:#7a1a1a;border:1px solid #f0a0a0}
+.cm-diagr-card.src-only{background:#fef5e7;color:#7a4f00;border:1px solid #f0c070}
+.cm-diagr-card.tgt-only{background:#f0eaff;color:#4a1a7a;border:1px solid #c0a0e8}
+.cm-diagr-truncate{font-size:.73rem;color:#b05000;background:#fef5e7;
+  padding:4px 8px;border-radius:4px;margin-bottom:6px}
+.cm-diagr-delta-note{font-size:.72rem;color:#555;margin-bottom:6px;font-style:italic}
+.cm-diagr-tbl{width:100%;border-collapse:collapse;font-size:.78rem;margin-bottom:4px}
+.cm-diagr-tbl th{background:#d8e8f8;color:#1a3a5c;padding:4px 8px;
+  text-align:left;border-bottom:2px solid #a8c4e8;white-space:nowrap}
+.cm-diagr-tbl td{padding:4px 8px;border-bottom:1px solid #dde8f4;vertical-align:middle}
+.cm-diagr-tbl tr:last-child td{border-bottom:none}
+.cm-diagr-tbl tr:hover td{background:#eaf2fc}
+.cm-diagr-badge{display:inline-block;padding:1px 7px;border-radius:10px;
+  font-size:.68rem;font-weight:700;white-space:nowrap}
+.cm-diagr-badge.matched{background:#c6efd4;color:var(--st-success-fg)}
+.cm-diagr-badge.diff{background:#f8d7da;color:#721c24}
+.cm-diagr-badge.src-only{background:#fde8b5;color:#7a4f00}
+.cm-diagr-badge.tgt-only{background:#e2d9f3;color:#4a1a7a}
+.cm-diagr-delta-pos{color:var(--st-success-fg);font-weight:600}
+.cm-diagr-delta-neg{color:#7a1a1a;font-weight:600}
+.cm-diagr-delta-zero{color:#555}
+.cm-diagr-null{color:#aaa;font-style:italic}
+.cm-diagr-err{padding:8px 12px;background:#fdecea;border-left:3px solid #e74c3c;
+  border-radius:4px;font-size:.78rem;color:#7a1a1a}
+/* ── A유형 DATE_BUCKET_COUNT 메타 표시 ── */
+.cm-diagr-type-label{font-size:.78rem;font-weight:700;color:#1a3a5c;
+  margin-bottom:6px;padding:3px 0}
+.cm-diagr-meta{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;
+  background:#eef5fb;border:1px solid #b8d4ee;border-radius:4px;padding:6px 10px}
+.cm-diagr-meta-item{font-size:.74rem;color:#2a4a6a;white-space:nowrap}
+.infer-banner{background:#eef4fb;border-left:4px solid #2563eb;border:1px solid #bcd3ee;
+  padding:10px 14px;border-radius:6px;font-size:.8rem;margin-bottom:12px}
+/* ── SQL 제한/주의 경고 ── */
+.sql-limit-banner{margin-bottom:14px}
+.sql-limit-item{display:flex;align-items:flex-start;gap:8px;
+  padding:9px 13px;border-radius:6px;margin-bottom:6px;font-size:.8rem;line-height:1.5}
+.sql-limit-item:last-child{margin-bottom:0}
+.sql-limit-item.warn{background:#fef2f2;border-left:4px solid var(--fail)}
+.sql-limit-item.caut{background:#fffbeb;border-left:4px solid var(--low)}
+.sql-limit-item.info{background:#eff6ff;border-left:4px solid var(--primary)}
+.sql-limit-item.ok{background:#ecfdf5;border-left:4px solid #10b981}
+.sql-limit-icon{font-size:.88rem;flex-shrink:0;margin-top:1px}
+.sql-limit-sev{display:inline-block;padding:1px 7px;border-radius:4px;
+  font-size:.7rem;font-weight:700;color:#fff;white-space:nowrap;flex-shrink:0}
+.sql-limit-sev.warn{background:var(--fail)}
+.sql-limit-sev.caut{background:var(--low)}
+.sql-limit-sev.info{background:var(--primary)}
+.sql-limit-sev.ok{background:#10b981}
+/* ── DB 설정 ── */
+.db-side{padding:14px;background:#f8fafc;border-radius:var(--r);
+  border:1px solid var(--border)}
+.db-side-ttl{font-size:.85rem;font-weight:700;margin-bottom:12px;
+  padding-bottom:8px;border-bottom:1px solid var(--border);color:var(--text)}
+.db-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.db-row label{font-size:.76rem;color:var(--sub);min-width:58px;
+  white-space:nowrap;text-align:right;flex-shrink:0}
+.db-inp{flex:1;padding:6px 9px;border:1px solid var(--border);border-radius:6px;
+  font-size:.82rem;background:#fff;color:var(--text);outline:none;min-width:0}
+.db-inp:focus{border-color:var(--primary)}
+.db-inp-sm{width:90px;padding:6px 9px;border:1px solid var(--border);border-radius:6px;
+  font-size:.82rem;background:#fff;color:var(--text);outline:none}
+.db-inp-sm:focus{border-color:var(--primary)}
+/* 공통 디자인(아웃라인) 버튼 — 진하게 튀지 않게. 위계: 주요(파랑)/보조(회색)/위험(빨강) */
+.btn-xs{padding:4px 11px;border-radius:6px;font-size:.74rem;font-weight:500;line-height:1.5;
+  cursor:pointer;border:1px solid transparent;white-space:nowrap;background:#fff;
+  transition:background .12s,color .12s,border-color .12s}
+.btn-xs-save{border-color:#206bc4;color:#206bc4;background:#fff}      /* 주요(상세/저장/추가) */
+.btn-xs-save:hover{background:#206bc4;color:#fff}
+.btn-xs-del{border-color:#cbd5e1;color:#475569;background:#fff}       /* 보조(접속 끊기/취소/닫기) */
+.btn-xs-del:hover{background:#f1f5f9}
+.btn-xs-test{border-color:#cbd5e1;color:#475569;background:#fff}      /* 보조(접속/재접속/테스트) */
+.btn-xs-test:hover{background:#f1f5f9}
+.btn-xs-danger{border-color:#e2b3b3;color:#b91c1c;background:#fff}    /* 위험(삭제) */
+.btn-xs-danger:hover{background:#fee2e2}
+.preset-sel{padding:5px 8px;border:1px solid var(--border);border-radius:5px;
+  font-size:.78rem;background:#fff;color:var(--text);cursor:pointer;max-width:130px}
+.conn-result{font-size:.79rem;line-height:1.4;flex:1;word-break:break-word}
+.conn-ok{color:var(--st-success-fg);font-weight:600}
+.conn-fail{color:var(--st-danger-fg)}
+/* ── 연결됨(active) 카드 잠금 시각화 — 수정 불가가 한눈에 보이게(색 반전/비활성) ── */
+.conn-card--locked{background:#eef2f6;border:1px solid #9fb3c8;border-radius:8px;padding:4px 4px 2px}
+.conn-card--locked .db-inp,
+.conn-card--locked .db-inp-sm,
+.conn-card--locked .preset-sel{
+  background:#dbe3ec!important;color:#5a6b7b!important;border-color:#9fb3c8!important;
+  cursor:not-allowed!important}
+/* 저장/삭제만 비활성 색(id 한정) — 접속 끊기 버튼은 btn-xs-del 을 공유하므로 class 가 아닌 id 로 한정한다 */
+.conn-card--locked #srcSaveBtn, .conn-card--locked #srcDelBtn,
+.conn-card--locked #tgtSaveBtn, .conn-card--locked #tgtDelBtn{
+  background:#cfd8e2!important;color:#8a97a5!important;cursor:not-allowed!important;
+  border-color:#bcc7d2!important}
+/* 접속 끊기 버튼은 잠금 중에도 항상 활성·클릭 가능(예외) */
+.conn-card--locked #srcDisconnectBtn, .conn-card--locked #tgtDisconnectBtn{
+  pointer-events:auto!important;cursor:pointer!important;opacity:1!important}
+.conn-card--locked .db-side-ttl::after{
+  content:" · 연결 중 — 접속 끊기 후 수정 가능";font-size:.72rem;font-weight:500;color:#1a7a4a}
+/* ── DBMS별 추가 필드 skeleton(준비됨 — 실제 접속 미지원) ── */
+.db-dbms-skel{background:#f4f6f8!important;color:#8a97a5!important;cursor:not-allowed!important;
+  border-style:dashed!important;border-color:#cbd5e0!important}
+.db-dbms-note{font-size:.74rem;color:#8a6d3b;background:#fcf6e3;border:1px solid #f0e2b8;
+  border-radius:4px;padding:4px 8px;margin:4px 0 2px}
+/* ── 저장된 프로필 목록 ── */
+.profile-list{margin:4px 0 6px;display:flex;flex-direction:column;gap:4px}
+.profile-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+  border:1px solid #e2e8f0;border-radius:6px;padding:5px 8px;background:#fff;font-size:.78rem}
+.profile-row.profile-row--current{border-color:#1a7a4a;background:#eef8f1}
+.profile-row .pr-name{font-weight:600;color:#2d3748}
+.profile-row .pr-dbms{font-size:.72rem;color:#5a6b7b;background:#eef2f6;border-radius:3px;padding:1px 5px}
+.profile-row .pr-status{font-size:.72rem;margin-left:2px}
+.profile-row .pr-actions{margin-left:auto;display:flex;gap:4px}
+.profile-list-empty{font-size:.76rem;color:#8a97a5;padding:4px 2px}
+/* ── 검증 연결쌍 목록(게시판형) ── */
+/* 공통 디자인 테이블(가로 구분선 중심, table-sm/vcenter 룩) */
+.pair-table{width:100%;border-collapse:collapse;font-size:.8rem}
+.pair-table th,.pair-table td{border:0;border-bottom:1px solid #eef2f6;padding:9px 10px;text-align:left;vertical-align:middle}
+.pair-table thead th{background:#fff;color:#64748b;font-weight:600;font-size:.72rem;border-bottom:2px solid #e2e8f0}
+.pair-table tr.pair-row--current{background:#f0fdf4}
+.pair-table .pair-sel-mark{font-weight:700;color:#15803d}
+.pair-table .pair-dbms{display:inline-block;font-size:.7rem;font-weight:600;color:#475569;
+  background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;padding:1px 8px}
+.pair-table .pair-actions{display:flex;gap:6px;flex-wrap:wrap}
+.pair-list-empty{font-size:.78rem;color:#94a3b8;padding:14px 2px;text-align:center}
+/* 상태/용도 배지 — 공통 pill 스타일 통일 */
+.pair-badge{display:inline-block;font-size:.7rem;font-weight:600;border-radius:9999px;padding:2px 9px;line-height:1.5}
+.pair-badge--ok{background:#dcfce7;color:#15803d}
+.pair-badge--off{background:#eef2f6;color:#64748b}
+.pair-badge--fail{background:#fee2e2;color:#b91c1c}
+.pair-badge--src{background:#dbeafe;color:#1e40af}
+.pair-badge--tgt{background:#ede9fe;color:#6d28d9}
+/* 그룹 목록 행별 삭제 버튼(빨간 테두리) — 검증 작업 그룹 관리 목록 작업 컬럼 */
+.btn-group-row-del{display:inline-block;font-size:.74rem;font-weight:700;line-height:1.4;
+  padding:3px 11px;border-radius:6px;background:#fff;color:#dc2626;border:1.5px solid #dc2626;
+  cursor:pointer;transition:background .12s,color .12s}
+.btn-group-row-del:hover{background:#dc2626;color:#fff}
+/* 원본 Source 세로 목록(다중 Source 표시 — 모든 Source 를 한 줄씩, 축약·ellipsis 없음) */
+.src-rows{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+.pair-table td .src-rows{width:100%}
+/* 각 줄은 동일 높이 chip — 프로필명/DBMS 열의 줄 위치가 정확히 맞도록 line-height/padding 동일 */
+.src-row-item{display:block;font-size:.7rem;font-weight:600;border-radius:9999px;padding:2px 9px;line-height:1.5;
+  background:#dbeafe;color:#1e40af;white-space:normal;word-break:break-all;max-width:100%}
+.src-row-item.pair-dbms{background:#eef2f6;color:#475569}
+.pair-table td{vertical-align:top}   /* 다중 Source 행 정렬(상단 기준) */
+/* DB 프로필 목록 하단 우측 액션바 */
+.dbp-foot-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+/* ── DB 프로필 상세(조회 전용) 펼침 ── */
+.pair-table tr.profile-detail-row td{background:#f7fafc;border-top:0}
+.profile-detail{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:.76rem;color:#42526e;padding:4px 6px}
+.profile-detail b{color:#5a6b7b;font-weight:600;margin-right:3px}
+/* 전체 상세(읽기 전용) — 수정폼과 유사한 넓은 세로형 배치(컨트롤 박스 없음) */
+.pd-title{font-size:.84rem;font-weight:700;color:#2d3748;padding:4px 6px 6px}
+.profile-detail-card{display:grid;grid-template-columns:1fr;
+  gap:0;font-size:.78rem;color:#42526e;padding:2px 6px 6px}
+.profile-detail-card .pd-item{display:flex;gap:10px;border-bottom:1px dotted #e2e8f0;padding:4px 2px}
+.profile-detail-card .pd-k{min-width:150px;max-width:150px;color:#5a6b7b;font-weight:600}
+.profile-detail-card .pd-v{flex:1;word-break:break-word}
+.pd-edit{display:flex;align-items:center;gap:8px;padding:6px 6px 2px}
+.pd-edit-note{font-size:.74rem;color:#8a6d3b}
+/* ── 연결쌍 추가 폼 / 신규 DB chooser ── */
+.pair-add-form{background:#f7fafc;border:1px solid #dde5ec;border-radius:6px;padding:9px 11px;margin-bottom:10px}
+.pair-add-row,.newdb-chooser{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.pair-add-row label,.newdb-chooser label{font-size:.78rem;color:#5a6b7b;font-weight:600;margin:0}
+.pair-add-row .db-inp,.newdb-chooser .db-inp{max-width:240px}
+.newdb-chooser{background:#f7fafc;border:1px solid #dde5ec;border-radius:6px;padding:9px 11px;margin-bottom:10px}
+/* ── 프로필 상태 모드 배지(selected/editing/creating/disconnected) ── */
+.db-mode-badge{display:inline-block;font-size:.72rem;font-weight:600;border-radius:4px;
+  padding:1px 7px;margin-left:6px;vertical-align:middle}
+.db-mode-selected{background:#e7f0ff;color:#2563eb;border:1px solid #b9d2ff}
+.db-mode-editing{background:#fff3e0;color:#b8730a;border:1px solid #f3d9a8}
+.db-mode-creating{background:#e9f7ef;color:#1a7a4a;border:1px solid #b6e2c8}
+.db-mode-disconnected{background:#f1f3f5;color:#8a97a5;border:1px solid #dde2e7}
+/* ── 테스트 자동 연결 상태 배너 ── */
+.auto-conn-banner{display:none;font-size:.80rem;padding:6px 12px;border-radius:4px;
+  margin-bottom:10px;background:var(--st-info-bg);color:var(--st-info-fg);border-left:3px solid var(--st-info-fg)}
+.auto-conn-banner.ok{background:var(--st-success-bg);color:var(--st-success-fg);border-left-color:var(--st-success-fg)}
+.auto-conn-banner.fail{background:var(--st-warning-bg);color:var(--st-warning-fg);border-left-color:var(--st-warning-fg)}
+/* ── 샘플 수집 ── */
+.sample-ok{background:var(--st-success-bg);border-left:4px solid var(--st-success-fg);
+  padding:11px 14px;border-radius:6px;font-size:.83rem;border:1px solid var(--st-success-bd)}
+.sample-warn{background:var(--st-warning-bg);border-left:4px solid var(--st-warning-fg);
+  padding:11px 14px;border-radius:6px;font-size:.83rem;border:1px solid var(--st-warning-bd)}
+.sample-action{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}
+.btn-sm{padding:6px 14px;border-radius:6px;font-size:.82rem;font-weight:600;
+  cursor:pointer;border:none;white-space:nowrap}
+.btn-sm-collect{background:var(--primary);color:#fff}
+.btn-sm-collect:hover{background:var(--primary-d)}
+.btn-sm-import{background:#8e44ad;color:#fff}
+.btn-sm-import:hover{background:#7d3c98}
+.btn-sm-infer{background:#1f5c9e;color:#fff}
+.btn-sm-infer:hover{background:#219a52}
+/* ── 통계검증 결과 ── */
+/* MISMATCH-COLOR(§21·§25): 기본 행 흰색 + 교차 줄무늬 #F8FAFC — 행 전체 경고색 금지.
+   존재 불일치 행의 연한 주황(#FFF7ED)은 인라인이 줄무늬보다 우선한다. 헤더는 기존 연한 파란 계열 유지. */
+#exec-result-tbody tr:nth-child(even){background:#F8FAFC}
+.exec-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+.exec-stat{padding:14px 16px;border-radius:var(--r);text-align:center;border:1px solid var(--border)}
+.exec-stat-label{font-size:.74rem;color:var(--sub);margin-bottom:4px;
+  font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+.exec-stat-value{font-size:1.35rem;font-weight:700}
+.exec-stat.es-total{background:#f0f2f5;color:var(--text)}
+.exec-stat.es-matched{background:var(--st-success-bg);color:var(--st-success-fg)}
+.exec-stat.es-diff{background:var(--st-danger-bg);color:var(--st-danger-fg)}
+.exec-stat.es-ok{background:var(--st-success-bg);color:var(--st-success-fg)}
+.exec-stat.es-rate{background:#eef2ff;color:var(--primary)}
+.exec-verdict{display:inline-block;padding:2px 10px;border-radius:12px;
+  font-size:.76rem;font-weight:700;white-space:nowrap}
+.exec-verdict.ev-ok{background:var(--st-success-bg);color:var(--st-success-fg)}
+.exec-verdict.ev-diff{background:var(--st-danger-bg);color:var(--st-danger-fg)}
+.exec-verdict.ev-warn{background:#fef5e7;color:var(--low)}
+.exec-verdict.ev-src-only{background:#fff0c0;color:#b77800}
+.exec-verdict.ev-tgt-only{background:#ede0ff;color:#7c3aed}
+.exec-toggle-btn{padding:5px 12px;border:1px solid var(--border);border-radius:var(--r);
+  background:#f8f9fa;color:var(--text);font-size:.81rem;cursor:pointer;line-height:1.4}
+.exec-toggle-btn:hover{background:#e9ecef}
+/* ── 2줄 헤더: 한글명(mv-th-ko) + 영문명(mv-th-en) ── */
+.mv-th-ko{font-weight:600;line-height:1.2}
+.mv-th-en{font-size:.72rem;color:#6c7a89;line-height:1.1;margin-top:2px}
+/* ── STAGE5-MISMATCH-GRID-HEADER-CLEANUP: 원본/목적 텍스트 라벨(색상 의존 제거) ──
+   열 배경색(파랑=원본 / 청록=목적)만으로 구분하던 것을 헤더에 텍스트로도 병기한다. */
+.mv-th-side{font-size:.7rem;font-weight:700;line-height:1.1;margin-top:2px}
+.mv-th-side.mts-tgt{color:#0f766e}   /* 목적 — 청록 계열 */
+.mv-th-side.mts-src{color:#1d4ed8}   /* 원본 — 파랑 계열 */
+/* ── 컬럼별 차이 요약 가로 카드 ── */
+.exec-col-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.exec-col-chip{padding:10px 14px;border-radius:var(--r);min-width:130px;
+  border:1px solid var(--border);flex:0 0 auto}
+.exec-col-chip.ecc-ok{background:var(--st-success-bg);border-color:var(--st-success-bd)}
+.exec-col-chip.ecc-diff{background:var(--st-danger-bg);border-color:var(--st-danger-bd)}
+.ecc-label{font-size:.77rem;font-weight:600;color:var(--text);margin-bottom:4px;line-height:1.3}
+.ecc-cnt{font-size:.85rem;font-weight:700;margin-bottom:2px}
+.exec-col-chip.ecc-ok .ecc-cnt{color:var(--st-success-fg)}
+.exec-col-chip.ecc-diff .ecc-cnt{color:var(--st-danger-fg)}
+.ecc-status{font-size:.72rem}
+.exec-col-chip.ecc-ok .ecc-status{color:var(--st-success-fg)}
+.exec-col-chip.ecc-diff .ecc-status{color:var(--st-danger-fg)}
+.ecc-conv{font-size:.7rem;color:#b77800;margin-top:3px}
+@media(max-width:600px){.exec-summary{grid-template-columns:repeat(2,1fr)}}
+/* ── Grid First 요약 Grid (ui/grid_helpers.py) ─────────────────────────────── */
+.mv-sgrid-wrap{margin:0 0 12px}
+.mv-sgrid-title{font-size:.72rem;font-weight:600;color:#64748b;letter-spacing:.02em;
+  text-transform:uppercase;margin:0 0 5px;display:flex;align-items:center;gap:6px}
+.mv-sgrid-title .mv-sgrid-hint{font-weight:400;text-transform:none;color:#94a3b8;letter-spacing:0}
+table.mv-sgrid{width:100%;border-collapse:collapse;font-size:.83rem;background:#fff;
+  border:1px solid #e2e8f0;border-radius:8px;overflow:hidden}
+table.mv-sgrid th{background:#f8fafc;color:#475569;font-weight:600;text-align:center;
+  padding:6px 10px;border-bottom:1px solid #e2e8f0;white-space:nowrap;font-size:.76rem}
+table.mv-sgrid td{padding:6px 10px;border-bottom:1px solid #f1f5f9;vertical-align:middle;
+  color:#1e293b;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+table.mv-sgrid tr:last-child td{border-bottom:none}
+table.mv-sgrid td.mv-num{text-align:right;font-variant-numeric:tabular-nums}
+table.mv-sgrid th.mv-nocol, table.mv-sgrid td.mv-nocol{width:38px;text-align:center;color:#94a3b8}
+table.mv-sgrid td.mv-lbl{color:#64748b;font-weight:500;white-space:nowrap}
+table.mv-sgrid code{font-size:.8rem;background:#f1f5f9;padding:1px 5px;border-radius:4px}
+/* 상태 badge */
+.mv-gbadge{display:inline-block;font-size:.7rem;font-weight:700;line-height:1;
+  padding:3px 8px;border-radius:999px;white-space:nowrap;letter-spacing:.01em}
+.mv-gbadge.pass{background:#dcfce7;color:#15803d}
+.mv-gbadge.ready{background:#dbeafe;color:#1d4ed8}
+.mv-gbadge.mismatch{background:#fef3c7;color:#b45309}
+.mv-gbadge.hold{background:#ede9fe;color:#6d28d9}
+.mv-gbadge.error{background:#fee2e2;color:#b91c1c}
+.mv-gbadge.warn{background:#fef3c7;color:#92400e}
+.mv-gbadge.muted{background:#f1f5f9;color:#64748b}
+/* 상태 원형 아이콘 — 파랑(정상)/빨강(실패)/주황(주의·불일치)/회색(정보·없음) */
+.mv-sicon{font-size:.95rem;line-height:1;display:inline-block}
+.mv-sicon-blue{color:#2563eb}.mv-sicon-red{color:#dc2626}
+.mv-sicon-orange{color:#f59e0b}.mv-sicon-gray{color:#94a3b8}
+table.mv-sgrid td.mv-center{text-align:center}
+.mv-sicon-txt{font-size:.78rem;color:#475569}
+.mv-stats-note{font-size:.82rem;color:#475569;margin:0 0 8px}
+/* 후보 선택표 — 원본 컬럼 / 목적 컬럼 표시 */
+.ict-arrow{color:#94a3b8;font-weight:600}
+.ict-src-cand{color:#0f766e;font-family:monospace;font-size:.78rem}
+.ict-src-unmapped{color:#b45309;font-size:.78rem}
+.mv-tab-host .tabulator .mv-sicon{vertical-align:middle}
+/* 접힘(SQL/상세) — Grid First 에서 중복/원문을 기본 접어 보존 */
+details.mv-sql-fold, details.mv-detail-fold{margin:0;border:1px solid #e2e8f0;border-radius:8px;
+  background:#fff;overflow:hidden}
+details.mv-sql-fold>summary, details.mv-detail-fold>summary{cursor:pointer;list-style:none;
+  padding:7px 12px;font-size:.78rem;font-weight:600;color:#475569;background:#f8fafc;
+  user-select:none;display:flex;align-items:center;gap:6px}
+details.mv-sql-fold>summary::-webkit-details-marker,
+details.mv-detail-fold>summary::-webkit-details-marker{display:none}
+details.mv-sql-fold>summary::before, details.mv-detail-fold>summary::before{content:'▸';color:#94a3b8}
+details.mv-sql-fold[open]>summary::before, details.mv-detail-fold[open]>summary::before{content:'▾'}
+.mv-detail-fold-body{padding:10px 12px}
+/* Tabulator 컨테이너 — 폭 100%, Tabler 와 조화되는 컴팩트 톤(로컬 vendor). */
+.mv-tab-host{width:100%;margin:0 0 12px}
+.mv-grid-toolbar{display:flex;align-items:center;gap:10px;margin:0 0 6px}
+.mv-grid-toolbar .mv-grid-reset{font-size:.74rem;font-weight:600;color:#475569;background:#f1f5f9;
+  border:1px solid #e2e8f0;border-radius:6px;padding:3px 9px;cursor:pointer}
+.mv-grid-toolbar .mv-grid-reset:hover{background:#e2e8f0}
+.mv-grid-toolbar .mv-grid-page{font-size:.74rem;color:#94a3b8;margin-left:auto}
+.mv-tab-host .tabulator{width:100%;font-size:.83rem;border:1px solid #e2e8f0;border-radius:8px;background:#fff}
+.mv-tab-host .tabulator .tabulator-header,
+.mv-tab-host .tabulator .tabulator-col{background:#f8fafc;border-color:#e2e8f0}
+.mv-tab-host .tabulator .tabulator-col-title{font-size:.76rem;font-weight:600;color:#475569;text-align:center}
+/* 모든 Grid/Table 헤더 제목 가운데 정렬(body 셀 정렬은 유지) */
+.mv-tab-host .tabulator .tabulator-header .tabulator-col .tabulator-col-content{text-align:center}
+table.ict-table th, table.mtbl th, table.mv-diag-meta th{text-align:center}
+.mv-tab-host .tabulator .tabulator-row .tabulator-cell{padding:5px 10px;border-color:#f1f5f9;color:#1e293b}
+.mv-tab-host .tabulator .tabulator-cell code{font-size:.8rem;background:#f1f5f9;padding:1px 5px;border-radius:4px}
+/* STAGE1-TABULATOR-VISUAL-REFRESH: 지브라 스트라이프 — 짝수행 은은한 배경(헤더 #f8fafc 톤 통일).
+   Tabulator 가 각 행에 부여하는 tabulator-row-even/odd 클래스를 사용(가상스크롤 재정렬에도 안정).
+   셀 글자색(#1e293b)·헤더색(#475569) 대비는 #f8fafc 위에서 충분(WCAG AA↑), 셀 테두리 #f1f5f9 는
+   지브라 배경과 근사해 은은하게 남는다(과한 격자 방지 — 의도된 저대비). */
+.mv-tab-host .tabulator .tabulator-row.tabulator-row-odd{background:#fff}
+.mv-tab-host .tabulator .tabulator-row.tabulator-row-even{background:#f8fafc}
+/* hover 는 지브라보다 한 톤 진하게 — 짝/홀 모두에서 행 강조가 보이도록(좌측 색상바는 rowFormatter). */
+.mv-tab-host .tabulator .tabulator-row.tabulator-row-odd:hover,
+.mv-tab-host .tabulator .tabulator-row.tabulator-row-even:hover{background:#eef2f7}
+/* ── 검증 이력 탭 (run history view) ── */
+.hist-filter-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:14px}
+.hist-filter-grid label{font-size:.78rem;font-weight:600;color:var(--sub);display:block;margin-bottom:3px}
+.hist-filter-grid input,.hist-filter-grid select{
+  width:100%;padding:5px 9px;border:1px solid var(--border);border-radius:5px;
+  font-size:.82rem;background:#fff}
+.hist-summary-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-bottom:18px}
+.hist-stat{padding:12px 14px;border-radius:var(--r);text-align:center;border:1px solid var(--border);background:#fff}
+.hist-stat-label{font-size:.72rem;color:var(--sub);margin-bottom:3px;font-weight:600;text-transform:uppercase}
+.hist-stat-value{font-size:1.2rem;font-weight:700}
+.hist-stat.hs-total{background:#f0f2f5}
+.hist-stat.hs-pass{background:#e8f8f0;color:var(--high)}
+.hist-stat.hs-fail{background:#fdecea;color:var(--fail)}
+.hist-stat.hs-error{background:#fef5e7;color:var(--low)}
+.hist-stat.hs-diff{background:#fdecea;color:var(--fail)}
+.hist-stat.hs-avg{background:#eef2ff;color:var(--primary)}
+.hist-stat.hs-last{background:#f8f8f8}
+.hist-runs-tbl{width:100%;border-collapse:collapse;font-size:.82rem}
+.hist-runs-tbl th{background:#f5f7fa;padding:7px 10px;font-weight:600;font-size:.75rem;
+  text-transform:uppercase;letter-spacing:.3px;border-bottom:2px solid var(--border);white-space:nowrap}
+.hist-runs-tbl td{padding:6px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+.hist-runs-tbl tr:hover td{background:#f9fbff}
+.hist-runs-tbl .btn-detail{padding:3px 10px;border:1px solid var(--primary);border-radius:4px;
+  background:#fff;color:var(--primary);font-size:.75rem;cursor:pointer;white-space:nowrap}
+.hist-runs-tbl .btn-detail:hover{background:var(--primary);color:#fff}
+.hist-status-pass{display:inline-block;padding:2px 8px;border-radius:10px;
+  font-size:.72rem;font-weight:700;background:#e8f8f0;color:var(--high)}
+.hist-status-fail{display:inline-block;padding:2px 8px;border-radius:10px;
+  font-size:.72rem;font-weight:700;background:#fdecea;color:var(--fail)}
+.hist-status-error{display:inline-block;padding:2px 8px;border-radius:10px;
+  font-size:.72rem;font-weight:700;background:#fef5e7;color:var(--low)}
+.hist-status-other{display:inline-block;padding:2px 8px;border-radius:10px;
+  font-size:.72rem;font-weight:700;background:#e9ecef;color:var(--sub)}
+.hist-detail-banner{padding:10px 14px;border-left:4px solid var(--primary);
+  border-radius:var(--r);background:#eef2ff;margin-bottom:12px;font-size:.83rem}
+.hist-from-history-badge{display:inline-block;padding:2px 10px;border-radius:10px;
+  background:#e9ecef;color:var(--sub);font-size:.73rem;font-weight:700;margin-left:8px}
+.related-hist-card{padding:12px 16px;background:#f0f8ff;border-left:4px solid var(--primary);
+  border-radius:var(--r);font-size:.82rem;margin-top:12px}
+.related-hist-card .rh-title{font-weight:700;color:var(--primary);margin-bottom:6px}
+.related-hist-card .rh-stats{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:8px}
+.related-hist-card .rh-stat{font-size:.79rem}
+.related-hist-card .rh-stat b{color:var(--text)}
+/* ── 이력 목록 선택 행 강조 ── */
+.hist-run-row:hover td{background:#f9fbff}
+.hist-run-row.history-row-selected td{background:#dbeafe !important}
+.hist-run-row.history-row-selected td:first-child{box-shadow:inset 4px 0 0 #2563eb}
+.hist-run-row.history-row-selected .btn-detail{
+  font-weight:700;background:#2563eb;color:#fff;border-color:#2563eb}
+/* ── 세션 세트 이력 영역 (card layout) ── */
+.hist-session-sets-section{background:#f8fbff;border:1px solid var(--border);border-radius:var(--r);padding:12px 14px;margin-bottom:14px}
+.hist-session-sets-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:3px}
+.hist-session-sets-title{font-size:.78rem;font-weight:700;color:var(--primary);text-transform:uppercase;letter-spacing:.3px}
+.hist-session-sets-count{font-size:.72rem;background:#e9ecef;color:var(--sub);padding:2px 8px;border-radius:10px;font-weight:600}
+.hist-session-sets-subtitle{font-size:.75rem;color:var(--sub);margin-bottom:10px}
+.hist-set-card{background:#fff;border:1px solid var(--border);border-radius:var(--r);padding:10px 12px;margin-bottom:8px}
+.hist-set-card:last-child{margin-bottom:0}
+.hist-set-card:hover{border-color:#93c5fd}
+.hist-set-card.hist-set-card-selected{border:1px solid #2563eb;border-left:4px solid #2563eb;background:#f0f6ff}
+.hist-set-card-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px}
+.hist-set-card-title{font-size:.82rem;font-weight:600;color:var(--text);margin-left:2px}
+.hist-set-card-meta{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:.79rem;margin-bottom:7px}
+.hist-set-card-label{color:var(--sub);font-size:.73rem;font-weight:600;text-transform:uppercase;white-space:nowrap}
+.hist-set-card-value{font-family:monospace;font-size:.77rem}
+.hist-set-card-stats{display:flex;gap:14px;margin-bottom:4px;flex-wrap:wrap;font-size:.77rem}
+.hist-set-card-stat-val{font-weight:700}
+.hist-set-card-footer{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;min-height:24px}
+.hist-set-card-warn{font-size:.73rem;color:var(--low)}
+.hist-set-type-badge{display:inline-block;padding:2px 7px;border-radius:10px;font-size:.71rem;font-weight:700;white-space:nowrap}
+.hist-set-type-default{background:#eef2ff;color:var(--primary)}
+.hist-set-type-sum{background:#e8f8f0;color:var(--high)}
+.hist-set-type-gb{background:#fef5e7;color:var(--low)}
+/* ── Batch 결과 조회 테이블 ── */
+.mtbl{width:100%;border-collapse:collapse;font-size:.82rem}
+.mtbl th{background:#f5f7fa;padding:7px 10px;font-weight:600;font-size:.75rem;
+  text-transform:uppercase;letter-spacing:.3px;border-bottom:2px solid var(--border);white-space:nowrap}
+.mtbl td{padding:6px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+.mtbl tr:hover td{background:#f9fbff}
+/* ── 재처리 버튼 ── */
+.btn-retry{padding:2px 8px;border:1px solid #e67e22;border-radius:4px;
+  background:#fff;color:#e67e22;font-size:.72rem;cursor:pointer;white-space:nowrap}
+.btn-retry:hover{background:#e67e22;color:#fff}
+.btn-retry:disabled{opacity:.5;cursor:not-allowed}
+/* ── 재처리 결과 인라인 메시지 ── */
+.retry-ok{font-size:.71rem;color:var(--high);font-weight:600;white-space:nowrap}
+.retry-fail{font-size:.71rem;color:var(--fail);font-weight:600;white-space:nowrap}
+
+/* ── 이력 검색 ── */
+#historySearch{max-width:220px;font-size:.83rem}
+/* ── 매핑 위험 배지 ── */
+.mr-badge{display:inline-block;padding:1px 7px;border-radius:4px;
+  font-size:.72rem;font-weight:700;white-space:nowrap}
+.mr-ok{background:var(--st-success-bg);color:var(--st-success-fg);border:1px solid var(--st-success-bd)}
+.mr-warn{background:var(--st-warning-bg);color:var(--st-warning-fg);border:1px solid var(--st-warning-bd)}
+.mr-crit{background:var(--st-danger-bg);color:var(--st-danger-fg);border:1px solid var(--st-danger-bd)}
+.mr-review{background:var(--st-info-bg);color:var(--st-info-fg);border:1px solid var(--st-info-bd)}
+/* ── 컬럼 선택 정책 안내 ── */
+.col-policy-notice{padding:10px 14px;background:#faf5ff;
+  border-left:4px solid #8b5cf6;border-radius:6px;
+  font-size:.8rem;margin-bottom:12px;border:1px solid #ddd6fe}
+.col-policy-notice ul{margin:4px 0 0 0;padding-left:18px;line-height:1.7}
+/* candidate status badge — status 토큰 일원화(Phase 3). 기본추천=success/선택가능=info/
+   수동선택필요·참고후보=warning/정책상제외=danger. 글자색·테두리 일관 적용으로 구분 강화. */
+.status-badge-sd{background:var(--st-success-bg);color:var(--st-success-fg);padding:1px 5px;border-radius:3px;
+  font-size:.72rem;font-weight:700;display:inline-block;border:1px solid var(--st-success-bd);white-space:nowrap}
+.status-badge-aa{background:var(--st-info-bg);color:var(--st-info-fg);padding:1px 5px;border-radius:3px;
+  font-size:.72rem;font-weight:700;display:inline-block;border:1px solid var(--st-info-bd);white-space:nowrap}
+.status-badge-mr{background:var(--st-warning-bg);color:var(--st-warning-fg);padding:1px 5px;border-radius:3px;
+  font-size:.72rem;font-weight:700;display:inline-block;border:1px solid var(--st-warning-bd);white-space:nowrap}
+.status-badge-er{background:var(--st-danger-bg);color:var(--st-danger-fg);padding:1px 5px;border-radius:3px;
+  font-size:.72rem;font-weight:700;display:inline-block;border:1px solid var(--st-danger-bd);white-space:nowrap}
+/* ADMIN-AUDIT-AMBIGUOUS-CANDIDATE-BADGE: 관리컬럼 여부 '근거부족(미확인)' 통과 후보 배지 —
+   기본추천/선택가능 등 상태 배지 '옆에' 덧붙이는 순수 표시용. 확정 배지(초록/파랑/빨강)와 명확히
+   구분되도록 앰버(주황) 경고 계열 + 점선 테두리 + help 커서로 검토 권장을 시각화한다. */
+.status-badge-ambig{background:#fff4e5;color:#b45309;padding:1px 6px;border-radius:3px;margin-left:4px;
+  font-size:.68rem;font-weight:700;display:inline-block;border:1px dashed #f59e0b;white-space:nowrap;cursor:help}
+/* NAMING-VALUE-MISMATCH-BADGE-AND-TRUNCATION-FIX: 코멘트/명칭 가설이 관리컬럼(시스템 감사)을 시사하나
+   실측 값이 이를 반증한 후보(NAMING_VALUE_MISMATCH) 전용 배지. NOT_AUDIT_AMBIGUOUS(관리컬럼 미확인 —
+   신호 자체가 없는 경우, status-badge-ambig, 앰버·점선)와는 '다른 상태'이므로 배지를 재사용하지 않고
+   색/테두리를 구분한다(로즈·실선 — 값이 명칭을 반증했다는 더 강한 신호). 상태 배지 옆 순수 표시용. */
+.status-badge-nvm{background:#fdecef;color:#b3123f;padding:1px 6px;border-radius:3px;margin-left:4px;
+  font-size:.68rem;font-weight:700;display:inline-block;border:1px solid #e0567c;white-space:nowrap;cursor:help}
+/* ADMIN-COLUMN-CONFIRMED-RESTORE-TO-REFERENCE: 참고/제외 표로 되살린 '관리컬럼 확정 배제' 후보의
+   근거 강도 배지 2종. 오인 방지가 목적이므로 서로 다른 계열 색을 쓴다.
+     · adm-val  : A축(실측 값) 확증 배제 — 회색 중립(조치 불필요한 진짜 관리컬럼)
+     · adm-weak : B축(이름·코멘트) 단독 배제 — 앰버 경고·점선(업무 컬럼 혼입 가능 → 재검토 권장) */
+.status-badge-adm-val{background:#eef1f5;color:#475569;padding:1px 6px;border-radius:3px;margin-left:4px;
+  font-size:.68rem;font-weight:700;display:inline-block;border:1px solid #cbd5e1;white-space:nowrap;cursor:help}
+.status-badge-adm-weak{background:#fff4e5;color:#b45309;padding:1px 6px;border-radius:3px;margin-left:4px;
+  font-size:.68rem;font-weight:700;display:inline-block;border:1px dashed #f59e0b;white-space:nowrap;cursor:help}
+/* ── 진행 요약 카드 ── */
+.mv-progress-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+@media(max-width:720px){.mv-progress-cards{grid-template-columns:repeat(2,1fr)}}
+.mv-prog-card{display:flex;align-items:center;gap:10px;padding:10px 14px;
+  background:var(--card);border-radius:var(--r);border:2px solid var(--border);
+  transition:border-color .2s,background .2s}
+.mv-prog-card.prog-pass  {border-color:#cbd5e1;background:#f1f5f9}
+.mv-prog-card.prog-warn  {border-color:var(--low);background:var(--st-warning-bg)}
+.mv-prog-card.prog-block {border-color:var(--fail);background:var(--st-danger-bg)}
+.mv-prog-card.prog-done  {border-color:var(--primary);background:#e8f4fd}
+.mv-prog-card.prog-active{border-color:var(--primary);background:#f0f7ff}
+.mv-prog-icon{font-size:1.3rem;flex-shrink:0}
+.mv-prog-title{font-size:.8rem;color:var(--sub);font-weight:600}
+.mv-prog-status{font-size:.82rem;font-weight:700;color:var(--text)}
+.mv-prog-card.prog-pass  .mv-prog-status{color:#334155}
+.mv-prog-card.prog-warn  .mv-prog-status{color:var(--low)}
+.mv-prog-card.prog-block .mv-prog-status{color:var(--fail)}
+.mv-prog-card.prog-done  .mv-prog-status{color:var(--primary)}
+.mv-prog-card.prog-active .mv-prog-status{color:var(--primary)}
+/* ── 진행 설명 패널 (단계 탭은 전역 #mvStepNavBar 가 담당 — 여기는 보조 설명만, 비-sticky) ── */
+#stickyProgressBar{background:var(--card);
+  border-bottom:2px solid var(--border);margin-bottom:12px;
+  box-shadow:0 2px 8px rgba(0,0,0,.07)}
+.sp-row-steps{display:flex;align-items:center;gap:0;padding:6px 14px;flex-wrap:nowrap;overflow-x:auto}
+.sp-row-info{display:flex;align-items:center;flex-wrap:wrap;gap:4px;
+  padding:4px 14px 5px;background:#f8fafc;border-top:1px solid var(--border)}
+/* 검증 대상 바(개별검증 1~5단계 공통, sticky bar 내부 — 현재 SQL 의 실제 Source/Target·경로·실행모드) */
+.sp-target-bar{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;
+  padding:5px 14px 6px;background:#eef4ff;border-top:1px solid var(--border);font-size:.78rem}
+.sp-tg-item{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;min-width:0}
+.sp-tg-key{color:#64748b;font-weight:600;flex:0 0 auto}
+/* 테이블명이 길면 줄을 늘리지 않고 ellipsis + tooltip(title)로 처리(§11/§12). 한 줄 폭 한계까지만 표시. */
+.sp-tg-val{font-family:monospace;font-weight:700;color:#0f3d8a;
+  max-width:30ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sp-tg-arrow{color:#94a3b8;font-weight:700}
+.sp-tg-prof{color:#475569;font-weight:600;max-width:18ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sp-tg-mode{padding:1px 8px;border-radius:10px;font-size:.72rem;font-weight:700}
+.sp-tg-mode-test{background:#e2e8f0;color:#475569}
+.sp-tg-mode-official{background:#eef4fb;color:#1f5c9e}
+.sp-tg-store{color:#64748b;font-size:.72rem}
+.sp-tg-group{font-family:monospace;font-weight:700;color:#155724}
+.sp-tg-ref{color:#64748b;cursor:help;text-decoration:underline dotted}
+.sp-tg-more{margin-left:2px;font-size:.72rem;color:#1d4ed8;cursor:pointer;text-decoration:underline}
+.sp-tg-allsrc{flex-basis:100%;padding:2px 0 0 2px;font-size:.74rem;color:#334155;font-family:monospace}
+.sp-tg-warn{background:#fff3cd;border-top-color:#ffc107}
+.sp-tg-warn .sp-tg-val{color:#856404}
+.sp-tg-block{background:#f8d7da;border-top-color:#dc3545}
+.sp-tg-block .sp-tg-val,.sp-tg-block .sp-tg-key{color:#721c24}
+.sp-tg-stale-flag{padding:1px 8px;border-radius:10px;background:#fff3cd;color:#856404;font-weight:700;font-size:.72rem}
+.sp-step{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;
+  border-radius:20px;font-size:.76rem;font-weight:600;
+  border:1.5px solid #ced4da;white-space:nowrap;transition:all .2s;
+  background:#e9ecef;color:#868e96}
+.sp-step.sp-done    {background:#eef4fb;border-color:#2563eb;color:#1f5c9e}
+.sp-step.sp-current {background:#cce5ff;border-color:#0069d9;color:#004085;font-weight:700;
+  box-shadow:0 0 0 2px rgba(0,123,255,.18)}
+.sp-step.sp-wait    {background:#fff3cd;border-color:#ffc107;color:#856404}
+.sp-step.sp-locked  {background:#e9ecef;border-color:#ced4da;color:#adb5bd}
+.sp-step.sp-error   {background:#f8d7da;border-color:#dc3545;color:#721c24}
+.sp-step.sp-mismatch{background:#ffeeba;border-color:#e0a800;color:#856404}
+.sp-step.sp-manual  {background:#d1ecf1;border-color:#17a2b8;color:#0c5460}
+.sp-step-icon{flex-shrink:0}
+.sp-step-badge{font-size:.67rem;padding:1px 5px;border-radius:8px;margin-left:3px;
+  font-weight:700;background:rgba(0,0,0,.1)}
+.sp-step.sp-done    .sp-step-badge{background:rgba(40,167,69,.25);color:#155724}
+.sp-step.sp-current .sp-step-badge{background:rgba(0,105,217,.18);color:#004085}
+.sp-step.sp-error   .sp-step-badge{background:rgba(220,53,69,.2);color:#721c24}
+.sp-step.sp-mismatch .sp-step-badge{background:rgba(224,168,0,.25);color:#856404}
+.sp-step.sp-manual  .sp-step-badge{background:rgba(23,162,184,.2);color:#0c5460}
+.sp-arrow{color:#ced4da;font-size:1rem;padding:0 4px;line-height:1;flex-shrink:0}
+.sp-info-item{display:inline-flex;align-items:baseline;gap:4px}
+.sp-info-key{font-weight:700;color:var(--sub);white-space:nowrap;font-size:.72rem}
+.sp-info-val{color:var(--text);font-size:.73rem}
+.sp-info-val-stage{font-weight:700;color:var(--primary)}
+.sp-info-val-action{font-weight:600;color:var(--primary)}
+.sp-info-sep{padding:0 8px;color:#ced4da;font-size:.85rem;line-height:1}
+/* ── 쿼리 검토 요약 항목 ── */
+.mv-qr-summary{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+.mv-qr-item{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;
+  background:#f0f4f8;border-radius:20px;font-size:.79rem;border:1px solid var(--border)}
+.mv-qr-item strong{font-weight:700;color:var(--text)}
+/* ── 후보추천 안내 문구 ── */
+.mv-candidate-notice{padding:10px 14px;background:#f8f4ff;
+  border-left:4px solid #7e57c2;border-radius:6px;font-size:.8rem;
+  margin-bottom:12px;line-height:1.6}
+/* 일괄검증 단계 카드 — 제목 오른쪽 액션(주요 실행/중단 버튼) 공통 레이아웃.
+   현재 검증대상 요약 / 후보 컬럼 선정 진입 / 전체 통계검증 실행 3개 단계 카드가 동일 리듬을 쓴다.
+   버튼은 header 맨 오른쪽 끝에 고정(margin-left:auto)하고, 상태 문구는 버튼 옆이 아니라
+   header 아래 별도 status row(.mv-step-status-row)에 표시한다 → 상태 길이가 변해도 버튼 위치 불변. */
+.mv-card-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.mv-step-status{font-size:.74rem;color:var(--tblr-secondary);font-weight:500}
+/* header 오른쪽 끝 고정 액션 영역(버튼만 포함) */
+.mv-step-card-action{margin-left:auto;flex:0 0 auto;display:flex;justify-content:flex-end;gap:8px}
+.mv-step-card-action button{white-space:nowrap}
+/* 버튼 아래 별도 상태 row(버튼 오른쪽이 아님). 좁은 화면에서도 버튼은 header 에 유지된다. */
+.mv-step-status-row{padding:6px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+  border-bottom:1px solid #f1f3f5;background:#fcfdfe}
+.mv-step-status-text{font-size:.74rem;color:var(--tblr-secondary);font-weight:500}
+/* ── 일괄검증 단계별 step tab nav ── */
+.mv-batch-step-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.mv-batch-step-tab{display:flex;align-items:center;gap:7px;padding:7px 12px;border:1px solid #dee2e6;
+  border-radius:7px;background:#fff;cursor:pointer;font-size:.8rem;color:#495057;user-select:none}
+.mv-batch-step-tab .mv-step-no{display:inline-flex;align-items:center;justify-content:center;
+  width:20px;height:20px;border-radius:50%;background:#e9ecef;color:#495057;font-size:.72rem;font-weight:700}
+.mv-batch-step-tab .mv-step-badge2{font-size:.66rem;padding:1px 6px;border-radius:10px;background:#f1f3f5;color:#868e96}
+.mv-batch-step-tab-current{border-color:#4a7fb5;background:#eef5fc;color:#1d4e7e;font-weight:600}
+.mv-batch-step-tab-current .mv-step-no{background:#4a7fb5;color:#fff}
+.mv-batch-step-tab-complete .mv-step-no{background:#1a7a43;color:#fff}
+.mv-batch-step-tab-complete .mv-step-badge2{background:#e8f8f0;color:#1a7a43}
+.mv-batch-step-tab-disabled{opacity:.5;cursor:not-allowed;background:#f8f9fa}
+/* 현재 보고 있는 탭 — 완료(녹색)/진행(파랑) 위에 테두리 강조만 추가(색 체계 유지) */
+.mv-batch-step-tab-viewing{box-shadow:0 0 0 2px rgba(74,127,181,.35);font-weight:600}
+/* delta 재검증 필요(부분 재검증/재선정/재실행/최신 아님) — amber */
+.mv-batch-step-tab-stale{border-color:#f0ad4e;background:#fff8e1;color:#8a6d00;font-weight:600}
+.mv-batch-step-tab-stale .mv-step-no{background:#f0ad4e;color:#fff}
+.mv-batch-step-tab-stale .mv-step-badge2{background:#ffecb3;color:#8a6d00}
+.mv-batch-step-lock-reason{padding:7px 12px;margin-bottom:10px;border-radius:6px;
+  background:#fff8e1;border:1px solid #ffe08a;color:#8a6d00;font-size:.78rem}
+/* ── 공통 단계 탭 strip (개별/일괄 공용 — steps 배열 기반, 단계 개수 무관) ──────────────────
+   탭 strip 느낌: border-bottom 기반 tab bar, 카드처럼 둥둥 뜨지 않게 한다.
+   전역 #mvStepNavBar 가 connection bar 바로 아래 sticky 로 고정(페이지 로딩 직후부터). */
+/* reference header(.header): 높이 72, 흰 배경, 하단 라인 — project pill / db status / 우측 아이콘+avatar */
+.mv-global-connection-bar{position:sticky;top:0;z-index:300;background:#fff;min-height:72px}
+.mv-global-connection-bar > .container-xl{display:flex;align-items:center;min-height:72px;padding-top:0;padding-bottom:0;gap:20px;flex-wrap:nowrap}
+/* 현재 프로젝트 selector pill */
+.mv-hd-project{ min-width:300px; max-width:380px; height:42px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc;
+  display:flex; align-items:center; gap:12px; padding:0 14px; }
+.mv-hd-plabel{ font-size:11px; color:#64748b; border-right:1px solid #cbd5e1; padding-right:12px; font-weight:600; white-space:nowrap; }
+.mv-hd-pvalue{ font-size:14px; font-weight:700; color:#1e293b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.mv-hd-pdown{ margin-left:auto; color:#64748b; font-size:11px; }
+/* Source/Target DB 상태 */
+.mv-hd-dbstat{ display:flex; align-items:center; gap:24px; margin-left:auto; }
+.mv-hd-dbitem{ display:flex; align-items:center; gap:8px; font-size:12.5px; white-space:nowrap; }
+.mv-hd-dbtype{ font-weight:800; color:#64748b; }
+/* 우측 아이콘 + avatar */
+.mv-hd-right{ display:flex; align-items:center; gap:18px; margin-left:6px; }
+.mv-hd-icon{ position:relative; color:#64748b; font-size:18px; line-height:1; cursor:default; }
+.mv-hd-badge{ position:absolute; top:-7px; right:-7px; background:#ef4444; color:#fff; font-size:10px; font-weight:800; border-radius:12px; padding:1px 5px; border:2px solid #fff; }
+.mv-hd-avatar{ width:34px; height:34px; border-radius:50%; background:#2563eb; color:#fff; display:grid; place-items:center;
+  font-weight:900; font-size:13px; box-shadow:0 8px 18px rgba(37,99,235,.2); }
+@media(max-width:900px){ .mv-hd-dbstat{ display:none; } .mv-hd-project{ min-width:200px; } }
+.mv-sticky-step-nav{position:sticky;top:var(--mv-conn-bar-h,52px);z-index:290;background:var(--card);
+  border-bottom:1px solid #dee2e6;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+/* page-body 콘텐츠 상단으로 이동한 단계 SubNav — 카드형 in-page 스타일(전역 chrome 아님). */
+.mv-step-nav-inpage{border:1px solid #e2e8f0;border-radius:8px;margin:0 0 12px;padding:2px 8px}
+.mv-step-nav{display:flex;align-items:stretch;gap:2px;flex-wrap:nowrap;overflow-x:auto}
+/* STAGE-STEP-HINT-REMOVE: 탭 아래 '현재 단계: ...' 안내 한 줄(mvStepHint)은 DOM·CSS·setter 전부 제거했다.
+   현재 단계 표시는 단계 탭 배지(active)·N단계 처리시간·하단 커맨드바가 이미 담당한다(중복 표시 해소). */
+/* 단계 pane 가림(비활성 단계 카드) — flow 자체 display 토글과 별개의 추가 레이어(DOM 유지). */
+.mv-pane-hidden{display:none!important}
+/* ── 공통 요약 통계 카드(UX-CONSISTENCY §2/§5) — 2단계 COUNT 요약과 5단계 결과 요약이 동일 클래스 사용 ── */
+.mv-stat-cards{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+/* NEUTRAL-VISUAL-HIERARCHY: 카드 기본은 중립(흰색). 상태색은 얇은 border + 값/아이콘에만(배경 전체 색칠 금지). */
+.mv-stat-card{flex:1;min-width:120px;padding:10px 14px;border:1px solid #e3e8ef;border-radius:8px;background:#fff}
+.mv-stat-card-label{font-size:.76rem;font-weight:600;color:#475569;margin-bottom:5px}   /* 제목 약화 방지(§2) */
+.mv-stat-card-val{font-size:1.05rem;font-weight:700;color:#2c3e50}
+/* 성공/완료는 초록 대신 블루로 표현(REMOVE-GREEN) — 얇은 블루 border + 블루 값. */
+.mv-stat-card.is-success{border-color:#bcd3ee}
+.mv-stat-card.is-success .mv-stat-card-val{color:#1f5c9e}
+.mv-stat-card.is-danger{border-color:#f0c9bf}
+.mv-stat-card.is-danger .mv-stat-card-val{color:#b4472a}
+.mv-stat-card.is-warning{border-color:#f0d28a}
+.mv-stat-card.is-warning .mv-stat-card-val{color:#8a6d00}
+/* ── [QUERY-REVIEW-RESULT-TILE-LAYOUT-FIX] 1단계 '쿼리 검토 결과' 타일 레이아웃 ──────────────
+   쿼리검토 결과는 '여러 행을 다루는 그리드'가 아니라 'SQL 1건 요약'이므로 표(정렬 헤더·페이지네이션·
+   초기순서 버튼)를 걷어내고 9개 타일로 표시한다. 박스(값 영역) 스타일은 위 .mv-stat-card(현황 화면
+   요약 카드 — 흰 배경/얇은 회색 테두리/둥근 모서리)의 '박스 부분'과 값 글자(1.05rem/700)를 그대로
+   재사용하되, 라벨만 박스 '밖 위'로 뺀다(참고 카드는 라벨이 박스 안).
+   폭: auto-fit + minmax 로 컨테이너 전체 가로폭을 9개가 균등 분할해 채운다(빈 트랙은 collapse 되어
+   좌측 쏠림/우측 여백이 생기지 않음). 폭이 좁아지면 자동 줄바꿈. */
+.mv-qr-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:10px;width:100%}
+.mv-qr-tile{min-width:0}
+/* [QUERY-REVIEW-TILE-CENTER-HEIGHT-HEADER-CLEANUP-FIX] 라벨은 박스(값 영역)와 같은 축으로
+   맞춘다 — 값이 이미 가운데 정렬이므로 라벨만 좌측이면 축이 어긋나 보인다. */
+.mv-qr-tile-label{font-size:.76rem;font-weight:600;color:#475569;margin-bottom:5px;text-align:center;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* [QUERY-REVIEW-TILE-CENTER-HEIGHT-HEADER-CLEANUP-FIX] 값 박스 높이 68px → 85px(+25%),
+   상하 padding 10px → 13px(+30%). 값 글자/폰트는 불변이라 여백만 늘어난다. */
+.mv-qr-tile-box{display:flex;align-items:center;justify-content:center;text-align:center;
+  min-height:85px;padding:13px 12px;border:1px solid #e3e8ef;border-radius:8px;background:#fff}
+/* [STATS-SCALE-GRADE-TILE-EXPLANATORY-HINT-ADD] 한글 값의 줄바꿈 규칙 — 종전 word-break:break-all 은
+   어디서나 끊어서 '중형 (약 2~6' / '초)' 처럼 숫자와 단위 사이를 갈랐다(실측). 한글은 어절(공백)
+   단위로 끊는 keep-all 이 맞다. 대신 끊을 공백이 없는 긴 토큰(테이블명 tobe01.t_to_n_etl04 등)이
+   타일 밖으로 넘치지 않도록 overflow-wrap:anywhere 를 함께 준다 — 종전의 '길면 중간에서 끊기'
+   동작은 그 경우에만 유지된다(테이블명 타일 표시 무회귀). */
+.mv-qr-tile-val{font-size:1.05rem;font-weight:700;color:#2c3e50;line-height:1.35;
+  max-width:100%;overflow:hidden;word-break:keep-all;overflow-wrap:anywhere}
+/* 테이블명(mono)은 길어서 값 폰트를 한 단계 낮추고 줄바꿈 허용 — 타일 밖으로 넘치지 않게 한다.
+   식별자는 어절 개념이 없으므로 종전대로 어디서나 끊는다(break-all 유지). */
+.mv-qr-tile-val.is-mono{font-family:var(--tblr-font-monospace,ui-monospace,SFMono-Regular,Menlo,monospace);
+  font-size:.82rem;font-weight:600;word-break:break-all}
+/* 값 미도착(탭 진입 직후) placeholder — 라벨만 보이고 값 영역은 비어있는 상태 */
+.mv-qr-tile-val.is-empty{color:#adb5bd;font-weight:600}
+/* [STAGE4-5-STRATEGY-INFO-RELOCATE-FIX] 전략 타일(4단계 '통계전략' / 5단계 '불일치 추출전략') —
+   값이 숫자가 아니라 '전략명 문장 + 전략 코드'라 표기 규격을 따로 둔다. 값 글자는 숫자 타일
+   (1.05rem)보다 한 단계 낮춰 타일이 세로로 크게 늘어나는 것을 막고, 코드는 식별자이므로 3단계
+   실행계획 표에서 쓰던 <code> 표기를 배지 형태로 이어받는다. 기존 타일 클래스는 건드리지 않으므로
+   다른 타일 표시는 불변이다. */
+.mv-qr-tile-val.mv-qr-strat{display:block;font-size:.78rem;font-weight:600}
+.mv-qr-strat-name{display:block}
+.mv-qr-strat-code{display:inline-block;margin-top:5px;padding:1px 6px;border:1px solid #dbe2ea;
+  border-radius:6px;background:#f6f8fa;color:#475569;font-size:.68rem;font-weight:600;
+  font-family:var(--tblr-font-monospace,ui-monospace,SFMono-Regular,Menlo,monospace);word-break:break-all}
+.mv-qr-strat-note{display:inline-block;margin-top:4px;margin-left:4px;padding:0 5px;
+  border:1px solid #C2410C;border-radius:6px;color:#C2410C;font-size:.66rem;font-weight:600;white-space:nowrap}
+/* §3 후보 선택 요약 bar — 중립 톤(상태색 미사용), 한 줄 핵심값 */
+.mv-candidate-selbar{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;margin-bottom:12px;
+  padding:9px 14px;border:1px solid #e3e8ef;border-radius:8px;background:#f7f9fc;font-size:.82rem;color:#475569}
+.mv-candidate-selbar .mv-selbar-item{white-space:nowrap}
+.mv-candidate-selbar .mv-selbar-item b{color:#2c3e50}
+.mv-candidate-selbar .mv-selbar-flag{margin-left:auto;padding:2px 9px;border-radius:999px;
+  background:#fff3cd;border:1px solid #ffe69c;color:#856404;font-weight:600}
+/* §3 버튼 시각적 우선순위 — 통계검증 SQL 다시 생성(genColBtn)은 outline(보조), 재검증(primary)은 채움 */
+#genColBtn.mv-btn-secondary{background:#fff;color:var(--primary);border:1px solid var(--primary);box-shadow:none}
+#genColBtn.mv-btn-secondary:hover:not(:disabled){background:#eef4ff}
+/* 한 줄 핵심 — 중립 배경, 상태는 텍스트/아이콘 색만(넓은 연두/빨강 배경 금지). */
+.mv-count-line{font-size:.86rem;font-weight:600;padding:7px 12px;border-radius:6px;margin-bottom:6px;
+  background:#f7f9fc;border:1px solid #e3e8ef;color:#334155}
+.mv-count-line.ok{color:#1f5c9e}
+.mv-count-line.bad{color:#b4472a}
+.mv-count-note{font-size:.8rem;color:#64748b;margin-bottom:4px}
+/* 5단계 대표 판정 — 흰색 카드 + 상태색 왼쪽 border(카드 전체 색칠 금지, §3). */
+.mv-res-verdict{padding:12px 16px;border-radius:8px;margin-bottom:12px;background:#fff;
+  border:1px solid #e3e8ef;border-left:4px solid #cbd5e1}
+.mv-res-verdict.ok{border-left-color:#2563eb}
+.mv-res-verdict.bad{border-left-color:#b4472a}
+.mv-res-verdict.blocked{border-left-color:#e0a800}
+.mv-res-verdict-title{font-size:1rem;font-weight:700;color:#2c3e50}
+.mv-res-verdict-cause{font-size:.84rem;color:#475569;margin-top:4px}
+/* ── 불일치 자동진단(GROUP_SCOPE) 표시 전용 CSS ── */
+.mv-diag-badge{display:inline-block;padding:2px 9px;border-radius:10px;font-size:.72rem;font-weight:700}
+.mv-diag-badge.st-DONE{background:#e6f5ec;color:#1a7a3a}
+.mv-diag-badge.st-RUNNING{background:#e0ecfa;color:#1a4a7a}
+.mv-diag-badge.st-STOPPED,.mv-diag-badge.st-BLOCKED{background:#fef5e7;color:#7a4f00}
+.mv-diag-badge.st-ERROR{background:#fdecea;color:#7a1a1a}
+.mv-diag-meta{width:100%;border-collapse:collapse;font-size:.8rem;margin-top:4px}
+.mv-diag-meta th{background:#f1f5fa;color:#33415a;text-align:left;padding:4px 8px;white-space:nowrap;border:1px solid #e3e9f1;width:120px}
+.mv-diag-meta td{padding:4px 8px;border:1px solid #e3e9f1}
+.mv-diag-tree{width:100%;border-collapse:collapse;font-size:.8rem;margin-top:6px}
+.mv-diag-tree th{background:#eef3f9;color:#1a3a5c;padding:5px 8px;text-align:left;border-bottom:2px solid #cbd9ea;white-space:nowrap}
+.mv-diag-tree td{padding:5px 8px;border-bottom:1px solid #e3e9f1;vertical-align:middle}
+.mv-diag-tree tr:hover td{background:#f5f9fe}
+.mv-diag-bad{color:#b4472a;font-weight:700}
+.mv-diag-null{color:#aaa;font-style:italic}      /* NULL 표시 — 0 과 구분 */
+/* ── 불일치 행 직접 분석(전역 버튼 대체) ── */
+.mv-mismatch-row{cursor:pointer}
+tr.mv-mismatch-row:hover td{background:#fff3e6 !important}
+tr.mv-mismatch-row:first-child td:first-child::before,
+tr.mv-mismatch-row td:first-child::before{content:'▸ ';color:#b4472a;font-weight:700}
+tr.mv-mismatch-row[aria-expanded="true"] td:first-child::before{content:'▾ '}
+/* ── [REIMPORT-DRILLDOWN-TREE-MERGE] 그룹 요약 행 + 재이관 레코드 행을 '하나의 표'에 트리로 잇는다 ──
+   그룹 행의 트리 셀(.mv-tree-group)과 하위 레코드 행의 트리 셀(.mv-tree-rec)은 같은 첫 열이며,
+   들여쓰기(패딩) + 글자 크기/색으로 상하 관계를 구분한다(기존 화면 관례인 회청색 계열 재사용).
+   값 열(원본/목적) 배경색은 셀 인라인 style 이 담당하므로 여기서 덮지 않는다. */
+td.mv-tree-cell{white-space:nowrap}
+td.mv-tree-group{font-weight:600;color:#1a3a5c}
+tr.mv-pk-rec-row td{background:#fbfcfe}
+tr.mv-pk-rec-row:hover td{background:#f5f9fe}
+td.mv-tree-rec{padding-left:30px !important;color:#475569;font-size:.76rem}
+td.mv-tree-rec::before{content:'└ ';color:#94a3b8;font-weight:400}
+td.mv-tree-rec .mv-tree-pk{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#334155}
+td.mv-tree-rec .mv-tree-sub{display:block;padding-left:14px;color:#94a3b8;font-size:.7rem}
+/* 레코드 단위로 존재하지 않는 값 열(그룹 집계 전용 COUNT 등) — 빈칸 대신 '해당 없음'을 명시한다. */
+td.mv-tree-na{color:#cbd5e1;text-align:center}
+tr.mv-pk-foot-row td{background:#fbfcfe;padding:4px 10px 9px}
+.mv-scope-panel{margin:6px 2px 8px;padding:10px 12px;background:#fbfdff;border:1px solid #d8e3f0;border-radius:8px}
+.mv-scope-panel-title{font-weight:700;font-size:.88rem;color:#1a3a5c;margin-bottom:6px}
+tr.mv-scope-panel-row td{background:#fbfdff;padding:0 8px 8px}
+.mv-plan-panel{margin:8px 2px;padding:11px 13px;background:#f7faff;border:1px solid #d3e0ef;border-radius:8px}
+.mv-plan-head{font-weight:700;font-size:.86rem;color:#1a3a5c;margin-bottom:7px}
+.mv-plan-size{margin-left:7px;font-weight:600;font-size:.74rem;color:#3b5b7d;background:#e7f0fb;border-radius:10px;padding:2px 8px}
+.mv-plan-badges{margin:2px 0 8px}
+.mv-plan-badge{display:inline-block;font-size:.78rem;font-weight:700;border-radius:12px;padding:3px 11px}
+.mv-plan-ok{background:#e7f6ec;color:#1c7a3e;border:1px solid #b7e2c4}
+.mv-plan-info{background:#e7f0fb;color:#1f5a96;border:1px solid #bcd6ef}
+.mv-plan-warn{background:#fff4e2;color:#9a6312;border:1px solid #f0d3a0}
+.mv-plan-danger{background:#fdecec;color:#a93232;border:1px solid #f1c2c2}
+.mv-plan-muted{background:#eef1f5;color:#5b6675;border:1px solid #d8dde4}
+.mv-plan-meta{width:100%;border-collapse:collapse;font-size:.82rem}
+.mv-plan-meta th{text-align:left;width:108px;color:#5b6675;font-weight:600;padding:3px 8px 3px 0;vertical-align:top}
+.mv-plan-meta td{padding:3px 0;color:#23303f}
+.mv-plan-note{font-size:.73rem;color:#7a8696;margin-top:7px}
+.mv-plan-explain{margin:6px 0 8px;padding:8px 11px;background:#eef5ff;border-left:3px solid #5a8fcf;border-radius:5px;font-size:.83rem;color:#23415f;line-height:1.55}
+.mv-plan-sec{margin-top:9px;font-weight:700;font-size:.78rem;color:#3b5b7d}
+.mv-flow{display:flex;flex-direction:column;gap:0;margin:5px 0 2px}
+.mv-flow-step{display:inline-block;align-self:flex-start;font-size:.78rem;font-weight:600;color:#23415f;background:#fff;border:1px solid #cdddf0;border-radius:6px;padding:3px 10px}
+.mv-flow-arrow{color:#9bb4d0;font-size:.8rem;margin:1px 0 1px 12px}
+.mv-plan-reco{margin:4px 0 0;padding-left:20px;font-size:.82rem;color:#23303f;line-height:1.7}
+.mv-plan-rej{margin:4px 0 0;font-size:.8rem;color:#7a4f4f;line-height:1.6}
+.mv-plan-rej b{color:#a93232}
+.mv-res-steps{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 14px}
+.mv-res-step{flex:1;min-width:170px;padding:10px 13px;border:1px solid #e6eaf0;border-radius:8px;background:#fbfcfe}
+.mv-res-step-hd{font-size:.8rem;font-weight:700;color:#334155;margin-bottom:5px;display:flex;justify-content:space-between;align-items:center;gap:6px}
+.mv-res-step-tablink{font-size:.72rem;font-weight:500;color:var(--primary);cursor:pointer;user-select:none}
+.mv-res-step-body{font-size:.78rem;color:#475569;line-height:1.7}
+/* 탭 항목: 동일 높이, border-bottom active 표시, 배경 최소화(탭 strip). */
+.mv-step-item{display:inline-flex;align-items:center;gap:7px;padding:9px 14px;
+  border:0;border-bottom:3px solid transparent;background:transparent;color:#6c757d;
+  font-size:.79rem;white-space:nowrap;cursor:default;flex:0 0 auto;height:40px}
+.mv-step-item[data-step]{cursor:pointer}
+.mv-step-item[data-step]:hover{background:#f6f8fb}
+.mv-step-item .mv-step-no{display:inline-flex;align-items:center;justify-content:center;
+  width:20px;height:20px;border-radius:50%;background:#e9ecef;color:#868e96;font-size:.7rem;font-weight:700;flex-shrink:0}
+.mv-step-item .mv-step-name{font-weight:600}
+.mv-step-item .mv-step-badge2{font-size:.65rem;padding:1px 6px;border-radius:10px;background:#f1f3f5;color:#868e96}
+/* 현재 단계(active 탭) — 하단 border + 강조색. */
+.mv-step-active{color:#0b5ed7;border-bottom-color:#0b5ed7;background:#f3f8ff}
+.mv-step-active .mv-step-no{background:#0b5ed7;color:#fff}
+.mv-step-active .mv-step-badge2{background:rgba(11,94,215,.14);color:#0b5ed7}
+/* 진행상태 보조색(탭 strip 위 작은 보조표현 — no/badge 위주). */
+/* 완료 step chip — 초록 대신 블루(REMOVE-GREEN). 단계 nav 공통(개별/일괄 동일 '완료' 의미). */
+.mv-step-done{color:#1f5c9e}
+.mv-step-done .mv-step-no{background:#2563eb;color:#fff}
+.mv-step-done .mv-step-badge2{background:#eef4fb;color:#1f5c9e}
+.mv-step-waiting .mv-step-badge2{background:#fff3cd;color:#856404}
+.mv-step-locked{color:#adb5bd}
+.mv-step-stale .mv-step-no{background:#f0ad4e;color:#fff}
+.mv-step-stale .mv-step-badge2{background:#fff3cd;color:#8a6d00}
+.mv-step-error .mv-step-no{background:#dc3545;color:#fff}
+.mv-step-error .mv-step-badge2{background:#f8d7da;color:#721c24}
+.mv-step-manual .mv-step-badge2{background:#d1ecf1;color:#0c5460}
+.mv-step-disabled{cursor:not-allowed}
+.mv-step-conn{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:10px;
+  background:#f1f3f5;color:#495057;font-size:.72rem}
+.mv-step-conn-ok{background:#eef4fb;color:#1f5c9e}
+.mv-step-conn-off{background:#f8d7da;color:#721c24}
+/* ── 섹션 헤더/액션 sticky (하단 floating 대신 — 원본 버튼을 원래 위치에서 sticky 로 유지) ──
+   z-index: connection 300 > step nav 290 > section header 270 > 본문. dropdown/modal 은 기존 우선순위. */
+.mv-sticky-section-header{position:sticky;
+  top:calc(var(--mv-conn-bar-h,52px) + var(--mv-step-nav-h,40px));z-index:270;
+  background:var(--card);box-shadow:0 1px 2px rgba(0,0,0,.05)}
+/* sticky 단계바(connection + step nav)가 상단 띠를 점유하므로, scrollIntoView 로 단계 카드를 최상단에
+   붙일 때 카드 헤더/본문(예: COUNT-only 안내 박스)이 sticky 띠에 가려지지 않도록 동일 offset 만큼
+   scroll-margin 을 확보한다(임시 px 가산 아님 — sticky 헤더와 같은 공통 CSS 변수 사용).
+   레이아웃(높이/위치)은 바꾸지 않고 scroll 정렬 기준만 보정하므로 일반 후보 화면도 안전. */
+.mv-step-pane-card{scroll-margin-top:calc(var(--mv-conn-bar-h,52px) + var(--mv-step-nav-h,40px) + 12px)}
+/* COUNT-only 후보 화면은 본문이 짧아 sticky 섹션 헤더가 안내 박스를 덮는다(스크롤 중/직후). 이 화면에서는
+   섹션 헤더를 비-sticky(정적)로 두어 헤더가 본문(안내 박스)을 절대 덮지 않게 한다. 일반 후보표(긴 표)는
+   기존대로 sticky 유지 — 이 규칙은 .mv-count-only-pane 가 붙은 카드에만 적용된다(일반 화면 레이아웃 불변). */
+.mv-step-pane-card.mv-count-only-pane .mv-sticky-section-header{position:static;box-shadow:none}
+/* UI-CONSISTENCY §3: 후보 컬럼 선정 카드의 섹션 헤더는 비-sticky 로 둔다 — sticky 헤더가 첫 본문(후보추천 안내문
+   .mv-candidate-notice)을 덮는 문제를 DOM/CSS 구조로 해결(임의 margin 가산 아님). 카드 진입 정렬은
+   .mv-step-pane-card 의 공통 scroll-margin-top(공통 sticky offset 변수)이 담당한다. */
+#colSelectCard .mv-sticky-section-header{position:static;box-shadow:none}
+#colSelectCard .mv-candidate-notice{scroll-margin-top:calc(var(--mv-conn-bar-h,52px) + var(--mv-step-nav-h,40px) + 12px)}
+/* COUNT 사전검증 카드: sticky 섹션 헤더가 원본/목적지 COUNT SQL 본문 위로 떠서 덮는 문제를 #colSelectCard 와
+   동일하게 비-sticky(정상 문서 흐름)로 해결한다 — 헤더가 SQL 영역을 가리지 않는다(임의 margin/absolute 아님). */
+#countCard .mv-sticky-section-header{position:static;box-shadow:none}
+.mv-section-actions{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+/* 개별 1단계 쿼리검토 맨 아래 가운데 action(상단 고정 아님) — SQL 분석 실행 + 다음. */
+.mv-single-query-bottom-actions{display:flex;justify-content:center;align-items:center;gap:12px;
+  flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid #eef1f5}
+/* 개별 단계 pane 하단 이전/다음 이동 행(좌 이전 / 우 다음). */
+.mv-single-step-nav-row{display:flex;justify-content:space-between;align-items:center;gap:12px;
+  flex-wrap:wrap;margin:6px 0 14px;padding-top:12px;border-top:1px solid #eef1f5}
+/* 2단계 COUNT 액션: [← 이전][▶ COUNT 비교 실행][다음 →] 한 줄 가운데 그룹 + 건너뛰기 체크박스. */
+#singleCountNav{margin:6px 0 14px;padding-top:12px;border-top:1px solid #eef1f5}
+.mv-single-count-actions{display:flex;justify-content:center;align-items:center;gap:10px;flex-wrap:wrap}
+.mv-count-skip-chk{display:flex;justify-content:center;align-items:center;gap:6px;
+  margin-top:10px;font-size:.8rem;color:#5a6472;cursor:pointer;user-select:none}
+.mv-count-skip-chk input{cursor:pointer}
+/* 단계 이동 버튼 행 */
+.mv-batch-step-next{margin:10px 0 2px;display:flex;justify-content:flex-end}
+/* CRITICAL 매핑 경고 배너 — danger 토큰 일원화(Phase 2B, 색 근사 동일) */
+.ast-critical-warn{padding:12px 16px;background:var(--st-danger-bg);
+  border:1px solid var(--st-danger-bd);border-left:5px solid var(--st-danger-fg);border-radius:var(--r);
+  font-size:.87rem;margin-bottom:14px}
+/* -- Provider mode badge -- */
+.provider-mode-badge{display:flex;align-items:center;gap:8px;padding:6px 12px;
+  border-radius:6px;font-size:.78rem;margin-bottom:4px}
+.pm-real{background:var(--st-success-bg);border-left:4px solid var(--st-success-fg)}
+.pm-ddl{background:var(--st-warning-bg);border-left:4px solid var(--st-warning-fg)}
+.pm-null{background:var(--st-muted-bg);border-left:4px solid var(--st-muted-fg)}
+.pm-label{font-weight:700;min-width:100px}
+.pm-real .pm-label{color:var(--st-success-fg)}
+.pm-ddl .pm-label{color:var(--st-warning-fg)}
+.pm-null .pm-label{color:var(--st-muted-fg)}
+.pm-desc{color:#555;font-size:.75rem}
+/* -- CSR status badge -- */
+.csr-status-badge{display:inline-block;padding:1px 7px;border-radius:5px;
+  font-size:.72rem;font-weight:700;color:#fff}
+.csr-sd{background:#1f5c9e}
+.csr-aa{background:#2980b9}
+.csr-mr{background:#e67e22}
+.csr-er{background:#e74c3c}
+.csr-na{background:#95a5a6}
+/* -- recommend summary status badge -- */
+.rsum-stat{display:inline-block;padding:2px 8px;border-radius:4px;
+  font-size:.75rem;font-weight:600;white-space:nowrap}
+.rsum-sd{background:var(--st-success-bg);color:var(--st-success-fg);border:1px solid var(--st-success-bd)}
+.rsum-aa{background:var(--st-info-bg);color:var(--st-info-fg);border:1px solid var(--st-info-bd)}
+.rsum-mr{background:var(--st-warning-bg);color:var(--st-warning-fg);border:1px solid var(--st-warning-bd)}
+.rsum-er{background:var(--st-danger-bg);color:var(--st-danger-fg);border:1px solid var(--st-danger-bd)}
+.rsum-na{background:var(--st-muted-bg);color:var(--st-muted-fg);border:1px solid var(--st-muted-bd)}
+.cs-sim-badge-secondary{opacity:.45;font-size:.65rem !important}
+/* ── SQL 형식 검증 배너 ── */
+.fmt-banner{display:flex;align-items:flex-start;gap:10px;
+  padding:12px 16px;border-radius:var(--r);margin-bottom:14px;font-size:.87rem}
+.fmt-banner.OK{background:var(--st-success-bg);border-left:5px solid var(--st-success-fg)}
+.fmt-banner.WARNING{background:var(--st-warning-bg);border-left:5px solid var(--st-warning-fg)}
+.fmt-banner.CRITICAL{background:var(--st-danger-bg);border-left:5px solid var(--st-danger-fg)}
+.fmt-banner.UNSUPPORTED{background:#f3e5f5;border-left:5px solid #7e57c2}
+.fmt-level-badge{display:inline-block;padding:2px 9px;border-radius:12px;
+  font-size:.75rem;font-weight:700;color:#fff;flex-shrink:0}
+.fmt-level-badge.OK{background:var(--high)}
+.fmt-level-badge.WARNING{background:var(--low)}
+.fmt-level-badge.CRITICAL{background:var(--fail)}
+.fmt-level-badge.UNSUPPORTED{background:#7e57c2}
+/* ── COUNT 안내 문구 ── */
+.sql-count-guide{padding:10px 14px;background:#eff6ff;
+  border-left:4px solid var(--primary);border-radius:6px;
+  font-size:.8rem;margin-bottom:14px;line-height:1.6;border:1px solid #bfdbfe}
+/* ── 근거 항목 flat 표시 (의미/타입/통계/키·제약/호환성 동일 레벨) ── */
+.ev-det-row{display:flex;gap:5px;margin-bottom:3px}
+.ev-det-k{font-weight:600;color:#555;min-width:60px;flex-shrink:0}
+.ev-flat-section{margin-top:4px;padding:4px 0}
+/* ── 참고 근거 요약 (score_breakdown E1, 읽기 전용) ── */
+.sb-rationale{margin-top:4px;line-height:1.4}
+.sb-rat-lbl{font-size:.68rem;color:#888;font-weight:600;margin-right:2px}
+.sb-rat-txt{font-size:.68rem;color:#555}
+.sb-rat-dim{font-size:.68rem;color:#aaa;font-style:italic}
+/* [CANDIDATE-STEP3-CONSOLIDATE-TILE-REDESIGN-FIX] (제거) '추천 결과 요약 카드' 전용 CSS
+   (.rec-summary-card/.rec-sum-ttl/.rec-sum-row/.rs-lbl/.rs-vals/.rs-excl) — 카드와 빌더
+   (_buildSummaryCard)를 함께 삭제해 사용처가 없어졌다(죽은 스타일 미잔존). */
+/* ── 통합 후보선정 표 ── */
+.ict-guide{font-size:.8rem;color:#334155;background:#eff6ff;border-left:3px solid #3b82f6;
+  padding:7px 12px;border-radius:4px;margin-bottom:10px;line-height:1.6;border:1px solid #bfdbfe}
+.ict-cnt-bar{display:flex;gap:20px;margin-bottom:10px;flex-wrap:wrap;
+  font-size:.8rem;align-items:center;padding:6px 2px}
+.ict-cnt-lbl{font-weight:600;color:#444}
+.ict-cnt-val strong{color:#1a4a8a;font-size:.88rem}
+.ict-cnt-sep{color:#999}
+/* 선택 GROUP BY 조합 예상 최대 그룹 수 (오른쪽 끝 정렬, 약간 크고 bold) */
+.ict-cnt-est{margin-left:auto;font-size:15px;font-weight:700;color:#222;white-space:nowrap}
+.ict-cnt-est strong{color:#1a4a8a}
+.ict-est-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;font-size:12px;font-weight:700;vertical-align:middle}
+.ict-est-badge.est-ok{background:#eef4fb;color:#1f5c9e}
+.ict-est-badge.est-caution{background:#fff8e1;color:#f57f17}
+.ict-est-badge.est-warn{background:#fff3e0;color:#e65100}
+.ict-est-badge.est-danger{background:#ffebee;color:#c62828}
+.ict-est-badge.est-unknown{background:#eceff1;color:#546e7a}
+.btn-reset-rec{padding:2px 10px;font-size:.76rem;background:#f0f4ff;color:#2a4a8a;
+  border:1px solid #b0c4e8;border-radius:4px;cursor:pointer;white-space:nowrap;line-height:1.6}
+.btn-reset-rec:hover{background:#dce8ff}
+.reset-rec-ok{font-size:.76rem;color:#1f5c9e;margin-left:8px}
+.ict-table{width:100%;border-collapse:collapse;font-size:.8rem;margin-bottom:4px}
+.ict-table th{background:#f0f4f8;padding:6px 8px;text-align:left;
+  font-weight:600;font-size:.73rem;color:#475569;border-bottom:2px solid #dbe4ee;white-space:nowrap}
+.ict-table td{padding:5px 8px;border-bottom:1px solid #f1f5f9;vertical-align:middle;color:var(--text)}
+.ict-table tbody tr.ict-row:hover td{background:#f8fafc}
+.ict-row-gb{border-left:3px solid #5086c7}
+.ict-row-sum{border-left:3px solid #1f5c9e}
+.ict-row-excl{border-left:3px solid #bbb}
+.ict-role-gb{display:inline-block;padding:1px 6px;border-radius:4px;white-space:nowrap;
+  background:#e8f0fc;color:#1a4a8a;font-size:.72rem;font-weight:700}
+.ict-role-sum{display:inline-block;padding:1px 6px;border-radius:4px;white-space:nowrap;
+  background:#eef2f7;color:#3d4f63;font-size:.72rem;font-weight:700}
+.ict-role-excl{display:inline-block;padding:1px 6px;border-radius:4px;white-space:nowrap;
+  background:#f4f4f4;color:#888;font-size:.72rem;font-weight:600}
+.ict-tc-role{white-space:nowrap;min-width:52px}
+/* 후보표 컬럼명: 가로 스크롤 시 좌측이 잘리지 않도록 첫 컬럼을 좌측 고정(sticky). 표가 넓을 때만 효과.
+   overflow:hidden 으로 잘리지 않으며(래퍼는 overflow-x:auto 스크롤), 컬럼명이 항상 보인다. */
+.ict-tc-col{font-weight:700;font-size:.82rem;white-space:normal;word-break:keep-all;
+  position:sticky;left:0;background:#fff;z-index:1;box-shadow:1px 0 0 0 #e7edf3}
+.ict-table thead th.ict-tc-col{background:#eef2f7;z-index:3}
+.ict-table tbody tr.ict-row:hover .ict-tc-col{background:#f8fafc}
+.ict-col-en{white-space:nowrap}
+/* DB 코멘트(한글명) 인라인 보조 — 영문명 오른쪽, 작게/보조색/과하지 않은 굵기. 길면 줄바꿈 허용. */
+.ict-col-ko-inline{margin-left:7px;font-size:.72rem;color:var(--sub);font-weight:400;white-space:normal}
+/* PK-BADGE-COLUMN-COMMENT-AND-KEYRANGE: 드릴다운 헤더 비교키(PK/MATCH_KEY) 컬럼 배지. */
+.mv-pk-badge{display:inline-block;margin-left:5px;padding:0 5px;border-radius:7px;border:1px solid #93c5fd;
+  background:#eff6ff;color:#1d4ed8;font-size:.62rem;font-weight:700;vertical-align:middle;white-space:nowrap}
+.ict-tc-type code{font-size:.71rem;color:#475569;white-space:nowrap;background:transparent;padding:0}
+.ict-tc-sc{text-align:right;font-family:monospace;font-size:.78rem;width:36px}
+.ict-tc-stscore{white-space:nowrap;min-width:80px}
+.ict-tc-rsn{font-size:.75rem;min-width:120px;max-width:240px}
+.rsn-sentence{font-size:.74rem;color:#2c3e50;line-height:1.4;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+  word-break:break-all}
+/* NAMING-VALUE-MISMATCH-BADGE-AND-TRUNCATION-FIX: 명칭-값 불일치 후보의 사유에는 안전 경고 문구가 병기되는데
+   기본 rsn-sentence 의 2줄 클램프(-webkit-line-clamp:2 + overflow:hidden)로 가려지면 위험을 놓친다.
+   이 변형 클래스는 클램프를 풀어 전체 문장을 여러 줄로 자동 줄바꿈해 표시한다(해당 후보 셀에만 함께 부여 —
+   다른 후보 셀은 기존 2줄 클램프 유지). 한글은 어절 단위 유지(keep-all)하되, 긴 토큰은 넘칠 때만 강제 줄바꿈. */
+.rsn-sentence-full{display:block;-webkit-line-clamp:unset;-webkit-box-orient:horizontal;
+  overflow:visible;white-space:normal;word-break:keep-all;overflow-wrap:anywhere}
+.ict-tc-rmk{font-size:.72rem;min-width:110px;max-width:200px;white-space:normal}
+/* REG-DT-EXCLUSION-BADGE-INCONSISTENCY-DIAGNOSE-AND-REMARKS-TOP-ALIGN(3): 비고 셀은 기간변환 컨트롤·
+   여러 chip 으로 여러 줄이 될 수 있다. 기본 '.ict-table td{vertical-align:middle}'(specificity 0,1,1)를
+   이기도록 'td.ict-tc-rmk'(0,2,1)로 비고 td 만 상단정렬한다 — 헤더(th.ict-tc-rmk)·다른 셀(선택/역할/
+   컬럼명/점수/사유)의 중앙정렬은 그대로. */
+.ict-table td.ict-tc-rmk{vertical-align:top}
+.ict-rmk-tag{display:inline-block;margin:1px 3px 1px 0;padding:1px 6px;border-radius:3px;
+  background:#f0f4ff;color:#3d5a8a;font-size:.70rem;border:1px solid #c8d8f0;white-space:nowrap}
+.ict-tc-chk{text-align:center;width:36px}
+/* ── compact 상세 토글 ── */
+.btn-row-det{display:inline-block;margin-top:2px;padding:1px 7px;
+  font-size:.66rem;color:#5086c7;background:#eef2ff;border:1px solid #c0d0f0;
+  border-radius:3px;cursor:pointer;line-height:1.5;white-space:nowrap}
+.btn-row-det:hover{background:#dce8ff}
+/* 상세 펼쳐진 영역 */
+.row-det-wrap{margin-top:6px;padding:7px 10px;background:#f8fafc;
+  border:1px solid #e2e8f0;border-radius:5px;font-size:.74rem}
+/* 주의사항 인라인 badge (선정 사유 셀 안) */
+.cs-warn-inline{display:inline-block;font-size:.66rem;color:#c05000;
+  background:#fff5ea;border:1px solid #f8c880;border-radius:3px;
+  padding:0 5px;margin-left:4px;white-space:nowrap}
+/* ── cs-item-wrap: 하위 호환 유지 ── */
+.cs-item-wrap{margin-bottom:4px}
+/* ── candidate scoring hint (후보 근거 최소 표시) ── */
+.cs-hint{margin-top:4px;line-height:1.45}
+.cs-badge{display:inline-block;padding:0 7px;border-radius:4px;
+  font-size:.67rem;font-weight:700;white-space:nowrap;margin-bottom:2px}
+.cs-badge-high{background:#eef4fb;color:#1f5c9e}
+.cs-badge-med{background:#fff8e6;color:#8a5500}
+.cs-badge-low{background:#f4f4f4;color:#888}
+.cs-reasons{margin:2px 0 2px 12px;padding:0;list-style:disc inside;
+  font-size:.67rem;color:#555}
+.cs-reasons li{margin:0;padding:0}
+.cs-warn-hint{font-size:.67rem;color:#c05000;margin-top:2px}
+.cs-sem-weak{font-size:.67rem;color:#aaa;margin-top:2px;font-style:italic}
+/* CAUTION semantic domain 후보 — 검토 필요 (기본 추천 제외, 사용자 선택 가능) */
+.cs-badge-caution{background:#fef3c7;color:#92400e;border:1px solid #fbbf24}
+.cs-warn-caution{font-size:.67rem;color:#92400e;margin-top:2px;line-height:1.45}
+/* profile 보정 표시 블록 */
+.cs-profile-block{margin-top:3px;border-top:1px dashed #e0e0e0;padding-top:2px}
+.cs-prof-adj{display:inline-block;font-size:.62rem;font-weight:700;
+  padding:0 5px;border-radius:3px;margin-bottom:1px}
+.cs-prof-pos{background:#eef4fb;color:#1f5c9e}
+.cs-prof-neg{background:#fff0f0;color:#b91c1c}
+.cs-prof-detail{font-size:.63rem;color:#666;margin-top:1px}
+.cs-prof-warn{font-size:.63rem;color:#b45309;margin-top:1px}
+/* ── 후보 compact evidence 태그 ── */
+.ict-ev-tags{display:flex;flex-wrap:wrap;gap:2px;margin-top:3px}
+.ict-ev-tag{display:inline-block;padding:0 5px;border-radius:3px;
+  font-size:.63rem;font-weight:600;white-space:nowrap;line-height:1.6}
+.iet-pos{background:#eef4fb;color:#1f5c9e}
+.iet-caut{background:#fef3c7;color:#92400e}
+.iet-neg{background:#fee2e2;color:#991b1b}
+.iet-gray{background:#f3f4f6;color:#6b7280}
+/* ── 동점 후보 안내 (역할 내 같은 점수 후보 2개 이상) ── */
+.ict-tied-notice{font-size:.75rem;color:#6b7280;padding:4px 10px;
+  background:#f8f9fa;border-left:2px solid #d1d5db;border-radius:3px;
+  margin-bottom:6px}
+/* ── 후보 상세 full-width 행 ── */
+.ict-det-cell{padding:6px 12px;background:#f8fafc;
+  border-top:1px dashed #dbe4ee;font-size:.73rem}
+.ict-det-hdr{font-size:.72rem;font-weight:700;color:#3b82f6;margin-bottom:6px}
+
+/* ══════════════════════════════════════════════════════════════════
+   컨텐츠 영역(.page-wrapper) 스코핑 오버라이드
+   — 사이드바(<aside>)·외부 컴포넌트 충돌 방지
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── 카드 (.page-wrapper 스코핑) ── */
+.page-wrapper .card{
+  border-radius:12px!important;
+  border:1px solid #e2e8f0!important;
+  box-shadow:0 2px 10px rgba(15,23,42,.07),0 0 0 1px rgba(226,232,240,.5)!important;
+  background:#fff!important;
+  overflow:hidden!important;
+}
+.page-wrapper .card-header{
+  background:#f8fafc!important;
+  border-bottom:1px solid #e2e8f0!important;
+  padding:13px 18px!important;
+}
+.page-wrapper .card-title{
+  font-size:.93rem!important;
+  font-weight:700!important;
+  color:var(--text)!important;
+  margin-bottom:0!important;
+  letter-spacing:-.01em!important;
+}
+.page-wrapper .card-body{
+  padding:16px 18px!important;
+}
+.page-wrapper .card-footer{
+  background:#f8fafc!important;
+  border-top:1px solid #e2e8f0!important;
+  padding:11px 18px!important;
+}
+
+/* ── 버튼 (.page-wrapper 스코핑 — 사이드바 토글러 등 제외) ── */
+.page-wrapper .btn{
+  border-radius:7px!important;
+  font-weight:600!important;
+  font-size:.84rem!important;
+  line-height:1.5!important;
+  transition:background .15s,border-color .15s,box-shadow .15s!important;
+}
+.page-wrapper .btn-primary{
+  background:var(--primary)!important;
+  border-color:var(--primary)!important;
+  color:#fff!important;
+}
+.page-wrapper .btn-primary:hover,.page-wrapper .btn-primary:focus{
+  background:var(--primary-d)!important;
+  border-color:var(--primary-d)!important;
+  box-shadow:0 0 0 3px rgba(59,130,246,.2)!important;
+}
+.page-wrapper .btn-secondary{
+  background:#fff!important;
+  border-color:#cbd5e1!important;
+  color:#475569!important;
+}
+.page-wrapper .btn-secondary:hover{
+  background:#f1f5f9!important;
+  border-color:#94a3b8!important;
+  color:#334155!important;
+}
+.page-wrapper .btn-success{
+  background:var(--high)!important;
+  border-color:var(--high)!important;
+  color:#fff!important;
+}
+.page-wrapper .btn-success:hover{
+  background:#15803d!important;
+  border-color:#15803d!important;
+}
+.page-wrapper .btn-danger{
+  background:#ef4444!important;
+  border-color:#ef4444!important;
+  color:#fff!important;
+}
+.page-wrapper .btn-danger:hover{
+  background:#dc2626!important;
+  border-color:#dc2626!important;
+}
+.page-wrapper .btn-warning{
+  background:#f59e0b!important;
+  border-color:#f59e0b!important;
+  color:#fff!important;
+}
+.page-wrapper .btn-outline-primary{
+  color:var(--primary)!important;
+  border-color:var(--primary)!important;
+  background:transparent!important;
+}
+.page-wrapper .btn-outline-primary:hover{
+  background:var(--primary)!important;
+  color:#fff!important;
+}
+.page-wrapper .btn-outline-secondary{
+  color:#64748b!important;
+  border-color:#cbd5e1!important;
+  background:#fff!important;
+}
+.page-wrapper .btn-outline-secondary:hover{
+  background:#f1f5f9!important;
+  color:#334155!important;
+  border-color:#94a3b8!important;
+}
+.page-wrapper .btn-outline-danger{
+  color:#ef4444!important;
+  border-color:#fca5a5!important;
+  background:#fff!important;
+}
+.page-wrapper .btn-outline-danger:hover{
+  background:#fef2f2!important;
+  color:#b91c1c!important;
+  border-color:#ef4444!important;
+}
+.page-wrapper .btn-sm{font-size:.8rem!important;padding:5px 12px!important;border-radius:6px!important}
+.page-wrapper .btn-lg{font-size:.95rem!important;padding:10px 22px!important;border-radius:8px!important}
+
+/* ── 폼 입력 (.page-wrapper 스코핑) ── */
+.page-wrapper .form-control,.page-wrapper .form-select{
+  border-color:#cbd5e1!important;
+  border-radius:7px!important;
+  font-size:.85rem!important;
+  color:var(--text)!important;
+  background:#fff!important;
+  transition:border-color .15s,box-shadow .15s!important;
+}
+.page-wrapper .form-control:focus,.page-wrapper .form-select:focus{
+  border-color:var(--primary)!important;
+  box-shadow:0 0 0 3px rgba(59,130,246,.12)!important;
+  outline:none!important;
+}
+.page-wrapper .form-control-sm,.page-wrapper .form-select-sm{
+  font-size:.8rem!important;
+  border-radius:6px!important;
+}
+.page-wrapper .form-label{
+  font-weight:600!important;
+  font-size:.82rem!important;
+  color:#475569!important;
+  margin-bottom:.35rem!important;
+}
+.page-wrapper .form-check-input:checked{
+  background-color:var(--primary)!important;
+  border-color:var(--primary)!important;
+}
+.page-wrapper .input-group-text{
+  border-color:#cbd5e1!important;
+  background:#f8fafc!important;
+  color:#64748b!important;
+  font-size:.85rem!important;
+  border-radius:7px!important;
+}
+
+/* ── 정책 자동선정 개수 비활성 입력 표현 ──
+   "현재 모드에서 미적용/선택불가" 를 분명히 보이게 한다(정책상제외처럼 강한 빨강은 피함).
+   값은 읽혀야 하므로 opacity 는 과도하게 낮추지 않는다. */
+.page-wrapper select.mv-policy-input-disabled,
+.page-wrapper select.mv-policy-input-disabled:disabled{
+  background-color:#f1f5f9!important;   /* 연회색 배경 */
+  border-color:#e2e8f0!important;       /* 테두리 흐림 */
+  color:#94a3b8!important;              /* 글자색 muted (값은 읽힘) */
+  cursor:not-allowed!important;
+  opacity:1!important;                  /* 값 가독성 유지 */
+  box-shadow:none!important;            /* focus ring 제거 */
+}
+.page-wrapper select.mv-policy-input-disabled:focus{
+  box-shadow:none!important;
+  border-color:#e2e8f0!important;
+}
+
+/* ── 표 (.page-wrapper 스코핑) ── */
+.page-wrapper .table thead th,.page-wrapper .table thead td{
+  background:#eef2f7!important;
+  color:#334155!important;
+  font-weight:700!important;
+  font-size:.78rem!important;
+  border-bottom:2px solid #d1d9e4!important;
+  padding:9px 12px!important;
+  white-space:nowrap!important;
+}
+.page-wrapper .table tbody tr:hover>td,.page-wrapper .table tbody tr:hover>th{
+  background:#f8fafc!important;
+}
+.page-wrapper .table td,.page-wrapper .table th{
+  border-color:#f1f5f9!important;
+  padding:8px 12px!important;
+  vertical-align:middle!important;
+}
+.page-wrapper .table-responsive{
+  border-radius:8px!important;overflow:hidden!important;border:1px solid #e2e8f0!important}
+
+/* ── 배지 형태 (전역 — 상태 표시 필수, 충돌 위험 낮음) ── */
+.badge{
+  border-radius:5px!important;
+  font-size:.73rem!important;
+  font-weight:700!important;
+  padding:3px 8px!important;
+  letter-spacing:.01em!important;
+}
+/* 배지 색상은 .bg-* 특이도 사용 → 사이드바 배지에도 무해 */
+.badge.bg-success{background:var(--st-success-bg)!important;color:var(--st-success-fg)!important;border:1px solid var(--st-success-bd)!important}
+.badge.bg-danger {background:var(--st-danger-bg)!important;color:var(--st-danger-fg)!important;border:1px solid var(--st-danger-bd)!important}
+.badge.bg-warning{background:var(--st-warning-bg)!important;color:var(--st-warning-fg)!important;border:1px solid var(--st-warning-bd)!important}
+.badge.bg-info   {background:#dbeafe!important;color:#1e40af!important;border:1px solid #93c5fd!important}
+.badge.bg-secondary{background:#f1f5f9!important;color:#475569!important;border:1px solid #cbd5e1!important}
+.badge.bg-primary{background:#dbeafe!important;color:#1e40af!important;border:1px solid #93c5fd!important}
+
+/* ── 사이드바 (Tabler 다크 네이비 — SaaS 관리자 톤) ──
+   색상 토큰(이 블록 내 일관 적용):
+     bg      #1b2436 / #161d2c (네이비 그라데이션)
+     text    #c2cad8 (비선택)  ·  muted #818da4 (아이콘/섹션)
+     hover   bg rgba(255,255,255,.06) + text #fff
+     active  밝은 파란색 #2f6fed 하이라이트 + 흰색 텍스트 + 좌측 액센트 */
+/* nxDTV 시안: 밝은 SaaS 사이드바(흰색) — 정확한 색상 기준 적용 */
+.navbar-vertical{
+  width:260px!important;
+  border-right:1px solid #e2e8f0!important;
+  background:#FFFFFF!important;
+  box-shadow:1px 0 0 rgba(15,23,42,.02)!important;
+}
+/* 기본 상태: 비선택 메뉴 — 본문 텍스트 #344054 + 아이콘 #7A8AA0 */
+.navbar-vertical .navbar-nav .nav-link,
+.navbar-vertical .navbar-nav .nav-link .nav-link-title,
+.navbar-vertical .navbar-nav .nav-link .nav-link-icon,
+.navbar-vertical .navbar-nav .nav-link svg{
+  color:#475569!important;
+  border-radius:7px!important;
+  transition:background .15s ease,color .15s ease!important;
+}
+.navbar-vertical .navbar-nav .nav-link .nav-link-icon,
+.navbar-vertical .navbar-nav .nav-link svg{ color:#64748b!important; }
+.navbar-vertical .navbar-nav .nav-link{
+  margin:0 12px!important;
+  padding:10px 12px!important;
+  min-height:38px!important;
+  display:flex!important;
+  align-items:center!important;
+  gap:12px!important;
+  line-height:1.2!important;
+  border-left:0!important;
+  border-radius:7px!important;
+}
+.navbar-vertical .navbar-nav .nav-link .nav-link-icon svg,
+.navbar-vertical .navbar-nav .nav-link svg{ width:17px!important; height:17px!important; }
+.navbar-vertical .nav-item.mv-nav-child .nav-link svg{ width:17px!important; height:17px!important; }
+.navbar-vertical .nav-link.active .nav-link-title{ font-weight:800!important; }
+.navbar-vertical .mv-nav-subwrap{ margin-bottom:6px; }
+.navbar-vertical .mv-grouphead{ margin-top:20px; }
+/* hover/focus */
+.navbar-vertical .navbar-nav .nav-link:hover,
+.navbar-vertical .navbar-nav .nav-link:focus,
+.navbar-vertical .navbar-nav .nav-link:hover .nav-link-title,
+.navbar-vertical .navbar-nav .nav-link:hover .nav-link-icon,
+.navbar-vertical .navbar-nav .nav-link:hover svg{
+  background:#F3F7FE!important;
+  color:#2563EB!important;
+}
+/* active — 연한 파란 배경 #EAF2FF + 파란 텍스트/아이콘 #2563EB + 좌측 파란 액센트 */
+.navbar-vertical .navbar-nav .nav-link.active,
+.navbar-vertical .navbar-nav .nav-link.active .nav-link-title,
+.navbar-vertical .navbar-nav .nav-link.active .nav-link-icon,
+.navbar-vertical .navbar-nav .nav-link.active svg,
+.navbar-vertical .nav-item.active .nav-link,
+.navbar-vertical .nav-item.active .nav-link .nav-link-title{
+  background:#eff6ff!important;
+  color:#2563eb!important;
+  border-left-color:#2563EB!important;
+  box-shadow:none!important;
+}
+/* nav-link-title 항상 표시 */
+.navbar-vertical .nav-link-title{
+  font-size:13.5px!important;
+  font-weight:600!important;
+  color:inherit!important;
+  display:inline!important;
+  visibility:visible!important;
+  opacity:1!important;
+}
+
+/* ── 메뉴 그룹 라벨(클릭 불가 섹션 헤더) ── */
+.navbar-vertical .mv-nav-group{
+  list-style:none;
+  padding:14px 14px 4px;
+  font-size:.66rem;
+  font-weight:700;
+  letter-spacing:.08em;
+  color:#6f7a91;
+  text-transform:uppercase;
+}
+/* ── accordion 그룹 헤더(클릭 시 펼침/접힘) ── */
+.navbar-vertical .mv-grouphead .nav-link.mv-grouptoggle{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:0 24px!important;
+  margin:0 0 9px!important;
+  min-height:20px!important;
+  font-size:12px;
+  font-weight:800;
+  letter-spacing:.01em;
+  color:#7f8fa4!important;
+  cursor:pointer;
+  border-radius:0;
+  background:transparent!important;
+}
+/* 상위메뉴 제목과 첫 번째 하위메뉴 사이 간격 축소 (24px→4px, 제목이 첫 하위메뉴에 조금 더 붙도록) — 그룹 간 큰 구분감(margin-top)은 불변 */
+.navbar-vertical .mv-grouphead{ margin-bottom:4px!important; }
+.navbar-vertical .mv-grouphead .nav-link.mv-grouptoggle{ color:#7f8fa4!important; }
+.navbar-vertical .mv-grouphead .nav-link.mv-grouptoggle:hover{
+  background:#F3F7FE!important;
+  color:#344054!important;
+}
+.navbar-vertical .mv-grouphead .nav-link-title{ font-size:12px!important; font-weight:800!important; color:#7f8fa4!important; letter-spacing:.01em; }
+.navbar-vertical .mv-caret{
+  font-size:13px!important;
+  line-height:1;
+  color:#98a2b3;
+  margin-left:8px;
+  transition:none;
+}
+/* ── 하위 메뉴 wrapper(접힘 시 숨김) ── */
+.navbar-vertical .mv-nav-subwrap{ list-style:none; padding:0; }
+.navbar-vertical .mv-nav-subwrap.mv-collapsed{ display:none!important; }
+.navbar-vertical .mv-nav-subwrap > .navbar-nav{ padding:0; }
+/* 그룹 하위 항목 들여쓰기 — reference: 메뉴 항목은 그룹 제목과 거의 동일 깊이(과한 들여쓰기 금지) */
+.navbar-vertical .nav-item.mv-nav-child .nav-link{ padding-left:12px!important; }
+/* 하위 메뉴 텍스트(reference menu-item: 13.5px/600/#475569) — 섹션 제목/여백/색상/아이콘 불변 */
+.navbar-vertical .nav-item.mv-nav-child .nav-link .nav-link-title{ font-size:13.5px!important; font-weight:600!important; color:#475569!important; }
+/* ── 준비중(미구현) 메뉴 — disabled, 클릭 시 무동작 ── */
+.navbar-vertical .nav-link.mv-nav-soon{
+  opacity:.38!important;
+  cursor:not-allowed!important;
+}
+.navbar-vertical .nav-link.mv-nav-soon:hover{ background:transparent!important; }
+.navbar-vertical .mv-soon-badge{
+  margin-left:6px;
+  font-size:.62rem;
+  font-weight:600;
+  padding:1px 6px;
+  border-radius:8px;
+  background:#EEF2F7;
+  color:#667085;
+  vertical-align:middle;
+}
+.navbar-vertical .mv-nav-hint{
+  display:block;
+  font-size:.66rem;
+  font-weight:400;
+  color:#98A2B3;
+  margin-top:1px;
+}
+/* 활성 메뉴(연한 파랑)의 hint/soon-badge 대비 보정 */
+.navbar-vertical .navbar-nav .nav-link.active .mv-nav-hint{ color:#3B6FD0!important; }
+.navbar-vertical .navbar-nav .nav-link.active .mv-soon-badge{ background:#DBEAFE!important; color:#1E40AF!important; }
+/* ── 사이드바 브랜드(로고 영역) — 다크 대비 ── */
+/* nxDTV 브랜드(밝은 사이드바) — 남색 제목 #10233F + 회색 서브 #667085 */
+/* reference logo-section: 높이 78, 로고마크 35px gradient + 텍스트 16/800 + sub 11.5/#64748b */
+.navbar-vertical .navbar-brand.mv-brand{ flex-direction:row!important; align-items:center!important; justify-content:flex-start;
+  min-height:78px; padding:18px 22px!important; gap:13px; border-bottom:1px solid #f1f5f9; margin-bottom:6px; text-decoration:none; }
+.mv-brand .mv-brand-mark{ width:35px; height:35px; border-radius:10px; flex:0 0 35px;
+  background:linear-gradient(135deg,#60a5fa,#2563eb); display:grid; place-items:center;
+  color:#fff; font-weight:900; font-size:18px; box-shadow:0 8px 18px rgba(37,99,235,.2); }
+.mv-brand .mv-brand-text{ display:flex; flex-direction:column; gap:3px; min-width:0; }
+.mv-brand .mv-brand-title{ font-size:16px!important; font-weight:800!important; color:#0f172a!important; letter-spacing:-.01em; line-height:1.2; }
+.mv-brand .mv-brand-sub{ font-size:11.5px!important; font-weight:500!important; color:#64748b!important; letter-spacing:0; line-height:1.2; }
+/* 사이드바 전용 스크롤바(다크) */
+.navbar-vertical::-webkit-scrollbar-track{ background:transparent; }
+.navbar-vertical::-webkit-scrollbar-thumb{ background:#E2E8F0; border-radius:8px; }
+.navbar-vertical::-webkit-scrollbar-thumb:hover{ background:#CBD5E1; }
+
+/* ── 상단 헤더 (사이드바 제외) ── */
+.navbar:not(.navbar-vertical){
+  background:#fff!important;
+  border-bottom:1px solid #e2e8f0!important;
+  box-shadow:0 1px 4px rgba(15,23,42,.06)!important;
+}
+
+/* ── 알림 (Tabler .alert) ── */
+.alert{border-radius:9px!important;border:1px solid transparent!important;font-size:.85rem!important}
+.alert-info{background:#eff6ff!important;border-color:#bfdbfe!important;color:#1e40af!important}
+.alert-warning{background:#fffbeb!important;border-color:#fde68a!important;color:#92400e!important}
+.alert-danger{background:#fef2f2!important;border-color:#fecaca!important;color:#991b1b!important}
+.alert-success{background:#f0fdf4!important;border-color:#bbf7d0!important;color:#15803d!important}
+
+/* ── mtbl 최종 강화 (Tabler 상속 경쟁 해결) ── */
+.mtbl th{background:#eef2f7!important;color:#334155!important;
+  padding:8px 10px!important;border-bottom:2px solid #d1d9e4!important;
+  font-size:.76rem!important;font-weight:700!important;letter-spacing:.02em!important}
+.mtbl td{padding:7px 10px!important;border-bottom:1px solid #f1f5f9!important;color:var(--text)!important}
+.mtbl tr:hover td{background:#f8fafc!important}
+
+/* ── ict-table 최종 강화 ── */
+.ict-table th{background:#eef2f7!important;color:#334155!important;
+  padding:7px 8px!important;border-bottom:2px solid #d1d9e4!important;
+  font-size:.74rem!important;font-weight:700!important}
+.ict-table td{padding:6px 8px!important;border-bottom:1px solid #f1f5f9!important;color:var(--text)!important}
+.ict-table tbody tr.ict-row:hover td{background:#f8fafc!important}
+
+/* ── 페이지 제목 / 헤더 ── */
+.page-title{font-weight:700!important;color:var(--text)!important;font-size:1.15rem!important}
+.page-pretitle{font-size:.72rem!important;font-weight:600!important;
+  text-transform:uppercase!important;letter-spacing:.06em!important;color:var(--sub)!important}
+.page-header{padding-bottom:16px!important;margin-bottom:20px!important;
+  border-bottom:1px solid #e2e8f0!important}
+
+/* ── 탭 ── */
+.nav-tabs .nav-link{border-radius:7px 7px 0 0!important;font-size:.84rem!important;
+  color:#64748b!important;border-color:transparent!important}
+.nav-tabs .nav-link:hover{background:#f1f5f9!important;color:#334155!important}
+.nav-tabs .nav-link.active{background:#fff!important;border-color:#e2e8f0 #e2e8f0 #fff!important;
+  color:var(--primary)!important;font-weight:700!important}
+
+/* ── 스크롤바 (Webkit) ── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:#f8fafc}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ── 카드 내 섹션 선 ── */
+hr.div{border-top:1px solid #f1f5f9!important;margin:14px 0!important}
+
+/* ═══════════════════════════════════════════════════════════════
+   일괄검증 탭(#tab-batch) 전용 디자인 — 전역 override 최소화
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── 탭 카드 간격 정리 ── */
+#tab-batch .card{margin-bottom:14px!important}
+#tab-batch .card-header{padding:11px 16px!important}
+#tab-batch .card-body{padding:13px 16px!important}
+#tab-batch .card-title{font-size:.91rem!important;font-weight:700!important}
+
+/* ── 탭 최상단 안내 배너 ── */
+#tab-batch > .mv-tab > div:first-child,
+.batch-info-banner{
+  background:#f0f6ff;border-left:3px solid #3b82f6;
+  border-radius:7px;padding:9px 14px;font-size:.83rem;
+  color:#334155;margin-bottom:14px}
+
+/* ── 그룹 선택 관련 배너/힌트 ── */
+#batchCurrentGroupBanner{
+  background:#eff6ff!important;border-left:3px solid #3b82f6!important;
+  border-radius:7px!important;padding:8px 12px!important;
+  font-size:.82rem!important;color:#1e40af!important}
+#batchGroupRequiredHint{
+  background:#fffbeb!important;border-left:4px solid #f59e0b!important;
+  border-radius:7px!important;color:#78350f!important;
+  padding:8px 12px!important;font-size:.83rem!important}
+#batchConnStatus{
+  background:#f8fafc!important;border-left:3px solid #94a3b8!important;
+  border-radius:7px!important;font-size:.82rem!important;color:#475569!important}
+#batchGroupConnStatus{
+  background:#f8fafc!important;border-radius:6px!important;
+  border:1px solid #e2e8f0!important;font-size:.82rem!important}
+
+/* ── 고위험 경고 배너 ── */
+#batchColumnEntryHighRiskWarn{
+  background:#fef2f2!important;border-left:4px solid #ef4444!important;
+  border:1px solid #fecaca!important;border-radius:7px!important;
+  color:#7f1d1d!important;padding:10px 14px!important}
+
+/* ── 진입 정책 요약 결과 ── */
+#batchColumnEntrySummary{
+  background:#eff6ff!important;border-left:3px solid #3b82f6!important;
+  border:1px solid #bfdbfe!important;border-radius:7px!important}
+
+/* ── 후보 선정 완료 결과 ── */
+#batchCandGenResult{
+  background:#f0fdf4!important;border-left:3px solid #16a34a!important;
+  border:1px solid #bbf7d0!important;border-radius:7px!important}
+
+/* ── 검증 정책 레이블 박스 ── */
+#batchCurrentPolicyLabel{
+  display:flex!important;align-items:center!important;flex-wrap:wrap!important;gap:5px!important;
+  background:#f8fafc!important;border:1px solid #e2e8f0!important;border-radius:7px!important;
+  padding:7px 12px!important;font-size:.82rem!important;color:#64748b!important;
+  margin-bottom:10px!important}
+#batchCurrentPlanModeLabel{
+  color:#1e40af!important;font-weight:700!important;font-size:.83rem!important}
+
+/* ── 실행 영역 (계획 생성 후 표시) ── */
+#batchStatsExecuteArea{
+  background:#f8fafc!important;border:1px solid #e2e8f0!important;
+  border-radius:8px!important;padding:13px 14px!important;margin-top:12px!important}
+
+/* ── 진행률 영역 ── */
+#batchExecProgressArea > div:first-child{color:#475569!important}
+#batchExecProgressBar{background:var(--primary)!important;border-radius:4px!important}
+#batchExecCurrentPlan{color:#64748b!important;font-size:.78rem!important;margin-top:4px!important}
+
+/* ── 새 그룹 생성 폼 ── */
+#batchNewGroupForm{
+  background:#f8fafc!important;border-radius:7px!important;
+  padding:12px 14px!important;border:1px solid #e2e8f0!important}
+
+/* ── 업로드 로딩 영역 ── */
+#batchUploadLoading{
+  background:#eff6ff!important;border-radius:7px!important;border:1px solid #bfdbfe!important}
+
+/* ── batchRunListCard 내부 표 ── */
+#batchRunListCard .mtbl th,
+#batchColumnCandidateSnapshotCard .ict-table th{
+  font-size:.74rem!important;letter-spacing:.02em!important}
+
+/* ── COUNT 검증 영역 ── */
+#batchCountResultDiv{border-radius:7px!important}
+
+/* ── 통계검증계획 실행 결과표 ── */
+#batchStatsExecuteList .mtbl{border:1px solid #e2e8f0;border-radius:8px;overflow:hidden}
+#batchStatsExecuteList .mtbl th{font-size:.74rem!important}
+#batchStatsExecuteSummary{
+  background:#f8fafc;border-radius:7px;
+  border:1px solid #e2e8f0;padding:10px 12px;
+  font-size:.83rem;color:#334155;line-height:1.7}
+
+/* ── 안전 실행 안내 텍스트 ── */
+#batchStatsExecuteArea > div:first-child > span{
+  font-size:.79rem!important;color:#64748b!important}
+
+/* ── 검증 진행 카드 ── */
+#batchValidCard .card-body > div:first-child{margin-bottom:10px!important}
+
+/* ── 상태 배지 일관화 (batchStatsExecuteList 내) ── */
+#batchStatsExecuteList .mv-badge-success{font-size:.72rem!important;padding:2px 7px!important}
+#batchStatsExecuteList .mv-badge-danger{font-size:.72rem!important;padding:2px 7px!important}
+#batchStatsExecuteList .mv-badge-warning{font-size:.72rem!important;padding:2px 7px!important}
+#batchStatsExecuteList .mv-badge-muted{font-size:.72rem!important;padding:2px 7px!important}
+
+/* ═══════════════════════════════════════════════════════════════
+   개별검증 탭(#tab-analyze) 전용 디자인
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── 탭 카드 간격 ── */
+#tab-analyze .card{margin-bottom:14px!important}
+#tab-analyze .card-header{padding:11px 16px!important}
+#tab-analyze .card-body{padding:13px 16px!important}
+#tab-analyze .card-title{font-size:.91rem!important;font-weight:700!important}
+
+/* ── 안내 배너 (보조 도구 안내) ── */
+#tab-analyze > .mv-tab > div:first-child,
+.analyze-info-banner{
+  background:#f0f6ff;border-left:3px solid #3b82f6;
+  border-radius:7px;padding:9px 14px;font-size:.83rem;
+  color:#334155;margin-bottom:14px}
+
+/* ── 일괄검증 연동 컨텍스트 배너 ── */
+#batchContextBanner{
+  background:#eff6ff!important;border-left:3px solid #3b82f6!important;
+  border-radius:7px!important;padding:8px 14px!important;
+  font-size:.82rem!important;color:#1e40af!important;margin-bottom:12px!important}
+
+/* ── SQL 입력 영역 내 인라인 박스 ──
+   [SQL-INPUT-HEIGHT-AND-WHERE-NOTICE-CONSOLIDATE-FIX] #tgtWhereWarn 규칙 삭제 —
+   해당 엘리먼트를 제거했으므로 남겨두면 죽은 규칙이 된다. */
+#tgtWhereInfo{
+  background:#eff6ff!important;border-left:3px solid #3b82f6!important;
+  border-radius:6px!important;font-size:.79rem!important;margin-top:6px!important}
+
+/* ── 고급옵션 (DDL 직접입력) summary ── */
+#tab-analyze details > summary{
+  font-size:.85rem!important;font-weight:600!important;
+  color:var(--primary)!important;padding:7px 10px!important;
+  background:#f8fafc!important;border-radius:6px!important;
+  border:1px solid #e2e8f0!important;cursor:pointer!important}
+
+/* ── [버튼 통일] btn-run: 개별검증 주요 실행 버튼 — 공통 outline 톤(기능/onclick/disabled 불변).
+   #tab-analyze 특이도/!important 로 통일 스타일을 강제(과거 solid blue 정의 대체). ── */
+#tab-analyze .btn-run,
+.btn-run{
+  display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:6px!important;
+  background:#ffffff!important;color:#0b65c2!important;border:1px solid #1d6fd8!important;border-radius:10px!important;
+  min-height:38px!important;padding:0 17px!important;font-size:14px!important;font-weight:600!important;
+  box-shadow:none!important;cursor:pointer!important;transition:all .15s!important;letter-spacing:.01em!important}
+#tab-analyze .btn-run:hover,
+.btn-run:hover{background:#eef6ff!important;border-color:#0b65c2!important;color:#0b65c2!important}
+.btn-run:disabled,#tab-analyze .btn-run:disabled{background:#f3f4f6!important;border-color:#d1d5db!important;color:#9ca3af!important;cursor:not-allowed!important}
+.btn-run:disabled:hover,#tab-analyze .btn-run:disabled:hover{background:#f3f4f6!important;border-color:#d1d5db!important;color:#9ca3af!important}
+
+/* ── SQL 분석 결과 영역 내 from-row ── */
+#tab-analyze .from-row{
+  background:#f8fafc!important;border:1px solid #e2e8f0!important;
+  border-radius:7px!important;padding:8px 12px!important}
+
+/* ── conf-banner 개별검증 내 ── */
+#tab-analyze .conf-banner{border-radius:8px!important;margin-bottom:12px!important}
+
+/* ── sql-box 개별검증 내 ── */
+#tab-analyze .sql-box,
+.sql-box{
+  background:#f1f5f9!important;color:#334155!important;
+  border:1px solid #e2e8f0!important;border-radius:8px!important;
+  padding:14px 16px!important;font-size:.82rem!important;
+  line-height:1.7!important;overflow-x:auto!important;white-space:pre!important}
+
+/* ── warn-box ── */
+.warn-box{
+  background:#fffbeb!important;border-left:4px solid #f59e0b!important;
+  border-radius:7px!important;padding:9px 13px!important;
+  margin-bottom:10px!important;font-size:.8rem!important;color:#78350f!important}
+.warn-box.fail{
+  background:#fef2f2!important;border-color:#ef4444!important;color:#7f1d1d!important}
+
+/* ── WHERE 박스 ── */
+.where-box{
+  background:#f8fafc!important;border-radius:6px!important;
+  border-left:3px solid #e2e8f0!important;
+  padding:9px 12px!important;font-size:.8rem!important;color:var(--text)!important}
+
+/* ── 초기화 버튼 ── */
+#resetWorkBtn{
+  padding:7px 14px!important;
+  background:#f1f5f9!important;border:1px solid #cbd5e1!important;
+  border-radius:7px!important;font-size:.83rem!important;
+  color:#475569!important;font-weight:600!important;
+  cursor:pointer!important;transition:background .15s!important}
+#resetWorkBtn:hover{background:#e2e8f0!important;color:#334155!important}
+
+/* ── 컬럼 정책 안내 개별검증 내 ── */
+#tab-analyze .col-policy-notice{
+  background:#faf5ff!important;border-left:4px solid #8b5cf6!important;
+  border-radius:7px!important;border:1px solid #ddd6fe!important}
+
+/* ═══════════════════════════════════════════════════════════════
+   개별검증 공통 디자인 정돈(레이아웃·여백·배너·버튼·배지 — 기능/판정/흐름 무변경)
+   기존 element id/handler/JS 함수명 유지, CSS 와 class 추가만으로 정리한다.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* (#8) 상단 보조 안내 → 공통 info banner. 빈 배너는 여백 차지 안 함(#17). */
+/* STAGE-STEP-HINT-REMOVE: 안내 배너가 #tab-analyze 밖(단계 탭 바로 위)으로 이동해 selector 의
+   `#tab-analyze ` 한정을 제거한다. 선언(배경·테두리·여백)은 종전과 동일 — 외형 변경 없음. */
+.analyze-info-banner{
+  background:#f0f6ff!important;border:none!important;border-left:3px solid #3b82f6!important;
+  border-radius:7px!important;padding:9px 14px!important;font-size:.82rem!important;
+  color:#334155!important;margin-bottom:12px!important;line-height:1.55!important}
+#autoConnBanner:empty,#batchContextBanner:empty,#fmtBanner:empty,#confBanner:empty,
+#sqlLimitBanner:empty,#providerModeBanner:empty,#singleQueryDoneNote:empty{
+  display:none!important;margin:0!important;padding:0!important;border:none!important}
+
+/* (#9) SQL 입력 textarea 가독성 — 높이·내부여백·placeholder.
+   [SQL-INPUT-HEIGHT-AND-WHERE-NOTICE-CONSOLIDATE-FIX] 기본 높이 150px → 225px(1.5배).
+   여러 줄 SQL 을 스크롤 없이 더 많이 보이게 한다. 줄 수가 많아지면 기존 _adjustSqlRows
+   가 rows 를 늘려 이보다 더 커지는 동작은 그대로다(min-height 는 하한선). */
+#sqlInput{min-height:225px!important;padding:12px 14px!important;font-size:.84rem!important;
+  line-height:1.6!important;border-radius:8px!important;border:1px solid #d8dee9!important}
+#sqlInput::placeholder{color:#9aa6b2!important}
+#tab-analyze .mv-section-label{margin-bottom:8px!important}
+
+/* (#10) '현재 작업 초기화' — 보조 버튼 톤(우측 정렬은 기존 flex 유지). */
+#resetWorkBtn{font-weight:600!important}
+
+/* (#13) batch_run_id 조회 form — 한 줄 정렬 + 모바일 줄바꿈. */
+#tab-analyze .mv-inline-form{display:flex!important;gap:8px!important;align-items:center!important;
+  flex-wrap:wrap!important;margin-bottom:6px!important}
+#tab-analyze .mv-inline-form input[type=text]{flex:1 1 200px!important;min-width:150px!important}
+
+/* (#14) 목적지 검증 범위 조건 — label·입력창·안내문을 한 section 으로. */
+#tab-analyze .mv-where-section{background:#fbfcfe!important;border:1px solid #eef1f5!important;
+  border-radius:9px!important;padding:11px 13px!important;margin-top:12px!important}
+
+/* (#15) 하단 액션 — 분석실행=primary(.btn-run), 다음=secondary 규격. */
+#tab-analyze .mv-single-query-bottom-actions{display:flex!important;gap:10px!important;
+  justify-content:center!important;align-items:center!important;margin-top:16px!important;flex-wrap:wrap!important}
+/* (#singleGoCountStepBtn 전용 스타일 제거 — footer '다음 →' 버튼 삭제됨) */
+
+/* (#16) 고급옵션 — 접힌 간결 accordion. */
+#singleAdvancedDevSection{margin-top:16px!important;border-top:1px dashed #e3e8ef!important;padding-top:10px!important}
+#singleAdvancedDevSection > summary{font-size:.83rem!important}
+#singleRunStandardCard{background:#fbfcfe!important;border:1px solid #eef1f5!important;border-radius:8px!important}
+
+/* (#7) 진행 단계 영역 — 높이·간격 축소.
+   [COUNT-SQL-SECTION-COLLAPSE-INDENT-HEIGHT-COPY-REMOVE-FIX 추가③] 1단계와 2단계의 제목·박스 세로
+   위치를 일치시킨다. 실측 결과 두 단계의 차이(38.29px)는 ⓐ 단계 탭 바의 '2단계 처리시간' 줄
+   (24.28px, 추가① 로 제거) + ⓑ 이 #stickyProgressBar 가 차지하던 14px 로 정확히 나뉜다.
+   ⓑ 는 1단계 카드(#queryReviewCard, mvResultArea 밖)에는 없고 2~5단계 카드 위에만 있는데,
+   이 바는 지금 아무것도 그리지 않는 잔재다 — 자식 #singleStepNav 는 어디에서도 채우지 않고
+   (단계 탭은 전역 #mvStepNavBar 담당), .sp-row-steps 는 인라인 display:none, #sp-rowInfo 는
+   _setSpInfo 가 항상 'none' 으로 되돌린다. 남는 것은 장식용 2px border-bottom + 상하 margin
+   12px 뿐이라 세로 공간만 점유했다. 그 죽은 공간만 회수한다(요소·display 상태는 그대로 두어
+   spb.style.display='' 로 켜는 기존 JS 호출부와 계약이 어긋나지 않는다).
+   음수 margin·absolute 미사용 — 빈 상자의 테두리/여백을 0 으로 만들 뿐이다. */
+#stickyProgressBar{margin:0!important;border-bottom:0!important;box-shadow:none!important}
+#singleStepNav{margin:0!important}
+
+/* (#17,#19) 과도한 세로 여백·가로 스크롤 방지(좁은 폭/1366·1920 대응). */
+#tab-analyze .card.mb-3{margin-bottom:12px!important}
+#tab-analyze textarea,#tab-analyze input[type=text],#tab-analyze pre,#tab-analyze .sql-box{max-width:100%!important}
+#tab-analyze{overflow-x:hidden!important}
+
+/* ═══════════════════════════════════════════════════════════════
+   검증정책설정 탭(#tab-policy) 전용 디자인
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── 탭 카드 간격 ── */
+#tab-policy .card{margin-bottom:14px!important}
+#tab-policy .card-header{padding:11px 16px!important}
+#tab-policy .card-body{padding:14px 18px!important}
+#tab-policy .card-title{font-size:.91rem!important;font-weight:700!important}
+
+/* ── 페이지 헤더 ── */
+#tab-policy .page-header{
+  padding-bottom:12px!important;margin-bottom:16px!important;
+  border-bottom:1px solid #e2e8f0!important}
+#tab-policy .page-title{
+  font-size:1.05rem!important;font-weight:700!important;color:var(--text)!important}
+#tab-policy .text-secondary{font-size:.82rem!important;color:#64748b!important;line-height:1.6!important}
+
+/* ── 정책 select/label ── */
+#tab-policy .form-label{
+  font-size:.83rem!important;font-weight:700!important;
+  color:#334155!important;margin-bottom:.4rem!important}
+#tab-policy .form-select{
+  font-size:.85rem!important;border-color:#cbd5e1!important;
+  border-radius:7px!important;max-width:280px!important}
+#tab-policy .form-select:focus{
+  border-color:var(--primary)!important;
+  box-shadow:0 0 0 3px rgba(59,130,246,.12)!important}
+#tab-policy small.text-muted{
+  font-size:.78rem!important;color:#64748b!important;
+  margin-top:.35rem!important;display:block!important;line-height:1.55!important}
+
+/* ── 저장/복원 버튼 영역 ── */
+#tab-policy .d-flex.gap-2{
+  padding:4px 0!important;gap:10px!important}
+
+/* ── 적용 범위 안내 리스트 ── */
+#tab-policy .card ul{
+  font-size:.83rem!important;color:#475569!important;
+  padding-left:20px!important;line-height:1.8!important;margin-bottom:0!important}
+#tab-policy .card ul li{margin-bottom:2px!important}
+
+/* ── 정책 저장 메시지 영역 ── */
+#policyMsg{border-radius:7px!important}
+
+/* ── 후보 산정 대상 테이블 card body ── */
+#tab-policy .card-body[style*="padding:10px"]{
+  padding:12px 16px!important}
+
+/* ── snapshotBoard / targetTableBoard 안내 ── */
+#targetTableBoard,#snapshotBoard{
+  font-size:.83rem!important;color:#475569!important;line-height:1.6!important}
+
+/* ── 오류/제외 섹션 제목색 ── */
+#tab-policy .card-title[style*="danger"]{color:var(--fail)!important}
+
+/* ── card-options 내 링크/텍스트 ── */
+#tab-policy .card-options{font-size:.78rem!important;color:#64748b!important}
+#tab-policy .card-options a{color:#3b82f6!important;text-decoration:none!important}
+#tab-policy .card-options a:hover{text-decoration:underline!important}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Business System Visual Refresh — Phase 1 (UI-BUSINESS-SYSTEM-VISUAL-REFRESH-PHASE-1, 2026-06-03)
+   CSS-only. 렌더 HTML 의 기존 Tabler class(.card/.card-header/.card-title/.btn/.table/.badge)에
+   추가 적용해 업무시스템형 위계를 부여한다. **id/onclick/data-*/JS/검증 의미·상태 의미·SQL 원문·
+   글꼴(--font-base, monospace 금지) 불변** — 표시 위계만 강화. 기존 토큰 재사용.
+   ══════════════════════════════════════════════════════════════════════════ */
+/* A. 전역 baseline — 업무 화면 본문 리듬 */
+.page-body{padding-top:14px!important}
+/* nxDTV 밀도: 본문을 넓게(유동 폭). 사이드바 276px 와 본문 offset 정합. */
+@media (min-width:992px){
+  .navbar-expand-lg.navbar-vertical ~ .page-wrapper,
+  .navbar-expand-lg.navbar-vertical ~ .navbar{ margin-left:260px!important; }
+}
+/* 업무 화면 본문 폭 — 작은 중앙 카드(900~1100) 금지, 넓게 사용 */
+.container-xl{ max-width:min(1880px, calc(100vw - 324px))!important; padding-left:20px!important; padding-right:20px!important; }
+/* 검증 화면(개별/일괄) 전용 wider shell — 본문/step nav/연결바 inner 가 같은 .container-xl 을 쓰므로
+   body.mv-wide-validation 토글 시 셋이 동일 폭(max-width 1680px)으로 함께 넓어져 좌우 여백을 줄인다.
+   width:100% 유지(Tabler) → 좁은 화면/축소 시 자동 축소(responsive 보존, overflow 강제 숨김 없음).
+   다른 일반 메뉴(설정/이력/정책/메타)에서는 토글이 꺼져 기존 1300px 유지(전역 확대 아님). */
+body.mv-wide-validation .container-xl{max-width:min(1960px, calc(100vw - 304px))!important}
+/* B. 카드 — 업무 프로세스 카드 위계(테두리·radius·soft shadow 일관화, header 톤) */
+.card{border:1px solid var(--border)!important;border-radius:12px!important;
+  box-shadow:0 1px 2px rgba(15,23,42,.04),0 1px 3px rgba(15,23,42,.05)!important}
+/* Phase 1 tuning: 카드는 비클릭 → hover lift 제거(산만 방지). 의도된 색 헤더(linear-gradient/특정 bg)는
+   인라인 style 이 이기도록 card-header background 는 !important 미사용. card-title 색/크기도 인라인 우선. */
+.card-header{background:#f8fafc;border-bottom:1px solid var(--border)!important;
+  padding:.62rem 1.05rem!important;min-height:auto!important}
+.card-title{font-size:.92rem;font-weight:700;color:#1e293b;letter-spacing:-.01em}
+.card-body{padding:1.0rem 1.1rem!important}
+.card.mb-3{margin-bottom:1.05rem!important}
+/* 이관쿼리 업로드 화면 polish (POLISH-QUERYUPLOAD) — reference dashboard 톤(calm) */
+#tab-queryupload .qu-lbl{ font-size:.74rem;color:var(--sub);display:block;margin-bottom:3px;font-weight:600 }
+#tab-queryupload .qu-link{ font-size:.8rem;color:var(--primary);text-decoration:none;padding-bottom:6px;white-space:nowrap }
+#tab-queryupload .qu-link:hover{ text-decoration:underline }
+#tab-queryupload .qu-note{ font-size:.8rem;color:var(--sub);background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:8px 12px;line-height:1.5 }
+#tab-queryupload .qu-info{ background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px 14px }
+#tab-queryupload .qu-dropzone{ border:1.5px dashed #cbd5e1;border-radius:12px;background:#fafbfd;padding:22px;text-align:center;transition:border-color .14s ease,background .14s ease,opacity .14s ease }
+#tab-queryupload .qu-dropzone.qu-disabled{ opacity:.5 }
+#tab-queryupload .qu-dropzone.qu-dragover{ border-color:var(--act-primary);border-style:solid;background:#eff6ff }
+#tab-queryupload .qu-selrow{ display:flex;align-items:center;gap:10px;border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin-bottom:6px;background:#fff;font-size:.8rem }
+#tab-queryupload .qu-selrow .qu-st{ font-size:.72rem;font-weight:600;padding:2px 8px;border-radius:10px }
+#tab-queryupload .qu-st-wait{ background:#f1f5f9;color:#475569 }
+#tab-queryupload .qu-st-run{ background:#fef9c3;color:#854d0e }
+#tab-queryupload .qu-st-done{ background:#dcfce7;color:#166534 }
+#tab-queryupload .qu-st-fail{ background:#fee2e2;color:#b91c1c }
+/* C. 페이지 헤더 — 시스템 타이틀 위계 */
+.page-header .page-title{font-weight:800!important;color:#0f172a!important;letter-spacing:-.02em}
+.page-pretitle{color:var(--sub)!important;font-weight:600}
+/* D. 버튼 위계 — primary/secondary/danger 실제 구분(Tabler .btn 보정, btn-run 등 커스텀은 자체 유지) */
+.btn{border-radius:7px!important;font-weight:600!important;letter-spacing:-.01em;transition:all .14s ease}
+.btn:focus-visible{outline:2px solid var(--act-primary);outline-offset:1px}
+.btn-primary{background:var(--act-primary)!important;border-color:var(--act-primary)!important;
+  box-shadow:0 1px 2px rgba(59,130,246,.22)}
+.btn-primary:hover{background:var(--act-primary-d)!important;border-color:var(--act-primary-d)!important}
+.btn-outline-primary{border-color:var(--act-primary)!important;color:var(--act-primary)!important}
+.btn-outline-primary:hover{background:var(--act-primary)!important;color:#fff!important}
+.btn-danger{background:var(--act-danger)!important;border-color:var(--act-danger)!important}
+/* E. 표 — 업무용 그리드 가독성(Tabler .table; 커스텀 .mtbl 은 기존 유지) */
+.table{font-size:.83rem}
+.table thead th{background:#f0f4f8!important;color:#475569!important;font-size:.74rem!important;
+  font-weight:700!important;text-transform:uppercase;letter-spacing:.02em;
+  border-bottom:2px solid #dbe4ee!important;padding:.5rem .7rem!important}
+.table tbody td{padding:.5rem .7rem!important;border-bottom:1px solid #eef2f6!important}
+.table tbody tr:hover td{background:#f8fafc!important}
+/* F. 배지 — radius 정돈(색은 mv-badge 토큰 그대로, 의미 불변). padding/크기는 인라인(소형 배지 .68rem 등)
+   우선 위해 !important 미사용 — 과대 패딩 방지(Phase 1 tuning). */
+.badge{border-radius:6px;font-weight:700}
+/* G. SQL/code read-only 패널 — 테두리·배경만(원문/글꼴/textContent 불변, monospace 금지) */
+.sql-box,pre.sql-box{border:1px solid #e2e8f0!important;background:var(--code-bg)!important}
+/* SQL 표시 글자색 고정 — 다크 사이드바/테마 상속으로 흰색·연한색이 되지 않도록 진한 색 강제(연한 배경 전용 selector). */
+.sql-box,pre.sql-box,.exec-evidence pre,.exec-evidence code,.sql-box code,.sql-box pre{color:#1f2937!important}
+
+/* ════════════════════════════════════════════════════════════════════
+   [JOB-DASHBOARD-STAGE3] 검증 현황판 CSS — ui/js_job_dashboard.py 에서 주입.
+   (구 홈 대시보드 #tab-home 전용 CSS 약 92줄은 화면 자체가 검증 현황판으로 대체되면서 함께 제거)
+   ════════════════════════════════════════════════════════════════════ */
+
+#tab-job-dashboard .mv-jd-donut-wrap{ flex:0 0 auto; }
+#tab-job-dashboard .mv-jd-donut circle{ transition:stroke-dasharray .4s ease; }
+#tab-job-dashboard .mv-jd-legend{ display:flex; flex-wrap:wrap; gap:8px 18px; font-size:.82rem; color:#334155; }
+#tab-job-dashboard .mv-jd-legend b{ color:#1e293b; }
+#tab-job-dashboard .mv-jd-counts{ display:flex; gap:10px; flex-wrap:wrap; }
+#tab-job-dashboard .mv-jd-cnt{ min-width:106px; border:1px solid #e2e8f0; border-radius:9px; padding:9px 12px; background:#fff; }
+#tab-job-dashboard .mv-jd-cnt .l{ font-size:.72rem; color:#64748b; font-weight:700; }
+#tab-job-dashboard .mv-jd-cnt .v{ font-size:20px; font-weight:800; color:#1e293b; }
+#tab-job-dashboard .mv-jd-parent{ border:1px solid #e2e8f0; border-radius:9px; margin-bottom:10px; background:#fff; }
+#tab-job-dashboard .mv-jd-parent > .h{ padding:9px 13px; border-bottom:1px solid #f1f5f9; display:flex;
+  align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+#tab-job-dashboard .mv-jd-parent .ttl{ font-size:.86rem; font-weight:800; color:#1e293b; }
+#tab-job-dashboard .mv-jd-child{ padding:9px 13px 11px; border-top:1px dashed #f1f5f9; }
+#tab-job-dashboard .mv-jd-child:first-of-type{ border-top:0; }
+#tab-job-dashboard .mv-jd-child .cl{ font-size:.8rem; color:#334155; font-weight:700; }
+#tab-job-dashboard .mv-jd-meta{ font-size:.73rem; color:#64748b; margin-top:3px; display:flex; gap:12px; flex-wrap:wrap; }
+#tab-job-dashboard .mv-jd-hint{ font-size:.72rem; color:#94a3b8; }
+#tab-job-dashboard .progress{ height:9px; margin-top:6px; }
+#tab-job-dashboard .mv-jd-ctl{ display:flex; gap:6px; }
+#tab-job-dashboard .mv-jd-ctl button{ font-size:.72rem; padding:2px 9px; border:1px solid #cbd5e1;
+  background:#fff; color:#334155; border-radius:5px; cursor:pointer; }
+#tab-job-dashboard .mv-jd-ctl button[disabled]{ opacity:.45; cursor:not-allowed; }
+#tab-job-dashboard .mv-jd-empty{ font-size:.8rem; color:#94a3b8; padding:12px 4px; }
+#tab-job-dashboard .mv-jd-notes{ font-size:.75rem; color:#64748b; }
+#tab-job-dashboard .mv-jd-notes div{ margin-bottom:3px; }
+#tab-job-dashboard .mv-jd-sechead{ font-size:.9rem; font-weight:800; color:#1e293b; margin:14px 2px 7px;
+  display:flex; align-items:center; gap:8px; }
+/* [JOB-DASHBOARD-SECTION-AUTO-COLLAPSE-REORG] 섹션 접힘/펼침 — 표시 전용.
+   접힘은 본문 display:none 뿐이라 노드를 버리지 않는다(다시 펼칠 때 재생성 없음).
+   전환은 캐럿 회전(.15s)만 — 높이 애니메이션은 쓰지 않는다(측정 리플로우/깜빡임 유발). */
+#tab-job-dashboard .mv-jd-sec{ margin-bottom:2px; }
+#tab-job-dashboard .mv-jd-sechead{ cursor:pointer; user-select:none; }
+#tab-job-dashboard .mv-jd-sechead:focus-visible{ outline:2px solid #93c5fd; outline-offset:2px; border-radius:4px; }
+#tab-job-dashboard .mv-jd-caret{ display:inline-block; font-size:.72rem; color:#94a3b8;
+  transition:transform .15s ease; }
+#tab-job-dashboard .mv-jd-sec.is-collapsed .mv-jd-caret{ transform:rotate(-90deg); }
+#tab-job-dashboard .mv-jd-sec.is-collapsed > .mv-jd-secbody{ display:none; }
+#tab-job-dashboard .mv-jd-sec.is-collapsed > .mv-jd-sechead{ color:#64748b; font-weight:700;
+  margin:6px 2px; padding:3px 6px; border-radius:6px; background:#f8fafc; }
+#tab-job-dashboard .mv-jd-manual{ display:none; color:#2563eb; font-weight:700; }
+#tab-job-dashboard .mv-jd-sec.is-manual .mv-jd-manual{ display:inline; }
+/* 좌측 메뉴 진행 job 배지(공통 컴포넌트) — 활성 job 이 있을 때만 노출한다. */
+.mv-jobbadge{ display:none; margin-left:6px; font-size:.68rem; font-weight:800; padding:1px 7px;
+  border-radius:9px; background:#2563eb; color:#fff; vertical-align:middle; }
+.mv-jobbadge.on{ display:inline-block; }
+
+/* [JOB-DASHBOARD-STAGE3] 후보추천 정책 화면 내부 탭(정책 설정 / 감사 리포트) */
+.mv-policy-subtab{ border:0; background:none; padding:7px 14px; font-size:.85rem; font-weight:700;
+  color:#64748b; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; }
+.mv-policy-subtab.active{ color:#2563eb; border-bottom-color:#2563eb; }
+</style>
+<style>
+ body{background:#f4f6fa;font-family:'Malgun Gothic','Segoe UI',sans-serif;margin:0;padding:18px 22px;color:#2c3e50}
+ h1{font-size:1rem;margin:0 0 14px;color:#0f172a}
+ h2{font-size:.86rem;margin:20px 0 8px;padding:4px 10px;background:#0f172a;color:#fff;border-radius:6px;display:inline-block}
+ .sec{background:#fff;border:1px solid #e3e8ef;border-radius:10px;padding:14px 16px;margin-bottom:6px}
+</style></head><body>
+<h1>STAGE4-5-STRATEGY-INFO-RELOCATE-FIX — AFTER (통계전략→4단계 · 불일치 추출전략→5단계)</h1>
+<h2>3단계 — 후보 선정 상단 타일</h2><div class="sec"><div class="mv-qr-tiles"><div class="mv-qr-tile"><div class="mv-qr-tile-label">목적테이블</div><div class="mv-qr-tile-box" title="tobe01.t_to_1_etl02"><span class="mv-qr-tile-val is-mono">tobe01.t_to_1_etl02</span></div></div><div class="mv-qr-tile"><div class="mv-qr-tile-label">원본테이블</div><div class="mv-qr-tile-box" title="asis01.t_as_1_etl02"><span class="mv-qr-tile-val is-mono">asis01.t_as_1_etl02</span></div></div><div class="mv-qr-tile"><div class="mv-qr-tile-label">통계검증규모</div><div class="mv-qr-tile-box" title="통계검증 규모: 중형 (실측 기준) · cost 13.56 — 중형 밴드(12.9~14.15) 중간 · 보통 2~6초"><span class="mv-qr-tile-val">중형 (cost 13.56)</span></div></div><div class="mv-qr-tile"><div class="mv-qr-tile-label">목적그룹</div><div class="mv-qr-tile-box" title="STATUS_CD, DEPT_CD"><span class="mv-qr-tile-val is-mono">STATUS_CD<br>DEPT_CD</span></div></div><div class="mv-qr-tile"><div class="mv-qr-tile-label">원본그룹</div><div class="mv-qr-tile-box" title="status_code, dept_code"><span class="mv-qr-tile-val is-mono">status_code<br>dept_code</span></div></div><div class="mv-qr-tile"><div class="mv-qr-tile-label">목적집계</div><div class="mv-qr-tile-box" title="AMT"><span class="mv-qr-tile-val is-mono">AMT</span></div></div><div class="mv-qr-tile"><div class="mv-qr-tile-label">원본집계</div><div class="mv-qr-tile-box" title="amount"><span class="mv-qr-tile-val is-mono">amount</span></div></div><div class="mv-qr-tile"><div class="mv-qr-tile-label">처리시간</div><div class="mv-qr-tile-box" title="처리시간 미계측(후보 컬럼 재확정 실행 전이거나 계측값 없음)"><span class="mv-qr-tile-val is-empty">—</span></div></div><div class="mv-qr-tile"><div class="mv-qr-tile-label">상태</div><div class="mv-qr-tile-box" title="실행 가능"><span class="mv-qr-tile-val"><span class="mv-sicon mv-sicon-blue" title="실행 가능">●</span> <span class="mv-sicon-txt">정상</span></span></div></div></div></div>
+<h2>3단계 — 실행계획 상세(참고)</h2><div class="sec"><div class="mv-plan-ref-static"><div style="font-size:.8rem;color:#6c757d;padding:2px 0">실행계획 상세 (참고)</div><div style="margin-top:6px"><div class="mv-sgrid-wrap"><div class="mv-sgrid-title">실행계획</div><table class="mv-sgrid"><thead><tr><th class="mv-nocol">No</th><th>항목</th><th>값</th><th>상태</th></tr></thead><tbody><tr><td class="mv-num mv-nocol">1</td><td class="mv-lbl">전역 설정</td><td>GROUP BY 2개 · 집계컬럼 1개</td><td></td></tr><tr><td class="mv-num mv-nocol">2</td><td class="mv-lbl">실제 적용</td><td><b>GROUP BY 2개 · 집계컬럼 1개</b></td><td><span class="mv-gbadge ready">적용됨</span></td></tr><tr><td class="mv-num mv-nocol">3</td><td class="mv-lbl">판정근거</td><td>원본 실측 120,000행 · 그룹 수 예상 320개</td><td></td></tr></tbody></table></div></div></div></div>
+<h2>4단계 — 통계검증 실행 상단 타일</h2><div class="sec"><div class="mv-qr-tiles"><div class="mv-qr-tile"><div class="mv-qr-tile-label">목적테이블</div><div class="mv-qr-tile-box" title="tobe01.t_to_1_etl02"><span class="mv-qr-tile-val is-mono">tobe01.t_to_1_etl02</span></div></div><div class="mv-qr-tile"><div class="mv-qr-tile-label">원본테이블</div><div class="mv-qr-tile-box" title="asis01.t_as_1_etl02"><span class="mv-qr-tile-val is-mono">asis01.t_as_1_etl02</span></div></div><div class="mv-qr-tile"><div class="mv-qr-tile-label">목적그룹</div><div class="mv-qr-tile-box" title="STATUS_CD, DEPT_CD"><span class="mv-qr-tile-val is-mono">STATUS_CD<br>DEPT_CD</span></div></div><div class="mv-qr-tile"><div class="mv-qr-tile-label">원본그룹</div><div class="mv-qr-tile-box" title="status_code, dept_code"><span class="mv-qr-tile-val is-mono">status_code<br>dept_code</span></div></div><div class="mv-qr-tile"><div class="mv-qr-tile-label">목적집계</div><div class="mv-qr-tile-box" title="AMT"><span class="mv-qr-tile-val is-mono">AMT</span></div></div><div class="mv-qr-tile"><div class="mv-qr-tile-label">원본집계</div><div class="mv-qr-tile-box" title="amount"><span class="mv-qr-tile-val is-mono">amount</span></div></div><div class="mv-qr-tile"><div class="mv-qr-tile-label">통계전략</div><div class="mv-qr-tile-box" title="통계검증 전략 STATS_DIRECT_AGG — 직접 집계(전체스캔 EXACT · 원본↔목적 그룹별 COUNT/SUM 비교)"><span class="mv-qr-tile-val mv-qr-strat"><span class="mv-qr-strat-name">직접 집계(전체스캔 EXACT · 원본↔목적 그룹별 COUNT/SUM 비교)</span><code class="mv-qr-strat-code">STATS_DIRECT_AGG</code></span></div></div><div class="mv-qr-tile"><div class="mv-qr-tile-label">실행시간</div><div class="mv-qr-tile-box" title="원본 2,100ms / 목적지 1,850ms · 총 5,432ms(순차 실행, 차액은 그룹 비교·직렬화 등 앱 처리시간) · 원본↔목적 간격 37ms"><span class="mv-qr-tile-val is-mono">원본 2.10초<br>목적 1.85초</span></div></div><div class="mv-qr-tile"><div class="mv-qr-tile-label">조합검증</div><div class="mv-qr-tile-box" title="단일 축 2세트로만 분해 실행합니다 — 조합(STATUS_CD + DEPT_CD)에서만 드러나는 불일치는 검증되지 않습니다. 4단계 SQL 영역의 '조합도 함께 검증' 을 켜면 포함됩니다."><span class="mv-qr-tile-val">미포함</span></div></div></div></div>
+<h2>5단계 — 결과 확인 상단 타일</h2><div class="sec"><div class="mv-qr-tiles"><div class="mv-qr-tile"><div class="mv-qr-tile-label">목적테이블</div><div class="mv-qr-tile-box" title="tobe01.t_to_1_etl02"><span class="mv-qr-tile-val is-mono">tobe01.t_to_1_etl02</span></div></div><div class="mv-qr-tile"><div class="mv-qr-tile-label">원본테이블</div><div class="mv-qr-tile-box" title="asis01.t_as_1_etl02"><span class="mv-qr-tile-val is-mono">asis01.t_as_1_etl02</span></div></div><div class="mv-qr-tile"><div class="mv-qr-tile-label">불일치 추출전략</div><div class="mv-qr-tile-box" title="불일치(상세) 추출 전략 DIRECT_STREAM_COMPARE — 직접 스트림 비교(원본·목적 전체를 한 번에 정렬·대조)"><span class="mv-qr-tile-val mv-qr-strat"><span class="mv-qr-strat-name">직접 스트림 비교(원본·목적 전체를 한 번에 정렬·대조)</span><code class="mv-qr-strat-code">DIRECT_STREAM_COMPARE</code></span></div></div><div class="mv-qr-tile"><div class="mv-qr-tile-label">불일치그룹</div><div class="mv-qr-tile-box" title="집계 그룹 기준 판정 — 통계검증 SQL 의 GROUP BY 집계 결과를 그룹 단위로 비교한 값입니다. 아래 상세비교의 '재이관 대상' 건수는 PK 를 행 레코드 단위로 비교한 값이라 세는 단위가 다르며, 집계에서 서로 상쇄된 차이(예: 같은 그룹 안 +10/−10)는 그룹 단위 판정에 나타나지 않습니다. / 실행계획: COUNT-only"><span class="mv-qr-tile-val">15개</span></div></div><div class="mv-qr-tile"><div class="mv-qr-tile-label">재이관대상</div><div class="mv-qr-tile-box" title="재이관 대상(근사) — 목적지에 통째로 없는 그룹(src_only) + 값이 다른 그룹(diff)의 합계입니다. 집계 그룹 단위 값이며, 행 레코드 단위 확정 목록은 옆의 재이관 PK 와 아래 상세비교가 담당합니다."><span class="mv-qr-tile-val">15건</span></div></div><div class="mv-qr-tile"><div class="mv-qr-tile-label">재이관PK</div><div class="mv-qr-tile-box"><span id="mvPkSummaryCell" class="mv-qr-tile-val">준비 중</span></div></div><div class="mv-qr-tile"><div class="mv-qr-tile-label">처리시간</div><div class="mv-qr-tile-box" title="5단계 처리시간 — 24.12초 (24121.6ms)"><span class="mv-qr-tile-val">24.12초</span></div></div><div class="mv-qr-tile"><div class="mv-qr-tile-label">상태</div><div class="mv-qr-tile-box" title="불일치"><span class="mv-qr-tile-val"><span class="mv-sicon mv-sicon-orange" title="불일치">●</span> <span class="mv-sicon-txt">불일치</span></span></div></div></div></div>
+</body></html>
