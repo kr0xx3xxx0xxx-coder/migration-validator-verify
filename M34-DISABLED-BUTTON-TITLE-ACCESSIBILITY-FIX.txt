@@ -1,0 +1,116 @@
+작업명 : M34-DISABLED-BUTTON-TITLE-ACCESSIBILITY-FIX
+✅ 작업 완료 - M34-DISABLED-BUTTON-TITLE-ACCESSIBILITY-FIX - 관리컬럼 확정 버튼 비활성 사유를 래퍼 span title + 상시 안내 텍스트 두 경로로 전달, 활성 버튼 동작 무회귀
+
+■ 요청 요약
+  백로그 M34 — 확정 버튼이 disabled 일 때 서버가 준 사유가 사용자에게 도달하지 못하는 문제를
+  ui/js_admin_column_override.py 에서 해소하되, 활성 상태 버튼 기능은 건드리지 말 것.
+
+■ 수정 내용 (파일 1개 + 검증 드라이버 1개)
+  ui/js_admin_column_override.py
+    ① _admOvrDisWrapHtml() 신설 — 비활성일 때만 컨트롤(버튼 2종·해제 버튼·범위 select)을
+       <span class="mv-adm-ovr-dis" title="사유"> 로 감싼다. 사유 title 을 disabled 요소가 아니라
+       래퍼가 들게 하는 것이 이 수정의 핵심이다.
+       CSS `.mv-adm-ovr-dis > .mv-adm-ovr-btn, .mv-adm-ovr-dis > .mv-adm-ovr-scope
+       { pointer-events:none }` 로 hit test 가 래퍼에 닿게 하고, cursor:not-allowed 는 래퍼가 책임진다.
+    ② _admOvrDisNoteHtml() 신설 — hover 하지 않는 사용자를 위해 사유 문구를 컨트롤 옆에
+       <span class="mv-adm-ovr-note"> 로 상시 병기. 문구는 서버 disabled_reason 원문 그대로이며
+       (화면이 사유를 재작문하지 않는다는 기존 원칙 유지) 셀이 좁으면 자르지 않고 줄바꿈한다.
+    ③ 활성 상태에서는 wrap 이 원본 HTML 을 그대로 통과시켜 DOM·onclick 경로가 종전과 동일하다.
+       안내 태그도 붙지 않는다.
+  scripts/dev_e2e/m34_disabled_button_title_accessibility_verify.py (신규)
+    실 오라클 페어 기반 BEFORE/AFTER 드라이버. 실제 마우스 이동(page.mouse.move)으로 도착한
+    mouseover 의 target 과 '위로 올라가며 만나는 첫 title 보유 요소' 를 실측해,
+    브라우저가 툴팁으로 띄울 수 있는 문구가 무엇인지 직접 확인한다.
+
+■ 실측 검증 (실 오라클 asis1523 → tobe1524, NXDNP.MV_ORA_DEMO_SRC → MV_ORA_DEMO_TGT, 인증 ON 8000)
+  BEFORE  PASS=21 / FAIL=3
+  AFTER   PASS=25 / FAIL=0
+
+  [PHASE A — 작업 프로젝트 미선택(비활성)]                     BEFORE            AFTER
+    hover 시 mouseover target                        button.mv-adm-ovr-btn   span.mv-adm-ovr-dis
+    사유 title 보유 요소                              button (disabled=True)  span (disabled=False)
+    ①-b 사유를 '비활성 아닌 요소' 가 보유              FAIL                    PASS
+    ③  hover 없이 보이는 안내 텍스트                   FAIL (없음)             PASS (가시)
+    ③-b 안내 텍스트 화면상 잘림 없음                   FAIL (없음)             PASS (clipped=false, 259x38px)
+    ④  안내 문구 = 서버 disabled_reason 원문           FAIL (없음)             PASS (완전 일치)
+    표시 문구: "ℹ 프로젝트를 먼저 선택해야 관리컬럼 확정을 저장할 수 있습니다." (2줄 줄바꿈)
+
+  [PHASE B — 작업 프로젝트 선택(활성) 무회귀]  BEFORE/AFTER 모두 PASS
+    · 버튼 2개(맞음/아님) 활성, 안내 태그 미출력
+    · 포인터가 버튼 자신에 닿음(래퍼 가로채기 없음) — hit tag=button, disabled=False
+    · 액션 안내 title 정상 도달("이 컬럼을 관리컬럼으로 확정합니다(검증 대상에서 제외).")
+    · 실제 마우스 클릭 → 저장소 AUDIT 영속 → 'AUDIT 확정' 배지 즉시 갱신 → 버튼 '확정 해제' 1개
+    · 해제 클릭 → 저장소에서 제거 → '맞음/아님' 2개로 복귀
+    · JS 페이지 에러 0건
+
+■ 백로그 M34 서술 정정 (실측 결과)
+  M34 는 원인을 "브라우저가 disabled 요소에 포인터 이벤트 자체를 주지 않아 title 이 도달 불가"
+  라고 적었고, 근거로 "실제 마우스 클릭이 element is not enabled 로 timeout" 을 들었다.
+  그 근거는 **클릭이 막힌다**는 사실만 증명하며, 툴팁 도달 여부와는 별개다.
+  Chromium 1223 BEFORE 실측에서는 disabled 버튼에도 hit test 와 mouseover 가 도달했고
+  title 도 읽혔다(위 표 BEFORE 열). 즉 M34 가 적은 인과는 Chromium 에서 재현되지 않는다.
+  다만 disabled 요소의 title 표시는 브라우저 구현에 좌우되고(Firefox/Safari 미표시로 알려짐)
+  보조기술 노출도 보장되지 않으므로, 사유를 disabled 요소가 들고 있는 구조 자체를 없애는
+  방향은 그대로 유효하다. 실제로 재현되는 사용자 피해는 "사유를 알 유일한 경로가 눌리지 않는
+  버튼 위 hover 뿐이고 화면 어디에도 사유가 표시되지 않는다"(BEFORE ③④ FAIL)였고,
+  상시 안내 텍스트가 이를 직접 해소한다. 이 정정은 코드 주석에도 남겼다.
+  ※ Firefox/Safari 실측은 하지 못했다 — 설치된 playwright 브라우저가 chromium-1223 뿐이라
+    단정하지 않고 '구현 의존' 으로만 서술했다.
+
+■ 렌더 분기 4종 확인 (node 하니스 — 라이브로 도달 불가한 조합 포함)
+  [미확정·비활성] wrap=3(select+버튼2) note=1  — 사유 title 은 전부 래퍼가 보유
+  [확정  ·비활성] wrap=1(해제버튼)   note=1  — 라이브 미도달 조합, 코드 대칭성 확인
+  [확정  ·활성  ] wrap=0             note=0  — DOM·onclick 종전과 동일
+  [사유 없음(구 스냅샷)] wrap=0      note=0  — 빈 title 을 만들지 않고 종전 동작 그대로 폴백
+
+■ 회귀 테스트
+  python samples/test_virtual_cases.py      8/8 통과
+  python samples/test_complex_cases.py      5/5 케이스 분석 완료(체크 8항목 전부 ✓)
+  python samples/test_display_consistency.py  276통과 / 40실패 / 316 — 40건은 사전 존재 실패
+      (이 스위트는 ui/tabler_renderer.py 만 읽는다. 이번 수정 파일 미참조 → 무관)
+  pytest -k "override or admin_column"      115 passed (실패 0)
+  pytest -k "override or admin_column or candidate or renderer"
+      수정본  38 failed / 1536 passed / 2 errors
+      실패한 22개 테스트 ID 를 뽑아 **수정 전 커밋(c87837c) worktree 에서 그대로 재실행**한 결과
+      21 failed / 1 skipped / 1 error — 전부 사전 존재 실패다(내 수정이 만든 실패 0건).
+      차이 1건(test_candidate_plan_matrix::test_null_vs_empty_selection_contract)은
+      worktree 에 psycopg2/PG 가 없어 skip 된 것이고, main 에서의 실패 원인은
+      effective_group_by_columns 계약(['PAY_METHOD','PAY_DATE'] vs ['PAY_DATE'])으로
+      서버측 후보 선정 로직 문제다 — 이번 JS 표현 계층 수정과 무관하다.
+      (알려진 worktree 혼동 패턴: worktree 에서 skip · main 에서 fail)
+
+■ 변경/생성 파일
+  M  ui/js_admin_column_override.py
+  A  scripts/dev_e2e/m34_disabled_button_title_accessibility_verify.py
+
+■ 커밋
+  코드 저장소: a2a6871
+    fix(ui): 관리컬럼 확정 버튼 비활성 사유를 래퍼 span title + 상시 안내 텍스트로 전달
+             (M34-DISABLED-BUTTON-TITLE-ACCESSIBILITY-FIX)
+  ※ 커밋 과정 사고 1건과 그 복구를 아래에 그대로 남긴다.
+    첫 커밋(bfa436d) 이 다른 세션이 그 사이 stage 한 3개 파일(routes/agg_diff_route.py,
+    routes/exact_diff_route.py, scripts/dev_e2e/m24_hold_reason_wording_repro.py)을 함께
+    삼켰고, 커밋 메시지도 첫 줄이 깨졌다. reset --soft → 남의 파일 unstage →
+    `git commit -F <msg> -- <내 파일 2개>` 로 pathspec 커밋해 a2a6871 로 재작성했다.
+    다른 세션 파일은 작업트리에 그대로 살아 있다(내용 무변경: +52/-4, m24 파일 존재).
+    삭제 0건 확인: git show --name-status --diff-filter=D a2a6871 → 0줄.
+
+■ 증적
+  E:\verify_screenshots_only\M34-DISABLED-BUTTON-TITLE-ACCESSIBILITY-FIX\
+    BEFORE_A_cell_no_project_DEPT_CD.png / AFTER_A_cell_no_project_DEPT_CD.png  (핵심 대비)
+    BEFORE_A_table_no_project.png / AFTER_A_table_no_project.png
+    BEFORE_B_cell_confirmed_DEPT_CD.png / AFTER_B_cell_confirmed_DEPT_CD.png
+    BEFORE_B_cell_released_DEPT_CD.png / AFTER_B_cell_released_DEPT_CD.png
+    BEFORE_B_table_with_project.png / AFTER_B_table_with_project.png
+    BEFORE_facts.json / AFTER_facts.json  (hover·hit test·note 원시 실측값)
+
+■ 남은 한계 (정직 고지)
+  · Firefox/Safari 실측 미수행 — 브라우저 미설치. 구조적 개선(사유를 비활성 아닌 요소가 보유)은
+    적용됐으나 그 두 브라우저에서의 표시 여부는 확인하지 못했다.
+  · 확정이 이미 걸린 행의 '확정 해제' 버튼 비활성 분기도 같은 래퍼를 타도록 대칭 구현했으나,
+    확정은 프로젝트 스코프라 '프로젝트 미선택 + 확정 존재' 조합이 실제로는 성립하지 않아
+    실측 경로가 없다(코드 대칭성만 확보).
+  · 안내 텍스트는 후보 행마다 반복 표시된다(행 단위 렌더 구조 유지 — 표 상단 1회 배너로 옮기려면
+    다른 모듈을 건드려야 해 이번 지침 범위 밖).
+
+✅ 작업 완료 - M34-DISABLED-BUTTON-TITLE-ACCESSIBILITY-FIX - 관리컬럼 확정 버튼 비활성 사유를 래퍼 span title + 상시 안내 텍스트 두 경로로 전달, 활성 버튼 동작 무회귀
