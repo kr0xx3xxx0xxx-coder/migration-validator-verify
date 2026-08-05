@@ -860,7 +860,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: S10(해결 완료 — 이 항목의 발원 작업)
 - 참고: E:\verify_reports\IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX.txt
 
-### P11. 세트 병렬 실행(`_stats_set_parallelism`) 기본값 조정 — 대규모에서 실측 -41~55%(승인 필요)
+### P11. ✅ 해결 완료(조건부) — 세트 병렬 실행 대규모+PostgreSQL 조건부 ON, 오라클 명시 제외
 - 발견일: 2026-08-01
 - 근거 보고서: `LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt` (§4-b)
 - 상세: 5,000만행 GROUP BY 2축 통계검증에서 `services/single_validation_run_facade._stats_set_parallelism`
@@ -872,10 +872,17 @@ git -C E:/verify_reports worktree remove <임시경로>
   · **오라클은 풀링을 우회해 checkout 마다 물리 연결을 새로 만든다**(`services/db_adapters/oracle.py`) →
     동시 세션 2개가 그대로 DB 부하가 된다
   · 세트 실패 시 형제 세트 처리 정책 재검토(현 구현은 중도취소 없이 완료시킴 — 그대로가 안전)
-- 대응 방향: **전면 기본 ON 이 아니라 대규모 조건부 ON.** 예: 대상 테이블 추정 행수가 임계치(예 100만)
-  이상이고 기존 조건(다른 물리 DB · 풀 여유)을 만족할 때만 level 2. 소규모는 지금처럼 순차 유지.
-  **정책 변경이므로 승인 필요** — 진단 작업에서는 기본값을 바꾸지 않았다.
+- 해결일: 2026-08-05 (STATS-SET-PARALLELISM-CONDITIONAL-ENABLE-FIX, 커밋 86865a1)
+- 구현: 대규모(≥100만행, env 조정 가능) + PostgreSQL(오라클은 풀 우회 구조상 명시 제외) +
+  다른 물리 DB + 풀 여유 4조건 전부 충족해야만 자동 level 2. kill-switch
+  MV_STATS_SET_PARALLEL_AUTO 와 임계치 env MV_STATS_SET_PARALLEL_MIN_ROWS 로 즉시 롤백 가능.
+  결과값은 순차와 완전 동일함을 실측 확인, baseline 대조 신규 회귀 0건.
+- 주의(상충 기록, 반드시 유지): 이 항목의 근거였던 -41~55% 개선은 5,000만행 기준인데, 그 규모
+  테이블이 현재 PostgreSQL 에는 없고 오라클에만 있다(오라클은 이번 조건부ON 대상에서 명시 제외).
+  실제 재현 가능했던 100만행 PostgreSQL 실측 개선폭은 -6.3%로 작다. 즉 '조건부 ON 구현'은
+  끝났지만, 백로그가 원래 근거로 든 큰 폭의 개선 자체는 아직 실환경에서 확인되지 않았다.
 - 참고: E:\verify_reports\LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt
+- 참고: E:\verify_reports\STATS-SET-PARALLELISM-CONDITIONAL-ENABLE-FIX.txt
 
 ### P12. ✅ 해결 완료 — COUNT 원본/목적지가 순차 실행이라 두 DB 시간이 그대로 합산된다 — 병렬화 시 효과 큼(승인 필요)
 - 해결일: 2026-08-01 (COUNT-PAIR-PARALLEL-EXECUTION-FIX)
@@ -900,7 +907,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 대응 방향: **승인 필요.**
 - 참고: E:\verify_reports\LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt
 
-### P13. 통계검증 src/tgt 병렬(`parallel_sides`)은 효과가 불안정하다 — P11 적용 후 재측정 권장(심각도 LOW)
+### P13. 통계검증 src/tgt 병렬(`parallel_sides`)은 효과가 불안정하다 — P11 조건부ON 완료했으나 재측정은 여전히 불가(심각도 LOW)
 - 발견일: 2026-08-01
 - 근거 보고서: `LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt` (§4-c2)
 - 상세: 실측에서 **한쪽이 빨라지면 다른 쪽이 느려지는** 현상이 관측됐다.
@@ -908,7 +915,10 @@ git -C E:/verify_reports worktree remove <임시경로>
   2회차는 9,739.2ms → 10,149.6ms 로 되레 느려졌다(src 개별 쿼리 4,930 → 7,977ms).
   원인은 검증 환경의 **같은 물리 호스트에 두 인스턴스가 올라가 있어 디스크 I/O 를 공유**하기 때문으로
   추정한다. 고객사처럼 원본/목적지가 **물리적으로 분리된 환경에서는 결과가 다를 수 있다.**
-- 대응 방향: P11(세트 병렬)을 **먼저** 적용하고 그 다음에 재측정하는 순서를 권한다. 승인 필요.
+- 대응 방향: P11 은 2026-08-05 조건부 ON 으로 구현 완료됐으나(위 P11 참고), 이 항목이 원래
+  가정한 재측정 대상 규모(5,000만행)는 PostgreSQL 에 데이터 자체가 없어 여전히 재현 불가하다.
+  100만행 규모로는 재측정 가능하나 P11 개선폭 자체가 작아(-6.3%) 유의미한 비교가 어려울 수
+  있다. 5,000만행급 PostgreSQL 픽스처가 생기기 전까지는 보류.
 - 관련: P11(선행), P12(같은 '측면 병렬' 개념)
 - 참고: E:\verify_reports\LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt
 
@@ -1868,22 +1878,34 @@ git -C E:/verify_reports worktree remove <임시경로>
   same-DBMS 가드(S5, 이미 해결 완료)를 통과해도 오라클↔오라클 조합조차 `HR_HASH_CONTRACT_NA` 로
   차단된다. 현재 실질 가용 조합은 **PG↔PG 뿐**이다. F1(HASH_BUCKET 오라클 구현체 phase3 부재)과
   직결된 선행 과제다.
-- 대응 방향: F1 착수 시 오라클 해시 계약(`dialects_hash.oracle.OracleHashContract`) 등록이 포함돼야 한다.
+- 대응 방향: **[치명] 이 항목 단독 착수 절대 금지.** 위임표에 오라클 한 줄만 등록하면 L1
+  게이트(hash_bucket_pair_status, 설계엔 있으나 코드에 없음)가 없어 row_diff.py의 미수정
+  PG 전용 재수출 경로(F1 참고)를 그대로 통과시켜, 오라클 실DB에 MD5()/LEFT()/BIT(32)/&
+  같은 PG 전용 SQL이 그대로 방출된다(예외 없이 조용히 실행됨 — 조용한 거짓판정 계열
+  최고심각도). 반드시 F1의 마지막 단계(⑥)로만 착수할 것.
 - 관련: F1, S5(이미 해결 완료)
 - 참고: E:\verify_reports\PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt
 
 ### F1. HASH_BUCKET 오라클 구현체 자체가 아직 없다 (phase2 = 어댑터 분리까지만 완료)
 - 발견일: 2026-07-29
 - 근거 보고서: `HASH-BUCKET-ORACLE-PORT-DESIGN-FINALIZE.txt` (§5 / 다음 권장 작업)
-- 상세: 설계 확정 + phase1(별칭 개명/계약 버전 bump) + phase2(Base·위임표·팩토리 분리 + PG 구현체 이전)까지
-  진행됐고, **step ③ 오라클 구현체 → ④ 소비측 배선+가드 → ⑤ capabilities 개방 → ⑥ 라이브 동등성 실측**
-  이 남아 있다. 규모 추정: 프로덕션 11 + 테스트 6 = 17파일 / 5.0작업일(버퍼 포함 5~6일). cross-DBMS 미개방 전제.
+- 상세(2026-08-05 재조사로 사실오류 정정): 설계 확정 + **phase2(Base·위임표·팩토리 분리 + PG
+  구현체 이전)만** 완료됐다(커밋 eb65115 1건). phase1(별칭 개명/계약 버전 bump)은 **미착수** —
+  별칭이 여전히 __HB/__KH/__RH이고 버전도 'hashv1-md5-lenpfx'로 '-pg' 접미사가 없다(설계 문서가
+  스스로 이 연기를 주석에 명시). 따라서 남은 단계는 ③④⑤⑥이 아니라 **①③④⑤⑥**이다(+0.5작업일,
+  총 4.5~5.5작업일). ①은 저장된 resume 상태(pending_region의 '__HB1' 키)와 비호환이라 계약
+  version bump와 반드시 같은 커밋이어야 하며, 이를 건너뛰고 ③부터 착수하면 오라클 구현체를
+  다 만들어도 ORA-00911로 산출물이 0이 된다.
+  추가 발견: row_diff.py:77,103과 match_key_evidence.py:21,122,126이 dialect 인자를 받고도
+  PG 전용 재수출 경로로 무조건 위임한다(hash_bucket.py에서 이미 고친 결함과 동일 패턴이
+  남아있음) — G7 착수 시 반드시 함께 처리해야 한다(아래 G7 참고).
 - 하위 항목: `tests/test_underscore_alias_oracle_regression_static.py` 의 `KNOWN_ORACLE_UNSAFE` 에
   hash_bucket(`__HB`/`__KH`/`__RH`) 이 남아 있다. PG 전용 해시 계약이라 단순 개명으로 끝나지 않으며,
   Layer A 의 `expectedFailure` 마커도 그때 함께 정리해야 한다
   (근거: `AGG-DIFF-ROUTE-UNDERSCORE-M-ALIAS-FIX.txt` §5-(b),(c), 2026-07-27).
 - 참고: E:\verify_reports\HASH-BUCKET-ORACLE-PORT-DESIGN-FINALIZE.txt
 - 참고: E:\verify_reports\AGG-DIFF-ROUTE-UNDERSCORE-M-ALIAS-FIX.txt
+- 참고: E:\verify_reports\F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE.txt
 
 ### F2. CHUNK/표본 preflight 경로는 저장 상한(representative_limit=20) 때문에 100건 표시가 보장되지 않는다
 - 발견일: 2026-07-29
@@ -1924,16 +1946,31 @@ git -C E:/verify_reports worktree remove <임시경로>
     전환 대상 총량은 파일럿 기준 206파일·809케이스이며, 정확한 잔여 파일 수는 Tier 2 착수 시 재확정 필요.
 - 참고: E:\verify_reports\WHITEBOX-TEST-CONTRACT-CONVERSION-PHASE1.txt
 
-### F6. 다중 GROUP BY '조합' 판정이 아예 없다 + 4단계 조합 SQL 표시와 실제 단일축 실행이 불일치
-- 발견일: 2026-07-28
-- 근거 보고서: `SINGLE-STEP5-MULTI-GROUPBY-REPRESENTATIVE-AXIS-DIAGNOSE.txt` /
+### F6. 다중 GROUP BY 조합 검증은 이미 구현돼 있으나, 실무 규모에서 상한(100)에 걸려 자동 제외되고 그 사유가 화면에 안 보인다
+- 발견일: 2026-07-28 / 재조사: 2026-08-05
+- 근거 보고서(최초): `SINGLE-STEP5-MULTI-GROUPBY-REPRESENTATIVE-AXIS-DIAGNOSE.txt` /
   `SINGLE-STEP5-COMBO-VIEW-AND-SKEWED-GROUP-VOLUME-DIAGNOSE.txt`
-- 상세: 다중 GROUP BY 는 '조합' 이 아니라 '단일축 N세트' 로 실행된다. 4단계는 조합 SQL 을 보여주지만
-  실행은 단일축이라 표시와 실행이 어긋난다. 조합 기준 뷰는 '판정 자체가 부재' 로 확정됐다.
-  대량(>5만행) chunk 경로의 대표축 정책 동작은 코드 판독으로만 확인했고 라이브 실측은 하지 않았다.
-- 연관: 편중(SKEW) 그룹의 D1 오분류는 축A 가 '그룹 수' 인 한 조합 뷰가 생겨도 그대로 남는다(독립 사안).
-- 참고: E:\verify_reports\SINGLE-STEP5-MULTI-GROUPBY-REPRESENTATIVE-AXIS-DIAGNOSE.txt
-- 참고: E:\verify_reports\SINGLE-STEP5-COMBO-VIEW-AND-SKEWED-GROUP-VOLUME-DIAGNOSE.txt
+- 근거 보고서(재조사): `F6-MULTI-GROUPBY-COMBINATION-VALIDATION-SCOPE-DIAGNOSE.txt`
+- 상세(구버전 서술 정정): '판정 자체가 부재'는 더 이상 사실이 아니다. 같은 날(2026-07-28) 커밋
+  7d94b99(COMBO-PAIR-ENTRY-POINT-RESTORE-IMPLEMENT)로 4단계 opt-in 체크박스(#gbIncludePair)를
+  통한 조합(PAIR) 세트 실행이 구현·라이브 검증됐다(기본 OFF). 2026-08-05 재조사에서 5천만행
+  라틴방격 재현(REGION_CD×STATUS_CD, 축별 불일치 0건 vs 조합 불일치 4건·1,000만 상당 오차)으로
+  조합 검증의 필요성 자체는 다시 실증됐다.
+- 진짜 남은 문제 3가지:
+  (A) 실무 규모(5천만행, 예상조합 210그룹)에서는 체크박스를 켜도 PLAN_TARGET_MAX_GROUPS=100
+      상한에 걸려 조합 세트가 자동 제외된다. 제외 사유(`plan.excluded`)는 서버가 만들어 보내고
+      클라이언트도 저장하지만, 화면에서 읽어 렌더하는 코드가 0곳이라 사용자는 왜 안 됐는지 알 수 없다.
+  (B) 조합 세트를 실행해도 5단계 '실행계획' 표기(grid_helpers.py:1933)가 SINGLE 세트만 세어
+      조합 세트 실행 사실이 표기에서 누락된다.
+  (C) 재조회(복원) 경로에 _execEvidence 가 구성되지 않아, 축별 분해로만 검증한 과거 결과를
+      나중에 다시 열면 '조합 미검증' 경고 없이 '일치·정상'으로만 보인다.
+- 상한(100) 근거 반박: 조합 세트 실제 추가비용은 그룹수와 무관(50M 실측 4.02초, 단일축과 동급
+  수준)이며, 프로젝트 자체 cost 모델(scan 2.0 vs group 0.17)과도 일치한다. 결과 그룹 hard cap은
+  100,000으로 1,000배 차이 난다.
+- 권장(승인 대기, 코드 미착수): 1순위 plan.excluded 화면 렌더(신규 로직 0, 저위험) → 2순위
+  PLAN_TARGET_MAX_GROUPS 상향(정책값 변경, 승인 필요) → 3순위 결함 B·C 표시 정확성.
+  3축 이상 조합 복원(EXPLICIT_MULTI)은 비권장(D7-17 설계 되돌리기, 현재 결함 어느 것도 요구 안 함).
+- 참고: E:\verify_reports\F6-MULTI-GROUPBY-COMBINATION-VALIDATION-SCOPE-DIAGNOSE.txt
 
 ### F7. 4단계 통계검증 실행의 비동기 job 화 — 백그라운드 감시·자동 5단계 진입의 선행 조건
 - 발견일: 2026-07-28
@@ -1964,12 +2001,35 @@ git -C E:/verify_reports worktree remove <임시경로>
   현황판에서 '결과 보기' 로 이어지지 않는다.
 - 참고: E:\verify_reports\BATCH-EXECUTION-RESULT-VIEW-PREREQ-CHECK.txt
 
-### F11. 좌측 메뉴 죽은 링크 14개 · 실구현 오표기 4건 · 중복 4쌍 (28 → 17항목 재배치 시안 미적용)
-- 발견일: 2026-07-27
-- 근거 보고서: `LEFT-MENU-USAGE-AUDIT-AND-CONSOLIDATION-DIAGNOSE.txt`
-- 상세: 28항목 전수 클릭 실측 기반 시안. 이후 대시보드 그룹 재정렬 등 일부가 별건으로 반영됐으므로
-  착수 전 잔존 항목 재집계 필요.
-- 참고: E:\verify_reports\LEFT-MENU-USAGE-AUDIT-AND-CONSOLIDATION-DIAGNOSE.txt
+### F11. ✅ 본체 해소 완료 — 잔존은 명칭 불일치 6건 · 헤더 미등록 2건 등 경미 항목뿐
+- 발견일: 2026-07-27 / 재집계: 2026-08-05
+- 근거 보고서(최초): `LEFT-MENU-USAGE-AUDIT-AND-CONSOLIDATION-DIAGNOSE.txt`
+- 근거 보고서(재집계): `F11-MENU-CLEANUP-SCOPE-DIAGNOSE.txt`
+- 해소 확인: JOB-DASHBOARD-STAGE3 커밋에서 시안대로 적용 완료(그룹 8→7, 항목 28→15, 죽은
+  링크 14→0, 실구현 오표기 4→0, 중복 4쌍→0쌍). 코드 주석(tabler_renderer.py:2266)과 실측
+  메뉴 집계가 정확히 일치함을 확인.
+- 잔존(성격이 다른 경미 항목, 위험 낮음): 좌측메뉴 라벨과 페이지 헤더 title 불일치 6건(예:
+  'DB 프로필/검증 경로' vs '환경설정'), 페이지 헤더 미등록 2건(results, fullvalidation),
+  영구 dead 배지 배선 1건(전수검증, 존치 권고), 글로벌 헤더 준비중 UI 3건(알림배지 '4' 하드코딩
+  포함, 메뉴 범위 밖).
+- 참고: E:\verify_reports\F11-MENU-CLEANUP-SCOPE-DIAGNOSE.txt
+
+### F11-B. showTab('single') 존재하지 않는 tab id 호출 3곳 — 도달 시 전체 화면 백지화
+- 발견일: 2026-08-05 (F11 재집계 중 발견, F11에서 분리 등록)
+- 근거 보고서: `F11-MENU-CLEANUP-SCOPE-DIAGNOSE.txt` §2-❸
+- 상세: 개별검증 탭의 실제 id는 'analyze'인데 'single'이라는 존재하지 않는 이름을 호출하는
+  지점이 3곳 있다. showTab()은 매칭 실패 시 등록된 15개 탭 전부를 display:none 처리해
+  백지 화면이 된다.
+  (1) tabler_renderer.py:12375 batchShowRowDetail() — 실사용 도달 가능(일괄검증 결과 [상세]
+      모달의 '개별검증 탭으로 전환'). 데이터는 준비됐는데 화면만 백지가 되는 형태.
+  (2) tabler_renderer.py:9648 batchOpenSingleFromLatest() — 정의만 있고 HTML onclick 호출부
+      0건(현재 고아 함수, 즉시 위험 없음).
+  (3) showTab() 내부 7196행의 'single' 분기 — 개별검증 진입에서 영구 미발동 상태라
+      /api/validation-policy 선로드가 일괄검증에서만 동작(TASK36 의도와 불일치).
+- 위험도: 중간. 'single'→'analyze' 치환은 1단어지만 부작용 3개 동반(showTab 내부 미실행
+  분기 최초 발동, 신규 네트워크 호출 1회 추가, 화면전환 후 입력값 유지 여부 미확인) —
+  착수 시 회귀 테스트 필요.
+- 참고: E:\verify_reports\F11-MENU-CLEANUP-SCOPE-DIAGNOSE.txt
 
 ### F12. 프로젝트 is_test 소급 마이그레이션 25건 미적용 + HOLD 13건 cascade 정리
 - 발견일: 2026-07-27
