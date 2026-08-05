@@ -1,0 +1,157 @@
+{
+  "task": "STAGE4-SQL-BOX-COPY-SCROLLSYNC-REMOVE-AND-REORDER-FIX",
+  "phase": "before",
+  "sql": "INSERT INTO NXDNP.MV_SCATTER_TGT (PK_STR, REGION_CD, SEQ_NO, AMT, QTY, ITEM_NM, STATUS_CD)\nSELECT PK_STR, REGION_CD, SEQ_NO, AMT, QTY, ITEM_NM, STATUS_CD\n  FROM NXDNP.MV_SCATTER_SRC",
+  "shots": {
+    "step1": "a_simple_step1_query_review.png",
+    "step2": "a_simple_step2_count.png",
+    "step3": "a_simple_step3_candidate.png",
+    "stage4_full": "before_1_stage4_full.png",
+    "sql_section": "before_2_stage4_sql_section.png"
+  },
+  "notes": [],
+  "setup": {
+    "pair_rows": 1,
+    "pair_created": true,
+    "connected": true
+  },
+  "s1": {
+    "blocked": false,
+    "err": null,
+    "from_table": "MV_SCATTER_SRC",
+    "tgt_table": "MV_SCATTER_TGT",
+    "mapping_n": null,
+    "sql_shape": null,
+    "wall_sec": 3.45,
+    "slots": {
+      "s1": "· 1단계 처리시간: 1.32초",
+      "s2": "",
+      "s3": "",
+      "s4": "",
+      "s5": ""
+    }
+  },
+  "s2": {
+    "count_status": "COUNT_MINOR_DIFF",
+    "src_count": 1000000,
+    "tgt_count": 990000,
+    "wall_sec": 2.73,
+    "click_count": 2,
+    "count_resp_ms": 98.2,
+    "count_resp_diff": 10000,
+    "force_btn": false,
+    "slots": {
+      "s1": "· 1단계 처리시간: 1.32초",
+      "s2": "· 2단계 처리시간: 0.10초",
+      "s3": "",
+      "s4": "",
+      "s5": ""
+    }
+  },
+  "s3": {
+    "wall_sec": 4.27,
+    "gb": {
+      "found": [
+        "REGION_CD",
+        "STATUS_CD",
+        "PK_STR",
+        "SEQ_NO",
+        "ITEM_NM"
+      ],
+      "clicked": [
+        "REGION_CD->OFF"
+      ],
+      "disabled": [
+        "PK_STR",
+        "SEQ_NO",
+        "ITEM_NM"
+      ],
+      "final": [
+        "STATUS_CD"
+      ]
+    },
+    "sum": {
+      "found": [
+        "AMT",
+        "QTY"
+      ],
+      "clicked": [],
+      "disabled": [],
+      "final": [
+        "AMT",
+        "QTY"
+      ]
+    },
+    "slots": {
+      "s1": "· 1단계 처리시간: 1.32초",
+      "s2": "· 2단계 처리시간: 0.10초",
+      "s3": "· 3단계 계산 중...",
+      "s4": "",
+      "s5": ""
+    }
+  },
+  "sql_section": {
+    "present": true,
+    "panel_count": 2,
+    "panels": [
+      {
+        "label": "원본(Source) SQL",
+        "label_padding_left": "0px",
+        "label_margin_left": "0px",
+        "box_id": "srcBox",
+        "left": 319,
+        "sql_head": "SELECT STATUS_CD AS STATUS_CD, COUNT(*) AS CNT, SUM(AMT) AS AMT, SUM(QTY) AS QTY FROM NXDNP.MV_SCATTER_SRC GROUP BY STATUS_CD",
+        "mentions_src": true,
+        "mentions_tgt": false,
+        "sql_len": 145
+      },
+      {
+        "label": "목적지(Target) SQL",
+        "label_padding_left": "0px",
+        "label_margin_left": "0px",
+        "box_id": "tgtBox",
+        "left": 936,
+        "sql_head": "SELECT STATUS_CD AS STATUS_CD, COUNT(*) AS CNT, SUM(AMT) AS AMT, SUM(QTY) AS QTY FROM NXDNP.MV_SCATTER_TGT GROUP BY STATUS_CD",
+        "mentions_src": false,
+        "mentions_tgt": true,
+        "sql_len": 145
+      }
+    ],
+    "copy_button_count": 2,
+    "copy_buttons": [
+      {
+        "text": "📋 복사",
+        "onclick": "copySQL('srcBox',this)",
+        "dataTarget": ""
+      },
+      {
+        "text": "📋 복사",
+        "onclick": "copySQL('tgtBox',this)",
+        "dataTarget": ""
+      }
+    ],
+    "copysql_in_html": true,
+    "sync_bar_count": 1,
+    "sync_toggle_count": 1,
+    "sync_chk_present": true,
+    "sync_text_in_html": true,
+    "global_copySQL": true,
+    "global_mvSqlSyncToggle": true,
+    "global_mvSqlSyncBind": true,
+    "cmp_html_head": " <div class=\"mv-sql-cmp-bar\"> <label class=\"mv-sql-sync-toggle\" title=\"Source/Target SQL 스크롤을 함께 이동합니다\"> <input type=\"checkbox\" id=\"mvSqlSyncChk\" checked=\"\" onchange=\"mvSqlSyncToggle(this.checked)\"> 🔗 스크롤 동기화 </label> </div> <div class=\"mv-sql-cmp-grid\"> <div class=\"sql-panel\"> <div class=\"sql-hdr\"> <h3>원본(Source) SQL</h3> <button class=\"btn-copy\" onclick=\"copySQL('srcBox',this)\">📋 복사</button> <"
+  },
+  "scroll_probe": {
+    "ok": true,
+    "forced_scrollable": true,
+    "src_room_px": 169,
+    "tgt_room_px": 169,
+    "src_scrollTop": 84,
+    "tgt_scrollTop": 84,
+    "synced": true
+  },
+  "console_errors": [],
+  "dialogs": [
+    "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+    "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+  ]
+}

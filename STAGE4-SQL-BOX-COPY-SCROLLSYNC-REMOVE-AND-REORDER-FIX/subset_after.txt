@@ -1,0 +1,975 @@
+FFF...F.F.....F..F......F....F.F...................xx.xFFxFFFFFF..F..... [ 36%]
+......................................FFF..FFFFFFF......FF.............. [ 72%]
+..........................F............................                  [100%]
+================================== FAILURES ===================================
+____________ test_checkbox_change_keeps_table_and_plan_marks_draft ____________
+
+    def test_checkbox_change_keeps_table_and_plan_marks_draft():
+>       O = _run()
+            ^^^^^^
+
+tests\test_candidate_draft_selection.py:148: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_candidate_draft_selection.py:140: in _run
+    r = run_node_guarded(["node", h, asm], capture_output=True, encoding="utf-8", errors="replace")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+cmd = ['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmp8csvvr5m.harness.js', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmpfa85xgxc.asm.js']
+kwargs = {'capture_output': True, 'encoding': 'utf-8', 'errors': 'replace', 'timeout': 60}
+
+    def run_node_guarded(cmd, **kwargs):
+        """node 서브프로세스를 상한과 함께 실행한다(호출부에서 명시적으로 쓰는 헬퍼).
+    
+        timeout 을 넘기지 않으면 NODE_SUBPROCESS_TIMEOUT 을 적용한다. 상한 초과 시
+        subprocess.TimeoutExpired 를 그대로 올리지 않고, 원인이 드러나는 AssertionError 로 바꾼다
+        (pytest 실패 메시지에 명령과 초과 시간이 그대로 보인다).
+    
+        \ubc18\ud658\uac12\uacfc \ub098\uba38\uc9c0 \uc778\uc790\ub294 subprocess.run \uacfc \ub3d9\uc77c\ud558\ub2e4 \u2014 \uae30\uc874 \ud638\ucd9c\ubd80\ub97c \uadf8\ub300\ub85c \uc62e\uaca8\uc62c \uc218 \uc788\ub2e4.
+        """
+        kwargs.setdefault("timeout", NODE_SUBPROCESS_TIMEOUT)
+        try:
+            return _REAL_RUN(cmd, **kwargs)
+        except subprocess.TimeoutExpired as e:
+>           raise AssertionError(_format_timeout_message(cmd, e.timeout)) from None
+E           AssertionError: [NODE-SUBPROCESS-TIMEOUT] node 실행이 상한 60초를 초과해 강제 종료했습니다.
+E             명령: node C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp8csvvr5m.harness.js C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpfa85xgxc.asm.js
+E             원인: harness JS 가 끝나지 않았을 가능성이 높습니다(무한루프/대기).
+E             조치: 해당 harness 의 종료 조건을 확인하세요. 상한 조정은 env MV_TEST_NODE_TIMEOUT(초).
+
+tests\node_timeout_guard.py:94: AssertionError
+_________ test_uncheck_all_does_not_switch_to_count_only_before_apply _________
+
+    def test_uncheck_all_does_not_switch_to_count_only_before_apply():
+>       O = _run()
+            ^^^^^^
+
+tests\test_candidate_draft_selection.py:163: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_candidate_draft_selection.py:140: in _run
+    r = run_node_guarded(["node", h, asm], capture_output=True, encoding="utf-8", errors="replace")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+cmd = ['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmp8zqlxkcs.harness.js', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmpsun9jasw.asm.js']
+kwargs = {'capture_output': True, 'encoding': 'utf-8', 'errors': 'replace', 'timeout': 60}
+
+    def run_node_guarded(cmd, **kwargs):
+        """node 서브프로세스를 상한과 함께 실행한다(호출부에서 명시적으로 쓰는 헬퍼).
+    
+        timeout 을 넘기지 않으면 NODE_SUBPROCESS_TIMEOUT 을 적용한다. 상한 초과 시
+        subprocess.TimeoutExpired 를 그대로 올리지 않고, 원인이 드러나는 AssertionError 로 바꾼다
+        (pytest 실패 메시지에 명령과 초과 시간이 그대로 보인다).
+    
+        \ubc18\ud658\uac12\uacfc \ub098\uba38\uc9c0 \uc778\uc790\ub294 subprocess.run \uacfc \ub3d9\uc77c\ud558\ub2e4 \u2014 \uae30\uc874 \ud638\ucd9c\ubd80\ub97c \uadf8\ub300\ub85c \uc62e\uaca8\uc62c \uc218 \uc788\ub2e4.
+        """
+        kwargs.setdefault("timeout", NODE_SUBPROCESS_TIMEOUT)
+        try:
+            return _REAL_RUN(cmd, **kwargs)
+        except subprocess.TimeoutExpired as e:
+>           raise AssertionError(_format_timeout_message(cmd, e.timeout)) from None
+E           AssertionError: [NODE-SUBPROCESS-TIMEOUT] node 실행이 상한 60초를 초과해 강제 종료했습니다.
+E             명령: node C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp8zqlxkcs.harness.js C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpsun9jasw.asm.js
+E             원인: harness JS 가 끝나지 않았을 가능성이 높습니다(무한루프/대기).
+E             조치: 해당 harness 의 종료 조건을 확인하세요. 상한 조정은 env MV_TEST_NODE_TIMEOUT(초).
+
+tests\node_timeout_guard.py:94: AssertionError
+_________________ test_restore_to_applied_clears_draft_notice _________________
+
+    def test_restore_to_applied_clears_draft_notice():
+>       O = _run()
+            ^^^^^^
+
+tests\test_candidate_draft_selection.py:173: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_candidate_draft_selection.py:140: in _run
+    r = run_node_guarded(["node", h, asm], capture_output=True, encoding="utf-8", errors="replace")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+cmd = ['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmpu9hpzk_f.harness.js', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmp9560cshl.asm.js']
+kwargs = {'capture_output': True, 'encoding': 'utf-8', 'errors': 'replace', 'timeout': 60}
+
+    def run_node_guarded(cmd, **kwargs):
+        """node 서브프로세스를 상한과 함께 실행한다(호출부에서 명시적으로 쓰는 헬퍼).
+    
+        timeout 을 넘기지 않으면 NODE_SUBPROCESS_TIMEOUT 을 적용한다. 상한 초과 시
+        subprocess.TimeoutExpired 를 그대로 올리지 않고, 원인이 드러나는 AssertionError 로 바꾼다
+        (pytest 실패 메시지에 명령과 초과 시간이 그대로 보인다).
+    
+        \ubc18\ud658\uac12\uacfc \ub098\uba38\uc9c0 \uc778\uc790\ub294 subprocess.run \uacfc \ub3d9\uc77c\ud558\ub2e4 \u2014 \uae30\uc874 \ud638\ucd9c\ubd80\ub97c \uadf8\ub300\ub85c \uc62e\uaca8\uc62c \uc218 \uc788\ub2e4.
+        """
+        kwargs.setdefault("timeout", NODE_SUBPROCESS_TIMEOUT)
+        try:
+            return _REAL_RUN(cmd, **kwargs)
+        except subprocess.TimeoutExpired as e:
+>           raise AssertionError(_format_timeout_message(cmd, e.timeout)) from None
+E           AssertionError: [NODE-SUBPROCESS-TIMEOUT] node 실행이 상한 60초를 초과해 강제 종료했습니다.
+E             명령: node C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpu9hpzk_f.harness.js C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp9560cshl.asm.js
+E             원인: harness JS 가 끝나지 않았을 가능성이 높습니다(무한루프/대기).
+E             조치: 해당 harness 의 종료 조건을 확인하세요. 상한 조정은 env MV_TEST_NODE_TIMEOUT(초).
+
+tests\node_timeout_guard.py:94: AssertionError
+_____________ test_candidate_notice_sticky_fix_uses_common_offset _____________
+
+    def test_candidate_notice_sticky_fix_uses_common_offset():
+        # \xa73: \ud6c4\ubcf4\ucd94\ucc9c \uc548\ub0b4\ubb38 sticky \uac00\ub9bc \u2014 \uce74\ub4dc \uc139\uc158 \ud5e4\ub354 \ube44-sticky + \uacf5\ud1b5 offset scroll-margin(\uc784\uc758 margin \uc544\ub2d8)
+        h = _html()
+        assert "#colSelectCard .mv-sticky-section-header{position:static" in h
+        assert "#colSelectCard .mv-candidate-notice{scroll-margin-top:calc(var(--mv-conn-bar-h" in h
+        # 후보추천 안내문은 삭제하지 않고 유지
+>       assert 'id="candidateGeneralNotice"' in h
+E       assert 'id="candidateGeneralNotice"' in '<!DOCTYPE html>\n<html lang="ko">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width,...esultsDetail; window.goToResultsDetail = goToResultsDetail; window.resExport = resExport;\n</script>\n</body>\n</html>'
+
+tests\test_candidate_draft_selection.py:222: AssertionError
+_____________ test_candidate_selection_bar_present_and_populated ______________
+
+    def test_candidate_selection_bar_present_and_populated():
+        # \xa73: \ud6c4\ubcf4 \uce74\ub4dc \uc0c1\ub2e8 \uc120\ud0dd \uc694\uc57d bar \u2014 GROUP BY/SUM \uc218, COUNT(*) \ud56d\uc0c1 \ud3ec\ud568, \ubbf8\uc801\uc6a9 \uc0c1\ud0dc
+        h = _html()
+        assert 'id="candidateSelBar"' in h
+        assert "function _updateCandidateSelBar(" in h
+        assert ".mv-candidate-selbar{" in h
+>       O = _run()  # 동적: 체크 변경 후 selbar 내용 확인
+            ^^^^^^
+
+tests\test_candidate_draft_selection.py:242: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_candidate_draft_selection.py:140: in _run
+    r = run_node_guarded(["node", h, asm], capture_output=True, encoding="utf-8", errors="replace")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+cmd = ['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmphb5x4wqc.harness.js', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmps7ujy5e0.asm.js']
+kwargs = {'capture_output': True, 'encoding': 'utf-8', 'errors': 'replace', 'timeout': 60}
+
+    def run_node_guarded(cmd, **kwargs):
+        """node 서브프로세스를 상한과 함께 실행한다(호출부에서 명시적으로 쓰는 헬퍼).
+    
+        timeout 을 넘기지 않으면 NODE_SUBPROCESS_TIMEOUT 을 적용한다. 상한 초과 시
+        subprocess.TimeoutExpired 를 그대로 올리지 않고, 원인이 드러나는 AssertionError 로 바꾼다
+        (pytest 실패 메시지에 명령과 초과 시간이 그대로 보인다).
+    
+        \ubc18\ud658\uac12\uacfc \ub098\uba38\uc9c0 \uc778\uc790\ub294 subprocess.run \uacfc \ub3d9\uc77c\ud558\ub2e4 \u2014 \uae30\uc874 \ud638\ucd9c\ubd80\ub97c \uadf8\ub300\ub85c \uc62e\uaca8\uc62c \uc218 \uc788\ub2e4.
+        """
+        kwargs.setdefault("timeout", NODE_SUBPROCESS_TIMEOUT)
+        try:
+            return _REAL_RUN(cmd, **kwargs)
+        except subprocess.TimeoutExpired as e:
+>           raise AssertionError(_format_timeout_message(cmd, e.timeout)) from None
+E           AssertionError: [NODE-SUBPROCESS-TIMEOUT] node 실행이 상한 60초를 초과해 강제 종료했습니다.
+E             명령: node C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmphb5x4wqc.harness.js C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmps7ujy5e0.asm.js
+E             원인: harness JS 가 끝나지 않았을 가능성이 높습니다(무한루프/대기).
+E             조치: 해당 harness 의 종료 조건을 확인하세요. 상한 조정은 env MV_TEST_NODE_TIMEOUT(초).
+
+tests\node_timeout_guard.py:94: AssertionError
+_________________ test_count_sql_pre_boxes_no_clip_and_order __________________
+
+    def test_count_sql_pre_boxes_no_clip_and_order():
+        h = _html()
+        # SQL 박스는 줄바꿈 보존 <pre>
+        assert '<pre class="sql-box mv-count-sql-box" id="cntSrcBox">' in h
+        assert '<pre class="sql-box mv-count-sql-box" id="cntTgtBox">' in h
+        # 전용 CSS: 고정 height/max-height 클립·세로 overflow:hidden·absolute·음수 margin 미사용
+        m = re.search(r"\.mv-count-sql-box\{([^}]*)\}", h)
+        assert m, ".mv-count-sql-box CSS 규칙이 있어야 함"
+        css = m.group(1)
+        assert "height:auto" in css and "max-height:none" in css
+        assert "overflow-y:visible" in css
+        assert "position:absolute" not in css and "overflow:hidden" not in css
+        assert "margin:-" not in css and "margin-top:-" not in css
+        # DOM 순서: SQL 2열 그리드 → COUNT 결과 제목 → 결과
+        gi = h.find('class="grid2 mv-count-sql-grid"')
+        ti = h.find('class="mv-count-result-title"')
+        ri = h.find("id='countResult'")
+        if ri == -1:
+            ri = h.find('id="countResult"')
+>       assert gi != -1 and ti != -1 and ri != -1 and gi < ti < ri
+E       assert (1889087 != -1 and -1 != -1)
+
+tests\test_count_sql_full_visibility.py:68: AssertionError
+___________ test_render_count_result_full_sql_and_copy_equivalence ____________
+
+    def test_render_count_result_full_sql_and_copy_equivalence():
+        node = shutil.which("node")
+        if not node:
+            import pytest
+            pytest.skip("node 미설치")
+        h = _html()
+        fn = _extract_function(h, "renderCountResult")
+    
+        src_sql = "SELECT COUNT(*) AS CNT\nFROM   PUBLIC.SRC_ORDERS S"
+        tgt_sql = "SELECT COUNT(*) AS CNT\nFROM   PUBLIC.TGT_ORDERS T\nWHERE  status = 'A'"
+    
+        harness = r"""
+    global.window = global;
+    var _store = {};
+    global.document = { getElementById: function(id){ if(!_store[id]) _store[id]={textContent:'',innerHTML:'',dataset:{},style:{},classList:{add:function(){},remove:function(){}}}; return _store[id]; } };
+    // renderCountResult 가 참조하는 의존 함수/전역 스텁
+    function _countSummaryCardsHtml(){ return ''; }
+    function _countGuideAccordionHtml(){ return ''; }
+    function _showCandidateTable(){}
+    function _updateProgressCard(){}
+    function _buildDiagCandNames(){}
+    function _refreshValidationPlanWithRowCount(){}
+    function esc(s){ return s; }
+    function escNl(s){ return s; }
+    global._analyzeData = null;
+    global._countState = null;
+    global._lastCountResult = null;
+    global._COUNT_ERROR_MSG = {};
+    __FN__
+    // 복사 동작(copySQL)과 동일 의미: 화면 요소의 textContent 를 복사
+    function copyText(id){ return document.getElementById(id).textContent; }
+    
+    var c = {
+      is_matched: true, status: 'PASSED', src_count: 5, tgt_count: 5, diff: 0,
+      source_count_sql: __SRC__, target_count_sql: __TGT__
+    };
+    renderCountResult(c);
+    var out = {
+      shown_src: document.getElementById('cntSrcBox').textContent,
+      shown_tgt: document.getElementById('cntTgtBox').textContent,
+      copy_src:  copyText('cntSrcBox'),
+      copy_tgt:  copyText('cntTgtBox')
+    };
+    process.stdout.write(JSON.stringify(out));
+    """
+        src_js = harness.replace("__FN__", fn) \
+                        .replace("__SRC__", _json_str(src_sql)) \
+                        .replace("__TGT__", _json_str(tgt_sql))
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+            f.write(src_js)
+            path = f.name
+        try:
+            p = subprocess.run([node, path], capture_output=True, text=True, encoding="utf-8", timeout=60)
+>           assert p.returncode == 0, p.stderr[:800]
+E           AssertionError: C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmplunzlocc.js:106
+E                   if (_fullRunInProgress) {
+E                   ^
+E             
+E             ReferenceError: _fullRunInProgress is not defined
+E                 at renderCountResult (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmplunzlocc.js:106:7)
+E                 at Object.<anonymous> (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmplunzlocc.js:177:1)
+E                 at Module._compile (node:internal/modules/cjs/loader:1830:14)
+E                 at Object..js (node:internal/modules/cjs/loader:1961:10)
+E                 at Module.load (node:internal/modules/cjs/loader:1553:32)
+E                 at Module._load (node:internal/modules/cjs/loader:1355:12)
+E                 at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+E                 at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+E                 at node:internal/main/run_main_module:33:47
+E             
+E             No
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['C:\\Program Files\\nodejs\\node.EXE', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmp...unMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v24.15.0\n').returncode
+
+tests\test_count_sql_full_visibility.py:157: AssertionError
+_________________ test_g07_sql_generation_uses_common_builder _________________
+
+    def test_g07_sql_generation_uses_common_builder():
+        """UNIFY-STATS-SQL-GENERATOR: /generate 가 공통 builder 로 SQL 을 생성하는지 확인.
+    
+        (기존 G07 은 제거된 SqlGenerator/ParsedSql/AnalyzedResult/gen.stats_* 를 기대하던
+         stale \uac80\uc99d\uc774\uc5c8\ub2e4 \u2014 \uac1c\ubcc4/\uc77c\uad04\uc774 \ub3d9\uc77c build_stats_sql_pair \ub97c \uc4f0\ub3c4\ub85d \uc218\ub834\ub41c \ud604 \uacc4\uc57d \ubc18\uc601.)
+        """
+        _section('G07: SQL 생성이 공통 builder(build_stats_sql_pair)로 수렴')
+        src = _generate_impl_src()
+    
+        _assert('build_stats_sql_pair' in src, '공통 builder build_stats_sql_pair 사용')
+        _assert('StatsSqlBuildRequest' in src, 'StatsSqlBuildRequest 구성 유지')
+        _assert('build_from_clause_sql' in src, 'build_from_clause_sql 사용')
+        _assert('result.source_sql' in src, 'builder 결과 source_sql 참조')
+        _assert('result.target_sql' in src, 'builder 결과 target_sql 참조')
+>       _assert('목적지 필터 조건 없음' in src, '목적지 필터 없음 warning 유지')
+
+tests\test_generate_route_contract.py:214: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+cond = False, msg = '목적지 필터 없음 warning 유지'
+
+    def _assert(cond: bool, msg: str) -> None:
+        """검증 실패 시 AssertionError 를 raise 해 pytest 가 실제로 강제하도록 한다.
+    
+        (기존: raise 없이 _FAIL 만 증가 → pytest 에서 항상 거짓 통과하던 무력화 상태 수정)
+        """
+        global _TOTAL, _FAIL
+        _TOTAL += 1
+        if cond:
+            print(f'    \u2713  {msg}')
+        else:
+            print(f'    \u2717  {msg}')
+            _FAIL += 1
+>           raise AssertionError(msg)
+E           AssertionError: 목적지 필터 없음 warning 유지
+
+tests\test_generate_route_contract.py:45: AssertionError
+---------------------------- Captured stdout call -----------------------------
+\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  G07: SQL \uc0dd\uc131\uc774 \uacf5\ud1b5 builder(build_stats_sql_pair)\ub85c \uc218\ub834\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n    \u2713  \uacf5\ud1b5 builder build_stats_sql_pair \uc0ac\uc6a9\n    \u2713  StatsSqlBuildRequest \uad6c\uc131 \uc720\uc9c0\n    \u2713  build_from_clause_sql \uc0ac\uc6a9\n    \u2713  builder \uacb0\uacfc source_sql \ucc38\uc870\n    \u2713  builder \uacb0\uacfc target_sql \ucc38\uc870\n    \u2717  \ubaa9\uc801\uc9c0 \ud544\ud130 \uc5c6\uc74c warning \uc720\uc9c0
+_____________________ test_g12_empty_or_none_col_is_error _____________________
+
+    def test_g12_empty_or_none_col_is_error():
+        _section('G12: 빈/공백/None 선택 컬럼명 차단')
+        from routes.generate_route import stats_generate
+        r = stats_generate(_make_generate_req(['JOIN_YM', ''], []))
+>       _assert(r.get('success') is False and 'GROUP BY' in (r.get('error') or ''), '빈 문자열 GROUP BY → error')
+
+tests\test_generate_route_contract.py:343: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+cond = False, msg = '빈 문자열 GROUP BY → error'
+
+    def _assert(cond: bool, msg: str) -> None:
+        """검증 실패 시 AssertionError 를 raise 해 pytest 가 실제로 강제하도록 한다.
+    
+        (기존: raise 없이 _FAIL 만 증가 → pytest 에서 항상 거짓 통과하던 무력화 상태 수정)
+        """
+        global _TOTAL, _FAIL
+        _TOTAL += 1
+        if cond:
+            print(f'    \u2713  {msg}')
+        else:
+            print(f'    \u2717  {msg}')
+            _FAIL += 1
+>           raise AssertionError(msg)
+E           AssertionError: 빈 문자열 GROUP BY → error
+
+tests\test_generate_route_contract.py:45: AssertionError
+---------------------------- Captured stdout call -----------------------------
+\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  G12: \ube48/\uacf5\ubc31/None \uc120\ud0dd \uceec\ub7fc\uba85 \ucc28\ub2e8\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n    \u2717  \ube48 \ubb38\uc790\uc5f4 GROUP BY \u2192 error
+___________________ test_g14_over_three_selection_is_error ____________________
+
+    def test_g14_over_three_selection_is_error():
+        _section('G14: GROUP BY/SUM 최대 3개 초과 차단')
+        from routes.generate_route import stats_generate
+        r = stats_generate(_make_generate_req(['A', 'B', 'C', 'D'], []))
+>       _assert(r.get('success') is False and '최대 3' in (r.get('error') or ''), '4개 GROUP BY → error')
+
+tests\test_generate_route_contract.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+cond = False, msg = '4개 GROUP BY → error'
+
+    def _assert(cond: bool, msg: str) -> None:
+        """검증 실패 시 AssertionError 를 raise 해 pytest 가 실제로 강제하도록 한다.
+    
+        (기존: raise 없이 _FAIL 만 증가 → pytest 에서 항상 거짓 통과하던 무력화 상태 수정)
+        """
+        global _TOTAL, _FAIL
+        _TOTAL += 1
+        if cond:
+            print(f'    \u2713  {msg}')
+        else:
+            print(f'    \u2717  {msg}')
+            _FAIL += 1
+>           raise AssertionError(msg)
+E           AssertionError: 4개 GROUP BY → error
+
+tests\test_generate_route_contract.py:45: AssertionError
+---------------------------- Captured stdout call -----------------------------
+\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  G14: GROUP BY/SUM \ucd5c\ub300 3\uac1c \ucd08\uacfc \ucc28\ub2e8\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n    \u2717  4\uac1c GROUP BY \u2192 error
+___________ test_full_run_blocked_stays_on_failed_stage_not_result ____________
+
+    def test_full_run_blocked_stays_on_failed_stage_not_result():
+        # P2 \uc815\ucc45: \ucc28\ub2e8/\uc624\ub958\ub294 \uc2e4\ud328\ud55c '\uadf8 \ub2e8\uacc4' \ud0ed\uc5d0 \uba38\ubb38\ub2e4 \u2014 5\ubc88 \uacb0\uacfc \ud0ed\uc73c\ub85c \uc774\ub3d9/\ud45c\uc2dc\ud558\uc9c0 \uc54a\ub294\ub2e4.
+        if not shutil.which("node"):
+            pytest.skip("node 미설치")
+>       O = _run_nav_sim()
+            ^^^^^^^^^^^^^^
+
+tests\test_one_click_full_run.py:374: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_one_click_full_run.py:343: in _run_nav_sim
+    r = run_node_guarded(["node", harness, asm], capture_output=True, encoding="utf-8", errors="replace")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+cmd = ['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmp6pkafjdf.harness.js', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmp3e82f1a0.asm.js']
+kwargs = {'capture_output': True, 'encoding': 'utf-8', 'errors': 'replace', 'timeout': 60}
+
+    def run_node_guarded(cmd, **kwargs):
+        """node 서브프로세스를 상한과 함께 실행한다(호출부에서 명시적으로 쓰는 헬퍼).
+    
+        timeout 을 넘기지 않으면 NODE_SUBPROCESS_TIMEOUT 을 적용한다. 상한 초과 시
+        subprocess.TimeoutExpired 를 그대로 올리지 않고, 원인이 드러나는 AssertionError 로 바꾼다
+        (pytest 실패 메시지에 명령과 초과 시간이 그대로 보인다).
+    
+        \ubc18\ud658\uac12\uacfc \ub098\uba38\uc9c0 \uc778\uc790\ub294 subprocess.run \uacfc \ub3d9\uc77c\ud558\ub2e4 \u2014 \uae30\uc874 \ud638\ucd9c\ubd80\ub97c \uadf8\ub300\ub85c \uc62e\uaca8\uc62c \uc218 \uc788\ub2e4.
+        """
+        kwargs.setdefault("timeout", NODE_SUBPROCESS_TIMEOUT)
+        try:
+            return _REAL_RUN(cmd, **kwargs)
+        except subprocess.TimeoutExpired as e:
+>           raise AssertionError(_format_timeout_message(cmd, e.timeout)) from None
+E           AssertionError: [NODE-SUBPROCESS-TIMEOUT] node 실행이 상한 60초를 초과해 강제 종료했습니다.
+E             명령: node C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp6pkafjdf.harness.js C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp3e82f1a0.asm.js
+E             원인: harness JS 가 끝나지 않았을 가능성이 높습니다(무한루프/대기).
+E             조치: 해당 harness 의 종료 조건을 확인하세요. 상한 조정은 env MV_TEST_NODE_TIMEOUT(초).
+
+tests\node_timeout_guard.py:94: AssertionError
+__________ test_full_run_success_marks_steps_done_and_injects_state ___________
+
+    def test_full_run_success_marks_steps_done_and_injects_state():
+        # §1/§2: 성공(PASS/COUNT-only)은 1~4단계 완료(authoritative _progressState) + 실행 플래그 주입, 5단계 현재.
+        if not shutil.which("node"):
+            pytest.skip("node 미설치")
+>       O = _run_nav_sim()
+            ^^^^^^^^^^^^^^
+
+tests\test_one_click_full_run.py:395: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_one_click_full_run.py:343: in _run_nav_sim
+    r = run_node_guarded(["node", harness, asm], capture_output=True, encoding="utf-8", errors="replace")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+cmd = ['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmpcms7t9t8.harness.js', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmprquxvpk9.asm.js']
+kwargs = {'capture_output': True, 'encoding': 'utf-8', 'errors': 'replace', 'timeout': 60}
+
+    def run_node_guarded(cmd, **kwargs):
+        """node 서브프로세스를 상한과 함께 실행한다(호출부에서 명시적으로 쓰는 헬퍼).
+    
+        timeout 을 넘기지 않으면 NODE_SUBPROCESS_TIMEOUT 을 적용한다. 상한 초과 시
+        subprocess.TimeoutExpired 를 그대로 올리지 않고, 원인이 드러나는 AssertionError 로 바꾼다
+        (pytest 실패 메시지에 명령과 초과 시간이 그대로 보인다).
+    
+        \ubc18\ud658\uac12\uacfc \ub098\uba38\uc9c0 \uc778\uc790\ub294 subprocess.run \uacfc \ub3d9\uc77c\ud558\ub2e4 \u2014 \uae30\uc874 \ud638\ucd9c\ubd80\ub97c \uadf8\ub300\ub85c \uc62e\uaca8\uc62c \uc218 \uc788\ub2e4.
+        """
+        kwargs.setdefault("timeout", NODE_SUBPROCESS_TIMEOUT)
+        try:
+            return _REAL_RUN(cmd, **kwargs)
+        except subprocess.TimeoutExpired as e:
+>           raise AssertionError(_format_timeout_message(cmd, e.timeout)) from None
+E           AssertionError: [NODE-SUBPROCESS-TIMEOUT] node 실행이 상한 60초를 초과해 강제 종료했습니다.
+E             명령: node C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpcms7t9t8.harness.js C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmprquxvpk9.asm.js
+E             원인: harness JS 가 끝나지 않았을 가능성이 높습니다(무한루프/대기).
+E             조치: 해당 harness 의 종료 조건을 확인하세요. 상한 조정은 env MV_TEST_NODE_TIMEOUT(초).
+
+tests\node_timeout_guard.py:94: AssertionError
+_______________ test_full_run_blocked_locks_downstream_via_gate _______________
+
+    def test_full_run_blocked_locks_downstream_via_gate():
+        # P2: 분석 차단 시 query 만 현재(차단), 2~5 단계는 공통 Gate 로 잠김. 결과 탭으로 이동하지 않음.
+        if not shutil.which("node"):
+            pytest.skip("node 미설치")
+>       O = _run_nav_sim()
+            ^^^^^^^^^^^^^^
+
+tests\test_one_click_full_run.py:429: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_one_click_full_run.py:343: in _run_nav_sim
+    r = run_node_guarded(["node", harness, asm], capture_output=True, encoding="utf-8", errors="replace")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+cmd = ['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmplpqejjja.harness.js', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmpukuk69w0.asm.js']
+kwargs = {'capture_output': True, 'encoding': 'utf-8', 'errors': 'replace', 'timeout': 60}
+
+    def run_node_guarded(cmd, **kwargs):
+        """node 서브프로세스를 상한과 함께 실행한다(호출부에서 명시적으로 쓰는 헬퍼).
+    
+        timeout 을 넘기지 않으면 NODE_SUBPROCESS_TIMEOUT 을 적용한다. 상한 초과 시
+        subprocess.TimeoutExpired 를 그대로 올리지 않고, 원인이 드러나는 AssertionError 로 바꾼다
+        (pytest 실패 메시지에 명령과 초과 시간이 그대로 보인다).
+    
+        \ubc18\ud658\uac12\uacfc \ub098\uba38\uc9c0 \uc778\uc790\ub294 subprocess.run \uacfc \ub3d9\uc77c\ud558\ub2e4 \u2014 \uae30\uc874 \ud638\ucd9c\ubd80\ub97c \uadf8\ub300\ub85c \uc62e\uaca8\uc62c \uc218 \uc788\ub2e4.
+        """
+        kwargs.setdefault("timeout", NODE_SUBPROCESS_TIMEOUT)
+        try:
+            return _REAL_RUN(cmd, **kwargs)
+        except subprocess.TimeoutExpired as e:
+>           raise AssertionError(_format_timeout_message(cmd, e.timeout)) from None
+E           AssertionError: [NODE-SUBPROCESS-TIMEOUT] node 실행이 상한 60초를 초과해 강제 종료했습니다.
+E             명령: node C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmplpqejjja.harness.js C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpukuk69w0.asm.js
+E             원인: harness JS 가 끝나지 않았을 가능성이 높습니다(무한루프/대기).
+E             조치: 해당 harness 의 종료 조건을 확인하세요. 상한 조정은 env MV_TEST_NODE_TIMEOUT(초).
+
+tests\node_timeout_guard.py:94: AssertionError
+__________________ test_count_chip_no_manual_progress_badge ___________________
+
+    def test_count_chip_no_manual_progress_badge():
+        # UX-REDESIGN \xa71: COUNT \ub2e8\uacc4 \ubc30\uc9c0\uc5d0 '\uc218\ub3d9\uc9c4\ud589'/'\ubd88\uc77c\uce58'/'\uac74\ub108\ub700' \uc5c6\uc74c \u2014 \uc2e4\ud589\ub428=\uc644\ub8cc.
+        if not shutil.which("node"):
+            pytest.skip("node 미설치")
+>       O = _run_nav_sim()
+            ^^^^^^^^^^^^^^
+
+tests\test_one_click_full_run.py:443: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_one_click_full_run.py:343: in _run_nav_sim
+    r = run_node_guarded(["node", harness, asm], capture_output=True, encoding="utf-8", errors="replace")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+cmd = ['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmpucwwkf5a.harness.js', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmp4i39o61a.asm.js']
+kwargs = {'capture_output': True, 'encoding': 'utf-8', 'errors': 'replace', 'timeout': 60}
+
+    def run_node_guarded(cmd, **kwargs):
+        """node 서브프로세스를 상한과 함께 실행한다(호출부에서 명시적으로 쓰는 헬퍼).
+    
+        timeout 을 넘기지 않으면 NODE_SUBPROCESS_TIMEOUT 을 적용한다. 상한 초과 시
+        subprocess.TimeoutExpired 를 그대로 올리지 않고, 원인이 드러나는 AssertionError 로 바꾼다
+        (pytest 실패 메시지에 명령과 초과 시간이 그대로 보인다).
+    
+        \ubc18\ud658\uac12\uacfc \ub098\uba38\uc9c0 \uc778\uc790\ub294 subprocess.run \uacfc \ub3d9\uc77c\ud558\ub2e4 \u2014 \uae30\uc874 \ud638\ucd9c\ubd80\ub97c \uadf8\ub300\ub85c \uc62e\uaca8\uc62c \uc218 \uc788\ub2e4.
+        """
+        kwargs.setdefault("timeout", NODE_SUBPROCESS_TIMEOUT)
+        try:
+            return _REAL_RUN(cmd, **kwargs)
+        except subprocess.TimeoutExpired as e:
+>           raise AssertionError(_format_timeout_message(cmd, e.timeout)) from None
+E           AssertionError: [NODE-SUBPROCESS-TIMEOUT] node 실행이 상한 60초를 초과해 강제 종료했습니다.
+E             명령: node C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpucwwkf5a.harness.js C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp4i39o61a.asm.js
+E             원인: harness JS 가 끝나지 않았을 가능성이 높습니다(무한루프/대기).
+E             조치: 해당 harness 의 종료 조건을 확인하세요. 상한 조정은 env MV_TEST_NODE_TIMEOUT(초).
+
+tests\node_timeout_guard.py:94: AssertionError
+_____________________ test_result_summary_unified_content _____________________
+
+    def test_result_summary_unified_content():
+        # GRID-FINAL(\uacb0\uacfc\ud655\uc778 \ucd5c\uc885 \uc815\ub9ac): \ud310\uc815 \uce74\ub4dc/1~4\ub2e8\uacc4 \uc694\uc57d \uce74\ub4dc\ub294 \uc804\uba74\uc5d0\uc11c \ub80c\ub354 \uc81c\uac70 \u2014
+        # 동일 정보는 상단 종합 Grid(_mvRenderResultGrid 7행)로 단일화(중복 상태 표시 금지).
+        if not shutil.which("node"):
+            pytest.skip("node 미설치")
+>       O = _run_nav_sim()
+            ^^^^^^^^^^^^^^
+
+tests\test_one_click_full_run.py:455: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_one_click_full_run.py:343: in _run_nav_sim
+    r = run_node_guarded(["node", harness, asm], capture_output=True, encoding="utf-8", errors="replace")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+cmd = ['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmp_dcky53q.harness.js', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmp7dbpbmta.asm.js']
+kwargs = {'capture_output': True, 'encoding': 'utf-8', 'errors': 'replace', 'timeout': 60}
+
+    def run_node_guarded(cmd, **kwargs):
+        """node 서브프로세스를 상한과 함께 실행한다(호출부에서 명시적으로 쓰는 헬퍼).
+    
+        timeout 을 넘기지 않으면 NODE_SUBPROCESS_TIMEOUT 을 적용한다. 상한 초과 시
+        subprocess.TimeoutExpired 를 그대로 올리지 않고, 원인이 드러나는 AssertionError 로 바꾼다
+        (pytest 실패 메시지에 명령과 초과 시간이 그대로 보인다).
+    
+        \ubc18\ud658\uac12\uacfc \ub098\uba38\uc9c0 \uc778\uc790\ub294 subprocess.run \uacfc \ub3d9\uc77c\ud558\ub2e4 \u2014 \uae30\uc874 \ud638\ucd9c\ubd80\ub97c \uadf8\ub300\ub85c \uc62e\uaca8\uc62c \uc218 \uc788\ub2e4.
+        """
+        kwargs.setdefault("timeout", NODE_SUBPROCESS_TIMEOUT)
+        try:
+            return _REAL_RUN(cmd, **kwargs)
+        except subprocess.TimeoutExpired as e:
+>           raise AssertionError(_format_timeout_message(cmd, e.timeout)) from None
+E           AssertionError: [NODE-SUBPROCESS-TIMEOUT] node 실행이 상한 60초를 초과해 강제 종료했습니다.
+E             명령: node C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp_dcky53q.harness.js C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp7dbpbmta.asm.js
+E             원인: harness JS 가 끝나지 않았을 가능성이 높습니다(무한루프/대기).
+E             조치: 해당 harness 의 종료 조건을 확인하세요. 상한 조정은 env MV_TEST_NODE_TIMEOUT(초).
+
+tests\node_timeout_guard.py:94: AssertionError
+______________ test_result_kpi_not_duplicated_summary_vs_detail _______________
+
+    def test_result_kpi_not_duplicated_summary_vs_detail():
+        # GRID-FINAL: KPI \uce74\ub4dc \uc81c\uac70 \u2014 \uc218\uce58(\uc804\uccb4/\uc77c\uce58/\ubd88\uc77c\uce58)\ub294 \uc885\ud569 Grid \ud1b5\uacc4\uac80\uc99d \ud589 \ud655\uc778\uac12\uc73c\ub85c \ub2e8\uc77c\ud654.
+        # 하단 상세(renderExecute)도 기존대로 중복 KPI/판정 배너 없음 유지.
+        if not shutil.which("node"):
+            pytest.skip("node 미설치")
+>       O = _run_nav_sim()
+            ^^^^^^^^^^^^^^
+
+tests\test_one_click_full_run.py:472: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_one_click_full_run.py:343: in _run_nav_sim
+    r = run_node_guarded(["node", harness, asm], capture_output=True, encoding="utf-8", errors="replace")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+cmd = ['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmpy_f56yl3.harness.js', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmp7jny8hz3.asm.js']
+kwargs = {'capture_output': True, 'encoding': 'utf-8', 'errors': 'replace', 'timeout': 60}
+
+    def run_node_guarded(cmd, **kwargs):
+        """node 서브프로세스를 상한과 함께 실행한다(호출부에서 명시적으로 쓰는 헬퍼).
+    
+        timeout 을 넘기지 않으면 NODE_SUBPROCESS_TIMEOUT 을 적용한다. 상한 초과 시
+        subprocess.TimeoutExpired 를 그대로 올리지 않고, 원인이 드러나는 AssertionError 로 바꾼다
+        (pytest 실패 메시지에 명령과 초과 시간이 그대로 보인다).
+    
+        \ubc18\ud658\uac12\uacfc \ub098\uba38\uc9c0 \uc778\uc790\ub294 subprocess.run \uacfc \ub3d9\uc77c\ud558\ub2e4 \u2014 \uae30\uc874 \ud638\ucd9c\ubd80\ub97c \uadf8\ub300\ub85c \uc62e\uaca8\uc62c \uc218 \uc788\ub2e4.
+        """
+        kwargs.setdefault("timeout", NODE_SUBPROCESS_TIMEOUT)
+        try:
+            return _REAL_RUN(cmd, **kwargs)
+        except subprocess.TimeoutExpired as e:
+>           raise AssertionError(_format_timeout_message(cmd, e.timeout)) from None
+E           AssertionError: [NODE-SUBPROCESS-TIMEOUT] node 실행이 상한 60초를 초과해 강제 종료했습니다.
+E             명령: node C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpy_f56yl3.harness.js C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp7jny8hz3.asm.js
+E             원인: harness JS 가 끝나지 않았을 가능성이 높습니다(무한루프/대기).
+E             조치: 해당 harness 의 종료 조건을 확인하세요. 상한 조정은 env MV_TEST_NODE_TIMEOUT(초).
+
+tests\node_timeout_guard.py:94: AssertionError
+____________________ test_result_summary_neutral_hierarchy ____________________
+
+    def test_result_summary_neutral_hierarchy():
+        # GRID-FINAL: \uc131\uacf5 \ubc18\ubcf5 \ubb38\uad6c/\ud310\uc815 \uce74\ub4dc/KPI \uc704\ud5d8 \uce74\ub4dc \ubaa8\ub450 \uc804\uba74 \ubbf8\ud45c\uc2dc \u2014 \uc0c1\ud0dc\ub294 Grid \uc0c1\ud0dc \uc544\uc774\ucf58\uc73c\ub85c \ub2e8\uc77c\ud654.
+        if not shutil.which("node"):
+            pytest.skip("node 미설치")
+>       O = _run_nav_sim()
+            ^^^^^^^^^^^^^^
+
+tests\test_one_click_full_run.py:485: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_one_click_full_run.py:343: in _run_nav_sim
+    r = run_node_guarded(["node", harness, asm], capture_output=True, encoding="utf-8", errors="replace")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+cmd = ['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmp8vmn0q9w.harness.js', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmpg9bcq_w9.asm.js']
+kwargs = {'capture_output': True, 'encoding': 'utf-8', 'errors': 'replace', 'timeout': 60}
+
+    def run_node_guarded(cmd, **kwargs):
+        """node 서브프로세스를 상한과 함께 실행한다(호출부에서 명시적으로 쓰는 헬퍼).
+    
+        timeout 을 넘기지 않으면 NODE_SUBPROCESS_TIMEOUT 을 적용한다. 상한 초과 시
+        subprocess.TimeoutExpired 를 그대로 올리지 않고, 원인이 드러나는 AssertionError 로 바꾼다
+        (pytest 실패 메시지에 명령과 초과 시간이 그대로 보인다).
+    
+        \ubc18\ud658\uac12\uacfc \ub098\uba38\uc9c0 \uc778\uc790\ub294 subprocess.run \uacfc \ub3d9\uc77c\ud558\ub2e4 \u2014 \uae30\uc874 \ud638\ucd9c\ubd80\ub97c \uadf8\ub300\ub85c \uc62e\uaca8\uc62c \uc218 \uc788\ub2e4.
+        """
+        kwargs.setdefault("timeout", NODE_SUBPROCESS_TIMEOUT)
+        try:
+            return _REAL_RUN(cmd, **kwargs)
+        except subprocess.TimeoutExpired as e:
+>           raise AssertionError(_format_timeout_message(cmd, e.timeout)) from None
+E           AssertionError: [NODE-SUBPROCESS-TIMEOUT] node 실행이 상한 60초를 초과해 강제 종료했습니다.
+E             명령: node C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp8vmn0q9w.harness.js C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpg9bcq_w9.asm.js
+E             원인: harness JS 가 끝나지 않았을 가능성이 높습니다(무한루프/대기).
+E             조치: 해당 harness 의 종료 조건을 확인하세요. 상한 조정은 env MV_TEST_NODE_TIMEOUT(초).
+
+tests\node_timeout_guard.py:94: AssertionError
+_________________ test_full_run_populates_official_save_state _________________
+
+    def test_full_run_populates_official_save_state():
+        # FULL-RUN-OFFICIAL-SAVE-FIX §2/§3: full-run 도 단계별과 동일 baseline/meta 를 채워 공식 저장이 가능해야 한다.
+        if not shutil.which("node"):
+            pytest.skip("node 미설치")
+>       O = _run_nav_sim()
+            ^^^^^^^^^^^^^^
+
+tests\test_one_click_full_run.py:498: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_one_click_full_run.py:343: in _run_nav_sim
+    r = run_node_guarded(["node", harness, asm], capture_output=True, encoding="utf-8", errors="replace")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+cmd = ['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmpeiugnnlt.harness.js', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmp0u56p2ub.asm.js']
+kwargs = {'capture_output': True, 'encoding': 'utf-8', 'errors': 'replace', 'timeout': 60}
+
+    def run_node_guarded(cmd, **kwargs):
+        """node 서브프로세스를 상한과 함께 실행한다(호출부에서 명시적으로 쓰는 헬퍼).
+    
+        timeout 을 넘기지 않으면 NODE_SUBPROCESS_TIMEOUT 을 적용한다. 상한 초과 시
+        subprocess.TimeoutExpired 를 그대로 올리지 않고, 원인이 드러나는 AssertionError 로 바꾼다
+        (pytest 실패 메시지에 명령과 초과 시간이 그대로 보인다).
+    
+        \ubc18\ud658\uac12\uacfc \ub098\uba38\uc9c0 \uc778\uc790\ub294 subprocess.run \uacfc \ub3d9\uc77c\ud558\ub2e4 \u2014 \uae30\uc874 \ud638\ucd9c\ubd80\ub97c \uadf8\ub300\ub85c \uc62e\uaca8\uc62c \uc218 \uc788\ub2e4.
+        """
+        kwargs.setdefault("timeout", NODE_SUBPROCESS_TIMEOUT)
+        try:
+            return _REAL_RUN(cmd, **kwargs)
+        except subprocess.TimeoutExpired as e:
+>           raise AssertionError(_format_timeout_message(cmd, e.timeout)) from None
+E           AssertionError: [NODE-SUBPROCESS-TIMEOUT] node 실행이 상한 60초를 초과해 강제 종료했습니다.
+E             명령: node C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmpeiugnnlt.harness.js C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp0u56p2ub.asm.js
+E             원인: harness JS 가 끝나지 않았을 가능성이 높습니다(무한루프/대기).
+E             조치: 해당 harness 의 종료 조건을 확인하세요. 상한 조정은 env MV_TEST_NODE_TIMEOUT(초).
+
+tests\node_timeout_guard.py:94: AssertionError
+________________ test_clear_final_save_state_clears_everything ________________
+
+    def test_clear_final_save_state_clears_everything():
+        h = _page()
+        fn = _extract(h, "_singleClearFinalSaveState")
+        script = _DOM_MOCK + r"""
+    var _singleLastExecResult = {success:true};
+    var _singleLastExecBaseline = {srcSql:'x'};
+    var _singleLastExecMeta = {a:1};
+    var _singleSavedKey = 'KEY';
+    """ + fn + r"""
+    // 저장 바/메시지에 잔상 세팅
+    document.getElementById('singleFinalSaveBar').style.display = '';
+    document.getElementById('singleFinalSaveMsg').textContent  = '저장 완료 · ...';
+    document.getElementById('singleFinalSaveHint').textContent = 'hint';
+    _singleClearFinalSaveState();
+    console.log(JSON.stringify({
+      result:_singleLastExecResult, baseline:_singleLastExecBaseline,
+      meta:_singleLastExecMeta, savedKey:_singleSavedKey,
+      barHidden: document.getElementById('singleFinalSaveBar').style.display === 'none',
+      msg: document.getElementById('singleFinalSaveMsg').textContent,
+      hint: document.getElementById('singleFinalSaveHint').textContent,
+    }));
+    """
+        r = _node_run(script)
+        assert r["result"] is None and r["baseline"] is None
+        assert r["meta"] is None and r["savedKey"] is None
+>       assert r["barHidden"] is True
+E       assert False is True
+
+tests\test_single_sql_change_stale_clear.py:111: AssertionError
+________ TestRunExecuteJsPayload.test_15_runExecute_reads_from_dataset ________
+
+self = <test_task12_a.TestRunExecuteJsPayload testMethod=test_15_runExecute_reads_from_dataset>
+
+    def test_15_runExecute_reads_from_dataset(self):
+        """TC-12A-15: runExecute가 sqlOut.dataset에서 gbSel/sumSel을 읽어야 한다."""
+        # runExecute 함수 본문 범위 내에 dataset 참조가 있어야 함
+        idx = self.js.find("async function runExecute(")
+        self.assertGreaterEqual(idx, 0, "runExecute 함수 없음")
+        body = self.js[idx:idx + 2000]
+>       self.assertIn("dataset", body, "runExecute에서 dataset 참조 없음")
+E       AssertionError: 'dataset' not found in "async function runExecute() {\\n  /* GATE-4-5-REVERT-TO-TWO-STEP-CONFIRM \u2462: '\ud1b5\uacc4\uac80\uc99d \uc2e4\ud589' \uc7ac\ud074\ub9ad \ubc29\uc9c0 \ub3d9\uae30 \uac00\ub4dc \u2014 exec-gate/preflight\\n     await \uc774\uc804\uc5d0 \ud310\uc815\ub418\uc5b4\uc57c \ud55c\ub2e4(runRevalidateFromCandidate \uc758 _revalidateInProgress \ud328\ud134 \uc7ac\uc0ac\uc6a9). */\\n  /* [STAGE4-5-TIMING-LABEL-AND-DUPLICATE-SUBMIT-GUARD-FIX](B-3) \uc870\uc6a9\ud55c return \uc5d0 \ucd5c\uc18c \ud53c\ub4dc\ubc31\uc744 \ubd99\uc778\ub2e4\\n     (\ucc28\ub2e8 \uc5ec\ubd80\xb7\uc870\uac74\uc740 \uadf8\ub300\ub85c \u2014 \uc548\ub0b4\ub9cc \ucd94\uac00). */\\n  if (_executeInProgress) {\\n    if (typeof _mvNotifyRunActiveBlocked === 'function') _mvNotifyRunActiveBlocked('\ud1b5\uacc4\uac80\uc99d \uc2e4\ud589\uc774');\\n    return;\\n  }\\n  /* [\uae34\uae09 \uc218\uc815 \xa71] \ud604\uc7ac \uc5b4\ub5a4 \uc2e4\ud589\uc774\ub77c\ub3c4 \uc9c4\ud589\uc911(COUNT/\ud1b5\uacc4/\uc0c1\uc138\ube44\uad50/Exact Diff/PK \ucd94\ucd9c/\uc7ac\uc774\uad00 \uc0b0\ucd9c/Pause\xb7Resume)\uc774\uba74\\n     '\ucc98\uc74c\ubd80\ud130 \ub2e4\uc2dc \uc2e4\ud589' \ud074\ub9ad\uc744 \uc989\uc2dc \ucc28\ub2e8\ud55c\ub2e4(\uc911\ubcf5 \uc2e4\ud589 \ubc29\uc9c0). Completed/Failed/Cancelled \uc5d0\uc11c\ub9cc \uc9c4\ud589. */\\n  if (typeof _mvAnyRunActive === 'function' && _mvAnyRunActive()) {\\n    try { console.warn('\ucc98\uc74c\ubd80\ud130 \ub2e4\uc2dc \uc2e4\ud589 \ucc28\ub2e8 \u2014 \uc2e4\ud589 \uc9c4\ud589 \uc911'); } catch (e) {}\\n    var _selfHealed = false;   /* [B-3] \uc544\ub798 \uc790\uae30\uce58\uc720\uac00 \uc2e4\uc81c\ub85c \ub3d9\uc791\ud588\ub294\uc9c0 \u2014 \uc548\ub0b4 \ubb38\uad6c\ub97c \uc0ac\uc2e4\uc5d0 \ub9de\ucd98\ub2e4 */\\n    /* \u2461b: \ucc28\ub2e8 return \uc2dc\uc5d0\ub3c4 \uc0c1\ud0dc \uc815\ub9ac \u2014 \uc774\uc804 \ud074\ub9ad\uc774 \ucf1c\ub454 \ucc44 \ub0a8\uc740 execBtn \uc2a4\ud53c\ub108\ub97c \ubcf5\uad6c\ud558\uace0(\uc9c4\uc785 \uc790\uccb4\uac00\\n       \ub9c9\ud614\uc73c\ubbc0\ub85c \uc2a4\ud53c\ub108\uac00 \ub0a8\uc544\uc788\uc73c\uba74 \uc548 \ub428), '\uc2e4\ud589 \uc885\ub8cc\ub410\ub294\ub370 \uc794\ub958 \ud50c\ub798\uadf8\ub85c \uc624\ud310\ub41c' \uacbd\uc6b0\ub97c \uc2a4\uc2a4\ub85c \ubd09\ud569\ud55c\ub2e4:\\n       \uc2e4\uc81c\ub85c \uc5b4\ub5a4 \uc2e4\ud589\ub3c4 \uc9c4\ud589 \uc911\uc774 \uc544\ub2c8\uba74(_mvReimportStatus \ube44-RUNNING & \ud3f4\ub9c1 \uc5c6\uc74c) \uc794\ub958 \ud328\ub110 \ud50c\ub798\uadf8\ub97c \uc815\ub9ac\ud55c\ub2e4. */\\n    try {\\n      var _eb = document.getElementById('execBtn');\\n      if (_eb && (_eb.innerHTML || '').indexOf('spinner') >= 0 && !_executeInProgress && !_revalidateInProgress && !_fullRunInProgress) {\\n        _eb.disabled = false;\\n        _eb.innerHTML = (typeof _singleValidationExecuted !== 'undefined' && _singleValidationExecuted) ? '\u25b6 \ud1b5\uacc4\uac80\uc99d \ub2e4\uc2dc \uc2e4\ud589' : '\u25b6 \ud1b5\uacc4\uac80\uc99d \uc2e4\ud589';\\n      }\\n      var _rs = String(window._mvReimportStatus || '').toUpperCase();\\n      var _riRunning = (_rs === 'PREPARING' || _rs === 'RUNNING' || _rs === 'STREAMING' || _rs === 'QUEUED'\\n                        || _rs === 'PAUSE_REQUESTED' || _rs === 'CANCEL_REQUESTED');\\n      var _poll = !!((window._mvRiState || {})._pollTimer);\\n      if (!_riRunning && !_poll && window._mvExecPaused !== true) {\\n        /* \uc2e4\uc81c \uc9c4\ud589 \uc5c6\uc74c\uc778\ub370 \ud328\ub110 \ud50c\ub798\uadf8\ub9cc \uc794\ub958 \u2192 \uc815\ub9ac\ud574 \ub2e4\uc74c \ud074\ub9ad\uc774 \uc815\uc0c1 \ub3d9\uc791\ud558\ub3c4\ub85d(\uc2a4\ud131 \uc790\uae30\uce58\uc720). */\\n        window._mvExecPanelActive = false; window._mvExecTerminal = true;\\n        _selfHealed " : runExecute\uc5d0\uc11c dataset \ucc38\uc870 \uc5c6\uc74c
+
+tests\test_task12_a.py:103: AssertionError
+__________ TestCountOnlyExecution.test_03_count_only_with_empty_sum ___________
+
+self = <test_task12_a.TestCountOnlyExecution testMethod=test_03_count_only_with_empty_sum>
+
+    def test_03_count_only_with_empty_sum(self):
+        """TC-12A-03: sum_cols=[]이어도 execute 서비스가 성공적으로 동작."""
+        req = _make_mock_req(gb_cols=["STATUS_CD"], sum_cols=[])
+    
+        mock_src_cols = ["STATUS_CD", "CNT"]
+        mock_src_rows = [["A", 100], ["B", 200]]
+        mock_tgt_cols = ["STATUS_CD", "CNT"]
+        mock_tgt_rows = [["A", 100], ["B", 200]]
+    
+        with patch("services.stats_execute_service._cmn_db_fetch_all",
+                   side_effect=[
+                       (mock_src_cols, mock_src_rows),
+                       (mock_tgt_cols, mock_tgt_rows),
+                   ]):
+            result = execute_stats_validation(req)
+    
+>       self.assertTrue(result["success"])
+E       AssertionError: False is not true
+
+tests\test_task12_a.py:127: AssertionError
+_________ TestCountOnlyExecution.test_03_no_groupby_no_sum_count_only _________
+
+self = <test_task12_a.TestCountOnlyExecution testMethod=test_03_no_groupby_no_sum_count_only>
+
+    def test_03_no_groupby_no_sum_count_only(self):
+        """TC-12A-03: GROUP BY도 SUM도 없는 전체 COUNT-only 실행."""
+        req = _make_mock_req(gb_cols=[], sum_cols=[])
+    
+        with patch("services.stats_execute_service._cmn_db_fetch_all",
+                   side_effect=[
+                       (["CNT"], [[5000]]),
+                       (["CNT"], [[5000]]),
+                   ]):
+            result = execute_stats_validation(req)
+    
+>       self.assertTrue(result["success"])
+E       AssertionError: False is not true
+
+tests\test_task12_a.py:142: AssertionError
+_____ TestGlobalAggregateDisplay.test_05_internal_all_key_not_in_response _____
+
+self = <test_task12_a.TestGlobalAggregateDisplay testMethod=test_05_internal_all_key_not_in_response>
+
+    def test_05_internal_all_key_not_in_response(self):
+        """TC-12A-05: stats_execute_service의 응답 row key가 {} (('__all__',) 아님)."""
+        req = _make_mock_req(gb_cols=[], sum_cols=[])
+    
+        with patch("services.stats_execute_service._cmn_db_fetch_all",
+                   side_effect=[
+                       (["CNT"], [[100]]),
+                       (["CNT"], [[100]]),
+                   ]):
+            result = execute_stats_validation(req)
+    
+>       row = result["rows"][0]
+              ^^^^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+tests\test_task12_a.py:171: IndexError
+_ TestGlobalAggregateDisplay.test_05_to_dict_global_key_is_tuple_but_not_exposed _
+
+self = <test_task12_a.TestGlobalAggregateDisplay testMethod=test_05_to_dict_global_key_is_tuple_but_not_exposed>
+
+    def test_05_to_dict_global_key_is_tuple_but_not_exposed(self):
+        """TC-12A-05: _to_dict 내부는 ('__all__',) 사용하나 외부 응답 key_dict는 {}."""
+        # 내부 dict 키 확인
+        internal = _to_dict(["CNT"], [[100]], [])
+        self.assertIn(("__all__",), internal,
+            "\ub0b4\ubd80 ('__all__',) \ud0a4\uac00 \uc5c6\uc74c \u2014 \ub0b4\ubd80 \uad6c\uc870 \ubcc0\uacbd \uc758\uc2ec")
+        # 응답 key_dict는 {} 이어야 함 (stats_execute_service 응답 구조)
+        req = _make_mock_req(gb_cols=[], sum_cols=[])
+        with patch("services.stats_execute_service._cmn_db_fetch_all",
+                   side_effect=[(["CNT"], [[100]]), (["CNT"], [[100]])]):
+            result = execute_stats_validation(req)
+>       self.assertEqual(result["rows"][0]["key"], {})
+                         ^^^^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+tests\test_task12_a.py:188: IndexError
+__________ TestExecuteResultStructure.test_06_src_only_has_none_tgt ___________
+
+self = <test_task12_a.TestExecuteResultStructure testMethod=test_06_src_only_has_none_tgt>
+
+    def test_06_src_only_has_none_tgt(self):
+        """TC-12A-06: src_only 행의 tgt 값은 None이어야 한다."""
+        result = self._run(
+            src_rows=[["A", 100], ["B", 200]],
+            tgt_rows=[["A", 100]],
+        )
+        src_only_rows = [r for r in result["rows"] if r["status"] == "src_only"]
+>       self.assertEqual(len(src_only_rows), 1)
+E       AssertionError: 0 != 1
+
+tests\test_task12_a.py:253: AssertionError
+__________ TestExecuteResultStructure.test_06_summary_counts_correct __________
+
+self = <test_task12_a.TestExecuteResultStructure testMethod=test_06_summary_counts_correct>
+
+    def test_06_summary_counts_correct(self):
+        """TC-12A-06: matched/diff/src_only/tgt_only summary count가 올바름."""
+        result = self._run(
+            src_rows=[["A", 100], ["B", 200], ["C", 300]],
+            tgt_rows=[["A", 100], ["B", 250]],  # B: diff, C: src_only, (없는 D: tgt_only)
+        )
+>       self.assertTrue(result["success"])
+E       AssertionError: False is not true
+
+tests\test_task12_a.py:215: AssertionError
+_______ TestExecuteResultStructure.test_07_diff_row_has_src_tgt_values ________
+
+self = <test_task12_a.TestExecuteResultStructure testMethod=test_07_diff_row_has_src_tgt_values>
+
+    def test_07_diff_row_has_src_tgt_values(self):
+        """TC-12A-07: diff 행에 src/tgt value가 존재한다."""
+        result = self._run(
+            src_rows=[["A", 100]],
+            tgt_rows=[["A", 200]],
+        )
+        diff_rows = [r for r in result["rows"] if r["status"] == "diff"]
+>       self.assertEqual(len(diff_rows), 1)
+E       AssertionError: 0 != 1
+
+tests\test_task12_a.py:227: AssertionError
+____ TestExecuteResultStructure.test_08_src_only_tgt_only_separate_status _____
+
+self = <test_task12_a.TestExecuteResultStructure testMethod=test_08_src_only_tgt_only_separate_status>
+
+    def test_08_src_only_tgt_only_separate_status(self):
+        """TC-12A-08: src_only/tgt_only가 별도 상태로 구분된다."""
+        result = self._run(
+            src_rows=[["A", 100], ["B", 200]],
+            tgt_rows=[["A", 100], ["C", 300]],
+        )
+        statuses = {r["status"] for r in result["rows"]}
+>       self.assertIn("src_only", statuses, "src_only 상태 없음")
+E       AssertionError: 'src_only' not found in set() : src_only 상태 없음
+
+tests\test_task12_a.py:243: AssertionError
+_______________ TestTruncationWarning.test_09_is_truncated_flag _______________
+
+self = <test_task12_a.TestTruncationWarning testMethod=test_09_is_truncated_flag>
+
+    def test_09_is_truncated_flag(self):
+        """TC-12A-09: 200건 초과 시 is_truncated=True가 응답에 포함된다."""
+        req = _make_mock_req(gb_cols=["GRP"])
+        # 201개 row 생성
+        many_rows = [[str(i), i * 10] for i in range(201)]
+    
+        with patch("services.stats_execute_service._cmn_db_fetch_all",
+                   side_effect=[
+                       (["GRP", "CNT"], many_rows),
+                       (["GRP", "CNT"], many_rows),
+                   ]):
+            result = execute_stats_validation(req)
+    
+>       self.assertTrue(result["is_truncated"])
+                        ^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'is_truncated'
+
+tests\test_task12_a.py:276: KeyError
+______________ TestDbErrorDisplay.test_12_src_error_in_response _______________
+
+self = <test_task12_a.TestDbErrorDisplay testMethod=test_12_src_error_in_response>
+
+    def test_12_src_error_in_response(self):
+        """TC-12A-12: 원본 DB 오류 시 success=False, src_error 포함."""
+        req = _make_mock_req()
+        with patch("services.stats_execute_service._cmn_db_fetch_all",
+                   side_effect=Exception("connection refused")):
+            result = execute_stats_validation(req)
+        self.assertFalse(result["success"])
+>       self.assertIsNotNone(result.get("src_error"))
+E       AssertionError: unexpectedly None
+
+tests\test_task12_a.py:341: AssertionError
+______________ TestDbErrorDisplay.test_12_tgt_error_in_response _______________
+
+self = <test_task12_a.TestDbErrorDisplay testMethod=test_12_tgt_error_in_response>
+
+    def test_12_tgt_error_in_response(self):
+        """TC-12A-12: 목적지 DB 오류 시 success=False, tgt_error 포함."""
+        req = _make_mock_req()
+        with patch("services.stats_execute_service._cmn_db_fetch_all",
+                   side_effect=[
+                       (["CNT"], [[100]]),
+                       Exception("target db error"),
+                   ]):
+            result = execute_stats_validation(req)
+        self.assertFalse(result["success"])
+>       self.assertIsNotNone(result.get("tgt_error"))
+E       AssertionError: unexpectedly None
+
+tests\test_task12_a.py:353: AssertionError
+____________ test_count_generate_execute_routes_add_processing_ms _____________
+
+    def test_count_generate_execute_routes_add_processing_ms():
+        import inspect
+        import routes.count_route as _count_r
+        import routes.generate_route as _gen_r
+        import routes.execute_route as _exec_r
+        assert 'resp["processing_ms"]' in inspect.getsource(_count_r.cmn_count_compare)
+        assert 'resp["processing_ms"]' in inspect.getsource(_gen_r.stats_generate)
+>       assert 'resp["processing_ms"]' in inspect.getsource(_exec_r.stats_execute)
+E       assert 'resp["processing_ms"]' in 'def stats_execute(req: ExecuteRequest, cancel_token=None):\\n    """\uc6d0\ubcf8/\ubaa9\uc801\uc9c0 \ud1b5\uacc4\uac80\uc99d SQL \uc2e4\ud589 \ud6c4 \uadf8\ub8f9\ubcc4 \ube44\uad50 \u2014 orchestrator \uc704\uc784(\uacb0\uacfc/\uc751...n        return _stats_execute_inner(req, _guard, cancel_token)\\n    finally:\\n        _guard.end_execution(_marker)\\n'
+E        +  where 'def stats_execute(req: ExecuteRequest, cancel_token=None):\\n    """\uc6d0\ubcf8/\ubaa9\uc801\uc9c0 \ud1b5\uacc4\uac80\uc99d SQL \uc2e4\ud589 \ud6c4 \uadf8\ub8f9\ubcc4 \ube44\uad50 \u2014 orchestrator \uc704\uc784(\uacb0\uacfc/\uc751...n        return _stats_execute_inner(req, _guard, cancel_token)\\n    finally:\\n        _guard.end_execution(_marker)\\n' = <function getsource at 0x000001FC2C852E50>(<function stats_execute at 0x000001FC3393CE00>)
+E        +    where <function getsource at 0x000001FC2C852E50> = <module 'inspect' from 'C:\\Python314\\Lib\\inspect.py'>.getsource
+E        +    and   <function stats_execute at 0x000001FC3393CE00> = <module 'routes.execute_route' from 'C:\\projects\\migration-validator\\tests\\..\\routes\\execute_route.py'>.stats_execute
+
+tests\test_all_stages_timing_display_expand.py:68: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_candidate_draft_selection.py::test_checkbox_change_keeps_table_and_plan_marks_draft
+FAILED tests/test_candidate_draft_selection.py::test_uncheck_all_does_not_switch_to_count_only_before_apply
+FAILED tests/test_candidate_draft_selection.py::test_restore_to_applied_clears_draft_notice
+FAILED tests/test_candidate_draft_selection.py::test_candidate_notice_sticky_fix_uses_common_offset
+FAILED tests/test_candidate_draft_selection.py::test_candidate_selection_bar_present_and_populated
+FAILED tests/test_count_sql_full_visibility.py::test_count_sql_pre_boxes_no_clip_and_order
+FAILED tests/test_count_sql_full_visibility.py::test_render_count_result_full_sql_and_copy_equivalence
+FAILED tests/test_generate_route_contract.py::test_g07_sql_generation_uses_common_builder
+FAILED tests/test_generate_route_contract.py::test_g12_empty_or_none_col_is_error
+FAILED tests/test_generate_route_contract.py::test_g14_over_three_selection_is_error
+FAILED tests/test_one_click_full_run.py::test_full_run_blocked_stays_on_failed_stage_not_result
+FAILED tests/test_one_click_full_run.py::test_full_run_success_marks_steps_done_and_injects_state
+FAILED tests/test_one_click_full_run.py::test_full_run_blocked_locks_downstream_via_gate
+FAILED tests/test_one_click_full_run.py::test_count_chip_no_manual_progress_badge
+FAILED tests/test_one_click_full_run.py::test_result_summary_unified_content
+FAILED tests/test_one_click_full_run.py::test_result_kpi_not_duplicated_summary_vs_detail
+FAILED tests/test_one_click_full_run.py::test_result_summary_neutral_hierarchy
+FAILED tests/test_one_click_full_run.py::test_full_run_populates_official_save_state
+FAILED tests/test_single_sql_change_stale_clear.py::test_clear_final_save_state_clears_everything
+FAILED tests/test_task12_a.py::TestRunExecuteJsPayload::test_15_runExecute_reads_from_dataset
+FAILED tests/test_task12_a.py::TestCountOnlyExecution::test_03_count_only_with_empty_sum
+FAILED tests/test_task12_a.py::TestCountOnlyExecution::test_03_no_groupby_no_sum_count_only
+FAILED tests/test_task12_a.py::TestGlobalAggregateDisplay::test_05_internal_all_key_not_in_response
+FAILED tests/test_task12_a.py::TestGlobalAggregateDisplay::test_05_to_dict_global_key_is_tuple_but_not_exposed
+FAILED tests/test_task12_a.py::TestExecuteResultStructure::test_06_src_only_has_none_tgt
+FAILED tests/test_task12_a.py::TestExecuteResultStructure::test_06_summary_counts_correct
+FAILED tests/test_task12_a.py::TestExecuteResultStructure::test_07_diff_row_has_src_tgt_values
+FAILED tests/test_task12_a.py::TestExecuteResultStructure::test_08_src_only_tgt_only_separate_status
+FAILED tests/test_task12_a.py::TestTruncationWarning::test_09_is_truncated_flag
+FAILED tests/test_task12_a.py::TestDbErrorDisplay::test_12_src_error_in_response
+FAILED tests/test_task12_a.py::TestDbErrorDisplay::test_12_tgt_error_in_response
+FAILED tests/test_all_stages_timing_display_expand.py::test_count_generate_execute_routes_add_processing_ms
+32 failed, 163 passed, 4 xfailed in 864.13s (0:14:24)
