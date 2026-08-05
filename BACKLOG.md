@@ -1617,7 +1617,18 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: S10(해결 완료)
 - 참고: E:\verify_reports\IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX.txt
 
-### F21. 4단계 후처리(재이관 대상 수집)에 진행 표시가 없어 40~51초 무음 구간이 생긴다
+### F21. ✅ 해결 완료 — 4단계 후처리(재이관 대상 수집)에 진행 표시가 없어 40~51초 무음 구간이 생긴다
+- 해결일: 2026-08-05 (STAGE4-POSTCOUNT-PROGRESS-INDICATOR-ADD-FIX)
+- 근거 커밋: 코드 저장소 `ee9a232` — `feat(ui): 4단계 통계검증 완료 이후 상세 추출 진행 표시 추가
+  (STAGE4-POSTCOUNT-PROGRESS-INDICATOR-ADD-FIX)`
+- 근거 보고서 커밋: 이 저장소 `dd37bf5`(완료보고) · `777ee29`(before/after 실측 증적) ·
+  `a45c32d`(확장 서브셋 259파일 실패 목록 — after/baseline 동일 160건)
+- 해결 요약: 대응 방향대로 **한 줄 안내 패널**을 신설했다 — 4단계 완료 직후의 재이관 대상 백그라운드
+  수집(40~51초) 구간에 **"상세 추출 진행 중"** 을 띄우고, 수집이 끝나면 같은 자리에서
+  **"완료(소요 N초)"** 로 전환한다. 대량(5,000만행) 실측 기준 **무음 구간 41.79초 → 0초**.
+  소규모 케이스(1.5초 미만)는 패널이 떴다 사라지는 **깜빡임을 막기 위해 표시 자체를 생략**하도록
+  실측으로 임계값을 조정했다.
+- 근거 보고서(해결): E:\verify_reports\STAGE4-POSTCOUNT-PROGRESS-INDICATOR-ADD-FIX.txt
 - 발견일: 2026-08-01
 - 근거 보고서: `STAGE4-5-COMPLETION-DISPLAY-TIMING-ACCURACY-DIAGNOSE.txt` (§7-(3))
 - 상세: 4단계 통계검증 완료 표시 직후(스피너 꺼짐 · [다음 ▶] 활성화, `_mvShowExecStepResult` →
@@ -2052,7 +2063,20 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: M15(오라클 쪽 동종 항목 — 해결 완료)
 - 참고: E:\verify_reports\ORACLE-PRESET-ENCODING-DEAD-FIELD-FIX.txt (§5)
 
-### M34. 관리컬럼 확정 버튼이 disabled 일 때 그 사유가 화면에 안 보인다(심각도 LOW)
+### M34. ✅ 해결 완료(아래 '상세'의 인과 서술 1건 정정 — 피해 자체는 실재했고 해소됨) — 관리컬럼 확정 버튼이 disabled 일 때 그 사유가 화면에 안 보인다(심각도 LOW)
+- 해결일: 2026-08-05 (M34-DISABLED-BUTTON-TITLE-ACCESSIBILITY-FIX)
+- 근거 커밋: 코드 저장소 `a2a6871` — `fix(ui): 관리컬럼 확정 버튼 비활성 사유를 래퍼 span title +
+  상시 안내 텍스트로 전달 (M34-DISABLED-BUTTON-TITLE-ACCESSIBILITY-FIX)`
+- 근거 보고서 커밋: 이 저장소 `0e5b6d0`(완료보고 `M34-DISABLED-BUTTON-TITLE-ACCESSIBILITY-FIX`)
+- **중요 정정 — 아래 '상세'의 인과 서술이 틀렸다**: "브라우저가 disabled 요소에는 포인터 이벤트
+  자체를 주지 않아 `title` 이 도달 불가" 라고 썼으나, 실측 결과 **Chromium 에서 재현되지 않았다**
+  (disabled 요소도 hit-test 로 도달한다). 다만 **"화면 어디에도 사유가 안 보인다" 는 실제 피해는
+  실재**했고, 이번 수정으로 그대로 해소됐다 — 원인 서술만 정정하고 항목의 결론은 유지한다.
+- 해결 요약: 대응 방향 두 가지를 **모두** 적용해 사유를 **두 경로로 전달**한다 —
+  ① 컨트롤을 감싸는 **래퍼 `span` 의 `title`**, ② 버튼 옆 **상시 안내 텍스트**.
+  마우스오버를 하지 않아도 사유가 보이므로 툴팁 도달성 논쟁 자체와 무관하게 해결된다.
+  **활성(enabled) 버튼 경로는 완전 무회귀** — 활성 상태에서는 래퍼 title 도 안내 텍스트도 붙지 않는다.
+- 근거 보고서(해결): E:\verify_reports\M34-DISABLED-BUTTON-TITLE-ACCESSIBILITY-FIX.txt
 - 발견일: 2026-08-04
 - 근거 보고서: `ADMIN-COLUMN-CONFIRM-BUTTON-NONFUNCTIONAL-AND-BATCH-SCOPE-DIAGNOSE.txt` (§2-3 · §5-P1)
 - 상세: 작업 프로젝트 미선택 시 버튼이 `disabled` 로 렌더되고, 서버는 사유 문구를 `title` 속성에
@@ -2186,7 +2210,17 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: S18(sqlglot hang — 이 부재로 인해 노출 여부를 알 수 없는 문제)
 - 참고: E:\verify_reports\DEPENDENCY-VERSION-AND-CHANGELOG-RELEVANCE-DIAGNOSE.txt
 
-### M24. `_derive_row_sqls_wrapped` 의 뭉뚱그린 HOLD 사유 **원문**은 아직 정정되지 않았다
+### M24. ✅ 해결 완료 — `_derive_row_sqls_wrapped` 의 뭉뚱그린 HOLD 사유 **원문**은 아직 정정되지 않았다
+- 해결일: 2026-08-05 (M24-HOLD-REASON-WORDING-FIX)
+- 근거 커밋: 코드 저장소 `1fedcd8` — `fix(reimport): wrapping 재이관 HOLD 사유를 실제 원인별로
+  구분 표기 (M24-HOLD-REASON-WORDING-FIX)`
+- 근거 보고서 커밋: 이 저장소 `7bea146`(완료보고 `M24-HOLD-REASON-WORDING-FIX`)
+- 해결 요약: 대응 방향대로 **원문 문구 자체를 정정**했다. 뭉뚱그린 원문
+  ("SELECT * 또는 INSERT 컬럼 수 불일치 등")을 **실제 원인별 표기로 교체** — 구체 표기가
+  **0/11 → 11/11** 로 늘었다. 새 판정 규칙을 만들지 않고 **기존 단일 출처(S17)의 원인 판정에
+  그대로 위임**했기 때문에 판정 로직은 무수정이고, 표기만 정확해졌다.
+  덤으로 SELECT* 케이스에서 같은 원인이 두 번 표기되던 **중복 표기 1건**도 함께 해소됐다.
+- 근거 보고서(해결): E:\verify_reports\M24-HOLD-REASON-WORDING-FIX.txt
 - 발견일: 2026-08-02
 - 근거 보고서: `REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX.txt` (§6-①)
 - 상세: S17 수정은 수정 대상 파일 지정에 따라 **호출측(`routes/agg_diff_route.py`)에서 원인을
@@ -2387,14 +2421,29 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 판정: 위험 낮음 · 우선순위 낮음. 'LIMIT 미위임' 범주가 아니므로 S9 본체에서 분리해 별건으로 둔다.
 - 참고: E:\verify_reports\DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE.txt
 
-### M1. 표본 게이트 skip 주석의 인과 서술이 부정확하다
+### M1. ✅ 해결 완료(주석 정정 · 코드 무변경) — 표본 게이트 skip 주석의 인과 서술이 부정확하다
+- 해결일: 2026-08-05 (M1-M2-COMMENT-CORRECTION-FIX)
+- 근거 커밋: 코드 저장소 `c87837c` — `docs(comment): M1·M2 주석 인과 서술 정정 —
+  표본 게이트 skip 사유·PK 정렬 근거 (M1-M2-COMMENT-CORRECTION-FIX)`
+- 근거 보고서 커밋: 이 저장소 `3f3871d`(완료보고 `M1-M2-COMMENT-CORRECTION-FIX`)
+- 해결 요약: 표본 게이트 skip 주석을 **"형태(wrapping)가 원인"에서 "pushdown 불가가 원인,
+  형태는 대리신호"** 로 정정했다. 즉 wrapping 여부는 판정의 진짜 근거가 아니라 pushdown 불가를
+  가리키는 대리 신호일 뿐임을 주석에 명시했다. **코드 동작은 무변경**(주석만 수정)이라 회귀 위험 없음.
+- 근거 보고서(해결): E:\verify_reports\M1-M2-COMMENT-CORRECTION-FIX.txt
 - 발견일: 2026-07-29
 - 근거 보고서: `PLAIN-JOIN-WRAPPING-NECESSITY-DIAGNOSE.txt` (4절 / 7절)
 - 상세: `agg_diff_route.py:360-369` 주석이 'wrapping 소스' 라고 쓰고 있으나 실제 인과는
   '윈도우함수로 pushdown 불가한 소스' 다. 코드 동작 변경 없음.
 - 참고: E:\verify_reports\PLAIN-JOIN-WRAPPING-NECESSITY-DIAGNOSE.txt
 
-### M2. "Index Scan 으로 정렬 회피" 주석 근거를 오라클에 확대 적용하지 않도록 정정
+### M2. ✅ 해결 완료(주석 정정 · 코드 무변경 · M1 과 같은 작업) — "Index Scan 으로 정렬 회피" 주석 근거를 오라클에 확대 적용하지 않도록 정정
+- 해결일: 2026-08-05 (M1-M2-COMMENT-CORRECTION-FIX)
+- 근거 커밋: 코드 저장소 `c87837c` — M1 과 동일 커밋
+- 근거 보고서 커밋: 이 저장소 `3f3871d`(완료보고 `M1-M2-COMMENT-CORRECTION-FIX`)
+- 해결 요약: "Index Scan 으로 정렬 회피" 주석을 **"정렬은 merge-join 알고리즘 요건이라 제거 불가하며,
+  PG 실측 1건의 근거를 오라클로 확대하지 말 것"** 으로 정정했다. 회피 가능하다는 오해와 방언 확대 적용
+  두 가지를 모두 막는 서술로 바꿨다. **코드 동작은 무변경**(주석만 수정).
+- 근거 보고서(해결): E:\verify_reports\M1-M2-COMMENT-CORRECTION-FIX.txt
 - 발견일: 2026-07-29
 - 근거 보고서: `LARGE-DATA-SORT-EXPOSURE-DIAGNOSE.txt` (§5 A-4)
 - 상세: `agg_contribution.py:114-119` 주석의 전제가 오라클에서 성립하지 않음이 실측 확인됐다.
