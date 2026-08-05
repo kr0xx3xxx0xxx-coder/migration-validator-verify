@@ -1,0 +1,222 @@
+작업명 : STAGE4-POSTCOUNT-PROGRESS-INDICATOR-ADD-FIX
+✅ 작업 완료 - STAGE4-POSTCOUNT-PROGRESS-INDICATOR-ADD-FIX - [4단계 통계검증 완료 직후 이어지는 재이관 상세 추출 구간(5,000만행 실측 41.79초 무음)에 진행 패널을 추가하고 수집 완료 시 '완료' 상태로 전환되게 했다 — 표시 계층 전용(백엔드 0줄), 4단계 완료 흐름 무회귀]
+
+작성일   : 2026-08-05
+기준커밋 : f02da5f (변경 전) → ee9a232 (이번 변경)
+수정파일 : ui/tabler_renderer.py 1개 (+ 신규 테스트 1개, 신규 dev 측정 드라이버 1개)
+
+
+════════════════════════════════════════════════════════════════════════
+0. 한 줄 결론
+════════════════════════════════════════════════════════════════════════
+  변경 전(f02da5f) 5,000만행·GROUP BY 2축 실측에서 4단계 완료 요약이 뜬 뒤 41.79초 동안
+  화면에 아무 표시가 없었다(#mvExecStepPostProgress 요소 자체가 존재하지 않음 — present=false).
+  변경 후 같은 조건에서 완료 요약 1.5초 뒤에 "상세 추출 진행 중" 패널이 뜨고 경과·저장 건수가
+  1초 간격으로 갱신되며, 수집이 끝나는 순간 "⚠ 상세 추출 완료 · 수집 조기중단(소요 43초)"으로 바뀐다.
+  소규모(원본 2만행)는 수집이 4.41초에 끝나 진행 박스가 1.51초만 노출된 뒤 완료로 바뀐다
+  (1.5초 이내에 끝나는 경우에는 진행 박스도 완료 박스도 그리지 않는다).
+
+
+════════════════════════════════════════════════════════════════════════
+1. 무엇을 왜 고쳤는가
+════════════════════════════════════════════════════════════════════════
+1-1. 문제(근거: E:\verify_reports\STAGE4-5-COMPLETION-DISPLAY-TIMING-ACCURACY-DIAGNOSE.txt §7-(3))
+     통계검증 세트 루프의 마지막 /execute 응답이 오면 4단계는 '완료'로 보인다
+     (스피너 종료 · 성공 요약 표시 · [다음 ▶] 활성). 그런데 5단계 재이관 목록을 실제로 채우는
+     수집은 그 '뒤에' _mvRenderReimportView → _mvRiEnsureAndLoad 가 비동기로 시작하고
+     (서버는 job 등록 후 즉시 PREPARING 반환, 실제 수집은 worker 스레드), 그 구간이 완전 무음이었다.
+     진단 실측 39.90초 / 50.79초 — 사용자는 "끝났는데 5단계가 왜 비어 있나"로 읽는다.
+
+1-2. 이번 변경(표시 계층 전용)
+     4단계 pane 에 전용 영역 #mvExecStepPostProgress 를 신설하고, 이미 있는 신호만으로 그린다.
+       · 시작 : _mvRiEnsureAndLoad 진입(= 수집이 시작되는 유일한 지점)
+       · 갱신 : 폴링 payload 의 available_count(기존 mvRiInfoL 문구와 같은 출처 — 새 조회 0회)
+       · 종료 : 폴링 터미널(READY/FAILED/CANCELLED/EARLY_STOPPED*) · 일시중지(PAUSED) ·
+                prepare 즉시 확정 · HOLD · 서버 재시작 중단(INTERRUPTED_RESUMABLE)
+       · 정리 : 재실행 시작(resetExecuteResultOnly) · 실행 진행 표시 시작 · 실행 오류 표시
+     백엔드 변경 0줄. 계측 구간·처리시간 슬롯 값·판정 로직 불변.
+
+1-3. 지침 3번(제거된 배너 자리 재활용 금지) 준수
+     오늘 제거된 '표시 등급' 배너 / '실행 기준' 박스와 무관한 새 컨테이너다.
+     DOM 순서: #mvExecStepResult(4단계 성공 요약) → #mvExecStepPostProgress(신규) → #execResultCard(5단계).
+     기존 진행 패널(#mvExecStepProgress)의 박스 스타일·spinner·경과시간 포맷 함수(_mvExecStepProgressFmt)를
+     그대로 재사용했고 새 디자인 요소를 만들지 않았다. 테스트가 위치(요약 뒤 · 결과카드 앞)를 고정한다.
+
+1-4. 지침 4번(무회귀) 준수
+     3형제(진행/오류/성공요약)의 상호배타 로직과 4단계 완료 흐름은 그대로 두었다.
+     이 패널은 '성공 요약 이후 구간'을 덮으므로 요약과 동시에 보인다(요약 아래에 얹힘).
+     성공 요약 함수(_mvShowExecStepResult)는 이 패널을 지우지 않는다 — 테스트로 고정
+     (test_step4_completion_flow_unchanged).
+
+
+════════════════════════════════════════════════════════════════════════
+2. 실측 — 대량(5,000만행) before/after 대조
+════════════════════════════════════════════════════════════════════════
+  대상   NXDNP.MV_SCATTER50M_SRC(50,000,000행) → MV_SCATTER50M_TGT(49,500,000행)
+         Oracle asis(1523) → tobe(1524), 읽기 전용(DDL/DML 0건)
+  조건   GROUP BY REGION_CD + STATUS_CD(2축 → 다중 세트 경로) · SUM AMT, QTY
+         단계별 [▶ 통계검증 실행](원클릭 아님) · 불일치 그룹 11건(진단 때와 동일 조건)
+  방법   실 브라우저(Playwright)로 1~5단계를 실제 클릭. 100ms 간격으로 DOM 을 폴링해
+         '처음 채워진 시각'만 1회 기록. 가시성은 offsetParent 로 판정한다
+         (가려진 pane 은 '보인다'고 세지 않는다).
+  드라이버 scripts/dev_e2e/stage4_postcount_progress_indicator_verify.py (신규 · dev 전용)
+         before 측정은 baseline worktree(E:\_wt_s4p, f02da5f 체크아웃)에서 같은 드라이버로 수행했다
+         (git stash 미사용).
+
+  ┌──────────────────────────────┬───────────────────────┬────────────────────────────┐
+  │ 항목(클릭 t=0 기준)           │ before (f02da5f)      │ after (ee9a232)            │
+  ├──────────────────────────────┼───────────────────────┼────────────────────────────┤
+  │ 4단계 완료 요약 표시          │ 22.11초               │ 24.40초                    │
+  │ 진행 패널 첫 노출             │ 없음(요소 자체 없음)   │ 25.91초 (요약 +1.51초)      │
+  │ 수집 종료(터미널 상태 확인)    │ 63.90초               │ 68.42초                    │
+  │ 완료 표시 후 무음 구간        │ 41.79초               │ 0초                        │
+  │ 종료 상태                     │ EARLY_STOPPED         │ EARLY_STOPPED              │
+  │ 종료 시 패널                  │ —                     │ ⚠ 상세 추출 완료 ·          │
+  │                              │                       │   수집 조기중단(소요 43초)   │
+  │ 콘솔 JS 오류                  │ 0건                   │ 0건                        │
+  └──────────────────────────────┴───────────────────────┴────────────────────────────┘
+
+  진행 중 실제 문구(after 캡처 시점, 경과 7초 — after_50m_2_stage4_collecting.png):
+    "상세 추출 진행 중
+     재이관 대상 레코드를 수집하고 있습니다 · 완료 후 5단계 결과 확인에서 목록을 볼 수 있습니다.
+     경과 7초 · 현재 저장 0건 · 통계검증 실행(위 요약)은 이미 끝났고, 이 수집은 그 이후 구간입니다."
+
+  완료 문구(after_50m_3_stage4_collection_done.png):
+    "⚠ 상세 추출 완료 · 수집 조기중단
+     소요 43초 · 수집 건수·목록은 5단계 결과 확인에서 볼 수 있습니다."
+
+  before 실행에서 계측판은 #mvExecStepPostProgress 를 present=false 로 기록했다
+  = 그 구간에 표시할 요소가 아예 없었다는 직접 증거(measure_before_50m.json 의 post_panel_absent 마크).
+
+
+════════════════════════════════════════════════════════════════════════
+3. 실측 — 소규모(수집이 즉시 끝나는 경우) 깜빡임 확인
+════════════════════════════════════════════════════════════════════════
+  대상 NXDNP.MV_SCATTER_SRC WHERE SEQ_NO<=20000(2만행) → MV_SCATTER_TGT · 같은 2축 GROUP BY
+
+    클릭 → 4단계 완료 요약 표시    1.40초
+    진행 패널 첫 노출              2.90초
+    수집 종료(READY)               4.41초
+    → 진행 박스 1.51초 노출 후 "✅ 상세 추출 완료(소요 2초)"로 전환. 콘솔 JS 오류 0건.
+
+  깜빡임 정책과 임계값 조정 근거(실측으로 정함):
+    1차 구현은 지연 노출 임계값을 800ms 로 뒀다. 같은 소규모 조건 실측에서 수집이 2.208초에 끝나
+    진행 박스가 2.015초~2.208초, 즉 0.19초만 떴다가 완료로 바뀌었다(깜빡임).
+    임계값을 1.5초로 올려 그보다 빨리 끝나는 구간은 아예 그리지 않게 했다. 이때 완료 박스도
+    그리지 않는다 — 안 보이던 것이 완료로 '나타나면' 그게 더 큰 깜빡임이기 때문이다.
+    이 동작은 node 계약 테스트(test_fast_collection_never_flickers)로 고정했다.
+    대량 구간(40~51초)에는 영향이 없다(첫 노출이 요약 +1.5초일 뿐).
+
+  완료 박스에 건수를 쓰지 않는 이유(사실 기록):
+    5,000만행 실측에서 수집 중 폴링이 보고한 저장분(available_count)은 끝까지 0건이었고
+    확정 건수는 종료 payload 로만 온다. 진행 중 값을 그대로 완료 문구로 옮기면 '저장 0건'처럼
+    사실과 다른 숫자가 남는다. 확정 건수·목록의 단일 출처는 5단계 결과 확인이다.
+    (1차 구현에서 '저장 0건'이 실제로 찍히는 것을 확인하고 제거했다.)
+
+
+════════════════════════════════════════════════════════════════════════
+4. 테스트
+════════════════════════════════════════════════════════════════════════
+4-1. 신규 자체 테스트 — tests/test_stage4_postcount_progress_indicator.py (16건 전부 통과)
+     정적 배선 9건
+       · 컨테이너 존재 + 기본 display:none + 4단계 pane 등록(기존 3형제 유지)
+       · 제거된 배너 host 재사용 금지 + 위치(요약 뒤 · 결과카드 앞)
+       · 헬퍼 7개 정의 + window 노출 4건
+       · 시작/종료 배선(_mvRiEnsureAndLoad 진입 · HOLD · 서버재시작 중단 · 즉시 확정)
+       · 폴링 터미널/일시중지 종료 배선
+       · 저장 건수는 기존 폴링 필드(available_count)만 사용(새 조회 금지)
+       · 재실행/오류 정리 배선 · 진행률(%) 미도입 · 4단계 완료 흐름 무회귀
+     node 동작 계약 7건(실제 제품 함수를 node 로 실행 — 시계·타이머 제어)
+       · 지연 전 미노출 → 지연 후 노출 · 경과 카운트업 + 저장 건수 반영
+       · 완료 전환(스피너 제거·타이머 해제·소요시간 표기) · 빠른 완료 시 완전 미표시
+       · 조기중단/실패 문구 · 재실행 시 정리 · 중복 시작이 경과를 리셋하지 않음
+
+4-2. 관련 서브셋 24파일 + baseline(f02da5f worktree) 대조
+       after : 4 failed, 315 passed, 6 xfailed (34.50s)
+       base  : 4 failed, 299 passed, 6 xfailed (29.29s)   ※ +16 = 신규 테스트
+       실패 목록 완전 일치 = 신규 회귀 0건. 실패 4건(양쪽 동일 · 이번 변경과 무관):
+         FAILED tests/test_agg_contribution.py::test_exact_diff_separated_and_terms_removed
+         FAILED tests/test_individual_validation_stage_content.py::test_sql_shape_object_label_extraction
+         FAILED tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+         FAILED tests/test_ui_tab4_tab5_separation.py::test_target_only_display
+
+4-3. 확장 서브셋(UI/stage/single/step/exec/tab/reimport/drill 계열 259파일) + baseline 대조
+       after : 156 failed, 2215 passed, 18 skipped, 3 xfailed, 4 errors (28분 03초)
+       base  : 156 failed, 2199 passed, 18 skipped, 3 xfailed, 4 errors (27분 38초)  ※ +16 = 신규 테스트
+       실패·오류 식별자 160건이 양쪽 완전 일치(comm 대조 결과 after 에만 있는 항목 0건)
+       = 신규 회귀 0건. 이 156건+4 error 는 이번 변경 이전부터 있던 사전 존재 실패다
+       (66개 파일에 분포 — 상위: test_single_execute_preflight_connection 8 ·
+        test_operational_stability 8 · test_single_validation_e2e_core 7 ·
+        test_stats_execute_error_handling 6 · test_single_validation_result_view_persistence 6 ·
+        test_single_save_source_binding 6(4 error 포함) · test_result_view_ui_wiring 6 · …).
+       전체 목록은 증적 폴더의 wide_subset_failures_after.txt / wide_subset_failures_baseline.txt
+       (두 파일 내용 동일)에 그대로 보관했다.
+
+4-4. 번들 JS 문법 검사
+       조립된 인라인 스크립트(2,074,939자)에 node --check 통과 — 주석/따옴표로 인한
+       스크립트 파싱 붕괴 없음.
+
+
+════════════════════════════════════════════════════════════════════════
+5. 변경 내역
+════════════════════════════════════════════════════════════════════════
+  커밋 ee9a232  feat(ui): 4단계 통계검증 완료 이후 상세 추출 진행 표시 추가
+                (STAGE4-POSTCOUNT-PROGRESS-INDICATOR-ADD-FIX)
+    ui/tabler_renderer.py                             +180 / -2
+    tests/test_stage4_postcount_progress_indicator.py +349 (신규)
+
+  ui/tabler_renderer.py 변경 지점(9곳)
+    2963  #mvExecStepPostProgress 컨테이너 신설(4단계 성공 요약 바로 뒤)
+    5667  SINGLE_STEP_CARDS.validation 에 등록(다른 단계에서 잔류 노출 방지)
+    15468 resetExecuteResultOnly — 재실행 시작 시 이전 수집 표시 제거
+    15492 _mvShowExecStepError — 실행 실패 시 제거(진행 표시 정리와 대칭)
+    15652 _mvShowExecStepProgress — 새 실행 진행 중이면 제거
+    15698 신규 표시 계층 136줄
+          _MV_EXEC_POST_SHOW_DELAY_MS / _mvExecStepPostDoneInfo / _mvExecStepPostTick /
+          _mvExecStepPostRender / _mvShowExecStepPostProgress / _mvNoteExecStepPostAvail /
+          _mvFinishExecStepPostProgress / _mvClearExecStepPostProgress (+ window 노출 4)
+    27291 _mvRiEnsureAndLoad — 수집 시작 시 표시 켜기
+    27300 _mvRiEnsureAndLoad — HOLD / 서버재시작 중단 / 즉시 확정 종료 처리
+    (폴링) _mvRiStartPolling 터미널·PAUSED 종료 처리, _mvRiApplyProgress 저장 건수 전달
+
+  ※ dev 측정 드라이버(scripts/dev_e2e/stage4_postcount_progress_indicator_verify.py)는
+    이 저장소의 기존 관례대로 코드 저장소에 커밋하지 않고 증적 폴더에 사본을 보관했다
+    (같은 폴더의 다른 dev_e2e 드라이버들도 모두 미추적 상태다).
+
+
+════════════════════════════════════════════════════════════════════════
+6. 남은 사항(이번 범위 밖 · 사실 기록)
+════════════════════════════════════════════════════════════════════════
+  (1) 이 표시는 수집이 자동 시작되는 GROUP BY 2축 이상(다중 세트) 경로에서 뜬다.
+      1축 경로는 실행 직후 자동 수집이 없고(진단 §3-6) 그룹 클릭/5단계 진입이 트리거인데,
+      그 경로도 같은 함수(_mvRiEnsureAndLoad)를 통과하므로 동일 배선으로 동작한다.
+  (2) 진행률(%)은 만들지 않았다. 서버가 총 수집 대상을 미리 알지 못하고(조기중단 상한 101건 정책)
+      근거 있는 백분율을 만들 수 없다. 표시값은 클라이언트 경과시간과 서버 보고 저장 건수뿐이다.
+  (3) 4단계 처리시간 슬롯(#mvStage4ProcessingTime)은 이번에 건드리지 않았다. 그 슬롯은
+      STAGE-TILE-DEDUP-CLEANUP-SEQUENTIAL-FIX 이후 'SQL 생성 시간'만 유지하며, 실행 소요는
+      4단계 '실행시간' 타일이 따로 보여준다.
+      (측정 드라이버도 이 사실에 맞춰 완료 신호를 4단계 성공 요약 표시로 잡는다 — 처리시간
+       슬롯을 완료 신호로 쓰면 영원히 대기하게 된다. 첫 시도에서 실제로 겪고 바로잡았다.)
+  (4) 이번 실측의 종료 상태는 두 회차 모두 EARLY_STOPPED(수집 조기중단 상한)였다.
+      상한 정책 자체는 이번 범위가 아니며 그대로 두었다(백로그의 재이관 수집 상한 항목).
+
+
+════════════════════════════════════════════════════════════════════════
+7. 증적
+════════════════════════════════════════════════════════════════════════
+  E:\verify_screenshots_only\STAGE4-POSTCOUNT-PROGRESS-INDICATOR-ADD-FIX\ (커밋 777ee29, push 완료)
+    before_50m_1_stage4_time_shown.png       변경 전 · 4단계 완료 요약 표시 시점(패널 없음)
+    before_50m_2_stage4_collecting.png       변경 전 · 수집 중(화면 무변화 = 무음 구간)
+    before_50m_3_stage4_collection_done.png  변경 전 · 수집 완료 시점(화면 무변화)
+    before_50m_4_stage5_result.png           변경 전 · 5단계 결과
+    after_50m_1_stage4_time_shown.png        변경 후 · 완료 요약 + 진행 패널 시작
+    after_50m_2_stage4_collecting.png        변경 후 · "상세 추출 진행 중 · 경과 7초 · 현재 저장 0건"
+    after_50m_3_stage4_collection_done.png   변경 후 · "⚠ 상세 추출 완료 · 수집 조기중단 · 소요 43초"
+    after_50m_4_stage5_result.png            변경 후 · 5단계 결과
+    after_small_1~4_*.png                    소규모(2만행) 동일 절차 4컷
+    a_simple_step1~3_*.png                   1~3단계 통과 증적
+    measure_before_50m.json / measure_after_50m.json / measure_after_small.json  원시 계측
+    driver_stage4_postcount_progress_indicator_verify.py                         측정 드라이버 사본
+
+실검증 상태: 실 DB(Oracle asis 1523 / tobe 1524, NXDNP 스키마) 라이브 브라우저 실행으로 검증함 —
+             5,000만행 before/after 각 1회 + 소규모 after 1회(총 3회), 전 구간 읽기 전용(DDL/DML 0건).
