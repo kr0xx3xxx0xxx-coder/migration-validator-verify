@@ -1,0 +1,144 @@
+작업명 : BACKLOG-M27-M30-M31-RESOLVED-MARK
+✅ 작업 완료 - BACKLOG-M27-M30-M31-RESOLVED-MARK - BACKLOG.md 의 M27·M30·M31 세 항목을 '✅ 해결 완료'로 표시했다. 각 항목에 해결일(2026-08-05, 파트 A/B/C) · 근거 커밋(코드 d333308 / 8bc09f0 / aa42496, verify accbdc2) · 해결 요약 · 원래 '대응 방향'의 전제 정정(M27 배너 원인은 CSS 가 아니라 뷰포트 밖, M31 대응 방향이 전제한 '중복 로직' 부재)을 함께 기재했다. 다른 섹션 무변경 — `### ` 헤딩 개수 113→113 불변, diff 는 61 insertions / 3 deletions 이며 삭제 3줄은 전부 M27·M30·M31 제목 줄 교체분이다.
+
+════════════════════════════════════════════════════════════════════════
+1. 작업 범위
+════════════════════════════════════════════════════════════════════════
+수정 대상 : BACKLOG.md (1파일) — 지침이 지정한 파일만
+편집 위치 : origin/main 기반 임시 worktree `E:\_wt_bl`
+            (공유 작업트리 `E:\verify_reports\BACKLOG.md` 는 stale 사본이라 손대지 않음)
+코드 저장소 : 무변경 (문서 표시 작업)
+화면/스크린샷 : 무관 (지침 명시)
+
+════════════════════════════════════════════════════════════════════════
+2. 편집 전 확인
+════════════════════════════════════════════════════════════════════════
+[2-1] 대상 파일 위치
+  코드 저장소(C:\projects\migration-validator)에는 BACKLOG.md 가 없다 — verify 저장소
+  (migration-validator-verify) 루트 파일이다. 공유 클론 `E:\verify_reports` 는 착수 시점에
+  0 ahead / 16 behind 였고 인덱스에 남의 staged 삭제 319건이 대기 중이어서 직접 편집·커밋을
+  피하고, `git worktree add -f E:\_wt_bl origin/main` 으로 원격 최신본에서 작업했다.
+    · worktree 베이스 : ed37454
+      "verify: BACKLOG-P15-RESOLVED-MARK 완료보고 — 커밋/push 실측값 기재 (BACKLOG.md 무변경)"
+    · 편집 전 BACKLOG.md : 2,749줄 · `### ` 헤딩 113개
+
+[2-2] 대상 항목 소재 확인 (편집 전 제목)
+  · BACKLOG.md:1999  ### M27. 1단계에서 CRITICAL/UNSUPPORTED SQL 을 입력하면 "· 1단계 계산 중..." 이 무한 고착되고 …
+  · BACKLOG.md:2193  ### M30. S16 의 409 응답이 사용자 화면 알림으로 렌더되는 경로가 확인되지 않는다(심각도 하)
+  · BACKLOG.md:2208  ### M31. S15 "허용 N분" 표시가 60초 미만 임계값에서 "0분" 으로 오표시된다(표시 전용 · 심각도 하)
+  세 항목 모두 "## 경미/문서" 섹션에 있다. M27·M30 을 언급하는 다른 줄 2곳
+  (2172행 S18 항목의 '관련' 줄 · 2190행 M29 항목의 '관련' 줄)은 지침대로 건드리지 않았다.
+
+[2-3] 근거 자료 실재 확인 (문서 신뢰가 아니라 커밋·파일 직접 확인)
+  · 코드 커밋 d333308 존재 — "fix(ui): 1단계 CRITICAL/UNSUPPORTED 차단 시 '계산 중' 슬롯 청소 +
+    오류 배너로 스크롤 (M27-M30-M31-STAGE-DISPLAY-FIXES-SEQUENTIAL 파트 A)"
+    변경 파일 3개 : ui/tabler_renderer.py(+23) · scripts/dev_e2e/stage1_critical_block_slot_and_banner_verify.py
+    · tests/…_stage1_block_slot_cleanup_and_banner_scroll.py
+  · 코드 커밋 8bc09f0 존재 — "test(s15): 후보 프로파일 허용치 '0분' 오표시 회귀 가드 — 표시 코드는
+    이미 제거됨 (… 파트 B)"  변경 파일 2개 : 프로브 스크립트 + 회귀 가드 테스트
+    (**제품 코드 변경 0건** — '대상 부재' 판정과 일치)
+  · 코드 커밋 aa42496 존재 — "fix(ui): S16 중복 실행 409 를 화면 알림으로 표시 · /execute/set 오류
+    사유 오도 제거 (… 파트 C)"  변경 파일 5개 : ui/tabler_renderer.py(+18/-…) ·
+    **ui/validation_plan_renderer.py(+24/-…)** · 테스트 2개 + dev_e2e 1개
+    → 지침 범위(tabler_renderer.py) 밖 파일이 실제로 함께 수정됐음을 커밋으로 확인
+  · M31 이 말하는 '이미 삭제한 작업' a1e4b7c 존재 — "fix(ui): 5단계 불일치 그리드 정리 6건 +
+    하단 안내 섹션 4건 삭제 (STAGE5-MISMATCH-GRID-HEADER-CLEANUP-FIX)"
+  · verify 커밋 accbdc2 존재 — "verify: M27-M30-M31-STAGE-DISPLAY-FIXES-SEQUENTIAL 완료보고 —
+    1단계 차단 슬롯/배너(파트A) · 허용치 0분 대상부재(파트B) · S16 409 화면알림(파트C)"
+  · 보고서 E:\verify_reports\M27-M30-M31-STAGE-DISPLAY-FIXES-SEQUENTIAL.txt 존재(224줄)
+  · 증적 디렉터리 M27-M30-M31-STAGE-DISPLAY-FIXES-SEQUENTIAL\ 존재(캡처·JSON 34파일)
+
+════════════════════════════════════════════════════════════════════════
+3. 기재한 내용
+════════════════════════════════════════════════════════════════════════
+[3-0] 표기 방식
+  직전 RESOLVED-MARK 커밋(d6acc8e / dff6650)과 동일하게 ① 제목 줄에 "✅ 해결 완료 —" 접두만
+  추가하고 원 제목 문구는 그대로 보존, ② 기존 '발견일' 줄 **위에** 해결 정보를 삽입,
+  기존 서술은 1줄도 지우지 않았다. 문서 머리말(최종 갱신/직전 갱신)은 직전 커밋들과 동일하게
+  건드리지 않았다.
+
+[3-1] M27 — 파트 A
+  · 해결일   : 2026-08-05 (M27-M30-M31-STAGE-DISPLAY-FIXES-SEQUENTIAL 파트 A)
+  · 근거 커밋 : 코드 저장소 d333308 / 보고서 커밋 accbdc2
+  · 해결 요약 : 대응 방향 ①을 그대로 적용 — runAnalyze 의 CRITICAL/UNSUPPORTED 차단 분기에
+                2단계(runCount finally)·5단계(plan-sets finally)와 **동일한 조건식·구조**의
+                '계산 중' 슬롯 청소를 추가(ui/tabler_renderer.py, 성공 값이 이미 들어왔으면
+                no-op — 표시 전용). 새 패턴 신설 없이 기존 2·5단계 코드 재사용.
+  · 전제 정정 : 대응 방향 ②가 후보로 적은 'CSS 우선순위/렌더 순서' 는 **원인이 아니다.**
+                배너(#fmtBanner)는 정상 렌더된다(display:block · 숨긴 조상 0 · 높이 66px).
+                진짜 원인은 **위치** — 1440x800 뷰포트에서 top=920 이라 화면 밖.
+                1600x1200 에서는 top=854 로 보여 **뷰포트 의존**이었고, 그래서 넓은 화면
+                조사에서는 재현되지 않았다. 기존 오류 패널의 scrollIntoView 패턴만 재사용해 해결.
+  · 실측     : before 슬롯 "· 1단계 계산 중..." / 배너 in_viewport=False(top=920)
+                after  슬롯 ""(빈 값)          / 배너 in_viewport=True (top=579)
+                정상 SQL 경로 before/after 동일(슬롯 "처리시간: 4.6초", 배너 없음) — 무영향
+
+[3-2] M30 — 파트 C
+  · 해결일   : 2026-08-05 (… 파트 C)
+  · 근거 커밋 : 코드 저장소 aa42496 / 보고서 커밋 accbdc2
+  · 해결 요약 : 새 알림 UI 를 만들지 않고 **클라이언트 가드가 이미 쓰는 컴포넌트
+                _mvNotifyRunActiveBlocked 를 재사용**. /execute(runExecute)가 409 +
+                EXECUTION_ALREADY_IN_PROGRESS 를 받으면 서버 문구 그대로 표시(기존 오류 패널
+                표시는 사유가 화면에 남도록 유지). 컴포넌트에는 선택 인자 detail 만 추가해
+                미지정인 기존 호출부 3경로는 종전 문구 그대로임을 하니스로 고정.
+  · 범위 확대 : 지침 범위(ui/tabler_renderer.py)를 넘어 /execute/set
+                (ui/validation_plan_renderer.py 의 runValidationSet)도 함께 수정.
+                이 경로는 **비-200 응답 본문을 통째로 버리고** "GROUP BY/SUM 컬럼 구성을
+                확인하세요" 를 띄워 '이미 실행 중' 을 **완전히 다른 원인으로 오도**하던
+                별개 결함이었다. 본문을 읽어 사유를 살리고 같은 컴포넌트로 알리도록 고쳤으며
+                catch 문구도 원인별로 갈랐다(일반 오류 안내는 유지).
+  · 실측     : 서버 in-flight 표식을 직접 심어 409 를 결정적으로 재현
+                before 화면 알림 0건(패널에만 표시) → after 화면 알림 2건(서버 문구 그대로)
+                표식 해제 후 정상 실행 : 알림 0건 · executed=True — 정상 경로 무영향
+  · 회귀     : 관련 스위트 886건 baseline 대조 신규 실패 1건
+                (test_stage45_timing_label_and_dup_guard_fix 의 시그니처 정확일치 단언) —
+                의도('조용한 return 이 아니라 안내가 있는가') 유지한 채 첫 인자까지만 보도록
+                완화해 해소
+
+[3-3] M31 — 파트 B
+  · 해결일   : 2026-08-05 (… 파트 B)
+  · 근거 커밋 : 코드 저장소 8bc09f0 / 보고서 커밋 accbdc2
+  · 해결 요약 : 지적된 코드(Math.round((gs.profile_max_age_seconds || 0) / 60) + '분')는
+                **현재 코드베이스에 없다.** 오늘 선행된 다른 작업 a1e4b7c
+                (STAGE5-MISMATCH-GRID-HEADER-CLEANUP-FIX)에서 '실행 기준' 요약 박스
+                (_mvExecBasisHtml) 전체와 함께 이미 삭제됐고, 삭제된 원본이 정확히 그 식이었다.
+                따라서 **코드 변경 없이** 재도입 방지 회귀 가드 테스트만 추가
+                (tests/test_profile_age_allowance_text_no_zero_minute.py).
+  · 전제 정정 : 대응 방향이 말한 '`_ageTxt` 를 헬퍼로 뽑아 중복 제거' 는 성립하지 않는다 —
+                화면에 남은 시간 문구 헬퍼(_mvExecStepProgressFmt · _jdAgo)가 **둘 다 이미
+                60초 미만 '초' 분기를 보유**해 전제한 중복 로직 자체가 없다. 불필요한 변경 방지.
+  · 실측     : 렌더 페이지(약 244만자)에 _ageTxt / profile_max_age_seconds /
+                profile_age_seconds 0건, 조건 없는 '분' 반올림 식 0건.
+                임계값 30초(60초 미만)로 낮춰 stale 강제해도 문구는 초 단위
+                ("후보 프로파일 경과 90초 > 허용 30초") — '0분' 발생 0건.
+                운영 기본값 1800초 판정 종전 동일(90초=정상 / 2400초=stale).
+
+════════════════════════════════════════════════════════════════════════
+4. 무결성 확인 (다른 섹션 무변경 증명)
+════════════════════════════════════════════════════════════════════════
+  항목                          편집 전    편집 후    판정
+  ---------------------------- --------- --------- ------
+  `### ` 헤딩 개수                113       113      불변 (신규 등록·삭제 0건)
+  BACKLOG.md 줄 수               2,749     2,807     +58 (삽입만)
+  diff insertions/deletions        —      61 / 3     삭제 3줄 = M27·M30·M31 제목 줄 교체분뿐
+  변경 파일                        —     BACKLOG.md  git status 가 ` M BACKLOG.md` 1건뿐
+
+  삭제된 3줄 전문(전부 제목 교체분):
+    -### M27. 1단계에서 CRITICAL/UNSUPPORTED SQL 을 입력하면 "· 1단계 계산 중..." 이 무한 고착되고 오류 배너도 안 뜬다(사용자 체감 무한 로딩 — 이 섹션 내 상대 우선순위 높음)
+    -### M30. S16 의 409 응답이 사용자 화면 알림으로 렌더되는 경로가 확인되지 않는다(심각도 하)
+    -### M31. S15 "허용 N분" 표시가 60초 미만 임계값에서 "0분" 으로 오표시된다(표시 전용 · 심각도 하)
+
+════════════════════════════════════════════════════════════════════════
+5. 커밋 / push
+════════════════════════════════════════════════════════════════════════
+  (아래 값은 push 완료 후 실측 기재)
+  · 커밋       : <COMMIT_HASH>  docs(backlog): M27·M30·M31 해결 완료 표시 (BACKLOG-M27-M30-M31-RESOLVED-MARK)
+  · staged 목록 : BACKLOG.md · BACKLOG-M27-M30-M31-RESOLVED-MARK.txt (2건 — 남의 파일 0건)
+  · 커밋 후 D  : 0건 (git show --name-status | grep -c "^D")
+  · push       : origin HEAD:main
+  · ls-remote  : <LSREMOTE_HASH> (로컬 HEAD 와 일치)
+  · 정리       : git worktree remove --force E:\_wt_bl + worktree prune
+
+  코드 저장소(C:\projects\migration-validator)는 이번 작업에서 **무변경·무커밋**이다.
+
+✅ 작업 완료 - BACKLOG-M27-M30-M31-RESOLVED-MARK - BACKLOG.md 의 M27·M30·M31 세 항목을 '✅ 해결 완료'로 표시했다. 각 항목에 해결일(2026-08-05, 파트 A/B/C) · 근거 커밋(코드 d333308 / 8bc09f0 / aa42496, verify accbdc2) · 해결 요약 · 원래 '대응 방향'의 전제 정정(M27 배너 원인은 CSS 가 아니라 뷰포트 밖, M31 대응 방향이 전제한 '중복 로직' 부재)을 함께 기재했다. 다른 섹션 무변경 — `### ` 헤딩 개수 113→113 불변, diff 는 61 insertions / 3 deletions 이며 삭제 3줄은 전부 M27·M30·M31 제목 줄 교체분이다.

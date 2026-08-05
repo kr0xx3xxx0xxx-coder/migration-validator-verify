@@ -1996,7 +1996,25 @@ git -C E:/verify_reports worktree remove <임시경로>
 
 ## 경미/문서
 
-### M27. 1단계에서 CRITICAL/UNSUPPORTED SQL 을 입력하면 "· 1단계 계산 중..." 이 무한 고착되고 오류 배너도 안 뜬다(사용자 체감 무한 로딩 — 이 섹션 내 상대 우선순위 높음)
+### M27. ✅ 해결 완료 — 1단계에서 CRITICAL/UNSUPPORTED SQL 을 입력하면 "· 1단계 계산 중..." 이 무한 고착되고 오류 배너도 안 뜬다(사용자 체감 무한 로딩 — 이 섹션 내 상대 우선순위 높음)
+- 해결일: 2026-08-05 (M27-M30-M31-STAGE-DISPLAY-FIXES-SEQUENTIAL 파트 A)
+- 근거 커밋: 코드 저장소 `d333308` — `fix(ui): 1단계 CRITICAL/UNSUPPORTED 차단 시 '계산 중' 슬롯
+  청소 + 오류 배너로 스크롤 (M27-M30-M31-STAGE-DISPLAY-FIXES-SEQUENTIAL 파트 A)`
+- 근거 보고서 커밋: 이 저장소 `accbdc2`(완료보고 + 실측 증적 — 1단계 차단 슬롯/배너 before/after 캡처)
+- 해결 요약: 대응 방향 ①을 그대로 적용했다 — `runAnalyze` 의 CRITICAL/UNSUPPORTED 차단 분기에
+  **2단계(`runCount` finally)·5단계(plan-sets finally)와 동일한 조건식·구조의 '계산 중' 슬롯 청소**를
+  붙였다(`ui/tabler_renderer.py`, 성공 값이 이미 들어왔으면 no-op — 표시 전용). 새 패턴을 만들지 않고
+  기존 2·5단계 코드를 그대로 재사용했다.
+- **대응 방향 ②(배너 미표시 원인)의 전제 정정**: 원인은 후보로 적어둔 **CSS 우선순위/렌더 순서가 아니다.**
+  배너(`#fmtBanner`)는 정상 렌더된다(실측 `display:block` · 숨긴 조상 0개 · 높이 66px).
+  진짜 원인은 **위치** — 1440x800 뷰포트에서 `top=920` 이라 화면 밖이었다(1600x1200 에서는 `top=854`
+  로 보임 → **뷰포트 의존**이라 넓은 화면 조사에서는 재현되지 않았다). 기존 오류 패널이 이미 쓰던
+  `scrollIntoView` 패턴만 재사용해 차단 시 배너로 스크롤하게 했다(새 UI 없음).
+- 실측(`scripts/dev_e2e/stage1_critical_block_slot_and_banner_verify.py`, 1440x800):
+  before 슬롯 `· 1단계 계산 중...` / 배너 `in_viewport=False`(top=920) →
+  after 슬롯 `` (빈 값) / 배너 `in_viewport=True`(top=579).
+  정상 SQL 경로는 before/after 동일(슬롯 `처리시간: 4.6초`, 배너 없음) — **무영향**.
+- 근거 보고서(해결): E:\verify_reports\M27-M30-M31-STAGE-DISPLAY-FIXES-SEQUENTIAL.txt
 - 발견일: 2026-08-02
 - 근거 보고서: `CRITICAL-S15-S16-S18-LIVE-BROWSER-ORACLE-VERIFY/_REPORT.txt` (§3-3 · §4-(5))
 - 상세: `runAnalyze` 는 진입 직후 `_mvClearStageProcessingTime(1)` 로 1단계 슬롯("· 1단계 계산 중...")을
@@ -2190,7 +2208,28 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: S16(해결 완료 — 같은 문맥 중복에서는 정상 작동) · M30
 - 참고: E:\verify_reports\CRITICAL-S15-S16-S18-LIVE-BROWSER-ORACLE-VERIFY\_REPORT.txt (§2-1 · §4-2)
 
-### M30. S16 의 409 응답이 사용자 화면 알림으로 렌더되는 경로가 확인되지 않는다(심각도 하)
+### M30. ✅ 해결 완료(지침 범위 밖 별도 결함 1건 동반 해소) — S16 의 409 응답이 사용자 화면 알림으로 렌더되는 경로가 확인되지 않는다(심각도 하)
+- 해결일: 2026-08-05 (M27-M30-M31-STAGE-DISPLAY-FIXES-SEQUENTIAL 파트 C)
+- 근거 커밋: 코드 저장소 `aa42496` — `fix(ui): S16 중복 실행 409 를 화면 알림으로 표시 ·
+  /execute/set 오류 사유 오도 제거 (M27-M30-M31-STAGE-DISPLAY-FIXES-SEQUENTIAL 파트 C)`
+- 근거 보고서 커밋: 이 저장소 `accbdc2`(완료보고 + 실측 증적 — 409 화면 알림 before/after 캡처)
+- 해결 요약: 대응 방향대로 409 를 화면 알림으로 배선하되, **새 알림 UI 를 만들지 않고 클라이언트 가드가
+  이미 쓰는 같은 컴포넌트 `_mvNotifyRunActiveBlocked` 를 재사용**했다. `/execute`(`runExecute`)가
+  `409` + `EXECUTION_ALREADY_IN_PROGRESS` 를 받으면 **서버 문구 그대로** 띄운다
+  (기존 오류 패널 표시는 사유가 화면에 남도록 유지). `_mvNotifyRunActiveBlocked` 에는 선택 인자
+  `detail` 만 추가해 **미지정인 기존 호출부 3경로는 종전 문구 그대로**임을 하니스로 고정했다.
+- **지침 범위(`ui/tabler_renderer.py`)를 넘어 함께 고친 별도 결함**: `/execute/set`
+  (`ui/validation_plan_renderer.py` 의 `runValidationSet`)은 **비-200 응답 본문을 통째로 버리고**
+  catch 문구로 `GROUP BY/SUM 컬럼 구성을 확인하세요` 를 띄우고 있었다 — 즉 '이미 실행 중' 을
+  **완전히 다른 원인으로 오도**하던 별개 결함이다. 이 경로도 본문을 읽어 사유를 살리고 같은 컴포넌트로
+  알리도록 고쳤으며, catch 문구도 원인별로 갈랐다(일반 오류 안내는 유지).
+- 실측(`scripts/dev_e2e/s16_inflight_409_screen_notice_verify.py` — 서버 in-flight 표식을 직접 심어
+  409 를 **결정적으로 재현**): before 화면 알림 **0건**(패널에만 표시) → after 화면 알림 **2건**,
+  서버 문구 그대로. 표식 해제 후 정상 실행은 알림 0건 · `executed=True` — **정상 경로 무영향**.
+- 회귀: 관련 스위트 886건 baseline 대조에서 신규 실패는 `test_stage45_timing_label_and_dup_guard_fix`
+  의 시그니처 정확일치 단언 1건뿐이었고, 그 테스트의 의도('조용한 return 이 아니라 안내가 있는가')를
+  유지한 채 첫 인자까지만 보도록 완화해 해소했다.
+- 근거 보고서(해결): E:\verify_reports\M27-M30-M31-STAGE-DISPLAY-FIXES-SEQUENTIAL.txt
 - 발견일: 2026-08-02
 - 근거 보고서: `CRITICAL-S15-S16-S18-LIVE-BROWSER-ORACLE-VERIFY/_REPORT.txt` (§2-3 · §4-(3))
 - 상세: 정상 조작 경로에서는 클라이언트가 버튼을 먼저 `{disabled:true, label:"실행 중…"}` 으로 바꿔
@@ -2205,7 +2244,26 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: S16(해결 완료) · M29(같은 실증에서 확인된 키 분리)
 - 참고: E:\verify_reports\CRITICAL-S15-S16-S18-LIVE-BROWSER-ORACLE-VERIFY\_REPORT.txt (§2-3 · §4-3)
 
-### M31. S15 "허용 N분" 표시가 60초 미만 임계값에서 "0분" 으로 오표시된다(표시 전용 · 심각도 하)
+### M31. ✅ 해결 완료(대상 코드 부재 확인 — 다른 작업에서 이미 삭제됨, 회귀 가드만 추가) — S15 "허용 N분" 표시가 60초 미만 임계값에서 "0분" 으로 오표시된다(표시 전용 · 심각도 하)
+- 해결일: 2026-08-05 (M27-M30-M31-STAGE-DISPLAY-FIXES-SEQUENTIAL 파트 B)
+- 근거 커밋: 코드 저장소 `8bc09f0` — `test(s15): 후보 프로파일 허용치 '0분' 오표시 회귀 가드 —
+  표시 코드는 이미 제거됨 (M27-M30-M31-STAGE-DISPLAY-FIXES-SEQUENTIAL 파트 B)`
+- 근거 보고서 커밋: 이 저장소 `accbdc2`(완료보고 + 실측 증적)
+- 해결 요약: 지적된 코드(`Math.round((gs.profile_max_age_seconds || 0) / 60) + '분'` — 조건 없는 분
+  단위 반올림)는 **현재 코드베이스에 존재하지 않는다.** 오늘 선행된 다른 작업 `a1e4b7c`
+  (`STAGE5-MISMATCH-GRID-HEADER-CLEANUP-FIX`, 2026-08-05)에서 '실행 기준' 요약 박스
+  (`_mvExecBasisHtml`) 전체와 함께 이미 삭제됐고, **삭제된 원본이 정확히 이 항목이 지적한 식**이었다.
+  따라서 **코드 변경 없이** 그 상태가 되돌아가지 않도록 **회귀 가드 테스트만 추가**했다
+  (`tests/test_profile_age_allowance_text_no_zero_minute.py`).
+- **대응 방향(‘`_ageTxt` 를 헬퍼로 뽑아 재사용’)의 전제 정정**: 화면에 남은 시간 문구 헬퍼
+  (`_mvExecStepProgressFmt` · `_jdAgo`)는 **둘 다 이미 60초 미만 '초' 분기를 갖고 있어**, 지침이
+  전제한 '중복 로직' 자체가 남아 있지 않다. 불필요한 변경을 피하려 새 헬퍼 추출은 하지 않았다.
+- 실측(`scripts/dev_e2e/stage15_profile_age_allowance_text_probe.py`): 렌더된 페이지(약 244만자)에
+  `_ageTxt` / `profile_max_age_seconds` / `profile_age_seconds` **0건**, 조건 없는 '분' 반올림 식
+  **0건**. 임계값을 30초(60초 미만)로 낮춰 stale 을 강제해도 문구는 초 단위
+  ("후보 프로파일 경과 90초 > 허용 30초") — **'0분' 발생 0건**. 운영 기본값 1800초 판정은 종전과
+  동일(90초=정상 / 2400초=stale).
+- 근거 보고서(해결): E:\verify_reports\M27-M30-M31-STAGE-DISPLAY-FIXES-SEQUENTIAL.txt
 - 발견일: 2026-08-02
 - 근거 보고서: `CRITICAL-S15-S16-S18-LIVE-BROWSER-ORACLE-VERIFY/_REPORT.txt` (§1-3 · §4-(1))
 - 상세: `ui/tabler_renderer.py:16445` 가 허용치를 **조건 없이 분 단위로 반올림**한다 —
