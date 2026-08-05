@@ -1,0 +1,244 @@
+작업명 : CANDIDATE-SCORE-CONTRIBUTION-SERVER-STORAGE-FIX
+✅ 작업 완료 - CANDIDATE-SCORE-CONTRIBUTION-SERVER-STORAGE-FIX - 후보 점수 8개 가감 지점을 {code, delta, label} 로 서버에 보존(응답 키 1개 추가), 등식 96/96 성립·골든 스냅샷 96행 전/후 0건 차이로 점수 불변 증명
+
+작성일   : 2026-08-05
+범위     : 백로그 F19 4단계 분할 착수안 중 **1단계만**(서버 기여분 보존 + 등식 테스트 + 점수 불변 증명)
+           화면 변화 0 — ui/ 파일 무수정
+근거     : E:\verify_reports\CANDIDATE-SCORE-EXPLAINABILITY-CURRENT-STATE-SURVEY.txt (§6-4)
+
+════════════════════════════════════════════════════════════════════════════════
+1. 변경 파일 (2개, 모두 신규 추가분 — 삭제/수정 라인 0)
+════════════════════════════════════════════════════════════════════════════════
+  M services/candidate_scoring.py                +124 / -0
+  A tests/test_candidate_score_contribution.py   +422 / -0
+  ────────────────────────────────────────────────────────
+  합계 2 files changed, 546 insertions(+), 0 deletions(-)
+
+  ★ 삭제 라인 0 = score 산출식을 단 한 줄도 바꾸지 않았다는 git 수준의 증거.
+    기존 `score += 25` 류의 라인은 그대로 두고 바로 뒤에 기록 라인만 덧붙였다.
+
+  커밋 : 1862bb2  feat(scoring): 후보 점수 기여분(score_contributions) 서버 보존 —
+                  순수 부가, 점수 불변 (CANDIDATE-SCORE-CONTRIBUTION-SERVER-STORAGE-FIX)
+  직전  : 486b1a1 (다른 세션 STAGE4-5-STRATEGY-TIMING-AND-TEXT-CLEANUP-FIX)
+  ※ pathspec 지정 커밋(`git commit -- <2개 경로>`)으로 다른 세션의 미커밋 변경을 건드리지 않았다.
+
+════════════════════════════════════════════════════════════════════════════════
+2. 구현 내용
+════════════════════════════════════════════════════════════════════════════════
+2-1. 응답 키 (기존 12키 유지 + 1키 추가)
+  score_contributions: list[dict]   # 각 항목 = {code: str, delta: int, label: str}
+  - 3키 고정(payload 최소화), **delta == 0 인 기여는 생략**(실제로 점수를 움직인 것만).
+  - GROUP BY(score_group_by_candidate) / SUM(score_sum_candidate) 대칭 처리.
+
+2-2. 불변식
+  sum(c["delta"] for c in score_contributions) == 최종 score
+  → 가산/감산뿐 아니라 '대입'으로 점수를 바꾸는 지점(hard_rule ceiling, CAUTION HIGH 상한,
+    profile 가산 취소, 최종 clamp)도 (변경 후 - 변경 전)을 delta 로 환산해 기록해야 등식이
+    성립한다. 이 환산 자체가 산출식을 바꾸지 않는다(변수 2개 추가 + append 뿐).
+
+2-3. 8개 가감 지점 → code 매핑 (총 24종)
+  ① 기본 점수        BASE_AUTO_SELECTED(+40) / BASE_MANUAL(+20) / BASE_MANUAL_WARN(+10)
+  ② 타입             TYPE_NUMERIC(+25, SUM) / TYPE_NON_NUMERIC(+15, GB) / TYPE_UNKNOWN(+5, GB)
+  ③ 시맨틱           SEMANTIC_MEASURE_STRONG(+20) / SEMANTIC_MEASURE_WEAK(+10)
+                     SEMANTIC_DIMENSION_STRONG(+20) / SEMANTIC_DIMENSION_WEAK(+10)
+                     SEMANTIC_EXCLUDE(-30 SUM / -10 GB) / SEMANTIC_CAUTION(+5 GB)
+                     SEMANTIC_OTHER_ROLE(+5) / SEMANTIC_OTHER(+5)
+                     SEMANTIC_CONTEXT_CONFLICT(-5)
+  ④ hard_rule ceiling HARD_RULE_CEILING / HARD_RULE_CEILING_REAPPLY (상한 25, 동적 delta)
+  ⑤ 카디널리티      PROFILE_CARDINALITY   (profile_evidence.card_score_adj 그대로 이관)
+  ⑥ NULL            PROFILE_NULL_RATIO    (profile_evidence.null_score_adj 그대로 이관)
+  ⑦ catalog 보너스  CATALOG_LOWCARD_BONUS
+  ⑧ 구조 신호       STRUCT_LONG_TEXT_PENALTY(-15) / STRUCT_SHORT_CODE_HINT(+5)
+                     STRUCT_SYSTEM_AUDIT_VALUE(-30)
+  (등식 보조)        PROFILE_ADJ_CANCEL_EXCLUDE / PROFILE_ADJ_CANCEL_SYSTEM_AUDIT
+                     CAUTION_HIGH_CEILING / SCORE_CLAMP
+
+  ⑤⑥ 은 기존 `score += _p_adj` 한 줄에 뭉쳐 있던 profile 조정값을 evidence 에 이미 저장돼
+  있던 card_score_adj / null_score_adj 로 분해한 것이며(재계산 없음), 두 delta 의 합은 항상
+  profile_score_adjustment 와 같다 — 테스트 F 에서 별도로 단언한다.
+
+2-4. 배선 파일 무수정 (지침 요구사항 4)
+  candidate_display_enricher.py / single_validation_analyze_service.py / batch_runner.py
+  모두 손대지 않았다. 세 파일 모두 score_candidates() 결과 dict 를 통째로 실어 나르므로
+  (candidate_display_enricher.py:1543 `"candidate_scoring": scoring`) 키 추가가 자동 전파된다.
+
+════════════════════════════════════════════════════════════════════════════════
+3. 실측 검증 ①: 등식 검증 (기여분 합계 == 최종 score)
+════════════════════════════════════════════════════════════════════════════════
+3-1. 대표 후보 집합 전수 (24개 후보 × GROUP BY/SUM × profile 유/무 = 96건)
+     등식검증: 96건 중 성립 96, 불일치 0
+     기여분 3키 위반 0건 / delta == 0 항목 0건 (0 기여 생략 규칙 준수)
+     발화한 code 24종 (건수):
+       BASE_MANUAL 72 · PROFILE_CARDINALITY 26 · TYPE_NON_NUMERIC 24 · BASE_AUTO_SELECTED 20
+       SEMANTIC_OTHER_ROLE 20 · PROFILE_NULL_RATIO 18 · SEMANTIC_EXCLUDE 16 · TYPE_NUMERIC 16
+       STRUCT_LONG_TEXT_PENALTY 10 · SCORE_CLAMP 9 · TYPE_UNKNOWN 8 · SEMANTIC_DIMENSION_WEAK 8
+       SEMANTIC_MEASURE_WEAK 8 · SEMANTIC_CAUTION 6 · STRUCT_SHORT_CODE_HINT 5
+       BASE_MANUAL_WARN 4 · HARD_RULE_CEILING 4 · STRUCT_SYSTEM_AUDIT_VALUE 2
+       SEMANTIC_DIMENSION_STRONG 2 · SEMANTIC_MEASURE_STRONG 2
+       PROFILE_ADJ_CANCEL_SYSTEM_AUDIT 1 · PROFILE_ADJ_CANCEL_EXCLUDE 1
+       HARD_RULE_CEILING_REAPPLY 1 · CAUTION_HIGH_CEILING 1
+
+3-2. 신규 테스트 tests/test_candidate_score_contribution.py — 15 tests, 145 subtests 전부 통과
+     A  응답 키 구성(기존 12키 유지 + score_contributions 1키만 추가)
+     B  기여분 형태(3키 고정 · delta 0 생략)
+     C  등식 — 기본 3분기 × 타입 5종 (30 subtest)
+     D  등식 — 시맨틱 10종 × 강/약 × 문맥 OK/충돌 (40 subtest)
+     E  등식 — hard_rule ceiling / E2 profile 후 상한 재적용
+     F  등식 — profile 카디널리티/NULL 분해 합 == profile_score_adjustment (7 profile × 2 함수)
+     G  등식 — SUM EXCLUDE profile 가산 취소
+     H  등식 — SUM CAUTION HIGH 상한(= _SCORE_HIGH-1)
+     I  등식 — 구조 신호 3종(긴 문자열 / 짧은 코드 / 시스템 감사 값 패턴) 폭까지 단언
+     J  등식 — catalog 저카디널리티 보너스
+     K  등식 — 최종 clamp 0 하한
+     L  등식 — score_candidates() 통합 경로(실사전 매칭 포함) 14후보 × 2역할 × profile 유무 전수
+     M  8개 가감 지점 code 커버리지(21종 필수 집합 포함 확인)
+     N  점수·라벨 고정 기대값 10케이스 — 기여분 추가로 점수가 변하면 즉시 실패
+
+     실행: python -m pytest tests/test_candidate_score_contribution.py -q
+     결과: 15 passed, 145 subtests passed in 2.40s
+
+════════════════════════════════════════════════════════════════════════════════
+4. 실측 검증 ②: 점수 불변 증명 (가장 중요) — 골든 스냅샷 전/후 0건 차이
+════════════════════════════════════════════════════════════════════════════════
+4-1. 골든 스냅샷 설계
+  대표 후보 24개 (지침 최소 10개 요구 대비 2.4배) — 타입·카디널리티·NULL 비율·시맨틱 도메인·
+  hard_rule·구조 신호·catalog 통계 조합:
+    기본점수 3분기(PLAIN_A/B/C) · 타입 5종(numeric/char/bigint/timestamp/타입없음)
+    시맨틱 EXCLUDE(CUST_ID·SORT_ORDER·REG_DTTM·MEMO) · CAUTION(DISCOUNT_RATE·UNIT_PRICE)
+    MEASURE(ORD_AMT·ITEM_QTY) · DIMENSION(USE_YN·STATUS_CD)
+    hard_rule 차단(BLOCKED_AMT) · 긴 문자열(LONG_DESC 200 / MEMO 500)
+    짧은 코드+저카디(SHORT_CD) · 날짜값 패턴(YMD_COL) · catalog 통계(CATLOG_RATIO)
+    값 기반 시스템 감사(LOAD_STAMP) · 컬럼 코멘트 경유 매칭(COL_X·COL_Y) · 저카디 명칭(SCHOOL_NAME)
+  profile 15종(저카디/고카디/거의 고유/NULL 25%/55%/97%/상수 등)
+  실행 축: profile 있음 / profile 없음 × GROUP BY / SUM = 24 × 2 × 2 = **96행**
+
+4-2. 비교 대상 필드 (지침 요구 4개 + 안전 마진 3개)
+  column, score, label, auto_selected  (지침 요구)
+  blocked, reasons, warnings, profile_score_adjustment, structural_risk_flags  (추가 대조)
+
+4-3. 결과
+  착수 전(변경 전 코드) 스냅샷  : golden_before.json  96행
+  작업 후 스냅샷                : golden_after.json   96행
+  ────────────────────────────────────────────────────
+  total rows= 96   diff rows= 0        ← **완전히 0건 차이**
+  테스트 파일 추가 후 최종 재확인      : 총 96 행, 차이 0 건
+
+  즉 점수·라벨·auto_selected 는 물론 reasons/warnings 문구, profile 조정값,
+  structural_risk_flags 까지 단 한 글자도 변하지 않았다.
+
+  (교차 확인) 신규 테스트 N 이 대표 10케이스의 점수/라벨을 하드코딩 기대값으로 고정한다:
+    SUM  A=20 LOW / B=40 MEDIUM / C=10 LOW / D=85 HIGH / E=15 LOW
+    GB   F=55 MEDIUM / G=25 LOW / H=10 LOW / I=50 MEDIUM / J=5 LOW
+  → 이후 누군가 산출식을 건드리면 골든 스크립트가 없어도 회귀가 잡힌다.
+
+════════════════════════════════════════════════════════════════════════════════
+5. 실측 검증 ③: 개별검증 · 일괄검증 양쪽 자동 전파 (배선 파일 무수정)
+════════════════════════════════════════════════════════════════════════════════
+동일 이관 SQL(TB_ORDER_SRC → TB_ORDER_TGT, 7컬럼 + DDL)을 두 경로로 구동:
+
+  [개별검증] candidate_input_builder → candidate_engine.build_column_candidates
+             → candidate_display_enricher.enrich_candidates_for_display
+     후보 5건 / score_contributions 적재 5건 / 등식성립 5건
+       group_by REG_DTTM   score= 15 :: BASE_MANUAL_WARN+10 TYPE_NON_NUMERIC+15 SEMANTIC_EXCLUDE-10
+       group_by STATUS_CD  score= 65 :: BASE_AUTO_SELECTED+40 TYPE_NON_NUMERIC+15 SEMANTIC_DIMENSION_WEAK+10
+       group_by USE_YN     score= 65 :: BASE_AUTO_SELECTED+40 TYPE_NON_NUMERIC+15 SEMANTIC_DIMENSION_WEAK+10
+       sum      ORD_AMT    score= 75 :: BASE_AUTO_SELECTED+40 TYPE_NUMERIC+25 SEMANTIC_MEASURE_WEAK+10
+       sum      ORD_QTY    score= 75 :: BASE_AUTO_SELECTED+40 TYPE_NUMERIC+25 SEMANTIC_MEASURE_WEAK+10
+
+  [일괄검증] services/batch_runner.py::_build_core_candidates
+     후보 5건 / score_contributions 적재 5건 / 등식성립 5건
+       (개별검증과 컬럼·점수·기여분 전부 동일 — core 경로 공유 확인)
+
+  → 배선 파일 3개를 한 줄도 고치지 않고 양쪽 응답에 새 키가 실린다. 지침 요구사항 3·4 충족.
+  → 개별검증 응답 경로(single_validation_analyze_service.py:2040 "candidate_scoring")와
+    COUNT 후 확정 경로(candidate_postcount_finalize.py:880)도 같은 dict 를 그대로 싣는다.
+
+════════════════════════════════════════════════════════════════════════════════
+6. 회귀 확인 — 관련 서브셋 + baseline 대조
+════════════════════════════════════════════════════════════════════════════════
+6-1. 서브셋 : tests/ 중 candidate|scor|semantic|profile|subtype 매칭 115파일
+     (test_semantic_baseline_round2_files_static.py 는 모듈 로드 시 sys.exit 호출로
+      pytest INTERNALERROR 를 일으켜 제외 — 이번 변경과 무관한 기존 성질)
+     baseline : git worktree(HEAD=961f2d5, db/ · db_presets_*.json 복사) 에서 동일 명령 실행
+
+     after    : 33 failed, 1778 passed, 8 skipped, 6 xfailed, 7 errors  (467.79s) → 실패 ID 40개
+     baseline : 36 failed, 1725 passed, 26 skipped, 6 xfailed, 39 errors (392.37s) → 실패 ID 75개
+
+6-2. 신규 회귀 = **0건**
+     ID 집합 대조에서 after 에만 있던 3건은 전부 worktree 라이브 게이트 교란이었다:
+       tests/test_candidate_contract.py::test_live_payment_contract_clean_and_defaults_preserved
+       tests/test_candidate_contract.py::test_live_product_selectable_not_auto_selected
+       tests/test_candidate_plan_matrix.py::test_null_vs_empty_selection_contract
+     → baseline worktree 에 db_presets_*.json 이 없어 "PostgreSQL 프리셋/psycopg2 미준비"로
+       SKIP 되었을 뿐이다. 프리셋을 worktree 에 복사 후 재실행하니 **baseline 에서도 동일 3건
+       동일 사유로 FAILED**(`C:\wt\cscb\tests\test_candidate_plan_matrix.py:106: AssertionError`).
+       → 사전 존재 실패로 확정, 이번 변경과 무관.
+     반대로 baseline 에만 있던 38건은 test_candidate_scoring_dashboard_static.py 계열로,
+     worktree 에 대시보드 산출물 HTML 이 없어서 난 실패다(동일 교란의 반대 방향).
+
+6-3. 실패 테스트 전체 목록 (after 40건 — 전부 사전 존재 실패, 신규 0건)
+  tests/test_active_path_header_and_profile_order.py::test_active_source_then_target_on_top
+  tests/test_active_path_header_and_profile_order.py::test_order_logic_active_first_display_only
+  tests/test_batch_flow2_candidate_core_parity.py::test_coalesce_cast_flow2_core_parity
+  tests/test_batch_profile_candidate_parity.py::test_calc_profile_present_parity
+  tests/test_batch_profile_recollect_control.py::test_candidate_freshness_service_empty
+  tests/test_batch_profile_recollect_control.py::test_recollect_snapshot_roundtrip_surfaces_distinct_and_type
+  tests/test_candidate_contract.py::test_live_payment_contract_clean_and_defaults_preserved
+  tests/test_candidate_contract.py::test_live_product_selectable_not_auto_selected
+  tests/test_candidate_decision_evidence.py::test_evidence_role_split_strings
+  tests/test_candidate_display_policy.py::test_04_group_by_default
+  tests/test_candidate_display_policy.py::test_05_sum_default
+  tests/test_candidate_display_policy.py::test_06_net_amt
+  tests/test_candidate_draft_selection.py::test_candidate_notice_sticky_fix_uses_common_offset
+  tests/test_candidate_draft_selection.py::test_candidate_selection_bar_present_and_populated
+  tests/test_candidate_draft_selection.py::test_checkbox_change_keeps_table_and_plan_marks_draft
+  tests/test_candidate_draft_selection.py::test_restore_to_applied_clears_draft_notice
+  tests/test_candidate_draft_selection.py::test_uncheck_all_does_not_switch_to_count_only_before_apply
+  tests/test_candidate_evidence_display_policy.py::test_net_amt_vs_unit_price_distinct
+  tests/test_candidate_explainability.py::test_01_default_has_primary
+  tests/test_candidate_explainability.py::test_05_line_amt_computed
+  tests/test_candidate_explainability.py::test_06_group_by_profile
+  tests/test_candidate_explanation_display.py::test_candidate_score_separate_column
+  tests/test_candidate_plan_matrix.py::test_null_vs_empty_selection_contract
+  tests/test_candidate_role_policy_grid.py::test_global_limit_banner_and_count_same_input_no_lock
+  tests/test_date_candidate_ui_cleanup.py::test_date_cap_guard_and_hold
+  tests/test_single_validation_candidate_audit.py::test_audit_fixture_cases_all_pass
+  tests/test_single_validation_candidate_audit.py::test_fallback_promote_golden
+  tests/test_task11_p_profile_snapshot.py::TC06_08_EnricherIntegration::test_06_candidate_input_builder_accepts_snapshot
+  tests/test_task11_p_profile_snapshot.py::TC06_08_EnricherIntegration::test_07_enricher_uses_profile_stats_for_display_score
+  tests/test_task11_p_profile_snapshot.py::TC06_08_EnricherIntegration::test_08_individual_batch_same_snapshot_same_score
+  tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_09_job_type_equal
+  tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_10_department_code_equal
+  tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_11_hire_date_equal
+  tests/test_task11_p_profile_snapshot.py::TC09_12_ReferenceSQL::test_12_salary_equal
+  tests/test_task11_q_profile_lookup.py::TC17_18_SchemaAndMigration::test_18_init_db_migration_adds_columns
+  tests/test_task11_r_source_profile.py::TC04_08_SourceSnapshotStore::test_06_source_or_target_source_stored
+  tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_dedup_logic_present
+  tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_hidden_when_empty
+  tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_only_individual_screen
+  tests/test_task_single_candidate_evidence_preview.py::test_cap3_unchanged
+
+  (신규 추가 tests/test_candidate_score_contribution.py 는 15 passed / 145 subtests — 실패 0)
+
+════════════════════════════════════════════════════════════════════════════════
+7. 비판적 검토 (지침 §비판적 검토 의무)
+════════════════════════════════════════════════════════════════════════════════
+  - heuristic 하드코딩 증가 : **없음.** 새 규칙·임계값·컬럼명 substring 매칭을 하나도 추가하지
+    않았다. 이미 있던 가감분을 이름 붙여 적었을 뿐이다.
+  - scoring 미성숙        : 이번 작업이 오히려 완화한다. 그동안 8개 신호가 단일 변수에 뭉쳐
+    있어 가중치 조정 근거가 없었는데, 이제 code 별 delta 분포를 실측할 수 있다.
+  - explainability 누락   : 이번 작업의 목적 자체. 근거가 서버에 남는다.
+  - 보안 위험             : 없음(값 샘플·접속정보 미포함, code/label 은 고정 문자열).
+  - 테스트 어려움         : 등식이라는 기계적 불변식이 생겨 오히려 검증이 쉬워졌다.
+  - 잔여 위험 1: _base_contribution_meta() 가 _base_score_and_reason() 의 분기 조건을 복제한다.
+    한쪽만 고치면 code/label 이 어긋난다(점수·등식은 여전히 정상). 두 함수를 나란히 배치하고
+    주석으로 동기화 의무를 명시했다. 다음 단계에서 통합하는 편이 낫다.
+  - 잔여 위험 2: payload 가 후보당 평균 3~5건 늘어난다(3키 dict). 0 기여 생략으로 최소화했으나
+    후보 수가 많은 대형 테이블에서는 응답 크기를 한 번 실측해볼 가치가 있다.
+  - 범위 준수: ui/ 파일 0개 수정, 배선 파일 0개 수정, 화면 변화 0.
+
+════════════════════════════════════════════════════════════════════════════════
+실검증 상태 : 실DB 미사용 · 서버 미기동 · 화면 무관(스크린샷 불필요) — 서버 함수 레벨 실측으로
+              검증. 등식 96/96 성립, 골든 스냅샷 96행 전/후 0건 차이, 개별·일괄 양쪽 경로 실행
+              전파 확인(각 5건 적재·등식 성립), 서브셋 115파일 baseline 대조 신규 회귀 0건.
+════════════════════════════════════════════════════════════════════════════════
