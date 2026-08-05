@@ -1,0 +1,355 @@
+작업명 : CANDIDATE-SCORE-EXPLAINABILITY-CURRENT-STATE-SURVEY
+✅ 작업 완료 - CANDIDATE-SCORE-EXPLAINABILITY-CURRENT-STATE-SURVEY - 상황은 전혀 바뀌지 않았다(운영 점수 파일은 7-31 이후 커밋 0건, 반환 12키·실측 75점 동일, 死코드 3종 잔존). 착수 시 코드 4파일 + 테스트 2파일 내외이고 1~6단계 완료 모듈에는 해당하지 않는다
+
+작성일 : 2026-08-05
+성격   : 읽기 전용 현황 재조사 (코드 수정 0건)
+선행    : CANDIDATE-SCORE-EXPLAINABILITY-BREAKDOWN-DIAGNOSE (2026-07-31, 백로그 F19)
+
+
+═══════════════════════════════════════════════════════════════════════
+0. 한 줄 결론
+═══════════════════════════════════════════════════════════════════════
+
+**바뀐 것이 없다.** 2026-07-31 진단 이후 오늘(08-05)까지 운영 점수 경로
+(services/candidate_scoring.py)는 **커밋이 단 1건도 없고**, 반환 필드 12키·실측 점수·
+분해 필드 2개(card_score_adj / null_score_adj)만 존재하는 상태가 **바이트 단위로 동일**하다.
+
+오늘 있었던 F22(evidence_contract.pk 게이트 완화) / M19(axis_a 3분기)는 각각
+'근거 계약(evidence contract)'과 '배지 문구' 계층의 작업으로, **점수 구조에 필드를 하나도
+추가하지 않았다**. 두 커밋 모두 점수 무관임이 커밋 메시지·코드로 확인된다.
+
+死코드 3종(`_buildCandidateScoringHint`, `_buildScoringRationale`, E1 breakdown 미구현 2차원)도
+**전부 그대로** 남아 있다. 라인 번호만 파일 증가로 밀렸다.
+
+추가로 이번 조사에서 **진단서에 없던 사실 1건**을 확인했다 — 개별검증 결과 스냅샷
+(candidate_snapshot_full)에는 점수·분해 필드가 애초에 whitelist 되어 있지 않아,
+재조회 경로에서는 요약 문자열(`고유값 N개`)만 남는다(§5). 착수 시 범위에 영향이 있다.
+
+
+═══════════════════════════════════════════════════════════════════════
+1. [조사항목 1] 8개 하위요소 누적 로직이 현재도 그대로인가 — 그대로다
+═══════════════════════════════════════════════════════════════════════
+
+1-1. 파일 변경 이력 (결정적 근거)
+
+    $ git log --oneline --since="2026-07-31" -- services/candidate_scoring.py
+    (출력 없음 — 커밋 0건)
+
+    $ git log --oneline -1 -- services/candidate_scoring.py
+    eb2315a fix(candidate): 후보 scoring·subtype·관리컬럼 교차확인 및 날짜 버킷 보완
+    $ git log -1 --format=%ci eb2315a
+    2026-07-20 21:21:33 +0900
+
+  ⇒ 운영 점수 파일의 마지막 수정은 **진단서 작성(7-31)보다도 11일 앞선 7-20**이다.
+    진단 이후 아무도 이 파일을 건드리지 않았다.
+
+1-2. 구조 실측 — 라인 번호까지 동일
+
+    파일 길이 967줄(진단서 표기 968줄은 헤더 포함 계수 차이, 내용 동일).
+    진단서가 지목한 위치가 현재도 정확히 같다:
+
+      :256  _base_score_and_reason()            (1) 기본점수 40/20/10
+      :297  _apply_gb_profile()                 (5)(6) 카디널리티·NULL
+      :227  _catalog_lowcard_gb_bonus()         (7) catalog 저카디 보너스
+      :451  score_sum_candidate()
+      :608  score = max(0, min(100, score))     SUM clamp
+      :633  score_group_by_candidate()
+      :872  score = max(0, min(100, score))     GB clamp
+      :881  return { ... }                      12키 반환
+
+    → 요소별 변수 없이 단일 지역변수 `score` 에 순차 가감하는 구조가 유지된다.
+      (2) 타입 / (3) 시맨틱 / (4) hard_rule ceiling / (8) 구조 신호도 위치 불변.
+
+1-3. 반환 dict 실측 (진단서와 동일 입력으로 재실행)
+
+    $ .venv/Scripts/python.exe -c "score_group_by_candidate(c, [], profile=p)"
+      c = {tgt_col:'STATUS_CD', tgt_type:'varchar2(4)', tgt_len:4, auto_selected:True}
+      p = {row_count:10000, distinct_count:5, null_ratio:0.02, distinct_ratio:0.0005}
+
+    KEYS: ['column_name','score','score_label','blocked','blocked_reason','reasons',
+           'warnings','evidence','profile_evidence','profile_score_adjustment',
+           'profile_warnings','structural_risk_flags']              ← 12키, 진단서와 동일
+    score = 75, score_label = 'HIGH'                                 ← 동일
+    profile_evidence = {row_count:10000, distinct_count:5, distinct_ratio:0.0005,
+                        distinct_ratio_nonnull:0.0005,
+                        cardinality_basis:'non_null_rows', null_ratio:0.02,
+                        card_score_adj:15, null_score_adj:0}         ← 동일
+    profile_score_adjustment = 15                                    ← 동일
+    structural_risk_flags = ['SHORT_CODE_DIMENSION_HINT']            ← 동일
+
+  ⇒ 75점의 내역 40(기본)+15(타입)+15(카디)+0(NULL)+5(짧은코드) 중 응답으로 확인 가능한 것은
+    여전히 **15와 0 두 개뿐**이다. 나머지 60점은 코드를 읽어야 역산된다. 진단서 §3 그대로.
+
+1-4. 호출부도 그대로
+
+    $ grep -rn "score_candidates(" services/ | grep -v candidate_scoring.py
+    services/candidate_display_enricher.py:1409
+        scoring = score_candidates(gb_sim, sum_sim, profile_stats=_effective_profiles)
+
+    응답 배선도 동일(services/single_validation_analyze_service.py:1657 수신 → :2040 반환).
+    일괄검증도 같은 core 를 경유한다(services/batch_runner.py:466/477 `_build_core_candidates`
+    → `result["candidate_scoring"] = _core_scoring`). 즉 **점수 출처는 여전히 단일**이며,
+    서버측에 기여분을 심으면 개별·일괄 양쪽에 자동으로 실린다(표시는 별개 문제).
+
+
+═══════════════════════════════════════════════════════════════════════
+2. [조사항목 2] 오늘 작업(F22 / M19)이 점수 구조에 새 필드를 추가했는가 — 아니다
+═══════════════════════════════════════════════════════════════════════
+
+2-1. F22 — dca1558 (2026-08-05 09:07) EVIDENCE-CONTRACT-PK-GATE-JOIN-PATH-FIX
+
+    변경 파일 5개 : services/candidate_evidence_contract.py (+57/-6)
+                    services/candidate_postcount_finalize.py (+6)
+                    services/single_validation_analyze_service.py (+20)
+                    tests/ 1 · scripts/dev_e2e/ 1
+    → **services/candidate_scoring.py 미포함.**
+
+    추가된 필드는 `CandidateEvidence.pk_source`(값: SOURCE_KEY_METADATA / TARGET_KEY_METADATA)
+    하나이며, 이것은 '근거 계약(evidence contract)' 객체의 필드다. 해당 모듈은 헤더에서
+    스스로 역할 경계를 못박고 있다:
+
+      services/candidate_evidence_contract.py:21
+        "점수 자체를 만들지 않는다(기존 score 를 보조 정렬용으로 투영만)."
+
+    ⇒ pk_source 는 '왜 이 컬럼이 추천/제외인가'의 근거이지 '점수 몇 점이 어디서 왔는가'가
+      아니다. 점수 분해와는 **다른 축**이며, F19 가 지목한 8요소 중 어느 것도 커버하지 않는다.
+      (기존 메모 project_evidence_badge_gated_by_cardinality_not_pk 의 "pk 게이트를 열어도
+       배지 0건 변화" 와도 정합 — 계약과 점수는 서로 독립이다.)
+
+2-2. M19 — 9211e2c (2026-08-05 08:57) AXIS-A-SYSTEM-AUDIT-TIMESTAMP-MISCLASSIFICATION-FIX
+
+    변경 파일 4개 : services/candidate_display_enricher.py (+14/-2)
+                    services/candidate_subtype_service.py (+86/-3)
+                    tests/ 1 · scripts/dev_e2e/ 1
+    → **services/candidate_scoring.py 미포함.**
+
+    커밋 메시지 본문이 직접 명시한다(원문):
+      "판정 임계값·배제·점수·선정은 불변(순수 표시). B=True 보호 경로 미도달."
+
+    실제 diff 도 `ambiguous_audit_evidence.axis_a_status` 문자열을
+    3분기(NO_VALUES / TIMESTAMP_SHAPED_UNPARSED / 기존)로 고르는 표시 코드뿐이다.
+
+  ⇒ **F22·M19 모두 점수 분해에 기여한 바 없음.** 진단 이후 점수 explainability 방향으로
+    진척된 작업은 0건이다.
+
+2-3. 참고 — 이름이 비슷해 혼동하기 쉬운 선행 작업 1건 (다른 축이므로 분리 기록)
+
+    E:\verify_reports\SINGLE-SNAPSHOT-WHITELIST-EXPLAINABILITY-FIELDS-ADD.txt (2026-07-27,
+    커밋 5eef44d)은 제목에 '설명가능성(EXPLAINABILITY)'이 들어가지만 대상이 다르다 —
+    스냅샷 whitelist 에 `column_comment` / `null_value_transform_evidence` 2필드를 추가해
+    5단계 강등 판정 근거를 보존한 작업이며, **후보 점수 분해와는 무관**하다.
+    시점도 F19 진단(7-31)보다 앞선다.
+
+
+═══════════════════════════════════════════════════════════════════════
+3. [조사항목 3] 死코드 3종이 여전히 호출부 없이 남아 있는가 — 전부 잔존
+═══════════════════════════════════════════════════════════════════════
+
+3-1. UI 함수 2개 — 정의만 있고 호출 0건 (라인만 이동)
+
+    $ grep -n "_buildScoringRationale\|_buildCandidateScoringHint\|sb-rationale" ui/tabler_renderer.py
+     1260:.sb-rationale{margin-top:4px;line-height:1.4}          (진단 시 1190)
+    22947:  function _buildScoringRationale(c, selectable) {      (진단 시 22383)
+    22970:    return '<div class="sb-rationale">'                 (진단 시 22406)
+    22987:  function _buildCandidateScoringHint(cs) {             (진단 시 22423)
+
+    → 호출 라인 **여전히 0건**. 진단서와 동일하게 정의 1회 / 호출 0회.
+      라인 번호 이동(약 +560)은 그 사이 다른 UI 작업(4·5단계 타일/그리드 정리 등
+      최근 12커밋)으로 파일이 커진 결과일 뿐, 이 함수들 자체는 손대지 않았다.
+      현재 파일 32,221줄.
+
+3-2. UI 숨김 정책 주석 — 그대로
+
+    $ grep -n "내부 가산점" ui/tabler_renderer.py
+    23496:  /* 내부 가산점(+N)/약어(카디+N, NULL안정+N)는 UI에 노출하지 않는다. (진단 시 22932)
+
+    유일한 분해값 card_score_adj 도 여전히 **불리언 게이트로만** 쓰인다:
+      ui/tabler_renderer.py:23522
+        var _cAdjG = (_pEv2.card_score_adj != null) ? _pEv2.card_score_adj : null;
+        ... _gbChips.push('카디널리티 적합');       ← 숫자 대신 형용사
+
+    null_score_adj 의 UI(ui/*.py) 참조는 **여전히 0건**이다.
+    (서버측 services/candidate_explanation_service.py:409 에서 SUM 칩 매핑에 쓰이지만,
+     이는 구간 라벨 선택용이고 점수 폭을 화면에 내보내지 않는다 — 진단서 판정과 동일.)
+
+3-3. E1 breakdown 미구현 2차원 — 그대로
+
+    services/candidates/candidate_score_breakdown.py
+      compute_final_score() → `return None`               (여전히 무조건 None, 합산 미구현)
+      _compatibility_dim()  → score 0 / "호환성 상세 계산은 아직 구현하지 않았습니다."
+      _policy_adjustment_dim() → score 0 / "이번 단계에서는 정책 보정을 적용하지 않습니다."
+
+    $ git log --oneline -1 -- services/candidates/candidate_score_breakdown.py
+    a24f6b9 fix(candidate): wire semantic evidence into breakdown   ← 7-31 이후 변경 없음
+
+3-4. 툴팁의 dict repr 문제 — 그대로
+
+    services/candidate_explanation_service.py:653-656 (진단 시 610-613)
+      _sb = candidate.get("score_breakdown")
+      if isinstance(_sb, dict) and _sb:
+          _tt_extra.append("점수 구성: " + ", ".join(f"{k}={v}" for k, v in list(_sb.items())[:6]))
+
+    → 값이 dict 라 파이썬 repr 이 그대로 노출되고 `[:6]` 슬라이스로 뒤 2차원이 잘리는
+      문제가 진단서 §4-4 그대로 남아 있다. 해당 파일의 7-31 이후 유일한 커밋(2b45c01)은
+      '표본 5만행 기준' 근거 병기 작업으로 이 라인과 무관하다.
+
+
+═══════════════════════════════════════════════════════════════════════
+4. [조사항목 4] 바뀐 것 / 그대로인 것 명시
+═══════════════════════════════════════════════════════════════════════
+
+┌────────────────────────────────────────────┬──────────┬─────────────────────────────┐
+│ 진단서(7-31) 항목                           │ 08-05 상태│ 근거                          │
+├────────────────────────────────────────────┼──────────┼─────────────────────────────┤
+│ 8요소 단일변수 누적 (B형: 서버가 안 남김)     │ 그대로    │ 커밋 0건 · 반환 12키 실측 동일 │
+│ card_score_adj / null_score_adj 만 수치 보존 │ 그대로    │ profile_evidence 실측         │
+│ UI 가 숫자 노출 금지(명시적 주석)             │ 그대로    │ tabler_renderer:23496         │
+│ null_score_adj UI 참조 0건                   │ 그대로    │ ui/*.py grep 0건              │
+│ 死코드 _buildCandidateScoringHint            │ 그대로    │ 정의 1 / 호출 0               │
+│ 死코드 _buildScoringRationale                │ 그대로    │ 정의 1 / 호출 0               │
+│ E1 compute_final_score() → None              │ 그대로    │ 소스 직접 확인                 │
+│ E1 compatibility / policy_adjustment 스텁     │ 그대로    │ score 0 · "미구현" 문구        │
+│ 툴팁 dict repr + [:6] 절단                   │ 그대로    │ explanation_service:653       │
+├────────────────────────────────────────────┼──────────┼─────────────────────────────┤
+│ 오늘 F22 가 점수에 새 근거 필드를 추가?        │ **아니오** │ pk_source 는 근거계약 필드    │
+│ 오늘 M19 가 점수에 새 근거 필드를 추가?        │ **아니오** │ 커밋 메시지 "점수 불변" 명시   │
+└────────────────────────────────────────────┴──────────┴─────────────────────────────┘
+
+  ⇒ 부분 개선조차 없다. F19 는 **진단 시점 그대로 미착수 상태**다.
+
+
+═══════════════════════════════════════════════════════════════════════
+5. 이번 조사에서 새로 확인한 사실 (진단서에 없던 항목)
+═══════════════════════════════════════════════════════════════════════
+
+개별검증 결과 스냅샷(services/single_validation_result_store.py, 658줄)의 후보 whitelist
+`_sanitize_candidate()` 에는 **점수 관련 필드가 사실상 없다**.
+
+  $ grep -n "score" services/single_validation_result_store.py
+  169:  "display_score": c.get("display_score"),        ← 표시용 문자열 1개뿐
+
+  profile_evidence 는 원본 dict 로 저장되지 않고 `_profile_summary()`(:90)에서
+  사람이 읽는 요약 문자열 3개(`고유값 N개` / `고유값비율 N%` / NULL 요약)로 **압축 변환**된다.
+  즉 card_score_adj·null_score_adj·profile_score_adjustment·structural_risk_flags 는
+  스냅샷에 남지 않는다.
+
+영향: 서버가 기여분을 만들어 응답에 실어도, **재조회(스냅샷) 화면에서는 여전히 분해를
+      볼 수 없다.** 마법사 화면과 재조회 화면이 또 갈린다
+      (기존 사례: project_reload_two_stores_history_vs_snapshot,
+       SINGLE-SNAPSHOT-WHITELIST-EXPLAINABILITY-FIELDS-ADD 와 같은 계열의 갭).
+      → 착수 시 whitelist 확장을 범위에 포함해야 '한 run 두 화면 같은 설명' 이 성립한다.
+
+
+═══════════════════════════════════════════════════════════════════════
+6. [조사항목 5] 실제 구현 착수 시 예상 범위
+═══════════════════════════════════════════════════════════════════════
+
+목표를 "하위요소별 기여분을 구조화 필드로 보존(서버) + 화면 노출(UI)" 로 잡을 때.
+
+■ 6-1. 수정 파일 (코드 4 + 테스트 2 = 6개 내외)
+
+┌─┬────────────────────────────────────────┬───────┬────────────────────────────────┐
+│#│ 파일                                    │ 규모   │ 작업 내용                       │
+├─┼────────────────────────────────────────┼───────┼────────────────────────────────┤
+│1│ services/candidate_scoring.py           │ 967줄 │ 기여분 컨테이너(가칭             │
+│ │ (핵심 — 이 작업의 8할)                   │       │ score_contributions: list[dict])│
+│ │                                        │       │ 신설 + 8개 가감 지점에 기록 추가 │
+│ │                                        │       │ + 반환 dict 에 키 1개 추가       │
+│ │                                        │       │ (GB · SUM 두 함수 대칭 처리)     │
+├─┼────────────────────────────────────────┼───────┼────────────────────────────────┤
+│2│ ui/tabler_renderer.py                   │32,221줄│ 숨김 정책(:23496) 해제 범위 결정 │
+│ │                                        │       │ + 후보 행에 분해 표시(툴팁/펼침) │
+│ │                                        │       │ 死코드 2개는 계약이 달라(구 6차원│
+│ │                                        │       │ 전제) 재사용보다 신규가 안전     │
+├─┼────────────────────────────────────────┼───────┼────────────────────────────────┤
+│3│ services/single_validation_result_store │ 658줄 │ whitelist 에 기여분 필드 추가    │
+│ │ .py                                    │       │ (§5 — 재조회 화면 일치용)        │
+│ │                                        │       │ 전용 sanitizer 1개 신설          │
+├─┼────────────────────────────────────────┼───────┼────────────────────────────────┤
+│4│ services/candidate_explanation_service  │       │ :653 dict repr 툴팁 정리        │
+│ │ .py                                    │       │ (새 필드로 대체 또는 제거)       │
+├─┼────────────────────────────────────────┼───────┼────────────────────────────────┤
+│5│ tests/test_candidate_score_contribution │ 신규   │ ① 기여분 합 == score 등식 검증   │
+│ │ .py                                    │       │ ② 점수값 자체 불변(골든) 회귀 가드│
+├─┼────────────────────────────────────────┼───────┼────────────────────────────────┤
+│6│ scripts/dev_e2e/ 실측 스크립트           │ 신규   │ 화면 표시 실측(브라우저)         │
+└─┴────────────────────────────────────────┴───────┴────────────────────────────────┘
+
+  배선 파일(candidate_display_enricher.py / single_validation_analyze_service.py /
+  batch_runner.py)은 **수정 불필요** — candidate_scoring 결과 dict 를 통째로 실어 나르므로
+  키 추가가 자동 전파된다(§1-4). 이는 이번 조사에서 확인한 유리한 조건이다.
+
+■ 6-2. 완료 모듈 해당 여부 — **해당 없음**
+
+  CLAUDE.md 가 임의 수정을 금지한 대상은 1~6단계 완료 모듈
+  (parser → analyzer → generator → checker → validator)이다.
+  위 4개 파일은 전부 services/ 응용 계층과 ui/ 렌더 계층으로 그 범위 밖이다.
+  → 사용자 사전 확인 없이 착수 가능(자율 진행 규칙 적용 대상).
+
+  다만 candidate_scoring.py 는 **운영 후보추천 점수의 단일 출처**이고 개별·일괄이 공유하므로,
+  실질 위험도는 완료 모듈에 준한다. 아래 안전장치를 전제로 해야 한다.
+
+■ 6-3. 리스크와 안전장치 (비판적 검토 의무)
+
+  · 최대 위험 = 점수값 자체가 흔들리는 것. 기여분 기록은 **순수 부가(append-only)** 로
+    하고 `score` 산출식은 한 줄도 바꾸지 않는다. 착수 전 대표 후보 집합의 (컬럼, 점수,
+    라벨, auto_selected) 골든 스냅샷을 떠서 전/후 **0건 차이**를 증명한다.
+  · 응답 크기 증가 — 후보당 8개 dict 가 늘어난다. 컬럼 수가 많은 테이블에서 payload 가
+    커지므로 기여분은 (code, delta, label) 3키 정도로 최소화하고, 0 기여는 생략한다.
+  · 스냅샷 whitelist 확장은 저장 용량과 sanitize 상한(_cstr 300자)에 걸리므로 정수 delta
+    위주로 제한한다.
+  · 死코드 2개를 '되살리는' 접근은 위험하다 — 이들은 폐기된 6차원 breakdown 계약을
+    전제로 작성돼 새 필드와 형태가 다르다. **제거 후 신규 작성**이 부채를 줄인다.
+  · explainability 는 이 작업으로 개선되지만, **scoring 미성숙(가중치 정규화 부재,
+    기본점수 40 이 auto_selected 단일 불리언에 걸림)은 별개 항목**이다. 분해를 노출하면
+    이 편중이 사용자 눈에 드러나므로, 가중치 재조정 요구가 뒤따를 수 있음을 미리 고지한다.
+
+■ 6-4. 권장 분할 (한 번에 한 단계 규칙)
+
+  1단계: 서버 기여분 보존 + 등식 테스트 + 점수 불변 증명 (파일 1, 5)  ← 화면 변화 0
+  2단계: UI 노출 (파일 2) + 실측 (파일 6)
+  3단계: 스냅샷 whitelist 확장 (파일 3) + 재조회 화면 일치 실측
+  4단계: 死코드 제거 · 툴팁 정리 (파일 2, 4)
+
+  1단계만으로도 "응답만 보고 점수를 검산 가능" 이라는 F19 핵심 결함은 해소된다.
+
+
+═══════════════════════════════════════════════════════════════════════
+7. 조사 방법 및 한계
+═══════════════════════════════════════════════════════════════════════
+
+방법:
+  1) git log 로 진단(7-31) 이후 점수 관련 파일 4종의 변경 이력 전수 확인
+  2) 오늘 커밋 dca1558(F22) / 9211e2c(M19) 의 --stat 및 diff 정독
+  3) services/candidate_scoring.py 구조·반환 dict 위치 대조
+  4) score_group_by_candidate() 직접 실행으로 반환 키·값 실측(진단서와 동일 입력)
+  5) 死코드 3종 grep 재검증 + E1 breakdown 소스 직접 확인
+  6) 호출부/배선/스냅샷 whitelist 추적으로 착수 범위 산정
+
+한계(명시):
+  · 실 DB 라이브 후보 집단에서의 요소별 기여 분포는 이번에도 측정하지 않았다(정적 분석
+    + 단건 실행). 진단서와 동일한 한계다.
+  · 착수 범위의 라인 수 추정치는 파일 규모 기준의 개략치이며 실제 구현에서 달라질 수 있다.
+  · 코드 변경 0건 — 스크린샷/diff 없음(지침 명시).
+
+회귀 영향: 없음(읽기 전용, 파일 수정 0건). 병행 중인 STAGE4-COMPLETION-BANNER-REMOVE-FIX
+(ui/tabler_renderer.py)와 충돌 없음 — 이 조사는 읽기만 했다.
+
+
+═══════════════════════════════════════════════════════════════════════
+8. 확인한 파일 / 명령
+═══════════════════════════════════════════════════════════════════════
+
+  services/candidate_scoring.py                          967줄  (구조·반환 대조 + 실행 실측)
+  services/candidates/candidate_score_breakdown.py               (E1 스텁 재확인)
+  services/candidate_evidence_contract.py                        (F22 변경분 정독)
+  services/candidate_display_enricher.py               1,545줄  (M19 diff · 호출부 :1409)
+  services/candidate_explanation_service.py                      (툴팁 :653)
+  services/single_validation_result_store.py             658줄  (스냅샷 whitelist — 신규 확인)
+  services/single_validation_analyze_service.py                  (응답 배선 :1657/:2040)
+  services/batch_runner.py                                       (일괄 core 공유 :466/:477)
+  ui/tabler_renderer.py                               32,221줄  (死코드·숨김정책 grep)
+  E:\verify_reports\CANDIDATE-SCORE-EXPLAINABILITY-BREAKDOWN-DIAGNOSE.txt  (선행 진단서)
+
+작업명 : CANDIDATE-SCORE-EXPLAINABILITY-CURRENT-STATE-SURVEY
+✅ 작업 완료 - CANDIDATE-SCORE-EXPLAINABILITY-CURRENT-STATE-SURVEY - 상황은 전혀 바뀌지 않았다(운영 점수 파일은 7-31 이후 커밋 0건, 반환 12키·실측 75점 동일, 死코드 3종 잔존). 착수 시 코드 4파일 + 테스트 2파일 내외이고 1~6단계 완료 모듈에는 해당하지 않는다
