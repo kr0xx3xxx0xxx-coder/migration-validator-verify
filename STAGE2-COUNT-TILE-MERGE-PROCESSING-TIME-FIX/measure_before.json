@@ -1,0 +1,39 @@
+{
+  "task": "STAGE2-COUNT-TILE-MERGE-PROCESSING-TIME-FIX",
+  "phase": "before",
+  "sql": "INSERT INTO NXDNP.MV_SCATTER_TGT (PK_STR, REGION_CD, SEQ_NO, AMT, QTY, ITEM_NM, STATUS_CD)\nSELECT PK_STR, REGION_CD, SEQ_NO, AMT, QTY, ITEM_NM, STATUS_CD\n  FROM NXDNP.MV_SCATTER_SRC",
+  "shots": {
+    "step1": "a_simple_step1_query_review.png",
+    "tiles_before_run": "before_1_stage2_before_count.png"
+  },
+  "notes": [
+    "2단계 COUNT 버튼 클릭 실패",
+    "예외: TargetClosedError: Page.wait_for_timeout: Target page, context or browser has been closed"
+  ],
+  "setup": {
+    "pair_rows": 0,
+    "pair_created": false,
+    "connected": false
+  },
+  "s1": {
+    "blocked": false,
+    "err": null,
+    "from_table": "",
+    "tgt_table": "",
+    "mapping_n": null,
+    "sql_shape": null,
+    "wall_sec": 302.03,
+    "slots": {
+      "s1": "",
+      "s2": "",
+      "s3": "",
+      "s4": "",
+      "s5": ""
+    }
+  },
+  "tiles_before_run": {
+    "present": false
+  },
+  "console_errors": [],
+  "dialogs": []
+}

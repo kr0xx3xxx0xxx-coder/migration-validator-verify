@@ -1,0 +1,78 @@
+........................................................................ [ 39%]
+....................F...........F....................................... [ 79%]
+......................................                                   [100%]
+================================== FAILURES ===================================
+______________________ test_ui_gate_display_and_blocking ______________________
+
+    def test_ui_gate_display_and_blocking():
+        html = _page()
+        m = re.search(r"function _mvCountGateHtml\([^)]*\)\s*\{.*?\n\}\n", html, re.S)
+        assert m, "_mvCountGateHtml 미발견"
+        b = m.group(0)
+        for label in ("원본 ", "목적 ", "순 차이", "적재율", "다음 단계"):
+            assert label in b, f"COUNT gate 표시 누락(§40): {label}"
+        assert "범위 이상 진단" in b and "대표 레코드 보기" in b and "전체 CSV 생성" in b   # §43
+        assert "0건 아님" in b                                        # QUERY_FAILED 안내(§17)
+        assert "background:#fff0f0" not in b and "#C2410C" in b       # §42 색상(핑크 금지)
+        # 후속 게이팅: runGenerate/runExecute/Exact Diff 버튼(§39·§44)
+        assert html.count("_mvGateBlocked('stats')") >= 2
+>       upd = re.search(r"function _mvExactDiffUpdateButton\([^)]*\)\s*\{.*?\n\}\n", html, re.S).group(0)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'NoneType' object has no attribute 'group'
+
+tests\test_count_gate.py:206: AttributeError
+______________ test_group_result_uses_normal_renderer_unchanged _______________
+
+    def test_group_result_uses_normal_renderer_unchanged():
+        # §4: 일반 GROUP BY/SUM 결과는 전용 renderer 로 빠지지 않고 기존 그룹 UI 유지.
+>       h = _render(_GROUP_RESULT)
+            ^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_count_only_validation_ui.py:113: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+r = {'diff': 0, 'gb_keys': ['JOIN_YM'], 'matched': 2, 'rows': [{'key': {'JOIN_YM': '202401'}, 'src': {'CNT': '5', 'SUM_AMT': '100'}, 'status': 'ok', 'tgt': {'CNT': '5', 'SUM_AMT': '100'}}], ...}
+
+    def _render(r):
+        """renderExecute 를 실제 실행해 #executeOut innerHTML 을 반환(node)."""
+        if not shutil.which("node"):
+            pytest.skip("node 미설치")
+        from ui.execute_result_renderer import build_execute_result_js
+        # renderExecute 는 본문을 targetId('x') 엘리먼트에 쓰고, 이후 결과 페이지네이션을
+        # exec-result-tbody/exec-result-paging 등 별도 엘리먼트에 쓴다(+window._exec* 상태 사용).
+        # 과거 하네스는 모든 id 에 동일 _el 을 반환해 본문이 페이지네이션으로 덮였고 window 미정의로 깨졌다.
+        # 실제 브라우저 DOM 과 동일하게 id 별 개별 엘리먼트 + window stub 을 제공하고 본문(id='x')만 읽는다.
+        harness = (
+            "function esc(s){return String(s==null?'':s);}\nfunction escNl(s){return esc(s);}\n"
+            "var window={};\n"
+            "var _els={};\nfunction _getEl(id){if(!_els[id])_els[id]={innerHTML:''};return _els[id];}\n"
+            "var document={getElementById:function(id){return _getEl(id);}};\n"
+            + build_execute_result_js() + "\n"
+            "renderExecute(" + json.dumps(r) + ",'x');\n"
+            "console.log(JSON.stringify({html:_getEl('x').innerHTML}));\n"
+        )
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+            f.write(harness)
+            path = f.name
+        try:
+            p = subprocess.run(["node", path], capture_output=True, encoding="utf-8", errors="replace")
+>           assert p.returncode == 0, p.stderr[:600]
+E           AssertionError: C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp6dcwk7db.js:1366
+E               const _globalBtn = (opts.globalExport !== false)
+E                                        ^
+E             
+E             TypeError: Cannot read properties of undefined (reading 'globalExport')
+E                 at renderExecute (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp6dcwk7db.js:1366:28)
+E                 at Object.<anonymous> (C:\Users\Public\Documents\ESTsoft\CreatorTemp\tmp6dcwk7db.js:1438:1)
+E                 at Module._compile (node:internal/modules/cjs/loader:1830:14)
+E                 at Object..js (node:internal/modules/cjs/loader:1961:10)
+E                 at Module.load (node:internal/modules/cjs/loader:1553:32)
+E                 
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['node', 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmp6dcwk7db.js'], returncode=1, st...unMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v24.15.0\n").returncode
+
+tests\test_count_only_validation_ui.py:50: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_count_gate.py::test_ui_gate_display_and_blocking - Attribut...
+FAILED tests/test_count_only_validation_ui.py::test_group_result_uses_normal_renderer_unchanged
+2 failed, 180 passed in 26.56s

@@ -1,0 +1,223 @@
+{
+  "task": "STAGE2-COUNT-TILE-MERGE-PROCESSING-TIME-FIX",
+  "phase": "after",
+  "sql": "INSERT INTO NXDNP.MV_SCATTER_TGT (PK_STR, REGION_CD, SEQ_NO, AMT, QTY, ITEM_NM, STATUS_CD)\nSELECT PK_STR, REGION_CD, SEQ_NO, AMT, QTY, ITEM_NM, STATUS_CD\n  FROM NXDNP.MV_SCATTER_SRC",
+  "shots": {
+    "step1": "a_simple_step1_query_review.png",
+    "tiles_before_run": "after_1_stage2_before_count.png",
+    "step2": "a_simple_step2_count.png",
+    "tiles_after_run": "after_2_stage2_after_count.png",
+    "tiles_closeup": "after_3_stage2_tiles_closeup.png"
+  },
+  "notes": [],
+  "setup": {
+    "pair_rows": 1,
+    "pair_created": true,
+    "connected": true
+  },
+  "s1": {
+    "blocked": false,
+    "err": null,
+    "from_table": "MV_SCATTER_SRC",
+    "tgt_table": "MV_SCATTER_TGT",
+    "mapping_n": null,
+    "sql_shape": null,
+    "wall_sec": 4.18,
+    "slots": {
+      "s1": "· 1단계 처리시간: 1.54초",
+      "s2": "",
+      "s3": "",
+      "s4": "",
+      "s5": ""
+    }
+  },
+  "tiles_before_run": {
+    "present": true,
+    "count": 7,
+    "tiles": [
+      {
+        "label": "목적 테이블",
+        "value": "NXDNP.MV_SCATTER_TGT",
+        "lines": [
+          "NXDNP.MV_SCATTER_TGT"
+        ],
+        "tip": "NXDNP.MV_SCATTER_TGT",
+        "cls": "mv-qr-tile-val is-mono"
+      },
+      {
+        "label": "원본 테이블",
+        "value": "NXDNP.MV_SCATTER_SRC",
+        "lines": [
+          "NXDNP.MV_SCATTER_SRC"
+        ],
+        "tip": "NXDNP.MV_SCATTER_SRC",
+        "cls": "mv-qr-tile-val is-mono"
+      },
+      {
+        "label": "목적건수",
+        "value": "—",
+        "lines": [
+          "—"
+        ],
+        "tip": "",
+        "cls": "mv-qr-tile-val is-empty"
+      },
+      {
+        "label": "원본 건수",
+        "value": "—",
+        "lines": [
+          "—"
+        ],
+        "tip": "",
+        "cls": "mv-qr-tile-val is-empty"
+      },
+      {
+        "label": "차이",
+        "value": "—",
+        "lines": [
+          "—"
+        ],
+        "tip": "",
+        "cls": "mv-qr-tile-val is-empty"
+      },
+      {
+        "label": "처리시간",
+        "value": "—",
+        "lines": [
+          "—"
+        ],
+        "tip": "",
+        "cls": "mv-qr-tile-val is-empty"
+      },
+      {
+        "label": "상태",
+        "value": "—",
+        "lines": [
+          "—"
+        ],
+        "tip": "",
+        "cls": "mv-qr-tile-val is-empty"
+      }
+    ],
+    "labels": [
+      "목적 테이블",
+      "원본 테이블",
+      "목적건수",
+      "원본 건수",
+      "차이",
+      "처리시간",
+      "상태"
+    ]
+  },
+  "s2": {
+    "count_status": "COUNT_MINOR_DIFF",
+    "src_count": 1000000,
+    "tgt_count": 990000,
+    "wall_sec": 2.72,
+    "click_count": 2,
+    "count_resp_ms": 104.7,
+    "count_resp_diff": 10000,
+    "force_btn": false,
+    "slots": {
+      "s1": "· 1단계 처리시간: 1.54초",
+      "s2": "· 2단계 처리시간: 0.10초",
+      "s3": "",
+      "s4": "",
+      "s5": ""
+    }
+  },
+  "tiles_after_run": {
+    "present": true,
+    "count": 7,
+    "tiles": [
+      {
+        "label": "목적 테이블",
+        "value": "NXDNP.MV_SCATTER_TGT",
+        "lines": [
+          "NXDNP.MV_SCATTER_TGT"
+        ],
+        "tip": "NXDNP.MV_SCATTER_TGT",
+        "cls": "mv-qr-tile-val is-mono"
+      },
+      {
+        "label": "원본 테이블",
+        "value": "NXDNP.MV_SCATTER_SRC",
+        "lines": [
+          "NXDNP.MV_SCATTER_SRC"
+        ],
+        "tip": "NXDNP.MV_SCATTER_SRC",
+        "cls": "mv-qr-tile-val is-mono"
+      },
+      {
+        "label": "목적건수",
+        "value": "990,000",
+        "lines": [
+          "990,000"
+        ],
+        "tip": "",
+        "cls": "mv-qr-tile-val"
+      },
+      {
+        "label": "원본 건수",
+        "value": "1,000,000",
+        "lines": [
+          "1,000,000"
+        ],
+        "tip": "",
+        "cls": "mv-qr-tile-val"
+      },
+      {
+        "label": "차이",
+        "value": "+10,000",
+        "lines": [
+          "+10,000"
+        ],
+        "tip": "",
+        "cls": "mv-qr-tile-val"
+      },
+      {
+        "label": "처리시간",
+        "value": "원본 0.09초\n목적 0.09초\n총 0.10초",
+        "lines": [
+          "원본 0.09초",
+          "목적 0.09초",
+          "총 0.10초"
+        ],
+        "tip": "원본 92ms / 목적지 88.7ms · 총 104.7ms(병렬 실행, 차액은 서버 파싱·COUNT SQL 생성 오버헤드) · COUNT SQL 생성방식: PARSED_MODEL_COUNT_SQL",
+        "cls": "mv-qr-tile-val is-mono"
+      },
+      {
+        "label": "상태",
+        "value": "● 불일치",
+        "lines": [
+          "● 불일치"
+        ],
+        "tip": "불일치 발견",
+        "cls": "mv-qr-tile-val"
+      }
+    ],
+    "labels": [
+      "목적 테이블",
+      "원본 테이블",
+      "목적건수",
+      "원본 건수",
+      "차이",
+      "처리시간",
+      "상태"
+    ]
+  },
+  "count_response": {
+    "processing_ms": 104.7,
+    "source_count_elapsed_ms": 92.0,
+    "target_count_elapsed_ms": 88.7,
+    "count_generation_method": "PARSED_MODEL_COUNT_SQL",
+    "src_count": 1000000,
+    "tgt_count": 990000,
+    "diff": 10000
+  },
+  "console_errors": [],
+  "dialogs": [
+    "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+    "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+  ]
+}
