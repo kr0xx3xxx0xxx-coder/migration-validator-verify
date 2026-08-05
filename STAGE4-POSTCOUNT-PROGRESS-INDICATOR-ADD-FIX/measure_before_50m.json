@@ -1,0 +1,643 @@
+{
+  "task": "STAGE4-POSTCOUNT-PROGRESS-INDICATOR-ADD-FIX",
+  "phase": "before",
+  "scale": "50m",
+  "scale_label": "5,000만행(MV_SCATTER50M_SRC → MV_SCATTER50M_TGT)",
+  "gb": [
+    "STATUS_CD",
+    "REGION_CD"
+  ],
+  "sum": [
+    "AMT",
+    "QTY"
+  ],
+  "sql": "INSERT INTO NXDNP.MV_SCATTER50M_TGT (PK_STR, REGION_CD, SEQ_NO, AMT, QTY, ITEM_NM, STATUS_CD)\nSELECT PK_STR, REGION_CD, SEQ_NO, AMT, QTY, ITEM_NM, STATUS_CD\n  FROM NXDNP.MV_SCATTER50M_SRC",
+  "tgt_where": "",
+  "shots": {
+    "step1": "a_simple_step1_query_review.png",
+    "step2": "a_simple_step2_count.png",
+    "step3": "a_simple_step3_candidate.png",
+    "a_time_shown": "before_50m_1_stage4_time_shown.png",
+    "b_collecting": "before_50m_2_stage4_collecting.png",
+    "c_done": "before_50m_3_stage4_collection_done.png",
+    "d_step5": "before_50m_4_stage5_result.png"
+  },
+  "notes": [],
+  "setup": {
+    "pair_rows": 1,
+    "pair_created": true,
+    "connected": true
+  },
+  "s1": {
+    "blocked": false,
+    "err": null,
+    "from_table": "MV_SCATTER50M_SRC",
+    "tgt_table": "MV_SCATTER50M_TGT",
+    "mapping_n": null,
+    "sql_shape": null,
+    "wall_sec": 6.97,
+    "slots": {
+      "s1": "· 1단계 처리시간: 4.21초",
+      "s2": "",
+      "s3": "",
+      "s4": "",
+      "s5": ""
+    }
+  },
+  "s2": {
+    "count_status": "COUNT_MINOR_DIFF",
+    "src_count": 50000000,
+    "tgt_count": 49500000,
+    "wall_sec": 16.13,
+    "click_count": 2,
+    "count_resp_ms": 14012.5,
+    "count_resp_diff": 500000,
+    "force_btn": false,
+    "slots": {
+      "s1": "· 1단계 처리시간: 4.21초",
+      "s2": "· 2단계 처리시간: 14.01초",
+      "s3": "",
+      "s4": "",
+      "s5": ""
+    }
+  },
+  "s3": {
+    "wall_sec": 4.78,
+    "gb": {
+      "found": [
+        "REGION_CD",
+        "STATUS_CD",
+        "PK_STR",
+        "SEQ_NO",
+        "ITEM_NM"
+      ],
+      "clicked": [],
+      "disabled": [
+        "PK_STR",
+        "SEQ_NO",
+        "ITEM_NM"
+      ],
+      "final": [
+        "REGION_CD",
+        "STATUS_CD"
+      ]
+    },
+    "sum": {
+      "found": [
+        "AMT",
+        "QTY"
+      ],
+      "clicked": [],
+      "disabled": [],
+      "final": [
+        "AMT",
+        "QTY"
+      ]
+    },
+    "slots": {
+      "s1": "· 1단계 처리시간: 4.21초",
+      "s2": "· 2단계 처리시간: 14.01초",
+      "s3": "· 3단계 계산 중...",
+      "s4": "",
+      "s5": ""
+    }
+  },
+  "slots_before_execute": {
+    "s1": "· 1단계 처리시간: 4.21초",
+    "s2": "· 2단계 처리시간: 14.01초",
+    "s3": "· 3단계 계산 중...",
+    "s4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+    "s5": ""
+  },
+  "click_to_time_shown_sec": 22.3,
+  "dump_at_slot4": {
+    "marks": {
+      "post_panel_absent": {
+        "ms": 0,
+        "v": "no-element"
+      },
+      "exec_step_result": {
+        "ms": 22114,
+        "v": "⚠ 통계검증 실행 완료 · 불일치 있음불일치 그룹 11건이 확인되었습니다 (값 불일치 11 · 원본 단독 0 · 목적 단독 0).전체 그룹31일치20값 불일치11원본 단독0목적 단독0⚠ 각 축 개별 검증 완료 · 조합(다축 동시) 검증은 수행되지 않았습니다선택한 GROUP BY 2개 축(REGION_CD, STATUS_CD)은 축마다 독립 세트로 나누어 개별로만 비교했습니다. 따라서 위 통계결과·최종상태는 각 축 개별 기준이며, REGION_CD + STATUS_CD 조합에서만 드러나는 불일치(축별 집계에서 서로 상쇄되어 사라지는 "
+      }
+    },
+    "samples": [
+      {
+        "ms": 0,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 2012,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 4106,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 6210,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 8211,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 10314,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 12402,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 14408,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 16513,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 18606,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 20608,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 22609,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      }
+    ],
+    "panel_timeline": [],
+    "err": null,
+    "post_panel": {
+      "present": false
+    },
+    "ri_status": null,
+    "agg_processing_ms": 21998.7,
+    "sets": [
+      "REGION_CD",
+      "STATUS_CD"
+    ],
+    "pk_state": null,
+    "view_step": "validation"
+  },
+  "dump_collecting": {
+    "marks": {
+      "post_panel_absent": {
+        "ms": 0,
+        "v": "no-element"
+      },
+      "exec_step_result": {
+        "ms": 22114,
+        "v": "⚠ 통계검증 실행 완료 · 불일치 있음불일치 그룹 11건이 확인되었습니다 (값 불일치 11 · 원본 단독 0 · 목적 단독 0).전체 그룹31일치20값 불일치11원본 단독0목적 단독0⚠ 각 축 개별 검증 완료 · 조합(다축 동시) 검증은 수행되지 않았습니다선택한 GROUP BY 2개 축(REGION_CD, STATUS_CD)은 축마다 독립 세트로 나누어 개별로만 비교했습니다. 따라서 위 통계결과·최종상태는 각 축 개별 기준이며, REGION_CD + STATUS_CD 조합에서만 드러나는 불일치(축별 집계에서 서로 상쇄되어 사라지는 "
+      },
+      "ri_status_first": {
+        "ms": 25211,
+        "v": "PREPARING"
+      }
+    },
+    "samples": [
+      {
+        "ms": 0,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 2012,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 4106,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 6210,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 8211,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 10314,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 12402,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 14408,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 16513,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 18606,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 20608,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 22609,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 24713,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 26812,
+        "status": "PREPARING",
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 28916,
+        "status": "PREPARING",
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      }
+    ],
+    "panel_timeline": [],
+    "err": null,
+    "post_panel": {
+      "present": false
+    },
+    "ri_status": "PREPARING",
+    "agg_processing_ms": 21998.7,
+    "sets": [
+      "REGION_CD",
+      "STATUS_CD"
+    ],
+    "pk_state": {
+      "status": "PREPARING",
+      "total": null
+    },
+    "view_step": "validation"
+  },
+  "click_to_reimport_done_sec": 64.1,
+  "dump_final": {
+    "marks": {
+      "post_panel_absent": {
+        "ms": 0,
+        "v": "no-element"
+      },
+      "exec_step_result": {
+        "ms": 22114,
+        "v": "⚠ 통계검증 실행 완료 · 불일치 있음불일치 그룹 11건이 확인되었습니다 (값 불일치 11 · 원본 단독 0 · 목적 단독 0).전체 그룹31일치20값 불일치11원본 단독0목적 단독0⚠ 각 축 개별 검증 완료 · 조합(다축 동시) 검증은 수행되지 않았습니다선택한 GROUP BY 2개 축(REGION_CD, STATUS_CD)은 축마다 독립 세트로 나누어 개별로만 비교했습니다. 따라서 위 통계결과·최종상태는 각 축 개별 기준이며, REGION_CD + STATUS_CD 조합에서만 드러나는 불일치(축별 집계에서 서로 상쇄되어 사라지는 "
+      },
+      "ri_status_first": {
+        "ms": 25211,
+        "v": "PREPARING"
+      },
+      "ri_status_terminal": {
+        "ms": 63902,
+        "v": "EARLY_STOPPED"
+      },
+      "ri_rows_after_terminal": {
+        "ms": 63902,
+        "v": "20"
+      }
+    },
+    "samples": [
+      {
+        "ms": 0,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 2012,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 4106,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 6210,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 8211,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 10314,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 12402,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 14408,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 16513,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 18606,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 20608,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 22609,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 24713,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 26812,
+        "status": "PREPARING",
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 28916,
+        "status": "PREPARING",
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 31007,
+        "status": "PREPARING",
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 33010,
+        "status": "PREPARING",
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 35010,
+        "status": "PREPARING",
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 37109,
+        "status": "PREPARING",
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 39111,
+        "status": "PREPARING",
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 41114,
+        "status": "PREPARING",
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 43212,
+        "status": "PREPARING",
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 45212,
+        "status": "PREPARING",
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 47213,
+        "status": "PREPARING",
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 49213,
+        "status": "PREPARING",
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 51213,
+        "status": "PREPARING",
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 53215,
+        "status": "PREPARING",
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 55307,
+        "status": "PREPARING",
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 57408,
+        "status": "PREPARING",
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 59412,
+        "status": "PREPARING",
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 61412,
+        "status": "PREPARING",
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 63516,
+        "status": "PREPARING",
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      },
+      {
+        "ms": 65607,
+        "status": "EARLY_STOPPED",
+        "rows": 20,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(absent)"
+      }
+    ],
+    "panel_timeline": [],
+    "err": null,
+    "post_panel": {
+      "present": false
+    },
+    "ri_status": "EARLY_STOPPED",
+    "agg_processing_ms": 21998.7,
+    "sets": [
+      "REGION_CD",
+      "STATUS_CD"
+    ],
+    "pk_state": {
+      "status": "PREPARING",
+      "total": null
+    },
+    "view_step": "validation"
+  },
+  "stage5_nav_wall_sec": 3.76,
+  "console_errors": [],
+  "dialogs": [
+    "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+    "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+  ]
+}

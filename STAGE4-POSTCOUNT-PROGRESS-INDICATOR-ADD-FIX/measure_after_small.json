@@ -1,0 +1,386 @@
+{
+  "task": "STAGE4-POSTCOUNT-PROGRESS-INDICATOR-ADD-FIX",
+  "phase": "after",
+  "scale": "small",
+  "scale_label": "소규모(MV_SCATTER_SRC → MV_SCATTER_TGT · SEQ_NO<=20000)",
+  "gb": [
+    "STATUS_CD",
+    "REGION_CD"
+  ],
+  "sum": [
+    "AMT",
+    "QTY"
+  ],
+  "sql": "INSERT INTO NXDNP.MV_SCATTER_TGT (PK_STR, REGION_CD, SEQ_NO, AMT, QTY, ITEM_NM, STATUS_CD)\nSELECT PK_STR, REGION_CD, SEQ_NO, AMT, QTY, ITEM_NM, STATUS_CD\n  FROM NXDNP.MV_SCATTER_SRC\n WHERE SEQ_NO <= 20000",
+  "tgt_where": "SEQ_NO <= 20000",
+  "shots": {
+    "step1": "a_simple_step1_query_review.png",
+    "step2": "a_simple_step2_count.png",
+    "step3": "a_simple_step3_candidate.png",
+    "a_time_shown": "after_small_1_stage4_time_shown.png",
+    "b_collecting": "after_small_2_stage4_collecting.png",
+    "c_done": "after_small_3_stage4_collection_done.png",
+    "d_step5": "after_small_4_stage5_result.png"
+  },
+  "notes": [],
+  "setup": {
+    "pair_rows": 1,
+    "pair_created": true,
+    "connected": true
+  },
+  "s1": {
+    "blocked": false,
+    "err": null,
+    "from_table": "MV_SCATTER_SRC",
+    "tgt_table": "MV_SCATTER_TGT",
+    "mapping_n": null,
+    "sql_shape": null,
+    "wall_sec": 4.15,
+    "slots": {
+      "s1": "· 1단계 처리시간: 1.43초",
+      "s2": "",
+      "s3": "",
+      "s4": "",
+      "s5": ""
+    }
+  },
+  "s2": {
+    "count_status": "COUNT_CRITICAL_DIFF",
+    "src_count": 20000,
+    "tgt_count": 990000,
+    "wall_sec": 3.43,
+    "click_count": 2,
+    "count_resp_ms": 1613.4,
+    "count_resp_diff": 970000,
+    "force_btn": true,
+    "slots": {
+      "s1": "· 1단계 처리시간: 1.43초",
+      "s2": "· 2단계 처리시간: 1.61초",
+      "s3": "",
+      "s4": "",
+      "s5": ""
+    }
+  },
+  "s3": {
+    "wall_sec": 4.78,
+    "gb": {
+      "found": [
+        "REGION_CD",
+        "STATUS_CD",
+        "PK_STR",
+        "SEQ_NO",
+        "ITEM_NM"
+      ],
+      "clicked": [],
+      "disabled": [
+        "PK_STR",
+        "SEQ_NO",
+        "ITEM_NM"
+      ],
+      "final": [
+        "REGION_CD",
+        "STATUS_CD"
+      ]
+    },
+    "sum": {
+      "found": [
+        "AMT",
+        "QTY"
+      ],
+      "clicked": [],
+      "disabled": [],
+      "final": [
+        "AMT",
+        "QTY"
+      ]
+    },
+    "slots": {
+      "s1": "· 1단계 처리시간: 1.43초",
+      "s2": "· 2단계 처리시간: 1.61초",
+      "s3": "· 3단계 계산 중...",
+      "s4": "",
+      "s5": ""
+    }
+  },
+  "slots_before_execute": {
+    "s1": "· 1단계 처리시간: 1.43초",
+    "s2": "· 2단계 처리시간: 1.61초",
+    "s3": "· 3단계 계산 중...",
+    "s4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+    "s5": ""
+  },
+  "click_to_time_shown_sec": 1.58,
+  "dump_at_slot4": {
+    "marks": {
+      "post_panel_element": {
+        "ms": 0,
+        "v": "exists"
+      },
+      "exec_step_result": {
+        "ms": 1403,
+        "v": "⚠ 통계검증 실행 완료 · 불일치 있음불일치 그룹 11건이 확인되었습니다 (값 불일치 11 · 원본 단독 0 · 목적 단독 0).전체 그룹31일치20값 불일치11원본 단독0목적 단독0⚠ 각 축 개별 검증 완료 · 조합(다축 동시) 검증은 수행되지 않았습니다선택한 GROUP BY 2개 축(REGION_CD, STATUS_CD)은 축마다 독립 세트로 나누어 개별로만 비교했습니다. 따라서 위 통계결과·최종상태는 각 축 개별 기준이며, REGION_CD + STATUS_CD 조합에서만 드러나는 불일치(축별 집계에서 서로 상쇄되어 사라지는 "
+      },
+      "post_panel_first_visible": {
+        "ms": 2904,
+        "v": "상세 추출 진행 중재이관 대상 레코드를 수집하고 있습니다 · 완료 후 5단계 결과 확인에서 목록을 볼 수 있습니다.경과 1초 · 수집 시작 확인 중 · 통계검증 실행(위 요약)은 이미 끝났고, 이 수집은 그 이후 구간입니다."
+      }
+    },
+    "samples": [
+      {
+        "ms": 0,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(hidden)"
+      },
+      {
+        "ms": 2014,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(hidden)"
+      }
+    ],
+    "panel_timeline": [
+      {
+        "ms": 2904,
+        "text": "상세 추출 진행 중재이관 대상 레코드를 수집하고 있습니다 · 완료 후 5단계 결과 확인에서 목록을 볼 수 있습니다.경과 1초 · 수집 시작 확인 중 · 통계검증 실행(위 요약)은 이미 끝났고, 이 수집은 그 이후 구간입니다."
+      }
+    ],
+    "err": null,
+    "post_panel": {
+      "present": true,
+      "visible": true,
+      "display": "",
+      "html_len": 581,
+      "text": "상세 추출 진행 중재이관 대상 레코드를 수집하고 있습니다 · 완료 후 5단계 결과 확인에서 목록을 볼 수 있습니다.경과 1초 · 수집 시작 확인 중 · 통계검증 실행(위 요약)은 이미 끝났고, 이 수집은 그 이후 구간입니다."
+    },
+    "ri_status": null,
+    "agg_processing_ms": 1298.6,
+    "sets": [
+      "REGION_CD",
+      "STATUS_CD"
+    ],
+    "pk_state": null,
+    "view_step": "validation"
+  },
+  "dump_collecting": {
+    "marks": {
+      "post_panel_element": {
+        "ms": 0,
+        "v": "exists"
+      },
+      "exec_step_result": {
+        "ms": 1403,
+        "v": "⚠ 통계검증 실행 완료 · 불일치 있음불일치 그룹 11건이 확인되었습니다 (값 불일치 11 · 원본 단독 0 · 목적 단독 0).전체 그룹31일치20값 불일치11원본 단독0목적 단독0⚠ 각 축 개별 검증 완료 · 조합(다축 동시) 검증은 수행되지 않았습니다선택한 GROUP BY 2개 축(REGION_CD, STATUS_CD)은 축마다 독립 세트로 나누어 개별로만 비교했습니다. 따라서 위 통계결과·최종상태는 각 축 개별 기준이며, REGION_CD + STATUS_CD 조합에서만 드러나는 불일치(축별 집계에서 서로 상쇄되어 사라지는 "
+      },
+      "post_panel_first_visible": {
+        "ms": 2904,
+        "v": "상세 추출 진행 중재이관 대상 레코드를 수집하고 있습니다 · 완료 후 5단계 결과 확인에서 목록을 볼 수 있습니다.경과 1초 · 수집 시작 확인 중 · 통계검증 실행(위 요약)은 이미 끝났고, 이 수집은 그 이후 구간입니다."
+      },
+      "ri_status_first": {
+        "ms": 4408,
+        "v": "READY"
+      },
+      "ri_status_terminal": {
+        "ms": 4408,
+        "v": "READY"
+      },
+      "ri_rows_after_terminal": {
+        "ms": 4408,
+        "v": "20"
+      },
+      "post_panel_after_terminal": {
+        "ms": 4408,
+        "v": "✅ 상세 추출 완료소요 2초 · 수집 건수·목록은 5단계 결과 확인에서 볼 수 있습니다."
+      }
+    },
+    "samples": [
+      {
+        "ms": 0,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(hidden)"
+      },
+      {
+        "ms": 2014,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(hidden)"
+      },
+      {
+        "ms": 4102,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "상세 추출 진행 중재이관 대상 레코드를 수집하고 있습니다 · 완료 후 5단계 결과 확인에서 목록을 볼 수 있습니다.경과 2초 · 수집 시작 확인 중 · 통계검증 실행(위 요약)은 이미 끝났고, 이 수집은 그 이후 구간입니다."
+      },
+      {
+        "ms": 6107,
+        "status": "READY",
+        "rows": 20,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "✅ 상세 추출 완료소요 2초 · 수집 건수·목록은 5단계 결과 확인에서 볼 수 있습니다."
+      },
+      {
+        "ms": 8209,
+        "status": "READY",
+        "rows": 20,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "✅ 상세 추출 완료소요 2초 · 수집 건수·목록은 5단계 결과 확인에서 볼 수 있습니다."
+      }
+    ],
+    "panel_timeline": [
+      {
+        "ms": 2904,
+        "text": "상세 추출 진행 중재이관 대상 레코드를 수집하고 있습니다 · 완료 후 5단계 결과 확인에서 목록을 볼 수 있습니다.경과 1초 · 수집 시작 확인 중 · 통계검증 실행(위 요약)은 이미 끝났고, 이 수집은 그 이후 구간입니다."
+      },
+      {
+        "ms": 3401,
+        "text": "상세 추출 진행 중재이관 대상 레코드를 수집하고 있습니다 · 완료 후 5단계 결과 확인에서 목록을 볼 수 있습니다.경과 2초 · 수집 시작 확인 중 · 통계검증 실행(위 요약)은 이미 끝났고, 이 수집은 그 이후 구간입니다."
+      },
+      {
+        "ms": 4303,
+        "text": "✅ 상세 추출 완료소요 2초 · 수집 건수·목록은 5단계 결과 확인에서 볼 수 있습니다."
+      }
+    ],
+    "err": null,
+    "post_panel": {
+      "present": true,
+      "visible": true,
+      "display": "",
+      "html_len": 316,
+      "text": "✅ 상세 추출 완료소요 2초 · 수집 건수·목록은 5단계 결과 확인에서 볼 수 있습니다."
+    },
+    "ri_status": "READY",
+    "agg_processing_ms": 1298.6,
+    "sets": [
+      "REGION_CD",
+      "STATUS_CD"
+    ],
+    "pk_state": {
+      "status": "READY",
+      "total": 200
+    },
+    "view_step": "validation"
+  },
+  "click_to_reimport_done_sec": 9.04,
+  "dump_final": {
+    "marks": {
+      "post_panel_element": {
+        "ms": 0,
+        "v": "exists"
+      },
+      "exec_step_result": {
+        "ms": 1403,
+        "v": "⚠ 통계검증 실행 완료 · 불일치 있음불일치 그룹 11건이 확인되었습니다 (값 불일치 11 · 원본 단독 0 · 목적 단독 0).전체 그룹31일치20값 불일치11원본 단독0목적 단독0⚠ 각 축 개별 검증 완료 · 조합(다축 동시) 검증은 수행되지 않았습니다선택한 GROUP BY 2개 축(REGION_CD, STATUS_CD)은 축마다 독립 세트로 나누어 개별로만 비교했습니다. 따라서 위 통계결과·최종상태는 각 축 개별 기준이며, REGION_CD + STATUS_CD 조합에서만 드러나는 불일치(축별 집계에서 서로 상쇄되어 사라지는 "
+      },
+      "post_panel_first_visible": {
+        "ms": 2904,
+        "v": "상세 추출 진행 중재이관 대상 레코드를 수집하고 있습니다 · 완료 후 5단계 결과 확인에서 목록을 볼 수 있습니다.경과 1초 · 수집 시작 확인 중 · 통계검증 실행(위 요약)은 이미 끝났고, 이 수집은 그 이후 구간입니다."
+      },
+      "ri_status_first": {
+        "ms": 4408,
+        "v": "READY"
+      },
+      "ri_status_terminal": {
+        "ms": 4408,
+        "v": "READY"
+      },
+      "ri_rows_after_terminal": {
+        "ms": 4408,
+        "v": "20"
+      },
+      "post_panel_after_terminal": {
+        "ms": 4408,
+        "v": "✅ 상세 추출 완료소요 2초 · 수집 건수·목록은 5단계 결과 확인에서 볼 수 있습니다."
+      }
+    },
+    "samples": [
+      {
+        "ms": 0,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(hidden)"
+      },
+      {
+        "ms": 2014,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "(hidden)"
+      },
+      {
+        "ms": 4102,
+        "status": null,
+        "rows": 0,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "상세 추출 진행 중재이관 대상 레코드를 수집하고 있습니다 · 완료 후 5단계 결과 확인에서 목록을 볼 수 있습니다.경과 2초 · 수집 시작 확인 중 · 통계검증 실행(위 요약)은 이미 끝났고, 이 수집은 그 이후 구간입니다."
+      },
+      {
+        "ms": 6107,
+        "status": "READY",
+        "rows": 20,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "✅ 상세 추출 완료소요 2초 · 수집 건수·목록은 5단계 결과 확인에서 볼 수 있습니다."
+      },
+      {
+        "ms": 8209,
+        "status": "READY",
+        "rows": 20,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "✅ 상세 추출 완료소요 2초 · 수집 건수·목록은 5단계 결과 확인에서 볼 수 있습니다."
+      },
+      {
+        "ms": 10312,
+        "status": "READY",
+        "rows": 20,
+        "slot4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+        "panel": "✅ 상세 추출 완료소요 2초 · 수집 건수·목록은 5단계 결과 확인에서 볼 수 있습니다."
+      }
+    ],
+    "panel_timeline": [
+      {
+        "ms": 2904,
+        "text": "상세 추출 진행 중재이관 대상 레코드를 수집하고 있습니다 · 완료 후 5단계 결과 확인에서 목록을 볼 수 있습니다.경과 1초 · 수집 시작 확인 중 · 통계검증 실행(위 요약)은 이미 끝났고, 이 수집은 그 이후 구간입니다."
+      },
+      {
+        "ms": 3401,
+        "text": "상세 추출 진행 중재이관 대상 레코드를 수집하고 있습니다 · 완료 후 5단계 결과 확인에서 목록을 볼 수 있습니다.경과 2초 · 수집 시작 확인 중 · 통계검증 실행(위 요약)은 이미 끝났고, 이 수집은 그 이후 구간입니다."
+      },
+      {
+        "ms": 4303,
+        "text": "✅ 상세 추출 완료소요 2초 · 수집 건수·목록은 5단계 결과 확인에서 볼 수 있습니다."
+      }
+    ],
+    "err": null,
+    "post_panel": {
+      "present": true,
+      "visible": true,
+      "display": "",
+      "html_len": 316,
+      "text": "✅ 상세 추출 완료소요 2초 · 수집 건수·목록은 5단계 결과 확인에서 볼 수 있습니다."
+    },
+    "ri_status": "READY",
+    "agg_processing_ms": 1298.6,
+    "sets": [
+      "REGION_CD",
+      "STATUS_CD"
+    ],
+    "pk_state": {
+      "status": "READY",
+      "total": 200
+    },
+    "view_step": "validation"
+  },
+  "stage5_nav_wall_sec": 3.75,
+  "console_errors": [],
+  "dialogs": [
+    "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+    "검증 경로 접속 성공: Oracle_asis → Oracle_tobe",
+    "COUNT 게이트: 치명적 COUNT 불일치 · 범위/이관 상태 확인 필요 — 통계검증을 생략하도록 판정되었습니다.\n\n치명적 COUNT 불일치 — 순 차이 970,000건, 목적지 적재율 4,950.0%. 일반 SUM/GROUP BY/KEY_RANGE/Exact Diff 를 중단하고 범위/이관 상태를 먼저 확인하세요(대량 누락/과잉 레코드 자동 생성 금지)"
+  ]
+}
