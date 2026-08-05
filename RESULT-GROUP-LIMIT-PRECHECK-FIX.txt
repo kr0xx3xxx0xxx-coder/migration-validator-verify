@@ -1,0 +1,245 @@
+작업명 : RESULT-GROUP-LIMIT-PRECHECK-FIX
+✅ 작업 완료 - RESULT-GROUP-LIMIT-PRECHECK-FIX - 결과 그룹 상한 초과를 통계 SELECT 발행 전에 차단하도록 실행 core 에 사전 판정을 넣어, 재현 케이스가 58,308ms 소모 후 사후차단에서 170~214ms 즉시 사전차단으로 바뀌었다. 기존 사후 안전망은 그대로 유지(이중 방어)하며, 정상 케이스는 무회귀다.
+
+════════════════════════════════════════════════════════════════════════
+1. 요청 요약 · 결론
+════════════════════════════════════════════════════════════════════════
+요청: 백로그 P15 — 결과 그룹이 허용 한도(100,000)를 넘는 케이스가 56,255ms 를 전부 소모한 뒤에야
+      BLOCKED 된다. F31(가중치 재조정) 완료로 카디널리티가 프로필에 실렸으니 이를 이용해 실행 전에
+      예상 그룹 수를 추정하고 사전 차단할 것. 사후차단(안전망)은 유지(이중 방어).
+
+결론: 사전 차단을 실행 core(stats_execute_service.execute_stats_validation) 진입 직후 · 통계 SELECT
+      발행 전에 넣었다. 새 추정식을 만들지 않고 기존 계산을 그대로 재사용한다.
+        ① 요청이 실어 온 GROUP BY 후보 distinct → estimate_groupby_count 조합 판정(추가 DB 조회 0회)
+        ② 근거가 없으면 실제 실행될 SQL 의 EXPLAIN 산정(ANALYZE 미사용 · 결과 1행)
+      한도 초과가 확실할 때만 차단하고, 근거 없음/산정 실패/접속대상 불명은 차단하지 않고 진행한다.
+      사후 결과 수신 상한(cap+1) 차단은 불변 — 사전은 '빠른 차단'이지 '유일한 차단'이 아니다.
+
+════════════════════════════════════════════════════════════════════════
+2. 진단 — 왜 56초를 다 쓰고 나서 막혔나 (착수 전 사실 확인)
+════════════════════════════════════════════════════════════════════════
+[2-1] 사전 안전 게이트는 이미 있었다. 다만 '모든 실행 경로'가 아니었다.
+  services/groupby_execution_safety_gate.run_gate 호출부는 운영 전체에서
+  services/single_validation_core.execute_single_validation 단 1곳이다.
+    · 게이트 경유 : /execute · 원클릭 전체검증 · /execute/set
+    · 게이트 미경유(실행 core 직접 호출) :
+        services/batch_runner.py:701,820        (일괄검증)
+        services/batch_stats_execute_service.py:541 (전수 plan)
+        services/diagnosis/adapters/base.py:119 (드릴다운 재검증)
+        services/validation_execute_core.py:225 (공통 wrapper 계약 경로)
+  진단서 재현 케이스를 만든 측정 하니스(stats_scale_cost_band_benchmark.py:178)도 제품 실행 함수
+  execute_stats_validation 을 직접 호출한다 — 즉 재현 케이스가 탄 경로에는 사전 차단이 없었고,
+  유일한 방어선이 '양쪽 SELECT 를 다 실행한 뒤' 걸리는 사후 상한이었다.
+
+[2-2] 사후 상한의 구조상 비용
+  stats_execute_service 는 GROUP BY 계획일 때 cap+1 행까지 받아오고(row_cap), 한쪽이라도 초과하면
+  비교 없이 BLOCKED 한다. 행 전송은 100,001 행에서 끊기지만 **DB 의 그룹 집계 자체는 1,000만 그룹을
+  전부 만든 뒤**라서, 차단이 확정될 때는 이미 비용을 다 치른 상태다.
+
+[2-3] 요청 1항의 전제 정정(중요)
+  F31(9514e2d)이 실은 카디널리티는 **화면 → 규모등급(전략 계획기) 프로파일**의 group_cardinalities 다.
+  ExecuteRequest 에는 이 필드가 없다(schemas/request_models.py). 실행 경로에서 같은 의미의 근거는
+  candidate_snapshot_full 의 후보 distinct 이고, 이것이 이미 안전 게이트의 '우선순위 1' 입력이다.
+  → 그래서 새 필드를 신설하지 않고 그 근거와 그 계산(estimate_groupby_count)을 그대로 재사용했다.
+  (F31 문서가 명시했듯 화면 distinct 는 상한 추정이라 과대추정 위험이 있다 — 4-2 의 오차단 방지 정책 참조)
+
+════════════════════════════════════════════════════════════════════════
+3. 수정 내용
+════════════════════════════════════════════════════════════════════════
+[3-1] 신규 services/result_group_limit_precheck.py (187줄)
+  precheck_result_group_limit(req, gb_keys, *, src_sql, tgt_sql, cancel_token) -> dict | None
+    · 차단이면 판정 dict, 통과/판정불가면 None(진행).
+    · 근거 우선순위 ①구조화 evidence(게이트의 _candidates_of 재사용 — 서버 원본 토큰 우선) → ②EXPLAIN.
+    · gb_keys 없음(COUNT-only/COUNT+SUM = 결과 1행)은 대상 아님.
+  precheck_limit() : 사전 한도 = INTERACTIVE_GROUPBY_MAX_GROUPS(기본 100,000)
+  _probe_db()      : probe 접속 사본 — 접속 대상(host/dsn/service_name/sid) 불명이면 probe 생략,
+                     요청의 connect_timeout(예: 20초)을 안전 예산(5초)으로 상한.
+  kill-switch      : MV_RESULT_GROUP_PRECHECK=0 → 전체 비활성(종전 동작)
+
+[3-2] services/stats_execute_service.py
+  · execute_stats_validation(req, cancel_token=None, safety_prechecked=False) — 인자 1개 추가.
+  · 범위조건(scope_predicates) 주입 **이후** · read-only 실행 **이전**에 사전 판정 호출.
+    (실제로 실행될 SQL 을 대상으로 추정해야 정확하다)
+  · _exec_blocked_result(..., post_execution=True, extra=None) — 사전 차단은 post_execution=False 로
+    남겨 사후 차단과 구분하고, 예상 그룹 수/산정 근거를 안전성 계약에 동봉한다.
+
+[3-3] services/single_validation_core.py
+  · 게이트를 방금 통과시킨 경로는 execute_stats_validation(..., safety_prechecked=True) 로 호출해
+    같은 판정을 두 번 하지 않는다(추가 EXPLAIN 왕복 0회 — UI 주 경로 비용 불변).
+
+[3-4] tests/test_groupby_gate_tokenless_path_trust.py
+  · 실행 core 대역(_fake_exec)이 signature 를 좁게 고정하고 있어 인자 추가로 깨졌다 → **kwargs 흡수.
+
+[3-5] scripts/dev_e2e/result_group_limit_precheck_live_verify.py (신규 · 개발/테스트 전용)
+  · 실 DB 재현 드라이버(R1~R6). 제품 실행 core 를 그대로 호출한다.
+
+════════════════════════════════════════════════════════════════════════
+4. 설계 판단 · 위험과 대응 (비판적 검토)
+════════════════════════════════════════════════════════════════════════
+[4-1] 한도 축을 분리했다 — 사전은 INTERACTIVE_GROUPBY_MAX_GROUPS, 사후는 MV_STATISTICS_RESULT_LIMIT
+  후자는 주석이 명시하듯 "사전 차단이 아니라 실제 결과 수신 상한 경로를 타게 하기 위한" 검수 스위치다.
+  사전 판정이 이 값을 읽으면, 그 스위치로 사후 경로를 재현하던 기존 테스트/검수가 전부 사전 차단에
+  가로채여 **검증하려던 경로가 사라진다**. 그래서 사전은 중앙 사전 한도만 본다.
+
+[4-2] 오차단(false block) 방지 — 안전계수를 적용하지 않는다
+  게이트는 추정값에 ×2.0 안전계수를 적용한다(정책 판정). 사전 판정은 부가 방어선이므로 계수 없이
+  raw 추정이 실제로 한도를 넘을 때만 차단한다 — 즉 **게이트보다 보수적으로 막지 않는다**.
+  근거 없음/EXPLAIN 실패/미지원 방언/접속대상 불명은 전부 '진행'이다. 화면이 보내는 distinct 가
+  상한 추정(F31 §5-2)이라는 한계는 그대로지만, 한계가 커지는 방향(과대추정→오차단)은 사후 안전망이
+  아니라 사용자 손실이므로 위 정책으로 최소화했다.
+
+[4-3] 새로 붙는 DB 왕복 — 실측 124~230ms, 그리고 그 비용을 제한한 방법
+  게이트 미경유 경로(일괄·진단·core 직접)에서 구조화 근거가 없으면 EXPLAIN 왕복 1회가 새로 생긴다.
+  실측 124~230ms(내부망 PG · 원본/목적지 각 1회 · 접속 포함). 25초짜리 정상 실행 대비 0.5~0.9%.
+  다만 **DB 가 죽어 있으면** 이 왕복이 접속 타임아웃만큼 대기를 늘린다. 그래서
+    · 접속 대상을 특정할 수 없는 요청(host/dsn/service 없음)은 probe 자체를 시도하지 않고,
+    · probe 접속 대기를 안전 예산 5초로 상한하고,
+    · bind parameter(%s)가 실린 SQL(진단 GROUP_SCOPE)은 값 없이 EXPLAIN 이 반드시 실패하므로 즉시 포기한다.
+  이 가드가 없을 때의 실제 피해를 측정했다: tests/test_statistics_execution_safety.py 가
+  2.88초 → 27.53초(+24.6초)로 늘어났고, 가드 적용 후 3.17초로 복귀했다(잔여 +0.29초).
+
+[4-4] 게이트 경유 경로는 사전 판정을 건너뛴다 — 의미와 부작용
+  중복 판정/중복 EXPLAIN 을 막기 위함이다. 부작용: 안전 게이트를 꺼 둔(gate_enabled=false) 운영에서는
+  개별검증 경로에 사전 차단이 없다(사후 안전망만). 게이트 비활성은 명시적 opt-out 이므로 그대로 뒀다.
+
+[4-5] heuristic / scoring / explainability 영향
+  · heuristic 추가 없음 — 판정식은 기존 estimate_groupby_count / groupby_explain_estimator 재사용.
+  · scoring 영향 없음 — 후보 추천 점수·선정 정책 불변.
+  · explainability 강화 — 차단 응답에 estimated_group_count · estimate_kind · estimate_source ·
+    configured_limit · post_execution(사전/사후) 을 남긴다. 종전 사후 차단은 "실제 그룹 수를 알 수 없어"
+    수치를 남기지 못했다.
+  · 보안 영향 없음 — 접속정보 로그/응답 노출 없음(pre-commit 비밀번호 스캔 통과).
+
+[4-6] 미해결로 남긴 것(고지)
+  · 사전 차단은 '그룹 수' 축만 본다. 스캔량이 커서 오래 걸리는 계획(그룹 수는 적음)은 여전히 끝까지 간다.
+  · 진단 드릴다운(bind param 경로)은 구조화 근거가 없으면 사전 판정이 성립하지 않는다(설계상 진행).
+  · 화면 distinct 의 날짜축 과대추정(F31 §5-2 한계)은 이번 범위 밖이다.
+
+════════════════════════════════════════════════════════════════════════
+5. 실측 검증 — 실 DB(내부망 PostgreSQL 192.168.0.150:5433 · mvbench.bench_30m)
+════════════════════════════════════════════════════════════════════════
+드라이버: scripts/dev_e2e/result_group_limit_precheck_live_verify.py
+케이스  : 진단서 재현 케이스와 동일(WHERE id <= 10,000,000 · GROUP BY <축> · SUM amt)
+
+[5-1] 전/후 대조 (동일 드라이버 · 동일 DB · 수정 전/후만 다름)
+  케이스                                     수정 전                      수정 후
+  ────────────────────────────────────────────────────────────────────────────────
+  R1 GROUP BY id (결과 그룹 1,000만)         58,308ms · 사후차단           170ms · **사전차단**
+                                             STATISTICS_RESULT_LIMIT_      PLAN_ESTIMATE_EXCEEDS_
+                                             EXCEEDED                      LIMIT
+                                             post_execution=true           post_execution=false
+                                             예상 그룹 수 표기 없음         예상 10,183,168개(explain)
+  R2 GROUP BY grp_cd (결과 그룹 20)          23,919ms · 정상(20그룹)       25,460ms · 정상(20그룹)
+  R3 수신상한 10 · dept_cd(실제 50)          23,933ms · 사후차단           25,014ms · **사후차단 유지**
+  R4 evidence distinct=5 과소신고 · 상한 10  23,977ms · 사후차단           24,477ms · **사후차단 유지**
+  ※ 진단서 실측 56,255ms → 이번 재현 58,308ms(동일 현상 재현 확인).
+  ※ R1 은 재측정에서 170~214ms(2회). DB 집계 미실행 — 통계 SELECT 를 한 번도 보내지 않는다.
+     차단까지의 시간 단축률 99.6%(58,308 → 214ms 기준).
+
+[5-2] 경계 케이스 — 추정은 안전, 실제는 초과 (이중 방어 단독 확인)
+  R5: 사전 한도까지 10 으로 낮추고(MV_INTERACTIVE_GROUPBY_MAX_GROUPS=10) 후보 evidence 가
+      distinct=5(안전)라고 신고 · 실제 그룹은 50.
+      → 사전 판정 통과(구조화 근거 5 ≤ 10 · EXPLAIN 왕복도 없음)
+      → 실행 후 STATISTICS_RESULT_LIMIT_EXCEEDED · post_execution=true · 25,183ms
+      = 추정이 틀린 상황에서 기존 사후 안전망이 그대로 작동함을 실 DB 로 확인.
+  (대조) 같은 조건에서 evidence 를 주지 않으면 EXPLAIN 이 50 을 산정해 211ms 에 사전차단된다 —
+         근거의 질이 다르면 결과도 다르다는 점까지 관측됐다.
+
+[5-3] 사전 판정 자체 비용(R6 · 3회)
+  GROUP BY grp_cd(통과) : 230 / 131 / 124 ms
+  GROUP BY id  (차단)   : 133 / 123 / 137 ms
+  → 정상 케이스에 새로 붙는 비용은 0.13~0.23초(원본·목적지 EXPLAIN + 접속).
+
+[5-4] 요청 4항 — 등급 표시에 위험이 반영되는가 (services/strategy 계산식 직접 호출)
+  같은 케이스(1,000만행 · GB1 · SUM1 · 로컬)의 cost/등급
+    · 카디널리티 미전송(F31 이전 화면 동작) : cost 14.181 → '대형'
+    · 카디널리티 전송(F31 이후 현재 화면)   : cost 15.931 → '초대형'
+    · 대조 grp_cd(card 20)                   : cost 14.511 → '대형'
+    · 대조 amt(card 100,000)                 : cost 15.431 → '대형'
+  진단서 시점 표기는 '잠정 중형'(옛 밴드 12.5/13.25/14.5)이었고, 현재 밴드(12.9/14.15/15.5)와
+  F31 카디널리티 배선을 함께 적용하면 같은 케이스가 **초대형**으로 두 단계 올라간다.
+  → 사전 경고가 등급에도 반영된다(확인 완료). 등급 계산식은 이번 작업에서 건드리지 않았다.
+
+════════════════════════════════════════════════════════════════════════
+6. 회귀 검증 — 관련 서브셋 baseline 대조
+════════════════════════════════════════════════════════════════════════
+[6-1] 대조 방법
+  변경 모듈을 직접 import 하는 테스트만 추렸다(grep -l stats_execute_service|execute_stats_validation|
+  execute_single_validation|single_validation_core|result_group_limit_precheck tests/*.py) = 125파일.
+  (sys.path 를 오염시키는 test_11def_scenarios.py / test_12k_stress.py 는 제외)
+  · baseline : git worktree E:\_wt_rgl @ 9f273b9 (내 변경 없음)
+  · after    : git worktree E:\_wt_rgl_a @ 9f273b9 + **내 패치만** 복사
+    → 같은 세션에 다른 작업들이 커밋/미커밋 중이라, 메인 작업트리로 대조하면 남의 변경이 섞인다.
+      동일 커밋에서 내 패치만 다른 두 worktree 로 대조했다.
+  · 값샘플 SQLite 캐시(db/migration_validator.db)는 대조 전 양쪽에 동일 사본을 복사했다.
+
+[6-2] 결과
+  baseline : 121 failed, 1558 passed, 49 skipped   (840.06s)
+  after    : 123 failed, 1572 passed, 49 skipped   (924.97s · 신규 테스트 16건 포함)
+  차집합(after 에만 있는 실패) 5건 · (baseline 에만 있는 실패) 3건
+
+[6-3] 차집합 5건 판정
+  ① tests/test_groupby_gate_tokenless_path_trust.py::TestExecuteSetGateCoverage::
+     test_tc3_normal_set_still_executes
+     → **실제 회귀**. 실행 core 대역 _fake_exec(req, cancel_token=None) 이 새 인자를 못 받아 TypeError.
+       대역이 **kwargs 를 흡수하도록 수정했고, 수정 후 해당 파일 7건 전건 통과.
+  ②~⑤ tests/test_execute_response_lossless_snapshot.py::test_route_shadow_on_equals_off
+       tests/test_execute_route_shadow_integration.py::test_failure_response_unchanged
+       tests/test_execute_route_shadow_integration.py::test_shadow_on_equals_off
+       tests/test_single_execute_store_skeleton_state_lock.py::test_route_store_failure_isolated
+     → **기존 flaky(내 변경과 무관)**. 근거: 동일 4건을 baseline worktree 에서 단독 3회 반복하면
+       1 / 3 / 1 건이 매번 다르게 실패하고, after worktree 에서도 1 / 1 / 2 건으로 같은 양상이다.
+       실패 원인은 벽시계 단언 — `assert on == off` 에서 {'processing_ms': 0.1} != {'processing_ms': 5.6}.
+     (baseline 에만 있던 3건 test_execute_r3_safe_return.py 2건 ·
+      test_single_execute_result_envelope_store_skeleton.py 1건도 같은 flaky 군에 속한다)
+
+[6-4] 사전 존재 실패(내 변경 전부터 실패 · 참고)
+  baseline 121건은 전부 수정 전부터 실패하던 것들이며, 대표적으로
+    tests/test_row_limit_policy.py 7건 — 대역이 _cmn_db_fetch_all 을 patch 하는데 core 는
+      cmn_db_fetch_select_readonly 를 쓴다(오래된 대역). baseline·메인 트리 모두 동일하게 7 failed.
+    tests/test_statistics_execution_safety.py::test_consistency_notice_renders_when_timing_present —
+      node 실행 계열, baseline 동일 실패.
+  이번 작업으로 새로 깨진 것은 [6-3]① 1건뿐이고 이미 수정했다.
+
+[6-5] 최종 확인(메인 트리 · 커밋 상태)
+  python -m pytest tests/test_result_group_limit_precheck.py tests/test_groupby_gate_tokenless_path_trust.py
+    tests/test_statistics_execution_safety.py tests/test_groupby_execution_safety.py
+    tests/test_groupby_safety_common_gate.py tests/test_groupby_evidence_trust_boundary.py
+    tests/test_groupby_profile_staleness_gate.py
+  → 1 failed, 90 passed (실패 1건 = [6-4] 의 node 계열 사전 존재 실패)
+
+[6-6] 실패 테스트 전체 목록(이번 작업 원인)
+  없음. (수정 과정에서 발생한 1건은 [6-3]① 이며 커밋에 수정 포함)
+
+════════════════════════════════════════════════════════════════════════
+7. 변경 파일 · 커밋
+════════════════════════════════════════════════════════════════════════
+커밋 : 1c262e9
+  fix(execute): 결과 그룹 상한을 실행 전에 차단 — 56초 소모 후 사후차단 해소 (RESULT-GROUP-LIMIT-PRECHECK-FIX)
+  6 files changed, 628 insertions(+), 6 deletions(-)
+
+  services/result_group_limit_precheck.py            | 187 +++ (신규)
+  services/stats_execute_service.py                  |  40 +-
+  services/single_validation_core.py                 |   4 +-
+  tests/test_result_group_limit_precheck.py          | 222 +++ (신규 · 16건)
+  tests/test_groupby_gate_tokenless_path_trust.py    |   8 +-
+  scripts/dev_e2e/result_group_limit_precheck_live_verify.py | 173 +++ (신규 · 개발전용)
+
+  ※ 같은 시각 다른 세션이 ui/tabler_renderer.py · ui/grid_helpers.py 를 작업 중이라 내 파일만
+    명시적으로 stage 해 커밋했고, 커밋 후 남의 미커밋 변경 2건이 그대로 남아 있음을 확인했다.
+  ※ 커밋 직전 HEAD 재확인(작업 중 9f273b9 → a21b14f → 95c9c27 로 3회 이동) 후 커밋.
+
+신규 단위 테스트 16건(tests/test_result_group_limit_precheck.py) — 전건 통과
+  대상 판정(GB 없음/kill-switch) · 구조화 evidence 차단/통과/부분매칭 · EXPLAIN 차단/통과/실패 ·
+  접속대상 불명 probe 생략 · connect_timeout 상한 · bind param 시 probe 생략 · 사전 한도와
+  결과 수신 상한 분리 · core 통합(통계 SELECT 미발행 · post_execution=False · error_contract) ·
+  게이트 경유 시 생략 · 사후 안전망 유지.
+
+════════════════════════════════════════════════════════════════════════
+8. 실검증 상태
+════════════════════════════════════════════════════════════════════════
+실검증 상태: 실 DB 실측 완료 (내부망 PostgreSQL 192.168.0.150:5433 · mvbench.bench_30m 3,000만행,
+             재현 케이스 1,000만행 · 결과 그룹 1,000만 · 전/후 각 1회 이상 · R1 후 2회 재측정,
+             경계 케이스 R3/R4/R5 포함) · 자동화 테스트 baseline 대조 완료 · 화면 무관(스크린샷 없음)
+
+✅ 작업 완료 - RESULT-GROUP-LIMIT-PRECHECK-FIX - 결과 그룹 상한 초과가 통계 SELECT 실행 전에 차단된다. 재현 케이스 58,308ms(사후) → 170~214ms(사전, DB 집계 미실행)로 99.6% 단축했고, 정상 케이스는 무회귀(사전 판정 비용 0.13~0.23초), 추정이 틀리는 경계에서는 기존 사후 안전망이 그대로 작동함을 실 DB 로 확인했다. 신규 회귀 1건(테스트 대역 signature)은 이번 커밋에 수정 포함, 그 외 차집합 4건은 baseline 에서도 동일하게 재현되는 기존 flaky다.
