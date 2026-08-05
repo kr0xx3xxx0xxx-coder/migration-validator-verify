@@ -1,0 +1,158 @@
+작업명 : STAGE4-EXECTIME-SPLIT-AND-NEXTBUTTON-LOCK-FIX
+✅ 작업 완료
+
+════════════════════════════════════════════════════════════════════════
+요구사항 1 — 4단계 '실행시간' 원본/목적 분리 + '조합검증'과 위치 교체
+════════════════════════════════════════════════════════════════════════
+확인 결과: 원본/목적 개별값은 **존재한다**(query_timing.source_duration_ms /
+target_duration_ms — 단일 세트 타일이 이미 쓰던 필드). 다중 세트에서 못 나눈 이유는
+'값이 세트 통합 합계여서'도 '분리가 불가능해서'도 아니라, **세트 합산 루프가 그 필드만
+버리고 있었기 때문**이다. 그래서 새 계산 로직을 만들지 않고 matched/diff 를 더하는 그
+루프에서 같은 방식으로 합산해 agg.query_timing 으로 넘겼다(클라·서버 대칭).
+
+before → after (실측, 5,000만행 Oracle · GROUP BY 2축 = 세트 2개)
+  타일 순서  … 통계전략 · [실행시간] · [조합검증] · 상태
+          →  … 통계전략 · [조합검증] · [실행시간] · 상태      (10칸 유지, 한 줄 유지)
+  실행시간   '총 24.40초' (한 줄)
+          →  '원본 10.47초 / 목적 13.44초' (2줄)
+  근거 검산  세트1 src 4,545 + 세트2 src 5,923 = 10,468ms  ✅ 화면값과 일치
+             세트1 tgt 7,259 + 세트2 tgt 6,178 = 13,437ms  ✅ 화면값과 일치
+  agg        before: query_timing = null   →  after: {source 10,468 / target 13,437 /
+                                                      aggregated_sets 2}
+  툴팁       '… · 총 24.81초(24,808ms) — 다중 세트 2세트의 원본/목적 개별 실행시간
+             합계입니다. 총시간은 세트 실행 전체를 감싼 벽시계(세트 계획·SQL 생성·그룹
+             비교 포함)라 개별시간 합과 같지 않으며, 세트가 동시에 실행되면 총시간이
+             개별시간 합보다 짧을 수도 있습니다.'
+             (합계를 값 줄이 아니라 툴팁에 둔 이유 = 벽시계 24,808ms vs 개별합 23,905ms 로
+              성격이 다른 값이라 한 칸에 나란히 두면 다시 오해를 만든다)
+  폴백       집계 응답에 query_timing 이 없으면 종전 '총 N초' 한 줄, 그것도 없으면 '—'
+             + 사유 툴팁 (무리해서 나누지 않는다)
+  스크린샷   before_02_stage4_tiles_after_exec.png → after_02_stage4_tiles_after_exec.png
+
+════════════════════════════════════════════════════════════════════════
+요구사항 2 — 4단계 재실행 중 [다음 ▶] 잠금
+════════════════════════════════════════════════════════════════════════
+확인 결과: 첫 실행과 재실행이 다른 코드 경로를 타는 게 아니라, **같은 판정식이 재실행에서만
+참이 되는 비대칭**이었다. Gate 계산(_mvComputeWfStates)이 _singleValidationExecuted 하나만
+보는데, 이 플래그는 완료 시 true 가 되고 재실행 시작 시점에 내려가지 않는다.
+  첫 실행 : 아직 false → execute=PENDING → 5단계 prereq 미충족 → 정상 잠김
+  재실행  : 직전 true 잔존 → execute=SUCCESS → 실행 중에도 [다음 ▶] 활성
+
+조치: 실행 중(_executeInProgress — 첫 실행이 이미 쓰는 재클릭 가드, 모든 종료 경로 finally
+에서 해제)에는 execute 를 RUNNING 으로 둔다. 첫 실행과 **완전히 같은 경로**로 잠기며 새
+플래그·새 잠금 로직·새 렌더 경로가 없다. 시작 시점 반영만 기존 _renderSingleStepNav() 1회 추가.
+
+before → after (실행 중 실제 클릭·연속 샘플링)
+  첫 실행  disabled=True  (49~62샘플 전부)  →  True  (62샘플 전부)   ✅ 무회귀
+  재실행   disabled=**False** (49샘플 전부)  →  **True** (53샘플 전부) ✅ 해소
+  완료 후  False                             →  False                ✅ 재활성(성공/실패 불문)
+  4단계 탭 실행 중에도 접근 가능(튕기지 않음) — 잠기는 것은 5단계뿐  ✅
+  스크린샷 before_05b_cmdbar_while_executing.png → after_05b_cmdbar_while_executing.png
+           (before: '실행 중…' 인데 [다음 ▶] 파란 활성 / after: 회색 비활성)
+
+════════════════════════════════════════════════════════════════════════
+요구사항 3 — 5단계 '처리시간' 상세비교 완료 전 표시 (재확인)
+════════════════════════════════════════════════════════════════════════
+① 서버 재기동 여부 → **재기동은 이미 되어 있었다.** 재기동 누락이 아니다.
+     직전 수정 커밋 486b1a1  2026-08-05 19:28:29
+     web_server.py 프로세스   2026-08-05 19:55:48 기동  (27분 뒤)
+   그래도 재현됐으므로 진짜 갭이다.
+
+② 원인(대규모에서만 뒤집히는 판정)
+   _mvExecTerminal 은 상세비교 전용 신호가 아니다 — 4단계 통계검증(runExecute)의 finally 도
+   "폴링이 아직 없으면" 이라는 조건으로 같은 플래그에 true 를 쓴다.
+     소규모: _mvPkPrewarm 이 통계검증 직후 prepare 를 걸어 promise 가 서므로 판정이 그 윗줄에서
+             빠져나가 이 경로에 닿지 않는다 → 직전 수정이 통과했던 이유
+     대규모: prewarm 이 자동 준비 상한(100만행)·PostgreSQL 조건에 걸려 prepare 를 안 건다
+             → 4단계 finally 가 _mvExecTerminal=true 를 남긴다
+             → 뒤늦게 시작된 상세비교(PREPARING + 폴링)를 '종료'로 오판 → 처리시간이 그려진다
+
+   before 실측(진행 중 시점에 같은 샘플에서 함께 읽은 값):
+     처리시간 '24.40초' 표시 · compareRunning=true · reimportPreparing=true
+     riPolling=**true**(폴링은 실제로 돌고 있다) · execTerminal=true · prepRunning=**false**
+     → 진행 중 37/38 샘플, '진행 중인데 처리시간 표시' **37건**
+
+③ 조치(최소 수정): _mvPkPrepRunning 이 상세비교 **자신의** 진행 신호(_mvRiState._polling)를
+   먼저 보고, 폴링이 없을 때만 종전 _mvExecTerminal 폴백을 쓴다(폴백의 '영구 미표시 방지'
+   취지 유지). 폴링 시작/종료 시점에 5단계 타일 재렌더 추가(기존 repaint 재사용).
+
+  after 실측: 진행 중 처리시간 '—' · prepRunning=**true**(execTerminal=true 인데도)
+              진행 중 34/35 샘플, '진행 중인데 처리시간 표시' **0건**  ✅
+              완료 후 '24.81초' 표시 ✅ (영구 미표시로 굳지 않는다)
+  소규모 무회귀: 진행 전/자동 준비 안 함(deferred)/일괄·이력 상세(ctx)는 종전대로 표시
+                (기존 회귀 테스트 전건 통과)
+  스크린샷 before_03_stage5_while_detail_compare_running.png
+        →  after_03_stage5_while_detail_compare_running.png
+
+④ 재발방지 테스트(대규모 조건 그대로, 실 DB 불필요)
+   test_prep_running_not_flipped_by_stage4_exec_terminal_flag
+   test_stage5_processing_time_hidden_in_large_scale_late_started_compare
+   test_stage5_tiles_repainted_on_detail_compare_polling_edges
+   test_prep_running_checks_polling_before_exec_terminal_fallback
+
+════════════════════════════════════════════════════════════════════════
+실패 테스트 전체 목록
+════════════════════════════════════════════════════════════════════════
+전체 스위트는 라이브 DB 대기 테스트에서 정체(50분 상한 내 미완)돼, 이번 변경과 맞닿는
+범위를 넓게 잡은 **448파일 서브셋**(약 5,000건)으로 after/baseline 대조했다.
+baseline 은 HEAD(1862bb2) worktree(db·프리셋 복사)에서 같은 명령 실행.
+
+    after     180 failed · 4,794 passed · 35 skipped · 10 xfailed · 13 errors
+    baseline  188 failed · 4,728 passed · 46 skipped · 10 xfailed · 45 errors
+    실패 식별자 기준 after 192건 / baseline 232건 — **신규 회귀 0건**
+
+  · 1차 대조 신규 후보 24건 전건을 개별 재실행으로 확인:
+      진짜 회귀 3건 → 계약 테스트 판정 대상 정정(커밋 2042b40)
+      나머지 21건   → baseline 과 동일하거나 baseline 에서만 실패(규모·순서 의존 flaky)
+  · 정정 후 2차 대조 잔여 후보 1건도 개별 재실행에서 after/baseline 완전 동일 → 회귀 아님
+  · baseline 에만 있던 실패 41건 중 38건은 test_candidate_scoring_dashboard_static.py 한 파일
+    (worktree 에 대시보드 산출 HTML 이 없어서 나는 환경 의존 실패 — 코드 차이 아님)
+
+  전체 목록 파일: test_failures_after.txt (193줄) · test_failures_baseline.txt (233줄)
+                  test_summary_after.txt · test_summary_baseline.txt · test_subset_filelist.txt
+
+  이번 변경으로 실제로 깨져 정정한 계약 테스트 3건(단언 약화 아님 — 판정 대상만 정확히):
+    1. test_execute_success_ignores_reimport_active_state_for_accessibility
+       'RUNNING 문자열 금지' → '재이관 상태를 근거로 삼지 말 것 + RUNNING 근거는
+       _executeInProgress' (원래 의도 그대로, 범위만 정확히)
+    2. test_client_agg_has_processing_ms_from_wall_clock
+       규칙을 설명하는 한글 주석까지 위반으로 잡던 문제 → 주석 제거 후 실행 코드만 검사
+    3. test_run_execute_uses_common_builder
+       고정 8,000자 창(srcDb 는 8,192자 지점) → 함수 본문 전체로 확장
+
+  신규 테스트 11건(test_stage4_exectime_split_and_nextbutton_lock.py) 포함,
+  이번 작업이 건드린 계약 테스트 94건 전건 통과.
+
+════════════════════════════════════════════════════════════════════════
+git
+════════════════════════════════════════════════════════════════════════
+31cf274  fix(ui): 4단계 실행시간 원본/목적 분리(다중 세트 합산)·타일 순서 교체,
+                  재실행 중 [다음▶] 잠금, 5단계 처리시간 조기표시 해소 (요구사항 1~3)
+2042b40  fix(test): 계약 테스트 3건 판정 대상 정정 — 주석 오탐·고정폭 창
+
+  ui/grid_helpers.py                                       +42 -13
+  ui/tabler_renderer.py                                    +86 -5  (+ 주석 축약)
+  services/single_validation_run_facade.py                 +24 -0
+  tests/test_stage4_exectime_split_and_nextbutton_lock.py   신규 288줄(11건)
+  tests/test_stage4_stats_validation_tile_layout.py        +56 -12
+  tests/test_stage45_strategy_timing_and_text_cleanup.py   +64 -2
+  tests/test_stage3_button_dom_dedup_and_gate45_real_fix.py  판정 정정
+  tests/test_plansets_agg_processing_time_fix.py             판정 정정
+  tests/test_run_execute_conn_payload_consolidate.py         판정 정정
+  scripts/dev_e2e/stage4_exectime_split_nextbutton_lock_verify.py  신규 518줄
+
+════════════════════════════════════════════════════════════════════════
+실검증 상태
+════════════════════════════════════════════════════════════════════════
+실검증 상태: 실 DB 검증 완료 — Oracle asis/tobe(NXDNP.MV_SCATTER50M_SRC 5,000만행 →
+MV_SCATTER50M_TGT 4,950만행 · GROUP BY REGION_CD+STATUS_CD 2축 = 세트 2개 · SUM AMT)
+개별검증 1~5단계 클릭스루를 before/after 각 1회 실행. 요구사항 1~3 판정 전 항목 PASS(after),
+before 는 3건 모두 문제 상태를 그대로 재현. 페이지 오류 0건 · 통계검증 실행 총 4회 실제 수행.
+요구사항 3 의 '상세비교 진행 중' 구간은 before 37샘플 / after 34샘플로 실제 관측(강제 상태
+주입 아님). 회귀 대조: 관련 448파일 서브셋 after/baseline — 신규 회귀 0건.
+
+부기(투명성): AFTER 실측 이후 다중 세트 툴팁의 '2세트 의' → '2세트의' 띄어쓰기 한 칸과
+runExecute 주석 축약만 추가로 반영했다. 값·판정·구조와 무관하며 단위 테스트가 최종 문구를
+검증한다(실측 캡처의 툴팁에는 정정 전 띄어쓰기가 남아 있다).
+
+✅ 작업 완료

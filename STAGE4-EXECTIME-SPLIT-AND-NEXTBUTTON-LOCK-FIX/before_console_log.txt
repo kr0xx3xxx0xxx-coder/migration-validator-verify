@@ -1,0 +1,52 @@
+  [chromium] C:\Users\nextobe_lyk\AppData\Local\ms-playwright\chromium-1223\chrome-win64\chrome.exe
+=== STAGE4-EXECTIME-SPLIT-AND-NEXTBUTTON-LOCK-FIX 실측 (tag=before) ===
+   DIALOG: 검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)
+   DIALOG: 검증 경로 접속 성공: Oracle_asis → Oracle_tobe
+  [setup] {"project": "TESTONLY_REG", "pair_rows": 1, "badges": {"src": "Oracle_asis", "tgt": "Oracle_tobe"}}
+  [2단계] {"status": "COUNT_MINOR_DIFF", "src": 50000000, "tgt": 49500000}
+  [3단계 선택] GB ['REGION_CD', 'STATUS_CD'] | SUM ['AMT']
+
+=== [4단계 SQL 생성 후] 타일 순서 ===
+    ['목적테이블', '원본테이블', '목적그룹', '원본그룹', '목적집계', '원본집계', '통계전략', '실행시간', '조합검증', '상태']
+   [캡처] before_01_stage4_generated.png
+   [캡처] before_01b_cmdbar_while_executing.png
+  [요구사항2/첫 실행] 클릭=True 실행중샘플=60 실행중 [다음▶] disabled=[True] → 완료후 disabled=False
+
+=== [요구사항 1] 4단계 타일(첫 실행 후) ===
+    목적테이블 | 'NXDNP.MV_SCATTER50M_TGT' | empty= False
+    원본테이블 | 'NXDNP.MV_SCATTER50M_SRC' | empty= False
+    목적그룹 | 'REGION_CDSTATUS_CD' | empty= False
+    원본그룹 | 'REGION_CDSTATUS_CD' | empty= False
+    목적집계 | 'AMT' | empty= False
+    원본집계 | 'AMT' | empty= False
+    통계전략 | '표본 집계STATS_SAMPLE_ONLY' | empty= False
+    실행시간 | '총 24.40초' | empty= False
+        tip: 다중 세트(GROUP BY 2축 이상) 합산 총시간 24,404ms — 세트마다 원본/목적 조회가 따로 일어나므로 개별 실행시간은 나누어 표시하지 않습니다(기존 표기 유지).
+    조합검증 | '미포함' | empty= False
+    상태 | '● 불일치' | empty= False
+  [세트별 실제 시간] {"isMulti": true, "aggQueryTiming": null, "aggProcessingMs": 24404, "sets": [{"cols": "REGION_CD", "src": 5397, "tgt": 8221, "proc": 13825.8}, {"cols": "STATUS_CD", "src": 5104, "tgt": 4746, "proc": 10037.2}], "sumSrc": 10501, "sumTgt": 12967}
+   [캡처] before_02_stage4_tiles_after_exec.png
+   [캡처] before_03_stage5_while_detail_compare_running.png
+   [03] 상세비교 진행 중 관측 — 처리시간='24.40초' prepRunning=False riPolling=True execTerminal=True
+  [요구사항3/03] 진행 중 관측 37/38 샘플 · '진행 중인데 처리시간 표시' 37건
+   [캡처] before_04_stage5_after_detail_compare.png
+   [캡처] before_05_stage5_full.png
+  [5단계 최종] {"proc": "24.40초", "procEmpty": false, "procTip": "5단계 통계검증 실행(상세 추출 별도) — 24.40초 (24404ms)", "compareRunning": false, "reimportPreparing": false, "prepRunning": false, "execTerminal": true, "riPolling": false, "pkState": {"hasPromise": false, "hasDetail": true, "respStatus": "PREPARING", "deferred": false}, "procMs": 24404}
+   [캡처] before_05b_cmdbar_while_executing.png
+  [요구사항2/재실행] 클릭=True 실행중샘플=49 실행중 [다음▶] disabled=[False] → 완료후 disabled=False
+
+=== [요구사항 1] 4단계 타일(재실행 후) ===
+    목적테이블 | 'NXDNP.MV_SCATTER50M_TGT' | empty= False
+    원본테이블 | 'NXDNP.MV_SCATTER50M_SRC' | empty= False
+    목적그룹 | 'REGION_CDSTATUS_CD' | empty= False
+    원본그룹 | 'REGION_CDSTATUS_CD' | empty= False
+    목적집계 | 'AMT' | empty= False
+    원본집계 | 'AMT' | empty= False
+    통계전략 | '표본 집계STATS_SAMPLE_ONLY' | empty= False
+    실행시간 | '총 19.61초' | empty= False
+    조합검증 | '미포함' | empty= False
+    상태 | '● 불일치' | empty= False
+  [세트별 실제 시간] {"isMulti": true, "aggQueryTiming": null, "aggProcessingMs": 19605.3, "sets": [{"cols": "REGION_CD", "src": 6484, "tgt": 4580, "proc": 11279.3}, {"cols": "STATUS_CD", "src": 3720, "tgt": 3957, "proc": 7852.7}], "sumSrc": 10204, "sumTgt": 8537}
+   [캡처] before_06_stage4_after_rerun.png
+
+[JSON] C:\projects\migration-validator\scripts\dev_e2e\stage4_exectime_split_nextbutton_lock_verify_before.json
