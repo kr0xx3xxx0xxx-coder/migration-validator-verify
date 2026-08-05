@@ -1,0 +1,341 @@
+작업명 : EVIDENCE-CONTRACT-PK-GATE-JOIN-PATH-FIX
+✅ 작업 완료
+
+================================================================================
+1. 요청 요약
+================================================================================
+백로그 F22 / IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX §11-R2:
+`evidence_contract.pk` 게이트가 **원본** key_metadata 수집 여부(`key_collected`)로만 열려,
+원본 키메타를 조회하지 않는 JOIN 경로에서는 목적지 PK 를 실값으로 채워도 계약이 계속 None 이다.
+→ 목적지 값 기준으로 계약을 채울 수 있도록 조건을 완화한다(원본 수집 확장은 범위 밖).
+
+================================================================================
+2. 위치 확인 — 게이트 지점 (요구사항 1)
+================================================================================
+게이트 코드 1곳:
+  services/candidate_evidence_contract.py:292 (수정 전)
+    pk     = bool(cm.get("is_pk"))     if (key_collected and "is_pk" in cm)     else None
+    unique = bool(cm.get("is_unique")) if (key_collected and "is_unique" in cm) else None
+
+`key_collected` 를 주는 호출부 2곳(운영 경로 전부):
+  · services/single_validation_analyze_service.py:1664
+      key_collected=bool(locals().get("_key_meta"))     ← **원본** 어댑터 fetch_key_metadata 결과
+  · services/candidate_postcount_finalize.py:763 (COUNT 후 재부착)
+      key_collected=bool(nm)   ← nm 은 _nm_from_contracts(...) 로 기존 계약에서 복원
+
+`_key_meta` 수집 조건(single_validation_analyze_service.py:1285-1289, 수정 전 기준):
+    if (_src_adapter.supports_column_stats() and req.src_conn and from_tbl
+            and not from_tbl.startswith('(') and not _has_join):
+        _pg_stats = ... fetch_column_stats(...)
+        _key_meta = ... fetch_key_metadata(req.src_conn, from_tbl)
+  → `not _has_join` 때문에 JOIN 이면 원본 키메타 자체가 수집되지 않는다.
+
+한편 JOIN 경로의 normalized_metadata(`_nm`)는 tgt_map 기반(metadata_provider.from_tgt_map)이고,
+tgt_map 의 is_pk 는 IS-PK-FIXED-VALUE-… 로 **목적지 어댑터 fetch_key_metadata 실값**이 됐다
+(services/db_query_service.py:1355-1363, 1430-1441).
+즉 **값은 이미 있는데 게이트만 닫혀 있었다.**
+
+================================================================================
+3. JOIN 경로가 원본 key_metadata 를 조회하지 않는 이유 (요구사항 2)
+================================================================================
+결론: **단순 누락이 아니라 도입 시점부터의 명시적 설계 배제다.**
+
+근거 (git 이력 — fa33023 의 직전 커밋 fa33023^, routes/analyze_route.py:496-519):
+
+    _has_join = bool(parsed.join_clauses)
+    if _is_pg and req.src_conn and from_tbl and not from_tbl.startswith('('):
+        _all_tbls = [from_tbl]
+        if not _has_join:
+            # 단일 테이블: pg_stats + key_metadata 기반 정밀 점수화
+            _pg_stats = fetch_postgres_column_stats(req.src_conn, _all_tbls)
+            _key_meta = fetch_postgres_key_metadata(req.src_conn, from_tbl)
+            ...
+        else:
+            # JOIN 포함: pg_stats 미적용, 기본 score 필드만 추가
+            ...
+
+fa33023("공통 후보추천 엔진 통합")가 이 if/else 를 `and not _has_join` 하나로 접었을 뿐,
+'조회한다/안 한다'의 의미는 처음부터 동일하다. 이후 3d7ed59(서비스 계층 이동) → 현재까지 그대로다.
+
+설계 이유(코드 성질로 확인 가능):
+  services/metadata_provider.from_pg_stats(pg_stats, key_meta, table_name, tgt_map) 는
+  **단일 테이블(from_tbl)** 의 카탈로그를 컬럼명만으로 매칭한다
+  (149-175행 `key.replace(f"{tbl_up}.","")`, `km = (key_meta or {}).get(col_upper, {})`).
+  JOIN 이면 컬럼이 여러 테이블에서 오므로 from_tbl 하나의 통계·키를 전부에 귀속시키게 되고,
+  동명 컬럼이 있으면 조용한 오귀속이 된다. **'조회를 안 한 것'이 아니라 '귀속할 수 없어서 안 한 것'.**
+
+→ 따라서 요구사항 4대로 **원본 수집을 JOIN 으로 확장하지 않았다.** 목적지 근거로만 완화했다.
+
+================================================================================
+4. 수정 내용 (요구사항 3 — '목적지만으로 판단 가능한 부분만' 개방)
+================================================================================
+ (A) services/candidate_evidence_contract.py
+   · 새 인자 `target_key_collected` — 목적지 key_metadata 를 실제로 조회했는지.
+   · pk 게이트: `key_collected` 단독 → `key_collected OR target_key_collected`.
+       원본 근거가 있으면 **원본 우선**(기존 동작·의미 완전 보존).
+   · 새 계약 필드 `pk_source` : "SOURCE_KEY_METADATA" / "TARGET_KEY_METADATA" / ""(미수집).
+   · **unique 는 열지 않았다(의도).** 목적지 컬럼메타 경로(from_tgt_map)는 is_unique 를 항상
+     False 로 고정 삽입한다(metadata_provider.py:107) — 수집하지 않은 근거를 False 로 지어내는
+     것이 되어 §8(미수집 ≠ 아님) 위반이다. unique 는 계속 None 이고 missing_evidence 에 남는다.
+   · SUM 의 합산근거(numeric_or_semantic) 판정 입력 분리:
+       종전 식 : `not has_sql_evidence and not semantic and pk is None and unique is None`
+       변경 후 : `... and not source_key_signal`   (source_key_signal = 원본 키 신호만 인정)
+       이유: 종전 식의 `pk is None` 은 사실상 '원본 메타를 아무것도 못 받았다'는 뜻이었다.
+             pk 를 목적지로도 채우면 같은 식이 '목적지 PK 를 안다 → 합산 근거가 있다'로 잘못 읽혀
+             §26 안전게이트가 근거 없이 완화된다(목적지 PK 는 합산 의미와 무관).
+             원본 키메타를 수집하는 기존 경로에서는 **종전 식과 완전히 동일하게 평가**된다.
+
+ (B) services/single_validation_analyze_service.py
+   · 목적지 메타 조회 직후 `_tgt_key_collected` 확정 → attach_evidence_contracts 로 전달.
+   · 조회는 요청 스코프 캐시(fetch_key_metadata_cached / `_with_keymeta_scope`) 경유 —
+     바로 위 `_cmn_fetch_tgt_col_meta` 가 같은 (conn, 테이블)로 이미 채워둔 결과 재사용.
+     **DB 왕복 추가 0회.**
+   · 빈 결과({})는 '키 없음'으로 단정하지 않고 미수집으로 둔다(§8 — 기존 `_build_target_pk_evidence`
+     의 KEY_METADATA_UNAVAILABLE 해석과 동일 규약).
+
+ (C) services/candidate_postcount_finalize.py
+   · `_nm_from_contracts` 가 pk 와 함께 `is_pk_source` 도 복원 → COUNT 후 재부착에서
+     목적지 출처가 '원본 키메타 수집'으로 승격되지 않는다(SUM 안전게이트 보호).
+
+범위 밖으로 둔 것(의도):
+   · 원본 key_metadata 를 JOIN 경로에도 수집하도록 확장 — 하지 않음(요구사항 4, §3 근거).
+   · attach_evidence_contracts 운영 호출부는 analyze / postcount 2곳뿐이라 일괄검증도 이 두 경로를
+     재사용한다(별도 배선 불필요).
+
+================================================================================
+5. 실측 검증 — 오라클 라이브 (조회 전용)
+================================================================================
+환경: 원본 Oracle asis 192.168.0.151:1523 / 목적지 Oracle tobe 192.168.0.151:1524 (xepdb1, NXDNP)
+      · 실접속 확인: 원본 0.25s, 목적지 0.07s
+      · SELECT/카탈로그 조회만 수행. INSERT/UPDATE/DDL 미실행.
+      · 비밀번호는 프리셋에서 읽어 접속에만 사용하고 출력·기록하지 않았다(§9 검사 결과 첨부).
+하니스: scripts/dev_e2e/evidence_contract_pk_gate_join_measure.py (신규)
+        케이스는 기존 scripts/dev_e2e/is_pk_candidate_impact_measure.py 의 CASES 재사용
+        (단일테이블 5 + JOIN 5 = 10 케이스, 픽스처 이중 정의 없음).
+
+── 5-1. 대조 기준선 정의 및 교란요인 제거 ───────────────────────────────────
+(1) 작업트리에 **다른 세션의 미커밋 변경 2파일**이 있었다(AXIS-A-SYSTEM-AUDIT-TIMESTAMP-
+    MISCLASSIFICATION-FIX). HEAD 워크트리와 그냥 비교하면 그 변경까지 내 것으로 집계되므로,
+    baseline 워크트리(E:\_wt_ecpk)에 그 2파일을 복사해
+    **baseline = 현재 작업트리 − 내 변경** 으로 맞춘 뒤 대조했다.
+    (해당 세션은 이후 9211e2c 로 그 변경을 커밋했다 — 내 baseline 내용과 동일.)
+(2) 값 샘플(sample_values)은 mv_column_sample(SQLite, db/migration_validator.db)에
+    **프로세스 간 영속 캐시**로 남는다. 워크트리는 자기 db/ 를 써서 cold cache 였고, 그 차이만으로
+    a2 케이스 REG_DT 가 admin_audit_verdict CONFIRMED→NAMING_VALUE_MISMATCH 로 뒤집혀
+    rec_status 가 EXCLUDED→MANUAL_REVIEW 로 보였다. **내 변경과 무관**이며, 메인 DB 를 워크트리로
+    복사해 캐시를 동일하게 맞춘 뒤 재측정하니 해당 차이는 사라졌다(아래 수치는 재측정본).
+
+── 5-2. 핵심 결과: evidence_contract.pk 개방 ────────────────────────────────
+                              BEFORE(현재트리−내변경)      AFTER(내변경 포함)
+케이스                  후보수  ev_pk=None  missing'pk'   ev_pk=None  missing'pk'  pk 출처
+a1 단일PK · 단일테이블      7        0          0             0          0    SOURCE_KEY_METADATA
+a2 단일PK · JOIN ★핵심      6        6          6             0          0    TARGET_KEY_METADATA
+b1 복합PK · 단일테이블      3        0          0             0          0    SOURCE_KEY_METADATA
+b2 복합PK · JOIN            3        3          3             0          0    TARGET_KEY_METADATA
+d1 코드성PK · 단일테이블    1        0          0             0          0    SOURCE_KEY_METADATA
+d2 코드성PK · JOIN          1        1          1             0          0    TARGET_KEY_METADATA
+e1 문자PK · 단일테이블      2        0          0             0          0    SOURCE_KEY_METADATA
+e2 문자PK · JOIN            2        2          2             0          0    TARGET_KEY_METADATA
+c1 PK없음 · 단일테이블      2        0          0             0          0    SOURCE_KEY_METADATA
+c2 PK없음 · JOIN            1        1          1             1          1    (없음 — 아래 설명)
+──────────────────────────────────────────────────────────────────────────────
+JOIN 5케이스 합계          13       13         13             1          1
+
+  · **JOIN 경로 ev_pk=None 13건 → 1건**, missing_evidence 의 'pk' 13건 → 1건.
+  · 남은 1건(c2)은 목적지 테이블 MV_ORA_NOPK_TGT 에 **PK 가 실제로 없어** 어댑터 키메타가 빈
+    결과({})인 경우다. 빈 결과를 'PK 없음'으로 단정하지 않고 미수집(None)으로 두는 것이 §8 규약이며
+    기존 `_build_target_pk_evidence` 의 KEY_METADATA_UNAVAILABLE 해석과 동일 → **의도된 잔존**.
+  · 단일테이블 5케이스는 before/after 수치가 완전 동일 — **무회귀**(새 필드 pk_source 만 추가).
+
+── 5-3. 추천/선정 영향 (회귀 관측) ──────────────────────────────────────────
+하니스 diff 합계:
+    pk_opened=12   miss_pk_removed=12   rec_changed=0   auto_changed=0   ins_changed=0
+  → recommendation_status / auto_selected / evidence_insufficient / auto_select_blocked
+    **변화 0건**. 후보 집합(소멸·신규)도 전 케이스 0건.
+
+── 5-4. 보강 케이스: SQL 명시 GROUP BY 에 목적지 단일 PK 가 등장 (JOIN) ─────
+candidate_engine 의 is_pk 게이트는 Step2(메타)/Step3(시맨틱)에만 있고 Step1(SQL 명시·HIGH)은
+통과한다. 계약 pk 완화가 §22(PK/UNIQUE 자동추천 제외)를 **새로** 발동시키는지 확인할 수 있는
+유일한 경로라 별도 측정했다(MV_ORA_DEMO_SRC ⋈ MV_ORA_DEPT_MASTER, GROUP BY s.ID, s.DEPT_CD —
+ID 는 목적지 MV_ORA_DEMO_TGT 의 단일 PK).
+
+  컬럼      역할      BEFORE                            AFTER
+  ID        GROUP_BY  ev_pk=None · rec=EXCLUDED         ev_pk=True(TARGET)  · rec=EXCLUDED
+  DEPT_CD   GROUP_BY  ev_pk=None · rec=MANUAL_REVIEW    ev_pk=False(TARGET) · rec=MANUAL_REVIEW
+  AMT       SUM       ev_pk=None · rec=AUTO_RECOMMENDED ev_pk=False(TARGET) · rec=AUTO_RECOMMENDED
+
+  · ID 는 **수정 전에도 이미** 다른 규칙('식별자성 의심 — GROUP BY 정책상 제외')으로 EXCLUDED 였고,
+    수정 후에는 여기에 실제 PK 근거가 붙었을 뿐 판정은 동일하다.
+  · 즉 이번 완화는 **근거를 채우되 판정을 바꾸지 않았다** — 새 배제 0건, 새 완화 0건.
+
+── 5-5. "근거부족 배지" 기대치에 대한 정정 (중요) ───────────────────────────
+지침/§11-R2 는 pk 게이트가 열리면 '근거부족 배지가 줄어들 것'으로 기대했다.
+**실측 결과 배지 수는 줄지 않았고(ins_changed=0), 이는 결함이 아니라 정상이다.**
+화면의 '근거부족' 신호는 pk 를 입력으로 쓰지 않는다:
+
+  services/fallback_recommendation.py
+    · enforce_recommendation_evidence_guard(326행)가 `evidence_insufficient=True` 를 세우는
+      유일한 조건은 recommendation_evidence_sufficient() == False (316행)이고,
+    · 그 함수(262-297행)는 GROUP BY 는 `"cardinality" in missing`,
+      SUM 은 `"numeric_or_semantic"` / `_sum_review_required` 만 본다.
+      **pk / unique 는 판정 입력이 아니다.**
+  services/candidate_recommendation_policy._gate_verdict(199-225행)도 GROUP BY 강등 근거는
+    cardinality 계열뿐이다(pk 는 True 일 때 '제외'로만 작용).
+
+  JOIN 경로에서 '근거부족'이 뜨는 실제 원인은 **cardinality(고유값) 근거 미수집**이며,
+  그것은 원본 profile/통계를 JOIN 에서 수집하지 않기 때문이다(§3의 설계 배제와 같은 뿌리).
+  → pk 게이트만으로는 배지가 줄 수 없다. 배지를 줄이려면 JOIN 경로의 cardinality 근거 확보가
+     필요하고 그것은 이번 범위(요구사항 4: 원본 수집 확장 금지) 밖이다 → §8 후속으로 남긴다.
+
+  이번 수정이 실제로 얻은 것(측정된 사실):
+    ① 계약 pk 가 JOIN 경로에서 처음으로 실값을 갖는다(12건).
+    ② missing_evidence 에서 'pk' 가 사라진다(12건) — 근거 목록 정확도 향상.
+    ③ §22 PK/UNIQUE 자동추천 제외 gate 가 JOIN 경로에서도 **판단 근거를 갖게 됐다**
+       (현 픽스처에선 결과 동일하나, 목적지 단일 PK 가 SQL 명시 후보로 들어오는 형태에서
+        더 이상 '모름'으로 통과하지 않는다).
+    ④ COUNT 후 재부착(postcount)에서도 PK 근거와 그 출처가 보존된다.
+
+================================================================================
+6. 테스트 결과
+================================================================================
+── 6-1. 신규 단위 테스트 (tests/test_evidence_contract_pk_gate_join_path.py, 8건) ──
+  test_join_path_pk_filled_from_target_key_metadata      PASS  목적지 근거로 pk 채워짐
+  test_join_path_unique_stays_unknown                    PASS  unique 는 None 유지(§8)
+  test_target_pk_true_triggers_existing_exclusion_gate   PASS  목적지 PK=True → §22 제외 발동
+  test_source_key_metadata_takes_precedence              PASS  원본 근거 우선
+  test_no_key_evidence_keeps_pk_none                     PASS  둘 다 없으면 None(§8)
+  test_sum_numeric_or_semantic_not_relaxed_by_target_pk  PASS  SUM 안전게이트 무완화
+  test_sum_numeric_or_semantic_source_key_signal_unchanged PASS 기존 경로 동일 평가
+  test_reattach_preserves_target_provenance              PASS  재부착 출처 승격 없음
+  → 8 passed
+
+── 6-2. CLAUDE.md 지정 회귀 스크립트 ──
+  python samples/test_virtual_cases.py   → 8/8 통과 (exit 0)
+  python samples/test_complex_cases.py   → 5/5 통과 (exit 0)
+
+── 6-3. 계약/추천 핵심 세트 ──
+  tests/test_candidate_evidence_contract.py + test_candidate_recommendation_policy.py
+  + test_postcount_finalize.py + test_cardinality_evidence.py + 신규 8건
+  → **52 passed** (실패 0)
+
+── 6-4. baseline 대조 (변경 3개 모듈을 직접 import/참조하는 테스트 전부) ──
+  대상: 46개 파일(baseline 은 신규 테스트 제외 45개). `-p no:randomly` 고정 순서.
+  baseline : E:\_wt_ecpk (= 현재 작업트리 − 내 변경, §5-1 참조)
+    BEFORE : 19 failed, 518 passed, 1 skipped   (3:18)
+    AFTER  : 19 failed, 526 passed, 1 skipped, 1 error (3:23)
+
+  · 실패 집합 차집합
+      AFTER 에만 있음 : ERROR tests/test_validation_run_shadow_r3_state_lock.py::
+                        test_backlog_records_stabilization_tasks   ← **환경 요인, 아래 참조**
+      BEFORE 에만 있음: 0건
+  · passed 8건 증가 = 신규 테스트 8건.
+
+  [AFTER 전용 ERROR 1건이 내 변경과 무관한 근거]
+    · 실패 지점은 tests/conftest.py:273 의 **세션 autouse teardown 가드**
+      `assert _file_sha(...) == h  # [PROD-DB-MUTATED] 운영 DB 가 테스트 중 변경됨`
+      대상 파일 C:\projects\migration-validator\db\migration_validator.db.
+    · 이 가드는 '테스트 세션 동안 운영 DB 파일 해시가 변했는가'만 본다. 세션 도중 **외부
+      프로세스**가 쓰면 어떤 테스트든 무관하게 걸린다. 측정 시점에 같은 DB 를 쓰는
+      `web_server.py`(PID 4004/4692, 다른 세션 기동)가 실행 중이었다.
+    · baseline 워크트리는 자기 db/ 를 쓰고 아무도 안 건드려 걸리지 않았다(경로 차이).
+    · 단독 재실행으로 확인: `pytest -q tests/test_validation_run_shadow_r3_state_lock.py`
+      → **9 passed in 2.01s** (실행 전/후 DB md5 동일: 067dc7cf…).
+    ⇒ 신규 회귀 **0건**.
+
+── 6-5. 실패 테스트 전체 목록 (before/after 공통 19건 = 전부 사전 존재) ──
+  FAILED tests/test_all_stages_timing_display_expand.py::test_count_generate_execute_routes_add_processing_ms
+  FAILED tests/test_batch_single_core_wrapper_foundation.py::test_ui_advanced_diagnostics_render
+  FAILED tests/test_batch_single_core_wrapper_foundation.py::test_ui_dependency_applied_rows
+  FAILED tests/test_batch_single_core_wrapper_foundation.py::test_ui_diagnostics_analyze_subrows
+  FAILED tests/test_batch_single_core_wrapper_foundation.py::test_ui_diagnostics_dependency_rows
+  FAILED tests/test_cte_alias_scope_and_derived_validation.py::test_real_physical_column_missing_still_failed
+  FAILED tests/test_cte_alias_scope_and_derived_validation.py::test_real_physical_table_missing_still_failed
+  FAILED tests/test_d9_4_top_n_single_source.py::test_score_and_top_n_are_separate_modules
+  FAILED tests/test_engine_cardinality_parity.py::test_engine_stats_change_groupby_candidacy
+  FAILED tests/test_final_from_cte_table_presence.py::test_missing_physical_base_table_still_blocked
+  FAILED tests/test_iv08_iv11_final_fix.py::test_count_only_pane_makes_header_non_sticky
+  FAILED tests/test_null_ratio_cardinality_ui.py::test_ui_null_render_and_no_duplicate_max_text
+  FAILED tests/test_single_policy_cleanup_bundle.py::test_execute_with_group_persists
+  FAILED tests/test_single_validation_candidate_audit.py::test_audit_fixture_cases_all_pass
+  FAILED tests/test_single_validation_candidate_audit.py::test_fallback_promote_golden
+  FAILED tests/test_task11_g.py::TestAdapterUsage::test_TC_PIPELINE_04_analyze_route_uses_adapter
+  FAILED tests/test_task11_g.py::TestCandidateEngineEvidence::test_TC_PIPELINE_09_lineage_sum_evidence
+  FAILED tests/test_task11_g.py::TestSqlglotImportRestriction::test_TC_PIPELINE_01_sqlglot_restricted_to_parser
+  FAILED tests/test_task11_h1.py::TestCallerIntegration::test_TC_DBOBJ_PMODEL_22_analyze_route_passes_parsed_model
+  (19건 전부 BEFORE·AFTER 동일 — 이번 변경 이전부터 실패 중, 차집합 0건)
+
+── 6-6. 수행하지 못한 것(명시) ──
+  전체 스위트(tests/ 약 1,009 파일) before/after 대조는 완주하지 못했다. 병렬 대조 중
+  ① 다른 세션의 동시 테스트 실행과 CPU 경합, ② 브라우저/서브프로세스 계열 테스트의 hang
+  (CPU 0% 정지 확인)으로 진행이 멈춰, 변경 3개 모듈을 **직접 import/참조하는 테스트 전수(46파일)**
+  대조로 대체했다(§6-4). 지침의 '관련 서브셋 + baseline 대조' 요건은 충족하나 전수는 아니다.
+
+================================================================================
+7. 변경 파일 / git
+================================================================================
+커밋 dca1558  (5 files changed, 390 insertions(+), 6 deletions(-))
+  M services/candidate_evidence_contract.py        +57/-6  pk 게이트 완화 · pk_source · SUM 신호 분리
+  M services/single_validation_analyze_service.py  +20     _tgt_key_collected 확정·전달
+  M services/candidate_postcount_finalize.py       +6      재부착 시 pk 출처 복원
+  A tests/test_evidence_contract_pk_gate_join_path.py      신규 단위 테스트 8건
+  A scripts/dev_e2e/evidence_contract_pk_gate_join_measure.py  before/after 실측 하니스
+
+※ 완료된 1~6단계 모듈은 수정하지 않았다.
+※ ui/tabler_renderer.py 는 손대지 않았다(서버가 만드는 계약만 변경 — 렌더러 수정 불필요).
+※ BACKLOG.md 도 손대지 않았다(다른 세션과의 충돌 회피).
+
+[동시 세션 안전 확인]
+  · 작업 착수 시점 HEAD f02da5f → 커밋 직전 9211e2c 로 이동(다른 세션이 axis-a 작업 커밋).
+    내 3개 파일은 그 커밋에 포함되지 않음을 `git log f02da5f..HEAD -- <내 파일들>` 로 확인(결과 0건).
+  · 커밋 전 다른 세션의 미커밋 변경을 패치·원본 파일로 백업해 두었다(axis_a.patch, md5 기록).
+  · staged 목록을 커밋 전 확인(5개 파일, 삭제 0건), 커밋 후 `git show --name-status` 삭제 0건 확인.
+  · 커밋 후 작업트리 잔여: `M ui/tabler_renderer.py` (다른 세션 것 — **그대로 보존됨**).
+
+================================================================================
+8. 남은 문제 / 후속 필요
+================================================================================
+F1 (중) **JOIN 경로 cardinality 근거 부재** — '근거부족' 배지의 실제 원인(§5-5). 원본 profile/
+        통계가 JOIN 에서 수집되지 않아 GROUP BY 후보가 계속 MANUAL_REVIEW 로 남는다.
+        해결하려면 JOIN 의 컬럼→원본테이블 귀속(lineage)을 확정한 뒤 테이블별로 통계를 수집해야
+        하며, 이는 이번 지침이 명시적으로 범위 밖으로 정한 '원본 수집 확장'이다 → 별도 작업 필요.
+F2 (중) **원본 key_metadata 의 JOIN 경로 수집 확장** — 지침 요구사항 4에 따라 이번엔 하지 않았다.
+        하면 pk 를 '원본 기준'으로도 알 수 있어 SUM 합산근거 신호(source_key_signal)까지 정상화되나,
+        §3의 귀속 문제를 먼저 풀어야 한다(from_pg_stats 가 단일 테이블 전제).
+F3 (하) **목적지 unique 미수집** — `_cmn_fetch_tgt_col_meta` 는 어댑터 키메타에서 is_pk 만 싣고
+        is_unique 는 버린다(db_query_service.py:1435-1441). 실으면 unique 도 목적지 근거로 열 수
+        있어 missing_evidence 의 'unique' 가 줄지만, 소비처(§22 제외 gate)에 영향이 있어 별도 판단 필요.
+F4 (하) **c2 유형(목적지 PK 없음) 은 계속 pk=None** — 어댑터가 빈 dict 를 반환해 '키 없음'과
+        '미지원/조회불가'를 구분할 수 없다. 어댑터가 'PK 없음 확인'을 명시 신호로 돌려주면 해소된다.
+F5 (하) **전체 스위트 대조 미완주**(§6-6). 동시 세션 경합·hang 테스트가 원인이며, 한산한 시점에
+        전수 대조를 한 번 돌려두면 좋다.
+
+================================================================================
+9. 보안 점검
+================================================================================
+  · 신규/수정 5개 파일 비밀번호·자격증명 하드코딩 검사: **0건**
+      (grep -niE "password|dnp0852|passwd|pwd *=" → 매칭 0)
+  · 측정 산출물(JSON) 비밀번호 포함 검사: **0건**
+  · pre-commit 훅 비밀번호 스캔: **통과** (staged 5개 파일, 지문 4건 대조)
+  · 하니스는 프리셋에서 접속정보를 읽어 접속에만 사용하고 출력하지 않는다
+    (is_pk_candidate_impact_measure.preset 재사용 — 기존 규약 동일).
+  · 실행한 SQL 은 SELECT / 카탈로그 조회뿐이다. INSERT·UPDATE·DELETE·DDL 미실행.
+
+================================================================================
+10. 실검증 상태
+================================================================================
+실검증 상태 : 실 DB 실행 검증 완료 — Oracle asis(192.168.0.151:1523) / tobe(1524) 라이브 접속으로
+before/after 10케이스 + 보강 1케이스의 analyze 파이프라인을 실제 실행해 측정했다(SELECT/카탈로그
+조회 전용, INSERT·DDL 미실행). baseline 은 별도 워크트리(E:\_wt_ecpk)에 '현재 작업트리 − 내 변경'
+상태를 구성해 동일 하니스로 측정했고, 값 샘플 SQLite 캐시 차이라는 교란요인을 제거한 뒤 재측정한
+값을 보고했다. 브라우저 화면 조작(Playwright) 검증은 수행하지 않았다 — 지침이 '화면 무관'으로
+명시했고, 이번 변경은 서버가 만드는 계약 필드에 한정된다.
+
+작업명 : EVIDENCE-CONTRACT-PK-GATE-JOIN-PATH-FIX
+✅ 작업 완료 - evidence_contract.pk 게이트를 '원본 키메타 OR 목적지 키메타'로 완화해 JOIN 경로에서
+계약 pk 가 처음으로 실값을 갖게 했고(ev_pk=None 13건→1건, missing 'pk' 13건→1건), 목적지로 채운
+경우의 출처를 pk_source 로 남겨 SUM 합산근거 안전게이트가 근거 없이 완화되는 것을 차단했다 —
+오라클 라이브 11케이스 실측으로 추천/선정 변화 0건·단일테이블 무회귀를 확인했고, 변경 모듈
+직접 소비 테스트 46파일 baseline 대조에서 신규 회귀 차집합 0건(AFTER 전용 1건은 외부 프로세스의
+운영 DB 쓰기로 인한 환경 요인 — 단독 재실행 9 passed 로 확인). '근거부족 배지 감소'는 발생하지
+않았고 그 원인이 pk 가 아니라 JOIN 경로의 cardinality 미수집임을 코드 근거와 함께 §5-5에 정정 기록,
+원본 수집 확장은 §8 F1/F2 로 별도 작업 필요로 남겼다.
