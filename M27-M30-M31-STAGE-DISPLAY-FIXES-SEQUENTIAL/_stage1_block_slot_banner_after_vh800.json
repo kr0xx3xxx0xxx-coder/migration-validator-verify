@@ -1,0 +1,478 @@
+{
+  "task": "M27-M30-M31-STAGE-DISPLAY-FIXES-SEQUENTIAL",
+  "part": "A",
+  "phase": "after_vh800",
+  "shots": {
+    "01_unsupported": "after_vh800_01_unsupported_screen.png",
+    "01_unsupported_banner": "after_vh800_01_unsupported_banner.png",
+    "02_critical": "after_vh800_02_critical_screen.png",
+    "02_critical_banner": "after_vh800_02_critical_banner.png",
+    "03_ok": "after_vh800_03_ok_screen.png"
+  },
+  "notes": [],
+  "setup": {
+    "pair_rows": 1,
+    "pair_created": false,
+    "connected": true
+  },
+  "unsupported": {
+    "fmtBanner": {
+      "present": true,
+      "html_len": 302,
+      "text": "🚫 미지원INSERT-SELECT 형식이 아닙니다. 이관 SQL은 INSERT INTO ... SELECT ... 형식이어야 합니다.이관 SQL이 아닌 경우 검증을 진행할 수 없습니다.",
+      "display": "block",
+      "visibility": "visible",
+      "opacity": "1",
+      "rect": {
+        "top": 579,
+        "left": 302,
+        "w": 1096,
+        "h": 66
+      },
+      "painted": true,
+      "in_viewport": true,
+      "hidden_ancestors": []
+    },
+    "mvResultArea": {
+      "present": true,
+      "html_len": 33979,
+      "text": "🔍 쿼리검토 차단 › 🔢 COUNT 사전검증 잠김 › 📋 후보 컬럼 선정 잠김 › 📊 통계검증 실행 잠김 현재 단계 쿼리검토 | 현재 결과 SQL 검증이 차단되었습니다. | 다음 행동 오류 메시지를 확인하고 테이블명/컬럼명/SQL 구조를 수정하세요. 🔍 쿼리검토 미지원 형식 🔢 COUNT 사전검증 대기 📋 후보 컬럼 선정 대기 📊 통계검증 실행 대기 🚫 미지원INSERT-SELECT 형식이 아닙니다. 이관 SQL은 INSERT INTO ... SELECT ... 형식이어야 합니다.이관 SQL이 아닌 경우 검증을 진행",
+      "display": "block",
+      "visibility": "visible",
+      "opacity": "1",
+      "rect": {
+        "top": 579,
+        "left": 302,
+        "w": 1096,
+        "h": 66
+      },
+      "painted": true,
+      "in_viewport": true,
+      "hidden_ancestors": []
+    },
+    "queryReviewCard": {
+      "present": true,
+      "html_len": 2043,
+      "text": "쿼리 검토 결과 목적테이블—원본테이블—입력컬럼수—추출컬럼수—조건문—조인—처리시간—상태—",
+      "display": "flex",
+      "visibility": "visible",
+      "opacity": "1",
+      "rect": {
+        "top": -50,
+        "left": 302,
+        "w": 1096,
+        "h": 192
+      },
+      "painted": true,
+      "in_viewport": true,
+      "hidden_ancestors": []
+    },
+    "stickyProgressBar": {
+      "present": true,
+      "html_len": 2376,
+      "text": "🔍 쿼리검토 차단 › 🔢 COUNT 사전검증 잠김 › 📋 후보 컬럼 선정 잠김 › 📊 통계검증 실행 잠김 현재 단계 쿼리검토 | 현재 결과 SQL 검증이 차단되었습니다. | 다음 행동 오류 메시지를 확인하고 테이블명/컬럼명/SQL 구조를 수정하세요.",
+      "display": "block",
+      "visibility": "visible",
+      "opacity": "1",
+      "rect": {
+        "top": 579,
+        "left": 302,
+        "w": 1096,
+        "h": 0
+      },
+      "painted": false,
+      "in_viewport": false,
+      "hidden_ancestors": []
+    },
+    "slots": {
+      "stage1": "",
+      "stage2": "",
+      "stage3": "",
+      "stage4": "",
+      "stage5": ""
+    },
+    "qr_tiles": [
+      {
+        "label": "목적테이블",
+        "value": "—"
+      },
+      {
+        "label": "원본테이블",
+        "value": "—"
+      },
+      {
+        "label": "입력컬럼수",
+        "value": "—"
+      },
+      {
+        "label": "추출컬럼수",
+        "value": "—"
+      },
+      {
+        "label": "조건문",
+        "value": "—"
+      },
+      {
+        "label": "조인",
+        "value": "—"
+      },
+      {
+        "label": "처리시간",
+        "value": "—"
+      },
+      {
+        "label": "상태",
+        "value": "—"
+      }
+    ],
+    "qr_tile_labels": [
+      "목적테이블",
+      "원본테이블",
+      "입력컬럼수",
+      "추출컬럼수",
+      "조건문",
+      "조인",
+      "처리시간",
+      "상태"
+    ],
+    "runBtn": {
+      "label": "▶ SQL 분석 실행",
+      "disabled": false
+    },
+    "cmdbar": [
+      {
+        "fn": "_mvNavStep",
+        "label": "◀ 이전",
+        "disabled": true,
+        "visible": true
+      },
+      {
+        "fn": "runAnalyze",
+        "label": "▶ 검증 실행",
+        "disabled": false,
+        "visible": true
+      },
+      {
+        "fn": "_mvNavStep",
+        "label": "다음 ▶",
+        "disabled": true,
+        "visible": true
+      }
+    ],
+    "view_step": "query",
+    "analyzed": false,
+    "fmt_level": "UNSUPPORTED",
+    "scroll_y": 341,
+    "viewport_h": 800,
+    "clicked": true,
+    "wall_sec": 11.75
+  },
+  "critical": {
+    "fmtBanner": {
+      "present": true,
+      "html_len": 326,
+      "text": "🔴 차단여러 개의 SQL이 감지되었습니다. 개별검증은 SQL 1건만 지원합니다. 여러 이관 SQL을 처리하려면 [일괄검증] 메뉴에서 .xlsx/.xlsm 파일로 업로드하세요.개별검증 화면에서는 한 번에 1건의 SQL만 분석할 수 있습니다.",
+      "display": "block",
+      "visibility": "visible",
+      "opacity": "1",
+      "rect": {
+        "top": 579,
+        "left": 302,
+        "w": 1096,
+        "h": 66
+      },
+      "painted": true,
+      "in_viewport": true,
+      "hidden_ancestors": []
+    },
+    "mvResultArea": {
+      "present": true,
+      "html_len": 34017,
+      "text": "🔍 쿼리검토 차단 › 🔢 COUNT 사전검증 잠김 › 📋 후보 컬럼 선정 잠김 › 📊 통계검증 실행 잠김 현재 단계 쿼리검토 | 현재 결과 SQL 검증이 차단되었습니다. | 다음 행동 오류 메시지를 확인하고 테이블명/컬럼명/SQL 구조를 수정하세요. 🔍 쿼리검토 CRITICAL 차단 🔢 COUNT 사전검증 대기 📋 후보 컬럼 선정 대기 📊 통계검증 실행 대기 🔴 차단여러 개의 SQL이 감지되었습니다. 개별검증은 SQL 1건만 지원합니다. 여러 이관 SQL을 처리하려면 [일괄검증] 메뉴에서 .xlsx/.xlsm 파일로",
+      "display": "block",
+      "visibility": "visible",
+      "opacity": "1",
+      "rect": {
+        "top": 579,
+        "left": 302,
+        "w": 1096,
+        "h": 66
+      },
+      "painted": true,
+      "in_viewport": true,
+      "hidden_ancestors": []
+    },
+    "queryReviewCard": {
+      "present": true,
+      "html_len": 2043,
+      "text": "쿼리 검토 결과 목적테이블—원본테이블—입력컬럼수—추출컬럼수—조건문—조인—처리시간—상태—",
+      "display": "flex",
+      "visibility": "visible",
+      "opacity": "1",
+      "rect": {
+        "top": -50,
+        "left": 302,
+        "w": 1096,
+        "h": 192
+      },
+      "painted": true,
+      "in_viewport": true,
+      "hidden_ancestors": []
+    },
+    "stickyProgressBar": {
+      "present": true,
+      "html_len": 2376,
+      "text": "🔍 쿼리검토 차단 › 🔢 COUNT 사전검증 잠김 › 📋 후보 컬럼 선정 잠김 › 📊 통계검증 실행 잠김 현재 단계 쿼리검토 | 현재 결과 SQL 검증이 차단되었습니다. | 다음 행동 오류 메시지를 확인하고 테이블명/컬럼명/SQL 구조를 수정하세요.",
+      "display": "block",
+      "visibility": "visible",
+      "opacity": "1",
+      "rect": {
+        "top": 579,
+        "left": 302,
+        "w": 1096,
+        "h": 0
+      },
+      "painted": false,
+      "in_viewport": false,
+      "hidden_ancestors": []
+    },
+    "slots": {
+      "stage1": "",
+      "stage2": "",
+      "stage3": "",
+      "stage4": "",
+      "stage5": ""
+    },
+    "qr_tiles": [
+      {
+        "label": "목적테이블",
+        "value": "—"
+      },
+      {
+        "label": "원본테이블",
+        "value": "—"
+      },
+      {
+        "label": "입력컬럼수",
+        "value": "—"
+      },
+      {
+        "label": "추출컬럼수",
+        "value": "—"
+      },
+      {
+        "label": "조건문",
+        "value": "—"
+      },
+      {
+        "label": "조인",
+        "value": "—"
+      },
+      {
+        "label": "처리시간",
+        "value": "—"
+      },
+      {
+        "label": "상태",
+        "value": "—"
+      }
+    ],
+    "qr_tile_labels": [
+      "목적테이블",
+      "원본테이블",
+      "입력컬럼수",
+      "추출컬럼수",
+      "조건문",
+      "조인",
+      "처리시간",
+      "상태"
+    ],
+    "runBtn": {
+      "label": "▶ SQL 분석 실행",
+      "disabled": false
+    },
+    "cmdbar": [
+      {
+        "fn": "_mvNavStep",
+        "label": "◀ 이전",
+        "disabled": true,
+        "visible": true
+      },
+      {
+        "fn": "runAnalyze",
+        "label": "▶ 검증 실행",
+        "disabled": false,
+        "visible": true
+      },
+      {
+        "fn": "_mvNavStep",
+        "label": "다음 ▶",
+        "disabled": true,
+        "visible": true
+      }
+    ],
+    "view_step": "query",
+    "analyzed": false,
+    "fmt_level": "CRITICAL",
+    "scroll_y": 341,
+    "viewport_h": 800,
+    "clicked": true,
+    "wall_sec": 11.73
+  },
+  "ok": {
+    "fmtBanner": {
+      "present": true,
+      "html_len": 0,
+      "text": "",
+      "display": "none",
+      "visibility": "visible",
+      "opacity": "1",
+      "rect": {
+        "top": 0,
+        "left": 0,
+        "w": 0,
+        "h": 0
+      },
+      "painted": false,
+      "in_viewport": false,
+      "hidden_ancestors": []
+    },
+    "mvResultArea": {
+      "present": true,
+      "html_len": 39018,
+      "text": "🔍 쿼리검토 완료 › 🔢 COUNT 사전검증 현재 › 📋 후보 컬럼 선정 잠김 › 📊 통계검증 실행 잠김 현재 단계 COUNT 사전검증 | 현재 결과 쿼리검토 완료. 컬럼 매핑이 확인되었습니다. | 다음 행동 ▶ COUNT 비교 실행 버튼을 눌러 원본/목적지 건수를 비교하세요. 🔍 쿼리검토 통과 🔢 COUNT 사전검증 대기 📋 후보 컬럼 선정 대기 📊 통계검증 실행 대기 검증 방식 선택 Validation Mode 입력 SQL과 컬럼 매핑 검토 결과는 통계검증과 전수검증에서 공통으로 사용됩니다. 통계검증을 수행한 뒤에",
+      "display": "block",
+      "visibility": "visible",
+      "opacity": "1",
+      "rect": {
+        "top": 657,
+        "left": 302,
+        "w": 1096,
+        "h": 0
+      },
+      "painted": false,
+      "in_viewport": false,
+      "hidden_ancestors": []
+    },
+    "queryReviewCard": {
+      "present": true,
+      "html_len": 2587,
+      "text": "쿼리 검토 결과 목적테이블mv_bt.tgt_orders원본테이블mv_bt.orders_a입력컬럼수15추출컬럼수15조건문없음조인없음처리시간4.63초상태● 정상",
+      "display": "flex",
+      "visibility": "visible",
+      "opacity": "1",
+      "rect": {
+        "top": 28,
+        "left": 302,
+        "w": 1096,
+        "h": 192
+      },
+      "painted": true,
+      "in_viewport": true,
+      "hidden_ancestors": []
+    },
+    "stickyProgressBar": {
+      "present": true,
+      "html_len": 2392,
+      "text": "🔍 쿼리검토 완료 › 🔢 COUNT 사전검증 현재 › 📋 후보 컬럼 선정 잠김 › 📊 통계검증 실행 잠김 현재 단계 COUNT 사전검증 | 현재 결과 쿼리검토 완료. 컬럼 매핑이 확인되었습니다. | 다음 행동 ▶ COUNT 비교 실행 버튼을 눌러 원본/목적지 건수를 비교하세요.",
+      "display": "block",
+      "visibility": "visible",
+      "opacity": "1",
+      "rect": {
+        "top": 657,
+        "left": 302,
+        "w": 1096,
+        "h": 0
+      },
+      "painted": false,
+      "in_viewport": false,
+      "hidden_ancestors": []
+    },
+    "slots": {
+      "stage1": " · 1단계 처리시간: 4.63초",
+      "stage2": "",
+      "stage3": "",
+      "stage4": "",
+      "stage5": ""
+    },
+    "qr_tiles": [
+      {
+        "label": "목적테이블",
+        "value": "mv_bt.tgt_orders"
+      },
+      {
+        "label": "원본테이블",
+        "value": "mv_bt.orders_a"
+      },
+      {
+        "label": "입력컬럼수",
+        "value": "15"
+      },
+      {
+        "label": "추출컬럼수",
+        "value": "15"
+      },
+      {
+        "label": "조건문",
+        "value": "없음"
+      },
+      {
+        "label": "조인",
+        "value": "없음"
+      },
+      {
+        "label": "처리시간",
+        "value": "4.63초"
+      },
+      {
+        "label": "상태",
+        "value": "● 정상"
+      }
+    ],
+    "qr_tile_labels": [
+      "목적테이블",
+      "원본테이블",
+      "입력컬럼수",
+      "추출컬럼수",
+      "조건문",
+      "조인",
+      "처리시간",
+      "상태"
+    ],
+    "runBtn": {
+      "label": "▶ 다시 검증 실행",
+      "disabled": false
+    },
+    "cmdbar": [
+      {
+        "fn": "_mvNavStep",
+        "label": "◀ 이전",
+        "disabled": true,
+        "visible": true
+      },
+      {
+        "fn": "runAnalyze",
+        "label": "▶ 검증 실행",
+        "disabled": false,
+        "visible": true
+      },
+      {
+        "fn": "_mvNavStep",
+        "label": "다음 ▶",
+        "disabled": false,
+        "visible": true
+      }
+    ],
+    "view_step": "query",
+    "analyzed": true,
+    "fmt_level": "OK",
+    "scroll_y": 263,
+    "viewport_h": 800,
+    "clicked": true,
+    "wall_sec": 11.78
+  },
+  "console_errors": [],
+  "dialogs": [
+    "검증 경로 접속 성공: PostgreSQL_asis → PostgreSQL_tobe"
+  ]
+}

@@ -1,0 +1,224 @@
+작업명 : M27-M30-M31-STAGE-DISPLAY-FIXES-SEQUENTIAL
+✅ 작업 완료
+
+────────────────────────────────────────────────────────────────────────
+개요
+────────────────────────────────────────────────────────────────────────
+ui/tabler_renderer.py 를 함께 건드리는 3건(M27 / M31 / M30)을 순차 처리했다.
+파트별로 실 브라우저(playwright) 또는 서버 실측으로 before/after 를 확인하고
+파트 완료 시마다 커밋했다.
+
+커밋(3건, 시간순):
+  d333308  fix(ui) 파트 A — 1단계 차단 시 '계산 중' 슬롯 청소 + 오류 배너로 스크롤
+  8bc09f0  test(s15) 파트 B — 허용치 '0분' 회귀 가드(표시 코드는 이미 제거된 상태)
+  aa42496  fix(ui) 파트 C — S16 409 화면 알림 + /execute/set 오류 사유 오도 제거
+기준 커밋: 1fedcd8 (작업 착수 시점 HEAD)
+
+변경 규모(1fedcd8..aa42496):
+  ui/tabler_renderer.py                                     +41 -0
+  ui/validation_plan_renderer.py                            +24 -2  (파트 C, 아래 범위 주석 참고)
+  tests/ 신규 3파일 + 기존 1파일 단언 완화                    +392 -3
+  scripts/dev_e2e/ 실측 드라이버 3종                         +612
+  합계 9파일 / +1069 -5
+
+────────────────────────────────────────────────────────────────────────
+[파트 A] M27 — 1단계 CRITICAL/UNSUPPORTED 입력 시 무한 로딩       ✅ 수정 완료
+────────────────────────────────────────────────────────────────────────
+■ 원인(실측 확정)
+  runAnalyze 는 시작 시 _mvClearStageProcessingTime(1) 로 1단계 슬롯에
+  '· 1단계 계산 중...'을 걸어둔다. 이 문구는 성공 렌더
+  (_mvShowStageProcessingTime(1, diagnostics.total_ms))에서만 교체되는데,
+  SQL 형식 사전검증이 CRITICAL/UNSUPPORTED 로 차단하면 /analyze 를 호출하지 않고
+  그 자리에서 return 하므로 교체가 영영 일어나지 않는다.
+  2단계(runCount finally)·5단계(plan-sets finally)에는 이미 같은 청소가 있었다.
+
+■ 수정
+  차단 분기에 2·5단계와 동일한 조건식·구조의 청소를 붙였다(표시 전용, 판정 불변):
+    var _s1pt = document.getElementById('mvStage1ProcessingTime');
+    if (_s1pt && (_s1pt.textContent || '').indexOf('계산 중') >= 0) _s1pt.textContent = '';
+  이미 처리시간이 도착한 경우에는 '계산 중'이 없어 no-op 다.
+
+■ 오류 배너(#fmtBanner) 미노출 — 원인 조사 결과: 렌더 문제 아님
+  배너는 정상 렌더된다. 실측값: display=block · visibility=visible ·
+  숨긴 조상 0개 · 높이 66px · innerHTML 존재.
+  안 보인 원인은 위치였다. #fmtBanner 는 SQL 입력 카드 아래 mvResultArea 안에 있어
+    1440x800 뷰포트 : top=920  → 뷰포트 밖(스크롤해야 보임)
+    1600x1200 뷰포트: top=854  → 보임
+  즉 CSS 우선순위·렌더 순서가 아니라 뷰포트 의존이었다. 기존 오류 패널이 쓰는
+  패턴(scrollIntoView)만 재사용해 차단 시 배너 위치로 스크롤한다(새 UI 없음).
+
+■ 실측 (scripts/dev_e2e/stage1_critical_block_slot_and_banner_verify.py, 1440x800)
+  재현 SQL(지시서 지정): SELECT * FROM t WITH x AS (SELECT 1) SELECT * FROM x
+    → _validateSqlFormat = UNSUPPORTED / NOT_INSERT_SELECT (서버 호출 없음)
+  CRITICAL 경로(세미콜론 2문장)도 함께 확인.
+
+  구분                    before                     after
+  ---------------------------------------------------------------------
+  슬롯(UNSUPPORTED)       ' · 1단계 계산 중...'       ''
+  슬롯(CRITICAL)          ' · 1단계 계산 중...'       ''
+  배너 in_viewport        False (top=920)            True (top=579)
+  배너 painted            True                       True
+  [검증실행] 버튼          정상 복구(고착 없음)         정상 복구
+  쿼리검토 처리시간 타일     '—'                        '—'
+  정상 SQL 대조            슬롯 '처리시간 4.71초'       슬롯 '처리시간 4.63초'
+                          배너 없음                   배너 없음  → 무영향
+
+  스크린샷(E:\verify_screenshots_only\M27-M30-M31-STAGE-DISPLAY-FIXES-SEQUENTIAL\)
+    before_vh800_01_unsupported_screen.png / _banner.png
+    before_vh800_02_critical_screen.png    / _banner.png
+    before_vh800_03_ok_screen.png
+    after_vh800_01_unsupported_screen.png  / _banner.png
+    after_vh800_02_critical_screen.png     / _banner.png
+    after_vh800_03_ok_screen.png
+    (1600x1200 회차: before_01~03 / before_02_critical_* 동일 세트)
+
+────────────────────────────────────────────────────────────────────────
+[파트 B] M31 — '허용 N분'이 60초 미만에서 '0분'       ✅ 대상 부재(이미 해소) · 가드만 추가
+────────────────────────────────────────────────────────────────────────
+■ 결론
+  지적된 코드(_ageTxt + Math.round(profile_max_age_seconds / 60) + '분')는
+  현재 코드베이스에 없다. '실행 기준' 요약 박스(_mvExecBasisHtml) 전체와 함께
+  커밋 a1e4b7c (STAGE5-MISMATCH-GRID-HEADER-CLEANUP-FIX, 2026-08-05)에서 이미
+  삭제됐다. 삭제된 원본 diff 에서 지적된 두 줄을 그대로 확인했다:
+    -  var _ageTxt = (_ageS < 60) ? (Math.round(_ageS) + '초')
+    -              : (_ageS < 3600) ? (Math.round(_ageS / 60) + '분') : ...
+    -    + ' — 허용 ' + E(String(Math.round((gs.profile_max_age_seconds || 0) / 60))) + '분 초과 ...'
+
+■ 실측 (scripts/dev_e2e/stage15_profile_age_allowance_text_probe.py)
+  · 렌더된 페이지(2,445,567자) 내 잔존:
+      _ageTxt 0건 / profile_max_age_seconds 0건 / profile_age_seconds 0건
+      _mvExecBasisHtml 정의 0건 / 조건 없는 '분' 반올림 식 0건
+  · 임계값을 60초 미만(30초)으로 낮춰 stale 을 강제한 실측:
+      허용   30초 · 경과   90초 → stale=True  "후보 프로파일 경과 90초 > 허용 30초"
+      허용   30초 · 경과   10초 → stale=False (문구 없음)
+      허용 1800초 · 경과   90초 → stale=False (운영 기본값, 종전과 동일)
+      허용 1800초 · 경과 2400초 → stale=True  "경과 2400초 > 허용 1800초"
+      → '0분' 표시 발생 0건. 서버 문구는 초 단위라 오표시 경로 자체가 없다.
+  · 브라우저 화면에서도 재확인: 4단계 실행 완료 화면 본문 텍스트에
+    /허용\s*\d+\s*분/ 매치 False (파트 C 드라이버가 함께 측정).
+
+■ 지시하신 '헬퍼 추출·재사용'을 하지 않은 이유
+  화면에 남은 시간 문구 헬퍼는 2개이고 둘 다 이미 60초 미만 '초' 분기를 갖고 있다:
+    _mvExecStepProgressFmt : s < 60 → '45초' / 이상 → '1분 05초'
+    _jdAgo(job 대시보드)    : s < 60 → '초' / < 3600 → '분' / 이상 → '시간'
+  재사용할 중복 로직이 남아 있지 않아 새 헬퍼를 만들면 오히려 미사용 코드가 된다.
+  대신 이 상태가 되돌아가지 않도록 회귀 가드만 추가했다(코드 변경 없음).
+
+■ 비판적 검토(정보 손실 여부)
+  '후보 프로파일 경과/허용' 표기가 화면에서 사라진 것은 a1e4b7c 의 의도된 정리다.
+  판정 자체(EXPLAIN 강제·safety 계약 필드)는 서버에 그대로 있고 증적에도 남는다.
+  다만 사용자가 '왜 EXPLAIN 이 강제됐는지'를 화면에서 볼 수 없다는 점은 남아 있다 —
+  이번 작업 범위 밖이라 수정하지 않았고, 필요하면 별도 항목으로 다루는 것을 권한다.
+
+────────────────────────────────────────────────────────────────────────
+[파트 C] M30 — S16 409 가 화면 알림으로 안 뜬다        ✅ 수정 완료
+────────────────────────────────────────────────────────────────────────
+■ 재현 방법(타이밍 의존 없음)
+  드라이버가 서버를 인프로세스로 띄우므로, 정상 실행 1회에서 캡처한 /execute 요청
+  본문으로 workflow_stage_guard.begin_execution('execute', req) 를 직접 호출해
+  in-flight 표식을 심었다 = '다른 탭이 같은 문맥을 실행 중' 상태의 결정적 재현.
+  그 뒤 화면에서 [통계검증 실행]을 정상 클릭 → 클라이언트 가드는 통과, 서버만 409.
+
+■ before 실측 결과(= M30 지적의 실제 상태)
+  · 화면 알림(alert/toast) 0건
+  · 사유는 4단계 오류 패널(#mvExecStepError)에는 표시됐다:
+      "같은 검증 문맥의 '통계검증 실행' 이(가) 이미 실행 중입니다(2초 경과). ..."
+  · 즉 '콘솔에만 기록'은 아니었고, '즉시 눈에 띄는 알림이 없다'가 정확한 상태다.
+  · 409 응답 2건 수신 확인.
+
+■ 수정
+  1) /execute(runExecute): 409 + code EXECUTION_ALREADY_IN_PROGRESS 이면
+     클라이언트 가드가 이미 쓰는 같은 컴포넌트 _mvNotifyRunActiveBlocked 로
+     서버 문구를 띄운다. 새 알림 UI 발명 없음. 오류 패널 표시는 종전대로 유지.
+  2) _mvNotifyRunActiveBlocked(subject, detail) — detail 선택 인자 추가.
+     미지정(기존 호출부 전부)이면 종전 문구 그대로임을 node 하니스로 3경로 고정.
+  3) /execute/set(runValidationSet, ui/validation_plan_renderer.py): 종전에는
+     `throw new Error('서버 오류 ' + resp.status)` 로 응답 본문을 통째로 버려
+     서버 사유가 사라지고, catch 가 '이 검증 set 실행 중 오류 — GROUP BY/SUM
+     컬럼 구성을 확인하세요'로 오도했다. 본문을 읽어 사유를 살리고 같은 컴포넌트로
+     알리며, 안내 문구를 원인별로 갈랐다(일반 오류 안내는 유지).
+     ※ 지시서의 수정 대상 파일(ui/tabler_renderer.py) 범위를 넘는 변경이라 명시한다.
+       같은 S16 409 를 받는 두 번째 사용자 경로여서 함께 고쳤다.
+
+■ 실측 (scripts/dev_e2e/s16_inflight_409_screen_notice_verify.py)
+  구분                         before        after
+  ---------------------------------------------------------------
+  화면 알림(dialog)             0건           2건 (서버 문구 그대로)
+  4단계 오류 패널 표시           있음          있음(유지)
+  '이미 실행 중' 화면 노출        True          True
+  409 응답 수신                 2건           2건
+  표식 해제 후 정상 실행          alert 0건     alert 0건 · executed=True  → 무영향
+
+  after 알림 문구(실측 원문):
+    "같은 검증 문맥의 '통계검증 실행' 이(가) 이미 실행 중입니다(0초 경과).
+     진행 중인 실행이 끝난 뒤 '통계검증 실행' 을(를) 다시 시도하세요."
+
+  스크린샷: before_409_screen.png / after_409_screen.png
+            before_ok_screen.png  / after_ok_screen.png (표식 해제 후 정상 실행)
+  ※ headless 에서 alert 은 자동 accept 되어 스크린샷에 남지 않는다 —
+    알림 발생 증적은 드라이버가 수집한 dialog 목록(위 원문)이다.
+
+■ 남은 한계(수정하지 않음)
+  409 가 여전히 '최종 상태: 검증 실행 실패' + '확인할 항목: 서버 로그를 확인하세요'
+  라는 실패 패널로 프레이밍된다. 실제로는 '지금은 안 됨(재시도 가능)'이라 프레이밍이
+  과하지만, 이번 요구(알림 추가) 범위를 넘어서 손대지 않았다.
+
+────────────────────────────────────────────────────────────────────────
+자체 테스트 / 회귀
+────────────────────────────────────────────────────────────────────────
+1) 기존 필수 테스트
+   samples/test_virtual_cases.py    8/8 통과
+   samples/test_complex_cases.py    5/5 케이스 분석 완료
+
+2) 신규 회귀 가드(3파일 19건, 전부 통과)
+   tests/test_stage1_block_slot_cleanup_and_banner_scroll.py       6건
+     - 차단 분기의 슬롯 청소·배너 스크롤 존재 / 2·5단계 패턴 동일성
+     - node 하니스: '계산 중'만 지우고 도착한 처리시간 값은 보존, 슬롯 부재 시 무예외
+     - 배너 렌더 함수는 미변경(원인 오진단 방지 가드) / node --check
+   tests/test_profile_age_allowance_text_no_zero_minute.py         5건
+     - 조건 없는 분 반올림 표시 재도입 금지 / 삭제된 표시 코드 부활 금지
+     - 남은 시간 헬퍼 2개의 60초 미만 분기 / 게이트 문구 초 단위 / 운영 기본값 판정 불변
+   tests/test_s16_inflight_409_screen_notice.py                    8건
+     - /execute·/execute/set 409 분기와 알림 배선 / 새 토스트 미발명
+     - node 하니스: detail 지정·미지정·인자없음 3경로 문구 고정
+     - 서버 409 본문 계약(code/error/error_contract) / node --check
+
+3) 관련 스위트 baseline 대조 (886건, -k "execute or validation_plan or plan_set
+   or stage4 or stage5 or duplicate or inflight or stage_guard")
+     baseline(1fedcd8, worktree E:\_wt_m27): 61 failed / 815 passed
+     수정본(aa42496)                        : 63 failed / 824 passed
+   실패 목록 diff 결과 신규 실패는 아래 1건뿐이었고 해소했다:
+     test_stage45_timing_label_and_dup_guard_fix.py::test_b3_blocked_entry_gives_feedback
+       → 'function _mvNotifyRunActiveBlocked(subject)' 정확일치 단언이 detail 인자
+         추가로 깨진 것. 그 테스트의 의도(조용한 return 이 아니라 안내가 있는가)를
+         유지하도록 첫 인자까지만 고정하도록 완화. 이후 10/10 통과.
+   그 외 차이(test_execute_r3_safe_return / test_execute_route_shadow_integration)는
+   baseline 에서도 같은 파일이 실패하며 실패 케이스 조합만 회차마다 바뀌는
+   순서 의존 flaky 다 — baseline worktree 에서 두 파일만 개별 실행해 동일 재현 확인
+   (baseline 3 failed / 28 passed, 수정본 4 failed / 27 passed, 둘 다 같은 파일).
+   나머지 잔여 실패는 착수 전부터 존재하던 사전 존재 실패다.
+
+4) JS 번들 문법: node --check 통과(신규 테스트 2곳 + 기존 test_analyze_gate_await_lock_persist)
+
+────────────────────────────────────────────────────────────────────────
+실검증 상태
+────────────────────────────────────────────────────────────────────────
+실검증 상태: 실 브라우저(playwright/chromium) + 실 DB(Neon PostgreSQL asis→tobe,
+mv_bt.orders_a 10,000행 → mv_bt.tgt_orders 19,750행) 클릭스루로 파트 A·C before/after
+실측 완료. 파트 B 는 표시 코드 부재를 렌더 전수 검색과 임계값 30초 강제 실측으로 확인.
+사내망 Oracle/PG 는 이 환경에서 TCP 미도달이라 사용하지 않았다.
+
+────────────────────────────────────────────────────────────────────────
+변경/생성 파일
+────────────────────────────────────────────────────────────────────────
+수정: ui/tabler_renderer.py
+      ui/validation_plan_renderer.py          (파트 C — 지시서 범위 밖, 위 사유 명시)
+      tests/test_stage45_timing_label_and_dup_guard_fix.py   (단언 완화 1줄)
+생성: tests/test_stage1_block_slot_cleanup_and_banner_scroll.py
+      tests/test_profile_age_allowance_text_no_zero_minute.py
+      tests/test_s16_inflight_409_screen_notice.py
+      scripts/dev_e2e/stage1_critical_block_slot_and_banner_verify.py
+      scripts/dev_e2e/stage15_profile_age_allowance_text_probe.py
+      scripts/dev_e2e/s16_inflight_409_screen_notice_verify.py
+
+✅ 작업 완료

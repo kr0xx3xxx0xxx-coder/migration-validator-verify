@@ -1,0 +1,289 @@
+{
+  "task": "M27-M30-M31-STAGE-DISPLAY-FIXES-SEQUENTIAL",
+  "part": "C",
+  "phase": "before",
+  "shots": {
+    "step1": "s16_before_step1_query_review.png",
+    "step2": "s16_before_step2_count.png",
+    "step3": "s16_before_step3_candidate.png",
+    "step4_gen": "s16_before_step4_sql_generated.png",
+    "step4": "s16_before_step4_executed.png",
+    "409": "before_409_screen.png",
+    "ok": "before_ok_screen.png"
+  },
+  "notes": [],
+  "setup": {
+    "pair_rows": 1,
+    "pair_created": false,
+    "connected": true
+  },
+  "s1": {
+    "blocked": false,
+    "err": null,
+    "from_table": "ORDERS_A",
+    "tgt_table": "TGT_ORDERS",
+    "mapping_n": null,
+    "sql_shape": null,
+    "wall_sec": 8.41,
+    "slots": {
+      "s1": "· 1단계 처리시간: 4.46초",
+      "s2": "",
+      "s3": "",
+      "s4": "",
+      "s5": ""
+    }
+  },
+  "s2": {
+    "count_status": "COUNT_MAJOR_DIFF",
+    "src_count": 10000,
+    "tgt_count": 19750,
+    "wall_sec": 2.72,
+    "click_count": 2,
+    "count_resp_ms": 377.1,
+    "count_resp_diff": 9750,
+    "force_btn": false,
+    "slots": {
+      "s1": "· 1단계 처리시간: 4.46초",
+      "s2": "· 2단계 처리시간: 0.38초",
+      "s3": "",
+      "s4": "",
+      "s5": ""
+    }
+  },
+  "s3": {
+    "wall_sec": 6.34,
+    "gb": {
+      "found": [
+        "REGION_CD",
+        "CHANNEL_CD",
+        "ORDER_YM",
+        "STATUS_CD",
+        "ORDER_TYPE_CD",
+        "CATEGORY_CD",
+        "ORDER_YMD",
+        "CREATED_AT",
+        "ORDER_ID",
+        "ORDER_NO",
+        "CUST_ID"
+      ],
+      "clicked": [
+        "REGION_CD->OFF",
+        "CHANNEL_CD->OFF",
+        "ORDER_YM->OFF",
+        "STATUS_CD->ON"
+      ],
+      "disabled": [
+        "CREATED_AT",
+        "ORDER_ID",
+        "ORDER_NO",
+        "CUST_ID"
+      ],
+      "final": [
+        "STATUS_CD"
+      ]
+    },
+    "sum": {
+      "found": [
+        "ORDER_AMT",
+        "DISCOUNT_AMT",
+        "QTY",
+        "SHIP_FEE"
+      ],
+      "clicked": [
+        "DISCOUNT_AMT->OFF"
+      ],
+      "disabled": [],
+      "final": [
+        "ORDER_AMT",
+        "QTY"
+      ]
+    },
+    "slots": {
+      "s1": "· 1단계 처리시간: 4.46초",
+      "s2": "· 2단계 처리시간: 0.38초",
+      "s3": "· 3단계 계산 중...",
+      "s4": "",
+      "s5": ""
+    }
+  },
+  "s4": {
+    "planFp": null,
+    "matched": 0,
+    "diff": 4,
+    "src_only": 0,
+    "tgt_only": 0,
+    "total_groups": 4,
+    "processing_ms": 1189.6,
+    "success": true,
+    "from_execute_resp": {
+      "matched": 0,
+      "diff": 4,
+      "src_only": 0,
+      "tgt_only": 0,
+      "total_groups": 4,
+      "processing_ms": 1189.6,
+      "success": true
+    },
+    "gen_wall_sec": 2.24,
+    "exec_wall_sec": 3.95,
+    "slots": {
+      "s1": "· 1단계 처리시간: 4.46초",
+      "s2": "· 2단계 처리시간: 0.38초",
+      "s3": "· 3단계 계산 중...",
+      "s4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+      "s5": "· 5단계 통계검증 실행(상세 추출 별도): 1.19초"
+    }
+  },
+  "gen_sql": {
+    "src": "SELECT\n    status_cd AS STATUS_CD,\n    COUNT(*) AS CNT,\n    SUM(order_amt) AS ORDER_AMT,\n    SUM(qty) AS QTY\nFROM mv_bt.orders_a\nGROUP BY\n    status_cd",
+    "tgt": "SELECT\n    STATUS_CD AS STATUS_CD,\n    COUNT(*) AS CNT,\n    SUM(ORDER_AMT) AS ORDER_AMT,\n    SUM(QTY) AS QTY\nFROM mv_bt.tgt_orders\nGROUP BY\n    STATUS_CD"
+  },
+  "normal_run": {
+    "execStepError": {
+      "present": true,
+      "text": "",
+      "display": "none",
+      "painted": false,
+      "in_viewport": false
+    },
+    "executeOut": {
+      "present": true,
+      "text": "ℹ COUNT 사전검증 실패 — 원본/목적지 건수가 일치하지 않습니다.전체 4COUNT 4ORDER_AMT 4QTY 4항목 클릭 시 그 항목이 차이난 그룹만 표시(재실행 없음)※ 차이값(Δ)은 원본 값에서 목적지 값을 뺀 값입니다. 양수이면 원본이 더 크고, 음수이면 목적지가 더 큽니다.※ 명시 변환식 없이 차이가 발생했습니다. 원본/목적지 컬럼 타입이 달라 소수점 손실이나 암묵적 형변환이 발생했는지 확인하세요. 전체 그룹 4 · 불일치 그룹 4 · 재이관 대상 준비 중현재 불일치 그룹 1~4 표시 · 1/1페이지 ⬇ 전체 불일치 결과 Excel 다운로드 불일치 그룹 전체 + 재이관 대상 레코드 전체 표시 건수 20건 50건 100건 그룹 / PK(GROUP / PK)STATUS_CD(목적)status_cd",
+      "display": "block",
+      "painted": false,
+      "in_viewport": false
+    },
+    "execResultCard": {
+      "present": true,
+      "text": "통계검증 실행 결과 목적테이블mv_bt.tgt_orders원본테이블mv_bt.orders_a불일치 추출전략직접 스트림 비교DIRECT_STREAM_COMPARE불일치그룹4개재이관대상4건재이관PK준비 중처리시간1.19초상태● 불일치 불일치 3항목 · COUNT · ORDER_AMT · QTY전체 4그룹 중 불일치 4그룹⬇ 불일치 그룹 결과 Excel 다운로드※ 위 그룹은 집계값이 다른 불일치 그룹이며 개별 재이관 레코드 수가 아닙니다. 실제 재이관 대상 레코드는 아래 상세비교 결과에서 확인하세요. ℹ COUNT 사전검증 실패 — 원본/목적지 건수가 일치하지 않습니다.전체 4COUNT 4ORDER_AMT 4QTY 4항목 클릭 시 그 항목이 차이난 그룹만 표시(재실행 없음)※ 차이값(Δ)은 원본 값에서 목적지 값",
+      "display": "none",
+      "painted": false,
+      "in_viewport": false
+    },
+    "execProgress": {
+      "present": true,
+      "text": "",
+      "display": "none",
+      "painted": false,
+      "in_viewport": false
+    },
+    "exec_btn": {
+      "label": "▶ 통계검증 다시 실행",
+      "disabled": false
+    },
+    "body_has_in_progress": false,
+    "body_has_allow_minutes": false,
+    "view_step": "validation",
+    "executed_flag": true
+  },
+  "plant": {
+    "blocked_when_planting": false,
+    "marker": true
+  },
+  "rerun_dialog_choice": "실행 중…",
+  "after_409": {
+    "execStepError": {
+      "present": true,
+      "text": "❌ 최종 상태: 검증 실행 실패오류 내용:같은 검증 문맥의 '통계검증 실행' 이(가) 이미 실행 중입니다(2초 경과). 진행 중인 실행이 끝난 뒤 '통계검증 실행' 을(를) 다시 시도하세요.확인할 항목서버 로그를 확인하세요.요청 payload와 통계검증 SQL 생성 상태를 확인하세요.검증 실행 기준COUNT(*): 항상 포함GROUP BY 기준: 전체 기준 집계SUM 기준: 없음 — COUNT only 검증숫자 비교 정책: COUNT 정확 비교 / SUM 허용오차 적용표시 제한: 비교는 전체 그룹 기준으로 수행되며, 화면 표시만 상한(200행)으로 제한될 수 있습니다.실행 SQL 정보 없음",
+      "display": "block",
+      "painted": true,
+      "in_viewport": true
+    },
+    "executeOut": {
+      "present": true,
+      "text": "❌ 최종 상태: 검증 실행 실패오류 내용:같은 검증 문맥의 '통계검증 실행' 이(가) 이미 실행 중입니다(2초 경과). 진행 중인 실행이 끝난 뒤 '통계검증 실행' 을(를) 다시 시도하세요.확인할 항목서버 로그를 확인하세요.요청 payload와 통계검증 SQL 생성 상태를 확인하세요.검증 실행 기준COUNT(*): 항상 포함GROUP BY 기준: 전체 기준 집계SUM 기준: 없음 — COUNT only 검증숫자 비교 정책: COUNT 정확 비교 / SUM 허용오차 적용표시 제한: 비교는 전체 그룹 기준으로 수행되며, 화면 표시만 상한(200행)으로 제한될 수 있습니다.실행 SQL 정보 없음",
+      "display": "block",
+      "painted": false,
+      "in_viewport": false
+    },
+    "execResultCard": {
+      "present": true,
+      "text": "통계검증 실행 결과 목적테이블mv_bt.tgt_orders원본테이블mv_bt.orders_a불일치 추출전략직접 스트림 비교DIRECT_STREAM_COMPARE불일치그룹4개재이관대상4건재이관PK250건처리시간1.19초상태● 불일치 불일치 3항목 · COUNT · ORDER_AMT · QTY전체 4그룹 중 불일치 4그룹⬇ 불일치 그룹 결과 Excel 다운로드※ 위 그룹은 집계값이 다른 불일치 그룹이며 개별 재이관 레코드 수가 아닙니다. 실제 재이관 대상 레코드는 아래 상세비교 결과에서 확인하세요. ❌ 최종 상태: 검증 실행 실패오류 내용:같은 검증 문맥의 '통계검증 실행' 이(가) 이미 실행 중입니다(2초 경과). 진행 중인 실행이 끝난 뒤 '통계검증 실행' 을(를) 다시 시도하세요.확인할 항목서버 로그를 확",
+      "display": "none",
+      "painted": false,
+      "in_viewport": false
+    },
+    "execProgress": {
+      "present": true,
+      "text": "",
+      "display": "none",
+      "painted": false,
+      "in_viewport": false
+    },
+    "exec_btn": {
+      "label": "▶ 통계검증 다시 실행",
+      "disabled": false
+    },
+    "body_has_in_progress": true,
+    "body_has_allow_minutes": false,
+    "view_step": "validation",
+    "executed_flag": true
+  },
+  "dialogs_on_409": [],
+  "console_on_409": [
+    "error:Failed to load resource: the server responded with a status of 409 (Conflict)",
+    "error:Failed to load resource: the server responded with a status of 409 (Conflict)"
+  ],
+  "net_409": [
+    {
+      "t": 57.93,
+      "kind": "resp",
+      "path": "/execute",
+      "status": 409,
+      "success": false
+    },
+    {
+      "t": 60.42,
+      "kind": "resp",
+      "path": "/execute",
+      "status": 409,
+      "success": false
+    }
+  ],
+  "after_release": {
+    "execStepError": {
+      "present": true,
+      "text": "",
+      "display": "none",
+      "painted": false,
+      "in_viewport": false
+    },
+    "executeOut": {
+      "present": true,
+      "text": "ℹ COUNT 사전검증 실패 — 원본/목적지 건수가 일치하지 않습니다.전체 4COUNT 4ORDER_AMT 4QTY 4항목 클릭 시 그 항목이 차이난 그룹만 표시(재실행 없음)※ 차이값(Δ)은 원본 값에서 목적지 값을 뺀 값입니다. 양수이면 원본이 더 크고, 음수이면 목적지가 더 큽니다.※ 명시 변환식 없이 차이가 발생했습니다. 원본/목적지 컬럼 타입이 달라 소수점 손실이나 암묵적 형변환이 발생했는지 확인하세요. 전체 그룹 4 · 불일치 그룹 4 · 재이관 대상 250건현재 불일치 그룹 1~4 표시 · 1/1페이지 ⬇ 전체 불일치 결과 Excel 다운로드 불일치 그룹 전체 + 재이관 대상 레코드 전체 표시 건수 20건 50건 100건 그룹 / PK(GROUP / PK)STATUS_CD(목적)status_cd",
+      "display": "block",
+      "painted": false,
+      "in_viewport": false
+    },
+    "execResultCard": {
+      "present": true,
+      "text": "통계검증 실행 결과 목적테이블mv_bt.tgt_orders원본테이블mv_bt.orders_a불일치 추출전략직접 스트림 비교DIRECT_STREAM_COMPARE불일치그룹4개재이관대상4건재이관PK250건처리시간실행 0.99초상세 0.01초 미만상태● 불일치 불일치 3항목 · COUNT · ORDER_AMT · QTY전체 4그룹 중 불일치 4그룹⬇ 불일치 그룹 결과 Excel 다운로드※ 위 그룹은 집계값이 다른 불일치 그룹이며 개별 재이관 레코드 수가 아닙니다. 실제 재이관 대상 레코드는 아래 상세비교 결과에서 확인하세요. ℹ COUNT 사전검증 실패 — 원본/목적지 건수가 일치하지 않습니다.전체 4COUNT 4ORDER_AMT 4QTY 4항목 클릭 시 그 항목이 차이난 그룹만 표시(재실행 없음)※ 차이값(Δ)",
+      "display": "none",
+      "painted": false,
+      "in_viewport": false
+    },
+    "execProgress": {
+      "present": true,
+      "text": "",
+      "display": "none",
+      "painted": false,
+      "in_viewport": false
+    },
+    "exec_btn": {
+      "label": "▶ 통계검증 다시 실행",
+      "disabled": false
+    },
+    "body_has_in_progress": false,
+    "body_has_allow_minutes": false,
+    "view_step": "validation",
+    "executed_flag": true
+  },
+  "dialogs_after_release": [],
+  "console_all_errors": [
+    "error:Failed to load resource: the server responded with a status of 409 (Conflict)",
+    "error:Failed to load resource: the server responded with a status of 409 (Conflict)"
+  ],
+  "dialogs_all": [
+    "검증 경로 접속 성공: PostgreSQL_asis → PostgreSQL_tobe"
+  ]
+}

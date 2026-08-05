@@ -1,0 +1,51 @@
+{
+  "cases": [
+    {
+      "max_age_seconds": 30,
+      "age_seconds": 90,
+      "stale": true,
+      "source": "CLIENT_PAYLOAD",
+      "user_text": "후보 프로파일 경과 90초 > 허용 30초 → EXPLAIN 확인 강제"
+    },
+    {
+      "max_age_seconds": 30,
+      "age_seconds": 10,
+      "stale": false,
+      "source": "CLIENT_PAYLOAD",
+      "user_text": ""
+    },
+    {
+      "max_age_seconds": 1800,
+      "age_seconds": 90,
+      "stale": false,
+      "source": "CLIENT_PAYLOAD",
+      "user_text": ""
+    },
+    {
+      "max_age_seconds": 1800,
+      "age_seconds": 2400,
+      "stale": true,
+      "source": "CLIENT_PAYLOAD",
+      "user_text": "후보 프로파일 경과 2400초 > 허용 1800초 → EXPLAIN 확인 강제"
+    }
+  ],
+  "zero_minute_texts": [],
+  "render_marks": {
+    "_ageTxt": 0,
+    "profile_max_age_seconds": 0,
+    "profile_age_seconds": 0,
+    "후보 프로파일 경과": 2,
+    "_mvExecBasisHtml(정의)": 0
+  },
+  "round_to_minute_exprs": [],
+  "time_text_helpers": {
+    "_mvExecStepProgressFmt": {
+      "present": true,
+      "has_sub_minute_branch": true
+    },
+    "_jdAgo": {
+      "present": true,
+      "has_sub_minute_branch": true
+    }
+  }
+}
