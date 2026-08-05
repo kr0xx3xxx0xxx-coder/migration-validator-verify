@@ -1,0 +1,504 @@
+commit 85ca345cf26ae4299f36912001eaa5143df8c679
+Author: migration-validator <dev@migration-validator.local>
+Date:   Wed Aug 5 16:50:07 2026 +0900
+
+    fix(ui): 4단계 완료 안내박스 · 5단계 처리시간 줄 · 5단계 실행이력 요약 박스 제거 (STAGE4-COMPLETION-BANNER-REMOVE-FIX)
+    
+    사용자 요청으로 개별검증 화면의 표시 3곳을 화면 숨김이 아니라 코드까지 삭제한다.
+    
+    ① 4단계 완료 안내박스(#mvExecStepResult)
+       '⚠ 통계검증 실행 완료 · 불일치 있음' 제목 + 불일치 그룹 요약 문장 + 전체그룹/일치/값불일치/
+       원본단독/목적단독 5칸 표 + '결과 확인(5단계) 보기' 버튼을 통째로 제거.
+       삭제: _mvExecStepResultHtml / _mvShowExecStepResult / _mvClearExecStepResult /
+            _mvExecStepResultGoResult · 전용 host · pane 등록 · 호출부 5곳.
+       보존: 종전에 이 렌더 함수가 겸하던 '진행 표시 종료'는 성공 지점에서
+            _mvClearExecStepProgress() 를 직접 부르도록 옮겼다(스피너 잔류 방지).
+            집계 값을 만드는 서버 경로와 5단계가 공유하는 _mvComboUnverifiedNoticeHtml 은 불변.
+    
+    ② 5단계 상단 처리시간 줄(#mvStage5ProcessingTime)
+       '· 5단계 통계검증 실행(상세 추출 별도): N초' 표시만 제거 — 1~3단계와 동일하게
+       _mvSyncStageProcessingTimeVisibility 의 _hidden 에 5 를 추가한다.
+       계측·저장(window._mvStage5ProcMs)과 5단계 타일의 '처리시간' 칸은 그대로 유지.
+    
+    ③ 5단계 상단 실행 이력 요약 박스(#relatedHistCard)
+       '목적지 테이블 / 실행 이력 수 / 차이 없음 / 차이 있음 / 오류 / 차이 그룹 합계 / 최근 실행'
+       박스를 host·렌더 함수(loadRelatedHistorySummary)·analyze 후 호출부·전용 CSS 까지 제거.
+       /history/summary 라우트와 이력 탭 요약(renderHistorySummary)은 공유 경로라 불변.
+    
+    5단계 이동은 하단 [다음 ▶] 버튼으로 가능함을 제거 전 상태에서 실측 확인했다
+    (삭제된 버튼이 유일한 이동 수단이 아니었다).
+    
+    실측(Oracle 라이브, 포트 8000): 4단계 박스 h=299px→DOM 부재, 5단계 처리시간 줄 h=18px→
+    display:none, 이력 박스 h=94px→DOM 부재, 결과 카드 top 372px→226px 로 당겨져 빈 공백 없음.
+    무회귀: 4단계 타일·SQL 박스, 5단계 컨텍스트 타일·불일치 결과표, 페이지 오류 0건.
+    
+    테스트: 삭제된 기능을 지키던 가드 5개 파일을 '제거 회귀 가드'로 전환.
+    서브셋 201건 baseline 대조 신규 회귀 0건, samples/test_display_consistency 40건 사전실패 동일,
+    virtual/complex cases 전건 통과.
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_01JihJRdcDp3b7WNba13xiKz
+
+diff --git a/ui/history_renderer.py b/ui/history_renderer.py
+index 5d82f60..0e3196d 100644
+--- a/ui/history_renderer.py
++++ b/ui/history_renderer.py
+@@ -75,12 +75,8 @@ _CSS = """\
+   border-radius:var(--r);background:#eef2ff;margin-bottom:12px;font-size:.83rem}
+ .hist-from-history-badge{display:inline-block;padding:2px 10px;border-radius:10px;
+   background:#e9ecef;color:var(--sub);font-size:.73rem;font-weight:700;margin-left:8px}
+-.related-hist-card{padding:12px 16px;background:#f0f8ff;border-left:4px solid var(--primary);
+-  border-radius:var(--r);font-size:.82rem;margin-top:12px}
+-.related-hist-card .rh-title{font-weight:700;color:var(--primary);margin-bottom:6px}
+-.related-hist-card .rh-stats{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:8px}
+-.related-hist-card .rh-stat{font-size:.79rem}
+-.related-hist-card .rh-stat b{color:var(--text)}
++/* [STAGE4-COMPLETION-BANNER-REMOVE-FIX] .related-hist-card 계열 CSS 삭제 —
++   5단계 상단 '관련 이력 요약' 카드 제거로 사용처가 사라졌다. */
+ /* ── 이력 목록 선택 행 강조 ── */
+ .hist-run-row:hover td{background:#f9fbff}
+ .hist-run-row.history-row-selected td{background:#dbeafe !important}
+@@ -563,47 +559,12 @@ async function loadHistorySetDetail(runId, setTitle, setType, rowEl) {
+   }
+ }
+ 
+-/* ── SQL 분석 후 관련 이력 요약 (SQL 검증 탭) ──────────────────────── */
+-async function loadRelatedHistorySummary(targetTable) {
+-  var card = document.getElementById('relatedHistCard');
+-  if (!card) return;
+-  if (!targetTable) { card.style.display = 'none'; return; }
+-  card.style.display = '';
+-  var body = document.getElementById('relatedHistBody');
+-  if (body) body.innerHTML = '<span class="spinner-dark" style="font-size:.8rem"></span> 이력 조회 중...';
+-  try {
+-    var r = await fetch('/history/summary?target_table=' + encodeURIComponent(targetTable));
+-    var d = await r.json();
+-    if (!d.success) throw new Error(d.error || '');
+-    var s = d.summary;
+-    var lastAt = (s.last_run_at||'').substring(0,16).replace('T',' ') || '—';
+-    var _totalRuns = s.total_runs || 0;
+-    /* 이력 수 0이면 버튼 숨기고 안내 문구만 표시 */
+-    var _histBtnHtml = (_totalRuns > 0)
+-      ? [
+-          '<button data-tgt-table="' + esc(targetTable) + '" onclick="applyHistoryTargetTable(this.dataset.tgtTable)"',
+-          '  style="padding:5px 14px;background:var(--primary);color:#fff;border:none;',
+-          '    border-radius:5px;font-size:.79rem;cursor:pointer;font-weight:600">',
+-          '  이 목적지 테이블 이력 보기',
+-          '</button>'
+-        ].join('\\n')
+-      : '<span style="font-size:.78rem;color:var(--sub)">아직 실행 이력이 없습니다.</span>';
+-    if (body) body.innerHTML = [
+-      '<div class="rh-title">목적지 테이블: <code>' + esc(targetTable) + '</code></div>',
+-      '<div class="rh-stats">',
+-      '  <div class="rh-stat">실행 이력 수: <b>' + _totalRuns.toLocaleString() + '</b></div>',
+-      '  <div class="rh-stat">차이 없음: <b style="color:var(--high)">' + (s.pass_cnt||0).toLocaleString() + '</b></div>',
+-      '  <div class="rh-stat">차이 있음: <b style="color:var(--fail)">' + (s.fail_cnt||0).toLocaleString() + '</b></div>',
+-      '  <div class="rh-stat">오류: <b style="color:var(--low)">' + (s.error_cnt||0).toLocaleString() + '</b></div>',
+-      '  <div class="rh-stat">차이 그룹 합계: <b>' + (s.total_diff||0).toLocaleString() + '</b></div>',
+-      '  <div class="rh-stat">최근 실행: <b>' + esc(lastAt) + '</b></div>',
+-      '</div>',
+-      _histBtnHtml
+-    ].join('\\n');
+-  } catch(e) {
+-    if (body) body.innerHTML = '<span style="font-size:.78rem;color:var(--sub)">관련 이력 조회 실패</span>';
+-  }
+-}
++/* [STAGE4-COMPLETION-BANNER-REMOVE-FIX] 'SQL 분석 후 관련 이력 요약'(loadRelatedHistorySummary) 삭제.
++   5단계 상단에 '목적지 테이블 / 실행 이력 수 / 차이 없음 / 차이 있음 / 오류 / 차이 그룹 합계 /
++   최근 실행 / 아직 실행 이력이 없습니다.' 박스를 그리던 유일한 렌더 함수였다(사용자 요청으로 제거).
++   수치를 만드는 서버 경로(/history/summary → validation_history_service.get_summary)와 이력 탭 요약
++   렌더(renderHistorySummary)는 다른 화면이 공유하므로 그대로 둔다.
++   목적지 테이블 필터 적용 함수(applyHistoryTargetTable)도 이력 탭 공개 API 라 유지한다. */
+ 
+ /* ════════════════════════════════════════════════════════════════════════
+    ■ Batch 결과 조회 (batch_viewer) — tab-batch 섹션 전용
+diff --git a/ui/tabler_renderer.py b/ui/tabler_renderer.py
+index dc47e33..601b53a 100644
+--- a/ui/tabler_renderer.py
++++ b/ui/tabler_renderer.py
+@@ -2962,8 +2962,9 @@ body.mv-wide-validation .container-xl{max-width:min(1960px, calc(100vw - 304px))
+           <div id="mvExecProgress" style="display:none;margin-top:10px"></div>
+ 
+           <!-- [SINGLE-STEP4-EXEC-STATUS-DISPLAY-IMPLEMENT] 통계검증 '실행 중' 상태를 4단계(현재 화면)에 표시하는 전용 영역.
+-               아래 #mvExecStepError(실패) / #mvExecStepResult(성공 요약)와 같은 계열의 세 번째 영역이며, 셋은
+-               상호배타로만 노출된다(진행 → 성공 또는 실패). 위 #mvExecProgress 는 상세비교(재이관) 전용 진행
++               아래 #mvExecStepError(실패)와 같은 계열의 영역이며, 둘은 상호배타로만 노출된다(진행 → 실패).
++               (성공 요약 박스는 STAGE4-COMPLETION-BANNER-REMOVE-FIX 로 제거됐다.)
++               위 #mvExecProgress 는 상세비교(재이관) 전용 진행
+                패널이라 통계검증 실행 구간에는 표시되지 않는다 — 그 구간이 execBtn 스피너 외에는 완전히 무음이었다.
+                표시 내용은 '확실히 아는 것'만 둔다: 경과시간(클라이언트 시계) + 다중 세트 '세트 i/N'.
+                진행률(%)은 두지 않는다 — /execute 는 집계 SQL 단일 실행이라 서버에 중간 진행 신호가 없다
+@@ -2976,21 +2977,16 @@ body.mv-wide-validation .container-xl{max-width:min(1960px, calc(100vw - 304px))
+                이 영역에 동일 오류를 렌더해 '빈 화면' 문제를 없앤다. 정상 성공/진행 중에는 비워둔다(display:none). -->
+           <div id="mvExecStepError" style="display:none;margin-top:10px"></div>
+ 
+-          <!-- [STATS-VALIDATION-EXECUTE-SUCCESS-RESULT-STEP4-DISPLAY-FIX] 통계검증 '실행' 성공 시 결과 '요약'을
+-               4단계(현재 화면)에 표시하는 전용 영역 — 바로 위 #mvExecStepError(실패 경로)와 대칭 위치/역할이다.
+-               실행 후 화면은 4단계에 머무는 정책(자동 5단계 이동 금지)인데 결과 카드(execResultCard)는 5단계 전용
+-               pane 이라 .mv-pane-hidden(display:none!important)으로 가려져, 실행이 성공해도 화면에 아무 변화가
+-               없어 '무반응'으로 체감됐다(진단: STATS-VALIDATION-EXECUTE-BUTTON-NO-RESPONSE-DIAGNOSE).
+-               여기에는 축약 요약(판정·그룹 분포·불일치 건수)과 '결과 확인(5단계) 보기' 버튼만 둔다 —
+-               5단계 결과 카드를 복제하지 않는다. 진행 패널(#mvExecProgress)이 열리자마자 닫히는 소규모 데이터
+-               에서도 이 영역은 별도 host 라 그대로 남는다. 실패/재실행/재생성 시작 시에는 비운다. -->
+-          <div id="mvExecStepResult" style="display:none;margin-top:10px"></div>
++          <!-- [STAGE4-COMPLETION-BANNER-REMOVE-FIX] 통계검증 '실행' 성공 요약 박스(#mvExecStepResult) 제거.
++               종전에는 여기에 '⚠ 통계검증 실행 완료 · 불일치 있음' 제목 + 그룹 분포 5칸 요약 +
++               '결과 확인(5단계) 보기' 버튼을 그렸으나, 사용자 요청으로 렌더·전용 host·전용 함수를 함께
++               삭제했다(화면 숨김이 아니라 코드 제거). 실행 성공 여부는 상단 단계 탭/진행 카드가, 결과 상세는
++               5단계 결과 카드가 각각 담당한다. 5단계 이동은 하단 [다음 ▶] 단계 이동 버튼으로 한다. -->
+ 
+           <!-- [STAGE4-POSTCOUNT-PROGRESS-INDICATOR-ADD-FIX] 통계검증 실행이 끝난 '뒤에' 이어지는 재이관 대상
+                상세 추출(/agg-diff/prepare → pk-records 폴링) 구간의 진행을 4단계에 표시하는 영역.
+-               위 3형제(#mvExecStepProgress 진행 / #mvExecStepError 오류 / #mvExecStepResult 성공요약)와 같은
+-               4단계 pane · 같은 토글 방식이지만 '상호배타 4형제'는 아니다 — 이 표시는 성공 요약이 뜬 '이후'
+-               구간을 덮으므로 #mvExecStepResult 와 동시에 보인다(그 아래에 얹힌다).
++               위 2형제(#mvExecStepProgress 진행 / #mvExecStepError 오류)와 같은 4단계 pane · 같은 토글
++               방식이지만 상호배타는 아니다 — 이 표시는 실행이 끝난 '이후' 구간을 덮는다.
+                배경(진단 STAGE4-5-COMPLETION-DISPLAY-TIMING-ACCURACY-DIAGNOSE §7-(3) 권장 3번): 4단계 처리시간이
+                표시되고 스피너가 꺼진 뒤에도 5단계를 채우는 수집이 40~51초(5,000만행·GROUP BY 2축 실측) 더
+                진행되는데 그 구간이 완전 무음이라 '끝난 줄 알았는데 5단계가 비어 있다'는 오인을 만들었다.
+@@ -3000,10 +2996,12 @@ body.mv-wide-validation .container-xl{max-width:min(1960px, calc(100vw - 304px))
+                ※ 오늘 제거된 '표시 등급' 배너 / '실행 기준' 박스와는 무관한 새 영역이며 그 자리를 쓰지 않는다. -->
+           <div id="mvExecStepPostProgress" style="display:none;margin-top:10px"></div>
+ 
+-          <!-- 관련 이력 요약 카드 (SQL 분석 후 target_table 확인 시 표시) -->
+-          <div class="related-hist-card mb-3" id="relatedHistCard" style="display:none">
+-            <div id="relatedHistBody"></div>
+-          </div>
++          <!-- [STAGE4-COMPLETION-BANNER-REMOVE-FIX] 5단계 상단 '관련 이력 요약' 카드(#relatedHistCard) 제거.
++               종전에는 SQL 분석 후 목적지 테이블이 확정되면 /history/summary 를 조회해 '목적지 테이블 /
++               실행 이력 수 / 차이 없음 / 차이 있음 / 오류 / 차이 그룹 합계 / 최근 실행' 박스를 5단계 pane
++               맨 위에 그렸으나, 사용자 요청으로 host·렌더 함수(loadRelatedHistorySummary)·호출부·전용 CSS 를
++               함께 삭제했다(화면 숨김이 아니라 코드 제거). 같은 수치를 만드는 /history/summary 라우트와
++               이력 탭 요약(renderHistorySummary)은 공유 경로라 그대로 둔다. -->
+ 
+           <!-- 통계검증 실행 결과 카드 (실행 후 표시) -->
+           <div class="card mb-3" id="execResultCard" style="display:none">
+@@ -5682,19 +5680,19 @@ var SINGLE_STEP_CARDS = {
+   /* [D7-18] 실행 진행 패널(mvExecProgress)은 4번(validation) 탭 전용. execResultCard(결과)는 5번(result) 전용.
+      [EXECUTE-ERROR-MESSAGE-NOT-RENDERED-FIX] mvExecStepError(실행 오류 4단계 표시)도 4번 탭 pane 에 포함해
+      탭 이동 시 다른 pane 에서 잔류 노출되지 않도록 함께 토글한다.
+-     [STATS-VALIDATION-EXECUTE-SUCCESS-RESULT-STEP4-DISPLAY-FIX] mvExecStepResult(실행 성공 요약 4단계 표시)도
+-     같은 이유로 4번 탭 pane 에 포함한다(오류 영역과 대칭). 결과 '상세'는 여전히 5번 pane 의 execResultCard 전용
+-     — 매핑 대전제(카드별 소속 단계)는 바꾸지 않는다.
++     [STAGE4-COMPLETION-BANNER-REMOVE-FIX] mvExecStepResult(실행 성공 요약 4단계 표시)는 삭제됐으므로 목록에서도
++     뺀다. 결과 '상세'는 여전히 5번 pane 의 execResultCard 전용 — 매핑 대전제(카드별 소속 단계)는 바꾸지 않는다.
+      [SINGLE-STEP4-EXEC-STATUS-DISPLAY-IMPLEMENT] mvExecStepProgress(실행 '진행 중' 4단계 표시)도 같은 이유로
+-     4번 탭 pane 에 포함한다(진행/오류/성공 3형제 동일 취급). */
++     4번 탭 pane 에 포함한다(진행/오류 동일 취급). */
+   /* [STAGE4-STATS-VALIDATION-TILE-LAYOUT-FIX] mvStage4CtxGrid(상단 컨텍스트 타일 host)를 4번 탭 pane
+      에 등록한다 — 다른 단계에서 잔류 노출되지 않게, 1~3단계 요약 영역과 동일한 취급이다.
+      목록 맨 앞에 둔 것은 표시 순서와 무관하다(DOM 순서가 위치를 정한다) — 소속만 선언한다. */
+   /* [STAGE4-POSTCOUNT-PROGRESS-INDICATOR-ADD-FIX] mvExecStepPostProgress(통계검증 완료 이후 상세 추출 진행
+      표시)도 같은 이유로 4번 탭 pane 에 포함한다 — 다른 단계로 이동했을 때 잔류 노출되지 않게 함께 토글한다. */
+   validation: ['mvStage4CtxGrid', 'sqlCard', 'sampleCard', 'singleValidationNav', 'mvExecProgress',
+-               'mvExecStepProgress', 'mvExecStepError', 'mvExecStepResult', 'mvExecStepPostProgress'],
+-  result:     ['execResultCard', 'relatedHistCard']   /* TASK29 §58 — singleGroupCard 삭제 */
++               'mvExecStepProgress', 'mvExecStepError', 'mvExecStepPostProgress'],
++  /* [STAGE4-COMPLETION-BANNER-REMOVE-FIX] relatedHistCard(5단계 상단 실행 이력 요약) 삭제 — 목록에서도 뺀다. */
++  result:     ['execResultCard']   /* TASK29 §58 — singleGroupCard 삭제 */
+ };
+ var _singleViewStep = 'query';   // 현재 보고 있는 개별 단계 pane
+ var _singleReachedIdx = 0;       // (legacy) 단계 이동 버튼으로 도달한 가장 앞 index. 상단 탭 이동 판정에는 미사용 —
+@@ -15289,9 +15287,7 @@ function resetAnalysisUi() {
+   /* progress-cards 숨김 */
+   var _mpc = document.querySelector('.mv-progress-cards');
+   if (_mpc) _mpc.style.display = 'none';
+-  /* 관련 이력 카드 숨김 및 내용 초기화 — 차단/미지원 상태에서 이전 이력 잔상 제거 */
+-  var _rhc = document.getElementById('relatedHistCard'); if (_rhc) _rhc.style.display = 'none';
+-  var _rhb = document.getElementById('relatedHistBody');  if (_rhb) _rhb.innerHTML = '';
++  /* [STAGE4-COMPLETION-BANNER-REMOVE-FIX] 관련 이력 카드(#relatedHistCard) 삭제 — 잔상 청소 대상도 없어졌다. */
+   /* parseDetails 접힘 상태로 복원 */
+   var _pdet = document.getElementById('parseDetails');
+   if (_pdet) _pdet.removeAttribute('open');
+@@ -15488,8 +15484,6 @@ function resetExecuteResultOnly() {
+   /* [EXECUTE-ERROR-MESSAGE-NOT-RENDERED-FIX] 재실행 시작 시 4단계 실행오류 표시도 비운다 —
+      재클릭 시 '이전 오류가 사라지고 새 시도 결과(성공/실패)로 갱신'되게 한다. */
+   _mvClearExecStepError();
+-  /* [STATS-VALIDATION-EXECUTE-SUCCESS-RESULT-STEP4-DISPLAY-FIX] 성공 요약도 같은 시점에 비운다(대칭). */
+-  _mvClearExecStepResult();
+   /* [SINGLE-STEP4-EXEC-STATUS-DISPLAY-IMPLEMENT] 진행 표시도 여기서 초기화한다 — 이 호출 직후 runExecute 가
+      새로 시작하므로, 이전 실행의 경과시간(t0)이 이어지지 않고 0초부터 다시 세도록 상태를 버린다. */
+   if (typeof _mvClearExecStepProgress === 'function') _mvClearExecStepProgress();
+@@ -15511,9 +15505,6 @@ function _mvShowExecStepError(html) {
+   el.classList.remove('mv-pane-hidden');   /* 현재 4단계 pane 이면 이미 해제됨(방어적) */
+   var _has = (el.innerHTML || '').trim() !== '';
+   el.style.display = _has ? '' : 'none';
+-  /* [STATS-VALIDATION-EXECUTE-SUCCESS-RESULT-STEP4-DISPLAY-FIX] 오류를 표시하면 같은 4단계 pane 의
+-     성공 요약은 반드시 사라져야 한다(성공/실패 상호배타 — 이전 실행의 성공 요약 잔류 금지). */
+-  if (_has && typeof _mvClearExecStepResult === 'function') _mvClearExecStepResult();
+   /* [SINGLE-STEP4-EXEC-STATUS-DISPLAY-IMPLEMENT] 진행 표시도 같은 시점에 끝난다(진행→실패 전환).
+      runExecute 의 finally 보다 먼저 도달하는 경로가 있어 여기서도 정리한다(스피너·타이머 잔류 방지). */
+   if (_has && typeof _mvClearExecStepProgress === 'function') _mvClearExecStepProgress();
+@@ -15529,115 +15520,17 @@ function _mvClearExecStepError() {
+ }
+ window._mvClearExecStepError = _mvClearExecStepError;
+ 
+-/* ══ [STATS-VALIDATION-EXECUTE-SUCCESS-RESULT-STEP4-DISPLAY-FIX] 실행 '성공' 요약의 4단계 표시 ══════════
+-   위 오류 경로(_mvShowExecStepError/_mvClearExecStepError)와 대칭이며, 새 표시 메커니즘을 만들지 않는다.
+-   배경: 실행 성공 결과는 5단계 pane 전용 카드(execResultCard)에만 렌더되는데, 실행 후 화면은 4단계에
+-   머무는 정책이라 .mv-pane-hidden(display:none!important)에 가려져 사용자에게 아무것도 보이지 않았다.
+-   여기서는 '요약 + 5단계 이동 버튼'만 그린다 — 판정/집계는 하지 않고 서버가 준 결과 필드만 읽는다
+-   (표시 계층 전용, 결과 카드 복제 금지). */
+-function _mvExecStepResultHtml(r, opts) {
+-  var E = (typeof esc === 'function') ? esc : function(s){ return s == null ? '' : String(s); };
+-  r = r || {}; opts = opts || {};
+-  var _n = function(v){ var x = Number(v); return isNaN(x) ? 0 : x; };
+-  var _f = function(v){ try { return Number(v).toLocaleString(); } catch (e) { return String(v); } };
+-  var matched = _n(r.matched), diff = _n(r.diff), srcOnly = _n(r.src_only), tgtOnly = _n(r.tgt_only);
+-  var total   = (r.total_groups != null) ? _n(r.total_groups) : (matched + diff + srcOnly + tgtOnly);
+-  var mismatch = diff + srcOnly + tgtOnly;
+-  /* 그룹 분포 — 서버 집계 필드 그대로. COUNT-only(GROUP BY 0개)는 그룹 개념이 없어 분포표를 만들지 않는다
+-     (없는 숫자를 지어내지 않는다). countOnly 는 호출측이 실제 선택값 기준으로 전달한다.
+-     (선언 위치 주의: 아래 판정 라벨 분기가 이 값을 읽으므로 반드시 그 앞에서 정의한다.) */
+-  var countOnly = !!opts.countOnly;
+-  /* 판정 라벨/색 — runExecute 의 _updateProgressCard 분기와 '동일한' result_view.status_level 기준(재계산 없음).
+-     다중 세트 합산(agg)에는 result_view 가 없다 — 이때는 서버가 준 집계 숫자(불일치 합계)로 '불일치 있음/없음'
+-     만 문구·색에 반영한다. PASS/WARNING/SKIP 판정을 새로 만들지 않으며(표시 문구일 뿐), 아이콘도 오류 경로(❌)
+-     와 구분되게 일치=✅ / 불일치=⚠ 로만 나눈다. */
+-  var rvw = r.result_view || {};
+-  var lvl = rvw.status_level || '';
+-  var head, fg, bg, bd, icon = '✅';
+-  if (lvl === 'success')      { head = '검증 완료 · 일치';       fg = '#166534'; bg = '#f0fdf4'; bd = '#86efac'; }
+-  else if (lvl === 'danger')  { head = '실행 완료 · 불일치 있음'; fg = '#b91c1c'; bg = '#fef2f2'; bd = '#fca5a5'; icon = '⚠'; }
+-  else if (lvl === 'warning') { head = '실행 완료 · 확인 필요';   fg = '#b45309'; bg = '#fffbeb'; bd = '#fcd34d'; icon = '⚠'; }
+-  else if (!countOnly && mismatch > 0)
+-                              { head = '실행 완료 · 불일치 있음'; fg = '#b45309'; bg = '#fffbeb'; bd = '#fcd34d'; icon = '⚠'; }
+-  else                        { head = '실행 완료';              fg = '#1e40af'; bg = '#f8fafc'; bd = '#cbd5e1'; }
+-  var subLabel = rvw.status_label ? (' (' + E(rvw.status_label) + ')') : '';
+-  var cells = [
+-    { t: '전체 그룹',  v: total,    c: '#334155' },
+-    { t: '일치',      v: matched,  c: '#166534' },
+-    { t: '값 불일치',  v: diff,     c: '#b91c1c' },
+-    { t: '원본 단독',  v: srcOnly,  c: '#b45309' },
+-    { t: '목적 단독',  v: tgtOnly,  c: '#7c3aed' }
+-  ];
+-  var grid = countOnly ? '' :
+-    ('<div style="display:flex;flex-wrap:wrap;gap:14px;margin:8px 0 2px">'
+-     + cells.map(function(c){
+-         return '<div style="min-width:74px"><div style="font-size:.72rem;color:#64748b">' + E(c.t) + '</div>'
+-           + '<div style="font-size:.95rem;font-weight:700;color:' + c.c + '">' + E(_f(c.v)) + '</div></div>'; }).join('')
+-     + '</div>');
+-  var lead = countOnly
+-    ? 'COUNT 비교(그룹 미사용) 실행이 완료되었습니다.'
+-    : (mismatch > 0
+-        ? ('불일치 그룹 ' + E(_f(mismatch)) + '건이 확인되었습니다 (값 불일치 ' + E(_f(diff))
+-           + ' · 원본 단독 ' + E(_f(srcOnly)) + ' · 목적 단독 ' + E(_f(tgtOnly)) + ').')
+-        : '모든 그룹이 일치했습니다.');
+-  /* [STATS-VALIDATION-COMBO-DECOMPOSITION-FALSE-MATCH-WARNING-FIX] 실행 직후 사용자가 실제로 보는 화면은
+-     이 4단계 요약이다 — 다축(GROUP BY 2개 이상) 선택은 축별 독립 세트로 분해 실행되므로, '검증 완료 · 일치'
+-     문구가 조합(다축 동시)까지 검증한 결론으로 읽히지 않도록 미검증 사실을 여기서도 병기한다.
+-     판정 라벨(head/lvl)·집계 숫자는 그대로 두고 안내 한 줄만 덧붙인다(표시 전용). 축 1개면 빈 문자열. */
+-  var comboNote = '';
+-  try {
+-    if (!countOnly && typeof _mvComboUnverifiedNoticeHtml === 'function')
+-      comboNote = _mvComboUnverifiedNoticeHtml(r) || '';
+-  } catch (e) { comboNote = ''; }
+-  if (comboNote) comboNote = '<div style="margin-top:8px">' + comboNote + '</div>';
+-  /* 5단계 이동은 진행 패널의 '결과 확인 →' 와 같은 진입점(_mvExecShowResult)을 재사용한다(새 이동 로직 없음). */
+-  var btn = '<button class="btn" onclick="_mvExecStepResultGoResult()" '
+-    + 'style="font-size:.84rem;padding:7px 18px;background:#2471a3;color:#fff;border:none;'
+-    + 'border-radius:6px;cursor:pointer;font-weight:600">결과 확인(5단계) 보기 →</button>';
+-  return '<div style="background:' + bg + ';border:1px solid ' + bd + ';border-left:4px solid ' + fg + ';'
+-    + 'border-radius:7px;padding:10px 13px">'
+-    + '<div style="font-weight:700;font-size:.88rem;color:' + fg + '">' + icon + ' 통계검증 ' + E(head) + subLabel + '</div>'
+-    + '<div style="font-size:.82rem;color:#334155;margin-top:4px">' + lead + '</div>'
+-    + grid
+-    + comboNote
+-    + '<div style="font-size:.78rem;color:#64748b;margin-top:6px">'
+-    + '그룹별 비교 상세·재이관 대상 레코드는 <b>5단계 결과 확인</b>에서 볼 수 있습니다 '
+-    + '(현재 화면은 4단계에 그대로 머뭅니다).</div>'
+-    + '<div style="display:flex;justify-content:flex-end;margin-top:10px">' + btn + '</div>'
+-    + '</div>';
+-}
+-/* 요약의 '결과 확인(5단계) 보기' — 진행 패널의 '결과 확인 →' 와 동일 함수(_mvExecShowResult)를 호출한다.
+-   해당 함수가 없거나 실패하면 상단 탭 이동(_mvNavClick)으로 폴백한다(이동 정책·게이트 판정은 그대로 위임). */
+-function _mvExecStepResultGoResult() {
+-  try {
+-    if (typeof _mvExecShowResult === 'function') { _mvExecShowResult(); return; }
+-  } catch (e) {}
+-  try { if (typeof _mvNavClick === 'function') _mvNavClick('result'); } catch (e) {}
+-}
+-window._mvExecStepResultGoResult = _mvExecStepResultGoResult;
+-/* 성공 요약 표시 — _mvShowExecStepError 와 동일 구조(내용 채움 → pane 클래스 해제 → display 토글 → 스크롤).
+-   r 미지정(내용 유지) 호출은 지원하지 않는다(성공 요약은 항상 결과 객체로부터 새로 그린다). */
+-function _mvShowExecStepResult(r, opts) {
+-  var el = document.getElementById('mvExecStepResult');
+-  if (!el) return;
+-  try { el.innerHTML = _mvExecStepResultHtml(r, opts); }
+-  catch (e) { try { console.warn('[exec-step-result] 요약 렌더 실패:', e); } catch (e2) {} return; }
+-  /* [SINGLE-STEP4-EXEC-STATUS-DISPLAY-IMPLEMENT] 진행 표시 종료(진행→성공 전환) — 오류 경로와 대칭. */
+-  if (typeof _mvClearExecStepProgress === 'function') _mvClearExecStepProgress();
+-  el.classList.remove('mv-pane-hidden');   /* 현재 4단계 pane 이면 이미 해제됨(방어적) */
+-  el.style.display = '';
+-  try { setTimeout(function(){ el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 60); } catch (e) {}
+-}
+-window._mvShowExecStepResult = _mvShowExecStepResult;
+-function _mvClearExecStepResult() {
+-  var el = document.getElementById('mvExecStepResult');
+-  if (el) { el.innerHTML = ''; el.style.display = 'none'; }
+-}
+-window._mvClearExecStepResult = _mvClearExecStepResult;
++/* ══ [STAGE4-COMPLETION-BANNER-REMOVE-FIX] 실행 '성공' 요약 박스(4단계) 제거 ════════════════
++   삭제된 함수: _mvExecStepResultHtml / _mvExecStepResultGoResult / _mvShowExecStepResult /
++   _mvClearExecStepResult (전용 host #mvExecStepResult 도 함께 삭제).
++   이 박스가 읽던 값(total_groups/matched/diff/src_only/tgt_only)을 만드는 서버 집계와,
++   5단계가 같이 쓰는 공유 함수(_mvComboUnverifiedNoticeHtml 등)는 그대로 둔다 — 렌더만 건드렸다.
++   오류 경로(_mvShowExecStepError)와 진행 표시(_mvShowExecStepProgress)는 유지된다. */
+ 
+ /* ══ [SINGLE-STEP4-EXEC-STATUS-DISPLAY-IMPLEMENT] 실행 '진행 중' 상태의 4단계 표시 ═══════════════════
+-   위 오류(#mvExecStepError)·성공요약(#mvExecStepResult)과 같은 계열의 세 번째 영역이며, 새 표시 메커니즘을
+-   만들지 않는다(같은 4단계 pane · 같은 토글 방식 · 상호배타).
++   위 오류(#mvExecStepError)와 같은 계열의 영역이며, 새 표시 메커니즘을 만들지 않는다
++   (같은 4단계 pane · 같은 토글 방식 · 상호배타). 성공요약(#mvExecStepResult)은
++   STAGE4-COMPLETION-BANNER-REMOVE-FIX 로 삭제됐다.
+    배경(진단: SINGLE-STEP4-INLINE-PROGRESS-FEASIBILITY-DIAGNOSE, 권장안 A-3+A-1):
+      - 실행 중 화면에는 execBtn 스피너뿐이라 무음 구간이었다(실측: 진행 패널·결과·오류 영역 전부 미표시).
+      - 다중 세트 경로(_runExecutePlanSets)는 '세트 i/N 실행 중' 문구를 이미 정확히 만들고 있는데, 렌더 대상
+@@ -15674,9 +15567,9 @@ function _mvShowExecStepProgress(label) {
+   var st = _mvExecStepProgressState;
+   if (label != null) st.label = String(label);
+   var body = st.label || '원본·목적지 통계 SQL 실행 중…';
+-  /* 진행 중에는 이전 실행의 오류/성공 요약이 같은 화면에 남아 있으면 안 된다(3형제 상호배타). */
++  /* 진행 중에는 이전 실행의 오류가 같은 화면에 남아 있으면 안 된다(진행/오류 상호배타).
++     [STAGE4-COMPLETION-BANNER-REMOVE-FIX] 성공 요약 청소는 대상 자체가 사라져 함께 제거했다. */
+   if (typeof _mvClearExecStepError === 'function')  _mvClearExecStepError();
+-  if (typeof _mvClearExecStepResult === 'function') _mvClearExecStepResult();
+   /* [STAGE4-POSTCOUNT-PROGRESS-INDICATOR-ADD-FIX] 새 실행이 진행 중이면 이전 실행의 상세 추출 표시도 남을 수 없다. */
+   if (typeof _mvClearExecStepPostProgress === 'function') _mvClearExecStepPostProgress();
+   if (_first || !document.getElementById('mvExecStepProgressElapsed')) {
+@@ -15697,7 +15590,7 @@ function _mvShowExecStepProgress(label) {
+   }
+   el.classList.remove('mv-pane-hidden');   /* 현재 4단계 pane 이면 이미 해제됨(방어적) */
+   el.style.display = '';
+-  /* 처음 나타날 때 한 번만 화면 안으로 끌어온다 — 오류(#mvExecStepError)·성공요약(#mvExecStepResult)과 동일 패턴.
++  /* 처음 나타날 때 한 번만 화면 안으로 끌어온다 — 오류(#mvExecStepError)와 동일 패턴.
+      4단계는 통계검증 SQL 카드가 길어 이 영역이 스크롤 밖에 있는 경우가 많고(실측: 실행 버튼은 하단 고정
+      커맨드바라 사용자가 스크롤을 내리지 않는다), 그러면 표시를 추가해도 보이지 않는다.
+      문구 갱신(세트 i/N)마다 스크롤하면 사용자 스크롤을 뺏으므로 최초 1회로 제한한다. */
+@@ -15725,8 +15618,8 @@ window._mvClearExecStepProgress = _mvClearExecStepProgress;
+ 
+ /* ══ [STAGE4-POSTCOUNT-PROGRESS-INDICATOR-ADD-FIX] 통계검증 완료 '이후' 상세 추출 구간의 4단계 표시 ═════
+    무엇을 없애는 표시인가(진단 STAGE4-5-COMPLETION-DISPLAY-TIMING-ACCURACY-DIAGNOSE §3-3·§4·§7-(3)):
+-     세트 루프의 마지막 /execute 응답이 오면 4단계 처리시간이 기입되고 스피너가 꺼진다(_mvShowExecStepResult
+-     → _mvClearExecStepProgress). 그런데 5단계 목록을 실제로 채우는 재이관 대상 수집은 바로 그 '뒤에'
++     세트 루프의 마지막 /execute 응답이 오면 4단계 처리시간이 기입되고 스피너가 꺼진다
++     (성공 지점의 _mvClearExecStepProgress). 그런데 5단계 목록을 실제로 채우는 재이관 대상 수집은 바로 그 '뒤에'
+      _mvRenderReimportView → _mvRiEnsureAndLoad 가 비동기로 시작하고, 서버는 job 등록 후 즉시 PREPARING 을
+      돌려준 뒤 worker 에서 계속 수집한다. 실측(5,000만행·GB 2축) 39.90초/50.79초 동안 4단계 화면은 완전 무음
+      이었다 — 사용자는 '끝났는데 5단계가 왜 비어 있나'로 읽는다.
+@@ -15883,11 +15776,9 @@ function resetAfterGenerateStart() {
+   } catch (e) {}
+   var _sk  = document.getElementById('sqlCard');
+   if (_sk) _sk.style.display = 'none';
+-  /* [EXECUTE-ERROR-MESSAGE-NOT-RENDERED-FIX] SQL 재생성 시작 → 이전 실행오류 표시 제거. */
++  /* [EXECUTE-ERROR-MESSAGE-NOT-RENDERED-FIX] SQL 재생성 시작 → 이전 실행오류 표시 제거.
++     [STAGE4-COMPLETION-BANNER-REMOVE-FIX] 성공 요약 박스는 삭제돼 청소 대상이 없다. */
+   _mvClearExecStepError();
+-  /* [STATS-VALIDATION-EXECUTE-SUCCESS-RESULT-STEP4-DISPLAY-FIX] 이전 실행 성공 요약도 함께 제거(대칭) —
+-     SQL 이 다시 생성되면 그 요약은 더 이상 현재 SQL 의 결과가 아니다. */
+-  _mvClearExecStepResult();
+   _updateProgressCard('validation', 'idle', '대기');
+ }
+ 
+@@ -15938,10 +15829,9 @@ function _clearCountDownstreamUi() {
+   var _rsum = document.getElementById('singleResultSummary'); if (_rsum) _rsum.innerHTML = '';
+   var _erc = document.getElementById('execResultCard');
+   if (_erc) _erc.style.display = 'none';
+-  /* [EXECUTE-ERROR-MESSAGE-NOT-RENDERED-FIX] COUNT 변경 무효화 시에도 이전 실행오류 표시 제거. */
++  /* [EXECUTE-ERROR-MESSAGE-NOT-RENDERED-FIX] COUNT 변경 무효화 시에도 이전 실행오류 표시 제거.
++     [STAGE4-COMPLETION-BANNER-REMOVE-FIX] 성공 요약 박스는 삭제돼 청소 대상이 없다. */
+   _mvClearExecStepError();
+-  /* [STATS-VALIDATION-EXECUTE-SUCCESS-RESULT-STEP4-DISPLAY-FIX] 무효화 시 이전 실행 성공 요약도 제거(대칭). */
+-  _mvClearExecStepResult();
+   _updateProgressCard('candidate',  'idle', '대기');
+   _updateProgressCard('validation', 'idle', '대기');
+ }
+@@ -21230,11 +21120,9 @@ async function runAnalyze() {
+     /* Provider/SQL구조 카드 렌더 제거 — 쿼리검토 Grid(Provider·SQL 유형 row)로 흡수(중복 방지). */
+     try { renderLoadProfiles(data); } catch (e) {}   /* 테이블 규모/검증 부하 참고 정보(참고용) */
+     try { renderCteInfo(data); } catch (e) {}        /* CTE/다중 원본 lineage 참고 정보(explainability) */
+-    /* 관련 이력 요약 카드 — analyze 성공 후 target_table 기준 이력 조회 */
+-    var _tgtTbl = (data.parse_result || {}).tgt_table || '';
+-    if (_tgtTbl && typeof loadRelatedHistorySummary === 'function') {
+-      loadRelatedHistorySummary(_tgtTbl);
+-    }
++    /* [STAGE4-COMPLETION-BANNER-REMOVE-FIX] 관련 이력 요약 카드 삭제 — analyze 성공 후의 /history/summary
++       선조회(loadRelatedHistorySummary) 호출도 함께 없앤다(표시 대상이 없어 조회 자체가 불필요).
++       목적지 테이블 기준 이력은 이력 탭에서 그대로 조회할 수 있다. */
+     /* 검증 방식 선택 / 전수검증 영역은 기본 화면에서 숨김 유지 */
+     /* 분석 완료 → 결과 영역 표시 + 진행 카드 업데이트 */
+     analysisDone = true;
+@@ -26951,8 +26839,8 @@ async function _runExecutePlanSets(ctx) {
+      이것은 결과 카드 초기 인라인 style="display:none" 을 걷어내 '5단계로 이동했을 때' 카드가 보이게 하는
+      코드다(그 용도로는 필수). 다만 지금처럼 화면이 4단계에 머무는 동안에는 pane 가림 클래스
+      .mv-pane-hidden{display:none!important} 를 인라인 display 로 이길 수 없어, 이 호출만으로 4단계에
+-     결과가 보이지는 않는다. 그 표시는 아래 #mvExecStepResult(4단계 성공 요약)가 담당한다 — 이전 주석이
+-     이 줄을 '결과를 표시하는 코드'처럼 읽히게 했던 오해를 여기서 정리한다. */
++     결과가 보이지는 않는다 — 이전 주석이 이 줄을 '결과를 표시하는 코드'처럼 읽히게 했던 오해를 정리한다.
++     [STAGE4-COMPLETION-BANNER-REMOVE-FIX] 그 표시를 맡던 #mvExecStepResult(4단계 성공 요약)는 삭제됐다. */
+   var erc = document.getElementById('execResultCard'); if (erc) erc.style.display = '';
+   /* [EXECUTE-ERROR-MESSAGE-NOT-RENDERED-FIX] 다중 세트 중 하나라도 실패(agg.success=false)하면 planRun 상세
+      (재이관 뷰)는 결과카드(5단계, 4단계 pane 에서 가려짐)에 그려져 화면에 안 보인다 — 실패한 세트의 오류를
+@@ -26967,12 +26855,10 @@ async function _runExecutePlanSets(ctx) {
+     _updateProgressCard('validation', 'block', '실행 오류');
+   } else {
+     _mvClearExecStepError();   /* 전 세트 성공 → 이전 실행오류 잔류 제거 */
+-    /* [STATS-VALIDATION-EXECUTE-SUCCESS-RESULT-STEP4-DISPLAY-FIX] 전 세트 성공 → 4단계에 성공 요약 표시
+-       (단일 세트 runExecute 경로와 대칭). 합산 결과(agg) 기준이며, 다중 세트는 GROUP BY 2개 이상 선택
+-       경로이므로 COUNT-only 가 될 수 없다(countOnly=false 고정). 자동 탭 이동은 하지 않는다. */
+-    if (typeof _mvShowExecStepResult === 'function') {
+-      try { _mvShowExecStepResult(agg, { countOnly: false }); } catch (e) {}
+-    }
++    /* [STAGE4-COMPLETION-BANNER-REMOVE-FIX] 전 세트 성공 시 그리던 4단계 성공 요약 박스를 제거했다.
++       그 렌더 함수가 겸하던 '진행 표시 종료'(진행→완료 전환)만 여기서 직접 수행한다 —
++       스피너·경과시간이 완료 후에도 남지 않게 하는 동작이라 표시 제거와 함께 사라지면 안 된다. */
++    if (typeof _mvClearExecStepProgress === 'function') _mvClearExecStepProgress();
+   }
+   /* TASK29 §60: 하단 확정 저장 바 삭제 — 다중 세트 안내 갱신 코드도 함께 제거(대상 DOM 없음). */
+   /* [자동 탭 이동 전면 제거] 통계검증(다중 세트) 완료 후에도 현재 탭에 머문다(자동 result 이동 금지).
+@@ -29389,7 +29275,7 @@ async function runExecute() {
+       }
+       _executeInProgress = false;   /* ③: 재클릭 가드 해제(plan-sets 경로) */
+       /* [SINGLE-STEP4-EXEC-STATUS-DISPLAY-IMPLEMENT] 다중 세트 실행 종료 — 진행 표시/타이머 정리.
+-         정상 종료면 이미 성공 요약(#mvExecStepResult) 또는 오류(#mvExecStepError)가 이 영역을 껐지만,
++         정상 종료면 이미 성공 지점(_mvClearExecStepProgress) 또는 오류(#mvExecStepError)가 이 영역을 껐지만,
+          계획 생성 실패·세트 없음 같은 조기 return 경로는 여기서만 정리된다. */
+       if (typeof _mvClearExecStepProgress === 'function') _mvClearExecStepProgress();
+       if (typeof _mvRefreshTopExecBtnState === 'function') { try { _mvRefreshTopExecBtnState(); } catch (e) {} }
+@@ -29531,13 +29417,10 @@ async function runExecute() {
+     /* [탭 전이 §3·자동 이동 전면 제거] 통계검증 실행 후에는 4단계에 머문다(자동 5단계 이동 금지). 진행/완료는 4단계에서
+        표시하고, Gate 가 _singleValidationExecuted 기준으로 결과(5)를 '활성화'만 하도록 nav 를 갱신한다(뷰 이동 없음). */
+     if (typeof _renderSingleStepNav === 'function') { try { _renderSingleStepNav(); } catch(e){} }
+-    /* [STATS-VALIDATION-EXECUTE-SUCCESS-RESULT-STEP4-DISPLAY-FIX] 위 정책대로 4단계에 머무는데 결과 카드는
+-       5단계 pane 이라 가려진다 — 오류 경로(#mvExecStepError)와 대칭으로 같은 4단계 pane 에 성공 '요약'을
+-       표시한다. 자동 탭 이동은 하지 않는다(요약 안의 버튼으로 사용자가 직접 이동). countOnly 는 실제 선택
+-       GROUP BY 개수로 판정한다(집계 결과 필드 추정 금지). */
+-    if (typeof _mvShowExecStepResult === 'function') {
+-      try { _mvShowExecStepResult(r, { countOnly: (gbSel || []).length === 0 }); } catch(e){}
+-    }
++    /* [STAGE4-COMPLETION-BANNER-REMOVE-FIX] 위 정책대로 4단계에 머물지만, 종전에 여기서 그리던 성공 요약
++       박스는 제거했다(사용자 요청). 그 렌더 함수가 겸하던 '진행 표시 종료'만 남긴다 — 5단계 이동은
++       하단 [다음 ▶] 단계 이동 버튼으로 한다(자동 탭 이동 없음은 종전과 동일). */
++    if (typeof _mvClearExecStepProgress === 'function') _mvClearExecStepProgress();
+   } catch(err) {
+     if (_ver !== _singleSessionVer()) return;   /* abort/stale 오류 무시(새 세션) */
+     var _errHtml = `<div class="warn-box fail">실행 오류: ${escNl(err.message)}</div>`;
+diff --git a/ui/validation_plan_renderer.py b/ui/validation_plan_renderer.py
+index 328b103..bdd57c2 100644
+--- a/ui/validation_plan_renderer.py
++++ b/ui/validation_plan_renderer.py
+@@ -872,7 +872,12 @@ function _mvSyncStageProcessingTimeVisibility() {
+     /* [CANDIDATE-STEP3-CONSOLIDATE-TILE-REDESIGN-FIX] 3단계도 같은 이유로 상시 비노출 — 값은 3단계
+        통합 타일의 '처리시간' 항목이 같은 소스(/validation-sets/preview processing_ms)로 보여준다.
+        이로써 '· 3단계 계산 중...' 줄도 화면에서 사라진다(슬롯 DOM/textContent 는 그대로 유지). */
+-    var _hidden = { 1: true, 2: true, 3: true };   /* 1~3단계 = 각 단계 타일 '처리시간' 항목으로 이전됨 */
++    /* [STAGE4-COMPLETION-BANNER-REMOVE-FIX] 5단계도 같은 이유로 상시 비노출 — '· 5단계 통계검증 실행
++       (상세 추출 별도): N초' 줄을 화면에서 없앤다(사용자 요청). 값은 5단계 상단 타일의 '처리시간' 칸이
++       같은 소스(_mvShowStageProcessingTime(5, …) 가 보관하는 window._mvStage5ProcMs)로 계속 보여준다.
++       계측·저장·타일 갱신 경로는 손대지 않고 이 슬롯의 '표시'만 막는다(1~3단계와 동일 처리) — 슬롯이
++       display:none 이 되므로 '· 5단계 계산 중...' 잠정 문구가 남기던 빈 줄도 함께 사라진다. */
++    var _hidden = { 1: true, 2: true, 3: true, 5: true };   /* 1~3·5단계 = 각 단계 타일 '처리시간' 항목으로 이전됨 */
+     var curNum = (typeof _singleStepIdx === 'function' && typeof _singleViewStep !== 'undefined')
+       ? (_singleStepIdx(_singleViewStep) + 1) : null;
+     for (var n = 1; n <= 5; n++) {

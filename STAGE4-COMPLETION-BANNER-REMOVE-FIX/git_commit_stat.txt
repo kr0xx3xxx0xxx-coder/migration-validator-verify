@@ -1,0 +1,52 @@
+commit 85ca345cf26ae4299f36912001eaa5143df8c679
+Author: migration-validator <dev@migration-validator.local>
+Date:   Wed Aug 5 16:50:07 2026 +0900
+
+    fix(ui): 4단계 완료 안내박스 · 5단계 처리시간 줄 · 5단계 실행이력 요약 박스 제거 (STAGE4-COMPLETION-BANNER-REMOVE-FIX)
+    
+    사용자 요청으로 개별검증 화면의 표시 3곳을 화면 숨김이 아니라 코드까지 삭제한다.
+    
+    ① 4단계 완료 안내박스(#mvExecStepResult)
+       '⚠ 통계검증 실행 완료 · 불일치 있음' 제목 + 불일치 그룹 요약 문장 + 전체그룹/일치/값불일치/
+       원본단독/목적단독 5칸 표 + '결과 확인(5단계) 보기' 버튼을 통째로 제거.
+       삭제: _mvExecStepResultHtml / _mvShowExecStepResult / _mvClearExecStepResult /
+            _mvExecStepResultGoResult · 전용 host · pane 등록 · 호출부 5곳.
+       보존: 종전에 이 렌더 함수가 겸하던 '진행 표시 종료'는 성공 지점에서
+            _mvClearExecStepProgress() 를 직접 부르도록 옮겼다(스피너 잔류 방지).
+            집계 값을 만드는 서버 경로와 5단계가 공유하는 _mvComboUnverifiedNoticeHtml 은 불변.
+    
+    ② 5단계 상단 처리시간 줄(#mvStage5ProcessingTime)
+       '· 5단계 통계검증 실행(상세 추출 별도): N초' 표시만 제거 — 1~3단계와 동일하게
+       _mvSyncStageProcessingTimeVisibility 의 _hidden 에 5 를 추가한다.
+       계측·저장(window._mvStage5ProcMs)과 5단계 타일의 '처리시간' 칸은 그대로 유지.
+    
+    ③ 5단계 상단 실행 이력 요약 박스(#relatedHistCard)
+       '목적지 테이블 / 실행 이력 수 / 차이 없음 / 차이 있음 / 오류 / 차이 그룹 합계 / 최근 실행'
+       박스를 host·렌더 함수(loadRelatedHistorySummary)·analyze 후 호출부·전용 CSS 까지 제거.
+       /history/summary 라우트와 이력 탭 요약(renderHistorySummary)은 공유 경로라 불변.
+    
+    5단계 이동은 하단 [다음 ▶] 버튼으로 가능함을 제거 전 상태에서 실측 확인했다
+    (삭제된 버튼이 유일한 이동 수단이 아니었다).
+    
+    실측(Oracle 라이브, 포트 8000): 4단계 박스 h=299px→DOM 부재, 5단계 처리시간 줄 h=18px→
+    display:none, 이력 박스 h=94px→DOM 부재, 결과 카드 top 372px→226px 로 당겨져 빈 공백 없음.
+    무회귀: 4단계 타일·SQL 박스, 5단계 컨텍스트 타일·불일치 결과표, 페이지 오류 0건.
+    
+    테스트: 삭제된 기능을 지키던 가드 5개 파일을 '제거 회귀 가드'로 전환.
+    서브셋 201건 baseline 대조 신규 회귀 0건, samples/test_display_consistency 40건 사전실패 동일,
+    virtual/complex cases 전건 통과.
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_01JihJRdcDp3b7WNba13xiKz
+
+ samples/test_display_consistency.py                |  57 +--
+ .../stage4_completion_banner_remove_verify.py      | 453 +++++++++++++++++++++
+ tests/test_exec_step_progress_display.py           |  30 +-
+ ...est_execute_success_result_step4_display_fix.py | 154 ++++---
+ tests/test_query_review_tile_layout.py             |   9 +-
+ tests/test_shared_sticky_step_nav.py               |   5 +-
+ tests/test_stage4_postcount_progress_indicator.py  |  34 +-
+ ui/history_renderer.py                             |  55 +--
+ ui/tabler_renderer.py                              | 227 +++--------
+ ui/validation_plan_renderer.py                     |   7 +-
+ 10 files changed, 674 insertions(+), 357 deletions(-)

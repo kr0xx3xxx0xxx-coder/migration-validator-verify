@@ -1,0 +1,288 @@
+작업명 : STAGE4-COMPLETION-BANNER-REMOVE-FIX
+작성일 : 2026-08-05
+커밋   : 85ca345 (code repo / main)
+분류   : UI 표시 제거(화면 숨김 아님 — 코드·로직 삭제)
+
+
+■ 요청 내용
+
+개별검증 화면에서 아래 세 영역을 코드까지 완전히 삭제한다.
+
+  ① 4단계(통계검증 실행) 완료 후 뜨는 안내박스
+     "⚠ 통계검증 실행 완료 · 불일치 있음 (불일치)" 제목 줄
+     + 불일치 그룹 요약 문장
+     + 전체그룹/일치/값불일치/원본단독/목적단독 5칸 요약 표
+     + "결과 확인(5단계) 보기" 버튼
+
+  ② 5단계 상단 처리시간 표시 줄
+     "· 5단계 통계검증 실행(상세 추출 별도): 0.95초"
+     (계측 자체는 남겨도 되고, 이 위치의 표시만 제거)
+
+  ③ 5단계 상단 실행 이력 요약 박스
+     "목적지 테이블: MV_CSPK_TGT / 실행 이력 수: 0 / 차이 없음: 0 / 차이 있음: 0 /
+      오류: 0 / 차이 그룹 합계: 0 / 최근 실행: — / 아직 실행 이력이 없습니다."
+
+  공통 조건: 공유 계산 로직은 건드리지 않고 렌더 부분만 제거, 빈 공백 잔류 금지.
+
+
+■ 결론
+
+세 영역 모두 제거를 완료했고, Oracle 라이브 DB 로 운영 서버(포트 8000)에서 1~5단계를
+실제로 클릭해 before/after 를 대조 실측했다. 판정 PASS.
+관련 테스트 서브셋을 baseline 과 대조한 결과 신규 회귀 0건이다.
+
+
+■ 무엇을 어떻게 지웠는가
+
+① 4단계 완료 안내박스 — ui/tabler_renderer.py
+
+  삭제한 것
+    - 전용 host `<div id="mvExecStepResult">` (HTML 선언)
+    - 4단계 pane 등록 목록(SINGLE_STEP_CARDS.validation)에서 'mvExecStepResult' 제거
+    - 함수 4개 전체 삭제(총 6,312자)
+        _mvExecStepResultHtml      — 박스 HTML 생성(제목·5칸 표·안내문·버튼)
+        _mvShowExecStepResult      — 표시
+        _mvClearExecStepResult     — 정리
+        _mvExecStepResultGoResult  — '결과 확인(5단계) 보기' 클릭 시 5단계 이동
+      및 window 노출 3줄
+    - 호출부 5곳
+        resetExecuteResultOnly / resetAfterGenerateStart / _clearCountDownstreamUi
+          → 성공 요약 정리 호출 제거
+        _mvShowExecStepError / _mvShowExecStepProgress
+          → 상호배타 처리를 위한 성공 요약 정리 호출 제거
+        _runExecutePlanSets(다중 세트) / runExecute(단일 세트)
+          → 성공 시 요약 표시 호출 제거
+
+  ★ 함께 사라지면 안 되는 동작을 분리해 보존
+    종전에 _mvShowExecStepResult 는 "요약을 그리는" 일 외에 내부에서
+    _mvClearExecStepProgress() 를 불러 '통계검증 실행 중' 스피너와 경과시간 타이머를
+    끄는 일도 겸하고 있었다. 박스만 지우면 실행이 끝나도 스피너가 남는 회귀가 생긴다.
+    → 두 성공 지점(다중 세트 분기 / 단일 세트 runExecute)에서 _mvClearExecStepProgress() 를
+      직접 호출하도록 옮겨 동작을 그대로 유지했다.
+
+  건드리지 않은 것(공유 로직)
+    - 전체그룹/일치/값불일치/원본단독/목적단독 수치를 만드는 서버 집계(result_view·agg)
+    - 5단계도 함께 쓰는 _mvComboUnverifiedNoticeHtml('조합 미검증' 안내) — 5단계에 그대로 표시됨
+    - 오류 표시 영역(#mvExecStepError), 진행 표시(#mvExecStepProgress),
+      완료 이후 상세 추출 표시(#mvExecStepPostProgress)
+    - 5단계 결과 카드(execResultCard)와 그 pane 매핑
+
+② 5단계 처리시간 줄 — ui/validation_plan_renderer.py
+
+  요청이 "계측은 남겨도 되고 표시만 제거" 였으므로, 이미 1~3단계에 쓰이던 방식을 그대로 적용했다.
+    _mvSyncStageProcessingTimeVisibility() 의
+      var _hidden = { 1: true, 2: true, 3: true };
+        → { 1: true, 2: true, 3: true, 5: true };
+
+  이 한 줄로 슬롯(#mvStage5ProcessingTime)이 display:none 이 되어
+    - 완료 시 "· 5단계 통계검증 실행(상세 추출 별도): N초"
+    - 실행 중 "· 5단계 계산 중..."
+  두 문구가 모두 화면에서 사라지고, 인라인 요소라 줄 높이도 0 이 된다.
+
+  유지한 것
+    - _mvShowStageProcessingTime(5, …) 호출과 계측값 저장(window._mvStage5ProcMs)
+    - 그 값을 읽는 5단계 상단 타일의 '처리시간' 칸 → 실측 화면에서 0.83초로 정상 표시됨
+    - 1·2·3·4단계 슬롯 동작(4단계는 종전대로 노출)
+
+③ 5단계 실행 이력 요약 박스 — ui/tabler_renderer.py + ui/history_renderer.py
+
+  삭제한 것
+    - 전용 host `<div class="related-hist-card" id="relatedHistCard"><div id="relatedHistBody">`
+    - 5단계 pane 등록 목록(SINGLE_STEP_CARDS.result)에서 'relatedHistCard' 제거
+    - 렌더 함수 loadRelatedHistorySummary() 전체(history_renderer.py) — 이 박스를 그리던 유일한 함수
+    - analyze 성공 후 호출부(loadRelatedHistorySummary(_tgtTbl)) — 표시 대상이 없으므로
+      /history/summary 선조회 자체가 불필요해졌다
+    - 차단/미지원 경로의 잔상 청소 코드 2줄
+    - 전용 CSS 6줄(.related-hist-card 및 하위 .rh-title/.rh-stats/.rh-stat)
+
+  건드리지 않은 것(공유 경로)
+    - /history/summary 라우트와 validation_history_service 의 집계 함수
+    - 이력 탭의 요약 카드 renderHistorySummary() — '실행 이력 수 / 차이 없음 / 차이 있음 /
+      오류 / 차이 그룹 합계 / 최근 실행일시' 라벨을 그대로 쓰는 별개 화면이다
+    - applyHistoryTargetTable() — 목적지 테이블 기준 이력 필터(이력 탭 공개 API)
+
+
+■ "결과 확인(5단계) 보기" 버튼이 유일한 이동 수단이었는가 (요구사항 3번)
+
+아니다. 제거 전(before) 실측에서 확인했다.
+
+  before 실측 결과: "5단계_이동_다음버튼_가능": true
+    → 삭제 전 상태에서도 하단 커맨드바 [다음 ▶] 버튼(data-mv-fn=_mvNavStep, args=[1])만으로
+      4단계 → 5단계 이동이 정상 동작했다.
+  after 실측에서도 같은 버튼만으로 5단계 진입에 성공했다(자동 탭 이동 정책은 종전대로 없음).
+
+따라서 이번 삭제로 5단계 접근 경로가 끊기지는 않는다. 다만 실행 직후 "결과를 보러 가라"는
+시각적 유도(콜 투 액션)는 사라지므로, 사용자는 하단 [다음 ▶] 또는 상단 5단계 탭을 직접 눌러야 한다.
+이는 요청의 의도(안내박스 제거)에 따른 결과이며 삭제는 그대로 진행했다.
+
+
+■ 실측 검증 (Oracle 라이브)
+
+환경
+  - 운영 서버 http://127.0.0.1:8000 (HTTP Basic Auth ON, 서버 단계 가드 ON)
+  - 원본 Oracle_asis(ORACLE) → 목적지 Oracle_tobe(ORACLE), 프로젝트 TESTONLY_REG
+  - 대상 NXDNP.MV_ORA_DEMO_SRC → NXDNP.MV_ORA_DEMO_TGT (원본 150건 / 목적 150건)
+  - GROUP BY 2축(STATUS_CD, DEPT_CD) + SUM(AMT) = 다중 세트 경로
+    (= 문제의 안내박스가 확실히 뜨는 경로)
+  - 드라이버 scripts/dev_e2e/stage4_completion_banner_remove_verify.py (신규, 개발 전용)
+    1~5단계를 실제 버튼 클릭으로 진행하고 각 시점의 DOM 존재·계산 스타일·좌표를 수집
+
+  before 는 수정 전 코드를 서빙 중이던 기동 상태의 서버에서, after 는 서버 재기동 후 수집했다
+  (실행 중 서버는 옛 모듈을 들고 있으므로 재기동이 필수다).
+
+측정 결과
+
+  대상                              before                     after
+  ------------------------------------------------------------------------------
+  ① #mvExecStepResult              존재, 높이 299px,          DOM 자체 없음
+                                    텍스트 474자
+     화면 문구 '결과 확인(5단계) 보기'  있음                       없음
+     화면 문구 '전체 그룹/값 불일치'    있음                       없음
+
+  ② #mvStage5ProcessingTime        존재, display:inline,      존재하나 display:none,
+                                    높이 18px,                 높이 0px
+                                    "· 5단계 통계검증 실행
+                                     (상세 추출 별도): 0.87초"
+     화면 문구 '5단계 통계검증 실행(…)' 있음                       없음
+     화면 문구 '5단계 계산 중'          없음                       없음
+
+  ③ #relatedHistCard               존재, 높이 94px,           DOM 자체 없음
+                                    "목적지 테이블: MV_ORA_DEMO_TGT
+                                     실행 이력 수: 0 …"
+     화면 문구 '실행 이력 수'           있음                       없음
+     화면 문구 '차이 그룹 합계'         있음                       없음
+     화면 문구 '아직 실행 이력이 없습니다' 있음                     없음
+
+빈 공백 잔류 여부 (좌표로 판정)
+
+  5단계 결과 카드(#execResultCard)의 화면상 top 좌표
+    before 372px  →  after 226px  (146px 축소)
+  즉 삭제된 처리시간 줄(18px) + 이력 박스(94px) + 각 여백만큼 정확히 당겨졌고,
+  단계 탭 바로 아래에 결과 카드가 붙는다 — 빈 자리가 남지 않았다.
+
+  5단계 pane 에서 결과 카드 앞 형제 요소 목록
+    before: relatedHistCard(94px), mvExecStepPostProgress(0), mvExecStepResult(0), mvExecStepError(0)
+    after : mvExecStepPostProgress(0), mvExecStepError(0), mvExecStepProgress(0), mvExecProgress(0)
+    → after 의 앞 형제는 모두 높이 0 인 비표시 슬롯뿐이다.
+
+  4단계도 동일하게, 통계검증 SQL 카드 아래에서 카드가 끝나며 안내박스 자리는 남지 않는다.
+
+무회귀 확인 (같은 실측에서 동시 관측, before/after 모두 true)
+
+  - 4단계 상단 컨텍스트 타일 9칸(목적/원본 테이블, 목적·원본 그룹, 집계, 통계전략,
+    실행시간, 조합검증) 정상 표시
+  - 4단계 통계검증 SQL 박스(목적지/원본 SQL, 참고용 안내, 조합 검증 체크박스) 정상 표시
+  - 4→5단계 이동이 하단 [다음 ▶] 버튼으로 정상 동작
+  - 5단계 상단 컨텍스트 타일 8칸 정상 — '처리시간 0.83초' 칸이 계측값을 그대로 표시
+  - 5단계 '조합(다축 동시) 검증은 수행되지 않았습니다' 안내(공유 함수) 그대로 표시
+  - 5단계 불일치 그룹 결과표, 재이관 대상 50건 목록, 대표 GROUP BY 분포표,
+    검증 그룹 등록 영역 정상 표시
+  - 브라우저 페이지 오류(pageerror) 0건
+
+  실행 결과 자체도 동일하다(before/after 모두 전체 10그룹 중 불일치 6그룹,
+  재이관 대상 50건, 상태 '불일치').
+
+증적 스크린샷 (E:\verify_screenshots_only\STAGE4-COMPLETION-BANNER-REMOVE-FIX\)
+  before_01_analyze.png / after_01_analyze.png                   1단계 분석
+  before_02_stage4_generated.png / after_02_…                    4단계 SQL 생성 직후
+  before_03_stage4_after_execute.png / after_03_…                ★ 4단계 실행 완료 직후(①)
+  before_04_stage5_entered.png / after_04_…                      5단계 진입(전체)
+  before_05_stage5_top_viewport.png / after_05_…                 ★ 5단계 상단(②③)
+  live_measure_before.json / live_measure_after.json             측정 원본 JSON
+
+
+■ 테스트
+
+1) 관련 서브셋 15파일 — baseline 대조
+
+   baseline(수정 전) 실패 3건 / after(수정 후) 실패 3건 — 신규 회귀 0건
+   3건 모두 이번 작업과 무관한 사전 존재 실패다:
+     tests/test_all_stages_timing_display_expand.py::test_count_generate_execute_routes_add_processing_ms
+     tests/test_stage_button_dedup_time_scope_and_gate45_fix.py::test_switching_tab_hides_previous_slot_but_keeps_its_value
+     tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+   (두 번째 건은 2단계 슬롯이 이미 상시 비노출로 바뀐 뒤 갱신되지 않은 낡은 가드로,
+    이번 5단계 비노출과 같은 계열이지만 수정 전에도 동일하게 실패하고 있었다.)
+
+   총계: 3 failed, 195 passed, 5 xfailed
+   ※ 이 서브셋은 실행마다 test_d7_8_2_browser_contract 2건이 간헐 실패했다가 사라지는
+     순서 의존 흔들림이 있어 3회 반복 실행했고, 3회 모두의 실패 집합은 위 3건으로 동일했다.
+     해당 2건은 단독 실행 시 항상 통과한다.
+
+2) 중간 범위 132파일 — baseline worktree 대조
+
+   baseline(HEAD 워크트리) 실패 68건 / after 실패 71건
+   차이 3건은 모두 워크트리 환경차(로컬 DB·실 PostgreSQL 미구성)로 인한 것으로,
+   같은 3건을 baseline 워크트리에서 단독 실행하면 동일하게 실패/스킵한다:
+     test_batch_count_only_path.py::test_count_only_route_separate_from_full     → baseline 도 FAIL(conftest RuntimeError)
+     test_batch_step_tabs_workflow.py::test_state_endpoint_backend               → baseline 도 FAIL(batch-groups state 응답)
+     test_candidate_plan_matrix.py::test_null_vs_empty_selection_contract        → baseline 은 SKIP(PG 미준비), 본체는 라이브 PG 추천 결과 의존
+   세 건 모두 렌더된 HTML 을 읽지 않는 백엔드 테스트이며, 이번 변경(HTML/JS 텍스트 삭제)은
+   이들의 판정에 관여할 수 없다. → 신규 회귀 0건.
+
+3) samples/test_display_consistency.py
+
+   before 276통과/40실패 → after 276통과/40실패, 실패 TC 집합 완전 동일(신규 0, 해소 0).
+
+4) CLAUDE.md 지정 회귀 테스트
+
+   samples/test_virtual_cases.py   8/8 통과
+   samples/test_complex_cases.py   5/5 통과
+
+5) 렌더 JS 문법
+
+   렌더된 페이지의 인라인 script 2블록(총 2,082,690자)을 node --check 로 검사 — 문법 오류 0.
+
+6) 삭제된 기능을 지키던 가드 테스트 5개 파일 → '제거 회귀 가드'로 전환
+
+   tests/test_execute_success_result_step4_display_fix.py
+     파일 전체를 뒤집었다. 이제 host·함수 4종·window 노출·호출부·박스 고유 문구가
+     '없는지'를 검증하고, 동시에 성공 경로의 진행 표시 종료 배선과 오류 경로·
+     자동 이동 금지 정책이 그대로인지(무회귀)를 확인한다.
+   tests/test_exec_step_progress_display.py
+     node 하니스의 '성공 요약 표시 → 진행 종료' 단계를 '성공 지점 _mvClearExecStepProgress'
+     로 교체하고, 삭제된 렌더 함수가 되살아나지 않았는지를 함께 본다.
+   tests/test_stage4_postcount_progress_indicator.py
+     기준점이던 #mvExecStepResult 대신 #mvExecStepError 로 배치 순서 계약을 검증.
+   tests/test_shared_sticky_step_nav.py
+     4단계 pane 필수 키에서 mvExecStepResult 를 빼고, 되살아나면 실패하는 음성 계약 추가.
+   tests/test_query_review_tile_layout.py
+     처리시간 슬롯 숨김 대상 목록을 1~3 → 1~3·5 로 갱신.
+   samples/test_display_consistency.py
+     TC-203 / TC-204 / TC-216 / TC-240 을 '존재 확인' → '제거 확인'으로 전환.
+
+
+■ 변경 파일
+
+  운영 코드
+    ui/tabler_renderer.py            (-227/+…)  ① 박스·함수·호출부·pane 등록, ③ host·호출부
+    ui/history_renderer.py           (-55/+…)   ③ 렌더 함수·CSS
+    ui/validation_plan_renderer.py   (+7/-1)    ② 슬롯 숨김 대상에 5단계 추가
+  테스트
+    tests/test_execute_success_result_step4_display_fix.py
+    tests/test_exec_step_progress_display.py
+    tests/test_stage4_postcount_progress_indicator.py
+    tests/test_shared_sticky_step_nav.py
+    tests/test_query_review_tile_layout.py
+    samples/test_display_consistency.py
+  검증 도구(개발 전용)
+    scripts/dev_e2e/stage4_completion_banner_remove_verify.py (신규)
+
+  합계 10파일, 224 insertions / 359 deletions
+  커밋 85ca345 (code repo main)
+
+  ※ 같은 작업트리에 다른 세션의 미커밋 작업
+    (STATS-SET-PARALLELISM-CONDITIONAL-ENABLE-FIX — services/single_validation_run_facade.py,
+     tests/test_plansets_agg_processing_time_fix.py, tests/test_stats_set_parallelism_conditional_enable.py)
+    이 있어 경로를 명시해 내 파일만 스테이징했고, 커밋 후 해당 변경이 그대로 남아 있음을 확인했다.
+
+
+■ 남는 사항 / 참고
+
+  - #mvStage5ProcessingTime 슬롯 DOM 과 textContent 는 남는다(값 기록·기존 회귀 테스트 보호).
+    화면에는 절대 노출되지 않는다(display:none). 완전 삭제를 원하면 별건으로 처리해야 하며,
+    그 경우 5단계 타일의 '처리시간' 칸이 읽는 값 경로를 함께 정리해야 한다.
+  - 4단계 실행 직후 화면에는 이제 상단 탭의 '완료' 배지와 하단 바의
+    "현재 단계: 통계검증 실행 · 통계검증 완료" 문구가 완료 신호로 남는다.
+    실행 실패 시의 오류 표시(#mvExecStepError)는 종전 그대로 4단계에 뜬다.
+  - 실행 중 스피너/경과시간 표시(#mvExecStepProgress)와 완료 이후 상세 추출 진행 표시
+    (#mvExecStepPostProgress)는 이번 삭제 대상이 아니며 그대로 동작한다.

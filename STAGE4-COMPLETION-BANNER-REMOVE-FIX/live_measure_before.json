@@ -1,0 +1,662 @@
+{
+ "tag": "before",
+ "stages": {
+  "2_count": {
+   "count_status": "COUNT_MATCHED",
+   "src": 150,
+   "tgt": 150
+  },
+  "3_select": {
+   "gb": [
+    "STATUS_CD",
+    "DEPT_CD"
+   ],
+   "sum": [
+    "AMT"
+   ]
+  }
+ },
+ "notes": [],
+ "setup": {
+  "project": "TESTONLY_REG",
+  "pair_rows": 1,
+  "badges": {
+   "src": "Oracle_asis",
+   "tgt": "Oracle_tobe"
+  }
+ },
+ "before_click": {
+  "step": "validation",
+  "_singleValidationExecuted": false,
+  "mvExecStepResult": {
+   "exists": true,
+   "paneHidden": false,
+   "computedDisplay": "none",
+   "visible": false,
+   "h": 0,
+   "textLen": 0,
+   "text": ""
+  },
+  "mvStage5ProcessingTime": {
+   "exists": true,
+   "paneHidden": false,
+   "computedDisplay": "none",
+   "visible": false,
+   "h": 0,
+   "textLen": 0,
+   "text": ""
+  },
+  "relatedHistCard": {
+   "exists": true,
+   "paneHidden": true,
+   "computedDisplay": "none",
+   "visible": false,
+   "h": 0,
+   "textLen": 110,
+   "text": "목적지 테이블: MV_ORA_DEMO_TGT 실행 이력 수: 0 차이 없음: 0 차이 있음: 0 오류: 0 차이 그룹 합계: 0 최근 실행: — 아직 실행 이력이 없습니다."
+  },
+  "mvExecStepError": {
+   "exists": true,
+   "paneHidden": false,
+   "computedDisplay": "none",
+   "visible": false,
+   "h": 0,
+   "textLen": 0,
+   "text": ""
+  },
+  "mvExecProgress": {
+   "exists": true,
+   "paneHidden": false,
+   "computedDisplay": "none",
+   "visible": false,
+   "h": 0,
+   "textLen": 0,
+   "text": ""
+  },
+  "mvStage4CtxGrid": {
+   "exists": true,
+   "paneHidden": false,
+   "computedDisplay": "block",
+   "visible": true,
+   "h": 124,
+   "textLen": 160,
+   "text": "목적테이블NXDNP.MV_ORA_DEMO_TGT원본테이블NXDNP.MV_ORA_DEMO_SRC목적그룹STATUS_CDDEPT_CD원본그룹STATUS_CDDEPT_CD목적집계AMT원본집계AMT통계전략직접 집계STATS_DIRECT_AGG숫자 단일 PK · PK 인덱스실행시간—조합검증미포함"
+  },
+  "sqlCard": {
+   "exists": true,
+   "paneHidden": false,
+   "computedDisplay": "flex",
+   "visible": true,
+   "h": 481,
+   "textLen": 1271,
+   "text": "통계검증 SQL ⚠️ 이 SQL은 참고용입니다 — 실제로는 각 축을 독립적으로 실행합니다. 아래 조합 SQL(GROUP BY STATUS_CD, DEPT_CD)은 실행되지 않습니다. 통계검증 실행 시 단일 축 2세트(STATUS_CD / DEPT_CD)로 분해해 축별로 따로 집계·비교합니다. 실제 실행된 SQL과 세트 구성은 5단계(결과 확인)에서 확인할 수 있습니다. ✅ 단일 축 2세트 + 조합 1세트(총 3세트)를 실행합니다. 조합(STATUS_CD + DEPT_CD)에서만 드러나는 불일치 — 축별 집계에서 서로 상쇄되어 사라지"
+  },
+  "execResultCard": {
+   "exists": true,
+   "paneHidden": true,
+   "computedDisplay": "none",
+   "visible": false,
+   "h": 0,
+   "textLen": 1066,
+   "text": "통계검증 실행 결과 검증 그룹에 등록 (그룹 미선택 — 테스트용 임시 실행)ORACLE_UI_1784617607174 · 품질확정 전 · ⚠ 방언 불일치(등록 불가: 원본 Oracle 그룹 · 현재 PostgreSQL)ORACLE_UI_1784617513001 · 품질확정 전 · ⚠ 방언 불일치(등록 불가: 원본 Oracle 그룹 · 현재 PostgreSQL)ORACLE_UI_1784617268138 · 품질확정 전 · ⚠ 방언 불일치(등록 불가: 원본 Oracle 그룹 · 현재 PostgreSQL)ORACLE_BATCH_EXEC_"
+  },
+  "mvStage5CtxGrid": {
+   "exists": true,
+   "paneHidden": false,
+   "computedDisplay": "block",
+   "visible": false,
+   "h": 0,
+   "textLen": 0,
+   "text": ""
+  },
+  "singleResultSummary": {
+   "exists": true,
+   "paneHidden": false,
+   "computedDisplay": "block",
+   "visible": false,
+   "h": 0,
+   "textLen": 0,
+   "text": ""
+  },
+  "executeOut": {
+   "exists": true,
+   "paneHidden": false,
+   "computedDisplay": "block",
+   "visible": false,
+   "h": 0,
+   "textLen": 0,
+   "text": ""
+  },
+  "texts": {
+   "banner_title": false,
+   "banner_btn": false,
+   "banner_cells": false,
+   "s5_proc_line": false,
+   "s5_proc_calc": false,
+   "hist_runs": false,
+   "hist_diffsum": false,
+   "hist_empty": false
+  }
+ },
+ "clicked": true,
+ "stage4_after_exec": {
+  "step": "validation",
+  "_singleValidationExecuted": true,
+  "mvExecStepResult": {
+   "exists": true,
+   "paneHidden": false,
+   "computedDisplay": "block",
+   "visible": true,
+   "h": 299,
+   "textLen": 474,
+   "text": "⚠ 통계검증 실행 완료 · 불일치 있음불일치 그룹 6건이 확인되었습니다 (값 불일치 6 · 원본 단독 0 · 목적 단독 0).전체 그룹10일치4값 불일치6원본 단독0목적 단독0⚠ 각 축 개별 검증 완료 · 조합(다축 동시) 검증은 수행되지 않았습니다선택한 GROUP BY 2개 축(STATUS_CD, DEPT_CD)은 축마다 독립 세트로 나누어 개별로만 비교했습니다. 따라서 위 통계결과·최종상태는 각 축 개별 기준이며, STATUS_CD + DEPT_CD 조합에서만 드러나는 불일치(축별 집계에서 서로 상쇄되어 사라지는 차이)는 이 판"
+  },
+  "mvStage5ProcessingTime": {
+   "exists": true,
+   "paneHidden": false,
+   "computedDisplay": "none",
+   "visible": false,
+   "h": 0,
+   "textLen": 30,
+   "text": "· 5단계 통계검증 실행(상세 추출 별도): 0.87초"
+  },
+  "relatedHistCard": {
+   "exists": true,
+   "paneHidden": true,
+   "computedDisplay": "none",
+   "visible": false,
+   "h": 0,
+   "textLen": 110,
+   "text": "목적지 테이블: MV_ORA_DEMO_TGT 실행 이력 수: 0 차이 없음: 0 차이 있음: 0 오류: 0 차이 그룹 합계: 0 최근 실행: — 아직 실행 이력이 없습니다."
+  },
+  "mvExecStepError": {
+   "exists": true,
+   "paneHidden": false,
+   "computedDisplay": "none",
+   "visible": false,
+   "h": 0,
+   "textLen": 0,
+   "text": ""
+  },
+  "mvExecProgress": {
+   "exists": true,
+   "paneHidden": false,
+   "computedDisplay": "none",
+   "visible": false,
+   "h": 0,
+   "textLen": 0,
+   "text": ""
+  },
+  "mvStage4CtxGrid": {
+   "exists": true,
+   "paneHidden": false,
+   "computedDisplay": "block",
+   "visible": true,
+   "h": 124,
+   "textLen": 166,
+   "text": "목적테이블NXDNP.MV_ORA_DEMO_TGT원본테이블NXDNP.MV_ORA_DEMO_SRC목적그룹STATUS_CDDEPT_CD원본그룹STATUS_CDDEPT_CD목적집계AMT원본집계AMT통계전략직접 집계STATS_DIRECT_AGG숫자 단일 PK · PK 인덱스실행시간총 0.87초조합검증미포함"
+  },
+  "sqlCard": {
+   "exists": true,
+   "paneHidden": false,
+   "computedDisplay": "flex",
+   "visible": true,
+   "h": 481,
+   "textLen": 1271,
+   "text": "통계검증 SQL ⚠️ 이 SQL은 참고용입니다 — 실제로는 각 축을 독립적으로 실행합니다. 아래 조합 SQL(GROUP BY STATUS_CD, DEPT_CD)은 실행되지 않습니다. 통계검증 실행 시 단일 축 2세트(STATUS_CD / DEPT_CD)로 분해해 축별로 따로 집계·비교합니다. 실제 실행된 SQL과 세트 구성은 5단계(결과 확인)에서 확인할 수 있습니다. ✅ 단일 축 2세트 + 조합 1세트(총 3세트)를 실행합니다. 조합(STATUS_CD + DEPT_CD)에서만 드러나는 불일치 — 축별 집계에서 서로 상쇄되어 사라지"
+  },
+  "execResultCard": {
+   "exists": true,
+   "paneHidden": true,
+   "computedDisplay": "none",
+   "visible": false,
+   "h": 0,
+   "textLen": 2821,
+   "text": "통계검증 실행 결과 목적테이블NXDNP.MV_ORA_DEMO_TGT원본테이블NXDNP.MV_ORA_DEMO_SRC불일치 추출전략직접 스트림 비교DIRECT_STREAM_COMPARE불일치그룹6개재이관대상6건재이관PK50건처리시간0.87초상태● 불일치 ⚠ 각 축 개별 검증 완료 · 조합(다축 동시) 검증은 수행되지 않았습니다선택한 GROUP BY 2개 축(STATUS_CD, DEPT_CD)은 축마다 독립 세트로 나누어 개별로만 비교했습니다. 따라서 위 통계결과·최종상태는 각 축 개별 기준이며, STATUS_CD + DEPT_CD 조합"
+  },
+  "mvStage5CtxGrid": {
+   "exists": true,
+   "paneHidden": false,
+   "computedDisplay": "block",
+   "visible": false,
+   "h": 0,
+   "textLen": 128,
+   "text": "목적테이블NXDNP.MV_ORA_DEMO_TGT원본테이블NXDNP.MV_ORA_DEMO_SRC불일치 추출전략직접 스트림 비교DIRECT_STREAM_COMPARE불일치그룹6개재이관대상6건재이관PK50건처리시간0.87초상태● 불일치"
+  },
+  "singleResultSummary": {
+   "exists": true,
+   "paneHidden": false,
+   "computedDisplay": "block",
+   "visible": false,
+   "h": 0,
+   "textLen": 0,
+   "text": ""
+  },
+  "executeOut": {
+   "exists": true,
+   "paneHidden": false,
+   "computedDisplay": "block",
+   "visible": false,
+   "h": 0,
+   "textLen": 1201,
+   "text": "불일치 유형전체목적 미존재값 불일치GROUP BY 기준전체STATUS_CDDEPT_CD그룹 값전체PK 검색조회초기화⬇ 상세 불일치 레코드 Excel 다운로드원본 전체 150건 · 목적 전체 150건 · 차이 0건재이관 대상 50건(33.33%) (현재 목록)이 건수는 행 레코드 기준(PK 단위 비교)입니다 — 위 요약표의 통계결과·최종상태는 집계 그룹 기준이라 세는 단위가 다릅니다.목적 미존재 0건(0.00%) · 값 불일치 50건(33.33%)목적 단독 0건(0.00%) — 재이관 비율에 미포함실행경로 — · 전략 DIRECT_S"
+  },
+  "texts": {
+   "banner_title": true,
+   "banner_btn": true,
+   "banner_cells": true,
+   "s5_proc_line": false,
+   "s5_proc_calc": false,
+   "hist_runs": false,
+   "hist_diffsum": false,
+   "hist_empty": false
+  }
+ },
+ "stage4_gap": {
+  "ok": true,
+  "cardTop": 0,
+  "firstKids": [
+   {
+    "id": "singleStaleResultBanner",
+    "tag": "DIV",
+    "top": 0,
+    "h": 0,
+    "display": "none",
+    "mt": "0px",
+    "mb": "12px",
+    "txt": ""
+   },
+   {
+    "id": "mvStage5CtxGrid",
+    "tag": "DIV",
+    "top": 0,
+    "h": 0,
+    "display": "block",
+    "mt": "0px",
+    "mb": "0px",
+    "txt": "목적테이블NXDNP.MV_ORA_DEMO_TGT원본테이블NXDNP.MV_ORA_DEMO_SRC불일치 추출전략"
+   },
+   {
+    "id": "mvSummary_singleResultSummary",
+    "tag": "DIV",
+    "top": 0,
+    "h": 0,
+    "display": "block",
+    "mt": "0px",
+    "mb": "0px",
+    "txt": "⚠ 각 축 개별 검증 완료 · 조합(다축 동시) 검증은 수행되지 않았습니다선택한 GROUP BY 2개 축(S"
+   },
+   {
+    "id": "singleResultSummary",
+    "tag": "DIV",
+    "top": 0,
+    "h": 0,
+    "display": "block",
+    "mt": "0px",
+    "mb": "0px",
+    "txt": ""
+   },
+   {
+    "id": "singleMismatchItems",
+    "tag": "DIV",
+    "top": 0,
+    "h": 0,
+    "display": "block",
+    "mt": "0px",
+    "mb": "0px",
+    "txt": "불일치 1항목 · AMT전체 10그룹 중 불일치 6그룹⬇ 불일치 그룹 결과 Excel 다운로드※ 위 그룹은 "
+   },
+   {
+    "id": "mvDiagCommonStrategy",
+    "tag": "DIV",
+    "top": 0,
+    "h": 0,
+    "display": "block",
+    "mt": "0px",
+    "mb": "0px",
+    "txt": ""
+   }
+  ],
+  "prevSiblings": [
+   {
+    "id": "relatedHistCard",
+    "cls": "related-hist-card mb-3 mv-pane-hidden",
+    "display": "none",
+    "h": 0,
+    "txt": "목적지 테이블: MV_ORA_DEMO_TGT 실행 이력 수: 0 차이 없음: 0 차이 있음: 0 오류: 0 "
+   },
+   {
+    "id": "mvExecStepPostProgress",
+    "cls": "",
+    "display": "none",
+    "h": 0,
+    "txt": ""
+   },
+   {
+    "id": "mvExecStepResult",
+    "cls": "",
+    "display": "block",
+    "h": 299,
+    "txt": "⚠ 통계검증 실행 완료 · 불일치 있음불일치 그룹 6건이 확인되었습니다 (값 불일치 6 · 원본 단독 0 ·"
+   },
+   {
+    "id": "mvExecStepError",
+    "cls": "",
+    "display": "none",
+    "h": 0,
+    "txt": ""
+   }
+  ],
+  "procSlots": {
+   "s1": {
+    "display": "none",
+    "h": 0,
+    "w": 0,
+    "txt": "· 1단계 처리시간: 1.22초"
+   },
+   "s2": {
+    "display": "none",
+    "h": 0,
+    "w": 0,
+    "txt": "· 2단계 처리시간: 0.24초"
+   },
+   "s3": {
+    "display": "none",
+    "h": 0,
+    "w": 0,
+    "txt": "· 3단계 계산 중..."
+   },
+   "s4": {
+    "display": "inline",
+    "h": 18,
+    "w": 189,
+    "txt": "· 4단계 SQL 생성 시간: 0.01초 미만"
+   },
+   "s5": {
+    "display": "none",
+    "h": 0,
+    "w": 0,
+    "txt": "· 5단계 통계검증 실행(상세 추출 별도): 0.87초"
+   }
+  }
+ },
+ "next_btn_available": {
+  "exists": true,
+  "text": "다음 ▶",
+  "disabled": false,
+  "visible": true
+ },
+ "moved_to_result_via_next_btn": true,
+ "stage5_after_move": {
+  "step": "result",
+  "_singleValidationExecuted": true,
+  "mvExecStepResult": {
+   "exists": true,
+   "paneHidden": true,
+   "computedDisplay": "none",
+   "visible": false,
+   "h": 0,
+   "textLen": 474,
+   "text": "⚠ 통계검증 실행 완료 · 불일치 있음불일치 그룹 6건이 확인되었습니다 (값 불일치 6 · 원본 단독 0 · 목적 단독 0).전체 그룹10일치4값 불일치6원본 단독0목적 단독0⚠ 각 축 개별 검증 완료 · 조합(다축 동시) 검증은 수행되지 않았습니다선택한 GROUP BY 2개 축(STATUS_CD, DEPT_CD)은 축마다 독립 세트로 나누어 개별로만 비교했습니다. 따라서 위 통계결과·최종상태는 각 축 개별 기준이며, STATUS_CD + DEPT_CD 조합에서만 드러나는 불일치(축별 집계에서 서로 상쇄되어 사라지는 차이)는 이 판"
+  },
+  "mvStage5ProcessingTime": {
+   "exists": true,
+   "paneHidden": false,
+   "computedDisplay": "inline",
+   "visible": true,
+   "h": 18,
+   "textLen": 30,
+   "text": "· 5단계 통계검증 실행(상세 추출 별도): 0.87초"
+  },
+  "relatedHistCard": {
+   "exists": true,
+   "paneHidden": false,
+   "computedDisplay": "block",
+   "visible": true,
+   "h": 94,
+   "textLen": 110,
+   "text": "목적지 테이블: MV_ORA_DEMO_TGT 실행 이력 수: 0 차이 없음: 0 차이 있음: 0 오류: 0 차이 그룹 합계: 0 최근 실행: — 아직 실행 이력이 없습니다."
+  },
+  "mvExecStepError": {
+   "exists": true,
+   "paneHidden": true,
+   "computedDisplay": "none",
+   "visible": false,
+   "h": 0,
+   "textLen": 0,
+   "text": ""
+  },
+  "mvExecProgress": {
+   "exists": true,
+   "paneHidden": true,
+   "computedDisplay": "none",
+   "visible": false,
+   "h": 0,
+   "textLen": 0,
+   "text": ""
+  },
+  "mvStage4CtxGrid": {
+   "exists": true,
+   "paneHidden": true,
+   "computedDisplay": "none",
+   "visible": false,
+   "h": 0,
+   "textLen": 166,
+   "text": "목적테이블NXDNP.MV_ORA_DEMO_TGT원본테이블NXDNP.MV_ORA_DEMO_SRC목적그룹STATUS_CDDEPT_CD원본그룹STATUS_CDDEPT_CD목적집계AMT원본집계AMT통계전략직접 집계STATS_DIRECT_AGG숫자 단일 PK · PK 인덱스실행시간총 0.87초조합검증미포함"
+  },
+  "sqlCard": {
+   "exists": true,
+   "paneHidden": true,
+   "computedDisplay": "none",
+   "visible": false,
+   "h": 0,
+   "textLen": 1271,
+   "text": "통계검증 SQL ⚠️ 이 SQL은 참고용입니다 — 실제로는 각 축을 독립적으로 실행합니다. 아래 조합 SQL(GROUP BY STATUS_CD, DEPT_CD)은 실행되지 않습니다. 통계검증 실행 시 단일 축 2세트(STATUS_CD / DEPT_CD)로 분해해 축별로 따로 집계·비교합니다. 실제 실행된 SQL과 세트 구성은 5단계(결과 확인)에서 확인할 수 있습니다. ✅ 단일 축 2세트 + 조합 1세트(총 3세트)를 실행합니다. 조합(STATUS_CD + DEPT_CD)에서만 드러나는 불일치 — 축별 집계에서 서로 상쇄되어 사라지"
+  },
+  "execResultCard": {
+   "exists": true,
+   "paneHidden": false,
+   "computedDisplay": "flex",
+   "visible": true,
+   "h": 979,
+   "textLen": 2821,
+   "text": "통계검증 실행 결과 목적테이블NXDNP.MV_ORA_DEMO_TGT원본테이블NXDNP.MV_ORA_DEMO_SRC불일치 추출전략직접 스트림 비교DIRECT_STREAM_COMPARE불일치그룹6개재이관대상6건재이관PK50건처리시간0.87초상태● 불일치 ⚠ 각 축 개별 검증 완료 · 조합(다축 동시) 검증은 수행되지 않았습니다선택한 GROUP BY 2개 축(STATUS_CD, DEPT_CD)은 축마다 독립 세트로 나누어 개별로만 비교했습니다. 따라서 위 통계결과·최종상태는 각 축 개별 기준이며, STATUS_CD + DEPT_CD 조합"
+  },
+  "mvStage5CtxGrid": {
+   "exists": true,
+   "paneHidden": false,
+   "computedDisplay": "block",
+   "visible": true,
+   "h": 107,
+   "textLen": 128,
+   "text": "목적테이블NXDNP.MV_ORA_DEMO_TGT원본테이블NXDNP.MV_ORA_DEMO_SRC불일치 추출전략직접 스트림 비교DIRECT_STREAM_COMPARE불일치그룹6개재이관대상6건재이관PK50건처리시간0.87초상태● 불일치"
+  },
+  "singleResultSummary": {
+   "exists": true,
+   "paneHidden": false,
+   "computedDisplay": "block",
+   "visible": false,
+   "h": 0,
+   "textLen": 0,
+   "text": ""
+  },
+  "executeOut": {
+   "exists": true,
+   "paneHidden": false,
+   "computedDisplay": "block",
+   "visible": true,
+   "h": 498,
+   "textLen": 1201,
+   "text": "불일치 유형전체목적 미존재값 불일치GROUP BY 기준전체STATUS_CDDEPT_CD그룹 값전체PK 검색조회초기화⬇ 상세 불일치 레코드 Excel 다운로드원본 전체 150건 · 목적 전체 150건 · 차이 0건재이관 대상 50건(33.33%) (현재 목록)이 건수는 행 레코드 기준(PK 단위 비교)입니다 — 위 요약표의 통계결과·최종상태는 집계 그룹 기준이라 세는 단위가 다릅니다.목적 미존재 0건(0.00%) · 값 불일치 50건(33.33%)목적 단독 0건(0.00%) — 재이관 비율에 미포함실행경로 — · 전략 DIRECT_S"
+  },
+  "texts": {
+   "banner_title": true,
+   "banner_btn": false,
+   "banner_cells": false,
+   "s5_proc_line": true,
+   "s5_proc_calc": false,
+   "hist_runs": true,
+   "hist_diffsum": true,
+   "hist_empty": true
+  }
+ },
+ "stage5_gap": {
+  "ok": true,
+  "cardTop": 372,
+  "firstKids": [
+   {
+    "id": "singleStaleResultBanner",
+    "tag": "DIV",
+    "top": 0,
+    "h": 0,
+    "display": "none",
+    "mt": "0px",
+    "mb": "12px",
+    "txt": ""
+   },
+   {
+    "id": "mvStage5CtxGrid",
+    "tag": "DIV",
+    "top": 433,
+    "h": 107,
+    "display": "block",
+    "mt": "0px",
+    "mb": "0px",
+    "txt": "목적테이블NXDNP.MV_ORA_DEMO_TGT원본테이블NXDNP.MV_ORA_DEMO_SRC불일치 추출전략"
+   },
+   {
+    "id": "mvSummary_singleResultSummary",
+    "tag": "DIV",
+    "top": 540,
+    "h": 108,
+    "display": "block",
+    "mt": "0px",
+    "mb": "0px",
+    "txt": "⚠ 각 축 개별 검증 완료 · 조합(다축 동시) 검증은 수행되지 않았습니다선택한 GROUP BY 2개 축(S"
+   },
+   {
+    "id": "singleResultSummary",
+    "tag": "DIV",
+    "top": 658,
+    "h": 0,
+    "display": "block",
+    "mt": "0px",
+    "mb": "0px",
+    "txt": ""
+   },
+   {
+    "id": "singleMismatchItems",
+    "tag": "DIV",
+    "top": 658,
+    "h": 38,
+    "display": "block",
+    "mt": "0px",
+    "mb": "0px",
+    "txt": "불일치 1항목 · AMT전체 10그룹 중 불일치 6그룹⬇ 불일치 그룹 결과 Excel 다운로드※ 위 그룹은 "
+   },
+   {
+    "id": "mvDiagCommonStrategy",
+    "tag": "DIV",
+    "top": 704,
+    "h": 0,
+    "display": "block",
+    "mt": "0px",
+    "mb": "0px",
+    "txt": ""
+   }
+  ],
+  "prevSiblings": [
+   {
+    "id": "relatedHistCard",
+    "cls": "related-hist-card mb-3",
+    "display": "block",
+    "h": 94,
+    "txt": "목적지 테이블: MV_ORA_DEMO_TGT 실행 이력 수: 0 차이 없음: 0 차이 있음: 0 오류: 0 "
+   },
+   {
+    "id": "mvExecStepPostProgress",
+    "cls": "mv-pane-hidden",
+    "display": "none",
+    "h": 0,
+    "txt": ""
+   },
+   {
+    "id": "mvExecStepResult",
+    "cls": "mv-pane-hidden",
+    "display": "none",
+    "h": 0,
+    "txt": "⚠ 통계검증 실행 완료 · 불일치 있음불일치 그룹 6건이 확인되었습니다 (값 불일치 6 · 원본 단독 0 ·"
+   },
+   {
+    "id": "mvExecStepError",
+    "cls": "mv-pane-hidden",
+    "display": "none",
+    "h": 0,
+    "txt": ""
+   }
+  ],
+  "procSlots": {
+   "s1": {
+    "display": "none",
+    "h": 0,
+    "w": 0,
+    "txt": "· 1단계 처리시간: 1.22초"
+   },
+   "s2": {
+    "display": "none",
+    "h": 0,
+    "w": 0,
+    "txt": "· 2단계 처리시간: 0.24초"
+   },
+   "s3": {
+    "display": "none",
+    "h": 0,
+    "w": 0,
+    "txt": "· 3단계 계산 중..."
+   },
+   "s4": {
+    "display": "none",
+    "h": 0,
+    "w": 0,
+    "txt": "· 4단계 SQL 생성 시간: 0.01초 미만"
+   },
+   "s5": {
+    "display": "inline",
+    "h": 18,
+    "w": 243,
+    "txt": "· 5단계 통계검증 실행(상세 추출 별도): 0.87초"
+   }
+  }
+ },
+ "console_tail": [
+  "[verbose] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o",
+  "[verbose] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o",
+  "[verbose] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o",
+  "[error] Failed to load resource: the server responded with a status of 404 (Not Found)",
+  "[warning] [CSR] 미매칭 결과 8건 — 배지 주입 건너뜀: SUM:ID, GROUP_BY:ID, SUM:DEPT_CD, SUM:UPD_YMD, SUM:REG_DT, SUM:STATUS_CD, GROUP_BY:AMT, SUM:CREATED_BY",
+  "[warning] [CSR] 미매칭 결과 8건 — 배지 주입 건너뜀: SUM:ID, GROUP_BY:ID, SUM:DEPT_CD, SUM:UPD_YMD, SUM:REG_DT, SUM:STATUS_CD, GROUP_BY:AMT, SUM:CREATED_BY",
+  "[warning] [CSR] 미매칭 결과 8건 — 배지 주입 건너뜀: SUM:ID, GROUP_BY:ID, SUM:DEPT_CD, SUM:UPD_YMD, SUM:REG_DT, SUM:STATUS_CD, GROUP_BY:AMT, SUM:CREATED_BY",
+  "[warning] [CSR] 미매칭 결과 8건 — 배지 주입 건너뜀: SUM:ID, GROUP_BY:ID, SUM:DEPT_CD, SUM:UPD_YMD, SUM:REG_DT, SUM:STATUS_CD, GROUP_BY:AMT, SUM:CREATED_BY"
+ ],
+ "pageerrors": [],
+ "dialogs": [
+  "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+  "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+ ],
+ "verdict": {
+  "removed": {
+   "①_4단계_안내박스_없음": false,
+   "②_5단계_처리시간줄_비노출": false,
+   "③_5단계_이력요약박스_없음": false
+  },
+  "no_regression": {
+   "4단계_타일_유지": true,
+   "4단계_SQL박스_유지": true,
+   "5단계_이동_다음버튼_가능": true,
+   "5단계_컨텍스트타일_유지": true,
+   "5단계_결과표_유지": true,
+   "페이지오류_없음": true
+  },
+  "result": "FAIL"
+ }
+}
