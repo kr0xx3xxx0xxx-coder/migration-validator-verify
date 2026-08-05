@@ -1511,7 +1511,17 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: F30(같은 줄의 표기 정확성)
 - 참고: E:\verify_reports\STATS-SCALE-PROVISIONAL-LABEL-RATIONALE-DIAGNOSE.txt
 
-### F26. `NO_INSERT_COLUMN_LIST` 원인은 원리상 지원 가능하나 추출기 본체 변경이 필요해 미착수다
+### F26. ✅ 해결 완료(이 항목과 완전히 동일한 갭이 별도 지침명으로 이미 처리돼 있었다 · 원 서술의 '위치 기준' 제안은 오매핑 위험이 실재함을 실측으로 반증하고 목적지 카탈로그 근거로 대체) — `NO_INSERT_COLUMN_LIST` 원인은 원리상 지원 가능하나 추출기 본체 변경이 필요해 미착수다
+- 해결일: 2026-08-05 (NO-INSERT-COLUMN-LIST-POSITION-BASED-SUPPORT-FIX)
+- 근거 커밋: 코드 저장소 `a21b14f` — `feat(reimport): INSERT 컬럼 목록 미기재 SQL 의 재이관
+  wrapping 을 목적지 정의 순서로 지원 (NO-INSERT-COLUMN-LIST-POSITION-BASED-SUPPORT-FIX)`
+- 근거 보고서 커밋: 이 저장소 `e52317f`(완료보고 `NO-INSERT-COLUMN-LIST-POSITION-BASED-SUPPORT-FIX.txt`)
+- 해결 요약: INSERT 컬럼 목록 미기재 케이스를 **목적지 DB 카탈로그의 실제 ordinal(정의 순서)** 로
+  위치 기준 매핑해 지원한다. 이 항목이 대응 방향으로 적은 **`parse_result.insert_cols` 를 위치 기준으로
+  빌려 쓰는 방식은 실 DB 대조군으로 오매핑 위험이 실재함을 증명**했고(대조군 전 행 불일치),
+  대신 **목적지 카탈로그 ordinal 근거**(`db_query_service._cmn_fetch_tgt_col_meta` 단일 출처 재사용,
+  신규 카탈로그 SQL 없음 · 전 방언 ordinal 정렬 보장)로 안전하게 구현했다.
+  **안전 조건 7개를 전부 충족할 때만** 지원을 확장하고, 하나라도 어긋나면 기존대로 HOLD 로 떨어진다.
 - 발견일: 2026-08-02
 - 근거 보고서: `REIMPORT-SOURCE-WRAPPING-AST-EXTRACTION-FIX.txt` (§6-②)
 - 상세: wrapping 추출 실패 원인 중 **INSERT 컬럼 목록 미기재**(`NO_INSERT_COLUMN_LIST`) 케이스는
@@ -1609,7 +1619,20 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: S10(해결 완료)
 - 참고: E:\verify_reports\IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX.txt
 
-### F23. MySQL/MSSQL 은 `fetch_key_metadata` 미구현(no-op)이라 목적지 `is_pk` 가 계속 False 다(방언 비대칭)
+### F23. ✅ 해결 완료(카탈로그 조회 계층 한정 · 잔여: 어댑터 `connect()` 미구현으로 운영경로 미반영) — MySQL/MSSQL 은 `fetch_key_metadata` 미구현(no-op)이라 목적지 `is_pk` 가 계속 False 다(방언 비대칭)
+- 해결일: 2026-08-05 (MYSQL-MSSQL-FETCH-KEY-METADATA-IMPLEMENT-FIX)
+- 근거 커밋: 코드 저장소 `60d5cf2` — `feat(adapters): MySQL/MSSQL fetch_key_metadata 이식 —
+  목적지 PK 실값 (MYSQL-MSSQL-FETCH-KEY-METADATA-IMPLEMENT-FIX)`
+- 근거 보고서 커밋: 이 저장소 `6ee13c2`(실측 보고서 `MYSQL-MSSQL-FETCH-KEY-METADATA-IMPLEMENT-FIX.txt`)
+- 해결 요약: 오라클 S10 과 **동일한 인터페이스·반환 shape·집계 규칙**으로 MySQL
+  (`information_schema.KEY_COLUMN_USAGE`) / MSSQL(`information_schema`, 제약 기반) 키메타 조회를
+  구현했다. **단일 컬럼 PK 만 `is_pk=True`** 로 싣고 **복합 PK 구성원은 `is_composite_key_member`
+  로 분리**하는 오라클과 동일한 정책을 재사용했다(단일 PK 의 GROUP BY 후보 배제 · 복합 PK 구성원
+  유지). 라이브 MySQL 호환 서버 5케이스 실측 전부 일치, 신규 회귀 0건.
+- **잔여**: MySQL/MSSQL 어댑터의 **`connect()` 자체가 미구현**(base `RuntimeError`)이라, 카탈로그
+  조회 계층은 완성됐어도 **운영 경로에서는 여전히 연결 단계에서 실패해 `{}` 로 폴백**한다
+  (= 사용자 관점 동작은 수정 전과 동일). 화면까지 반영되려면 **`connect()` 이식이 별도 선행**돼야
+  한다. 위 실측도 연결 생성만 주입해 성립시킨 것이며, 조회 SQL·집계·폴백은 운영 코드 그대로다.
 - 발견일: 2026-08-02
 - 근거 보고서: `IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX.txt` (§11-R3 / §8)
 - 상세: S10 수정으로 PostgreSQL/오라클은 목적지 `is_pk` 가 실값이 됐으나, MySQL/MSSQL 어댑터는
