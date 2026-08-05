@@ -1,0 +1,350 @@
+작업명 : STAGE3-4-STATUS-TIMING-AND-BANNER-CLEANUP-FIX
+
+────────────────────────────────────────────────────────────────────────────
+0. 한 줄 요약
+────────────────────────────────────────────────────────────────────────────
+개별검증 3·4단계 상단 표시를 "이 단계가 실제로 실행한 결과만 보여준다"는 원칙에 맞게
+정리했다 — 계산 전에 미리 채워져 있던 값 2개(3단계 '상태' · 4단계 '통계전략')를 실행
+시점으로 늦추고, 정보가 중복이던 안내박스 2개와 표시 줄 1개를 코드째 제거했으며,
+'참고/제외 후보 보기' 소제목의 오해 소지(링크색+삼각형)를 없애고, 4단계에만 없던
+'상태' 타일을 신설해 2·3·4·5단계의 마지막 칸 규격을 통일했다.
+
+착수 전 확인: 선행 작업 STAGE4-COMPLETION-BANNER-REMOVE-FIX 는 85ca345 로 커밋 완료된
+상태였고, ui/ 아래에 남의 미커밋 변경이 없음을 git status 로 확인한 뒤 시작했다.
+(작업 도중 다른 세션이 86865a1 을 커밋했다 — 내 커밋 4개는 그 위에 쌓였고, baseline
+대조도 86865a1 기준으로 다시 맞췄다.)
+
+────────────────────────────────────────────────────────────────────────────
+1. 파트별 변경 내용과 근거
+────────────────────────────────────────────────────────────────────────────
+
+[파트 A] 3단계 '상태' 타일 — 후보 계산 실행 후에만 표시
+  파일: ui/grid_helpers.py (_mvCandidateTileRow)
+
+  무엇이 문제였나.
+    3단계 타일 9칸 중 '통계검증규모'와 '상태'는 실행계획 카드(/strategy/plan)가 만들어
+    window._mvStage3PlanInfo 에 보관해 둔 값을 읽는다. 이 보관값은 한 번 만들어지면
+    지워지지 않는데, 후보표(체크박스)는 2단계 COUNT 재실행 등으로 무효화되면 사라진다.
+    그 결과 '아직 아무것도 계산하지 않은 화면'인데 '상태 ● 정상'만 떠 있었다.
+
+  왜 '규모'는 그대로 두고 '상태'만 늦추는가.
+    규모는 원본 건수·컬럼 구성만으로 산정되는, 계산 없이도 아는 값이다(요청에서도 즉시
+    표시가 정상이라고 명시했다). 반면 '상태'는 그 계획을 실제 후보 구성에 적용해 본 뒤에야 의미가 생기는
+    계산 결과다. 그래서 목적그룹/원본그룹/목적집계/원본집계/처리시간과 같은 시점에
+    채워져야 한다.
+
+  어떻게 고쳤나.
+    새 상태 플래그를 만들지 않고, 이 함수가 이미 쓰고 있는 신호를 그대로 재사용했다 —
+    gbCols === null(후보표 체크박스가 화면에 없음) = runRevalidateFromCandidate 미실행.
+    그룹/집계 타일이 '—' 로 남는 판정과 완전히 같은 축이라, 한 화면 안에서 서로 어긋날 수
+    없다.
+
+  실측 재현 경로(before 에서 결함이 실제로 재현되는 경로).
+    1~5단계 정상 수행 → 2단계로 돌아가 COUNT 재실행 → 3단계 재진입.
+    이 시점 상태: window._mvStage3PlanInfo 존재, 후보표 체크박스 0개, #colSelectOut 비어 있음.
+      before : 통계검증규모 '소형 (cost 12.68)' / 상태 '● 정상' / 그룹·집계 전부 '—'
+      after  : 통계검증규모 '소형 (cost 12.68)' / 상태 '—'      / 그룹·집계 전부 '—'
+    후보 계산을 실행하면 after 에서도 상태가 '● 정상'으로 채워진다(무회귀 확인).
+
+[파트 B] 3단계 'COUNT 불일치 상태입니다…' 안내박스 삭제
+  파일: ui/tabler_renderer.py
+
+  삭제 대상: 렌더 함수 _singleRenderCandidatePaneNotice · DOM #singleCandidateCountNotice ·
+            _applySinglePane 안의 호출부 — 전부 제거(화면 숨김이 아니라 코드/DOM 부재).
+
+  삭제 근거.
+    문구는 두 가지를 말한다. ⓐ COUNT 불일치 사실 — 상단 단계 탭 배지와 2단계 COUNT 타일이
+    이미 수치와 함께 보여준다. ⓑ '후보 선정 후 통계검증으로 원인을 좁힌다' — 3단계에 와
+    있다는 것 자체가 그 흐름이다. 새 정보가 없었다.
+
+  안전성.
+    표시 전용 함수였고 판정에 관여하지 않는다. _countState('MISMATCH'/'MISMATCH_ACCEPTED')
+    와 그에 딸린 진행 허용 규칙은 전혀 건드리지 않았다(회귀 가드 테스트로 확인).
+
+  실측(강제 표시 시도까지 해서 '부재'를 증명).
+      before : 함수 존재(function) → 호출하니 박스가 display:block, 높이 39px 로 실제 표시됨
+      after  : 함수 자체가 undefined → 호출 불가('no-function'), DOM 없음, 화면 문구 없음
+
+[파트 C] 3단계 '참고/제외 후보 보기 · 기본계획 미포함 (N개)' 시각 정리
+  파일: ui/tabler_renderer.py (CSS 1블록 + summary 마크업)
+
+  진단.
+    이 <details> 는 후보가 1개 이상이면 open 속성으로 렌더돼 화면상 '항상 펼쳐진' 상태다.
+    그런데 문구가 파란 링크색이고 앞에 삼각형까지 붙어 "눌러야 열리는 숨은 영역"으로 읽혔다.
+    인라인 스타일은 color:#555(회색)였는데 실제 렌더 색은 rgb(37,99,235) — 원인은
+    '#tab-analyze details > summary { color:var(--primary)!important; … }' 규칙이었다.
+    원래 고급옵션(DDL 직접입력) summary 용으로 만든 규칙인데 #tab-analyze 안의 모든
+    details>summary 에 걸린다. !important 라 인라인 스타일로는 이길 수 없다.
+
+  조치(동작은 손대지 않음).
+    새 클래스 ict-ref-cands-flat 를 그 details 에만 붙이고, 같은 ID 특이도 + !important 로
+      · color:var(--text) (= .card-title 과 같은 본문 소제목 색)
+      · list-style:none + ::-webkit-details-marker/::marker 억제 (삼각형 제거)
+    만 덮어썼다. open 속성·details/summary 구조·클릭 토글은 그대로다. 다른 details>summary
+    (고급옵션, 일괄검증 기본 접힘 영역 등)의 표기는 종전 그대로다.
+
+  실측.
+      before : color rgb(37,99,235) · list-style-type 'disclosure-open' · open=true
+      after  : color rgb(16,35,63)  · list-style-type 'none'            · open=true
+      토글 무회귀: summary 클릭 1회 → open=false, 2회 → open=true (before/after 동일)
+
+[파트 D] 3단계 'STATS_SAMPLE_ONLY 은 참고용 계획이며…' 경고 배너 삭제
+  파일: ui/tabler_renderer.py (_mvRenderStrategyPlan 의 host.innerHTML 조립)
+
+  삭제 근거(정보 손실 없음).
+    같은 사실을 4단계 '통계전략' 타일이 이미 담고 있다 — 값 옆의 '참고용 계획' 배지와
+    툴팁('… · 참고용 계획 — 실제 실행은 항상 전체스캔(EXACT)입니다.'). 그래서 배너 하나만
+    걷어냈고, 판정값 _statsAdvisoryOnly 는 그 배지·툴팁이 계속 쓰므로 그대로 뒀다.
+
+  실측(조건을 강제로 성립시켜 확인).
+    실 픽스처는 STATS_DIRECT_AGG 라 배너 조건이 성립하지 않는다. 그래서 Playwright route 로
+    /strategy/plan 응답의 stats_plan.stats_strategy_id 를 STATS_SAMPLE_ONLY 로 바꿔
+    조건을 실제로 성립시킨 뒤 관측했다.
+      before : #strategyPlanBox 높이 48px, innerHTML 318자, 배너 문구 화면에 존재
+      after  : 높이 0, innerHTML 0자, 배너 문구 화면에 없음
+      두 경우 모두 statsStrategy 보관값의 note='참고용 계획' 과 툴팁은 그대로 살아 있다
+      (= 4단계 타일 배지로 정보가 보존됨을 같은 스냅샷에서 확인).
+
+[파트 E] 4단계 '통계전략' 타일 — 통계검증 실행 후에만 표시
+  파일: ui/grid_helpers.py (_mvStage4TileRow)
+
+  문제.
+    이 값은 3단계 실행계획 카드가 미리 만들어 둔 보관값이라, 4단계 탭에 들어서는 순간
+    (SQL 생성 전에도) 이 칸만 혼자 채워져 있었다. 옆의 목적그룹/원본그룹/목적집계/원본집계/
+    실행시간이 전부 '—' 인 화면에서 이 칸만 값이 있으면 "이 단계가 이미 뭔가 돌았다"로 읽힌다.
+
+  조치.
+    요청대로 '실행 후'를 기준으로 삼았다 — 실행 여부 신호는 '실행시간'·'상태' 타일이 이미
+    읽는 window._mvStage4ExecResult 하나이며 새 플래그를 만들지 않았다.
+    (계획이 아예 없으면 실행 후에도 '—' 로 남는 기존 계약은 그대로다 — 값 날조 금지.)
+
+  실측.
+      before : 탭 진입 직후 '직접 집계 STATS_DIRECT_AGG …' / SQL 생성 후에도 동일
+      after  : 탭 진입 직후 '—' / SQL 생성 후에도 '—' / 통계검증 실행 후 '직접 집계 STATS_DIRECT_AGG …'
+
+[파트 F] 4단계 '상태' 타일 신설(맨 마지막) · '조합검증' 바로 앞으로 재배치
+  파일: ui/grid_helpers.py (_mvStage4Columns / _mvStage4StatusInfo / _mvStage4TileRow)
+        ui/tabler_renderer.py (4단계 한정 타일 그리드 CSS 1줄)
+
+  값의 출처.
+    새 판정축을 만들지 않았다. 같은 화면의 통계검증 결과 그리드(_mvRenderStatsGrid)가
+    이미 쓰는 판정식(gSt/gStTxt)을 _mvStage4StatusInfo 로 옮겨 그대로 쓴다 —
+      success===false → 오류(실패) / 그룹 비교 결과 없음 → 미실행(대기) /
+      불일치 그룹>0 → 불일치 / 그 외 → 일치(정상)
+    한 화면에서 두 판정이 어긋나지 않게 하는 것이 목적이다. 실행 전에는 '—'.
+    툴팁에는 판정 근거(값 다름/원본에만/목적지에만 개수, 단일·다중 세트 기준)를 싣는다.
+
+  ★ 레이아웃 부작용과 그 처리(중요).
+    타일 그리드는 공용 규칙 repeat(auto-fit, minmax(118px,1fr)) + gap 10px 라
+    본문 폭 1,255px 기준 한 줄에 9칸까지만 들어간다. 9칸 → 10칸이 되면서 '상태' 한 칸이
+    둘째 줄에 혼자 남았다(실측: 9칸 top=226 / '상태' top=360 — 타일 영역 높이 2배).
+    '다른 단계처럼 한 줄' 을 유지하려고 최소폭을 낮추되, 공용 규칙이 아니라 4단계 타일
+    호스트에만 한정했다:
+        #mvStage4CtxGrid .mv-qr-tiles{grid-template-columns:repeat(auto-fit,minmax(106px,1fr))}
+    1·2·3·5단계 타일(8~9칸)의 배치·폭은 불변이다(공용 규칙 원문 유지 — 회귀 테스트로 고정).
+
+  실측.
+      before : 9칸 ['…','통계전략','실행시간','조합검증']  · grid 열 9 · 1행 9칸
+      after  : 10칸 ['…','통계전략','실행시간','조합검증','상태'] · grid 열 10 · 1행 10칸
+      실행 후 값 '● 불일치'(툴팁 '불일치 그룹 6개 — 값 다름 6 · 원본에만 0 · 목적지에만 0
+      (다중 세트(GROUP BY 2축 이상) 합산 기준)') — 같은 실행의 5단계 '불일치그룹'과 일치.
+
+[파트 G] 4단계 '· SQL 생성 시간: 0.01초 미만' 표시 줄 제거
+  파일: ui/validation_plan_renderer.py (_mvSyncStageProcessingTimeVisibility)
+
+  조치.
+    1·2·3·5단계가 이미 쓰던 방식(상시 비노출 목록 _hidden)에 4단계를 추가했다. 이로써
+    1~5단계 슬롯이 전부 비노출이 되어 단계 탭 아래 처리시간 줄과 그 공간이 완전히 사라진다.
+    '· 4단계 계산 중...' 잠정 문구가 남기던 빈 줄도 함께 사라진다.
+
+  계측 코드는 남겼다(요청 명시).
+    renderSQL 의 _mvShowStageProcessingTime(4, g.processing_ms, 'SQL 생성 시간') 호출과
+    그 안의 window._mvStage4ProcMs/_mvStage4ProcLabel 보관, _mvStage4ProcInfo() 표기
+    변환기는 그대로다 — 다른 곳에서 재사용할 수 있다.
+
+  실측.
+      before : 슬롯 display=inline, 높이 18px, 폭 189px · 화면 문구 존재
+      after  : 슬롯 display=none,  높이 0,     폭 0     · 화면 문구 없음
+               (슬롯의 textContent 는 종전대로 값을 들고 있다 = 계측은 살아 있음)
+
+────────────────────────────────────────────────────────────────────────────
+2. 실측 검증 방법
+────────────────────────────────────────────────────────────────────────────
+드라이버: scripts/dev_e2e/stage34_status_timing_banner_cleanup_verify.py (신규, 커밋됨)
+환경: 포트 8000 실 서비스 UI · Basic Auth · Oracle 실DB(Oracle_asis → Oracle_tobe)
+시나리오: NXDNP.MV_ORA_DEMO_SRC → MV_ORA_DEMO_TGT,
+          GROUP BY STATUS_CD + DEPT_CD, SUM AMT (= 다중 세트 경로)
+before 는 코드 수정 전 모듈을 그대로 들고 있는 실행 중 서버에서, after 는 서버를 재기동해
+새 모듈을 로드한 뒤 같은 드라이버로 측정했다(서버가 옛 모듈을 서빙하는지/새 모듈을
+서빙하는지 매번 HTML 마커로 확인).
+
+관측 지점(한 번의 클릭스루에서 전부):
+  · 3단계 최초 진입 / 후보 계산 후 / COUNT 재실행 후 재진입 — 타일 9칸 라벨·값·'—' 여부
+  · 안내박스 강제 표시 시도(_countState=MISMATCH + 렌더 함수 직접 호출)
+  · summary 의 computed color / list-style-type / ::marker + open 토글 2회
+  · /strategy/plan 응답 route 치환으로 STATS_SAMPLE_ONLY 배너 조건 강제 성립
+  · 4단계 진입 / SQL 생성 후 / 실행 후 — 타일 라벨 순서·값·top 좌표(줄바꿈 판정)
+  · 처리시간 슬롯 5개의 display/height + 화면 문구 존재 여부
+  · 5단계 무회귀 — 타일 라벨 8칸, 결과표 길이, 실행 결과 수치
+
+판정 결과: after 전 항목 PASS(24개 판정), 페이지 오류 0건.
+before 는 같은 판정에서 파트 A/B/C/D/E/F/G 항목이 전부 FAIL(= 결함이 실제로 재현됨).
+
+스크린샷(파트별 before/after 쌍, E:\verify_screenshots_only\STAGE3-4-STATUS-TIMING-AND-BANNER-CLEANUP-FIX\):
+  01/02 3단계 최초 진입 · 타일
+  03/04 3단계 후보 계산 후 · 타일
+  05    3단계 '참고/제외 후보 보기' 영역        ← 파트 C
+  06    3단계 COUNT 불일치 안내박스(before 만)   ← 파트 B
+  07/08 4단계 진입 직후 · 타일                  ← 파트 E·F
+  09/10 4단계 SQL 생성 후 · 상단                ← 파트 E·G
+  11/12 4단계 실행 후 · 타일                    ← 파트 E·F
+  13    5단계(무회귀)
+  14/15 STATS_SAMPLE_ONLY 배너 강제 조건        ← 파트 D
+  16/17 COUNT 재실행 후 3단계 재진입            ← 파트 A
+
+────────────────────────────────────────────────────────────────────────────
+3. 테스트
+────────────────────────────────────────────────────────────────────────────
+(1) 관련 서브셋 baseline 대조 — 이번 작업의 회귀 판정 근거
+  대상 25파일. 이번에 건드린 식별자/문구를 참조하는 테스트 전부를 기계적으로 추렸다
+  (_mvCandidateTileRow · mvStage3CtxGrid · _mvStage3PlanInfo ·
+   _singleRenderCandidatePaneNotice · singleCandidateCountNotice · ict-ref-cands ·
+   '참고/제외 후보 보기' · STATS_SAMPLE_ONLY · '참고용 계획' · strategyPlanBox ·
+   _mvRenderStrategyPlan · _mvStage4Columns/TileRow/TilesHtml · mvStage4CtxGrid ·
+   '조합검증' · '통계전략' · _mvSyncStageProcessingTimeVisibility ·
+   _mvShowStageProcessingTime · ProcessingTime · mv-qr-tiles · _mvTilesHtmlFromCols ·
+   _mvStage5Columns · 'COUNT 불일치 상태').
+
+  baseline : git worktree E:\_wtbase @ 86865a1(내 작업 직전 원격 tip)
+             db/migration_validator.db 와 db_presets_*.json 을 메인 트리에서 복사해
+             값샘플 캐시 조건을 맞췄다(worktree A/B 교란 회피).
+  after    : C:\projects\migration-validator @ 3927d39
+
+    baseline : 7 failed, 368 passed, 5 xfailed  (40.32s)
+    after    : 7 failed, 372 passed, 5 xfailed  (37.94s)
+    → 실패 집합 완전 동일 = 신규 회귀 0건. passed +4 는 이번에 추가한 계약 테스트다.
+    (주석 정정 커밋 961f2d5 후 재실행도 7 failed / 372 passed / 5 xfailed 로 동일)
+
+  실패 7건 전체 목록(양쪽 동일 = 사전 존재 실패, 이번 작업과 무관):
+    tests/test_all_stages_timing_display_expand.py::test_count_generate_execute_routes_add_processing_ms
+    tests/test_stage_button_dedup_time_scope_and_gate45_fix.py::test_switching_tab_hides_previous_slot_but_keeps_its_value
+    tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+    tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_dedup_logic_present
+    tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_hidden_when_empty
+    tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_only_individual_screen
+    tests/test_task_single_candidate_evidence_preview.py::test_cap3_unchanged
+
+    ※ 두 번째 항목(단계 전환 시 이전 슬롯 숨김/값 보존)은 이번 파트 G(4단계 슬롯 상시
+      비노출)와 주제가 겹쳐 보이지만 baseline 에서도 똑같이 실패한다 — 내 변경이 만든
+      실패가 아니다.
+
+(2) 갱신·추가한 테스트
+  갱신 tests/test_shared_sticky_step_nav.py
+        test_candidate_pane_mismatch_notice → test_candidate_pane_mismatch_notice_removed
+        (존재 확인 → 부활 방지 가드로 전환. 삭제 근거를 적어 둔 주석에 문구가 그대로
+         남아 있어 '주석을 걷어낸 소스'로 판정한다. _countState 판정축 잔존도 함께 확인.)
+  갱신 tests/test_query_review_tile_layout.py
+        _hidden 목록 1·2·3·5 → 1·2·3·4·5 + 계측 보관(window._mvStage4ProcMs) 잔존 확인
+  갱신 tests/test_stage4_stats_validation_tile_layout.py
+        S4_LABELS 9칸 → 10칸('상태' 추가) · 3·4단계 골격 대조 len 9/10 ·
+        옛 READY 고정 상태값 부활 방지를 '필드명 부재'가 아니라 '값·경유 함수'로 재정의
+  갱신 tests/test_stage45_strategy_info_relocate.py
+        4단계 타일 하니스에 '실행 완료' 상태(window._mvStage4ExecResult) 세팅 · 칸 수 9 → 10
+  신규 tests/test_stage4_stats_validation_tile_layout.py 4건
+        test_stage3_status_tile_waits_for_candidate_calc   (파트 A — 계획값 O·계산 X 상태에서
+                                                            규모는 값 / 상태는 '—')
+        test_stage4_strategy_tile_waits_for_execution      (파트 E — 실행 전 '—', 실행 후 값,
+                                                            계획 없으면 실행 후에도 '—')
+        test_stage4_status_tile_shows_execution_verdict    (파트 F — 정상/불일치/실패 + 툴팁 근거)
+        test_stage4_tile_grid_keeps_single_row             (파트 F — 공용 최소폭 불변 +
+                                                            4단계 한정 규칙 존재)
+
+(3) 전체 스위트에 대한 한계(정직한 고지)
+  tests/ 전체는 12,024건이며 이 환경에서 완주에 3시간 이상 걸린다. 실제로 두 번 시도해
+  각각 8% · 4% 지점에서 중단했다. 원인은 이번 변경과 무관한 특정 계열이다 — 예를 들어
+  tests/test_candidate*.py 40파일만으로도 300초 안에 26% 밖에 못 간다(실DB 접속 시도의
+  블로킹 타임아웃 계열). 그래서 전체 완주 대신, 변경과 실제로 맞닿는 범위를
+  baseline/after 양쪽 동일 조건으로 두 번(관련 25파일 · 확장 50파일) 돌려 대조했다.
+  두 대조 모두 실패 집합이 완전히 같았다(신규 회귀 0건).
+  전체 스위트에는 이번 작업과 무관한 사전 존재 실패가 다수 있다(직전 작업 증적 기준
+  확장 서브셋 259파일에서 160건) — 이번 변경으로 그 목록이 늘지 않았음을 위 두 대조로
+  확인한 것이고, '전체 12,024건의 실패 목록'은 이번 세션에서 확보하지 못했다.
+
+(4) 확장 서브셋 baseline 대조 — (1) 을 한 번 더 넓혀 재확인
+  대상 50파일 = (1)의 25파일 ∪ tests/test_stage*.py · test_step*.py · test_query*.py ·
+  test_stats*.py · test_grid*.py · test_strategy*.py (개별검증 화면·전략계획 계열 전부).
+
+    baseline(E:\_wtbase @ 86865a1) : 14 failed, 648 passed, 5 xfailed  (118.81s)
+    after   (@ 961f2d5)            : 14 failed, 652 passed, 5 xfailed  (127.56s)
+    → 실패 목록 diff 결과 완전 동일(차집합 0건). passed +4 는 이번 신규 계약 테스트.
+
+  실패 14건 전체 목록(양쪽 동일 = 사전 존재 실패):
+    tests/test_all_stages_timing_display_expand.py::test_count_generate_execute_routes_add_processing_ms
+    tests/test_stage_button_dedup_time_scope_and_gate45_fix.py::test_switching_tab_hides_previous_slot_but_keeps_its_value
+    tests/test_stats_execute_error_handling.py::test_credential_in_src_error_is_masked
+    tests/test_stats_execute_error_handling.py::test_credential_in_tgt_error_is_masked
+    tests/test_stats_execute_error_handling.py::test_success_true_empty_rows
+    tests/test_stats_execute_error_handling.py::test_success_true_when_both_ok
+    tests/test_stats_execute_error_handling.py::test_tgt_error_message_label
+    tests/test_stats_execute_error_handling.py::test_tgt_error_returns_tgt_error_field
+    tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+    tests/test_stats_sql_complex_source_wrap.py::test_union_still_blocked_at_gate
+    tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_dedup_logic_present
+    tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_hidden_when_empty
+    tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_only_individual_screen
+    tests/test_task_single_candidate_evidence_preview.py::test_cap3_unchanged
+
+────────────────────────────────────────────────────────────────────────────
+4. 커밋
+────────────────────────────────────────────────────────────────────────────
+  5ed5277  fix(ui): 4단계 "· SQL 생성 시간" 표시 줄 제거 (파트 G)
+  0af6770  fix(ui): 3단계 상태 타일 시점 · 안내박스 2종 제거 · 참고후보 소제목 정리 ·
+           4단계 통계전략 시점/상태 타일 (파트 A~F)
+  3927d39  test(dev_e2e): 3·4단계 표시 정리 파트 A~G 실측 드라이버
+  961f2d5  docs(ui): 파트 C·F 주석 정정 — 4단계 한 줄 유지 규칙 반영, override CSS 위치 표기
+
+  변경 규모(86865a1..3927d39, 이후 961f2d5 는 주석만):
+    scripts/dev_e2e/stage34_status_timing_banner_cleanup_verify.py | 620 +++++
+    tests/test_query_review_tile_layout.py                         |  15 +-
+    tests/test_shared_sticky_step_nav.py                           |  24 +-
+    tests/test_stage45_strategy_info_relocate.py                   |   7 +-
+    tests/test_stage4_stats_validation_tile_layout.py              | 143 ++-
+    ui/grid_helpers.py                                             |  70 ++-
+    ui/tabler_renderer.py                                          |  75 ++-
+    ui/validation_plan_renderer.py                                 |   9 +-
+    8 files changed, 900 insertions(+), 63 deletions(-)
+
+  ※ 파트별 커밋 분리 한계: 파트 A·E·F 는 ui/grid_helpers.py 의, 파트 B·C·D·F 는
+    ui/tabler_renderer.py 의 같은 파일(일부는 같은 함수) 안에 있어 파트 단위로 인덱스를
+    쪼갤 수 없었다. 파일 단위로 분리 가능한 파트 G 만 별도 커밋으로 냈고, 나머지는 한
+    커밋의 본문에 파트별 근거를 전부 적었다.
+
+────────────────────────────────────────────────────────────────────────────
+5. 남는 판단·위험
+────────────────────────────────────────────────────────────────────────────
+· 4단계 타일이 10칸이 되면서 한 줄 상한(9칸)을 넘었다. 공용 CSS 를 건드리지 않고 4단계
+  호스트에만 최소폭 규칙을 준 것은 blast radius 를 0으로 만들기 위해서다. 대신 4단계
+  타일 한 칸의 실제 폭이 130.6px → 116.5px 로 줄어든다. 값이 가장 긴 '통계전략' 칸은
+  종전에도 코드 배지가 줄바꿈되던 칸이라 표기 규칙 자체는 달라지지 않았다(캡처 확인).
+  앞으로 4단계에 타일을 더 붙이면 다시 줄이 갈라진다 — 11칸부터는 최소폭 조정이 아니라
+  칸 정리(중복 제거)로 가야 한다.
+· 파트 A 의 판정 신호는 '후보표 체크박스 존재'다. 이는 3단계 완료 신호로 이 저장소가
+  이미 쓰고 있는 유일한 축이지만, 체크박스 없이 후보 계산 결과만 존재하는 화면이 미래에
+  생기면 상태가 '—' 로 남는다. 그런 화면이 생기면 완료 플래그를 별도로 들고 오는 편이
+  맞다(지금 만들면 축이 둘로 갈라져 어긋난다).
+· 파트 D 는 배너만 없앴을 뿐 '참고용 계획인데 실제 실행은 전체스캔' 이라는 사실 자체는
+  4단계 타일 배지·툴팁에만 남는다. 툴팁을 열지 않는 사용자에게는 노출 강도가 낮아진다 —
+  의도된 축소이며, 정보 자체는 보존된다.
+· 파트 B·D 로 삭제한 문구는 '왜 지웠는지' 를 남기려고 주석 안에 그대로 인용해 뒀다.
+  그래서 회귀 가드 테스트는 원문이 아니라 '주석을 걷어낸 소스' 로 판정한다.
+
+────────────────────────────────────────────────────────────────────────────
+6. 실검증 상태
+────────────────────────────────────────────────────────────────────────────
+실검증 상태 : 실브라우저 실측 완료(포트 8000 실 서비스 UI · Oracle 실DB Oracle_asis →
+             Oracle_tobe · 개별검증 1~5단계 전 구간 클릭스루). 파트 A~G 전부 before/after
+             양쪽을 같은 드라이버로 측정했고, after 판정 24항목 전원 PASS · 페이지 오류
+             0건이다. 코드 정적 확인만으로 대체한 항목은 없다.
+
+작업명 : STAGE3-4-STATUS-TIMING-AND-BANNER-CLEANUP-FIX
+✅ 작업 완료

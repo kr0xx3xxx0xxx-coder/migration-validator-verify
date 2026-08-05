@@ -1,0 +1,259 @@
+diff --git a/ui/grid_helpers.py b/ui/grid_helpers.py
+index b352d7e..efe8061 100644
+--- a/ui/grid_helpers.py
++++ b/ui/grid_helpers.py
+@@ -703,6 +703,15 @@ function _mvCandidateTileRow(a){
+   var proc = _mvCandidateProcMs(a);
+   var plan = null;
+   try { plan = (typeof window !== 'undefined') ? (window._mvStage3PlanInfo || null) : null; } catch (e) { plan = null; }
++  /* [STAGE3-4-STATUS-TIMING-AND-BANNER-CLEANUP-FIX 파트 A] '상태'는 후보 계산 실행 후에만 채운다.
++     종전 결함: 3단계 탭 진입 직후(후보 계산 전) 실행계획 카드가 이미 받아 둔 window._mvStage3PlanInfo
++     의 implStatus 를 그대로 그려서, 아직 아무것도 계산하지 않았는데 '● 정상'이 떠 있었다.
++     '통계검증규모'(scale)는 계산 없이도 이미 아는 값이라 종전대로 즉시 표시하지만, '상태'는 그 계획을
++     실제 후보 구성으로 적용한 뒤에야 의미가 생기는 '계산 결과'이므로 다른 결과 타일(목적그룹/원본그룹/
++     목적집계/원본집계/처리시간)과 같은 시점에 채워져야 한다.
++     실행 여부 신호는 이미 이 함수가 쓰고 있는 것과 같은 것을 쓴다 — gbCols === null(후보표 체크박스가
++     화면에 없음) = runRevalidateFromCandidate 미실행. 새 상태 플래그를 만들지 않는다. */
++  var _calcDone = (gbCols !== null);
+   return {
+     tgtTable: t.tgt, tgtTableTip: t.tgt,
+     srcTable: srcTxt, srcTableTip: srcTxt,
+@@ -710,7 +719,8 @@ function _mvCandidateTileRow(a){
+     tgtGroup: _split(gbCols,  'tgt'), srcGroup: _split(gbCols,  'src'),
+     tgtAgg:   _split(sumCols, 'tgt'), srcAgg:   _split(sumCols, 'src'),
+     proc: proc.text, procTip: proc.tip,
+-    status: plan ? plan.implStatus : '', statusText: plan ? plan.implText : ''
++    status: (plan && _calcDone) ? plan.implStatus : '',
++    statusText: (plan && _calcDone) ? plan.implText : ''
+   };
+ }
+ /* [CANDIDATE-STEP3-CONSOLIDATE-TILE-REDESIGN-FIX] 3단계 통합 타일 HTML.
+@@ -860,7 +870,18 @@ function _mvStage4Columns(){
+        보존하는 window._mvIncludePairChecked 하나뿐이고 새 판정 로직이 없다.
+        ★ 칸 수: 파트 A 에서 8칸 → 9칸이 됐고 이 항목은 '추가'가 아니라 '교체'라 9칸 그대로다
+          (타일 그리드 한 줄 상한이 9칸 — 10칸이면 9+1 로 줄이 갈라진다). */
+-    { title:'조합검증',     field:'combo' }
++    { title:'조합검증',     field:'combo' },
++    /* [STAGE3-4-STATUS-TIMING-AND-BANNER-CLEANUP-FIX 파트 F] '상태' 타일 신설(맨 마지막).
++       2·3·5단계는 모두 마지막 타일이 '상태'인데 4단계만 '조합검증'으로 끝나 단계 간 규격이
++       어긋나 있었다. '조합검증'은 제거하지 않고 '상태' 바로 앞으로 물린다(순서 재배치).
++       값은 통계검증 실행 결과의 판정이며, 판정 규칙은 이 화면이 이미 쓰고 있는 것
++       (_mvRenderStatsGrid 의 그룹 상태식)을 _mvStage4StatusInfo 로 그대로 옮긴 것이다 —
++       새 판정축·새 임계값·새 서버 왕복이 없다. 실행 전에는 다른 미실행 타일과 같은 '—'.
++       ★ 칸 수: 9칸 → 10칸. 타일 그리드는 repeat(auto-fit,minmax(118px,1fr))·gap 10px 라
++         본문 폭 1,256px 기준 한 줄에 9칸까지만 들어간다 — 10번째('상태')는 둘째 줄로 내려간다.
++         '단계마다 마지막 타일은 상태'라는 규격 통일을 우선한 결과이며, 한 줄 유지를 위해
++         공용 타일 CSS(1~5단계 공유)를 건드리지는 않는다. */
++    { title:'상태',         field:'status',  kind:'statusicon' }
+   ];
+ }
+ /* 4단계 처리시간 — 같은 4단계 슬롯에 성격이 다른 두 값이 순서대로 들어간다(SQL 생성 시간 →
+@@ -971,6 +992,8 @@ function _mvStage4TileRow(gbSel, sumSel){
+   } catch (e) {}
+   var execEl = _mvStage4ExecElapsed(_ex, _exMulti);
+   var combo = _mvStage4ComboText(gb, generated);
++  /* [STAGE3-4-STATUS-TIMING-AND-BANNER-CLEANUP-FIX 파트 F] '상태' — 실행 응답 판정(실행 전 '—'). */
++  var _st = _mvStage4StatusInfo(_ex, _exMulti);
+   return {
+     tgtTable: t.tgt, tgtTableTip: t.tgt,
+     srcTable: srcTxt, srcTableTip: srcTxt,
+@@ -981,11 +1004,20 @@ function _mvStage4TileRow(gbSel, sumSel){
+     tgtGroup: _split(gb, 'tgt'), srcGroup: _split(gb, 'src'),
+     tgtAgg:   _split(sm, 'tgt'), srcAgg:   _split(sm, 'src'),
+     /* [STAGE4-5-STRATEGY-INFO-RELOCATE-FIX] 'SQL생성시간'(proc/procTip) → '통계전략'(statsStrategy).
+-       툴팁 문구는 보관값이 함께 들고 오므로(_statsStrat.tip) 여기서 만들지 않는다. */
+-    statsStrategy: _statsStrat,
+-    /* [STAGE-TILE-DEDUP-CLEANUP-SEQUENTIAL-FIX 파트 C-4] '상태'(status/statusText) → '조합검증'.
+-       옛 status 는 SQL 생성 후 언제나 'READY / SQL 생성됨' 한 값이라 함께 걷어낸다(죽은 필드 방지). */
+-    combo: combo.text, comboTip: combo.tip
++       툴팁 문구는 보관값이 함께 들고 오므로(_statsStrat.tip) 여기서 만들지 않는다.
++       [STAGE3-4-STATUS-TIMING-AND-BANNER-CLEANUP-FIX 파트 E] 값이 있어도 '통계검증 실행 전'에는
++       그리지 않는다. 종전 결함: 이 값은 3단계 실행계획 카드가 이미 받아 둔 보관값이라 4단계 탭에
++       들어서는 순간(SQL 생성 전에도) 혼자 채워져 있었고, 옆의 목적그룹/원본그룹/목적집계/원본집계/
++       실행시간이 전부 '—' 인 화면에서 이 칸만 값이 있어 '이 단계가 뭔가 이미 돌았다'로 읽혔다.
++       4단계 타일은 '이 단계의 실행 결과'를 보여주는 자리이므로, 3단계에서 미리 정해진 값이라도
++       실행(runExecute)으로 실제 그 전략을 쓴 뒤에 표시한다. 실행 여부 신호는 이미 '실행시간'·'상태'
++       타일이 쓰는 것과 같은 보관값(window._mvStage4ExecResult)이며 새 플래그를 만들지 않는다. */
++    statsStrategy: (_ex ? _statsStrat : null),
++    /* [STAGE-TILE-DEDUP-CLEANUP-SEQUENTIAL-FIX 파트 C-4] 옛 '상태'(항상 'READY / SQL 생성됨') → '조합검증'.
++       [STAGE3-4-STATUS-TIMING-AND-BANNER-CLEANUP-FIX 파트 F] '상태'는 실행 결과 판정으로 되살아나
++       '조합검증' 뒤(맨 마지막 타일)에 다시 들어간다 — 옛 READY 고정값과는 다른 값이다. */
++    combo: combo.text, comboTip: combo.tip,
++    status: _st.code, statusText: _st.text, statusTip: _st.tip || _st.text || ''
+   };
+ }
+ /* [STAGE-TILE-DEDUP-CLEANUP-SEQUENTIAL-FIX 파트 C-4] '조합검증' 타일 값/툴팁.
+@@ -1008,6 +1040,30 @@ function _mvStage4ComboText(gbSel, generated){
+     tip:'단일 축 ' + n + '세트로만 분해 실행합니다 — 조합(' + (gbSel || []).join(' + ') + ')에서만 '
+       + '드러나는 불일치는 검증되지 않습니다. 4단계 SQL 영역의 \'조합도 함께 검증\' 을 켜면 포함됩니다.' };
+ }
++/* [STAGE3-4-STATUS-TIMING-AND-BANNER-CLEANUP-FIX 파트 F] 4단계 '상태' 타일 값/툴팁.
++   r = 보관된 통계검증 실행 응답(window._mvStage4ExecResult), isMulti = 다중 세트 여부.
++   판정식은 같은 화면의 통계검증 결과 그리드(_mvRenderStatsGrid 의 gSt/gStTxt)와 완전히 동일하다 —
++   그쪽이 이미 이 응답으로 '오류 / 미실행 / 불일치 N건 / 일치'를 판정하고 있으므로, 여기서 새로
++   판정하지 않고 같은 식을 쓴다(한 화면에서 두 판정이 어긋나지 않게 하는 것이 목적).
++   실행 전(r 없음)에는 빈 값 → 다른 미실행 타일과 같은 '—'. */
++function _mvStage4StatusInfo(r, isMulti){
++  if (!r) return { code:'', text:'' };
++  var hasStats = (r.matched != null || r.diff != null || r.src_only != null || r.tgt_only != null);
++  var mism = hasStats ? ((r.diff || 0) + (r.src_only || 0) + (r.tgt_only || 0)) : null;
++  if (r.success === false)
++    return { code:'ERROR', text:'오류',
++             tip:'통계검증 실행 실패' + (r.error_message ? (' — ' + r.error_message) : '') };
++  if (!hasStats)
++    return { code:'MUTED', text:'미실행',
++             tip:'실행 응답에 그룹 비교 결과(일치/차이/원본만/목적만)가 없습니다.' };
++  var _sets = isMulti ? '다중 세트(GROUP BY 2축 이상) 합산 기준' : '단일 세트 기준';
++  if (mism > 0)
++    return { code:'MISMATCH', text:'불일치 ' + mism + '건',
++             tip:'불일치 그룹 ' + mism + '개 — 값 다름 ' + (r.diff || 0) + ' · 원본에만 '
++               + (r.src_only || 0) + ' · 목적지에만 ' + (r.tgt_only || 0) + ' (' + _sets + ')' };
++  return { code:'PASS', text:'일치',
++           tip:'모든 비교 그룹 일치 — 일치 ' + (r.matched || 0) + '개 (' + _sets + ')' };
++}
+ function _mvStage4TilesHtml(gbSel, sumSel){
+   return _mvTilesHtmlFromCols(_mvStage4Columns(), _mvStage4TileRow(gbSel, sumSel));
+ }
+diff --git a/ui/tabler_renderer.py b/ui/tabler_renderer.py
+index 601b53a..ad40067 100644
+--- a/ui/tabler_renderer.py
++++ b/ui/tabler_renderer.py
+@@ -1006,6 +1006,15 @@ hr.div{border:none;border-top:1px solid var(--border);margin:14px 0}
+    폭: auto-fit + minmax 로 컨테이너 전체 가로폭을 9개가 균등 분할해 채운다(빈 트랙은 collapse 되어
+    좌측 쏠림/우측 여백이 생기지 않음). 폭이 좁아지면 자동 줄바꿈. */
+ .mv-qr-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:10px;width:100%}
++/* [STAGE3-4-STATUS-TIMING-AND-BANNER-CLEANUP-FIX 파트 F] 4단계만 10칸(…·조합검증·상태)이라 위 공용
++   최소폭(118px)으로는 본문 폭 1,255px 기준 한 줄에 9칸까지만 들어가 '상태' 한 칸이 둘째 줄에 혼자
++   남았다(실측: 9칸 top=226 / 1칸 top=360 — 타일 영역 높이가 두 배). 다른 단계와 같은 '한 줄' 배치를
++   유지하려고 최소폭을 낮추되, 공용 규칙이 아니라 4단계 타일 호스트에만 한정한다 — 1·2·3·5단계 타일
++   (8~9칸)의 배치·폭은 종전 그대로다(그 화면들은 1fr 균등 분할이라 최소폭을 낮춰도 달라질 게 없지만,
++   좁은 화면에서의 줄바꿈 시점까지 바꿀 이유가 없어 범위를 넓히지 않는다).
++   106px 근거: 10칸이면 (1255 - gap 10×9) / 10 = 116.5px 가 실제 칸 폭이므로 그보다 작아야 한 줄로
++   배치된다. 값이 긴 '통계전략' 칸은 종전에도 코드 배지가 줄바꿈되던 칸이라 표기 규칙 변화는 없다. */
++#mvStage4CtxGrid .mv-qr-tiles{grid-template-columns:repeat(auto-fit,minmax(106px,1fr))}
+ .mv-qr-tile{min-width:0}
+ /* [QUERY-REVIEW-TILE-CENTER-HEIGHT-HEADER-CLEANUP-FIX] 라벨은 박스(값 영역)와 같은 축으로
+    맞춘다 — 값이 이미 가운데 정렬이므로 라벨만 좌측이면 축이 어긋나 보인다. */
+@@ -1951,6 +1960,18 @@ hr.div{border-top:1px solid #f1f5f9!important;margin:14px 0!important}
+   color:var(--primary)!important;padding:7px 10px!important;
+   background:#f8fafc!important;border-radius:6px!important;
+   border:1px solid #e2e8f0!important;cursor:pointer!important}
++/* [STAGE3-4-STATUS-TIMING-AND-BANNER-CLEANUP-FIX 파트 C] 개별검증 3단계 '참고/제외 후보 보기' 소제목.
++   그 <details> 는 후보가 1개 이상이면 open 으로 렌더돼 화면상 '항상 펼쳐진' 상태인데, 문구가
++   링크색(위 규칙의 color:var(--primary)!important — 원래는 고급옵션 DDL summary 용인데 #tab-analyze
++   안의 모든 details>summary 에 걸린다)이고 앞에 삼각형 마커까지 붙어 '눌러야 열리는 숨은 영역'으로
++   읽혔다. 색과 마커만 되돌린다 — 펼침/접힘 동작(details/summary 구조·open 속성·클릭 토글)은 손대지
++   않는다. 위 규칙이 !important 라 여기서도 !important + 같은 ID 특이도가 필요하다.
++   이 클래스가 붙은 곳(개별검증 3단계 참고/제외 표)에만 적용되므로 다른 details>summary(고급옵션,
++   일괄검증 기본 접힘 영역 등)의 표기는 종전 그대로다. */
++#tab-analyze details.ict-ref-cands-flat > summary{
++  color:var(--text)!important;list-style:none!important}
++#tab-analyze details.ict-ref-cands-flat > summary::-webkit-details-marker{display:none!important}
++#tab-analyze details.ict-ref-cands-flat > summary::marker{content:''!important}
+ 
+ /* ── [버튼 통일] btn-run: 개별검증 주요 실행 버튼 — 공통 outline 톤(기능/onclick/disabled 불변).
+    #tab-analyze 특이도/!important 로 통일 스타일을 강제(과거 solid blue 정의 대체). ── */
+@@ -5786,7 +5807,8 @@ function _applySinglePane() {
+         }
+       }
+     }
+-    _singleRenderCandidatePaneNotice();
++    /* [STAGE3-4-STATUS-TIMING-AND-BANNER-CLEANUP-FIX 파트 B] 여기 있던
++       _singleRenderCandidatePaneNotice() 호출을 제거했다 — 함수와 안내박스 자체가 사라졌다. */
+     /* STAGE-CONTEXT-HEADER-REDESIGN: 3단계 상단 컨텍스트 그리드(원본/목적 + 후보 요약) 렌더 —
+        단계 진입 시마다 최신 _analyzeData 로 갱신(표시 전용). helper 미로드 시 조용히 생략. */
+     try { if (typeof _mvRenderCandidateGrid === 'function') _mvRenderCandidateGrid(_analyzeData, 'mvStage3CtxGrid'); } catch (e) {}
+@@ -5804,26 +5826,14 @@ function _applySinglePane() {
+   /* [D7-17 통합 B] 2단계 상단 쿼리검토 중복 요약 제거 — 별도 표시 로직 없음(상단 단계 배지로 충분). */
+   _mvUpdateSingleSectionHeader();
+ }
+-/* 3단계 상단: COUNT 불일치 수동 진행 안내(불일치 상태에서 진입한 경우). 표시 전용. */
+-function _singleRenderCandidatePaneNotice() {
+-  var note = document.getElementById('singleCandidateCountNotice');
+-  if (!note) {
+-    var _csc = document.getElementById('colSelectCard');
+-    var body = _csc && _csc.querySelector('.card-body');
+-    if (!body) return;
+-    note = document.createElement('div');
+-    note.id = 'singleCandidateCountNotice';
+-    note.style.cssText = 'margin-bottom:12px;padding:9px 12px;background:#fff8e1;border:1px solid #f0d68a;'
+-      + 'border-radius:6px;font-size:.82rem;color:#7a6a2e;display:none';
+-    body.insertBefore(note, body.firstChild);
+-  }
+-  if (_countState === 'MISMATCH' || _countState === 'MISMATCH_ACCEPTED') {
+-    note.innerHTML = '⚠ COUNT 불일치 상태입니다. 후보 선정 후 통계검증으로 원인을 좁힙니다.';
+-    note.style.display = '';
+-  } else {
+-    note.style.display = 'none';
+-  }
+-}
++/* [STAGE3-4-STATUS-TIMING-AND-BANNER-CLEANUP-FIX 파트 B] 3단계 상단 'COUNT 불일치 수동 진행 안내'
++   박스(#singleCandidateCountNotice)와 그 렌더 함수 _singleRenderCandidatePaneNotice 를 통째로 삭제했다
++   (화면 숨김이 아니라 코드·DOM 부재).
++   삭제 근거: 문구('⚠ COUNT 불일치 상태입니다. 후보 선정 후 통계검증으로 원인을 좁힙니다.')는
++   ⓐ COUNT 불일치 사실 — 상단 단계 탭 배지와 2단계 COUNT 타일이 이미 수치와 함께 표시하고,
++   ⓑ '후보 선정 후 통계검증으로 원인을 좁힌다' — 3단계에 있다는 것 자체가 그 흐름이라
++   새 정보가 없었다. 표시 전용 함수라 판정·게이트(_countState 기반 진행 허용 규칙)에는 영향이 없다
++   — _countState 자체와 그 판정 로직은 전혀 건드리지 않는다. */
+ /* 개별 1단계 '카운트 사전검증'(2단계 pane 이동) 버튼 활성/비활성 — SQL 분석 성공 후에만 enabled(표시 전용).
+    SQL 입력만으론 부족(분석 전이면 disabled), 분석 실패/SQL 수정/초기화 시 disabled. COUNT 실행 로직은 변경 없음. */
+ /* '다음 →'(2단계→3단계) 활성 조건 — COUNT 결과 상태(_countState, 기존 값 읽기만) 기준.
+@@ -23849,10 +23859,15 @@ function renderColSelect(data) {
+   /* ── 참고/제외 후보 (영역. 후보가 1개 이상이면 기본 펼침 — 제외 사유 즉시 확인) ── */
+   var _refCount = _gbSplit.ref.length + _sumSplit.ref.length;
+   var _refHtml = (_refCount > 0)
+-    ? '<details class="ict-ref-cands" open style="margin-top:10px;border:1px solid #e4e8f0;'
++    /* [STAGE3-4-STATUS-TIMING-AND-BANNER-CLEANUP-FIX 파트 C] 시각적 정리만 — 동작 불변.
++       ⓐ 클래스에 ict-ref-cands-flat 추가(마커 제거 CSS 적용 대상, grid_helpers.py 참고).
++       ⓑ 인라인 color:#555 → var(--text)(다른 소제목과 같은 본문 색).
++       ⓒ 인라인 list-style:revert → none(문구 앞 삼각형 제거).
++       open 속성·details/summary 구조는 손대지 않는다(항상 펼쳐진 상태 그대로). */
++    ? '<details class="ict-ref-cands ict-ref-cands-flat" open style="margin-top:10px;border:1px solid #e4e8f0;'
+       + 'border-radius:6px;background:#fcfcfd">'
+-      + '<summary style="cursor:pointer;padding:8px 12px;font-size:.82rem;color:#555;'
+-      + 'font-weight:600;list-style:revert">참고/제외 후보 보기 · 기본계획 미포함 ('
++      + '<summary style="cursor:pointer;padding:8px 12px;font-size:.82rem;color:var(--text);'
++      + 'font-weight:600;list-style:none">참고/제외 후보 보기 · 기본계획 미포함 ('
+       + _refCount + '개)</summary>'
+       + '<div style="padding:4px 12px 10px">'
+       + '<div style="font-size:.76rem;color:#6c757d;margin:2px 0 8px;line-height:1.5">'
+@@ -28529,12 +28544,14 @@ async function _mvRenderStrategyPlan(profile, hostId) {
+      섹션 조립(_TILE_MOVED 필터 → _refRows → _mvKVGrid → _grid)을 통째로 제거했다. host 에는 이제
+      안내 배너들만 남는다 — 배너가 하나도 없는 정상 계획에서는 host 가 빈 채로 남고(섹션이 완전히
+      사라진 상태), 배너가 있으면 종전과 같은 자리에 그대로 표시된다. */
++  /* [STAGE3-4-STATUS-TIMING-AND-BANNER-CLEANUP-FIX 파트 D] 여기 있던 '참고용 계획' 경고 배너
++     ('⚠ STATS_SAMPLE_ONLY 은 참고용 계획이며, 실제 통계검증 실행은 항상 전체스캔(EXACT) …')를
++     코드째 삭제했다(화면 숨김 아님).
++     삭제해도 정보가 사라지지 않는다 — 같은 사실을 4단계 '통계전략' 타일이 값 옆의 '참고용 계획'
++     배지와 툴팁('… · 참고용 계획 — 실제 실행은 항상 전체스캔(EXACT)입니다.')으로 이미 담고 있다
++     (_statsStratInfo.note/tip, 위 참조). 판정값 _statsAdvisoryOnly 는 그 배지·툴팁이 계속 쓰므로
++     그대로 둔다 — 이번 삭제는 이 자리의 배너 표시 하나뿐이다. */
+   host.innerHTML = ''
+-    + (_statsAdvisoryOnly ? '<div style="font-size:.74rem;color:#7a5b12;background:#fef5e7;border-left:3px solid #b7791f;'
+-        + 'border-radius:4px;padding:6px 9px;margin-top:6px;line-height:1.5">'
+-        + '⚠ <b>' + esc(_sid) + '</b> 은 참고용 계획이며, 실제 통계검증 실행은 항상 전체스캔(EXACT) 방식으로 이루어집니다 '
+-        + '— 표본만으로 실행되지 않습니다. 결과 그룹이 100,000개를 초과하면 실행이 차단됩니다(샘플/버킷/파티션 집계 '
+-        + '실행 엔진은 미구현).</div>' : '')
+     + (d.compare_auto_runnable === false ? '<div style="font-size:.74rem;color:#C2410C;margin-top:4px">미구현 전략은 자동 실행하지 않습니다. 기존 전체 비교 fallback 은 명시 승인 시에만 사용합니다.</div>' : '')
+     /* [PK-RANGE-CHUNK-PLAN-ENGINE-MISMATCH-G4-FIX] 계획 HOLD ↔ 실행 성공 반대신호 고지.
+        목적지 물리 PK 근거로는 확정하지 못했더라도(카탈로그 조회 실패·PK 미매핑 등) 실행 계층은 UK·
+diff --git a/ui/validation_plan_renderer.py b/ui/validation_plan_renderer.py
+index bdd57c2..cc2b972 100644
+--- a/ui/validation_plan_renderer.py
++++ b/ui/validation_plan_renderer.py
+@@ -877,7 +877,14 @@ function _mvSyncStageProcessingTimeVisibility() {
+        같은 소스(_mvShowStageProcessingTime(5, …) 가 보관하는 window._mvStage5ProcMs)로 계속 보여준다.
+        계측·저장·타일 갱신 경로는 손대지 않고 이 슬롯의 '표시'만 막는다(1~3단계와 동일 처리) — 슬롯이
+        display:none 이 되므로 '· 5단계 계산 중...' 잠정 문구가 남기던 빈 줄도 함께 사라진다. */
+-    var _hidden = { 1: true, 2: true, 3: true, 5: true };   /* 1~3·5단계 = 각 단계 타일 '처리시간' 항목으로 이전됨 */
++    /* [STAGE3-4-STATUS-TIMING-AND-BANNER-CLEANUP-FIX 파트 G] 4단계도 상시 비노출 —
++       '· 4단계 SQL 생성 시간: 0.01초 미만' 줄과 그 줄이 차지하던 공간을 화면에서 없앤다(사용자 요청).
++       이로써 1~5단계 슬롯이 전부 비노출이 되어 단계 탭 아래 처리시간 줄이 완전히 사라진다.
++       계측·저장 경로는 손대지 않는다 — renderSQL 의 _mvShowStageProcessingTime(4, g.processing_ms,
++       'SQL 생성 시간') 호출과 그 안의 window._mvStage4ProcMs/_mvStage4ProcLabel 보관,
++       _mvStage4ProcInfo() 표기 변환기는 그대로 남아 다른 곳에서 재사용할 수 있다(요청 명시).
++       '· 4단계 계산 중...' 잠정 문구가 남기던 빈 줄도 display:none 이라 함께 사라진다. */
++    var _hidden = { 1: true, 2: true, 3: true, 4: true, 5: true };   /* 1~5단계 = 각 단계 타일 '처리시간' 항목으로 이전됨 */
+     var curNum = (typeof _singleStepIdx === 'function' && typeof _singleViewStep !== 'undefined')
+       ? (_singleStepIdx(_singleViewStep) + 1) : null;
+     for (var n = 1; n <= 5; n++) {

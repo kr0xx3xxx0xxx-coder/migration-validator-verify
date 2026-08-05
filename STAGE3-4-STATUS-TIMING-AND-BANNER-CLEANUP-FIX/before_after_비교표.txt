@@ -1,0 +1,161 @@
+===== s3_enter_tiles
+  목적테이블    before='NXDNP.MV_ORA_DEMO_TGT'                          after='NXDNP.MV_ORA_DEMO_TGT'
+  원본테이블    before='NXDNP.MV_ORA_DEMO_SRC'                          after='NXDNP.MV_ORA_DEMO_SRC'
+  통계검증규모   before='—'                                              after='—'
+  목적그룹     before='—'                                              after='—'
+  원본그룹     before='—'                                              after='—'
+  목적집계     before='—'                                              after='—'
+  원본집계     before='—'                                              after='—'
+  처리시간     before='—'                                              after='—'
+  상태       before='—'                                              after='—'
+===== s3_calc_tiles
+  목적테이블    before='NXDNP.MV_ORA_DEMO_TGT'                          after='NXDNP.MV_ORA_DEMO_TGT'
+  원본테이블    before='NXDNP.MV_ORA_DEMO_SRC'                          after='NXDNP.MV_ORA_DEMO_SRC'
+  통계검증규모   before='소형 (cost 12.68)'                                after='소형 (cost 12.68)'
+  목적그룹     before='STATUS_CDDEPT_CD'                               after='STATUS_CDDEPT_CD'
+  원본그룹     before='STATUS_CDDEPT_CD'                               after='STATUS_CDDEPT_CD'
+  목적집계     before='AMT'                                            after='AMT'
+  원본집계     before='AMT'                                            after='AMT'
+  처리시간     before='0.56초'                                          after='0.44초'   <<< 변경
+  상태       before='● 정상'                                           after='● 정상'
+===== s3_reenter_tiles
+  목적테이블    before='NXDNP.MV_ORA_DEMO_TGT'                          after='NXDNP.MV_ORA_DEMO_TGT'
+  원본테이블    before='NXDNP.MV_ORA_DEMO_SRC'                          after='NXDNP.MV_ORA_DEMO_SRC'
+  통계검증규모   before='소형 (cost 12.68)'                                after='소형 (cost 12.68)'
+  목적그룹     before='—'                                              after='—'
+  원본그룹     before='—'                                              after='—'
+  목적집계     before='—'                                              after='—'
+  원본집계     before='—'                                              after='—'
+  처리시간     before='0.19초'                                          after='0.19초'
+  상태       before='● 정상'                                           after='—'   <<< 변경
+===== s4_enter_tiles
+  목적테이블    before='NXDNP.MV_ORA_DEMO_TGT'                          after='NXDNP.MV_ORA_DEMO_TGT'
+  원본테이블    before='NXDNP.MV_ORA_DEMO_SRC'                          after='NXDNP.MV_ORA_DEMO_SRC'
+  목적그룹     before='—'                                              after='—'
+  원본그룹     before='—'                                              after='—'
+  목적집계     before='—'                                              after='—'
+  원본집계     before='—'                                              after='—'
+  통계전략     before='직접 집계STATS_DIRECT_AGG숫자 단일 PK · PK 인덱스'         after='—'   <<< 변경
+  실행시간     before='—'                                              after='—'
+  조합검증     before='—'                                              after='—'
+  상태       before='(타일없음)'                                         after='—'   <<< 변경
+===== s4_gen_tiles
+  목적테이블    before='NXDNP.MV_ORA_DEMO_TGT'                          after='NXDNP.MV_ORA_DEMO_TGT'
+  원본테이블    before='NXDNP.MV_ORA_DEMO_SRC'                          after='NXDNP.MV_ORA_DEMO_SRC'
+  목적그룹     before='STATUS_CDDEPT_CD'                               after='STATUS_CDDEPT_CD'
+  원본그룹     before='STATUS_CDDEPT_CD'                               after='STATUS_CDDEPT_CD'
+  목적집계     before='AMT'                                            after='AMT'
+  원본집계     before='AMT'                                            after='AMT'
+  통계전략     before='직접 집계STATS_DIRECT_AGG숫자 단일 PK · PK 인덱스'         after='—'   <<< 변경
+  실행시간     before='—'                                              after='—'
+  조합검증     before='미포함'                                            after='미포함'
+  상태       before='(타일없음)'                                         after='—'   <<< 변경
+===== s4_exec_tiles
+  목적테이블    before='NXDNP.MV_ORA_DEMO_TGT'                          after='NXDNP.MV_ORA_DEMO_TGT'
+  원본테이블    before='NXDNP.MV_ORA_DEMO_SRC'                          after='NXDNP.MV_ORA_DEMO_SRC'
+  목적그룹     before='STATUS_CDDEPT_CD'                               after='STATUS_CDDEPT_CD'
+  원본그룹     before='STATUS_CDDEPT_CD'                               after='STATUS_CDDEPT_CD'
+  목적집계     before='AMT'                                            after='AMT'
+  원본집계     before='AMT'                                            after='AMT'
+  통계전략     before='직접 집계STATS_DIRECT_AGG숫자 단일 PK · PK 인덱스'         after='직접 집계STATS_DIRECT_AGG숫자 단일 PK · PK 인덱스'
+  실행시간     before='총 0.84초'                                        after='총 0.87초'   <<< 변경
+  조합검증     before='미포함'                                            after='미포함'
+  상태       before='(타일없음)'                                         after='● 불일치'   <<< 변경
+
+=== 파트C 참고/제외 summary ===
+  color | before= rgb(37, 99, 235) | after= rgb(16, 35, 63)
+  listStyleType | before= disclosure-open | after= none
+  cls | before= ict-ref-cands | after= ict-ref-cands ict-ref-cands-flat
+  open | before= True | after= True
+  bodyVisible | before= True | after= True
+  summaryText | before= 참고/제외 후보 보기 · 기본계획 미포함 (4개) | after= 참고/제외 후보 보기 · 기본계획 미포함 (4개)
+ 토글 1회 클릭 후 open : before= False after= False
+ 토글 2회 클릭 후 open : before= True after= True
+
+=== 파트B COUNT 불일치 안내박스(강제 표시 시도) ===
+ before {"existsBeforeForce": true, "fnOnWindow": "function", "fnBare": "function", "forced": "called", "afterForce": {"display": "block", "h": 39, "txt": "⚠ COUNT 불일치 상태입니다. 후보 선정 후 통계검증으로 원인을 좁힙니다."}, "bodyHasText": true}
+ after  {"existsBeforeForce": false, "fnOnWindow": "undefined", "fnBare": "undefined", "forced": "no-function", "afterForce": null, "bodyHasText": false}
+
+=== 파트D STATS_SAMPLE_ONLY 배너(route 로 조건 강제 성립) ===
+  before hostH= 48 htmlLen= 318 bodyHasBanner= True
+      hostText= ⚠ STATS_SAMPLE_ONLY 은 참고용 계획이며, 실제 통계검증 실행은 항상 전체스캔(EXACT) 방식으로 이루어집니다 — 표본만으로 실행되지 않습니다. 결과 그룹이 100,000개를 초과하면 실행이 차단됩니다(샘플/버킷/파티션 집계 실행 엔진은 미구현).
+      statsStrategy 배지/툴팁 보존= {"text": "표본 집계", "code": "STATS_SAMPLE_ONLY", "note": "참고용 계획", "basis": "숫자 단일 PK · PK 인덱스", "tip": "통계검증 전략 STATS_SAMPLE_ONLY — 표본 집계(참고용 · 실제 실행은 전체스캔) · 참고용 계획 — 실제 실행은 항상 전체스캔(EXACT)입니다. · 판정근거: 원본 150건 · 숫자 단일 PK 
+  after hostH= 0 htmlLen= 0 bodyHasBanner= False
+      hostText= 
+      statsStrategy 배지/툴팁 보존= {"text": "표본 집계", "code": "STATS_SAMPLE_ONLY", "note": "참고용 계획", "basis": "숫자 단일 PK · PK 인덱스", "tip": "통계검증 전략 STATS_SAMPLE_ONLY — 표본 집계(참고용 · 실제 실행은 전체스캔) · 참고용 계획 — 실제 실행은 항상 전체스캔(EXACT)입니다. · 판정근거: 원본 150건 · 숫자 단일 PK 
+
+=== 파트G 4단계 처리시간 슬롯(SQL 생성 후) ===
+  before {"exists": true, "display": "inline", "h": 18, "w": 189, "txt": "· 4단계 SQL 생성 시간: 0.01초 미만"} | 화면문구존재= True
+  after {"exists": true, "display": "none", "h": 0, "w": 0, "txt": "· 4단계 SQL 생성 시간: 0.01초 미만"} | 화면문구존재= False
+
+=== 파트F 4단계 타일 그리드 배치 ===
+  before 타일수= 9 grid 열수= 9 행별 개수(top:개수)= {'250': 9}
+  after 타일수= 10 grid 열수= 10 행별 개수(top:개수)= {'226': 10}
+
+=== 무회귀 ===
+ 5단계 타일 라벨 before ['목적테이블', '원본테이블', '불일치 추출전략', '불일치그룹', '재이관대상', '재이관PK', '처리시간', '상태']
+ 5단계 타일 라벨 after  ['목적테이블', '원본테이블', '불일치 추출전략', '불일치그룹', '재이관대상', '재이관PK', '처리시간', '상태']
+ 5단계 결과표 길이 before/after: 1201 / 1198
+ 통계검증 실행 결과 before {"success": true, "matched": 4, "diff": 6, "src_only": 0, "tgt_only": 0, "multi": true}
+ 통계검증 실행 결과 after  {"success": true, "matched": 4, "diff": 6, "src_only": 0, "tgt_only": 0, "multi": true}
+ 페이지 오류 before/after: [] / []
+
+=== 판정(after) ===
+{
+ "A_재진입_계획값존재_체크박스없음(재현조건)": true,
+ "A_재진입_상태_미표시": true,
+ "A_재진입_규모_표시(무회귀)": true,
+ "A_재진입_그룹타일_미표시(재현조건 확인)": true,
+ "A_3단계_상태_진입시_미표시": true,
+ "A_3단계_상태_계산후_표시": true,
+ "_info_최초진입_규모값": "—",
+ "B_안내박스_DOM부재": true,
+ "B_렌더함수_부재": true,
+ "B_문구_화면부재": true,
+ "C_삼각형_제거": true,
+ "C_색상_본문색": true,
+ "C_항상펼침_무회귀": true,
+ "D_배너_부재(강제조건에서도)": true,
+ "E_4단계_통계전략_진입시_미표시": true,
+ "E_4단계_통계전략_생성시점_미표시": true,
+ "E_4단계_통계전략_실행후_표시": true,
+ "F_4단계_마지막타일이_상태": true,
+ "F_조합검증_상태_바로앞": true,
+ "F_4단계_상태_진입시_미표시": true,
+ "F_4단계_상태_실행후_표시": true,
+ "G_4단계_처리시간줄_비노출": true,
+ "G_4단계_문구_화면부재": true,
+ "무회귀_5단계_결과표": true,
+ "무회귀_페이지오류_없음": true,
+ "result": "PASS"
+}
+
+=== 판정(before) ===
+{
+ "A_재진입_계획값존재_체크박스없음(재현조건)": true,
+ "A_재진입_상태_미표시": false,
+ "A_재진입_규모_표시(무회귀)": true,
+ "A_재진입_그룹타일_미표시(재현조건 확인)": true,
+ "A_3단계_상태_진입시_미표시": true,
+ "A_3단계_상태_계산후_표시": true,
+ "_info_최초진입_규모값": "—",
+ "B_안내박스_DOM부재": false,
+ "B_렌더함수_부재": false,
+ "B_문구_화면부재": false,
+ "C_삼각형_제거": false,
+ "C_색상_본문색": false,
+ "C_항상펼침_무회귀": true,
+ "D_배너_부재(강제조건에서도)": false,
+ "E_4단계_통계전략_진입시_미표시": false,
+ "E_4단계_통계전략_생성시점_미표시": false,
+ "E_4단계_통계전략_실행후_표시": true,
+ "F_4단계_마지막타일이_상태": false,
+ "F_조합검증_상태_바로앞": false,
+ "F_4단계_상태_진입시_미표시": false,
+ "F_4단계_상태_실행후_표시": false,
+ "G_4단계_처리시간줄_비노출": false,
+ "G_4단계_문구_화면부재": false,
+ "무회귀_5단계_결과표": true,
+ "무회귀_페이지오류_없음": true,
+ "result": "FAIL"
+}

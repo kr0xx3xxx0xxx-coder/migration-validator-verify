@@ -1,0 +1,52 @@
+STAGE3-4-STATUS-TIMING-AND-BANNER-CLEANUP-FIX — 관련 서브셋 baseline 대조
+=========================================================================
+대상 선정: 이번에 건드린 식별자/문구를 참조하는 테스트 파일 25개
+  (_mvCandidateTileRow, mvStage3CtxGrid, _mvStage3PlanInfo,
+   _singleRenderCandidatePaneNotice, singleCandidateCountNotice, ict-ref-cands,
+   '참고/제외 후보 보기', STATS_SAMPLE_ONLY, '참고용 계획', strategyPlanBox,
+   _mvRenderStrategyPlan, _mvStage4Columns/TileRow/TilesHtml, mvStage4CtxGrid,
+   '조합검증', '통계전략', _mvSyncStageProcessingTimeVisibility,
+   _mvShowStageProcessingTime, ProcessingTime, mv-qr-tiles, _mvTilesHtmlFromCols,
+   _mvStage5Columns, 'COUNT 불일치 상태')
+
+baseline : git worktree E:\_wtbase @ 86865a1 (내 작업 직전 원격 tip)
+           db/migration_validator.db 와 db_presets_*.json 을 메인 트리에서 복사해
+           캐시 조건을 맞춤(worktree A/B 교란 회피)
+after    : C:\projects\migration-validator @ 3927d39
+
+결과
+  baseline : 7 failed, 368 passed, 5 xfailed  (40.32s)
+  after    : 7 failed, 372 passed, 5 xfailed  (37.94s)
+  → 실패 집합 완전 동일 = 신규 회귀 0건. passed +4 는 이번에 추가한 계약 테스트 4건.
+
+실패 7건(양쪽 동일 = 사전 존재 실패, 이번 작업과 무관)
+  tests/test_all_stages_timing_display_expand.py::test_count_generate_execute_routes_add_processing_ms
+  tests/test_stage_button_dedup_time_scope_and_gate45_fix.py::test_switching_tab_hides_previous_slot_but_keeps_its_value
+  tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+  tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_dedup_logic_present
+  tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_hidden_when_empty
+  tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_only_individual_screen
+  tests/test_task_single_candidate_evidence_preview.py::test_cap3_unchanged
+
+  ※ 두 번째 항목(단계 전환 시 이전 슬롯 숨김/값 보존)은 이번 파트 G(4단계 슬롯 상시
+    비노출)와 주제가 겹쳐 보이지만 baseline 에서도 똑같이 실패한다 — 내 변경이 만든
+    실패가 아니다.
+
+이번 작업으로 갱신/추가한 테스트
+  갱신 tests/test_shared_sticky_step_nav.py
+        test_candidate_pane_mismatch_notice → test_candidate_pane_mismatch_notice_removed
+        (안내박스 부활 방지 가드로 전환. 삭제 근거를 적어 둔 주석에 문구가 그대로 남아
+         있어 '주석을 걷어낸 소스'로 판정한다.)
+  갱신 tests/test_query_review_tile_layout.py
+        _hidden 목록 1·2·3·5 → 1·2·3·4·5 + 계측 보관(window._mvStage4ProcMs) 잔존 확인
+  갱신 tests/test_stage4_stats_validation_tile_layout.py
+        S4_LABELS 9칸 → 10칸('상태' 추가), 골격 대조 len 10/9,
+        옛 READY 고정 상태값 부활 방지를 '필드명 부재'가 아니라 '값·경유 함수'로 재정의
+  갱신 tests/test_stage45_strategy_info_relocate.py
+        4단계 타일 하니스에 '실행 완료' 상태(window._mvStage4ExecResult)를 세팅,
+        칸 수 9 → 10
+  신규 tests/test_stage4_stats_validation_tile_layout.py 4건
+        test_stage3_status_tile_waits_for_candidate_calc      (파트 A)
+        test_stage4_strategy_tile_waits_for_execution         (파트 E)
+        test_stage4_status_tile_shows_execution_verdict       (파트 F)
+        test_stage4_tile_grid_keeps_single_row                (파트 F 레이아웃)
