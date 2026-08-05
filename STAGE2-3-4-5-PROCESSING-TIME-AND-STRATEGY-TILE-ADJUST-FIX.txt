@@ -1,0 +1,356 @@
+작업명 : STAGE2-3-4-5-PROCESSING-TIME-AND-STRATEGY-TILE-ADJUST-FIX
+작성일 : 2026-08-05
+커밋   : be54f7f (baseline: db225d2)
+대상   : ui/tabler_renderer.py · ui/grid_helpers.py · ui/validation_plan_renderer.py
+         + 계약이 바뀐 테스트 8개 파일
+
+
+────────────────────────────────────────────────────────────────────────
+0. 시작 전 워킹트리 온전성
+────────────────────────────────────────────────────────────────────────
+착수 시점 `git status --porcelain -- ui/` 결과 변경 0건.
+미추적 229건은 전부 scratchpad/ 이며 세 대상 파일은 HEAD(db225d2)와 동일한
+상태였다. 오늘 여러 세션이 건드린 흔적으로 인한 손상은 없었다.
+커밋 직전 HEAD 재확인 결과도 db225d2 그대로였고, 커밋 후 `git status` 에
+소실된 변경 없음을 재확인했다.
+
+
+────────────────────────────────────────────────────────────────────────
+1. 요구사항 ① — 2단계 '처리시간' 타일에서 '총' 줄 제거
+────────────────────────────────────────────────────────────────────────
+[한 일]
+ui/tabler_renderer.py `_mvCountTilesHtml` 의 proc 분기에서 인라인 3번째 줄을
+만들던 `lines.push('총 ' + …)` 와 그 값을 읽던 지역변수를 제거했다.
+
+[정보 손실 여부]
+없다. 총시간 계측(c.processing_ms)도, 값 계산(row.proc)도, 툴팁도 그대로다.
+툴팁은 종전부터 `_mvCountTileElapsed` 가 만든 문자열을 쓰고 있었고 거기에
+'· 총 104ms(병렬 실행, 차액은 서버 파싱·COUNT SQL 생성 오버헤드)' 가 이미
+들어 있었다 — 사용자 지시("툴팁에 총시간 정보가 있었다면 유지")와 일치한다.
+
+[실측 · 제품 렌더 함수 직접 호출]
+  BEFORE: 원본 0.08초<br>목적 0.08초<br>총 0.10초
+  AFTER : 원본 0.08초<br>목적 0.08초
+  툴팁(양쪽 동일): 원본 81ms / 목적지 78ms · 총 104ms(병렬 실행, …)
+                   · COUNT SQL 생성방식: DIRECT_COUNT
+개별 소요가 없는 응답(DB 미연결/오류)은 종전대로 이 분기를 타지 않고
+한 줄 값 또는 '—' 로 떨어진다(무회귀 확인).
+
+스크린샷: 01_stage2_proctime_before.png / 01_stage2_proctime_after.png
+
+
+────────────────────────────────────────────────────────────────────────
+2. 요구사항 ② — 3단계 '처리시간' 원본/목적 분리 (조사 → 미적용)
+────────────────────────────────────────────────────────────────────────
+[결론] 분리 불가. 현재 단일값 표시를 그대로 유지했다(코드 무수정).
+
+[조사 근거 — 코드로 확인]
+ⓐ schemas/request_models.py `ValidationSetPreviewRequest` 의 접속정보 필드는
+   `src_conn`(원본 접속) · `src_db`(원본 방언) 두 개뿐이다. 목적지 접속정보
+   필드가 애초에 정의되어 있지 않다.
+ⓑ routes/validation_set_preview_route.py 와 services/candidate_postcount_
+   finalize.py 를 `tgt_conn|target_conn|tgt_db` 로 전수 검색한 결과 0건.
+   3단계 계산(_run_bounded_sample / _collect_date_bucket_profiles /
+   _date_catalog_stats / _augment_lastresort_sum_distinct)은 전부 `src_conn`
+   하나만 받아 원본 DB 에만 질의한다.
+ⓒ 3단계 타일의 '목적그룹/목적집계' 는 DB 조회 결과가 아니라 parse_result 의
+   select_items 매핑(_mvColPairParts)에서 나온 값이다 — 목적지 질의가 아니다.
+
+즉 "목적 N초" 로 표시할 시간이 존재하지 않는다. 서버가 보내주지 않는 값이
+아니라, 목적지 조회 자체가 일어나지 않는다. 2단계(COUNT)가 원본/목적을 각각
+실행해 개별 시간을 갖는 것과 구조가 다르다. 억지로 나누면 없는 값을 지어내는
+표시가 되므로 적용하지 않았다.
+
+[참고] 이 경로에는 대신 단계별 분해값(processing_steps_ms — postcount_bounded_
+sample / enrich_and_gates / date_bucket_profile / fallback_promotion)이 이미
+응답에 실려 있다. '원본/목적' 축이 아닌 '작업 단계' 축이라 이번 요구사항과는
+다른 정보이고, 지시가 "무리해서 나누지 말 것"이었으므로 손대지 않았다.
+
+
+────────────────────────────────────────────────────────────────────────
+3. 요구사항 ③ — 4·5단계 전략 타일 인라인 축약, 상세는 툴팁
+────────────────────────────────────────────────────────────────────────
+[한 일]
+`_mvStratShortName(label)` 을 추가해 라벨의 첫 여는 괄호 앞까지만 인라인에
+쓰도록 했다. 값 객체(_statsStratInfo/_compareStratInfo)의 `text` 만 짧아지고
+`tip` 은 종전부터 라벨 '전체'를 담고 있어 새 문구를 만들지 않았다.
+
+[5단계에도 함께 적용한 판단 근거]
+ⓐ 두 타일은 같은 렌더 분기(grid_helpers.py `kind:'strategy'`)를 쓴다.
+ⓑ 두 값은 같은 생산자(3단계 실행계획 카드)가 같은 모양의 객체로 만든다.
+한쪽만 줄이려면 렌더 분기나 값 객체를 둘로 쪼개야 하고, 그러면 같은 성격의
+타일 두 개가 서로 다른 표기 규격을 갖게 된다. 사용자도 "같이 적용하는 게
+일관성 있음"으로 판단 근거를 요구했으므로 함께 적용했다.
+
+[실측 · 실제 생산자(_mvRenderStrategyPlan) 출력]
+  BEFORE 4단계 인라인: 직접 집계(전체스캔 EXACT · 원본↔목적 그룹별 COUNT/SUM 비교)
+  AFTER  4단계 인라인: 직접 집계
+  AFTER  4단계 툴팁  : 통계검증 전략 STATS_DIRECT_AGG — 직접 집계(전체스캔 EXACT
+                       · 원본↔목적 그룹별 COUNT/SUM 비교) · 판정근거: …
+  BEFORE 5단계 인라인: PK 범위 분할 비교(대용량 — PK 구간별 조각 비교)
+  AFTER  5단계 인라인: PK 범위 분할 비교
+  AFTER  5단계 툴팁  : 불일치(상세) 추출 전략 PK_RANGE_CHUNK_COMPARE —
+                       PK 범위 분할 비교(대용량 — PK 구간별 조각 비교)
+코드 배지(<code class="mv-qr-strat-code">)와 '참고용 계획' 한정어 배지는 종전
+그대로 유지된다. 괄호가 없는 라벨(미지의 코드)은 원문을 그대로 돌려준다.
+
+스크린샷: 03_stage4_strategy_before/after.png · 03_stage5_strategy_before/after.png
+
+
+────────────────────────────────────────────────────────────────────────
+4. 요구사항 ④-1 — 5단계 불일치 그룹 기본 펼침
+────────────────────────────────────────────────────────────────────────
+[한 일]
+결과 표를 다시 그리는 모든 경로가 통과하는 단일 지점(_mvWireRowsFromCache →
+_mvPkRestoreExpandedRow)에 '기억해 둔 펼침이 없으면 첫 그룹을 편다' 분기를
+추가했다(_mvPkAutoExpandFirstRow).
+
+[전부 펼침이 아니라 '첫 번째만' 으로 정한 근거]
+ⓐ 이 화면의 상세 패널은 설계상 SINGLE-OPEN 이다. `_mvToggleRowAggDiff` 는
+   패널을 열기 전에 `_mvCloseOtherScopePanels('')` + `_mvRemoveAllScopePanels()`
+   로 다른 패널을 전부 닫는다. 즉 '전부 펼침'은 이 함수를 N번 부른다고 되는
+   것이 아니라 패널 관리 모델 자체를 다시 짜야 한다.
+ⓑ 기존 화면 관례도 '동시에 한 그룹'이다. 이미 있는 펼침 상태 보존 장치
+   (_mvPkExpandState, REIMPORT-DRILLDOWN-TAB-EXPAND-STATE-PERSIST)는 rowKey 를
+   하나만 기억한다.
+ⓒ 펼침 1회 = 서버 왕복 2건(prepare 보장 + pk-records 조회)이다. 그룹이 20개면
+   탭 진입 즉시 20회가 나간다 — 클릭당 1회이던 비용이 진입 시 N회가 된다.
+
+[사용자 의도를 덮지 않게 한 장치]
+실행계획 fingerprint 당 1회만 시도한다(window._mvPkAutoExpandDone).
+사용자가 접으면 기존 `_mvPkExpandForget` 이 상태를 지우지만 '시도함' 표시는
+남아 있어 재렌더(탭 전환·페이징)마다 다시 펼쳐지지 않는다. 새 실행(fingerprint
+변경)에서만 다시 1회 편다. 이미 펼쳐진 패널이 있으면 건너뛴다.
+COUNT 게이트 차단·HOLD 는 `_mvToggleRowAggDiff` 안의 기존 분기가 그대로
+사유를 표시한다(새 우회 없음).
+
+[실측]
+  BEFORE: 펼침 시도 = False / 펼쳐진 그룹 = []          (탭 진입 시 전부 접힘)
+  AFTER : 펼침 시도 = True  / 펼쳐진 그룹 = STATUS_CD=P (page 1 · reimport 뷰)
+          재렌더 재펼침 = False / 새 실행 펼침 = True
+          이미 펼쳐진 상태에서 펼침 = False / 총 펼침 횟수 = 2(실행 2회분)
+
+[남는 위험 — 명시]
+탭 진입 즉시 서버 왕복이 1회 발생한다(종전에는 사용자가 클릭해야 발생).
+그룹 1개로 제한했고 기존 게이트/캐시를 그대로 타지만, '진입만 해도 조회가
+시작된다'는 성격 변화 자체는 있다.
+
+스크린샷: 04_stage5_autoexpand_before.png / 04_stage5_autoexpand_after.png
+
+
+────────────────────────────────────────────────────────────────────────
+5. 요구사항 ④-2 — 처리시간에 펼침 소요 반영 (조사 → 별도 표시로 배선)
+────────────────────────────────────────────────────────────────────────
+[조사 결과]
+ⓐ 종전 5단계 '처리시간' = window._mvStage5ProcMs = 통계검증 /execute 서버시간
+   이며, 그 뒤에 이어지는 그룹 펼침 소요는 포함하지 않았다.
+ⓑ 펼침은 클라이언트 즉시 렌더가 아니다. `_mvPkEnsurePrepared`(prepare) →
+   pk-records fetch 로 실제 서버 왕복이 있고, 그 소요는 이미 상세 패널 안
+   계측 줄('계측 — 준비확인 Nms · scope 조회 Nms · 렌더 Nms')이 재고 있었다.
+   즉 '유의미한 시간이 걸리고, 이미 재고 있는데, 처리시간에는 안 들어간다'.
+
+[배선 — 합산이 아니라 별도 표시]
+`_mvPkLoadPage` 가 계측 줄을 쓰는 자리에서 (준비확인 + scope 조회 + 렌더)의
+합을 window._mvStage5DetailMs 에 남기고 5단계 타일만 다시 그린다(새 계측 없음,
+새 서버 왕복 없음). 타일은 '실행 N초 / 상세 N초' 두 줄로 나눠 표시한다.
+
+합산하지 않은 이유: '처리시간'은 저장·재조회·일괄검증이 같은 정의로 함께 쓰는
+지표다(= /execute 서버시간). 여기서 클라이언트 왕복 시간을 더하면 화면마다
+같은 이름의 값이 다른 것을 뜻하게 되어 정의가 오염된다. 지시도 "합산하거나
+별도 표시"였으므로 안전한 쪽을 택했다.
+
+[④-1 로 타이밍 기준점이 바뀌는지에 대한 판단]
+바뀐다 — 그리고 그것이 이 표시를 더 정확하게 만든다. 종전에는 사용자가 클릭한
+뒤에야 상세 소요가 생겨서 '처리시간'과 시점이 어긋났지만, 기본 펼침 이후에는
+탭 진입 직후 자동으로 측정되어 실행 직후 화면에 함께 뜬다. 두 값이 서로 다른
+행위를 재는 것은 그대로이므로 줄을 나눠 둔 표기가 그 차이를 드러낸다.
+
+[stale 방지] 실행계획 fingerprint 를 함께 저장하고 표시 직전에 대조한다.
+재실행 후에는 옛 상세시간을 붙이지 않고 종전처럼 한 줄만 보여준다.
+
+[실측]
+  BEFORE 상세 펼침 전: 8.12초 / 펼침 후: 8.12초 (펼침 1.42초가 어디에도 없음)
+  AFTER  상세 펼침 전: 8.12초 (무회귀)
+  AFTER  상세 펼침 후: 실행 8.12초 / 상세 1.42초
+         툴팁: 5단계 처리시간 — 8.12초 (8123ms) · 상세(불일치 그룹 펼침) 1420ms
+               — 준비확인 + scope 조회 + 렌더 합계이며, 통계검증 실행시간과는
+                 별개로 재는 값이라 합산하지 않습니다.
+  AFTER  재실행 후(옛 상세시간): 8.12초 (붙지 않음)
+
+[부수 변화 1건 — 명시] 값이 1개에서 최대 2개로 늘어 컬럼 규격을 kind:'multi'
+로 바꿨다. 그 결과 값 1줄일 때도 글꼴이 mono(is-mono)로 바뀐다 — 2단계
+처리시간·4단계 실행시간 등 다른 다줄 시간 타일과 같은 표기다.
+
+스크린샷: 04_stage5_proctime_before.png / 04_stage5_proctime_after.png
+
+
+────────────────────────────────────────────────────────────────────────
+6. 요구사항 ⑤ — 3단계 '실행계획 상세 (참고)' 섹션 전체 삭제
+────────────────────────────────────────────────────────────────────────
+[한 일 — 표시 숨김이 아니라 코드 제거]
+ⓐ #strategyPlanBox: 섹션 제목 + `_mvKVGrid('실행계획', _refRows)` 표 + 조립
+   코드(rows / _TILE_MOVED / _refRows / _grid) 삭제. 그 표 전용이던 지역변수
+   cgb·csum·gbArr·sumArr·egb·esum·gbCols2·sumCols2·mism·implColor·_scaleSt·
+   liveGb·liveSum 도 함께 제거(참조 0 죽은 코드 방지).
+ⓑ #validationPlanPreview: '실행 예정: COUNT(*) + GROUP BY N개(…) + SUM M개(…)'
+   한 줄 요약과 그 전용 조립(_planSum · _periods/_unitLabel · _srcByTgt/
+   _srcArrow · _gbLabel/_sumLabel · _gbPart/_sumPart) 삭제.
+
+[삭제로 사라지는 정보 — 정확히 기록]
+1) '실제 적용: GROUP BY 1개 · 집계컬럼 2개'
+   → 정보 손실 아님. 3단계 상단 통합 타일이 목적그룹/원본그룹/목적집계/원본집계로
+     컬럼명까지 더 자세히 보여주고 있어 개수는 그 타일에서 그대로 셀 수 있다.
+2) '전역 설정: GROUP BY 3개 · 집계컬럼 3개' 와 '· 설정과 다름(후보 부족/수동/상한)'
+   → 실제 손실. 전역 상한값과 '전역 설정 ≠ 실제 적용' 경고가 이 화면에서 사라진다.
+     (전역 상한 자체는 후보표 선택 현황의 '전역 설정: GROUP BY 최대 3개 · SUM
+      최대 3개' 문구가 계속 표시한다. 사라지는 것은 '이번 계획의 실제 적용값과
+      다르다'는 비교 표시다.)
+3) '판정근거'(basis_text): '원본 1,000,000건 · 문자 단일 PK · 대체키(목적지 PK)
+   확정 · PK 인덱스 · 원격 DB'
+   → 이 화면 어디에도 없던 고유 정보였다. 요구사항 ⑥ 으로 4단계 타일에 보존했다
+     (아래 7절). 서버 산출 로직(strategy_planner 의 basis_text)은 무수정이다.
+4) '실행 예정' 문구의 기간 단위 꼬리표('월 단위 / 분기 단위 / 년 단위')
+   → 이 매핑(_unitLabel)은 그 문구 전용이라 함께 사라졌다. 다만 기간은 후보표의
+     기간 select(class=mv-gb-period)에서 고르고 그대로 보이며, 전송 payload
+     (date_bucket_periods)는 같은 DOM 을 읽는 _collectGroupbyPeriodMap 이 계속
+     만든다 — 선택·전송에는 영향이 없고 '요약 문구에서의 재확인'만 사라진다.
+
+[유지한 것]
+참고용 계획(STATS_SAMPLE_ONLY 등) 경고 배너, 미구현 전략 자동실행 금지 안내,
+STATS_ONLY_HOLD 고지, GROUP BY 안전성 미평가 안내(_gbSafetyNotice), 세트 경고.
+이들은 '실행계획 상세 표'가 아니라 안내 문구라 삭제 범위 밖으로 보았다.
+남길 내용이 하나도 없으면 #validationPlanPreview 는 display:none 으로 숨긴다
+(종전에는 요약 문구가 항상 있어 상시 표시였다 — 빈 상자 방지).
+
+[실측 · 실제 생산자 출력]
+  BEFORE #strategyPlanBox innerHTML 839자
+         (섹션 제목=있음 / 실제 적용 행=있음 / 판정근거 행=있음)
+  AFTER  #strategyPlanBox innerHTML 0자 — 제목·표·행 전부 없음
+  BEFORE #validationPlanPreview display='' / '실행 예정:' 문구 있음
+  AFTER  #validationPlanPreview display='none' / innerHTML 빈 문자열
+  타일 단일 출처(window._mvStage3PlanInfo)는 그대로 채워진다 —
+  4·5단계 전략 타일과 3단계 규모/상태 타일은 정상 동작(같은 실측에서 확인).
+
+스크린샷: 05_stage3_plan_detail_before.png / 05_stage3_plan_detail_after.png
+
+
+────────────────────────────────────────────────────────────────────────
+7. 요구사항 ⑥ — '판정근거' 를 4단계 타일에 간단히 보존
+────────────────────────────────────────────────────────────────────────
+[위치 판단 근거]
+새 타일을 만들지 않고 기존 '통계전략' 타일에 얹었다.
+ⓐ 4단계 타일 한 줄 상한은 9칸이고 현재 정확히 9칸이다 — 하나 더 만들면 9+1 로
+   줄이 갈라진다(기존 규약).
+ⓑ basis_text 는 계획기가 '이 전략을 왜 골랐는지' 대는 근거다. 그 전략을 보여주는
+   칸에 근거가 붙는 것이 가장 자연스럽다. 목적그룹/원본그룹 타일은 사용자의
+   '선택'을 보여주는 칸이라 계획기 근거를 붙일 자리가 아니다.
+ⓒ 5단계 '불일치 추출전략' 타일에는 부착하지 않았다(지시 범위가 4단계).
+   값 객체에 basis 필드가 없으면 렌더가 건너뛰므로 5단계 표기는 종전과 동일하다.
+
+[축약 방식 — 요구사항 ③ 과 같은 '인라인 간단 + 툴팁 상세' 패턴]
+`_mvBasisShort()` 는 서버 문자열을 ' · ' 로 나눈 뒤 키 축(PK / 대체키)을 말하는
+조각만 앞에서부터 최대 2개 골라 괄호 부연을 떼어 잇는다. 판정을 새로 하지 않고
+부분 문자열을 고를 뿐이며, 근거 산출 로직은 전혀 건드리지 않는다.
+키 축 조각이 없으면 첫 조각 하나만 쓴다(문구가 비지 않도록).
+
+[실측]
+  원문 : 원본 1,000,000건 · 문자 단일 PK · 대체키(목적지 PK) 확정 · PK 인덱스 · 원격 DB
+  인라인: 문자 단일 PK · 대체키 확정            ← 사용자 예시와 동일
+  툴팁  : … · 판정근거: 원본 1,000,000건 · 문자 단일 PK · 대체키(목적지 PK) 확정
+           · PK 인덱스 · 원격 DB                ← 원문 전체 보존
+  5단계 추출전략 타일 basis = 없음(미부착 확인)
+표기는 값(전략명)보다 한 단계 작고 흐린 보조 줄(.mv-qr-strat-basis)이며 한 줄을
+넘기면 말줄임한다 — 요구사항 ③ 의 '타일을 짧게' 의도를 되돌리지 않게 했다.
+
+스크린샷: 03_stage4_strategy_before.png / 03_stage4_strategy_after.png
+
+
+────────────────────────────────────────────────────────────────────────
+8. 회귀 검증
+────────────────────────────────────────────────────────────────────────
+[방법] baseline 워크트리(E:\_wt_s2345, HEAD=db225d2)와 수정본에서 같은 서브셋을
+동일 조건으로 실행해 실패 목록을 대조했다.
+서브셋 선정: 이번에 손댄 심볼·문자열(_mvCountTilesHtml, _mvStage5TilesHtml,
+_mvStratLabel, _mvRenderStrategyPlan, renderValidationPlanPreview, '실행 예정',
+'실행계획 상세', _mvPkRestoreExpandedRow, mv-qr-strat, basis_text 등)을 참조하는
+테스트 22개 파일 + 삭제 문자열 전수 검색으로 추가된 4개 파일 = 26개 파일.
+
+[결과]
+  baseline : 18 failed, 301 passed, 5 xfailed (276.67s)
+  수정본   : 18 failed, 301 passed, 5 xfailed (276.10s)
+  ★ 신규 실패 0건 / 해소 0건 — 실패 목록이 완전히 동일하다.
+  추가 4개 파일: 41 passed, 1 failed(사전 존재 — baseline 에서 동일 assert 실패 확인)
+
+[사전 존재 실패 전체 목록 — 이번 작업과 무관, baseline·수정본 동일]
+  1  tests/test_agg_contribution.py::test_exact_diff_separated_and_terms_removed
+  2  tests/test_candidate_draft_selection.py::test_candidate_notice_sticky_fix_uses_common_offset
+  3  tests/test_candidate_draft_selection.py::test_candidate_selection_bar_present_and_populated
+  4  tests/test_candidate_draft_selection.py::test_checkbox_change_keeps_table_and_plan_marks_draft
+  5  tests/test_candidate_draft_selection.py::test_restore_to_applied_clears_draft_notice
+  6  tests/test_candidate_draft_selection.py::test_uncheck_all_does_not_switch_to_count_only_before_apply
+  7  tests/test_date_period_labels.py::test_fallback_reason_uses_nyeon
+  8  tests/test_groupby_safety_ui.py::test_static_labels_updated
+  9  tests/test_single_run_standard_ui.py::test_existing_generate_execute_flow_preserved
+  10 tests/test_single_run_standard_ui.py::test_facade_in_advanced_dev_collapsible_default_collapsed
+  11 tests/test_single_run_standard_ui.py::test_result_render_uses_textcontent_not_innerhtml
+  12 tests/test_single_run_standard_ui.py::test_single_group_ui_removed
+  13 tests/test_single_sql_change_stale_clear.py::test_clear_final_save_state_clears_everything
+  14 tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+  15 tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_dedup_logic_present
+  16 tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_hidden_when_empty
+  17 tests/test_task_single_candidate_evidence_preview.py::test_additional_preview_only_individual_screen
+  18 tests/test_task_single_candidate_evidence_preview.py::test_cap3_unchanged
+  (+ tests/test_candidate_role_policy_grid.py::test_global_limit_banner_and_count_same_input_no_lock)
+
+  ※ 이번 변경 대상과 겹쳐 보이는 14(실행계획 effective 표시)·8(GROUP BY 안전성
+     라벨)은 baseline 과 수정본에서 '같은 assert 줄이 같은 이유로' 실패함을 직접
+     대조 확인했다 — 내 변경이 만든 실패가 아니다.
+
+[중간에 발생했다가 해소한 신규 실패 14건 — 계약이 바뀐 테스트 갱신]
+아래 8개 파일은 이번 변경이 의도적으로 바꾼 계약을 검사하고 있었다. 단언을
+약화하지 않고 새 계약으로 다시 썼다.
+  · test_count_precheck_tile_layout.py (2)  '총' 줄 기대 → 2줄 + '총' 부재 단언 추가
+  · test_step2_step3_tile_immediate_display.py (1) 동일
+  · test_stage45_strategy_info_relocate.py (4) 전체 라벨 인라인 기대 → 짧은 이름
+    인라인 + '상세 설명은 툴팁' 단언 신설(툴팁 추출기 tipPairOf 추가),
+    3단계 표 행 검사 → 섹션 전체 부재 검사
+  · test_stats_scale_grade_basis_inline.py (3) / test_stats_scale_grade_time_hint.py (1)
+    슬라이스 끝 표지 `var _TILE_MOVED`(삭제됨) → 함수 끝(window 노출 줄)로 교체
+  · test_individual_validation_stage_layout.py (1) '실행 예정 요약 존재' →
+    '요약도 제거 + 선택 단일 출처/payload 는 유지' 로 재작성
+  · test_candidate_selection_sync.py (1) / test_date_period_labels.py (1)
+    기간 단위 꼬리표 존재 → 삭제 확인 + 기간 선택 UI·payload 단일 출처 유지 확인
+
+[정적 검사]
+  · python ast.parse — 3개 파일 통과
+  · python -W error::SyntaxWarning — 통과(작업 중 JS 정규식 `\(` 이 non-raw 파이썬
+    문자열에서 SyntaxWarning 을 냈고, 정규식을 쓰지 않는 구현으로 바꿔 해소)
+  · node --check(조립 번들 2,085,394 bytes) — 통과
+
+
+────────────────────────────────────────────────────────────────────────
+9. 남은 것 / 후속 권고
+────────────────────────────────────────────────────────────────────────
+· scripts/dev_e2e/ 의 과거 브라우저 검증 스크립트 7개가 이번에 삭제된 문자열
+  ('실행 예정', '실행계획 상세', avsp-exec-summary 등)을 참조한다. pytest 수집
+  대상이 아니어서 회귀에는 영향이 없으나, 다시 돌리면 실패한다:
+    candidate_checkbox_flicker_revalidation_verify.py,
+    candidate_row_order_and_exec_preview_verify.py,
+    candidate_step3_consolidate_tile_browser_verify.py,
+    stats_scale_grade_basis_inline_verify.py, stats_scale_grade_time_hint_verify.py,
+    stats_scale_tile_scan_text_remove_verify.py,
+    step2_step3_column_order_label_and_plan_detail_reposition_verify.py
+· ⑤ 로 사라진 '전역 설정 ≠ 실제 적용' 경고를 되살릴 필요가 있으면, 3단계 통합
+  타일의 목적그룹/목적집계 툴팁에 한 줄로 붙이는 것이 새 칸 없이 가능한 방법이다.
+· ④-1 의 진입 시 자동 서버 왕복이 부담이 되면, 그룹 수가 일정 이상일 때만
+  자동 펼침을 끄는 임계를 두는 것이 다음 조정 지점이다.
+
+
+────────────────────────────────────────────────────────────────────────
+실검증 상태 : 실 DB 미사용 — 제품 렌더 함수(_mvCountTilesHtml / _mvStage4TilesHtml /
+_mvStage5TilesHtml / _mvRenderStrategyPlan / renderValidationPlanPreview /
+_mvPkRestoreExpandedRow)를 node 하니스로 직접 실행해 baseline(db225d2) 번들과
+수정본 번들의 출력을 대조한 실측이다. 값은 손으로 만들지 않고 제품 함수가
+만든 HTML/문자열만 사용했다. 브라우저 라이브 세션(실 DB 접속 후 1~5단계 클릭
+통과) 검증은 수행하지 않았다.
+────────────────────────────────────────────────────────────────────────
