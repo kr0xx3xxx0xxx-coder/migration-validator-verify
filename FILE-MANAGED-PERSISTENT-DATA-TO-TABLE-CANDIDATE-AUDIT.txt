@@ -1,0 +1,430 @@
+작업명 : FILE-MANAGED-PERSISTENT-DATA-TO-TABLE-CANDIDATE-AUDIT
+
+✅ 작업 완료 - 파일로 관리 중인 지속성 데이터 전수 스캔 → SQLite 테이블 전환 후보 4건 확정(코드 변경 0건)
+
+================================================================================
+0. 스캔 범위와 방법 (코드 수정 없음 / 커밋 없음 / 조사 전용)
+================================================================================
+대상: C:\projects\migration-validator 전체
+
+방법 4가지를 병행했다.
+  (a) 추적 데이터파일 전수 목록 — git ls-files 로 .json/.yaml/.csv/.ini/.xlsx 추출
+  (b) 런타임 로드 지점 역추적 — json.load / csv.DictReader / configparser / yaml.safe_load /
+      open(...) 호출을 .py 전수 grep 후, 호출자가 운영 경로인지 스크립트/테스트인지 확인
+  (c) 서비스 계층의 "파일 경로 상수" 전수 — services/·config/ 에서 Path(__file__)/os.path.join
+      으로 만든 .json/.csv/.txt 경로 상수를 모두 뽑음
+  (d) 모듈 레벨 대형 상수 — AST 파서로 각 .py 의 module-level dict/set/list/tuple 중
+      원소 12개 이상 또는 25줄 이상인 것을 전부 추출(analyzer/services/routes/ui/config 등 11개 디렉터리)
+
+기존 SQLite(비교 대상, 미변경): db/migration_validator.db — 테이블 59개
+  이미 DB로 관리 중인 대표 예: admin_column_override(project/table/column 스코프),
+  validation_policy_settings(1행), policy_target_table_config(5,216행),
+  semantic_dict_words(3,284) / semantic_dict_terms(13,176) / semantic_dict_domains(129)
+
+스캔 중 확인된 사실 3가지(범위 판단에 직접 영향):
+  · YAML / INI / TOML / properties 설정 파일은 저장소에 0건이다.
+  · 운영 서비스 계층(services/*.py)이 여는 데이터 파일 경로 상수는 정확히 5개뿐이다.
+      services/auth/credential_store.py:30   auth_users.json
+      services/db_preset_service.py:14-15    db_presets_src.json / db_presets_tgt.json
+      services/semantic_dictionary_service.py:441  samples/mock_semantic_dictionary.json
+      services/semantic_seed_pilot.py:31     data/dictionaries/semantic_seed_catalog_minimal.json
+    (semantic_dict_loader.py 는 CSV→SQLite 적재기라 런타임 참조가 아니다)
+  · "나이스/에듀파인 컬럼매핑정의서"에 해당하는 파일은 저장소에 존재하지 않는다. 자세한 내용은 §4.
+
+================================================================================
+1. 분류표 (파일경로별 판정 + 근거)
+================================================================================
+
+■ [테이블 전환 후보] — 4건
+
+파일/상수                                    | 해당 기준            | 판정 근거(코드/사용 패턴)
+--------------------------------------------|---------------------|--------------------------------
+db_presets_src.json (2,448B / 8건)          | 운영중갱신·증가·스코프 | 쓰기: routes/db_preset_route.py:72,146,178
+db_presets_tgt.json (1,824B / 6건)          |                     | → services/db_preset_service.py:28 _cmn_save_presets
+                                             |                     | (UI 저장 시 파일 전체 덮어쓰기).
+                                             |                     | project_id 필드 자체가 없어 전역 단일본.
+--------------------------------------------|---------------------|--------------------------------
+samples/mock_semantic_dictionary.json        | 4개 기준 모두 해당   | 읽기: semantic_dictionary_service.py:441
+(112,993B / entry 164개)                     |                     | ← candidate_input_builder.py:152
+                                             |                     | ← 개별검증·일괄검증·3단계 후보생성 전부.
+                                             |                     | UI 없음(메뉴 [준비중]), 라우트 0건.
+                                             |                     | 사전 추가 = git 커밋(이력 9회).
+--------------------------------------------|---------------------|--------------------------------
+data/dictionaries/                           | 증가·UI불가          | 읽기: semantic_seed_pilot.py:52.
+semantic_seed_catalog_minimal.json           |                     | seeds 42개 중 코드 상수 PILOT_ALLOWLIST
+(23,673B / seeds 42개)                       |                     | 5개만 주입 — 37개는 코드 수정 없이 못 씀.
+--------------------------------------------|---------------------|--------------------------------
+auth_users.json (775B / 사용자 3명)          | 운영중갱신·증가·UI불가| 읽기: credential_store.py:44 load_users()
+                                             |                     | — verify_credentials 가 매 요청 호출.
+                                             |                     | 쓰기: scripts/auth/create_user.py (CLI 전용).
+
+■ [파일 유지가 맞음] — 아래는 후보에서 제외한다
+
+파일/상수                                          | 제외 사유
+---------------------------------------------------|------------------------------------------
+config/model_config.py (상수 36개)                  | 어댑터 배선(SQL_PARSER/UI_RENDERER/VALIDATOR
+                                                    | 등 "코드가 코드를 등록") + 피처플래그.
+                                                    | 임계치 14개는 이미 MV_* 환경변수 override
+                                                    | 가 있어 재배포 없이 변경 가능.
+config/size_threshold_registry.py (임계값 30여개)    | 알고리즘 규모경계. 파일 상단에 "값 이동만
+                                                    | 하고 어떤 값도 변경하지 않는다"고 계약이
+                                                    | 명시돼 있고, 값 변경은 회귀 검증 대상.
+services/error_contract.py                          | 에러코드 레지스트리. 각 code 는 코드가 직접
+  _CODE_CATEGORY(36) / _CODE_REGISTRY(33)           | raise/build 하므로 코드와 1:1 동반 변경.
+services/semantic_dict_loader.py                    | CSV 헤더 → 테이블 컬럼 배선표. 적재 코드
+  _WORDS/_DOMAINS/_TERMS_COLUMNS (12/15/14)         | 자체이며 데이터가 아니다.
+data/semantic_dict_seed/*.csv (약 3.1MB, 3파일)      | 행안부 표준 원본 시드. 이미 SQLite 3표로
+                                                    | 적재 완료(3,284/13,176/129행) — 파일은
+                                                    | 재적재용 원본 보관본.
+ui/csr_display_helpers.py REASON_CODE_DESC(48)      | reason_code 는 스코어링 코드가 emit 하는
+                                                    | 값이라 문구만 따로 늘어나지 않는다.
+services/real_metadata_provider.py _PG_TYPE_MAP(31) | DBMS 타입 → 정규화 타입. 방언 지원 확장
+services/exact_diff/dialects/*.py 타입표             | (=코드 변경) 시에만 늘어난다.
+samples/semantic_baseline/*.csv (mock_column_       | MockMetadataProvider/MockStatsProvider 전용.
+  metadata/stats, observation, expectation 등)      | 클래스 docstring 에 "테스트/PoC 전용 —
+                                                    | 실 DB 연결 없음" 명시.
+data/sample_schema_manifest.json                    | scripts/shadow_global_dict_measure.py 계측
+data/samples/*.json                                 | 스크립트만 사용. 운영 경로 참조 0건.
+samples/neon_mapping_*.json, smoke_results.json     | 실험/스모크 산출물.
+scripts/dev/known_password_fingerprints.txt (11줄)   | precommit_password_scan.py 훅이 쓰는 개발
+                                                    | 시점 차단 목록 — 코드와 함께 버전관리돼야
+                                                    | 재현 가능(런타임 미참조).
+.claude/settings.json, requirements*.txt            | 하네스/빌드 설정. 애플리케이션 데이터 아님.
+*.example.json (auth_users / db_presets)            | 형식 견본.
+
+■ [애매 / 판단보류] — 2건
+
+상수                                                | 보류 사유
+---------------------------------------------------|------------------------------------------
+services/candidate_subtype_service.py               | 기준 2개 해당(항목 증가 / UI 수정 불가)라
+  _ADMIN_AUDIT_COMMENT_KEYWORDS_KO(33)              | 형식상 후보지만, 이 키워드가 만드는 것은
+  _ADMIN_AUDIT_COMMENT_KEYWORDS_EN(21)              | "가설"일 뿐이고 최종 판정은 이미 DB 테이블
+                                                    | admin_column_override(project/table/column
+                                                    | 스코프)로 사람이 덮어쓸 수 있다. 즉 우회
+                                                    | 경로가 이미 DB화돼 있어 시급성이 낮다.
+services/analysis/encrypted_column_policy.py        | 고객사 정의서 헤더 표기가 다르면 항목이
+  _ENC_HEADER_ALIASES(10)                           | 늘어나는 별칭 사전이지만, 정의서 자체가
+  _TARGET_COL_HEADER_ALIASES(12)                    | 저장되지 않고 요청마다 넘어오는 구조(§4)
+  _TRUTHY_VALUES(13)                                | 라 별칭만 DB로 옮기면 반쪽이 된다.
+                                                    | 정의서 저장 설계와 함께 결정해야 한다.
+
+================================================================================
+2. 테이블 전환 후보 상세
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+후보 A. db_presets_src.json / db_presets_tgt.json  ★ 최우선
+────────────────────────────────────────────────────────────────────────────────
+현재 파일 : 프로젝트 루트 / 2,448B(8건) + 1,824B(6건) = 14 프로필
+           (.gitignore 26~40행으로 커밋 차단, 로컬 파일로만 존재)
+
+읽는 코드 :
+  services/db_preset_service.py:18  _cmn_load_presets  ← 단일 로더
+    ├ routes/db_preset_route.py            목록/저장/삭제 API
+    ├ routes/count_precheck_route.py:327   src_conn 미지정 시 프리셋 폴백
+    ├ routes/diagnosis_route.py:1367       dbms 프로필 조회
+    ├ db_preset_service.load_preset_conn() 샘플/진단 스크립트 접속 단일출처
+    └ db_preset_service.resolve_password_for_conn()  ← 접속마다 파일 재읽기
+쓰는 코드 (런타임 갱신 있음) :
+  routes/db_preset_route.py:72 / 146 / 178 → _cmn_save_presets(전체 파일 덮어쓰기)
+
+판정 근거 (기준 3개 해당) :
+  · 운영 중 갱신 O — UI 저장 버튼이 파일을 직접 다시 쓴다(배포와 무관).
+  · 레코드 증가 O — 검증 대상 DB가 늘 때마다 프로필이 늘어난다(현재 14건).
+  · project_id 스코프 X — JSON 엔트리 키는 name/db_type/host/port/dbname/user/
+    password/advanced_options 뿐이라 프로젝트 구분 필드가 아예 없다.
+
+★ 결정적 증거 — 테이블이 이미 설계돼 있는데 배선만 안 됐다
+    db/migration_validator.db 에 mv_db_preset 테이블이 존재하고 스키마에
+    project_id 컬럼까지 있는데 레코드는 0행이다.
+      CREATE TABLE mv_db_preset (preset_id, project_id, preset_nm, preset_type,
+        db_type, host, port, dbname, username, password, created_dt, updated_dt)
+    게다가 services/group_hard_reset_service.py:153 은
+    "if table in {'mv_db_preset'}: connection/DB profile 은 절대 삭제 금지"
+    라는 보호 로직을 두고 있다 — 즉 삭제 보호 코드는 빈 테이블을 지키고 있고,
+    실제 프로필은 그 보호를 전혀 못 받는 JSON 파일에 있다.
+
+예상 스키마 : mv_db_preset 을 그대로 쓰면 된다. 추가 권장 컬럼만
+    UNIQUE(project_id, preset_nm, preset_type), is_deleted, last_used_at
+
+마이그레이션 난이도 : 중간
+  - 읽기 진입점이 _cmn_load_presets 한 곳이라 store 교체는 국소적이다.
+  - 다만 샘플/진단 스크립트 30여 곳이 파일명을 직접 읽고 있어(samples/*.py,
+    scripts/*.py) 호환 로더를 남기거나 일괄 수정이 필요하다.
+
+지금 안 옮기면 생기는 구체적 불편 4가지 :
+  ① 프로젝트 분리 불가 — project 테이블에 12개 프로젝트가 있는데 접속 프로필은
+     전역 1벌이다. A 프로젝트 담당자에게 B 프로젝트 운영 DB 목록이 그대로 보인다.
+  ② 동시 저장 유실 — _cmn_save_presets 는 read-modify-write 전체 덮어쓰기이고
+     락이 없다. 두 사용자가 각자 프리셋을 저장하면 나중 저장이 앞 저장을 지운다.
+  ③ 평문 비밀번호가 파일로 상주 — .gitignore 이외의 보호 장치가 없다.
+     (POSIX chmod 600 시도는 auth_users.json 쪽에만 있고 프리셋에는 없다.)
+  ④ 참조 무결성 없음 — validation_batch_group.src_connection_id 는
+     profile_snapshot_service.py:197 make_connection_id() 가 만든
+     "conn_" + hash(host:dbname) 값이다(실제 값 예: conn_4f52d2fa).
+     프리셋 파일과 FK 관계가 없으므로, 프리셋을 지우거나 host 를 바꾸면
+     기존 그룹의 접속 참조가 아무 경고 없이 끊긴다.
+
+────────────────────────────────────────────────────────────────────────────────
+후보 B. samples/mock_semantic_dictionary.json  ★ 두 번째 우선순위
+────────────────────────────────────────────────────────────────────────────────
+현재 파일 : samples/mock_semantic_dictionary.json / 112,993B / entry 164개
+           source 분포 = INTERNAL_ABBREVIATION 80, INTERNAL_STANDARD 79,
+                        AUDIT_GAP_SEED 5
+           entry 필드 = entry_id, term, normalized_term, semantic_type, language,
+                       confidence, source, match_type, status, description,
+                       allowed_context{}, risk_flags[], created_by, version,
+                       dictionary_id
+
+읽는 코드 (운영 핵심 경로다 — 이름이 mock 이지만 운영 기본 사전이다) :
+  services/semantic_dictionary_service.py:441 _DEFAULT_DICT_PATH
+    → load_default_semantic_dictionary()   ← 주석에 "운영 기본 dictionary 파일의 단일 출처"
+      ← services/candidate_input_builder.py:152 _load_semantic_dictionary()
+        ├ services/single_validation_analyze_service.py:1248  개별검증 analyze
+        ├ services/batch_runner.py:118                        일괄검증
+        └ services/column_candidate_gen_service.py:612        3단계 후보 생성
+쓰는 코드 : 런타임 쓰기 없음(읽기전용). 갱신은 scripts/add_dict_entries_v2.py 가
+           JSON 전체를 재작성하는 방식 — 즉 개발자가 스크립트를 돌리고 커밋해야 한다.
+
+판정 근거 (기준 4개 모두 해당) :
+  · 운영 중 갱신 필요 O — 고객사마다 컬럼 약어/용어가 달라 사전 보강이 계속 필요하다.
+    실제로 이 파일의 git 이력이 9커밋이고 커밋 제목이 전부 사전 보강이다
+    ("semantic dictionary 보강 1차/2차", "expand semantic seeds for audit gaps" 등).
+    → 사전 항목 하나 추가하는 데 코드 커밋 + 재배포가 든다.
+  · 레코드 증가 O — 164개까지 증가해 왔고 상한 개념이 없다.
+  · project_id 스코프 X, 그것도 코드가 이미 기대하고 있다 O ← 가장 강한 근거
+      services/semantic_dictionary_service.py:63 _SOURCE_PRIORITY_RANK 에
+        USER_OVERRIDE(0) > PROJECT_OVERRIDE(1) > CUSTOMER_OVERRIDE(2)
+        > 로컬사전(3) > MOIS_STANDARD(4)
+      우선순위 체계가 이미 구현돼 있는데, 파일 164 entry 안에 그 세 source 는
+      단 1건도 없다. 사용자/프로젝트/고객사별 override 를 "저장할 곳이 없어서"
+      쓰지 못하는 상태다.
+  · UI 조회/수정 불가 O — routes/ 40개 파일에 semantic 사전 API 가 0건이고,
+    화면은 ui/tabler_renderer.py:2397 에서 [준비중] 배지 + onclick="return false".
+  · 조회 시 필터/조인 불가 O — 매 analyze 마다 164 entry 전체를 리스트로 로드해
+    인덱스를 다시 만든다(그래서 mtime 기반 프로세스 캐시를 따로 붙여둔 상태다).
+
+★ 비대칭 증거 : 같은 성격의 글로벌 사전(행정안전부 공공데이터 공통표준)은
+  이미 SQLite 로 들어가 있다 — semantic_dict_words 3,284행 /
+  semantic_dict_terms 13,176행 / semantic_dict_domains 129행.
+  services/semantic_dict_loader.py 모듈 주석에도
+  "이 사전 데이터는 프로그램 자체 참조 데이터다 — 기존 내부 저장 원칙대로
+   SQLite(db/migration_validator.db)에만 저장한다" 고 원칙이 적혀 있다.
+  즉 같은 원칙을 로컬 사전에만 적용하지 못한 상태다.
+
+예상 스키마 :
+  semantic_dictionary_entry(
+    entry_id TEXT PK, dictionary_id TEXT, project_id TEXT NULL,
+    term TEXT, normalized_term TEXT, language TEXT,
+    semantic_type TEXT, confidence REAL, source TEXT, match_type TEXT,
+    status TEXT DEFAULT 'ACTIVE', description TEXT,
+    allowed_context_json TEXT, risk_flags_json TEXT,
+    created_by TEXT, version TEXT, created_at TEXT, updated_at TEXT)
+  INDEX (normalized_term, status), INDEX (project_id, source)
+  ※ project_id NULL = 전역 사전, 값 있으면 해당 프로젝트 override.
+     _SOURCE_PRIORITY_RANK 를 그대로 쓰면 대표 entry 선정 로직은 변경 불필요.
+
+마이그레이션 난이도 : 중간 ~ 높음
+  - 데이터 이관 자체는 쉽다(164행 INSERT).
+  - 어려운 지점은 캐시다. semantic_dictionary_service._default_dict_signature() 가
+    "mock JSON mtime + pilot flag + seed catalog mtime + 글로벌 DB mtime" 조합으로
+    캐시를 무효화한다. DB 전환 시 무효화 축을 mtime 에서 updated_at/버전으로
+    바꿔야 하고, 이 캐시는 "동일 리스트 객체 재사용 → 매칭 인덱스 1회 빌드"라는
+    성능 계약과 묶여 있어 잘못 건드리면 analyze 마다 인덱스를 다시 만든다.
+
+지금 안 옮기면 생기는 구체적 불편 :
+  ① 사전 항목 1개 추가에 코드 커밋 + 재배포가 필요하다(실측: 이력 9커밋).
+  ② 고객사별/프로젝트별 용어 차이를 반영할 수 없다. 코드에 override 우선순위는
+     있는데 저장소가 없어 기능이 사실상 봉인돼 있다.
+  ③ 운영자가 사전을 보려면 113KB JSON 파일을 열어야 한다(메뉴는 [준비중]).
+  ④ "이 컬럼이 왜 SUM 후보에서 빠졌나"를 추적할 때 사전 매칭 근거를 조회할
+     방법이 파일 grep 뿐이다.
+
+────────────────────────────────────────────────────────────────────────────────
+후보 C. data/dictionaries/semantic_seed_catalog_minimal.json  (후보 B 와 한 묶음)
+────────────────────────────────────────────────────────────────────────────────
+현재 파일 : 23,673B / seeds 42개 (metadata + seeds 구조)
+읽는 코드 : services/semantic_seed_pilot.py:52 _load_allowlisted_seeds() (읽기전용)
+           → load_default_semantic_dictionary() 가 flag ON 일 때만 append
+쓰는 코드 : 없음
+
+판정 근거 :
+  · 42개 seed 중 실제로 주입되는 것은 코드 상수
+    PILOT_ALLOWLIST = {TAX_RATE, DISCOUNT_RATE, ORDER_SEQ, SORT_SEQ, DISPLAY_ORDER}
+    5개뿐이다. 나머지 37개를 쓰려면 코드의 frozenset 을 고치고 재배포해야 한다.
+    → "데이터를 늘리려면 코드를 고쳐야 하는" 전형적 파일 관리 한계.
+  · flag(SEMANTIC_SEED_PILOT_ENABLED)는 기본 False 라 현재 미적용 상태다.
+
+예상 스키마 : 후보 B 와 같은 테이블에 source='SEED_PILOT', status='PENDING'/'ACTIVE'
+             로 흡수. allowlist 는 status 컬럼으로 표현(코드 상수 제거).
+마이그레이션 난이도 : 낮음 (B 와 함께 하면 추가 비용 거의 없음)
+지금 안 옮기면 : seed 승인/반려가 코드 수정 + 재배포로만 가능. 37개가 계속 사장된다.
+
+────────────────────────────────────────────────────────────────────────────────
+후보 D. auth_users.json
+────────────────────────────────────────────────────────────────────────────────
+현재 파일 : 프로젝트 루트 / 775B / 사용자 3명(lee, e2e, mv_verify)
+           형식 {"users": {"<id>": {algo,n,r,p,dklen,salt,hash}}}
+           비밀번호 평문 미저장(scrypt 해시) — 이 점은 현재 설계가 옳다.
+
+읽는 코드 : services/auth/credential_store.py:44 load_users()
+           ← verify_credentials() ← services/auth/middleware.py (Basic 인증)
+           ※ 캐시가 없어 인증이 필요한 요청마다 파일을 다시 읽고 파싱한다.
+쓰는 코드 : credential_store.save_users() ← scripts/auth/create_user.py (CLI 전용)
+           경로 override: 환경변수 MV_AUTH_USERS_FILE
+
+판정 근거 (기준 3개 해당) :
+  · 운영 중 갱신 O — 사용자 추가/비밀번호 변경은 배포와 무관한 운영 행위다.
+  · 레코드 증가 O — 사용자는 계속 늘어난다.
+  · UI 조회/수정 불가 O — 계정 추가에 서버 쉘 접속 + CLI 실행이 필요하다.
+
+예상 스키마 :
+  auth_user(username TEXT PK, algo TEXT, n INT, r INT, p INT, dklen INT,
+            salt TEXT, hash TEXT, status TEXT DEFAULT 'ACTIVE',
+            created_at TEXT, updated_at TEXT, last_login_at TEXT, memo TEXT)
+마이그레이션 난이도 : 낮음 (읽기 진입점이 load_users() 한 곳, 3행 이관)
+
+지금 안 옮기면 생기는 구체적 불편 :
+  ① 계정 추가/삭제/비밀번호 초기화가 전부 서버 쉘 작업이다(운영 이관 시 병목).
+  ② 계정 비활성화(status), 마지막 로그인 시각, 발급 이력 같은 감사 항목을 담을
+     자리가 없다 — 파일 구조가 {username: 해시레코드} 뿐이다.
+  ③ 인증 요청마다 파일 I/O 가 발생한다(현재 3명이라 무시 가능하나 확장성 없음).
+  ※ 다만 보안 관점에서 파일이 DB보다 나쁘다고 단정할 수 없다(해시만 보관, chmod
+    600 시도 있음). 전환 이유는 보안이 아니라 운영 편의·감사 항목 확보다.
+    → 우선순위는 A·B 다음.
+
+================================================================================
+3. 후보 우선순위 요약
+================================================================================
+1순위  db_presets_src/tgt.json   — 테이블(mv_db_preset)이 이미 있고 0행. 배선만 없음.
+                                   동시저장 유실·평문비밀번호·프로젝트 미분리가 동시 발생.
+2순위  mock_semantic_dictionary.json (+ seed catalog)
+                                   — override 우선순위 코드는 있는데 저장소가 없어
+                                     기능이 봉인. 글로벌 사전은 이미 DB라 비대칭.
+3순위  auth_users.json            — 이관 난이도 최저, 효과는 운영 편의 중심.
+
+================================================================================
+4. "시맨틱 사전"(F11 [준비중] 항목) 현재 설계 — 파일/DB 어느 쪽인가
+================================================================================
+결론: 하나의 기능인데 데이터 저장소가 파일과 DB로 갈라져 있고, 화면은 양쪽 다 없다.
+
+  ┌ 글로벌 사전(행정안전부 공공데이터 공통표준) ─── SQLite ✅
+  │   원본 CSV : data/semantic_dict_seed/*.csv (3파일, 약 3.1MB)
+  │   적재기   : services/semantic_dict_loader.py (CSV 컬럼 1:1 TEXT 매핑)
+  │   테이블   : semantic_dict_words 3,284행 / semantic_dict_terms 13,176행
+  │              / semantic_dict_domains 129행  (실측 확인)
+  │   어댑터   : services/semantic_dict_global_adapter.py
+  │              (flag OFF 시 로컬 단독 — additive-only shadow 배선 상태)
+  │
+  ├ 로컬 운영 사전 ───────────────────────────── 파일 ❌
+  │   samples/mock_semantic_dictionary.json, entry 164개
+  │   개별·일괄·3단계 후보추천 전 경로가 이 파일을 탄다.
+  │
+  ├ seed 파일럿 ──────────────────────────────── 파일 ❌
+  │   data/dictionaries/semantic_seed_catalog_minimal.json, seeds 42개
+  │   (allowlist 5개만 주입, flag 기본 OFF)
+  │
+  └ 화면/API ────────────────────────────────── 없음
+      ui/tabler_renderer.py:2397 좌측 메뉴 "시맨틱 사전"
+        class="mv-nav-soon", onclick="return false", aria-disabled="true",
+        배지 [준비중]  → 클릭 자체가 막혀 있다.
+      routes/ 40개 파일 전수 확인 결과 semantic 사전 관련 라우트 0건.
+
+그래서 F11 메뉴를 실제로 여는 순간 필요한 것은 화면만이 아니다.
+글로벌 3표는 이미 조회 가능하지만, 운영자가 실제로 손대야 하는 것(로컬 entry 164개,
+seed 42개, 프로젝트/고객사 override)이 전부 DB 밖에 있어서 조회는 몰라도 등록/수정
+화면은 만들 수 없다. 후보 B·C 전환이 F11 의 선행 조건이다.
+
+================================================================================
+5. "나이스 / 에듀파인 컬럼매핑정의서" 확인 결과 (요청 1의 마지막 항목)
+================================================================================
+저장소 전체에서 해당 엑셀/CSV 파일은 발견되지 않았다.
+  · find 로 파일명에 매핑/정의서/나이스/에듀 포함 파일 검색 → 0건
+  · 문서(PROJECT_SCOPE.md:146)에 "매핑정의서 원본 업로드 = ⛔ 현재 범위 제외"로
+    명시돼 있다.
+
+다만 코드는 매핑정의서를 "받아서" 쓴다 — 저장은 하지 않는다.
+  services/analysis/encrypted_column_policy.py:85
+    load_encrypted_columns_from_definition(headers, rows)
+    → 헤더/행을 인자로 받아 {목적지컬럼: 암호화여부} 를 만든다. 파일을 열지 않는다.
+  헤더 인식은 별칭 사전 3개로 한다(§1 애매 항목):
+    _ENC_HEADER_ALIASES(10) / _TARGET_COL_HEADER_ALIASES(12) / _TRUTHY_VALUES(13)
+  소비처: services/exact_diff/engine.py, routes/agg_diff_route.py:1206,
+          routes/exact_diff_route.py:340 (암호화 컬럼 값검증 제외)
+
+그리고 mv_mapping 테이블이 이미 존재하지만 0행이다
+  (ARCHITECTURE.md:828 — "mv_mapping | 매핑정의서 (src_table, tgt_table, migration_sql)").
+즉 매핑정의서는 "파일로 관리 중인 데이터"가 아니라 "아직 어디에도 저장되지 않는
+휘발성 입력"이다. 요청하신 파일→테이블 전환 후보에는 해당하지 않아 분류표에서 제외했고,
+대신 별건(정의서 영속화 설계)으로 남긴다. 암호화 여부는 매 요청 다시 실어보내지 않으면
+소실되므로, 같은 검증을 다시 돌릴 때 암호화 컬럼 제외가 조용히 풀릴 수 있다.
+
+================================================================================
+6. 서술형 결론
+================================================================================
+전수 스캔 결과, 이 저장소는 이미 "지속 데이터는 SQLite" 원칙을 상당히 지키고 있다.
+검증 결과·스냅샷·정책·관리컬럼 확정·배치 이력 등 대부분이 db/migration_validator.db
+59개 테이블에 들어가 있고, 코드가 파일에 직접 쓰는 지점은 서비스 계층 전체에서
+단 두 곳(auth_users.json, db_presets_*.json)뿐이다. YAML/INI 설정도 0건이다.
+그래서 이번 조사의 결론은 "대규모 이관이 필요하다"가 아니라, "원칙에서 빠져나온
+소수의 잔여물이 하필 운영상 가장 민감한 것들"이라는 쪽이다.
+
+가장 시급한 것은 DB 접속 프로필이다. 이건 설계 논쟁이 아니라 배선 누락에 가깝다.
+mv_db_preset 테이블이 project_id 컬럼까지 갖춘 채 0행으로 비어 있고,
+group_hard_reset_service 는 그 빈 테이블을 "절대 삭제 금지" 대상으로 보호하고 있다.
+보호 코드는 빈 껍데기를 지키는데 실제 프로필 14건은 락도 없는 JSON 파일에서
+UI 저장 때마다 통째로 덮어쓰이고 있다. 프로젝트가 12개인데 프로필은 전역 1벌이고,
+그룹이 들고 있는 접속 참조는 conn_+hash(host:dbname) 라 프리셋과 FK 관계도 없다.
+동시 저장 유실·프로젝트 미분리·평문 비밀번호·참조 무결성 부재가 한 파일에 겹쳐 있다.
+
+두 번째는 시맨틱 사전이다. 여기서 눈에 띄는 건 용량이나 건수가 아니라 비대칭이다.
+행안부 글로벌 사전 16,589행은 이미 SQLite에 들어가 있고, semantic_dict_loader 주석에는
+"프로그램 자체 참조 데이터는 SQLite에만 저장한다"는 원칙까지 적혀 있다. 그런데 정작
+운영 판정에 매번 쓰이는 로컬 사전 164개는 samples/ 아래 JSON에 남아 있다. 더 결정적인
+건 코드가 이미 USER/PROJECT/CUSTOMER override 우선순위를 구현해 뒀는데 파일 164 entry
+안에 그 source 가 한 건도 없다는 점이다. 기능이 없는 게 아니라 저장할 곳이 없어서
+봉인돼 있는 상태다. F11 메뉴가 [준비중]인 이유도 화면이 없어서라기보다, 등록/수정
+화면을 붙일 저장소가 없어서라고 보는 게 정확하다. 사전 항목 하나 추가가 git 커밋
+9회로 남아 있다는 것도 같은 이야기다.
+
+세 번째 auth_users.json 은 성격이 다르다. scrypt 해시만 보관하고 chmod 600 시도까지
+있어서 보안상 파일이 특별히 나쁘지는 않다. 전환 이유는 보안이 아니라 운영이다.
+계정 하나 추가하려고 서버 쉘에 들어가 CLI 를 돌려야 하고, 비활성화·마지막 로그인 같은
+감사 항목을 담을 자리가 구조적으로 없다. 난이도는 셋 중 가장 낮으니 A·B 다음에
+가볍게 처리하면 된다.
+
+반대로 옮기지 말아야 할 것도 분명하다. model_config.py 는 어댑터 배선과 피처플래그이고
+수치 임계치는 이미 MV_* 환경변수로 재배포 없이 바꿀 수 있다. size_threshold_registry.py
+는 파일 상단에 "어떤 값도 변경하지 않는다"는 계약이 박혀 있는 알고리즘 경계값이다.
+error_contract 의 코드 레지스트리, 타입 매핑표, semantic_dict_loader 의 CSV 컬럼 매핑은
+전부 "코드가 코드를 등록"하는 배선이지 데이터가 아니다. samples/semantic_baseline 아래
+CSV 뭉치는 클래스 docstring 에 테스트/PoC 전용이라고 못박혀 있다. 이것들을 DB로 옮기면
+버전관리로 얻던 재현성만 잃는다.
+
+애매하게 남긴 두 건은 각각 이유가 다르다. 관리컬럼 감사 키워드 54개는 형식상 후보
+조건을 채우지만, 그 판정을 사람이 덮어쓰는 admin_column_override 테이블이 이미
+project/table/column 스코프로 존재해 우회로가 마련돼 있다. 암호화 헤더 별칭 35개는
+매핑정의서 자체가 저장되지 않고 요청마다 실려 오는 구조라, 별칭만 DB로 옮기면 반쪽이
+된다 — 정의서 영속화(mv_mapping 0행)를 어떻게 할지 정한 뒤에 함께 결정할 일이다.
+
+마지막으로 조사 과정에서 요청 범위 밖이지만 짚어둘 것이 하나 있다. 매핑정의서의
+'암호화여부'는 어디에도 저장되지 않는다. 같은 검증을 나중에 다시 돌릴 때 정의서를
+다시 실어보내지 않으면 암호화 컬럼 제외가 조용히 풀리고, 그러면 재암호화된 컬럼이
+전부 거짓 불일치로 나온다. 이건 파일→테이블 전환 문제가 아니라 "저장 자체가 없는"
+문제라 이번 분류표에는 넣지 않았고, 별건으로 다뤄야 한다.
+
+================================================================================
+7. 확인한 실측값 (재현 가능)
+================================================================================
+· db/migration_validator.db 테이블 59개, mv_db_preset 0행, admin_column_override 0행,
+  validation_policy_settings 1행, policy_target_table_config 5,216행, project 12행,
+  semantic_dict_words 3,284 / terms 13,176 / domains 129
+· db_presets_src.json 8건 / db_presets_tgt.json 6건 (name 목록 확인)
+· auth_users.json 사용자 3명 / mock_semantic_dictionary.json entry 164개
+  / semantic_seed_catalog_minimal.json seeds 42개
+· validation_batch_group.src_connection_id 실값 예: conn_4f52d2fa, conn_0b8d04c9
+· YAML/INI/TOML 설정 파일 0건, routes/ 내 semantic 사전 라우트 0건
+
+코드 변경: 0건 / 커밋: 0건 / DB 변경: 0건 (조회 전용 SELECT 만 수행)
+
+✅ 작업 완료 - 파일로 관리 중인 지속성 데이터 전수 스캔 → SQLite 테이블 전환 후보 4건 확정(코드 변경 0건)
