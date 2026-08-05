@@ -1,0 +1,267 @@
+작업명 : STATS-SET-PARALLELISM-CONDITIONAL-ENABLE-FIX
+
+일시   : 2026-08-05
+대상   : services/single_validation_run_facade.py (_stats_set_parallelism 판정)
+커밋   : 86865a1  (부모 85ca345 — 동시 세션 STAGE4-COMPLETION-BANNER-REMOVE-FIX 커밋 위)
+실검증 상태: 실 DB 실측 완료 (Neon PostgreSQL asis/tobe 100만행 + 사내 개발 Oracle 100만행, 화면 무관 — 스크린샷 없음)
+
+
+════════════════════════════════════════════════════════════════════════════════
+1. 요청 요약
+════════════════════════════════════════════════════════════════════════════════
+백로그 P11 — 세트 병렬 실행(_stats_set_parallelism)을 '전면 ON' 이 아니라 **대규모 조건부 ON**
+으로 구현한다. 오라클은 커넥션 풀을 우회(checkout 마다 물리 연결 신규)하므로 이번 조건부 ON 에서
+명시적으로 제외한다.
+
+
+════════════════════════════════════════════════════════════════════════════════
+2. 구현 내용 (services/single_validation_run_facade.py)
+════════════════════════════════════════════════════════════════════════════════
+[신설 상수]
+  STATS_SET_PARALLEL_MIN_ROWS          = 1_000_000   # 임계 행수 기본값(하드코딩 아님, 상수 1곳)
+  _STATS_SET_PARALLEL_MIN_ROWS_ENV     = "MV_STATS_SET_PARALLEL_MIN_ROWS"   # 운영 중 임계치 조정
+  _STATS_SET_PARALLEL_AUTO_ENV         = "MV_STATS_SET_PARALLEL_AUTO"       # kill-switch(기본 ON)
+  _STATS_SET_PARALLEL_POOLED_DIALECTS  = {"postgresql"}   # 풀이 실제 풀링하는 방언만 자동 허용
+  _STATS_SET_PARALLEL_EXCLUDED_DIALECTS= {"oracle"}       # 최상위 안전 조건 — 명시 제외
+
+[신설 함수]
+  _stats_set_parallel_auto_enabled()  kill-switch 판정 — 0/false/off/no 면 조건부 ON 전체 비활성
+                                      (count_common_service._count_pair_parallel_enabled ·
+                                       result_group_limit_precheck._enabled 와 동일 관례 재사용)
+  _stats_set_parallel_min_rows()      임계 행수 — env override(양수만 인정), 잘못된 값은 기본값 폴백
+  _conn_dialect(req, side)            방언 판별 — req.src_db/tgt_db 우선, 없으면 conn dict 의 db_type.
+                                      판별 불가(빈 문자열)는 '자동 병렬 불가'로 취급(안전측 순차)
+  _stats_row_estimate(count_res)      추정 행수 — 2단계 COUNT 의 원본/목적지 중 max.
+                                      (result_group_limit_precheck._row_count_hint 와 동일 규칙)
+                                      COUNT 미실행/미설정이면 None → 임계 판정 불가 → 순차
+
+[판정 로직 — 조건부 ON 은 아래를 '전부' 만족할 때만 level 2]
+  ① kill-switch(MV_STATS_SET_PARALLEL_AUTO) 미차단
+  ② 원본·목적지 둘 다 오라클이 아님 + 커넥션 풀이 실제 풀링하는 방언(PostgreSQL)   ← 요구사항 1-②
+  ③ 추정 행수 >= 임계치(기본 100만)                                                ← 요구사항 1-①
+  ④ 세트 >= 2                                    (기존 조건 재사용)
+  ⑤ 원본/목적지가 서로 다른 물리 DB               (기존 _different_physical_db 재사용) ← 요구사항 1-③
+  ⑥ 커넥션 풀 여유 POOL_MAX_IDLE_PER_KEY >= 2     (기존 판정 재사용)                 ← 요구사항 1-④
+
+  하나라도 미달이면 level 1(순차)이며, 사유는 trace.auto_reason 에 남는다:
+    auto_off_killswitch / oracle_excluded / unpooled_dialect / row_estimate_unknown /
+    below_row_threshold / (충족 시) large_table
+
+[호출부 배선]
+  _run_multi_gb_sets 가 count_res 를 판정에 전달 —
+    _stats_set_parallelism(req, len(_axes), count_res)
+
+[불변으로 유지한 것]
+  · 명시 flag(MV_STATS_SET_PARALLEL=1)의 기존 수동 override 의미 — 방언·행수 조건 불문 그대로 동작
+  · 세트 실패 시 형제 세트 정책 — 중도취소 없이 완료(_run_sets_parallel). 요구사항 2에 따라 무변경
+  · 기존 reason 코드(flag_off_default / single_set / same_physical_db / no_pool_headroom) 문자열
+
+[explainability]
+  set_parallelism_trace 에 다음을 추가 기록(execution_context 저장) —
+    auto_enabled, auto_on, auto_reason, row_estimate, row_threshold,
+    src_dialect, tgt_dialect, oracle_involved, pooled_dialects
+
+
+════════════════════════════════════════════════════════════════════════════════
+3. 오라클 제외 근거 (이번 작업의 최상위 안전 조건)
+════════════════════════════════════════════════════════════════════════════════
+services/connection_pool.py:94  _is_pg(key) → key[0] == "postgresql"
+services/connection_pool.py:141 if not _is_pg(key): _open_real_connection(db_info)  # 항상 새 물리 연결
+
+즉 오라클(및 MySQL/MSSQL/MariaDB/DB2)은 checkout 마다 물리 연결을 새로 만든다. 세트 병렬을 켜면
+동시 세션 2개가 그대로 DB 물리 부하가 되고, ⑥의 '풀 여유' 판정 자체가 무의미해진다.
+→ 오라클은 _STATS_SET_PARALLEL_EXCLUDED_DIALECTS 로 별도 표기(trace 사유 분리), 그 외 비풀링 방언은
+   허용 방언 allowlist(_STATS_SET_PARALLEL_POOLED_DIALECTS = postgresql) 밖이라 함께 제외된다.
+
+지시서의 조건 문구는 "둘 다 오라클이 아님(PostgreSQL 등 커넥션풀 우회 없는 방언)" 이었다. 문자
+그대로면 MySQL/MSSQL 이 자동 병렬 대상이 되는데, 이들도 오라클과 똑같이 풀을 우회하므로 지시서가
+든 '우회 없는 방언' 이라는 근거에 맞춰 allowlist 방식으로 구현했다. 이 판단은 오라클 제외를 더
+강하게 만들 뿐 약화시키지 않는다.
+
+
+════════════════════════════════════════════════════════════════════════════════
+4. 실측 검증 — 실 DB
+════════════════════════════════════════════════════════════════════════════════
+하니스: scripts/dev_e2e/stats_set_parallelism_conditional_enable_verify.py
+        (facade run_single_validation_standard 를 주입 없이 그대로 구동 — 실 analyze/count/execute)
+증적  : scripts/dev_e2e/_stats_set_parallelism_conditional_enable.json
+        (.gitignore 대상이라 이 보고서 옆 디렉터리에 사본 첨부)
+
+환경:
+  PG  원본 PostgreSQL_asis (ep-bitter-moon…) public.src_orders_a  1,000,000행
+      목적 PostgreSQL_tobe (ep-super-river…) public.tgt_orders    1,000,000행   ← 서로 다른 물리 DB
+      GB 2축 REGION_CD(8) × CATEGORY_CD(9), SUM ORDER_AMT/QTY
+  ORA 원본 Oracle_asis MV_SCATTER_SRC 1,000,000행 → 목적 Oracle_tobe MV_SCATTER_TGT 990,000행
+      GB 2축 REGION_CD × STATUS_CD, SUM AMT/QTY
+
+┌─────────────────────────────────────────────────┬────────┬──────────────────────────────┐
+│ 케이스                                          │ level  │ 판정 사유                    │
+├─────────────────────────────────────────────────┼────────┼──────────────────────────────┤
+│ A 대규모(100만)+PG+다른 물리DB, env 없음        │   2    │ parallel_2(auto_large_table) │
+│ B 동일 + MV_STATS_SET_PARALLEL_AUTO=0           │   1    │ auto_off_killswitch          │
+│ C 동일 + MV_STATS_SET_PARALLEL_MIN_ROWS=5000000 │   1    │ below_row_threshold          │
+│ D 같은 물리 DB(tobe→tobe) 대규모                │   1    │ same_physical_db             │
+│ E 오라클 판정(임계치 기본 100만)                │   1    │ oracle_excluded              │
+│ F 실 오라클 파이프라인 + 임계치 1(행수 무조건   │   1    │ oracle_excluded              │
+│   충족) — 오라클이라는 이유만으로 순차 유지     │        │                              │
+└─────────────────────────────────────────────────┴────────┴──────────────────────────────┘
+
+판정 8/8 PASS:
+  PASS  A 조건부 ON 발동(level 2 · auto_large_table)
+  PASS  B kill-switch → 순차(level 1)
+  PASS  A(병렬) == B(순차) 결과값 완전 동일
+  PASS  C 임계 미만 → 순차(level 1 · below_row_threshold)
+  PASS  A(병렬) == C(순차) 결과값 완전 동일
+  PASS  D 같은 물리 DB → 순차(level 1 · same_physical_db)
+  PASS  E 오라클 → 순차(level 1 · oracle_excluded)
+  PASS  F 실 오라클 파이프라인 → 순차(level 1 · oracle_excluded, 임계치 1 에서도)
+
+결과값 동일성(A 병렬 vs B/C 순차) — 세트별 matched/diff/src_only/tgt_only/total_groups +
+rows 다중집합 + agg 전부 일치:
+  set[REGION_CD]   success=True matched=0 diff=8 src_only=0 tgt_only=0 total_groups=8  rows=8
+  set[CATEGORY_CD] success=True matched=0 diff=9 src_only=0 tgt_only=0 total_groups=9  rows=9
+  (D 는 자기이관이라 matched=8 / matched=9 로 정상)
+  F(오라클) set[REGION_CD] matched=20 diff=1 total=21 · set[STATUS_CD] matched=0 diff=10 total=10
+
+전/후 성능 실측 (워밍업 1회 제외, 순차↔병렬 교차 4라운드, 100만행):
+  round0  SEQ 4477.5ms   PAR 4626.9ms
+  round1  SEQ 4397.0ms   PAR 4156.7ms
+  round2  SEQ 4497.6ms   PAR 4079.8ms
+  round3  SEQ 4375.0ms   PAR 4162.7ms
+  ─────────────────────────────────────
+  median  SEQ 4437.2ms   PAR 4159.7ms    delta = -6.3%
+
+  ※ 콜드 커넥션 상태의 첫 실행은 6.9초까지 튄다(워밍업 필요). 위 수치는 워밍업 후 값이다.
+
+
+════════════════════════════════════════════════════════════════════════════════
+5. 실측에서 드러난 사실 — 반드시 읽을 것
+════════════════════════════════════════════════════════════════════════════════
+① 100만행에서의 개선폭은 -6.3% 로 작다.
+   백로그 P11 이 근거로 든 -41~55% 는 5,000만행 기준이다. 임계치 100만은 '해로울 것이 없는'
+   수준에서 켜지는 값이지 '큰 이득이 보장되는' 값은 아니다. 이득이 뚜렷해지는 구간을 원하면
+   MV_STATS_SET_PARALLEL_MIN_ROWS 로 임계치를 올리는 편이 낫다(코드 변경 불필요).
+
+② 5,000만행 PostgreSQL 재현은 불가했다 — 그 규모의 테이블이 PG 에 없다.
+   Neon PG asis/tobe 의 최대 테이블은 100만행(src_orders_a / tgt_orders)이고,
+   5,000만행 테이블은 **오라클에만** 있다(Oracle_asis MV_SCATTER50M_SRC 50,000,000행 /
+   Oracle_tobe MV_SCATTER50M_TGT 49,500,000행). PostgreSQL_NEW_asis/tobe 에도 100만행 초과
+   테이블은 없다(조회 결과 0건).
+   → 즉 백로그가 측정한 최대 이득 구간(5,000만행)은 현재 환경에서 오라클 자산이며, 이번 지시대로
+     오라클을 제외하면 그 구간은 조건부 ON 의 적용 대상이 아니다. 안전(오라클 풀 우회) 판단을
+     우선하라는 지시에 따라 제외를 그대로 구현했고, 이 상충을 여기 명시한다.
+   → PG 대규모 이득을 실증하려면 PG 쪽에 대용량 테이블을 준비하는 후속 작업이 필요하다.
+
+③ 조건부 ON 이 켜져도 결과값은 순차와 완전 동일함을 실 DB 로 재확인했다(A==B, A==C).
+
+
+════════════════════════════════════════════════════════════════════════════════
+6. 회귀 확인 (baseline 대조)
+════════════════════════════════════════════════════════════════════════════════
+서브셋 선정: grep -rl "single_validation_run_facade|_stats_set_parallelism|
+             run_single_validation_standard" tests/*.py  → 65 파일
+공통 조건  : --ignore=tests/test_11def_scenarios.py --ignore=tests/test_12k_stress.py
+             (두 파일은 sys.path 에 본 저장소 절대경로를 박아 baseline worktree 를 오염시킨다)
+baseline   : git worktree(HEAD=aa42496) + db_presets_*.json · db/migration_validator.db 복사
+             (baseline 에는 신규 테스트 파일이 없으므로 64 파일)
+
+  baseline : 35 failed, 541 passed, 3 skipped, 6 xfailed, 1 error  (28:18)
+  after    : 36 failed, 556 passed, 3 skipped, 6 xfailed, 1 error  (28:04)
+             passed +15 = 신규 테스트 16건 중 15건 순증(1건은 아래 차집합과 상쇄)
+
+차집합:
+  · baseline 에만 있는 실패 : 없음
+  · after 에만 있는 실패    : tests/test_batch_upload_to_wrapper_e2e.py::test_upload_then_run_wrapper_e2e
+
+▶ 이 1건은 내 변경과 무관함을 확정했다:
+   - 실패 지점이 routes/batch_route.py:2278 → batch_execution_state_service.acquire_run_lock →
+     _connect → tests/conftest.py:226 [PROD-DB-WRITE-BLOCKED] 이다. 즉 conftest 의 운영 SQLite
+     쓰기 차단 가드가 db/validation_history.db 를 막은 것으로, 세트 병렬 판정 경로에 도달조차 하지 않는다.
+   - 같은 테스트를 baseline worktree(HEAD 코드)에서 단독 실행해도 동일한 PROD-DB-WRITE-BLOCKED 로
+     실패한다. 즉 코드축이 아니라 '트리에 어떤 운영 SQLite 파일이 존재하는가'(worktree 는 자기 db/)
+     라는 환경축에서 갈리는 알려진 worktree 교란이다.
+   ⇒ 신규 회귀 0건.
+
+전용 테스트(신규 + 관련) 32 passed:
+  tests/test_stats_set_parallelism_conditional_enable.py   (신규 16건)
+  tests/test_d7_14_stats_set_parallel.py                   (기존 판정/실행 계약 — 전건 유지)
+  tests/test_plansets_agg_processing_time_fix.py           (판정 함수 stub 시그니처만 조정)
+
+after 실패 테스트 전체 목록 (36 failed + 1 error — 위 1건 제외 전부 baseline 동일 실패):
+  ERROR  tests/test_upload_visibility_and_cte_count.py::test_audit_shows_all_rows_with_summary
+  FAILED tests/test_batch_effective_selection.py::test_facade_default_no_effective_selection
+  FAILED tests/test_batch_effective_selection.py::test_facade_effective_fill_sets_summary_and_columns
+  FAILED tests/test_batch_single_core_wrapper_foundation.py::test_ui_advanced_diagnostics_render
+  FAILED tests/test_batch_single_core_wrapper_foundation.py::test_ui_dependency_applied_rows
+  FAILED tests/test_batch_single_core_wrapper_foundation.py::test_ui_diagnostics_analyze_subrows
+  FAILED tests/test_batch_single_core_wrapper_foundation.py::test_ui_diagnostics_dependency_rows
+  FAILED tests/test_batch_upload_cte_precheck.py::test_wrapper_facade_and_legacy_disabled_runner_untouched
+  FAILED tests/test_batch_upload_to_wrapper_e2e.py::test_upload_then_run_wrapper_e2e   ← after 전용(환경)
+  FAILED tests/test_count_gate.py::test_ui_gate_display_and_blocking
+  FAILED tests/test_cte_alias_scope_and_derived_validation.py::test_real_physical_column_missing_still_failed
+  FAILED tests/test_cte_alias_scope_and_derived_validation.py::test_real_physical_table_missing_still_failed
+  FAILED tests/test_cte_count_execution_and_projection.py::test_ui_count_note_and_auto_audit
+  FAILED tests/test_final_from_cte_table_presence.py::test_missing_physical_base_table_still_blocked
+  FAILED tests/test_full_run_token.py::test_front_common_token_capture
+  FAILED tests/test_global_settings_gate.py::test_client_analyze_payload_carries_snapshot
+  FAILED tests/test_global_settings_gate.py::test_client_gate_confirm_cancel_and_fetch_fail_node
+  FAILED tests/test_one_click_full_run.py::test_count_chip_no_manual_progress_badge
+  FAILED tests/test_one_click_full_run.py::test_full_run_blocked_locks_downstream_via_gate
+  FAILED tests/test_one_click_full_run.py::test_full_run_blocked_stays_on_failed_stage_not_result
+  FAILED tests/test_one_click_full_run.py::test_full_run_populates_official_save_state
+  FAILED tests/test_one_click_full_run.py::test_full_run_success_marks_steps_done_and_injects_state
+  FAILED tests/test_one_click_full_run.py::test_result_kpi_not_duplicated_summary_vs_detail
+  FAILED tests/test_one_click_full_run.py::test_result_summary_neutral_hierarchy
+  FAILED tests/test_one_click_full_run.py::test_result_summary_unified_content
+  FAILED tests/test_single_facade_legacy_parity.py::test_execute_result_view_status_parity
+  FAILED tests/test_single_policy_cleanup_bundle.py::test_execute_with_group_persists
+  FAILED tests/test_single_run_standard_route.py::test_route_cols_alias_selection
+  FAILED tests/test_single_run_standard_route.py::test_route_passes_manual_selection
+  FAILED tests/test_single_run_standard_route.py::test_route_pg_normal_returns_ok_envelope
+  FAILED tests/test_single_status_ux_cleanup.py::test_ui_count_mismatch_clarified
+  FAILED tests/test_single_status_ux_cleanup.py::test_ui_temp_run_badge_kept
+  FAILED tests/test_single_status_ux_cleanup.py::test_ui_unsupported_messages_present
+  FAILED tests/test_single_validation_server_guards.py::test_single_missing_conn_blocked_preflight
+  FAILED tests/test_single_validation_server_guards.py::test_single_pg_normal_flow_not_broken_by_preflight
+  FAILED tests/test_stats_sql_complex_source_wrap.py::test_union_still_blocked_at_gate
+  FAILED tests/test_upload_visibility_and_cte_count.py::test_ui_separates_lists_and_count_note
+
+예외 안전성 추가 확인: 방언/conn/count_res 비정상 입력 168조합을 판정 함수에 투입한 결과,
+예외가 나는 유일한 경로는 conn 이 dict 가 아닌 문자열일 때이며 이는 기존 _different_physical_db →
+_profile_key 의 동작이다(F._different_physical_db('str','str') 로 동일 재현). 스키마상
+src_conn/tgt_conn 은 dict 이므로 실경로에서는 발생하지 않는다. 신규 함수는 어떤 입력에도 예외를
+던지지 않고 안전측(순차)으로 떨어진다.
+
+
+════════════════════════════════════════════════════════════════════════════════
+7. 변경 파일 / 커밋
+════════════════════════════════════════════════════════════════════════════════
+커밋 86865a1 (부모 85ca345)
+  services/single_validation_run_facade.py                              139 +++++++++-
+  tests/test_stats_set_parallelism_conditional_enable.py  (신규)        194 ++++++++++++++
+  scripts/dev_e2e/stats_set_parallelism_conditional_enable_verify.py    285 +++++++++++++++
+  tests/test_plansets_agg_processing_time_fix.py                          5 +-
+  4 files changed, 613 insertions(+), 10 deletions(-)
+
+tests/test_plansets_agg_processing_time_fix.py 변경 사유: 판정 함수가 count_res 를 추가로 받도록
+확장되어, 그 파일의 monkeypatch stub 2곳을 lambda req, n → lambda req, n, *a, **k 로 조정했다
+(테스트 의도·단언 불변).
+
+동시 세션 보호: 커밋 직전/직후 git diff --cached --name-only 로 staged 가 내 4개 파일뿐임을 확인했고,
+커밋 후 ui/grid_helpers.py · ui/tabler_renderer.py · ui/validation_plan_renderer.py 의 남의 미커밋
+변경이 그대로 남아 있음을 확인했다(작업 중 다른 세션이 85ca345 를 커밋했으나 내 커밋에 미포함).
+
+
+════════════════════════════════════════════════════════════════════════════════
+8. 운영 가이드 (롤백/조정)
+════════════════════════════════════════════════════════════════════════════════
+  즉시 순차 복귀     : MV_STATS_SET_PARALLEL_AUTO=0
+  임계치 상향/하향   : MV_STATS_SET_PARALLEL_MIN_ROWS=<행수>   (기본 1000000)
+  수동 강제 병렬     : MV_STATS_SET_PARALLEL=1                  (종전 의미 그대로 — 조건 불문)
+  발동 근거 확인     : execute_plan_run.set_parallelism_trace 의
+                       auto_on / auto_reason / row_estimate / row_threshold /
+                       src_dialect / tgt_dialect / oracle_involved / pooled_dialects
+
+실검증 상태: 실 DB 실측 완료 (Neon PostgreSQL asis/tobe 100만행 · 사내 Oracle 100만행, 8/8 PASS)
+
+✅ 작업 완료 - STATS-SET-PARALLELISM-CONDITIONAL-ENABLE-FIX - 세트 병렬을 '대규모(≥100만행) + PostgreSQL + 다른 물리 DB + 풀 여유' 조건에서만 자동 ON 하고 오라클은 명시 제외(임계치 1 에서도 순차 유지 실측 확인), kill-switch·임계치 env 로 즉시 롤백 가능, 결과값은 순차와 완전 동일, baseline 대조 신규회귀 0건

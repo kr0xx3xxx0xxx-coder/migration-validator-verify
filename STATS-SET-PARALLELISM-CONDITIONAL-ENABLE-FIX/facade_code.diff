@@ -1,0 +1,188 @@
+diff --git a/services/single_validation_run_facade.py b/services/single_validation_run_facade.py
+index c9b8102..ec51df7 100644
+--- a/services/single_validation_run_facade.py
++++ b/services/single_validation_run_facade.py
+@@ -399,7 +399,83 @@ def _run_one_gb_set(_axis, req, analyze_res, sel_sum, count_res, gb_cands, sum_c
+     return {"set": st, "r": r, "ok": (r.get("success") is not False)}
+ 
+ 
+-def _stats_set_parallelism(req, n_sets):
++# ── [STATS-SET-PARALLELISM-CONDITIONAL-ENABLE-FIX] 대규모 조건부 세트 병렬 상수 ───────────
++# 세트 병렬을 '자동으로' 켜는 최소 행수(대상 테이블 추정 행수). 소규모는 병렬 이득이 노이즈에 묻히므로
++# 순차 유지한다(백로그 P11 실측: 5,000만행 GROUP BY 2축에서 -41~55%, 결과값은 순차와 완전 동일).
++# 하드코딩 금지 — 상수 1곳에서만 관리하고, 운영 중 조정은 env(MV_STATS_SET_PARALLEL_MIN_ROWS)로 한다.
++STATS_SET_PARALLEL_MIN_ROWS = 1_000_000
++_STATS_SET_PARALLEL_MIN_ROWS_ENV = "MV_STATS_SET_PARALLEL_MIN_ROWS"
++# kill-switch — 문제 발생 시 env 하나로 조건부 ON 전체를 끄고 종전 동작(명시 flag 로만 병렬)으로 되돌린다.
++#   (services/count_common_service._count_pair_parallel_enabled · result_group_limit_precheck._enabled 와 동일 관례)
++_STATS_SET_PARALLEL_AUTO_ENV = "MV_STATS_SET_PARALLEL_AUTO"
++# 조건부 ON 을 허용할 방언 — connection_pool 이 **실제로 풀링하는** 방언만(services/connection_pool._is_pg).
++#   오라클은 커넥션 풀을 우회해 checkout 마다 물리 연결을 새로 연다(services/db_adapters/oracle.py 주석 참조).
++#   세트 병렬을 켜면 동시 세션 2개가 그대로 DB 물리 부하가 되므로 **오라클은 조건부 ON 에서 명시 제외**한다.
++#   같은 이유로 MySQL/MSSQL/MariaDB/DB2 등 비풀링 방언도 자동 대상이 아니다(풀 여유 판정 자체가 무의미).
++_STATS_SET_PARALLEL_POOLED_DIALECTS = frozenset({"postgresql"})
++# 조건부 ON 에서 반드시 제외해야 하는 방언(안전 최상위 조건 — trace 에 사유를 따로 남긴다).
++_STATS_SET_PARALLEL_EXCLUDED_DIALECTS = frozenset({"oracle"})
++
++
++def _stats_set_parallel_auto_enabled() -> bool:
++    """[STATS-SET-PARALLELISM-CONDITIONAL-ENABLE-FIX] 조건부 ON kill-switch — 기본 ON.
++
++    MV_STATS_SET_PARALLEL_AUTO 가 0/false/off/no 이면 조건부 판정을 통째로 끄고, 종전처럼
++    MV_STATS_SET_PARALLEL 명시 지정으로만 병렬이 켜진다(즉시 순차 복귀용 롤백 스위치).
++    """
++    import os as _os
++    return str(_os.environ.get(_STATS_SET_PARALLEL_AUTO_ENV, "")).strip().lower() not in ("0", "false", "off", "no")
++
++
++def _stats_set_parallel_min_rows() -> int:
++    """조건부 ON 임계 행수 — 기본 STATS_SET_PARALLEL_MIN_ROWS, env 로 override 가능(양수만 인정)."""
++    import os as _os
++    try:
++        v = int(str(_os.environ.get(_STATS_SET_PARALLEL_MIN_ROWS_ENV, "")).strip())
++        return v if v > 0 else int(STATS_SET_PARALLEL_MIN_ROWS)
++    except (TypeError, ValueError):
++        return int(STATS_SET_PARALLEL_MIN_ROWS)
++
++
++def _conn_dialect(req, side: str) -> str:
++    """세트 병렬 판정용 방언 문자열 — req.src_db/tgt_db(표준 실행이 검증한 방언) 우선, 없으면 conn dict 의 db_type.
++
++    side 는 'src' | 'tgt'. 판별 불가하면 빈 문자열을 돌려주고, 호출측은 이를 '자동 병렬 불가'로 취급한다
++    (판별 불가 = 안전측 순차).
++    """
++    v = (getattr(req, f"{side}_db", "") or "")
++    if not isinstance(v, str):
++        v = ""
++    v = v.strip().lower()
++    if v:
++        return v
++    conn = getattr(req, f"{side}_conn", None)
++    if isinstance(conn, dict):
++        return str(conn.get("db_type") or "").strip().lower()
++    return ""
++
++
++def _stats_row_estimate(count_res) -> int | None:
++    """세트 병렬 판정용 대상 행수 추정 — 2단계 COUNT 결과의 원본/목적지 중 **큰 값**. 없으면 None.
++
++    한쪽만 쓰면 반대쪽이 클 때 과소평가되므로 max 를 쓴다(services/result_group_limit_precheck._row_count_hint 와 동일 규칙).
++    COUNT 미실행·DB 미설정·skip 이면 None → 임계치 판정 불가 → 조건부 ON 미발동(순차 유지).
++    """
++    if not isinstance(count_res, dict):
++        return None
++    vals = []
++    for k in ("src_count", "tgt_count"):
++        v = count_res.get(k)
++        if isinstance(v, bool) or v is None:
++            continue
++        try:
++            vals.append(int(v))
++        except (TypeError, ValueError):
++            continue
++    return max(vals) if vals else None
++
++
++def _stats_set_parallelism(req, n_sets, count_res=None):
+     """[D7-14 D] 통계 세트 병렬 실행 수준 결정 — 기본 1(순차). 조건 충족 시에만 2.
+ 
+     적용 조건(모두 만족): flag(MV_STATS_SET_PARALLEL) ON · 세트 ≥2 · Source/Target 서로 다른 물리 DB ·
+@@ -412,18 +488,55 @@ def _stats_set_parallelism(req, n_sets):
+     ≥15% 개선을 만족하지 못한다(세트 실행은 analyze·count·prepare·5탭 exact-diff 렌더가 지배하는 임계경로의 소수 비중).
+     LIVE 판정기준(클릭→5탭 ≥15% 미달 시 병렬 기본화 철회)에 따라 **기본 OFF(순차)**, 기능은 flag 로 보존한다
+     (MV_STATS_SET_PARALLEL=1/on 명시 시에만 병렬). 정합성은 양쪽 동일하므로 flag 활성화는 안전하다.
++
++    [STATS-SET-PARALLELISM-CONDITIONAL-ENABLE-FIX] 위 '기본 OFF' 는 **소규모 기준** 결론이다. 대규모
++    (5,000만행 GROUP BY 2축) 실측에서 -41~55% 개선·결과값 순차와 완전 동일이 확인되어, 아래 조건을
++    **전부** 만족할 때만 자동으로 병렬을 켠다(그 외는 종전대로 순차):
++      · kill-switch(MV_STATS_SET_PARALLEL_AUTO) 미차단
++      · 원본·목적지 둘 다 오라클이 아니고, 커넥션 풀이 실제 풀링하는 방언(PostgreSQL)일 것
++        — 오라클은 풀을 우회해 checkout 마다 물리 연결을 새로 열므로 동시 세트가 곧 DB 세션 2배 부하다.
++      · 대상 추정 행수(2단계 COUNT 의 원본/목적지 max) ≥ 임계치(STATS_SET_PARALLEL_MIN_ROWS, 기본 100만)
++      · (아래 공통 조건) 세트 ≥2 · 서로 다른 물리 DB · 풀 여유(IDLE 최대치 ≥2)
++    명시 flag(MV_STATS_SET_PARALLEL=1)는 종전 의미 그대로 유지된다(수동 override — 방언·행수 조건 불문).
++    세트 실패 시 형제 세트 정책은 현행 유지(중도취소 없이 완료 — _run_sets_parallel 참조).
+     반환: (level:int(1|2), trace:dict). trace 는 execution_context 저장용(근거·풀용량 기록)."""
+     import os as _os
+     from services import connection_pool as _cpool
+     reason = "sequential(default)"
+     level = 1
+-    # 기본 OFF(벤치 결론: 클릭→5탭 <15%) — 명시적 1/true/on/yes 로만 활성.
++    # 명시 flag — 기존 수동 override(1/true/on/yes). 조건부 ON 과 별개로 그대로 존중한다.
+     flag_on = _os.getenv("MV_STATS_SET_PARALLEL", "").strip().lower() in ("1", "true", "on", "yes")
+     diff_db = _different_physical_db(getattr(req, "src_conn", None), getattr(req, "tgt_conn", None))
+     pool_cap = int(getattr(_cpool, "POOL_MAX_IDLE_PER_KEY", 0) or 0)
+     pool_headroom = pool_cap >= 2   # 2번째 동시 세트가 쓸 별도 연결(src·tgt)을 풀이 공급 가능
+-    if not flag_on:
+-        reason = "flag_off_default"   # 기본 OFF(순차) — MV_STATS_SET_PARALLEL=1 로만 활성
++
++    # ── 조건부 ON(대규모 자동) 판정 — 하나라도 미충족이면 auto_on=False(순차) ─────────────
++    src_dialect, tgt_dialect = _conn_dialect(req, "src"), _conn_dialect(req, "tgt")
++    oracle_involved = (src_dialect in _STATS_SET_PARALLEL_EXCLUDED_DIALECTS
++                       or tgt_dialect in _STATS_SET_PARALLEL_EXCLUDED_DIALECTS)
++    pooled_dialects = (src_dialect in _STATS_SET_PARALLEL_POOLED_DIALECTS
++                       and tgt_dialect in _STATS_SET_PARALLEL_POOLED_DIALECTS)
++    auto_enabled = _stats_set_parallel_auto_enabled()
++    min_rows = _stats_set_parallel_min_rows()
++    est_rows = _stats_row_estimate(count_res)
++    auto_on = False
++    if not auto_enabled:
++        auto_reason = "auto_off_killswitch"
++    elif oracle_involved:
++        # ★ 최우선 안전 조건 — 오라클은 풀 우회(물리 연결 신규 생성)라 동시 세트 = DB 세션 2배.
++        auto_reason = "oracle_excluded"
++    elif not pooled_dialects:
++        auto_reason = "unpooled_dialect"   # MySQL/MSSQL/MariaDB/DB2 등 · 방언 판별 불가 포함(안전측 순차)
++    elif est_rows is None:
++        auto_reason = "row_estimate_unknown"   # COUNT 미실행/미설정 — 임계 판정 불가
++    elif est_rows < min_rows:
++        auto_reason = "below_row_threshold"    # 소규모 — 종전대로 순차(무회귀)
++    else:
++        auto_on = True
++        auto_reason = "large_table"
++
++    if not (flag_on or auto_on):
++        reason = "flag_off_default"   # 순차 — 조건 미충족 사유는 trace.auto_reason 에 상세 기록
+     elif n_sets < 2:
+         reason = "single_set"
+     elif not diff_db:
+@@ -432,9 +545,15 @@ def _stats_set_parallelism(req, n_sets):
+         reason = "no_pool_headroom"
+     else:
+         level = 2
+-        reason = "parallel_2(diff_db+pool_headroom)"
++        reason = ("parallel_2(auto_large_table)" if (auto_on and not flag_on)
++                  else "parallel_2(diff_db+pool_headroom)")
+     trace = {"set_parallelism": level, "reason": reason, "n_sets": int(n_sets or 0),
+-             "pool_capacity_per_key": pool_cap, "flag_on": flag_on, "different_physical_db": diff_db}
++             "pool_capacity_per_key": pool_cap, "flag_on": flag_on, "different_physical_db": diff_db,
++             # [STATS-SET-PARALLELISM-CONDITIONAL-ENABLE-FIX] 조건부 ON 근거(explainability — 왜 켜졌/안 켜졌는지)
++             "auto_enabled": auto_enabled, "auto_on": auto_on, "auto_reason": auto_reason,
++             "row_estimate": est_rows, "row_threshold": min_rows,
++             "src_dialect": src_dialect, "tgt_dialect": tgt_dialect,
++             "oracle_involved": oracle_involved, "pooled_dialects": pooled_dialects}
+     return level, trace
+ 
+ 
+@@ -489,7 +608,9 @@ def _run_multi_gb_sets(req, analyze_res, sel_gb, sel_sum, count_res, gb_cands, s
+     각 선택 GROUP BY 축을 단일축 세트로 보고 generate(단일축 SQL) → execute(단일축 실행)를 서버 내부에서 수행하고,
+     세트별 결과·result_id·상태를 수집해 클라 렌더가 기대하는 execute_plan_run shape 를 만든다.
+     같은 SQL/세트를 두 번 실행하지 않는다(세트당 generate 1·execute 1). 한 세트라도 실패하면 failed=True 로 표식(상위가 4단계 FAILED 처리, prepare 미호출).
+-    [D7-14 D] 세트 실행은 기본 순차. flag+조건(다른 물리 DB·풀 여유) 충족 시에만 최대 2세트 동시(_stats_set_parallelism)."""
++    [D7-14 D] 세트 실행은 기본 순차. flag+조건(다른 물리 DB·풀 여유) 충족 시에만 최대 2세트 동시(_stats_set_parallelism).
++    [STATS-SET-PARALLELISM-CONDITIONAL-ENABLE-FIX] 추가로 '대규모 + PostgreSQL(오라클 제외)' 조건을 모두 만족하면
++    flag 없이도 자동으로 2세트 동시(판정 상세는 _stats_set_parallelism)."""
+     _axes = [c for c in (sel_gb or []) if c]
+     # [PLANSETS-AGG-PROCESSING-TIME-FIX] 세트 실행 전체를 감싸는 '벽시계 1개' 시작 — 클라
+     #   _runExecutePlanSets 의 _psT0 와 대칭. 아래 agg 에 processing_ms 가 없어서 원클릭(run-standard)
+@@ -499,7 +620,9 @@ def _run_multi_gb_sets(req, analyze_res, sel_gb, sel_sum, count_res, gb_cands, s
+     #   충족 시 최대 2세트를 동시 실행하므로 합산은 실제 경과시간보다 과대표시된다.
+     import time as _pt_rt
+     _pt_t0 = _pt_rt.perf_counter()
+-    _level, _par_trace = _stats_set_parallelism(req, len(_axes))
++    # [STATS-SET-PARALLELISM-CONDITIONAL-ENABLE-FIX] count_res 를 함께 넘긴다 — 조건부 ON 의 행수 임계
++    #   판정(2단계 COUNT 의 원본/목적지 max)에 쓰인다. 없으면 행수 미상으로 순차 유지.
++    _level, _par_trace = _stats_set_parallelism(req, len(_axes), count_res)
+     if _level >= 2 and len(_axes) >= 2:
+         results = _run_sets_parallel(_axes, _level, req, analyze_res, sel_sum, count_res,
+                                      gb_cands, sum_cands, period_map, generate_fn, execute_fn, persist)
