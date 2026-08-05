@@ -1,0 +1,394 @@
+작업명 : F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE
+작성일 : 2026-08-05
+유형   : 진단 전용(코드 변경 0줄 · 커밋 0건)
+기준   : 증적 저장소 origin/main 15484cc 의 BACKLOG.md(2,830줄, 최종 갱신 c55e1f4)
+         코드 저장소 C:\projects\migration-validator main 2042b40
+
+═══════════════════════════════════════════════════════════════════════════════
+§0. BACKLOG.md 원문 인용 (origin/main 15484cc · 편집 없음 · 줄 그대로)
+═══════════════════════════════════════════════════════════════════════════════
+
+── L1863~L1873 ──────────────────────────────────────────────────────────────────
+### G7. HASH_BUCKET 해시 계약에 오라클이 등록돼 있지 않아, same-DBMS(오라클↔오라클)여도 영구 불가다
+- 발견일: 2026-08-02
+- 근거 보고서: `PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt` (§4-2 · §7-G7)
+- 상세: `services/diagnosis/hash_contract.py:118-120` 의 `_HASH_CONTRACTS` 딕셔너리에 `postgresql`
+  하나만 등록돼 있다. 주석에 "oracle 은 후속 단계에서 등록한다" 고 돼 있으나 아직 미등록이라,
+  same-DBMS 가드(S5, 이미 해결 완료)를 통과해도 오라클↔오라클 조합조차 `HR_HASH_CONTRACT_NA` 로
+  차단된다. 현재 실질 가용 조합은 **PG↔PG 뿐**이다. F1(HASH_BUCKET 오라클 구현체 phase3 부재)과
+  직결된 선행 과제다.
+- 대응 방향: F1 착수 시 오라클 해시 계약(`dialects_hash.oracle.OracleHashContract`) 등록이 포함돼야 한다.
+- 관련: F1, S5(이미 해결 완료)
+- 참고: E:\verify_reports\PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt
+
+── L1875~L1886 ──────────────────────────────────────────────────────────────────
+### F1. HASH_BUCKET 오라클 구현체 자체가 아직 없다 (phase2 = 어댑터 분리까지만 완료)
+- 발견일: 2026-07-29
+- 근거 보고서: `HASH-BUCKET-ORACLE-PORT-DESIGN-FINALIZE.txt` (§5 / 다음 권장 작업)
+- 상세: 설계 확정 + phase1(별칭 개명/계약 버전 bump) + phase2(Base·위임표·팩토리 분리 + PG 구현체 이전)까지
+  진행됐고, **step ③ 오라클 구현체 → ④ 소비측 배선+가드 → ⑤ capabilities 개방 → ⑥ 라이브 동등성 실측**
+  이 남아 있다. 규모 추정: 프로덕션 11 + 테스트 6 = 17파일 / 5.0작업일(버퍼 포함 5~6일). cross-DBMS 미개방 전제.
+- 하위 항목: `tests/test_underscore_alias_oracle_regression_static.py` 의 `KNOWN_ORACLE_UNSAFE` 에
+  hash_bucket(`__HB`/`__KH`/`__RH`) 이 남아 있다. PG 전용 해시 계약이라 단순 개명으로 끝나지 않으며,
+  Layer A 의 `expectedFailure` 마커도 그때 함께 정리해야 한다
+  (근거: `AGG-DIFF-ROUTE-UNDERSCORE-M-ALIAS-FIX.txt` §5-(b),(c), 2026-07-27).
+- 참고: E:\verify_reports\HASH-BUCKET-ORACLE-PORT-DESIGN-FINALIZE.txt
+- 참고: E:\verify_reports\AGG-DIFF-ROUTE-UNDERSCORE-M-ALIAS-FIX.txt
+────────────────────────────────────────────────────────────────────────────────
+
+주: 공유 작업트리(E:\verify_reports)의 BACKLOG.md 사본은 origin/main 보다 28커밋 뒤처져 있어
+    쓰지 않았다. 위 인용은 `git show origin/main:BACKLOG.md` 로 뽑은 원격 원문이다.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+§1. 먼저 계층부터 — 같은 이름이 두 개다
+═══════════════════════════════════════════════════════════════════════════════
+
+조사 대상을 좁히기 전에 이름 충돌을 확인했다. 이 프로젝트에는 "HASH_BUCKET" 이 둘 있다.
+
+ (A) 진단 국소화 전략 — services/diagnosis/strategies/hash_bucket.py
+     canonical 해시로 bucket 을 쪼개 불일치 영역을 좁힌다. G7·F1 이 가리키는 것은 전부 이쪽이다.
+ (B) 전수비교 전략 상수 HASH_BUCKET_COMPARE — services/strategy/strategy_models.py:27
+     AVAILABLE_COMPARE_STRATEGIES 에 없고 PHASE4_B_REQUIRED(미구현) 상태다. 오라클 이전에
+     PG 에서도 구현 자체가 없다.
+
+이하 모든 서술은 (A) 기준이다. (B)는 F1/G7 의 범위가 아니며, F1 을 다 끝내도 (B)는 여전히 미구현이다.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+§2. 오라클 HASH_BUCKET — 어디까지 됐고 정확히 어디서 막히나
+═══════════════════════════════════════════════════════════════════════════════
+
+2-1. 완료된 것 (커밋 2건뿐이다)
+
+  eb65115 (2026-07-29) HASH-BUCKET-ORACLE-PORT-PHASE1-IMPLEMENT
+      hash_contract.py 를 Base 계약(BaseHashContract) + 위임표(_HASH_CONTRACTS) + 팩토리
+      (get_hash_contract / get_hash_contract_pair) + PEP 562 하위호환 재수출로 재편하고,
+      PG 표현식을 services/diagnosis/dialects_hash/postgresql.py(PgHashContract)로 물리 분리.
+  bfda564 (2026-07-29) HASH-BUCKET-FACTORY-GUARD-ENFORCE-FIX  (= BACKLOG S5, 해결 완료)
+      build_hash_bucket_agg_sql 이 재수출을 직접 쓰지 않고 반드시 팩토리를 거치게 강제.
+      계약을 못 얻으면 HashContractUnavailableError 를 던져 SQL 생성 자체를 중단.
+
+2-2. 막히는 지점은 정확히 한 줄이다
+
+  services/diagnosis/hash_contract.py:118-120
+      _HASH_CONTRACTS = {
+          "postgresql": ("services.diagnosis.dialects_hash.postgresql", "PgHashContract"),
+      }
+  services/diagnosis/dialects_hash/  →  __init__.py, postgresql.py 뿐. oracle.py 없음.
+
+  실측(운영 코드 직접 호출, 2026-08-05):
+      get_hash_contract_pair("oracle","oracle")      → (None, 'HASH_CONTRACT_NOT_AVAILABLE')
+      get_hash_contract_pair("postgresql","postgresql") → (PgHashContract, None)
+      build_hash_bucket_agg_sql(dialect="oracle")    → HashContractUnavailableError
+                                                        reason_code=HASH_CONTRACT_NOT_AVAILABLE
+  즉 G7 의 서술은 코드와 100% 일치한다. 오라클↔오라클도 계획은 서지만 실행 진입에서 HOLD 된다.
+
+2-3. 가드 3계층 중 L1 이 통째로 없다 (설계 대비 미이행 — G7/F1 어디에도 안 적혀 있음)
+
+  설계(docs/HASH_BUCKET_ORACLE_PORT_ADAPTER_DESIGN.md §4)는 L1/L2/L3 3계층을 규정한다.
+
+   계층  위치                                              현 상태
+   ────  ────────────────────────────────────────────────  ────────────────────────────
+   L3    hash_contract.get_hash_contract_pair               ✅ 있음(단일 출처)
+   L2    adapters/base.resolve_hash_contract                ✅ 있음
+         소비: adapters/multi_scope_adapter.py:63-64,
+               routes/diagnosis_route.py:842-843(row-diff 재개)
+   L1    capabilities.hash_bucket_pair_status(src,tgt)      ❌ 함수 자체가 없음
+         소비: multi_scope.py:195-198(후보 emit),
+               drilldown_strategy.py NEXT_HASH(:103,116,128,140)   ❌ DBMS 조건 0건
+
+  결과: 오라클 사용자에게 HASH_BUCKET 은 **계획 단계에서 후보로 뜬 뒤 실행 진입에서야 막힌다.**
+  사용자 체감은 "왜 제안해 놓고 안 되냐" 이고, 사유 문자열(HASH_CONTRACT_NOT_AVAILABLE)은
+  plan_only 응답에 hold_reason 으로 실려는 있으나 계획 화면이 후보를 지우지는 않는다.
+  기능 결함이라기보다 설계 미이행이며, F1 step ④ 에 포함해야 한다.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+§3. 어댑터 패턴 준수 여부 — 위반/잔존 3건 (요청대로 즉시 지적)
+═══════════════════════════════════════════════════════════════════════════════
+
+인라인 if/elif 로 방언 SQL 을 만드는 코드는 **없었다.** hash_bucket.py 는 준수한다
+(_db_type_of 도 새 매핑표를 만들지 않고 공통 헬퍼 _to_sqlglot_dialect 를 역적용한다).
+그러나 "인라인 분기" 가 아닌 형태로 **PG 계약이 고정되는 지점이 3곳** 남아 있다.
+
+── 위반 ① (가장 중요) row_diff.py:77, 103 — dialect 를 받고도 PG 계약을 쓴다 ────────
+
+  services/diagnosis/row_diff.py
+     :77   bexpr = _parse_one_guarded(hc.bucket_expr_sql(key_canon_sql, n, hb.level_salt(lvl)), read=dialect)
+     :103  key_canon = hc.key_canonical_sql(key_exprs, key_ntypes)
+
+  hc.bucket_expr_sql / hc.key_canonical_sql 은 hash_contract.py:189 의 모듈 __getattr__
+  (PEP 562 하위호환 재수출)이다. 이 재수출은 _PG_CONTRACT_SPEC 로 **PostgreSQL 계약에 무조건 위임**
+  한다(hash_contract.py:171-186). 즉 dialect 인자가 무엇이든 PG 표현식이 나온다.
+  bfda564 가 hash_bucket.py 에서 고친 바로 그 결함이 row_diff.py 에는 그대로 남았다.
+
+  실측(build_row_select_sql(..., dialect="oracle") 실호출 결과 발췌):
+     SELECT EMP_NO AS k0, SAL AS c0 FROM EMP
+      WHERE (DEPT_ID = ? AND ((CAST(CAST(('x' || LEFT(MD5('hbw1' || CASE WHEN (EMP_NO) IS NULL
+             THEN 'S#N' ELSE 'S:' || CAST(LENGTH(CAST((EMP_NO) AS CLOB)) AS CLOB) || ':' ||
+             CAST((EMP_NO) AS CLOB) END), 8)) AS BIT(32)) AS INT)) & 127) = ?)
+        FETCH FIRST 100 ROWS ONLY
+  오라클에 없는 것이 한 줄에 네 개다 — MD5(), LEFT(), BIT(32) 타입, 비트 AND 연산자 `&`.
+  예외도 안 난다. **SQL 이 만들어져서 DB 로 나간다.**
+
+  현재 무증상인 이유: L2 가드(resolve_hash_contract)가 오라클을 먼저 막아 이 함수까지 도달하지 않는다.
+  ⇒ 그러나 이것이 바로 **"G7 만 단독 착수하면 안 되는" 결정적 근거**다. 위임표에 oracle 한 줄을
+     등록하는 순간 L1(없음)·L2·L3 이 전부 통과하고, row_diff 가 오라클에 PG SQL 을 방출한다.
+     G7 은 겉보기에 1줄짜리 항목이지만 단독 적용은 회귀가 아니라 신규 장애다.
+
+── 위반 ② match_key_evidence.py:21, 122, 126 — 계약 버전이 PG 로 고정 ───────────────
+
+     from services.diagnosis.hash_contract import HASH_CONTRACT_VERSION   # :21
+     fp = sha256(... "||" + HASH_CONTRACT_VERSION + "||" ...)              # :122
+     {"confirmed": True, "version": HASH_CONTRACT_VERSION, ...}            # :126
+
+  이 상수도 §3의 재수출 경로라 실측값이 "hashv1-md5-lenpfx"(PG) 하나뿐이다.
+  설계 §3.5 는 version 을 "-pg" / "-ora" 로 분리해 저장된 run 이 어느 방언 계약으로 만들어졌는지
+  남기고, 재개 시 EVIDENCE_CHANGED 로 차단하는 안전장치로 쓰라고 규정한다. 현재는 방언이 달라도
+  fingerprint 가 같아져 그 방어가 성립하지 않는다.
+
+── 위반 ③ multi_scope.py:552-555 — db_type 쌍을 안 넘긴다(파라미터가 사장돼 있다) ────
+
+     ext_src = hb.build_hash_bucket_agg_sql(src, exprs=se, ..., dialect=dialect)
+     ext_tgt = hb.build_hash_bucket_agg_sql(tgt, exprs=te, ..., dialect=dialect)
+
+  build_hash_bucket_agg_sql 은 bfda564 에서 src_db_type / tgt_db_type 파라미터를 받도록 확장됐는데,
+  **프로덕션 호출부에서 이 인자를 넘기는 곳이 0건**이다(전수 grep). 미지정이면 dialect 1개를
+  역매핑해 양측에 쓴다. 그런데 하류의 dialect 는 routes/diagnosis_route.py:80 _routing_dialect 가
+  src≠tgt 이면 "postgres" 로 접어버린 값이다 → 혼합 페어가 여기까지 오면 L3 이 "postgresql↔postgresql"
+  로 보고 통과시킨다. 지금은 L2 가 먼저 막아 무증상이지만, **방어 심도가 설계상 3겹이 아니라
+  실질 1겹(L2)**이라는 뜻이다. G2/M23 계열의 "인자는 만들었는데 소비처가 없다" 와 같은 형태다.
+
+── 별칭 상태 (F1 하위항목 확인) ─────────────────────────────────────────────────
+
+  hash_bucket.py:23-25   BUCKET_ALIAS="__HB", KEYHASH_ALIAS="__KH", ROWHASH_ALIAS="__RH"  — 미개명
+  tests/test_underscore_alias_oracle_regression_static.py:396-398
+      KNOWN_ORACLE_UNSAFE = {"services/diagnosis/strategies/hash_bucket.py": {"__HB","__KH","__RH"}}
+  Layer A 의 @unittest.expectedFailure 도 그대로.
+  실행 실측: 위 3개 테스트 파일 → 46 passed, 1 xfailed, 12 subtests passed (13.85s).
+  즉 F1 하위항목 서술은 현재도 정확하다.
+  추가로 multi_scope.py:600 `_scope_key_sig` 의 `str(k).startswith("__HB")` 는 상수를 참조하지 않는
+  하드코딩이라 개명 시 반드시 동반 수정해야 한다(설계 §5.3-2 가 이미 지적, 여전히 미수정 확인).
+
+
+═══════════════════════════════════════════════════════════════════════════════
+§4. F1 서술의 사실오류 1건 — 남은 작업이 F1 표기보다 한 단계 더 많다
+═══════════════════════════════════════════════════════════════════════════════
+
+F1 원문: "설계 확정 + phase1(별칭 개명/계약 버전 bump) + phase2(Base·위임표·팩토리 분리 +
+          PG 구현체 이전)까지 진행됐고, step ③ … ⑥ 이 남아 있다"
+
+설계 문서 §6.3 의 착수 순서는 ① 별칭 개명 + 버전 bump → ② Base/위임/팩토리 + PG 이전 →
+③ 오라클 구현체 → ④ 소비측 배선 + 가드 → ⑤ capabilities 개방 → ⑥ 라이브 실측 이다.
+
+실제로 완료된 것은 **② 하나뿐**이다. 근거 4가지:
+  (a) 커밋이 eb65115 한 건이고, 그 제목이 "어댑터(Base+위임표+팩토리)와 PG 구현체로 분리" = ②.
+      "PHASE1-IMPLEMENT" 라는 작업명이 설계의 step ① 과 이름만 겹칠 뿐 내용이 다르다.
+  (b) 별칭이 여전히 "__HB"/"__KH"/"__RH" — ① 미착수.
+  (c) version 이 여전히 "hashv1-md5-lenpfx" — "-pg" 접미사 없음. dialects_hash/postgresql.py:33-36
+      주석이 스스로 "[PHASE1] 값 불변 유지. 방언 접미사(-pg/-ora) 분리는 오라클 구현체 도입 단계에서
+      별칭 개명(__HB→HB)과 같은 커밋으로 올린다" 고 **연기를 명시**하고 있다.
+  (d) F1 자신의 하위항목("KNOWN_ORACLE_UNSAFE 에 hash_bucket 이 남아 있다")이 본문과 모순된다 —
+      ① 이 끝났다면 그 목록은 비어 있어야 한다.
+
+영향: 남은 단계는 ③④⑤⑥ 이 아니라 **①③④⑤⑥** 이다(+0.5작업일). 그리고 ① 은 저장된 resume 상태
+(pending_region.active[].key 의 "__HB1")와 비호환이라 계약 버전 bump 와 반드시 같은 커밋이어야 하고,
+그래야 diagnosis_route.py:656,847 의 EVIDENCE_CHANGED 검사가 옛 run 의 재개를 차단한다.
+① 을 빠뜨린 채 ③ 부터 들어가면 오라클 구현체를 다 만들어도 ORA-00911 로 산출물이 0이 된다.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+§5. PostgreSQL 대비 오라클에 추가로 필요한 작업 범위
+═══════════════════════════════════════════════════════════════════════════════
+
+5-1. SQL 표현식 치환 (설계 §1 전수표 + 이번 조사에서 재확인)
+
+   구분          PG 현행(dialects_hash/postgresql.py)        오라클 대체식
+   ────────────  ─────────────────────────────────────────  ──────────────────────────────────
+   해시함수      md5(x)                                      LOWER(RAWTOHEX(STANDARD_HASH(x,'MD5')))
+   앞 8자        left(h,8)                                   SUBSTR(h,1,8)
+   hex 리터럴    'x' || <hex8>                                제거(불필요)
+   32bit 정수화  ::bit(32)::bigint                           TO_NUMBER(<hex8>,'XXXXXXXX')
+   숫자 canon    trim_scale(x::numeric)::text                TO_CHAR(x,'TM9') + 선행 0 복원 regex
+   날짜 canon    x::text                                     TO_CHAR(CAST(x AS TIMESTAMP),
+                                                             'YYYY-MM-DD"T"HH24:MI:SS.FF6')
+   문자 canon    x::text                                     TO_CHAR(x)
+   길이접두      length(v)::text                             TO_CHAR(LENGTH(v),'TM9')
+   비트 AND      <h32> & (n-1)                               BITAND(<h32>, n-1)
+   집계 별칭     __HB1 / __KH / __RH                          HB1 / KH / RH (밑줄 선두 = ORA-00911)
+
+   난이도 분포에 대해: 설계 §1.1 이 32bit·bucket 계약의 1:1 동등성을 이미 실측으로 고정해 뒀다
+   (S:3:abc → 3276922494 / bucket&127 = 126, 양측 동일 등 5케이스). 즉 **해시 코어는 위험이 아니고,
+   위험은 canonical 문자열을 만드는 구간(숫자·날짜·NULL·길이)에 전부 몰려 있다.**
+
+5-2. 오라클에만 생기는 신규 이슈 4가지 (PG 에는 존재하지 않는 것)
+
+   (1) 빈문자열 = NULL. PG 는 ''→'S:0:', 오라클은 ''→'S#N'.
+       same-DBMS 안에서는 src/tgt 가 함께 'S#N' 이라 판정이 정확하다(무해).
+       cross-DBMS 에서는 같은 논리값이 다른 canonical → 거짓 불일치 대량.
+       cross-DBMS 를 영구 차단해야 하는 이유가 성능이 아니라 정합성이라는 두 번째 근거다
+       (첫 번째는 TM9 vs trim_scale 숫자 정규화 차이).
+   (2) NLS 세션 의존. TO_CHAR(x,'TM9') 는 NLS_NUMERIC_CHARACTERS 를 따라 '12,5' 가 될 수 있다.
+       src/tgt 오라클 세션 설정이 다르면 거짓 불일치. 대응은 3인자 TO_CHAR 로 식 자체에 고정
+       (선례 있음 — 코드 저장소 275b5a9 NLS-SESSION-INDEPENDENT-NUMERIC-TOCHAR-FIX, BACKLOG S14).
+   (3) VARCHAR2 4000자 상한(max_string_size=STANDARD) → 복합키 + HASH_COMPARE 다수면 canonical
+       연결이 ORA-01489. 거짓일치가 아니라 HOLD 로 드러나므로 안전측이지만, 오라클 구현체의
+       precheck() 에 피연산자 상한을 넣어 사전 HOLD 로 전환해야 한다.
+   (4) STANDARD_HASH 는 CLOB 입력을 거부(ORA-00902). 현재 MATCH_KEY 후보에 LOB 이 오는 경로는
+       없으나 precheck 에서 방어적으로 HOLD 처리 대상.
+
+5-3. capabilities 개방 (step ⑤)
+
+   services/diagnosis/dbms/capabilities.py:99-103 의 _ORACLE 은 현재
+       key_range=SUPPORTED, row_diff=SUPPORTED, resume=SUPPORTED
+       hash_bucket=NOT_SUPPORTED, canonical_hash_contract=NOT_SUPPORTED
+   이다. 여기서 눈여겨볼 비대칭이 하나 있다 — **오라클 row_diff 는 이미 SUPPORTED 로 열려 있다.**
+   그 근거는 exact_diff 계층의 오라클 이식이지, 이번 §3-① 의 services/diagnosis/row_diff.py 가 아니다
+   (같은 이름 다른 계층). 매트릭스만 보고 "오라클 ROW_DIFF 는 검증됐다" 고 읽으면 안 된다.
+   step ⑤ 에서는 항목값 2개를 올리고, "오라클↔오라클만" 조건은 매트릭스가 아니라 신규 함수
+   hash_bucket_pair_status(src,tgt) 에 둔다(MATRIX_ITEMS 는 단일 DBMS 능력 표기라 페어 개념이 없다).
+   ROADMAP step 4 의 requires 문구("DBMS 간 동일 canonical hash")도 cross-DBMS 를 목표로 읽히므로
+   "same-DBMS 페어 한정" 으로 정정 대상이다.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+§6. KEY_RANGE 오라클 이슈와 같은 계열인가 (요청 4)
+═══════════════════════════════════════════════════════════════════════════════
+
+6-1. 전제 정정 — BACKLOG 에 "KEY_RANGE 오라클 라우팅 미해결" 항목은 없다
+
+   origin/main 15484cc 의 BACKLOG.md 2,830줄 전문에서 "KEY_RANGE" 문자열은 **0건**이다.
+   KEY_RANGE 계열로 볼 수 있는 항목은 두 개이고 둘 다 닫혔다.
+     S9  routes/ 방언 미위임 + count_gate 사전 게이트 부재  → ✅ 해결 완료(잔여는 F13 으로 분리)
+     M16 diagnosis_route._count_rows 의 postgres 하드코딩  → ✅ 해결 완료(1b233b3, 오라클 라이브 실측)
+   실제 오라클 KEY_RANGE 는 3abe5c4(별칭 __BKT/__RNG → KR_BKT/KR_RNG + 소비자 상수 전환)와
+   07cd4d0(routes 방언 위임)으로 **종단 완결**됐다. 코드 확인 결과 key_range.py 는 전 빌더가
+   dialect 파라미터를 받고, 별칭은 KR_BKT/KR_RNG(문자 시작)이며, KNOWN_ORACLE_UNSAFE 에서도 빠져 있다.
+   즉 "미해결 이슈" 라는 전제는 성립하지 않는다. 아래는 그 전제를 뺀 상태에서의 계열 판정이다.
+
+6-2. 근본원인 계열은 같다 — 다만 축이 하나 더 있다
+
+   KEY_RANGE 오라클을 막고 있던 것은 두 축이었다.
+     축 A "방언 인자 미전달"  : 하류가 postgres 로 렌더 → LIMIT/NULL probe 실패(ORA-03049 등)
+     축 B "밑줄 선두 별칭"    : __BKT/__RNG → ORA-00911 로 실행 통째 차단
+   HASH_BUCKET 도 같은 두 축을 그대로 갖고 있고, 둘 다 **아직 열려 있다**.
+     축 A : §3-① row_diff 가 dialect 를 받고도 PG 계약 고정 / §3-③ db_type 쌍 미전달
+     축 B : __HB/__KH/__RH 미개명
+   여기까지는 "같은 패턴의 반복" 이 맞다. 특히 §3-③ 은 "인자는 추가했는데 넘기는 곳이 없다" 라는
+   형태로, S9·M16 에서 반복 지적된 것과 정확히 같은 실패 모드다.
+
+   그러나 HASH_BUCKET 에는 **축 C = 방언 구현체 자체의 부재**가 추가된다. KEY_RANGE 는 WIDTH_BUCKET·
+   CASE·비교연산자만 쓰므로 sqlglot 재렌더로 방언이 자동 흡수됐다(그래서 인자만 제대로 넘기면 끝났다).
+   HASH_BUCKET 은 md5/::bit(32)/&/trim_scale 처럼 **sqlglot 이 오라클로 번역해 주지 않는** 표현식을
+   쓴다. 따라서 결론은:
+
+     → 계열은 같다. 재발도 맞다. 그러나 KEY_RANGE 처럼 "인자 배선"만으로는 끝나지 않는다.
+       배선(축 A) + 개명(축 B)은 KEY_RANGE 의 해법을 그대로 복사해 오면 되고 위험도 낮다.
+       실제 작업량과 위험의 대부분은 축 C(오라클 canonical 구현체)에 있다.
+
+6-3. 구조적 재발원인
+
+   공통 뿌리는 "하류가 dialect(sqlglot 렌더 방언 1개)만 받고 db_type 쌍은 못 받는다" 는 계약이다.
+   _routing_dialect 가 src≠tgt 를 postgres 로 접는 순간 방언 정보가 소실되므로, 방언 판정은
+   db_type 쌍이 살아 있는 어댑터/라우트 경계에서만 가능하다. 설계 §3.4 의 "계약 객체 1개를 경계에서
+   해석해 아래로 주입" 이 이 문제의 정답이고, KEY_RANGE 는 별칭 상수화로 우회했을 뿐 이 계약을
+   갖고 있지 않다. F1 을 이 방식으로 끝내면 다음 방언(MySQL/MSSQL)에서 같은 조사를 반복하지 않아도 된다.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+§7. 착수 시 예상 범위 · 위험도
+═══════════════════════════════════════════════════════════════════════════════
+
+7-1. 범위 (설계 §6.1 의 17파일 + 이번 조사로 추가/수정된 항목)
+
+   설계 그대로   프로덕션 11(신규 3 + 수정 8) + 테스트 6(신규 2 + 수정 4) = 17파일
+   이번 조사 추가/정정
+     · row_diff.py 는 "contract=None 파라미터 추가"만으로 불충분하다. 기본값 None → PG 유지가
+       되면 §3-① 결함이 그대로 남는다. hc.bucket_expr_sql / hc.key_canonical_sql **호출 2곳 제거**가
+       필수다(설계 표는 파라미터 추가만 적고 있다).
+     · match_key_evidence.py 도 동일 — 모듈 상수 import 제거가 실제 작업이다.
+     · capabilities.hash_bucket_pair_status() **신규 함수 + 소비처 2곳**(multi_scope 후보 emit,
+       drilldown_strategy NEXT_HASH)이 설계에는 있으나 코드에 전혀 없다 → step ④ 실작업.
+     · multi_scope.py:600 _scope_key_sig 의 startswith("__HB") 하드코딩 → 상수 전환(설계 §5.3-2).
+     · row_diff.py 는 KNOWN_ORACLE_UNSAFE 에 없다(별칭을 만들지 않고 읽기만 하므로 정적 스캐너가
+       못 잡는다). 개명 후 저장된 cell key 와의 정합은 정적 테스트로 보장되지 않으니 별도 검증 필요.
+
+   단계별 추정 : ①0.5 + ③1.0 + ④1.0(+L1 신설분 포함) + ⑤0.5 + ⑥1.0(라이브 실측)  ≈ 4.5~5.5작업일.
+   F1 표기(5.0일, 버퍼 5~6일)와 정합한다 — 단 ② 만 끝난 상태이므로 ① 이 포함된 값으로 읽어야 한다.
+
+7-2. 위험도
+
+   [치명] G7 단독 착수 — 위임표 한 줄 등록만으로 끝내면 안 된다.
+          L1 부재 + L2/L3 통과 + §3-① 미수정 조합으로, 등록 즉시 오라클 실 DB 에 PG SQL
+          (MD5/BIT(32)/&/LEFT)이 방출된다. G7 은 F1 의 마지막 단계여야지 선행 단계가 아니다.
+          BACKLOG G7 의 "대응 방향: F1 착수 시 … 포함돼야 한다" 는 이 순서를 이미 옳게 적고 있다.
+
+   [높음] 별칭 개명(①)과 저장된 resume 상태의 비호환.
+          pending_cells 의 키가 "__HB1" 인데 row_diff._cell_condition 의
+          `while (hb.BUCKET_ALIAS+str(lvl)) in cell_key` 가 한 번도 매치되지 않으면 bucket 조건 없이
+          조용히 진행된다 — 오류 없는 오답이 가장 위험한 실패 모드다.
+          방어는 계약 version bump(EVIDENCE_CHANGED)이며 개명과 **같은 커밋**이어야 한다.
+
+   [높음] _scope_key_sig 하드코딩 미수정 시 — 필터가 아무것도 못 걸러 bucket 키가 scope 서명에 섞이고,
+          "직전 wave 활성 그룹 유지" 로직이 매 wave 전부를 신규 그룹으로 오인해 활성 cell 이
+          조용히 부푼다(오류 없음).
+
+   [중간] NLS_NUMERIC_CHARACTERS / TIMESTAMP WITH TIME ZONE 세션 의존 → 거짓 불일치.
+          숫자는 3인자 TO_CHAR 로 식에 고정 가능(선례 275b5a9). TZ 는 same-DBMS + 세션 TZ 동일
+          전제로 축약하고 잔여한계로 명시.
+   [중간] ORA-01489(4000자) — 안전측(HOLD)이지만 precheck 미구현 시 런타임 실패로 드러난다.
+   [낮음] 32bit·bucket 계약 동등성 — 설계 §1.1 에서 5케이스 실측 완료. 재검증 부담 작음.
+   [환경] step ⑥ 라이브 동등성 실측에 오라클 asis/tobe 접속이 전제다. 접속 불가 시 ①~⑤ 까지만
+          코드/PG 회귀로 닫고 ⑥ 을 "환경 때문에 미완" 부록으로 넘기는 분기를 미리 정해 둘 것.
+
+7-3. 권장 착수 순서 (변경 없음 — 설계 §6.3 을 그대로 지지)
+
+   ① 별칭 개명 + 계약 version bump(-pg 접미사 포함) + 테스트 5파일 정리, PG 회귀 green
+   ③ dialects_hash/oracle.py 구현(§5-1 표 + precheck)
+   ④ 소비측 배선(row_diff 재수출 제거 · match_key_evidence version 위임 · multi_scope db_type 전달)
+      + L1 hash_bucket_pair_status 신설 및 소비 2곳
+   ⑤ capabilities 항목 개방 + ROADMAP 문구 정정
+   ⑥ 위임표에 oracle 등록(= G7) 후 오라클 라이브 동등성 실측
+   ⑥ 을 마지막에 두는 것이 핵심이다 — 등록이 곧 개방이므로, 그 앞의 모든 배선이 끝난 뒤에 해야 한다.
+
+7-4. 지금 판단
+
+   **문서화 우선 / 착수 보류.** 이번 작업은 조사 전용이므로 코드는 건드리지 않았다.
+   다만 BACKLOG 의 F1 항목은 §4 의 사실오류(① 미착수) 때문에 착수자를 오도할 수 있고,
+   G7 은 "단독 착수 금지" 가 명시돼 있지 않으면 1줄짜리 quick win 으로 오인되기 쉽다.
+   두 항목의 갱신은 별도 지시가 있을 때 수행한다(이번 범위 밖).
+
+
+═══════════════════════════════════════════════════════════════════════════════
+§8. 근거 파일 · 실측 목록
+═══════════════════════════════════════════════════════════════════════════════
+
+코드(무변경, 판독만)
+  services/diagnosis/hash_contract.py                       (Base·위임표 118-120·팩토리·재수출 167-198)
+  services/diagnosis/dialects_hash/{__init__,postgresql}.py (oracle.py 부재)
+  services/diagnosis/strategies/hash_bucket.py              (23-25 별칭 / 69-89 가드 / 102-144 빌더)
+  services/diagnosis/strategies/key_range.py                (26-34 KR_ 별칭 — 대조군)
+  services/diagnosis/row_diff.py                            (77·103 PG 재수출 직접 호출)
+  services/diagnosis/match_key_evidence.py                  (21·122·126 version 고정)
+  services/diagnosis/multi_scope.py                         (195-198 후보 emit / 552-555 호출 / 600 하드코딩)
+  services/diagnosis/adapters/base.py                       (35-63 resolve_hash_contract = L2)
+  services/diagnosis/adapters/multi_scope_adapter.py:63-64  (L2 소비)
+  routes/diagnosis_route.py:63-80(_routing_dialect), 842-843(L2 소비)
+  services/diagnosis/dbms/capabilities.py                   (63-131 매트릭스·ROADMAP)
+  services/diagnosis/drilldown_strategy.py                  (NEXT_HASH — L1 게이트 없음)
+  services/strategy/strategy_models.py:27,38                (HASH_BUCKET_COMPARE = 별개 계층)
+  tests/test_underscore_alias_oracle_regression_static.py   (27·203·396-398)
+  docs/HASH_BUCKET_ORACLE_PORT_ADAPTER_DESIGN.md            (368줄 설계 확정본 — §1·§2·§4·§5·§6)
+
+실측(2026-08-05, 조회 전용 · DB 접속 없음)
+  · get_hash_contract_pair("oracle","oracle")           → (None,'HASH_CONTRACT_NOT_AVAILABLE')
+  · build_hash_bucket_agg_sql(dialect="oracle")         → HashContractUnavailableError
+  · build_row_select_sql(dialect="oracle")              → PG SQL 정상 반환(차단 없음) — §3-① 증거
+  · match_key_evidence.HASH_CONTRACT_VERSION            → "hashv1-md5-lenpfx"
+  · pytest test_underscore_alias_oracle_regression_static + test_hash_bucket_factory_guard
+      + test_hash_contract_dialect_adapter               → 46 passed, 1 xfailed, 12 subtests (13.85s)
+  · grep 전수: src_db_type/tgt_db_type 를 build_hash_bucket_agg_sql 에 넘기는 프로덕션 호출부 0건
+  · grep 전수: hash_bucket_pair_status 정의/호출 0건
+
+작업명 : F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE
