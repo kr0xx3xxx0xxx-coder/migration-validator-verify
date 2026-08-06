@@ -3198,10 +3198,11 @@ git -C E:/verify_reports worktree remove <임시경로>
   1·2단계 카드와 동일선상 확인. 로직/데이터 흐름/host id·CSS 불변.
 - 근거 보고서: E:\verify_reports\STAGE4-SECTION-TITLE-AND-CARD-BORDER-CONSISTENCY-FIX.txt
 
-### M47. 5단계(상세비교) job 진행 중 1~4단계 실행 버튼이 클라이언트·서버 어디에서도 잠기지 않는다 — 자원 이중소모·중단불가·먹통 3종 실제 안전 문제
+### M47. ✅ 해결 완료 — 5단계(상세비교) job 진행 중 1~4단계 실행 버튼이 클라이언트·서버 어디에서도 잠기지 않았다 — 자원 이중소모·중단불가·먹통 3종 실제 안전 문제
 - 발견일: 2026-08-06 (사용자 스크린샷 실측 — 4단계 탭 "진행중" 잔존 + 재실행 필요 배너
   동시노출 보고 → 조사 중 확인) / 진단완료: STAGE4-TAB-LABEL-LAG-AND-PRIOR-STAGE-LOCK-
-  SCOPE-DIAGNOSE(코드수정 0건, 진단 전용)
+  SCOPE-DIAGNOSE / 해결일: 2026-08-06 (M47-PRIOR-STAGE-LOCK-AND-BADGE-LABEL-DISTINCTION-FIX,
+  코드 커밋 2381c20)
 - 상세: `_mvSyncRunLockedControls`(잠금 판정)는 4개 동기 플래그(_executeInProgress 등)
   만 보고 5단계 job(`_mvReimportStatus`/재이관 폴링)은 전혀 확인하지 않는다. 6개 실행
   진입점 중 4개(runAnalyze/runCount/runRevalidateFromCandidate/runGenerate)에
@@ -3216,18 +3217,33 @@ git -C E:/verify_reports worktree remove <임시경로>
       스캔이 중복 발사됨(서버 in-flight 가드 없음).
   저장 데이터 오염은 없음(`_mvDisplayedRunId`·세션버전 가드가 늦은 응답 덮어쓰기 차단,
   `/single/save`는 별도 validate 통과 필요) — 오염 범위는 화면/세션 상태 + DB 자원.
-- 대응 방향(진단서 권장, 위험도 낮음·기존 함수 재사용): ① runAnalyze/runCount/
-  runRevalidateFromCandidate/runGenerate 4곳에 runExecute와 동일한 `_mvAnyRunActive()`
-  가드 추가(새 플래그·상태머신 불필요). ② `_mvSyncRunLockedControls`의 locked 조건에
-  `_mvAnyRunActive()`를 OR로 합류(선택 컨트롤도 5단계 job 중 잠기게). ③(부수) 4단계
-  배지 문구를 "진행중"과 구분되는 "상세비교 진행중"으로 분리(같은 배지가 서로 다른
-  내부상태 RUNNING/SUCCESS+미러링을 구분 못 하게 하던 것 해소).
-  구현 시 주의: `_mvAnyRunActive()`가 진입점 자신의 버튼 스피너를 진행 신호로도 쓰므로
-  가드 삽입 순서에 따라 자기차단 위험 있음(진단서가 명시적으로 경고).
-- 부가 발견(별건, 우선순위 낮음): "설정 2/2·현재 설정 3/3와 다름" 배너는 이 항목과
+- 대응 방향(적용 완료): ① runAnalyze/runCount/runRevalidateFromCandidate/runGenerate 4곳에
+  runExecute와 동일한 `_mvAnyRunActive()` 가드 추가. ② `_mvSyncRunLockedControls`의 locked
+  조건에 `_mvAnyRunActive()`를 OR로 합류. ③ 4단계 배지 문구를 "상세비교 진행중"으로 분리.
+  실측 검증(before/after 실서버 2개 인스턴스 대조, 5천만행 동일 재현조건):
+  - **before 재현**: 1단계 재분석 클릭 → 즉시 세션 리셋으로 2~4단계 버튼 자체가 화면에서
+    사라짐(진단서 예측 "먹통" 그대로 재현). body.mv-run-locked=false, 목적지 WHERE 등
+    컨트롤 전부 조작 가능한 상태 확인.
+  - **after 실측**: 5곳(1단계 실행/2단계 COUNT/3단계 재검증/4단계 SQL생성/4단계 실행) 전부
+    실제 클릭으로 신규 네트워크 요청 0건 확인. body.mv-run-locked=true, 선택 컨트롤 5종
+    전부 잠김. 5단계 job은 죽지 않고 PREPARING 유지(먹통 미재현), 중단 버튼은 5단계 탭에서
+    도달·클릭 가능(hit-test self=true) 확정. 배지도 "진행중"(4단계 실제 실행)과 "상세비교
+    진행중"(4단계 완료+5단계 진행)이 실제로 구분되어 표시됨을 before/after 대조로 확정.
+  - 자기차단 회귀 없음: 5단계 job이 없는 평상시 1→2→3→4단계 순차 완주(단일세트·다중세트
+    둘 다)에서 차단 안내 0건 확인.
+  - 서브셋 20파일 baseline 대조 완전 일치(9 failed ↔ 9 failed, 실패 목록까지 동일), 신규
+    회귀 0건. CLAUDE.md 필수 회귀 통과.
+- 잔존 한계(정직하게 명시, 이번 범위 밖): 서버측 가드 없음(클라이언트 단독 방어선 — 콘솔/
+  직접 HTTP 호출로 우회 가능), 멀티탭 미방어(`_mvAnyRunActive()`가 탭 로컬 상태), 4단계
+  SQL생성 가드는 실클릭이 아니라 직접 함수 호출로만 확인(그 상태에선 버튼 자체가 렌더 안
+  되어 실클릭 경로 부재 — 정상), 5단계 중단 버튼은 도달성까지만 확인(실제 취소는 미실행,
+  대용량 job 임의취소 방지 목적).
+- 부가 발견(별건, 우선순위 낮음, 미해결): "설정 2/2·현재 설정 3/3와 다름" 배너는 이 항목과
   원인이 다른 별개의 구조적 오탐 — "실행 개수"가 아니라 "정책 상한"과 비교하고 있어
   사용자가 상한 미만을 선택하면 항상 뜬다(경고만, 차단 없음). `ui/grid_helpers.py:
   2049-2060` 한 곳.
+- 근거 보고서: E:\verify_reports\STAGE4-TAB-LABEL-LAG-AND-PRIOR-STAGE-LOCK-SCOPE-DIAGNOSE.txt
+- 근거 보고서: E:\verify_reports\M47-PRIOR-STAGE-LOCK-AND-BADGE-LABEL-DISTINCTION-FIX.txt
 - 근거 보고서: E:\verify_reports\STAGE4-TAB-LABEL-LAG-AND-PRIOR-STAGE-LOCK-SCOPE-DIAGNOSE.txt
 
 ---
