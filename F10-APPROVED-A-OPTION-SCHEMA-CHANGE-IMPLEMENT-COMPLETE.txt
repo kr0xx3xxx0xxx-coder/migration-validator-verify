@@ -1,0 +1,133 @@
+작업명: F10-APPROVED-A-OPTION-SCHEMA-CHANGE-IMPLEMENT
+✅ 작업 완료 - F10-APPROVED-A-OPTION-SCHEMA-CHANGE-IMPLEMENT - 결과회차 FK 컬럼(result_execution_
+run_id) 추가로 batch_execution_state/batch_wrapper_result id 체계 이중화 오배정(32.4%) 근본해소.
+코드는 동시 진행 세션이 이미 커밋(f67cf9a)해둔 상태였음을 확인하고, 지시된 필수 검증 4종을
+전부 독립 재수행해 실측·회귀 확인 후 완료보고 및 BACKLOG.md 갱신.
+
+================================================================================
+0. 선행 확인 — 코드가 이미 구현돼 있음을 발견
+================================================================================
+E:\_rpt_push 이동 → git pull → 본 지시서(F10-APPROVED-A-OPTION-SCHEMA-CHANGE-IMPLEMENT.md) 및
+재조사 진단서(F10-BATCH-JOBID-RESULT-DECOUPLE-SCOPE-RECHECK-DIAGNOSE.txt) 정독 후 코드 저장소
+확인 결과, 지시 내용과 정확히 일치하는 구현이 커밋 f67cf9a(오늘, 동시 진행 세션 작업)로 이미
+존재함을 발견. git show --stat 로 5개 파일(services/batch_execution_state_service.py,
+services/batch/wrapper_async_job.py, routes/batch_route.py, services/job_registry.py,
+tests/test_batch_async_parallel_wrapper.py) 변경 확인, 내용을 diff 전문 검토해 지시 4개 항목
+전부 충족함을 확인. 완료보고가 아직 verify 저장소에 없었으므로(git log 확인 — F10 관련 커밋은
+진단/지시서 등록뿐), 이번 작업은 지시서가 요구한 "필수 검증" 4종을 독립적으로 재수행하고
+완료보고를 작성·게시하는 것으로 범위를 확정함(코드 재작성 없음 — 이미 올바르게 구현돼 있음).
+
+================================================================================
+1. 지시 항목별 구현 확인 (커밋 f67cf9a)
+================================================================================
+[1] services/batch_execution_state_service.py — M13 패턴 재사용, 결과회차 FK 컬럼 추가
+  - _CREATE_SQL 에 result_execution_run_id TEXT NOT NULL DEFAULT '' 추가(신규 DB).
+  - _ensure_result_execution_run_id_column(conn, db_key) 신설(기존 DB 멱등 보강) —
+    PRAGMA table_info 로 존재 확인 후에만 ALTER TABLE, _RESULT_EXEC_RUN_ID_READY 캐시로
+    연결마다 중복 실행 방지. updated_at 보강과 완전히 동일한 패턴(M13 그대로 재사용).
+  - complete_run(execution_run_id, status, message="", processed_rows=None, total_rows=None,
+    result_execution_run_id="") — 신규 선택 인자, 값이 있을 때만 SET 절에 포함(기존 호출부
+    영향 없음). get_execution_status() IDLE 응답에도 키 구성 일치시킴.
+
+[2] 오케스트레이터 배선 지점 특정 — 3곳(진단서가 "이번 조사 범위 밖"으로 남긴 부분을 코드에서
+    직접 찾아 배선함)
+  - services/batch/wrapper_async_job.py::_run_job() — save_wrapper_results() 반환값에서
+    execution_run_id 를 꺼내 complete_run(..., result_execution_run_id=_result_exec_id) 전달.
+  - routes/batch_route.py::run_uploaded_rows_via_wrapper() — persist_batch_row_results 가
+    위임한 save_wrapper_results 의 execution_run_id 를 complete_run 에 전달.
+  - routes/batch_route.py::run_uploaded_rows_count_only() — 동일 패턴.
+  → 3곳 모두 "wrapper 저장 완료 시 생성되는 execution_run_id 를 batch_execution_state_service
+    의 complete_run() 유사 지점에 전달해 기록"이라는 지시 2항을 정확히 충족.
+
+[3] services/job_registry.py::dto_from_batch_row — extra.result_execution_run_id 노출
+  - F9의 dto_from_single_status 는 DTO 화이트리스트를 get_by_run() 우회로 넘었으나(진단서
+    §2 지적), dto_from_batch_row 는 _query_batch_rows 가 SELECT * 로 전체 컬럼을 이미 읽어오는
+    구조라 화이트리스트 우회가 애초에 불필요 — 지시 3항이 요구한 "batch DTO 도 같은 구조인지
+    확인 후 필요하면 동일 처리"를 정확히 판단(불필요 판정)하고 단순 extra 필드 추가로 처리함.
+
+[4] UI 노출 범위 제외 확인
+  - ui/js_job_dashboard.py 무수정 확인(git status --short 클린, git show f67cf9a --stat 에
+    파일 자체가 없음).
+  - viewable 판정(js_job_dashboard.py:563) `(j.source === 'single' && ex.result_viewable
+    === true)` 그대로 — batch job 클릭 여전히 불가. 지시 4항("현황판 클릭 열기는 이번 범위
+    아님") 준수 확인.
+
+================================================================================
+2. 필수 검증 4종 — 이번 작업에서 독립 재수행
+================================================================================
+[검증-1] 신규 컬럼 멱등 보강 확인
+  - 운영 DB(db/migration_validator.db) 실측: PRAGMA table_info(batch_execution_state) 에
+    result_execution_run_id 이미 존재(f67cf9a 커밋 시점에 이미 1회 보강됨) — 이후 _connect()
+    4회 연속 호출해도 예외 없음(재실행 안전성).
+  - 구버전 스키마(컬럼 없음) 재현: 임시 DB 파일에 updated_at 까지만 있는 구 테이블 생성 →
+    _connect() 1차 호출로 ALTER TABLE 정상 수행, 기존 행(OLD1)의 값은 ''(추측값 아님) 확인 →
+    이후 3회 재연결도 "duplicate column name" 예외 없이 통과(멱등 재확인). M42에서 겪었던
+    raw ALTER TABLE 재실행 실패가 이 구현에는 재발하지 않음(PRAGMA table_info 선확인 게이트
+    덕분).
+
+[검증-2] 실제 배치 실행 2회(같은 batch_run_id, 완료 exec 2건+) 재현 + FK 정확성 실측
+  실행: acquire_run_lock → save_wrapper_results → complete_run(result_execution_run_id=...) 를
+  실제 서비스 함수로 batch_run_id="F10_REPRO_TEST_BATCH" 에 대해 1.1초 간격으로 2회 수행
+  (execution_run_id 가 초 단위 timestamp 라 간격 필요).
+    run1: exec_id=exec_f02ffac7fb874e13, result_execution_run_id=F10_REPRO_TEST_BATCH-20260806142835
+          target_table=MV_F10_TABLE_RUN1
+    run2: exec_id=exec_dc876297c9b344df, result_execution_run_id=F10_REPRO_TEST_BATCH-20260806142836
+          target_table=MV_F10_TABLE_RUN2
+  결과: batch_execution_state 에 같은 batch_run_id 로 완료 exec 2건 생성됨(C 시나리오 재현).
+    각 행의 result_execution_run_id 가 자기 실행의 값과 정확히 일치(exec1→res1, exec2→res2).
+    result_execution_run_id 로 batch_wrapper_result 를 조회하면 res1→MV_F10_TABLE_RUN1,
+    res2→MV_F10_TABLE_RUN2 로 각 회차의 결과만 정확히 분리 조회됨 — 기존에는 batch_run_id
+    만으로 조회 시 어느 회차 결과인지 구분 불가(32.4% 오배정 원인)였던 것이 이 FK 로 완전히
+    해소됨을 실측 확인. 재현용 테스트 행은 검증 직후 DELETE 로 정리(운영 데이터 오염 없음).
+
+[검증-3] 기존 배치 실행·상태조회·재시작 정리(_cleanup_stale) 로직 회귀 확인
+  - pytest tests/ -k "batch_execution_state or batch_wrapper_result or
+    batch_async_parallel_wrapper or cleanup_stale or job_registry" → 79 passed, 0 failed
+  - tests/test_batch_async_parallel_wrapper.py + test_result_persistence_facade.py
+    (오케스트레이터 3곳을 직접 exercise하는 테스트) → 20 passed, 0 failed
+  - tests/test_batch_route.py, test_batch_run_wrapper_endpoint.py, test_batch_count_only_path.py,
+    test_batch_wrapper_result_persistence.py, test_batch_wrapper_registration.py,
+    test_batch_execution_lock_and_cancel.py, test_batch_group_current_execution_scope.py,
+    test_d8_2_batch_official_path.py → 62 passed, 0 failed
+  합계 161건 전부 통과(0 failed) — 실패가 전혀 없어 baseline 대조가 불필요할 만큼 명확한
+  무회귀 확인(순수 추가 컬럼 + 선택 인자 설계가 기존 경로에 부작용 없음을 실측으로 뒷받침).
+
+[검증-4] CLAUDE.md 필수 회귀 최종 1회
+  - python samples/test_virtual_cases.py → 8/8 통과
+  - python samples/test_complex_cases.py → 5/5 통과
+
+================================================================================
+3. 증적 — UI 변경 없음(지시대로 스크린샷 대신 DB 조회 결과 + 로그)
+================================================================================
+위 [검증-2] 의 SQL 조회 결과(batch_execution_state/batch_wrapper_result 실측 값)가 증적이다.
+UI 파일(ui/js_job_dashboard.py, ui/tabler_renderer.py) 변경 0건 — git status 로 재확인.
+
+================================================================================
+4. 커밋 / 파일 범위
+================================================================================
+커밋: f67cf9a (동시 진행 세션이 오늘 이미 생성, 이번 작업에서 내용 전수 검증)
+  git show --stat 결과: 5 files changed, 79 insertions(+), 13 deletions(-)
+    routes/batch_route.py                        | 10 ++++--
+    services/batch/wrapper_async_job.py           |  9 +++--
+    services/batch_execution_state_service.py     | 54 ++++++++++++++++++++----
+    services/job_registry.py                      |  5 +++
+    tests/test_batch_async_parallel_wrapper.py    | 14 ++++++--
+이번 작업(검증 세션)은 코드 저장소에 신규 커밋을 추가하지 않았다(기존 구현이 지시와 완전히
+일치해 재작성 불필요 — 재현용 DB 행은 검증 후 삭제해 코드/데이터 변경 잔존 없음).
+verify 저장소(E:\_rpt_push)에는 이 완료보고 + BACKLOG.md F10 항목 갱신(✅ 완료 마크,
+구현 요약, UI 범위 제외 재확인)을 커밋·push함.
+
+================================================================================
+5. 남은 범위 (지시대로 이번 작업 밖)
+================================================================================
+현황판에서 batch job 클릭 가능화(UI 노출)는 별도 작업·별도 승인 대상. 스키마·배선은 이제
+준비돼 있으므로, 향후 그 작업을 승인할 때는 result_execution_run_id 를 근거로 안전하게 열 수
+있다(예: job_registry 가 이미 extra 로 내려주는 값을 이용해 "이 실행이 실제로 만든 결과"만
+연결). 진단서가 경고한 "성급하게 (나)안 수준으로 열면 47.9% 확률로 오배정/빈 화면 노출" 위험은
+이제 이 FK 를 근거로 회피 가능하다는 점을 다음 작업 착수 시 참고할 것.
+
+작업명: F10-APPROVED-A-OPTION-SCHEMA-CHANGE-IMPLEMENT
+✅ 작업 완료 - F10-APPROVED-A-OPTION-SCHEMA-CHANGE-IMPLEMENT - 결과회차 FK 컬럼(result_execution_
+run_id) 추가로 batch_execution_state/batch_wrapper_result id 체계 이중화 오배정(32.4%) 근본해소.
+코드는 동시 진행 세션이 이미 커밋(f67cf9a)해둔 상태였음을 확인하고, 지시된 필수 검증 4종을
+전부 독립 재수행해 실측·회귀 확인 후 완료보고 및 BACKLOG.md 갱신.

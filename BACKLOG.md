@@ -2059,7 +2059,29 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\F8-RESULT-VIEW-RUNID-DECOUPLE-SCOPE-DIAGNOSE.txt
 - 참고: E:\verify_reports\F9-APPROVED-IMPLEMENT-THEN-F8-SUMMARY-VIEW-PHASE1.txt
 
-### F10. 일괄검증 현황판의 job id 로는 결과를 찾을 수 없다(id 체계 이중화) — 32.4% 오배정은 아직 미노출(현황판이 batch job 클릭을 원천 차단 중), 착수 시 반드시 (가)안(근본해결)으로만 갈 것
+### F10. ✅ (가)안(FK 컬럼) 구현 완료 — 32.4% 오배정 근본해소, UI 노출은 별도 작업(의도적 범위 밖)
+- 발견일: 2026-07-27 / 재조사: 2026-08-06 / (가)안 구현: 2026-08-06
+  (F10-APPROVED-A-OPTION-SCHEMA-CHANGE-IMPLEMENT, 코드 커밋 f67cf9a)
+- 구현 요약: `batch_execution_state`에 `result_execution_run_id` 컬럼 추가(M13 패턴 재사용,
+  기존 DB 멱등 보강 — `_ensure_result_execution_run_id_column`). 오케스트레이터 3곳
+  (`services/batch/wrapper_async_job.py::_run_job`, `routes/batch_route.py`의
+  `run_uploaded_rows_via_wrapper`·`run_uploaded_rows_count_only`)에서
+  `batch_wrapper_result_store.save_wrapper_results()`가 반환한 `execution_run_id`를
+  `batch_execution_state_service.complete_run()`에 전달해 기록. `job_registry.py`
+  `dto_from_batch_row`가 `extra.result_execution_run_id`로 노출(SELECT * 조회라 화이트리스트
+  우회 불필요 — F9와 구조적으로 다른 지점).
+- 실측 검증(2026-08-06): 같은 batch_run_id로 실행 2회(간격 1.1초, 완료 exec 2건 재현) →
+  각 실행의 `result_execution_run_id`가 자기 회차와 정확히 일치, 그 값으로 조회하면
+  `batch_wrapper_result`에서 해당 회차의 결과만 정확히 분리 조회됨을 실측 확인(오배정 해소
+  실증). 기존 DB(컬럼 없음) 시뮬레이션으로 ALTER TABLE 멱등 보강 경로도 재확인.
+  관련 회귀(batch_execution_state/wrapper_result/async_wrapper/job_registry/batch_route
+  등) 161건 통과, CLAUDE.md 필수 회귀(virtual 8/8·complex 5/5) 통과.
+- **UI 노출(현황판 batch job 클릭 가능화)은 이번 구현 범위에 포함하지 않았다** — 아래 원본
+  분석의 "위험 임계점"(성급히 열면 47.9% 확률로 오배정/빈 화면 노출) 경고 그대로,
+  `ui/js_job_dashboard.py`의 `source==='single'` 클릭가능 판정은 무수정. 스키마·배선은
+  준비됐으므로 UI를 열 때는 이 FK를 근거로 안전하게 열 수 있다(별도 작업·별도 승인 대상).
+- 아래는 착수 전 재조사 시점(2026-08-06) 원본 분석(참고용 — 대응 방향 문단은 구현 완료로
+  더 이상 유효하지 않음, 위 구현 요약이 최신):
 - 발견일: 2026-07-27 / 재조사: 2026-08-06 (F10-BATCH-JOBID-RESULT-DECOUPLE-SCOPE-RECHECK-DIAGNOSE)
 - 근거 보고서: `BATCH-EXECUTION-RESULT-VIEW-PREREQ-CHECK.txt`(최초) →
   `F10-BATCH-JOBID-RESULT-DECOUPLE-SCOPE-RECHECK-DIAGNOSE.txt`(재조사)
@@ -2091,9 +2113,10 @@ git -C E:/verify_reports worktree remove <임시경로>
   배치 실행 오케스트레이터(두 서비스를 잇는 지점, 아직 미특정) + `job_registry.py`
   (dto_from_batch_row 노출). 위험도 중간 — 스키마 변경은 M13 선례로 기술 위험은 낮으나
   오케스트레이터 배선 지점 미확정이 회귀 범위의 불확실 변수.
-- 대응 방향: **착수 여부·(가)안 채택은 사용자 승인 필요**(완료 모듈 스키마 변경).
+- 대응 방향: ~~착수 여부·(가)안 채택은 사용자 승인 필요~~ → 승인 완료, (가)안 구현 완료(위 요약 참조).
 - 참고: E:\verify_reports\BATCH-EXECUTION-RESULT-VIEW-PREREQ-CHECK.txt
 - 참고: E:\verify_reports\F10-BATCH-JOBID-RESULT-DECOUPLE-SCOPE-RECHECK-DIAGNOSE.txt
+- 참고: E:\_rpt_push\directives\F10-APPROVED-A-OPTION-SCHEMA-CHANGE-IMPLEMENT.md (구현 지시)
 
 ### F11. ✅ 본체 해소 완료 — 잔존은 명칭 불일치 6건 · 헤더 미등록 2건 등 경미 항목뿐
 - 발견일: 2026-07-27 / 재집계: 2026-08-05
