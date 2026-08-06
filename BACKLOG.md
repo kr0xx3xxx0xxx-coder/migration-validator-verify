@@ -3031,6 +3031,42 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 근거 보고서: E:\verify_reports\STAGE-EXEC-STOP-TOGGLE-AND-LOCK-SCOPE-DIAGNOSE.txt
 - 근거 보고서: E:\verify_reports\STAGE-EXEC-CROSS-STAGE-CONTAMINATION-AND-STOP-BUTTON-FIX.txt
 
+### M44. ✅ 해결 완료 — M43이 신설한 2·4단계 별도 중단버튼이 재렌더에 쓸려나가 깜빡였다(화면표시 문제, 기능 자체는 안 죽음) — 기존 실행버튼 자체를 토글하는 방식으로 재설계
+- 발견일: 2026-08-06 (사용자 실측 — 실서버 포트 8000에서 "중단 버튼이 잠깐 떴다가
+  사라진다" 직접 보고) / 해결일: 2026-08-06 (STAGE1-4-RUN-BUTTON-UNIFIED-STOP-TOGGLE-FIX)
+- 상세: M43(STAGE-EXEC-CROSS-STAGE-CONTAMINATION-AND-STOP-BUTTON-FIX)이 2·4단계에 별도
+  "■ 중단" 형제 엘리먼트를 1회성 삽입했는데, 클릭 0.2초 뒤 다른 경로가 커맨드바 전체를
+  재생성하면서(config 기준 innerHTML 통째 재생성) 그 형제 엘리먼트가 사라졌다. 200ms
+  폴링 실측으로 재렌더 1→7회 급증 시점에 소멸을 정확히 특정. 사라진 뒤에도 콘솔에서
+  직접 abort 함수를 호출하면 즉시 취소됨을 확인해 [화면표시 문제]로 확정(서버
+  CancelToken 체인 자체는 M43대로 살아있었음, 기능 소실 아님).
+- 해결 요약(사용자 지시로 설계 단순화): 별도 버튼 신설 방식을 폐기하고, **기존 실행
+  버튼 자체**를 in-progress 플래그 하나(단일 진실 출처)로 토글하는 방식으로 재설계.
+  클릭 즉시(동기) 같은 버튼을 "■ 중단"으로 바꾸고, 처리 종료 시 원래대로 복귀. 몇 번
+  재렌더가 일어나도 항상 같은 버튼 하나만 그리므로 소멸이 구조적으로 불가능해짐.
+  1·3단계(순식간에 끝남)에도 화면 일관성을 위해 동일 적용(사용자 확정).
+  재검증: 수정 후 11회 재렌더에도 깜빡임 0건, **실제 Playwright DOM 클릭**(콘솔 함수
+  호출 아님)으로 2단계 3.09초·4단계 3.58초 만에 서버 쿼리 실제 취소 확인.
+  회귀 176건 통과, baseline 대조 신규 회귀 0건.
+- 근거 보고서: E:\verify_reports\STAGE1-4-RUN-BUTTON-UNIFIED-STOP-TOGGLE-FIX.txt
+
+### M45. 재이관 이어하기(resumable) 목록이 프로젝트/테이블로 스코프되지 않아, 무관한 과거 orphan 체크포인트가 현재 세션에 "복구 필요" 상태로 되살아난다
+- 발견일: 2026-08-06 (M44 작업 검증 중 부수 발견, 투명성 목적으로 정직하게 기록됨 —
+  이번 작업의 코드 변경과는 무관함을 baseline 대조로 확인)
+- 상세: `_mvExecReenterRestore()`(기존 기능, D7-19)가 `/agg-diff/resumable`을 조회할 때
+  **세션/프로젝트/테이블 구분 없이 전역 목록**에서 가장 최근 미완료 체크포인트를 가져온다.
+  M44 검증 중 실제로 오늘 이전 세션의 PostgreSQL 주문 테이블 관련 orphan 체크포인트
+  (run_id=PSF5D8441DAB50, 이번 오라클 픽스처와 전혀 무관)가 재발견되어, 지금 작업 중인
+  실행 패널이 뜬금없이 "직전 실행의 잔여 상태를 정리했습니다"라는 자기치유 안내와 함께
+  "복구 필요" 상태로 되살아나는 게 실측 확인됐다. baseline(HEAD, 별도 워크트리·포트)에
+  동일 클릭 시퀀스를 재현했을 때는 발생하지 않았고, 최소 재현 스크립트로도 동일 증상이
+  나와 코드 변경이 아니라 **서버측 orphan 데이터 + 무조건 전역 폴백하는 기존 로직의
+  조합**임이 확정됐다. 검증 재개를 위해 `db/chunk_checkpoints.db`의 해당 1개 행만
+  status='CANCELLED'로 정리했다(DELETE 아님, 이번 작업과 무관한 과거 테스트 잔재 1건).
+- 대응 방향: 미조사. `/agg-diff/resumable` 조회에 project_id·table_key 스코프 필터를
+  추가하는 방향이 유력해 보이나, 착수 전 범위 진단 필요.
+- 근거 보고서: E:\verify_reports\STAGE1-4-RUN-BUTTON-UNIFIED-STOP-TOGGLE-FIX.txt (§3-3)
+
 ---
 
 ## 부록 — 환경 때문에 미완인 실측(코드 결함 아님)
