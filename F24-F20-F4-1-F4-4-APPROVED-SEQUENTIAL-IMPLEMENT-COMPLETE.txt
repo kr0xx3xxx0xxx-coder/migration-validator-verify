@@ -1,0 +1,166 @@
+작업명: F24-F20-F4-1-F4-4-APPROVED-SEQUENTIAL-IMPLEMENT
+✅ 작업 완료 - F24-F20-F4-1-F4-4-APPROVED-SEQUENTIAL-IMPLEMENT - 승인된 4건(F24→F20→F4-1→F4-4)을
+지시된 순서대로 순차 구현·검증·개별 커밋 완료, 각 순위 관련 회귀 + baseline worktree 대조로
+신규 회귀 0건 확인, CLAUDE.md 필수 회귀(virtual 8/8·complex 5/5) 최종 1회 통과
+
+================================================================================
+1순위 — F24: tier3 단일 PK GROUP BY 후보 완전 배제
+================================================================================
+커밋: f5f983b
+
+파일:라인
+  analyzer/column_analyzer.py  _select_groupby_columns()
+    - tier3 분기(elif is_ts and is_pk and not is_meaningless: tier3.append(entry)) 완전 제거.
+    - 대신 루프 진입부에 `if is_pk: continue` 를 추가해, 시계열/코드성 명칭 여부와 무관하게
+      단일 PK 는 GROUP BY 후보 목록 생성 자체에서 제외되도록 변경(강등이 아니라 배제).
+    - is_meaningless 변수는 tier3 분기 삭제로 dead code 가 되어 함께 제거.
+  samples/virtual_sql_cases.py  case04(TB_ORDER_SUMMARY, PK=ORDER_YM 시계열CHAR6)
+    - expected.groupby_cols 를 ["CUST_GBN","CHANNEL_SE","ORDER_YM"] → ["CUST_GBN","CHANNEL_SE"]
+      로 갱신(F24 가 정확히 겨냥한 시나리오 — 수정 전 실패 재현 후 기대값 정정).
+
+검증
+  - samples/test_virtual_cases.py 8/8, samples/test_complex_cases.py 5/5 통과
+  - scripts/dev_e2e/is_pk_column_analyzer_branch_check.py 재실행:
+      B-4 시계열 단일 PK: before 자동GB=[ORDER_YM,STATUS_CD] → after=[STATUS_CD] (ORDER_YM 완전 소멸)
+      B-4 tier1/2 포화: before=[ORDER_YM,REGION_CD,STATUS_CD] → after=[REGION_CD,STATUS_CD]
+      B-2(숫자 단일PK SUM배제)/B-3(코드성 단일PK GB탈락) 무변화 확인 — SUM 등 다른 소비처 영향 없음
+  - pytest tests/ -k "column_analyzer or groupby or tier3 or is_pk" 365 passed 기준,
+    차집합 2건(test_groupby_safety_facade 라이브PG 1건, test_validation_set_planner 1건)은
+    git worktree baseline(HEAD) 대조로 각각 "프리셋 파일 미복사로 인한 사전존재 실패" ·
+    "테스트 순서 의존 flaky"로 확정(F24 무관, 재현 완료)
+
+================================================================================
+2순위 — F20: 조합 그룹수 과대추정 "종속 의심" 플래그 추가
+================================================================================
+커밋: db7be19
+
+파일:라인
+  services/column_profile_service.py (파일 끝에 추가)
+    - collect_pair_distinct_sample() 신설. 기존 SAMPLE_SRC(5만행 CTE)+statement_timeout(15s)
+      예산을 그대로 재사용해, 지정된 소수 컬럼쌍의 COUNT(DISTINCT a||sep||b) 를 1회 배치 쿼리로
+      실측(쌍 개수만큼 왕복 증가 없음). oracle/postgresql/mysql/mssql 4방언 NULL-safe 캐스팅
+      표현식(_pair_null_safe_text_expr) 포함.
+  services/candidate_postcount_finalize.py
+    - _PAIR_DEPENDENCY_SUSPECT_RATIO=0.5, _MAX_PAIR_DEPENDENCY_PAIRS=3 상수 추가.
+    - _detect_pair_dependency_signals() 신설: 최종 auto_selected GROUP BY 축(최대 3개→조합
+      최대 3쌍)에만 실측 적용, 곱 대비 실측 비율 0.5 미만이면 양쪽 후보에 대칭으로
+      pair_dependency_signals 부착. 실패/DB 미접속은 조용히 무시.
+    - finalize_recommendation_postcount() 끝(⑧ 단계)에 호출 추가.
+  services/groupby_plan_service.py
+    - _pair_dependency_signal() 신설(조회 전용, 재계산 없음).
+    - _excl()/pair_pick/pair_candidate 에 dependency_suspected 필드를 있을 때만 추가(est/포함·
+      제외 판정 로직은 한 글자도 변경 없음 — 순수 표시 배지).
+
+검증
+  - scripts/dev_e2e/f20_pair_dependency_live_verify.py: PostgreSQL 실접속(db_presets_src.json)
+    으로 전용 임시 테이블(1000행, 실행 후 DROP)에 통제된 1:1 종속쌍(곱100/실측10)·통계적
+    독립쌍(곱100/실측100)을 실측 — 종속쌍 플래그 True, 독립쌍 플래그 False,
+    build_groupby_execution_plan 의 est·세트 구성은 신호 유무와 무관하게 완전 동일 확인
+  - tests/test_f20_pair_dependency_signal.py 신규 10건(대칭 부착/ratio 경계/자동선정 아닌 축
+    제외/DB 미접속 무시/판정 불변+배지만 추가/4방언 캐스팅) 전부 통과
+  - pytest tests/ -k "candidate_postcount or column_profile or groupby_plan or postcount_finalize
+    or f20" 66 passed, 신규 실패 0건
+  - tests/test_postcount_finalize.py 등 12건 통과, 실패 2건(test_fallback_promote_golden,
+    test_audit_fixture_cases_all_pass)은 date_bucket fallback 영역으로 무관 —
+    IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX(2026-08-02) §9-3 사전 존재 실패 목록과
+    동일 node id
+
+================================================================================
+3순위 — F4-1: table_key에 스키마 포함(폴백 조회 필수 동반)
+================================================================================
+커밋: 2ca7ad8
+
+파일:라인
+  services/single_validation_analyze_service.py:1664 부근
+    - override_table_key 를 tgt_table(bare) 대신 parse_result.get("tgt_table_qualified")
+      (§707, qualify_insert_target_from_sql 결과)로 교체. 그 함수 자체는 무수정 — COUNT SQL
+      생성 등 다른 소비처 영향 없음. 원본 SQL에 스키마가 없으면 707행 폴백으로 bare 그대로
+      떨어진다(진단서가 명시한 한계, 이번 구현에도 그대로 남음).
+  services/admin_column_override_store.py
+    - _bare_table_key() 헬퍼 신설(단일 출처) — qualified 키에서 스키마 접두 제거.
+    - get_override(): qualified 키로 못 찾으면 bare 키로 한 번 더 조회(폴백). resolve_override
+      는 get_override 를 위임 호출하므로 자동으로 함께 적용됨.
+    - resolve_override_from_index()(일괄검증 색인 경로): 동일 폴백 적용 — 개별/일괄 두 경로가
+      서로 다른 결과를 내는 split-brain 방지.
+
+검증
+  - tests/test_admin_column_override.py 신규 7건: bare 키 저장분이 qualified 키 조회로도
+    여전히 찾아짐(폴백 실측), qualified 신규 저장은 폴백 없이 1차 성공(무회귀), 스키마 다른
+    동명 테이블 2개(SCHEMA_A.T_SAME_NAME/SCHEMA_B.T_SAME_NAME) 확정이 더 이상 안 섞임,
+    PROJECT_COLUMN 스코프 무관, 일괄검증 색인 경로도 개별검증과 동일 규칙 — 전체 35 passed
+  - tests/test_f4_1_admin_override_table_key_qualify.py 신규 3건: run_single_validation_analyze
+    실측으로 스키마 명시 SQL → override_table_key == parse_result.tgt_table_qualified
+    ("tobe01.t_to_n_etl01") 정확 일치, 스키마 미표기 SQL → bare 로 떨어지는 한계 재현·고정
+  - samples/test_virtual_cases.py 8/8, samples/test_complex_cases.py 5/5 통과
+  - pytest tests/ -k "admin_column_override or admin_override or override_context or
+    stage3_preserve" 49 passed
+  - single_validation_analyze_service.py 직접 소비 테스트 31파일(402건): git worktree
+    baseline(HEAD db7be19) 대조로 14 failed 가 실패 node id·건수 완전 일치(sqlglot 제약/
+    parsed_model 소스마커/UI diagnostics 등 무관 사전 존재 실패) — 신규 회귀 0건
+
+한계(진단서가 이미 명시, 미해소): 스키마 미표기 SQL 에서는 여전히 bare 로 떨어져, 스키마 다른
+동명 테이블 충돌은 스키마가 SQL 에 명시된 경우에만 해소된다.
+
+================================================================================
+4순위 — F4-4: 관리컬럼 확정 시 자동선정 pool 재배치(신뢰경계 제한)
+================================================================================
+커밋: 2f79c77
+
+설계 선택: 진단서 제시 2안 중 (ii) "클라이언트는 식별자만 보내고 스코어는 서버가 들고
+있는 값으로만 판정" 채택(더 강한 신뢰경계 — 스키마 자체에 점수 필드가 없음).
+
+파일:라인
+  services/candidate_display_enricher.py — 무수정(enrich_candidates_for_display /
+    _apply_global_autoselection 모두 원본 그대로 재사용, 지시 그대로 준수).
+  services/candidate_recompute_cache.py (신설)
+    - put_snapshot()/get_snapshot(): analyze 시점 서버가 만든 enrich 입력(원본 후보+kwargs)을
+      project_id×table_key 키로 스냅샷(30분 TTL, 최대 200건 LRU, 프로세스 인메모리 — DB 아님,
+      deepcopy 격리). put_snapshot 은 서버 내부(analyze 호출부)에서만 호출됨.
+  services/single_validation_analyze_service.py — enrich_candidates_for_display 호출 직전
+    (기존 line 1647 부근)에 put_snapshot() 호출 1개 추가. enrich 호출 자체·판정 로직은 무변경.
+  routes/admin_column_override_route.py
+    - POST /admin-column-overrides/reapply-autoselection 신설.
+    - ReapplyAutoselectionPayload: project_id/table_key 두 필드뿐(점수·후보 데이터 필드 없음).
+    - 캐시 히트 시 저장된 원본 입력으로 enrich_candidates_for_display() 를 그대로 재호출(방금
+      저장된 확정은 그 안의 apply_admin_column_overrides 가 store 를 재조회하며 자연 반영).
+    - 캐시 미스 시 success=False,cache_hit=False 로 알려 화면이 전체 재분석으로 폴백하게 함.
+
+검증
+  - tests/test_f4_4_reapply_autoselection.py 신규 10건: 요청 스키마 필드=project_id/table_key
+    뿐임을 화이트박스 확인, 모델에 없는 필드(score/candidates)는 파싱 후 남지 않음, 캐시 미스
+    폴백 신호, "DB 재접속 없이(캐시만 재사용) 확정 버튼 클릭 후 순위가 실제로 갱신되는지" 실측
+    (STATUS_CD 확정(AUDIT) → 자동선정 pool 에서 실제 배제, REGION_CD 는 그대로 유지 — 과도한
+    재배치 없음), 라우트 결과 == enrich_candidates_for_display 직접 호출 결과(별도 판정 로직
+    없음 증명), 캐시 deepcopy 격리·프로젝트 격리 — 전체 10 passed
+  - samples/test_virtual_cases.py 8/8, samples/test_complex_cases.py 5/5 통과
+  - tests/test_admin_column_override.py 등 F4 관련 59 passed
+  - single_validation_analyze_service.py 직접 소비 402건: F4-1 커밋 시점과 동일한 14건만 실패
+    (무관 사전 존재), 신규 회귀 0건
+  - tests/test_global_autoselection_policy.py 5 failed 는 오늘 세션 시작 시점 HEAD(5a36700,
+    F24/F20/F4-1 이전) worktree 대조로 완전히 동일한 5건임을 확인 — _apply_global_autoselection
+    은 이번 구현에서 전혀 수정하지 않았음에도 baseline 부터 실패 중이던 사전 존재 결함
+  - web_server.py 로드 확인(255 라우트, /admin-column-overrides/reapply-autoselection 정상 등록)
+
+한계(설계상 의도, 승인 범위 밖이라 이번 구현에 미포함): Step 3(컬럼 선정) 재확정
+(candidate_postcount_finalize.py) 호출부는 스냅샷을 갱신하지 않는다 — Step 1(analyze) 직후
+확정하는 흐름만 캐시 적중한다. Step 3 재확정 이후 확정하면 캐시 미스로 안전하게 전체 재분석
+폴백이 뜬다(오판정 아님).
+
+================================================================================
+공통 — git 안전 조치 / 최종 확인
+================================================================================
+- 코드 저장소(migration-validator)는 다른 세션과 작업트리를 공유하므로, 매 순위 완료·자체
+  테스트 통과 직후 즉시 pathspec 커밋(git commit -F <msg> -- <내 파일만>)으로 노출 시간을
+  최소화했다. 4개 커밋 전부 git show --stat 로 재확인해 남의 미커밋 변경(.claude/settings.json,
+  ui/tabler_renderer.py — 다른 세션이 여전히 작업 중)이 전혀 섞이지 않았음을 확인.
+- F24/F4-1/F4-4 baseline 대조는 git worktree(+ db/migration_validator.db, db_presets_*.json
+  캐시 정합 복사) 로 수행하고 작업 종료 시 모두 제거(git worktree remove --force). 메인
+  작업트리는 무접촉.
+- 최종 CLAUDE.md 필수 회귀: samples/test_virtual_cases.py 8/8, samples/test_complex_cases.py
+  5/5 — 4개 커밋 전부 반영된 상태에서 마지막 1회 재확인 통과.
+- 코드 저장소 push 는 하지 않았다(규칙대로 커밋까지만).
+
+작업명: F24-F20-F4-1-F4-4-APPROVED-SEQUENTIAL-IMPLEMENT
+✅ 작업 완료 - F24-F20-F4-1-F4-4-APPROVED-SEQUENTIAL-IMPLEMENT - 승인된 4건(F24→F20→F4-1→F4-4)을
+지시된 순서대로 순차 구현·검증·개별 커밋 완료, 각 순위 관련 회귀 + baseline worktree 대조로
+신규 회귀 0건 확인, CLAUDE.md 필수 회귀(virtual 8/8·complex 5/5) 최종 1회 통과
