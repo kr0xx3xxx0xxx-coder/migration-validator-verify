@@ -2956,9 +2956,9 @@ git -C E:/verify_reports worktree remove <임시경로>
   100% 일치 확인. 이 작업 과정에서 새로 발견된 재실행 안전성 위험은 M42로 별도 등록·해결됨.
 - 참고: E:\verify_reports\SCHEMA-SQL-M37-M39-SYNC.txt
 
-### M41. [높음, 심각도 상향] 암호화 컬럼 제외 기능의 입력 경로 자체가 없다 — "가끔 깜빡하면 풀림"이 아니라 "상시 OFF"다
-- 발견일: 2026-08-05 (F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE 조사 중 부수 발견) /
-  재조사: 2026-08-06 (M41-ENCRYPTION-FLAG-STORAGE-SCOPE-DIAGNOSE)
+### M41. ✅ Phase1(저장소+배선) 완료 — UI 업로드 위젯은 별도 승인 대상으로 남음
+- 발견일: 2026-08-05 / 재조사: 2026-08-06 / Phase1 해결일: 2026-08-06
+  (M41-ENCRYPTED-COLUMN-INPUT-PATH-PHASE1-STORAGE-AND-WIRING, 코드 커밋 b651b59)
 - 상세(재조사로 원 서술 정정 — 실제가 더 심각함): 정책 로직(`encrypted_column_policy.py`
   로더/부착기/생산자)과 소비 측(exact_diff, agg_diff_route, candidate_engine 원천배제)은
   전부 정상 배선돼 있다. 그러나 **이 값을 서버로 실어보내는 입구가 없다** —
@@ -2969,18 +2969,20 @@ git -C E:/verify_reports worktree remove <임시경로>
   기존 회귀 테스트(`test_encrypted_column_exclusion.py`, 신규 코드 없이 실행)로 실제
   거짓 불일치를 재현: 암호문만 다른 30건 → encrypted_cols 미지정 시 30건 전부 거짓
   불일치(오늘 실제 운영 경로와 동일 상태), 명시 시 0건·정상 매치.
-- 대응 방향(권장안 확정, 착수는 별도 승인 필요): 신규 테이블(가칭
-  `column_encryption_flag`, `admin_column_override_store.py`와 동형 패턴 — 키 축
-  UNIQUE(project_id, table_key, column_name)) 채택. M39 semantic_dictionary_entry
-  확장안은 **기각** — 그건 전역 term 사전이라, 한 이관 정의서의 "RRN=암호화"가 다른
-  프로젝트·다른 이관의 RRN 계열 컬럼까지 조용히 과다제외시키는 **반대 방향의 새 조용한
-  오탐(거짓 매칭)**을 만든다(현재 문제인 과소제외/거짓불일치를 고치려다 반대 결함을 심는 셈).
-  저장 테이블만으론 미해결 — 완전 해결에는 (1)저장 테이블 (2)정의서 업로드/입력 UI
-  (3)AnalyzeRequest 스키마 필드+attach_encrypted_columns_from_request 저장소 폴백 배선
-  3가지가 함께 필요(이번 진단 범위 밖, 예상 위험도 중간 — UI 신설 포함 시 CLAUDE.md
-  기능/구조 변경 사전승인 절차 필요).
+- Phase1 해결 요약: `services/column_encryption_flag_store.py` 신규(admin_column_override_store.py
+  동형 패턴, 키 UNIQUE(project_id, table_key, column_name)), `db/schema.sql`에 즉시 반영(M40/M42
+  때처럼 나중으로 미루지 않음), `AnalyzeRequest`에 `encrypted_columns`/`column_mapping` 필드 추가로
+  스키마 드롭 해소, `attach_encrypted_columns_from_store` 신설로 요청>저장소>안전기본값(OFF) 우선순위
+  계층 완성. 진단서가 재현한 거짓불일치 시나리오가 저장소 폴백 경로로도 해소됨을 신규 테스트로 확인.
+  git worktree로 병합 전 HEAD 대조해 광범위 서브셋 실패 26건이 전부 무관한 사전 존재 실패임을 검증.
+  M39 semantic_dictionary_entry 확장안 기각 사유(전역 term 사전이라 반대방향 과다제외 위험)는 그대로
+  유지·재확인.
+- 잔존(Phase2, 별도 승인 필요): 정의서 업로드/입력 UI 위젯이 아직 없어, 지금 저장소에 값을 채우는
+  유일한 방법은 관리자 스크립트로 `save_flag()` 직접 호출뿐이다. HTTP 라우트도 미신설(이번 범위 아님).
+  UI 신설은 CLAUDE.md 기능/구조 변경 사전승인 절차 대상.
 - 근거 보고서: E:\verify_reports\F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE.txt
 - 근거 보고서: E:\verify_reports\M41-ENCRYPTION-FLAG-STORAGE-SCOPE-DIAGNOSE.txt
+- 근거 보고서: E:\verify_reports\M41-ENCRYPTED-COLUMN-INPUT-PATH-PHASE1-STORAGE-AND-WIRING.txt
 
 ### M42. ✅ 해결 완료 — M37~M39 스키마 정본(`db/schema.sql`) 반영 과정에서 새로 생긴 재실행 안전성 위험
 - 발견일: 2026-08-06 (SCHEMA-SQL-M37-M39-SYNC 완료보고 §5) / 해결일: 2026-08-06
