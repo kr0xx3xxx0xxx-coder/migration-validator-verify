@@ -1,0 +1,88 @@
+...........s......................................F..................... [ 11%]
+.......................................s................................ [ 23%]
+........................................s.........ssssssssssssssssssssss [ 35%]
+......................................ssssss..................FF........ [ 47%]
+....................ssss.....s.......................ss................. [ 59%]
+.......................................................s.......... [ 70%]
+.......................................................s................ [ 82%]
+..........s.................................sssss....F.................. [ 94%]
+...............................                                    [100%]
+================================== FAILURES ===================================
+__________________________ test_node_row_list_render __________________________
+
+    def test_node_row_list_render():
+        if not _have_node():
+            pytest.skip("node 미설치")
+        html = _node("console.log(_mvRenderBatchRowList(" + _ROWS_JS + ", 'ALL', '1'));")
+>       assert "row_id" in html and "KEY_RANGE_SPLIT" in html and "1 / 6" in html   # 선택 '1' 위치
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       assert ('row_id' in '<div style="font-size:.8rem;color:#374151;margin-bottom:4px">필터 <b>ALL</b> · 위치 1 / 6 · 총 <b>6</b>행 · Page 1 / 1</div...ass="text-secondary" style="font-size:.72rem;margin-top:3px">Row 클릭 시 개별검증 상세(개별 Grid 재사용)를 엽니다. 자동 이동/자동 실행 없음.</div>')
+
+tests\test_batch_ui.py:92: AssertionError
+______________________ test_next_strategy_preview_matrix ______________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000258029752B0>
+
+    def test_next_strategy_preview_matrix(monkeypatch):
+        ck = {"src_expr": "id", "tgt_expr": "id", "type": "NUMBER", "confirmed": True}
+        assert _cap(["S"], monkeypatch, chunk=ck) == "NEXT_KEY_RANGE"        # 확정 CHUNK_KEY → KEY_RANGE
+        assert _cap(["S"], monkeypatch, axes=["R"]) == "NEXT_GROUP_SCOPE"    # 남은 확정 축 우선
+>       assert _cap([], monkeypatch, hash_only=True) == "HASH_BUCKET_REQUIRED"
+E       AssertionError: assert 'NEXT_KEY_RANGE' == 'HASH_BUCKET_REQUIRED'
+E         
+E         - HASH_BUCKET_REQUIRED
+E         + NEXT_KEY_RANGE
+
+tests\test_diagnosis_phase3b.py:105: AssertionError
+____________________ test_start_passes_confirmed_chunk_key ____________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000258029750F0>
+
+    def test_start_passes_confirmed_chunk_key(monkeypatch):
+        """diagnosis_start 가 재확인된 chunk_key 를 엔진까지 전달한다(BLOCKED/None 후보는 미전달)."""
+        import routes.diagnosis_route as dr
+        seen = {}
+    
+        def _fake_diag(**kw):
+            seen.update(kw)
+            class _R:  # 최소 run stub
+                run_id = "x"; status = "DONE"; stop_reason = ""; strategy = "GROUP_SCOPE"
+                started_at = ""; finished_at = ""; persist = False
+                class context: origin_type = "INDIVIDUAL"; target_table = "t"
+                class budget: max_nodes = 100; spent_nodes = 0
+                chunk_key = None; confirmed_group_axes = []; match_key_only_unsupported = False
+            return _R()
+        monkeypatch.setattr("services.diagnosis.adapters.individual_adapter.diagnose_individual_mismatch", _fake_diag)
+        monkeypatch.setattr(dr, "_run_view", lambda run, store: {"ok": True})
+        ck = {"src_expr": "id", "tgt_expr": "id", "type": "NUMBER", "confirmed": True}
+        monkeypatch.setattr(ke, "resolve_confirmed_chunk_key", lambda **kw: ck)
+        req = dr.DiagnosisStartRequest(execute_result={}, src_sql="s", tgt_sql="t", groupby_cols=["S"],
+                                       src_conn={"a": 1}, tgt_conn={"b": 1})
+        dr.diagnosis_start(req)
+        assert seen.get("chunk_key") == ck                                   # contract 재확인 chunk_key 전달
+        # 비확정(None) 이면 전달 안 함
+        monkeypatch.setattr(ke, "resolve_confirmed_chunk_key", lambda **kw: None)
+        seen.clear(); dr.diagnosis_start(req)
+>       assert seen.get("chunk_key") is None
+E       AssertionError: assert {'confirmed': True, 'src_expr': 'id', 'tgt_expr': 'id', 'type': 'NUMBER'} is None
+E        +  where {'confirmed': True, 'src_expr': 'id', 'tgt_expr': 'id', 'type': 'NUMBER'} = <built-in method get of dict object at 0x0000025802ABEE80>('chunk_key')
+E        +    where <built-in method get of dict object at 0x0000025802ABEE80> = {'budget': DiagnosisBudget(max_nodes=100, max_depth=3, spent_nodes=0, max_seconds=None), 'chunk_key': {'confirmed': True, 'src_expr': 'id', 'tgt_expr': 'id', 'type': 'NUMBER'}, 'confirmed_group_axes': [], 'execute_result': {}, ...}.get
+
+tests\test_diagnosis_phase3b.py:134: AssertionError
+______________________________ test_sample_only _______________________________
+
+    def test_sample_only():
+        plan = _plan([_grp("D", 80, rows=9_000_000)], strategy="ROW_DIFF_ALLOWED")   # 과대 → SAMPLE
+>       assert plan["scope_items"][0]["recommended_action"] == "SAMPLE_ROW_DIFF_ONLY"
+E       AssertionError: assert 'ROW_DIFF_ALLOWED' == 'SAMPLE_ROW_DIFF_ONLY'
+E         
+E         - SAMPLE_ROW_DIFF_ONLY
+E         + ROW_DIFF_ALLOWED
+
+tests\test_scope_execution.py:100: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_batch_ui.py::test_node_row_list_render - assert ('row_id' i...
+FAILED tests/test_diagnosis_phase3b.py::test_next_strategy_preview_matrix - A...
+FAILED tests/test_diagnosis_phase3b.py::test_start_passes_confirmed_chunk_key
+FAILED tests/test_scope_execution.py::test_sample_only - AssertionError: asse...
+4 failed, 551 passed, 46 skipped, 12 subtests passed in 69.92s (0:01:09)
