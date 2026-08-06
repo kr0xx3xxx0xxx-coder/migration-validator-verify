@@ -1,0 +1,105 @@
+작업명: STAGE4-SECTION-TITLE-AND-CARD-BORDER-CONSISTENCY-FIX
+✅ 작업 완료 - 4단계(통계검증 실행) 상단 타일에 1~3단계와 동일한 섹션 제목+카드 테두리 적용(실측 검증 완료)
+
+────────────────────────────────────────────────────────────────
+0. 기준 정보
+────────────────────────────────────────────────────────────────
+- 코드 저장소 워킹트리 HEAD(작업 시작 시점): 772ab0e
+- 코드 저장소 로컬 커밋(이번 작업, push 안 함): 3d4a248
+- 서버 재기동 시각(수정본 반영): 2026-08-06 19:02 경 (127.0.0.1:8000, 실 포트, 인증 ON)
+- 대조용 baseline 서버: git worktree(E:\_wt_s4base, HEAD 772ab0e detached) → 127.0.0.1:8021,
+  같은 db/migration_validator.db·db_presets_*.json 복사(계정/프리셋 동치), 실측 종료 후
+  worktree remove + 프로세스 종료 완료.
+- 수정 파일: ui/tabler_renderer.py 1개만 수정(지침 준수). 회귀 확인 중 발견된 테스트 계약 갱신
+  2개(tests/test_stage4_stats_validation_tile_layout.py, tests/test_stage4_postcount_progress_indicator.py)
+  및 신규 실측 하니스 1개(scripts/dev_e2e/stage4_section_title_card_border_verify.py) 추가.
+
+────────────────────────────────────────────────────────────────
+1. 배경/원인
+────────────────────────────────────────────────────────────────
+1~3단계는 상단 컨텍스트 타일 host(qrSummary/countOut/mvStage3CtxGrid)가 각각 카드
+(queryReviewCard/countCard/colSelectCard)로 감싸여 있어 섹션 제목(card-title)+카드 테두리를
+갖는데, 4단계 host(mvStage4CtxGrid)만 [STAGE4-STATS-VALIDATION-TILE-LAYOUT-FIX]에서 "sqlCard
+밖에 고정 선언"(SQL 카드는 생성 후에만 보이므로 그 안에 두면 진입 직후 라벨이 안 보임)하면서
+감싸는 카드 없이 그대로 노출됐다 — 순수 표시 누락(스크린샷 before 로 확인됨, §3).
+
+────────────────────────────────────────────────────────────────
+2. 구현
+────────────────────────────────────────────────────────────────
+ui/tabler_renderer.py 수정(그 파일만):
+- mvStage4CtxGrid 를 새 카드 #stage4CtxCard(card-header + h3.card-title "통계검증 실행" +
+  card-body)로 감쌌다. 제목은 1~3단계 명명 규칙(2·3단계는 sp-step-name/진행바 라벨과 동일 문구를
+  그대로 씀)을 따라 이 단계의 sp-step-name·mv-prog-title 문구인 "통계검증 실행"을 그대로 썼다
+  ("통계검증 실행 결과"는 하단 execResultCard 제목과 겹쳐 회피).
+- mvStage4CtxGrid id·내부 CSS(#mvStage4CtxGrid .mv-qr-tiles)·innerHTML 렌더 호출부는 전혀
+  건드리지 않았다(표시 구조만 변경, 로직/데이터 흐름 불변 — 지침 3 준수).
+- SINGLE_STEP_CARDS.validation 의 토글 대상을 'mvStage4CtxGrid' → 'stage4CtxCard'(카드 전체)로
+  교체했다. host 만 토글하면(.mv-pane-hidden 은 display:none) 다른 단계 화면에서 감싸는 카드의
+  제목+테두리만 빈 채로 남는 회귀가 생기기 때문 — 1~3단계도 카드 전체 단위로 토글하는 것과
+  동일한 원칙이다.
+
+────────────────────────────────────────────────────────────────
+3. 검증 — 실측(before/after, 1~4단계 실제 클릭스루)
+────────────────────────────────────────────────────────────────
+scripts/dev_e2e/stage4_section_title_card_border_verify.py 신규 작성(검증된 클릭스루 하니스
+oracle_date_bucket_live_clickthrough.py 재사용) — PostgreSQL_Inter pair, etl04 SQL 로 1→2(COUNT)
+→3(후보 SUM 1개 체크)→4(SQL 생성→실행)단계를 실제 브라우저 클릭으로 통과하며 각 단계 상단
+컨텍스트 타일 host 의 감싸는 카드 유무/제목 텍스트/카드 스타일(border-radius·box-shadow)을
+구조적으로 실측하고 전체화면 스크린샷을 남겼다.
+
+[구조 실측 결과 — before(8021, HEAD) vs after(8000, 수정본)]
+  1단계 qrSummary        : hasCardAncestor=true, 제목="쿼리 검토 결과"      (양쪽 동일, 기준)
+  2단계 countOut          : hasCardAncestor=true, 제목="COUNT 사전검증"     (양쪽 동일, 기준)
+  3단계 mvStage3CtxGrid   : hasCardAncestor=true, 제목="후보 컬럼 선정"     (양쪽 동일, 기준)
+  4단계 mvStage4CtxGrid
+    before(진입직후/SQL생성후/실행후 3회 모두): hasCardAncestor=false, 제목=null  ← 결함 재현
+    after (진입직후/SQL생성후/실행후 3회 모두): hasCardAncestor=true,
+      cardId="stage4CtxCard", 제목="통계검증 실행",
+      cardBorderRadius="12px", cardBoxShadow="rgba(15,23,42,.07) 0 2px 10px 0, ..."
+      → 1~3단계 카드와 border-radius/box-shadow 완전 동일(같은 .card 클래스), 위치(top=226/left=302/
+        width=1256)도 1·2단계 카드와 동일선상.
+
+스크린샷(before_S4_A_enter.png ↔ after_S4_A_enter.png) 육안 대조: before 는 타일이 제목·테두리
+없이 페이지에 바로 노출, after 는 "통계검증 실행" 카드 제목 + 테두리로 감싸여 2단계 "COUNT
+사전검증" 카드와 동일한 스타일로 보인다.
+
+무회귀 확인(같은 스크린샷 세트):
+  - after_S4_C_executed.png ↔ before_S4_C_executed.png: 타일 값(목적집계/원본집계/통계전략/
+    상태 등)·아래 "통계검증 SQL" 카드(원본/목적지 SQL 본문)·"◀ 이전/통계검증 다시 실행/다음▶"
+    액션 바 모두 동일 — 경고 배너·SQL 미리보기·실행상태 박스 레이아웃이 깨지지 않았다.
+  - pageerrors: before/after 모두 동일한 사전 존재 콘솔 404 1건만 있고 신규 pageerror 0건.
+
+────────────────────────────────────────────────────────────────
+4. 회귀 테스트
+────────────────────────────────────────────────────────────────
+- CLAUDE.md 필수 회귀: samples/test_virtual_cases.py 8/8 통과, samples/test_complex_cases.py 5/5 통과.
+- tests/test_stage4_stats_validation_tile_layout.py 42건: 1건 실패(문자열 리터럴 계약
+  "validation: ['mvStage4CtxGrid'" 이 카드 랩핑으로 'stage4CtxCard' 로 바뀜) → 계약을 새 구조에
+  맞게 갱신(호스트가 카드 안에 있는지 확인하는 assert 추가) → 42/42 통과.
+- tests/test_stage4_postcount_progress_indicator.py 6건: 1건 실패(pane 목록 멤버십 계약이 여전히
+  'mvStage4CtxGrid' 문자열을 찾음) → 'stage4CtxCard' 로 갱신 → 6/6 통과.
+- 위 변경 식별자(mvStage4CtxGrid/SINGLE_STEP_CARDS)를 참조하는 관련 11개 테스트 파일(총 180건)
+  일괄 재실행: 2건 실패는 baseline(HEAD, worktree)에서도 동일하게 재현되는 인코딩 관련 사전 존재
+  실패(콘솔 cp949 환경에서 한글 리터럴 비교, 이번 수정과 무관) → 신규 회귀 0건.
+
+────────────────────────────────────────────────────────────────
+5. 변경/생성 파일
+────────────────────────────────────────────────────────────────
+- ui/tabler_renderer.py (4단계 컨텍스트 타일 카드 래핑 — 지침대로 이 파일만 수정)
+- tests/test_stage4_stats_validation_tile_layout.py (카드 래핑 반영 계약 갱신)
+- tests/test_stage4_postcount_progress_indicator.py (pane 멤버십 계약 갱신)
+- scripts/dev_e2e/stage4_section_title_card_border_verify.py (신규, before/after 구조+스크린샷 실측 하니스)
+
+────────────────────────────────────────────────────────────────
+6. 증적
+────────────────────────────────────────────────────────────────
+E:\verify_screenshots_only\STAGE4-SECTION-TITLE-AND-CARD-BORDER-CONSISTENCY-FIX\
+  - before_S1_query_review.png / before_S2_count.png / before_S3_candidate.png
+  - before_S4_A_enter.png / before_S4_B_generated.png / before_S4_C_executed.png
+  - after_S1_query_review.png / after_S2_count.png / after_S3_candidate.png
+  - after_S4_A_enter.png / after_S4_B_generated.png / after_S4_C_executed.png
+  - stage4_section_title_card_border_verify_before.json / _after.json (구조 실측 원본 로그)
+(동일 파일을 E:\_rpt_push\STAGE4-SECTION-TITLE-AND-CARD-BORDER-CONSISTENCY-FIX\ 에도 복사해 push)
+
+✅ 작업 완료 - 4단계(통계검증 실행) 상단 타일에 1~3단계와 동일한 섹션 제목+카드 테두리 적용(실측 검증 완료)
+작업명: STAGE4-SECTION-TITLE-AND-CARD-BORDER-CONSISTENCY-FIX
