@@ -1,0 +1,38 @@
+작업명 : M20-ORACLE-NLS-COMP-BINARY-PIN-FIX
+✅ 작업 완료 - 오라클 어댑터 connect()에 세션 NLS_COMP=BINARY 고정 추가
+
+1. 변경 파일:라인 (코드 저장소 migration-validator, 커밋 5a36700)
+- services/db_adapters/oracle.py:70
+  신규 상수 _ORA_SESSION_NLS_COMP_SQL = "ALTER SESSION SET NLS_COMP = BINARY"
+- services/db_adapters/oracle.py:211-227
+  신규 메서드 _pin_session_nls_comp(conn) — 기존 _pin_session_nls_numeric(175행)과 동일 규약
+  (커서 열고 ALTER SESSION 실행 후 반드시 close, 실패해도 예외 전파 안 함, warning 로그만 남김,
+  접속정보는 로그에 담지 않음)
+- services/db_adapters/oracle.py:264
+  connect() 반환 직전 self._pin_session_nls_comp(conn) 호출 추가
+  (기존 self._pin_session_nls_numeric(conn) 바로 다음 줄)
+- 다른 어댑터(PG/MySQL/MSSQL)나 다른 세션 설정은 미변경(지시 범위 준수)
+
+2. 실측 결과 (오라클 asis 라이브 접속 — 192.168.0.151:1523, xepdb1)
+   OracleAdapter().connect() 로 연결한 커넥션에서
+   SELECT parameter, value FROM nls_session_parameters
+   WHERE parameter IN ('NLS_COMP','NLS_NUMERIC_CHARACTERS') 실행:
+     NLS_COMP               = BINARY   (고정 확인)
+     NLS_NUMERIC_CHARACTERS = .,       (기존 고정 유지 확인 — 회귀 없음)
+
+3. 테스트
+   - 관련 서브셋: tests/ -k "oracle" → 180 passed, 1 skipped (기존과 동일 규모, 신규 회귀 0건)
+   - 신규 테스트 6건 추가: tests/test_oracle_connection_nls_comp_pin.py
+     (연결 시 1회 실행/커서 close/실패해도 연결 유지/bool 반환/로그에 접속정보 미포함/
+      numeric 고정과 독립 실행 확인)
+   - 기존 테스트 파일 test_oracle_connection_nls_numeric_pin.py 3곳 수정
+     (conn.executed 를 [NLS_NUMERIC, NLS_COMP] 2건으로, closed_cursors 를 [True, True] 로 —
+      새 ALTER SESSION 1건이 추가돼 실행 순서가 늘어난 만큼만 갱신, 판정 로직 자체는 불변)
+   - baseline 회귀: samples/test_virtual_cases.py 8/8 통과, samples/test_complex_cases.py 5/5 통과
+     (수정 전과 결과 동일 — 무관 영역 회귀 없음)
+
+4. 커밋해시
+   코드 저장소(migration-validator): 5a36700
+
+작업명 : M20-ORACLE-NLS-COMP-BINARY-PIN-FIX
+✅ 작업 완료 - 오라클 어댑터 connect()에 세션 NLS_COMP=BINARY 고정 추가
