@@ -1656,16 +1656,19 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: S10(해결 완료) · F15(MSSQL 컬럼 메타 조회 자체가 미구현)
 - 참고: E:\verify_reports\IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX.txt
 
-### F24. tier3(시계열 단일 PK) 자동선정 GROUP BY 순서 변화 — Q2 를 엄격 적용하려면 완료 모듈 수정이 필요하다
-- 발견일: 2026-08-02
-- 근거 보고서: `IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX.txt` (§11-R4 / B-4)
-- 상세: 시계열 명칭을 가진 단일 PK 가 자동선정 GROUP BY 목록에서 tier1 → tier3 로 강등돼 **순서만**
-  바뀐다(목록에서 사라지지는 않는다). 지침 Q2("단일 PK 는 GROUP BY 후보에서 배제")를 엄격히 적용하면
-  tier3 편입 자체를 막아야 하지만, 해당 코드가 **완료된 1~6단계 모듈**(`analyzer/column_analyzer.py`)이고
-  지침의 수정 대상 파일 목록에도 없어 손대지 않았다.
-- 대응 방향: 완료 모듈 수정이 필요한 사안이라 **별도 승인 후 진행**한다.
-- 관련: S10(해결 완료)
+### F24. ✅ 해결 완료 — tier3(시계열 단일 PK)를 GROUP BY 후보에서 완전 배제(강등이 아니라 배제)
+- 발견일: 2026-08-02 / 해결일: 2026-08-06 (F24-F20-F4-1-F4-4-APPROVED-SEQUENTIAL-IMPLEMENT,
+  코드 커밋 f5f983b)
+- 근거 보고서: `IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX.txt`(§11-R4/B-4, 발견) →
+  `F24-F20-F4-1-F4-4-APPROVED-SEQUENTIAL-IMPLEMENT-COMPLETE.txt`(해결)
+- 해결 요약: `analyzer/column_analyzer.py::_select_groupby_columns()`의 tier3 분기(강등)를
+  제거하고, 루프 진입부에 `if is_pk: continue`를 추가해 시계열/코드성 명칭 여부와 무관하게
+  단일 PK를 목록 생성 자체에서 제외. 실측: 시계열 단일 PK(ORDER_YM) 자동 GB 목록에서 완전
+  소멸 확인, SUM 등 다른 소비처(B-2/B-3) 무변화 확인. virtual/complex 픽스처 case04 기대값도
+  이 시나리오에 맞게 정정, 회귀 365건 기준 무관 사전존재 실패 2건만(git worktree baseline
+  대조로 확정) 제외 신규 회귀 0건.
 - 참고: E:\verify_reports\IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX.txt
+- 참고: E:\verify_reports\F24-F20-F4-1-F4-4-APPROVED-SEQUENTIAL-IMPLEMENT-COMPLETE.txt
 
 ### F25. (문서 기록) IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-IMPACT-DIAGNOSE 진단서 자체에 누락이 있었다
 - 발견일: 2026-08-02
@@ -1724,25 +1727,23 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: S10(`is_pk` 고정값 — 점수 오염원의 대표 사례)
 - 참고: E:\verify_reports\CANDIDATE-SCORE-EXPLAINABILITY-BREAKDOWN-DIAGNOSE.txt
 
-### F20. 후보추천 프로파일링이 완전 단변량이고, 조합 판정은 실측이 아니라 곱셈 추정이다
-- 발견일: 2026-07-31
-- 근거 보고서: `CANDIDATE-PROFILING-UNIVARIATE-VS-CORRELATION-DIAGNOSE.txt`
-- 상세: 수집(SQL) · 저장(자료구조) · 판정(함수 시그니처) **3층 모두 컬럼 단위로 닫혀 있다**.
-  같은 행의 여러 컬럼 값을 이미 손에 쥔 상태(값 샘플 조회)에서도 **즉시 컬럼별 1차원으로 해체해 행 대응
-  정보를 버린다**. 2축 PAIR/조합 후보 판정도 "교차 계산" 이 아니라 각 컬럼 distinct 의 **단순 곱**이다
-  (코드 주석에 "실측 아님", "독립성 가정" 이 명시돼 있다). `context` 인자가 컬럼 간 맥락을 넣을 자리로
-  설계됐으나 호출부 어디서도 전달되지 않아 **영구 미사용** 상태다.
-  파생 위험 2가지:
-  1) **조합 그룹수 과대추정** → 계층종속(시/도 × 시/군/구 등) 조합이 곱 기준 상한을 넘어 자동계획에서
-     부당하게 배제된다.
-  2) **의미 중복 조합이 HIGH 신뢰도를 받는다** — `STATUS_CD`+`STATUS_NM` 처럼 1:1 종속인 컬럼도
-     "업무축 2개" 로 인식돼 최우선 추천된다(추가정보 0인데 HIGH).
-  단, 이 한계들은 **조용한 버그가 아니라 필드명/주석으로 이미 스스로 고백돼 있다**(설계상 의도된 한계
-  확인, 숨은 결함 아님).
-- 대응 방향: 실제 교차 계산(`COUNT(DISTINCT a,b)` 등) 도입은 프로파일 예산(5만행 샘플 + 15초 timeout)과
-  충돌하므로, 도입한다면 (a) 샘플 위에서만 (b) 이미 추천된 소수 축에만 (c) 곱 대비 실측이 크게 작을 때만
-  **"종속 의심" 플래그를 다는 보수적 형태**를 권장한다.
-- 관련: F18(`cd1` 류 구조적 신호 미구현) · F6(다중 GROUP BY 조합 판정 부재)
+### F20. ✅ 1번 위험(과대추정) 해소 완료 — "종속 의심" 플래그 추가(판정 로직 자체는 불변, 설계상 의도된 한계였음)
+- 발견일: 2026-07-31 / 해결일: 2026-08-06 (F24-F20-F4-1-F4-4-APPROVED-SEQUENTIAL-IMPLEMENT,
+  코드 커밋 db7be19)
+- 근거 보고서: `CANDIDATE-PROFILING-UNIVARIATE-VS-CORRELATION-DIAGNOSE.txt`(발견) →
+  `F24-F20-F4-1-F4-4-APPROVED-SEQUENTIAL-IMPLEMENT-COMPLETE.txt`(해결)
+- 해결 요약: 권장 보수적 조건 (a)+(b)+(c) 그대로 구현 — `column_profile_service.py`에
+  `collect_pair_distinct_sample()` 신설(기존 5만행 SAMPLE_SRC+15초 timeout 예산 재사용,
+  4방언 NULL-safe 캐스팅), `candidate_postcount_finalize.py`에 최종 auto_selected 축(최대
+  3쌍)에만 적용하는 `_detect_pair_dependency_signals()` 신설(곱 대비 실측 비율 0.5 미만이면
+  플래그). **est·세트 구성 등 실제 판정 로직은 한 글자도 안 바뀜**(`groupby_plan_service.py`는
+  조회 전용, 표시 배지만 추가) — 실측(통제된 1:1 종속쌍 vs 독립쌍)으로 플래그는 정확히
+  갈리는데 실행계획(est)은 신호 유무와 무관하게 완전 동일함을 확인. 신규 테스트 10건 통과.
+- 잔존(2번 위험, 이번 범위 아님): "의미 중복 조합이 HIGH 신뢰도를 받는다"(STATUS_CD+
+  STATUS_NM류)는 이번 지시 범위(과대추정 1번만)에 포함 안 됨 — 별도 검토 필요.
+- 관련: F18(2026-08-06 착수 보류 데이터 기반 결론) · F6(다중 GROUP BY 조합 판정, 해결완료)
+- 참고: E:\verify_reports\CANDIDATE-PROFILING-UNIVARIATE-VS-CORRELATION-DIAGNOSE.txt
+- 참고: E:\verify_reports\F24-F20-F4-1-F4-4-APPROVED-SEQUENTIAL-IMPLEMENT-COMPLETE.txt
 - 참고: E:\verify_reports\CANDIDATE-PROFILING-UNIVARIATE-VS-CORRELATION-DIAGNOSE.txt
 
 ### F16. ✅ 해결 완료(원 서술의 추정이 맞았고, 발원지는 CTE 평탄화의 치환 테이블명이었다) — CTE+OUTER JOIN+UNION 복합 쿼리에서 후보 프로파일 수집이 ORA-00904 로 조용히 실패한다(폴백은 정상)
@@ -1939,31 +1940,34 @@ git -C E:/verify_reports worktree remove <임시경로>
   3파일 제한 지시를 지키느라 배선하지 않았다.
 - 참고: E:\verify_reports\PER-GROUP-DISPLAY-P3-PARTIAL-RECORDS-FIX.txt
 
-### F4. 관리컬럼 수동 확정(override) 잔여 한계 — 재분류 완료(1건 이미해결·1건 즉시착수가능·2건 승인필요)
-- 발견일: 2026-07-29 / 재분류: 2026-08-06 (F4-ADMIN-OVERRIDE-4ITEMS-SCOPE-DIAGNOSE)
+### F4. 관리컬럼 수동 확정(override) 잔여 한계 — 1/2/4 해결 완료, 3(memo/decided_by 입력 UI)만 잔존
+- 발견일: 2026-07-29 / 재분류: 2026-08-06 / 1·4 해결일: 2026-08-06
+  (F24-F20-F4-1-F4-4-APPROVED-SEQUENTIAL-IMPLEMENT, 코드 커밋 2ca7ad8·2f79c77)
 - 근거 보고서: `AMBIGUOUS-ADMIN-COLUMN-MANUAL-OVERRIDE-UI-CONNECT.txt`(§5, 최초) →
-  `F4-ADMIN-OVERRIDE-4ITEMS-SCOPE-DIAGNOSE.txt`(재분류)
-- 1. table_key 스키마 없음 — **[승인 필요, 위험 재평가: 중~고]**. 코드 변경량은 1줄
-     (`override_table_key`를 이미 계산돼 있는 `tgt_table_qualified`로 교체)이지만, 완료
-     모듈(`single_validation_analyze_service.py`, /analyze 파이프라인) + **기존 저장된
-     확정이 새 키와 불일치해 조용히 무효화될 데이터 호환성 위험**이 겹친다. 승인 시
-     기존 bare 키 폴백 조회 또는 마이그레이션 스크립트를 함께 설계해야 함. 스키마
-     미표기 SQL에서는 이 fix로도 재현되는 부분 해결 한계도 있음.
-  2. ✅ 이미 해결됨(2026-08-04, F37 — ADMIN-COLUMN-OVERRIDE-PROJECT-SCOPE-UI-EXPOSE-FIX,
-     코드 커밋 49d8287). scope 선택 UI·확인 모달·영향 미리보기까지 전부 코드 재확인
-     완료. BACKLOG F4 항목만 갱신이 안 돼 중복 기재돼 있었음.
-  3. **[즉시 착수 가능, 저위험]**. 라우트→저장소 전 구간이 이미 memo/decided_by를 받을
-     준비가 돼 있고(`SaveOverrideRequest`, UPSERT SET절 전부 완비), 화면에 입력 필드만
-     없어 빈 문자열이 하드코딩 전송 중(`ui/js_admin_column_override.py:653-654`). 이
-     파일은 override 전용 신설 모듈이라 완료모듈 규칙과 무관 — 승인 없이 착수 가능.
-  4. 낙관적 반영이 자동선정 pool 재배치 안 함 — **[승인 필요, 중위험]**. 재계산 함수
-     자체(`_apply_global_autoselection`)는 순수함수라 수정 불필요, 필요한 건 "이 함수만
-     가볍게 태우는 새 진입점"이지만, 클라이언트가 스코어를 들고 오게 하면 devtools로
-     스코어 조작해 자동추천에 끼워 넣는 **신뢰경계 위험**이 새로 생긴다. 서버가 직전
-     /analyze 응답을 캐시해두거나, 클라이언트는 override 변경분만 보내는 구조로 좁혀야
-     함 — 신규 API 표면 설계 결정이 구현 전 선행 필요.
+  `F4-ADMIN-OVERRIDE-4ITEMS-SCOPE-DIAGNOSE.txt`(재분류) →
+  `F24-F20-F4-1-F4-4-APPROVED-SEQUENTIAL-IMPLEMENT-COMPLETE.txt`(1·4 해결)
+- 1. ✅ 해결 완료. `single_validation_analyze_service.py:1664`의 override_table_key를
+     `tgt_table_qualified`로 교체 + `admin_column_override_store.py`에 `_bare_table_key()`
+     폴백 조회 신설(승인 조건이었던 안전장치 — qualified로 못 찾으면 구 bare 키로 재조회,
+     개별·일괄검증 색인 경로 양쪽 다 적용해 split-brain 방지). 스키마 다른 동명 테이블
+     충돌 실측 해소 확인, 기존 bare 키 확정도 폴백으로 계속 조회됨(무손실) 확인.
+     **잔존 한계(그대로 남음, 진단서가 이미 명시)**: 스키마 미표기 SQL에서는 여전히
+     bare로 떨어져 그 경우엔 충돌이 재현된다.
+  2. ✅ 이미 해결됨(2026-08-04, F37 — ADMIN-COLUMN-OVERRIDE-PROJECT-SCOPE-UI-EXPOSE-FIX).
+  3. **[즉시 착수 가능, 저위험, 미착수]**. 라우트→저장소는 이미 완비, 화면 입력 필드만
+     없는 상태 그대로(이번 라운드에서 미착수).
+  4. ✅ 해결 완료. 신뢰경계 제한 2안 중 **(ii, 더 강한 쪽) 채택** — 신규 라우트
+     `POST /admin-column-overrides/reapply-autoselection`은 project_id/table_key
+     2필드뿐(점수·후보 필드 자체가 스키마에 없음). `candidate_recompute_cache.py`
+     신설(analyze 시점 원본 입력을 project_id×table_key로 30분 TTL·deepcopy 격리
+     스냅샷). `_apply_global_autoselection`/`enrich_candidates_for_display`는 무수정
+     재사용 확인(라우트 결과==직접 호출 결과, 별도 판정 로직 없음을 테스트로 증명).
+     캐시 미스 시 안전하게 전체 재분석 폴백(오판정 아님).
+     **잔존 한계(설계상 의도, 미포함)**: Step3(컬럼 선정) 재확정 이후 확정하면 스냅샷이
+     안 갱신돼 캐시 미스로 폴백된다 — analyze 직후 확정 흐름만 캐시 적중.
 - 참고: E:\verify_reports\AMBIGUOUS-ADMIN-COLUMN-MANUAL-OVERRIDE-UI-CONNECT.txt
 - 참고: E:\verify_reports\F4-ADMIN-OVERRIDE-4ITEMS-SCOPE-DIAGNOSE.txt
+- 참고: E:\verify_reports\F24-F20-F4-1-F4-4-APPROVED-SEQUENTIAL-IMPLEMENT-COMPLETE.txt
 
 ### F5. 화이트박스 테스트 → 동작계약 전환은 Tier 1(8파일)만 끝났다
 - 발견일: 2026-07-28
@@ -2139,7 +2143,14 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 대응 방향: 3차 판정 근거로 **구조적 신호**를 추가 검토한다 — (a) 값의 단조증가 여부(시퀀스·타임스탬프
   성격 추정), (b) 다른 관리컬럼과의 갱신 시점 동시성(co-occurrence). 그래도 애매하면
   **억지 자동판정 금지 원칙은 그대로 유지**한다(근거 없는 확정보다 '판별 불가' 표시가 안전).
-- 상태: 아이디어 단계 — 설계/구현 미착수. 신호 후보의 오탐률 실측이 선행돼야 한다.
+- 상태: **착수 보류(2026-08-06, 데이터 기반 결론)**. 오탐률 선행 실측 완료
+  (F18-STRUCTURAL-SIGNAL-FALSE-POSITIVE-RATE-PRELIMINARY-DIAGNOSE) — 신호(a) 단조증가는
+  광역 스윕 479컬럼 실측 결과 엄격증가 기준 확정 관리컬럼 TPR **0%**(19건 중 0건 발화)에
+  업무컬럼 FPR 16~40%로 오히려 **역상관**(정렬키를 PK/물리순서 중 무엇으로 잡느냐에 따라
+  결과가 정반대로 뒤집히는 근본적 정의 불안정성도 확인). 신호(b) 동시성은 실 DB 양성표본이
+  0건이라 실측 자체가 불가능했고, 합성 시나리오는 참고용으로만 남김. threshold를 제안하지
+  않고 정직하게 보류로 결론지음. 재검토 시 무엇을 다시 봐야 하는지는 진단서에 정리돼 있음.
+- 근거 보고서: E:\verify_reports\F18-STRUCTURAL-SIGNAL-FALSE-POSITIVE-RATE-PRELIMINARY-DIAGNOSE.txt
 - 관련: F4(관리컬럼 수동 확정 override 잔여 한계) · M19(axis_a 판정 3-state 리팩터)
 
 ---
