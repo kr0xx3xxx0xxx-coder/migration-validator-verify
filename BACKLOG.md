@@ -2876,6 +2876,77 @@ git -C E:/verify_reports worktree remove <임시경로>
 
 ---
 
+### M37. ✅ 해결 완료 — DB 접속 프리셋이 JSON 파일 통째 덮어쓰기라 동시저장 유실·프로젝트 미분리 위험이 있었다
+- 해결일: 2026-08-06 (DB-PRESET-JSON-TO-SQLITE-MIGRATION, 코드 커밋 fdeb1d6)
+- 근거: `FILE-MANAGED-PERSISTENT-DATA-TO-TABLE-CANDIDATE-AUDIT.txt` 후보A(발견) →
+  `DB-PRESET-JSON-TO-SQLITE-MIGRATION.txt`(해결, before/after/rollback 스크린샷 9장 md5 완전일치)
+- 해결 요약: `db_presets_src/tgt.json` 14건을 이미 존재하던 빈 테이블 `mv_db_preset`으로 이관.
+  '통째 덮어쓰기'를 '직전 스냅샷 대비 delta + BEGIN IMMEDIATE 트랜잭션'으로 바꿔, 실제
+  재현되던 동시저장 유실(2스레드 동시저장 시 한쪽 유실)을 이관 후 재현 안 됨으로 실측 확인.
+  kill-switch `MV_DB_PRESET_STORE=file`로 즉시 롤백 가능, JSON 원본 보존.
+- 잔존(이번 범위 밖, 후속 필요):
+  · project_id 전부 NULL(전역) — 프로젝트별 DB 프리셋 분리는 미착수(컬럼·조회는 이미 준비됨)
+  · 개발용 스크립트 292곳이 여전히 JSON 직접 참조(운영 도달 가능 지점 2곳은 이미 조치 완료)
+  · 비밀번호 평문이 JSON·SQLite 두 곳에 존재(암호화 방식 자체는 이번 범위 아님)
+  · `db/schema.sql`에 신규 컬럼(is_deleted/last_used_at/advanced_options_json) 미반영
+- 근거 보고서: E:\verify_reports\DB-PRESET-JSON-TO-SQLITE-MIGRATION.txt
+
+### M38. ✅ 해결 완료 — 인증 계정이 `auth_users.json` 파일로만 관리돼 상태/이력 메타를 못 붙이고 있었다
+- 해결일: 2026-08-06 (AUTH-USERS-JSON-TO-SQLITE-MIGRATION, 코드 커밋 08030f2)
+- 근거: `FILE-MANAGED-PERSISTENT-DATA-TO-TABLE-CANDIDATE-AUDIT.txt` 후보D(발견) →
+  `AUTH-USERS-JSON-TO-SQLITE-MIGRATION.txt`(해결, curl 401→200 실측)
+- 해결 요약: 계정 3명을 `auth_user` 테이블로 이관(status/created_at/updated_at/memo 추가),
+  scrypt 레코드 7필드 완전동일 대조 + file/db 교차 200 실측으로 판정 동치 증명(비밀번호 원문은
+  단방향 해시라 직접 재현 불가 — 한계로 명시됨). kill-switch `MV_AUTH_STORE=file`.
+- 잔존(이번 범위 밖): `db/schema.sql` 미반영, `docs/AUTH_SETUP.md`가 여전히 파일 기준 서술,
+  로그인마다 DB 조회(캐시 없음, 현재 4행 규모라 무해).
+- 근거 보고서: E:\verify_reports\AUTH-USERS-JSON-TO-SQLITE-MIGRATION.txt
+
+### M39. ✅ 해결 완료 — 로컬 시맨틱 사전이 파일로만 존재해 USER/PROJECT/CUSTOMER_OVERRIDE 상위 source 저장소가 봉인돼 있었다
+- 해결일: 2026-08-06 (SEMANTIC-DICT-LOCAL-ENTRY-JSON-TO-SQLITE-MIGRATION, 코드 커밋 2760ac4)
+- 근거: `FILE-MANAGED-PERSISTENT-DATA-TO-TABLE-CANDIDATE-AUDIT.txt` 후보B/C(발견) →
+  `SEMANTIC-DICT-LOCAL-ENTRY-JSON-TO-SQLITE-MIGRATION.txt`(해결)
+- 해결 요약: mock 164건 + seed 42건(5개만 ACTIVE, 37개 PENDING 보관·정책변경 없음) = 206행을
+  `semantic_dictionary_entry`로 이관. **후보 추천 결과 golden set 등식 성립(불일치 0건)**을
+  개별검증·일괄검증·3단계 후보생성 3경로 × pilot ON/OFF 2조건에서 실측 확인(실제 운영 함수
+  경유, 우회 재구현 아님). 캐시 재생성 계약(5회 analyze당 인덱스 빌드 1회) 유지 확인.
+  kill-switch `MV_SEMANTIC_DICT_STORE=file`.
+- 잔존(이번 범위 밖): `db/schema.sql` 미반영, seed의 정책 메타(aliases/sum_policy 등) 미보존
+  (매칭용 투영만 저장 — JSON 원본이 여전히 정본), PENDING 37건 활성화 시 판정이 바뀌는데
+  가드가 없음, project_id override 쓰기 경로 없음(컬럼만 준비, 좌측메뉴 '시맨틱 사전' [준비중]
+  해제는 별건).
+- 근거 보고서: E:\verify_reports\SEMANTIC-DICT-LOCAL-ENTRY-JSON-TO-SQLITE-MIGRATION.txt
+
+### M40. `db/schema.sql`이 M37~M39 이관 작업이 런타임에 멱등 생성한 실제 테이블/컬럼을 반영하지 못하고 있다
+- 발견일: 2026-08-06 (M37/M38/M39 완료보고서 3건이 공통으로 지적)
+- 상세: `mv_db_preset`의 신규 컬럼(is_deleted/last_used_at/advanced_options_json), `auth_user`
+  테이블, `semantic_dictionary_entry` 테이블 모두 각 서비스의 `_ensure_schema`가 런타임에
+  `CREATE TABLE IF NOT EXISTS` / `ALTER TABLE ADD COLUMN`으로 멱등 생성하므로 기존 운영 DB는
+  정상 동작하지만, `db/schema.sql`(스키마 정본) 자체에는 반영돼 있지 않다. `init_db.py`로
+  새 환경을 만들면 이 3가지가 없는 상태로 시작되며, `semantic_dictionary_entry`가 없는
+  신규환경은 JSON 폴백으로 조용히 동작한다(장애는 아니지만 '이관 완료' 상태가 아님).
+- 대응 방향: 3개 서비스의 `_ensure_schema` DDL을 `db/schema.sql`에 그대로 옮겨적기(신규 로직
+  없음, 순수 문서 동기화). 위험 낮음.
+- 관련: M37, M38, M39
+- 근거 보고서: E:\verify_reports\DB-PRESET-JSON-TO-SQLITE-MIGRATION.txt /
+  E:\verify_reports\AUTH-USERS-JSON-TO-SQLITE-MIGRATION.txt /
+  E:\verify_reports\SEMANTIC-DICT-LOCAL-ENTRY-JSON-TO-SQLITE-MIGRATION.txt
+
+### M41. 나이스/에듀파인 컬럼매핑정의서의 '암호화여부'가 저장되지 않아, 같은 검증을 재실행할 때 정의서를 다시 안 실으면 암호화 컬럼 제외가 조용히 풀린다
+- 발견일: 2026-08-05 (F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE 조사 중 부수 발견, 요청 범위 밖이라
+  진단 없이 발견만 기록됨)
+- 상세: 컬럼매핑정의서(엑셀)의 '암호화여부' 필드는 현재 저장소(파일이든 테이블이든)에 영속화되지
+  않는다. 이번 세션 목적("가설-검증 교차확인" 참고사전 활용, 02-session 기록)과 별개로, 암호화된
+  컬럼을 검증 대상에서 제외하는 판단이 **정의서를 다시 로드해야만 유지되는 휘발성 상태**라는 뜻이다.
+  재실행 시 정의서 로드를 빠뜨리면 암호화 컬럼이 조용히 검증 대상에 들어가 원본/목적 암호화
+  키·알고리즘이 다르면 **거짓 불일치**가 날 수 있다 — 조용한 거짓판정 계열.
+- 대응 방향: 미조사. 우선 (1) 실제로 이 정보가 어디서도 저장 안 되는지 재확인, (2) 저장할
+  경우 컬럼 단위 테이블(가칭 `column_semantic_meta` 또는 M39의 semantic_dictionary_entry
+  확장)에 넣을지 검토하는 범위 진단이 먼저 필요하다.
+- 근거 보고서: E:\verify_reports\F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE.txt
+
+---
+
 ## 부록 — 환경 때문에 미완인 실측(코드 결함 아님)
 
 착수 시점에 DB 가 복구돼 있으면 함께 처리한다.
