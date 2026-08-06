@@ -2999,6 +2999,38 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 근거 보고서: E:\verify_reports\SCHEMA-SQL-M37-M39-SYNC.txt /
   E:\verify_reports\M42-INITDB-IDEMPOTENT-GUARD-EVIDENCE.txt
 
+### M43. ✅ 해결 완료 — 개별검증 4단계 다중세트 실행 중 다른 단계 조작 시 조용한 오염 3종(세트간 조건 혼입/무효화 롤백/실행중 컨트롤 무잠금)
+- 발견일: 2026-08-06 (STAGE-EXEC-STOP-TOGGLE-AND-LOCK-SCOPE-DIAGNOSE, 사용자 직접 요청 —
+  "각 탭 실행버튼 누르는 중에 멈추는 기능이 필요할까?"에서 출발한 조사 중 발견) /
+  해결일: 2026-08-06 (STAGE-EXEC-CROSS-STAGE-CONTAMINATION-AND-STOP-BUTTON-FIX)
+- 근거 보고서(발견): `STAGE-EXEC-STOP-TOGGLE-AND-LOCK-SCOPE-DIAGNOSE.txt` — 다중 GROUP BY 세트
+  루프가 세트마다 DOM/전역객체를 재조회해 실행 도중 값이 바뀌면 세트끼리 다른 조건으로 섞여
+  실행되는 오염(실측 확정), 4단계 실행 중 2·3단계 재실행 시 무효화 상태가 늦게 끝난 실행으로
+  조용히 롤백되는 오염(실측 확정), 실행 중 체크박스/버튼 등 선택 컨트롤 잠금 전무(실측 확정)
+  — 저장 데이터(서버 DB) 영구 오염은 아님(`/execute`가 persist=False 고정)이나 화면/세션 상태
+  오염과 불필요한 실 DB 재스캔은 다수 확정됨.
+- 해결 요약(우선순위 1~4 전부 완료):
+  ① 다중 세트 루프 진입 시점 스냅샷 1회 캡처로 세트 간 재조회 제거 + abort signal 배선 +
+     세트 반복 사이 세션버전 검사 추가.
+  ② 4단계(및 2단계 COUNT) 실행 멈춤 버튼 신설(기존 서버 CancelToken과 연결, 1번 abort
+     signal 공유).
+  ③ 실행 중 선택 컨트롤(GB/SUM 체크박스·관리컬럼 확정·조합 체크박스·목적지 WHERE) 오버레이
+     방식(pointer-events 차단) 잠금 + 가드 교차 확인 보완(runRevalidateFromCandidate가
+     _executeInProgress도 확인, runGenerate 자체 가드 신설).
+  ④ 무효화 세대 카운터(_singleResultStaleGen) 도입 — 실행 시작 시점 세대와 렌더 시점 세대가
+     다르면(중간에 무효화 발생) 배너 해제를 막아 롤백 오염 차단.
+  전 순위 신규/보강 테스트 4개 파일(신규 3 + 보강 2) 전부 통과, 관련 65개 파일 4배치 회귀
+  대조로 신규 회귀 2건 발견(둘 다 실기능 문제 아닌 테스트의 고정폭 텍스트추출 창 오탐 —
+  창 크기 확대로 수정), 그 외 신규 회귀 0건.
+- 특기사항(운영 이슈, 참고): 작업 도중 세션 컨텍스트 소실 1회 발생 — 잘못 실행된 전체
+  스위트 배치 결과(432 failed/42 errors, 알려진 PROD-DB-WRITE-BLOCKED 가드발 환경성 잡음)를
+  폐기하고, verify 저장소의 directives/ 원문으로 범위를 복구해 순위별 서브셋으로 재검증함.
+  또한 3·4순위 실구현이 동시 진행 중이던 다른 세션의 커밋(c889dd2, F14 CSR 작업)에 편입돼
+  버렸는데, 공유 로컬 저장소에서 재분리(git reset)가 더 위험하다고 판단해 현재 상태를
+  유지하고 대신 요구사항 15개 항목과 c889dd2 diff를 줄 단위로 대조해 유실 0건을 확인했다.
+- 근거 보고서: E:\verify_reports\STAGE-EXEC-STOP-TOGGLE-AND-LOCK-SCOPE-DIAGNOSE.txt
+- 근거 보고서: E:\verify_reports\STAGE-EXEC-CROSS-STAGE-CONTAMINATION-AND-STOP-BUTTON-FIX.txt
+
 ---
 
 ## 부록 — 환경 때문에 미완인 실측(코드 결함 아님)
