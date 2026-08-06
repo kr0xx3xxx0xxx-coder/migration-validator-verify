@@ -2934,20 +2934,14 @@ git -C E:/verify_reports worktree remove <임시경로>
   해제는 별건).
 - 근거 보고서: E:\verify_reports\SEMANTIC-DICT-LOCAL-ENTRY-JSON-TO-SQLITE-MIGRATION.txt
 
-### M40. `db/schema.sql`이 M37~M39 이관 작업이 런타임에 멱등 생성한 실제 테이블/컬럼을 반영하지 못하고 있다
-- 발견일: 2026-08-06 (M37/M38/M39 완료보고서 3건이 공통으로 지적)
-- 상세: `mv_db_preset`의 신규 컬럼(is_deleted/last_used_at/advanced_options_json), `auth_user`
-  테이블, `semantic_dictionary_entry` 테이블 모두 각 서비스의 `_ensure_schema`가 런타임에
-  `CREATE TABLE IF NOT EXISTS` / `ALTER TABLE ADD COLUMN`으로 멱등 생성하므로 기존 운영 DB는
-  정상 동작하지만, `db/schema.sql`(스키마 정본) 자체에는 반영돼 있지 않다. `init_db.py`로
-  새 환경을 만들면 이 3가지가 없는 상태로 시작되며, `semantic_dictionary_entry`가 없는
-  신규환경은 JSON 폴백으로 조용히 동작한다(장애는 아니지만 '이관 완료' 상태가 아님).
-- 대응 방향: 3개 서비스의 `_ensure_schema` DDL을 `db/schema.sql`에 그대로 옮겨적기(신규 로직
-  없음, 순수 문서 동기화). 위험 낮음.
-- 관련: M37, M38, M39
-- 근거 보고서: E:\verify_reports\DB-PRESET-JSON-TO-SQLITE-MIGRATION.txt /
-  E:\verify_reports\AUTH-USERS-JSON-TO-SQLITE-MIGRATION.txt /
-  E:\verify_reports\SEMANTIC-DICT-LOCAL-ENTRY-JSON-TO-SQLITE-MIGRATION.txt
+### M40. ✅ 해결 완료 — `db/schema.sql`이 M37~M39 이관 작업이 런타임에 멱등 생성한 실제 테이블/컬럼을 반영하지 못하고 있었다
+- 발견일: 2026-08-06 (M37/M38/M39 완료보고서 3건이 공통으로 지적) / 해결일: 2026-08-06
+  (SCHEMA-SQL-M37-M39-SYNC, 코드 커밋 e79c7c2)
+- 해결 요약: `mv_db_preset`(신규 컬럼 3개+인덱스), `auth_user`, `semantic_dictionary_entry`
+  3개 서비스의 실제 `_ensure_schema`/`ensure_table` DDL을 `db/schema.sql`에 그대로 반영.
+  신규 임시 DB 생성 + 런타임 생성 DB의 `sqlite_master`/`PRAGMA table_info` 대조로 컬럼 구조
+  100% 일치 확인. 이 작업 과정에서 새로 발견된 재실행 안전성 위험은 M42로 별도 등록·해결됨.
+- 참고: E:\verify_reports\SCHEMA-SQL-M37-M39-SYNC.txt
 
 ### M41. 나이스/에듀파인 컬럼매핑정의서의 '암호화여부'가 저장되지 않아, 같은 검증을 재실행할 때 정의서를 다시 안 실으면 암호화 컬럼 제외가 조용히 풀린다
 - 발견일: 2026-08-05 (F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE 조사 중 부수 발견, 요청 범위 밖이라
@@ -2962,22 +2956,20 @@ git -C E:/verify_reports worktree remove <임시경로>
   확장)에 넣을지 검토하는 범위 진단이 먼저 필요하다.
 - 근거 보고서: E:\verify_reports\F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE.txt
 
-### M42. ✅ M37~M39 스키마 정본(`db/schema.sql`) 반영은 완료했으나, 그 과정에서 새로 생긴 재실행 안전성 위험 1건 별도 등록
-- 발견/등록일: 2026-08-06 (SCHEMA-SQL-M37-M39-SYNC 완료보고 §5, 지시 범위상 수정은 보류)
-- 상세: `db/schema.sql`은 원래 전부 `CREATE TABLE/INDEX IF NOT EXISTS`로만 구성돼 몇 번을
-  재실행해도 안전했다(`db/init_db.py`가 `executescript()`로 그대로 실행). M37 반영을 위해 추가한
-  `mv_db_preset`용 raw `ALTER TABLE ADD COLUMN` 3줄은 SQLite 문법상 `IF NOT EXISTS` 가드를 지원
-  하지 않아, 이미 해당 컬럼이 있는 DB(현재 운영 DB)에 `schema.sql`을 재실행하면
-  `OperationalError: duplicate column name`으로 즉시 중단된다(실측: 신규 임시 DB에 연속 2회
-  실행 → 1차 OK, 2차 실패로 재현 확인).
-- 영향: `db/init_db.py`는 서버 자동기동 경로에서 호출되지 않는 수동 1회성 스크립트다(즉시 장애
-  아님, 데이터 손상도 없음 — 예외 시점까지의 문장은 전부 no-op 재확인). 다만 누군가 "스키마
-  재확인" 목적으로 `python db/init_db.py`를 이미 구축된 운영 DB에 재실행하면 예외로 죽는다.
-- 대응 방향: 이 저장소에 이미 있는 기존 관례(`db/init_db.py::_apply_migrations`의
-  idempotent 가드 패턴, "raw ALTER TABLE은 schema.sql에 직접 넣지 않고 `_apply_migrations`에
-  if-col-not-in-existing 가드로 넣는다")를 그대로 따라 `mv_db_preset`의 3개 컬럼도
-  `_apply_migrations`로 옮기는 별도 작업 필요. 위험 낮음, 순수 방어코드 추가.
-- 근거 보고서: E:\verify_reports\SCHEMA-SQL-M37-M39-SYNC.txt
+### M42. ✅ 해결 완료 — M37~M39 스키마 정본(`db/schema.sql`) 반영 과정에서 새로 생긴 재실행 안전성 위험
+- 발견일: 2026-08-06 (SCHEMA-SQL-M37-M39-SYNC 완료보고 §5) / 해결일: 2026-08-06
+  (M42-INITDB-IDEMPOTENT-GUARD, 코드 커밋 cf0e5e7)
+- 상세(발견 당시): `db/schema.sql`은 원래 전부 `CREATE TABLE/INDEX IF NOT EXISTS`로만 구성돼
+  몇 번을 재실행해도 안전했다. M37 반영을 위해 추가한 `mv_db_preset`용 raw `ALTER TABLE ADD
+  COLUMN` 3줄은 `IF NOT EXISTS` 가드를 지원하지 않아, 재실행 시 `duplicate column name`으로
+  중단됐다(실측: 연속 2회 실행 → 1차 OK, 2차 실패로 재현 확인).
+- 해결 요약: `db/init_db.py`에 `_apply_schema()`를 신설해 `schema.sql`을 구문 단위로 분리
+  실행하고 `duplicate column name` 예외만 건너뛰도록 처리(그 외 예외는 그대로 raise). 여기에
+  더해 `_apply_migrations()`에 기존 idempotent 가드 패턴으로 `mv_db_preset` 3개 컬럼+인덱스도
+  이중 방어로 추가(defense-in-depth). 신규 DB 생성 + "이미 컬럼 있는 DB 재실행" 두 시나리오
+  모두 예외 없이 통과 실측 확인, 필수 회귀(virtual/complex) + init_db 관련 pytest 69건 전건 통과.
+- 근거 보고서: E:\verify_reports\SCHEMA-SQL-M37-M39-SYNC.txt /
+  E:\verify_reports\M42-INITDB-IDEMPOTENT-GUARD-EVIDENCE.txt
 
 ---
 
