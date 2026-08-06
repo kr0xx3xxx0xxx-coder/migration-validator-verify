@@ -1629,8 +1629,9 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: S10(해결 완료)
 - 참고: E:\verify_reports\IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX.txt
 
-### F23. ✅ 해결 완료(카탈로그 조회 계층 한정 · 잔여: 어댑터 `connect()` 미구현으로 운영경로 미반영) — MySQL/MSSQL 은 `fetch_key_metadata` 미구현(no-op)이라 목적지 `is_pk` 가 계속 False 다(방언 비대칭)
-- 해결일: 2026-08-05 (MYSQL-MSSQL-FETCH-KEY-METADATA-IMPLEMENT-FIX)
+### F23. ✅ 해결 완료(카탈로그 조회 계층 + MSSQL은 connect()까지 완료 · 잔여: MySQL은 여전히 connect() 미구현) — MySQL/MSSQL 은 `fetch_key_metadata` 미구현(no-op)이라 목적지 `is_pk` 가 계속 False 다(방언 비대칭)
+- 해결일: 2026-08-05 (MYSQL-MSSQL-FETCH-KEY-METADATA-IMPLEMENT-FIX) / MSSQL connect() 잔여
+  해소일: 2026-08-06 (F14-F15-..., 코드 커밋 5aef441)
 - 근거 커밋: 코드 저장소 `60d5cf2` — `feat(adapters): MySQL/MSSQL fetch_key_metadata 이식 —
   목적지 PK 실값 (MYSQL-MSSQL-FETCH-KEY-METADATA-IMPLEMENT-FIX)`
 - 근거 보고서 커밋: 이 저장소 `6ee13c2`(실측 보고서 `MYSQL-MSSQL-FETCH-KEY-METADATA-IMPLEMENT-FIX.txt`)
@@ -1639,10 +1640,12 @@ git -C E:/verify_reports worktree remove <임시경로>
   구현했다. **단일 컬럼 PK 만 `is_pk=True`** 로 싣고 **복합 PK 구성원은 `is_composite_key_member`
   로 분리**하는 오라클과 동일한 정책을 재사용했다(단일 PK 의 GROUP BY 후보 배제 · 복합 PK 구성원
   유지). 라이브 MySQL 호환 서버 5케이스 실측 전부 일치, 신규 회귀 0건.
-- **잔여**: MySQL/MSSQL 어댑터의 **`connect()` 자체가 미구현**(base `RuntimeError`)이라, 카탈로그
-  조회 계층은 완성됐어도 **운영 경로에서는 여전히 연결 단계에서 실패해 `{}` 로 폴백**한다
-  (= 사용자 관점 동작은 수정 전과 동일). 화면까지 반영되려면 **`connect()` 이식이 별도 선행**돼야
-  한다. 위 실측도 연결 생성만 주입해 성립시킨 것이며, 조회 SQL·집계·폴백은 운영 코드 그대로다.
+- **잔여(2026-08-06 갱신)**: 발견 당시 MySQL/MSSQL 둘 다 `connect()` 미구현(base `RuntimeError`)
+  이라 카탈로그 조회 계층이 완성돼도 운영 경로에서 연결 단계부터 실패했다. **MSSQL은
+  F14-F15 작업(코드 커밋 5aef441)에서 `connect()`가 신설돼 이 잔여가 해소됐다**(실 SQL Server
+  인스턴스·pyodbc 드라이버 부재로 라이브 검증은 미완, connect() 실패 경로만 단위테스트 확인).
+  **MySQL은 여전히 `connect()` 미구현으로 잔여 남음** — 화면까지 반영되려면 MySQL도 별도
+  `connect()` 이식이 필요하다.
 - 발견일: 2026-08-02
 - 근거 보고서: `IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX.txt` (§11-R3 / §8)
 - 상세: S10 수정으로 PostgreSQL/오라클은 목적지 `is_pk` 가 실값이 됐으나, MySQL/MSSQL 어댑터는
@@ -1811,43 +1814,40 @@ git -C E:/verify_reports worktree remove <임시경로>
   완료 응답을 준 뒤의 표시 미갱신**이라 원인이 다르다.
 - 참고: E:\verify_reports\LARGE-SCALE-SCATTERED-MISMATCH-EXTRACTION-PERFORMANCE-MEASURE.txt
 
-### F14. 오라클 metadata provider 배선이 없어 VARCHAR2 실효수용량 경고가 운영 화면에 뜨지 않는다
-- 발견일: 2026-07-30
-- 근거 보고서: `VARCHAR2-BYTE-CHAR-CAPACITY-COMPARISON-FIX.txt` (§6-2-(5))
-- 상세: VARCHAR2-BYTE-CHAR-CAPACITY-COMPARISON-FIX 로 판정 로직·조회 능력·값 전달 배선은 완성됐으나,
-  운영 경로 `/csr-preview`(`routes/csr_preview_route.py` → `services/analyze_to_csr_adapter.py`)가
-  `source_metadata=None, target_metadata=None` 을 **고정으로** 넘긴다. 그 결과
-  `_evaluate_compatibility` 가 즉시 `UNKNOWN_COMPATIBILITY` 로 반환하고 비교 자체에 도달하지 않는다.
-  기존 길이 비교도 같은 이유로 원래부터 미도달이었다 — 이번 수정 **이전부터 있던 사각지대**이며,
-  이번 수정이 새로 만든 결함이 아니다.
-  메타를 실제로 채우는 provider 는 `services/postgres_metadata_provider.py` 하나뿐이고 PG 전용이며,
-  그마저 `scripts/` 의 smoke test 에서만 쓰인다(웹 앱 미배선). **오라클용 provider 자체가 없다.**
-- 대응 방향: 오라클 metadata provider 를 신설해 `analyze_to_csr_adapter.py` 의 고정 `None` 을 실제 값으로
-  채우도록 배선한다. 캐릭터셋 조회(`build_db_charset_query`)는 이미 있으므로 그것을 호출해
-  `ColumnMeta.charset` 을 채우는 코드만 추가하면 된다.
+### F14. ✅ 해결 완료 — 오라클 metadata provider 배선이 없어 VARCHAR2 실효수용량 경고가 운영 화면에 뜨지 않았다
+- 발견일: 2026-07-30 / 해결일: 2026-08-06 (F14-F15-ORACLE-MSSQL-METADATA-PROVIDER-VARCHAR-CAPACITY
+  -WARNING-WIRE, 코드 커밋 c889dd2)
+- 근거 보고서: `VARCHAR2-BYTE-CHAR-CAPACITY-COMPARISON-FIX.txt`(§6-2-(5), 발견) →
+  `F14-F15-ORACLE-MSSQL-METADATA-PROVIDER-VARCHAR-CAPACITY-WARNING-WIRE.txt`(해결)
+- 해결 요약: `services/oracle_metadata_provider.py` 신설(캐릭터셋+PK/FK+char_used/data_length
+  조회), `analyze_to_csr_adapter.py`의 고정 `None`을 오라클일 때 실제 값으로 채우도록 배선.
+  단위테스트 16건(provider 11 + 배선 5), 실 오라클(asis/tobe) 라이브 SELECT 메타조회로
+  char_used/data_length/charset까지 끝까지 채워짐 확인.
+- 착수 중 발견해 정정한 지시 전제 오류 2건: ① "PG는 이미 화면에 뜬다"는 전제가 틀렸다 —
+  PG도 `scripts/`의 PoC/테스트에서만 쓰이고 웹 앱엔 미배선이었다(F14 원문도 이미 그렇게
+  기록돼 있었음). ② 경고가 뜨는 화면(#csrPreviewDetails)은 애초에 `display:none` 개발자
+  진단용 숨김 패널이라, 배선을 고쳐도 **일반 사용자 화면엔 지금도 아무것도 안 뜬다**(이번
+  범위 밖 — UI 노출 여부는 별건, 사용자 판단 필요).
 - 참고: E:\verify_reports\VARCHAR2-BYTE-CHAR-CAPACITY-COMPARISON-FIX.txt
-- 우선순위: 낮음 — 이 도구의 핵심 검증 책무(이관쿼리/매핑정의서를 신뢰하고 그 기준대로 통계·전수 검증)와는
-  층위가 다른 참고용 보조 신호다. 매핑 자체의 타당성을 심사하는 기능이 아니라, 후보 컬럼 확정 전 스키마
-  레벨의 부가 경고일 뿐이다. 사용자 확정(2026-07-30).
+- 참고: E:\verify_reports\F14-F15-ORACLE-MSSQL-METADATA-PROVIDER-VARCHAR-CAPACITY-WARNING-WIRE.txt
 
-### F15. MSSQL 도 VARCHAR/NVARCHAR 구분 미조회로 동일한 실효수용량 축소 위험이 있으나, 컬럼 메타 조회 자체가 구현돼 있지 않다
-- 발견일: 2026-07-30
-- 근거 보고서: `VARCHAR2-BYTE-CHAR-CAPACITY-COMPARISON-FIX.txt` (§5-3)
-- 상세: MSSQL 은 `VARCHAR(n)`=n**바이트**, `NVARCHAR(n)`=n**문자**(내부 2바이트)인데
-  `information_schema.columns.character_maximum_length` 가 둘 다 n 을 그대로 반환해
-  `VARCHAR(50)` 과 `NVARCHAR(50)` 이 똑같이 "50" 으로 보인다(오라클 `CHAR_USED` 미구분과 동일 구도).
-  SQL Server 2019+ 의 UTF-8 collation(`_UTF8`)을 쓰면 `VARCHAR(50)` 이 한글 16자로 줄어
-  오라클 사례와 **완전히 같아진다.**
-- 선행 과제: 판정 이전에 `MSSQLAdapter` 가 `build_tgt_column_meta_query` / `build_column_meta_query` 를
-  **아예 구현하지 않아**(base 의 `None` 반환) 이 판정 경로에 도달조차 하지 못한다. 즉 MSSQL 대응은
-  "수용량 비교 추가" 가 아니라 **"컬럼 메타 조회 구현"** 이 먼저다.
-- 대응 방향: MSSQL 어댑터에 컬럼 메타 조회부터 구현한다(`character_octet_length` + `collation_name` 필요).
-  이후 오라클과 같은 패턴(`char_used` 상당값 + 캐릭터셋)으로 확장한다. 기존 `_effective_char_capacity` ·
-  비교 로직은 방언 중립으로 설계돼 있어 수정이 필요 없다.
+### F15. ✅ 컬럼 메타 조회 구현 완료(선행과제만) — MSSQL VARCHAR/NVARCHAR 구분 실효수용량 비교로의 확장은 후속 과제
+- 발견일: 2026-07-30 / 선행과제 해결일: 2026-08-06 (F14-F15-..., 코드 커밋 5aef441)
+- 해결 요약: 선행과제였던 "컬럼 메타 조회 자체가 구현 안 됨"을 해소 — `MSSQLAdapter.connect()`
+  신설(pyodbc DSN), `build_column_meta_query`/`build_tgt_column_meta_query` 신설
+  (INFORMATION_SCHEMA.COLUMNS, VARCHAR/CHAR→'B' vs NVARCHAR/NCHAR→'C' 구분 + COLLATION_NAME
+  컬럼단위 조회). 단위테스트 11건 통과. **실 SQL Server 인스턴스·pyodbc 드라이버 부재로 라이브
+  미검증**(F23 때와 동일 환경 제약 — connect() 미설치 시 RuntimeError로 명확히 실패하는 경로만
+  단위테스트로 확인).
+- 착수 중 발견: **F23("해결완료"로 기록돼 있었음)이 사실은 반쪽 완료였다** — `fetch_key_metadata`
+  카탈로그 SQL은 이식됐지만 `MSSQLAdapter.connect()`가 base의 `RuntimeError`(미구현) 그대로라
+  물리 연결 자체가 안 돼 운영 경로에서 그 SQL이 죽은 코드였음. F15 작업 중 connect()를 신설하며
+  이 잔여도 함께 해소됨(F23 참고 항목에 반영).
+- 남은 것(후속 과제, 이번 범위 아님): char_used 상당값을 실제 수용량 비교
+  (`candidate_scoring_runner._effective_char_capacity`)까지 잇는 MssqlMetadataProvider
+  (F14의 OracleMetadataProvider와 대칭 구조) — 백로그 원문 대응방향 그대로 후속 과제로 유지.
 - 참고: E:\verify_reports\VARCHAR2-BYTE-CHAR-CAPACITY-COMPARISON-FIX.txt
-- 우선순위: 낮음 — 이 도구의 핵심 검증 책무(이관쿼리/매핑정의서를 신뢰하고 그 기준대로 통계·전수 검증)와는
-  층위가 다른 참고용 보조 신호다. 매핑 자체의 타당성을 심사하는 기능이 아니라, 후보 컬럼 확정 전 스키마
-  레벨의 부가 경고일 뿐이다. 사용자 확정(2026-07-30).
+- 참고: E:\verify_reports\F14-F15-ORACLE-MSSQL-METADATA-PROVIDER-VARCHAR-CAPACITY-WARNING-WIRE.txt
 
 ### F13. ✅ 해결 완료 — count_gate export 의 서버 방언 사전 게이트를 UI 가 소비하지 않는다(반쪽 배선, S9 에서 분리)
 - 해결일: 2026-07-30 (COUNT-GATE-EXPORT-UI-DIALECT-GATE-CONSUME-FIX)
