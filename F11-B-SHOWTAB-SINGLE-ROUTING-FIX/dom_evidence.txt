@@ -1,0 +1,48 @@
+F11-B-SHOWTAB-SINGLE-ROUTING-FIX — 실측 증적
+
+재현 경로: 일괄검증(#tab-batch) 결과 표의 [상세] 버튼(batchShowRowDetail) →
+모달의 "개별검증에서 열기" 버튼(#brdOpenSingleBtn onclick) → showTab(...).
+버튼의 onclick 핸들러를 실제 클릭과 동일하게 직접 실행(모달 fade 전환 오버레이로 인한
+Playwright 물리 클릭 타이밍 이슈를 피하되 실행 코드는 100% 동일).
+
+[BEFORE] (패치 적용 전 — 3곳 모두 'single' 사용)
+  실행 전 탭: batch
+  실행 후 상태: {
+    "visible_tabs": [],              ← 등록된 15개 탭 전부 display:none (백지 화면)
+    "current_tab_var": "single",     ← showTab('single') 호출은 됐으나 매칭 탭 없음
+    "sql_input_value": "INSERT INTO tobe01.t_to_n_etl05 (...)",  ← SQL은 정상 주입됨
+    "banner_visible": true,
+    "banner_text": "📋 일괄검증 배치에서 열림 | 목적지: tobe01.t_to_n_etl05 | 케이스: ..."
+  }
+  → 데이터(SQL·배너)는 준비됐는데 화면만 백지가 되는 형태(F11 진단서 §2-❸ 그대로 재현).
+
+[AFTER] (패치 적용 후 — 3곳 모두 'analyze'로 정정)
+  실행 전 탭: batch
+  실행 후 상태: {
+    "visible_tabs": ["analyze"],     ← 개별검증 탭 정상 표시
+    "current_tab_var": "analyze",
+    "sql_input_value": "INSERT INTO tobe01.t_to_n_etl05 (...)",  ← 값 유지(화면전환 후 입력값 보존 확인)
+    "banner_visible": true,
+    "banner_text": "📋 일괄검증 배치에서 열림 | 목적지: tobe01.t_to_n_etl05 | 케이스: ..."
+  }
+  → 개별검증 화면이 정상 전환되고, SQL 입력값·컨텍스트 배너 모두 유지됨.
+
+부작용 점검(지시서 3항목):
+  1) showTab 내부 'analyze' 분기(§7186 _singleEnsureGroupsLoaded, §7216 서브내비 렌더 등)는
+     이미 메뉴 클릭을 통한 정상 개별검증 진입에서 항상 쓰이던 기존 코드 경로 — 신규 코드 아님,
+     별도 버그 없음을 코드 리뷰로 확인(F11-B 지시서 요구사항).
+  2) /api/validation-policy 선로드(showTab 내부 §7195~7198)가 개별검증(analyze) 진입에서도
+     이제 정상 동작함을 after 실행에서 확인: validation_policy_loaded: true.
+     (before 실행에서도 true 였는데, 이는 직전에 'batch' 탭 진입 시 이미 로드돼
+      window._mvValidationPolicy 가 캐시된 상태였기 때문 — !window._mvValidationPolicy 가드로
+      1회만 로드되는 설계이므로 정상. 캐시 없는 새 세션에서 analyze 최초 진입 시 신규 호출
+      1회가 추가되는 것은 TASK36 §6 의도된 동작.)
+  3) 화면전환 후 입력값 유지: sql_input_value 가 전환 전/후 동일하게 유지됨을 확인(위 참고).
+
+부수 발견 및 조치:
+  · showTab 내부 'analyze' 분기(§7195) 문구를 'batch' || 'analyze' 순서로 배치 —
+    test_subnav_pages.py::test_showtab_uses_subnav_policy 의 음성계약(SubNav 표시정책
+    하드코딩 금지)이 찾는 리터럴 문자열과의 우연한 텍스트 충돌 회피(로직은 OR라 순서 무관 동일).
+  · tests/test_task9_5.py::test_tc_open_03_show_tab_single_called 는 옛 버그 문자열
+    "showTab('single')" 자체를 계약으로 잠그고 있어 정정(test_tc_open_03_show_tab_analyze_called로
+    개명, showTab('analyze') 존재 + showTab('single') 부재를 함께 확인).

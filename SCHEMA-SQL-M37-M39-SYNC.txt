@@ -1,0 +1,138 @@
+작업명 : SCHEMA-SQL-M37-M39-SYNC
+
+════════════════════════════════════════════════════════════════════════
+1. 요청 요약
+════════════════════════════════════════════════════════════════════════
+M37(DB-PRESET)/M38(AUTH-USERS)/M39(SEMANTIC-DICT) 세 이관 작업이 런타임에 멱등 생성하던
+DDL을 db/schema.sql(정본)에 그대로 옮겨적는 문서 동기화 작업. 신규 로직 없음. db/schema.sql
+1개 파일만 수정(지시대로 다른 파일은 건드리지 않음).
+
+════════════════════════════════════════════════════════════════════════
+2. 변경 내용 (db/schema.sql, +59줄, 그 외 파일 무수정)
+════════════════════════════════════════════════════════════════════════
+[A] mv_db_preset (services/db_preset_service.py::_ensure_schema 그대로)
+    기존 CREATE TABLE 은 무변경. 아래 4줄만 추가:
+      ALTER TABLE mv_db_preset ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE mv_db_preset ADD COLUMN last_used_at TEXT;
+      ALTER TABLE mv_db_preset ADD COLUMN advanced_options_json TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_db_preset_key
+          ON mv_db_preset(IFNULL(project_id, -1), preset_nm, preset_type) WHERE is_deleted = 0;
+
+[B] auth_user 신규 (services/auth/credential_store.py::ensure_schema, _DDL 그대로)
+    username PK, algo/n/r/p/dklen/salt/hash, status DEFAULT 'ACTIVE',
+    created_at/updated_at/last_login_at/memo — 13컬럼, 인덱스 없음(코드와 동일).
+
+[C] semantic_dictionary_entry 신규 (scripts/migrate_semantic_dict_to_sqlite.py::ensure_table 그대로)
+    ※ 실제 실행되는 함수는 지시서에 적힌 services/semantic_dictionary_service.py 가 아니라
+      scripts/migrate_semantic_dict_to_sqlite.py::ensure_table() 이었다(서비스 파일은 SELECT 전용
+      읽기 모듈이라 CREATE TABLE 이 없음). "실제 실행되는 함수" 기준으로 이 파일에서 DDL을 가져왔다.
+    18컬럼 + 인덱스 2개(idx_..._norm_status, idx_..._project_source) — 코드와 동일.
+
+════════════════════════════════════════════════════════════════════════
+3. 검증 (지시서 4/5번 필수 대조)
+════════════════════════════════════════════════════════════════════════
+검증 스크립트로 두 개의 신규 임시 SQLite 파일을 생성해 대조(운영 DB db/migration_validator.db는
+전혀 열지 않음 — connect 호출 자체가 코드에 없음):
+  ① schema_db  : db/schema.sql 을 새 임시 파일에 executescript() 로 그대로 실행
+  ② runtime_db : 3개 서비스의 _ensure_schema()/ensure_schema()/ensure_table() 을 모듈 전역
+                  _DB_PATH 를 임시 파일로 바꿔 실제로 호출해서 생성(tests/conftest.py 의
+                  _DB_PATH 스왑 관행과 동일한 방식)
+
+① 신규 DB 생성 결과: 에러 없이 성공(①②모두 OK)
+
+② sqlite_master 대조(테이블 3개 + 인덱스 3개, 총 6건):
+   [일치] auth_user (테이블)
+   [일치] semantic_dictionary_entry (테이블)
+   [일치] idx_semantic_dictionary_entry_norm_status
+   [일치] idx_semantic_dictionary_entry_project_source
+   [일치] ux_mv_db_preset_key
+   [불일치*] mv_db_preset (테이블) — sqlite_master 원문 SQL 텍스트만 다름. schema.sql 쪽 기존
+             CREATE TABLE 문에는 원래부터 있던 인라인 주석(-- SRC/TGT, -- postgresql/mysql/...)이
+             있고 코드의 트리플쿼트 문자열에는 주석이 없어 텍스트가 다르게 저장됨. 이 주석은
+             기존에 이미 있던 것이며 이번 작업이 "기존 컬럼 정의를 건드리지 말 것" 지시에 따라
+             손대지 않았다.
+
+③ PRAGMA table_info 컬럼 구조 대조(이름/타입/notnull/default/pk, 순서 무관 정렬 비교):
+   [일치] auth_user        : schema.sql 13컬럼 / runtime 13컬럼
+   [일치] mv_db_preset      : schema.sql 15컬럼 / runtime 15컬럼  ← ②의 텍스트 차이가 구조 차이가
+                                                                    아님을 여기서 확정
+   [일치] semantic_dictionary_entry : schema.sql 18컬럼 / runtime 18컬럼
+
+결론: sqlite_master 원문 텍스트 1건(기존 주석 차이, 무해)을 제외하고 완전 일치. 컬럼 구조
+      기준으로는 3테이블 전부 100% 동일 구조.
+
+════════════════════════════════════════════════════════════════════════
+4. 관련 테스트 서브셋
+════════════════════════════════════════════════════════════════════════
+[schema.sql/init_db 관련 4파일]
+  tests/test_task11_r2_source_connection_id.py
+  tests/test_metadata_inventory_service.py
+  tests/test_task12_g.py
+  tests/test_task11_q_profile_lookup.py
+  → 65 passed, 4 failed, 1 error
+    실패 4건은 전부 conftest.py 의 [PROD-DB-WRITE-BLOCKED] 가드가 테스트 코드가 직접
+    db/migration_validator.db 에 쓰기 연결을 열려는 시도를 차단해서 발생(RuntimeError, SQL 실행
+    이전 단계에서 경로만 보고 즉시 차단). schema.sql 내용과 무관 — 이 테스트들은 schema.sql 을
+    아예 읽지 않는다(validation_batch_group/batch_stats_execute_run 컬럼 마이그레이션 테스트).
+    사전 존재 실패로 판단(회귀 아님).
+
+[3개 이관 서비스 단위테스트]
+  tests/test_db_presets_password_masking.py, tests/test_auth_basic.py,
+  tests/test_semantic_dictionary.py, tests/test_semantic_dict_global_adapter.py,
+  tests/test_semantic_dict_global_merge_shadow.py
+  → 98 passed, 0 failed
+
+[CLAUDE.md 필수 회귀 2종]
+  python samples/test_virtual_cases.py   → 8/8 통과
+  python samples/test_complex_cases.py   → 5/5 통과(FAIL 케이스 1건은 의도된 FAIL 판정)
+
+════════════════════════════════════════════════════════════════════════
+5. 비판적 검토 — 구조적 위험 1건 발견(CLAUDE.md 비판적 검토 의무)
+════════════════════════════════════════════════════════════════════════
+db/schema.sql 은 기존에는 전부 "CREATE TABLE/INDEX IF NOT EXISTS" 로만 구성돼 몇 번을 재실행해도
+안전했다(db/init_db.py 가 executescript() 로 그대로 실행). 이번에 지시대로 추가한 mv_db_preset
+의 ALTER TABLE ADD COLUMN 3줄은 IF NOT EXISTS 가드가 없어(SQLite ALTER TABLE ADD COLUMN 문법
+자체가 이 가드를 지원하지 않음), 이미 해당 컬럼이 있는 기존 DB(현재 운영 DB가 그 상태)에 대고
+schema.sql 을 재실행하면 "duplicate column name" 오류로 executescript 가 중단된다.
+  - 실측(신규 임시 DB에 schema.sql 을 연속 2회 실행): 1차 OK → 2차
+    "OperationalError: duplicate column name: is_deleted"
+  - 영향 범위: db/init_db.py 는 수동 1회성 스크립트(서버 자동기동 경로에서 호출되지 않음 —
+    web_server.py 어디서도 import 되지 않음을 확인)이므로 즉시 장애는 아니나, 운영 DB가 이미
+    구축된 상태에서 누군가 "스키마 재확인" 목적으로 `python db/init_db.py` 를 재실행하면
+    스크립트가 예외로 죽는다. 데이터 손상은 아님(예외 시점까지의 CREATE TABLE IF NOT EXISTS 는
+    전부 no-op 재확인일 뿐).
+  - 이 저장소의 기존 관례(같은 파일 187~193행 주석, db/init_db.py::_apply_migrations)는 바로 이
+    문제 때문에 "raw ALTER TABLE 은 schema.sql 에 직접 넣지 않고 init_db.py 의 _apply_migrations
+    에 idempotent 가드(if col not in existing)로 넣는다" 는 패턴을 이미 쓰고 있다.
+  - 이번 작업은 지시서가 "db/schema.sql 파일 하나만 수정, 다른 파일은 건드리지 마" 라고 명시했고
+    "코드에 있는 것을 한 글자도 바꾸지 말고 그대로" 옮기라고 했으므로 지시대로 ALTER TABLE 을
+    schema.sql 에 직접 추가했다. db/init_db.py 에 가드를 추가하는 대응은 이번 범위 밖(다른 파일
+    수정 금지)이라 적용하지 않았다 — 필요하면 별도 작업(SCHEMA-SQL-INIT-DB-IDEMPOTENT-GUARD 류)으로
+    분리 권장.
+
+════════════════════════════════════════════════════════════════════════
+6. git / push
+════════════════════════════════════════════════════════════════════════
+[코드 저장소] C:\projects\migration-validator (push 안 함 — 코드 repo 는 커밋까지만)
+  git diff 요약: db/schema.sql | 59 ++++++++++++++++++++++++++++++++++++++++++
+  commit e79c7c2 "docs(schema): M37~M39 이관 스키마 db/schema.sql 정본 반영 (SCHEMA-SQL-M37-M39-SYNC)"
+  (직전 HEAD 2760ac4)
+
+[증적 저장소] E:\verify_screenshots_only → origin/main 기반 임시 worktree 에서
+  이 보고서 파일 1건만 add/commit/push (아래 push 출력 참고)
+
+════════════════════════════════════════════════════════════════════════
+결론
+════════════════════════════════════════════════════════════════════════
+지시서 요구사항(3개 서비스 실제 DDL을 db/schema.sql 에 문자 그대로 반영, 신규 DB 생성 검증,
+런타임 생성물과의 스키마 대조, 관련 테스트 서브셋)을 모두 수행했고, 컬럼 구조 기준으로 3테이블
+전부 신규 DB 생성분과 런타임 생성분이 완전히 동일함을 확인했다. 다만 mv_db_preset 에 추가한
+raw ALTER TABLE 3줄이 schema.sql 의 기존 "몇 번을 실행해도 안전" 성질을 깨뜨려, 이미 구축된
+운영 DB에 대고 db/init_db.py 를 재실행하면 예외로 중단되는 구조적 위험이 새로 생겼다(데이터
+손상은 없음). 지시서가 이 파일 하나만 건드리라고 명시했기 때문에 가드 추가는 하지 않았고,
+위 §5 에 사실로 남긴다.
+
+✅ 작업 완료 - db/schema.sql 에 M37~M39 이관 DDL(mv_db_preset 컬럼 3개+인덱스 1개, auth_user
+   테이블, semantic_dictionary_entry 테이블+인덱스 2개) 반영, 신규 DB 생성·런타임 대비 스키마
+   완전일치 확인, 관련 테스트 서브셋 통과(사전 존재 실패 4건 제외) — 단, mv_db_preset 의 raw
+   ALTER TABLE 이 schema.sql 재실행 안전성을 깨는 구조적 위험 1건을 §5 에 별도 보고함
