@@ -1,0 +1,78 @@
+{
+  "results": [
+    {
+      "name": "1) /analyze 성공(workflow_token 확보)",
+      "ok": true,
+      "extra": "http=200 blocked=None err=None"
+    },
+    {
+      "name": "2) /count 성공",
+      "ok": true,
+      "extra": "http=200 src=10000 tgt=19750"
+    },
+    {
+      "name": "2-부가) analyze validated 후보에서 GB/SUM 실제 매칭됨",
+      "ok": true,
+      "extra": "gb_cands=1/1 sum_cands=2/2"
+    },
+    {
+      "name": "3) /generate 성공(통계 SQL 확보)",
+      "ok": true,
+      "extra": "http=200 keys=['processing_ms', 'selection_evidence', 'source_sql_generation_method', 'stats_src_sql', 'stats_tgt_sql', 'success', 'warnings', 'wrapped_source_select'] err=None"
+    },
+    {
+      "name": "4) /execute 성공",
+      "ok": true,
+      "extra": "http=200 matched=0 diff=4 run_id=None"
+    },
+    {
+      "name": "4-부가) /execute 는 persist=False 고정이라 run_id 없음(설계대로)",
+      "ok": true,
+      "extra": "run_id=None"
+    },
+    {
+      "name": "5) /single/save 성공(검증 run_id 발급 — F9 링크의 대상)",
+      "ok": true,
+      "extra": "http=200 run_id='088fe251-bf73-4252-9c51-4a3a97135e09' err=None"
+    },
+    {
+      "name": "5-부가) single_validation_snapshot 에 실제 저장 확인(직접 SQLite)",
+      "ok": true,
+      "extra": "088fe251-bf73-4252-9c51-4a3a97135e09"
+    },
+    {
+      "name": "6) /agg-diff/prepare(stream=true) 성공(재이관 run_id 확보)",
+      "ok": true,
+      "extra": "http=200 status=PREPARING err=None"
+    },
+    {
+      "name": "7) job_registry DTO 조회 성공(found=true)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "7-핵심) job_registry DTO.extra.validation_run_id == 검증 run_id(F9 무침습 9줄 배선 확인)",
+      "ok": true,
+      "extra": "extra.validation_run_id='088fe251-bf73-4252-9c51-4a3a97135e09' vs 기대='088fe251-bf73-4252-9c51-4a3a97135e09'"
+    },
+    {
+      "name": "6-부가) 재사용 경로(force=false) 도 reused 로 응답",
+      "ok": true,
+      "extra": "http=200 reused=True run_id=PS40AABACA79F7"
+    },
+    {
+      "name": "6-핵심) 재사용 분기도 origin_validation_run_id 갱신(stale 방지 필수 3건 중 ①)",
+      "ok": true,
+      "extra": "extra.validation_run_id='SECOND_088fe251-bf73-4252-9c51-4a3a97135e09'"
+    },
+    {
+      "name": "8) 복원 envelope 조회 성공(restorable=true)",
+      "ok": true,
+      "extra": "None"
+    }
+  ],
+  "validation_run_id": "088fe251-bf73-4252-9c51-4a3a97135e09",
+  "reimport_run_id": "PS40AABACA79F7",
+  "group_id": "GRP_202608061101383357",
+  "project_id": "832"
+}

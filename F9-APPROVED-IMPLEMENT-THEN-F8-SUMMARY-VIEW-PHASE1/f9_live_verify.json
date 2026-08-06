@@ -1,0 +1,57 @@
+{
+  "results": [
+    {
+      "name": "포트 8000 인증 ON(무인증 401 기대)",
+      "ok": true,
+      "extra": "status=401"
+    },
+    {
+      "name": "1~4단계(분석·COUNT·후보·통계검증) 완료",
+      "ok": true,
+      "extra": "[]"
+    },
+    {
+      "name": "검증 run_id(single_validation_snapshot 키) 확보",
+      "ok": false,
+      "extra": "{'run_id': None, 'validation_job_id': None}"
+    },
+    {
+      "name": "검증 run_id 가 single_validation_snapshot 에 실제 저장됨",
+      "ok": false,
+      "extra": ""
+    },
+    {
+      "name": "5단계(결과확인+드릴다운) 완료",
+      "ok": true,
+      "extra": "[]"
+    },
+    {
+      "name": "재이관(exact_diff) run_id 확보",
+      "ok": true,
+      "extra": "{'run_id': 'PKEEEBB4699AE1', 'status': 'READY'}"
+    },
+    {
+      "name": "클라 _mvPkPayload 가 origin_run_id 를 검증 run_id 로 채움",
+      "ok": false,
+      "extra": ""
+    },
+    {
+      "name": "job_registry DTO 조회 성공(found=true)",
+      "ok": false,
+      "extra": "해당 job 을 찾을 수 없습니다(종료 후 정리되었거나 서버 재시작으로 소실)."
+    },
+    {
+      "name": "job_registry DTO.extra.validation_run_id 가 검증 run_id 와 일치(F9 핵심 신호)",
+      "ok": false,
+      "extra": "extra.validation_run_id=None vs 기대=''"
+    },
+    {
+      "name": "복원 envelope 조회 성공",
+      "ok": false,
+      "extra": "NOT_FOUND"
+    }
+  ],
+  "validation_run_id": "",
+  "reimport_run_id": "PKEEEBB4699AE1",
+  "page_errors": []
+}
