@@ -1939,17 +1939,31 @@ git -C E:/verify_reports worktree remove <임시경로>
   3파일 제한 지시를 지키느라 배선하지 않았다.
 - 참고: E:\verify_reports\PER-GROUP-DISPLAY-P3-PARTIAL-RECORDS-FIX.txt
 
-### F4. 관리컬럼 수동 확정(override) 잔여 한계 4건
-- 발견일: 2026-07-29
-- 근거 보고서: `AMBIGUOUS-ADMIN-COLUMN-MANUAL-OVERRIDE-UI-CONNECT.txt` (§5)
-- 상세:
-  1. 확정 조회 키(`table_key`)에 스키마가 없다(`MV_ORA_DEMO_TGT`). 한 프로젝트 안에 스키마만 다른
-     동명 테이블이 있으면 확정이 섞일 수 있다. 해소하려면 서버의 테이블 식별자 정규화를 손봐야 한다.
-  2. `PROJECT_COLUMN`(프로젝트 전체) 범위 확정 UI 가 없다 — 저장소·API·판정은 지원하나 UI 는
-     `TABLE_COLUMN` 만 저장한다.
-  3. 확정 사유 메모(`memo`)·확정자(`decided_by`) 입력 UI 가 없어 빈 값으로 저장된다.
-  4. 낙관적 반영이 자동선정 pool 재배치를 하지 않는다(안내 문구로만 노출).
+### F4. 관리컬럼 수동 확정(override) 잔여 한계 — 재분류 완료(1건 이미해결·1건 즉시착수가능·2건 승인필요)
+- 발견일: 2026-07-29 / 재분류: 2026-08-06 (F4-ADMIN-OVERRIDE-4ITEMS-SCOPE-DIAGNOSE)
+- 근거 보고서: `AMBIGUOUS-ADMIN-COLUMN-MANUAL-OVERRIDE-UI-CONNECT.txt`(§5, 최초) →
+  `F4-ADMIN-OVERRIDE-4ITEMS-SCOPE-DIAGNOSE.txt`(재분류)
+- 1. table_key 스키마 없음 — **[승인 필요, 위험 재평가: 중~고]**. 코드 변경량은 1줄
+     (`override_table_key`를 이미 계산돼 있는 `tgt_table_qualified`로 교체)이지만, 완료
+     모듈(`single_validation_analyze_service.py`, /analyze 파이프라인) + **기존 저장된
+     확정이 새 키와 불일치해 조용히 무효화될 데이터 호환성 위험**이 겹친다. 승인 시
+     기존 bare 키 폴백 조회 또는 마이그레이션 스크립트를 함께 설계해야 함. 스키마
+     미표기 SQL에서는 이 fix로도 재현되는 부분 해결 한계도 있음.
+  2. ✅ 이미 해결됨(2026-08-04, F37 — ADMIN-COLUMN-OVERRIDE-PROJECT-SCOPE-UI-EXPOSE-FIX,
+     코드 커밋 49d8287). scope 선택 UI·확인 모달·영향 미리보기까지 전부 코드 재확인
+     완료. BACKLOG F4 항목만 갱신이 안 돼 중복 기재돼 있었음.
+  3. **[즉시 착수 가능, 저위험]**. 라우트→저장소 전 구간이 이미 memo/decided_by를 받을
+     준비가 돼 있고(`SaveOverrideRequest`, UPSERT SET절 전부 완비), 화면에 입력 필드만
+     없어 빈 문자열이 하드코딩 전송 중(`ui/js_admin_column_override.py:653-654`). 이
+     파일은 override 전용 신설 모듈이라 완료모듈 규칙과 무관 — 승인 없이 착수 가능.
+  4. 낙관적 반영이 자동선정 pool 재배치 안 함 — **[승인 필요, 중위험]**. 재계산 함수
+     자체(`_apply_global_autoselection`)는 순수함수라 수정 불필요, 필요한 건 "이 함수만
+     가볍게 태우는 새 진입점"이지만, 클라이언트가 스코어를 들고 오게 하면 devtools로
+     스코어 조작해 자동추천에 끼워 넣는 **신뢰경계 위험**이 새로 생긴다. 서버가 직전
+     /analyze 응답을 캐시해두거나, 클라이언트는 override 변경분만 보내는 구조로 좁혀야
+     함 — 신규 API 표면 설계 결정이 구현 전 선행 필요.
 - 참고: E:\verify_reports\AMBIGUOUS-ADMIN-COLUMN-MANUAL-OVERRIDE-UI-CONNECT.txt
+- 참고: E:\verify_reports\F4-ADMIN-OVERRIDE-4ITEMS-SCOPE-DIAGNOSE.txt
 
 ### F5. 화이트박스 테스트 → 동작계약 전환은 Tier 1(8파일)만 끝났다
 - 발견일: 2026-07-28
