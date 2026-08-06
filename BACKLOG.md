@@ -2195,16 +2195,21 @@ git -C E:/verify_reports worktree remove <임시경로>
   `LARGE_SCALE_MISMATCH_DISPLAY_LIMIT_PROPOSAL.md`(설계 제안서 279줄).
 - 관련: P10(HARD CAP 500 · 조기중단) · M9(5단계 문구 충돌 — 해결 완료)
 
-### M35. Tibero 고급옵션에도 오라클과 동종의 죽은 encoding 필드가 있다(심각도 LOW)
-- 발견일: 2026-08-04
-- 근거 보고서: `ORACLE-PRESET-ENCODING-DEAD-FIELD-FIX.txt` (§5)
-- 상세: `ui/tabler_renderer.py:14673` 근처, Tibero 고급옵션의 `encoding` 필드 note 가
-  **"문자셋 처리용 — 특별한 사유가 없으면 UTF-8."** 로만 돼 있어, 같은 작업에서 오라클에 넣은
-  **"접속에 미반영"** 이라는 명확한 안내가 없다. 즉 M15 와 **동종의 죽은 설정**이다.
-  다만 Tibero 는 현재 `implemented:false`(**실접속 미지원 skeleton**)라 당장 오해 소지는 낮다.
-- 대응 방향: **Tibero 실접속 구현 시점에 함께 정리**한다(그 전엔 급하지 않음).
-- 관련: M15(오라클 쪽 동종 항목 — 해결 완료)
+### M35. ✅ 해결 완료 — Tibero 고급옵션 encoding 필드 안내 정정(오라클 M15와 동일 방식)
+- 발견일: 2026-08-04 / 해결일: 2026-08-06 (F29-M35-REQUIREMENTS-PIN-AND-TIBERO-DEAD-FIELD-CLEANUP,
+  코드 커밋 14a53eb)
+- 근거 보고서: `ORACLE-PRESET-ENCODING-DEAD-FIELD-FIX.txt`(§5, 발견) →
+  `F29-M35-REQUIREMENTS-PIN-AND-TIBERO-DEAD-FIELD-CLEANUP.txt`(해결)
+- 해결 요약: 착수 전 실측에서 원 서술 정정 — Tibero에는 **nencoding 필드 자체가 없고
+  encoding 하나만** 존재(_PROFILE_DBMS_FIELDS.tibero.advanced 확인). 게다가
+  TiberoAdapter가 `connect()`를 override하지 않아 BaseDbmsAdapter의 기본 구현이
+  RuntimeError를 즉시 raise함 — 즉 오라클(M15)보다 **더 확실하게 죽은 필드**(연결 시도
+  자체가 없어 값을 읽을 코드 경로가 존재하지 않음). M15와 동일 방식(필드 제거 대신 note
+  문구를 "Tibero 접속이 미구현이라 이 값은 사용되지 않습니다"로 교체 + 근거 주석 추가)으로
+  처리. 관련 테스트 서브셋 45 passed(실패 1건은 baseline에도 동일 존재 — git stash로
+  무관함 직접 확인).
 - 참고: E:\verify_reports\ORACLE-PRESET-ENCODING-DEAD-FIELD-FIX.txt (§5)
+- 참고: E:\verify_reports\F29-M35-REQUIREMENTS-PIN-AND-TIBERO-DEAD-FIELD-CLEANUP.txt
 
 ### M34. ✅ 해결 완료(아래 '상세'의 인과 서술 1건 정정 — 피해 자체는 실재했고 해소됨) — 관리컬럼 확정 버튼이 disabled 일 때 그 사유가 화면에 안 보인다(심각도 LOW)
 - 해결일: 2026-08-05 (M34-DISABLED-BUTTON-TITLE-ACCESSIBILITY-FIX)
@@ -2378,20 +2383,28 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: S15(해결 완료 — 경과시간·EXPLAIN 강등 문구 자체는 실 브라우저에서 정상 표시 확인)
 - 참고: E:\verify_reports\CRITICAL-S15-S16-S18-LIVE-BROWSER-ORACLE-VERIFY\_REPORT.txt (§1-3 · §4-1)
 
-### F29. `requirements.txt` 에 버전 핀이 하나도 없다 — 설치 시점마다 다른 의존성 버전이 깔릴 수 있음
-- 발견일: 2026-08-02
-- 근거 보고서: `DEPENDENCY-VERSION-AND-CHANGELOG-RELEVANCE-DIAGNOSE.txt` (§5)
+### F29. ✅ 해결 완료 — `requirements.txt` 에 버전 핀이 하나도 없다 — 설치 시점마다 다른 의존성 버전이 깔릴 수 있음
+- 발견일: 2026-08-02 / 해결일: 2026-08-06 (F29-M35-REQUIREMENTS-PIN-AND-TIBERO-DEAD-FIELD-CLEANUP,
+  코드 커밋 55de4fe)
+- 근거 보고서: `DEPENDENCY-VERSION-AND-CHANGELOG-RELEVANCE-DIAGNOSE.txt`(§5, 발견) →
+  `F29-M35-REQUIREMENTS-PIN-AND-TIBERO-DEAD-FIELD-CLEANUP.txt`(해결)
+- 해결 요약: 직접 의존 패키지 8개(fastapi==0.136.1, uvicorn==0.46.0, pydantic==2.13.4,
+  openpyxl==3.1.5, sqlglot==30.8.0, pandas==3.0.3, psycopg2-binary==2.9.12,
+  pymysql==1.1.3)에 `.venv` 실측 pip freeze 기준 `==` 핀 고정(임의 최신 상향 없음). 완전
+  신규 가상환경에서 `pip install -r requirements.txt` 에러 없이 성공 실측 확인.
+  (참고: 원 발견 서술은 "11개 항목"이었으나 해결 시점 파일 기준 직접 의존성은 8개였다 —
+  차이는 파일이 그사이 바뀌었거나 원 조사가 간접 의존성도 포함해 셌을 가능성, 재확인은
+  이번 범위 아님.)
 - 상세: `requirements.txt` 의 **11개 항목 전부**가 이름만 있고 버전 고정이 없다(`sqlglot`,
   `fastapi` 등). 오늘 `pip install -r requirements.txt` 를 새로 하면 sqlglot **30.14.0** 이
   들어오므로, 이번 조사의 "현재 30.8.0" 은 **이 PC 의 우연한 스냅샷**일 뿐이다.
   폐쇄망 고객사마다 설치 시점이 다르면 서로 다른 sqlglot 이 깔리고, 파싱 결과 차이가
   **"이 고객사에서만 재현되는 검증 오류"** 로 나타나 재현·디버깅이 매우 어려워진다.
   S18(hang 결함)도 이 버전 부재 때문에 **"어느 고객사가 노출돼 있는지 우리가 모른다"** 는
-  문제가 함께 생긴다. `fastapi`(마이너 5차)·`uvicorn`(마이너 6차)도 핀 없이 방치돼 있다.
-- 대응 방향: `requirements.txt` 전체에 `==` 버전 핀 고정. S18 대응 방향 1)과 함께 처리하는 것이
-  효율적이다.
-- 관련: S18(sqlglot hang — 이 부재로 인해 노출 여부를 알 수 없는 문제)
+  문제가 함께 생긴다.
+- 관련: S18(sqlglot hang — 이 부재로 인해 노출 여부를 알 수 없는 문제, 이미 해결완료)
 - 참고: E:\verify_reports\DEPENDENCY-VERSION-AND-CHANGELOG-RELEVANCE-DIAGNOSE.txt
+- 참고: E:\verify_reports\F29-M35-REQUIREMENTS-PIN-AND-TIBERO-DEAD-FIELD-CLEANUP.txt
 
 ### M24. ✅ 해결 완료 — `_derive_row_sqls_wrapped` 의 뭉뚱그린 HOLD 사유 **원문**은 아직 정정되지 않았다
 - 해결일: 2026-08-05 (M24-HOLD-REASON-WORDING-FIX)
