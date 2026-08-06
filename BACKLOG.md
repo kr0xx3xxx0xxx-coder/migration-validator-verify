@@ -2956,18 +2956,31 @@ git -C E:/verify_reports worktree remove <임시경로>
   100% 일치 확인. 이 작업 과정에서 새로 발견된 재실행 안전성 위험은 M42로 별도 등록·해결됨.
 - 참고: E:\verify_reports\SCHEMA-SQL-M37-M39-SYNC.txt
 
-### M41. 나이스/에듀파인 컬럼매핑정의서의 '암호화여부'가 저장되지 않아, 같은 검증을 재실행할 때 정의서를 다시 안 실으면 암호화 컬럼 제외가 조용히 풀린다
-- 발견일: 2026-08-05 (F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE 조사 중 부수 발견, 요청 범위 밖이라
-  진단 없이 발견만 기록됨)
-- 상세: 컬럼매핑정의서(엑셀)의 '암호화여부' 필드는 현재 저장소(파일이든 테이블이든)에 영속화되지
-  않는다. 이번 세션 목적("가설-검증 교차확인" 참고사전 활용, 02-session 기록)과 별개로, 암호화된
-  컬럼을 검증 대상에서 제외하는 판단이 **정의서를 다시 로드해야만 유지되는 휘발성 상태**라는 뜻이다.
-  재실행 시 정의서 로드를 빠뜨리면 암호화 컬럼이 조용히 검증 대상에 들어가 원본/목적 암호화
-  키·알고리즘이 다르면 **거짓 불일치**가 날 수 있다 — 조용한 거짓판정 계열.
-- 대응 방향: 미조사. 우선 (1) 실제로 이 정보가 어디서도 저장 안 되는지 재확인, (2) 저장할
-  경우 컬럼 단위 테이블(가칭 `column_semantic_meta` 또는 M39의 semantic_dictionary_entry
-  확장)에 넣을지 검토하는 범위 진단이 먼저 필요하다.
+### M41. [높음, 심각도 상향] 암호화 컬럼 제외 기능의 입력 경로 자체가 없다 — "가끔 깜빡하면 풀림"이 아니라 "상시 OFF"다
+- 발견일: 2026-08-05 (F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE 조사 중 부수 발견) /
+  재조사: 2026-08-06 (M41-ENCRYPTION-FLAG-STORAGE-SCOPE-DIAGNOSE)
+- 상세(재조사로 원 서술 정정 — 실제가 더 심각함): 정책 로직(`encrypted_column_policy.py`
+  로더/부착기/생산자)과 소비 측(exact_diff, agg_diff_route, candidate_engine 원천배제)은
+  전부 정상 배선돼 있다. 그러나 **이 값을 서버로 실어보내는 입구가 없다** —
+  `AnalyzeRequest`(Pydantic v2, `/analyze`·`/single/run-standard`가 쓰는 실제 요청 스키마)에
+  `column_mapping`/`encrypted_columns` 필드 자체가 정의돼 있지 않고(`hasattr` False 실측),
+  UI에도 업로드 위젯이 없다(안내 텍스트 한 줄만 있음). 즉 "정의서를 다시 안 실으면 풀린다"는
+  원 서술은 낙관적 서술이었다 — **매 요청마다 100% 비어있는 상시 OFF 상태**다.
+  기존 회귀 테스트(`test_encrypted_column_exclusion.py`, 신규 코드 없이 실행)로 실제
+  거짓 불일치를 재현: 암호문만 다른 30건 → encrypted_cols 미지정 시 30건 전부 거짓
+  불일치(오늘 실제 운영 경로와 동일 상태), 명시 시 0건·정상 매치.
+- 대응 방향(권장안 확정, 착수는 별도 승인 필요): 신규 테이블(가칭
+  `column_encryption_flag`, `admin_column_override_store.py`와 동형 패턴 — 키 축
+  UNIQUE(project_id, table_key, column_name)) 채택. M39 semantic_dictionary_entry
+  확장안은 **기각** — 그건 전역 term 사전이라, 한 이관 정의서의 "RRN=암호화"가 다른
+  프로젝트·다른 이관의 RRN 계열 컬럼까지 조용히 과다제외시키는 **반대 방향의 새 조용한
+  오탐(거짓 매칭)**을 만든다(현재 문제인 과소제외/거짓불일치를 고치려다 반대 결함을 심는 셈).
+  저장 테이블만으론 미해결 — 완전 해결에는 (1)저장 테이블 (2)정의서 업로드/입력 UI
+  (3)AnalyzeRequest 스키마 필드+attach_encrypted_columns_from_request 저장소 폴백 배선
+  3가지가 함께 필요(이번 진단 범위 밖, 예상 위험도 중간 — UI 신설 포함 시 CLAUDE.md
+  기능/구조 변경 사전승인 절차 필요).
 - 근거 보고서: E:\verify_reports\F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE.txt
+- 근거 보고서: E:\verify_reports\M41-ENCRYPTION-FLAG-STORAGE-SCOPE-DIAGNOSE.txt
 
 ### M42. ✅ 해결 완료 — M37~M39 스키마 정본(`db/schema.sql`) 반영 과정에서 새로 생긴 재실행 안전성 위험
 - 발견일: 2026-08-06 (SCHEMA-SQL-M37-M39-SYNC 완료보고 §5) / 해결일: 2026-08-06
