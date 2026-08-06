@@ -1,0 +1,50 @@
+F19-STAGE2-BADGE-TOOLTIP-IMPLEMENT — DOM 증적 (title 속성 값, before/after)
+
+주의: 브라우저 네이티브 title 툴팁은 페이지 렌더 레이어가 아니라 OS/브라우저 UI 오버레이라
+Playwright 스크린샷에 시각적으로 포착되지 않는다(알려진 한계). 따라서 스크린샷은 "배지 레이아웃이
+전/후로 동일함(부수효과 없음)"의 증거로, 아래 DOM 덤프(el.getAttribute('title'))는 "툴팁 데이터가
+실제로 부착됨"의 증거로 함께 제출한다.
+
+[BEFORE] (패치 적용 전 — baseline)
+[
+  { "col": "SESSION_TYPE", "score_text": "(65점)", "title": "" },
+  { "col": "COUNSELOR_NM", "score_text": "(30점)", "title": "" },
+  { "col": "CSL_DT", "score_text": null, "title": null },
+  { "col": "LAST_UPDATED", "score_text": "(0점)", "title": "" },
+  { "col": "STUDENT_ID", "score_text": null, "title": null },
+  { "col": "COUNSEL_ID", "score_text": null, "title": null }
+]
+
+[AFTER] (패치 적용 후)
+[
+  {
+    "col": "SESSION_TYPE",
+    "score_text": "(65점)",
+    "title": "기본 점수: 분석기가 후보로 자동 선정 (+40) · 비숫자형 타입(text) — GROUP BY 후보 적합 (+15) · 사전 DIMENSION_TYPE 도메인 후보 매칭 (약한 매칭, TOKEN) (+10) = 65점"
+  },
+  {
+    "col": "COUNSELOR_NM",
+    "score_text": "(30점)",
+    "title": "기본 점수: 수동 선택 가능 후보 (경고 있음) (+10) · 비숫자형 타입(varchar) — GROUP BY 후보 적합 (+15) · 짧은 문자열(varchar, 길이 4≤8) + 저카디널리티 — 코드/차원 가능성 (+5) = 30점"
+  },
+  { "col": "CSL_DT", "score_text": null, "title": null },
+  {
+    "col": "LAST_UPDATED",
+    "score_text": "(0점)",
+    "title": "기본 점수: 수동 선택 가능 후보 (경고 있음) (+10) · 비숫자형 타입(timestamp) — GROUP BY 후보 적합 (+15) · 사전 매칭 SYSTEM_AUDIT — 정렬·감사·상수·식별자·기술키·자유텍스트, GROUP BY 비추천 (-10) · 값 기반 시스템 감사 패턴(배치 적재 스탬프) — GROUP BY 부적합 (-30) · 최종 점수 범위 보정(0~100) (+15) = 0점"
+  },
+  { "col": "STUDENT_ID", "score_text": null, "title": null },
+  { "col": "COUNSEL_ID", "score_text": null, "title": null }
+]
+
+불변식 검증(수동): score_contributions delta 합계 == 최종 점수
+  SESSION_TYPE  40+15+10 = 65  (화면 65점과 일치)
+  COUNSELOR_NM  10+15+5  = 30  (화면 30점과 일치)
+  LAST_UPDATED  10+15-10-30+15 = 0  (화면 0점과 일치)
+
+재현 조건: 실 PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe 페어,
+  INSERT INTO tobe01.t_to_n_etl05 (...) SELECT ... FROM asis01.t_as_n_etl05,
+  개별검증 3단계(후보 컬럼 선정) 화면, GROUP BY 후보표.
+
+점수 미표시 행(CSL_DT, STUDENT_ID, COUNSEL_ID)은 before/after 모두 title=null —
+_scoreNum==null 인 행은 span 자체가 렌더되지 않아 툴팁도 자동 미부착(설계대로).
