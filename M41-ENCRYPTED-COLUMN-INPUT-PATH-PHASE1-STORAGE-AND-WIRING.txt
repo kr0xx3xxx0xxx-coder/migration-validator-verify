@@ -1,0 +1,107 @@
+작업명: M41-ENCRYPTED-COLUMN-INPUT-PATH-PHASE1-STORAGE-AND-WIRING
+✅ 작업 완료 - 암호화여부 저장 테이블 신설 + AnalyzeRequest 스키마 필드 배선 + 저장소 폴백 함수 연결(UI 위젯 제외)
+
+■ 0. 착수 전 사전검토(CLAUDE.md 기능/구조 변경 응답 형식)
+
+  - 요청 요약 : M41 진단이 확인한 "정의서 암호화여부가 어디에도 저장 안 됨" 문제 중, 저장
+    테이블 신설 + 스키마 필드 배선(요청 우선/저장소 폴백)만 이번 단계에서 반영. 업로드 UI
+    위젯은 범위 제외(별도 승인 대상).
+  - 긍정적 효과 : 매핑정의서 '암호화여부'를 명시한 API 직접 호출 요청이 이제 서버에 정상
+    도달한다(기존엔 Pydantic extra='ignore' 로 100% 드롭). 저장소 폴백 경로가 생겨 관리자
+    스크립트로 한 번 저장해두면 재검증 시마다 정의서를 다시 실을 필요가 없다.
+  - 구조적 문제점 : 저장소 모듈이 하나 늘어난다(admin_column_override_store.py 와 동형이라
+    패턴 재사용 비용은 낮음). web_server.py 는 건드리지 않았다(비대화 없음).
+  - 운영상 위험 : 낮음 — 신규 테이블 1개(CREATE TABLE IF NOT EXISTS 멱등), 기존 함수
+    시그니처 불변, try/except 로 감싸 조회 실패 시 안전 기본값(no-op) 유지. 회귀 위험 낮음.
+  - heuristic/scoring/explainability 영향 : heuristic 하드코딩 증가 없음(명시필드만, 자동
+    탐지 없음 — 기존 원칙 그대로). explainability 는 source 컬럼(정의서/수동)으로 유지.
+    scoring 영향 없음.
+  - 권장 대응책 : (이미 반영) 요청 필드 우선 > 저장소 폴백 > 안전기본값(OFF) 순서로 계층화.
+    UI 업로드는 별도 지침으로 분리해 기능 추가 제한 규정을 지킨다.
+  - 지금 구현 여부 : 진행(저장소+스키마배선만, 위 범위 내에서 완료)
+
+■ 1. 변경 파일 : 라인
+
+  [신규]
+  - services/column_encryption_flag_store.py (전체 신규)
+      admin_column_override_store.py 동형 패턴. ensure_schema/save_flag/get_flag/list_flags/
+      resolve_encrypted_column_set/delete_flag. 키 UNIQUE(project_id, table_key, column_name).
+  - tests/test_column_encryption_flag_store.py (전체 신규) — 저장소 CRUD 단위테스트 16건
+  - tests/test_encrypted_column_store_fallback.py (전체 신규) — 폴백 배선 + 거짓불일치 해소
+    재현 + AnalyzeRequest 스키마 드롭 해소 검증 8건
+
+  [수정]
+  - db/schema.sql:305-320 — column_encryption_flag 테이블/인덱스 신규 섹션(M40/M42 처럼
+    나중으로 미루지 않고 이번에 반영)
+  - services/analysis/encrypted_column_policy.py:178-201 —
+    attach_encrypted_columns_from_store(parse_result, *, project_id, table_key, db_path=None)
+    신설. 기존 attach_encrypted_columns_from_request(150행)는 시그니처·동작 불변.
+    우선순위: parse_result 에 이미 암호화 컬럼이 있으면(요청 경로가 채웠으면) 저장소를
+    조회하지 않는다 — 저장소가 요청을 덮어쓰지 않음.
+  - services/single_validation_analyze_service.py:729-737 — 진단서 §5(722~728행 부근)
+    배선 지점 바로 다음에 attach_encrypted_columns_from_store 호출 추가
+    (project_id=req.project_id, table_key=str(tgt_table)). try/except 로 감싸 실패해도
+    검증을 막지 않음.
+  - schemas/request_models.py:25-30 — AnalyzeRequest 에 encrypted_columns: list = [],
+    column_mapping: dict = {} 필드 추가(SingleRunStandardRequest 가 상속하므로 자동 적용).
+
+■ 2. 이번 단계에서 저장소에 값을 넣는 방법(정상 — UI는 다음 단계)
+
+  UI 업로드 위젯이 없으므로, 이번 단계에서 column_encryption_flag 에 값을 채우는 유일한
+  방법은 services.column_encryption_flag_store.save_flag(project_id=, table_key=,
+  column_name=, is_encrypted=True, source="정의서" 또는 "수동") 를 직접 호출하는 관리자
+  스크립트뿐이다. HTTP 라우트는 이번 지침 범위(저장테이블+스키마배선)에 없어 신설하지
+  않았다(진단서 §5 파일범위 중 routes/column_encryption_flag_route.py 는 "향후 예상"이지
+  이번 지침 본문 1/2절에 없는 항목이라 이번 단계에 포함하지 않음).
+
+■ 3. 검증 결과
+
+  (1) 신규 테스트
+      tests/test_column_encryption_flag_store.py .......... 16 passed
+      tests/test_encrypted_column_store_fallback.py ........ 8 passed
+        - 우선순위(요청>저장소), 폴백 충족, project_id/table_key 미지정 no-op,
+          신규환경(빈 저장소) 상시 OFF 회귀 없음,
+          "저장소 폴백 경로로 채워졌을 때도 is_matched=True 로 해소"(진단서 재현 시나리오,
+          test_false_mismatch_resolved_via_store_fallback) 확인,
+          AnalyzeRequest 필드 드롭 해소(model_dump 에 두 필드 포함) 확인.
+
+  (2) 관련 서브셋 + baseline 대조 (신규 회귀 0건)
+      tests/test_encrypted_column_exclusion.py .............. 24 passed (기존, 무변경 통과)
+      tests/test_admin_column_override.py .................... 28 passed (동형 패턴 재사용
+        저장소 간 간섭 없음 확인)
+      tests/test_single_test_official_parity.py .............. 4 passed (AnalyzeRequest 필드
+        추가가 '모드 분기 없음' 계약을 깨지 않음 확인)
+      db/init_db.py 재실행 2회 — column_encryption_flag 8개 컬럼 정상 생성, 예외 없음
+        (M42-INITDB-IDEMPOTENT-GUARD 패턴과 충돌 없음 확인)
+
+      광범위 서브셋(-k "analyze or request_model or schema", 715 passed / 26 failed / 2 skipped
+        / 1 error)에서 발견된 실패 26건은 전수 확인 결과 **본 작업과 무관한 기존 실패**로 판정:
+        - tests/test_analyze_routing_r3_safe_return.py 등 4개 파일(shadow/routing 계열):
+          ms 단위 타이밍 값 비교(2.2 vs 2.3) + 'snapshot' 부분문자열 오탐 단언 — 본 작업이
+          건드리지 않은 파일, 격리 실행해도 동일 실패.
+        - tests/test_task11_r2_source_connection_id.py 등: 테스트 코드가 db/migration_validator.db
+          운영 파일에 직접 connect() — conftest.py:226 PROD-DB-WRITE-BLOCKED 가드에 걸림
+          (본 작업 이전부터 존재하던 테스트 결함).
+        - tests/test_upload_audit_store.py, test_single_validation_e2e_core.py 등: git worktree
+          로 HEAD(본 작업 커밋 이전) 클린 상태를 별도 체크아웃해 동일 서브셋 재실행 →
+          **동일하게 실패**함을 확인(worktree C:\projects\_m41_baseline_check, 검증 후 제거).
+          → 본 작업 변경과 무관한 사전 존재 실패(회귀 아님).
+
+  (3) CLAUDE.md 필수 회귀
+      python samples/test_virtual_cases.py  → 8/8 통과
+      python samples/test_complex_cases.py  → 5/5 통과
+
+  (4) 실 DB(asis/tobe) : 이번 작업에서 접속·조회 자체를 수행하지 않음(코드/스키마 변경만).
+
+■ 4. 커밋
+
+  b651b591a61dfb0e94ded7b17406b46e9f5dd665
+  "feat(store): 암호화여부 저장소 신설 + 저장소 폴백 배선(M41 Phase1)"
+  (코드 저장소 migration-validator — 이 저장소는 push 하지 않음, 로컬 커밋만)
+
+■ 5. 다음 단계(이번 지침 범위 밖 — 별도 승인 필요)
+
+  정의서 업로드/입력 UI 위젯 신설(ui/tabler_renderer.py). CLAUDE.md 기능/구조 변경 사전승인
+  절차 대상이므로 별도 요청으로 분리.
+
+✅ 작업 완료 - 암호화여부 저장 테이블 신설 + AnalyzeRequest 스키마 필드 배선 + 저장소 폴백 함수 연결(UI 위젯 제외)
