@@ -1940,9 +1940,9 @@ git -C E:/verify_reports worktree remove <임시경로>
   3파일 제한 지시를 지키느라 배선하지 않았다.
 - 참고: E:\verify_reports\PER-GROUP-DISPLAY-P3-PARTIAL-RECORDS-FIX.txt
 
-### F4. 관리컬럼 수동 확정(override) 잔여 한계 — 1/2/4 해결 완료, 3(memo/decided_by 입력 UI)만 잔존
-- 발견일: 2026-07-29 / 재분류: 2026-08-06 / 1·4 해결일: 2026-08-06
-  (F24-F20-F4-1-F4-4-APPROVED-SEQUENTIAL-IMPLEMENT, 코드 커밋 2ca7ad8·2f79c77)
+### F4. ✅ 전체 해결 완료 — 관리컬럼 수동 확정(override) 잔여 한계 4건 전부 해소
+- 발견일: 2026-07-29 / 재분류: 2026-08-06 / 1·4 해결: 2026-08-06(F24-F20-F4-1-F4-4) /
+  3 해결: 2026-08-06(F4-3-ADMIN-OVERRIDE-MEMO-DECIDED-BY-UI-FIX, 코드 커밋)
 - 근거 보고서: `AMBIGUOUS-ADMIN-COLUMN-MANUAL-OVERRIDE-UI-CONNECT.txt`(§5, 최초) →
   `F4-ADMIN-OVERRIDE-4ITEMS-SCOPE-DIAGNOSE.txt`(재분류) →
   `F24-F20-F4-1-F4-4-APPROVED-SEQUENTIAL-IMPLEMENT-COMPLETE.txt`(1·4 해결)
@@ -1954,8 +1954,11 @@ git -C E:/verify_reports worktree remove <임시경로>
      **잔존 한계(그대로 남음, 진단서가 이미 명시)**: 스키마 미표기 SQL에서는 여전히
      bare로 떨어져 그 경우엔 충돌이 재현된다.
   2. ✅ 이미 해결됨(2026-08-04, F37 — ADMIN-COLUMN-OVERRIDE-PROJECT-SCOPE-UI-EXPOSE-FIX).
-  3. **[즉시 착수 가능, 저위험, 미착수]**. 라우트→저장소는 이미 완비, 화면 입력 필드만
-     없는 상태 그대로(이번 라운드에서 미착수).
+  3. ✅ 해결 완료. 관리컬럼 확정 UI에 메모(memo)·확정자(decided_by) 텍스트 입력 필드
+     추가(`ui/js_admin_column_override.py:653-654`의 하드코딩 빈 문자열을 입력값으로
+     교체). 실측(POST /admin-column-overrides/save 요청/DB 저장 JSON 대조): 입력 시
+     정확히 그 값으로 저장(`memo:"F4-3 실측 메모..."`, `decided_by:"hong.gildong"`),
+     입력 안 하고 확정해도 빈 문자열로 정상 저장(하위호환 확인).
   4. ✅ 해결 완료. 신뢰경계 제한 2안 중 **(ii, 더 강한 쪽) 채택** — 신규 라우트
      `POST /admin-column-overrides/reapply-autoselection`은 project_id/table_key
      2필드뿐(점수·후보 필드 자체가 스키마에 없음). `candidate_recompute_cache.py`
@@ -1968,6 +1971,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\AMBIGUOUS-ADMIN-COLUMN-MANUAL-OVERRIDE-UI-CONNECT.txt
 - 참고: E:\verify_reports\F4-ADMIN-OVERRIDE-4ITEMS-SCOPE-DIAGNOSE.txt
 - 참고: E:\verify_reports\F24-F20-F4-1-F4-4-APPROVED-SEQUENTIAL-IMPLEMENT-COMPLETE.txt
+- 참고: E:\verify_reports\F4-3-ADMIN-OVERRIDE-MEMO-DECIDED-BY-UI-FIX\ (스크린샷+verify_facts)
 
 ### F5. 화이트박스 테스트 → 동작계약 전환은 Tier 1(8파일)만 끝났다
 - 발견일: 2026-07-28
@@ -3089,11 +3093,21 @@ git -C E:/verify_reports worktree remove <임시경로>
   git worktree로 병합 전 HEAD 대조해 광범위 서브셋 실패 26건이 전부 무관한 사전 존재 실패임을 검증.
   M39 semantic_dictionary_entry 확장안 기각 사유(전역 term 사전이라 반대방향 과다제외 위험)는 그대로
   유지·재확인.
-- 잔존(Phase2, 별도 승인 필요): 정의서 업로드/입력 UI 위젯이 아직 없어, 지금 저장소에 값을 채우는
-  유일한 방법은 관리자 스크립트로 `save_flag()` 직접 호출뿐이다. HTTP 라우트도 미신설(이번 범위 아님).
-  UI 신설은 CLAUDE.md 기능/구조 변경 사전승인 절차 대상.
+- 잔존(Phase2, 승인됨·착수 시도했으나 블로커 발견): 정의서 업로드/입력 UI 위젯이 아직
+  없어, 지금 저장소에 값을 채우는 유일한 방법은 관리자 스크립트로 `save_flag()` 직접
+  호출뿐이다. **2026-08-06 M41-PHASE2-ENCRYPTION-FLAG-UI-SCOPE-AND-DESIGN-DIAGNOSE로
+  설계 착수했으나 핵심 블로커 발견**: 정의서 실물 샘플이 저장소 어디에도 없고("주제영역
+  17개 세분류" 등 구체 스펙의 출처를 이번 조사로 끝내 확인 못함 — 존재하지 않는 파일
+  참조였음), 코드가 실제 처리하는 건 딱 2개 열(목적지컬럼명·암호화여부)뿐이며 **"이
+  컬럼이 어느 테이블 소속인지" 식별할 열이 파싱 로직에 전혀 없다**(save_flag가 요구하는
+  3축 키 UNIQUE(project_id,table_key,column_name) 중 table_key를 채울 방법이 불명).
+  실물 샘플 없이 헤더를 추측 설계하면 Phase1이 고친 것과 같은 성격의 "조용한 파싱 0건"이
+  UI 계층에서 재발할 위험 — **사용자로부터 정의서 실물 엑셀 샘플 확보가 0단계로 선행
+  필요**(설계 자체는 준비됨: 기존 업로드 인프라 일부 재사용 가능, UI는 "이관쿼리 업로드"
+  탭 내 섹션 추가 권장, 저장 연결은 save_flag() 그대로 재사용).
 - 근거 보고서: E:\verify_reports\F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE.txt
 - 근거 보고서: E:\verify_reports\M41-ENCRYPTION-FLAG-STORAGE-SCOPE-DIAGNOSE.txt
+- 근거 보고서: E:\verify_reports\M41-PHASE2-ENCRYPTION-FLAG-UI-SCOPE-AND-DESIGN-DIAGNOSE.txt
 - 근거 보고서: E:\verify_reports\M41-ENCRYPTED-COLUMN-INPUT-PATH-PHASE1-STORAGE-AND-WIRING.txt
 
 ### M42. ✅ 해결 완료 — M37~M39 스키마 정본(`db/schema.sql`) 반영 과정에서 새로 생긴 재실행 안전성 위험
