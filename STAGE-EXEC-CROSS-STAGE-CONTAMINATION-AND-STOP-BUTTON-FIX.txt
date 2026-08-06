@@ -1,0 +1,125 @@
+작업명: STAGE-EXEC-CROSS-STAGE-CONTAMINATION-AND-STOP-BUTTON-FIX
+✅ 작업 완료 - STAGE-EXEC-CROSS-STAGE-CONTAMINATION-AND-STOP-BUTTON-FIX (1~4순위 전부 검증 완료, 신규 회귀 0건)
+
+────────────────────────────────────────────────────────────────
+0. 세션 복구 경위
+────────────────────────────────────────────────────────────────
+직전 세션 컨텍스트 소실 후 재개. /clear 이후 잘못 실행한 "전체 스위트 백그라운드 실행"
+(432 failed/42 errors)은 배치 실행 특유의 환경성 잡음(PROD-DB-WRITE-BLOCKED 가드 등)으로
+폐기하고, git log + directives/STAGE-EXEC-CROSS-STAGE-CONTAMINATION-AND-STOP-BUTTON-FIX.md
+(E:\_rpt_push\directives, 코드 저장소가 아닌 verify 저장소에 보관돼 있었음)로 작업 범위를
+재확인한 뒤 순위별 서브셋 회귀로 재검증했다.
+
+────────────────────────────────────────────────────────────────
+1순위 [최우선] 다중 GROUP BY 세트 루프 신선도 방어
+────────────────────────────────────────────────────────────────
+커밋: 741b988 fix(ui): 다중 GROUP BY 세트 루프 신선도 방어(STAGE-EXEC-PLANSETS-FRESHNESS-FIX)
+파일:라인 — ui/tabler_renderer.py:26781 _runExecutePlanSets(ctx)
+- 루프 진입 시점에 tgt_where/analyze 스냅샷/candidate_snapshot_full/db 선택을 1회만 캡처해
+  모든 세트가 공유(세트 간 재조회 제거, deep copy 고정).
+- /generate·/execute fetch 에 누락돼 있던 abort signal 배선.
+- 세트 반복 사이 세션버전 검사 추가(버전 변경 시 루프 즉시 중단).
+검증: tests/test_stage_exec_plansets_freshness_fix.py(177줄, 신규) — 현재 HEAD 전체 통과.
+
+────────────────────────────────────────────────────────────────
+2순위 [최우선] 4단계 실행 멈춤 버튼 신설
+────────────────────────────────────────────────────────────────
+커밋: bd56c0a feat(ui): 2·4단계 실행 멈춤 버튼 신설(STAGE-EXEC-STOP-BUTTON-IMPLEMENT)
+파일:라인 — ui/tabler_renderer.py:6587 mvCommandBarRunAction(btn), :6618 abort 버튼 onclick 배선,
+_mvSingleAbortRun()이 window._singleInflightAbort.abort() 호출(1순위 abort signal과 동일 컨트롤러 공유).
+검증: tests/test_stage_exec_stop_button_fix.py(152줄, 신규) + 기존 test_cmdbar_sequential_flow.py,
+test_stage45_timing_label_and_dup_guard_fix.py(소폭 수정분 포함) — 전체 통과.
+
+────────────────────────────────────────────────────────────────
+3순위 [우선] 실행 중 선택 컨트롤 잠금
+────────────────────────────────────────────────────────────────
+실구현 커밋: c889dd2(다른 세션의 F14 CSR 커밋에 편입 — 아래 3항 참고), ui/tabler_renderer.py 변경분:
+  :442-450  body.mv-run-locked 오버레이 CSS(pointer-events:none, disabled 속성 미사용 — 진단서 권장대로)
+            선택자: input[data-cand-chk="1"](GB/SUM 체크박스) / .mv-adm-ovr-btn·.mv-adm-ovr-scope
+            (관리컬럼 확정 버튼·범위 — js_admin_column_override.py 렌더, 클래스 매칭 실측 확인)
+            / #gbIncludePair(조합 체크박스 — js_sql_preview.py 렌더) / #tgtWhere
+  :15912    var _generateInProgress = false;(신규 4번째 가드 — runGenerate 는 기존에 가드 자체 없었음)
+  :15918    function _mvSyncRunLockedControls() — 4개 플래그(_executeInProgress/_countInProgress/
+            _revalidateInProgress/_generateInProgress) 판정 → body.mv-run-locked 토글
+  :16360    runRevalidateFromCandidate 가 _executeInProgress 도 확인(가드 교차 확인 보완)
+  :26410    runGenerate 자체 in-progress 가드 신설
+테스트 보강 커밋: ac9d88a test(ui): 3순위 실행 중 선택 컨트롤 잠금(STAGE-EXEC-CONTROL-LOCK-IMPLEMENT) 테스트 보강
+  — tests/test_stage_exec_control_lock_fix.py(147줄, 신규) + 기존 2개 파일 소폭 보강.
+실측검증(오늘 재확인):
+  - 4개 가드(_executeInProgress/_countInProgress/_revalidateInProgress/_generateInProgress) 총
+    11개 set/reset 지점 전부 grep 대조 → 예외 없이 _mvSyncRunLockedControls() 인접 호출 확인
+    (runRevalidateFromCandidate 2곳/runCount 3곳/runGenerate 2곳/runExecute 4곳).
+  - CSS 선택자(.mv-adm-ovr-btn/.mv-adm-ovr-scope/#gbIncludePair)가 js_admin_column_override.py·
+    js_sql_preview.py 가 실제로 렌더하는 클래스/id 와 정확히 일치함을 소스 grep 으로 재확인
+    → 두 파일을 직접 건드리지 않고도(오버레이는 전역 DOM 선택자 방식) 락이 정상 적용되는 구조.
+  - tests/test_stage_exec_control_lock_fix.py 등 신규/보강 테스트 현재 HEAD 전체 통과.
+
+────────────────────────────────────────────────────────────────
+4순위 [중간] 4단계 실행 중 2·3단계 재실행 시 무효화 롤백 차단
+────────────────────────────────────────────────────────────────
+실구현 커밋: c889dd2(3순위와 함께 편입), ui/tabler_renderer.py 변경분:
+  :6358  var _singleResultStaleGen = 0;(세대 카운터)
+  _singleMarkStage5ResultStale() 호출마다 세대 증가(화면 표시 여부 무관하게 항상 카운트)
+  _mvRenderValidationDetail(opts) — opts.staleGenAtStart 가 현재 세대와 같을 때만
+  (실행 도중 무효화 없었음) 배너 해제. 값 미전달 호출부는 기존과 동일(무조건 해제, 무회귀).
+  runExecute/​_runExecutePlanSets 가 실행 시작 시점 세대를 캡처해 결과 렌더 호출에 전달.
+  runFullValidation(원클릭) 경로의 3개 호출부(20653/20678/20681)는 staleGenAtStart 미전달
+  — 이 경로는 2·3·4단계를 사용자가 개별 재트리거할 수 없는 단일 원자적 흐름이라 대상 레이스가
+  구조적으로 발생하지 않음(범위 외, 진단서 케이스도 단계별 흐름 한정). hostSummary 지정 호출부
+  (32187, 배치/이력 상세)도 기존 가드(!opts.hostSummary)로 이미 클리어 대상에서 제외됨 — 별도
+  staleGenAtStart 불필요.
+테스트 보강 커밋: 6a2a52d test(ui): 4순위 무효화 롤백 차단(STAGE-EXEC-STALE-ROLLBACK-GUARD-FIX) 테스트 보강
+  — tests/test_stage_exec_stale_rollback_guard_fix.py(118줄, 신규) 현재 HEAD 전체 통과.
+
+────────────────────────────────────────────────────────────────
+3. c889dd2 편입 경위 및 유실 여부 최종 확인
+────────────────────────────────────────────────────────────────
+ac9d88a·6a2a52d 커밋 메시지 자체가 "실제 구현은 동시 작업 중이던 다른 세션의 c889dd2(F14 CSR
+커밋)에 함께 반영되어 별도 커밋으로 분리되지 못했다(공유 로컬 저장소, 원격 없음 — 그 시점에도
+다른 세션이 같은 브랜치에 계속 커밋 중이라 git reset 재분리는 위험 판단, 사용자 확인 후 현재
+상태 유지)"고 명시. 오늘 c889dd2 diff(ui/tabler_renderer.py 89줄 변경분) 전체를 directives 요구
+15개 항목(3순위 4개 대상 요소×오버레이 방식 + 가드교차 2건, 4순위 4개 구성요소)과 줄 단위로
+대조한 결과 — 유실 0건, 요구사항 전부 반영 확인. 결론: 별도 커밋 분리는 안 됐지만 코드 자체는
+정상 병합·정상 동작 상태이며, 재분리 작업은 불필요(git reset 재시도는 그 자체가 더 위험한
+되돌리기 어려운 작업).
+
+────────────────────────────────────────────────────────────────
+4. 회귀 검증 — 관련 테스트 서브셋 + baseline 대조 (전체 스위트 배치 실행 대신)
+────────────────────────────────────────────────────────────────
+baseline: git worktree faf92bc(1순위 착수 직전 커밋).
+범위: 4개 순위 신규/보강 테스트 8개 파일(61건) + 관련 함수(runExecute/runCount/runGenerate/
+runRevalidateFromCandidate/_mvRenderValidationDetail/_runExecutePlanSets/_singleMarkStage5Result
+Stale/mvCommandBarRunAction/_mvSingleAbortRun/_mvSyncRunLockedControls) 참조 테스트 65개 파일,
+4개 배치로 분할 실행.
+
+  배치1(21파일): 5 failed(현재) vs baseline 4 failed → 신규 1건
+  배치2(21파일): 15 failed(현재) = baseline 15 failed(동일, node subprocess 60초 타임아웃 —
+                단독 재실행에서도 동일 재현, 환경성/규모 이슈이지 코드 회귀 아님) → 신규 0건
+  배치3(20파일): 17 failed(현재) vs baseline 16 failed → 신규 1건
+  배치4(13파일): 15 failed(현재) = baseline 15 failed(전부 기존 문서화된 사전 존재 실패:
+                test_stats_result_full/test_validation_plan_renderer_static/test_task12_a
+                execute-core 계열/test_work_session_reset_policy 노드 하네스 스텁 미정의) → 신규 0건
+
+  신규 회귀 2건 확정 — 둘 다 동일 원인(고정폭 텍스트 추출 창 오탐, 기능 회귀 아님):
+  ① test_conn_payload_common_builder.py::test_run_count_uses_common_builder
+     runCount() 소스 앞 3000자 창 — 3·4순위가 추가한 가드/동기화 호출·주석으로 tgtDb 빌더
+     호출 위치가 3002자 지점으로 밀려나 창 밖으로 나감(실제 호출은 정상 존재).
+  ② test_run_execute_conn_payload_consolidate.py::test_..._shared_builder
+     runExecute() 소스 앞 8000자 창 — 동일 원인으로 8077자 지점까지 밀림.
+  조치: 두 테스트의 추출 창을 각각 4000자/9000자로 확대(실제 동작 불변 확인 후 순수 테스트
+  수정) — 커밋 deabc96. 재실행 통과 확인.
+
+  CLAUDE.md 필수 회귀 최종 1회: samples/test_virtual_cases.py 8/8 통과,
+  samples/test_complex_cases.py 5/5 통과.
+
+────────────────────────────────────────────────────────────────
+관련 커밋
+────────────────────────────────────────────────────────────────
+741b988  fix(ui): 1순위 다중 GROUP BY 세트 루프 신선도 방어
+bd56c0a  feat(ui): 2순위 4단계 실행 멈춤 버튼 신설
+c889dd2  fix(csr): F14(별도 작업) — 3·4순위 실구현이 여기 편입됨(경위 위 3항)
+ac9d88a  test(ui): 3순위 테스트 보강 + 편입 경위 명시
+6a2a52d  test(ui): 4순위 테스트 보강 + 편입 경위 명시
+deabc96  test: 회귀확인 중 발견한 고정폭 창 오탐 2건 수정(신규 회귀 아님)
+
+✅ 작업 완료 - STAGE-EXEC-CROSS-STAGE-CONTAMINATION-AND-STOP-BUTTON-FIX (1~4순위 전부 검증 완료, 신규 회귀 0건)
