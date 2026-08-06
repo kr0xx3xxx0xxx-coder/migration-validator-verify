@@ -1698,19 +1698,26 @@ git -C E:/verify_reports worktree remove <임시경로>
   단, 4단계 pane 에 표시 영역이 하나 더 느는 구조 비용이 있다(이미 오류/성공/진행 3개가 있다).
 - 참고: E:\verify_reports\STAGE4-5-COMPLETION-DISPLAY-TIMING-ACCURACY-DIAGNOSE.txt
 
-### F19. 후보 점수의 설명가능성이 부족하다 — 8개 하위요소를 단일 변수에 누적만 하고 응답·화면 어디에도 분해가 남지 않는다
-- 발견일: 2026-07-31
-- 근거 보고서: `CANDIDATE-SCORE-EXPLAINABILITY-BREAKDOWN-DIAGNOSE.txt`
+### F19. ✅ 2단계(화면 노출) 완료 — 후보 점수의 설명가능성이 부족하다(1단계: 서버 저장 완료 / 2단계: 배지·툴팁 노출 완료)
+- 발견일: 2026-07-31 / 2단계 해결일: 2026-08-06 (F19-STAGE2-BADGE-TOOLTIP-IMPLEMENT, 코드 저장소 커밋)
+- 근거 보고서: `CANDIDATE-SCORE-EXPLAINABILITY-BREAKDOWN-DIAGNOSE.txt`(발견) →
+  `F19-STAGE2-BADGE-TOOLTIP-SCOPE-DIAGNOSE.txt`(2단계 착수범위 진단) →
+  `F19-STAGE2-BADGE-TOOLTIP-IMPLEMENT.txt`(2단계 구현·해결)
+- 2단계 해결 요약: score_contributions 하위요소별 기여분을 배지 title 속성(툴팁)으로 노출.
+  DOM 실측(getAttribute('title'))으로 "기본 점수(+40) · 비숫자형 타입(+15) · 사전 매칭(+10) = 65점"
+  형태 노출 확인, delta 합계와 화면 표시 점수 완전 일치 실증(65/30/0점 3케이스). 점수 미표시 행은
+  title도 null로 설계대로 동작. ui/tabler_renderer.py의 다른 화면 렌더 무영향 확인.
 - 상세: 운영 후보 점수(`services/candidate_scoring.py`)는 8개 하위요소를 **단일 변수에 누적 가감만** 하고
   대부분을 응답에 보존하지 않는다. 응답 필드로 확인 가능한 것은 카디널리티/NULL 기여분 **2개뿐**이고,
-  나머지(기본점수 40점 포함)는 코드를 읽어야만 역산할 수 있다. UI 는 그 2개마저 **"내부 가산점은 UI 에
-  노출하지 않는다"는 명시적 정책**으로 화면에서 숨긴다.
+  나머지(기본점수 40점 포함)는 코드를 읽어야만 역산할 수 있다. (2026-08-06 갱신: 아래 "2단계 해결 요약"대로
+  이제 배지 title 툴팁으로 노출된다 — 이 문단의 "화면에서 숨긴다" 서술은 1단계 시점 기록으로 보존.)
   기본점수(`auto_selected` 단일 불리언)가 100점 중 **40%** 를 차지해, 이 필드가 오염되면 점수 전체가
   왜곡되는데 **감지 수단이 없다**(S10 형 사고가 점수 영역에서 재발해도 드러나지 않는다).
   분해 표시용 UI 함수 2개(`_buildCandidateScoringHint`, `_buildScoringRationale`)와 실험용 6차원
-  breakdown(E1) 중 2차원이 **이미 만들어져 있으나 호출부·합산 로직이 없는 죽은 코드**다.
-- 대응 방향: 하위요소별 기여분을 **구조화된 필드로 응답에 보존**(최소 8종)하고, UI 에 툴팁/세부보기로
-  노출한다. 완료 모듈 수정이라 범위 파악 후 **별도 승인 필요**.
+  breakdown(E1) 중 2차원은 F19-STAGE2 진단 결과 "죽은 helper"로 확인되어 2단계 구현에서 재사용하지
+  않고 새 코드로 별도 부착했다(호출부·합산 로직 없는 상태로 그대로 잔존, 정리는 이번 범위 아님).
+- 대응 방향(1·2단계 완료): 하위요소별 기여분을 구조화된 필드로 응답에 보존(1단계, 완료) +
+  UI 툴팁으로 노출(2단계, 완료). 후속 가능성(세부보기 패널 등 추가 UI)은 별건.
 - 관련: S10(`is_pk` 고정값 — 점수 오염원의 대표 사례)
 - 참고: E:\verify_reports\CANDIDATE-SCORE-EXPLAINABILITY-BREAKDOWN-DIAGNOSE.txt
 
@@ -1886,26 +1893,35 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: F1, S5(이미 해결 완료)
 - 참고: E:\verify_reports\PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt
 
-### F1. HASH_BUCKET 오라클 구현체 자체가 아직 없다 (phase2 = 어댑터 분리까지만 완료)
-- 발견일: 2026-07-29
-- 근거 보고서: `HASH-BUCKET-ORACLE-PORT-DESIGN-FINALIZE.txt` (§5 / 다음 권장 작업)
-- 상세(2026-08-05 재조사로 사실오류 정정): 설계 확정 + **phase2(Base·위임표·팩토리 분리 + PG
-  구현체 이전)만** 완료됐다(커밋 eb65115 1건). phase1(별칭 개명/계약 버전 bump)은 **미착수** —
-  별칭이 여전히 __HB/__KH/__RH이고 버전도 'hashv1-md5-lenpfx'로 '-pg' 접미사가 없다(설계 문서가
-  스스로 이 연기를 주석에 명시). 따라서 남은 단계는 ③④⑤⑥이 아니라 **①③④⑤⑥**이다(+0.5작업일,
-  총 4.5~5.5작업일). ①은 저장된 resume 상태(pending_region의 '__HB1' 키)와 비호환이라 계약
-  version bump와 반드시 같은 커밋이어야 하며, 이를 건너뛰고 ③부터 착수하면 오라클 구현체를
-  다 만들어도 ORA-00911로 산출물이 0이 된다.
-  추가 발견: row_diff.py:77,103과 match_key_evidence.py:21,122,126이 dialect 인자를 받고도
-  PG 전용 재수출 경로로 무조건 위임한다(hash_bucket.py에서 이미 고친 결함과 동일 패턴이
-  남아있음) — G7 착수 시 반드시 함께 처리해야 한다(아래 G7 참고).
-- 하위 항목: `tests/test_underscore_alias_oracle_regression_static.py` 의 `KNOWN_ORACLE_UNSAFE` 에
-  hash_bucket(`__HB`/`__KH`/`__RH`) 이 남아 있다. PG 전용 해시 계약이라 단순 개명으로 끝나지 않으며,
-  Layer A 의 `expectedFailure` 마커도 그때 함께 정리해야 한다
-  (근거: `AGG-DIFF-ROUTE-UNDERSCORE-M-ALIAS-FIX.txt` §5-(b),(c), 2026-07-27).
+### F1. ✅ phase1(①) 완료 — HASH_BUCKET 오라클 구현체는 여전히 없음 (남은 단계: ③④⑤⑥ + G7)
+- 발견일: 2026-07-29 / phase1 해결일: 2026-08-06 (F1-PHASE1-ALIAS-RENAME-VERSION-BUMP, 코드 커밋 c420d84)
+- 근거 보고서: `HASH-BUCKET-ORACLE-PORT-DESIGN-FINALIZE.txt`(§5) →
+  `F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE.txt`(순서 정정: ①③④⑤⑥) →
+  `F1-PHASE1-ALIAS-RENAME-VERSION-BUMP.txt`(①만 구현·해결)
+- phase1(①) 해결 요약: 별칭 __HB/__KH/__RH → HB/KH/RH 개명(설계문서 §5.2 그대로), 계약버전
+  'hashv1-md5-lenpfx' → 'hashv1-md5-lenpfx-pg'(설계 §3.5 근거). 저장된 resume 상태는 마이그레이션이
+  아니라 **무효화**(EVIDENCE_CHANGED)를 택함 — "옛 키가 새 canonical 계약으로 만들어졌는지 확인
+  불가능한 상태에서 이어붙이면 다시 조용한 거짓판정이 된다"는 판단. PG↔PG 골든셋 5개 불변축
+  (contract_sql/agg_sql/row_select/helpers/live) 완전 일치, 라이브 3케이스 실측, 신규 회귀 0건.
+  설계가 제안한 구현 방식을 그대로 따르지 않고 정정한 지점 1건: `startswith('HB')` 대신
+  `^HB[0-9]+$` 정확 형태 판정 채택(그렇지 않으면 HB_CD/HBASE류 업무컬럼이 scope 서명에서
+  조용히 탈락 — 개명 전과 반대 방향의 같은 실패 모드 재발 방지).
+- 남은 단계(③④⑤⑥, 미착수): ③ 오라클 구현체 → ④ 소비측 배선(row_diff 재수출 제거·
+  match_key_evidence 위임·multi_scope db_type 전달·L1 게이트 신설) → ⑤ capabilities 개방 →
+  ⑥ G7(위임표 오라클 등록) + 라이브 동등성 실측.
+  row_diff.py:77,103과 match_key_evidence.py:21,122,126이 dialect 인자를 받고도 PG 전용 재수출
+  경로로 무조건 위임하는 결함은 phase1 범위 밖이라 **아직 그대로 남아있다** — G7 착수 시 반드시
+  함께 처리해야 한다(아래 G7 참고, 단독 착수 금지 원칙 불변).
+- 하위 항목: ✅ 해결됨(phase1) — `KNOWN_ORACLE_UNSAFE`에서 hash_bucket 항목 제거({} 로 비움),
+  Layer A `expectedFailure`는 판정을 두 축으로 분리해 재작성(축B: 별칭 형태, 축C: 오라클
+  HashContractUnavailableError 차단 — ③에서 오라클 계약 등록 시 축C 단정이 깨지는 걸 신호로
+  그때 오라클 방출 SQL 검사로 승격할 것).
+  (근거: `AGG-DIFF-ROUTE-UNDERSCORE-M-ALIAS-FIX.txt` §5-(b),(c), 2026-07-27 / 해결:
+  `F1-PHASE1-ALIAS-RENAME-VERSION-BUMP.txt` §2-2).
 - 참고: E:\verify_reports\HASH-BUCKET-ORACLE-PORT-DESIGN-FINALIZE.txt
 - 참고: E:\verify_reports\AGG-DIFF-ROUTE-UNDERSCORE-M-ALIAS-FIX.txt
 - 참고: E:\verify_reports\F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE.txt
+- 참고: E:\verify_reports\F1-PHASE1-ALIAS-RENAME-VERSION-BUMP.txt
 
 ### F2. CHUNK/표본 preflight 경로는 저장 상한(representative_limit=20) 때문에 100건 표시가 보장되지 않는다
 - 발견일: 2026-07-29
@@ -1946,20 +1962,22 @@ git -C E:/verify_reports worktree remove <임시경로>
     전환 대상 총량은 파일럿 기준 206파일·809케이스이며, 정확한 잔여 파일 수는 Tier 2 착수 시 재확정 필요.
 - 참고: E:\verify_reports\WHITEBOX-TEST-CONTRACT-CONVERSION-PHASE1.txt
 
-### F6. 다중 GROUP BY 조합 검증은 이미 구현돼 있으나, 실무 규모에서 상한(100)에 걸려 자동 제외되고 그 사유가 화면에 안 보인다
-- 발견일: 2026-07-28 / 재조사: 2026-08-05
+### F6. ✅ 1순위(제외 사유 화면 표시) 완료 — 다중 GROUP BY 조합 검증은 이미 구현돼 있으나, 실무 규모에서 상한(100)에 걸려 자동 제외된다(결함 B·C 잔존)
+- 발견일: 2026-07-28 / 재조사: 2026-08-05 / 1순위 해결일: 2026-08-06 (F6-PLAN-EXCLUDED-DISPLAY-IMPLEMENT)
 - 근거 보고서(최초): `SINGLE-STEP5-MULTI-GROUPBY-REPRESENTATIVE-AXIS-DIAGNOSE.txt` /
   `SINGLE-STEP5-COMBO-VIEW-AND-SKEWED-GROUP-VOLUME-DIAGNOSE.txt`
 - 근거 보고서(재조사): `F6-MULTI-GROUPBY-COMBINATION-VALIDATION-SCOPE-DIAGNOSE.txt`
+- 근거 보고서(1순위 해결): `F6-PLAN-EXCLUDED-DISPLAY-IMPLEMENT.txt`
+- 1순위 해결 요약: 서버가 이미 응답하던 `plan.excluded`(사유/예상그룹수/평균행수)를 4단계
+  `#gbIncludePair` 체크박스 부근에 경고 배너로 렌더. 서버 코드 0건 변경(순수 클라이언트 렌더),
+  실행된 세트 구성·판정 로직 불변 실측 확인. 5천만행 실제 재현(REGION_CD+CHAN_CD, 예상 1,600그룹)
+  으로 "⚠️ 조합 세트 자동 제외 · 예상 1,600그룹 — 자동계획 상한(100) 초과" 노출 확인.
 - 상세(구버전 서술 정정): '판정 자체가 부재'는 더 이상 사실이 아니다. 같은 날(2026-07-28) 커밋
   7d94b99(COMBO-PAIR-ENTRY-POINT-RESTORE-IMPLEMENT)로 4단계 opt-in 체크박스(#gbIncludePair)를
   통한 조합(PAIR) 세트 실행이 구현·라이브 검증됐다(기본 OFF). 2026-08-05 재조사에서 5천만행
   라틴방격 재현(REGION_CD×STATUS_CD, 축별 불일치 0건 vs 조합 불일치 4건·1,000만 상당 오차)으로
   조합 검증의 필요성 자체는 다시 실증됐다.
-- 진짜 남은 문제 3가지:
-  (A) 실무 규모(5천만행, 예상조합 210그룹)에서는 체크박스를 켜도 PLAN_TARGET_MAX_GROUPS=100
-      상한에 걸려 조합 세트가 자동 제외된다. 제외 사유(`plan.excluded`)는 서버가 만들어 보내고
-      클라이언트도 저장하지만, 화면에서 읽어 렌더하는 코드가 0곳이라 사용자는 왜 안 됐는지 알 수 없다.
+- 잔존 문제 2가지(B·C, 3순위 — 이번 범위 아님):
   (B) 조합 세트를 실행해도 5단계 '실행계획' 표기(grid_helpers.py:1933)가 SINGLE 세트만 세어
       조합 세트 실행 사실이 표기에서 누락된다.
   (C) 재조회(복원) 경로에 _execEvidence 가 구성되지 않아, 축별 분해로만 검증한 과거 결과를
@@ -1967,10 +1985,11 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 상한(100) 근거 반박: 조합 세트 실제 추가비용은 그룹수와 무관(50M 실측 4.02초, 단일축과 동급
   수준)이며, 프로젝트 자체 cost 모델(scan 2.0 vs group 0.17)과도 일치한다. 결과 그룹 hard cap은
   100,000으로 1,000배 차이 난다.
-- 권장(승인 대기, 코드 미착수): 1순위 plan.excluded 화면 렌더(신규 로직 0, 저위험) → 2순위
-  PLAN_TARGET_MAX_GROUPS 상향(정책값 변경, 승인 필요) → 3순위 결함 B·C 표시 정확성.
-  3축 이상 조합 복원(EXPLICIT_MULTI)은 비권장(D7-17 설계 되돌리기, 현재 결함 어느 것도 요구 안 함).
+- 권장(2순위는 승인 대기, 코드 미착수): 2순위 PLAN_TARGET_MAX_GROUPS 상향(정책값 변경, 별도
+  승인 필요) → 3순위 결함 B·C 표시 정확성. 3축 이상 조합 복원(EXPLICIT_MULTI)은 비권장(D7-17
+  설계 되돌리기, 현재 결함 어느 것도 요구 안 함).
 - 참고: E:\verify_reports\F6-MULTI-GROUPBY-COMBINATION-VALIDATION-SCOPE-DIAGNOSE.txt
+- 참고: E:\verify_reports\F6-PLAN-EXCLUDED-DISPLAY-IMPLEMENT.txt
 
 ### F7. 4단계 통계검증 실행의 비동기 job 화 — 백그라운드 감시·자동 5단계 진입의 선행 조건
 - 발견일: 2026-07-28
@@ -2014,22 +2033,20 @@ git -C E:/verify_reports worktree remove <임시경로>
   포함, 메뉴 범위 밖).
 - 참고: E:\verify_reports\F11-MENU-CLEANUP-SCOPE-DIAGNOSE.txt
 
-### F11-B. showTab('single') 존재하지 않는 tab id 호출 3곳 — 도달 시 전체 화면 백지화
-- 발견일: 2026-08-05 (F11 재집계 중 발견, F11에서 분리 등록)
-- 근거 보고서: `F11-MENU-CLEANUP-SCOPE-DIAGNOSE.txt` §2-❸
-- 상세: 개별검증 탭의 실제 id는 'analyze'인데 'single'이라는 존재하지 않는 이름을 호출하는
-  지점이 3곳 있다. showTab()은 매칭 실패 시 등록된 15개 탭 전부를 display:none 처리해
-  백지 화면이 된다.
-  (1) tabler_renderer.py:12375 batchShowRowDetail() — 실사용 도달 가능(일괄검증 결과 [상세]
-      모달의 '개별검증 탭으로 전환'). 데이터는 준비됐는데 화면만 백지가 되는 형태.
-  (2) tabler_renderer.py:9648 batchOpenSingleFromLatest() — 정의만 있고 HTML onclick 호출부
-      0건(현재 고아 함수, 즉시 위험 없음).
-  (3) showTab() 내부 7196행의 'single' 분기 — 개별검증 진입에서 영구 미발동 상태라
-      /api/validation-policy 선로드가 일괄검증에서만 동작(TASK36 의도와 불일치).
-- 위험도: 중간. 'single'→'analyze' 치환은 1단어지만 부작용 3개 동반(showTab 내부 미실행
-  분기 최초 발동, 신규 네트워크 호출 1회 추가, 화면전환 후 입력값 유지 여부 미확인) —
-  착수 시 회귀 테스트 필요.
+### F11-B. ✅ 해결 완료 — showTab('single') 존재하지 않는 tab id 호출 3곳 — 도달 시 전체 화면 백지화
+- 발견일: 2026-08-05 (F11 재집계 중 발견, F11에서 분리 등록) / 해결일: 2026-08-06
+  (F11-B-SHOWTAB-SINGLE-ROUTING-FIX, 코드 저장소 커밋)
+- 근거 보고서: `F11-MENU-CLEANUP-SCOPE-DIAGNOSE.txt` §2-❸(발견) →
+  `F11-B-SHOWTAB-SINGLE-ROUTING-FIX.txt`(해결)
+- 해결 요약: 3곳(batchShowRowDetail(), batchOpenSingleFromLatest(), showTab() 내부 'single' 분기)
+  모두 'analyze'로 정정. 백지화 재현(before) → 개별검증 화면 정상 전환(after) 실측 확인,
+  SQL 입력값·컨텍스트 배너 화면전환 후 유지 확인. 우려했던 부작용 3가지 전부 점검 완료:
+  ① showTab 내부 'analyze' 분기는 메뉴 클릭 정상 진입에서 이미 쓰이던 기존 코드 경로(신규 아님,
+  버그 없음), ② /api/validation-policy 중복호출 없음(캐시 가드로 1회만 로드, TASK36 의도대로
+  신규 세션에서만 1회 추가호출), ③ 입력값 유지 확인. 옛 버그 문자열(`showTab('single')`)을
+  계약으로 고정하던 낡은 테스트(test_tc_open_03_show_tab_single_called)도 발견해 정정.
 - 참고: E:\verify_reports\F11-MENU-CLEANUP-SCOPE-DIAGNOSE.txt
+- 참고: E:\verify_reports\F11-B-SHOWTAB-SINGLE-ROUTING-FIX.txt
 
 ### F12. 프로젝트 is_test 소급 마이그레이션 25건 미적용 + HOLD 13건 cascade 정리
 - 발견일: 2026-07-27
