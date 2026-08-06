@@ -2945,6 +2945,23 @@ git -C E:/verify_reports worktree remove <임시경로>
   확장)에 넣을지 검토하는 범위 진단이 먼저 필요하다.
 - 근거 보고서: E:\verify_reports\F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE.txt
 
+### M42. ✅ M37~M39 스키마 정본(`db/schema.sql`) 반영은 완료했으나, 그 과정에서 새로 생긴 재실행 안전성 위험 1건 별도 등록
+- 발견/등록일: 2026-08-06 (SCHEMA-SQL-M37-M39-SYNC 완료보고 §5, 지시 범위상 수정은 보류)
+- 상세: `db/schema.sql`은 원래 전부 `CREATE TABLE/INDEX IF NOT EXISTS`로만 구성돼 몇 번을
+  재실행해도 안전했다(`db/init_db.py`가 `executescript()`로 그대로 실행). M37 반영을 위해 추가한
+  `mv_db_preset`용 raw `ALTER TABLE ADD COLUMN` 3줄은 SQLite 문법상 `IF NOT EXISTS` 가드를 지원
+  하지 않아, 이미 해당 컬럼이 있는 DB(현재 운영 DB)에 `schema.sql`을 재실행하면
+  `OperationalError: duplicate column name`으로 즉시 중단된다(실측: 신규 임시 DB에 연속 2회
+  실행 → 1차 OK, 2차 실패로 재현 확인).
+- 영향: `db/init_db.py`는 서버 자동기동 경로에서 호출되지 않는 수동 1회성 스크립트다(즉시 장애
+  아님, 데이터 손상도 없음 — 예외 시점까지의 문장은 전부 no-op 재확인). 다만 누군가 "스키마
+  재확인" 목적으로 `python db/init_db.py`를 이미 구축된 운영 DB에 재실행하면 예외로 죽는다.
+- 대응 방향: 이 저장소에 이미 있는 기존 관례(`db/init_db.py::_apply_migrations`의
+  idempotent 가드 패턴, "raw ALTER TABLE은 schema.sql에 직접 넣지 않고 `_apply_migrations`에
+  if-col-not-in-existing 가드로 넣는다")를 그대로 따라 `mv_db_preset`의 3개 컬럼도
+  `_apply_migrations`로 옮기는 별도 작업 필요. 위험 낮음, 순수 방어코드 추가.
+- 근거 보고서: E:\verify_reports\SCHEMA-SQL-M37-M39-SYNC.txt
+
 ---
 
 ## 부록 — 환경 때문에 미완인 실측(코드 결함 아님)
