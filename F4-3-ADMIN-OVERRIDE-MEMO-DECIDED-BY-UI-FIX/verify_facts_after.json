@@ -1,0 +1,72 @@
+{
+  "mode": "after",
+  "project": {
+    "project_id": "974",
+    "project_name": "MV-ADMOVR-MEMO-DECIDER"
+  },
+  "S1": {
+    "ctl_found": true,
+    "buttons": [
+      {
+        "text": "✔ 관리컬럼 맞음",
+        "disabled": false,
+        "title": "이 컬럼을 관리컬럼으로 확정합니다(검증 대상에서 제외)."
+      },
+      {
+        "text": "✕ 관리컬럼 아님",
+        "disabled": false,
+        "title": "이 컬럼은 관리컬럼이 아님으로 확정합니다(검증 대상 후보로 유지)."
+      }
+    ],
+    "badge": "",
+    "memo_input": {
+      "value": "",
+      "disabled": false,
+      "placeholder": "메모(선택)"
+    },
+    "decider_input": {
+      "value": "",
+      "disabled": false,
+      "placeholder": "확정자(선택)"
+    }
+  },
+  "S2": {
+    "click": {
+      "outcome": "CLICKED",
+      "why": "",
+      "requests": [
+        {
+          "method": "POST",
+          "url": "http://localhost:8000/admin-column-overrides/save",
+          "body": "{\"project_id\":\"974\",\"table_key\":\"NXDNP.MV_ORA_DEMO_TGT\",\"column_name\":\"DEPT_CD\",\"decision\":\"AUDIT\",\"scope\":\"TABLE_COLUMN\",\"auto_verdict_at_decision\":\"NOT_AUDIT_CONFIRMED\",\"axis_a_at_decision\":null,\"axis_b_at_decision\":\"none\",\"decided_by\":\"hong.gildong\",\"memo\":\"F4-3 실측 메모 — 값 확증 후 관리컬럼으로 확정함\"}"
+        }
+      ],
+      "page_errors": []
+    },
+    "stored": [
+      {
+        "scope": "TABLE_COLUMN",
+        "table_key": "NXDNP.MV_ORA_DEMO_TGT",
+        "column_name": "DEPT_CD",
+        "decision": "AUDIT",
+        "memo": "F4-3 실측 메모 — 값 확증 후 관리컬럼으로 확정함",
+        "decided_by": "hong.gildong",
+        "updated_at": "2026-08-06T23:37:26Z"
+      }
+    ]
+  },
+  "S3": {
+    "click": "CLICKED",
+    "stored": [
+      {
+        "scope": "TABLE_COLUMN",
+        "table_key": "NXDNP.MV_ORA_DEMO_TGT",
+        "column_name": "DEPT_CD",
+        "decision": "AUDIT",
+        "memo": "",
+        "decided_by": "",
+        "updated_at": "2026-08-06T23:37:33Z"
+      }
+    ]
+  }
+}
