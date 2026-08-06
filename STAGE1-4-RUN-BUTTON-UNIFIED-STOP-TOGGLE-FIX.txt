@@ -1,0 +1,118 @@
+작업명: STAGE1-4-RUN-BUTTON-UNIFIED-STOP-TOGGLE-FIX
+✅ 작업 완료 - 1~4단계 실행버튼 별도 중단버튼 방식 폐기, 단일 토글 방식으로 재설계 완료(실측 검증 완료)
+
+────────────────────────────────────────────────────────────────
+0. 기준 정보
+────────────────────────────────────────────────────────────────
+- 코드 저장소 워킹트리 HEAD(작업 시작 시점): deabc96
+- 코드 저장소 로컬 커밋(이번 작업, push 안 함): 772ab0e
+- 서버 재기동 시각(수정본 반영): 2026-08-06 17:43:29 (127.0.0.1:8000, 실 포트, 인증 ON, 격리서버 아님)
+- 재기동 후 서빙 HTML에 신규 마커(_mvCmdBarStopClick) 포함 확인, 구 마커(_stopBtn) 잔존 0건 확인
+
+────────────────────────────────────────────────────────────────
+1. 재현 및 원인 확인 (신규 코드 작성 전 실측, before)
+────────────────────────────────────────────────────────────────
+실제 포트 8000, NXDNP.MV_SCATTER50M_SRC/TGT(5천만행) 2단계 COUNT 실행 중 커맨드바 버튼 DOM 상태를
+200ms 간격으로 폴링(scripts/dev_e2e/stage1_4_run_button_toggle_diagnose.py)한 결과:
+
+  t=44.550s(2차 클릭 직후, renderCalls=1): [이전][COUNT 실행중… disabled][■ 중단][다음▶]
+  t=44.757s(207ms 후, renderCalls 1→7 로 급증): [이전][COUNT 실행중… disabled][다음▶]  ← '■ 중단' 소멸
+  t=57.662s(COUNT 완료, /count 응답 57.646s, renderCalls=12): [이전][COUNT 다시 실행][다음▶]
+
+원인: bd56c0a(STAGE-EXEC-STOP-BUTTON-IMPLEMENT)가 disabled 된 메인 버튼 옆에 '■ 중단'을 별도 형제
+엘리먼트로 1회성 삽입했는데, mvCommandBarRunAction 의 락 상태 렌더 분기(_mvCmdBarActionHtml)는
+그 형제 엘리먼트를 전혀 모델링하지 않는다. 클릭 0.2초 뒤 다른 경로(진행카드/헤더 갱신 등)가
+_mvRenderCmdBar()를 재호출하면 #mvCmdBarActions.innerHTML 이 config 기준으로 통째 재생성되며
+형제 엘리먼트가 사라진다 — 이후 COUNT가 끝나는 약 13초 동안 중단 버튼이 보이지 않았다.
+
+[화면만 문제] vs [기능 자체 소실] 구분 실측(수정 전 기준):
+버튼이 안 보이는 상태에서 콘솔로 _mvSingleAbortRun() 을 직접 호출 → COUNT 가 실제로 즉시 취소됨
+("사용자가 COUNT 실행을 중단했습니다" 정상 표시). 서버 CancelToken 체인(M43 진단서 항목1)은 살아있고,
+결함은 순수히 [화면 표시 문제] — 사용자가 누를 수 있는 버튼이 안 보였을 뿐, 중단 기능 자체는
+소실되지 않았다.
+
+────────────────────────────────────────────────────────────────
+2. 구현 (확정된 설계 5개 규칙 그대로 적용)
+────────────────────────────────────────────────────────────────
+ui/tabler_renderer.py 수정:
+- mvCommandBarRunAction: abortable 액션은 클릭 즉시(동기) 같은 버튼 자체를
+  disabled=false, className='mv-btn-danger', textContent='■ 중단', onclick=_mvSingleAbortRun 으로
+  토글한다. 별도 형제 엘리먼트 생성 코드(createElement/insertBefore) 완전 제거.
+- _mvCmdBarActionHtml: 락 상태에서 abortable 이면 항상 같은 '■ 중단' 버튼 HTML을 반환한다
+  (disabled 스피너 분기와 별개 분기 신설). 재렌더가 몇 번 일어나든 결과가 항상 동일 —
+  단일 진실 출처(window._mvCmdBarLocks)만 보고 그리므로 중간 소멸이 구조적으로 불가능해졌다.
+- _mvCmdBarStopClick(btn) 신설 — '■ 중단' 버튼의 유일한 onclick 진입점, _mvSingleAbortRun() 호출.
+- abortable: true 를 1~4단계 실행 액션 5개(runAnalyze/​_mvCountStageAction/​
+  runRevalidateFromCandidate/​runGenerate/​runExecute) 전부에 부여. 1·3단계(runAnalyze·
+  runRevalidateFromCandidate)는 실제로는 순식간에 끝나 중단 실익이 없지만, 사용자 확정 설계에 따라
+  화면 동작 일관성을 위해 포함했다.
+
+────────────────────────────────────────────────────────────────
+3. 재검증 (after, 서버 재기동 후 실 포트8000·인증ON·5천만행)
+────────────────────────────────────────────────────────────────
+[3-1] 200ms 폴링 재검증(2단계 COUNT, before와 동일 방식)
+  t=45.307s(2차 클릭 직후, renderCalls=1): [이전][■ 중단 disabled=False][다음▶]
+  → 이후 COUNT 완료(t=56.971s, renderCalls=12)까지 약 11.7초 동안 재렌더가 11회 더 일어났음에도
+    버튼 표시가 단 한 번도 바뀌지 않음(깜빡임 0건). COUNT 완료 시 '▶ COUNT 다시 실행'으로 정상 복귀.
+
+[3-2] 실제 DOM 클릭으로 서버 쿼리 즉시 취소 검증(1~4단계, 대용량 조건)
+  1단계(runAnalyze)·3단계(runRevalidateFromCandidate)·4단계 1차(runGenerate, SQL 생성): 클릭 즉시
+  '■ 중단'으로 토글되는 것을 확인(메타데이터 조회만 하므로 실제로 순식간에 끝나 중단 실익은 없음 —
+  설계서에 명시된 그대로).
+
+  ● 2단계 COUNT(실제 Playwright 클릭, 5천만행): '■ 중단' 버튼 실제 클릭
+    → 3.09초 후 "사용자가 COUNT 실행을 중단했습니다" 확인(서버 COUNT 즉시 종료).
+  ● 4단계 통계검증 실행(실제 Playwright 클릭, 5천만행): '■ 중단' 버튼 실제 클릭
+    → 3.58초 후 "사용자가 실행을 중단했습니다" 확인(서버 실행 즉시 종료).
+
+  두 경우 모두 found=true·clickable=true·clicked=true — 화면에 항상 존재·클릭 가능한 버튼을
+  실측했다(콘솔 함수 직접 호출이 아니라 진짜 DOM 클릭).
+
+[3-3] 조사 중 발견한 무관 이슈(투명성 목적 기록, 이번 수정과 무관·범위 밖)
+  4단계 재검증 중 한때 "직전 실행의 잔여 상태를 정리했습니다"(자기치유 안내) 반복 노출을 만났다.
+  근본 원인을 스택트레이스로 추적한 결과 _mvExecReenterRestore()(기존 기능, D7-19, 본 수정과 전혀
+  무관)가 /agg-diff/resumable(세션 무관 전역 목록)에서 오늘 이전 세션의 PostgreSQL 주문 테이블
+  관련 orphan 재이관 체크포인트(run_id=PSF5D8441DAB50, 본 작업의 Oracle 픽스처와 무관)를 재발견해
+  실행 패널을 "복구 필요" 상태로 되살리는 것이 원인이었다. baseline(HEAD, 별도 워크트리·별도 포트
+  8021)에 동일 클릭 시퀀스를 그대로 재현했을 때는 발생하지 않고, 수정 후 코드를 "폴링/재시도 없는
+  최소 스크립트"로 재현해도 동일 증상이 나와 — 내 코드 변경이 아니라 서버측 orphan 데이터 + 그 데이터를
+  프로젝트/테이블 구분 없이 무조건 집어오는 기존 폴백 로직의 조합임을 확정했다. 검증 재개를 위해
+  db/chunk_checkpoints.db 의 해당 1개 행만 status='CANCELLED' 로 정리했다(DELETE 아님, 이번 작업과
+  무관한 과거 테스트 잔재 1건). 원인 자체(재이관 이어하기 목록이 프로젝트/테이블로 스코프되지 않음)는
+  범위 밖 결함으로 후속 백로그 등록을 권고한다.
+
+────────────────────────────────────────────────────────────────
+4. 회귀 테스트
+────────────────────────────────────────────────────────────────
+- CLAUDE.md 필수 회귀: samples/test_virtual_cases.py 8/8 통과, samples/test_complex_cases.py 5/5 통과.
+- 관련 서브셋(cmdbar/실행버튼/락 관련 14개 파일 + 이번 수정 영향 5개 파일, 총 176건): 전부 통과.
+- test_cmdbar_5steps_live_click.py: 신 설계(abortable 액션은 disabled 아닌 '■ 중단'으로 락 표시)에
+  맞춰 stillLocked/afterClickDisabled 판정 로직을 갱신(가짜 버튼 element 가 data-mv-abortable 을
+  못 읽던 하니스 버그도 함께 수정) — 21건 전부 통과.
+- test_stage_exec_stop_button_fix.py: 옛 형제-버튼 방식 계약을 전면 폐기하고 새 단일-토글 계약으로
+  재작성(정적 계약 5건 + node 행위검증 2건, 재렌더 8회 반복해도 결과 불변임을 직접 증명).
+- baseline 대조(worktree, deabc96): test_single_run_standard_ui.py 4건 실패는 baseline 에서도
+  동일하게 재현(사전 존재 실패, 이번 수정과 무관) — 신규 회귀 0건.
+
+────────────────────────────────────────────────────────────────
+5. 변경/생성 파일
+────────────────────────────────────────────────────────────────
+- ui/tabler_renderer.py (버튼 토글 로직 재설계)
+- tests/test_stage_exec_stop_button_fix.py (전면 재작성)
+- tests/test_cmdbar_5steps_live_click.py (신 계약 반영 갱신)
+- tests/test_stage45_timing_label_and_dup_guard_fix.py (runGenerate abortable 반영 갱신)
+- scripts/dev_e2e/stage1_4_run_button_toggle_diagnose.py (신규, 200ms 폴링 진단 하니스)
+- scripts/dev_e2e/stage1_4_run_button_real_click_stop_verify.py (신규, 실제 클릭 중단 검증 하니스)
+
+────────────────────────────────────────────────────────────────
+6. 증적
+────────────────────────────────────────────────────────────────
+E:\verify_screenshots_only\STAGE1-4-RUN-BUTTON-UNIFIED-STOP-TOGGLE-FIX\
+  - polling_log_stage2_before.json / polling_log_stage2_after.json (200ms 폴링 원본 로그)
+  - real_click_stop_stage2.json / real_click_stop_stage4.json (실제 클릭 중단 실측 원본)
+  - stage2_after_count_before.png / stage2_after_count_after.png
+  - stage2_real_stop_click.png / stage4_real_stop_click.png
+(동일 파일을 E:\_rpt_push\STAGE1-4-RUN-BUTTON-UNIFIED-STOP-TOGGLE-FIX\ 에도 복사해 push)
+
+✅ 작업 완료 - 1~4단계 실행버튼 별도 중단버튼 방식 폐기, 단일 토글 방식으로 재설계 완료(실측 검증 완료)
+작업명: STAGE1-4-RUN-BUTTON-UNIFIED-STOP-TOGGLE-FIX
