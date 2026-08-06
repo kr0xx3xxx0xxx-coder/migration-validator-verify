@@ -2000,18 +2000,46 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\SINGLE-STEP4-BACKGROUND-WATCH-AUTO-STEP5-FEASIBILITY-DIAGNOSE.txt
 - 참고: E:\verify_reports\SINGLE-STEP4-INLINE-PROGRESS-FEASIBILITY-DIAGNOSE.txt
 
-### F8. 결과보기 run_id 분리 — job_registry DTO 가 그룹표를 감당하지 못한다(가장 큰 미해결 지점)
-- 발견일: 2026-07-27
-- 근거 보고서: `RESULT-VIEW-RUNID-DECOUPLE-FEASIBILITY-DIAGNOSE.txt` (§6)
-- 상세: 요약 전용 1차 분리는 가능하나 **그룹표는 선결 3건**이 필요하다. 권고는 요약 전용부터.
-- 참고: E:\verify_reports\RESULT-VIEW-RUNID-DECOUPLE-FEASIBILITY-DIAGNOSE.txt
-
-### F9. 개별검증 job ↔ 검증 run_id 연결점이 서버에 전무하다
-- 발견일: 2026-07-27
-- 근거 보고서: `SINGLE-JOB-VALIDATION-RUNID-LINKAGE-DESIGN-DIAGNOSE.txt`
-- 상세: 구현 4곳 전부 route/JS/registry 로 완료 모듈 무수정. `reimport_job.py` / exact_diff store /
-  engine 은 0 수정. **B안(무침습 9줄) 추천** 상태로 승인 대기.
+### F9. ✅ 해결 완료 — 개별검증 job ↔ 검증 run_id 연결점이 서버에 전무했다
+- 발견일: 2026-07-27 / 해결일: 2026-08-06 (F9-APPROVED-IMPLEMENT-THEN-F8-SUMMARY-VIEW-PHASE1,
+  코드 커밋 2779d51)
+- 근거 보고서: `SINGLE-JOB-VALIDATION-RUNID-LINKAGE-DESIGN-DIAGNOSE.txt`(설계) →
+  `F9-APPROVED-IMPLEMENT-THEN-F8-SUMMARY-VIEW-PHASE1.txt`(해결)
+- 해결 요약: 설계된 B안(무침습 9줄)을 그대로 구현 — `_mvPkPayload`에 `origin_run_id` 추가,
+  `PkPrepareRequest`에 필드 추가, 재사용 분기에서 `origin_validation_run_id` 갱신(stale
+  링크 방지), 신규 job 생성 시 meta 저장, `dto_from_single_status`가 `extra.validation_run_id`
+  로 노출. 실 포트 8000 직접 HTTP 실측(analyze→count→generate→execute→save→
+  agg-diff/prepare→GET /jobs/single)으로 `extra.validation_run_id`가 검증 run_id와 정확히
+  일치함을 확인, PASS 14/FAIL 0. `routes/single_restore_route.py:155`의 죽은 호출
+  (`_enrich_from_result_store`가 재이관 run_id로 잘못 호출되던 것)이 F9 반영으로 **처음
+  실제 동작**하는 것까지 확인(F9 성공 핵심 신호).
+- 잔여(범위 밖): 다중 세트(GB 2개 이상)의 "대표=최근" N:1 정책은 현재 실제 N:1 상황이
+  없어(1:1) 검증되지 않음 — 다중 세트 재이관 흐름 다룰 때 실측 필요.
 - 참고: E:\verify_reports\SINGLE-JOB-VALIDATION-RUNID-LINKAGE-DESIGN-DIAGNOSE.txt
+- 참고: E:\verify_reports\F9-APPROVED-IMPLEMENT-THEN-F8-SUMMARY-VIEW-PHASE1.txt
+
+### F8. ✅ 요약 전용 1차 완료 — 결과보기 run_id 분리(그룹표 포함 전체는 B4 설계결정 선행 필요)
+- 발견일: 2026-07-27 / 요약전용 해결일: 2026-08-06 (F9-APPROVED-IMPLEMENT-THEN-F8-SUMMARY-
+  VIEW-PHASE1, 코드 커밋 d59733d)
+- 근거 보고서: `RESULT-VIEW-RUNID-DECOUPLE-FEASIBILITY-DIAGNOSE.txt`(§6, 최초) →
+  `F8-RESULT-VIEW-RUNID-DECOUPLE-SCOPE-DIAGNOSE.txt`(재조사, 선결3건 중 2건 기해결 확인) →
+  `F9-APPROVED-IMPLEMENT-THEN-F8-SUMMARY-VIEW-PHASE1.txt`(해결)
+- 해결 요약: `routes/single_result_view_route.py` 신규(GET /single/result-view?run_id=),
+  `single_validation_result_store.py`에 plan_fingerprint/result_id 2필드 추가(M14 갭
+  동시 해소), `ui/js_result_view_standalone.py` 신규(`mvOpenSingleResultView(runId)`,
+  기존 `_mvRenderValidationDetail` 재사용 — 새 렌더러 신설 없음), 현황판에 완료 섹션+클릭
+  핸들러+결과 host div 추가. **그룹표 렌더 원천 차단**(DOM에 없는 host id를 넘겨
+  `renderExecute` 진입 자체를 막음 — 조건 분기가 아니라 요소 부재로 이중 차단).
+  Playwright 실측(PASS 12/FAIL 0): 현황판에서 탭 전환 없이 판정 배지·원본/목적 COUNT·
+  GROUP BY/SUM 축·불일치 항목·Excel 다운로드 확인, 마법사 `#executeOut` 클릭 전/후 완전
+  동일(오염 없음), Excel 다운로드 실제 200·xlsx 응답 확인.
+- 잔여(그룹표 포함 전체, 별도 착수 필요): B4(현황판·마법사 동시 그룹표 렌더 시 배타 정책 —
+  "현황판은 요약만 유지" vs "그룹표 표시 시 마법사 비우기" 중 결정 필요)가 유일한 남은
+  선결 조건. F9(선결 (i))·완료job목록 API(선결 (ii), 2026-07-27 기해결)·snapshot whitelist
+  (선결 (iii), 2026-07-27 기해결) 전부 닫혔으므로, B4만 결정되면 바로 착수 가능.
+- 참고: E:\verify_reports\RESULT-VIEW-RUNID-DECOUPLE-FEASIBILITY-DIAGNOSE.txt
+- 참고: E:\verify_reports\F8-RESULT-VIEW-RUNID-DECOUPLE-SCOPE-DIAGNOSE.txt
+- 참고: E:\verify_reports\F9-APPROVED-IMPLEMENT-THEN-F8-SUMMARY-VIEW-PHASE1.txt
 
 ### F10. 일괄검증 현황판의 job id 로는 결과를 찾을 수 없다(id 체계 이중화)
 - 발견일: 2026-07-27
@@ -2865,12 +2893,19 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 상세: 필요하면 원본 저장소에 `updated_at` 을 추가하는 별도 단계가 있어야 한다(이번 범위 밖).
 - 참고: E:\verify_reports\JOB-REGISTRY-STAGE2-READONLY-INTEGRATION.txt
 
-### M14. 개별검증 스냅샷의 저장 범위 갭(동종 미저장 필드 잔존)
-- 발견일: 2026-07-27
-- 근거 보고서: `SINGLE-SNAPSHOT-TOTAL-COUNTS-FIELDS-ADD.txt` (:166)
-- 상세: `total_src`/`total_tgt` 는 이번에 추가했으나 같은 성격의 저장 범위 갭이 남아 있고,
-  지시 범위 밖이라 손대지 않고 보고만 남겼다.
+### M14. ✅ 부분 해소 — 개별검증 스냅샷의 저장 범위 갭(plan_fingerprint/result_id 추가, 동종 갭 잔존 가능)
+- 발견일: 2026-07-27 / 해소일: 2026-08-06 (F9-APPROVED-IMPLEMENT-THEN-F8-SUMMARY-VIEW-PHASE1,
+  코드 커밋 d59733d — F8 요약전용 1차의 부수 해결)
+- 근거 보고서: `SINGLE-SNAPSHOT-TOTAL-COUNTS-FIELDS-ADD.txt`(:166, 발견) →
+  `F9-APPROVED-IMPLEMENT-THEN-F8-SUMMARY-VIEW-PHASE1.txt`(해소)
+- 해소 요약: `single_validation_result_store.py:307-315`의 `build_single_snapshot`에
+  `plan_fingerprint`/`result_id` 2필드 추가(F8 요약뷰가 결과를 찾는 데 필요해서 착수).
+  `/execute` 응답의 `result_page`(이미 채워져 있던 값)를 우선 사용, `req.plan_fingerprint`를
+  보조로. 기존 필드는 전부 불변(추가만) — 회귀 없음.
+- 잔여: 이번에 다룬 2필드 외에 "같은 성격의 저장 범위 갭"이 더 있을 수 있다는 원 서술의
+  일반적 우려는 전수 조사되지 않았다 — 필요 시 별도 진단 필요.
 - 참고: E:\verify_reports\SINGLE-SNAPSHOT-TOTAL-COUNTS-FIELDS-ADD.txt
+- 참고: E:\verify_reports\F9-APPROVED-IMPLEMENT-THEN-F8-SUMMARY-VIEW-PHASE1.txt
 
 ### M19. ✅ 해결 완료(원 서술의 전제는 선행 커밋에서 이미 해소 · 진짜 잔여는 반대방향 과잉교정이었다) — axis_a SYSTEM_AUDIT 오분류 — 타임스탬프 파싱 실패가 업무 코드 컬럼에도 "관리컬럼 미확인" 배지를 붙인다
 - 해결일: 2026-08-05 (AXIS-A-SYSTEM-AUDIT-TIMESTAMP-MISCLASSIFICATION-FIX)
