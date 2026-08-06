@@ -1,0 +1,151 @@
+작업명 : SEMANTIC-DICT-LOCAL-ENTRY-JSON-TO-SQLITE-MIGRATION
+
+✅ 작업 완료 - 로컬 시맨틱 사전 206건(mock 164 + seed 42)을 semantic_dictionary_entry 테이블로 이관,
+후보 추천 결과 전 계층 등식 성립(불일치 0건)·신규 회귀 0건
+
+■ 요청 요약
+파일로만 관리되던 로컬 시맨틱 사전(JSON 2개)을 SQLite 테이블로 옮기고, 봉인돼 있던
+_SOURCE_PRIORITY_RANK 상위 source(USER/PROJECT/CUSTOMER_OVERRIDE)의 저장소를 확보한다.
+
+■ 변경/생성 파일 (지시된 3개 외 무수정)
+  services/semantic_dictionary_service.py   수정  저장소 계층 + store 분기 + 캐시 축 교체
+  services/semantic_seed_pilot.py           수정  후보C(seed catalog) 흡수 + 변환 단일 출처화
+  scripts/migrate_semantic_dict_to_sqlite.py 신규 1회성 이관 스크립트(멱등, --dry-run/--verify)
+  커밋: 2760ac4 (코드 저장소는 push 하지 않음 — 규칙대로 커밋까지만)
+  변경량: 3 files changed, 591 insertions(+), 53 deletions(-)
+  운영 DB 백업: db/migration_validator.backup-semdict-20260806082231.db
+
+■ 구현 내용
+1) 신규 테이블 semantic_dictionary_entry — 감사보고서 §2 후보B 제안 스키마 그대로
+   entry_id PK / dictionary_id / project_id(NULL 허용) / term / normalized_term / language /
+   semantic_type / confidence / source / match_type / status / description /
+   allowed_context_json / risk_flags_json / created_by / version / created_at / updated_at
+   인덱스 2개: (normalized_term, status), (project_id, source)
+   행 순서는 rowid 로 보존 — 대표 entry 선정 tiebreak 가 원본 순서에 의존하므로 로더는
+   항상 ORDER BY rowid 로 읽는다.
+
+2) 이관 결과 206행 (project_id 전 행 NULL = 전역)
+   INTERNAL_STANDARD      ACTIVE    79 ┐
+   INTERNAL_ABBREVIATION  ACTIVE    80 ├ mock_semantic_dictionary.json 164건, 필드 1:1
+   AUDIT_GAP_SEED         ACTIVE     5 ┘  (allowed_context/risk_flags 는 JSON 문자열 직렬화)
+   SEED_PILOT             ACTIVE     5   seed catalog 42건 중 PILOT_ALLOWLIST 5개
+   SEED_PILOT             PENDING   37   나머지 — 보관만, 로드되지 않음
+   ★ 정책 변경 없음: 지금과 똑같이 5개만 실제 적용된다. 37건 활성화는 하지 않았다.
+
+3) load_default_semantic_dictionary() 를 SQLite 조회로 교체
+   - status='ACTIVE' AND project_id IS NULL 만 로드(= mock 164 전건 + pilot 5). PENDING 37은 제외.
+   - 테이블 미구축/조회 실패 시 기존 JSON 파일로 조용히 폴백(신규 DB·이관 전 환경 호환).
+   - 반환 entry dict 의 키/값은 JSON 시절과 완전 동일(project_id/created_at/updated_at 는 미포함).
+   - project_id override 를 채우는 UI/API 는 만들지 않았다 — 컬럼만 준비(지시대로 별건).
+
+4) 캐시 무효화 축 교체: 파일 mtime 조합 → 테이블 (행수, MAX(updated_at))
+   성능 계약("동일 리스트 객체 재사용 → 매칭 인덱스 1회 빌드") 유지를 실측으로 확인.
+
+5) kill-switch MV_SEMANTIC_DICT_STORE = db(기본) | file
+   file 로 두면 즉시 이관 전 동작(JSON 직접 읽기)으로 복귀. 원본 JSON 2개는 삭제하지 않았고,
+   db 모드에서는 런타임 읽기 대상에서 제외된다(파일 로더를 강제로 차단해도 정상 동작 확인).
+
+6) 부수 정리: seed→entry 변환을 build_entry_from_seed() 하나로 통합(파일 폴백 경로와 이관
+   스크립트가 같은 함수를 쓴다) — 저장소가 무엇이든 entry 가 같도록 강제.
+   읽기는 mode=ro URI 전용이라 운영 DB 파일을 변경하지 않는다(테스트 운영DB 불변 guard 준수).
+
+■ 검증 ①  golden set 등식 대조 (핵심)
+이관 전(HEAD 코드, JSON) 스냅샷을 먼저 뜨고, 이관 후 동일 harness 로 재수집해 재귀 비교.
+probe 집합은 사전 파일에서 생성해 before/after 완전 동일(573건: mock 164 entry × 3가지 매칭
+경로 + seed 42 term × 2 + 음성 대조군).
+
+  [사전] pilotOFF_globalOFF   entry    164건  불일치 0건
+  [사전] pilotOFF_globalON    entry  26,524건  불일치 0건
+  [사전] pilotON_globalON     entry  26,529건  불일치 0건
+  [판정] pilotOFF_globalOFF   probe    573건(매칭 488)  불일치 0건
+  [판정] pilotOFF_globalON    probe    573건(매칭 489)  불일치 0건
+  [판정] pilotON_globalON     probe    573건(매칭 489)  불일치 0건
+  [경로] pilotOFF_globalON    개별검증        후보 17건  불일치 0건
+  [경로] pilotOFF_globalON    일괄검증        후보 17건  불일치 0건
+  [경로] pilotOFF_globalON    3단계후보생성   후보 14건  불일치 0건
+  [경로] pilotON_globalON     개별검증        후보 14건  불일치 0건
+  [경로] pilotON_globalON     일괄검증        후보 14건  불일치 0건
+  [경로] pilotON_globalON     3단계후보생성   후보 12건  불일치 0건
+  → 전 계층 등식 성립, 불일치 0건.
+
+세 경로는 우회 재구현이 아니라 운영 함수를 그대로 호출했다.
+  개별검증      : candidate_input_builder.build_candidate_input(context="individual")
+                  → candidate_engine.build_column_candidates
+                  → candidate_display_enricher.enrich_candidates_for_display
+  일괄검증      : batch_runner._build_core_candidates(...)
+  3단계 후보생성: column_candidate_gen_service._generate_for_row(...)  (임시 SQLite 로 구동)
+경로가 실제로 사전을 타는지는 pilot ON/OFF 로 SUM 후보가 11→8(개별/일괄), 8→6(3단계)로
+움직이는 것으로 확인했다(사전이 안 물리면 이 차이가 안 생긴다).
+
+kill-switch(file 모드)로도 같은 대조를 반복 — 역시 전 항목 불일치 0건.
+
+■ 검증 ②  저장소 실증 21항목 (전부 통과)
+  기본 store 는 'db'                                   / 테이블 직접 조회 164건
+  파일 로더를 예외로 차단해도 사전 로드 성공(=DB 출처)  / DB entry == JSON entry(순서·키·값 전부)
+  kill-switch 'file' 인식 / file 모드 결과 == db 모드 결과
+  pilot entry 5건(ACTIVE 만) / pilot term == PILOT_ALLOWLIST / pilot DB entry == 파일 변환 entry
+  pilot ON 시 사전 169건(164+5)
+  테이블 총 206건·PENDING 37건 보관 / PENDING seed term(GBN_CD) 미로드
+  무변경 시 동일 리스트 객체 재사용 / updated_at 변경 → 캐시 무효화 / 행 삭제 → 무효화 + 163건
+  테이블 없음 → JSON 폴백 164건 / DB 파일 없음 → JSON 폴백 164건
+  사전 로드(읽기 전용)로 운영 DB 파일 hash 불변
+
+■ 검증 ③  캐시 재생성 실측 (성능 계약)
+  before(JSON) : same_list_object_5_calls=True,  index_build_count_over_5_analyze=1
+  after (SQLite): same_list_object_5_calls=True,  index_build_count_over_5_analyze=1
+  → 5회 analyze 에 매칭 인덱스 빌드 1회. 이관 전후 동일 = 성능 계약 위반 없음.
+
+  비용 실측(정직하게 보고): 시그니처가 파일 mtime → 테이블 집계 쿼리로 바뀌면서 로더 호출
+  1회당 +1.9ms(RO 커넥션 open 이 대부분). 경로당 로더 호출은 2회이므로 +3.8ms 이고,
+  경로 총 소요 대비 개별검증 0.65% / 일괄검증 2.32% / 3단계 후보생성 5.68% 다.
+  테스트 77건 체감 시간은 동일(after 6.43s vs HEAD 6.67s).
+
+■ 검증 ④  테스트 서브셋 + baseline 대조
+(1) 시맨틱 관련 13개 파일
+    이관 전: 171 passed, 1 error   (test_semantic_dict_classification_migration 의 운영DB 변경 감지)
+    이관 후: 171 passed, 0 error
+(2) 기존 회귀 스크립트
+    samples/test_virtual_cases.py  8/8 통과
+    samples/test_complex_cases.py  5/5 통과
+(3) baseline 대조 — HEAD(fdeb1d6) worktree 와 동일 selection 으로 각각 1회
+    selection: -k "candidate or semantic or analyze or batch_row or scoring", -p no:randomly
+    제외 3개 파일(양쪽 동일 조건):
+      test_11def_scenarios.py / test_12k_stress.py — 본 저장소 절대경로 하드코딩으로 worktree
+        baseline 을 오염시키는 알려진 유물
+      test_batch_row_snapshot_realdb_smoke.py — Neon 실접속에서 블로킹(환경 사유, 변경과 무관)
+
+      HEAD  : 68 failed, 2366 passed, 20 skipped, 34 errors  (599.02s)  실패/에러 유니크 102건
+      AFTER : 62 failed, 2415 passed,  9 skipped,  2 errors  (600.62s)  실패/에러 유니크  64건
+      AFTER 에만 있는 실패 = 0건  ← 신규 회귀 없음
+      HEAD 에만 있는 실패 = 38건  ← worktree 에 생성 산출물(대시보드 HTML 등)이 없어서 나는 것
+
+■ 비판적 검토 (문제점·위험)
+- db/schema.sql 미반영: 지시가 파일 3개로 제한돼 스키마 정본에 DDL 을 넣지 않았다. 따라서
+  init_db.py 로 새로 만든 DB 에는 테이블이 없고, 그 환경은 JSON 폴백으로 동작한다(장애는 아니지만
+  '이관 완료' 상태가 아니다). 후속에서 schema.sql 반영 + init 시 자동 생성 권장.
+- seed catalog 의 정책 메타 미보존: aliases / sum_policy / groupby_policy / auto_select_policy /
+  required_profile_conditions / exclusion_conditions 는 테이블에 넣지 않았다(매칭에 쓰이는 투영만
+  저장). JSON 원본이 여전히 정본이고 감사 테스트도 파일을 읽는다 — 후보C 를 '완전 흡수'로 보긴 이르다.
+- PENDING 37건은 저장만 됐고 활성화 경로가 없다. 활성화는 판정이 바뀌는 정책 변경이라 별건이며,
+  지금 상태에서 누군가 status 를 ACTIVE 로 바꾸면 후보 추천 결과가 즉시 달라진다(가드 없음).
+- project_id override 는 쓰기 경로가 없다. 컬럼·인덱스·조회 필터(project_id IS NULL)만 준비된
+  상태라, 지금 행을 수동으로 넣어도 로더가 읽지 않는다(전역만 읽음). 의도된 범위 제한이다.
+- 로더 호출마다 SQLite 커넥션을 새로 연다(+1.9ms). 커넥션 재사용/스레드로컬은 Windows 에서
+  파일 핸들을 붙잡아 DB 교체·백업 스크립트를 깨뜨릴 수 있어 일부러 하지 않았다.
+- explainability: description / created_by / version / source 를 그대로 옮겨 근거는 보존된다.
+- 보안: 사전 데이터에 자격증명 없음. 읽기는 mode=ro 라 운영 DB 를 쓰지 않는다.
+- 구조: web_server.py 무변경, 신규 heuristic 0건, 신규 라우트 0건.
+
+■ 롤백 방법
+  ① 즉시:  환경변수 MV_SEMANTIC_DICT_STORE=file  (코드 변경 불필요, JSON 방식 복귀)
+  ② 코드:  git revert 2760ac4
+  ③ 데이터: DROP TABLE semantic_dictionary_entry  또는 위 백업 DB 복원
+     (스크립트 재실행은 멱등 — 로컬 사전 묶음만 지우고 다시 넣는다)
+
+■ 다음 단계 제안 (이번 범위 밖)
+  - db/schema.sql 에 DDL 반영 + init_db 자동 생성
+  - project_id override 쓰기 경로(좌측 메뉴 '시맨틱 사전' [준비중] 해제)
+  - seed PENDING 37건 활성화 정책 검토(판정 변화 동반 → 별도 golden 대조 필요)
+
+✅ 작업 완료 - 로컬 시맨틱 사전 206건(mock 164 + seed 42)을 semantic_dictionary_entry 테이블로 이관,
+후보 추천 결과 전 계층 등식 성립(불일치 0건)·신규 회귀 0건
