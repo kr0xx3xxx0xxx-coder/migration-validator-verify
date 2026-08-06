@@ -1,0 +1,128 @@
+작업명: F14-F15-ORACLE-MSSQL-METADATA-PROVIDER-VARCHAR-CAPACITY-WARNING-WIRE
+✅ 작업 완료 - F14(오라클 metadata provider 신설·배선) + F15(MSSQL connect·컬럼 메타 조회 이식) 완료
+
+────────────────────────────────────────────────────────────────────────────
+0. 파일 겹침 확인 결과
+────────────────────────────────────────────────────────────────────────────
+F14 는 services/analyze_to_csr_adapter.py, routes/csr_preview_route.py, 신규
+services/oracle_metadata_provider.py, services/db_adapters/oracle.py, ui/tabler_renderer.py 를
+건드리고, F15 는 services/db_adapters/mssql.py(+테스트)만 건드려 겹치지 않음 확인.
+순서 무관하게 처리 가능했으나 F14 → F15 순으로 진행.
+
+────────────────────────────────────────────────────────────────────────────
+1. 착수 전 발견한 지시 배경의 오류 2건 (중요 — 그대로 보고)
+────────────────────────────────────────────────────────────────────────────
+지시문의 "PostgreSQL은 VARCHAR/NVARCHAR 실효 저장용량 축소 경고가 이미 있는데" 라는 전제를 먼저
+추적했고, 두 가지가 사실과 달랐다:
+
+  (1) PostgreSQL도 실제로는 운영 화면(웹앱)에 배선돼 있지 않았다. 메타를 채우는
+      services/postgres_metadata_provider.py 는 scripts/ 의 PoC 스크립트·테스트에서만 쓰이고
+      있었고, 이는 기존 BACKLOG.md F14 항목 자체가 이미 그렇게 기록해 두고 있었다("웹 앱 미배선").
+      즉 PG 도 F14 이전에는 오라클과 같은 처지였다 — "PG 는 이미 있다"는 지시문 표현은 부정확했다.
+  (2) 경고가 노출되는 화면(CSR 미리보기, /csr-preview → #csrPreviewDetails)은 코드 상 항상
+      style="display:none" 인 개발자 진단용 숨김 패널이다(ui/tabler_renderer.py:2916 부근). 즉
+      배선을 고쳐도 일반 사용자 화면에는 지금도 아무것도 노출되지 않는다 — 이는 F14/F15 이전부터
+      있던 기존 UI 설계(주석: "CSR 미리보기는 개발자 진단용 — 기본 화면에서 숨김 유지")이며, 이번
+      작업 지시 범위(배선 공백 수정)를 벗어나는 별개 사안이라 판단해 UI 노출 여부는 건드리지 않았다.
+      "실제 화면에 경고가 뜨는지"는 대신 패널 뒤 데이터 배선(Python/DB 단)을 직접 조회해 검증했다
+      (아래 3항 라이브 확인 참고). UI 노출 여부를 별도로 다룰지는 사용자 판단이 필요하다고 본다.
+
+────────────────────────────────────────────────────────────────────────────
+2. F14 — 오라클 metadata provider 신설 및 배선
+────────────────────────────────────────────────────────────────────────────
+원인: VARCHAR2-BYTE-CHAR-CAPACITY-COMPARISON-FIX 로 판정 로직(_evaluate_compatibility)·오라클
+카탈로그 조회 능력(build_tgt_column_meta_query 의 char_used/data_length, build_db_charset_query)은
+이미 있었으나, 운영 경로 services/analyze_to_csr_adapter.py 가 source_metadata/target_metadata 를
+고정 None 으로 넘겨(구현이 아니라 배선만 없는 상태) 비교 자체가 UNKNOWN_COMPATIBILITY 로 항상
+막혀 있었다.
+
+변경 파일:라인
+  - services/oracle_metadata_provider.py (신설, 전체) — OracleMetadataProvider 클래스.
+    ALL_TAB_COLUMNS(:290 오라클 어댑터 build_tgt_column_meta_query)+ALL_CONSTRAINTS
+    (fetch_key_metadata/fetch_foreign_keys 재사용)+NLS_DATABASE_PARAMETERS(build_db_charset_query)
+    를 기존 공용 chokepoint _cmn_db_connect 로 조회해 CandidateColumnMetadata 를 채운다.
+    클래스 정의 :21, 캐릭터셋 조회 _get_charset :92, 테이블 조회 _fetch_table_from_db :116.
+    연결/조회 실패는 예외 없이 빈 결과+경고로 흡수(폴백 안전).
+  - services/db_adapters/oracle.py:290 build_tgt_column_meta_query — 8번째 컬럼으로 nullable
+    추가(앞 7컬럼 순서 불변, 기존 소비자 영향 없음).
+  - services/analyze_to_csr_adapter.py:75 _build_oracle_metadata_provider(신규 헬퍼),
+    :97 build_contexts_from_analyze 에 src_conn/tgt_conn(선택 인자, 기본 None) 추가.
+    db_type=oracle + host 있을 때만 OracleMetadataProvider 로 실제 조회하고, 그 외/조회 실패는
+    기존과 완전히 동일한 NullProvider(metadata=None) 동작 유지.
+  - routes/csr_preview_route.py:39-40 CsrPreviewRequest 에 src_conn/tgt_conn 필드 추가,
+    :164-165 그대로 전달.
+  - ui/tabler_renderer.py — _fetchCsrPreview() 가 src_conn/tgt_conn 을 함께 전송(오라클일 때만
+    서버가 사용), 캐시 sig 에도 conn 포함(접속정보 변경 시 재조회).
+
+검증 결과
+  - 신규 단위테스트: tests/test_oracle_metadata_provider.py 11건(캐시/char_used·data_length·charset
+    매핑/PK·FK 매핑/연결 실패 폴백/쿼리 실패 폴백) 전부 통과.
+  - tests/test_analyze_to_csr_adapter.py 에 F14 배선 테스트 5건 추가(conn 미제공 시 불변/비오라클
+    불변/host 없으면 불변/오라클 conn 시 채워짐/provider 예외 시 폴백) 전부 통과.
+  - 실 asis Oracle(192.168.0.151:1523/xepdb1, MV_ORA_XDIFF_SRC/TGT, db_presets_src.json 의
+    Oracle_asis/tobe 프리셋)에 SELECT 메타조회(CUD 없음)로 라이브 확인:
+      C_VARCHAR2  type=VARCHAR2  char_len=100 char_used=B data_length=100 charset=AL32UTF8
+      C_NVARCHAR2 type=NVARCHAR2 char_len=50  char_used=C data_length=100 charset=AL32UTF8
+    build_contexts_from_analyze() 를 /csr-preview 와 동일한 형태(parse_result+analyze_result+
+    src_conn+tgt_conn)로 직접 호출해 CandidateColumnContext.source_metadata.char_used 까지
+    끝까지 채워지는 것도 확인(경고 0건). 이 환경은 asis/tobe 캐릭터셋이 둘 다 AL32UTF8 이라
+    실제 수용량 축소(좁은→넓은 캐릭터셋) 시나리오까지는 라이브로 재현하지 못했으나, 그 산술은
+    기존 tests/test_varchar2_byte_char_capacity.py(사전 존재, 39건 회귀 통과)가 이미 담당한다.
+  - 커밋: c889dd2 fix(csr): 오라클 metadata provider 신설 및 CSR 배선 (F14)
+
+────────────────────────────────────────────────────────────────────────────
+3. F15 — MSSQL connect() + VARCHAR/NVARCHAR 구분 컬럼 메타 조회
+────────────────────────────────────────────────────────────────────────────
+F23(MYSQL-MSSQL-FETCH-KEY-METADATA-IMPLEMENT-FIX) 재확인 결과: fetch_key_metadata 카탈로그 SQL 은
+이식돼 있었으나 MSSQLAdapter.connect() 는 base RuntimeError(미구현) 그대로였다. 공용 chokepoint
+(_cmn_db_connect → get_adapter(db_type).connect)가 물리 연결을 못 얻어, F23 의 카탈로그 SQL 도
+운영 경로에서는 도달 자체가 불가능한 반쪽 완료였음을 확인했다(F23 은 "이미 해결완료"로 기록돼
+있었으나 connect() 없이는 죽은 코드였다).
+
+변경 파일:라인
+  - services/db_adapters/mssql.py:75 supports_connect() True 로 변경,
+    :78 connect() 신설 — db_connection_service._test_mssql 의 pyodbc DSN 문자열 그대로 재사용.
+    pyodbc 미설치 시 RuntimeError 로 명확히 실패(base 계약과 동일한 실패 방식).
+  - :179 build_column_meta_query, :205 build_tgt_column_meta_query 신설 —
+    INFORMATION_SCHEMA.COLUMNS 조회. VARCHAR/CHAR/TEXT→'B'(바이트 의미) / NVARCHAR/NCHAR/NTEXT→
+    'C'(문자 의미) 로 오라클 CHAR_USED 상당값을 부여하고, character_octet_length(data_length
+    상당)+COLLATION_NAME(컬럼 단위 — SQL Server 는 컬럼별 COLLATE 오버라이드가 가능해 오라클의
+    DB 단위 캐릭터셋보다 더 정확한 신호)을 덧붙인다. 앞 5컬럼 shape 는 PostgreSQL/Oracle 어댑터와
+    동일해 기존 위치 기반 소비자에 영향 없다.
+
+검증 결과
+  - 신규 단위테스트: tests/test_mssql_column_meta_wire.py 11건(supports_connect/connect 드라이버
+    미설치 시 RuntimeError/쿼리·바인드 계약/VARCHAR·NVARCHAR 구분/빈 테이블목록 None 처리) 전부 통과.
+  - 실DB 미검증: 사내 SQL Server 인스턴스·pyodbc 드라이버 모두 부재(requirements.txt 에도 주석
+    처리돼 있음) — F23 때와 동일한 제약. connect()는 "드라이버 미설치 시 RuntimeError" 라는
+    실패 경로 자체를 단위테스트로 확인했다(이 환경에서 실제로 그렇게 실패하는 것을 관찰).
+  - 오늘 범위는 백로그 F15 표기 그대로 "컬럼 메타 조회 구현"까지다. char_used 상당값을 실제
+    수용량 비교(candidate_scoring_runner._effective_char_capacity)까지 잇는 MssqlMetadataProvider
+    (F14 의 OracleMetadataProvider 와 대칭)는 backlog 원문의 "이후 오라클과 같은 패턴으로 확장한다"
+    문구대로 후속 과제로 남겨뒀다 — 오늘 새로 만들지 않았다.
+  - 커밋: 5aef441 fix(mssql): connect() + VARCHAR/NVARCHAR 구분 컬럼 메타 조회 이식 (F15)
+
+────────────────────────────────────────────────────────────────────────────
+4. 회귀 확인
+────────────────────────────────────────────────────────────────────────────
+  - python samples/test_virtual_cases.py            8/8 통과
+  - python samples/test_complex_cases.py            5/5 통과(FAIL 케이스 포함, 기존과 동일)
+  - pytest 관련 서브셋(csr/candidate/oracle/mssql/dbms adapter 전 범위, 총 400여건) 전부 통과.
+    사전부터 실패 중이던 4건(test_batch_single_core_wrapper_foundation.py 의 innerHTML XSS 가드
+    관련, ui/js_single_run_standard.py 소관 — 이번 변경 파일과 무관)은 git stash 로 수정 전 상태에서도
+    동일하게 실패함을 대조 확인해, 이번 작업과 무관한 사전 결함으로 판정했다(회귀 아님).
+
+────────────────────────────────────────────────────────────────────────────
+5. 변경/생성 파일 목록
+────────────────────────────────────────────────────────────────────────────
+  services/oracle_metadata_provider.py            (신설)
+  services/analyze_to_csr_adapter.py              (수정)
+  services/db_adapters/oracle.py                  (수정)
+  routes/csr_preview_route.py                     (수정)
+  ui/tabler_renderer.py                           (수정)
+  tests/test_oracle_metadata_provider.py          (신설)
+  tests/test_analyze_to_csr_adapter.py            (수정, F14 테스트 5건 추가)
+  services/db_adapters/mssql.py                   (수정)
+  tests/test_mssql_column_meta_wire.py            (신설)
+
+✅ 작업 완료 - F14(오라클 metadata provider 신설·배선) + F15(MSSQL connect·컬럼 메타 조회 이식) 완료
