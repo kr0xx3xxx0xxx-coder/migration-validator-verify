@@ -1,0 +1,30 @@
+F6-PLAN-EXCLUDED-DISPLAY-IMPLEMENT — 실측 증적
+
+재현 조건: 실 PostgreSQL_Inter_asis → PostgreSQL_Inter_tobe 페어,
+  INSERT INTO tobe01.t_dtier_tgt (id, region_cd, chan_cd, amt)
+  SELECT id, region_cd, chan_cd, amt FROM asis01.t_dtier_src
+  (REGION_CD 40종 × CHAN_CD 40종 = 1,600조합 픽스처 — 기존 COMBO-PAIR-ENTRY-POINT-RESTORE-IMPLEMENT
+   라이브 검증에 쓰인 과세분화 가드 픽스처 재사용)
+개별검증 3단계 GROUP BY(REGION_CD, CHAN_CD) 선택 → 4단계 '조합도 함께 검증' 체크 → 통계검증 실행.
+
+[BEFORE] (패치 적용 전)
+  #genSqlComboExcludedNotice 엘리먼트 자체가 DOM 에 없음(notice_after_exec: null).
+  서버는 excluded 를 정확히 응답: [{"cols":["REGION_CD","CHAN_CD"], "reason":"예상 1,600그룹 —
+  자동계획 상한(100) 초과, 과세분화 방지를 위해 단일 축 계획으로 분리", "expected_groups":1600,
+  "avg_rows_per_group":10}]
+  → 체크박스를 켜고 실행해도 화면에는 "단일 축 2세트 + 조합 1세트(총 3세트)를 실행합니다"라는
+    ON 문구만 남아있고, 실제로는 조합 세트가 제외됐다는 사실이 어디에도 안 보임(F6 진단서 결함 A).
+
+[AFTER] (패치 적용 후)
+  실행 전(체크 직후): { "display": "none", "text": "" }  — 아직 /groupby-plan 호출 전이라 정상.
+  실행 후: {
+    "display": "block",
+    "text": "⚠️ 조합 세트 자동 제외\n· REGION_CD + CHAN_CD — 예상 1,600그룹 — 자동계획 상한(100)
+             초과, 과세분화 방지를 위해 단일 축 계획으로 분리"
+  }
+  → #gbIncludePair 체크박스 바로 아래에 실제 서버 제외 사유가 그대로 표시됨.
+
+부수효과 확인:
+  · 서버 응답(excluded 배열/reason 문자열) 완전히 동일 — 서버 코드 변경 0건.
+  · 실행된 세트 구성(단일축 2세트, diff=40/40)도 before/after 동일 — 판정 로직 불변.
+  · PLAN_TARGET_MAX_GROUPS(100) 등 정책 상수는 건드리지 않음(이번 범위 아님, 확인 완료).
