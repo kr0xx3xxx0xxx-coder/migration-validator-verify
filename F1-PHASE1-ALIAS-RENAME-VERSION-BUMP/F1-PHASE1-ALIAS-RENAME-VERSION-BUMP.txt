@@ -1,0 +1,302 @@
+작업명 : F1-PHASE1-ALIAS-RENAME-VERSION-BUMP
+작성일 : 2026-08-06
+유형   : 구현(코드 저장소 커밋 1건 · push 없음)
+기준   : 코드 저장소 C:\projects\migration-validator main 2042b40 기반 격리 worktree
+         커밋 c420d84e24558a9656346bd7d5eb810d131fbf7c (short c420d84)
+근거   : F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE.txt §4·§7-3(착수 순서 ①③④⑤⑥)
+         docs/HASH_BUCKET_ORACLE_PORT_ADAPTER_DESIGN.md §3.5·§5.1~§5.3
+
+═══════════════════════════════════════════════════════════════════════════════
+§0. 범위 — ①만 수행, ③④⑤⑥·G7 미착수
+═══════════════════════════════════════════════════════════════════════════════
+
+수행   : ① 별칭 개명 + 계약 version bump + 테스트 정리 + PG 회귀 green
+미수행 : ③ dialects_hash/oracle.py 구현
+         ④ 소비측 배선(row_diff 재수출 제거 · match_key_evidence version 위임 ·
+            multi_scope db_type 전달 · L1 hash_bucket_pair_status 신설)
+         ⑤ capabilities 항목 개방 + ROADMAP 문구 정정
+         ⑥ 위임표 oracle 등록(G7) + 오라클 라이브 동등성 실측
+
+F1-G7 보고서 §3 위반①(row_diff.py:77,103)·위반②(match_key_evidence.py:21,122,126)는
+지시서가 "이번 범위 밖"으로 명시한 항목이라 **한 줄도 건드리지 않았다**. 두 파일은 무수정이다.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+§1. 설계 문서가 이미 지정해 둔 이름 — 임의 작명 0건
+═══════════════════════════════════════════════════════════════════════════════
+
+착수 전에 "원래 의도된 이름"을 코드/설계 문서에서 먼저 찾았다. 새로 짓지 않았다.
+
+1-1. 별칭
+  docs/HASH_BUCKET_ORACLE_PORT_ADAPTER_DESIGN.md
+    §1 E18  : 별칭 `__HB1/__KH/__RH` → **`HB1/KH/RH` 로 개명 필요**
+    §2.3 R5 : 동반 개명(대문자 `HB1/KH/RH`)
+    §5.2    : BUCKET_ALIAS "__HB"→"HB", KEYHASH_ALIAS "__KH"→"KH", ROWHASH_ALIAS "__RH"→"RH"
+              (모두 대문자. 근거 — 실행 core 가 groupby_cols 를 대문자 정규화한 뒤 원본/목적지
+               결과에서 되읽는다: services/stats_execute_service.py)
+  → 그대로 적용.
+
+1-2. 계약 버전
+  설계 §3.5 : version 을 "hashv1-md5-lenpfx-pg" / "hashv1-md5-lenpfx-ora" 로 분리
+  설계 §5.3-3 예시 : "hashv1-md5-lenpfx" → "hashv2-md5-lenpfx"
+  services/diagnosis/dialects_hash/postgresql.py:33-36 주석(연기를 명시한 지점) :
+    "[PHASE1] 값 불변 유지. 방언 접미사(-pg/-ora) 분리는 오라클 구현체 도입 단계에서
+     별칭 개명(__HB→HB)과 **같은 커밋**으로 올린다(설계 §3.5·§5.3-3)"
+
+  → 두 표기가 갈리는데, **코드 주석이 지목한 §3.5 의 "-pg" 를 채택**했다.
+     사유: (a) 그 주석이 "이 커밋에서 올릴 값"을 스스로 지정하고 있고,
+           (b) §5.3-3 의 "hashv2-…" 는 "예:" 로 붙은 예시일 뿐 방언 식별 기능이 없으며,
+           (c) 설계 §0 이 명시한 explainability 개선 목적(저장된 run 이 어느 방언 계약으로
+               만들어졌는지 근거로 남기기)은 "-pg" 라야 성립한다.
+     bump 목적(문자열이 달라져 EVIDENCE_CHANGED 가 걸리는 것)은 두 표기 모두 동일하게 만족한다.
+
+  최종값 : "hashv1-md5-lenpfx"  →  "hashv1-md5-lenpfx-pg"   (오라클은 "-ora" 자리)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+§2. 구현 요약 (프로덕션 4 + 테스트 6 + dev harness 3 = 13파일, 실 로직 변경 0)
+═══════════════════════════════════════════════════════════════════════════════
+
+프로덕션
+  services/diagnosis/strategies/hash_bucket.py
+      BUCKET_ALIAS "__HB"→"HB" / KEYHASH_ALIAS "__KH"→"KH" / ROWHASH_ALIAS "__RH"→"RH"
+      + is_bucket_alias(name) 신설(아래 2-1)
+      + 주석/docstring 의 __HBn/__KH/__RH 표기 갱신
+  services/diagnosis/multi_scope.py
+      _scope_key_sig 의 `str(k).startswith("__HB")` 하드코딩 제거 → hb.is_bucket_alias(k) 위임
+      (설계 §5.3-2 가 "프로덕션 리터럴 직접참조 1건" 으로 지목한 바로 그 지점)
+  services/diagnosis/dialects_hash/postgresql.py
+      PgHashContract.version → "hashv1-md5-lenpfx-pg" + 사유 주석
+  services/diagnosis/hash_contract.py
+      BaseHashContract.version 예시 주석만 갱신(-pg/-ora). 로직 무변경.
+
+2-1. 설계에 없던 안전 조치 1건 — is_bucket_alias()
+  설계 §5.3-2 는 "startswith('__HB') 를 hb.BUCKET_ALIAS 참조로 전환" 이라고만 적는다.
+  그러나 개명 후 접두는 **2글자 'HB'** 다. 단순 상수 치환(startswith(BUCKET_ALIAS))으로 두면
+  'HB' 로 시작하는 업무 컬럼(HB_CD, HBASE 등)이 scope 서명에서 조용히 탈락한다 —
+  설계가 경고한 것과 **정확히 같은 실패 모드(오류 없는 오답)** 를 방향만 반대로 재현하게 된다.
+  그래서 접두 일치가 아니라 'BUCKET_ALIAS + 1자 이상 숫자' 정확 형태 판정으로 구현했다.
+  회귀 가드: tests/test_diagnosis_multi_scope.py::test_scope_key_sig_excludes_bucket_levels_only
+            (HB1/HB2 는 제외되고, HB_CD/HBASE 는 남는지 양방향으로 고정)
+
+테스트
+  tests/test_underscore_alias_oracle_regression_static.py
+      · Layer A @unittest.expectedFailure 제거 → test_hash_bucket_agg_alias_renamed 로 교체
+        (아래 2-2). KNOWN_ORACLE_UNSAFE 를 {} 로 비움
+      · test_hash_bucket_has_no_underscore_alias 신설
+        (KNOWN_ORACLE_UNSAFE 가 비면 test_scanner_detects_known_oracle_unsafe 가 공회전하므로,
+         agg_diff_route / count_gate_route 와 같은 파일 단위 전용 가드로 대체)
+  tests/test_diagnosis_multi_scope.py / test_diagnosis_row_diff.py
+  tests/test_diagnosis_hash_bucket_5m.py / test_diagnosis_hash_bucket_e2e.py
+  tests/test_diagnosis_row_diff_e2e.py
+      "__HB1"/"__HB2" 리터럴 → 별칭 상수 파생값, "hashv1-md5-lenpfx" 리터럴 → hc.HASH_CONTRACT_VERSION
+      (다음 개명/bump 때 픽스처가 조용히 낡지 않게 단일 출처 참조로 통일)
+  tests/test_hash_contract_dialect_adapter.py
+      version 단정 "hashv1-md5-lenpfx-pg" + 방언 접미사 존재 단정 추가
+  tests/test_hash_alias_rename_resume_guard.py  (신규 6케이스, DB 접속 없음)
+      §3 의 resume 호환성 계약을 코드로 고정
+
+dev harness (증적 재현용)
+  scripts/dev_e2e/hash_bucket_alias_rename_version_bump_equivalence_verify.py  (신규)
+  scripts/dev_e2e/hash_bucket_alias_rename_snapshot_compare.py                  (신규)
+  scripts/dev_e2e/hash_contract_adapter_refactor_equivalence_verify.py          (수정)
+      phase2 harness 가 '__HB1' 리터럴을 직접 써서 개명 직후 KeyError 로 죽었다.
+      별칭을 상수 참조로만 바꿨다(수집 로직 무변경). 실행 가능함을 재확인했고, 생성된
+      스모크 산출물은 다른 작업 폴더를 오염시키지 않도록 삭제했다.
+      주의로 남긴 사실: 계약 version 이 올라갔으므로 이 harness 를 지금 재실행한 지문은
+      phase2 당시 아카이브된 BEFORE/AFTER 지문과 더 이상 일치하지 않는다(의도된 계약 변경).
+
+2-2. expectedFailure 를 그냥 지우면 안 되는 이유(설계 §5.3-1 의 전제가 이미 바뀌어 있었다)
+  설계는 "개명하면 expectedFailure 가 unexpected success 로 뒤집히니 마커를 제거하라" 고 적는다.
+  그러나 그 사이(bfda564, HASH-BUCKET-FACTORY-GUARD-ENFORCE-FIX) 팩토리 가드가 강제되면서
+  dialect="oracle" 호출은 **SQL 을 만들지 못하고 HashContractUnavailableError 로 중단**된다.
+  즉 개명 후에도 그 테스트는 여전히 실패하므로 expectedFailure 는 뒤집히지 않는다
+  (F1-G7 보고서가 관측한 "1 xfailed" 의 실제 원인도 별칭이 아니라 이 예외였다).
+  → 판정을 두 축으로 분리해 다시 썼다:
+      축 B(이번 범위) 별칭 자체 : 상수 3개가 ^[A-Z][A-Z0-9_]*$ 이고,
+                                 PG 방언 방출 SQL 에 비인용 밑줄 별칭이 0건
+      축 C(이번 범위 아님) 실행 : dialect="oracle" 은 HashContractUnavailableError 로 차단됨을 단정
+    ③ 에서 오라클 계약이 등록되면 축 C 단정이 깨지므로, 그때 이 테스트를 오라클 방출 SQL
+    검사로 승격하라는 신호가 된다(원래 xfail 이 하던 역할을 유지).
+
+
+═══════════════════════════════════════════════════════════════════════════════
+§3. 저장된 resume 상태 호환성 — '마이그레이션' 이 아니라 '무효화' 를 택했다
+═══════════════════════════════════════════════════════════════════════════════
+
+3-1. 무엇이 깨지는가(실측)
+  영속화 대상은 SQLite db/migration_validator.db 의 multi_scope_run 1테이블이고,
+  그 run_json 안의 pending_region.active[].key 와 pending_cells 가 bucket level 키 이름을
+  문자 그대로 담는다(개명 전 "__HB1").
+  개명 후 row_diff._cell_condition 의 `while (hb.BUCKET_ALIAS + str(lvl)) in cell_key` 는
+  "HB1" 을 찾으므로 옛 키에서 **한 번도 매치되지 않는다** → bucket 제한 없이 조용히 진행.
+  실측(tests/test_hash_alias_rename_resume_guard.py::test_old_cell_key_produces_no_bucket_predicate):
+      옛 키 {"GRP":"A","__HB1":"0"} → bind params 1개(scope 만, bucket 조건 없음)
+      새 키 {"GRP":"A","HB1":"0"}   → bind params 2개(scope + bucket)
+  이것이 F1-G7 §7-2 가 [높음]으로 분류한 "오류 없는 오답" 이다.
+
+3-2. 처리 방식과 사유
+  **무효화**한다. 별칭 개명과 **같은 커밋**에서 계약 version 을 올렸고, 그 값이
+  routes/diagnosis_route.py 의 두 재개 경로에서 저장값과 대조된다.
+      /diagnosis/multi-resume         : cur.version != st["hash_contract_version"] → EVIDENCE_CHANGED
+      /diagnosis/multi-row-diff-resume: 동일 검사(무조건 수행)
+  version 은 match_key fingerprint 계산식의 입력이기도 해서 fingerprint 도 함께 바뀐다 → 이중 방어.
+
+  마이그레이션(저장 JSON 의 "__HB1" 키를 "HB1" 로 치환)을 택하지 않은 이유:
+    (a) 키 이름만 바꿔서는 그 상태가 **같은 canonical 계약으로 산출된 bucket 인지** 확인할 수 없다.
+        틀린 상태를 그럴듯하게 이어붙이면 다시 '오류 없는 오답' 이 된다.
+    (b) 무효화의 최대 비용은 재분석 1회다(중단된 run 한정). 마이그레이션의 최악은 잘못된 판정 결과다.
+    (c) 설계 §3.5·§5.3-3 이 이미 이 방식(EVIDENCE_CHANGED 를 resume 안전장치로 활용)을 규정하고 있다.
+
+3-3. 마이그레이션 대상 데이터 존재 여부(실측)
+  개발 DB db/migration_validator.db 의 multi_scope_run = **0행**.
+  즉 이 저장소 환경에는 무효화될 옛 run 자체가 없다. (운영 배포본에는 있을 수 있으므로
+  위 차단 경로가 실제로 동작하는지는 아래 3-4 로 별도 실증했다.)
+
+3-4. 차단이 실제로 동작하는지 실증 (DB 접속 없이, 임시 SQLite + MATCH_KEY 복원 스텁)
+  tests/test_hash_alias_rename_resume_guard.py — 6케이스 전부 통과
+    · 별칭 3개가 밑줄 선두가 아님 / 문자 시작 대문자임
+    · 계약 version 이 옛 값이 아니고, 옛 값에서 파생된 형태("-" 접미)임(추적 가능성)
+    · 옛 키가 bucket predicate 를 못 만든다(3-1 실측)
+    · 옛 계약 HASH run  → /diagnosis/multi-resume          = blocked, reason=EVIDENCE_CHANGED
+    · 옛 계약 ROW_DIFF run → /diagnosis/multi-row-diff-resume = blocked, reason=EVIDENCE_CHANGED
+    · 양성 대조 — 현재 계약 run 은 근거 게이트를 통과해 resumed=True 로 진입(무차별 차단 아님)
+
+3-5. 검사 공백 점검
+  /diagnosis/multi-resume 의 version 검사는 `if saved_mk:` 안에 있다(저장된 match_key 가 있을 때만).
+  HASH 전략 run 은 match_key 없이는 애초에 진입하지 못하고(_run_hash_bucket_waves 가
+  PLAN_HOLD_NO_MATCH_KEY 로 반환), match_key 가 None 인 run 은 CHUNK_KEY(KEY_RANGE) 경로라
+  pending_region.strategy 가 "HASH" 가 될 수 없다. → HASH resume 이 검사를 우회하는 경로는 없다.
+  row-diff resume 은 검사가 무조건 수행된다.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+§4. PG↔PG 골든셋 대조 — 개명 전/후 실동작 완전 동일
+═══════════════════════════════════════════════════════════════════════════════
+
+4-1. 방법
+  수집 : scripts/dev_e2e/hash_bucket_alias_rename_version_bump_equivalence_verify.py BEFORE|AFTER
+  대조 : scripts/dev_e2e/hash_bucket_alias_rename_snapshot_compare.py <BEFORE> <AFTER>
+  별칭은 정의상 달라지므로, 별칭 '토큰'만 placeholder 로 치환한 뒤 나머지 전부를 sha256 으로
+  대조한다(부분 문자열 치환 금지 — salt 리터럴 'hbw1' 안의 'hb' 를 잡아 없는 차이를 만든다).
+  라이브 접속 : db_presets 의 PostgreSQL_Inter_asis(asis) ↔ PostgreSQL_Inter_tobe(tobe), 조회 전용.
+
+4-2. 대조 결과 (판정 PASS)
+
+  [불변축 — 완전 일치해야 통과]
+    contract_sql   일치  BEFORE=740993003791d7bc  AFTER=740993003791d7bc
+    agg_sql        일치  BEFORE=707ccd246c18009a  AFTER=707ccd246c18009a
+    row_select     일치  BEFORE=a16f8947e855d799  AFTER=a16f8947e855d799
+    helpers        일치  BEFORE=a0076e371d622c00  AFTER=a0076e371d622c00
+    live           일치  BEFORE=f888d6d53f20b806  AFTER=f888d6d53f20b806
+    전체           일치
+
+    · contract_sql : key/row canonical, key/row hash, bucket_expr(n=1/2/8/100/128 × salt 3종),
+                     pow2_floor 15케이스, level_salt 5레벨 — ntype 8케이스 전수
+    · agg_sql      : 확장 집계 SQL(8케이스 × ns 3종 × postgres/oracle)
+    · row_select   : row_diff 행 SELECT SQL + bind params(8케이스 × 2방언)
+    · helpers      : bucket_aliases / scope_index_map / _scope_key_sig
+    · live         : 아래 4-3
+
+  [의도된 변경축 — 달라야 정상]
+    별칭         BEFORE {'BUCKET':'__HB','KEYHASH':'__KH','ROWHASH':'__RH'}
+                 AFTER  {'BUCKET':'HB','KEYHASH':'KH','ROWHASH':'RH'}
+    계약 version BEFORE hashv1-md5-lenpfx        AFTER hashv1-md5-lenpfx-pg
+    MK version   BEFORE hashv1-md5-lenpfx        AFTER hashv1-md5-lenpfx-pg
+    fingerprint[rec_id]            BEFORE 58e11097dcd28e0d762c081b  AFTER 0ad2f3be423ffc98935d3efd
+    fingerprint[rec_id|dept_cd]    BEFORE a45425d19870a8df30833b6c  AFTER 09268db9e8381922bb61eece
+    (fingerprint 가 바뀌는 것이 §3 의 이중 방어가 실제로 성립한다는 증거다)
+
+4-3. 라이브 3케이스 (BEFORE → AFTER, 전부 동일)
+    admcol_all_match      asis01.t_admcol_src ↔ tobe01.t_admcol_tgt (전량 일치)
+        활성 cell 0→0 / 일치 cell 40→40
+    combo_value_change    asis01.t_combo_src ↔ tobe01.t_combo_tgt, id<=300 (동일 키 값 변경 = UPDATE 형)
+        활성 cell 8→8 / 일치 cell 0→0 / 행SELECT src 300→300, tgt 300→300
+    critdiff_row_missing  asis01.t_critdiff_src ↔ tobe01.t_critdiff_tgt, R001~R003 & id<=300 (행 누락)
+        활성 cell 15→15 / 일치 cell 8→8 / 행SELECT src 60→60, tgt 0→0
+    각 케이스마다 (scope|bucket) → cnt/sum/키해시합/행해시합 전 행, 활성 cell 집합,
+    실제 행 SELECT 결과 행 전체, canonical/h32/bucket 값 probe 25행을 그대로 비교했다.
+
+4-4. 재현성
+  BEFORE 를 연속 2회 수집해 5개 축 지문이 모두 동일함을 먼저 확인한 뒤 대조했다
+  (LIMIT 상한에 걸리는 행 SELECT 는 순서 비결정 위험이 있어, 상한에 닿지 않는 범위로 케이스를 축소).
+
+
+═══════════════════════════════════════════════════════════════════════════════
+§5. 테스트 결과 (baseline 대조)
+═══════════════════════════════════════════════════════════════════════════════
+
+5-1. 영향반경 서브셋 (hash_bucket/hash_contract/row_diff/multi_scope/match_key_evidence/
+     diagnosis_route/BUCKET_ALIAS/drilldown_strategy 를 참조하는 tests/*.py 61개 파일)
+
+    BEFORE  4 failed, 542 passed, 46 skipped, 1 xfailed, 12 subtests passed (67.16s)
+    AFTER   4 failed, 551 passed, 46 skipped, 0 xfailed, 12 subtests passed (69.92s)
+
+    실패 목록 diff = 0 (완전 동일 — 전부 사전 존재 실패)
+        FAILED tests/test_batch_ui.py::test_node_row_list_render
+        FAILED tests/test_diagnosis_phase3b.py::test_next_strategy_preview_matrix
+        FAILED tests/test_diagnosis_phase3b.py::test_start_passes_confirmed_chunk_key
+        FAILED tests/test_scope_execution.py::test_sample_only
+    → **신규 회귀 0건**
+
+    passed +9 / xfailed -1 의 내역(전부 이번 작업이 추가·전환한 것)
+        +1  test_hash_bucket_agg_alias_renamed        (xfail → 정상 통과 가드로 전환)
+        +1  test_hash_bucket_has_no_underscore_alias  (신규 파일 단위 가드)
+        +1  test_scope_key_sig_excludes_bucket_levels_only (신규)
+        +6  tests/test_hash_alias_rename_resume_guard.py   (신규 6케이스)
+
+5-2. CLAUDE.md 지정 회귀 테스트
+    python samples/test_virtual_cases.py  → 8/8 통과 (BEFORE/AFTER 출력 diff 0)
+    python samples/test_complex_cases.py  → 5/5 완료 (BEFORE/AFTER 출력 diff 0)
+
+5-3. 실행 환경
+    Python 3.14.4 (.venv), sqlglot 30.7.0, pytest -p no:randomly
+    worktree 에 db/migration_validator.db 와 db_presets_{src,tgt}.json 을 복사해
+    본 저장소와 동일 조건으로 맞춘 뒤 BEFORE/AFTER 를 같은 조건에서 측정했다.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+§6. git
+═══════════════════════════════════════════════════════════════════════════════
+
+커밋 : c420d84e24558a9656346bd7d5eb810d131fbf7c
+제목 : feat(diagnosis): HASH_BUCKET 별칭 개명 + 계약 버전 bump (F1-PHASE1-ALIAS-RENAME-VERSION-BUMP)
+push : **하지 않음**(코드 저장소는 커밋까지만 — 지시서 규칙)
+
+ 15 files changed, 882 insertions(+), 66 deletions(-)
+  scripts/dev_e2e/hash_bucket_alias_rename_snapshot_compare.py             | 173 +   (신규)
+  scripts/dev_e2e/hash_bucket_alias_rename_version_bump_equivalence_verify.py | 380 + (신규)
+  scripts/dev_e2e/hash_contract_adapter_refactor_equivalence_verify.py     |  18 +-
+  services/diagnosis/dialects_hash/postgresql.py                           |  10 +-
+  services/diagnosis/hash_contract.py                                      |   2 +-
+  services/diagnosis/multi_scope.py                                        |  11 +-
+  services/diagnosis/strategies/hash_bucket.py                             |  37 +-
+  tests/test_diagnosis_hash_bucket_5m.py                                   |  14 +-
+  tests/test_diagnosis_hash_bucket_e2e.py                                  |  13 +-
+  tests/test_diagnosis_multi_scope.py                                      |  38 +-
+  tests/test_diagnosis_row_diff.py                                         |  16 +-
+  tests/test_diagnosis_row_diff_e2e.py                                     |  11 +-
+  tests/test_hash_alias_rename_resume_guard.py                             | 139 +   (신규)
+  tests/test_hash_contract_dialect_adapter.py                              |  11 +-
+  tests/test_underscore_alias_oracle_regression_static.py                  |  75 +-
+
+전체 diff 는 같은 폴더의 commit_diff_services_tests.txt(프로덕션+테스트) 참고.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+§7. 남은 것 / 다음 착수자에게
+═══════════════════════════════════════════════════════════════════════════════
+
+- ③④⑤⑥ 와 G7 은 그대로 남아 있다. 특히 **G7 단독 착수는 여전히 금지**다 —
+  F1-G7 §7-2 [치명]대로, 위임표에 oracle 을 등록하는 순간 row_diff.py 가 오라클에
+  PG SQL(MD5/LEFT/BIT(32)/&)을 방출한다. 이번 작업은 그 결함을 건드리지 않았다(범위 밖).
+- ③ 착수 시 tests/test_underscore_alias_oracle_regression_static.py::
+  test_hash_bucket_agg_alias_renamed 의 "오라클은 HashContractUnavailableError" 단정이 깨진다.
+  그때 그 단정을 오라클 방출 SQL 의 밑줄 별칭 검사로 승격하면 된다(§2-2).
+- BACKLOG.md 의 F1 본문("phase1 까지 진행됐고")과 하위항목(KNOWN_ORACLE_UNSAFE 에 hash_bucket
+  잔존)은 이번 작업으로 사실이 바뀌었다. 다만 BACKLOG 갱신은 별도 지시 사안이라 손대지 않았다.
+- dev harness 3종은 재현 가능하다. 골든셋을 다시 뜨려면
+    python scripts/dev_e2e/hash_bucket_alias_rename_version_bump_equivalence_verify.py AFTER <출력폴더>
+  뒤 compare 스크립트에 BEFORE 스냅샷과 함께 넘기면 된다(BEFORE 는 개명 이전 커밋에서 수집해야 한다).
+
+작업명 : F1-PHASE1-ALIAS-RENAME-VERSION-BUMP

@@ -1,0 +1,16 @@
+ .../hash_bucket_alias_rename_snapshot_compare.py   | 173 ++++++++++
+ ...alias_rename_version_bump_equivalence_verify.py | 380 +++++++++++++++++++++
+ ...contract_adapter_refactor_equivalence_verify.py |  18 +-
+ services/diagnosis/dialects_hash/postgresql.py     |  10 +-
+ services/diagnosis/hash_contract.py                |   2 +-
+ services/diagnosis/multi_scope.py                  |  11 +-
+ services/diagnosis/strategies/hash_bucket.py       |  37 +-
+ tests/test_diagnosis_hash_bucket_5m.py             |  14 +-
+ tests/test_diagnosis_hash_bucket_e2e.py            |  13 +-
+ tests/test_diagnosis_multi_scope.py                |  38 ++-
+ tests/test_diagnosis_row_diff.py                   |  16 +-
+ tests/test_diagnosis_row_diff_e2e.py               |  11 +-
+ tests/test_hash_alias_rename_resume_guard.py       | 139 ++++++++
+ tests/test_hash_contract_dialect_adapter.py        |  11 +-
+ ...st_underscore_alias_oracle_regression_static.py |  75 ++--
+ 15 files changed, 882 insertions(+), 66 deletions(-)

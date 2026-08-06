@@ -1,0 +1,28 @@
+==============================================================================
+불변축 대조 (별칭 정규화 후 — 완전 일치해야 통과)
+==============================================================================
+  contract_sql   일치  BEFORE=740993003791d7bc  AFTER=740993003791d7bc
+  agg_sql        일치  BEFORE=707ccd246c18009a  AFTER=707ccd246c18009a
+  row_select     일치  BEFORE=a16f8947e855d799  AFTER=a16f8947e855d799
+  helpers        일치  BEFORE=a0076e371d622c00  AFTER=a0076e371d622c00
+  live           일치  BEFORE=f888d6d53f20b806  AFTER=f888d6d53f20b806
+  전체             일치
+
+==============================================================================
+의도된 변경축 (달라야 정상)
+==============================================================================
+  별칭        BEFORE={'BUCKET': '__HB', 'KEYHASH': '__KH', 'ROWHASH': '__RH'}
+              AFTER ={'BUCKET': 'HB', 'KEYHASH': 'KH', 'ROWHASH': 'RH'}
+  계약 version BEFORE=hashv1-md5-lenpfx  AFTER=hashv1-md5-lenpfx-pg
+  MK version   BEFORE=hashv1-md5-lenpfx  AFTER=hashv1-md5-lenpfx-pg
+  fingerprint[rec_id] BEFORE=58e11097dcd28e0d762c081b  AFTER=0ad2f3be423ffc98935d3efd
+  fingerprint[rec_id|dept_cd] BEFORE=a45425d19870a8df30833b6c  AFTER=09268db9e8381922bb61eece
+
+==============================================================================
+라이브 케이스별 검출 결과 (BEFORE vs AFTER)
+==============================================================================
+  admcol_all_match       활성cell 0→0 / 일치cell 40→40 / 행SELECT src None→None tgt None→None
+  combo_value_change     활성cell 8→8 / 일치cell 0→0 / 행SELECT src 300→300 tgt 300→300
+  critdiff_row_missing   활성cell 15→15 / 일치cell 8→8 / 행SELECT src 60→60 tgt 0→0
+
+판정: PASS — 불변축 전부 일치(별칭·버전만 의도대로 변경됨)

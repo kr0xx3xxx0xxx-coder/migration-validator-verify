@@ -1,0 +1,769 @@
+commit c420d84e24558a9656346bd7d5eb810d131fbf7c
+Author: migration-validator <dev@migration-validator.local>
+Date:   Thu Aug 6 11:51:14 2026 +0900
+
+    feat(diagnosis): HASH_BUCKET 별칭 개명 + 계약 버전 bump (F1-PHASE1-ALIAS-RENAME-VERSION-BUMP)
+    
+    F1(HASH_BUCKET 오라클 이식) 착수 순서 ①만 수행한다. ③(오라클 구현체)·④(소비측 배선)·
+    ⑤(capabilities 개방)·⑥(라이브 실측)·G7(위임표 오라클 등록)은 이번 범위가 아니다.
+    
+    변경 내용
+    - 별칭 개명: BUCKET_ALIAS __HB→HB, KEYHASH_ALIAS __KH→KH, ROWHASH_ALIAS __RH→RH
+      (밑줄 선두 = 오라클 ORA-00911. KEY_RANGE __BKT/__RNG→KR_BKT/KR_RNG 와 동일 조치.
+       대문자 필수 — 실행 core 가 groupby_cols 를 대문자 정규화 후 되읽는다)
+    - 계약 버전 bump: PgHashContract.version "hashv1-md5-lenpfx" → "hashv1-md5-lenpfx-pg"
+      (설계 §3.5 가 예고한 방언 접미사 분리. 오라클은 "-ora" 자리)
+    - multi_scope._scope_key_sig 의 '__HB' 하드코딩 제거 → hash_bucket.is_bucket_alias 위임.
+      개명으로 접두가 2글자가 되어 startswith 판정은 업무 컬럼(HB_CD 등)을 오분류할 수 있으므로
+      'BUCKET_ALIAS + 숫자' 정확 형태로 판정하는 헬퍼를 신설했다
+    - 테스트 5파일의 별칭/버전 리터럴 직접참조를 상수 참조로 전환, Layer A expectedFailure 제거,
+      KNOWN_ORACLE_UNSAFE 를 비우고 hash_bucket 전용 정적 회귀 가드 신설
+    - 재개 호환성 회귀 테스트 신설(tests/test_hash_alias_rename_resume_guard.py)
+    
+    저장된 resume 상태 호환성
+    - 마이그레이션하지 않고 무효화한다. 저장된 pending_region.active[].key / pending_cells 의
+      bucket 키가 '__HB1' 이라, 개명 후 row_diff._cell_condition 이 한 번도 매치되지 않아
+      bucket 조건 없이 조용히 진행될 수 있다(오류 없는 오답).
+    - 같은 커밋의 계약 version bump 로 routes/diagnosis_route 의 두 재개 경로
+      (/diagnosis/multi-resume, /diagnosis/multi-row-diff-resume)가 EVIDENCE_CHANGED 로 차단한다.
+      fingerprint 도 version 을 입력으로 쓰므로 이중 방어다.
+    - 키 이름만 바꿔치는 마이그레이션은 '그 상태가 같은 계약으로 만들어졌는지'를 확인할 수 없어
+      채택하지 않았다(무효화 비용 = 재분석 1회).
+    
+    검증
+    - PG(asis↔tobe) 골든셋 대조 PASS — canonical/h32/bucket 표현식, 확장 집계 SQL, row_diff 행
+      SELECT/bind, 라이브 3케이스(전량일치/값변경/행누락)의 bucket 배치·KH·RH·불일치 cell 집합·
+      행 비교 결과가 별칭 정규화 후 BEFORE/AFTER 완전 동일. 달라진 것은 별칭 3개와 계약 version뿐
+    - 영향반경 61개 테스트 파일: baseline 4 failed/542 passed/46 skipped/1 xfailed
+      → AFTER 4 failed/551 passed/46 skipped/0 xfailed (실패 목록 동일, 신규 회귀 0건)
+    - samples/test_virtual_cases.py 8/8, samples/test_complex_cases.py 5/5 (출력 완전 동일)
+    
+    Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+
+diff --git a/services/diagnosis/dialects_hash/postgresql.py b/services/diagnosis/dialects_hash/postgresql.py
+index c50ffc8..4688b78 100644
+--- a/services/diagnosis/dialects_hash/postgresql.py
++++ b/services/diagnosis/dialects_hash/postgresql.py
+@@ -30,10 +30,12 @@ class PgHashContract(BaseHashContract):
+ 
+     db_type = "postgresql"
+     # 계약 버전 — 저장/resume 시 동일성 확인용(버전 다르면 재사용 금지).
+-    # [PHASE1] 값 불변 유지. 방언 접미사(-pg/-ora) 분리는 오라클 구현체 도입 단계에서
+-    # 별칭 개명(__HB→HB)과 **같은 커밋**으로 올린다(설계 §3.5·§5.3-3 — 버전이 바뀌면 저장된 run 이
+-    # EVIDENCE_CHANGED 로 차단되므로, 별칭 비호환과 반드시 짝지어야 안전하다).
+-    version = "hashv1-md5-lenpfx"
++    # [F1-PHASE1-ALIAS-RENAME-VERSION-BUMP] 예고된 방언 접미사 분리를 실제로 적용했다.
++    #   "hashv1-md5-lenpfx" → "hashv1-md5-lenpfx-pg" (오라클 구현체는 "-ora" 로 등록될 자리).
++    #   같은 커밋의 별칭 개명(__HB/__KH/__RH → HB/KH/RH)이 저장된 resume 상태와 비호환이므로,
++    #   버전을 함께 올려 옛 run 이 routes/diagnosis_route.py 의 동일성 검사에서 EVIDENCE_CHANGED 로
++    #   차단되게 한다(설계 §3.5·§5.3-3). 표현식·NULL 마커·길이접두 규약 자체는 1비트도 바꾸지 않았다.
++    version = "hashv1-md5-lenpfx-pg"
+     # 타 방언 계약과 canonical 이 발산한다(숫자 trim_scale vs TM9, 빈문자열=NULL 여부, 날짜 서식)
+     # → cross-DBMS 직접 hash 비교 금지. 팩토리의 same-DBMS 가드가 이 속성을 근거로 삼는다.
+     cross_db_comparable = False
+diff --git a/services/diagnosis/hash_contract.py b/services/diagnosis/hash_contract.py
+index 3c835fa..0915dac 100644
+--- a/services/diagnosis/hash_contract.py
++++ b/services/diagnosis/hash_contract.py
+@@ -50,7 +50,7 @@ class BaseHashContract:
+     """
+ 
+     db_type = ""                       # "postgresql" | "oracle" | ...
+-    version = ""                       # 예: "hashv1-md5-lenpfx"
++    version = ""                       # 방언별 계약 버전 — 예: "hashv1-md5-lenpfx-pg" / "hashv1-md5-lenpfx-ora"
+     cross_db_comparable = False        # 항상 False — 타 방언 계약과 직접 비교 금지
+ 
+     def is_available(self) -> bool:
+diff --git a/services/diagnosis/multi_scope.py b/services/diagnosis/multi_scope.py
+index ea6b63a..dbd64a0 100644
+--- a/services/diagnosis/multi_scope.py
++++ b/services/diagnosis/multi_scope.py
+@@ -510,7 +510,7 @@ def _run_group_scope_wave(src, tgt, gb, plan, compare_fn, meter, config, dialect
+ 
+ def _run_hash_bucket_waves(src, tgt, gb, match_key, plan, compare_fn, meter, config, dialect,
+                            res: BatchDiagnosisResult, extra: dict, resume_state, filt=None, scopes=None):
+-    """HASH_BUCKET 일괄 — canonical 해시 bucket(__HBn) + 키/행 hash(__KH/__RH) 한 번의 집계. 불일치 bucket만 다음 wave.
++    """HASH_BUCKET 일괄 — canonical 해시 bucket(HBn) + 키/행 hash(KH/RH) 한 번의 집계. 불일치 bucket만 다음 wave.
+ 
+     wave 마다 bucket level 을 하나 더해(salt 변경) 활성 bucket 을 세분(같은 modulo 반복 금지). 부모 경로(상위 level)는
+     GROUP BY 에 유지하고 활성 경로 scope_set 으로 제한(부모의 자식만 분할, 일치 부모 재실행 0).
+@@ -595,9 +595,14 @@ def _run_hash_bucket_waves(src, tgt, gb, match_key, plan, compare_fn, meter, con
+ 
+ 
+ def _scope_key_sig(key: dict) -> str:
+-    """cell 키에서 scope(그룹) 부분만 — bucket level(__HB*) 제외. 그룹 단위 검출 완전성 비교용."""
++    """cell 키에서 scope(그룹) 부분만 — bucket level(HB1, HB2, ...) 제외. 그룹 단위 검출 완전성 비교용.
++
++    [F1-PHASE1-ALIAS-RENAME-VERSION-BUMP] 이전에는 '__HB' 리터럴을 직접 startswith 로 걸렀다(상수 미참조).
++    별칭 개명 시 이 필터가 아무것도 못 걸러 bucket 키가 scope 서명에 섞이고, '직전 wave 활성 그룹 유지'
++    로직이 매 wave 를 전부 신규 그룹으로 오인해 활성 cell 이 조용히 부푼다(오류 없는 회귀).
++    판정을 hash_bucket 의 단일 출처(is_bucket_alias — 접두가 아니라 'HB+숫자' 정확 형태)로 위임한다."""
+     import json as _j
+-    return _j.dumps({k: v for k, v in (key or {}).items() if not str(k).startswith("__HB")},
++    return _j.dumps({k: v for k, v in (key or {}).items() if not hb.is_bucket_alias(k)},
+                     sort_keys=True, ensure_ascii=False)
+ 
+ 
+diff --git a/services/diagnosis/strategies/hash_bucket.py b/services/diagnosis/strategies/hash_bucket.py
+index 22e2531..26a2519 100644
+--- a/services/diagnosis/strategies/hash_bucket.py
++++ b/services/diagnosis/strategies/hash_bucket.py
+@@ -4,12 +4,12 @@ services/diagnosis/strategies/hash_bucket.py
+ HASH_BUCKET 전략 SQL 빌더 — 문자열·UUID·복합 MATCH_KEY 를 canonical 해시 bucket 으로 나눠 한 번의 집계로 비교한다.
+ 
+ 원칙:
+-  - 별도 DB 실행기를 만들지 않는다. base 통계 SQL 에 'bucket 컬럼(__HBn) + 키/행 hash 집계(__KH/__RH)'를 sqlglot AST 로
++  - 별도 DB 실행기를 만들지 않는다. base 통계 SQL 에 'bucket 컬럼(HBn) + 키/행 hash 집계(KH/RH)'를 sqlglot AST 로
+     추가만 한다(문자열 SQL 조립 금지). 실제 실행/비교는 기존 compare_fn(통계 core) 이 수행.
+   - canonical 인코딩은 services.diagnosis.hash_contract(단일 계약) 만 사용한다. Source/Target 각자 표현식.
+   - wave 별 salt 로 활성 bucket 을 더 세분(같은 modulo 반복 금지). 각 wave 는 직전까지의 bucket level(부모 경로)을
+     GROUP BY 에 유지해 '부모의 자식만 분할 + 경로 보존'을 보장한다.
+-  - 키 비교만 하면 값 변경을 못 찾으므로 __KH(키 hash 합)·__RH(행 digest hash 합, HASH_COMPARE 대상 포함)도 비교한다.
++  - 키 비교만 하면 값 변경을 못 찾으므로 KH(키 hash 합)·RH(행 digest hash 합, HASH_COMPARE 대상 포함)도 비교한다.
+ """
+ from __future__ import annotations
+ 
+@@ -20,9 +20,17 @@ from parser.sqlglot_safe_parse import parse_one_guarded as _parse_one_guarded
+ 
+ from services.diagnosis import hash_contract as hc
+ 
+-BUCKET_ALIAS = "__HB"          # bucket level alias prefix(__HB1, __HB2, ...)
+-KEYHASH_ALIAS = "__KH"         # bucket 내 키 hash 합(키 누락/추가 검출)
+-ROWHASH_ALIAS = "__RH"         # bucket 내 행 digest hash 합(값 변경 검출)
++# [F1-PHASE1-ALIAS-RENAME-VERSION-BUMP] 밑줄 선두 별칭(__HB/__KH/__RH) → 문자 시작 대문자 별칭으로 개명.
++#   사유: 오라클 비인용 식별자는 '_' 로 시작할 수 없어 ORA-00911 로 실행이 통째로 깨진다
++#         (KEY_RANGE 가 __BKT/__RNG → KR_BKT/KR_RNG 로 먼저 처리한 것과 동일 조치).
++#   대문자 필수: 실행 core 가 groupby_cols 를 대문자로 정규화한 뒤 원본/목적지 결과에서 되읽는다
++#         (services/stats_execute_service.py) — 소문자로 개명하면 readback 이 깨진다.
++#   호환성: 이 개명은 저장된 resume 상태(pending_region.active[].key 의 '__HB1' 등)와 비호환이다.
++#         같은 커밋에서 계약 version 을 '-pg' 접미사로 올려(dialects_hash/postgresql.py) 옛 run 이
++#         EVIDENCE_CHANGED 로 차단되게 했다(설계 §3.5·§5.3-3).
++BUCKET_ALIAS = "HB"            # bucket level alias prefix(HB1, HB2, ...)
++KEYHASH_ALIAS = "KH"           # bucket 내 키 hash 합(키 누락/추가 검출)
++ROWHASH_ALIAS = "RH"           # bucket 내 행 digest hash 합(값 변경 검출)
+ 
+ # [HASH-BUCKET-FACTORY-GUARD-ENFORCE-FIX] 지원 DBMS 4종(CLAUDE.md 고정 목록) — 방언 역매핑 후보 집합.
+ # 새 매핑표를 만들지 않고 공통 헬퍼(_to_sqlglot_dialect)를 이 집합 위에서 역으로 적용한다(단일 출처 유지).
+@@ -95,18 +103,31 @@ def level_salt(i: int) -> str:
+ 
+ 
+ def bucket_aliases(depth: int) -> list:
+-    """현재 깊이까지의 bucket level alias 목록(__HB1..__HB{depth})."""
++    """현재 깊이까지의 bucket level alias 목록(HB1..HB{depth})."""
+     return [BUCKET_ALIAS + str(i) for i in range(1, int(depth) + 1)]
+ 
+ 
++def is_bucket_alias(name) -> bool:
++    """cell 키 이름이 'bucket level 별칭(HB + 레벨숫자)' 인지 — 접두 일치가 아니라 **정확한 형태**로 판정한다.
++
++    [F1-PHASE1-ALIAS-RENAME-VERSION-BUMP] 개명 전 접두 '__HB' 는 사실상 충돌이 없었지만, 개명 후 'HB' 는
++    업무 컬럼명(예: HB_CD, HBASE)과 충돌할 수 있는 짧은 접두다. startswith 로 거르면 scope 컬럼이 조용히
++    bucket 으로 오분류돼 그룹 서명이 뒤틀린다(오류 없는 오답). 따라서 'BUCKET_ALIAS + 1자 이상 숫자'만
++    인정한다. 대소문자는 무시한다(DB 결과 컬럼 폴딩 편차 흡수)."""
++    s = str(name or "")
++    if len(s) <= len(BUCKET_ALIAS) or not s[:len(BUCKET_ALIAS)].upper() == BUCKET_ALIAS.upper():
++        return False
++    return s[len(BUCKET_ALIAS):].isdigit()
++
++
+ def build_hash_bucket_agg_sql(base_sql: str, *, exprs: list, ntypes: list,
+                               compare_exprs: list = None, compare_ntypes: list = None,
+                               ns: list = None, dialect: str = "postgres",
+                               src_db_type: str = "", tgt_db_type: str = "") -> str:
+-    """base 집계 SQL 에 bucket level(__HB1..__HB{len(ns)}) + __KH/__RH 추가 → 한 번의 집계로 (scope × bucket) 비교.
++    """base 집계 SQL 에 bucket level(HB1..HB{len(ns)}) + KH/RH 추가 → 한 번의 집계로 (scope × bucket) 비교.
+ 
+     ns[i] = level i+1 의 bucket 수(level 마다 다를 수 있음 — wave 별로 활성 parent 수에 맞춰 조정). 각 level 은
+-    level_salt 로 만들어 GROUP BY 에 모두 포함(부모 경로 보존). __KH/__RH 는 최심 집계. compare_*: 값 변경 검출.
++    level_salt 로 만들어 GROUP BY 에 모두 포함(부모 경로 보존). KH/RH 는 최심 집계. compare_*: 값 변경 검출.
+ 
+     [HASH-BUCKET-FACTORY-GUARD-ENFORCE-FIX] canonical 표현식은 반드시 계약 팩토리
+     (hash_contract.get_hash_contract_pair)를 거쳐 얻은 계약 객체에서만 만든다. 이전에는 모듈 재수출
+diff --git a/tests/test_diagnosis_hash_bucket_5m.py b/tests/test_diagnosis_hash_bucket_5m.py
+index 791d8c1..10af19f 100644
+--- a/tests/test_diagnosis_hash_bucket_5m.py
++++ b/tests/test_diagnosis_hash_bucket_5m.py
+@@ -21,6 +21,14 @@ pytestmark = pytest.mark.skipif(
+     os.environ.get("MV_PG_LIVE_SAFETY") != "1" or os.environ.get("MV_HASH_5M") != "1",
+     reason="500만 실측 게이트 — MV_PG_LIVE_SAFETY=1 + MV_HASH_5M=1")
+ 
++# [F1-PHASE1-ALIAS-RENAME-VERSION-BUMP] 계약 버전·별칭은 리터럴이 아니라 단일 출처를 참조한다
++# (개명/버전 bump 때마다 픽스처가 조용히 낡는 것을 막는다).
++from services.diagnosis import hash_contract as _hc                     # noqa: E402
++from services.diagnosis.strategies import hash_bucket as _hb            # noqa: E402
++
++MK_VERSION = _hc.HASH_CONTRACT_VERSION
++HB1 = _hb.BUCKET_ALIAS + "1"
++
+ ROWS = int(os.environ.get("MV_BENCH_ROWS", "5000000"))
+ GROUPS = 20
+ GW = max(1, ROWS // GROUPS)
+@@ -48,7 +56,7 @@ def _median(xs):
+ 
+ def _mk_string(compare=True):
+     mk = {"confirmed": True, "is_hash_eligible": True, "composite": False, "src_exprs": ["mk"],
+-          "tgt_exprs": ["mk"], "ntypes": ["TEXT"], "version": "hashv1-md5-lenpfx", "fingerprint": "fp"}
++          "tgt_exprs": ["mk"], "ntypes": ["TEXT"], "version": MK_VERSION, "fingerprint": "fp"}
+     mk["compare"] = [{"src_expr": "amt", "tgt_expr": "amt", "ntype": "NUMBER"}] if compare else []
+     return mk
+ 
+@@ -149,7 +157,7 @@ def test_5m_string_key_with_baseline(conn):
+                                                 compare_ntypes=["NUMBER"], ns=[128], dialect="postgres")
+             btgt = hb.build_hash_bucket_agg_sql(tsql, exprs=["mk"], ntypes=["TEXT"], compare_exprs=["amt"],
+                                                 compare_ntypes=["NUMBER"], ns=[128], dialect="postgres")
+-            cf(bsrc, btgt, ["GRP", "__HB1"], pred)
++            cf(bsrc, btgt, ["GRP", HB1], pred)
+         bt.append((time.perf_counter() - t0) * 1000.0); bq = meter.total
+     base_q, base_ms = bq, _median(bt[1:])
+     reduction = (base_q - out["query"]) / float(base_q)
+@@ -167,7 +175,7 @@ def test_5m_uuid_key(conn):
+ def test_5m_composite_key(conn):
+     mk = {"confirmed": True, "is_hash_eligible": True, "composite": True, "src_exprs": ["k1", "k2"],
+           "tgt_exprs": ["k1", "k2"], "ntypes": ["TEXT", "TEXT"], "compare": [],
+-          "version": "hashv1-md5-lenpfx", "fingerprint": "fp"}
++          "version": MK_VERSION, "fingerprint": "fp"}
+     out, _s, _t, _sc = _measure(conn, _composite_sqls, mk, "composite")
+     assert out["detected"] == GROUPS and out["query"] == 2 and out["wave"] == 1
+ 
+diff --git a/tests/test_diagnosis_hash_bucket_e2e.py b/tests/test_diagnosis_hash_bucket_e2e.py
+index ec760c1..7e71373 100644
+--- a/tests/test_diagnosis_hash_bucket_e2e.py
++++ b/tests/test_diagnosis_hash_bucket_e2e.py
+@@ -20,6 +20,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+ pytestmark = pytest.mark.skipif(os.environ.get("MV_PG_LIVE_SAFETY") != "1",
+                                 reason="실 DB 라이브 게이트 — MV_PG_LIVE_SAFETY=1")
+ 
++# [F1-PHASE1-ALIAS-RENAME-VERSION-BUMP] 계약 버전·별칭은 리터럴이 아니라 단일 출처를 참조한다.
++from services.diagnosis import hash_contract as _hc                     # noqa: E402
++from services.diagnosis.strategies import hash_bucket as _hb            # noqa: E402
++
++MK_VERSION = _hc.HASH_CONTRACT_VERSION
++HB1 = _hb.BUCKET_ALIAS + "1"
++
+ ROWS = int(os.environ.get("MV_BENCH_ROWS", "1000000"))
+ GROUPS = 20
+ GW = max(1, ROWS // GROUPS)
+@@ -47,7 +54,7 @@ def _median(xs):
+ 
+ def _str_mk(compare=True):
+     mk = {"confirmed": True, "is_hash_eligible": True, "composite": False, "src_exprs": ["mk"],
+-          "tgt_exprs": ["mk"], "ntypes": ["TEXT"], "version": "hashv1-md5-lenpfx", "fingerprint": "fp"}
++          "tgt_exprs": ["mk"], "ntypes": ["TEXT"], "version": MK_VERSION, "fingerprint": "fp"}
+     mk["compare"] = [{"src_expr": "amt", "tgt_expr": "amt", "ntype": "NUMBER"}] if compare else []
+     return mk
+ 
+@@ -133,7 +140,7 @@ def test_e2e_composite_key_delimiter_safety(conn):
+     tsql = "SELECT grp AS GRP, count(*) AS CNT FROM " + inner_t + " GROUP BY grp"
+     mk = {"confirmed": True, "is_hash_eligible": True, "composite": True, "src_exprs": ["k1", "k2"],
+           "tgt_exprs": ["k1", "k2"], "ntypes": ["TEXT", "TEXT"], "compare": [],
+-          "version": "hashv1-md5-lenpfx", "fingerprint": "fp"}
++          "version": MK_VERSION, "fingerprint": "fp"}
+     scopes = [{"key": {"GRP": "9"}}]
+     res, meter, plan = _run_hash(conn, ssql, tsql, mk, scopes,
+                                  ms.MultiScopeConfig(default_buckets=128, max_waves=2))
+@@ -220,7 +227,7 @@ def test_e2e_string_key_benchmark(conn):
+                                                     compare_ntypes=["NUMBER"], ns=[128], dialect="postgres")
+                 btgt = hb.build_hash_bucket_agg_sql(tsql, exprs=["mk"], ntypes=["TEXT"], compare_exprs=["amt"],
+                                                     compare_ntypes=["NUMBER"], ns=[128], dialect="postgres")
+-                cf(bsrc, btgt, ["GRP", "__HB1"], pred)
++                cf(bsrc, btgt, ["GRP", HB1], pred)
+             ts.append((time.perf_counter() - t0) * 1000.0); q = meter.total
+         return _median(ts[1:]), q
+ 
+diff --git a/tests/test_diagnosis_multi_scope.py b/tests/test_diagnosis_multi_scope.py
+index c8482d6..0cd3c2b 100644
+--- a/tests/test_diagnosis_multi_scope.py
++++ b/tests/test_diagnosis_multi_scope.py
+@@ -17,6 +17,10 @@ from services.diagnosis.contracts import DiagnosisResult
+ from services.diagnosis.metering import QueryMeter
+ from services.diagnosis import multi_scope as ms
+ from services.diagnosis import multi_scope_select as msel
++from services.diagnosis.strategies import hash_bucket as hb
++
++# [F1-PHASE1-ALIAS-RENAME-VERSION-BUMP] bucket level cell 키는 별칭 상수에서 만든다(리터럴 직접참조 금지).
++_HB1, _HB2 = hb.BUCKET_ALIAS + "1", hb.BUCKET_ALIAS + "2"
+ 
+ NUM_CK = {"src_expr": "v", "tgt_expr": "v", "type": "NUMBER", "confirmed": True, "label": "V",
+           "indexed": True, "index_leading": True}
+@@ -499,11 +503,31 @@ def test_hash_contract_and_agg_sql_parse():
+     agg = hb.build_hash_bucket_agg_sql("SELECT g AS G, count(*) AS CNT FROM t GROUP BY g",
+                                        exprs=["mk"], ntypes=["TEXT"], compare_exprs=["v"], compare_ntypes=["TEXT"],
+                                        ns=[64, 32], dialect="postgres")
+-    assert "__HB1" in agg and "__HB2" in agg and "__KH" in agg and "__RH" in agg
+-    assert hb.bucket_aliases(2) == ["__HB1", "__HB2"]
++    # [F1-PHASE1-ALIAS-RENAME-VERSION-BUMP] 별칭 리터럴 직접참조 → 상수 참조(개명 시 테스트가 따라 움직인다).
++    b1, b2 = hb.BUCKET_ALIAS + "1", hb.BUCKET_ALIAS + "2"
++    assert b1 in agg and b2 in agg and hb.KEYHASH_ALIAS in agg and hb.ROWHASH_ALIAS in agg
++    assert hb.bucket_aliases(2) == [b1, b2]
++    # 오라클 ORA-00911 재발 방지 — 별칭은 반드시 문자로 시작한다(밑줄 선두 금지).
++    for al in (hb.BUCKET_ALIAS, hb.KEYHASH_ALIAS, hb.ROWHASH_ALIAS):
++        assert al[:1].isalpha() and al.isupper(), "별칭이 문자 시작 대문자가 아니다: %s" % al
+     assert hb.scope_index_map(["G"], 2) == {"scope": {"G": 0}, "bucket": {1: 1, 2: 2}}
+ 
+ 
++def test_scope_key_sig_excludes_bucket_levels_only():
++    """[F1-PHASE1-ALIAS-RENAME-VERSION-BUMP] _scope_key_sig 는 bucket level 만 걸러야 한다.
++
++    (a) bucket level(HB1/HB2)은 반드시 제외 — 남으면 '직전 wave 활성 그룹 유지' 로직이 매 wave 를
++        전부 신규 그룹으로 오인해 활성 cell 이 조용히 부푼다(오류 없는 회귀).
++    (b) 별칭과 접두만 같은 업무 컬럼(HB_CD/HBASE)은 절대 제외되면 안 된다 — 개명으로 접두가
++        2글자로 짧아졌기 때문에 startswith 판정이면 여기서 깨진다.
++    """
++    import json as _j
++    assert ms._scope_key_sig({"G": "A", _HB1: "0", _HB2: "3"}) == \
++        _j.dumps({"G": "A"}, sort_keys=True, ensure_ascii=False)
++    biz = {hb.BUCKET_ALIAS + "_CD": "X", hb.BUCKET_ALIAS + "ASE": "Y"}
++    assert _j.loads(ms._scope_key_sig({**biz, _HB1: "0"})) == biz
++
++
+ def make_fake_hash_compare(wave_results, meter=None, calls=None):
+     """wave_results[i] = (mismatch_cell_keys, present_cells, per_cell_count). 실제 해시 없이 wave 로직 검증용."""
+     state = {"i": 0}
+@@ -524,8 +548,8 @@ def make_fake_hash_compare(wave_results, meter=None, calls=None):
+ 
+ def test_hash_bucket_wave_progression_and_row_diff_ready():
+     # wave1: 2 불일치 bucket(밀도 0.2, 행수 큼) → 계속. wave2: 1 cell(행수 작음) → ROW_DIFF_READY.
+-    w1 = ([{"G": "A", "__HB1": "0"}, {"G": "A", "__HB1": "1"}], 10, 5000)
+-    w2 = ([{"G": "A", "__HB1": "0", "__HB2": "3"}], 10, 100)
++    w1 = ([{"G": "A", _HB1: "0"}, {"G": "A", _HB1: "1"}], 10, 5000)
++    w2 = ([{"G": "A", _HB1: "0", _HB2: "3"}], 10, 100)
+     meter = QueryMeter(); calls = []
+     cf = make_fake_hash_compare([w1, w2], meter, calls)
+     plan = ms.plan_multi_scope(scopes=[{"key": {"G": "A"}}], gb_keys=["G"], chunk_key=None, match_key=TEXT_MK,
+@@ -537,17 +561,17 @@ def test_hash_bucket_wave_progression_and_row_diff_ready():
+                                  config=ms.MultiScopeConfig(max_waves=3, default_buckets=64, row_diff_threshold=1000))
+     assert res.metrics["wave_count"] == 2
+     assert res.stopped_reason == ms.PLAN_ROW_DIFF                  # 활성 행수 작음 → ROW_DIFF_READY(행조회 미실행)
+-    # wave2 호출은 활성 경로(scope + 상위 bucket) scope_set 제한 — __HB1 은 gb_index 1(scope 'G' 뒤)
++    # wave2 호출은 활성 경로(scope + 상위 bucket) scope_set 제한 — bucket level1 은 gb_index 1(scope 'G' 뒤)
+     w2call = calls[1]
+     sset = next(p for p in w2call["preds"] if p.get("kind") == "scope_set")
+     members = sset["groups"][0]
+     assert {"gb_index": 0, "value": "A"} in members and {"gb_index": 1, "value": "0"} in members
+-    assert "__HB1" in w2call["gcols"] and "__HB2" in w2call["gcols"]
++    assert _HB1 in w2call["gcols"] and _HB2 in w2call["gcols"]
+ 
+ 
+ def test_hash_bucket_dense_early_stop():
+     # 대부분 bucket 불일치(밀도 0.8) → wave1 후 조기 중단(무한 분할 금지).
+-    w1 = ([{"G": "A", "__HB1": str(i)} for i in range(8)], 10, 50000)
++    w1 = ([{"G": "A", _HB1: str(i)} for i in range(8)], 10, 50000)
+     meter = QueryMeter()
+     cf = make_fake_hash_compare([w1], meter)
+     plan = ms.plan_multi_scope(scopes=[{"key": {"G": "A"}}], gb_keys=["G"], chunk_key=None, match_key=TEXT_MK)
+diff --git a/tests/test_diagnosis_row_diff.py b/tests/test_diagnosis_row_diff.py
+index e8c6fc0..b0a3cd2 100644
+--- a/tests/test_diagnosis_row_diff.py
++++ b/tests/test_diagnosis_row_diff.py
+@@ -9,6 +9,10 @@ import sys
+ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+ 
+ from services.diagnosis import row_diff as rd
++from services.diagnosis.strategies import hash_bucket as hb
++
++# [F1-PHASE1-ALIAS-RENAME-VERSION-BUMP] cell 키의 bucket level 이름은 별칭 상수에서 만든다(리터럴 금지).
++_HB1 = hb.BUCKET_ALIAS + "1"
+ 
+ MK = {"confirmed": True, "src_exprs": ["id"], "tgt_exprs": ["id"], "ntypes": ["TEXT"],
+       "compare": [{"src_expr": "amt", "tgt_expr": "amt", "ntype": "NUMBER"}]}
+@@ -27,7 +31,7 @@ def test_row_diff_insert_delete_update():
+     tgt = [("K1", "10"), ("K3", "30"), ("K4", "41")]
+     res = rd.execute_row_diff(base_src_sql="SELECT id AS GRP, count(*) FROM t GROUP BY id",
+                               base_tgt_sql="SELECT id AS GRP, count(*) FROM t GROUP BY id",
+-                              gb_keys=["GRP"], match_key=MK, cells=[{"GRP": "A", "__HB1": "0"}], ns=[8],
++                              gb_keys=["GRP"], match_key=MK, cells=[{"GRP": "A", _HB1: "0"}], ns=[8],
+                               fetch_src=_fetch(src), fetch_tgt=_fetch(tgt))
+     assert res.stopped_reason == rd.STOP_DONE
+     by = {r["diff_type"]: r for r in res.records}
+@@ -46,7 +50,7 @@ def test_row_diff_null_vs_empty_distinct():
+     tgt = [("K1", "")]
+     res = rd.execute_row_diff(base_src_sql="SELECT id AS GRP, count(*) FROM t GROUP BY id",
+                               base_tgt_sql="SELECT id AS GRP, count(*) FROM t GROUP BY id",
+-                              gb_keys=["GRP"], match_key=MK, cells=[{"GRP": "A", "__HB1": "0"}], ns=[8],
++                              gb_keys=["GRP"], match_key=MK, cells=[{"GRP": "A", _HB1: "0"}], ns=[8],
+                               fetch_src=_fetch(src), fetch_tgt=_fetch(tgt))
+     assert res.counts["UPDATE"] == 1 and res.records[0]["src"] == {"amt": None} and res.records[0]["tgt"] == {"amt": ""}
+ 
+@@ -54,14 +58,14 @@ def test_row_diff_null_vs_empty_distinct():
+ def test_row_diff_resume_across_chunks():
+     # cell 2개, 청크당 1 cell, budget 2 query → 첫 청크(2 query) 후 중단 → 나머지 resume
+     src = [("K2", "20")]; tgt = []
+-    cells = [{"GRP": "A", "__HB1": "0"}, {"GRP": "B", "__HB1": "1"}]
++    cells = [{"GRP": "A", _HB1: "0"}, {"GRP": "B", _HB1: "1"}]
+     cfg = rd.RowDiffConfig(cells_per_query=1, max_queries=2)
+     r1 = rd.execute_row_diff(base_src_sql="SELECT id AS GRP, count(*) FROM t GROUP BY id",
+                              base_tgt_sql="SELECT id AS GRP, count(*) FROM t GROUP BY id",
+                              gb_keys=["GRP"], match_key=MK, cells=cells, ns=[8],
+                              fetch_src=_fetch(src), fetch_tgt=_fetch(tgt), config=cfg)
+     assert r1.stopped_reason == rd.STOP_BUDGET and r1.completed_index == 1
+-    assert r1.pending_cells == [{"GRP": "B", "__HB1": "1"}]
++    assert r1.pending_cells == [{"GRP": "B", _HB1: "1"}]
+     # resume — 남은 cell 부터(완료 cell 재처리 0)
+     r2 = rd.execute_row_diff(base_src_sql="SELECT id AS GRP, count(*) FROM t GROUP BY id",
+                              base_tgt_sql="SELECT id AS GRP, count(*) FROM t GROUP BY id",
+@@ -75,7 +79,7 @@ def test_row_diff_limit_guard():
+     big = [("K%d" % i, str(i)) for i in range(20)]
+     res = rd.execute_row_diff(base_src_sql="SELECT id AS GRP, count(*) FROM t GROUP BY id",
+                               base_tgt_sql="SELECT id AS GRP, count(*) FROM t GROUP BY id",
+-                              gb_keys=["GRP"], match_key=MK, cells=[{"GRP": "A", "__HB1": "0"}], ns=[8],
++                              gb_keys=["GRP"], match_key=MK, cells=[{"GRP": "A", _HB1: "0"}], ns=[8],
+                               fetch_src=_fetch(big), fetch_tgt=_fetch([]),
+                               config=rd.RowDiffConfig(fetch_limit=10))
+     assert res.stopped_reason == rd.STOP_LIMIT      # side 행이 상한 도달 → HOLD_ROW_DIFF_LIMIT
+@@ -88,7 +92,7 @@ def test_row_diff_composite_key():
+     tgt = [("a", "1", "10")]                       # (a,2) 누락 → INSERT
+     res = rd.execute_row_diff(base_src_sql="SELECT g AS GRP, count(*) FROM t GROUP BY g",
+                               base_tgt_sql="SELECT g AS GRP, count(*) FROM t GROUP BY g",
+-                              gb_keys=["GRP"], match_key=mk, cells=[{"GRP": "A", "__HB1": "0"}], ns=[8],
++                              gb_keys=["GRP"], match_key=mk, cells=[{"GRP": "A", _HB1: "0"}], ns=[8],
+                               fetch_src=_fetch(src), fetch_tgt=_fetch(tgt))
+     assert res.counts["INSERT"] == 1 and res.records[0]["key"] == {"k1": "a", "k2": "2"}
+ 
+diff --git a/tests/test_diagnosis_row_diff_e2e.py b/tests/test_diagnosis_row_diff_e2e.py
+index 54c9957..c372d90 100644
+--- a/tests/test_diagnosis_row_diff_e2e.py
++++ b/tests/test_diagnosis_row_diff_e2e.py
+@@ -17,6 +17,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+ pytestmark = pytest.mark.skipif(os.environ.get("MV_PG_LIVE_SAFETY") != "1",
+                                 reason="실 DB 라이브 게이트 — MV_PG_LIVE_SAFETY=1")
+ 
++# [F1-PHASE1-ALIAS-RENAME-VERSION-BUMP] 계약 버전은 리터럴이 아니라 단일 출처를 참조한다.
++from services.diagnosis import hash_contract as _hc                     # noqa: E402
++
++MK_VERSION = _hc.HASH_CONTRACT_VERSION
++
+ 
+ def _load(path, nc):
+     for p in json.load(open(path, encoding="utf-8")):
+@@ -80,7 +85,7 @@ def test_e2e_row_diff_insert_delete_update_string(conn):
+     ssql, tsql = _str_sqls()
+     mk = {"confirmed": True, "is_hash_eligible": True, "composite": False, "src_exprs": ["mk"],
+           "tgt_exprs": ["mk"], "ntypes": ["TEXT"], "compare": [{"src_expr": "amt", "tgt_expr": "amt", "ntype": "NUMBER"}],
+-          "version": "hashv1-md5-lenpfx", "fingerprint": "fp"}
++          "version": MK_VERSION, "fingerprint": "fp"}
+     res, _h = _hash_then_row_diff(conn, ssql, tsql, mk, [{"key": {"GRP": "0"}}])
+     assert res.stopped_reason == "DONE"
+     assert res.counts["INSERT"] == 11, res.counts        # g100~110 원본만
+@@ -100,7 +105,7 @@ def test_e2e_row_diff_uuid(conn):
+     ssql = "SELECT grp AS GRP, count(*) AS CNT FROM " + si + " GROUP BY grp"
+     tsql = "SELECT grp AS GRP, count(*) AS CNT FROM " + ti + " GROUP BY grp"
+     mk = {"confirmed": True, "is_hash_eligible": True, "composite": False, "src_exprs": ["mk"],
+-          "tgt_exprs": ["mk"], "ntypes": ["TEXT"], "compare": [], "version": "hashv1-md5-lenpfx", "fingerprint": "fp"}
++          "tgt_exprs": ["mk"], "ntypes": ["TEXT"], "compare": [], "version": MK_VERSION, "fingerprint": "fp"}
+     res, _h = _hash_then_row_diff(conn, ssql, tsql, mk, [{"key": {"GRP": "0"}}])
+     assert res.stopped_reason == "DONE" and res.counts["INSERT"] == 6   # g200~205 원본만(uuid)
+ 
+@@ -112,7 +117,7 @@ def test_e2e_row_diff_composite(conn):
+     tsql = "SELECT grp AS GRP, count(*) AS CNT FROM " + ti + " GROUP BY grp"
+     mk = {"confirmed": True, "is_hash_eligible": True, "composite": True, "src_exprs": ["k1", "k2"],
+           "tgt_exprs": ["k1", "k2"], "ntypes": ["TEXT", "TEXT"], "compare": [],
+-          "version": "hashv1-md5-lenpfx", "fingerprint": "fp"}
++          "version": MK_VERSION, "fingerprint": "fp"}
+     res, _h = _hash_then_row_diff(conn, ssql, tsql, mk, [{"key": {"GRP": "0"}}])
+     assert res.stopped_reason == "DONE" and res.counts["INSERT"] == 9   # g300~308 원본만(복합키)
+     assert res.records[0]["key"].get("k1") and res.records[0]["key"].get("k2")
+diff --git a/tests/test_hash_alias_rename_resume_guard.py b/tests/test_hash_alias_rename_resume_guard.py
+new file mode 100644
+index 0000000..ff19332
+--- /dev/null
++++ b/tests/test_hash_alias_rename_resume_guard.py
+@@ -0,0 +1,139 @@
++# -*- coding: utf-8 -*-
++"""
++tests/test_hash_alias_rename_resume_guard.py
++F1-PHASE1-ALIAS-RENAME-VERSION-BUMP — 별칭 개명이 저장된 resume 상태를 조용히 오작동시키지 않는지 고정한다.
++
++배경(가장 위험한 실패 모드):
++  HASH_BUCKET 의 저장된 재개 상태(pending_region.active[].key / pending_cells)는 bucket level 키
++  이름을 그대로 담는다(개명 전 '__HB1'). 개명 후 row_diff._cell_condition 의
++  `while (BUCKET_ALIAS + str(lvl)) in cell_key` 가 **한 번도 매치되지 않아** bucket 제한 없이
++  조용히 진행될 수 있다 — 오류 없이 틀린 답이 나오는 형태다.
++
++방어 방식(이 파일이 고정하는 계약):
++  옛 상태를 '마이그레이션' 하지 않고 **무효화**한다. 별칭 개명과 같은 커밋에서 계약 version 을
++  올렸으므로(hashv1-md5-lenpfx → hashv1-md5-lenpfx-pg), routes/diagnosis_route 의 두 재개 경로가
++  저장된 hash_contract_version 과 현재 값을 대조해 EVIDENCE_CHANGED 로 차단한다.
++  (마이그레이션을 택하지 않은 이유 — 키 이름만 바꿔치면 '그 상태가 정말 같은 계약으로 만들어졌는지'
++   를 확인할 방법이 없다. 무효화는 최악의 경우 재분석 1회 비용이고, 마이그레이션은 잘못되면
++   틀린 답을 낸다.)
++
++DB 접속 없음(임시 SQLite 저장소 + MATCH_KEY 복원 스텁).
++"""
++from __future__ import annotations
++
++import os
++import sys
++import tempfile
++import unittest
++
++sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
++
++from routes import diagnosis_route as dr                                # noqa: E402
++from services.diagnosis import hash_contract as hc                      # noqa: E402
++from services.diagnosis import multi_scope_store as mss                 # noqa: E402
++from services.diagnosis import row_diff as rd                           # noqa: E402
++from services.diagnosis.strategies import hash_bucket as hb             # noqa: E402
++
++_OLD_VERSION = "hashv1-md5-lenpfx"          # 개명 이전 계약 버전(저장된 옛 run 에 남아 있는 값)
++_OLD_BUCKET_ALIAS = "__HB"                  # 개명 이전 bucket level 별칭
++
++
++def _mk(version: str) -> dict:
++    """MATCH_KEY 복원 결과 스텁 — fingerprint 는 계약 버전을 포함해 만들어진다(match_key_evidence 와 동일 규격)."""
++    import hashlib
++    fp = hashlib.sha256(("mk||" + version + "||amt").encode("utf-8")).hexdigest()[:24]
++    return {"confirmed": True, "is_hash_eligible": True, "composite": False,
++            "src_exprs": ["mk"], "tgt_exprs": ["mk"], "ntypes": ["TEXT"],
++            "compare": [{"src_expr": "amt", "tgt_expr": "amt", "ntype": "NUMBER"}],
++            "version": version, "fingerprint": fp}
++
++
++class TestAliasRenamedAndVersionBumped(unittest.TestCase):
++    """개명·버전 bump 가 실제로 반영됐는지(둘이 같은 커밋이어야 한다는 계약의 최소 확인)."""
++
++    def test_alias_has_no_leading_underscore(self):
++        for al in (hb.BUCKET_ALIAS, hb.KEYHASH_ALIAS, hb.ROWHASH_ALIAS):
++            self.assertFalse(al.startswith("_"), f"밑줄 선두 별칭 잔존: {al}")
++            self.assertRegex(al, r"^[A-Z][A-Z0-9_]*$", f"문자 시작 대문자가 아니다: {al}")
++
++    def test_version_bumped_together_with_rename(self):
++        """별칭이 바뀌었으면 계약 version 도 옛 값이면 안 된다(옛 run 무효화가 성립하지 않는다)."""
++        self.assertNotEqual(hc.HASH_CONTRACT_VERSION, _OLD_VERSION)
++        self.assertTrue(hc.HASH_CONTRACT_VERSION.startswith(_OLD_VERSION + "-"),
++                        "버전이 옛 값에서 파생된 형태가 아니다(추적 가능성 상실)")
++
++    def test_old_cell_key_produces_no_bucket_predicate(self):
++        """옛 별칭('__HB1')이 남은 cell 키는 bucket 조건을 만들지 못한다 — 무효화가 필요한 이유의 실증."""
++        import sqlglot
++        tree = sqlglot.parse_one("SELECT g AS GRP, count(*) AS CNT FROM t GROUP BY g", read="postgres")
++        gb_exprs = list(tree.args["group"].expressions)
++        kc = hc.key_canonical_sql(["mk"], ["TEXT"])
++        old_key = {"GRP": "A", _OLD_BUCKET_ALIAS + "1": "0"}
++        new_key = {"GRP": "A", hb.BUCKET_ALIAS + "1": "0"}
++        _c_old, p_old = rd._cell_condition(gb_exprs, ["GRP"], kc, [8], old_key, "postgres")
++        _c_new, p_new = rd._cell_condition(gb_exprs, ["GRP"], kc, [8], new_key, "postgres")
++        self.assertEqual(len(p_old), 1, "옛 키인데 bucket 조건이 붙었다(전제 오류)")   # scope 만
++        self.assertEqual(len(p_new), 2, "새 키인데 bucket 조건이 안 붙었다")            # scope + bucket
++
++
++class TestResumeBlockedByEvidenceChanged(unittest.TestCase):
++    """옛 계약 버전으로 저장된 run 은 두 재개 경로 모두에서 EVIDENCE_CHANGED 로 차단돼야 한다."""
++
++    def setUp(self):
++        self._tmp = tempfile.mkdtemp(prefix="mv_f1p1_")
++        self._orig_db = mss._DEFAULT_DB
++        mss._DEFAULT_DB = os.path.join(self._tmp, "resume_guard.db")
++        self._orig_mk = dr._contract_match_key
++        dr._contract_match_key = lambda req: _mk(hc.HASH_CONTRACT_VERSION)   # 현재 계약으로 복원됨
++        self.store = mss.MultiScopeRunStore()
++
++    def tearDown(self):
++        mss._DEFAULT_DB = self._orig_db
++        dr._contract_match_key = self._orig_mk
++
++    def _save(self, run_id: str, version: str, *, strategy: str) -> None:
++        """중단(STOPPED) 상태의 공식 run 저장 — 옛 run 은 '옛 버전 + 옛 별칭', 현재 run 은 그 반대."""
++        mk = _mk(version)
++        bkt = _OLD_BUCKET_ALIAS if version == _OLD_VERSION else hb.BUCKET_ALIAS
++        state = {"run_id": run_id, "status": mss.ST_STOPPED, "origin_type": "INDIVIDUAL",
++                 "target_table": "t", "gb_keys": ["GRP"], "chunk_key": None,
++                 "match_key": mk, "hash_contract_version": mk["version"],
++                 "src_sql": "SELECT g AS GRP, count(*) AS CNT FROM t GROUP BY g",
++                 "tgt_sql": "SELECT g AS GRP, count(*) AS CNT FROM t GROUP BY g",
++                 "scopes": [{"key": {"GRP": "A"}}], "metrics": {}, "stopped_reason": "HOLD_BUDGET_EXCEEDED"}
++        if strategy == "HASH":
++            state["completed_waves"] = 1
++            state["pending_region"] = {"strategy": "HASH", "completed_waves": 1, "ns": [8],
++                                       "active": [{"GRP": "A", bkt + "1": "0"}]}
++        else:
++            state["strategy"] = "ROW_DIFF"; state["ns"] = [8]
++            state["pending_cells"] = [{"GRP": "A", bkt + "1": "0"}]
++            state["completed_index"] = 0; state["counts"] = {}; state["record_count"] = 0
++        self.store.save(state, now="2026-08-06T00:00:00Z")
++
++    def test_multi_resume_blocked_for_old_contract(self):
++        self._save("OLDHASH", _OLD_VERSION, strategy="HASH")
++        out = dr.diagnosis_multi_resume(dr.MultiAnalyzeRequest(run_id="OLDHASH"))
++        self.assertIs(out.get("ok"), False)
++        self.assertEqual(out.get("reason"), "EVIDENCE_CHANGED",
++                         f"옛 계약 run 이 차단되지 않았다: {out}")
++
++    def test_row_diff_resume_blocked_for_old_contract(self):
++        self._save("OLDROW", _OLD_VERSION, strategy="ROW_DIFF")
++        out = dr.diagnosis_multi_row_diff_resume(dr.MultiAnalyzeRequest(run_id="OLDROW"))
++        self.assertIs(out.get("ok"), False)
++        self.assertEqual(out.get("reason"), "EVIDENCE_CHANGED",
++                         f"옛 계약 ROW_DIFF run 이 차단되지 않았다: {out}")
++
++    def test_current_contract_run_is_not_blocked_by_evidence(self):
++        """양성 대조 — 현재 계약으로 저장된 run 은 EVIDENCE_CHANGED 로 막히지 않는다(무차별 차단 아님)."""
++        self._save("NEWHASH", hc.HASH_CONTRACT_VERSION, strategy="HASH")
++        out = dr.diagnosis_multi_resume(dr.MultiAnalyzeRequest(run_id="NEWHASH"))
++        self.assertNotEqual(out.get("reason"), "EVIDENCE_CHANGED",
++                            f"현재 계약 run 까지 차단됐다: {out}")
++        # 근거 게이트를 실제로 통과했는지까지 확인(다른 이유로 막혀서 우연히 통과한 것이 아님).
++        self.assertIs(out.get("resumed"), True, f"근거 게이트 통과 후 재개로 진입하지 못했다: {out}")
++
++
++if __name__ == "__main__":
++    unittest.main(verbosity=2)
+diff --git a/tests/test_hash_contract_dialect_adapter.py b/tests/test_hash_contract_dialect_adapter.py
+index 5f36dfd..f80557c 100644
+--- a/tests/test_hash_contract_dialect_adapter.py
++++ b/tests/test_hash_contract_dialect_adapter.py
+@@ -5,7 +5,9 @@ HASH-BUCKET-ORACLE-PORT-PHASE1 — hash_contract 어댑터 분리의 회귀 가
+ 
+ 고정하는 것:
+   [1] 하위호환 재수출 — 분리 이전 모듈 함수/상수 이름이 그대로 살아 있고, PG 계약과 문자 단위로 같은 SQL 을 낸다.
+-  [2] 계약 버전 불변 — "hashv1-md5-lenpfx"(바뀌면 저장된 run 이 EVIDENCE_CHANGED 로 차단되므로 의도적 변경만 허용).
++  [2] 계약 버전 고정 — "hashv1-md5-lenpfx-pg"(바뀌면 저장된 run 이 EVIDENCE_CHANGED 로 차단되므로 의도적 변경만 허용).
++      [F1-PHASE1-ALIAS-RENAME-VERSION-BUMP] 별칭 개명(__HB/__KH/__RH → HB/KH/RH)이 저장된 resume 상태와
++      비호환이라, 같은 커밋에서 방언 접미사 "-pg" 를 붙여 옛 run 재개를 EVIDENCE_CHANGED 로 차단했다.
+   [3] 팩토리 — 등록 방언만 계약을 돌려주고, 미등록 방언은 None.
+   [4] same-DBMS 가드(L3) — 혼합 방언/미등록/방언 미상은 (None, 사유), 동일 방언 PG 만 계약 반환.
+   [5] 가드 L2(어댑터 경계) — 접속 dict 쌍으로 같은 판정을 하고, 접속 미상이면 판정하지 않는다(기존 동작 보존).
+@@ -36,8 +38,11 @@ class TestReexportEquivalence(unittest.TestCase):
+         self.pg = PgHashContract()
+ 
+     def test_version_unchanged(self):
+-        self.assertEqual(hc.HASH_CONTRACT_VERSION, "hashv1-md5-lenpfx")
+-        self.assertEqual(self.pg.version, "hashv1-md5-lenpfx")
++        """계약 버전 고정 — 방언 접미사 '-pg' 포함(§3.5). 재수출 상수와 구현체 값이 같아야 한다."""
++        self.assertEqual(hc.HASH_CONTRACT_VERSION, "hashv1-md5-lenpfx-pg")
++        self.assertEqual(self.pg.version, "hashv1-md5-lenpfx-pg")
++        # 방언 접미사가 붙어 있어야 저장된 run 이 '어느 방언 계약으로 만들어졌는지' 근거로 남는다.
++        self.assertTrue(self.pg.version.endswith("-" + "pg"), "PG 계약 버전에 방언 접미사가 없다")
+ 
+     def test_module_functions_match_pg_contract(self):
+         for exprs, ntypes, cexprs, cntypes in _CASES:
+diff --git a/tests/test_underscore_alias_oracle_regression_static.py b/tests/test_underscore_alias_oracle_regression_static.py
+index 5e22a74..f89483a 100644
+--- a/tests/test_underscore_alias_oracle_regression_static.py
++++ b/tests/test_underscore_alias_oracle_regression_static.py
+@@ -23,11 +23,10 @@
+ #   [Layer A] 런타임 방출 검사 — 이미 알려진 빌더를 dialect="oracle" 로 실제 호출해
+ #             생성 SQL 문자열에 비인용 밑줄 선두 별칭이 있는지 정규식으로 검사한다.
+ #             · 이미 개명된 빌더(pf_/bkt_/CNT/LO/HI, key_range KR_BKT/KR_RNG 등) → 통과(회귀 가드).
+-#             · 아직 미개명 빌더(hash_bucket __HB/__KH/__RH)
+-#               → @unittest.expectedFailure 로 '알려진 미해결(xfail)' 표기.
+-#                 (key_range __BKT/__RNG 는 2026-07-26 KR_BKT/KR_RNG 로 개명 완료 —
+-#                  소비자 router.py/multi_scope.py 동반 전환. 향후 hash_bucket 도 수정되면
+-#                  expectedFailure 가 '예상 밖 성공'으로 뒤집혀 마커 제거 신호가 된다.)
++#             · hash_bucket(__HB/__KH/__RH)도 F1-PHASE1-ALIAS-RENAME-VERSION-BUMP(2026-08-06)에서
++#               HB/KH/RH 로 개명 완료 → @unittest.expectedFailure 마커를 제거하고 정상 회귀 가드로 전환.
++#               (오라클 '실행'은 여전히 불가하지만 그 원인은 별칭이 아니라 해시 계약 미등록이다 —
++#                아래 test_hash_bucket_agg_alias_renamed 가 두 사실을 분리해서 고정한다.)
+ #
+ #   [Layer B] 정적 자동 탐색 — services/ 와 routes/ 전체를 AST 로 훑어 SQL 별칭 방출 지점의
+ #             밑줄 선두 별칭을 자동 수집한다(향후 새 빌더 함수도 자동 커버). 비-오라클
+@@ -198,10 +197,9 @@ class TestRuntimeOracleAliasClean(unittest.TestCase):
+ class TestRuntimeOracleAliasKnownOffenders(unittest.TestCase):
+     """[Layer A] 밑줄 별칭 빌더 상태 추적.
+ 
+-    key_range(__BKT/__RNG)는 2026-07-26 KR_BKT/KR_RNG 로 개명 완료 → 아래 두 테스트는 회귀 가드
+-    (정상 통과)로 전환했다. hash_bucket(__HB/__KH/__RH)만 아직 미개명(PG 전용 해시 계약)이라
+-    @unittest.expectedFailure 로 'xfail(알려진 미해결)' 표기를 유지한다. 향후 hash_bucket 도
+-    개명되면 그 테스트가 '예상 밖 성공(unexpected success)'으로 뒤집혀 마커 제거 신호가 된다.
++    key_range(__BKT/__RNG)는 2026-07-26 KR_BKT/KR_RNG 로, hash_bucket(__HB/__KH/__RH)은
++    2026-08-06(F1-PHASE1-ALIAS-RENAME-VERSION-BUMP)에 HB/KH/RH 로 개명 완료 →
++    이 클래스의 테스트는 전부 '정상 통과해야 하는 회귀 가드'다(xfail 마커 없음).
+     """
+ 
+     @unittest.skipUnless(_HAS_SQLGLOT, "sqlglot 미설치 — skip")
+@@ -222,15 +220,32 @@ class TestRuntimeOracleAliasKnownOffenders(unittest.TestCase):
+                          f"key_range.build_multi_range_agg_sql 밑줄 별칭: {sql}")
+ 
+     @unittest.skipUnless(_HAS_SQLGLOT, "sqlglot 미설치 — skip")
+-    @unittest.expectedFailure
+-    def test_hash_bucket_agg_underscore_alias_known(self):
+-        """hash_bucket.build_hash_bucket_agg_sql — '__HB/__KH/__RH' 밑줄 별칭(미수정, 알려진 ORA-00911)."""
+-        from services.diagnosis.strategies.hash_bucket import build_hash_bucket_agg_sql
++    def test_hash_bucket_agg_alias_renamed(self):
++        """[F1-PHASE1-ALIAS-RENAME-VERSION-BUMP] hash_bucket 별칭이 밑줄 선두가 아니어야 한다.
++
++        판정을 두 축으로 분리한다(원인이 섞이면 나중에 오독한다).
++          (축 B, 이번 작업 범위) 별칭 자체 — 상수 3개가 문자 시작 대문자여야 하고, 실제 방출 SQL
++              (PG 계약이 등록된 postgres 방언)에도 밑줄 선두 별칭이 없어야 한다.
++          (축 C, 이번 범위 아님) 오라클 '실행 가능성' — 오라클 해시 계약(dialects_hash/oracle.py)이
++              아직 없어서 dialect='oracle' 호출은 SQL 을 만들지 못하고 HashContractUnavailableError
++              로 차단된다(HASH-BUCKET-FACTORY-GUARD-ENFORCE-FIX 의 의도된 동작). 오라클 구현체가
++              등록되면 이 단정이 깨지므로, 그때 이 테스트를 오라클 방출 SQL 검사로 승격하면 된다.
++        """
++        from services.diagnosis.strategies.hash_bucket import (
++            build_hash_bucket_agg_sql, BUCKET_ALIAS, KEYHASH_ALIAS, ROWHASH_ALIAS,
++            HashContractUnavailableError)
++        for al in (BUCKET_ALIAS, KEYHASH_ALIAS, ROWHASH_ALIAS):
++            self.assertRegex(al, r"^[A-Z][A-Z0-9_]*$",
++                             f"hash_bucket 별칭이 문자 시작 대문자가 아니다: {al} (오라클 ORA-00911)")
+         sql = build_hash_bucket_agg_sql(
+             _BASE_AGG_SQL, exprs=["id"], ntypes=["NUMBER"],
+-            compare_exprs=["dept"], compare_ntypes=["STRING"], ns=[8], dialect="oracle")
++            compare_exprs=["dept"], compare_ntypes=["STRING"], ns=[8], dialect="postgres")
+         self.assertEqual(find_unquoted_underscore_aliases(sql), [],
+                          f"hash_bucket.build_hash_bucket_agg_sql 밑줄 별칭: {sql}")
++        with self.assertRaises(HashContractUnavailableError):
++            build_hash_bucket_agg_sql(
++                _BASE_AGG_SQL, exprs=["id"], ntypes=["NUMBER"],
++                compare_exprs=["dept"], compare_ntypes=["STRING"], ns=[8], dialect="oracle")
+ 
+ 
+ # ══════════════════════════════════════════════════════════════════════════════
+@@ -250,7 +265,7 @@ def _leading_underscore_ident(s) -> bool:
+ def _module_str_constants(tree: ast.AST) -> dict:
+     """모듈 레벨 `NAME = "literal"` 문자열 상수 수집.
+ 
+-    hash_bucket 처럼 별칭을 모듈 상수(BUCKET_ALIAS="__HB")로 두고 `alias_(x, BUCKET_ALIAS + str(i))`
++    hash_bucket 처럼 별칭을 모듈 상수(BUCKET_ALIAS)로 두고 `alias_(x, BUCKET_ALIAS + str(i))`
+     로 쓰는 경우를 해소하기 위함(같은 파일 모듈 레벨 상수만, 안전 범위).
+     """
+     out: dict = {}
+@@ -385,17 +400,20 @@ def scan_services_tree() -> dict:
+ #     프로덕션에서 문자 시작 별칭으로 개명되면 이 목록도 함께 비워야 한다.
+ #     · key_range(__BKT/__RNG)는 2026-07-26 KR_BKT/KR_RNG 로 개명 완료 → 목록에서 제거했다.
+ #       (소비자 router.py/multi_scope.py 도 상수 참조로 동반 전환됨.)
+-#     · hash_bucket(__HB/__KH/__RH)만 잔존(PG 전용 해시 계약이라 별도 대형 작업으로 미개명).
++#     · hash_bucket(__HB/__KH/__RH)은 F1-PHASE1-ALIAS-RENAME-VERSION-BUMP(2026-08-06)에서
++#       HB/KH/RH 로 개명 완료 → 목록에서 제거했다(소비자 multi_scope._scope_key_sig 의 '__HB'
++#       하드코딩도 hash_bucket.is_bucket_alias 위임으로 동반 전환). 이로써 이 dict 는 비었고,
++#       services/ + routes/ 트리 전체가 '오라클 도달 밑줄 별칭 0건' 상태다.
++#       개별 파일 회귀는 test_hash_bucket_has_no_underscore_alias 가 고정한다.
+ #     · routes/agg_diff_route.py(__m)는 AGG-DIFF-ROUTE-UNDERSCORE-M-ALIAS-FIX(2026-07-27)에서
+ #       MATCHKEY_WRAP_ALIAS('mm1')로 개명 완료 → 목록에서 제거했다. rename 매핑 해소용 재래핑
+ #       별칭이며 src_for_diag 가 resolve_confirmed_match_key(dialect=오라클 가능)로 그대로 넘어가
+ #       오라클에 도달했다. 이제 이 파일은 밑줄 별칭이 없어야 한다(아래 전용 회귀 가드로 고정).
+ #     · routes/count_gate_route.py(__cg 7곳)는 COUNT-GATE-ROUTE-DIALECT-AND-ALIAS-FIX 에서
+ #       'cg1' 로 개명 완료 → 목록에 없다(스캔에서도 더 이상 탐지되지 않아야 한다).
+-#     · 이로써 routes/ 트리는 전부 깨끗해졌다 — 남은 오라클-미안전 항목은 hash_bucket 뿐이다.
+-KNOWN_ORACLE_UNSAFE: dict = {
+-    "services/diagnosis/strategies/hash_bucket.py": {"__HB", "__KH", "__RH"},
+-}
++#     · 이로써 services/ + routes/ 트리는 전부 깨끗해졌다 — 알려진 오라클-미안전 항목이 0건이다.
++#       (비어 있는 것이 정상 상태다. 새 항목이 생기면 test_scanner_no_unexpected_offenders 가 잡는다.)
++KNOWN_ORACLE_UNSAFE: dict = {}
+ 
+ # (2) 오라클 미도달 — ORA-00911 위험 아님(밑줄 별칭이 정당). 각 사유 명시.
+ #   · exact_diff/agg_contribution.py : PostgreSQL 전용 경로(`::text` 캐스팅). db_type='oracle' 이면
+@@ -487,6 +505,23 @@ class TestStaticUnderscoreAliasScan(unittest.TestCase):
+             f"  → 오라클 ORA-00911. 별칭 상수 MATCHKEY_WRAP_ALIAS('mm1')를 사용하라.",
+         )
+ 
++    def test_hash_bucket_has_no_underscore_alias(self):
++        """[F1-PHASE1-ALIAS-RENAME-VERSION-BUMP 회귀 가드] hash_bucket.py 는 밑줄 별칭이 없어야 한다.
++
++        원래 '__HB/__KH/__RH' 가 오라클에서 ORA-00911 을 일으켜, 오라클 해시 계약을 구현해도
++        HASH_BUCKET 산출물이 0이 되게 만들었다. 'HB/KH/RH'(대문자)로 개명했으며 다시 밑줄 선두
++        별칭이 들어오면 여기서 실패한다. KNOWN_ORACLE_UNSAFE 가 비어 있어도 이 가드는 남는다
++        (빈 dict 를 도는 test_scanner_detects_known_oracle_unsafe 는 공회전하기 때문)."""
++        p = os.path.join(_SERVICES_DIR, "diagnosis", "strategies", "hash_bucket.py")
++        self.assertTrue(os.path.exists(p), "services/diagnosis/strategies/hash_bucket.py 없음")
++        found = scan_file_for_underscore_aliases(p)
++        self.assertEqual(
++            found, set(),
++            f"hash_bucket.py 에 비인용 밑줄 선두 별칭 재등장: {sorted(found)}\n"
++            f"  → 오라클 ORA-00911. 별칭 상수 BUCKET_ALIAS/KEYHASH_ALIAS/ROWHASH_ALIAS 를 "
++            f"문자 시작 대문자로 유지하라.",
++        )
++
+     def test_count_gate_route_has_no_underscore_alias(self):
+         """[COUNT-GATE-ROUTE-DIALECT-AND-ALIAS-FIX 회귀 가드] count_gate_route.py 는 밑줄 별칭이 없어야 한다.
+ 
