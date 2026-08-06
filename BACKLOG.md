@@ -3067,6 +3067,25 @@ git -C E:/verify_reports worktree remove <임시경로>
   추가하는 방향이 유력해 보이나, 착수 전 범위 진단 필요.
 - 근거 보고서: E:\verify_reports\STAGE1-4-RUN-BUTTON-UNIFIED-STOP-TOGGLE-FIX.txt (§3-3)
 
+### M46. ✅ 해결 완료 — 개별검증 4단계만 상단 컨텍스트 타일에 섹션 제목+카드 테두리가 없어 1~3단계와 표시가 어긋났다
+- 발견일: 2026-08-06 (사용자 실측 — 4개 스크린샷 직접 대조 보고) / 해결일: 2026-08-06
+  (STAGE4-SECTION-TITLE-AND-CARD-BORDER-CONSISTENCY-FIX)
+- 상세: 1~3단계는 상단 컨텍스트 타일 host가 각각 카드(queryReviewCard/countCard/
+  colSelectCard)로 감싸여 섹션 제목+테두리를 갖는데, 4단계 host(mvStage4CtxGrid)는
+  과거 STAGE4-STATS-VALIDATION-TILE-LAYOUT-FIX 작업 때 "SQL 카드 밖에 고정 선언"되면서
+  (SQL 카드는 생성 후에만 보여 그 안에 두면 진입 직후 타일 라벨이 안 보이는 문제 회피 목적)
+  감싸는 카드 없이 그대로 노출된 순수 표시 누락이었다.
+- 해결 요약: mvStage4CtxGrid를 신규 카드(#stage4CtxCard, 제목 "통계검증 실행" — 이 단계의
+  기존 sp-step-name/진행바 라벨과 동일 문구 재사용)로 감쌈. 구현 중 SINGLE_STEP_CARDS.
+  validation의 토글 대상이 host 단독이면 다른 단계 화면에서 감싸는 카드의 제목+테두리만
+  빈 채로 남는 신규 회귀를 만들 수 있음을 미리 발견해, 토글 대상을 카드 전체
+  (stage4CtxCard)로 함께 교체(1~3단계와 동일 원칙 적용).
+  검증: 격리 baseline 서버(포트 8021, HEAD 772ab0e detached worktree) vs 수정본(포트 8000)
+  실제 브라우저 클릭스루로 1~4단계 진입직후/SQL생성후/실행후 3개 시점 전부 구조적 실측 —
+  after는 1~3단계와 완전 동일한 카드 클래스(border-radius 12px·box-shadow 동일값), 위치도
+  1·2단계 카드와 동일선상 확인. 로직/데이터 흐름/host id·CSS 불변.
+- 근거 보고서: E:\verify_reports\STAGE4-SECTION-TITLE-AND-CARD-BORDER-CONSISTENCY-FIX.txt
+
 ---
 
 ## 부록 — 환경 때문에 미완인 실측(코드 결함 아님)
