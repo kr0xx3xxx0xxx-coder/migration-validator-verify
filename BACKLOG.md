@@ -3150,6 +3150,38 @@ git -C E:/verify_reports worktree remove <임시경로>
   1·2단계 카드와 동일선상 확인. 로직/데이터 흐름/host id·CSS 불변.
 - 근거 보고서: E:\verify_reports\STAGE4-SECTION-TITLE-AND-CARD-BORDER-CONSISTENCY-FIX.txt
 
+### M47. 5단계(상세비교) job 진행 중 1~4단계 실행 버튼이 클라이언트·서버 어디에서도 잠기지 않는다 — 자원 이중소모·중단불가·먹통 3종 실제 안전 문제
+- 발견일: 2026-08-06 (사용자 스크린샷 실측 — 4단계 탭 "진행중" 잔존 + 재실행 필요 배너
+  동시노출 보고 → 조사 중 확인) / 진단완료: STAGE4-TAB-LABEL-LAG-AND-PRIOR-STAGE-LOCK-
+  SCOPE-DIAGNOSE(코드수정 0건, 진단 전용)
+- 상세: `_mvSyncRunLockedControls`(잠금 판정)는 4개 동기 플래그(_executeInProgress 등)
+  만 보고 5단계 job(`_mvReimportStatus`/재이관 폴링)은 전혀 확인하지 않는다. 6개 실행
+  진입점 중 4개(runAnalyze/runCount/runRevalidateFromCandidate/runGenerate)에
+  `_mvAnyRunActive()` 가드가 아예 없다. 서버 in-flight 가드(409)도 `/agg-diff/*`·
+  `/analyze`·`/count`는 이 조합을 방어하지 못한다(workflow_stage_guard 망 밖).
+  실제 귀결(코드 추적으로 확정):
+  (i) 5단계 job 중 1단계 재분석 시 워크플로만 리셋되고 job은 취소 안 됨 — 그런데 리셋
+      직후 4·5단계 탭이 잠기며 진행 중이던 job의 유일한 중단 버튼이 화면에서 사라짐
+      (재분석은 됐는데 그 다음이 아무것도 안 눌리는 먹통 상태).
+  (ii) `_mvAnyRunActive()`는 계속 true라 통계검증 재실행·원클릭 전체검증은 영구 차단됨.
+  (iii) 2단계 COUNT 재실행은 통과돼, 5천만행급 상세비교가 스캔 중인 같은 테이블에 COUNT
+      스캔이 중복 발사됨(서버 in-flight 가드 없음).
+  저장 데이터 오염은 없음(`_mvDisplayedRunId`·세션버전 가드가 늦은 응답 덮어쓰기 차단,
+  `/single/save`는 별도 validate 통과 필요) — 오염 범위는 화면/세션 상태 + DB 자원.
+- 대응 방향(진단서 권장, 위험도 낮음·기존 함수 재사용): ① runAnalyze/runCount/
+  runRevalidateFromCandidate/runGenerate 4곳에 runExecute와 동일한 `_mvAnyRunActive()`
+  가드 추가(새 플래그·상태머신 불필요). ② `_mvSyncRunLockedControls`의 locked 조건에
+  `_mvAnyRunActive()`를 OR로 합류(선택 컨트롤도 5단계 job 중 잠기게). ③(부수) 4단계
+  배지 문구를 "진행중"과 구분되는 "상세비교 진행중"으로 분리(같은 배지가 서로 다른
+  내부상태 RUNNING/SUCCESS+미러링을 구분 못 하게 하던 것 해소).
+  구현 시 주의: `_mvAnyRunActive()`가 진입점 자신의 버튼 스피너를 진행 신호로도 쓰므로
+  가드 삽입 순서에 따라 자기차단 위험 있음(진단서가 명시적으로 경고).
+- 부가 발견(별건, 우선순위 낮음): "설정 2/2·현재 설정 3/3와 다름" 배너는 이 항목과
+  원인이 다른 별개의 구조적 오탐 — "실행 개수"가 아니라 "정책 상한"과 비교하고 있어
+  사용자가 상한 미만을 선택하면 항상 뜬다(경고만, 차단 없음). `ui/grid_helpers.py:
+  2049-2060` 한 곳.
+- 근거 보고서: E:\verify_reports\STAGE4-TAB-LABEL-LAG-AND-PRIOR-STAGE-LOCK-SCOPE-DIAGNOSE.txt
+
 ---
 
 ## 부록 — 환경 때문에 미완인 실측(코드 결함 아님)
