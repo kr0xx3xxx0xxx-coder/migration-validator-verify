@@ -1,0 +1,132 @@
+{
+  "task": "STAGE1-4-RUN-BUTTON-UNIFIED-STOP-TOGGLE-FIX",
+  "base": "http://127.0.0.1:8000/",
+  "mode": "stage4",
+  "setup": {
+    "pair_rows": 1,
+    "pair_created": true,
+    "connected": true
+  },
+  "stage2_normal_complete": {
+    "src_count": 50000000,
+    "tgt_count": 49500000,
+    "diff": 500000,
+    "is_matched": false,
+    "src_error": null,
+    "tgt_error": null,
+    "source_count_sql": "SELECT COUNT(*) AS CNT\nFROM   NXDNP.MV_SCATTER50M_SRC",
+    "target_count_sql": "SELECT COUNT(*) AS CNT\nFROM   NXDNP.MV_SCATTER50M_TGT",
+    "source_table": "MV_SCATTER50M_SRC",
+    "target_table": "MV_SCATTER50M_TGT",
+    "source_profile_id": null,
+    "target_profile_id": null,
+    "source_profile_display": "oracle:xepdb1",
+    "target_profile_display": "oracle:xepdb1",
+    "count_error_code": "COUNT_MISMATCH",
+    "count_error_message": "원본 50000000, 목적지 49500000, 차이 500000",
+    "status": "FAILED",
+    "error_contract": {
+      "status": "FAILED",
+      "code": "COUNT_MISMATCH",
+      "message": "원본 50000000, 목적지 49500000, 차이 500000",
+      "user_action": "원본·목적지 건수가 일치하지 않습니다. 데이터 차이를 확인하세요.",
+      "blocked": false,
+      "retryable": false,
+      "details": {},
+      "stage": "count",
+      "error_code": "COUNT_MISMATCH",
+      "error_category": "DATA",
+      "user_message": "원본 50000000, 목적지 49500000, 차이 500000",
+      "technical_message": "",
+      "source_or_target": "NONE",
+      "blocking": false,
+      "severity": "error",
+      "evidence": {},
+      "legacy_message": "원본 50000000, 목적지 49500000, 차이 500000"
+    },
+    "count_generation_method": "PARSED_MODEL_COUNT_SQL",
+    "source_count_elapsed_ms": 2104.7,
+    "target_count_elapsed_ms": 2101.7,
+    "count_mismatch_policy": "allow_with_confirm",
+    "can_proceed_to_candidates": true,
+    "requires_user_confirm": true,
+    "next_step_decision": {
+      "allowed": true,
+      "requires_confirm": true,
+      "decision_code": "COUNT_MISMATCH_CONFIRM_REQUIRED",
+      "severity": "warning",
+      "message": "COUNT가 일치하지 않지만 사용자가 확인하면 후보 컬럼 추천으로 진행할 수 있습니다.",
+      "evidence": {
+        "source_count": 50000000,
+        "target_count": 49500000,
+        "diff": 500000,
+        "count_error_code": "COUNT_MISMATCH",
+        "policy": "allow_with_confirm"
+      }
+    },
+    "processing_ms": 2113,
+    "count_gate": {
+      "count_status": "COUNT_MINOR_DIFF",
+      "source_count": 50000000,
+      "target_count": 49500000,
+      "absolute_diff": 500000,
+      "relative_diff": 0.01,
+      "coverage_ratio": 0.99,
+      "target_load_ratio": 0.99,
+      "severity_label": "소규모 COUNT 차이",
+      "next_action_label": "통계검증 계속",
+      "allowed_stages": [
+        "stats",
+        "key_range",
+        "exact_diff"
+      ],
+      "skipped_stages": [],
+      "diagnostic_reason": "소규모 COUNT 차이(순 차이 500,000건) — 통계검증과 Exact Diff 로 실제 누락/과잉/값 불일치를 확인하세요(차이만으로 종료하지 않음).",
+      "confirmed_full_missing_side": null,
+      "applied_policy": {
+        "version": "count-gate-v2",
+        "critical_min_larger_count": 100000,
+        "critical_coverage_ratio_max": 0.2,
+        "critical_absolute_diff_min": 1000000,
+        "critical_relative_diff_min": 0.1,
+        "major_relative_diff_min": 0.1,
+        "major_absolute_diff_min": 1000,
+        "major_absolute_alone_min": 1000000
+      }
+    }
+  },
+  "stage4_gen_real_click": {
+    "label": "stage4_gen_click1",
+    "found": true,
+    "clickable": true,
+    "clicked": false
+  },
+  "stage4_exec_real_click": {
+    "label": "stage4_exec",
+    "found": true,
+    "clickable": true,
+    "clicked": true,
+    "result_text": "사용자가 실행을 중단했습니다.",
+    "wall_to_cancel_confirm_s": 3.58,
+    "net": [
+      {
+        "t": 58.628,
+        "kind": "req",
+        "path": "/generate",
+        "method": "POST"
+      },
+      {
+        "t": 58.761,
+        "kind": "resp",
+        "path": "/generate",
+        "status": 200
+      },
+      {
+        "t": 58.764,
+        "kind": "req",
+        "path": "/execute",
+        "method": "POST"
+      }
+    ]
+  }
+}
