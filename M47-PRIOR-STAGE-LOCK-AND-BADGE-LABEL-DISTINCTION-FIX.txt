@@ -1,76 +1,172 @@
 작업명 : M47-PRIOR-STAGE-LOCK-AND-BADGE-LABEL-DISTINCTION-FIX
+✅ 작업 완료 - 5단계 job 중 1~4단계 실행버튼 5곳 전부 차단·선택컨트롤 잠금·4단계 배지 문구 분리를 실 브라우저 before/after 대조로 확정(신규 회귀 0건)
 
-배경: 5단계 상세비교가 진행 중일 때 4단계 탭에 계속 "진행중"이 떠 4단계 자체가 안 끝난 것으로
-오인되는 문제, 그리고 더 중요하게 5단계 job이 도는 동안 1~4단계 실행 버튼이 클라이언트·서버
-어디서도 막히지 않는 실제 안전 문제(자원 이중소모·중단불가·먹통)를 진단서(STAGE4-TAB-LABEL-LAG-
-AND-PRIOR-STAGE-LOCK-SCOPE-DIAGNOSE)가 정리한 권장 수정 ①②③을 그대로 구현.
+※ 본 보고는 같은 작업명의 앞선 보고(원격 3018e8b)를 대체한다. 앞선 보고가 "남은 한계"로 남겨둔
+   2건(4단계 SQL생성 가드 미실측 · 5단계 중단버튼 도달성 미실측)을 이번 실측에서 모두 해소했고,
+   추가로 수정 전(before) 서버 인스턴스를 실제로 띄워 A/B 배지와 잠금 부재를 1:1 대조했다.
 
-수정 파일: ui/tabler_renderer.py 1개만 (지시대로).
+- 코드 상태: 수정 ①②③은 상위 세션이 이미 검토한 기존 미커밋 변경을 그대로 사용/검증했음
+  (직접 재구현 안 함). 추가 수정 없음 — 실측 중 발견된 코드 결함 0건이라 ui/tabler_renderer.py 를
+  한 줄도 고치지 않고 그대로 커밋했다.
 
-① runAnalyze(), runCount(), runRevalidateFromCandidate(), runGenerate() 4개 함수 각각 최상단(스피너를
-   세우기 전)에 runExecute/runFullValidation과 동일한 _mvAnyRunActive() 가드 추가. 새 플래그·새
-   상태머신 없음(기존 함수 재사용).
-② _mvSyncRunLockedControls()의 locked 판정에 _mvAnyRunActive()를 OR로 추가 — 5단계 job 진행 중에도
-   기존 5개 선택 컨트롤(3단계 GB/SUM 후보 체크박스, 관리컬럼 확정 버튼, 관리컬럼 적용범위, 조합
-   체크박스, 목적지 WHERE)이 mv-run-locked 클래스로 잠기게 함.
-③ 4단계 탭 배지가 5단계 상태를 미러링하는 분기(6537~6552행)의 문구를 '진행중'/'일시중지' →
-   '상세비교 진행중'/'상세비교 일시중지'로 분리. 4단계 자신이 진짜 RUNNING일 때(6526행)의 배지와
-   구분 가능해짐(진단서 시나리오 A vs B).
+- 서버 재기동:
+  · after (현재 워킹트리 = M47 수정 포함) : 2026-08-07 00:00:34 KST, 포트 8020
+  · before(HEAD 그대로 = 수정 없음)       : 2026-08-07 00:02:20 KST, 포트 8021
+    (`git worktree add --detach E:\_wt_m47before HEAD` + auth_users.json/프리셋/db 복사)
+  · 포트 8000 은 다른 동시 세션이 점유 중이라 일절 건드리지 않았다(검증 종료 후 8000 LISTENING
+    생존 확인). 두 인스턴스 모두 web_server.py 의 app 만 import 하는 런처로 기동해
+    _cmn_free_port(8000) 경로를 타지 않게 했다.
+  · 워킹트리 HEAD 커밋 해시 — 검증 전: 2f79c77b96a7b8f6b8c03893c217869df7f1818f
+                              커밋 후: 2381c20fc8a1163ebf38e5cf695571aea43d9de5
+  · 기동 코드 반영 확인(HTML 마커): 8020 = '상세비교 진행중' 1건 / 'M47-PRIOR-STAGE-LOCK' 6건,
+    8021 = 둘 다 0건 → before/after 인스턴스가 실제로 다른 코드임을 확정.
 
-── 자체 테스트 ──────────────────────────────────────────────────────────────
-- 관련 서브셋(제어락/타이밍라벨/중단버튼/게이트 등) 다수 파일 실행 중 여러 실패 발견 → 전부
-  `git worktree add --detach <tmp> HEAD`로 만든 클린 baseline과 1:1 대조해 확인한 결과, 전부 이번
-  수정과 무관한 사전 존재 결함(node 하니스 타임아웃/환경 부하 플레이키 8건, showTab(name,opts) 시그니처
-  변경으로 깨진 정적 문자열 검사 등 9건, validation_plan_renderer.py의 무관 함수 회귀 1건)로 확인—
-  신규 회귀 0건.
-- CLAUDE.md 필수 회귀: samples/test_virtual_cases.py 8/8 통과, samples/test_complex_cases.py 5/5 통과.
+- 시나리오 A/B before/after 배지 문구 실측 결과:
+  픽스처 NXDNP.MV_SCATTER50M_SRC→TGT(5,000만행), GROUP BY REGION_CD+STATUS_CD(2축 다중세트)로
+  통계검증을 실행해 5단계 상세비교 자동 착수를 유도하고, 4단계 탭 배지를 200ms 간격으로 고빈도
+  샘플링해 A/B 순간을 실제 브라우저에서 포착했다.
 
-── 실측 검증(라이브 브라우저 + 실 오라클 DB) ──────────────────────────────────
-- 서버 재기동: 2026-08-06 22:34:53 KST, HEAD 2f79c77b96a7b8f6b8c03893c217869df7f1818f, 워킹트리
-  dirty(ui/tabler_renderer.py = M47 수정분 미커밋, .claude/settings.json = 본 작업과 무관한 기존 로컬
-  변경).
-- 자기차단 회귀(①의 핵심 위험): 5단계 job이 없는 평상시 1~4단계를 실제 클릭으로 순차 완주,
-  _mvNotifyRunActiveBlocked로 인한 예기치 못한 차단 0건 — 자기차단 미재현.
-- 배지 시나리오 A/B(③): 실제 _renderSingleStepNav() 호출 + 스크린샷으로 확정.
-  · A(4단계 진짜 RUNNING): "진행중"
-  · B(4단계 완료+5단계 진행중): "상세비교 진행중"
-  · A-일시중지: "일시중지" vs B-일시중지: "상세비교 일시중지"
-  네 문구 모두 서로 다르게 렌더됨을 확인.
-- 5단계 job 중 1~4단계 잠금(②①): 오라클 NXDNP.MV_SCATTER50M_SRC→MV_SCATTER50M_TGT(5,000만행),
-  GROUP BY REGION_CD+STATUS_CD(2축, 다중세트) 실제 통계검증 실행(COUNT 14.46초, src=50,000,000/
-  tgt=49,500,000; execute 23.09초, matched=20/diff=11/total_groups=31) → 5단계 상세비교 자동 착수
-  확인(reimportStatus=PREPARING, pollTimer=true).
-  · document.body.classList.contains('mv-run-locked') = true 확인.
-  · 1단계 재분석/2단계 COUNT/3단계 재검증 클릭 → 3곳 모두 동일 alert 캡처:
-    "통계검증 등 다른 실행이 이미 진행 중입니다. 완료 또는 중단된 뒤에 다시 실행할 수 있습니다."
-  · 클릭 시도 후에도 reimportStatus=PREPARING·pollTimer=true 유지 — 워크플로가 query로 리셋되지
-    않고 job도 그대로 생존(진단서가 지적한 "먹통" 미재현).
+  ┌────────┬──────────────────────────────┬───────────────────────────────┐
+  │        │ A: 4단계 진짜 실행 중        │ B: 4단계 끝 + 5단계 PREPARING │
+  │        │ (_executeInProgress=true)    │ (exec=false, ri=PREPARING)    │
+  ├────────┼──────────────────────────────┼───────────────────────────────┤
+  │ before │ "진행중"                     │ "진행중"    ← A와 구분 불가   │
+  │ after  │ "진행중"                     │ "상세비교 진행중" ← 구분됨    │
+  └────────┴──────────────────────────────┴───────────────────────────────┘
+  · A는 before/after 모두 "진행중"으로 동일(의도대로 무변화).
+  · 같은 화면에서 5단계 탭 배지는 "진행 중"으로 별도 표기돼 4단계("상세비교 진행중")와도 겹치지 않는다.
+  · 소규모 픽스처(NXDNP.MV_COMBO 1,200행, STATUS_CD+DEPT_CD 2축)로 선행 시도했으나 5단계가
+    PREPARING을 거치지 않고 곧바로 READY로 끝나 B 창을 못 잡았다 → 지시서 안내대로 5,000만행으로
+    이관해 재현(after/before 양쪽 동일 조건).
 
-⚠️ 남은 한계(추가 확인 권장, 코드 결함 아님):
-  · 4단계(SQL생성) 버튼은 그 시점 화면(이미 실행완료된 validation 탭)에서 클릭 가능한 상태로
-    발견되지 않아 실제 alert 캡처는 못함(가드 코드 자체는 4곳 동일 패턴으로 적용돼 있고, 나머지
-    3곳에서 실측 확인됨 — 위험은 낮음).
-  · 5단계 중단 버튼(#mvRiCancelBtn)이 DOM엔 존재·활성 상태였으나 그 시점 탭 뷰에서는 visible=false라
-    실제 클릭에 의한 취소는 실측하지 못함. 대신 관찰 창(60초) 안에서 job이 EARLY_STOPPED로 자연
-    종료되는 것을 확인 — 방치된 실행 중 job은 남지 않았음(DB 자원 정리는 확인됨, "중단 버튼 클릭으로"
-    라는 조건만 미충족).
-  · 검증 중 재사용 드라이버 스크립트 자체의 결함(같은 버튼이 "■ 중단" 토글로 바뀌는 것을 모르고
-    재클릭해 COUNT를 스스로 취소시킴)을 발견해 수정 후 재실행 — M47 코드와 무관한 테스트 하네스 이슈.
+  스크린샷:
+   · before_A_stage4_running_badge_50m.png        (before A = "진행중")
+   · before_B_stage5_running_badge_50m.png        (before B = "진행중"  ← 버그 재현)
+   · after2_A_stage4_running_badge_50m.png        (after  A = "진행중")
+   · after2_B_stage5_running_badge_50m.png        (after  B = "상세비교 진행중")
+   · after3_A_stage4_running_badge_50m.png / after3_B_stage5_running_badge_50m.png (재현 2회차)
+   · after_A_stage4_running_badge_50m.png / after_B_stage5_running_badge_50m.png   (재현 1회차)
+   · after_A_stage4_running_badge.png / before_A_stage4_running_badge.png (소규모 픽스처 A)
+   · after2_lock_9_cancel_button_reachable.png    (4단계 "상세비교 진행중" + 5단계 "진행 중" 동시 표시)
 
-── 산출물/증적 ──────────────────────────────────────────────────────────────
-- 스크린샷 19개: E:\verify_screenshots_only\M47-PRIOR-STAGE-LOCK-AND-BADGE-LABEL-DISTINCTION-FIX\
-  (커밋 b0f73e6, 원격 push 완료 — ls-remote로 로컬==원격 확인).
-- 코드 저장소(C:\projects\migration-validator)는 지침대로 push/commit 하지 않음 — ui/tabler_renderer.py
-  변경은 미커밋 상태로 남겨둠.
+- 5단계 job 중 1~4단계 버튼 잠금 실측 결과:
+  5,000만행 + GB 2축으로 5단계(reimportStatus=PREPARING, pollTimer=true, _mvAnyRunActive()=true)
+  상태를 만든 뒤, 각 단계 탭으로 실제 이동해 커맨드바(#mvCmdBarActions) 버튼을 진짜 클릭했다.
+  판정축 = "새 네트워크 요청이 나갔는가" + "차단 안내가 떴는가".
 
-참고(투명성 고지): 실측 fork의 첫 응답이 도구를 전혀 호출하지 않고(tool_uses=0) 요약만 반환해
-재지시로 재실행시켰다. 재실행 결과 텍스트 상단에 하니스의 자동 콘텐츠 스캔이 "settings-json
-패턴"을 감지해 무해화했다는 경고가 붙어 있었는데, 확인 결과 이는 프롬프트 인젝션이 아니라 이번
-작업과 무관한 기존 로컬 변경(.claude/settings.json의 model/curl·wget 허용 추가, 대화 시작 시점부터
-이미 존재)이 fork의 git status/diff 출력에 그대로 찍힌 것을 하니스가 오탐한 것으로 판단됨(실제
-텍스트에 나를 향한 지시성 내용 없음, 해당 파일은 이번 작업에서 건드리지 않음).
+  [after = 5곳 전부 차단, 신규 요청 0건]
+   · 1단계 [검증 실행](runAnalyze)                    → 차단 O, 새요청 [] , 안내 O
+   · 2단계 [COUNT 비교 실행](_mvCountStageAction 2회) → 차단 O, 새요청 [] , 안내 O
+   · 3단계 [선택 적용 후 다시 검증]                   → 차단 O, 새요청 [] , 안내 O
+   · 4단계 [통계검증 SQL 생성](runGenerate)           → 차단 O, 새요청 [] , 안내 O
+   · 4단계 [통계검증 실행](runExecute)                → 차단 O, 새요청 [] , 안내 O
+   안내 문구: "통계검증 등 다른 실행이 이미 진행 중입니다. 완료 또는 중단된 뒤에 다시 실행할 수
+   있습니다."(1~3단계 및 4단계 SQL생성) / "실행이 이미 진행 중입니다. …"(4단계 실행, 기존 문구).
+   동일 결과를 2회(after2/after3) 독립 재현했다.
 
-✅ 작업 완료 - 진단서 권장 수정 ①②③(자기차단 없는 상시 실행 가드 4곳 + 선택 컨트롤 잠금 확장 +
-4단계 배지 문구 분리)을 ui/tabler_renderer.py 1개 파일에 구현, 신규 회귀 0건(사전 존재 실패만 확인),
-CLAUDE.md 필수 회귀 통과, 실 오라클 5천만행 5단계 job으로 잠금·차단·배지분리 실측 확인, 스크린샷
-증적 push 완료(4단계 버튼 클릭 실측·중단버튼 실클릭만 시야 제약으로 미완 — 위 한계 참고)
+   ※ 앞선 보고의 한계 1 해소: 4단계 [통계검증 SQL 생성]은 그 시점 화면에 SQL이 이미 생성돼 있어
+     커맨드바에 버튼 자체가 렌더되지 않는다(대신 "다시 실행"만 노출) → 실클릭으로는 가드에 도달할
+     수 없다. 그래서 window.runGenerate() 직접 호출로 가드를 통과시켰고, 동일한 차단 안내가 뜨고
+     신규 요청이 0건임을 확인했다(after3 회차). "실제 클릭"이 아니라 "직접 호출"로 확인한 항목임을
+     명시한다.
+
+  [before = 잠금 부재 재현 — 진단서가 지적한 실제 안전 문제]
+   · 1단계 [검증 실행] 클릭 → 차단 안 됨. /analyze 요청이 실제로 발사됨(안내 0건).
+   · 그 직후 2~4단계 버튼들이 화면에서 사라져(세션 리셋) 이후 클릭 자체가 불가 — 진단서가 서술한
+     "재분석이 5단계 job을 취소하지 않고 워크플로만 리셋 → 진행 중 job의 제어 UI 소실" 연쇄가
+     그대로 재현됐다.
+   · body.mv-run-locked = false(선택 컨트롤 미잠금), 목적지 WHERE 입력이 pointer-events:auto /
+     opacity:1 로 완전 조작 가능 상태였다.
+
+  [body.mv-run-locked 및 선택 컨트롤 5종(②)]
+   · after : body.mv-run-locked = true. 3단계 GB 체크박스·SUM 체크박스·관리컬럼 확정 버튼·조합
+     체크박스·목적지 WHERE 5종 모두 pointer-events:none / opacity:0.5 로 잠김 확인.
+   · before: body.mv-run-locked = false, 위 컨트롤 미잠금.
+   스크린샷: after2_lock_10_stage3_controls_locked.png, after3_lock_10_stage3_controls_locked.png,
+             after2_lock_query_runAnalyze.png / after2_lock_count__mvCountStageAction.png /
+             after2_lock_candidate_runRevalidateFromCandidate.png /
+             after2_lock_validation_runGenerate.png / after2_lock_validation_runExecute.png
+             (+ after3_* 동일 세트)
+
+  [중단 버튼 도달성 — 앞선 보고의 한계 2 해소]
+   · 4단계(validation) 탭에 머문 채로 보면 #mvRiCancelBtn 은 visible=false 다. 이는 5단계 pane이
+     hidden 이기 때문이며(앞선 보고가 관측한 그대로), "도달 불가"를 뜻하지 않는다.
+   · 5단계(결과 확인) 탭은 PREPARING 중에도 mv-step-disabled 가 아니어서 실제로 클릭 이동이 되고
+     (view='result'), 그 화면에서 #mvRiCancelBtn 이
+       visible=true / disabled=false / pointer-events=auto / opacity=1 /
+       elementFromPoint 히트테스트 same=true (자기 자신에 닿음)
+     로 관측됐다 → 진행 중 5단계 job의 중단 버튼에 사용자가 도달 가능함을 확정.
+   · 1~4단계 클릭을 5회 모두 시도한 뒤에도 reimportStatus=PREPARING · pollTimer=true 가 유지돼 job이
+     살아 있고 워크플로가 리셋되지 않았다 → 진단서가 지적한 "먹통" 미재현.
+   스크린샷: after3_lock_1_cancel_btn_on_result_tab.png, after2_lock_1_cancel_btn_on_result_tab.png
+
+- 자기차단 회귀 확인 결과(①의 핵심 위험):
+  5단계 job이 전혀 없는 평상시 상태에서 소규모 오라클 픽스처(NXDNP.MV_ORA_TEST_SRC→TGT 300행,
+  단일축 GB=REGION_CD → 단일세트 경로)로 1→2→3→4단계를 커맨드바 실제 클릭으로 순차 완주.
+   · 1단계 분석 blocked=null(정상)
+   · 2단계 count_status=COUNT_MATCHED
+   · 3단계 후보 재검증 2회(최초 계산 + 선택 적용) 모두 정상, GB 선택 [REGION_CD] 반영
+   · 4단계 validationSqlGenerated=true → 통계검증 실행 _singleValidationExecuted=true
+   · 전 단계 통틀어 "이미 진행 중입니다" 계열 차단 안내 0건 → 자기차단 미재현.
+   · 실행 직전 _mvAnyRunActive()=false 로 관측돼, 새 가드가 자기 자신의 스피너를 보고 막는 구조가
+     아님을 확인(각 진입점에서 가드가 스피너 세우기 전에 위치).
+   · 다중세트(2축) 경로 역시 badge 회차에서 1~4단계 완주 확인(차단 안내 0건).
+   스크린샷: selfblock_test_final.png
+
+- 테스트 서브셋 결과 + baseline 대조:
+  baseline = `git worktree add --detach E:\_wt_m47before HEAD`(수정 없음), after = 현재 워킹트리.
+  지시서가 지정한 20개 파일 전부를 양쪽에서 동일 조건으로 실행해 1:1 대조.
+   · 파트1(10개 파일) : baseline 1 failed / 92 passed  ↔  after 1 failed / 92 passed  (동일)
+   · 파트2(9개 파일, one_click 제외): baseline 64 passed / 3 xfailed ↔ after 64 passed / 3 xfailed (동일)
+   · test_one_click_full_run.py(부하 민감 파일, 저부하 조건에서 양쪽 재실행):
+       baseline 8 failed / 11 passed / 4 xfailed  ↔  after 8 failed / 11 passed / 4 xfailed (동일)
+   → 합계 baseline 9 failed ↔ after 9 failed, 실패 테스트 목록까지 완전 일치. 신규 회귀 0건.
+
+  사전 존재 실패 목록(9건 — 전부 baseline(HEAD)에서도 동일하게 실패, 이번 수정과 무관):
+   · tests/test_stage_button_dedup_time_scope_and_gate45_fix.py::
+     test_switching_tab_hides_previous_slot_but_keeps_its_value
+   · tests/test_one_click_full_run.py:: (8건, 전부 [NODE-SUBPROCESS-TIMEOUT] node 하니스 60초 초과)
+     test_full_run_blocked_stays_on_failed_stage_not_result /
+     test_full_run_success_marks_steps_done_and_injects_state /
+     test_full_run_blocked_locks_downstream_via_gate / test_count_chip_no_manual_progress_badge /
+     test_result_summary_unified_content / test_result_kpi_not_duplicated_summary_vs_detail /
+     test_result_summary_neutral_hierarchy / test_full_run_populates_official_save_state
+
+  고정폭 슬라이스 오탐 여부 판정: 이번 수정은 ui/tabler_renderer.py 에 한글 주석 5블록을 추가하므로
+  render_full_page() 문자열을 고정폭(8,000자)으로 잘라 검사하는 계약 테스트가 밀려 오탐을 낼 수
+  있었으나, 실제로는 baseline 대비 신규 실패가 0건이라 이번엔 그 함정이 발현되지 않았다.
+  (지시서 범위 밖이므로 테스트 파일은 손대지 않음.)
+
+- CLAUDE.md 필수 회귀(virtual/complex) 결과:
+   · python samples/test_virtual_cases.py  → 8/8 통과
+   · python samples/test_complex_cases.py  → 5/5 통과 (SUM/GROUP BY 상한, 리터럴·자체생성 제외,
+     신뢰도 HIGH/LOW/FAIL 판정 전부 정상)
+
+- 커밋 해시(로컬, push 대상 없음):
+   · 2381c20fc8a1163ebf38e5cf695571aea43d9de5
+     "fix(ui): 5단계 job 진행 중 1~4단계 실행버튼 잠금 + 4단계 배지 문구 분리
+      (M47-PRIOR-STAGE-LOCK-AND-BADGE-LABEL-DISTINCTION-FIX)"
+   · 변경 파일 ui/tabler_renderer.py 1개(47 insertions, 2 deletions) — 다른 동시 세션의 파일은
+     staged 하지 않았음(커밋 직전 `git diff --cached --name-only` = ui/tabler_renderer.py 단일 확인).
+   · 코드 저장소에는 remote 가 설정돼 있지 않아 push 대상 없음(지시서 명시대로 push 시도 안 함).
+
+- 제한사항/한계:
+  1) 4단계 [통계검증 SQL 생성] 가드는 "실제 버튼 클릭"이 아니라 window.runGenerate() 직접 호출로
+     확인했다. 그 상태(SQL 이미 생성됨)에서는 커맨드바에 해당 버튼이 렌더되지 않는 것이 정상
+     동작이라 실클릭 경로가 존재하지 않는다. 가드 코드는 나머지 3곳과 동일 패턴이고 3곳은
+     실클릭으로 확인됐다.
+  2) 5단계 중단 버튼은 "도달 가능·클릭 가능(히트테스트 self)"까지 확정했고, 실제로 눌러 job을
+     취소시키는 것까지는 수행하지 않았다(진행 중 5,000만행 job을 임의 취소하지 않기 위함).
+  3) 배지 B 재현은 5,000만행 픽스처에서만 가능했다. 소규모(1,200행) 다중세트에서는 5단계가
+     PREPARING을 거치지 않고 READY로 직행해 B 창 자체가 생기지 않는다 — 코드 결함이 아니라 규모
+     의존 타이밍이며, 소규모 환경에서는 이 배지 문구 차이를 관측할 수 없다는 뜻이다.
+  4) 서버측 가드는 이번 범위 밖이다. 5단계 job 중의 1~4단계 차단은 여전히 클라이언트 단독
+     방어선이며(진단서 §서버측 가드), 브라우저 콘솔/직접 HTTP 호출로는 우회 가능하다.
+  5) 잠금 실측은 브라우저 1개 탭 기준이다. 같은 검증을 두 탭에서 동시에 여는 경우
+     (_mvAnyRunActive() 는 탭 로컬 상태를 보므로) 다른 탭에서는 여전히 막히지 않는다.
+  6) 테스트 대조는 지시서가 지정한 20개 파일 + CLAUDE.md 필수 회귀 범위이며, 전체 스위트
+     (tests/ 1,033개 파일)를 돌리지는 않았다.
+  7) 실측 대상 오라클 테이블은 읽기 전용으로만 다뤘다(SELECT/집계만, DDL·DML 0건). 검증 중
+     접속 실패나 아카이브 로그 관련 오류는 발생하지 않았다.
+
+✅ 작업 완료 - 5단계 job 중 1~4단계 실행버튼 5곳 전부 차단·선택컨트롤 잠금·4단계 배지 문구 분리를 실 브라우저 before/after 대조로 확정(신규 회귀 0건)
