@@ -3553,6 +3553,29 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 근거 보고서: E:\verify_reports\LLM-ADMIN-COLUMN-JUDGMENT-SCOPE-AND-DESIGN-DIAGNOSE.txt
 - 근거 보고서: E:\verify_reports\STAGE4-TAB-LABEL-LAG-AND-PRIOR-STAGE-LOCK-SCOPE-DIAGNOSE.txt
 
+### M51. ✅ 해결 완료 — 개별검증 4·5단계 UX 3건(상태표시 시점·조합검증 문구 모순·통계전략 배치)
+- 발견일: 2026-08-07 (사용자 스크린샷 3장 직접 지적) / 해결일: 2026-08-07
+  (STAGE4-5-STATUS-TIMING-COMBO-LABEL-STRATEGY-RELOCATE-FIX, 코드 커밋 2d12d235)
+- [1] 5단계 "재이관PK: 준비 중"인데 "상태"는 이미 "불일치"로 확정 표시되던 문제 —
+  상세비교 진행 중이면 "● 확인 중"으로 표시하고, 완료 후에만 기존 판정값(FIN[v.final])
+  그대로 전환. 같은 화면 "실행시간" 타일이 이미 쓰는 `_mvPkPrepRunning()` 신호를
+  재사용(새 폴링·새 서버왕복 0건, 4단계 통계 비교 데이터·판정 로직 무접촉).
+- [2] 조합검증 체크박스 재확인 시 초록 안내박스("3세트 실행합니다")와 주황 경고박스
+  ("조합 세트 자동 제외")가 동시에 떠 모순되던 문제(초록 박스가 F6의 제외 판정을
+  반영 못 함) — 두 박스 삭제, 체크박스 라벨 한 줄로 3상태 통합(미체크/체크+실행/
+  체크+자동제외). 구현 중 발견·수정한 버그: 서버 사유 문자열을 ','로 자르면 "1,600"
+  같은 천단위 쉼표에서 끊겨 "예상 1"이 되던 것을 실측으로 잡아 올바른 구분자로 정정.
+  F6의 plan.excluded 판정 로직 자체는 재사용만(재판정 없음, 서버 진실 보존).
+- [3] 4단계 그리드의 "통계전략"·"조합검증" 컬럼(10칸→8칸)을 제거하고, "통계검증 SQL"
+  섹션 하단에 [2]의 조합검증 라벨과 나란히 묶어 부가정보로 재배치. 값 출처는 기존
+  보관값(`window._mvStage3PlanInfo.statsStrategy`) 재사용(신규 계산 0건). 10칸 대응
+  이던 그리드 최소폭 CSS 예외도 함께 정리(8칸은 공용 폭으로 충분).
+- 검증: 신규 테스트 18건(5+7+6) 전부 통과, 관련 서브셋 152 passed/11 failed(전부 baseline
+  worktree 대조로 무관 사전존재 확인 — 다른 세션의 "처리시간→실행시간" 라벨변경 미반영
+  테스트), CLAUDE.md 필수 회귀 통과, 실 오라클·실 브라우저 스크린샷 36장(before/after)
+  전부 실측 확인(현황판 텍스트 직접 대조로 3항목 모두 검증).
+- 참고: E:\verify_reports\STAGE4-5-STATUS-TIMING-COMBO-LABEL-STRATEGY-RELOCATE-FIX.txt
+
 ---
 
 ## 부록 — 환경 때문에 미완인 실측(코드 결함 아님)
