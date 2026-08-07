@@ -2970,6 +2970,37 @@ git -C E:/verify_reports worktree remove <임시경로>
   조사·설계 산출물 공유 후 사용자 승인으로 진행)
 - 참고: E:\verify_reports\DB-SEPARATE-FOLDER-PHASE1-4-VERIFY.txt
 
+### M54. ✅ 해결 완료 — 개별검증 4·5단계 버그2건+개선4건(재실행 결과잔존/원시에러노출/설정배너오탐/전략정보확장/탭배지분리/그리드축소)
+- 발견일: 2026-08-07 (사용자 스크린샷 5장 직접 지적) / 해결일: 2026-08-07
+  (STAGE4-5-STALE-RESULT-ABORT-ERROR-SETTING-BANNER-STRATEGY-INFO-FIX, 코드 커밋 8589943d)
+- [1, 버그] 중단 후 재실행 시 4단계 타일에 직전 실행 결과가 그대로 남던 문제 —
+  `resetExecuteResultOnly()`가 `_mvStage4ExecResult`/`_mvStage4ExecMulti` 보관값을
+  안 지우고 있었음(성공 시에만 채워지는 값이라 중단 후엔 갱신 기회 자체가 없었음).
+  재실행 시작 시 null 초기화+재도장 추가.
+- [2, 버그] 한 단계에서 중단 누르면 AbortController가 abort 상태로 굳어, 재분석 없이
+  넘어간 다음 단계의 새 실행이 **요청도 못 보내고 즉시 거부**되며 원시 `DOMException`
+  문구("signal is aborted without reason")가 alert에 그대로 노출되던 문제 — 4개 실행
+  진입점에 실행 확정 시점마다 새 컨트롤러 발급 추가, catch 블록도 AbortError는 중립
+  안내로 분리(진짜 SQL 오류는 기존 그대로 노출).
+- [3] "설정 실행당시/현재 다름" 배너가 실제 선택과 무관하게 정책 상한(3/3)과 비교하고
+  있어 상한 미만 선택 시 항상 뜨던 오탐 — 실제 마지막 생성 SQL 기준값과 비교하도록 정정.
+- [4] 4·5단계 "전략" 정보를 3단계 전략계획이 이미 계산해 갖고 있던 근거값(신뢰도·규모·
+  예상 그룹/스캔행수·비용점수·예상 소요시간)까지 확장 노출(새 계산 로직 없음, 기존
+  보관값 조립만).
+- [5] 5단계 진행 중 4단계 탭 표시 재검토 — 메인 배지는 항상 사실대로("완료") 유지하고,
+  5단계 진행 상태는 별도 보조 배지(subBadge)로 분리 표시. 오늘 오전 진단서가 확정한
+  "의도된 미러링·자가치유" 설계는 그대로 보존하면서 사용자가 지적한 "메인 배지가
+  거짓을 말하는 것 같다"는 문제만 해소.
+- [6] 5단계 "불일치 추출전략" 그리드 컬럼 제거(8→7칸)하고 [4]와 통일된 부가정보 영역
+  으로 이동(M51의 4단계 처리 방식과 동일). "고급 성능정보" 섹션 기본 펼침+텍스트
+  확대+색상대비 강화.
+- 검증: DB 클릭스루 대신 실 브라우저에서 실 제품 함수를 직접 호출·관측하는 PROBE
+  방식(레이스 제거)으로 before(baseline worktree, 포트 8001)/after(수정본, 포트 8000)
+  전항목 대조 재현. CLAUDE.md 필수 회귀 통과, 관련 서브셋 221 passed(실패 3건은
+  baseline 대조로 무관한 사전존재 라벨 불일치 확인).
+- 참고: E:\verify_reports\STAGE4-TAB-LABEL-LAG-AND-PRIOR-STAGE-LOCK-SCOPE-DIAGNOSE.txt
+- 참고: E:\verify_reports\STAGE4-5-STALE-RESULT-ABORT-ERROR-SETTING-BANNER-STRATEGY-INFO-FIX.txt
+
 ### M4. ✅ 해결 완료(원인 진단 정정 — SQLite 가드가 아니었다) — 운영 SQLite 가드에 막혀 상시 실패하는 테스트군을 tmp_path 기반으로 전환
 - 해결일: 2026-08-03 (STEP-TAB-DOM-STABILITY-TEST-SQLITE-GUARD-FIX)
 - 근거 커밋: 코드 저장소 `a06827e` — `test(ui): 단계 탭 DOM 안정성 테스트 하니스의 개별 nav
