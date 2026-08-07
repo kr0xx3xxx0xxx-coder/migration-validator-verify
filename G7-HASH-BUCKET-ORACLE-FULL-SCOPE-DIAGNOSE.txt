@@ -1,0 +1,356 @@
+작업명 : G7-HASH-BUCKET-ORACLE-FULL-SCOPE-DIAGNOSE
+작성일 : 2026-08-07
+유형   : 진단·설계 전용(코드 변경 0줄 · 커밋 0건)
+기준   : 코드 저장소 main 38237dfa (HEAD) · F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE.txt(2026-08-05) ·
+         F1-PHASE1-ALIAS-RENAME-VERSION-BUMP.txt(2026-08-06, 코드 커밋 c420d84 → main 0e51366e 로 병합 확인)
+
+═══════════════════════════════════════════════════════════════════════════════
+§1. 현재 상태 재확인 — phase①(별칭 개명 + 버전 bump) 이후 기준
+═══════════════════════════════════════════════════════════════════════════════
+
+1-1. phase① 병합 여부 (실측)
+  c420d84e(별칭 개명+버전 bump) → 0e51366e(merge) → main 이 조상관계로 포함(HEAD 38237dfa 의 조상).
+  즉 phase① 은 이미 main 에 살아 있다. 현재 코드로 아래를 재확인했다.
+
+1-2. HashContract 위임표 — 여전히 PostgreSQL 뿐, 미변경
+  services/diagnosis/hash_contract.py:118-120
+      _HASH_CONTRACTS = {"postgresql": ("services.diagnosis.dialects_hash.postgresql", "PgHashContract")}
+  services/diagnosis/dialects_hash/ 디렉토리 실물 = __init__.py, postgresql.py 뿐. oracle.py 없음.
+  → phase① 은 이 표에 손대지 않았다(지시서 범위대로). G7(§0 배경)의 서술은 지금도 정확하다.
+
+1-3. postgresql.py 계약 버전 — phase① 이 예고대로 적용
+  services/diagnosis/dialects_hash/postgresql.py:38   version = "hashv1-md5-lenpfx-pg"
+  (F1-G7 조사 시점의 "hashv1-md5-lenpfx" 에서 "-pg" 접미 bump 완료 — 오라클은 "-ora" 자리로 남음)
+
+1-4. row_diff.py:77,103 — dialect 인자를 받고도 무조건 PG 계약 위임, phase① 이후에도 그대로
+  services/diagnosis/row_diff.py
+     :77   bexpr = _parse_one_guarded(hc.bucket_expr_sql(key_canon_sql, n, hb.level_salt(lvl)), read=dialect)
+     :103  key_canon = hc.key_canonical_sql(key_exprs, key_ntypes)
+  hc.bucket_expr_sql / hc.key_canonical_sql 은 hash_contract.py:189 __getattr__(PEP562 재수출)이며
+  _PG_CONTRACT_SPEC(:171)으로 무조건 위임한다. dialect 인자는 sqlglot 파서 방언 지정에만 쓰이고
+  (:77 read=dialect), **어떤 계약을 쓸지에는 전혀 반영되지 않는다.** F1-PHASE1 지시서 §3 이 "이번
+  범위 밖 — 건드리지 말 것"으로 명시했고, phase① 완료보고 §0 도 "row_diff.py/match_key_evidence.py 는
+  무수정" 이라고 스스로 확인했다 — 두 근거와 실측이 정확히 일치한다.
+
+1-5. match_key_evidence.py:21,122,126 — 계약 버전 PG 고정, 미변경
+  :21   from services.diagnosis.hash_contract import HASH_CONTRACT_VERSION
+  :122  fp = sha256(... "||" + HASH_CONTRACT_VERSION + "||" ...)
+  :126  {"confirmed": True, "version": HASH_CONTRACT_VERSION, ...}
+  이 상수도 같은 __getattr__ 경로라 실측값은 지금 "hashv1-md5-lenpfx-pg"(PG) 하나뿐이다(버전 문자열
+  자체는 phase① 로 바뀌었지만, "PG 로 고정"이라는 결함 구조는 그대로다).
+
+1-6. multi_scope.py — 위반①②는 남고, §5.3-2 하드코딩 1건은 phase① 이 해소
+  :552-555   ext_src/ext_tgt = hb.build_hash_bucket_agg_sql(..., dialect=dialect)   ← src_db_type/tgt_db_type
+             키워드 인자를 여전히 넘기지 않는다(위반③, F1-G7 §3 그대로 잔존).
+  :600-605   _scope_key_sig 는 이제 `hb.is_bucket_alias(k)` 로 위임한다(하드코딩 제거 확인) —
+             phase① 완료보고 §2-1 이 설계보다 더 엄격하게(접두 일치가 아니라 'HB+숫자' 정확 형태)
+             구현한 것을 코드로 재확인했다. **F1-G7 §3 "별칭 상태" 항목 중 이 1건만 해소.**
+
+1-7. L1 게이트 — F1-G7 §2-3 의 지적보다 실측이 한 걸음 더 나아갔다(신규 확인, 이번 조사 추가)
+  F1-G7 은 "capabilities.hash_bucket_pair_status(src,tgt) 함수 자체가 없다"까지만 적었다. 이번에
+  소비처(drilldown_strategy 로 hash_bucket_available 을 실제로 넘기는 지점, routes/diagnosis_route.py:1571-1580
+  diagnosis_drilldown_strategy)를 끝까지 추적했다:
+      hash_avail = bool(mk and mk.get("confirmed") and mk.get("is_hash_eligible"))
+  이 값은 **DBMS/capabilities 를 단 한 번도 참조하지 않는다** — MATCH_KEY 가 해시 적격(복합키/문자키)이면
+  DBMS 가 무엇이든 무조건 True 다. 즉 L1 부재는 "함수가 없다" 수준이 아니라, **drilldown 추천 경로가
+  구조적으로 DBMS 인지 자체를 안 한다**. multi_scope.py:195-198(EXECUTE_BATCH_HASH_BUCKET 후보 emit)도
+  동일하게 match_key 속성만 보고 dialect/db_type 을 안 본다(재확인). 오라클 사용자는 지금도 "해시 구간으로
+  격리하세요" 추천을 받은 뒤, 실행 진입(L2 adapters/base.resolve_hash_contract)에서만 막힌다 —
+  F1-G7 §2-3 결론(계획단계 노출 vs 실행단계 차단)과 방향은 같으나, 근거가 한 단계 더 구체화됐다.
+
+1-8. capabilities.py — 오라클 항목 미개방, 미변경
+  services/diagnosis/dbms/capabilities.py:99-103
+      _ORACLE = dict(_NONPG)
+      _ORACLE.update({"readonly_select": SUPPORTED, ..., "key_range": SUPPORTED, "row_diff": SUPPORTED,
+                       "resume": SUPPORTED, "unsupported_reason": None})
+  update() 목록에 "hash_bucket"/"canonical_hash_contract" 가 없어 _NONPG 의 NOT_SUPPORTED 를 그대로
+  상속한다(:91-92). ROADMAP step4(:127-128) 문구("DBMS 간 동일 canonical hash")도 미정정 — F1-G7 §5-3
+  이 "cross-DBMS 로 오독된다"고 지적한 그대로 남아 있다.
+
+1-9. 결론 — §1 재확인 요약
+  변경됨(phase①)  : 별칭 __HB/__KH/__RH→HB/KH/RH, 계약버전 -pg 접미, multi_scope.py:600 하드코딩 해소,
+                     KNOWN_ORACLE_UNSAFE 비움, Layer A 판정 축B/축C 분리.
+  변경 안 됨       : 위임표(oracle 미등록), row_diff.py:77,103, match_key_evidence.py:21,122,126,
+                     multi_scope.py:552-555(db_type 미배선), capabilities.py 오라클 hash 항목,
+                     L1 게이트(함수 부재 + 소비처 2곳 모두 DBMS 비인지), ROADMAP step4 문구.
+  → G7 배경문("HASH_BUCKET 이 오라클↔오라클에도 영구 불가")과 "G7 단독 착수 금지" 전제 모두 여전히 유효하다.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+§2. ③ 오라클 구현체 설계
+═══════════════════════════════════════════════════════════════════════════════
+
+2-0. 이미 존재하는 설계 확정본을 그대로 채택한다(임의 재설계 금지)
+  docs/HASH_BUCKET_ORACLE_PORT_ADAPTER_DESIGN.md §1(전수표 E1~E18)·§2(신규 확정 4항목)·§3.2(Base 시그니처)가
+  이미 이 단계의 구현 스펙이다. phase① 은 이 문서의 §5(별칭)만 소비했고 §1~§4(오라클 SQL·가드)는
+  아직 소비되지 않았다 — 유효기간이 끝나지 않았으므로 그대로 쓴다. 이하는 그 설계를 이번 조사에서
+  재확인·보강한 것이다(신규 항목은 "[신규]" 로 표시).
+
+2-1. 해시함수 후보 비교 — STANDARD_HASH 채택(재확인, 대안 배제 사유 명시)
+  후보 A) STANDARD_HASH(x,'MD5')  — 10g R2+ 내장, 결정적, extension 불필요.
+      LOWER(RAWTOHEX(STANDARD_HASH(x,'MD5'))) 로 PG md5() 와 동일 hex 문자열(소문자) 생성.
+      실측(설계 §1 E1): STANDARD_HASH('abc','MD5') 의 RAWTOHEX = PG md5('abc') 와 동일 32hex.
+  후보 B) ORA_HASH(x)  — 32bit 해시를 **직접** 낸다(중간에 hex 문자열을 거치지 않음).
+      배제 사유: (a) 알고리즘이 비공개(오라클 자체 해시, MD5 가 아님) → PG md5 와 값 자체가
+      다르다. same-DBMS 페어에서는 src/tgt 가 둘 다 오라클이라 "같은 함수를 양쪽에 쓰면 무해"
+      하지만, ORA_HASH 는 기본적으로 4바이트(0..4294967295 또는 지정 max_bucket) 출력이라
+      우리가 원하는 "MD5 앞 8hex → TO_NUMBER" 32bit 정수화 파이프라인과 입출력 형태가 다르고,
+      PG 표현식과의 구조적 대응(E1~E5 1:1 표)을 깨 이후 유지보수 시 "PG 식과 오라클 식이 왜 이렇게
+      다른가"를 매번 재설명해야 한다. (b) ORA_HASH 는 버킷 수(max_bucket) 인자를 자체적으로
+      갖고 있어 우리의 "hash → &(n-1)" 파이프라인과 책임이 겹친다(이중 버킷팅). → **비채택**.
+      단, ORA_HASH 는 §1 이 언급 안 한 "성능" 관점에서는 STANDARD_HASH 보다 가볍다는 참고자료가
+      있으나, 이번 설계는 "PG 와 1:1 대응 가능한 표현식"을 최우선 기준으로 삼으므로 채택하지 않는다.
+  → **STANDARD_HASH(x,'MD5') 채택**(design.md §1 E1 그대로, 대안 검토로 재확인만 추가).
+
+  가용 버전: STANDARD_HASH 는 Oracle 10g R2(10.2) 이상 표준 내장(패키지/extension 불필요) —
+  services/db_adapters/oracle.py 가 지원 대상으로 삼는 버전대(19c/21c/23ai, 실측 asis/tobo 프리셋)에서
+  전부 사용 가능. 별도 가용성 probe 불필요(PgHashContract.is_available() 이 항상 True 인 것과 대칭으로,
+  OracleHashContract.is_available() 도 버전 조건 없이 True 로 설계 — 근거: exact_diff 오라클 이식이
+  이미 이 버전대만 지원 대상으로 확정돼 있어(operational_focus 주석) 추가 하한 체크가 무의미).
+
+  충돌률: MD5 128bit 전체가 아니라 앞 8hex(32bit)만 쓰므로 이론 충돌률은 이미 PG 경로와 동일한
+  구조적 한계(2^-32)를 그대로 이어받는다 — 오라클 도입으로 새로 생기는 위험이 아니다(설계 §1.1 이미 실측).
+
+2-2. 문자열 캐스팅/결합 — SUBSTR·BITAND·TO_NUMBER (설계 §1 E2·E4·E15 그대로, 재확인)
+   구분          PG 현행                    오라클 대체식                      실측(설계 §1)
+   앞 8자        left(h,8)                  SUBSTR(h,1,8)                      '90015098' 동일
+   32bit 정수화  ('x'||hex8)::bit(32)::bigint  TO_NUMBER(hex8,'XXXXXXXX')       TO_NUMBER('ffffffff','XXXXXXXX')=4294967295
+   비트 AND      h32 & (n-1)                BITAND(h32, n-1)                   BITAND(255,7)=7
+  BITAND 는 오라클에 내장 함수로 존재(PL/SQL 아님, SQL 함수) — 별도 패키지 권한 불필요.
+  '&' 는 오라클 SQL*Plus/일부 드라이버에서 치환변수로 오인되는 문제(ORA-00923 류)가 있어 BITAND 로
+  대체가 필수이며 우회(escape)로 해결할 사안이 아니다(설계 §1 E15 사유 그대로 채택).
+
+2-3. NLS/캐릭터셋 영향 여부 — [신규, 이번 조사 항목] M20(NLS_COMP=BINARY 세션 고정)과의 상호작용
+  질문: 오늘 M20 이 세션에 고정한 NLS_COMP=BINARY 가 해시 계산에도 영향을 주는가?
+
+  결론: **영향 없음 — 이미 무상으로 방어돼 있다.** 근거:
+   (a) NLS_COMP 는 **비교 연산자**(=, LIKE, ORDER BY, GROUP BY, DISTINCT)가 문자열을 BINARY 로
+       비교할지 LINGUISTIC(언어별 정렬규칙)으로 비교할지를 결정하는 세션 파라미터다. 값 자체를
+       변환하는 파라미터가 아니다 — TO_CHAR()/STANDARD_HASH()/SUBSTR() 의 **출력값**은 NLS_COMP 의
+       영향을 받지 않는다(오라클 공식 동작 — NLS_COMP 는 "how comparisons are performed", 값 변환과
+       무관). 즉 canonical 문자열 자체, h32 정수, bucket 번호 모두 NLS_COMP 에 좌우되지 않는다.
+   (b) HASH_BUCKET 이 실제로 문자열 **비교**를 수행하는 지점은 row_diff._cell_condition 의
+       `exp.EQ(this=bexpr, expression=exp.Placeholder())`(bucket 번호 = bind, **숫자 비교**)와
+       scope 필터의 gb_exprs 동등비교(문자 컬럼 포함 가능)다. 후자는 오라클에서 실제로 NLS_COMP 영향권
+       (LINGUISTIC 이면 대소문자/발음부호 무시 비교로 거짓 일치 가능)이나, services/db_adapters/oracle.py:220
+       (_pin_session_nls_comp)가 **연결(connection) 단위로 1회** BINARY 를 고정하므로 HASH_BUCKET 이 쓰는
+       커넥션도 자동으로 이 고정을 상속한다(오라클 어댑터가 만드는 모든 커넥션이 대상 — HASH_BUCKET 전용
+       조치가 추가로 필요 없다).
+   (c) 실제로 값 변환에 영향을 주는 것은 NLS_NUMERIC_CHARACTERS(소수점 문자, R3)와 NLS_DATE_FORMAT/
+       NLS_TIMESTAMP_FORMAT 계열이며, 이 둘은 M20 의 대상이 아니다(M20 은 COUNT(DISTINCT) 캐릭터셋
+       노출 대응). 이 두 파라미터에 대한 방어는 design.md §2.3 R3 가 이미 "3인자 TO_CHAR(x,'TM9',
+       'NLS_NUMERIC_CHARACTERS=''.,''')" 로 식 자체에 고정하는 방식을 규정해 뒀고, 날짜도 명시 서식
+       ('YYYY-MM-DD"T"HH24:MI:SS.FF6', 로케일 의존 토큰 'MON' 등 미사용)이라 NLS_LANGUAGE/NLS_TERRITORY
+       에도 좌우되지 않는다. → **③ 구현 시 세션 파라미터에 의존하지 말고 식에 3인자로 고정**하는
+       design.md 원안을 그대로 따르면 되고, M20 과 별도의 추가 조치는 불필요하다.
+  → M20 은 HASH_BUCKET 구현체 설계를 바꾸지 않는다. 다만 §5(테스트) 단계에서 "M20 이 없다고 가정한
+    별도 세션에서도 hash 결과가 같은가"를 회귀 대상에 넣을 필요는 없다 — HASH_BUCKET 이 쓰는 커넥션은
+    항상 오라클 어댑터를 경유하므로 NLS_COMP 미고정 세션 자체가 존재하지 않는다(구조적으로 발생 불가).
+
+2-4. 오라클 전용 리스크 4종 — design.md §2.3 재확인 + precheck 배치 지점 확정
+  R1(빈문자열=NULL, P0)     : same-DBMS 한정에서 무해(§2-4 재확인). cross-DBMS 는 애초에 L3 가 차단.
+  R3(NLS_NUMERIC_CHARACTERS): 3인자 TO_CHAR 로 식에 고정(§2-3 에서 위 확인대로 M20 과 무관하게 별도 필요).
+  R4(VARCHAR2 4000자, ORA-01489): OracleHashContract.precheck(exprs, compare_exprs) 에서 canonical
+      결합의 최대 바이트 길이를 추정해 상한 초과 시 HOLD 문자열 반환 — BaseHashContract.precheck 시그니처
+      (hash_contract.py:98-100) 를 그대로 구현하면 된다(신규 메서드 아님, override 만).
+  R5(STANDARD_HASH 가 CLOB 거부, ORA-00902) : 같은 precheck 에서 ntype/컬럼 메타로 LOB 감지 시 HOLD.
+      단, key_evidence._norm_type 이 3종(NUMBER/DATE_TIME/TEXT)만 내려주므로 LOB 판별을 위해서는
+      compare_exprs 의 원본 컬럼 메타(길이/타입)가 precheck 호출부까지 전달돼야 한다 — 이는 현재
+      build_hash_bucket_agg_sql 시그니처에 없는 정보이므로, **④ 소비측 배선에서 컬럼 메타 전달 경로를
+      새로 뚫어야 하는지, 아니면 "LOB 은애초에 MATCH_KEY 후보 경로에 오지 않는다"(F1-G7 §5-2-(4) 근거)는
+      전제로 방어적 HOLD 를 생략할지"를 ③ 착수 시 확정해야 한다** — 이번 조사에서는 §1 의 표현식
+      설계만으로는 결정할 수 없는 유일한 열린 지점으로 남긴다(구현 규모에 영향 작음, 위험도 낮음).
+
+2-5. Base 인터페이스 대비 구현 매핑 (hash_contract.py:44-100 시그니처 그대로 채움)
+  db_type = "oracle" / version = "hashv1-md5-lenpfx-ora" / cross_db_comparable = False
+  is_available()      → True(버전 하한 불필요, §2-1)
+  h32(canon_sql)       → "TO_NUMBER(SUBSTR(LOWER(RAWTOHEX(STANDARD_HASH(%s,'MD5'))),1,8),'XXXXXXXX')"
+  canon_component(e,nt)→ NUMBER: TO_CHAR(e,'TM9','NLS_NUMERIC_CHARACTERS=''.,''') + 선행0 복원 regex(E7c)
+                         DATE_TIME: TO_CHAR(CAST(e AS TIMESTAMP),'YYYY-MM-DD"T"HH24:MI:SS.FF6')
+                         TEXT: TO_CHAR(e)
+                         길이/NULL 마커 뼈대는 PG 와 동일 문법('||' · CASE WHEN) — Base.key_canonical/
+                         row_canonical(방언 무관 조합, hash_contract.py:74-87)을 오버라이드 없이 그대로 상속.
+  bucket_expr(kc,n,salt)→ "BITAND(" + h32(salted) + ", " + str(pow2_floor(n)-1) + ")"
+  precheck(exprs,ce)    → R4/R5(§2-4) 반환. Base 기본값(:98-100)은 None 이므로 override 필수.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+§3. ④ 소비측 배선 — row_diff.py / match_key_evidence.py 안전 수정 방안
+═══════════════════════════════════════════════════════════════════════════════
+
+3-0. 원칙(design.md §3.4 채택, 어댑터 패턴 준수) — "계약 객체 1개를 경계에서 해석해 아래로 주입"
+  인라인 if/elif 로 dialect 분기하지 않는다. 이미 존재하는 L2 지점
+  (services/diagnosis/adapters/base.py:35 resolve_hash_contract)이 db_type 쌍으로 계약을 1회 해석하고,
+  그 결과 객체를 row_diff/match_key_evidence 까지 파라미터로 흘려보낸다. 두 파일은 db_type 을 몰라도 된다.
+
+3-1. row_diff.py 안전 수정 — "파라미터 추가"만으로는 불충분(F1-G7 §7-1 이 이미 지적, 재확인)
+  현재  : hc.bucket_expr_sql(...) / hc.key_canonical_sql(...)  ← 모듈 재수출, 항상 PG
+  변경  : build_row_select_sql(..., contract) 시그니처에 contract: BaseHashContract 파라미터를 추가하고,
+          :77  bexpr = _parse_one_guarded(contract.bucket_expr(key_canon_sql, n, hb.level_salt(lvl)), read=dialect)
+          :103 key_canon = contract.key_canonical(key_exprs, key_ntypes)
+          로 **호출 자체를 교체**한다. `hc.*_sql` 재수출 심볼을 이 파일에서 더는 참조하지 않아야 결함이
+          실제로 닫힌다(단순히 default=None → 내부에서 다시 hc.* 를 부르면 결함이 형태만 바뀌어 재발한다).
+  contract 는 _cell_condition 에도 관통 전달(row_diff.py 내부 함수라 시그니처에 contract 추가 필요,
+  build_row_select_sql → _cell_condition 1개 경유 — 규모 작음).
+  호출부(다시 §1-4 의 상위 호출자, row-diff 재개 라우트 routes/diagnosis_route.py:842-843 가 이미
+  resolve_hash_contract 를 호출해 얻은 `_c` 를 갖고 있음)에서 그 객체를 그대로 넘기면 된다 — L2 가
+  이미 만들어 둔 객체를 "버리고 다시 만드는" 대신 "재사용"하는 것이 이번 배선의 핵심.
+
+3-2. match_key_evidence.py 안전 수정 — 상수 import 제거, 계약 version 위임
+  현재  : from services.diagnosis.hash_contract import HASH_CONTRACT_VERSION (모듈 상수, 항상 PG)
+  변경  : 해당 함수(들)가 contract 객체(또는 최소 contract.version 문자열)를 파라미터로 받아
+          `contract.version` 을 fingerprint 계산(:122)과 응답(:126)에 사용한다.
+          이 파일의 함수가 호출되는 지점(match_key 확정 흐름)에서도 동일하게 L2 해석 결과를 그대로
+          내려 받아야 한다 — 새로 resolve 하지 않는다(해석은 경계에서 1번만, design.md §3.4 원칙).
+
+3-3. multi_scope.py 위반③(db_type 미배선) 도 같은 배선 작업의 일부로 함께 처리
+  552-555 의 build_hash_bucket_agg_sql(..., dialect=dialect) 호출에 이미 존재하는 시그니처 파라미터
+  src_db_type=src_db_type, tgt_db_type=tgt_db_type 를 추가한다(함수 시그니처는 bfda564 에서 이미
+  받도록 확장돼 있음 — 호출부만 비어 있었다, F1-G7 §3-③). _run_hash_bucket_waves 상위에서 db_type 쌍이
+  살아있는 지점(어댑터 경계)까지 파라미터를 관통시켜야 하며, 이 값은 3-1/3-2 의 contract 해석에 쓰인
+  db_type 쌍과 **동일 출처**여야 한다(경계에서 한 번 해석 원칙 — 두 번 해석하면 두 결과가 갈릴 위험).
+
+3-4. 안전성 근거 — 이 수정은 phase① 과 달리 "PG 결과가 즉시 바뀌지 않는다"
+  postgresql 페어는 resolve_hash_contract → get_hash_contract_pair("postgresql","postgresql") →
+  PgHashContract 를 반환하므로, 3-1/3-2 수정 후에도 PG 경로는 여전히 PgHashContract 를 쓴다
+  (재수출 경로를 안 타고 명시 주입 경로를 타는 차이뿐 — 표현식 산출값은 동일해야 한다). 이는 phase①
+  완료보고 §4 가 쓴 것과 동일한 검증 방법(불변축 sha256 골든셋 대조)으로 재확인 가능하다 — ④ 착수
+  시 그대로 재사용할 것을 권고(§5 에서 다시 언급).
+
+3-5. ④ 는 ③(오라클 구현체) 없이도 완결 가능 — 이것이 §5 의 순서 판단 근거
+  contract 가 None 인 경우(=L3 가 계약을 못 준 경우, 지금은 oracle 미등록이라 여기 해당)의 처리는
+  이미 L2(resolve_hash_contract)가 상위에서 HOLD_UNSUPPORTED_DB 로 반환해 row_diff/match_key_evidence
+  까지 호출 자체가 도달하지 않는다(L2 가 게이트). 즉 3-1~3-3 배선은 "PG contract 를 명시적으로 주입"
+  하는 것이 전부이며, 이 변경의 정답 여부는 **오라클 구현체 존재와 무관하게** PG 골든셋만으로 검증된다.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+§4. ⑤ capabilities 개방 + ⑥ G7 위임표 등록
+═══════════════════════════════════════════════════════════════════════════════
+
+4-1. capabilities 개방 지점 — 정확한 변경 범위(실측 라인)
+  services/diagnosis/dbms/capabilities.py:99-103
+      _ORACLE = dict(_NONPG)
+      _ORACLE.update({
+          "readonly_select": SUPPORTED, "typed_bind": SUPPORTED, "statement_timeout": SUPPORTED,
+          "count": SUPPORTED, "sum": SUPPORTED, "group_by": SUPPORTED,
+          "key_range": SUPPORTED, "row_diff": SUPPORTED, "resume": SUPPORTED,
+          "unsupported_reason": None})
+  → 이 update() 딕셔너리에 "hash_bucket": SUPPORTED, "canonical_hash_contract": SUPPORTED 2개 키를
+  추가하는 것이 유일한 변경이다(design.md §4.1 그대로). MATRIX_ITEMS(:73-74)/구조 변경 없음 — 값만 뒤집는다.
+  ROADMAP step4(:127-128) 문구도 design.md §4.1 규정대로 "same-DBMS 페어 한정 canonical hash" 로 정정.
+
+4-2. L1 신규 함수 — hash_bucket_pair_status(src_dbms, tgt_dbms) 배치와 소비 2곳
+  위치: capabilities.py 에 신규 함수. 판정: `src==tgt and capability(src,"hash_bucket")==SUPPORTED
+  and capability(tgt,"hash_bucket")==SUPPORTED` (design.md §4 표, MATRIX_ITEMS 가 단일 DBMS 능력이라
+  페어 개념을 별도 함수로 분리 — capability() 매트릭스 값에 페어 조건을 섞지 않는다).
+  소비처 2곳(§1-7 에서 실측 재확인):
+    (a) multi_scope.py:195-198  EXECUTE_BATCH_HASH_BUCKET 후보 emit — match_key 조건에
+        `and hb.hash_bucket_pair_status(src_db_type, tgt_db_type)[0] == SUPPORTED` 추가.
+    (b) routes/diagnosis_route.py:1571-1580 diagnosis_drilldown_strategy — hash_avail 산출식에
+        동일 판정 추가(현재 mk 속성만 보는 식, §1-7). drilldown_strategy.py 자체(NEXT_HASH 분기)는
+        hash_bucket_available 이라는 **불리언 파라미터**만 받으므로 이 파일은 무수정 — 호출측 2곳만
+        고치면 L1 게이트가 완성된다(추가 파일 아님, 위 §6.1 파일범위 표에도 반영).
+  db_type 미상(신규 접속 흐름 등)이면 hash_bucket_pair_status 는 보수적으로 NOT_SUPPORTED 를 반환해야
+  한다(추측 금지 원칙, hash_contract.get_hash_contract_pair 의 기존 관례와 동일).
+
+4-3. G7 위임표 등록 — 이번 조사에서도 "마지막 한 줄"이어야 한다는 결론 불변
+  services/diagnosis/hash_contract.py:118-120 에
+      "oracle": ("services.diagnosis.dialects_hash.oracle", "OracleHashContract"),
+  한 줄을 추가하는 것이 G7 자체의 전체 변경 범위다(등록 자체는 여전히 1줄). 그러나 §1-4~§1-8 재확인이
+  보여주듯, 이 1줄은 ③④⑤ 가 전부 끝난 뒤에만 안전하다 — 등록 즉시 get_hash_contract_pair("oracle","oracle")
+  가 OracleHashContract 를 반환하기 시작하므로, ④(row_diff/match_key_evidence 의 안전 배선)가 안 끝난
+  상태에서 등록하면 §1-4/§1-5 의 PG 전용 재수출 경로가 (이제는 L2 도 통과하므로) 실제로 오라클에 도달해
+  PG SQL 을 방출한다 — F1-G7 §7-2 [치명] 판정과 정확히 동일한 위험이 이번 재확인에서도 그대로 성립한다.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+§5. 착수 순서 및 검증 계획
+═══════════════════════════════════════════════════════════════════════════════
+
+5-1. "③(오라클 구현체)이 ④(안전 배선)보다 먼저 가야 하는가" — 아니다, ④ 를 먼저/독립적으로 넣을 것을 권고
+
+  design.md §6.3 원안 순서는 ①②(완료)→③→④→⑤→⑥ 이지만, §3-5 에서 확인했듯 ④(row_diff/
+  match_key_evidence/multi_scope 안전 배선)는 **③ 없이도 PG 골든셋만으로 완결·검증 가능**하고,
+  ④ 가 먼저 들어가면 "PG 전용 재수출 무조건 위임"이라는 구조적 결함 자체가 코드에서 사라진다 —
+  이후 언제 ③(오라클 구현체)이나 ⑥(G7 등록)이 잘못된 순서로 시도돼도, row_diff/match_key_evidence 가
+  더 이상 "묻지도 따지지도 않고 PG" 를 방출하지 않으므로 §4-3 의 [치명] 위험이 **구조적으로 재발
+  불가능**해진다(등록만 하면 L3 가 None 을 주고, 계약이 없으면 애초에 SQL 을 못 만든다 —
+  bfda564 가 hash_bucket.py 에 이미 적용한 것과 동일한 안전망을 row_diff/match_key_evidence 에도
+  같은 방식으로 확장하는 것뿐이다).
+
+  ③(오라클 구현체 파일 3개 신규)은 ④ 와 파일이 겹치지 않아(§2-5 는 신규 파일, §3 은 기존 파일 수정)
+  **병행 착수 가능**하다 — 순서 제약이 아니라 "④ 는 반드시 ⑤⑥ 이전에 끝나 있어야 한다"는 제약만 있다.
+
+  → **권장 순서: ④(안전 배선, 최우선) ∥ ③(오라클 구현체, 병행) → ⑤(capabilities+L1 개방) → ⑥(G7 등록
+  + 라이브 실측)**. design.md 의 ③→④ 순서를 뒤집는 것이 이번 조사의 유일한 정정 사항이며, 근거는
+  "④ 는 구조적 위험 제거이고 ③ 존재 여부와 무관하게 검증 가능하다"(§3-5) 는 점 — 위험이 가장 큰
+  수정을 가장 먼저, 가장 작은 단위로 넣어 되돌림 비용을 낮추는 phase① 의 방법론과 동일하다.
+
+5-2. ⑥ 라이브 검증 계획 — 자기일치성만으로는 부족, 타 전략 대조 방식 제안(지시서 요청 그대로)
+
+  기존 phase① 의 골든셋 방법(BEFORE/AFTER sha256 대조)은 "개명 전후 동일 코드 로직의 회귀 없음"을
+  보는 것이라 ⑥ 에는 그대로 못 쓴다 — ⑥ 은 **신규 로직(오라클 canonical)이 정답인지**를 봐야 하므로
+  자기 자신과 비교해서는 검증되지 않는다(설계가 틀려도 재현은 됨). 지시서가 제안한 대로
+  **독립적으로 이미 오라클 검증된 다른 전략과 결과를 대조**하는 방식을 아래와 같이 구체화한다.
+
+  대조 대상: DIRECT_STREAM_COMPARE(services/strategy/strategy_models.py:24) — exact_diff 계층의
+  오라클 이식(F1-G7 §5-3 이 지적한 "오라클 row_diff 는 이미 SUPPORTED" 의 그 계층)으로 이미 라이브
+  검증된 전체 스트림 비교. HASH_BUCKET 은 이 결과를 "빠르게 좁히는" 수단일 뿐, 최종 판정 기준은
+  둘 다 "같은 두 테이블의 실제 행 차이"여야 한다.
+
+  절차:
+   1) 오라클 asis/tobe 프리셋(db_presets_{src,tgt}.json, "Oracle_asis"/오라클 tgt 확인됨)으로
+      의도적 불일치 3케이스 구성(F1-PHASE1 §4-3 이 쓴 것과 같은 패턴 — 전량일치/값변경/행누락 3종,
+      오라클 스키마로 재현).
+   2) 같은 스코프를 DIRECT_STREAM_COMPARE 로 먼저 실행 — "정답"으로 삼을 불일치 행 PK 집합을 확보.
+   3) 동일 스코프를 HASH_BUCKET(오라클↔오라클, ⑥ 등록 이후) 로 실행 — 활성 bucket → row_diff 로
+      좁혀진 불일치 행 PK 집합을 확보.
+   4) 두 PK 집합이 **완전히 일치**해야 PASS(부분집합/초과집합 모두 실패 — 누락은 거짓판정 은폐,
+      과다는 §2.4 R1/R3 미방어를 의미).
+   5) 일치 케이스(불일치 0건)도 별도로 포함 — HASH_BUCKET 이 "활성 cell 0" 을 정확히 내는지
+      (오탐 없음)까지 확인해야 완결(phase① §4-2 의 "전량 일치" 케이스와 동일한 목적).
+   6) R3(NLS_NUMERIC_CHARACTERS) 검증은 두 오라클 인스턴스(asis/tobe)의 세션 NLS 값이 실제로
+      다른 상태에서 3)을 재실행해 그래도 4)가 성립하는지로 실측한다(세션 값이 우연히 같으면
+      §2-3 방어가 검증되지 않은 채 통과할 수 있으므로, 최소 한쪽 세션에서 ALTER SESSION 으로
+      NLS_NUMERIC_CHARACTERS 를 의도적으로 바꿔 대조).
+   7) R4(4000자) 는 정상 케이스가 아니라 **의도적으로 상한을 넘기는 스키마**(긴 문자 복합키 +
+      HASH_COMPARE 다수)로 precheck 가 사전 HOLD 를 내는지 별도 검증(4)의 PK-집합 대조와는 별개 축).
+
+5-3. 착수 시 예상 파일범위(design.md §6.1 을 이번 재확인으로 갱신)
+   신규   dialects_hash/oracle.py                                              (§2)
+   신규   tests/test_hash_contract_dialect_adapter.py 확장(oracle 케이스 추가, 신규 파일 아님 — phase①
+          에서 이미 신설된 파일에 케이스만 추가, design.md 는 이를 "신규"로 셌으나 phase①로 선취됨)
+   신규   scripts/dev_e2e/hash_bucket_oracle_contract_equivalence_verify.py    (§5-2 라이브 실측용)
+   수정   hash_contract.py(:118-120 위임표 1줄 — ⑥ 단계에서만)
+   수정   row_diff.py(:77,103 호출 교체 + 시그니처 contract 추가)               (§3-1)
+   수정   match_key_evidence.py(:21,122,126 상수 참조 제거)                    (§3-2)
+   수정   multi_scope.py(:552-555 db_type 배선, :195-198 L1 조건 추가)         (§3-3, §4-2-(a))
+   수정   dbms/capabilities.py(:99-103 항목 2개 개방, :127-128 ROADMAP 문구, 신규 함수
+          hash_bucket_pair_status)                                            (§4-1, §4-2)
+   수정   routes/diagnosis_route.py(:1571-1580 L1 조건 추가)                   (§4-2-(b))
+   수정   adapters/base.py / multi_scope_adapter.py(계약 객체를 아래로 관통 전달하도록 소폭 조정 —
+          resolve_hash_contract 자체는 이미 L2 로 존재, 호출부의 반환값 활용 범위만 넓어짐)
+   수정   tests/test_underscore_alias_oracle_regression_static.py::test_hash_bucket_agg_alias_renamed
+          (축C 단정을 오라클 방출 SQL 검사로 승격 — phase① §2-2 가 이미 예고한 지점)
+   수정(선택) tests/test_diagnosis_multi_scope.py 등 — contract 명시 주입 케이스 보강
+   → 총 신규 2 + 수정 8~9 (design.md 의 17파일 추정 중 postgresql.py 이전·별칭 개명은 이미 phase①로
+     소비됐으므로 잔여는 이보다 작다. 정확한 최종 카운트는 ③④ 착수 시 재확정).
+
+5-4. 위험도 — F1-G7 §7-2 재확인, 변경 없음
+   [치명] G7(위임표 등록) 단독/조기 착수 — §4-3 그대로 유효, 이번 조사로도 반증되지 않음(오히려
+          §1-7 로 위험 폭이 "계획 노출" 뿐 아니라 "L1 이 DBMS 자체를 안 본다"로 더 넓게 재확인됨).
+   [높음] resume 상태 비호환 — phase① 이 별칭·버전 축은 이미 해결(EVIDENCE_CHANGED 방어 확립).
+          ③④ 는 별칭/버전을 추가로 바꾸지 않으므로 이 축의 신규 위험은 없다.
+   [중간] R3(NLS_NUMERIC_CHARACTERS), R4(4000자) — §2-4, §5-2-6·7 로 검증계획까지 구체화.
+   [낮음] R5(LOB) — §2-4 에서 열린 지점으로 명시(구현 시 확정, 위험도 자체는 낮음).
+   [환경] ⑥ 은 오라클 asis/tobe 라이브 접속 전제 — 프리셋 존재 확인됨(db_presets_{src,tgt}.json).
+
+5-5. 지금 판단
+   **문서화 완료 / 착수는 별도 지시 대기.** 이번 작업은 조사·설계 전용이므로 코드는 0줄도 건드리지
+   않았다. §5-1 의 순서 정정(④ 를 ③ 보다 먼저/병행)과 §2-3(M20 무관 확인)·§2-4(R5 열린 지점)·§4-2
+   (L1 소비처 정확한 2개 호출부 특정)가 이번 조사의 실질 추가분이다. 다음 착수자는 이 보고서를
+  "④ 단독 선행 착수" 부터 지시받는 방식을 권고한다(위험 제거를 가장 먼저, 가장 작은 diff 로).
+
+
+작업명 : G7-HASH-BUCKET-ORACLE-FULL-SCOPE-DIAGNOSE
