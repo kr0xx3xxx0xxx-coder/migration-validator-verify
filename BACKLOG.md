@@ -1926,8 +1926,9 @@ git -C E:/verify_reports worktree remove <임시경로>
   → 2026-07-30 완료(위 `해결 요약` 참조).
 - 참고: E:\verify_reports\DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE.txt
 
-### G7. HASH_BUCKET 해시 계약에 오라클이 등록돼 있지 않아, same-DBMS(오라클↔오라클)여도 영구 불가다 — 전체범위 재확인 완료, 착수 순서 정정(④ 최우선)
-- 발견일: 2026-08-02 / 재확인: 2026-08-07 (G7-HASH-BUCKET-ORACLE-FULL-SCOPE-DIAGNOSE, 코드 무변경)
+### G7. HASH_BUCKET 해시 계약에 오라클이 등록돼 있지 않아, same-DBMS(오라클↔오라클)여도 영구 불가다 — ④(안전배선) 해결 완료, ③⑤⑥ 남음
+- 발견일: 2026-08-02 / 재확인: 2026-08-07 / ④ 해결일: 2026-08-07
+  (G7-STEP4-ROW-DIFF-MATCH-KEY-EVIDENCE-SAFE-WIRING-FIX, 코드 커밋 84c6f29a)
 - 근거 보고서: `PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt`(§4-2·§7-G7, 최초) →
   `F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE.txt`(순서 확정 ①③④⑤⑥) →
   `G7-HASH-BUCKET-ORACLE-FULL-SCOPE-DIAGNOSE.txt`(phase① 이후 재확인, 순서 재정정)
@@ -1961,10 +1962,27 @@ git -C E:/verify_reports worktree remove <임시경로>
   [중간] NLS_NUMERIC_CHARACTERS·4000자(검증계획 구체화됨) · [낮음] LOB(구현 시 확정).
 - 대응 방향: **④(안전 배선) 단독 선행 착수를 권고** — 위험 제거를 가장 먼저, 가장 작은
   diff로. 오라클 구현체(③)·전체 오라클 지원(⑥)은 별도 승인 하에 이어서.
+- **④ 해결 요약(2026-08-07)**: `row_diff.py`(:77,103)·`match_key_evidence.py`(:21,122,126)의
+  `hash_contract` 모듈 재수출(PG 무조건 위임) 구조를 `hash_bucket.py`와 동일한 안전 패턴
+  (명시적 `contract` 파라미터, 미제공 시 안전 실패)으로 폐쇄. `multi_scope.py`의
+  `src_db_type`/`tgt_db_type` 배선도 함께 완료(경계 choke point는
+  `routes/diagnosis_route.py`의 `_contract_match_key`로 통일). **실제 위험을 재현해서
+  증명**: db_type 배선 없이 dialect="postgres"만 주면 `compare_fn`(DB 실행 지점)이
+  실제로 1회 호출됨(=PG SQL이 오라클에 방출될 뻔한 상황 실측 재현) → 수정 후
+  `EXECUTION_ERROR`로 안전 차단, `compare_fn` 호출 0회로 실측 확인. PG는 정적 동등성
+  (옛 경로/새 경로 SQL 문자열 완전 동일) + 라이브 E2E(전체 HTTP 파이프라인) 통과, 오라클은
+  `get_hash_contract_pair("oracle","oracle")` → `(None, "HASH_CONTRACT_NOT_AVAILABLE")`로
+  여전히 안전하게 차단됨을 확인(위임표는 이번에 전혀 손 안 댐). 신규 회귀 0건(268 passed
+  스윕, 실패 2건은 무관 파일의 사전 존재 캐시 버그로 확인).
+  잔존(범위 밖, 낮은 영향): dev_e2e 1회성 스크립트 2개가 구 시그니처로 남아 재실행 시
+  TypeError(pytest 수집 대상 아님), `agg_diff_route.py:606`이 contract 미전달(그 호출부는
+  version 필드 미사용이라 무해).
+  **실사용 가능(오라클 HASH_BUCKET 실행)은 여전히 ③⑤⑥이 남아있어야 완성**.
 - 관련: F1, S5(이미 해결 완료)
 - 참고: E:\verify_reports\PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt
 - 참고: E:\verify_reports\F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE.txt
 - 참고: E:\verify_reports\G7-HASH-BUCKET-ORACLE-FULL-SCOPE-DIAGNOSE.txt
+- 참고: E:\verify_reports\G7-STEP4-ROW-DIFF-MATCH-KEY-EVIDENCE-SAFE-WIRING-FIX.txt
 
 ### F1. ✅ phase1(①) 완료 — HASH_BUCKET 오라클 구현체는 여전히 없음 (남은 단계: ③④⑤⑥ + G7)
 - 발견일: 2026-07-29 / phase1 해결일: 2026-08-06 (F1-PHASE1-ALIAS-RENAME-VERSION-BUMP, 코드 커밋 c420d84)
