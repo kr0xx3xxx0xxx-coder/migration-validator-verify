@@ -3042,15 +3042,37 @@ git -C E:/verify_reports worktree remove <임시경로>
   COMBO 요약표 '불일치 그룹 0개 / 최종상태 정상' 과 하단 '재이관 대상 400건' 은 기준이 혼재한다.
 - 참고: E:\verify_reports\SINGLE-STEP5-COMBO-VIEW-AND-SKEWED-GROUP-VOLUME-DIAGNOSE.txt
 
-### M10. 대표축 규칙이 두 파일에 복제돼 있고, gb_candidate_scores 를 채우면 순서 의존 경로가 되살아난다
-- 발견일: 2026-07-28
-- 근거 보고서: `PK-RANGE-CHUNK-REPRESENTATIVE-AXIS-UNIFY.txt` (§8)
-- 상세: 동치성 테스트로 묶어 두었으나 구조적으로는 services 쪽 단일 출처로 모으고 routes 가 호출하는
-  형태가 정답이다(`agg_diff_route.py` 수정 필요). `gb_candidate_scores` / `gb_selection_order` 를 운영에서
-  실제로 채울 때는 DIRECT 와 같은 결정성 요건을 함께 검토해야 한다.
-- 부수: 실측 픽스처(`mvbench.repaxis_a_*`/`repaxis_b_*`, 약 20만행)가 내부망 PG 에 남아 있다
-  (정리하려면 `repaxis_*` 만 DROP).
+### M10. 범위진단 완료 — 대표축 규칙 완전동일 복제 확인, 순서의존 재발 시나리오 정량화, 최소위험 통합설계 확정(승인 대기)
+- 발견일: 2026-07-28 / 범위진단: 2026-08-07 (M10-REPRESENTATIVE-AXIS-RULE-DUPLICATION-SCOPE-DIAGNOSE, 코드 무변경)
+- 근거 보고서: `PK-RANGE-CHUNK-REPRESENTATIVE-AXIS-UNIFY.txt`(§8, 최초) →
+  `M10-REPRESENTATIVE-AXIS-RULE-DUPLICATION-SCOPE-DIAGNOSE.txt`(범위진단)
+- 조사 결과: `pk_range_chunk.select_deterministic_rep_axis`와
+  `agg_diff_route._select_direct_rep_axis`가 **byte 단위로 완전 동일**(후보필터·band
+  상수·정렬키·반환 3분기·사유문구 전부 일치) — 리팩터링만으로 통합 가능한 순수 복제.
+  단, 이를 감싸는 상위 정책(D7-16C 분기)은 chunk 경로에만 있어 **비대칭**.
+- 순서의존 재발 시나리오(정량화): 현재 프로덕션 호출부(`agg_diff_route.py:337`)는
+  `gb_candidate_scores`/`gb_selection_order`를 전혀 전달 안 함 — 즉 지금은 잠재
+  위험 상태(실발동 아님). **둘 중 하나만 채워도** `_axis_policy_hint=True`가 돼
+  chunk 경로만 D7-16C 분기(점수/순서 기반)로 전환되고, DIRECT는 항상 결정적 규칙
+  그대로라 **5만행 경계에서 대표축 산정 규칙 종류 자체가 갈리는** 새 비대칭이 생김.
+  부가로 `axis_selection_deterministic` 배지가 DIRECT(항상 true 고정)/chunk(요동)
+  간 다른 근거로 표시돼 "chunk로 넘어가면 갑자기 불안정해진다"는 사용자 체감까지
+  구체적으로 예견됨.
+- 통합 설계(권장, 최소침습): `agg_diff_route.py`에서 상수 2개+함수 본문(32행) 삭제 →
+  `_select_direct_rep_axis = pc.select_deterministic_rep_axis` **1줄 재바인딩**(기존
+  `pc` alias 재사용, 신규 import 0개). 기존 회귀 테스트 15건(6+4+5) **무수정으로
+  그대로 통과** 가능(이름 유지 + 실제 반환값이 이제 항등 비교가 되므로). 위험도 낮음
+  — 프로덕션 동작 무변화, 반환값 불변.
+  ★ 승인 필요: `routes/agg_diff_route.py`가 최근 완료된 모듈이라 CLAUDE.md 예외조항
+  대상 — 착수 전 사용자 확인 필요.
+- 후속 별건(이번 범위 밖): 정책 계층 정합(D7-16C 분기를 DIRECT에도 이식 vs D7-16C
+  자체 폐기, 2안 중 결정) — `gb_candidate_scores`를 실제로 채우는 별도 과제 착수
+  "전에" 먼저 결정해야 함.
+- 부수 확인: 실측 픽스처(`mvbench.repaxis_a_*`/`repaxis_b_*`) 내부망 PG asis/tobe
+  양쪽에 여전히 존재(4개 테이블, 총 199,748행 — 원 서술과 정확히 일치, 읽기전용
+  재확인만·DROP 안 함).
 - 참고: E:\verify_reports\PK-RANGE-CHUNK-REPRESENTATIVE-AXIS-UNIFY.txt
+- 참고: E:\verify_reports\M10-REPRESENTATIVE-AXIS-RULE-DUPLICATION-SCOPE-DIAGNOSE.txt
 
 ### M11. ✅ 해결 완료 — 표본 조기중단 정책이 stream 경로(원본 5만행 초과)에서만 동작한다는 표시가 어디에도 없다
 - 발견일: 2026-07-28 / 해결일: 2026-08-07 (M11-SAMPLE-EARLY-STOP-STREAM-ONLY-INDICATOR-FIX,
