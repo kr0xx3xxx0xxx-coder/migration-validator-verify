@@ -2618,18 +2618,17 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: P9(해결 완료 — 이 사실이 확인된 작업)
 - 참고: E:\verify_reports\STRATEGY-PLAN-REMOTE-FLAG-EVIDENCE-BASED-FIX.txt (§6)
 
-### M20. 후보 프로파일링 문자 COUNT(DISTINCT) 에 조건부 캐릭터셋 노출이 있다(심각도 LOW · 현재 미발현)
-- 발견일: 2026-07-31
-- 근거 보고서: `CANDIDATE-PROFILING-NLS-CHARSET-EXPOSURE-DIAGNOSE.txt`
-- 상세: 숫자 프로파일링은 `TO_CHAR` 를 쓰지 않아 NLS 노출이 없다(실측 확인 — 연결단 `'.,'` 고정까지
-  더해 2중 방어). **문자 컬럼 `COUNT(DISTINCT)` 만** `NLS_COMP=LINGUISTIC` 세션에서 실제로 붕괴함을
-  실측으로 확인했다(distinct 4 → 2).
-  다만 asis/tobe 실 세션 모두 `NLS_COMP=BINARY`(기본)이고 코드가 이 값을 절대 바꾸지 않아 **현재는
-  미발현**이다. exact_diff(S12)와 달리 **순서의존 병합이 없어**(스칼라 값 1개만 반환) 대량 오탐 자체가
-  성립하지 않는 구조적 차이가 있다.
-- 대응 방향: 급하지 않다. 손댈 경우 오라클 어댑터 `connect()` 의 기존 `_pin_session_nls_numeric` 옆에
-  `NLS_COMP=BINARY` 1줄을 고정하는 것이 가장 값싼 방법이다.
+### M20. ✅ 해결 완료 — 후보 프로파일링 문자 COUNT(DISTINCT)의 조건부 캐릭터셋 노출 위험 제거(NLS_COMP=BINARY 고정)
+- 발견일: 2026-07-31 / 해결일: 2026-08-06 (M20-ORACLE-NLS-COMP-BINARY-PIN-FIX, 코드 커밋)
+- 근거 보고서: `CANDIDATE-PROFILING-NLS-CHARSET-EXPOSURE-DIAGNOSE.txt`(발견) →
+  `M20-ORACLE-NLS-COMP-BINARY-PIN-FIX.txt`(해결)
+- 해결 요약: 오라클 어댑터 `connect()`의 기존 `_pin_session_nls_numeric` 옆에
+  `NLS_COMP=BINARY` 세션 고정 1줄 추가(대응 방향에 적힌 그대로). 실 오라클 라이브
+  연결로 `SYS_CONTEXT('USERENV','NLS_COMP')` 조회해 BINARY 고정 실측 확인. 기존
+  `NLS_NUMERIC_CHARACTERS` 고정도 회귀 없이 유지 확인.
 - 관련: S12(exact_diff 캐릭터셋 정렬 붕괴) · S14(NLS 숫자 고정 잔여 위험)
+- 참고: E:\verify_reports\CANDIDATE-PROFILING-NLS-CHARSET-EXPOSURE-DIAGNOSE.txt
+- 참고: E:\verify_reports\M20-ORACLE-NLS-COMP-BINARY-PIN-FIX.txt
 - 참고: E:\verify_reports\CANDIDATE-PROFILING-NLS-CHARSET-EXPOSURE-DIAGNOSE.txt
 
 ### M17. ✅ 해결 완료(원인 추정 정정 — 서버 아니라 CSS 우선순위) — 재이관 드릴다운 라이브 레코드에 목적 미존재·값 불일치 강조(주황)가 서지 않는다
