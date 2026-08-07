@@ -3358,6 +3358,47 @@ git -C E:/verify_reports worktree remove <임시경로>
   2049-2060` 한 곳.
 - 근거 보고서: E:\verify_reports\STAGE4-TAB-LABEL-LAG-AND-PRIOR-STAGE-LOCK-SCOPE-DIAGNOSE.txt
 - 근거 보고서: E:\verify_reports\M47-PRIOR-STAGE-LOCK-AND-BADGE-LABEL-DISTINCTION-FIX.txt
+
+### M50. [문서화 우선, 구현 보류] 관리컬럼 판정에 자체호스팅 LLM(메타 라마)을 3차 근거로 추가하는 설계 확정 — 착수 전 애매 케이스 실측 선행 필요
+- 발견/계기: 2026-08-07 (사용자 요청 — 고객이 메타 오픈소스 LLM 기반 기능 탑재를 요구,
+  폐쇄망·무학습·프로젝트종료시 완전삭제 제약) / 조사: LLM-ADMIN-COLUMN-JUDGMENT-SCOPE-AND-
+  DESIGN-DIAGNOSE(코드 무변경, 설계 확정)
+- 핵심 발견(지시 범위보다 넓은 통찰): 관리컬럼(SYSTEM_AUDIT) 판정 로직
+  (`services/candidate_subtype_service.py::evaluate_admin_audit_crosscheck`)에서, LLM
+  삽입 후보가 **2곳**임을 확인. 지시서가 명시한 (A) N1/N3 애매배지 자리는 이미 화면에
+  경고가 뜨는 안전한 상태라 개선 가치가 편의성 위주인 반면, 조사 중 발견한 (B)
+  `axis_b=True(WEAK)+A=None → CONFIRMED` 자리는 **코드 주석 스스로 "미해소 한계"로
+  자백한 지점**으로, 배지조차 없이 조용히 GROUP BY 자동선정에서 하드 배제되는
+  **더 위험하고 가치 큰 자리**임을 확인. 우선순위는 사용자 확인 필요.
+- 설계 확정(전부 additive, 기존 규칙기반 판정 무변경):
+  1. LLM은 axis_a/axis_b 둘 다 결론 못 낸 자리에서만 호출(3차 근거).
+  2. 응답은 비대칭 반영 — "관리컬럼이다"만 승격 가능, "업무컬럼이다"로 판단해도 기존
+     CONFIRMED(하드 배제)를 자동 해제하지 않고 사람 검토로만 넘김(오탐 비용 > 미탐
+     비용, F18 결론과 일관).
+  3. 연동은 **표준 라이브러리 `urllib.request`로 Ollama OpenAI 호환 API 직접 호출**
+     (requests/httpx는 운영 코드에 전무 확인 — 신규 패키지 승인 절차 자체를 생략).
+  4. 미기동/장애 시 기존 `NXTDA_INTEGRATION_ENABLED`와 동일한 fail-open Noop 패턴으로
+     규칙기반 폴백(기본값 OFF, 인프라 없이도 전체 앱 무변경 동작). 배치 경로 타임아웃
+     누적 방지용 circuit-breaker 설계 포함.
+  5. 캐싱은 `db/migration_validator.db` 신규 테이블(`mv_admin_audit_llm_cache`),
+     정규화 컬럼명+코멘트유무만 키로 사용(원문 포함 시 히트율 붕괴, 컬럼명 단독 시
+     동명이의 오염 — 절충안), model_id+prompt_version으로 자동 무효화, 원문 응답 저장
+     (설명가능성 원칙 준수).
+  6. Docker 배포 체크리스트 항목(안) 확정 — `docs/DEPLOYMENT_CHECKLIST.md`에 "7. 자체
+     호스팅 LLM(Ollama) 서빙" 섹션 추가 가능(문서만, 코드 무관).
+- 착수 보류 근거(핵심 갭): "LLM이 실제로 몇 %의 컬럼에서 호출될지"를 현재 데이터로
+  추정할 수 없음 — F18의 479컬럼 스윕은 axis_a 단독 조사라 axis_b 교차표가 없어
+  (A)/(B) 삽입지점 각각의 실제 호출 빈도를 못 낸다. 이 숫자 없이 인프라(Ollama+모델+
+  Docker)부터 들이면 거의 안 쓰이는 기능에 배포 복잡도만 얹을 위험. F18이 이미
+  "3차 신호는 오탐률 미검증 시 착수 보류"라는 선례를 남긴 것과 동일 원칙 적용.
+- 대응 방향: 구현 착수 전, `evaluate_admin_audit_crosscheck`의 verdict 분포(N1/N2/N3,
+  CONFIRMED-by-B-only 비율)를 F18과 같은 방식(PostgreSQL 실 DB 스윕)으로 재는 **축소
+  실측 1건**(코드 계측만 필요, F18 대비 작은 작업)을 먼저 지시하고, 그 결과로 갭을
+  메운 뒤 "진행" 여부 재판정 권장. 또한 (A)/(B) 중 어디부터 반영할지 사용자 확인 필요.
+- 참고: 나이스/에듀파인 실데이터 매핑정의서 참고사전 활용(02-session 기록)이나 M41
+  (암호화여부 저장) 처럼, "3차 판정 근거를 추가한다"는 이 프로젝트의 반복되는 설계
+  패턴과 일관됨 — 완전히 새로운 아키텍처가 아니라 기존 다단계 판정 구조의 확장.
+- 근거 보고서: E:\verify_reports\LLM-ADMIN-COLUMN-JUDGMENT-SCOPE-AND-DESIGN-DIAGNOSE.txt
 - 근거 보고서: E:\verify_reports\STAGE4-TAB-LABEL-LAG-AND-PRIOR-STAGE-LOCK-SCOPE-DIAGNOSE.txt
 
 ---
