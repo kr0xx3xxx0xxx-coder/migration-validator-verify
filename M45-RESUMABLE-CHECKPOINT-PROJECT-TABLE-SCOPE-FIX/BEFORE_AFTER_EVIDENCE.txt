@@ -1,0 +1,52 @@
+M45-RESUMABLE-CHECKPOINT-PROJECT-TABLE-SCOPE-FIX 실측 검증 근거
+====================================================================
+
+재현 방법: 실제 브라우저(playwright)로 TESTONLY_REG 프로젝트 + PostgreSQL_Inter_asis/tobe(192.168.0.150)
+연결경로에서 실제 SQL(asis01.mvq_emp → ntb.mvq_tgt)로 1단계 분석까지 진행해 실제
+src/tgt profile(host:port/dbname)과 parse_result.from_table_qualified 값을 확보했다.
+확보값: src=192.168.0.150:5433/asis, tgt=192.168.0.150:5434/tobe, table_key=asis01.mvq_emp
+
+이 실제 값과 정확히 일치하는 MATCH checkpoint(run_id=M45VERIFYMATCH) 1건과, 완전히 다른
+profile/테이블(오라클류 가짜 host, run_id=M45VERIFYORPHAN)의 ORPHAN checkpoint 1건을
+db/chunk_checkpoints.db 에 INTERRUPTED_RESUMABLE 상태로 직접 심었다(BACKLOG.md M45 원 재현 방식과
+동일 — leftover checkpoint 행에 의한 오작동 재현). ORPHAN 의 updated_at 을 MATCH 보다 의도적으로
+더 최신으로 만들어, "무필터 + 최신순 1건" 이라는 수정 전 로직이 반드시 ORPHAN 을 고르는 조건을
+만들었다.
+
+[BEFORE — 수정 전 로직(무필터 + items[0])이 실제로 무엇을 골랐을지]
+python 직접 호출(services.exact_diff.chunk_checkpoint.list_resumable() 무인자 — 이 무인자 경로는
+하위호환을 위해 이번 수정에서도 동작이 그대로다):
+  결과 순서: ['M45VERIFYORPHAN', 'M45VERIFYMATCH']   (ORPHAN 이 최신 → items[0])
+routes.agg_diff_route.agg_diff_resumable() 무인자 호출도 동일하게 items[0] = 'M45VERIFYORPHAN'.
+→ 수정 전 `_mvExecReenterRestore()` 는 이 응답의 items[0].run_id 를 그대로 썼으므로, 완전히 무관한
+  ORPHAN(오라클류 가짜 profile, 다른 테이블) 체크포인트가 "복구 필요" 로 잘못 노출됐을 것이다.
+  이것이 BACKLOG M45 가 2026-08-06 에 실제로 겪은 증상과 동일한 조건이다.
+
+[AFTER — 수정된 로직 실측(실 브라우저 클릭만, 강제주입 없음)]
+같은 DB 상태(MATCH+ORPHAN 둘 다 INTERRUPTED_RESUMABLE, ORPHAN 이 더 최신)에서, 실제로 새 브라우저
+세션으로 asis01.mvq_emp 테이블의 1→2→3→4단계를 클릭으로 진행해 4번째 탭(통계검증 실행)에
+재진입했다(활성 run 없음 → _mvExecReenterRestore() 의 D7-19 폴백 발화).
+
+네트워크 실측(playwright response capture):
+  GET /agg-diff/resumable?src_host=192.168.0.150&src_port=5433&src_dbname=asis&tgt_host=192.168.0.150
+      &tgt_port=5434&tgt_dbname=tobe&table_key=asis01.mvq_emp
+  응답: {"ok": true, "count": 1, "items": [{"run_id": "M45VERIFYMATCH", ...}]}
+  → ORPHAN 이 더 최신인데도 필터링되어 응답에서 완전히 제외됨.
+
+화면 실측:
+  window._mvDisplayedRunId === "M45VERIFYMATCH"  (ORPHAN 아님)
+  #mvExecProgress 배너: "현재 상태: 복구 필요 / 서버가 재시작되어 실행이 중단되었습니다.
+    저장된 checkpoint(완료 0 chunk)부터 이어서 복구할 수 있습니다." — MATCH(현재 테이블) 기준으로만 표시.
+  스크린샷: A2_after_stage4_reenter_correct_scope_banner.png
+
+회귀 확인(같은 프로젝트/테이블 이어하기는 여전히 동작):
+  위 "복구 필요" 배너 자체가 MATCH(현재 세션과 동일 프로젝트/테이블) 체크포인트를 정상적으로
+  찾아 복구 후보로 제시한다는 증거다 — 스코프 필터가 자기 자신의 정당한 체크포인트까지 걷어내지
+  않음을 실측으로 확인했다.
+
+정리: 검증에 사용한 M45VERIFYMATCH/M45VERIFYORPHAN 두 checkpoint 행은 검증 완료 후
+status=CANCELLED 로 정리했다(DELETE 아님).
+
+파일: A0_setup_pair_connected.png(DB 연결경로 접속 화면), A1_stage1_real_context_analyze.png
+      (실제 분석 결과 — from_table_qualified=asis01.mvq_emp 확보 지점), A2_after_...png(위 4단계
+      재진입 결과), m45_state.json(스크립트가 수집한 원시 상태 JSON — 네트워크 호출/배너 텍스트 포함).

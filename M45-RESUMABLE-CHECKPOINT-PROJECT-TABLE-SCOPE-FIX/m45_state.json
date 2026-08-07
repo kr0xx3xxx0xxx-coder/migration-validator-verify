@@ -1,0 +1,93 @@
+{
+  "sql": "INSERT INTO ntb.mvq_tgt (emp_no, dept_nm, salary) SELECT emp_no, dept_no, salary FROM asis01.mvq_emp",
+  "notes": [],
+  "setup": {
+    "project": "TESTONLY_REG",
+    "pair_rows": 1
+  },
+  "state": {
+    "from_table": "MVQ_EMP",
+    "from_table_qualified": "asis01.mvq_emp",
+    "src": {
+      "host": "192.168.0.150",
+      "port": 5433,
+      "dbname": "asis"
+    },
+    "tgt": {
+      "host": "192.168.0.150",
+      "port": 5434,
+      "dbname": "tobe"
+    },
+    "analyzeError": null,
+    "analyzeDataKeys": [
+      "success",
+      "error",
+      "physical_source_tables",
+      "cte_names",
+      "lineage_resolved_columns",
+      "cte_derived_columns",
+      "needs_review",
+      "confidence",
+      "conf_reasons",
+      "candidate_gate_open",
+      "candidate_lineage",
+      "warnings",
+      "sql_warnings",
+      "normalization_applied",
+      "normalization_kind",
+      "parse_result",
+      "analyze_result",
+      "chunk_key_evidence_snapshot",
+      "target_pk_evidence",
+      "all_groupby_candidates",
+      "all_sum_candidates",
+      "gb_candidacy_summary",
+      "column_comment_count",
+      "migration_quality_warnings",
+      "auto_tgt_where",
+      "tgt_where_used",
+      "provider_mode",
+      "count_sql_hint",
+      "validation_sets_preview",
+      "sql_shape",
+      "candidate_scoring",
+      "candidate_evidence_summary",
+      "recommendation_policy_summary",
+      "profile_status",
+      "common_candidates",
+      "effective_policy",
+      "dependency_map",
+      "dependency_pruning_applied_to_candidate",
+      "table_load_profiles",
+      "diagnostics",
+      "error_contract",
+      "validation_context",
+      "workflow_token",
+      "workflow_generation",
+      "selection_evidence",
+      "_countSqlGenerated"
+    ]
+  },
+  "stage4": {
+    "resumable_calls": [
+      {
+        "q": "src_host=192.168.0.150&src_port=5433&src_dbname=asis&tgt_host=192.168.0.150&tgt_port=5434&tgt_dbname=tobe&table_key=asis01.mvq_emp",
+        "ok": true,
+        "count": 1,
+        "run_ids": [
+          "M45VERIFYMATCH"
+        ]
+      },
+      {
+        "q": "src_host=192.168.0.150&src_port=5433&src_dbname=asis&tgt_host=192.168.0.150&tgt_port=5434&tgt_dbname=tobe&table_key=asis01.mvq_emp",
+        "ok": true,
+        "count": 1,
+        "run_ids": [
+          "M45VERIFYMATCH"
+        ]
+      }
+    ],
+    "displayed_run_id": "M45VERIFYMATCH",
+    "recovery_banner": "상세비교 실행현재 상태: 복구 필요서버가 재시작되어 실행이 중단되었습니다. 저장된 checkpoint(완료 0 chunk)부터 이어서 복구할 수 있습니다.복구 후 계속처음부터 다시 실행"
+  }
+}
