@@ -964,6 +964,15 @@ git -C E:/verify_reports worktree remove <임시경로>
   2축 22.2초→10.0초 -55.2%, 20.4초→12.0초 -41.2%)를 먼저 활용하는 게 합리적.
 - 한계: 이 결론은 Oracle Free 23ai/26ai 단일 인스턴스·병렬 옵션 없음 조건에 묶여 있음 —
   Enterprise/RAC 등 다른 환경에서는 결과가 다를 수 있음.
+- 추가 보강(§4-7, 2026-08-07): PostgreSQL(42M행)에서는 **결론이 반대 방향**이다 —
+  GROUPING SETS가 오라클과 달리 EXPLAIN상 진짜 Seq Scan 1회(HashAggregate 단일 컴파일)로
+  실행돼 "1회 스캔" 전제가 PG에서는 성립함(UNION ALL -45.2%, GROUPING SETS -42.2%, 정합성
+  이상 없음). 다만 이 인스턴스에서 GROUPING SETS 실행 시 병렬 워커를 0개(직렬) 쓴 반면
+  순차/UNION ALL은 2개를 써서, "스캔 감소 이득"이 "병렬 손실"로 상당 부분 상쇄돼 결과적으로
+  GROUPING SETS가 UNION ALL보다 오히려 느린 역전이 발생(병렬워커 설정에 따라 바뀔 수 있음,
+  별도 튜닝 미실험). → "통합쿼리 아이디어 자체가 틀렸다"가 아니라 "오라클 인스턴스에서만
+  이득이 없다"가 정확한 결론. PostgreSQL 주력 환경이 생기면 이 §4-7이 재검토 1차 근거이나,
+  병렬 워커 손실 규명 전까지는 이것도 "보류" 결론 안에 포함됨.
 - 참고: E:\verify_reports\LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt
 - 참고: E:\verify_reports\M21-MULTI-AXIS-SINGLE-SCAN-SCOPE-DESIGN-DIAGNOSE.txt
 
