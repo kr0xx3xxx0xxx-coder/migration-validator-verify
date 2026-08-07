@@ -937,17 +937,30 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: P11(선행), P12(같은 '측면 병렬' 개념)
 - 참고: E:\verify_reports\LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt
 
-### M21. 다축 통계검증이 축 수만큼 같은 테이블을 반복 풀스캔한다(구조적 개선 여지 — 장기, 지금 권하지 않음)
-- 발견일: 2026-08-01
-- 근거 보고서: `LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt` (§4-c4)
-- 상세: GROUP BY 2축이면 같은 3GB 테이블을 **2번 통째로** 읽는다. 축 수에 비례해 스캔량이 늘어난다.
-  `GROUPING SETS` 로 한 번의 스캔에서 축별 집계를 동시에 얻어 스캔을 1회로 줄이는 아이디어가 있다.
-- 위험: 결과 shape 가 크게 바뀌고(집계 행에 NULL 축이 섞인다), 세트별 `result_id` · 저장 · 화면 렌더가
-  **전부 세트 단위로 짜여 있어 파급이 매우 크다.** 정합성 리스크 대비 이득이 불확실하다.
-- 대응 방향: **지금 권하지 않는다.** P11 로 얻는 -41~55% 를 먼저 취하고, 그래도 부족할 때
-  별도 설계 검토 대상으로 남긴다.
-- 비고: 성능 항목이지만 `M`(경미·장기) 번호를 부여했다 — 지금 착수 대상이 아님을 번호로 드러내기 위함이다.
+### M21. ✅ 착수 보류 재확정(실측 기반) — 다축 통계검증 반복 풀스캔, UNION ALL/GROUPING SETS 둘 다 성능 근거 없음
+- 발견일: 2026-08-01 / 재조사: 2026-08-07 (M21-MULTI-AXIS-SINGLE-SCAN-SCOPE-DESIGN-DIAGNOSE)
+- 근거 보고서: `LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt`(§4-c4, 최초) →
+  `M21-MULTI-AXIS-SINGLE-SCAN-SCOPE-DESIGN-DIAGNOSE.txt`(재조사, 실측으로 기각)
+- 재조사 결론: 원래 아이디어("한 번 스캔으로 여러 축 집계")의 전제 자체가 이 오라클
+  인스턴스(Oracle Free)에서 성립하지 않음을 EXPLAIN PLAN+실측으로 반증.
+  · **GROUPING SETS**: 오라클이 "TEMP TABLE TRANSFORMATION"으로 실행 — 원본 1회 풀스캔 후
+    임시 세그먼트(570~760MB)에 써서 축 개수만큼 재읽기 → 직접 재스캔보다 **56.3% 더 느림**
+    (28,241ms→44,136ms). MySQL 8.0.31 미만 미지원(현재 5.7 호환 유지 중이라 확인)이라
+    4방언 완전지원도 아님.
+  · **UNION ALL**: EXPLAIN상 스캔 횟수 불변(TABLE ACCESS FULL 2회 그대로). execute 구간만
+    보면 44.9% 개선처럼 보이나 이는 오라클이 첫 branch만 execute()에서 완성하고 둘째
+    branch는 fetch()에서 지연 실행하는 측정 함정 — execute+fetch 정직 합산 시 **7.2% 더
+    느려짐**(28,241ms→30,264ms).
+  · 좋은 소식(구조적 발견): 판정(비교) 엔진 자체(`stats_execute_service.py`)는 "세트=축1개"를
+    요구하지 않음 — AXIS 판별 컬럼만 gb_keys에 포함시키면 무변경 재사용 가능함을 실측 확인
+    (union_all_matches_sequential=true 등). 재검토 시 재작성 범위가 "SQL 조립+결과분배"로
+    국한된다는 뜻(판정 로직은 안전).
+- 대응 방향(재확정): **여전히 착수 안 함.** 이미 확인된 더 확실한 레버(세트 병렬,
+  2축 22.2초→10.0초 -55.2%, 20.4초→12.0초 -41.2%)를 먼저 활용하는 게 합리적.
+- 한계: 이 결론은 Oracle Free 23ai/26ai 단일 인스턴스·병렬 옵션 없음 조건에 묶여 있음 —
+  Enterprise/RAC 등 다른 환경에서는 결과가 다를 수 있음.
 - 참고: E:\verify_reports\LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt
+- 참고: E:\verify_reports\M21-MULTI-AXIS-SINGLE-SCAN-SCOPE-DESIGN-DIAGNOSE.txt
 
 ### P10. ✅ 해결 완료 — 재이관 레코드 수집이 HARD CAP 500 에 막혀 대량·흩어진 불일치의 전량 확보가 불가능하다 + 같은 화면 요약표 숫자가 실제 규모를 오독시킨다
 - 해결일: 2026-08-02 (P10-SUMMARY-COUNT-DISPLAY-DISAMBIGUATION-FIX · 2026-08-03 재검증)
