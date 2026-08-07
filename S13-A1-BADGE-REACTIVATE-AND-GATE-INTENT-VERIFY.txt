@@ -1,0 +1,280 @@
+작업명 : S13-A1-BADGE-REACTIVATE-AND-GATE-INTENT-VERIFY
+⚠️ 추가 작업 필요 - 1번 이력확인 결과 "배지 주입 금지"는 판정 단일출처(Live vs Preview) 보호를 위한 의도적 차단으로 확인 → 지침 1번 규칙대로 A1 미적용·코드 무변경으로 멈춤. 3번 GROUP BY 게이트는 설계 문서와 코드가 3중 일치하는 의도된 설계로 확인(변경 없음). 잔여A 방향은 사용자 재결정 필요.
+
+================================================================================
+0. 수행 요약
+================================================================================
+지침 순서 그대로 수행했다. 1번(이력 확인)에서 "의도적 차단" 판정이 나왔으므로 지침 1번의
+분기 규칙("적용하지 말고 이유를 완료보고에 정리해서 멈춰라")에 따라 2번(A1 적용)을 수행하지
+않았고, 따라서 검증(서버 재기동·before/after 스크린샷)도 해당 없음이다.
+3번(GROUP BY 게이트 의도 확인)은 "의도됨"으로 확인되어 역시 코드 변경 없음.
+
+  변경한 파일 : 없음 (0건)
+  커밋        : 없음 (코드 무변경이므로 커밋 대상 없음)
+  실 DB 접속  : 없음 (A1 미적용 → 오라클 픽스처 재현 불필요)
+
+선행 조사본(X:\Verify\_rpt_push\S13-VARCHAR2-BYTE-CHAR-STATUS-RECHECK-DIAGNOSE.txt)을 실제로
+열어 대조했고, 사실관계 차이는 없었다. 라인번호만 오늘 기준으로 갱신했다.
+
+  항목                                    조사본(2026-08-06)   오늘 실측(2026-08-07)
+  ────────────────────────────────────────────────────────────────────────────────
+  "배지 주입 금지" 주석                    tabler_renderer:25995   :26080
+  _applyCsrBadges 함수 정의                tabler_renderer:26261   :26346
+  숨김 CSR 패널 #csrPreviewDetails          tabler_renderer:2926    :2928
+  GROUP BY 게이트                          runner:697              :697 (동일)
+  실효수용량 판정 블록                      runner:448~464          :448~464 (동일)
+
+================================================================================
+1. 잔여A 배지 재활성화 전 이력 확인 (지침 1번) — 결과: 의도적 차단 → 멈춤
+================================================================================
+
+1-1. git 이력 추적 결과
+--------------------------------------------------------------------------------
+  git log --all -S"_applyCsrBadges"            → b72f57c 단 1건
+  git log --all -S"_applyCsrBadges 호출 제거"   → b72f57c (+ 이후 파일복사/정리 커밋 5건)
+  git blame -L 26080 -- ui/tabler_renderer.py  → ^b72f57c (2026-05-22 10:58:49 +0900)
+
+  b72f57c "checkpoint: count-first flow and sticky progress UI" (2026-05-22)
+    · ui/tabler_renderer.py 를 4,690줄 **신규 추가**한 초기 checkpoint 커밋
+    · 즉 `_applyCsrBadges` 함수와 그 "호출 제거" 주석이 **같은 커밋에서 동시에** 들어왔다
+      (호출이 살아 있던 커밋이 git 이력에 존재하지 않는다 — 개발 중 결정이 squash됨)
+    · 커밋 메시지 본문에 CSR/배지 관련 언급 없음 → 커밋 메시지만으로는 사유 판별 불가
+
+따라서 커밋 메시지 대신 **코드에 남은 금지 계약 + 설계 문서**로 의도 여부를 판정했다.
+아래 6개 근거가 모두 같은 방향(=의도적 차단)을 가리킨다.
+
+1-2. 의도적 차단 판정 근거 (6종)
+--------------------------------------------------------------------------------
+[근거1] 주석 자체가 "제거했다"가 아니라 **금지 규칙** 문형이다.
+  ui/tabler_renderer.py:26080
+    /* _applyCsrBadges 호출 제거 — 선택패널에 CSR 배지 주입 금지 */
+  실수로 지운 잔재라면 대상("선택패널")과 금지어("주입 금지")를 명시하지 않는다.
+
+[근거2] 제거와 **동시에 대체 조치**가 바로 다음 줄에 배치돼 있고, 거기에 사유가 적혀 있다.
+  ui/tabler_renderer.py:26081~26082
+    /* 통합표 재구축: analyze 데이터 기반 (CSR 점수 덮어쓰기 방지) */
+    if (_analyzeData) renderUnifiedColTable(_analyzeData);
+  → 차단 사유 = "CSR 점수가 analyze(라이브) 값을 덮어쓰는 것을 막기 위함". 배선 미완성이
+    사유였다면 대체 렌더 경로를 같이 넣을 이유가 없다.
+
+[근거3] 같은 흐름 안에 **또 다른 배지 주입 금지 규칙**이 독립적으로 존재한다.
+  ui/tabler_renderer.py:26068
+    /* Stage-6: unmatched rows 제외 — 후보 목록에 없는 CSR 결과는 배지 주입 금지 */
+  → "배지 주입"은 이 코드베이스에서 상시 위험 관리 대상이었다(1회성 실수가 아님).
+
+[근거4] CSR→선택패널 주입 경로가 **함수 단위로 통째 봉인**돼 있다(한 줄 누락이 아님).
+  · _applyCsrBadges (:26346)        — 호출부 0건
+  · _updateUnifiedColWithCsr (:26468) — 호출부 0건, 함수 주석에 "요약표는
+    renderUnifiedColTable(_analyzeData) 재구축으로 처리 (P4)"라고 대체 경로 명시
+  → 배지 주입 계열 2개 함수가 함께 죽어 있고 둘 다 대체 경로가 문서화돼 있다 = 정책적 차단.
+
+[근거5] route 헤더에 **영향 금지 계약**이 명문화돼 있다.
+  routes/csr_preview_route.py 헤더 주석(원문)
+    "기존 auto_selected 변경 금지 (이 route는 /analyze 후보 선택에 영향 없음)"
+    "Real Provider 연결 원칙 금지(NullProvider 효과) — 단, F14로 Oracle 한정 예외를 둔다"
+  UI 패널 문구도 "▸ 후보추천 미리보기 (NullProvider 기반 · 참고용)"로 참고용임을 못박음.
+
+[근거6] **설계 문서 2건**이 Live(라이브 후보선정)와 Preview(/csr-preview)의 격리를 명시한다.
+  docs/STATUS_VOCABULARY_SINGLE_SOURCE.md §4 (원문)
+    "Preview/Test 전용(candidate_scoring_runner selection_status, simulated_*, /csr-preview):
+     필드명 분리 + UI fallback 우선순위로 Live 와 격리 — 계약 유지, **병합 금지**."
+  docs/TOP_N_SELECTION_SINGLE_SOURCE.md §4 (원문)
+    "candidate_scoring_runner._apply_top_n / _apply_top_n_by_table — /csr-preview 전용.
+     임계값 기반(SUM 55·GB 60), fallback TOP1. **라이브 4경로 미연결**."
+  → Stage3 선택패널의 판정 단일출처는 라이브 경로(candidate_display_enricher.
+    _apply_global_autoselection)다. 여기에 preview 판정 배지를 주입하는 것은 문서가
+    "병합 금지"로 못박은 행위에 정확히 해당한다.
+
+1-3. 반대 가설("지금은 F14로 해소된 이유였다") 검토 결과 — 성립하지 않음
+--------------------------------------------------------------------------------
+지침이 제시한 반대 가설은 "그때는 배선이 안 됐었는데 지금은 F14로 다 됐다"였다. 이 가설이
+맞으려면 차단 사유가 "값이 비어 있어서"여야 하는데, 실측 결과 F14 이후에도 **비오라클
+경로에서는 값이 여전히 비어 있고**, 그 상태에서 배지를 켜면 화면이 오염된다.
+
+  실측(코드 무변경, /csr-preview 라우트 직접 호출 — 기존 테스트 픽스처 _simple_req 사용):
+    ('SUM',      'MANUAL_REQUIRED', 'UNKNOWN_COMPATIBILITY')  3건
+    ('GROUP_BY', 'MANUAL_REQUIRED', 'UNKNOWN_COMPATIBILITY')  3건
+    critical_fail_count = 0
+  근거: candidate_scoring_runner.py:336~337
+    if tgt_meta is None: return "UNKNOWN_COMPATIBILITY", ["UNKNOWN_TARGET_COMPATIBILITY"], True
+  → tgt_meta 미공급(=NullProvider) 시 모든 후보가 risk_gate_blocked=True → MANUAL_REQUIRED.
+
+  F14는 `conn.db_type == oracle` 일 때만 OracleMetadataProvider 를 만든다
+  (services/analyze_to_csr_adapter.py:75). 즉 PG/MySQL/MSSQL 및 접속정보 미제공 상태는
+  지금도 NullProvider 그대로다. 배지를 되살리면:
+    · PostgreSQL·MySQL·MSSQL 사용자 화면 = 모든 후보에 주황색 '확인필요' 배지가 일괄 부착
+    · 같은 컬럼에 라이브 판정('추천')과 preview 판정('확인필요')이 나란히 표시 → 정면 충돌
+    · 오라클 접속 시에만 배지가 달라지는 DBMS별 비대칭 노출
+  → 차단 사유는 "해소된 과거 사정"이 아니라 **지금도 유효한 현재형 위험**이다.
+
+1-4. 추가 발견 — A1은 적용해도 지침의 목적(실효수용량 위험 노출)을 달성하지 못한다
+--------------------------------------------------------------------------------
+_applyCsrBadges(:26346~26430)가 만드는 배지의 **눈에 보이는 텍스트**는
+selection_status 라벨 + 점수뿐이다(:26358~26364, :26403).
+    SELECTED_DEFAULT→'추천' / AVAILABLE_ADDITIONAL→'선택가능' / MANUAL_REQUIRED→'확인필요'
+    EXCLUDED_BY_RULE→'규칙제외' / NOT_APPLICABLE→'해당없음'
+compatibility_status 와 risk_flags 는 **마우스 hover 시 title 툴팁**에만 들어가고,
+risk_flags 는 앞 2개만 잘라서 표시한다(:26394~26395). 붉은 강조(cs-csr-critical)는
+critical_fail_flags 가 있을 때만 붙는다(:26401).
+
+실효수용량 위험 컬럼(VARCHAR2, char_used='B', 목적지 실효 수용량 축소)의 실제 값은
+    compatibility_status = PRECISION_LOSS_RISK, risk_gate_blocked = False
+    risk_flags = [CHAR_CAPACITY_SHRINK_RISK, PRECISION_LOSS_RISK]   (runner:459~463)
+이고, 이는 critical_fail 이 아니며 3번 게이트도 통과한다. 따라서 배지를 되살려도
+    · GROUP BY 축 배지 표시 = '추천'(파란색) ← 조용한 절단 위험이 있는 컬럼에 '추천'이 붙음
+    · SUM 축 배지 표시     = '해당없음'(문자형이므로 :497에서 즉시 NOT_APPLICABLE)
+    · 위험 문구는 hover 툴팁 안에서만, 그것도 다른 항목들과 섞여 노출
+→ "위험을 사용자 화면에 노출"이라는 목적 대비 효과가 거의 없고, 오히려 위험 컬럼에
+  '추천' 라벨을 새로 붙이는 역효과가 난다. 이 점만으로도 A1 을 그대로 되살리는 것은
+  부적절하다.
+
+1-5. 지침 1번에 대한 최종 판정
+--------------------------------------------------------------------------------
+  판정 : **의도적 차단** (판정 단일출처 보호 + preview 값 오염 방지)
+  조치 : 지침 1번 규칙대로 **적용하지 않고 멈춤**. ui/tabler_renderer.py 및
+         routes/csr_preview_route.py 를 포함해 **어떤 파일도 수정하지 않았다**.
+  사용자 재확인 필요 사항 : 아래 4절 참고.
+
+================================================================================
+2. 잔여A A1 적용 (지침 2번) — 미수행
+================================================================================
+지침 1번의 분기 규칙에 따라 수행하지 않았다. 코드·설정·문서 변경 0건.
+(임의로 A2 로 전환하지도 않았다 — 지침 명시 사항 준수.)
+
+================================================================================
+3. 잔여B GROUP BY 게이트 의도 확인 (지침 3번) — 결과: 의도된 설계로 확인, 변경 없음
+================================================================================
+
+3-1. 현재 코드
+--------------------------------------------------------------------------------
+  services/candidate_scoring_runner.py:696~699
+    # Step 2-C: risk_gate_blocked → MANUAL_REQUIRED
+    if risk_gate_blocked and compatibility_status not in ("COMPATIBLE", "PRECISION_LOSS_RISK"):
+        reason_codes.append(f"GB_MANUAL_{compatibility_status}")
+        return applicability, _calc_gb_score(...), "MANUAL_REQUIRED", reason_codes
+  (SUM 축 :525 에도 동일 조건이 대칭으로 존재)
+
+3-2. 이 조건이 설계 의도임을 보이는 3중 일치
+--------------------------------------------------------------------------------
+[일치1] 상수 집합이 애초에 PRECISION_LOSS_RISK 를 제외하고 정의돼 있다.
+  candidate_scoring_runner.py:56~61
+    # risk_gate_blocked = True인 compatibility_status
+    RISK_GATE_BLOCKED_STATUSES = {
+        "CAST_REQUIRED", "SCALE_MISMATCH", "DATE_FORMAT_TRANSFORM_REQUIRED",
+        "NORMALIZATION_RULE_REQUIRED", "MANUAL_REQUIRED", "UNKNOWN_COMPATIBILITY",
+        "TYPE_MISMATCH",
+    }
+  → PRECISION_LOSS_RISK 와 COMPATIBLE 은 처음부터 차단 대상이 아니다. 즉 :697 조건문의
+    `not in ("COMPATIBLE","PRECISION_LOSS_RISK")` 부분은 구조상 **중복 방어**이고,
+    같은 정책을 두 곳에 이중으로 못박은 형태다(우연한 누락과 정반대 형태).
+
+[일치2] 설계 문서가 표로 명시한다 — "False (경고)".
+  docs/CANDIDATE_SCORING_RUNNER_DESIGN.md §9.2 compatibility_status 후보 정의(원문 표)
+    | compatibility_status | 의미                              | risk_gate_blocked | 예시 |
+    | PRECISION_LOSS_RISK  | 정밀도 축소로 SUM 결과값 차이 발생 가능 | **False (경고)**  | NUMERIC(15,2)→NUMERIC(10,2) |
+  같은 표의 다른 7개 상태는 모두 True 로 적혀 있다. 즉 "경고이되 차단은 아님"이 문서화된
+  단일 예외로 설계돼 있다.
+
+[일치3] GROUP BY 기본선택 금지 조건 목록에 애초에 없다.
+  docs/CANDIDATE_SCORING_RUNNER_DESIGN.md §8.5 "GROUP BY 기본 선택 금지 조건" 표의 8개 조건
+  (is_pk / is_unique / n_distinct / 고카디널리티 / IDENTIFIER / SORT_ORDER / CONSTANT /
+   datetime / stats+semantic 부재) 중 compatibility 계열 위험은 TYPE_MISMATCH 만 별도
+  처리(:686~689)되고 PRECISION_LOSS_RISK 는 목록에 존재하지 않는다.
+
+3-3. 위험이 다른 축에서 처리되고 있다는 방증
+--------------------------------------------------------------------------------
+PRECISION_LOSS_RISK 를 "그냥 통과시키고 끝"이 아니라, SUM 축에서는 별도 Critical FAIL
+규칙으로 잡는다.
+  candidate_scoring_runner.py:895~897
+    # CF-SUM-03: PRECISION_LOSS_RISK → SUM SELECTED_DEFAULT
+    if "PRECISION_LOSS_RISK" in rflags and sum_ss == "SELECTED_DEFAULT":
+        fails.append("CF-SUM-03")
+→ 즉 "정밀도 손실 위험이 있는데 SUM 자동선정까지 됐다면 그건 Critical"이라는 별도 안전망이
+  설계돼 있다. 게이트를 통과시키는 것이 위험 무시가 아니라, 축별로 다른 장치를 둔 설계다.
+
+3-4. 지침 3번에 대한 최종 판정
+--------------------------------------------------------------------------------
+  판정 : **이 설계는 의도된 것으로 확인됨**
+         (PRECISION_LOSS_RISK = 설명 전용 경고. 경고는 남기되 후보자격에서 자동배제하지
+          않는다는 정책이 상수 정의·게이트 조건·설계 문서 2개 절에 일관되게 존재)
+  조치 : **코드 변경 없음**. :697 게이트를 그대로 둔다.
+  주의 : 다만 이 "의도"는 선행 조사본이 지적한 결론(④⑤ 미해소)을 뒤집지 않는다. 게이트가
+         의도대로 동작한다는 것은 "위험이 사용자에게 경고로 보여야 한다"는 전제 위에서만
+         성립하는데, 1절에서 확인했듯 그 경고가 현재 사용자 화면에 도달하지 못한다.
+         즉 설계는 정합하지만 그 설계의 전제(경고 노출)가 충족되지 않은 상태다.
+
+================================================================================
+4. 회귀 실행 결과 (코드 무변경 — 현 상태 확인 목적)
+================================================================================
+코드를 바꾸지 않았으므로 지침상 검증 대상은 아니지만, 판정 근거가 되는 모듈이 현재 정상인지
+확인하기 위해 관련 스위트를 실행했다(작업 전후 코드 동일 → before/after 차이 없음).
+
+  .venv python 3.14.4 / 실행 시각 2026-08-07
+
+  ① pytest tests/test_varchar2_byte_char_capacity.py tests/test_candidate_scoring_runner.py
+           tests/test_csr_preview_csr_rows.py tests/test_csr_preview_route.py
+           tests/test_analyze_to_csr_adapter.py tests/test_csr_apply_selection.py -q
+     → 251 passed, 5 skipped, **1 failed** (9.97s)
+        실패 1건 = tests/test_csr_apply_selection.py::TestRunGeneratePayloadUnchanged
+                   ::test_checkboxes_still_source_of_selection
+        원인 = **사전 존재(baseline) LEGACY_ASSERT**. runGenerate 가 현재
+               collectFinalCandidateSelection() 단일 출처를 쓰도록 바뀌었는데(체크박스는
+               그 안에서 읽는다) 테스트만 옛 `querySelectorAll` 문자열을 검사한다.
+        무관 근거 = 이번 작업의 변경 파일 0건. git status 로 ui/tabler_renderer.py,
+               services/candidate_scoring_runner.py, routes/csr_preview_route.py 모두
+               작업트리 clean(HEAD 상태) 임을 확인 → 실행 대상이 곧 HEAD 코드다.
+               동일 유형이 docs/DEFERRED_BACKLOG_AFTER_SINGLE_COMPLETION.md 의
+               BASELINE-LEGACY-ASSERT-REFRESH 군에 이미 등록돼 있다.
+     → **신규 회귀 0건**
+
+  ② python samples/test_virtual_cases.py   → 8/8 통과 (전체 8개 케이스 통과)
+  ③ python samples/test_complex_cases.py   → 5/5 케이스 분석 완료 (신뢰도 LOW/FAIL 판정 정상)
+
+스크린샷 : 없음. 지침의 검증 항목이 "1·2번이 실제로 적용된 경우만 해당"이고 A1 을 적용하지
+           않았으므로 서버 재기동·오라클 픽스처·before/after 캡처를 수행하지 않았다
+           (E:\verify_screenshots_only\S13-A1-...\ 폴더 미생성).
+
+================================================================================
+5. 변경 파일 목록
+================================================================================
+  없음 (0건). 코드·설정·문서·테스트 어느 것도 수정하지 않았고 커밋도 생성하지 않았다.
+  실 DB 접속 0회, 오라클 픽스처 생성 0건.
+
+================================================================================
+6. 다음 지침을 위한 선택지 (제안만 — 임의 진행하지 않음)
+================================================================================
+잔여A(위험을 Stage3 실사용 화면에 노출)는 유효한 미해소 과제로 남아 있다. 다만 1절에서
+확인한 대로 **A1(원형 그대로 재활성화)은 부적합**하다. 방향 재결정이 필요하다.
+
+  옵션 A1' (배지 재활성화 + 범위 축소) — 구조 훼손 최소
+    · _applyCsrBadges 를 그대로 켜지 말고, **위험 전용 배지**만 새로 주입한다.
+      조건 = risk_flags 에 CHAR_CAPACITY_SHRINK_RISK 가 있을 때만, 표시 = '길이 축소 위험'.
+      selection_status 라벨(추천/확인필요/…)은 계속 주입 금지 → 라이브 판정 단일출처 유지.
+    · NullProvider 결과(UNKNOWN_COMPATIBILITY)는 배지 대상에서 제외 → DBMS 비대칭 오염 회피.
+    · 장점: 문서의 "병합 금지"(판정 라벨) 계약을 지키면서 위험만 노출. 회귀면적 최소.
+    · 위험: ui/tabler_renderer.py 에 UI 규칙이 1건 추가됨(파일 비대화 소폭 증가).
+    · 필요 승인: 완료 모듈 인접 UI 변경 + csr_preview_route 호출 조건 유지 확인.
+
+  옵션 A2 (analyzer 계열 이식) — 조사본이 제시한 구조적 안
+    · 로직 중복(같은 계산 2벌 유지)이 발생. CLAUDE.md "구조 안정화 우선"과 충돌 가능.
+    · Stage3 실사용 경로를 직접 건드리므로 회귀면적이 A1' 보다 훨씬 넓다.
+
+  옵션 C (현행 유지 + 문서화)
+    · S13 잔여를 "설계상 preview 전용"으로 확정하고 BACKLOG 에 사유를 남긴다. 코드 0줄.
+
+  권장 순서(판단 근거: 구조 안정성·회귀면적·문서 계약 준수):  A1' > C > A2
+  단, 어느 것도 이번 지침의 승인 범위가 아니므로 진행하지 않았다.
+
+================================================================================
+7. 부가 확인 사항 (참고)
+================================================================================
+· 선행 조사본이 "F14가 배선을 완성했다"고 한 것은 **오라클 + 접속정보 명시 전달** 조건
+  한정이며, 그 외 경로는 지금도 NullProvider 다(analyze_to_csr_adapter.py:75). 잔여A 를
+  어떤 방식으로 진행하든 이 비대칭을 UI 조건에 반드시 반영해야 한다.
+· _updateUnifiedColWithCsr(:26468)도 호출부 0건인 죽은 함수다. 잔여A 착수 시 두 함수의
+  역할 중복(배지 주입 vs data-csr-desc 갱신)을 먼저 정리하지 않으면 경로가 다시 이원화된다.
+· tests/test_csr_preview_csr_rows.py 는 `_applyCsrBadges` 함수의 **존재**만 요구하고
+  (:246~249) 호출 여부는 검사하지 않는다. 즉 현재의 "함수는 남기되 호출은 막는다" 상태가
+  테스트 계약과도 정합하며, 이 역시 의도적 봉인의 방증이다.
+
+⚠️ 추가 작업 필요 - 1번 이력확인 결과 "배지 주입 금지"는 판정 단일출처(Live vs Preview) 보호를 위한 의도적 차단으로 확인 → 지침 1번 규칙대로 A1 미적용·코드 무변경으로 멈춤. 3번 GROUP BY 게이트는 설계 문서와 코드가 3중 일치하는 의도된 설계로 확인(변경 없음). 잔여A 방향은 사용자 재결정 필요.
