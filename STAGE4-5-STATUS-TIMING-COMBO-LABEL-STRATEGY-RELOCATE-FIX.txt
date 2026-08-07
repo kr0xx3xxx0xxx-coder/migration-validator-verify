@@ -1,0 +1,170 @@
+작업명 : STAGE4-5-STATUS-TIMING-COMBO-LABEL-STRATEGY-RELOCATE-FIX
+✅ 작업 완료 - 5단계 '상태' 표시 시점 지연 · 조합검증 문구 한 줄 통합 · 통계전략 SQL 하단 이동 3건 구현·실측·커밋 완료
+
+────────────────────────────────────────────────────────────────────────────
+[1순위] '통계검증 실행 결과' 타일의 '상태' 표시 시점을 5단계 완료 후로 지연
+────────────────────────────────────────────────────────────────────────────
+문제   5단계 결과확인 화면에서 '재이관PK'가 '준비 중'인데 바로 옆 '상태'는 이미
+       '불일치'로 확정 표기됐다. 4단계 통계(집계) 비교 결과라는 점은 맞지만 상세
+       목록이 나오기도 전에 결론이 확정된 것처럼 읽혔다.
+
+추적   상태 배지 렌더    : ui/grid_helpers.py:1205  _mvStage5Columns()  { title:'상태', kind:'statusicon' }
+       값 산출          : ui/grid_helpers.py:1261  _mvStage5TileRow()  FIN[v.final] (v = _mvTargetSummaryView)
+       5단계 완료 신호  : ui/tabler_renderer.py:18143  _mvPkPrepRunning()
+                          (_mvPkState.detail 채택 / resp.status / _mvRiState._polling / _mvExecTerminal)
+       재렌더 지점      : ui/grid_helpers.py:1367  _mvRepaintStage5Tiles()
+                          (폴링 시작 tabler_renderer.py:27779, 확정 채택 18240 등 기존 배선 그대로)
+
+구현   ui/grid_helpers.py:1326~1348  _mvStage5TileRow
+         상세비교 진행 중이면 status='CHECKING'(라벨 '확인 중') + 사유 툴팁, 완료 후에는
+         종전과 완전히 동일한 판정값(FIN[v.final])을 그대로 표시.
+         진행 판정은 같은 화면 '실행시간' 타일이 이미 쓰는 _cmpRunning(_mvPkPrepRunning())
+         하나를 재사용 — 새 신호·새 폴링·새 서버 왕복 0건. 개별검증(ctx 없음)에만 적용.
+       ui/grid_helpers.py:176  _mvStatusShort
+         'CHECKING' → '확인 중' 라벨 1행 추가(이 코드를 만드는 곳은 5단계 타일 한 곳뿐 —
+         다른 화면 표시 불변, 색은 기본 회색).
+       ★ 4단계 통계 비교 결과 데이터·판정 로직은 무접촉(표시 시점만 변경).
+
+검증   신규 테스트 5건 통과
+         tests/test_stage45_status_timing_combo_label_strategy_relocate.py
+         (진행 중 '확인 중' / 완료 '불일치' / 일치(정상) 케이스 / 상세비교 미시작 경로
+          영구 고착 없음 / 일괄·이력 상세(ctx) 제외 / 판정 출처 불변)
+       실측(실 오라클·실 브라우저)
+         진행 중 : 재이관PK '준비 중' · 상태 '● 확인 중'  → after_p1_combo_step5_running.png
+         완료 후 : 재이관PK '없음'   · 상태 '● 불일치'    → after_p1_combo_step5_done.png
+커밋   46b81174
+
+────────────────────────────────────────────────────────────────────────────
+[2순위] 조합검증 안내박스 2개 → 체크박스 라벨 한 줄 통합
+────────────────────────────────────────────────────────────────────────────
+문제   체크를 켜면 실행 안내박스와 자동제외 경고박스가 동시에 떠 모순됐다(실측 문구:
+       '✅ 단일 축 2세트 + 조합 1세트(총 3세트)를 실행합니다' + '⚠️ 조합 세트 자동 제외').
+       실행 안내박스가 체크 상태만 보고 그려져 F6 의 제외 판정을 반영하지 못한 것이 원인.
+
+구현   ui/js_sql_preview.py:117~128   #genSqlComboOnText · #genSqlComboExcludedNotice 코드째 삭제,
+                                      체크박스 라벨 한 줄(#gbIncludePairLabel)로 통합
+       ui/js_sql_preview.py:230~272   mvComboPairLabelHtml — 문구 3상태 단일 출처
+                                        미체크           '조합(A + B)도 함께 검증 — 세트 1개 추가 실행'
+                                        체크+조합 실행   '단일축 및 그룹조합(A + B)까지 실행'
+                                        체크+자동 제외   '단일축만 실행(조합 A + B — <서버 사유> — 제외됨)'
+       ui/js_sql_preview.py:274~282   mvUpdateComboPairLabel — 최초 렌더/체크 토글/계획 도착 공용 갱신기
+       ui/tabler_renderer.py:26985~27004  _runExecutePlanSets — F6 의 plan.excluded 를 읽어 보관만 하고
+                                      라벨 갱신 호출(판정 로직 불변). '조합이 실제로 실행되는가'는
+                                      계획 세트의 PAIR 존재로 판정 — 3축 선택 시 채택되지 않은 조합도
+                                      excluded 에 담기므로 excluded 유무만으로는 오표기가 된다.
+       ★ 실행 배선(runExecute 의 include_pair)·서버 정책값(PLAN_TARGET_MAX_GROUPS)은 무접촉.
+       ★ 인라인 사유는 서버 문자열의 첫 절(', ' 기준)만 인용하고 원문 전체는 툴팁에 보존.
+         (',' 로 자르면 '1,600' 천단위 쉼표에서 잘려 '예상 1' 이 되던 것을 실측으로 잡아 수정)
+
+검증   신규 테스트 7건 통과(박스 2개 부재 / 체크박스·실행 배선 존치 / 문구 3상태 /
+       서버 판정 재사용·클라 재판정 금지 / 단일 출처)
+       기존 계약 테스트 갱신: tests/test_stage45_strategy_timing_and_text_cleanup.py
+       실측(실 오라클·실 브라우저)
+         종전 모순     : '총 3세트 실행합니다' + '조합 세트 자동 제외' 동시 노출
+                         → before_p2_guard_combo_label.png
+         조합 실행     : '단일축 및 그룹조합(STATUS_CD + DEPT_CD)까지 실행'
+                         → after_p2_combo_combo_label.png
+         자동 제외     : '단일축만 실행(조합 REGION_CD + CHAN_CD — 예상 1,600그룹 —
+                          자동계획 상한(100) 초과 — 제외됨)'
+                         → after_p2_guard_combo_label.png
+         두 케이스 모두 모순 문구 동시 노출 0건(실행 안내 문장·자동제외 경고 부재 실측 확인)
+커밋   9628abd7
+
+────────────────────────────────────────────────────────────────────────────
+[3순위] '통계전략' 그리드 칸 제거 → 통계검증 SQL 섹션 하단 부가정보로 이동
+────────────────────────────────────────────────────────────────────────────
+구현   ui/grid_helpers.py:851~894   _mvStage4Columns — '통계전략'·'조합검증' 제거(10칸 → 8칸)
+                                    유지: 목적테이블/원본테이블/목적그룹/원본그룹/목적집계/원본집계/
+                                          실행시간/상태
+       ui/grid_helpers.py:993~1046  _mvStage4TileRow — statsStrategy·combo 죽은 필드 동반 제거
+       ui/grid_helpers.py:1057      _mvStage4ComboText 삭제(옮겨간 라벨이 더 정확히 말한다)
+       ui/js_sql_preview.py:150~163 #genSqlExtraInfo 신설 — SQL 박스 '아래'에 전략 줄과
+                                    조합검증 라벨을 한 묶음으로 배치
+       ui/js_sql_preview.py:284~312 mvStatsStrategyInfoHtml / mvUpdateStatsStrategyInfo
+                                    '전략 <전략명> <코드배지>' + 판정근거 툴팁. 값 출처는 종전 타일과
+                                    동일한 보관값(window._mvStage3PlanInfo.statsStrategy) — 새 계산 0건.
+       ui/tabler_renderer.py:28765  _mvRepaintPlanTiles — 계획 도착/무효화 시 전략 줄도 함께 갱신
+       ui/tabler_renderer.py:1029   4단계 전용 타일 최소폭 예외(#mvStage4CtxGrid 106px) 제거
+                                    (10칸 대응이었고 8칸은 공용 118px 로 한 줄에 들어간다)
+
+검증   신규 테스트 6건 통과(칸 제거 / 죽은 필드·조립기 동반 제거 / SQL 하단 배치·묶음 /
+       값 출처 불변 / 계획 미도착 '—' / 계획 도착 시 갱신)
+       기존 계약 테스트 갱신: tests/test_stage4_stats_validation_tile_layout.py,
+                              tests/test_stage45_strategy_info_relocate.py
+       실측(실 오라클·실 브라우저)
+         before : 4단계 그리드 10칸(통계전략 '직접 집계 STATS_DIRECT_AGG' · 조합검증 '포함(+1세트)')
+                  → before_p3_combo_stage4_grid.png
+         after  : 4단계 그리드 8칸(두 칸 사라짐)      → after_p3_combo_stage4_grid.png
+                  SQL 하단 '전략 직접 집계 STATS_DIRECT_AGG' + 조합검증 라벨 인접
+                  → after_p3_combo_sql_section.png
+커밋   2d12d235
+
+────────────────────────────────────────────────────────────────────────────
+회귀 테스트 결과
+────────────────────────────────────────────────────────────────────────────
+CLAUDE.md 필수 회귀(최종 1회)
+  python samples/test_virtual_cases.py   결과 8/8 통과
+  python samples/test_complex_cases.py   케이스 분석 완료 5/5
+
+관련 테스트 서브셋(13개 파일)                      152 passed / 11 failed
+  실패 11건은 전부 착수 전부터 존재하던 사전 실패다. 판정 근거: 코드저장소 착수 HEAD
+  (2bc8d3b1)로 만든 임시 worktree 에서 같은 파일들을 돌려 실패 목록이 완전히 일치함을 확인
+  (tests/test_grid_helpers.py 3 · test_step2_step3_tile_immediate_display.py 3 ·
+   test_query_review_tile_layout.py 2 · test_count_precheck_tile_layout.py 3 —
+   전부 타 작업의 '처리시간 → 실행시간' 라벨 변경분이 테스트에 미반영된 건).
+  추가로 test_history_error_summary.py 5 · test_same_server_pair_and_dbms_display.py 4 도
+  baseline 동일 실패 확인.
+  ⇒ 3개 항목 각각 신규 회귀 0건.
+
+신규 테스트 파일
+  tests/test_stage45_status_timing_combo_label_strategy_relocate.py  18건 전부 통과
+검증 드라이버(개발/테스트 전용, 운영 배포 제외)
+  scripts/dev_e2e/stage45_status_timing_combo_label_strategy_relocate_shot.py
+
+────────────────────────────────────────────────────────────────────────────
+서버 재기동 · 코드저장소 HEAD
+────────────────────────────────────────────────────────────────────────────
+재기동 시각(모두 포트 8000, 기존 점유 프로세스 종료 후 시작)
+  2026-08-07 19:03:53  1순위 반영 확인용(PID 36412)
+  2026-08-07 19:18:02  2순위 반영(PID 20284)
+  2026-08-07 19:22:54  2순위 문구 보정 반영
+  2026-08-07 19:40:13  3순위 반영(최종 검증 서버)
+
+코드저장소 X:\Projects\Migration_Validator (remote 없음 — commit 까지만, push 하지 않음)
+  46b81174  1순위 5단계 '상태' 표시 시점 지연
+  9628abd7  2순위 조합검증 안내박스 2개 → 라벨 한 줄 통합
+  2d12d235  3순위 통계전략·조합검증 칸 → SQL 하단 부가정보 이동   ← 최종 HEAD
+  착수 시점 HEAD: 2bc8d3b1
+
+────────────────────────────────────────────────────────────────────────────
+증적 push 결과
+────────────────────────────────────────────────────────────────────────────
+스크린샷  X:\Verify\verify_screenshots_only\STAGE4-5-STATUS-TIMING-COMBO-LABEL-STRATEGY-RELOCATE-FIX\
+          PNG 36장(before 12 · p2after 12 · after 12)
+          공유 클론이 7 ahead / 169 behind + 타 세션 미커밋 삭제 다수라 직접 커밋하지 않고
+          origin/main 기반 임시 worktree(X:\_wt_s45)에서 내 폴더만 add·commit·push.
+          커밋 f8f48f6 / git ls-remote origin main = f8f48f6  (로컬 HEAD 와 일치 확인)
+
+완료보고  X:\Verify\_rpt_push\STAGE4-5-STATUS-TIMING-COMBO-LABEL-STRATEGY-RELOCATE-FIX.txt
+          같은 임시 worktree 에서 push — 커밋 __RPT_COMMIT__
+
+────────────────────────────────────────────────────────────────────────────
+지시서와 다르게 판단해 처리한 부분
+────────────────────────────────────────────────────────────────────────────
+1) 1순위 '확인 중' vs '—' : 지시서가 허용한 두 표기 중 '확인 중'을 선택했다. '—'(미계산)은
+   화면의 다른 미도착 타일과 구분되지 않아 '왜 비었나'를 사용자가 되묻게 된다.
+2) 2순위 미체크 상태 문구 : 지시서는 '실행될 때'와 '자동 제외될 때' 두 상태만 규정했다.
+   체크 해제 상태는 종전 라벨('조합(A + B)도 함께 검증 — 세트 1개 추가 실행')을 그대로
+   유지했다(켜면 무엇이 늘어나는지를 알리는 유일한 표시라 없애면 진입점이 사라진다).
+3) 3순위 '조합검증' 칸도 함께 제거 : 지시서 유지 목록(목적테이블/원본테이블/목적그룹/
+   원본그룹/목적집계/원본집계/실행시간/상태)에 '조합검증'이 없고, 배경 설명도 두 칸을
+   함께 옮기라고 적고 있어 그대로 따랐다. 같은 사실을 2순위 라벨이 더 정확히 말한다.
+4) 1순위 스크린샷은 표시규칙 프로브 사용 : 진행 중 구간이 소규모 픽스처에서 수백 ms 라
+   실 흐름만으로는 안정적으로 못 잡는다. 실 서비스·실 브라우저에서 5단계까지 실제로 실행한
+   뒤, 상세비교 상태값만 만들고 제품 코드의 재렌더(_mvRepaintStage5Tiles)를 호출해 캡처했다
+   (가짜 HTML 조립 아님 — 값 계산·서버 호출 없음, 직전 동일 화면 작업이 쓴 방식과 같다).
+5) 기존 테스트 6개 파일 수정 : 이번 지시서가 표시 계약 자체를 바꾸므로 옛 계약을 박아둔
+   테스트를 새 계약으로 갱신했다(삭제가 아니라 검증 대상 지점 이동 — 사유를 각 테스트
+   docstring 에 한국어로 남겼다).
+
+✅ 작업 완료 - 5단계 '상태' 표시 시점 지연 · 조합검증 문구 한 줄 통합 · 통계전략 SQL 하단 이동 3건 구현·실측·커밋 완료
