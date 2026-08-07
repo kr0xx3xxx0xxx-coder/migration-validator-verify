@@ -1926,21 +1926,45 @@ git -C E:/verify_reports worktree remove <임시경로>
   → 2026-07-30 완료(위 `해결 요약` 참조).
 - 참고: E:\verify_reports\DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE.txt
 
-### G7. HASH_BUCKET 해시 계약에 오라클이 등록돼 있지 않아, same-DBMS(오라클↔오라클)여도 영구 불가다
-- 발견일: 2026-08-02
-- 근거 보고서: `PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt` (§4-2 · §7-G7)
-- 상세: `services/diagnosis/hash_contract.py:118-120` 의 `_HASH_CONTRACTS` 딕셔너리에 `postgresql`
-  하나만 등록돼 있다. 주석에 "oracle 은 후속 단계에서 등록한다" 고 돼 있으나 아직 미등록이라,
-  same-DBMS 가드(S5, 이미 해결 완료)를 통과해도 오라클↔오라클 조합조차 `HR_HASH_CONTRACT_NA` 로
-  차단된다. 현재 실질 가용 조합은 **PG↔PG 뿐**이다. F1(HASH_BUCKET 오라클 구현체 phase3 부재)과
-  직결된 선행 과제다.
-- 대응 방향: **[치명] 이 항목 단독 착수 절대 금지.** 위임표에 오라클 한 줄만 등록하면 L1
-  게이트(hash_bucket_pair_status, 설계엔 있으나 코드에 없음)가 없어 row_diff.py의 미수정
-  PG 전용 재수출 경로(F1 참고)를 그대로 통과시켜, 오라클 실DB에 MD5()/LEFT()/BIT(32)/&
-  같은 PG 전용 SQL이 그대로 방출된다(예외 없이 조용히 실행됨 — 조용한 거짓판정 계열
-  최고심각도). 반드시 F1의 마지막 단계(⑥)로만 착수할 것.
+### G7. HASH_BUCKET 해시 계약에 오라클이 등록돼 있지 않아, same-DBMS(오라클↔오라클)여도 영구 불가다 — 전체범위 재확인 완료, 착수 순서 정정(④ 최우선)
+- 발견일: 2026-08-02 / 재확인: 2026-08-07 (G7-HASH-BUCKET-ORACLE-FULL-SCOPE-DIAGNOSE, 코드 무변경)
+- 근거 보고서: `PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt`(§4-2·§7-G7, 최초) →
+  `F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE.txt`(순서 확정 ①③④⑤⑥) →
+  `G7-HASH-BUCKET-ORACLE-FULL-SCOPE-DIAGNOSE.txt`(phase① 이후 재확인, 순서 재정정)
+- 상세: `services/diagnosis/hash_contract.py:118-120`의 `_HASH_CONTRACTS`에 postgresql만
+  등록. same-DBMS 가드(S5, 해결완료)를 통과해도 오라클↔오라클조차 `HR_HASH_CONTRACT_NA`로
+  차단. **phase①(오늘 완료) 재확인 결과: 위임표·row_diff.py·match_key_evidence.py·
+  multi_scope.py의 db_type 미배선·capabilities.py 오라클 hash 항목 — 전부 미변경 그대로
+  잔존.** 신규 확인(L1 게이트 위험 폭 재평가): drilldown 추천 경로
+  (`routes/diagnosis_route.py:1571-1580`)와 `multi_scope.py:195-198`이 **DBMS를 단 한 번도
+  참조하지 않고** MATCH_KEY 해시 적격 여부만 보고 무조건 HASH_BUCKET을 추천한다 — L1 부재는
+  "함수가 없다" 수준이 아니라 "추천 경로가 구조적으로 DBMS 인지 자체를 안 한다"로 위험이
+  더 넓게 확인됨.
+- **[치명] 이 항목 단독 착수 절대 금지** — 여전히 유효(재확인으로 반증되지 않음, 오히려
+  위험 폭 확대 확인).
+- **착수 순서 정정(이번 조사의 핵심 결론)**: 원 설계문서 순서(③→④)를 **④를 ③보다
+  먼저/병행으로 뒤집을 것을 권고**. ④(row_diff.py:77,103·match_key_evidence.py:21,122,126
+  안전 배선)는 ③(오라클 구현체) 없이도 **PG 골든셋만으로 완결 검증 가능**하고, ④가 먼저
+  들어가면 "PG 전용 재수출 무조건 위임"이라는 구조적 결함 자체가 코드에서 사라져 —
+  이후 ③/⑥이 잘못된 순서로 시도돼도 [치명] 위험이 **구조적으로 재발 불가능**해진다
+  (hash_bucket.py에 이미 적용된 안전망과 동일 패턴을 row_diff/match_key_evidence로
+  확장하는 것뿐). ③은 ④와 파일이 안 겹쳐(신규 파일 vs 기존 파일) 병행 가능 — 순서
+  제약은 "④가 반드시 ⑤⑥ 이전에 끝나야 한다"뿐.
+- ⑥ 라이브 검증 계획(신규 구체화): 자기일치성 대조로는 부족(신규 로직이 정답인지 못 봄) —
+  독립적으로 이미 검증된 DIRECT_STREAM_COMPARE(오라클 exact_diff, 이미 SUPPORTED)와 PK
+  집합을 완전일치 대조하는 방식으로 검증(불일치 케이스+일치 케이스 둘 다, NLS_NUMERIC_
+  CHARACTERS 세션값 의도적 상이 조건까지 포함).
+- 예상 파일범위(갱신): 신규 2(oracle.py, 라이브검증 스크립트) + 수정 8~9
+  (hash_contract.py 1줄은 ⑥에서만, row_diff.py/match_key_evidence.py/multi_scope.py/
+  capabilities.py/diagnosis_route.py/adapters 등).
+- 위험도 종합: [치명] G7 단독착수(불변) · [높음] resume 비호환(phase①로 이미 해소) ·
+  [중간] NLS_NUMERIC_CHARACTERS·4000자(검증계획 구체화됨) · [낮음] LOB(구현 시 확정).
+- 대응 방향: **④(안전 배선) 단독 선행 착수를 권고** — 위험 제거를 가장 먼저, 가장 작은
+  diff로. 오라클 구현체(③)·전체 오라클 지원(⑥)은 별도 승인 하에 이어서.
 - 관련: F1, S5(이미 해결 완료)
 - 참고: E:\verify_reports\PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt
+- 참고: E:\verify_reports\F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE.txt
+- 참고: E:\verify_reports\G7-HASH-BUCKET-ORACLE-FULL-SCOPE-DIAGNOSE.txt
 
 ### F1. ✅ phase1(①) 완료 — HASH_BUCKET 오라클 구현체는 여전히 없음 (남은 단계: ③④⑤⑥ + G7)
 - 발견일: 2026-07-29 / phase1 해결일: 2026-08-06 (F1-PHASE1-ALIAS-RENAME-VERSION-BUMP, 코드 커밋 c420d84)
