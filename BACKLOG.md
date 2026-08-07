@@ -704,18 +704,33 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 비권장: `NLSSORT` 를 특정 캐릭터셋으로 강제하는 방향 — 원본 DB 인덱스 활용(= 정렬 회피 전략의 존재 이유)이 깨진다.
 - 참고: E:\verify_reports\ORACLE-CHARSET-COLLATION-EXACT-DIFF-DIAGNOSE.txt
 
-### S13. VARCHAR2 byte/char 의미를 도구가 구분하지 못해 실효 저장용량 축소를 놓친다
-- 발견일: 2026-07-29
-- 근거 보고서: `ORACLE-CHARSET-COLLATION-EXACT-DIFF-DIAGNOSE.txt` (§4 / §5-P2)
-- 상세: `services/db_adapters/oracle.py` 가 `CHAR_LENGTH` 만 읽고 `CHAR_USED`(`'B'`/`'C'`)는 전혀 조회하지 않는다
-  (오라클 실 컬럼 75개 중 73개가 BYTE 의미로 확인됨). 그 결과 `VARCHAR2(50 BYTE)` 와 `VARCHAR2(50 CHAR)` 가
-  도구에게는 똑같이 "50" 으로 보인다. 원본 CP949(한글 1자=2바이트, 25자 수용) → 목적지 AL32UTF8(한글 1자=3바이트,
-  16자 수용)로 캐릭터셋이 바뀌면 실효 수용량이 줄어드는데도, `services/candidate_scoring_runner.py` 의 길이 비교
-  로직이 **"COMPATIBLE, 위험 없음"** 으로 통과시킨다.
-- 대응 방향: 컬럼 메타 조회에 `CHAR_USED`/`DATA_LENGTH` 를 추가하고, 양측 캐릭터셋과 함께 **실효 문자 수용량**을
-  계산해 비교하도록 확장한다. 완료된 모듈 수정이라 사용자 확인이 필요하다. PG/MySQL/MSSQL 대응 개념도 함께
-  설계해야 한다(4방언 처리 원칙).
+### S13. VARCHAR2 byte/char 의미를 도구가 구분하지 못해 실효 저장용량 축소를 놓친다 — (b) 부분해소·화면 미노출, A1'(위험전용 배지)로 방향 재확정 필요
+- 발견일: 2026-07-29 / 재조사: 2026-08-06(S13-VARCHAR2-BYTE-CHAR-STATUS-RECHECK-DIAGNOSE) /
+  A1 검토: 2026-08-07(S13-A1-BADGE-REACTIVATE-AND-GATE-INTENT-VERIFY, 코드 무변경)
+- 근거 보고서: `ORACLE-CHARSET-COLLATION-EXACT-DIFF-DIAGNOSE.txt`(최초) →
+  `VARCHAR2-BYTE-CHAR-CAPACITY-COMPARISON-FIX.txt`(판정로직·조회 완성, F14로 배선) →
+  `S13-VARCHAR2-BYTE-CHAR-STATUS-RECHECK-DIAGNOSE.txt`(재조사 — (b) 부분해소 판정) →
+  `S13-A1-BADGE-REACTIVATE-AND-GATE-INTENT-VERIFY.txt`(A1 기각, A1' 제안)
+- 현재 상태: CHAR_USED/DATA_LENGTH 조회·실효수용량 판정 로직·F14 배선은 전부 완성돼 있으나,
+  `_applyCsrBadges` 호출이 **의도적으로 봉인**돼 있어(6종 독립 근거로 확정 — 판정 단일출처
+  Live/Preview 격리 + 문서 2건의 "병합 금지" 계약) Stage3 실사용 화면까지 위험이 안 닿는다.
+  GROUP BY 게이트가 PRECISION_LOSS_RISK를 통과시키는 것도 3중 근거(상수정의·설계문서 표·SUM축
+  별도 Critical FAIL 안전망)로 **의도된 설계**임이 확정됨(경고는 남기되 자동배제는 안 함).
+  단, 원래 검토했던 **A1(원형 그대로 재활성화)은 기각** — 적용해도 목적을 달성 못하고(위험
+  정보는 hover 툴팁에만 묻힘) 오히려 위험 컬럼에 파란 '추천' 배지가 새로 붙는 역효과가 실측
+  확인됨.
+- 방향 재확정 필요(2026-08-07, 3안 비교·A1'이 새로 제안됨):
+  · **A1'(권장)**: selection_status 라벨은 계속 주입 금지(단일출처 유지), CHAR_CAPACITY_
+    SHRINK_RISK가 있을 때만 "길이 축소 위험" 전용 배지 신규 추가, NullProvider(비오라클)는
+    배지 대상 제외(DBMS 비대칭 회피). 회귀면적 최소, 문서 계약 안 건드림.
+  · A2(구조적 이식): analyzer 계열에 로직 중복 — "구조 안정화 우선" 원칙과 충돌, 비권장.
+  · C(현행 유지+문서화): 코드 0줄, "설계상 preview 전용"으로 확정만.
+  · 권장 순서: A1' > C > A2.
+- 부가 발견: `_updateUnifiedColWithCsr`도 호출부 0건 죽은 함수(잔여A 착수 시 역할 중복 정리
+  선행 필요). PostgreSQL/MySQL/MSSQL 대응 개념 설계도 여전히 미착수(4방언 원칙).
 - 참고: E:\verify_reports\ORACLE-CHARSET-COLLATION-EXACT-DIFF-DIAGNOSE.txt
+- 참고: E:\verify_reports\S13-VARCHAR2-BYTE-CHAR-STATUS-RECHECK-DIAGNOSE.txt
+- 참고: E:\verify_reports\S13-A1-BADGE-REACTIVATE-AND-GATE-INTENT-VERIFY.txt
 
 ### S14. ✅ 해결 완료 — NLS 숫자 고정이 타입 미상 균일 캐스트 5곳에는 적용되지 않았다(NLS 고정 수정의 잔여 위험 R1)
 - 해결일: 2026-07-31 (ORACLE-CONNECTION-NLS-NUMERIC-SESSION-PIN-FIX)
