@@ -1,0 +1,184 @@
+작업명 : G7-STEP3-ORACLE-HASH-CONTRACT-IMPLEMENT
+✅ 작업 완료 - HASH_BUCKET Oracle 구현체(OracleHashContract) 신규 작성, 위임표 미등록 유지, PG/전체 회귀 0건
+
+════════════════════════════════════════════════════════════════════════
+0. 범위 확인
+════════════════════════════════════════════════════════════════════════
+- 지시서: directives/G7-STEP3-ORACLE-HASH-CONTRACT-IMPLEMENT.md
+- 근거 문서: G7-HASH-BUCKET-ORACLE-FULL-SCOPE-DIAGNOSE.txt §2 (설계 유효기간 재확인)
+- 스펙: docs/HASH_BUCKET_ORACLE_PORT_ADAPTER_DESIGN.md §1~§4 (임의 재설계 없음, 그대로 구현)
+- 이번 단독 착수 = ③(오라클 구현체)뿐. 아래는 손대지 않음(지시서 명시대로):
+  · hash_contract.py:118-120 위임표 — postgresql만 등록된 상태 그대로(1줄도 안 건드림)
+  · row_diff.py / match_key_evidence.py / multi_scope.py — ④ 안전배선(커밋 84c6f29a)이 이미 완료,
+    이번 작업에서 무수정
+  · capabilities.py / drilldown_strategy.py — ⑤ capabilities 개방, 이번 범위 아님(무수정)
+
+════════════════════════════════════════════════════════════════════════
+1. 신규 파일 : services/diagnosis/dialects_hash/oracle.py
+════════════════════════════════════════════════════════════════════════
+OracleHashContract(BaseHashContract) — PgHashContract와 완전히 동일한 공개 메서드 표면
+(callable 기준 dir() 집합 비교, 단위테스트로 고정).
+
+  db_type              = "oracle"                    (oracle.py:63)
+  version              = "hashv1-md5-lenpfx-ora"      (oracle.py:66, "-pg"에 대응하는 방언 접미사)
+  cross_db_comparable  = False                        (oracle.py:69)
+  MAX_CANONICAL_OPERANDS = 20  (R4 방어 상한, 잠정치 — 근거는 §3 참고)  (oracle.py:72)
+
+  is_available()        → True (STANDARD_HASH는 10g R2+ 표준 내장, 버전 하한 체크 불필요)   oracle.py:77
+  h32(canon_sql)         → TO_NUMBER(SUBSTR(LOWER(RAWTOHEX(STANDARD_HASH(canon_sql,'MD5'))),1,8),'XXXXXXXX')
+                                                                                              oracle.py:75,81
+  canon_component(e,nt)  → NUMBER  : TM9 + nlsparam 고정(R3) + 선행0 복원 regex(E7c)         oracle.py:93-96
+                          → DATE_TIME: TO_CHAR(CAST(e AS TIMESTAMP),'YYYY-MM-DD"T"HH24:MI:SS.FF6')(E8) oracle.py:97-100
+                          → TEXT   : TO_CHAR(e)(E9)                                          oracle.py:101-102
+                          → 길이는 TO_CHAR(LENGTH(val),'TM9',nlsparam)(E11b)                  oracle.py:103-106
+  bucket_expr(kc,n,salt) → BITAND(h32(salted), pow2_floor(n)-1)  ('&' 대신 BITAND, E15)       oracle.py:108-112
+  precheck(exprs,cexprs) → 구성요소 개수 > MAX_CANONICAL_OPERANDS 시 HOLD 문자열 반환(R4)     oracle.py:114-121
+  key_canonical / row_canonical / key_hash_expr / row_hash_expr
+                          → Base 기본 구현 상속(오버라이드 없음, design §2-5 그대로)
+
+════════════════════════════════════════════════════════════════════════
+2. E1~E18 전수 대응표 구현 여부 (design.md §1 기준)
+════════════════════════════════════════════════════════════════════════
+  E1  md5(x) → LOWER(RAWTOHEX(STANDARD_HASH(x,'MD5')))          구현(h32)         실측 일치 확인(§4)
+  E2  left(h,8) → SUBSTR(h,1,8)                                  구현(h32)         실측 '90015098' 확인 안함(§4 전체식으로 대체 확인)
+  E3  'x'||hex8 (제거)                                            불필요(설계대로 미구현)
+  E4  ::bit(32) → TO_NUMBER(hex8,'XXXXXXXX')                     구현(h32)         실측 4294967295류 벡터 일치(§4)
+  E5  ::bigint (불필요)                                           불필요(TO_NUMBER 결과가 NUMBER)
+  E6  괄호                                                        구현(canon_component, e="("+expr+")")
+  E7a (expr)::numeric (불필요)                                    불필요(TO_CHAR가 숫자 직접 수신)
+  E7b trim_scale → TO_CHAR(x,'TM9')                               구현(canon_component NUMBER 분기)
+  E7c 선행0 복원 regex                                            구현(REGEXP_REPLACE 2단)
+  E8  DATE_TIME → TO_CHAR(CAST(x AS TIMESTAMP),'…FF6')            구현(ORA-01821 회피, §4 실측 확인)
+  E9  TEXT → TO_CHAR(x)                                           구현
+  E10 CASE WHEN…NULL 마커                                         구현(길이/NULL 뼈대 Base 상속 아님 — canon_component 자체에 내장, PG와 동일 구조)
+  E11a LENGTH(val)                                                구현
+  E11b TO_CHAR(LENGTH(val),'TM9')                                 구현(부호자리 혼입 방지)
+  E11c '<tag>:'||…||':'||val                                      구현
+  E12 키 canonical || 결합                                        구현(Base.key_canonical 상속)
+  E13 키+비교 canonical || 결합                                   구현(Base.row_canonical 상속)
+  E14 salt||canonical                                             구현(bucket_expr)
+  E15 & → BITAND                                                  구현, 실측 확인(§4)
+  E16 _H32 재사용                                                 구현(key_hash_expr/row_hash_expr, Base 상속)
+  E17 sum(h32) (strategy 계층, 이번 파일 범위 아님)                해당 없음(hash_bucket.py가 이미 contract.key_hash_expr 등을 sum()으로 감쌈 — 무수정)
+  E18 별칭 개명 (phase①에서 이미 완료)                             해당 없음(이번 파일 범위 아님)
+
+  R3(NLS_NUMERIC_CHARACTERS)  → nlsparam 3인자로 식 자체에 고정   구현, 실측: 세션 NLS를 ', '로 바꿔도
+                                                                   canon_component(12.5,NUMBER) 그대로 'D:4:12.5' 확인
+  R4(VARCHAR2 4000자 상한)    → precheck() 구성요소 개수 상한(20, 잠정치)로 방어
+                                 [비판적 검토] 실제 바이트 길이는 컬럼 데이터에 의존해 SQL 표현식 문자열만으로는
+                                 정확히 알 수 없음 — "개수 상한"은 근사 방어일 뿐이며, 큰 TEXT 컬럼 1~2개만으로도
+                                 실제 4000자를 넘는 조합이 이 방어를 통과할 수 있음. design.md도 "라이브 테스트로
+                                 임계 실측"을 요구했고, 이번 단계는 라이브 실측을 하지 않았으므로(스코프 밖) 20이라는
+                                 값은 검증된 임계가 아니라 "상한 존재" 골격만 갖춘 잠정치임을 명시한다. 실제 임계
+                                 보정은 G7 diagnose §5-2-7이 지시한 별도 라이브 검증 작업으로 넘긴다.
+  R5(LOB, STANDARD_HASH 거부) → 능동 감지 미구현(열린 지점, diagnose §2-4가 이미 이렇게 결론)
+                                 [비판적 검토] precheck(exprs, compare_exprs) 시그니처가 SQL 표현식 문자열만
+                                 받고 컬럼 타입/길이 메타를 받지 않아 이 파일 단독으로는 LOB 여부를 판별할 수
+                                 없다. build_hash_bucket_agg_sql 시그니처 확장(컬럼 메타 관통 전달)이 필요하며
+                                 이는 ④ 소비측 배선의 확장 범위이지 이번 ③ 신규 파일 범위가 아니다. 현재는
+                                 F1-G7 §5-2-(4)의 상위 불변조건("LOB은 MATCH_KEY/HASH_COMPARE 후보 경로에
+                                 오지 않는다")에 의존한다 — 이 불변조건이 깨지면 STANDARD_HASH가 ORA-00902로
+                                 즉시(조용하지 않게) 실패하므로 거짓 일치는 아니지만, 사전 HOLD로 걸러지지도
+                                 않는다는 잔여 위험을 다음 단계 담당자에게 명시적으로 인계한다.
+
+════════════════════════════════════════════════════════════════════════
+3. 오라클 라이브 실측 (Oracle_asis 프리셋, 192.168.0.151:1523/xepdb1, 읽기전용 SELECT ... FROM DUAL만 사용)
+════════════════════════════════════════════════════════════════════════
+db_presets_src.json의 Oracle_asis 프리셋으로 실제 오라클에 접속해 DUAL 조회로 표현식을 직접 실행했다
+(단위테스트는 DB 없이 문자열만 고정하므로, "실제로 그 SQL이 오라클에서 문법 오류 없이 실행되고 값이
+설계 문서 벡터와 일치하는가"는 별도 실측이 필요 — 이 부분을 수행했다).
+
+  [1] STANDARD_HASH RAWTOHEX vs PG md5('abc')
+      오라클: 900150983cd24fb0d6963f7d28e17f72
+      PG(python md5): 900150983cd24fb0d6963f7d28e17f72
+      → 일치 (E1 근거 확인)
+
+  [2] h32 실측 vs design.md §1.1 벡터표 (5건 전부 일치)
+      'S:3:abc'                              -> 3276922494  (기대 3276922494)  일치
+      'S#N'                                  -> 10499643    (기대 10499643)    일치
+      'D:4:12.5'                             -> 584801104   (기대 584801104)   일치
+      'T:26:2026-07-26T00:00:00.000000'      -> 1817468297  (기대 1817468297)  일치
+      'hbw1S:3:abc'(salt)                    -> 976348671   (기대 976348671)   일치
+
+  [3] bucket_expr(BITAND) 실측
+      bucket('S:3:abc', 128)  -> 126  (기대 126)  일치
+      bucket('S#N', 128)      -> 59   (기대 59)   일치
+
+  [4] canon_component 실측(문법 실행 가능성 + 값 확인)
+      canon_component(0.5, NUMBER)   -> D:3:0.5    (선행0 복원 확인)
+      canon_component(-0.5, NUMBER)  -> D:4:-0.5   (선행0 복원 확인)
+      canon_component(NULL, NUMBER)  -> D#N
+      canon_component('', TEXT)      -> S#N        (오라클 빈문자열=NULL 발산, design §2.2가 예고한 그대로)
+      canon_component(SYSDATE, DATE_TIME)                 -> T:26:2026-08-07T20:16:23.000000
+      canon_component(TO_DATE 리터럴(DATE형), DATE_TIME)    -> T:26:2026-07-26T00:00:00.000000
+                                                             (ORA-01821 없이 정상 실행 — E8 CAST AS TIMESTAMP 회피 확인)
+
+  [5] R3 방어 실측 — 세션 NLS_NUMERIC_CHARACTERS를 ', '(콤마 소수점)로 바꾼 뒤 재실행
+      canon_component(12.5, NUMBER) -> D:4:12.5  (세션 NLS와 무관하게 불변 — nlsparam 고정 방어 확인)
+
+  결론: E1~E18 중 구현 대상 전부, R3, DATE_TIME(ORA-01821 회피) 모두 실측으로 확인됨.
+        R4/R5는 §2의 비판적 검토대로 이번 단계에서는 골격만(정확한 임계·능동감지는 후속 과제).
+
+════════════════════════════════════════════════════════════════════════
+4. 검증 결과
+════════════════════════════════════════════════════════════════════════
+[4-1] tests/test_hash_contract_dialect_adapter.py (오라클 케이스 신규 추가, 기존 파일에 추가만)
+  신규 클래스:
+    TestOracleHashContractImplementation  (12 테스트 — 계약 식별자·인터페이스 동일성·h32/canon_component/
+      bucket_expr SQL 문자열 고정·key_canonical 상속 확인·precheck 상한 내/초과/None인자)
+    TestOracleHashSemanticsLiveVerified   (2 테스트 — DB 없는 수치 의미 재확인 + 실측 결과 docstring 기록)
+  결과: 39 passed (기존 27 + 신규 12), 0 failed, 0 skipped
+  실행: python -m pytest tests/test_hash_contract_dialect_adapter.py -v  →  39 passed in 2.92s
+
+[4-2] 회귀 없음 확인 — 위임표 미등록 유지 (지시서 요구사항)
+  hc.get_hash_contract('oracle')              -> None
+  hc.get_hash_contract_pair('oracle','oracle') -> (None, 'HASH_CONTRACT_NOT_AVAILABLE')
+  hc._HASH_CONTRACTS                          -> {'postgresql': (...)}  (oracle 키 없음, 실측 확인)
+  → "구현체만 만들고 아직 아무도 안 씀" 요구사항 충족.
+
+[4-3] PG 골든셋 영향 없음
+  TestReexportEquivalence / TestFactory / TestSameDbmsGuardL3 / TestGuardL2AdapterBoundary /
+  TestMultiScopeAdapterHashGuard / TestHashSemanticsVectors / TestBaseContractSurface — 기존 27개 테스트
+  전부 그대로 PASS(문자열 1비트도 안 바뀜, 신규 import 1줄 추가 외 기존 클래스 무수정).
+
+[4-4] 관련 테스트 서브셋 + baseline 대조
+  python -m pytest tests/test_hash_contract_dialect_adapter.py
+    tests/test_diagnosis_hash_bucket_e2e.py tests/test_diagnosis_hash_bucket_5m.py
+    tests/test_diagnosis_row_diff.py tests/test_diagnosis_multi_scope.py
+    tests/test_underscore_alias_oracle_regression_static.py
+  결과: 77 passed, 15 skipped(환경 미비 스킵, baseline과 동일), 6 subtests passed — 신규 회귀 0건
+
+  넓게 재확인: python -m pytest tests/ -k "hash or capabilities or match_key_evidence"
+  결과: 165 passed, 16 skipped, 12029 deselected — 실패 2건은
+    tests/test_ui_active_tab_persistence.py (test_restore_priority_hash_then_localstorage_then_default,
+    test_hash_priority_restore_for_history_tab) — URL "location.hash" 관련 UI 테스트로 이번 작업(HASH_BUCKET)
+    과 무관. git status 상 ui/history_renderer.py·ui/js_batch_display.py가 이 세션 시작 전부터 이미
+    수정상태(M)였던 것과 일치 — 사전 존재 실패로 판단, 이번 변경으로 유발되지 않음(services/diagnosis만 수정).
+
+[4-5] CLAUDE.md 필수 회귀 최종 1회
+  python samples/test_virtual_cases.py    -> 전체 8개 케이스 통과
+  python samples/test_complex_cases.py    -> 케이스 분석 완료 5/5 (PASS/FAIL 판정 포함 전부 기대값대로)
+
+════════════════════════════════════════════════════════════════════════
+5. 변경 파일
+════════════════════════════════════════════════════════════════════════
+  신규 : services/diagnosis/dialects_hash/oracle.py            (OracleHashContract, 191줄)
+  수정 : tests/test_hash_contract_dialect_adapter.py            (import 1줄 + 클래스 2개 신규 추가)
+  무수정: services/diagnosis/hash_contract.py (위임표 등)
+         services/diagnosis/row_diff.py, match_key_evidence.py, multi_scope.py
+         services/diagnosis/dbms/capabilities.py, routes/diagnosis_route.py
+
+  커밋: 아직 코드 저장소(migration-validator)에 커밋하지 않음 — 사용자 커밋/push 승인 대기
+        (CLAUDE.md 규칙상 커밋은 사용자 명시 요청 시에만 수행하며, 이번 지시서에도 커밋 실행 지시는 없었음).
+
+════════════════════════════════════════════════════════════════════════
+6. 다음 단계 판단
+════════════════════════════════════════════════════════════════════════
+- ⑤(capabilities 개방 + L1 게이트) / ⑥(위임표 1줄 등록 + 라이브 동등성 실측)은 diagnose §4-3이 명시한 대로
+  "④가 전부 끝난 뒤에만 안전"하며, ④는 이미 오늘 완료(84c6f29a)되어 있어 순서 조건은 충족됐다. 다만 ⑥ 등록은
+  이번 지시서 범위 밖이라 착수하지 않았다.
+- R4(4000자) 정확한 임계값·R5(LOB) 능동 감지는 §2/§3에 명시한 대로 이번 단계의 의도적 미해결 지점이다 —
+  ⑥ 착수 전 별도 지시로 (a) R4 라이브 임계 실측, (b) R5용 컬럼 메타 관통 전달 여부 결정을 권고한다.
+
+작업명 : G7-STEP3-ORACLE-HASH-CONTRACT-IMPLEMENT
+✅ 작업 완료 - HASH_BUCKET Oracle 구현체(OracleHashContract) 신규 작성, 위임표 미등록 유지, PG/전체 회귀 0건
