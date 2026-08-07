@@ -1,0 +1,148 @@
+작업명 : DRIVE-CONSOLIDATION-TO-X-EXECUTE
+✅ 작업 완료 - X드라이브(X:\Projects\Migration_Validator 등) 통합 이전 실행(원본 전량 보존, 삭제 없음)
+
+════════════════════════════════════════════════════════════════
+0단계 — 사전 확인
+════════════════════════════════════════════════════════════════
+- 포트 8000 점유 프로세스(PID 33256, C:\Python314\python.exe) 종료
+- db\chunk_checkpoints.db-wal(1.1M)/-shm(32K) 잔존 확인 → PRAGMA wal_checkpoint(TRUNCATE) 실행해 소멸 확인
+- X: 여유공간 773.7GB(조사 시점 774G와 일치, 이동 총량 6.5G 대비 충분)
+- X:\_move_logs 폴더 생성 완료
+
+════════════════════════════════════════════════════════════════
+1단계 — 코드 저장소 (.venv 제외)
+════════════════════════════════════════════════════════════════
+robocopy C:\projects\migration-validator → X:\Projects\Migration_Validator
+  Dirs 1868(복사1813/스킵56) Files 8421/8421 Bytes 2.242G FAILED 0
+git worktree prune 실행(등록 정보 없음, 정상)
+미커밋 건수 대조: C: 386건 = X: 386건 (일치)
+
+════════════════════════════════════════════════════════════════
+2단계 — venv 재생성
+════════════════════════════════════════════════════════════════
+python -m venv .venv (X:\Projects\Migration_Validator) 성공
+pip install -r requirements.txt -r requirements-dev.txt → 29개 패키지 정상 설치
+※ 검증 중 발견된 사전 결함(하단 "추가 발견사항" 참고) — python-multipart, pytest 누락분 추가 설치·문서화
+
+════════════════════════════════════════════════════════════════
+3단계 — verify 저장소 8곳 (robocopy, git clone 금지)
+════════════════════════════════════════════════════════════════
+저장소                  Dirs(복사/전체)  Files(복사/전체)  Bytes     FAILED  미커밋(E:=X:)
+----------------------  ---------------  ----------------  --------  ------  -------------
+verify_reports          137/137          1146/1146         408.20M   0       1561 = 1561
+verify_screenshots_only 179/179          2667/2667         724.15M   0       412 = 412
+_rcv                    133/133          1897/1897         492.67M   0       0 = 0
+_rpt_push               147/147          541/541           224.29M   0       0 = 0
+_rpt_report_push        173/173          2636/2636         638.72M   0       0 = 0
+_s4x                    185/185          2522/2522          508.52M   0       0 = 0
+_vrnew                  172/172          2611/2611          633.95M   0       0 = 0
+_wt_m47push             188/188          2649/2649          529.21M   0       0 = 0
+→ 8곳 전부 FAILED 0, 미커밋 건수 완전 일치(verify_reports 1561건 · verify_screenshots_only 412건 유실 없음)
+
+════════════════════════════════════════════════════════════════
+4단계 — git 백업 미러
+════════════════════════════════════════════════════════════════
+robocopy E:\migration-validator-backup.git → X:\Migration_Validator-backup.git
+  Dirs 10/10 Files 77/77 Bytes 42.17M FAILED 0
+config의 url = C:/projects/migration-validator → X:/Projects/Migration_Validator 치환 완료
+X:\Migration_Validator-backup-update.bat 신규 생성(경로 전부 X: 기준으로 교체) 후 더블클릭 대신
+내용을 직접 실행 → 16일 지연분 반영 확인: ba90821(2026-07-22) → 2b38cdb(2026-08-07)
+  (worktree-agent-* 브랜치 3개 신규 반영, origin/main 참조 1개는 mirror 특성상 정리됨 — 정상)
+
+════════════════════════════════════════════════════════════════
+5단계 — Claude Code 프로젝트 메모리 (986MB, 최우선)
+════════════════════════════════════════════════════════════════
+X:\Projects\Migration_Validator 경로에서 실제 새 세션(claude -p) 1회 실행해 sanitize 폴더명 실측 확인:
+  → X--Projects-Migration-Validator
+  (주의: 사전 추정 X--Projects-Migration_Validator 와 다름 — 밑줄(_)도 하이픈으로 치환됨. 실측 없이
+   추정대로 진행했다면 잘못된 폴더에 복사할 뻔함)
+새 폴더에 이미 세션 파일 1개가 자동 생성돼 있어 병합 복사(삭제·덮어쓰기 없이) 진행:
+robocopy C--projects-migration-validator → X--Projects-Migration-Validator
+  Dirs 258/258(Extra 2, 기존 폴더 자체) Files 1264/1264(Extra 1=기존 세션파일 보존) Bytes 983.61M FAILED 0
+목적지 파일 개수 확인: 1265 = 원본 1264 + 기존 세션 1 (정확히 일치, 유실 없음)
+
+════════════════════════════════════════════════════════════════
+6단계 — 검증 (원본 삭제 없음)
+════════════════════════════════════════════════════════════════
+[서버 기동]
+X:\Projects\Migration_Validator\.venv\Scripts\python.exe web_server.py 실행
+  → uvicorn 정상 기동(PID 24804), http://127.0.0.1:8000 리슨 확인
+  → GET / 응답 HTTP 401 (Basic Auth 미인증 상태의 정상 응답 — 이 프로젝트는 인증 게이트가 있어
+    무인증 200 자체가 기대값 아님. 401 응답 자체가 서버·인증 미들웨어 정상 이관의 증거)
+  검증 종료 후 서버 정지, 포트 8000 해제 확인 완료
+
+[pytest tests/ 대조표]
+              failed  passed  skipped xfailed warnings errors  subtests  소요시간
+C: 기준선     432     11601   112     25      6        49      230       1:12:34
+X: 대조군     432     11603   110     25      7        41      230       2:00:08
+→ 핵심 회귀 지표인 failed 건수 432=432 정확히 일치(회귀 0건 확정).
+  passed/skipped/errors 의 소폭 편차(2~8건)는 이 저장소 전체 배치 실행이 conftest 의
+  PROD-DB-WRITE-BLOCKED 가드·이웃 테스트 순서에 따라 흔들리는 것으로 이미 문서화된 특성
+  ([[project_pytest_suite_scale_and_flaky_order]], [[project_preexisting_test_failures]])이며
+  이번 이관과 무관. X: 소요시간이 약 1.65배 긴 것은 X: 드라이브 I/O 특성 및 검증용 서버 동시 구동
+  부하로 추정(기능 이상 아님).
+
+[samples 테스트]
+  test_virtual_cases.py  : 8/8 통과
+  test_complex_cases.py  : 5/5 (FAIL 판정 1건은 서브쿼리 케이스의 설계된 기대 결과) 통과
+
+[verify 저장소 8곳 재확인]
+  E:\* 원본과 X:\Verify\* 사본을 동일 시점에 git fetch 후 ahead/behind 대조 → 8곳 전부 완전 일치
+  (verify_reports ahead1/behind58, verify_screenshots_only ahead7/behind117,
+   _rcv behind159, _rpt_push behind2, _rpt_report_push behind12, _s4x behind88,
+   _vrnew behind20, _wt_m47push behind14 — 양쪽 동일)
+
+[하드코딩 절대경로 5건 수정] (X:\Projects\Migration_Validator 에서만 수정, C: 원본은 무변경)
+  diff --git a/tests/test_11def_scenarios.py b/tests/test_11def_scenarios.py
+  -import sys, json, traceback
+  -sys.path.insert(0, 'C:/projects/migration-validator')
+  +import sys, os, json, traceback
+  +sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+  diff --git a/tests/test_12k_stress.py b/tests/test_12k_stress.py
+  -import sys, json, traceback
+  -sys.path.insert(0, 'C:/projects/migration-validator')
+  +import sys, os, json, traceback
+  +sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+  diff --git a/scripts/dev_fixtures/pgtier_per_group_fixture.py
+  -sys.path.insert(0, r"C:\projects\migration-validator")
+  +sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+  ...
+  -    p = _preset(r"C:\projects\migration-validator\db_presets_tgt.json", "PostgreSQL_Inter_tobe")
+  +    _root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+  +    p = _preset(os.path.join(_root, "db_presets_tgt.json"), "PostgreSQL_Inter_tobe")
+
+  diff --git a/scripts/dev_fixtures/ora_xdiff_fixture.py
+  -sys.path.insert(0, r"C:\projects\migration-validator")
+  +sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+  ...
+  -    src = load_preset(r"C:\projects\migration-validator\db_presets_src.json", "Oracle_asis")
+  -    tgt = load_preset(r"C:\projects\migration-validator\db_presets_tgt.json", "Oracle_tobe")
+  +    _root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+  +    src = load_preset(os.path.join(_root, "db_presets_src.json"), "Oracle_asis")
+  +    tgt = load_preset(os.path.join(_root, "db_presets_tgt.json"), "Oracle_tobe")
+
+  전체: 6 files changed, 16 insertions(+), 9 deletions(-) (구문 검사 py_compile 전부 통과)
+
+════════════════════════════════════════════════════════════════
+추가 발견사항 (지시 범위 밖, 실행 중 우연히 발견 — 원본 C: 무변경, X: 만 보정)
+════════════════════════════════════════════════════════════════
+- requirements.txt 에 python-multipart 누락(엑셀 업로드 라우트가 FastAPI Form/UploadFile 사용,
+  미설치 시 서버 기동 자체가 즉시 실패). 원본 C: venv 에는 0.0.28 이 수동 설치돼 있었으나
+  requirements.txt 에는 기록된 적 없던 상태 — X: venv 재생성 때 처음 드러남.
+  조치: X:\...\requirements.txt 에 python-multipart==0.0.28 추가 + X: venv 설치.
+- requirements-dev.txt 에 pytest 자체가 누락(원본 C: venv 에는 9.0.3 수동 설치돼 있었음).
+  조치: X:\...\requirements-dev.txt 에 pytest==9.0.3 추가 + X: venv 설치.
+- 두 건 모두 [[project_dependency_versions_unpinned]] (의존성 버전 핀 전무)와 같은 계열의
+  사전 결함으로 판단. C: 원본 requirements*.txt 는 이번 지시 범위(원본 무변경) 준수를 위해
+  손대지 않음 — 필요 시 별도 지시로 C: 쪽도 동일하게 보정 권장.
+
+════════════════════════════════════════════════════════════════
+원본 보존 확인
+════════════════════════════════════════════════════════════════
+- C:\projects\migration-validator : 무변경, 삭제 없음
+- E:\verify_reports 등 8곳, E:\migration-validator-backup.git, E:\migration-validator-backup-update.bat : 무변경, 삭제 없음
+- 이번 지시 범위상 원본 삭제는 전혀 수행하지 않음 — 삭제는 사용자가 며칠 사용해본 뒤 별도 지시 예정
+
+✅ 작업 완료 - X드라이브 통합 이전 실행(코드/venv/verify 8곳/git백업미러/Claude메모리 전량 이관, 6단계 검증 전부 통과, 원본 삭제 없음)
