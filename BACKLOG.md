@@ -3429,6 +3429,27 @@ git -C E:/verify_reports worktree remove <임시경로>
   2049-2060` 한 곳.
 - 근거 보고서: E:\verify_reports\STAGE4-TAB-LABEL-LAG-AND-PRIOR-STAGE-LOCK-SCOPE-DIAGNOSE.txt
 - 근거 보고서: E:\verify_reports\M47-PRIOR-STAGE-LOCK-AND-BADGE-LABEL-DISTINCTION-FIX.txt
+- **추가 발견 및 해결(2026-08-07, 같은 날 재발 리포트)**: 사용자가 실서버(포트 8000, 새
+  탭·강제 새로고침 후에도 재현)에서 "5단계 진행 중 다른 탭 이동 시 실행 버튼이 다시
+  활성으로 보인다"고 재보고 — `M47-REGRESSION-RECHECK-AND-FIX`로 조사한 결과 **코드
+  손상/되돌림은 0건**(M47이 넣은 클릭 가드 5곳 전부 생존·정상 작동, 신규 실행요청 0건
+  실측 확인). 원인은 M47이 다루지 않은 **새로운 사각지대** — 클릭 시점 차단(핸들러 진입
+  가드)만 있고 **버튼의 시각적 상태(disabled)** 는 그 단계 고유 조건만 보고
+  `_mvAnyRunActive()`를 전혀 참조하지 않아, 폴링마다(`_mvProgressModalUpdate`) 매초
+  "활성 파란 버튼"이 다시 그려지고 있었다(클릭하면 실제로는 막혔지만 화면상 잠금 해제로
+  오인). 해결: `_mvSingleValidationCmdBarConfig()`에 `_RUN_LOCK_FNS` 화이트리스트
+  (runAnalyze/`_mvCountStageAction`/runRevalidateFromCandidate/runGenerate)로 시각
+  잠금 배선 + `_mvProgressModalUpdate()`에 `_mvSyncRunLockedControls()` 호출 1줄 추가
+  (5단계 job 시작·종료가 매 폴링마다 `body.mv-run-locked`에 반영). `runExecute`는
+  의도적으로 제외(자기치유 탈출구 보존 — 막으면 영구 먹통 위험). 5,000만행 실측
+  before/after 스크린샷 8쌍 + 결정적 config 매트릭스 11케이스로 확인, baseline 대조
+  신규 회귀 0건(사전 존재 실패 2건과 완전 일치). 설계 과정에서 계약 테스트 3건이 깨지자
+  테스트를 고치는 대신 호출부 원문 불변 + 정책을 헬퍼/화이트리스트로 분리하는 방향으로
+  재설계해 테스트 무수정으로 해결.
+  잔존(정직하게 명시): 서버측 가드 없음(클라이언트 단독 방어, M47과 동일 한계),
+  탭 로컬 상태(다른 탭엔 미적용), runExecute는 여전히 시각적으로 활성(클릭 가드로만
+  차단, 설계상 의도).
+- 근거 보고서: E:\verify_reports\M47-REGRESSION-RECHECK-AND-FIX.txt
 
 ### M50. [문서화 우선, 구현 보류] 관리컬럼 판정에 자체호스팅 LLM(메타 라마)을 3차 근거로 추가하는 설계 확정 — 착수 전 애매 케이스 실측 선행 필요
 - 발견/계기: 2026-08-07 (사용자 요청 — 고객이 메타 오픈소스 LLM 기반 기능 탑재를 요구,
