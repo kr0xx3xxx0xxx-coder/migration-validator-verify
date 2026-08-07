@@ -2935,6 +2935,29 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 대응 방향: 미조사. 근본원인 조사 후 별도 FIX 지침으로 착수 권장.
 - 참고: E:\verify_reports\M3-NODE-HARNESS-INFINITE-LOOP-FIX.txt
 
+### M53. ✅ Phase1~4 완료 — SQLite DB 경로 계산 단일 진실 출처화(X:\Data\ 분리 이관은 5단계로 보류)
+- 발견/계기: 2026-08-07 (사용자 요청 — 프로그램별 DB 파일을 소스 폴더 밖 공용 위치로
+  분리하는 정책 결정에 따른 선행 리팩터링) / 1~4단계 완료: 2026-08-07
+  (DB-SEPARATE-FOLDER-TO-X-DATA-MIGRATION, 코드 커밋 23e3fb60)
+- 조사 핵심(1단계): 운영 코드 49개 파일 47개 지점이 각자 `Path(__file__).parent.parent
+  / "db" / "xxx.db"` 형태로 독립 계산(전역명 6종 변형). 테스트 151개가 이 전역 이름을
+  직접 monkeypatch — 함수 호출 방식 전환 시 다 깨져서 모듈 전역 상수 형태 유지 필수.
+  `tests/conftest.py`의 `_DB_DIR`이 운영 DB 쓰기 방지 3중 가드 전체의 기준점(놓치면
+  테스트가 초록으로 통과하며 실제 운영 DB를 건드리는 최고 위험 지점). 이관 대상 5개
+  파일 총 약 1.04GB(`exact_diff_runs.db`가 1.02GB로 대부분).
+- 해결 요약(2~4단계): `config/db_paths.py` 신규(`DEFAULT_DATA_DIR` 상수 + `MV_DATA_DIR`
+  env override + `db_path()`/`db_path_str()` 헬퍼). 49개 파일을 `_DB_PATH = db_path(...)`
+  형태로 치환(모듈 전역 유지, 기존 str/Path 타입 유지). `tests/conftest.py`의 `_DB_DIR`도
+  같은 커밋에서 `config.db_paths.get_data_dir()` 참조로 동시 전환. **`DEFAULT_DATA_DIR`은
+  여전히 기존 `<project>/db`를 가리켜 동작 무변화**(순수 리팩터링, 파일 실이동 없음).
+- 잔존(5단계, 사용자 승인 후 별도 착수): 서버 정지 확인 → 실제 파일 복사 이관
+  (`X:\Data\Migration_Validator\`로, 원본은 개명 보관·삭제 안 함) → `DEFAULT_DATA_DIR`
+  전환 → 재기동 회귀. `exact_diff_runs.db`(1GB) 복사 중 서버가 살아있으면 WAL 손상
+  위험 — 정지 확인 필수. 착수 시 이 이전 verify 저장소에 1~4단계 검증 결과(테스트
+  대조 등)도 별도 완료보고로 남기는 것을 권장(이번엔 채팅으로만 산출물 공유됨).
+- 참고: 코드 저장소 로컬 커밋 23e3fb60(verify 저장소 완료보고 미push — 채팅에서 직접
+  조사·설계 산출물 공유 후 사용자 승인으로 진행)
+
 ### M4. ✅ 해결 완료(원인 진단 정정 — SQLite 가드가 아니었다) — 운영 SQLite 가드에 막혀 상시 실패하는 테스트군을 tmp_path 기반으로 전환
 - 해결일: 2026-08-03 (STEP-TAB-DOM-STABILITY-TEST-SQLITE-GUARD-FIX)
 - 근거 커밋: 코드 저장소 `a06827e` — `test(ui): 단계 탭 DOM 안정성 테스트 하니스의 개별 nav
