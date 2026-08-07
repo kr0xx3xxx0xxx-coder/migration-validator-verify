@@ -2868,13 +2868,32 @@ git -C E:/verify_reports worktree remove <임시경로>
   merge-join 알고리즘 요건이라 정렬 자체는 제거 불가하나, PG 12M 실측 근거를 오라클로 확대한 기록은 정정 필요.
 - 참고: E:\verify_reports\LARGE-DATA-SORT-EXPOSURE-DIAGNOSE.txt
 
-### M3. node harness JS 가 끝나지 않는 근본 원인 미규명(3파일)
-- 발견일: 2026-07-29
-- 근거 보고서: `TEST-NODE-SUBPROCESS-TIMEOUT-GUARD-ADD.txt` (§7)
-- 상세: `test_one_click_full_run.py` / `test_blocked_state_reset.py` / `test_candidate_draft_selection.py`.
-  이번 전역 timeout 가드는 스위트 마비를 막는 안전장치일 뿐 원인 수정이 아니다.
-  이제 1분 안에 명확한 메시지로 실패하므로 원인 조사가 가능한 상태다.
+### M3. 근본원인 규명 완료 — JOB-DASHBOARD-STAGE3 기본탭 변경 × harness setTimeout 동기스텁의 결합, 수정 권장(승인 대기)
+- 발견일: 2026-07-29 / 원인규명: 2026-08-07 (M3-NODE-HARNESS-TIMEOUT-ROOT-CAUSE-DIAGNOSE, 코드 무변경)
+- 근거 보고서: `TEST-NODE-SUBPROCESS-TIMEOUT-GUARD-ADD.txt`(§7, 최초) →
+  `M3-NODE-HARNESS-TIMEOUT-ROOT-CAUSE-DIAGNOSE.txt`(원인규명)
+- 근본원인(3파일 공유, 개별 결함 아님): 커밋 `05d4fa19`(2026-07-27 17:58, JOB-DASHBOARD-
+  STAGE3-UI-AND-MENU-REORG)가 기본 랜딩 탭을 홈→검증현황판으로 변경 — 이 탭은 진입 시
+  3초 폴링 `setTimeout` 재귀 체인(`_jdSchedule`)을 시작한다. 반면 3개 파일이 공유하는
+  node DOM 스텁의 `setTimeout`은 **지연 없이 즉시 콜백 실행**하도록 구현돼 있어(브라우저
+  타이머 계약 위반), 실제로는 3초에 한 번 도는 정상 폴링이 초당 수천 회 재귀 호출로
+  폭주해 CPU 1코어를 무기한 점유한다.
+  실측 증거: `node --prof` 프로파일링으로 실제 도는 함수(`_jdRenderOverall`/`_jdRenderAll`)
+  특정, CPU 누적 측정으로 idle 아닌 바쁜 루프(98%) 확정, 스크래치 사본에 추적 카운터를
+  심어 `_MV_JD.visible`이 매 호출 true로 고정돼 정지 조건이 단 한 번도 안 만족됨을
+  직접 확인, 원인 커밋과 최초 정지 사고(1시간 40분 후 기동) 시간 인과관계 대조.
+  M4 선례와의 차이: M4는 "하니스 계약 노후화(이름 불일치→동기 예외)"였는데 이번은
+  **"setTimeout의 시간 지연 계약을 스텁이 안 지켜서" 생기는 무한루프** — 제품 코드는
+  정상 설계(정상 브라우저 동작), 하니스 결함이 원인이라는 결론은 M4와 동일.
+  부작용(M4와 동일 성격): 이 3개 파일은 지금도 100% TIMEOUT으로 실패하는데, 실제 회귀가
+  생겨도 항상 같은 TIMEOUT만 보여 구분 불가능한 "죽은 빨간 불" 상태.
+- 대응 방향(권장): harness 스텁에 `localStorage.setItem('mv_active_tab','analyze')`
+  (job-dashboard가 아닌 유효 탭) 1줄을 실행 전 주입 — 현황판 fallback을 안 타 폴링
+  자체가 시작 안 됨. 파일 3개 × 1~2줄, 테스트 전용 변경, 제품 코드 무변경, 회귀 위험
+  최소. (비권장 대안 2가지도 검토됨: 공용 setTimeout 스텁 실제지연화는 144곳 파급이라
+  과함, 제품코드의 자동폴링 시작조건 변경은 사용자 체감 동작 변경이라 근거 약함.)
 - 참고: E:\verify_reports\TEST-NODE-SUBPROCESS-TIMEOUT-GUARD-ADD.txt
+- 참고: E:\verify_reports\M3-NODE-HARNESS-TIMEOUT-ROOT-CAUSE-DIAGNOSE.txt
 
 ### M4. ✅ 해결 완료(원인 진단 정정 — SQLite 가드가 아니었다) — 운영 SQLite 가드에 막혀 상시 실패하는 테스트군을 tmp_path 기반으로 전환
 - 해결일: 2026-08-03 (STEP-TAB-DOM-STABILITY-TEST-SQLITE-GUARD-FIX)
