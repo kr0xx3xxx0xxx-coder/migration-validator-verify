@@ -3237,22 +3237,28 @@ git -C E:/verify_reports worktree remove <임시경로>
   회귀 176건 통과, baseline 대조 신규 회귀 0건.
 - 근거 보고서: E:\verify_reports\STAGE1-4-RUN-BUTTON-UNIFIED-STOP-TOGGLE-FIX.txt
 
-### M45. 재이관 이어하기(resumable) 목록이 프로젝트/테이블로 스코프되지 않아, 무관한 과거 orphan 체크포인트가 현재 세션에 "복구 필요" 상태로 되살아난다
-- 발견일: 2026-08-06 (M44 작업 검증 중 부수 발견, 투명성 목적으로 정직하게 기록됨 —
-  이번 작업의 코드 변경과는 무관함을 baseline 대조로 확인)
-- 상세: `_mvExecReenterRestore()`(기존 기능, D7-19)가 `/agg-diff/resumable`을 조회할 때
-  **세션/프로젝트/테이블 구분 없이 전역 목록**에서 가장 최근 미완료 체크포인트를 가져온다.
-  M44 검증 중 실제로 오늘 이전 세션의 PostgreSQL 주문 테이블 관련 orphan 체크포인트
-  (run_id=PSF5D8441DAB50, 이번 오라클 픽스처와 전혀 무관)가 재발견되어, 지금 작업 중인
-  실행 패널이 뜬금없이 "직전 실행의 잔여 상태를 정리했습니다"라는 자기치유 안내와 함께
-  "복구 필요" 상태로 되살아나는 게 실측 확인됐다. baseline(HEAD, 별도 워크트리·포트)에
-  동일 클릭 시퀀스를 재현했을 때는 발생하지 않았고, 최소 재현 스크립트로도 동일 증상이
-  나와 코드 변경이 아니라 **서버측 orphan 데이터 + 무조건 전역 폴백하는 기존 로직의
-  조합**임이 확정됐다. 검증 재개를 위해 `db/chunk_checkpoints.db`의 해당 1개 행만
-  status='CANCELLED'로 정리했다(DELETE 아님, 이번 작업과 무관한 과거 테스트 잔재 1건).
-- 대응 방향: 미조사. `/agg-diff/resumable` 조회에 project_id·table_key 스코프 필터를
-  추가하는 방향이 유력해 보이나, 착수 전 범위 진단 필요.
-- 근거 보고서: E:\verify_reports\STAGE1-4-RUN-BUTTON-UNIFIED-STOP-TOGGLE-FIX.txt (§3-3)
+### M45. ✅ 해결 완료 — 재이관 이어하기(resumable) 목록에 project/table 스코프 필터 추가, 무관한 orphan 체크포인트 노출 해소
+- 발견일: 2026-08-06 (M44 작업 검증 중 부수 발견) / 해결일: 2026-08-07
+  (M45-RESUMABLE-CHECKPOINT-PROJECT-TABLE-SCOPE-FIX, 코드 커밋 38237dfa)
+- 상세: `_mvExecReenterRestore()`(D7-19)가 `/agg-diff/resumable`을 조회할 때 세션/프로젝트/
+  테이블 구분 없이 전역 목록에서 가장 최근 미완료 체크포인트를 가져와, 무관한 과거 orphan
+  체크포인트가 "복구 필요" 상태로 되살아나던 문제.
+- 해결 요약: 저장 시점(`chunk_checkpoint.start()`)에는 이미 src_profile/tgt_profile/
+  table_identity를 저장하고 있었으나 **조회에서만 안 쓰던 구조**였음을 확인 —
+  `list_resumable(src_profile, tgt_profile, table_key)`에 정확일치 필터 추가(인자 없으면
+  기존과 동일, 하위호환). 기존에 in-memory active_runs(D7-4C, `/single/active-run`)가 이미
+  쓰던 project_id+workflow_type 스코프 격리 패턴을 SQLite 영속 체크포인트 쪽에 이식 —
+  다만 in-memory의 "저장값 없으면 통과(tolerant)" 정책과 달리, SQLite는 장기 누적되므로
+  "필터가 주어졌는데 저장값이 없으면 제외"로 **의도적으로 더 엄격하게** 설계(스코프 불명
+  legacy 행 안전 배제). `_table_key(req)` 신설로 테이블 식별도 불안정한 SQL 원문 조각
+  대신 analyze 단계 기존 산출값(`parse_result.from_table_qualified`)으로 교체.
+  실측: 실 브라우저로 MATCH/ORPHAN 체크포인트를 직접 심어 재현 — 4단계 재진입 시 ORPHAN이
+  더 최신인데도 완전히 제외되고 MATCH만 응답(`window._mvDisplayedRunId` 확인), 동시에
+  같은 프로젝트/테이블 내 정상 이어하기는 유지됨을 확인(회귀 없음). 신규 테스트 5건 추가,
+  전체 14건 통과. 기존 orphan 데이터 마이그레이션은 불필요로 판단(필터가 자동으로 legacy
+  NULL 행을 배제하므로 별도 백필 불필요).
+- 참고: E:\verify_reports\STAGE1-4-RUN-BUTTON-UNIFIED-STOP-TOGGLE-FIX.txt (§3-3)
+- 참고: E:\verify_reports\M45-RESUMABLE-CHECKPOINT-PROJECT-TABLE-SCOPE-FIX.txt
 
 ### M48. requirements.txt/requirements-dev.txt에 python-multipart·pytest가 누락돼 있다(C: 원본, F29 핀 고정 때도 놓친 갭)
 - 발견일: 2026-08-07 (DRIVE-CONSOLIDATION-TO-X-EXECUTE 중 venv 재생성 과정에서 부수 발견)
