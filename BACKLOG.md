@@ -3192,6 +3192,22 @@ git -C E:/verify_reports worktree remove <임시경로>
   추가하는 방향이 유력해 보이나, 착수 전 범위 진단 필요.
 - 근거 보고서: E:\verify_reports\STAGE1-4-RUN-BUTTON-UNIFIED-STOP-TOGGLE-FIX.txt (§3-3)
 
+### M48. requirements.txt/requirements-dev.txt에 python-multipart·pytest가 누락돼 있다(C: 원본, F29 핀 고정 때도 놓친 갭)
+- 발견일: 2026-08-07 (DRIVE-CONSOLIDATION-TO-X-EXECUTE 중 venv 재생성 과정에서 부수 발견)
+- 상세: `python-multipart`(엑셀 업로드 라우트의 FastAPI Form/UploadFile 사용, 미설치 시 서버
+  기동 자체가 즉시 실패)와 `pytest`가 C: 원본 `.venv`에는 각각 0.0.28/9.0.3으로 수동 설치돼
+  있었으나 `requirements.txt`/`requirements-dev.txt`에는 기록된 적이 없었다. F29(버전 핀
+  고정) 작업 때도 "설치된 패키지 기준으로 핀 고정"했기 때문에, **파일에 없는 패키지는
+  핀 고정 대상에서도 자연히 빠졌다** — F29의 맹점. X: 새 venv 재생성 때 이게 처음 드러나
+  서버 기동 자체가 실패할 뻔했다. X: 쪽엔 즉시 보정(requirements 파일에 추가+설치)했으나,
+  **C: 원본 requirements*.txt는 이번 지시 범위(원본 무변경) 준수를 위해 손대지 않았다** —
+  아직 반영 안 됨.
+- 대응 방향: C: 원본이 계속 쓰인다면 requirements.txt에 `python-multipart==0.0.28`,
+  requirements-dev.txt에 `pytest==9.0.3` 추가 필요(단, C: 삭제 예정이면 불필요 — X: 통합
+  이전 완료·검증 후 판단).
+- 관련: F29(해결완료 — 이 갭의 존재를 놓친 원인)
+- 근거 보고서: E:\verify_reports\DRIVE-CONSOLIDATION-TO-X-EXECUTE.txt
+
 ### M46. ✅ 해결 완료 — 개별검증 4단계만 상단 컨텍스트 타일에 섹션 제목+카드 테두리가 없어 1~3단계와 표시가 어긋났다
 - 발견일: 2026-08-06 (사용자 실측 — 4개 스크린샷 직접 대조 보고) / 해결일: 2026-08-06
   (STAGE4-SECTION-TITLE-AND-CARD-BORDER-CONSISTENCY-FIX)
