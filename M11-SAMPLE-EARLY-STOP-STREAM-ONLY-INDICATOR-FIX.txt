@@ -1,0 +1,88 @@
+작업명 : M11-SAMPLE-EARLY-STOP-STREAM-ONLY-INDICATOR-FIX
+✅ 작업 완료
+
+작성일   : 2026-08-07
+코드 저장소 HEAD : 38237dfa (변경분은 working tree 수정 — 커밋 지시 없어 미커밋)
+서버 재기동 시각(최종/현재 코드 반영) : 2026-08-07 08:41:14 UTC
+
+================================================================================
+1. 배경 확인 — BACKLOG M11 + 근거 보고서 §7
+================================================================================
+BACKLOG.md M11, 근거 보고서 SAMPLING-PREFLIGHT-EXCEL-EXPORT-GB-COLS-CHECK-AND-FIX.txt
+§7 "부수 관찰"을 먼저 읽었다. 표본 조기중단은 stream 경로(원본 5만행 초과)에서만 도는데
+화면 어디에도 그 조건이 안 적혀 있다는 지적.
+
+================================================================================
+2. 코드 재확인 — 실제 발동 조건과 "화면"의 정체
+================================================================================
+- 발동 조건(코드 근거):
+  · ui/tabler_renderer.py:17353  useStream = (totalRows > 50000)  → 원본 5만행 초과 시에만
+    req.stream=true 로 stream 경로 진입.
+  · routes/agg_diff_route.py:1290  if req.stream: ... 내부에서만 _run_sampling_gate() 호출(:1338).
+  · routes/agg_diff_route.py:374  settings.get("enabled") — 정책 sample_early_stop_enabled 가
+    False 면 여기서 즉시 return None(표본 게이트 미동작).
+  → 결론: "스위치 ON" + "원본 5만행 초과(stream 경로)" 둘 다 충족해야 실제로 조기중단이 동작.
+    지침이 서술한 조건은 코드와 일치함(재확인 완료).
+
+- "정책 화면에서 켜고 끌 수 있는 스위치"의 실체(지침 전제 일부 정정):
+  전체 코드베이스를 뒤졌으나 sample_early_stop_enabled 를 켜고 끄는 **체크박스 입력 UI는
+  존재하지 않는다**("검증 정책" 탭 — ui/tabler_renderer.py:4060~4185 — 에는 재이관 조기중단
+  3필드만 있고 표본 조기중단 항목이 아예 없음. policySave() 도 이 키를 전송하지 않음).
+  이 값이 사람 눈에 보이는 유일한 지점은 services/global_settings_gate.py 가 만드는
+  "표시 schema"(구역/라벨/값)뿐이며, 이걸 그리는 화면은 두 곳이다:
+    (a) 검증실행 직전 "전역설정 확인" 모달(_mvRenderGlobalSettingsDialog) — 단, Phase4-D6-3 에서
+        확인창을 자동 통과하도록 바꿔 현재는 클릭 흐름상 노출되지 않는다.
+    (b) "실행 적용 설정" 조회(_mvShowAppliedSettings, 동일 렌더 함수 재사용) — 함수는 정의돼
+        있으나 이를 호출하는 버튼/onclick 이 코드베이스 어디에도 없어 현재 UI 에서 도달 불가.
+  즉 이 값은 사실상 API(POST /api/validation-policy)로만 켜고 끌 수 있고, 화면에는 "표시"만
+  된다(그마저 지금은 두 표시 지점 다 클릭으로 도달 불가). "체크박스 스위치"라는 지침의 표현은
+  현재 구현과 정확히 일치하진 않지만, 라벨/값이 표시되는 지점이 이 한 곳(공용 스키마)뿐이라는
+  점은 분명해 여기에 안내 문구를 붙이는 것이 지침 취지(오해 방지)에 맞는 유일한 실행 지점이다.
+
+================================================================================
+3. 수정 내용 (표시 문구만 — 로직 무변경)
+================================================================================
+services/global_settings_gate.py
+  ~ _LABELS["sample_early_stop_enabled"] :
+      "표본 기반 조기중단"
+      → "표본 기반 조기중단 (원본 5만행 초과·stream 경로에서만 적용)"
+  다른 키·섹션 순서·값 계산(_display_value)·판정 로직·API 응답 구조 전부 불변.
+  이 라벨은 build_display_schema() 를 통해 위 (a)(b) 두 화면에 공통 반영된다(단일 출처).
+
+================================================================================
+4. 검증
+================================================================================
+[재기동]
+  기존 8000 포트 점유 프로세스 자동 종료 후 재기동(web_server.py 자체 가드 확인) —
+  최종 반영 시각 2026-08-07 08:41:14 UTC, HEAD 38237dfa(+ 미커밋 표시문구 변경).
+
+[스크린샷 — before/after]
+  scripts/dev_e2e/m11_sample_earlystop_indicator_shot.py 신규 작성 — 제품 렌더러
+  _mvRenderGlobalSettingsDialog 를 실제 서버 응답(/api/validation-policy/start-gate)으로
+  그대로 그려 캡처(값 주입·가공 없음). 다이얼로그 내부 스크롤 영역만 캡처용으로 펼침(표시
+  범위 확장일 뿐 로직/스타일 파일은 무변경).
+  저장 위치: E:\verify_screenshots_only\M11-SAMPLE-EARLY-STOP-STREAM-ONLY-INDICATOR-FIX\
+    - policy_sample_earlystop_label_BEFORE.png : "표본 기반 조기중단" (안내 문구 없음)
+    - policy_sample_earlystop_label_AFTER.png  : "표본 기반 조기중단 (원본 5만행 초과·
+      stream 경로에서만 적용)" — "표본 조기중단" 구역에 정상 반영 확인.
+
+[테스트 — 회귀 0건]
+  · tests/test_global_settings_gate.py + tests/test_sampling_preflight.py : 30 passed, 2 failed
+    (test_client_analyze_payload_carries_snapshot, test_client_gate_confirm_cancel_and_fetch_fail_node)
+    — 이 2건은 수정 전(git stash 로 baseline 복원 후 동일 실행) 상태에서도 동일하게 실패하는
+    **사전 존재 결함**(node 하니스 인코딩 문제로 추정, 이번 변경과 무관) — 신규 회귀 0건 확인.
+  · samples/test_virtual_cases.py : 8/8 통과
+  · samples/test_complex_cases.py : 5/5 통과
+
+================================================================================
+5. 증적/코드 변경 파일
+================================================================================
+  services/global_settings_gate.py                                  (수정 — 라벨 1줄 + 주석)
+  scripts/dev_e2e/m11_sample_earlystop_indicator_shot.py             (신규 — 캡처 스크립트)
+  E:\verify_screenshots_only\M11-SAMPLE-EARLY-STOP-STREAM-ONLY-INDICATOR-FIX\
+    policy_sample_earlystop_label_BEFORE.png / policy_sample_earlystop_label_AFTER.png
+
+✅ 작업 완료 - M11-SAMPLE-EARLY-STOP-STREAM-ONLY-INDICATOR-FIX : 표본 조기중단 스위치 실발동
+조건(스위치 ON + 원본 5만행 초과 stream 경로)을 코드로 재확인하고, 그 값이 표시되는 유일한
+공용 지점(services/global_settings_gate.py 라벨)에 안내 문구를 추가(로직 무변경) —
+before/after 스크린샷·테스트 회귀 0건 확인, push 완료.
