@@ -1,0 +1,152 @@
+작업명 : S13-A1PRIME-RISK-ONLY-BADGE-IMPLEMENT
+✅ 작업 완료 - 위험 전용 배지(_applyCharCapacityRiskBadge) 신규 추가, selection_status 라벨 무변경 확인
+
+================================================================================
+0. 배경 및 채택 옵션
+================================================================================
+선행 조사본(S13-A1-BADGE-REACTIVATE-AND-GATE-INTENT-VERIFY.txt §6)이 제시한 3개 선택지 중
+사용자 승인: **A1'(위험 전용 배지)** 채택. _applyCsrBadges(선정상태 배지 원형)는 판정
+단일출처(Live vs Preview) 보호를 위한 의도적 봉인 상태 그대로 유지하고, 완전히 새로운
+경량 배지 하나만 추가했다.
+
+================================================================================
+1. 구현 내용 (ui/tabler_renderer.py 파일 하나만 수정)
+================================================================================
+1-1. 신규 함수 _applyCharCapacityRiskBadge() (ui/tabler_renderer.py:26436~26478 부근, 커밋
+     기준 라인은 아래 diff 참고) — _applyCsrBadges/_updateUnifiedColWithCsr 와는 완전히
+     별도 함수. 두 기존 함수는 무수정(호출부 추가 없음, 봉인 그대로).
+
+1-2. 발동 조건: _csrRows(CSR/candidate_scoring_runner 결과, /csr-preview 응답)의 각 행에서
+       risk_flags 에 'CHAR_CAPACITY_SHRINK_RISK' 포함 AND compatibility_status !==
+       'UNKNOWN_COMPATIBILITY'(NullProvider 결과 제외) 일 때만 배지를 얹는다.
+     F14 는 오라클 + 접속정보 명시 조건에서만 실 Provider 를 쓰므로, 그 외(PG/MySQL/MSSQL
+     또는 미접속)는 여전히 NullProvider — 이 조건으로 DBMS 비대칭 노출을 막는다.
+
+1-3. 표시: 기존 selection_status 배지(예: "기본추천 (65점)") 뒤에 별도 <span
+     class="cs-charcap-risk-badge"> 를 추가로 append. 배경색 주황(#e67e22), 텍스트
+     "⚠ 길이 축소 위험", hover title 에 상세 설명. 기존 라벨 span 은 건드리지 않음(교체
+     아님 — 순수 추가). 중복 주입 방지 가드 포함(cell.querySelector 로 기존 배지 존재 시
+     skip).
+
+1-4. 배선 지점: _fetchCsrPreview() 안 2곳(캐시 히트 경로 / 신규 fetch 성공 경로) —
+     _csrRows 확정 직후 _applyCharCapacityRiskBadge() 호출. 이 함수는 Stage3 후보 선택
+     패널(renderColSelect 가 만든 tr[data-cand-role] / input[name="sum|gb"] 마크업)이 먼저
+     렌더된 뒤 fire-and-forget 으로 도착하는 구조를 그대로 이용 — 라이브 판정
+     (candidate_display_enricher._apply_global_autoselection) 결과가 이미 그려진 화면
+     위에 배지만 얹는 방식이며, 판정 로직 자체는 완전히 무수정.
+
+================================================================================
+2. 발견 사항 — 기존 _applyCsrBadges 의 DOM 셀렉터는 이미 stale
+================================================================================
+_applyCsrBadges(원형)는 label.cs-item / label.querySelector('.cs-col') 을 찾는데, 현재
+Stage3 개별 후보표(renderColSelect/buildRow)는 label.cs-item 마크업을 쓰지 않고
+tr[data-cand-role] / td.ict-tc-stscore 구조로 바뀌어 있다(grep 결과 label.cs-item 클래스
+정의 자체가 코드에 없음 — 정의된 CSS 도 없음). 즉 원형을 그대로 되살렸어도(A1) DOM
+불일치로 동작하지 않았을 것 — A1' 신규 함수는 현재 실제 마크업(td.ict-tc-stscore)을
+기준으로 새로 작성했다.
+
+================================================================================
+3. 자체 테스트 (코드 회귀)
+================================================================================
+3-1. CSR/badge 관련 서브셋
+  .venv python 3.14.4 (X:\Projects\Migration_Validator\.venv)
+  pytest tests/test_varchar2_byte_char_capacity.py tests/test_candidate_scoring_runner.py
+         tests/test_csr_preview_csr_rows.py tests/test_csr_preview_route.py
+         tests/test_analyze_to_csr_adapter.py tests/test_csr_apply_selection.py -q
+  → 251 passed, 5 skipped, 1 failed (11.21s)
+     실패 1건 = tests/test_csr_apply_selection.py::TestRunGeneratePayloadUnchanged
+                ::test_checkboxes_still_source_of_selection
+     → 선행 조사본 §4 에 이미 기록된 **사전 존재(baseline) LEGACY_ASSERT** 실패(옛
+       querySelectorAll 문자열을 검사하는 테스트가 collectFinalCandidateSelection() 단일
+       출처 전환 이후에도 갱신되지 않음). 이번 변경(ui/tabler_renderer.py 47줄 추가)과
+       무관 — runGenerate/checkbox 로직 미접촉.
+  → 신규 회귀 0건.
+
+3-2. CLAUDE.md 필수 회귀
+  python samples/test_virtual_cases.py   → 8/8 통과
+  python samples/test_complex_cases.py   → 5/5 케이스 분석 완료(신뢰도 HIGH/LOW/FAIL 정상)
+
+3-3. 문법 검사
+  python -m py_compile ui/tabler_renderer.py → OK
+
+================================================================================
+4. 실 브라우저 검증
+================================================================================
+서버 재기동 시각: 2026-08-07 15:52 KST(web_server.py, PID 9976) · HEAD 커밋
+29c8379ac4982d40534456f3055f1d227ce5d58f 로 재기동.
+
+4-0. 검증 한계(정직하게 기록)
+  asis(1523)/tobe(1524) 오라클 두 인스턴스가 NLS_CHARACTERSET 을 **둘 다 AL32UTF8** 로
+  공유한다(2026-08-07 실측, scripts/dev_e2e/varchar2_byte_char_capacity_comparison_verify.py
+  재실행 결과 — driver oracledb 4.0.2 이 이 venv 에 없어 신규 설치 후 실행). 양쪽 캐릭터셋이
+  같으면 candidate_scoring_runner.py:448~464 의 CHAR_CAPACITY_SHRINK_RISK 발동 조건(byte
+  의미 + 실효수용량 축소 + 선언길이 불변)이 수학적으로 성립할 수 없다(문자형 컬럼의
+  char_length==data_length 인 BYTE 시맨틱 특성상, 같은 charset 이면 t_cap<s_cap 이면서
+  t_len>=s_len 인 상태가 나올 수 없음). 즉 **실접속만으로 양성(배지가 뜬다) 사례를 재현하는
+  것은 현재 인프라로는 불가능**하다(오라클 인스턴스 charset 이 다른 별도 환경이 필요 —
+  인프라 변경은 이번 작업 범위 밖).
+  → 양성 사례는 실 오라클 접속으로 렌더된 실제 후보표 위에, /csr-preview 가 실제로 반환할
+    수 있는 형태(role/target_column/compatibility_status/risk_flags) 그대로의 synthetic
+    _csrRows 항목을 주입해 클라이언트 배지 함수 자체를 검증했다(VARCHAR2-BYTE-CHAR-CAPACITY
+    -COMPARISON-FIX 검증 스크립트의 D-2 케이스와 동일 선례 기법 — 서버 charset 판정
+    로직은 이번 작업 범위 밖이며 그 기능 자체는 별도 작업에서 이미 실측 완료됨).
+  → 음성 사례(NullProvider 제외, PG 실접속 무배지)는 100% 실접속·실렌더로 확인했다.
+  드라이버: scripts/dev_e2e/s13_a1prime_risk_badge_verify.py (신규, 개발/테스트 전용).
+
+4-1. 시나리오 A — 오라클 실접속(Oracle_asis→Oracle_tobe, MV_ORA_DEMO_SRC→MV_ORA_DEMO_TGT)
+  · Before(실접속, 위험 없음): 후보표 렌더 완료(COUNT 일치, GROUP BY 2/3·SUM 1/3), 배지
+    수 0건. 스크린샷 A1_before_real_oracle_no_risk.png.
+  · DEPT_CD(GROUP BY) 후보에 synthetic risky row 주입
+    (compatibility_status=PRECISION_LOSS_RISK, risk_flags=[CHAR_CAPACITY_SHRINK_RISK,
+    PRECISION_LOSS_RISK]) + STATUS_CD 후보에 synthetic NullProvider row 주입
+    (compatibility_status=UNKNOWN_COMPATIBILITY, 동일 risk_flags) 후
+    _applyCharCapacityRiskBadge() 호출.
+  · After: 배지 수 1건(정확히 DEPT_CD 행에만). STATUS_CD 는 배지 없음(NullProvider 제외
+    로직 확인). 스크린샷 A2_after_synthetic_risk_injected.png.
+  · per_column_badge_present = {"DEPT_CD": true, "STATUS_CD": false} — 실측값 그대로.
+  · 중복 방지: _applyCharCapacityRiskBadge() 재호출 후에도 배지 수 그대로 1건(dedup 확인).
+  · selection_status 라벨 무변경(가장 중요한 검증) — DEPT_CD 상태셀의 innerHTML 을 주입
+    전/후로 비교: 주입 후 innerHTML 이 주입 전 innerHTML 로 **정확히 시작**함을 확인
+    (dept_cell_append_only=true). 즉 기존 "기본추천" span·점수 span·title 속성이 문자
+    하나도 바뀌지 않았고, 새 배지 span 이 뒤에 순수 추가됐을 뿐이다.
+      주입 전: <span class="status-badge-sd">기본추천</span> <span class="ict-score-inline"
+        ...>(65점)</span>
+      주입 후: (위 그대로) + <span class="cs-charcap-risk-badge" ...>⚠ 길이 축소 위험</span>
+
+4-2. 시나리오 B — PostgreSQL 실접속(PostgreSQL_asis→PostgreSQL_tobe,
+     mv_bt.orders_a→mv_bt.tgt_orders)
+  · 실접속으로 후보표까지 렌더(COUNT_MAJOR_DIFF 상태로 진행, csr_rows 12건 수신).
+  · compatibility_status_set = ["UNKNOWN_COMPATIBILITY"] 뿐 — F14 가 오라클 전용이므로
+    PG 는 실접속이어도 NullProvider 그대로임을 실측 확인.
+  · 배지 수 0건(자연 상태, synthetic 주입 없이). 스크린샷 B1_pg_null_provider_no_badge.png.
+  · → "PG/MySQL/MSSQL 또는 접속정보 미제공 상태에서는 배지 자체가 안 뜬다" 요구사항을
+    실접속으로 확인.
+
+4-3. 원시 사실 데이터: S13-A1PRIME-RISK-ONLY-BADGE-IMPLEMENT/verify_facts.json (본 저장소
+     동일 폴더에 스크린샷과 함께 포함).
+
+================================================================================
+5. 변경/생성 파일 목록
+================================================================================
+  수정: ui/tabler_renderer.py (+47줄 — 신규 함수 1개 + 호출 2곳, 기존 함수 무수정)
+  신규: scripts/dev_e2e/s13_a1prime_risk_badge_verify.py (개발/검증 전용 드라이버)
+  커밋: 29c8379ac4982d40534456f3055f1d227ce5d58f (코드 저장소
+        X:\Projects\Migration_Validator, main 브랜치 — 이 저장소는 원격 미설정이라 push
+        대상 아님)
+  증적: X:\Verify\verify_screenshots_only\S13-A1PRIME-RISK-ONLY-BADGE-IMPLEMENT\ 에 로컬
+        저장 후, 원 클론의 상시 대기 삭제([[project_verify_clone_index_stale_deletions_wipe_evidence]]
+        재확인 — 258 D / 20 M / 135 ?? staged-pending 확인, pull 시도 시 merge 충돌로
+        즉시 중단해 원격에 반영하지 않았음) 회피를 위해 짧은 경로의 클린 클론
+        X:\Verify\_rcv 로 복사 후 그 경로에서만 add·commit·push.
+
+================================================================================
+6. 다음 단계 관련 참고
+================================================================================
+· NLS_CHARACTERSET 이 다른 오라클 인스턴스 쌍이 확보되면(또는 폐쇄망 테스트 DB 신규
+  구성 시) 이번 검증 §4-0 의 한계를 실접속만으로 해소할 수 있다 — 별도 인프라 작업.
+· ui/tabler_renderer.py 는 이제 배지 계열 함수가 3개(applyCsrBadges·
+  _updateUnifiedColWithCsr·_applyCharCapacityRiskBadge)로 늘었고 그중 앞 2개는 죽은
+  코드다. 파일 비대화 억제 관점에서는 언젠가 죽은 두 함수의 정리(삭제 여부 재확인)를
+  별도 지침으로 검토할 만하다 — 이번 작업 범위 밖이라 손대지 않았다.
+
+✅ 작업 완료 - 위험 전용 배지(_applyCharCapacityRiskBadge) 신규 추가, selection_status 라벨 무변경 확인
