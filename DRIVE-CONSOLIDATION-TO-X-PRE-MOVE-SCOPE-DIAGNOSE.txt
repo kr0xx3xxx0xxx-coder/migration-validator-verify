@@ -1,0 +1,301 @@
+작업명 : DRIVE-CONSOLIDATION-TO-X-PRE-MOVE-SCOPE-DIAGNOSE
+✅ 작업 완료 - X드라이브 통합 이전 사전조사(코드 수정·파일 이동 없음, 순수 인벤토리)
+
+조사 시각: 2026-08-07 08:50~09:20 KST 기준 실측. 코드/파일 변경 전혀 없음(읽기 전용 조사만).
+
+════════════════════════════════════════════════════════════════
+1. 전체 인벤토리
+════════════════════════════════════════════════════════════════
+
+[1-A] 코드 저장소 C:\projects\migration-validator
+  - 전체 크기: 2.7G (.git 124M + .venv 362M 포함)
+  - 로컬 브랜치: main(HEAD, 커밋 2b38cdb) · perf/results-detail-server-pagination ·
+    worktree-agent-aaa293d76… · worktree-agent-ab6dfb82e… · worktree-agent-add76054a…
+    (`git worktree list`에는 main 하나만 뜸 — worktree-agent-* 3개는 브랜치만 남고 실제
+    worktree 디렉터리는 이미 정리된 상태로 추정, 브랜치 자체는 살아있음)
+  - 원격(origin): **설정 안 되어 있음**(`git remote -v` 빈 값). 대신 별도 bare 백업이 존재(1-C 참고).
+
+[1-B] verify 저장소 로컬 클론 — 지시서가 아는 4곳 외 **4곳을 추가로 발견, 총 8곳**
+  전부 동일 remote(`https://github.com/kr0xx3xxx0xxx-coder/migration-validator-verify.git`).
+
+  | 경로                          | 작업트리+.git 크기 | 최신 커밋(HEAD)          | 미커밋 파일 | origin/main 대비 |
+  |-------------------------------|--------------------|---------------------------|-------------|-------------------|
+  | E:\verify_reports             | 411M                | 4be0b1c 2026-08-06         | **1561건**  | 1 ahead / 37 behind |
+  | E:\verify_screenshots_only    | 730M                | e4138d7 2026-08-07(내 작업)| 412건       | 7 ahead / 111 behind|
+  | E:\_rcv                       | 497M                | 768265e 2026-08-04         | 0건(clean)  | 동기(0/0)          |
+  | E:\_rpt_push                  | 226M                | b6e8a6b 2026-08-06         | 0건(clean)  | 동기(0/0)          |
+  | E:\_rpt_report_push  (신규발견)| 645M                | 3018e8b 2026-08-06         | 0건(clean)  | 미확인(개별 재확인 필요)|
+  | E:\_s4x               (신규발견)| 515M                | 15484cc 2026-08-05         | 0건(clean)  | 미확인             |
+  | E:\_vrnew             (신규발견)| 640M                | 6e385cb 2026-08-06         | 0건(clean)  | 미확인             |
+  | E:\_wt_m47push        (신규발견)| 536M                | b0f73e6 2026-08-06         | 0건(clean)  | 미확인             |
+
+  - **E:\verify_reports 는 지시서가 우려한 "1560개 미커밋" 그대로(현재 1561건)** — 여전히 해소 안 됨.
+    이 디렉터리는 반드시 **robocopy(raw 파일 복사)**로 옮겨야 한다(git clone 이면 미커밋 1561건 소실).
+  - E:\_wt_ecpk 는 빈 디렉터리(.git 없음) — 8곳 중 어느 clone 의 `git worktree list`에도 등록돼
+    있지 않은 완전 고아 상태, 이관 시 그냥 버려도 무방(내용 없음, 삭제는 이번 범위 아니라 안 함).
+  - E: 드라이브 루트에 loose 파일 4개(_w1.txt·_w2.txt·_wt_s4_base.txt·_wt_sgb_base.txt) — git과
+    무관한 과거 세션 스크래치 텍스트, 저용량, 이관 시 같이 복사하거나 버려도 무방(판단 보류).
+  - F:\, W:\, X:\ 는 별도 스캔했으나 migration-validator-verify remote를 가리키는 clone 없음
+    (F:\vr, F:\av 는 완전히 무관한 개인 미디어 폴더 — 이관 대상 아님).
+
+[1-C] git 백업 미러 — E:\migration-validator-backup.git
+  - bare 저장소, 43M. `git config`상 `remote.origin.url = C:/projects/migration-validator`,
+    `mirror = true`, `fetch = +refs/*:refs/*` — **코드 저장소 → 이 bare repo 로 당겨오는(pull) 방향**.
+  - **최신 커밋이 ba90821(2026-07-22 23:39)로, 현재 코드 HEAD(2b38cdb, 2026-08-07)보다 16일·
+    수십 커밋 뒤처짐 — 사실상 방치 상태.** 갱신은 수동 스크립트(1-D)뿐, 자동화 없음(스케줄러 조회 0건).
+
+[1-D] E:\migration-validator-backup-update.bat
+  - 더블클릭 수동 실행 전용. `git --git-dir=C:\projects\migration-validator\.git push
+    E:\migration-validator-backup.git --mirror` 한 줄. 원본·백업 경로 둘 다 하드코딩.
+
+[1-E] 로컬 DB 파일 전부 — C:\projects\migration-validator\db\
+  - migration_validator.db (42M, 방금 갱신됨 — 08:37) : 서비스 공용 SQLite 본체
+  - **exact_diff_runs.db (1.07G)** : 폴더 내 최대 용량 파일
+  - chunk_checkpoints.db (12K) + **-shm(32K)/-wal(1.1M) 동반** → **WAL 모드로 현재 활성 중**
+    (서버 프로세스가 켜져 있는 지금 이 순간에도 파일 잠금 가능성 있음 — 3번 항목과 연동)
+  - 그 외 backup-*.db / cleanup-backup-*.db 7종(합계 약 240M, 6/27~8/6 스냅샷), db/backup/ 하위
+    2개(36M), test_validation_idempotency.db(16K), validation_history*.db(3종), validation_results.db
+  - db 디렉터리 총합 약 1.3G. **서버(PID 33256) 기동 중에는 WAL 파일이 계속 갱신되므로, 이관
+    복사는 반드시 서버 정지 후 수행**해야 일관성 있는 스냅샷이 된다(3번 항목 참고).
+
+[1-F] 프리셋/인증 파일(SQLite 이관 후에도 롤백용으로 파일 보존 중 — M37~M39)
+  - C:\projects\migration-validator\db_presets_src.json (2.4K) / db_presets_tgt.json (1.8K)
+  - C:\projects\migration-validator\auth_users.json (775B)
+  - 3개 파일 모두 내용에 절대경로 문자열 없음(단순 접속정보 JSON) — 이관 시 그대로 복사만 하면 됨.
+
+[1-G] C 드라이브에 흩어진 추가 스냅샷(지시서 미언급, 신규 발견)
+  - C:\projects\migration-validator_backup_*_stable_v1 7개 디렉터리(각 12~15M, 5/22 무렵 체크포인트
+    스냅샷, 대부분 plain 폴더 복사·git 아님) + C:\projects\_rpt_tmp_stageexec(16K, 빈 것에 가까움)
+  - 오래된 개발 체크포인트라 저용량·저위험, 이관에 포함할지는 사용자 판단(코드 저장소와 별개 이력).
+
+════════════════════════════════════════════════════════════════
+2. 하드코딩 절대경로 전수 스캔 (최우선 항목)
+════════════════════════════════════════════════════════════════
+스캔 범위: .venv/.git/node_modules 제외 전체. 패턴: C:\projects\migration-validator,
+C:/projects/migration-validator, E:\verify_reports, E:\verify_screenshots_only, E:\_rpt_push,
+그 외 드라이브문자 절대경로(`['"][A-Z]:[\/]`).
+
+[2-A] ★ 실제 기능 영향(임포트/파일 경로 조립에 관여) — 지시서가 이미 아는 2건 외 **3건 추가 발견**
+  - tests/test_11def_scenarios.py:7          sys.path.insert(0, 'C:/projects/migration-validator')
+  - tests/test_12k_stress.py:8                sys.path.insert(0, 'C:/projects/migration-validator')
+  - scripts/dev_fixtures/pgtier_per_group_fixture.py:29   sys.path.insert(0, r"C:\projects\migration-validator")
+  - scripts/dev_fixtures/pgtier_per_group_fixture.py:53   r"C:\projects\migration-validator\db_presets_tgt.json"
+  - scripts/dev_fixtures/ora_xdiff_fixture.py:32          sys.path.insert(0, r"C:\projects\migration-validator")
+  - scripts/dev_fixtures/ora_xdiff_fixture.py:210~211     db_presets_src/tgt.json 절대경로 2건
+  → 이동 후 그대로 두면: 실행 위치가 어디든 sys.path 맨 앞에 **존재하지 않는 옛 경로**가 꽂힌다.
+    보통은 그래도 동작한다(파이썬이 사실상 안 쓰는 index-0 항목을 무시하고 다른 경로로 import
+    성공) — 하지만 "새 X: 경로가 아닌 옛 C: 경로를 우선 탐색"하는 구조라 조용한 오작동 소지가
+    있고, 옛 C:\projects\migration-validator 를 완전히 지운 뒤에는 즉시 깨진다. 고치는 법은
+    간단: `sys.path.insert(0, 'C:/projects/migration-validator')` →
+    `sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))`(스크립트 위치 기준
+    상대 경로로 전환, tests/ 인 두 파일은 부모 디렉터리로 한 단계 더 필요) — 5개 파일, 각 1~3줄.
+
+[2-B] 프로덕션 코드 — 주석/문서용 참조뿐, 실행에 영향 없음
+  - services/result_group_limit_precheck.py:9  (docstring 안, "진단 근거: E:\verify_reports\...txt"
+    — 사람이 읽는 참고 문구일 뿐 코드가 그 경로를 열지 않음)
+
+[2-C] scripts/dev_e2e/*.py — 대량 발견(총 55개 파일), 전부 같은 패턴
+  - 거의 모든 파일 상단에 `sys.path.insert(0, r"C:\projects\migration-validator")`(또는
+    `ROOT`/`MAIN_REPO`/`_REPO` 변수로 동일 값) — 대표 예시:
+      scripts/dev_e2e/counselor_nm_truncation_detection_verify.py:26
+      scripts/dev_e2e/date_format_variant_synthetic_e2e.py:18,21
+      scripts/dev_e2e/execute_set_alias_mismatch_browser_shot.py:36 (MAIN_REPO)
+      scripts/dev_e2e/pg_join_where_cross_db_reference_diagnose.py:32,36 (ROOT)
+      … 외 51개 파일 동일 패턴(전체 파일명 목록은 재현 가능 — grep 명령어를 아래 부록에 남김)
+  - 별도로 OUT_DIR/SHOT 상수가 `E:\verify_screenshots_only\<작업명>` 하드코딩된 파일도
+    55개 안팎 확인(예: scripts/dev_e2e/admin_column_confirmed_restore_to_reference_verify.py:36,
+    scripts/dev_e2e/agg_diff_route_alias_browser_shot.py:18 등).
+  → **이 그룹은 전부 1회성 과거 검증 스크립트**(재실행 빈도 극히 낮음)라 위험도는 낮지만,
+    E:\ 쪽 verify 저장소까지 X:로 옮기면 재실행 시 옛 경로에 쓰기를 시도해 실패한다.
+    55개 전부 손대는 건 비용 대비 낮은 가치 — "옮긴 뒤에도 과거 스크립트를 재실행할 일이 있으면
+    그때 개별 스크립트의 경로 상수만 그때그때 고친다"는 방침을 권장(전수 리팩토링은 비권장).
+
+[2-D] 문서(docs/*.md, README.md) — 8개 파일, 전부 사람이 읽는 안내문 속 경로(cd 명령 예시,
+  파일 경로 표기). 코드 실행에 영향 없음. 대표: README.md:109, docs/SEMANTIC_DICTIONARY_V1_
+  BASELINE_PLAN.md:824·827, docs/SEMANTIC_BASELINE_HTML_REPORT_SPEC.md 4곳,
+  docs/archive/legacy/*.md 4곳, BASELINE_REPORT.md:98, PHASE3_VERIFY_REPORT.md:40,
+  INTERNAL_DEMO_RUN_CHECKLIST.md:20. 이동 후 새 경로로 문구만 바꿔주면 되는 단순 치환.
+
+[2-E] scratchpad/**, samples/**/*.json, tests/ 산출물 등 26개 파일 — 전부 **과거 실행 로그/
+  결과물 텍스트**(코드가 다시 읽지 않는 1회성 산출물)에 경로가 데이터로 찍혀 있을 뿐. 스캔 시
+  files_with_matches 로 존재만 확인, 내용 수정 불필요(이관 시 그대로 복사해도, 버려도 무방).
+
+[2-F] ★★ .venv 자체는 grep 대상에서 제외했지만 **가장 큰 함정**(자세한 내용은 4번 항목).
+
+════════════════════════════════════════════════════════════════
+3. 실행 중 프로세스/서버 확인
+════════════════════════════════════════════════════════════════
+  - 포트 8000 LISTENING, PID 33256, `C:\Python314\python.exe web_server.py`
+    (주의: 프로젝트 .venv가 아니라 **전역 인터프리터**로 떠 있음 — 이번 세션 재기동 시 그렇게
+    떴다. .venv 사용도 정상 동작하는 걸 이전 세션들이 확인했으니 둘 다 되는 구성으로 보이나,
+    "어느 python 을 쓰는지"는 실행할 때마다 사람이 정하는 것이라 이관과 무관하게 항상 유동적).
+  - 자식 프로세스 PID 3624 : sqlglot 파싱 격리 워커(SQL 파싱을 별도 프로세스로 분리 실행하는
+    구조, [[project_sqlglot_parse_process_isolation]]) — 부모 PID를 런타임에 인자로 넘겨받으므로
+    경로 하드코딩 없음, 이동 영향 없음.
+  - **경로 조립 방식은 안전한 편**: web_server.py 의 정적파일/리포트 경로는 `Path(__file__).parent`
+    기준(25·93·98·296행), DB 경로도 `services/project_store.py:19`
+    `_DB_PATH = Path(__file__).resolve().parent.parent / "db" / "migration_validator.db"` 로
+    **스크립트 자기 위치 기준 상대 계산** — 통째로 폴더를 옮겨도 이 부분은 안 깨진다.
+  - 다만 서버가 **기동 중인 지금** db/ 를 그대로 복사하면 chunk_checkpoints.db-wal(1.1M, 활성)가
+    일관되지 않은 스냅샷으로 복사될 위험이 있다 → 이관 시 **서버 정지 후 복사**가 필수(5번 실행
+    순서에 반영).
+
+════════════════════════════════════════════════════════════════
+4. 설정 파일 경로 의존성
+════════════════════════════════════════════════════════════════
+  - C:\projects\migration-validator\.claude\settings.json (프로젝트 레벨) — model/permissions만,
+    절대경로 없음. 깨끗함.
+  - **C:\projects\migration-validator\.claude\settings.local.json (26.7K) — 절대경로 대량 포함.**
+    permissions.allow 배열 약 150여 항목 중 `C:\\projects\\migration-validator`(이스케이프된
+    형태) 문자열이 박힌 항목이 40여 건(PowerShell cd/Start-Process, Get-Content, 테스트 실행
+    커맨드 등), 그 외 `C:\\projects\\sato`/`C:\\projects\\doduo`(비활성 레거시 분석기 실험용
+    사이드 프로젝트, CLAUDE.md상 ⛔ 표시) 경로도 다수.
+    → **기능이 깨지는 게 아니라, 이동 후 이 allow 패턴들이 전부 "매치 안 됨" 상태가 되어
+      똑같은 명령을 실행할 때마다 권한 확인 팝업이 다시 뜨기 시작한다**(허용 목록이 조용히
+      무력화). 데이터 손실 위험은 없음, 운영 편의성만 저하. 고치려면 파일 안의
+      `C:\\\\projects\\\\migration-validator` 문자열을 새 경로로 일괄 치환하면 된다(코드
+      변경이 아니라 Claude Code 자체 설정이라 이번 조사 범위 밖 — 실제 치환은 이관 완료 후).
+  - C:\Users\nextobe_lyk\.claude\settings.json (사용자 레벨) — model/tui/theme 등만, 절대경로 없음.
+  - db/schema.sql, config/*.py — 절대경로 0건(깨끗함).
+  - db_presets_*.json, auth_users.json — 1-F에서 이미 확인, 깨끗함.
+
+  ★★★ 이번 조사에서 발견한 **가장 중요한 잠재 위험** (지시서 범위 밖이지만 반드시 짚어야 함):
+  Claude Code는 프로젝트별 세션/메모리를 **작업 디렉터리 경로를 문자열로 치환한 이름**의
+  폴더에 저장한다. 현재:
+    `C:\Users\nextobe_lyk\.claude\projects\C--projects-migration-validator\`
+  여기에 **986M, 세션 120여 개 + 이 프로젝트의 memory/ 전체(MEMORY.md 포함, 지금 이 대화가
+  참조하고 있는 누적 기억 전부)**가 들어있다. 폴더명이 `C:\projects\migration-validator` 를
+  그대로 문자열 치환한 것이므로, **작업 디렉터리가 X:\...\migration-validator(또는 다른 이름)로
+  바뀌면 Claude Code는 새 경로에 해당하는 새 폴더를 만들고, 이 986M 짜리 기존 폴더는
+  자동으로 연결되지 않는다.** 즉 아무 조치 없이 그냥 옮기면 **이 프로젝트의 모든 누적 메모리와
+  과거 세션 기록이 새 위치에서는 안 보이게 된다**(디스크에서 사라지는 건 아니지만 새 세션이
+  못 찾음). 이관 계획에 반드시 "이 폴더를 새 경로의 sanitize 규칙에 맞는 이름으로 함께
+  복사/개명"하는 단계를 포함해야 한다(6번 항목에서 재언급).
+
+════════════════════════════════════════════════════════════════
+5. git 원격/백업 구조
+════════════════════════════════════════════════════════════════
+  - E:\migration-validator-backup.git 는 코드 저장소의 **수동·비주기 미러**(1-C/1-D 참고).
+    스케줄러(`schtasks`) 전수 조회 결과 관련 작업 0건 — cron/작업 스케줄러 자동화 전혀 없음.
+    갱신은 사람이 E:\migration-validator-backup-update.bat 를 더블클릭해야만 일어나고,
+    실측 결과 16일째 방치 중.
+  - 이 구조를 X로 옮기려면: (a) bare repo 자체를 X:\...\migration-validator-backup.git 로 이동
+    (b) .bat 파일의 두 하드코딩 경로(원본 `--git-dir`, 대상 push URL)를 새 경로로 교체
+    (c) 이동 직후 한 번 더블클릭 실행해 16일치 지연을 먼저 해소 — 이 세 가지는 이관 자체와
+    무관하게 **지금 당장도 해도 되는 개선**(다만 이번 지시는 "조사만"이라 실행하지 않음).
+  - verify 저장소(migration-validator-verify) 쪽은 GitHub 원격(진짜 origin)이 있어 구조상
+    문제 없음 — 로컬 클론 8곳을 어디로 옮기든 `git remote -v` 값(GitHub URL)은 안 바뀐다.
+
+════════════════════════════════════════════════════════════════
+6. 이관 후 반드시 갱신해야 할 "내 지침 경로" (Claude 웹 지침 컨벤션)
+════════════════════════════════════════════════════════════════
+  이번 조사와 무관하게, 미리 짚어달라고 하신 부분:
+  - CLAUDE.md 자체에는 E:\verify_reports/E:\verify_screenshots_only 절대경로가 없음(확인 완료,
+    안심 요소) — 다만 **내(Claude)가 매 세션 관례적으로 참조하는 경로**(완료보고 저장 위치,
+    스크린샷 저장 위치, `db_presets_src.json` 프리셋 파일 언급 등)는 CLAUDE.md 밖의 **memory
+    시스템**(`C:\Users\nextobe_lyk\.claude\projects\...\memory\*.md`, 약 100여 개 파일)에
+    다수 박혀 있음. 예: feedback_completion_report_file_save.md, project_verify_repo_vs_code_
+    repo_remote.md 등이 전부 "E:\verify_reports"/"E:\verify_screenshots_only" 문자열을 하드코딩.
+  - **이전 완료 후 사용자가 알려주시면**, 다음을 함께 처리해야 함(이번 범위 아님, 예고만):
+    ① 4번 항목 ★★★ 의 메모리 폴더 자체를 새 경로로 복사/개명(가장 시급)
+    ② memory/*.md 안의 E:\verify_reports, E:\verify_screenshots_only 등 절대경로를 새 X: 경로로
+       일괄 치환(수십 개 파일)
+    ③ .claude/settings.local.json 의 C:\projects\migration-validator 관련 allow 항목 치환(4번)
+    ④ 위 2번 항목에서 정리한 코드베이스 내 하드코딩(테스트 2개·dev_fixtures 2개 최우선)
+
+════════════════════════════════════════════════════════════════
+이전 시 정확한 실행 순서 (원본 보존 전제 — 전부 복사, 원본은 검증 끝날 때까지 삭제 안 함)
+════════════════════════════════════════════════════════════════
+0단계 — 사전 확인
+  0-1) 웹서버 정지: 8000 포트 점유 프로세스(PID는 매번 다름) taskkill, db/*.db-wal·-shm 소멸 확인
+  0-2) X: 여유공간 확인(현재 774G 여유 — 전체 이동 대상 합계 ≈ 2.7G(코드, .venv 제외 시 2.4G)
+       + 4.1G(verify 8클론) + 1.3G(db, 코드 저장소 크기에 포함됨) + 43M(백업 미러) ≈ 6.5G 안팎,
+       여유 충분)
+
+1단계 — 코드 저장소(.venv 제외하고 복사, 새로 만들 것)
+  robocopy "C:\projects\migration-validator" "X:\projects\migration-validator" /E /MT:8 /R:2 /W:2 ^
+    /XD .venv __pycache__ .pytest_cache .git\worktrees ^
+    /XF *.pyc ^
+    /LOG:X:\_move_logs\01_code_repo.log /TEE
+  (※ .git 디렉터리는 포함해서 복사 — 이력 보존. worktree 등록 정보(.git\worktrees)는 제외해
+    복사 후 `git worktree prune` 으로 정리 권장 — 옛 절대경로가 박혀있을 수 있어서)
+
+2단계 — venv는 복사하지 말고 새로 생성(2-F/4번 이유 — pyvenv.cfg·activate 스크립트에
+  `C:\projects\migration-validator\.venv` 절대경로가 박혀 있어 복사해도 못 씀 실측 확인)
+  cd /d X:\projects\migration-validator
+  python -m venv .venv
+  .venv\Scripts\pip install -r requirements.txt -r requirements-dev.txt
+
+3단계 — verify 저장소 8곳(robocopy — git clone 금지, E:\verify_reports 의 미커밋 1561건 보존 위해)
+  각각:
+  robocopy "E:\verify_reports"          "X:\verify\verify_reports"          /E /MT:8 /R:2 /W:2 /LOG:X:\_move_logs\02_verify_reports.log /TEE
+  robocopy "E:\verify_screenshots_only" "X:\verify\verify_screenshots_only" /E /MT:8 /R:2 /W:2 /LOG:X:\_move_logs\03_verify_screenshots_only.log /TEE
+  robocopy "E:\_rcv"                    "X:\verify\_rcv"                    /E /MT:8 /R:2 /W:2 /LOG:X:\_move_logs\04_rcv.log /TEE
+  robocopy "E:\_rpt_push"               "X:\verify\_rpt_push"               /E /MT:8 /R:2 /W:2 /LOG:X:\_move_logs\05_rpt_push.log /TEE
+  robocopy "E:\_rpt_report_push"        "X:\verify\_rpt_report_push"        /E /MT:8 /R:2 /W:2 /LOG:X:\_move_logs\06_rpt_report_push.log /TEE
+  robocopy "E:\_s4x"                    "X:\verify\_s4x"                    /E /MT:8 /R:2 /W:2 /LOG:X:\_move_logs\07_s4x.log /TEE
+  robocopy "E:\_vrnew"                  "X:\verify\_vrnew"                  /E /MT:8 /R:2 /W:2 /LOG:X:\_move_logs\08_vrnew.log /TEE
+  robocopy "E:\_wt_m47push"             "X:\verify\_wt_m47push"             /E /MT:8 /R:2 /W:2 /LOG:X:\_move_logs\09_wt_m47push.log /TEE
+  (완료 후 각 clone에서 `git status --short` 실행해 미커밋 건수가 원본과 동일한지 대조 —
+   특히 verify_reports 1561건·verify_screenshots_only 412건 일치 확인)
+
+4단계 — git 백업 미러
+  robocopy "E:\migration-validator-backup.git" "X:\migration-validator-backup.git" /E /MT:4 /LOG:X:\_move_logs\10_backup_git.log /TEE
+  X:\migration-validator-backup.git\config 를 열어 `url = C:/projects/migration-validator` →
+    `url = X:/projects/migration-validator` 로 치환(1줄)
+  migration-validator-backup-update.bat 사본을 X:에 만들고 두 경로(`--git-dir=`, push 대상)를
+    새 경로로 교체 → 더블클릭 1회 실행해 그동안 밀린 16일치 커밋 반영
+
+5단계 — Claude Code 프로젝트 메모리(4번 ★★★, 가장 먼저 해도 되는 저위험 고가치 작업)
+  robocopy "C:\Users\nextobe_lyk\.claude\projects\C--projects-migration-validator" ^
+    "C:\Users\nextobe_lyk\.claude\projects\X--projects-migration-validator" /E /MT:8 ^
+    /LOG:X:\_move_logs\11_claude_memory.log /TEE
+  (정확한 대상 폴더명은 Claude Code의 실제 sanitize 규칙에 맞춰야 함 — X:\projects\
+   migration-validator 로 첫 세션을 한 번 열어 자동 생성되는 빈 폴더명을 확인한 뒤, 그
+   이름으로 위 robocopy 목적지를 맞추는 순서를 권장. 새 폴더가 이미 있으면 그 폴더
+   **안으로** 병합 복사, 덮어쓰기 금지)
+
+6단계 — 검증(원본 삭제는 이번에도 하지 않음)
+  6-1) X:\projects\migration-validator 에서 서버 기동: `X:\projects\migration-validator\.venv\
+       Scripts\python.exe web_server.py`, http://localhost:8000 200 확인
+  6-2) `X:\projects\migration-validator\.venv\Scripts\python.exe -m pytest tests/ -q` 로
+       사전 존재 실패 건수가 C: 기준선과 동일한지 대조([[project_preexisting_test_failures]] 참고)
+  6-3) samples/test_virtual_cases.py, samples/test_complex_cases.py 통과 확인
+  6-4) X:\verify\* 8곳 전부 `git fetch && git status` 로 origin/main 대비 ahead/behind가
+       이관 전과 동일한지, 미커밋 건수가 동일한지 재확인
+  6-5) 여기까지 전부 통과한 뒤에만(이번 지시 범위 밖) 원본 삭제를 사용자가 별도로 지시
+
+════════════════════════════════════════════════════════════════
+예상 위험도 요약
+════════════════════════════════════════════════════════════════
+  항목                                              위험도   근거
+  ------------------------------------------------  -------  --------------------------------
+  코드 저장소 자체(.git 포함 파일 이동)              낮음     git은 폴더 이동에 안전, __file__
+                                                               기준 경로 설계 확인됨
+  .venv 통째로 복사                                  높음     pyvenv.cfg/activate 스크립트에
+                                                               절대경로 baked-in, 실측 확인
+                                                               → 복사 대신 재생성 필수
+  tests/test_11def·12k + dev_fixtures 2개(경로 5건)  낮음     동작은 하나 옛 경로 우선 참조,
+                                                               고치기 쉬움(각 1줄)
+  scripts/dev_e2e 55개 스크립트                      낮음     1회성 과거 스크립트, 재실행 시만
+                                                               문제, 전수 수정 불필요
+  db/ 디렉터리(1.3G, WAL 활성)                       중간     서버 미정지 상태로 복사 시 스냅샷
+                                                               불일치 가능 — 정지 후 복사로 해소
+  verify 클론 8곳(특히 verify_reports 미커밋 1561건) 중간     git clone 금지·robocopy 필수,
+                                                               건수 대조 검증 필요
+  git 백업 미러(E:\migration-validator-backup.git)   낮음     이미 16일 stale — 이관과 무관하게
+                                                               선행 위험, 이관 시 같이 해소 가능
+  .claude/settings.local.json (약 150 allow 항목)    낮음     기능 손상 아님, 권한 팝업 재발생
+                                                               (운영 편의성 저하)뿐
+  **Claude Code 프로젝트 메모리 폴더(986M)**         **높음** 미처리 시 이 프로젝트의 모든 누적
+                                                               기억(MEMORY.md 전체)이 새 경로
+                                                               세션에서 안 보이게 됨 — 데이터
+                                                               자체는 안 지워지지만 실질적 단절
+
+부록 — 하드코딩 경로 재현용 grep 명령(참고용, 실행 안 함)
+  findstr /S /I /M "C:\projects\migration-validator" *.py *.js *.json *.md *.txt
+  (또는 Grep 도구로 패턴 `C:\\projects\\migration-validator|C:/projects/migration-validator`,
+   `E:\\verify_reports|E:\\verify_screenshots_only|E:\\_rpt_push`, `['"][A-Z]:[\/]`
+   3종을 .venv/.git/node_modules 제외하고 조사 — 이번 보고의 2번 항목이 그 결과)
+
+✅ 작업 완료 - X드라이브 통합 이전 사전조사(코드 수정·파일 이동 없음, 순수 인벤토리)
