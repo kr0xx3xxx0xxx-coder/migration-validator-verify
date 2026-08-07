@@ -3250,8 +3250,9 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: F29(해결완료 — 이 갭의 존재를 놓친 원인)
 - 근거 보고서: E:\verify_reports\DRIVE-CONSOLIDATION-TO-X-EXECUTE.txt
 
-### M49. [배포 전 필수 결정] 실배포 시 host 개방 2줄이 Basic Auth 평문 노출 스위치가 되고, 개발용 DB 자격증명 14건이 파일복사 배포 시 그대로 운영 장비로 이동한다
-- 발견일: 2026-08-07 (DEPLOYMENT-IP-HOST-HARDCODING-SCOPE-DIAGNOSE, 조사 전용·코드 무변경)
+### M49. ✅ host/port 환경변수화 완료 — TLS·DB프리셋 정리는 배포 체크리스트 문서로 인프라 담당자에게 위임
+- 발견일: 2026-08-07 (DEPLOYMENT-IP-HOST-HARDCODING-SCOPE-DIAGNOSE) / 해결일: 2026-08-07
+  (M49-BIND-HOST-ENV-VAR-AND-DEPLOYMENT-CHECKLIST, 코드 커밋 05564ec0)
 - 상세: 실배포(다른 장비 설치, 사용자는 브라우저로 그 장비 IP 접속)를 막는 지점은 정확히
   `web_server.py:366`·`routes/batch_route.py:2649`의 `host="127.0.0.1"` 리터럴 2곳뿐이다.
   프론트엔드 절대URL(fetch 213건 전수, 0건)·CORS(설정 자체 없음)·쿠키/세션(미사용) 등 흔한
@@ -3280,7 +3281,17 @@ git -C E:/verify_reports worktree remove <임시경로>
   누락됨. `ui/csr_display_helpers.py:766`의 참조 HTML 안내문(`http://localhost:8000/...`)도
   원격 배포 후 운영자가 그대로 복사하면 자기 PC를 가리켜 안 열림(기능 실패 아님, 문구 갱신
   대상).
+- 해결 요약: web_server.py:334-337·366, routes/batch_route.py:2648-2653의 host="127.0.0.1"
+  리터럴을 MV_BIND_HOST/MV_BIND_PORT 환경변수(기본값 그대로 루프백)로 교체. 실제 netstat
+  실측으로 커스텀 포트(0.0.0.0:18765, 127.0.0.1:18766) 바인딩 확인, 미설정 시 기존과
+  100% 동일 동작 확인. `docs/DEPLOYMENT_CHECKLIST.md` 신설(TLS 종단 결정·8000/8001 동일
+  절차·MV_AUTH_DISABLED 잔존 확인·DB프리셋 14건 정리를 사람이 확인하는 체크리스트로,
+  코드 강제 없음). `ui/csr_display_helpers.py`의 고정 `localhost:8000` 안내문도
+  `location.origin` 기반 동적 표시로 개선. 신규 회귀 0건.
+- 잔존(문서화로 위임, 배포 시점마다 결정 필요): TLS 종단 방식 실제 구축, DB프리셋 14건
+  실제 삭제/교체, 네트워크·방화벽·VPN 구성 — 전부 배포 담당자가 그때그때 판단.
 - 근거 보고서: E:\verify_reports\DEPLOYMENT-IP-HOST-HARDCODING-SCOPE-DIAGNOSE.txt
+- 근거 보고서: E:\verify_reports\M49-BIND-HOST-ENV-VAR-AND-DEPLOYMENT-CHECKLIST.txt
 
 ### M46. ✅ 해결 완료 — 개별검증 4단계만 상단 컨텍스트 타일에 섹션 제목+카드 테두리가 없어 1~3단계와 표시가 어긋났다
 - 발견일: 2026-08-06 (사용자 실측 — 4개 스크린샷 직접 대조 보고) / 해결일: 2026-08-06
