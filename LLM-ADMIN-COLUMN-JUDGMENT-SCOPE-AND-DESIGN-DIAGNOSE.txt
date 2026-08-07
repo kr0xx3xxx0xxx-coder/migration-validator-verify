@@ -1,0 +1,391 @@
+작업명 : LLM-ADMIN-COLUMN-JUDGMENT-SCOPE-AND-DESIGN-DIAGNOSE
+⚠️ 추가 작업 필요 - 자체호스팅 LLM 3차 판정 삽입 지점·연동 방식·SQLite 캐시 설계는 확정했으나, 착수 여부는 애매 케이스 실측(§4 갭)과 폐쇄망 실환경 검증 없이는 "진행" 판정 불가 — 문서화 우선 권고
+
+■ 작업 성격
+  코드 수정 없음(읽기 전용 조사 + 설계 문서 작성). 실 DB 접근 없음(코드 정적 분석만).
+  모델 다운로드/설치/실측도 이번 범위 아님(지시서 명시) — 공개 벤치마크 참고치만 인용하며
+  "실측 아님"을 각 수치마다 명시한다.
+
+────────────────────────────────────────────────────────────────────────────
+1. [현재 관리컬럼(SYSTEM_AUDIT) 판정 로직 파악]
+────────────────────────────────────────────────────────────────────────────
+
+■ 판정 본체 — services/candidate_subtype_service.py (단일 파일, 1684줄)
+
+  판정은 B축(명칭=가설) × A축(값=검증) 교차확인 구조다. 핵심 함수:
+
+  · detect_system_audit_value_verdict(values) -> bool|None   [456행]
+      A축 3-state 판정 본체. "값이 배치 적재 타임스탬프(고정 시각 반복)인가"만 판별.
+      True(확증)/False(파싱됐으나 조건 불충족=반증)/None(판정 불가 — 값 없음 또는
+      타임스탬프 아닌 값=관할 밖).
+  · detect_admin_audit_comment_hypothesis(comment) -> dict   [603행]
+      B축 하위 출처. 코멘트/한글명 텍스트에서 "등록일시/수정일자/CREATED_BY" 등
+      키워드 부분문자열 매칭으로 "가설"만 세운다(확정 아님).
+  · evaluate_admin_audit_crosscheck(candidate, scoring_result, role) -> dict  [707행]
+      B×A 판정표의 단일 출처. verdict 4종:
+        CONFIRMED / NAMING_VALUE_MISMATCH / NOT_AUDIT_CONFIRMED / NOT_AUDIT_AMBIGUOUS
+      B축은 (표준사전 명칭매칭 semantic_type==SYSTEM_AUDIT) OR (코멘트가설)의 OR 결합.
+      A=None(판정 불가)이 group_by 역할일 때만 다시 3갈래로 세분된다(823~856행):
+        N1(값 미배선)            → NOT_AUDIT_AMBIGUOUS (근거부족 배지)
+        N2(값 있음·타임스탬프 아님) → NOT_AUDIT_CONFIRMED (정상 업무 컬럼, 배지 없음 — "near-dead"라고
+                                    코드 주석이 스스로 명시, 대다수가 여기로 떨어짐)
+        N3(값 있음·날짜+시각 형태인데 파서가 못 읽음) → NOT_AUDIT_AMBIGUOUS (배지)
+  · is_admin_audit_confirmed(candidate) -> bool               [688행]
+      자격판정 단일 출처. verdict==CONFIRMED 인지만 본다(재계산 금지 — enrich 단계 결과를 그대로 신뢰).
+  · enrich_candidates_with_subtype(candidates, role, scoring_by_col) -> list[dict]  [1232행]
+      후보 목록 전체를 순회하며 위 교차확인을 호출하고, 결과를 candidate dict 에
+      admin_audit_verdict / admin_audit_axis_a_value / admin_audit_ambiguous_kind /
+      is_admin_audit_column / is_selectable_by_subtype / note_tags / reason_text 로 부착한다.
+
+■ 입력 형태
+  candidate dict 1건당: tgt_col(컬럼명), tgt_type/tgt_len/tgt_scale(목적지 타입),
+  column_comment(코멘트/한글명), sample_values 또는 value_samples(원본 값 샘플 목록,
+  없을 수 있음 — None 이면 "값 미배선"), score_breakdown/risk_flags(카디널리티 등),
+  role("group_by"|"sum"). scoring_result(선택)로 표준사전 매칭 semantic_type 을 함께 받는다.
+  ★ A축은 원본(src) 값 샘플만 본다(목적지는 절대 보지 않음 — 목적지 전체 공백에서도 판정 가능하게).
+
+■ 출력 형태와 GROUP BY 후보 목록 반영 경로
+  enrich_candidates_with_subtype 이 부착한 필드가 아래 3개 소비처에서 재계산 없이 그대로 쓰인다
+  (단일 출처 원칙 — 판정 로직이 여러 곳에 중복되지 않음):
+    · services/candidate_display_enricher.py:926,1421   — 자동선정(체크박스 기본 포함/제외) 게이트
+    · services/date_bucket_evidence.py:794               — 날짜 fallback 대체추천 승격 시 관리컬럼 제외
+    · services/single_validation_analyze_service.py:2012 — 응답 집계
+    · services/candidate_recalculation_service.py:313-314 — 사용자 override 적용 후 재계산 경로
+  is_admin_audit_confirmed()==True 면 candidate_subtype 정책과 무관하게 체크박스가 원천 비활성화되고
+  (is_selectable_by_subtype=False), GROUP BY 자동선정 pool 에서 하드 배제된다 — **비가역적 판정**이다.
+  ★ 중요 — 클라이언트 이중 구현: ui/tabler_renderer.py 24081~24090행에 is_admin_audit_confirmed 와
+  "동일 판정을 JS 로 옮긴 것"이라는 주석과 함께 배지/재정렬 로직이 JS 로 복제돼 있다(23213/23783/
+  24174/29618행에서도 admin_audit_verdict 필드를 직접 읽음). verdict 값 종류를 늘리거나 필드를
+  바꾸면 이 JS 미러도 함께 고쳐야 하며, 누락 시 서버/화면 판정이 갈라지는 회귀가 생긴다.
+
+■ 사용자 수동 확정(override) — 이미 3차 인간 개입 경로가 존재
+  apply_admin_column_overrides()(1458행)가 evaluate_admin_audit_crosscheck 계산 이후 최종 표시
+  직전에 사용자 확정(TABLE_COLUMN > PROJECT_COLUMN 우선순위)으로 자동판정을 덮어쓴다. 자동판정
+  원본은 *_auto 필드로 보존된다(STALE 비교·해제 시 복귀용). 이 구조는 "기계가 못 정하면 사람이
+  정하고 그 결정을 프로젝트 지식으로 영속화한다"는 전례이며, §2 의 LLM 삽입도 이 전례
+  (기계 근거 추가일 뿐, 사람 개입 경로를 대체하지 않음)를 따라야 정합적이다.
+
+■ "완료 모듈"에 해당하는가 — 아니다(단, 위험도는 완료 모듈급으로 취급 권고)
+  README.md 에는 CLAUDE.md 가 언급하는 "개발 단계 현황" 표가 현재 존재하지 않는다(제목 검색 0건 —
+  README 구조가 이후 "어댑터 패턴 구조" 표 중심으로 재편된 것으로 보인다). CLAUDE.md 의 "1~6단계
+  완료 모듈"은 parser→analyzer→generator→checker→validator 단방향 파이프라인과 config/model_config.py
+  의 4개 어댑터(SQL_PARSER/COLUMN_ANALYZER/UI_RENDERER/VALIDATOR)를 가리키는데,
+  candidate_subtype_service.py 는 이 중 어디에도 속하지 않는다 — analyzer/ 디렉터리가 아니라
+  services/ 계층의 후보생성 파이프라인 일부다. 즉 형식적으로는 "완료된 모듈 수정 시 사전 확인"
+  게이트 대상이 아니다.
+  다만 실질 위험은 다르다: 이 파일 안에 F18/AXIS-A/ADMIN-COLUMN-HYPOTHESIS 등 이름이 붙은 개별
+  수정 이력이 최소 8건 이상 누적돼 있고(주석에 전부 이유가 남아 있음 — 뒤집으면 왜 그런지 반드시
+  먼저 읽어야 함), 소비처가 4개 서비스 + JS 미러 1개로 넓다. **"완료 모듈"이 아니라는 이유로
+  가볍게 다루면 안 된다** — 실질적으로는 완료 모듈에 준하는 승인 절차를 권고한다.
+
+────────────────────────────────────────────────────────────────────────────
+2. [LLM 삽입 지점 설계]
+────────────────────────────────────────────────────────────────────────────
+
+■ 삽입 지점 — evaluate_admin_audit_crosscheck() 내부, A=None 세분 로직 안(823~856행)
+
+  기존 N1/N2/N3 3갈래 분기 중, **화면에 이미 "근거부족(애매)" 배지가 뜨는 두 갈래(N1·N3)만**
+  LLM 3차 판정 대상으로 삼는다. N2(값 있음·비타임스탬프)는 코드가 이미 "정상 업무 컬럼"으로
+  확정하고 배지도 없애버린 상태라(near-dead 설계 의도) 건드리지 않는다 — 새 불확실성을 만들지 않는다.
+
+  ★ 다만 이 삽입 지점 하나로는 부족하다. 707~756행 주석이 스스로 명시한 "알려진 한계"가 있다:
+    B=True(명칭매칭 WEAK 0.62 단독) + A=None → CONFIRMED(하드 배제)
+  이 경로는 배지조차 없이 조용히 배제된다 — 코드 주석이 "세션03 경고가 그대로 남는 지점"이라고
+  자인한 자리다. 애매 케이스의 실질적 피해(오탐이 GROUP BY 체크박스를 조용히 잠금)는 오히려
+  N1/N3(배지라도 뜸)보다 이쪽이 크다. 지시서 문구("cd1류 등, 이름/값 둘 다 약한 신호")는 N1/N3
+  범위와 정확히 일치하지만, 실제 위험이 더 큰 자리는 "B=True(WEAK)+A=None"이므로 두 자리 모두를
+  후보 삽입점으로 보고하고 우선순위 판단을 사용자에게 넘긴다(모호한 요청 처리 원칙).
+
+    ┌─────────────────────────────┬──────────────────────┬────────────────────────┐
+    │ 삽입 후보                    │ 현재 동작            │ LLM 개입 가치            │
+    ├─────────────────────────────┼──────────────────────┼────────────────────────┤
+    │ (A) N1/N3 → NOT_AUDIT_AMBIG │ 배지만 표시, 배제 없음│ 배지 문구를 근거 있는    │
+    │     (지시서가 명시한 범위)   │ (이미 안전한 상태)    │ 확정으로 승격 — 편의성   │
+    │                               │                       │ 향상, 안전성 이득은 작음 │
+    ├─────────────────────────────┼──────────────────────┼────────────────────────┤
+    │ (B) B=True(WEAK)+A=None      │ CONFIRMED, 체크박스   │ 오탐이면 업무컬럼이 조용 │
+    │     → CONFIRMED(하드 배제)   │ 원천 잠금(배지 없음)  │ 히 사라지는 위험을 실제  │
+    │     [코드 주석의 "알려진     │                       │ 로 줄임 — 안전성 이득 큼 │
+    │      한계", 미해소]          │                       │                          │
+    └─────────────────────────────┴──────────────────────┴────────────────────────┘
+
+  권장: (B)를 1순위로 삽입하되, (B)는 F18 이 이미 지적한 "오탐 1건이 미탐 1건보다 비싸다"는
+  원칙과 정면으로 만난다 — LLM 응답을 "CONFIRMED 유지/해제" 이진 결정에 바로 쓰지 말고, 아래 3.
+  규칙대로 신뢰도가 낮으면 반드시 NOT_AUDIT_AMBIGUOUS(배지·사람 검토)로 강등해야 한다(자동
+  CONFIRMED 로 격상은 되지만, 자동으로 CONFIRMED 를 해제해 체크박스를 열어주는 것은 하지 않는다 —
+  아래 근거).
+
+■ "3차 근거"로만 추가 — 대체가 아니라 additive-only
+
+  · 규칙기반이 이미 명확히 판정하는 케이스(axis_a is True/False, 즉 값이 있고 파싱됨)는 LLM 호출
+    없이 지금처럼 통과한다 — evaluate_admin_audit_crosscheck 의 axis_a 계산(814행) 자체는 무변경.
+  · LLM 은 axis_a/axis_b 가 모두 결론을 못 낸 자리에서만 호출된다(§2-A/B 표의 두 경로).
+  · LLM 응답을 그대로 최종 확정하지 않는다 — 아래 3-state 격자를 통과해야 한다:
+
+      LLM 판정 \ LLM 신뢰도        │ 상 → 반영            │ 하 → 반영 안 함(기존 유지)
+      ───────────────────────────┼──────────────────────┼────────────────────────────
+      관리컬럼(감사)              │ CONFIRMED 로 승격    │ NOT_AUDIT_AMBIGUOUS 유지
+                                    │ (배지: LLM판정)       │ (기존 배지 그대로)
+      업무 컬럼(비감사)           │ (B) 한정: 자동 CONFIRMED│ 자동 해제 안 함 — 대신
+                                    │ 해제는 하지 않고,      │ "LLM 검토 결과: 업무컬럼  │
+                                    │ NAMING_VALUE_MISMATCH │ 추정(검토 권장)" note 만  │
+                                    │ 유사 배지로 강등 후    │ 추가, verdict 은 유지     │
+                                    │ 사람 검토로 넘김       │                            │
+      판정불가/모호               │ 항상 반영 안 함(NOT_AUDIT_AMBIGUOUS 유지, LLM 응답도 근거 텍스트로 남김) │
+
+    즉 LLM 은 "관리컬럼이다"라고 강하게 확신할 때만 판정을 CONFIRMED 쪽으로 올릴 수 있고,
+    "관리컬럼이 아니다"라고 판단해도 기존 CONFIRMED(하드 배제)를 자동으로 풀지는 않는다 — 그
+    해제는 항상 사람(override)에게 남긴다. 이렇게 비대칭으로 설계하는 이유: 관리컬럼을 놓치는
+    미탐 비용(그룹 폭발 위험)보다, 업무 컬럼을 관리컬럼으로 오판해 조용히 배제하는 오탐 비용이
+    이 도구에서 이미 더 크다고 결론 낸 전례(F18 §4)가 있고, LLM 도 "오판 가능"이 전제이므로
+    같은 비대칭을 유지해야 일관적이다.
+
+  · verdict 값 자체를 늘릴지, 기존 4종 안에서 note/배지만 바꿀지는 구현 착수 시 결정할 사항으로
+    남긴다(예: LLM_CONFIRMED_BY_JUDGE 같은 신규 verdict 를 만들면 §1 의 JS 미러·apply_admin_column_
+    overrides·candidate_recalculation_service 3곳 모두 이 값을 알아야 함 — 파급 범위가 커진다.
+    반대로 기존 verdict 값을 그대로 쓰고 admin_audit_llm_evidence 같은 부가 필드만 추가하면 소비처
+    3곳은 무변경으로 두고 화면(tabler_renderer.py)만 추가 필드를 읽게 할 수 있다 — 훨씬 좁은 파급).
+    ★ 이 판단은 착수 시점에 사용자 확인이 필요한 지점으로 명시적으로 남긴다.
+
+────────────────────────────────────────────────────────────────────────────
+3. [자체호스팅 LLM 연동 방식]
+────────────────────────────────────────────────────────────────────────────
+
+■ 기존 HTTP 클라이언트 패턴 — 확인 결과: 없음(운영 코드 기준)
+
+  requirements.txt(운영)에 requests 는 없다. httpx 는 requirements-dev.txt 에만 있고, 그 파일
+  자체 주석이 "운영 코드(web_server.py 등)에서 참조하는 곳은 0곳 — 운영 requirements.txt 에는
+  넣지 않는다"고 명시한다. services/*.py, routes/*.py 전체에서 urllib.request.urlopen 실사용도
+  0건이다(모두 dev_e2e 스크립트/테스트 전용 http_client 문자열 매치일 뿐, 운영 서비스 계층엔 외부
+  HTTP 호출 코드가 아예 없다).
+  결론: **Ollama 호출을 위한 신규 외부 패키지(requests 등) 도입은 CLAUDE.md "외부 패키지 사용
+  금지 + 표준 라이브러리만" 규칙과 정면 충돌**한다. 기존 예외 목록(sqlglot/Tabler/Tabulator/
+  playwright)에 HTTP 클라이언트가 없으므로, 새 예외를 추가하려면 사용자 승인이 별도로 필요하다
+  (CLAUDE.md 예외 항목 형식: "패키지명 — 용도, 사용자 승인 날짜"). **표준 라이브러리
+  urllib.request 로 Ollama 의 OpenAI 호환 REST API(POST /api/chat)를 그대로 호출 가능**하다
+  (JSON body, POST, 커스텀 타임아웃 — 전부 stdlib 범위). 이 설계는 requests 승인 여부와 무관하게
+  항상 성립하므로, **urllib.request 채택을 기본안으로 권고**한다(신규 예외 승인 절차를 아예 생략
+  가능).
+
+■ Docker 배포 체크리스트 반영 항목(안) — docs/DEPLOYMENT_CHECKLIST.md 추가 섹션 초안
+
+  이 문서는 오늘(2026-08-07) M49 로 신설된 것을 확인했다(현재 6개 섹션 — TLS/두 진입점/AUTH_DISABLED/
+  프리셋 정리/네트워크 범위 밖/참고). LLM 서빙은 신규 "7. 자체호스팅 LLM(Ollama) 서빙" 섹션으로
+  추가하는 것을 제안한다(코드 변경 없이 문서만 — 이번 작업 범위 내):
+    - [ ] Ollama 컨테이너 기동 확인(`docker run` 또는 compose, 포트 기본 11434)
+    - [ ] 모델 pull 완료 확인(llama3.1:8b-instruct-q4_K_M 또는 llama3.2:3b-instruct-q4_K_M 등)
+    - [ ] MV_LLM_ADMIN_AUDIT_BASE_URL 환경변수로 앱→Ollama 접속 주소 지정(기본 미설정=폐쇄)
+    - [ ] 앱 서버가 Ollama 컨테이너에 네트워크 도달 가능한지 확인(같은 docker network 또는 localhost)
+    - [ ] 프로젝트 종료 시 컨테이너/이미지/볼륨 삭제 절차(설치 흔적 최소화 요건 — §배경 (2))
+    - [ ] GPU 유무에 따라 Ollama 가 자동으로 CPU 폴백함을 확인(별도 코드 분기 불필요 — Ollama 자체 처리)
+    - [ ] 폐쇄망이면 모델 이미지를 오프라인 반입(별도 사내 절차, 이 앱 코드 범위 밖)
+
+■ 폴백 설계 — 연결 실패 시 규칙기반으로 안전 복귀(하위호환 최우선)
+
+  config/model_config.py 의 기존 어댑터 패턴(get_sql_parser/get_column_analyzer 등과 동일 모양)을
+  그대로 따르는 것을 권고한다:
+    ADMIN_AUDIT_LLM_JUDGE_ENABLED = False   # 기본 OFF — 신규 인프라 요구 없이 기존 동작 100% 유지
+    (env override: MV_ADMIN_AUDIT_LLM_JUDGE_ENABLED, 기존 NXTDA_INTEGRATION_ENABLED 와 동일 관례)
+  get_admin_audit_llm_judge() 팩토리가 NoopAdminAuditLlmJudge(항상 즉시 "판정 불가" 반환, 통신
+  시도 자체를 안 함) 또는 OllamaAdminAuditLlmJudge 를 반환. 후자는:
+    - 연결 타임아웃(예: 3~5초, 이미 있는 MV_GROUPBY_SAFETY_CHECK_TIMEOUT_SECONDS 류 관례로 env화)
+    - 예외/타임아웃/비정상 응답 → 즉시 None 반환(신뢰도 없음으로 처리) → evaluate_admin_audit_crosscheck
+      은 LLM 을 아예 안 받은 것처럼 기존 NOT_AUDIT_AMBIGUOUS/CONFIRMED 로 계속 판정
+    - 이 fail-open 폴백은 NXTDA_INTEGRATION_ENABLED(integration/nxtda/)가 이미 쓰고 있는 "구성 안 돼도
+      NoopClient 로 안전 동작" 패턴과 동일 — 신규 설계가 아니라 기존 관례 재사용.
+  ★ 배치(일괄검증) 경로에서 타임아웃이 누적되는 위험: 애매 컬럼이 N개면 LLM 미기동 시 N × 타임아웃
+  이 그대로 지연으로 쌓인다. 첫 호출 실패 시 이후 호출을 즉시 스킵(circuit-breaker, 프로세스
+  메모리 플래그 1개)하는 보호가 필요 — 신규 로직이지만 규모가 작다(bool 플래그 + 시간 비교).
+
+■ 캐싱 설계 — SQLite, db/migration_validator.db 재사용
+
+  "오늘 만든 X:\Data\ 이관 구조"는 문자 그대로의 경로가 아니라, 최근 확정된 관례 — 파일 기반
+  지속 데이터(JSON)를 db/migration_validator.db 의 신규 테이블로 이관하는 패턴(db_presets_*.json→
+  mv_db_preset, semantic dictionary JSON→semantic_dictionary_entry, 둘 다 2026-08-05~06 완료)을
+  가리키는 것으로 해석했다. 같은 관례를 따라 신규 스토어 모듈 services/admin_audit_llm_cache_store.py
+  를 제안하며, 기존 services/admin_column_override_store.py 와 거의 동일한 뼈대(단일 _TABLE 상수,
+  CREATE TABLE IF NOT EXISTS 멱등 생성, ensure_schema(conn=None, db_path=None))를 재사용한다:
+
+    CREATE TABLE IF NOT EXISTS mv_admin_audit_llm_cache (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        pattern_key       TEXT NOT NULL,   -- 정규화된 컬럼명 패턴(아래 캐시 키 설계 참조)
+        model_id          TEXT NOT NULL,   -- 'llama3.1:8b-instruct-q4_K_M' 등(모델 교체 시 캐시 오염 방지)
+        prompt_version     TEXT NOT NULL,  -- 프롬프트 템플릿 버전(프롬프트 바뀌면 캐시 무효화 근거)
+        llm_verdict        TEXT NOT NULL,  -- 'ADMIN'|'NOT_ADMIN'|'UNCERTAIN'
+        llm_confidence     REAL,           -- 모델이 낸 확신도(있으면) — 없으면 NULL
+        llm_raw_response   TEXT NOT NULL,  -- 원문 응답(설명가능성 — 세션03 원칙과 일관, 근거 미저장 금지)
+        hit_count          INTEGER NOT NULL DEFAULT 1,
+        created_at         TEXT,
+        updated_at         TEXT,
+        UNIQUE(pattern_key, model_id, prompt_version)
+    );
+    CREATE INDEX IF NOT EXISTS idx_aallc_lookup ON mv_admin_audit_llm_cache (pattern_key, model_id);
+
+  캐시 키(pattern_key) 설계 — "같은 컬럼명 패턴"의 정의가 핵심 리스크 지점:
+    · 컬럼명을 대문자 정규화하지만, 코멘트/한글명은 테이블마다 다를 수 있어 **컬럼명만으로 키를
+      잡으면 같은 이름·다른 의미(동명이의) 컬럼이 캐시를 오염시킬 위험**이 있다(이 도구가 이미
+      project_admin_column_comment_hypothesis 부류 사고에서 여러 번 겪은 "이름 단독 신뢰 불가"
+      원칙과 정면으로 배치). 그렇다고 값 샘플까지 키에 넣으면 사실상 캐시가 안 걸린다(값은
+      테이블마다 다름).
+      → 권고: pattern_key = normalize(column_name) + "|" + normalize(comment 유무 flag) 로 최소
+      맥락을 섞는다(코멘트 "있음/없음"만, 코멘트 원문은 넣지 않음 — 원문을 넣으면 사실상 유일값이
+      되어 캐시 히트율이 붕괴). 완전한 동명이의 오염을 막지는 못하지만(예: 두 테이블의 REG_DT 가
+      실제로 다른 의미일 수 있음), 이는 규칙기반 B축도 이미 감수하고 있는 리스크와 같은 급이라
+      신규 리스크가 아니다.
+    · TTL/무효화: model_id·prompt_version 이 바뀌면 UNIQUE 제약이 달라 자동으로 새 행이 생기고
+      (구 행은 안 지워짐 — 감사 이력으로 남김, 필요 시 별도 정리 배치), model_id·prompt_version
+      이 같으면 무기한 유효(값 재확인이 필요한 상황은 없음 — 컬럼명 자체가 바뀌는 경우는 이관
+      정의서 재작성에 해당하므로 이 캐시의 책임 밖).
+    · 프로젝트 스코프: pattern_key 에 project_id 를 넣지 않는다(전역 캐시) — 다른 프로젝트라도
+      같은 정규화 패턴(예: LAST_UPDATED)은 대개 같은 종류의 컬럼이라, 캐시를 프로젝트별로
+      나누면 캐시 이득 대부분이 사라진다. 이 선택은 이 절의 §4 비용 추정에 그대로 반영된다.
+
+────────────────────────────────────────────────────────────────────────────
+4. [비용/성능 추정] — ★ 전부 추정치, 실측 아님(지시서 명시 범위 밖)
+────────────────────────────────────────────────────────────────────────────
+
+■ 애매 케이스 비율 — F18 데이터를 재활용하되, 정확한 답은 못 낸다(중요한 갭)
+
+  F18-STRUCTURAL-SIGNAL-FALSE-POSITIVE-RATE-PRELIMINARY-DIAGNOSE.txt(2026-08-XX, verify repo)의
+  실측: PostgreSQL 80테이블/479컬럼 광역 스윕에서 axis_a(A축)가 None 인 컬럼이 458/479(96%).
+  그러나 이 수치는 **evaluate_admin_audit_crosscheck 의 axis_b 분기 이전** 값이고(F18 은 A축
+  단독 조사였음), §2 가 정의한 LLM 삽입 대상 두 그룹(A: N1/N3, B: axis_b=True(WEAK)+A=None)은
+  axis_b 값에 따라 다시 갈리므로 **458 을 그대로 "LLM 호출 횟수"로 쓸 수 없다**. 코드 주석은
+  "N2(값 있음·비타임스탬프)가 대다수"라고 서술하지만 정확한 비율은 코드에 하드코딩돼 있지 않고
+  F18 측정에도 axis_b 교차표가 없다. 즉:
+    ★ 지금 가진 데이터로는 "LLM 이 실제로 호출될 컬럼 비율"을 신뢰 구간 있게 추정할 수 없다.
+    착수 전에 evaluate_admin_audit_crosscheck 의 verdict 분포(N1/N2/N3, CONFIRMED-by-B-only)를
+    F18 과 같은 실 DB 스윕으로 다시 재는 후속 실측이 선행돼야 한다(신규 조사 1건 필요 — 코드 몇 줄
+    계측만 있으면 되므로 F18 대비 작은 작업).
+  대략적 상한/하한만 제시한다(추정, 실측 아님):
+    · 상한: N1+N3+CONFIRMED(B-only) ≤ A=None 전체 96%(458/479) — 이 이상은 물리적으로 불가능.
+    · 하한: 코드 주석("N2 가 대다수")을 신뢰하면 실제 LLM 호출 대상은 그 96% 중 소수(추정
+      10~30%대, 즉 전체 컬럼의 10~30% 정도) — 이는 순수 추정이며 검증되지 않았다.
+  이 갭(정확한 실측 부재)은 §5 "지금 구현 여부" 판단에 직접 영향을 준다.
+
+■ CPU 전용 서버 1회 추론 소요시간 — 공개 벤치마크 참고치(실측 아님)
+
+  Llama 3.2 3B(q4 양자화) 급 모델을 llama.cpp/Ollama 로 CPU(멀티코어, 8~16 vCPU)에서 돌릴 때
+  공개적으로 보고되는 처리량은 대략 초당 5~20 토큰 수준으로 코어 수·메모리 대역폭에 따라
+  크게 갈린다(하드웨어 의존성이 매우 큼 — "현장마다 다른 일반 리눅스 서버"라는 배경 제약과 정확히
+  일치하는 불확실성). 관리컬럼 판정 프롬프트는 짧다(컬럼명+한글명+코멘트+샘플값 3~5개, 입력
+  ~150~400토큰) + 출력도 짧게 설계 가능(판정+짧은 근거, ~50~150토큰). 프롬프트 처리(prefill)는
+  생성보다 훨씬 빠르므로, 1회 호출 총 소요는 대략 수 초~20여 초 구간으로 추정한다(참고치, 실측
+  전까지 신뢰하지 말 것). Llama 3.1 8B 급은 이보다 2~3배 느릴 것으로 추정(파라미터 수 비례,
+  실측 없음).
+
+■ 캐싱 유무 체감 차이
+
+  캐싱이 없으면: 일괄검증 수백 테이블 규모에서 애매 컬럼이 (추정) 수십~수백 건이면, 매 컬럼마다
+  수 초~20여 초의 LLM 호출이 **순차 실행 경로**(현재 배치 파이프라인이 컬럼별 순차 enrich)에
+  그대로 얹혀 전체 분석 시간이 수 분~수십 분 늘어날 수 있다(추정 — 실측 없음, 병렬화 여부는
+  구현 시 결정).
+  캐싱이 있으면: §3 의 pattern_key(정규화 컬럼명 기반, project_id 미분리)는 실 기관 스키마에서
+  흔한 "같은 ETL 패턴을 반복하는 다수 테이블"(이 저장소 픽스처에도 t_as_1_etl01~03/t_as_n_etl01~06
+  처럼 동일 컬럼명 반복 테이블이 이미 존재 — F18 §1 확인) 구조와 잘 맞는다. 같은 컬럼명 패턴이
+  프로젝트를 넘어 재사용되므로, 초기 프로젝트 이후로는 캐시 히트율이 빠르게 올라갈 것으로
+  기대되지만 **정량치는 없다**(신규 컬럼명 패턴이 프로젝트마다 얼마나 겹치는지 실측 안 됨).
+
+────────────────────────────────────────────────────────────────────────────
+5. [예상 작업 범위]
+────────────────────────────────────────────────────────────────────────────
+
+■ 신규 파일(예상, 착수 시)
+  · analyzer/base_admin_audit_llm_judge.py     — 인터페이스(기존 base_column_analyzer.py 관례)
+  · analyzer/ollama_admin_audit_llm_judge.py   — Ollama 구현체(urllib.request 기반, §3)
+  · services/admin_audit_llm_cache_store.py    — SQLite 캐시 스토어(§3 스키마)
+  · tests/test_admin_audit_llm_judge.py        — 신규 단위 테스트(Ollama 미기동 상태에서도 통과해야 함
+    — Noop/폴백 경로 커버가 핵심, 실 LLM 연결 테스트는 별도 마킹 필요)
+  · docs/DEPLOYMENT_CHECKLIST.md               — §3 의 "7. 자체호스팅 LLM(Ollama) 서빙" 섹션 추가
+    (신규 파일 아님, 기존 문서에 섹션만 추가 — 이번 작업으로 지금 바로 반영 가능한 유일한 항목)
+
+■ 기존 파일 수정(예상, 착수 시) — 전부 순수 추가(additive), 기존 로직 삭제/변경 없음이 원칙
+  · config/model_config.py
+      ADMIN_AUDIT_LLM_JUDGE_ENABLED 플래그 + get_admin_audit_llm_judge() 팩토리 추가(기존 4개
+      어댑터 옆에 병기, 기존 라인 무변경) — 위험 낮음.
+  · services/candidate_subtype_service.py — ★ 완료 모듈은 아니나 실질 위험 큰 지점(§1)
+      evaluate_admin_audit_crosscheck() 의 N1/N3 분기(844~850행)와, "알려진 한계"로 지목된
+      axis_b=True(WEAK)+A=None → CONFIRMED 분기(817~822행 인근)에 LLM 조회를 삽입. 판정표 자체를
+      재작성하지 않고 이미 있는 분기 안에 "LLM 근거가 있으면 참고" 조건을 추가하는 형태를 권고
+      (§2 표 그대로). 위험: 소비처 4곳 + JS 미러가 이 함수의 반환 shape 에 의존 — verdict 값을
+      새로 만들면 파급이 커진다(§2 마지막 문단).
+  · ui/tabler_renderer.py
+      LLM 근거를 화면에 노출하려면(배지 문구·툴팁) JS 쪽도 대응 수정 필요(24081~24090행 인근,
+      admin_audit_verdict 판정 미러 — §1). verdict 값을 그대로 재사용하는 설계(§2 권고안)면 이
+      파일은 "부가 필드를 읽어 문구만 추가"하는 좁은 수정으로 끝날 수 있다.
+  · requirements.txt — **변경 없음**(urllib.request 채택 시). requests 채택 시에는 신규 예외 승인
+    필요(§3, CLAUDE.md 절대 규칙과 충돌 — 사용자 확인 필수 사항).
+
+■ 완료 모듈 해당 여부·위험도 종합
+    ┌──────────────────────────────────────┬────────────┬──────────────────────────┐
+    │ 파일                                  │ 완료모듈?  │ 위험도                    │
+    ├──────────────────────────────────────┼────────────┼──────────────────────────┤
+    │ config/model_config.py                │ 아니오     │ 낮음(순수 추가 패턴 확립됨)│
+    │ analyzer/*_llm_judge.py(신규)         │ 해당없음   │ 낮음(신규 파일, 격리)     │
+    │ services/admin_audit_llm_cache_store  │ 해당없음   │ 낮음(신규 파일, 격리)     │
+    │  (신규)                                │            │                            │
+    │ services/candidate_subtype_service.py │ 아니오(형식)│ 높음(소비처 4곳+JS 미러,  │
+    │                                        │ /실질상 준완료│ 8건+ 이력, 비가역 판정) │
+    │ ui/tabler_renderer.py                 │ 아니오     │ 중간(JS/PY 판정 이중화    │
+    │                                        │            │ 유지보수 부담 기존에도 큼)│
+    │ docs/DEPLOYMENT_CHECKLIST.md           │ 해당없음   │ 낮음(문서만)              │
+    └──────────────────────────────────────┴────────────┴──────────────────────────┘
+
+  ★ 승인 필요 지점: candidate_subtype_service.py 수정은 CLAUDE.md 자율 진행 예외("되돌리기 어려운
+  구조 변경 시")에 해당한다고 판단한다 — GROUP BY 자동선정 배제는 비가역적이고 소비처가 넓다.
+  형식적으로 "완료 모듈 승인" 대상은 아니지만, 착수 시점에는 반드시 사용자에게 삽입 지점 2곳(§2
+  표의 A/B) 중 어디까지 반영할지 먼저 확인받을 것을 권고한다.
+
+────────────────────────────────────────────────────────────────────────────
+■ 종합 설계안 요약
+────────────────────────────────────────────────────────────────────────────
+  1. 판정은 규칙기반(A축 값·B축 명칭/코멘트) 그대로 두고, LLM 은 "3차 근거"로만 additive 삽입.
+  2. 삽입 지점 2곳: (A) 지시서가 명시한 N1/N3 애매 배지 자리(안전, 편의성 개선 위주),
+     (B) 코드가 스스로 "미해소 한계"로 지목한 B=True(WEAK)+A=None→CONFIRMED 자리(위험, 안전성
+     개선 위주) — 우선순위는 사용자 확인 필요.
+  3. LLM 응답은 비대칭 반영: "관리컬럼이다"는 승격 가능, "업무컬럼이다"는 기존 CONFIRMED(하드 배제)를
+     자동 해제하지 않고 사람 검토로만 넘긴다(오탐 비용 > 미탐 비용 원칙, F18 결론과 일관).
+  4. 연동: 이 코드베이스에 운영용 HTTP 클라이언트가 전혀 없다(requests 미승인·미사용, httpx 는
+     테스트 전용) — 표준 라이브러리 urllib.request 로 Ollama OpenAI 호환 API 를 직접 호출하는
+     설계를 기본안으로 한다(신규 패키지 승인 절차 자체를 생략 가능).
+  5. 미기동/장애 시 기존 config/model_config.py 어댑터 패턴(NXTDA_INTEGRATION_ENABLED 과 동일
+     fail-open Noop) 그대로 규칙기반 폴백 — 기본값 OFF, 인프라 없이도 전체 앱이 무변경 동작.
+  6. 캐싱: db/migration_validator.db 신규 테이블(mv_admin_audit_llm_cache), 컬럼명 정규화 +
+     "코멘트 유무" 최소 맥락을 키로 사용, 프로젝트 비분리(전역 캐시)로 히트율 우선.
+  7. 비용/성능: 애매 케이스의 정확한 호출 빈도는 **현재 데이터로 추정 불가**(§4 갭) — 이 갭을
+     메우는 축소판 실측(코드 계측 1건)이 착수 전 선행돼야 한다.
+
+■ 착수 권장 여부: **문서화 우선 (설계 확정 · 구현 착수는 보류)**
+
+  근거:
+   (1) §4 의 핵심 갭 — "LLM 이 실제로 몇 % 컬럼에서 호출될지"를 지금 데이터로 답할 수 없다.
+       이 숫자 없이 Docker 인프라(Ollama+모델)부터 들이면, 실제로는 거의 안 쓰이는 기능에
+       배포 복잡도(GPU 유무 대응·폐쇄망 반입·컨테이너 수명주기)만 얹을 위험이 있다.
+   (2) F18 이 이미 "3차 신호는 오탐률이 검증되지 않으면 착수 보류"라는 선례를 남겼다(같은
+       판정 지점에 대한 직전 조사). LLM 도 "오판 가능"이 전제인 신호이므로 같은 기준을 적용하면,
+       규칙기반 신호(a)/(b)에 요구했던 것과 동일하게 **LLM 판정의 정확도를 실측 없이 승격
+       규칙에 바로 반영하는 것은 이 저장소의 기존 원칙과 어긋난다.**
+   (3) 이번 조사에서 삽입 지점을 2곳(A/B)으로 구체화했고, (B)가 실제로는 더 위험하고 가치도
+       크다는 점을 발견했다 — 이는 지시서가 원래 가정한 범위(N1/N3)보다 넓은 통찰이므로, 어느
+       지점부터 손댈지 사용자 확인이 먼저 필요하다.
+   (4) 긍정적 신호: 연동 방식(urllib.request 표준 라이브러리, 기존 어댑터 패턴 재사용, 기존
+       SQLite 스토어 패턴 재사용, 기존 override 인간개입 전례와의 정합)은 전부 이 저장소의
+       기존 관례로 커버되어 신규 아키텍처 위험은 낮다 — "설계"는 확정 가능한 상태다.
+  권장 다음 단계(구현 아님): evaluate_admin_audit_crosscheck 의 verdict 분포(N1/N2/N3, CONFIRMED-
+  by-B-only 비율)를 F18 과 같은 방식(PostgreSQL 실 DB 스윕)으로 재는 축소 실측 1건을 먼저 지시하고,
+  그 결과로 §4 의 갭을 메운 뒤 "진행" 여부를 재판정할 것을 제안한다.
+
+────────────────────────────────────────────────────────────────────────────
+■ 제한사항
+────────────────────────────────────────────────────────────────────────────
+  · 코드는 정적 분석만 했다(실 DB 접근·모델 호출·Docker 실행 전무).
+  · §4 의 모든 성능 수치는 공개 벤치마크 참고치이며, 이 저장소·이 프롬프트·이 하드웨어로 실측한
+    값이 아니다. 실제 배포 전 반드시 대상 서버에서 재측정이 필요하다.
+  · README.md 에 "개발 단계 현황" 표가 이번 조사 시점에 없어, CLAUDE.md 의 해당 참조 지침을
+    문자 그대로 따르지 못했다(§1 에 대체 근거로 어댑터 표·모듈 경로를 사용했음을 명시).
+  · candidate_subtype_service.py 의 축별 정확한 컬럼 비율(N1 vs N2 vs N3 vs CONFIRMED-by-B-only)은
+    이번 조사에서 코드 판독만으로 결론 낼 수 없었다(로직은 정확히 추적했으나 실 데이터 분포는
+    F18 스윕 재사용으로 못 메웠다 — F18 은 axis_b 교차표를 만들지 않았기 때문). §4 에 이 갭을
+    명시했다.
+
+⚠️ 추가 작업 필요 - 자체호스팅 LLM 3차 판정 삽입 지점·연동 방식·SQLite 캐시 설계는 확정했으나, 착수 여부는 애매 케이스 실측(§4 갭)과 폐쇄망 실환경 검증 없이는 "진행" 판정 불가 — 문서화 우선 권고
