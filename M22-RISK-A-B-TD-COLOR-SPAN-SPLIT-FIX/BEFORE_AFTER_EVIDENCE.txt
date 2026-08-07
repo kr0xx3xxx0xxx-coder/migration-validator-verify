@@ -1,0 +1,54 @@
+작업명 : M22-RISK-A-B-TD-COLOR-SPAN-SPLIT-FIX
+
+■ 수정 내용
+[위험A] ui/history_renderer.py _renderBatchItems (배치 항목 목록, #batchItemsTable)
+  변경 전: td 자체 style에 diff_groups>0 조건부 color:var(--fail);font-weight:700 삽입
+           → .mtbl td{color:...!important} 에 color 죽음(굵기만 남음)
+  변경 후: td 는 text-align/font-size 만 유지, 값을 조건부로 자식 <span style="color:var(--fail);
+           font-weight:700"> 로 감싸 렌더 (같은 파일 renderHistoryRuns 함수의 기존 패턴과 동일)
+
+[위험B] ui/js_batch_display.py _batchRenderStatsExecuteResults (통계검증 실행 이력,
+        #batchStatsExecuteList SUCCESS_DIFF 상세 행)
+  변경 전: detailTd.style.cssText 에 color:#721c24 직접 지정 + textContent 대입
+           → .mtbl td{color:...!important} 에 color 죽음
+  변경 후: detailTd.style.cssText 에서 color 제거(padding/font-size만 유지), "차이: ..." 문구는
+           createElement('span')로 만든 자식에 style.color='#721c24' 지정 후 appendChild
+
+CSS 규칙(.mtbl td{color:var(--text)!important}, tabler_renderer.py:1798) 자체는 무변경.
+
+■ 검증 방법 — 컴포넌트 Before/After 렌더 대조
+포트 8000 서버는 동시 세션 공유라 임의 시점 재기동 위험이 있고(수정을 이미 작업트리에
+반영한 뒤였음), git HEAD(수정 전) 렌더 함수와 작업트리(수정 후) 렌더 함수를 동일 입력·
+동일 페이지 CSS 위에서 렌더해 대조했다(script: scripts/dev_e2e/
+m22_risk_ab_td_color_span_split_before_after_render.py). 서버는 별도로 재기동해 실 서비스
+경로에서도 정상 기동 확인(아래 재기동 정보 참고).
+
+■ 위험A 결과 (riskA_before/after_batch_items.png)
+  차이그룹 값 "3" 텍스트 — before: 검은 굵은 글씨 / after: 빨간 굵은 글씨로 화면상 명확히 구분.
+  값(텍스트) 동일성: ✅ 동일 (색상만 변경, 데이터 로직 무변경)
+
+■ 위험B 결과 (riskB_before/after_stats_execute.png)
+  "차이: STATUS_CD=B [diff] | ..." 문구 — var(--text) #10233f(짙은 남색)와 목표색
+  #721c24(짙은 적색)이 육안상 유사한 짙은 색이라 축소 스크린샷만으로는 구분이 어려워,
+  getComputedStyle 로 실제 렌더 색상을 프로그램적으로 대조:
+    BEFORE : td  color = rgb(16, 35, 63)   (=#10233f, var(--text) !important 가 인라인
+             color:#721c24 를 덮어씀 — 의도한 강조색 죽음)
+    AFTER  : span color = rgb(114, 28, 36) (=#721c24 그대로 적용, td 규칙 영향 없음)
+  값(텍스트) 동일성: ✅ 동일 · JS 오류: 없음
+
+■ 서버 재기동 확인
+  재기동 시각      : 2026-08-07 17:10 (KST)
+  당시 HEAD 커밋   : 38237dfa80f0d894ad647b3fd13c8b550b02ee42
+                     (이번 위험A/B 수정은 회귀 확인 완료 후 별도 커밋 예정 — 재기동 시점엔
+                      수정된 작업트리 코드로 기동, 서버 정상 응답 확인. 인증 필요 응답
+                      {"code":"AUTH_REQUIRED"} 로 정상 라우팅 확인.)
+
+■ 테스트
+  - CLAUDE.md 필수 회귀: samples/test_virtual_cases.py 8/8 통과, samples/test_complex_cases.py
+    5/5 통과.
+  - 관련 서브셋: tests/test_task12_d.py 31/31 통과.
+  - 확장 서브셋(test_batch_display_unification.py, test_history_error_summary.py,
+    test_batch_ui.py, test_results_menu_batch_detail_page.py, test_batch_row_detail_ux.py,
+    test_batch_detail_result_view_wiring.py): 8건 실패는 git stash 로 baseline(수정 전)
+    대조해 동일하게 재현되는 사전 존재 실패(한글 문자열 mojibake 등, 이번 수정과 무관)로
+    확인 — 신규 회귀 0건.
