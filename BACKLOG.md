@@ -875,31 +875,51 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: S10(해결 완료 — 이 항목의 발원 작업)
 - 참고: E:\verify_reports\IS-PK-FIXED-VALUE-CANDIDATE-RECOMMENDATION-FIX.txt
 
-### P11. ✅ 해결 완료(조건부) — 세트 병렬 실행 대규모+PostgreSQL 조건부 ON, 오라클 명시 제외
+### P11. ✅ 해결 완료 — 세트 병렬 실행, 대규모+PostgreSQL·오라클 둘 다 조건부 ON(오라클도 2026-08-07 안전성 실측 확인되어 포함)
 - 발견일: 2026-08-01
 - 근거 보고서: `LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt` (§4-b)
 - 상세: 5,000만행 GROUP BY 2축 통계검증에서 `services/single_validation_run_facade._stats_set_parallelism`
   을 켜면 22.2초 → 10.0초(**-55.2%**), 20.4초 → 12.0초(**-41.2%**). **결과값은 순차와 완전 동일**함을
   대조로 확인했다. 소규모(1,200행)에서 효과가 안 보였던 것(132ms)은 규모 문제였고, 대규모에서
-  이번 진단의 **최대 레버**로 드러났다. 현재 기본값은 OFF 다.
-- 위험: DB 커넥션을 동시에 2개 쓴다. 확인 필요 사항 —
-  · 커넥션 풀 여유(현재 판정은 `POOL_MAX_IDLE_PER_KEY ≥ 2` 만 본다)
-  · **오라클은 풀링을 우회해 checkout 마다 물리 연결을 새로 만든다**(`services/db_adapters/oracle.py`) →
-    동시 세션 2개가 그대로 DB 부하가 된다
-  · 세트 실패 시 형제 세트 처리 정책 재검토(현 구현은 중도취소 없이 완료시킴 — 그대로가 안전)
-- 해결일: 2026-08-05 (STATS-SET-PARALLELISM-CONDITIONAL-ENABLE-FIX, 커밋 86865a1)
-- 구현: 대규모(≥100만행, env 조정 가능) + PostgreSQL(오라클은 풀 우회 구조상 명시 제외) +
-  다른 물리 DB + 풀 여유 4조건 전부 충족해야만 자동 level 2. kill-switch
-  MV_STATS_SET_PARALLEL_AUTO 와 임계치 env MV_STATS_SET_PARALLEL_MIN_ROWS 로 즉시 롤백 가능.
-  결과값은 순차와 완전 동일함을 실측 확인, baseline 대조 신규 회귀 0건.
-- 주의(상충 기록, 반드시 유지): 이 항목의 근거였던 -41~55% 개선은 5,000만행 기준인데, 그 규모
-  테이블이 현재 PostgreSQL 에는 없고 오라클에만 있다(오라클은 이번 조건부ON 대상에서 명시 제외).
-  실제 재현 가능했던 100만행 PostgreSQL 실측 개선폭은 -6.3%로 작다. 즉 '조건부 ON 구현'은
-  끝났지만, 백로그가 원래 근거로 든 큰 폭의 개선 자체는 아직 실환경에서 확인되지 않았다.
+  이번 진단의 **최대 레버**로 드러났다.
+- 위험(오라클, 2026-08-07 해소): DB 커넥션을 동시에 2개 쓴다. 오라클은 풀링을 우회해 checkout
+  마다 물리 연결을 새로 만들어 동시 세션 2개가 그대로 DB 부하가 된다는 우려가 있었으나, 실
+  오라클(100만행) 순차 4라운드 vs 강제 병렬 4라운드 교차 실측으로 **결과값 완전 동일·ORA-XXXX
+  등 커넥션 에러 0건**을 확인해 이 우려가 해소됐다.
+- 해결일: 2026-08-05 (PostgreSQL 조건부 ON, STATS-SET-PARALLELISM-CONDITIONAL-ENABLE-FIX,
+  커밋 86865a1) / 2026-08-07 (오라클 포함, P13-ORACLE-CONDITIONAL-PARALLEL 작업 — BACKLOG P13과
+  혼동하기 쉬운 이름이나 실제로는 이 P11 메커니즘의 확장이었음, 아래 참고)
+- 구현: 대규모(≥100만행, env 조정 가능) + **PostgreSQL 또는 오라클**(`_STATS_SET_PARALLEL_AUTO_
+  DIALECTS = frozenset({"postgresql","oracle"})`로 통합, 기존 별도 상수 2개+오라클 조기차단
+  분기 제거) + 다른 물리 DB + 풀 여유 4조건 전부 충족해야만 자동 level 2. kill-switch
+  MV_STATS_SET_PARALLEL_AUTO와 임계치 env MV_STATS_SET_PARALLEL_MIN_ROWS로 즉시 롤백 가능.
+  MySQL/MSSQL 등 미검증 방언은 여전히 자동 대상 아님(회귀 없음, 의도적 보수).
+- 상충 기록 해소 확인: 이 항목의 근거였던 -41~55% 개선(5,000만행 기준)이 **PostgreSQL에는
+  그 규모 데이터가 없어 미확인 상태였는데, 이번에 실제 오라클 5,000만행으로 -56.3% 개선을
+  실측 확인**해 원래 근거가 실환경에서 처음 검증됨(오라클/PG 방언은 다르지만 같은 메커니즘의
+  대규모 효과가 입증됨).
 - 참고: E:\verify_reports\LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt
 - 참고: E:\verify_reports\STATS-SET-PARALLELISM-CONDITIONAL-ENABLE-FIX.txt
+- 참고: E:\verify_reports\P13-ORACLE-CONDITIONAL-PARALLEL-CDRIVE-CHERRYPICK-VERIFY.txt(작업명은
+  P13이나 실제로는 이 P11 항목 갱신 대상 — BACKLOG 항목 매칭 오류로 명명됨, 정정 기록)
 
-### P12. ✅ 해결 완료 — COUNT 원본/목적지가 순차 실행이라 두 DB 시간이 그대로 합산된다 — 병렬화 시 효과 큼(승인 필요)
+### P13. 통계검증 src/tgt 병렬(`parallel_sides`)은 효과가 불안정하다 — P11(세트 병렬, 별개 메커니즘)과 혼동 주의, 재측정 여전히 불가(심각도 LOW)
+- 발견일: 2026-08-01
+- 근거 보고서: `LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt` (§4-c2)
+- **중요**: 이 항목은 위 P11("세트 병렬", `_stats_set_parallelism`)과 **다른 기능**이다 —
+  P13은 "원본 DB 조회와 목적지 DB 조회를 동시에 쏘는" `parallel_sides` 메커니즘을 가리킨다.
+  2026-08-07에 "P13"이라는 이름으로 실행된 작업은 실제로는 P11(세트 병렬)의 오라클 확장이었고
+  (위 P11 참고), **이 P13 자체는 이번에 전혀 손대지 않았다** — 착오 방지를 위해 명시.
+- 상세: 실측에서 **한쪽이 빨라지면 다른 쪽이 느려지는** 현상이 관측됐다.
+  1회차 REGION_CD 11,718.6ms → 8,055.3ms / STATUS_CD 11,375.1ms → 7,069.6ms 로 개선됐으나,
+  2회차는 9,739.2ms → 10,149.6ms 로 되레 느려졌다(src 개별 쿼리 4,930 → 7,977ms).
+  원인은 검증 환경의 **같은 물리 호스트에 두 인스턴스가 올라가 있어 디스크 I/O 를 공유**하기 때문으로
+  추정한다. 고객사처럼 원본/목적지가 **물리적으로 분리된 환경에서는 결과가 다를 수 있다.**
+- 대응 방향: P11은 이제 오라클까지 포함해 완전 해결됐으나, 이 항목(parallel_sides)이 원래
+  가정한 재측정 대상 규모(5,000만행)는 PostgreSQL에 데이터 자체가 없어 여전히 재현 불가하다.
+  오라클 쪽으로 재현하는 방안은 이번 P11 확장 작업과 별개로 아직 검토된 적 없음.
+- 관련: P11(별개 메커니즘, 완전 해결) · P12(같은 '측면 병렬' 개념)
+- 참고: E:\verify_reports\LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt
 - 해결일: 2026-08-01 (COUNT-PAIR-PARALLEL-EXECUTION-FIX)
 - 근거 커밋: 코드 저장소 `a342be1` — `perf(count): 원본/목적지 COUNT 병렬 실행
   (COUNT-PAIR-PARALLEL-EXECUTION-FIX)`
@@ -920,21 +940,6 @@ git -C E:/verify_reports worktree remove <임시경로>
   오류 보고 순서를 지금처럼 **'원본 우선'** 으로 유지하면 사용자 체감은 동일하게 만들 수 있다.
   통계검증 쪽에는 이미 같은 개념의 스위치(`parallel_sides`)가 있으므로 새 개념은 아니다.
 - 대응 방향: **승인 필요.**
-- 참고: E:\verify_reports\LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt
-
-### P13. 통계검증 src/tgt 병렬(`parallel_sides`)은 효과가 불안정하다 — P11 조건부ON 완료했으나 재측정은 여전히 불가(심각도 LOW)
-- 발견일: 2026-08-01
-- 근거 보고서: `LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt` (§4-c2)
-- 상세: 실측에서 **한쪽이 빨라지면 다른 쪽이 느려지는** 현상이 관측됐다.
-  1회차 REGION_CD 11,718.6ms → 8,055.3ms / STATUS_CD 11,375.1ms → 7,069.6ms 로 개선됐으나,
-  2회차는 9,739.2ms → 10,149.6ms 로 되레 느려졌다(src 개별 쿼리 4,930 → 7,977ms).
-  원인은 검증 환경의 **같은 물리 호스트에 두 인스턴스가 올라가 있어 디스크 I/O 를 공유**하기 때문으로
-  추정한다. 고객사처럼 원본/목적지가 **물리적으로 분리된 환경에서는 결과가 다를 수 있다.**
-- 대응 방향: P11 은 2026-08-05 조건부 ON 으로 구현 완료됐으나(위 P11 참고), 이 항목이 원래
-  가정한 재측정 대상 규모(5,000만행)는 PostgreSQL 에 데이터 자체가 없어 여전히 재현 불가하다.
-  100만행 규모로는 재측정 가능하나 P11 개선폭 자체가 작아(-6.3%) 유의미한 비교가 어려울 수
-  있다. 5,000만행급 PostgreSQL 픽스처가 생기기 전까지는 보류.
-- 관련: P11(선행), P12(같은 '측면 병렬' 개념)
 - 참고: E:\verify_reports\LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt
 
 ### M21. ✅ 착수 보류 재확정(실측 기반) — 다축 통계검증 반복 풀스캔, UNION ALL/GROUPING SETS 둘 다 성능 근거 없음
