@@ -1,0 +1,133 @@
+작업명 : M3-NODE-HARNESS-INFINITE-LOOP-FIX
+✅ 작업 완료 - M3-NODE-HARNESS-TIMEOUT-ROOT-CAUSE-DIAGNOSE §4 (a)안 그대로 구현, 3개 파일 TIMEOUT 전부 해소(제품 코드 무변경)
+
+════════════════════════════════════════════════════════════════════════════
+0. 구현 내용
+════════════════════════════════════════════════════════════════════════════
+test_one_click_full_run.py / test_blocked_state_reset.py / test_candidate_draft_selection.py
+3개 파일 각각의 node harness 초기화 코드(vm.runInThisContext 실행 직전)에 1줄을 주입했다:
+
+  storageStub.setItem('mv_active_tab','analyze');   (또는 해당 파일의 storage 변수명)
+
+목적: _restoreActiveTab() 이 job-dashboard(검증현황판)로 fallback → 3초 폴링 setTimeout
+재귀가 harness 의 "지연 0" setTimeout 스텁 때문에 무한루프에 빠지는 경로 자체를 차단.
+제품 코드(ui/tabler_renderer.py, ui/js_job_dashboard.py)는 전혀 건드리지 않았다.
+
+════════════════════════════════════════════════════════════════════════════
+1. 파일:라인별 diff (3개 파일)
+════════════════════════════════════════════════════════════════════════════
+--- tests/test_blocked_state_reset.py (58~59행 사이 4행 삽입) ---
++/* M3-NODE-HARNESS-INFINITE-LOOP-FIX: _restoreActiveTab() 이 job-dashboard(검증현황판)로
++   fallback하면 3초 폴링 setTimeout 재귀가 지연 0 스텁 때문에 무한루프에 빠진다 —
++   유효 탭을 미리 지정해 그 fallback 경로 자체를 막는다(제품 코드 무변경). */
++storageStub.setItem('mv_active_tab','analyze');
+
+--- tests/test_one_click_full_run.py (277~278행 사이 4행 삽입, _NAV_HARNESS 블록) ---
++/* M3-NODE-HARNESS-INFINITE-LOOP-FIX: _restoreActiveTab() 이 job-dashboard(검증현황판)로
++   fallback하면 3초 폴링 setTimeout 재귀가 지연 0 스텁 때문에 무한루프에 빠진다 —
++   유효 탭을 미리 지정해 그 fallback 경로 자체를 막는다(제품 코드 무변경). */
++storageStub.setItem('mv_active_tab','analyze');
+  (※ 같은 파일 상단의 _fullRunFinalState 하니스(239행)는 vm.runInThisContext 를 쓰지 않아
+     원인 메커니즘과 무관 — 수정 대상에서 제외)
+
+--- tests/test_candidate_draft_selection.py (81~82행 사이 4행 삽입) ---
++/* M3-NODE-HARNESS-INFINITE-LOOP-FIX: _restoreActiveTab() 이 job-dashboard(검증현황판)로
++   fallback하면 3초 폴링 setTimeout 재귀가 지연 0 스텁 때문에 무한루프에 빠진다 —
++   유효 탭을 미리 지정해 그 fallback 경로 자체를 막는다(제품 코드 무변경). */
++storage.setItem('mv_active_tab','analyze');
+
+3개 파일 각 4행 추가(주석 3행 + 코드 1행), 총 12행 삽입, 삭제 0행.
+
+════════════════════════════════════════════════════════════════════════════
+2. 수정 전/후 소요시간 대조 (개별 실행, pytest -q)
+════════════════════════════════════════════════════════════════════════════
+파일                                수정 전(전부 TIMEOUT)        수정 후(TIMEOUT 0건)
+──────────────────────────────────────────────────────────────────────────────
+test_blocked_state_reset.py        3 failed, 183.07s            3 passed, 4.17s
+test_one_click_full_run.py         8 failed/11 passed/4 xfail,  2 failed/17 passed/4 xfail,
+                                    609.38s                      9.24s
+test_candidate_draft_selection.py  5 failed, 249.41s             3 failed/11 passed, 7.72s
+
+3개 파일 전부 TIMEOUT(AssertionError: [NODE-SUBPROCESS-TIMEOUT]) 100% 재현되던 상태에서,
+수정 후 3개 파일 전부 정상 시간(4~10초) 안에 종료 — TIMEOUT 0건.
+
+════════════════════════════════════════════════════════════════════════════
+3. CPU 사용률 수정 전/후 대조 (§2-2 방식 재현 — PowerShell TotalProcessorTime)
+════════════════════════════════════════════════════════════════════════════
+test_blocked_state_reset.py 의 하니스+조립JS 를 git HEAD(수정 전)/작업트리(수정 후) 양쪽에서
+추출해 node 로 직접 foreground 실행, PowerShell Start-Process + Get-Process.TotalProcessorTime
+으로 측정:
+
+  수정 전 : CPU@5초 ≈ 4.81초(96.3%)   CPU@15초 ≈ 13.63초(90.8%)
+            15초 경과 후에도 프로세스 종료 안 됨(강제 kill) — 바쁜 루프 재현 확정.
+            (원 조사 §2-2 실측 98%와 동일 패턴, 오차는 시스템 부하 편차)
+  수정 후 : 418ms 만에 프로세스 자체 종료(정상 exit), 유효 JSON stdout 출력 확인.
+            바쁜 루프 재현 안 됨.
+
+════════════════════════════════════════════════════════════════════════════
+4. 원래 시나리오 회귀 확인 (수정과 무관한 부분)
+════════════════════════════════════════════════════════════════════════════
+TIMEOUT 이 사라지면서 이전엔 "항상 TIMEOUT"으로만 보이던 실제 결과가 처음으로 드러났다
+(조사서 §4 가 예견한 "회귀 신호를 가리는 죽은 빨간 불" 현상과 일치):
+
+  test_one_click_full_run.py       실제 실패 2건
+    - test_full_run_blocked_stays_on_failed_stage_not_result
+    - test_full_run_blocked_locks_downstream_via_gate
+    (모두 "BLOCKED 시 하위 단계 nav disabled=True 기대" 단언 불일치 — 상단 탭
+     기본값과 무관한 개별검증 nav 게이트 로직 문제로, 이번 하니스 스텁 변경과는
+     인과관계 없음. 참고로 4 xfailed 는 수정 전/후 동일하게 유지됨)
+
+  test_candidate_draft_selection.py  실제 실패 3건
+    - test_checkbox_change_keeps_table_and_plan_marks_draft
+    - test_uncheck_all_does_not_switch_to_count_only_before_apply
+    - test_candidate_notice_sticky_fix_uses_common_offset
+      (이 마지막 테스트는 node 를 아예 호출하지 않는 순수 _html() 문자열 단언이라
+       애초에 이번 하니스 수정과 무관함이 코드로 확인됨 — id="candidateGeneralNotice"
+       부재. baseline 에서도 실패 목록에 있었음)
+
+  → 위 5건은 이번 §4(a)안 수정 범위(하니스 스텁 1줄) 밖의 별개 제품/테스트 결함으로 판단.
+    이번 지침 범위(TIMEOUT 해소)는 아니므로 수정하지 않았고, 필요 시 별도 지침으로 착수 권장.
+  → test_blocked_state_reset.py 는 3/3 전부 통과, 시나리오 자체는 정상 확인.
+
+════════════════════════════════════════════════════════════════════════════
+5. 관련 서브셋 + baseline 대조 (신규 회귀 0건 확인)
+════════════════════════════════════════════════════════════════════════════
+mv_active_tab / _restoreActiveTab / job-dashboard 관련 테스트 파일 13개(수정 대상 3개 제외)
+동시 실행 결과: 11 failed, 138 passed.
+이 13개 파일은 이번 작업에서 전혀 수정하지 않았음(git diff --stat 결과 0건 변경 확인).
+11건 실패는 전부 test_ui_active_tab_persistence.py(5건)/test_ui_menu_ia_restructure.py(2건)/
+test_ui_menu_accordion_groups.py(1건)/test_project_menu_shell.py(2건)/
+test_design_refresh_full_validation.py(1건)로, 메모리에 기록된 "2026-07-30 UI·렌더러 계열
+사전 존재 실패 53건 기준선"(test_ui_active_tab_persistence 5건 등)과 분포가 일치 —
+이번 수정과 무관한 기존 실패로 판정(신규 회귀 아님).
+
+════════════════════════════════════════════════════════════════════════════
+6. CLAUDE.md 필수 회귀
+════════════════════════════════════════════════════════════════════════════
+python samples/test_virtual_cases.py   → 8/8 통과
+python samples/test_complex_cases.py   → 5/5 통과 (전체 검증 요약 8항목 전부 ✓)
+
+════════════════════════════════════════════════════════════════════════════
+7. 커밋
+════════════════════════════════════════════════════════════════════════════
+코드 저장소(migration-validator, 현재 X:\Projects\Migration_Validator) 커밋:
+  337117cb fix(test): node harness setTimeout 무한루프 차단 - 유효 탭 사전주입
+           (M3-NODE-HARNESS-INFINITE-LOOP-FIX)
+  변경 파일: tests/test_blocked_state_reset.py, tests/test_one_click_full_run.py,
+            tests/test_candidate_draft_selection.py (3 files changed, 12 insertions(+))
+※ 코드 저장소 규칙에 따라 push 는 하지 않음(커밋까지만). 이 완료보고만 verify 저장소에 push.
+
+════════════════════════════════════════════════════════════════════════════
+8. 잔여 항목(별도 지침 필요, 이번 범위 밖)
+════════════════════════════════════════════════════════════════════════════
+- test_full_run_blocked_stays_on_failed_stage_not_result /
+  test_full_run_blocked_locks_downstream_via_gate (BLOCKED 시 하위 nav 잠금 로직)
+- test_checkbox_change_keeps_table_and_plan_marks_draft /
+  test_uncheck_all_does_not_switch_to_count_only_before_apply (draft 체크 상태 execDisabled)
+- test_candidate_notice_sticky_fix_uses_common_offset (candidateGeneralNotice id 부재)
+5건 모두 TIMEOUT 해소로 새로 드러난 실제 결함/테스트 노후화 후보 — 근본원인 조사 후
+별도 FIX 지침으로 착수 권장.
+
+════════════════════════════════════════════════════════════════════════════
+작업명 : M3-NODE-HARNESS-INFINITE-LOOP-FIX
+✅ 작업 완료 - M3-NODE-HARNESS-TIMEOUT-ROOT-CAUSE-DIAGNOSE §4 (a)안 그대로 구현, 3개 파일 TIMEOUT 전부 해소(제품 코드 무변경)
