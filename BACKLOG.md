@@ -1926,9 +1926,9 @@ git -C E:/verify_reports worktree remove <임시경로>
   → 2026-07-30 완료(위 `해결 요약` 참조).
 - 참고: E:\verify_reports\DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE.txt
 
-### G7. HASH_BUCKET 해시 계약에 오라클이 등록돼 있지 않아, same-DBMS(오라클↔오라클)여도 영구 불가다 — ④(안전배선) 해결 완료, ③⑤⑥ 남음
-- 발견일: 2026-08-02 / 재확인: 2026-08-07 / ④ 해결일: 2026-08-07
-  (G7-STEP4-ROW-DIFF-MATCH-KEY-EVIDENCE-SAFE-WIRING-FIX, 코드 커밋 84c6f29a)
+### G7. HASH_BUCKET 해시 계약에 오라클이 등록돼 있지 않아, same-DBMS(오라클↔오라클)여도 영구 불가다 — ③④ 해결 완료, ⑤⑥ 남음
+- 발견일: 2026-08-02 / 재확인: 2026-08-07 / ④ 해결: 2026-08-07 / ③ 해결: 2026-08-07
+  (G7-STEP3-ORACLE-HASH-CONTRACT-IMPLEMENT, 코드 미커밋 — 사용자 승인 대기)
 - 근거 보고서: `PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt`(§4-2·§7-G7, 최초) →
   `F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE.txt`(순서 확정 ①③④⑤⑥) →
   `G7-HASH-BUCKET-ORACLE-FULL-SCOPE-DIAGNOSE.txt`(phase① 이후 재확인, 순서 재정정)
@@ -1977,12 +1977,29 @@ git -C E:/verify_reports worktree remove <임시경로>
   잔존(범위 밖, 낮은 영향): dev_e2e 1회성 스크립트 2개가 구 시그니처로 남아 재실행 시
   TypeError(pytest 수집 대상 아님), `agg_diff_route.py:606`이 contract 미전달(그 호출부는
   version 필드 미사용이라 무해).
-  **실사용 가능(오라클 HASH_BUCKET 실행)은 여전히 ③⑤⑥이 남아있어야 완성**.
+- **③ 해결 요약**: `services/diagnosis/dialects_hash/oracle.py` 신규(`OracleHashContract`,
+  191줄, `PgHashContract`와 완전 동일한 공개 메서드 표면). 해시함수 `STANDARD_HASH(x,'MD5')`
+  채택, design.md §1의 E1~E18 전수 대응표를 **실제 오라클 접속(DUAL 조회)으로 값까지
+  실측** — 5개 벡터(`3276922494` 등) 전부 설계 문서 기대값과 정확히 일치, R3(NLS_
+  NUMERIC_CHARACTERS)는 세션 NLS를 실제로 바꿔 재실행해도 결과 불변함을 실측 확인,
+  DATE_TIME 캐스팅(ORA-01821 회피)도 실행 성공 확인. **위임표는 이번에도 전혀 안 건드림**
+  (`hc._HASH_CONTRACTS`에 oracle 키 없음 재확인 — 구현체만 만들고 아직 아무도 안 씀).
+  PG 골든셋(기존 27개 테스트) 완전 무변화, 신규 12건 추가로 39건 전부 통과.
+  잔존(의도적 미해결, 다음 담당자에게 명시 인계): R4(4000자 상한)는 정확한 임계가 아니라
+  "구성요소 개수 20개" 근사 방어(라이브 실측 전 잠정치) — 큰 TEXT 컬럼 1~2개만으로도
+  실제 4000자 초과가 이 방어를 통과할 수 있음. R5(LOB)는 `precheck()` 시그니처가 SQL
+  표현식 문자열만 받고 컬럼 타입 메타를 안 받아 이 파일 단독으로는 판별 불가 — LOB이
+  실제로 오면 `STANDARD_HASH`가 ORA-00902로 **조용하지 않게 즉시 실패**하므로 거짓
+  일치는 아니지만, 사전 HOLD로도 안 걸러짐. 착수 시 컬럼 메타 관통 전달(④ 소비측 배선
+  확장 범위) 필요.
+  코드는 **아직 커밋 안 됨 — 사용자 승인 대기**.
+  **실사용 가능(오라클 HASH_BUCKET 실행)은 여전히 ⑤⑥이 남아있어야 완성**(③④는 완료).
 - 관련: F1, S5(이미 해결 완료)
 - 참고: E:\verify_reports\PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt
 - 참고: E:\verify_reports\F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE.txt
 - 참고: E:\verify_reports\G7-HASH-BUCKET-ORACLE-FULL-SCOPE-DIAGNOSE.txt
 - 참고: E:\verify_reports\G7-STEP4-ROW-DIFF-MATCH-KEY-EVIDENCE-SAFE-WIRING-FIX.txt
+- 참고: E:\verify_reports\G7-STEP3-ORACLE-HASH-CONTRACT-IMPLEMENT.txt
 
 ### F1. ✅ phase1(①) 완료 — HASH_BUCKET 오라클 구현체는 여전히 없음 (남은 단계: ③④⑤⑥ + G7)
 - 발견일: 2026-07-29 / phase1 해결일: 2026-08-06 (F1-PHASE1-ALIAS-RENAME-VERSION-BUMP, 코드 커밋 c420d84)
