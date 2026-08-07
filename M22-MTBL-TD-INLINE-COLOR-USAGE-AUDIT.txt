@@ -1,0 +1,91 @@
+작업명 : M22-MTBL-TD-INLINE-COLOR-USAGE-AUDIT
+⚠️ 추가 작업 필요 - `.mtbl` 표 안에서 td 인라인 color가 !important 규칙에 죽는 실발현 지점 2건 확인(코드 수정 없음, 조사만)
+
+■ 배경
+`.mtbl td{color:var(--text)!important}`(ui/tabler_renderer.py:1798) 는 M17 결함(재이관 드릴다운 강조
+미표시)의 원인이었던 규칙 그 자체이며, M17 은 `_mvPkCellSplit` 한 지점만 자식 span 으로 고쳤을 뿐
+규칙은 그대로 남아 있었다. 이번 조사는 코드 수정 없이 `.mtbl` 표 안 다른 td 인라인 color 사용처
+전수 검색 + 위험도 분류만 수행했다.
+
+■ 1. `.mtbl` 렌더 지점 확정 목록 (전부 실서비스 코드, dev_e2e/tests 스크립트는 제외)
+
+  # | 위치                                             | 대상                                  | 용도
+  --|--------------------------------------------------|---------------------------------------|--------------------------------
+  1 | ui/execute_result_renderer.py:1489                | #exec-result-tbody                    | 5단계 결과표(그룹/PK 목록)
+  2 | ui/tabler_renderer.py:4490 (batchResultTable)      | #batchResultBody (채움 7561행)          | 일괄검증 업로드 결과 표
+  3 | ui/tabler_renderer.py:4948 (batchValidTable)       | #batchValidBody (채움 12614행)          | 일괄 COUNT 비교 결과 표
+  4 | ui/tabler_renderer.py:5060 (batchItemsTable)       | #batchItemsBody (채움 history_renderer.py 639행 _renderBatchItems) | Batch Item 목록(개별 쿼리별 실행결과 메인표)
+  5 | ui/js_batch_display.py:346 (tbl.className='mtbl')  | #batchRunListCard 내부                 | 실행 이력 상세(성공/실패별 결과)
+  6 | ui/js_batch_display.py:430 (tbl.className='mtbl')  | #batchStatsExecuteList                 | 통계검증 실행 이력 카드
+  7 | ui/tabler_renderer.py:9138                         | 인라인 문자열 표                        | profile 수집 불가 대상 진단 표
+  8 | ui/tabler_renderer.py:9221                         | _batchRenderFullResultBoard             | 탭4 전체 통계검증 결과 board
+  9 | ui/tabler_renderer.py:11792                        | Tabulator 폴백                         | 4종 Summary Grid 공용 HTML fallback(JS 미로드시만)
+ 10 | ui/tabler_renderer.py:12899                        | <details> 내부                         | 행별 Snapshot 요약(읽기전용)
+ 11 | ui/tabler_renderer.py:21527                        | INSERT→SELECT 매핑                     | 1단계 파싱 결과표
+ 12 | ui/tabler_renderer.py:22279                        | 3단계 후보표                            | GROUP BY/SUM 후보 Summary 표
+
+■ 2. 실제 위험 지점 (2건 — 이번에 새로 확인)
+
+[위험 A] ui/history_renderer.py:671 (_renderBatchItems 함수) → 표 #4 (#batchItemsTable, class="mtbl")
+  '<td style="text-align:right;font-size:.82rem;'
+    + (it.diff_groups > 0 ? 'color:var(--fail);font-weight:700' : '') + '">'
+  차이그룹(diff_groups)이 있는 항목을 빨간색+굵게 강조하려는 의도인데, td 인라인이라
+  `.mtbl td{color:var(--text)!important}` 에 색이 죽는다. font-weight 만 살아남아 M17 과 동일한
+  "굵지만 검은 글씨" 증상 — 일괄검증 메인 결과표에서 어느 항목에 차이가 있는지 색으로 즉시 구분 불가
+  (숫자 값 자체는 정확히 표시됨. 데이터 정합성 문제 아님).
+  참고(같은 파일 내 반증): 바로 위 renderHistoryRuns 함수(272행, 별도 표 .hist-runs-tbl)는 동일한
+  "차이 그룹" 개념을 <span style="color:var(--fail)">로 감싸 올바르게 구현했다 — 형제 함수 간 패턴이
+  갈린다. M22 항목 등록 시 전제("같은 파일 형제 헬퍼는 이미 안전")는 이 파일에서는 부분적으로만 성립.
+
+[위험 B] ui/js_batch_display.py:474 (_batchRenderStatsExecuteResults 함수) → 표 #6
+  (#batchStatsExecuteList, class="mtbl")
+  detailTd.style.cssText = 'padding:4px 12px;font-size:.77rem;color:#721c24';
+  detailTd.textContent = '차이: ' + parts.join(' | ') + ...
+  SUCCESS_DIFF(차이 있음) 결과 상세 행에서 "차이: ..." 텍스트를 진한 적색으로 강조하려 했으나,
+  JS td.style.cssText 직접 대입(자식 span 아님)이라 역시 덮인다. 행 배경(연한 노랑)은 살아남지만
+  텍스트 강조는 사라진다.
+
+  두 건 모두 판정/값 로직은 정상이고 화면 강조색만 죽는 설명성·UX 문제(M17과 동일 성격,
+  데이터 정합성 문제 아님).
+
+■ 3. 저위험/무관 지점 요약 (개별 나열 생략, 카운트만)
+  - 고정 회색 라벨색이라 실질 위험 낮음(순번#, 보조텍스트 등 var(--text) 진남색으로 바뀌어도 판독
+    지장 없음): js_batch_display.py:407,464 / tabler_renderer.py:9142,9148,9233,22253 등 약 6건.
+  - .mtbl 표가 아니라 무관(.table Tabler 기본 / .mv-diag-meta[color 규칙 자체 없음] / .hist-runs-tbl /
+    클래스 없는 plain table 등): js_group_master.py 전체(7곳 전부 .table) + tabler_renderer.py
+    나머지 대다수(16021~31065 범위, 표본 확인 결과 전부 .mv-diag-meta 또는 무클래스 표) — 약 60여 건.
+    csr_display_helpers.py(371,387,398,562,683,691)는 애초에 tests/e2e_*.py 리포트 스크립트에서만
+    호출되고 web_server.py/tabler_renderer.py 실서비스 경로에서는 import되지 않는 죽은 코드.
+  - 이미 안전 패턴(색은 자식 span/code에만): _mvPkCellSplit/_mvPkCellHtml/_mvPkCell2
+    (tabler_renderer.py:17424~17474, M17에서 수정 완료), _batchRenderFullResultBoard 의
+    배지·최신성 표시(9229~9239), 22279 표의 stscoreCell/warnCell(22248~22258) 등.
+
+■ 4. history_renderer.py:113 규칙 vs tabler_renderer.py:1798 규칙 관계
+  history_renderer.py:113 의 `.mtbl td{padding:6px 10px;border-bottom:1px solid var(--border);
+  vertical-align:middle}` 에는 color 속성 자체가 없고 !important도 없다. 두 CSS는
+  tabler_renderer.py 의 build_history_css() 를 통해 같은 페이지에 항상 함께 주입된다(32437~32438행).
+  !important는 소스 순서·구체성과 무관하게 non-important를 항상 이기므로 padding/border-bottom도
+  tabler 쪽이 이기고, color는 tabler에만 있어 그대로 적용된다. → 충돌이 아니라
+  history_renderer.py 쪽 규칙이 사실상 완전히 죽은 CSS. 이번 M22 범위는 아니지만 별도 정리 대상감.
+
+■ 5. `.mtbl td{color:...!important}` 규칙 제거/완화 안전성 소견
+  CSS 블록 바로 위 주석이 목적을 명시: "/* ── mtbl 최종 강화 (Tabler 상속 경쟁 해결) ── */" — 즉 이
+  !important 3종(padding/border-bottom/color)은 Tabler 프레임워크 자체의 기본 .table 스타일과
+  경쟁해서 이기기 위해 일괄로 붙인 것이지, "이 색을 강제로 통일해야 한다"는 명시적 요구사항에서
+  나온 게 아니다. 코드베이스 전체에서 이 규칙의 color:var(--text)!important 에 **의도적으로
+  의존**하는 다른 코드는 발견되지 않았다(반대로 위험 A/B처럼 오히려 이 규칙에 걸려 죽는 코드만 있음).
+  다만 Tabler 벤더 CSS(static/tabler/tabler.min.css, minified)가 .table td 에 대해 정확히 어떤
+  color를 강제하는지는 이번 조사에서 실측하지 않았다 — color 항목만 완화(!important 제거/삭제)할
+  경우 Tabler 쪽 기본 회색조 td 색이 다시 새어 들어올 가능성이 있어, 실제 제거/완화 전에는 Tabler
+  벤더 CSS의 .table td color 규칙 유무 확인이 선행돼야 한다(이번 지침 범위 밖).
+  padding/border-bottom !important 는 Tabler 경쟁 해소 목적이 여전히 유효해 보여 손대지 않는 편이
+  안전하다.
+
+■ 착수 필요 여부
+  위험 지점이 실제로 2건(A: history_renderer.py:671, B: js_batch_display.py:474) 확인됐으므로
+  "발현 지점 없음" 종결은 불가 — 후속 지침 필요. 두 건 모두 M17과 동일하게 "값은 자식 span으로
+  분리, 판정 로직은 그대로" 패턴으로 좁게 고칠 수 있는 저위험 수정으로 판단되며, CSS 규칙 자체의
+  제거/완화는 Tabler 벤더 CSS 선행 확인이 필요해 이번 범위에서 분리 유지 권장.
+
+작업명 : M22-MTBL-TD-INLINE-COLOR-USAGE-AUDIT
+⚠️ 추가 작업 필요 - `.mtbl` 표 안에서 td 인라인 color가 !important 규칙에 죽는 실발현 지점 2건 확인(코드 수정 없음, 조사만)
