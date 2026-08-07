@@ -2935,10 +2935,9 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 대응 방향: 미조사. 근본원인 조사 후 별도 FIX 지침으로 착수 권장.
 - 참고: E:\verify_reports\M3-NODE-HARNESS-INFINITE-LOOP-FIX.txt
 
-### M53. ✅ Phase1~4 완료 — SQLite DB 경로 계산 단일 진실 출처화(X:\Data\ 분리 이관은 5단계로 보류)
-- 발견/계기: 2026-08-07 (사용자 요청 — 프로그램별 DB 파일을 소스 폴더 밖 공용 위치로
-  분리하는 정책 결정에 따른 선행 리팩터링) / 1~4단계 완료: 2026-08-07
-  (DB-SEPARATE-FOLDER-TO-X-DATA-MIGRATION, 코드 커밋 23e3fb60)
+### M53. ✅ Phase1~4 완료+검증됨 — SQLite DB 경로 계산 단일 진실 출처화(5단계 실이관은 "안전" 판정, 최종 승인 대기)
+- 발견/계기: 2026-08-07 / 1~4단계 완료: 2026-08-07(코드 커밋 23e3fb60) / 검증: 2026-08-07
+  (DB-SEPARATE-FOLDER-PHASE1-4-VERIFY)
 - 조사 핵심(1단계): 운영 코드 49개 파일 47개 지점이 각자 `Path(__file__).parent.parent
   / "db" / "xxx.db"` 형태로 독립 계산(전역명 6종 변형). 테스트 151개가 이 전역 이름을
   직접 monkeypatch — 함수 호출 방식 전환 시 다 깨져서 모듈 전역 상수 형태 유지 필수.
@@ -2953,10 +2952,23 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 잔존(5단계, 사용자 승인 후 별도 착수): 서버 정지 확인 → 실제 파일 복사 이관
   (`X:\Data\Migration_Validator\`로, 원본은 개명 보관·삭제 안 함) → `DEFAULT_DATA_DIR`
   전환 → 재기동 회귀. `exact_diff_runs.db`(1GB) 복사 중 서버가 살아있으면 WAL 손상
-  위험 — 정지 확인 필수. 착수 시 이 이전 verify 저장소에 1~4단계 검증 결과(테스트
-  대조 등)도 별도 완료보고로 남기는 것을 권장(이번엔 채팅으로만 산출물 공유됨).
+  위험 — 정지 확인 필수.
+- **검증 결과(2026-08-07, DB-SEPARATE-FOLDER-PHASE1-4-VERIFY)**: 코드 레벨 전수
+  재검색으로 옛 하드코딩 잔존 0건(49개 파일 전부 db_paths 경유 확인), conftest.py
+  `_DB_DIR`이 실제로 전환 확인, count_precheck_route.py 사각지대 실제 해소 확인,
+  `DEFAULT_DATA_DIR`이 여전히 기존 위치를 가리켜 실이동 없음 실측, 공유 서버(8000)는
+  안 건드리고 별도 격리 포트(8020)로 재기동해 실제 프리셋 DB 읽기 정상 확인.
+  **회귀 스위트는 미완주**(전체 스위트도, 축소 서브셋 287건도 — "멈춤"이 아니라
+  "DB 픽스처 오버헤드로 테스트당 처리시간이 원래 느림"이 원인, 완주된 69~71건 범위
+  내 신규 실패는 0건). 범위 밖 잔존 2건 발견: `scripts/cleanup_test_groups.py:25`
+  (수동 유지보수 스크립트, 파이프라인 미포함, 5단계 착수 시 별도 수정 필요),
+  `tests/` 21개 파일(테스트 전용, 문제 아님). 부수 발견(낮은 위험, 기존패턴 연장):
+  conftest 자동원복 필터가 `services.` 접두만 스캔해 `routes.`/`db.` 모듈의 지속
+  전역이 안전망 밖 — baseline에도 이미 있던 패턴, 별도 승인 필요한 후속과제로 분리.
+  **결론: "5단계 착수 안전"(회귀 스위트 완주 재확인은 권장 사항으로 남김).**
 - 참고: 코드 저장소 로컬 커밋 23e3fb60(verify 저장소 완료보고 미push — 채팅에서 직접
   조사·설계 산출물 공유 후 사용자 승인으로 진행)
+- 참고: E:\verify_reports\DB-SEPARATE-FOLDER-PHASE1-4-VERIFY.txt
 
 ### M4. ✅ 해결 완료(원인 진단 정정 — SQLite 가드가 아니었다) — 운영 SQLite 가드에 막혀 상시 실패하는 테스트군을 tmp_path 기반으로 전환
 - 해결일: 2026-08-03 (STEP-TAB-DOM-STABILITY-TEST-SQLITE-GUARD-FIX)
