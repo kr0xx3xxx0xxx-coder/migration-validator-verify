@@ -2608,8 +2608,9 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: P2(해결 완료) · F27(표본 근거의 화면 노출 미완 — 함께 보면 편향 고지 가능)
 - 참고: E:\verify_reports\PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX.txt
 
-### M22. 전수조사 완료 — `.mtbl td{color:...!important}`에 실제 색상이 죽는 지점 2건 확인(수정 대기)
-- 발견일: 2026-08-02 / 전수조사: 2026-08-07 (M22-MTBL-TD-INLINE-COLOR-USAGE-AUDIT, 코드 무변경)
+### M22. ✅ 해결 완료 — `.mtbl td{color:...!important}`에 죽던 위험 2건, 자식 span 분리로 해소
+- 발견일: 2026-08-02 / 전수조사: 2026-08-07 / 해결일: 2026-08-07
+  (M22-RISK-A-B-TD-COLOR-SPAN-SPLIT-FIX)
 - 근거 보고서: `REIMPORT-DRILLDOWN-M17-M18-FIX/REPORT.md`(§8-1, 최초) →
   `M22-MTBL-TD-INLINE-COLOR-USAGE-AUDIT.txt`(전수조사)
 - 조사 결과: `.mtbl` 표 렌더 지점 12곳 전수 확인, 그중 **실제 위험 2건 확정**:
@@ -2631,11 +2632,20 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 부수 발견(별건): `history_renderer.py:113`의 `.mtbl td` 규칙(padding/border-bottom만,
   color 없음)이 tabler_renderer.py:1798의 !important에 완전히 덮여 사실상 죽은 CSS —
   무해하나 별도 정리 대상.
-- 대응 방향: 위험A·B 2곳만 M17 패턴(자식 span 분리)으로 수정. CSS 규칙 자체는 미착수.
+- 대응 방향: 위험A·B 2곳만 M17 패턴(자식 span 분리)으로 수정 완료. CSS 규칙 자체는 무변경.
+  - [위험A] `ui/history_renderer.py:671` — 조건부 color를 자식 span으로 이동(같은 파일
+    `renderHistoryRuns`의 기존 패턴 재사용). before(검은 굵은 글씨) → after(빨간 굵은
+    글씨) 육안 대조 확인.
+  - [위험B] `ui/js_batch_display.py:474` — "차이: ..." 문구를 자식 span으로 분리.
+    목표색(#721c24)과 강제색(#10233f)이 육안상 유사해 `getComputedStyle`로 프로그램
+    대조 — before `rgb(16,35,63)`(강제됨) → after `rgb(114,28,36)`(정확히 적용) 확인.
+  - 값(숫자·텍스트) 완전 동일, 신규 회귀 0건(확장 서브셋 8건 실패는 git stash baseline
+    대조로 사전 존재 확인).
 - 관련: M17(해결 완료 — 같은 규칙으로 인한 최초 인스턴스)
 - 참고: E:\verify_reports\REIMPORT-DRILLDOWN-M17-M18-FIX.txt /
   REIMPORT-DRILLDOWN-M17-M18-FIX\REPORT.md (§8-1)
 - 참고: E:\verify_reports\M22-MTBL-TD-INLINE-COLOR-USAGE-AUDIT.txt
+- 참고: E:\verify_reports\M22-RISK-A-B-TD-COLOR-SPAN-SPLIT-FIX.txt
 
 ### M23. ✅ 해결 완료 — `choose_compare_strategy` 의 `remote` 인자가 설계 의도와 다르게 미사용 상태로 방치돼 있다
 - 해결일: 2026-08-05 (STRATEGY-TRANSITION-DEAD-REMOTE-PARAM-CLEANUP-FIX)
