@@ -3034,11 +3034,22 @@ git -C E:/verify_reports worktree remove <임시경로>
   (정리하려면 `repaxis_*` 만 DROP).
 - 참고: E:\verify_reports\PK-RANGE-CHUNK-REPRESENTATIVE-AXIS-UNIFY.txt
 
-### M11. 표본 조기중단 정책이 stream 경로(원본 5만행 초과)에서만 동작한다는 표시가 어디에도 없다
-- 발견일: 2026-07-28
-- 근거 보고서: `SAMPLING-PREFLIGHT-EXCEL-EXPORT-GB-COLS-CHECK-AND-FIX.txt` (§7 부수 관찰)
-- 상세: 정책 화면에서 켜고 끌 수 있는 스위치라 '켰는데 왜 안 도나' 오해를 부를 수 있다.
+### M11. ✅ 해결 완료 — 표본 조기중단 정책이 stream 경로(원본 5만행 초과)에서만 동작한다는 표시가 어디에도 없다
+- 발견일: 2026-07-28 / 해결일: 2026-08-07 (M11-SAMPLE-EARLY-STOP-STREAM-ONLY-INDICATOR-FIX)
+- 근거 보고서: `SAMPLING-PREFLIGHT-EXCEL-EXPORT-GB-COLS-CHECK-AND-FIX.txt` (§7 부수 관찰) →
+  `M11-SAMPLE-EARLY-STOP-STREAM-ONLY-INDICATOR-FIX.txt`(해소)
+- 해결 요약: 실발동 조건(스위치 ON + 원본 5만행 초과 stream 경로)을 코드로 재확인
+  (`ui/tabler_renderer.py:17353` useStream=totalRows>50000 · `routes/agg_diff_route.py:1290·374`).
+  단, 원 서술의 "켜고 끌 수 있는 체크박스 스위치"는 실제로는 없다 — "검증 정책" 탭에는 이
+  항목이 아예 없고(API 로만 설정 가능), 값이 표시되는 지점은 `services/global_settings_gate.py`
+  가 만드는 공용 표시 schema(전역설정 확인 모달·실행 적용 설정 조회, 둘 다 현재 클릭 경로로는
+  도달 어려움) 단 하나뿐이었다. 그 라벨을 "표본 기반 조기중단 (원본 5만행 초과·stream
+  경로에서만 적용)"으로 바꿔 두 화면에 공통 반영(순수 표시 문구, 판정 로직 불변).
+- 잔여(이번 범위 밖): (a) 전역설정 확인 모달이 Phase4-D6-3 이후 자동 통과라 실제로는 노출되지
+  않음, (b) "실행 적용 설정" 조회 버튼이 어디에도 배선돼 있지 않아 도달 불가 — 둘 다 이번
+  지침 범위(표시 문구 추가) 밖의 별건 UI 배선 갭이다.
 - 참고: E:\verify_reports\SAMPLING-PREFLIGHT-EXCEL-EXPORT-GB-COLS-CHECK-AND-FIX.txt
+- 참고: E:\verify_reports\M11-SAMPLE-EARLY-STOP-STREAM-ONLY-INDICATOR-FIX.txt
 
 ### M12. `stats_validation_plan_service.py:1188/1191` 의 str/dict 가정 — 잠재 결함으로 실존(현재 도달 불가)
 - 발견일: 2026-07-27
