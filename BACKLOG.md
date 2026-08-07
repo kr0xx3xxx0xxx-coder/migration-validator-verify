@@ -3053,7 +3053,8 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\PK-RANGE-CHUNK-REPRESENTATIVE-AXIS-UNIFY.txt
 
 ### M11. ✅ 해결 완료 — 표본 조기중단 정책이 stream 경로(원본 5만행 초과)에서만 동작한다는 표시가 어디에도 없다
-- 발견일: 2026-07-28 / 해결일: 2026-08-07 (M11-SAMPLE-EARLY-STOP-STREAM-ONLY-INDICATOR-FIX)
+- 발견일: 2026-07-28 / 해결일: 2026-08-07 (M11-SAMPLE-EARLY-STOP-STREAM-ONLY-INDICATOR-FIX,
+  코드 커밋 8b554195)
 - 근거 보고서: `SAMPLING-PREFLIGHT-EXCEL-EXPORT-GB-COLS-CHECK-AND-FIX.txt` (§7 부수 관찰) →
   `M11-SAMPLE-EARLY-STOP-STREAM-ONLY-INDICATOR-FIX.txt`(해소)
 - 해결 요약: 실발동 조건(스위치 ON + 원본 5만행 초과 stream 경로)을 코드로 재확인
