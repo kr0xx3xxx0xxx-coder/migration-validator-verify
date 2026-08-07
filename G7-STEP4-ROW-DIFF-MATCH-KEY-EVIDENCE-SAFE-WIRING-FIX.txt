@@ -1,0 +1,142 @@
+작업명 : G7-STEP4-ROW-DIFF-MATCH-KEY-EVIDENCE-SAFE-WIRING-FIX
+✅ 작업 완료 - row_diff.py/match_key_evidence.py 의 hash_contract 모듈 재수출(PG 고정 위임) 결함을 hash_bucket.py 와 동일한 안전 패턴으로 폐쇄, multi_scope.py db_type 배선 함께 완료
+
+기준: 코드 저장소 main HEAD 38237dfa → 커밋 84c6f29a (로컬 커밋, code repo push 안 함 — 규칙대로)
+지시서: directives/G7-STEP4-ROW-DIFF-MATCH-KEY-EVIDENCE-SAFE-WIRING-FIX.md
+선행 문서: G7-HASH-BUCKET-ORACLE-FULL-SCOPE-DIAGNOSE.txt §3·§5-1 (④ 안전배선 단독 착수 지시)
+
+────────────────────────────────────────────────────────────
+1. 범위 확인
+────────────────────────────────────────────────────────────
+④(안전 배선)만 단독 착수. ③(오라클 구현체)·⑤(capabilities 개방)·⑥(G7 위임표 등록)은 미착수.
+hash_contract.py:118-120 위임표는 이번 작업에서 전혀 손대지 않음(PostgreSQL만 등록 상태 유지, git diff 로 무변경 확인).
+
+────────────────────────────────────────────────────────────
+2. 파일:라인별 diff 요약
+────────────────────────────────────────────────────────────
+[services/diagnosis/row_diff.py] (+15/-8)
+  - import 제거: `from services.diagnosis import hash_contract as hc` (더 이상 참조 안 함)
+  - _cell_condition(...): dialect 뒤에 `contract` 파라미터 추가.
+    :77  hc.bucket_expr_sql(...) → contract.bucket_expr(...) 로 교체
+  - build_row_select_sql(...): `contract` 키워드 전용 파라미터 추가(필수).
+    :103 hc.key_canonical_sql(...) → contract.key_canonical(...) 로 교체
+    _cell_condition 호출에 contract 관통 전달
+  - execute_row_diff(...): `contract` 키워드 전용 파라미터 추가(기본값 없음 — 필수).
+    두 build_row_select_sql 호출에 contract=contract 전달
+
+[services/diagnosis/match_key_evidence.py] (+11/-4)
+  - import 제거: `from services.diagnosis.hash_contract import HASH_CONTRACT_VERSION`
+  - resolve_confirmed_match_key(...): `contract=None` 파라미터 추가
+    :122 HASH_CONTRACT_VERSION(상수, 항상 PG) → contract.version if contract is not None else None
+    :126 "version": HASH_CONTRACT_VERSION → "version": contract_version
+  - 계약 미제공/미등록(contract=None) 이어도 MATCH_KEY 확정 자체는 차단하지 않음(HASH_BUCKET 실행 가능
+    여부는 별도 L2/L3 가드가 판정 — 이 함수의 책임 범위 밖)
+
+[services/diagnosis/multi_scope.py] (+10/-4)
+  - run_batch_diagnosis(...): src_db_type/tgt_db_type 키워드 파라미터 추가(기본 "")
+    → _run_hash_bucket_waves 호출에 관통 전달
+  - _run_hash_bucket_waves(...): src_db_type/tgt_db_type 파라미터 추가(기본 "")
+    :552-555 hb.build_hash_bucket_agg_sql(...) 양쪽 호출에 src_db_type=src_db_type, tgt_db_type=tgt_db_type 추가
+    (기존에는 dialect 만 넘겨 dialect 역매핑에 전적으로 의존 — 혼합/오라클 페어가 dialect 렌더 접힘(postgres)에
+    묻혀 조용히 PG 계약으로 판정될 수 있었던 지점)
+
+[services/diagnosis/adapters/multi_scope_adapter.py] (+6/-2)
+  - diagnose_multi_scope(...): src_db/tgt_db dict 에서 db_type 추출해 run_batch_diagnosis 에
+    src_db_type=, tgt_db_type= 로 전달(2-b 의 resolve_hash_contract 판정과 동일 출처 재사용)
+
+[routes/diagnosis_route.py] (+18/-4)
+  - _contract_match_key(req): resolve_hash_contract(req.src_conn, req.tgt_conn) 로 경계에서 1회 해석,
+    resolve_confirmed_match_key(..., contract=_contract) 로 전달(모든 호출 지점 — /diagnosis/multi-analyze,
+    /diagnosis/multi-resume, /diagnosis/multi-row-diff, /diagnosis/multi-row-diff-resume 공용 choke point)
+  - /diagnosis/multi-row-diff (line ~811): execute_row_diff 호출 직전 resolve_hash_contract 로 계약 해석,
+    hold 시 즉시 차단 응답, 통과 시 contract=_contract 전달(hash_bucket.py 와 동일한 방어-심층 원칙)
+  - /diagnosis/multi-row-diff-resume (line ~858): 기존에 이미 존재하던 resolve_hash_contract 결과(_c,
+    §3-5 가 지목한 "이미 만들어 둔 객체 재사용" 지점)를 execute_row_diff(contract=_c) 로 전달
+
+[tests] execute_row_diff/_cell_condition 시그니처 변경에 맞춰 PG 계약 명시 주입으로 업데이트
+  - tests/test_diagnosis_row_diff.py: get_hash_contract_pair("postgresql","postgresql") 로 PG 계약
+    확보 후 6개 호출부 모두 contract= 전달
+  - tests/test_diagnosis_row_diff_e2e.py: 동일 방식으로 PG_CONTRACT 주입(라이브 PG e2e)
+  - tests/test_hash_alias_rename_resume_guard.py: _cell_condition 2개 호출부에 pg_contract 전달
+
+────────────────────────────────────────────────────────────
+3. 검증 실측
+────────────────────────────────────────────────────────────
+[PG 회귀 없음 — 정적 동등성]
+  옛 경로(hc.key_canonical_sql/hc.bucket_expr_sql, 모듈 재수출) vs 새 경로(get_hash_contract_pair
+  ("postgresql","postgresql") 로 얻은 contract 객체의 .key_canonical()/.bucket_expr())의 생성 SQL 문자열이
+  완전히 동일함을 실측(assert 통과). contract.version == 옛 HASH_CONTRACT_VERSION 상수("hashv1-md5-lenpfx-pg")
+  동일 확인.
+
+[PG 회귀 없음 — 라이브 실행]
+  MV_PG_LIVE_SAFETY=1 python -m pytest:
+    tests/test_diagnosis_row_diff_e2e.py .... 4 passed
+      (문자열/UUID/복합키 3종 HASH→ROW_DIFF 직접 호출 + 실 HTTP 라우트
+       /diagnosis/scope-actions → /diagnosis/multi-row-diff → /diagnosis/multi-row-diff-resume
+       전체 파이프라인 — 내가 수정한 라우트 경로를 실제로 태움)
+    tests/test_diagnosis_hash_bucket_e2e.py + tests/test_diagnosis_multi_scope_e2e.py .... 15 passed, 1 error
+      (에러는 teardown 의 "PROD-DB-MUTATED" sqlite 해시 가드 — 병행 세션이 만든 db/migration_validator.db
+       변경 감지이며 이번 코드 변경과 무관. 15개 기능 assertion 은 전부 통과)
+
+[오라클 안전 실패 확인]
+  1) hash_contract.get_hash_contract_pair("oracle","oracle") → (None, "HASH_CONTRACT_NOT_AVAILABLE")
+     — 위임표 미등록 그대로, 이번 조사(G7 진단본) §1-9 의 "변경 안 됨" 목록과 일치.
+  2) multi_scope.run_batch_diagnosis(..., dialect="postgres", src_db_type="oracle", tgt_db_type="oracle")
+     실행 → stopped_reason=EXECUTION_ERROR, compare_fn(DB 실행 지점) 호출 0회
+     (에러 메시지: "HASH_BUCKET canonical 해시 계약을 사용할 수 없습니다(방언=postgres, db_type=oracle) —
+      미등록/미구현 방언이거나 방언을 특정할 수 없습니다.")
+  3) [수정 전 재현 대조] 동일 시나리오에서 src_db_type/tgt_db_type 을 넘기지 않고 dialect="postgres" 만 주면
+     compare_fn(DB 실행 지점) 이 1회 호출됨 — 즉 db_type 배선 없이는 dialect 렌더 접힘만으로 PG 계약이
+     조용히 방출돼 DB 실행 단계까지 도달했을 것임을 실측으로 대조 확인(이번 수정이 막는 정확한 결함).
+
+[관련 테스트 서브셋 — 신규 회귀 0건]
+  pytest tests/test_hash_contract_dialect_adapter.py tests/test_diagnosis_row_diff.py
+         tests/test_hash_alias_rename_resume_guard.py tests/test_diagnosis_multi_scope.py
+         tests/test_underscore_alias_oracle_regression_static.py
+    → 70 passed, 6 subtests passed
+
+[더 넓은 스윕 — 참고용]
+  pytest tests/ -k "hash_bucket or row_diff or match_key or multi_scope or diagnosis"
+    → 268 passed, 39 skipped, 2 failed
+  실패 2건은 tests/test_diagnosis_phase3b.py (test_next_strategy_preview_matrix,
+  test_start_passes_confirmed_chunk_key) — CHUNK_KEY/KEY_RANGE 경로(_confirm_routing,
+  _CK_ROUTING_CACHE 프로세스 캐시) 문제로, 이번에 수정한 파일(row_diff/match_key_evidence/
+  multi_scope/adapters/routes 의 MATCH_KEY·HASH_BUCKET 관련 코드)과 무관. git diff 로 해당 캐시
+  코드를 전혀 건드리지 않았음을 확인 — 사전 존재 결함으로 판단(단독 파일 실행 시에도 동일 실패
+  재현, 같은 req 객체로 diagnosis_start 를 2회 호출할 때 모듈 전역 _CK_ROUTING_CACHE 가 몽키패치
+  교체 후에도 첫 호출 결과를 재사용하는 캐시-테스트 상호작용 버그로 보임). 이번 작업 범위 밖이라
+  수정하지 않음.
+
+[CLAUDE.md 필수 회귀 — 최종 1회]
+  python samples/test_virtual_cases.py  → 전체 8개 케이스 통과
+  python samples/test_complex_cases.py  → 케이스 분석 완료 5/5
+
+────────────────────────────────────────────────────────────
+4. 커밋
+────────────────────────────────────────────────────────────
+84c6f29aad96c0d764719d769b400721ceda7986 (local, main 브랜치, code repo push 안 함 — 규칙대로 verify repo 에만 push)
+  8 files changed, 88 insertions(+), 37 deletions(-)
+  services/diagnosis/row_diff.py, services/diagnosis/match_key_evidence.py, services/diagnosis/multi_scope.py,
+  services/diagnosis/adapters/multi_scope_adapter.py, routes/diagnosis_route.py,
+  tests/test_diagnosis_row_diff.py, tests/test_diagnosis_row_diff_e2e.py, tests/test_hash_alias_rename_resume_guard.py
+
+────────────────────────────────────────────────────────────
+5. 비판적 검토 — 알려진 잔여 영향(범위 밖, 참고용)
+────────────────────────────────────────────────────────────
+- scripts/dev_e2e/hash_bucket_alias_rename_version_bump_equivalence_verify.py 와
+  scripts/dev_e2e/hash_contract_adapter_refactor_equivalence_verify.py 는 build_row_select_sql 을
+  contract 없이 호출하고 있어(과거 phase① 완료 시점의 1회성 동등성 검증 스크립트), 지금 재실행하면
+  TypeError(필수 인자 누락) 로 실패한다. pytest 수집 대상이 아니고(scripts/dev_e2e, test_*.py 아님)
+  이번 지시서의 필수 검증 범위(hash_contract/row_diff/match_key_evidence 관련 테스트 서브셋)에도
+  포함되지 않아 수정하지 않았다 — 과거 마이그레이션 1회성 스크립트로 판단, 필요 시 재실행 전 개별
+  업데이트 권고.
+- routes/agg_diff_route.py:606 의 resolve_confirmed_match_key 호출은 contract 를 넘기지 않는다
+  (기본값 None → version=None). 이 호출부는 mk["tgt_exprs"] 만 사용하고 version 필드를 쓰지 않아
+  동작 영향 없음 — 지시서 파일범위(row_diff.py/match_key_evidence.py/multi_scope.py) 밖이라 손대지
+  않았다.
+- ④ 완료로 row_diff/match_key_evidence 의 "PG 전용 재수출 무조건 위임" 구조적 결함은 폐쇄됐지만,
+  실사용 가능(오라클로 HASH_BUCKET 실행)은 ③(오라클 구현체)·⑤(capabilities 개방)·⑥(G7 위임표
+  등록)이 남아있어야 완성된다 — 지시서 범위 그대로, 다음 착수자는 §5-1 권장 순서(③④ 병행 가능,
+  ⑤⑥은 ④ 완료 후)를 참고.
+
+✅ 작업 완료 - row_diff.py/match_key_evidence.py 의 hash_contract 모듈 재수출(PG 고정 위임) 결함을 hash_bucket.py 와 동일한 안전 패턴으로 폐쇄, multi_scope.py db_type 배선 함께 완료
