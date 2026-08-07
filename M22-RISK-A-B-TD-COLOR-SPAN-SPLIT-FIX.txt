@@ -1,0 +1,49 @@
+작업명 : M22-RISK-A-B-TD-COLOR-SPAN-SPLIT-FIX
+✅ 작업 완료 - M22 조사(M22-MTBL-TD-INLINE-COLOR-USAGE-AUDIT)가 확정한 위험 2건(td 인라인 color가 .mtbl td!important에 죽던 지점)을 M17과 동일한 자식 span 분리 패턴으로 수정, before/after 대조로 색상 복원 확인
+
+■ 수정 파일 (2건, CSS 규칙 자체는 무변경)
+
+[위험A] ui/history_renderer.py:671 (_renderBatchItems, #batchItemsTable)
+  변경 전: td style에 diff_groups>0 조건부로 'color:var(--fail);font-weight:700' 직접 삽입
+  변경 후: td는 text-align/font-size만 유지, 값을 조건부로 자식 <span style="color:var(--fail);
+           font-weight:700">로 감싸 렌더 (같은 파일 renderHistoryRuns의 기존 패턴 그대로 재사용)
+
+[위험B] ui/js_batch_display.py:474 (_batchRenderStatsExecuteResults, #batchStatsExecuteList)
+  변경 전: detailTd.style.cssText에 color:#721c24 직접 지정 + textContent 대입
+  변경 후: cssText에서 color 제거(padding/font-size만 유지), "차이: ..." 문구는 createElement('span')
+           자식에 style.color='#721c24' 지정 후 appendChild로 삽입
+
+■ 검증 — 컴포넌트 Before/After 렌더 대조
+포트 8000 서버는 동시 세션 공유라 수정 전 상태로 캡처할 창이 이미 지나 있었음(코드 수정을
+먼저 완료). git HEAD(수정 전) 렌더 함수와 작업트리(수정 후) 렌더 함수를 동일 입력·동일
+페이지 CSS 위에서 렌더해 대조(scripts/dev_e2e/m22_risk_ab_td_color_span_split_before_after_render.py).
+
+  위험A: "3"(차이그룹) — before 검은 굵은 글씨 / after 빨간 굵은 글씨로 화면상 명확히 구분됨.
+  위험B: var(--text)=#10233f 와 목표색 #721c24 가 육안상 유사한 짙은 색이라 축소 스크린샷만으로는
+         판별이 어려워 getComputedStyle 로 프로그램 대조:
+           BEFORE td   color = rgb(16,35,63)  (=#10233f, !important가 인라인 color를 덮음)
+           AFTER  span color = rgb(114,28,36) (=#721c24 그대로 적용)
+  값(숫자·텍스트) 동일성: 위험A/B 모두 ✅ 동일 (색상만 변경, 데이터 로직 무변경) · JS 오류: 없음
+  스크린샷: X:\Verify\verify_screenshots_only\M22-RISK-A-B-TD-COLOR-SPAN-SPLIT-FIX\ 저장·push 완료
+  (riskA_before/after_batch_items.png, riskB_before/after_stats_execute.png, BEFORE_AFTER_EVIDENCE.txt)
+
+■ 서버 재기동
+  재기동 시각(KST) : 2026-08-07 17:10
+  재기동 시점 HEAD : 38237dfa80f0d894ad647b3fd13c8b550b02ee42 (작업트리엔 위험A/B 수정 반영된 상태로 기동)
+  응답 확인        : http://localhost:8000/ → {"code":"AUTH_REQUIRED"} 정상 라우팅 확인(Basic Auth 게이트)
+
+■ 테스트 결과
+  1) CLAUDE.md 필수 회귀(최종 1회)
+     samples/test_virtual_cases.py  : 8/8 통과
+     samples/test_complex_cases.py  : 5/5 통과
+  2) 수정 대상 직결 서브셋
+     tests/test_task12_d.py         : 31/31 통과 (diff_groups/_renderBatchItems/detailTd 관련 유일 매치 파일)
+  3) 확장 서브셋(배치/이력 표시 관련)
+     test_batch_display_unification.py / test_history_error_summary.py / test_batch_ui.py /
+     test_results_menu_batch_detail_page.py / test_batch_row_detail_ux.py /
+     test_batch_detail_result_view_wiring.py → 45 passed, 8 failed
+     8건 실패는 git stash로 수정 전 baseline과 대조 결과 **동일하게 재현되는 사전 존재 실패**
+     (한글 문자열 mojibake 등, 이번 수정과 무관) → 신규 회귀 0건
+
+작업명 : M22-RISK-A-B-TD-COLOR-SPAN-SPLIT-FIX
+✅ 작업 완료 - M22 조사가 확정한 위험 2건(td 인라인 color가 .mtbl td!important에 죽던 지점)을 M17과 동일한 자식 span 분리 패턴으로 수정, before/after 대조로 색상 복원 확인
