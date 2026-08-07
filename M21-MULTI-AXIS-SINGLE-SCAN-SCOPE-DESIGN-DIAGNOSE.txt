@@ -1,0 +1,290 @@
+작업명 : M21-MULTI-AXIS-SINGLE-SCAN-SCOPE-DESIGN-DIAGNOSE
+✅ 작업 완료 - M21 다축 통계검증 통합쿼리(UNION ALL/GROUPING SETS) 범위·설계 조사 — 실측 결과 두 방식 모두
+   유의미한 이득이 없어(UNION ALL 사실상 무변화, GROUPING SETS 오히려 56% 느려짐) 착수를 권하지 않는다
+
+===============================================================================
+0. 결론 먼저
+===============================================================================
+BACKLOG.md M21 항목("장기·지금 권하지 않음")을 실측으로 재검증했다. 결과는 원래 판단을 강하게
+뒷받침한다 — 오히려 더 명확한 근거로 "지금 착수 안 함"을 재확인했다.
+
+  (1) GROUPING SETS: NXDNP.MV_SCATTER50M(원본 50M/목적 49.5M)에서 실측 결과 순차 방식보다
+      **56.3% 더 느리다**(28,241ms → 44,136ms). 원인은 EXPLAIN PLAN으로 확인했다 — 오라클이
+      GROUPING SETS를 "TEMP TABLE TRANSFORMATION"으로 실행한다: 원본 테이블을 1회 풀스캔해
+      임시 세그먼트에 통째로 복사한 뒤, 그 임시 세그먼트를 축 개수만큼 다시 읽는다. "스캔 1회"는
+      원본 테이블 기준으로는 사실이지만, 570~760MB를 임시 세그먼트에 쓰고 다시 읽는 비용이
+      직접 재스캔보다 더 크다. 이 백로그 항목의 핵심 전제("GROUPING SETS로 스캔을 1회로 줄인다")가
+      이 오라클 인스턴스에서는 성립하지 않는다.
+
+  (2) UNION ALL: EXPLAIN PLAN상 스캔 횟수가 **줄지 않는다**(축마다 별도 TABLE ACCESS FULL 그대로,
+      2회). 실행시간도 "execute 구간만" 보면 44.9% 개선처럼 보이지만, 이는 측정 함정이다 —
+      오라클이 UNION ALL의 첫 branch만 execute() 구간에서 완성하고 둘째 branch(축2) 집계는
+      fetch() 구간에서 지연 실행한다. execute+fetch를 정직하게 합산하면 원본+목적지 합계가
+      **28,241ms → 30,264ms로 오히려 7.2% 느려진다**(§4-4 참조). "스캔을 줄인다"는 원래 아이디어의
+      근거 자체가 이 실측에서 없어졌다.
+
+  → 두 방식 모두 이 오라클 인스턴스에서는 채택 근거가 없다. 코드 착수는 권하지 않는다.
+    (단, 이 결론은 Oracle Free 23ai/26ai 단일 인스턴스·병렬 실행 옵션 없음이라는 조건에 묶여 있다 —
+    §4-5 한계 참조. 이미 실측으로 확인된 더 확실한 레버는 "세트 병렬"이며 이건 이번 조사 범위 밖의
+    기존 진단 결과다: 2축 22.2초→10.0초(-55.2%), 20.4초→12.0초(-41.2%). M21보다 그 활용을
+    먼저 검토하는 편이 합리적이다.)
+
+===============================================================================
+1. [현재 구조 파악] 축 1개 기준으로 짜여 있는 지점 전수
+===============================================================================
+※ 코드를 직접 열어 라인 번호까지 확인했다(2026-08-07 기준). 확신 낮은 항목은 표시했다.
+
+1-1. 다축 선택 → N개 단일축 세트 분해
+  · services/single_validation_run_facade.py:612 `_run_multi_gb_sets` — 선택된 GROUP BY 컬럼
+    리스트(sel_gb)를 `_axes = [c for c in (sel_gb or []) if c]`(:622)로 펼쳐 축마다 세트를 만든다.
+    "원클릭 전체실행"(서버 full-run) 경로.
+  · services/single_validation_run_facade.py:368 `_run_one_gb_set` — 세트 1개 = 축 1개.
+    `_build_generate_request(req, analyze_res, [_axis], ...)`(:382)처럼 **길이 1짜리 리스트**로
+    호출한다. "축 1개"라는 제약이 여기서 코드로 못박힌다.
+  · ui/tabler_renderer.py:26874 `async function _runExecutePlanSets(ctx)` — 클라이언트가 단계를
+    수동으로 밟는 경로(4단계 화면에서 "▶ 실행" 클릭). `/groupby-plan` 응답의 sets 배열을
+    :26945 `for (var i = 0; i < sets.length; i++)`로 순회하며 세트별로 `/generate`+`/execute`를
+    각각 fetch한다. 서버 파사드와 별개의, **동일한 "세트=축1개" 가정을 가진 두 번째 구현**이다.
+  · services/groupby_plan_service.py:22 `PLAN_TARGET_MAX_GROUPS = 100`(세트당 그룹수 상한),
+    :25 `PLAN_MAX_AUTO_TRIPLE_SETS = 0`(3축 이상 자동 조합 경로 자체가 없음) — 계획 생성 단계에서
+    이미 "축마다 SINGLE 세트"가 기본값으로 고정돼 있다.
+
+1-2. 세트별 SQL 생성(축 1개 전제)
+  · generator/sql_generator.py:357 `_build_stats_tgt_sql`(:127에서 호출) — 실행용 builder.
+    `_run_one_gb_set`이 [_axis] 1개짜리 리스트로 호출하기 때문에 사실상 축 1개짜리 SQL만 만들지만,
+    **함수 시그니처 자체는 다축 리스트를 받을 수 있다** — 이건 services/batch_runner.py:566
+    `target_set.get("group_by", [])`(다축 리스트 그대로 전달)가 콤보 GROUP BY SQL("GROUP BY a,b")을
+    이미 만들고 있다는 사실로 실증된다(§1-5 대조 참고). 즉 SQL 생성기 자체의 하드 제약이 아니라
+    **호출부(파사드/JS 루프)의 제약**이다 — 이건 좋은 소식이다(생성기 재작성이 아니라 호출 방식만
+    바꾸면 될 여지가 있다는 뜻).
+  · services/validation_sql/source_stats_sql_builder.py(363줄) / target_stats_sql_builder.py(48줄)
+    — 표시용(4단계 화면 SQL 카드) builder. :21-23 `_SG_DIALECT` 맵으로 oracle/mysql/postgres/tsql
+    4방언을 sqlglot에 넘긴다(dialect 처리 자체는 이미 4방언 대응돼 있음).
+
+1-3. 세트 실행 순차/병렬
+  · services/single_validation_run_facade.py:634-643 — 기본은 for 루프 순차.
+  · :482 `_stats_set_parallelism`, :580 `_run_sets_parallel`(ThreadPoolExecutor, max_workers≤2)
+    — 조건 충족 시(서로 다른 물리 DB·대규모·PostgreSQL 등) 최대 2세트 동시 실행. 단 이건 "스캔
+    총량을 줄이는" 게 아니라 "같은 스캔들을 동시에 쏘는" 것이다 — M21이 노리는 것과는 다른 레버.
+  · ui/tabler_renderer.py:26945 클라 루프는 **항상 순차**(await로 한 세트씩) — 병렬 옵션이 없다.
+    서버 원클릭 경로에만 조건부 병렬이 있고 클라 수동 경로엔 없다는 비대칭이 있다(참고 정보).
+
+1-4. 결과 파싱/합산
+  · services/single_validation_run_facade.py:649-693 — 세트별 matched/diff/src_only/tgt_only/
+    total_groups를 단순 `+=`로 합산, rows는 리스트 concat(:669-670), query_timing도 세트별
+    source/target 소요시간을 합산(:680-692). result_id는 세트별로 리스트 유지(:695-697,
+    화면 드릴다운이 세트 단위로 붙는다).
+
+1-5. 판정(불일치 비교) 로직 — 가장 중요한 발견
+  · services/stats_execute_service.py:293 `execute_stats_validation` 내부. :249 `_to_dict`가
+    `gb_keys`(그 세트의 GROUP BY 컬럼 리스트)를 튜플 키로 원본/목적지 결과를 dict화하고,
+    약 :527-578에서 diff/src_only/tgt_only 3분류로 비교한다.
+  · **이 비교 엔진 자체는 "세트=축1개"를 전혀 요구하지 않는다.** gb_keys는 임의 길이의 컬럼
+    리스트를 받아 튜플로 비교하도록 짜여 있다 — services/batch_runner.py가 이미 다축 콤보
+    GROUP BY 결과를 같은 방식으로 비교하고 있다는 사실이 이걸 실증한다.
+  · 항목4 실측 스크립트로 직접 검증: UNION ALL 결과(AXIS 판별 컬럼 포함)를 순차 결과와 값 대조했을 때
+    완전히 일치했다(union_all_matches_sequential=true, grouping_sets_matches_sequential=true,
+    양쪽 asis/tobe 모두). 즉 **"AXIS, GRP" 2컬럼을 gb_keys로 넘기면 지금의 비교 엔진을 거의
+    그대로 재사용할 수 있다**는 것이 구조적으로도 실측으로도 확인됐다.
+  · 다만 §1-4의 "세트별 합산" 단계는 새로 짜야 한다 — 지금은 세트=축1개라 축별 합계가 자연히
+    분리되는데, 통합쿼리로 합치면 그 합산 이전에 AXIS 기준으로 결과를 다시 나누는 로직이
+    새로 필요하다(현재 코드에 없음).
+
+1-6(참고, 혼동 방지). 배치(일괄검증)는 다르게 동작한다
+  · services/batch_runner.py:550-572 `_build_stats_sql_for_set` — `target_set.get("group_by", [])`를
+    통째로 `build_stats_sql`에 넘겨 **"GROUP BY a, b" 콤보 1개 SQL**을 만든다(1회 스캔). 이건
+    "축별 독립 집계를 한 스캔으로"(M21이 원하는 것)가 아니라 "여러 축의 조합 그룹을 검증"하는
+    것이다 — 의미가 다르다(참고 [[project_multi_groupby_no_combo_judgment]]). 개별검증과
+    배치가 비대칭이라는 기존 사실을 재확인한 것으로, 이번 작업의 직접 대상은 아니다.
+
+===============================================================================
+2. [통합 쿼리 방식 비교] UNION ALL vs GROUPING SETS
+===============================================================================
+
+2-1. 4방언 지원 여부
+  · UNION ALL — 완전 표준 SQL, 4방언 모두 문법 차이 없음(dialect-agnostic). 축마다 타입이 다른
+    GROUP BY 컬럼값을 하나의 컬럼에 합치려면 문자열 캐스팅이 필요(오라클 TO_CHAR, PG ::text,
+    MySQL CAST(...AS CHAR), MSSQL CAST(...AS VARCHAR)) — sqlglot이 이미 4방언 매핑을 갖고 있어
+    (source_stats_sql_builder.py:21-23) 문자열 생성 자체는 어렵지 않다.
+  · GROUPING SETS — 표준 SQL(SQL:1999)이지만 지원 시점이 다르다: 오라클 9i+, PostgreSQL 9.5+,
+    MSSQL 2008+는 문제없다. **MySQL은 명시적 GROUPING SETS 문법이 8.0.31(2022)부터**다(그 전엔
+    ROLLUP만 가능). 이 저장소는 실제로 MySQL 5.7 호환을 유지 중이라는 근거를 코드에서 확인했다
+    — services/db_adapters/mysql.py:161 주석 "복합키 판정용 제약 컬럼 수는 파생테이블 GROUP BY로
+    센다(윈도우함수 미사용 — **MySQL 5.7 호환**)". 즉 GROUPING SETS를 채택하면 MySQL 5.7~8.0.30
+    고객 환경에서 파싱 에러(1064)로 전면 실패할 위험이 있다 — "4방언 완전지원"이 아니라 조건부다.
+
+2-2. 결과 파싱 복잡도
+  · UNION ALL — branch마다 리터럴 AXIS 태그 컬럼을 추가하면 축 구분이 트리비얼하다(WHERE/CASE
+    불필요). 항목4 스크립트가 실제로 이 방식으로 만들어 순차 결과와 완전 일치를 확인했다.
+  · GROUPING SETS — 그룹 대상이 아닌 축의 컬럼엔 NULL이 들어가므로, "원본 데이터의 NULL"과
+    "GROUPING SETS가 채운 NULL"을 구분하려면 `GROUPING()` 함수로 별도 판별 컬럼이 필수다(항목4
+    스크립트도 `CASE WHEN GROUPING(REGION_CD)=0 ...`으로 이렇게 처리했다). GROUP BY 후보 컬럼이
+    원래 NULL 값을 가질 수 있는 케이스(nullable 컬럼)에서는 이 판별 로직 없이는 오분류가
+    발생하는 치명적 결함이 된다 — UNION ALL 대비 신규 로직이 명확히 더 크다.
+
+2-3. 기존 판정 로직에 미치는 영향 범위
+  · UNION ALL — §1-5에서 확인한 대로, "AXIS 기준으로 먼저 결과를 나눈 뒤" 넘기면 지금의 diff/
+    src_only/tgt_only 비교 엔진은 사실상 무변경으로 재사용 가능. 영향 범위가 "결과 분배(split)
+    단계" 신규 추가로 국한된다.
+  · GROUPING SETS — 마찬가지로 AXIS 판별 후 분배가 필요하지만, 추가로 "여러 축 컬럼을 한
+    SELECT-list에 넣으면 표시용/실행용 builder의 'GROUP BY 컬럼명 = SELECT 컬럼명 1:1' 관례가
+    깨진다"는 문제가 있다 — 이건 UNION ALL엔 없는 추가 설계 부담이다.
+
+2-4. 권장안(설계 단계 판단)
+  UNION ALL이 이식성·파싱복잡도·판정영향범위 전부에서 GROUPING SETS보다 안전하다는 게 설계상
+  결론이지만, **§4 실측이 두 방식 모두를 성능 근거에서 기각**했다 — GROUPING SETS는 이 오라클에서
+  스캔 수가 안 줄고(오히려 임시세그먼트 왕복이 추가돼 더 나쁨), UNION ALL은 스캔 수 자체가
+  그대로다(EXPLAIN 확인). 설계상 "그나마 나은 방식"이 UNION ALL이라는 것과, "지금 착수할
+  가치가 있는 방식"이 있다는 것은 별개 결론이다 — 후자는 §0의 결론대로 "없다".
+
+===============================================================================
+3. [예상 작업 규모]
+===============================================================================
+
+3-1. 계층별 영향 파일(만약 향후 재검토해 착수한다면)
+  · SQL 생성기 — generator/sql_generator.py(1192줄, `_build_stats_tgt_sql`), services/
+    validation_sql/source_stats_sql_builder.py(363줄)+target_stats_sql_builder.py(48줄):
+    "축 1개" 리스트를 받던 자리에 UNION ALL 조립 로직 추가.
+  · 실행기 — services/stats_execute_service.py(695줄, `execute_stats_validation`): 결과에
+    AXIS 판별 컬럼 처리, gb_keys에 AXIS 포함하는 분기 추가. services/groupby_execution_safety.py
+    (사전 안전게이트): 지금은 세트별 독립 게이트라, 통합쿼리의 "합산 결과행수" 기준으로 상한
+    판단 로직을 다시 짜야 한다(현재 로직 그대로 두면 통합 결과의 총 행수가 아니라 세트당 행수로
+    오판할 위험).
+  · 오케스트레이션 — services/single_validation_run_facade.py(1573줄): `_run_multi_gb_sets`
+    (612-705)·`_run_one_gb_set`(368-)·`_run_sets_parallel`(580-)을 "통합모드/세트모드" 분기로
+    바꾸거나 대체.
+  · 결과 파서/합산 — 같은 파일의 agg 합산부(649-693): AXIS 기준 재분리(split) 신규 로직.
+  · 클라이언트 — ui/tabler_renderer.py(대형 파일, 3만 줄 안팎): `_runExecutePlanSets`(26874-)의
+    세트 루프(26945-) 제거 또는 응답 shape 변경 대응.
+  · 계획 생성 — services/groupby_plan_service.py(200줄): `PLAN_TARGET_MAX_GROUPS` 등 "세트당"
+    정책을 "통합쿼리 그룹수 합" 기준으로 재정의.
+  · 무관(참고) — services/db_adapters/{oracle,mysql,postgresql,mssql,mariadb,tibero,db2,
+    cubrid}.py 전수 확인 결과 GROUP BY/집계 SQL 관련 방언 분기는 0건(§3-3). 이번 변경과 무관.
+
+3-2. "완료 모듈" 포함 여부
+  · README.md에 CLAUDE.md가 지시하는 "개발 단계 현황" 표가 더 이상 없다(현재는 "현재 상태"/
+    "어댑터 패턴 구조" 섹션만 존재 — 문서 구조가 바뀌어 이 지침 항목은 실효를 상실한 상태다.
+    참고로만 남기고, 완료 판정은 CLAUDE.md 자체의 어댑터 표로 대신했다).
+  · **UI_RENDERER = tabler(TablerRenderer, ui/tabler_renderer.py) — ✅완료.** 이번 변경이 직접
+    건드리는 `_runExecutePlanSets`가 바로 이 완료 모듈 안에 있다 → CLAUDE.md "완료 모듈 임의
+    리팩토링 금지, 사용자 확인 후 진행" 규칙이 적용되는 파일이 **최소 1개 확정**.
+  · VALIDATOR = default(DefaultValidator, validator/default_validator.py) — ✅완료 표기지만,
+    실측 확인 결과 `services/stats_execute_service.py`는 이 어댑터를 호출하지 않는다
+    (grep 0건 — DefaultValidator/get_validator 참조 없음). 즉 개별검증 통계비교의 실제 실행
+    경로는 어댑터 패턴 밖에 있어, 이 "완료 모듈"은 이번 변경과 무관하다(건드릴 필요 없음).
+  · generator/sql_generator.py, services/stats_execute_service.py, services/
+    single_validation_run_facade.py, services/groupby_plan_service.py — CLAUDE.md 어댑터 표엔
+    없지만 "parser→analyzer→generator→checker→validator" 파이프라인 규칙상 generator/checker
+    계층 핵심 모듈이라 형식적 "완료" 도장은 없어도 실질적 무게는 같다고 판단해야 한다.
+  → 결론: 형식적 완료 모듈은 1개(ui/tabler_renderer.py) 확정, 그 외 4~5개 핵심 서비스 파일은
+    어댑터 표 밖이지만 같은 수준의 신중함이 필요하다. 전면 재작업은 회귀 범위가 넓다.
+
+3-3. db_adapters 방언 분기 확인
+  services/db_adapters/{oracle,mysql,postgresql,mssql,mariadb,tibero,db2,cubrid,unsupported}.py
+  전수 grep 결과, "GROUP BY" 언급은 2건뿐이고 둘 다 PK 제약탐지용 메타쿼리다(mssql.py:276,
+  mysql.py:195 — 통계검증 GROUP BY와 무관). 통계검증 SQL의 방언 처리는 db_adapters 계층이
+  아니라 generator/services/validation_sql 계층에서 sqlglot dialect map으로 이미 처리된다
+  (§2-1). db_adapters 4개 방언 파일은 이번 변경과 무관 — 손댈 필요 없음.
+
+3-4. 착수 순서 권장(만약 향후 재검토한다면)
+  전면 재작업은 비권장 — 완료 모듈(UI_RENDERER) 포함, 판정 로직에 AXIS 재분리라는 실질적
+  신규 로직이 들어가야 해서 한 번에 바꾸면 회귀 범위가 넓다. 점진적 도입이 안전하다:
+  PostgreSQL(방언 이슈 없음 확인) 시범 적용 → 판정엔진(gb_keys에 AXIS 추가) 프로토타입 →
+  서버 오케스트레이션에 feature flag로 통합모드 병행(기존 세트모드 유지) → 클라이언트(완료
+  모듈) 대응은 사용자 확인 후 가장 마지막. **다만 §0/§4 결론상 이 순서를 밟을 성능 근거 자체가
+  지금 없다** — 순서 제안은 "향후 다른 DB/에디션에서 재검토할 경우"를 대비한 참고용이다.
+
+===============================================================================
+4. [성능 이득 사전 추정] 실측(NXDNP.MV_SCATTER50M_SRC/TGT, Oracle Free 23ai/26ai)
+===============================================================================
+
+4-1. 방법
+  대상: NXDNP.MV_SCATTER50M_SRC(50,000,000행)/MV_SCATTER50M_TGT(49,500,000행), GROUP BY
+  REGION_CD(21그룹)+STATUS_CD(10그룹) 2축, SUM(AMT)/SUM(QTY) — LARGE-TABLE-STATS-EXECUTION-
+  PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt(2026-08-01)와 동일 픽스처·동일 축(재현성 확보).
+  세 가지를 같은 세션·연속으로 측정(각 3회 반복, 원본/목적지 각각):
+    (1) 현재 방식 — 축별 독립 SQL 2개(REGION_CD, STATUS_CD 순차)
+    (2) UNION ALL 통합 SQL 1개(AXIS 판별 컬럼 포함)
+    (3) GROUPING SETS 통합 SQL 1개(GROUPING() 판별)
+  전 과정 SELECT 전용, DDL/DML 0건. 코드 저장소에 파일을 추가하지 않았다(scratchpad 임시
+  스크립트로 실행). 결과값은 3방식 모두 순차 결과와 완전 일치 확인(정합성 문제 없음).
+
+4-2. 원시 측정값(중앙값, ms)
+
+  구분                execute만    execute+fetch(정직한 총합)    EXPLAIN 상 풀스캔 횟수
+  ────────────────────────────────────────────────────────────────────────────────
+  [asis] 순차 REGION_CD    9,534.1        9,536.6                      1
+  [asis] 순차 STATUS_CD    6,343.6        6,345.9                      1
+  [asis] 순차 합계         15,877.7       15,882.5                     2
+  [asis] UNION ALL          5,746.9       12,920.6*                    2
+  [asis] GROUPING SETS     21,802.0       21,804.9                     4(임시세그먼트 재읽기 포함)
+
+  구분                execute만    execute+fetch(정직한 총합)    EXPLAIN 상 풀스캔 횟수
+  ────────────────────────────────────────────────────────────────────────────────
+  [tobe] 순차 합계         12,363.5       12,368.9                     2
+  [tobe] UNION ALL          9,811.8       17,343.4*                    2
+  [tobe] GROUPING SETS     22,334.0       22,356.9                     4(임시세그먼트 재읽기 포함)
+
+  * UNION ALL의 execute+fetch는 3회 run의 (execute_ms+fetch_ms) 개별 합산 후 중앙값을 다시 계산한
+    값 — execute_median과 fetch_median을 따로 더한 값이 아니다(정직한 합산 방식).
+
+4-3. 요약(원본+목적지 합계)
+
+  방식                  execute만 기준      execute+fetch 기준(정직)   판정
+  ─────────────────────────────────────────────────────────────────────────
+  현재(순차)             28,241.2ms          28,251.4ms                 기준
+  UNION ALL              15,558.7ms(-44.9%)   30,264.0ms(**+7.2%**)     개선 없음
+  GROUPING SETS          44,136.0ms(+56.3%)   44,161.8ms(+56.3%)        더 나쁨
+
+4-4. 왜 "execute만" 기준이 틀렸는가(측정 함정 — 반드시 반영해야 할 내용)
+  오라클 드라이버(oracledb)의 `cur.execute()`는 UNION ALL의 **첫 branch가 결과를 만들 때까지만**
+  블록되고, 둘째 branch(축2)의 실제 집계 스캔은 `fetchall()` 구간에서 지연 실행된다(파이프라인
+  실행). 그래서 "execute만" 잰 44.9% 개선은 **실제로 줄어든 일이 아니라 어디서 재는지에 따라
+  달라진 착시**다 — fetch까지 정직하게 합치면 오히려 순차보다 7.2% 느리다. 이 프로젝트의
+  운영 코드(services/stats_execute_service.py)는 결과를 반드시 fetchall()까지 받아야 판정이
+  가능하므로, 사용자 체감 시간은 "execute+fetch 총합" 쪽이 맞는 지표다.
+
+4-5. GROUPING SETS가 느린 이유(EXPLAIN PLAN 확인)
+  Oracle이 GROUPING SETS를 "TEMP TABLE TRANSFORMATION"으로 실행한다:
+    1) 원본 테이블 1회 풀스캔 → 임시 세그먼트(SYS_TEMP_...)에 적재(LOAD AS SELECT)
+    2) 그 임시 세그먼트를 축(그룹핑셋) 개수만큼 다시 풀스캔(REGION_CD용 1회, STATUS_CD용 1회)
+    3) 최종 VIEW 단계에서 작은 결과셋을 다시 읽음(21행, 비용 미미)
+  즉 "베이스 테이블 스캔은 1회"라는 광고는 지켜지지만, 570~760MB를 임시 세그먼트에 쓰고
+  두 번 다시 읽는 총 I/O가 그냥 직접 2번 스캔하는 것보다 크다 — 이 오라클 인스턴스에서는
+  명백한 역효과다.
+
+4-6. 측정의 한계(정직하게 밝힘)
+  · 이 인스턴스는 버퍼 캐시 온도에 크게 흔들린다(기존 진단서가 이미 1.4~18배 편차를 보고함).
+    이번 측정은 (1)→(2)→(3) 순서로 **같은 세션에서 연속 실행**했다 — UNION ALL은 순차 측정
+    직후라 캐시가 이미 데워진 상태에서 쟀을 가능성이 있다(execute+fetch 기준으로도 +7.2%에
+    그친 것이 오히려 그 온기 덕분일 수 있다 — 무작위 순서였다면 더 나쁘게 나왔을 가능성도
+    배제 못 한다). 반대로 GROUPING SETS는 가장 나중에(가장 캐시가 따뜻한 시점에) 쟀는데도
+    가장 느렸다 — 이건 캐시 효과로 설명이 안 되고, TEMP TABLE 재작성이라는 구조적 비용임을
+    뒷받침한다.
+  · 이 결과는 **Oracle Free 23ai/26ai, 병렬 실행 옵션 없음, 단일 인스턴스** 조건에 한정된다
+    (기존 진단서 확인 사실). 병렬 실행이 가능한 고객 운영 오라클(EE)이나 PostgreSQL에서는
+    옵티마이저 전략이 달라 결과가 달라질 수 있다 — 이번 조사는 "지금 이 환경에서 착수할
+    근거가 없다"까지만 확정한다.
+
+===============================================================================
+5. 종합 권고
+===============================================================================
+  · 지금 단계: 진행(코드 착수) 아님 — **보류**. BACKLOG.md M21 항목의 기존 "장기·지금 권하지
+    않음" 판단을 유지하되, 이번 실측으로 이유를 훨씬 구체화한다("스캔이 안 줄어서" +
+    "GROUPING SETS는 오라클에서 임시세그먼트 왕복 때문에 오히려 더 느려서").
+  · BACKLOG.md M21 항목에 이번 실측 결과(§4 요약표, EXPLAIN 근거)를 보강해 두는 것을 권한다
+    (코드 변경 아님 — 문서 갱신은 별도 승인 하에 진행).
+  · 성능 개선이 목적이라면 이미 실측으로 검증된 "세트 병렬"(_stats_set_parallelism,
+    MV_STATS_SET_PARALLEL) 활용 확대가 훨씬 확실한 레버다(2축 -41~55% 실측 완료, 기본 OFF —
+    활성화는 정책 결정이라 사용자 승인 필요). M21보다 그 검토가 우선순위가 높다고 판단된다.
+
+===============================================================================
+부록 — 실측 원본 데이터
+===============================================================================
+  scratchpad/m21_multi_axis_scan_probe.py(측정 스크립트, SELECT 전용) 및
+  scratchpad/_m21_multi_axis_scan_probe.json(원시 결과 — EXPLAIN PLAN 전문·행 단위 값 대조 포함)
+  로컬 세션에 보관. 코드 저장소(migration-validator)에는 추가하지 않았다(이번 지침 "코드 수정
+  없이 조사·설계만" 준수).
+
+✅ 작업 완료 - M21 다축 통계검증 통합쿼리(UNION ALL/GROUPING SETS) 범위·설계 조사 — 실측 결과 두 방식 모두
+   유의미한 이득이 없어(UNION ALL 사실상 무변화, GROUPING SETS 오히려 56% 느려짐) 착수를 권하지 않는다
