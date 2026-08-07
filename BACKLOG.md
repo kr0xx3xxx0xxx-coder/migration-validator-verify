@@ -3061,8 +3061,9 @@ git -C E:/verify_reports worktree remove <임시경로>
   COMBO 요약표 '불일치 그룹 0개 / 최종상태 정상' 과 하단 '재이관 대상 400건' 은 기준이 혼재한다.
 - 참고: E:\verify_reports\SINGLE-STEP5-COMBO-VIEW-AND-SKEWED-GROUP-VOLUME-DIAGNOSE.txt
 
-### M10. 범위진단 완료 — 대표축 규칙 완전동일 복제 확인, 순서의존 재발 시나리오 정량화, 최소위험 통합설계 확정(승인 대기)
-- 발견일: 2026-07-28 / 범위진단: 2026-08-07 (M10-REPRESENTATIVE-AXIS-RULE-DUPLICATION-SCOPE-DIAGNOSE, 코드 무변경)
+### M10. ✅ 해결 완료 — 대표축 결정규칙 단일출처화(DIRECT가 services 위임)
+- 발견일: 2026-07-28 / 범위진단: 2026-08-07 / 해결일: 2026-08-07
+  (M10-REPRESENTATIVE-AXIS-RULE-REBIND-UNIFY-FIX, 코드 커밋 9a400255)
 - 근거 보고서: `PK-RANGE-CHUNK-REPRESENTATIVE-AXIS-UNIFY.txt`(§8, 최초) →
   `M10-REPRESENTATIVE-AXIS-RULE-DUPLICATION-SCOPE-DIAGNOSE.txt`(범위진단)
 - 조사 결과: `pk_range_chunk.select_deterministic_rep_axis`와
@@ -3077,21 +3078,26 @@ git -C E:/verify_reports worktree remove <임시경로>
   부가로 `axis_selection_deterministic` 배지가 DIRECT(항상 true 고정)/chunk(요동)
   간 다른 근거로 표시돼 "chunk로 넘어가면 갑자기 불안정해진다"는 사용자 체감까지
   구체적으로 예견됨.
-- 통합 설계(권장, 최소침습): `agg_diff_route.py`에서 상수 2개+함수 본문(32행) 삭제 →
-  `_select_direct_rep_axis = pc.select_deterministic_rep_axis` **1줄 재바인딩**(기존
-  `pc` alias 재사용, 신규 import 0개). 기존 회귀 테스트 15건(6+4+5) **무수정으로
-  그대로 통과** 가능(이름 유지 + 실제 반환값이 이제 항등 비교가 되므로). 위험도 낮음
-  — 프로덕션 동작 무변화, 반환값 불변.
-  ★ 승인 필요: `routes/agg_diff_route.py`가 최근 완료된 모듈이라 CLAUDE.md 예외조항
-  대상 — 착수 전 사용자 확인 필요.
-- 후속 별건(이번 범위 밖): 정책 계층 정합(D7-16C 분기를 DIRECT에도 이식 vs D7-16C
-  자체 폐기, 2안 중 결정) — `gb_candidate_scores`를 실제로 채우는 별도 과제 착수
-  "전에" 먼저 결정해야 함.
+- 통합 설계(원안): `agg_diff_route.py`에서 상수 2개+함수 본문(32행) 삭제 → 모듈
+  최상단 `pc` alias 재바인딩 1줄. **해결 시 실제로는 원안대로 안 됨** — `pc`가
+  전역이 아니라 함수 지역변수임을 구현 세션이 발견, 이 파일의 기존 관례(함수 내부
+  지역 import, 12곳+)를 따라 `_select_direct_rep_axis` 함수 내부에서
+  `pc.select_deterministic_rep_axis`를 위임 호출하는 동등 대안으로 구현(목표·이름·
+  시그니처·반환값 전부 원안과 동일, 기존 테스트 15건 무수정 통과).
+- 해결 요약: `routes/agg_diff_route.py`만 수정(-19줄 순감), `services/exact_diff/
+  pk_range_chunk.py` 무수정. 대상 15건(5+4+6, 지시서 표기 6+4+5는 파일별 배분 오차뿐
+  총합 일치) 무수정 재실행 전부 통과. 관련 서브셋 77건 중 실패 6건은 git stash
+  baseline 대조로 무관한 사전존재(인코딩 비교) 확인, 신규 회귀 0건.
+- 후속 별건(이번 범위 밖, 그대로 유효): 정책 계층 정합(D7-16C 분기를 DIRECT에도 이식
+  vs D7-16C 자체 폐기, 2안 중 결정) — `gb_candidate_scores`를 실제로 채우는 별도
+  과제 착수 "전에" 먼저 결정해야 함. `pk_range_chunk.py:228-231`의 "[의도적 중복
+  구현]" docstring이 이제 사실과 다름(위임 대상이 됨) — 별건 문서 갱신 검토.
 - 부수 확인: 실측 픽스처(`mvbench.repaxis_a_*`/`repaxis_b_*`) 내부망 PG asis/tobe
   양쪽에 여전히 존재(4개 테이블, 총 199,748행 — 원 서술과 정확히 일치, 읽기전용
   재확인만·DROP 안 함).
 - 참고: E:\verify_reports\PK-RANGE-CHUNK-REPRESENTATIVE-AXIS-UNIFY.txt
 - 참고: E:\verify_reports\M10-REPRESENTATIVE-AXIS-RULE-DUPLICATION-SCOPE-DIAGNOSE.txt
+- 참고: E:\verify_reports\M10-REPRESENTATIVE-AXIS-RULE-REBIND-UNIFY-FIX.txt
 
 ### M11. ✅ 해결 완료 — 표본 조기중단 정책이 stream 경로(원본 5만행 초과)에서만 동작한다는 표시가 어디에도 없다
 - 발견일: 2026-07-28 / 해결일: 2026-08-07 (M11-SAMPLE-EARLY-STOP-STREAM-ONLY-INDICATOR-FIX,
