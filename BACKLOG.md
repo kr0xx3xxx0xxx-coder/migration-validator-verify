@@ -2608,20 +2608,34 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: P2(해결 완료) · F27(표본 근거의 화면 노출 미완 — 함께 보면 편향 고지 가능)
 - 참고: E:\verify_reports\PROFILE-RECOLLECT-SAMPLING-TIMEOUT-GUARD-FIX.txt
 
-### M22. `.mtbl td { color: … !important }` 규칙이 다른 인라인 색상 렌더 지점도 죽일 수 있다(전수 미점검)
-- 발견일: 2026-08-02
-- 근거 보고서: `REIMPORT-DRILLDOWN-M17-M18-FIX/REPORT.md` (§8-1)
-- 상세: M17 수정으로 `_mvPkCellSplit` 의 td 인라인 색 문제는 해소했으나(색을 자식 `span` 으로 이동),
-  **원인이었던 CSS 규칙 `.mtbl td { color: … !important }` 자체는 그대로 남아 있다.**
-  `.mtbl` 표 안에서 td 에 인라인 `color` 를 직접 주는 다른 렌더 지점이 있다면 동일하게 색이 죽는다
-  (같은 파일의 형제 헬퍼들은 이미 span 관례를 쓰고 있어 안전하다 — 확인 완료).
-- 영향: 발생하더라도 값 자체는 정확히 표시되므로 데이터 정합성 문제가 아니라 설명성·UX 문제다
-  (M17 과 동일 성격). 현재 알려진 발현 지점은 없다.
-- 대응 방향: `.mtbl` 컨텍스트 안의 td 인라인 `color` 사용처를 전수 점검한다. 규칙 자체를 손대는 것은
-  광범위 CSS 영향 분석이 필요해 회귀 위험이 크므로 **별도 작업으로 분리**한다 — 우선순위 낮음.
-- 관련: M17(해결 완료 — 이 규칙 때문에 발생한 첫 인스턴스)
+### M22. 전수조사 완료 — `.mtbl td{color:...!important}`에 실제 색상이 죽는 지점 2건 확인(수정 대기)
+- 발견일: 2026-08-02 / 전수조사: 2026-08-07 (M22-MTBL-TD-INLINE-COLOR-USAGE-AUDIT, 코드 무변경)
+- 근거 보고서: `REIMPORT-DRILLDOWN-M17-M18-FIX/REPORT.md`(§8-1, 최초) →
+  `M22-MTBL-TD-INLINE-COLOR-USAGE-AUDIT.txt`(전수조사)
+- 조사 결과: `.mtbl` 표 렌더 지점 12곳 전수 확인, 그중 **실제 위험 2건 확정**:
+  - [위험A] `ui/history_renderer.py:671`(_renderBatchItems, #batchItemsTable) — diff_groups
+    있는 항목을 빨간색+굵게 강조하려는 td 인라인 color가 죽어 font-weight만 남음(값은
+    정확, 색 구분만 안 됨). **같은 파일의 형제 함수(renderHistoryRuns:272)는 span으로
+    올바르게 구현**돼 있어 패턴이 한 파일 안에서 갈려 있음을 확인 — M22 원 등록 시 전제
+    ("같은 파일 형제 헬퍼는 이미 안전")가 이 파일에서는 부분적으로만 성립.
+  - [위험B] `ui/js_batch_display.py:474`(_batchRenderStatsExecuteResults,
+    #batchStatsExecuteList) — SUCCESS_DIFF 상세 행의 "차이: ..." 강조색이 `td.style.
+    cssText` 직접 대입이라 동일하게 죽음.
+  - 둘 다 M17과 동일 성격(설명성·UX 문제, 데이터 정합성 문제 아님) — 자식 span 분리로
+    좁게 수정 가능.
+- 규칙 자체(제거/완화) 안전성 소견: CSS 주석이 "Tabler 상속 경쟁 해결" 목적임을 명시 —
+  이 프로젝트 어디도 `color:var(--text)!important`에 의도적으로 의존하지 않음(오히려
+  위험A/B처럼 걸려 죽는 코드만 있음). 다만 Tabler 벤더 CSS(static/tabler/tabler.min.css)의
+  `.table td` color 규칙 유무를 먼저 확인해야 완화 시 회색조 유출 위험 판단 가능(이번
+  범위 밖) — **규칙 자체는 손대지 말고 2개 호출부만 좁게 수정** 권장.
+- 부수 발견(별건): `history_renderer.py:113`의 `.mtbl td` 규칙(padding/border-bottom만,
+  color 없음)이 tabler_renderer.py:1798의 !important에 완전히 덮여 사실상 죽은 CSS —
+  무해하나 별도 정리 대상.
+- 대응 방향: 위험A·B 2곳만 M17 패턴(자식 span 분리)으로 수정. CSS 규칙 자체는 미착수.
+- 관련: M17(해결 완료 — 같은 규칙으로 인한 최초 인스턴스)
 - 참고: E:\verify_reports\REIMPORT-DRILLDOWN-M17-M18-FIX.txt /
   REIMPORT-DRILLDOWN-M17-M18-FIX\REPORT.md (§8-1)
+- 참고: E:\verify_reports\M22-MTBL-TD-INLINE-COLOR-USAGE-AUDIT.txt
 
 ### M23. ✅ 해결 완료 — `choose_compare_strategy` 의 `remote` 인자가 설계 의도와 다르게 미사용 상태로 방치돼 있다
 - 해결일: 2026-08-05 (STRATEGY-TRANSITION-DEAD-REMOTE-PARAM-CLEANUP-FIX)
