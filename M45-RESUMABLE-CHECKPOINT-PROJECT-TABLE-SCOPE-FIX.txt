@@ -1,0 +1,71 @@
+작업명: M45-RESUMABLE-CHECKPOINT-PROJECT-TABLE-SCOPE-FIX
+✅ 작업 완료 - M45-RESUMABLE-CHECKPOINT-PROJECT-TABLE-SCOPE-FIX
+
+[진단]
+- `/agg-diff/resumable`(routes/agg_diff_route.py) 조회 로직 추적 결과, 저장 시점(chunk_checkpoint.start())에는
+  이미 src_profile/tgt_profile/table_identity 를 저장하고 있었으나, 조회(list_resumable()/라우트)가
+  status 만으로 전역 최신 1건을 골라 무관한 프로젝트/테이블의 orphan checkpoint 를 "복구 필요"로
+  노출시키는 결함이었다 — "저장은 되는데 조회에서만 안 쓰는" 구조.
+- 기존에 동일 성격 스코프 격리가 이미 한 곳에 있었다(D7-4 C, routes/single_active_run_route.py
+  `/single/active-run` 의 project_id+workflow_type 필터, services/exact_diff/reimport_job.py
+  active_runs()) — 이번 수정은 그 패턴을 checkpoint(SQLite, 영속) 쪽에 이식했다. 단 in-memory job과
+  달리 SQLite 는 장기 누적되므로, in-memory 쪽의 "저장측 값이 비면 통과(tolerant)" 정책과 달리
+  checkpoint 쪽은 "필터가 주어졌는데 저장값이 없으면 제외"로 의도적으로 다르게 설계했다(스코프 불명
+  legacy 행을 안전하게 배제하기 위함).
+
+[구현]
+- services/exact_diff/chunk_checkpoint.py: list_resumable(src_profile="", tgt_profile="", table_key="")
+  — 인자 주어지면 정확일치 필터, 인자 없으면 기존과 동일(하위호환).
+- routes/agg_diff_route.py:
+  - _table_key(req) 신설 — table_identity 값을 기존 src_sql[:120](SQL 원문 조각, 불안정)에서
+    parse_result.from_table_qualified/from_table(analyze 단계 기존 산출값, 안정적)로 교체.
+  - GET /agg-diff/resumable 이 src_host/src_port/src_dbname/tgt_host/tgt_port/tgt_dbname/table_key
+    쿼리파라미터를 받아 기존 _profile_id()(host:port/dbname, 비밀번호 미포함)로 profile 문자열을 만들어
+    list_resumable() 에 전달.
+- ui/tabler_renderer.py: _mvExecReenterRestore()의 D7-19 폴백(active run 미상 시 /agg-diff/resumable 조회)이
+  _mvBuildConnPayload('src'/'tgt')와 _analyzeData.parse_result 로 위 쿼리파라미터를 실어 보내도록 수정.
+- 기존 orphan 데이터 마이그레이션: 불필요로 판단 — 스코프 필터가 주어지면 과거 스코프정보 없는(NULL)
+  행은 자동 제외되므로 별도 백필/삭제 작업 없이 문제가 해소된다.
+
+[테스트]
+- tests/test_chunk_checkpoint.py 에 스코프 필터 신규 테스트 5건 추가(무필터 하위호환/profile+table_key
+  필터/같은 profile-다른 table 제외/스코프없는 legacy 행 필터시 제외/라우트 레벨 필터). 전체
+  14건 통과.
+- tests/test_d7_19_recovery.py 15건 통과(회귀 없음).
+- CLAUDE.md 필수 회귀: samples/test_virtual_cases.py 8/8, samples/test_complex_cases.py 5/5 통과.
+- agg_diff_route/PkPrepareRequest 관련 25개 파일(232 passed, 6 xfailed) — 실패 5건은 이번 세션에서
+  전혀 수정하지 않은 파일(test_agg_contribution.py, test_execution_path.py의 _parallel_read_decision
+  3건, test_stats_result_full.py)이며 실패 원인(인코딩 mojibake, 튜플/불리언 반환형 불일치)도 이번
+  diff와 무관 — 사전 존재 실패로 판단(코드 미수정 확인).
+
+[실측 검증 — 실 브라우저, 강제 코드주입 없음]
+- 서버 재기동: 2026-08-07 16:39:39 KST(python web_server.py, 포트 8000 재기동 후 정상 리스닝 확인).
+- 코드 repo HEAD: 29c8379a(M45 수정 4개 파일은 이번 보고 시점까지 커밋 전 — 사용자 확인 후 커밋 예정).
+- 재현: TESTONLY_REG 프로젝트 + PostgreSQL_Inter_asis/tobe(192.168.0.150) 경로로 asis01.mvq_emp →
+  ntb.mvq_tgt 테이블을 1~4단계까지 실제 클릭으로 진행해 실제 profile(host:port/dbname)과
+  parse_result.from_table_qualified 값을 확보. 이 값과 정확히 일치하는 MATCH checkpoint,
+  완전히 다른 profile/테이블의 ORPHAN checkpoint(더 최신 updated_at)를 db/chunk_checkpoints.db 에
+  INTERRUPTED_RESUMABLE 로 직접 심어 재현(BACKLOG M45 원 재현 방식과 동일).
+  - BEFORE 근거: 무필터 경로(list_resumable()/agg_diff_resumable() 무인자 — 하위호환 경로로 그대로
+    존재)에서 items[0] = ORPHAN. 수정 전 클라이언트가 그대로 썼다면 무관한 orphan이 노출됐을 조건.
+  - AFTER 실측: 새 브라우저 세션으로 asis01.mvq_emp 4단계 재진입 시
+    GET /agg-diff/resumable?src_host=192.168.0.150&src_port=5433&src_dbname=asis&tgt_host=192.168.0.150
+        &tgt_port=5434&tgt_dbname=tobe&table_key=asis01.mvq_emp
+    응답 {"ok":true,"count":1,"items":[{"run_id":"M45VERIFYMATCH"}]} — ORPHAN이 더 최신인데도 완전히
+    제외됨. window._mvDisplayedRunId==="M45VERIFYMATCH"(ORPHAN 아님). #mvExecProgress 배너가
+    MATCH(현재 테이블) 기준 "복구 필요"로 정상 표시 — 이는 동시에 "같은 프로젝트/테이블 내 이어하기는
+    여전히 정상 동작"의 회귀 확인 증거이기도 하다.
+  - 검증에 사용한 MATCH/ORPHAN checkpoint 행은 검증 후 status=CANCELLED로 정리(DELETE 아님).
+
+[증적]
+- E:\verify_screenshots_only\M45-RESUMABLE-CHECKPOINT-PROJECT-TABLE-SCOPE-FIX\
+  (A0_setup_pair_connected.png, A1_stage1_real_context_analyze.png,
+   A2_after_stage4_reenter_correct_scope_banner.png, BEFORE_AFTER_EVIDENCE.txt, m45_state.json)
+- push 커밋 595e13a, origin/main 반영 확인(git ls-remote 로 local==remote 재확인 완료, 코드
+  repo 코드/commit 아님 — 증적 repo만 push).
+
+[남은 작업]
+- 코드 repo(routes/agg_diff_route.py, services/exact_diff/chunk_checkpoint.py, ui/tabler_renderer.py,
+  tests/test_chunk_checkpoint.py) 는 아직 커밋 전 상태 — 커밋 여부는 사용자 확인 후 진행.
+
+✅ 작업 완료 - M45-RESUMABLE-CHECKPOINT-PROJECT-TABLE-SCOPE-FIX
