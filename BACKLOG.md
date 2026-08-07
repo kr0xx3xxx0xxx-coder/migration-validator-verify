@@ -2868,8 +2868,9 @@ git -C E:/verify_reports worktree remove <임시경로>
   merge-join 알고리즘 요건이라 정렬 자체는 제거 불가하나, PG 12M 실측 근거를 오라클로 확대한 기록은 정정 필요.
 - 참고: E:\verify_reports\LARGE-DATA-SORT-EXPOSURE-DIAGNOSE.txt
 
-### M3. 근본원인 규명 완료 — JOB-DASHBOARD-STAGE3 기본탭 변경 × harness setTimeout 동기스텁의 결합, 수정 권장(승인 대기)
-- 발견일: 2026-07-29 / 원인규명: 2026-08-07 (M3-NODE-HARNESS-TIMEOUT-ROOT-CAUSE-DIAGNOSE, 코드 무변경)
+### M3. ✅ 해결 완료 — node harness setTimeout 무한루프, 하니스 스텁 1줄로 3개 파일 TIMEOUT 전부 해소
+- 발견일: 2026-07-29 / 원인규명: 2026-08-07 / 해결일: 2026-08-07
+  (M3-NODE-HARNESS-INFINITE-LOOP-FIX, 코드 커밋 337117cb)
 - 근거 보고서: `TEST-NODE-SUBPROCESS-TIMEOUT-GUARD-ADD.txt`(§7, 최초) →
   `M3-NODE-HARNESS-TIMEOUT-ROOT-CAUSE-DIAGNOSE.txt`(원인규명)
 - 근본원인(3파일 공유, 개별 결함 아님): 커밋 `05d4fa19`(2026-07-27 17:58, JOB-DASHBOARD-
@@ -2887,13 +2888,35 @@ git -C E:/verify_reports worktree remove <임시경로>
   정상 설계(정상 브라우저 동작), 하니스 결함이 원인이라는 결론은 M4와 동일.
   부작용(M4와 동일 성격): 이 3개 파일은 지금도 100% TIMEOUT으로 실패하는데, 실제 회귀가
   생겨도 항상 같은 TIMEOUT만 보여 구분 불가능한 "죽은 빨간 불" 상태.
-- 대응 방향(권장): harness 스텁에 `localStorage.setItem('mv_active_tab','analyze')`
-  (job-dashboard가 아닌 유효 탭) 1줄을 실행 전 주입 — 현황판 fallback을 안 타 폴링
-  자체가 시작 안 됨. 파일 3개 × 1~2줄, 테스트 전용 변경, 제품 코드 무변경, 회귀 위험
-  최소. (비권장 대안 2가지도 검토됨: 공용 setTimeout 스텁 실제지연화는 144곳 파급이라
-  과함, 제품코드의 자동폴링 시작조건 변경은 사용자 체감 동작 변경이라 근거 약함.)
+- 해결 요약: 3개 파일 각각의 node harness 초기화(`vm.runInThisContext` 실행 직전)에
+  `storageStub.setItem('mv_active_tab','analyze')` 1줄 주입(파일당 4행: 주석3+코드1,
+  총 12행). 제품 코드(`ui/tabler_renderer.py`/`ui/js_job_dashboard.py`) 무변경.
+  실측: 3개 파일 전부 TIMEOUT 0건으로 정상화(183초→4.17초, 609초→9.24초, 249초→7.72초),
+  CPU 프로파일링 재현으로 바쁜 루프(96%) 사라짐(418ms 정상 종료) 확인.
+  **부수 발견(예견됐던 "죽은 빨간불" 현상 실제 확인)**: TIMEOUT이 걷히자 지금까지
+  가려져 있던 진짜 실패 5건이 처음 드러남(M52로 별도 등록) — 이번 범위(TIMEOUT
+  해소) 밖이라 손대지 않고 정직하게 후속 과제로 분리.
 - 참고: E:\verify_reports\TEST-NODE-SUBPROCESS-TIMEOUT-GUARD-ADD.txt
 - 참고: E:\verify_reports\M3-NODE-HARNESS-TIMEOUT-ROOT-CAUSE-DIAGNOSE.txt
+- 참고: E:\verify_reports\M3-NODE-HARNESS-INFINITE-LOOP-FIX.txt
+
+### M52. M3 TIMEOUT 해소로 새로 드러난 실제 테스트 실패 5건(제품/테스트 결함 후보, 원인 미조사)
+- 발견일: 2026-08-07 (M3-NODE-HARNESS-INFINITE-LOOP-FIX 검증 중 부수 발견 — TIMEOUT이
+  가리고 있던 실제 결과가 처음 노출됨)
+- 상세: TIMEOUT 해소 후 개별 실행한 결과, 다음 5건이 실제 실패로 확인됨(전부 이번
+  하니스 수정 범위 밖이라 원인 미조사·미수정):
+  - `test_one_click_full_run.py::test_full_run_blocked_stays_on_failed_stage_not_result`
+  - `test_one_click_full_run.py::test_full_run_blocked_locks_downstream_via_gate`
+    (둘 다 "BLOCKED 시 하위 단계 nav disabled=True 기대" 단언 불일치 — 개별검증 nav
+    게이트 로직 문제로 추정, 상단 탭 기본값과는 무관함이 코드로 확인됨)
+  - `test_candidate_draft_selection.py::test_checkbox_change_keeps_table_and_plan_marks_draft`
+  - `test_candidate_draft_selection.py::test_uncheck_all_does_not_switch_to_count_only_before_apply`
+  - `test_candidate_draft_selection.py::test_candidate_notice_sticky_fix_uses_common_offset`
+    (이 마지막 건은 node를 아예 안 부르는 순수 `_html()` 문자열 단언 —
+    `id="candidateGeneralNotice"` 부재. 하니스 수정과 무관, baseline에도 이미 실패
+    상태였음이 확인됨 — 순수 테스트 노후화 후보)
+- 대응 방향: 미조사. 근본원인 조사 후 별도 FIX 지침으로 착수 권장.
+- 참고: E:\verify_reports\M3-NODE-HARNESS-INFINITE-LOOP-FIX.txt
 
 ### M4. ✅ 해결 완료(원인 진단 정정 — SQLite 가드가 아니었다) — 운영 SQLite 가드에 막혀 상시 실패하는 테스트군을 tmp_path 기반으로 전환
 - 해결일: 2026-08-03 (STEP-TAB-DOM-STABILITY-TEST-SQLITE-GUARD-FIX)
