@@ -704,9 +704,9 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 비권장: `NLSSORT` 를 특정 캐릭터셋으로 강제하는 방향 — 원본 DB 인덱스 활용(= 정렬 회피 전략의 존재 이유)이 깨진다.
 - 참고: E:\verify_reports\ORACLE-CHARSET-COLLATION-EXACT-DIFF-DIAGNOSE.txt
 
-### S13. VARCHAR2 byte/char 의미를 도구가 구분하지 못해 실효 저장용량 축소를 놓친다 — (b) 부분해소·화면 미노출, A1'(위험전용 배지)로 방향 재확정 필요
-- 발견일: 2026-07-29 / 재조사: 2026-08-06(S13-VARCHAR2-BYTE-CHAR-STATUS-RECHECK-DIAGNOSE) /
-  A1 검토: 2026-08-07(S13-A1-BADGE-REACTIVATE-AND-GATE-INTENT-VERIFY, 코드 무변경)
+### S13. ✅ A1' 구현 완료 — VARCHAR2 byte/char 실효수용량 위험이 이제 Stage3 화면에 위험전용 배지로 노출됨
+- 발견일: 2026-07-29 / 재조사: 2026-08-06 / A1 기각: 2026-08-07 / A1' 구현 완료: 2026-08-07
+  (S13-A1PRIME-RISK-ONLY-BADGE-IMPLEMENT, 코드 커밋 29c8379)
 - 근거 보고서: `ORACLE-CHARSET-COLLATION-EXACT-DIFF-DIAGNOSE.txt`(최초) →
   `VARCHAR2-BYTE-CHAR-CAPACITY-COMPARISON-FIX.txt`(판정로직·조회 완성, F14로 배선) →
   `S13-VARCHAR2-BYTE-CHAR-STATUS-RECHECK-DIAGNOSE.txt`(재조사 — (b) 부분해소 판정) →
@@ -716,21 +716,27 @@ git -C E:/verify_reports worktree remove <임시경로>
   Live/Preview 격리 + 문서 2건의 "병합 금지" 계약) Stage3 실사용 화면까지 위험이 안 닿는다.
   GROUP BY 게이트가 PRECISION_LOSS_RISK를 통과시키는 것도 3중 근거(상수정의·설계문서 표·SUM축
   별도 Critical FAIL 안전망)로 **의도된 설계**임이 확정됨(경고는 남기되 자동배제는 안 함).
-  단, 원래 검토했던 **A1(원형 그대로 재활성화)은 기각** — 적용해도 목적을 달성 못하고(위험
-  정보는 hover 툴팁에만 묻힘) 오히려 위험 컬럼에 파란 '추천' 배지가 새로 붙는 역효과가 실측
-  확인됨.
-- 방향 재확정 필요(2026-08-07, 3안 비교·A1'이 새로 제안됨):
-  · **A1'(권장)**: selection_status 라벨은 계속 주입 금지(단일출처 유지), CHAR_CAPACITY_
-    SHRINK_RISK가 있을 때만 "길이 축소 위험" 전용 배지 신규 추가, NullProvider(비오라클)는
-    배지 대상 제외(DBMS 비대칭 회피). 회귀면적 최소, 문서 계약 안 건드림.
-  · A2(구조적 이식): analyzer 계열에 로직 중복 — "구조 안정화 우선" 원칙과 충돌, 비권장.
-  · C(현행 유지+문서화): 코드 0줄, "설계상 preview 전용"으로 확정만.
-  · 권장 순서: A1' > C > A2.
-- 부가 발견: `_updateUnifiedColWithCsr`도 호출부 0건 죽은 함수(잔여A 착수 시 역할 중복 정리
-  선행 필요). PostgreSQL/MySQL/MSSQL 대응 개념 설계도 여전히 미착수(4방언 원칙).
+- 현재 상태: CHAR_USED/DATA_LENGTH 조회·실효수용량 판정 로직·F14 배선은 완성돼 있고,
+  이제 **`_applyCharCapacityRiskBadge`(신규, A1') 배선으로 Stage3 화면에 위험 노출까지
+  완료**됐다. 기존 `_applyCsrBadges`(원형)는 여전히 봉인 상태 유지(판정 단일출처 보호,
+  변경 없음) — GROUP BY 게이트가 PRECISION_LOSS_RISK를 통과시키는 것도 의도된 설계로
+  확정돼 변경하지 않았다(경고는 노출하되 자동배제는 안 함).
+- 해결 요약: `risk_flags`에 `CHAR_CAPACITY_SHRINK_RISK` 포함 AND
+  `compatibility_status !== 'UNKNOWN_COMPATIBILITY'`(NullProvider 제외)일 때만 기존
+  selection_status 배지 뒤에 순수 추가(append-only)로 "⚠ 길이 축소 위험" 배지 노출.
+  오라클 실접속(synthetic risky row 주입, DEPT_CD에만 배지 1건·NullProvider인 STATUS_CD는
+  0건 확인) + PostgreSQL 실접속(자연 상태 NullProvider, 배지 0건 확인) 양쪽 실측. innerHTML
+  전/후 대조로 기존 라벨 완전 불변(append-only) 증명 — 라이브 판정 단일출처 오염 없음
+  확인. 부수 발견: 원형 `_applyCsrBadges`의 DOM 셀렉터(`label.cs-item`)가 이미 stale라
+  A1을 그대로 되살렸어도 작동 안 했을 것임을 확인(A1 기각 결정을 재확증).
+- 잔존(범위 밖): 캐릭터셋이 다른 오라클 인스턴스 쌍이 없어 양성 사례(실제 배지가 뜨는
+  케이스)는 synthetic 주입으로만 검증됨(음성 사례는 100% 실접속). PG/MySQL/MSSQL 대응
+  개념 설계 미착수(4방언 원칙). 죽은 함수 2개(`_applyCsrBadges`/`_updateUnifiedColWithCsr`)
+  정리는 별건.
 - 참고: E:\verify_reports\ORACLE-CHARSET-COLLATION-EXACT-DIFF-DIAGNOSE.txt
 - 참고: E:\verify_reports\S13-VARCHAR2-BYTE-CHAR-STATUS-RECHECK-DIAGNOSE.txt
 - 참고: E:\verify_reports\S13-A1-BADGE-REACTIVATE-AND-GATE-INTENT-VERIFY.txt
+- 참고: E:\verify_reports\S13-A1PRIME-RISK-ONLY-BADGE-IMPLEMENT.txt
 
 ### S14. ✅ 해결 완료 — NLS 숫자 고정이 타입 미상 균일 캐스트 5곳에는 적용되지 않았다(NLS 고정 수정의 잔여 위험 R1)
 - 해결일: 2026-07-31 (ORACLE-CONNECTION-NLS-NUMERIC-SESSION-PIN-FIX)
