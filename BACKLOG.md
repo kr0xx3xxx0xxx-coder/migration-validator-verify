@@ -1928,7 +1928,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 
 ### G7. HASH_BUCKET 해시 계약에 오라클이 등록돼 있지 않아, same-DBMS(오라클↔오라클)여도 영구 불가다 — ③④ 해결 완료, ⑤⑥ 남음
 - 발견일: 2026-08-02 / 재확인: 2026-08-07 / ④ 해결: 2026-08-07 / ③ 해결: 2026-08-07
-  (G7-STEP3-ORACLE-HASH-CONTRACT-IMPLEMENT, 코드 미커밋 — 사용자 승인 대기)
+  (G7-STEP3-ORACLE-HASH-CONTRACT-IMPLEMENT, 코드 커밋 91705e10)
 - 근거 보고서: `PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt`(§4-2·§7-G7, 최초) →
   `F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE.txt`(순서 확정 ①③④⑤⑥) →
   `G7-HASH-BUCKET-ORACLE-FULL-SCOPE-DIAGNOSE.txt`(phase① 이후 재확인, 순서 재정정)
@@ -1992,7 +1992,7 @@ git -C E:/verify_reports worktree remove <임시경로>
   실제로 오면 `STANDARD_HASH`가 ORA-00902로 **조용하지 않게 즉시 실패**하므로 거짓
   일치는 아니지만, 사전 HOLD로도 안 걸러짐. 착수 시 컬럼 메타 관통 전달(④ 소비측 배선
   확장 범위) 필요.
-  코드는 **아직 커밋 안 됨 — 사용자 승인 대기**.
+  코드 커밋: 91705e10 (완료).
   **실사용 가능(오라클 HASH_BUCKET 실행)은 여전히 ⑤⑥이 남아있어야 완성**(③④는 완료).
 - 관련: F1, S5(이미 해결 완료)
 - 참고: E:\verify_reports\PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt
