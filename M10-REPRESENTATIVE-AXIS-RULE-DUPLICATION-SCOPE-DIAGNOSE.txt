@@ -1,0 +1,217 @@
+작업명 : M10-REPRESENTATIVE-AXIS-RULE-DUPLICATION-SCOPE-DIAGNOSE
+✅ 작업 완료 - 대표축 규칙 복제 실태·순서의존 재발 시나리오·단일출처 통합 설계·픽스처 잔존 확인(코드 변경 없음)
+
+작성: 2026-08-07
+코드 저장소 HEAD: 46b81174 (조사만, 코드 미수정)
+근거 보고서: PK-RANGE-CHUNK-REPRESENTATIVE-AXIS-UNIFY.txt §8 / BACKLOG.md M10
+
+
+■ 0. 범위
+
+지시대로 코드 수정 없이 조사·설계만 수행했다. BACKLOG.md M10 항목과 근거 보고서
+PK-RANGE-CHUNK-REPRESENTATIVE-AXIS-UNIFY.txt §8 을 먼저 읽고, 실제 코드(services/exact_diff/
+pk_range_chunk.py, routes/agg_diff_route.py)와 기존 회귀 테스트를 대조했다.
+
+
+■ 1. 두 곳의 정확한 위치·로직 대조 — 완전 동일 로직의 순수 복제(미묘한 차이 없음)
+
+  ⓐ services/exact_diff/pk_range_chunk.py:216-251
+     select_deterministic_rep_axis(axis_counts, axis_coverage)
+  ⓑ routes/agg_diff_route.py:698-729
+     _select_direct_rep_axis(axis_counts, axis_coverage)
+
+  두 함수를 라인 단위로 대조한 결과:
+    - 후보 필터: `[a for a in axes if coverage.get(a,0)>0] or axes` — 완전 동일
+    - band 상수: pk_range_chunk 는 _REP_AXIS_BAND_MIN/MAX(2,200) / agg_diff_route 는
+      _DIRECT_REP_AXIS_BAND_MIN/MAX(2,200) — 이름만 다르고 값·용도 동일
+    - 정렬키: (구간밖=1, 그룹수 오름차순, 컬럼명 대문자 오름차순) — 완전 동일, 입력 순서 미참조
+    - 반환 3분기(SINGLE_AXIS / IN_BAND_FEWEST_GROUPS / OUT_OF_BAND_FEWEST_GROUPS)와 사유문구
+      포맷 문자열까지 완전 동일
+  → 함수 시그니처(axis_counts, axis_coverage)·본문·반환값 모두 byte 단위로 동일하다. "미묘하게 다른
+    부분"은 없다 — 리팩터링으로 단순 통합(rebind) 가능한, 말 그대로의 복제다.
+  이는 이미 tests/test_pk_range_chunk_representative_axis_unify.py::test_규칙_자체가_DIRECT_와_동치다
+  가 7개 케이스로 증명해 두었다(재확인함, 코드 미수정 상태로 재실행 없이 로직 대조만).
+
+  단, 이 둘을 "감싸는" 상위 함수는 대칭이 아니다(구조적으로 중요한 차이):
+    - pk_range_chunk._select_rep_axis (515-547) 는 gb_candidate_scores/gb_selection_order 가
+      실제 전달되면 D7-16C 정책(①2~200 ②후보점수 ③선택순서)으로 분기하는 ⓐ 브랜치를 갖고 있다.
+    - agg_diff_route._group_dist_from_store (732-786) 는 그런 분기가 아예 없다 — 언제나
+      _select_direct_rep_axis(결정적 규칙)만 호출한다. DIRECT 쪽은애초에 후보점수·선택순서라는
+      개념 자체가 함수 시그니처에 없다.
+  즉 "말단 결정 규칙"은 완전 복제·동일이지만, "그 규칙을 언제 쓰는가"의 정책 계층은 비대칭이다.
+  이 비대칭이 §2 시나리오의 핵심이다.
+
+
+■ 2. gb_candidate_scores/gb_selection_order 를 채우면 정확히 어떤 시나리오에서 순서의존이 되살아나는가
+
+  2-1) 현재 운영 상태(실측, 코드 확인)
+    routes/agg_diff_route.py 전체에서 gb_candidate_scores·gb_selection_order 문자열은 0건 —
+    유일한 프로덕션 호출부(agg_diff_route.py:337 run_pk_range_chunk_compare)는 이 두 인자를
+    아예 넘기지 않는다(grep 재확인, 테스트 파일 제외 전무). 따라서 현재는
+    _axis_policy_hint == False 로 항상 고정되어 chunk 경로도 결정적 규칙만 쓴다 — DIRECT 와
+    100% 동치가 유지되는 것은 이 두 인자가 "아직 아무도 채우지 않기 때문"이다.
+
+  2-2) 채우기 시작하면 깨지는 지점 — DIRECT 쪽엔 대응 브랜치가 없다
+    D7-16C 정책은 pk_range_chunk.py 에만 구현돼 있다. gb_candidate_scores/gb_selection_order 를
+    운영에서 채우기 시작해도, 그 값을 넘겨받는 통로는 run_pk_range_chunk_compare(chunk 경로) 뿐
+    이고 _group_dist_from_store(DIRECT 경로)는 애초에 이 값을 받을 파라미터가 없다. 즉:
+      - 5만행 이하(DIRECT) : 항상 결정적 규칙(select_deterministic_rep_axis) 그대로
+      - 5만행 초과(chunk)  : _axis_policy_hint=True 가 되는 순간 D7-16C 정책(점수/순서 기반)으로 전환
+    같은 데이터·같은 GROUP BY 선택이라도 5만행 경계를 넘나들 때 대표축 산정 "규칙 자체"가
+    바뀐다 — 이것이 바로 PK-RANGE-CHUNK-REPRESENTATIVE-AXIS-UNIFY 가 고친 증상(경계에서 축이
+    뒤바뀜)이 D7-16C 정책 활성화를 계기로 재발하는 구조다. 단, 이번엔 "gb_cols 전달 순서"가
+    아니라 "정책값을 채우기 시작한 시점"이 방아쇠가 된다는 점이 다르다.
+
+  2-3) 부분 값만 채워도 순서의존이 살아난다(코드로 확인한 구체 조건)
+    pk_range_chunk.py:505-506
+      _cand_scores = {...gb_candidate_scores...}
+      _sel_order = [str(a).upper() for a in (gb_selection_order or _axes)]   # ← 미전달 시 gb_cols 순서로 폴백
+    pk_range_chunk.py:511
+      _axis_policy_hint = bool(gb_candidate_scores) or bool(gb_selection_order)   # ← 둘 중 하나만 있어도 True
+    즉 "후보점수만 채우고 선택순서는 안 채우는" 흔히 있을 법한 부분 배선에서도 _axis_policy_hint
+    가 True 로 켜져 D7-16C 분기(538행)로 들어가고, 거기서 동점 tie-break 인 _order(a)(528-530행)는
+    다시 gb_cols 전달 순서로 조용히 폴백한다. 점수가 모든 축에 동일/누락(None→-1)이면 사실상
+    "gb_cols 순서가 곧 대표축"이던 옛 버그와 동일한 경로로 되돌아간다 — 원 서술의 "순서 의존 경로가
+    되살아난다"는 경고가 가리키는 정확한 조건이다.
+
+  2-4) DIRECT 전략과의 "결정성 요건" 충돌
+    select_deterministic_rep_axis 계열은 axis_selection_deterministic=True 를 응답에 싣도록
+    설계돼 있다(대표축 선정이 재현 가능함을 화면에 명시). D7-16C 정책 분기는 반대로
+    axis_selection_deterministic=False 를 싣는다(기존 테스트
+    test_후보점수_전달시_기존_정책_유지 113행에서 확인 — "순서/점수 의존 경로임을 정직하게 표기").
+    D7-16C 를 chunk 경로에서만 활성화하면:
+      - 화면에 표시되는 "선택 순서 무관 고정" 배지·툴팁 문구(§5 실측, PK-RANGE-CHUNK... 보고서
+        119-125행)가 5만행 이하/초과에서 서로 다른 근거로 나타난다(DIRECT=deterministic=true
+        고정, chunk=선택 시점 값에 따라 true/false 요동).
+      - 사용자가 같은 조건을 5만행 경계 앞뒤로 반복 실행하면 "결정적"이라던 배지가 어떤 실행에서는
+        사라지는 모순이 재발한다 — DIRECT 는 애초에 이 개념(비결정)이 없어 절대 안 흔들리는데
+        chunk 만 흔들리므로, 사용자 입장에서는 "chunk 로 넘어가면 갑자기 불안정해진다"로 읽힌다.
+    결론: gb_candidate_scores/gb_selection_order 를 운영에서 채우려면, DIRECT 쪽에도 동일한
+    D7-16C 브랜치(또는 최소한 "값이 채워지면 무시하고 항상 결정적 규칙만 쓴다"는 명시적 정책)를
+    같이 설계해야 한다 — 그러지 않으면 5만행 경계에서 "규칙 종류 자체"가 갈리는 새로운 형태의
+    비대칭이 생긴다.
+
+  2-5) 참고 — gb_candidate_scores 의 잠재적 실제 출처
+    저장소 전역에 "candidate_score" 개념은 컬럼 후보 추천(3단계 GB/SUM 후보 선정,
+    services/candidate_scoring.py 등)에도 존재하나, 그것은 "이 컬럼을 GROUP BY 후보로 얼마나
+    추천하는가" 점수이지 "이미 선택된 GROUP BY 축들 중 어느 것을 대표로 보여줄까"의
+    gb_candidate_scores 와는 별개 개념이다. 저장소 어디에도 후자를 실제로 채워 넣는 배선은
+    없다(§2-1 grep 결과와 일치) — 즉 이 위험은 "이미 발생 중"이 아니라 "향후 이 값을 채우는
+    작업을 설계 없이 진행하면 발생할" 잠재 위험이다.
+
+
+■ 3. 단일 출처 통합 설계안 — services 를 단일 출처로, routes 가 얇게 재노출/호출
+
+  3-1) 순환 import 제약(기존 판단 재확인)
+    routes/agg_diff_route.py 는 이미 `import services.exact_diff.pk_range_chunk as pc` 로
+    services 모듈을 가져와 pc.run_pk_range_chunk_compare(337행)를 호출하고 있다 — 즉
+    routes → services 단방향 의존은 이미 성립해 있다. 반대 방향(services 가 routes 를 import)은
+    여전히 금지(순환 import 실제 발생, PK-RANGE-CHUNK-REPRESENTATIVE-AXIS-UNIFY 보고서 §2 (b)와
+    동일 판단). 따라서 통합 방향은 이미 확정돼 있다 — services 쪽 select_deterministic_rep_axis
+    를 유일한 구현으로 두고, routes 가 이미 있는 pc alias 로 그것을 호출하면 된다. 새 import 문
+    조차 추가할 필요가 없다.
+
+  3-2) 최소 변경안(권장) — 이름 유지 재바인딩
+    routes/agg_diff_route.py 에서:
+      - `_DIRECT_REP_AXIS_BAND_MIN`/`_DIRECT_REP_AXIS_BAND_MAX`(694-695행) 삭제
+        (band 상수는 pk_range_chunk._REP_AXIS_BAND_MIN/MAX 하나만 남긴다)
+      - `_select_direct_rep_axis` 함수 본체(698-729행)를 삭제하고, 같은 이름으로 재바인딩:
+          _select_direct_rep_axis = pc.select_deterministic_rep_axis
+        (pc 는 이미 337행에서 쓰는 기존 alias 그대로 재사용 — 신규 import 없음)
+      - `_group_dist_from_store`(732-786행) 본문은 무수정 — 772행 `_select_direct_rep_axis(...)`
+        호출부가 그대로 남되, 실제로는 services 쪽 단일 구현을 가리키게 된다.
+    이 방식의 이점:
+      - tests/test_pk_range_chunk_representative_axis_unify.py 22행
+        `from routes.agg_diff_route import _select_direct_rep_axis` 와
+        tests/test_single_step5_representative_axis_single_source.py 18행의 동일 import 가
+        **수정 없이 그대로 통과한다**(이름이 살아있고, 실제 호출 결과는 이제 정의상 100% 동일하므로
+        test_규칙_자체가_DIRECT_와_동치다 는 항등 비교가 되어 자동으로 항상 통과 — "기존 동치성
+        테스트가 계속 통과하는지 확인 가능한 방식"이라는 지시 조건을 그대로 만족한다).
+      - agg_diff_route.py 변경 범위가 상수 2개 삭제 + 함수 본문(32행)을 1줄 재바인딩으로 축소하는
+        것뿐이라 "직전 작업으로 막 완료된 모듈"에 대한 리스크가 최소화된다.
+      - 두 파일의 docstring 상호 참조(pk_range_chunk.py:210,218 / agg_diff_route.py:741 의
+        "routes/agg_diff_route._select_direct_rep_axis" 언급)도 이름이 유지되므로 그대로 유효.
+
+  3-3) 후속(이번 범위 밖, 설계만 기록) — 정책 계층 정합
+    §2 위험을 근본적으로 없애려면 3-2 만으로는 부족하다. 3-2 는 "말단 결정 규칙"만 통합할 뿐,
+    "언제 D7-16C 분기를 타는가"의 정책 계층은 여전히 chunk 경로 전용으로 남는다. 안전하게 가려면
+    아래 중 하나를 gb_candidate_scores/gb_selection_order 를 실제로 채우는 작업(별도 과제) 착수
+    "전에" 결정해야 한다:
+      (A) DIRECT 경로에도 동일한 _select_rep_axis 정책 함수(ⓐ/ⓑ 분기)를 그대로 이식해 두 경로가
+          "말단 규칙"뿐 아니라 "정책 분기 자체"도 공유하게 한다(이 경우 pk_range_chunk.py 의
+          _select_rep_axis 를 export 해 DIRECT 가 호출).
+      (B) D7-16C 정책(점수/순서 기반) 자체를 폐기하고 항상 결정적 규칙(select_deterministic_rep_axis)
+          만 쓰기로 정책 결정한다 — gb_candidate_scores/gb_selection_order 인자와 관련 테스트
+          (test_후보점수_전달시_기존_정책_유지 등)를 함께 정리해야 하는 더 큰 변경.
+    (A)/(B) 중 어느 쪽이든 "gb_candidate_scores 를 운영에서 채우는 별도 과제"의 설계 문서에서
+    먼저 다뤄야 할 선결 사항이라고 판단한다 — 이번 M10 범위(말단 규칙 통합)와는 분리해 별건으로
+    관리하는 것을 권장한다.
+
+  3-4) 검증 방법(구현 시)
+    - 기존 15건(test_pk_range_chunk_representative_axis_unify.py 6건 + test_d7_16_representative_axis.py
+      4건 + test_single_step5_representative_axis_single_source.py 5건) 무수정 상태로 재실행 →
+      전부 통과해야 통합이 안전하게 끝난 것.
+    - test_규칙_자체가_DIRECT_와_동치다(93행)의 `==` 비교가 "서로 다른 두 구현의 우연한 일치"에서
+      "같은 함수를 두 이름으로 부른 항등 비교"로 의미가 바뀌므로, 통합 후에는 이 테스트에 주석을
+      추가해 의도를 명시하는 것을 권장(테스트 로직 자체는 변경 불필요).
+
+
+■ 4. 실측 픽스처(mvbench.repaxis_*) 잔존 여부 — 확인 결과: 남아 있음(이번엔 DROP 하지 않음)
+
+  scripts/dev_e2e/rep_axis_boundary_fixture.py 가 참조하는 프리셋(PostgreSQL_Inter_asis /
+  PostgreSQL_Inter_tobe, 내부망 192.168.0.150:5433/5434)으로 직접 접속해 읽기 전용 조회만 수행,
+  운영 스키마는 건드리지 않았다(SELECT 만, mvbench 스키마 한정):
+
+    asis(192.168.0.150:5433/asis) mvbench 스키마:
+      repaxis_a_src : 49,999 행
+      repaxis_b_src : 50,001 행
+    tobe(192.168.0.150:5434/tobe) mvbench 스키마:
+      repaxis_a_tgt : 49,873 행
+      repaxis_b_tgt : 49,875 행
+
+  보고서 §3 서술(A src 49,999/B src 50,001, 목적 미존재 각 126건)과 정확히 일치 — 4개 테이블
+  전부 여전히 존재하며 총 약 199,748행(≈20만행), 원 서술대로다. 정리(DROP)는 지시대로 이번
+  범위에서 수행하지 않았다. 정리 시 필요한 명령(참고용, 실행 안 함):
+    DROP TABLE mvbench.repaxis_a_src, mvbench.repaxis_b_src;   -- asis 쪽
+    DROP TABLE mvbench.repaxis_a_tgt, mvbench.repaxis_b_tgt;   -- tobe 쪽
+
+
+■ 5. 착수 시 예상 범위·위험도
+
+  범위(§3-2 최소 통합안 기준):
+    - 코드 변경: routes/agg_diff_route.py 1개 파일, 약 -32행/+3행(상수 2개·함수 본문 삭제 →
+      1줄 재바인딩). services/exact_diff/pk_range_chunk.py 는 무수정(이미 단일 구현 보유).
+    - 테스트 변경: 0건(기존 15건 무수정 통과가 목표).
+    - 문서: BACKLOG.md M10 항목을 해소로 갱신, 필요 시 두 파일 docstring 의 "복제 이유" 서술을
+      "재바인딩으로 통합됨"으로 갱신(선택).
+
+  위험도: 낮음.
+    - 순수 리네임/재바인딩이라 런타임 동작 변화가 없다(§1 에서 이미 두 구현이 100% 동일 출력임을
+      확인했으므로, 어느 쪽을 호출해도 반환값은 불변).
+    - 유일한 프로덕션 호출부(agg_diff_route.py:337)는 gb_candidate_scores/gb_selection_order 를
+      전달하지 않으므로, chunk 경로도 항상 결정적 브랜치만 타는 현재 운영 동작에 아무 영향 없음.
+    - 리스크는 "직전 작업으로 막 완료된 모듈"(agg_diff_route.py)을 건드린다는 점 자체 — CLAUDE.md
+      "완료된 모듈 수정 시" 예외 조항에 해당하므로, 착수 전 사용자 확인이 필요하다고 판단한다
+      (자율 진행 규칙의 명시적 예외 4가지 중 "완료된 모듈 수정 시"에 해당).
+    - §3-3(정책 계층 정합, A/B 중 선택)은 이번 최소안에 포함하지 않았다 — gb_candidate_scores 를
+      실제로 채우는 별도 과제가 착수되기 전에 별건으로 먼저 설계 결정이 필요하다.
+
+
+■ 6. 완료보고 1~4 요약
+
+  1) 완전 동일 로직의 순수 복제 확인(미묘한 차이 없음) — 리팩터링만으로 통합 가능. 단, 이를
+     감싸는 정책 분기(D7-16C ⓐ 브랜치)는 chunk 쪽에만 있어 비대칭.
+  2) gb_candidate_scores/gb_selection_order 를 채우기 시작하면(둘 중 하나만이어도) chunk 경로만
+     D7-16C 분기로 전환돼 DIRECT(항상 결정적)와 규칙 종류 자체가 5만행 경계에서 갈린다 —
+     axis_selection_deterministic 배지가 DIRECT/chunk 간 다른 근거로 요동하는 새로운 형태의
+     "결정성 요건 충돌"이 발생. 현재는 프로덕션 호출부가 이 인자를 전혀 전달하지 않아 잠재
+     위험 상태(실발동 아님).
+  3) 단일 출처 통합안: agg_diff_route._select_direct_rep_axis 를
+     pc.select_deterministic_rep_axis 로 재바인딩(이름 유지) — 최소 변경, 기존 회귀 테스트
+     15건 무수정 통과 가능. 정책 계층 정합(§3-3)은 별건 후속 과제로 분리 권장.
+  4) 실측 픽스처(mvbench.repaxis_a_*/repaxis_b_*, 약 20만행)는 내부망 PG asis/tobe 양쪽에
+     여전히 남아 있음을 실접속으로 확인(4개 테이블, 총 199,748행). 이번 지침대로 DROP 은
+     수행하지 않았다.
+
+작업명: M10-REPRESENTATIVE-AXIS-RULE-DUPLICATION-SCOPE-DIAGNOSE
+✅ 작업 완료 - 대표축 규칙 복제 실태·순서의존 재발 시나리오·단일출처 통합 설계·픽스처 잔존 확인(코드 변경 없음)
