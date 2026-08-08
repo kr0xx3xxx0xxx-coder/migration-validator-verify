@@ -2938,23 +2938,41 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\M3-NODE-HARNESS-TIMEOUT-ROOT-CAUSE-DIAGNOSE.txt
 - 참고: E:\verify_reports\M3-NODE-HARNESS-INFINITE-LOOP-FIX.txt
 
-### M52. M3 TIMEOUT 해소로 새로 드러난 실제 테스트 실패 5건(제품/테스트 결함 후보, 원인 미조사)
-- 발견일: 2026-08-07 (M3-NODE-HARNESS-INFINITE-LOOP-FIX 검증 중 부수 발견 — TIMEOUT이
-  가리고 있던 실제 결과가 처음 노출됨)
-- 상세: TIMEOUT 해소 후 개별 실행한 결과, 다음 5건이 실제 실패로 확인됨(전부 이번
-  하니스 수정 범위 밖이라 원인 미조사·미수정):
-  - `test_one_click_full_run.py::test_full_run_blocked_stays_on_failed_stage_not_result`
-  - `test_one_click_full_run.py::test_full_run_blocked_locks_downstream_via_gate`
-    (둘 다 "BLOCKED 시 하위 단계 nav disabled=True 기대" 단언 불일치 — 개별검증 nav
-    게이트 로직 문제로 추정, 상단 탭 기본값과는 무관함이 코드로 확인됨)
-  - `test_candidate_draft_selection.py::test_checkbox_change_keeps_table_and_plan_marks_draft`
-  - `test_candidate_draft_selection.py::test_uncheck_all_does_not_switch_to_count_only_before_apply`
-  - `test_candidate_draft_selection.py::test_candidate_notice_sticky_fix_uses_common_offset`
-    (이 마지막 건은 node를 아예 안 부르는 순수 `_html()` 문자열 단언 —
-    `id="candidateGeneralNotice"` 부재. 하니스 수정과 무관, baseline에도 이미 실패
-    상태였음이 확인됨 — 순수 테스트 노후화 후보)
-- 대응 방향: 미조사. 근본원인 조사 후 별도 FIX 지침으로 착수 권장.
+### M52. 전수원인 진단 완료 — 하니스결함 2건(제품정상)·실제결함 2건(신규확정, M57과 뿌리함수 공유)·테스트노후화 1건(+형제1건 추가발견)
+- 발견일: 2026-08-07 (M3-NODE-HARNESS-INFINITE-LOOP-FIX 검증 중 부수 발견) / 원인진단:
+  2026-08-08 (M52-FIVE-REVEALED-FAILURES-ROOT-CAUSE-DIAGNOSE, 코드 무변경)
+- **[1] 하니스 결함(제품 정상) 2건** — `test_full_run_blocked_stays_on_failed_stage_not_result`/
+  `test_full_run_blocked_locks_downstream_via_gate`. node 하니스가 `windowStub`이라는 별개
+  객체를 만들어 `window===globalThis` 불변식을 깨서, `window.MvStageGate=...`가 전역
+  `MvStageGate`를 안 만듦 → `_mvCanNavStep`/`_mvCanNavTab`의 bare 참조가
+  ReferenceError→`catch(e){return true}`로 항상 "이동가능" 오판. 실측: 하니스에
+  `globalThis.MvStageGate = globalThis.window.MvStageGate` 1줄 추가하면 기대값과 정확히
+  일치 확인. M3/M4와 동일 유형(하니스가 브라우저 계약 미준수), 제품 회귀 아님.
+  대응: 하니스 1줄 패치(M3의 storageStub 패치와 동일 성격).
+- **[2] 실제 제품 결함(신규 확정) 2건** — `test_checkbox_change_keeps_table_and_plan_marks_draft`/
+  `test_uncheck_all_does_not_switch_to_count_only_before_apply`. `checkLimit()` 호출 체인
+  안에서 `_updateExecSelectionSummary()`(draft≠applied면 execBtn.disabled=true, 정확)가 세운
+  잠금을, 같은 체인 뒤쪽의 `_mvRefreshTopExecBtnState()`(regen 여부는 안 보고 "지금 뭔가
+  실행 중인가"만 보는 `_mvAnyRunActive()`만 확인)가 무조건 false로 덮어씀. 실측 트레이스로
+  정확히 확인(disabled: true→false 순서). **사용자 영향**: 후보를 바꿔 재생성이 필요한
+  상태에서도 실행 버튼이 눌리는 잘못된 신호 — 구 선택 기준으로 실행 시도 가능.
+- **M57 연관성**: 같은 결함이 아니라 **같은 뿌리 함수군(`_mvAnyRunActive()`와 그 소비자들,
+  2026-07-12 커밋 3053d51c 도입)의 서로 다른 두 결함**. M57=body 잠금 CSS가 stale,
+  이번=execBtn.disabled가 더 구체적인 게이트(regen)를 무시하고 덮어씀. **권고**:
+  `_mvAnyRunActive()` 소비 지점 전수를 한 번에 재검토(호출 시점의 신선도 + 우선순위 조율)
+  하는 게 개별 땜질보다 재발 방지에 낫다 — 별도 설계검토 지침 권장.
+- **[3] 테스트 노후화(확정) 1건 + 형제 1건 추가발견** —
+  `test_candidate_notice_sticky_fix_uses_common_offset`(06-25 작성) 단정 대상
+  `candidateGeneralNotice`가 06-25보다 나중(07-02, 커밋 7654365d)에 "통합 후보 Grid로
+  대체"하며 의도적으로 삭제됨(제품 코드 자체 주석에 명시). null-가드돼 있어 기능 결함
+  아님(죽은 토글 코드). **부수 발견**: `test_iv08_iv11_final_fix.py::
+  test_count_only_pane_makes_header_non_sticky`도 동일 원인으로 현재 FAIL 중(원 5건
+  목록엔 없던 6번째, 같이 갱신 대상).
+- 대응 방향: 3방향 각각 별도 지침 착수 권장 — [1]·[3]은 낮은 위험(하니스/테스트 패치),
+  [2]는 실제 결함이라 우선순위 높음(단, M57과 함께 `_mvAnyRunActive()` 소비자 전수
+  재검토로 묶어서 가는 게 나을 수 있음 — 착수 방식 결정 필요).
 - 참고: E:\verify_reports\M3-NODE-HARNESS-INFINITE-LOOP-FIX.txt
+- 참고: E:\verify_reports\M52-FIVE-REVEALED-FAILURES-ROOT-CAUSE-DIAGNOSE.txt
 
 ### M53. ✅ Phase1~4 완료+검증됨 — SQLite DB 경로 계산 단일 진실 출처화(5단계 실이관은 "안전" 판정, 최종 승인 대기)
 - 발견/계기: 2026-08-07 / 1~4단계 완료: 2026-08-07(코드 커밋 23e3fb60) / 검증: 2026-08-07
