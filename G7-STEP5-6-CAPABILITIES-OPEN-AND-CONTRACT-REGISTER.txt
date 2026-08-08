@@ -1,0 +1,222 @@
+작업명 : G7-STEP5-6-CAPABILITIES-OPEN-AND-CONTRACT-REGISTER
+⚠️ 추가 작업 필요 - ⑤capabilities개방+⑥위임표등록·라이브 동등성검증(오라클 asis/tobe)은 전부 PASS로
+완료됐으나, 운영 라우트의 dialect 미전달(G1)·row_diff 오라클 바인드 표기(G2) 배선 2건이 남아 실사용에는
+후속 승인이 필요함
+
+기준: 코드 저장소 main HEAD 7ed11522 → 커밋 42094155(⑤) → 60c1b999(⑥) (로컬 커밋, code repo push 안 함 — 규칙대로)
+지시서: directives/G7-STEP5-6-CAPABILITIES-OPEN-AND-CONTRACT-REGISTER.md
+선행 문서: G7-HASH-BUCKET-ORACLE-FULL-SCOPE-DIAGNOSE.txt §4(⑤⑥ 구현 스펙)·§5(착수 순서·라이브 검증 계획)
+선행 완료: G7-STEP3-ORACLE-HASH-CONTRACT-IMPLEMENT.txt(91705e10, 오라클 구현체) ·
+           G7-STEP4-ROW-DIFF-MATCH-KEY-EVIDENCE-SAFE-WIRING-FIX.txt(84c6f29a, 안전 배선) ·
+           F1-PHASE1-ALIAS-RENAME-VERSION-BUMP(c420d84e, 별칭·버전)
+
+
+════════════════════════════════════════════════════════════════
+1. 범위 확인
+════════════════════════════════════════════════════════════════
+①③④(별칭 개명·오라클 구현체·안전배선)는 착수 전 재확인 결과 이미 완료·main 에 살아 있음을 실측
+(91705e10, 84c6f29a, c420d84e 조상관계 포함 확인) — 재작업하지 않음.
+
+이번 작업 범위는 지시서 그대로 ⑤(capabilities 개방)와 ⑥(G7 위임표 등록) 2단계 + 라이브 동등성 검증.
+진단서 §4-3 의 [치명] 경고("④ 없이 ⑥ 단독/조기 착수 금지")에 따라, ⑤를 먼저 별도 커밋(이 시점엔
+hash_contract.py 위임표를 전혀 건드리지 않아 oracle 여전히 미등록 — 안전한 중간 상태)한 뒤에만
+⑥(위임표 1줄 등록)을 진행했다. 순서를 코드 커밋 2개로 물리적으로 분리해 되돌림 단위를 최소화했다.
+
+
+════════════════════════════════════════════════════════════════
+2. 파일:라인별 diff 요약
+════════════════════════════════════════════════════════════════
+
+--- ⑤ capabilities 개방 + L1 게이트 배선 (커밋 42094155) -----------------------
+
+[services/diagnosis/dbms/capabilities.py] (+44/-2)
+  :34-36   HR_HASH_CROSS_DBMS 미러 상수 신규
+  :56-57   STANDARD_HOLD_REASONS 에 신규 사유 등록(generic ERROR 로 새지 않도록)
+  :99-110  _ORACLE.update({...}) 에 "hash_bucket": SUPPORTED, "canonical_hash_contract": SUPPORTED 2개
+           키 추가. MATRIX_ITEMS/구조 변경 없음 — 값만 개방(진단서 §4-1 그대로).
+  :126-129 ROADMAP step4 requires 문구 정정: "DBMS 간 동일 canonical hash"(cross-DBMS 오독 유발)
+           → "same-DBMS 페어 한정 canonical hash(cross-DBMS 비교는 비목표)"
+  :153-176 신규 함수 hash_bucket_pair_status(src_dbms, tgt_dbms) -> (status, reason)
+           판정: src==tgt AND capability(src,"hash_bucket")==SUPPORTED AND capability(tgt,"hash_bucket")==SUPPORTED
+           매트릭스 조회는 기존 헬퍼 hold_reason_for() 재사용(신규 매트릭스 안 만듦).
+           db_type 미상이면 보수적으로 NOT_SUPPORTED 반환(추측 금지 — get_hash_contract_pair 기존 관례와 동일).
+
+[services/diagnosis/multi_scope.py] (+28/-1)
+  :24-28   capabilities 모듈 import
+  :103-112 신규 헬퍼 _hash_pair_ok(src_db_type, tgt_db_type)
+  :166-181 plan_multi_scope(...) 시그니처에 src_db_type/tgt_db_type 파라미터 추가
+  :207-211 HASH_BUCKET 후보 emit 조건(기존:
+           `if match_key and match_key.get("confirmed") and match_key.get("is_hash_eligible"):`)에
+           `and _hash_pair_ok(src_db_type, tgt_db_type)` 추가 — 진단서 §4-2-(a) 그대로.
+           (이 파일:552-555 의 build_hash_bucket_agg_sql 호출은 이미 84c6f29a 에서 src_db_type=/
+           tgt_db_type= 키워드를 넘기고 있음을 재확인 — 이번 커밋에서 추가 수정 불필요.)
+
+[services/diagnosis/adapters/multi_scope_adapter.py] (+9/-2)
+  :47-58   diagnose_multi_scope(...) 가 src_db/tgt_db dict 에서 뽑은 db_type 쌍을 plan_multi_scope 에도
+           같은 출처로 관통 전달(경계에서 한 번 해석 원칙 — resolve_hash_contract 판정과 동일 출처 재사용).
+
+[routes/diagnosis_route.py] (+9)
+  :1596-1604 diagnosis_drilldown_strategy 의 hash_avail 산출식(기존:
+             `hash_avail = bool(mk and mk.get("confirmed") and mk.get("is_hash_eligible"))` — DBMS 비인지)에
+             (req.src_conn/tgt_conn 의 db_type 쌍으로) hash_bucket_pair_status 판정 추가 — 진단서 §4-2-(b) 그대로.
+             drilldown_strategy.py 자체(NEXT_HASH 분기, 불리언 파라미터만 수신)는 무수정.
+
+[tests] 개방/게이트에 맞춘 단정 갱신·신규 케이스
+  tests/test_dbms_capabilities.py:51-58, 62-64, 78-97 — 오라클 hash_bucket 개방 단정 갱신 +
+    hash_bucket_pair_status 신규 케이스(same-DBMS 만 SUPPORTED, cross/미지원/미상 NOT_SUPPORTED)
+  tests/test_diagnosis_multi_scope.py:586-605 — L1 게이트(같은 DBMS만 후보 emit / 혼합·미개방 제외 /
+    db_type 미전달 시 무판정=기존 동작 유지) 회귀 케이스 신규
+
+--- ⑥ 위임표 등록 + 라이브 동등성 검증 (커밋 60c1b999) -----------------------
+
+[services/diagnosis/hash_contract.py] (+7/-1, :114-125)
+  _HASH_CONTRACTS 에
+      "oracle": ("services.diagnosis.dialects_hash.oracle", "OracleHashContract"),
+  1줄 추가 — 진단서 §4-3 그대로. 이 시점부터 get_hash_contract_pair("oracle","oracle") 이
+  OracleHashContract 를 실제로 반환하기 시작한다.
+
+[scripts/dev_e2e/hash_bucket_oracle_contract_equivalence_verify.py] (신규, 751 lines)
+  §5-2 절차 그대로의 라이브 검증 드라이버. 서브커맨드 5종:
+    fixture-create : 오라클 asis/tobe 에 검증용 픽스처 테이블 생성(NXDNP.MV_G7HB_SRC/MV_G7HB_TGT)
+    verify         : C1~C4 + 복합키 + R3 + R4 전체 실행
+    pg-golden      : PG↔PG sha256 골든셋(등록 전/후 비교용)
+    route-guard    : cross-DBMS 차단(S5) 실 서비스 라우트 재확인
+    route-wiring-probe : 운영 라우트(diagnose_multi_scope/execute_row_diff)까지 실제로 오라클
+                    HASH_BUCKET 이 도달하는지 실측 — 이 과정에서 G1/G2(§6) 발견.
+
+[tests] 등록 이후 오라클 케이스로 승격
+  tests/test_hash_contract_dialect_adapter.py:97-107, 128-140, 168-177, 219-227, 315-321
+    — 오라클 등록/페어 허용 케이스로 단정 갱신(이전에는 미등록 전제 단정)
+  tests/test_hash_bucket_factory_guard.py:31-36, 60-79
+    — 오라클 방출 SQL 실검사 신규(이전엔 미등록이라 검사 대상 자체가 없었음)
+  tests/test_underscore_alias_oracle_regression_static.py:229-268
+    — 진단서 §5-3 이 지목한 축 C 승격: "차단됨" 확인이 아니라 오라클 방출 SQL 자체(별칭 HB/KH/RH,
+    BITAND/STANDARD_HASH 사용)를 검사하도록 강화.
+
+
+════════════════════════════════════════════════════════════════
+3. 라이브 동등성 검증 결과 — PK 집합 대조 (§5-2 절차, 오라클 asis/tobe 실접속)
+════════════════════════════════════════════════════════════════
+목적: 자기일치성 대조로는 "신규 로직이 정답인지"는 검증되지 않는다(설계가 틀려도 재현은 됨) — 이미
+라이브 검증된 DIRECT_STREAM_COMPARE(오라클 exact_diff, SUPPORTED)를 "정답"으로 두고, HASH_BUCKET(오라클
+↔오라클, ⑥ 등록 이후)이 좁혀낸 불일치 행 PK 집합이 완전히 일치하는지 대조.
+
+픽스처: NXDNP.MV_G7HB_SRC / MV_G7HB_TGT (이 스크립트 전용, 2,000행, 케이스당 500행 구획)
+
+  케이스                    정답(DIRECT_STREAM) PK   해시(HASH_BUCKET) PK   누락  초과   판정
+  C1 전량일치(오탐 없음 확인)   0                        0                    0    0    PASS
+  C2 값변경(NUMBER)            20                       20                   0    0    PASS
+  C3 행누락+목적지추가          25 (src_only 20/tgt_only 5)  25 (동일 분류)     0    0    PASS
+  C4 컬럼일부불일치(TEXT)       20                       20                   0    0    PASS
+  복합키(REC_ID,GRP) 축        C2/C3/C4 전부 위와 동일   〃                   0    0    PASS
+
+분류 단위까지 일치 확인: source_only 20 / target_only 5 ↔ INSERT 20 / DELETE 5.
+
+[R3 — NLS_NUMERIC_CHARACTERS 상이 세션, §5-2-6]
+  원본(asis) 세션 ',.' / 목적지(tobe) 세션 '.,' 로 **실제로 다르게** 고정한 상태에서 C1~C4 + 복합키를
+  재실행 → PK 집합 완전히 그대로 일치. OracleHashContract 의 3인자 TO_CHAR nlsparam 고정(canon_component
+  NUMBER 분기)이 세션값에 무관하게 canonical 을 고정시킨다는 §2-3 설계가 실측으로 확인됨. → PASS
+
+[R4 — VARCHAR2 4000자 상한, §5-2-7]
+  OracleHashContract.MAX_CANONICAL_OPERANDS(=20) 경계로 precheck 실측:
+    구성요소 20개 이하 → precheck() None(통과)
+    구성요소 21개      → "ORACLE_HASH_CANONICAL_TOO_MANY_OPERANDS" HOLD 반환
+  precheck 를 우회해 실제로 21개 이상을 강제 실행하면 오라클이 ORA-01489(result of string concatenation
+  is too long) 로 실패함을 직접 실측 — precheck 상한이 실제 오라클 한계보다 먼저, 안전하게 걸린다. → PASS
+
+[S5 — cross-DBMS 여전히 차단, 진단서 §1-7/§4-2 재확인]
+  오라클↔PG, PG↔오라클 혼합 방언은 3계층 모두에서 차단 확인:
+    L1(capabilities.hash_bucket_pair_status) → NOT_SUPPORTED/HR_HASH_CROSS_DBMS
+    L2(adapters/base.resolve_hash_contract)  → (None, hold_reason)
+    L3(hash_contract.get_hash_contract_pair) → cross_db_comparable=False 가드로 계약 None
+  실 서비스(포트 8000, Basic Auth) 라우트 실측도 동일 — 혼합 방언은 CROSS_DBMS 로 즉시 응답, 오라클↔
+  오라클은 PG↔PG 와 동일하게 "기존 경로"(계약 조회는 통과)로 낙하함을 확인. → PASS
+
+[PG↔PG 무회귀, 진단서 §3-4]
+  등록 전/후 골든셋 sha256 완전 동일 대조:
+    offline(단위 표현식 대조)  before=after: d0d98f7d… (동일)
+    live(실제 실행, 활성 bucket) before=after: 9e6186a1… (동일), 활성 cell 12개 / 불일치 PK 20개 동일
+  contract 클래스/버전도 PgHashContract / "hashv1-md5-lenpfx-pg" 로 등록 전후 불변. → PASS
+
+증적 파일: E:\verify_screenshots_only\G7-STEP5-6-CAPABILITIES-OPEN-AND-CONTRACT-REGISTER\
+  oracle_hash_contract_equivalence.json (C1~C4·복합키·R3 원시결과)
+  pg_golden_BEFORE.json / pg_golden_AFTER.json (PG 무회귀 골든셋)
+  route_guard_live.json (S5 실 서비스 재확인)
+  route_wiring_gap_probe.json (§6 의 G1/G2 실측 근거)
+※ 이 폴더는 다른 세션과 공유되는 저장소라 이번 작업에서 git add/commit/push 는 수행하지 않음
+  ([[project_verify_repo_vs_code_repo_remote]] 원칙 — 코드/증적 push 는 각각 별도 저장소 규칙을 따름,
+  이번 텍스트 보고서만 이 verify repo 에 push).
+
+
+════════════════════════════════════════════════════════════════
+4. 회귀 검증
+════════════════════════════════════════════════════════════════
+[⑤ 커밋 시점] 관련 17개 파일 187 passed / 20 skipped, 신규 회귀 0건.
+[⑥ 커밋 시점] 관련 23개 파일 234 passed / 21 skipped / 1 failed, 신규 회귀 0건.
+  유일 실패 tests/test_scope_execution.py::test_sample_only 는 baseline(변경 전 HEAD) 워크트리에서도
+  동일하게 실패함을 대조 확인 — multi_scope_planner 소관의 사전 존재 결함, 이번 변경과 무접점.
+
+[CLAUDE.md 필수 회귀 — 최종 1회]
+  python samples/test_virtual_cases.py  → 8/8 통과
+  python samples/test_complex_cases.py  → 5/5 통과
+
+
+════════════════════════════════════════════════════════════════
+5. 커밋
+════════════════════════════════════════════════════════════════
+42094155 77ebfdb5c6f202a41912ad5ce242384d (local, main, code repo push 안 함)
+  feat(diagnosis): 오라클 HASH_BUCKET capabilities 개방 + L1 게이트 배선 (G7-STEP5-CAPABILITIES-OPEN)
+  6 files changed, 132 insertions(+), 12 deletions(-)
+  routes/diagnosis_route.py, services/diagnosis/adapters/multi_scope_adapter.py,
+  services/diagnosis/dbms/capabilities.py, services/diagnosis/multi_scope.py,
+  tests/test_dbms_capabilities.py, tests/test_diagnosis_multi_scope.py
+
+60c1b999dec1c8f71283d36b2e142d0668675444 (local, main, code repo push 안 함)
+  feat(diagnosis): 오라클 HASH_BUCKET 위임표 등록 — 오라클↔오라클 실사용 개방 (G7-STEP6-CONTRACT-REGISTER)
+  5 files changed, 845 insertions(+), 23 deletions(-)
+  scripts/dev_e2e/hash_bucket_oracle_contract_equivalence_verify.py(신규),
+  services/diagnosis/hash_contract.py, tests/test_hash_bucket_factory_guard.py,
+  tests/test_hash_contract_dialect_adapter.py, tests/test_underscore_alias_oracle_regression_static.py
+
+
+════════════════════════════════════════════════════════════════
+6. ⚠️ 미해소 — 운영 라우트 배선 갭 2건 (⑤⑥ 승인 범위 밖, 별도 승인 필요)
+════════════════════════════════════════════════════════════════
+계약 자체(OracleHashContract)가 정답임은 §3 라이브 검증으로 실측됐지만, route-wiring-probe 서브커맨드로
+운영 라우트를 직접 태워보니 **실제 운영 경로로는 아직 오라클 HASH_BUCKET 이 실행되지 않는다**. 완료된
+모듈(routes/diagnosis_route.py, row_diff.py)의 임의 수정은 CLAUDE.md 규칙상 사용자 확인 후 진행 대상이라
+이번 ⑤⑥ 범위에서는 착수하지 않고 실측 근거만 남긴다.
+
+[G1] dialect 인자 미전달 → 오라클 계약 SQL 을 postgres 로 오파싱
+  routes/diagnosis_route.py:804-807  diagnose_multi_scope(...) 호출 — dialect 인자 없음
+  routes/diagnosis_route.py:827-830  rd.execute_row_diff(...) 호출 — dialect 인자 없음
+  두 호출 모두 하류 함수의 dialect 기본값("postgres")으로 떨어진다. OracleHashContract 가 방출하는
+  SQL fragment(3인자 TO_CHAR, BITAND, STANDARD_HASH 등)를 sqlglot 이 postgres 방언으로 파싱하려 하면
+  ParseError 로 SQL 생성 자체가 실패한다. 이미 존재하는 _routing_dialect(req) 헬퍼를 두 호출부에
+  전달하기만 하면 해소되는 형태 — 실측으로 확인.
+
+[G2] row_diff 바인드 플레이스홀더가 오라클 드라이버와 불일치
+  services/diagnosis/row_diff.py:76,81  exp.Placeholder() 사용 지점
+  이 표현식이 oracle 방언으로 렌더될 때 '?' 로 나오는데, python-oracledb 는 위치 바인드로 '?' 를
+  지원하지 않아 DPY-4009 로 실패한다(PG 는 '%s' 로 렌더되어 정상 동작). exact_diff 오라클 이식(이미
+  SUPPORTED)이 이 문제를 어떻게 회피했는지 참고해 동일 패턴 적용이 필요해 보이나, 구체적 수정 방식은
+  ⑤⑥ 범위 밖이라 설계하지 않았다.
+
+위험도: 둘 다 **fail-closed**(거짓 일치가 아니라 실행 자체가 EXECUTION_ERROR/파싱 예외로 막힘)이므로
+데이터 정합성 위험은 없다. 다만 ⑥ 등록 이후 오라클 페어는 더 이상 "계약 없음 HOLD" 가 아니라
+"EXECUTION_ERROR" 로 실패 사유가 바뀌므로, 오라클 사용자에게 HASH_BUCKET 을 실제로 제공하려면 G1·G2
+후속 배선 지시가 별도로 필요하다. 다음 착수자는 이 보고서의 route_wiring_gap_probe.json 실측 결과부터
+재사용해 착수할 것을 권고한다.
+
+
+════════════════════════════════════════════════════════════════
+7. 결론
+════════════════════════════════════════════════════════════════
+G7-HASH-BUCKET-ORACLE 시리즈의 계약 계층(①③④⑤⑥)은 이번 작업으로 전부 완료·라이브 검증까지 마쳤다.
+오라클↔오라클 canonical hash 계약은 코드/설정 상으로 완전히 개방됐고, DIRECT_STREAM_COMPARE 대비 PK
+집합 완전일치·NLS 방어 실효·상한 방어 실효·cross-DBMS 무회귀·PG 무회귀까지 전부 실측 PASS 다.
+단, 운영 라우트(routes/diagnosis_route.py)의 dialect 배선(G1)과 row_diff 의 오라클 바인드 표기(G2)가
+남아 있어, 사용자가 실제로 오라클 테이블 쌍에 HASH_BUCKET 을 실행하면 지금은 EXECUTION_ERROR 로
+막힌다 — "계약 완료"를 "기능 완료"로 오인하지 말 것.
+
+작업명 : G7-STEP5-6-CAPABILITIES-OPEN-AND-CONTRACT-REGISTER
