@@ -1,0 +1,177 @@
+작업명 : M52-FIVE-REVEALED-FAILURES-ROOT-CAUSE-DIAGNOSE
+✅ 작업 완료 - M3 TIMEOUT 해소로 드러난 실제 실패 5건 전수 원인 진단(코드 수정 없음, 조사만 수행)
+
+────────────────────────────────────────────────────────────
+결론 요약(3줄)
+────────────────────────────────────────────────────────────
+1) test_one_click_full_run.py 2건        → 하니스 결함(제품 코드 정상). window≠globalThis 로 인한
+                                            bare `MvStageGate` 참조 ReferenceError → catch(e){return true}
+                                            로 항상 '이동 가능' 오판.
+2) test_candidate_draft_selection.py 2건 → 실제 제품 결함(신규 확정). execBtn.disabled 를 두 함수가
+                                            같은 호출 체인 안에서 순서대로 덮어써 draft 잠금이 사라짐.
+                                            M57 과 원인 함수가 정확히 같다(`_mvAnyRunActive()` 및 그
+                                            소비 함수군, 2026-07-12 커밋 3053d51c 도입) — 대상 DOM
+                                            속성만 다를 뿐 같은 뿌리 결함의 다른 발현.
+3) 안내문구 sticky 테스트 1건            → 순수 테스트 노후화 확정. candidateGeneralNotice 는
+   (+같은 결함의 형제 테스트 1건 추가 발견)  2026-07-02 커밋(7654365d)에서 의도적으로 제거(통합 후보
+                                            Grid 로 대체), 두 테스트 모두 그 이전(06-24/25)에 작성돼
+                                            갱신되지 않음.
+
+────────────────────────────────────────────────────────────
+1. test_one_click_full_run.py 2건 — 하니스 결함(제품 정상)
+────────────────────────────────────────────────────────────
+- test_full_run_blocked_stays_on_failed_stage_not_result
+- test_full_run_blocked_locks_downstream_via_gate
+
+증상: BLOCKED(분석 차단) 시나리오에서 navResult/navCount/navCand/navVal 의 disabled 가 전부 False
+(기대: True) — 잠겨야 할 하위 탭이 안 잠긴 것처럼 관측됨.
+
+근본 원인(코드 근거):
+- ui/js_stage_gate.py 는 `window.MvStageGate = {...}` 로만 노출한다. 실 브라우저는 window===globalThis
+  라서 이 대입이 곧 전역변수 `MvStageGate` 도 만든다.
+- ui/tabler_renderer.py 의 `_mvCanNavStep`(6264행)/`_mvCanNavTab`(6305행)/`_mvWfStageAccessible`(6244행)은
+  `if (!window.MvStageGate) return ...` 로 존재를 확인한 뒤, 본문에서는 `window.` 접두어 없이
+  bare `MvStageGate.canNavigateStep(...)` / `MvStageGate.isTabAccessible(...)` 를 호출한다(6267·6269·
+  6313행). 실 브라우저에서는 정상 동작(window===globalThis 이므로 bare 참조가 곧 window 참조).
+- 그런데 tests/test_one_click_full_run.py 의 node DOM 스텁은 `windowStub` 이라는 **별개의 순수 객체**를
+  만들어 `globalThis.window = windowStub` 로만 연결한다(249~276행) — 브라우저의 window===globalThis
+  불변식이 깨진다. 그 결과 `window.MvStageGate = {...}` 는 windowStub 객체에만 프로퍼티를 추가할 뿐
+  전역 스코프에 `MvStageGate` 라는 이름을 만들지 않는다.
+- 위 세 함수 본문의 bare `MvStageGate.xxx(...)` 호출은 이 하니스에서 `ReferenceError: MvStageGate is
+  not defined` 를 던지고, 세 함수 모두 `catch (e) { return true; }` 로 감싸져 있어 예외가 삼켜지며
+  "이동 가능(true)"으로 항상 오판된다 → 상단 탭 disabled 계산(`disabled: !navClickable`)이 항상 False.
+
+실측 검증(스크래치 디버그 하니스, X:\Projects\Migration_Validator\scratchpad\_m52\):
+- debug_harness2.js: `typeof MvStageGate` = 'undefined' (window.MvStageGate 와 다른 객체) 직접 확인.
+  bare 접근 시 "MvStageGate is not defined" 예외 실측.
+- debug_harness.js: 이 하니스로 blocked_tbl 시나리오 실행 시 `_mvCanNavTab('result')` = true,
+  `_mvCanNavStep('result')` = true (기대: false) — 실패 재현.
+- debug_harness3.js: 스크립트 실행 직후 `globalThis.MvStageGate = globalThis.window.MvStageGate;`
+  한 줄만 추가(=실 브라우저의 window===globalThis 를 흉내)하면 같은 시나리오에서
+  `_mvCanNavTab('result')` = false, `_mvCanNavStep('result')` = false 로 **정확히 기대값과 일치**.
+  → 게이트 로직 자체(services/workflow_stage_gate.py 와 parity 를 보장하는 MvStageGate.canNavigateStep/
+  isTabAccessible)는 정상이며, 결함은 순수히 하니스의 window 스텁 설계에 있음을 확정.
+
+영향 범위(참고): 동일 bare-참조 패턴이 8859·8870행(일괄검증 탭 뷰 `MvStageGate.computeTabView`)에도
+있다 — 같은 종류의 node 하니스를 쓰는 일괄검증 탭 테스트가 있다면 동일 결함으로 오탐할 수 있다
+(이번 조사 범위 밖, 확인만 해둠).
+
+M4/M3 선례와의 관계: BACKLOG.md M4(테스트 하니스 낡은 계약)·M3(setTimeout 지연 계약 미준수)와 동일한
+유형 — "제품 코드는 실 브라우저 계약(window===globalThis, 타이머 지연)에 맞게 정상 작성됐는데, node
+DOM 스텁이 그 계약을 지키지 않아 생기는 하니스 결함". 제품 코드 회귀 아님.
+
+대응 방향(미실행 — 조사만 수행): tests/test_one_click_full_run.py 의 _NAV_HARNESS 스크립트 실행 직후
+`globalThis.MvStageGate = globalThis.window.MvStageGate;` 1줄 추가(제품 코드 무변경, 하니스 전용 패치,
+M3 의 storageStub.setItem 1줄 패치와 동일 성격). 별도 FIX 지침으로 착수 권장.
+
+────────────────────────────────────────────────────────────
+2. test_candidate_draft_selection.py 2건 — 실제 제품 결함(확정)
+────────────────────────────────────────────────────────────
+- test_checkbox_change_keeps_table_and_plan_marks_draft
+- test_uncheck_all_does_not_switch_to_count_only_before_apply
+
+증상: 체크박스 변경으로 draft(현재 체크) != applied(_genSelSnapshot, 마지막 생성/실행 기준) 상태가
+되면 '선택 변경사항 미적용' 배지(candidateDraftNotice)는 정상 표시되는데, execBtn(실행 버튼)의
+disabled 는 기대(True)와 달리 False — 배지와 버튼 상태가 서로 모순됨.
+
+근본 원인(코드 근거) — checkLimit() 호출 체인 안에서 execBtn.disabled 를 쓰는 두 함수가 충돌:
+  ① ui/tabler_renderer.py:24629~24632  _updateExecSelectionSummary()
+     `execBtn.disabled = regen;`  (regen = _isRegenerateRequired(), draft≠applied 여부)
+     — 커밋 5a0c1668(2026-06-06, "require regenerate after selection changes")에서 도입.
+  ② ui/tabler_renderer.py:28497~28505  _mvRefreshTopExecBtnState()
+     `b.disabled = active;`  (active = _mvAnyRunActive(), "지금 뭔가 실행 중인가"만 판정,
+     _isRegenerateRequired() 는 전혀 보지 않음)
+     — 커밋 3053d51c(2026-07-12, "[긴급 수정 §1]")에서 도입. 5a0c1668 보다 약 5주 뒤.
+  호출 순서: checkLimit() → refreshFinalSelectionState() 내부에서
+    4) _updateExecSelectionSummary()  ← ① 이 execBtn.disabled = true(regen) 로 정확히 설정
+    …
+    _mvUpdateSingleSectionHeader()    ← 같은 refreshFinalSelectionState() 함수 뒷부분(24814행)에서 호출
+      → _singleSyncStepBtnLabels()(6040행)
+        → _mvRefreshTopExecBtnState()(6059행)  ← ② 가 "지금 실행 중 아님" 이라며 execBtn.disabled = false
+                                                   로 **무조건 덮어씀**(regen 값을 아예 참조 안 함)
+  즉 같은 동기 호출 체인 안에서 ①이 세운 잠금을 ②가 곧바로 무효화한다 — "나중에 실행되는 함수가
+  이긴다"는 전형적 다중-writer 충돌.
+
+실측 검증(계측 트레이스, scratchpad/_m52/cand_debug_harness.js):
+  [TRACE] after _updateExecSelectionSummary: execBtn.disabled= true  regen= true
+  [TRACE] entering _mvRefreshTopExecBtnState: execBtn.disabled(before)= true  _mvAnyRunActive()= false
+  [TRACE] after _mvRefreshTopExecBtnState: execBtn.disabled= false
+  === FINAL execBtn.disabled= false ===
+  → 가설과 정확히 일치. 이 결함은 node 하니스 문제가 아니라 **실 브라우저에서도 동일하게 재현되는
+  제품 코드 결함**이다(window===globalThis 여부와 무관 — 순수 JS 함수 호출 순서 문제).
+
+실사용자 영향: 사용자가 이미 실행에 쓰인 후보(applied)에서 체크를 바꿔 draft 를 만들면, 경고 배지는
+뜨는데 '▶ 통계검증 실행' 버튼은 눌러진다 — 재생성(SQL 재생성)을 건너뛴 채 구 선택 기준으로 실행을
+시도할 수 있는 상태로 보인다(버튼 자체가 잘못된 신호를 준다). runExecute() 클릭 핸들러 내부에
+별도의 regen 재검사가 있는지는 이번 조사 범위 밖(버튼 disabled 신호의 결함만 확정).
+
+────────────────────────────────────────────────────────────
+M57 연관성 확인(지침 명시 요청 사항)
+────────────────────────────────────────────────────────────
+M57 진단 보고서(M57-GB-CHECKBOX-CLICK-REVERT-ROOT-CAUSE-DIAGNOSE.txt, 같은 verify 저장소에 방금
+push됨 — 동시 진행 중이던 다른 세션이 완료)를 확인한 결과, M57 은 "같은 체크박스 상태관리 버그의
+다른 증상"이 **맞다 — 다만 대상 속성이 아니라 원인 함수가 같다.**
+
+- M57 확정 원인(해당 보고서 인용): 통계검증 실행 종료 처리(runCount/runGenerate/runExecute/
+  _runExecutePlanSets 4개 경로, finally 블록) 안에서 `_mvSyncRunLockedControls()` 재계산 호출이
+  "실행 버튼 스피너 제거"보다 **먼저** 실행돼, 그 시점엔 아직 버튼 HTML에 스피너가 남아있어
+  `_mvAnyRunActive()`(28455행)가 true 를 반환 → `body.mv-run-locked` 가 stale true 로 영구 고착
+  → 그 CSS(`pointer-events:none`)가 체크박스의 마우스 클릭 자체를 hit-test 단계에서 차단(클릭이
+  이벤트 타겟에 도달하지 못함, checkLimit 자체가 아예 호출 안 됨).
+- 이번 조사(항목 2) 확정 원인: checkLimit() 호출 체인 안에서 `_updateExecSelectionSummary()`
+  (draft≠applied 기준으로 execBtn.disabled=true 설정) 다음에 `_mvUpdateSingleSectionHeader()` →
+  `_singleSyncStepBtnLabels()` → **`_mvRefreshTopExecBtnState()`**(28497행)가 같은
+  **`_mvAnyRunActive()`**(28455행)를 호출해 execBtn.disabled 를 규정과 무관하게 false 로 덮어씀.
+- **핵심 일치점**: 두 결함 모두 정확히 **같은 판정 함수 `_mvAnyRunActive()`**(그리고 이를 소비하는
+  `_mvSyncRunLockedControls()`/`_mvRefreshTopExecBtnState()`)를 원인으로 한다 — 둘 다 2026-07-12
+  커밋 3053d51c("[긴급 수정 §1] 실행 중 잠금")이 도입한 같은 기능군이다. 대상 DOM 속성은 다르다
+  (M57=body 클래스→체크박스 pointer-events, 이번=execBtn.disabled 자체)지만, 결함의 뿌리는
+  "`_mvAnyRunActive()` 소비자 여러 곳이 각자 다른 시점에 재호출되며, 그 시점의 신선도(스피너가
+  아직 안 지워졌거나, 더 구체적인 판정(regen)을 무시함)를 서로 조율하지 않는다"는 동일 설계
+  취약점이다. 즉 M57과 이번 2건은 **"같은 버그의 다른 증상"이라기보다 "같은 뿌리 함수군의 서로
+  다른 두 결함"**으로 보는 것이 더 정확하다.
+- 권고: `_mvAnyRunActive()`를 소비하는 지점(현재 확인된 것만 `_mvSyncRunLockedControls`·
+  `_mvRefreshTopExecBtnState`, 그 외 28301행 부근도 동일 계열로 추정) 전수를 한 번에 재검토해,
+  ① 호출 시점(스피너 제거 전/후, draft-gate 계산 전/후)과 ② 더 구체적인 개별 게이트(regen 등)와의
+  우선순위를 함께 정리하는 편이 개별 지점을 하나씩 땜질하는 것보다 재발을 막기 좋다(별도 설계
+  검토 지침 권장 — 이번 조사 범위 밖).
+
+────────────────────────────────────────────────────────────
+3. test_candidate_notice_sticky_fix_uses_common_offset — 테스트 노후화(확정)
+────────────────────────────────────────────────────────────
+증상: `id="candidateGeneralNotice"` 가 조립된 HTML에 없다는 단정 실패(node 미사용, 순수 문자열 검사).
+
+근본 원인: 의도된 삭제. ui/tabler_renderer.py:2885 에 제품 코드 자신의 주석이 이를 명시한다 —
+"<!-- (제거) 후보추천 기준/안내 장문 박스(candidateGeneralNotice) — 통합 후보 Grid 로 대체(렌더 제거). -->"
+- 삭제 커밋: 7654365d (2026-07-02, "feat(ui): 후보추천 화면 통합 — 단일 후보 Grid(유형/원본/목적 컬럼 분리)")
+- 해당 단정이 추가된 시점: tests/test_candidate_draft_selection.py 는 72ede65c(2026-06-25),
+  즉 삭제보다 약 1주 **이전** — 삭제 커밋이 이 테스트를 갱신하지 않고 지나감.
+- 코드 자체는 안전: ui/tabler_renderer.py:26005~26018 의 `_genNotice = document.getElementById(
+  'candidateGeneralNotice')` 참조는 `if (_genNotice) ...` 로 null-가드돼 있어 요소가 없어도 런타임
+  에러 없이 조용히 no-op — "죽은 토글 코드"일 뿐 기능 결함은 아니다.
+
+부수 발견(지침 범위 밖, 같은 결함의 형제 테스트 — 참고용으로 함께 보고):
+  tests/test_iv08_iv11_final_fix.py::test_count_only_pane_makes_header_non_sticky (90행) 도
+  동일하게 `id="candidateGeneralNotice"` 를 단정하며 **현재 FAIL 상태**임을 확인(이 테스트는
+  5431617(2026-06-24) 추가, 역시 삭제보다 이전). BACKLOG M52 목록엔 없던 6번째 실패이나 원인은
+  완전히 동일(테스트 노후화)이므로 함께 갱신 대상으로 기록해 둔다.
+
+대응 방향(미실행): 두 테스트 모두 `id="candidateGeneralNotice"` 단정을 삭제하고, 통합 후보 Grid 가
+COUNT-only 시 올바른 안내를 표시하는지를 그 Grid 의 실제 DOM/클래스 기준으로 재작성 권장(§4 draft
+정책 조사와 무관 — 별도 소규모 FIX). ui/tabler_renderer.py:26005~26018 의 죽은 _genNotice 토글 코드
+정리는 선택 사항(이번 결함과 무관, 사용자 확인 후 별도 진행).
+
+────────────────────────────────────────────────────────────
+대응 방향 요약표
+────────────────────────────────────────────────────────────
+항목                                          판정          대응 우선순위
+─────────────────────────────────────────── ────────────── ───────────────────────────
+1. one_click_full_run BLOCKED nav disabled 2건 하니스 결함    낮음(제품 정상, 하니스 1줄 패치)
+2. candidate_draft_selection execBtn 2건       실제 결함(신규) 높음(사용자 오조작 가능 신호 결함)
+3. candidateGeneralNotice sticky 1건(+형제 1건) 테스트 노후화  낮음(단정 갱신만 필요)
+
+이번 작업은 조사만 수행했으며 코드 변경은 없음. 위 3방향 각각 별도 FIX/UPDATE 지침으로 착수 권장.
+
+작업명 : M52-FIVE-REVEALED-FAILURES-ROOT-CAUSE-DIAGNOSE
+✅ 작업 완료 - M52 실패 5건(+형제 1건) 원인 전수 진단: 1)하니스 결함 2건, 2)실제 결함 2건(신규 확정,
+M57 과 유사 패턴이나 별개), 3)테스트 노후화 1건(+동일 원인 형제 1건 추가 발견). 코드 수정 없음.
