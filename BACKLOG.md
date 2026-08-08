@@ -2938,9 +2938,10 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\M3-NODE-HARNESS-TIMEOUT-ROOT-CAUSE-DIAGNOSE.txt
 - 참고: E:\verify_reports\M3-NODE-HARNESS-INFINITE-LOOP-FIX.txt
 
-### M52. 전수원인 진단 완료 — 하니스결함 2건(제품정상)·실제결함 2건(신규확정, M57과 뿌리함수 공유)·테스트노후화 1건(+형제1건 추가발견)
+### M52. 전수원인 진단 완료 — 하니스결함 2건(승인대기)·실제결함 2건(M57과 뿌리함수 공유, 승인대기)·**테스트노후화 1건+형제1건 ✅ 해결완료**
 - 발견일: 2026-08-07 (M3-NODE-HARNESS-INFINITE-LOOP-FIX 검증 중 부수 발견) / 원인진단:
-  2026-08-08 (M52-FIVE-REVEALED-FAILURES-ROOT-CAUSE-DIAGNOSE, 코드 무변경)
+  2026-08-08 (M52-FIVE-REVEALED-FAILURES-ROOT-CAUSE-DIAGNOSE, 코드 무변경) / [3] 해결:
+  2026-08-08 (M52-3-CANDIDATE-NOTICE-STALE-ASSERTION-UPDATE, 코드 커밋 9b0ebb9b)
 - **[1] 하니스 결함(제품 정상) 2건** — `test_full_run_blocked_stays_on_failed_stage_not_result`/
   `test_full_run_blocked_locks_downstream_via_gate`. node 하니스가 `windowStub`이라는 별개
   객체를 만들어 `window===globalThis` 불변식을 깨서, `window.MvStageGate=...`가 전역
@@ -2961,18 +2962,26 @@ git -C E:/verify_reports worktree remove <임시경로>
   이번=execBtn.disabled가 더 구체적인 게이트(regen)를 무시하고 덮어씀. **권고**:
   `_mvAnyRunActive()` 소비 지점 전수를 한 번에 재검토(호출 시점의 신선도 + 우선순위 조율)
   하는 게 개별 땜질보다 재발 방지에 낫다 — 별도 설계검토 지침 권장.
-- **[3] 테스트 노후화(확정) 1건 + 형제 1건 추가발견** —
+- **[3] ✅ 해결 완료 — 테스트 노후화(확정) 1건 + 형제 1건**(추가발견) —
   `test_candidate_notice_sticky_fix_uses_common_offset`(06-25 작성) 단정 대상
   `candidateGeneralNotice`가 06-25보다 나중(07-02, 커밋 7654365d)에 "통합 후보 Grid로
   대체"하며 의도적으로 삭제됨(제품 코드 자체 주석에 명시). null-가드돼 있어 기능 결함
   아님(죽은 토글 코드). **부수 발견**: `test_iv08_iv11_final_fix.py::
   test_count_only_pane_makes_header_non_sticky`도 동일 원인으로 현재 FAIL 중(원 5건
   목록엔 없던 6번째, 같이 갱신 대상).
-- 대응 방향: 3방향 각각 별도 지침 착수 권장 — [1]·[3]은 낮은 위험(하니스/테스트 패치),
-  [2]는 실제 결함이라 우선순위 높음(단, M57과 함께 `_mvAnyRunActive()` 소비자 전수
-  재검토로 묶어서 가는 게 나을 수 있음 — 착수 방식 결정 필요).
+  **해결 요약**: `test_candidate_draft_selection.py`의 단정을 `id="colSelectOut"`(대체된
+  통합 Grid 컨테이너)로 갱신, `test_iv08_iv11_final_fix.py`는 실제 로직 함수
+  (`_countOnlyCandidateNoteHtml`/`_csoEl.innerHTML=...`) 기준으로 갱신 — 검증 의도(sticky
+  헤더가 본문 안 덮음, COUNT-only 시 안내 정상 전환)는 유지, 판정 대상만 새 DOM에 맞춤.
+  대상 2건 통과, 관련 서브셋 95 passed(실패 4건은 M52-항목2 그 자체 2건 + 사전존재
+  무관 2건으로 개별 확인, 신규 회귀 0건). 작업 디렉터리에 다른 세션 미커밋 변경 14개
+  파일이 있었으나 pathspec 커밋으로 자기 파일 2개만 격리.
+- 대응 방향(잔존, [1]·[2]): 각각 별도 지침 착수 권장 — [1]은 낮은 위험(하니스 패치),
+  [2]는 실제 결함이라 우선순위 높음(M57과 함께 `_mvAnyRunActive()` 소비자 전수
+  재검토로 묶어서 진행 — 별도 승인 완료, 착수 지침 나감).
 - 참고: E:\verify_reports\M3-NODE-HARNESS-INFINITE-LOOP-FIX.txt
 - 참고: E:\verify_reports\M52-FIVE-REVEALED-FAILURES-ROOT-CAUSE-DIAGNOSE.txt
+- 참고: E:\verify_reports\M52-3-CANDIDATE-NOTICE-STALE-ASSERTION-UPDATE.txt
 
 ### M53. ✅ Phase1~4 완료+검증됨 — SQLite DB 경로 계산 단일 진실 출처화(5단계 실이관은 "안전" 판정, 최종 승인 대기)
 - 발견/계기: 2026-08-07 / 1~4단계 완료: 2026-08-07(코드 커밋 23e3fb60) / 검증: 2026-08-07
