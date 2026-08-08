@@ -1,0 +1,135 @@
+작업명: F10-BATCH-RESULT-VIEW-UI-EXPOSE
+====================================================================================
+✅ 작업 완료 - 일괄검증 현황판 "결과 보기" UI 노출 + 회차(execution_run_id) 고정 라우팅
+====================================================================================
+
+────────────────────────────────────────────────────────────────────────────
+1. 배경 (BACKLOG.md F10)
+────────────────────────────────────────────────────────────────────────────
+F10 (가)안(FK 컬럼 result_execution_run_id 추가 — batch_execution_state ↔
+batch_wrapper_result 회차 연결)은 F10-APPROVED-A-OPTION-SCHEMA-CHANGE-IMPLEMENT
+(코드 커밋 f67cf9a)에서 스키마·배선까지 완료됐으나, 화면에서 "결과 보기"를 실제로
+열어주는 UI 노출은 의도적으로 범위 밖(성급히 열면 47.9% 확률 오배정/빈 화면 노출
+위험 — 원본 진단 BATCH-EXECUTION-RESULT-VIEW-PREREQ-CHECK.txt §6)이었다. 이번
+작업은 그 "마지막 단계"만 다룬다: 승인 완료, 스키마·배선 재작업 없음.
+
+────────────────────────────────────────────────────────────────────────────
+2. 구현 내용 — 파일:라인
+────────────────────────────────────────────────────────────────────────────
+[ui/js_job_dashboard.py]
+  ・ :570-579  _jdCompletedRowHtml — 클릭 가능 판정을 source==='single' 단독에서
+    source==='batch'(batch_run_id·result_execution_run_id 둘 다 있을 때)까지 확장.
+    클릭 시 mvOpenBatchResultView(batchRunId, executionRunId) 호출.
+  ・ :598-604  mvOpenBatchResultView(batchRunId, executionRunId) 신규 함수 —
+    goToResultsDetail(batchRunId, {execution_run_id: executionRunId}) 를 호출해
+    기존 '검증 결과 상세'(tab-results) 화면을 그 회차로 고정해서 연다(새 화면 없음).
+  ・ :718  _jdFetchCompletedIfVisible — fetch('/jobs/completed?source=single') 로
+    고정돼 있던 완료 목록 폴링을 source=single,batch 로 확장.
+    [지침 범위 확장 사유] 이 fetch 를 안 고치면 위 클릭가능 판정을 아무리 열어도
+    batch 완료 항목 자체가 목록에 안 실려 화면에 뜨지 않는다(F8 시점엔 single 전용
+    범위였던 게 그대로 남아있던 결함) — 지침의 "결과 보기를 실제로 열어주는 마지막
+    단계"에 필수적으로 포함되는 부분이라 판단해 함께 처리했다.
+
+[ui/tabler_renderer.py]
+  ・ :32792  var _resPinnedExecRunId / _resPinnedForBatchId 신규 module-scope 변수.
+  ・ :32981-32989  goToResultsDetail(bid, filters) — filters.execution_run_id 를
+    받아 위 변수에 저장(생략 시 기존처럼 최신 회차 조회, 하위호환 — 기존 호출부
+    3곳 무수정으로 그대로 동작).
+  ・ :32807,32814  loadResultsDetail() — 저장된 pinnedExec 값을 execution_run_id
+    쿼리 파라미터로 GET /batch/runs/{bid}/wrapper-results/page 요청에 함께 전달.
+    이 값이 없으면 서버가 기본으로 최신 회차만 반환한다(F10 원 진단서가 지적한
+    "최신 회차만 붙잡는" 버그 구조 — 그래서 UI 가 반드시 pin 값을 넘겨야 한다).
+  ・ 결과 상세 화면 #resSummary 상단에 "🔒 특정 회차 고정 조회 · execution_run_id: …"
+    배지 추가 — 사용자가 지금 보는 게 최신이 아니라 과거 특정 회차임을 인지하게.
+  ・ :32582  _mvClearWorkProjectSubState — 프로젝트 전환 시 회차 고정값도 함께
+    초기화(남아있으면 다음 프로젝트의 batch_run_id 재조회 시 엉뚱한 회차로 고정될
+    위험 방지).
+
+────────────────────────────────────────────────────────────────────────────
+3. 재실행 2회 이상 실측 — 회차별 정확한 매칭 증거
+────────────────────────────────────────────────────────────────────────────
+같은 batch_run_id=F10VERIFY_201326 로 완료 회차 2건을, 실제 오케스트레이터와
+동일한 서비스 함수(acquire_run_lock → save_wrapper_results → complete_run,
+F10 (가)안이 실제 배선한 순서 그대로)로 재현했다. 회차1은 TB_F10_A, 회차2는
+TB_F10_B/TB_F10_C 로 내용을 확실히 다르게 만들어 섞이면 즉시 드러나도록 설계했다.
+
+  회차1 result_execution_run_id = F10VERIFY_201326-20260808111327  (TB_F10_A)
+  회차2 result_execution_run_id = F10VERIFY_201326-20260808111329  (TB_F10_B, TB_F10_C)
+
+[A] HTTP 레벨 — 15/15 PASS
+  ・ GET /jobs/completed?source=batch → 두 회차가 각각 다른 result_execution_run_id
+    로 노출(오배정 0건, 저장 시점 값과 정확히 일치).
+  ・ GET /batch/runs/{bid}/wrapper-results/page?execution_run_id=<회차1>
+    → TB_F10_A 만 반환(회차2 데이터 미포함).
+  ・ 같은 API ?execution_run_id=<회차2> → TB_F10_B/TB_F10_C 만 반환(회차1 미포함).
+  ・ 대조군: execution_run_id 미지정(기존 동작) → 여전히 최신(회차2)만 반환됨을
+    확인 — "그래서 UI 가 반드시 pin 값을 넘겨야 하는 이유"를 실측으로 증명.
+
+[B] 브라우저 클릭스루(Playwright, 실 서버 포트 8000, 이번 수정 코드 반영본) — 12/12 PASS
+  1) 현황판 완료 목록에 이 batch_run_id 의 clickable 행이 정확히 2건 노출.
+     onclick 속성에 각각 mvOpenBatchResultView('F10VERIFY_201326','<회차1>') /
+     ('F10VERIFY_201326','<회차2>') 정확히 포함(회차 뒤바뀜 없음).
+  2) 회차1 행 클릭 → wrapper-results/page 요청에 execution_run_id=<회차1> 포함,
+     화면에 TB_F10_A 만 표시, TB_F10_B/TB_F10_C 미표시.
+  3) 현황판 복귀 후 회차2 행 클릭 → execution_run_id=<회차2> 포함, 화면에
+     TB_F10_B/TB_F10_C 만 표시, TB_F10_A 미표시(핵심 대조 — 오배정 없음).
+  4) 회차 고정 배지에 execution_run_id 값 정확히 표시.
+
+  스크린샷 3장(01_job_dashboard_completed_list.png, 02_click_round1_result.png,
+  03_click_round2_result.png) → X:\Verify\verify_screenshots_only\
+  F10-BATCH-RESULT-VIEW-UI-EXPOSE\ 저장 후 push 완료(커밋 f12d43c).
+
+────────────────────────────────────────────────────────────────────────────
+4. 개별검증(single) 회귀 확인 결과 — F8/F9 흐름 안 깨뜨렸는지
+────────────────────────────────────────────────────────────────────────────
+・ 코드 대조: _jdCompletedRowHtml 의 viewableSingle 조건식은 원본과 완전히 동일
+  (j.source === 'single' && ex.result_viewable === true), single 분기의 openCall
+  도 mvOpenSingleResultView('<run_id>') 로 원본과 바이트 단위로 동일 — 로직 변경 0.
+・ 완료 목록 폴링 확장(source=single → source=single,batch)은 single 응답의 필터
+  조건을 좁히지 않는 순수 추가라 single 완료 항목 노출·개수·정렬에 영향 없음.
+・ 브라우저 실측(§3-B) 세션에서 현황판 완료 목록에 clickable 행이 총 27건 렌더됐고
+  (batch 2건 + 기존 single/batch 실사용 이력 25건), 렌더 중 콘솔 에러 없이 정상
+  동작 확인 — 기존 single 항목의 렌더링도 이번 변경으로 깨지지 않았음을 함께 확인.
+・ pytest 회귀: tests/test_job_dashboard_section_auto_collapse.py,
+  tests/test_job_registry.py 총 23건 전원 통과(0 회귀).
+・ CLAUDE.md 필수 회귀: python samples/test_virtual_cases.py 8/8 통과,
+  samples/test_complex_cases.py 5/5 통과.
+・ 관련 서브셋(batch_wrapper_result_persistence·batch_summary_dashboard·
+  batch_effective_selection·batch_route_scope_guard·batch_async_parallel_wrapper
+  등) 실행 결과 4건 실패 확인 — baseline(git stash 로 이번 변경 완전 제거한 clean
+  HEAD)에서 동일한 4건이 동일하게 실패함을 대조 확인(1건은 PROD-DB-WRITE-BLOCKED
+  가드로 인한 환경 제약, 3건은 무관한 기존 결함) → 이번 변경발 신규 회귀 0건.
+
+────────────────────────────────────────────────────────────────────────────
+5. 동시 세션 충돌 방어 (특기사항)
+────────────────────────────────────────────────────────────────────────────
+작업 중 ui/tabler_renderer.py 를 다른 세션이 STAGE5-AXIS-LABEL-CLICK-FIX 로 동시
+편집 중임을 발견(공유 작업트리). `git commit -- <pathspec>` 이 스테이징된 index 를
+무시하고 working tree 전체를 커밋한다는 점을 놓쳐 1차 커밋(7316e171)에 그 세션의
+미커밋 변경 10곳이 섞여 들어갔음을 즉시 발견 → git reset --soft HEAD~1 로 롤백
+(working tree 무접촉) → git apply --cached 로 내 5개 hunk만 재추출·재스테이징
+(git diff --cached 로 STAGE5 마커 0건 확인) → pathspec 없는 커밋으로 재작업해
+바로잡았다. 다른 세션의 작업트리 변경분은 처음부터 끝까지 무손상·무접촉 유지.
+
+────────────────────────────────────────────────────────────────────────────
+6. 커밋 해시 / 재기동 기록
+────────────────────────────────────────────────────────────────────────────
+・ 코드 저장소(X:\Projects\Migration_Validator) HEAD 커밋:
+    ef87819fcfe3627f68b0d3b5a8ccc224d585022a
+  (코드 repo 는 커밋까지만 — push 안 함, 사내 규칙)
+・ 서버 재기동: 2026-08-08 20:14 (검증용, MV_AUTH_DISABLED=1) →
+  2026-08-08 20:19 (정상 인증 모드로 원복, MV_AUTH_DISABLED 해제)
+・ 증적 저장소(verify_screenshots_only) 커밋: f12d43c (push 완료, worktree 경유
+  — 공유 트리 무접촉 방식 [[feedback_verify_reports_shared_dir_concurrency]])
+
+────────────────────────────────────────────────────────────────────────────
+7. 변경/생성 파일 목록
+────────────────────────────────────────────────────────────────────────────
+  M  ui/js_job_dashboard.py
+  M  ui/tabler_renderer.py
+  (신규 스크린샷 3장은 verify_screenshots_only 저장소에 별도 push — §3-B 참조)
+
+====================================================================================
+작업명: F10-BATCH-RESULT-VIEW-UI-EXPOSE
+✅ 작업 완료 - 일괄검증 현황판 "결과 보기" UI 노출 + 회차(execution_run_id) 고정 라우팅
+====================================================================================
