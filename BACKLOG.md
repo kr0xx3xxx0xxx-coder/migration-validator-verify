@@ -2938,7 +2938,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\M3-NODE-HARNESS-TIMEOUT-ROOT-CAUSE-DIAGNOSE.txt
 - 참고: E:\verify_reports\M3-NODE-HARNESS-INFINITE-LOOP-FIX.txt
 
-### M52. 전수원인 진단 완료 — 하니스결함 2건(승인대기)·실제결함 2건(M57과 뿌리함수 공유, 승인대기)·**테스트노후화 1건+형제1건 ✅ 해결완료**
+### M52. 하니스결함 2건(승인대기) 남음 · **실제결함 2건 ✅ 해결완료(M57과 함께) · 테스트노후화 1건+형제1건 ✅ 해결완료**
 - 발견일: 2026-08-07 (M3-NODE-HARNESS-INFINITE-LOOP-FIX 검증 중 부수 발견) / 원인진단:
   2026-08-08 (M52-FIVE-REVEALED-FAILURES-ROOT-CAUSE-DIAGNOSE, 코드 무변경) / [3] 해결:
   2026-08-08 (M52-3-CANDIDATE-NOTICE-STALE-ASSERTION-UPDATE, 코드 커밋 9b0ebb9b)
@@ -2950,18 +2950,25 @@ git -C E:/verify_reports worktree remove <임시경로>
   `globalThis.MvStageGate = globalThis.window.MvStageGate` 1줄 추가하면 기대값과 정확히
   일치 확인. M3/M4와 동일 유형(하니스가 브라우저 계약 미준수), 제품 회귀 아님.
   대응: 하니스 1줄 패치(M3의 storageStub 패치와 동일 성격).
-- **[2] 실제 제품 결함(신규 확정) 2건** — `test_checkbox_change_keeps_table_and_plan_marks_draft`/
+- **[2] ✅ 해결 완료 — 실제 제품 결함(신규 확정) 2건** — `test_checkbox_change_keeps_table_and_plan_marks_draft`/
   `test_uncheck_all_does_not_switch_to_count_only_before_apply`. `checkLimit()` 호출 체인
   안에서 `_updateExecSelectionSummary()`(draft≠applied면 execBtn.disabled=true, 정확)가 세운
   잠금을, 같은 체인 뒤쪽의 `_mvRefreshTopExecBtnState()`(regen 여부는 안 보고 "지금 뭔가
   실행 중인가"만 보는 `_mvAnyRunActive()`만 확인)가 무조건 false로 덮어씀. 실측 트레이스로
-  정확히 확인(disabled: true→false 순서). **사용자 영향**: 후보를 바꿔 재생성이 필요한
-  상태에서도 실행 버튼이 눌리는 잘못된 신호 — 구 선택 기준으로 실행 시도 가능.
+  정확히 확인(disabled: true→false 순서). **사용자 영향(해소됨)**: 후보를 바꿔 재생성이 필요한
+  상태에서도 실행 버튼이 눌리는 잘못된 신호 — 구 선택 기준으로 실행 시도 가능했던 문제.
+  **해결(2026-08-08, MVANYRUNACTIVE-CONSUMERS-FULL-REVIEW-AND-FIX, 코드 커밋 68a62870)**:
+  호출 순서 조정이 아니라 `_mvRefreshTopExecBtnState()`의 판정식 자체에
+  `_isRegenerateRequired()`를 OR로 합류(`active = _mvAnyRunActive() || regen`) — 어느
+  호출부가 나중에 실행되든 더 구체적인 게이트가 항상 이겨 순서 의존성 자체가 사라짐.
+  title 문구도 사유별(regen/실행중)로 분리해 explainability 보강. 실 클릭으로 재확인(DEPT_CD
+  해제 후 execBtnDisabled=true, 실행 중이 아닌데도 regen 우선순위로 정상 잠김).
 - **M57 연관성**: 같은 결함이 아니라 **같은 뿌리 함수군(`_mvAnyRunActive()`와 그 소비자들,
   2026-07-12 커밋 3053d51c 도입)의 서로 다른 두 결함**. M57=body 잠금 CSS가 stale,
-  이번=execBtn.disabled가 더 구체적인 게이트(regen)를 무시하고 덮어씀. **권고**:
-  `_mvAnyRunActive()` 소비 지점 전수를 한 번에 재검토(호출 시점의 신선도 + 우선순위 조율)
-  하는 게 개별 땜질보다 재발 방지에 낫다 — 별도 설계검토 지침 권장.
+  이번=execBtn.disabled가 더 구체적인 게이트(regen)를 무시하고 덮어씀. **둘 다 같은 지침
+  (MVANYRUNACTIVE-CONSUMERS-FULL-REVIEW-AND-FIX)으로 함께 해결됨** — 전수 재검토 결과
+  지침이 지목한 4곳 외 2곳(preflight 실패 경로·`_execAbort` 헬퍼)을 추가로 발견해 총 6곳
+  수정, 재발방지 설계주석까지 코드에 명문화.
 - **[3] ✅ 해결 완료 — 테스트 노후화(확정) 1건 + 형제 1건**(추가발견) —
   `test_candidate_notice_sticky_fix_uses_common_offset`(06-25 작성) 단정 대상
   `candidateGeneralNotice`가 06-25보다 나중(07-02, 커밋 7654365d)에 "통합 후보 Grid로
@@ -3113,7 +3120,7 @@ git -C E:/verify_reports worktree remove <임시경로>
   아니라 "의도된 삭제"임을 확인한 뒤 새 설계에 맞게 갱신(무비판 삭제 금지 원칙 준수).
 - 참고: E:\verify_reports\STAGE5-GROUP-DRILLDOWN-ARCHITECTURE-IMPLEMENT.txt
 
-### M57. 원인 확정(실제 결함, 수정 보류) — 통계검증 실행 후 `body.mv-run-locked` 잠금이 stale하게
+### M57. ✅ 해결 완료 — 통계검증 실행 후 `body.mv-run-locked` 잠금이 stale하게
     남아 3단계 후보 체크박스가 실 클릭으로 안 풀린다
 - 발견일: 2026-08-08 (STAGE4-5-CLICKTHROUGH-REVERIFY 3순위 case B 재현 중 부수 발견) / 원인 확정일:
   2026-08-08 (M57-GB-CHECKBOX-CLICK-REVERT-ROOT-CAUSE-DIAGNOSE — 지침대로 조사만, 코드 미수정)
@@ -3137,14 +3144,21 @@ git -C E:/verify_reports worktree remove <임시경로>
   멀쩡함을 대조 확인.
 - 가설B(의도된 잠금)는 기각 — 주석은 "실행 **중**"에만 잠그는 의도를 명시, "실행 후 재선택 전까지
   불변"이라는 의도는 어디에도 없음. 가설C(경합 재렌더)도 기각 — 경합이 아니라 CSS만의 문제.
-- 대응 방향(제안, 미착수): 4개 지점에서 "버튼 스피너 제거" 다음 줄에 `_mvSyncRunLockedControls()`
-  재호출 추가(또는 순서 교정)만으로 해소될 것으로 판단. 판정 함수·CSS는 불변, 호출 시점만 조정.
-  영향 범위(그 CSS가 잠그는 selector 전부 — GB/SUM 후보·#gbIncludePair·#tgtWhere·관리컬럼 버튼)가
-  넓어 수정 후 3단계 재선택 흐름 전반 재검증 필요.
+- **해결 완료(2026-08-08, MVANYRUNACTIVE-CONSUMERS-FULL-REVIEW-AND-FIX, 코드 커밋 68a62870)**:
+  개별 4곳 땜질이 아니라 `_mvAnyRunActive()` 소비 지점 전수 재검토로 처리 — 지침이 지목한 4곳
+  외에 preflight 실패 조기 return·`_execAbort()` 헬퍼 2곳을 추가로 발견해 총 **6곳** 모두
+  "잠금 재계산"을 버튼 스피너 제거 다음으로 이동. 판정 함수·CSS는 불변. 재발 방지로 `_mvAnyRunActive()`
+  함수 주석에 호출시점·우선순위 규칙 명문화. 실 클릭 재확인: COMBO 픽스처 실행완료→3단계 복귀→
+  이미체크된 DEPT_CD 실클릭 → finalChecked=False(수정전 영구True), bodyHasRunLocked=false
+  (수정전 stale true). M52-항목2와 같은 작업으로 동시 해결(아래 M52 참고). 관련 서브셋 53/53
+  통과, 정적 근접도 테스트 1건은 계약 취지(호출 존재 여부)에 맞게 검사창 220→2000자로 조정.
+  작업 중 다른 세션의 stash/pop으로 편집분이 일시 소실됐으나 stash에서 복구 후 git plumbing으로
+  자기 파일만 선별 커밋(타 세션 변경분 무접촉).
 - 재현 스크립트: `_diag_m57_gb_checkbox_revert.py`/`_diag_m57_pointer_events_probe.py`(1회성,
   코드 저장소, 커밋 안 함).
 - 근거 보고서: E:\verify_reports\STAGE4-5-CLICKTHROUGH-REVERIFY.txt (최초 발견),
-  E:\verify_reports\M57-GB-CHECKBOX-CLICK-REVERT-ROOT-CAUSE-DIAGNOSE.txt (원인 확정)
+  E:\verify_reports\M57-GB-CHECKBOX-CLICK-REVERT-ROOT-CAUSE-DIAGNOSE.txt (원인 확정),
+  E:\verify_reports\MVANYRUNACTIVE-CONSUMERS-FULL-REVIEW-AND-FIX.txt (해결)
 
 ### M4. ✅ 해결 완료(원인 진단 정정 — SQLite 가드가 아니었다) — 운영 SQLite 가드에 막혀 상시 실패하는 테스트군을 tmp_path 기반으로 전환
 - 해결일: 2026-08-03 (STEP-TAB-DOM-STABILITY-TEST-SQLITE-GUARD-FIX)
