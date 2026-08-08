@@ -2998,8 +2998,19 @@ git -C E:/verify_reports worktree remove <임시경로>
   방식(레이스 제거)으로 before(baseline worktree, 포트 8001)/after(수정본, 포트 8000)
   전항목 대조 재현. CLAUDE.md 필수 회귀 통과, 관련 서브셋 221 passed(실패 3건은
   baseline 대조로 무관한 사전존재 라벨 불일치 확인).
+- **실클릭스루 재검증(2026-08-08, STAGE4-5-CLICKTHROUGH-REVERIFY)**: 사용자 요청으로
+  PROBE 대신 진짜 Playwright 클릭으로 재확인. 6개 중 5개(1·2·4·5·6)는 실 클릭으로도
+  PROBE와 완전 일치(회귀 없음) 확인. 3순위는 case A(오탐 없음)만 실 클릭 확인,
+  case B(정탐)는 재현 중 별개의 신규 결함(M57 — 실행에 쓰인 기본 GB 체크박스가 실
+  클릭으로 안 풀림)에 막혀 완주 못함(배너 판정 로직 자체는 PROBE로 이미 확인됨, 무관).
+  5순위는 핵심 취지(주 배지 불변)는 확인됐으나 "5단계 진행중" 보조배지가 뜨는 순간
+  자체는 픽스처가 너무 빨리 끝나 실측 못함(PROBE는 강제 시뮬레이션으로 확인했음).
+  최초 재검증 시도가 느렸던 원인도 규명: "DB 접속 재시도 루프"가 아니라 무버킷 날짜
+  컬럼 GROUP BY로 인한 그룹 폭발(Oracle Free 병렬실행 불가와 겹침)이 원인이었음
+  (픽스처 교체로 해소).
 - 참고: E:\verify_reports\STAGE4-TAB-LABEL-LAG-AND-PRIOR-STAGE-LOCK-SCOPE-DIAGNOSE.txt
 - 참고: E:\verify_reports\STAGE4-5-STALE-RESULT-ABORT-ERROR-SETTING-BANNER-STRATEGY-INFO-FIX.txt
+- 참고: E:\verify_reports\STAGE4-5-CLICKTHROUGH-REVERIFY.txt
 
 ### M55. ✅ 해결 완료 — 4단계 SQL 섹션 레이아웃 3건(헤더-박스 여백/전략-조합 블록 분리/조합 이중배경)
 - 발견일: 2026-08-08 (사용자 스크린샷 직접 지적) / 해결일: 2026-08-08
@@ -3053,6 +3064,18 @@ git -C E:/verify_reports worktree remove <임시경로>
   기존 테스트 2건(자동 미러링 존재를 전제하던 것)을 git show HEAD 대조로 "회귀"가
   아니라 "의도된 삭제"임을 확인한 뒤 새 설계에 맞게 갱신(무비판 삭제 금지 원칙 준수).
 - 참고: E:\verify_reports\STAGE5-GROUP-DRILLDOWN-ARCHITECTURE-IMPLEMENT.txt
+
+### M57. 이미 실행에 쓰인 GROUP BY 기본 체크박스가 실제 클릭(해제)으로 안 풀리고 즉시 원상복구된다(신규 발견, 원인 미조사)
+- 발견일: 2026-08-08 (STAGE4-5-CLICKTHROUGH-REVERIFY 3순위 case B 재현 중 부수 발견)
+- 상세: 이미 통계검증 실행에 쓰인 GROUP BY 후보 체크박스(`data-default="1"`)를 실제
+  브라우저 클릭(uncheck)으로 해제하면, 클릭 직후 상태가 즉시 원상복구된다. Playwright가
+  두 차례 독립 재현 모두에서 "Clicking the checkbox did not change its state"로 스스로
+  실패 판정(엔진이 클릭 후 상태변화를 못 감지). `checkLimit()`(개수>3일 때만 강제 해제하는
+  코드, `ui/tabler_renderer.py:24487-24496`) 자체는 이 조건에 해당하지 않아 직접 원인은
+  아닌 것으로 확인됨 — 정확한 원인(재렌더 타이밍/상태 동기화 등)은 미조사.
+- 의도된 잠금(실행에 쓰인 기본 후보는 재선택 없이는 불변)인지, 실제 결함인지 사용자
+  판단 필요. 재현 스크립트: `_diag_case_b.py`/`_diag_case_b2.py`(1회성, 코드 저장소).
+- 근거 보고서: E:\verify_reports\STAGE4-5-CLICKTHROUGH-REVERIFY.txt
 
 ### M4. ✅ 해결 완료(원인 진단 정정 — SQLite 가드가 아니었다) — 운영 SQLite 가드에 막혀 상시 실패하는 테스트군을 tmp_path 기반으로 전환
 - 해결일: 2026-08-03 (STEP-TAB-DOM-STABILITY-TEST-SQLITE-GUARD-FIX)
