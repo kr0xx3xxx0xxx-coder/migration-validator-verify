@@ -2495,9 +2495,9 @@ git -C E:/verify_reports worktree remove <임시경로>
   재발 시 그 덤프로 원인 규명을 시도한다. **당장 조치 불필요 — 관찰 대상으로 등록.**
 - 참고: E:\verify_reports\STATS-SCALE-COST-BAND-BENCHMARK-MEASURE.txt (§7-3)
 
-### M28. 정밀재진단 완료 — 원가설(regex폴백) 반증, 실제원인은 5개 계층 신호유실 체인 확정, 최소 대응안 승인대기
-- 발견일: 2026-08-02 / 정밀재진단: 2026-08-08 (M28-SYNTAX-ERROR-SQL-SILENT-SUCCESS-DIAGNOSE,
-  코드 무변경)
+### M28. ✅ 해결 완료 — 사전차단 SQL 조용한 성공(success=true) 오판을 정확한 신호 배선 복구로 해소
+- 발견일: 2026-08-02 / 정밀재진단: 2026-08-08 / 해결일: 2026-08-08
+  (M28-MIN-DEFENSE-IMPLEMENT, 코드 커밋 c3d0ca67)
 - 근거 보고서: `CRITICAL-S15-S16-S18-LIVE-BROWSER-ORACLE-VERIFY/_REPORT.txt`(§3-1-c·§4-4, 최초) →
   `M28-SYNTAX-ERROR-SQL-SILENT-SUCCESS-DIAGNOSE.txt`(정밀재진단)
 - **원가설 반증**: "regex 폴백이 정상 파싱한 것처럼 처리한다"는 추정은 오프라인 재현으로
@@ -2526,9 +2526,23 @@ git -C E:/verify_reports worktree remove <임시경로>
   되살리지 않고 삭제 검토 — 중복 렌더 대신 타일 배지로 통일). 강한 대응안(하드 오류
   승격)은 (c) 없이 단독 채택 시 다른 정상 FAIL 케이스까지 잘못 승격될 위험이 있어
   최소안 선행 후 별도 재검토 권장.
-- 대응 방향: **착수 승인 필요**(완료 모듈 다수 접촉 — 승인 시 최소안으로 진행 권장).
+- **해결 요약(2026-08-08)**: §3-1 최소안 5개 파일 수정. 구현 중 발견해 지시서를 벗어난
+  부분: 재현 SQL이 지시서가 지목한 154-156행이 아니라 141-143행(사전 직접검사 분기)을
+  실제로 타는 걸 확인해 **두 분기 모두**에 `blocked=True` 반영(위험도는 원안과 동일 —
+  파서가 이미 계산한 사실을 필드로 노출만 함). `renderConf()`(죽은 코드)도 삭제.
+  실측(실 오라클+실 브라우저, git worktree 완전 격리): before "쿼리검토" 상태
+  타일=파란 "정상"(조용한 성공 재현) → after=빨간 "실패"+정확한 차단사유 문구.
+  §3-1(b) 한정조건(파서가 명시적 차단사유 반환한 경우로만 승격) 3케이스 전부 의도대로
+  동작 확인(오분류 없음). 회귀 전부 git worktree 대조로 사전존재 확인, 신규 회귀 0건.
+  **특기사항**: 작업 중 git stash가 다른 동시 세션(MVANYRUNACTIVE 작업)의 미커밋
+  편집과 충돌 — 즉시 patch로 백업, 3회 diff 대조로 원본 동일성 확인 후 복구, 그
+  사고와 시간이 겹친 1차 실측은 오염 가능성이 있다고 판단해 스스로 폐기하고 완전
+  격리된 worktree에서 재측정.
+  잔존(별건, 이번 범위 아님): §3-2(하드 오류 승격)는 `blocked` 필드가 이번에 생겼으니
+  이제 재검토 가능한 상태.
 - 참고: E:\verify_reports\CRITICAL-S15-S16-S18-LIVE-BROWSER-ORACLE-VERIFY\_REPORT.txt (§3-1-c · §4-4)
 - 참고: E:\verify_reports\M28-SYNTAX-ERROR-SQL-SILENT-SUCCESS-DIAGNOSE.txt
+- 참고: E:\verify_reports\M28-MIN-DEFENSE-IMPLEMENT.txt
 - 관련: S18(해결 완료 — 서버 무정지) · F29(sqlglot 버전 핀 부재로 노출 범위 불명) · M27
 - 참고: E:\verify_reports\CRITICAL-S15-S16-S18-LIVE-BROWSER-ORACLE-VERIFY\_REPORT.txt (§3-1-c · §4-4)
 
