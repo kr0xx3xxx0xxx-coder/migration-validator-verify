@@ -1,0 +1,55 @@
+작업명 : STAGE4-STRATEGY-COMBO-ORDER-SWAP-COLOR-UNIFY-FIX
+✅ 작업 완료 - STAGE4-STRATEGY-COMBO-ORDER-SWAP-COLOR-UNIFY-FIX
+
+[수정 파일] ui/js_sql_preview.py 1개만 수정(지시대로 이 파일만 손댔음).
+
+[변경 내용]
+1. #genSqlExtraInfo 안 렌더 순서를 뒤집음 — #genSqlComboDecomposeNotice(조합 체크박스)가 위,
+   #genSqlStrategyInfo(전략정보)가 아래.
+2. 조합 체크박스 label 배경/테두리를 전략정보 블록과 동일하게 통일
+   (기존 #fff8e6 점선 → #f8fafc / border 1px solid #e3e8ef, 전략 블록 값 그대로 재사용).
+3. 두 블록 사이 여백 분리(margin-top:12px)는 순서가 바뀌어도 유지되도록, 종전 comboNotice 쪽에
+   있던 margin-top 을 아래로 내려온 전략정보 블록 쪽으로 옮김(comboNotice 없을 때는 margin 생략).
+4. 관련 주석 갱신(순서/색상 히스토리를 추적하는 기존 주석 3곳 보강).
+
+[검증 방법 — 서버 재기동 관련 사실 그대로 보고]
+- 실 서버(web_server.py, MV_BIND_PORT=8099)를 기동해 완전한 라이브 클릭스루로 검증하려 했으나,
+  이 세션 샌드박스에서 localhost 로의 curl/wget 등 네트워크성 Bash 호출이 전부 차단(permission denied)됨.
+  서버 프로세스 자체는 19:20경 정상 기동(Uvicorn 로그 "Application startup complete" 확인)까지는
+  확인했으나 HTTP 응답 확인이 불가해 즉시 종료(TaskStop)하고 정리함 — 이 부분은 절반만 확인됨.
+- 대신, 이 수정은 표시 전용 컴포넌트(renderSQL, DB/판정 로직 무관)이므로 node 로 실제 프로덕션
+  함수(render_sql_preview_js() 반환 JS, 수정 없이 그대로)를 file:// 로 로드해 playwright 로
+  스크린샷하는 정적 하니스로 대체 검증(이 저장소가 동일 유형 작업에 기존에 쓰던 방식 —
+  scripts/dev_e2e/combo_decomposition_warning_before_after_shot.py 와 동일 패턴).
+  신규 스크립트: scripts/dev_e2e/stage4_strategy_combo_order_swap_color_unify_shot.py
+  (git HEAD 버전 vs 작업트리 버전을 각각 node 로 실행해 before/after 를 만듦 — 작업트리 불변).
+- 시나리오 2개(조합 실행 정상 / 조합 자동 제외)로 before 2장 + after 2장, 총 4장 생성.
+- 정적 하니스 판정 10/10 PASS:
+  BEFORE 순서(전략 위·체크박스 아래) 유지 확인 / BEFORE 구 색상(#fff8e6 점선) 확인 /
+  AFTER 순서 뒤집힘 확인(체크박스 위·전략 아래, 실행·제외 양쪽 케이스 모두) /
+  AFTER 배경색 통일(#f8fafc/#e3e8ef, dashed 잔존 0건) 확인(양쪽 케이스) /
+  AFTER 여백 분리(margin-top:12px) 유지 확인(양쪽 케이스) /
+  문구('단일축 및 그룹조합...까지 실행' / '단일축만 실행...제외됨') 무변경(판정 로직 안 건드림) 확인.
+
+[스크린샷]
+  X:\Verify\verify_screenshots_only\STAGE4-STRATEGY-COMBO-ORDER-SWAP-COLOR-UNIFY-FIX\
+    before_executing.png / after_executing.png / before_excluded.png / after_excluded.png
+  (push 완료)
+
+[테스트 — 회귀 대조]
+- 대상 회귀 스위트(관련 5개 파일, 99건): tests/test_stage45_strategy_info_relocate.py,
+  test_stage4_stats_validation_tile_layout.py, test_stage45_status_timing_combo_label_strategy_relocate.py,
+  test_stage45_strategy_timing_and_text_cleanup.py, test_groupby_plan.py → 99 passed, 0 failed.
+- 넓은 키워드 스윕(sql_preview/js_sql/combo/stage4, 총 127건 선택) → 124 passed, 3 failed.
+  실패 3건(test_same_server_pair_and_dbms_display.py::test_duplicate_combo_blocked,
+  test_stage4_postcount_progress_indicator.py 2건)은 ui/js_sql_preview.py 를 git HEAD 원본으로
+  임시 되돌려(git checkout HEAD -- 로 확인 후 즉시 내 변경 복원) 동일하게 재현 — 이번 수정과 무관한
+  사전 존재 실패로 확인(다른 세션이 건드린 다른 모듈 사유로 추정, 이번 diff 범위 밖).
+
+[커밋]
+- 코드 저장소(migration-validator): 7ed11522 (ui/js_sql_preview.py 1개 파일만 pathspec 커밋,
+  베이스 HEAD c3d0ca67 — 작업 중 다른 세션이 9b0ebb9b→68a62870→c3d0ca67 로 2커밋 진행했으나
+  ui/js_sql_preview.py 는 건드리지 않아 충돌 없음). 코드 저장소는 push 하지 않음(규칙).
+- verify 저장소(migration-validator-verify): 스크린샷 4장 + 이 보고서 push 완료.
+
+✅ 작업 완료 - STAGE4-STRATEGY-COMBO-ORDER-SWAP-COLOR-UNIFY-FIX
