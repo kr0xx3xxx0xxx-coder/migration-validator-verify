@@ -1,0 +1,140 @@
+작업명 : MVANYRUNACTIVE-CONSUMERS-FULL-REVIEW-AND-FIX
+
+✅ 작업 완료 - M57(GB 체크박스 stale 잠금)·M52-항목2(execBtn regen 무시) 확정 결함을
+_mvAnyRunActive() 소비 함수군 전수 재검토로 한 번에 정리(6개 순서결함 지점 수정 +
+regen 우선순위 판정식 합류 + 재발방지 설계주석). 커밋 68a62870.
+
+────────────────────────────────────────────────────────────
+0. 선행 확인
+────────────────────────────────────────────────────────────
+M57-GB-CHECKBOX-CLICK-REVERT-ROOT-CAUSE-DIAGNOSE.txt, M52-FIVE-REVEALED-FAILURES-
+ROOT-CAUSE-DIAGNOSE.txt(항목2) 모두 확인함. 두 진단서 모두 원인을 코드 수정 없이
+확정만 해 둔 상태였다.
+
+────────────────────────────────────────────────────────────
+1. 전수 확인 — _mvAnyRunActive() 소비 지점 지도
+────────────────────────────────────────────────────────────
+grep 전수 재확인 결과, 두 진단서가 짚은 지점 외에 M47-REGRESSION-RECHECK-AND-FIX
+(별도 완료된 작업)가 추가한 커맨드바 소비 지점(:6848)도 있었다. 분류:
+
+- 정의: _mvAnyRunActive (판정 함수) · _mvSyncRunLockedControls(body.mv-run-locked
+  토글) · _mvRefreshTopExecBtnState(execBtn.disabled/opacity/title) ·
+  _mvExecRestartLocked(그대로 반환) · _mvSingleValidationCmdBarConfig 내부 _runLock
+  (커맨드바 버튼 disabled — 매 렌더마다 재계산, M47 로 이미 처리 완료·문제 없음)
+
+- 실행 진입 차단(읽기전용, 문제 없음): runFullValidation/runRevalidateFromCandidate/
+  runAnalyze/runCount/runGenerate/runExecute 시작부 '다른 실행 중' 가드 6곳
+
+- 잠금 ON(문제 없음 — 시작 시점에 켜는 것은 항상 안전): runRevalidateFromCandidate/
+  runCount/runGenerate/runExecute 각 함수의 진행 플래그 true 직후 호출 4곳
+
+- 잠금 재계산(★순서결함 — 이번에 전수 수정, 6곳):
+  1) runCount preflight 실패 조기 return
+  2) runCount finally (지침이 지목한 4곳 중 1 — 25191행 부근 구버전 기준)
+  3) runGenerate finally (지침 26845행 부근 구버전 기준)
+  4) runExecute 의 _execAbort() 헬퍼(모든 조기 게이트 실패 경로가 경유 — 진단서
+     미기재, 이번 전수 재검토로 신규 발견)
+  5) runExecute 단일세트 finally (지침 30315행 부근 구버전 기준)
+  6) _runExecutePlanSets 다중세트 finally (지침 30136행 부근 구버전 기준,
+     COMBO 픽스처 2축 실제 재현 경로)
+  ※ 진단서는 4곳(2·3·5·6)만 지목했으나, 같은 순서결함이 조기 abort/preflight-실패
+    경로(1·4)에도 동일하게 있어 함께 수정했다 — "개별 땜질 말고 전수 재검토"
+    지침에 따라 반경을 넓혀 확인한 결과.
+
+- execBtn.disabled 경합(★규칙② 대상 — 이번에 수정): _updateExecSelectionSummary()
+  (regen 기준 writer)와 _mvRefreshTopExecBtnState()(run-active 기준 writer)가 같은
+  동기 호출 체인(checkLimit→refreshFinalSelectionState→_mvUpdateSingleSectionHeader
+  →_singleSyncStepBtnLabels) 안에서 같은 속성을 썼다(M52-항목2 확정 원인).
+
+- 순수 폴링/표시(문제 없음): 5단계 상세비교 job 진행률 갱신 콜백(매 폴링 재계산),
+  _mvRiSnapshotBanner/_mvRiRePrepare/_mvSyncExecInitButton(1회성 초기화 버튼).
+
+────────────────────────────────────────────────────────────
+2. M57 수정 — 잠금 재계산 순서 교정 (6개 지점)
+────────────────────────────────────────────────────────────
+위 6곳 모두 "_mvSyncRunLockedControls() 재계산"을 해당 버튼의 스피너 제거(라벨
+복원) 문장 다음으로 이동(권장안 채택). _runExecutePlanSets/runExecute 단일세트
+finally 는 _mvRefreshTopExecBtnState() 재호출도 같은 지점으로 함께 정리했다
+(스피너 제거 전 호출은 자체 no-op 가드에 걸려 무의미했음).
+판정 함수(_mvAnyRunActive)·CSS(mv-run-locked)는 무변경.
+
+────────────────────────────────────────────────────────────
+3. M52-항목2 수정 — 우선순위 조율
+────────────────────────────────────────────────────────────
+호출 순서를 바꾸는 대신(지침 권장안) _mvRefreshTopExecBtnState() 의 판정식 자체에
+_isRegenerateRequired() 를 OR 로 합류시켰다:
+
+  var regen = (typeof _isRegenerateRequired === 'function') && _isRegenerateRequired();
+  var active = _mvAnyRunActive() || regen;
+  b.disabled = active;
+  b.title = regen ? '선택값이 변경되었습니다...' : (active ? '실행이 진행 중입니다...' : '');
+
+어느 호출부가 나중에 실행되든 더 구체적인 게이트(regen)가 항상 이기므로 순서
+의존이 사라진다. title 문구도 사유별로 분리해 explainability 를 보강했다.
+
+────────────────────────────────────────────────────────────
+4. 설계 정리 (재발 방지)
+────────────────────────────────────────────────────────────
+_mvAnyRunActive() 함수 주석에 다음을 명문화(ui/tabler_renderer.py 내부, 함수 정의
+바로 위):
+  규칙① 호출 시점 — 잠금 재계산 소비 함수는 버튼 스피너 제거 "다음"에 호출.
+  규칙② 우선순위 — 더 구체적인 개별 게이트가 있으면 호출 순서 조율이 아니라
+        판정식에 OR 로 합류시킬 것.
+  + 전수 소비 지점 지도(위 1번 내용을 코드 주석으로도 남김).
+
+────────────────────────────────────────────────────────────
+검증 결과
+────────────────────────────────────────────────────────────
+1) 실 브라우저 클릭 재확인(scripts/dev_e2e/_diag_m57_gb_checkbox_revert.py,
+   _diag_m57_pointer_events_probe.py 재사용 — 서버 재기동 후 수정된 코드로 실행):
+   - COMBO 픽스처(1,200행, GB=STATUS_CD+DEPT_CD) 통계검증 실행 완료 → 3단계 복귀 →
+     이미 체크된 DEPT_CD 실제 클릭(force) → finalChecked=False(수정 전: 영구 True) ·
+     checkLimit 등 16개 계측 함수 정상 호출(수정 전: 0건).
+   - PROBE-전(run1 완료 직후): bodyHasRunLocked=false, pointerEvents="auto"
+     (수정 전: bodyHasRunLocked=true 로 stale 고착·pointer-events:none).
+   - 덤: 클릭으로 DEPT_CD 해제(draft≠applied) 후 execBtnDisabled=true — 실행 중이
+     아닌데도(_mvAnyRunActive=false) regen 우선순위로 잠김 — M52-항목2 수정도 실
+     클릭으로 동시 확인됨.
+2) 관련 테스트 서브셋(tests/test_stage3_button_dom_dedup_and_gate45_real_fix.py,
+   tests/test_candidate_draft_selection.py, test_exec_gate_dialog_cancel_rollback_
+   asymmetry_fix.py, test_reload_run_button_enable.py, test_stage45_timing_label_
+   and_dup_guard_fix.py, test_stage_exec_control_lock_fix.py, test_ui_exec_result_
+   fixes.py): 53/53 통과. test_candidate_draft_selection.py 의 M52 확정 실패 2건
+   (test_checkbox_change_keeps_table_and_plan_marks_draft,
+   test_uncheck_all_does_not_switch_to_count_only_before_apply) 포함해 전부 PASS.
+3) tests/test_stage_exec_control_lock_fix.py::test_static_all_flag_mutations_
+   call_sync 는 정적 근접도 검사(220자 창)가 수정된 순서(스피너 제거 다음 호출로
+   지연)와 충돌해 1건 FAIL → 창을 2000자로 확장(실측 최대 거리 약 1,780자, 계약은
+   "호출 존재 여부"이지 근접도가 아니므로 창 확장이 타당) → 재실행 통과.
+4) tests/test_selection_baseline_dirty.py, tests/test_single_sql_stale_preserve_
+   and_reset_scope.py 에서 무관 실패 4건 관찰(resetCurrentWork 미존재,
+   _sqlCheckTimer/_singleWorkflowToken 하니스 전역 미선언) — git show HEAD 로 대조해
+   이번 수정 이전부터 있던 사전 존재 실패임을 확인(내가 건드린 함수와 무관 —
+   _singleSaveState/_singleSyncCountStepBtn/resetCurrentWork 모두 미수정 대상).
+   신규 회귀 아님.
+5) CLAUDE.md 필수 회귀: samples/test_virtual_cases.py 8/8 통과,
+   samples/test_complex_cases.py 5/5 통과.
+
+────────────────────────────────────────────────────────────
+동시 세션 충돌 안내(참고)
+────────────────────────────────────────────────────────────
+작업 도중 같은 저장소(X:\Projects\Migration_Validator)에서 다른 세션이 활성
+상태였다(M52-3-CANDIDATE-NOTICE-STALE-ASSERTION-UPDATE 작업, 커밋 9b0ebb9b —
+이번 커밋의 바로 이전 부모). 작업 중 그 세션이 git stash/pop 을 수행해 내
+편집분이 일시적으로 워킹트리에서 사라지는 상황이 있었으나 stash 안에 온전히
+보존되어 있었음을 확인 후 복구했다. 최종 커밋은 그 세션의 미완료 변경분(관련
+없는 8개 파일 — renderConf 제거, requirements 등)을 건드리지 않도록 git
+plumbing(hash-object+update-index) 으로 이 작업 범위(ui/tabler_renderer.py 중
+_mvAnyRunActive 관련 부분 + tests/test_stage_exec_control_lock_fix.py)만
+선별 스테이징해 커밋했다 — 다른 세션의 워킹트리 변경분은 그대로 보존.
+
+────────────────────────────────────────────────────────────
+변경/생성 파일
+────────────────────────────────────────────────────────────
+- ui/tabler_renderer.py (수정 — _mvAnyRunActive 소비 함수군 6개 순서결함 + regen
+  우선순위 합류 + 설계주석)
+- tests/test_stage_exec_control_lock_fix.py (수정 — 정적 검사 창 220→2000자)
+- 커밋: 68a62870 "fix(ui): _mvAnyRunActive() 소비 함수군 순서결함·우선순위 전수
+  재검토·정리 (MVANYRUNACTIVE-CONSUMERS-FULL-REVIEW-AND-FIX)"
+
+작업명 : MVANYRUNACTIVE-CONSUMERS-FULL-REVIEW-AND-FIX
