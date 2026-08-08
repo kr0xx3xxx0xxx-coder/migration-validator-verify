@@ -3018,6 +3018,42 @@ git -C E:/verify_reports worktree remove <임시경로>
   파일(git diff 무변화 확인)이라 무관한 사전존재 확인.
 - 참고: E:\verify_reports\STAGE4-SQL-LAYOUT-STRATEGY-SPLIT-BLOCKED-ALERT-CLARITY-FIX.txt
 
+### M56. ✅ 해결 완료 — 5단계 구조 전면 개편: 4단계=불일치그룹 찾기, 5단계=그룹목록+온디맨드 상세추출(자동시작·교차배지 완전 제거)
+- 발견/계기: 2026-08-08 (사용자 설계 결정 — 4단계 완료 후 5단계 상세비교가 자동으로
+  백그라운드 시작되며 4단계 탭에 교차 배지가 새는 게 역할분리 원칙 위반이라는 지적) /
+  해결일: 2026-08-08 (STAGE5-GROUP-DRILLDOWN-ARCHITECTURE-IMPLEMENT, 코드 커밋 a183f674)
+- 설계: 4단계는 불일치 "그룹"만 찾고 끝(자동으로 5단계 트리거 안 함). 5단계 진입 시
+  저장된 그룹 목록만 보여줌(상세 없음). 그룹 클릭 시 그 그룹만 온디맨드 상세추출.
+  "전체 한번에 추출" 버튼도 병존(기존 일괄 방식이 필요한 경우 대비). 4단계 탭의
+  "5단계 진행중" 교차 subBadge 완전 삭제.
+- 해결 요약: `services/stage5_group_store.py` 신규(SQLite, `stage5_mismatch_group`
+  테이블, UNIQUE(run_id,group_axis,group_value), 재저장 시 기존 detail_status 승계).
+  `routes/stage5_group_route.py` 신규(3개 얇은 라우트). `routes/agg_diff_route.py`에
+  `PkPrepareRequest.scope` 추가 — 기존 4방언 렌더러(`agg_contribution._scope_eq_expr`)
+  재사용해 원본/목적 SQL을 WHERE로 좁힘(그룹마다 신규 SQL 빌더 없음, 그룹별 별도
+  전체스캔이 아니라 필터링된 1회 쿼리). `ui/tabler_renderer.py`의 자동 전체추출 트리거
+  (`_mvPkPrewarm`)를 그룹 저장(`_mvStage5PersistGroups`)으로 교체, 그룹목록 렌더·
+  클릭 핸들러·전체추출·목록복귀 신설, 교차 subBadge 렌더 분기 완전 삭제.
+  `ui/grid_helpers.py`의 재이관PK 타일 기본표시도 '준비 중'→'미추출'로 정정(자동
+  준비가 사라졌으니 "진행 중"처럼 보이는 옛 문구가 거짓 표시가 됨).
+- 실측(실 오라클 NXDNP.MV_COMBO_SRC/TGT, GB=STATUS_CD+DEPT_CD, 실불일치 4그룹):
+  5단계 최초 진입 시 그룹 4건 전부 "미확인"(자동추출 0건) → 그룹 1건 클릭 시 그
+  그룹만 DONE·나머지 3건은 NOT_STARTED 그대로(온디맨드 단건 추출 확인) → 4단계 탭
+  배지는 5단계 진입 전/진입 후/추출 후 3시점 모두 subBadge=null(교차 배지 완전
+  제거, reimportStatus=READY로 실제 job이 존재했음에도) → 재진입 시 재추출 없이
+  서버 저장값 그대로 표시(캐시 재사용) → "전체 그룹 한번에 추출" 버튼 존재 확인.
+  성능 트레이드오프 대응: 그룹당 별도 전체재스캔 아님(scope pushdown으로 1회 필터링
+  쿼리), 커넥션 풀 재사용(그룹 클릭마다 재접속 없음), 전체추출 옵션 병존 — 지시한
+  3가지 안전장치 전부 실측 확인.
+- 특기사항(운영 이슈): 작업 도중 다른 세션이 같은 작업트리를 동시 편집 중임을
+  스스로 감지(특정 테스트 파일이 조회 1분 전에도 수정됨)해 대기, 10분 이상 정지
+  확인 후 사용자 지시로 재개해 그 세션의 미완성 구현을 이어받아 완성. 커밋 시
+  무관한 동시 작업 3종(경로 하드코딩 수정·M22 색상 수정·requirements 핀)은 건드리지
+  않고 자기 파일 10개(신규4+수정6)만 정확히 스코프해서 커밋.
+  기존 테스트 2건(자동 미러링 존재를 전제하던 것)을 git show HEAD 대조로 "회귀"가
+  아니라 "의도된 삭제"임을 확인한 뒤 새 설계에 맞게 갱신(무비판 삭제 금지 원칙 준수).
+- 참고: E:\verify_reports\STAGE5-GROUP-DRILLDOWN-ARCHITECTURE-IMPLEMENT.txt
+
 ### M4. ✅ 해결 완료(원인 진단 정정 — SQLite 가드가 아니었다) — 운영 SQLite 가드에 막혀 상시 실패하는 테스트군을 tmp_path 기반으로 전환
 - 해결일: 2026-08-03 (STEP-TAB-DOM-STABILITY-TEST-SQLITE-GUARD-FIX)
 - 근거 커밋: 코드 저장소 `a06827e` — `test(ui): 단계 탭 DOM 안정성 테스트 하니스의 개별 nav
