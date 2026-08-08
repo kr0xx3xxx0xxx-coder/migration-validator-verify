@@ -1,0 +1,223 @@
+{
+  "task": "STAGE5-AXIS-LABEL-CLICK-LEGACY-VIEW-AND-BACK-BUTTON-FIX",
+  "phase": "before",
+  "port": 8000,
+  "started": "2026-08-08 19:57:28",
+  "setup": {
+    "pair": "Oracle_asis → Oracle_tobe",
+    "connected": true
+  },
+  "1_analyze": {
+    "blocked": false,
+    "from_table": "MV_COMBO_SRC",
+    "error": ""
+  },
+  "2_count": {
+    "status": "COUNT_MATCHED",
+    "src": 1200,
+    "tgt": 1200
+  },
+  "sel": {
+    "gb": [],
+    "sum": []
+  },
+  "run1": {
+    "clicked": true,
+    "elapsed_sec": 2.07,
+    "completed": true
+  },
+  "G_group_list": {
+    "exists": true,
+    "headers": [
+      "GROUP BY 축",
+      "그룹 값",
+      "판정",
+      "원본 집계",
+      "목적지 집계",
+      "상세 추출 상태",
+      ""
+    ],
+    "rowCount": 4,
+    "row0Cells": [
+      "STATUS_CD + DEPT_CD",
+      "A | D01",
+      "집계값 불일치",
+      "CNT=100 · AMT=100299",
+      "CNT=100 · AMT=99299",
+      "미확인",
+      "상세 추출 ▸"
+    ],
+    "row0CellHtml": [
+      "STATUS_CD + DEPT_CD",
+      "A | D01",
+      "집계값 불일치",
+      "CNT=100 · AMT=100299",
+      "CNT=100 · AMT=99299",
+      "미확인",
+      "상세 추출 ▸"
+    ],
+    "hasExtractLinkCol": true,
+    "childRowCount": 0,
+    "isRecordsScreen": false,
+    "hasBackBtn": false,
+    "hasRepAxisView": false,
+    "repAxisText": null,
+    "infoText": null,
+    "gridHeaders": null,
+    "openChildVisible": []
+  },
+  "A_after_axis_cell_click": {
+    "exists": true,
+    "headers": [],
+    "rowCount": 0,
+    "row0Cells": [],
+    "row0CellHtml": [],
+    "hasExtractLinkCol": false,
+    "childRowCount": 0,
+    "isRecordsScreen": true,
+    "hasBackBtn": true,
+    "hasRepAxisView": true,
+    "repAxisText": "대표 GROUP BY(DEPT_CD) 불일치 분포",
+    "infoText": "전체 재이관 대상 100건",
+    "gridHeaders": [
+      "그룹값(DEPT_CD)",
+      "불일치 건수",
+      "비율",
+      "대표 PK"
+    ],
+    "openChildVisible": []
+  },
+  "A_prepare_payloads": [
+    {
+      "t": 1786186741.0763636,
+      "scope": {
+        "col": "STATUS_CD",
+        "val": "A",
+        "pairs": [
+          [
+            "STATUS_CD",
+            "A"
+          ],
+          [
+            "DEPT_CD",
+            "D01"
+          ]
+        ]
+      },
+      "gb_cols": [
+        "STATUS_CD",
+        "DEPT_CD"
+      ],
+      "source_count": 100
+    }
+  ],
+  "V_target_row": 1,
+  "V_after_value_cell_click": {
+    "exists": true,
+    "headers": [],
+    "rowCount": 0,
+    "row0Cells": [],
+    "row0CellHtml": [],
+    "hasExtractLinkCol": false,
+    "childRowCount": 0,
+    "isRecordsScreen": true,
+    "hasBackBtn": true,
+    "hasRepAxisView": true,
+    "repAxisText": "대표 GROUP BY(DEPT_CD) 불일치 분포",
+    "infoText": "전체 재이관 대상 100건",
+    "gridHeaders": [
+      "그룹값(DEPT_CD)",
+      "불일치 건수",
+      "비율",
+      "대표 PK"
+    ],
+    "openChildVisible": []
+  },
+  "V_prepare_payloads": [
+    {
+      "t": 1786186749.2901046,
+      "scope": {
+        "col": "STATUS_CD",
+        "val": "A",
+        "pairs": [
+          [
+            "STATUS_CD",
+            "A"
+          ],
+          [
+            "DEPT_CD",
+            "D02"
+          ]
+        ]
+      },
+      "gb_cols": [
+        "STATUS_CD",
+        "DEPT_CD"
+      ],
+      "source_count": 100
+    }
+  ],
+  "E_extract_all_view": {
+    "exists": true,
+    "headers": [],
+    "rowCount": 0,
+    "row0Cells": [],
+    "row0CellHtml": [],
+    "hasExtractLinkCol": false,
+    "childRowCount": 0,
+    "isRecordsScreen": true,
+    "hasBackBtn": true,
+    "hasRepAxisView": true,
+    "repAxisText": "대표 GROUP BY(DEPT_CD) 불일치 분포",
+    "infoText": "전체 재이관 대상 100건",
+    "gridHeaders": [
+      "그룹값(DEPT_CD)",
+      "불일치 건수",
+      "비율",
+      "대표 PK"
+    ],
+    "openChildVisible": []
+  },
+  "E_back_to_list": {
+    "exists": true,
+    "headers": [
+      "GROUP BY 축",
+      "그룹 값",
+      "판정",
+      "원본 집계",
+      "목적지 집계",
+      "상세 추출 상태",
+      ""
+    ],
+    "rowCount": 4,
+    "row0Cells": [
+      "STATUS_CD + DEPT_CD",
+      "A | D01",
+      "집계값 불일치",
+      "CNT=100 · AMT=100299",
+      "CNT=100 · AMT=99299",
+      "완료",
+      "상세 추출 ▸"
+    ],
+    "row0CellHtml": [
+      "STATUS_CD + DEPT_CD",
+      "A | D01",
+      "집계값 불일치",
+      "CNT=100 · AMT=100299",
+      "CNT=100 · AMT=99299",
+      "완료",
+      "상세 추출 ▸"
+    ],
+    "hasExtractLinkCol": true,
+    "childRowCount": 0,
+    "isRecordsScreen": false,
+    "hasBackBtn": false,
+    "hasRepAxisView": false,
+    "repAxisText": null,
+    "infoText": null,
+    "gridHeaders": null,
+    "openChildVisible": []
+  },
+  "errors": [],
+  "finished": "2026-08-08 19:59:25"
+}
