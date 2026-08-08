@@ -1,0 +1,41 @@
+작업명: M52-1-NAV-HARNESS-GLOBALTHIS-PATCH
+✅ 작업 완료 - 5단계 nav 게이트 하니스 window≠globalThis 결함 1줄 패치 (커밋 완료·확인됨)
+
+[확인 절차 및 결과]
+
+1. 미커밋 변경 확인
+   git status --short -- tests/test_one_click_full_run.py
+   → 출력 없음 (미커밋 변경 없음, 이미 커밋에 반영됨)
+
+2. 관련 커밋 확인
+   git log -5 --oneline -- tests/test_one_click_full_run.py
+   → 83e1d823 test(harness): 5단계 nav 게이트 하니스 window≠globalThis 결함 1줄 패치  (해당 커밋)
+     337117cb fix(test): node harness setTimeout 무한루프 차단 - 유효 탭 사전주입
+     a2c3646e fix(tests): node 서브프로세스 상한 가드 도입
+     cf9f35a6 test: 사전 진단된 낡은 스냅샷/하네스 결함 테스트 15건에 xfail 마킹
+     1820efb7 fix(candidate): 후보선정·기간축·단계전환 회귀 통합 수정
+
+3. 커밋 diff 실물 확인 (git show 83e1d823 -- tests/test_one_click_full_run.py)
+   - 파일 변경 범위: tests/test_one_click_full_run.py 1개 파일만, +5 / -0 (제품 코드 무변경)
+   - 실제 추가된 코드 1줄:
+       globalThis.MvStageGate = globalThis.window.MvStageGate;
+   - 위 1줄 위에 한글 주석 4줄로 배경 설명 포함
+     (windowStub 이 window===globalThis 불변식을 깨뜨려 ui/tabler_renderer.py 의
+      bare MvStageGate 참조가 ReferenceError 로 삼켜지고 "이동 가능"으로 오판되던
+      결함을, 하니스 전용 1줄로 그 불변식을 흉내내 해소)
+   - 삽입 위치: storageStub.setItem('mv_active_tab','analyze') 이후,
+     vm.runInThisContext 실행 직후 (스크립트 실행 직후 시점)
+
+4. 커밋 메타데이터
+   - 커밋 해시: 83e1d823968a53ad568dd310bcd5c0322b35594c
+   - 작성자: migration-validator <dev@migration-validator.local>
+   - 일시: 2026-08-08 18:52:38 +0900
+   - 커밋 메시지에 "M52-1-NAV-HARNESS-GLOBALTHIS-PATCH" 작업 ID 명시적으로 포함됨
+
+[결론]
+요청된 작업(M52-1-NAV-HARNESS-GLOBALTHIS-PATCH)은 커밋 83e1d823 로 정식 커밋 완료 상태이며,
+diff 실물 확인 결과 globalThis.MvStageGate = globalThis.window.MvStageGate; 1줄 패치가
+정확히 포함되어 있음을 확인했다. 미커밋 잔여 변경 없음. 제품 코드(ui/tabler_renderer.py 등)는
+무변경이며 테스트 하니스 파일만 수정됨.
+
+✅ 작업 완료 - 5단계 nav 게이트 하니스 window≠globalThis 결함 1줄 패치 (커밋 완료·확인됨)
