@@ -3065,17 +3065,38 @@ git -C E:/verify_reports worktree remove <임시경로>
   아니라 "의도된 삭제"임을 확인한 뒤 새 설계에 맞게 갱신(무비판 삭제 금지 원칙 준수).
 - 참고: E:\verify_reports\STAGE5-GROUP-DRILLDOWN-ARCHITECTURE-IMPLEMENT.txt
 
-### M57. 이미 실행에 쓰인 GROUP BY 기본 체크박스가 실제 클릭(해제)으로 안 풀리고 즉시 원상복구된다(신규 발견, 원인 미조사)
-- 발견일: 2026-08-08 (STAGE4-5-CLICKTHROUGH-REVERIFY 3순위 case B 재현 중 부수 발견)
-- 상세: 이미 통계검증 실행에 쓰인 GROUP BY 후보 체크박스(`data-default="1"`)를 실제
-  브라우저 클릭(uncheck)으로 해제하면, 클릭 직후 상태가 즉시 원상복구된다. Playwright가
+### M57. 원인 확정(실제 결함, 수정 보류) — 통계검증 실행 후 `body.mv-run-locked` 잠금이 stale하게
+    남아 3단계 후보 체크박스가 실 클릭으로 안 풀린다
+- 발견일: 2026-08-08 (STAGE4-5-CLICKTHROUGH-REVERIFY 3순위 case B 재현 중 부수 발견) / 원인 확정일:
+  2026-08-08 (M57-GB-CHECKBOX-CLICK-REVERT-ROOT-CAUSE-DIAGNOSE — 지침대로 조사만, 코드 미수정)
+- 증상: 이미 통계검증 실행에 쓰인 GROUP BY 후보 체크박스(`data-default="1"`)를 실제 브라우저
+  클릭(uncheck)으로 해제하면, 클릭 직후 상태가 즉시 원상복구된 것처럼 보인다. Playwright가
   두 차례 독립 재현 모두에서 "Clicking the checkbox did not change its state"로 스스로
   실패 판정(엔진이 클릭 후 상태변화를 못 감지). `checkLimit()`(개수>3일 때만 강제 해제하는
-  코드, `ui/tabler_renderer.py:24487-24496`) 자체는 이 조건에 해당하지 않아 직접 원인은
-  아닌 것으로 확인됨 — 정확한 원인(재렌더 타이밍/상태 동기화 등)은 미조사.
-- 의도된 잠금(실행에 쓰인 기본 후보는 재선택 없이는 불변)인지, 실제 결함인지 사용자
-  판단 필요. 재현 스크립트: `_diag_case_b.py`/`_diag_case_b2.py`(1회성, 코드 저장소).
-- 근거 보고서: E:\verify_reports\STAGE4-5-CLICKTHROUGH-REVERIFY.txt
+  코드, `ui/tabler_renderer.py:24487-24496`) 자체는 이 조건에 해당하지 않아 직접 원인이 아님을
+  재확인.
+- **원인(실측 확정)**: "되돌린다"가 아니라 **클릭이 체크박스에 아예 도달하지 못한다**. 함수 16개를
+  런타임 래핑 + rAF 120프레임 폴링으로 실측한 결과 클릭 후 checked 값이 단 한 번도 안 바뀌었고
+  어떤 후보 함수도(checkLimit 포함) 호출되지 않았다. 원인은 `body.mv-run-locked`(실행 중에만
+  켜도록 의도된 CSS 오버레이 락, `ui/tabler_renderer.py:440-449`,
+  `pointer-events:none!important` on `input[data-cand-chk="1"]` 등)가 통계검증 실행이 완전히
+  끝난 뒤에도 stale true로 남아있는 것 — `runCount`(25191~97행)·`runGenerate`(26845~54행)·
+  `runExecute` 단일세트(30315~36행)·`_runExecutePlanSets` 다중세트(30136~67행, 이번 재현이 실제로
+  탄 경로) 4곳 모두 종료 처리에서 `_mvSyncRunLockedControls()`(잠금 재계산) 호출이 실행 버튼의
+  스피너 HTML 제거보다 **먼저** 실행돼, 재계산 시점엔 스피너가 남아있어 `_mvAnyRunActive()`가
+  true로 오판 → 잠금이 다시/계속 켜지고, 그 뒤엔 재계산이 다시 호출되지 않아 영구 stale.
+  `dispatchEvent`(hit-test 우회)로는 정상 토글+checkLimit 1회 호출 확인 — 체크박스 자체 로직은
+  멀쩡함을 대조 확인.
+- 가설B(의도된 잠금)는 기각 — 주석은 "실행 **중**"에만 잠그는 의도를 명시, "실행 후 재선택 전까지
+  불변"이라는 의도는 어디에도 없음. 가설C(경합 재렌더)도 기각 — 경합이 아니라 CSS만의 문제.
+- 대응 방향(제안, 미착수): 4개 지점에서 "버튼 스피너 제거" 다음 줄에 `_mvSyncRunLockedControls()`
+  재호출 추가(또는 순서 교정)만으로 해소될 것으로 판단. 판정 함수·CSS는 불변, 호출 시점만 조정.
+  영향 범위(그 CSS가 잠그는 selector 전부 — GB/SUM 후보·#gbIncludePair·#tgtWhere·관리컬럼 버튼)가
+  넓어 수정 후 3단계 재선택 흐름 전반 재검증 필요.
+- 재현 스크립트: `_diag_m57_gb_checkbox_revert.py`/`_diag_m57_pointer_events_probe.py`(1회성,
+  코드 저장소, 커밋 안 함).
+- 근거 보고서: E:\verify_reports\STAGE4-5-CLICKTHROUGH-REVERIFY.txt (최초 발견),
+  E:\verify_reports\M57-GB-CHECKBOX-CLICK-REVERT-ROOT-CAUSE-DIAGNOSE.txt (원인 확정)
 
 ### M4. ✅ 해결 완료(원인 진단 정정 — SQLite 가드가 아니었다) — 운영 SQLite 가드에 막혀 상시 실패하는 테스트군을 tmp_path 기반으로 전환
 - 해결일: 2026-08-03 (STEP-TAB-DOM-STABILITY-TEST-SQLITE-GUARD-FIX)
