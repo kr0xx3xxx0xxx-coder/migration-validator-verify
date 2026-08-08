@@ -2495,19 +2495,40 @@ git -C E:/verify_reports worktree remove <임시경로>
   재발 시 그 덤프로 원인 규명을 시도한다. **당장 조치 불필요 — 관찰 대상으로 등록.**
 - 참고: E:\verify_reports\STATS-SCALE-COST-BAND-BENCHMARK-MEASURE.txt (§7-3)
 
-### M28. S18 사전차단을 통과한 뒤, 문법상 잘못된 SQL 이 오류 없이 `success=true` 로 진행된다
-- 발견일: 2026-08-02
-- 근거 보고서: `CRITICAL-S15-S16-S18-LIVE-BROWSER-ORACLE-VERIFY/_REPORT.txt` (§3-1-c · §4-(4))
-- 상세: hang 유발 오타 패턴을 **실존 오라클 테이블 + 명시 컬럼**으로 만들어(사전차단 휴리스틱에 걸리지 않는
-  real 변형) 서버 파서까지 실제로 도달시킨 결과, **2.94초 만에 `/analyze` 200 · `success=true`** 로 응답했다.
-  sqlglot 파서 진입은 사전차단(281d9f8)이 막았고, **regex 폴백이 이를 정상 파싱한 것처럼 처리**한 것으로 보인다.
-  사용자 화면에는 오류가 전혀 뜨지 않는다.
-- 영향: S18 의 1차 목표("서버가 멈추지 않는다")는 달성됐다. 그러나 원래 기대 문구였던
-  **"제한시간 내에 오류 메시지를 보여준다"** 와는 다르게 동작한다 — 잘못된 SQL 이 화면상 정상으로 보이고
-  그대로 다음 단계로 진행된다.
-- 대응 방향: **사전차단이 발동한 경우, 폴백 결과를 그대로 신뢰해도 되는지 별도 판단이 필요하다.**
-  최소한 "파서 사전차단됨 → 폴백 파싱 결과" 라는 사실을 응답/화면에 남겨, 정상 파싱과 구분되게 하는 방향을
-  우선 검토한다(차단 자체를 오류로 승격할지는 오탐 비용 확인이 선행돼야 함).
+### M28. 정밀재진단 완료 — 원가설(regex폴백) 반증, 실제원인은 5개 계층 신호유실 체인 확정, 최소 대응안 승인대기
+- 발견일: 2026-08-02 / 정밀재진단: 2026-08-08 (M28-SYNTAX-ERROR-SQL-SILENT-SUCCESS-DIAGNOSE,
+  코드 무변경)
+- 근거 보고서: `CRITICAL-S15-S16-S18-LIVE-BROWSER-ORACLE-VERIFY/_REPORT.txt`(§3-1-c·§4-4, 최초) →
+  `M28-SYNTAX-ERROR-SQL-SILENT-SUCCESS-DIAGNOSE.txt`(정밀재진단)
+- **원가설 반증**: "regex 폴백이 정상 파싱한 것처럼 처리한다"는 추정은 오프라인 재현으로
+  틀렸음이 확인됨 — 그런 별도 재시도 경로 자체가 없다(유일한 regex fallback 함수는
+  호출부 0건인 죽은 코드).
+- **실제 원인**: 사전차단은 정확히 동작하고 정확한 실패 신호(item-level success=False,
+  error_message=차단사유, confidence=FAIL)까지 만들어지는데, 이게 **5개 계층을 거치며
+  3번 연속 버려진다** — ①analyze 서비스가 `exception_message`(항상 None, 파서가 예외를
+  내부에서 잡아 반환하는 설계라서)만 보고 이미 채워진 `error_message`는 안 봄 ②응답
+  조립부가 confidence/error_message 확인 없이 `success: True` 하드코딩 ③공통
+  오류계약(`error_contract.py`)이 confidence를 인자로 아예 안 받음 ④UI 상태 타일
+  (`grid_helpers.py:487`)의 PASS/ERROR 판정식이 `blocked`/`success`만 보고 `confidence`는
+  전혀 안 읽음. **부수 발견**: 정확히 이 상황을 위해 이미 만들어진 FAIL 배너 함수
+  (`renderConf`, CSS 포함)가 2026-07 UI 리뉴얼 때 "Grid로 흡수"하기로 하고 실제로는
+  흡수가 안 돼 호출부 0건인 죽은 코드로 남아있음 — 판정 로직 부재가 아니라 순수 배선
+  누락.
+- **오탐률 확인**: 차단 조건("본문 시작 후 같은 괄호깊이 WITH AS")은 표준 SQL 문법상
+  항상 무효인 형태만 겨냥 — 합성 테스트 40케이스(hang패턴 11+정상SQL 16+4방언파싱 무회귀,
+  2회 독립측정) 전부 오탐 0. 다만 실 운영 발동 빈도 자체는 관측 안 됨(카운터는 있으나
+  응답/로그에 안 실림) — 판단에는 영향 없으나 별건 개선 여지로 기록.
+- **대응안 권장(최소안, 3개 파일·낮은 위험)**: 새 판정 로직 없이 이미 계산된 신호만
+  상위로 배선 — (a) `error_message` 병합 (b) `success=False` 승격은 "파서가 명시적
+  차단사유를 반환한 경우"로만 좁혀 기존 정상 FAIL/LOW 케이스(서브쿼리 FROM 등) 오분류
+  방지 (c) `ParseResult`에 `blocked: bool` 신규 필드로 "사전차단"과 "일반 파싱실패" 구조적
+  구분 (d) UI는 기존 배지 컴포넌트에 조건 1줄 추가(신규 UI 불필요, `renderConf`는
+  되살리지 않고 삭제 검토 — 중복 렌더 대신 타일 배지로 통일). 강한 대응안(하드 오류
+  승격)은 (c) 없이 단독 채택 시 다른 정상 FAIL 케이스까지 잘못 승격될 위험이 있어
+  최소안 선행 후 별도 재검토 권장.
+- 대응 방향: **착수 승인 필요**(완료 모듈 다수 접촉 — 승인 시 최소안으로 진행 권장).
+- 참고: E:\verify_reports\CRITICAL-S15-S16-S18-LIVE-BROWSER-ORACLE-VERIFY\_REPORT.txt (§3-1-c · §4-4)
+- 참고: E:\verify_reports\M28-SYNTAX-ERROR-SQL-SILENT-SUCCESS-DIAGNOSE.txt
 - 관련: S18(해결 완료 — 서버 무정지) · F29(sqlglot 버전 핀 부재로 노출 범위 불명) · M27
 - 참고: E:\verify_reports\CRITICAL-S15-S16-S18-LIVE-BROWSER-ORACLE-VERIFY\_REPORT.txt (§3-1-c · §4-4)
 
