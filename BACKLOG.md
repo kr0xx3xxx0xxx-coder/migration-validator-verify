@@ -2170,7 +2170,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\F8-RESULT-VIEW-RUNID-DECOUPLE-SCOPE-DIAGNOSE.txt
 - 참고: E:\verify_reports\F9-APPROVED-IMPLEMENT-THEN-F8-SUMMARY-VIEW-PHASE1.txt
 
-### F10. ✅ (가)안(FK 컬럼) 구현 완료 — 32.4% 오배정 근본해소, UI 노출은 별도 작업(의도적 범위 밖)
+### F10. ⚠️ 부분 완료 — (가)안(FK 컬럼) 스키마·배선은 끝났으나 UI 노출(현황판 클릭 허용)은 미착수, 지금은 기능 자체가 안 열려있음
 - 발견일: 2026-07-27 / 재조사: 2026-08-06 / (가)안 구현: 2026-08-06
   (F10-APPROVED-A-OPTION-SCHEMA-CHANGE-IMPLEMENT, 코드 커밋 f67cf9a)
 - 구현 요약: `batch_execution_state`에 `result_execution_run_id` 컬럼 추가(M13 패턴 재사용,
