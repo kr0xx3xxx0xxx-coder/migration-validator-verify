@@ -3145,6 +3145,43 @@ git -C E:/verify_reports worktree remove <임시경로>
   아니라 "의도된 삭제"임을 확인한 뒤 새 설계에 맞게 갱신(무비판 삭제 금지 원칙 준수).
 - 참고: E:\verify_reports\STAGE5-GROUP-DRILLDOWN-ARCHITECTURE-IMPLEMENT.txt
 
+### M58. ✅ 해결 완료 — 5단계 그룹 클릭 시 옛 자동추출 렌더분기 잔존(M56 회귀), 아코디언 재설계로 해소
+- 발견/계기: 2026-08-08 (사용자 스크린샷 — 축 이름 클릭 시 무관한 축 분포+전체101건이
+  뒤섞여 나옴) / 해결일: 2026-08-08 (STAGE5-AXIS-LABEL-CLICK-FIX-AND-INLINE-ACCORDION-
+  EXPAND, 코드 커밋 2fc03355, 로컬 저장소 push 없음)
+- **원가설(지시서) 반증**: "축 이름 텍스트에 옛 클릭 바인딩 잔재"라는 가설은 실측(클릭
+  좌표 정밀 캡처+`/agg-diff/prepare` payload 대조)으로 **틀렸음이 확인됨** — 축 이름
+  셀·그룹 값 셀 클릭 둘 다 완전히 같은 경로(`onclick="_mvStage5OpenGroup(i)"`)를 타고,
+  scope/pairs도 클릭한 행 그대로 정확히 서버에 전달되고 있었음.
+- **진짜 원인(M56의 실제 회귀)**: `ui/tabler_renderer.py`의 `_mvRiApply` 렌더분기 조건
+  (`_useGroupView`)이 사용자가 이미 특정 그룹을 선택했다는 신호(`window._mvPkScope`)를
+  전혀 안 봐서, 그룹 선택 후에도 **M56 이전(자동 전체추출 시절)의 1차 드릴다운 화면**
+  (`_mvRiRenderGroupView`, 서버 대표축 기준 재그룹핑 분포)이 그대로 살아있었음 — 결함은
+  요청이 아니라 렌더 위치에 있었음(요청은 항상 정확).
+- 해결: `_scopedGroup` 플래그로 그룹 선택 상태를 명시 판별해 `_useGroupView`에서
+  제외(`_mvRiApply`/`_mvRiApplyProgress` 양쪽), 그룹 클릭 시 §2 아코디언(행 인라인
+  확장)으로 정확히 그 그룹의 레코드(PK 선두)만 렌더. 추출 로직(`_mvStage5OpenGroup`→
+  `_mvRiEnsureAndLoad`→`_mvRiApply`)은 한 글자도 안 바꿈 — "어디에 그리는가"만 변경.
+- **아코디언 설계**: "한 번에 하나만 펼침"(레코드 파이프라인이 `mvRiWrap` 등 고정 ID
+  싱글턴+`window._mvRiState` 단일 상태를 직접 참조해서 동시 다중펼침 시 DOM ID 충돌·
+  폴링 경합 위험 — 기술적 근거 확인 후 결정). 인라인엔 복귀 버튼 없음(어디로도
+  이동 안 하므로) — "전체 그룹 한번에 추출" 버튼(별도 화면+복귀버튼)은 지시 범위 밖이라
+  기존 설계 그대로 보존, 그쪽 경로로 "복귀 버튼 정상 동작" 검증을 수행.
+- 4~6항(부가): "상세 추출 ▸" 링크 컬럼 제거(상태 컬럼은 유지), 집계값 천단위 콤마+
+  항목별 줄바꿈(`_mvPkFmtVal` 재사용, 신규계산 없음), "목적지 집계"를 "원본 집계"보다
+  왼쪽으로 헤더·데이터 동시 이동.
+- 검증: 실 오라클(NXDNP.MV_COMBO_SRC/TGT, 실불일치 4그룹) before(HEAD)/after 실클릭
+  대조 — 축 셀 클릭 시 그룹목록 4행 그대로 유지 확인(before는 rowCount=0으로 목록이
+  사라짐), 펼친 행 재클릭 시 정상 접힘, 신규 테스트 7건 추가(기존 단언 삭제·약화 0건),
+  baseline 대조 8건 사전존재 실패 ID까지 완전 일치, CLAUDE.md 필수 회귀 통과.
+- **특기사항**: 작업 중 다른 세션의 커밋(F10-BATCH-RESULT-VIEW-UI-EXPOSE, 7316e171)이
+  `ui/tabler_renderer.py`를 통째로 add하면서 이 작업의 미완성 변경을 일시적으로 삼켰음
+  (`git show`로 그 커밋 안에 이 작업 마커 10건 존재 확인) — 해당 세션이 스스로
+  되돌려(ef87819f) 정상 복구됨을 확인 후, 이후 자기 파일만 명시경로로 커밋해 격리.
+  오늘 세 번째로 발생한 동시세션 충돌이며 이번에도 안전하게 처리됨.
+- 참고: E:\verify_reports\STAGE5-GROUP-DRILLDOWN-ARCHITECTURE-IMPLEMENT.txt
+- 참고: E:\verify_reports\STAGE5-AXIS-LABEL-CLICK-FIX-AND-INLINE-ACCORDION-EXPAND.txt
+
 ### M57. ✅ 해결 완료 — 통계검증 실행 후 `body.mv-run-locked` 잠금이 stale하게
     남아 3단계 후보 체크박스가 실 클릭으로 안 풀린다
 - 발견일: 2026-08-08 (STAGE4-5-CLICKTHROUGH-REVERIFY 3순위 case B 재현 중 부수 발견) / 원인 확정일:
