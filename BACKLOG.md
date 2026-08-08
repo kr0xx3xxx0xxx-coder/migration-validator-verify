@@ -2170,64 +2170,33 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\F8-RESULT-VIEW-RUNID-DECOUPLE-SCOPE-DIAGNOSE.txt
 - 참고: E:\verify_reports\F9-APPROVED-IMPLEMENT-THEN-F8-SUMMARY-VIEW-PHASE1.txt
 
-### F10. ⚠️ 부분 완료 — (가)안(FK 컬럼) 스키마·배선은 끝났으나 UI 노출(현황판 클릭 허용)은 미착수, 지금은 기능 자체가 안 열려있음
-- 발견일: 2026-07-27 / 재조사: 2026-08-06 / (가)안 구현: 2026-08-06
-  (F10-APPROVED-A-OPTION-SCHEMA-CHANGE-IMPLEMENT, 코드 커밋 f67cf9a)
-- 구현 요약: `batch_execution_state`에 `result_execution_run_id` 컬럼 추가(M13 패턴 재사용,
-  기존 DB 멱등 보강 — `_ensure_result_execution_run_id_column`). 오케스트레이터 3곳
-  (`services/batch/wrapper_async_job.py::_run_job`, `routes/batch_route.py`의
-  `run_uploaded_rows_via_wrapper`·`run_uploaded_rows_count_only`)에서
-  `batch_wrapper_result_store.save_wrapper_results()`가 반환한 `execution_run_id`를
-  `batch_execution_state_service.complete_run()`에 전달해 기록. `job_registry.py`
-  `dto_from_batch_row`가 `extra.result_execution_run_id`로 노출(SELECT * 조회라 화이트리스트
-  우회 불필요 — F9와 구조적으로 다른 지점).
-- 실측 검증(2026-08-06): 같은 batch_run_id로 실행 2회(간격 1.1초, 완료 exec 2건 재현) →
-  각 실행의 `result_execution_run_id`가 자기 회차와 정확히 일치, 그 값으로 조회하면
-  `batch_wrapper_result`에서 해당 회차의 결과만 정확히 분리 조회됨을 실측 확인(오배정 해소
-  실증). 기존 DB(컬럼 없음) 시뮬레이션으로 ALTER TABLE 멱등 보강 경로도 재확인.
-  관련 회귀(batch_execution_state/wrapper_result/async_wrapper/job_registry/batch_route
-  등) 161건 통과, CLAUDE.md 필수 회귀(virtual 8/8·complex 5/5) 통과.
-- **UI 노출(현황판 batch job 클릭 가능화)은 이번 구현 범위에 포함하지 않았다** — 아래 원본
-  분석의 "위험 임계점"(성급히 열면 47.9% 확률로 오배정/빈 화면 노출) 경고 그대로,
-  `ui/js_job_dashboard.py`의 `source==='single'` 클릭가능 판정은 무수정. 스키마·배선은
-  준비됐으므로 UI를 열 때는 이 FK를 근거로 안전하게 열 수 있다(별도 작업·별도 승인 대상).
-- 아래는 착수 전 재조사 시점(2026-08-06) 원본 분석(참고용 — 대응 방향 문단은 구현 완료로
-  더 이상 유효하지 않음, 위 구현 요약이 최신):
-- 발견일: 2026-07-27 / 재조사: 2026-08-06 (F10-BATCH-JOBID-RESULT-DECOUPLE-SCOPE-RECHECK-DIAGNOSE)
-- 근거 보고서: `BATCH-EXECUTION-RESULT-VIEW-PREREQ-CHECK.txt`(최초) →
-  `F10-BATCH-JOBID-RESULT-DECOUPLE-SCOPE-RECHECK-DIAGNOSE.txt`(재조사)
-- 상세: 조회 함수 자체는 독립적이나 현황판 job id와 결과 저장 id 네임스페이스가 분리돼
-  있어 현황판에서 '결과 보기'로 이어지지 않는다. 재조사(2026-08-06)로 32.4%(C, 같은
-  batch_run_id에 완료 exec 2건+로 오배정 위험) 오늘도 건수까지 완전 동일 재현
-  (A3/B57/C125/D201, 총386건 불변, 2026-07-27 이후 관련 4개 파일 커밋 0건).
-- **핵심 재평가(2026-08-06)**: 이 32.4% 오배정은 지금 이 순간 **어떤 사용자에게도 노출된
-  적 없다** — `ui/js_job_dashboard.py:561-575`의 클릭가능 판정이 `source==='single'`만
-  통과시켜 batch job은 애초에 클릭 자체가 막혀 있다(`job_registry.py`가 batch DTO에
-  `result_viewable=True`를 내려줘도 이 소비처가 source 축에서 걸러냄 — "미사용
-  시한폭탄"). 즉 "운영 중 오탐"이 아니라 "미완성 기능의 착수 전제조건"이다.
-  **위험 임계점은 나중이다** — 향후 어떤 세션이 (나)안이나 그보다 얕은 수준(예: batch도
-  single과 같은 조건으로 그냥 클릭 열어주기)으로 성급히 배선하면, 그 즉시 47.9%(A+B+C)
-  확률로 빈 화면/오배정이 실사용자에게 노출된다.
-- 3안 비교(BATCH-EXECUTION-RESULT-VIEW-PREREQ-CHECK.txt §6):
-  (가) FK 컬럼 추가 — 32.4%(C) 근본해결, 스키마 변경 필요(완료 모듈, 승인 필요), 규모 중간
-  (나) project_id만 보강 — 죽은링크(A+B, 15.6%)만 제거, **C(32.4%)는 그대로 남음**(근본 미해결)
-  (다) 요약만 표시(그룹수 제외), 상세는 기존 tab-results 위임 — 가장 안전하나 기능 자체 포기
-  → **권장: (가)만 채택**. (나)는 오배정을 방치한 채 여는 것이라 오히려 위험을 키움
-  (조용한 거짓판정 계열 최고 심각도), (다)는 F9/F8이 이미 결과보기 기능을 순차 반영 중인
-  흐름과 어긋남.
-  F9 네이밍 관례(`origin_*_run_id`/`extra.*_run_id`)는 **부분 이식 가능**하나, F9는
-  클라이언트가 값을 미리 들고 오는 구조인 반면 F10 (가)안의 값(execution_run_id)은
-  wrapper 저장 시점에야 서버 내부에서 생성되므로 **서비스 간(batch_execution_state_service
-  ↔ batch_wrapper_result_store) 신규 배선이 별도로 필요**하다(F9와 구조적으로 다름).
-- 착수 시 예상 범위: `services/batch_execution_state_service.py`(컬럼 추가 — M13 패턴
-  재사용 가능) + `services/batch_wrapper_result_store.py`(execution_run_id 반환 경로) +
-  배치 실행 오케스트레이터(두 서비스를 잇는 지점, 아직 미특정) + `job_registry.py`
-  (dto_from_batch_row 노출). 위험도 중간 — 스키마 변경은 M13 선례로 기술 위험은 낮으나
-  오케스트레이터 배선 지점 미확정이 회귀 범위의 불확실 변수.
-- 대응 방향: ~~착수 여부·(가)안 채택은 사용자 승인 필요~~ → 승인 완료, (가)안 구현 완료(위 요약 참조).
-- 참고: E:\verify_reports\BATCH-EXECUTION-RESULT-VIEW-PREREQ-CHECK.txt
+### F10. ✅ 완전 해결 — (가)안(FK 컬럼) 스키마·배선 + UI 노출(현황판 클릭 허용)까지 전부 완료
+- 발견일: 2026-08-02 / 스키마·배선 완료: 2026-08-05(F10-APPROVED-A-OPTION-SCHEMA-CHANGE-
+  IMPLEMENT, 코드 커밋 f67cf9a) / UI 노출 완료: 2026-08-08(F10-BATCH-RESULT-VIEW-UI-EXPOSE,
+  코드 커밋 ef87819f)
+- **UI 노출 해결 요약**: `ui/js_job_dashboard.py`에서 클릭가능 판정을
+  `source==='single'`뿐 아니라 `source==='batch'`까지 확장, 신규 `mvOpenBatchResultView()`가
+  기존 결과상세 화면을 그 회차로 고정해서 엶(새 화면 신설 없음). **부가 발견·동시 해결**:
+  완료목록 폴링(`_jdFetchCompletedIfVisible`)이 애초에 `source=single`로만 걸려있어
+  일괄검증 완료 항목 자체가 목록에 안 실리던 F8 시절 잔존 결함 — 이걸 안 고치면
+  클릭가능 판정을 열어도 목록에 뜨지도 않아 지시서 취지("결과 보기를 실제로 열어주는
+  마지막 단계")에 필수 포함된다고 판단해 함께 처리. `ui/tabler_renderer.py`에
+  `execution_run_id` 핀 고정 변수 신설, 미지정 시 기존처럼 최신 회차(하위호환) —
+  화면에 "🔒 특정 회차 고정 조회" 배지로 명시.
+- 실측(회차1=TB_F10_A, 회차2=TB_F10_B/C로 완전히 다른 데이터 설계): HTTP 15/15 +
+  브라우저 클릭스루 12/12 전부 PASS, 회차 뒤바뀜 0건. **대조군 실측**(execution_run_id
+  미지정 시 여전히 최신만 반환)으로 "UI가 반드시 pin값을 넘겨야 하는 이유" 자체도
+  증명. 개별검증(single) 흐름은 조건식 바이트 단위 동일 확인(로직 변경 0), 27건
+  렌더 중 콘솔 에러 없음, 관련 회귀 23건 통과, 서브셋 실패 4건은 git stash clean
+  HEAD 대조로 무관 사전존재 확인.
+  **동시세션 충돌**: `ui/tabler_renderer.py`를 STAGE5-AXIS-LABEL-CLICK 세션과 동시
+  편집 중 `git commit -- <pathspec>`가 실제로는 워킹트리 전체를 커밋한다는 점을
+  놓쳐 1차 커밋(7316e171)에 그 세션 미커밋분 10곳이 섞임 — 즉시 발견해
+  `reset --soft`+`apply --cached`로 자기 hunk만 재추출해 바로잡음(M58 보고서의
+  "다른 세션이 되돌렸다"는 서술과 정확히 대칭·일치하는 기록).
 - 참고: E:\verify_reports\F10-BATCH-JOBID-RESULT-DECOUPLE-SCOPE-RECHECK-DIAGNOSE.txt
-- 참고: E:\_rpt_push\directives\F10-APPROVED-A-OPTION-SCHEMA-CHANGE-IMPLEMENT.md (구현 지시)
+- 참고: E:\verify_reports\F10-APPROVED-A-OPTION-SCHEMA-CHANGE-IMPLEMENT.txt
+- 참고: E:\verify_reports\F10-BATCH-RESULT-VIEW-UI-EXPOSE.txt
 
 ### F11. ✅ 본체 해소 완료 — 잔존은 명칭 불일치 6건 · 헤더 미등록 2건 등 경미 항목뿐
 - 발견일: 2026-07-27 / 재집계: 2026-08-05
