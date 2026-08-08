@@ -1,0 +1,191 @@
+작업명 : STAGE5-AXIS-LABEL-CLICK-FIX-AND-INLINE-ACCORDION-EXPAND
+✅ 작업 완료 - 5단계 그룹 상세를 행 인라인 아코디언으로 전환하고, 그룹 1건 화면에 남아 있던 옛 '대표 GROUP BY 분포' 렌더 경로를 차단(+ 컬럼 제거·콤마/줄바꿈·원본/목적지 순서 변경)
+
+════════════════════════════════════════════════════════════════════════
+1. 1번 항목 — "GROUP BY 축" 축 이름 클릭 시 예상 밖 동작의 근본원인(실측 확정)
+════════════════════════════════════════════════════════════════════════
+지시서 가설(옛 클릭 바인딩 잔재)은 **사실이 아니었다**. 실 브라우저에서 축 이름 셀과 그룹 값
+셀을 각각 실좌표로 정밀 클릭하고 /agg-diff/prepare 요청 payload 를 캡처해 대조한 결과:
+
+  [before · 축 이름 셀(1번째 td) 클릭]
+    scope = {"col":"STATUS_CD","val":"A","pairs":[["STATUS_CD","A"],["DEPT_CD","D01"]]}
+    gb_cols = ["STATUS_CD","DEPT_CD"] · source_count = 100
+  [before · 그룹 값 셀(2번째 td) 클릭]
+    scope = {"col":"STATUS_CD","val":"A","pairs":[["STATUS_CD","A"],["DEPT_CD","D02"]]}
+    gb_cols = ["STATUS_CD","DEPT_CD"] · source_count = 100
+
+즉 두 클릭은 **완전히 같은 경로**(각 셀에 별도 onclick·a 태그·리스너 없음 →
+`<tr onclick="_mvStage5OpenGroup(i)">` 하나)를 타며, 그룹 조건(scope·pairs)도 클릭한 행 그대로
+정확히 전달되고 있었다. 축 이름 텍스트에 남은 옛 바인딩은 존재하지 않는다(그리드 전체에서
+"GROUP BY 축" 헤더를 만드는 지점도 _mvStage5PaintGroupList 단 1곳뿐임을 소스로 확인).
+
+진짜 원인은 **결과 렌더 분기**였다. ui/tabler_renderer.py `_mvRiApply` 의
+
+    var _useGroupView = !_isTO && !_hasUserFilter && window._mvRiShowFullDetail !== true
+                        && !_earlyStop && _hasGb && (preparing || _reimpN >= 1);
+
+가 `window._mvPkScope`(= 사용자가 이미 그룹 1건을 고른 상태)를 전혀 보지 않는다. 그래서 그룹을
+고른 뒤에도 자동 전체추출 시절의 1차 드릴다운 화면 `_mvRiRenderGroupView(d)` 가 그대로 살아,
+서버가 gb_cols 전체에서 고른 **대표축** 기준으로 다시 그룹핑한 분포를 그렸다. 실측 재현:
+
+  [before] 축 셀 클릭 후 화면 = 대표 GROUP BY(DEPT_CD) 불일치 분포 / "전체 재이관 대상 100건"
+           표 헤더 = [그룹값(DEPT_CD), 불일치 건수, 비율, 대표 PK]   ← 레코드가 아니라 재그룹 요약
+
+클릭한 그룹은 STATUS_CD=A & DEPT_CD=D01 인데 화면은 그와 무관한 대표축(DEPT_CD) 기준 재그룹핑
+이라, 사용자가 겪은 "REGION_CD 를 눌렀는데 STATUS_CD 분포가 나온다 + 전체 101건" 과 정확히 같은
+증상이다(101 은 레코드 수집 상한 근처 값으로, '전체' 라벨과 겹쳐 더 오해를 키웠다).
+
+조치 — 옛 설계의 잔재이므로 그 경로를 **그룹 1건 화면에서만 차단**했다(축 이름은 이제도 행
+클릭 대상이지만, 클릭하면 §2 아코디언으로 그 그룹의 레코드가 정확히 펼쳐진다).
+  · `_mvRiApply`      : `var _scopedGroup = !!(window._mvPkScope && window._mvPkScope.col);`
+                        를 두고 `_useGroupView` 에 `!_scopedGroup` 추가 → 곧바로 레코드 상세
+                        Grid(PK 선두) 렌더. PREPARING·레코드 0건 분기도 scope 를 포함하도록 확장.
+  · `_mvRiApplyProgress`: 폴링 중 '잠정 분포' 갱신(_gvMode)도 같은 기준으로 제외(깜빡임 방지).
+  · scope 없는 전체추출·기존 결과 보기 경로는 조건을 하나도 바꾸지 않았다(무회귀).
+
+[after 실측] 축 셀 클릭 후: hasRepAxisView=false, 표 헤더 =
+  [불일치 유형, ID(PK), STATUS_CD, STATUS_CD, DEPT_CD, DEPT_CD, AMT, AMT] → 그 그룹의 실제
+  불일치 레코드(원본/목적 별도 열)만 표시. 값 셀 클릭도 동일(각자 자기 행의 그룹).
+
+════════════════════════════════════════════════════════════════════════
+2~6번 수정 내역 (전부 ui/tabler_renderer.py — 표시 계층만, 판정·집계·SQL 무변경)
+════════════════════════════════════════════════════════════════════════
+[2항] 별도 상세화면 → 행 인라인 확장(아코디언)
+  · `_mvStage5PaintGroupList` 가 각 그룹 행마다 숨김 child 행(`mvS5Child{i}` +
+    `mvS5ChildBody{i}`)을 함께 그린다(기존 `_mvRiRenderGroupView` 의 인라인 드릴다운과 같은
+    마크업 패턴 — 새 방식 발명 없음). 그룹 값 앞에 ▸/▾ 캐럿, 펼친 행은 배경 강조(#EFF6FF).
+  · `_mvRiEnterRecordsView(scope, titleText, mountId)` 에 선택 인자 mountId 추가 — 주어지면
+    executeOut 전체를 갈아끼우지 않고 그 child 컨테이너에만 레코드 마크업을 주입한다.
+    추출 로직(_mvStage5OpenGroup 의 scope/pairs 구성 → _mvRiEnsureAndLoad → _mvRiApply)은
+    **한 줄도 바꾸지 않았다** — 바뀐 것은 "어디에 그리는가"뿐이다.
+  · 토글: 같은 행 재클릭이면 `_mvStage5CollapseGroup()` 으로 접는다.
+  · **동시 펼침 정책 = "한 번에 하나만"**(새로 펼치면 이전 것이 자동으로 접힘). 근거: 레코드
+    파이프라인이 `mvRiWrap`/`mvRiSummary`/`mvRiInfo`/`mvRiTbody`/`mvRiPg` 등 **고정 id 싱글턴**과
+    `window._mvRiState` 단일 상태를 직접 참조한다. 여러 행을 동시에 펼치면 같은 id 가 DOM 에
+    중복 생성돼 폴링·페이징·취소가 엉뚱한 행을 갱신한다. 접을 때 `_mvRiStopPolling()` +
+    `window._mvPkScope=null` 로 늦은 응답이 다음 그룹 화면을 덮는 것도 함께 막았다.
+  · 인라인에는 '목록으로 돌아가기' 버튼을 만들지 않았다(어디로도 이동하지 않으므로). 대신
+    "GROUP BY … = A | D01  이 그룹의 불일치 레코드 — 행을 다시 클릭하면 접힙니다" 머리글만 둔다.
+  · **각 레코드 맨 앞 PK** — 새로 만들지 않고 기존 result_grid_schema(KEY→GROUP_BY→SUM) Grid 를
+    그대로 재사용한다. 실측 헤더 = [불일치 유형, ID(PK 배지), …] 로 구조변경 이전 관례와 동일.
+
+  [경계] '전체 그룹 한번에 추출'(#mvS5ExtractAllBtn)은 지시서가 재설계 대상으로 명시하지 않아
+  기존 설계를 유지했다 — executeOut 전체 교체 + '◂ 불일치 그룹 목록' 복귀 버튼
+  (`_mvStage5BackToList`). 지시서 검증절의 "상세 화면 → 돌아가기 버튼 → 정상 복귀" 확인은 이
+  경로로 수행했다(§2 본문의 아코디언 대체와 모순이 아니라 서로 다른 두 진입점이라는 해석 —
+  실제 코드에서도 두 진입점이 분리돼 있음을 확인). 전체추출 시작 전에 펼쳐 둔 그룹을 먼저
+  접도록 보강했다(잔존 scope/폴링이 전체추출 화면을 덮는 것 차단).
+
+[3항] 가독성 — 인라인 확장 화면에 한정한 정보 위계 분리(큰 재설계 없음)
+  · '고급 성능정보' <details> 를 **인라인일 때만** 기본 접힘으로 낮췄다. 별도 화면의 기본
+    펼침·확대·강조색(STAGE4-5-…-STRATEGY-INFO-FIX 6순위에서 사용자가 명시적으로 정한 결정)은
+    그대로 유지 — 그 계약을 검사하는 tests/test_stage5_strategy_relocate_and_advanced_perf_
+    emphasis.py 는 단언을 하나도 고치지 않고 그대로 통과한다.
+  · 건수 라벨: 그룹 1건 화면에서 '전체 재이관 대상 N건' 은 테이블 전체로 오독될 수 있어
+    '전체 재이관 대상(이 그룹) N건' 으로 범위를 밝혔다(라벨만 — 건수·비율·판정 계산 불변).
+  · 추가 제안(이번엔 미반영, 큰 변경이라 보류): 인라인 영역의 필터바(불일치 유형/GROUP BY 기준/
+    그룹 값/PK 검색)는 이미 그룹이 확정된 상태라 대부분 의미가 없다 → 접힘 처리 후보.
+    '스냅샷 안내'·'행 기준 vs 집계 기준' 안내문 2건도 인라인에서는 1줄 요약으로 줄일 여지가 있다.
+
+[4항] '상세 추출 ▸' 링크 컬럼과 그 빈 <th> 제거(행 전체가 클릭 대상이라 중복).
+  '상세 추출 상태'(미확인/추출중/완료/실패) 컬럼은 id(`mvS5St{i}`) 포함 그대로 유지.
+
+[5항] 집계값 표시 — `_mvStage5ValsText` 가 값을 새로 계산하지 않고 포맷만 바꾼다.
+  · 천단위 콤마는 기존 표시 포맷터 `_mvPkFmtVal` 재사용(숫자가 아니면 원문 유지, 소수부·부호
+    보존). 함수 부재 하니스 대비 `typeof` 가드(이 파일 관행).
+  · 구분자를 ' · ' → 개행('\n')으로 바꾸고 셀에 `white-space:pre-line` 지정.
+    실측: `CNT=100 · AMT=100299` → `CNT=100` / `AMT=100,299` (2줄).
+
+[6항] 그리드 컬럼 순서 — 헤더·데이터를 함께 뒤집어 '목적지 집계'가 '원본 집계'보다 왼쪽.
+  실측 헤더 = [GROUP BY 축, 그룹 값, 판정, 목적지 집계, 원본 집계, 상세 추출 상태].
+
+════════════════════════════════════════════════════════════════════════
+검증 결과
+════════════════════════════════════════════════════════════════════════
+[A] 실 브라우저 클릭스루(실 Oracle asis/tobe NXDNP.MV_COMBO_SRC/TGT 1,200행, GB=STATUS_CD+
+    DEPT_CD 조합 → 실불일치 4그룹). 드라이버 신규:
+    scripts/dev_e2e/stage5_axis_label_accordion_verify.py (before/after 두 위상, 기존
+    stage45_clickthrough_reverify.py 조작 헬퍼 재사용).
+
+  항목             before(HEAD)                                   after(수정본)
+  ─────────────────────────────────────────────────────────────────────────────────
+  헤더 순서        GROUP BY 축·그룹 값·판정·원본 집계·목적지      GROUP BY 축·그룹 값·판정·
+                   집계·상세 추출 상태·(빈 컬럼)                  목적지 집계·원본 집계·상세 추출 상태
+  '상세 추출 ▸'     있음(hasExtractLinkCol=true)                   없음(false)
+  집계값 표시      CNT=100 · AMT=100299 (1줄, 콤마 없음)          CNT=100 ⏎ AMT=100,299 (2줄, 콤마)
+  축 이름 셀 클릭  별도 화면 이동 + 대표 GROUP BY(DEPT_CD) 분포    그 행 인라인 확장(mvS5Child0),
+                   (hasRepAxisView=true, rowCount=0 — 목록 사라짐) 대표축 분포 없음(false),
+                                                                  그룹 목록 4행 그대로 유지(rowCount=4)
+  펼친 행 재클릭   (해당 없음)                                     접힘(openChildVisible=[])
+  값 셀 클릭       위와 동일한 잘못된 화면                         그 행(mvS5Child1)만 인라인 확장
+  전체추출 버튼    별도 화면 + 복귀 버튼                           동일 유지(hasBackBtn=true)
+  복귀 버튼 클릭   그룹 목록 복귀(rowCount=4)                      동일(rowCount=4, 새 컬럼 순서)
+
+  /agg-diff/prepare payload 는 before/after 모두 클릭한 행의 pairs 를 정확히 전달(변화 없음) —
+  결함이 요청이 아니라 렌더에 있었다는 실측 증거.
+  스크린샷 11장 + 실측 JSON 2건:
+  X:\Verify\verify_screenshots_only\STAGE5-AXIS-LABEL-CLICK-LEGACY-VIEW-AND-BACK-BUTTON-FIX\
+
+[B] 렌더 JS 문법 가드 tests/test_rendered_js_syntax_guard.py → 2 passed(node --check 기반).
+
+[C] 관련 테스트 서브셋 + baseline 대조 — **신규 회귀 0건**.
+    서브셋 = 내가 건드린 식별자(_mvRiApply·_mvRiSummaryHtml·_mvStage5*·_mvRiEnterRecordsView·
+    _mvRiRenderGroupView·_mvPkScope·mvS5·_mvPkPayload·_useGroupView·mvRiWrap)를 참조하는
+    테스트 파일 24개 전량(-p no:randomly).
+      baseline(git worktree, 7ed11522) : 8 failed / 202 passed / 5 xfailed
+      수정본(작업 트리)                : 8 failed / 209 passed / 5 xfailed
+    실패 8건은 **ID 까지 완전히 동일**(사전 존재):
+      test_d7_1_completed_history.py::test_client_gate_and_dialog
+      test_d7_9_gb0_fallback.py::test_gate_gb0_always_grid            (_distOk — HEAD 에도 없음)
+      test_d7_9_gb0_fallback.py::test_stage_timing_display            (+ _mvStageTimingHtml() + — HEAD 에도 없음)
+      test_stage4_postcount_progress_indicator.py::test_post_progress_functions_and_state_are_gone
+      test_stage4_postcount_progress_indicator.py::test_no_replacement_ui_was_added_in_its_place
+      test_stage_button_dedup_time_scope_and_gate45_fix.py::test_switching_tab_hides_previous_slot_but_keeps_its_value
+      test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+      test_ui_tab4_tab5_separation.py::test_target_only_display
+    증가한 +7 passed = 이번에 추가한 신규 테스트 7건.
+
+[D] 신규/갱신 테스트 — tests/test_stage5_group_drilldown.py 에 [E] 섹션 7건 추가(27 passed).
+    · scoped 화면에서 대표축 분포 렌더 차단(1항, _mvRiApply·_mvRiApplyProgress 양쪽)
+    · 행 클릭 = child 행 인라인 확장 + 재클릭 토글 + 인라인엔 복귀 버튼 없음(2항)
+    · 전체추출은 별도 화면 + 복귀 버튼 유지(2항 경계 — 설계 범위 밖 보호)
+    · '상세 추출 ▸' 링크 컬럼·빈 헤더 제거 / 상태 컬럼 유지(4항)
+    · 콤마(_mvPkFmtVal 재사용) + 줄바꿈 + pre-line(5항)
+    · 목적지 집계가 원본 집계보다 앞(헤더·데이터 동시, 값 뒤바뀜 방지)(6항)
+    · 인라인에서만 고급 성능정보 기본 접힘 + 별도 화면 기본 펼침 유지(3항)
+    기존 테스트 단언은 **하나도 삭제·약화하지 않았다**(계약 약화 없음).
+
+[E] CLAUDE.md 필수 회귀 — samples/test_virtual_cases.py 8/8 통과,
+    samples/test_complex_cases.py 5/5 통과(케이스 분석 5/5 완료).
+
+════════════════════════════════════════════════════════════════════════
+동시 세션 충돌 기록(중요)
+════════════════════════════════════════════════════════════════════════
+작업 중 같은 작업트리(X:\Projects\Migration_Validator)를 다른 세션 2개가 동시에 편집·커밋했다.
+그 중 한 세션의 커밋 7316e171(F10-BATCH-RESULT-VIEW-UI-EXPOSE)이 같은 파일
+ui/tabler_renderer.py 를 통째로 add 하면서 **이 작업의 미완성 변경을 함께 삼켰다**(확인:
+`git show 7316e171:ui/tabler_renderer.py` 에 STAGE5-AXIS-LABEL-CLICK-FIX 마커 10건 존재).
+해당 세션이 곧 스스로 되돌려 ef87819f 로 다시 커밋해(마커 0건) 이 작업 변경은 미커밋 상태로
+복구됐고, 그 뒤 내 파일만 명시 경로로 add 해 단독 커밋했다. 다른 세션의 변경
+(.claude/settings.json, requirements*.txt, scripts/dev_fixtures/*, tests/test_11def_scenarios.py,
+tests/test_12k_stress.py, ui/history_renderer.py, ui/js_batch_display.py, services/diagnosis/*
+등)은 전혀 건드리지 않았다. 코드 저장소 push 는 하지 않았다(저장소 원칙).
+
+════════════════════════════════════════════════════════════════════════
+변경 파일
+════════════════════════════════════════════════════════════════════════
+  ui/tabler_renderer.py                                (수정 — 5단계 그룹목록/아코디언/렌더 분기)
+  tests/test_stage5_group_drilldown.py                 (수정 — [E] 섹션 7건 추가)
+  scripts/dev_e2e/stage5_axis_label_accordion_verify.py(신규 — before/after 실측 드라이버)
+
+════════════════════════════════════════════════════════════════════════
+재기동 시각 · 커밋 해시
+════════════════════════════════════════════════════════════════════════
+서버 재기동   : 2026-08-08 20:21:49 KST (PID 31684, 포트 8000, MV_BIND_HOST 기본값 127.0.0.1)
+               (before 촬영용 기동 2026-08-08 19:56 / 중간 기동 20:04:06 — 최종은 위 시각)
+코드 저장소   : 2fc03355  (X:\Projects\Migration_Validator, main, push 안 함)
+증적 저장소   : 965bce1   (스크린샷 11장 + 실측 JSON 2건)
+               + 본 완료보고 커밋(아래 push 로 생성)
+
+작업명 : STAGE5-AXIS-LABEL-CLICK-FIX-AND-INLINE-ACCORDION-EXPAND
+✅ 작업 완료 - 5단계 그룹 상세를 행 인라인 아코디언으로 전환하고, 그룹 1건 화면에 남아 있던 옛 '대표 GROUP BY 분포' 렌더 경로를 차단(+ 컬럼 제거·콤마/줄바꿈·원본/목적지 순서 변경)
