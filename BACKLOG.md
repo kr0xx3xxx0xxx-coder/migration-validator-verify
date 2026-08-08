@@ -3001,6 +3001,23 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\STAGE4-TAB-LABEL-LAG-AND-PRIOR-STAGE-LOCK-SCOPE-DIAGNOSE.txt
 - 참고: E:\verify_reports\STAGE4-5-STALE-RESULT-ABORT-ERROR-SETTING-BANNER-STRATEGY-INFO-FIX.txt
 
+### M55. ✅ 해결 완료 — 4단계 SQL 섹션 레이아웃 3건(헤더-박스 여백/전략-조합 블록 분리/조합 이중배경)
+- 발견일: 2026-08-08 (사용자 스크린샷 직접 지적) / 해결일: 2026-08-08
+  (STAGE4-SQL-LAYOUT-STRATEGY-SPLIT-BLOCKED-ALERT-CLARITY-FIX, 코드 커밋 f24587a9)
+- [1] `#sqlOut .sql-hdr` margin-bottom 7px→3px(4단계 SQL 섹션 한정, 공용 `.sql-hdr`은
+  무변경이라 2단계 COUNT SQL 등 다른 섹션 영향 없음).
+- [2] "전략/신뢰도" 정보와 "조합 검증" 체크박스가 카드 하나(#genSqlExtraInfo)를
+  공유해 한 덩어리로 보이던 것 — 카드 배경/테두리를 전략 정보(#genSqlStrategyInfo)
+  전용으로 옮기고 바깥 컨테이너는 여백만 담당하도록 분리. 블록 간 간격 7px→12px.
+- [3] 조합 체크박스 바깥div+안쪽label이 배경/테두리 각자 갖고 있어 이중 배경으로
+  보이던 것 — 바깥은 여백·글자색만, 배경/테두리는 안쪽 label 하나만 갖도록 정리.
+- 검증: 실측 computed style(RGB값)로 before(이중 배경 rgb(255,248,230)실선+
+  rgb(255,253,246)점선) → after(바깥 transparent, 안쪽만 rgb(255,248,230)점선)
+  단일 배경 확인. 실 브라우저 baseline worktree(포트 8010) vs 수정본(포트 8000)
+  대조. 관련 서브셋 86건 통과, `test_grid_helpers.py` 실패 2건은 이번 작업 무접촉
+  파일(git diff 무변화 확인)이라 무관한 사전존재 확인.
+- 참고: E:\verify_reports\STAGE4-SQL-LAYOUT-STRATEGY-SPLIT-BLOCKED-ALERT-CLARITY-FIX.txt
+
 ### M4. ✅ 해결 완료(원인 진단 정정 — SQLite 가드가 아니었다) — 운영 SQLite 가드에 막혀 상시 실패하는 테스트군을 tmp_path 기반으로 전환
 - 해결일: 2026-08-03 (STEP-TAB-DOM-STABILITY-TEST-SQLITE-GUARD-FIX)
 - 근거 커밋: 코드 저장소 `a06827e` — `test(ui): 단계 탭 DOM 안정성 테스트 하니스의 개별 nav
