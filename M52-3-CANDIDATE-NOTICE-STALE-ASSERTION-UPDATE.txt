@@ -1,0 +1,90 @@
+작업명 : M52-3-CANDIDATE-NOTICE-STALE-ASSERTION-UPDATE
+✅ 작업 완료 - candidateGeneralNotice 단정 2건을 통합 후보 Grid(colSelectOut) 기준으로 갱신, 대상 테스트 2건 통과·신규 회귀 0건
+
+────────────────────────────────────────────────────────────
+배경(M52-FIVE-REVEALED-FAILURES-ROOT-CAUSE-DIAGNOSE.txt 항목3)
+────────────────────────────────────────────────────────────
+id="candidateGeneralNotice"(후보추천 기준/안내 장문 박스)는 커밋 7654365d(2026-07-02,
+"후보추천 화면 통합 — 단일 후보 Grid")에서 의도적으로 삭제되고 통합 후보 Grid
+(#colSelectOut)로 대체됐다. 두 테스트는 그 이전(2026-06-24/25)에 작성돼 삭제 커밋
+때 갱신되지 않고 옛 id를 계속 단정해 FAIL 상태였다(제품 결함 아님, 순수 테스트 노후화).
+
+────────────────────────────────────────────────────────────
+diff
+────────────────────────────────────────────────────────────
+커밋 9b0ebb9b (main), 2 files changed, 13 insertions(+), 7 deletions(-)
+- tests/test_candidate_draft_selection.py
+- tests/test_iv08_iv11_final_fix.py
+(제품 코드 ui/tabler_renderer.py 는 이번 범위 아님 — 무변경 확인 완료)
+
+1) tests/test_candidate_draft_selection.py
+   test_candidate_notice_sticky_fix_uses_common_offset
+   - 제거: assert 'id="candidateGeneralNotice"' in h
+   - 추가: assert 'id="colSelectOut"' in h
+     (검증 의도 유지: sticky 헤더가 후보 화면 본문을 덮지 않는 것. 판정 대상만
+      삭제된 안내 박스 → 그 자리를 대체한 통합 Grid 컨테이너로 갱신)
+   - 기존 sticky CSS 단정 2줄(#colSelectCard .mv-sticky-section-header /
+     .mv-candidate-notice scroll-margin-top)은 그대로 유지 — 두 CSS 규칙은
+     product 코드에 여전히 존재함을 확인 후 유지.
+
+2) tests/test_iv08_iv11_final_fix.py
+   test_count_only_pane_makes_header_non_sticky
+   - 제거: assert 'id="candidateGeneralNotice"' in h
+            assert "_genNotice.style.display = 'none'" in h
+   - 추가: assert "function _countOnlyCandidateNoteHtml(" in h
+            assert "_csoEl.innerHTML = _countOnlyCandidateNoteHtml()" in h
+     (검증 의도 유지: COUNT-only 시 통합 후보 Grid 컨테이너(colSelectOut)가
+      안내문으로 정상 전환되는 것. _showCandidateTable() 실제 로직 기준으로 갱신)
+   - 기존 count-only 비sticky CSS 규칙 + classList.add/remove('mv-count-only-pane')
+     단정은 그대로 유지 — 여전히 유효.
+
+────────────────────────────────────────────────────────────
+검증 결과
+────────────────────────────────────────────────────────────
+[대상 테스트 단독]
+  pytest tests/test_candidate_draft_selection.py::test_candidate_notice_sticky_fix_uses_common_offset \
+         tests/test_iv08_iv11_final_fix.py::test_count_only_pane_makes_header_non_sticky
+  → 2 passed
+
+[관련 서브셋 5개 파일 + baseline 대조]
+  test_candidate_draft_selection.py / test_count_only_sticky_overlap.py /
+  test_count_sql_full_visibility.py / test_shared_sticky_step_nav.py /
+  test_iv08_iv11_final_fix.py
+  → 95 passed, 4 failed
+
+  실패 4건 전부 이번 변경과 무관한 사전 존재 실패로 확인:
+  - test_candidate_draft_selection.py::test_checkbox_change_keeps_table_and_plan_marks_draft
+  - test_candidate_draft_selection.py::test_uncheck_all_does_not_switch_to_count_only_before_apply
+    → M52 진단서 항목2(실제 제품 결함, execBtn.disabled 다중-writer 충돌). 이번 작업
+      범위 아님(별도 FIX 지침 대상). 이번 수정으로 새로 깨진 게 아님을 diff 로 확인
+      (해당 두 테스트는 이번 커밋에서 미변경).
+  - test_count_sql_full_visibility.py::test_count_sql_pre_boxes_no_clip_and_order
+  - test_count_sql_full_visibility.py::test_render_count_result_full_sql_and_copy_equivalence
+    → HEAD(a183f674) 시점 ui/tabler_renderer.py 기준으로도 class="mv-count-result-title"
+      가 0건(git show HEAD 로 실측)임을 확인 — 이번 세션 착수 전부터 존재하던 사전
+      실패이며 이번 변경(테스트 파일 2개만 수정)과 무관.
+
+  대상 2건(sticky notice)은 4건에 포함되지 않음 → 신규 회귀 0건.
+
+[CLAUDE.md 필수 회귀 — 최종 1회]
+  python samples/test_virtual_cases.py   → 8/8 통과
+  python samples/test_complex_cases.py   → 5/5 통과
+
+────────────────────────────────────────────────────────────
+커밋해시
+────────────────────────────────────────────────────────────
+9b0ebb9b (main, migration-validator 코드 저장소, pathspec 커밋 — 대상 2개 파일만
+포함, 원격 push 없음/규칙대로 커밋까지만)
+
+────────────────────────────────────────────────────────────
+비고
+────────────────────────────────────────────────────────────
+- ui/tabler_renderer.py:26005~26018 의 죽은 _genNotice 토글 코드(null-가드로 안전,
+  기능 결함 아님) 정리는 진단서에서 "선택 사항, 사용자 확인 후 별도 진행"으로
+  명시된 범위 밖 — 이번 작업에서 건드리지 않음.
+- 작업 디렉터리에는 다른 동시 세션의 미커밋 변경(ui/tabler_renderer.py 등 14개
+  파일)이 존재하나, pathspec 커밋(git commit -F -- <내 파일 2개>)으로 격리해
+  전혀 흡수하지 않았음을 커밋 후 git diff --cached 로 확인.
+
+작업명 : M52-3-CANDIDATE-NOTICE-STALE-ASSERTION-UPDATE
+✅ 작업 완료 - candidateGeneralNotice 단정 2건을 통합 후보 Grid(colSelectOut) 기준으로 갱신, 대상 테스트 2건 통과·신규 회귀 0건
