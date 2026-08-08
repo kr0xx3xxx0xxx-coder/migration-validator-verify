@@ -1,0 +1,144 @@
+M57-GB-CHECKBOX-CLICK-REVERT-ROOT-CAUSE-DIAGNOSE
+
+⚠️ 추가 작업 필요 - 원인 확정(실제 결함). 지침대로 조사만 수행했고 코드는 수정하지 않았다 —
+별도 수정 작업(4개 지점 순서 교정)이 필요.
+
+────────────────────────────────────────────────────────────
+0. 선행 확인 (지시대로 먼저 읽음)
+────────────────────────────────────────────────────────────
+- BACKLOG.md M57 항목, STAGE4-5-CLICKTHROUGH-REVERIFY.txt 3순위 case B(71~88행) 확인함.
+- 기존에 확인된 사실: checkLimit()(ui/tabler_renderer.py:24487-24496, 개수>3일 때만 강제 해제)은
+  이 조건(2/1 선택, 상한 3/3 미만)에 해당하지 않아 직접 원인이 아님 — 재확인, 이번 조사로도 그대로 유지.
+
+────────────────────────────────────────────────────────────
+1. 재현 (실측)
+────────────────────────────────────────────────────────────
+COMBO 픽스처(NXDNP.MV_COMBO_SRC/TGT, 1,200행)로 지침 조건 그대로 재현했다:
+  analyze → COUNT 일치(1200/1200) → 3단계 진입(기본추천 GB=STATUS_CD+DEPT_CD, SUM=AMT 이미 체크됨,
+  둘 다 data-default="1") → SQL 생성 → 통계검증 실행(RUN1) 완료(2.0초) → 3단계로 복귀 →
+  이미 체크된 DEPT_CD(data-default="1") 체크박스를 실제 클릭(force 클릭, 실 브라우저 이벤트).
+
+계측(제품 코드는 무수정 — 브라우저 런타임에서만 checkLimit/renderColSelect/_showCandidateTable/
+_mvRenderStrategyPlan/_mvRepaintPlanTiles/_mvSyncRunLockedControls/_renderSingleStepNav 등 16개 후보
+함수를 래핑해 호출 여부·순서·체크박스 checked 값 변화를 기록 + #colSelectOut의 innerHTML setter를
+가로채 통째 교체 여부 기록 + MutationObserver로 DOM 변경 기록 + requestAnimationFrame으로 클릭 후
+2초간 120프레임 동안 checked 값을 실측 폴링):
+
+  - 클릭 자체는 정상 수행(elapsed 0.015초, 예외 없음).
+  - 클릭 후 2초(120프레임) 동안 checked 값이 **단 한 번도** true→false로 바뀌지 않았다(계속 true).
+  - 래핑한 16개 함수 중 **단 하나도 호출되지 않았다**(checkLimit 포함 — 로그 0건, MISSING_FN 1건은
+    존재하지 않는 함수명을 잘못 넣은 계측 스크립트 자체의 오타).
+  - 체크박스 DOM 노드는 클릭 전후 동일 참조(sameNode=true, origCbStillConnected=true) —
+    "재렌더로 통째 교체됐다"는 가설과도 다르다.
+  → 결론: "클릭 이벤트가 발생한 뒤 무언가 되돌린다"가 아니라, **클릭이 체크박스에 전혀 도달하지
+    못했다**(어떤 onchange 핸들러도 실행되지 않음).
+  근거 파일: X:\Verify\verify_screenshots_only\M57-GB-CHECKBOX-CLICK-REVERT-ROOT-CAUSE-DIAGNOSE\
+  _diag_m57_gb_checkbox_revert_result.json
+
+이어서 2단계 계측으로 "왜 도달하지 못하는지" 직접 확인했다:
+  - 클릭 직전 상태: `document.body.classList` = ["antialiased","mv-wide-validation","mv-has-cmdbar",
+    **"mv-run-locked"**] — RUN1이 완전히 끝난 뒤(모든 진행 플래그 정상 해제, 스피너 없는 정상 화면)
+    인데도 body에 `mv-run-locked` 클래스가 그대로 남아 있었다.
+  - 그 클래스가 유발하는 CSS(ui/tabler_renderer.py:444-449, `body.mv-run-locked
+    input[data-cand-chk="1"]{pointer-events:none!important;opacity:.5!important;
+    cursor:not-allowed!important}`)가 실제로 이 체크박스에 적용돼 있음을 computed style로 확인
+    (pointerEvents="none", opacity="0.5", cursor="not-allowed").
+  - 그 순간 `_mvAnyRunActive()`를 다시 호출해보면 **false**(모든 4개 동기 플래그 false, execBtn 등
+    버튼 HTML에 스피너 없음, 폴링 없음) — 즉 "지금 실행 중"이라는 실제 근거는 전혀 없는데 CSS
+    잠금 클래스만 stale 상태로 남아 있다.
+  - 대조 실험: 같은 체크박스에 `dispatchEvent(new MouseEvent('click', ...))`(hit-test를 우회해
+    엘리먼트에 직접 이벤트를 전달)를 실행하면 즉시 checked가 true→false로 바뀌고 checkLimit도
+    정확히 1회 호출됨을 확인. → pointer-events:none이 마우스 좌표 기반 클릭(Playwright의 실제
+    클릭·force 클릭 포함)의 hit-test를 막아 체크박스가 이벤트 타겟이 되지 못했을 뿐, 체크박스
+    자체의 로직(checkLimit 등)은 정상이다.
+  근거 파일: X:\Verify\verify_screenshots_only\M57-GB-CHECKBOX-CLICK-REVERT-ROOT-CAUSE-DIAGNOSE\
+  _diag_m57_pointer_events_probe_result.json
+
+────────────────────────────────────────────────────────────
+2. 원인 특정
+────────────────────────────────────────────────────────────
+가설 확인 결과(지시된 순서대로):
+
+- 가설A(재렌더가 사용자 변경을 덮어씀) — **부분 기각, 근접 원인 확인**: "매 polling마다 다시
+  그린다"는 아니었다(로그상 renderColSelect/_mvRepaintPlanTiles 등 어떤 재렌더 함수도 호출 자체가
+  없었음). 다만 지시에서 의심 대상으로 지목한 `_mvSyncRunLockedControls`가 정확히 이 결함의
+  당사자였다 — 다시 그리는 것이 아니라 **body 잠금 CSS 클래스를 stale 상태로 남기는 것**이었다.
+
+- 가설B(의도된 잠금 — 실행에 쓰인 후보는 재선택 전까지 불변) — **기각**. 잠금 자체(`body.
+  mv-run-locked`, ui/tabler_renderer.py:440-449)는 실제로 존재하는 의도된 설계이지만, 그 의도는
+  주석에 명시된 대로 "실행 **중**(COUNT/재검증/SQL생성/통계검증)"에만 켜는 것이다("[STAGE-EXEC-
+  CONTROL-LOCK-IMPLEMENT] 실행 중 … 선택 컨트롤 오버레이 락"). "실행이 끝난 뒤에도 그 축은
+  재선택 전까지 잠근다"는 의도는 주석·커밋 이력 어디에도 없다. 오히려 `_mvAnyRunActive()`와
+  `_mvSyncRunLockedControls()`를 지금 다시 호출하면 정확히 "잠금 해제"가 나온다 — 즉 설계가
+  의도한 목표 상태(실행 종료 시 잠금 해제)와 실제 화면 상태가 어긋난 것으로, 설계 위반이다.
+
+- 가설C(체크박스 change와 별개 경로의 경합/자동복원) — **기각**. 경합·복원 로직이 아니라, 애초에
+  체크박스가 마우스 클릭의 이벤트 타겟이 되지 못하는 CSS 문제였다.
+
+★ 근본 원인(코드 레벨, 4개 지점 모두 동일한 순서 결함) ─────────────────────
+`_mvSyncRunLockedControls()`(ui/tabler_renderer.py:16025-16036)는 `_mvAnyRunActive()`의 판정
+근거 중 하나로 "실행 버튼 HTML에 스피너 span이 남아있는지"를 본다(28472-28477,
+`ids=['countRunBtn','genColBtn','execBtn','runBtn']`, `b.innerHTML.indexOf('spinner')>=0`이면
+실행 중으로 간주). 그런데 각 실행 함수의 종료 처리(finally)에서 "잠금 재계산" 호출이
+"버튼 스피너 제거"보다 **먼저** 실행된다 — 재계산 시점엔 아직 스피너가 남아 있어
+`_mvAnyRunActive()`가 true를 반환하고, 그 결과 `body.mv-run-locked`가 다시(또는 계속) true로
+설정된다. 그 직후 버튼 스피너는 정상적으로 제거되지만, 잠금을 다시 계산하는 호출이 그 뒤에는
+없어 `mv-run-locked`가 영구적으로 stale true 상태로 남는다. 4개 실행 경로 모두 같은 순서
+결함을 갖고 있다(모두 재현 확인은 아니고 코드 대조로 확인 — 실제 재현은 통계검증 실행 경로만):
+
+  1) runCount() 종료(COUNT 비교) — 25191~25197행:
+     25193 `_mvSyncRunLockedControls()` (countRunBtn 스피너 아직 있음) → 25196
+     `btn.innerHTML = '▶ COUNT 다시 실행'` (스피너 제거, 재계산 없음)
+  2) runGenerate() 종료(통계검증 SQL 생성) — 26845~26854행:
+     26847 `_mvSyncRunLockedControls()` → 26850 `b2.innerHTML = '▶ 통계검증 SQL 생성'`
+  3) runExecute() 단일 세트 종료(통계검증 실행, GB 1개) — 30315~30336행:
+     30321 `_mvSyncRunLockedControls()` → 30333 `btn.innerHTML = '▶ 통계검증 실행'`
+  4) _runExecutePlanSets() 다중 세트 종료(GB 2개 이상 — **이번 재현이 실제로 탄 경로**,
+     STATUS_CD+DEPT_CD 2축) — 30136~30167행:
+     30144 `_mvSyncRunLockedControls()` → 30166 `btn.innerHTML = '▶ 통계검증 실행'`
+
+즉 "실행 종료"라는 사건 자체는 정상 처리되지만, 잠금 CSS 클래스를 실제 최종 상태(스피너 제거
+후)로 다시 계산하는 호출이 빠져 있다. 이 프로젝트의 COMBO 픽스처는 항상 GB 2개(STATUS_CD+
+DEPT_CD)가 기본추천이라 4번 경로를 타고, 통계검증을 한 번이라도 실행하면 그 순간부터 3단계의
+모든 후보 체크박스·조합검증 체크박스(#gbIncludePair)·목적지 WHERE(#tgtWhere)·관리컬럼 확정
+버튼(.mv-adm-ovr-btn 등, 모두 같은 CSS 선택자 대상)이 재분석/재로드 전까지 클릭 불가 상태가
+된다(단, opacity:0.5로 흐리게 보이므로 완전히 무징후는 아니다 — 화면을 자세히 보면 후보표가
+옅게 흐려져 있다).
+
+────────────────────────────────────────────────────────────
+3. 판정
+────────────────────────────────────────────────────────────
+(b) 진짜 결함이다. 의도된 설계(주석이 명시)는 "실행 중에만 잠근다"인데, 종료 처리 함수 4곳
+모두에서 "잠금 재계산"과 "버튼 스피너 제거(=사실상 실행 종료를 알리는 마지막 신호)" 순서가
+뒤바뀌어 있어 실행이 끝나도 잠금이 stale하게 유지된다. 사용자에게 이 상태가 화면에 안내되지도
+않는다(체크박스가 옅게 흐려지고 커서가 not-allowed로 바뀌는 것 외에는 별도 배너·툴팁 없음 —
+클릭이 왜 안 먹히는지 설명이 없다). Playwright가 "Clicking the checkbox did not change its
+state"로 자가진단한 것도 이 결함의 정확한 증상이다(클릭은 갔지만 pointer-events:none이라 체크박스가
+이벤트를 받지 못해 checked가 안 바뀜).
+
+────────────────────────────────────────────────────────────
+4. 대응 방향(제안 — 이번 작업 범위 아님, 코드 미수정)
+────────────────────────────────────────────────────────────
+새 상태·새 판정 로직 없이, 위 4개 지점에서 "버튼 스피너 제거" 다음 줄에
+`_mvSyncRunLockedControls()` 재호출을 한 번씩 추가(또는 기존 재계산 호출을 버튼 스피너 제거
+다음으로 옮기는 순서 교정)하면 될 것으로 판단된다 — 판정 함수(`_mvAnyRunActive`)나 CSS는 그대로
+두고 "언제 재계산을 부르는가"만 고친다. 4곳이 동일한 순서 결함을 공유하므로 한 번에 같이 고치는
+편이 회귀 검증도 단순하다(각 경로 종료 후 `document.body.classList.contains('mv-run-locked')`가
+false인지 실측 확인). 영향 범위는 "그 클래스가 잠그는 selector 전부"(GB/SUM 후보 체크박스,
+#gbIncludePair, #tgtWhere, 관리컬럼 확정/범위 버튼)로, 통계검증을 한 번이라도 실행한 뒤의
+모든 3단계 재선택 흐름이 대상이다 — 파급 범위가 좁지 않으므로 수정 후 3단계 재선택 흐름
+전반(단일축/다중축, COUNT만 실행하고 멈춘 경우, SQL만 생성하고 멈춘 경우 등)을 함께 재검증할
+필요가 있다.
+
+────────────────────────────────────────────────────────────
+사용한 드라이버 / 증적
+────────────────────────────────────────────────────────────
+- 신규 드라이버(코드 저장소, 커밋하지 않음 — 진단 전용 1회성, 제품 코드 무수정):
+  scripts/dev_e2e/_diag_m57_gb_checkbox_revert.py (1단계 — 함수 래핑·MutationObserver·rAF 폴링 계측)
+  scripts/dev_e2e/_diag_m57_pointer_events_probe.py (2단계 — mv-run-locked/pointer-events/
+  dispatchEvent 대조 확인, stage45_clickthrough_reverify.py의 setup/stage1/stage2/select_gb/
+  click_apply_candidate/click_generate/click_execute 헬퍼 재사용)
+- 결과 JSON 2개(원문 그대로):
+  X:\Verify\verify_screenshots_only\M57-GB-CHECKBOX-CLICK-REVERT-ROOT-CAUSE-DIAGNOSE\
+  _diag_m57_gb_checkbox_revert_result.json
+  _diag_m57_pointer_events_probe_result.json
