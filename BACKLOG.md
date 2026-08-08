@@ -1926,9 +1926,10 @@ git -C E:/verify_reports worktree remove <임시경로>
   → 2026-07-30 완료(위 `해결 요약` 참조).
 - 참고: E:\verify_reports\DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE.txt
 
-### G7. HASH_BUCKET 해시 계약에 오라클이 등록돼 있지 않아, same-DBMS(오라클↔오라클)여도 영구 불가다 — ③④ 해결 완료, ⑤⑥ 남음
-- 발견일: 2026-08-02 / 재확인: 2026-08-07 / ④ 해결: 2026-08-07 / ③ 해결: 2026-08-07
-  (G7-STEP3-ORACLE-HASH-CONTRACT-IMPLEMENT, 코드 커밋 91705e10)
+### G7. ✅ 계약 계층(①③④⑤⑥) 완전 해결 — 오라클↔오라클 HASH_BUCKET 계약 개방+라이브 검증 완료, 단 운영 라우트 배선갭 2건(G1/G2)이 남아 실사용은 아직 불가
+- 발견일: 2026-08-02 / 재확인: 2026-08-07 / ④ 해결: 2026-08-07 / ③ 해결: 2026-08-07 /
+  ⑤⑥ 해결: 2026-08-08 (G7-STEP5-6-CAPABILITIES-OPEN-AND-CONTRACT-REGISTER,
+  코드 커밋 42094155(⑤)·60c1b999(⑥))
 - 근거 보고서: `PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt`(§4-2·§7-G7, 최초) →
   `F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE.txt`(순서 확정 ①③④⑤⑥) →
   `G7-HASH-BUCKET-ORACLE-FULL-SCOPE-DIAGNOSE.txt`(phase① 이후 재확인, 순서 재정정)
@@ -1993,13 +1994,30 @@ git -C E:/verify_reports worktree remove <임시경로>
   일치는 아니지만, 사전 HOLD로도 안 걸러짐. 착수 시 컬럼 메타 관통 전달(④ 소비측 배선
   확장 범위) 필요.
   코드 커밋: 91705e10 (완료).
-  **실사용 가능(오라클 HASH_BUCKET 실행)은 여전히 ⑤⑥이 남아있어야 완성**(③④는 완료).
+- **⑤⑥ 해결 요약(2026-08-08)**: capabilities 개방(`_ORACLE`에 hash_bucket/canonical_hash_
+  contract SUPPORTED 등록, 신규 `hash_bucket_pair_status()`)과 위임표 등록
+  (`_HASH_CONTRACTS["oracle"]`)을 안전 순서(⑤ 먼저 별도 커밋, ⑥은 그 다음)로 분리
+  완료. **라이브 동등성 검증**(오라클 asis/tobe 실접속, 이미 검증된 DIRECT_STREAM_COMPARE를
+  정답으로 PK 집합 대조): C1~C4+복합키 전부 PK 집합 완전일치 PASS. R3(NLS_NUMERIC_
+  CHARACTERS 원본/목적 실제로 다르게 설정) PASS, R4(4000자 상한, precheck 우회해 실제
+  ORA-01489 한계까지 확인) PASS, S5(cross-DBMS 차단, 3계층+실 라우트) PASS, PG↔PG
+  무회귀(sha256 골든셋 등록 전후 완전동일) PASS.
+- **⚠️ 실사용은 아직 불가 — 운영 라우트 배선갭 2건 신규 발견(G1/G2, 계약 완료 범위 밖)**:
+  계약 계층은 완성됐지만, 실제 운영 라우트에 태워보는 route-wiring-probe로 실측한 결과
+  **오라클 HASH_BUCKET이 아직 실행되지 않는다** — G1(`routes/diagnosis_route.py:804-807,
+  827-830`이 dialect 인자 없이 호출돼 기본값 "postgres"로 떨어져 오라클 SQL을 postgres로
+  오파싱), G2(`services/diagnosis/row_diff.py:76,81`의 바인드 플레이스홀더가 오라클
+  방언에서 `?`로 렌더되는데 python-oracledb가 이를 미지원, DPY-4009). 둘 다 **fail-closed**
+  (조용한 거짓일치 아니라 실행 자체가 막힘 — 데이터 정합성 위험 없음)이나, ⑥ 등록
+  이후로는 "계약없음 HOLD"가 아니라 "EXECUTION_ERROR"로 실패 사유가 바뀜.
+  **"계약 완료"≠"기능 완료"** — 완료 모듈(두 파일 다) 수정이라 별도 승인 필요.
 - 관련: F1, S5(이미 해결 완료)
 - 참고: E:\verify_reports\PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt
 - 참고: E:\verify_reports\F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE.txt
 - 참고: E:\verify_reports\G7-HASH-BUCKET-ORACLE-FULL-SCOPE-DIAGNOSE.txt
 - 참고: E:\verify_reports\G7-STEP4-ROW-DIFF-MATCH-KEY-EVIDENCE-SAFE-WIRING-FIX.txt
 - 참고: E:\verify_reports\G7-STEP3-ORACLE-HASH-CONTRACT-IMPLEMENT.txt
+- 참고: E:\verify_reports\G7-STEP5-6-CAPABILITIES-OPEN-AND-CONTRACT-REGISTER.txt
 
 ### F1. ✅ phase1(①) 완료 — HASH_BUCKET 오라클 구현체는 여전히 없음 (남은 단계: ③④⑤⑥ + G7)
 - 발견일: 2026-07-29 / phase1 해결일: 2026-08-06 (F1-PHASE1-ALIAS-RENAME-VERSION-BUMP, 코드 커밋 c420d84)
