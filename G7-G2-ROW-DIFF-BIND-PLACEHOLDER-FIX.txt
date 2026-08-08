@@ -1,0 +1,68 @@
+작업명 : G7-G2-ROW-DIFF-BIND-PLACEHOLDER-FIX
+✅ 작업 완료 - row_diff.py 오라클 바인드 표기를 이름 바인드(:K0..)로 교체해 DPY-4009 해소, 실 오라클↔오라클 4케이스 전부 정답 일치 확인
+
+[원인 재확인]
+services/diagnosis/row_diff.py:76,81(수정 전) 의 exp.Placeholder() 는 sqlglot 렌더 시
+  - postgres 방언 → '%s' (psycopg2 호환, 기존 _row_fetch_fn 의 list 위치 바인딩과 정상 동작)
+  - oracle   방언 → '?'  (python-oracledb 는 위치 바인드 '?' 를 지원하지 않음 → DPY-4009)
+실측(1): sqlglot 으로 ':1'(오라클 숫자 위치 바인드) 파싱 시도 → ParseError(EQ.expression 누락).
+  즉 '?' 를 ':1' 로만 바꾸면 sqlglot 이 oracle 방언에서 파싱조차 못해 readonly_sql_guard(AST 검사)가
+  UNPARSEABLE 로 실행 자체를 차단한다 — DPY-4009 보다 더 앞단에서 막히는 별개 실패 모드.
+실측(2): 오라클 실접속(Oracle_asis)에서 이름 바인드(':K0') + list 위치 인자 조합은 정상 동작,
+  '?' + list 조합은 DPY-4009 재현. ':1'/':2' 숫자 위치 바인드는 DB 레벨에서는 되지만 위 sqlglot 이슈로
+  readonly_sql_guard 를 통과하는 실행 경로에서는 못 쓴다.
+
+[exact_diff 참고 패턴]
+services/exact_diff/dialects/oracle.py:64-70 oracle_key_bind_names() 의 주석이 정확히 같은 원인을
+먼저 겪고 남긴 근거: "위치 표기(:1) 를 쓰지 않는 이유: 실행 전 readonly 가드가 sqlglot 으로 AST 를
+검사하는데 sqlglot 이 숫자 placeholder(:1) 를 파싱하지 못해 UNPARSEABLE 로 차단된다. 이름 표기(:K0)
+는 정상 파싱되며 oracledb 는 dict 바인딩으로 받는다." → 이 이름 바인드 규칙을 row_diff.py 에 그대로
+재사용했다(신규 표기 발명 안 함). 단, exact_diff 의 detail_fetch_sql 은 오라클 dict 바인딩을 쓰지만
+row_diff 의 fetch 경로(_row_fetch_fn → cmn_db_fetch_select_readonly)는 params 를 항상
+list(params or []) 로 넘기므로(라우트 파일은 수정 범위 밖), 오라클 실접속으로 "서로 다른 이름의
+바인드는 list 위치 인자로도 정상 바인딩된다"는 점을 별도 실측해 이 제약 안에서 해법을 확정했다.
+
+[변경 파일:라인] services/diagnosis/row_diff.py 1개 파일만 수정(커밋 diff: +30/-6)
+  - 신규: _bind_placeholder(idx, dialect) — oracle 이면 exp.Placeholder(this=oracle_key_bind_names(idx+1)[idx])
+    (services.exact_diff.dialects.oracle.oracle_key_bind_names 직접 import 재사용), 그 외 방언은 기존
+    exp.Placeholder() 무명 유지(postgres 무회귀).
+  - _cell_condition(...): 시그니처에 start_idx=0 추가, 두 곳(gb_keys 동등조건 / bucket level 동등조건)의
+    exp.Placeholder() 호출을 _bind_placeholder(idx, dialect) 로 교체, idx 를 매 바인드마다 증가.
+  - build_row_select_sql(...): cell 루프에 _bind_idx 누적 카운터 추가 — cell 간 바인드 이름이 SQL
+    전체(여러 cell 이 OR 로 이어짐)에서 절대 겹치지 않도록 순번을 이어서 전달.
+
+[실측 결과]
+1) route_wiring_gap_probe.json 재실행(G7-STEP5-6 산출 스크립트의 route-wiring-probe 커맨드 그대로) —
+   dialect=oracle: agg_build=OK, row_select_build=OK, row_select_exec=OK. 수정 전 코드로 DPY-4009 가
+   실제 발생함은 별도 1회성 스크립트(g2_bind_probe.py)로 실 오라클 접속에 대해 '?'+list 바인딩을 직접
+   재현해 확인(DatabaseError, DPY-4009). G7-STEP5-6 원본 route_wiring_gap_probe.json 파일 자체는 열어보지
+   않았으나, 이를 만든 harness(scripts/dev_e2e/hash_bucket_oracle_contract_equivalence_verify.py
+   route_wiring_probe() 함수, G2 항목 주석 L605-606)에 동일 결론이 코드로 남아 있음을 확인했다.
+   재현 저장 위치: scratchpad/G7-G2-ROW-DIFF-BIND-PLACEHOLDER-FIX_after_rebase/route_wiring_gap_probe.json
+2) 실 오라클 asis/tobe(G7-STEP5-6 픽스처 MV_G7HB_SRC/TGT, NXDNP) 로 execute_row_diff 를 생산 경로
+   그대로(cmn_db_fetch_select_readonly — readonly_sql_guard 포함, routes/diagnosis_route.py 의
+   _row_fetch_fn 과 동일) 오라클↔오라클 페어로 4케이스 전부 실행, DPY-4009 없이 기대값과 완전 일치:
+     C1(전량일치)        active_cells=0  INSERT=0  DELETE=0  UPDATE=0   PASS
+     C2(AMT 값변경 20건)  active_cells=6  INSERT=0  DELETE=0  UPDATE=20  PASS
+     C3(누락20+추가5)     active_cells=12 INSERT=20 DELETE=5  UPDATE=0   PASS
+     C4(TEXT만 변경 20건) active_cells=8  INSERT=0  DELETE=0  UPDATE=20  PASS
+3) PG 무회귀:
+   - tests/test_diagnosis_row_diff.py (오프라인 5건) — 5 passed
+   - tests/test_diagnosis_row_diff_e2e.py (MV_PG_LIVE_SAFETY=1, 실 PostgreSQL) — 4 passed
+4) 관련 테스트 서브셋(row_diff/diagnosis_route 직접 참조 파일 7개) — 61 passed, 2 failed, 7 skipped.
+   실패 2건(test_diagnosis_phase3b.py::test_next_strategy_preview_matrix,
+   ::test_start_passes_confirmed_chunk_key)은 chunk_key 관련 로직으로 row_diff.py 와 무관 — 본 수정을
+   git stash 로 제외한 상태에서도 동일하게 재현(baseline 대조 완료) → 사전 존재 실패, 신규 회귀 0건.
+5) CLAUDE.md 필수 회귀: samples/test_virtual_cases.py 8/8 통과, samples/test_complex_cases.py 5/5 통과.
+
+[G1 관련 상태]
+지시서 발급 시점엔 G1(G7-G1-DIALECT-ROUTING-FIX, routes/diagnosis_route.py 의 dialect 미전달)이
+미완료였으나, 본 작업 도중 다른 세션이 G1 을 커밋(ccdc32a0, 작업 중 확인)했다. 위 2)번 실측은 G1 커밋
+이후(리베이스 후) 상태에서 수행했으므로, G1+G2 를 함께 적용한 상태의 통합 검증까지 포함한다 —
+"G1 적용 후 통합 검증 필요"가 아니라 이미 통합 검증까지 완료된 상태다.
+
+[커밋해시] 4889b1e1 fix(diagnosis): ROW_DIFF 오라클 바인드 표기 DPY-4009 해소 (G7-G2-ROW-DIFF-BIND-PLACEHOLDER-FIX)
+  (참고: 그 직전 G1 커밋 ccdc32a0, G7-STEP5/6 는 42094155/60c1b999)
+
+작업명 : G7-G2-ROW-DIFF-BIND-PLACEHOLDER-FIX
+✅ 작업 완료 - row_diff.py 오라클 바인드 표기를 이름 바인드(:K0..)로 교체해 DPY-4009 해소, 실 오라클↔오라클 4케이스 전부 정답 일치 확인
