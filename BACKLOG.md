@@ -3083,6 +3083,16 @@ git -C E:/verify_reports worktree remove <임시경로>
   대조. 관련 서브셋 86건 통과, `test_grid_helpers.py` 실패 2건은 이번 작업 무접촉
   파일(git diff 무변화 확인)이라 무관한 사전존재 확인.
 - 참고: E:\verify_reports\STAGE4-SQL-LAYOUT-STRATEGY-SPLIT-BLOCKED-ALERT-CLARITY-FIX.txt
+- **후속(2026-08-08, STAGE4-STRATEGY-COMBO-ORDER-SWAP-COLOR-UNIFY-FIX, 코드 커밋 7ed11522)**:
+  사용자 요청으로 조합체크박스/전략정보 두 블록의 순서를 뒤집고(체크박스 위·전략 아래),
+  체크박스 배경색을 전략 블록과 동일하게 통일(`#fff8e6` 점선 → `#f8fafc`/`#e3e8ef`).
+  `ui/js_sql_preview.py` 1개 파일만 수정. 이 세션 샌드박스에서 localhost 네트워크 호출이
+  차단돼 실서버 클릭검증은 절반만 확인(서버 기동까지만 확인) — 대신 실 제품 JS 함수를
+  `file://`로 직접 로드하는 기존 정적 하니스 패턴으로 대체 검증, 순서·색상·여백·문구
+  불변 10/10 판정 통과. 관련 서브셋 99/99 통과, 넓은 스윕 실패 3건은 git checkout으로
+  재현해 무관한 사전존재 확인. 다른 세션이 같은 저장소에서 2커밋 진행하는 동안에도
+  자기 파일 1개만 pathspec 커밋해 충돌 없음.
+- 참고: E:\verify_reports\STAGE4-STRATEGY-COMBO-ORDER-SWAP-COLOR-UNIFY-FIX.txt
 
 ### M56. ✅ 해결 완료 — 5단계 구조 전면 개편: 4단계=불일치그룹 찾기, 5단계=그룹목록+온디맨드 상세추출(자동시작·교차배지 완전 제거)
 - 발견/계기: 2026-08-08 (사용자 설계 결정 — 4단계 완료 후 5단계 상세비교가 자동으로
