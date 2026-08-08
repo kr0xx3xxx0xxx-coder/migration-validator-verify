@@ -1,0 +1,111 @@
+작업명 : G7-G1-DIALECT-ROUTING-FIX
+✅ 작업 완료 - routes/diagnosis_route.py 2개 호출부에 _routing_dialect(req) 전달 배선, 오라클↔오라클 실측 PASS
+
+════════════════════════════════════════════════════════════════
+1. 수정 내용
+════════════════════════════════════════════════════════════════
+지시서: directives/G7-G1-DIALECT-ROUTING-FIX.md (G7-STEP5-6-CAPABILITIES-OPEN-AND-CONTRACT-REGISTER.txt
+§6 [G1] 해법 그대로)
+수정 파일: routes/diagnosis_route.py 1개 (다른 파일 무수정)
+
+  routes/diagnosis_route.py:804-808  diagnose_multi_scope(...) 호출에 dialect=_routing_dialect(req) 추가
+  routes/diagnosis_route.py:828-831  rd.execute_row_diff(...) 호출에 dialect=_routing_dialect(req) 추가
+
+두 하류 함수 모두 dialect: str = "postgres" 기본값을 가지고 있어(services/diagnosis/adapters/
+multi_scope_adapter.py:33, services/diagnosis/row_diff.py:140), 인자 미전달 시 오라클↔오라클 페어에서도
+postgres 로 렌더되어 OracleHashContract 가 방출한 SQL(3인자 TO_CHAR/BITAND/STANDARD_HASH)이 sqlglot
+postgres 파서에서 실패했다. 이미 존재하는 _routing_dialect(req) 헬퍼(같은 파일 :63-80, src/tgt db_type
+이 같을 때만 해당 방언, 다르면 안전하게 "postgres" 유지)를 그대로 재사용 — 새 매핑/새 로직 없음.
+
+diff:
+  @@ -804,7 +804,8 @@
+       out = diagnose_multi_scope(
+           execute_result=req.execute_result, src_sql=req.src_sql, tgt_sql=req.tgt_sql, gb_keys=gb,
+           scope_refs=list(req.scope_refs or []), chunk_key=None, remaining_axes=[], match_key=mk,
+  -        src_db=req.src_conn, tgt_db=req.tgt_conn, config=_config_from_budget(req.budget))
+  +        src_db=req.src_conn, tgt_db=req.tgt_conn, config=_config_from_budget(req.budget),
+  +        dialect=_routing_dialect(req))
+  @@ -828,7 +829,8 @@
+       result = rd.execute_row_diff(base_src_sql=req.src_sql, base_tgt_sql=req.tgt_sql, gb_keys=gb,
+                                    match_key=mk, cells=cells, ns=ns, contract=_contract,
+                                    fetch_src=_row_fetch_fn(req.src_conn), fetch_tgt=_row_fetch_fn(req.tgt_conn),
+  -                                 config=rd.RowDiffConfig(max_records=int((req.budget or {}).get("max_records", 2000))))
+  +                                 config=rd.RowDiffConfig(max_records=int((req.budget or {}).get("max_records", 2000))),
+  +                                 dialect=_routing_dialect(req))
+
+════════════════════════════════════════════════════════════════
+2. 라이브 실측 — 오라클 asis/tobe (NXDNP.MV_G7HB_SRC/TGT, G7-STEP5-6 픽스처 재사용, C2 케이스)
+════════════════════════════════════════════════════════════════
+routes/diagnosis_route.py 가 실제로 호출하는 그 함수(diagnose_multi_scope, rd.execute_row_diff)를
+그대로 가져와, 오라클 asis/tobe 실접속(db_type="oracle" 쌍)으로 BEFORE(dialect 인자 미전달 — 수정 전
+라우트 동작 재현)/AFTER(dialect=_routing_dialect(req) — 수정 후 라우트 동작 재현) 를 각각 호출해 대조.
+_routing_dialect(오라클,오라클) = "oracle" 실측 확인.
+
+  [diagnose_multi_scope]
+    BEFORE(postgres 기본값) → stopped_reason=EXECUTION_ERROR
+      error_message: "Required keyword: 'format' missing for
+      <class 'sqlglot.expressions.temporal.TimeToStr'>..." (postgres 방언이 오라클 TO_CHAR 를
+      TimeToStr 로 오인식 — SQL 생성 자체가 실패, sqlglot 오파싱 계열 결함 실측)
+    AFTER(dialect="oracle") → stopped_reason=ROW_DIFF_READY, error_message=None → PASS
+
+  [rd.execute_row_diff]
+    BEFORE(postgres 기본값) → DatabaseError DPY-4008(no bind placeholder named ":B0" was found)
+      (postgres 방언 바인드 표기가 오라클 실행에 그대로 새는 동일 계열 결함 — sqlglot 파싱 자체는
+      통과하지만 렌더된 바인드 표기가 오라클과 불일치해 실행 단계에서 fail-closed)
+    AFTER(dialect="oracle") → stopped_reason=DONE, counts={INSERT:0, DELETE:0, UPDATE:20}
+      (G7-STEP5-6 라이브 검증의 C2 정답 PK 20건과 일치) → PASS
+      ※ 이 호출은 harness 전용 fetch 함수(qmark_to_oracle 바인드 표기 보정, G7-STEP5-6 harness 관례
+      재사용)로 fetch 했다 — G2(services/diagnosis/row_diff.py 바인드 플레이스홀더, 별도 지시서
+      G7-G2-ROW-DIFF-BIND-PLACEHOLDER-FIX, 이번 작업과 동시에 다른 세션이 착수)는 이번 범위 밖이라
+      운영 라우트의 _row_fetch_fn 자체는 무수정 — G1(dialect 배선)만 검증했다.
+
+  실측 스크립트 결과 저장: verify_screenshots_only/G7-G1-DIALECT-ROUTING-FIX/g1_live_route_dialect_verify.json
+  (BEFORE/AFTER 원시 결과 전문, C2 실측 불일치 GRP=['G0'])
+
+  [PG↔PG 무회귀]
+    _routing_dialect(postgresql, postgresql) = "postgres" — 수정 전/후 값 동일(변화 없음) 실측 확인.
+    다른 라우트 인자(chunk_key 재확인 :100, agg-diff-route 등)에서도 이미 이 값으로 호출 중이라 PG 경로는
+    코드상 아무 분기도 타지 않음 — 무회귀.
+
+════════════════════════════════════════════════════════════════
+3. 회귀 검증
+════════════════════════════════════════════════════════════════
+관련 서브셋(5개 파일, 91 passed / 5 subtests) — baseline(60c1b999, 수정 전) 과 after(ccdc32a0, 수정 후)
+동일 커밋 기준 파일 1개만 임시 교체해 재실행, 결과 완전 동일(91 passed / 5 subtests 양쪽 동일):
+  tests/test_hash_alias_rename_resume_guard.py (diagnosis_multi_row_diff 라우트 직접 호출 테스트 포함)
+  tests/test_diagnosis_multi_scope.py
+  tests/test_dbms_capabilities.py
+  tests/test_hash_contract_dialect_adapter.py
+  tests/test_hash_bucket_factory_guard.py
+신규 회귀 0건.
+
+[CLAUDE.md 필수 회귀 — 최종 1회]
+  python samples/test_virtual_cases.py  → 8/8 통과
+  python samples/test_complex_cases.py  → 5/5 통과
+
+════════════════════════════════════════════════════════════════
+4. 커밋
+════════════════════════════════════════════════════════════════
+ccdc32a0 (local, main, code repo push 안 함 — 규칙대로)
+  fix(diagnosis): 다중진단 라우트 dialect 미전달로 오라클 HASH_BUCKET 파싱 실패 (G7-G1-DIALECT-ROUTING-FIX)
+  1 file changed, 4 insertions(+), 2 deletions(-) — routes/diagnosis_route.py 만
+
+════════════════════════════════════════════════════════════════
+5. 참고 — 동시 진행 중인 작업
+════════════════════════════════════════════════════════════════
+검증 중 services/diagnosis/row_diff.py 가 다른 세션에 의해 동시 수정 중임을 확인(G7-G2-ROW-DIFF-BIND-
+PLACEHOLDER-FIX 착수 흔적 — _bind_placeholder 오라클 이름 바인드(:K0) 분기 추가). 이번 작업은
+routes/diagnosis_route.py 단독 커밋으로 격리해 충돌 없이 완료했다. G2 는 별도 지시서/세션 소관이라
+이번 범위·커밋에 포함하지 않았다.
+
+════════════════════════════════════════════════════════════════
+6. 결론
+════════════════════════════════════════════════════════════════
+G1(운영 라우트 dialect 미전달)은 해소됐다. 오라클↔오라클 HASH_BUCKET 은 이제 diagnose_multi_scope 단계
+에서 sqlglot 오파싱 없이 ROW_DIFF_READY 까지 정상 도달한다. execute_row_diff 는 dialect="oracle" 배선
+자체는 정상 동작함을 실측했으나(harness 바인드 보정 하에서 C2 정답과 완전 일치), 운영 라우트가 그대로
+호출하는 _row_fetch_fn 은 G2(바인드 플레이스홀더) 가 별도로 해소되기 전까지는 DPY-4008/4009 류 실행
+오류로 계속 fail-closed 된다 — G7-STEP5-6 §6 이 이미 예고한 그대로, 데이터 정합성 위험은 없다.
+
+작업명 : G7-G1-DIALECT-ROUTING-FIX
+✅ 작업 완료 - routes/diagnosis_route.py 2개 호출부에 _routing_dialect(req) 전달 배선, 오라클↔오라클 실측 PASS
