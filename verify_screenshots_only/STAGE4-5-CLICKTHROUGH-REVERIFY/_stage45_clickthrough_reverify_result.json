@@ -1,0 +1,198 @@
+{
+  "task": "STAGE4-5-CLICKTHROUGH-REVERIFY",
+  "port": 8000,
+  "started": "2026-08-08 17:09:44",
+  "setup": {
+    "pair": "Oracle_asis → Oracle_tobe",
+    "connected": true
+  },
+  "1_analyze": {
+    "blocked": false,
+    "from_table": "MV_COMBO_SRC",
+    "error": ""
+  },
+  "2_count": {
+    "status": "COUNT_MATCHED",
+    "src": 1200,
+    "tgt": 1200
+  },
+  "3_sel_initial": {
+    "gb": [],
+    "sum": []
+  },
+  "4_gen_strategy_info": {
+    "stage4": "<strong>전략</strong> 직접 집계 <code class=\"mv-qr-strat-code\">STATS_DIRECT_AGG</code><div style=\"margin-top:4px;font-size:.74rem;color:#64748b\"><span style=\"margin-right:12px;white-space:nowrap\"><b style=\"color:#334155\">신뢰도</b> HIGH</span><span style=\"margin-right:12px;white-space:nowrap\"><b style=\"color:#334155\">규모</b> 소형</span><span style=\"margin-right:12px;white-space:nowrap\"><b style=\"color:#334155\">예상 그룹</b> 7개</span><span style=\"margin-right:12px;white-space:nowrap\"><b style=\"color:#334155\">예상 스캔</b> 1,200행</span><span style=\"margin-right:12px;white-space:nowrap\"><b style=\"color:#334155\">비용점수</b> 12.68</span><span style=\"margin-right:12px;white-space:nowrap\"><b style=\"color:#334155\">예상 소요</b> 1.6초</span></div>",
+    "stage5": "<strong>불일치 추출전략</strong> 직접 스트림 비교 <code class=\"mv-qr-strat-code\">DIRECT_STREAM_COMPARE</code><div style=\"margin-top:4px;font-size:.74rem;color:#64748b\"><span style=\"margin-right:12px;white-space:nowrap\"><b style=\"color:#334155\">신뢰도</b> MEDIUM</span><span style=\"margin-right:12px;white-space:nowrap\"><b style=\"color:#334155\">예상 스캔</b> 1,200행</span><span style=\"margin-right:12px;white-space:nowrap\"><b style=\"color:#334155\">예상 총소요</b> 0.19초</span></div>"
+  },
+  "run1": {
+    "clicked": true,
+    "elapsed_sec": 2.57,
+    "completed": true
+  },
+  "run1_tile": {
+    "exists": true,
+    "tiles": {
+      "목적테이블": "NXDNP.MV_COMBO_TGT",
+      "원본테이블": "NXDNP.MV_COMBO_SRC",
+      "목적그룹": "STATUS_CDDEPT_CD",
+      "원본그룹": "STATUS_CDDEPT_CD",
+      "목적집계": "AMT",
+      "원본집계": "AMT",
+      "실행시간": "원본 0.04초목적 0.05초",
+      "상태": "● 불일치"
+    }
+  },
+  "4_post_strategy_info": {
+    "stage4": "<strong>전략</strong> 직접 집계 <code class=\"mv-qr-strat-code\">STATS_DIRECT_AGG</code><div style=\"margin-top:4px;font-size:.74rem;color:#64748b\"><span style=\"margin-right:12px;white-space:nowrap\"><b style=\"color:#334155\">신뢰도</b> HIGH</span><span style=\"margin-right:12px;white-space:nowrap\"><b style=\"color:#334155\">규모</b> 소형</span><span style=\"margin-right:12px;white-space:nowrap\"><b style=\"color:#334155\">예상 그룹</b> 7개</span><span style=\"margin-right:12px;white-space:nowrap\"><b style=\"color:#334155\">예상 스캔</b> 1,200행</span><span style=\"margin-right:12px;white-space:nowrap\"><b style=\"color:#334155\">비용점수</b> 12.68</span><span style=\"margin-right:12px;white-space:nowrap\"><b style=\"color:#334155\">예상 소요</b> 1.6초</span></div>",
+    "stage5": "<strong>불일치 추출전략</strong> 직접 스트림 비교 <code class=\"mv-qr-strat-code\">DIRECT_STREAM_COMPARE</code><div style=\"margin-top:4px;font-size:.74rem;color:#64748b\"><span style=\"margin-right:12px;white-space:nowrap\"><b style=\"color:#334155\">신뢰도</b> MEDIUM</span><span style=\"margin-right:12px;white-space:nowrap\"><b style=\"color:#334155\">예상 스캔</b> 1,200행</span><span style=\"margin-right:12px;white-space:nowrap\"><b style=\"color:#334155\">예상 총소요</b> 0.19초</span></div>"
+  },
+  "5_tab_before_nav": {
+    "exists": true,
+    "mainBadge": "현재",
+    "subBadge": null,
+    "reimportStatus": "READY",
+    "viewStep": "validation"
+  },
+  "5_tab_on_enter_result": {
+    "exists": true,
+    "mainBadge": "완료",
+    "subBadge": null,
+    "reimportStatus": "READY",
+    "viewStep": "result"
+  },
+  "5_tab_after_reimport_done": {
+    "exists": true,
+    "mainBadge": "완료",
+    "subBadge": null,
+    "reimportStatus": "READY",
+    "viewStep": "result"
+  },
+  "5_self_heal_observed": true,
+  "6_stage5_grid": {
+    "exists": true,
+    "labels": [
+      "목적테이블",
+      "원본테이블",
+      "불일치그룹",
+      "재이관대상",
+      "재이관PK",
+      "실행시간",
+      "상태"
+    ],
+    "count": 7
+  },
+  "6_stage5_strategy_info": "<strong>불일치 추출전략</strong> 직접 스트림 비교 <code class=\"mv-qr-strat-code\">DIRECT_STREAM_COMPARE</code><div style=\"margin-top:4px;font-size:.74rem;color:#64748b\"><span style=\"margin-right:12px;white-space:nowrap\"><b style=\"color:#334155\">신뢰도</b> MEDIUM</span><span style=\"margin-right:12px;white-space:nowrap\"><b style=\"color:#334155\">예상 스캔</b> 1,200행</span><span style=\"margin-right:12px;white-space:nowrap\"><b style=\"color:#334155\">예상 총소요</b> 0.19초</span></div>",
+  "6_adv_perf": {
+    "exists": true,
+    "open": true
+  },
+  "3_case_a": {
+    "hasBanner": false,
+    "bannerText": null,
+    "curGb": [
+      "STATUS_CD",
+      "DEPT_CD"
+    ],
+    "curSum": [
+      "AMT"
+    ]
+  },
+  "3_sel_changed": {
+    "gb": [
+      "STATUS_CD"
+    ],
+    "sum": [
+      "AMT"
+    ]
+  },
+  "3_case_b_row_clicked": false,
+  "3_case_b_row_selector": null,
+  "3_case_b": {
+    "hasBanner": false,
+    "bannerText": null,
+    "curGb": [
+      "STATUS_CD",
+      "DEPT_CD"
+    ],
+    "curSum": [
+      "AMT"
+    ]
+  },
+  "1_before_runB": {
+    "exists": true,
+    "tiles": {
+      "목적테이블": "NXDNP.MV_COMBO_TGT",
+      "원본테이블": "NXDNP.MV_COMBO_SRC",
+      "목적그룹": "STATUS_CDDEPT_CD",
+      "원본그룹": "STATUS_CDDEPT_CD",
+      "목적집계": "AMT",
+      "원본집계": "AMT",
+      "실행시간": "—",
+      "상태": "—"
+    }
+  },
+  "1_runB": {
+    "clicked": true,
+    "stop_appeared": true,
+    "stop_clicked": true
+  },
+  "1_runC": {
+    "clicked": true,
+    "stop_appeared": true,
+    "stop_clicked": true
+  },
+  "1_after_runC_click_immediate": {
+    "exists": true,
+    "tiles": {
+      "목적테이블": "NXDNP.MV_COMBO_TGT",
+      "원본테이블": "NXDNP.MV_COMBO_SRC",
+      "목적그룹": "STATUS_CDDEPT_CD",
+      "원본그룹": "STATUS_CDDEPT_CD",
+      "목적집계": "AMT",
+      "원본집계": "AMT",
+      "실행시간": "—",
+      "상태": "—"
+    }
+  },
+  "1_after_runC_completed": {
+    "exists": true,
+    "tiles": {
+      "목적테이블": "NXDNP.MV_COMBO_TGT",
+      "원본테이블": "NXDNP.MV_COMBO_SRC",
+      "목적그룹": "STATUS_CDDEPT_CD",
+      "원본그룹": "STATUS_CDDEPT_CD",
+      "목적집계": "AMT",
+      "원본집계": "AMT",
+      "실행시간": "—",
+      "상태": "—"
+    }
+  },
+  "scenario_a_dialogs": [
+    "검증 경로 생성: Oracle_asis → Oracle_tobe (원본 1개 → Oracle_tobe)",
+    "검증 경로 접속 성공: Oracle_asis → Oracle_tobe"
+  ],
+  "2_analyze": {
+    "blocked": false,
+    "from_table": "MV_COMBO_SRC",
+    "error": ""
+  },
+  "2b_count": {
+    "status": "COUNT_MATCHED",
+    "src": 1200,
+    "tgt": 1200
+  },
+  "2_abort": {
+    "clicked": true,
+    "stop_appeared": true,
+    "stop_clicked": true
+  },
+  "2_generate_after_stale_abort": {
+    "clicked": true,
+    "elapsed_sec": 3.11,
+    "sql_present": true,
+    "dialogs": []
+  },
+  "scenario_b_dialogs": [],
+  "errors": [],
+  "finished": "2026-08-08 17:16:25"
+}

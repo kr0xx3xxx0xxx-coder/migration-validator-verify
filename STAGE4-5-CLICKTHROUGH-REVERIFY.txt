@@ -1,0 +1,171 @@
+작업명 : STAGE4-5-CLICKTHROUGH-REVERIFY
+⚠️ 추가 작업 필요 - 6개 항목 중 5개(1·2·4·5·6)는 실제 클릭으로 재검증 완료, 1개(3순위 case B)는 실 클릭으로 완주 못함(체크박스 revert 발견, 아래 참고)
+
+────────────────────────────────────────────────────────────
+사전 확인
+────────────────────────────────────────────────────────────
+- 코드 저장소(X:\Projects\Migration_Validator) HEAD = 8589943d(지침 명시값과 일치), 대상 파일
+  (ui/tabler_renderer.py·ui/grid_helpers.py·ui/js_sql_preview.py) 미커밋 변경 없음(git status 깨끗) 확인.
+- 포트 8000 서버: 이미 떠 있던 프로세스(다른 세션 것일 수 있어 임의로 죽이지 않음)를 curl로 받은 HTML에서
+  이번 수정 마커(mv-step-subbadge·mvStage5StrategyInfo·고급 성능정보·_mvCmdBarStopClick) 존재를 확인 →
+  이미 최신 코드를 서빙 중이라 재기동 없이 그대로 재사용(project_running_server_stale_modules 절차대로 판정).
+- Oracle asis/tobe 접속: oracledb 직접 connect(SELECT 1 FROM DUAL) 실측 — asis 0.14초, tobe 0.07초,
+  둘 다 즉시 성공. 과거 있었던 DPY-6005/DPY-6001(서비스 미등록) 문제는 이번엔 재현되지 않음.
+
+────────────────────────────────────────────────────────────
+DB 접속 재시도 루프 대응 — 진단 결과
+────────────────────────────────────────────────────────────
+직전 시도가 오래 걸렸던 원인은 "DB 접속 재시도"가 아니라 **픽스처 선택 문제**였다. 최초 시도는
+NXDNP.MV_ORA_XDIFF_SRC/TGT(250,000행)에 GROUP BY C_DATE(무버킷, 사실상 고유값에 가까운 컬럼)+SUM 2열을
+선택해 통계검증을 실행했는데, 420초 폴링에도 완료 신호(window._execPlanRun 갱신)를 받지 못했다(무버킷
+날짜 컬럼의 GROUP BY 가 행수에 근접하게 폭발 + 이 환경은 Oracle Free 라 병렬실행 불가
+[[project_oracle_free_no_parallel_execution]] 이라 대량 그룹 집계가 매우 느림). 그 잔여 부하가 이후
+별도 브라우저 컨텍스트의 COUNT 요청까지 지연시켜(같은 asis/tobe 페어) 연쇄 실패를 냈다(2단계 COUNT
+status=null로 무응답, 3단계 "선택 적용" 클릭조차 실패).
+→ NXDNP.MV_COMBO_SRC/TGT(1,200행, STATUS_CD 3종×DEPT_CD 4종)로 픽스처를 교체해 완전히 해소했다
+(RUN1 실행 2.57초, 통계검증 SQL 생성 3.11초 등 전부 수 초 이내). 직접 SQL로 사전 확인한 결과 이 픽스처는
+1축(STATUS_CD만)으로는 원본/목적 합계가 서로 상쇄돼 전부 일치하지만, 2축(STATUS_CD+DEPT_CD)으로 보면
+4개 그룹(A/D01, A/D02, P/D01, P/D02)에서 실제 불일치가 드러난다(2026-08-08 직접 SQL 실측) — 정책 상한
+미만 축 선택·실행 완료 실행결과·실불일치 드릴다운이 전부 필요한 이번 재검증에 정확히 들어맞는 실데이터.
+
+────────────────────────────────────────────────────────────
+1순위 — 4단계 재실행 시작 시 이전 실행 결과 잔존
+────────────────────────────────────────────────────────────
+실제 클릭 시퀀스:
+  1) COMBO(GB=STATUS_CD+DEPT_CD, SUM=AMT) "▶ 통계검증 실행" 클릭 → RUN1 실제 완료(2.57초).
+     타일 실측: 실행시간="원본 0.04초/목적 0.05초", 상태="● 불일치"(4개 그룹 실불일치 반영).
+  2) "▶ 통계검증 다시 실행" 클릭(RUN B) → abortable 버튼은 fn() 호출 전에 동기적으로 라벨이
+     "■ 중단"으로 바뀌므로(ui/tabler_renderer.py:6667), 완료가 수 초 이내인 COMBO 에서 그 창을 Playwright
+     IPC 지연 없이 잡기 위해 실행 클릭과 "■ 중단" 클릭을 **같은 evaluate(동기 JS 틱) 안에서 연속 실행**
+     했다 — 둘 다 실제 DOM button.click(), 함수/상태 직접 호출 아님. stop_appeared=true, stop_clicked=true
+     로 실제 중단 성공.
+  3) "▶ 통계검증 다시 실행" 다시 클릭(RUN C) — 마찬가지로 같은 evaluate 안에서 즉시 "■ 중단" 실제 클릭.
+  4) 클릭 150ms 후 타일 즉시 확인 → 실행시간="—", 상태="—" — RUN1의 "● 불일치"/"0.04초" 가 전혀 안 보이고
+     초기화됨(스크린샷 p1_stage4_tiles_immediately_after_rerun_start.png).
+판정: PASS — PROBE 결과(resetExecuteResultOnly 직접 호출 시 초기화)와 실제 클릭 흐름 결과가 일치.
+참고(직전 PROBE와의 차이): 이번엔 "느린 실행 중간에 중단"이 아니라 "실행 시작 직후 중단"에 더 가깝다
+(COMBO 완료가 수초 이내라 중간 지점을 잡기 어려움 — abortable 토글이 클릭과 동시에 일어나는 구조라
+결과에는 영향 없음).
+
+────────────────────────────────────────────────────────────
+2순위 — 3단계 중단 후 4단계 실행 시 원시 AbortError 노출
+────────────────────────────────────────────────────────────
+실제 클릭 시퀀스:
+  1) COMBO analyze+COUNT(2클릭) 완료 → 3단계 진입.
+  2) "선택 적용"(후보 컬럼 계산, abortable) 클릭 + 같은 evaluate 안에서 즉시 "■ 중단" 실제 클릭 →
+     stop_appeared=true, stop_clicked=true(실제 중단 성공).
+  3) 재분석·재선택 없이 바로 4단계로 실제 이동.
+  4) "▶ 통계검증 SQL 생성" 실제 클릭 → 3.11초 후 정상 SQL 생성(sql_present=true), 브라우저 dialog 0건
+     (원시 "signal is aborted..." 메시지 미노출) — 스크린샷 p2_stage4_after_stale_abort_then_generate.png.
+판정: PASS — PROBE(window.fetch AbortError 모킹) 결과와 실제 클릭 흐름 결과가 일치.
+
+────────────────────────────────────────────────────────────
+3순위 — "설정 실행당시/현재 다름" 배너 오탐/정탐
+────────────────────────────────────────────────────────────
+case A(오탐 없음) 실제 클릭 시퀀스:
+  1) RUN1(GB=STATUS_CD+DEPT_CD, SUM=AMT → 2/1, 정책 상한 3/3 미만) 실행 완료.
+  2) 5단계 결과확인으로 실제 이동 → 배너 판정(hasBanner=false, curGb=[STATUS_CD,DEPT_CD],
+     curSum=[AMT] — 실행 당시와 동일) → 배너 없음 확인.
+판정: PASS — 정책 상한 미만 선택이어도 오탐이 없다(PROBE case A와 일치).
+
+case B(정탐 — 실제로 다를 때만 뜨는지) — **실 클릭으로 완주하지 못함**:
+  1) 5단계에서 3단계로 실제로 돌아가 DEPT_CD 체크박스를 실제로 해제 시도(GB 를 1/1 로 축소하려는 시도).
+  2) Playwright 자체가 두 차례 독립 재현에서 **"Locator.uncheck: Clicking the checkbox did not change
+     its state"** 로 실패 — 클릭 이벤트(onchange="checkLimit(...)")가 정상 발생했지만 체크 상태가 클릭
+     즉시 원상복구됨(재현 스크립트 _diag_case_b2.py, 로그 첨부:
+     _item3_caseB_checkbox_revert_diagnostic.log). checkLimit() 자체는 개수>3 일 때만 강제 해제하는
+     코드(ui/tabler_renderer.py:24487-24496)라 이 경로가 직접 원인은 아니었고, 정확한 원인(재렌더
+     타이밍/상태 동기화 등)은 이번 재검증 범위에서 추가로 파고들지 않았다(코드 수정 금지 지침).
+  3) COMBO 픽스처는 GB 후보가 STATUS_CD/DEPT_CD 둘뿐(둘 다 이미 실행에 쓰임, data-default="1")이고
+     SUM 후보도 AMT 하나뿐이라, 이 체크박스가 실 클릭으로 안 풀리는 한 "실행 당시와 다른 조합"을
+     COMBO 안에서 만들 다른 방법이 없었다.
+판정: 미확정(case B 자체는 이번 재검증 범위에서 재현 못함). **주의**: 이는 배너 판정 로직(3순위 수정
+자체)의 결함이 아니다 — 직전 PROBE(window._mvStage4GbSel 직접 대입으로 "실제로 다름" 상태를 만든 뒤
+_mvRenderResultGrid 재호출)는 case B 를 이미 실측 확인했고, 이번 case A 에서도 curGb/curSum 이 실제
+실행값과 정확히 동기화됨을 실 클릭 경로로 재확인했다(배너 판정 자체의 입력값 배선은 정상). 이번에 새로
+발견된 것은 **후보 체크박스가 실행 이후 실 클릭으로 해제되지 않는다는 별개의 현상**이며, 재검증 중 발견한
+문제이므로 지침대로 고치지 않고 여기 별도 보고한다 — 의도된 잠금(실행에 쓰인 기본 후보는 재선택 없이는
+불변)인지 실제 결함인지는 추가 확인이 필요.
+
+────────────────────────────────────────────────────────────
+4·6순위 — 4·5단계 전략 정보 확장 / 5단계 그리드 컬럼 정리 / 고급 성능정보 강조
+────────────────────────────────────────────────────────────
+실제 클릭 시퀀스: RUN1 실행 완료 후 4단계 화면에서 그대로 확인 → 5단계로 실제 이동해 이어서 확인.
+
+4단계(#genSqlExtraInfo) 생성 직후·실행 후 두 시점 모두 실측:
+  "전략 직접 집계 [STATS_DIRECT_AGG] / 신뢰도 HIGH · 규모 소형 · 예상 그룹 7개 · 예상 스캔 1,200행 ·
+   비용점수 12.68 · 예상 소요 1.6초" — 확장 근거값 전부 노출(스크린샷
+   p4_stage4_strategy_info_pre_exec.png / p4_stage4_strategy_info_post_exec.png).
+
+5단계(#mvStage5StrategyInfo) 실측:
+  "불일치 추출전략 직접 스트림 비교 [DIRECT_STREAM_COMPARE] / 신뢰도 MEDIUM · 예상 스캔 1,200행 ·
+   예상 총소요 0.19초" — 4단계와 같은 위치·형태로 노출(스크린샷 p6_stage5_strategy_info.png).
+
+5단계 그리드(#mvStage5CtxGrid) 라벨 실측(7칸, "불일치 추출전략" 컬럼 없음):
+  [목적테이블, 원본테이블, 불일치그룹, 재이관대상, 재이관PK, 실행시간, 상태]
+  (스크린샷 p6_stage5_grid_no_compare_strategy_col.png)
+
+"고급 성능정보" 섹션: exists=true, open=true(기본 펼침 상태로 실제 렌더됨,
+  스크린샷 p6_advanced_perf_info_expanded.png).
+
+판정: 4·6순위 모두 PASS — PROBE 결과와 완전히 일치.
+
+────────────────────────────────────────────────────────────
+5순위 — 5단계 진입 시 4단계 탭 배지(주 배지 유지 + 보조 배지)
+────────────────────────────────────────────────────────────
+실제 클릭 시퀀스: RUN1 실행 완료 직후 4단계 탭 배지 확인 → "결과 확인"(5단계)로 실제 클릭 이동 →
+이동 직후·상세비교 완료 대기 후 두 시점에서 4단계 탭 배지 재확인.
+
+실측:
+  - 이동 전(4단계 화면 보는 중): mainBadge="현재"(보고 있는 탭 — 정상, "완료"로 안 덮임).
+  - 5단계로 실제 이동한 순간: mainBadge="완료"(사실대로, "상세비교 진행중"으로 안 바뀜),
+    subBadge=null, reimportStatus="READY".
+  - 상세비교 완료 대기 후: 동일(mainBadge="완료", subBadge=null, reimportStatus="READY").
+판정: 부분 확인 — mainBadge 는 클릭스루 전 구간에서 시종 "완료"로 유지되어 "완료 상태를 다른 문구로
+안 덮는다"는 5순위의 핵심 취지는 실 클릭으로 확인됐다. 다만 COMBO(1,200행·4그룹 불일치)의 재이관 대상
+준비(상세비교)가 5단계 진입 시점에 이미 READY 로 끝나 있어(너무 빨라서), "5단계 진행중" subBadge 가
+실제로 뜨는 순간 자체는 이번 클릭스루로 못 잡았다 — 이 점이 직전 PROBE(window._mvReimportStatus=
+'PREPARING' 을 강제로 대입해 진행중 순간을 결정적으로 재현)와의 차이다. subBadge 로직 자체(같은
+_mvReimportStatus 신호·같은 렌더 지점 재사용)는 코드상 불변이므로 동작할 것으로 판단하나, "실제로
+화면에 뜨는 순간"은 이번 재검증에서 실측하지 못했다는 점을 명확히 남긴다(스크린샷
+p5_tab_strip_during_reimport_subbadge.png / p5_tab_strip_no_reimport.png 는 두 시점 모두 subBadge
+없는 동일한 상태를 캡처했다).
+
+────────────────────────────────────────────────────────────
+이번 재검증 중 새로 발견된 사항(요청 항목 아님, 별도 보고)
+────────────────────────────────────────────────────────────
+3순위 case B 조사 중 확인: 이미 통계검증 실행에 쓰인 GROUP BY 후보 체크박스(data-default="1")를
+Playwright 의 실제 클릭(uncheck)으로 해제하면 클릭 직후 상태가 즉시 원상복구된다(Playwright 엔진이
+"Clicking the checkbox did not change its state" 로 스스로 실패 판정, 2회 재현). 의도된 잠금인지
+결함인지는 확인하지 않았고, 코드도 고치지 않았다 — 사용자 판단 필요.
+
+────────────────────────────────────────────────────────────
+사용한 드라이버 / 증적
+────────────────────────────────────────────────────────────
+- 신규 드라이버(코드 저장소, 커밋하지 않음 — 이번은 재검증 전용, 제품 코드 무수정):
+  scripts/dev_e2e/stage45_clickthrough_reverify.py (메인 6항목 클릭스루)
+  scripts/dev_e2e/_diag_case_b.py, _diag_case_b2.py (3순위 case B 진단용, 1회성)
+- 스크린샷 15개 + 결과 JSON 1개 + 진단 로그 1개:
+  X:\Verify\verify_screenshots_only\STAGE4-5-CLICKTHROUGH-REVERIFY\
+  p1_stage4_tiles_after_run1.png · p1_stage4_tiles_after_stop_runB.png ·
+  p1_stage4_tiles_immediately_after_rerun_start.png · p1_stage4_tiles_after_runC_completed.png ·
+  p2_stage3_after_stop.png · p2_stage4_after_stale_abort_then_generate.png ·
+  p4_stage4_strategy_info_pre_exec.png · p4_stage4_strategy_info_post_exec.png ·
+  p5_tab_strip_during_reimport_subbadge.png · p5_tab_strip_no_reimport.png ·
+  p6_stage5_grid_no_compare_strategy_col.png · p6_stage5_strategy_info.png ·
+  p6_advanced_perf_info_expanded.png ·
+  _stage45_clickthrough_reverify_result.json(전체 실측 원문) ·
+  _item3_caseB_checkbox_revert_diagnostic.log(3순위 case B 진단 원문)
+- push 커밋: (아래 자동 채움)
+
+────────────────────────────────────────────────────────────
+직전 PROBE 검증과의 종합 비교
+────────────────────────────────────────────────────────────
+1·2·4·6순위: 클릭스루 결과가 PROBE 결과와 완전히 일치(재현 성공, 회귀 없음).
+5순위: 핵심 취지(주 배지 불변) 일치, 다만 "5단계 진행중" subBadge 표시 순간 자체는 픽스처가 너무 빨리
+끝나 실측 못함(PROBE 는 강제 시뮬레이션으로 그 순간을 잡았음 — 방법론 차이).
+3순위: case A(오탐 없음) 일치. case B(정탐)는 체크박스가 실 클릭으로 안 풀려 재현 못함 — 배너 판정
+로직 자체의 결함은 아님(PROBE 가 이미 확인했고, curGb/curSum 배선도 이번에 실 클릭으로 재확인됨).
+
+작업명 : STAGE4-5-CLICKTHROUGH-REVERIFY
+⚠️ 추가 작업 필요 - 6개 항목 중 5개(1·2·4·5·6)는 실제 클릭으로 재검증 완료, 1개(3순위 case B)는 실 클릭으로 완주 못함(체크박스 revert 발견, 아래 참고)
