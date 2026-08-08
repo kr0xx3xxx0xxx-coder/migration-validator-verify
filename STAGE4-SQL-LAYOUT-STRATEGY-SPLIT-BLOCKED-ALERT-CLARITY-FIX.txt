@@ -1,0 +1,81 @@
+작업명: STAGE4-SQL-LAYOUT-STRATEGY-SPLIT-BLOCKED-ALERT-CLARITY-FIX
+✅ 작업 완료 - SQL 헤더-박스 여백 축소·전략/조합 블록 분리·조합 이중배경 제거 3개 항목 모두 구현·실측 검증·커밋·push 완료
+
+대상 화면: 개별검증 4단계(통계검증 SQL), ui/js_sql_preview.py renderSQL() 이 만드는 #sqlOut 영역.
+착수 전 확인: ui/tabler_renderer.py / ui/js_sql_preview.py 두 파일 모두 작업 착수 시점 git status 클린
+(다른 터미널 동시 작업 없음 확인).
+
+────────────────────────────────────────────────────────────
+1순위 — SQL 헤더와 코드박스 사이 여백 축소
+────────────────────────────────────────────────────────────
+파일:라인 : ui/tabler_renderer.py:599  `#sqlOut .sql-hdr{margin-bottom:3px}`
+내용     : 공용 `.sql-hdr{margin-bottom:7px}`(547행 부근)는 COUNT SQL(2단계) 등 다른 섹션도 같이
+           쓰므로 전역 축소 대신 `#sqlOut`(4단계 SQL 출력 host)로 한정해 이 섹션만 7px→3px 축소.
+           다른 섹션 간격 영향 없음.
+검증결과 : 실측(before/after 브라우저 캡처) gap_hdr_box 7px → 3px 확인.
+커밋해시 : 36ab921e
+
+────────────────────────────────────────────────────────────
+2순위 — "전략/신뢰도" 정보와 "조합 검증" 체크박스를 별도 블록으로 분리
+────────────────────────────────────────────────────────────
+파일:라인 : ui/js_sql_preview.py:168-169  `_extraInfoHtml` (#genSqlExtraInfo / #genSqlStrategyInfo)
+내용     : 종전에는 전략 줄과 조합 체크박스 줄이 카드 하나(#genSqlExtraInfo, 배경#f8fafc+테두리)
+           안에 함께 담겨 한 덩어리처럼 보였다. 카드 배경/테두리를 전략 정보(#genSqlStrategyInfo)
+           쪽으로만 옮기고, 바깥 #genSqlExtraInfo 는 여백(margin-top:10px)만 담당하는 레이아웃
+           컨테이너로 남겼다. 값 조립 로직(mvStatsStrategyInfoHtml/mvComboPairLabelHtml)은 무변경
+           (표시 전용).
+검증결과 : 실측 — 카드 배경 소유가 #genSqlExtraInfo(공유) → #genSqlStrategyInfo(전략 전용)로 이동,
+           전략 블록과 조합 블록 사이 간격 7px → 12px(분리 강화) 확인.
+커밋해시 : e9613c8d
+
+────────────────────────────────────────────────────────────
+3순위 — 조합 체크박스 영역의 이중 배경 제거
+────────────────────────────────────────────────────────────
+파일:라인 : ui/js_sql_preview.py:121-122  `_comboNotice`
+           (#genSqlComboDecomposeNotice 바깥 div / #genSqlComboPairOptIn 안쪽 label)
+내용     : 종전에는 바깥 div(배경#fff8e6 실선 테두리)와 안쪽 label(배경#fffdf6 점선 테두리)이
+           겹쳐 이중 배경 박스로 보였다. 바깥 div 는 배경/테두리를 걷어내고 여백(margin-top:12px)·
+           글자색만 담당하도록 남기고, 배경/테두리는 안쪽 label 하나만(배경#fff8e6 점선) 갖도록
+           정리 — 단일 배경.
+검증결과 : 실측 — before 는 바깥(rgb(255,248,230) 실선)+안쪽(rgb(255,253,246) 점선) 이중 배경,
+           after 는 바깥 transparent/테두리없음 + 안쪽 label(rgb(255,248,230) 점선) 단일 배경 확인.
+커밋해시 : f24587a9
+
+────────────────────────────────────────────────────────────
+검증 상세
+────────────────────────────────────────────────────────────
+- 관련 테스트 서브셋 86건 통과
+  (tests/test_stage45_status_timing_combo_label_strategy_relocate.py,
+   tests/test_stage45_strategy_info_relocate.py,
+   tests/test_stage4_stats_validation_tile_layout.py,
+   tests/test_stage45_strategy_timing_and_text_cleanup.py)
+- CLAUDE.md 필수 회귀: samples/test_virtual_cases.py 8/8 통과, samples/test_complex_cases.py 5/5 통과
+- 광역 실행(tests/ -k "stage4 or stage5 or sql_preview or grid_helpers or tabler")에서
+  tests/test_grid_helpers.py 2건 실패 확인 — 해당 파일/ui/grid_helpers.py 는 이번 작업에서 전혀
+  건드리지 않음(git diff 무변화 확인) → 사전 존재 실패, 회귀 아님.
+- 실 브라우저 실측: Oracle_asis/Oracle_tobe 프리셋 + TESTONLY_REG 프로젝트, 기존 픽스처
+  (NXDNP.MV_COMBO_SRC → MV_COMBO_TGT, GROUP BY STATUS_CD+DEPT_CD 2축)로 1→2→3→4단계(SQL 생성)
+  진행 후 #sqlOut/#genSqlExtraInfo/#genSqlComboDecomposeNotice 캡처.
+  - before: git worktree(커밋 8589943d, 수정 전 HEAD)를 8010 포트로 기동
+  - after : 메인 작업트리(HEAD f24587a9, 수정 후)를 8000 포트로 재기동
+  - 두 실행 모두 errors 배열 0건, 위 3개 항목 수치 전부 실측 확인(끼워맞춤 없음)
+  - 드라이버: scripts/dev_e2e/stage4_sql_layout_strategy_split_blocked_alert_clarity_shot.py(신규)
+
+재기동 시각(after 서버) : 2026-08-08 16:54:15
+최종 코드 HEAD          : f24587a9fa65eebef6322d20b3b3d21eaaa35334
+
+────────────────────────────────────────────────────────────
+스크린샷/증적
+────────────────────────────────────────────────────────────
+저장 위치: X:\Verify\verify_screenshots_only\STAGE4-SQL-LAYOUT-STRATEGY-SPLIT-BLOCKED-ALERT-CLARITY-FIX\
+파일     : before_3items_sql_section.png / after_3items_sql_section.png (1순위 여백 + 전체 구도)
+           before_23_extra_info_block.png / after_23_extra_info_block.png (2순위 블록 분리)
+           before_3_combo_box.png / after_3_combo_box.png (3순위 이중배경 제거)
+           before_full_stage4.png / after_full_stage4.png (전체 화면)
+증적 저장소 커밋: 826f7d4
+
+작업 정리: 실측용 git worktree(X:\_wt_s4base) 및 baseline 서버(8010) 제거 완료.
+           증적 clone(X:\_wt_s4layout)은 짧은 경로 문제 회피용 임시 clone(정리 대상 아님 — 이후
+           push 확인용으로 유지 가능).
+
+✅ 작업 완료 - SQL 헤더-박스 여백 축소·전략/조합 블록 분리·조합 이중배경 제거 3개 항목 모두 구현·실측 검증·커밋·push 완료
