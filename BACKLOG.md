@@ -2952,18 +2952,19 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\M3-NODE-HARNESS-TIMEOUT-ROOT-CAUSE-DIAGNOSE.txt
 - 참고: E:\verify_reports\M3-NODE-HARNESS-INFINITE-LOOP-FIX.txt
 
-### M52. 하니스결함 2건(승인대기) 남음 · **실제결함 2건 ✅ 해결완료(M57과 함께) · 테스트노후화 1건+형제1건 ✅ 해결완료**
+### M52. ✅ 5건 전부 해결 완료 — 하니스결함 2건·실제결함 2건(M57과 함께)·테스트노후화 1건+형제1건
 - 발견일: 2026-08-07 (M3-NODE-HARNESS-INFINITE-LOOP-FIX 검증 중 부수 발견) / 원인진단:
   2026-08-08 (M52-FIVE-REVEALED-FAILURES-ROOT-CAUSE-DIAGNOSE, 코드 무변경) / [3] 해결:
   2026-08-08 (M52-3-CANDIDATE-NOTICE-STALE-ASSERTION-UPDATE, 코드 커밋 9b0ebb9b)
-- **[1] 하니스 결함(제품 정상) 2건** — `test_full_run_blocked_stays_on_failed_stage_not_result`/
+- **[1] ✅ 해결 완료 — 하니스 결함(제품 정상) 2건** — `test_full_run_blocked_stays_on_failed_stage_not_result`/
   `test_full_run_blocked_locks_downstream_via_gate`. node 하니스가 `windowStub`이라는 별개
   객체를 만들어 `window===globalThis` 불변식을 깨서, `window.MvStageGate=...`가 전역
   `MvStageGate`를 안 만듦 → `_mvCanNavStep`/`_mvCanNavTab`의 bare 참조가
-  ReferenceError→`catch(e){return true}`로 항상 "이동가능" 오판. 실측: 하니스에
-  `globalThis.MvStageGate = globalThis.window.MvStageGate` 1줄 추가하면 기대값과 정확히
-  일치 확인. M3/M4와 동일 유형(하니스가 브라우저 계약 미준수), 제품 회귀 아님.
-  대응: 하니스 1줄 패치(M3의 storageStub 패치와 동일 성격).
+  ReferenceError→`catch(e){return true}`로 항상 "이동가능" 오판. M3/M4와 동일 유형(하니스가
+  브라우저 계약 미준수), 제품 회귀 아님. **해결(2026-08-08, M52-1-NAV-HARNESS-
+  GLOBALTHIS-PATCH, 코드 커밋 83e1d823)**: `tests/test_one_click_full_run.py` 하니스에
+  `globalThis.MvStageGate = globalThis.window.MvStageGate` 1줄 추가(M3의 storageStub
+  패치와 동일 성격). diff 실물 대조로 정확한 반영 확인, 제품 코드 무변경.
 - **[2] ✅ 해결 완료 — 실제 제품 결함(신규 확정) 2건** — `test_checkbox_change_keeps_table_and_plan_marks_draft`/
   `test_uncheck_all_does_not_switch_to_count_only_before_apply`. `checkLimit()` 호출 체인
   안에서 `_updateExecSelectionSummary()`(draft≠applied면 execBtn.disabled=true, 정확)가 세운
