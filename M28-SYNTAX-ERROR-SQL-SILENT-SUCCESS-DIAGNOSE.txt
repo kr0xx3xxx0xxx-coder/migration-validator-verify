@@ -1,0 +1,289 @@
+✅ 작업 완료 - M28 조용한 성공 진단 완료(코드 수정 0) — 원인은 "regex 폴백 오인식"이 아니라 정확히 계산된 실패 신호(item-level success=False·confidence=FAIL)가 3개 계층에서 연쇄로 유실/무시되는 배선 결함이며, 그 결과 1단계 화면의 유일한 눈에 띄는 상태 타일이 "통과"로 그려진다(오탐률은 구조상 0에 가까움) — 최소 대응안(신호 배선 복구) 권장
+
+작업명 : M28-SYNTAX-ERROR-SQL-SILENT-SUCCESS-DIAGNOSE
+일자   : 2026-08-08
+성격   : 순수 조사·설계 진단 (코드 수정 0 / DB 변경 0 / 커밋은 이 보고서만)
+
+────────────────────────────────────────────────────────────────────────
+0. 요청 응답 형식 (CLAUDE.md 기능/구조 변경 요청 규약)
+────────────────────────────────────────────────────────────────────────
+- 요청 요약    : M28(사전차단 통과 SQL이 오류 없이 success=true로 진행)의 실제 메커니즘을
+                 코드로 재확인하고, 오탐률을 추정한 뒤 대응안을 설계.
+- 긍정적 효과  : "조용한 거짓판정"의 정확한 발생 지점을 file:line 단위로 특정 — 다음 착수 시
+                 탐색 비용 없이 바로 수정 가능. BACKLOG 원 가설(regex 폴백이 오인식)은 틀렸고
+                 실제 원인은 더 넓게 퍼진 신호 유실 체인임을 확인(아래 1항).
+- 구조적 문제점: 실패 신호가 파서 계층(정확) → 파싱 서비스 계층(정확) → analyze 서비스 계층
+                 (유실 1) → 공통 오류계약 계층(유실 2) → UI 그리드 계층(유실 3) → UI 배너 함수
+                 (죽은 코드)까지 5개 계층을 지나며 반복적으로 같은 실수(confidence 신호를 안
+                 본다)가 재발한다. 단일 chokepoint가 없다는 뜻 — 국지적으로 아무리 잘 고쳐도
+                 다음 계층에서 또 샐 수 있는 구조다.
+- 운영상 위험  : 사용자가 문법 오류가 있는 이관 SQL을 그대로 다음 단계(COUNT·통계검증)로
+                 진행시킬 수 있다. 실제로는 parse_result가 텅 비어 있어(from_table="",
+                 columns=[]) 이후 단계에서 다른 방식으로 실패할 가능성이 높지만, 그 실패가
+                 "SQL 문법 오류" 라는 정확한 사유로 나타난다는 보장이 없다(§1-4 참고).
+- heuristic/scoring/explainability 영향: 새 heuristic 추가 없음. 오히려 이미 정확히 계산된
+                 판정(confidence=FAIL, 사유 문자열)이 응답/화면 어디에도 노출되지 않아
+                 explainability가 시스템 내부에서 만들어졌다가 폐기되는 특이 케이스.
+- 권장 대응책  : 4항 참고 — 신규 heuristic/스코어링 불필요. 기존에 이미 정확한 값을 들고
+                 있는 필드(item-level success/error_message, confidence)를 상위 계층까지
+                 그대로 통과시키기만 하면 된다(배선 문제, 판정 로직 문제 아님).
+- 지금 구현 여부: **문서화 우선(보류)** — 이번 지시가 "코드 수정 없이 조사·설계만"이었으므로
+                 구현은 다음 지침에서 사용자 승인 후 진행.
+
+────────────────────────────────────────────────────────────────────────
+1. 현재 동작 재확인 — "regex 폴백"이 아니라 신호 유실 체인
+────────────────────────────────────────────────────────────────────────
+BACKLOG M28 원문은 "regex 폴백이 이를 정상 파싱한 것처럼 처리한다"고 추정했다. 실제 코드를
+같은 SQL(§근거 보고서 스크린샷 원문)로 오프라인 재현한 결과, **그런 별도 regex 파서 재시도
+경로는 존재하지 않는다.** 사전차단은 정확히 동작하고, 그 정확한 실패가 이후 5개 계층을
+거치며 조금씩 버려진다.
+
+■ 1-0. 재현에 사용한 실제 SQL (근거 보고서 스크린샷 parse_01_real_hang_sql_input.png 원문)
+    INSERT INTO NXDNP.MV_SCATTER_TGT (PK_STR, REGION_CD, SEQ_NO, AMT, QTY, ITEM_NM, STATUS_CD)
+    SELECT PK_STR, REGION_CD, SEQ_NO, AMT, QTY, ITEM_NM, STATUS_CD
+      FROM NXDNP.MV_SCATTER_SRC WITH x AS (SELECT 1)
+    SELECT PK_STR, REGION_CD, SEQ_NO, AMT, QTY, ITEM_NM, STATUS_CD FROM x
+
+■ 1-1. 계층 0 — 사전차단 자체는 완전히 정상 (parser/sqlglot_safe_parse.py)
+    detect_unsupported_sql_shape(sql, "oracle") 를 오프라인 직접 호출 → 정확히 차단 사유
+    문자열을 반환("지원되지 않는 SQL 구조입니다 — 본문(SELECT) 시작 이후에 WITH ... AS ( ... )
+    가 위치한 형태는...")을 실측 확인. 파서 진입 자체가 없으므로 hang/메모리 폭주 없음(S18
+    원래 목표 그대로 달성).
+
+■ 1-2. 계층 1 — SqlglotParser.parse() 도 정상 (parser/sqlglot_parser.py:141-156)
+    사전차단 발동 시 `SqlParseBlocked` 예외를 잡아 `ParseResult(error_message=차단사유)` 를
+    반환한다(154-156행). 실측: `from_clause={}`, `columns=[]`, `error_message`=차단사유
+    그대로. **regex fallback 관련 코드는 이 경로에 없다** — `extract_select_from_insert()`
+    (73-120행)에 regex fallback이 존재하긴 하나, 이 메서드는 코드베이스 전체에서 자기
+    자신 외에 호출부가 0건이다(grep 확인 — 죽은 유틸, M28과 무관).
+
+■ 1-3. 계층 2 — item-level 파싱 서비스도 정상 (services/validation_sql_parse_service.py:344-401)
+    `parse_validation_sql_item()` 이 `build_model_from_parse_result()` 로 raw ParseResult를
+    모델 변환하고, `model.parse_errors` 가 채워져 있으면(388행) **정확히**
+    `res.success=False`, `res.error_code="PARSE_ERROR"`, `res.error_message=<차단사유>` 를
+    설정한다. 오프라인 재현 실측:
+      item-level success        : False
+      item-level error_code     : PARSE_ERROR
+      item-level error_message  : "지원되지 않는 SQL 구조입니다 — ..." (정확)
+    → 여기까지는 "파서가 성공한 것처럼 처리"하는 지점이 전혀 없다. 실패가 정확히 감지되고
+      정확히 기록된다.
+
+■ 1-4. 계층 3(유실 #1) — run_single_validation_analyze 가 이 정확한 신호를 버린다
+    services/single_validation_analyze_service.py:603-606
+      if _parse_results:
+          _pr0 = _parse_results[0]
+          parsed = _pr0.parse_result        # ← raw ParseResult (에러 텍스트 포함, OK)
+          parse_error = _pr0.exception_message   # ← 항상 None (아래 이유)
+    `_pr0.exception_message` 는 `get_sql_parser().parse()` 가 **파이썬 예외를 진짜로
+    던졌을 때만** 채워지는 필드다(validation_sql_parse_service.py:373-374). 그런데
+    SqlglotParser.parse() 는 SqlParseBlocked/SqlParseTimeout/그 외 Exception 을 전부
+    내부에서 잡아 `ParseResult(error_message=...)` 로 캡슐화해 반환하도록 설계돼 있다
+    (parser/sqlglot_parser.py:154-160 — 원래 목적은 "기존 except Exception 폴백이 그대로
+    동작하게" 하려는 것이었으나, 그 대가로 **이 함수가 예외를 던지는 경우가 사실상 없어져
+    exception_message 라는 필드 자체가 이 실패 계열에서는 항상 비게 된다**).
+    바로 앞 줄에서 정확히 계산된 `_pr0.success=False` / `_pr0.error_message=<사유>` 는
+    이 지점에서 **전혀 읽히지 않는다.**
+
+■ 1-5. confidence 판정은 부분적으로 살아남는다 (services/analyze_service.py:358-375)
+    `_cmn_assess_confidence(parsed, parse_error)` — `parse_error` 는 위에서 None 이라
+    첫 분기(360행)는 안 타지만, `parsed.columns == []` 를 보고(362행) **그나마**
+    `confidence="FAIL"`, `conf_reasons=["매핑 추출 실패 (빈 ParseResult)"]` 로 떨어진다.
+    (오프라인 재현으로 확인 — 아래 §1-8 표 참고.) 즉 신호가 완전히 사라지진 않고, 서버
+    응답 안에 `confidence: "FAIL"` 로 흔적이 남는다.
+
+■ 1-6. 계층 4(유실 #2) — success 필드가 무조건 True로 하드코딩된다
+    services/single_validation_analyze_service.py:2038
+      _response = { "success": True, "error": parse_error, ... "confidence": confidence, ... }
+    `confidence`, `parsed.error_message` 어느 쪽도 확인하지 않고 이 응답 딕셔너리를 조립하는
+    지점(1741~2100행 구간, 조기 return 블로킹 케이스 8곳을 모두 통과한 이후)에 도달하면
+    `success` 는 항상 True다. `"error": parse_error` 도 §1-4에서 확인했듯 None 이라 `error`
+    필드도 비어 있다.
+
+■ 1-7. 계층 5(유실 #3) — 공통 오류계약도 success/blocked 불리언만 본다
+    routes/analyze_route.py:39-60 `_attach_analyze_error_contract()` →
+    services/error_contract.py:423-439 `analyze_status_contract(success=True, blocked=False,
+    ..., message="")`. 434행: `if success and not blocked: ... return
+    build_error_contract(status=STATUS_SUCCESS, ...)`. **confidence 는 이 함수의 인자로
+    아예 전달되지 않는다.** 그 결과 `resp["error_contract"]["status"] == "SUCCESS"`.
+
+■ 1-8. 오프라인 재현 결과 요약 (모두 실측 — 추정 아님)
+      계층                                          값
+      ──────────────────────────────────────────────────────────────
+      사전차단 detect_unsupported_sql_shape          차단됨 (사유 문자열 정확)
+      SqlglotParser.parse().error_message            차단 사유 그대로
+      item-level SqlParseResult.success               False (정확)
+      item-level SqlParseResult.error_message          차단 사유 그대로 (정확)
+      run_single_validation_analyze 의 parse_error     None            ← 유실 #1
+      confidence / conf_reasons                        FAIL / "매핑 추출 실패..." (부분 생존)
+      최종 응답 success                                True            ← 유실 #2
+      최종 응답 error                                  None            ← 유실 #1의 결과
+      error_contract.status                            SUCCESS         ← 유실 #3
+
+■ 1-9. 사용자가 실제로 보는 화면 — 가장 눈에 띄는 증거 (ui/grid_helpers.py:483-501)
+    1단계 "쿼리검토" 결과는 2026-07 리뉴얼로 9→8개 타일(그리드) 레이아웃이 됐고, 그 중
+    유일하게 성공/실패를 배지로 보여주는 "상태" 타일의 판정 로직은:
+      var blocked = (a.blocked === true) || (a.success === false);   // 487행
+      status: blocked ? 'ERROR' : 'PASS',
+      statusText: blocked ? (reason || '차단') : '통과'                // 499-500행
+    `a.blocked` 는 이 성공 응답 경로에서 아예 설정되지 않고(false 취급), `a.success` 는
+    §1-6에서 하드코딩된 True다. **양쪽 다 false를 가리키므로 `blocked=false` → 상태 타일은
+    "PASS"/"통과" 초록 배지로 그려진다.** `confidence` 필드는 이 판정식에 전혀 등장하지
+    않는다 — `_mvQueryReviewRows()` 는 confidence를 읽지 않는다.
+    → 이것이 근거 보고서가 "화면엔 오류가 전혀 안 뜨고 다음 단계로 진행된다"고 기록한
+      현상의 정확한 코드 지점이다.
+
+■ 1-10. 죽은 코드 1건 — FAIL 배너 함수가 존재하지만 호출되지 않는다
+    ui/tabler_renderer.py:21433-21449 `renderConf(data)` — confidence 값에 따라
+    `<div class="conf-banner FAIL">✗ FAIL — 분석 실패 — <사유></div>` 를 그리는, 이미 만들어진
+    함수다. CSS도 살아있다(381-386행: `.conf-banner.FAIL{background:#fef2f2;...}`). 그런데
+    **`renderConf(` 호출부가 코드베이스 전체에 0건이다(grep 확인).** 대상 DOM `#confBanner`
+    자체도 2750행 주석에 "(제거) 신뢰도 배너(confBanner)... → 쿼리검토 결과 Grid로 흡수
+    (중복 렌더 제거)"라고 명시돼 있다 — 즉 UI 리뉴얼 때 **의도적으로 배너를 없애고 새
+    타일 그리드가 대신 confidence를 보여주기로 설계했으나, 실제로는 §1-9에서 확인했듯
+    그 흡수가 이뤄지지 않았다.** 설계 의도와 구현 사이에 갭이 남은 것 — 사용자가 다른
+    작업(리뉴얼)을 하다가 confidence 표시를 빠뜨린 전형적인 회귀다.
+
+■ 1-11. 결론
+    "regex 폴백이 정상 파싱한 것처럼 처리한다"는 원 가설은 **틀렸다.** 실제로는:
+      (a) 사전차단 → 정확한 실패로 기록됨(파서·item-level 파싱 서비스 모두 정상)
+      (b) 그 정확한 실패가 analyze 서비스 응답 조립부(§1-4/§1-6)에서 2번,
+          공통 오류계약(§1-7)에서 1번, UI 그리드(§1-9)에서 1번, 총 4곳에서 신호가
+          버려지거나 무시된다
+      (c) 유일하게 살아남는 신호(confidence=FAIL)를 보여주기 위해 이미 만들어 둔 UI
+          함수(renderConf)는 리뉴얼 과정에서 호출부를 잃고 죽은 코드가 됐다(§1-10)
+    다섯 계층 중 어느 한 곳만 고쳐도 이번 케이스는 해결되지만, 근본 원인은 "판정 로직
+    없음"이 아니라 "이미 있는 정확한 판정이 배선되지 않음"이다.
+
+────────────────────────────────────────────────────────────────────────
+2. 오탐률 확인 (착수 여부 판단의 핵심)
+────────────────────────────────────────────────────────────────────────
+■ 2-1. 사전차단 규칙의 구조적 성격 — 오탐이 원천적으로 좁다
+    차단 조건은 "본문(SELECT)이 이미 시작된 뒤, 같은 괄호 깊이에 오는
+    `WITH <별칭> AS (`"(parser/sqlglot_safe_parse.py:120-141 주석 근거)이다. 이 형태는
+    표준 SQL 문법상 **어느 방언에서도 유효하지 않다** — CTE(WITH 절)는 (서브)쿼리 맨
+    앞에만 올 수 있다. 즉 이 조건에 걸리는 SQL은 차단하지 않았어도 어차피 파싱 실패했을
+    SQL이다 — "정상 SQL을 잘못 차단"하는 시나리오 자체가 문법적으로 성립하기 어렵다.
+
+■ 2-2. 실측 증거(회귀 테스트 — tests/test_sqlglot_pre_parse_block.py)
+      TC-1 : hang 유발 패턴 11종                    → 11/11 차단 (100%)
+      TC-2 : 정상 SQL 16종(표준 CTE·서브쿼리 CTE·다중 → 0/16 차단 (오탐 0)
+             statement·리터럴/주석 위장·NOLOCK/
+             READ ONLY/WITH FUNCTION·quoted alias 등)
+      TC-3 : 비오라클 방언(mysql/postgres/tsql)      → 차단 범위 밖(설계대로)
+      TC-7 : 정상 SQL 4방언 파싱                     → 무회귀(사전검사 도입 전후 동일 성공)
+    원 커밋(281d9f8) 자체의 실측 로그(커밋 메시지)에도 "정상 SQL 4방언 24케이스 결과
+    동일(오탐 0)"으로 기록돼 있다 — 오탐 0은 이번이 처음 확인한 게 아니라 기존에도
+    두 번(커밋 시점 24케이스 + 회귀 테스트 16케이스) 독립적으로 확인된 값이다.
+
+■ 2-3. 미확인 영역 — 실 운영 트래픽 기준 오탐률은 "측정 안 됨"
+    `blocked_parse_count()` (parser/sqlglot_safe_parse.py:323) 라는 누적 카운터가 이미
+    구현돼 있으나, grep 결과 **운영 응답/로그/진단(diagnostics)의 어디에도 노출되지
+    않는다** — 유일한 소비처는 dev_e2e 검증 스크립트(sqlglot_pre_parse_block_verify.py)
+    뿐이다. 즉 "합성 테스트 케이스"의 오탐률은 0으로 확정 가능하지만, **실제 사용자가
+    입력한 SQL 중 몇 건이 사전차단에 걸렸고 그중 몇 건이 실제로는 유효한 SQL이었는지는
+    현재 구조로는 알 수 없다**(관측 자체가 응답에 실리지 않음).
+
+■ 2-4. 판단
+    합성 케이스 기준 오탐률 0(2회 독립 측정, 총 40케이스) + 차단 조건이 문법적으로
+    항상-무효인 형태만 겨냥하도록 설계됨 → **오탐 비용은 이미 충분히 낮다고 볼 수 있다.**
+    다만 실 운영 발동 빈도가 관측되지 않는 것은 별도 개선 여지(§3-3에서 다룸, 이번
+    지시 범위인 "차단 자체를 오류로 승격할지" 판단에는 영향 없음 — 판단은 이미 가능).
+
+────────────────────────────────────────────────────────────────────────
+3. 대응안 설계
+────────────────────────────────────────────────────────────────────────
+■ 3-1. 최소 대응안(권장) — 이미 정확한 신호를 상위 계층까지 배선만 한다
+    새 판정 로직·새 heuristic 없이, §1에서 확인한 "이미 계산돼 있지만 버려지는 값"을
+    그대로 통과시키는 것만으로 충분하다.
+      (a) services/single_validation_analyze_service.py:604-606
+          `parse_error = _pr0.exception_message` 대신(또는 함께) `_pr0.error_message`
+          (item-level에서 이미 정확히 채워짐 — §1-3)를 함께 확인해 `parsed.error_message`
+          와 병합. "예외로 실패한 경우"와 "ParseResult로 캡슐화되어 실패한 경우"를
+          하나의 신호로 합친다.
+      (b) 같은 파일 2038행 `"success": True` → confidence=="FAIL" 이면서 구조적 파싱
+          실패(예: `(parsed.error_message or "").strip()` 비어있지 않음)인 경우
+          `success=False` 로 정정하거나, 최소한 `"blocked": True` 를 별도로 세운다.
+          — 단 confidence=FAIL 은 "매핑 추출 실패"의 다른 원인(예: 서브쿼리 FROM)으로도
+          발생하므로(analyze_service.py:366-367), **success=False로 승격할 조건은
+          "파서가 명시적 error_message를 반환한 경우"로 한정**해야 기존 LOW/FAIL 판정
+          케이스(현재 정상 동작 중)를 건드리지 않는다.
+      (c) 사전차단인지 일반 파싱 실패인지 구분하는 구조화 필드가 없다(§1 조사 중 확인 —
+          `ParseResult`는 자유texto `error_message`만 있고 `blocked: bool` 같은 필드가
+          없음). `parser/base_sql_parser.py`의 `ParseResult`에 `blocked: bool = False`
+          필드를 추가하고, `SqlglotParser.parse()`의 `SqlParseBlocked` 분기(154-156행)
+          에서만 `True`로 세우면, 응답에 `"pre_blocked": true` 를 실어 "일반 문법 오류"와
+          "hang 방지용 사전차단"을 사용자에게 구분해 보여줄 수 있다(요청에서 언급한
+          "사전차단됨 → 폴백 결과"라는 사실을 남기는 설계와 정확히 대응).
+      (d) UI: ui/grid_helpers.py:487 의 `blocked` 판정식에 `|| (a.confidence === 'FAIL')`
+          를 추가하면 상태 타일이 즉시 "ERROR"로 바뀐다(§1-9의 직접 원인 제거). 이미 있는
+          `_mvStatusIcon`/`statusText` 배지 컴포넌트를 그대로 재사용하므로 오늘 여러 번
+          사용한 "위험전용 배지" 패턴과 동일하게 신규 UI를 만들 필요가 없다.
+          `renderConf()`(§1-10)는 대상 DOM이 이미 제거된 죽은 코드이므로 **되살리지 않고
+          삭제 검토**(다른 곳에서 이미 "Grid로 흡수"하기로 결정한 설계를 따름) — 부활시켜
+          중복 렌더를 만드는 것보다, 타일 배지 하나로 통일하는 편이 리뉴얼 의도와 일치한다.
+      영향 범위: services/single_validation_analyze_service.py(1곳 함수 내부 조건 추가),
+      parser/base_sql_parser.py + parser/sqlglot_parser.py(필드 1개 추가/설정),
+      ui/grid_helpers.py(조건식 1줄 추가). 판정 로직 신규 작성 없음 — 위험도 낮음.
+
+■ 3-2. 더 강한 대응안 — 사전차단을 하드 오류로 승격(HTTP 4xx 등급)
+    §2에서 오탐률이 사실상 0으로 확인됐으므로 이 안도 채택 가능하다. 다만:
+      - 승격 시 "사전차단"과 "그 외 일반 파싱 실패"를 분리해서 승격해야 한다 — 3-1(c)의
+        `blocked: bool` 필드 없이 이 안만 단독 채택하면 confidence=FAIL 을 유발하는
+        다른 정상 케이스(서브쿼리 FROM 등, analyze_service.py:366-367)까지 하드 오류로
+        같이 승격될 위험이 있다(오탐률 산정 대상이 아니었던 케이스까지 끌어들임).
+      - 즉 이 안은 3-1(c)(구조화 필드)를 **전제조건으로 요구**한다 — 최소 대응안 없이
+        바로 이 안으로 가는 것은 §2가 측정한 "오탐 0"의 적용 범위(사전차단 케이스 한정)를
+        벗어나는 과잉 승격이 된다.
+
+■ 3-3. 트레이드오프 요약 및 권장
+      항목                최소 대응안(3-1)              강한 대응안(3-2)
+      ────────────────────────────────────────────────────────────────
+      구현 범위            3개 파일, 조건식/필드 추가 수준   3-1 전제 + 상태코드/HTTP 레벨 변경
+      기존 정상 흐름 영향   없음(신호만 통과시킴)             있음(성공 응답이 오류로 바뀜 —
+                                                          호출부/테스트 다수 영향 가능)
+      회귀 위험            낮음                              중간(단독 채택 시 3-2 두 번째
+                                                          항목의 오분류 위험)
+      "제한시간 내 오류      화면상 명확히 달성                 명확히 달성
+       메시지" 목표 달성
+    **권장: 3-1(최소 대응안)을 우선 착수한다.** 오탐률이 낮다는 근거(§2)는 "강한 대응안이
+    안전하다"는 뜻이지 "최소 대응안이 부족하다"는 뜻이 아니다 — 최소 대응안만으로도
+    S18이 원래 기대했던 "제한시간 내에 오류 메시지를 보여준다"는 목표를 화면에서 완전히
+    달성하며, 구현 범위와 회귀 위험이 훨씬 작다. 강한 대응안은 3-1(c)의 `blocked` 필드가
+    선행된 뒤(사전차단만 정확히 골라낼 수 있게 된 뒤) 별도 지침으로 재검토를 권한다.
+    §2-3(운영 발동 빈도 미관측)도 3-1(c)의 `pre_blocked` 필드를 응답 diagnostics에 함께
+    싣는 김에 같이 해소할 수 있다(부가 작업, 필수 아님).
+
+────────────────────────────────────────────────────────────────────────
+4. 완료보고
+────────────────────────────────────────────────────────────────────────
+1~3 결과: 위 각 항목 참고. 요약하면 —
+  · BACKLOG 원 가설("regex 폴백 오인식")은 오프라인 재현으로 반증됨. 실제 원인은
+    이미 정확히 계산된 실패 신호(item-level success=False, confidence=FAIL)가 analyze
+    서비스 응답 조립(2곳) · 공통 오류계약 · UI 상태 타일까지 총 4개 지점에서 연쇄로
+    무시되는 배선 결함이며, 화면 유일의 성공/실패 배지(1단계 "상태" 타일)가 실제로
+    "PASS/통과"로 그려지는 정확한 코드 지점(ui/grid_helpers.py:487)까지 확인했다.
+    이미 만들어져 있던 FAIL 전용 배너 함수(renderConf)는 UI 리뉴얼 중 대상 DOM이
+    제거되며 호출부를 잃은 죽은 코드로 확인됐다.
+  · 오탐률은 합성 테스트 2세트(총 40케이스, 독립 측정) 기준 0이고 차단 조건 자체가
+    문법적으로 항상-무효인 형태만 겨냥해 구조적으로도 오탐 여지가 좁다. 다만 실 운영
+    발동 빈도는 현재 관측되지 않는다(카운터는 있으나 미노출).
+  권장안: §3-1 최소 대응안(기존 정확한 신호를 상위 계층까지 배선 복구 + `blocked: bool`
+  구조화 필드 추가 + UI 상태 타일 조건 1줄) 우선 착수. §3-2(하드 오류 승격)는 §3-1(c)를
+  전제조건으로 별도 지침에서 재검토.
+
+  착수 시 예상 파일범위(3개, 모두 소규모 수정):
+    · parser/base_sql_parser.py           — ParseResult 에 blocked: bool 필드 추가
+    · parser/sqlglot_parser.py            — SqlParseBlocked 분기에서 blocked=True 설정
+    · services/single_validation_analyze_service.py — parse_error 산정에 item-level
+      error_message 반영 + success 조건 정정(604-606행, 2038행 부근)
+    · ui/grid_helpers.py                  — _mvQueryReviewRows() blocked 판정식에
+      confidence==='FAIL' 조건 추가(487행 부근)
+  위험도: 낮음 — 신규 판정/heuristic 없이 기존 값 배선만 바꾸므로 회귀 범위가 좁다.
+  다만 confidence=FAIL 을 success=False 로 승격하는 조건(§3-1-b)은 "파서가 명시적
+  error_message 를 반환했는가"로 반드시 좁혀야 하며, 그렇지 않으면 현재 정상 동작 중인
+  다른 FAIL/LOW 케이스(서브쿼리 FROM 등)까지 성공 응답이 실패로 바뀌는 역회귀가 날 수
+  있다 — 착수 시 회귀 테스트에 이 구분을 검증하는 케이스를 반드시 포함해야 한다.
+
+권장 모델: Opus · 추론 강도: 높음 (조용한 거짓판정 위험 + 오탐률 판단이 걸린 신중한 조사)
+→ 지시대로 준수. 이번 지침 자체는 코드 수정 없이 조사·설계만 수행했다(커밋은 이 진단
+보고서 1건).
