@@ -2097,13 +2097,26 @@ git -C E:/verify_reports worktree remove <임시경로>
   **저장 상한 자체는 변경하지 않았다**(저장 계층 변경 금지 지시). 100건 표시를 보장하려면 상한을 올려야 한다.
 - 참고: E:\verify_reports\PER-GROUP-DISPLAY-P3-PARTIAL-RECORDS-FIX.txt
 
-### F3. `display_limit_policy.decide_display_mode(storage_kind=)` 가 구현만 되고 호출부 3곳에 배선되지 않았다
-- 발견일: 2026-07-29
-- 근거 보고서: `PER-GROUP-DISPLAY-P3-PARTIAL-RECORDS-FIX.txt` (§8-(b))
-- 상세: `routes/agg_diff_route.py` 2곳, `services/stats_execute_service.py` 1곳이 값을 넘기지 않아
-  현재는 중립 문구로만 동작한다. 경로별 세분 문구를 원하면 호출부에 인자 1개 추가(각 1줄)면 된다.
-  3파일 제한 지시를 지키느라 배선하지 않았다.
+### F3. ⚠️ 배선 완료했으나 화면 소비처가 이미 삭제돼 있어 관측 가능한 변화 없음(dead data)
+- 발견일: 2026-07-29 / 배선 완료: 2026-08-09(F3-DISPLAY-LIMIT-POLICY-WIRING-FIX, 코드
+  커밋 7fd685bb, 로컬 전용 push 없음)
+- 근거 보고서: `PER-GROUP-DISPLAY-P3-PARTIAL-RECORDS-FIX.txt`(§8-(b), 최초) →
+  `F3-DISPLAY-LIMIT-POLICY-WIRING-FIX.txt`(배선+실화면 대조)
+- 해결 요약: 지시대로 3개 호출부에 storage_kind 인자 1줄씩 추가(SAMPLE/CHUNK-DIRECT/
+  DIRECT). API 레벨 실측(before/after 서버 대조)으로 `display_tier_info.display_message`가
+  storage_kind별로 정확히 분기됨을 확인.
+- **⚠️ 핵심 발견**: 실제 드릴다운 패널 DOM을 before/after 바이트 단위 대조한 결과
+  **화면엔 아무 변화가 없음**을 확인 — 이 값을 그리던 배너(D1~D4 표시등급)가 **F3
+  발견일(07-29)보다 6일 앞선 2026-08-05 커밋(a1e4b7c8, STAGE5-MISMATCH-GRID-HEADER-
+  CLEANUP-FIX)에서 이미 삭제**돼 있었음("서버 판정 자체는 유지, 표기만 제거"라는
+  주석이 코드에 남아있음). 즉 F3의 원래 전제("화면에 세분화된 문구가 뜬다")가 발견
+  시점 이전에 이미 성립하지 않는 상태였음. 배선 자체는 정확하나 소비처가 없어
+  "죽은 데이터"가 됐다 — 배선 오류가 아니라 소비처 부재.
+- 대응 방향(결정 필요): (a) display_message를 다시 그릴 화면 소비처 신설, 또는
+  (b) 영구히 소비처가 없다면 storage_kind 배선/decide_display_mode 문구 분기 자체를
+  죽은 코드로 재평가·정리. 이번 작업은 판단 보류, 지시 범위(배선 1줄씩)만 수행.
 - 참고: E:\verify_reports\PER-GROUP-DISPLAY-P3-PARTIAL-RECORDS-FIX.txt
+- 참고: E:\verify_reports\F3-DISPLAY-LIMIT-POLICY-WIRING-FIX.txt
 
 ### F4. ✅ 전체 해결 완료 — 관리컬럼 수동 확정(override) 잔여 한계 4건 전부 해소
 - 발견일: 2026-07-29 / 재분류: 2026-08-06 / 1·4 해결: 2026-08-06(F24-F20-F4-1-F4-4) /
@@ -2138,11 +2151,32 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\F24-F20-F4-1-F4-4-APPROVED-SEQUENTIAL-IMPLEMENT-COMPLETE.txt
 - 참고: E:\verify_reports\F4-3-ADMIN-OVERRIDE-MEMO-DECIDED-BY-UI-FIX\ (스크린샷+verify_facts)
 
-### F5. 화이트박스 테스트 → 동작계약 전환은 Tier 1(8파일)만 끝났다
-- 발견일: 2026-07-28
-- 근거 보고서: `WHITEBOX-TEST-CONTRACT-CONVERSION-PHASE1.txt` (§5 권장 대응책 / §6)
-- 상세: phase1 은 nav/sticky 8파일만 전환했고(mutation 22/22 탐지, 소급 7시점 무해),
-  **2단계 Tier 2(배치 워크플로 UI 상위 10파일, ≈180케이스)부터가 미착수**다. 별도 승인 대상.
+### F5. Tier1(8파일) 완료 — Tier2 범위 재확정 완료(180→233케이스), 3배치 분할 착수 권고(승인 대기)
+- 발견일: 2026-07-28 / Tier2 재확정: 2026-08-09(F5-TIER2-WHITEBOX-CONTRACT-SCOPE-DIAGNOSE,
+  코드 무변경)
+- 근거 보고서: `WHITEBOX-TEST-CONTRACT-CONVERSION-PHASE1.txt`(§5·§6, 최초) →
+  `F5-TIER2-WHITEBOX-CONTRACT-SCOPE-DIAGNOSE.txt`(재확정)
+- **재확정 핵심**: 원래 "≈180케이스"는 파일럿(2026-07-26)이 예시로 든 8개 파일 합계일
+  뿐, 실제 "상위 10파일" 순위가 아니었음(전체 랭킹표 산출물 유실). 동일 방법론으로
+  재스캔한 결과 순수 배치(test_batch_*) 상위 10파일 = **233케이스·493단언(+30%)**.
+  신규 편입 4파일은 2026-06-08/09 생성(파일럿 스캔일 이전 존재, 파일럿이 예시로만
+  뽑으며 누락했을 뿐 신규 파일 아님).
+  F7(오늘 완료, 단일세트 비동기 job)이 Tier2 후보 10파일에 실질 간섭 안 함(배치는
+  원래부터 자체 job/polling 모델 보유, phase1의 "F. node 실행결과 — 유지" 범주와 동일).
+  phase1 방법론(contract_utils 6헬퍼)은 그대로 재사용 가능.
+- 위험 3가지: (a) 파일당 부하 불균등(최대 파일이 Tier1 최대의 72%) (b) 같은 거대
+  렌더러 파일(28,000줄+)을 여러 세션이 동시 편집 중이라 며칠짜리 전환 작업 중 병합
+  충돌 확률 높음(원자적 커밋+짧은 rebase 주기 필수) (c) 공용 컴포넌트 2파일
+  (test_groupby_estimated_group_count_ui.py/test_candidate_draft_selection.py)은
+  개별검증과 렌더러를 공유해 Tier2에 넣으면 회귀 범위가 개별검증까지 번짐 —
+  "Tier2.5"로 별도 분리 권고.
+- **3배치 분할 착수 권고**: 배치1(핵심 3파일·71케이스, 파일럿 예시와 겹쳐 리스크
+  최소) → 배치2(중간 4파일·102케이스) → 배치3(잔여 3파일·56케이스). 각 배치 완료마다
+  mutation 검증+소급 대조(Tier1과 동일 방식) 수행.
+- 대응 방향: **배치1부터 순차 착수 승인 필요**(코드 변경 없는 조사만 완료, 착수는
+  배치 단위 별도 승인).
+- 참고: E:\verify_reports\WHITEBOX-TEST-CONTRACT-CONVERSION-PHASE1.txt
+- 참고: E:\verify_reports\F5-TIER2-WHITEBOX-CONTRACT-SCOPE-DIAGNOSE.txt
   근본 구조(렌더러가 python 문자열 안의 거대 JS = `ui/tabler_renderer.py`)는 그대로이며,
   이번 전환은 증상 완화이지 원인 제거가 아니다.
   ※ "잔여 103개 파일" 로 알려져 있으나, 보고서상 103 은 **회귀 통과 건수**이지 파일 수가 아니다.
