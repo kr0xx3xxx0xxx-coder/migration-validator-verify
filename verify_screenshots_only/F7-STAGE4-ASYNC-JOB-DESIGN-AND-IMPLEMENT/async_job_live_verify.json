@@ -1,0 +1,297 @@
+{
+  "task": "F7-STAGE4-ASYNC-JOB-DESIGN-AND-IMPLEMENT",
+  "base": "http://localhost:8000/",
+  "steps": [
+    {
+      "t": 4.5,
+      "msg": "[서버] 포트 8000 미기동 — web_server.py 기동"
+    },
+    {
+      "t": 7.95,
+      "msg": "[S1] 프로젝트/접속/개별검증 진입"
+    },
+    {
+      "t": 40.08,
+      "msg": "   {\"pair_rows\": 1, \"pair_created\": true, \"connected\": true}"
+    },
+    {
+      "t": 40.08,
+      "msg": "[S1] 1단계 분석"
+    },
+    {
+      "t": 47.21,
+      "msg": "[S1] 2단계 COUNT (5천만행 · 양측 COUNT 소요)"
+    },
+    {
+      "t": 58.18,
+      "msg": "   {\"count_status\": \"COUNT_MINOR_DIFF\", \"src_count\": 50000000, \"tgt_count\": 49500000, \"wall_sec\": 8.28, \"click_count\": 2, \"count_resp_ms\": 6254.9, \"count_resp_diff\": 500000, \"force_btn\": false, \"slots\": {\"s1\": \"· 1단계 처리시간: 2.85초\", \"s2\": \"· 2단계 처리시간: 6.25초\", \"s3\": \"\", \"s4\": \"\", \"s5\": \"\"}}"
+    },
+    {
+      "t": 58.18,
+      "msg": "[S1] 3단계 후보 선정(GROUP BY=STATUS_CD / SUM=AMT,QTY)"
+    },
+    {
+      "t": 68.9,
+      "msg": "[S1] 4단계 이동 + 통계검증 SQL 생성"
+    },
+    {
+      "t": 73.94,
+      "msg": "   [캡처] 01_stage4_sql_generated.png"
+    },
+    {
+      "t": 73.94,
+      "msg": "   [버튼] {\"exists\": true, \"disabled\": false, \"title\": \"브라우저를 닫아도 서버에서 실행이 계속됩니다(GROUP BY 0~1개 단일 세트 전용).\", \"text\": \"⏱ 백그라운드로 실행\"}"
+    },
+    {
+      "t": 73.94,
+      "msg": "[S2] [⏱ 백그라운드로 실행] 클릭 — job_id 즉시 발급 확인"
+    },
+    {
+      "t": 74.38,
+      "msg": "   job_id=c38f6df1f1404fda8bf8e827cebc5834 · 발급까지 0.44초"
+    },
+    {
+      "t": 74.46,
+      "msg": "   [캡처] 02_async_started.png"
+    },
+    {
+      "t": 74.46,
+      "msg": "[S3] 4단계 화면 이탈(검증 현황판 이동) + 서버 직접 폴링"
+    },
+    {
+      "t": 79.53,
+      "msg": "   /jobs/active by_source={\"single\": 0, \"batch\": 0, \"stats\": 0, \"full\": 0, \"single_exec\": 1} · single_exec 항목 1건"
+    },
+    {
+      "t": 79.76,
+      "msg": "   [캡처] 03_left_stage4_dashboard.png"
+    },
+    {
+      "t": 84.95,
+      "msg": "   서버 직접 폴링 [{\"t\": 81.86, \"status\": \"RUNNING\"}, {\"t\": 84.95, \"status\": \"COMPLETED\"}]"
+    },
+    {
+      "t": 84.95,
+      "msg": "[S4] 개별검증 4단계 복귀 — sessionStorage 재수화 확인"
+    },
+    {
+      "t": 89.5,
+      "msg": "   재수화: {\"visible\": true, \"text\": \"✅ 백그라운드 실행 완료job c38f6df1f1404fda8bf8e827cebc5834 · 경과 11초아래 [결과 보기]를 누르면 결과가 이 화면에 표시됩니다(자동으로 5단계로 이동하지 않습니다).결과 보기닫기\", \"hasView\": true}"
+    },
+    {
+      "t": 89.58,
+      "msg": "   [캡처] 04_reentry_rehydrated.png"
+    },
+    {
+      "t": 89.58,
+      "msg": "[S5] [결과 보기] 클릭 — 기존 5단계 렌더 파이프라인 재사용 확인"
+    },
+    {
+      "t": 90.1,
+      "msg": "   결과: {\"matched\": 0, \"diff\": 10, \"src_only\": 0, \"tgt_only\": 0, \"total_groups\": 10, \"success\": true, \"status_code\": \"FAILED\", \"rows\": null}"
+    },
+    {
+      "t": 90.18,
+      "msg": "   [캡처] 05_result_rendered.png"
+    },
+    {
+      "t": 90.18,
+      "msg": "   [정책] 결과 표시 후 현재 단계 = validation (자동 5단계 이동이 없어야 정상)"
+    },
+    {
+      "t": 90.18,
+      "msg": "[S6] 동일 입력 동기 /execute 1회 — 결과 완전 동일 여부 대조"
+    },
+    {
+      "t": 104.61,
+      "msg": "   동기 결과: {\"matched\": 0, \"diff\": 10, \"src_only\": 0, \"tgt_only\": 0, \"total_groups\": 10, \"success\": true, \"status_code\": \"FAILED\", \"rows\": null, \"http\": 200, \"processing_ms\": 14066.4}"
+    },
+    {
+      "t": 104.61,
+      "msg": "   ▶ 요약값 동일=True · 그룹행 digest 동일=True"
+    },
+    {
+      "t": 104.61,
+      "msg": "[S7] 두 번째 job 기동 후 브라우저 컨텍스트 종료 — 진짜 비동기 확정"
+    },
+    {
+      "t": 105.27,
+      "msg": "   job_b=1470073d902b4726834228652057d21d"
+    },
+    {
+      "t": 105.36,
+      "msg": "   [캡처] 06_second_job_started.png"
+    },
+    {
+      "t": 105.88,
+      "msg": "   [브라우저 컨텍스트 종료] — 이후는 서버 단독 진행"
+    },
+    {
+      "t": 120.91,
+      "msg": "   브라우저 종료 후 폴링 [{\"t\": 108.21, \"status\": \"RUNNING\"}, {\"t\": 111.61, \"status\": \"RUNNING\"}, {\"t\": 114.7, \"status\": \"RUNNING\"}, {\"t\": 117.79, \"status\": \"RUNNING\"}, {\"t\": 120.91, \"status\": \"COMPLETED\"}]"
+    }
+  ],
+  "shots": [
+    "01_stage4_sql_generated.png",
+    "02_async_started.png",
+    "03_left_stage4_dashboard.png",
+    "04_reentry_rehydrated.png",
+    "05_result_rendered.png",
+    "06_second_job_started.png"
+  ],
+  "notes": [],
+  "async_button": {
+    "exists": true,
+    "disabled": false,
+    "title": "브라우저를 닫아도 서버에서 실행이 계속됩니다(GROUP BY 0~1개 단일 세트 전용).",
+    "text": "⏱ 백그라운드로 실행"
+  },
+  "job_a": {
+    "job_id": "c38f6df1f1404fda8bf8e827cebc5834",
+    "issue_sec": 0.44,
+    "polls": [
+      {
+        "t": 81.86,
+        "status": "RUNNING"
+      },
+      {
+        "t": 84.95,
+        "status": "COMPLETED"
+      }
+    ],
+    "final_status": "COMPLETED",
+    "elapsed_ms": 10104.2
+  },
+  "jobs_active": {
+    "by_source": {
+      "single": 0,
+      "batch": 0,
+      "stats": 0,
+      "full": 0,
+      "single_exec": 1
+    },
+    "matched": 1,
+    "item": {
+      "source": "single_exec",
+      "id": "c38f6df1f1404fda8bf8e827cebc5834",
+      "key": "single_exec:c38f6df1f1404fda8bf8e827cebc5834",
+      "label": "개별검증 통계검증 · MV_SCATTER50M_TGT (STATUS_CD)",
+      "total": null,
+      "completed": null,
+      "current_target": "MV_SCATTER50M_TGT",
+      "status": "RUNNING",
+      "last_progress_at": null,
+      "started_at": 1786240203.1283154,
+      "unit": "unknown",
+      "percent": null,
+      "active": true,
+      "progress_signal": "START_ONLY",
+      "stall_seconds": 5.3,
+      "stall_basis": "started_at",
+      "extra": {
+        "created_at": 1786240203.1280234,
+        "finished_at": null,
+        "elapsed_ms": null,
+        "error_message": "",
+        "target_table": "MV_SCATTER50M_TGT",
+        "last_progress_at_available": false,
+        "progress_unavailable_reason": "통계검증은 집계 SQL 1문 실행이라 완료 전 중간 진행 신호가 없습니다."
+      }
+    }
+  },
+  "rehydrate": {
+    "visible": true,
+    "text": "✅ 백그라운드 실행 완료job c38f6df1f1404fda8bf8e827cebc5834 · 경과 11초아래 [결과 보기]를 누르면 결과가 이 화면에 표시됩니다(자동으로 5단계로 이동하지 않습니다).결과 보기닫기",
+    "hasView": true
+  },
+  "async_result": {
+    "matched": 0,
+    "diff": 10,
+    "src_only": 0,
+    "tgt_only": 0,
+    "total_groups": 10,
+    "success": true,
+    "status_code": "FAILED",
+    "rows": null
+  },
+  "view_step_after_result": "validation",
+  "sync_result": {
+    "matched": 0,
+    "diff": 10,
+    "src_only": 0,
+    "tgt_only": 0,
+    "total_groups": 10,
+    "success": true,
+    "status_code": "FAILED",
+    "rows": null,
+    "http": 200,
+    "processing_ms": 14066.4
+  },
+  "identical": true,
+  "page_errors": [],
+  "job_b": {
+    "job_id": "1470073d902b4726834228652057d21d",
+    "polls": [
+      {
+        "t": 108.21,
+        "status": "RUNNING"
+      },
+      {
+        "t": 111.61,
+        "status": "RUNNING"
+      },
+      {
+        "t": 114.7,
+        "status": "RUNNING"
+      },
+      {
+        "t": 117.79,
+        "status": "RUNNING"
+      },
+      {
+        "t": 120.91,
+        "status": "COMPLETED"
+      }
+    ],
+    "final_status": "COMPLETED",
+    "elapsed_ms": 13988.7
+  },
+  "ok": true,
+  "net_execute": [
+    {
+      "t": 78.79,
+      "kind": "resp",
+      "path": "/execute",
+      "status": "COMPLETED",
+      "success": true
+    },
+    {
+      "t": 82.76,
+      "kind": "resp",
+      "path": "/execute",
+      "status": "COMPLETED",
+      "success": true
+    },
+    {
+      "t": 97.71,
+      "kind": "resp",
+      "path": "/execute",
+      "status": 200,
+      "processing_ms": 14066.4,
+      "run_id": null,
+      "matched": 0,
+      "diff": 10,
+      "src_only": 0,
+      "tgt_only": 0,
+      "total_groups": 10,
+      "success": true
+    },
+    {
+      "t": 98.22,
+      "kind": "resp",
+      "path": "/execute",
+      "status": "RUNNING",
+      "success": true
+    }
+  ]
+}

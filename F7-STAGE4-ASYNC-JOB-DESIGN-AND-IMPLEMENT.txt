@@ -1,0 +1,220 @@
+작업명 : F7-STAGE4-ASYNC-JOB-DESIGN-AND-IMPLEMENT
+⚠️ 추가 작업 필요 - 단일 세트(GROUP BY 0~1개) 4단계 실행의 비동기 job 화는 구현·실측 완료했으나, GROUP BY 2개 이상 다중 세트 실행은 이번 범위에서 제외했다
+
+────────────────────────────────────────────────────────────────────────
+(1) 3안 재검토 근거와 확정 설계
+────────────────────────────────────────────────────────────────────────
+선행 진단서 2건의 3안을 오늘 시점에서 재평가했다.
+
+  [옵션 A] 화면만(경과시간 카운트업 · 추정 진행바 · '세트 i/N' 표시)
+     → 이미 적용됨(SINGLE-STEP4-EXEC-STATUS-DISPLAY-IMPLEMENT, #mvExecStepProgress 실재 확인).
+       그러나 A 는 "요청이 끝날 때까지 브라우저가 붙어 있어야 한다"는 전제를 못 깬다.
+       지시의 핵심 요구(브라우저를 닫아도 서버가 계속 실행)는 A 로 달성 불가 → 단독 채택 불가.
+  [옵션 B] 서버 단계명 신호(원본/목적/비교 구간 표시)
+     → 진단 실측상 서버 총 처리시간이 0.6~1.7초(25만행)였기에 '실익 작음'으로 보류됐었다.
+       그러나 이번 5,000만행 실측에서는 /execute 왕복이 14.07초였다. 실익이 커진 것은 맞지만,
+       얻는 것은 여전히 %가 아니라 '단계명'이고 상태 저장소가 1개 더 늘어난다.
+       비동기 job 화(Phase 0)를 하면 job 상태 저장소가 이미 생기므로 B 는 그 위에 얹을 후속 과제로 남긴다.
+  [옵션 C] 진짜 %(청크 분할)
+     → 비채택 유지. 통계검증은 GROUP BY 집계 SQL 1문이라 완료 전 부분 결과가 존재하지 않는다.
+       임의 형태 원본 SQL(CTE/JOIN/UNION)을 PK 범위로 감싸 N회 재실행하면 전체 스캔 N회 위험 +
+       청크 키 부재 케이스가 실재한다. 가짜 %/추정 진행바는 만들지 않는다는 원칙 그대로 유지.
+
+  ▶ 확정: 진단서 [설계안] Phase 0 — '4단계 실행의 비동기 job 화'를 **단일 세트 경로에 한해** 구현.
+     · 선례 services/batch/wrapper_async_job.py(요청 스레드 즉시 반환 + 데몬 스레드 + thread_starter
+       테스트 주입 + 환경변수→정책→기본값 3단 롤백 토글)를 그대로 본떴다.
+     · job 저장소 TTL/evict 는 services/exact_diff/reimport_job.py 패턴을 따랐다.
+     · 진행률은 만들지 않는다. 상태는 PENDING/RUNNING/COMPLETED/FAILED 4개뿐이고
+       폴링은 '완료 여부 확인' 용도다(진단서 결론 그대로).
+     · 5단계 자동 진입은 넣지 않았다 — 오늘 M56/M58 로 확정된 "5단계는 사용자가 명시적으로
+       들어가야 시작" 원칙과 08c2119 '완료 후 자동 탭 이동 전면 제거' 정책을 그대로 지킨다.
+       완료를 명확히 보여주고 [결과 보기] 버튼을 제공하는 데서 멈춘다(무성 전환 금지).
+
+  ▶ 위험 판단(구현 강행 여부): workflow_stage_guard 의 begin/end 를 스레드 경계로 넘기는 것이
+     안전한지 실제 코드를 읽고 판정했다. begin_execution 은 ctx_key 기준 marker 를 남기고
+     end_execution 은 '자기 marker 일 때만' 해제하며, TTL 만료는 fail-open 방향이다.
+     즉 해제 주체가 요청 스레드일 필요가 없고, 스레드 종료 finally 에서 해제해도 계약이 깨지지 않는다.
+     다만 기본 TTL 180초는 '요청 1건 상한' 기준이라 장기 job 에는 짧아 먼저 만료될 수 있으므로
+     job 전용 TTL(기본 3,600초)을 설정으로 분리해 넘겼다. → 근거 있는 안전 판단으로 구현 진행.
+
+────────────────────────────────────────────────────────────────────────
+(2) 구현 파일 목록과 각 파일 변경 요지 (전부 additive)
+────────────────────────────────────────────────────────────────────────
+ ┌─────────────────────────────────────────────┬──────┬──────────────────────────────────────────┐
+ │ 파일                                        │ 구분 │ 변경 요지                                │
+ ├─────────────────────────────────────────────┼──────┼──────────────────────────────────────────┤
+ │ services/single_execute_job.py              │ 신규 │ 인메모리 job store + 데몬 스레드 기동 +   │
+ │                                             │      │ TTL lazy purge + 동시 상한 + 3단 토글.    │
+ │                                             │      │ job 레코드에 ExecuteRequest/접속 dict/    │
+ │                                             │      │ 비밀번호를 저장하지 않는다(화이트리스트). │
+ │ services/exact_diff/execution_settings.py   │ 수정 │ SingleExecuteAsync 그룹 추가(enabled /    │
+ │                                             │      │ poll_interval_ms / TTL 2종 /              │
+ │                                             │      │ max_concurrent_jobs / guard_inflight_ttl).│
+ │                                             │      │ 기존 필드·그룹 변경 0.                    │
+ │ routes/execute_route.py                     │ 수정 │ POST /execute/async, GET /execute/jobs/{id}│
+ │                                             │      │ 2개 라우트만 추가. 기존 stats_execute 및  │
+ │                                             │      │ _stats_execute_inner 본문 무변경.         │
+ │                                             │      │ 실행 본문은 _stats_execute_inner 재사용,  │
+ │                                             │      │ _guard.end_execution 을 스레드 종료       │
+ │                                             │      │ finally 로 이동(실행 중 중복 방어 유지).  │
+ │ services/job_registry.py                    │ 수정 │ 5번째 소스 single_exec 어댑터 4함수 추가  │
+ │                                             │      │ (dto/collect/get/completed) + 맵 등록.    │
+ │                                             │      │ 기존 4소스 수집·변환 로직 무변경.         │
+ │                                             │      │ total/completed/percent 는 항상 None      │
+ │                                             │      │ (UNIT_UNKNOWN — 가짜 진행률 금지).        │
+ │ ui/js_job_dashboard.py                      │ 수정 │ single_exec 라벨('개별검증 실행(백그라운드)')│
+ │                                             │      │ + 섹션 배열 + 카운트 배열 각 1행.          │
+ │                                             │      │ 폴링 골격(_jdSchedule/단일 타이머) 무변경. │
+ │ ui/tabler_renderer.py                       │ 수정 │ #execBtnAsync 버튼 + #mvAsyncExecStatus    │
+ │                                             │      │ 영역 + runExecuteAsync() 경로 신설.        │
+ │                                             │      │ 좌측 배지 합계에 single_exec 포함.         │
+ │                                             │      │ 기존 runExecute() 본문 0줄 수정.           │
+ │ tests/test_single_execute_async_job.py      │ 신규 │ 22건(유닛 7 · 라우트 6 · registry 3 · UI 6)│
+ │ scripts/dev_e2e/stage4_async_job_live_verify│ 신규 │ 5,000만행 라이브 실측 드라이버(S1~S7).     │
+ │   .py                                       │      │ 1~3단계 구동은 기존 50M 드라이버 재사용.   │
+ └─────────────────────────────────────────────┴──────┴──────────────────────────────────────────┘
+
+ ■ 계약 변경 1건(의도적 · 조용한 회귀 아님)
+   ALL_SOURCES 가 4개 → 5개가 되면서 GET /jobs/active 의 counts.by_source 딕셔너리가
+   {single,batch,stats,full} → {single,batch,stats,full,single_exec} 로 바뀐다.
+   기존 테스트를 전수 검색한 결과 이 딕셔너리의 **키 집합을 통째로 assert 하는 테스트는 없었다**
+   (tests/test_job_registry.py 는 개별 키만 확인). 4키를 전제하던 소비측(현황판 카운트 배열,
+   좌측 배지 합계 속성)은 이번 커밋에서 함께 갱신했고, 신규 테스트 C-1 이 5키임을 고정한다.
+
+ ■ 프론트엔드 안전 설계(기존 상태머신 보호)
+   · runExecute() 본문은 손대지 않았다 — 재클릭 방지·S16 409·M57 stale lock·세션버전·abort signal
+     등 상호의존 가드가 밀집한 영역이라 분기 삽입 자체가 회귀 위험이다.
+     대신 순수 판정/유틸 함수만 호출해 재사용했다(_singleExecGuard / _singleExecPreflight /
+     _mvGateBlocked('stats')+_mvOfferStage3ForceProceed / _isRegenerateRequired /
+     _mvBuildConnPayload / _buildCountContext / _mvSelectionMode).
+   · 전역 네임스페이스 분리 — window._singleAsyncExecJobId / _singleAsyncExecPollTimer /
+     _singleAsyncExecTickTimer / _singleAsyncExecState / _singleAsyncExecCtx 만 사용.
+     _executeInProgress·_singleValidationExecuted·_singleLastExecResult 는 **읽기만** 하고,
+     사용자가 [결과 보기]를 눌러 결과를 실제로 화면에 올린 시점에만 채운다
+     (그래야 '검증 결과 확정 저장' 등 하위 기능이 정상 동작한다).
+   · DOM 도 분리 — 4단계·상세비교가 공용해 충돌 이력이 있는 #executeOut/#mvExecStepResult/
+     #mvExecStepError 를 재사용하지 않고 #mvAsyncExecStatus 를 새로 뒀다(4단계 pane 소속 등록).
+   · 폴링 주기는 서버가 내려준 poll_interval_ms 를 그대로 쓴다(클라이언트 하드코딩 없음).
+   · 탭 이탈 후 이어보기는 sessionStorage + 4단계 재진입 훅(_applySinglePane 의 validation 분기).
+     새로고침으로 소멸하는 것은 진단서에서 이미 확인·수용된 한계이며 이번 범위 밖이다.
+
+────────────────────────────────────────────────────────────────────────
+(3) 라이브 실측 결과 (실서비스 포트 8000 · 인증 ON · Chromium/Playwright)
+────────────────────────────────────────────────────────────────────────
+ 대상   : Oracle asis(MV_SCATTER50M_SRC 50,000,000행) → tobe(MV_SCATTER50M_TGT 49,500,000행)
+ 이관SQL: INSERT INTO NXDNP.MV_SCATTER50M_TGT (7컬럼) SELECT ... FROM NXDNP.MV_SCATTER50M_SRC
+ 선택   : GROUP BY = STATUS_CD(1개) / SUM = AMT, QTY
+ 사전 대조군(직접 SQL, SELECT 전용):
+   asis COUNT 21.076s · asis GROUP BY 집계 4.509s · tobe COUNT 22.651s · tobe GROUP BY 집계 7.464s
+   → 기본 실행 상한 60초 초과 항목 0건
+
+ ┌────┬──────────────────────────────────────────────┬──────────────────────────────────────────┐
+ │ 시나리오                                          │ 실측 결과                                 │
+ ├────┼──────────────────────────────────────────────┼──────────────────────────────────────────┤
+ │ S1 │ 1~3단계 + 4단계 SQL 생성                      │ 1단계 2.85초 · 2단계 COUNT 6.25초         │
+ │    │                                              │ (src 50,000,000 / tgt 49,500,000, 차 500,000)│
+ │ S2 │ [⏱ 백그라운드로 실행] 클릭 → job_id 발급      │ **0.44초** 만에 job_id 반환(요청 미대기)  │
+ │    │                                              │ job_a=c38f6df1f1404fda8bf8e827cebc5834    │
+ │ S3 │ 4단계 화면 이탈(검증 현황판으로 이동)         │ GET /jobs/active by_source =              │
+ │    │ + 브라우저와 무관한 경로(urllib) 직접 폴링    │ {single:0,batch:0,stats:0,full:0,          │
+ │    │                                              │  single_exec:**1**} · 해당 job 1건 노출    │
+ │    │                                              │ 폴링 RUNNING → COMPLETED (서버 계속 실행)  │
+ │    │                                              │ job 서버 소요 **10,104.2ms**              │
+ │ S4 │ 개별검증 4단계 복귀 — sessionStorage 재수화   │ #mvAsyncExecStatus 재구성 성공            │
+ │    │                                              │ "✅ 백그라운드 실행 완료 · job … · 경과 11초"│
+ │    │                                              │ [결과 보기] 버튼 노출 확인                 │
+ │ S5 │ [결과 보기] 클릭                              │ 기존 5단계 렌더 파이프라인                │
+ │    │                                              │ (_mvRenderValidationDetail) 재사용 성공.   │
+ │    │                                              │ matched 0 / diff 10 / src_only 0 /        │
+ │    │                                              │ tgt_only 0 / total_groups 10 / 상태 불일치 │
+ │    │                                              │ 4단계 타일 실행시간 원본 4.57초·목적 5.38초│
+ │    │                                              │ **자동 탭 이동 없음** — _singleViewStep 이 │
+ │    │                                              │ 'validation' 그대로(5단계는 활성화만)      │
+ │ S6 │ 동일 입력으로 동기 /execute 1회 대조          │ HTTP 200 · processing_ms 14,066.4ms       │
+ │    │                                              │ matched 0 / diff 10 / src_only 0 /        │
+ │    │                                              │ tgt_only 0 / total_groups 10 / FAILED     │
+ │    │                                              │ ▶ 요약값 동일 = **True**                   │
+ │    │                                              │ ▶ 그룹행 digest 동일 = **True**            │
+ │ S7 │ 두 번째 job 기동 후 **브라우저 컨텍스트 종료**│ job_b=1470073d902b4726834228652057d21d    │
+ │    │ → urllib 직접 폴링                            │ RUNNING×4 → COMPLETED(약 13초 경과)       │
+ │    │                                              │ job 서버 소요 **13,988.7ms**              │
+ │    │                                              │ ▶ 클라이언트 연결이 끊겨도 서버 실행 지속  │
+ │    │                                              │   = 진짜 비동기 확정                       │
+ └────┴──────────────────────────────────────────────┴──────────────────────────────────────────┘
+ 페이지 JS 오류 0건 · 판정 '정상'(notes 0건)
+
+ 증적: X:\Verify\_rpt_push\verify_screenshots_only\F7-STAGE4-ASYNC-JOB-DESIGN-AND-IMPLEMENT\
+   async_job_live_verify.json
+   01_stage4_sql_generated.png · 02_async_started.png · 03_left_stage4_dashboard.png
+   04_reentry_rehydrated.png · 05_result_rendered.png · 06_second_job_started.png
+   f7_async_step1_query_review.png · f7_async_step2_count.png · f7_async_step3_candidate.png
+
+────────────────────────────────────────────────────────────────────────
+(4) 회귀 테스트 결과 (baseline 대조 — 사전실패와 신규회귀 구분)
+────────────────────────────────────────────────────────────────────────
+ ■ 신규 테스트 : tests/test_single_execute_async_job.py — 22건 전부 통과
+    A 유닛 7건(PENDING→COMPLETED 전이 / 예외→FAILED / 동시상한 / TTL(종료만 회수, 활성 보존) /
+             비밀번호 미노출 / 3단 토글 / 설정 배선)
+    B 라우트 6건(가드 차단 409 / job 실행 중 중복 409 + 종료 후 표식 해제 / 404·400 /
+             **동기 vs 비동기 결과 완전 동일** / 동기 경로 계약 무변경 / 토글 OFF 거부)
+    C registry 3건(5키 계약 / 활성·완료·상세 + percent 항상 None / 현황판 배선)
+    D UI 6건(버튼·상태영역 존재 / 동기 플래그 미변경 / 다중세트 명시 안내 /
+             완료 시 자동 탭 이동 없음 / 폴링 주기 서버값 사용 / runExecute 본문 마커 유지)
+
+ ■ baseline 대조 — 관련 서브셋
+    실행: pytest tests/ -p no:randomly -k "execute or job_registry or job_dashboard or
+          workflow_stage or execution_settings or stage_guard"
+    baseline(HEAD~1, 변경 5파일을 git 으로만 되돌려 측정): 53 failed / 700 passed / 8 skipped
+    after (이번 변경 적용)                                 : 52 failed / 723 passed / 8 skipped
+      · after 에만 나타난 항목 2건
+          test_execute_route_shadow_integration.py::test_failure_response_unchanged
+          test_execute_route_shadow_integration.py::test_shadow_metrics_failure_isolated
+      · baseline 에만 나타난 항목 3건
+          test_execute_r3_safe_return.py::test_route_on_equals_off
+          test_single_execute_result_envelope_store_skeleton.py::test_route_on_equals_off / _isolated
+      → 위 5건은 **동일한 사전존재 결함군**이다. 전부 `on == off` 로 응답 dict 를 통째로 비교하는데
+        그 dict 에 실측 시간값 processing_ms 가 들어 있어 {'processing_ms': 0.1} != {'processing_ms': 0.2}
+        로 깨진다. 같은 커밋에서 같은 파일을 3회 반복 실행하니 2/1/2건으로 매번 다른 조합이 실패했다
+        (실행마다 뒤집히는 타이밍 flaky). baseline 로그에도 동일 서명이 그대로 존재한다.
+      → **이번 변경으로 새로 깨진 테스트 0건**(사전존재 실패는 baseline 53건 · after 52건).
+        나머지 사전실패군: test_stats_execute_error_handling(6건, stats_execute_service — 미변경 파일),
+        test_all_stages_timing_display_expand::…add_processing_ms(baseline·after 동일 실패),
+        test_single_validation_e2e_core / test_task12_a / test_validation_execute_core 등.
+
+ ■ CLAUDE.md 필수 회귀(최종 1회)
+    python samples/test_virtual_cases.py  → 8/8 통과
+    python samples/test_complex_cases.py  → 5/5 통과
+
+────────────────────────────────────────────────────────────────────────
+(5) 커밋 해시
+────────────────────────────────────────────────────────────────────────
+ f176107a  feat(single): 4단계 통계검증 백그라운드 비동기 job 화 — 단일 세트 한정
+ f4b8c5cd  chore(single): 백그라운드 실행 좌측 배지 합계에 single_exec 포함 + 라이브 실측 드라이버 추가
+ ※ 코드 저장소(X:\Projects\Migration_Validator)는 origin 이 없어 커밋까지만 수행했다(push 없음).
+
+────────────────────────────────────────────────────────────────────────
+(6) 재기동 시각 · HEAD 커밋 해시
+────────────────────────────────────────────────────────────────────────
+ 재기동 시각 : 2026-08-09 10:52:12 (포트 8000 · 기존 점유 프로세스 종료 후 기동)
+ HEAD        : f4b8c5cd
+ 기동 후 확인 : GET /execute/jobs/{미존재} → 404 (신규 라우트 활성)
+                GET /jobs/active → counts.by_source 5키 확인
+                {single:0, batch:0, stats:0, full:0, single_exec:0}
+
+────────────────────────────────────────────────────────────────────────
+(7) 이번 범위에서 제외한 것 (명시)
+────────────────────────────────────────────────────────────────────────
+ · **GROUP BY 2개 이상 다중 세트 실행(_runExecutePlanSets)은 이번 범위에 포함하지 않았다.**
+   해당 경로는 클라이언트가 /generate + /execute 를 세트 수만큼 순차 반복하는 구조라
+   서버 이관 시 위험이 가장 크다(진단서 권고: "다중 세트 서버 이관은 마지막").
+   지금도 **여전히 동기 실행**이며, 화면에서는 [⏱ 백그라운드로 실행] 버튼이
+   disabled + title 사유("다중 세트 실행은 백그라운드 실행 대상이 아닙니다")로 명시 차단된다
+   (조용한 무시 없음 — 클릭 경로로 들어와도 alert 로 안내 후 return).
+ · 5단계 자동 진입(Phase 1 조건부 자동전환)과 현황판 새창(Phase 2)은 미착수.
+   특히 자동 전환은 오늘 M56/M58 로 확정된 설계 원칙과 어긋나므로 의도적으로 제외했다.
+ · 서버 단계명 실시간 표시(옵션 B)와 실행 중 취소는 미구현.
+   비동기 job 화로 상태 저장소가 생겼으므로 후속으로 얹기 쉬운 위치가 됐다.
+ · 새로고침(F5) 후 복원은 미지원 — sessionStorage 는 남지만 4단계 문맥(_analyzeData 등)이
+   사라지므로 결과 보기 시 증적/저장 payload 가 비게 된다. 진단서가 이미 확인·수용한 한계다.
+
+⚠️ 추가 작업 필요 - 단일 세트(GROUP BY 0~1개) 4단계 실행의 비동기 job 화는 구현·실측 완료했으나, GROUP BY 2개 이상 다중 세트 실행은 이번 범위에서 제외했다
