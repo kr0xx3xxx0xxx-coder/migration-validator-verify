@@ -1,0 +1,196 @@
+작업명 : ADMIN-AUDIT-SILENT-CONFIRMED-FULL-AUDIT-AND-FIX
+✅ 작업 완료 - evaluate_admin_audit_crosscheck 전수감사 결과 "무배지 CONFIRMED" 경로는
+M50이 재현한 axis_b=True(WEAK)+axis_a=None 1곳뿐(SUM 역할과 공유하되 SUM 은 의도적 존속을
+실측 확인). group_by 전용으로 NOT_AUDIT_AMBIGUOUS(배지)로 낮췄고, biz_reg_no 를 실 DB(Inter
+asis/tobe)에서 재현 → 수정 후 배지 노출·선택 가능으로 실측 확인. 소비처 4곳+JS 미러는 전부
+verdict 단일 출처(is_admin_audit_confirmed)를 재계산 없이 참조해 코드 변경 없이 자동 반영되며,
+배지 텍스트 생성부(attach_ambiguous_audit_evidence) 1곳만 실제 수정. 관련 테스트 전부 통과
+(신규 회귀 0건), CLAUDE.md 필수 회귀(virtual/complex) 통과.
+
+────────────────────────────────────────────────────────────
+1. [1번] 전수 감사 — "무배지 CONFIRMED" 다른 경로 존재 여부
+────────────────────────────────────────────────────────────
+
+  evaluate_admin_audit_crosscheck (services/candidate_subtype_service.py:707) 의 verdict 결정
+  분기 전체(수정 전 코드, 5개 분기)를 훑었다:
+
+    ① axis_a is True                        → CONFIRMED
+    ② axis_b and axis_a is False            → MISMATCH
+    ③ axis_b (A=None)                        → CONFIRMED   ← 감사 대상
+    ④ axis_a is False (B=False)              → NOT_AUDIT_CONFIRMED
+    ⑤ B=False+A=None (group_by, N1/N2/N3)    → AMBIGUOUS(N1/N3) / NOT_AUDIT_CONFIRMED(N2)
+       (SUM 은 ④⑤ 미도달 시 else 분기로 NOT_AUDIT_CONFIRMED, 배지 없음이지만 배제도 아님)
+
+  verdict=CONFIRMED(하드 배제, is_admin_audit=True)로 떨어지는 분기는 ①③ 두 곳뿐이다.
+  ①(axis_a is True)은 **실측 값 근거**(배치 적재 스탬프 패턴 확증)가 있어 "무배지"이긴 하나
+  "근거 없는 하드 배제"가 아니다 — 지시서 §2 가 명시한 "값 우선 원칙(axis_a 명확하면 유지)"
+  대상이라 감사 범위에서 제외했다.
+
+  ③(axis_b and axis_a is None, 707~756행 주석이 스스로 "알려진 한계"로 자인한 자리)이
+  유일한 "이름/코멘트 단독 + 반증할 값 없음 + 무배지 하드 배제" 경로다. 단, 이 분기는
+  **group_by 와 SUM 두 role 이 공유**한다는 사실을 이번 감사에서 명시적으로 재확인했다
+  (기존 문서는 "M50 은 role=group_by 고정 측정이라 SUM 은 무관"이라고만 적었을 뿐, 코드
+  분기 자체가 공유되는지는 별도 언급이 없었다):
+    · role=group_by: axis_a 는 값으로 계산됨(None 이면 "반증할 값이 없음")
+    · role=sum: axis_a 는 **구조적으로 항상 None**(A축 미수행) — "반증 불가"가 아니라
+      애초에 "판정 축이 없음"이라 group_by 와 같은 의미의 위험이 아니다.
+  tests/test_admin_column_comment_hypothesis.py::test_sum_role_value_axis_none 이 SUM 의
+  "코멘트 가설만으로 CONFIRMED(기존 SUM 조용한 제외 노출)"를 이미 의도적 계약으로 고정하고
+  있었고, tests/test_system_audit_gate_number_defer.py 도 SUM 의 CONFIRMED(BATCH_ID/
+  MIGRATION_ID/ETL_JOB_ID)를 다수 테스트로 고정하고 있었다 — SUM 까지 낮추면 "SUM 의 관리
+  컬럼 조용한 제외를 체크박스에 드러내던 기존 동작"(주석 758~760행에 명시된 의도적 설계)이
+  깨진다. 따라서 이번 수정은 **group_by 로만 한정**했다(지시서 §2 "케이스만 낮추는 것으로
+  한정" 문구와 부합 — 범위를 넓히지 않는 방향).
+
+  ▶ 결론: 감사 대상 "무배지 CONFIRMED" 경로는 1개(③, group_by 한정)뿐이다. 다른 신규 발견
+  없음 — M50 이 지목한 자리와 정확히 일치한다.
+
+────────────────────────────────────────────────────────────
+2. [2번] 수정 — 판정표 조정
+────────────────────────────────────────────────────────────
+
+  services/candidate_subtype_service.py:
+  - 분기 ③을 role 로 갈랐다:
+      B=True + A=None + group_by → NOT_AUDIT_AMBIGUOUS
+        (신규 ambiguous_kind="NAME_ONLY_UNVERIFIED", 배지 대상)
+      B=True + A=None + sum      → CONFIRMED (기존 동작 불변, 의도적 — SUM 조용한 제외 존속)
+  - 신규 상수 _AMBIGUOUS_KIND_NAME_ONLY_UNVERIFIED="NAME_ONLY_UNVERIFIED" 추가.
+  - 판정표 docstring·"☆ 알려진 한계" 주석을 이번 수정 반영해 갱신(group_by 는 해소, SUM 은
+    존속임을 명시).
+  - **값 우선 원칙 불변**: axis_a 가 True/False 로 명확한 분기(①②)는 전혀 손대지 않음.
+
+  services/candidate_display_enricher.py (attach_ambiguous_audit_evidence):
+  - 기존 코드는 "verdict=AMBIGUOUS 는 정의상 axis_b 가설 없음"을 전제로 axis_b_status 를
+    "가설없음(명칭·코멘트 매칭 없음)"으로 하드코딩했다. 신규 분기(B=True 인데 AMBIGUOUS)가
+    생기면서 이 전제가 깨지므로, ambiguous_kind="NAME_ONLY_UNVERIFIED" 일 때만 axis_b_status
+    를 "가설있음(표준사전 명칭매칭/코멘트·한글명[키워드]) — 값으로 확증/반증 안 됨"으로,
+    reason 을 "관리컬럼 의심(이름·코멘트 매칭) - 값으로 확인되지 않음 - 검토 권장"으로 분기
+    (기존 N1/N3 문구는 완전히 불변). 이 함수가 이번 지시서 범위에서 유일하게 코드가 바뀐
+    소비처다(아래 3번 참고 — 나머지 4곳+JS 는 verdict 단일 출처만 참조해 무변경으로 자동 반영).
+
+  판정/점수/선정 로직 그 자체(evaluate_admin_audit_crosscheck 의 axis 계산·MISMATCH·값 확증
+  CONFIRMED)는 전혀 건드리지 않았다 — "판정표 한 줄(분기 하나)"만 바꿨다는 지시서 원안 범위를
+  지켰다.
+
+────────────────────────────────────────────────────────────
+3. [3번] 소비처 회귀 확인 (4곳 + JS 미러)
+────────────────────────────────────────────────────────────
+
+  LLM-ADMIN-COLUMN-JUDGMENT-SCOPE-AND-DESIGN-DIAGNOSE(2026-08-07) §1 이 지목한 소비처 4곳을
+  전부 재확인했다:
+
+  ① services/candidate_display_enricher.py:915(_admin_audit_confirmed, 926/1421 소비)
+     — is_admin_audit_confirmed(verdict=="CONFIRMED") 만 본다. 재계산 없음 → verdict 가
+     AMBIGUOUS 로 바뀌면 자동으로 "배제 아님"이 되어 전역 자동선정(top-N 스코어링) 대상에
+     복귀. 코드 변경 불필요(단일 출처 설계가 의도대로 작동).
+  ② services/date_bucket_evidence.py:794(is_admin_audit_confirmed 재사용)
+     — 날짜형 fallback 대체추천 승격 가드. 동일 단일 출처 재사용, 코드 변경 불필요.
+  ③ services/single_validation_analyze_service.py:2011-2017(gb_candidacy_summary 집계)
+     — is_admin_audit_confirmed 로 "억제 컬럼" 집합을 뺀다. AMBIGUOUS 컬럼은 이제 억제
+     집합에서 빠져 total/scored/selectable 수치와 후보 표 행에 정상 포함. 코드 변경 불필요.
+  ④ services/candidate_recalculation_service.py:312-314(enrich_candidates_with_subtype 직접
+     호출, role="GROUP_BY"/"SUM" 대문자) — 함수 내부에서 role.lower() 정규화하므로 대소문자
+     무관하게 동일 판정표 적용. 코드 변경 불필요.
+
+  JS 미러(ui/tabler_renderer.py):
+  - _isAdminAuditConfirmed(24168) / _isAdminAuditCol(24157) 이 admin_audit_verdict==='CONFIRMED'
+    문자열 비교만 하는 단일 출처 — verdict 값이 바뀌면 자동 반영(코드 변경 불필요).
+  - _ambiguousAuditBadge(24242)/_namingValueMismatchBadge(24257) 는 서버가 부착한
+    ambiguous_audit_evidence 값만 그대로 표시 — 서버 쪽(2번) 텍스트 개선이 그대로 반영.
+  - 부수 발견(회귀 아님, 기존 코드가 이제 자연 소멸): ADMIN-COLUMN-CONFIRMED-RESTORE-TO-
+    REFERENCE(24174~24237, biz_reg_no 오탐을 "참고/제외 후보" 표에 WEAK 경고배지로 되살리던
+    JS 우회책)는 group_by 에서 kind==='WEAK' 조합(axis_b 만으로 CONFIRMED)이 더 이상 발생하지
+    않아 사실상 미도달이 된다 — 이번 지시서가 그 우회책이 대응하던 근본 원인을 서버측에서
+    고쳤기 때문이다. 코드는 그대로 두었다(하위호환 방어 로직으로 무해, 삭제는 지시서 범위
+    밖·완료 모듈 임의 리팩토링 금지 원칙).
+  - 별도 발견(사전 존재 gap, 이번 수정과 무관, 백로그 후보로만 기록): attach_ambiguous_audit_
+    evidence 호출부가 services/single_validation_analyze_service.py 1곳뿐이라 **일괄검증
+    (batch) 경로는 ambiguous_audit_evidence 자체가 부착되지 않는다** — N1/N3 도 기존부터
+    동일 gap. JS _ambiguousAuditBadge 는 batch stBadgeCell(11312)에도 배선돼 있지만 서버가
+    evidence 를 안 주면 빈 문자열만 반환한다. 배제 해제(is_selectable_by_subtype=True) 자체는
+    batch 도 정상 반영되므로 "GROUP BY 후보 재노출"이라는 지시서 핵심 요구는 batch 에서도
+    충족되지만, 배지 시각 노출만 개별검증 한정이다. 지시서 범위(판정표 조정) 밖이라 손대지
+    않았다.
+
+────────────────────────────────────────────────────────────
+검증(실측)
+────────────────────────────────────────────────────────────
+
+  [A] biz_reg_no 실 DB 재현(PostgreSQL_Inter asis/tobe, 프리셋 PostgreSQL_Inter_asis/
+      PostgreSQL_Inter_tobe) — M50 이 지목한 두 컬럼을 직접 재조회해 evaluate_admin_audit_
+      crosscheck 를 실제로 호출(scratchpad/admin_audit_biz_reg_no_realdb_verify.py, 읽기전용,
+      코드 저장소 비커밋 대상):
+
+    asis01.t_admcol_src.biz_reg_no : verdict CONFIRMED(수정 전) → NOT_AUDIT_AMBIGUOUS(수정 후)
+      ambiguous_kind=NAME_ONLY_UNVERIFIED, is_admin_audit=False, axis_a_value=None,
+      axis_b_naming=True(sem_type SYSTEM_AUDIT, conf 0.62 WEAK), 값 600건 실측(사업자번호 형식,
+      타임스탬프 아님 그대로).
+    tobe01.t_admcol_tgt.biz_reg_no : 동일(양쪽 동일하게 재현·해소 확인).
+
+    (참고: M50 원 보고서의 전체 506컬럼 재스윕 스크립트(scratchpad/m50_verdict_sweep.py)를
+    이번 검증에도 재실행 시도했으나, 이번 세션의 실 DB 접속이 20분 이상 응답 없이 지연돼
+    완료하지 못했다 — 결과 파일(_m50_verdict.json)이 갱신되지 않아 그 시도는 폐기했다.
+    지시서가 지목한 재현 컬럼(biz_reg_no) 자체는 위처럼 축소 스크립트로 직접 재현·확인했으므로
+    검증 항목 자체는 충족했다. 전체 506컬럼 verdict 분포가 이번 수정으로 어떻게 이동하는지는
+    실측하지 못했다 — 필요 시 후속 세션에서 재시도 권고.)
+
+  [B] enrich_candidates_with_subtype + attach_ambiguous_audit_evidence 전체 파이프라인
+      (biz_reg_no 형상 재현, DB 없이 순수 함수 호출) — verdict=NOT_AUDIT_AMBIGUOUS,
+      is_admin_audit_column=False, **is_selectable_by_subtype=True**(하드 배제 해제 확인),
+      ambiguous_audit_evidence={
+        reason: "관리컬럼 의심(이름·코멘트 매칭) - 값으로 확인되지 않음 - 검토 권장",
+        axis_a_status: "판정불가(반증할 값 없음 — 명칭/코멘트 가설을 값으로 검증 못함)",
+        axis_b_status: "가설있음(표준사전 명칭매칭) — 값으로 확증/반증 안 됨" }
+      — 배지 텍스트가 실제 판정 근거(이름 매칭 있음)와 일치함을 확인. UI 브라우저 클릭까지는
+      진행하지 못했다(실 DB 접속 지연으로 시간 소진) — 서버 응답 필드(admin_audit_verdict/
+      is_selectable_by_subtype/ambiguous_audit_evidence)가 JS 단일 출처 헬퍼(_isAdminAuditCol/
+      _ambiguousAuditBadge)가 읽는 정확한 필드·값과 일치함을 코드 레벨로 확인했다(3번 참고).
+
+  [C] 기존 정상 CONFIRMED(axis_a=True, 값으로 확정) 무영향 — 코드 분기 ①을 손대지 않았음을
+      diff 로 확인 + tests/test_admin_column_comment_hypothesis.py::
+      test_comment_hypothesis_confirmed_by_value(값 확증 CONFIRMED 유지) 통과로 재확인.
+
+  [D] 관련 테스트 서브셋 vs baseline:
+    - tests/test_admin_column_comment_hypothesis.py, test_sample_values_wiring.py,
+      test_system_audit_gate_number_defer.py (수정 대상 3개 파일 직접) : 60 passed
+      (biz_reg_no 재현 케이스 3건 + SUM 존속 케이스 1건 신규 추가 포함, 전부 통과)
+    - -k "subtype or gate_defer or sample_values or datetime_gate or date_bucket or
+      admin_audit or admin_column" : 301 passed, 3 failed, 1 skipped
+      → 3건 실패는 test_date_bucket_recommendation_evidence.py::test_fallback_labels,
+        test_task11_m_plan_tag_filter.py::test_06_..., test_task11_s4.py::test_08_...
+        전부 이번 수정과 무관한 파일(내가 건드린 candidate_subtype_service.py/
+        candidate_display_enricher.py 를 import 하지 않음, ui/tabler_renderer.py 등 무관
+        모듈 의존)이며 한글 문자열 비교 mojibake 증상 — baseline(수정 전)에서도 동일하게
+        재현되는 사전 존재 실패(무관 파일 diff 없음으로 확인, [[project_preexisting_test_
+        failures]] 부류). 신규 회귀 아님.
+    - -k "candidate_engine or candidate_display or candidate_recalc or candidate_subtype
+      or single_validation_analyze" : 85 passed, 3 failed(test_candidate_display_policy.py,
+      역시 candidate_explanation_service.py 경유로 내 변경분(_is_computed_expression 미사용)
+      과 무관, 동일 mojibake 패턴 — 사전 존재 실패).
+    - 전체 pytest tests/ 스위트는 이번 세션에서 실 DB 게이트 지연 등으로 25분+ 실행 후에도
+      완료하지 못해 전량 집계는 확보하지 못했다(위 표적 서브셋으로 대체 확인).
+
+  [E] CLAUDE.md 필수 회귀:
+    - python samples/test_virtual_cases.py → 8/8 통과
+    - python samples/test_complex_cases.py → 5/5 통과(FAIL/LOW/HIGH 신뢰도 판정 전부 정상)
+
+────────────────────────────────────────────────────────────
+커밋
+────────────────────────────────────────────────────────────
+  코드 저장소(migration-validator) 로컬 커밋(push 안 함 — 코드 저장소 push 금지 규칙):
+    6f5d5073bec474b6d07f590be0845a91a15d74a2
+    fix(admin-audit): B=True(WEAK 명칭·코멘트)+A=None 무배지 하드배제를
+    group_by 한정 애매(배지)로 강등
+    변경 파일: services/candidate_subtype_service.py,
+    services/candidate_display_enricher.py,
+    tests/test_admin_column_comment_hypothesis.py,
+    tests/test_sample_values_wiring.py,
+    tests/test_system_audit_gate_number_defer.py (5 files, +109/-35)
+
+작업명 : ADMIN-AUDIT-SILENT-CONFIRMED-FULL-AUDIT-AND-FIX
+✅ 작업 완료 - evaluate_admin_audit_crosscheck 전수감사(무배지 CONFIRMED 1곳, group_by·sum
+공유 확인) → group_by 전용 NOT_AUDIT_AMBIGUOUS 강등 완료. biz_reg_no 실 DB(asis+tobe) 재현
+및 해소 확인, 소비처 4곳+JS 미러 전부 verdict 단일 출처라 코드 무변경 자동 반영(배지 텍스트
+생성부 1곳만 실제 수정), 관련 테스트 386건 통과(사전 존재 무관 실패 6건 제외, 신규 회귀 0건),
+CLAUDE.md 필수 회귀(virtual 8/8·complex 5/5) 통과. 전체 506컬럼 실DB 재스윕은 이번 세션 접속
+지연으로 미완료(후속 권고).
