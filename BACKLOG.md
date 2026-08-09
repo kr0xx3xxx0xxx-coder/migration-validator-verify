@@ -3401,7 +3401,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\STAGE5-GROUP-DRILLDOWN-ARCHITECTURE-IMPLEMENT.txt
 - 참고: E:\verify_reports\STAGE5-AXIS-LABEL-CLICK-FIX-AND-INLINE-ACCORDION-EXPAND.txt
 
-### M60. ✅ 해결 완료 — 5단계 상태배지 미갱신·그룹 재확장 재추출(서로 다른 3개 결함) + 검증성능정보 1~5단계 통합·위치재배치·균형조정 + 헤더라벨/색상/검색폼/컬럼/CNT 정리
+### M60. ✅ 해결 완료 — 5단계 상태배지 미갱신·그룹 재확장 재추출(서로 다른 3개 결함) + 검증성능정보 1~5단계 통합·위치재배치·균형조정·중복헤더제거·실행경로이동 + 헤더라벨/색상/검색폼/컬럼/CNT 정리
 - 발견일: 2026-08-09 (사용자 스크린샷 4장 직접 지적) / 해결일: 2026-08-09
   (STAGE5-EXTRACT-STATUS-TRACKING-BUG-AND-SUMMARY-LAYOUT-FIX, 코드 커밋 92d1b01 관련
   증적 저장소 push, 코드 저장소는 로컬 커밋만)
@@ -3481,6 +3481,20 @@ git -C E:/verify_reports worktree remove <임시경로>
   주석이 검증 스크립트의 innerHTML 검색에 걸렸던 것 — 검사범위를 좁혀 재측정 후
   정정된 값으로 보고).
 - 참고: E:\verify_reports\STAGE5-PERF-PANEL-REPOSITION-BELOW-AND-BALANCE-FIX.txt
+- **최종후속(2026-08-09, STAGE5-GROUP-DETAIL-HEADER-DEDUP-AND-STRATEGY-RELOCATE,
+  코드 커밋 443e50c2)**: 그룹 펼침 헤더의 "GROUP BY X = Y 이 그룹의 불일치 레코드"
+  중복 문구 제거(바로 위 그룹목록 행에 이미 있는 정보) — "행을 다시 클릭하면
+  접힙니다" 안내만 남김. "실행경로/전략" 줄은 그룹마다 실제로 다른 값이 나올 수
+  있어(그룹 단위 scope로 판정) 삭제 대신 상단 "검증성능정보" [갱신] 카드로 이동
+  — 새 갱신 로직 발명 없이 기존 `_mvStage5SetGroupPerf` 메커니즘에 필드
+  (`pathHtml`) 하나만 추가해 재사용. 별도 화면(전체 그룹 한번에 추출)의 원래
+  표시는 그 화면에서 유일한 축·값 안내라 무변경 유지.
+  실측: **그룹 A→B 전환 시 [갱신] 카드 텍스트가 실제로 바뀌는 것**(D01·0.42초→
+  D02·0.13초)까지 확인. 검증 중 공유 테스트 프로젝트(TESTONLY_REG)가 사라져있던
+  걸 발견 — 원인은 범위 밖이라 안 밝히고 is_test=1 표식으로 최소 재생성만 해서
+  검증 이어감. 신규 테스트 2건, 관련 서브셋 7건 실패 전부 사전존재/무관 파일
+  확인(신규 회귀 0건).
+- 참고: E:\verify_reports\STAGE5-GROUP-DETAIL-HEADER-DEDUP-AND-STRATEGY-RELOCATE.txt
 
 ### M61. ✅ 해결 완료 — 5단계 실행경로/전략 자동판정에서 PK 구성 검사가 실질적으로 무력화됨(하드코딩)
 - 발견일: 2026-08-09 (채팅 조사 — "실행경로/전략" 배지가 실제로 여러 값이 나오는지
