@@ -3512,7 +3512,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 근거: 코드 커밋 86cfea02(migration-validator 로컬, 코드저장소는 remote push 정책상
   로컬 커밋만).
 
-### M62. ✅ 해결 완료 — 2단계 COUNT 실행 중 탭 이동 무방비 + lockMaxMs 20초 오경보(별건)
+### M62. ✅ 해결 완료 — 2단계 COUNT 탭잠금무방비+lockMaxMs오경보(별건) + 완료후 탭잠금 고착 회귀(부수발견, 즉시해결)
 - 발견일: 2026-08-09 (사용자 목격 — 응답 지연 중 다음 탭 잠금이 풀리는 현상 + 조사
   도중 "이전 요청 응답 지연되어 잠금 해제" 팝업 추가 목격) / 해결일: 2026-08-09
   (STAGE2-COUNT-INFLIGHT-TAB-LOCK-DIAGNOSE-AND-FIX, 코드 커밋 b051e8bf)
@@ -3544,6 +3544,28 @@ git -C E:/verify_reports worktree remove <임시경로>
   확인(31 passed), CLAUDE.md 필수 회귀 통과. 테스트 3건은 "수정 전(버그) 상태를
   단정하던 어서션"을 고친 동작 검증으로 교체(무비판 삭제 아님).
 - 참고: E:\verify_reports\STAGE2-COUNT-INFLIGHT-TAB-LOCK-DIAGNOSE-AND-FIX.txt
+- **부수발견·즉시해결(2026-08-09, M62-TAB-LOCK-STALE-AFTER-COMPLETION-DIAGNOSE-AND-FIX,
+  코드 커밋 be5f62b3)**: 사용자가 실사용 중 COUNT 완료 후에도 상단 탭이 계속 잠긴
+  채 남아있는 걸(다른 탭 다녀오면 그제서야 풀림) 발견 — 위 결함 수정이 만든 회귀.
+  **원인**: COUNT 흐름의 마지막 nav 재렌더가 `finally`(플래그 해제) **이전**
+  `try` 블록 안에서 일어나(`renderCountResult`→...→`_renderSingleStepNav`), 그
+  시점엔 `_countInProgress`가 아직 true라 disabled로 그려짐 — 이후 플래그만
+  false가 되고 다시 그리는 지점이 없어 DOM에 고착. "이전" 버튼으로 갔다 오면
+  그 재렌더에 얹혀서만 풀렸던 것.
+  **수정**: 새 판정 로직 없이 `runCount()` finally 끝(+스피너 제거 **다음**,
+  순서 근거 명시 — 먼저 두면 M57과 같은 순서결함 재발 위험) + preflight 실패
+  조기return 2곳에 기존 `_renderSingleStepNav()` 재호출 2줄만 추가. **지시서가
+  제안한 "좁은 갱신 함수" 대신 기존 함수 재사용을 택함** — 별도 함수를 만들면
+  disabled 판정 로직이 두 곳에 나뉘어 이 프로젝트가 반복 겪은 "판정 불일치" 결함
+  유형이 재발한다는 근거로 반박.
+  실측: before(HEAD 920f57ec)=완료직후 탭 클릭 불가(view 그대로 'count') →
+  after=즉시 클릭 가능(view='query' 이동), 재기동한 실서버(8000)에서도 동일 확인.
+  **4단계 등 전 탭게이트 전수확인**: 같은 유형의 stale lock은 COUNT 한 곳뿐임을
+  확인(4단계 4개 종료경로 전부 이미 재렌더 배선돼 있었음, 실 클릭으로 재확인).
+  M62 원래 차단(실행 중 탭 이동 불가)은 그대로 유지됨을 재확인(회귀 없음).
+  신규 계약테스트가 수정 전 코드에서 실제로 FAIL하는 것까지 확인(장식 테스트
+  아님 증명). 사전존재 실패 목록 before/after 완전 일치.
+- 참고: E:\verify_reports\M62-TAB-LOCK-STALE-AFTER-COMPLETION-DIAGNOSE-AND-FIX.txt
 
 ### M63. ✅ 해결 완료 — 5단계(개별검증 전용) 그룹 재사용 판정 캐시 미스 시 DB fallback 구현 — 일괄검증은 무관 확인됨
 - 발견일: 2026-08-09 (사용자 목격 — "이미 완료된 그룹인데 시간 지나 다시 열면 또
