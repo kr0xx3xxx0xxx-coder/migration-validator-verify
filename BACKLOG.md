@@ -2089,7 +2089,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE.txt
 - 참고: E:\verify_reports\F1-PHASE1-ALIAS-RENAME-VERSION-BUMP.txt
 
-### F2. 조사 완료 — representative_limit(20) 근거없음 확인, 100 상향 실측완료(위험無, 착수승인대기)
+### F2. ✅ 해결 완료 — representative_limit 20→100 상향 구현+기존DB마이그레이션 완료(실 배포본 실측 확인)
 - 발견일: 2026-07-29
 - 근거 보고서: `PER-GROUP-DISPLAY-P3-PARTIAL-RECORDS-FIX.txt` (§6 / §8-(a))
 - 상세: 실측상 실제 불일치 300건이어도 store 저장은 20건뿐이라 최대 20건까지만 보인다.
@@ -2115,10 +2115,20 @@ git -C E:/verify_reports worktree remove <임시경로>
   "코드는 100인데 실제로는 20으로 계속 동작"하는 조용한 미반영 발생.
   **부수 발견(범위 밖)**: 이 설정값이 관리자 화면에 아예 노출 안 돼 있어 API 직접
   호출로만 조정 가능(별개 갭, 기록만).
-- 대응 방향: **착수 승인 필요**(코드변경+DB 마이그레이션 함께 진행, 예상 파일범위
-  5개+운영 마이그레이션 1건 — 상세는 보고서 §3-5).
+- **해결 완료(2026-08-09, F2-STORAGE-CAP-RAISE-IMPLEMENT, 코드 커밋 92ca8f5a)**:
+  §3-5 지정 11곳 전부 20→100 반영(`validation_policy_service.py` 8곳,
+  `agg_diff_route.py`·`sampling_preflight.py`·`pk_range_chunk.py` 각 1곳). 기존
+  배포본 DB 마이그레이션(`_migrate_representative_limit_20_to_100()`, `_ensure_table()`
+  에서 정책 접근 시마다 실행되는 멱등 UPDATE)도 함께 구현.
+  **실 프로덕션 DB로 직접 검증**: `db/migration_validator.db`에 실제로 20/20으로
+  저장돼 있던 배포본 행을 확인 → 마이그레이션 실행 → 실제로 100/100 갱신됨을 DB
+  직접조회로 확인(재실행해도 멱등, 부작용 없음). STORED_CAP 배너도 실제 저장엔진+
+  실제 배너 판정식으로 "20이면 뜨고 100이면 안 뜬다"를 재현 확인(보고서 §3-3 예측
+  실증). 전체 테스트 스위트(11,796 passed 포함 전량 실행)까지 확인해 F2 관련 회귀
+  0건 재확인.
 - 참고: E:\verify_reports\F2-CHUNK-SAMPLE-STORAGE-CAP-RESEARCH.txt
 - 참고: E:\verify_reports\PER-GROUP-DISPLAY-P3-PARTIAL-RECORDS-FIX.txt
+- 참고: E:\verify_reports\F2-STORAGE-CAP-RAISE-IMPLEMENT.txt
 - **부수 확인(2026-08-09, 채팅 조사, 코드 무변경)**: 표준 경로(EARLY_STOPPED)는 이
   F2와 반대 방향 — `per_group_full_list_max=100`(config/size_threshold_registry.py:95),
   +1은 `services/per_group_display_policy.py:207`이 부여, 실제 walk 조기중단 조건은
