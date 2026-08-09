@@ -2096,6 +2096,14 @@ git -C E:/verify_reports worktree remove <임시경로>
   이번 수정으로 "저장분이 20건뿐이라 그 이상은 표시할 수 없습니다(저장 상한)" 문구는 붙였으나(은폐 제거),
   **저장 상한 자체는 변경하지 않았다**(저장 계층 변경 금지 지시). 100건 표시를 보장하려면 상한을 올려야 한다.
 - 참고: E:\verify_reports\PER-GROUP-DISPLAY-P3-PARTIAL-RECORDS-FIX.txt
+- **부수 확인(2026-08-09, 채팅 조사, 코드 무변경)**: 표준 경로(EARLY_STOPPED)는 이
+  F2와 반대 방향 — `per_group_full_list_max=100`(config/size_threshold_registry.py:95),
+  +1은 `services/per_group_display_policy.py:207`이 부여, 실제 walk 조기중단 조건은
+  `services/exact_diff/agg_contribution.py:693`. 저장(emit)이 중단검사보다 먼저
+  실행돼 **101번째 레코드까지 DB에 실제로 저장됨**을 SELECT COUNT(*)=101 실측 확인
+  (표시는 100건만). 즉 표준 경로는 "저장이 표시보다 1건 더 많음"인데, F2가 지목한
+  CHUNK/표본 preflight 경로는 "저장(20건)이 표시목표(100건)보다 훨씬 적음" — 두
+  경로의 저장 상한 체계가 서로 다르다는 게 재확인됨.
 
 ### F3. ⚠️ 배선 완료했으나 화면 소비처가 이미 삭제돼 있어 관측 가능한 변화 없음(dead data)
 - 발견일: 2026-07-29 / 배선 완료: 2026-08-09(F3-DISPLAY-LIMIT-POLICY-WIRING-FIX, 코드
