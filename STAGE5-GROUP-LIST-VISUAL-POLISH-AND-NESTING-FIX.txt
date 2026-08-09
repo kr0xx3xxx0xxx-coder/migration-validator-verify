@@ -1,0 +1,185 @@
+작업명 : STAGE5-GROUP-LIST-VISUAL-POLISH-AND-NESTING-FIX
+✅ 작업 완료 - 그룹 펼침 영역 전체를 mv-s5-nest 패널(왼쪽 강조 보더 + 중립 배경 + 내부 표 헤더 톤/굵기
+   완화)로 감싸 '바로 위 그룹 행의 하위 콘텐츠'처럼 보이게 하고, 그룹 목록 그리드 7개 컬럼의 정렬/폭을
+   지시서대로 조정(표시건수 기본값 20→10 포함). 실 오라클 asis/tobe 조합축 픽스처로 실브라우저 클릭 실측.
+
+════════════════════════════════════════════════════════════════════════
+0. 선행 지침 확인
+════════════════════════════════════════════════════════════════════════
+지시서 지시대로 오늘 완료된 최근 5단계 작업(STAGE5-GROUP-DETAIL-HEADER-DEDUP-AND-STRATEGY-RELOCATE,
+커밋 443e50c2)의 완료보고를 먼저 읽었다 — 그룹 펼침 헤더 중복 제거 + 실행경로/전략 이동 작업이며,
+'행을 다시 클릭하면 접힙니다' 안내 한 줄만 남기는 구조를 그대로 물려받았다(이번 작업은 그 구조를
+재수정하지 않고 그 바깥을 감싸는 시각 레이어만 추가했다).
+지시서가 경고한 동시 작업(F7-STAGE4-MULTISET-ASYNC-VERIFY-RESUME, ui/tabler_renderer.py 동시 편집
+가능성)은 착수 전 `git log`(HEAD=9f45fc7a, 해당 작업 커밋 이미 존재) + `git diff --stat -- ui/
+tabler_renderer.py`(변경 0건, 즉 미커밋 작업 없음)로 이미 종료·커밋 완료됐음을 확인한 뒤 시작했다.
+
+════════════════════════════════════════════════════════════════════════
+1. [그룹 펼침 영역 = 하위 콘텐츠 시각화]
+════════════════════════════════════════════════════════════════════════
+파일:라인 — ui/tabler_renderer.py:1108-1113(CSS 신설), :27877-27882(child 마크업), :27861(그룹 클릭 시
+부모 행 강조, 기존 로직 그대로).
+
+[적용한 방법과 근거]
+사용자가 제시한 4가지 후보(들여쓰기/border-left/배경 패널/화살표-인디케이터) 중 앞 3가지를 동시에
+적용했다(과하지 않은 범위에서 조합) — 하나만으로는 신호가 약하다고 판단:
+  · border-left 3px solid #2471a3 — 이 화면에서 이미 '주요 액션' 색으로 쓰이는 색(전체그룹 한번에
+    추출 버튼, ▸/▾ 펼침 아이콘과 동일 색) 재사용. 부모 행이 열릴 때 배경이 바뀌는 색(#EFF6FF, 기존
+    _mvStage5OpenGroup 로직 그대로, 이번에 손대지 않음)과 같은 파랑 계열이라 '부모 행에서 이어진다'는
+    느낌을 준다.
+  · 옅은 배경 패널(#EEF2F6) — 오늘(같은 날) 이미 제거된 원본/목적 값 컬럼 배경색(#eff6ff 계열, STAGE5-
+    DETAIL-TABLE-HEADER-LABEL-AND-COLOR-FIX 2번)과는 다른 톤이며, 그 컬럼 전용이 아니라 펼침 영역
+    "전체"를 감싸는 단일 패널이다 — 지시서가 명시적으로 허용한 방식.
+  · 좌측 여백(padding-left 18px) + 둥근 모서리(border-radius 0 8px 8px 0) — 패널이 그룹 목록 표의
+    왼쪽 경계에서 시작하지 않고 살짝 들여써진 것처럼 보이게 한다.
+  · 화살표/인디케이터는 별도로 추가하지 않았다 — 그룹 값 셀의 기존 ▸/▾ 토글 아이콘이 이미 그 역할을
+    하고 있어(펼침 상태 표시), 새로 추가하면 중복이라고 판단했다.
+
+[추가 검토 — 사용자가 직접 제시한 두 번째 가설: 안쪽 표 헤더가 '새 표 시작' 신호로 읽힌다]
+검증해 보니 실제로 안쪽(불일치 레코드) 표와 바깥(그룹 목록) 표가 같은 CSS 클래스(.mv-diag-meta)를
+공유해 헤더가 완전히 동일한 굵기·배경·크기였다 — 사용자 가설이 맞았다. 헤더를 없애지 않고(컬럼명은
+필요) `.mv-s5-nest table.mv-diag-meta thead th` 스코프 규칙으로 안쪽 헤더만 완화했다:
+  배경 #E4EAF2(패널 배경 #EEF2F6과 가까운 톤으로 흡수) · font-weight 600(바깥은 UA 기본 굵기+전역
+  규칙으로 700) · font-size .72rem(바깥 .94rem — 아래 '장애물' 참고).
+  실측(§3): 안쪽 rgb(228,234,242)/600/11.52px vs 바깥 rgb(238,243,251)/700/15.04px — 톤은 비슷하되
+  더 작고 더 가벼워 '메인 표 헤더보다 덜 두드러짐' 요건을 만족한다.
+
+[사전 장애물 — 전역 !important 규칙과 충돌, 코드 결함 아님]
+최초 적용한 스코프 규칙(!important 없음)이 화면에 전혀 반영되지 않았다. 원인은 line 351의 전역 규칙
+`.page-wrapper table thead th{background:#eef3fb!important;...font-size:.94rem!important;...}` —
+이 저장소 전체 표 헤더에 걸린 기존 강제 규칙이 새 스코프 규칙보다 우선했다(같은 !important 층이
+아니면 명시성과 무관하게 !important 가 항상 이긴다). 안쪽 규칙에도 !important 를 붙여 명시성으로
+역전시켰다(선택자 요소 수가 더 많아 같은 층에서 이긴다) — 전역 규칙 자체는 건드리지 않았다(다른
+화면 전부에 영향을 주는 위험한 변경이라 범위 밖).
+
+════════════════════════════════════════════════════════════════════════
+2. [그룹 목록 그리드 컬럼 폭/정렬 7항목]
+════════════════════════════════════════════════════════════════════════
+파일:라인 — ui/tabler_renderer.py:27860-27904 (`_mvStage5PaintGroupList`), :27651-27669
+(`_mvStage5ValsHtml`, 구 `_mvStage5ValsText`).
+
+  1. 표시건수 기본값 20→10, 옵션 10/50/100(20 옵션 제거) — 4곳 동시 수정:
+     초기 state(:28087 `size: 10`) · select 옵션(:28113-28114) · `_mvRiQuery` 폴백(:28571 `|| 10`) ·
+     `_mvRiReset`(:28584-28588 `szSel.value='10'`, `st.size=10`).
+  2. '상세 추출 상태' — 가운데 정렬 + 헤더 폭 76px(다른 컬럼과 균등폭 강제 없음, 값이 2~3자 고정 텍스트).
+  3. '목적카운트'/'원본카운트' — 헤더 폭 92px(값은 최대 십억 단위 숫자라 오른쪽 정렬은 그대로 유지).
+  4. '목적지 집계' 헤더 → '목적집계'로 축약. 집계 셀은 항목(K)마다 flex 한 줄(justify-content:
+     space-between)로 라벨(좌)·숫자(우)를 분리하는 `_mvStage5ValsHtml`로 전환(구 `_mvStage5ValsText`
+     는 'K=V' 문자열을 개행으로만 나열해 자릿수가 다르면 라벨 시작 위치가 어긋났다). 원본/목적 두
+     칸이 같은 레이아웃을 쓰므로 라벨 시작 위치가 자동으로 맞는다. 컬럼 자체 헤더 폭은 지정하지
+     않아(그대로 auto) 다른 컬럼이 좁아진 만큼 상대적으로 더 넓어졌다(실측 §3).
+  5. '판정' — 헤더 폭 96px + 가운데 정렬.
+  6. '그룹 값' — 가운데 정렬(▸/▾ 아이콘 포함 셀 전체를 가운데 정렬 — 아이콘과 값이 함께 중앙에 옴).
+  7. 'GROUP BY 축' — 가운데 정렬.
+
+[table-layout:auto 관련 실측 유의사항] `.mv-diag-meta` 는 `table-layout:fixed` 가 아니라서 지정한
+th 폭은 '최소값' 힌트일 뿐, 실제 렌더 폭은 컨테이너의 남는 공간을 컬럼들에 재분배한 결과다(브라우저
+표준 동작, 코드 결함 아님). 그래서 §3 실측은 절대 px 값이 아니라 '폭을 지정하지 않은 집계 컬럼(원본
+집계) 대비 상대적으로 좁은가'로 판정했다 — 판정/카운트×2/상세추출상태 모두 원본 집계보다 좁게
+나왔고, 목적집계/원본 집계는 오히려 이전(균등 152.6px)보다 넓어졌다(168.7px, "줄이지 마라" 요건과
+합치).
+
+════════════════════════════════════════════════════════════════════════
+3. 검증 결과 — 실브라우저 클릭 실측(지시서 '검증(필수, 실제 클릭)' 절 전 항목)
+════════════════════════════════════════════════════════════════════════
+드라이버(신규) : scripts/dev_e2e/stage5_group_list_visual_polish_and_nesting_fix_verify.py
+  scripts/dev_e2e/stage45_clickthrough_reverify.py 의 조작 헬퍼를 그대로 재사용(새 조작 방식 발명
+  없음). 실 포트 8000, 실 오라클 asis/tobe NXDNP.MV_COMBO_SRC/TGT 1,200행, GB=STATUS_CD+DEPT_CD
+  조합(PAIR) 축 → 실불일치 4그룹.
+
+[사전 장애물 — 실행 중 서버가 구 모듈을 물고 있었다, 코드 결함 아님] 최초 실행 시 헤더가 '목적지
+집계'(구 명칭) 그대로, 모든 컬럼 폭이 균등(152.625px)하게 나와 코드 변경이 전혀 반영되지 않은 것처럼
+보였다. `web_server.py` 는 auto-reload 가 아니라 실행 중인 프로세스가 import 시점의 구 모듈을 그대로
+쓰고 있었다(project_running_server_stale_modules 유형) — CLAUDE.md '서버 시작 시 기존 포트 점유
+프로세스 자동 종료 후 시작' 규칙대로 재기동(`python web_server.py`, 기존 PID 자동 종료 확인)한 뒤
+재실행하자 정상 반영됐다.
+
+  항목                                              실측값
+  ────────────────────────────────────────────────────────────────────────
+  [1][3] 그룹A 펼침 컨테이너 mv-s5-nest 클래스        True
+  [1] 패널 배경(getComputedStyle)                    rgb(238, 242, 246)  = #EEF2F6
+  [1] 패널 좌측 보더                                 3px rgb(36, 113, 163) = #2471a3
+  [1] 안쪽 표 헤더 bg/굵기/크기                       rgb(228,234,242) / 600 / 11.52px
+  [1] 바깥 표 헤더 bg/굵기/크기(비교 기준)             rgb(238,243,251) / 700 / 15.04px
+      → 안쪽 헤더가 바깥보다 톤이 흡수되고 더 작고 가볍다(구분됨, 요건 충족)
+  [2] 값 셀(원본/목적) 배경 6칸 샘플                  전부 rgba(0,0,0,0)(투명) — 파랑/청록 재도입 없음
+  [3] 그룹B 펼침 컨테이너 mv-s5-nest 클래스           True(여러 그룹 순서대로 펼쳐도 일관 적용)
+  [4] 표시건수 옵션(펼친 뒤 DOM 실측)                 ['10*', '50', '100'] — 기본값 10, 20 옵션 없음
+  [5] 헤더 7종 정렬                                  GROUP BY 축/그룹 값/판정/상세 추출 상태=center,
+                                                     목적카운트/원본카운트=right(값 셀), 목적집계/
+                                                     원본 집계=변경 없음(폭 유지 확인용 기준)
+  [5] 헤더 폭(px, 상대 비교)                          판정 134.97 · 목적카운트/원본카운트 129.34 ·
+                                                     상세추출상태 152.53 (모두 원본집계 168.70 미만)
+                                                     · 목적집계/원본 집계 168.70(줄지 않음, 오히려 확대)
+  [5] '목적지 집계'→'목적집계' 헤더 이름 변경          반영됨
+  드라이버 종료 시 errors=[]                          0건
+
+  스크린샷 4장(before_any_group_expanded/after_group_a_expanded/after_group_a_expanded_full/
+  after_group_b_expanded) + 실측 JSON 1건 →
+    X:\Verify\verify_screenshots_only\STAGE5-GROUP-RECORD-VISUAL-NESTING-FIX\
+    (증적 저장소에도 동일 사본 push)
+  추가로 패널 좌측 보더·부모 행 강조·안쪽 헤더 톤을 육안으로도 재확인하기 위해 근접 크롭 캡처 2장을
+  임시로 떠서 직접 확인했다(장식이 실제로 눈에 보이는지 — 전체화면 축소 캡처만으로는 옅은 톤이
+  잘 안 보였다). 이 크롭 2장은 디버깅 확인용으로만 썼고 증적 저장소에는 올리지 않았다(지시서가 요구한
+  4장 + JSON만 올림).
+
+════════════════════════════════════════════════════════════════════════
+4. 자체 테스트 · 회귀
+════════════════════════════════════════════════════════════════════════
+[A] 렌더 JS 문법 가드 — tests/test_rendered_js_syntax_guard.py 통과.
+[B] tests/test_stage5_group_drilldown.py — 41 passed(기존 38건 중 3건은 이번 계약 변경에 맞춰 갱신,
+    신규 3건 추가, 회귀 0건):
+    · test_group_expand_child_wrapped_in_nest_panel_class(신규) — child 마크업에 mv-s5-nest 클래스,
+      옛 인라인 배경/보더(#93c5fd/#F8FAFC) 미잔존, CSS 정의(패널+헤더완화) 존재.
+    · test_group_list_default_display_count_is_10_with_10_50_100_options(신규) — 초기 state size:10,
+      select 옵션 10(selected)/50/100(20 없음), _mvRiQuery/_mvRiReset 폴백값 10.
+    · test_group_list_column_alignment_and_width_adjustments(신규) — 7개 컬럼 헤더 폭/정렬 마크업 검증.
+    · test_group_list_aggregate_values_are_comma_separated_and_multiline(갱신) — 함수명
+      `_mvStage5ValsText`→`_mvStage5ValsHtml`, flex 라벨/값 분리 레이아웃 검증(값 서식·_mvPkFmtVal
+      재사용 계약은 불변).
+    · test_group_list_target_column_precedes_source_column(갱신) — 헤더 문자열 '목적지 집계'→'목적집계'
+      반영, 순서 계약(목적→원본) 불변.
+    · test_group_list_drops_detail_link_column_but_keeps_status_column(갱신) — th 에 스타일 속성이
+      붙어 정확 일치 대신 `>상세 추출 상태</th>` 부분 일치로 완화(계약 자체는 불변).
+[C] 관련 서브셋(건드린 식별자 참조 파일 8개, -p no:randomly) — 100 passed, 5 xfailed, 7 failed.
+      subset = test_stage5_group_drilldown.py, test_stage5_strategy_relocate_and_advanced_perf_
+      emphasis.py, test_d7_8_inline_drill_time.py, test_stats_result_full.py, test_d7_9_gb0_fallback.py,
+      test_stage45_timing_label_and_dup_guard_fix.py, test_all_stages_timing_display_expand.py,
+      test_execution_path.py.
+      실패 7건은 선행 STAGE5-GROUP-DETAIL-HEADER-DEDUP-AND-STRATEGY-RELOCATE 완료보고가 이미 명시한
+      '사전 존재 실패' 4건(test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_
+      display, test_d7_9_gb0_fallback.py::test_gate_gb0_always_grid/test_stage_timing_display,
+      test_all_stages_timing_display_expand.py::test_count_generate_execute_routes_add_processing_ms)
+      + test_execution_path.py::test_parallel_read_decision_* 3건(이번 diff 범위 밖
+      routes/agg_diff_route.py 검사, 이번 작업트리에서 전혀 건드리지 않음)과 ID 까지 완전히 동일 —
+      신규 회귀 0건.
+[D] CLAUDE.md 필수 회귀 — samples/test_virtual_cases.py 8/8 통과, samples/test_complex_cases.py 5/5
+    통과(케이스 분석 5/5 완료), 최종 1회 재확인.
+
+════════════════════════════════════════════════════════════════════════
+5. 변경 파일
+════════════════════════════════════════════════════════════════════════
+  ui/tabler_renderer.py                                                       (수정)
+  tests/test_stage5_group_drilldown.py                                        (수정 — 신규 3건 + 갱신 3건)
+  scripts/dev_e2e/stage5_group_list_visual_polish_and_nesting_fix_verify.py   (신규 — 실측 드라이버)
+
+════════════════════════════════════════════════════════════════════════
+6. 재기동 시각 · 커밋 해시
+════════════════════════════════════════════════════════════════════════
+서버 재기동   : 2026-08-09 23:31 KST(1차, CSS !important 반영 전), 재재기동 23:36경(!important 반영
+                후 최종 실측), 포트 8000, MV_BIND_HOST 기본값 127.0.0.1
+코드 저장소   : 2011709c  (X:\Projects\Migration_Validator, main, **push 안 함** — 저장소 원칙)
+                직전 HEAD = 9f45fc7a
+증적 저장소   : (본 보고 파일 + 스크린샷 4장 + 실측 JSON 1건 커밋 후 push, 아래 커밋 해시 참고)
+
+동시 세션 주의 — 내가 만든/건드린 파일만 명시 경로로 add 했다. 시작 전 git pull 로 원격을 최신화했고,
+작업 중 verify_screenshots_only/G7-G1-DIALECT-ROUTING-FIX/ (다른 세션의 미커밋 산출물로 보임)를
+발견했으나 전혀 건드리지 않았다. 코드 저장소 쪽 작업 트리에 남아 있던 다른 세션의 변경(.claude/
+settings.json, requirements*.txt, scripts/dev_fixtures/*, tests/test_11def_scenarios.py,
+tests/test_12k_stress.py, ui/history_renderer.py, ui/js_batch_display.py, scratchpad/*,
+db/migration_validator.db.bak_20260809 등)도 전혀 건드리지 않았다.
+
+작업명 : STAGE5-GROUP-LIST-VISUAL-POLISH-AND-NESTING-FIX
+✅ 작업 완료 - 그룹 펼침 영역 전체를 mv-s5-nest 패널(왼쪽 강조 보더 + 중립 배경 + 내부 표 헤더 톤/굵기
+   완화)로 감싸 '바로 위 그룹 행의 하위 콘텐츠'처럼 보이게 하고, 그룹 목록 그리드 7개 컬럼의 정렬/폭을
+   지시서대로 조정(표시건수 기본값 20→10 포함). 실 오라클 asis/tobe 조합축 픽스처로 실브라우저 클릭 실측.
