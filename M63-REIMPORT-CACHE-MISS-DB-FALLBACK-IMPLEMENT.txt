@@ -1,0 +1,92 @@
+작업명 : M63-REIMPORT-CACHE-MISS-DB-FALLBACK-IMPLEMENT
+✅ 작업 완료 - 재이관(5단계 개별검증) get_by_fingerprint 메모리캐시 미스 시 DB(exact_diff_run) fallback 구현
+
+[배경]
+BACKLOG.md M63 — services/exact_diff/reimport_job.py 의 "재사용 가능?" 판정이 메모리 캐시
+(_JOBS_BY_FP, 개수상한16·TTL없음·재기동시소실) 하나뿐이라, 캐시만 사라지면 파일(exact_diff_run/
+exact_diff_record)에 데이터가 그대로 남아있어도 처음부터 재스캔하던 문제.
+
+[구현 범위]
+지시서 범위대로 services/exact_diff/reimport_job.py 안에서만 해결. routes/agg_diff_route.py 는
+건드리지 않음(다른 작업이 동시 수정 중이라는 지시서 안내 준수).
+
+[스키마 변경 여부] 없음
+exact_diff_run 테이블에 fingerprint 컬럼이 이미 존재했다(services/exact_diff/store.py:34,
+CREATE TABLE 시점부터 있던 컬럼). ALTER/신규 테이블/신규 인덱스 전혀 추가하지 않았다 — 기존
+컬럼을 SELECT 로 조회하는 최소 로직만 추가했다. (참고: 조회는 fingerprint 위 인덱스 없이 풀스캔
+이지만, M64 정리 작업으로 exact_diff_run 이 보관기간(기본 7일) 초과분을 자동 삭제하게 되어 있어
+행 수가 무한정 늘지 않는다 — 향후 규모가 커지면 인덱스 추가를 검토할 수 있다는 점만 남겨둔다.)
+
+[변경 파일:라인]
+1) services/exact_diff/reimport_job.py
+   - :54~61  get_by_fingerprint(fp) — 메모리 캐시(_JOBS_BY_FP) 조회 후 미스면 바로 None 을
+     반환하지 않고 _rehydrate_from_db(fp) 로 위임하도록 재작성.
+   - :64~107 _rehydrate_from_db(fp) 신설 — store.get_run_by_fingerprint(fp) 로 DB 조회 →
+     완료(DONE→READY / EARLY_STOPPED) run 이 있으면 basis_json/counts_json/metrics_json 을
+     펼쳐 job["summary"] 를 재구성 → _JOBS_BY_FP/_JOBS_BY_RUN 에 등록(재조회 시 즉시 메모리
+     히트). DB 에도 없으면 None(호출측 routes/agg_diff_route.py 는 기존 로직 그대로 새 스캔
+     시작 — 그 파일은 무변경이므로 이 분기는 자동으로 보존됨).
+     동시 진입 레이스 가드: _LOCK 안에서 재확인 후 다른 스레드가 먼저 채웠으면 그 job 을 그대로
+     사용(중복 rehydrate 로 서로 다른 job 객체가 병존하는 것을 방지).
+
+2) services/exact_diff/store.py
+   - :104~116 _deserialize_run_row(row) 모듈 함수 신설 — get_run() 안에 있던 JSON 파싱 로직을
+     추출(get_run/get_run_by_fingerprint 공용, 중복 제거).
+   - :213~219 get_run() — 위 헬퍼를 호출하도록 축약(동작 변경 없음).
+   - :221~233 get_run_by_fingerprint(fingerprint) 신설 — "SELECT * FROM exact_diff_run WHERE
+     fingerprint=? AND status IN ('DONE','EARLY_STOPPED') ORDER BY created_at DESC LIMIT 1".
+     RUNNING(미완료)·CANCELLED·ORPHANED 는 재사용 대상에서 명시적으로 제외(부분 데이터를
+     완료로 오인시키지 않기 위함).
+
+[비판적 검토 — 위험/한계]
+- rehydrate 된 summary 는 실제 실행 시 만들어지는 summary(engine/strategy/passed_keys 등 세부
+  필드 포함)와 100% 동일하지 않다 — basis_json/counts_json/metrics_json 에 저장된 필드만
+  재구성 가능하다. 다만 재사용 소비처(routes/agg_diff_route.py 의 _with_evidence)는 run_id/
+  status/gb_cols/sum_labels/source_count/target_count/ratios/missing_migration/value_mismatch/
+  excluded_target_only/metrics 등 basis_json·counts_json 이 이미 저장하고 있는 필드만 참조하므로
+  화면 표시에는 지장이 없을 것으로 판단했다(라우트 파일은 이번 범위가 아니라 실제 화면 테스트는
+  하지 못했다 — 다음 세션에서 routes 작업이 끝난 뒤 클릭스루 확인 권장).
+- fingerprint 컬럼에 인덱스가 없어 매 캐시미스마다 exact_diff_run 전체 스캔이 발생한다. 현재
+  M64(EXACT-DIFF-RUNS-RETENTION-CLEANUP) 덕분에 테이블이 무기한 누적되지 않으므로 지금 규모에서는
+  무해하다고 판단해 인덱스를 추가하지 않았다(새 스키마 변경 최소화 지시 준수) — 회귀 관찰 필요시
+  후속 작업으로 인덱스 추가를 검토할 것.
+
+[검증]
+1) 신규 테스트: tests/test_m63_reimport_db_fallback.py (5건 전부 통과)
+   - 메모리캐시 강제 비움(rj.clear_all()) 후 DB 에 저장된 DONE run → get_by_fingerprint 가
+     재스캔 없이 즉시 재구성 반환하는지 확인 (재조회 시 메모리 히트로 동일 객체 반환도 확인)
+   - EARLY_STOPPED run 도 READY 로 승격되지 않고 원래 상태 그대로 재사용되는지 확인
+   - DB 에도 없는 진짜 새 fingerprint → None(신규 스캔 유도) 확인
+   - RUNNING(미완료)/CANCELLED run 은 재사용되지 않는지 확인
+   store._DB_PATH 를 tmp_path 로 monkeypatch 해 운영 DB 는 건드리지 않음.
+
+2) 관련 회귀 subset(총 220여 건) — 신규 회귀 0건
+   대상: test_reimport_stream / test_job_registry(_completed) / test_urgent_target_only_and_reuse /
+   test_rerun_exec_gate_reuse / test_d7_1_completed_history / test_active_run_singleton /
+   test_active_run_query_notice / test_d7_18a_pause / test_d7_18b_pause_time / test_d7_19_recovery /
+   test_job_recovery_stage1_progress_timestamp / test_stage5_group_drilldown / test_agg_contribution /
+   test_chunk_checkpoint / test_d6_group_record_separation / test_d7_16_representative_axis /
+   test_d7_2_ui_paging / test_d7_3_restore_guard / test_d7_4_active_gate_summary /
+   test_d7_5_chunk100k_count / test_d7_7_scale_drilldown / test_d7_8_1_dedup_gate /
+   test_d7_8_inline_drill_time / test_drilldown_snapshot_timestamp / test_exact_diff_engine /
+   test_exact_diff_retention_cleanup / test_execution_path / test_pk_range_chunk* /
+   test_reimport_run_isolation / test_sampling_preflight / test_stats_result_full /
+   test_tracemalloc_toggle_wiring
+   실패 7건 발견 → git stash 로 내 변경분(reimport_job.py/store.py)만 제외한 baseline 에서
+   동일 7건이 그대로 재현됨을 확인(내 변경과 무관한 기존 실패). 사유: node 서브프로세스 타임아웃
+   환경 이슈 1건, UI 텍스트 계약(_mvRenderStrategyPlan 등) 문구 불일치 4건, HTML 링크 문구 1건,
+   parallel_read_decision 관련 1건 — 전부 이번 변경(get_by_fingerprint/store 조회)과 무관한
+   기존 상태.
+
+3) CLAUDE.md 필수 회귀 최종 1회
+   python samples/test_virtual_cases.py → 8/8 통과
+   python samples/test_complex_cases.py → 5/5 통과(FAIL 신뢰도 케이스 포함 정상)
+
+[커밋]
+c60143e3 (main, migration-validator, remote 없음 — 로컬 커밋. 코드 저장소 push 금지 원칙 준수)
+"feat(exact-diff): 재이관 job 메모리캐시 미스 시 DB(exact_diff_run) fallback 재사용
+(M63-REIMPORT-CACHE-MISS-DB-FALLBACK-IMPLEMENT)"
+포함 파일: services/exact_diff/reimport_job.py, services/exact_diff/store.py,
+tests/test_m63_reimport_db_fallback.py(신규)
+
+✅ 작업 완료 - 재이관(5단계 개별검증) get_by_fingerprint 메모리캐시 미스 시 DB(exact_diff_run) fallback 구현
