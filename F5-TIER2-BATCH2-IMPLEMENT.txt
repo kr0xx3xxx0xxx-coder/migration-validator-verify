@@ -1,0 +1,218 @@
+작업명 : F5-TIER2-BATCH2-IMPLEMENT
+일시   : 2026-08-09
+커밋   : 0a9eb328 (code repo, main, push 안 함 — 저장소 규칙)
+전제   : 프로덕션 코드 무수정 — tests/ 4파일만 재작성.
+         작업 착수 시 HEAD 85ac0477(배치1 커밋 포함). 작업 중 다른 세션이 main 에 920f57ec,
+         be5f62b3(M62-TAB-LOCK-STALE-AFTER-COMPLETION-DIAGNOSE-AND-FIX)를 순차 커밋했다.
+         매 단계 git diff/status 로 전부 배치 범위(tests/test_batch_*) 밖임을 확인, 손대지
+         않았다. 최종 커밋은 `git add` 로 대상 4개 파일만 명시적으로 스테이징(diff --stat
+         재확인) 후 수행했다.
+
+────────────────────────────────────────────────────────────────────────
+0. 결론 요약
+────────────────────────────────────────────────────────────────────────
+- 배치2 대상 4파일(106케이스, 지시서의 "102케이스"는 근사치 — 실측 106)을 배치1(F5-TIER2-BATCH1)
+  방법론(contract_utils 6헬퍼) 그대로 전환 완료. 새 헬퍼 발명 없음.
+- 검증 강도: mutation 12종 주입 → 12종 전부 탐지(놓침 0, 배치1의 M17 같은 사각지대 없음).
+- 소급대조: 4개 커밋 시점 확인(c3bda5d3/de3d6c97/229bd6fd/85ac0477 — 배치1이 쓴 것과 동일 지점
+  재사용). 229bd6fd(STAGE-GATE-UNIFY) 시점에서 배치1과 동일한 "테스트 미동반 프로덕션 변경"
+  가짜 회귀 패턴을 재현 확인(전환 전 2 failed → 전환 후 106 passed, 0 failed).
+- 전환 전 baseline 7 failed 중 3건(전부 test_batch_group_current_workflow_scope.py)을 조사해
+  전부 "정당한 리팩터로 깨진 stale assertion"으로 재분류·수정. 나머지 4건은 전환과 무관한
+  사전 존재 결함(다른 기능 영역의 .innerHTML 회귀, clean worktree 에서도 재현)으로 확인, 손대지 않음.
+- 인접 140파일(~1,940케이스) 회귀 대조: 배치2 대상 4파일을 제외한 실패 ID 집합을 비교한 결과
+  일치하지 않는 38건은 전부 (a) test_candidate_scoring_dashboard_static.py 의 워크트리 전용
+  환경 아티팩트(35건, before 실행에서만 ERROR — 다른 세션 정리 필요 없음), (b) live DB 의존
+  테스트 3건(after 에서만 등장 — worktree 에는 .env 가 없어 SKIP 되던 것들, 실제로는
+  git stash 로 배치2 변경을 완전히 제거해도 동일하게 실패하는 사전 존재 결함으로 확인)
+  이었다. 배치2가 원인이 된 신규 회귀는 0건.
+- CLAUDE.md 필수 회귀(virtual/complex) 8/8, 5/5 통과(HEAD 920f57ec 기준 재확인).
+
+────────────────────────────────────────────────────────────────────────
+1. 전환 결과 (지시 1)
+────────────────────────────────────────────────────────────────────────
+  파일                                                  케이스   증감
+  ─────────────────────────────────────────────────────────────────────
+  test_batch_single_core_wrapper_foundation.py            48 → 48   ±0
+  test_batch_group_current_workflow_scope.py               18 → 18   ±0
+  test_batch_workflow_action_order.py                      18 → 18   ±0
+  test_batch_delta_rerun_freshness.py                      22 → 22   ±0
+  ─────────────────────────────────────────────────────────────────────
+  합계                                                    106 → 106   ±0
+
+  diff: 4 files changed, 105 insertions(+), 52 deletions(-)
+
+전환 원칙(배치1 그대로 재적용)
+  · 함수/블록 본문 고정폭 슬라이스(html[i:i+N], html[i:][:N])   → function_body/listener_body(중괄호 매칭)
+  · find-to-find 슬라이스(로컬 anchor-pair 재구현, `_between` 헬퍼 포함) → listener_body(두-앵커 모드)
+  · 함수 시그니처 원문("function X" in html)                    → has_function
+  · 유지: UI 한글 문구, 식별자 단위 제거확인(not in), 이미 실제 함수/DB 를 직접 호출하는
+    백엔드 테스트(TestClient, inspect.getsource 등 — file 1 대부분이 이 범주, 전환 대상 1곳뿐)
+
+파일별 전환 대상 요약
+  · test_batch_single_core_wrapper_foundation.py: test_client_select_star_not_hard_blocked 1곳
+    (find-to-find + ±120 고정폭 윈도우 → listener_body 두-앵커). 나머지 47케이스는 이미 백엔드
+    직접 호출/구조화 dict 단언이라 전환 대상 없음(파일 대부분이 phase1 '유지' 범주).
+  · test_batch_group_current_workflow_scope.py: 고정슬라이스 3곳(batchGoToTargets 400자,
+    beforeunload 220자, _statusBadge 400자) → function_body/listener_body. 추가로 baseline
+    조사 중 발견한 가짜회귀 2건(§2) 수정.
+  · test_batch_workflow_action_order.py: 로컬 `_between(html,a,b)` 헬퍼(listener_body 두-앵커
+    모드의 중복 재구현) 전체 제거, 호출부 9곳을 listener_body 로 직접 위임. 고정슬라이스
+    3곳(batchRunWrapperBtn ×2, 고급조회 details 600자) → listener_body(태그 경계 `>` /
+    `</details>` 앵커). batchWrapperResultCard 의 "+1000자 추정" 슬라이스는 형제 카드
+    id="batchResultCard" 를 종료 앵커로 삼아 정확한 경계로 교체.
+  · test_batch_delta_rerun_freshness.py: batchLatestChangePageSize 고정슬라이스(200자) 1곳
+    → has_function + function_body.
+
+────────────────────────────────────────────────────────────────────────
+2. 전환 전 baseline 7 failed 의 재분류 (지시 검증사항 "전환 전/후 baseline 비교")
+────────────────────────────────────────────────────────────────────────
+착수 전 baseline(HEAD 85ac0477, clean worktree 재현 확인) = 7 failed / 99 passed.
+전환 후 = 4 failed / 102 passed. 사라진 3건 전부 test_batch_group_current_workflow_scope.py:
+
+  ① test_beforeunload_warning_only_when_running — 원 단언이 고정폭 220자 슬라이스였다. 실제
+     콜백 본문(8175~8186행)은 한글 주석이 길어 220자 안에 "mvRunLock.running || ..." 조건문이
+     들어오지 못해 자체 슬라이스 부족으로 실패하던 자기유발 버그(contract_utils 파일럿 자기비판
+     #3 "짧게 잘려 놓침"의 교과서적 사례). listener_body(중괄호 매칭)로 정확한 콜백 경계를
+     잡자 정상 통과.
+  ②③ test_reload_restore_group_step / test_storage_step_migration_6_to_5 — 원 단언
+     (localStorage.setItem/getItem('mv_batch_wf'), "_batchFrontmostIncomplete(avail) || 1",
+     "v: 5, group: _currentGroupId")은 "새로고침 = 처음 진입" 정책 도입(주석: "저장 함수는
+     no-op 으로 두고(호출부 보존), 과거 저장값은 정리한다")으로 사라진 리터럴이었다(정당한
+     리팩터). 실제 배선(_batchStorageSave/batchRestoreStepWorkflow 가 저장 없이 removeItem
+     +false 반환만 함)으로 단언을 바로잡고, _batchMigrateStep 매핑 함수는 run_node 로 직접
+     호출해 실제 동작(null→1, {v:5,step:3}→3, {v:4,step:6}→5, {v:4,step:1}→1)을 검증하도록
+     교체했다(사라진 저장 리터럴 대신 함수 자체의 행위 계약).
+
+  남은 4건(test_ui_advanced_diagnostics_render / test_ui_diagnostics_analyze_subrows /
+  test_ui_diagnostics_dependency_rows / test_ui_dependency_applied_rows, 전부
+  test_batch_single_core_wrapper_foundation.py)은 조사 결과 진단(diagnostics) 렌더 함수의
+  ".innerHTML" 사용 여부를 검사하는 XSS 안전 계약으로, 내가 전환한 SELECT_STAR 코드와 무관한
+  다른 함수(MvResultView.verdictBadgeHtml 소비부)에서 실제로 .innerHTML 을 쓰고 있어 실패한다.
+  clean worktree(HEAD 85ac0477, 내 변경 없음)에서도 동일 재현 확인 + git stash 로 배치2 변경을
+  완전히 제거해도 동일 재현 확인 — 전환 범위 밖의 사전 존재 결함으로 남겼다.
+
+────────────────────────────────────────────────────────────────────────
+3. mutation 검증 (지시 2) — 12종 주입 / 12종 탐지, 놓침 0
+────────────────────────────────────────────────────────────────────────
+방법: git worktree(X:\_mvwt_f5b2, HEAD 85ac0477) 사본 프로덕션에 결함을 하나씩 주입 →
+      해당 계약 테스트가 실패하는지 확인 → 매 케이스 원본 복구. round-trip 사전검증
+      스크립트(f5b2_roundtrip_check.py)로 12종 전부 안전 확인 후 실행(작업 종료 후 제거함).
+
+  ID   주입한 진짜 결함                                                  결과
+  ────────────────────────────────────────────────────────────────────────────
+  M1   batchGoToTargets 가 검증대상 탭(2)으로 더 이상 이동 안 함           FAIL
+  M2   beforeunload 핸들러가 e.returnValue 미설정(일부 브라우저 경고 무력화) FAIL
+  M3   _batchStorageSave 가 '새로고침=처음 진입' 정책을 어기고 재저장 시작  FAIL
+  M4   batchRestoreStepWorkflow 가 true 반환(복원 분기 오도)               FAIL
+  M5   구 6단계 storage 보정 매핑 깨짐(6→6, 존재하지 않는 단계)            FAIL
+  M6   전체통계 버튼 초기 gate-disabled(disabled 속성) 제거                FAIL(2개 계약)
+  M7   저장 결과 조회 카드에 실행 버튼(run-current) 속성 누출              FAIL
+  M8   batchLatestCard header 공통 action class(mv-card-actions) 누락      FAIL(2개 계약)
+  M9   batchColumnEntryCard header 공통 action class 누락                 FAIL(2개 계약)
+  M10  SELECT_STAR 판정이 WARNING→ERROR 로 격상(client hard-block 부활)    FAIL
+  M11  page_size 변경 시 1페이지 리셋 누락                                FAIL
+  M12  batch_run_id 직접 입력이 '고급 조회'(details 접힘) 밖으로 누출      FAIL
+  ────────────────────────────────────────────────────────────────────────────
+  전체: 12/12 탐지, 놓침 0(원본 대비 순수 diff 0 — round-trip 검증, worktree 는 작업 종료 후 제거)
+
+  배치1의 M17(픽스처 사각지대)과 같은 놓침은 없었다 — 배치2 대상 12곳이 이미 전부 실제 배선
+  값을 직접 단언하는 강한 계약(disabled 속성, 클래스명, 함수 반환값 run_node 실행 등)이라
+  존재-only 계약(has_function 단독)에서 오는 사각지대가 애초에 없었다.
+
+────────────────────────────────────────────────────────────────────────
+4. 소급 검증 (지시 3) — 4개 시점(배치1이 쓴 지점 그대로 재사용)
+────────────────────────────────────────────────────────────────────────
+방법: 동일 worktree 를 과거 시점 프로덕션으로 체크아웃 → tests/ 만 (기존/전환) 버전으로 교체 실행.
+
+  커밋      날짜         비고                                    전환 전              전환 후
+  ──────────────────────────────────────────────────────────────────────────────────────────
+  c3bda5d3 2026-06-09  REORDER-BATCH-...(file3 원 도입)           31 passed             74 failed/32 passed
+  de3d6c97 2026-06-10  batch 파일 마지막 수정(4파일 전부 도입완료)  56 passed             51 failed/55 passed
+  229bd6fd 2026-06-27  STAGE-GATE-UNIFY(테스트 미동반)             2 failed/104 passed   106 passed(0 failed)
+  85ac0477 2026-08-09  현재 baseline(배치2 착수 시점 HEAD)         7 failed/99 passed    4 failed/102 passed
+
+해석
+  · 229bd6fd — 핵심 결과. 배치1이 자신의 3파일에서 발견한 것과 동일한 성격의 가짜 회귀를
+    배치2의 4파일에서도 재현 확인(전환 전 2 failed → 전환 후 0 failed). 같은 커밋(테스트
+    미동반 프로덕션 변경)이 인접 파일군 전반에 동일 패턴의 stale assertion 을 남겼다는 뜻이다.
+  · c3bda5d3/de3d6c97 — 전환 후 실패 74/51건을 표본 검사(pytest -v 실패 목록 + 에러 유형
+    분류)한 결과 전부 ModuleNotFoundError/ImportError/AttributeError(services.select_star_
+    expansion, services.group_current_freshness_service, services.sql_dependency_pruning,
+    services.count_exec_probe.force_enable 등 그 시점에 존재하지 않는 모듈/함수) 또는
+    "function X"/"id=Y" 미존재(그 시점 UI 에 해당 기능 자체가 없음) 로 확인했다 — 전부
+    시대착오(정당). c3bda5d3(13:59) < 90e3d4fd(15:18, file2 도입) < 3b7544fe(15:48, file4
+    도입) < de3d6c97(16:03) 순서를 커밋 타임스탬프로 확인 — de3d6c97 시점엔 4개 기능 모두
+    이미 도입되어 있었으나, select_star/dependency_pruning/KST/freshness UI 세부 기능은
+    이후 별도 커밋들로 추가된 것이라 여전히 대량 시대착오가 나온다(배치1 §4 해석과 동일 범주).
+  · 85ac0477 — 2절 내용과 동일(가짜 회귀 3건 흡수, 사전 존재 결함 4건 잔존).
+
+────────────────────────────────────────────────────────────────────────
+5. 회귀 확인 (지시 "인접 파일 실패 목록과 대조" + "CLAUDE.md 필수 회귀 최종 1회")
+────────────────────────────────────────────────────────────────────────
+· 전환 대상 4파일: 106케이스, 최종 4 failed(사전 존재·전환 무관, 3절)/102 passed.
+· CLAUDE.md 규정 자체 테스트: samples/test_virtual_cases.py 8/8, samples/test_complex_cases.py
+  5/5 통과(다른 세션이 main 을 920f57ec 로 진전시킨 뒤 재확인 포함).
+· 인접 배치/후보 파일(test_batch_*.py, test_wrapper_results*.py, test_candidate_*.py,
+  test_column_candidate_*.py) 140파일 전수 실행(~1,940케이스, 배치1 §5 가 baseline 으로
+  재사용 권고한 바로 그 파일 집합):
+    - before(clean worktree, HEAD 85ac0477, 배치2 미적용): 67 failed/1813 passed/28 skipped/
+      38 errors — 배치1이 보고한 "62~70건" 범위와 일치.
+    - after(main repo, 배치2 적용 + 다른 세션의 무관 커밋 920f57ec 포함): 61 failed/1869
+      passed/10 skipped/6 errors.
+    - 배치2 대상 4파일을 제외하고 실패 ID 집합을 비교(before 98건 vs after 63건). 불일치
+      38건을 전수 조사한 결과: (a) test_candidate_scoring_dashboard_static.py 소속 35건은
+      before 실행(worktree)에서만 ERROR — 대시보드 정적 파일 생성 관련 워크트리 전용 환경
+      아티팩트로 확인(배치2 무관 파일, 내가 건드리지 않음), (b) after 에서만 나타난 3건
+      (test_candidate_contract.py 의 test_live_* 2건, test_candidate_plan_matrix.py::
+      test_null_vs_empty_selection_contract)은 worktree 에 .env(Neon 접속정보, gitignore
+      대상)가 없어 SKIP 되던 live-DB 의존 테스트였다 — main repo 에서 git stash 로 배치2
+      변경 전체를 제거하고 재실행해도 동일하게 실패함을 확인(사전 존재, 배치2 무관).
+    - 결론: 배치2가 원인이 된 신규 회귀는 0건. 두 실행을 병행 구동한 탓에(before/after
+      가 겹치는 구간이 있었다) skipped/errors 총량 차이(28→10, 38→6)가 나는데, 이는 배치1이
+      §5 에서 겪은 것과 같은 종류의 순서·환경 의존 flaky 로 판단한다 — 정직하게 기록한다.
+
+────────────────────────────────────────────────────────────────────────
+6. 이번에 드러난 별건 (전환 범위 밖 — 손대지 않음)
+────────────────────────────────────────────────────────────────────────
+- test_ui_advanced_diagnostics_render 외 3건(단일검증 진단 렌더의 .innerHTML 사용) — 배치2
+  범위 밖의 사전 존재 XSS 계약 위반. 2절 참고, 별도 정리 대상으로만 기록.
+- test_candidate_scoring_dashboard_static.py 의 워크트리 전용 실패 35건 — 배치2 대상 파일이
+  아니고, 대시보드 정적 파일 생성이 워크트리 환경(생성물 경로/의존 파일 부재 추정)에서만
+  깨지는 것으로 보인다. 원인 특정은 이번 범위 밖.
+- 작업 중 다른 세션이 main 에 920f57ec(M62-TAB-LOCK-STALE-AFTER-COMPLETION-DIAGNOSE-AND-FIX)를
+  커밋했고 ui/tabler_renderer.py 등에 계속 미커밋 변경을 남기는 중이었다. 매 단계 git diff
+  로 배치 범위(tests/test_batch_*) 밖임을 확인했고, 최종 커밋은 diff --stat 으로 4개 대상
+  파일만 포함됨을 재확인했다. 코드 저장소는 커밋만 하고 push 하지 않는다(저장소 규칙).
+
+────────────────────────────────────────────────────────────────────────
+7. 비판적 검토 (CLAUDE.md 응답 형식)
+────────────────────────────────────────────────────────────────────────
+- 요청 요약: F5 Tier2 배치2(중간 4파일·106케이스) 화이트박스 문자열단언→동작계약 전환.
+- 긍정적 효과: 가짜 회귀 3건 해소(229bd6fd 가 남긴 stale assertion 포함), 로컬 재구현 헬퍼
+  (`_between`) 완전 제거로 contract_utils 로 수렴, mutation 12/12 첫 시도 탐지(배치1 대비
+  사각지대 없음 — 배치2 전환 대상이 이미 강한 계약이었기 때문).
+- 구조적 문제점: 근본 원인(ui/tabler_renderer.py 거대 문자열 렌더러)은 그대로 — phase1/배치1과
+  동일한 한계. 배치1·배치2가 함께 드러낸 인접 파일군의 사전 존재 결함(diagnostics .innerHTML,
+  scoring dashboard 워크트리 아티팩트)이 누적되고 있어 별도 트리아지가 필요하다.
+- 운영상 위험: 낮음(테스트 전용, 배포물 무변경, 프로덕션 무수정, 코드 repo push 안 함).
+- heuristic/scoring/explainability 영향: heuristic 하드코딩 감소(고정폭 슬라이스 제거),
+  explainability 개선(listener_body/function_body 실패 메시지가 실제 경계·값 노출), scoring 무관.
+- 권장 대응책: 배치3(나머지 파일, 있다면)도 동일 방법론으로 진행 권고. 4절의 진단 .innerHTML
+  4건과 scoring dashboard 워크트리 아티팩트 35건은 별도 지침으로 분리해 트리아지할 것을 권고.
+- 지금 구현 여부: 진행(완료).
+
+재현 명령
+  python -m pytest tests/test_batch_single_core_wrapper_foundation.py \
+    tests/test_batch_group_current_workflow_scope.py \
+    tests/test_batch_workflow_action_order.py tests/test_batch_delta_rerun_freshness.py -q
+  # mutation/소급 (worktree 필요, X:\_mvwt_f5b2 는 작업 종료 후 제거함 — 재현 시 재생성)
+  git worktree add X:\_mvwt_f5b2 85ac0477
+  python scratchpad/f5b2_roundtrip_check.py
+  python scratchpad/f5b2_mutation_runner.py
+  python scratchpad/f5b2_retro_runner.py
+
+작업명 : F5-TIER2-BATCH2-IMPLEMENT
+✅ 작업 완료 - F5-TIER2-BATCH2-IMPLEMENT: 배치2 4파일·106케이스 동작계약 전환 + mutation 12/12 탐지
+  + 소급 4개 시점 확인(229bd6fd 가짜회귀 흡수 재현) + 인접 140파일 신규회귀 0건 확인 +
+  CLAUDE.md 필수 회귀 통과, 코드 repo 커밋 0a9eb328(push 안 함)
