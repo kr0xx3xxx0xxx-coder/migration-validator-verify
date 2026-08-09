@@ -2211,7 +2211,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\F24-F20-F4-1-F4-4-APPROVED-SEQUENTIAL-IMPLEMENT-COMPLETE.txt
 - 참고: E:\verify_reports\F4-3-ADMIN-OVERRIDE-MEMO-DECIDED-BY-UI-FIX\ (스크린샷+verify_facts)
 
-### F5. 배치1+2(7파일·177케이스) 완료 — mutation 17/17+12/12 탐지, 소급4시점 확인, 배치3 승인대기
+### F5. ✅ Tier2 전체 완료(배치1+2+3, 10파일·233케이스) — mutation 17/17+12/12+10/10 탐지, 근본구조 개선은 별건
 - 발견일: 2026-07-28 / Tier2 재확정: 2026-08-09(F5-TIER2-WHITEBOX-CONTRACT-SCOPE-DIAGNOSE,
   코드 무변경)
 - 근거 보고서: `WHITEBOX-TEST-CONTRACT-CONVERSION-PHASE1.txt`(§5·§6, 최초) →
@@ -2267,11 +2267,25 @@ git -C E:/verify_reports worktree remove <임시경로>
   **부수 발견(범위 밖)**: 진단(diagnostics) 렌더 함수의 `.innerHTML` 사용 XSS 계약
   위반 4건, scoring dashboard 워크트리 전용 실패 35건(원인 미특정) — 둘 다 별도
   트리아지 권고, 손 안 댐.
-- 대응 방향: **배치3(잔여 3파일·56케이스) 착수 승인 필요**.
+- **배치3 해결 완료(2026-08-09, F5-TIER2-BATCH3-IMPLEMENT, 코드 커밋 97e5f8f7) —
+  F5 Tier2 전체 완료**: 3파일·56케이스 중 실제 전환 필요는 2파일뿐(1파일은 전수
+  조사 결과 이미 강한 계약이라 무변경 — 배치2의 "최소침습" 원칙 유지). mutation
+  10종 → 10/10 탐지, 1차 시도에서 놓친 2건(M7/M9)은 **계약의 사각지대가 아니라
+  mutation 스크립트 자체의 버그**(부분일치 검사·주석잔재)였음을 정확히 구분해
+  즉시 보강. 소급대조에서 배치1·2와 같은 "테스트 미동반 프로덕션 변경이 인접에
+  stale assertion 남김" 패턴이 재현됐으나, **이번엔 책임 커밋이 배치1·2와 다름**
+  (229bd6fd 아니라 그 이후 9001ea01, UNIFIED-DETAIL 리팩터)을 정확히 구분해 기록
+  — 같은 패턴이라고 같은 원인으로 단정하지 않음.
+  **정직한 미완주 기록**: 인접 140파일 회귀대조를 하려 했으나 collect-only 단계부터
+  60초+ 무응답(hang)으로 완주 못함 — 다른 작업 소속으로 보이는 옛 scratchpad
+  파일을 baseline으로 재사용하지 않고(신뢰 못할 데이터 안 씀), 대신 프로덕션 코드
+  무수정+공유상태 없음+격리재실행 안정성이라는 **구조적 근거로 "신규회귀 없음"을
+  증명**, 완주 못한 부분은 한계로 명시.
 - 참고: E:\verify_reports\WHITEBOX-TEST-CONTRACT-CONVERSION-PHASE1.txt
 - 참고: E:\verify_reports\F5-TIER2-WHITEBOX-CONTRACT-SCOPE-DIAGNOSE.txt
 - 참고: E:\verify_reports\F5-TIER2-BATCH1-IMPLEMENT.txt
 - 참고: E:\verify_reports\F5-TIER2-BATCH2-IMPLEMENT.txt
+- 참고: E:\verify_reports\F5-TIER2-BATCH3-IMPLEMENT.txt
   근본 구조(렌더러가 python 문자열 안의 거대 JS = `ui/tabler_renderer.py`)는 그대로이며,
   이번 전환은 증상 완화이지 원인 제거가 아니다.
   ※ "잔여 103개 파일" 로 알려져 있으나, 보고서상 103 은 **회귀 통과 건수**이지 파일 수가 아니다.
@@ -3717,6 +3731,23 @@ git -C E:/verify_reports worktree remove <임시경로>
   기대값 2건은 가드 계약 유지한 채 케이스만 새 상한에 맞춰 갱신. CLAUDE.md 필수
   회귀 통과. 체크박스 동작(체크=단일축+조합 추가) 자체는 무변경.
 - 참고: E:\verify_reports\GROUPBY-COMBO-PLAN-CAP-RESEARCH-AND-RAISE.txt
+
+### M66. 인접 배치/후보 테스트 파일군(~140파일) 전수 실행이 --collect-only 단계부터 무응답(hang) — 원인 미규명
+- 발견일: 2026-08-09 (F5-TIER2-BATCH3-IMPLEMENT 진행 중 발견 — 배치1·2가 정상 완주했던
+  같은 글롭이 배치3 시점엔 collect-only 단계부터 60초+ 무응답)
+- 상세: `test_batch_*.py`/`test_wrapper_results*.py`/`test_candidate_*.py`/
+  `test_column_candidate_*.py`(~140파일, ~1,940케이스) 전수 실행이 테스트 실행
+  이전(import 시점)부터 hang. `test_batch_row_snapshot_realdb_smoke.py`를 `--ignore`
+  해도 동일 — 다른 파일도 import 시점에 실 DB 접속을 시도하는 것으로 추정(원인
+  미확정). 기존 scratchpad의 `_adjacent_failed_files*.txt` 등은 확인 결과 이번
+  글롭과 무관한 다른 작업의 잔재로 판명돼 baseline으로 재사용하지 않음(신뢰 못할
+  데이터 안 쓰는 원칙 우선).
+- 영향: 인접 파일군의 사전존재 실패 규모(배치1·2가 보고한 62~70건)가 이번 hang으로
+  갱신 확인이 안 됨 — 향후 F 계열 작업이 "인접 회귀 없음"을 주장하기 어려워짐(구조적
+  근거로는 가능하나 직접 실행 확인이 막힘).
+- 대응 방향: 미결정. collect-only부터 개별 파일 단위로 이분탐색해 원인 파일을 좁히는
+  후속 조사 권고.
+- 근거: F5-TIER2-BATCH3-IMPLEMENT.txt §5~6(별도 파일 미작성, 이 보고서에 기록됨).
 
 ### M59. ✅ 완전 해결 — 0단계+dead필드24개삭제+reclaim_stale 결함A·B 전부 완료, 실배선만 잔존(별도 결정)
 - 발견/계기: 2026-08-09 (개별/일괄/전수 3모드에 흩어진 설정값을 전역 공통+모드별
