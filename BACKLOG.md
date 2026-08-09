@@ -3456,7 +3456,7 @@ git -C E:/verify_reports worktree remove <임시경로>
   단정하던 어서션"을 고친 동작 검증으로 교체(무비판 삭제 아님).
 - 참고: E:\verify_reports\STAGE2-COUNT-INFLIGHT-TAB-LOCK-DIAGNOSE-AND-FIX.txt
 
-### M63. 5단계(개별검증 전용) 그룹 재사용 판정 캐시가 휘발성(개수상한16·재기동시소실)이라, 시간 지나면 저장된 데이터가 있어도 재스캔 발생(의도된 설계) — 일괄검증은 무관 확인됨
+### M63. ✅ 해결 완료 — 5단계(개별검증 전용) 그룹 재사용 판정 캐시 미스 시 DB fallback 구현 — 일괄검증은 무관 확인됨
 - 발견일: 2026-08-09 (사용자 목격 — "이미 완료된 그룹인데 시간 지나 다시 열면 또
   오래 걸린다" / 채팅 조사, 코드 무변경)
 - 상세: "재사용 가능" 판정은 `services/exact_diff/reimport_job.py`의
@@ -3480,9 +3480,22 @@ git -C E:/verify_reports worktree remove <임시경로>
   `routes/batch_route.py`/`batch_exhaustive_route.py`엔 관련 참조 0건(grep 확인).
   일괄검증은 애초에 "그룹별 온디맨드 상세추출" 구조 자체가 없고 별도 엔진
   (`batch_execution_state`+`batch_pause_control`)으로 동작 — 16개 상한과 무관.
-- 대응 방향: 미결정. 캐시 미스 시 DB에서 옛 run_id를 찾아 재사용하는 경로 추가
-  검토(개별검증 5단계 한정 — 착수 여부 결정 필요).
+- 대응 방향: **해결 완료(2026-08-09, M63-REIMPORT-CACHE-MISS-DB-FALLBACK-IMPLEMENT,
+  코드 커밋 c60143e3)**. `get_by_fingerprint()`가 메모리 캐시 미스 시 바로 None을
+  반환하지 않고 `store.get_run_by_fingerprint()`로 DB(exact_diff_run, 이미 있던
+  fingerprint 컬럼 재사용·스키마 변경 0)를 조회 → 완료(DONE/EARLY_STOPPED) run이
+  있으면 basis_json/counts_json/metrics_json으로 job을 재구성(rehydrate)해서 캐시에
+  다시 등록 — 재스캔 생략. RUNNING/CANCELLED는 재사용 대상에서 명시 제외(미완료
+  데이터를 완료로 오인 방지). EARLY_STOPPED는 READY로 승격 안 시킴(조기중단 배지
+  보존, M60/기존 계약 유지). 동시 레이스는 락+재확인으로 중복 rehydrate 방지.
+  fingerprint 인덱스는 M64(보관기간 정리)가 테이블 크기를 이미 억제하므로 이번엔
+  추가 안 함(스키마 변경 최소화, 필요시 후속 검토 남김). 신규 테스트 5건(캐시비움→
+  DB재사용, EARLY_STOPPED 상태보존, 완전신규→None, RUNNING/CANCELLED 재사용제외)
+  전부 통과, 관련 서브셋 220여건 신규 회귀 0건(사전존재 실패 7건 baseline 대조 확인).
+  **잔여 한계(정직하게 명시됨)**: 소비처(routes/agg_diff_route.py)는 이번 범위 밖이라
+  실제 화면 클릭테스트는 못함 — 다음 세션에서 확인 권장.
 - 근거: 채팅 조사 결과(별도 파일 미작성).
+- 참고: E:\verify_reports\M63-REIMPORT-CACHE-MISS-DB-FALLBACK-IMPLEMENT.txt
 
 ### M64. ✅ 해결 완료 — exact_diff_runs.db가 정리 로직 전무로 무기한 누적(대규모 일괄검증 반복 시 저장공간 위험)
 - 발견일: 2026-08-09 (M63 조사 중 발견한 delete_run() 미호출 문제를, 사용자가
@@ -3563,7 +3576,7 @@ git -C E:/verify_reports worktree remove <임시경로>
   회귀 통과. 체크박스 동작(체크=단일축+조합 추가) 자체는 무변경.
 - 참고: E:\verify_reports\GROUPBY-COMBO-PLAN-CAP-RESEARCH-AND-RAISE.txt
 
-### M59. 0단계(인프라+dead필드정리) 완료 — 값 이동 0건 확인, 배선 중 2건 신규결함 발견해 안전하게 보류
+### M59. ✅ 0단계 완료 + dead필드 24개 삭제 + reclaim_stale 결함A 해결 — 결함B/실배선만 잔존(완료모듈, 별도승인 필요)
 - 발견/계기: 2026-08-09 (개별/일괄/전수 3모드에 흩어진 설정값을 전역 공통+모드별
   오버라이드로 정리하고 싶다는 요청) / 조사: GLOBAL-SETTINGS-HARDCODED-VALUES-SCOPE-
   DIAGNOSE(코드 무변경, Opus 서브에이전트 위임 조사)
@@ -3633,11 +3646,26 @@ git -C E:/verify_reports worktree remove <임시경로>
   안전).
   검증: 105 passed(관련 서브셋 8파일), `validation_scheduler.py`(미변경) 자체
   테스트 11 passed로 무접촉 재확인, CLAUDE.md 필수 회귀 통과.
-  **결정 필요**: (a) 삭제후보 필드 총 24개 실제 삭제 여부 (b) reclaim_stale 결함 A·B
-  수정 여부(B는 완료 모듈 승인 별도) — 이후 1단계(SQL 타임아웃 구조화) 착수는
-  이 인프라 위에서 바로 가능.
+- **① dead필드 삭제 + ② 결함A 해결 완료(2026-08-09, M59-DEAD-FIELD-DELETE-AND-
+  RECLAIM-STALE-FIX, 코드 커밋 dbe1fb06)**: 삭제 전 전체 grep으로 소비처 0건
+  재확인 후 24개 필드 삭제 — TimeDisplay(5개, 그룹 자체 삭제)·MismatchDetail(10개,
+  그룹 자체 삭제)·HistoryLogging(6개, 그룹 자체 삭제)·CancelFinish(3개, 불변식용
+  1개만 유지). 14그룹78필드→11그룹54필드. `ValidationScheduler`에
+  `heartbeat_interval_sec`(기본5초) 배경 스레드 신설 — worker 실행 중 주기적으로
+  `heartbeat()` 호출해 `last_heartbeat` 갱신, job 종료 시 즉시 정지.
+  **실측 증명**: heartbeat_interval=0.05초로 0.3초간 실행 유지한 job에
+  `reclaim_stale(lease_timeout=0.15초)` 호출 — 수정 전이면 반드시 STALE 오판됐을
+  상황인데 실제로는 `stale==[]`(오판 0건, RUNNING 유지 확인) — 오늘 우려했던 "정상
+  실행 job이 죽은 것으로 오판되는 위험"이 실제로 해소됨을 직접 증명.
+  **결함B/실배선은 지시대로 미착수**(완료 모듈 `validation_scheduler._finish()` 비멱등
+  수정 필요, 별도 승인 대상 — reclaim_stale 자체는 여전히 프로덕션 호출처 0건이라
+  이번 변경이 기존 동작을 안 바꿈). 관련 144건 통과, 신규 회귀 0건, CLAUDE.md 필수
+  회귀 통과. 동시 세션 미완료 파일 9개(F5 배치1 테스트 2개 포함) 무접촉.
+- 잔여 결정 필요: reclaim_stale 결함B 수정 여부(완료모듈 승인) + 실배선 착수 여부.
+  1단계(SQL 타임아웃 구조화)는 이 인프라 위에서 바로 착수 가능.
 - 근거 보고서: E:\verify_reports\M59-PHASE0-INFRA-AND-DEAD-FIELD-CLEANUP.txt
 - 참고: E:\verify_reports\GLOBAL-SETTINGS-HARDCODED-VALUES-SCOPE-DIAGNOSE.txt
+- 참고: E:\verify_reports\M59-DEAD-FIELD-DELETE-AND-RECLAIM-STALE-FIX.txt
 
 ### M57. ✅ 해결 완료 — 통계검증 실행 후 `body.mv-run-locked` 잠금이 stale하게
     남아 3단계 후보 체크박스가 실 클릭으로 안 풀린다
