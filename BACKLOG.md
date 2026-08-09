@@ -2104,6 +2104,18 @@ git -C E:/verify_reports worktree remove <임시경로>
   (표시는 100건만). 즉 표준 경로는 "저장이 표시보다 1건 더 많음"인데, F2가 지목한
   CHUNK/표본 preflight 경로는 "저장(20건)이 표시목표(100건)보다 훨씬 적음" — 두
   경로의 저장 상한 체계가 서로 다르다는 게 재확인됨.
+- **후속 조사 완료(2026-08-09, F2-CHUNK-SAMPLE-STORAGE-CAP-RESEARCH, 코드 무변경)**:
+  20건 상한은 성능/메모리 근거 없이 2026-07-05 커밋(4e4ca64b)에서 "첫 20건 자동표시" UI 숫자와
+  우연히 맞춘 값이었음을 확인. 20→100 상향을 4개 규모(1,000~2,000,000건)·2개 저장모드(in-memory·
+  file/WAL)로 실측한 결과 성능/메모리 영향은 전 구간 노이즈 수준 이하(수집 INSERT 단계는 구조상
+  representative_limit 과 무관, trim/조회/메모리 차이도 절대값 기준 무시 가능 — 대규모 file 모드에서는
+  오히려 20 쪽이 100 쪽보다 느린 역전까지 관측돼 대표저장수가 비용 지배 요인이 아님을 재확인).
+  **100 권장**(CHUNK 경로 representative_sample_limit·표본 경로 sample_representative_store_n 둘 다).
+  안내 문구는 이미 파라미터화돼 있어 값만 바꾸면 자동 반영되고, per_group_full_list_max(100)와 값이
+  일치해 "저장분이 N건뿐이라 표시 불가" 배너는 CHUNK/표본 경로에서 사실상 소거될 것으로 코드분석
+  (실측 아님)됨. 단, 기존 배포본은 DB에 이미 20이 저장돼 있어 코드 기본값만 바꿔서는 반영되지 않음
+  (1회성 데이터 마이그레이션 필요) — 착수는 별도 승인 후.
+  참고: F2-CHUNK-SAMPLE-STORAGE-CAP-RESEARCH.txt
 
 ### F3. ⚠️ 배선 완료했으나 화면 소비처가 이미 삭제돼 있어 관측 가능한 변화 없음(dead data)
 - 발견일: 2026-07-29 / 배선 완료: 2026-08-09(F3-DISPLAY-LIMIT-POLICY-WIRING-FIX, 코드
