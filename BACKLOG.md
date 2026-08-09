@@ -2089,12 +2089,35 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE.txt
 - 참고: E:\verify_reports\F1-PHASE1-ALIAS-RENAME-VERSION-BUMP.txt
 
-### F2. CHUNK/표본 preflight 경로는 저장 상한(representative_limit=20) 때문에 100건 표시가 보장되지 않는다
+### F2. 조사 완료 — representative_limit(20) 근거없음 확인, 100 상향 실측완료(위험無, 착수승인대기)
 - 발견일: 2026-07-29
 - 근거 보고서: `PER-GROUP-DISPLAY-P3-PARTIAL-RECORDS-FIX.txt` (§6 / §8-(a))
 - 상세: 실측상 실제 불일치 300건이어도 store 저장은 20건뿐이라 최대 20건까지만 보인다.
   이번 수정으로 "저장분이 20건뿐이라 그 이상은 표시할 수 없습니다(저장 상한)" 문구는 붙였으나(은폐 제거),
   **저장 상한 자체는 변경하지 않았다**(저장 계층 변경 금지 지시). 100건 표시를 보장하려면 상한을 올려야 한다.
+- **조사 완료(2026-08-09, F2-CHUNK-SAMPLE-STORAGE-CAP-RESEARCH, 코드 무변경)**:
+  20이 근거 없는 값임을 확인(2026-07-05 단일 커밋에서 "첫 20건 자동표시" UI 숫자와
+  우연히 맞춘 것, 이후 재검토 0회 — M59/M65와 동일 유형). **실측(4개 규모 1,000~
+  2,000,000건×메모리/파일 2모드, 9케이스)**: 20→100 상향은 수집(INSERT, 가장
+  비싼 구간)에는 구조적으로 전혀 관여 안 함(코드분석으로 사전 확인), trim/조회/
+  메모리 차이는 전부 노이즈 수준. **결정적 반증**: 실 디스크 I/O가 개입하는
+  200만건 파일모드에서 오히려 **20쪽이 100쪽보다 더 오래 걸림**(trim 199초 vs
+  139초) — representative_limit이 비용 주범이 아니라는 걸 직접 실증.
+  "첫 20건 자동표시" 기능과는 이름만 같은 별개 파라미터(코드상 의존관계 없음)임도
+  확인. EARLY_STOPPED 표준경로의 101(+1)과는 메커니즘이 달라(이쪽은 사후절단이라
+  이미 초과여부를 앎, +1 불필요) 굳이 안 맞춰도 됨.
+  **권장값: 100**(CHUNK·SAMPLE 두 경로 모두). "저장분 N건뿐" 배너는 100 상향 시
+  경계값이 정확히 일치해 CHUNK/표본 경로에서 사실상 소거됨(코드분석 근거).
+  안내 문구는 이미 파라미터화돼 있어 값만 바꾸면 자동 반영, UI 코드 수정 불필요.
+  **착수 시 필수 주의(정직하게 경고)**: 기존 배포본 DB에 이미 20으로 저장된 정책
+  행은 코드 기본값을 바꿔도 자동 갱신 안 됨(ALTER TABLE DEFAULT는 신규 설치만
+  적용) — 코드변경+기존행 마이그레이션을 한 작업 단위로 묶어야 함, 하나만 하면
+  "코드는 100인데 실제로는 20으로 계속 동작"하는 조용한 미반영 발생.
+  **부수 발견(범위 밖)**: 이 설정값이 관리자 화면에 아예 노출 안 돼 있어 API 직접
+  호출로만 조정 가능(별개 갭, 기록만).
+- 대응 방향: **착수 승인 필요**(코드변경+DB 마이그레이션 함께 진행, 예상 파일범위
+  5개+운영 마이그레이션 1건 — 상세는 보고서 §3-5).
+- 참고: E:\verify_reports\F2-CHUNK-SAMPLE-STORAGE-CAP-RESEARCH.txt
 - 참고: E:\verify_reports\PER-GROUP-DISPLAY-P3-PARTIAL-RECORDS-FIX.txt
 - **부수 확인(2026-08-09, 채팅 조사, 코드 무변경)**: 표준 경로(EARLY_STOPPED)는 이
   F2와 반대 방향 — `per_group_full_list_max=100`(config/size_threshold_registry.py:95),
@@ -2171,7 +2194,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\F24-F20-F4-1-F4-4-APPROVED-SEQUENTIAL-IMPLEMENT-COMPLETE.txt
 - 참고: E:\verify_reports\F4-3-ADMIN-OVERRIDE-MEMO-DECIDED-BY-UI-FIX\ (스크린샷+verify_facts)
 
-### F5. Tier1(8파일) 완료 — Tier2 범위 재확정 완료(180→233케이스), 3배치 분할 착수 권고(승인 대기)
+### F5. 배치1(3파일·71케이스) 완료 — mutation 17/17 탐지, 소급4시점 확인(가짜회귀4건 흡수 실증), 배치2/3 승인대기
 - 발견일: 2026-07-28 / Tier2 재확정: 2026-08-09(F5-TIER2-WHITEBOX-CONTRACT-SCOPE-DIAGNOSE,
   코드 무변경)
 - 근거 보고서: `WHITEBOX-TEST-CONTRACT-CONVERSION-PHASE1.txt`(§5·§6, 최초) →
@@ -2193,10 +2216,29 @@ git -C E:/verify_reports worktree remove <임시경로>
 - **3배치 분할 착수 권고**: 배치1(핵심 3파일·71케이스, 파일럿 예시와 겹쳐 리스크
   최소) → 배치2(중간 4파일·102케이스) → 배치3(잔여 3파일·56케이스). 각 배치 완료마다
   mutation 검증+소급 대조(Tier1과 동일 방식) 수행.
-- 대응 방향: **배치1부터 순차 착수 승인 필요**(코드 변경 없는 조사만 완료, 착수는
-  배치 단위 별도 승인).
+- **배치1 해결 완료(2026-08-09, F5-TIER2-BATCH1-IMPLEMENT, 코드 커밋 85ac0477)**:
+  3파일·71케이스 phase1 방법론(contract_utils 6헬퍼) 그대로 전환(±0케이스, 새
+  헬퍼 발명 없음). **mutation 17종 주입 → 17종 전부 탐지**(1건(M17)은 최초 픽스처가
+  우연히 "GROUP BY 0건" 케이스만 담아 "항상 0 반환" 결함을 놓쳤다가 즉시 픽스처
+  보강 — phase1 자기비판(M9/M14)과 동일 패턴). mutation 스크립트 자체 버그(M8 되돌리기
+  대상 문자열이 파일 내 유일하지 않아 엉뚱한 위치 복원) 1건도 발견해 라운드트립
+  검증(적용→고유성확인→원복→바이트대조)으로 재발 방지.
+  **소급 4시점**: STAGE-GATE-UNIFY(229bd6fd, 테스트 미동반 프로덕션 변경) 시점에서
+  원본 4 failed → 전환본 71 passed(0 failed) — 그 커밋이 남긴 가짜회귀 4건을 전환이
+  전부 흡수함을 실증(phase1의 1건 사례를 4건 규모로 재현). 다른 2시점(더 이전)의
+  실패는 함수명 존재 여부 교차대조로 "그 시점엔 아직 없던 기능" 시대착오임을 확인.
+  baseline 7 failed 중 5건은 정당한 리팩터로 깨진 stale assertion으로 확인해 바로잡고,
+  2건은 전환과 무관한 사전존재 백엔드 결함으로 범위 밖 유지.
+  **자기 오판 정정 기록**: "다른 세션 미커밋 탓"으로 최초 오판했다가 clean worktree
+  재현으로 스스로 정정한 과정을 그대로 남김.
+  **부수 발견(범위 밖, 다음 배치를 위한 baseline으로 기록)**: 인접 140파일(~1,940케이스)
+  중 62~70건 사전존재 실패군 최초 전수 확인, 죽은 CSS class 4종 발견 — 둘 다 손 안 댐.
+  CLAUDE.md 필수 회귀 통과.
+- 대응 방향: **배치2(중간 4파일·102케이스) 착수 승인 필요**(방법론 검증 완료, 5절
+  실패목록을 baseline으로 재사용 권고).
 - 참고: E:\verify_reports\WHITEBOX-TEST-CONTRACT-CONVERSION-PHASE1.txt
 - 참고: E:\verify_reports\F5-TIER2-WHITEBOX-CONTRACT-SCOPE-DIAGNOSE.txt
+- 참고: E:\verify_reports\F5-TIER2-BATCH1-IMPLEMENT.txt
   근본 구조(렌더러가 python 문자열 안의 거대 JS = `ui/tabler_renderer.py`)는 그대로이며,
   이번 전환은 증상 완화이지 원인 제거가 아니다.
   ※ "잔여 103개 파일" 로 알려져 있으나, 보고서상 103 은 **회귀 통과 건수**이지 파일 수가 아니다.
