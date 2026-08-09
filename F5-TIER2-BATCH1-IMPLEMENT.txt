@@ -1,0 +1,242 @@
+작업명 : F5-TIER2-BATCH1-IMPLEMENT
+일시   : 2026-08-09
+커밋   : 85ac0477 (code repo, main, push 안 함 — 저장소 규칙)
+전제   : 프로덕션 코드 무수정 — tests/ 3파일만 재작성.
+         git status -- ui/ services/ routes/ config/ parser/ analyzer/ generator/
+         checker/ validator/ web_server.py 확인(작업 시작 시 다른 세션의 무관 미커밋
+         변경 5개 존재 — services/exact_diff/execution_settings.py, ui/history_renderer.py,
+         ui/js_batch_display.py, tests/test_11def_scenarios.py, tests/test_12k_stress.py.
+         전부 손대지 않음).
+
+────────────────────────────────────────────────────────────────────────
+0. 결론 요약
+────────────────────────────────────────────────────────────────────────
+- 배치1 대상 3파일(71케이스)을 phase1 방법론(contract_utils 6헬퍼) 그대로 전환 완료.
+  새 헬퍼 발명 없음.
+- 검증 강도: mutation 17종 주입 → 17종 전부 탐지(놓침 0). 1건(M17)은 최초 픽스처가
+  우연히 실제 GROUP BY 0건 케이스만 담고 있어 "항상 0 반환" 결함을 놓쳤고, 즉시
+  1개 픽스처를 보강해 탐지되도록 고쳤다(phase1 의 M9/M14 자기비판과 동일 패턴).
+- 소급대조: 4개 커밋 시점 확인. STAGE-GATE-UNIFY(229bd6fd, 2026-06-27) 시점에서
+  전환 전 4 failed → 전환 후 71 passed(0 failed) — 그 커밋이 남긴 가짜 회귀 4건을
+  전환이 그대로 흡수했다(phase1 의 7dc5b1e 사례와 동일 성격, 규모는 더 큼).
+- 전환 과정에서 전환 전 baseline 7 failed 중 5건이 "정당한 리팩터로 깨진 stale
+  assertion"임을 확인해 실제 배선 기준으로 바로잡았고, 나머지 2건은 전환과 무관한
+  사전 존재 백엔드 결함(committed HEAD 에서도 재현, 이번 범위 밖)으로 남겼다.
+- 인접 회귀: 배치/후보 인접 140파일(~1,940케이스) 중 68~70건의 사전 존재 실패가
+  있으나 전부 내가 건드리지 않은 파일이고, 이번 3파일의 회귀는 0건이다(아래 4절 상세 —
+  Tier1 처럼 완전히 동일한 실패 집합은 아니고 소폭의 순서/실행별 편차가 있었다 — 정직하게
+  기록).
+- CLAUDE.md 필수 회귀(virtual/complex) 8/8, 5/5 통과.
+
+────────────────────────────────────────────────────────────────────────
+1. 전환 결과 (지시 1)
+────────────────────────────────────────────────────────────────────────
+  파일                                                  케이스   증감
+  ─────────────────────────────────────────────────────────────────────
+  test_batch_summary_dashboard.py                        31 → 31   ±0
+  test_batch_step_tabs_workflow.py                       25 → 25   ±0
+  test_batch_legacy_count_planner_display_removed.py     15 → 15   ±0
+  ─────────────────────────────────────────────────────────────────────
+  합계                                                    71 → 71   ±0
+
+  diff: 3 files changed, 179 insertions(+), 121 deletions(-)
+
+전환 원칙(phase1 그대로 재적용)
+  · 고정폭 슬라이스(html[i:i+N])         → function_body/listener_body(중괄호 매칭·앵커쌍)
+  · 함수 시그니처 원문("function X" in html) → has_function (24곳: 양성 20 + 음성 4)
+  · 수동 subprocess+로컬 브레이스매처(중복 재구현) → contract_utils.function_body + run_node
+    (test_batch_review_classification_node, test_batch_summary_count_helpers_node)
+  · 유지: UI 한글 문구, 식별자 단위 제거확인(not in), 이미 실제 함수/DB 를 직접 호출하는
+    백엔드 테스트(inspect.getsource, TestClient 등 — file 3 대부분이 이 범주)
+
+파일별 전환 대상 요약
+  · test_batch_summary_dashboard.py: _load_wrapper_body 고정슬라이스→listener_body 앵커쌍,
+    has_function 6곳, calls_absent 2곳, review/count-helper node 하니스 2곳을 contract_utils
+    로 위임(로컬 _fn 재구현·raw subprocess 제거).
+  · test_batch_step_tabs_workflow.py: 고정폭 슬라이스 6곳(showBatchStep/batchGoToTargets/
+    batchStepStatusLabel/renderBatchStepNav/computeBatchStepAvail 등)→function_body,
+    has_function 14곳(양성 10+음성 4), test_main_no_batch_id_input_outside_advanced 의
+    600자 고정슬라이스→listener_body 앵커쌍(details 블록 경계).
+  · test_batch_legacy_count_planner_display_removed.py: has_function 4곳
+    (_bcdRenderFacadeOnly/mvBatchDisplay/_bcdRenderSql/mvCountCellHtml). 나머지는 legacy
+    문구 제거확인·백엔드 직접 호출이라 phase1 이 '유지' 로 분류한 범주 — 원문 유지.
+
+────────────────────────────────────────────────────────────────────────
+2. 전환 전 baseline 7 failed 의 재분류 (지시 검증사항 3 "전환 전/후 같은 결함을 잡는가")
+────────────────────────────────────────────────────────────────────────
+전환 착수 전 baseline(HEAD dfb54a2e, 원본 미전환 테스트) = 7 failed / 64 passed.
+전환 후 = 2 failed / 69 passed. 사라진 5건을 개별 조사한 결과:
+
+  ① test_summary_still_shown — 원 단언 "건수불일치"(공백 없음). listener_body 로
+     loadWrapperResults 본문을 정확히 좁혀 보니 실제 렌더는 "건수 불일치 N건 상세"
+     (공백 있음)였다. 공백 오탈자였을 뿐 기능은 정상 — 실제 문구로 바로잡음.
+  ② test_full_result_loads_from_group_latest_results — 원 단언이 엔드포인트 리터럴
+     전체(...+'/latest-results')를 통짜로 비교했는데, project_id 쿼리스트링이 추가되며
+     뒤가 달라져 깨졌다. function_body 로 batchLoadFullResults 본문에 좁히고 구성요소
+     (base URL·encodeURIComponent(_currentGroupId)·'/latest-results')만 검사 +
+     calls_absent 로 legacy execution-run 엔드포인트 미사용을 음성계약화.
+  ③④ test_next_step_buttons_removed / test_targets_tab_no_next_button — 원 단언
+     "el.onclick = function() { showBatchStep(st); };" 는 배치 step nav 가 개별 onclick
+     바인딩을 하던 옛 구현의 흔적이다. STAGE-STEP-TAB-DOM-STABILITY 이후 공용 sticky
+     nav(renderMvStepNav, Tier1 컴포넌트)의 위임 리스너로 대체됐다. renderBatchStepNav
+     함수 본문에서 실제 콜백 배선(renderMvStepNav(...) + showBatchStep(Number(k)))을
+     확인하도록 전환.
+  ⑤ test_completed_tab_green_priority_in_nav — 원 단언은 배치 전용 인라인 class 조립
+     ("if (label === '완료') cls += ' mv-batch-step-tab-complete'")을 가정했다. 실제로는
+     STAGE-GATE-UNIFY(229bd6fd, 2026-06-27) 로 상태 결정이 공통 Stage Gate 로 넘어갔고,
+     같은 시기 REMOVE-GREEN 정책으로 '완료' 색상 자체가 초록→파랑(mv-step-done)으로
+     바뀌었다(스타일시트 주석에 명시: "완료 step chip — 초록 대신 블루"). run_node 로
+     _BATCH_STATE_NAVCLASS 매핑을 실제 실행해 COMPLETED→'done' 등을 확인하고,
+     renderBatchStepNav 가 그 매핑을 실제로 배선에 쓰는지(+ 레거시 class 미사용을
+     calls_absent 로) 계약화. .mv-batch-step-tab-complete 등 CSS 규칙 자체는 스타일시트에
+     죽은 채 남아 있음을 확인했다(3절 "별건" 참고 — 이번 범위 밖, 손대지 않음).
+
+  남은 2건(test_state_endpoint_backend, test_get_latest_facade_count_helper)은 문자열
+  단언과 무관한 백엔드 직접 호출 테스트다. 조사 결과 clean worktree(HEAD dfb54a2e,
+  다른 세션의 미커밋 변경 없음)에서도 동일하게 재현되어 committed 상태의 사전 존재
+  결함으로 확인했다(전환 범위 밖, 손대지 않음). ※ 최초 조사 때 "다른 세션의 미커밋
+  변경 탓"으로 오판했다가 clean worktree 재현으로 정정한 기록을 남긴다.
+
+────────────────────────────────────────────────────────────────────────
+3. mutation 검증 (지시 2) — 17종 주입 / 17종 탐지, 놓침 0
+────────────────────────────────────────────────────────────────────────
+방법: git worktree(X:\_mvwt_f5b1, HEAD dfb54a2e) 사본 프로덕션에 결함을 하나씩 주입 →
+      해당 계약 테스트가 실패하는지 확인 → 매 케이스 원본 복구(라운드트립 안전성을
+      스크립트로 사전 검증 — old/new 패턴이 파일 내 유일한지, 원복 후 바이트 동일한지).
+
+  ID   주입한 진짜 결함                                                결과
+  ──────────────────────────────────────────────────────────────────────────
+  M1   renderBatchStepNav 콜백이 showBatchStep 호출 안 함(nav 클릭 무반응)   2개 계약 FAIL
+  M2   완료/잠김 nav class 매핑 뒤바뀜                                    FAIL
+  M3   renderBatchStepNav 가 계산한 status 변수를 버리고 반환값 하드코딩    FAIL
+  M4   showBatchStep 의 잠금 가드 제거                                    FAIL
+  M5   후보 page_size 변경 시 1페이지 리셋 누락                           FAIL
+  M6   전체결과 page_size 변경 시 1페이지 리셋 누락                       FAIL
+  M7   전체결과 조회가 legacy execution-run 엔드포인트로 회귀              FAIL
+  M8   업로드 행 '검증대상 보기'가 2번 탭으로 이동 안 함                   FAIL
+  M9   일괄 요약 화면이 다시 상세 행 테이블을 직접 그림                   FAIL
+  M10  요약 조회가 COUNT 재실행(/run-count-only)을 부수효과로 호출         FAIL
+  M11  facade 전용 렌더 함수 삭제(개명)                                  FAIL
+  M12  공통 formatter(mvBatchDisplay) 삭제(개명)                         FAIL
+  M13  COUNT 상세 모달 SQL 렌더러 삭제(개명)                             FAIL
+  M14  COUNT 셀 공통 렌더러 삭제(개명)                                   FAIL
+  M15  computeBatchStepAvail 이 권위 상태문자열('완료') 보유 시작          FAIL
+  M16  제거됐어야 할 goToNextBatchStep 재도입                            FAIL
+  M17  selected GROUP BY count 계산이 항상 0 반환                        FAIL*
+  ──────────────────────────────────────────────────────────────────────────
+  전체: 17/17 탐지, 놓침 0 (원본 대비 순수 diff 0 — round-trip 검증)
+
+  * M17 은 최초 시도에서 놓쳤다(PASS). 기존 두 픽스처(USAGE_DATE/DATE_BUCKET 케이스,
+    ACCOUNT_BALANCE 케이스)가 우연히 둘 다 실제 GROUP BY 0건이라 "항상 0 반환" 결함이
+    안 걸렸다. DATE_BUCKET 이 아닌 선택 GROUP BY 1건이 실제로 1로 집계되는 픽스처를
+    추가해 탐지되도록 test_batch_summary_count_helpers_node 를 보강했다(phase1 의
+    M9/M14 자기비판과 동일 패턴 — mutation 이 계약 자체가 아니라 테스트 데이터의
+    사각지대를 드러낸 사례).
+
+  스크립트 버그 1건도 mutation 작성 중 자체 발견: M8 최초 버전은 revert 대상 문자열이
+  "}"(파일 전체에서 비유일)이라 되돌리기가 엉뚱한 위치(파일 173번째 줄 근처)에 잘못
+  적용됐다. round-trip 사전검증(적용→고유성 확인→원복→원본과 바이트 비교)을 스크립트에
+  추가해 재발을 막고, M8 을 유일한 문맥으로 다시 작성했다.
+
+────────────────────────────────────────────────────────────────────────
+4. 소급 검증 (지시 3) — 4개 시점
+────────────────────────────────────────────────────────────────────────
+방법: git worktree 로 과거 시점 프로덕션 체크아웃 → tests/ 만 (기존/전환) 버전으로 교체 실행.
+
+  커밋      날짜         비고                                전환 전            전환 후
+  ─────────────────────────────────────────────────────────────────────────────────────
+  c3bda5d3 2026-06-10  배치 step-tab 워크플로 원 도입          39 passed          34 failed/37 passed
+  de3d6c97 2026-06-10  배치 파일 마지막 수정(간격 시작)         54 passed          22 failed/49 passed
+  229bd6fd 2026-06-27  STAGE-GATE-UNIFY(테스트 미동반)         4 failed/67 passed  71 passed(0 failed)
+  dfb54a2e 2026-08-09  현재 baseline(작업 시작 시점 HEAD)      7 failed/64 passed  2 failed/69 passed
+
+해석
+  · 229bd6fd — 핵심 결과. 그 커밋이 프로덕션만 바꾸고(테스트 미동반) 상태 계산을 공통
+    Stage Gate 로 옮기며 '완료' 색상 정책도 바꿨는데, 원본 테스트는 옛 구현을 계속
+    가정해 4건이 죽은 채 방치돼 있었다(전환 전 4 failed). 전환된 계약은 그 시점에도
+    71/71 전부 통과 — phase1 의 7dc5b1e 사례(가짜 회귀 1건 흡수)와 같은 성격을,
+    이번엔 4건 규모로 재현했다.
+  · c3bda5d3/de3d6c97 — 전환 후 실패 34/22건은 전부 "그 시점에 아직 존재하지 않던
+    기능"에 대한 시대착오다(phase1 §3 해석과 동일 범주). 검증 방법: 각 시점의 '원본'
+    테스트 파일에 존재했던 함수명 집합과 전환 후 실패 함수명 집합을 대조 —
+    c3bda5d3 은 34건 중 3건만 원본에 이름이 존재했고(test_six_step_defs 등), 그 3건도
+    원본 소스를 열어 확인하니 그 시점엔 "검증대상"/"COUNT 사전검증"이 아직 분리된
+    6단계였다(이후 커밋에서 5단계로 병합) — 즉 이름은 같지만 내용 자체가 그 시점
+    이후 진화한 정당한 시대착오다. de3d6c97 은 4건이 원본에 이름이 존재했는데,
+    그중 test_completed_tab_green_priority_in_nav 는 위 229bd6fd 가 도입한 정책을
+    미리 요구하는 계약이라 그 이전 시점엔 당연히 실패해야 정상이다(원본은 그 시점
+    54 passed 로 통과 — 옛 구현이 아직 유효했으므로).
+  · dfb54a2e — 2절 내용과 동일(가짜 회귀 5건 흡수, 사전 존재 백엔드 결함 2건 잔존).
+
+────────────────────────────────────────────────────────────────────────
+5. 회귀 확인 (지시 "CLAUDE.md 필수 회귀 최종 1회" + 인접 대조)
+────────────────────────────────────────────────────────────────────────
+· 전환 대상 3파일: 71케이스, 최종 2 failed(사전 존재·전환 무관)/69 passed.
+· CLAUDE.md 규정 자체 테스트: samples/test_virtual_cases.py 8/8,
+  samples/test_complex_cases.py 5/5 통과.
+· 인접 배치/후보 파일(test_batch_*.py, test_wrapper_results*.py, test_candidate_*.py,
+  test_column_candidate_*.py) 140파일 전수 실행(~1,940케이스): 64 failed/1866 passed/
+  10 skipped/6 errors. 실패 파일 28개를 추려 clean worktree(HEAD dfb54a2e, 내 변경
+  없음)에서 재실행 → 62 failed/258 passed/7 skipped/6 errors. 두 실행의 실패 ID 집합을
+  비교하면 66건이 겹치고 각 4건/2건은 서로만 있다(Tier1 phase1 이 겪은 것과 같은 종류의
+  순서·실행별 flaky — phase1 도 "33 vs 32, 재측정 시 집합 일치"를 겪었다). 이번엔 재측정
+  없이 있는 그대로 기록한다 — **핵심은 이번에 손댄 3파일·71케이스의 함수명은 이 64~70건
+  실패 목록 어디에도 없다**는 점이다(전수 대조 확인). 즉 이번 전환이 원인이 된 회귀는
+  0건이나, 인접 140파일 자체에 상당한 사전 존재 실패군이 있다는 사실은 이번 조사로
+  드러난 별건이다(6절).
+
+────────────────────────────────────────────────────────────────────────
+6. 이번에 드러난 별건 (전환 범위 밖 — 손대지 않음)
+────────────────────────────────────────────────────────────────────────
+- .mv-batch-step-tab-complete/.mv-batch-step-tab-current/.mv-batch-step-tab-viewing/
+  .mv-batch-step-tab-stale CSS 규칙(ui/tabler_renderer.py 960~970행)이 죽은 채 남아
+  있다. STAGE-GATE-UNIFY(229bd6fd) 이후 배치 nav 는 공용 sticky nav 의
+  _MV_STEP_STATUS_CLASS(mv-step-done 등)만 조립하므로 이 배치 전용 class 들은 더 이상
+  어떤 JS 경로에서도 배선되지 않는다. 화면 동작에는 영향 없음(대체 class 로 정상 표시).
+  별도 정리 대상으로만 기록한다.
+- test_state_endpoint_backend(test_batch_step_tabs_workflow.py) /
+  test_get_latest_facade_count_helper(test_batch_legacy_count_planner_display_removed.py)
+  — committed HEAD 에서도 재현되는 사전 존재 백엔드 결함. 문자열 단언과 무관해 이번
+  전환 범위 밖으로 남겼다.
+- 인접 140파일 중 62~70건의 사전 존재 실패군(5절) — 이번 조사로 처음 전수 확인됐다.
+  Tier2 배치2/배치3 착수 전에 "내가 새로 깬 것"과 "원래 있던 것"을 구분하려면 이
+  목록을 baseline 으로 재사용 권고.
+- 작업 중 다른 세션이 main 에 여러 커밋(6b23ed6e→...→4ce9a39d)을 올렸다. 대상 3파일과
+  무관함을 매 단계 git status/diff 로 확인했고, baseline·소급·회귀 대조는 모두 작업
+  착수 시점 HEAD(dfb54a2e) 기준으로 일관되게 수행했다. 코드 저장소는 커밋만 하고
+  push 하지 않았다(저장소 규칙, main, 85ac0477).
+
+────────────────────────────────────────────────────────────────────────
+7. 비판적 검토 (CLAUDE.md 응답 형식)
+────────────────────────────────────────────────────────────────────────
+- 요청 요약: F5 Tier2 배치1(핵심 3파일·71케이스) 화이트박스 문자열단언→동작계약 전환.
+- 긍정적 효과: 가짜 회귀 5건(그중 4건은 한 커밋(229bd6fd)이 남긴 것)을 해소. 실패
+  메시지가 "문자열 없음"에서 원인이 드러나는 형태로 개선(예: calls_absent 위반 목록).
+  중복 재구현(로컬 브레이스매처·raw subprocess)이 contract_utils 로 위임 정리됨.
+- 구조적 문제점: 근본 원인(ui/tabler_renderer.py 거대 문자열 렌더러)은 그대로 —
+  phase1 과 동일한 한계. 인접 140파일의 사전 존재 실패군(62~70건)이 이번 조사로
+  드러났으나 이번 범위(배치1 3파일 전환)가 아니므로 손대지 않았다 — 방치 시 Tier2
+  배치2/3 착수 시 "무엇이 내 책임인지" 판단이 매번 더 어려워진다.
+- 운영상 위험: 낮음(테스트 전용, 배포물 무변경, 프로덕션 무수정, 코드 repo push 안 함).
+- heuristic/scoring/explainability 영향: heuristic 하드코딩 감소(리터럴 URL·class
+  조합이 계약으로 축약), explainability 개선(실패 사유에 실제 배선 값 노출), scoring 무관.
+- 권장 대응책: 배치2(중간 4파일·102케이스: single_core_wrapper_foundation,
+  group_current_workflow_scope, workflow_action_order, delta_rerun_freshness)를
+  이 방법론으로 이어서 진행 권고. 착수 전 5절의 인접 파일 실패 목록을 baseline 으로
+  재사용해 "새로 깬 것" 여부를 빠르게 판별할 것.
+- 지금 구현 여부: 진행(완료). 배치2/3 는 별도 승인 후.
+
+재현 명령
+  python -m pytest tests/test_batch_summary_dashboard.py tests/test_batch_step_tabs_workflow.py \
+    tests/test_batch_legacy_count_planner_display_removed.py -q
+  # mutation (worktree 필요, X:\_mvwt_f5b1 은 작업 종료 후 제거함 — 재현 시 재생성)
+  git worktree add X:\_mvwt_f5b1 dfb54a2e
+  python scratchpad/f5b1_roundtrip_check.py   # 라운드트립 안전성 사전확인
+  python scratchpad/f5b1_mutation_runner.py
+  # 소급
+  python scratchpad/f5b1_retro_runner.py
+
+작업명 : F5-TIER2-BATCH1-IMPLEMENT
+✅ 작업 완료 - F5-TIER2-BATCH1-IMPLEMENT: 배치1 3파일·71케이스 동작계약 전환 + mutation 17/17 탐지
+  + 소급 4개 시점 확인(229bd6fd 가짜회귀 4건 완전 흡수) + CLAUDE.md 필수 회귀 통과,
+  코드 repo 커밋 85ac0477(push 안 함)
