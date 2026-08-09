@@ -1,0 +1,445 @@
+{
+  "tag": "after",
+  "task": "GROUPBY-COMBO-PLAN-CAP-RESEARCH-AND-RAISE",
+  "only": "main",
+  "started": "2026-08-09 17:16:19",
+  "setup": {
+    "pair": "Oracle_asis → Oracle_tobe",
+    "connected": true,
+    "rows": 1,
+    "created": true
+  },
+  "1_c210_off": {
+    "blocked": false,
+    "from_table": "MV_C210_SRC",
+    "error": "",
+    "gb_cand": [
+      "REGION_CD",
+      "STATUS_CD"
+    ]
+  },
+  "2_c210_off": {
+    "status": "COUNT_MATCHED",
+    "src": 42000,
+    "tgt": 42000
+  },
+  "3_c210_off": {
+    "gb": [
+      "REGION_CD",
+      "STATUS_CD"
+    ],
+    "sum": [
+      "AMT"
+    ],
+    "unchecked": [],
+    "disabled": []
+  },
+  "4_c210_off": {
+    "notice_present": true,
+    "checkbox_present": true,
+    "checkbox_visible": true,
+    "checkbox_checked": false,
+    "checkbox_disabled": false,
+    "label_text": "조합(REGION_CD + STATUS_CD)도 함께 검증 — 세트 1개 추가 실행",
+    "label_title": "조합(REGION_CD + STATUS_CD)에서만 드러나는 불일치 — 축별 집계에서 서로 상쇄되어 사라지는 차이 — 까지 검증됩니다. 대상 테이블 전체 집계가 1회 추가되므로 대용량 테이블에서는 실행 시간이 늘어납니다. 데이터 조건(예상 그룹 수 상한·그룹당 평균 행 수 하한·구분 효과 등)에 따라 조합 세트가 자동 제외될 수 있으며, 그 경우 이 줄에 제외 사유가 표시되고 5단계에도 \"조합 미검증\" 경고가 그대로 남습니다.",
+    "wrap_title": "조합(REGION_CD + STATUS_CD)에서만 드러나는 불일치 — 축별 집계에서 서로 상쇄되어 사라지는 차이 — 까지 검증됩니다. 대상 테이블 전체 집계가 1회 추가되므로 대용량 테이블에서는 실행 시간이 늘어납니다. 데이터 조건(예상 그룹 수 상한·그룹당 평균 행 수 하한·구분 효과 등)에 따라 조합 세트가 자동 제외될 수 있으며, 그 경우 이 줄에 제외 사유가 표시되고 5단계에도 \"조합 미검증\" 경고가 그대로 남습니다.",
+    "wrap_cursor": "pointer",
+    "blocked_state": null,
+    "checkbox_set": {
+      "present": true,
+      "checked": false,
+      "disabled": false
+    },
+    "post_checkbox_checked": false,
+    "post_checkbox_disabled": false,
+    "post_label_text": "조합(REGION_CD + STATUS_CD)도 함께 검증 — 세트 1개 추가 실행"
+  },
+  "5_c210_off": {
+    "sets": [
+      {
+        "kind": "SINGLE",
+        "cols": [
+          "REGION_CD"
+        ],
+        "expected_groups": 21,
+        "avg_rows_per_group": 2000
+      },
+      {
+        "kind": "SINGLE",
+        "cols": [
+          "STATUS_CD"
+        ],
+        "expected_groups": 10,
+        "avg_rows_per_group": 4200
+      }
+    ],
+    "results": [
+      {
+        "kind": "SINGLE",
+        "cols": [
+          "REGION_CD"
+        ],
+        "total_groups": 21,
+        "matched": 21,
+        "diff": 0,
+        "src_only": 0,
+        "tgt_only": 0
+      },
+      {
+        "kind": "SINGLE",
+        "cols": [
+          "STATUS_CD"
+        ],
+        "total_groups": 10,
+        "matched": 10,
+        "diff": 0,
+        "src_only": 0,
+        "tgt_only": 0
+      }
+    ],
+    "excluded": [],
+    "agg": {
+      "success": true,
+      "total_groups": 31,
+      "matched": 31,
+      "diff": 0,
+      "src_only": 0,
+      "tgt_only": 0
+    },
+    "banner_axes": [
+      "REGION_CD",
+      "STATUS_CD"
+    ],
+    "banner_in_dom": true,
+    "elapsed_sec": 1.44,
+    "completed": true,
+    "progress_texts": [
+      "통계검증 실행 중 세트 1/2 실행 중 — GROUP BY REGION_CD 경과 0초 · 진행률(%)은 표시하지 않습니다 — 집계 SQL 한 번의 실행이라 완료 전에는 중간 진행 신호가 없습니다.",
+      "세트 1/2 실행 중 — GROUP BY REGION_CD …",
+      "통계검증 실행 중 세트 2/2 실행 중 — GROUP BY STATUS_CD 경과 0초 · 진행률(%)은 표시하지 않습니다 — 집계 SQL 한 번의 실행이라 완료 전에는 중간 진행 신호가 없습니다.",
+      "세트 2/2 실행 중 — GROUP BY STATUS_CD …"
+    ],
+    "plan_text": "단일축 2세트"
+  },
+  "4_c210_on": {
+    "checkbox_set": {
+      "present": true,
+      "checked": true,
+      "disabled": false
+    },
+    "notice_present": true,
+    "checkbox_present": true,
+    "checkbox_visible": true,
+    "checkbox_checked": true,
+    "checkbox_disabled": false,
+    "label_text": "단일축 및 그룹조합(REGION_CD + STATUS_CD)까지 실행",
+    "label_title": "단일 축 2세트 + 조합 1세트(총 3세트)를 실행합니다 — 축별 집계에서 서로 상쇄되어 사라지는 차이까지 검증되며, 대상 테이블 전체 집계가 1회 추가되어 실행 시간이 늘 수 있습니다. 데이터 조건에 따라 조합 세트가 자동 제외되면 이 줄이 제외 사유로 바뀝니다.",
+    "wrap_title": "단일 축 2세트 + 조합 1세트(총 3세트)를 실행합니다 — 축별 집계에서 서로 상쇄되어 사라지는 차이까지 검증되며, 대상 테이블 전체 집계가 1회 추가되어 실행 시간이 늘 수 있습니다. 데이터 조건에 따라 조합 세트가 자동 제외되면 이 줄이 제외 사유로 바뀝니다.",
+    "wrap_cursor": "pointer",
+    "blocked_state": null
+  },
+  "5_c210_on": {
+    "sets": [
+      {
+        "kind": "SINGLE",
+        "cols": [
+          "REGION_CD"
+        ],
+        "expected_groups": 21,
+        "avg_rows_per_group": 2000
+      },
+      {
+        "kind": "SINGLE",
+        "cols": [
+          "STATUS_CD"
+        ],
+        "expected_groups": 10,
+        "avg_rows_per_group": 4200
+      },
+      {
+        "kind": "PAIR",
+        "cols": [
+          "REGION_CD",
+          "STATUS_CD"
+        ],
+        "expected_groups": 210,
+        "avg_rows_per_group": 200
+      }
+    ],
+    "results": [
+      {
+        "kind": "SINGLE",
+        "cols": [
+          "REGION_CD"
+        ],
+        "total_groups": 21,
+        "matched": 21,
+        "diff": 0,
+        "src_only": 0,
+        "tgt_only": 0
+      },
+      {
+        "kind": "SINGLE",
+        "cols": [
+          "STATUS_CD"
+        ],
+        "total_groups": 10,
+        "matched": 10,
+        "diff": 0,
+        "src_only": 0,
+        "tgt_only": 0
+      },
+      {
+        "kind": "PAIR",
+        "cols": [
+          "REGION_CD",
+          "STATUS_CD"
+        ],
+        "total_groups": 210,
+        "matched": 206,
+        "diff": 4,
+        "src_only": 0,
+        "tgt_only": 0
+      }
+    ],
+    "excluded": [],
+    "agg": {
+      "success": true,
+      "total_groups": 241,
+      "matched": 237,
+      "diff": 4,
+      "src_only": 0,
+      "tgt_only": 0
+    },
+    "banner_axes": null,
+    "banner_in_dom": false,
+    "elapsed_sec": 2.15,
+    "completed": true,
+    "progress_texts": [
+      "통계검증 실행 중 세트 1/3 실행 중 — GROUP BY REGION_CD 경과 0초 · 진행률(%)은 표시하지 않습니다 — 집계 SQL 한 번의 실행이라 완료 전에는 중간 진행 신호가 없습니다.",
+      "세트 1/3 실행 중 — GROUP BY REGION_CD …",
+      "통계검증 실행 중 세트 2/3 실행 중 — GROUP BY STATUS_CD 경과 0초 · 진행률(%)은 표시하지 않습니다 — 집계 SQL 한 번의 실행이라 완료 전에는 중간 진행 신호가 없습니다.",
+      "세트 2/3 실행 중 — GROUP BY STATUS_CD …",
+      "통계검증 실행 중 세트 3/3 실행 중 — GROUP BY REGION_CD + STATUS_CD 경과 0초 · 진행률(%)은 표시하지 않습니다 — 집계 SQL 한 번의 실행이라 완료 전에는 중간 진행 신호가 없습니다.",
+      "세트 3/3 실행 중 — GROUP BY REGION_CD + STATUS_CD …",
+      "통계검증 실행 중 세트 3/3 실행 중 — GROUP BY REGION_CD + STATUS_CD 경과 1초 · 진행률(%)은 표시하지 않습니다 — 집계 SQL 한 번의 실행이라 완료 전에는 중간 진행 신호가 없습니다."
+    ],
+    "plan_text": "단일축 2세트 + 조합 1세트"
+  },
+  "1_small_on": {
+    "blocked": false,
+    "from_table": "",
+    "error": "",
+    "gb_cand": []
+  },
+  "2_small_on": {
+    "status": "COUNT_MATCHED",
+    "src": 1200,
+    "tgt": 1200
+  },
+  "3_small_on": {
+    "gb": [
+      "STATUS_CD",
+      "DEPT_CD"
+    ],
+    "sum": [
+      "AMT"
+    ],
+    "unchecked": [],
+    "disabled": []
+  },
+  "4_small_on": {
+    "notice_present": true,
+    "checkbox_present": true,
+    "checkbox_visible": true,
+    "checkbox_checked": true,
+    "checkbox_disabled": false,
+    "label_text": "단일축 및 그룹조합(STATUS_CD + DEPT_CD)까지 실행",
+    "label_title": "단일 축 2세트 + 조합 1세트(총 3세트)를 실행합니다 — 축별 집계에서 서로 상쇄되어 사라지는 차이까지 검증되며, 대상 테이블 전체 집계가 1회 추가되어 실행 시간이 늘 수 있습니다. 데이터 조건에 따라 조합 세트가 자동 제외되면 이 줄이 제외 사유로 바뀝니다.",
+    "wrap_title": "단일 축 2세트 + 조합 1세트(총 3세트)를 실행합니다 — 축별 집계에서 서로 상쇄되어 사라지는 차이까지 검증되며, 대상 테이블 전체 집계가 1회 추가되어 실행 시간이 늘 수 있습니다. 데이터 조건에 따라 조합 세트가 자동 제외되면 이 줄이 제외 사유로 바뀝니다.",
+    "wrap_cursor": "pointer",
+    "blocked_state": null,
+    "checkbox_set": {
+      "present": true,
+      "checked": true,
+      "disabled": false
+    },
+    "post_checkbox_checked": true,
+    "post_checkbox_disabled": false,
+    "post_label_text": "단일축 및 그룹조합(STATUS_CD + DEPT_CD)까지 실행"
+  },
+  "5_small_on": {
+    "sets": [
+      {
+        "kind": "SINGLE",
+        "cols": [
+          "STATUS_CD"
+        ],
+        "expected_groups": 3,
+        "avg_rows_per_group": 400
+      },
+      {
+        "kind": "SINGLE",
+        "cols": [
+          "DEPT_CD"
+        ],
+        "expected_groups": 4,
+        "avg_rows_per_group": 300
+      },
+      {
+        "kind": "PAIR",
+        "cols": [
+          "STATUS_CD",
+          "DEPT_CD"
+        ],
+        "expected_groups": 12,
+        "avg_rows_per_group": 100
+      }
+    ],
+    "results": [
+      {
+        "kind": "SINGLE",
+        "cols": [
+          "STATUS_CD"
+        ],
+        "total_groups": 3,
+        "matched": 3,
+        "diff": 0,
+        "src_only": 0,
+        "tgt_only": 0
+      },
+      {
+        "kind": "SINGLE",
+        "cols": [
+          "DEPT_CD"
+        ],
+        "total_groups": 4,
+        "matched": 4,
+        "diff": 0,
+        "src_only": 0,
+        "tgt_only": 0
+      },
+      {
+        "kind": "PAIR",
+        "cols": [
+          "STATUS_CD",
+          "DEPT_CD"
+        ],
+        "total_groups": 12,
+        "matched": 8,
+        "diff": 4,
+        "src_only": 0,
+        "tgt_only": 0
+      }
+    ],
+    "excluded": [],
+    "agg": {
+      "success": true,
+      "total_groups": 19,
+      "matched": 15,
+      "diff": 4,
+      "src_only": 0,
+      "tgt_only": 0
+    },
+    "banner_axes": null,
+    "banner_in_dom": false,
+    "elapsed_sec": 2.16,
+    "completed": true,
+    "progress_texts": [
+      "통계검증 실행 중 세트 1/3 실행 중 — GROUP BY STATUS_CD 경과 0초 · 진행률(%)은 표시하지 않습니다 — 집계 SQL 한 번의 실행이라 완료 전에는 중간 진행 신호가 없습니다.",
+      "세트 1/3 실행 중 — GROUP BY STATUS_CD …",
+      "통계검증 실행 중 세트 2/3 실행 중 — GROUP BY DEPT_CD 경과 0초 · 진행률(%)은 표시하지 않습니다 — 집계 SQL 한 번의 실행이라 완료 전에는 중간 진행 신호가 없습니다.",
+      "세트 2/3 실행 중 — GROUP BY DEPT_CD …",
+      "통계검증 실행 중 세트 3/3 실행 중 — GROUP BY STATUS_CD + DEPT_CD 경과 0초 · 진행률(%)은 표시하지 않습니다 — 집계 SQL 한 번의 실행이라 완료 전에는 중간 진행 신호가 없습니다.",
+      "세트 3/3 실행 중 — GROUP BY STATUS_CD + DEPT_CD …",
+      "통계검증 실행 중 세트 3/3 실행 중 — GROUP BY STATUS_CD + DEPT_CD 경과 1초 · 진행률(%)은 표시하지 않습니다 — 집계 SQL 한 번의 실행이라 완료 전에는 중간 진행 신호가 없습니다."
+    ],
+    "plan_text": "단일축 2세트 + 조합 1세트"
+  },
+  "1_blocked": {
+    "blocked": false,
+    "from_table": "MV_DTIER_SRC",
+    "error": "",
+    "gb_cand": [
+      "REGION_CD",
+      "CHAN_CD"
+    ]
+  },
+  "2_blocked": {
+    "status": "COUNT_MATCHED",
+    "src": 16000,
+    "tgt": 16000
+  },
+  "3_blocked": {
+    "gb": [
+      "REGION_CD",
+      "CHAN_CD"
+    ],
+    "sum": [
+      "AMT"
+    ],
+    "unchecked": [],
+    "disabled": []
+  },
+  "4_blocked": {
+    "notice_present": true,
+    "checkbox_present": true,
+    "checkbox_visible": true,
+    "checkbox_checked": false,
+    "checkbox_disabled": true,
+    "label_text": "조합 자동실행 불가 — REGION_CD 40 × CHAN_CD 40 = 예상 1,600그룹 · 평균 약 10행/그룹 — 최소 기준(100행) 미만, 과세분화 방지를 위해 단일 축 계획으로 분리",
+    "label_title": "조합(REGION_CD + CHAN_CD) 세트는 이 데이터 조건에서 자동계획이 만들 수 없어 체크할 수 없습니다 — REGION_CD 40 × CHAN_CD 40 = 예상 1,600그룹 · 평균 약 10행/그룹 — 최소 기준(100행) 미만, 과세분화 방지를 위해 단일 축 계획으로 분리 / 축별 단일 세트는 종전대로 전부 실행되며, 조합에서만 드러나는 불일치는 이번 실행에서 검증되지 않습니다.",
+    "wrap_title": "조합(REGION_CD + CHAN_CD) 세트는 이 데이터 조건에서 자동계획이 만들 수 없어 체크할 수 없습니다 — REGION_CD 40 × CHAN_CD 40 = 예상 1,600그룹 · 평균 약 10행/그룹 — 최소 기준(100행) 미만, 과세분화 방지를 위해 단일 축 계획으로 분리 / 축별 단일 세트는 종전대로 전부 실행되며, 조합에서만 드러나는 불일치는 이번 실행에서 검증되지 않습니다.",
+    "wrap_cursor": "not-allowed",
+    "blocked_state": {
+      "cols": [
+        "REGION_CD",
+        "CHAN_CD"
+      ],
+      "expected_groups": 1600,
+      "avg_rows_per_group": 10,
+      "reason": "REGION_CD 40 × CHAN_CD 40 = 예상 1,600그룹 · 평균 약 10행/그룹 — 최소 기준(100행) 미만, 과세분화 방지를 위해 단일 축 계획으로 분리",
+      "blocked_by": "MIN_AVG_ROWS",
+      "factors": [
+        {
+          "col": "REGION_CD",
+          "distinct": 40
+        },
+        {
+          "col": "CHAN_CD",
+          "distinct": 40
+        }
+      ]
+    },
+    "checkbox_set": {
+      "present": true,
+      "checked": false,
+      "disabled": true
+    },
+    "post_checkbox_checked": false,
+    "post_checkbox_disabled": true,
+    "post_label_text": "조합 자동실행 불가 — REGION_CD 40 × CHAN_CD 40 = 예상 1,600그룹 · 평균 약 10행/그룹 — 최소 기준(100행) 미만, 과세분화 방지를 위해 단일 축 계획으로 분리"
+  },
+  "errors": [
+    "1_small_on: 1단계 후보 없음 — 원인 미상"
+  ],
+  "finished": "2026-08-09 17:21:30",
+  "verdict": {
+    "A-1 체크박스 활성(210조합은 사전 차단 대상 아님)": true,
+    "A-2 미체크 실행 → 단일 2세트만": true,
+    "A-3 미체크 실행 → 조합 불일치 미검출(diff=0)": true,
+    "A-4 미체크 실행 → '조합 미검증' 배너 표시": true,
+    "B-1 체크 → 총 3세트(단일 2 + 조합 1) 실행": true,
+    "B-2 조합 세트 210그룹": true,
+    "B-3 조합에서만 드러나는 불일치 4건 검출": true,
+    "B-4 진행 문구가 '세트 3/3' 까지 표시": true,
+    "B-5 진행 문구 분모가 전부 3": true,
+    "B-6 '조합 미검증' 배너 자동 소거": true,
+    "B-7 완료 후 세트 표기에 조합 포함": true,
+    "C-1 소규모(12조합) 무회귀 — 조합 실행": true,
+    "C-2 소규모 조합 4그룹 불일치(종전과 동일)": true,
+    "D-1 조합 불가 케이스는 체크박스가 처음부터 비활성": true,
+    "D-2 비활성 사유에 카디널리티 계산식 표시": true,
+    "D-3 비활성 시 체크가 켜지지 않는다": true
+  }
+}
