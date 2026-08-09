@@ -3352,6 +3352,22 @@ git -C E:/verify_reports worktree remove <임시경로>
   확인, 관련 테스트 신규 회귀 0건.
 - 참고: E:\verify_reports\STAGE5-DETAIL-TABLE-HEADER-LABEL-AND-COLOR-FIX.txt
 
+### M61. 5단계 실행경로/전략 자동판정에서 PK 구성 검사가 실질적으로 무력화됨(하드코딩, 미해결)
+- 발견일: 2026-08-09 (채팅 조사 — "실행경로/전략" 배지가 실제로 여러 값이 나오는지
+  확인하던 중 부수 발견, 코드 무변경)
+- 상세: `routes/agg_diff_route.py::_resolve_execution_strategy()`(64~65행)가
+  `services/strategy/strategy_transition.py::choose_compare_strategy()`를 호출할 때
+  `pk_kind=PK_SINGLE_NUMERIC, pk_indexed=True`를 **하드코딩**해서 넘긴다. 그 결과
+  `choose_compare_strategy()` 내부의 "PK 종류가 CHUNK에 안 맞으면 차단"하는 안전장치
+  (NOT_CHUNK_CAPABLE_PK 게이트)가 이 호출 경로에서는 **실질적으로 절대 발동하지
+  않는다.** SCHEDULER_PATH에서 DIRECT_STREAM_COMPARE와 PK_RANGE_CHUNK_COMPARE를
+  가르는 변수가 사실상 테이블 크기(source_count, 약 190만행 경계) 하나뿐이고, 실제
+  PK 구성/데이터 특성은(상위 DIRECT_COMPOSITE_PK 분기 자체를 타느냐 마느냐를 제외
+  하면) 반영되지 않는다.
+- 영향: 의도된 단순화인지, 놓친 배선(원래는 실제 PK 종류를 넘겨야 했는데 임시값을
+  넣어두고 안 고친 것)인지 이번 조사로는 판별 못함 — 확인 필요.
+- 근거: 채팅 조사 결과(별도 파일 미작성).
+
 ### M59. 0단계(인프라+dead필드정리) 완료 — 값 이동 0건 확인, 배선 중 2건 신규결함 발견해 안전하게 보류
 - 발견/계기: 2026-08-09 (개별/일괄/전수 3모드에 흩어진 설정값을 전역 공통+모드별
   오버라이드로 정리하고 싶다는 요청) / 조사: GLOBAL-SETTINGS-HARDCODED-VALUES-SCOPE-
