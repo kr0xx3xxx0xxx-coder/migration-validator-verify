@@ -1,0 +1,74 @@
+작업명: M59-VALIDATION-SCHEDULER-FINISH-IDEMPOTENT-FIX
+✅ 작업 완료 - reclaim_stale() 이 stale로 마감한 job을 나중에 실제 worker가 다시 _finish() 호출해도 budget이 이중반환되지 않도록 멱등성 확보
+
+────────────────────────────────────────────────────────────
+결함 배경 (BACKLOG.md M59 결함B)
+────────────────────────────────────────────────────────────
+reclaim_stale() 이 stale 판정한 job을 _finish(jid, FAILED, ...)로 마감해도 실제 worker
+스레드는 강제종료 로직이 없어 계속 실행되다가 나중에 정상 종료되면 _finish()를 다시
+호출한다. 기존 _finish()는 "이미 종료 상태인지" 확인이 없어 self.budget.release(...)가
+두 번 호출돼 동시성 상한(batch_max_concurrent_tables 등)이 조용히 무력화될 수 있었다.
+
+────────────────────────────────────────────────────────────
+수정 내용
+────────────────────────────────────────────────────────────
+파일:라인 — services/batch/validation_scheduler.py:164-183 (_finish 메서드)
+
+_finish() 진입 시 self._lock 안에서 job.status가 이미 _TERMINAL(READY/EARLY_STOPPED/
+FAILED/CANCELLED/HOLD)이면 즉시 return — budget.release() 호출 및 dispatch() 트리거
+없이 조용히 무시한다(177행: `if job.status in _TERMINAL: return`). 정상(첫 호출) 경로는
+기존과 동일하게 status 반영 → budget.release() → dispatch() 순으로 동작한다.
+
+이번 수정은 _finish() 멱등성만 고친 것이고, reclaim_stale() 자체를 폴링 루프에 연결하는
+실배선은 별도 결정 사항으로 지시서 범위 밖 — 손대지 않았다(M59 결함A/heartbeat 배선은
+이전 지시서 M59-DEAD-FIELD-DELETE-AND-RECLAIM-STALE-FIX 에서 이미 완료).
+
+────────────────────────────────────────────────────────────
+검증 결과
+────────────────────────────────────────────────────────────
+1) 신규 재현 테스트 test_finish_idempotent_no_double_release
+   (tests/test_validation_scheduler.py:186-209)
+   - budget.release()를 카운팅 래퍼로 감싸 호출횟수 실측.
+   - 같은 job_id로 _finish(FAILED) → _finish(READY) 를 연속 호출(reclaim_stale의 첫 마감
+     + 뒤늦게 도착한 실제 worker 재호출을 재현) → release 호출 1회로 고정, job.status는
+     최초 FAILED 유지(덮어쓰기 없음) 확인.
+   - g.release()로 배경 스레드(_run_job)까지 실제로 종료시켜 세 번째 _finish() 호출(정상
+     경로의 finally)도 무시되는지 실측 → release 호출 여전히 1회, budget.snapshot()["active"]==0.
+
+   baseline 대조(git stash로 수정분만 일시 제거 후 동일 테스트 실행):
+     FAILED — assert 2 == 1 (release가 실제로 두 번 호출됨, 결함B 재현 확인)
+   수정 적용 후: PASSED (수정분 복원 후 재확인 완료)
+
+2) 정상 종료 경로(한 번만 _finish 호출) 회귀 — tests/test_validation_scheduler.py 전체
+   13 passed (test_global_max_two_only_two_running, test_stale_job_reclaim,
+   test_heartbeat_wired_keeps_long_running_job_alive, test_failure_no_token_leak 등
+   기존 12건 전부 기존과 동일하게 동작, 신규 회귀 0건)
+
+3) 관련 테스트 서브셋 대조
+   tests/test_validation_scheduler.py + tests/test_scheduled_batch_runner.py +
+   tests/test_strategy_planner.py → 42 passed, 신규 회귀 0건
+
+4) CLAUDE.md 필수 회귀 최종 1회
+   python samples/test_virtual_cases.py  → 8/8 통과
+   python samples/test_complex_cases.py  → 5/5 통과
+
+────────────────────────────────────────────────────────────
+변경/생성 파일
+────────────────────────────────────────────────────────────
+- services/batch/validation_scheduler.py (수정, _finish 멱등 가드 추가)
+- tests/test_validation_scheduler.py (수정, test_finish_idempotent_no_double_release 신규)
+
+────────────────────────────────────────────────────────────
+커밋
+────────────────────────────────────────────────────────────
+코드 저장소(X:\Projects\Migration_Validator, remote 없음 — 로컬 커밋만):
+  b2c4d2f4 fix(scheduler): _finish() 멱등성 확보 — budget 이중반환 방지
+           (M59-VALIDATION-SCHEDULER-FINISH-IDEMPOTENT-FIX)
+
+────────────────────────────────────────────────────────────
+남은 사항 (이번 범위 아님)
+────────────────────────────────────────────────────────────
+- reclaim_stale() 자체를 폴링 루프에 실배선하는 것은 지시서 §대로 이번 범위에서 제외 —
+  별도 결정 필요.
+
+✅ 작업 완료 - reclaim_stale() 이 stale로 마감한 job을 나중에 실제 worker가 다시 _finish() 호출해도 budget이 이중반환되지 않도록 멱등성 확보
