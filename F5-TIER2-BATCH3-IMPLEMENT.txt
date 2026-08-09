@@ -1,0 +1,269 @@
+작업명 : F5-TIER2-BATCH3-IMPLEMENT
+일시   : 2026-08-09
+커밋   : 97e5f8f7 (code repo, main, push 안 함 — 저장소 규칙)
+전제   : 프로덕션 코드 무수정 — tests/ 2파일만 재작성(대상 3파일 중 1파일은 전환 대상 0곳).
+         작업 착수 시 HEAD 443e50c2(배치2 커밋 0a9eb328 포함). 작업 중 다른 세션이 main 에
+         f8d508e6(F3-DEAD-WIRING-CLEANUP)를 커밋했고, services/multiset_execute_service.py·
+         tests/test_multiset_execute_async_job.py 등에 계속 미커밋 변경을 남기는 중이었다.
+         매 단계 git status/diff 로 배치 범위(tests/test_batch_profile_missing_reasons.py,
+         tests/test_results_menu_batch_detail_page.py) 밖임을 확인, 손대지 않았다. 최종 커밋은
+         `git add` 로 대상 2개 파일만 명시적으로 스테이징(diff --stat 재확인) 후 수행했다.
+
+✅ 작업 완료 - F5-TIER2-BATCH3-IMPLEMENT: 배치3 2파일 전환·56케이스 대조(전환대상 0곳 1파일 포함)
+  + mutation 10/10 탐지 + 소급 4개 시점 확인(UNIFIED-DETAIL 리팩터 가짜회귀 흡수) +
+  CLAUDE.md 필수 회귀 통과, 코드 repo 커밋 97e5f8f7(push 안 함) — **F5 Tier2 전체 완료**
+
+────────────────────────────────────────────────────────────────────────
+0. 결론 요약
+────────────────────────────────────────────────────────────────────────
+- 배치3 대상 3파일·56케이스(지시서 표기와 실측 일치)를 phase1/배치1/배치2 방법론(contract_utils
+  6헬퍼, 새 헬퍼 발명 없음) 그대로 재적용했다. 실제 전환이 필요했던 곳은 2파일뿐이었다 —
+  test_batch_profile_recollect_control.py(510줄·34케이스)는 전수 조사 결과 고정폭/find-to-find
+  슬라이스가 0곳(전량 백엔드 직접호출 또는 이미 정확한 plain 문자열 검사)이라 무변경으로 남겼다
+  (배치2의 최소침습 원칙 — "깨지지 않은 것은 고치지 않는다" — 그대로 재적용).
+- 검증 강도: mutation 10종 주입 → 10종 전부 탐지(놓침 0). 1차 시도에서 2건(M7 엔드포인트 개명,
+  M9 치환문에 원 호출명이 주석으로 남아 우회) 을 놓쳤고, 배치1의 M17 사례처럼 즉시 앵커/픽스처를
+  보강해 재시도, 최종 10/10 확보.
+- 소급대조: 4개 시점(배치1·2가 쓴 지점 그대로 재사용) 확인. 배치3 대상 파일의 실제 도입 시점을
+  먼저 확인한 결과, c3bda5d3·de3d6c97 시점엔 test_batch_profile_missing_reasons.py /
+  test_batch_profile_recollect_control.py 가 아직 미도입이라 시대착오로 스킵했다(정당).
+  핵심 발견: 현재 baseline(443e50c2)에서 전환 전 1 failed 이던 stale assertion
+  (test_results_reuses_unified_renderer)은 229bd6fd(6/27, STAGE-GATE-UNIFY)가 아니라 그보다
+  늦은 9001ea01(2026-07-04, UNIFIED-DETAIL 일괄 compact 1행 Grid 리팩터, 테스트 미동반)이
+  남긴 것으로 특정했다 — 배치1·2가 겪은 "테스트 미동반 프로덕션 변경이 인접 파일군에 stale
+  assertion 을 남긴다"는 패턴이 배치3에서도 재현됐으나, 책임 커밋은 다르다(정직하게 기록).
+- baseline 재분류: 착수 시점 baseline(HEAD 443e50c2) = 3 failed/53 passed. 1건은 위 stale
+  assertion 으로 재작성해 흡수. 나머지 2건은 전환과 무관한 사전 존재 백엔드 결함(conftest
+  PROD-DB-WRITE-BLOCKED 가드, 화이트박스 문자열단언과 무관)으로 확인, 범위 밖에 남겼다.
+  전환 후 = 2 failed/54 passed.
+- 인접 파일 회귀 대조: 배치1·2가 쓴 글롭(test_batch_*.py 등 ~140파일)의 collect-only 단계부터
+  60초 이상 무응답(hang)이 재현돼 이번 세션에서는 전수 대조를 완주하지 못했다(5절 상세, 정직하게
+  기록 — 완주한 것처럼 보고하지 않는다). 대신 (a) 프로덕션 코드·공유 헬퍼(contract_utils.py)
+  무수정, (b) 배치3 대상 3파일 자체의 격리 실행이 일관됨(케이스 수 불변, 원인 규명된 2건 제외
+  전부 통과)을 근거로 신규 회귀가 없음을 구조적으로 확인했다.
+- CLAUDE.md 필수 회귀(virtual/complex) 8/8, 5/5 통과.
+- **이것으로 F5(화이트박스 문자열단언 → 동작계약 전환) Tier2 전체(배치1·2·3)가 완료됐다.**
+
+────────────────────────────────────────────────────────────────────────
+1. 전환 결과 (지시 1)
+────────────────────────────────────────────────────────────────────────
+  파일                                                  케이스   전환대상   증감
+  ─────────────────────────────────────────────────────────────────────────────
+  test_batch_profile_missing_reasons.py                    12 → 12   1곳     ±0
+  test_batch_profile_recollect_control.py                  34 → 34   0곳     ±0
+  test_results_menu_batch_detail_page.py                    10 → 10   2곳+1(stale)  ±0
+  ─────────────────────────────────────────────────────────────────────────────
+  합계                                                      56 → 56              ±0
+
+  diff: 2 files changed, 38 insertions(+), 19 deletions(-)
+
+전환 원칙(phase1/배치1/배치2 그대로 재적용)
+  · 고정폭 슬라이스(html[i:i+1600])              → function_body(중괄호 매칭)
+  · find-to-find 슬라이스(html[i-200:i+200])      → function_body(중괄호 매칭, 함수 스코프로
+    좁혀 검사 — 원래 목적인 "메시지 인근에 특정 문구 없음"을 함수 경계로 정확화)
+  · 유지: test_batch_profile_recollect_control.py 전체(전환 대상 없음), UI 한글 문구,
+    bare "function X" in html 시그니처 검사(다른 필드/엔드포인트 단언과 동반되어 이미 충분한
+    강도 — 배치2가 확립한 "깨지지 않은 것은 고치지 않는다" 최소침습 원칙 그대로 적용, 24곳
+    전량 재검토했으나 추가 전환 안 함)
+
+파일별 전환 대상 요약
+  · test_batch_profile_missing_reasons.py: test_ui_recollect_no_autorun_reselect_note 1곳
+    (find(anchor)+1600자 고정슬라이스 → function_body(batchRecollectProfiles) + calls_absent).
+  · test_results_menu_batch_detail_page.py: 2곳 + stale assertion 1건 재작성.
+    - test_results_no_result_message: html[i-200:i+200] find-to-find 슬라이스 →
+      function_body(loadResultsDetail) 스코프 내 검사 + calls_absent(['다시 실행']).
+    - test_results_no_count_rerun: find(anchor)+2600자 고정슬라이스 →
+      function_body(loadResultsDetail) + calls_absent(['/run-count-only',"/run-wrapper'"]).
+      추가로 mutation M7 이 드러낸 사각지대(엔드포인트 개명이 접두어 일치로 통과)를 즉시
+      보강 — "/wrapper-results" 부분일치 → "'/wrapper-results/page'"(끝 따옴표까지) 정확 일치로.
+    - test_results_reuses_unified_renderer: 2절 참고 — stale assertion 재작성(고정슬라이스는
+      아니었으나 baseline 재분류 과정에서 발견, 배치1 ①~⑤/배치2 ①②③과 동일 성격).
+
+────────────────────────────────────────────────────────────────────────
+2. 전환 전 baseline 3 failed 의 재분류 (지시 검증사항 "전환 전/후 baseline 비교")
+────────────────────────────────────────────────────────────────────────
+착수 전 baseline(HEAD 443e50c2, 원본 미전환 테스트) = 3 failed / 53 passed.
+전환 후 = 2 failed / 54 passed. 사라진 1건:
+
+  ① test_results_reuses_unified_renderer — 원 단언
+     ("mvBatchTableHeaderHtml({ showExecutionColumns: true })" 및
+     "mvBuildRowViewFromWrapper(r, startIdx + i)" in html)은 결과 상세 탭이 배치 목록과
+     같은 옛 컴포넌트(mvBatchTableHeaderHtml/mvBuildRowViewFromWrapper)를 쓰던 시절의
+     흔적이다. 9001ea01(2026-07-04, "결과확인 중복 제거·실행 기준 통합·불일치 한 줄 요약·
+     일괄 compact 1행 Grid")이 UNIFIED-DETAIL 리팩터로 결과 상세 목록을 개별/배치 공용
+     요약 빌더(_mvTargetSummaryHeaderHtml/_mvTargetSummaryView/_mvTargetSummaryCellsHtml,
+     [[project_stage5_summary_builders_shared_with_batch]] 참고)로 전면 교체하면서, 이
+     테스트는 테스트 미동반으로 갱신되지 않아 stale 상태로 남아 있었다(grep 확인:
+     mvBatchTableHeaderHtml({ showExecutionColumns: true }) / mvBuildRowViewFromWrapper(r,
+     리터럴은 소스 전체에 더 이상 존재하지 않음). function_body(mvResCompactHeaderHtml)
+     안에 _mvTargetSummaryHeaderHtml( 호출이, function_body(mvResCompactRowHtml) 안에
+     _mvTargetSummaryView(/_mvTargetSummaryCellsHtml( 호출이 있는지로 실제 배선 기준으로
+     재작성했다.
+
+  남은 2건(test_candidate_freshness_service_empty, test_recollect_snapshot_roundtrip_
+  surfaces_distinct_and_type, 둘 다 test_batch_profile_recollect_control.py — 무변경 파일)은
+  문자열 단언과 무관한 백엔드 직접 호출 테스트다. 조사 결과 services/
+  group_current_freshness_service.py 의 _conn() 과 테스트 자신의 cleanup 코드가 conftest.py
+  의 `[PROD-DB-WRITE-BLOCKED]` 가드(운영 SQLite 파일명으로 식별되는 쓰기 연결을 즉시 차단)에
+  걸린다 — 두 코드 모두 tmp_path/복사본이나 mode=ro URI 를 거치지 않고 db/migration_validator.db
+  에 직접 연결한다. worktree(HEAD 443e50c2, 배치3 미적용, db 복사본 존재)에서도 동일 재현,
+  main repo 에서 배치3 변경을 되돌린 뒤(git checkout HEAD --)도 동일 재현 — 전환과 완전히
+  무관한 사전 존재 구조적 결함(화이트박스 문자열단언 범위 밖)으로 확인, 손대지 않았다.
+
+────────────────────────────────────────────────────────────────────────
+3. mutation 검증 (지시 2) — 10종 주입 / 10종 탐지, 놓침 0
+────────────────────────────────────────────────────────────────────────
+방법: git worktree(X:\Projects\_mvwt_f5b3, HEAD 443e50c2, db 복사본 포함) 사본 프로덕션에
+      결함을 하나씩 주입 → 해당 계약 테스트가 실패하는지 확인 → 매 케이스 원본 복구.
+      파일이 CRLF 개행이라 텍스트모드 쓰기가 개행을 이중 변환하는 문제를 먼저 발견해
+      바이너리 read/write 로 스크립트를 고쳤다(scratchpad/f5b3_mutation_runner.py). round-trip
+      (적용→고유성 확인→원복→원본과 바이트 비교)으로 안전성 확보, 작업 종료 후 worktree 제거.
+
+  ID   주입한 진짜 결함                                                    결과
+  ──────────────────────────────────────────────────────────────────────────────
+  M1   batchRecollectProfiles 가 재수집 후 column-candidates/generate 직접 호출  FAIL
+  M2   batchRecollectProfiles 가 재수집 후 batchStartColumnEntry 직접 호출       FAIL
+  M3   결과 0건 안내 문구 변경("현재 조건에 맞는 저장 결과가 없습니다" 제거)      FAIL
+  M4   결과 0건 안내에 "다시 실행" 문구 추가(재실행 유도 재발)                   FAIL
+  M5   loadResultsDetail 이 /run-count-only 를 부수 호출                        FAIL
+  M6   loadResultsDetail 이 /run-wrapper' 를 부수 호출                          FAIL
+  M7   /wrapper-results/page 엔드포인트 개명(-renamed 접미)                     FAIL*
+  M8   mvResCompactHeaderHtml 이 공용 헤더 빌더 호출 안 함(자체 헤더로 회귀)      FAIL
+  M9   mvResCompactRowHtml 이 _mvTargetSummaryView 호출 안 함(자체 계산으로 회귀) FAIL*
+  M10  mvResCompactRowHtml 이 _mvTargetSummaryCellsHtml 호출 안 함              FAIL
+  ──────────────────────────────────────────────────────────────────────────────
+  전체: 10/10 탐지, 놓침 0(원본 대비 순수 diff 0 — round-trip 검증)
+
+  * M7 은 1차 시도에서 놓쳤다(PASS) — "/wrapper-results" 부분일치 검사라 "-renamed" 접미가
+    붙어도 접두어가 같아 통과했다. 끝 따옴표까지 포함한 "'/wrapper-results/page'" 정확 일치로
+    즉시 강화(1절 참고).
+  * M9 도 1차 시도에서 놓쳤다(PASS) — 내 최초 mutation 스크립트가 대체 코드에 원 호출명
+    "_mvTargetSummaryView(rLike, ctx)" 를 주석으로 남겨 calls_absent 류 부분일치 검사가
+    주석까지 걸려버린 스크립트 자체 버그였다(배치1 M8 이 겪은 "revert 앵커 비유일" 부류와
+    같은 "mutation 스크립트 자기 결함"). 주석 잔재 없는 순수 치환으로 mutation 을 다시 써서
+    해결 — 계약 자체의 사각지대는 아니었다(테스트 코드는 수정하지 않음).
+
+────────────────────────────────────────────────────────────────────────
+4. 소급 검증 (지시 3) — 4개 시점(배치1·2가 쓴 지점 그대로 재사용)
+────────────────────────────────────────────────────────────────────────
+방법: 동일 worktree 를 과거 시점 프로덕션으로 체크아웃 → tests/ 만 (그 시점 원본/배치3 전환본)
+으로 교체 실행. 착수 전 배치3 대상 파일의 실제 도입 시점을 먼저 확인했다(git log
+--diff-filter=A):
+  test_results_menu_batch_detail_page.py       171f466d  2026-06-09 23:42
+  test_batch_profile_missing_reasons.py        76ae3999  2026-06-10 16:34
+  test_batch_profile_recollect_control.py      76ae3999  2026-06-10 16:34  (이번 배치 무변경)
+
+  커밋      날짜/시각            비고                          전환 전(그시점원본)  전환 후(배치3)
+  ─────────────────────────────────────────────────────────────────────────────────────────
+  c3bda5d3 2026-06-10 13:59  file1/2 아직 미도입(76ae3999    10 passed            9 passed/
+                             는 16:34 로 이 시점보다 늦음)                        1 failed*
+  de3d6c97 2026-06-10 16:03  동일(76ae3999 는 16:34 로 여전히 10 passed            9 passed/
+                             이 시점보다 늦음)                                    1 failed*
+  229bd6fd 2026-06-27 13:29  이제 3파일 모두 존재             22 passed(0 failed)  21 passed/
+                                                                                   1 failed*
+  443e50c2 2026-08-09        현재 baseline(배치3 착수 시점)    21 passed/1 failed   22 passed
+                                                                                   (0 failed)
+
+  * c3bda5d3/de3d6c97/229bd6fd 의 "전환 후 1 failed"는 전부 test_results_reuses_unified_renderer
+    (function_body 로 mvResCompactHeaderHtml/mvResCompactRowHtml 을 찾는데, 세 시점 모두
+    9001ea01(2026-07-04, UNIFIED-DETAIL) 이전이라 그 함수 자체가 아직 존재하지 않음) — 정당한
+    시대착오다(2절에서 밝힌 책임 커밋과 완전히 일치, 별도 조사 불필요).
+
+해석
+  · 443e50c2 — 핵심 결과. 배치1·2가 각각 229bd6fd(STAGE-GATE-UNIFY)에서 겪은 "테스트 미동반
+    프로덕션 변경이 인접 파일군에 가짜 회귀를 남긴다" 패턴이 배치3에서도 재현됐다. 다만 배치3의
+    경우 책임 커밋은 229bd6fd 가 아니라 그 이후의 9001ea01(2026-07-04, UNIFIED-DETAIL)이다 —
+    229bd6fd 시점(전환 전 22 passed, 0 failed)엔 이 파일들에 문제가 없었고, 9001ea01 이후에야
+    stale assertion 이 생겼다. 전환이 이를 흡수했다(전환 후 22 passed, 0 failed).
+  · c3bda5d3/de3d6c97 — file1/2(missing_reasons/recollect_control) 는 아직 미도입이라 스킵.
+    file3(results_menu)의 "전환 후 1 failed"는 전부 UNIFIED-DETAIL 시대착오(위 각주) — 배치1·2
+    §4 해석과 동일 범주(정당).
+  · 229bd6fd — 이 커밋 자체는 배치3 파일들에 어떤 가짜 회귀도 남기지 않았다(전환 전 0 failed).
+    배치1·2와 달리 이번엔 STAGE-GATE-UNIFY 가 원인이 아니라는 점을 명확히 구분해 기록한다
+    (같은 소급 지점을 재사용하되 매번 같은 결론이 나오는 것은 아님을 보여주는 사례).
+
+────────────────────────────────────────────────────────────────────────
+5. 회귀 확인 (지시 "인접파일 실패 목록과 대조" + "CLAUDE.md 필수 회귀 최종 1회")
+────────────────────────────────────────────────────────────────────────
+· 전환 대상 3파일: 56케이스, 최종 2 failed(사전 존재·전환 무관, 2절)/54 passed.
+· CLAUDE.md 규정 자체 테스트: samples/test_virtual_cases.py 8/8, samples/test_complex_cases.py
+  5/5 통과.
+· 인접 파일(test_batch_*.py/test_wrapper_results*.py/test_candidate_*.py/
+  test_column_candidate_*.py, 배치1·2가 쓴 것과 동일 글롭) 전수 대조는 **완주하지 못했다** —
+  정직하게 기록한다. --collect-only 단계(테스트 실행 이전, import 시점)부터 60초 이상
+  무응답(hang)이 재현됐고, tests/test_batch_row_snapshot_realdb_smoke.py 를 --ignore 해도
+  동일했다(다른 파일도 import 시점에 실DB 접속을 시도하는 것으로 추정 — 이번 세션에서는
+  근본 원인을 추가로 특정하지 않았다. [[project_job_live_harness_constraints]] /
+  [[project_driver_connect_timeout_not_honored]] 계열과 같은 성격일 가능성이 높다). 기존
+  scratchpad 의 _adjacent_failed_files*.txt/_base_fail_list*.txt/_after_fail_list*.txt 는
+  확인 결과 파일명 패턴이 이번 F5 배치의 글롭과 무관한 다른 작업(예: test_active_path_header_
+  and_profile_order.py 등)의 잔재로 판단돼 baseline 으로 재사용하지 않았다(신뢰할 수 없는
+  타 작업 소속 목록을 근거로 쓰지 않는다는 원칙 우선).
+  대신 아래 근거로 "배치3이 원인이 된 신규 회귀 0건"을 구조적으로 확인했다:
+    (a) `git status`/`git diff --stat` — 이번 변경은 tests/test_batch_profile_missing_reasons.py
+        + tests/test_results_menu_batch_detail_page.py 2개 파일뿐, 프로덕션 코드·공유
+        모듈(tests/contract_utils.py 포함) 무수정.
+    (b) pytest 는 파일 단위로 격리 실행되며, 이번 변경은 이 2개 파일 내부의 로컬 함수 스코프
+        assertion 만 손봤을 뿐 새 fixture/module-level 부수효과/공유 가변 상태를 추가하지
+        않았다 — 다른 테스트 파일의 결과에 영향을 줄 메커니즘이 구조적으로 없다.
+    (c) 배치3 대상 3파일 자체를 단독/조합으로 반복 실행해도 케이스 수(56, ±0)와 실패
+        집합(2건, 원인 규명됨)이 항상 동일하게 재현됐다(순서·환경 의존 없음).
+  한계로 남긴다: 인접 140파일 자체의 사전 존재 실패 규모(배치1·2가 보고한 62~70건)가 이번
+  hang 으로 갱신 확인되지 않았다 — 다음 작업에서 collect-only 부터 개별 파일 단위로 원인
+  파일을 좁혀 무응답 원인을 규명할 것을 권고한다(6절).
+
+────────────────────────────────────────────────────────────────────────
+6. 이번에 드러난 별건 (전환 범위 밖 — 손대지 않음)
+────────────────────────────────────────────────────────────────────────
+- test_candidate_freshness_service_empty / test_recollect_snapshot_roundtrip_surfaces_
+  distinct_and_type(둘 다 test_batch_profile_recollect_control.py) — services/
+  group_current_freshness_service.py 의 _conn() 과 테스트 자신의 finally 블록이
+  db/migration_validator.db 에 가드 우회 없이 직접 연결해 conftest.py 의
+  `[PROD-DB-WRITE-BLOCKED]` 세이프가드에 걸린다. 화이트박스 문자열단언과 무관한 백엔드
+  구조 이슈 — 별도 정리 대상으로만 기록한다.
+- 인접 140파일 글롭이 --collect-only 단계부터 hang 하는 환경 이슈(5절) — 이번 배치의
+  원인이 아니며(격리 실행/구조적 근거로 무관 확인), 근본 원인 특정은 이번 범위 밖.
+- 작업 중 다른 세션이 main 에 f8d508e6(F3-DEAD-WIRING-CLEANUP)를 커밋했고,
+  services/multiset_execute_service.py·tests/test_multiset_execute_async_job.py 등에
+  계속 미커밋 변경을 남기는 중이었다. 매 단계 git diff 로 배치 범위(tests/test_batch_
+  profile_missing_reasons.py, tests/test_results_menu_batch_detail_page.py) 밖임을
+  확인했고, 최종 커밋은 diff --stat 으로 2개 대상 파일만 포함됨을 재확인했다. 코드
+  저장소는 커밋만 하고 push 하지 않는다(저장소 규칙, main, 97e5f8f7).
+
+────────────────────────────────────────────────────────────────────────
+7. 비판적 검토 (CLAUDE.md 응답 형식)
+────────────────────────────────────────────────────────────────────────
+- 요청 요약: F5 Tier2 배치3(잔여 3파일·56케이스, Tier2 마지막 배치) 화이트박스 문자열단언→
+  동작계약 전환.
+- 긍정적 효과: stale assertion 1건(UNIFIED-DETAIL 리팩터가 남긴, 배치1·2와 같은 성격) 해소,
+  mutation 검증 과정에서 사각지대 2건(엔드포인트 부분일치, 원 호출명 주석 잔재)을 발견 즉시
+  보강해 실제 계약 강도를 높였다. test_batch_profile_recollect_control.py 는 이미 강한
+  계약(실제 함수/DB 직접호출)이라 손대지 않아 불필요한 변경을 피했다(최소침습).
+- 구조적 문제점: 근본 원인(ui/tabler_renderer.py 거대 문자열 렌더러)은 F5 Tier2 전체가
+  끝나도 그대로다 — Tier2 는 테스트 표현 방식만 바꿨을 뿐 렌더러 자체의 구조 개선은 아니다.
+  또한 인접 140파일 글롭이 이번 세션에서 hang 하는 환경 문제가 새로 드러났는데, 원인
+  미규명 상태로 넘기면 다음 F 계열 작업이 "인접 회귀 없음"을 주장하기 더 어려워진다.
+- 운영상 위험: 낮음(테스트 전용, 배포물 무변경, 프로덕션 무수정, 코드 repo push 안 함).
+  단, 인접 140파일 hang 원인 미규명은 "다음에 진짜 회귀가 나도 놓칠 수 있다"는 잠재
+  위험이다(5·6절에 정직하게 기록해 은폐하지 않음).
+- heuristic/scoring/explainability 영향: heuristic 하드코딩 감소(고정폭 슬라이스 제거),
+  explainability 개선(실패 사유에 실제 함수 배선/엔드포인트 노출), scoring 무관.
+- 권장 대응책: (1) 인접 140파일 hang 원인을 별도 지침으로 파일 단위 이분탐색해 규명할 것
+  (2) 두 PROD-DB-WRITE-BLOCKED 백엔드 결함을 별도 지침으로 정리할 것 (3) F5 Tier2 완료를
+  기점으로, ui/tabler_renderer.py 자체의 구조 개선(모듈 분리) 필요성을 문서화 우선으로
+  검토할 것(CLAUDE.md "구조 안정화 우선" 원칙).
+- 지금 구현 여부: 진행(완료).
+
+재현 명령
+  python -m pytest tests/test_batch_profile_missing_reasons.py \
+    tests/test_batch_profile_recollect_control.py tests/test_results_menu_batch_detail_page.py -q
+  # mutation/소급 (worktree 필요, X:\Projects\_mvwt_f5b3 는 작업 종료 후 제거함 — 재현 시 재생성)
+  git worktree add --detach X:\Projects\_mvwt_f5b3 443e50c2
+  # (db/migration_validator.db 를 worktree db/ 로 복사 — warm-cache 정합)
+  python scratchpad/f5b3_mutation_runner.py
+  python scratchpad/f5b3_retro_runner.py
+
+작업명 : F5-TIER2-BATCH3-IMPLEMENT
+✅ 작업 완료 - F5-TIER2-BATCH3-IMPLEMENT: 배치3 2파일 전환·56케이스 대조(전환대상 0곳 1파일 포함)
+  + mutation 10/10 탐지 + 소급 4개 시점 확인(UNIFIED-DETAIL 리팩터 가짜회귀 흡수) +
+  CLAUDE.md 필수 회귀 통과, 코드 repo 커밋 97e5f8f7(push 안 함) — **F5 Tier2 전체 완료**
