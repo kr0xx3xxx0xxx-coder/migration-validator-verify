@@ -3302,7 +3302,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\STAGE5-GROUP-DRILLDOWN-ARCHITECTURE-IMPLEMENT.txt
 - 참고: E:\verify_reports\STAGE5-AXIS-LABEL-CLICK-FIX-AND-INLINE-ACCORDION-EXPAND.txt
 
-### M60. ✅ 해결 완료 — 5단계 상태배지 미갱신·그룹 재확장 재추출(서로 다른 3개 결함) + 검증성능정보 1~5단계 통합
+### M60. ✅ 해결 완료 — 5단계 상태배지 미갱신·그룹 재확장 재추출(서로 다른 3개 결함) + 검증성능정보 1~5단계 통합 + 헤더라벨/색상/검색폼 정리
 - 발견일: 2026-08-09 (사용자 스크린샷 4장 직접 지적) / 해결일: 2026-08-09
   (STAGE5-EXTRACT-STATUS-TRACKING-BUG-AND-SUMMARY-LAYOUT-FIX, 코드 커밋 92d1b01 관련
   증적 저장소 push, 코드 저장소는 로컬 커밋만)
@@ -3340,6 +3340,17 @@ git -C E:/verify_reports worktree remove <임시경로>
   슬롯을 초기화한 뒤 재계산 호출이 그 흐름에서 안 불림) — 이번 수정과 무관, 3단계
   타일 자체도 같은 값을 못 받아 검증성능정보가 "미측정"으로 정직하게 표기.
 - 참고: E:\verify_reports\STAGE5-EXTRACT-STATUS-TRACKING-BUG-AND-SUMMARY-LAYOUT-FIX.txt
+- **후속(2026-08-09, STAGE5-DETAIL-TABLE-HEADER-LABEL-AND-COLOR-FIX, 코드 커밋 24678d13)**:
+  상세 레코드 헤더에 "(원본)/(목적)" 문구 명시 + 한글 컬럼명(기존 코멘트 소스 재사용)을
+  헤더 하단 별도 줄로 배치. 값 셀의 배경색(파랑/청록)을 제거해 흰색으로 복원(불일치
+  강조용 주황 글자색은 의미있는 표시라 그대로 유지). 그룹 인라인 펼침 화면의 "GROUP BY
+  기준/그룹 값"(이미 좁혀진 그룹에서 "전체 중 골라라"는 모순 폼) 제거 — 단 "불일치
+  유형/PK 검색"은 실제 서버 조회조건으로 API에 실려나가는 걸 코드로 확인 후 유지.
+  전부 공용 헬퍼 레벨에서 수정해 표본 조기중단 표 등 재사용 화면에도 일관 적용,
+  스코프 없는 "전체 그룹 한번에 추출" 화면은 축 선택 유지(회귀 없음 확인). 실측
+  computed style(rgb값)로 배경 제거 확인, 사전존재 실패 2건 baseline 대조로 무관
+  확인, 관련 테스트 신규 회귀 0건.
+- 참고: E:\verify_reports\STAGE5-DETAIL-TABLE-HEADER-LABEL-AND-COLOR-FIX.txt
 
 ### M59. 0단계(인프라+dead필드정리) 완료 — 값 이동 0건 확인, 배선 중 2건 신규결함 발견해 안전하게 보류
 - 발견/계기: 2026-08-09 (개별/일괄/전수 3모드에 흩어진 설정값을 전역 공통+모드별
