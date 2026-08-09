@@ -1,0 +1,118 @@
+작업명 : STAGE5-DETAIL-TABLE-HEADER-LABEL-AND-COLOR-FIX
+
+════════════════════════════════════════════════════════════════════════
+0. 지시서 3항목 처리 방식 요약
+════════════════════════════════════════════════════════════════════════
+지시서 1·2번(헤더 라벨/그리드 색상)과 3번(중복 검색조건 폼)은 모두
+ui/tabler_renderer.py 의 5단계 상세 레코드 드릴다운 공용 헬퍼(_mvDrillHeaderCellSplit·
+_mvPkCellSplit·_mvRenderReimportView/_mvRiEnterRecordsView)를 수정했다. 개별 화면마다
+따로 고치지 않고 공용 헬퍼 레벨에서 고쳤으므로, 5단계 그룹 인라인 펼침(_mvRiApply)뿐
+아니라 표본 조기중단 대표 레코드표(_mvRiApplySampleStop)·그룹 인라인 child 그리드
+(_mvBuildGridHtml) 등 같은 헬퍼를 재사용하는 다른 상세 레코드 표에도 일관 적용된다.
+
+════════════════════════════════════════════════════════════════════════
+1. 헤더 라벨 — '(원본)/(목적)' 문구 + 한글 컬럼명 하단 배치
+════════════════════════════════════════════════════════════════════════
+[수정 위치] ui/tabler_renderer.py `_mvDrillHeaderLabel`/`_mvDrillHeaderKoLine`(신설)/
+`_mvDrillHeaderCell`/`_mvDrillHeaderCellSplit`
+
+- 기존에는 값 컬럼 헤더가 배경색(파랑=원본/청록=목적)으로만 구분되고 텍스트는 컬럼명이
+  그대로 두 번 반복돼(예: "STATUS_CD" / "STATUS_CD") 헤더만 봐서는 어느 쪽이 원본/목적인지
+  알 수 없었다. `_mvDrillHeaderCellSplit`가 만드는 두 `<th>`에 각각
+  `<span class="ict-col-side-tag">(원본)</span>` / `(목적)`을 컬럼명 뒤에 붙였다.
+- DB 코멘트(한글 컬럼명)는 새로 조회하지 않고 기존 소스(`_mvDrillColCommentMap` —
+  3단계 후보에 이미 붙은 `column_comment`/`display_column_name_ko` 재사용)를 그대로 쓰되,
+  표시 위치만 영문명 옆 인라인에서 헤더 하단 별도 줄(`.ict-col-ko-below`, 신규 CSS 클래스)로
+  옮겼다(`_mvDrillHeaderKoLine` 신설 — 단일 헤더 `_mvDrillHeaderCell`에도 동일 적용).
+  이번 실측 픽스처(NXDNP.MV_COMBO_SRC/TGT)에는 컬럼 코멘트가 등록돼 있지 않아 화면상
+  한글명 줄은 나타나지 않았지만(정상 — 코멘트 없으면 표시 안 함), 함수 소스 문자열 검사로
+  `_mvDrillHeaderKoLine` 배선과 `.ict-col-ko-below` CSS 존재를 확인했다(§4 테스트 참고).
+
+════════════════════════════════════════════════════════════════════════
+2. 그리드 색상 원복 — 흰색으로
+════════════════════════════════════════════════════════════════════════
+[수정 위치] ui/tabler_renderer.py `_mvPkCellSplit`(값 셀)·`_mvDrillHeaderCellSplit`(헤더 셀)
+
+- `_mvPkCellSplit`이 원본/목적 값 셀에 인라인으로 넣던 `_MV_SRC_BG`(#eaf2ff 파랑)/
+  `_MV_TGT_BG`(#e6f7f3 청록) 배경을 제거했다(두 상수는 값을 빈 문자열로 남기되 실제 렌더에는
+  더 이상 쓰지 않는다 — 참조하는 다른 코드가 없음을 grep 으로 확인).
+  헤더 셀의 동일 배경(`!important`)도 함께 제거했다.
+- 값 불일치/목적 미존재 강조(주황 글자색 `#C2410C`, `<span>`)는 배경이 아니라 글자색이므로
+  그대로 유지했다 — 지시서의 "의미 있는 색상 표시는 유지" 요구를 그대로 만족한다.
+- 배경색이 사라지며 의미가 없어진 `_mvSrcTgtLegend('color')`(파랑=원본/청록=목적 범례 칩)
+  호출 4곳(그룹 인라인 그리드·표본 조기중단 표·그룹 트리 병합 헤더·전체 상세 Grid)을 제거했다.
+  목적 단독(target_only) 표의 `_mvSrcTgtLegend('tgt_only')`는 색상이 아니라 '원본 없음' 정보
+  안내이므로 그대로 유지했다.
+
+════════════════════════════════════════════════════════════════════════
+3. 그룹 펼침 영역의 중복 검색조건 폼 제거
+════════════════════════════════════════════════════════════════════════
+[수정 위치] ui/tabler_renderer.py `_mvRenderReimportView`(신설: `_mvRiBuildFilterBar`)·
+`_mvRiEnterRecordsView`
+
+지시서가 제시한 판단 기준대로 실제 코드를 먼저 확인했다 — '불일치 유형'/'PK 검색'은
+`_mvRiQuery`가 값을 읽어 `/agg-diff/pk-records` 페이지네이션 API 호출에 `&mtype=`/`&pk=`로
+실제로 실어 보내는 서버 조회 조건이었다(이미 로드된 데이터를 단순히 걸러내는 것이 아니라,
+그 그룹 범위 안에서 유효한 서버측 필터). 반면 'GROUP BY 기준'/'그룹 값'은 이미 특정 그룹으로
+좁혀진 인라인 펼침 화면에서는 "전체 중에서 다시 골라라"는 모순된 선택지였다(스코프 없는
+전체 그룹 목록 화면에서만 `_mvRiGroupDrill`이 이 두 select를 채워 축 필터로 쓴다).
+
+그래서 필터 폼 조립을 `_mvRenderReimportView`(진입 시 1회, scope 를 아직 모름)에서
+`_mvRiEnterRecordsView`(그룹 클릭 시점, inline 여부를 앎)로 옮기고, `_mvRiBuildFilterBar(showAxis)`
+함수를 신설했다 — `showAxis=!inline`. 즉:
+  · 그룹 인라인 펼침(scope 있음)  → 'GROUP BY 기준'/'그룹 값' select 없음. '불일치 유형'/'PK 검색'은 유지.
+  · '전체 그룹 한번에 추출'(scope 없음) → 기존 그대로 축 select 유지(회귀 없음, §4 C3-full 확인).
+
+════════════════════════════════════════════════════════════════════════
+4. 검증 — 서버 재기동 + 실브라우저 before/after
+════════════════════════════════════════════════════════════════════════
+서버 재기동 시각(after) : 2026-08-09 14:21 KST 무렵(포트 8000 재기동, 기존 PID 자동 종료 확인)
+검증 스크립트 실행 구간  : 2026-08-09 14:21:56 ~ 14:23:48 KST
+HEAD 커밋 해시           : 24678d13 (fix(stage5): 상세 레코드 헤더 (원본)/(목적) 라벨화 + 그리드
+                            배경 흰색 복원 + 그룹펼침 중복 검색조건 제거)
+
+신규 드라이버: scripts/dev_e2e/stage5_detail_table_header_label_and_color_verify.py
+  (scripts/dev_e2e/stage45_clickthrough_reverify.py 의 setup/stage1/stage2/select_gb/
+   click_apply_candidate/click_generate/click_execute 등 기존 조작 헬퍼 재사용, 실 오라클
+   asis/tobe NXDNP.MV_COMBO_SRC/TGT 1,200행 · GB=STATUS_CD+DEPT_CD, SUM=AMT)
+
+[before] 헤더="STATUS_CD"/"STATUS_CD"(구분 문구 없음) · 헤더 배경=파랑/청록 ·
+         값 셀 배경=rgb(234,242,255)/rgb(230,247,243)(파랑/청록, 지시서가 말한 민트/연두 인상의 근원) ·
+         인라인 펼침에 축 select 2개 존재(True/True, 중복 폼 재현)
+[after]  헤더="STATUS_CD(원본)"/"STATUS_CD(목적)" 등 · 헤더 배경=단일 회색(#eef3fb, 전역 테이블 헤더
+         배경만 남고 원본/목적 채색 없음) · 값 셀 배경=rgba(0,0,0,0)(무배경) ·
+         인라인 펼침 축 select 0개(False/False) · 불일치 유형/PK 검색은 유지(True/True) ·
+         스코프 없는 전체 목록 화면(C3-full)은 축 select 유지(True/True, 회귀 없음)
+스크린샷 6장 + 실측 JSON 2건을 verify_screenshots_only/STAGE5-DETAIL-TABLE-HEADER-LABEL-AND-COLOR-FIX/
+에 저장했다(before/after 각 3장: p0 5단계 진입, c1 그룹 인라인 펼침, c3 전체 목록).
+
+════════════════════════════════════════════════════════════════════════
+5. 자체 테스트
+════════════════════════════════════════════════════════════════════════
+- tests/test_stage5_group_drilldown.py            31 passed
+- tests/test_agg_contribution.py                  10 passed, 1 failed(사전 존재 — 아래)
+- tests/test_stats_result_full.py                 1 failed(사전 존재) 외 전부 통과
+- tests/test_column_comment_korean_name.py / test_d7_2_restore_grid_cancel.py /
+  test_stats_plan_column_label.py                  전부 통과
+- python samples/test_virtual_cases.py             8/8 통과
+- python samples/test_complex_cases.py             5/5 통과
+- node --check(HTML에서 <script> 추출)             구문 정상
+
+사전 존재 실패 2건(baseline `git stash`로 대조 확인 — 이번 수정과 무관, 회귀 아님):
+  · tests/test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+    (effective_group_by_count 관련, 5단계 드릴다운과 무관한 4단계 전략카드 테스트)
+  · tests/test_agg_contribution.py::test_exact_diff_separated_and_terms_removed
+    ('전수 검증' 문구 잔존 검사, 5단계 드릴다운과 무관한 원가밴드 안내문 텍스트)
+
+이번 수정으로 갱신한 테스트(구현 변경에 맞춘 것 — 회귀 아님):
+  · tests/test_agg_contribution.py::test_row_click_pk_only_wiring — 값 셀에 더 이상
+    `_MV_SRC_BG`/`_MV_TGT_BG`가 없음을 확인하도록, 그리고 `_mvDrillHeaderCellSplit`에
+    '(원본)'/'(목적)' 문구와 `_mvDrillHeaderKoLine`/`.ict-col-ko-below` 배선이 있는지
+    확인하도록 어서션을 갱신.
+
+════════════════════════════════════════════════════════════════════════
+✅ 작업 완료 - 5단계 상세 레코드 헤더에 (원본)/(목적) 문구·한글명 하단 배치를 추가하고,
+   값 셀 배경(파랑/청록)을 제거해 흰색으로 되돌렸으며, 그룹 인라인 펼침 화면의 중복
+   GROUP BY 검색조건 폼(축 select 2개)을 제거(전체 목록 화면은 유지, 회귀 없음)했다.
+   실브라우저 before/after 실측 + 관련 테스트 신규 회귀 0건 확인.
+STAGE5-DETAIL-TABLE-HEADER-LABEL-AND-COLOR-FIX

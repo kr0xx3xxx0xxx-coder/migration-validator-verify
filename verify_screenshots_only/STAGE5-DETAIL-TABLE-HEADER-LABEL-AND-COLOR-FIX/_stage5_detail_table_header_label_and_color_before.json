@@ -1,0 +1,77 @@
+{
+  "task": "STAGE5-DETAIL-TABLE-HEADER-LABEL-AND-COLOR-FIX",
+  "phase": "before",
+  "port": 8000,
+  "started": "2026-08-09 14:19:21",
+  "setup": {
+    "pair": "Oracle_asis → Oracle_tobe",
+    "connected": true
+  },
+  "1_analyze": {
+    "blocked": false,
+    "from_table": "MV_COMBO_SRC",
+    "error": ""
+  },
+  "2_count": {
+    "status": "COUNT_MATCHED",
+    "src": 1200,
+    "tgt": 1200
+  },
+  "sel": {
+    "gb": [],
+    "sum": []
+  },
+  "run1": {
+    "clicked": true,
+    "elapsed_sec": 3.6,
+    "completed": true
+  },
+  "inline": {
+    "exists": true,
+    "headerTexts": [
+      "불일치 유형",
+      "IDPK",
+      "STATUS_CD",
+      "STATUS_CD",
+      "DEPT_CD",
+      "DEPT_CD",
+      "AMT",
+      "AMT"
+    ],
+    "headerHasSideTag": false,
+    "headerKoBelowCount": 0,
+    "headerBg": [
+      "rgb(238, 243, 251)",
+      "rgb(238, 243, 251)",
+      "rgb(234, 242, 255)",
+      "rgb(230, 247, 243)",
+      "rgb(234, 242, 255)",
+      "rgb(230, 247, 243)",
+      "rgb(234, 242, 255)",
+      "rgb(230, 247, 243)"
+    ],
+    "firstRowCellBg": [
+      "rgba(0, 0, 0, 0)",
+      "rgba(0, 0, 0, 0)",
+      "rgb(234, 242, 255)",
+      "rgb(230, 247, 243)",
+      "rgb(234, 242, 255)",
+      "rgb(230, 247, 243)",
+      "rgb(234, 242, 255)",
+      "rgb(230, 247, 243)"
+    ],
+    "hasAxisSelect": true,
+    "hasValSelect": true,
+    "hasMtypeSelect": true,
+    "hasPkInput": true,
+    "filterBarHtml": "<label style=\"font-size:.74rem;color:#475569\">불일치 유형<br><select id=\"mvRiMtype\" style=\"font-size:.8rem;padding:4px 8px;border:1px solid #cbd5e1;border-radius:5px;min-width:120px\"><option value=\"\">전체</option><option value=\"missing\">목적 미존재</option><option value=\"value\">값 불일치</option></select></label><label style=\"font-size:.74rem;color:#475569\">GROUP BY 기준<br><select id=\"mvRiAxis\" onchange=\"_mvRiOnAxisChange()\" style=\"font-size:.8rem;padding:4px 8px;border:1px solid #cbd5e1;border-radius:5px;min-width:140px\"><option value=\"\">전체</option><option value=\"STATUS_CD\">STATUS_CD</option><option value=\"DEPT_CD\">DEPT_CD</option><option value=\"STATUS_CD\">STATUS_CD</option></select></label><label style=\"font-size:.74rem;color:#475569\">그룹 값<br><select id=\"mvRiVal\" disabled=\"\" style=\"font-size:.8rem;padding:4px 8px;border:1px solid #cbd5e1;border-radius:5px;min-width:140px\"><option value=\"\">전체</option></select></label><label style=\"font-size:.74rem;color:#475569\">PK 검색<br><input id=\"mvRiPk\" type=\"text\" placeholder=\"PK\" onkeydown=\"if(event.key==='Enter')_mvRiQuery()\" style=\"font-size:.8rem;padding:4px 8px;border:1px solid #cbd5e1;border-radius:5px;width:130px\"></label><button class=\"btn\" style=\"font"
+  },
+  "full": {
+    "hasAxisSelect": true,
+    "hasValSelect": true,
+    "hasMtypeSelect": true,
+    "hasPkInput": true
+  },
+  "errors": [],
+  "finished": "2026-08-09 14:21:19"
+}
