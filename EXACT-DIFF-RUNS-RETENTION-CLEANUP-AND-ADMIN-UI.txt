@@ -1,0 +1,129 @@
+작업명 : EXACT-DIFF-RUNS-RETENTION-CLEANUP-AND-ADMIN-UI
+✅ 작업 완료 - exact_diff_runs.db 보존기간(기본 7일) 정리 로직을 신설해 기존 delete_run()을 배선하고, 서버 기동 시 고아 RUNNING 전이 + 24시간 주기 백그라운드 정리 + 관리자 화면(보관기간 조정·저장공간 현황·즉시 정리 버튼)을 구현. 실 DB는 전혀 건드리지 않고 tmp DB로만 검증(신규 테스트 21건 통과, 회귀 0건)
+
+■ 배경(BACKLOG.md M64)
+  delete_run()(services/exact_diff/store.py:442, 舊 :416)이 프로덕션 어디서도 호출되지 않아
+  exact_diff_runs.db가 무기한 누적(실측 927MB·284run, 그중 RUNNING 고아 34건)되는 문제. 승인 완료된
+  directives/EXACT-DIFF-RUNS-RETENTION-CLEANUP-AND-ADMIN-UI.md 를 그대로 수행.
+
+■ 1. 보존 정책 설정값 (지시서 §1)
+  M59가 만든 execution_settings.py의 resolve_setting() 계통과 validation_policy_service.py(C계통,
+  화면편집 가능한 SQLite 정책 저장소, validation_policy_settings 테이블)를 비교 검토한 뒤 후자를
+  선택했다 — retention 값은 "관리자가 화면에서 조정 가능"해야 하는데 C계통이 이미 그 용도로 쓰이고
+  있고(기존 GB/SUM/조기중단 등 정책이 전부 이 테이블), execution_settings.py는 실행 튜닝 상수 계통
+  (아직 어떤 소비처도 resolve_setting을 호출하지 않는 상태)이라 화면 편집 목적에 맞지 않는다.
+  exact_diff_run_retention_days(기본 7)를 validation_policy_service.py에 신설:
+    · services/validation_policy_service.py:89   _DEFAULT_POLICY 필드 추가
+    · services/validation_policy_service.py:159  ALTER TABLE 마이그레이션(멱등)
+    · services/validation_policy_service.py:199  _row_to_policy 반환값
+    · services/validation_policy_service.py:291-298  _validate_payload(1 이상 정수만 허용)
+    · services/validation_policy_service.py:402-403, 425, 450, 475  save_validation_policy 병합/INSERT
+    · routes/validation_policy_route.py:85, 159-160  기존 POST /api/validation-policy 페이로드에 필드
+      추가(부분 업데이트 지원 — 미전송 시 기존값 유지)
+
+■ 2. 정리 로직 (지시서 §2)
+  신규 모듈 services/exact_diff/retention_cleanup.py — store.py의 delete_run()을 재작성 없이 그대로
+  재사용, "무엇을 언제 지울지"만 판단한다.
+    · get_retention_days():62          정책 조회, 실패 시 안전 기본값 7일 폴백
+    · run_cleanup():167                단일 규칙 — status≠'RUNNING' AND created_at이 retention_days
+      초과 → delete_run(). 상태 어휘를 하드코딩 나열하지 않는다(향후 engine.py가 새 terminal status를
+      추가해도 이 모듈을 고칠 필요 없음).
+    · mark_startup_orphans():140       서버 기동 시(요청 처리 시작 이전) 1회만 호출 — 그 시점에 파일
+      store에 남은 RUNNING run은 100% 이전 프로세스의 고아(현재 프로세스는 아직 어떤 run도 시작하지
+      않았으므로 구조적으로 혼동 불가능). status='ORPHANED'로 전이(reimport_job.py:344가 이미 쓰는
+      동일 상태 문자열 재사용 — 사유만 SERVER_RESTART_ORPHAN으로 구분). 즉시 삭제하지 않고 같은
+      단일 보존규칙에 편입시킨다(설계 단순화 — 별도 즉시삭제 경로를 만들지 않음, 아래 "설계 결정" 참조).
+    · run_full_cleanup_cycle():202     위 둘을 묶어 실행 + exact_diff_retention_log 테이블에 로그 기록
+      (ran_at·trigger·retention_days·orphans_marked·runs_deleted·deleted_run_ids(최대50)·error)
+    · get_storage_status():227         관리자 화면용 — run/RUNNING 건수, DB 파일 크기, 마지막 정리 이력
+    · start_background_cleanup_scheduler():257  threading.Thread(daemon=True) — reimport_job.py가
+      이미 쓰는 패턴 그대로 재사용(새 스케줄링 프레임워크 미도입). 기동 직후 1회(trigger=startup) +
+      이후 24시간 주기(trigger=periodic) 반복.
+  store.py에 조회 전용 메서드 2개 추가(기존 CRUD 메서드는 1바이트도 수정 안 함):
+    · services/exact_diff/store.py:416  list_runs(statuses=None) — run_id/status/created_at만 조회
+    · services/exact_diff/store.py:433  count_runs()
+  web_server.py:69-79  _lifespan 시작부(요청 처리 이전)에 start_background_cleanup_scheduler() 호출
+  추가 — 이 위치가 "그 시점 RUNNING=이전 프로세스 고아" 보장의 근거.
+
+  ■ 설계 결정 — 고아 RUNNING을 즉시 삭제하지 않고 같은 보존규칙에 편입시킨 이유
+    지시서 §2는 "정리 대상에 포함"이라고만 했고 즉시삭제를 명시하지 않았다. 완료 run(READY 등)에는
+    보관 기간을 두면서 방금 죽은 RUNNING만 별도 즉시삭제 경로로 처리하면 판정 규칙이 두 개로
+    늘어난다(heuristic 다중화 — CLAUDE.md 비판적 검토 항목). 단일 규칙(status≠RUNNING+기간초과)으로
+    통일해 삭제 판정을 하나로 유지했다. 부작용: 방금 재기동으로 고아가 된 run도 보관기간(기본 7일)
+    동안은 디스크에 남는다 — 즉시 정리가 필요하면 관리자 화면의 "지금 즉시 정리 실행"으로 우회 가능
+    (단, 이 버튼도 같은 단일 규칙을 쓰므로 갓 생성된 고아는 여전히 보존기간 이내라 안 지워진다. 이
+    트레이드오프를 바꾸고 싶다면 별도 확인 후 진행 여부 결정 필요).
+
+■ 3. 관리자 화면 (지시서 §3)
+  ui/tabler_renderer.py — 기존 "검증 정책 설정" 탭(GB/SUM 자동선정 등과 동일 화면, 신설 화면 없음)에
+  새 카드 추가:
+    · :4226 부근  "EXACT_DIFF 실행이력 저장공간 관리" 카드 — 보관기간 입력(edr_days)·저장 버튼,
+      현황 4항목(run 건수/RUNNING 건수/DB 파일 크기/마지막 정리 실행), "지금 즉시 정리 실행"·
+      "현황 새로고침" 버튼
+    · :32254 부근  _policyLoadCurrent()에 edr_days 채움 + edrLoadStatus() 호출 추가
+    · :32269 부근  신규 JS: _edrShowMsg/_edrFmtTs/edrLoadStatus/edrSaveRetentionDays/edrCleanupNow
+      — 의도적으로 기존 policySave()를 재사용하지 않았다. policySave()는 GB/SUM 정책 변경 시 후보
+      재분석 무효화 캐스케이드(분석/계획/선택 전부 폐기 + 경고 배너)를 트리거하는데, 보관기간은 후보
+      선정과 무관하므로 그 캐스케이드를 타면 사용자에게 혼란을 준다(저장 API는 동일하게
+      POST /api/validation-policy 재사용 — 서버 로직 중복 없음, 클라이언트 흐름만 분리).
+  신규 라우터 routes/exact_diff_retention_route.py (web_server.py:213 에서 등록):
+    · GET  /api/exact-diff/retention/status       — routes/exact_diff_retention_route.py:34
+    · POST /api/exact-diff/retention/cleanup-now  — routes/exact_diff_retention_route.py:43
+  보관기간 값 자체는 새 엔드포인트를 만들지 않고 기존 GET/POST /api/validation-policy를 재사용.
+
+■ 검증 결과
+  ① 신규 테스트 21건 전부 통과:
+     · tests/test_exact_diff_retention_cleanup.py — 13건(보존기간 삭제/보존 경계, RUNNING 미삭제,
+       고아 전이, 전체 사이클+로그, 현황 조회, store.list_runs/count_runs/delete_run 계약)
+     · tests/test_validation_policy_service.py::TestExactDiffRunRetentionDays — 8건(기본값·저장·부분
+       업데이트·0/음수/비정수 거부·기본값 복원)
+     실행: `python -m pytest tests/test_exact_diff_retention_cleanup.py tests/test_validation_policy_service.py -q`
+     → 46 passed (13 신규 + 33 기존 validation_policy, 회귀 0건)
+  ② TestClient E2E 스모크(임시 DB만 사용, 실 DB 무영향) — GET status(retention_days=7 기본 확인) →
+     POST /api/validation-policy{retention_days:21} → GET status 재확인(21 반영) →
+     POST cleanup-now(정상 200, orphans_marked=[], deleted=0) 전부 성공.
+  ③ 관련 회귀 스윕 `pytest tests/ -k "validation_policy or exact_diff" -q -p no:randomly`
+     = 95 passed / 6 failed / 1 skipped — 실패 6건 전부 이 작업과 무관한 사전 존재 실패로 확정:
+       · test_exact_diff_ui_wiring.py 5건 — 2026-07-30 UI·렌더러 계열 53건 기준선에 이미 포함된
+         정규식 함수경계 추출 취약성(기존 메모리 기록과 건수 일치, 재조사 불요)
+       · test_agg_contribution.py::test_exact_diff_separated_and_terms_removed 1건 — git HEAD(커밋
+         전 원본 ui/tabler_renderer.py)를 별도 임시 모듈로 로드해 동일 렌더 결과 재현 확인(같은
+         위치에 동일 오탐), 이 작업과 무관한 문자열 경계 매칭 취약점(strategy_remote_flag 관련 기존
+         주석이 우연히 "전수 비교" 부분일치를 만듦)
+  ④ CLAUDE.md 필수 회귀: samples/test_virtual_cases.py 8/8 통과, samples/test_complex_cases.py 5/5 통과.
+  ⑤ web_server.py 앱 구성 스모크 — 라우트 262개 등록 확인, 신규 엔드포인트 2개 모두 경로 존재 확인.
+
+■ 재기동 시각 / HEAD 커밋 해시
+  · 실 서버(8000 포트) 재기동 없음 — 검증은 전부 격리된 임시 SQLite(tmp_path/tempfile)와
+    FastAPI TestClient로만 수행했고, db/exact_diff_runs.db·db/migration_validator.db 등 실 파일은
+    이번 작업에서 한 번도 열지 않았다(store.py/retention_cleanup.py/validation_policy_service.py의
+    _DB_PATH를 전부 monkeypatch로 리다이렉트).
+  · 커밋 전 HEAD : 2ef728fc (fix(stage5): 검증성능정보 그룹목록 아래로 재배치...)
+  · 커밋 후 HEAD : 6b23ed6eb14f17d8185ea5d9581186558af2b93b
+    "feat(exact-diff): exact_diff_runs.db 보존기간 정리 로직 + 관리자 화면
+     (EXACT-DIFF-RUNS-RETENTION-CLEANUP-AND-ADMIN-UI)"
+    변경 파일 9개(743 insertions, 2 deletions): routes/exact_diff_retention_route.py(신규),
+    routes/validation_policy_route.py, services/exact_diff/retention_cleanup.py(신규),
+    services/exact_diff/store.py, services/validation_policy_service.py,
+    tests/test_exact_diff_retention_cleanup.py(신규), tests/test_validation_policy_service.py,
+    ui/tabler_renderer.py, web_server.py.
+    ui/tabler_renderer.py는 이 작업 착수 전부터 이미 미커밋 변경(GROUPBY-COMBO-PLAN-CAP 관련,
+    _mvComboPairPreflight 함수 36줄 추가분)이 섞여 있던 파일이라, 그 부분을 staged에서 제외하고
+    이번 작업분 111줄만 골라 커밋했다(git apply --cached 로 부분 hunk 스테이징 — git add -p 대체,
+    비대화형 셸 제약). 다른 세션의 미완료 작업(.claude/settings.json, requirements*.txt,
+    scripts/dev_fixtures/*, services/groupby_plan_service.py, tests/test_11def_scenarios.py 등)은
+    전부 손대지 않았고 여전히 미커밋 상태로 남아있다.
+  · 코드 저장소(migration-validator)는 remote가 없는 저장소라 push 대상 없음(로컬 커밋만).
+
+■ ⚠️ 배포 전 반드시 인지할 사항 — 실 데이터 삭제 자동화
+  이번 작업으로 "완료(비-RUNNING)+보존기간(기본 7일) 초과 run을 삭제"하는 로직이 서버 기동 시
+  자동 실행되도록 배선됐다. 실 db/exact_diff_runs.db(927MB·284run, M63 스냅샷 기준 생성일
+  2026-07-05~2026-07-26)는 이번 작업에서 전혀 건드리지 않았지만, **이 코드가 반영된 서버를 다음에
+  재기동하는 순간** 그 run들 대부분(오늘 2026-08-09 기준 이미 7일 보관기간을 초과)과 고아 RUNNING
+  34건이 자동으로 삭제된다. CLAUDE.md 자율진행 규칙의 "기존 데이터 삭제 시" 예외 항목에 해당하므로,
+  실 서버 재기동 여부는 이 보고를 확인한 뒤 별도로 결정할 것을 권고한다(필요 시 재기동 전에
+  exact_diff_run_retention_days 를 더 큰 값으로 먼저 올려두거나, db/exact_diff_runs.db 를 백업해 둘
+  것).
+
+작업명 : EXACT-DIFF-RUNS-RETENTION-CLEANUP-AND-ADMIN-UI
+✅ 작업 완료 - exact_diff_runs.db 보존기간(기본 7일) 정리 로직을 신설해 기존 delete_run()을 배선하고, 서버 기동 시 고아 RUNNING 전이 + 24시간 주기 백그라운드 정리 + 관리자 화면(보관기간 조정·저장공간 현황·즉시 정리 버튼)을 구현. 실 DB는 전혀 건드리지 않고 tmp DB로만 검증(신규 테스트 21건 통과, 회귀 0건)

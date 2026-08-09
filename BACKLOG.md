@@ -3460,7 +3460,7 @@ git -C E:/verify_reports worktree remove <임시경로>
   검토(개별검증 5단계 한정 — 착수 여부 결정 필요).
 - 근거: 채팅 조사 결과(별도 파일 미작성).
 
-### M64. exact_diff_runs.db가 정리 로직 전무로 무기한 누적 — 대규모 일괄검증 반복 시 저장공간 위험(심각, 미결정)
+### M64. ✅ 해결 완료 — exact_diff_runs.db가 정리 로직 전무로 무기한 누적(대규모 일괄검증 반복 시 저장공간 위험)
 - 발견일: 2026-08-09 (M63 조사 중 발견한 delete_run() 미호출 문제를, 사용자가
   "수천 테이블 일괄검증 반복 시나리오"로 규모를 물어 정량화 / 채팅 조사, 코드 무변경)
 - 상세: `delete_run()`(services/exact_diff/store.py:416)이 **프로덕션 경로 어디서도
@@ -3485,6 +3485,22 @@ git -C E:/verify_reports worktree remove <임시경로>
   (3) RUNNING 고아 상태를 서버 기동 시 감지해 정리하는 로직 추가 — 착수 여부·
   방향 결정 필요.
 - 근거: 채팅 조사 결과(별도 파일 미작성).
+- **해결(2026-08-09, EXACT-DIFF-RUNS-RETENTION-CLEANUP-AND-ADMIN-UI)**: 보관 기간(기본 7일)을
+  `validation_policy_settings`(C계통, `exact_diff_run_retention_days`)에 신설. 신규 모듈
+  `services/exact_diff/retention_cleanup.py`가 기존 `delete_run()`(store.py:416)을 그대로 배선 —
+  완료(비-RUNNING)+보존기간 초과 run 삭제, 단일 규칙(status≠RUNNING 만으로 판정, 상태 어휘
+  하드코딩 나열 없음). 서버 기동 시(요청 처리 이전) 파일 store 의 잔존 RUNNING → ORPHANED 전이 후
+  같은 단일 보존규칙에 편입(즉시삭제 경로 미도입 — 설계 단순화). `threading.Thread(daemon=True)`
+  로 기동 1회+이후 24시간 주기 실행(`web_server.py` lifespan 배선). 관리자 화면(검증 정책 설정 탭)에
+  보관 기간 입력·저장공간 현황(run/RUNNING 건수·DB 파일 크기·마지막 정리 이력)·즉시 정리 버튼 추가
+  (`ui/tabler_renderer.py`, `/api/exact-diff/retention/status`·`/api/exact-diff/retention/cleanup-now`
+  신규, `/api/validation-policy` 기존 엔드포인트 재사용). 신규 테스트 21건(store.list_runs/count_runs
+  포함) + 회귀 0건, TestClient e2e 스모크 통과. **중요**: 실 DB(`db/exact_diff_runs.db`)는 전혀 건드리지
+  않음(전부 tmp_path 격리) — 이 코드가 배포된 뒤 **다음 서버 재기동 시** 기존 927MB/284run 중 대부분
+  (M63 스냅샷 시점 2026-07-05~07-26, 현재 2026-08-09 기준 7일 보관을 이미 초과)이 자동 삭제된다는
+  점을 배포 전 인지할 것(기존 데이터 삭제 — 사용자 확인 필요 항목).
+  상세: X:\Verify\_rpt_push\EXACT-DIFF-RUNS-RETENTION-CLEANUP-AND-ADMIN-UI.txt,
+  코드 커밋 6b23ed6e(main, migration-validator, remote 없음 — 로컬 커밋).
 
 ### M59. 0단계(인프라+dead필드정리) 완료 — 값 이동 0건 확인, 배선 중 2건 신규결함 발견해 안전하게 보류
 - 발견/계기: 2026-08-09 (개별/일괄/전수 3모드에 흩어진 설정값을 전역 공통+모드별
