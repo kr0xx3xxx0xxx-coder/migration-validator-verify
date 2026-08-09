@@ -3302,7 +3302,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\STAGE5-GROUP-DRILLDOWN-ARCHITECTURE-IMPLEMENT.txt
 - 참고: E:\verify_reports\STAGE5-AXIS-LABEL-CLICK-FIX-AND-INLINE-ACCORDION-EXPAND.txt
 
-### M60. ✅ 해결 완료 — 5단계 상태배지 미갱신·그룹 재확장 재추출(서로 다른 3개 결함) + 검증성능정보 1~5단계 통합 + 헤더라벨/색상/검색폼 정리
+### M60. ✅ 해결 완료 — 5단계 상태배지 미갱신·그룹 재확장 재추출(서로 다른 3개 결함) + 검증성능정보 1~5단계 통합 + 헤더라벨/색상/검색폼/컬럼/CNT 정리
 - 발견일: 2026-08-09 (사용자 스크린샷 4장 직접 지적) / 해결일: 2026-08-09
   (STAGE5-EXTRACT-STATUS-TRACKING-BUG-AND-SUMMARY-LAYOUT-FIX, 코드 커밋 92d1b01 관련
   증적 저장소 push, 코드 저장소는 로컬 커밋만)
@@ -3351,6 +3351,22 @@ git -C E:/verify_reports worktree remove <임시경로>
   computed style(rgb값)로 배경 제거 확인, 사전존재 실패 2건 baseline 대조로 무관
   확인, 관련 테스트 신규 회귀 0건.
 - 참고: E:\verify_reports\STAGE5-DETAIL-TABLE-HEADER-LABEL-AND-COLOR-FIX.txt
+- **후속(2026-08-09, STAGE5-DETAIL-COLUMN-REDUCE-INFO-SIMPLIFY-AND-CNT-COLUMN-SPLIT,
+  코드 커밋 42d0a1b9)**: (1) 상세 레코드 컬럼을 PK+후보 컬럼만으로 축소 — 원인은
+  `_derive_row_compare_cols`가 "GB/SUM 미선정이라는 이유로 제외 안 함"(Phase4-D6-2
+  계약, 판정 로직엔 정확함)이라 매핑 컬럼 전부가 role=COMPARE로 붙는데, 이걸 **화면
+  표시 단계에서만** 필터링(`_mvGridDisplayCols`, role 재사용, 판정 로직 완전 불변)
+  하는 것으로 정확히 좁혀 해결. (2) 그룹 정보블록에서 실행경로/전략 줄만 남기고
+  나머지 5개 문구 전부 제거(head 조립 자체를 인라인 분기에서 비움). (3) 그룹 인라인
+  펼침의 검색조건 폼(불일치유형/PK검색 포함) 완전 제거 — 단 스코프 없는 "전체 그룹
+  한번에 추출" 화면은 대량결과라 검색이 유용하다고 판단해 유지(회귀 없음 확인).
+  (4) 그룹목록 헤더에 "목적카운트/원본카운트" 별도 컬럼 신설, 기존 "목적지 집계/
+  원본 집계"에서는 CNT 제거(AMT/QTY만).
+  기존 픽스처(컬럼이 이미 후보와 동일)로는 (1)을 육안 검증할 수 없다는 걸 스스로
+  인지해 SEQ_NO/ITEM_NM 포함된 전용 오라클 픽스처(`MV_COLREDUCE_SRC/TGT`)를 신설해
+  실측. 4항목 전부 실 클릭+JSON 불리언(True/False)으로 확인, 사전존재 실패 11건
+  ID까지 완전 일치, 신규 회귀 0건.
+- 참고: E:\verify_reports\STAGE5-DETAIL-COLUMN-REDUCE-INFO-SIMPLIFY-AND-CNT-COLUMN-SPLIT.txt
 
 ### M61. 5단계 실행경로/전략 자동판정에서 PK 구성 검사가 실질적으로 무력화됨(하드코딩, 미해결)
 - 발견일: 2026-08-09 (채팅 조사 — "실행경로/전략" 배지가 실제로 여러 값이 나오는지
