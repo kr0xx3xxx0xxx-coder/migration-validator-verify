@@ -1,0 +1,93 @@
+작업명 : M59-DEAD-FIELD-DELETE-AND-RECLAIM-STALE-FIX
+
+────────────────────────────────────────────────────────────
+1. 삭제후보 필드 실제 삭제
+────────────────────────────────────────────────────────────
+대상: `services/exact_diff/execution_settings.py`
+소비처 재확인(전체 grep, execution_settings.py 자기 자신과 소속 테스트 2개 파일 제외 0건)
+후 아래 24개 필드를 삭제했다.
+
+- TimeDisplay 그룹 전부(5개): display_wall_elapsed, display_active_elapsed,
+  display_paused_elapsed, time_info_enabled, pause_time_accumulation_enabled
+  → 그룹 자체 삭제(클래스 제거, ExecutionSettings.time_display 필드 제거).
+- MismatchDetail 그룹 전부(10개): mismatch_detail_enabled, mismatch_detail_max_records,
+  mismatch_detail_max_mismatch_ratio, mismatch_detail_abort_on_ratio,
+  mismatch_detail_abort_on_count, mismatch_detail_abort_on_count_threshold,
+  mismatch_detail_min_checked_before_ratio, mismatch_detail_sample_records_on_abort,
+  mismatch_detail_store_full_when_under_limit, mismatch_detail_abort_status_code
+  → 그룹 자체 삭제(클래스 제거, ExecutionSettings.mismatch_detail 필드 제거).
+- HistoryLogging 그룹 전부(6개): execution_history_enabled, store_pause_resume_events,
+  store_recovery_events, store_cancel_events, store_time_info_history,
+  max_history_events_per_run
+  → 그룹 자체 삭제(클래스 제거, ExecutionSettings.history 필드 제거).
+- CancelFinish 그룹 중 3개: cancel_request_timeout_sec, finish_lock_timeout_sec,
+  force_restart_cancels_previous
+  → cancelled_checkpoint_reusable(__post_init__ 자기강제 불변식)만 유지, 나머지 삭제.
+
+결과: 14그룹 78필드 → 11그룹 54필드(dataclasses 실측, `dataclasses.fields()` 로 확인).
+SETTINGS_VERSION 은 유지("m59-p0", 0단계에서 이미 bump — 구조 변경 자체는 이번에도 반영되나
+버전 문자열 재변경은 하지 않았다. 필요 시 문의).
+
+관련 테스트 정리:
+- tests/test_d7_20_execution_settings.py: 그룹 목록에서 time_display/mismatch_detail/history
+  제거, mismatch_detail 전용 테스트 2개(test_mismatch_detail_structure,
+  test_mismatch_ratio_never_alone) 삭제, API 응답 검증 필드를 checkpoint 로 교체.
+- tests/test_m59_phase0_resolve_setting.py: 그룹 순회 목록에서 3그룹 제거, 필드 수 검증을
+  `checked == 54` 로 갱신(정확한 실측값).
+
+────────────────────────────────────────────────────────────
+2. reclaim_stale() 결함 A 수정
+────────────────────────────────────────────────────────────
+대상: `services/batch/validation_scheduler.py`
+
+- `ValidationScheduler.__init__` 에 `heartbeat_interval_sec: float = 5.0` 파라미터 추가.
+- `_run_job()` 에서 worker 실행 직전 배경 heartbeat 스레드(`_heartbeat_loop`)를 시작 —
+  `threading.Event.wait(interval)` 로 실제 벽시계 시간마다 `self.heartbeat(job_id)` 를 호출해
+  `last_heartbeat` 를 갱신한다. `execute_fn()` 이 끝나면 `finally` 블록에서 `stop_hb.set()` 으로
+  즉시 정지(불필요한 갱신 방지).
+- 가짜 clock(테스트 주입용)은 heartbeat 값 자체(`self._now()`)에는 그대로 반영되지만,
+  스레드 tick 간격은 실제 wall-clock 을 쓴다 — stale 판정(reclaim_stale)의 "정지 여부"는
+  clock 축이고, tick 주기는 스케줄링 축이라 서로 다른 시간 개념임을 주석으로 명시.
+
+검증(실측):
+- 신규 테스트 `test_heartbeat_wired_keeps_long_running_job_alive`
+  (`tests/test_validation_scheduler.py`): heartbeat_interval_sec=0.05 로 job 을 0.3초 동안
+  실행 상태로 유지한 뒤 `reclaim_stale(lease_timeout_sec=0.15)` 호출 — 결함A 수정 전이면
+  0.3s > 0.15s 이므로 반드시 STALE 판정됐을 상황인데, 자동 heartbeat 덕분에
+  `stale == []`(STALE 0건), job 은 계속 RUNNING 으로 확인됨.
+- 기존 `test_stale_job_reclaim`(가짜 clock 사용, heartbeat 정지 시나리오)도 그대로 통과 —
+  배경 스레드의 기본 간격(5초)이 테스트 실행시간(<1.5초)보다 길어 간섭 없음을 실측으로 확인.
+
+────────────────────────────────────────────────────────────
+3. reclaim_stale() 결함 B / 실배선
+────────────────────────────────────────────────────────────
+지침대로 손대지 않았다. `_finish()` 비멱등 문제(결함B, budget 이중 반환 위험)는 완료 모듈
+수정이라 이번 범위 밖으로 남겨두었고, `reclaim_stale()` 자체를 폴링 루프에 연결하는 작업도
+결함B 해결 전까지 보류했다. `reclaim_stale` 은 현재도 프로덕션 호출처 0건(routes/ 전체 grep
+재확인)이라 이번 변경이 기존 동작을 바꾸지 않는다.
+
+────────────────────────────────────────────────────────────
+검증 결과
+────────────────────────────────────────────────────────────
+- 직접 영향 테스트 전체 통과: 144 passed
+  (test_d7_20_execution_settings.py, test_m59_phase0_resolve_setting.py,
+   test_validation_scheduler.py, test_strategy_planner.py, test_scheduled_batch_runner.py,
+   test_single_execute_async_job.py, test_chunk_policy_dbms_probe_keymeta_g2_p7_p14.py,
+   test_tracemalloc_toggle_wiring.py, test_job_recovery_stage1_progress_timestamp.py,
+   test_reimport_stream.py, test_d8_7_parallel_source_target_read.py)
+- 신규 회귀 0건.
+- CLAUDE.md 필수 회귀: samples/test_virtual_cases.py 8/8 통과,
+  samples/test_complex_cases.py 5/5 통과.
+- 코드 저장소(X:\Projects\Migration_Validator) 는 remote 미설정(`git remote -v` 빈 출력) —
+  로컬 커밋까지만 수행.
+
+커밋해시: dbe1fb0655fbf8ccfa2be1b4f063ec1ad389e7cc
+(services/batch/validation_scheduler.py, services/exact_diff/execution_settings.py,
+ tests/test_d7_20_execution_settings.py, tests/test_m59_phase0_resolve_setting.py,
+ tests/test_validation_scheduler.py — 5개 파일만 staged. 저장소에 있던 무관한 미커밋 변경
+ (.claude/settings.json, requirements*.txt, scripts/dev_fixtures/*, tests/test_11def_scenarios.py,
+ tests/test_12k_stress.py, tests/test_batch_step_tabs_workflow.py,
+ tests/test_batch_summary_dashboard.py, ui/history_renderer.py, ui/js_batch_display.py — 이번
+ 세션에서 건드리지 않은 파일들, 동시 세션 작업으로 추정)는 포함하지 않았다.)
+
+✅ 작업 완료 - dead필드 24개 삭제(TimeDisplay/MismatchDetail/HistoryLogging 전부+CancelFinish 3개) 및 reclaim_stale 결함A(heartbeat 배선) 수정, 관련 144개 테스트 및 CLAUDE.md 필수 회귀 전부 통과(커밋 dbe1fb06)
