@@ -3294,6 +3294,45 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\STAGE5-GROUP-DRILLDOWN-ARCHITECTURE-IMPLEMENT.txt
 - 참고: E:\verify_reports\STAGE5-AXIS-LABEL-CLICK-FIX-AND-INLINE-ACCORDION-EXPAND.txt
 
+### M60. ✅ 해결 완료 — 5단계 상태배지 미갱신·그룹 재확장 재추출(서로 다른 3개 결함) + 검증성능정보 1~5단계 통합
+- 발견일: 2026-08-09 (사용자 스크린샷 4장 직접 지적) / 해결일: 2026-08-09
+  (STAGE5-EXTRACT-STATUS-TRACKING-BUG-AND-SUMMARY-LAYOUT-FIX, 코드 커밋 92d1b01 관련
+  증적 저장소 push, 코드 저장소는 로컬 커밋만)
+- **지시서 가설 반증**: "1번(배지 미갱신)과 2번(재추출)이 같은 뿌리"라는 지시를 실행
+  경로 추적으로 반박 — 실제로는 서로 다른 파일의 3개 결함(①화면반영 누락
+  ②클라캐시 무조건초기화 ③서버 fingerprint 재사용 제외).
+- **①배지 미갱신**: 추출 성공 후 그 그룹 행의 배지 `<td>`를 다시 그리는 코드가
+  코드베이스 어디에도 없었음(목록 전체 재렌더 함수만 있고 부분 갱신 함수가 없었음)
+  — 신규 `_mvStage5PaintDetailBadge()`로 그 행 1칸만 갱신(아코디언 펼침 상태·진행
+  중인 레코드 파이프라인 안 건드림).
+- **②클라 캐시 무조건 초기화**: `_mvRiEnterRecordsView`가 주석("scope 다르면
+  재사용금지")과 다르게 **조건 없이** 캐시를 지우고 있어, scope 판정 로직
+  (`_mvPkEnsurePrepared`에 이미 있었음)이 실행되기도 전에 캐시가 사라짐 — 공용
+  `_mvPkScopeKey()`로 두 지점 판정기준 통일, 실제로 scope 바뀔 때만 초기화.
+- **③서버 fingerprint 재사용 제외(핵심 발견)**: 재이관 레코드가 101건(표시상한+1)에서
+  조기중단(EARLY_STOPPED)된 run은 fingerprint 재사용 대상(READY/PREPARING)에서
+  빠져있어, **101건짜리 그룹은 열 때마다 매번 새로 전체 재추출**됐음 — 사용자가
+  본 "10.59초→8.56초"(매번 다른 소요시간)의 정확한 원인. 수정 시 READY로 승격
+  안 시킴(승격하면 "조기중단" 배지가 사라져 기존 계약 P10-SUMMARY-COUNT-DISPLAY-
+  DISAMBIGUATION-FIX를 깨뜨림 — 그대로 보존하며 재사용만 추가).
+- **"고급 성능정보"→"검증성능정보" 재설계**: 상단 고정 2카드 — [고정]1~5단계 전체
+  소요시간(그룹 클릭해도 절대 안 바뀜, 갱신함수가 이 id를 아예 미참조하도록 구조적
+  보장) + [갱신]선택 그룹 상세추출(그룹 클릭마다 이 카드만 재렌더). 1~5단계 시간은
+  새로 계측 안 하고 기존에 각 단계 화면이 이미 표시 중이던 값(`window._mvStageProcMs`)을
+  1·2단계까지 넓혀서 재사용(신규 계측 0건). 5단계는 "그룹마다 다름 — 옆 카드 참고"로
+  정직하게 표기(고정 카드에 억지로 숫자 하나 넣으면 "그룹 클릭해도 고정부분 불변"
+  이라는 검증항목과 충돌하는 걸 스스로 판단해 회피).
+- 실측(실 오라클, before=baseline worktree/after=수정본, 포트8000 동일): 배지
+  ['미확인'×4]→['완료',...] 정확 반영, 재확장 시 prepare POST **1회→0회**(캐시 재사용
+  확인), 그룹B 클릭 시 고정카드 **바이트단위 불변**+갱신카드만 B로 변경, JS콘솔 오류
+  before/after 0건. 회귀: 관련 30파일 서브셋 baseline 10 failed(ID까지 완전 동일,
+  사전존재)/250 passed → 수정본 10 failed(동일)/254 passed(+4는 신규테스트).
+- **부수 발견(범위 밖, 정직하게 기록)**: 3단계 처리시간이 "후보 적용/재검증" 버튼
+  클릭 후 "계산 중..."에 영구 고착되는 사전 존재 결함 확인(`_mvClearStageProcessingTime(3)`이
+  슬롯을 초기화한 뒤 재계산 호출이 그 흐름에서 안 불림) — 이번 수정과 무관, 3단계
+  타일 자체도 같은 값을 못 받아 검증성능정보가 "미측정"으로 정직하게 표기.
+- 참고: E:\verify_reports\STAGE5-EXTRACT-STATUS-TRACKING-BUG-AND-SUMMARY-LAYOUT-FIX.txt
+
 ### M59. 0단계(인프라+dead필드정리) 완료 — 값 이동 0건 확인, 배선 중 2건 신규결함 발견해 안전하게 보류
 - 발견/계기: 2026-08-09 (개별/일괄/전수 3모드에 흩어진 설정값을 전역 공통+모드별
   오버라이드로 정리하고 싶다는 요청) / 조사: GLOBAL-SETTINGS-HARDCODED-VALUES-SCOPE-
