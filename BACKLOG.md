@@ -3926,9 +3926,25 @@ git -C E:/verify_reports worktree remove <임시경로>
   LLM/인프라 전혀 불필요) — 다만 verdict 의미 변경이라 소비처 4곳+JS 미러 회귀 검토
   필요, "완료 모듈에 준하는" 승인 대상(LLM-ADMIN 설계문서 §5가 이미 명시)이라 이번
   조사에서는 미착수.
+- **✅ 위 대안 해결 완료(2026-08-08, ADMIN-AUDIT-SILENT-CONFIRMED-FULL-AUDIT-AND-FIX,
+  코드 커밋 6f5d5073)**: 전수감사로 "무배지 CONFIRMED" 경로가 이 1개뿐임을 확정(다른
+  숨은 위험 분기 없음). 이 분기가 group_by/SUM 공유임을 발견 — SUM은 axis_a가
+  구조적으로 항상 None(반증불가 아니라 판정축 자체가 없음)이라 기존 테스트가 이미
+  "조용한 제외 존속"을 의도된 계약으로 고정 — **group_by만 한정해서 NOT_AUDIT_AMBIGUOUS로
+  강등**(SUM 무변경, 범위 확대 안 함). 소비처 4곳 중 3곳은 verdict 단일출처 재계산이라
+  코드 변경 0(설계 의도대로 작동 확인), 배지 텍스트 생성부 1곳만 실수정. 실 DB(asis+
+  tobe)에서 `biz_reg_no` 직접 재현 — CONFIRMED→AMBIGUOUS 전환·배지 노출·선택가능
+  복귀 확인. 관련 서브셋 386건 통과(무관 사전존재 실패 6건 제외), CLAUDE.md 필수 회귀
+  통과. 부수: 이 근본원인을 우회하던 옛 JS 코드(ADMIN-COLUMN-CONFIRMED-RESTORE-TO-
+  REFERENCE)가 이제 자연 도달불가(무해, 범위 밖이라 미삭제). 별도 갭 발견(백로그
+  후보): 일괄검증 경로는 ambiguous_audit_evidence 자체가 안 붙어(개별검증만 배선)
+  배제 해제는 되지만 배지 시각 노출은 개별검증 한정.
+  **미완료로 남긴 것**: 이번 세션 DB 접속 지연으로 전체 506컬럼 재스윕(수정으로 verdict
+  분포가 실제로 어떻게 이동하는지)은 재현 못함 — 후속 권고.
 - 참고: E:\verify_reports\M50-EDGE-CASE-VERDICT-DISTRIBUTION-MEASURE.txt
 - 근거 보고서: E:\verify_reports\LLM-ADMIN-COLUMN-JUDGMENT-SCOPE-AND-DESIGN-DIAGNOSE.txt
 - 근거 보고서: E:\verify_reports\STAGE4-TAB-LABEL-LAG-AND-PRIOR-STAGE-LOCK-SCOPE-DIAGNOSE.txt
+- 근거 보고서: E:\verify_reports\ADMIN-AUDIT-SILENT-CONFIRMED-FULL-AUDIT-AND-FIX.txt
 
 ### M51. ✅ 해결 완료 — 개별검증 4·5단계 UX 3건(상태표시 시점·조합검증 문구 모순·통계전략 배치)
 - 발견일: 2026-08-07 (사용자 스크린샷 3장 직접 지적) / 해결일: 2026-08-07
