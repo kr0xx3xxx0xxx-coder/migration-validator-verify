@@ -3417,6 +3417,30 @@ git -C E:/verify_reports worktree remove <임시경로>
   단정하던 어서션"을 고친 동작 검증으로 교체(무비판 삭제 아님).
 - 참고: E:\verify_reports\STAGE2-COUNT-INFLIGHT-TAB-LOCK-DIAGNOSE-AND-FIX.txt
 
+### M63. 5단계 그룹 재사용 판정 캐시가 휘발성(개수상한16·재기동시소실)이라, 시간 지나면 저장된 데이터가 있어도 재스캔 발생(의도된 설계, 정리 로직 부재)
+- 발견일: 2026-08-09 (사용자 목격 — "이미 완료된 그룹인데 시간 지나 다시 열면 또
+  오래 걸린다" / 채팅 조사, 코드 무변경)
+- 상세: "재사용 가능" 판정은 `services/exact_diff/reimport_job.py`의
+  `_JOBS_BY_FP`(fingerprint→job, **순수 in-memory dict, TTL 없음**) 하나뿐 —
+  개수상한(`_JOBS_MAX=16`)에 걸리면 LRU 축출, **서버 재기동 시 완전 소실**. (참고로
+  `execution_settings.py`의 `job_ttl_completed_sec=3600` 같은 TTL 설정이 실재하지만
+  이건 다른 저장소(`services/single_execute_job.py`, 4단계 통계검증용)에만 배선돼
+  있고 5단계 reimport_job.py와는 무관 — 이름이 비슷해 혼동 주의.)
+  실제 데이터(`stage5_mismatch_group`, `exact_diff_run`/`exact_diff_record`)는 둘 다
+  **TTL 없음, `delete_run()`도 프로덕션 어디서도 미호출 → 무기한 파일 보존**. 즉
+  판정용 캐시만 사라지고 데이터는 살아있는 비대칭 구조.
+  캐시 소실 시 `get_by_fingerprint(fp)`가 None을 반환해 새 run_id로 처음부터 재스캔 —
+  옛 run의 레코드는 파일에 그대로 남지만 새 run_id로는 조회 경로가 없어 **고아
+  데이터로 영구 축적**. `ui/tabler_renderer.py:17447` 주석에 "캐시 유실=데이터 유실로
+  취급, 재-prepare가 복구"라고 **의도된 설계로 명시**돼 있음(실수 아님).
+- 영향: (a) 성능 — 이미 저장된 결과가 있어도 캐시만 사라지면 불필요한 전체 재스캔
+  발생(사용자 체감 지연) (b) 저장공간 — 고아 데이터를 지우는 로직이 실서비스에
+  없어 DB 파일이 계속 누적됨.
+- 대응 방향: 미결정. (1) 캐시 미스 시 DB에서 옛 run_id를 찾아 재사용하는 경로 추가
+  (2) 최소한 고아 데이터 정리(cleanup) job 신설 — 둘 다 설계 변경 필요, 착수 여부
+  결정 필요.
+- 근거: 채팅 조사 결과(별도 파일 미작성).
+
 ### M59. 0단계(인프라+dead필드정리) 완료 — 값 이동 0건 확인, 배선 중 2건 신규결함 발견해 안전하게 보류
 - 발견/계기: 2026-08-09 (개별/일괄/전수 3모드에 흩어진 설정값을 전역 공통+모드별
   오버라이드로 정리하고 싶다는 요청) / 조사: GLOBAL-SETTINGS-HARDCODED-VALUES-SCOPE-
