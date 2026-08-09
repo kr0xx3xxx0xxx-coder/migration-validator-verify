@@ -2178,14 +2178,43 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\F6-MULTI-GROUPBY-COMBINATION-VALIDATION-SCOPE-DIAGNOSE.txt
 - 참고: E:\verify_reports\F6-PLAN-EXCLUDED-DISPLAY-IMPLEMENT.txt
 
-### F7. 4단계 통계검증 실행의 비동기 job 화 — 백그라운드 감시·자동 5단계 진입의 선행 조건
-- 발견일: 2026-07-28
+### F7. ⚠️ 단일세트 완료, 다중세트(GROUP BY 2개↑) 명시적 범위 제외 — 4단계 통계검증 비동기 job화
+- 발견일: 2026-07-28 / 단일세트 해결일: 2026-08-09(F7-STAGE4-ASYNC-JOB-DESIGN-AND-IMPLEMENT,
+  코드 커밋 f176107a·f4b8c5cd, 로컬 전용 push 없음)
 - 근거 보고서: `SINGLE-STEP4-BACKGROUND-WATCH-AUTO-STEP5-FEASIBILITY-DIAGNOSE.txt` /
-  `SINGLE-STEP4-INLINE-PROGRESS-FEASIBILITY-DIAGNOSE.txt`
-- 상세: 백그라운드 감시 방식 자체는 타당하나 **감시 대상 job 이 존재하지 않는다**.
-  4단계 실행은 집계 SQL 단일 실행이라 진행 신호 축 자체가 없다(개선안 3안 정리됨).
+  `SINGLE-STEP4-INLINE-PROGRESS-FEASIBILITY-DIAGNOSE.txt`(최초 3안) →
+  `F7-STAGE4-ASYNC-JOB-DESIGN-AND-IMPLEMENT.txt`(재평가+구현)
+- 설계 확정: 옵션A(화면표시만)는 이미 적용됐으나 "브라우저 닫아도 서버 계속" 요건을
+  못 채움, 옵션B(서버 단계명)는 job 저장소가 생기는 비동기화 위에 얹는 후속과제로 보류,
+  옵션C(진짜 %)는 통계 SQL이 단일 집계문이라 부분결과 자체가 없어 비채택(가짜 진행률
+  금지 원칙) — **Phase 0(비동기 job화)를 단일 세트에 한정해 채택**. 기존 패턴
+  (`wrapper_async_job.py`/`reimport_job.py`) 그대로 재사용, workflow_stage_guard의
+  begin/end를 스레드 경계로 넘겨도 안전한지 코드로 직접 확인 후 진행(job 전용 TTL
+  3,600초 분리 신설).
+- 구현: 신규 2파일(`services/single_execute_job.py` 인메모리 job store+데몬스레드+TTL,
+  `tests/test_single_execute_async_job.py` 22건) + 수정 4파일(execution_settings.py
+  설정그룹 추가, execute_route.py 라우트 2개 추가, job_registry.py 5번째 소스 어댑터
+  추가, ui/tabler_renderer.py+js_job_dashboard.py 비동기 버튼/폴링) — 전부 additive,
+  기존 동기 경로(`runExecute()` 본문·`_stats_execute_inner`) 0줄 수정. `runExecute()`는
+  재클릭방지·S16 409·M57 lock·세션버전·abort signal이 밀집한 위험지역이라 의도적으로
+  안 건드리고 순수 판정함수만 재사용.
+- 실측(실 오라클 5,000만행, 포트8000 실서비스): S2(job 발급 0.44초, 요청 안 기다림)→
+  S3(4단계 이탈+독립 urllib 폴링으로 서버 계속 실행 확인, RUNNING→COMPLETED 10.1초)→
+  S4(재진입 시 sessionStorage로 상태 복원)→S5(결과보기, 기존 5단계 렌더 재사용)→
+  **S6(동기 /execute 직접 대조 — 요약값·그룹행 digest 완전 일치 확인)**→
+  **S7(두번째 job 기동 후 브라우저 컨텍스트 완전 종료, 독립 폴링으로 서버 실행 지속
+  확인 — 진짜 비동기 최종 증명)**. 5단계 자동진입 없음(오늘 M56/M58 원칙 그대로 준수).
+  계약변경 1건(ALL_SOURCES 4→5키) 전수검색으로 무영향 확인 후 소비처 갱신. 신규 회귀
+  0건, 필수 회귀(virtual 8/8·complex 5/5) 통과.
+- **명시적 범위 제외(다음 단계로 남음)**: GROUP BY 2개 이상 다중세트 실행
+  (`_runExecutePlanSets`, 클라이언트가 /generate+/execute를 세트 수만큼 순차 반복)은
+  원 진단서가 "서버 이관 위험 최대·마지막 단계"로 명시한 부분이라 **이번 범위 제외**.
+  여전히 동기 실행이며, 화면에서 [백그라운드 실행] 버튼이 disabled+사유문구로 명시
+  차단(조용한 무시 아님). 5단계 조건부 자동전환·현황판 새창(Phase1/2)·서버 단계명
+  표시(옵션B)·실행중 취소·새로고침 후 복원도 모두 미착수(각각 사유 명시).
 - 참고: E:\verify_reports\SINGLE-STEP4-BACKGROUND-WATCH-AUTO-STEP5-FEASIBILITY-DIAGNOSE.txt
 - 참고: E:\verify_reports\SINGLE-STEP4-INLINE-PROGRESS-FEASIBILITY-DIAGNOSE.txt
+- 참고: E:\verify_reports\F7-STAGE4-ASYNC-JOB-DESIGN-AND-IMPLEMENT.txt
 
 ### F9. ✅ 해결 완료 — 개별검증 job ↔ 검증 run_id 연결점이 서버에 전무했다
 - 발견일: 2026-07-27 / 해결일: 2026-08-06 (F9-APPROVED-IMPLEMENT-THEN-F8-SUMMARY-VIEW-PHASE1,
