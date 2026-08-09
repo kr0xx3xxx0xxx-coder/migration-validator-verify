@@ -1,0 +1,86 @@
+작업명: F12-CASCADE-DELETE-SAFETY-GATE-IMPLEMENT
+✅ 작업 완료 - HOLD 3건 cascade 삭제 안전장치(함수+2차확인 UI) 구현, 실제 삭제는 미실행
+
+────────────────────────────────────────────────────────────
+배경
+────────────────────────────────────────────────────────────
+BACKLOG.md F12 항목·근거보고서 F12-IS-TEST-RETROACTIVE-MIGRATION.txt §3-2 제안 설계를
+그대로 구현했다. HOLD 3건(TESTONLY_REG/__TEST_PROJECT__/TESTONLY_ASYNC_PARALLEL, is_test=1
+표식됨)은 참조 데이터가 남아 있어 기존 hard_delete_project()로는 삭제할 수 없다(의도적
+설계, 무수정). 이번 지침은 "안전장치를 만드는 것"까지만 — 실제 HOLD 3건 삭제는 이 완료
+보고 이후 별도 결정 대기다.
+
+────────────────────────────────────────────────────────────
+구현 내역(파일:라인)
+────────────────────────────────────────────────────────────
+1. services/project_store.py:405 — hard_delete_project_cascade(project_id, *,
+   confirm_cascade: bool, db_path=None) 신규 함수.
+   - 게이트①(is_test=1 아니면 거부)은 기존 hard_delete_project()(:370)와 동일 유지.
+   - 게이트②를 "참조 0건" 대신 "confirm_cascade=True 명시"로 대체.
+   - confirm_cascade=True 일 때만 group_hard_reset_service.delete_project(project_id)
+     (services/group_hard_reset_service.py:249)에 위임 — cascade 로직 재구현 안 함.
+   - 기존 hard_delete_project()(:370~402)는 한 글자도 수정하지 않음.
+
+2. routes/project_route.py:90 — POST /projects/{project_id}/delete-cascade 신규 라우트.
+   ProjectDeleteCascadePayload(confirm_cascade: bool = False) 를 받아
+   ps.hard_delete_project_cascade() 호출. 기존 /delete(soft_delete_project_route)와
+   완전히 별개 경로(오조합 삭제 방지).
+
+3. ui/tabler_renderer.py:33670~33697(_projModalDelete 내부), :33715(_projConfirmCascadeDelete
+   신규 함수) — 프로젝트 삭제 modal에 "⚠ 참조 데이터까지 함께 삭제(cascade)" 2차 확인 UI
+   추가. is_test && refs(참조 데이터) 존재 시에만 노출. 참조 테이블별 건수를 문구에 표시,
+   전용 체크박스(projDelCascadeAck) 체크 전에는 삭제 버튼(projDelCascadeConfirm)이
+   disabled. 기존 단순 확인 체크박스(projDelAck)·기존 삭제 버튼(projDelConfirm)과는
+   완전히 별개 DOM/문구.
+
+────────────────────────────────────────────────────────────
+검증 결과
+────────────────────────────────────────────────────────────
+[1] 격리 테스트 DB(임시 디렉터리, MV_DATA_DIR 서버 프로세스 기동 전 지정 — 실 프로덕션
+    DB db/migration_validator.db는 이 검증 전체에서 단 한 번도 열지 않음) — 함수 단위 4케이스:
+      A. is_test=1, confirm_cascade=False → 거부(참조 유무 무관)              PASS
+      B. is_test=0, confirm_cascade=True  → 거부(게이트① 우선)               PASS
+      C. is_test=1, confirm_cascade=True  → project+참조행(group) 실제 cascade 삭제 PASS
+      D. 기존 hard_delete_project()는 참조 있으면 여전히 거부만(cascade 안 함) PASS
+    스크립트: scratchpad/f12_cascade_isolated_verify.py(세션 전용, 미커밋)
+
+[2] 실 브라우저 클릭스루(격리 임시 DB + 포트 8199 별도 서버 기동, MV_AUTH_DISABLED=1,
+    실 서비스 포트 8000/프로덕션 DB 전혀 관여 안 함, 검증 후 서버 종료+임시 DB 삭제 확인):
+    scripts/dev_e2e/f12_cascade_delete_ui_verify.py
+      cascade 2차 확인 UI 노출(is_test+refs)                    PASS
+      체크 전 cascade 삭제 버튼 disabled                        PASS
+      체크 안 하면 클릭 자체가 안 먹음(playwright 클릭 타임아웃) PASS
+      체크 후 cascade 삭제 버튼 활성화                          PASS
+      cascade 삭제 후 목록에서 프로젝트 소멸                     PASS
+
+[3] 관련 테스트 서브셋 (tests/test_project_safe_delete.py, test_project_is_test_flag.py,
+    test_group_hard_reset.py, test_project_menu_shell.py): 40건 중 37 passed / 3 failed.
+    실패 3건은 전부 HEAD(git show HEAD:<file>) 기준선에도 동일하게 존재하는 사전 실패로
+    확인(F12 작업과 무관, 회귀 아님):
+      - test_group_hard_reset.py::TestUiButtons::test_delete_buttons_and_confirm
+        ("function projectHardDelete" 문자열 부재 — HEAD에도 0건, 별개 구조)
+      - test_project_menu_shell.py::test_project_group_is_top
+        (좌측메뉴 그룹 순서 단언, JOB-DASHBOARD-STAGE3 관련 별개 이슈)
+      - test_project_menu_shell.py::test_existing_tabs_preserved
+        ("function showTab(name)" 정확일치 단언 — HEAD 소스는 이미 "showTab(name, opts)")
+
+[4] CLAUDE.md 필수 회귀 최종 1회:
+      python samples/test_virtual_cases.py  → 8/8 통과
+      python samples/test_complex_cases.py  → 5/5 통과
+
+────────────────────────────────────────────────────────────
+커밋
+────────────────────────────────────────────────────────────
+migration-validator(코드 저장소) 4ce9a39d
+"feat(project): cascade 삭제 안전장치 구현 (F12-CASCADE-DELETE-SAFETY-GATE-IMPLEMENT)"
+변경 파일: routes/project_route.py, services/project_store.py, ui/tabler_renderer.py,
+          scripts/dev_e2e/f12_cascade_delete_ui_verify.py (4 files changed, 260 insertions)
+
+────────────────────────────────────────────────────────────
+이번 지침에서 하지 않은 것 (명시)
+────────────────────────────────────────────────────────────
+실제 HOLD 3건(TESTONLY_REG/__TEST_PROJECT__/TESTONLY_ASYNC_PARALLEL) 삭제는 별도 결정
+대기다. 이번 작업은 안전장치(함수 + 2차 확인 UI)만 구현했고, 그 3건을 실제로 지울지는
+이 완료 보고 이후 사용자가 별도로 결정한다.
+
+✅ 작업 완료 - HOLD 3건 cascade 삭제 안전장치(함수+2차확인 UI) 구현, 실제 삭제는 미실행
