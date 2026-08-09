@@ -2194,7 +2194,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\F24-F20-F4-1-F4-4-APPROVED-SEQUENTIAL-IMPLEMENT-COMPLETE.txt
 - 참고: E:\verify_reports\F4-3-ADMIN-OVERRIDE-MEMO-DECIDED-BY-UI-FIX\ (스크린샷+verify_facts)
 
-### F5. 배치1(3파일·71케이스) 완료 — mutation 17/17 탐지, 소급4시점 확인(가짜회귀4건 흡수 실증), 배치2/3 승인대기
+### F5. 배치1+2(7파일·177케이스) 완료 — mutation 17/17+12/12 탐지, 소급4시점 확인, 배치3 승인대기
 - 발견일: 2026-07-28 / Tier2 재확정: 2026-08-09(F5-TIER2-WHITEBOX-CONTRACT-SCOPE-DIAGNOSE,
   코드 무변경)
 - 근거 보고서: `WHITEBOX-TEST-CONTRACT-CONVERSION-PHASE1.txt`(§5·§6, 최초) →
@@ -2234,11 +2234,27 @@ git -C E:/verify_reports worktree remove <임시경로>
   **부수 발견(범위 밖, 다음 배치를 위한 baseline으로 기록)**: 인접 140파일(~1,940케이스)
   중 62~70건 사전존재 실패군 최초 전수 확인, 죽은 CSS class 4종 발견 — 둘 다 손 안 댐.
   CLAUDE.md 필수 회귀 통과.
-- 대응 방향: **배치2(중간 4파일·102케이스) 착수 승인 필요**(방법론 검증 완료, 5절
-  실패목록을 baseline으로 재사용 권고).
+- **배치2 해결 완료(2026-08-09, F5-TIER2-BATCH2-IMPLEMENT, 코드 커밋 0a9eb328)**:
+  4파일·106케이스(지시서 "102케이스"는 근사치, 실측 106) 전환(±0케이스). 로컬
+  재구현 헬퍼(`_between`, listener_body 중복품) **완전 제거**하고 9곳 전부
+  contract_utils로 위임(중복 제거를 완료의 일부로 실행). **mutation 12종 → 12/12
+  전부 탐지, 놓침 0건**(배치1의 사각지대 없음 — 대상이 이미 강한 계약이라서).
+  소급 4시점 재사용(배치1과 동일 지점) — 229bd6fd에서 배치1과 동일 성격의 가짜회귀
+  재현 확인(전환전 2 failed→전환후 0 failed). baseline 7 failed 중 3건은 "새로고침=
+  처음진입" 정책 도입으로 사라진 리터럴(정당한 리팩터)로 확인해 함수 실제 행위
+  (run_node로 직접 실행)로 바로잡음. 인접 140파일 회귀대조 — 불일치 38건 전수조사해
+  전부 워크트리 전용 아티팩트(35건)·`.env` 부재로 인한 라이브DB 테스트 스킵(3건,
+  git stash로 배치2 무관 확인)임을 규명, 신규 회귀 0건. 작업 내내 다른 세션(M62)이
+  같은 파일을 미커밋 변경 중이었으나 매 단계 git diff로 격리 확인, 최종 커밋 4개
+  대상 파일만 정확히 스코프.
+  **부수 발견(범위 밖)**: 진단(diagnostics) 렌더 함수의 `.innerHTML` 사용 XSS 계약
+  위반 4건, scoring dashboard 워크트리 전용 실패 35건(원인 미특정) — 둘 다 별도
+  트리아지 권고, 손 안 댐.
+- 대응 방향: **배치3(잔여 3파일·56케이스) 착수 승인 필요**.
 - 참고: E:\verify_reports\WHITEBOX-TEST-CONTRACT-CONVERSION-PHASE1.txt
 - 참고: E:\verify_reports\F5-TIER2-WHITEBOX-CONTRACT-SCOPE-DIAGNOSE.txt
 - 참고: E:\verify_reports\F5-TIER2-BATCH1-IMPLEMENT.txt
+- 참고: E:\verify_reports\F5-TIER2-BATCH2-IMPLEMENT.txt
   근본 구조(렌더러가 python 문자열 안의 거대 JS = `ui/tabler_renderer.py`)는 그대로이며,
   이번 전환은 증상 완화이지 원인 제거가 아니다.
   ※ "잔여 103개 파일" 로 알려져 있으나, 보고서상 103 은 **회귀 통과 건수**이지 파일 수가 아니다.
