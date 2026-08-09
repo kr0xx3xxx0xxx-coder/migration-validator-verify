@@ -2321,7 +2321,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\F6-MULTI-GROUPBY-COMBINATION-VALIDATION-SCOPE-DIAGNOSE.txt
 - 참고: E:\verify_reports\F6-PLAN-EXCLUDED-DISPLAY-IMPLEMENT.txt
 
-### F7. ⚠️ 단일세트 완료, 다중세트(GROUP BY 2개↑) 명시적 범위 제외 — 4단계 통계검증 비동기 job화
+### F7. ✅ 완전 해결 — 단일세트+다중세트 비동기 job화 전부 완료(다중세트 검증 중 실제 race condition 발견·수정)
 - 발견일: 2026-07-28 / 단일세트 해결일: 2026-08-09(F7-STAGE4-ASYNC-JOB-DESIGN-AND-IMPLEMENT,
   코드 커밋 f176107a·f4b8c5cd, 로컬 전용 push 없음)
 - 근거 보고서: `SINGLE-STEP4-BACKGROUND-WATCH-AUTO-STEP5-FEASIBILITY-DIAGNOSE.txt` /
@@ -2355,9 +2355,32 @@ git -C E:/verify_reports worktree remove <임시경로>
   여전히 동기 실행이며, 화면에서 [백그라운드 실행] 버튼이 disabled+사유문구로 명시
   차단(조용한 무시 아님). 5단계 조건부 자동전환·현황판 새창(Phase1/2)·서버 단계명
   표시(옵션B)·실행중 취소·새로고침 후 복원도 모두 미착수(각각 사유 명시).
+- **다중세트 해결 완료(2026-08-09, F7-STAGE4-MULTISET-ASYNC-VERIFY-RESUME, 코드
+  커밋 9f45fc7a — 구현 자체는 선행 세션이 920f57ec로 이미 커밋, 이번 세션이 검증부터
+  이어받음)**: 단일세트 패턴을 그대로 확장(`services/multiset_execute_service.py`
+  신규, 세트별 기존 /generate·/execute 재호출·순차 합산, 새 판정 로직 0건). 세트 중간
+  실패 시 기본 "나머지 세트 계속 실행"(동기 경로와 동일 정책).
+  **★ 검증 중 실제 race condition 발견·수정**: 세트 하나의 /generate 실패가
+  `workflow_stage_guard`의 공유 'candidate' 상태를 덮어써서, **다른 세트는 성공했는데도
+  이후 모든 실행(동기+비동기 둘 다)이 그 workflow_token으로 영구 차단**(409
+  STAGE_PREREQUISITE_NOT_MET)되는 결함을 실제 DB로 재현·확인. 단일세트(세트 1개뿐)는
+  이 경합이 구조적으로 드러날 수 없어 처음으로 다중세트에서만 실증됨 — 오늘 하루
+  "다중세트가 가장 위험하니 마지막에"라고 반복 경계했던 근거가 실제로 맞아떨어진
+  사례. 수정: 세트 루프 중 하나라도 SQL 생성 성공했으면(any_generate_ok) 루프 종료
+  후 guard의 candidate 상태를 SUCCESS로 명시 복원 — **사용자에게 보이는 실패 표시
+  (sets_failed/outcome 등)는 전혀 안 건드리고 내부 상태 관리만 정정**(실패 사실
+  은폐 아님). 회귀테스트가 수정 전 코드에서 실제로 FAIL함을 확인(장식 테스트 아님).
+  **1차 재검증 실패를 스스로 알아채고 정정**: 서버가 아직 옛(수정 전) 모듈로 돌고
+  있어 재검증이 실패 → 재기동 후 M1~M8 전체를 처음부터 다시 검증해 최종 확인.
+  실측(M1~M8): 브라우저 컨텍스트 완전종료 후에도 서버 지속실행(M8), 세트 중간
+  실패 시 나머지 세트 계속 진행+화면에 세트별 성공/실패 칩 명확히 구분 표시(M7),
+  동기/비동기 결과 완전 동일(요약값+그룹행 digest, M6), 5단계 자동진입 없음 유지
+  확인(M5). 46개 테스트 전부 통과, 관련 서브셋 신규 회귀 0건(사전존재 flaky 테스트
+  클러스터는 이번 변경과 무관한 파일임을 확인). CLAUDE.md 필수 회귀 통과.
 - 참고: E:\verify_reports\SINGLE-STEP4-BACKGROUND-WATCH-AUTO-STEP5-FEASIBILITY-DIAGNOSE.txt
 - 참고: E:\verify_reports\SINGLE-STEP4-INLINE-PROGRESS-FEASIBILITY-DIAGNOSE.txt
 - 참고: E:\verify_reports\F7-STAGE4-ASYNC-JOB-DESIGN-AND-IMPLEMENT.txt
+- 참고: E:\verify_reports\F7-STAGE4-MULTISET-ASYNC-VERIFY-RESUME.txt
 
 ### F9. ✅ 해결 완료 — 개별검증 job ↔ 검증 run_id 연결점이 서버에 전무했다
 - 발견일: 2026-07-27 / 해결일: 2026-08-06 (F9-APPROVED-IMPLEMENT-THEN-F8-SUMMARY-VIEW-PHASE1,
@@ -3732,22 +3755,36 @@ git -C E:/verify_reports worktree remove <임시경로>
   회귀 통과. 체크박스 동작(체크=단일축+조합 추가) 자체는 무변경.
 - 참고: E:\verify_reports\GROUPBY-COMBO-PLAN-CAP-RESEARCH-AND-RAISE.txt
 
-### M66. 인접 배치/후보 테스트 파일군(~140파일) 전수 실행이 --collect-only 단계부터 무응답(hang) — 원인 미규명
+### M66. ✅ 해결 완료(오판 정정) — "무응답(hang)"이 아니라 pytest 개별인자×tests/디렉토리비대화(1,248파일)가 만든 정상 지연(71~74초)이었음
 - 발견일: 2026-08-09 (F5-TIER2-BATCH3-IMPLEMENT 진행 중 발견 — 배치1·2가 정상 완주했던
-  같은 글롭이 배치3 시점엔 collect-only 단계부터 60초+ 무응답)
-- 상세: `test_batch_*.py`/`test_wrapper_results*.py`/`test_candidate_*.py`/
-  `test_column_candidate_*.py`(~140파일, ~1,940케이스) 전수 실행이 테스트 실행
-  이전(import 시점)부터 hang. `test_batch_row_snapshot_realdb_smoke.py`를 `--ignore`
-  해도 동일 — 다른 파일도 import 시점에 실 DB 접속을 시도하는 것으로 추정(원인
-  미확정). 기존 scratchpad의 `_adjacent_failed_files*.txt` 등은 확인 결과 이번
-  글롭과 무관한 다른 작업의 잔재로 판명돼 baseline으로 재사용하지 않음(신뢰 못할
-  데이터 안 쓰는 원칙 우선).
-- 영향: 인접 파일군의 사전존재 실패 규모(배치1·2가 보고한 62~70건)가 이번 hang으로
-  갱신 확인이 안 됨 — 향후 F 계열 작업이 "인접 회귀 없음"을 주장하기 어려워짐(구조적
-  근거로는 가능하나 직접 실행 확인이 막힘).
-- 대응 방향: 미결정. collect-only부터 개별 파일 단위로 이분탐색해 원인 파일을 좁히는
-  후속 조사 권고.
-- 근거: F5-TIER2-BATCH3-IMPLEMENT.txt §5~6(별도 파일 미작성, 이 보고서에 기록됨).
+  같은 글롭이 배치3 시점엔 collect-only 단계부터 60초+ 무응답으로 보임) / 해결일:
+  2026-08-09 (M66-ADJACENT-FILES-COLLECT-HANG-DIAGNOSE, 코드/테스트 무변경)
+- **결론: 진짜 무한대기가 아니었음.** 이분탐색(140→70→35) 결과 35개씩 4묶음이
+  **전부 정상 종료** — "특정 파일 결함"이 아니라 "건수에 비례해 느려지는 임계치형
+  지연" 패턴임을 그 자체로 시사. 타임아웃을 넉넉히(120~300초) 주고 재실행하니
+  **140개 전부 매번 71~74초에 정상 종료(rc=0, 3회 반복 재현)** — 예전 "60초=멈춤"
+  기준이 이 환경의 정상 소요시간보다 짧아서 무응답으로 오판됐던 것.
+  **근본 원인**: DB 접속이 아님(140개 파일 AST 스캔으로 모듈최상위 `.connect(` 호출
+  0건 확인, "모듈레벨 접속" 가설 기각). cProfile로 실측한 결과 pytest 내부
+  collection/ignore-collect 로직의 반복 파일시스템 stat 호출(`is_file()` 459,256회)
+  이 최상위 소모.
+  **결정적 대조실험**: 같은 tests/ 디렉토리를 "디렉토리 1개"로 넘기면 12,378개
+  테스트를 35초(테스트당 2.8ms)에 수집. 그 부분집합 140개를 "개별 CLI 인자 140개"로
+  나열하면 1,946개 테스트에 72~74초(테스트당 37ms, **13배 느림**) — pytest가 인자
+  개수×디렉토리 크기(1,248파일)만큼 반복 판정을 수행해서 생기는 구조적 지연임을
+  실증. F5-배치3이 관찰한 "특정 파일 --ignore해도 동일"과도 정합(인자 1개 빼도
+  구조적 지연은 거의 안 줄어듦).
+- 판정: 테스트 코드 문제도 좁은 의미의 환경 문제(DB 미응답 등)도 아님 — "pytest
+  호출 방식(개별 파일 나열) × tests/ 디렉토리 비대화(1,248파일)" 조합이 만든 pytest
+  자체 성능 특성. 지시 원칙("애매하면 진단만 하고 멈춰라")에 따라 코드/테스트
+  무수정으로 종료(안전한 해결이 국소 수정 범주를 벗어남).
+- **향후 권장(문서화만)**: 개별 파일 140개 나열 대신 `tests/` 디렉토리 단일 인자
+  + `-k` 표현식 필터 사용 — 실측 8~13배 빠름. 단 `-k`는 nodeid 부분일치라 오탐
+  가능, 적용 전 케이스 수 일치 재확인 필수.
+- **부수 관찰(범위 밖, 기록만)**: `tests/` 디렉토리 자체가 1,248개 파일(+__pycache__
+  1,043개)까지 비대화된 상태 — F5 Tier2가 지적한 "ui/tabler_renderer.py 비대화"와
+  같은 성격의 "구조 안정화 우선" 대상으로 별도 검토 여지.
+- 근거: E:\verify_reports\M66-ADJACENT-FILES-COLLECT-HANG-DIAGNOSE.txt
 
 ### M59. ✅ 완전 해결 — 0단계+dead필드24개삭제+reclaim_stale 결함A·B 전부 완료, 실배선만 잔존(별도 결정)
 - 발견/계기: 2026-08-09 (개별/일괄/전수 3모드에 흩어진 설정값을 전역 공통+모드별
