@@ -2284,14 +2284,36 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\F11-MENU-CLEANUP-SCOPE-DIAGNOSE.txt
 - 참고: E:\verify_reports\F11-B-SHOWTAB-SINGLE-ROUTING-FIX.txt
 
-### F12. 프로젝트 is_test 소급 마이그레이션 25건 미적용 + HOLD 13건 cascade 정리
-- 발견일: 2026-07-27
-- 근거 보고서: `PROJECT-IS-TEST-FLAG-IMPLEMENT.txt` (§6)
-- 상세: 소급 마이그레이션은 한 줄 명령이며 결과는 12건 삭제 / 13건 HOLD 로 예측된다.
-  HOLD 13건을 없애려면 자식 데이터(owner_binding, batch_group, upload_row 등)까지 지우는 cascade 가
-  필요하고, `group_hard_reset_service` 같은 공통 core 를 재사용하는 별도 작업이 안전하다.
-  ※ 기존 데이터 삭제를 수반하므로 **실행 전 사용자 확인 필수**.
+### F12. ⚠️ 1단계 완료(소급표식, 삭제없음) — 원본가정(12삭제/13HOLD) 소멸 확인, 실제는 3건 전부 HOLD, cascade 삭제는 사용자 확인 대기
+- 발견일: 2026-07-27 / 1단계 실행: 2026-08-09(F12-IS-TEST-RETROACTIVE-MIGRATION, 데이터만
+  변경·코드 무변경)
+- 근거 보고서: `PROJECT-IS-TEST-FLAG-IMPLEMENT.txt`(§6, 최초) →
+  `F12-IS-TEST-RETROACTIVE-MIGRATION.txt`(1단계 실행+2·3단계 설계)
+- **원본 전제 소멸 확인**: 최초 보고서(2026-07-28) 스냅샷 "25건 중 12삭제/13HOLD"는
+  현재 DB 상태와 더 이상 안 맞음 — OWN-* 22건이 이미 소멸(원인 미조사, 범위 밖),
+  남은 원본 후보는 3건(TESTONLY_REG/__TEST_PROJECT__/TESTONLY_ASYNC_PARALLEL)뿐이고
+  **전부 참조 존재라 HOLD**(즉시삭제 0건).
+- **1단계(표식, 완료)**: 3건에 `is_test=1` 부여만 실행(삭제 없음, project 총 행수
+  14건 불변 확인). **안전 포착**: 기존 스크립트(`cleanup_test_projects.py --apply`)가
+  표식+삭제를 같은 호출에서 함께 수행한다는 걸 발견해 그대로 안 쓰고, 표식 로직만
+  분리한 별도 스크립트로 처리(지시서의 "1단계는 삭제 없음" 요구 위반 방지).
+- **2단계(목록화, 완료·실행안함)**: 새로 즉시삭제 가능해진 건 0건 — "12건 삭제"
+  시나리오는 현재 재현되지 않음.
+- **3단계(cascade 설계, 완료·실행안함)**: 기존 `group_hard_reset_service.delete_project()`
+  가 필요한 cascade를 이미 구현 중(재사용 가능, 신규 구현 불필요) — 다만 is_test 정리
+  경로(`hard_delete_project()`)에는 아직 배선 안 됨(주석에 "cascade 안 함" 명시된
+  의도적 설계). 신규 게이트 함수(`hard_delete_project_cascade(confirm_cascade=True)`)
+  추가를 제안, 기존 함수는 무수정. HOLD 3건 각각의 실제 cascade 삭제 범위를 COUNT
+  시뮬레이션(DELETE 없음)으로 정확히 산정(832: 8개 그룹·관련 테이블 다수, 898: 15개
+  그룹, 921: 2개 그룹 — 상세 행수는 보고서 참고).
+- **범위 밖 발견(별도 기록만, 조치 안 함)**: is_test 정식 도입 이후 쌓인 별도 잔재
+  10건(MV-ADMOVR-*/MV-M34-*/F10VERIFY_PROJ_* 패턴) — 즉시삭제 가능 7건, HOLD 3건.
+  F12 범위(원본 25건) 밖이라 이번엔 손 안 댐, 필요 시 별도 백로그 항목 권장(범위
+  혼선 방지).
+- **결정 필요**: HOLD 3건의 cascade 삭제를 실제로 진행할지(3-2 설계+UI 2차확인 구현
+  필요), 범위 밖 잔재 10건도 별도로 처리할지.
 - 참고: E:\verify_reports\PROJECT-IS-TEST-FLAG-IMPLEMENT.txt
+- 참고: E:\verify_reports\F12-IS-TEST-RETROACTIVE-MIGRATION.txt
 
 ### F18. `cd1` 류(이름·코멘트 없고 값도 애매한) 컬럼의 관리컬럼 판정용 구조적 신호가 미구현이다
 - 발견일: 2026-07-15 (세션 논의 — 문서화된 진단/설계 보고서 없음)
