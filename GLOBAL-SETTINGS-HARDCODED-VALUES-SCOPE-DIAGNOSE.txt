@@ -1,0 +1,546 @@
+작업명 : GLOBAL-SETTINGS-HARDCODED-VALUES-SCOPE-DIAGNOSE
+✅ 작업 완료 - 하드코딩 설정값 4카테고리 전수조사 + 기존 설정 인프라 분석 + 모드별 계층 설계 + 5단계 착수안 제시 (코드 수정 0건, 조사·설계만 수행)
+
+지시서: directives/GLOBAL-SETTINGS-HARDCODED-VALUES-SCOPE-DIAGNOSE.md
+대상: X:\Projects\Migration_Validator (services/, routes/, config/, validator/, analyzer/, parser/, generator/, ui/ 전체)
+수행: Opus 서브에이전트 위임 조사(grep + read, 코드 수정 없음)
+
+================================================================
+섹션 1. 하드코딩 값 전수조사
+================================================================
+
+■ 1-0. 규모 요약(직접 실측)
+- 모듈 최상위 숫자 상수(services/+routes/+config/+db/, "^[A-Z_]+ = 숫자") : 232개
+  · 그중 config/ 로 외부화된 것 : 33개 (size_threshold_registry 27 + model_config 6)
+- 환경변수 override 가능한 것 : 82개 참조 / 실제 임계값성 env는 약 25개
+- 운영 코드 규모 : services 424파일 119,212줄 / routes 42파일 14,663줄 / ui 32파일 48,372줄
+- "완료 모듈"(parser·analyzer·generator·checker·validator·adapter) : 36파일 10,515줄 = 전체의 약 8%
+
+핵심 구조 사실(직접 확인): services/batch_single_core_wrapper.py:1-30 은 "일괄 전용 로직 금지 —
+검증 판단은 전부 facade가 담당"을 명시하고 single_validation_run_facade.run_single_validation_standard
+를 row 단위로 호출한다. 즉 일괄검증의 주 경로는 개별검증 core를 그대로 재사용하며, 아래 상수 대부분은
+"의도적 공유"가 아니라 "구조적 공유"다. 단, batch_stats_execute_service.py / batch_runner.py /
+batch_count_only_service.py 는 별도 레거시 경로로 자체 상수를 갖는다(MV_BATCH_LEGACY_EXEC 로 분기).
+
+■ 1-1. SQL 실행 타임아웃
+
+파일:라인 | 이름 | 값 | 모드 | env | 비고
+services/stats_execute_service.py:47 | EXECUTE_STATEMENT_TIMEOUT_MS | 60,000ms | 개별 4단계 | O MV_EXECUTE_STATEMENT_TIMEOUT_MS | 4단계 단일원천
+services/db_query_service.py:356 | COUNT_STATEMENT_TIMEOUT_MS | 60,000ms | 공용 2단계 COUNT | O MV_COUNT_STATEMENT_TIMEOUT_MS | 4단계와 parity
+services/batch_stats_execute_service.py:86-93 | _TIMEOUT_BY_RISK | LOW60/MEDIUM120/HIGH180/VERY_HIGH300/UNKNOWN120초 | 일괄 전용 | X | ※ 개별 60초 고정과 비대칭(직접확인)
+services/batch_stats_execute_service.py:93 | _TIMEOUT_DEFAULT | 120초 | 일괄 | X |
+services/exact_diff/dialects/postgresql.py:123 | statement_timeout_ms 기본인자 | 300,000ms(5분) | 전수/재이관 | X | ※ engine.py:96-101 make_exact_diff_io()가 인자 없이 생성 → 어떤 경로로도 조정 불가(직접확인)
+services/exact_diff/dialects/oracle.py:174 | 동일 | 300,000ms | 전수/재이관 | X | conn.call_timeout
+services/exact_diff/agg_contribution.py:211,885 | 인라인 리터럴 | 120,000ms x2 | 전수 | X |
+services/single_validation_analyze_service.py:192 | _ANALYZE_DB_STATEMENT_TIMEOUT_MS | 10,000ms | 개별 1단계 | X |
+services/column_profile_service.py:53 | _PROFILE_STATEMENT_TIMEOUT_MS | 15,000ms | 공용 3단계 | X |
+services/candidate_postcount_finalize.py:36 | _DATE_PROFILE_TIMEOUT_MS | 15,000ms | 개별 | X |
+services/metadata_collection_service.py:39 | _DEFAULT_TIMEOUT_MS | 15,000ms | 공용 | X |
+services/exhaustive_candidates/result_set_evidence.py:31 | _DEFAULT_TIMEOUT_MS | 60,000ms | 전수 | X | 주석="stats와 동일 기본값" - 복제 상수, 동기화 안 됨
+services/readonly_execute_gate.py:20 | 기본인자 | 60,000ms | 공용 | X |
+services/diagnosis/profiler.py:110,112 | 인라인 | 30,000ms | 진단 | X |
+services/diagnosis/key_evidence.py:72,99,206,267 | timeout_ms=8000 x4 | 8,000ms | 진단 | X | 동일 리터럴 4회 반복
+services/diagnosis/adapters/base.py:56 | timeout_ms | 60,000ms | 진단 | X |
+routes/count_gate_route.py:100 | 인라인 | 30,000ms | 개별 | X |
+routes/diagnosis_route.py:770,1538 | 인라인 | 60,000ms x2 | 진단 | X |
+config/model_config.py:166 | SQL_PARSE_TIMEOUT_SECONDS | 15초 | 공용 | O |
+config/model_config.py:183 | GROUPBY_SAFETY_CHECK_TIMEOUT_SECONDS | 5초 | 공용 | O |
+services/exact_diff/sampling_preflight.py:84 | SAMPLING_TIME_CAP_MS | 60,000ms | 전수 | O | 누적 상한
+services/exact_diff/sampling_preflight.py:104 | SHAPE_RISK_PROBE_CAP_MS | 3,000ms | 전수 | O |
+
+※ "60초"가 6곳에 독립 선언(stats_execute_service:47, db_query_service:356,
+exhaustive_candidates/result_set_evidence:31, readonly_execute_gate:20, diagnosis_route:770,1538).
+env 하나를 바꿔도 나머지는 60초 그대로.
+
+■ 1-2. DB 접속 타임아웃 / 재시도
+
+파일:라인 | 이름 | 값 | 모드 | env | 비고
+services/db_query_service.py:665 | connect(...,connect_timeout=10) | 10초 | 공용-물리연결 단일 chokepoint | X | 직접확인, 영향 가장 큰 단일지점
+services/db_adapters/base.py:90 | 인터페이스 기본 | 10초 | 공용 | X |
+services/db_adapters/oracle.py:230-235 | connect_timeout | 미적용(HOLD) | 공용 | X | ※ 파라미터를 받지만 드라이버에 미전달 → Oracle 무응답시 무한대기
+services/db_connection_service.py:90,264,545,604 | timeout=5 | 5초 | 공용 probe | X |
+services/exact_diff/dialects/postgresql.py:389 | connect_timeout=30 | 30초 | 전수 | X | 공용 10초와 불일치
+routes/batch_route.py:178,190 | connect_timeout=10 | 10초 | 일괄 | X | psycopg2 직접 호출
+services/connection_pool.py:39-42 | POOL_MAX_IDLE_PER_KEY=4, POOL_MAX_LIFETIME_S=300.0, POOL_IDLE_TIMEOUT_S=120.0, POOL_PING_AFTER_S=5.0 | - | 공용 프로세스 전역 | X |
+
+재시도 - 실체가 거의 없음(직접 교차검증):
+- services/exact_diff/execution_settings.py:44-45 max_retry_count=3, retry_backoff_ms=500 → 소비처 0건(선언만)
+- services/batch_count_only_service.py:145-153 연결장애시 1회 고정 재시도(값이 아니라 제어흐름에 박혀 있음)
+- services/exact_diff/chunk_checkpoint.py:131-140 "no such table" 자가복구 1회(동일)
+※ 지수 백오프는 코드베이스 전체에 구현되어 있지 않다. 모든 time.sleep 은 고정 간격 폴링용.
+
+■ 1-3. 조합축(GROUP BY 조합) 자동계획 상한
+
+services/groupby_plan_service.py:22 PLAN_TARGET_MAX_GROUPS = 100 | 공용(개별4단계+execute_set) | X 완전 하드코딩
+services/groupby_plan_service.py:23 PLAN_MIN_AVG_ROWS_PER_GROUP = 100 | 공용 | X
+services/groupby_plan_service.py:24 PLAN_MAX_AUTO_PAIR_SETS = 1 | 공용 | X
+services/groupby_plan_service.py:25 PLAN_MAX_AUTO_TRIPLE_SETS = 0 | 공용 | X
+config/model_config.py:180 INTERACTIVE_GROUPBY_MAX_GROUPS = 100,000 | 공용 | O
+config/model_config.py:202 GROUPBY_ESTIMATE_SAFETY_FACTOR = 2.0 | 공용 | O(추정값 실효상한 5만)
+config/model_config.py:263,291 DATE_BUCKET_MAX_GROUPS/GENERAL_COLUMN_MAX_GROUPS = 60,60 | 공용 | O
+services/groupby_estimate_service.py:34-36 _NORMAL/_CAUTION/_WARNING_MAX = 1,000/10,000/100,000 | 공용 표시등급 | X
+services/diagnosis/candidate/recommender.py:43-48 max_combinations=3, max_group_count=100000, high_cardinality_cap=1000 | 진단/전수 | dict override
+services/strategy/effective_selection.py:18-19, selection_normalizer.py:22-23 SYSTEM_MAX_GROUP_BY=3, SYSTEM_MAX_SUM=3 | 공용 | X(CLAUDE.md 규약값)
+services/stats_validation_plan_service.py:617 SELECTION_CAP=3 | 일괄 | X
+services/validation_policy_service.py:58-59 default_groupby_limit/sum_limit = 3/3 | 공용 | O DB정책+화면편집가능
+
+※ PLAN_TARGET_MAX_GROUPS=100 은 파일 주석(:20)에 "화면 코드에 숫자 하드코딩 금지, 여기 상수만
+수정한다"고 선언하지만, 그 상수 자체가 registry·policy·env 어디에도 없다. 함수 인자 max_groups= 로만
+주입 가능.
+
+■ 1-4. 저장 상한
+
+validator/default_validator.py:219 MAX_DIFF_ROWS = 1000 | 전수(legacy) | X - "전수검증 불일치 최대 저장 건수" 주석
+validator/default_validator.py:216 MAX_STATS_ROWS = 200 | 전수/통계 | X
+services/exact_diff/contracts.py:38,40,35 MAX_DIFF_RECORDS=1000, DETAIL_FETCH_BATCH=1000, PHASE1_MAX_ROWS=50_000 | 전수 | X
+services/exact_diff/agg_contribution.py:44 AGG_MAX_KEYS = 60,000 | 전수 | X(초과시 HOLD)
+services/exact_diff/agg_contribution.py:61-64 TARGET_ONLY_STORE_CAP=50000, REIMPORT_INGEST_BATCH=5000, REIMPORT_STREAM_ITERSIZE=20000 | 전수 | O env
+services/validation_policy_service.py:83 representative_sample_limit = 20 | 공용 | O DB+화면
+services/validation_policy_service.py:76 sample_representative_store_n = 20 | 공용 | O DB+화면
+services/display_limit_policy.py:165,193,225 representative_sample_n=20 | 공용 D3 | X 인자 기본값
+services/exact_diff/pk_range_chunk.py:385 representative_limit=20 | 전수 | X 인자 기본값
+routes/agg_diff_route.py:151 정책 실패 폴백 (None,20,None,0,None) | 전수 | X(직접확인)
+routes/agg_diff_route.py:1271 ... or 101 | 전수 | X 리터럴 폴백(직접확인)
+config/size_threshold_registry.py:95-96 PER_GROUP_FULL_LIST_DEFAULT=100, PER_GROUP_FULL_LIST_CAP=500 | 공용 | O HARD CAP clamp
+services/single_validation_result_store.py:80-81,374 _MAX_CANDIDATES=200, _MAX_STR=1000, rows[:200] | 개별 | X
+services/stats_result_store.py:23,25 _MAX_RESULTS=24, PAGE_SIZE_DEFAULT=50 | 개별 | X
+services/validation_result_store.py:35 _MAX_ROWS_DISPLAY=200 | 공용 | X
+services/stats_execute_service.py:34 MAX_DISPLAY_ROWS=200 | 개별+일괄 | X
+services/batch_stats_execute_service.py:596,881 rows[:50], rows[:20] | 일괄 | X 리터럴
+
+※ "대표 20건"이 6곳에 독립 존재(정책 2개+코드 기본값 4개). 정책값을 바꿔도 display_limit_policy.py:165
+와 pk_range_chunk.py:385 는 20 그대로.
+※ "200행 표시"가 3곳에 독립 하드코딩.
+
+■ 1-5. 표시 상한(D1~D4/P1~P3) - 요약
+
+config/size_threshold_registry.py:79-82 DISPLAY_FULL_LIST_MAX=1,000, GROUPED_DETAIL_MAX=10,000,
+GROUPED_SAMPLE_MAX=60,000, XLSX_ROW_MAX=1,048,576 | 공용 | O registry(단일출처, 이미 완성된 모범사례)
+services/display_limit_policy.py:50-56 축B 상한=INTERACTIVE_GROUPBY_MAX_GROUPS(import실패시 리터럴100,000)
+services/per_group_display_policy.py:83,207,210 min(fl,500), early_stop_abs=fl+1, partial_display_max=fl
+services/pagination.py:12-13 ALLOWED_SIZES=(10,30,50), DEFAULT_SIZE=30 | X
+services/exact_diff/store.py:24,339 PAGE_SIZE_DEFAULT=100, clamp min(1000,...) | X
+routes 페이지 기본값 산재: stats_result_route:18=50, exact_diff_route:361=100, batch_route:2493=50,
+batch_group_route:386=30/:360=100000, history_route:110=50/500상한, single_group_targets_route:35=20/200,
+agg_diff_route:1450,1866=100/:736=2000/:1754=1000 - 전부 리터럴
+ui/tabler_renderer.py 다수: slice(0,N) - 20/30/50/12/5/3/6/15, PS=20, f.slice(0,200) - JS 리터럴
+
+■ 1-6. 표본 전환 임계값(STATS_SAMPLE_ONLY)
+
+services/strategy/stats_strategy_planner.py:337-358
+- :337 card_near_scan = max_card >= 0.3 x scan → 0.3 하드코딩
+- :338 group_explosion → STATS_PLANNER_GROUP_EXPLOSION_ROWS = 5,000,000(O registry:26)
+- :339 heavy_expr(복잡도>=3 AND scan>) → 5,000,000(O registry:27)
+- :340 huge_unindexed_scan → 20,000,000(O registry:28)
+- :346 파티션 우선 → scan>10,000,000 or group_sum>100000 → X registry 미이동
+- :350-351 최종 전환 (card_near_scan ∨ huge_unindexed ∨ heavy_expr) ∧ ¬partition
+- :358 버킷 전환 → max_card>100000 → X
+- :70 _GRADE_BANDS cost 밴드 → 12.9/14.15/15.5 → X
+- :320 high_cost_threshold=20.0 → ※ 죽은 파라미터(본문 미참조)
+
+주의: STATS_SAMPLE_ONLY 는 UI에 "표본 집계(참고용·실제 실행은 전체스캔)"로 표기된다 - 임계값을
+넘어도 실제 실행은 EXACT 전체스캔이며 전략 카드 표시만 바뀐다.
+
+전수비교 표본 preflight - services/exact_diff/sampling_preflight.py
+- threshold_pct/initial_n/max_n/confidence_pct/representative_store_n = 10.0%/2,000/10,000/95.0/20 (O DB정책, :357 코드폴백)
+- 확장 단계 [2000,5000,10000] (mid=initial_n*2+initial_n//2) → X 산식 하드코딩(:365)
+- SAMPLING_TIME_CAP_MS/PROBE_ANCHORS/PROBE_STAGE_RATIO/PROJECTION_MARGIN = 60,000ms/8/4/3.0 (O/O/X/O)
+- SHAPE_RISK_PROBE_CAP_MS/SHAPE_RISK_PROBE_MARGIN = 3,000ms/1.0 (O env)
+- 지원 방언 {postgresql, oracle} → X frozenset(:67)
+- 실발동 게이트: useStream = totalRows > 50000 → ui/tabler_renderer.py:17353 브라우저 JS(서버 상수 아님)
+
+규모 등급 임계 - size_threshold_registry.py 전 12군 27개 값은 이미 단일출처화 완료(단, 파일 헤더가
+"값이 같아 보여도 통합 금지" 명시). registry 밖 잔존: table_load_profile_service.py:19-25(50MB/1GB/10GB,
+5M행,60컬럼,500MB), table_effective_policy_service.py:26-28(1,000/20,000/200,000MB),
+execution_profile_service.py:26-28(1/5/30초), count_gate_service.py:32-38(COUNT게이트 7개, registry
+명시적 제외), routes/diagnosis_route.py:197-199.
+
+■ 1-7. 동시성 상한
+
+services/exact_diff/execution_settings.py:198 max_concurrent_jobs=3 | 개별4단계async | O dataclass, X env
+services/single_execute_job.py:50 _JOBS_HARD_MAX=64 | 개별 | X
+services/batch/resource_budget.py:24-31 batch_max_concurrent_tables=2, per_source=1, per_target=1, heavy=1 | 일괄 | X(batch_scheduler_config JSON override)
+services/batch/wrapper_parallel_runner.py:54-58 batch_max_concurrent_tables=4, src3, tgt3, heavy2 | 일괄 | O MV_BATCH_SCHED_CONCURRENCY
+services/exact_diff/execution_settings.py:41-43 max_parallel_runs=1, max_parallel_chunks_per_run=1, max_db_connections_per_run=2 | 전수 | O선언/소비처 0건
+ThreadPoolExecutor(max_workers=2) x9곳: count_common_service:683, stats_execute_service:437,
+exact_diff/engine:384,463, exact_diff/pk_range_chunk:474, exact_diff/agg_contribution:217,
+diagnosis/adapters/base:90, diagnosis/profiler:115, diagnosis/key_evidence:485 | 혼재 | X 전부 하드코딩
+services/db_connection_service.py:312 max_workers=len(rest) | 공용 | X 상한없음(kill-switch만)
+services/single_validation_run_facade.py:591,406,520 max_workers=level, STATS_SET_PARALLEL_MIN_ROWS=1,000,000, pool_headroom=pool_cap>=2 | 개별 | O env 3종
+services/diagnosis/guards.py:18-26 max_concurrent_per_side=2, max_queries=50, max_seconds=60, max_nodes=100, max_depth=14 | 진단 | X
+services/job_registry.py:102-103 COMPLETED_DEFAULT_LIMIT=50, MAX_LIMIT=200 | 공용 | X
+services/workflow_stage_guard.py:66,419,424,584 _MAX_TOKENS=512, _MAX_INFLIGHT=256,
+_DEFAULT_INFLIGHT_TTL_SECONDS=180.0, _MAX_ARTIFACT_ITEMS=400 | 개별 | O(MV_WORKFLOW_INFLIGHT_TTL_MS만)
+
+※ Semaphore/BoundedSemaphore 사용처는 전 코드베이스 0건. 동시성 제어는 ResourceBudget(토큰+RLock)
+또는 ThreadPool 크기뿐.
+※ resource_budget.default_budget_config()(전역 2) 와 wrapper_parallel_runner.default_parallel_budget_config()
+(전역 4) 가 서로 다른 기본값 - 진입 경로에 따라 일괄 병렬도가 2배 차이.
+
+■ 1-8. TTL/폴링/락(요약)
+
+execution_settings.py:195-202 poll_interval_ms=2000, job_ttl_completed/failed_sec=3600,
+guard_inflight_ttl_sec=3600 | 개별async | O dataclass
+execution_settings.py:97,105-107 active_run_poll_interval_ms=1000, job_dashboard=3000, job_badge=15000 | 공용 | O
+execution_settings.py:51-54,62-63,69-71,83-84,159 pause/resume/recovery/cancel/history 값 13개 | 전수 | O선언/대부분 소비처 0건
+services/batch/wrapper_async_job.py:48-58 overall_timeout_sec()=7200초 | 일괄 | DB정책+인라인폴백
+services/batch/wrapper_parallel_runner.py:211 폴백=6시간 | 일괄 | X
+services/batch/scheduled_batch_runner.py:30,73 wait_timeout=600.0/1800.0초 | 일괄 | X 기본인자
+services/batch_execution_state_service.py:56 _STALE_HOURS=6 | 일괄 | X
+services/exact_diff/reimport_job.py:23, engine.py:47 _JOBS_MAX=16, _RUNS_MAX=16 | 전수 | X
+services/metadata_collection_store.py:41 STALE_RUN_SECONDS=600 | 공용 | X
+UI 하드코딩 폴링(정책 미연결): tabler_renderer.py:8051=1500ms, :12168=2000ms, :12138=_pollCount>300(10분) | 일괄 | X ※ execution_settings.polling 계약 밖
+UI 정상 배선(모범): js_job_dashboard.py:759-760, tabler_renderer.py:28227 | 공용 | O 서버값+폴백
+
+※ services/batch/validation_scheduler.py:165-180 reclaim_stale() 은 호출처가 코드베이스에 0건 -
+worker 스레드 사망시 ResourceBudget 토큰이 영구 누수.
+
+■ 1-9. 모드 공유 현황 요약
+
+카테고리        | 개별       | 일괄              | 전수         | 실태
+SQL 실행timeout | 60초 고정  | risk별 60~300초   | 5분 고정(조정불가) | 3모드 3정책, 모두 서로 모름
+COUNT timeout   | 60초       | 60초(공유)        | -            | 공유
+connect timeout | 10초       | 10초              | 30초         | 사실상 공유 + 전수만 예외
+재시도          | 없음       | 1회(하드)         | 1회(하드)    | 정책값은 dead
+조합축 상한(100)| O          | O(wrapper 경유)   | -            | 완전 공유, 조정 불가
+저장 상한20/1000| O          | O                 | O            | 공유(6곳 중복 선언)
+표본 전환       | O          | O                 | O            | 단일 정책 row 공유
+동시성          | 3 job      | 2 or 4 tables     | 1 run        | 모드별 분리됨(우연히)
+
+================================================================
+섹션 2. 기존 설정 인프라 파악
+================================================================
+
+■ 2-1. services/exact_diff/execution_settings.py - "그룹별 블록" 구조
+
+334줄. @dataclass(frozen=True) 그룹 14개를 최상위 ExecutionSettings 가
+field(default_factory=...) 로 합성.
+
+# | 그룹클래스           | 필드명              | 라인    | 필드수 | 실제 소비처
+1 | ExecutionDefaults    | execution           | 27-35   | 7  | clamp_chunk_size만(min/max/default)
+2 | ConcurrencyControl   | concurrency         | 39-45   | 5  | 0건
+3 | PauseResume          | pause_resume        | 49-55   | 5  | reimport_job.py:215(allow_resume 1개만)
+4 | Recovery             | recovery            | 59-77   | 8  | reimport_job.py:242,329, run_recovery.py:66(3개 필드)
+5 | CancelFinish         | cancel_finish       | 81-91   | 4  | 0건
+6 | PollingStatus        | polling             | 95-107  | 8  | single_active_run_route.py:79, UI 3개 필드
+7 | TimeDisplay          | time_display        | 111-117 | 5  | 0건
+8 | Checkpoint           | checkpoint          | 121-128 | 6  | chunk_checkpoint.py:299(1개)
+9 | MismatchDetail       | mismatch_detail     | 132-148 | 9  | 0건
+10| HistoryLogging       | history             | 152-159 | 6  | 0건
+11| SafetyGuards         | safety              | 206-213 | 6  | reimport_job.py:226(1개)
+12| ExactDiffRead        | exact_diff_read     | 163-168 | 1  | agg_diff_route.py:123 (소비O)
+13| Instrumentation      | instrumentation     | 172-180 | 1  | pk_range_chunk, agg_contribution (소비O)
+14| SingleExecuteAsync   | single_execute_async| 184-202 | 6  | single_execute_job.py (전 필드 소비O)
+
+API 3종(:247-261): get_execution_settings() / set_execution_settings() / reset_execution_settings()
+부분 override(:326-334):
+  def override_group(group_name, **kwargs) -> ExecutionSettings:
+      cur = get_execution_settings()
+      grp = getattr(cur, group_name)
+      new_grp = dataclasses.replace(grp, **kwargs)
+      new_settings = dataclasses.replace(cur, **{group_name: new_grp})
+      set_execution_settings(new_settings)
+      return new_settings
+
+불변식 강제(__post_init__): CancelFinish:88-91 은 cancelled_checkpoint_reusable 을 무조건 False로
+되돌리고, MismatchDetail:145-148 은 abort_on_ratio 가 켜지면 abort_on_count 를 강제로 켠다
+("ratio 단독 사용 금지" 정책을 데이터 구조 스스로 지킴). → 이 패턴이 이 파일의 가장 큰 자산.
+
+노출: routes/single_active_run_route.py:25-30 GET /api/execution/settings → s.to_dict() 전체 반환
+(민감정보 없음, 조회 전용 - 편집 UI는 HOLD).
+
+■ 2-2. 3단 롤백의 실제 구현
+
+완전한 3단 롤백은 코드베이스 전체에 단 2개 함수뿐이다.
+
+원조 - services/batch/wrapper_async_job.py:30-45 (async_parallel_enabled):
+  우선순위: env MV_BATCH_ASYNC_PARALLEL(운영 즉시 토글) → 정책 batch_async_parallel_enabled → 기본 True
+
+정제형 - services/single_execute_job.py:69-89 (single_execute_async_enabled, 3단째가
+인라인 리터럴이 아니라 dataclass 기본값):
+  env MV_SINGLE_EXECUTE_ASYNC → 정책 single_execute_async_enabled → _settings().enabled (기본True)
+
+설정 진입점(:59-66, 조회 실패해도 실행을 멈추지 않는 fail-open):
+  get_execution_settings() 실패시 → SingleExecuteAsync() 기본 인스턴스로 폴백
+
+중요 한계: 같은 파일의 나머지 4개 조회 함수(poll_interval_ms:92-98, max_concurrent_jobs:101-107,
+guard_inflight_ttl_sec:110-121, _ttl_for:124-130)는 2단(설정→하드폴백)에 그친다. env·정책 계층이
+없어 값 조정은 코드 수정+재기동이 필요. 즉 3단 롤백은 boolean 토글에만 적용됐고 숫자값에는
+아직 적용된 적이 없다.
+
+■ 2-3. 실제로는 설정 계통이 4개 경쟁 중
+
+# | 계통                                   | 위치                | 성격                  | 편집       | 영속
+A | config/size_threshold_registry.py     | 27개 상수           | 리터럴 단일출처(값이동만) | 코드    | X
+B | config/model_config.py                | 상수+get_*_config() | env override 내장     | env/코드 | X
+C | validation_policy_service._DEFAULT_POLICY | SQLite validation_policy_settings | 사용자 정책 22키 | 화면편집O | O DB
+D | services/exact_diff/execution_settings.py | dataclass 14그룹  | 운영 상수             | 코드만(편집HOLD) | X
+
+모드 구분 방식도 3가지가 이미 공존:
+1. 키 접두어 - batch_async_parallel_enabled, batch_overall_timeout_sec, batch_scheduler_config (C계통, flat)
+2. JSON blob - batch_scheduler_config 안에 resource_budget.default_budget_config() 중첩 dict (C계통)
+3. 전용 dataclass 그룹 - SingleExecuteAsync (D계통)
+
+이미 있는 선례: validation_policy_service.py:502-503
+  DEFAULT_COUNT_MISMATCH_POLICY_INDIVIDUAL = COUNT_MISMATCH_POLICY_ALLOW_CONFIRM
+  DEFAULT_COUNT_MISMATCH_POLICY_BATCH      = COUNT_MISMATCH_POLICY_BLOCK
+→ "개별=응답성/유연, 일괄=보수적 차단" 이라는, 이번 설계가 필요로 하는 철학이 이미 코드로 존재.
+
+■ 2-4. 확장 가능성과 걸림돌
+
+확장 가능한 근거:
+- override_group() 이 이미 그룹 단위 부분 교체를 지원 → 모드별 override 는 같은 메커니즘으로 표현 가능
+- validation_policy_settings 테이블은 policy_name TEXT NOT NULL UNIQUE, get/save/restore(policy_name=...)
+  가 이미 파라미터화(:302,:325,:470). 단 37개 호출부 전부가 인자 없이 default만 사용 - 스키마는
+  준비됐고 배선만 없음.
+- global_settings_gate.build_display_schema() 는 "새 설정이 정책에 추가되면 자동으로 확인창에
+  포함" - 미분류 키는 '기타' 구역 자동 편입, UI 작업 없이 신규 키 노출.
+- tests/test_d7_20_execution_settings.py:22-24 는 그룹을 "for g in (...): assert g in d" 멤버십으로만
+  검사 - 그룹 추가는 테스트를 깨지 않음(직접확인).
+
+걸림돌(심각도순):
+1. [상] 선언만 하고 배선하지 않는 실패 패턴이 이미 이 파일의 지배적 상태. 14그룹 71필드 중
+   실제 소비처가 있는 것은 약 12필드(17%)뿐. clamp_chunk_size docstring(:267-269)이 자백:
+   "min_chunk_size/max_chunk_size 는 선언만 되어 있고 소비처가 0건이었다 ... 정책 override나
+   요청 파라미터로 1이나 10,000,000을 넣어도 사실상 무제한이었다." 같은 실수 반복이 최대 리스크.
+2. [상] 그룹 경계를 무엇으로 잡을지가 이미 충돌. 현행 14그룹은 기능축(pause/recovery/checkpoint)
+   인데, 이번 요구는 모드축(개별/일괄/전수). SingleExecuteAsync 는 그 사이에 낀 기능x모드
+   혼합축(개별 x 4단계async). 축을 섞으면 그룹이 곱셈으로 늘어남.
+3. [중] SETTINGS_VERSION="d7-20" 이 테스트 2곳(:25,:46)에 하드코딩 - 구조 변경시 버전 bump+테스트
+   수정 필수(단 2줄, 비용은 작음).
+4. [중] D계통은 영속화가 없음. _CURRENT 는 프로세스 메모리 전역이라 재기동시 소실, 멀티프로세스면
+   워커별로 갈림. C계통은 SQLite 영속. 모드별 override를 D에만 두면 운영 중 조정이 불가능.
+5. [하] to_dict() 전체가 /api/execution/settings 로 브라우저에 나감 - 그룹 추가시 payload 자동
+   증가(민감정보는 없으나 계약 확대).
+
+================================================================
+섹션 3. 계층 구조 설계
+================================================================
+
+■ 3-0. 대전제 - 지금은 모드 분기 seam 자체가 없다
+
+batch_single_core_wrapper.py 가 "일괄 전용 로직 금지"를 명시하고 개별 facade를 그대로
+호출하므로, 호출부에 mode 인자를 뿌리는 방식은 이 규약과 정면충돌한다. 반면
+services/validation_run/execution_context.py:48 의 SharedExecutionContext.mode: ExecutionMode 는
+개별/일괄 row가 이미 공유하는 런타임 컨텍스트다. 따라서 모드 전달은 함수 시그니처가 아니라
+실행 컨텍스트(또는 contextvar)로 해야 한다.
+
+■ 3-1. 전역 공통이어도 안전한 값
+
+값 | 근거(왜 안전한가) | 위험
+커넥션 풀 상수(connection_pool.py:39-42) | 풀은 프로세스 단일 자원이며 key(profile)별로 나뉜다.
+  모드별로 다른 풀 크기를 주면 풀이 파편화되어 재사용률이 떨어지고 물리연결이 오히려 늘어난다. |
+  POOL_MAX_IDLE_PER_KEY=4 가 single_validation_run_facade.py:520-521 pool_headroom=pool_cap>=2
+  로 세트 병렬 판정과 암묵 결합 - 낮추면 병렬이 조용히 꺼진다. 전역화시 이 결합을 문서화해야 함.
+SQL 파싱 타임아웃(SQL_PARSE_TIMEOUT_SECONDS=15) | DB 왕복 없는 순수 CPU 작업, 정상 파싱은 밀리초
+  단위라 모드와 무관, 이미 "실행 상한(60초)보다 짧아 파싱이 실행보다 먼저 실패한다"는 순서
+  불변식을 가짐 | 없음. 모드별로 나누면 이 순서 불변식만 깨짐.
+connect timeout(db_query_service.py:665) | 접속은 검증 의미와 무관한 인프라 왕복, 개별/일괄 무관
+  하게 "DB가 살아있나"의 답은 같음 | 단 Oracle 은 미적용(HOLD)이므로 전역화해도 Oracle은 여전히
+  무한대기 - 값 전역화 전에 배선 결함을 먼저 고쳐야 함.
+표시 등급 D1~D4/P1~P3(size_threshold_registry:79-96) | 사람 눈이 대조 가능한 건수는 모드와 무관,
+  이미 registry 단일출처+HARD CAP clamp로 정착 | 없음 - 이미 완성된 모범 사례.
+안전 게이트 상한(INTERACTIVE_GROUPBY_MAX_GROUPS=100000) | "결과 그룹 10만개는 어느 모드에서도
+  감당 불가"는 물리적 사실 | 3곳(실행차단·실행후cap·표시축B)에서 동시 소비 - env 하나를 바꾸면
+  세 축이 함께 움직임. 전역 유지가 오히려 안전.
+SUM/GROUP BY 최대 3개 | CLAUDE.md 절대 규약 | 모드별 분기 자체가 규약 위반.
+
+■ 3-2. 모드별로 반드시 달라야 하는 값
+
+값 | 개별 | 일괄 | 전수 | 근거
+SQL 실행 statement timeout | 짧게(60초) | 길게·risk별(60~300초) | 매우 길게(300초+) |
+  개별은 사람이 화면 앞에서 기다린다 - 60초 넘게 응답 없으면 UX 실패이며 재시도 비용이 싸다.
+  일괄은 무인 수백 테이블 누적이라 중간에 끊으면 그 row를 사람이 다시 봐야 하므로 관대해야 한다.
+  ※ 이미 사실상 이렇게 갈라져 있으나(_TIMEOUT_BY_RISK) 서로를 모르고, 일괄쪽엔 env 조정경로 없음.
+표본 전환 임계값 | 관대 | 보수적 | 가장 보수적 | 일괄은 수백 테이블 x 표본오차가 누적된다. 개별
+  1건에서 10% 오차는 사람이 즉시 재실행해 확인하지만, 일괄 300건에서 각 10%는 "어느게 진짜인지
+  모르는 결과 300건"이 된다. 개별은 조기중단 후 사람이 판단하지만 일괄은 그 판단자가 없다.
+동시성 상한 | 낮게(3) | 중간(2~4) | 1 | 개별은 한 사람의 연속 클릭을 막는 것이 목적, 일괄은 DB
+  부하 총량이 목적, 전수는 일관 스냅샷 유지가 목적 - 셋의 제약 이유가 완전히 다름. ※ 현재
+  max_concurrent_jobs=3 은 세션/사용자 축이 없어(_JOBS.values() 전체 카운트) 사용자A의 3건이
+  B를 완전히 막는다.
+조합축 자동계획 상한(PLAN_TARGET_MAX_GROUPS=100) | 100 | 더 작게 | - | 개별은 사용자가 조합을
+  보고 조정할 수 있지만, 일괄은 사람 개입 없이 수백 테이블에 자동 적용된다. 세트당 100그룹 x
+  300테이블 = 3만 그룹의 무인 실행.
+저장/대표표본 상한 | 20~1000 | 더 작게 | 20 | 일괄은 저장량이 테이블 수만큼 곱해진다. 개별 1000건
+  = 1000행이지만 일괄 300건 = 30만행.
+재시도 횟수/백오프 | 0~1회 | 1~3회+백오프 | 1회 | 개별은 사람이 재시도 버튼을 누르면 되므로 자동
+  재시도가 오히려 응답을 늦춘다. 일괄은 일시적 네트워크 오류로 row 1건이 실패하면 사람이 그
+  row를 찾아 다시 돌려야 하므로 자동 재시도 가치가 큼.
+전체 실행 상한 | 없음 | 7200초 | 없음 | 이미 일괄에만 존재(batch_overall_timeout_sec) - 올바른 분리.
+
+■ 3-3. 권장 계층 구조
+
+  [1] 코드 기본값  execution_settings.py - 기능축 dataclass 그룹(현행 14그룹 유지, 손대지 않음)
+          v 병합
+  [2] 모드 기본값  ModeDefaults(INDIVIDUAL/BATCH/EXHAUSTIVE)  <- 신규, 코드
+          v 병합
+  [3] 정책 저장소  validation_policy_settings(SQLite, 화면편집)  <- 기존 C계통 재사용
+          v 병합
+  [4] 환경변수     MV_*(운영 즉시 토글)
+          v
+     resolve_setting(group, field, mode) -> 최종값 + 적용출처(explainability)
+
+핵심 설계 결정 4가지:
+
+1. 그룹 축은 기능축을 유지하고, 모드는 "차원"으로 붙인다. SingleExecuteAsync 같은 모드x기능
+   혼합 그룹을 더 만들지 않는다. 대신 기존 그룹에 대해 모드별 부분 override 사전만 둔다:
+     MODE_OVERRIDES = {
+         ExecutionMode.BATCH_ROW:   {"concurrency": {...}, "sampling": {...}},
+         ExecutionMode.EXHAUSTIVE:  {},          # 빈 틀
+     }
+   -> 그룹 수가 모드 배수로 늘지 않고, override_group()과 동일한 dataclasses.replace로 구현.
+
+2. 모드는 SharedExecutionContext.mode 에서 읽고, 없으면 INDIVIDUAL로 폴백한다. 함수 시그니처를
+   바꾸지 않으므로 batch_single_core_wrapper의 "일괄 전용 로직 금지" 규약과 충돌하지 않는다.
+
+3. 정책 저장소는 policy_name 축을 쓴다 - 'default'/'batch'/'exhaustive'. 스키마·함수 시그니처가
+   이미 준비돼 있어 DDL 변경이 불필요하고, 무엇보다 fingerprint 폭발을 피한다(섹션4 참조).
+   키 접두어(batch_*) 방식은 키 수가 모드 배수로 늘어 확인창과 fingerprint를 함께 오염시키므로
+   권장하지 않는다.
+
+4. 모든 값 조회는 resolve_setting() 단일 함수를 통과시키고, 반환에 적용 출처(ENV/POLICY:batch/
+   MODE_DEFAULT/CODE_DEFAULT)를 함께 실어 explainability를 확보한다. clamp_chunk_size_ex() 가
+   사유코드를 함께 돌려주는 기존 패턴과 동일하다.
+
+HARD CAP은 계층과 무관하게 코드가 강제한다 - per_group_display_policy.clamp_per_group_thresholds()
+처럼 어느 계층에서 무슨 값이 오든 상한을 넘지 못하게 한다. "정책으로 조정 가능"과 "운영 안전"을
+동시에 만족시키는 유일한 방법이며 이미 검증된 패턴.
+
+■ 3-4. 전수검증 - 빈 틀만 잡아두는 안
+
+전수검증용 "자리"는 이미 코드베이스 4곳에 존재(직접 확인):
+- services/validation_run/enums.py:113 EXHAUSTIVE="EXHAUSTIVE" # 향후 전수검증(실행 미구현-확장예약)
+- services/validation_run/execution_context.py:131-138 run_mode_from_execution_mode() ->
+  return None # EXHAUSTIVE 등 - 계약 RunMode 미대응
+- services/workflow_stage_gate.py:215,230-233 MODE_EXHAUSTIVE, STAGES_BY_MODE 에 주석으로만
+  자리표시 -> stages_for_mode() 가 빈 튜플 반환
+- services/global_settings_gate.py:5,9 "개별/일괄/전수검증 공통 시작 게이트 ... 일괄·전수도 재사용"
+
+-> 설정 계층도 정확히 같은 관례를 따르는 것을 권장:
+  MODE_OVERRIDES = {
+      ExecutionMode.INDIVIDUAL: {},          # 코드 기본값 그대로
+      ExecutionMode.BATCH_ROW:  { ... },     # 실제 값
+      # ExecutionMode.EXHAUSTIVE: (미구현 - 예약). 조회시 빈 dict -> 코드 기본값 폴백.
+  }
+stages_for_mode() 가 .get(mode, ()) 로 미정의 모드를 빈 튜플 처리하듯, resolve_setting()도
+.get(mode, {}) 로 빈 override=코드 기본값이 되게 한다. 전수검증 모드가 나중에 생겨도 동작이
+안전한 기본값에서 시작하고, 값을 채우는 것만으로 활성화된다. policy_name='exhaustive' row도
+만들지 않는다(없으면 'default' 폴백).
+
+================================================================
+섹션 4. 착수 범위·위험도
+================================================================
+
+■ 4-1. "완료 모듈" 접촉면 - 매우 작음
+
+CLAUDE.md 가 보호하는 1~6단계 모듈(parser/analyzer/generator/checker/validator/adapter/ =
+36파일 10,515줄, 전체의 8%)에 존재하는 임계값 상수는 전부 합쳐 9개(직접 sweep):
+
+validator/default_validator.py:219 MAX_DIFF_ROWS=1000 | △ CLAUDE.md 규약값, legacy validator 전용
+validator/default_validator.py:216 MAX_STATS_ROWS=200 | △ 동일
+analyzer/column_profile_analyzer.py:47 _CARDINALITY_THRESHOLD=20 | X 분류기 내부 판정
+analyzer/column_analyzer.py:128 _CODE_COL_MAX_LEN=20 | X
+parser/sqlglot_safe_parse.py:57,68 _DEFAULT_TIMEOUT_SECONDS,_TIMEOUT_CACHE_MAX=15.0,64 | X 이미 model_config 폴백
+parser/sqlglot_isolated_parse.py:222,225 _DEFAULT_POOL_MAX,_BOOT_TIMEOUT=3,30.0 | X
+generator/sql_generator.py:60 DEFAULT_CHUNK_SIZE=1,000,000 | △
+
+결론: 이 작업은 완료 모듈을 사실상 건드리지 않아도 된다. 무게중심은 전부 services/(424파일)와
+routes/. 위 9개는 1차 범위에서 명시적으로 제외 권장 - 얻는 것 대비 승인 비용이 크고,
+MAX_DIFF_ROWS=1000 은 CLAUDE.md 자료구조 규약("불일치 ROW는 최대 1000건")에 직결되어 값 변경
+자체가 규약 개정 사안이다.
+
+■ 4-2. 위험 요소
+
+# | 위험 | 심각도 | 근거(직접확인) | 대응
+1 | 정책 키 추가 = 전 세션 실행 차단 | 상 | global_settings_gate.py:89
+  content={k:v for k,v in policy.items() if k not in _FP_EXCLUDE} - 메타5키 외 모든 키가
+  fingerprint에 포함. :180-183 불일치시 GLOBAL_SETTINGS_FINGERPRINT_MISMATCH로 실행 차단
+  +"전역설정이 확인 이후 변경되었습니다". 소비처: analyze_route:105, execute_route:200,
+  single_run_route:59 | policy_name 축을 쓰면 이 문제를 피할 수 있다(다른 row는 'default'
+  fingerprint에 안 들어감). 키 접두어 방식을 택하면 배포시 모든 진행중 세션이 재확인을
+  요구받는다 - [검증실행] 재클릭으로 복구되지만 배포 창을 잡아야 함.
+2 | 선언만 하고 배선 안 하는 재발 | 상 | 현행 71필드 중 소비처 있는 것 12개(17%). clamp_chunk_size
+  docstring이 동일 사고를 자백 | 각 단계 "상수 삭제+소비처 치환"을 한 커밋에 묶는다. 선언만
+  추가하는 커밋 금지, 배선 완료를 테스트로 고정.
+3 | 동일값 중복 선언이 조용히 어긋남 | 중 | "60초" 6곳, "대표20" 6곳, "200행" 3곳, "전역동시성"
+  2곳(2 vs 4) | 치환시 중복 선언을 반드시 함께 제거. 하나만 배선하면 "설정을 바꿨는데 안
+  바뀐다"가 재발.
+4 | 폴백 리터럴이 정책과 이중화 | 중 | agg_diff_route.py:151 (None,20,...), :1271 or 101,
+  display_limit_policy.py:165,225 20 | 폴백은 정책 키 상수를 참조하게 변경(리터럴 금지).
+5 | SETTINGS_VERSION 테스트 고정 | 하 | tests/test_d7_20_execution_settings.py:25,:46 2줄.
+  그룹목록은 멤버십 검사라 추가는 안 깨짐 | 버전 bump시 2줄 수정.
+6 | 확인창 항목 자동 증가 | 하 | build_display_schema() 가 미등록 키를 '기타'로 자동 편입 |
+  _SECTIONS/_LABELS 에 한글 라벨을 함께 등록.
+7 | UI 하드코딩 폴링이 계약 밖 | 중 | tabler_renderer.py:8051(1500ms), :12168(2000ms),
+  :12138(300회=10분) | ui/는 48,372줄이라 이번 범위에서 분리(별도 단계).
+
+테스트 회귀 규모: tests/ 1,038파일. 상수를 고정하는 테스트는 INTERACTIVE_GROUPBY_MAX_GROUPS 8개,
+execution_settings 7개, EXECUTE/COUNT_STATEMENT_TIMEOUT_MS 각 4개, PLAN_TARGET_MAX_GROUPS 4개,
+representative_sample_limit 2개, sample_max_n 2개, size_threshold_registry 2개 - 값을 바꾸지 않고
+참조 경로만 바꾸면 대부분 통과한다.
+
+■ 4-3. 단계적 착수 순서(권장)
+
+한 번에 다 하지 않는다. 각 단계는 독립 롤백 가능해야 하고, "선언+배선"이 한 커밋에 들어가야 한다.
+
+단계 | 범위 | 왜 이 순서인가 | 완료모듈접촉 | fingerprint영향
+0 | 인프라만: resolve_setting(group,field,mode)+ModeDefaults 빈틀+EXHAUSTIVE 자리+적용출처 반환.
+  기존 값 0개 이동 | 값을 안 옮기므로 동작변화 0. 이후 모든 단계의 착지점을 먼저 만든다.
+  SETTINGS_VERSION bump는 여기서 1회만 | 없음 | 없음
+1 | SQL 실행 타임아웃(개별60/일괄risk별/전수300초) | ★ 가장 먼저 하는 이유 3가지: ① 이미
+  모드별로 값이 갈라져 있어(_TIMEOUT_BY_RISK) 모드별 오버라이드 구조의 타당성을 즉시 실증한다
+  - 새 정책을 발명하지 않고 현행 동작을 그대로 표현만 바꾼다 ② exact_diff 5분은 현재 어떤
+  경로로도 조정 불가한 진짜 결함이라 명확한 이득이 있다 ③ 값이 소수(약20개)이고 소비처가
+  SET LOCAL statement_timeout 한 지점으로 수렴해 검증이 쉽다 | 없음 | 없음(D계통)
+2 | 동시성·TTL·폴링 | 1단계와 같은 D계통이라 인프라 재사용. ConcurrencyControl 5개 dead 필드를
+  배선하거나 삭제해 17% 배선율 문제를 정면 해소. reclaim_stale 미배선(토큰누수)도 여기서 처리 |
+  없음 | 없음
+3 | 저장/표시 상한 중복 제거(20 6곳->1곳, 200 3곳->1곳, 101 폴백) | 값 자체는 안 바꾸고 참조
+  경로만 통일 - 동작 무변화라 회귀 위험 최저. 단 1·2단계로 resolve_setting이 검증된 뒤에 해야
+  안전 | validator/* 제외 | 없음
+4 | 조합축 자동계획 상한(PLAN_TARGET_MAX_GROUPS 외 3개) | 여기서 처음 모드별로 값이 실제
+  달라진다(일괄이 더 작아짐) -> 검증 결과가 바뀔 수 있으므로 앞 단계에서 구조 신뢰를 쌓은 뒤
+  착수. 4개 테스트 확인 필요 | 없음 | 정책키 추가시 발생 -> policy_name 축 사용
+5 | 표본 전환 임계값(일괄 보수화) | ★ 가장 마지막: 이 값들은 검증 판정 자체를 바꾼다(전수
+  merge 시작 여부=PASS/WARNING 결과에 직결). 되돌리기 어려운 변경이라 CLAUDE.md상 사용자 확인
+  대상이며, 앞 4단계로 계층이 완전히 검증된 뒤에만 손댄다 | 없음 | 정책키 추가
+(별도) | ui/ 하드코딩 폴링 3곳 | 48,372줄 JS 계층 - 서버 설계와 분리 | - | -
+
+1단계를 먼저 하는 핵심 근거를 한 줄로: 개별 60초/일괄 risk별/전수 5분은 이미 셋 다 다른
+값인데 서로를 모르고, 그중 하나(전수)는 조정조차 불가능하다. 즉 "모드별로 달라야 한다"가
+이미 참인 영역이라 새 정책 판단 없이 현행을 구조로 옮기기만 하면 되고, 그 과정에서 계층
+구조가 실전 검증된다. 반대로 표본 임계값부터 시작하면 구조 검증과 정책 변경을 동시에
+하게 되어 문제 발생시 원인 분리가 불가능하다.
+
+================================================================
+비판적 소견 (CLAUDE.md 비판적 검토 의무)
+================================================================
+
+요청대로 설계는 제시했으나 짚어둘 점이 있다. 이 코드베이스의 진짜 문제는 "값이 하드코딩되어
+있다"가 아니라 "설정 계통이 이미 4개이고, 만든 설정의 83%가 배선되지 않았다"는 것이다.
+다섯 번째 계통을 추가하는 것은 상황을 악화시킬 수 있다.
+
+따라서 0단계를 "새 계통 신설"이 아니라 "기존 D계통(execution_settings.py)에 모드 차원을
+붙이고, 동시에 dead 필드를 배선하거나 삭제하는 정리 작업"으로 규정할 것을 권한다. 순수하게
+값을 더 옮기는 것보다, 선언과 배선의 간극을 좁히는 것이 우선이다. 이 관점이 반영되지 않으면
+1년 뒤 "모드별 설정 71필드 중 12개만 동작함" 상태가 재현된다.
+
+요청/응답 형식(CLAUDE.md "기능/구조 변경 요청 응답 형식"):
+- 요청 요약: 3개 검증 모드에 흩어진 하드코딩 설정값을 전역/모드별 계층 구조로 재편하기 위한
+  사전 조사·설계
+- 긍정적 효과: 모드별 안전한 조정(개별=응답성, 일괄=보수적) 가능, 중복 상수 제거로 "바꿨는데
+  안 바뀜" 류 결함 예방
+- 구조적 문제점: execution_settings.py 이미 17%만 배선(83% 죽은 필드) - 새 축 추가시 동일
+  패턴 재발 위험. 그룹축(기능)과 모드축이 교차하면 그룹 수 폭발 위험
+- 운영상 위험: 정책 키를 잘못 추가하면 global_settings_gate fingerprint 불일치로 전 세션
+  실행이 즉시 차단됨(policy_name 축으로 회피 가능)
+- heuristic/scoring/explainability 영향: 없음(순수 설정값 재배치). resolve_setting()의
+  적용출처 반환으로 explainability는 오히려 개선
+- 권장 대응책: 0단계=인프라+dead필드 정리, 1단계=SQL타임아웃(이미 모드별로 갈라진 값을
+  구조로 옮기기만), 이후 순차 진행. 표본전환 임계값(검증판정 직결)은 최종 단계로 미룸
+- 지금 구현 여부: 보류(문서화 우선) - 본 진단은 조사·설계만이며, 구현 착수는 사용자 승인
+  이후 0단계부터 별도 확인 절차를 거쳐야 함
+
+작업명 : GLOBAL-SETTINGS-HARDCODED-VALUES-SCOPE-DIAGNOSE
+✅ 작업 완료 - 하드코딩 설정값 4카테고리 전수조사 + 기존 설정 인프라 분석 + 모드별 계층 설계 + 5단계 착수안 제시 (코드 수정 0건, 조사·설계만 수행)
