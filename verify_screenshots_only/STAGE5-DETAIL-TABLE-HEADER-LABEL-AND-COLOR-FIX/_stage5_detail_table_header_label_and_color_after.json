@@ -1,0 +1,77 @@
+{
+  "task": "STAGE5-DETAIL-TABLE-HEADER-LABEL-AND-COLOR-FIX",
+  "phase": "after",
+  "port": 8000,
+  "started": "2026-08-09 14:21:56",
+  "setup": {
+    "pair": "Oracle_asis → Oracle_tobe",
+    "connected": true
+  },
+  "1_analyze": {
+    "blocked": false,
+    "from_table": "MV_COMBO_SRC",
+    "error": ""
+  },
+  "2_count": {
+    "status": "COUNT_MATCHED",
+    "src": 1200,
+    "tgt": 1200
+  },
+  "sel": {
+    "gb": [],
+    "sum": []
+  },
+  "run1": {
+    "clicked": true,
+    "elapsed_sec": 2.06,
+    "completed": true
+  },
+  "inline": {
+    "exists": true,
+    "headerTexts": [
+      "불일치 유형",
+      "IDPK",
+      "STATUS_CD(원본)",
+      "STATUS_CD(목적)",
+      "DEPT_CD(원본)",
+      "DEPT_CD(목적)",
+      "AMT(원본)",
+      "AMT(목적)"
+    ],
+    "headerHasSideTag": true,
+    "headerKoBelowCount": 0,
+    "headerBg": [
+      "rgb(238, 243, 251)",
+      "rgb(238, 243, 251)",
+      "rgb(238, 243, 251)",
+      "rgb(238, 243, 251)",
+      "rgb(238, 243, 251)",
+      "rgb(238, 243, 251)",
+      "rgb(238, 243, 251)",
+      "rgb(238, 243, 251)"
+    ],
+    "firstRowCellBg": [
+      "rgba(0, 0, 0, 0)",
+      "rgba(0, 0, 0, 0)",
+      "rgba(0, 0, 0, 0)",
+      "rgba(0, 0, 0, 0)",
+      "rgba(0, 0, 0, 0)",
+      "rgba(0, 0, 0, 0)",
+      "rgba(0, 0, 0, 0)",
+      "rgba(0, 0, 0, 0)"
+    ],
+    "hasAxisSelect": false,
+    "hasValSelect": false,
+    "hasMtypeSelect": true,
+    "hasPkInput": true,
+    "filterBarHtml": "<label style=\"font-size:.74rem;color:#475569\">불일치 유형<br><select id=\"mvRiMtype\" style=\"font-size:.8rem;padding:4px 8px;border:1px solid #cbd5e1;border-radius:5px;min-width:120px\"><option value=\"\">전체</option><option value=\"missing\">목적 미존재</option><option value=\"value\">값 불일치</option></select></label><label style=\"font-size:.74rem;color:#475569\">PK 검색<br><input id=\"mvRiPk\" type=\"text\" placeholder=\"PK\" onkeydown=\"if(event.key==='Enter')_mvRiQuery()\" style=\"font-size:.8rem;padding:4px 8px;border:1px solid #cbd5e1;border-radius:5px;width:130px\"></label><button class=\"btn\" style=\"font-size:.78rem;padding:5px 14px;background:#2471a3;color:#fff;border:none;border-radius:5px;cursor:pointer\" onclick=\"_mvRiQuery()\">조회</button><button class=\"btn\" style=\"font-size:.78rem;padding:5px 12px;border:1px solid #cbd5e1;border-radius:5px;background:#fff;cursor:pointer\" onclick=\"_mvRiReset()\">초기화</button><button class=\"btn\" style=\"font-size:.78rem;padding:5px 12px;border:1px solid #2471a3;color:#2471a3;border-radius:5px;background:#fff;cursor:pointer;font-weight:600\" title=\"상세비교 완료된 실제 재이관 대상 PK 레코드만 내려받습니다(통계 그룹 수 아님)\" onclick=\"if(window._mvGlobalExport)window._mvGlobalExport('records')\">⬇ 상세 불일치 레코드 Exc"
+  },
+  "full": {
+    "hasAxisSelect": true,
+    "hasValSelect": true,
+    "hasMtypeSelect": true,
+    "hasPkInput": true
+  },
+  "errors": [],
+  "finished": "2026-08-09 14:23:48"
+}
