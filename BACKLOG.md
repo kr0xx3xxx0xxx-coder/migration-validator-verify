@@ -3302,7 +3302,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\STAGE5-GROUP-DRILLDOWN-ARCHITECTURE-IMPLEMENT.txt
 - 참고: E:\verify_reports\STAGE5-AXIS-LABEL-CLICK-FIX-AND-INLINE-ACCORDION-EXPAND.txt
 
-### M60. ✅ 해결 완료 — 5단계 상태배지 미갱신·그룹 재확장 재추출(서로 다른 3개 결함) + 검증성능정보 1~5단계 통합 + 헤더라벨/색상/검색폼/컬럼/CNT 정리
+### M60. ✅ 해결 완료 — 5단계 상태배지 미갱신·그룹 재확장 재추출(서로 다른 3개 결함) + 검증성능정보 1~5단계 통합·위치재배치·균형조정 + 헤더라벨/색상/검색폼/컬럼/CNT 정리
 - 발견일: 2026-08-09 (사용자 스크린샷 4장 직접 지적) / 해결일: 2026-08-09
   (STAGE5-EXTRACT-STATUS-TRACKING-BUG-AND-SUMMARY-LAYOUT-FIX, 코드 커밋 92d1b01 관련
   증적 저장소 push, 코드 저장소는 로컬 커밋만)
@@ -3367,6 +3367,21 @@ git -C E:/verify_reports worktree remove <임시경로>
   실측. 4항목 전부 실 클릭+JSON 불리언(True/False)으로 확인, 사전존재 실패 11건
   ID까지 완전 일치, 신규 회귀 0건.
 - 참고: E:\verify_reports\STAGE5-DETAIL-COLUMN-REDUCE-INFO-SIMPLIFY-AND-CNT-COLUMN-SPLIT.txt
+- **후속(2026-08-09, STAGE5-PERF-PANEL-REPOSITION-BELOW-AND-BALANCE-FIX, 코드 커밋
+  2ef728fc)**: 사용자 재검토로 "검증성능정보"를 맨 위(런 요약 다음)에서 **그룹
+  목록/데이터 아래**로 재배치(런 요약→그룹목록→검증성능정보 순), 아코디언 child
+  행이 이미 같은 테이블에 있어 추가 처리 없이 "펼침 영역까지 아래로" 요건 자동
+  충족. "실행 시작 → 상세목록 첫 행(사용자 대기시간 포함, 예: 56.07초로 다른 순수
+  처리시간과 안 맞아 보이는 값)" 행 제거 — 계측 자체는 유지, 표시만 제거. [고정]/
+  [갱신] 카드 좌우 정보량 불균형은 **레이아웃(좌우 2열)은 유지하고 정보 밀도만
+  압축**하는 쪽으로 판단(그룹을 자주 바꿔 비교하는 5단계 특성상 세로 배치는 오히려
+  비교 불편 — 근거 있는 자율 판단) — 갱신카드 세부표를 기본 접힘+3줄 요약 상시노출로
+  전환, 실측 균형비 정확히 1.0(255.6px=255.6px). 다른 화면(전체그룹 일괄추출 등)의
+  기본펼침 계약은 무접촉. 신규 테스트 3건 추가(전체 34 passed), 사전존재 실패 4건
+  ID까지 완전 일치 확인. **1차 자체측정 오탐을 스스로 발견해 정정**(자기 작업의 JS
+  주석이 검증 스크립트의 innerHTML 검색에 걸렸던 것 — 검사범위를 좁혀 재측정 후
+  정정된 값으로 보고).
+- 참고: E:\verify_reports\STAGE5-PERF-PANEL-REPOSITION-BELOW-AND-BALANCE-FIX.txt
 
 ### M61. 5단계 실행경로/전략 자동판정에서 PK 구성 검사가 실질적으로 무력화됨(하드코딩, 미해결)
 - 발견일: 2026-08-09 (채팅 조사 — "실행경로/전략" 배지가 실제로 여러 값이 나오는지
