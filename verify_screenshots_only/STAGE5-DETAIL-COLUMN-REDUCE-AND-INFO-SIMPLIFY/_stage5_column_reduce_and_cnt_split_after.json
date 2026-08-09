@@ -1,0 +1,87 @@
+{
+  "task": "STAGE5-DETAIL-COLUMN-REDUCE-AND-INFO-SIMPLIFY",
+  "phase": "after",
+  "port": 8000,
+  "started": "2026-08-09 15:05:19",
+  "setup": {
+    "pair": "Oracle_asis → Oracle_tobe",
+    "connected": true
+  },
+  "1_analyze": {
+    "blocked": false,
+    "from_table": "MV_COLREDUCE_SRC",
+    "error": ""
+  },
+  "2_count": {
+    "status": "COUNT_MATCHED",
+    "src": 200,
+    "tgt": 200
+  },
+  "sel": {
+    "gb": [],
+    "sum": []
+  },
+  "run1": {
+    "clicked": true,
+    "elapsed_sec": 1.56,
+    "completed": true
+  },
+  "group_list_before_open": {
+    "exists": true,
+    "headers": [
+      "GROUP BY 축",
+      "그룹 값",
+      "판정",
+      "목적카운트",
+      "원본카운트",
+      "목적지 집계",
+      "원본 집계",
+      "상세 추출 상태"
+    ],
+    "firstRowCells": [
+      "REGION_CD",
+      "▸ R1",
+      "집계값 불일치",
+      "100",
+      "100",
+      "AMT=100,547 QTY=1,250",
+      "AMT=100,297 QTY=1,200",
+      "미확인"
+    ]
+  },
+  "inline": {
+    "exists": true,
+    "headerTexts": [
+      "불일치 유형",
+      "IDPK",
+      "REGION_CD(원본)",
+      "REGION_CD(목적)",
+      "STATUS_CD(원본)",
+      "STATUS_CD(목적)",
+      "AMT(원본)",
+      "AMT(목적)",
+      "QTY(원본)",
+      "QTY(목적)"
+    ],
+    "hasSeqNo": false,
+    "hasItemNm": false,
+    "hasAmt": true,
+    "hasQty": true,
+    "hasRegion": true,
+    "hasStatus": true,
+    "summaryText": "실행경로 — · 전략 DIRECT_STREAM_COMPARE",
+    "summaryHtml": "<div style=\"background:#F8FAFC;border:1px solid #e5e9f0;border-radius:8px;padding:8px 12px\"><div style=\"font-size:.74rem;color:#94a3b8;margin-top:2px\">실행경로 <b>—</b> · 전략 <code style=\"font-size:.7rem\">DIRECT_STREAM_COMPARE</code></div></div>",
+    "hasAxisSelect": false,
+    "hasValSelect": false,
+    "hasMtypeSelect": false,
+    "hasPkInput": false
+  },
+  "full": {
+    "hasAxisSelect": true,
+    "hasValSelect": true,
+    "hasMtypeSelect": true,
+    "hasPkInput": true
+  },
+  "errors": [],
+  "finished": "2026-08-09 15:07:09"
+}
