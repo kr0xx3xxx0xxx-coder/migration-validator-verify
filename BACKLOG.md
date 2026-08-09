@@ -3384,6 +3384,39 @@ git -C E:/verify_reports worktree remove <임시경로>
   넣어두고 안 고친 것)인지 이번 조사로는 판별 못함 — 확인 필요.
 - 근거: 채팅 조사 결과(별도 파일 미작성).
 
+### M62. ✅ 해결 완료 — 2단계 COUNT 실행 중 탭 이동 무방비 + lockMaxMs 20초 오경보(별건)
+- 발견일: 2026-08-09 (사용자 목격 — 응답 지연 중 다음 탭 잠금이 풀리는 현상 + 조사
+  도중 "이전 요청 응답 지연되어 잠금 해제" 팝업 추가 목격) / 해결일: 2026-08-09
+  (STAGE2-COUNT-INFLIGHT-TAB-LOCK-DIAGNOSE-AND-FIX, 코드 커밋 b051e8bf)
+- **1) 탭 이동 무방비(결함 확정)**: 2단계 COUNT 실행 중 상단 탭·◀이전 버튼으로 다른
+  단계 이동이 실제로 아무 제지 없이 가능했음(실측 재현). 원인은 `MvStageGate.
+  canNavigateStep`이 "뒤로(인접 이전)"는 상태 무관 무조건 허용, `_mvCanNavTab`도
+  완료 탭 자유이동을 접근성(prereq)만 보고 실행중 여부를 아예 안 봄 — 오늘
+  M43/M47/MVANYRUNACTIVE가 실행 버튼·특정 컨트롤은 잠갔지만 **탭 네비게이션 자체는
+  그 잠금 대상 목록에 애초에 없었던** 구조적 공백.
+  **판단 근거**: `_mvAnyRunActive()`를 탭 게이트에 그대로 얹는 건 위험 — M47이
+  "5단계 job 진행 중엔 진행상황 보러 다른 탭 이동 가능해야 한다"고 명시적으로
+  화이트리스트 제외해둔 설계를 회귀시킴. 그래서 새 잠금 메커니즘 없이 기존
+  `_countInProgress` 플래그만 재사용해 **2단계 이탈만** 좁게 막음(신규
+  `_mvCountInflightLock()` 헬퍼, `_mvCanNavStep`/`_mvCanNavTab`/`_mvNavClick`/
+  `_mvNavStep` 4곳에 가드 추가).
+  실측: before(수정전 worktree)=탭 클릭 시 경고 없이 즉시 이동 → after=탭에 data-step
+  속성 자체가 사라져 클릭 불가(mv-step-disabled), 함수 직접호출로도 안내 후 이동
+  거부 확인.
+- **2) lockMaxMs 20초 오경보(별건, 사용자 추가 목격)**: 조사 도중 사용자가 "이전 요청
+  응답이 지연되어 버튼 잠금을 해제했습니다" 팝업을 실제로 목격, 별개 원인으로 확정 —
+  커맨드바 클릭락 안전 타이머(고착 방지, 의도된 설계) 기본 상한 20초인데 COUNT
+  액션(`_mvCountStageAction`)만 `lockMaxMs` 미지정으로 그 기본값을 그대로 씀(통계검증
+  실행은 이미 180초로 개선돼 있었는데 COUNT는 그 개선에서 누락됨). 대량 테이블 COUNT는
+  이미 32초대 실측 사례가 있어 정상 실행 중에도 20초에 팝업이 뜸. `runExecute`와
+  동일한 180초로 통일(새 상수 발명 없음). **재클릭 자체는 `_countInProgress` 가드로
+  이미 안전했음(중복실행 없음, 이 타이머 강제해제가 `_mvAnyRunActive()`의 COUNT 판정을
+  손상시키지 않는다는 것도 실측 확인)** — 순수 사용자 혼란 유발 문제였음.
+- 검증: 관련 21개 파일 251건 전부 통과, 오늘 M43/M47/MVANYRUNACTIVE 관련 잠금 회귀
+  확인(31 passed), CLAUDE.md 필수 회귀 통과. 테스트 3건은 "수정 전(버그) 상태를
+  단정하던 어서션"을 고친 동작 검증으로 교체(무비판 삭제 아님).
+- 참고: E:\verify_reports\STAGE2-COUNT-INFLIGHT-TAB-LOCK-DIAGNOSE-AND-FIX.txt
+
 ### M59. 0단계(인프라+dead필드정리) 완료 — 값 이동 0건 확인, 배선 중 2건 신규결함 발견해 안전하게 보류
 - 발견/계기: 2026-08-09 (개별/일괄/전수 3모드에 흩어진 설정값을 전역 공통+모드별
   오버라이드로 정리하고 싶다는 요청) / 조사: GLOBAL-SETTINGS-HARDCODED-VALUES-SCOPE-
