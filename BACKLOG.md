@@ -704,18 +704,13 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 비권장: `NLSSORT` 를 특정 캐릭터셋으로 강제하는 방향 — 원본 DB 인덱스 활용(= 정렬 회피 전략의 존재 이유)이 깨진다.
 - 참고: E:\verify_reports\ORACLE-CHARSET-COLLATION-EXACT-DIFF-DIAGNOSE.txt
 
-### S13. ✅ A1' 구현 완료 — VARCHAR2 byte/char 실효수용량 위험이 이제 Stage3 화면에 위험전용 배지로 노출됨
+### S13. ✅ A1' 구현 완료(오라클) — VARCHAR2 byte/char 실효수용량 위험이 이제 Stage3 화면에 위험전용 배지로 노출됨, 타방언 확장범위도 조사완료
 - 발견일: 2026-07-29 / 재조사: 2026-08-06 / A1 기각: 2026-08-07 / A1' 구현 완료: 2026-08-07
   (S13-A1PRIME-RISK-ONLY-BADGE-IMPLEMENT, 코드 커밋 29c8379)
 - 근거 보고서: `ORACLE-CHARSET-COLLATION-EXACT-DIFF-DIAGNOSE.txt`(최초) →
   `VARCHAR2-BYTE-CHAR-CAPACITY-COMPARISON-FIX.txt`(판정로직·조회 완성, F14로 배선) →
   `S13-VARCHAR2-BYTE-CHAR-STATUS-RECHECK-DIAGNOSE.txt`(재조사 — (b) 부분해소 판정) →
   `S13-A1-BADGE-REACTIVATE-AND-GATE-INTENT-VERIFY.txt`(A1 기각, A1' 제안)
-- 현재 상태: CHAR_USED/DATA_LENGTH 조회·실효수용량 판정 로직·F14 배선은 전부 완성돼 있으나,
-  `_applyCsrBadges` 호출이 **의도적으로 봉인**돼 있어(6종 독립 근거로 확정 — 판정 단일출처
-  Live/Preview 격리 + 문서 2건의 "병합 금지" 계약) Stage3 실사용 화면까지 위험이 안 닿는다.
-  GROUP BY 게이트가 PRECISION_LOSS_RISK를 통과시키는 것도 3중 근거(상수정의·설계문서 표·SUM축
-  별도 Critical FAIL 안전망)로 **의도된 설계**임이 확정됨(경고는 남기되 자동배제는 안 함).
 - 현재 상태: CHAR_USED/DATA_LENGTH 조회·실효수용량 판정 로직·F14 배선은 완성돼 있고,
   이제 **`_applyCharCapacityRiskBadge`(신규, A1') 배선으로 Stage3 화면에 위험 노출까지
   완료**됐다. 기존 `_applyCsrBadges`(원형)는 여전히 봉인 상태 유지(판정 단일출처 보호,
@@ -730,13 +725,40 @@ git -C E:/verify_reports worktree remove <임시경로>
   확인. 부수 발견: 원형 `_applyCsrBadges`의 DOM 셀렉터(`label.cs-item`)가 이미 stale라
   A1을 그대로 되살렸어도 작동 안 했을 것임을 확인(A1 기각 결정을 재확증).
 - 잔존(범위 밖): 캐릭터셋이 다른 오라클 인스턴스 쌍이 없어 양성 사례(실제 배지가 뜨는
-  케이스)는 synthetic 주입으로만 검증됨(음성 사례는 100% 실접속). PG/MySQL/MSSQL 대응
-  개념 설계 미착수(4방언 원칙). 죽은 함수 2개(`_applyCsrBadges`/`_updateUnifiedColWithCsr`)
-  정리는 별건.
+  케이스)는 synthetic 주입으로만 검증됨(음성 사례는 100% 실접속). 죽은 함수 2개
+  (`_applyCsrBadges`/`_updateUnifiedColWithCsr`) 정리는 별건.
+- **4방언 확장 조사 완료(2026-08-08, S13-4-DIALECT-EXTENSION-SCOPE-DIAGNOSE, 코드 무변경,
+  공식문서 인용 확인)**:
+  · **PostgreSQL — 위험 없음(구조상 불가), 조사로 종결**: `varchar(n)`의 n이 인코딩과
+    무관하게 항상 "문자 수"라 오라클류 byte/char 선언 모호성 자체가 없음(PG 공식문서
+    8.3 확인). 별도 구현 불필요.
+  · **MySQL — 위험 실존, 형태가 다름(A1' 판정로직 재사용 불가)**: 오라클처럼 "길이가
+    잘리는" 게 아니라 utf8mb4→utf8mb3(넓은→좁은 캐릭터셋) 역방향 이관 시 supplementary
+    문자(이모지 등)가 **아예 저장 자체가 불가**한 별개 카테고리 위험(MySQL 공식문서
+    12.9.8 확인). `_effective_char_capacity`가 `char_used='B'`일 때만 작동해 MySQL은
+    구조적으로 항상 'C'라 이 함수로는 절대 못 잡음 — "캐릭터셋 레퍼토리 비교"라는
+    신규 판정 함수 필요, MetadataProvider·DB어댑터 charset 조회 경로도 전부 신규.
+    고객사 레거시(utf8mb3 as-is)→신규(utf8mb4 to-be) 같은 세대차가 실무에서 흔할 수
+    있어 위험 현실성 있음.
+  · **MSSQL — 위험 실존, 오라클과 완전 동형(A1' 그대로 재사용 가능)**: `VARCHAR(n)`의
+    n이 처음부터 "바이트 수"(Microsoft Learn 공식문서 확인) — 레거시 코드페이지
+    (CP949 계열, 한글 2바이트)에서 SQL Server 2019+ UTF8 collation(한글 3바이트)으로
+    이관 시 선언은 그대로인데 실효 문자수가 조용히 축소되는, 오라클과 수학적으로
+    동일한 구조. F15가 이미 컬럼별 char_used 상당값·COLLATION_NAME 조회 SQL을 완성해
+    둔 상태라(입력 shape가 A1'과 이미 일치) 신규 판정 함수 불필요, 배선 3곳
+    (①MssqlMetadataProvider 신설 ②analyze_to_csr_adapter 팩토리 확장
+    ③`_CHARSET_CJK_BYTES_PER_CHAR`에 MSSQL collation 키 추가)만 남음.
+  · **착수 우선순위 권고**: MSSQL(배선만, 회귀위험 최저) → MySQL(신규 판정함수+신규
+    charset조회 필요, 범위 더 큼) → PostgreSQL(조사로 이미 종결, 구현 불필요).
+  · **비판적 검토**: MSSQL collation 종류가 오라클 NLS_CHARACTERSET보다 훨씬 많아
+    전수 등록 비현실적 — 미등록 시 기존 안전 폴백(None, 위험판단 보류) 유지 필수.
+    MySQL은 위험 성격이 달라("길이 축소"가 아니라 "문자 저장 불가") 착수 시 배지 문구를
+    MySQL 전용으로 분리해야 함(오라클 문구 그대로 쓰면 사용자 오인).
 - 참고: E:\verify_reports\ORACLE-CHARSET-COLLATION-EXACT-DIFF-DIAGNOSE.txt
 - 참고: E:\verify_reports\S13-VARCHAR2-BYTE-CHAR-STATUS-RECHECK-DIAGNOSE.txt
 - 참고: E:\verify_reports\S13-A1-BADGE-REACTIVATE-AND-GATE-INTENT-VERIFY.txt
 - 참고: E:\verify_reports\S13-A1PRIME-RISK-ONLY-BADGE-IMPLEMENT.txt
+- 참고: E:\verify_reports\S13-4-DIALECT-EXTENSION-SCOPE-DIAGNOSE.txt
 
 ### S14. ✅ 해결 완료 — NLS 숫자 고정이 타입 미상 균일 캐스트 5곳에는 적용되지 않았다(NLS 고정 수정의 잔여 위험 R1)
 - 해결일: 2026-07-31 (ORACLE-CONNECTION-NLS-NUMERIC-SESSION-PIN-FIX)
@@ -3849,7 +3871,7 @@ git -C E:/verify_reports worktree remove <임시경로>
   차단, 설계상 의도).
 - 근거 보고서: E:\verify_reports\M47-REGRESSION-RECHECK-AND-FIX.txt
 
-### M50. [문서화 우선, 구현 보류] 관리컬럼 판정에 자체호스팅 LLM(메타 라마)을 3차 근거로 추가하는 설계 확정 — 착수 전 애매 케이스 실측 선행 필요
+### M50. [문서화 우선, 구현 보류 재확인] LLM 관리컬럼 판정 — 실측 호출후보 0.8~1.0%로 확인, 대신 LLM무관 더 시급한 무배지 CONFIRMED 결함 재현
 - 발견/계기: 2026-08-07 (사용자 요청 — 고객이 메타 오픈소스 LLM 기반 기능 탑재를 요구,
   폐쇄망·무학습·프로젝트종료시 완전삭제 제약) / 조사: LLM-ADMIN-COLUMN-JUDGMENT-SCOPE-AND-
   DESIGN-DIAGNOSE(코드 무변경, 설계 확정)
@@ -3888,6 +3910,23 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: 나이스/에듀파인 실데이터 매핑정의서 참고사전 활용(02-session 기록)이나 M41
   (암호화여부 저장) 처럼, "3차 판정 근거를 추가한다"는 이 프로젝트의 반복되는 설계
   패턴과 일관됨 — 완전히 새로운 아키텍처가 아니라 기존 다단계 판정 구조의 확장.
+- **축소 실측 완료(2026-08-08, M50-EDGE-CASE-VERDICT-DISTRIBUTION-MEASURE, 코드 무변경)**:
+  실 DB 재스윕 506컬럼 — verdict 분포 [NOT_AUDIT_CONFIRMED 90.5%·NOT_AUDIT_AMBIGUOUS
+  4.7%·CONFIRMED 4.3%·NAMING_VALUE_MISMATCH 0.4%]. LLM 호출후보(N1+N3+CONFIRMED-B-only)
+  =27/506=5.3%, 그중 22건이 오늘 시점 0행 픽스처 테이블 부작용으로 확인돼 **실질
+  호출후보는 4~5/506 = 0.8~1.0%**. **결론 재확인: 문서화 우선·구현 보류 유지**(수치가
+  이번 실측으로 뒷받침됨). 한계: PG 단일 방언·픽스처 1건 표본이라 "5.3%/1.0%" 어느
+  쪽도 일반화 상한/하한으로 인용 금지(N1 비율은 이관 진행 단계에 따라 크게 달라질 수
+  있음 — 목적지가 비어있는 이관 초기가 오히려 전형적일 수 있음).
+- **★ 더 중요한 부수 발견(LLM 무관, 즉시 착수 가능)**: 설계문서가 "가상의 우려"로만
+  예시했던 삽입지점(B, axis_b=True(WEAK)+axis_a=None→CONFIRMED, 배지 없이 조용히 하드
+  배제)가 실제로 재현됨 — `biz_reg_no`(사업자등록번호, 정상 업무컬럼)가 화면에 아무
+  경고 없이 GROUP BY 자동선정에서 배제되는 실제 사례 2건 확인. **순수 규칙기반으로
+  즉시 고칠 수 있음**(판정표 CONFIRMED→NOT_AUDIT_AMBIGUOUS 계열로 낮춰 배지만 노출,
+  LLM/인프라 전혀 불필요) — 다만 verdict 의미 변경이라 소비처 4곳+JS 미러 회귀 검토
+  필요, "완료 모듈에 준하는" 승인 대상(LLM-ADMIN 설계문서 §5가 이미 명시)이라 이번
+  조사에서는 미착수.
+- 참고: E:\verify_reports\M50-EDGE-CASE-VERDICT-DISTRIBUTION-MEASURE.txt
 - 근거 보고서: E:\verify_reports\LLM-ADMIN-COLUMN-JUDGMENT-SCOPE-AND-DESIGN-DIAGNOSE.txt
 - 근거 보고서: E:\verify_reports\STAGE4-TAB-LABEL-LAG-AND-PRIOR-STAGE-LOCK-SCOPE-DIAGNOSE.txt
 
