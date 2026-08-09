@@ -2409,7 +2409,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\F11-MENU-CLEANUP-SCOPE-DIAGNOSE.txt
 - 참고: E:\verify_reports\F11-B-SHOWTAB-SINGLE-ROUTING-FIX.txt
 
-### F12. ⚠️ 1단계+안전장치 완료 — cascade 삭제 함수+2차확인 UI 구현됨, 실제 HOLD 3건 삭제 실행만 결정 대기
+### F12. ✅ 완전 해결 — HOLD 3건 실제 cascade 삭제 완료(예상행수=실제행수 전항목 일치), 백업 확보
 - 발견일: 2026-07-27 / 1단계 실행: 2026-08-09(F12-IS-TEST-RETROACTIVE-MIGRATION, 데이터만
   변경·코드 무변경)
 - 근거 보고서: `PROJECT-IS-TEST-FLAG-IMPLEMENT.txt`(§6, 최초) →
@@ -2446,11 +2446,18 @@ git -C E:/verify_reports worktree remove <임시경로>
   프로덕션 DB는 이 작업 전체에서 단 한 번도 열지 않음**. 함수 4케이스(게이트①②
   조합) + 실 브라우저 클릭스루(2차확인 노출→체크전 비활성→체크후 활성→삭제 후
   목록소멸) 전부 PASS. 사전존재 실패 3건 baseline 대조로 무관 확인.
-- **결정 필요**: HOLD 3건(TESTONLY_REG/__TEST_PROJECT__/TESTONLY_ASYNC_PARALLEL)의
-  실제 cascade 삭제를 지금 실행할지(안전장치는 이미 완성됨), 범위 밖 잔재 10건도
-  별도로 처리할지.
+- **실제 삭제 완료(2026-08-09, F12-HOLD3-ACTUAL-CASCADE-DELETE-EXECUTE)**: 삭제
+  직전 백업(`db/migration_validator.db.bak_20260809`) 확보 후 3건 전부
+  `confirm_cascade=True`로 실제 프로덕션 DB에서 삭제 실행. **예상 삭제 행수(F12-IS-
+  TEST-RETROACTIVE-MIGRATION.txt 실측치)와 실제 삭제 행수가 테이블별로 전부 정확히
+  일치**(초과·누락 0). project 테이블 14건→11건(정확히 3건 감소). 비대상(실
+  프로젝트 id=2, is_test=0) 및 범위 밖 잔재 10건은 전혀 영향받지 않음 확인.
+- **잔여(별도 결정)**: 범위 밖 잔재 10건(즉시삭제가능 7건/HOLD 3건, id 924·956~975)
+  처리 여부 — 필요 시 별도 백로그 항목으로.
 - 참고: E:\verify_reports\PROJECT-IS-TEST-FLAG-IMPLEMENT.txt
 - 참고: E:\verify_reports\F12-IS-TEST-RETROACTIVE-MIGRATION.txt
+- 참고: E:\verify_reports\F12-CASCADE-DELETE-SAFETY-GATE-IMPLEMENT.txt
+- 참고: E:\verify_reports\F12-HOLD3-ACTUAL-CASCADE-DELETE-EXECUTE.txt
 
 ### F18. `cd1` 류(이름·코멘트 없고 값도 애매한) 컬럼의 관리컬럼 판정용 구조적 신호가 미구현이다
 - 발견일: 2026-07-15 (세션 논의 — 문서화된 진단/설계 보고서 없음)
