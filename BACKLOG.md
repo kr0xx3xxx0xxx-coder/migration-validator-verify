@@ -3294,7 +3294,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\STAGE5-GROUP-DRILLDOWN-ARCHITECTURE-IMPLEMENT.txt
 - 참고: E:\verify_reports\STAGE5-AXIS-LABEL-CLICK-FIX-AND-INLINE-ACCORDION-EXPAND.txt
 
-### M59. 전역설정 계층화 조사·설계 완료 — "5번째 설정계통 신설"보다 "기존 D계통 정리·배선"이 우선이라는 역제안 포함
+### M59. 0단계(인프라+dead필드정리) 완료 — 값 이동 0건 확인, 배선 중 2건 신규결함 발견해 안전하게 보류
 - 발견/계기: 2026-08-09 (개별/일괄/전수 3모드에 흩어진 설정값을 전역 공통+모드별
   오버라이드로 정리하고 싶다는 요청) / 조사: GLOBAL-SETTINGS-HARDCODED-VALUES-SCOPE-
   DIAGNOSE(코드 무변경, Opus 서브에이전트 위임 조사)
@@ -3341,6 +3341,33 @@ git -C E:/verify_reports worktree remove <임시경로>
   5(표본전환 임계값 — **검증 판정 자체(PASS/WARNING)를 바꾸는 되돌리기 어려운 변경이라
   최종 단계로 미룸, 별도 사용자 확인 대상**).
 - 대응 방향: **착수 순서 승인 필요**(0단계부터, 위 역제안 반영 여부 포함).
+- **0단계 해결 완료(2026-08-09, M59-PHASE0-INFRA-AND-DEAD-FIELD-CLEANUP, 코드 커밋
+  03844b08)**: `resolve_setting(group,field,mode)` 4계층(CODE_DEFAULT<MODE_DEFAULT<
+  POLICY<ENV, 적용출처 반환) + `MODE_OVERRIDES`(INDIVIDUAL/BATCH_ROW 빈 dict,
+  EXHAUSTIVE는 키 자체 없음 — 기존 "빈틀" 관례 재사용) 신설. **값 이동 0건**을 신규
+  단위테스트(71필드 전수, 출처 전부 CODE_DEFAULT 확인)로 프로그램적으로 고정.
+  기존 14그룹 dataclass·12개 실소비처 전부 무변경(resolve_setting 자체도 아직 어떤
+  소비처에도 안 물림 — "선언만 하고 배선 안 함" 재발 방지 원칙 그대로 준수).
+  Dead 필드 5그룹 처리: ConcurrencyControl(유지, 2단계 매핑) / CancelFinish(1개
+  불변식용 유지+3개 삭제후보) / TimeDisplay(전부 삭제후보 — 게이트할 대상이 이미
+  다른 곳에서 무조건 하드코딩 ON) / MismatchDetail(10개 전부 삭제후보 — **같은 개념이
+  이미 다른 상태코드로 실제 동작 중**임을 발견, 배선했으면 병렬 구현 혼선이 됐을 것) /
+  HistoryLogging(전부 삭제후보 — 대체 구현조차 없음). 코드는 1바이트도 안 지움
+  (삭제는 확인 후 별도 진행).
+  **reclaim_stale() 배선 보류(지시 위반 아니라 안전 판단)**: 배선 전 조사 중 결함
+  2건 신규 발견 — (A) `heartbeat()` 호출처 전무라 배선 시 5천만행급 정상 실행 job이
+  STALE로 오판돼 강제 FAILED 처리될 위험, (B) `_finish()` 비멱등이라 stale 오판 후
+  원 스레드가 나중에 정상 종료되면 budget 토큰이 이중 반환 — **"토큰 누수 고치려다
+  토큰 초과발급 유발"**, 동시성 상한이 조용히 무력화되는 역효과. 결함B는 완료 모듈
+  (`validation_scheduler.py`) 수정이라 승인 없이 미착수, reclaim_stale은 현재도
+  호출처 0건이라 배선 보류해도 기존 동작 무변화(더 나쁜 결함을 프로덕션에 심는 것보다
+  안전).
+  검증: 105 passed(관련 서브셋 8파일), `validation_scheduler.py`(미변경) 자체
+  테스트 11 passed로 무접촉 재확인, CLAUDE.md 필수 회귀 통과.
+  **결정 필요**: (a) 삭제후보 필드 총 24개 실제 삭제 여부 (b) reclaim_stale 결함 A·B
+  수정 여부(B는 완료 모듈 승인 별도) — 이후 1단계(SQL 타임아웃 구조화) 착수는
+  이 인프라 위에서 바로 가능.
+- 근거 보고서: E:\verify_reports\M59-PHASE0-INFRA-AND-DEAD-FIELD-CLEANUP.txt
 - 참고: E:\verify_reports\GLOBAL-SETTINGS-HARDCODED-VALUES-SCOPE-DIAGNOSE.txt
 
 ### M57. ✅ 해결 완료 — 통계검증 실행 후 `body.mv-run-locked` 잠금이 stale하게
