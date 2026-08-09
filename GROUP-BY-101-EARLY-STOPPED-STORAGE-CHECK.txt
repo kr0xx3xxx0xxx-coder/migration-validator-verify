@@ -1,0 +1,80 @@
+작업명: GROUP-BY-101-EARLY-STOPPED-STORAGE-CHECK
+✅ 조사 완료 - GROUP BY REGION_CD 101건 조기중단(EARLY_STOPPED) 재현 및 원인 코드 위치 확정
+
+[1] 재현 결과 (실 DB COUNT(*) 직접 확인)
+ - 재현 스크립트: scratchpad/_repro_101_check.py
+ - 시나리오: REGION_CD='SEOUL' 그룹 1개에 목적 누락(missing_migration) 150건 재현
+   (src 150건 / tgt 0건), gb_cols=["REGION_CD"], early_stop_abs=101 (실제 서버 배선값과 동일)
+ - 실행 결과:
+     status                              : EARLY_STOPPED
+     early_stopped                       : True
+     total_reimport_pks (m["reimport"])  : 101
+     early_stop_reason                   : ABSOLUTE
+     early_stop_at_pk                    : 102
+     [실제 DB] SELECT COUNT(*) FROM exact_diff_record
+       WHERE run_id=... AND kind='REIMPORT'           : 101
+     [실제 DB] 저장된 마지막(최대) pk_num              : 101 (src 150건 중 101번째까지 저장)
+     [표시 정책] partial_shown_count(화면표시건수)      : 100
+     [표시 정책] available_record_count(확보=DB저장)    : 101
+     [표시 정책] display_mode                          : PG_COUNT_ONLY (P3)
+ → DB에는 101건이 실제로 저장되지만 화면에는 100건만 표시된다
+   (표시 축소는 의도된 정책, 저장 자체는 101건).
+
+[2] per_group_full_list_max=100 정의 위치
+ - config/size_threshold_registry.py:95-96
+     PER_GROUP_FULL_LIST_DEFAULT = 100   # 기본: 이하면 전부 나열, 초과면 숫자만(조기중단)
+     PER_GROUP_FULL_LIST_CAP     = 500   # HARD CAP: '전부 나열' 경계는 이 값을 넘을 수 없다
+ - services/per_group_display_policy.py:69-83 clamp_per_group_thresholds() 가
+   사용자 설정값을 [1, 500] 범위로 clamp, 미설정/파싱실패 시 기본값 100 사용.
+
+[3] +1 부여 위치 (101 산출 지점)
+ - services/per_group_display_policy.py:196-211 per_group_policy_dict()
+     fl = clamp_per_group_thresholds(full_list_max)      # 기본 100
+     "per_group_early_stop_abs": fl + 1,                 # ← 여기서 100+1=101 산출
+   주석(같은 파일 21행, 207행): "'보여주는 개수'와 '조기중단(세어보는) 상한'을 단일 값으로
+   통일 — early_stop_abs = full_list_max+1"
+ - 배선(라우트에서 소비): routes/agg_diff_route.py:1271
+     req.early_stop_abs = int(_per_group_policy().get("per_group_early_stop_abs") or 101)
+   (per_group_policy_dict() 을 못 읽으면 101 하드코딩 폴백 — 기본 100 설정이면 결과값은 동일)
+
+[4] walk 조기중단 조건 위치 (merge 루프)
+ - services/exact_diff/agg_contribution.py, prepare_reimport_pk_index_stream() 내부
+ - while 루프 시작: 622행  `while s is not None or t is not None:`
+ - 조기중단 판정: 689~697행
+     689   if es_on and (min_decision_count is None or m["src_rows"] >= int(min_decision_count)):
+     690       proc = m["src_rows"] or 1
+     691       ratio = m["reimport"] / proc * 100
+     692       if (early_stop_ratio is not None and ratio >= float(early_stop_ratio)) \
+     693               or (early_stop_abs is not None and m["reimport"] >= int(early_stop_abs)):
+     694           stopped = True
+     695           m["early_stop_progress_ratio"] = round(ratio, 4)
+     696           _flush(); _flush_to()
+     697           break
+   → m["reimport"] >= early_stop_abs(101) 이면 즉시 break.
+     이 판정은 매 반복(한 행 처리) 끝에서 실행된다.
+
+[5] emit이 검사보다 먼저 실행되는 순서 (101건 저장의 원인)
+ - 목적 누락(missing) 케이스 — 649~651행:
+     649   m["src_rows"] += 1; m["reimport"] += 1; m["missing_migration"] += 1
+     650   _emit(_rec(sk, gbs, n, sums, None, None, None, True, cmps, None))   # ← 저장버퍼 emit(검사 전)
+     651   s = next(s_it, None)
+   - 값 불일치 케이스 — 671~673행도 동일 순서: m["reimport"] += 1 → _emit(...) 먼저 실행.
+ - 조기중단 검사(689~697행)는 emit 이후, 같은 반복(iteration)의 맨 끝에서 수행된다.
+ - 따라서 m["reimport"]가 101에 도달하는 바로 그 행(101번째 불일치)은 다음 순서로 처리된다:
+     ① m["reimport"] += 1                 (100 → 101)
+     ② _emit(...) 으로 이미 저장버퍼에 들어감 (→ _flush() 시 DB 커밋)
+     ③ 그 다음에야 689행 조건이 m["reimport"](101) >= early_stop_abs(101) 를 만족 → break
+   emit이 검사보다 먼저 실행되므로, break 직전 행까지 포함해 정확히 101건이 이미 저장된 뒤에
+   중단된다. "100건에서 멈춘다"가 아니라 "101번째 건까지 저장하고서야 상한 초과를 확인하고
+   멈추는" 구조 — 저장 건수는 항상 표시 상한(100)보다 1건 더 많은 101건이 된다
+   (early_stop_abs=full_list_max+1 자체가 이 여유를 의도한 값).
+
+[6] 결론
+ - "101건에서 조기중단"은 버그가 아니라 설계된 동작이다: early_stop_abs = full_list_max+1
+   (100+1=101)로 설정해, 표시 상한(100)을 "초과했다"는 사실 자체를 확인하려면 101번째 건까지는
+   보아야 하기 때문이다.
+ - 실제 DB 저장 건수(101)와 화면 표시 건수(100)는 의도적으로 분리되어 있다
+   ([1] 표시 정책 실측 결과 참고 — partial_shown_count=100 / available_record_count=101).
+ - 코드 수정 없음 — 조사 전용.
+
+✅ 조사 완료 - GROUP BY REGION_CD 101건 조기중단(EARLY_STOPPED) 재현 및 원인 코드 위치 확정
