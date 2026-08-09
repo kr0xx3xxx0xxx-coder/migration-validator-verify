@@ -1,0 +1,149 @@
+✅ 작업 완료 - F5-TIER2-WHITEBOX-CONTRACT-SCOPE-DIAGNOSE: Tier2 대상 재확정(≈180→233케이스) + 방법론 재사용 가능 확인 + 3배치 분할 착수 권고
+
+작업명 : F5-TIER2-WHITEBOX-CONTRACT-SCOPE-DIAGNOSE
+일시   : 2026-08-09
+전제   : 코드 무수정(조사·설계만). git status -- tests/ ui/ services/ routes/ = 빈 결과.
+
+────────────────────────────────────────────────────────────────────────
+0. 결론 요약
+────────────────────────────────────────────────────────────────────────
+- BACKLOG F5 의 "배치 워크플로 UI 상위 10파일 ≈180케이스"는 원본 파일럿 보고서에 존재한 적
+  없는 수치다. 파일럿(2026-07-26)은 전수 스캔을 실행했지만 보고서엔 "상위 파일" 예시 8개만
+  남겼고(1개는 이미 Tier1), 전체 랭킹표 산출물은 유실됐다. ≈180 은 그 예시 7개의 케이스 합계일
+  뿐 실제 "상위 10파일"이 아니다.
+- 오늘 동일 방법론으로 재스캔한 결과, 순수 배치 워크플로 파일(test_batch_*)만으로 상위 10을
+  채우면 233케이스·493단언으로 파일럿 추정치보다 30% 더 크다.
+- phase1 방법론(contract_utils 6헬퍼)은 그대로 재사용 가능. F7 비동기 job(단일세트 한정)은
+  Tier2 후보 10파일 중 어디에도 실질적으로 걸치지 않는다 — 배치는 원래부터 자체 job/polling
+  모델(`/execution-status`, batchRestoreRunningState)을 갖고 있었고, 이는 phase1 이 이미
+  "F. node 실행 결과 — 유지" 로 분류해 둔 범주와 같다.
+- 다만 규모가 재확정치 기준 파일럿 추정(2.5~3일/110케이스)의 2배를 넘고, 같은 기간(08-08~09)
+  ui/tabler_renderer.py 의 배치 인접 영역이 활발히 바뀌고 있어(아래 3절) 한 번에 착수하는 것은
+  비권고. 3배치 분할 착수를 권고한다.
+
+────────────────────────────────────────────────────────────────────────
+1. Tier2 대상 파일 재확인 (지시 1)
+────────────────────────────────────────────────────────────────────────
+방법: 파일럿과 동일 판별 기준(ui.tabler_renderer import 또는 render_full_page/_build_html 호출
+사용) + assert "..." in/not in 문자열 단언 카운트, tests/ 전체(412개 렌더러-접촉 파일) 재스캔.
+
+[1-A] 순수 배치(test_batch_*) 상위 10 — 단언수 내림차순, 이번 재확정 결과
+  파일                                                케이스  단언   비고
+  ─────────────────────────────────────────────────────────────────────────
+  test_batch_summary_dashboard.py                       31     92   파일럿 목록 일치
+  test_batch_step_tabs_workflow.py                      25     69   파일럿 목록 일치
+  test_batch_legacy_count_planner_display_removed.py    15     53   파일럿 목록 일치
+  test_batch_single_core_wrapper_foundation.py          48     53   신규 편입(파일럿 누락)
+  test_batch_group_current_workflow_scope.py            18     49   파일럿 목록 일치
+  test_batch_workflow_action_order.py                   18     41   신규 편입(파일럿 누락)
+  test_batch_delta_rerun_freshness.py                   22     39   파일럿 목록 일치
+  test_batch_profile_missing_reasons.py                 12     33   신규 편입(파일럿 누락)
+  test_batch_profile_recollect_control.py               34     32   신규 편입(파일럿 누락)
+  test_results_menu_batch_detail_page.py                10     32   신규 편입(파일럿 누락)
+  ─────────────────────────────────────────────────────────────────────────
+  합계                                                  233    493
+
+  ※ 신규 편입 4파일 모두 2026-06-08/09 생성(파일럿 스캔일 07-26 이전) — 새로 생긴 파일이 아니라
+    파일럿이 "예시"로만 8개를 뽑으며 누락한 것으로 확인(git log --follow --diff-filter=A 로 생성일 확인).
+
+[1-B] 파일럿이 포함시켰던 비-batch접두 2파일(도메인상 배치와 겹치되 개별검증과도 공유)
+  test_groupby_estimated_group_count_ui.py   45케이스 / 73단언  (GB 후보 추정 — 개별/일괄 공용 렌더)
+  test_candidate_draft_selection.py          14케이스 / 50단언  (후보 초안 선정 — 개별/일괄 공용 렌더)
+  → 이 2개는 renderer 함수가 개별검증 화면과 공유되므로, Tier2(배치 전용)에 포함시키면
+    개별검증(이미 Tier1 인접)에도 사이드이펙트가 걸린다. **1-A(순수 배치 10파일)를 Tier2 확정
+    범위로 하고, 이 2개는 별도 "공용 컴포넌트" 소분류로 분리 권고**(3절 배치 구성 참고).
+
+[결론] Tier2 확정 범위 = 1-A 의 10파일 · 233케이스 · 493단언(파일럿 추정 대비 +30%).
+
+────────────────────────────────────────────────────────────────────────
+2. phase1 방법론 재사용 가능성 (지시 2)
+────────────────────────────────────────────────────────────────────────
+- contract_utils.py 의 6헬퍼(has_function/function_body/calls_absent/wiring_keys/
+  listener_body/run_node)는 이미 tests/ 에 승격돼 있어 그대로 재사용 가능. 신규 헬퍼 발명 불필요.
+- F7(F7-STAGE4-ASYNC-JOB-DESIGN-AND-IMPLEMENT, 단일세트 한정 비동기 job화, 2026-08-09)이
+  Tier2 후보 10파일 소스에 job_id/async_job/poll/single_exec/job_status 키워드로 걸리는지
+  전수 grep → 실질 히트 2건뿐이며 둘 다 무관:
+    · test_batch_group_current_workflow_scope.py: test_reload_restore_running_polling —
+      배치 자체의 기존 `/execution-status` 폴링(batchRestoreRunningState) 검증. F7과 무관하게
+      배치는 원래부터 job 기반이었다(F7은 "단일세트" 한정이라는 기존 메모와 일치).
+    · test_batch_profile_recollect_control.py: 주석 1줄("lock/polling 시작 없이…") — 코드 아님.
+  → F7 이 Tier2 범위에 새로운 동적 요소를 추가하지 않았다. 다만 배치가 이미 job 기반이므로
+    "정적 HTML 문자열만 검사"로 부족한 케이스(폴링 응답에 따른 상태 전환)가 원래도 존재했고,
+    이는 phase1 이 이미 "F. node 실행 결과 — 이미 동작 검증, 유지" 로 분류해 둔 범주와 동일하게
+    처리하면 된다(신규 고려사항 아님, 기존 원칙 재적용).
+- 추가 고려사항 1개: 1-B 의 2개 공용 컴포넌트 파일은 개별검증 쪽 렌더 경로와 얽혀 있어, 전환
+  시 mutation 주입 지점을 배치 화면뿐 아니라 개별검증 화면에서도 같이 확인해야 한다(phase1은
+  이런 교차 사례가 없었음 — Tier2 고유 리스크).
+
+────────────────────────────────────────────────────────────────────────
+3. 예상 규모·위험도 (지시 3)
+────────────────────────────────────────────────────────────────────────
+[규모] Tier1 실측 단가(8파일·110케이스·407단언 ≈ 2.5~3일)를 그대로 외삽하면:
+  Tier2(10파일·233케이스·493단언) ≈ 3.5~4.5일. 파일럿의 원래 "2단계 3~4일" 추정과 케이스 수
+  기준으로는 상단에 걸치지만 단언수 기준으로는 초과(493 vs 파일럿 가정 폭 내). 폭 ±30% 적용.
+
+[위험도 — 3가지]
+  (a) 규모: 8파일이 아니라 10파일이지만 최대 단일 파일(test_batch_single_core_wrapper_foundation.py,
+      48케이스)이 Tier1 최대 파일(67케이스)의 72% 규모 — 배치당 부하가 균등치 않다.
+  (b) 활성 변경 충돌: 오늘(08-08~09) ui/tabler_renderer.py 를 건드린 커밋이 8개 확인됐고, 그중
+      2개(ef87819f F10-BATCH-RESULT-VIEW-UI-EXPOSE, a183f674 STAGE5-GROUP-DRILLDOWN)가 배치/
+      job-dashboard 인접 영역이다. Tier2 대상 10파일 자체는 이번 윈도우에 직접 변경되지 않았지만,
+      같은 렌더러 파일(28,000줄+)이 여러 세션에서 동시에 편집되는 구조이므로 며칠짜리 전환 작업
+      중 병합 충돌 확률이 Tier1 때보다 높다. → 파일 단위 원자적 커밋 + 짧은 주기 rebase 필수.
+  (c) 공용 컴포넌트 교차(2절 마지막 항목): 1-B 2파일을 포함할 경우 개별검증 인접 파일까지
+      회귀 대조 범위에 넣어야 한다(Tier1 은 47파일 인접 대조로 충분했으나 Tier2 는 배치+개별
+      양쪽 인접 대조 필요).
+
+[단계 분할 권고]
+  배치1(핵심 3파일·71케이스): summary_dashboard, step_tabs_workflow, legacy_count_planner
+    → phase1 예시로 이미 다뤄진 파일들이라 착수 리스크 최소, 방법론 재검증 겸함.
+  배치2(중간 4파일·102케이스): single_core_wrapper_foundation, group_current_workflow_scope,
+    workflow_action_order, delta_rerun_freshness
+  배치3(잔여 3파일·56케이스): profile_missing_reasons, profile_recollect_control,
+    results_menu_batch_detail_page
+  (1-B 공용 2파일은 Tier2 정규 배치에서 제외하고 "공용 컴포넌트 Tier2.5"로 별도 승인 권고 —
+   개별검증 회귀 범위가 겹쳐 책임 소재가 흐려짐)
+  각 배치 완료 시 mutation 검증 + 소급 대조(과거 3~4개 시점)를 Tier1 과 동일하게 수행.
+
+[완료 모듈 해당 여부]
+  대상 파일은 전부 tests/ 이며 CLAUDE.md 의 "1~6단계 완료 모듈"(parser/analyzer/generator/
+  checker/validator)에 해당하지 않는다. 테스트 전용 변경이므로 "완료 모듈 임의 리팩토링 금지"
+  규정 적용 대상 아님(phase1 과 동일 판단).
+
+────────────────────────────────────────────────────────────────────────
+4. 비판적 검토 (CLAUDE.md 응답 형식)
+────────────────────────────────────────────────────────────────────────
+- 요청 요약: Tier2(배치 워크플로 UI) 착수 전 재확인 진단(코드 무수정).
+- 긍정적 효과: 착수 전 "≈180케이스" 추정이 근거 없는 예시 합계였음을 밝혀, 실제 233케이스
+  기준으로 일정을 재설정할 수 있다. 배치 분할안으로 리스크를 낮춘다.
+- 구조적 문제점: 근본 원인(ui/tabler_renderer.py 거대 문자열 렌더러)은 Tier2 전환으로도
+  해소되지 않는다 — phase1 과 동일한 한계.
+- 운영상 위험: 낮음(이번 지시는 조사만, 코드 변경 0). 착수 시 위험은 3절 (b)(c) 참고.
+- heuristic/scoring/explainability 영향: 무관(테스트 인프라 조사).
+- 권장 대응책: 배치1부터 순차 착수(별도 승인 후), 1-B 공용 2파일은 별건으로 분리.
+- 지금 구현 여부: 보류(문서화 우선) — 이번 지시가 "코드 수정 없음"이므로 설계·재확인만 완료.
+  착수는 배치 단위 별도 승인 필요.
+
+────────────────────────────────────────────────────────────────────────
+5. 재현 명령
+────────────────────────────────────────────────────────────────────────
+  python -c "
+  import re, glob
+  markers = ['tabler_renderer', 'render_full_page', '_build_html']
+  rows = []
+  for path in sorted(glob.glob('tests/test_batch_*.py')):
+      src = open(path, encoding='utf-8', errors='ignore').read()
+      if not any(m in src for m in markers):
+          continue
+      n_cases = len(re.findall(r'^def test_', src, re.M))
+      n_assert = len(re.findall(r'assert\s+[\"\x27].{2,}?[\"\x27]\s+(?:not )?in\s', src))
+      rows.append((path, n_cases, n_assert))
+  rows.sort(key=lambda r: -r[2])
+  for r in rows[:10]: print(r)
+  "
+  # 신규 편입 파일 생성일 확인
+  git log --follow --diff-filter=A --format='%ad %h' --date=short -- tests/test_batch_single_core_wrapper_foundation.py
+  # F7 job 키워드 교차 확인
+  grep -icE "job_id|async_job|poll|single_exec|job_status" tests/test_batch_*.py
+
+✅ 작업 완료 - F5-TIER2-WHITEBOX-CONTRACT-SCOPE-DIAGNOSE: Tier2 대상 재확정(≈180→233케이스) + 방법론 재사용 가능 확인 + 3배치 분할 착수 권고
