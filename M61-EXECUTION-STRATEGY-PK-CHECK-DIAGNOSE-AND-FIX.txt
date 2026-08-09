@@ -1,0 +1,96 @@
+작업명 : M61-EXECUTION-STRATEGY-PK-CHECK-DIAGNOSE-AND-FIX
+
+────────────────────────────────────────────────────────────
+1. 판정 — 의도된 단순화인지 놓친 배선인지
+────────────────────────────────────────────────────────────
+놓친 배선(결함)으로 확정.
+
+- `routes/agg_diff_route.py::_resolve_execution_strategy()`(수정 전 64~65행)는
+  `services/strategy/strategy_transition.py::choose_compare_strategy()`를 호출할 때
+  `pk_kind=PK_SINGLE_NUMERIC, pk_indexed=True`를 무조건 하드코딩해서 넘겼다.
+- 그런데 같은 요청 처리 흐름 안에서, 이 함수보다 먼저 실행되는
+  `routes/agg_diff_route.py::_pk_resolve()`가 `services/diagnosis/key_evidence.py`의
+  `resolve_trusted_chunk_key()`/`resolve_confirmed_chunk_key()`를 통해 실제 PK 타입
+  (NUMBER/DATE_TIME)과 인덱스 여부를 이미 DB 메타데이터로 조사해두고 있었다. 다만 그
+  결과 중 일부(`ck.get("type")`, `ck.get("indexed")`)는 `key_src`/`key_tgt` 만 추출하고
+  버려지고 있었다 — `_resolve_execution_strategy()`가 그 값을 아예 읽지 않았기 때문이다.
+- 결정적 정황: 동일한 "PK 종류 하드코딩" 문제가 3단계 실행계획 카드
+  (`routes/strategy_route.py` → `choose_compare_strategy()` 호출부)에서는 이미
+  2026-07-29 STRATEGY-PLAN-PK-KIND-HARDCODE-FIX 로 해소된 전례가 있다. 그 커밋은
+  화면(표시 전용) 경로만 고쳤고, 실행 경로(`agg_diff_route.py`)는 고치지 않은 채 남아
+  있었다 — "상위 분기가 이미 PK 안전성을 보장해서 의도적으로 단순화했다"는 설계가
+  아니라, 별개 경로의 동일 결함을 놓친 것.
+- 코드 주석 근거(2026-07-05 최초 도입 커밋 8809fae4)의 문구는 "단일 숫자 PK 가정 —
+  아니면 chunk 실행부에서 안전 종료"였다. 실측으로 확인한바, 그 "안전 종료"는 실재한다
+  (`routes/agg_diff_route.py` PK_RANGE_CHUNK_COMPARE 실행부가 min/max PK 를 `int()`
+  캐스팅해 실패 시 `HOLD_NON_NUMERIC_PK`로 정지) — 즉 잘못된 계획이 데이터 훼손으로
+  이어지지는 않았다(correctness 는 안전). 하지만 계획 단계의 안전장치
+  (NOT_CHUNK_CAPABLE_PK)가 무력화되어, 불필요하게 CHUNK 경로를 시도했다가 뒤늦게
+  HOLD 되거나(원인 불명확한 지연·round-trip 낭비), pk_indexed=True 하드코딩 때문에
+  실제로 인덱스 없는 숫자 PK 에 대해 chunk range scan 이 비효율적으로 선택될 수
+  있었다 — 이는 계획 근거가 실측과 무관하다는 점에서 놓친 배선으로 판단.
+
+────────────────────────────────────────────────────────────
+2. 수정 조치
+────────────────────────────────────────────────────────────
+새 DB 조회를 추가하지 않고, 기존 함수가 이미 산출한 값을 재사용하도록 배선만 추가.
+
+- `routes/agg_diff_route.py::_pk_resolve()`: `resolve_confirmed_chunk_key()`가 confirm
+  성공 시 반환하는 `type`(NUMBER/DATE_TIME)과 `indexed`(PK/Unique 여부)를
+  `req._chunk_key_type` / `req._chunk_key_indexed` 에 저장(이전엔 버려짐).
+- `routes/agg_diff_route.py::_resolve_execution_strategy()`: `choose_compare_strategy()`
+  호출 직전에 pk_kind/pk_indexed 를 다음 우선순위로 산출하도록 변경.
+  1) `req._chunk_key_trusted`(TRUSTED_PHYSICAL_PK — 물리 PK+NOT NULL+숫자, 데이터
+     전수조회 없이 constraint+lineage 로 보장된 케이스) → 기존과 동일하게
+     PK_SINGLE_NUMERIC · indexed=True(변경 없음, 안전이 이미 보장된 경로).
+  2) 그 외 `req._chunk_key_type == "NUMBER"` → PK_SINGLE_NUMERIC ·
+     `req._chunk_key_indexed` 그대로.
+  3) `req._chunk_key_type == "DATE_TIME"` → PK_SINGLE_DATE ·
+     `req._chunk_key_indexed` 그대로.
+  4) 증거가 전혀 없는 경우(클라이언트가 key_src/key_tgt 를 직접 지정해 `_pk_resolve()`의
+     조회 분기 자체를 안 탄 레거시 경로 — 현재 UI 는 이 필드를 아예 보내지 않아 실질
+     도달 불가) → 기존과 동일한 보수적 기본값(PK_SINGLE_NUMERIC·indexed=True) 유지,
+     하위호환.
+
+변경 파일: `routes/agg_diff_route.py`, `tests/test_execution_path.py`
+커밋: 86cfea02(코드저장소 migration-validator, 로컬 — 코드저장소 push 금지 정책상
+remote 없음/미push)
+
+────────────────────────────────────────────────────────────
+검증 결과
+────────────────────────────────────────────────────────────
+[재현 — DATE_TIME PK 케이스, choose_compare_strategy 실측]
+  수정 전: pk_kind 하드코딩(PK_SINGLE_NUMERIC) → source_count=1,000,000(벤치 지점)에서
+           무조건 PK_RANGE_CHUNK_COMPARE 선택(reason=BENCHMARK_CHUNK_PREFERRED).
+  수정 후: req._chunk_key_type="DATE_TIME" 전달 →
+           pk_kind 실제 전달값=SINGLE_DATE, pk_indexed=True
+           선택=DIRECT_STREAM_COMPARE, reason_codes=['NOT_CHUNK_CAPABLE_PK']
+           (choose_compare_strategy 직접 호출로 reason_codes 실측 확인)
+
+[재현 — 숫자 PK 이나 미인덱스(indexed=False)]
+  req._chunk_key_type="NUMBER", req._chunk_key_indexed=False →
+  선택=DIRECT_STREAM_COMPARE(NOT_CHUNK_CAPABLE_PK, chunk_capable 조건 pk_indexed 도
+  요구하므로 정상 차단)
+
+[회귀 없음 확인 — TRUSTED_PHYSICAL_PK]
+  req._chunk_key_trusted=True →
+  live=True, path=SCHEDULER_PATH, selected=PK_RANGE_CHUNK_COMPARE,
+  compare_strategy=PK_RANGE_CHUNK_COMPARE, chunk_size=50000
+  (수정 전 하드코딩 시절과 동일 — 신뢰 PK 경로는 결과 불변)
+
+[테스트]
+- tests/test_execution_path.py: 신규 3건(trusted_numeric_still_chunk /
+  confirmed_date_pk_blocks_chunk_not_capable / confirmed_numeric_pk_not_indexed_blocks_chunk)
+  추가, 전체 13 passed (기존 test_parallel_read_decision_* 3건 실패는 이 작업과 무관한
+  사전 존재 결함 — baseline(git stash)로 동일 실패 확인, 신규 회귀 아님).
+- tests/ -k "strategy or key_evidence or agg_diff or pk_chunk or pk_range":
+  209 passed, 3 skipped(신규 회귀 0건). 실패 2건
+  (test_next_strategy_preview_matrix, test_phase4b_strategy_plan_effective_selection_display)
+  도 baseline(git stash) 대조로 이 작업과 무관한 사전 실패임을 확인.
+- CLAUDE.md 필수 회귀: samples/test_virtual_cases.py 8/8 통과,
+  samples/test_complex_cases.py 5/5 통과.
+
+작업명 : M61-EXECUTION-STRATEGY-PK-CHECK-DIAGNOSE-AND-FIX
+✅ 작업 완료 - PK 구성 검사 하드코딩은 놓친 배선으로 확정, 기존 조사 함수 재사용으로
+실제 PK 타입·인덱스 여부를 배선(신규 DB 조회 0) → NOT_CHUNK_CAPABLE_PK 게이트 정상
+발동 실측 확인, 신뢰 PK 경로 회귀 없음, 관련 테스트·CLAUDE.md 필수 회귀 전부 통과

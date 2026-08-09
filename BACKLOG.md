@@ -3383,21 +3383,45 @@ git -C E:/verify_reports worktree remove <임시경로>
   정정된 값으로 보고).
 - 참고: E:\verify_reports\STAGE5-PERF-PANEL-REPOSITION-BELOW-AND-BALANCE-FIX.txt
 
-### M61. 5단계 실행경로/전략 자동판정에서 PK 구성 검사가 실질적으로 무력화됨(하드코딩, 미해결)
+### M61. ✅ 해결 완료 — 5단계 실행경로/전략 자동판정에서 PK 구성 검사가 실질적으로 무력화됨(하드코딩)
 - 발견일: 2026-08-09 (채팅 조사 — "실행경로/전략" 배지가 실제로 여러 값이 나오는지
-  확인하던 중 부수 발견, 코드 무변경)
+  확인하던 중 부수 발견, 코드 무변경) / 해결일: 2026-08-09
+  (M61-EXECUTION-STRATEGY-PK-CHECK-DIAGNOSE-AND-FIX, 코드 커밋 86cfea02)
 - 상세: `routes/agg_diff_route.py::_resolve_execution_strategy()`(64~65행)가
   `services/strategy/strategy_transition.py::choose_compare_strategy()`를 호출할 때
-  `pk_kind=PK_SINGLE_NUMERIC, pk_indexed=True`를 **하드코딩**해서 넘긴다. 그 결과
+  `pk_kind=PK_SINGLE_NUMERIC, pk_indexed=True`를 **하드코딩**해서 넘겼다. 그 결과
   `choose_compare_strategy()` 내부의 "PK 종류가 CHUNK에 안 맞으면 차단"하는 안전장치
   (NOT_CHUNK_CAPABLE_PK 게이트)가 이 호출 경로에서는 **실질적으로 절대 발동하지
-  않는다.** SCHEDULER_PATH에서 DIRECT_STREAM_COMPARE와 PK_RANGE_CHUNK_COMPARE를
-  가르는 변수가 사실상 테이블 크기(source_count, 약 190만행 경계) 하나뿐이고, 실제
-  PK 구성/데이터 특성은(상위 DIRECT_COMPOSITE_PK 분기 자체를 타느냐 마느냐를 제외
-  하면) 반영되지 않는다.
-- 영향: 의도된 단순화인지, 놓친 배선(원래는 실제 PK 종류를 넘겨야 했는데 임시값을
-  넣어두고 안 고친 것)인지 이번 조사로는 판별 못함 — 확인 필요.
-- 근거: 채팅 조사 결과(별도 파일 미작성).
+  않았다.**
+- **판정: 놓친 배선(결함) 확정.** `services/diagnosis/key_evidence.py::_pk_resolve()`
+  (호출부 `routes/agg_diff_route.py`)가 `resolve_trusted_chunk_key()`/
+  `resolve_confirmed_chunk_key()`로 실제 PK 타입(NUMBER/DATE_TIME)·인덱스 여부를 이미
+  조사해두고도(`req.chunk_key_evidence_snapshot` 계열), `_resolve_execution_strategy()`
+  가 이를 전혀 읽지 않고 하드코딩값을 그대로 썼다. 동일한 하드코딩이 3단계 실행계획
+  카드(`routes/strategy_route.py`)에서는 2026-07-29 STRATEGY-PLAN-PK-KIND-HARDCODE-FIX
+  로 이미 해소된 전례가 있어, 실행 경로(agg_diff_route)만 그 뒤 배선을 놓친 것으로 확인.
+  (참고: `confirm_chunk_key()`가 확정하는 후보는 NUMBER 뿐 아니라 DATE_TIME 도 포함하고,
+  indexed 도 PK/Unique 여부로 False 가 나올 수 있어 — 하드코딩이 가정한 "항상 숫자+인덱스"
+  는 사실이 아니었다.)
+- 수정: 새 DB 조회 없이 기존 함수 재사용만으로 배선.
+  - `_pk_resolve()`: `resolve_confirmed_chunk_key()` 반환값의 `type`(NUMBER/DATE_TIME)·
+    `indexed`를 `req._chunk_key_type`/`req._chunk_key_indexed`에 보존(이전엔 버려짐).
+  - `_resolve_execution_strategy()`: `req._chunk_key_trusted`(TRUSTED_PHYSICAL_PK)면
+    기존과 동일하게 PK_SINGLE_NUMERIC·indexed=True(물리 PK+NOT NULL+숫자 보장, 안전),
+    그 외엔 `req._chunk_key_type`/`_indexed`를 그대로 `choose_compare_strategy`에 전달.
+    증거가 전혀 없는 레거시 경로(클라이언트가 key_src/key_tgt 직접 지정 — 현재 UI 는
+    안 씀)만 기존 보수적 기본값 유지(하위호환).
+- 검증(실측): DATE_TIME PK 확정 케이스를 req 상태로 재현 → 수정 전엔 무조건
+  PK_RANGE_CHUNK_COMPARE 가 선택되던 것이 수정 후 NOT_CHUNK_CAPABLE_PK 사유로
+  DIRECT_STREAM_COMPARE 로 안전 확정됨을 확인(`choose_compare_strategy` 직접호출로
+  `reason_codes=['NOT_CHUNK_CAPABLE_PK']` 확인). 숫자 PK이나 미인덱스(indexed=False)인
+  경우도 동일하게 차단됨을 별도 확인. TRUSTED_PHYSICAL_PK(신뢰 숫자 PK)는 기존과 동일
+  하게 PK_RANGE_CHUNK_COMPARE 선택 유지(회귀 없음). `tests/test_execution_path.py`
+  신규 3건(trusted/date/unindexed) 추가 — 전체 통과. 관련 서브셋(strategy/key_evidence/
+  agg_diff/pk_chunk/pk_range) 209 passed, 신규 회귀 0건(사전 실패 2건은 baseline 대조로
+  무관 확인). CLAUDE.md 필수 회귀(virtual 8/8, complex 5/5) 통과.
+- 근거: 코드 커밋 86cfea02(migration-validator 로컬, 코드저장소는 remote push 정책상
+  로컬 커밋만).
 
 ### M62. ✅ 해결 완료 — 2단계 COUNT 실행 중 탭 이동 무방비 + lockMaxMs 20초 오경보(별건)
 - 발견일: 2026-08-09 (사용자 목격 — 응답 지연 중 다음 탭 잠금이 풀리는 현상 + 조사
