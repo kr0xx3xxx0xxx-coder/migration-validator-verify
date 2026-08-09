@@ -2150,26 +2150,33 @@ git -C E:/verify_reports worktree remove <임시경로>
   (1회성 데이터 마이그레이션 필요) — 착수는 별도 승인 후.
   참고: F2-CHUNK-SAMPLE-STORAGE-CAP-RESEARCH.txt
 
-### F3. ⚠️ 배선 완료했으나 화면 소비처가 이미 삭제돼 있어 관측 가능한 변화 없음(dead data)
+### F3. ✅ 해결 완료(제거를 택함 — (b) 죽은 코드 정리) — 배선 완료했으나 화면 소비처가 이미 삭제돼 있어 관측 가능한 변화 없음(dead data)
 - 발견일: 2026-07-29 / 배선 완료: 2026-08-09(F3-DISPLAY-LIMIT-POLICY-WIRING-FIX, 코드
-  커밋 7fd685bb, 로컬 전용 push 없음)
+  커밋 7fd685bb, 로컬 전용 push 없음) / 배선 제거·최종 해결: 2026-08-09(F3-DEAD-WIRING-CLEANUP,
+  코드 커밋 f8d508e6, 로컬 전용 push 없음)
 - 근거 보고서: `PER-GROUP-DISPLAY-P3-PARTIAL-RECORDS-FIX.txt`(§8-(b), 최초) →
-  `F3-DISPLAY-LIMIT-POLICY-WIRING-FIX.txt`(배선+실화면 대조)
-- 해결 요약: 지시대로 3개 호출부에 storage_kind 인자 1줄씩 추가(SAMPLE/CHUNK-DIRECT/
+  `F3-DISPLAY-LIMIT-POLICY-WIRING-FIX.txt`(배선+실화면 대조, 소비처 부재 발견) →
+  `F3-DEAD-WIRING-CLEANUP.txt`(최종 — 배선 제거)
+- 1차 배선 요약: 지시대로 3개 호출부에 storage_kind 인자 1줄씩 추가(SAMPLE/CHUNK-DIRECT/
   DIRECT). API 레벨 실측(before/after 서버 대조)으로 `display_tier_info.display_message`가
   storage_kind별로 정확히 분기됨을 확인.
-- **⚠️ 핵심 발견**: 실제 드릴다운 패널 DOM을 before/after 바이트 단위 대조한 결과
+- **핵심 발견(1차 작업 중)**: 실제 드릴다운 패널 DOM을 before/after 바이트 단위 대조한 결과
   **화면엔 아무 변화가 없음**을 확인 — 이 값을 그리던 배너(D1~D4 표시등급)가 **F3
   발견일(07-29)보다 6일 앞선 2026-08-05 커밋(a1e4b7c8, STAGE5-MISMATCH-GRID-HEADER-
   CLEANUP-FIX)에서 이미 삭제**돼 있었음("서버 판정 자체는 유지, 표기만 제거"라는
   주석이 코드에 남아있음). 즉 F3의 원래 전제("화면에 세분화된 문구가 뜬다")가 발견
   시점 이전에 이미 성립하지 않는 상태였음. 배선 자체는 정확하나 소비처가 없어
   "죽은 데이터"가 됐다 — 배선 오류가 아니라 소비처 부재.
-- 대응 방향(결정 필요): (a) display_message를 다시 그릴 화면 소비처 신설, 또는
-  (b) 영구히 소비처가 없다면 storage_kind 배선/decide_display_mode 문구 분기 자체를
-  죽은 코드로 재평가·정리. 이번 작업은 판단 보류, 지시 범위(배선 1줄씩)만 수행.
+- **최종 해결(F3-DEAD-WIRING-CLEANUP)**: 대응 방향 (a)/(b) 중 **(b) 죽은 코드 정리**로 확정.
+  호출부 3곳(`routes/agg_diff_route.py` 2곳·`services/stats_execute_service.py` 1곳)에서
+  storage_kind 인자 전달을 제거해 원래 상태(인자 없이 호출)로 되돌렸다. 죽은 소비처를 위해
+  계속 인자를 넘기는 것 자체가 혼란을 유발한다는 판단. `decide_display_mode()` 함수
+  시그니처(storage_kind 파라미터)는 다른 곳에서 재사용될 수 있어 그대로 유지했다.
+  관련 테스트 서브셋을 baseline(변경 전)과 대조해 **신규 회귀 0건**을 확인(기존 결함 14건은
+  이번 변경과 무관하게 이미 존재).
 - 참고: E:\verify_reports\PER-GROUP-DISPLAY-P3-PARTIAL-RECORDS-FIX.txt
 - 참고: E:\verify_reports\F3-DISPLAY-LIMIT-POLICY-WIRING-FIX.txt
+- 참고: F3-DEAD-WIRING-CLEANUP.txt
 
 ### F4. ✅ 전체 해결 완료 — 관리컬럼 수동 확정(override) 잔여 한계 4건 전부 해소
 - 발견일: 2026-07-29 / 재분류: 2026-08-06 / 1·4 해결: 2026-08-06(F24-F20-F4-1-F4-4) /

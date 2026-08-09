@@ -1,0 +1,57 @@
+작업명 : F3-DEAD-WIRING-CLEANUP
+
+[1] 무엇을 고쳤나
+  BACKLOG.md F3 항목("⚠️ 배선 완료했으나 화면 소비처가 이미 삭제돼 있어 관측 가능한 변화
+  없음(dead data)") 및 근거 보고서 F3-DISPLAY-LIMIT-POLICY-WIRING-FIX.txt 대응.
+  결정된 방향: "죽은 코드 정리(배선만 제거)".
+
+  decide_display_mode(storage_kind=) 배선(호출부 3곳에 storage_kind 인자 전달)이 그리던
+  display_message 를 소비하던 화면 요소(D1~D4 표시등급 배너)가 F3 발견일(2026-07-29)보다
+  6일 앞선 2026-08-05 커밋(a1e4b7c8, STAGE5-MISMATCH-GRID-HEADER-CLEANUP-FIX)에서 이미
+  삭제돼 있었다. 죽은 소비처를 위해 계속 인자를 넘기는 것 자체가 혼란을 유발하므로,
+  호출부를 원래 상태(storage_kind 없이 호출)로 되돌렸다.
+
+[2] 수정 파일 (호출부 3곳, 지시 범위 그대로)
+  routes/agg_diff_route.py:1653       storage_kind="SAMPLE" 인자 제거
+    (표본 조기중단 경로 — decide_display_mode(int(spg.get("total") or 0), 0, early_stopped=True) 만 남김)
+  routes/agg_diff_route.py:1705       storage_kind=("CHUNK" if hmetrics.get("chunks_total") else "DIRECT") 인자 제거
+    (재이관 드릴다운 메인 경로 — early_stopped 인자만 남김)
+  services/stats_execute_service.py:650   storage_kind="DIRECT" 인자 제거
+    (통계검증 그룹 비교 — early_stopped=False 인자만 남김)
+  decide_display_mode() 함수 시그니처(services/display_limit_policy.py:166, storage_kind=None
+  파라미터 정의)는 지시대로 변경하지 않았다 — 다른 곳에서 쓰일 가능성을 열어둔다.
+  commit: f8d508e6 (코드repo, 2 files, +3/-5, 로컬 전용 — 코드repo에 remote 미설정)
+
+[3] 검증
+  (a) 배선 제거 후 화면 동작 영향 없음 확인: decide_display_mode() 는 storage_kind 값과 무관하게
+      early_stopped/mismatch 축으로 D1~D4 등급(status/message)을 판정하고, storage_kind 는
+      "조기중단 안내 문구"만 세분화하는 부가 인자였다(services/display_limit_policy.py:124-138).
+      그 문구를 그리던 배너 자체가 이미 없으므로(2026-08-05 삭제), 인자 제거는 응답 JSON의
+      display_message 세분화 문구 생성 여부만 되돌릴 뿐 화면에는 애초에 아무 영향이 없었다.
+      함수 반환 구조(display_tier_info)·다른 필드는 무변경.
+  (b) 관련 테스트 서브셋 + baseline 대조:
+      대상: tests/test_row_limit_policy.py, test_stage5_group_drilldown.py,
+            test_drilldown_snapshot_timestamp.py, test_stats_result_full.py,
+            test_stats_execute_error_handling.py, test_stats_plan_scope_guard.py,
+            test_sampling_preflight.py
+      수정 후: 14 failed, 136 passed, 5 xfailed, 1 error (test_sampling_preflight.py 단독 실행 시
+        13 passed 0 error — 스위트 동시 실행 시에만 나타나는 순서 의존 flake, 무관)
+      git stash 로 이번 변경 2개 파일만 되돌린 뒤 동일 서브셋 재실행(baseline):
+        14 failed, 45 passed, 5 xfailed (test_row_limit_policy.py + test_stats_result_full.py +
+        test_stats_execute_error_handling.py + test_sampling_preflight.py 조합)
+      → 실패 테스트 명단(test_row_limit_policy.py 7건 + test_stats_result_full.py 1건 +
+        test_stats_execute_error_handling.py 6건 = 14건) 이 before/after 정확히 동일함을 확인.
+        전부 사전 존재 결함(pre-existing, DB 접속 불가·success 필드 계약 등 이번 변경과 무관한
+        원인)이며, **신규 회귀 0건**.
+  (c) CLAUDE.md 필수 회귀 최종 1회:
+      python samples/test_virtual_cases.py → 8/8 통과
+      python samples/test_complex_cases.py → 5/5 통과 (SUM/GROUP BY 상한, 신뢰도 HIGH/LOW/FAIL 판정 정상)
+
+[4] 결론
+  storage_kind 배선 제거는 관측 가능한 화면 변화가 없다(제거 전부터 이미 죽은 데이터였음).
+  decide_display_mode() 함수 자체는 유지되어 향후 display_message 를 다시 그릴 소비처가
+  생기면 즉시 재사용 가능하다.
+
+✅ 작업 완료 - F3 storage_kind 죽은 배선 호출부 3곳 제거(함수 시그니처 유지), 관련 테스트
+서브셋 baseline 대조로 신규 회귀 0건 확인, CLAUDE.md 필수 회귀(virtual 8/8·complex 5/5) 통과,
+코드 커밋 f8d508e6
