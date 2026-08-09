@@ -3294,6 +3294,55 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\STAGE5-GROUP-DRILLDOWN-ARCHITECTURE-IMPLEMENT.txt
 - 참고: E:\verify_reports\STAGE5-AXIS-LABEL-CLICK-FIX-AND-INLINE-ACCORDION-EXPAND.txt
 
+### M59. 전역설정 계층화 조사·설계 완료 — "5번째 설정계통 신설"보다 "기존 D계통 정리·배선"이 우선이라는 역제안 포함
+- 발견/계기: 2026-08-09 (개별/일괄/전수 3모드에 흩어진 설정값을 전역 공통+모드별
+  오버라이드로 정리하고 싶다는 요청) / 조사: GLOBAL-SETTINGS-HARDCODED-VALUES-SCOPE-
+  DIAGNOSE(코드 무변경, Opus 서브에이전트 위임 조사)
+- **규모 실측**: 모듈 최상위 숫자 상수 232개(config/로 외부화된 건 33개뿐), 환경변수
+  override 실제 임계값성 약 25개. "완료 모듈"(parser/analyzer/generator/checker/
+  validator/adapter) 안의 임계값은 전체 232개 중 9개뿐 — **이 작업은 완료 모듈을
+  거의 안 건드려도 된다**(무게중심은 services/routes/).
+- **8개 카테고리 전수조사**(SQL타임아웃/DB접속재시도/조합축상한/저장상한/표시상한/
+  표본전환임계값/동시성상한/TTL폴링락) 전부 파일:라인과 함께 나열, 모드별 공유
+  현황표까지 정리. 상세는 근거 보고서 참고.
+- **조사 중 발견한 실제 결함(부수, 이번 범위 밖)**:
+  · 오라클 `connect_timeout`이 파라미터는 받으나 드라이버에 실제 미전달 — 오라클
+    무응답 시 무한대기 위험(services/db_adapters/oracle.py:230-235).
+  · "60초" 타임아웃이 6곳에 독립 선언, "대표 20건"이 6곳에 독립 선언 — 하나만 바꾸면
+    "설정을 바꿨는데 안 바뀐다"는 착시가 재발할 구조.
+  · 일괄 병렬 동시성 기본값이 진입경로에 따라 2배 차이(resource_budget.py 전역2 vs
+    wrapper_parallel_runner.py 전역4, 서로 다른 함수가 각자 기본값 가짐).
+  · `reclaim_stale()`(validation_scheduler.py:165-180) 호출처 0건 — worker 스레드
+    사망 시 ResourceBudget 토큰 영구 누수.
+  · exact_diff(전수) statement_timeout=5분이 인자 없이 생성되는 구조라 **현재 조정
+    경로가 아예 없음**.
+- **기존 인프라 재확인**: `execution_settings.py`(D계통, 14그룹 dataclass)가 이미
+  있으나 **71필드 중 실제 소비처가 있는 건 12개(17%)뿐** — "3단 롤백(env→정책→
+  기본값)"도 boolean 토글 2개에만 적용돼 있고 숫자값엔 적용된 적 없음. 게다가
+  설정 계통 자체가 이미 4개(registry/model_config/validation_policy_service DB/
+  execution_settings) 경쟁 중.
+- **설계 확정**: 그룹축(기능)과 모드축을 섞지 않고, 기존 14그룹에 `MODE_OVERRIDES`
+  사전(모드별 부분 override)만 얹는 방식 채택(그룹 수가 모드 배수로 안 늘어남).
+  모드 전달은 함수 시그니처가 아니라 `SharedExecutionContext.mode`로(일괄이 개별
+  facade를 그대로 호출하는 "일괄 전용 로직 금지" 규약과 충돌 안 함). 정책 저장소는
+  `policy_name` 축(default/batch/exhaustive) 재사용 — 키 접두어 방식은 정책 키가
+  늘어나 **`global_settings_gate`의 fingerprint 불일치로 진행 중인 전체 세션의
+  실행이 즉시 차단되는 위험**(policy_name 축이면 이 위험 회피). 전수검증은 코드베이스
+  4곳에 이미 있는 "빈 틀" 관례(EXHAUSTIVE enum, stages_for_mode() 등)를 그대로 따라
+  `MODE_OVERRIDES`도 빈 dict로 자리만 잡아둠(나중에 값만 채우면 활성화).
+- **★ 비판적 역제안(핵심)**: "5번째 설정 계통을 신설하는 것은 상황을 악화시킬 수
+  있다" — 0단계를 "새 계통 신설"이 아니라 **"기존 D계통에 모드 차원을 붙이면서
+  동시에 dead 필드를 배선하거나 삭제하는 정리 작업"**으로 재정의할 것을 권고.
+- **5단계 착수 순서 권고**(각 단계 독립 롤백 가능, "선언+배선"을 한 커밋에 묶을 것):
+  0(인프라+dead필드정리, 값이동 0) → 1(SQL타임아웃 — 이미 모드별로 갈라진 값을
+  구조로 옮기기만 하면 돼서 정책판단 없이 구조 실증 가능, 최우선 권장) →
+  2(동시성/TTL/폴링) → 3(저장/표시상한 중복제거, 참조경로만 통일) →
+  4(조합축 자동계획상한, 여기서 처음 모드별 값이 실제로 달라짐) →
+  5(표본전환 임계값 — **검증 판정 자체(PASS/WARNING)를 바꾸는 되돌리기 어려운 변경이라
+  최종 단계로 미룸, 별도 사용자 확인 대상**).
+- 대응 방향: **착수 순서 승인 필요**(0단계부터, 위 역제안 반영 여부 포함).
+- 참고: E:\verify_reports\GLOBAL-SETTINGS-HARDCODED-VALUES-SCOPE-DIAGNOSE.txt
+
 ### M57. ✅ 해결 완료 — 통계검증 실행 후 `body.mv-run-locked` 잠금이 stale하게
     남아 3단계 후보 체크박스가 실 클릭으로 안 풀린다
 - 발견일: 2026-08-08 (STAGE4-5-CLICKTHROUGH-REVERIFY 3순위 case B 재현 중 부수 발견) / 원인 확정일:
