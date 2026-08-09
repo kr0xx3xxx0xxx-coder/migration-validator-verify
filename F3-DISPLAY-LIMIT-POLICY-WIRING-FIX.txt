@@ -1,0 +1,86 @@
+작업명 : F3-DISPLAY-LIMIT-POLICY-WIRING-FIX
+
+[1] 무엇을 고쳤나
+  BACKLOG.md F3 / 근거 보고서 PER-GROUP-DISPLAY-P3-PARTIAL-RECORDS-FIX.txt §8-(b) 대상.
+  services/display_limit_policy.py 의 decide_display_mode(storage_kind=) 는 이미 구현돼 있었으나
+  호출부 3곳이 인자를 넘기지 않아 항상 storage_kind=None(중립 문구)으로만 동작했다.
+  지시대로 새 로직은 추가하지 않고, 각 호출부가 이미 갖고 있던 신호를 그대로 전달하는
+  인자 1줄씩만 추가했다(총 3줄).
+
+[2] 수정 파일 (3줄, 지시 범위 그대로)
+  routes/agg_diff_route.py:1616       storage_kind="SAMPLE"
+    (표본 조기중단 경로 — basis.sample_early_stop=True 분기, SAMPLE_KIND 저장소 사용)
+  routes/agg_diff_route.py:1668       storage_kind=("CHUNK" if hmetrics.get("chunks_total") else "DIRECT")
+    (재이관 드릴다운 메인 경로 — head.metrics.chunks_total 유무로 CHUNK/DIRECT 경로 판별.
+     chunks_total 은 pk_range_chunk.py 의 CHUNK 엔진에서만 채워지는 기존 필드, 신규 판정 로직 아님)
+  services/stats_execute_service.py:651   storage_kind="DIRECT"
+    (통계검증 그룹 비교 — early_stopped 는 이 경로에서 항상 False 로 고정 호출됨, 아래 [4] 참조)
+  commit: 7fd685bb067938eeaf12380d6b110b0d1ea59b46  (2 files, +5/-3, 로컬 전용 · push 없음 — 코드repo에 remote 미설정)
+
+[3] 검증 — API/JSON 레벨(실제 서버 응답, 실측)
+  Before(포트 8199) = HEAD f4b8c5cd(이번 배선 전, 워크트리 X:\_mvbase) / After(포트 8000) = 현재 코드.
+  같은 exact_diff_runs.db(영속 store, PER-GROUP-DISPLAY 작업이 만든 기존 fixture run 재사용) 를
+  두 서버가 함께 조회. 실제 Chromium 세션(Basic Auth)의 fetch() 로 /agg-diff/pk-records 호출,
+  응답의 display_tier_info.display_message 를 화면에 렌더해 캡처.
+
+    케이스(storage_kind)   run_id            Before(중립 문구)                 After(세분화 문구)
+    --------------------  ----------------  --------------------------------  --------------------------------
+    DIRECT(조기중단)        P3PARTIAL_B101    "...저장된 레코드는 그룹 상세      "...저장된 것은 대표 표본이
+                                              에서 표시 경계까지 나열..."        아니라 실제 불일치 레코드이며..."
+    CHUNK(누적중단)         P3PARTIAL_CHUNK20 "...저장된 레코드는 그룹 상세      "...대표 표본만 저장되었습니다.
+                                              에서 표시 경계까지 나열..."        그룹 상세에는 저장된 표본까지만..."
+    SAMPLE(표본조기중단)    PS7B6831C4B022    "...저장된 레코드는 그룹 상세      "...대표 표본만 저장되었습니다.
+                                              에서 표시 경계까지 나열..."        그룹 상세에는 저장된 표본까지만..."
+
+  → 3개 경로 모두 Before 는 동일한 중립 문구, After 는 storage_kind 별로 정확히 분기됨을 실측 확인.
+  스크린샷(6장, JSON 렌더): X:\Verify\verify_screenshots_only\F3-DISPLAY-LIMIT-POLICY-WIRING-FIX\
+    BEFORE_DIRECT_early_stopped.png / AFTER_DIRECT_early_stopped.png
+    BEFORE_CHUNK_mismatch_limit_stopped.png / AFTER_CHUNK_mismatch_limit_stopped.png
+    BEFORE_SAMPLE_sample_early_stop.png / AFTER_SAMPLE_sample_early_stop.png
+
+[4] ⚠️ 중요 — 화면(실제 UI)에는 Before/After 차이가 없다(회귀 아님, 사전 상태)
+  실제 드릴다운 패널(_mvPkLoadPage) DOM 을 Before/After 로 직접 캡처해 대조한 결과, 두 화면은
+  바이트 단위로 동일했다(스크린샷: BEFORE_real_drilldown_panel.png / AFTER_real_drilldown_panel.png).
+  원인 조사 결과:
+    - decide_display_mode() 가 만드는 display_message 는 과거 D1~D4 "표시 등급" 배너(_mvDisplayTierBanner)
+      가 화면에 그렸었다.
+    - 그 배너는 커밋 a1e4b7c8(STAGE5-MISMATCH-GRID-HEADER-CLEANUP-FIX, 2026-08-05)에서 **완전히 삭제**됐다
+      ("등급별 색상표·문구 구성 로직까지 함께 제거 — 호출부 3곳도 제거, 서버 display_tier_info 판정 자체는
+      유지(동작 불변, 표기만 제거)"라는 주석이 코드에 남아있음, ui/tabler_renderer.py:17760).
+    - F3 backlog 항목은 2026-07-29 필드(그 삭제보다 6일 전) 근거로, "화면에 세분화된 문구가 뜬다"는
+      전제가 지금은 성립하지 않는다.
+  즉 이번 배선으로 서버 응답 JSON(display_tier_info.display_message)은 storage_kind 별로 정확히
+  분기되지만, 그 값을 읽어 그리는 화면 소비처가 현재 코드베이스에 없어 **사용자 화면에는 아무 변화가
+  없다**(dead data — 잘못된 배선이 아니라 소비처 부재). 재이관 드릴다운 패널에 실제로 보이는 조기중단
+  안내문은 별도 정책(services/per_group_display_policy.py 의 P3 부분표시 배너)이 그리는 것이며, 이번
+  배선과는 무관하게 Before/After 동일하다(무회귀 확인).
+  대응 필요 시 후속 과제로 분리 권장: (a) display_message 를 다시 그릴 화면 소비처를 신설하거나,
+  (b) 소비처가 영구히 없다면 storage_kind 배선/decide_display_mode 의 문구 분기 자체를 죽은 코드로
+  재평가. 이번 작업은 지시 범위(호출부 배선 1줄씩)만 수행했고 위 판단은 보류.
+
+[5] 회귀 확인
+  - 관련 단위테스트: samples/test_display_limit_policy.py 26/26 통과
+                     samples/test_per_group_display_policy.py 50/50 통과(무관 정책, 참고용 회귀)
+  - 타겟 서브셋(pytest, 이 두 파일을 호출하는 경로) vs baseline(HEAD, 동일 파일 stash) 대조:
+      tests/test_drilldown_snapshot_timestamp.py, test_stats_result_full.py,
+      test_stats_execute_error_handling.py, test_stats_execute_excel_export.py,
+      test_result_group_limit_precheck.py, test_reimport_stream.py, test_sampling_preflight.py,
+      test_row_limit_policy.py → 97 passed / 14 failed / 5 xfailed, **Before/After 동일 14건**
+      (baseline 에서도 동일하게 실패 — 이번 변경과 무관한 사전 존재 실패, 계약 변경/monkeypatch
+      드리프트로 추정. 신규 회귀 0건).
+  - CLAUDE.md 필수 회귀: samples/test_virtual_cases.py 8/8 · samples/test_complex_cases.py 5/5 통과.
+
+[6] [4]에 대한 추가 근거 — stats_execute_service.py 호출부는 storage_kind 무관
+  services/stats_execute_service.py:650 호출은 early_stopped=False 로 항상 고정 호출된다
+  (통계검증 그룹 비교는 조기중단 개념이 없음 — 전량 비교). display_limit_policy._build_message() 는
+  storage_kind 를 `if early_stopped:` 분기 내부에서만 참조하므로, 이 호출부는 storage_kind 값과
+  무관하게 항상 동일한 비-조기중단 문구를 반환한다(코드 검토로 확인, [4]의 소비처 부재와는 별개로
+  이 경로 자체도 storage_kind 의 관측 가능한 효과가 없음). 지시대로 값은 넘겼으나(DIRECT — 이 경로가
+  다루는 저장 방식과 일치하는 값), 현재 early_stopped 가 False 고정인 한 문구에 영향이 없다.
+
+작업 완료 시각(서버 재기동): 2026-08-09 (After 서버 기동, 포트 8000, HEAD 7fd685bb)
+✅ 작업 완료 - display_limit_policy.decide_display_mode(storage_kind=) 호출부 3곳 배선 완료,
+   API 레벨 3경로 분기 실측 확인. 단, 화면 소비처(D1~D4 배너)가 사전에 삭제되어 있어 사용자
+   화면에는 관측 가능한 변화가 없음(회귀 아님 — [4] 참조, 후속 과제로 분리 권장).
+
+작업명 : F3-DISPLAY-LIMIT-POLICY-WIRING-FIX
