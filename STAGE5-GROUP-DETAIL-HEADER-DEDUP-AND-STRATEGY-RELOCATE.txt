@@ -1,0 +1,186 @@
+작업명 : STAGE5-GROUP-DETAIL-HEADER-DEDUP-AND-STRATEGY-RELOCATE
+✅ 작업 완료 - 그룹 펼침 헤더의 'GROUP BY X = Y 이 그룹의 불일치 레코드' 중복 문구를 제거하고,
+   그룹마다 값이 달라질 수 있는 '실행경로/전략' 줄은 삭제 대신 상단 '검증성능정보' [갱신] 카드로
+   이동(기존 _mvStage5SetGroupPerf 갱신 메커니즘 재사용, 실브라우저 클릭 실측 완료)
+
+════════════════════════════════════════════════════════════════════════
+0. 선행 지침 확인
+════════════════════════════════════════════════════════════════════════
+지시서 지시대로 오늘 완료된 두 작업의 완료보고를 먼저 읽었다.
+  · STAGE5-EXTRACT-STATUS-TRACKING-BUG-AND-SUMMARY-LAYOUT-FIX
+    — 상단 '검증성능정보' 영역([고정] #mvS5PerfPipeline + [갱신] #mvS5PerfGroup)을 처음 만든 작업.
+      갱신 함수 _mvStage5SetGroupPerf(o)와 렌더 함수 _mvStage5GroupPerfHtml()의 구조를 확인했다.
+  · STAGE5-PERF-PANEL-REPOSITION-BELOW-AND-BALANCE-FIX
+    — 그 영역을 그룹 목록 아래로 재배치하고 좌우 카드 균형을 맞춘 작업. [갱신] 카드가
+      title/detailMs/detailHtml/reused 필드를 받는 계약을 확인했다.
+이번 작업은 이 두 구조를 그대로 재사용했다(새 위치·새 컴포넌트·새 갱신 로직 발명 없음) — [갱신]
+카드 객체에 필드 하나(pathHtml)만 추가했다.
+
+════════════════════════════════════════════════════════════════════════
+1. [중복 헤더 제거]
+════════════════════════════════════════════════════════════════════════
+파일:라인 — ui/tabler_renderer.py:28003 `_mvRiEnterRecordsView(scope, titleText, mountId)`
+
+[근거 재확인] `_mvStage5OpenGroup`(ui/tabler_renderer.py:27942)이 만드는 titleText는
+  'GROUP BY ' + g.group_axis + ' = ' + g.group_value
+이고, 이건 바로 위 그룹 목록 행(같은 `g` 객체의 group_axis/group_value 컬럼)이 이미 표시 중인
+값을 그대로 재조합한 것이라 화면에 두 번 나온다.
+
+[변경 전]
+  var headHtml = inline
+    ? ('...<span>' + esc(String(titleText || '')) + '</span>'
+       + '<span>이 그룹의 불일치 레코드 — 행을 다시 클릭하면 접힙니다</span></div>')
+    : (...);   // 별도 화면(전체 그룹 한번에 추출) 분기 — 변경 없음
+
+[변경 후]
+  var headHtml = inline
+    ? ('<div style="margin:0 0 6px"><span style="font-size:.72rem;color:#94a3b8">행을 다시
+       클릭하면 접힙니다</span></div>')
+    : (...);   // 그대로
+
+인라인(그룹 펼침) 분기에서만 titleText 표시를 뺐다. 별도 화면(전체 그룹 한번에 추출·복귀 버튼
+경로)의 titleText 표시는 한 글자도 바꾸지 않았다 — 그 화면은 특정 그룹으로 좁혀진 게 아니라
+'GROUP BY X = Y' 표시가 그 화면에서는 유일한 축·값 안내이므로 지시서 범위 밖이다.
+
+════════════════════════════════════════════════════════════════════════
+2. [실행경로/전략 줄을 상단 검증성능정보로 이동]
+════════════════════════════════════════════════════════════════════════
+파일:라인 — ui/tabler_renderer.py, `_mvRiSummaryHtml(d, curPageMs)` 내부
+
+[2-1] head 조립부(28340행 부근) — 계산은 그대로, 대입 대상만 조건부로
+  기존에는 `if (d.execution_path || d.actual_strategy_id) { head += '...'; }` 로 무조건 그룹
+  인라인 카드에도 붙었다. html 문자열을 `_pathHtml` 지역 변수로 분리하고,
+      if (!_inlineGrp) head += _pathHtml;
+  로 바꿔 **별도 화면(전체 그룹 한번에 추출 등)에서는 그대로 head 에 남기고, 인라인(그룹 펼침)
+  에서만 빼도록** 했다. `_resolve_execution_strategy`가 그룹 단위 scope 로 좁혀진 요청을 받아
+  그룹마다 다른 source_count/PK 증거로 판정하므로(지시서 근거) 값 자체는 삭제하지 않았다.
+
+[2-2] 인라인 분기(28450행 부근) — 상단 [갱신] 카드로 전달
+      _mvStage5SetGroupPerf({ detailMs: _detailMs, detailHtml: (_quick + _foldedTbl),
+                              pathHtml: _pathHtml,
+                              reused: (window._mvPkPrepFromCache === true) });
+  `_pathHtml`(2-1 에서 계산한 같은 값)을 새 필드로 실어 보낸다 — 재계산 없음.
+
+[2-3] `_mvStage5SetGroupPerf(o)`(27791행) — 상태 보관에 pathHtml 추가
+      window._mvS5GroupPerf = { title: ..., detailMs: o.detailMs, detailHtml: o.detailHtml || '',
+                                pathHtml: o.pathHtml || '', preparing: !!o.preparing, ... };
+  `preparing:true`(추출 중 표시, 27249행에서 호출)일 때는 pathHtml 을 안 넘기므로 기본값 ''로
+  안전하게 처리된다 — `_mvStage5GroupPerfHtml`이 preparing 분기에서 pathHtml 을 참조하지 않아
+  영향 없음.
+
+[2-4] `_mvStage5GroupPerfHtml()`(27762행) — 렌더에 pathHtml 반영
+      + '<div ...><b>추출 소요 ...</b>...</div>'
+      + (p.pathHtml || '') + (p.detailHtml || '') + '</div>';
+  '추출 소요 N초' 줄 바로 다음, 세부 성능정보(요약 3줄+접힌 표) 앞에 실행경로/전략 줄이 온다.
+
+새 갱신 로직을 만들지 않았다 — _mvStage5SetGroupPerf/host.innerHTML = _mvStage5GroupPerfHtml()
+로 그룹 클릭마다 이미 갱신되는 기존 경로를 그대로 탄다.
+
+════════════════════════════════════════════════════════════════════════
+3. 검증 결과 — 실브라우저 클릭 실측(지시서 '검증(필수, 실제 클릭)' 절 전 항목)
+════════════════════════════════════════════════════════════════════════
+드라이버(신규) : scripts/dev_e2e/stage5_group_detail_header_dedup_and_strategy_relocate_verify.py
+  scripts/dev_e2e/stage45_clickthrough_reverify.py 의 조작 헬퍼(setup/stage1/stage2/select_gb/
+  click_apply_candidate/click_generate/click_execute/_goto_step/_nav_next/_launch_ctx/_snap*)를
+  그대로 재사용(새 조작 방식 발명 없음). 실 포트 8000, 실 오라클 asis/tobe
+  NXDNP.MV_COMBO_SRC/TGT 1,200행, GB=STATUS_CD+DEPT_CD **조합(PAIR) 축** → 실불일치 4그룹.
+
+[사전 장애물 — 테스트 프로젝트 소멸, 코드 결함 아님]
+  최초 실행 시 `button[data-pname="TESTONLY_REG"]` 를 60초 대기해도 못 찾아 실패했다. DB 조회로
+  확인한 결과 이 dev_e2e 공용 프로젝트(TESTONLY_REG, 171개 스크립트가 공유)가 로컬 SQLite
+  `project` 테이블에서 사라져 있었다(오늘 진행된 다른 세션의 F12 계열 cascade 삭제 작업과 무관하게
+  이 조사 범위 밖 — 원인은 추적하지 않음, 이 작업의 코드 변경과는 무관). 전역 DB 프리셋
+  Oracle_asis/Oracle_tobe(project_id NULL, 즉 프로젝트 독립)는 그대로 남아 있어 재현 가능함을
+  확인하고, `services.project_store.create_project('TESTONLY_REG', ..., is_test=True)` 로
+  프로젝트만 재생성했다(is_test=1 로 표식 — 다른 e2e 프로젝트와 동일하게 정리 대상에 포함되도록).
+  프로젝트 재생성 이후 드라이버가 정상 진행됐다.
+
+  항목                                          실측값
+  ────────────────────────────────────────────────────────────────────────
+  [1] COUNT 비교                                COUNT_MATCHED, src=1200 · tgt=1200
+  [1] 통계검증 실행                              불일치 4그룹, 2.08초
+  [1] 그룹A 펼침영역 — 옛 중복문구('이 그룹의     False (사라짐)
+      불일치 레코드') 잔존
+  [1] 그룹A 펼침영역 — 'GROUP BY X = Y' 제목      False (사라짐)
+      잔존
+  [1] 그룹A 펼침영역 — '행을 다시 클릭하면        True (남음)
+      접힙니다' 안내 존재
+  [2] 그룹A 펼침영역 내 실행경로줄 존재            False (더 이상 없음)
+  [2] 상단 [갱신] 카드 내 실행경로줄 존재          True — "실행경로 — · 전략 DIRECT_STREAM_COMPARE"
+  [3] 그룹B(조합축 A|D02) — 옛 중복문구 잔존       False
+  [3] 그룹B 펼침영역 내 실행경로줄 존재            False
+  [2] 그룹B [갱신] 카드 내 실행경로줄 존재         True
+  [2] 그룹 A→B 전환 시 [갱신] 카드 텍스트 변경     True — "대상 ...A | D01·추출 소요 0.42초" →
+                                                 "대상 ...A | D02·추출 소요 0.13초"(값 함께 갱신)
+  JS 콘솔 오류(pageerror)                       0건
+
+  [실행경로 값이 '—'로 보이는 이유 — 결함 아님] 이 픽스처는 단일 프로세스 스트리밍
+  경로(DIRECT_STREAM_COMPARE, `d.execution_path` 미설정)로 실행돼 `d.execution_path`가 비어
+  있다. 그래도 `d.actual_strategy_id`(DIRECT_STREAM_COMPARE)가 있어 `if (d.execution_path ||
+  d.actual_strategy_id)` 조건은 참이 되고, 줄 자체는 "실행경로 — · 전략
+  DIRECT_STREAM_COMPARE"로 정상 렌더된다(이동 대상 로직·조건은 변경하지 않았다 — 표시값 포맷은
+  기존 그대로).
+
+  스크린샷 3장(after_group_a_expanded / after_group_a_expanded_full / after_group_b_expanded,
+  전체화면 캡처로 헤더 문구·[갱신] 카드 값이 동시에 눈으로도 확인됨) + 실측 JSON 1건 →
+    X:\Verify\verify_screenshots_only\STAGE5-GROUP-DETAIL-HEADER-DEDUP-AND-STRATEGY-RELOCATE\
+    (증적 저장소에도 동일 사본 push)
+  드라이버 종료 시 errors=[] (0건).
+
+════════════════════════════════════════════════════════════════════════
+4. 자체 테스트 · 회귀
+════════════════════════════════════════════════════════════════════════
+[A] 렌더 JS 문법 가드 — tests/test_rendered_js_syntax_guard.py 2 passed.
+[B] tests/test_stage5_group_drilldown.py — 신규 테스트 2건 추가, 전체 36 passed
+    (기존 34건 무수정 통과 포함, 회귀 0건).
+    · test_inline_group_head_drops_duplicate_group_by_title_keeps_toggle_hint (1번)
+      인라인 headHtml 조립에 'GROUP BY {축} = {값}' 표시(esc(titleText))가 없음 + '행을 다시
+      클릭하면 접힙니다' 존재 + 별도 화면 분기는 titleText 표시가 그대로 남아 있음(범위 밖 무회귀).
+    · test_execution_path_strategy_line_moved_from_inline_card_to_perf_group_card (2번)
+      _pathHtml 변수 분리 + `if (!_inlineGrp) head += _pathHtml;` 조건부 대입 +
+      인라인 분기가 `_mvStage5SetGroupPerf`에 pathHtml 을 넘김 + 갱신 함수/렌더 함수가
+      pathHtml 을 보관·표시함(새 갱신 로직 없이 기존 메커니즘 재사용 계약).
+[C] 관련 서브셋(건드린 식별자 참조 파일 7개, -p no:randomly) — 신규 회귀 0건.
+      subset = test_stage5_group_drilldown.py, test_stage5_strategy_relocate_and_advanced_perf_
+      emphasis.py, test_d7_8_inline_drill_time.py, test_stats_result_full.py,
+      test_d7_9_gb0_fallback.py, test_stage45_timing_label_and_dup_guard_fix.py,
+      test_all_stages_timing_display_expand.py, test_execution_path.py
+      결과: 95 passed, 5 xfailed, 7 failed.
+      실패 7건 중 4건은 두 선행 작업 완료보고가 이미 '사전 존재 실패'로 명시한 것과 ID 까지
+      완전히 동일(test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display,
+      test_d7_9_gb0_fallback.py::test_gate_gb0_always_grid/test_stage_timing_display,
+      test_all_stages_timing_display_expand.py::test_count_generate_execute_routes_add_processing_ms).
+      나머지 3건(test_execution_path.py::test_parallel_read_decision_*)은 이번 diff 범위
+      (ui/tabler_renderer.py·tests/test_stage5_group_drilldown.py) 밖의 routes/agg_diff_route.py
+      `_parallel_read_decision`을 검사하는데, 그 파일은 이번 작업트리에서 전혀 수정하지 않았다
+      (git diff --stat 로 손댄 파일이 3개뿐임을 재확인) — 즉 HEAD 상태 그대로의 사전 존재 실패다.
+[D] CLAUDE.md 필수 회귀 — samples/test_virtual_cases.py 8/8 통과,
+    samples/test_complex_cases.py 5/5 통과(케이스 분석 5/5 완료).
+[E] 신규 테스트 2건 — tests/test_stage5_group_drilldown.py (§B 참고, 기존 단언 삭제·약화 없음)
+
+════════════════════════════════════════════════════════════════════════
+5. 변경 파일
+════════════════════════════════════════════════════════════════════════
+  ui/tabler_renderer.py                       (수정 — 1·2번: 헤더 중복 제거 + 실행경로/전략 이동)
+  tests/test_stage5_group_drilldown.py        (수정 — 신규 2건)
+  scripts/dev_e2e/stage5_group_detail_header_dedup_and_strategy_relocate_verify.py (신규 — 실측 드라이버)
+
+════════════════════════════════════════════════════════════════════════
+6. 재기동 시각 · 커밋 해시
+════════════════════════════════════════════════════════════════════════
+서버 재기동   : 2026-08-09 21:35:01 KST (PID 28584, 포트 8000, MV_BIND_HOST 기본값 127.0.0.1)
+코드 저장소   : 443e50c2  (X:\Projects\Migration_Validator, main, **push 안 함** — 저장소 원칙)
+                직전 HEAD = 92ca8f5a
+증적 저장소   : (본 보고 파일 + 스크린샷 3장 + 실측 JSON 1건 커밋 예정, 아래 push 로 반영)
+
+동시 세션 주의 — 내가 만든/건드린 3개 파일만 명시 경로로 add 했다. 현재 작업트리에 남아 있는
+다른 세션의 변경(.claude/settings.json, requirements*.txt, scripts/dev_fixtures/*,
+tests/test_11def_scenarios.py, tests/test_12k_stress.py, ui/history_renderer.py,
+ui/js_batch_display.py, scratchpad/*, db/migration_validator.db.bak_20260809 등)은 전혀
+건드리지 않았다. dev_e2e 공용 프로젝트(TESTONLY_REG) 재생성은 검증 실행에 필요한 최소 조치였고
+project_id=976, is_test=1 로 다른 e2e 프로젝트와 동일하게 정리 대상에 포함되도록 생성했다.
+
+작업명 : STAGE5-GROUP-DETAIL-HEADER-DEDUP-AND-STRATEGY-RELOCATE
+✅ 작업 완료 - 그룹 펼침 헤더의 'GROUP BY X = Y 이 그룹의 불일치 레코드' 중복 문구를 제거하고,
+   그룹마다 값이 달라질 수 있는 '실행경로/전략' 줄은 삭제 대신 상단 '검증성능정보' [갱신] 카드로
+   이동(기존 _mvStage5SetGroupPerf 갱신 메커니즘 재사용, 실브라우저 클릭 실측 완료)

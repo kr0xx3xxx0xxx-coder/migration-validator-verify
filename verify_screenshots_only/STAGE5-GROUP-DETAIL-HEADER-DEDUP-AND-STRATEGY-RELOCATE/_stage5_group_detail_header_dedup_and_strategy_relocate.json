@@ -1,0 +1,63 @@
+{
+  "task": "STAGE5-GROUP-DETAIL-HEADER-DEDUP-AND-STRATEGY-RELOCATE",
+  "port": 8000,
+  "started": "2026-08-09 21:37:54",
+  "setup": {
+    "pair": "Oracle_asis → Oracle_tobe",
+    "connected": true
+  },
+  "1_analyze": {
+    "blocked": false,
+    "from_table": "MV_COMBO_SRC",
+    "error": ""
+  },
+  "2_count": {
+    "status": "COUNT_MATCHED",
+    "src": 1200,
+    "tgt": 1200
+  },
+  "sel": {
+    "gb": [],
+    "sum": []
+  },
+  "run1": {
+    "clicked": true,
+    "elapsed_sec": 2.08,
+    "completed": true
+  },
+  "group_a": {
+    "bodyText": "행을 다시 클릭하면 접힙니다전체 재이관 대상(이 그룹) 100건현재 1~20 표시 · 1/5페이지표시 건수 20건50건100건불일치 유형IDPKSTATUS_CD(원본)STATUS_CD(목적)DEPT_CD(원본)DEPT_CD(목적)AMT(원본)AMT(목적)값 불일치401AAD01D011,002992값 불일치402AAD01D011,003993값 불일치403AAD01D011,004994값 불일치404AAD01D011,005995값 불일치405AAD01D011,006996값 불일치406AAD01D011,000990값 불일치407AAD01D",
+    "bodyHasOldDupText": false,
+    "bodyHasGroupByTitle": false,
+    "bodyHasReclickHint": true,
+    "bodyHasExecPathLine": false,
+    "groupCardText": "선택 그룹 상세추출그룹 행을 클릭할 때마다 그 그룹 기준으로 갱신됩니다대상 GROUP BY STATUS_CD + DEPT_CD = A | D01추출 소요 0.42초실행경로 — · 전략 DIRECT_STREAM_COMPARE불일치 추출 완료 0.42초현재 페이지 조회 —전체 검증 완료(READY) 0.42초세부 성능정보 · DIRECT_STREAM_COMPARE · 총 0.42초측정 기준(시작점을 찍은 실행 경로)단계별 [▶ 통계검증 실행]실행 시작 → 그룹 요약 표시(사용자 대기 없음)—불일치 추출 완료0.42초현재 페이지 조회—C",
+    "groupCardHasExecPathLine": true,
+    "statuses": [
+      "완료",
+      "미확인",
+      "미확인",
+      "미확인"
+    ],
+    "groupRowCount": 4
+  },
+  "group_b": {
+    "bodyText": "행을 다시 클릭하면 접힙니다전체 재이관 대상(이 그룹) 100건현재 1~20 표시 · 1/5페이지표시 건수 20건50건100건불일치 유형IDPKSTATUS_CD(원본)STATUS_CD(목적)DEPT_CD(원본)DEPT_CD(목적)AMT(원본)AMT(목적)값 불일치501AAD02D021,0041,014값 불일치502AAD02D021,0051,015값 불일치503AAD02D021,0061,016값 불일치504AAD02D021,0001,010값 불일치505AAD02D021,0011,011값 불일치506AAD02D021,0021,012값 ",
+    "bodyHasOldDupText": false,
+    "bodyHasGroupByTitle": false,
+    "bodyHasReclickHint": true,
+    "bodyHasExecPathLine": false,
+    "groupCardText": "선택 그룹 상세추출그룹 행을 클릭할 때마다 그 그룹 기준으로 갱신됩니다대상 GROUP BY STATUS_CD + DEPT_CD = A | D02추출 소요 0.13초실행경로 — · 전략 DIRECT_STREAM_COMPARE불일치 추출 완료 0.13초현재 페이지 조회 0.22초전체 검증 완료(READY) 0.13초세부 성능정보 · DIRECT_STREAM_COMPARE · 총 0.13초측정 기준(시작점을 찍은 실행 경로)단계별 [▶ 통계검증 실행]실행 시작 → 그룹 요약 표시(사용자 대기 없음)—불일치 추출 완료0.13초현재 페이지 ",
+    "groupCardHasExecPathLine": true,
+    "statuses": [
+      "완료",
+      "완료",
+      "미확인",
+      "미확인"
+    ],
+    "groupRowCount": 4
+  },
+  "group_card_changed_across_groups": true,
+  "errors": [],
+  "finished": "2026-08-09 21:39:45"
+}
