@@ -2355,7 +2355,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\F11-MENU-CLEANUP-SCOPE-DIAGNOSE.txt
 - 참고: E:\verify_reports\F11-B-SHOWTAB-SINGLE-ROUTING-FIX.txt
 
-### F12. ⚠️ 1단계 완료(소급표식, 삭제없음) — 원본가정(12삭제/13HOLD) 소멸 확인, 실제는 3건 전부 HOLD, cascade 삭제는 사용자 확인 대기
+### F12. ⚠️ 1단계+안전장치 완료 — cascade 삭제 함수+2차확인 UI 구현됨, 실제 HOLD 3건 삭제 실행만 결정 대기
 - 발견일: 2026-07-27 / 1단계 실행: 2026-08-09(F12-IS-TEST-RETROACTIVE-MIGRATION, 데이터만
   변경·코드 무변경)
 - 근거 보고서: `PROJECT-IS-TEST-FLAG-IMPLEMENT.txt`(§6, 최초) →
@@ -2381,8 +2381,20 @@ git -C E:/verify_reports worktree remove <임시경로>
   10건(MV-ADMOVR-*/MV-M34-*/F10VERIFY_PROJ_* 패턴) — 즉시삭제 가능 7건, HOLD 3건.
   F12 범위(원본 25건) 밖이라 이번엔 손 안 댐, 필요 시 별도 백로그 항목 권장(범위
   혼선 방지).
-- **결정 필요**: HOLD 3건의 cascade 삭제를 실제로 진행할지(3-2 설계+UI 2차확인 구현
-  필요), 범위 밖 잔재 10건도 별도로 처리할지.
+- **안전장치 구현 완료(2026-08-09, F12-CASCADE-DELETE-SAFETY-GATE-IMPLEMENT, 코드
+  커밋 4ce9a39d)**: `services/project_store.py`에 `hard_delete_project_cascade()`
+  신규(게이트①is_test=1 동일 유지, 게이트②를 "참조 0건"에서 "confirm_cascade=True
+  명시"로 대체, cascade는 기존 `group_hard_reset_service.delete_project()`에 위임
+  — 재구현 안 함). 기존 `hard_delete_project()`는 무수정. `routes/project_route.py`에
+  별도 라우트(`POST /projects/{id}/delete-cascade`) 신설(기존 삭제 경로와 완전
+  분리, 오조합 방지). 화면에 "참조 데이터까지 함께 삭제" 2차 확인 UI(전용 체크박스,
+  안 누르면 버튼 비활성) 추가. **검증은 격리된 임시 DB+별도 포트로만 수행 — 실
+  프로덕션 DB는 이 작업 전체에서 단 한 번도 열지 않음**. 함수 4케이스(게이트①②
+  조합) + 실 브라우저 클릭스루(2차확인 노출→체크전 비활성→체크후 활성→삭제 후
+  목록소멸) 전부 PASS. 사전존재 실패 3건 baseline 대조로 무관 확인.
+- **결정 필요**: HOLD 3건(TESTONLY_REG/__TEST_PROJECT__/TESTONLY_ASYNC_PARALLEL)의
+  실제 cascade 삭제를 지금 실행할지(안전장치는 이미 완성됨), 범위 밖 잔재 10건도
+  별도로 처리할지.
 - 참고: E:\verify_reports\PROJECT-IS-TEST-FLAG-IMPLEMENT.txt
 - 참고: E:\verify_reports\F12-IS-TEST-RETROACTIVE-MIGRATION.txt
 
@@ -3576,7 +3588,7 @@ git -C E:/verify_reports worktree remove <임시경로>
   회귀 통과. 체크박스 동작(체크=단일축+조합 추가) 자체는 무변경.
 - 참고: E:\verify_reports\GROUPBY-COMBO-PLAN-CAP-RESEARCH-AND-RAISE.txt
 
-### M59. ✅ 0단계 완료 + dead필드 24개 삭제 + reclaim_stale 결함A 해결 — 결함B/실배선만 잔존(완료모듈, 별도승인 필요)
+### M59. ✅ 완전 해결 — 0단계+dead필드24개삭제+reclaim_stale 결함A·B 전부 완료, 실배선만 잔존(별도 결정)
 - 발견/계기: 2026-08-09 (개별/일괄/전수 3모드에 흩어진 설정값을 전역 공통+모드별
   오버라이드로 정리하고 싶다는 요청) / 조사: GLOBAL-SETTINGS-HARDCODED-VALUES-SCOPE-
   DIAGNOSE(코드 무변경, Opus 서브에이전트 위임 조사)
@@ -3661,7 +3673,17 @@ git -C E:/verify_reports worktree remove <임시경로>
   수정 필요, 별도 승인 대상 — reclaim_stale 자체는 여전히 프로덕션 호출처 0건이라
   이번 변경이 기존 동작을 안 바꿈). 관련 144건 통과, 신규 회귀 0건, CLAUDE.md 필수
   회귀 통과. 동시 세션 미완료 파일 9개(F5 배치1 테스트 2개 포함) 무접촉.
-- 잔여 결정 필요: reclaim_stale 결함B 수정 여부(완료모듈 승인) + 실배선 착수 여부.
+- **결함B 해결 완료(2026-08-09, M59-VALIDATION-SCHEDULER-FINISH-IDEMPOTENT-FIX,
+  코드 커밋 b2c4d2f4)**: `_finish()`(services/batch/validation_scheduler.py:164-183)
+  진입 시 job.status가 이미 최종상태(READY/EARLY_STOPPED/FAILED/CANCELLED/HOLD)면
+  즉시 return하는 멱등 가드 추가 — budget.release() 이중호출·dispatch() 재트리거
+  차단. **baseline 대조로 결함 실재를 직접 증명**: 수정 전 코드로 같은 job_id에
+  `_finish(FAILED)`→`_finish(READY)` 연속 호출 시 `assert 2 == 1`(release 실제
+  2회 호출) 실패 재현 → 수정 후 PASSED(release 1회 고정, 최초 상태 유지). 정상
+  종료 경로(1회만 호출되는 경우)는 완전히 동일하게 동작(회귀 0건, 기존 12건+신규
+  1건 전부 통과). reclaim_stale() 자체의 폴링 루프 실배선은 이번 범위 아님(별도
+  결정 필요).
+- 잔여 결정 필요: reclaim_stale 실배선(폴링 루프 연결) 착수 여부.
   1단계(SQL 타임아웃 구조화)는 이 인프라 위에서 바로 착수 가능.
 - 근거 보고서: E:\verify_reports\M59-PHASE0-INFRA-AND-DEAD-FIELD-CLEANUP.txt
 - 참고: E:\verify_reports\GLOBAL-SETTINGS-HARDCODED-VALUES-SCOPE-DIAGNOSE.txt
