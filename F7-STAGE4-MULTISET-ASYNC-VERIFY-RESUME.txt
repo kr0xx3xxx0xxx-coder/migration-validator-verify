@@ -1,0 +1,166 @@
+작업명 : F7-STAGE4-MULTISET-ASYNC-VERIFY-RESUME
+✅ 작업 완료 - 다중세트 백그라운드 실행(920f57ec) 라이브 검증 완료 + 검증 중 발견한 workflow guard 훼손 결함 수정
+
+────────────────────────────────────────────────────────────────────────
+(1) 기존 구현(920f57ec) 확인 내역
+────────────────────────────────────────────────────────────────────────
+F7-STAGE4-ASYNC-JOB-DESIGN-AND-IMPLEMENT(단일세트 완료본)를 먼저 읽고, 그 패턴을 다중세트가
+어떻게 확장했는지 git show 920f57ec 로 diff 전체를 확인했다.
+
+ · services/multiset_execute_service.py(신규 383행): 세트 계획(/groupby-plan) → 세트별
+   /generate → /execute 를 순차 호출·합산. 새 판정/새 SQL 생성 로직 0건(기존 함수 재사용).
+ · services/single_execute_job.py: job store 를 새로 만들지 않고 kind(SINGLE/MULTISET)·
+   progress(세트 N/M·세트별 상태) 선택 필드만 추가. 단일세트 계약 무변경.
+ · routes/execute_route.py: POST /execute/multiset/async 신설(폴링은 기존 GET /execute/jobs/{id}
+   공용). in-flight 표식은 job 전체(모든 세트) 동안 유지, 스레드 종료 finally 로 해제.
+ · schemas/request_models.py: MultiSetExecuteRequest 신설(세트 계획+생성+실행 입력 1회 전달).
+ · services/job_registry.py: 다중세트 job 의 current_target='세트 N/M', last_progress_at 노출.
+   total/completed/percent 는 여전히 None(가짜 진행률 금지 유지).
+ · ui/tabler_renderer.py: [⏱ 백그라운드로 실행] 버튼이 GROUP BY 2개 이상에서도 더 이상
+   disabled 되지 않고 runExecuteMultiSetAsync() 로 분기. 동기 _runExecutePlanSets 본문 무수정.
+   5단계 자동 진입 없음(M56/M58 정책 유지) 그대로.
+ · 세트 중간 실패 정책: 기본 '나머지 세트 계속 실행'(multiset_continue_on_set_failure=True,
+   동기 경로와 동일) — 정책 OFF 시 SKIPPED 표기 후 중단.
+ · 테스트: tests/test_multiset_execute_async_job.py 23건 기존.
+
+────────────────────────────────────────────────────────────────────────
+(2) 라이브 검증 결과 (실서비스 포트 8000 · 인증 ON · Chromium/Playwright)
+────────────────────────────────────────────────────────────────────────
+ 대상   : Oracle asis(MV_SCATTER50M_SRC 50,000,000행) → tobe(MV_SCATTER50M_TGT 49,500,000행)
+ 선택   : GROUP BY = REGION_CD + STATUS_CD(2축) / SUM = AMT, QTY
+ 드라이버: scripts/dev_e2e/stage4_multiset_async_job_live_verify.py(신규, 단일세트 드라이버를
+           그대로 본떠 GROUP BY 2축 강제 선택 + M7 중간실패 재현 + M8 진단 로직 추가)
+
+ ┌────┬────────────────────────────────────────┬────────────────────────────────────────────┐
+ │시나리오│ 내용                                  │ 실측 결과                                   │
+ ├────┼────────────────────────────────────────┼────────────────────────────────────────────┤
+ │ M1 │ 1~3단계(GB=2축)+4단계 SQL 생성          │ [⏱ 백그라운드로 실행] 버튼 활성(2축에서도    │
+ │    │                                        │ disabled 아님 — 계약 변경 확인)              │
+ │ M2 │ 클릭 → job_id 발급 + kind 확인           │ 0.43~0.44초 만에 job_id 발급, kind=MULTISET │
+ │ M3 │ 4단계 이탈 + 서버 직접 폴링(urllib)      │ /jobs/active single_exec=1·current_target=  │
+ │    │                                        │ "세트 1/2·REGION_CD" · 세트 진행(0/2→1/2→   │
+ │    │                                        │ 2/2) 실시간 갱신 · 서버 계속 실행(RUNNING×2  │
+ │    │                                        │ →COMPLETED, 총 16.3초)                      │
+ │ M4 │ 4단계 복귀 — sessionStorage 재수화       │ "세트 2/2 완료" + 세트별 칩(완료 11.5초 등)  │
+ │    │                                        │ 정상 표시, kind=MULTISET 복원                │
+ │ M5 │ [결과 보기] → 5단계 렌더 재사용 확인      │ matched 20/diff 11/src_only 0/tgt_only 0/   │
+ │    │ + 자동탭이동 여부                        │ total_groups 31 · 결과 표시 후에도 현재 단계 │
+ │    │                                        │ = validation(자동 5단계 이동 없음, M56/M58   │
+ │    │                                        │ 유지 확인)                                   │
+ │ M6 │ 동일 선택 동기 [▶통계검증 실행] 1회 대조 │ matched 20/diff 11/src_only 0/tgt_only 0/   │
+ │    │                                        │ total_groups 31, processing_ms 25526.2ms    │
+ │    │                                        │ ▶ 요약값 동일=True · 그룹행 digest 동일=True │
+ │ M7 │ 세트 중간 실패 재현(존재하지 않는 컬럼   │ sets_total=3·sets_done=3·sets_failed=1,     │
+ │    │ 을 세트 계획에 주입해 실제 DB/생성단계   │ outcome=PARTIAL_FAILURE, success=False.     │
+ │    │ 오류 유발) — 나머지 세트 계속 실행 확인   │ REGION_CD·STATUS_CD 는 정상 완료(11.4초·     │
+ │    │                                        │ 9.5초), 3번째만 FAILED("선택한 GROUP BY 컬럼 │
+ │    │                                        │ 을 후보에서 찾을 수 없습니다"). 세트별 상태  │
+ │    │                                        │ 칩(완료=녹색/실패=적색)이 화면에 명확히 구분 │
+ │    │                                        │ 렌더됨(캡처 07_midset_failure_chips.png)    │
+ │ M8 │ 두 번째 job 기동 후 브라우저 컨텍스트     │ job_b 발급 → 컨텍스트 종료 → urllib 직접    │
+ │    │ 완전 종료 → 서버 지속 실행 확인           │ 폴링으로 RUNNING×2→COMPLETED(약 17초) 확인. │
+ │    │                                        │ ▶ 클라이언트 연결이 끊겨도 서버 실행 지속 = │
+ │    │                                        │   진짜 비동기 확정(단일세트 S7과 동일 결론) │
+ └────┴────────────────────────────────────────┴────────────────────────────────────────────┘
+ 증적: X:\Verify\_rpt_push\verify_screenshots_only\F7-STAGE4-MULTISET-ASYNC-VERIFY-RESUME\
+   multiset_async_job_live_verify.json + 스크린샷 11장. 페이지 JS 오류 0건 · 최종 판정 "정상".
+
+────────────────────────────────────────────────────────────────────────
+(3) 검증 중 발견한 결함과 수정 내역 (그 자리에서 수정)
+────────────────────────────────────────────────────────────────────────
+ ■ 결함: 세트 하나의 /generate 실패가 workflow_stage_guard 의 'candidate' 단계 상태를
+   훼손해 다음 백그라운드/동기 실행을 전부 차단.
+
+ 재현 경위: M7(세트 중간 실패)을 처음 재현했을 때는 정상 동작했지만, 그 직후 M8(두 번째 job)
+ 을 시도하자 서버가 "선행 단계(후보/계획) 성공이 서버에서 확인되지 않아 '통계검증 실행' 단계를
+ 실행할 수 없습니다"(STAGE_PREREQUISITE_NOT_MET, 409)로 차단했다 — 방금 전 M2~M6 에서 같은
+ workflow_token 으로 이미 여러 번 성공한 실행 직후였는데도 막혔다.
+
+ 원인: services/multiset_execute_service.py 는 세트마다 실제 routes/generate_route.py::
+ stats_generate() 를 그대로 재호출한다(설계 원칙 그대로 — 새 판정 없음). 그런데 그 함수 내부는
+ 호출될 때마다 `_guard.record_outcome("candidate", req, resp)` 를 실행해, 페이지 전체가 공유하는
+ workflow_token 의 'candidate' 단계 guard 상태를 **그 세트의 결과로 덮어쓴다**. 여러 세트를
+ 순차 실행하면 이 guard 상태가 세트마다 계속 갈아엎이고, 다중세트 고유의 요구사항인 "세트 하나가
+ 실패해도 나머지는 계속 실행"이 적용되는 시점에는 **이미 다른 세트들이 성공했음에도**, 마지막으로
+ guard 를 건드린 세트가 우연히 실패 세트였다는 이유만으로 candidate=ERROR 가 남는다. 단일세트
+ (f176107a)는 세트가 1개뿐이라 이 경합이 드러나지 않았고, 이번에 처음으로 다중세트에서 실제
+ DB 로 재현됐다(재현 조건: 실패 세트가 그 job 이 guard 를 마지막으로 건드린 세트일 때만 —
+ 처음 재현 시 실패축이 3번째/마지막이라 즉시 나타났다).
+ 영향: 세트 하나만 실패해도(정상적인 부분 실패든, 이번처럼 존재하지 않는 컬럼이든) 해당
+ workflow_token 으로는 이후 동기 [▶통계검증 실행]과 비동기 [⏱백그라운드로 실행] 모두가
+ 재분석(1~3단계) 전까지 영구 차단된다 — "나머지는 계속 실행" 정책의 취지를 다음 실행 시점에서
+ 무력화하는 실질적 회귀.
+
+ 수정: services/multiset_execute_service.py::run_multiset_execute() 에서 세트 루프 중 하나라도
+ SQL 생성이 성공했는지(any_generate_ok)를 추적하고, 루프 종료 후 그 값이 True 면
+ `guard.record_outcome("candidate", req, {"success": True})` 를 한 번 더 호출해 candidate 단계
+ 상태를 명시적으로 SUCCESS 로 복원한다. sets_failed/outcome/set_status 등 사용자에게 보이는
+ 판정값은 전혀 건드리지 않으므로 실패 세트 존재 사실을 은폐하지 않는다 — guard 내부 상태만
+ "이 job 이 실제로 유효한 candidate/plan 을 썼다"는 사실에 맞게 정정한다.
+
+ 회귀 테스트: tests/test_multiset_execute_async_job.py::test_a8_...(A-8) 신규 — 실제
+ routes.generate_route.stats_generate() 를 그대로 태우고(대역 주입 시 guard 훅을 건너뛰어
+ 재현되지 않으므로 명시적으로 실제 함수를 지정), 마지막 세트만 실패시킨 뒤
+ workflow_stage_guard.validate("execute", ...)가 차단되지 않는지 확인한다.
+   · 수정 전 코드로 되돌려 재실행 → 실제로 STAGE_PREREQUISITE_NOT_MET(prereq_state=ERROR)로
+     실패함을 확인(결함 재현).
+   · 수정 후 → 통과.
+ 라이브 재확인: 서버 재기동(모듈 리로드) 후 동일 M1~M8 전체를 다시 실행 → M8(job_b)까지 전부
+ 정상(판정 "정상") — 최초 재현 때는 서버가 옛 모듈을 그대로 쓰고 있어 수정이 반영되지 않았음을
+ 뒤늦게 확인, 서버를 재기동한 뒤 재검증했다.
+
+────────────────────────────────────────────────────────────────────────
+(4) 회귀 테스트 결과
+────────────────────────────────────────────────────────────────────────
+ ■ 신규+기존 통합 : tests/test_multiset_execute_async_job.py 24건(기존 23 + 신규 A-8 1건)
+                    + tests/test_single_execute_async_job.py 22건 → 46건 전부 통과
+
+ ■ baseline 대조 — 관련 서브셋(수정 파일만 git stash 로 되돌려 측정)
+    실행: pytest tests/ -p no:randomly -k "execute or job_registry or job_dashboard or
+          workflow_stage or execution_settings or stage_guard or multiset"
+    baseline : 51 failed / 746 passed / 8 skipped / 2 xfailed
+    after    : 54 failed / 744 passed / 8 skipped / 2 xfailed (재실행 시 57/741 등 매회 소폭
+               변동 — 아래 사유로 인해 실행마다 뒤집히는 flaky 조합)
+      · after 에만 나타난 5건 / baseline 에만 나타난 2건 — 전부
+        test_execute_r3_safe_return.py::test_route_on_equals_off,
+        test_execute_response_lossless_snapshot.py::test_route_shadow_on_equals_off,
+        test_execute_route_shadow_integration.py::test_shadow_on_equals_off /
+        test_shadow_metrics_failure_isolated, test_single_execute_result_envelope_store_
+        skeleton.py::test_route_on_equals_off — 전부 `on == off` 로 두 번 실행한 응답 dict 를
+        통째로 비교하는 기존(무변경 파일) 테스트인데, 그 dict 에 실측 소요시간 processing_ms
+        가 들어 있어 {'processing_ms': 0.1} != {'processing_ms': 7.1} 식으로 실행마다 뒤집힌다
+        (단독 재실행해도 2/3 비율로 매번 다른 조합 실패 — 사전존재 타이밍 flaky, 이번 변경이
+        건드린 routes/generate_route.py·execute_route.py 는 무변경).
+      → 이번 변경으로 새로 깨진 테스트 0건.
+
+ ■ CLAUDE.md 필수 회귀(최종 1회)
+    python samples/test_virtual_cases.py  → 8/8 통과
+    python samples/test_complex_cases.py  → 5/5 통과
+
+────────────────────────────────────────────────────────────────────────
+(5) 커밋 해시
+────────────────────────────────────────────────────────────────────────
+ 9f45fc7a  fix(multiset): 세트 중간 generate 실패 시 workflow guard candidate 상태 훼손 수정
+           (services/multiset_execute_service.py 결함수정 + 회귀테스트 A-8 신규 +
+            scripts/dev_e2e/stage4_multiset_async_job_live_verify.py 라이브 드라이버 신규)
+ ※ 코드 저장소(X:\Projects\Migration_Validator)는 origin 이 없어 커밋까지만 수행(push 없음).
+
+────────────────────────────────────────────────────────────────────────
+(6) 재기동 시각 · HEAD 커밋 해시
+────────────────────────────────────────────────────────────────────────
+ 재기동 시각 : 2026-08-09 22:24:05 (포트 8000 · 결함수정 모듈 반영 위해 기존 프로세스 종료 후 재기동)
+ HEAD        : 9f45fc7a
+ 기동 후 확인 : GET /execute/jobs/{미존재} → 404(신규 라우트 활성 확인)
+
+────────────────────────────────────────────────────────────────────────
+(7) 완료 범위 요약
+────────────────────────────────────────────────────────────────────────
+ 기존 구현 확인 : 완료(920f57ec diff 전체 리뷰)
+ 라이브 검증    : 완료(M1~M8 전부 정상 — 브라우저 이탈/종료 후 지속실행, 세트중간실패 계속진행+
+                  화면가시성, 동기/비동기 완전동일, 5단계 자동진입 없음 전부 실측 확인)
+ 발견 결함      : 1건 발견·수정·회귀테스트로 고정·라이브 재확인까지 완료
+ 회귀 테스트    : 완료(46건 전부 통과 · 관련서브셋 신규회귀 0건 · 필수회귀 8/8·5/5)
+ 코드 저장소    : 커밋 완료(9f45fc7a) — origin 없어 push 없음
+ 증적 저장소    : 이 보고서 + 스크린샷 11장 + JSON 1건 push 예정
+
+✅ 작업 완료 - 다중세트 백그라운드 실행(920f57ec) 라이브 검증 완료 + 검증 중 발견한 workflow guard 훼손 결함 수정

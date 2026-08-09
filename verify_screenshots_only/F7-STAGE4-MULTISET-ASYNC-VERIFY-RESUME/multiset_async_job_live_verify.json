@@ -1,0 +1,801 @@
+{
+  "task": "F7-STAGE4-MULTISET-ASYNC-VERIFY-RESUME",
+  "base": "http://localhost:8000/",
+  "steps": [
+    {
+      "t": 4.5,
+      "msg": "[서버] 포트 8000 미기동 — web_server.py 기동"
+    },
+    {
+      "t": 8.38,
+      "msg": "[M1] 프로젝트/접속/개별검증 진입"
+    },
+    {
+      "t": 40.66,
+      "msg": "   {\"pair_rows\": 1, \"pair_created\": true, \"connected\": true}"
+    },
+    {
+      "t": 40.66,
+      "msg": "[M1] 1단계 분석"
+    },
+    {
+      "t": 51.56,
+      "msg": "[M1] 2단계 COUNT"
+    },
+    {
+      "t": 76.82,
+      "msg": "   {\"count_status\": \"COUNT_MINOR_DIFF\", \"src_count\": 50000000, \"tgt_count\": 49500000, \"wall_sec\": 22.55, \"click_count\": 2, \"count_resp_ms\": 20329.3, \"count_resp_diff\": 500000, \"force_btn\": false, \"slots\": {\"s1\": \"· 1단계 처리시간: 6.34초\", \"s2\": \"· 2단계 처리시간: 20.33초\", \"s3\": \"\", \"s4\": \"\", \"s5\": \"\"}}"
+    },
+    {
+      "t": 76.82,
+      "msg": "[M1] 3단계 후보 선정(GROUP BY=STATUS_CD+REGION_CD / SUM=AMT,QTY)"
+    },
+    {
+      "t": 87.54,
+      "msg": "[M1] 4단계 이동 + 통계검증 SQL 생성"
+    },
+    {
+      "t": 92.63,
+      "msg": "   [캡처] 01_stage4_sql_generated.png"
+    },
+    {
+      "t": 92.63,
+      "msg": "   [버튼] {\"exists\": true, \"disabled\": false, \"title\": \"브라우저를 닫아도 서버에서 실행이 계속됩니다 — GROUP BY 2축을 각각 독립 세트로 순차 실행합니다(세트 진행 상황이 아래에 표시됩니다).\", \"text\": \"⏱ 백그라운드로 실행\"}"
+    },
+    {
+      "t": 92.63,
+      "msg": "[M2] [⏱ 백그라운드로 실행] 클릭 — job_id 즉시 발급 + kind=MULTISET 확인"
+    },
+    {
+      "t": 93.07,
+      "msg": "   job_id=dcc4e76a7b794e8fb0addf597e888b00 · 발급까지 0.44초"
+    },
+    {
+      "t": 93.16,
+      "msg": "   [캡처] 02_async_started.png"
+    },
+    {
+      "t": 95.27,
+      "msg": "   [초기상태] kind=MULTISET progress={\"phase\": \"RUN\", \"sets_total\": 2, \"sets_done\": 0, \"sets_failed\": 0, \"current_index\": 1, \"current_label\": \"REGION_CD\", \"sets\": [{\"index\": 1, \"label\": \"REGION_CD\", \"cols\": [\"REGION_CD\"], \"status\": \"RUNNING\", \"error\": \"\", \"elapsed_ms\": null}, {\"index\": 2, \"label\": \"STATUS_CD\", \"cols\": [\"STATUS_CD\"], \"s"
+    },
+    {
+      "t": 95.27,
+      "msg": "[M3] 4단계 화면 이탈(검증 현황판 이동) + 서버 직접 폴링(세트 진행 관찰)"
+    },
+    {
+      "t": 100.45,
+      "msg": "   /jobs/active by_source={\"single\": 0, \"batch\": 0, \"stats\": 0, \"full\": 0, \"single_exec\": 1} · single_exec 항목 1건 · current_target=세트 1/2 · REGION_CD · MV_SCATTER50M_TGT"
+    },
+    {
+      "t": 100.63,
+      "msg": "   [캡처] 03_left_stage4_dashboard.png"
+    },
+    {
+      "t": 116.35,
+      "msg": "   서버 직접 폴링(세트 진행) [{\"t\": 103.18, \"status\": \"RUNNING\", \"kind\": \"MULTISET\", \"sets_total\": 2, \"sets_done\": 0, \"sets_failed\": 0, \"current_index\": 1, \"current_label\": \"REGION_CD\", \"set_status\": [{\"index\": 1, \"label\": \"REGION_CD\", \"cols\": [\"REGION_CD\"], \"status\": \"RUNNING\", \"error\": \"\", \"elapsed_ms\": null}, {\"index\": 2, \"label\": \"STATUS_CD\", \"cols\": [\"STATUS_CD\"], \"status\": \"PENDING\", \"error\": \"\", \"elapsed_ms\": null}]}, {\"t\": 106.68, \"status\": \"RUNNING\", \"kind\": \"MULTISET\", \"sets_total\": 2, \"sets_done\": 1, \"sets_failed\": 0, \"current_index\": 2, \"current_label\": \"STATUS_CD\", \"set_status\": [{\"index\": 1, \"label\": \"REGION_CD\", \"cols\": [\"REGION_CD\"], \"status\": \"COMPLETED\", \"error\": \"\", \"elapsed_ms\": 10391.5}, {\"index\": 2, \"label\": \"STATUS_CD\", \"cols\": [\"STATUS_CD\"], \"status\": \"RUNNING\", \"error\": \"\", "
+    },
+    {
+      "t": 116.35,
+      "msg": "[M4] 개별검증 4단계 복귀 — sessionStorage 재수화(다중 세트 상태) 확인"
+    },
+    {
+      "t": 120.92,
+      "msg": "   재수화: {\"visible\": true, \"text\": \"✅ 백그라운드 실행 완료job dcc4e76a7b794e8fb0addf597e888b00 · 경과 24초세트 2/2 완료1. REGION_CD · 완료 10.4초2. STATUS_CD · 완료 10.8초아래 [결과 보기]를 누르면 결과가 이 화면에 표시됩니다(자동으로 5단계로 이동하지 않습니다).결과 보기닫기\", \"hasView\": true, \"kind\": \"MULTISET\"}"
+    },
+    {
+      "t": 121.01,
+      "msg": "   [캡처] 04_reentry_rehydrated_multiset.png"
+    },
+    {
+      "t": 121.01,
+      "msg": "[M5] [결과 보기] 클릭 — 5단계 렌더 파이프라인 재사용 + 자동탭이동 없음 확인"
+    },
+    {
+      "t": 121.53,
+      "msg": "   결과: {\"matched\": 20, \"diff\": 11, \"src_only\": 0, \"tgt_only\": 0, \"total_groups\": 31, \"success\": true, \"status_code\": null, \"rows\": 31}"
+    },
+    {
+      "t": 121.63,
+      "msg": "   [캡처] 05_result_rendered_multiset.png"
+    },
+    {
+      "t": 121.63,
+      "msg": "   [정책] 결과 표시 후 현재 단계 = validation (자동 5단계 이동이 없어야 정상)"
+    },
+    {
+      "t": 121.63,
+      "msg": "[M6] 동일 선택(2축)으로 동기 [▶ 통계검증 실행] 1회 — 결과 완전 동일 여부 대조"
+    },
+    {
+      "t": 148.1,
+      "msg": "   [캡처] 06_sync_multiset_result.png"
+    },
+    {
+      "t": 148.1,
+      "msg": "   동기 결과: {\"matched\": 20, \"diff\": 11, \"src_only\": 0, \"tgt_only\": 0, \"total_groups\": 31, \"success\": true, \"status_code\": null, \"rows\": 31, \"processing_ms\": 25526.2}"
+    },
+    {
+      "t": 148.1,
+      "msg": "   ▶ 요약값 동일=True · 그룹행 digest 동일=True"
+    },
+    {
+      "t": 148.1,
+      "msg": "[M7] 세트 중간 실패 재현 — 존재하지 않는 컬럼을 세트 계획에 주입해 실제 DB 오류 유발"
+    },
+    {
+      "t": 148.51,
+      "msg": "   시작응답: {\"http\": 200, \"job_id\": \"566b8c9784f44b1c84487efb1c757989\", \"raw\": {\"success\": true, \"async\": true, \"multiset\": true, \"sets_axes\": [\"REGION_CD\", \"STATUS_CD\", \"ZZZ_NOT_EXIST_COL_F7\"], \"job_id\": \"566b8c9784f44b1c84487efb1c757989\", \"status\": \"RUNNING\", \"poll_interval_ms\": 2000}}"
+    },
+    {
+      "t": 171.05,
+      "msg": "   [job_c 세트진행] [{\"t\": 151.07, \"status\": \"RUNNING\", \"kind\": \"MULTISET\", \"sets_total\": 3, \"sets_done\": 0, \"sets_failed\": 0, \"current_index\": 1, \"current_label\": \"REGION_CD\", \"set_status\": [{\"index\": 1, \"label\": \"REGION_CD\", \"cols\": [\"REGION_CD\"], \"status\": \"RUNNING\", \"error\": \"\", \"elapsed_ms\": null}, {\"index\": 2, \"label\": \"STATUS_CD\", \"cols\": [\"STATUS_CD\"], \"status\": \"PENDING\", \"error\": \"\", \"elapsed_ms\": null}, {\"index\": 3, \"label\": \"ZZZ_NOT_EXIST_COL_F7\", \"cols\": [\"ZZZ_NOT_EXIST_COL_F7\"], \"status\": \"PENDING\", \"error\": \"\", \"elapsed_ms\": null}]}, {\"t\": 160.67, \"status\": \"RUNNING\", \"kind\": \"MULTISET\", \"sets_total\": 3, \"sets_done\": 1, \"sets_failed\": 0, \"current_index\": 2, \"current_label\": \"STATUS_CD\", \"set_status\": [{\"index\": 1, \"label\": \"REGION_CD\", \"cols\": [\"REGION_CD\"], \"status\": \"COMPLETED"
+    },
+    {
+      "t": 173.54,
+      "msg": "   [job_c 최종결과] success=False outcome=PARTIAL_FAILURE sets_total=3 sets_done=3 sets_failed=1 error=선택한 GROUP BY 컬럼을 후보에서 찾을 수 없습니다: ZZZ_NOT_EXIST_COL_F7"
+    },
+    {
+      "t": 174.15,
+      "msg": "   [캡처] 07_midset_failure_chips.png"
+    },
+    {
+      "t": 174.15,
+      "msg": "[M8] 두 번째 job 기동 후 브라우저 컨텍스트 종료 — 진짜 비동기 확정(다중세트)"
+    },
+    {
+      "t": 174.32,
+      "msg": "   [진단] {\"jobId\": null, \"executeInProgress\": false, \"anyRunActive\": false, \"analyzeDataNull\": false, \"analyzeStaleForPolicy\": false, \"connDeselectedSrc\": false, \"connDeselectedTgt\": false, \"execGuard\": {\"ok\": true}, \"regenRequired\": false, \"gbSel\": [\"REGION_CD\", \"STATUS_CD\"], \"btnDisabled\": false, \"execPreflight\": {\"ok\": true, \"reused\": true}, \"gateBlocked\": false}"
+    },
+    {
+      "t": 174.76,
+      "msg": "   job_b=1b01f0cc48404f1db36dee94de528d5e"
+    },
+    {
+      "t": 174.87,
+      "msg": "   [캡처] 08_second_multiset_job_started.png"
+    },
+    {
+      "t": 175.43,
+      "msg": "   [브라우저 컨텍스트 종료] — 이후는 서버 단독 진행"
+    },
+    {
+      "t": 194.9,
+      "msg": "   브라우저 종료 후 폴링 [{\"t\": 177.84, \"status\": \"RUNNING\", \"kind\": \"MULTISET\", \"sets_total\": 2, \"sets_done\": 0, \"sets_failed\": 0, \"current_index\": 1, \"current_label\": \"REGION_CD\", \"set_status\": [{\"index\": 1, \"label\": \"REGION_CD\", \"cols\": [\"REGION_CD\"], \"status\": \"RUNNING\", \"error\": \"\", \"elapsed_ms\": null}, {\"index\": 2, \"label\": \"STATUS_CD\", \"cols\": [\"STATUS_CD\"], \"status\": \"PENDING\", \"error\": \"\", \"elapsed_ms\": null}]}, {\"t\": 184.58, \"status\": \"RUNNING\", \"kind\": \"MULTISET\", \"sets_total\": 2, \"sets_done\": 1, \"sets_failed\": 0, \"current_index\": 2, \"current_label\": \"STATUS_CD\", \"set_status\": [{\"index\": 1, \"label\": \"REGION_CD\", \"cols\": [\"REGION_CD\"], \"status\": \"COMPLETED\", \"error\": \"\", \"elapsed_ms\": 9472.3}, {\"index\": 2, \"label\": \"STATUS_CD\", \"cols\": [\"STATUS_CD\"], \"status\": \"RUNNING\", \"error\": \"\", \"ela"
+    }
+  ],
+  "shots": [
+    "01_stage4_sql_generated.png",
+    "02_async_started.png",
+    "03_left_stage4_dashboard.png",
+    "04_reentry_rehydrated_multiset.png",
+    "05_result_rendered_multiset.png",
+    "06_sync_multiset_result.png",
+    "07_midset_failure_chips.png",
+    "08_second_multiset_job_started.png"
+  ],
+  "notes": [],
+  "async_button_2axis": {
+    "exists": true,
+    "disabled": false,
+    "title": "브라우저를 닫아도 서버에서 실행이 계속됩니다 — GROUP BY 2축을 각각 독립 세트로 순차 실행합니다(세트 진행 상황이 아래에 표시됩니다).",
+    "text": "⏱ 백그라운드로 실행"
+  },
+  "job_a": {
+    "job_id": "dcc4e76a7b794e8fb0addf597e888b00",
+    "issue_sec": 0.44,
+    "initial_kind": "MULTISET",
+    "polls": [
+      {
+        "t": 103.18,
+        "status": "RUNNING",
+        "kind": "MULTISET",
+        "sets_total": 2,
+        "sets_done": 0,
+        "sets_failed": 0,
+        "current_index": 1,
+        "current_label": "REGION_CD",
+        "set_status": [
+          {
+            "index": 1,
+            "label": "REGION_CD",
+            "cols": [
+              "REGION_CD"
+            ],
+            "status": "RUNNING",
+            "error": "",
+            "elapsed_ms": null
+          },
+          {
+            "index": 2,
+            "label": "STATUS_CD",
+            "cols": [
+              "STATUS_CD"
+            ],
+            "status": "PENDING",
+            "error": "",
+            "elapsed_ms": null
+          }
+        ]
+      },
+      {
+        "t": 106.68,
+        "status": "RUNNING",
+        "kind": "MULTISET",
+        "sets_total": 2,
+        "sets_done": 1,
+        "sets_failed": 0,
+        "current_index": 2,
+        "current_label": "STATUS_CD",
+        "set_status": [
+          {
+            "index": 1,
+            "label": "REGION_CD",
+            "cols": [
+              "REGION_CD"
+            ],
+            "status": "COMPLETED",
+            "error": "",
+            "elapsed_ms": 10391.5
+          },
+          {
+            "index": 2,
+            "label": "STATUS_CD",
+            "cols": [
+              "STATUS_CD"
+            ],
+            "status": "RUNNING",
+            "error": "",
+            "elapsed_ms": null
+          }
+        ]
+      },
+      {
+        "t": 116.35,
+        "status": "COMPLETED",
+        "kind": "MULTISET",
+        "sets_total": 2,
+        "sets_done": 2,
+        "sets_failed": 0,
+        "current_index": null,
+        "current_label": "",
+        "set_status": [
+          {
+            "index": 1,
+            "label": "REGION_CD",
+            "cols": [
+              "REGION_CD"
+            ],
+            "status": "COMPLETED",
+            "error": "",
+            "elapsed_ms": 10391.5
+          },
+          {
+            "index": 2,
+            "label": "STATUS_CD",
+            "cols": [
+              "STATUS_CD"
+            ],
+            "status": "COMPLETED",
+            "error": "",
+            "elapsed_ms": 10813.8
+          }
+        ]
+      }
+    ],
+    "final": {
+      "t": 116.35,
+      "status": "COMPLETED",
+      "kind": "MULTISET",
+      "sets_total": 2,
+      "sets_done": 2,
+      "sets_failed": 0,
+      "current_index": null,
+      "current_label": "",
+      "set_status": [
+        {
+          "index": 1,
+          "label": "REGION_CD",
+          "cols": [
+            "REGION_CD"
+          ],
+          "status": "COMPLETED",
+          "error": "",
+          "elapsed_ms": 10391.5
+        },
+        {
+          "index": 2,
+          "label": "STATUS_CD",
+          "cols": [
+            "STATUS_CD"
+          ],
+          "status": "COMPLETED",
+          "error": "",
+          "elapsed_ms": 10813.8
+        }
+      ]
+    }
+  },
+  "jobs_active": {
+    "by_source": {
+      "single": 0,
+      "batch": 0,
+      "stats": 0,
+      "full": 0,
+      "single_exec": 1
+    },
+    "matched": 1,
+    "item": {
+      "source": "single_exec",
+      "id": "dcc4e76a7b794e8fb0addf597e888b00",
+      "key": "single_exec:dcc4e76a7b794e8fb0addf597e888b00",
+      "label": "개별검증 통계검증 · MV_SCATTER50M_TGT (다중세트 2축 · REGION_CD + STATUS_CD)",
+      "total": null,
+      "completed": null,
+      "current_target": "세트 1/2 · REGION_CD · MV_SCATTER50M_TGT",
+      "status": "RUNNING",
+      "last_progress_at": 1786281934.1575336,
+      "started_at": 1786281934.1573832,
+      "unit": "unknown",
+      "percent": null,
+      "active": true,
+      "progress_signal": "PROGRESS",
+      "stall_seconds": 7.6,
+      "stall_basis": "last_progress_at",
+      "extra": {
+        "created_at": 1786281934.1571052,
+        "finished_at": null,
+        "elapsed_ms": null,
+        "error_message": "",
+        "target_table": "MV_SCATTER50M_TGT",
+        "last_progress_at_available": true,
+        "progress_unavailable_reason": "세트 단위 진행(세트 N/M)은 표시하지만, 세트마다 소요시간이 달라 시간 진행률(%)로는 환산하지 않습니다.",
+        "job_kind": "MULTISET",
+        "sets_total": 2,
+        "sets_done": 0,
+        "sets_failed": 0,
+        "current_set_index": 1,
+        "current_set_label": "REGION_CD",
+        "set_status": [
+          {
+            "index": 1,
+            "label": "REGION_CD",
+            "cols": [
+              "REGION_CD"
+            ],
+            "status": "RUNNING",
+            "error": "",
+            "elapsed_ms": null
+          },
+          {
+            "index": 2,
+            "label": "STATUS_CD",
+            "cols": [
+              "STATUS_CD"
+            ],
+            "status": "PENDING",
+            "error": "",
+            "elapsed_ms": null
+          }
+        ],
+        "phase": "RUN",
+        "outcome": "",
+        "continue_on_set_failure": true
+      }
+    }
+  },
+  "rehydrate": {
+    "visible": true,
+    "text": "✅ 백그라운드 실행 완료job dcc4e76a7b794e8fb0addf597e888b00 · 경과 24초세트 2/2 완료1. REGION_CD · 완료 10.4초2. STATUS_CD · 완료 10.8초아래 [결과 보기]를 누르면 결과가 이 화면에 표시됩니다(자동으로 5단계로 이동하지 않습니다).결과 보기닫기",
+    "hasView": true,
+    "kind": "MULTISET"
+  },
+  "async_result": {
+    "matched": 20,
+    "diff": 11,
+    "src_only": 0,
+    "tgt_only": 0,
+    "total_groups": 31,
+    "success": true,
+    "status_code": null,
+    "rows": 31
+  },
+  "view_step_after_result": "validation",
+  "sync_result": {
+    "matched": 20,
+    "diff": 11,
+    "src_only": 0,
+    "tgt_only": 0,
+    "total_groups": 31,
+    "success": true,
+    "status_code": null,
+    "rows": 31,
+    "processing_ms": 25526.2
+  },
+  "identical": true,
+  "job_c_start": {
+    "http": 200,
+    "job_id": "566b8c9784f44b1c84487efb1c757989",
+    "raw": {
+      "success": true,
+      "async": true,
+      "multiset": true,
+      "sets_axes": [
+        "REGION_CD",
+        "STATUS_CD",
+        "ZZZ_NOT_EXIST_COL_F7"
+      ],
+      "job_id": "566b8c9784f44b1c84487efb1c757989",
+      "status": "RUNNING",
+      "poll_interval_ms": 2000
+    }
+  },
+  "job_c": {
+    "job_id": "566b8c9784f44b1c84487efb1c757989",
+    "polls": [
+      {
+        "t": 151.07,
+        "status": "RUNNING",
+        "kind": "MULTISET",
+        "sets_total": 3,
+        "sets_done": 0,
+        "sets_failed": 0,
+        "current_index": 1,
+        "current_label": "REGION_CD",
+        "set_status": [
+          {
+            "index": 1,
+            "label": "REGION_CD",
+            "cols": [
+              "REGION_CD"
+            ],
+            "status": "RUNNING",
+            "error": "",
+            "elapsed_ms": null
+          },
+          {
+            "index": 2,
+            "label": "STATUS_CD",
+            "cols": [
+              "STATUS_CD"
+            ],
+            "status": "PENDING",
+            "error": "",
+            "elapsed_ms": null
+          },
+          {
+            "index": 3,
+            "label": "ZZZ_NOT_EXIST_COL_F7",
+            "cols": [
+              "ZZZ_NOT_EXIST_COL_F7"
+            ],
+            "status": "PENDING",
+            "error": "",
+            "elapsed_ms": null
+          }
+        ]
+      },
+      {
+        "t": 160.67,
+        "status": "RUNNING",
+        "kind": "MULTISET",
+        "sets_total": 3,
+        "sets_done": 1,
+        "sets_failed": 0,
+        "current_index": 2,
+        "current_label": "STATUS_CD",
+        "set_status": [
+          {
+            "index": 1,
+            "label": "REGION_CD",
+            "cols": [
+              "REGION_CD"
+            ],
+            "status": "COMPLETED",
+            "error": "",
+            "elapsed_ms": 11409.3
+          },
+          {
+            "index": 2,
+            "label": "STATUS_CD",
+            "cols": [
+              "STATUS_CD"
+            ],
+            "status": "RUNNING",
+            "error": "",
+            "elapsed_ms": null
+          },
+          {
+            "index": 3,
+            "label": "ZZZ_NOT_EXIST_COL_F7",
+            "cols": [
+              "ZZZ_NOT_EXIST_COL_F7"
+            ],
+            "status": "PENDING",
+            "error": "",
+            "elapsed_ms": null
+          }
+        ]
+      },
+      {
+        "t": 171.05,
+        "status": "COMPLETED",
+        "kind": "MULTISET",
+        "sets_total": 3,
+        "sets_done": 3,
+        "sets_failed": 1,
+        "current_index": null,
+        "current_label": "",
+        "set_status": [
+          {
+            "index": 1,
+            "label": "REGION_CD",
+            "cols": [
+              "REGION_CD"
+            ],
+            "status": "COMPLETED",
+            "error": "",
+            "elapsed_ms": 11409.3
+          },
+          {
+            "index": 2,
+            "label": "STATUS_CD",
+            "cols": [
+              "STATUS_CD"
+            ],
+            "status": "COMPLETED",
+            "error": "",
+            "elapsed_ms": 9525.6
+          },
+          {
+            "index": 3,
+            "label": "ZZZ_NOT_EXIST_COL_F7",
+            "cols": [
+              "ZZZ_NOT_EXIST_COL_F7"
+            ],
+            "status": "FAILED",
+            "error": "선택한 GROUP BY 컬럼을 후보에서 찾을 수 없습니다: ZZZ_NOT_EXIST_COL_F7",
+            "elapsed_ms": 2.9
+          }
+        ]
+      }
+    ],
+    "final_progress": {
+      "t": 171.05,
+      "status": "COMPLETED",
+      "kind": "MULTISET",
+      "sets_total": 3,
+      "sets_done": 3,
+      "sets_failed": 1,
+      "current_index": null,
+      "current_label": "",
+      "set_status": [
+        {
+          "index": 1,
+          "label": "REGION_CD",
+          "cols": [
+            "REGION_CD"
+          ],
+          "status": "COMPLETED",
+          "error": "",
+          "elapsed_ms": 11409.3
+        },
+        {
+          "index": 2,
+          "label": "STATUS_CD",
+          "cols": [
+            "STATUS_CD"
+          ],
+          "status": "COMPLETED",
+          "error": "",
+          "elapsed_ms": 9525.6
+        },
+        {
+          "index": 3,
+          "label": "ZZZ_NOT_EXIST_COL_F7",
+          "cols": [
+            "ZZZ_NOT_EXIST_COL_F7"
+          ],
+          "status": "FAILED",
+          "error": "선택한 GROUP BY 컬럼을 후보에서 찾을 수 없습니다: ZZZ_NOT_EXIST_COL_F7",
+          "elapsed_ms": 2.9
+        }
+      ]
+    },
+    "result_success": false,
+    "outcome": "PARTIAL_FAILURE",
+    "sets_total": 3,
+    "sets_done": 3,
+    "sets_failed": 1,
+    "error": "선택한 GROUP BY 컬럼을 후보에서 찾을 수 없습니다: ZZZ_NOT_EXIST_COL_F7",
+    "set_status": [
+      {
+        "index": 1,
+        "label": "REGION_CD",
+        "cols": [
+          "REGION_CD"
+        ],
+        "status": "COMPLETED",
+        "error": "",
+        "elapsed_ms": 11409.3
+      },
+      {
+        "index": 2,
+        "label": "STATUS_CD",
+        "cols": [
+          "STATUS_CD"
+        ],
+        "status": "COMPLETED",
+        "error": "",
+        "elapsed_ms": 9525.6
+      },
+      {
+        "index": 3,
+        "label": "ZZZ_NOT_EXIST_COL_F7",
+        "cols": [
+          "ZZZ_NOT_EXIST_COL_F7"
+        ],
+        "status": "FAILED",
+        "error": "선택한 GROUP BY 컬럼을 후보에서 찾을 수 없습니다: ZZZ_NOT_EXIST_COL_F7",
+        "elapsed_ms": 2.9
+      }
+    ]
+  },
+  "m8_diag": {
+    "jobId": null,
+    "executeInProgress": false,
+    "anyRunActive": false,
+    "analyzeDataNull": false,
+    "analyzeStaleForPolicy": false,
+    "connDeselectedSrc": false,
+    "connDeselectedTgt": false,
+    "execGuard": {
+      "ok": true
+    },
+    "regenRequired": false,
+    "gbSel": [
+      "REGION_CD",
+      "STATUS_CD"
+    ],
+    "btnDisabled": false,
+    "execPreflight": {
+      "ok": true,
+      "reused": true
+    },
+    "gateBlocked": false
+  },
+  "page_errors": [],
+  "job_b": {
+    "job_id": "1b01f0cc48404f1db36dee94de528d5e",
+    "polls": [
+      {
+        "t": 177.84,
+        "status": "RUNNING",
+        "kind": "MULTISET",
+        "sets_total": 2,
+        "sets_done": 0,
+        "sets_failed": 0,
+        "current_index": 1,
+        "current_label": "REGION_CD",
+        "set_status": [
+          {
+            "index": 1,
+            "label": "REGION_CD",
+            "cols": [
+              "REGION_CD"
+            ],
+            "status": "RUNNING",
+            "error": "",
+            "elapsed_ms": null
+          },
+          {
+            "index": 2,
+            "label": "STATUS_CD",
+            "cols": [
+              "STATUS_CD"
+            ],
+            "status": "PENDING",
+            "error": "",
+            "elapsed_ms": null
+          }
+        ]
+      },
+      {
+        "t": 184.58,
+        "status": "RUNNING",
+        "kind": "MULTISET",
+        "sets_total": 2,
+        "sets_done": 1,
+        "sets_failed": 0,
+        "current_index": 2,
+        "current_label": "STATUS_CD",
+        "set_status": [
+          {
+            "index": 1,
+            "label": "REGION_CD",
+            "cols": [
+              "REGION_CD"
+            ],
+            "status": "COMPLETED",
+            "error": "",
+            "elapsed_ms": 9472.3
+          },
+          {
+            "index": 2,
+            "label": "STATUS_CD",
+            "cols": [
+              "STATUS_CD"
+            ],
+            "status": "RUNNING",
+            "error": "",
+            "elapsed_ms": null
+          }
+        ]
+      },
+      {
+        "t": 194.9,
+        "status": "COMPLETED",
+        "kind": "MULTISET",
+        "sets_total": 2,
+        "sets_done": 2,
+        "sets_failed": 0,
+        "current_index": null,
+        "current_label": "",
+        "set_status": [
+          {
+            "index": 1,
+            "label": "REGION_CD",
+            "cols": [
+              "REGION_CD"
+            ],
+            "status": "COMPLETED",
+            "error": "",
+            "elapsed_ms": 9472.3
+          },
+          {
+            "index": 2,
+            "label": "STATUS_CD",
+            "cols": [
+              "STATUS_CD"
+            ],
+            "status": "COMPLETED",
+            "error": "",
+            "elapsed_ms": 8098.9
+          }
+        ]
+      }
+    ],
+    "final": {
+      "t": 194.9,
+      "status": "COMPLETED",
+      "kind": "MULTISET",
+      "sets_total": 2,
+      "sets_done": 2,
+      "sets_failed": 0,
+      "current_index": null,
+      "current_label": "",
+      "set_status": [
+        {
+          "index": 1,
+          "label": "REGION_CD",
+          "cols": [
+            "REGION_CD"
+          ],
+          "status": "COMPLETED",
+          "error": "",
+          "elapsed_ms": 9472.3
+        },
+        {
+          "index": 2,
+          "label": "STATUS_CD",
+          "cols": [
+            "STATUS_CD"
+          ],
+          "status": "COMPLETED",
+          "error": "",
+          "elapsed_ms": 8098.9
+        }
+      ]
+    }
+  },
+  "ok": true
+}
