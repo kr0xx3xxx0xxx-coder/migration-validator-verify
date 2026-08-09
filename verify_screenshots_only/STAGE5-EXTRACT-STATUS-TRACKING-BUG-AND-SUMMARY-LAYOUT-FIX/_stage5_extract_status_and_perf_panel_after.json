@@ -1,0 +1,366 @@
+{
+  "task": "STAGE5-EXTRACT-STATUS-TRACKING-BUG-AND-SUMMARY-LAYOUT-FIX",
+  "phase": "after",
+  "port": 8000,
+  "started": "2026-08-09 13:44:55",
+  "setup": {
+    "pair": "Oracle_asis → Oracle_tobe",
+    "connected": true
+  },
+  "1_analyze": {
+    "blocked": false,
+    "from_table": "MV_COMBO_SRC",
+    "error": ""
+  },
+  "2_count": {
+    "status": "COUNT_MATCHED",
+    "src": 1200,
+    "tgt": 1200
+  },
+  "sel": {
+    "gb": [],
+    "sum": []
+  },
+  "run1": {
+    "clicked": true,
+    "elapsed_sec": 2.07,
+    "completed": true
+  },
+  "P0_entry": {
+    "exists": true,
+    "rowCount": 4,
+    "statuses": [
+      "미확인",
+      "미확인",
+      "미확인",
+      "미확인"
+    ],
+    "doneCounter": "0",
+    "openIdx": -1,
+    "openChildVisible": [],
+    "hasPerfPanel": true,
+    "perfTitle": "검증성능정보1~5단계 검증",
+    "pipelineHtml": "<div style=\"flex:1 1 320px;min-width:290px;background:#fff;border:1px solid #e5e9f0;border-radius:8px;padding:9px 12px\"><div style=\"font-size:.8rem;font-weight:700;color:#0f172a\">1~5단계 검증 소요시간</div><div style=\"font-size:.7rem;color:#94a3b8;margin-bottom:4px\">이번 실행 전체 · 그룹을 클릭해도 바뀌지 않습니다</div><table class=\"mv-diag-meta\" style=\"width:100%;font-size:.72rem\"><tbody><tr><td>1단계 쿼리검토(분석)</td><td style=\"text-align:right\">1.96초</td></tr><tr><td>2단계 COUNT 비교</td><td style=\"text-align:right\">0.10초</td></tr><tr><td>3단계 컬럼·후보 선정</td><td style=\"text-align:right\"><span style=\"color:#cbd5e1\">미측정</span></td></tr><tr><td>4단계 통계검증 SQL 생성</td><td style=\"text-align:right\">0.01초 미만</td></tr><tr><td>4단계 통계검증 실행 <span style=\"color:#94a3b8;font-size:.68rem\">(상세 추출 별도)</span></td><td style=\"text-align:right\">1.27초</td></tr><tr><td>5단계 상세추출<span style=\"color:#94a3b8;font-size:.68rem\"> (그룹별 온디맨드)</span></td><td style=\"text-align:right;color:#2471a3;font-size:.72rem\">그룹마다 다름 — 옆 카드 참고</td></tr><tr><td><b>1~4단계 합</b></td><td style=\"text-align:right\"><b>3.33초</b></td></tr></tbody></table><div style=\"font-size:.66rem;color:#94a3b8;margin-top:3px\">각 단계 화면이 표시한 처리시간을 그대로 모은 값입니다(재계산 없음).</div></div>",
+    "pipelineText": "1~5단계 검증 소요시간이번 실행 전체 · 그룹을 클릭해도 바뀌지 않습니다1단계 쿼리검토(분석)1.96초2단계 COUNT 비교0.10초3단계 컬럼·후보 선정미측정4단계 통계검증 SQL 생성0.01초 미만4단계 통계검증 실행 (상세 추출 별도)1.27초5단계 상세추출 (그룹별 온디맨드)그룹마다 다름 — 옆 카드 참고1~4단계 합3.33초각 단계 화면이 표시한 처리시간을 그대로 모은 값입니다(재계산 없음).",
+    "groupCardText": "선택 그룹 상세추출그룹 행을 클릭할 때마다 그 그룹 기준으로 갱신됩니다아직 추출한 그룹이 없습니다 — 아래 목록에서 그룹 행을 클릭하세요.",
+    "groupCardExtractMs": null,
+    "childRecordRows": 0,
+    "childInfoText": null,
+    "childExtractLine": null,
+    "childHasPerfDetails": false,
+    "childPerfSummaries": [],
+    "childHasStageTiming": false,
+    "childHasRunWideCount": false,
+    "childLen": 0,
+    "stageTimings": null,
+    "stageProcMs": {
+      "1": 1956.8,
+      "2": 99.5,
+      "4": 2.8,
+      "5": 1273.3
+    },
+    "stage3ProcMs": null,
+    "stageSlotText": {
+      "1": "· 1단계 처리시간: 1.96초",
+      "2": "· 2단계 처리시간: 0.10초",
+      "3": "· 3단계 계산 중...",
+      "4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+      "5": "· 5단계 통계검증 실행(상세 추출 별도): 1.27초"
+    },
+    "stage3TileText": "목적테이블NXDNP.MV_COMBO_TGT원본테이블NXDNP.MV_COMBO_SRC통계검증규모소형 (cost 12.68)목적그룹STATUS_CDDEPT_CD원본그룹STATUS_CDDEPT_CD목적집계AMT원본집계AMT실행시간0.38초상태● 정상",
+    "prepFromCache": false
+  },
+  "C1_open_A": {
+    "exists": true,
+    "rowCount": 4,
+    "statuses": [
+      "완료",
+      "미확인",
+      "미확인",
+      "미확인"
+    ],
+    "doneCounter": "1",
+    "openIdx": 0,
+    "openChildVisible": [
+      "mvS5Child0"
+    ],
+    "hasPerfPanel": true,
+    "perfTitle": "검증성능정보1~5단계 검증",
+    "pipelineHtml": "<div style=\"flex:1 1 320px;min-width:290px;background:#fff;border:1px solid #e5e9f0;border-radius:8px;padding:9px 12px\"><div style=\"font-size:.8rem;font-weight:700;color:#0f172a\">1~5단계 검증 소요시간</div><div style=\"font-size:.7rem;color:#94a3b8;margin-bottom:4px\">이번 실행 전체 · 그룹을 클릭해도 바뀌지 않습니다</div><table class=\"mv-diag-meta\" style=\"width:100%;font-size:.72rem\"><tbody><tr><td>1단계 쿼리검토(분석)</td><td style=\"text-align:right\">1.96초</td></tr><tr><td>2단계 COUNT 비교</td><td style=\"text-align:right\">0.10초</td></tr><tr><td>3단계 컬럼·후보 선정</td><td style=\"text-align:right\"><span style=\"color:#cbd5e1\">미측정</span></td></tr><tr><td>4단계 통계검증 SQL 생성</td><td style=\"text-align:right\">0.01초 미만</td></tr><tr><td>4단계 통계검증 실행 <span style=\"color:#94a3b8;font-size:.68rem\">(상세 추출 별도)</span></td><td style=\"text-align:right\">1.27초</td></tr><tr><td>5단계 상세추출<span style=\"color:#94a3b8;font-size:.68rem\"> (그룹별 온디맨드)</span></td><td style=\"text-align:right;color:#2471a3;font-size:.72rem\">그룹마다 다름 — 옆 카드 참고</td></tr><tr><td><b>1~4단계 합</b></td><td style=\"text-align:right\"><b>3.33초</b></td></tr></tbody></table><div style=\"font-size:.66rem;color:#94a3b8;margin-top:3px\">각 단계 화면이 표시한 처리시간을 그대로 모은 값입니다(재계산 없음).</div></div>",
+    "pipelineText": "1~5단계 검증 소요시간이번 실행 전체 · 그룹을 클릭해도 바뀌지 않습니다1단계 쿼리검토(분석)1.96초2단계 COUNT 비교0.10초3단계 컬럼·후보 선정미측정4단계 통계검증 SQL 생성0.01초 미만4단계 통계검증 실행 (상세 추출 별도)1.27초5단계 상세추출 (그룹별 온디맨드)그룹마다 다름 — 옆 카드 참고1~4단계 합3.33초각 단계 화면이 표시한 처리시간을 그대로 모은 값입니다(재계산 없음).",
+    "groupCardText": "선택 그룹 상세추출그룹 행을 클릭할 때마다 그 그룹 기준으로 갱신됩니다대상 GROUP BY STATUS_CD + DEPT_CD = A | D01추출 소요 0.39초세부 성능정보 · DIRECT_STREAM_COMPARE · 총 0.39초측정 기준(시작점을 찍은 실행 경로)단계별 [▶ 통계검증 실행]실행 시작 → 그룹 요약 표시(사용자 대기 없음)—실행 시작 → 상세목록 첫 행(상세보기 클릭 대기 포함)9.65초불일치 추출 완료0.39초현재 페이지 조회—COUNT (실제 COUNT SQL)-Source/Target 스트리밍 + merge·판정—bulk 저장—인덱스 생성—첫 20건 내부 commit—API 서버 처리(현재 페이지)0.15초상세목록 DOM 렌더(실측)0.01초 미만전체 검증 완료(READY)0.3",
+    "groupCardExtractMs": "0.39초",
+    "childRecordRows": 20,
+    "childInfoText": "전체 재이관 대상(이 그룹) 100건",
+    "childExtractLine": "추출 소요 0.39초",
+    "childHasPerfDetails": false,
+    "childPerfSummaries": [],
+    "childHasStageTiming": false,
+    "childHasRunWideCount": false,
+    "childLen": 19107,
+    "stageTimings": null,
+    "stageProcMs": {
+      "1": 1956.8,
+      "2": 99.5,
+      "4": 2.8,
+      "5": 1273.3
+    },
+    "stage3ProcMs": null,
+    "stageSlotText": {
+      "1": "· 1단계 처리시간: 1.96초",
+      "2": "· 2단계 처리시간: 0.10초",
+      "3": "· 3단계 계산 중...",
+      "4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+      "5": "· 5단계 통계검증 실행(상세 추출 별도): 1.27초"
+    },
+    "stage3TileText": "목적테이블NXDNP.MV_COMBO_TGT원본테이블NXDNP.MV_COMBO_SRC통계검증규모소형 (cost 12.68)목적그룹STATUS_CDDEPT_CD원본그룹STATUS_CDDEPT_CD목적집계AMT원본집계AMT실행시간0.38초상태● 정상",
+    "prepFromCache": false
+  },
+  "C1_wall_s": 8.12,
+  "C1_prepare_posts": [
+    {
+      "t": 1786250787.372,
+      "scope": {
+        "col": "STATUS_CD",
+        "val": "A",
+        "pairs": [
+          [
+            "STATUS_CD",
+            "A"
+          ],
+          [
+            "DEPT_CD",
+            "D01"
+          ]
+        ]
+      }
+    }
+  ],
+  "C2_collapsed": {
+    "exists": true,
+    "rowCount": 4,
+    "statuses": [
+      "완료",
+      "미확인",
+      "미확인",
+      "미확인"
+    ],
+    "doneCounter": "1",
+    "openIdx": -1,
+    "openChildVisible": [],
+    "hasPerfPanel": true,
+    "perfTitle": "검증성능정보1~5단계 검증",
+    "pipelineHtml": "<div style=\"flex:1 1 320px;min-width:290px;background:#fff;border:1px solid #e5e9f0;border-radius:8px;padding:9px 12px\"><div style=\"font-size:.8rem;font-weight:700;color:#0f172a\">1~5단계 검증 소요시간</div><div style=\"font-size:.7rem;color:#94a3b8;margin-bottom:4px\">이번 실행 전체 · 그룹을 클릭해도 바뀌지 않습니다</div><table class=\"mv-diag-meta\" style=\"width:100%;font-size:.72rem\"><tbody><tr><td>1단계 쿼리검토(분석)</td><td style=\"text-align:right\">1.96초</td></tr><tr><td>2단계 COUNT 비교</td><td style=\"text-align:right\">0.10초</td></tr><tr><td>3단계 컬럼·후보 선정</td><td style=\"text-align:right\"><span style=\"color:#cbd5e1\">미측정</span></td></tr><tr><td>4단계 통계검증 SQL 생성</td><td style=\"text-align:right\">0.01초 미만</td></tr><tr><td>4단계 통계검증 실행 <span style=\"color:#94a3b8;font-size:.68rem\">(상세 추출 별도)</span></td><td style=\"text-align:right\">1.27초</td></tr><tr><td>5단계 상세추출<span style=\"color:#94a3b8;font-size:.68rem\"> (그룹별 온디맨드)</span></td><td style=\"text-align:right;color:#2471a3;font-size:.72rem\">그룹마다 다름 — 옆 카드 참고</td></tr><tr><td><b>1~4단계 합</b></td><td style=\"text-align:right\"><b>3.33초</b></td></tr></tbody></table><div style=\"font-size:.66rem;color:#94a3b8;margin-top:3px\">각 단계 화면이 표시한 처리시간을 그대로 모은 값입니다(재계산 없음).</div></div>",
+    "pipelineText": "1~5단계 검증 소요시간이번 실행 전체 · 그룹을 클릭해도 바뀌지 않습니다1단계 쿼리검토(분석)1.96초2단계 COUNT 비교0.10초3단계 컬럼·후보 선정미측정4단계 통계검증 SQL 생성0.01초 미만4단계 통계검증 실행 (상세 추출 별도)1.27초5단계 상세추출 (그룹별 온디맨드)그룹마다 다름 — 옆 카드 참고1~4단계 합3.33초각 단계 화면이 표시한 처리시간을 그대로 모은 값입니다(재계산 없음).",
+    "groupCardText": "선택 그룹 상세추출그룹 행을 클릭할 때마다 그 그룹 기준으로 갱신됩니다대상 GROUP BY STATUS_CD + DEPT_CD = A | D01추출 소요 0.39초세부 성능정보 · DIRECT_STREAM_COMPARE · 총 0.39초측정 기준(시작점을 찍은 실행 경로)단계별 [▶ 통계검증 실행]실행 시작 → 그룹 요약 표시(사용자 대기 없음)—실행 시작 → 상세목록 첫 행(상세보기 클릭 대기 포함)9.65초불일치 추출 완료0.39초현재 페이지 조회—COUNT (실제 COUNT SQL)-Source/Target 스트리밍 + merge·판정—bulk 저장—인덱스 생성—첫 20건 내부 commit—API 서버 처리(현재 페이지)0.15초상세목록 DOM 렌더(실측)0.01초 미만전체 검증 완료(READY)0.3",
+    "groupCardExtractMs": "0.39초",
+    "childRecordRows": 0,
+    "childInfoText": null,
+    "childExtractLine": null,
+    "childHasPerfDetails": false,
+    "childPerfSummaries": [],
+    "childHasStageTiming": false,
+    "childHasRunWideCount": false,
+    "childLen": 0,
+    "stageTimings": null,
+    "stageProcMs": {
+      "1": 1956.8,
+      "2": 99.5,
+      "4": 2.8,
+      "5": 1273.3
+    },
+    "stage3ProcMs": null,
+    "stageSlotText": {
+      "1": "· 1단계 처리시간: 1.96초",
+      "2": "· 2단계 처리시간: 0.10초",
+      "3": "· 3단계 계산 중...",
+      "4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+      "5": "· 5단계 통계검증 실행(상세 추출 별도): 1.27초"
+    },
+    "stage3TileText": "목적테이블NXDNP.MV_COMBO_TGT원본테이블NXDNP.MV_COMBO_SRC통계검증규모소형 (cost 12.68)목적그룹STATUS_CDDEPT_CD원본그룹STATUS_CDDEPT_CD목적집계AMT원본집계AMT실행시간0.38초상태● 정상",
+    "prepFromCache": false
+  },
+  "C2_reopen_A": {
+    "exists": true,
+    "rowCount": 4,
+    "statuses": [
+      "완료",
+      "미확인",
+      "미확인",
+      "미확인"
+    ],
+    "doneCounter": "1",
+    "openIdx": 0,
+    "openChildVisible": [
+      "mvS5Child0"
+    ],
+    "hasPerfPanel": true,
+    "perfTitle": "검증성능정보1~5단계 검증",
+    "pipelineHtml": "<div style=\"flex:1 1 320px;min-width:290px;background:#fff;border:1px solid #e5e9f0;border-radius:8px;padding:9px 12px\"><div style=\"font-size:.8rem;font-weight:700;color:#0f172a\">1~5단계 검증 소요시간</div><div style=\"font-size:.7rem;color:#94a3b8;margin-bottom:4px\">이번 실행 전체 · 그룹을 클릭해도 바뀌지 않습니다</div><table class=\"mv-diag-meta\" style=\"width:100%;font-size:.72rem\"><tbody><tr><td>1단계 쿼리검토(분석)</td><td style=\"text-align:right\">1.96초</td></tr><tr><td>2단계 COUNT 비교</td><td style=\"text-align:right\">0.10초</td></tr><tr><td>3단계 컬럼·후보 선정</td><td style=\"text-align:right\"><span style=\"color:#cbd5e1\">미측정</span></td></tr><tr><td>4단계 통계검증 SQL 생성</td><td style=\"text-align:right\">0.01초 미만</td></tr><tr><td>4단계 통계검증 실행 <span style=\"color:#94a3b8;font-size:.68rem\">(상세 추출 별도)</span></td><td style=\"text-align:right\">1.27초</td></tr><tr><td>5단계 상세추출<span style=\"color:#94a3b8;font-size:.68rem\"> (그룹별 온디맨드)</span></td><td style=\"text-align:right;color:#2471a3;font-size:.72rem\">그룹마다 다름 — 옆 카드 참고</td></tr><tr><td><b>1~4단계 합</b></td><td style=\"text-align:right\"><b>3.33초</b></td></tr></tbody></table><div style=\"font-size:.66rem;color:#94a3b8;margin-top:3px\">각 단계 화면이 표시한 처리시간을 그대로 모은 값입니다(재계산 없음).</div></div>",
+    "pipelineText": "1~5단계 검증 소요시간이번 실행 전체 · 그룹을 클릭해도 바뀌지 않습니다1단계 쿼리검토(분석)1.96초2단계 COUNT 비교0.10초3단계 컬럼·후보 선정미측정4단계 통계검증 SQL 생성0.01초 미만4단계 통계검증 실행 (상세 추출 별도)1.27초5단계 상세추출 (그룹별 온디맨드)그룹마다 다름 — 옆 카드 참고1~4단계 합3.33초각 단계 화면이 표시한 처리시간을 그대로 모은 값입니다(재계산 없음).",
+    "groupCardText": "선택 그룹 상세추출그룹 행을 클릭할 때마다 그 그룹 기준으로 갱신됩니다대상 GROUP BY STATUS_CD + DEPT_CD = A | D01추출 소요 0.39초 · 캐시 재사용(재추출 없음)세부 성능정보 · DIRECT_STREAM_COMPARE · 총 0.39초측정 기준(시작점을 찍은 실행 경로)단계별 [▶ 통계검증 실행]실행 시작 → 그룹 요약 표시(사용자 대기 없음)—실행 시작 → 상세목록 첫 행(상세보기 클릭 대기 포함)9.65초불일치 추출 완료0.39초현재 페이지 조회0.31초COUNT (실제 COUNT SQL)-Source/Target 스트리밍 + merge·판정—bulk 저장—인덱스 생성—첫 20건 내부 commit—API 서버 처리(현재 페이지)0.15초상세목록 DOM 렌더(실측)0.01초",
+    "groupCardExtractMs": "0.39초",
+    "childRecordRows": 20,
+    "childInfoText": "전체 재이관 대상(이 그룹) 100건",
+    "childExtractLine": "추출 소요 0.39초",
+    "childHasPerfDetails": false,
+    "childPerfSummaries": [],
+    "childHasStageTiming": false,
+    "childHasRunWideCount": false,
+    "childLen": 19089,
+    "stageTimings": null,
+    "stageProcMs": {
+      "1": 1956.8,
+      "2": 99.5,
+      "4": 2.8,
+      "5": 1273.3
+    },
+    "stage3ProcMs": null,
+    "stageSlotText": {
+      "1": "· 1단계 처리시간: 1.96초",
+      "2": "· 2단계 처리시간: 0.10초",
+      "3": "· 3단계 계산 중...",
+      "4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+      "5": "· 5단계 통계검증 실행(상세 추출 별도): 1.27초"
+    },
+    "stage3TileText": "목적테이블NXDNP.MV_COMBO_TGT원본테이블NXDNP.MV_COMBO_SRC통계검증규모소형 (cost 12.68)목적그룹STATUS_CDDEPT_CD원본그룹STATUS_CDDEPT_CD목적집계AMT원본집계AMT실행시간0.38초상태● 정상",
+    "prepFromCache": true
+  },
+  "C2_wall_s": 6.12,
+  "C2_prepare_posts": [],
+  "C3_open_B": {
+    "exists": true,
+    "rowCount": 4,
+    "statuses": [
+      "완료",
+      "완료",
+      "미확인",
+      "미확인"
+    ],
+    "doneCounter": "2",
+    "openIdx": 1,
+    "openChildVisible": [
+      "mvS5Child1"
+    ],
+    "hasPerfPanel": true,
+    "perfTitle": "검증성능정보1~5단계 검증",
+    "pipelineHtml": "<div style=\"flex:1 1 320px;min-width:290px;background:#fff;border:1px solid #e5e9f0;border-radius:8px;padding:9px 12px\"><div style=\"font-size:.8rem;font-weight:700;color:#0f172a\">1~5단계 검증 소요시간</div><div style=\"font-size:.7rem;color:#94a3b8;margin-bottom:4px\">이번 실행 전체 · 그룹을 클릭해도 바뀌지 않습니다</div><table class=\"mv-diag-meta\" style=\"width:100%;font-size:.72rem\"><tbody><tr><td>1단계 쿼리검토(분석)</td><td style=\"text-align:right\">1.96초</td></tr><tr><td>2단계 COUNT 비교</td><td style=\"text-align:right\">0.10초</td></tr><tr><td>3단계 컬럼·후보 선정</td><td style=\"text-align:right\"><span style=\"color:#cbd5e1\">미측정</span></td></tr><tr><td>4단계 통계검증 SQL 생성</td><td style=\"text-align:right\">0.01초 미만</td></tr><tr><td>4단계 통계검증 실행 <span style=\"color:#94a3b8;font-size:.68rem\">(상세 추출 별도)</span></td><td style=\"text-align:right\">1.27초</td></tr><tr><td>5단계 상세추출<span style=\"color:#94a3b8;font-size:.68rem\"> (그룹별 온디맨드)</span></td><td style=\"text-align:right;color:#2471a3;font-size:.72rem\">그룹마다 다름 — 옆 카드 참고</td></tr><tr><td><b>1~4단계 합</b></td><td style=\"text-align:right\"><b>3.33초</b></td></tr></tbody></table><div style=\"font-size:.66rem;color:#94a3b8;margin-top:3px\">각 단계 화면이 표시한 처리시간을 그대로 모은 값입니다(재계산 없음).</div></div>",
+    "pipelineText": "1~5단계 검증 소요시간이번 실행 전체 · 그룹을 클릭해도 바뀌지 않습니다1단계 쿼리검토(분석)1.96초2단계 COUNT 비교0.10초3단계 컬럼·후보 선정미측정4단계 통계검증 SQL 생성0.01초 미만4단계 통계검증 실행 (상세 추출 별도)1.27초5단계 상세추출 (그룹별 온디맨드)그룹마다 다름 — 옆 카드 참고1~4단계 합3.33초각 단계 화면이 표시한 처리시간을 그대로 모은 값입니다(재계산 없음).",
+    "groupCardText": "선택 그룹 상세추출그룹 행을 클릭할 때마다 그 그룹 기준으로 갱신됩니다대상 GROUP BY STATUS_CD + DEPT_CD = A | D02추출 소요 0.09초세부 성능정보 · DIRECT_STREAM_COMPARE · 총 0.09초측정 기준(시작점을 찍은 실행 경로)단계별 [▶ 통계검증 실행]실행 시작 → 그룹 요약 표시(사용자 대기 없음)—실행 시작 → 상세목록 첫 행(상세보기 클릭 대기 포함)9.65초불일치 추출 완료0.09초현재 페이지 조회0.01초 미만COUNT (실제 COUNT SQL)-Source/Target 스트리밍 + merge·판정—bulk 저장—인덱스 생성—첫 20건 내부 commit—API 서버 처리(현재 페이지)0.01초 미만상세목록 DOM 렌더(실측)0.01초 미만전체 검증 완료",
+    "groupCardExtractMs": "0.09초",
+    "childRecordRows": 20,
+    "childInfoText": "전체 재이관 대상(이 그룹) 100건",
+    "childExtractLine": "추출 소요 0.09초",
+    "childHasPerfDetails": false,
+    "childPerfSummaries": [],
+    "childHasStageTiming": false,
+    "childHasRunWideCount": false,
+    "childLen": 19150,
+    "stageTimings": null,
+    "stageProcMs": {
+      "1": 1956.8,
+      "2": 99.5,
+      "4": 2.8,
+      "5": 1273.3
+    },
+    "stage3ProcMs": null,
+    "stageSlotText": {
+      "1": "· 1단계 처리시간: 1.96초",
+      "2": "· 2단계 처리시간: 0.10초",
+      "3": "· 3단계 계산 중...",
+      "4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+      "5": "· 5단계 통계검증 실행(상세 추출 별도): 1.27초"
+    },
+    "stage3TileText": "목적테이블NXDNP.MV_COMBO_TGT원본테이블NXDNP.MV_COMBO_SRC통계검증규모소형 (cost 12.68)목적그룹STATUS_CDDEPT_CD원본그룹STATUS_CDDEPT_CD목적집계AMT원본집계AMT실행시간0.38초상태● 정상",
+    "prepFromCache": false
+  },
+  "C3_prepare_posts": [
+    {
+      "t": 1786250804.897,
+      "scope": {
+        "col": "STATUS_CD",
+        "val": "A",
+        "pairs": [
+          [
+            "STATUS_CD",
+            "A"
+          ],
+          [
+            "DEPT_CD",
+            "D02"
+          ]
+        ]
+      }
+    }
+  ],
+  "C3_pipeline_unchanged": true,
+  "C3_group_card_changed": true,
+  "C4_back_to_A": {
+    "exists": true,
+    "rowCount": 4,
+    "statuses": [
+      "완료",
+      "완료",
+      "미확인",
+      "미확인"
+    ],
+    "doneCounter": "2",
+    "openIdx": 0,
+    "openChildVisible": [
+      "mvS5Child0"
+    ],
+    "hasPerfPanel": true,
+    "perfTitle": "검증성능정보1~5단계 검증",
+    "pipelineHtml": "<div style=\"flex:1 1 320px;min-width:290px;background:#fff;border:1px solid #e5e9f0;border-radius:8px;padding:9px 12px\"><div style=\"font-size:.8rem;font-weight:700;color:#0f172a\">1~5단계 검증 소요시간</div><div style=\"font-size:.7rem;color:#94a3b8;margin-bottom:4px\">이번 실행 전체 · 그룹을 클릭해도 바뀌지 않습니다</div><table class=\"mv-diag-meta\" style=\"width:100%;font-size:.72rem\"><tbody><tr><td>1단계 쿼리검토(분석)</td><td style=\"text-align:right\">1.96초</td></tr><tr><td>2단계 COUNT 비교</td><td style=\"text-align:right\">0.10초</td></tr><tr><td>3단계 컬럼·후보 선정</td><td style=\"text-align:right\"><span style=\"color:#cbd5e1\">미측정</span></td></tr><tr><td>4단계 통계검증 SQL 생성</td><td style=\"text-align:right\">0.01초 미만</td></tr><tr><td>4단계 통계검증 실행 <span style=\"color:#94a3b8;font-size:.68rem\">(상세 추출 별도)</span></td><td style=\"text-align:right\">1.27초</td></tr><tr><td>5단계 상세추출<span style=\"color:#94a3b8;font-size:.68rem\"> (그룹별 온디맨드)</span></td><td style=\"text-align:right;color:#2471a3;font-size:.72rem\">그룹마다 다름 — 옆 카드 참고</td></tr><tr><td><b>1~4단계 합</b></td><td style=\"text-align:right\"><b>3.33초</b></td></tr></tbody></table><div style=\"font-size:.66rem;color:#94a3b8;margin-top:3px\">각 단계 화면이 표시한 처리시간을 그대로 모은 값입니다(재계산 없음).</div></div>",
+    "pipelineText": "1~5단계 검증 소요시간이번 실행 전체 · 그룹을 클릭해도 바뀌지 않습니다1단계 쿼리검토(분석)1.96초2단계 COUNT 비교0.10초3단계 컬럼·후보 선정미측정4단계 통계검증 SQL 생성0.01초 미만4단계 통계검증 실행 (상세 추출 별도)1.27초5단계 상세추출 (그룹별 온디맨드)그룹마다 다름 — 옆 카드 참고1~4단계 합3.33초각 단계 화면이 표시한 처리시간을 그대로 모은 값입니다(재계산 없음).",
+    "groupCardText": "선택 그룹 상세추출그룹 행을 클릭할 때마다 그 그룹 기준으로 갱신됩니다대상 GROUP BY STATUS_CD + DEPT_CD = A | D01추출 소요 0.39초세부 성능정보 · DIRECT_STREAM_COMPARE · 총 0.39초측정 기준(시작점을 찍은 실행 경로)단계별 [▶ 통계검증 실행]실행 시작 → 그룹 요약 표시(사용자 대기 없음)—실행 시작 → 상세목록 첫 행(상세보기 클릭 대기 포함)9.65초불일치 추출 완료0.39초현재 페이지 조회0.21초COUNT (실제 COUNT SQL)-Source/Target 스트리밍 + merge·판정—bulk 저장—인덱스 생성—첫 20건 내부 commit—API 서버 처리(현재 페이지)0.12초상세목록 DOM 렌더(실측)0.01초 미만전체 검증 완료(READY",
+    "groupCardExtractMs": "0.39초",
+    "childRecordRows": 20,
+    "childInfoText": "전체 재이관 대상(이 그룹) 100건",
+    "childExtractLine": "추출 소요 0.39초",
+    "childHasPerfDetails": false,
+    "childPerfSummaries": [],
+    "childHasStageTiming": false,
+    "childHasRunWideCount": false,
+    "childLen": 19107,
+    "stageTimings": null,
+    "stageProcMs": {
+      "1": 1956.8,
+      "2": 99.5,
+      "4": 2.8,
+      "5": 1273.3
+    },
+    "stage3ProcMs": null,
+    "stageSlotText": {
+      "1": "· 1단계 처리시간: 1.96초",
+      "2": "· 2단계 처리시간: 0.10초",
+      "3": "· 3단계 계산 중...",
+      "4": "· 4단계 SQL 생성 시간: 0.01초 미만",
+      "5": "· 5단계 통계검증 실행(상세 추출 별도): 1.27초"
+    },
+    "stage3TileText": "목적테이블NXDNP.MV_COMBO_TGT원본테이블NXDNP.MV_COMBO_SRC통계검증규모소형 (cost 12.68)목적그룹STATUS_CDDEPT_CD원본그룹STATUS_CDDEPT_CD목적집계AMT원본집계AMT실행시간0.38초상태● 정상",
+    "prepFromCache": false
+  },
+  "C4_wall_s": 6.11,
+  "C4_prepare_posts": [
+    {
+      "t": 1786250813.699,
+      "scope": {
+        "col": "STATUS_CD",
+        "val": "A",
+        "pairs": [
+          [
+            "STATUS_CD",
+            "A"
+          ],
+          [
+            "DEPT_CD",
+            "D01"
+          ]
+        ]
+      }
+    }
+  ],
+  "errors": [],
+  "finished": "2026-08-09 13:47:00"
+}

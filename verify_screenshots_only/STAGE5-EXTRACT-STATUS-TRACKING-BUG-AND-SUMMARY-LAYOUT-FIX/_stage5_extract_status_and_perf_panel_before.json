@@ -1,0 +1,288 @@
+{
+  "task": "STAGE5-EXTRACT-STATUS-TRACKING-BUG-AND-SUMMARY-LAYOUT-FIX",
+  "phase": "before",
+  "port": 8000,
+  "started": "2026-08-09 13:32:40",
+  "setup": {
+    "pair": "Oracle_asis → Oracle_tobe",
+    "connected": true
+  },
+  "1_analyze": {
+    "blocked": false,
+    "from_table": "MV_COMBO_SRC",
+    "error": ""
+  },
+  "2_count": {
+    "status": "COUNT_MATCHED",
+    "src": 1200,
+    "tgt": 1200
+  },
+  "sel": {
+    "gb": [],
+    "sum": []
+  },
+  "run1": {
+    "clicked": true,
+    "elapsed_sec": 2.07,
+    "completed": true
+  },
+  "P0_entry": {
+    "exists": true,
+    "rowCount": 4,
+    "statuses": [
+      "미확인",
+      "미확인",
+      "미확인",
+      "미확인"
+    ],
+    "doneCounter": null,
+    "openIdx": -1,
+    "openChildVisible": [],
+    "hasPerfPanel": false,
+    "perfTitle": null,
+    "pipelineHtml": null,
+    "pipelineText": null,
+    "groupCardText": null,
+    "groupCardExtractMs": null,
+    "childRecordRows": 0,
+    "childInfoText": null,
+    "childExtractLine": null,
+    "childHasPerfDetails": false,
+    "childHasStageTiming": false,
+    "childHasRunWideCount": false,
+    "childLen": 0,
+    "stageTimings": null,
+    "prepFromCache": false
+  },
+  "C1_open_A": {
+    "exists": true,
+    "rowCount": 4,
+    "statuses": [
+      "미확인",
+      "미확인",
+      "미확인",
+      "미확인"
+    ],
+    "doneCounter": null,
+    "openIdx": 0,
+    "openChildVisible": [
+      "mvS5Child0"
+    ],
+    "hasPerfPanel": false,
+    "perfTitle": null,
+    "pipelineHtml": null,
+    "pipelineText": null,
+    "groupCardText": null,
+    "groupCardExtractMs": null,
+    "childRecordRows": 20,
+    "childInfoText": "전체 재이관 대상(이 그룹) 100건",
+    "childExtractLine": null,
+    "childHasPerfDetails": true,
+    "childHasStageTiming": false,
+    "childHasRunWideCount": true,
+    "childLen": 20751,
+    "stageTimings": null,
+    "prepFromCache": false
+  },
+  "C1_wall_s": 8.13,
+  "C1_prepare_posts": [
+    {
+      "t": 1786250054.965,
+      "scope": {
+        "col": "STATUS_CD",
+        "val": "A",
+        "pairs": [
+          [
+            "STATUS_CD",
+            "A"
+          ],
+          [
+            "DEPT_CD",
+            "D01"
+          ]
+        ]
+      }
+    }
+  ],
+  "C2_collapsed": {
+    "exists": true,
+    "rowCount": 4,
+    "statuses": [
+      "미확인",
+      "미확인",
+      "미확인",
+      "미확인"
+    ],
+    "doneCounter": null,
+    "openIdx": -1,
+    "openChildVisible": [],
+    "hasPerfPanel": false,
+    "perfTitle": null,
+    "pipelineHtml": null,
+    "pipelineText": null,
+    "groupCardText": null,
+    "groupCardExtractMs": null,
+    "childRecordRows": 0,
+    "childInfoText": null,
+    "childExtractLine": null,
+    "childHasPerfDetails": false,
+    "childHasStageTiming": false,
+    "childHasRunWideCount": false,
+    "childLen": 0,
+    "stageTimings": null,
+    "prepFromCache": false
+  },
+  "C2_reopen_A": {
+    "exists": true,
+    "rowCount": 4,
+    "statuses": [
+      "미확인",
+      "미확인",
+      "미확인",
+      "미확인"
+    ],
+    "doneCounter": null,
+    "openIdx": 0,
+    "openChildVisible": [
+      "mvS5Child0"
+    ],
+    "hasPerfPanel": false,
+    "perfTitle": null,
+    "pipelineHtml": null,
+    "pipelineText": null,
+    "groupCardText": null,
+    "groupCardExtractMs": null,
+    "childRecordRows": 20,
+    "childInfoText": "전체 재이관 대상(이 그룹) 100건",
+    "childExtractLine": null,
+    "childHasPerfDetails": true,
+    "childHasStageTiming": false,
+    "childHasRunWideCount": true,
+    "childLen": 20755,
+    "stageTimings": null,
+    "prepFromCache": false
+  },
+  "C2_wall_s": 6.13,
+  "C2_prepare_posts": [
+    {
+      "t": 1786250066.56,
+      "scope": {
+        "col": "STATUS_CD",
+        "val": "A",
+        "pairs": [
+          [
+            "STATUS_CD",
+            "A"
+          ],
+          [
+            "DEPT_CD",
+            "D01"
+          ]
+        ]
+      }
+    }
+  ],
+  "C3_open_B": {
+    "exists": true,
+    "rowCount": 4,
+    "statuses": [
+      "미확인",
+      "미확인",
+      "미확인",
+      "미확인"
+    ],
+    "doneCounter": null,
+    "openIdx": 1,
+    "openChildVisible": [
+      "mvS5Child1"
+    ],
+    "hasPerfPanel": false,
+    "perfTitle": null,
+    "pipelineHtml": null,
+    "pipelineText": null,
+    "groupCardText": null,
+    "groupCardExtractMs": null,
+    "childRecordRows": 20,
+    "childInfoText": "전체 재이관 대상(이 그룹) 100건",
+    "childExtractLine": null,
+    "childHasPerfDetails": true,
+    "childHasStageTiming": false,
+    "childHasRunWideCount": true,
+    "childLen": 20795,
+    "stageTimings": null,
+    "prepFromCache": false
+  },
+  "C3_prepare_posts": [
+    {
+      "t": 1786250073.338,
+      "scope": {
+        "col": "STATUS_CD",
+        "val": "A",
+        "pairs": [
+          [
+            "STATUS_CD",
+            "A"
+          ],
+          [
+            "DEPT_CD",
+            "D02"
+          ]
+        ]
+      }
+    }
+  ],
+  "C3_pipeline_unchanged": false,
+  "C3_group_card_changed": false,
+  "C4_back_to_A": {
+    "exists": true,
+    "rowCount": 4,
+    "statuses": [
+      "미확인",
+      "미확인",
+      "미확인",
+      "미확인"
+    ],
+    "doneCounter": null,
+    "openIdx": 0,
+    "openChildVisible": [
+      "mvS5Child0"
+    ],
+    "hasPerfPanel": false,
+    "perfTitle": null,
+    "pipelineHtml": null,
+    "pipelineText": null,
+    "groupCardText": null,
+    "groupCardExtractMs": null,
+    "childRecordRows": 20,
+    "childInfoText": "전체 재이관 대상(이 그룹) 100건",
+    "childExtractLine": null,
+    "childHasPerfDetails": true,
+    "childHasStageTiming": false,
+    "childHasRunWideCount": true,
+    "childLen": 20755,
+    "stageTimings": null,
+    "prepFromCache": false
+  },
+  "C4_wall_s": 7.01,
+  "C4_prepare_posts": [
+    {
+      "t": 1786250082.948,
+      "scope": {
+        "col": "STATUS_CD",
+        "val": "A",
+        "pairs": [
+          [
+            "STATUS_CD",
+            "A"
+          ],
+          [
+            "DEPT_CD",
+            "D01"
+          ]
+        ]
+      }
+    }
+  ],
+  "errors": [],
+  "finished": "2026-08-09 13:34:50"
+}

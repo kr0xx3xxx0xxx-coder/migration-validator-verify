@@ -1,0 +1,285 @@
+작업명 : STAGE5-EXTRACT-STATUS-TRACKING-BUG-AND-SUMMARY-LAYOUT-FIX
+✅ 작업 완료 - 5단계 '상세 추출 상태' 배지 미갱신·그룹 재확장 재추출을 각각 다른 원인으로 규명해 수정하고,
+   '고급 성능정보'를 1~5단계 전체를 보여주는 상단 고정 '검증성능정보' 영역으로 재배치(실브라우저 before/after 실측)
+
+════════════════════════════════════════════════════════════════════════
+0. 지시서 가설에 대한 비판적 검토 결과 — 1번과 2번은 '같은 뿌리'가 아니다
+════════════════════════════════════════════════════════════════════════
+지시서는 "1번과 2번은 같은 뿌리 원인일 가능성이 높다 — '이 그룹이 이미 추출됐다'는 상태 추적
+자체가 아코디언 토글 경로에서 안 되고 있는 것으로 추정"이라고 했다. 코드 실행 경로를 따라간
+결과 **사실이 아니었다**. 상태 추적(서버 저장)은 정상 동작하고 있었고, 두 증상은 서로 다른
+3개 지점의 결함이다(1개 + 2개).
+
+  1번 = 화면 반영 경로 부재     : ui/tabler_renderer.py `_mvStage5ReportDetail`
+  2번 = (a) 클라 준비캐시 강제초기화 : ui/tabler_renderer.py `_mvRiEnterRecordsView`
+        (b) 서버 fingerprint 재사용 제외 : routes/agg_diff_route.py `agg_diff_prepare`
+
+'상태 추적' 자체(services/stage5_group_store.update_detail 호출)는 선행 작업 완료보고 [4] 항목대로
+정상이었고, 실제로 페이지를 나갔다 다시 들어오면 배지가 '완료'로 보였다. 즉 저장은 되는데 그
+순간의 화면만 안 바뀌는 문제였다 — 저장/조회를 고치는 방향으로 갔다면 헛수고였을 것이다.
+
+════════════════════════════════════════════════════════════════════════
+1. [버그] '상세 추출 상태' 배지가 '미확인'에 머무는 원인 — 확정
+════════════════════════════════════════════════════════════════════════
+`_mvStage5ReportDetail(g, status, detailRunId)` 가 하는 일은 정확히 두 가지였다.
+  ① `g.detail_status = status`  (JS 메모리 객체 갱신)
+  ② `POST /stage5/groups/detail-status` (서버 SQLite stage5_mismatch_group.detail_status 저장)
+그리고 **그 그룹 행의 배지 DOM `<td id="mvS5St{i}">` 를 다시 그리는 코드가 코드베이스 어디에도
+없었다**. 그 td 를 만드는 곳은 `_mvStage5PaintGroupList` 단 한 곳인데, 이 함수는 목록 전체를
+새로 그릴 때(=5단계 재진입/목록 복귀)만 호출된다. 그래서
+  · 그룹을 클릭해 추출이 성공해도 배지는 최초 렌더값(NOT_STARTED='미확인') 그대로,
+  · 접었다 펴도 목록 자체는 재렌더되지 않으므로 여전히 '미확인',
+  · 페이지를 나갔다 다시 들어오면 그제서야 서버 저장값으로 '완료'
+라는 증상이 정확히 재현된다.
+
+[수정] `_mvStage5PaintDetailBadge(i, status)` 신설 — 그 행의 배지 1칸(텍스트·색, 기존 `_MV_S5_DETAIL`
+매핑 재사용)과 머리글의 '상세 추출 완료 N개' 합계(`<span id="mvS5DoneN">` 신설)만 갱신한다.
+`_mvStage5ReportDetail` 이 서버 보고와 같은 순간에 이 함수를 부른다(`ctx.list.indexOf(g)` 로 행 특정).
+**목록 전체 재렌더는 쓰지 않았다** — 펼쳐 둔 아코디언 child 행과 진행 중인 레코드 파이프라인
+(mvRiWrap 등 고정 id 싱글턴)이 파괴되기 때문이다.
+
+════════════════════════════════════════════════════════════════════════
+2. [버그] 같은 그룹 재확장 시 매번 재추출되는 원인 — 두 겹
+════════════════════════════════════════════════════════════════════════
+[2-a] 클라이언트 — 준비 캐시를 무조건 버리고 있었다
+  `_mvRiEnterRecordsView(scope, titleText, mountId)` 안에
+      window._mvPkState = null;   /* scope 가 달라지면 준비 캐시 재사용 금지 */
+  가 **조건 없이** 실행됐다(주석과 실제 동작 불일치). 반면 `_mvPkEnsurePrepared` 는 이미
+  scope 기준 재사용 판정을 갖고 있었다 —
+      if (st.resp && String(st.scopeKey||'') !== curScopeKey) { window._mvPkState = st = {}; }
+      if (st.resp && st.resp.run_id && _MV_PK_REUSABLE_STATUS[st.resp.status] ...) return st.resp;
+  즉 재사용 판정이 실행되기도 전에 캐시가 이미 사라진 상태였다. 같은 그룹을 다시 펴도 반드시
+  `/agg-diff/prepare` 를 새로 POST 하고, `st.pageCache` 까지 비워 페이지도 전량 재조회했다.
+
+  [수정] scope 키 계산을 공용 함수 `_mvPkScopeKey()` 로 뽑아 두 지점이 **같은 기준**을 쓰게 하고,
+  `_mvRiEnterRecordsView` 는 scope 가 실제로 바뀔 때만 `_mvPkState` 와 `st.pageCache` 를 버린다.
+  캐시로 끝났는지 화면이 알 수 있도록 `window._mvPkPrepFromCache` 플래그를 남긴다.
+
+[2-b] 서버 — 조기중단(EARLY_STOPPED) run 은 fingerprint 재사용 대상에서 빠져 있었다
+  지시서가 근거로 든 "10.59초 → 8.56초" 는 **클라이언트만 고쳐서는 설명되지 않는다**. 클라가
+  매번 POST 해도 서버가 재사용으로 답하면 같은 summary(=같은 소요시간)가 나와야 하기 때문이다.
+  routes/agg_diff_route.py `if req.stream:` 블록을 읽은 결과 원인이 나왔다.
+      ex = rj.get_by_fingerprint(fp)
+      if ex is not None and not req.force:
+          if ex["status"] == rj.READY   ...  → 재사용
+          if ex["status"] == rj.PREPARING ... → 기존 job 연결
+          (그 외는 아래로 흘러 start_or_attach → 새 job 생성 → 원본/목적 전량 재스캔)
+  그런데 재이관 레코드 수집은 `per_group_full_list_max + 1`(기본 **101건**)에서 조기중단되고
+  (reimport_job 이 그 run 을 `EARLY_STOPPED` 로 마킹), `start_or_attach` 도 `(PREPARING, READY)`
+  만 재사용한다. 사용자 스크린샷의 "101건 정상 조회"가 바로 그 상한값이다. 즉 **조기중단으로
+  끝난 그룹은 열 때마다 새 job 이 만들어져 매번 실제 재추출**됐고, 그래서 소요시간이 매번 달랐다.
+  참고로 비-stream 경로(`prepare_reimport_pk_index` 의 `_PK_RUNS` 캐시)는 조기중단 여부와 무관하게
+  재사용하고 있었다 — 두 경로의 비대칭이었다.
+  (`detail_elapsed_ms` 는 services/exact_diff/pk_range_chunk.py 만 채우는 값이라, 사용자가 본
+   "상세 불일치 처리 총 소요시간"이 stream/PK_RANGE_CHUNK 경로였음도 함께 확인된다.)
+
+  [수정] READY 재사용 분기 바로 아래에 EARLY_STOPPED 재사용 분기를 추가했다.
+    · `out["status"] = "READY"` 로 승격하지 **않는다** — 승격하면 '재이관 대상 N건 이상' 하한 표기와
+      '조기 중단' 배지가 사라져 참값을 오독하게 된다(P10-SUMMARY-COUNT-DISPLAY-DISAMBIGUATION-FIX 계약).
+    · `if ex is not None and not req.force:` 안쪽이므로 '최신 데이터로 다시 실행'(force=true)은 종전대로
+      새 run 을 만든다.
+    · INTERRUPTED_RESUMABLE(재개 가능 checkpoint) 판정은 이 분기보다 앞에 있어 손대지 않았다.
+
+  경계: 2-a 만으로도 '같은 페이지에서 접었다 펴기'는 완전히 해결된다(실측 prepare POST 0건).
+  2-b 는 '다른 그룹을 들렀다 돌아오기 / 페이지 재진입 후 재클릭'처럼 클라 캐시가 정당하게
+  폐기된 뒤의 재클릭에서 효력이 있다. 실 픽스처(그룹당 100행)는 조기중단 자체가 발생하지 않아
+  live 로는 재현 불가라 소스 계약 테스트로 회귀를 고정했다(§5 [D]).
+
+════════════════════════════════════════════════════════════════════════
+3. [레이아웃 재설계] '고급 성능정보' → '검증성능정보', 범위를 1~5단계 전체로
+════════════════════════════════════════════════════════════════════════
+[3-1] 명칭
+  · 실행형 `_mvRiSummaryHtml` 의 `_detTitle` : '고급 성능정보' → **'검증성능정보'**
+    (그룹 인라인일 때는 상단 '검증성능정보' 영역 **안에** 들어가므로 중복 제목을 피해 '세부 성능정보')
+  · 표본검증형 `_mvRiApplySampleStop` : '고급 성능정보(표본검증)' → **'검증성능정보(표본검증)'**
+  · 영역 자체의 제목 : **검증성능정보**
+
+[3-2] 상단 고정 영역 신설 — `_mvStage5PerfPanelHtml()`
+  5단계 그룹 목록 **위**에 1회만 그린다(`_mvStage5PaintGroupList` 가 붙인다. 불일치 그룹 0건
+  화면에도 붙여 1~4단계 소요시간은 항상 확인 가능). 두 장의 카드로 시각 분리한다.
+
+  ┌ [고정] #mvS5PerfPipeline — "1~5단계 검증 소요시간" (흰 배경)
+  │   그룹을 클릭해도 절대 바뀌지 않는다. 갱신 함수가 이 id 를 아예 참조하지 않는다(구조적 보장).
+  └ [갱신] #mvS5PerfGroup   — "선택 그룹 상세추출" (연파랑 배경 #EFF6FF)
+      그룹 클릭 시 `_mvStage5SetGroupPerf()` 가 이 컨테이너만 다시 그린다.
+      내용 = 대상 그룹 라벨 · **추출 소요 N초** · 옛 '고급 성능정보' 세부표(그대로 이동).
+
+[3-3] 그룹 펼침 패널은 한 줄로 축소
+  `_mvRiSummaryHtml` 에 인라인 분기(`_inlineGrp = !!(window._mvPkScope && window._mvPkScope.col)`)를 두고
+    · 성능 <details> 표(detail)와 '1~5단계 진입 전 처리시간'(stageTiming)을 **반환에서 제거**하고
+      상단 영역으로 넘긴다.
+    · 총 소요시간 줄을 "**추출 소요 N초** · 세부 성능정보는 위 '검증성능정보' 영역에서 확인"으로 교체.
+    · 건수 라인 라벨을 '원본 전체/목적 전체' → '**이 그룹 원본/이 그룹 목적**'으로 정정
+      (scope 가 걸린 상태에서 그 값은 테이블 전체가 아니라 그 그룹의 건수다 — 상단 런 전체 요약과
+       같은 어휘를 쓰면 오독된다).
+  **별도 화면 경로(전체 그룹 한번에 추출·기존 결과 보기·이력 복원)의 반환문은 한 글자도 바꾸지
+  않았다** — 기존 계약을 검사하는 테스트 4종이 그대로 통과한다(무회귀).
+
+[3-4] 1~5단계 시간의 출처 (새로 계산하지 않는다)
+  조사 결과 지시서 브리핑이 지목한 `window._mvStageTimings`(= env.execution_context.stage_timings_ms)는
+  **원클릭 [검증 실행] 경로에서만** 채워지고 단계별 ▶ 실행 경로에서는 항상 null 이다(실측: before/after
+  두 실행 모두 `stageTimings=null`). 그래서 그 값을 단독 원천으로 쓰면 단계별 경로에서 영역이 늘 비어
+  있게 된다. 지시서가 말한 "이미 각 단계 탭/타일에 표시되고 있는 시간값"을 원천으로 삼았다.
+    1단계 쿼리검토      ← window._mvStageProcMs[1]  (= diagnostics.total_ms, 1단계 슬롯이 표시 중인 값)
+    2단계 COUNT 비교    ← window._mvStageProcMs[2]  (= COUNT processing_ms)
+    3단계 컬럼·후보 선정 ← window._mvStage3ProcMs   (= /validation-sets/preview processing_ms)
+    4단계 SQL 생성      ← window._mvStageProcMs[4]  (= /generate processing_ms)
+    4단계 통계검증 실행  ← window._mvStageProcMs[5]  (화면상 5단계 슬롯이 담는 '통계검증 실행(상세 추출 별도)')
+    폴백                ← window._mvStageTimings 의 analyze/count/generate/execute (원클릭 경로)
+    5단계 상세추출      ← 그룹 상세추출 응답의 detail_elapsed_ms(_mvRiSummaryHtml 이 쓰는 값과 동일)
+  이를 위해 ui/validation_plan_renderer.py `_mvShowStageProcessingTime` 이 이미 4·5단계에 대해
+  하던 보관(window._mvStage4ProcMs/_mvStage5ProcMs)을 **1·2단계까지 같은 형태의 맵
+  (window._mvStageProcMs[n])으로 넓혔다**(새 계측 추가 0건 — 화면에 이미 있는 값을 담아둘 뿐).
+  `_mvClearStageProcessingTime(n)` 은 그 슬롯의 보관값도 함께 지운다(재실행 중 옛 값 노출 차단).
+  세부 하위단계 표는 기존 `_mvStageTimingHtml()` 을 **그대로 재사용**해 고정 카드 아래에 싣는다.
+
+[3-5] 5단계를 '고정' 카드에 숫자로 넣지 않은 판단 근거 (자율 결정 · 지시서가 판단 위임한 항목)
+  5단계 상세추출은 설계상 '그룹마다 다른 값'이다(온디맨드 · 그룹별 별도 run_id/store).
+  선택지 (a) 마지막 추출 그룹 값, (b) 누적/최근값, (c) 고정 칸에는 '그룹별 가변'만 적고 실제 값은
+  갱신 카드에 두기 — 중 (c)를 택했다.
+    · (a)(b)는 그룹을 클릭할 때마다 '고정' 카드가 바뀌어, 지시서 검증항목 "그룹 B를 클릭해도
+      1~5단계 부분은 안 바뀐다"와 정면으로 충돌한다.
+    · 하나의 숫자가 5단계 전체를 대표하는 것처럼 오독된다(그룹별 편차가 본질인 값이다).
+    · (c)는 고정 카드에 5단계 행을 그대로 두되 값 자리에 "그룹마다 다름 — 옆 카드 참고"를 적으므로,
+      **영역 전체로 보면 1~5단계가 모두 표시되면서** 고정/가변 경계가 무너지지 않는다.
+  또한 값이 없는 단계도 행을 지우지 않고 '미측정'으로 표기한다 — 행을 감추면 그 단계가 0초인
+  것처럼 읽힌다(실측에서 3단계가 이 경우에 해당, §4 [P0] 참고).
+
+════════════════════════════════════════════════════════════════════════
+4. 검증 결과 — 실브라우저 before/after 실측 (지시서 '검증(필수, 실제 클릭)' 절 전 항목)
+════════════════════════════════════════════════════════════════════════
+드라이버(신규) : scripts/dev_e2e/stage5_extract_status_and_perf_panel_verify.py
+  기존 scripts/dev_e2e/stage45_clickthrough_reverify.py 의 조작 헬퍼(setup/stage1/stage2/select_gb/
+  click_apply_candidate/click_generate/click_execute/_goto_step/_nav_next/_launch_ctx/_snap*)를 그대로
+  재사용(새 조작 방식 발명 없음). 실 오라클 asis/tobe NXDNP.MV_COMBO_SRC/TGT 1,200행,
+  GB=STATUS_CD+DEPT_CD 조합 → 실불일치 4그룹. before 는 baseline(git worktree, HEAD 03844b08)에
+  db/프리셋을 복사해 같은 포트 8000 에서 먼저 촬영했다.
+
+  항목                                    before(HEAD)          after(수정본)
+  ────────────────────────────────────────────────────────────────────────────────
+  [P0] 상단 '검증성능정보' 영역            없음(false)            있음 — 제목 '검증성능정보'
+  [P0] 고정 카드 1~5단계                   —                     1단계 1.96초 / 2단계 0.10초 /
+                                                                3단계 미측정 / 4단계 SQL생성 0.01초 미만 /
+                                                                4단계 실행 1.27초 / 5단계 '그룹마다 다름' /
+                                                                1~4단계 합 3.33초
+  [P0] 값 일치 대조(각 단계 슬롯 원문)     —                     슬롯1 '1.96초' · 슬롯2 '0.10초' ·
+                                                                슬롯4 '0.01초 미만' · 슬롯5 '1.27초'
+                                                                → 카드 표기와 **완전 일치**
+  [C1] 그룹 A 클릭 후 배지                 ['미확인'×4]           ['완료','미확인','미확인','미확인']
+  [C1] '상세 추출 완료 N개' 합계           (id 없음/미갱신)       1
+  [C1] 레코드 조회                         20행(정상)             20행(정상, 동일)
+  [C1] 펼침 패널 성능 <details> 잔존        있음                   **없음**(details 0개)
+  [C1] 펼침 패널 '원본 전체' 라벨           있음                   **없음**('이 그룹 원본'으로 정정)
+  [C2] 접기→같은 그룹 재확장 prepare POST   **1회(재추출)**        **0회** (prepFromCache=true)
+  [C2] 재확장 후 추출 소요                 (표기 없음)            0.39초 → 0.39초 (**재계산 없음, 동일**)
+  [C3] 그룹 B 클릭 시 고정 카드            (영역 자체 없음)       **바이트 단위 불변**(pipelineHtml 동일)
+  [C3] 그룹 B 클릭 시 갱신 카드            (영역 자체 없음)       **B 기준으로 변경**
+  [C3] 배지/완료합계                       ['미확인'×4]           ['완료','완료','미확인','미확인'] / 2
+  [C4] 그룹 A 로 복귀                      prepare 1회, 배지 미확인 prepare 1회(scope 왕복 후라 정당),
+                                                                추출 소요 0.39초 유지, 배지 '완료' 유지
+  JS 콘솔 오류 : before/after 모두 0건.
+
+  스크린샷 16장 + 실측 JSON 2건 →
+    X:\Verify\verify_screenshots_only\STAGE5-EXTRACT-STATUS-TRACKING-BUG-AND-SUMMARY-LAYOUT-FIX\
+  (증적 저장소에도 동일 사본 push)
+
+  [C4 의 prepare 1회에 대한 설명 — 결함 아님]
+  준비 캐시(_mvPkState)는 '지금 보고 있는 scope' 하나만 보관하는 단일 슬롯이다. A→B→A 로 돌아오면
+  B 시점에 A 의 캐시가 정당하게 폐기되므로 재요청이 발생한다. 이때 소요시간이 0.39초로 동일한 것은
+  서버 fingerprint 캐시(_PK_RUNS, 비-stream 경로)가 재사용했기 때문이다 — 그리고 바로 이 지점이
+  stream+조기중단에서 뚫려 있던 곳이라 §2-b 에서 함께 막았다.
+
+  [3단계 '미측정'에 대한 사전 존재 확인]
+  실측에서 3단계 슬롯 원문이 '· 3단계 계산 중...' 이었고 window._mvStage3ProcMs 는 null 이었다.
+  원인은 ui/tabler_renderer.py:16522 의 `_mvClearStageProcessingTime(3)`(후보 적용/재검증 버튼)이
+  슬롯을 '계산 중'으로 되돌린 뒤 이 흐름에서 `_mvShowStage3ProcessingTime` 이 다시 호출되지 않기
+  때문으로, **이번 변경과 무관한 사전 존재 상태**다(3단계 타일 자체도 같은 값을 못 받는다).
+  검증성능정보는 없는 값을 지어내지 않고 '미측정'으로 정직하게 표기한다.
+
+════════════════════════════════════════════════════════════════════════
+5. 자체 테스트 · 회귀
+════════════════════════════════════════════════════════════════════════
+[A] 렌더 JS 문법 가드 — tests/test_rendered_js_syntax_guard.py 2 passed (node --check 기반).
+[B] 관련 테스트 서브셋 + baseline 대조 — **신규 회귀 0건**.
+    서브셋 = 내가 건드린 식별자(_mvRiSummaryHtml·_mvRiEnterRecordsView·_mvStage5*·_mvPkEnsurePrepared·
+    _mvPkScope·_mvStageTimingHtml·_mvShowStageProcessingTime·agg_diff_prepare·_mvPkState·mvS5·
+    '고급 성능정보')를 참조하는 테스트 파일 30개 전량(-p no:randomly).
+      baseline(git worktree, 03844b08) : 10 failed / 250 passed / 6 xfailed
+      수정본(작업 트리)                 : 10 failed / 254 passed / 6 xfailed
+    실패 10건은 **ID 까지 완전히 동일**(사전 존재):
+      test_agg_contribution.py::test_exact_diff_separated_and_terms_removed
+      test_d7_9_gb0_fallback.py::test_gate_gb0_always_grid
+      test_d7_9_gb0_fallback.py::test_stage_timing_display
+      test_stage4_postcount_progress_indicator.py::test_post_progress_functions_and_state_are_gone
+      test_stage4_postcount_progress_indicator.py::test_no_replacement_ui_was_added_in_its_place
+      test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+      test_ui_tab4_tab5_separation.py::test_target_only_display
+      test_all_stages_timing_display_expand.py::test_count_generate_execute_routes_add_processing_ms
+      test_query_review_tile_layout.py::test_tiles_labels_order_and_empty_placeholder
+      test_query_review_tile_layout.py::test_tiles_values_after_run_and_label_value_matching
+    증가한 +4 passed = 이번에 추가한 신규 테스트 4건.
+[C] CLAUDE.md 필수 회귀 — samples/test_virtual_cases.py 8/8 통과,
+    samples/test_complex_cases.py 5/5 통과(케이스 분석 5/5 완료).
+[D] 신규 테스트 4건 — tests/test_stage5_group_drilldown.py
+    · test_detail_status_badge_is_repainted_on_status_change (1번)
+      배지 1칸 갱신 함수 존재 · _MV_S5_DETAIL 재사용 · 완료합계 id · 보고 시점 호출 ·
+      **목록 전체 재렌더 금지**(펼침 상태 파괴 방지) 계약.
+    · test_prepare_cache_is_dropped_only_when_scope_actually_changes (2-a)
+      공용 _mvPkScopeKey 사용 · 무조건 초기화 부재 · scope 변경 시에만 폐기 · 캐시적중 플래그.
+    · test_early_stopped_prepare_is_reused_instead_of_rerun (2-b)
+      EARLY_STOPPED 재사용 분기가 READY 분기와 같은 블록에 있고, **status 를 READY 로 승격하지
+      않으며**, force 제외 조건 안쪽에 있는지.
+    · test_stage5_perf_panel_splits_fixed_pipeline_and_per_group (3번)
+      고정/갱신 컨테이너 분리 · 갱신 함수가 고정 카드 id 를 참조하지 않음(구조적 보장) ·
+      1~5단계 라벨 5종 · 기존 계측(_mvStageTimings/_mvStageTimingHtml) 재사용.
+
+[E] 갱신한 기존 테스트 4건과 사유 (무비판 삭제 없음 — 검증 취지 유지, 라벨/판정만 새 설계에 맞춤)
+  1) tests/test_stage5_group_drilldown.py::
+       test_inline_accordion_lowers_advanced_perf_panel_priority
+     → test_inline_accordion_moves_perf_panel_out_of_group_body
+     옛 단언: 인라인에서 성능 <details> 를 기본 접힘으로 낮춘다
+              (`detail.replace('<details open ', '<details ')`).
+     전제: 성능표가 그룹 펼침 패널 '안에' 그려진다 → 좁은 화면에서 레코드가 밀리니 접어두자는 완화책.
+     새 설계: 성능표가 패널 밖(상단 고정 영역)으로 나갔으므로 그 완화책 자체가 무의미해졌다.
+     실측: 그 replace 구문은 STAGE5-AXIS-LABEL-CLICK-FIX 에서 추가된 것으로, 이번 재배치로 삭제됐다
+           — 회귀가 아니라 의도된 제거. 단언을 '없어야 한다 + 상단으로 넘긴다'로 뒤집고,
+           검증 범위(그룹 펼침 패널에 성능 세부가 들어가는가)는 그대로 유지했다.
+  2) tests/test_stage5_strategy_relocate_and_advanced_perf_emphasis.py
+     `_PERF_SUMMARY_MARKERS` 의 '고급 성능정보(표본검증)' → '검증성능정보(표본검증)'.
+     이 테스트가 지키는 계약은 '명칭'이 아니라 '기본 펼침 + 확대 글자 + 강조색'이므로 마커 라벨만
+     갱신하고 판정(<details open> 선행)은 그대로 뒀다.
+  3) tests/test_d7_8_inline_drill_time.py::test_ui_advanced_perf_position_and_title
+     '고급 성능정보' 단언 → '검증성능정보'(별도 화면) + '세부 성능정보'(인라인) 두 라벨 확인으로 교체.
+     제목에 전략·chunk·총시간이 붙는다는 원래 취지는 유지.
+  4) tests/test_stats_result_full.py::test_phase2_time_filter_paging_polling (xfail, strict=False)
+     라벨 목록의 '고급 성능정보' → '검증성능정보'.
+  (기존 단언을 삭제·약화한 것은 없다.)
+
+════════════════════════════════════════════════════════════════════════
+6. 변경 파일
+════════════════════════════════════════════════════════════════════════
+  ui/tabler_renderer.py                       (수정 — 1·2-a·3번 전부: 배지 갱신·scope 캐시·검증성능정보 영역)
+  ui/validation_plan_renderer.py              (수정 — 단계별 처리시간 보관 맵 _mvStageProcMs 확장/정리)
+  routes/agg_diff_route.py                    (수정 — 2-b: EARLY_STOPPED fingerprint 재사용)
+  tests/test_stage5_group_drilldown.py        (수정 — 신규 4건 + 갱신 1건)
+  tests/test_stage5_strategy_relocate_and_advanced_perf_emphasis.py  (수정 — 라벨 마커)
+  tests/test_d7_8_inline_drill_time.py        (수정 — 라벨 단언)
+  tests/test_stats_result_full.py             (수정 — 라벨 단언)
+  scripts/dev_e2e/stage5_extract_status_and_perf_panel_verify.py     (신규 — before/after 실측 드라이버)
+
+════════════════════════════════════════════════════════════════════════
+7. 재기동 시각 · 커밋 해시
+════════════════════════════════════════════════════════════════════════
+서버 재기동   : 2026-08-09 13:44:48 KST (PID 36288, 포트 8000, MV_BIND_HOST 기본값 127.0.0.1)
+                (before 촬영용 baseline 기동 13:29 / 첫 after 기동 13:38:04 — 최종은 위 시각)
+코드 저장소   : f6e4bce5  (X:\Projects\Migration_Validator, main, **push 안 함** — 저장소 원칙)
+                baseline 대조 기준 HEAD = 03844b08
+증적 저장소   : (본 파일 커밋 해시는 push 후 아래 보강 커밋에 기록)
+
+동시 세션 주의 — 내가 만든 8개 파일만 명시 경로로 add 했다. 현재 작업트리에 남아 있는 다른 세션의
+변경(.claude/settings.json, requirements*.txt, scripts/dev_fixtures/*, tests/test_11def_scenarios.py,
+tests/test_12k_stress.py, ui/history_renderer.py, ui/js_batch_display.py 등)은 전혀 건드리지 않았다.
+
+작업명 : STAGE5-EXTRACT-STATUS-TRACKING-BUG-AND-SUMMARY-LAYOUT-FIX
+✅ 작업 완료 - 5단계 '상세 추출 상태' 배지 미갱신·그룹 재확장 재추출을 각각 다른 원인으로 규명해 수정하고,
+   '고급 성능정보'를 1~5단계 전체를 보여주는 상단 고정 '검증성능정보' 영역으로 재배치(실브라우저 before/after 실측)
