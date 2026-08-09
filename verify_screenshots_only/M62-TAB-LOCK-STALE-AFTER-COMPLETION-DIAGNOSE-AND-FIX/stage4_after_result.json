@@ -1,0 +1,181 @@
+{
+  "task": "M62-TAB-LOCK-STALE-AFTER-COMPLETION-DIAGNOSE-AND-FIX",
+  "tag": "stage4_after",
+  "base": "http://127.0.0.1:8032",
+  "exec_delay_ms": 9000,
+  "scope": "stage4",
+  "setup": {
+    "project_selected": true,
+    "connected": true
+  },
+  "generated": true,
+  "pre_exec": {
+    "view": "validation",
+    "countInProgress": false,
+    "countState": "OK",
+    "anyRunActive": false,
+    "countInflightLock": false,
+    "canNavTabQuery": true,
+    "queryTabClickable": true,
+    "bodyRunLocked": false,
+    "countBtnSpinner": false,
+    "countResultText": "목적 테이블NXDNP.MV_ORA_TEST_TGT원본 테이블NXDNP.MV_ORA_TEST_SRC목적건수300원본 건수300차이0실행시간원본 0.08초목적 0.07초상태● 정상",
+    "tabs": [
+      {
+        "step": "query",
+        "name": "쿼리검토",
+        "badge": "완료",
+        "clickable": true,
+        "disabledCls": false
+      },
+      {
+        "step": "count",
+        "name": "COUNT 사전검증",
+        "badge": "완료",
+        "clickable": true,
+        "disabledCls": false
+      },
+      {
+        "step": "candidate",
+        "name": "후보 컬럼 선정",
+        "badge": "완료",
+        "clickable": true,
+        "disabledCls": false
+      },
+      {
+        "step": "validation",
+        "name": "통계검증 실행",
+        "badge": "현재",
+        "clickable": true,
+        "disabledCls": false
+      },
+      {
+        "step": null,
+        "name": "결과 확인",
+        "badge": "대기중(잠금)",
+        "clickable": false,
+        "disabledCls": true
+      }
+    ],
+    "executeInProgress": false,
+    "validationExecuted": false,
+    "canNavTabResult": false,
+    "resultTabClickable": false
+  },
+  "exec_clicked": {
+    "clicked": true,
+    "inflight_seen": true
+  },
+  "mid_inflight": {
+    "view": "validation",
+    "countInProgress": false,
+    "countState": "OK",
+    "anyRunActive": true,
+    "countInflightLock": false,
+    "canNavTabQuery": true,
+    "queryTabClickable": true,
+    "bodyRunLocked": true,
+    "countBtnSpinner": false,
+    "countResultText": "목적 테이블NXDNP.MV_ORA_TEST_TGT원본 테이블NXDNP.MV_ORA_TEST_SRC목적건수300원본 건수300차이0실행시간원본 0.08초목적 0.07초상태● 정상",
+    "tabs": [
+      {
+        "step": "query",
+        "name": "쿼리검토",
+        "badge": "완료",
+        "clickable": true,
+        "disabledCls": false
+      },
+      {
+        "step": "count",
+        "name": "COUNT 사전검증",
+        "badge": "완료",
+        "clickable": true,
+        "disabledCls": false
+      },
+      {
+        "step": "candidate",
+        "name": "후보 컬럼 선정",
+        "badge": "완료",
+        "clickable": true,
+        "disabledCls": false
+      },
+      {
+        "step": "validation",
+        "name": "통계검증 실행",
+        "badge": "진행중",
+        "clickable": true,
+        "disabledCls": false
+      },
+      {
+        "step": null,
+        "name": "결과 확인",
+        "badge": "대기중(잠금)",
+        "clickable": false,
+        "disabledCls": true
+      }
+    ],
+    "executeInProgress": true,
+    "validationExecuted": false,
+    "canNavTabResult": false,
+    "resultTabClickable": false
+  },
+  "done_instant": {
+    "elapsedMs": 9454,
+    "view": "validation",
+    "executeInProgress": false,
+    "validationExecuted": true,
+    "canNavTabResult": true,
+    "resultTabClickable": true,
+    "queryTabClickable": true,
+    "tabs": [
+      {
+        "step": "query",
+        "name": "쿼리검토",
+        "badge": "완료",
+        "clickable": true,
+        "disabledCls": false
+      },
+      {
+        "step": "count",
+        "name": "COUNT 사전검증",
+        "badge": "완료",
+        "clickable": true,
+        "disabledCls": false
+      },
+      {
+        "step": "candidate",
+        "name": "후보 컬럼 선정",
+        "badge": "완료",
+        "clickable": true,
+        "disabledCls": false
+      },
+      {
+        "step": "validation",
+        "name": "통계검증 실행",
+        "badge": "현재",
+        "clickable": true,
+        "disabledCls": false
+      },
+      {
+        "step": "result",
+        "name": "결과 확인",
+        "badge": "대기",
+        "clickable": true,
+        "disabledCls": false
+      }
+    ]
+  },
+  "post_click_result_tab": {
+    "found": true,
+    "clickedByLabel": false,
+    "disabledCls": false,
+    "view_after": "result",
+    "dialogs": []
+  },
+  "verdict": {
+    "inflight_result_tab_locked": true,
+    "stale_lock_after_done": false,
+    "post_done_tab_move_ok": true
+  },
+  "dialogs_all": []
+}

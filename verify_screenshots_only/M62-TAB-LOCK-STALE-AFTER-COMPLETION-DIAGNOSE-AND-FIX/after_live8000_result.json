@@ -1,0 +1,186 @@
+{
+  "task": "M62-TAB-LOCK-STALE-AFTER-COMPLETION-DIAGNOSE-AND-FIX",
+  "tag": "after_live8000",
+  "base": "http://127.0.0.1:8000",
+  "count_delay_ms": 9000,
+  "setup": {
+    "project_selected": true,
+    "connected": true
+  },
+  "stage1": {
+    "clicked": true,
+    "blocked": null,
+    "dialogs": []
+  },
+  "stage2_entered": "count",
+  "count_clicked": {
+    "first": true,
+    "second": true,
+    "inflight_seen": true
+  },
+  "mid_inflight": {
+    "view": "count",
+    "countInProgress": true,
+    "countState": null,
+    "anyRunActive": true,
+    "countInflightLock": true,
+    "canNavTabQuery": false,
+    "queryTabClickable": false,
+    "bodyRunLocked": true,
+    "countBtnSpinner": true,
+    "countResultText": "목적 테이블NXDNP.MV_ORA_TEST_TGT원본 테이블NXDNP.MV_ORA_TEST_SRC목적건수—원본 건수—차이—실행시간—상태—",
+    "tabs": [
+      {
+        "step": null,
+        "name": "쿼리검토",
+        "badge": "완료",
+        "clickable": false,
+        "disabledCls": true
+      },
+      {
+        "step": "count",
+        "name": "COUNT 사전검증",
+        "badge": "현재",
+        "clickable": true,
+        "disabledCls": false
+      },
+      {
+        "step": null,
+        "name": "후보 컬럼 선정",
+        "badge": "잠김",
+        "clickable": false,
+        "disabledCls": true
+      },
+      {
+        "step": null,
+        "name": "통계검증 실행",
+        "badge": "잠김",
+        "clickable": false,
+        "disabledCls": true
+      },
+      {
+        "step": null,
+        "name": "결과 확인",
+        "badge": "대기중(잠금)",
+        "clickable": false,
+        "disabledCls": true
+      }
+    ]
+  },
+  "mid_click_query_tab": {
+    "found": false,
+    "clickedByLabel": true,
+    "disabledCls": true,
+    "view_after": "count",
+    "dialogs": []
+  },
+  "done_instant": {
+    "elapsedMs": 7976,
+    "view": "count",
+    "countInProgress": false,
+    "countState": "OK",
+    "canNavTabQuery": true,
+    "queryTabClickable": true,
+    "countBtnSpinner": false,
+    "countResultText": "목적 테이블NXDNP.MV_ORA_TEST_TGT원본 테이블NXDNP.MV_ORA_TEST_SRC목적건수300원본 건수300차이0실행시간원본 0.09초목적 0.08초상태● 정상",
+    "tabs": [
+      {
+        "step": "query",
+        "name": "쿼리검토",
+        "badge": "완료",
+        "clickable": true,
+        "disabledCls": false
+      },
+      {
+        "step": "count",
+        "name": "COUNT 사전검증",
+        "badge": "현재",
+        "clickable": true,
+        "disabledCls": false
+      },
+      {
+        "step": "candidate",
+        "name": "후보 컬럼 선정",
+        "badge": "대기",
+        "clickable": true,
+        "disabledCls": false
+      },
+      {
+        "step": null,
+        "name": "통계검증 실행",
+        "badge": "잠김",
+        "clickable": false,
+        "disabledCls": true
+      },
+      {
+        "step": null,
+        "name": "결과 확인",
+        "badge": "대기중(잠금)",
+        "clickable": false,
+        "disabledCls": true
+      }
+    ]
+  },
+  "post_click_query_tab": {
+    "found": true,
+    "clickedByLabel": false,
+    "disabledCls": false,
+    "view_after": "query",
+    "dialogs": []
+  },
+  "final": {
+    "view": "query",
+    "countInProgress": false,
+    "countState": "OK",
+    "anyRunActive": false,
+    "countInflightLock": false,
+    "canNavTabQuery": false,
+    "queryTabClickable": true,
+    "bodyRunLocked": false,
+    "countBtnSpinner": false,
+    "countResultText": "목적 테이블NXDNP.MV_ORA_TEST_TGT원본 테이블NXDNP.MV_ORA_TEST_SRC목적건수300원본 건수300차이0실행시간원본 0.09초목적 0.08초상태● 정상",
+    "tabs": [
+      {
+        "step": "query",
+        "name": "쿼리검토",
+        "badge": "현재",
+        "clickable": true,
+        "disabledCls": false
+      },
+      {
+        "step": "count",
+        "name": "COUNT 사전검증",
+        "badge": "완료",
+        "clickable": true,
+        "disabledCls": false
+      },
+      {
+        "step": null,
+        "name": "후보 컬럼 선정",
+        "badge": "대기",
+        "clickable": false,
+        "disabledCls": true
+      },
+      {
+        "step": null,
+        "name": "통계검증 실행",
+        "badge": "잠김",
+        "clickable": false,
+        "disabledCls": true
+      },
+      {
+        "step": null,
+        "name": "결과 확인",
+        "badge": "대기중(잠금)",
+        "clickable": false,
+        "disabledCls": true
+      }
+    ]
+  },
+  "verdict": {
+    "inflight_blocked": true,
+    "stale_lock_after_done": false,
+    "post_done_tab_move_ok": true
+  },
+  "dialogs_all": []
+}
