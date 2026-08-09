@@ -1,0 +1,95 @@
+작업명 : F12-HOLD3-ACTUAL-CASCADE-DELETE-EXECUTE
+✅ 작업 완료 - HOLD 3건(832/898/921) 실제 프로덕션 DB cascade 삭제 실행 및 검증 완료
+
+====================================================================
+작업일 : 2026-08-09
+근거 : directives/F12-HOLD3-ACTUAL-CASCADE-DELETE-EXECUTE.md,
+      F12-CASCADE-DELETE-SAFETY-GATE-IMPLEMENT.txt(안전장치 구현, 코드repo 4ce9a39d),
+      F12-IS-TEST-RETROACTIVE-MIGRATION.txt(표식·범위 실측)
+====================================================================
+
+1. 삭제 전 최종 확인 + 백업
+--------------------------------------------------------------------
+- 대상 3건 is_test/is_deleted 재확인(db/migration_validator.db 직접 조회):
+    832 TESTONLY_REG            is_test=1 / is_deleted=0
+    898 __TEST_PROJECT__        is_test=1 / is_deleted=0
+    921 TESTONLY_ASYNC_PARALLEL is_test=1 / is_deleted=0
+- HOLD 근거(참조 데이터) 재확인 — F12-IS-TEST-RETROACTIVE-MIGRATION.txt §2 기록과 완전 일치:
+    832: mv_upload_row_result=7 / source_owner_binding=2 / validation_batch_group=8 /
+         validation_execution_run=3 / validation_history_run=3 / validation_persistence_idempotency=3
+    898: mv_upload_row_result=132 / source_owner_binding=11 / validation_batch_group=15 /
+         validation_execution_run=11 / validation_history_run=11 / validation_persistence_idempotency=11
+    921: mv_upload_row_result=10 / validation_batch_group=2
+  → 그 사이 상태 변동 없음, 3건 모두 여전히 is_test=1·HOLD 확인.
+- 삭제 실행 직전 백업 : db/migration_validator.db.bak_20260809 (42,311,680 bytes, 원본과 동일 크기)
+
+2. 실제 삭제 실행
+--------------------------------------------------------------------
+- 실행 방식 : 스크립트(python -c, services.project_store.hard_delete_project_cascade 직접 호출)
+- 호출 : hard_delete_project_cascade(project_id, confirm_cascade=True)  — db_path 미지정
+  (기본값 X:\Projects\Migration_Validator\db\migration_validator.db = 실 프로덕션 DB, 사전 확인함)
+- 3건 모두 {"success": true, "mode": "hard_cascade", ...} 반환. group_hard_reset_service.delete_project()
+  경유(cascade 로직 재구현 없이 위임, 설계 그대로).
+- files_deleted(업로드/결과 물리파일 unlink 건수) : 832=10 / 898=0 / 921=4
+
+3. 삭제 후 검증
+--------------------------------------------------------------------
+[검증 1] project 테이블에서 3건 실제 소멸 확인
+    832 → GONE / 898 → GONE / 921 → GONE
+    project 총 행수 : 14건(삭제 전) → 11건(삭제 후), 정확히 3건 감소
+
+[검증 2] F12-IS-TEST-RETROACTIVE-MIGRATION.txt §3-3 실측 행수 vs 실제 삭제 반환값 대조
+  (테이블명이 group_hard_reset_service 내부 목록 기준이라 §3-3 대비 세분화된 항목이 일부
+   추가로 잡혔으나 — metadata_key_evidence 등 — §3-3에 기록된 항목은 전부 정확히 일치)
+
+  [832] 예상 vs 실제
+    batch_execution_state              5  vs  5   일치
+    batch_wrapper_result               7  vs  7   일치
+    metadata_collection_run            2  vs  2   일치
+    metadata_table_snapshot            2  vs  2   일치
+    mv_batch_run                       5  vs  5   일치
+    mv_upload_row_result               7  vs  7   일치
+    policy_stats_validation_plan_snapshot 2 vs 2  일치
+    policy_target_table_config         9  vs  9   일치
+    validation_batch_group(그룹행)     8  vs  8   일치
+    mv_mapping / mv_validation_history 0  vs  0   일치
+    project                            1  vs  1   일치
+
+  [898] 예상 vs 실제
+    batch_stats_execute_run            8  vs  8   일치
+    metadata_collection_run           13  vs 13   일치
+    metadata_table_snapshot           13  vs 13   일치
+    policy_stats_validation_plan_snapshot 11 vs 11 일치
+    policy_target_table_config        11  vs 11   일치
+    stats_execute_result               5  vs  5   일치
+    validation_batch_group(그룹행)    15  vs 15   일치
+    mv_mapping / mv_validation_history 0  vs  0   일치
+    project                            1  vs  1   일치
+
+  [921] 예상 vs 실제
+    batch_execution_state             11  vs 11   일치
+    batch_wrapper_result              35  vs 35   일치
+    mv_batch_run                       2  vs  2   일치
+    mv_upload_row_result              10  vs 10   일치
+    policy_target_table_config        10  vs 10   일치
+    validation_batch_group(그룹행)     2  vs  2   일치
+    mv_mapping / mv_validation_history 0  vs  0   일치
+    project                            1  vs  1   일치
+
+  → 3건 전부 예상 삭제 범위와 실제 삭제 행수가 완전히 일치. 초과·누락 없음.
+
+[검증 3] 비대상 프로젝트 영향 없음 확인
+    삭제 후 project 테이블 잔존 11건 : id=2(실 프로젝트, is_test=0, 정상 유지) +
+    F12 범위 밖 잔재 10건(924/956/957/958/959/960/961/962/974/975, is_test=1, 이번 작업
+    대상 아님, F12-IS-TEST-RETROACTIVE-MIGRATION.txt §6 참고용 기록과 동일하게 그대로 보존)
+    → is_test=0 실 프로젝트 및 F12 범위 밖 항목 전혀 영향받지 않음 확인.
+
+4. 참고 — 이번 지침 범위 밖(조치 안 함)
+--------------------------------------------------------------------
+F12-IS-TEST-RETROACTIVE-MIGRATION.txt §6에 기록된 F12 범위 밖 잔재(924/956~975, 삭제 가능
+7건/HOLD 3건)는 이번 지침(HOLD 3건 한정) 대상이 아니므로 그대로 두었다. 필요 시 별도
+backlog 항목으로 처리 권장(기존 보고서 권고 유지).
+
+====================================================================
+✅ 작업 완료 - HOLD 3건(832/898/921) 실제 프로덕션 DB cascade 삭제 실행 및 검증 완료
+====================================================================
