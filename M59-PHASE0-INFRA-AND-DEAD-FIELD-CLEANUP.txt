@@ -1,0 +1,198 @@
+작업명 : M59-PHASE0-INFRA-AND-DEAD-FIELD-CLEANUP
+✅ 작업 완료 - resolve_setting()/MODE_OVERRIDES 모드 계층 인프라 신설(값 이동 0건) + dead 필드 5그룹 처리내역 확정 + reclaim_stale 배선은 신규 발견 결함으로 보류
+
+지시서: directives/M59-PHASE0-INFRA-AND-DEAD-FIELD-CLEANUP.md
+근거 문서: GLOBAL-SETTINGS-HARDCODED-VALUES-SCOPE-DIAGNOSE.txt §3-3·§3-4·§4-3(0단계)
+대상: X:\Projects\Migration_Validator
+커밋: 03844b08 (main, 로컬 커밋만 — 코드 저장소는 push 금지 규약)
+
+================================================================
+1. 인프라 신설 — services/exact_diff/execution_settings.py
+================================================================
+
+■ SETTINGS_VERSION bump(1회) — :26
+  "d7-20" → "m59-p0". 그룹 구조·기본값 변경 없음, 구조 변경만 버전에 반영.
+  tests/test_d7_20_execution_settings.py:25,:46 2줄 수정(코드베이스 전체에 "d7-20" 리터럴
+  비교는 이 2곳뿐임을 grep 으로 확인 — routes/single_active_run_route.py 는 s.settings_version
+  동적 참조라 무영향).
+
+■ resolve_setting(group, field, mode=None) — :396
+  4계층 우선순위(낮음→높음): CODE_DEFAULT < MODE_DEFAULT < POLICY < ENV.
+  반환: (적용값, 적용출처) 튜플. 출처 문자열: "CODE_DEFAULT" / "MODE_DEFAULT:<모드>" /
+  "POLICY:<policy_name>" / "ENV:<환경변수명>" — clamp_chunk_size_ex() 의 사유코드 반환 패턴과 동일.
+  - [1] CODE_DEFAULT: get_execution_settings().<group>.<field> 그대로.
+  - [2] MODE_DEFAULT: MODE_OVERRIDES[mode][group][field] 가 있으면 적용.
+  - [3] POLICY: validation_policy_service.get_validation_policy(policy_name) 결과에 동일 필드명
+    키가 있으면 적용(policy_name 축: BATCH_ROW→'batch', 그 외→'default'). 실패해도 예외 없이
+    통과(fail-open). 현재 D그룹 71필드명은 C계통 정책 22키와 이름이 하나도 겹치지 않아 이번
+    단계에선 항상 미발견 → CODE_DEFAULT/MODE_DEFAULT 로 통과(값 이동 0건, DDL 변경 없음).
+  - [4] ENV: MV_<그룹대문자>_<필드대문자> 환경변수. 있으면 코드 기본값과 같은 타입으로 캐스팅해
+    최우선 적용, 캐스팅 실패 시 무시하고 하위 계층 유지.
+  실패 방향은 항상 CODE_DEFAULT(그룹/필드 미존재·정책 조회 실패 등 — 실행을 멈추지 않는다).
+
+  ⚠ 이번 단계에서 어떤 기존 소비처도 resolve_setting() 을 호출하지 않는다. 12개 실제 소비처는
+  전부 get_execution_settings().<group>.<field> 직접 접근을 그대로 유지 — "선언만 하고 배선
+  안 함" 재발 방지를 위해, resolve_setting() 자체도 아직은 "쓰이지 않는 새 함수"임을 명시한다
+  (진단서 걸림돌1 경계 — 이 함수를 실제 소비처에 연결하는 것은 1~5단계에서 값을 옮길 때 한다).
+
+■ MODE_OVERRIDES — :358 ("모드 기본값 ModeDefaults" 계층의 실제 저장 구조)
+  {"INDIVIDUAL": {}, "BATCH_ROW": {}} — 둘 다 빈 dict(값 미채움, 인프라만).
+  EXHAUSTIVE 는 키 자체를 안 둠 — services/workflow_stage_gate.py STAGES_BY_MODE/
+  stages_for_mode() 의 "빈 튜플 폴백" 관례와 동일하게 .get(mode, {}) 로 처리(진단서 §3-4).
+  그룹축(14그룹)과 모드축을 섞지 않음 — SingleExecuteAsync 같은 모드×기능 혼합 그룹을 추가로
+  만들지 않고, 기존 그룹에 모드별 override 사전만 얹는 구조(진단서 §3-3 결정1 그대로).
+
+================================================================
+2. Dead 필드 처리 내역 — 그룹 5개(진단서 §2-1 소비처 0건)
+================================================================
+
+  그룹              | 파일:라인      | 필드수 | 처리          | 근거
+  ConcurrencyControl| :43-49        | 5    | 유지·2단계 매핑 | 지시서 §4-3 2단계에 "ConcurrencyControl
+                    |                |      |               | 5개 dead 필드를 배선하거나 삭제" 로 명시.
+  CancelFinish      | :85-91        | 4    | 3개 삭제후보    | cancelled_checkpoint_reusable 은
+                    |                |      | +1개 유지(불변식)| __post_init__ 자기강제 불변식이라
+                    |                |      |               | 소비처 불요(MismatchDetail 의 ratio/count
+                    |                |      |               | 동반강제와 동일 패턴 — 진단서 §2-1 "이
+                    |                |      |               | 파일의 가장 큰 자산"). 나머지 3개
+                    |                |      |               | (cancel_request_timeout_sec,
+                    |                |      |               | finish_lock_timeout_sec,
+                    |                |      |               | force_restart_cancels_previous) 는
+                    |                |      |               | 어느 단계도 명시적으로 지목 안 함 → 후보.
+  TimeDisplay       | :115-121      | 5    | 전부 삭제후보   | 1~5단계 어디에도 매핑 안 됨. 더 결정적
+                    |                |      |               | 으로 — 이 그룹이 게이트하려는 기능(wall/
+                    |                |      |               | active/paused 경과시간 표시)은 이미 다른
+                    |                |      |               | 곳(ui/tabler_renderer.py,
+                    |                |      |               | services/exact_diff/reimport_job.py,
+                    |                |      |               | services/batch_pause_control.py)에서
+                    |                |      |               | 이 설정을 전혀 참조하지 않고 무조건
+                    |                |      |               | 표시하도록 이미 구현돼 있음(직접 grep
+                    |                |      |               | 확인) — 배선해도 게이트할 대상이 이미
+                    |                |      |               | 하드코딩 ON 상태.
+  MismatchDetail    | :136-155      | 10   | 전부 삭제후보   | 진단서는 "9"로 셌으나 실측 10개(경미한
+                    |                |      | (근거 강함)     | 오차, 본 보고서가 정정). ★ 핵심 발견:
+                    |                |      |               | 이 그룹이 표현하려는 "불일치 상세 추출
+                    |                |      |               | 조기중단"은 services/exact_diff/
+                    |                |      |               | pk_range_chunk.py(:396,:836)가 C계통
+                    |                |      |               | 정책 actual_mismatch_limit_enabled/
+                    |                |      |               | actual_mismatch_limit_rate 로 이미
+                    |                |      |               | 실제 동작 중(상태코드
+                    |                |      |               | EARLY_STOPPED_MISMATCH_LIMIT, routes/
+                    |                |      |               | agg_diff_route.py:157-159,1653-1655,
+                    |                |      |               | tests/test_d7_6_progress_earlystop.py
+                    |                |      |               | 로 검증됨). 이 D그룹의 자체 상태코드는
+                    |                |      |               | "EARLY_STOPPED"(:143)로 **다른 문자열**
+                    |                |      |               | 이다 — 같은 개념에 서로 다른 상태코드를
+                    |                |      |               | 쓰는 병렬 설계가 이미 존재한다는 뜻.
+                    |                |      |               | 1~5단계 중 어디도 이 그룹을 지목하지
+                    |                |      |               | 않음 — 지목했다면 "이미 있는 걸 또
+                    |                |      |               | 만드는" 혼선이 됐을 것.
+  HistoryLogging    | :156-163      | 6    | 전부 삭제후보   | execution_history_enabled/
+                    |                |      |               | store_*_events 4개/
+                    |                |      |               | max_history_events_per_run 모두 —
+                    |                |      |               | 이 개념(일시중지/재개/복구/취소
+                    |                |      |               | 이벤트 이력 저장)을 구현하는 다른
+                    |                |      |               | 코드가 코드베이스 어디에도 없음(직접
+                    |                |      |               | grep, 대체 메커니즘도 없음 — TimeDisplay
+                    |                |      |               | 처럼 '이미 하드코딩 ON'도 아니고
+                    |                |      |               | MismatchDetail 처럼 '이미 다른 곳에서
+                    |                |      |               | 동작 중'도 아닌, "아직 아무것도 없음").
+                    |                |      |               | 1~5단계 어디도 지목 안 함 → 삭제후보.
+
+  ※ 이번 단계에서 위 그룹의 코드는 단 1바이트도 수정하지 않았다(선언·기본값·__post_init__ 전부
+  그대로) — "삭제 후보" 표시는 이 보고서에만 남기고, 실제 삭제는 사용자 확인 후 별도 진행.
+  ※ PauseResume/Recovery/Polling 3개 그룹은 지시서가 이 단계에서 지목한 5개 그룹에 없어(부분
+  소비처가 이미 있음, 진단서 §2-1) 이번 처리 대상에서 제외했다.
+
+================================================================
+3. reclaim_stale() 배선 — 보류(신규 결함 발견)
+================================================================
+
+지시서는 "reclaim_stale() 을 이번 단계에서 실제로 배선(호출부 추가)하는 걸 우선 검토"라고
+지시했다. 검토 결과 배선을 보류하기로 판단했다 — 이유는 새로 발견한 구조적 결함 2건 때문이다.
+
+  ■ 결함 A — heartbeat() 호출처 전무(services/batch/validation_scheduler.py:159-163)
+    reclaim_stale(lease_timeout_sec)(:165-180) 은 last_heartbeat(없으면 started_at) 기준
+    경과시간으로 stale 을 판정하는데, heartbeat() 를 호출하는 코드가 코드베이스 전체에 0건이다
+    (grep 확인). 즉 last_heartbeat 는 job 등록 시점에 한 번 찍히고 이후 절대 갱신되지 않는다.
+    이 상태로 reclaim_stale 을 폴링 루프(예: services/batch/wrapper_parallel_runner.py:212
+    sched.wait_idle)에 배선하면, lease_timeout_sec 보다 오래 걸리는 **정상 실행 중인** row(예:
+    5천만행 스케일 테이블)가 그대로 STALE 오판되어 FAILED 처리된다 — 죽은 스레드와 "그냥 오래
+    걸리는" 스레드를 구분할 방법이 지금 구조엔 없다.
+
+  ■ 결함 B — _finish() 비멱등 → budget 이중 반환(validation_scheduler.py:146-157)
+    reclaim_stale 이 stale 판정한 job 을 _finish(jid, FAILED, ...) 로 마감해도, 실제 worker
+    스레드(_run_job)는 그대로 살아서 실행을 계속한다(강제 종료 로직 없음). 그 스레드가 나중에
+    정상 종료되면 _finish() 를 **다시** 호출하는데, _finish() 에 "이미 종료 상태인지" 확인이
+    없어 self.budget.release(...) 가 **두 번** 호출된다. ResourceBudget 토큰이 실제보다 더
+    많이 반환되므로, 동시성 상한(§1-7)이 조용히 무력화되고 실제 DB 부하가 설정치를 넘을 수
+    있다 — "토큰 누수"를 고치려다 "토큰 초과발급"을 만드는 역효과.
+
+  결함 B 는 services/batch/validation_scheduler.py(Phase 4-A 완료 모듈)의 코드 수정이 필요한데,
+  CLAUDE.md 자율 진행 규칙 예외("완료된 모듈 수정 시")에 해당해 사용자 확인 없이 진행하지
+  않았다. 이번 0단계에서는 validation_scheduler.py 를 전혀 건드리지 않았다(코드 변경 0건).
+  reclaim_stale() 은 현재도 프로덕션 호출처가 0건(routes/ 전체 grep 확인)이므로 배선을 보류해도
+  기존 동작 변화는 없다 — "토큰 누수"는 여전히 잠재 상태로 남지만, 섣부른 배선으로 "이중 반환"
+  이라는 더 나쁜 결함을 프로덕션에 심는 것보다 안전하다.
+  권장: 2단계(지시서가 reclaim_stale 을 명시한 단계) 착수 전에, 이 결함 A·B 수정 여부를 먼저
+  사용자에게 확인받을 것 — 특히 결함 B 는 완료 모듈 수정이라 별도 승인 필요.
+
+================================================================
+4. 검증 결과
+================================================================
+
+■ 값 이동 0건 — 신규 단위테스트로 고정
+  tests/test_m59_phase0_resolve_setting.py::test_no_override_matches_code_default_for_all_groups_and_fields
+  — 14그룹 71필드 전부를 override 없이 resolve_setting() 으로 조회, 출처가 전부 CODE_DEFAULT
+  이고 값이 기존 코드 기본값과 100% 일치함을 프로그램적으로 확인(assert checked >= 71).
+
+■ resolve_setting() 4계층 출처별 단위테스트(전부 PASS)
+  CODE_DEFAULT / MODE_DEFAULT(모드별 격리 포함) / POLICY(policy_name 축 매핑 포함, 실패시
+  fail-open) / ENV(최우선 적용, 타입 캐스팅, 잘못된 값 시 폴백) / mode=None→INDIVIDUAL 폴백 /
+  EXHAUSTIVE 키 부재 폴백 / 존재하지 않는 group·field 안전 처리 — 13개 테스트.
+
+  pytest tests/test_m59_phase0_resolve_setting.py tests/test_d7_20_execution_settings.py -q
+  → 23 passed
+
+■ 관련 서브셋 회귀(execution_settings 참조 전체 8개 테스트 파일)
+  pytest tests/test_m59_phase0_resolve_setting.py tests/test_d7_20_execution_settings.py
+    tests/test_single_execute_async_job.py tests/test_chunk_policy_dbms_probe_keymeta_g2_p7_p14.py
+    tests/test_tracemalloc_toggle_wiring.py tests/test_job_recovery_stage1_progress_timestamp.py
+    tests/test_reimport_stream.py tests/test_d8_7_parallel_source_target_read.py -q
+  → 105 passed, 신규 회귀 0건
+
+■ validation_scheduler 회귀(미변경 파일 sanity)
+  pytest tests/test_validation_scheduler.py -q → 11 passed (내가 손대지 않았음을 재확인)
+
+■ CLAUDE.md 필수 회귀
+  python samples/test_virtual_cases.py → 8/8 통과
+  python samples/test_complex_cases.py → 5/5 케이스 분석 완료(FAIL 신뢰도 1건은 설계상 기대 결과)
+
+■ SETTINGS_VERSION 리터럴 잔존 확인
+  grep "d7-20" 전체 저장소 → services/exact_diff/execution_settings.py 의 전환 주석 1곳만(값
+  자체는 없음). grep "settings_version" → routes/single_active_run_route.py 는 동적 참조라
+  무영향, docs/PHASE_4_D7_EXECUTION_STABILITY_STATUS.md 는 필드명만 언급(리터럴 비교 아님,
+  README 외 문서 임의수정 금지 규칙에 따라 미수정).
+
+================================================================
+5. 변경 파일 목록
+================================================================
+
+- services/exact_diff/execution_settings.py (+104줄) — resolve_setting/MODE_OVERRIDES 신설,
+  SETTINGS_VERSION bump. 기존 14그룹 dataclass 는 1바이트도 안 바뀜.
+- tests/test_d7_20_execution_settings.py (2줄 수정) — SETTINGS_VERSION 문자열만 갱신.
+- tests/test_m59_phase0_resolve_setting.py (신규) — resolve_setting() 4계층 단위테스트 13개.
+- validation_scheduler.py, wrapper_parallel_runner.py 등은 미변경(reclaim_stale 보류).
+
+커밋: 03844b08 "feat(settings): M59-PHASE0 모드 계층 인프라(resolve_setting/MODE_OVERRIDES)
+신설 - 값 이동 0건" (main, 로컬 커밋만 — 코드 저장소 push 금지 규약 유지).
+
+================================================================
+6. 다음 단계 진행 가능 여부
+================================================================
+
+1단계(SQL 실행 타임아웃 개별60/일괄risk별/전수300초)는 이번 인프라 위에서 착수 가능.
+단, 2단계 착수 전에는 위 §3 의 reclaim_stale 결함 A·B 수정 여부를 먼저 확인받아야 한다
+(완료 모듈 수정 대상). §2 의 24개 삭제후보 필드는 실제 삭제 여부를 별도로 확인받을 것.
+
+작업명 : M59-PHASE0-INFRA-AND-DEAD-FIELD-CLEANUP
+✅ 작업 완료 - resolve_setting()/MODE_OVERRIDES 모드 계층 인프라 신설(값 이동 0건) + dead 필드 5그룹 처리내역 확정 + reclaim_stale 배선은 신규 발견 결함으로 보류
