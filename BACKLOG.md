@@ -1926,10 +1926,10 @@ git -C E:/verify_reports worktree remove <임시경로>
   → 2026-07-30 완료(위 `해결 요약` 참조).
 - 참고: E:\verify_reports\DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE.txt
 
-### G7. ✅ 계약 계층(①③④⑤⑥) 완전 해결 — 오라클↔오라클 HASH_BUCKET 계약 개방+라이브 검증 완료, 단 운영 라우트 배선갭 2건(G1/G2)이 남아 실사용은 아직 불가
+### G7. ✅✅ 완전 종결 — 오라클↔오라클 HASH_BUCKET 실사용 가능(①③④⑤⑥+G1+G2 전부 완료·통합검증 끝)
 - 발견일: 2026-08-02 / 재확인: 2026-08-07 / ④ 해결: 2026-08-07 / ③ 해결: 2026-08-07 /
-  ⑤⑥ 해결: 2026-08-08 (G7-STEP5-6-CAPABILITIES-OPEN-AND-CONTRACT-REGISTER,
-  코드 커밋 42094155(⑤)·60c1b999(⑥))
+  ⑤⑥ 해결: 2026-08-08 / **G1 해결: 2026-08-08(코드 커밋 ccdc32a0) / G2 해결: 2026-08-08
+  (코드 커밋 4889b1e1, G1 위에 리베이스해 통합검증까지 완료)**
 - 근거 보고서: `PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt`(§4-2·§7-G7, 최초) →
   `F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE.txt`(순서 확정 ①③④⑤⑥) →
   `G7-HASH-BUCKET-ORACLE-FULL-SCOPE-DIAGNOSE.txt`(phase① 이후 재확인, 순서 재정정)
@@ -2011,6 +2011,22 @@ git -C E:/verify_reports worktree remove <임시경로>
   (조용한 거짓일치 아니라 실행 자체가 막힘 — 데이터 정합성 위험 없음)이나, ⑥ 등록
   이후로는 "계약없음 HOLD"가 아니라 "EXECUTION_ERROR"로 실패 사유가 바뀜.
   **"계약 완료"≠"기능 완료"** — 완료 모듈(두 파일 다) 수정이라 별도 승인 필요.
+- **G1 해결 요약**: `routes/diagnosis_route.py`의 `diagnose_multi_scope`/`rd.execute_row_diff`
+  두 호출부에 기존 `_routing_dialect(req)` 헬퍼를 전달(신규 로직 없음). 실측: BEFORE
+  postgres 기본값에서 sqlglot이 오라클 `TO_CHAR`를 `TimeToStr`로 오인식해 SQL 생성 자체
+  실패 → AFTER `dialect="oracle"`로 정상 `ROW_DIFF_READY`. PG↔PG는 기존에도
+  `_routing_dialect(postgresql,postgresql)="postgres"`라 무회귀.
+- **G2 해결 요약**: `services/diagnosis/row_diff.py`의 `exp.Placeholder()`(무명, 오라클
+  렌더 시 `?`)를 `_bind_placeholder(idx, dialect)` 신설로 교체 — 오라클이면
+  `exact_diff/dialects/oracle.py::oracle_key_bind_names()`(같은 문제를 먼저 겪은 기존
+  코드, 주석에 근거 명시)를 그대로 재사용해 이름 바인드(`:K0`)로 렌더, 그 외 방언은
+  기존 무명 바인드 유지. 숫자 위치 바인드(`:1`)는 sqlglot이 애초에 못 파싱해
+  readonly_sql_guard에 막히는 **더 앞단의 별도 실패 모드**임을 실측으로 먼저 배제.
+  **G1 위에 리베이스해 통합 검증** — 실 오라클 4케이스(C1 전량일치·C2 값변경20건·C3
+  누락20+추가5·C4 TEXT변경20건) 전부 프로덕션 fetch 경로(`readonly_sql_guard` 포함)
+  그대로 실행해 정답과 완전 일치. PG 무회귀(오프라인5+실PG4 전부 통과).
+- **결론**: 오라클↔오라클 HASH_BUCKET이 이제 계약부터 운영 라우트까지 전부 실사용
+  가능한 상태. G7 시리즈(①~⑥+G1+G2) 완전 종결.
 - 관련: F1, S5(이미 해결 완료)
 - 참고: E:\verify_reports\PK-RANGE-CHUNK-ELIGIBILITY-AND-FALLBACK-DIAGNOSE.txt
 - 참고: E:\verify_reports\F1-G7-HASH-BUCKET-ORACLE-SCOPE-DIAGNOSE.txt
@@ -2018,6 +2034,8 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\G7-STEP4-ROW-DIFF-MATCH-KEY-EVIDENCE-SAFE-WIRING-FIX.txt
 - 참고: E:\verify_reports\G7-STEP3-ORACLE-HASH-CONTRACT-IMPLEMENT.txt
 - 참고: E:\verify_reports\G7-STEP5-6-CAPABILITIES-OPEN-AND-CONTRACT-REGISTER.txt
+- 참고: E:\verify_reports\G7-G1-DIALECT-ROUTING-FIX.txt
+- 참고: E:\verify_reports\G7-G2-ROW-DIFF-BIND-PLACEHOLDER-FIX.txt
 
 ### F1. ✅ phase1(①) 완료 — HASH_BUCKET 오라클 구현체는 여전히 없음 (남은 단계: ③④⑤⑥ + G7)
 - 발견일: 2026-07-29 / phase1 해결일: 2026-08-06 (F1-PHASE1-ALIAS-RENAME-VERSION-BUMP, 코드 커밋 c420d84)
