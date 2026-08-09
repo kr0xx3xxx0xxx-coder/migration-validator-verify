@@ -1,0 +1,165 @@
+작업명 : F12-IS-TEST-RETROACTIVE-MIGRATION
+✅ 작업 완료 - 1단계(소급 표식) 실행 완료 / 2단계(삭제예정 목록화) / 3단계(cascade 설계) 완료, 삭제는 미실행(사용자 확인 대기)
+
+====================================================================
+작업일 : 2026-08-09
+근거 : BACKLOG.md F12 항목, PROJECT-IS-TEST-FLAG-IMPLEMENT.txt §3·§6
+====================================================================
+
+0. 착수 전 발견한 중요 사실 — 근거 보고서 대비 현재 DB 상태가 크게 달라져 있었다
+--------------------------------------------------------------------
+PROJECT-IS-TEST-FLAG-IMPLEMENT.txt(2026-07-28 작성) 시점 스냅샷은 project 총 26건 중
+테스트성 이름(OWN-% 22 / TESTONLY% 2 / __TEST_PROJECT__ 1) = 25건, 그 중 참조 0건(삭제 예정)
+12건 / 참조 존재(HOLD) 13건 이었다.
+
+착수 전 실측(2026-08-09) 결과 project 총 14건으로 줄어 있었고, OWN-% 패턴 프로젝트는
+**0건**(테이블에서 완전히 사라진 상태)이었다. 남아 있는 원본 25건 후보는 아래 3건뿐이었다.
+  832  TESTONLY_REG            (생성 2026-06-27)
+  898  __TEST_PROJECT__        (생성 2026-07-22)
+  921  TESTONLY_ASYNC_PARALLEL (생성 2026-07-24)
+(OWN-* 22건이 어느 시점에 왜 사라졌는지는 이번 작업 범위 밖이라 별도 조사하지 않았다 — 이후
+테스트 스위트/다른 정리 작업이 소멸시켰을 가능성이 높다.)
+
+→ 결과적으로 원본 보고서의 "12건 삭제 예정 / 13건 HOLD" 예측은 **더 이상 유효하지 않다**.
+  실제로는 원본 25건 중 3건만 남아 있고, 셋 다 참조 데이터가 있어 표식을 줘도 전부 HOLD로
+  귀결된다(2장 참조). 이 사실을 숨기지 않고 그대로 보고한다.
+
+또한 원본 25건과 무관하게, is_test=1 이 정식 도입(b09ee16, 2026-07-28)된 이후 생성된 별도
+잔재(이름 패턴 MV-ADMOVR-*/MV-M34-*/F10VERIFY_PROJ_*)가 이미 7건(삭제 대상)/3건(HOLD)
+존재하고 있었다. 이들은 F12 범위(원본 25건) 밖이므로 이번 표식·삭제 대상에서 제외했다
+(6장에서 참고용으로만 별도 명시).
+
+
+1. 1단계 — 소급 마이그레이션 실행 결과 (완료, 삭제 없음)
+--------------------------------------------------------------------
+**중요 — 지침이 가정한 "한 줄 명령"을 그대로 쓰지 않았다.** 코드를 확인한 결과
+`scripts/cleanup_test_projects.py --mark-test --apply` 는 표식 부여(is_test=1)와 물리 삭제를
+**같은 호출 안에서 함께** 수행한다(mark 직후 plan 을 재계산해 refs=0 건을 곧바로
+hard_delete_project 로 삭제 — cleanup_test_projects.py L97~111). 지침 1단계는 명시적으로
+"삭제 없음"을 요구했으므로, 이 명령을 그대로 실행하면 지침을 위반하게 된다.
+
+대신 표식 부여 로직만(cleanup_test_projects.py 내부 find_cleanup_plan + UPDATE, L97~101과
+동일 코드) 재사용하고 삭제 루프는 실행하지 않는 별도 스크립트로 처리했다. 기존 모듈은
+수정하지 않았다(스크립트는 scratchpad 임시 파일, 저장소에 커밋 없음).
+
+  대상(패턴 후보, is_test=0) : 832 TESTONLY_REG / 898 __TEST_PROJECT__ / 921 TESTONLY_ASYNC_PARALLEL
+  조치 : UPDATE project SET is_test=1 WHERE project_id IN (832,898,921)
+  실행 전 project 총 행수 : 14건
+  실행 후 project 총 행수 : 14건 (변동 없음 — 삭제 0건 확인)
+  실행 후 값 : (832,'TESTONLY_REG',is_test=1) / (898,'__TEST_PROJECT__',is_test=1) /
+              (921,'TESTONLY_ASYNC_PARALLEL',is_test=1)
+  검증 : scripts/cleanup_test_projects.py (dry-run, 코드 무변경) 재실행 결과 "패턴 후보 0건"으로
+        전환됨을 확인, [삭제 대상]/[HOLD] 카운트도 아래 2장과 일치.
+
+
+2. 2단계 — 삭제 예정 항목 목록 (실행 안 함, 확인 대기)
+--------------------------------------------------------------------
+1단계 표식 부여의 직접 결과로 **새로 삭제 대상(참조 0건)이 된 프로젝트는 0건**이다.
+832 / 898 / 921 세 건 모두 참조 데이터가 남아 있어 표식을 줘도 즉시 전부 HOLD로 귀결됐다
+(원본 보고서 §3에서도 이 3건은 애초에 13건 HOLD 목록에 포함돼 있었다 — 예측과 일치).
+
+  [HOLD] F12 원본 범위(신규 표식 3건) — 이름 / 생성일 / 참조
+  ------------------------------------------------------------------
+  832 TESTONLY_REG            생성 2026-06-27 06:46:48 / 갱신 2026-06-27 06:46:48
+      refs: mv_upload_row_result=7, source_owner_binding=2, validation_batch_group=8,
+            validation_execution_run=3, validation_history_run=3,
+            validation_persistence_idempotency=3
+  898 __TEST_PROJECT__         생성 2026-07-22 15:00:15 / 갱신 2026-07-22 15:00:15
+      refs: mv_upload_row_result=132, source_owner_binding=11, validation_batch_group=15,
+            validation_execution_run=11, validation_history_run=11,
+            validation_persistence_idempotency=11
+  921 TESTONLY_ASYNC_PARALLEL  생성 2026-07-24 09:19:31 / 갱신 2026-07-24 09:19:31
+      refs: mv_upload_row_result=10, validation_batch_group=2
+
+즉 "12건 삭제 예정" 시나리오는 현재 DB 상태에서는 재현되지 않는다. 지금 이 시점 기준으로
+사용자 확인을 거쳐 실제 즉시 삭제(cascade 없이, 게이트 통과) 가능한 건은 **없다**. 삭제를
+진행하려면 반드시 3장의 cascade 절차를 거쳐야 하는 상태다.
+
+
+3. 3단계 — HOLD 6건 cascade 분석 (설계만, 실행 안 함)
+--------------------------------------------------------------------
+3-1. 재사용 대상은 이미 만들어져 있다
+  `services/group_hard_reset_service.delete_project(project_id)` 가 이미 존재하며, 정확히
+  이 backlog 가 요구한 cascade(그룹별 업로드/메타데이터/통계실행 결과 → validation_batch_group
+  행 → mv_mapping/mv_validation_history → project 행 순서로 hard delete, connection profile·
+  외부 DB·SQLite 파일 자체는 건드리지 않음)를 이미 구현하고 있다(routes/project_route.py 등
+  다른 관리 삭제 플로우에서 이미 사용 중). **새로 cascade 로직을 작성할 필요가 없다.**
+
+  다만 현재 `services/project_store.hard_delete_project()`(is_test 삭제 게이트가 있는 함수)는
+  참조가 있으면 그냥 거부만 하고 이 cascade 함수를 호출하지 않는다(주석에 "cascade 삭제는
+  하지 않는다"라고 명시돼 있음 — 의도적 설계). 즉 **cascade 자체는 이미 있지만, is_test 정리
+  경로에는 아직 배선되어 있지 않다.**
+
+3-2. 제안 설계 (실행 안 함)
+  기존 `hard_delete_project()`를 건드리지 않고(완료된 모듈 임의 수정 금지 원칙), 별도 함수를
+  추가하는 방향을 제안한다.
+    project_store.hard_delete_project_cascade(project_id, *, confirm_cascade: bool, db_path=None)
+      - 게이트①(is_test=1 아니면 거부)은 기존과 동일하게 유지.
+      - 게이트②를 "참조 0건" 대신 "confirm_cascade=True 로 명시했는가"로 대체.
+      - confirm_cascade=True 인 경우에만 group_hard_reset_service.delete_project(project_id)
+        를 호출(cascade 위임, 로직 재구현 안 함).
+  라우트/화면 쪽에는 기존 hard delete modal과 별개로 "참조 데이터까지 함께 삭제" 2차 확인
+  문구·체크박스를 추가해야 한다(단순 확인 버튼 재사용 금지 — 파급 범위가 다르므로 문구도
+  달라야 함). 이 UI 배선은 이번 지침 범위(설계만) 밖이라 실제 구현하지 않았다.
+
+3-3. F12 범위 3건의 정확한 cascade 삭제 범위 (읽기전용 시뮬레이션, DB 무변경)
+  group_hard_reset_service._UPLOAD_BY_GROUP / _METADATA_BY_GROUP 테이블 목록을 그대로 재사용해
+  group_id 기준으로 COUNT 만 수행(DELETE 없음)했다.
+
+  [832 TESTONLY_REG] 연결 그룹 8개
+    batch_execution_state 5 / batch_wrapper_result 7 / metadata_collection_run 2 /
+    metadata_table_snapshot 2 / mv_batch_run 5 / mv_upload_row_result 7 /
+    policy_stats_validation_plan_snapshot 2 / policy_target_table_config 9 /
+    validation_batch_group(그룹행) 8 / mv_mapping 0 / mv_validation_history 0 / project 1
+
+  [898 __TEST_PROJECT__] 연결 그룹 15개
+    batch_stats_execute_run 8 / metadata_collection_run 13 / metadata_table_snapshot 13 /
+    policy_stats_validation_plan_snapshot 11 / policy_target_table_config 11 /
+    stats_execute_result 5 / validation_batch_group(그룹행) 15 / mv_mapping 0 /
+    mv_validation_history 0 / project 1
+
+  [921 TESTONLY_ASYNC_PARALLEL] 연결 그룹 2개
+    batch_execution_state 11 / batch_wrapper_result 35 / mv_batch_run 2 /
+    mv_upload_row_result 10 / policy_target_table_config 10 /
+    validation_batch_group(그룹행) 2 / mv_mapping 0 / mv_validation_history 0 / project 1
+
+  (업로드 원본/결과 엑셀 물리파일도 batch_ids 기준 best-effort unlink 대상이나, 존재 여부는
+  실행 시점에만 정확히 알 수 있어 이 시뮬레이션에서는 카운트하지 않았다.)
+
+
+4. 회귀 확인
+--------------------------------------------------------------------
+이번 작업은 코드 파일을 하나도 수정하지 않았다(운영 DB 데이터 3행에 is_test=1 부여만 수행,
+scratchpad 임시 스크립트로 처리). `git status` 확인 결과 code repo 변경분은 이번 작업 이전부터
+있던 무관한 미커밋 파일뿐이었다. 코드 변경이 없으므로 pytest 회귀는 별도로 돌리지 않았다.
+
+
+5. 변경 사항 요약
+--------------------------------------------------------------------
+  코드 파일 변경 : 없음
+  데이터 변경    : db/migration_validator.db 의 project 테이블 3행(832,898,921) is_test 0→1
+                   (삭제 0건, project 총 행수 14건 불변)
+  신설 파일      : scratchpad 임시 스크립트(저장소 미포함, 재사용 시 재작성 필요)
+
+
+6. 참고 — F12 범위 밖, 관찰만 함(조치 안 함)
+--------------------------------------------------------------------
+is_test=1 이 정식 도입된 이후(D 설계 — 테스트 헬퍼 자동 표식) 쌓인 것으로 보이는 별도 잔재:
+  [삭제 대상 가능, is_test=1 & 참조0건] 924/956/957/958/959/962/974
+    (이름 패턴 MV-ADMOVR-*, MV-M34-DISABLED-TITLE-VERIFY, MV-ADMOVR-MEMO-DECIDER)
+  [HOLD, is_test=1 & 참조 존재] 960 MV-ADMOVR-PROJSCOPE / 961 MV-SBE-SAMPLE-BASIS /
+    975 F10VERIFY_PROJ_201326 (모두 validation_batch_group=1)
+이들은 F12 backlog(원본 25건) 대상이 아니므로 이번 표식·삭제·cascade 설계에서 제외했다.
+다만 성격이 F12와 동일(테스트 실행 잔재)하므로, 필요 시 별도 backlog 항목으로 다루는 편이
+안전하다(F12 재사용 시 범위 혼선 방지).
+
+
+====================================================================
+결론 — 삭제까지 진행해도 될지는 이 완료보고 이후 사용자 재확인이 필요하다.
+  · 2단계 "12건 삭제" 시나리오는 현재 DB 상태에서 재현되지 않으며, 지금 당장 게이트만으로
+    삭제 가능한 항목은 없다.
+  · 3단계 HOLD 3건(832/898/921)을 정리하려면 3-2 설계안(hard_delete_project_cascade + 2차
+    확인 UI)을 실제 구현하고, 3-3 의 삭제 범위(row 단위)를 사용자가 확인한 뒤 실행해야 한다.
+  · 6장의 F12 범위 밖 잔재(7건 삭제 가능 / 3건 HOLD)도 별도 처리 여부를 판단해야 한다.
+====================================================================
+✅ 작업 완료 - 1단계(소급 표식) 실행 완료 / 2단계(삭제예정 목록화) / 3단계(cascade 설계) 완료, 삭제는 미실행(사용자 확인 대기)
