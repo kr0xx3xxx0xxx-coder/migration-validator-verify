@@ -1,0 +1,39 @@
+작업명 : HISTORY-MD-ARCHIVE-TO-X-DRIVE
+✅ 작업 완료 - C:\projects\history_md 유일사본 파일 X드라이브 백업 이관 및 커밋 완료
+
+[선행 확인]
+- C-DRIVE-ADJACENT-FOLDERS-DIAGNOSE.txt 확인 완료 — history_md 폴더가 X드라이브 어디에도
+  없는 유일 사본으로 진단된 것을 재확인 후 착수.
+
+[참고 — 파일 개수 정정]
+- 지침서에는 "8개 파일(세션노트 4 + 설계의도 docx/md 4)"로 기재돼 있었으나, 실제
+  C:\projects\history_md 디렉토리를 확인한 결과 설계의도 계열 문서가 6개(docx 5개 + md 1개)로
+  지침서 추정치와 달랐다. "안의 파일 전부를 그대로 복사"라는 지침 원문 취지에 따라 디렉토리
+  내 실제 파일 10개 전부를 복사·커밋했다(세션노트 md 4개 + 설계의도 docx 5개 + 설계의도 md 1개).
+
+[복사된 파일 목록 (10개, C:\projects\history_md → docs/archive/history_md/)]
+1. 01. Migration_Validator_Handoff_2026-07-10_2.md
+2. 02-migration-validator-session.md
+3. 03. MIGRATION_VALIDATOR_HANDOFF.md
+4. 04-migration-validator-session.md
+5. Migration_Validator_GROUP_BY_SUM_Evidence_Gate_설계배경.docx
+6. Migration_Validator_GROUP_BY_SUM_후보자동선정_설계의도.docx
+7. Migration_Validator_GROUP_BY_SUM_후보자동선정_설계의도.md
+8. Migration_Validator_검증경로_설계의도_정리.docx
+9. Migration_Validator_일괄검증_설계스펙_정리.docx
+10. Migration_Validator_전수검증_설계방향_정리.docx
+
+[내용 동일성 확인]
+- docx 5개: cmp 바이트 비교 전부 OK(binary identical)
+- md 5개: cmp 바이트 비교 전부 OK(byte identical, 개행 정규화 필요 없이 완전 일치)
+
+[git 확인 — 다른 파일 미접촉]
+- git add 는 docs/archive/history_md/ 경로 10개 파일만 대상으로 수행.
+- 커밋 전/후 git status 대조 결과, 기존에 modified 상태였던 다른 20여개 파일과 untracked
+  scratchpad 파일들은 커밋 전과 동일하게 그대로 남아 있음(건드리지 않음).
+- 커밋 diff --stat: "10 files changed, 925 insertions(+)" — 신규 파일 10개만 포함.
+
+[커밋 해시 — 코드 저장소(X:\Projects\Migration_Validator, 로컬 커밋만, remote 없음)]
+bf7e2d27807e3464c8e2c28bcc49b21aadbe5ad2
+
+✅ 작업 완료 - C:\projects\history_md 유일사본 파일 X드라이브 백업 이관 및 커밋 완료
