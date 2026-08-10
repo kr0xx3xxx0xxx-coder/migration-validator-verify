@@ -3850,7 +3850,7 @@ git -C E:/verify_reports worktree remove <임시경로>
   같은 성격의 "구조 안정화 우선" 대상으로 별도 검토 여지.
 - 근거: E:\verify_reports\M66-ADJACENT-FILES-COLLECT-HANG-DIAGNOSE.txt
 
-### M67. DB 연결 프로필/검증경로/프로젝트 선택 "소실" — 결함 아님, silent 재검증+로컬저장 설계의 UX 문제로 확인(개선안 3건, 미착수)
+### M67. ✅ 개선안 3번(Pair) 완료 — 검증경로 SQLite 이관+PostgreSQL 하드코딩 제거, 나머지(1·2번) 미착수
 - 발견일: 2026-08-09 (사용자 목격 — "재기동하면 DB 연결 다 사라지는데 PostgreSQL만
   산다" / 진단: DB-CONNECTION-PROFILE-LOSS-ON-RESTART-DIAGNOSE, 코드 무변경)
 - **결론: DBMS별로 저장 방식이 다르다는 가설은 반증됨.** 실제로는 3개 층이 섞여
@@ -3878,11 +3878,23 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 판정: `mv_db_preset`(진짜 자격증명 저장) 계층은 결함 없음. "접속중 매번 실시간
   재검증"도 stale 정보로 검증 실행 방지하는 의도된 안전설계. 문제는 **재검증 실패
   시 무안내로 조용히 지워져 사용자가 "다 사라졌다"고 오인**하는 UX뿐.
-- 개선안(미착수, 결정 필요): (1) 재검증 실패 시 비차단 배너로 원인 안내(가장 간단)
-  (2) `/projects/list` 판정이 서버기동 초기 타이밍에 오탐하지 않는지 별도 확인·
-  재시도 로직 (3) Pair·활성경로·선택프로젝트를 서버 SQLite로 이전(구조변경, 별도
-  승인 필요).
+- **개선안(3) 완료(2026-08-09, M67-CONN-PAIRS-MOVE-TO-SQLITE, 코드 커밋 e245f1a9→
+  2ea6778b)**: "검증 경로(Pair)"를 브라우저 localStorage에서 서버 SQLite
+  `mv_conn_pair`로 이관(비밀번호/host 등 민감정보는 `mv_db_preset` 참조만, 신규
+  저장 없음). 활성접속 재검증·프로젝트선택 재검증(개선안 1·2 대상)은 지시대로
+  무수정. 스키마에 원본/목적 참조 어느 쪽에도 UNIQUE 없어 **다대다 지원**(같은
+  원본이 여러 목적지와 조합 가능) 실측 확인. **PostgreSQL 기본 Pair 강제 재등장·
+  삭제차단 하드코딩도 함께 제거**(1차 완료보고에서 누락됐던 걸 사용자가 재확인
+  요청 → 원인은 세션이 지침 개정 전 스냅샷으로 작업한 것으로 정직하게 규명 →
+  즉시 제거). 완전히 새 브라우저 컨텍스트(localStorage 전무)+서버 재기동 양쪽
+  다 실클릭으로 Pair 보존 확인. **부수 발견**: 이 하드코딩 덕분에 우연히 통과하던
+  숨은 회귀 1건(`test_connection_role_separation.py`)이 제거 후 드러나 함께 수정.
+  신규 백엔드 테스트 4건, Pair 관련 JS 하니스 14파일 baseline 대조 신규 회귀 0건,
+  CLAUDE.md 필수 회귀 통과.
+- **잔여 미착수**: 개선안 (1) 재검증 실패 시 비차단 배너 안내, (2) `/projects/list`
+  판정 서버기동 초기 타이밍 오탐 방지·재시도 로직 — 착수 여부 결정 필요.
 - 근거: E:\verify_reports\DB-CONNECTION-PROFILE-LOSS-ON-RESTART-DIAGNOSE.txt
+- 근거: E:\verify_reports\M67-CONN-PAIRS-MOVE-TO-SQLITE.txt
 
 ### M59. ✅ 완전 해결 — 0단계+dead필드24개삭제+reclaim_stale 결함A·B 전부 완료, 실배선만 잔존(별도 결정)
 - 발견/계기: 2026-08-09 (개별/일괄/전수 3모드에 흩어진 설정값을 전역 공통+모드별
