@@ -4831,7 +4831,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 | rename 재래핑 별칭 오라클 실 DB 확인 | 내부망 단절 | `AGG-DIFF-ROUTE-UNDERSCORE-M-ALIAS-FIX.txt` |
 | agg_contribution 4방언 분기 실 DB 실행 검증 | 내부망 단절 | `AGG-CONTRIBUTION-SCOPE-DIALECT-AND-ALIAS-FIX.txt` |
 
-### NXDTV-RENAME. ✅ 1단계 완료 — 화면 표시명(사이드바+로그인realm) nxDTV로 변경, 2~4단계는 보류
+### NXDTV-RENAME. ✅ 1~2단계 완료 — 화면표시명+폴더명(X:\Projects\nxDTV)+메모리이관 전부 완료, 3~4단계(DB파일명/mv접두사)는 보류
 - 발견/계기: 2026-08-09 (사용자 — "정식 명칭은 nxDTV(Data Transfer Verification)")
 - 범위조사(NXDTV-RENAME-SCOPE-DIAGNOSE, 코드 무변경): 폴더명 변경은 코드 자체는
   무위험(하드코딩 절대경로 0건, `config/db_paths.py` 동적계산)이나 **Claude Code
@@ -4857,11 +4857,23 @@ git -C E:/verify_reports worktree remove <임시경로>
   재기동하면서 다른 활성 세션(동시에 "로그인 안 됨" 원인조사 중이던 세션)의 계정
   저장소를 일시적으로 덮어씀 — 스스로 감지해 즉시 보고, 사용자 확인 후 정상 DB
   계정 저장소로 복구(realm=nxDTV 값은 유지 확인). 화면자동화(SendKeys) 중 다른
-  세션 대화창 입력란에 문자열이 실수로 입력됐으나 전송(Enter)은 안 됨 — 사용자가
-  직접 그 창을 확인해 정리할 것을 권고함.
-- 잔여: 2단계(폴더명, 메모리이관 선확정 필요)·3단계(DB파일명)·4단계(mv 접두사) 전부
-  미착수, 착수 여부 결정 필요.
+  세션 대화창 입력란에 문자열이 실수로 입력됐으나 전송(Enter)은 안 됨(위험없음
+  확인, M70[1]로 종결).
+- **2단계 완료(2026-08-10, NXDTV-STAGE2-FOLDER-RENAME-WITH-MEMORY-MIGRATION +
+  후속 STEP4-MEMORY-KEY-VERIFY-AND-MIGRATE)**: 메모리 백업(254개 파일,
+  `X:\Verify\_memory_backup_20260810\`) 완료 후, 폴더명 자체 변경은 다른 동시
+  세션들(Claude Code 13개+별도 워크트리 pytest)이 폴더를 물고 있어 OS 잠금으로
+  실패 — **강제로 다른 세션을 죽이지 않고 안전하게 중단**, 사용자에게 수동 rename
+  권고. 사용자가 직접 세션 전부 종료 후 탐색기로
+  `X:\Projects\Migration_Validator`→`X:\Projects\nxDTV` rename 완료. 새 경로에서
+  새 세션 열어 4단계(새 메모리 키 확인·이관) 진행 — 새 메모리 디렉터리
+  (`X--Projects-nxDTV`)가 빈 상태로 자동 생성된 것 확인 후 백업 254개 파일 전부
+  복사(이관 아닌 복사, 백업 그대로 보존). 서버 정상 기동, git 이력·워킹트리 완전
+  보존(폴더명 변경으로 인한 손상 0건), CLAUDE.md 필수 회귀 통과.
+- 잔여: 3단계(DB파일명)·4단계(mv 접두사 전면) 미착수, 착수 여부 결정 필요(4단계는
+  강력 보류 권장 상태 유지).
 - 근거: E:\verify_reports\NXDTV-RENAME-SCOPE-DIAGNOSE.txt
+- 근거: E:\verify_reports\NXDTV-STAGE2-FOLDER-RENAME-WITH-MEMORY-MIGRATION.txt
 - 근거: E:\verify_reports\NXDTV-DISPLAY-NAME-CHANGE.txt
 - 근거: E:\verify_reports\NXDTV-AUTH-REALM-NAME-CHANGE.txt
 
