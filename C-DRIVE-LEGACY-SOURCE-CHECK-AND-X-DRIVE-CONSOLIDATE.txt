@@ -1,0 +1,48 @@
+작업명 : C-DRIVE-LEGACY-SOURCE-CHECK-AND-X-DRIVE-CONSOLIDATE
+✅ 작업 완료 - C드라이브 옛 소스는 X드라이브의 완전한 부분집합으로 확인, 삭제해도 안전함(단 미커밋 dev_e2e 스크립트 1개는 이관 권장)
+
+[1. C드라이브(C:\projects\migration-validator) 상태]
+- 경로 존재함. 마지막 커밋: 71203df6 (2026-08-07 14:21:41, "feat(stats): 오라클 조건부
+  병렬 허용 - 실측 검증(-56.3%, 커넥션 에러 0건) (P13)")
+- 커밋 시각 이후 mtime 기준 수정된 파일: 4개뿐, 전부 gitignore 대상 런타임 산출물
+  (batch_runs xlsx 2개, db/exact_diff_runs.db, tests/_d8_5_state_test.db) — 최종 수정
+  14:27:19, 커밋 후 6분 이내. 이후 C드라이브에서 코드를 만진 흔적 전무.
+- git status: 미커밋 변경 1건 — .claude/settings.json (model: opusplan, curl/wget 권한
+  추가). untracked 387개 — 거의 전부 scratchpad/(≈250개, 세션 임시분석 메모, gitignore
+  대상 아니지만 프로젝트 관례상 원래 커밋 안 함) 및 scripts/dev_e2e/*(43개 .py + JSON
+  증적류, 역시 관례상 미커밋 — [[project_dev_e2e_json_artifacts_gitignored]] 참고).
+
+[2. X드라이브가 최신 기준인지 교차확인 (읽기전용)]
+- X:\Projects\Migration_Validator HEAD: 2ea6778b (2026-08-10 17:00:51, M67 후속) — C보다
+  최신, 커밋 수 1946개.
+- C의 HEAD 커밋(71203df6)은 X의 git object DB에 loose object로도 존재(내용 동일 커밋이
+  X 히스토리에도 재적용됨). X 쪽 동일 시각 커밋(04a58be2, 같은 메시지/같은 stat)과 트리
+  diff 결과 완전 일치(0 diff) → C의 마지막 커밋 내용은 X에 100% 반영되어 있음 확인.
+- 결론: X가 C보다 최신이며, C에서 이후로 추가 작업된 흔적 없음. X가 최신 기준 맞음.
+
+[3. 처리 — 상세 비교 결과]
+(a) C의 미커밋 .claude/settings.json 변경 → X의 동일 파일 미커밋 diff와 완전히 동일
+    (동일 로컬 설정, 별개 이슈 아님).
+(b) C의 untracked scripts/dev_e2e/*.py 43개 전수 대조(CRLF 차이 무시하고 diff) 결과:
+    - 42개는 X에 동일 파일명 + 동일 내용으로 이미 존재(개행문자만 LF/CRLF 차이).
+    - 1개만 X에 없음: scripts/dev_e2e/oracle_parallel_50m_remeasure.py
+      (2026-08-07 14:07 생성, P13 관련 5천만행 오라클 재측정 harness, X 히스토리에도
+      해당 파일명 커밋/삭제 이력 전무 — 진짜 미이관 파일).
+(c) scratchpad/*, scripts/dev_e2e/*.json 등 나머지 untracked 파일은 프로젝트 관례상
+    원래 커밋 대상이 아닌 세션별 임시 산출물이라 개별 대조 생략(안전 판단에 영향 없음).
+(d) C드라이브의 다른 인접 디렉토리(migration-validator_backup_* 6종, sample_multi,
+    history_md, _p13_baseline_wt, _rpt_tmp_stageexec 등)는 이번 지침 범위(migration-
+    validator 소스 비교) 밖이라 상세 조사 안 함 — 명칭상 5월 스냅샷 백업/임시 워크트리로
+    보임, 필요 시 별도 지침으로 확인 권장.
+
+[안전 정리 방향 제안]
+- C:\projects\migration-validator 디렉토리는 **삭제해도 안전함** — 커밋 이력은 X에 완전
+  반영되어 있고, gitignore 대상 런타임 산출물(db/xlsx) 외에는 커밋 이후 변경 없음.
+- 단, 삭제 전에 scripts/dev_e2e/oracle_parallel_50m_remeasure.py 1개 파일만 X드라이브로
+  복사 이관 권장(유일하게 X에 없는 파일, 재작성 비용 낭비 방지 목적). 이 복사는 X:\Projects
+  \Migration_Validator에 대한 쓰기 작업이라 이번 지침 범위(조사·비교까지만) 밖이므로
+  **실제 복사는 수행하지 않았음** — 판단만 보고.
+- scratchpad/*, migration-validator_backup_* 6종 등은 이번 조사에서 손대지 않음(범위 밖).
+
+실제 삭제·병합·복사는 수행하지 않았고 조사·비교만 완료했습니다.
+✅ 작업 완료 - C드라이브 옛 소스는 X드라이브의 완전한 부분집합으로 확인, 삭제해도 안전함(단 미커밋 dev_e2e 스크립트 1개는 이관 권장)
