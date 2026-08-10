@@ -1,0 +1,122 @@
+작업명 : M67-CONN-PAIRS-MOVE-TO-SQLITE
+
+✅ 작업 완료 - 검증 경로(Pair)를 브라우저 localStorage → 서버 SQLite(mv_conn_pair)로 이관, 새 브라우저 컨텍스트/서버 재기동 실클릭으로 다대다 지원까지 검증
+
+════════════════════════════════════════════════════════════════════════
+1. 배경 / 범위
+════════════════════════════════════════════════════════════════════════
+- DB-CONNECTION-PROFILE-LOSS-ON-RESTART-DIAGNOSE 후속 — 진단 결과 개별 DB 접속 프로필
+  (mv_db_preset)은 이미 SQLite 영속이었고, "검증 경로"(Pair)만 브라우저 localStorage 전용이라
+  시크릿모드 종료·캐시 삭제·다른 브라우저/PC 전환마다 사라졌다.
+- 이번 범위는 M67 개선안 3번(구조변경) 중 "검증 경로(Pair)" 저장 위치 이관만. 활성 접속(접속중)
+  재검증 로직과 프로젝트 선택 재검증 로직은 지시대로 손대지 않았다(코드 확인: _restoreActivePath,
+  mv_active_path, mvRestoreWorkProject 전부 무수정 — 여전히 localStorage 기반 재검증 유지).
+
+════════════════════════════════════════════════════════════════════════
+2. 변경/생성 파일
+════════════════════════════════════════════════════════════════════════
+[신규] services/conn_pair_service.py   — mv_conn_pair CRUD(생성/수정/삭제/목록), 완전중복만 흡수
+[신규] routes/conn_pair_route.py       — GET/POST /conn-pairs, PUT/DELETE /conn-pairs/{pair_id}
+[신규] tests/test_conn_pair_sqlite.py  — 백엔드 회귀 4건
+[수정] schemas/request_models.py       — ConnPairSourceProfile, ConnPair 모델 추가(+17/-0)
+[수정] web_server.py                   — 신규 라우터 등록(+4/-0)
+[수정] ui/tabler_renderer.py           — _loadPairs()/_savePairs() 내부를 서버 캐시(_pairServerCache)
+        + diff 기반 /conn-pairs 호출로 교체. 시그니처 불변이라 호출부(생성/수정/삭제/재검증 등
+        30여 곳)는 전부 무수정. 초기화 체인(_mvSingleInitReady)에 _loadPairsFromServer() 1회 로드
+        단계 추가(loadPresets 이후, mvRestoreWorkProject/_restoreActivePath 이전 — 활성경로 복원이
+        _findPair() 로 캐시를 조회하기 전에 채워지도록 순서 보장).
+[수정] tests/test_connection_pair_checkbox_create.py, test_connection_pair_connect_action.py,
+        test_connection_pair_list_ui.py, test_connection_settings_restructure.py,
+        test_connection_validation_path_policy.py, test_multi_source_pair_connect_dom.py,
+        test_multi_source_path_management_dom.py
+        — JS 하니스가 `localStorage.setItem('mv_conn_pairs', ...)` 로 직접 seed하던 지점을
+        `_pairServerCache=[...]` 로 교체(저장소가 바뀌었으니 테스트 seed 지점도 이관 필요 —
+        앱 로직 자체는 무수정). `R.ls=_LS['mv_conn_pairs']` 로 "민감정보 미저장" 을 검증하던
+        5곳은 `R.ls=JSON.stringify(_pairServerCache)` 로 교체(같은 의도를 새 저장 표현 기준으로).
+
+■ mv_conn_pair 스키마 (db/migration_validator.db, services/conn_pair_service.py:_ensure_schema)
+    pair_id               TEXT PRIMARY KEY   -- 클라 생성 pair_id 그대로 사용(예: pair_xxxxx)
+    pair_name             TEXT
+    source_profiles_json  TEXT               -- [{name,dbms}, ...] 참조만(민감정보 없음)
+    target_profile_name   TEXT
+    target_dbms           TEXT
+    status                TEXT
+    history_exists        INTEGER DEFAULT 0
+    is_deleted            INTEGER DEFAULT 0  -- soft delete
+    created_dt / updated_dt  TEXT
+  다대다: source_profile_id/target_profile_id 어느 쪽에도 UNIQUE 제약 없음(지시대로) — 완전히
+  같은 (원본 profile 집합, 목적지) 조합만 create_pair() 가 신규 삽입 대신 기존 행을 반환해 가볍게
+  흡수한다.
+
+════════════════════════════════════════════════════════════════════════
+3. 검증(필수, 실제 클릭) — scratchpad/m67_conn_pairs_browser_verify.py, Playwright 실행
+════════════════════════════════════════════════════════════════════════
+격리된 MV_DATA_DIR(scratchpad/m67_verify_data) + MV_AUTH_DISABLED=1 로 임시 서버(:8137) 기동,
+운영 db/migration_validator.db 는 건드리지 않음.
+
+[A] DB 프로필 3개 등록(Oracle_asis 원본 1 + Oracle_tobe/PostgreSQL_tobe2 목적지 2, API seed)
+[B] 브라우저1 컨텍스트에서 체크박스 모드로 실제 클릭 — 검증 경로 2개 생성
+    · "Oracle_asis → Oracle_tobe(M67검증1)"
+    · "Oracle_asis → PG_tobe2(M67검증2)"      (같은 원본, 다른 목적지 — 다대다 요구사항)
+    같은 컨텍스트 reload 직후 목록에 2건 + 기본 Pair 총 3건 정상 표시.
+[C] 완전히 새 브라우저 컨텍스트(localStorage/캐시 전무 — 시크릿창 완전종료 재시작과 동일 조건)로
+    재접속 → 서버 재조회만으로 2건 모두 그대로 복원 확인.
+    (screenshot: scratchpad/m67_fresh_context.png)
+[D] 서버 프로세스 종료 → 같은 MV_DATA_DIR 로 재기동 → 또 다른 새 컨텍스트로 접속 →
+    2건 모두 그대로 유지, "Oracle_asis" 가 두 경로의 원본으로 정상 공유되는 것을 화면에서 확인.
+    (screenshot: scratchpad/m67_after_restart.png)
+[E] 활성 접속(접속중) 재검증 로직 — 코드 무수정 확인(2번 항목) + 아래 JS 회귀 스위트로 동작 회귀
+    없음 확인(connectPair/disconnectPair/_restoreActivePath 관련 테스트 전부 baseline과 동일 결과).
+
+결과 JSON: scratchpad/m67_verify_result.json — after_create_same_context /
+after_fresh_context_no_storage / after_server_restart 3개 스냅샷 모두 동일한 3건(기본1 + 신규2).
+
+════════════════════════════════════════════════════════════════════════
+4. 테스트 — 관련 서브셋 + baseline 대조
+════════════════════════════════════════════════════════════════════════
+■ 신규 백엔드: tests/test_conn_pair_sqlite.py 4건 all pass
+  (재기동 시뮬레이션 GET 재조회, 같은 원본+다른 목적지 2건 다대다, 완전중복 재사용, 수정/삭제)
+■ 기존 프리셋 회귀: tests/test_db_presets_password_masking.py 9건 all pass(무변화)
+■ Pair 관련 JS 하니스 14파일(118+3=121 테스트) baseline 대조
+    baseline(변경 전, git stash)  : 3 failed, 118 passed
+    변경 후                        : 3 failed, 118 passed  → 신규 회귀 0건
+    실패 3건은 baseline에서도 동일하게 실패하는 사전 존재 실패(role-based N:1 정책과 테스트 기대치
+    불일치 — test_connection_pair_checkbox_create.py::test_multi_source_one_target_creates_multiple,
+    test_connection_pair_save_guard.py::test_multi_source_one_target_creates_multiple/
+    test_reuse_profile_in_another_link. 이번 변경 대상 함수(savePairFromChecked)와 무관, 손대지 않음)
+■ CLAUDE.md 필수 회귀 최종 1회
+    python samples/test_virtual_cases.py   → 8/8 통과
+    python samples/test_complex_cases.py   → 5/5 통과
+■ web_server.py 임포트 + 라우트 등록 확인 — GET/POST /conn-pairs, PUT/DELETE /conn-pairs/{pair_id} 정상 등록
+
+════════════════════════════════════════════════════════════════════════
+5. git
+════════════════════════════════════════════════════════════════════════
+  커밋: e245f1a9  feat(conn): 검증 경로(Pair)를 서버 SQLite mv_conn_pair로 영속화
+        (M67-CONN-PAIRS-MOVE-TO-SQLITE)
+  diffstat: 13 files changed, 488 insertions(+), 38 deletions(-)
+    신규: routes/conn_pair_route.py, services/conn_pair_service.py, tests/test_conn_pair_sqlite.py
+  pre-commit 비밀번호 스캔 통과(staged 13파일, 지문 4건 대조).
+  착수 시점부터 있던 타 세션 미커밋/미추적 파일(.claude/settings.json, requirements*.txt,
+  scripts/dev_fixtures/*, ui/history_renderer.py, ui/js_batch_display.py, tests/test_11def_scenarios.py,
+  tests/test_12k_stress.py, scripts/dev_e2e/* 대량, db/migration_validator.db.bak_20260809 등)는
+  M67 범위 밖이라 staging/커밋에서 전부 제외했다(내 13파일만 add).
+  코드 저장소는 remote 미설정(git remote -v 빈 결과) → push 대상 없음. 증적만 이 verify 저장소에 push.
+
+════════════════════════════════════════════════════════════════════════
+6. 재기동 시각 / HEAD
+════════════════════════════════════════════════════════════════════════
+  코드 저장소 HEAD  : e245f1a97f9428bce62a46888455269dd97e4ba5
+  검증용 임시 서버 재기동 2회(:8137, MV_DATA_DIR=scratchpad/m67_verify_data) — 운영 :8000 서버는
+  이번 검증에서 건드리지 않았다(별도 격리 인스턴스로만 검증). 운영 서버를 재기동해야 이번 변경이
+  실제로 적용된다(기존 관행과 동일 — 떠 있는 프로세스는 기동 시점 모듈을 그대로 들고 있음).
+
+════════════════════════════════════════════════════════════════════════
+7. 이번 범위에서 의도적으로 하지 않은 것
+════════════════════════════════════════════════════════════════════════
+  - 기존 localStorage 잔존 Pair 자동 1회 이관: 지시대로 범위 밖(사용자가 다시 만들면 됨).
+  - 활성 접속(mv_active_path)/프로젝트 선택 재검증 로직 이관: 지시대로 범위 밖, 무수정 확인.
+  - mv_conn_pair 에 project_id 스코프: 기존 Pair 가 애초에 프로젝트 스코프 없이 전역이었으므로
+    (코드 조사 결과 pair 객체에 project_id 필드 자체가 없음) 그대로 전역 유지 — 과설계 방지.
+
+✅ 작업 완료 - 검증 경로(Pair)를 브라우저 localStorage → 서버 SQLite(mv_conn_pair)로 이관, 새 브라우저 컨텍스트/서버 재기동 실클릭으로 다대다 지원까지 검증
