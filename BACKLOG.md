@@ -3445,7 +3445,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\STAGE5-GROUP-DRILLDOWN-ARCHITECTURE-IMPLEMENT.txt
 - 참고: E:\verify_reports\STAGE5-AXIS-LABEL-CLICK-FIX-AND-INLINE-ACCORDION-EXPAND.txt
 
-### M60. ✅ 해결 완료 — 5단계 상태배지 미갱신·그룹 재확장 재추출(서로 다른 3개 결함) + 검증성능정보 1~5단계 통합·위치재배치·균형조정·중복헤더제거·실행경로이동 + 헤더라벨/색상/검색폼/컬럼/CNT 정리 + 시각계층구조·그리드정렬폭 정리 + 잔존 안내문구·빈박스 결합결함 해소
+### M60. ✅ 해결 완료 — 5단계 상태배지 미갱신·그룹 재확장 재추출(서로 다른 3개 결함) + 검증성능정보 1~5단계 통합·위치재배치·균형조정·중복헤더제거·실행경로이동 + 헤더라벨/색상/검색폼/컬럼/CNT 정리 + 시각계층구조·그리드정렬폭 정리 + 잔존 안내문구·빈박스 결합결함 해소 + 집계값 정렬 최종교정
 - 발견일: 2026-08-09 (사용자 스크린샷 4장 직접 지적) / 해결일: 2026-08-09
   (STAGE5-EXTRACT-STATUS-TRACKING-BUG-AND-SUMMARY-LAYOUT-FIX, 코드 커밋 92d1b01 관련
   증적 저장소 push, 코드 저장소는 로컬 커밋만)
@@ -3569,6 +3569,21 @@ git -C E:/verify_reports worktree remove <임시경로>
   갱신 2건, 관련 서브셋 사전존재 실패 7건 선행 작업 문서와 ID 완전 일치(신규 회귀
   0건). 동시 세션 미커밋 변경 9개 파일 전혀 미접촉.
 - 참고: E:\verify_reports\STAGE5-GROUP-COLLAPSE-HINT-AND-EMPTY-BAR-REMOVE.txt
+- **최종교정(2026-08-09, STAGE5-GROUP-LIST-AGGREGATE-ALIGNMENT-CORRECTION, 코드
+  커밋 c9b0852b)**: 직전 작업이 구현한 `justify-content:space-between`(값 자릿수에
+  따라 라벨 위치가 흔들리는 구조)이 사용자 의도와 다름을 재확인 — **라벨(AMT/QTY)
+  고정폭 왼쪽 컬럼 + 값 오른쪽 정렬(2열 표 구조)**로 교체(셀 왼쪽 padding-left:4px
+  추가). "목적카운트/원본카운트/목적집계/원본 집계" 헤더 4개에 누락됐던 중앙정렬도
+  추가해 그리드 헤더 8개 전부 예외 없이 중앙정렬 완성.
+  **실 오라클 픽스처엔 QTY가 없어 자릿수차 검증이 안 되는 갭을, 17자리 vs 3자리
+  같은 극단적 합성 데이터로 실제 제품 함수(node 직접 실행)+실제 CSS를 playwright
+  로 렌더링해 픽셀 단위로 메움.** `min-width:20.2464px`가 우연한 안정(구형
+  table-layout:auto 의존)이 아니라 명시적으로 고정된 값임을 computed style로
+  실측. 그룹0/1 여러 실측 항목(헤더 8개 text-align, padding-left, 값 text-align)
+  전부 확인. 회귀테스트 갱신 3건(이전 잘못된 구현을 검증하던 화이트박스 단언 —
+  이번 지시가 그 구현 자체를 폐기 대상으로 명시했으므로 계약 갱신, 회귀 아님),
+  40/40 통과. 사전존재 실패 1건 git stash 대조로 무관 확인.
+- 참고: E:\verify_reports\STAGE5-GROUP-LIST-AGGREGATE-ALIGNMENT-CORRECTION.txt
 
 ### M61. ✅ 해결 완료 — 5단계 실행경로/전략 자동판정에서 PK 구성 검사가 실질적으로 무력화됨(하드코딩)
 - 발견일: 2026-08-09 (채팅 조사 — "실행경로/전략" 배지가 실제로 여러 값이 나오는지
