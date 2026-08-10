@@ -1,0 +1,99 @@
+작업명 : C-DRIVE-ADJACENT-FOLDERS-DIAGNOSE
+✅ 작업 완료 - 인접 디렉토리 7종 전수 확인, 6종 삭제 안전 / history_md 1종만 X드라이브에 없는 유일 사본이라 보류 권장
+
+(참고: C:\projects\migration-validator 폴더 자체는 다른 지침(C-DRIVE-LEGACY-SOURCE-DELETE)이
+동시 처리 중일 수 있어 이번 조사에서 건드리지 않았음 — 아래는 그 형제 디렉토리 7개만 대상)
+
+[1. .pytest_cache]
+- 정체: 표준 pytest 실행 캐시(.gitignore, CACHEDIR.TAG, README.md, v/cache/lastfailed,
+  v/cache/nodeids). 코드/데이터 없음, pytest 재실행 시 자동 재생성됨.
+- X 대조: 애초에 비교 대상 아님(캐시는 항상 로컬 산출물).
+- 판정: **삭제 안전**.
+
+[2. _p13_baseline_wt]
+- 정체: C:\projects\migration-validator 저장소의 git worktree(.git 파일이
+  `C:/projects/migration-validator/.git/worktrees/_p13_baseline_wt` 를 가리킴).
+  detached HEAD = 2b38cdb, P13(오라클 조건부 병렬 검증) 작업 당시 비교용 baseline
+  체크아웃으로 추정.
+- X 대조: `git cat-file -t`로 확인 결과 71203df(P13 완료 커밋)·2b38cdb 모두 X드라이브
+  저장소 히스토리에 동일하게 존재함 — 같은 계보. `git status`상 db/meta_collector.py,
+  db/schema.sql이 "modified"로 뜨지만 실제 `git diff`는 빈 결과(CRLF 개행 차이만, 실
+  콘텐츠 변경 0줄) — 커밋 안 된 고유 변경사항 없음. 이 worktree의 기반 커밋 자체가
+  X드라이브에서 이후 수백 커밋(db_paths 단일출처 리팩터링 등 포함)으로 이미 대체됨.
+- 판정: **삭제 안전**. 단, C:\projects\migration-validator\.git이 먼저 삭제되면(동시
+  진행 중인 DELETE 지침) 이 worktree는 gitdir 참조가 끊겨 저절로 깨짐 — 순서 무관하게
+  결국 무용해지므로 삭제 순서는 문제 되지 않음.
+
+[3. _rpt_tmp_stageexec]
+- 정체: STAGE-EXEC-CROSS-STAGE-CONTAMINATION-AND-STOP-BUTTON-FIX 작업의 완료보고 txt
+  1개(12KB) 임시 사본.
+- X/verify 대조: 동일 지침 .md와 완료보고 .txt 둘 다 X:\Verify\_rpt_push (verify 저장소,
+  git 영속화)에 이미 존재 확인(directives/STAGE-EXEC-...-FIX.md,
+  STAGE-EXEC-...-FIX.txt).
+- 판정: **삭제 안전** — 이미 다른 곳에 영구 보존된 사본의 임시 복제본.
+
+[4. history_md]  ⚠️ 유일 사본 발견
+- 정체: 세션 핸드오프 md 4개(01~04, 2026-07-10 ~ 2026-08-05, "세션에서 새로 확립된
+  교훈"·"다음 세션 우선순위" 등 서술형 인수인계 노트) + Word/MD 설계배경 문서 4개
+  (GROUP_BY_SUM 후보자동선정 설계의도 .docx/.md, 검증경로 설계의도 .docx, 일괄검증
+  설계스펙 .docx, 전수검증 설계방향 .docx).
+- X 대조: `git log --all --diff-filter=A` 로 파일명 검색 시 이 8개 파일 전부 X드라이브
+  저장소에 커밋된 이력이 **0건**(코드저장소에 올라간 적이 원래 없는 순수 로컬 문서).
+  X드라이브 docs/archive/ 에 목적이 비슷한 핸드오프 문서들이 있으나 파일명·세션분이
+  전혀 다름(01~04 handoff는 archive에 없음). CLAUDE.md가 언급하는
+  docs/handoff_backlog.md 이관은 CLAUDE.md 자체의 "handoff 이관후보" 섹션을 옮긴
+  것으로 이 4개 세션노트와는 무관한 별개 문서. GROUP BY/SUM 등 설계의도 문서 4개도
+  X드라이브 전체에서 동일/유사 파일명 검색 결과 0건.
+- 판정: **삭제 위험 — 이 폴더에만 존재하는 유일 사본으로 확인됨.** 삭제 전 X드라이브
+  docs/archive/ 등으로 옮기거나 별도 백업 권장. (실제 이동/복사는 수행하지 않음 —
+  조사 범위 밖.)
+
+[5. migration-validator_backup_* 6종]
+  (count_first_sticky_progress_v1 / pattern_d_date_groupby_stable_v1 /
+   phase_c5_hardrule_ui_stable_v1 / phase_count_sql_builder_phase0_stable_v1 /
+   phase_d3_analysis_refactor_stable_v1 / phase_e1_score_breakdown_stable_v1 /
+   phase_f2_execute_ui_stable_v1)
+- 정체: 6개 중 5개는 .git이 아예 없는 순수 파일 스냅샷, phase_c5_hardrule_ui_stable_v1
+  1개만 .git 보유(HEAD=b72f57c "checkpoint: count-first flow and sticky progress UI").
+  전 폴더 파일 mtime이 2026-05-13~05-22 구간에 집중 — "stable_v1" 이름대로 그 시점의
+  특정 단계 완료 스냅샷 백업으로 확인.
+- X 대조: b72f57c를 포함해 그 날짜대의 checkpoint 커밋들이 `git cat-file -t` 성공 +
+  X드라이브 `git log --reverse` 상 최초 커밋군과 시점이 일치 — X드라이브 저장소는 이
+  스냅샷들과 동일 계보에서 시작해 현재까지 1947개 커밋으로 이어짐(오늘까지 계속 작업
+  중). phase_c5의 미커밋 dirty 상태(추적파일 3개 수정, 신규 미추적 파일 4개, check_js.js
+  삭제)를 개별 대조한 결과: 신규 미추적 파일 4개
+  (SOURCE_STRUCTURE_REVIEW_FOR_SCORE_AND_FULL_VALIDATION.md,
+  SOURCE_STRUCTURE_REVIEW_FOR_SQL_SHAPE_SCORE_AND_FULL_VALIDATION.md,
+  samples/test_analysis_modules.py, samples/test_candidate_modules.py) 전부 X드라이브에
+  동일 경로로 존재, check_js.js 삭제도 X드라이브에 반영(파일 없음) — 이 세션의 이어진
+  작업이 이후 정상적으로 X드라이브 히스토리에 흡수됐음을 확인. 부수 산출물로
+  __pycache__(컴파일 캐시), db_presets_*.redacted.json(파일명상 이미 redacted 처리, 평문
+  민감정보 아님) 등이 섞여 있으나 전부 비고유 산출물.
+- 판정: **6개 전부 삭제 안전** — 스냅샷 시점 커밋이 X 히스토리 안에 있고, 그 이후
+  미커밋 작업분도 X에 흡수된 것으로 확인됨(고유 유실 콘텐츠 없음).
+
+[6. sample_multi]
+- 정체: 배치 업로드용 샘플 xlsx 4개(migration_validator_batch_upload_queries.xlsx 등,
+  2026-06-08~09 생성) + zip 1개. 코드저장소에 커밋된 적 없음(원래 데이터 파일).
+- X 대조: 동일 파일명 패턴(`migration_validator_batch_upload_queries.xlsx`)이 X드라이브
+  `data/uploads/batch_runs/` 아래 실제 운영 배치 실행 기록으로 지금도 반복 재사용되고
+  있음(가장 최근 2026-08-09 배치 포함, 70개 이상 실행 기록에서 확인) — 이 폴더의
+  파일은 지금도 쓰이는 업로드 양식의 예전 원본일 뿐, 삭제해도 양식 자체는 계속 사용
+  가능.
+- 판정: **삭제 안전**(양식 원본 보존이 필요하면 samples/ 등에 재보관 권장이나 필수는
+  아님).
+
+────────────────────────────────────────────────────────────
+[요약 판정표]
+────────────────────────────────────────────────────────────
+항목                                          삭제 안전     비고
+.pytest_cache                                 O            표준 캐시, 재생성 가능
+_p13_baseline_wt                              O            X와 동일 계보, 고유 변경 0
+_rpt_tmp_stageexec                            O            verify 저장소에 이미 영구보존
+migration-validator_backup_* (6종)            O            X 히스토리의 완전한 부분집합
+sample_multi                                  O            양식은 X드라이브에서 계속 사용중
+history_md                                    X(보류)      X드라이브 어디에도 없는 유일 사본
+                                                            (세션노트4 + 설계문서4)
+
+실제 삭제는 수행하지 않았음(지침대로 조사만 수행) — 판정 결과 보고까지만 완료.
+✅ 작업 완료 - 인접 디렉토리 7종 전수 확인, 6종 삭제 안전 / history_md 1종만 X드라이브에 없는 유일 사본이라 보류 권장
