@@ -4832,3 +4832,78 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 근거: E:\verify_reports\NXDTV-RENAME-SCOPE-DIAGNOSE.txt
 - 근거: E:\verify_reports\NXDTV-DISPLAY-NAME-CHANGE.txt
 - 근거: E:\verify_reports\NXDTV-AUTH-REALM-NAME-CHANGE.txt
+
+### M68. 5단계 그룹별 상세추출 속도차이·그룹전환 시 방치job·KEY_RANGE/PK_RANGE_CHUNK 혼동 — 채팅 조사 완료(코드 무변경), 정리작업은 별도 지침 발행
+- 발견/계기: 2026-08-09 (사용자 — "어떤 그룹은 빨리 나오고 어떤건 느리게 추출된다" /
+  채팅 다중 조사, 코드 무변경)
+
+**[1] 그룹별 속도차이 원인 — 정상 동작으로 확인**
+- 5단계 상세추출(101건 조기중단)은 이분탐색이 아니라 **PK 오름차순 순차스캔 후
+  목표치 도달 즉시 break**(`pk_range_chunk.py:710-713`, 남은 chunk는 조회 자체
+  안 함). 불일치가 PK 앞쪽에 몰린 그룹은 빨리 멈추고(빠름), 뒤쪽/희소하게 분산된
+  그룹은 끝까지 스캔(느림) — 이게 속도차의 직접 원인.
+- 그룹 추출은 fingerprint별 독립 스레드(`reimport_job.py:126,188-190`)라 락·큐
+  없이 실제 여러 그룹이 동시 진행 가능(순차 대기 아님).
+- 같은 축(STATUS_CD) 그룹들은 원칙적으로 같은 실행전략을 받음(PK종류/인덱스가
+  테이블단위 값) — 전략차이가 속도차의 주원인은 아닌 것으로 판단.
+
+**[2] 그룹 전환 시 "실행중단" 없이 다른 그룹 클릭 — 방치되지만 데이터 정합성은 안전**
+- `_mvStage5CollapseGroup()`은 클라이언트 폴링만 멈추고(`_mvRiStopPolling`) 서버에
+  취소 신호를 전혀 안 보냄(취소는 "실행 중단" 버튼 전용 `_mvRiCancelRun()`만 수행)
+  — 이전 그룹 서버 job이 **백그라운드에서 계속 실행되며 새 그룹 job과 동시 진행**.
+  오늘 M56/M58의 "한 번에 하나만" 정책은 **1~4단계 실행버튼 간 잠금**만 가리키고,
+  5단계 그룹 전환은 그 화이트리스트에서 애초에 빠져있어 무방비.
+- **다만 실제 데이터 유실은 없음**: 방치된 job도 완료 시(101건 도달 또는 전체
+  스캔 완료) `store.finish_run(status=DONE/EARLY_STOPPED)`로 정상 DB 저장되고,
+  나중에 그 그룹 재클릭 시 M63 DB폴백 경로가 정상 재사용(재스캔 없이 로드).
+  코드가 "방치된 job"과 "정상완료 job"을 구분하지 않고 동일 취급.
+
+**[3] 서버 크래시 시 고아 RUNNING 잔류 — M64와 같은 계열, 별도 지침 발행됨**
+- 서버 프로세스가 죽으면 in-memory job은 소실되지만 DB의 `exact_diff_run.status`는
+  'RUNNING'인 채 영구 잔류(자동 정리 로직 없음) — 실측 전례 34건·927MB·레코드
+  103,180건(`docs/STATS_VALIDATION_JOB_ORPHAN_CLEANUP.md`, 2026-07-26). 다행히
+  재사용 판정은 DONE/EARLY_STOPPED만 매칭해 이 고아 행이 잘못 재사용될 위험은
+  없음(안전하지만 계속 쌓이기만 함).
+  스레드만 죽는 경우는 `reclaim_dead_thread_jobs`가 있으나 **lazy 방식**(누군가
+  그 run/fingerprint를 다시 조회해야만 트리거) — 아무도 안 보면 영원히 미정리.
+  "유휴회수(idle reclaim, TTL/heartbeat)" 설계는 문서에만 있고 미구현.
+- **사용자 우려사항(원본/목적 DB 세션이 실제로 안전하게 끊기는지)은 이번 채팅
+  조사 범위 밖** — 별도 지침 `ORPHANED-REIMPORT-JOB-CLEANUP-AND-DB-SESSION-SAFETY`
+  발행해 실측 진행 중(진행상황은 그 지침 완료보고 참고).
+
+**[4] KEY_RANGE(이분탐색) vs PK_RANGE_CHUNK(순차스캔) — 이름만 비슷한 완전 별개 코드**
+- `services/diagnosis/strategies/router.py`+`key_range.py`의 KEY_RANGE는 **실제
+  이분탐색**(8분할→`kr.midpoint()`→깊어지면 재이분)이지만, **개별검증 MISMATCH
+  발생 후의 별도 자동 원인진단 엔진**(`routes/diagnosis_route.py`) 전용 —
+  3·4·5단계 어디에도 안 쓰임.
+- 5단계 상세추출(`services/exact_diff/pk_range_chunk.py`)은 PK 순차스캔(이분탐색
+  아님) — `services/diagnosis/*`와 상호 import 0건, 함수공유 없음, 완전 독립
+  네임스페이스("range/chunk"라는 이름만 우연히 비슷).
+- **이 자동진단 화면이 실제 UI 어디서 노출되는지는 별도 채팅조사 진행 중**(왼쪽
+  메뉴 연결점, 자동/수동 트리거 여부) — 결과 나오면 본 항목에 후속 기록.
+
+**[5] PK 오름차순 정렬 메커니즘 — 명시적 ORDER BY, 정렬비용은 SQL 형태에 좌우**
+- 인덱스 물리순서에 암묵 의존하는 게 아니라 청크마다 **명시적 `ORDER BY`**를 SQL에
+  건다(`dialects/oracle.py:515`, `postgresql.py:402`).
+- 단순 SELECT는 INDEX RANGE SCAN으로 SORT 생략되나, **CTE+JOIN+윈도우함수인데
+  청크 키가 윈도우 PARTITION BY 컬럼에 없으면 청크마다 원본 전체 재정렬**(청크
+  개수에 비례 고정비, 실측 빈 청크 1개당 0.343초) — 갈림길은 "청크 키 ∈
+  PARTITION BY 컬럼 집합" 여부.
+- **문자 PK 정렬역전(축B, 5만행 chunk 1개서 4,500회)은 이미 해결됨**
+  (`_ensure_pk_ascending()`, PK-RANGE-CHUNK-SORT-ORDER-ALIGNMENT-FIX) — 병합
+  직전 O(n) 위반검사 후 필요시만 재정렬.
+- **⚠️ 문자 PK 경계값 오판(축A, MIN/MAX가 문자정렬로 잘못 나와 60% 미조회)은
+  여전히 미해결로 확인됨** — `build_chunk_bounds()`의 등분산술 자체는 안전(순수
+  정수연산)하나, **그 입력값(pk_min/pk_max)의 신뢰성 검증이 없음**이 근본 원인.
+  **모순 발견**: 프로젝트 최초 세션(01번 handoff)엔 "Axis A·B 두 축 모두 수정
+  완료"로 기록돼 있는데 오늘 조사는 축A "미해결"로 확인 — 회귀인지, 애초에 다른
+  시나리오를 고친 건지, 기록이 부정확했는지 원인 불명. **별도 채팅조사 진행 중**
+  (결과 나오면 후속 기록). 다행히 N1 조사가 "문자 PK는 이 전략 자체를 아예 명시
+  불가 판정"이라 확인해 실무 노출 가능성은 낮아 보이나, **그 차단 gate가 정말
+  빈틈없는지도 같은 조사에서 확인 중.**
+
+- 대응 방향: [2]는 정합성 문제 없어 낮은 우선순위(단, 리소스 경합으로 인한 체감
+  성능저하는 있을 수 있음 — 필요시 그룹전환 시 이전 job 자동취소 검토).
+  [3]은 진행 중인 별도 지침으로 처리. [4]는 UI 노출 지점 확인 후 필요시만 후속.
+  [5]의 축A는 gate 확실성 확인 후 착수 여부 결정.
+- 근거: 채팅 조사 결과(별도 파일 미작성).
