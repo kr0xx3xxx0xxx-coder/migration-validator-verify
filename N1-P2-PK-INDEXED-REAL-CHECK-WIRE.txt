@@ -1,0 +1,217 @@
+작업명 : N1-P2-PK-INDEXED-REAL-CHECK-WIRE
+✅ 작업 완료 - PK/UNIQUE 제약 존재를 인덱스 존재로 자동 환산하던 하드코딩 3곳(key_evidence.py 후보생성·
+agg_diff_route TRUSTED_PHYSICAL_PK CHUNK 판정·grid_helpers 화면표시)을 4방언 카탈로그 실측 배선으로 교체,
+PG/오라클 실DB 실측 완료(정상 PK indexed=True, 오라클 인덱스 없는 PK indexed=False 재현), 신규 회귀 0건
+
+════════════════════════════════════════════════════════════════════════
+0. 범위 확인
+════════════════════════════════════════════════════════════════════════
+- 지시서: directives/N1-P2-PK-INDEXED-REAL-CHECK-WIRE.md
+- 선행 근거 문서: N1-MERKLE-TREE-FEASIBILITY-DIAGNOSE.txt §0-2/P2 (승인 완료, 이 보고서가 권장한 P2)
+- 요구: key_evidence.py:191 의 "indexed": bool(ev.is_pk or ev.is_unique) 하드코딩을 4방언 인덱스
+  카탈로그 실측으로 교체하고, ui/grid_helpers._mvDerivePkProfile 의 하드코딩 true 도 실측값 그대로 전달.
+  CHUNK 전략 판정 로직 자체(choose_compare_strategy)는 재설계하지 않고, 기존 pk_indexed 소비처가 실측값을
+  받는 효과만 확인.
+- 착수 전 발견한 세 번째 하드코딩: routes/agg_diff_route.py:71(구) `_pk_kind, _pk_indexed =
+  PK_SINGLE_NUMERIC, True` — TRUSTED_PHYSICAL_PK(물리PK 확정) 경로가 CHUNK 자격판정에서 pk_indexed=True 를
+  무조건 가정하던 지점. 지시서의 "CHUNK 전략 판정 등 하류 로직에 정확히 반영되는지 확인"에 정확히 해당하는
+  실제 소비처라 판단해 함께 배선했다(판정 알고리즘 자체는 무수정, 입력값만 실측으로 교체).
+
+════════════════════════════════════════════════════════════════════════
+1. 구현 — 파일:라인 / DBMS별 조회 쿼리
+════════════════════════════════════════════════════════════════════════
+
+[1-1] PostgreSQL — services/db_statistics_service.py:_fetch_postgres_key_metadata_impl (467~530행)
+  pg_constraint → pg_index 조인으로 그 제약을 뒷받침하는 인덱스의 indisvalid·indisready 를 직접 확인.
+    LEFT JOIN pg_namespace pgn  ON pgn.nspname = tc.constraint_schema
+    LEFT JOIN pg_constraint pgc ON pgc.connamespace = pgn.oid AND pgc.conname = tc.constraint_name
+    LEFT JOIN pg_index pgi      ON pgi.indexrelid = pgc.conindid
+    SELECT ... (pgi.indexrelid IS NOT NULL AND pgi.indisvalid AND pgi.indisready) AS indexed
+  근거: PostgreSQL 은 PK/UNIQUE 제약이 항상 인덱스를 동반하도록 엔진이 강제해 실무상 거의 항상 True 지만,
+  "짐작"이 아니라 카탈로그로 "확인"한 True 로 바꿨다(1:1 조인, fan-out 없음).
+
+[1-2] Oracle — services/db_adapters/oracle.py:fetch_key_metadata (512~584행)
+  ALL_CONSTRAINTS.INDEX_NAME(제약이 실제로 참조하는 인덱스명) 을 ALL_INDEXES 에 LEFT JOIN 해 STATUS 확인.
+    SELECT cc.column_name, c.constraint_type, c.constraint_name,
+           COUNT(*) OVER (PARTITION BY c.constraint_name) AS col_count, i.status
+    FROM all_constraints c
+    JOIN all_cons_columns cc ON c.owner=cc.owner AND c.constraint_name=cc.constraint_name
+                             AND c.table_name=cc.table_name
+    LEFT JOIN all_indexes i ON i.owner=c.owner AND i.index_name=c.index_name
+    WHERE UPPER(c.table_name)=:1 AND c.constraint_type IN ('P','U')
+    indexed = bool(status) and status.upper()=='VALID'
+  근거: 오라클은 파티션 인덱스 UNUSABLE, 제약 DISABLE 시 기본 인덱스 drop 등으로 "제약은 있는데 인덱스는
+  없는" 상태가 실제 발생한다(§3 실측으로 재현).
+
+[1-3] MySQL — services/db_adapters/mysql.py:fetch_key_metadata (151~232행)
+  EXISTS 서브쿼리로 (테이블,컬럼,UNIQUE 인덱스) 조합이 information_schema.statistics 에 실재하는지 확인.
+    EXISTS (SELECT 1 FROM information_schema.statistics s
+            WHERE s.table_schema=DATABASE() AND UPPER(s.table_name)=%s
+              AND UPPER(s.column_name)=UPPER(kcu.column_name) AND s.non_unique=0)
+  이름이 아니라 (테이블,컬럼,non_unique=0) 매칭이라 여러 인덱스가 겹쳐도 EXISTS 로 fan-out 없이 단일값.
+
+[1-4] MSSQL — services/db_adapters/mssql.py:fetch_key_metadata (226~314행)
+  sys.key_constraints(제약 → unique_index_id) 를 sys.indexes 와 조인해 is_disabled 확인(ALTER INDEX ...
+  DISABLE 로 제약은 살아있고 인덱스만 비활성화되는 SQL Server 특유 상태를 잡는 유일한 방법 — information_
+  schema 에는 활성화 여부 정보가 없다).
+    CASE WHEN EXISTS (
+      SELECT 1 FROM sys.key_constraints kcst
+      JOIN sys.indexes ix ON ix.object_id=kcst.parent_object_id AND ix.index_id=kcst.unique_index_id
+      JOIN sys.tables t   ON t.object_id=kcst.parent_object_id
+      WHERE kcst.name=tc.constraint_name AND UPPER(t.name)=? AND ix.is_disabled=0
+    ) THEN 1 ELSE 0 END AS indexed
+  라이브 SQL Server 인스턴스 부재(기존 fetch_key_metadata 와 동일 제약) — sqlglot tsql 파서로 문법 유효성만
+  확인, 단위테스트(가짜 커서)로 배선·집계 규칙 고정.
+
+[1-5] 하류 전파 배선(services/diagnosis/key_evidence.py)
+  - _normalized_metadata (143행): meta[col]["indexed"] = bool(km.get("indexed")) 추가 — is_pk/is_unique
+    와 별개로 실측값을 그대로 전달.
+  - chunk_key_candidates_from_contract (163행): 191행 "indexed": bool(ev.is_pk or ev.is_unique) →
+    "indexed": bool(ev.indexed), "index_leading": bool(ev.indexed) 로 교체.
+  - services/exhaustive_candidates/contracts.py: ColumnEvidence 에 indexed: bool=False 필드 신설.
+  - services/exhaustive_candidates/evidence.py: build_column_evidence 가 meta["indexed"] 를 그대로 실어
+    ColumnEvidence.indexed 채움.
+  - _table_key_meta / _table_key_meta_from_adapter (267행/225행): out[col]["indexed"] 추가(keymeta 실측
+    그대로 전달, 재조회 없음).
+  - build_chunk_key_evidence_snapshot (354행): TRUSTED_PHYSICAL_PK 확정 시 snap["indexed"]=bool(tm.get(
+    "indexed")) 추가 — TRUSTED_PHYSICAL_PK 판정 조건(물리PK+NOT NULL+passthrough) 자체는 무수정, indexed
+    는 하류 소비처용으로 실어 보내기만 함.
+  - resolve_trusted_chunk_key (433행): 반환 dict 최상위에 "indexed": bool(cur.get("indexed")) 추가(이전엔
+    "indexed" 키 자체가 없어 TRUSTED 경로는 실측이 전혀 실리지 않았다).
+  - EVIDENCE_VERSION "cke-1"→"cke-2": snapshot 에 새 필드(indexed)가 생겨, 옛(cke-1) 캐시 snapshot 을 재
+    사용하면 bool(None)=False 로 오판정될 위험이 있어 버전을 올려 resolve_trusted_chunk_key 의 재사용 검사
+    (evidence_version 불일치)가 옛 snapshot 을 자동 무효화하게 했다.
+
+[1-6] 하류 전파 배선(routes/agg_diff_route.py)
+  - TRUSTED 경로(1157~1174행 부근): resolve_trusted_chunk_key 확정 시
+    setattr(req, "_chunk_key_indexed", bool(_tk.get("indexed"))) 추가.
+  - _resolve_execution_strategy (70~83행): `if _chunk_key_trusted: _pk_indexed = True` 하드코딩 →
+    `_pk_indexed = bool(getattr(req, "_chunk_key_indexed", True))`. 속성이 아예 없으면(레거시 경로) 기존과
+    동일하게 True 로 안전 폴백 — CHUNK 판정 알고리즘(choose_compare_strategy) 자체는 무수정.
+
+[1-7] 하류 전파 배선(services/single_validation_analyze_service.py)
+  - _build_target_pk_evidence (239~301행): out["indexed"] = all(indexed per pk_cols) 추가 — 이미 조회한
+    keymeta(fetch_key_metadata_cached) 를 재사용, 추가 조회 없음.
+
+[1-8] 화면 표시(ui/grid_helpers.py:_mvDerivePkProfile, 1532~1577행)
+  - 실측 근거가 있는 두 분기(TARGET_PK_EVIDENCE, CHUNK_KEY_EVIDENCE/TRUSTED_PHYSICAL_PK)는 pk_indexed 를
+    서버가 보낸 tpe.indexed / snap.indexed 그대로 전달.
+  - 실측 근거가 없는 나머지 분기(TARGET_COLUMN_META, NO_SINGLE_COLUMN_PK 복합 PK 폴백)는 true 하드코딩 →
+    false(미확정, 보수적 단정 금지 — 이 프로젝트가 "판별불가=안전" 오판정을 이미 여러 차례 결함으로 지적해온
+    원칙과 일치시켰다). 표시 전용 필드라 실행 엔진에는 영향 없음(코드 내 기존 주석대로).
+
+════════════════════════════════════════════════════════════════════════
+2. 실DB 실측 (PostgreSQL_asis=Neon PG, Oracle_asis=192.168.0.151:1523/xepdb1)
+════════════════════════════════════════════════════════════════════════
+스크립트: scratchpad/n1_p2_live_verify.py(세션 로컬) — db 프리셋(mv_db_preset)에서 자격증명을 읽어 직접
+접속, 실제 PostgreSQLAdapter/OracleAdapter.fetch_key_metadata 를 호출(수동 SQL 재현이 아니라 구현 코드
+자체를 실행). 테스트 테이블은 스크립트 종료 시 정리(사후 잔존 0건 확인).
+
+  [1] PostgreSQL 정상 PK(CREATE TABLE ... id INTEGER PRIMARY KEY)
+      fetch_key_metadata → {'ID': {..., 'indexed': True}}
+      결과: is_pk=True, indexed=True 일치 — PASS
+
+  [2] Oracle 정상 PK(CREATE TABLE ... ID NUMBER PRIMARY KEY)
+      fetch_key_metadata → {'ID': {..., 'indexed': True}}
+      결과: is_pk=True, indexed=True 일치 — PASS
+
+  [3] Oracle "PK 는 있으나 인덱스 없음"(ALTER TABLE ... DISABLE CONSTRAINT <pk>, 기본 동작=뒷받침 인덱스
+      drop) 재현 후 재조회
+      fetch_key_metadata → {'ID': {..., 'indexed': False}}
+      결과: is_pk=True(제약은 카탈로그상 여전히 존재, 판정 불변 — 기존 동작 회귀 없음), indexed=False(실측
+      정확) — PASS. 이 케이스가 지시서 요구 "인덱스 없는 PK 인위적 재현"에 해당하는 실제 시나리오.
+
+정리 확인: information_schema.tables(PG)·user_tables(Oracle) 재조회로 테스트 테이블 0건(잔존 없음).
+
+MySQL/MSSQL 은 이 프로젝트에 실DB 검증 환경이 없다(기존 fetch_key_metadata 구현도 동일 제약, docstring에
+"실DB 미검증" 명시). §3 의 가짜 커서 단위테스트로 SQL 배선·집계 규칙·indexed=True/False 양쪽 분기를 고정.
+
+════════════════════════════════════════════════════════════════════════
+3. 검증 결과
+════════════════════════════════════════════════════════════════════════
+[3-1] 신규 테스트 — tests/test_pk_indexed_real_check.py (신규, 10건)
+  PG/오라클 SQL 계약(카탈로그 조인문 포함) 고정 + indexed True/False 양쪽 실측 반영 + 하류 전파
+  (_normalized_metadata→chunk_key_candidates_from_contract, _build_target_pk_evidence) 고정.
+  결과: 10 passed
+
+[3-2] tests/test_mysql_mssql_key_metadata.py 갱신 (기존 파일 확장)
+  - ROWS_* 픽스처에 5번째 컬럼(indexed) 추가, 신규 케이스 2건(제약은 있으나 인덱스 미확인)
+  - 파라미터 바인딩 3-tuple 로 갱신(EXISTS 서브쿼리가 테이블명 파라미터 1개 추가)
+  - MSSQL SQL 계약 테스트: "sys.indexes 미사용" → "sys.key_constraints+sys.indexes 는 이미 확정된 제약의
+    인덱스 활성상태 확인 전용(is_unique 판정 확장 아님)"으로 docstring·assertion 갱신
+  결과: 21 passed (기존 17 + 신규 4)
+
+[3-3] tests/test_execution_path.py 신규 케이스 2건 추가
+  - test_trusted_pk_without_confirmed_index_blocks_chunk: TRUSTED_PHYSICAL_PK 여도 indexed=False 면
+    DIRECT_STREAM_COMPARE 로 확정(신규 동작 — 이번 수정의 핵심 효과)
+  - test_trusted_pk_missing_indexed_attr_falls_back_true: 속성 자체가 없으면 기존과 동일하게 True 폴백
+    (레거시 경로 무회귀 재확인)
+  결과: 12 passed (기존 10 + 신규 2), 사전 존재 실패 3건(_parallel_read_decision 계열, §3-4 참고)은 무관
+
+[3-4] 사전 존재 실패 판정 방법
+  git stash 로 이번 변경 전체를 걷어낸 baseline 상태에서 동일 테스트를 재실행해 동일하게 실패하는지 1건씩
+  대조했다(파일별 개별 실행, 실패 메시지 동일성까지 확인).
+
+[3-5] 영향 62개 테스트 파일 전체 실행(services/diagnosis/key_evidence, routes/agg_diff_route,
+      ui/grid_helpers, services/db_adapters, services/exhaustive_candidates, services/strategy,
+      services/single_validation_analyze_service 를 import 하는 tests/*.py 전수)
+  결과: 785 passed, 2 skipped, 6 xfailed, 17 failed
+  17건 전부 baseline(스태시) 대조로 사전 존재 실패 확인(이번 변경과 무관) — 신규 회귀 0건.
+    test_agg_contribution.py, test_batch_single_core_wrapper_foundation.py(4건),
+    test_cte_alias_scope_and_derived_validation.py(2건), test_d9_4_top_n_single_source.py,
+    test_diagnosis_phase3b.py(2건), test_execution_path.py::test_parallel_read_decision_*(3건 —
+    _parallel_read_decision 이 (bool,reason) 튜플을 반환하도록 이미 바뀌었는데 테스트만 옛 bool 단일값
+    비교로 남은 것으로 보임, 이번 작업과 무관한 코드), test_final_from_cte_table_presence.py,
+    test_reimport_stream.py, test_single_policy_cleanup_bundle.py, test_stats_result_full.py
+    (getsource 고정폭 정규식이 다른 최근 변경으로 어긋난 것 — 이번 작업과 무관)
+
+[3-6] CLAUDE.md 필수 회귀 최종 1회
+  python samples/test_virtual_cases.py    → 8/8 통과
+  python samples/test_complex_cases.py    → 케이스 분석 완료 5/5(PASS/LOW/FAIL 판정 포함 전부 기대값대로)
+
+════════════════════════════════════════════════════════════════════════
+4. 세션 중 발견 — 동시 작업 세션 흔적(본 작업과 무관, 손대지 않음)
+════════════════════════════════════════════════════════════════════════
+작업 도중 git status 에 이 세션이 만들지 않은 변경 3건이 나타났다 확인했다:
+  - services/sql_scope_inject.py — 태그 [N1-P1-HASH-PATH-PREDICATE-OR-REEVAL-FIX](같은 N1 진단서가 권장한
+    P1, 다른 세션 작업으로 추정)
+  - ui/tabler_renderer.py, tests/test_project_scope_dom.py — 태그 M67-SILENT-REVALIDATION-BANNER(무관 작업)
+  대조 중 HEAD 도 d3b7b266(M67-SILENT-REVALIDATION-BANNER-AND-PROJECT-RETRY)으로 이미 이동해 있어(작업 시작
+  시 HEAD 는 2ea6778b) 다른 세션이 같은 저장소에서 동시에 커밋까지 하고 있음을 확인했다. 이번 작업은 위
+  파일들을 전혀 수정하지 않았고, git add 도 이번 절에 나열한 13개 파일(§1)만 개별 지정해 스테이징했다
+  (git add -A/. 미사용 — 동시세션 파일 혼입 방지).
+
+════════════════════════════════════════════════════════════════════════
+5. 변경 파일
+════════════════════════════════════════════════════════════════════════
+  수정 : routes/agg_diff_route.py
+         services/db_adapters/mssql.py
+         services/db_adapters/mysql.py
+         services/db_adapters/oracle.py
+         services/db_statistics_service.py
+         services/diagnosis/key_evidence.py
+         services/exhaustive_candidates/contracts.py
+         services/exhaustive_candidates/evidence.py
+         services/single_validation_analyze_service.py
+         tests/test_execution_path.py
+         tests/test_mysql_mssql_key_metadata.py
+         ui/grid_helpers.py
+  신규 : tests/test_pk_indexed_real_check.py
+
+  커밋: 미커밋(코드 저장소 커밋은 사용자 명시 요청 시에만 — CLAUDE.md 규칙). 작업 베이스 HEAD =
+        d3b7b2660f636cb78fe51a159bc83d30fdc82b90(§4 참고 — 이 세션이 만든 커밋 아님, 동시 세션 것).
+        커밋/push 승인 대기.
+
+════════════════════════════════════════════════════════════════════════
+6. 다음 단계 판단
+════════════════════════════════════════════════════════════════════════
+- N1 진단서 재개 조건: "P1(OR 재평가 제거)과 P2(pk_indexed 실측)가 끝난 뒤 P4 팬아웃 A/B 에서 실이득이
+  관측되면 재검토". P2 는 이번 작업으로 완료. P1(services/sql_scope_inject.py)은 §4 에서 확인한 대로 다른
+  세션이 이미 작업 중으로 보인다 — 두 작업이 겹치지 않게 사용자 조율 필요.
+- groupby_scoring.py/recommender.py 의 별도 "is_index" 판정(GROUP BY 컬럼 인덱스 스코어링)은 이번 작업과
+  다른 코드경로/다른 용도라 손대지 않았다 — 필요 시 별도 지시로.
+
+작업명 : N1-P2-PK-INDEXED-REAL-CHECK-WIRE
+✅ 작업 완료 - PK/UNIQUE 제약 존재를 인덱스 존재로 자동 환산하던 하드코딩 3곳(key_evidence.py 후보생성·
+agg_diff_route TRUSTED_PHYSICAL_PK CHUNK 판정·grid_helpers 화면표시)을 4방언 카탈로그 실측 배선으로 교체,
+PG/오라클 실DB 실측 완료(정상 PK indexed=True, 오라클 인덱스 없는 PK indexed=False 재현), 신규 회귀 0건
