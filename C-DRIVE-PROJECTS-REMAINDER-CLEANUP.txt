@@ -1,0 +1,39 @@
+작업명 : C-DRIVE-PROJECTS-REMAINDER-CLEANUP
+✅ 작업 완료 - C:\projects 잔존 12개 항목 전부 삭제 완료, X드라이브 저장소 무영향 확인
+
+[삭제 전 마지막 재확인]
+- history_md 유일 사본 재확인: X드라이브 docs/archive/history_md/ 에 10개 파일 전부 존재
+  (세션노트 4 + 설계문서 6 — C-DRIVE-ADJACENT-FOLDERS-DIAGNOSE.txt 원조사의 "8개" 표기는
+  후보자동선정 문서의 .docx/.md 중복 및 Evidence Gate 문서 누락 계산이었고, 실제 백업본은
+  C드라이브 원본과 파일명·바이트 크기 전수 일치 확인)
+- 삭제 대상 12개 항목 전부 C:\projects 에 실재 확인(삭제 전 선행 점검)
+- C:\projects 안에 이번 지침이 언급하지 않은 항목 7개 발견:
+  01_source_setup.sql, 02_target_setup.sql, 03_pg_stats_expected_check.sql,
+  04_individual_migration_query.sql, 99_cleanup.sql,
+  README_CARDINALITY_NULL_PARITY_TEST.md, postgresql_cardinality_null_parity_test.xlsx
+  → 지침 원칙("정확히 이 12개 항목만 삭제")에 따라 건드리지 않음
+
+[삭제 실행 결과 — 12개 전부]
+1. C:\projects\.pytest_cache                                                    → 삭제됨
+2. C:\projects\_p13_baseline_wt                                                 → 삭제됨
+3. C:\projects\_rpt_tmp_stageexec                                               → 삭제됨
+4. C:\projects\history_md                                                       → 삭제됨
+5. C:\projects\migration-validator_backup_count_first_sticky_progress_v1        → 삭제됨
+6. C:\projects\migration-validator_backup_pattern_d_date_groupby_stable_v1      → 삭제됨
+7. C:\projects\migration-validator_backup_phase_c5_hardrule_ui_stable_v1        → 삭제됨
+8. C:\projects\migration-validator_backup_phase_count_sql_builder_phase0_stable_v1 → 삭제됨
+9. C:\projects\migration-validator_backup_phase_d3_analysis_refactor_stable_v1  → 삭제됨
+10. C:\projects\migration-validator_backup_phase_e1_score_breakdown_stable_v1   → 삭제됨
+11. C:\projects\migration-validator_backup_phase_f2_execute_ui_stable_v1        → 삭제됨
+12. C:\projects\sample_multi                                                    → 삭제됨
+
+[삭제 후 검증]
+- Test-Path 로 12개 경로 전수 재확인 → 전부 CONFIRMED_GONE(false)
+- C:\projects 최종 상태: 완전히 빈 디렉토리는 아님 — 위 미언급 7개 파일(합계 약 900KB, 코드/실행파일
+  아닌 SQL 샘플·xlsx·README)이 남아있음. 이 7개는 지침 범위 밖이라 삭제하지 않았고, C:\projects
+  디렉토리 자체도 지우지 않음(빈 디렉토리가 아니므로 판단 불필요).
+- X드라이브 영향 확인: X:\Projects\Migration_Validator git status 가 작업 시작 전과 동일한
+  기존 미커밋 변경분만 표시(신규 변경 없음), X:\Verify\_rpt_push 도 기존 미추적 스크린샷 폴더
+  외 변화 없음 — 두 X드라이브 저장소 모두 이번 삭제 작업으로 전혀 영향받지 않음.
+
+✅ 작업 완료 - C:\projects 잔존 12개 항목 전부 삭제 완료, X드라이브 저장소 무영향 확인
