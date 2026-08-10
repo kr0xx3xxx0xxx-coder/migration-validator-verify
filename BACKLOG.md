@@ -4286,12 +4286,21 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\SAMPLING-PREFLIGHT-EXCEL-EXPORT-GB-COLS-CHECK-AND-FIX.txt
 - 참고: E:\verify_reports\M11-SAMPLE-EARLY-STOP-STREAM-ONLY-INDICATOR-FIX.txt
 
-### M12. `stats_validation_plan_service.py:1188/1191` 의 str/dict 가정 — 잠재 결함으로 실존(현재 도달 불가)
-- 발견일: 2026-07-27
-- 근거 보고서: `STATS-PLAN-SERVICE-GROUPBY-STR-DICT-CHECK.txt`
-- 상세: 입력 출처 분리 · pydantic `list[dict]` 게이트 · 상류 선차단으로 production 경로에서는 도달하지 않는다.
-  상류 게이트가 바뀌면 살아나는 종류라 기록해 둔다.
+### M12. ✅ 해결 완료 — `stats_validation_plan_service.py` str/dict 가정 방어처리 완료
+- 발견일: 2026-07-27 / 해결일: 2026-08-10 (M12-STATS-PLAN-STR-DICT-DEFENSIVE-FIX,
+  코드 커밋 0ba2dd9e)
+- 상세: 입력 출처 분리·pydantic `list[dict]` 게이트·상류 선차단으로 production
+  경로에서는 도달하지 않는 잠재 결함이었으나, 상류 게이트 변경 시 살아날 수 있어
+  선제적으로 방어선 추가. 신규 헬퍼 `_display_col_name(c)`(1181~1189행) — dict면
+  기존과 동일하게 `c.get(...)`, str이면 그 문자열 자체를 컬럼명으로 안전 사용(크래시
+  대신), 그 외 타입은 빈 문자열. `_plan_summary()`의 group_by_cols/sum_cols(현재
+  1211/1212행)가 이 헬퍼를 쓰도록 교체.
+  **실제 크래시 재현**: 수정 전 코드로 str+dict 혼합 입력 시 `AttributeError('str'
+  object has no attribute 'get')` 실제 발생 확인 → 수정 후 크래시 없이
+  `["TXN_TYPE","GRADE_CODE"]` 정상 처리 확인. dict 전용 케이스는 완전히 동일 동작
+  (회귀 0건, 94→95 passed). CLAUDE.md 필수 회귀 통과.
 - 참고: E:\verify_reports\STATS-PLAN-SERVICE-GROUPBY-STR-DICT-CHECK.txt
+- 참고: E:\verify_reports\M12-STATS-PLAN-STR-DICT-DEFENSIVE-FIX.txt
 
 ### M13. ✅ 해결 완료 — job_registry 원본 저장소에 `updated_at` 이 없다
 - 해결일: 2026-08-03 (JOB-REGISTRY-UPDATED-AT-FIELD-ADD)
@@ -4979,3 +4988,36 @@ git -C E:/verify_reports worktree remove <임시경로>
 - **결정 필요**: PostgreSQL 좀비 세션을 실제로 끊는 `pg_terminate_backend()` 배선
   착수 여부(완료 모듈 수정 필요, 별도 승인 대상).
 - 근거: 채팅 조사 결과(별도 파일 미작성) + E:\verify_reports\ORPHANED-REIMPORT-JOB-CLEANUP-AND-DB-SESSION-SAFETY.txt
+
+### M70. 미결정 사항 일괄 기록 — 지난 세션 도중 답변 없이 넘어간 항목 4건
+- 발견/계기: 2026-08-10 (사용자 요청 — "네가 지침결과 확인하면서 의견 준 것들에
+  일일이 답 안 한 것들 다 백로그에 등록해")
+
+**[1] ⚠️ 다른 세션 대화창 잔존 입력 미확인**
+- NXDTV-AUTH-REALM-NAME-CHANGE 작업 중 화면자동화(SendKeys)가 실수로 다른 활성
+  세션의 대화창 입력란에 테스트 문자열을 입력함(전송/Enter는 안 됨, 완료보고에
+  명시됨). **사용자가 직접 그 창을 열어 확인·정리했는지 미확인 상태.**
+- 조치: 코드 작업 아님, 사용자 수동 확인 필요(해당 창 열어서 입력란 정리).
+
+**[2] 5단계 그룹 전환 시 이전 job 자동취소 여부 — 미결정**
+- M68에서 발견: "실행중단" 없이 다른 그룹 클릭 시 이전 job이 백그라운드에서 방치된
+  채 계속 진행(데이터 정합성은 M63 재사용 경로로 안전, 다만 리소스 경합으로 체감
+  성능 저하 가능성 있음).
+- 결정 필요: 그룹 전환 시 이전 job을 자동 취소하는 기능 추가 여부.
+
+**[3] NXDTV 리네이밍 2~4단계 — 미착수**
+- NXDTV-RENAME 항목(별도 등록됨) 참고. 1단계(화면표시명)만 완료, 2단계(폴더명)는
+  Claude Code auto-memory 프로젝트키 단절 위험 때문에 메모리 이관계획 선확정
+  필요, 3단계(DB파일명)·4단계(mv 접두사 전면)는 보류 권장 상태 그대로.
+- 결정 필요: 2단계 착수 여부(메모리 이관계획부터).
+
+**[4] 🆕 3단계 실행계획 카드 표시 오류 가능성 — 상세 미확인, 발견만 됨**
+- CHARACTER-PK-BOUNDARY-FIX-LIVE-RECONFIRM.txt "제한사항" 절에 "3단계 실행계획
+  카드 오표기(E 단계)는 이번 재확인 범위 밖(원문서 §3·§4 참고, 이번엔 재실행하지
+  않음 — 그 부분은 표시/자동판정 문제이지 축A·B 수정 유효성과 무관)"이라는 언급이
+  있었으나, **이걸 Claude(웹)이 놓치고 넘어가 원문서(CHARACTER_PK_SILENT_
+  FALSE_MATCH_1M_REPRODUCE.md) §3·§4가 정확히 뭘 가리키는지, 지금도 재현되는
+  문제인지 전혀 확인 안 된 상태.**
+- 조치: 별도 채팅조사/지침으로 원문서 §3·§4(HTTP 자동경로 D단계, 3단계 실행계획
+  카드 오표기 E단계) 상세 확인 필요.
+- 근거: E:\verify_reports\CHARACTER-PK-BOUNDARY-FIX-LIVE-RECONFIRM.txt(제한사항 절)
