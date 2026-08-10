@@ -1,0 +1,94 @@
+작업명 : ORPHANED-REIMPORT-JOB-CLEANUP-AND-DB-SESSION-SAFETY
+✅ 작업 완료 - 재이관 job 좀비 파이썬측 정리(주기적 sweeper) 구현 + DB 세션 안전성 실측 완료(오라클 안전 / PG 조건부 위험 확인)
+
+────────────────────────────────────────────────────────────
+1. DB 세션 안전성 실측 결과 (핵심 — 이번 작업의 선행 필수 조사)
+────────────────────────────────────────────────────────────
+실제 asis DB(오라클 192.168.0.151:1523, PostgreSQL 192.168.0.150:5433)에 프로젝트 어댑터와 동일한
+방식(oracledb thin / psycopg2)으로 접속한 뒤, 클라이언트 프로세스를 taskkill /F(Windows에서 kill -9와
+동등한 강제종료)로 죽이고, Oracle은 v$session, PostgreSQL은 pg_stat_activity 를 강제종료 전/후로 직접
+조회해 세션 소멸 시점을 실측했다.
+
+  구분                              결과
+  ────────────────────────────────  ──────────────────────────────────────────
+  Oracle(쿼리 실행 중 강제종료)      1.1초 만에 v$session 에서 세션 소멸(자동 정리 O)
+  PostgreSQL(idle, 다음 쿼리 대기)   1.1초 만에 pg_stat_activity 에서 세션 소멸(자동 정리 O)
+  PostgreSQL(active, 순수 연산 중)   90초 경과해도 미소멸(자동 정리 X) — 세션 tcp_keepalives
+                                     30초/5초/3회로 튜닝해 재실측해도 동일(개선 안 됨)
+
+결론(핵심 — 오라클/PG 갈림):
+  - 오라클은 안전하다. 강제종료 시 DB 쪽 세션이 빠르게(실측 1.1초) 자동 정리된다.
+  - PostgreSQL은 조건부로 위험하다. 서버가 다음 클라이언트 요청을 "기다리는" 상태(idle)에서 죽으면
+    빠르게 정리되지만, "GROUP BY/COUNT 집계처럼 결과를 다 계산할 때까지 클라이언트와 소켓을 전혀
+    주고받지 않는 연산을 실행하는 중"에 서버가 죽으면 DB 세션이 자동으로 끊기지 않는다.
+    이 프로젝트의 통계검증 SQL·exact_diff COUNT/집계가 정확히 이 유형이다.
+  - 원인(실측으로 확인): 강제종료 시 OS가 소켓에 FIN을 보내 서버 쪽은 CLOSE_WAIT 상태가 되지만,
+    postgres 백엔드 프로세스가 그 시점에 소켓을 전혀 들여다보지 않고(순수 CPU 연산 중) 있으면 이
+    상태를 인지하지 못한다. TCP keepalive는 "응답 없는 진짜 끊긴 연결"을 잡는 메커니즘이라 이미 FIN을
+    받은 CLOSE_WAIT 상태에는 적용되지 않아, keepalives 값을 짧게 튜닝해도 소용없었다(실측 확인).
+  - 서버 측 안전장치도 없다: 해당 asis 인스턴스는 statement_timeout=0(무제한), tcp_keepalives_idle=
+    7200초(2시간) 기본값 — 구조적으로 이런 세션은 최대 약 2.2시간, 이론상 그 쿼리가 끝날 때까지
+    DB 리소스(CPU/락)를 계속 점유할 수 있다.
+  - 권장 후속 조치(이번 작업 범위 밖 — 별도 승인 필요, 보류): job이 ORPHAN 확정되는 시점에 그 job이
+    쓰던 PostgreSQL 세션의 backend pid 를 추적해 pg_terminate_backend() 로 명시적으로 끊는 방법이
+    유효하다(직접 확인함 — pg_terminate_backend는 활성 세션도 즉시 종료시킴). 다만 이를 구현하려면
+    커넥션을 여는 엔진 파일(pk_range_chunk.py, agg_contribution.py — 완료된 이전 단계 모듈)의 접속
+    경로에 pid 캡처를 추가해야 해서, 오늘 지침(2번 — 파이썬 쪽 "기록" 정리)의 범위를 넘는 구조 변경이다.
+    임의 수정하지 않고 보류 — 별도 지침으로 승인받아 진행 권장.
+
+────────────────────────────────────────────────────────────
+2. 파이썬 쪽 고아 기록 정리 로직 구현 내역
+────────────────────────────────────────────────────────────
+(가) 서버 기동 시 1회 정리 — 이미 구현·배선되어 있었음(신규 작업 아님)
+  services/exact_diff/retention_cleanup.py의 mark_startup_orphans()가 정확히 지침 요구사항대로
+  동작 중이었다(exact_diff_run.status='RUNNING' → ORPHANED, web_server.py _lifespan에서 요청 처리
+  시작 전에 호출). 커밋 6b23ed6e(기존 작업)에서 이미 구현됨을 코드 확인 + 오늘 실측으로 재확인만 함.
+
+(나) 주기적 sweeper — 신규 구현
+  기존 reclaim_dead_thread_jobs(services/exact_diff/reimport_job.py)는 activerhb_runs()/run_status()
+  "조회 시점에만" 발동하는 lazy 트리거였다(아무도 그 그룹을 다시 조회하지 않으면 죽은 thread job이
+  영원히 방치됨 — 오늘 조사에서 확인된 문제). 판정 로직(유예 30초 후 thread.is_alive()==False 확정,
+  정상 진행 중 job은 건드리지 않는 안전장치)은 전혀 손대지 않고 그대로 재사용하고, 그 호출을
+  300초(execution_settings.recovery.orphan_sweep_interval_sec, 신규 설정값)마다 자동 반복하는
+  데몬 스레드(start_background_orphan_sweeper)만 추가했다. web_server.py _lifespan에 기동 시
+  시작하도록 배선(services/exact_diff/retention_cleanup.py의 기존 스케줄러와 동일한
+  threading.Thread(daemon=True) 패턴 재사용 — 새 스케줄링 프레임워크 도입 없음).
+
+────────────────────────────────────────────────────────────
+3. 실측 검증 결과
+────────────────────────────────────────────────────────────
+  - 실서버 강제종료 후 재기동 → 자동 ORPHANED 전이(필수 실측)
+    실제 web_server.py를 기동, exact_diff_runs.db에 RUNNING 행(TESTORPHANRUN2)을 직접 심어 진행 중
+    run을 재현한 뒤 taskkill /F로 서버 프로세스를 강제종료, 재기동 후 조회:
+      TESTORPHANRUN2 → status=ORPHANED, stop_reason=SERVER_RESTART_ORPHAN  (자동 전이 확인)
+    로그에서도 "[정리] 재이관 job 좀비 sweeper 시작(주기적 자동 회수)" 정상 출력 확인.
+
+  - 스레드만 죽는 상황(강제종료 아님) → sweeper가 조회 없이 자동 회수
+    단위테스트(test_sweeper_reclaims_zombie_without_any_query)로 재현: active_runs()/run_status()를
+    한 번도 호출하지 않고, 실제 threading.Thread가 종료된 좀비 job을 주기 sweeper 혼자서 유예 경과 후
+    RECOVER_REQUIRED(ORPHAN_RUNNING)로 확정 + store.finish_run(status=ORPHANED) 호출까지 확인.
+
+  - 오탐 방지(정상 진행 중 job 무영향)
+    test_sweeper_never_touches_running_job: thread가 살아있는 정상 job은 sweeper가 여러 주기 동안
+    돌아도 상태·store 호출 모두 그대로 유지됨을 확인.
+
+  - 회귀
+    tests/test_job_recovery_stage1_progress_timestamp.py            14/14 통과(신규 4건 포함)
+    tests/test_exact_diff_retention_cleanup.py 외 5개 관련 파일     101/101 통과
+    samples/test_virtual_cases.py (CLAUDE.md 필수)                    8/8 통과
+    samples/test_complex_cases.py (CLAUDE.md 필수)                    5/5 통과
+    → 신규 회귀 0건
+
+────────────────────────────────────────────────────────────
+변경 파일 (코드 저장소 — X:\Projects\Migration_Validator)
+────────────────────────────────────────────────────────────
+  services/exact_diff/execution_settings.py   orphan_sweep_interval_sec 설정값 추가(기본 300초)
+  services/exact_diff/reimport_job.py         start_background_orphan_sweeper() 신규 함수
+  web_server.py                               _lifespan 에 sweeper 기동 배선
+  tests/test_job_recovery_stage1_progress_timestamp.py   신규 테스트 4건 추가
+
+커밋 해시(코드 저장소): 129658e8
+  코드 저장소는 remote가 설정되어 있지 않음(git remote -v 빈 출력 확인) — 로컬 커밋까지가 전부이며
+  push 대상 자체가 없음(기존 "코드 저장소 push 금지" 원칙과 동일한 결과).
+
+✅ 작업 완료 - 재이관 job 좀비 파이썬측 정리(주기적 sweeper) 구현 + DB 세션 안전성 실측 완료(오라클 안전 / PG 조건부 위험 확인)
