@@ -2529,7 +2529,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\F12-CASCADE-DELETE-SAFETY-GATE-IMPLEMENT.txt
 - 참고: E:\verify_reports\F12-HOLD3-ACTUAL-CASCADE-DELETE-EXECUTE.txt
 
-### F18. `cd1` 류(이름·코멘트 없고 값도 애매한) 컬럼의 관리컬럼 판정용 구조적 신호가 미구현이다
+### F18. ✅ 종결(사용자 결정, 2026-08-09) — `cd1`류(이름·코멘트·값 전부 애매) 컬럼은 "판별 불가"로 안전 유지, 추가 신호 탐색 안 함
 - 발견일: 2026-07-15 (세션 논의 — 문서화된 진단/설계 보고서 없음)
 - 근거: 과거 세션 메모(2026-07-15, 세션03) — "가설-검증 교차확인 구조" 관련 논의.
   이번(2026-07-31) BACKLOG-AXIS-A-3STATE-AND-CD1-STRUCTURAL-SIGNAL-ADD 에서 재론 방지를 위해 등록했다.
@@ -2548,6 +2548,10 @@ git -C E:/verify_reports worktree remove <임시경로>
   0건이라 실측 자체가 불가능했고, 합성 시나리오는 참고용으로만 남김. threshold를 제안하지
   않고 정직하게 보류로 결론지음. 재검토 시 무엇을 다시 봐야 하는지는 진단서에 정리돼 있음.
 - 근거 보고서: E:\verify_reports\F18-STRUCTURAL-SIGNAL-FALSE-POSITIVE-RATE-PRELIMINARY-DIAGNOSE.txt
+- **최종 결정(2026-08-09)**: 신호(a) TPR 0%로 무용 증명, 신호(b)는 실 양성표본 0건이라
+  검증조차 불가능 — "확인·참조를 다 했음에도 판별 불가면 그냥 판별 불가로 남기고 억지
+  판정 안 한다"는 원칙 그대로 유지하며 이 항목을 종결. 실무 영향 미미(극단적으로 정보
+  없는 컬럼 자체가 드묾) 판단.
 - 관련: F4(관리컬럼 수동 확정 override 잔여 한계) · M19(axis_a 판정 3-state 리팩터)
 
 ---
