@@ -4540,7 +4540,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\STAGE1-4-RUN-BUTTON-UNIFIED-STOP-TOGGLE-FIX.txt (§3-3)
 - 참고: E:\verify_reports\M45-RESUMABLE-CHECKPOINT-PROJECT-TABLE-SCOPE-FIX.txt
 
-### M48. requirements.txt/requirements-dev.txt에 python-multipart·pytest가 누락돼 있다(C: 원본, F29 핀 고정 때도 놓친 갭)
+### M48. requirements.txt/requirements-dev.txt에 python-multipart·pytest가 누락돼 있다(C: 원본, F29 핀 고정 때도 놓친 갭) — 해결완료(2026-08-10)
 - 발견일: 2026-08-07 (DRIVE-CONSOLIDATION-TO-X-EXECUTE 중 venv 재생성 과정에서 부수 발견)
 - 상세: `python-multipart`(엑셀 업로드 라우트의 FastAPI Form/UploadFile 사용, 미설치 시 서버
   기동 자체가 즉시 실패)와 `pytest`가 C: 원본 `.venv`에는 각각 0.0.28/9.0.3으로 수동 설치돼
@@ -4555,6 +4555,10 @@ git -C E:/verify_reports worktree remove <임시경로>
   이전 완료·검증 후 판단).
 - 관련: F29(해결완료 — 이 갭의 존재를 놓친 원인)
 - 근거 보고서: E:\verify_reports\DRIVE-CONSOLIDATION-TO-X-EXECUTE.txt
+- 재확인(2026-08-10): C:\projects\migration-validator(C: 원본)가 완전히 삭제되어 원인
+  소멸. X: 쪽 재확인 결과 requirements.txt에 python-multipart==0.0.28,
+  requirements-dev.txt에 pytest==9.0.3 모두 이미 핀 고정 반영돼 있음(기록대로).
+  코드 무변경, 해결완료로 종결. 근거 보고서: M48-REQUIREMENTS-GAP-RECHECK.txt
 
 ### M49. ✅ host/port 환경변수화 완료 — TLS·DB프리셋 정리는 배포 체크리스트 문서로 인프라 담당자에게 위임
 - 발견일: 2026-08-07 (DEPLOYMENT-IP-HOST-HARDCODING-SCOPE-DIAGNOSE) / 해결일: 2026-08-07
