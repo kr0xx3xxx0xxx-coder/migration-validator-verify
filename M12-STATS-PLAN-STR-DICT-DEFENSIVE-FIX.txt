@@ -1,0 +1,81 @@
+작업명 : M12-STATS-PLAN-STR-DICT-DEFENSIVE-FIX
+✅ 작업 완료 - M12-STATS-PLAN-STR-DICT-DEFENSIVE-FIX : _plan_summary group_by_cols/sum_cols str 원소 방어처리 완료, 회귀 0건
+
+────────────────────────────────────────────────────────────────────────────
+1. 배경
+────────────────────────────────────────────────────────────────────────────
+STATS-PLAN-SERVICE-GROUPBY-STR-DICT-CHECK.txt(2026-07-27) 결론:
+services/stats_validation_plan_service.py:1188/1191(당시 라인) 의 c.get() 이
+원소를 dict 로만 가정해, str 원소가 들어오면 AttributeError('str' object has no
+attribute 'get') 로 크래시하는 **실존 잠재 결함**이나, 입력 출처 분리·pydantic
+list[dict] 게이트·상류 선차단(candidate_engine.py:77) 3중 방어로 현재 production
+경로에서는 도달 불가 → 당시엔 미수정.
+
+이번 작업: 상류 게이트가 바뀌면 살아나는 잠재 결함이므로, 지금 미리 방어선을 추가.
+
+────────────────────────────────────────────────────────────────────────────
+2. 수정 내역
+────────────────────────────────────────────────────────────────────────────
+파일: services/stats_validation_plan_service.py
+
+- 신규 헬퍼 _display_col_name(c) 추가 (1181~1189행)
+    - c 가 dict 면 기존과 동일하게 c.get("tgt_col") or c.get("target_column", "")
+    - c 가 str 이면 그 문자열 자체를 컬럼명으로 사용 (크래시 대신 안전 처리)
+    - 그 외 타입이면 "" 반환
+- _plan_summary() 의 group_by_cols(구 1188행 근방 → 현재 1211행) / sum_cols
+  (구 1191행 근방 → 현재 1212행) 리스트 컴프리헨션을 [_display_col_name(c) for c in ...]
+  로 교체 (기존 c.get(...) 직접 호출 제거)
+
+방식 근거: 같은 파일 체인의 groupby_estimate_service.py:207 은 non-dict 원소를
+"버리는" 방어(cardinality 산정용 — str 만으로는 고유값 정보가 없어 버림이 합리적)
+이지만, _plan_summary 는 "표시용 컬럼명 리스트"가 목적이므로 str 원소는 버리지
+않고 그 값 자체를 컬럼명으로 노출하는 편이 목적에 맞다 — 진단 보고서의 권장(별건
+제안)과 동일 방향. 새 기능 추가 아님, 기존 dict 케이스 동작은 완전히 동일.
+
+────────────────────────────────────────────────────────────────────────────
+3. 검증
+────────────────────────────────────────────────────────────────────────────
+[신규 단위테스트] tests/test_task12_b.py::test_12b_plan_summary_str_element_defensive
+  - selected_group_by=["TXN_TYPE", {"tgt_col": "GRADE_CODE"}], selected_sum=["TXN_AMT"]
+    (str 과 dict 혼합 인위 주입) → _plan_summary() 호출
+  - 수정 전 코드로 동일 입력 시도 시 AttributeError('str' object has no attribute
+    'get') 크래시 확인(진단 보고서 P1 재확인과 동일 증상)
+  - 수정 후: 크래시 없이 통과
+      summary["group_by_cols"] == ["TXN_TYPE", "GRADE_CODE"]
+      summary["sum_cols"]      == ["TXN_AMT"]
+
+[기존 dict 케이스 회귀 없음 확인]
+  test_12b_plan_summary_has_col_names               : PASS (dict 전용, 기존 동일)
+  test_12b_plan_summary_uses_tgt_col_or_target_column: PASS (tgt_col/target_column
+                                                        우선순위 기존 동일)
+
+[테스트 서브셋 + baseline 대조]
+  python -m pytest tests/test_task12_b0.py tests/test_task12_b.py tests/test_task12_c.py -q
+    수정 전(baseline, CHECK.txt 기록) : 94 passed, 7 subtests passed
+    수정 후(신규 테스트 1건 추가)     : 95 passed, 7 subtests passed  ← 신규 회귀 0건
+
+[CLAUDE.md 필수 회귀 최종 1회]
+  python samples/test_virtual_cases.py   → 8/8 통과
+  python samples/test_complex_cases.py   → 5/5 통과 (FAIL 신뢰도 흐름 포함)
+
+────────────────────────────────────────────────────────────────────────────
+4. 커밋
+────────────────────────────────────────────────────────────────────────────
+저장소: migration-validator (코드 저장소, push 안 함 — 규칙대로 verify repo 에만 push)
+커밋   : 0ba2dd9ee92729d1075532509a260ba6e2b41513
+메시지 : fix(stats-plan): _plan_summary group_by_cols/sum_cols str 원소 방어처리
+         (M12-STATS-PLAN-STR-DICT-DEFENSIVE-FIX)
+변경   : services/stats_validation_plan_service.py, tests/test_task12_b.py (2 files, +30/-6)
+
+────────────────────────────────────────────────────────────────────────────
+5. 요약
+────────────────────────────────────────────────────────────────────────────
+- 대상: services/stats_validation_plan_service.py:1211(group_by_cols) / 1212(sum_cols)
+  (신규 헬퍼 _display_col_name 은 1181~1189행)
+- str 입력 인위 주입 → 안전 처리(크래시 대신 문자열을 컬럼명으로 사용) 확인
+- dict 입력 정상 케이스 100% 동일 동작 확인(회귀 0건)
+- 관련 테스트 서브셋 94→95 passed(신규 1건 추가, 기존 실패 0건)
+- CLAUDE.md 필수 회귀(virtual 8/8, complex 5/5) 통과
+- 코드 수정 없이 결론만 냈던 CHECK.txt 와 달리, 이번엔 방어 코드 실제 추가·커밋 완료
+
+✅ 작업 완료 - M12-STATS-PLAN-STR-DICT-DEFENSIVE-FIX : _plan_summary group_by_cols/sum_cols str 원소 방어처리 완료, 회귀 0건
