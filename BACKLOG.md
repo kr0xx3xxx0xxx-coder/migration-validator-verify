@@ -4798,3 +4798,37 @@ git -C E:/verify_reports worktree remove <임시경로>
 | routes/ 방언 오라클 라이브 실측 3항목 | DB 서버 TCP 미도달 | `ROUTES-DIAGNOSIS-LIMIT-DIALECT-SECONDARY-CHECK.txt` |
 | rename 재래핑 별칭 오라클 실 DB 확인 | 내부망 단절 | `AGG-DIFF-ROUTE-UNDERSCORE-M-ALIAS-FIX.txt` |
 | agg_contribution 4방언 분기 실 DB 실행 검증 | 내부망 단절 | `AGG-CONTRIBUTION-SCOPE-DIALECT-AND-ALIAS-FIX.txt` |
+
+### NXDTV-RENAME. ✅ 1단계 완료 — 화면 표시명(사이드바+로그인realm) nxDTV로 변경, 2~4단계는 보류
+- 발견/계기: 2026-08-09 (사용자 — "정식 명칭은 nxDTV(Data Transfer Verification)")
+- 범위조사(NXDTV-RENAME-SCOPE-DIAGNOSE, 코드 무변경): 폴더명 변경은 코드 자체는
+  무위험(하드코딩 절대경로 0건, `config/db_paths.py` 동적계산)이나 **Claude Code
+  auto-memory 프로젝트 키가 폴더경로 슬러그 기반이라, 폴더명 변경 시 누적 메모리
+  (~130항목) 유실 위험** 발견 — 되돌리기 어려운 변경이라 착수 전 메모리 이관계획
+  선확정 필요. 화면 표시명은 `ui/tabler_renderer.py` 사이드바 브랜드 블록 단일
+  출처(2298~2301행), 로고는 이미지 아닌 CSS 텍스트 배지라 순수 문자열 변경.
+  코드 내부 "migration_validator" 리터럴 825건 확인했으나 그보다 "mv" 축약 접두사
+  (CSS class/JS 함수명/env `MV_DATA_DIR`)가 훨씬 광범위(수천 건, ui/*.py 완료모듈
+  다수) — 화면 비노출 순수 내부 관례라 4단계로 최하위 우선순위 권고.
+  단계: 1(화면표시명, 저위험) → 2(폴더명, memory이관 선확정 필요) → 3(DB파일명,
+  49개 파일 동시수정+회귀 필요, 보류 권장) → 4(mv 접두사 전면, 강력 보류 권장).
+- **1단계 해결 완료(2026-08-09, NXDTV-DISPLAY-NAME-CHANGE + 후속
+  NXDTV-AUTH-REALM-NAME-CHANGE, 코드 커밋 78474c5e/37f21f12)**: 사이드바 브랜드
+  타이틀"Migration Validator"→"nxDTV", 서브"데이터 이관 검증 플랫폼"→"데이터이관
+  검증프로그램", 로고 배지"M"→"N" 실 브라우저 Playwright 클릭으로 확인(페이지 전체
+  "Migration Validator" 잔존 0건). 범위조사가 놓쳤던 Basic Auth realm(`services/
+  auth/middleware.py:35`, 로그인 팝업에 노출)도 발견해 후속으로 nxDTV 변경 — **최신
+  Chromium이 피싱방지로 팝업에 realm 텍스트 자체를 더는 안 그려서, "화면 확인"이
+  구조적으로 불가능함을 발견하고 HTTP 프로토콜 레벨(`WWW-Authenticate` 헤더) 실측
+  으로 검증방식 자체를 재설계**(유일하게 유효한 증거). 신규 회귀 0건.
+  **⚠️ 작업 중 세션충돌 인시던트**: 검증용 임시 계정파일로 공용 8000서버를
+  재기동하면서 다른 활성 세션(동시에 "로그인 안 됨" 원인조사 중이던 세션)의 계정
+  저장소를 일시적으로 덮어씀 — 스스로 감지해 즉시 보고, 사용자 확인 후 정상 DB
+  계정 저장소로 복구(realm=nxDTV 값은 유지 확인). 화면자동화(SendKeys) 중 다른
+  세션 대화창 입력란에 문자열이 실수로 입력됐으나 전송(Enter)은 안 됨 — 사용자가
+  직접 그 창을 확인해 정리할 것을 권고함.
+- 잔여: 2단계(폴더명, 메모리이관 선확정 필요)·3단계(DB파일명)·4단계(mv 접두사) 전부
+  미착수, 착수 여부 결정 필요.
+- 근거: E:\verify_reports\NXDTV-RENAME-SCOPE-DIAGNOSE.txt
+- 근거: E:\verify_reports\NXDTV-DISPLAY-NAME-CHANGE.txt
+- 근거: E:\verify_reports\NXDTV-AUTH-REALM-NAME-CHANGE.txt
