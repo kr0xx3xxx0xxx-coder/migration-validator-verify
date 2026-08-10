@@ -4111,11 +4111,30 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 대응 방향: UI 입력칸 제거, 또는 "드라이버가 UTF-8 로 고정(설정 불가)" 안내 표기.
 - 참고: E:\verify_reports\ORACLE-CHARSET-COLLATION-EXACT-DIFF-DIAGNOSE.txt
 
-### M5. `tests/test_step_tab_dom_stability.py` 8건이 사전 존재 실패 상태('죽은 빨간 불')
-- 발견일: 2026-07-28
+### M5. ✅ 해결 완료 — 전제 정정(이미 5일 전 다른 세션이 해소, 8/8 정상) + 계약 방식으로 전환
+- 발견일: 2026-07-28 / 해결일: 2026-08-10 (M5-STEP-TAB-DOM-STABILITY-CONTRACT-CONVERT,
+  코드 커밋 727a632a)
 - 근거 보고서: `WHITEBOX-TEST-CONTRACT-CONVERSION-PHASE1.txt` (§6)
 - 상세: nav/step 계열인데 Tier 1 8파일 목록에 없었다. 파일럿이 지적한 '죽은 빨간 불' 과 같은 성격.
+- **⚠️ 중요 정정**: 이 항목의 전제("8건 죽은 빨간불") 자체가 **이미 5일 전(2026-08-03,
+  a06827ec, STEP-TAB-DOM-STABILITY-TEST-SQLITE-GUARD-FIX)에 다른 세션이 해소**해서,
+  오늘 착수 시점 실측 결과 8/8 전부 정상 통과 중이었음이 밝혀짐. 그 옛 관찰(phase1,
+  7/28)이 F5-TIER2-BATCH1-IMPLEMENT(8/9) 보고서 "별건" 절에 그대로 재인용됐고, 이
+  BACKLOG 항목에도 그 옛 사실이 그대로 남아있던 것 — **지시서가 직전 보고서를 인용만
+  하고 최신 HEAD 재확인 없이 넘어가면 시차 오류가 반복될 구조적 위험이 있다는 걸
+  스스로 지적**(향후 지침 발행 시 참고할 것: 착수 전 최신 HEAD 재확인 절차가 본질적
+  으로 더 신뢰도 높음).
+- **실제 작업**: "죽은 빨간불 수정"이 아니라 "이미 정상 통과 중인 화이트박스 하니스
+  배관을 공용 계약헬퍼(`contract_utils`)로 정리"로 방향 재정의해 진행. 1파일·8케이스
+  전환(±0), 새 헬퍼 발명 없이 기존 3종(listener_body/run_node/inline_scripts) 재사용.
+  mutation 5종 주입 → 5/5 탐지(놓침 0). 소급 3개 시점(도입/붕괴/수정) 중 붕괴 시점
+  (15936137)에서 원본 8 failed였던 걸 전환본이 8 passed로 흡수(가짜회귀 흡수, phase1·
+  F5와 동일 성격). 인접 68파일 **격리 대조**(다른 세션 오염 방지 위해 순수 clean
+  worktree 2회 별도 실행 비교) — 차이 1건은 이미 F5 배치1이 문서화한 사전존재 flaky
+  임을 재확인(신규 회귀 0건). 다른 세션의 M69 직접커밋 발생을 인지해 자기 커밋에
+  대상파일 1개만 포함됐는지 확인.
 - 참고: E:\verify_reports\WHITEBOX-TEST-CONTRACT-CONVERSION-PHASE1.txt
+- 참고: E:\verify_reports\M5-STEP-TAB-DOM-STABILITY-CONTRACT-CONVERT.txt
 
 ### M6. ✅ 해결 완료 — ORA-03136(inbound connection timed out)을 오라클 어댑터가 timeout 으로 판정한다
 - 해결일: 2026-08-02 (ORACLE-CONN-ERROR-TIMEOUT-MISCLASSIFICATION-FIX)
@@ -4950,7 +4969,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 근거: 채팅 조사 결과(별도 파일 미작성).
 - 근거: E:\verify_reports\CHARACTER-PK-BOUNDARY-FIX-LIVE-RECONFIRM.txt
 
-### M69. ✅ 파이썬쪽 고아job 정리(주기적 sweeper) 완료 — ⚠️ 실측으로 PostgreSQL 좀비 DB세션 위험 확정(오라클은 안전), 실제 종료(pg_terminate_backend)는 완료모듈이라 별도 승인 대기
+### M69. ✅ 완전 해결 — 파이썬쪽 고아job 정리 + PostgreSQL 좀비세션 실제 종료(pg_terminate_backend)까지 실배선 완료
 - 발견/계기: 2026-08-09 (M68의 "그룹 전환 시 방치job" 확장 — 사용자 우려: "원본/
   목적에 명령 날아가서 작업중인 상태로 계속 남으면 심각해진다" / 해결:
   ORPHANED-REIMPORT-JOB-CLEANUP-AND-DB-SESSION-SAFETY, 코드 커밋 129658e8)
@@ -4985,9 +5004,31 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 실측 검증: 실서버 강제종료→재기동 시 실제 RUNNING 행이 자동 ORPHANED 전이 확인.
   단위테스트로 "아무도 조회 안 해도 sweeper 혼자 좀비 회수" 확인, "정상 진행 중
   job은 여러 주기 동안 절대 안 건드림"(오탐 방지) 확인. 신규 회귀 0건.
-- **결정 필요**: PostgreSQL 좀비 세션을 실제로 끊는 `pg_terminate_backend()` 배선
-  착수 여부(완료 모듈 수정 필요, 별도 승인 대상).
+- **`pg_terminate_backend` 실배선 완료(2026-08-10, M69-PG-TERMINATE-BACKEND-WIRE,
+  코드 커밋 6bb63ee0)**: **지침이 지목한 완료모듈(`pk_range_chunk.py`/
+  `agg_contribution.py`)은 실제로 한 줄도 안 건드림** — 실제 PG 연결이 열리는
+  진짜 지점은 `dialects/postgresql.py::raw_connect()` 단 한 곳뿐임을 코드로
+  재확인해 그곳에만 PID 캡처 배선(최소침습). **지침 설계상 구조적 허점도 스스로
+  보완**: sweeper(스레드만 죽는 경우)뿐 아니라, **프로세스 자체가 통째로 죽으면
+  sweeper도 같이 사라져 PID를 아는 주체가 없어지는 문제**를 발견해, PID를
+  `exact_diff_run.pg_sessions_json`(신규 컬럼)에 영속화하고 재기동 시 고아확정
+  경로(`mark_startup_orphans`)에도 동일 종료 로직 배선 — 두 경로(스레드사망/
+  프로세스전체사망) 모두 커버.
+  **안전장치**: PID 재사용 위험을 `backend_start`(마이크로초 정밀 세션시작시각)
+  대조로 방어(불일치 시 PID_REUSED로 절대 안 끊음) — "대조 없이도 무해하다"고
+  안 우기고 "재사용 PID를 끊는 게 무해하다는 근거는 없다"로 정직하게 평가.
+  **숨은 버그 사전차단**: PID 캡처 쿼리가 암묵적 트랜잭션을 열어 그 직후 실행되는
+  스트리밍의 `set_session(readonly)`이 깨질 뻔한 걸 실 DB 테스트로 발견해 즉시
+  rollback 추가.
+  **실측(taskkill 전체 사이클)**: 강제종료 후 10초까지도 좀비 세션 생존 재확인
+  → 재기동 순간 `mark_startup_orphans` 호출 즉시 **0.21초 만에 세션 소멸**.
+  스레드만 죽는 경우도 동일 0.21초. 오탐방지(정상job 3회 offset 반복확인, 0건
+  오탐), 오라클 무회귀(0줄 diff+전용 정적계약테스트), 비밀번호 미저장(테스트로
+  고정) 전부 실측 확인. 신규 21건 테스트, 관련 서브셋 195 passed(사전존재 실패
+  3건 baseline 대조 확인, 그중 1건은 이미 드리프트된 계약이라 숫자만 맞춰
+  덮지 않고 정직하게 실패 유지).
 - 근거: 채팅 조사 결과(별도 파일 미작성) + E:\verify_reports\ORPHANED-REIMPORT-JOB-CLEANUP-AND-DB-SESSION-SAFETY.txt
+- 근거: E:\verify_reports\M69-PG-TERMINATE-BACKEND-WIRE.txt
 
 ### M70. 미결정 사항 일괄 기록 — 지난 세션 도중 답변 없이 넘어간 항목 4건
 - 발견/계기: 2026-08-10 (사용자 요청 — "네가 지침결과 확인하면서 의견 준 것들에
