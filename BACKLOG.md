@@ -2588,7 +2588,34 @@ git -C E:/verify_reports worktree remove <임시경로>
 - **지금 구현 여부: 보류**(이득구간 극히 좁음+이미 존재+병목이 다른 곳+전제 미검증+비용 과다,
   5가지 근거). 재개 조건: P1·P2 완료 후 P4 A/B에서 2~3레벨 하강이 실제 이득을 내면, "신규
   전략"이 아니라 "기존 wave 파라미터 확장"으로 재검토.
+- **P1 해결 완료(2026-08-09, N1-P1-HASH-PATH-PREDICATE-OR-REEVAL-FIX, 코드 커밋 425e2304)**:
+  `sql_scope_inject.py::build_scope_set_condition`을 OR-of-AND→IN리스트/row-value IN으로
+  교체(NULL 포함·이질적 shape 그룹만 정확성 우선으로 기존 방식 유지 폴백). `_hash_path_
+  predicate` 자체는 무수정이라 wave 루프·가지치기 로직 전혀 안 건드림. **오라클 실측이
+  이론값을 정확히 재현**: 기울기 0.4549→0.0090초/경로(≈50배 완화), 40경로 기준
+  18.29초→0.94초(≈19배 단축). WHERE절 canonical 해시식 등장횟수 직접 확인(k=3일 때
+  3회→1회). 작업 중 동시세션 커밋으로 자기 미커밋 변경이 일시 소실→복원되는 상황을
+  감지해, 재커밋 전 테스트 재실행으로 내용 무결성 재확인 후 커밋(오늘 반복된 공유
+  작업트리 위험에 대한 방어적 재확인). PG 라이브 EXPLAIN 포함 회귀 무관 확인.
+- **P2 해결 완료(2026-08-09, N1-P2-PK-INDEXED-REAL-CHECK-WIRE, 코드 미커밋 — 승인대기)**:
+  `pk_indexed` 하드코딩 지점 3곳(key_evidence.py 후보생성·agg_diff_route.py TRUSTED_
+  PHYSICAL_PK CHUNK판정·grid_helpers.py 화면표시) 전부 4방언 카탈로그 실측 배선으로
+  교체(PG: pg_constraint→pg_index, 오라클: ALL_CONSTRAINTS→ALL_INDEXES, MySQL:
+  information_schema.statistics EXISTS, MSSQL: sys.key_constraints→sys.indexes
+  is_disabled — SQL Server의 "제약은 살아있는데 인덱스만 비활성" 상태를 잡는 유일한
+  방법). **오라클 실DB에서 인덱스 없는 PK를 실제로 재현**(`ALTER TABLE...DISABLE
+  CONSTRAINT`로 뒷받침 인덱스 실제 제거) — is_pk=True(불변, 회귀 없음)·indexed=False
+  (실측 정확) 확인. 캐시 무효화도 처리(`EVIDENCE_VERSION` cke-1→cke-2, 새 필드 없는
+  옛 캐시가 bool(None)=False로 오판되는 걸 방지). 화면표시 전용 미확정 분기는 하드코딩
+  true→false로("판별불가=안전 오판" 방지 원칙과 일치). 지시서 범위를 넘어 3번째
+  하드코딩 지점(TRUSTED_PHYSICAL_PK CHUNK판정)까지 스스로 찾아 함께 배선. 62개 영향
+  파일 전수 실행 785 passed, 실패 17건 전부 baseline 대조로 무관 확인. **동시세션 위험
+  스스로 감지**(작업 중 HEAD가 다른 세션 커밋으로 이동, N1-P1이 다른 파일을 동시
+  작업 중임을 인지) — 실제 파일 겹침은 없음(N1-P1: sql_scope_inject.py / N1-P2: 상기
+  12개 파일, 교집합 0) 확인됨. 코드 커밋은 사용자 승인 후 진행.
 - 근거: E:\verify_reports\N1-MERKLE-TREE-FEASIBILITY-DIAGNOSE.txt
+- 근거: E:\verify_reports\N1-P1-HASH-PATH-PREDICATE-OR-REEVAL-FIX.txt
+- 근거: E:\verify_reports\N1-P2-PK-INDEXED-REAL-CHECK-WIRE.txt
 
 ---
 
