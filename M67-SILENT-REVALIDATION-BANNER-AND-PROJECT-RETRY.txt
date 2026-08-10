@@ -1,0 +1,127 @@
+작업명 : M67-SILENT-REVALIDATION-BANNER-AND-PROJECT-RETRY
+✅ 작업 완료 - 재검증 실패 비차단 배너 + 프로젝트 목록 판정 1회 재시도 구현, 실브라우저 클릭/새로고침으로 4개 시나리오 전부 검증
+
+════════════════════════════════════════════════════════════════════════
+1. 배경 / 범위
+════════════════════════════════════════════════════════════════════════
+- DB-CONNECTION-PROFILE-LOSS-ON-RESTART-DIAGNOSE 개선안 1·2번 + M67-CONN-PAIRS-MOVE-TO-SQLITE(같은
+  초기화 체인, Pair 서버 SQLite 이관) 확인 후 착수.
+- 개선안 1번(재검증 실패 비차단 배너)과 2번(프로젝트 목록 판정 1회 재시도)을 함께 처리(같은 페이지
+  로드 시 재검증 영역).
+- 개선안 3번(Pair·활성경로·선택 프로젝트를 서버 SQLite로 이관하는 구조 변경)은 이번 범위 밖 — Pair 는
+  이미 M67-CONN-PAIRS-MOVE-TO-SQLITE 로 이관 완료, 활성 경로(mv_active_path)/선택 프로젝트
+  (work_project_id)는 여전히 localStorage 기반 재검증 유지(지시대로 손대지 않음).
+
+════════════════════════════════════════════════════════════════════════
+2. 변경 파일 / 지점
+════════════════════════════════════════════════════════════════════════
+[수정] ui/tabler_renderer.py
+  1) 비차단 배너 DOM: 2502~2508행 — #mvRevalidationFailBanner(기본 display:none, #mvNoProjectBanner
+     바로 아래). 닫기 버튼은 인라인 onclick 으로 display='none'(다른 안내 배너와 동일 패턴).
+  2) 배너 표시 헬퍼: 14368~14375행 — _showRevalidationFailBanner(pairName). 실패 원인은 담지 않고
+     "이전 접속(...)이 재검증에 실패해 연결이 해제되었습니다. 다시 접속해주세요."만 표시.
+  3) _restoreActivePath(): 14379~14400행 — 재검증 실패(ok===false) 분기에서 기존
+     _clearSavedActivePath() 호출 직후 _showRevalidationFailBanner(name) 추가(그 외 로직 무수정).
+  4) mvRestoreWorkProject(_retried): 33934~33947행 — /projects/list 조회 결과 project_id 를 못 찾으면
+     (또는 fetch 자체가 실패하면) 1차 판정에서 즉시 지우지 않고 600ms 대기 후
+     mvRestoreWorkProject(true) 로 1회만 재시도. 재시도에서도 못 찾으면 그때 mvSetWorkProjectId('')+
+     mvSelectWorkProject('','') 로 지운다(무한 재시도 금지 — 재귀 호출 시 인자 true 로 1회 제한).
+
+[수정] tests/test_project_scope_dom.py — mvRestoreWorkProject 계약 변경(즉시 삭제 → 1회 재시도 후
+  삭제)에 맞춰 기존 test_deleted_project_not_restored 의 대기시간을 5ms→700ms 로 늘리고
+  "1차 판정에서 즉시 지우지 않음"(deletedNotRemovedBeforeRetry) 검증을 추가. 재시도 성공 시 정상
+  복원되는지 확인하는 신규 테스트 test_restore_retry_succeeds_when_second_call_finds_project 추가
+  (fetch 를 1차 빈 응답→2차 정상 응답으로 스텁, retryCallCount===2 로 "1회만" 도 함께 검증).
+
+════════════════════════════════════════════════════════════════════════
+3. 검증(필수, 실제 클릭) — scratchpad/m67b_silent_revalidation_browser_verify.py, Playwright 실행
+════════════════════════════════════════════════════════════════════════
+격리된 MV_DATA_DIR(scratchpad/m67b_verify_data) + MV_AUTH_DISABLED=1 로 임시 서버(:8139) 기동,
+운영 db/migration_validator.db 는 건드리지 않음. 결과 JSON: scratchpad/m67b_verify_result.json.
+
+[시나리오 A] 재검증 실패 → 비차단 배너 (오라클처럼 이 환경에서 도달 불가능한 DB로 실패시켜 확인)
+  - Oracle_asis(src)/Oracle_tobe(tgt) 프로필을 이 환경에서 도달 불가능한 192.168.0.151:1521 로 등록
+    (DB-CONNECTION-PROFILE-LOSS-ON-RESTART-DIAGNOSE 실측과 동일 호스트).
+  - 실제 클릭으로 프로젝트 생성("M67검증프로젝트A") + 작업 프로젝트로 선택.
+  - 체크박스 모드로 검증 경로 "Oracle_asis → Oracle_tobe(M67B검증)" 실제 클릭 생성.
+  - mv_active_path 를 그 Pair 이름으로 저장(직전 세션에 접속중이었다고 가정) 후 새로고침 →
+    초기화 체인이 _restoreActivePath() 로 원본+목적지 순차 실접속 재시도(각각 실TCP 타임아웃,
+    총 40.86초 소요) → 실패 → 배너 실제로 뜸.
+  - 배너 문구(실측): "이전 접속(Oracle_asis → Oracle_tobe(M67B검증))이 재검증에 실패해 연결이
+    해제되었습니다. 다시 접속해주세요." → A_banner_mentions_pair=true.
+  - mv_active_path localStorage 제거 확인(A_active_path_cleared=true).
+  - 배너가 떠 있는 상태에서 실제 클릭으로 다른 탭(개별검증) 이동 → 정상 전환, 아무것도 막히지 않음
+    (A_tab_switch_not_blocked=true). DB 프로필/검증 경로 목록도 배너 아래에서 그대로 조작 가능
+    (스크린샷 A1 참고 — 상세/삭제/접속 버튼 전부 활성).
+  - 닫기 버튼 실제 클릭 → 배너 display:none 전환(A_banner_closable=true).
+  - 스크린샷: A1_banner_shown.png(배너 노출 + 목록 조작 가능), A2_banner_closed.png(닫기 후).
+  - (부수 발견, 이번 범위 밖) 상단 Source/Target 배지(#srcBadge/#tgtBadge)는 재검증 실패 후에도
+    "· 접속중"으로 남아있음(스크린샷 A1) — selectPair()가 실제 접속 판정 이전에 배지를 낙관적으로
+    "접속중"으로 먼저 세팅하는 기존 로직(connectPair 14252행, _setSelectedBadge 13414행)이 원인으로,
+    이번 커밋과 무관한 기존 결함이다. 지시 범위(배너·재시도) 밖이라 손대지 않았고, 별도 보고만 남긴다.
+
+[시나리오 B1] 프로젝트 재시도 성공(서버 기동 직후 빈 응답 흉내)
+  - 프로젝트 API 로 생성("M67검증프로젝트B1") 후 work_project_id 로 저장, Playwright route 로 첫
+    /projects/list 응답만 {rows:[]}(빈 응답)로 가로채고 이후 요청은 실서버로 통과시킴.
+  - 새로고침 → 1차 판정 실패(빈 응답) → 600ms 대기 후 재시도(2번째 /projects/list 는 실서버 응답,
+    정상 프로젝트 반환) → 정상 복원.
+  - 실측: B1_route_call_count=2(1차 실패 + 재시도 1회만, 무한 재시도 아님), B1_restored_project_id
+    ="12"(저장한 pid 그대로 유지), B1_topbar_name="M67검증프로젝트B1"(상단에 정상 복원 표시).
+  - 스크린샷: B1_retry_success_restored.png(상단 작업 프로젝트에 이름 표시 + "작업 프로젝트 해제"
+    버튼 노출로 정상 선택 상태 확인).
+
+[시나리오 B2] 재시도 후에도 실패(프로젝트 실삭제) → 지워지는지
+  - 프로젝트 API 로 생성 후 실제로 soft-delete(POST /projects/{id}/delete) → work_project_id 로 저장
+    후 새로고침.
+  - 300ms 시점(재시도 타이머 600ms 이전): B2_not_removed_before_retry=true — 1차 판정에서 즉시
+    지우지 않음을 확인.
+  - 1500ms 시점(재시도 완료 이후): B2_removed_after_retry=true, B2_topbar_after="프로젝트 미선택"
+    — 재시도에서도 못 찾으면 정상적으로 지워짐 확인.
+  - 스크린샷: B2_retry_then_cleared.png("작업 프로젝트: 프로젝트 미선택" 확인).
+
+검증 중 진단 1건: Playwright 서버 프로세스의 stdout 을 PIPE 로만 캡처하고 드레인하지 않으면(기존
+scratchpad/m67_conn_pairs_browser_verify.py 와 동일 패턴) 오라클 접속 실패 로그가 누적돼 Windows
+파이프 버퍼(64KB)가 가득 차 서버가 stdout 쓰기에서 블로킹 → 이후 모든 요청이 멎는 현상을 발견.
+검증 스크립트에서 서버 stdout 을 로그 파일로 리다이렉트해 해소(코드 수정 아님, 검증 스크립트 한정).
+
+════════════════════════════════════════════════════════════════════════
+4. 테스트 — 관련 서브셋 + baseline 대조, CLAUDE.md 필수 회귀
+════════════════════════════════════════════════════════════════════════
+■ 관련 서브셋(11개 파일, active_path/conn_pair/project_scope/pair_connect/reload 관련) baseline 대조
+  - baseline(git worktree 로 HEAD 별도 비교, stash 미사용): 6 failed, 58 passed, 3 xfailed
+    (전부 사전 존재 실패 — test_active_path_header_and_profile_order 2건, test_single_auto_restore
+    3건, test_remove_current_save_and_add_button_labels 1건. 이번 변경 대상 함수와 무관, 기존부터
+    실패)
+  - 변경 후: 6 failed, 59 passed(+1, 신규 재시도-성공 테스트), 3 xfailed → 신규 회귀 0건, 실패 목록
+    완전 동일.
+■ tests/test_project_scope_dom.py 단독: 7/7 통과(재작성한 test_deleted_project_not_restored +
+  신규 test_restore_retry_succeeds_when_second_call_finds_project 포함).
+■ CLAUDE.md 필수 회귀 최종 1회
+  python samples/test_virtual_cases.py   → 8/8 통과
+  python samples/test_complex_cases.py   → 5/5 통과
+
+════════════════════════════════════════════════════════════════════════
+5. git
+════════════════════════════════════════════════════════════════════════
+  커밋: d3b7b2660f636cb78fe51a159bc83d30fdc82b90
+        fix(conn): 재검증 실패 비차단 배너 + 프로젝트 목록 판정 1회 재시도
+        (M67-SILENT-REVALIDATION-BANNER-AND-PROJECT-RETRY)
+  diffstat: 2 files changed, 58 insertions(+), 9 deletions(-)
+    ui/tabler_renderer.py, tests/test_project_scope_dom.py
+  pre-commit 비밀번호 스캔 통과(staged 2개 파일, 지문 4건 대조).
+  착수 시점 다른 세션이 code repo 에서 동시에 작업 중이었다(routes/agg_diff_route.py,
+  services/db_adapters/mssql.py·mysql.py·oracle.py, services/db_statistics_service.py 등이
+  진행 중 새로 M 로 나타남) — 그 파일들은 전혀 건드리지 않고 내 2개 파일만 `git add` 로 특정해
+  staging 후 `git diff --cached --name-only` 로 정확히 2개인지 확인하고 커밋했다.
+  코드 저장소는 remote 미설정(git remote -v 빈 결과, 2026-08-10 재확인) → push 대상 없음.
+
+════════════════════════════════════════════════════════════════════════
+6. 재기동 시각 / HEAD
+════════════════════════════════════════════════════════════════════════
+  코드 저장소 HEAD  : d3b7b2660f636cb78fe51a159bc83d30fdc82b90
+  검증용 임시 서버 기동 2026-08-10 17:2x~17:36(KST, :8139, MV_DATA_DIR=scratchpad/m67b_verify_data)
+  — 운영 :8000 서버는 이번 검증에서 건드리지 않았다(별도 격리 인스턴스로만 검증). 운영 서버를
+  재기동해야 이번 변경이 실제로 적용된다(기존 관행과 동일).
+
+작업명 : M67-SILENT-REVALIDATION-BANNER-AND-PROJECT-RETRY
+✅ 작업 완료 - 재검증 실패 비차단 배너 + 프로젝트 목록 판정 1회 재시도 구현, 실브라우저 클릭/새로고침으로 4개 시나리오 전부 검증
