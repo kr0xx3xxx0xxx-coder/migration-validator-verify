@@ -1,0 +1,41 @@
+작업명: C-DRIVE-LEGACY-SOURCE-DELETE
+✅ 작업 완료 - C-DRIVE-LEGACY-SOURCE-DELETE
+
+[1. 삭제 전 최종 재확인 결과]
+
+(1) 이관 파일 X드라이브 실존 확인
+  X:\Projects\Migration_Validator\scripts\dev_e2e\oracle_parallel_50m_remeasure.py
+  존재함 (9,383 bytes, 2026-08-10 17:24).
+  C드라이브 원본과 diff --strip-trailing-cr 비교 → 내용 완전 동일(221줄, 221줄).
+  (raw diff는 전체 라인이 다르게 나왔으나 원인은 CRLF/LF 개행 차이뿐 —
+   file 명령으로 X쪽만 "CRLF line terminators" 확인, 내용 diff는 0)
+
+(2) C드라이브 신규 변경사항 재확인 (조사 이후 시간차 동안 추가 작업 여부)
+  - C드라이브 마지막 커밋: 71203df6c118... (2026-08-07 14:21:41 +0900)
+  - git cat-file -t 71203df6... → X드라이브 저장소에도 동일 커밋 존재 확인
+    (C가 X 히스토리의 완전한 부분집합임을 재확인, X는 1951커밋 vs C는 1879커밋)
+  - C드라이브 마지막 커밋 시각 이후 mtime 기준 변경 파일 검색
+    → 추적대상 소스(.py/.js/.html/.md/.json) 중 변경분 0건
+    → 변경된 파일은 전부 .gitignore 대상 런타임 db/업로드 파일뿐
+      (db/migration_validator.db, tests/_d8_5_state_test.db,
+       db/exact_diff_runs.db, data/uploads/... 배치 엑셀 2건)
+      → git check-ignore로 전부 .gitignore 매칭 확인(db/*.db, *.db 규칙)
+  - 결론: 조사 이후 C드라이브에 새로운 소스 작업 흔적 없음, 삭제 안전
+
+(3) 인접 디렉토리 범위 확인
+  C:\projects\ 하위 migration-validator_backup_* 6종, 기타 인접 디렉토리는
+  이번 삭제 대상에서 제외 — migration-validator 디렉토리 자체만 정확히 지정하여 삭제.
+
+[2. 삭제 실행]
+  PowerShell Remove-Item -LiteralPath 'C:\projects\migration-validator' -Recurse -Force
+  실행 완료.
+
+[3. 검증 결과]
+  - Test-Path 'C:\projects\migration-validator' → False (DELETED_OK, 경로 실제 소멸 확인)
+  - X드라이브 저장소 영향 없음 확인:
+    - git log -1 HEAD = 57dbd4b5... (N1-P2-PK-INDEXED-REAL-CHECK-WIRE, 삭제 전과 동일)
+    - git ls-files 개수 = 2915 (정상)
+    - git status: 기존에 이미 있던 .claude/settings.json 미스테이징 변경 외 이상 없음
+    - 인접 디렉토리(migration-validator_backup_* 6종 등) 미확인/미접촉
+
+✅ 작업 완료 - C-DRIVE-LEGACY-SOURCE-DELETE
