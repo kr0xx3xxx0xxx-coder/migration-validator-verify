@@ -1,0 +1,131 @@
+작업명 : N1-P1-HASH-PATH-PREDICATE-OR-REEVAL-FIX
+✅ 작업 완료 - services/sql_scope_inject.py::build_scope_set_condition 을 OR-of-AND → IN 리스트/row-value IN 으로 변경, 오라클 실측으로 선형 폭증(0.45초/경로) → 상수에 가까운 비용(0.009초/경로) 확인
+
+════════════════════════════════════════════════════════════════
+1. 배경 · 선택한 대안과 근거
+════════════════════════════════════════════════════════════════
+N1-MERKLE-TREE-FEASIBILITY-DIAGNOSE.txt 승인 완료, 그 보고서가 권장한 P1(최우선) 착수.
+
+원인: services/diagnosis/multi_scope.py:593 _run_hash_bucket_waves 의 wave>1 predicate
+(_hash_path_predicate, multi_scope.py:641)가 활성 경로(active_cells)를 scope_set(그룹 간 OR)으로
+넘기면, services/sql_scope_inject.py:34 build_scope_set_condition 이 이를 OR-of-AND(각 branch 마다
+canonical 해시식 EQ)로 렌더했다. 옵티마이저는 OR 분기마다 canonical 해시식(STANDARD_HASH/BITAND 등)을
+별개 서브트리로 재평가한다 — 비용이 활성 경로 수(k)에 선형 폭증.
+
+선택 대안: (b) 상위 레벨 bucket 번호 집합을 IN 리스트 1개로 접기.
+근거: (a)(활성 경로 제한을 걷고 레벨 전체를 GROUP BY 로 재집계)는 _run_hash_bucket_waves 의 wave 루프·
+가지치기 로직(부모경로 보존, meter.add_avoided 일치 bucket 재조회 0회 회계)을 다시 설계해야 한다.
+(b)는 SQL 렌더 계층(sql_scope_inject.py) 한 곳만 바꾸고 _hash_path_predicate 가 만드는 predicate
+자료구조(dict)는 그대로 유지하므로 wave 루프·가지치기 로직을 전혀 건드리지 않는다 — "기존 코드 구조를
+덜 건드리는" 기준에 부합. IN 리스트/row-value IN 은 SQL 표준(다중컬럼 IN 포함, PostgreSQL/오라클
+공통 지원 — sqlglot 로 두 방언 렌더 확인)이며, 옵티마이저가 canonical 식을 행당 1회만 평가하고 값
+목록과 비교하므로 OR 분기 재평가가 사라진다.
+
+════════════════════════════════════════════════════════════════
+2. 수정 내용 — 파일:라인
+════════════════════════════════════════════════════════════════
+수정 파일: services/sql_scope_inject.py 1개 (다른 파일 무수정)
+신규 파일: scripts/dev_e2e/n1_p1_hash_path_predicate_or_reeval_bench.py (재측정 드라이버, 개발 전용)
+
+  services/sql_scope_inject.py:34-106  build_scope_set_condition() 전면 교체
+    - 그룹들을 (NULL 없음 + 동일 gb_index 구성)"shape" 단위로 묶어(in_shapes/shape_order),
+      같은 shape 인 그룹은 단일키면 `expr IN (%s,%s,...)`, 복합키면 row-value IN
+      `(expr1,expr2) IN ((%s,%s),(%s,%s),...)` 으로 렌더 — canonical 식(gb_exprs[gi])은 1번만 등장.
+    - NULL 포함 그룹·이질적 gb_index 구성(shape 불일치)은 other_groups 로 분리해 기존 OR-of-AND 로
+      폴백(정확성 우선) — is_null 이 섞인 그룹을 IN 리스트로 만들면 SQL NULL 비교 의미가 깨지기 때문.
+    - inject_group_scope_predicates() (:67-190, KEY_RANGE 의 build_bounds_sql 도 동일 함수 재사용)는
+      무수정 — build_scope_set_condition 의 반환 계약((node|None, params)) 이 그대로라 호출부 영향 없음.
+
+  _hash_path_predicate(services/diagnosis/multi_scope.py:641) — 무수정. predicate 자료구조(scope_set
+  dict)는 종전과 동일하므로 wave 루프·부모경로 보존·가지치기 로직에 코드 변경 없음.
+
+════════════════════════════════════════════════════════════════
+3. 재측정 — 오라클 라이브(NXDNP.MV_ORA_XDIFF_TGT, 249,950행, 인덱스 PK 1개뿐)
+════════════════════════════════════════════════════════════════
+스크립트: scripts/dev_e2e/n1_p1_hash_path_predicate_or_reeval_bench.py
+운영 함수를 그대로 경유(수작업 재구현 아님):
+  hb.build_hash_bucket_agg_sql(ns=[128,16], dialect="oracle") → 실 오라클 계약(hash_contract, G7 완결)
+  → multi_scope._hash_path_predicate(active_cells, gb=[], ancestor_depth=1)
+  → sql_scope_inject.inject_group_scope_predicates(...) → 오라클 위치 바인드 보정(G7-G2 harness 관례
+    재사용, qmark_to_oracle) 후 실행. 활성 경로 k=1/10/40, 각 3회 중 최소값.
+
+  [수정 전 — 커밋 15b9d680 시점 원본 코드]
+  ┌──────────┬──────────┬──────────────────────────┬──────┬───────────┐
+  │ 활성경로 │ 최소시간 │ 실측(3회)                │ rows │ SQL 길이   │
+  ├──────────┼──────────┼──────────────────────────┼──────┼───────────┤
+  │ 1        │ 0.551s   │ 0.699/0.562/0.551         │ 16   │ 4,755자    │
+  │ 10       │ 5.123s   │ 5.123/5.235/5.372         │ 160  │ 10,382자   │
+  │ 40       │ 18.293s  │ 18.293/19.213/19.465      │ 640  │ 29,132자   │
+  └──────────┴──────────┴──────────────────────────┴──────┴───────────┘
+  기울기(1→40경로) ≈ 0.4549 초/경로 — SQL 길이도 k 에 비례 증가(canonical 식이 branch 마다 복제).
+  결과 저장: scripts/dev_e2e/_n1_p1_hash_path_predicate_or_reeval_bench_before.json
+
+  [수정 후 — 이번 커밋]
+  ┌──────────┬──────────┬──────────────────────────┬──────┬───────────┐
+  │ 활성경로 │ 최소시간 │ 실측(3회)                │ rows │ SQL 길이   │
+  ├──────────┼──────────┼──────────────────────────┼──────┼───────────┤
+  │ 1        │ 0.587s   │ 0.622/0.588/0.587         │ 16   │ 4,758자    │
+  │ 10       │ 0.669s   │ 0.692/0.672/0.669         │ 160  │ 4,785자    │
+  │ 40       │ 0.938s   │ 0.968/0.952/0.938         │ 640  │ 4,875자    │
+  └──────────┴──────────┴──────────────────────────┴──────┴───────────┘
+  기울기(1→40경로) ≈ 0.0090 초/경로(≈ 50배 완화) — SQL 길이는 거의 불변(값 목록만 증가, canonical
+  식은 1회만 등장). 40경로 18.29s → 0.94s(≈19배 단축). 절대 비용은 진단서 1-2-(a) 모델(레벨 비용 ≈
+  전체 스캔 1회, k 와 무관)에 근접 — "활성 경로 2개만 돼도 하강 1레벨이 전체 재스캔보다 비싸진다"는
+  결함이 해소됨.
+  결과 저장: scripts/dev_e2e/_n1_p1_hash_path_predicate_or_reeval_bench_after.json
+  (두 JSON 모두 scripts/dev_e2e/*.json 패턴으로 gitignore 대상 — repo 미포함, 로컬 증적만)
+
+  WHERE 절 canonical 식 등장 횟수 직접 확인(k=3): 수정 전 3회(BITAND(...) 문자열 3번) → 수정 후 1회.
+
+════════════════════════════════════════════════════════════════
+4. 회귀 검증
+════════════════════════════════════════════════════════════════
+[wave1→wave2→wave3 가지치기 무회귀]
+  test_hash_bucket_wave_progression_and_row_diff_ready — wave2 호출 predicate 구조(scope_set groups,
+  gb_index 매핑) 그대로 유지 확인(PASS). test_full_scan_and_scope_filter_parity — FULL_SCAN/SCOPE_FILTER
+  결과 동일(누락 0) 확인(PASS). _hash_path_predicate 자체 무수정이므로 부모경로 보존·활성 cell 선정
+  로직은 코드 경로가 바뀌지 않았다.
+
+[관련 서브셋 — sql_scope_inject 를 직접 참조하는 테스트 파일 전부]
+  tests/test_diagnosis_multi_scope.py, tests/test_diagnosis_multi_scope_e2e.py,
+  tests/test_diagnosis_engine.py, tests/test_scope_where_composition.py,
+  tests/test_postgres_execution_safety_integration.py, tests/test_hash_contract_dialect_adapter.py
+  → 89 passed (오프라인, 5.43s)
+  tests/test_diagnosis_multi_scope_e2e.py (MV_PG_LIVE_SAFETY=1, Neon PG 라이브 EXPLAIN 포함)
+  → 6 passed (411.21s)
+  tests/test_diagnosis_phase3b.py 는 별도로 실행 시 2건 실패(test_next_strategy_preview_matrix,
+  test_start_passes_confirmed_chunk_key) — routes/diagnosis_route.py·key_evidence.py 관련 사전 존재
+  결함(본 수정과 무관한 파일, sql_scope_inject.py 미참조 경로에서 단독 실행해도 동일하게 실패)이라
+  회귀 아님으로 판정.
+
+[CLAUDE.md 필수 회귀 — 최종 1회, 이번 커밋 기준]
+  python samples/test_virtual_cases.py  → 8/8 통과
+  python samples/test_complex_cases.py  → 5/5 통과
+
+════════════════════════════════════════════════════════════════
+5. 커밋
+════════════════════════════════════════════════════════════════
+425e2304 (local, main, code repo push 안 함 — 규칙대로)
+  fix(diagnosis): HASH_BUCKET wave scope_set predicate OR 재평가 제거 (N1-P1-HASH-PATH-PREDICATE-OR-REEVAL-FIX)
+  2 files changed, 175 insertions(+), 5 deletions(-)
+    services/sql_scope_inject.py
+    scripts/dev_e2e/n1_p1_hash_path_predicate_or_reeval_bench.py (신규)
+
+  ※ 작업 중 동시 세션이 이 code repo 에 여러 커밋(19608788, d3b7b266 등)을 올리며 working tree 를
+  HEAD 로 되돌리는 시점이 있었고, 그 순간 이 수정(uncommitted 상태)이 일시적으로 사라졌다가 재확인 시
+  복원돼 있었다 — 재커밋 전 재검증(pytest 서브셋 재실행)으로 파일 내용이 의도한 그대로임을 확인한 뒤
+  커밋했다. 이후 git reflog 로 이 리포에 별도 remote 가 없음(순수 로컬)을 확인 — code repo push 는
+  원래도 해당사항 없음.
+
+════════════════════════════════════════════════════════════════
+6. 결론
+════════════════════════════════════════════════════════════════
+_hash_path_predicate 의 OR-of-AND 재평가 결함(0.85초/경로 등가 규모)을 해소했다. wave2+ 하강 1레벨의
+비용이 더 이상 활성 경로 수에 선형 폭증하지 않고 상수(≈전체 스캔 1회)에 가까워졌다(기울기 0.4549 →
+0.0090 초/경로, 40경로 기준 18.29s → 0.94s). N1-MERKLE-TREE-FEASIBILITY-DIAGNOSE.txt 의 진단서 모델대로
+이 수정만으로 2~3레벨 하강이 처음으로 경제적 검토 대상이 된다 — 다만 실제로 이득이 나는지는 후속
+P4(팬아웃 재조정 A/B, 코드 변경 0)로 확인해야 하며, P2(pk_indexed 실측 배선)는 별도 지시서 소관이라
+이번 범위에 포함하지 않았다.
+
+작업명 : N1-P1-HASH-PATH-PREDICATE-OR-REEVAL-FIX
+✅ 작업 완료 - services/sql_scope_inject.py::build_scope_set_condition 을 OR-of-AND → IN 리스트/row-value IN 으로 변경, 오라클 실측으로 선형 폭증(0.45초/경로) → 상수에 가까운 비용(0.009초/경로) 확인
