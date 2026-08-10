@@ -1,6 +1,6 @@
 작업명 : M67-CONN-PAIRS-MOVE-TO-SQLITE
 
-✅ 작업 완료 - 검증 경로(Pair)를 브라우저 localStorage → 서버 SQLite(mv_conn_pair)로 이관, 새 브라우저 컨텍스트/서버 재기동 실클릭으로 다대다 지원까지 검증
+✅ 작업 완료 - 검증 경로(Pair)를 브라우저 localStorage → 서버 SQLite(mv_conn_pair)로 이관(다대다 지원 실클릭 검증) + PostgreSQL 기본 Pair 강제 재등장/삭제차단 하드코딩 제거(8번 항목, directive 개정 65483f1 반영)까지 완료
 
 ════════════════════════════════════════════════════════════════════════
 1. 배경 / 범위
@@ -119,4 +119,37 @@ after_fresh_context_no_storage / after_server_restart 3개 스냅샷 모두 동�
   - mv_conn_pair 에 project_id 스코프: 기존 Pair 가 애초에 프로젝트 스코프 없이 전역이었으므로
     (코드 조사 결과 pair 객체에 project_id 필드 자체가 없음) 그대로 전역 유지 — 과설계 방지.
 
-✅ 작업 완료 - 검증 경로(Pair)를 브라우저 localStorage → 서버 SQLite(mv_conn_pair)로 이관, 새 브라우저 컨텍스트/서버 재기동 실클릭으로 다대다 지원까지 검증
+════════════════════════════════════════════════════════════════════════
+8. 추가 조치(directive 개정 반영 누락 수정) — 2026-08-10 같은 세션 후속
+════════════════════════════════════════════════════════════════════════
+- 경위: 최초 착수 시 pull 한 directive 스냅샷(커밋 8653028)에는 "PostgreSQL 기본 Pair
+  하드코딩(_defaultPairs())은 그대로 유지해도 된다"로 돼 있었다. 작업 도중 directive 가
+  커밋 65483f1(제목 "PostgreSQL 기본Pair 하드코딩 제거 확정")로 개정돼 "이번에 제거해라"로
+  바뀌었는데, 재pull 없이 초기 스냅샷 기준으로 완료보고를 냈다 — 사용자가 완료보고와 검증
+  스냅샷("기본1+신규2")을 보고 미반영을 지적해 뒤늦게 발견/수정했다.
+- 조치: 아래를 모두 제거했다(mv_db_preset 의 PostgreSQL 프로필 자체는 무수정).
+    · ui/tabler_renderer.py: `_defaultPairs()` 함수, `_DEFAULT_PAIR_NAME` 상수,
+      `_loadPairs()` 의 `hasDefault`/`_defaultPairs().concat` 강제주입,
+      `deletePair()` 의 "기본 검증 경로는 삭제할 수 없습니다" 차단 블록.
+    · tests/test_connection_role_separation.py: 이 강제주입 덕에 우연히 통과하던
+      `_LS['mv_conn_pairs']` seed 를 `_pairServerCache` seed 로 교체(1차 수정에서
+      놓쳤던 6번째 지점 — 강제 기본 Pair 의 이름이 이 테스트 fixture 와 우연히
+      같아서 1차 회귀 검사에서 드러나지 않았다).
+    · tests/test_connection_pair_list_ui.py: 제거 자체를 직접 검증하는 테스트로 재작성
+      (`test_no_forced_default_pair_in_source`, `test_load_pairs_has_no_forced_injection`,
+      `test_no_pairs_before_any_creation`, `test_pg_pair_deletable_like_any_other` 등).
+- 실클릭 재검증(scratchpad/m67_default_pair_removed_browser_verify.py, 격리 서버 :8138):
+    [1] 프로필만 등록하고 Pair 를 하나도 안 만든 상태 → 목록 빈 배열(강제 등장 없음) 확인.
+    [2] "PostgreSQL_asis → PostgreSQL_tobe" 를 직접 생성 → 목록에 1건 표시.
+    [3] 삭제 버튼 실제 클릭(confirm 수락) → 차단 alert 없이 즉시 삭제, 목록 다시 빈 배열.
+        (screenshot: scratchpad/m67b_after_delete.png — "저장된 검증 경로 없음" 빈 상태 +
+         mv_db_preset 의 PostgreSQL_asis/PostgreSQL_tobe 프로필 자체는 하단 목록에 그대로 남음)
+- 테스트: tests/test_connection_pair_list_ui.py 17/17 통과. Pair 관련 JS 하니스 14파일 재실행
+  결과 baseline 과 동일하게 3 failed(사전 존재, 무관)/119 passed(테스트 재구성으로 총수 +1)
+  → 신규 회귀 0건. CLAUDE.md 필수 회귀 virtual 8/8·complex 5/5 재통과.
+- 커밋: 2ea6778b  fix(conn): PostgreSQL 기본 Pair 강제 재등장/삭제차단 하드코딩 제거
+        (M67-CONN-PAIRS-MOVE-TO-SQLITE 후속)
+  diffstat: 3 files changed, 61 insertions(+), 55 deletions(-)
+  코드 저장소 HEAD(최종): 2ea6778b2e0f006fdedf92be800669980f7726de
+
+✅ 작업 완료 - 검증 경로(Pair)를 브라우저 localStorage → 서버 SQLite(mv_conn_pair)로 이관, 새 브라우저 컨텍스트/서버 재기동 실클릭으로 다대다 지원까지 검증. PostgreSQL 기본 Pair 강제 재등장/삭제차단 하드코딩도 제거해 실클릭으로 재검증 완료(directive 개정 65483f1 반영)
