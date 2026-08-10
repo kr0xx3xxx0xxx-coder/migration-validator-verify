@@ -3445,7 +3445,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\STAGE5-GROUP-DRILLDOWN-ARCHITECTURE-IMPLEMENT.txt
 - 참고: E:\verify_reports\STAGE5-AXIS-LABEL-CLICK-FIX-AND-INLINE-ACCORDION-EXPAND.txt
 
-### M60. ✅ 해결 완료 — 5단계 상태배지 미갱신·그룹 재확장 재추출(서로 다른 3개 결함) + 검증성능정보 1~5단계 통합·위치재배치·균형조정·중복헤더제거·실행경로이동 + 헤더라벨/색상/검색폼/컬럼/CNT 정리 + 시각계층구조·그리드정렬폭 정리
+### M60. ✅ 해결 완료 — 5단계 상태배지 미갱신·그룹 재확장 재추출(서로 다른 3개 결함) + 검증성능정보 1~5단계 통합·위치재배치·균형조정·중복헤더제거·실행경로이동 + 헤더라벨/색상/검색폼/컬럼/CNT 정리 + 시각계층구조·그리드정렬폭 정리 + 잔존 안내문구·빈박스 결합결함 해소
 - 발견일: 2026-08-09 (사용자 스크린샷 4장 직접 지적) / 해결일: 2026-08-09
   (STAGE5-EXTRACT-STATUS-TRACKING-BUG-AND-SUMMARY-LAYOUT-FIX, 코드 커밋 92d1b01 관련
   증적 저장소 push, 코드 저장소는 로컬 커밋만)
@@ -3555,6 +3555,20 @@ git -C E:/verify_reports worktree remove <임시경로>
   신규 3건+갱신 3건 테스트, 관련 서브셋 신규 회귀 0건(선행 작업이 명시한 사전존재
   7건과 ID 완전 일치).
 - 참고: E:\verify_reports\STAGE5-GROUP-LIST-VISUAL-POLISH-AND-NESTING-FIX.txt
+- **최종후속(2026-08-09, STAGE5-GROUP-COLLAPSE-HINT-AND-EMPTY-BAR-REMOVE, 코드
+  커밋 7a1e186b)**: 그룹 펼침 시 남아있던 "행을 다시 클릭하면 접힙니다" 문구와
+  그 아래 빈 흰 띠 제거. **원인은 여러 선행 세션이 각자 자기 범위(내용을 검증성능
+  정보로 이동 등)만 정확히 처리하면서, 그 내용을 감싸던 배경패널 자체의 렌더
+  조건은 아무도 재확인 안 해서 생긴 결합 결함**(개별 커밋은 전부 의도된 정상
+  변경, 이번에 처음 발견) — `_mvRiSummaryHtml`이 내용(head+시간줄+표본줄) 전부
+  빈 문자열이어도 배경/보더/패딩 있는 `<div>`를 무조건 그리고 있었음. 값 계산
+  로직은 안 건드리고 "내용 있을 때만 박스를 그린다"는 조건 하나만 수정(강제중단
+  배너·표본통과 문구가 있는 특수 케이스는 기존과 동일하게 박스 유지).
+  실측: `getBoundingClientRect()`로 빈 박스가 실제로 0px 높이로 렌더 자체가
+  안 되는 것까지 확인, 펼침/재클릭 접기/재펼침 전부 정상. 신규 테스트 2건+기존
+  갱신 2건, 관련 서브셋 사전존재 실패 7건 선행 작업 문서와 ID 완전 일치(신규 회귀
+  0건). 동시 세션 미커밋 변경 9개 파일 전혀 미접촉.
+- 참고: E:\verify_reports\STAGE5-GROUP-COLLAPSE-HINT-AND-EMPTY-BAR-REMOVE.txt
 
 ### M61. ✅ 해결 완료 — 5단계 실행경로/전략 자동판정에서 PK 구성 검사가 실질적으로 무력화됨(하드코딩)
 - 발견일: 2026-08-09 (채팅 조사 — "실행경로/전략" 배지가 실제로 여러 값이 나오는지
