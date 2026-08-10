@@ -1,0 +1,33 @@
+작업명 : ORACLE-PARALLEL-50M-REMEASURE-SCRIPT-MIGRATE-TO-X
+✅ 작업 완료 - oracle_parallel_50m_remeasure.py 1개 파일을 C드라이브에서 X드라이브로 이관·커밋 완료
+
+[사전 확인]
+- directives/ORACLE-PARALLEL-50M-REMEASURE-SCRIPT-MIGRATE-TO-X.md 및 선행 지침
+  C-DRIVE-LEGACY-SOURCE-CHECK-AND-X-DRIVE-CONSOLIDATE.txt 확인 완료.
+- 선행 지침 결론: C드라이브(C:\projects\migration-validator) untracked scripts/dev_e2e/*.py
+  43개 중 42개는 X에 이미 동일 내용으로 존재, 1개(oracle_parallel_50m_remeasure.py, P13 관련
+  5천만행 오라클 재측정 harness)만 X에 없음 — 이번 지침은 그 1개만 이관하는 작업.
+
+[구현]
+- C:\projects\migration-validator\scripts\dev_e2e\oracle_parallel_50m_remeasure.py 를
+  X:\Projects\Migration_Validator\scripts\dev_e2e\ 로 그대로 복사(내용 수정 없음).
+- 이 파일 1개만 git add → git commit (다른 파일 미터치).
+
+[검증]
+- 복사 직후(git add 이전) cmp 결과: 바이트 단위 완전 동일 확인(CMP_OK_BYTE_IDENTICAL).
+- git add 시 core.autocrlf=true 로 인해 working tree 개행문자가 LF→CRLF 로 정규화됨
+  (이 저장소의 기존 관례 — 선행 지침에서 확인된 42개 파일과 동일한 LF/CRLF 차이 패턴,
+  [[project_dev_e2e_json_artifacts_gitignored]] 참고). 개행문자 무시 비교(diff --strip-trailing-cr)
+  및 git 저장 blob과 C원본 직접 비교(git show HEAD:파일 vs C원본) 모두 완전 일치 확인
+  (GIT_BLOB_MATCHES_C_SOURCE_CONTENT / WORKING_TREE_CONTENT_MATCHES_IGNORING_CRLF) — 내용 변경 없음.
+- git status: 이번 커밋에 포함된 파일은 scripts/dev_e2e/oracle_parallel_50m_remeasure.py 1개뿐
+  (create mode 100644, 221 lines 추가). 그 외 기존 M(수정) 표시 파일들은 이번 세션이 손대지 않은
+  다른 세션의 기존 미커밋 변경분 그대로 유지(터치 안 함).
+- 커밋 해시: 19608788bd68bd64d42e5382c20d88fb278bf9d5
+
+[결과]
+- 커밋: 19608788 chore(dev_e2e): oracle_parallel_50m_remeasure.py X드라이브 이관 (C드라이브 미커밋 누락분)
+- 작업명 첫줄: 작업명 : ORACLE-PARALLEL-50M-REMEASURE-SCRIPT-MIGRATE-TO-X
+- 작업명 마지막줄: 권장 모델: Sonnet · 추론 강도: 낮음 (단순 파일 이관)
+
+✅ 작업 완료 - oracle_parallel_50m_remeasure.py 1개 파일을 C드라이브에서 X드라이브로 이관·커밋 완료
