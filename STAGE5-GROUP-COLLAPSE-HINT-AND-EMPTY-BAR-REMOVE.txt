@@ -1,0 +1,147 @@
+작업명 : STAGE5-GROUP-COLLAPSE-HINT-AND-EMPTY-BAR-REMOVE
+✅ 작업 완료 - 그룹 펼침 시 뜨던 '행을 다시 클릭하면 접힙니다' 안내문구와 그 아래 빈 흰색 띠(내용
+   없이 배경/보더/padding 만 있던 요약 카드 박스)를 둘 다 제거. 실 오라클 asis/tobe 조합축 픽스처로
+   실브라우저 클릭 실측(펼침·재클릭 접기·재펼침 전부 정상 동작 확인).
+
+════════════════════════════════════════════════════════════════════════
+0. 선행 지침 확인
+════════════════════════════════════════════════════════════════════════
+지시서 지시대로 STAGE5-GROUP-LIST-VISUAL-POLISH-AND-NESTING-FIX.txt(오늘 완료된 가장 최근 5단계
+작업, 코드 커밋 2011709c)를 먼저 읽었다 — 그룹 펼침 영역을 mv-s5-nest 패널(왼쪽 보더+배경 패널)로
+감싸고 그룹 목록 그리드 7개 컬럼 정렬/폭을 조정한 작업이며, '행을 다시 클릭하면 접힙니다' 문구
+자체는 그 이전 작업(STAGE5-GROUP-DETAIL-HEADER-DEDUP-AND-STRATEGY-RELOCATE, 443e50c2)이 남긴
+구조를 그대로 물려받았을 뿐 이번 작업 범위(패널 시각화·컬럼 폭)와 무관하게 남아 있었다는 것을 확인한
+뒤 시작했다. 코드 저장소 HEAD 는 시작 시점에 2011709c 로, 지시서가 가리킨 작업과 일치했다.
+
+════════════════════════════════════════════════════════════════════════
+1. [원인 확인 — 빈 흰 띠의 정체]
+════════════════════════════════════════════════════════════════════════
+파일:라인 — ui/tabler_renderer.py:28241(_mvRiSummaryHtml 함수 시작), :28346-28350(head 인라인
+분기 — 그룹 인라인 펼침에서는 head=''), :28397-28401(_finalTimeLine 인라인 분기 — 마찬가지로
+''), :28504-28511(READY 상태 인라인 반환문, 이번에 수정).
+
+빈 띠는 검색조건 폼이 제거되고 남은 잔재가 아니라, #mvRiSummary(host.innerHTML = headHtml +
+filterBar + recordsHtml 조립부, :28110 부근)에 매 갱신마다 주입되는 _mvRiSummaryHtml() 반환값
+자체였다. 이 함수는 READY 상태·인라인(그룹 펼침, scope 있음) 조건에서 아래처럼 항상 박스를
+그렸다(수정 전):
+  return _limitBanner + '<div style="background:#F8FAFC;border:1px solid #e5e9f0;
+    border-radius:8px;padding:8px 12px">' + head + _finalTimeLine + _sampLine + '</div>';
+그런데 인라인 분기에서는 head 가 항상 ''(28350 — 선행 작업 STAGE5-DETAIL-COLUMN-REDUCE-INFO-
+SIMPLIFY-AND-CNT-COLUMN-SPLIT 2번이 카드 내용을 상단 '검증성능정보' 영역으로 전부 옮기며 비웠다),
+_finalTimeLine 도 항상 ''(28401 — 같은 값이 [갱신] 카드로 넘어가 중복이라 제거). _limitBanner(강제
+중단 배너)·_sampLine(표본 통과 문구)은 특수 상황에서만 채워진다. 즉 강제중단·표본통과가 아닌
+보통의 경우(스크린샷 사례 포함) head+_finalTimeLine+_sampLine 이 전부 빈 문자열인데도 배경·보더·
+padding 스타일이 있는 <div> 는 그대로 그려져, '내용 없는 가로로 긴 빈 박스'가 화면에 남았다.
+선행 작업들이 각각 자기 범위(head 내용 이동, _finalTimeLine 문구 제거)만 처리하며 박스 자체를
+그리는 조건은 손대지 않아 생긴 결과다(개별 커밋은 모두 의도된 변경, 이번에 처음 발견된 결합 결함).
+
+════════════════════════════════════════════════════════════════════════
+2. [구현]
+════════════════════════════════════════════════════════════════════════
+① 안내문구 제거 — ui/tabler_renderer.py:28051-28057(_mvRiEnterRecordsView 의 headHtml 조립)
+  inline 분기를 '<div>...행을 다시 클릭하면 접힙니다...</div>' → '' 로 교체. 그룹 값 셀의 기존
+  ▸/▾ 토글 아이콘이 이미 펼침/접힘 가능함을 보여주고 있어 중복 안내였다(스크린샷 원본 화면에서도
+  그룹 목록 표의 '그룹 값' 컬럼에 ▸/▾ 아이콘이 그대로 있음을 확인). 펼침/접힘 동작 자체
+  (_mvStage5OpenGroup/_mvStage5CollapseGroup)는 이 문구와 무관해 손대지 않았다.
+
+② 빈 박스 제거 — ui/tabler_renderer.py:28504-28511(_mvRiSummaryHtml READY 인라인 반환문)
+  내용(head+_finalTimeLine+_sampLine)이 있을 때만 박스를 그리도록 조건부로 변경:
+    var _bodyInline = head + _finalTimeLine + _sampLine;
+    return _limitBanner + (_bodyInline
+      ? ('<div style="background:#F8FAFC;border:1px solid #e5e9f0;border-radius:8px;
+          padding:8px 12px">' + _bodyInline + '</div>')
+      : '');
+  강제중단 배너(_limitBanner)·표본 통과 문구(_sampLine)가 있는 경우는 기존과 동일하게 박스 안에
+  표시된다(값 계산·표시 조건 자체는 전혀 건드리지 않았다 — 박스를 그릴지 말지만 바뀜).
+
+════════════════════════════════════════════════════════════════════════
+3. 검증 결과 — 실브라우저 클릭 실측(지시서 '검증(필수, 실제 클릭)' 절 전 항목)
+════════════════════════════════════════════════════════════════════════
+드라이버(신규) : scripts/dev_e2e/stage5_group_collapse_hint_and_empty_bar_remove_verify.py
+  scripts/dev_e2e/stage45_clickthrough_reverify.py 의 조작 헬퍼를 그대로 재사용(새 조작 방식
+  발명 없음). 실 포트 8000, 실 오라클 asis/tobe NXDNP.MV_COMBO_SRC/TGT, GB=STATUS_CD+DEPT_CD
+  조합(PAIR) 축 → 실불일치 4그룹.
+
+[사전 조치] 서버가 기동돼 있지 않아 python web_server.py 로 새로 기동(포트 8000, MV_BIND_HOST
+기본값 127.0.0.1) 후 실행 — 이번 세션은 이전 실행 프로세스가 없어 '구 모듈 고착' 문제는 없었다.
+
+  항목                                                    실측값
+  ──────────────────────────────────────────────────────────────────────────
+  [1] 그룹A 펼침 영역 '행을 다시 클릭하면 접힙니다' 잔존    False
+  [1] 그룹A #mvRiSummary 텍스트 길이                       0(내용 없음)
+  [1] 그룹A #mvRiSummary 렌더 높이(getBoundingClientRect)  0px(빈 박스 자체가 렌더되지 않음)
+  [1] 그룹A 펼침 영역 텍스트(앞부분) 실측                  '전체 재이관 대상(이 그룹) 100건현재
+                                                           1~10 표시 · 1/10페이지표시 건수
+                                                           10건...' — 안내문구·빈 박스 없이 그룹
+                                                           표 바로 아래 곧장 요약줄로 이어짐
+  [2] 그룹A 재클릭 후 child row style.display              'none'(정상 접힘)
+  [2] 그룹A 재펼침 후 텍스트                                다시 정상 렌더(펼침 회귀 없음)
+  [1] 그룹B 펼침 영역 안내문구 잔존                         False
+  [1] 그룹B #mvRiSummary 텍스트 길이                        0(내용 없음)
+  드라이버 종료 시 errors=[]                                0건
+
+  실측 스크린샷 6장(before_any_group_expanded/after_group_a_expanded/
+  after_group_a_expanded_full/after_group_a_collapsed/after_group_a_reopened/
+  after_group_b_expanded) 육안 확인 — after_group_a_expanded.png 에서 그룹 표 바로 아래
+  '전체 재이관 대상(이 그룹) 100건' 요약줄이 안내문구·빈 띠 없이 곧바로 이어짐을 직접 확인.
+  → X:\Verify\verify_screenshots_only\STAGE5-GROUP-COLLAPSE-HINT-AND-EMPTY-BAR-REMOVE\
+    (증적 저장소에도 동일 사본 push)
+
+════════════════════════════════════════════════════════════════════════
+4. 자체 테스트 · 회귀
+════════════════════════════════════════════════════════════════════════
+[A] 렌더 JS 문법 가드 — tests/test_rendered_js_syntax_guard.py 2 passed.
+[B] tests/test_stage5_group_drilldown.py — 40 passed(기존 38건 중 1건 갱신, 신규 2건 추가,
+    회귀 0건):
+    · test_inline_group_head_drops_duplicate_group_by_title_and_toggle_hint(이름 변경 —
+      기존 test_..._keeps_toggle_hint 에서 갱신) — 인라인 headHtml 분기가 이제 조작 안내 문구
+      없이 빈 문자열(? '')을 반환하는지 검증.
+    · test_inline_group_summary_card_skips_empty_box_when_no_content(신규) — 인라인 READY
+      반환이 _bodyInline 유무로 박스 렌더 여부를 조건부 판정하는지, 박스 스타일 자체는 (내용
+      있을 때를 위해) 남아 있는지 검증.
+    · test_inline_accordion_moves_perf_panel_out_of_group_body(구간 파싱 로직만 수정) — 반환문이
+      더 이상 literal '</div>'; 로 끝나지 않아(내용 없으면 박스 생략) 구간 추출 방식을
+      '\n  }\n'(if 블록 닫는 중괄호) 기준으로 변경. 단언 내용 자체(성능표/단계별 시간이 그룹
+      패널에 직접 그려지지 않는다)는 그대로.
+[C] 관련 서브셋(선행 작업이 쓰던 8개 파일과 동일) — 111 collected, 99 passed, 5 xfailed,
+    7 failed. 실패 7건은 선행 STAGE5-GROUP-LIST-VISUAL-POLISH-AND-NESTING-FIX 완료보고가 이미
+    명시한 '사전 존재 실패'와 테스트 ID 완전히 동일(test_stats_result_full.py::
+    test_phase4b_strategy_plan_effective_selection_display, test_d7_9_gb0_fallback.py::
+    test_gate_gb0_always_grid/test_stage_timing_display,
+    test_all_stages_timing_display_expand.py::
+    test_count_generate_execute_routes_add_processing_ms,
+    test_execution_path.py::test_parallel_read_decision_off_by_default/
+    diff_host_true/same_host_sequential) — 이번 diff 범위(ui/tabler_renderer.py 렌더 문자열,
+    tests/test_stage5_group_drilldown.py) 밖(routes/agg_diff_route.py 등), 이번 작업트리에서
+    전혀 건드리지 않음 — 신규 회귀 0건.
+[D] CLAUDE.md 필수 회귀 — samples/test_virtual_cases.py 8/8 통과, samples/test_complex_cases.py
+    5/5 통과(케이스 분석 5/5 완료), 최종 1회 재확인.
+
+════════════════════════════════════════════════════════════════════════
+5. 변경 파일
+════════════════════════════════════════════════════════════════════════
+  ui/tabler_renderer.py                                                            (수정)
+  tests/test_stage5_group_drilldown.py                                             (수정 — 1건 갱신 + 신규 2건)
+  scripts/dev_e2e/stage5_group_collapse_hint_and_empty_bar_remove_verify.py        (신규 — 실측 드라이버)
+
+════════════════════════════════════════════════════════════════════════
+6. 재기동 시각 · 커밋 해시
+════════════════════════════════════════════════════════════════════════
+서버 재기동   : 2026-08-10 15:41 KST(1차 기동 — 기존 점유 프로세스 없음), 포트 8000,
+                MV_BIND_HOST 기본값 127.0.0.1
+코드 저장소   : 7a1e186b  (X:\Projects\Migration_Validator, main, **push 안 함** — 저장소 원칙)
+                직전 HEAD = 2011709c
+증적 저장소   : (본 보고 파일 + 스크린샷 6장 커밋 후 push, 아래 커밋 해시 참고)
+
+동시 세션 주의 — 내가 만든/건드린 파일 3개(ui/tabler_renderer.py, tests/
+test_stage5_group_drilldown.py, scripts/dev_e2e/stage5_group_collapse_hint_and_empty_bar_
+remove_verify.py)만 명시 경로로 add 해서 커밋했다. 작업 시작 전 증적 저장소를 git pull 로
+최신화했고, 코드 저장소 작업 트리에 남아 있던 다른 세션의 미커밋 변경(.claude/settings.json,
+requirements*.txt, scripts/dev_fixtures/*, tests/test_11def_scenarios.py,
+tests/test_12k_stress.py, ui/history_renderer.py, ui/js_batch_display.py, scratchpad/*,
+db/migration_validator.db.bak_20260809 등)은 전혀 건드리지 않았다.
+
+작업명 : STAGE5-GROUP-COLLAPSE-HINT-AND-EMPTY-BAR-REMOVE
+✅ 작업 완료 - 그룹 펼침 시 뜨던 '행을 다시 클릭하면 접힙니다' 안내문구와 그 아래 빈 흰색 띠(내용
+   없이 배경/보더/padding 만 있던 요약 카드 박스)를 둘 다 제거. 실 오라클 asis/tobe 조합축 픽스처로
+   실브라우저 클릭 실측(펼침·재클릭 접기·재펼침 전부 정상 동작 확인).
