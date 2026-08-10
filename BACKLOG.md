@@ -3816,6 +3816,40 @@ git -C E:/verify_reports worktree remove <임시경로>
   같은 성격의 "구조 안정화 우선" 대상으로 별도 검토 여지.
 - 근거: E:\verify_reports\M66-ADJACENT-FILES-COLLECT-HANG-DIAGNOSE.txt
 
+### M67. DB 연결 프로필/검증경로/프로젝트 선택 "소실" — 결함 아님, silent 재검증+로컬저장 설계의 UX 문제로 확인(개선안 3건, 미착수)
+- 발견일: 2026-08-09 (사용자 목격 — "재기동하면 DB 연결 다 사라지는데 PostgreSQL만
+  산다" / 진단: DB-CONNECTION-PROFILE-LOSS-ON-RESTART-DIAGNOSE, 코드 무변경)
+- **결론: DBMS별로 저장 방식이 다르다는 가설은 반증됨.** 실제로는 3개 층이 섞여
+  혼동을 유발:
+  1) 개별 DB 접속정보(host/id/pw) → SQLite `mv_db_preset` 영속 저장, DBMS 무관 완전
+     동일 코드 경로. **실측: 오라클 프로필도 전혀 안 사라짐**(SRC 8건+TGT 6건 전부
+     is_deleted=0 확인).
+  2) "검증 경로"(원본→목적 Pair) → **서버 저장 자체가 없음**, 100% 브라우저
+     localStorage(`mv_conn_pairs`). PostgreSQL 기본 Pair는 코드에 하드코딩(`_defaultPairs()`)
+     돼 localStorage 내용과 무관하게 매번 목록 맨 앞에 강제 재등장(삭제 버튼도 막힘)
+     — "PostgreSQL만 산다"는 착시의 정체.
+  3) "접속중" 배지 → 페이지 로드마다(재기동과 무관, 매 방문마다) 실제 네트워크
+     재접속 테스트를 통과해야 복원, 실패 시 `silent:true`로 안내 없이 조용히 초기화.
+  **TCP 레벨 결정적 증거**: 오라클(사내LAN 192.168.0.151) 연결시도 4.0초 후
+  TimeoutError(이 개발환경에서 원천 도달불가) vs PostgreSQL(Neon 클라우드) 0.08초
+  즉시성공 — 이 도달성 차이가 3)의 실시간 재검증과 정확히 맞물려 오라클만 매번
+  자동 해제되는 현상을 완전히 설명. **"재기동해서" 사라지는 게 아니라 "이 환경
+  에서 오라클에 원래 못 닿아서" 매 방문마다 재현되는 정상 동작.**
+  프로젝트 선택 소실도 같은 "localStorage값을 서버에 매번 재검증→실패시 조용히
+  초기화" 패턴 공유(트리거는 다름 — project_id 존재 여부 vs DB 도달성), 프로젝트가
+  풀리면 연쇄로 DB Pair 접속상태까지 함께 초기화됨(`mvSelectWorkProject('','')`가
+  `disconnectPair()`까지 호출). project_id가 "없다"고 판정되는 정확한 트리거는
+  이번 범위에서 미확정(서버기동초기 타이밍/테스트프로젝트 회수/localStorage 자체
+  초기화 3가지 가설, 우선순위순).
+- 판정: `mv_db_preset`(진짜 자격증명 저장) 계층은 결함 없음. "접속중 매번 실시간
+  재검증"도 stale 정보로 검증 실행 방지하는 의도된 안전설계. 문제는 **재검증 실패
+  시 무안내로 조용히 지워져 사용자가 "다 사라졌다"고 오인**하는 UX뿐.
+- 개선안(미착수, 결정 필요): (1) 재검증 실패 시 비차단 배너로 원인 안내(가장 간단)
+  (2) `/projects/list` 판정이 서버기동 초기 타이밍에 오탐하지 않는지 별도 확인·
+  재시도 로직 (3) Pair·활성경로·선택프로젝트를 서버 SQLite로 이전(구조변경, 별도
+  승인 필요).
+- 근거: E:\verify_reports\DB-CONNECTION-PROFILE-LOSS-ON-RESTART-DIAGNOSE.txt
+
 ### M59. ✅ 완전 해결 — 0단계+dead필드24개삭제+reclaim_stale 결함A·B 전부 완료, 실배선만 잔존(별도 결정)
 - 발견/계기: 2026-08-09 (개별/일괄/전수 3모드에 흩어진 설정값을 전역 공통+모드별
   오버라이드로 정리하고 싶다는 요청) / 조사: GLOBAL-SETTINGS-HARDCODED-VALUES-SCOPE-
