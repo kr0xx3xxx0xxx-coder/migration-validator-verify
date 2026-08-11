@@ -1,0 +1,76 @@
+작업명 : STAGE5-EXEC-TIME-GROUPGEN-SPLIT
+✅ 작업 완료 - 5단계 '실행시간' 칸을 총 실행시간 대신 순수 그룹생성 시간(총-원본-목적)으로 분리 표시
+
+배경
+----
+5단계 상단 그리드("통계검증 실행 결과")의 "실행시간" 칸이 원본조회+목적조회+그룹생성/비교를
+합친 총 벽시계(23.15초 예시)를 그대로 보여줘, 이름표만 보면 "5단계(그룹생성) 자체 소요"로
+오독됐다. 사용자가 원한 값은 "순수하게 불일치그룹을 만드는 데 걸린 시간"(그룹생성 시간)이었다.
+※ 최초 지시(헤더명만 "4단계 실행시간"으로 변경)는 사용자가 작업 도중 취소하고 이 계산 로직
+   변경으로 대체를 지시했다 — 헤더 변경 커밋/편집은 되돌렸다.
+
+계측값 확인(코드 조사)
+----------------------
+- 총시간: routes/execute_route.py:313 — /execute 라우트 전체를 감싼 perf_counter 벽시계
+  (resp["processing_ms"]).
+- 원본/목적 개별시간: services/stats_execute_service.py:634-643 — query_timing.
+  source_duration_ms / target_duration_ms (DB 조회만 순수 계측, 순차 실행이라 항상
+  원본+목적 <= 총시간, 단 다중 세트[GROUP BY 2축 이상]는 서버 조건부 병렬로 역전 가능
+  — ui/tabler_renderer.py:911-913 기존 주석 근거).
+- 세 값 모두 이미 /execute 응답에 실려 오고 있었다(신규 계측 없음, 4단계 "실행시간" 타일이
+  이미 같은 query_timing 을 원본/목적 2줄로 쓰고 있었음).
+
+구현
+----
+- ui/grid_helpers.py `_mvStage5ProcInfo(r)` (기존 인자 없음 → r 추가):
+    그룹생성 시간 = 총시간(processing_ms) - 원본조회(query_timing.source_duration_ms)
+                    - 목적조회(query_timing.target_duration_ms)
+  두 값이 모두 있으면 이 계산값을 칸의 표시 text 로 반환(총시간·계측·보관은 불변 —
+  "검증성능정보(단계별 실행시간)" 카드가 여전히 window._mvStage5ProcMs 원값을 그대로 쓰므로
+  건드리면 그 카드가 깨진다). query_timing 이 없는 구버전 응답은 종전(총시간) 동작으로 폴백.
+- 정보 손실 방지: 총시간·원본·목적 세 값 모두 칸 툴팁에 "그룹생성 N초 = 전체 M초 - 원본조회
+  A초 - 목적조회 B초 (ms 원문 병기)"로 남긴다.
+- 음수 방어(#5): 그룹생성 = 총-원본-목적 이 음수(다중 세트 병렬 역전 등 이론상 경우)면
+  console.warn 으로 원본 ms 3개를 로그하고 화면에는 0으로 표시(음수 미노출).
+- r 은 이미 _mvStage5TileRow(r, ctx) 의 인자로 전달돼 있어 새 window 전역 상태 없이 그 자리에서
+  바로 계산한다(호출부 1곳만 수정: `_mvStage5ProcInfo()` → `_mvStage5ProcInfo(r)`).
+
+실측(실제 클릭, Neon PostgreSQL 라이브 — PostgreSQL_asis → PostgreSQL_tobe,
+mv_bt.orders_a[10,000행] → mv_bt.tgt_orders[19,750행], GB=STATUS_CD, SUM=ORDER_AMT,QTY)
+--------------------------------------------------------------------------------------
+드라이버: scripts/dev_e2e/stage5_exectime_groupgen_split_verify.py (1~5단계 실 Playwright 클릭)
+
+  /execute 응답 원문 : processing_ms=1156.1ms
+                       query_timing.source_duration_ms=74ms
+                       query_timing.target_duration_ms=76ms
+  기대 계산값        : 1156.1 - 74 - 76 = 1006.1ms ≈ 1.01초
+  화면 '실행시간' 칸  : "실행 1.01초 / 상세 7.23초"   ← 일치 확인(대조=True)
+  칸 툴팁            : "그룹생성(불일치 그룹 계산·비교) 1.01초 = 전체 1.16초 -
+                        원본조회 0.07초 - 목적조회 0.08초 (1006ms = 1156ms - 74ms - 76ms) · …"
+                       → 총시간·원본·목적 세 값 모두 확인됨(정보 손실 없음 확인).
+
+추가 단위 검증(음수 방어·폴백 — node 하니스, scratchpad 임시 실행 후 삭제)
+  - 원본80ms+목적60ms > 총100ms(합성 케이스) → 화면 "0.00초" + console.warn
+    "그룹생성 시간이 음수(총 100ms - 원본 80ms - 목적 60ms = -40ms) — 0으로 표시" 확인.
+  - query_timing 없는 응답 → 종전과 동일하게 총시간 그대로 표시(무회귀) 확인.
+
+회귀 테스트
+-----------
+- tests/test_grid_helpers.py, test_stage45_strategy_timing_and_text_cleanup.py,
+  test_stage45_status_timing_combo_label_strategy_relocate.py,
+  test_stage5_strategy_relocate_and_advanced_perf_emphasis.py, test_stage5_group_drilldown.py,
+  test_stage45_timing_label_and_dup_guard_fix.py, test_plansets_agg_processing_time_fix.py
+  → 111 passed, 2 failed(전부 무관 사전 존재 결함: test_query_review_grid_render_and_no_secrets /
+  test_candidate_grid_render_and_muted — 1·3단계 타일 관련, 본 작업이 손대지 않은 코드 범위이며
+  본 작업 착수 전부터 실패 중이었음. 회귀 아님).
+- test_stage45_strategy_timing_and_text_cleanup.py::test_stage5_processing_time_value_logic_untouched
+  (총시간 계측/보관 호출·값 변환기 불변을 정적으로 확인하는 기존 테스트) 그대로 통과 — 총시간
+  계측 계약은 실제로 건드리지 않았음을 재확인.
+
+변경/생성 파일
+--------------
+- ui/grid_helpers.py (수정 — _mvStage5ProcInfo 시그니처·계산 로직, 호출부 1곳)
+- scripts/dev_e2e/stage5_exectime_groupgen_split_verify.py (신규 — 실측 드라이버, 코드 저장소 보존)
+
+작업명 : STAGE5-EXEC-TIME-GROUPGEN-SPLIT
+✅ 작업 완료 - 5단계 '실행시간' 칸을 총 실행시간 대신 순수 그룹생성 시간(총-원본-목적)으로 분리 표시
