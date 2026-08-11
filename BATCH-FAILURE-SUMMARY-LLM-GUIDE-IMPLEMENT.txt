@@ -1,0 +1,149 @@
+작업명 : BATCH-FAILURE-SUMMARY-LLM-GUIDE-IMPLEMENT
+✅ 작업 완료 - 일괄검증 완료 후 실패 원인 유형별 요약 LLM(Ollama) 간접 활용 연동 + 화면 클릭 필터, 기본 OFF·fail-open·배치조회 1회당 explainer 1회, 코드repo 25948cf1(push 안 함)
+
+작성일 : 2026-08-11
+선행 확인 : E1-COUNT-MISMATCH-EXPLANATION-GUIDE-IMPLEMENT.txt / LLM-ADDITIONAL-USE-CASE-SURVEY.txt §6
+           둘 다 읽고 그대로 재사용(신규 설계 없음).
+
+════════════════════════════════════════════════════════════════════════
+1. 신규/변경 파일 (파일:핵심 라인)
+════════════════════════════════════════════════════════════════════════
+[신규]
+  analyzer/base_batch_failure_summary_llm_explainer.py
+    :36 BatchFailureSummaryInput(total_items/failed_items/status_counts/top_patterns 만)
+    :60 BaseBatchFailureSummaryLlmExplainer(추상)
+  analyzer/noop_batch_failure_summary_llm_explainer.py — explain() 항상 즉시 None(통신 0)
+  analyzer/ollama_batch_failure_summary_llm_explainer.py
+    :34 PROMPT_VERSION="batch-e1-v1"(E1 과 별개 prompt_version → 캐시 분리)
+    :38 circuit-breaker(E1 과 별개 모듈 전역, 60초 쿨다운)
+    :42 _ASSERTIVE_PATTERN(E1 과 동일 정규식 재사용)
+    :95 OllamaBatchFailureSummaryLlmExplainer — POST /api/chat, urllib.request, fail-open
+  services/batch_failure_summary_llm_cache_store.py
+    batch_failure_summary_llm_cache 테이블(db/migration_validator.db), UNIQUE(pattern_key,
+    model_id,prompt_version), INSERT...ON CONFLICT DO UPDATE(SQLite 단일문 upsert)로 배치
+    병렬 동시쓰기 경합 방어(LLM-ADDITIONAL-USE-CASE-SURVEY §6-4(b) 대응)
+  services/batch_failure_summary_service.py
+    :65 _extract_column_patterns() — 오류 메시지에서 "컬럼명으로 보이는 토큰"만 추출, 테이블명·
+        SQL상용어 제외, item당 1회만 카운트
+    :92 build_pattern_key() — 상태별 건수를 10% 구간으로 버킷(E1 은 5%, 배치는 유형 수가 많아 완화)
+    :128 generate_batch_failure_summary(batch_run_id) — batch_item 직접 집계→캐시→explain→폴백
+  routes/batch_failure_summary_route.py
+    :22 GET /batch/runs/{batch_run_id}/failure-summary — 항상 200, batch_run_id 외 입력 없음
+        (수치는 서버가 DB에서 직접 집계, 클라이언트가 건수를 보내지 않음)
+  tests/test_batch_failure_summary_llm_guide.py — 신규 21건 전부 통과
+
+[변경]
+  config/model_config.py:176-243
+    BATCH_FAILURE_SUMMARY_LLM_GUIDE_ENABLED(기본 False) + get_batch_failure_summary_llm_guide_
+    config() + get_batch_failure_summary_llm_explainer() 팩토리(E1 패턴 재사용)
+  web_server.py:207-208 — 라우터 등록
+  ui/tabler_renderer.py
+    :5133 "고급 조회" input#batchFailureViewRunId 신규(batchViewRunId 는 batchLookupRun 전용이라
+          이름 충돌 방지 위해 별도 id 사용 — 과거 동일 이름 충돌 이력 있음)
+    :5165 #batchFailureSummaryCard(실패 원인 요약 카드, 기본 숨김)
+    :5180 #batchItemsFilterBadge(필터 배지)
+  ui/history_renderer.py
+    :646 _batchSetItemsAndRender() / :653 _applyBatchItemsFilter() / :674 _batchFilterItemsByStatus()
+    :735 _renderBatchFailureSummary() — summary_text 없으면 카드 자체 숨김(고정 문구조차 미표시)
+    :827 histBatchLookupRun() — /failure-summary 를 배치 조회 1회당 1회만 호출하도록 배선
+    ※ 이 파일은 세션 시작 시점에 이미 무관한 우발 변경(diff_groups 표시 span 래핑) 1건이
+      unstaged 로 남아있었다 — 원인 불명(이번 작업 범위 아님) 이라 손대지 않고 그대로 같은
+      커밋에 포함됨(파일 단위 커밋 특성상 분리 불가). 내용은 화면표시 방식만 다르고 값 불변.
+
+════════════════════════════════════════════════════════════════════════
+2. 화면단(§4) 재발견 — 원 지시서 전제와 다른 사실 확인
+════════════════════════════════════════════════════════════════════════
+조사 결과 batch_item.status(PARSE_ERROR/ANALYZE_FAILED/DEFAULT_EXECUTE_FAILED 등) vocabulary를
+그대로 보여주는 화면(#batchSummaryCard/#batchItemsCard, histBatchLookupRun)이 **그 어디서도
+호출되지 않는 고아 코드**였다(tabler_renderer.py:10036-10037 자체 주석이 "레거시 Item 목록
+카드는 숨김"이라고 명시, 유일한 내부 호출부는 재처리 완료 후 새로고침 1곳뿐 — 최초 진입점 없음).
+"기존 필터를 재사용" 대상 화면 자체가 사용자에게 도달 불가능했으므로, 지시서 §4 "없다면 최소
+구현으로 추가"에 따라 §1 에 적은 대로 "고급 조회" input+button(⟳ 조회)을 신규로 추가해 이 화면을
+실제로 열람 가능하게 만들었다(batchViewRunId 와 이름 충돌 없는 별도 id 사용).
+
+════════════════════════════════════════════════════════════════════════
+3. 안전조건 4가지 검증 결과 (지시서 §2, 실측)
+════════════════════════════════════════════════════════════════════════
+(a) 화면 표시 수치는 서버 집계값만
+    → generate_batch_failure_summary() 는 batch_item 을 직접 순회해 total_items/failed_items/
+      status_counts 를 만들고, LLM 은 summary_text(서술)만 만든다. 반환 dict 에 is_matched/
+      diff_groups/verdict 등 판정 필드 0개(test_service_output_has_no_verdict_fields 통과).
+      화면 필터 칩(status_counts)도 LLM 출력이 아니라 이 서버 값을 그대로 사용.
+
+(b) 모델 입력에는 유형별 집계 + 대표 패턴(컬럼명+건수)만, 테이블명·원문 오류 메시지 금지
+    → BatchFailureSummaryInput 필드셋 고정 확인(test_guide_input_has_only_aggregate_fields_
+      no_table_or_raw_text). _extract_column_patterns() 가 이 배치에 실제 등장하는 target_table
+      명을 후보에서 제외함을 실측 확인(test_extract_column_patterns_excludes_table_names_and_
+      raw_message) — 실 Ollama 호출로도 재확인: 추출된 패턴 [{'column':'ORDER_DT','count':2},
+      {'column':'TARGET','count':2}, {'column':'AMBIGUOUS','count':1}] 에 T_ORDER/T_CUSTOMER/
+      T_PRODUCT/T_DISCOUNT/T_COUPON(이 배치의 실제 테이블명) 전부 미포함.
+      LLM 에 넘기는 status_counts 도 "실패로 분류된 상태만"으로 좁혔다(최초 구현은 성공 건수까지
+      넘겨 LLM 이 "DEFAULT_EXECUTE_OK 확인해보세요"류 노이즈 문장을 실제로 생성하는 것을 실측으로
+      발견 → services/batch_failure_summary_service.py generate_batch_failure_summary() 내
+      failure_status_counts 분리로 수정 후 재검증, 재발 없음 확인).
+
+(c) 단정문 금지 — 제안형만
+    → _ASSERTIVE_PATTERN(E1 과 동일 정규식) 재사용 + 실 Ollama(llama3.2:3b) 응답으로 실측:
+      "원인은/이유는/틀림없이/확실히/반드시 + 습니다/입니다" 패턴 미검출 확인(assert 통과).
+      단, 소형 로컬모델 특성상 "~로 인해 발생합니다"류 설명조 문장은 정규식을 통과하는 경우가
+      있었다(예: "PARSE_ERROR는 잘못된 Column Name 등으로 인해 발생합니다") — E1 도 동일한 한계를
+      가진 구조(프롬프트+정규식 이중방어이지 완전 차단은 아님)이며 이번 작업에서 새로 만든 위험은
+      아니다.
+
+(d) 미기동/비활성 시 서술형 요약 없이 폴백(라벨/값 표만)
+    → 비활성(monkeypatch env=0)/explainer 예외/explainer None 반환/실패 0건 4가지 경로 전부
+      available=False, summary_text="" 로 수렴함을 테스트로 확인(4건 통과). 화면은 카드 자체를
+      숨긴다(_renderBatchFailureSummary — E1 처럼 고정 3줄 문구조차 띄우지 않음, 배치는 "요약할
+      원인 유형" 자체가 없을 수 있어 고정 문구가 항상 맞지 않기 때문).
+
+════════════════════════════════════════════════════════════════════════
+4. 캐시·호출빈도(지시서 §3) 실측 — 실 Ollama(llama3.2:3b) 로 검증
+════════════════════════════════════════════════════════════════════════
+  1차 조회: source=LLM, cached=False, explainer 호출 1회
+  2차 조회(동일 batch_run_id 재조회): cached=True, explainer 누적 호출 1회(재호출 없음)
+  → "배치 실행 1회당 explainer 호출은 최대 1회" 를 mock 카운터(pytest)와 실 네트워크 호출
+    양쪽으로 확인. 행별 반복 호출 경로 자체가 없음(generate_batch_failure_summary 는 batch_item
+    을 순회해 "집계"만 만들고, explain() 호출은 함수 전체에서 정확히 1곳).
+  build_pattern_key() 구간화 확인: 실 건수가 달라도(1000건/2000건) 같은 비율 구간 + 같은 대표
+  컬럼이면 동일 캐시 키(test_pattern_key_buckets_status_ratio_and_ignores_raw_counts 통과).
+
+════════════════════════════════════════════════════════════════════════
+5. 화면 클릭 연결 동작 확인 (지시서 §4, 실제 클릭 — Playwright)
+════════════════════════════════════════════════════════════════════════
+격리 포트(8791)에 서버 기동(MV_AUTH_DISABLED=1, LLM ENABLED=1, model=llama3.2:3b) +
+운영 db/migration_validator.db 에 batch_name='__PWTEST_BFS__' 로 6건(성공2/PARSE_ERROR2/
+ANALYZE_FAILED1/DEFAULT_EXECUTE_FAILED1) 시드 후 실제 브라우저 클릭:
+  - "고급 조회" input 에 batch_run_id 입력 → ⟳ 조회 → 실패 요약 카드 노출 확인
+  - 칩 "입력 오류 2건" 클릭 → item 목록 6건→2건으로 필터링, 표시된 2행이 정확히 PARSE_ERROR
+    2건(Q2/T_ORDER, Q3/T_CUSTOMER)과 일치함을 실측(행 텍스트까지 대조)
+  - 필터 배지 "필터: PARSE_ERROR ✕ 해제" 노출 확인 → 해제 클릭 → 6건으로 복귀 확인
+  - 2차 조회 시 출처 라벨 "출처: LLM(llama3.2:3b) · 캐시 · <시각>" 로 캐시 히트 화면 반영 확인
+  - 브라우저 콘솔 에러 0건(node --check 문법 검사 외에 실제 페이지 로드·클릭까지 무결 확인)
+검증 후 시드 데이터·LLM 캐시 행 전부 삭제, 격리 서버 프로세스 종료(운영 8000 포트 무관).
+
+════════════════════════════════════════════════════════════════════════
+6. 자체 테스트 결과
+════════════════════════════════════════════════════════════════════════
+  신규(tests/test_batch_failure_summary_llm_guide.py)        : 21/21 통과
+  기존 E1(tests/test_e1_count_mismatch_llm_guide.py)         : 18/18 통과(신규 회귀 0건)
+  기존 batch_history_service                                  : 통과(신규 회귀 0건)
+  렌더된 JS 구문 가드(node --check, 전체 인라인 script)       : 통과(작업 중 2건 발견·즉시 수정 —
+    "\n" 이 Python 비-raw 문자열에서 실제 개행으로 치환되어 JS 문자열 리터럴이 깨지던 것,
+    "\'"/"\/" 이스케이프가 Python 파싱 단계에서 소실되던 것 — 둘 다 "\\n"/"\\'"/"\\/" 로 정정)
+  CLAUDE.md 필수 회귀 — virtual_cases                        : 8/8 통과
+  CLAUDE.md 필수 회귀 — complex_cases                        : 5/5 통과
+  참고: tests/test_batch_report_service.py 6건, tests/test_global_js_helper_dedup.py 1건
+    (batchLoadCandidateState 중복, tabler_renderer.py:9138/9171) 은 이번 작업과 무관한
+    사전 존재 실패로 확인(HEAD 기준 git show 로 재현 동일 — 이번 작업 회귀 아님, 무수정).
+
+════════════════════════════════════════════════════════════════════════
+7. 코드저장소(X:\Projects\nxDTV) 커밋
+════════════════════════════════════════════════════════════════════════
+  커밋 해시 : 25948cf193edb460c62a3a8f74651ff3a19d343c
+  브랜치    : main (로컬 커밋만, push 안 함 — 기존 규칙)
+  변경 파일 : 11개(신규 7 · 변경 4), +1229 -8
+  주의: 같은 작업 디렉토리에서 동시에 다른 세션이 semantic_dictionary 관련 파일
+    (services/candidate_display_enricher.py 등)을 수정 중인 상태를 확인했다 — 그 파일들은
+    이번 커밋에 전혀 포함하지 않았다(경로 명시 add 만 사용, -A/. 미사용).
+
+✅ 작업 완료 - 일괄검증 완료 후 실패 원인 유형별 요약 LLM(Ollama) 간접 활용 연동 + 화면 클릭 필터, 기본 OFF·fail-open·배치조회 1회당 explainer 1회, 코드repo 25948cf1(push 안 함)
