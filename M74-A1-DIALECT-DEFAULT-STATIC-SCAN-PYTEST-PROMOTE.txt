@@ -1,0 +1,94 @@
+작업명 : M74-A1-DIALECT-DEFAULT-STATIC-SCAN-PYTEST-PROMOTE
+✅ 작업 완료 - M74 A1(dialect 미위임 시 조용한 postgres 기본값) 정적스캔을 기존 진단
+스크립트 재사용으로 pytest 회귀테스트 승격, 감지력 실증(임시 위반 삽입→실패→제거) 완료
+
+────────────────────────────────────────────────────────────
+1. 배경(지시서 원문 요약)
+────────────────────────────────────────────────────────────
+BACKLOG.md M74 항목(ORACLE-CENTRIC-VERIFICATION-GAP-AUDIT.txt) A1 —
+routes/agg_diff_route.py 등 여러 지점이 diagnosis 헬퍼 호출 시 dialect 인자를 안
+넘기면 조용히 'postgres' 렌더가 기본값으로 쓰이는 구조. 지금은 우연히 방향이 맞아
+무증상이지만 새 호출부가 같은 패턴으로 추가되면 실제 오작동을 유발할 잠재 위험.
+M74 보고서 1순위 권고: "정적스캔을 tests/로 승격(비용 대비 효과 최대)".
+
+────────────────────────────────────────────────────────────
+2. 기존 스캔 로직 재사용(신규 로직 작성 안 함)
+────────────────────────────────────────────────────────────
+DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE.txt(§비판적 검토, 136~140행)이 이미
+"이 드라이버(scripts/dev_e2e/routes_limit_dialect_secondary_check.py)가 이미 그
+스캔 로직을 갖고 있으므로 tests/ 로 승격만 하면 된다"고 명시.
+
+  재사용 함수 : scan_dialect_calls()
+  파일 위치   : scripts/dev_e2e/routes_limit_dialect_secondary_check.py:191-216
+  로직        : routes/*.py 를 AST 로 훑어 DIALECT_FUNCS 에 등록된 헬퍼
+                (resolve_confirmed_chunk_key, resolve_confirmed_match_key,
+                 resolve_trusted_chunk_key, chunk_key_candidates_from_contract,
+                 _has_null, _dup_present) 호출부가 dialect 인자(키워드 또는
+                 지정 positional 위치)를 실제로 넘기는지 판정.
+
+새 테스트가 importlib.util.spec_from_file_location 으로 이 스크립트를 동적
+임포트해 scan_dialect_calls() 를 그대로 호출한다(scripts/dev_e2e 에 __init__.py
+가 없어 일반 import 불가 → 동적 로딩, tests/test_group_save_unify_cleanup.py 등
+기존 파일과 동일 계열 기법).
+
+────────────────────────────────────────────────────────────
+3. 신규 테스트
+────────────────────────────────────────────────────────────
+파일 : tests/test_dialect_default_delegation_static_scan.py (신규, 75줄)
+방식 : 허용목록(allowlist) 회귀 — 지금 스냅샷과 다른 새 지점이 생기면 실패.
+       기존 지점을 강제로 다 고치라는 뜻이 아님(지시서 §2 준수).
+스냅샷 : 2026-08-12 기준 재스캔 결과 미위임 호출 0곳
+         (DIALECT-DELEGATION-15SPOT-RECOUNT-DIAGNOSE.txt 가 남겼던 잔여 3곳
+          [agg_diff_route.py:893/1503/877] 은 그 사이 별도 작업으로 이미 해소됨
+          — scan_dialect_calls() 재실행 결과 14곳 호출 전부 [위임 O]).
+         → ALLOWLIST = frozenset() (빈 허용목록).
+
+────────────────────────────────────────────────────────────
+4. 감지력 증명(임시 위반 삽입 → 실패 → 제거)
+────────────────────────────────────────────────────────────
+[1] 삽입 : routes/agg_diff_route.py 파일 끝(1978행 뒤)에 임시 함수 추가
+    def _m74_a1_temp_detection_probe(req):
+        from services.diagnosis.key_evidence import resolve_trusted_chunk_key
+        return resolve_trusted_chunk_key(parse_result=req.parse_result,
+                                          src_conn=req.src_conn, tgt_conn=req.tgt_conn)
+    (dialect 인자 누락 — resolve_trusted_chunk_key 는 DIALECT_FUNCS 등록 대상)
+
+[2] 실행 : python -m pytest tests/test_dialect_default_delegation_static_scan.py -v
+    결과 : 1 failed
+    AssertionError: [('agg_diff_route.py', 1983, 'resolve_trusted_chunk_key')]
+                    is not false : 새 dialect 미위임 지점 발견(...)
+    → 삽입한 지점(파일:라인:함수명)을 정확히 감지, 테스트 실패로 알림 확인.
+
+[3] 제거 : 임시 함수 삭제, git diff routes/agg_diff_route.py 무변경(0줄) 확인.
+    재실행 : python -m pytest tests/test_dialect_default_delegation_static_scan.py -v
+    결과 : 1 passed
+
+────────────────────────────────────────────────────────────
+5. 회귀 확인
+────────────────────────────────────────────────────────────
+  대상                                                              결과
+  ──────────────────────────────────────────────────────────────  ────────────
+  tests/test_dialect_default_delegation_static_scan.py (신규)       1 passed
+  tests/test_underscore_alias_oracle_regression_static.py (연관)    14 passed, 6 subtests
+  python samples/test_virtual_cases.py (CLAUDE.md 필수)             8/8 통과
+  python samples/test_complex_cases.py (CLAUDE.md 필수)             5/5 통과
+
+  신규 회귀 0건. 코드 실행경로 변경 없는 순수 테스트 추가라 서버 재기동 생략.
+
+────────────────────────────────────────────────────────────
+6. 변경/생성 파일
+────────────────────────────────────────────────────────────
+  신규 : tests/test_dialect_default_delegation_static_scan.py (75줄)
+  변경 : 없음(routes/agg_diff_route.py 는 임시 삽입 후 완전 원복, git diff 0줄)
+
+────────────────────────────────────────────────────────────
+7. 커밋
+────────────────────────────────────────────────────────────
+  코드 저장소(X:\Projects\nxDTV) 커밋 : e7229884
+  test(routes): dialect 미위임(postgres 조용한 기본값) 정적스캔 pytest 승격
+  (M74-A1-DIALECT-DEFAULT-STATIC-SCAN-PYTEST-PROMOTE)
+  1 file changed, 75 insertions(+)
+
+작업명 : M74-A1-DIALECT-DEFAULT-STATIC-SCAN-PYTEST-PROMOTE
+✅ 작업 완료 - M74 A1(dialect 미위임 시 조용한 postgres 기본값) 정적스캔을 기존 진단
+스크립트 재사용으로 pytest 회귀테스트 승격, 감지력 실증(임시 위반 삽입→실패→제거) 완료
