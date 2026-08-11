@@ -1,0 +1,113 @@
+작업명 : C1-C2-PIPELINE-IMPACT-MEASURE-STEP1
+✅ 작업 완료 - 사전 완전무매치 147건을 실제 프로덕션 파이프라인(candidate_engine.build_column_
+candidates → candidate_display_enricher.enrich_candidates_for_display → candidate_subtype_service)에
+통과시켜 최종 판정을 실측 — CT_GENERAL_GROUP/UNKNOWN_REVIEW로 끝까지 애매하게 남는 "실질 최종
+애매 비율" 28.6%(147건 중 42건), 다른 휴리스틱이 실제로 해소하는 비율은 29.9%(44건)뿐 →
+C1(사전 미스율 25.8~30.0%)과 이번 "최종 애매 비율"(28.6%)이 거의 같은 자릿수로 수렴 →
+Ollama 재검토 필요(단, 스코프는 147건 전체가 아니라 후보풀 실제 진입분 86건 중 42건=48.8%로
+좁혀 잡을 것)
+
+■ 선행 확인 (지시서 요구사항)
+  C1-C2-DICTIONARY-MISS-RATE-MEASURE.txt(2026-08-11 당일 완료, 사전미스율 25.8~30.0% 실측)를
+  먼저 읽었다. 그 보고서의 1순위 권고("사전 미스 147건이 candidate_subtype_service 파이프라인을
+  통과했을 때 실제로 CT_GENERAL_GROUP/CT_UNKNOWN_REVIEW로 귀결되는 비율 측정, 비용 0, 코드
+  무변경")를 그대로 수행했다.
+
+■ 방법론
+  대상: scratchpad/_c1c2_dict_miss.json 의 dict_matched==false 147건 전부(54개 테이블, asis측
+  PostgreSQL_Inter_asis/schemas asis01·ntb·mvbench + tobe측 PostgreSQL_Inter_tobe/schema tobe01).
+  경로: 실제 프로덕션 함수 그대로 호출 — services/candidate_engine.py build_column_candidates()
+  → services/candidate_display_enricher.py enrich_candidates_for_display()(내부에서
+  compute_simulated_candidates → score_candidates → candidate_subtype_service.
+  enrich_candidates_with_subtype 순서 호출) → candidate_subtype 필드 판독. 이 경로는 기존
+  samples/audit_semantic_candidate_quality_30.py 가 쓰던 것과 동일 경로(그쪽은 정적 DDL fixture,
+  이번엔 라이브 DB 실측).
+  파이프라인 계약 사전 확인(코드로 직접): top_n_gb/top_n_sum=3 절단은 subtype 계산에 영향 없음
+  — _apply_auto_selected_cap(candidate_engine.py:1106) 주석에 "candidate_pool 자체는 유지, 후보
+  수는 줄이지 않는다"고 명시돼 있고, top_n은 simulated_selection_status(SELECTED_DEFAULT/
+  AVAILABLE_ADDITIONAL) 랭킹에만 관여함을 확인 → top_n 상향 조치 불필요, 기본값 3 그대로 사용.
+  147건은 실제 이관 SQL 매핑이 없는 "테이블 컬럼 전수 스윕" 표본이라, 가장 정직한 근사로
+  자기자신 1:1 셀프매핑 SQL(`INSERT INTO schema.table (미스컬럼들) SELECT 미스컬럼들 FROM
+  schema.table`, 값 그대로 이관되는 통상 컬럼 복사 케이스를 흉내)을 구성해 parse_migration_sql_
+  to_model 통과를 사전 검증 후 사용. normalized_metadata/pg_stats/key_metadata/comments/sample
+  values는 전부 라이브 DB 실측(services/db_statistics_service.py fetch_postgres_column_stats·
+  fetch_postgres_key_metadata, services/metadata_provider.py, services/db_query_service.py
+  _cmn_fetch_tgt_col_meta, services/column_profile_service.py resolve_candidate_sample_values —
+  전부 SELECT/카탈로그 조회만, DDL/DML 없음). semantic_dictionary_entries는 이전 스크립트와
+  동일하게 load_default_semantic_dictionary()로 로드해 정상 전달(사전이 다시 조회되게 둠).
+  판정: 각 컬럼을 GROUP BY role/SUM role 양쪽에서 각각 평가하고 candidate_subtype을 기록.
+  "최종 애매" = CT_GENERAL_GROUP 또는 CT_UNKNOWN_REVIEW. "다른 휴리스틱 해소" = 그 외 구체적
+  CT_* subtype(식별자/측정치 등). "후보 미생성" = 애초에 GB/SUM 어느 후보 풀에도 안 들어간 경우
+  (사유 명시 — 조용히 분모에서 제외하지 않음, 표본 오염 정직화 원칙 승계). role 종합 기준:
+  "GB/SUM 중 하나라도 애매하면 애매"로 카운트(실측상 겹침은 없었음, 애매 42건 전부 GB role 단독
+  발생, SUM role의 UNKNOWN_REVIEW는 0건).
+  스크립트(코드 저장소 커밋 대상 아님): scratchpad/c1_c2_pipeline_impact_measure.py
+  (+ 사전 계약검증용 scratchpad/_c1c2_pipeline_test_one.py)
+  원본 데이터(147건 상세 role별 subtype/selection_status/사유, JSON): scratchpad/_c1c2_pipeline_
+  impact.json (실측 재검증: detail 147건, errors 0건, pipeline_status 분포 NO_CANDIDATE 61 ·
+  RESOLVED_BY_OTHER_HEURISTIC 44 · AMBIGUOUS_FINAL 42 — 아래 표1과 일치 확인)
+
+■ 실측 결과 [표1] 147건 전체 파이프라인 최종 판정
+  ┌───────────────────────────────────────────────────┬──────┬────────┐
+  │ 판정                                                │ 건수 │ 비율   │
+  ├───────────────────────────────────────────────────┼──────┼────────┤
+  │ 전체 사전미스 컬럼                                  │  147 │ 100.0% │
+  │ NO_CANDIDATE (GB/SUM 어느 후보풀에도 미진입)        │   61 │  41.5% │
+  │ RESOLVED_BY_OTHER_HEURISTIC (구체적 subtype 해소)   │   44 │  29.9% │
+  │ AMBIGUOUS_FINAL (CT_GENERAL_GROUP/UNKNOWN_REVIEW)   │   42 │  28.6% │
+  └───────────────────────────────────────────────────┴──────┴────────┘
+  후보풀 실제 진입분(86건=147-61) 기준 애매 비율: 42/86 = 48.8%
+
+  role별 후보진입분 subtype 분포:
+  - GB 진입분: GENERAL_GROUP_CANDIDATE 42건 · IDENTIFIER 11건
+  - SUM 진입분: IDENTIFIER 23건 · MEASURE_NUMERIC 13건 (UNKNOWN_REVIEW 0건)
+  후보 미생성(61건) 사유: FREE_TEXT 29 · HIGH_CARDINALITY 23 · CONSTANT 5 · NO_EVIDENCE 4
+  (이 61건은 애초에 화면에 후보로 노출조차 안 되므로 사전 미스가 문제될 여지 자체가 없음)
+
+■ 실측 결과 [표2] 픽스처 버킷별 최종 애매 비율 (표본 오염 정직화 — 이전 보고서와 동일 원칙)
+  ┌──────────────────────────────┬──────┬──────┬────────┐
+  │ 버킷                          │ 전체 │ 애매 │ 애매율 │
+  ├──────────────────────────────┼──────┼──────┼────────┤
+  │ ntb (공공기관 도메인 픽스처)   │   79 │   24 │  30.4% │
+  │ 기타 단일목적 기능테스트 픽스처 │   36 │   10 │  27.8% │
+  │ 학교 영문 픽스처                │   30 │    8 │  26.7% │
+  │ mvbench (성능벤치 픽스처)       │    2 │    0 │   0.0% │
+  └──────────────────────────────┴──────┴──────┴────────┘
+  버킷 간 편차가 26.7~30.4%로 작다 — 이전 보고서에서 관측된 "학교영문 상향왜곡·기타 하향왜곡"
+  경향이 사전 미스율 단계에서는 뚜렷했지만(50.0% vs 13.1%), 최종 애매 판정 단계에서는 세 버킷이
+  수렴한다. 즉 사전이 못 잡아도 다른 축(타입/카디널리티)이 버킷 성격과 무관하게 비슷한 비율로
+  걸러낸다는 의미로 해석된다. mvbench는 표본 2건뿐이라 0.0%를 일반화 근거로 쓰지 않는다.
+
+■ 해석 — C1과 이번 수치의 관계
+  · 이전 보고서(C1-C2-DICTIONARY-MISS-RATE-MEASURE.txt)는 "사전이 아무 신호도 못 준 비율"을
+    25.8%(전체)/30.0%(ntb)로 쟀고, 이는 "C1 실질 호출후보의 상한 근사치"라고 명시했다. 이번에
+    실제 파이프라인을 완주시킨 결과 "최종까지 애매하게 남는 비율"이 28.6%로 나왔다 — 상한
+    근사치(25.8~30.0%)와 확정치(28.6%)가 자릿수는 물론 수치 자체도 근접했다. 이는 사전 미스가
+    다른 휴리스틱 축(타입 추론·카디널리티·값 패턴)으로 거의 상쇄되지 않고 그대로 최종 판정
+    애매성으로 전이됨을 뜻한다 — "다른 휴리스틱이 이미 커버해서 괜찮다"는 낙관적 가설은
+    기각된다(실제 해소 비율은 29.9%뿐).
+  · 다만 Ollama 투자 스코프를 "147건 전체" 기준으로 잡으면 과대평가다 — 41.5%(61건)는 애초에
+    후보 풀에 진입조차 안 해 화면에 노출되지 않으므로 사전 미스가 무의미하다. 실질 스코프는
+    "후보 풀에 실제로 진입하는 86건 중 42건(48.8%)"으로 좁혀야 M50 방법론("실질 호출후보")과
+    일관된 수치가 된다.
+  · SUM role에서 UNKNOWN_REVIEW가 0건인 점은 주목할 만하다 — SUM 후보는 수치 타입 여부로
+    IDENTIFIER/MEASURE_NUMERIC 둘 중 하나로 비교적 명확하게 갈리는 반면, GROUP BY 후보는
+    타입만으로 구분이 안 되는 "일반 텍스트/코드성 컬럼"이 CT_GENERAL_GROUP으로 몰린다 — 애매성은
+    GB role에 집중된 문제다.
+
+■ 제한사항 / 한계 (이전 보고서 원칙 승계)
+  · 셀프매핑(같은 테이블→같은 테이블 1:1 컬럼 복사) 근사를 썼다 — 실제 이관 SQL(JOIN/CASE/
+    CTE 등 변환식 포함)에서는 source_expression이 달라져 score_breakdown/risk_flags가 달라질 수
+    있어 이번 수치와 다를 수 있다. "값이 그대로 복사되는 가장 단순한 케이스"의 근사치다.
+  · PostgreSQL 단일 방언, 이 저장소 픽스처 DB 1건 표본이다 — oracle/mysql/mssql 미실측. 28.6%/
+    48.8% 어느 수치도 일반화된 상한/하한으로 인용 금지.
+  · 코드 수정 없음(순수 측정) — services/ 등 어떤 파일도 변경하지 않았다(git status 확인,
+    services/ diff 0줄, 나머지 저장소 diff는 이번 작업 착수 이전부터 있던 무관 변경분).
+
+✅ 작업 완료 - 사전 완전무매치 147건을 실제 프로덕션 파이프라인(candidate_engine.build_column_
+candidates → candidate_display_enricher.enrich_candidates_for_display → candidate_subtype_service)에
+통과시켜 최종 판정을 실측 — CT_GENERAL_GROUP/UNKNOWN_REVIEW로 끝까지 애매하게 남는 "실질 최종
+애매 비율" 28.6%(147건 중 42건), 다른 휴리스틱이 실제로 해소하는 비율은 29.9%(44건)뿐 →
+C1(사전 미스율 25.8~30.0%)과 이번 "최종 애매 비율"(28.6%)이 거의 같은 자릿수로 수렴 →
+Ollama 재검토 필요(단, 스코프는 147건 전체가 아니라 후보풀 실제 진입분 86건 중 42건=48.8%로
+좁혀 잡을 것)
