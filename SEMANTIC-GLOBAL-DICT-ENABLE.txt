@@ -1,0 +1,91 @@
+작업명 : SEMANTIC-GLOBAL-DICT-ENABLE
+✅ 작업 완료 - 대표타입 선정 결함(1번) 수정 + shadow 계측 2건 재실행(2번) + flag ON 상태(3번) 사실확인, 신규 회귀 0건
+
+■ 사전 확인 — 지침 전제와 실제 코드 상태의 불일치
+  LLM-ADDITIONAL-USE-CASE-SURVEY.txt §3(0순위)는 "flag 기본 OFF, 미배선"이라 서술했으나,
+  실제 코드(services/semantic_dictionary_service.py::is_global_dict_enabled())는 이미
+  2026-07-12 커밋(3053d51c, SEMANTIC-DICT-GLOBAL-DICT-ACTIVATE)부터 flag 기본값이 ON이었다.
+  docs/handoff_backlog.md §"semantic dictionary §9 우선순위 방향"에도 이 활성화가 문서화돼 있었다.
+  서베이의 오판단 근거는 services/semantic_dict_global_adapter.py 모듈 헤더 주석
+  ("flag 기본 OFF... 아직 연결하지 않는다")이 어댑터 도입 당시(SEMANTIC-DICT-GLOBAL-ADAPTER-BUILD-FLAG-OFF)
+  기록 그대로 stale하게 남아 있었기 때문으로 확인됨 — 이번 작업에서 해당 주석을 최신 상태로 갱신했다.
+
+  단, 지침이 "1번(대표타입 선정 결함)을 먼저 고쳐라, flag ON보다 먼저"라고 요구한 그 결함 자체는
+  서베이 서술과 무관하게 실제로 미수정 상태였다(코드에 "미수정" 표기 직접 확인). 즉 flag는 이미
+  1개월 가까이 ON인 채로 이 결함을 안고 운영돼 온 상태 — 지침이 우려한 순서(결함 방치+확대) 그대로
+  발생해 있었다. 이번 작업으로 그 결함을 소급 수정했다.
+
+■ 1. 대표타입 선정 결함 수정 (필수 선행)
+  파일: services/semantic_dictionary_service.py (build_semantic_type_candidates)
+  결함: 동일 semantic_type 내 "타입별 대표 선정"에는 source_priority_rank(로컬>글로벌)가
+        적용됐지만, 서로 다른 semantic_type 후보끼리 비교하는 "타입 간 최종 정렬"은
+        score(confidence)만 비교했다. 그 결과 로컬이 매칭한 컬럼이라도 confidence가 더 높은
+        글로벌(MOIS_STANDARD) 타입이 cands[0](대표)을 차지할 수 있었다.
+        실측(기존 코드 주석, SEMANTIC-MATCH-ENGINE-DUALITY-DIAGNOSE 2026-07-17): 실 Inter 페어
+        315컬럼 중 28건이 이 경로로 candidate_scoring._best_semantic_match(정답 판정 경로)와
+        대표타입이 어긋났다. 예: BATCH_ID(varchar) → 로컬 SYSTEM_AUDIT(0.62)·IDENTIFIER(0.6)가
+        있음에도 글로벌 RAW_TEXT(0.7)가 대표로 선택됨.
+        이 결함은 candidate_engine._sem_lookup()을 거쳐 SUM 측정확인(_SEM_TYPES_MEASURE)/
+        GROUP BY 차원확인(_SEM_TYPES_DIMENSION)/비가산 판정(_SEM_TYPES_NON_ADDITIVE) 게이트에
+        직접 반영되는 실 판정 경로였다(관찰모드 전용이 아님 — 파일 헤더 주석은 stale, 실제로는
+        candidate_engine.py:1240-1243이 실배선).
+  수정: 최종 정렬 키에 candidate_scoring._best_semantic_match와 동일한
+        (-source_priority_rank, score) 기준을 추가. 정렬 전용 임시 필드(_source_rank)는
+        반환 직전 제거해 함수 반환 shape 불변.
+  검증: BATCH_ID 재현 케이스(로컬 SYSTEM_AUDIT 0.62 vs 글로벌 RAW_TEXT 0.7)를 단위테스트로
+        추가 — 수정 후 cands[0]이 SYSTEM_AUDIT(0.62)로 정상화됨을 확인
+        (tests/test_semantic_dict_global_merge_shadow.py::
+         TestBuildCandidatesTiebreak::test_local_wins_over_global_across_type_boundary).
+        ※ 실 Inter 페어 315컬럼 라이브 재감사는 이번 환경에서 라이브 DB 접속이 없어
+        재현하지 못함 — 코드에 기록된 정확한 실측 사례(BATCH_ID)로 대체 검증.
+
+■ 2. Shadow 계측 실행 결과 (완료보고로 남은 적 없던 수치 — 이번에 재실행해 기록)
+  (A) scripts/shadow_global_dict_measure.py (data/sample_schema_manifest.json, 영문/무코멘트)
+      로컬 사전: 164건 / 병합 사전: 26,524건(글로벌 +26,360)
+      계측 대상: 132컬럼
+      [1] 글로벌 신규매칭 컬럼        : 1개 (tb_customer_contact_summary.current_zip → IDENTIFIER)
+      [2] 판정(score_label) 뒤집힘    : 0건 (승격0/강등0)
+      [3] additive-only 불변식 위반   : 0건
+  (B) scripts/shadow_recheck_commented_tables.py (오프라인 fixture, 한글 코멘트 보유 9컬럼)
+      로컬 164 / 병합 26,524
+      [1] 글로벌 신규매칭 컬럼        : 0개
+      [2] 판정(score_label) 뒤집힘    : 0건
+      [3] additive-only 불변식 위반   : 0건
+      [4] COMMENT 매치 발동: 로컬단독 3컬럼/4매치 → 병합후 5컬럼/9매치 (COMMENT 경로 유효 확인)
+  (C) "사내 실DB 82컬럼" 계측(is_global_dict_enabled() 문서화 3회 계측 중 3번째)은 재사용
+      가능한 스크립트가 저장소에 없어(과거 세션 ad-hoc 실행 추정) 이번 환경에서 재실행하지
+      못함 — 기존 docstring 기록(judgment 뒤집힘 0·불변식 위반 0)을 그대로 인용.
+  ※ 위 (A)(B)는 모두 candidate_scoring._best_semantic_match(정답 판정 경로) 기준 계측이며,
+    1번에서 수정한 build_semantic_type_candidates 타입간 정렬 결함은 원래 _best_semantic_match에는
+    없던 결함이라(이미 source_rank 적용) 이 계측 수치 자체는 1번 수정 전후로 달라지지 않는다.
+    (A)(B)가 측정하지 못하는 "엔진 게이트(candidate_engine._sem_lookup) 경로"의 영향은 위 1번의
+    BATCH_ID 단위테스트로 별도 검증했다 — 참고: 이 gap은 이번 검증에서 발견한 기존 shadow
+    스크립트의 측정 범위 한계이며, 향후 재계측 스크립트 보강 여지로 남겨둔다(이번 범위 밖).
+
+■ 3. flag ON 변경 여부
+  변경 없음 — 이미 2026-07-12부터 기본 ON(코드 확인: is_global_dict_enabled() 미설정 시 True 반환).
+  1번 결함 수정 + 2번 계측(불변식 위반 0)으로 "이미 ON인 상태가 안전하다"는 사후 확인만 수행.
+  근거: additive-only 불변식은 shadow 계측 2건 모두 위반 0, 1번 수정으로 타입 경계 결함도
+  해소돼 로컬 매칭 컬럼은 confidence·타입 무관하게 항상 로컬이 대표로 유지됨.
+
+■ 검증 결과
+  - tests/test_semantic_dict_global_merge_shadow.py, tests/test_semantic_dictionary.py,
+    tests/test_semantic_dict_global_adapter.py: 81/81 통과 (신규 1건 포함)
+  - tests/ 전체 중 "semantic or candidate" 키워드 서브셋 (1777개 selected):
+    1732 passed / 31 failed / 8 skipped / 4 xfailed / 2 errors
+    → 수정 전(git stash로 원본 복원 후 동일 커맨드 재실행, 1776개 selected) 결과와
+      실패 테스트명 33건(31 FAILED + 2 ERROR) 완전 동일(diff 0) — 전량 사전 존재 실패,
+      이번 수정으로 인한 신규 회귀 0건. (신규 selected 1건 차이는 이번에 추가한 테스트 자체)
+  - CLAUDE.md 필수 회귀: samples/test_virtual_cases.py 8/8 통과,
+    samples/test_complex_cases.py 5/5 통과.
+
+■ 변경 파일
+  - services/semantic_dictionary_service.py (결함 수정)
+  - services/semantic_dict_global_adapter.py (stale 헤더 주석 갱신)
+  - docs/handoff_backlog.md (§9 항목에 후속 결함발견·수정 기록 추가)
+  - tests/test_semantic_dict_global_merge_shadow.py (재현 테스트 추가)
+
+■ 코드 저장소 커밋해시
+  c63cfde7 (main, push 안 함 — 코드 저장소 push 금지 규칙 유지)
+
+✅ 작업 완료 - 대표타입 선정 결함(1번) 수정 + shadow 계측 2건 재실행(2번) + flag ON 상태(3번) 사실확인, 신규 회귀 0건
