@@ -4741,7 +4741,7 @@ git -C E:/verify_reports worktree remove <임시경로>
   차단, 설계상 의도).
 - 근거 보고서: E:\verify_reports\M47-REGRESSION-RECHECK-AND-FIX.txt
 
-### M50. [문서화 우선, 구현 보류 재확인] LLM 관리컬럼 판정 — 실측 호출후보 0.8~1.0%로 확인, 대신 LLM무관 더 시급한 무배지 CONFIRMED 결함 재현
+### M50. ✅ 완전 해결 — LLM 관리컬럼 판정은 보류 유지(호출후보 0.8~1.0%), 무배지 CONFIRMED 결함 규칙기반 수정+506컬럼 재스윕까지 완료(부작용 0건 확정)
 - 발견/계기: 2026-08-07 (사용자 요청 — 고객이 메타 오픈소스 LLM 기반 기능 탑재를 요구,
   폐쇄망·무학습·프로젝트종료시 완전삭제 제약) / 조사: LLM-ADMIN-COLUMN-JUDGMENT-SCOPE-AND-
   DESIGN-DIAGNOSE(코드 무변경, 설계 확정)
@@ -4809,9 +4809,14 @@ git -C E:/verify_reports worktree remove <임시경로>
   REFERENCE)가 이제 자연 도달불가(무해, 범위 밖이라 미삭제). 별도 갭 발견(백로그
   후보): 일괄검증 경로는 ambiguous_audit_evidence 자체가 안 붙어(개별검증만 배선)
   배제 해제는 되지만 배지 시각 노출은 개별검증 한정.
-  **미완료로 남긴 것**: 이번 세션 DB 접속 지연으로 전체 506컬럼 재스윕(수정으로 verdict
-  분포가 실제로 어떻게 이동하는지)은 재현 못함 — 후속 권고.
+- **✅ 506컬럼 재스윕 완료(2026-08-11, M50-RESCAN-506-COLUMNS-AFTER-RULE-FIX,
+  코드 무변경)**: "미완료로 남긴 것" 해소 — 규칙기반 수정(6f5d5073) 이후 verdict
+  분포 실측 결과 CONFIRMED 22→19(-3)·NOT_AUDIT_AMBIGUOUS 24→27(+3), 컬럼 단위
+  전수대조(506건)로 전환된 건 정확히 3건(`biz_reg_no` ×2 +
+  `t_to_1_etl01.updated_at`, 전부 의도한 방향)뿐이고 **나머지 503건 완전 불변,
+  의도치 않은 역방향 이동 0건**(부작용 없음 확정). biz_reg_no 재현사례 재확인.
 - 참고: E:\verify_reports\M50-EDGE-CASE-VERDICT-DISTRIBUTION-MEASURE.txt
+- 참고: E:\verify_reports\M50-RESCAN-506-COLUMNS-AFTER-RULE-FIX.txt
 - 근거 보고서: E:\verify_reports\LLM-ADMIN-COLUMN-JUDGMENT-SCOPE-AND-DESIGN-DIAGNOSE.txt
 - 근거 보고서: E:\verify_reports\STAGE4-TAB-LABEL-LAG-AND-PRIOR-STAGE-LOCK-SCOPE-DIAGNOSE.txt
 - 근거 보고서: E:\verify_reports\ADMIN-AUDIT-SILENT-CONFIRMED-FULL-AUDIT-AND-FIX.txt
@@ -5151,7 +5156,7 @@ git -C E:/verify_reports worktree remove <임시경로>
   필요, CLAUDE.md "대규모 리팩토링 계획 우선 제시" 규칙 대상)으로 재검토 권장.**
 - 근거: E:\verify_reports\CODEBASE-STRUCTURAL-HEALTH-DIAGNOSE.txt
 
-### M72. LLM 추가 활용처 전면 탐색 완료(0순위 전제 정정됨) — 직접활용 C1/C2 실측결과 착수권고로 전환(단계적), 간접활용 1건(E1) 구현 완료, 부수 8건 발견
+### M72. LLM 추가 활용처 전면 탐색 완료(0순위 전제 정정됨) — 직접활용 C1/C2 실측결과 착수권고로 전환(단계적), 간접활용 2건(E1·일괄실패요약) 구현 완료, 부수 8건 발견
 - 발견/계기: 2026-08-10 (사용자 — "관리컬럼 판정 외 다른 활용처는? 일괄·전수 적용도
   고려, 직접/간접 활용 둘 다 고려" / LLM-ADDITIONAL-USE-CASE-SURVEY, 코드 무변경,
   BACKLOG 5,129줄+완료보고서 386건+로컬DB 읽기전용 조회)
@@ -5276,7 +5281,27 @@ git -C E:/verify_reports worktree remove <임시경로>
   면 Ollama 인프라 재검토. C2는 LLM보다 먼저 저비용 대안(로컬 COMMENT 사전 35개→
   확대) 검토가 근거로 뒷받침됨.
 - 참고: E:\verify_reports\C1-C2-DICTIONARY-MISS-RATE-MEASURE.txt
-- 잔여: 일괄검증(batch) COUNT 그리드로의 E1 확장(요약 1건 형태), shadow 계측
-  범위한계(엔진게이트 경로 재계측 스크립트 보강) — 둘 다 별도 착수 결정 필요.
+- **간접 활용 2순위(일괄검증 실패요약) 구현 완료(2026-08-11,
+  BATCH-FAILURE-SUMMARY-LLM-GUIDE-IMPLEMENT, 코드 커밋 25948cf1)**: E1 인프라
+  그대로 재사용, 별도 prompt_version("batch-e1-v1")·별도 circuit-breaker로 E1과
+  독립. **지시서 §4 전제("기존 필터 재사용") 자체가 틀렸음을 발견** — 대상 화면
+  (`#batchSummaryCard`/`#batchItemsCard`)이 아무 진입점도 없는 고아 코드였음(자체
+  주석이 "레거시, 숨김"으로 명시) → 억지로 끼워맞추지 않고 최소 진입점("고급 조회"
+  입력+버튼, 기존 유사 id와 충돌 회피) 신설. **실 Ollama 테스트 중 진짜 결함
+  발견·수정**: 성공건수까지 모델에 넘겼더니 실제로 "DEFAULT_EXECUTE_OK도
+  확인해보세요" 류 노이즈 문장을 생성하는 걸 실측으로 확인 → 실패건수만 전달하도록
+  즉시 수정, 재검증. 안전조건 4가지 전부 실측 검증(단, 소형모델의 "~로 인해
+  발생합니다" 류가 정규식을 통과하는 한계는 E1과 공유하는 기존 한계로 정직하게
+  명시, 신규 위험 아님). 캐시는 M72 §6-4(b)가 지적한 "배치 병렬 동시쓰기 경합"에
+  대비해 SQLite UPSERT로 방어(사전 지적 반영). 배치 조회 1회당 explainer 호출
+  최대 1회(mock+실네트워크 양쪽 확인). **실제 브라우저 클릭으로 행단위 정확성까지
+  검증**(시드 6건 중 "PARSE_ERROR 2건" 클릭 → 정확히 그 2행만 필터링 확인, 테스트
+  후 시드·캐시 삭제). JS 구문 깨뜨리는 이스케이프 버그 2건 자체 발견·즉시 수정.
+  동시세션이 시맨틱사전 관련 파일을 고치고 있음을 감지해 경로 명시 add로 정확히
+  분리. 신규 21건 통과, 사전존재 실패 2건 무관 확인.
+- 잔여: 일괄검증(batch) COUNT 그리드로의 E1 확장(요약 1건 형태) — 이제 위 항목으로
+  대체 완료됨(별도 착수 불필요). shadow 계측 범위한계(엔진게이트 경로 재계측
+  스크립트 보강)만 별도 착수 결정 남음.
 - 참고: E:\verify_reports\SEMANTIC-GLOBAL-DICT-ENABLE.txt
 - 참고: E:\verify_reports\E1-COUNT-MISMATCH-EXPLANATION-GUIDE-IMPLEMENT.txt
+- 참고: E:\verify_reports\BATCH-FAILURE-SUMMARY-LLM-GUIDE-IMPLEMENT.txt
