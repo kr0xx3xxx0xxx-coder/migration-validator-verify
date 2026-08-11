@@ -5777,7 +5777,7 @@ git -C E:/verify_reports worktree remove <임시경로>
   사용자에게 안내할 필요가 있는지는 별도 판단 필요.
 - 근거: E:\verify_reports\STAGE5-DETAIL-EXTRACT-FIRST-CLICK-SLOW-DIAGNOSE.txt
 
-### M77. "예상 총소요" 시간 추정치 — 낡은 벤치마크 1건을 50배 밖으로 무비판적 선형외삽해 400배 과다추정(7900초), 오늘 케이스는 표시전용이라 실제 결정엔 무영향이나 chunk_capable=True 케이스에서 잘못된 전략전환 유발 위험 잠재
+### M77. ✅ 해결 완료 — "예상 총소요" 벤치마크 단일점 외삽→2점 보간+외삽배율 기반 신뢰도로 수정(2026-08-12), chunk_capable=True 잘못된 전략전환 위험 실증 후 해소 확인
 - 발견/계기: 2026-08-11 (사용자 — "예상 총소요 7900초, 실측은 17~23초인데 400배
   차이가 왜 나냐" / STAGE4-EXPECTED-TOTAL-SEC-7900-OVERESTIMATE-DIAGNOSE, 코드
   무변경)
@@ -5804,6 +5804,33 @@ git -C E:/verify_reports worktree remove <임시경로>
   고정 3단계(HIGH/MEDIUM/LOW) 라벨 — 50배 외삽(400배 과다)이나 1.1배 외삽
   이나 화면상 동일하게 "LOW"로만 표시돼 구분 안 됨.
 - 근거: E:\verify_reports\STAGE4-EXPECTED-TOTAL-SEC-7900-OVERESTIMATE-DIAGNOSE.txt
+- **✅ 수정 완료(2026-08-12, M77-EXPECTED-TOTAL-SEC-BENCHMARK-FIX, 코드 커밋
+  7154e6fc)**: `strategy_transition.py::_est_total_seconds()`에 오늘 실측된
+  진짜 값(5천만행/17.42초, M76 근거)을 2번째 벤치 기준점으로 추가 — 두 기준점
+  (1M/158초 cold cross-host, 50M/17.42초 local warm) 사이는 처리량 선형보간,
+  범위 밖은 기존처럼 최근접 기준 외삽하되 **외삽배율(extrapolation_factor)을
+  계산해 반환**하도록 재작성. 외삽배율≥10배면 무조건 LOW, 보간/근접외삽(10배
+  미만)은 기존 하드코딩 LOW에서 MEDIUM으로 상향.
+  **실측 대조(4케이스, /strategy/plan 실 라우트)**:
+  ① 오늘 보고사례(5천만행): 7900초(구식 재현, 실제 보고값과 정확 일치)→17.42초
+  (오늘 실측치와 정확 일치, 400배 과다추정 해소)
+  ② 1M 정확 벤치(회귀 확인): 68초→68초 불변, HIGH 신뢰도 불변
+  ③ **[핵심] chunk_capable=True 잠재위험 케이스(1천만행)**: 구식 공식이면
+  1580초(가짜)로 계산돼 **실제로 CHUNK로 잘못 자동전환**됐을 것 — 신식
+  공식(보간)으로 18.78초 산출돼 **정상적으로 DIRECT 유지**. M77이 우려했던
+  잠재위험을 실제로 재현하고 이번 수정으로 막혔음을 실증.
+  ④ 원거리 외삽(10억행, 1000배): 158000초→348.4초, 신뢰도 LOW 유지하되 범위
+  [116~1045초] 동반 표기로 불확실성 명시.
+  신규 회귀 0건(baseline git stash 대조, 관련 3파일 54 passed). 기존 테스트
+  1건은 "구식 과다추정으로 우연히 CHUNK를 고르는 버그"를 전제로 하고 있었음을
+  확인해 벤치 정확도와 무관하게 clamp 로직만 보도록 정정(사유 명시).
+  전체 pytest 스위트(71분, 396 failed/41 errors)는 이 저장소 상시 관찰되는
+  순서·공유상태 의존 실패 범위 내임을 과거 실측(2026-08-07)과 대조해 확인,
+  strategy 관련 실패 0건.
+  범위 밖 사항(참고): 신규 필드(expected_total_seconds_range·extrapolation_
+  factor)는 추가됐으나 화면(ui/js_sql_preview.py) 배선은 "고려" 수준 요구였어
+  최소침습 원칙상 이번 범위 제외 — 필요 시 별도 작업 권장.
+- 근거: E:\verify_reports\M77-EXPECTED-TOTAL-SEC-BENCHMARK-FIX.txt
 
 ### M78. PG make_pg_fetch_chunk — "숫자로 노출된 문자 PK" 청크조회 시 타입캐스트 누락으로 쿼리오류(완결성 갭, 조용한 오탐 아님)
 - 발견/계기: 2026-08-12 (M74-A3-PG-SCRIPT-EXPAND-AND-B1TOB7-BATCH-REVERIFY 부수
