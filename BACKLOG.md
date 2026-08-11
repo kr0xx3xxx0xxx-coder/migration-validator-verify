@@ -5673,3 +5673,31 @@ git -C E:/verify_reports worktree remove <임시경로>
   보일 수 있음(그 그룹 자체가 무거운 게 아니라 단지 첫 스캔이라서) — 이 사실을
   사용자에게 안내할 필요가 있는지는 별도 판단 필요.
 - 근거: E:\verify_reports\STAGE5-DETAIL-EXTRACT-FIRST-CLICK-SLOW-DIAGNOSE.txt
+
+### M77. "예상 총소요" 시간 추정치 — 낡은 벤치마크 1건을 50배 밖으로 무비판적 선형외삽해 400배 과다추정(7900초), 오늘 케이스는 표시전용이라 실제 결정엔 무영향이나 chunk_capable=True 케이스에서 잘못된 전략전환 유발 위험 잠재
+- 발견/계기: 2026-08-11 (사용자 — "예상 총소요 7900초, 실측은 17~23초인데 400배
+  차이가 왜 나냐" / STAGE4-EXPECTED-TOTAL-SEC-7900-OVERESTIMATE-DIAGNOSE, 코드
+  무변경)
+- **근본원인**: `services/strategy/strategy_transition.py::_est_total_seconds()`
+  의 벤치마크 원천값이 **단 1개 지점뿐**(`{source_count: 1,000,000,
+  direct_total_seconds: 158.0}`, 주석 "cold cross-host" 조건 명시) — 오늘
+  케이스(5천만 행)는 이 유일한 기준점에서 50배 떨어진 지점인데, 감쇠·경고
+  로직 없이 그냥 선형(158×50=7900) 외삽. 이 벤치마크 자체가 "콜드캐시·원격
+  호스트" 조건이라 오늘 실측(로컬 웜캐시로 추정, 벤치 대비 약 400배 빠름)을
+  전혀 대표하지 못함 — **공식 자체의 버그가 아니라, 낡고 환경이 다른 벤치
+  1건을 무비판적으로 스케일링한 것이 오차의 실체**.
+- **오늘 케이스는 실제 영향 없음(확인됨)**: `chunk_capable=False`(PK가 단일숫자+
+  인덱스 조건 미충족) 게이트가 전략을 이미 DIRECT_STREAM_COMPARE로 고정했고,
+  est_total(7900초)은 이 반환문에 부산물로 실려 나가는 표시 전용 값 — 실행
+  차단이나 전략 자동선택 어디에도 연결 안 됨(grep 결과 표시부 외 소비처 없음).
+  즉 오늘은 "혼란을 주는 잘못된 정보 표시" 문제였지 "잘못된 자동 결정" 문제는
+  아니었음.
+- **⚠️ 잠재 위험(오늘 관찰된 사례 아님, 구조적 가능성)**: `chunk_capable=True`
+  케이스(PK가 단일숫자+인덱스)에서는 est_total > 300초(resume_threshold)면
+  PK_RANGE_CHUNK_COMPARE로 자동 전환하는 판정에 이 값이 실제로 쓰인다
+  (`strategy_transition.py:94-98`) — 같은 벤치 외삽 편향이 이 경로에서는
+  DIRECT가 실제로 더 빠른데도 CHUNK로 잘못 전환시킬 위험이 남아있음.
+- **부수 발견**: "신뢰도 LOW"는 오차 크기(외삽 거리)를 정량 반영하지 않는
+  고정 3단계(HIGH/MEDIUM/LOW) 라벨 — 50배 외삽(400배 과다)이나 1.1배 외삽
+  이나 화면상 동일하게 "LOW"로만 표시돼 구분 안 됨.
+- 근거: E:\verify_reports\STAGE4-EXPECTED-TOTAL-SEC-7900-OVERESTIMATE-DIAGNOSE.txt
