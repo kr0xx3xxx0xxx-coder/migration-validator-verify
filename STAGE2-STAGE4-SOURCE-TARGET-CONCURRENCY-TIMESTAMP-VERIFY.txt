@@ -1,0 +1,50 @@
+작업명 : STAGE2-STAGE4-SOURCE-TARGET-CONCURRENCY-TIMESTAMP-VERIFY
+✅ 작업 완료 - 2단계(COUNT)·4단계(통계검증 실행) 원본/목적 쿼리 동시 실행 여부를 실측 타임스탬프로 증명
+
+■ 방법
+  - 코드 추정이 아닌 실측: 실제 실행 지점 2곳에 임시 계측(시작/종료 time.time() 절대시각 +
+    threading.current_thread().name)을 추가해 scratchpad/_concurrency_probe.log 에 append 기록.
+    · 2단계: services/count_common_service.py::_run_one_count_side (COUNT 실 실행 지점)
+    · 4단계: services/stats_execute_service.py::_fetch_src / _fetch_tgt (통계검증 SELECT 실 실행 지점)
+  - 실 DB: Oracle asis/tobe(db_presets_src.json "Oracle_asis" / db_presets_tgt.json "Oracle_tobe"),
+    스키마 NXDNP, 테이블 MV_CSPK_SRC(100만행)/MV_CSPK_TGT(99만행). SELECT/COUNT 전용, DDL/DML 없음.
+  - 2단계는 run_count_pair() 를 MV_COUNT_PAIR_PARALLEL=1 로 3회, =0(대조군)으로 1회 실행.
+  - 4단계는 실제 라우트(routes/execute_route.py::_stats_execute_inner)와 동일하게
+    services.single_validation_run_facade._different_physical_db(src_db, tgt_db) 로
+    req.parallel_sides 를 자동 결정(강제 대입 없음) → asis/tobe 는 서로 다른 물리 DB라 True 로 결정됨
+    → services/stats_execute_service.py::execute_stats_validation() 3회 실행.
+  - 계측 완료 후 services/count_common_service.py, services/stats_execute_service.py 는
+    git checkout -- 으로 원상복구(diff 0). 임시 실행 스크립트(scratchpad)도 삭제.
+
+■ 2단계(COUNT) 실측 결과 — 판정: 동시 실행 확인됨
+  구분        source 구간(epoch초)              길이    target 구간(epoch초)              길이    겹침(overlap)
+  #1 병렬     144.286010 ~ 144.867933           582ms   144.286291 ~ 144.619268           333ms   333ms (target 전구간 source 안에 포함)
+  #2 병렬     144.889390 ~ 144.971527            82ms   144.889666 ~ 144.973312            84ms    82ms
+  #3 병렬     144.979400 ~ 145.093460           114ms   144.979751 ~ 145.090467           111ms   111ms
+  대조 순차   145.111856 ~ 145.238768           127ms   145.239110 ~ 145.355075           116ms     0ms (target 시작이 source 종료보다 0.3ms 늦음 — 겹침 없음)
+  * 병렬 3회 모두 source thread=mv_count_pair_0, target thread=mv_count_pair_1 로 서로 다른 스레드에서
+    시작시각이 거의 동시(0.3ms 이내)이고 종료 전까지 구간이 실제로 겹친다.
+  * 대조군(=0)은 target START(145.239110)가 source END(145.238768)보다 뒤 → 순차 실행 재확인(겹침 0ms).
+
+■ 4단계(통계검증 실행) 실측 결과 — 판정: 동시 실행 확인됨
+  _different_physical_db(Oracle_asis, Oracle_tobe) = True (실제 라우트가 자동으로 병렬을 켬)
+  구분   source 구간(epoch초)              길이    target 구간(epoch초)              길이    겹침(overlap)
+  #1     145.513721 ~ 145.632630           119ms   145.514124 ~ 145.838826           325ms   119ms (source 전구간 target 안에 포함)
+  #2     145.851674 ~ 145.955254           104ms   145.852576 ~ 145.953533           101ms   101ms
+  #3     145.956847 ~ 146.062849           106ms   145.957164 ~ 146.062936           106ms   106ms
+  * 3회 모두 source/target 이 각각 ThreadPoolExecutor-N_0 / ThreadPoolExecutor-N_1 서로 다른 워커
+    스레드에서 시작시각이 0.3~0.9ms 이내로 거의 동시이고, 종료 전까지 구간이 실제로 겹친다.
+
+■ 원상복구 확인
+  git diff --stat services/count_common_service.py services/stats_execute_service.py → 변경 없음(0)
+  git status --porcelain → 두 파일 모두 clean, TEMP-CONCURRENCY-PROBE 마커 재검색 결과 0건.
+  임시 실행 스크립트 scratchpad/_concurrency_probe_runner.py 삭제 완료.
+  (scratchpad/_concurrency_probe.log 는 증적으로 scratchpad 에 남김 — 코드 저장소 커밋 대상 아님)
+
+■ 결론
+  2단계 COUNT: 동시 실행 확인됨(병렬), MV_COUNT_PAIR_PARALLEL=0 대조군은 순차 재확인.
+  4단계 통계검증 실행: 동시 실행 확인됨(병렬), 실제 라우트 배선(_stage4_diff_physical_db) 그대로 자동 결정.
+  코드 저장소 변경사항: 없음(계측은 실측 직후 즉시 원복).
+
+작업명 : STAGE2-STAGE4-SOURCE-TARGET-CONCURRENCY-TIMESTAMP-VERIFY
+✅ 작업 완료 - 2단계(COUNT)·4단계(통계검증 실행) 원본/목적 쿼리 동시 실행 여부를 실측 타임스탬프로 증명
