@@ -1,0 +1,33 @@
+COMPLETION-REPORT-RULE-AUDIT-AND-CLAUDE-MD-UPDATE
+⚠️ 추가 작업 필요 - CLAUDE.md에 verify 저장소 자동 push 규칙(26번) 신규 추가 완료, 단 미커밋 상태 + 과거 미준수 3건 발견
+
+1. 확인 결과 (요청사항 1)
+   - "완료보고는 항상 verify 저장소에 파일로 저장·push(별도 요청 불필요)" 규칙은
+     CLAUDE.md, .claude/settings.json 어디에도 명시돼 있지 않았음(확인 시점: 2026-08-11).
+   - CLAUDE.md에는 번호 매겨진 규칙이 25번("완료보고 단일 코드블록 형식") 하나뿐이었고,
+     "21번 규칙"이라는 항목 자체가 CLAUDE.md에 존재하지 않았음.
+   - 해당 규칙은 auto-memory(feedback_completion_report_file_save.md)에만 2026-07-23자
+     사용자 지침으로 기록돼 있었고, 프로젝트 커스텀 지침 파일로는 전혀 승격되지 않은 상태였음.
+
+2. 조치 (요청사항 2)
+   - CLAUDE.md "작업 완료 표시 형식" 절에 26번 규칙 신규 추가:
+     "모든 작업(코드 수정·조사·측정·시스템 설치/구성 등 종류 무관)의 완료보고는 채팅과
+     별개로 항상 파일 저장 + verify 저장소 push, 별도 요청 없이도 예외 없이 자동 적용,
+     코드 저장소에는 report 파일 push 금지"
+   - 코드 저장소(X:\Projects\nxDTV) 워킹트리에만 반영, 커밋은 하지 않음(사용자가 커밋을
+     명시적으로 요청한 적 없어 자동 커밋 금지 원칙 준수 — 검토 후 별도 지시 필요).
+   - 관련 memory(feedback_completion_report_file_save.md)에도 반영 사실 기록.
+
+3. 오늘(2026-08-11) 미준수 사례 확인 (요청사항 3)
+   verify 저장소(X:\Verify\_rpt_push) 오늘자 커밋 대조 결과, 아래 3건은 "완료" 처리됐으나
+   전용 report .txt 파일이 verify 저장소에 없음(backlog docs 커밋으로만 완료 반영):
+     - OLLAMA-GEMMA-INSTALL              (directive 02:47, 완료 반영 커밋 다수)
+     - OLLAMA-LLAMA32-3B-INSTALL         (directive 03:31, 완료 반영 c3257ff 03:39)
+     - SHARED-FOLDER-OLLAMA-FILES-ORGANIZE (directive 03:28)
+   반면 같은 날 CODEBASE-STRUCTURAL-HEALTH-DIAGNOSE, LLM-ADDITIONAL-USE-CASE-SURVEY,
+   C1-C2-DICTIONARY-MISS-RATE-MEASURE, M50-RESCAN, SEMANTIC-GLOBAL-DICT-ENABLE,
+   E1-COUNT-MISMATCH-..., BATCH-FAILURE-SUMMARY-..., STAGE5-PERF-CARDS-...는 모두
+   전용 report .txt 파일이 존재해 규칙을 준수함.
+   → 시스템 설치/파일 정리류(코드 무수정) 작업에서 report 파일 누락 위험이 특히 높음.
+
+⚠️ 추가 작업 필요 - CLAUDE.md에 verify 저장소 자동 push 규칙(26번) 신규 추가 완료, 단 미커밋 상태 + 과거 미준수 3건 발견
