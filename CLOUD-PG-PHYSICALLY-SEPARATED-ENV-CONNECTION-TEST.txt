@@ -1,0 +1,100 @@
+```text
+CLOUD-PG-PHYSICALLY-SEPARATED-ENV-CONNECTION-TEST
+⚠️ 추가 작업 필요 - 물리분리 연결·COUNT는 실측 완료, 통계검증 "실행"은 원본↔목적지 DBMS 상이(oracle↔postgresql)로 구조적 HOLD(설계 제한) 확인, 개별검증은 2단계에서 클라이언트 가드로 조기 중단
+
+배경
+----
+BACKLOG P13(통계검증 parallel_sides 재측정 불가 — 원본/목적이 같은 물리 호스트에 있어 디스크 I/O 공유)을
+해소하기 위해, 오라클(로컬, Oracle_asis) 원본 + 클라우드 PostgreSQL(Neon, PostgreSQL_tobe) 목적지로
+실제 물리분리 환경을 구성해 개별검증/일괄검증이 끝까지 도는지 실측했다.
+
+1. 연결 프로필 · 검증 경로
+--------------------------
+- PostgreSQL_tobe 프리셋(기존, Neon 클라우드 host ep-super-river-*.aws.neon.tech) 재사용 — 신규 생성 불필요.
+- 검증 경로 pair "Oracle_asis → PostgreSQL_tobe"(pair_msoan8lc_391g7)는 사용자가 이미 브라우저에서
+  오늘 생성해 둔 상태였음. 이번 세션에서 브라우저로 재확인 클릭 → "검증 경로 접속 성공" 실측 확인.
+  (스크린샷: 00_pair_list.png, 01_pair_connected.png)
+
+2. 픽스처 데이터 (오라클→Neon 실 네트워크 1:1 복사, 순수 연결 스모크용, 값 불일치 없음)
+----------------------------------------------------------------------------------------
+  원본(Oracle_asis.NXDNP)      건수     목적지(PostgreSQL_tobe.public)
+  ------------------------     ----     ------------------------------
+  TB_DEPT                       10      cct_tb_dept
+  TB_EMP                        30      cct_tb_emp
+  TB_ORDER                      20      cct_tb_order
+  TB_ORDER_ITEM                 100     cct_tb_order_item
+  TB_PRODUCT                    20      cct_tb_product
+
+3. 일괄검증 (코드 레벨 픽스처: 프로젝트 MV-CLOUDPG-CONN-TEST / 그룹 GRP_202608110704482353)
+--------------------------------------------------------------------------------------------
+  구분                결과                          비고
+  ------------------  ----------------------------  ------------------------------------------
+  COUNT_ONLY(3건)     3/3 PASSED, 실측 카운트 완전일치   cct_tb_dept 10/10, cct_tb_emp 30/30,
+                                                     cct_tb_product 20/20 — 오라클→Neon 실
+                                                     네트워크 COUNT 비교 정상 동작
+  FULL_VALIDATION     3/3 전부 HOLD(REGISTRATION_ERROR)  services/single_validation_run_facade.py:1266-1284
+  (통계검증 실행, 3건)                                  의 "0) DBMS 정책" 게이트가 원인 — 원본(oracle)과
+                                                     목적지(postgresql) 방언이 다르면 STEP_ANALYZE에서
+                                                     즉시 STATUS_HOLD 반환("혼합 방언 미지원").
+                                                     services/diagnosis/dbms/capabilities.py:69-74에
+                                                     "Oracle은 원본↔목적지 동일 방언에서만 실행" 명시된
+                                                     기존 설계 제한(신규 버그 아님).
+
+4. 개별검증 (프로젝트 MV-CLOUDPG-CONN-TEST, pair Oracle_asis→PostgreSQL_tobe)
+------------------------------------------------------------------------------
+  단계          결과   비고
+  ------------  -----  ----------------------------------------------------------------------
+  1단계 분석    성공   SQL: INSERT INTO cct_tb_dept(dept_id,dept_name)
+                       SELECT REGION_CD,ITEM_NM FROM MV_CSPK_SRC (스크린샷 02_stage1_analyze.png)
+  2단계 COUNT   중단   "COUNT 비교 실행" 클릭 시 클라이언트 가드 _singleExecGuard()
+                       (ui/tabler_renderer.py:27172-27191)가 원본≠목적지 방언을 감지해
+                       alert 로 즉시 차단: "원본(oracle)과 목적지(postgresql)의 DB 방언이
+                       달라 검증 실행을 보류합니다..." COUNT 자체는 서버(배치 경로)에서는
+                       cross-dialect 로 정상 동작함(위 3번 COUNT_ONLY 실측) — 브라우저 UI가
+                       서버 능력보다 더 보수적으로 전체 실행 계열을 방언 일치 조건으로 막음.
+  3~5단계       미도달  2단계 직후 브라우저 세션이 예기치 않게 종료(TargetClosedError)되어
+                       재시도 여유 시간 내 재확보 못함. 코드 근거상 4단계 "통계검증 실행"도
+                       동일 _singleExecGuard()가 runExecute/runExecuteAsync 진입 시점에
+                       동일 메시지로 차단하는 것으로 확인됨(ui/tabler_renderer.py:30914-30915,
+                       31686-31687) — 즉 도달했더라도 결과는 3번 항목의 배치 HOLD와 동일.
+
+  참고(사이드 발견): TB_ORDER/TB_DEPT/TB_EMP/TB_PRODUCT 등 일반적인 이름으로 새 오라클
+  테스트 테이블을 만들면 samples/virtual_tables.py 의 데모용 가상 DDL(TABLE_DDLS)과 이름이
+  충돌해, 실제 컬럼이 존재함에도 "원본 컬럼 없음"으로 1단계가 오탐 차단된다(오라클 원본
+  실컬럼 조회 자체가 안 되는 문제는 아님 — MV_CSPK_SRC처럼 비충돌 이름은 정상 통과 확인).
+  앱 결함이라기보다 신규 오라클 테스트 테이블 명명 시 주의할 함정.
+
+5. 관찰된 특이사항
+------------------
+- (해프닝, 실제 결함 아님) 조사 과정에서 python 콘솔 출력이 한글을 깨진 문자(mojibake)로
+  보여줘 서버측 실제 데이터/응답 손상으로 의심했으나, 파일로 저장해 다시 열어보니 정상
+  UTF-8 텍스트였음 — Windows 콘솔 코드페이지로 인한 표시 문제일 뿐 서버/DB 데이터는
+  정상(mv_conn_pair.pair_name/status, HOLD error_message 등 전부 확인).
+- 검증 도중 서버(port 8000)가 원인 불명으로 한 차례 죽어 있는 것을 발견해 재기동함(재기동
+  당시 이미 완전히 죽어 있었고 LISTEN 소켓·프로세스 모두 없었음 — 살아있는 서버를 내려서
+  재기동한 것이 아님). server_stderr.log 에는 크래시 트레이스 없이 정상 기동 로그만 남아
+  있어 원인은 특정하지 못함(동시 세션 환경이라 다른 프로세스 관여 가능성 배제 못함).
+- 좀비 세션 정리·비동기 job 등은 이번 실측 범위(소규모 3~5건, 즉시 완료) 안에서는 특이
+  타임아웃/재시도 징후 없었음.
+
+6. 핵심 결론
+------------
+물리적으로 분리된 오라클(로컬)↔클라우드 PostgreSQL(Neon) 환경에서 **네트워크 연결과
+COUNT 레벨 비교는 완전히 정상 동작**한다(3번 COUNT_ONLY 실측). 그러나 이 도구는 현재
+**GROUP BY/SUM 통계검증 "실행" 단계를 원본↔목적지가 동일 DBMS(PostgreSQL↔PostgreSQL
+또는 Oracle↔Oracle)인 경우로만 지원하도록 설계돼 있어**, Oracle→PostgreSQL 조합은
+개별/일괄 모두 실행 단계에서 HOLD된다(코드 3곳에서 교차 확인: single_validation_run_facade.py,
+diagnosis/dbms/capabilities.py, ui/tabler_renderer.py의 서버·클라이언트 이중 게이트).
+따라서 오늘 지시서의 원래 동기였던 **P13(parallel_sides) 재측정은 Oracle→PostgreSQL 조합으로는
+수행 불가**하다 — 재측정하려면 **동일 DBMS 쌍을 물리적으로 분리**해야 한다(예: 내부망
+PostgreSQL_Inter_asis/tobe ↔ Neon 클라우드 PostgreSQL_tobe/NEW_tobe, 둘 다 PostgreSQL).
+코드 수정은 이번 작업에서 발생하지 않았다(신규 1회성 드라이버 스크립트 2개만 scripts/dev_e2e/
+에 추가, 기존 코드 무변경, 코드 저장소 git commit/push 없음).
+
+스크린샷: E:\verify_screenshots_only\CLOUD-PG-PHYSICALLY-SEPARATED-ENV-CONNECTION-TEST\
+  00_pair_list.png / 01_pair_connected.png / 02_stage1_analyze.png / 03_stage2_count.png
+추가 산출물(코드 저장소, 비커밋): scripts/dev_e2e/cloudpg_conn_test_batch_fixture_setup.py,
+  scripts/dev_e2e/cloudpg_conn_test_single_driver.py
+
+⚠️ 추가 작업 필요 - 물리분리 연결·COUNT는 실측 완료, 통계검증 "실행"은 원본↔목적지 DBMS 상이(oracle↔postgresql)로 구조적 HOLD(설계 제한) 확인, 개별검증은 2단계에서 클라이언트 가드로 조기 중단
+```
