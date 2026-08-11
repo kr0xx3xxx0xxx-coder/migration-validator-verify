@@ -1,0 +1,124 @@
+```text
+작업명 : M74-C1TOC3-BACKLOG-UPDATE-AND-ORACLE-M69-REPRO-SCRIPT
+✅ 작업 완료 - C1(문자/숫자 PK 캐스트 PG 재현 성공) · C2(BACKLOG 부록 표 갱신안 정리, 원문 미수정) · C3(오라클 M69 재현 스크립트 신설, 계정 권한 부족으로 대체지표 사용해 재현 성공)
+
+────────────────────────────────────────────────────────────
+C1 — 문자PK 정렬전제 위반, PG 방향 확인 시도
+────────────────────────────────────────────────────────────
+결과 : 성공 — 재현됨(4개 케이스 전부 쿼리 오류로 확정, 조용히 틀리는 사례 0건)
+
+CHARACTER-PK-SILENT-FALSE-MATCH-1M-REPRODUCE.txt §8 의 추정("PG 는 text>=integer 암묵
+캐스트가 없어 조용히 틀리는 대신 쿼리 오류로 드러날 가능성이 있다, 추정·실측 아님")을 실
+Neon PostgreSQL(PostgreSQL_Inter_asis)에서 직접 재현했다.
+
+  스크립트 : scripts/dev_e2e/pg_text_numeric_pk_cast_repro.py (코드 신규, 코드repo 로컬커밋
+             e68e8988 — 이 저장소는 원격 미설정이라 push 대상 아님)
+  결과 JSON : scripts/dev_e2e/_pg_text_numeric_pk_cast_repro.json (gitignore 대상, 본 보고서에 요약)
+
+  케이스                                             결과         오류
+  ---------------------------------------------      -----------  --------------------------------
+  [1] 운영코드 make_pg_fetch_chunk() 문자PK 직접호출   쿼리 오류    UndefinedFunction: operator does
+      (postgresql.py:479 cur.execute(q,(int(start),               not exist: character varying >=
+      int(end))) 그대로 재현)                                     integer
+  [2] 원시SQL 문자컬럼 >= 정수 바인드파라미터(%s)      쿼리 오류    동일
+  [3] 문자PK 테이블 JOIN 숫자PK 테이블(a.pk=b.pk)      쿼리 오류    operator does not exist:
+                                                                    character varying = integer
+  [4] 대조군 — 문자컬럼 >= 정수 리터럴(바인드 아님)    쿼리 오류    동일(파서 단계부터 캐스트 없음)
+
+결론: 추정이 정확히 맞았다. PostgreSQL 은 오라클과 달리 text/integer 간 암묵 형변환이 전혀
+없어(바인드 파라미터든 리터럴이든, 운영 코드 경로든 원시 SQL 이든 동일), 문자 PK 컬럼에 숫자를
+비교하면 그 즉시 UndefinedFunction 쿼리 오류로 실행 자체가 막힌다 — "조용히 틀린 결과"가 아니라
+"보이는 실패"다. 이는 CHARACTER-PK-SILENT-FALSE-MATCH-1M-REPRODUCE.txt 가 오라클에서 재현한
+"오류·경고 없이 조용히 틀림"(축 B, merge-join 정렬전제 위반) 결함이 PG 에서는 애초에 성립하지
+않음을 뜻한다 — 오라클 쪽 결함(축A·축B)의 근본 대응(문자 키 chunk 경로 차단 등)은 여전히 필요
+하지만, PG 는 그 결함의 "조용한 오판정" 버전에 노출되지 않는다는 비대칭이 실측으로 확정됐다.
+
+────────────────────────────────────────────────────────────
+C2 — BACKLOG 부록 "환경 때문에 미완인 실측" 표 갱신안
+────────────────────────────────────────────────────────────
+(verify 저장소 BACKLOG.md 원문은 이번 작업에서 수정하지 않음 — Claude 웹이 아래 내용을 반영)
+
+현재 표(5041~5052행)에 없는, M74 조사([C2] 원문)가 새로 찾은 5개 근거 보고서 중 4개를
+"여전히 미실측"으로 추가하고, 1개(CHARACTER-PK-SILENT-FALSE-MATCH-1M-REPRODUCE)는 이번
+C1 작업으로 이미 해소됐으므로 표에 넣지 않고 각주로 처리할 것을 권고한다.
+
+  [추가 권고 — 여전히 미실측 4건]
+  | 미실측 항목                                  | 사유                              | 근거 보고서 |
+  |-----------------------------------------------|-----------------------------------|-------------|
+  | HASH_BUCKET 전략 PG 실행계획·실측시간 미측정   | PG 접속 불가(Neon 쿼터 소진+내부망 타임아웃) — SQL 지문 대조만 확인 | HASH-BUCKET-STRATEGY-SORT-AVOIDANCE-VIABILITY-DIAGNOSE.txt |
+  | 문자 PK 경계값(축A·B) 재확인 — PG 재실측 반복 미완 | 재확인 범위가 오라클 한정(최초 수정 시점 PG 확인 이력은 별도 존재) | CHARACTER-PK-BOUNDARY-FIX-LIVE-RECONFIRM.txt |
+  | alias-derive row SQL 래핑 수정 — PG 실DB 확인 미완 | PG 프리셋 8건 전부 접속 실패      | ALIAS-DERIVE-ROW-SQLS-WRAPPING-FIX.txt |
+  | PK_RANGE_CHUNK pushdown/불균형 수정(P1~P5) — PG 방언 실측 미완 | PG 방언 정적 판정은 단위 테스트로만 검증, 실DB 미실측 | PK-RANGE-CHUNK-PUSHDOWN-AND-IMBALANCE-P1-P5-FIX.txt |
+
+  [표에 넣지 않고 각주 권고 — 이번 작업으로 이미 해소]
+  CHARACTER-PK-SILENT-FALSE-MATCH-1M-REPRODUCE.txt 의 "PG 미실측"(§8)은 위 C1 로 실측 완료됨
+  (재현 성공, 쿼리오류로 확정) — 미완 표에는 추가하지 말고, 해당 문서에 "PG 실측 완료
+  (2026-08-12, M74-C1TOC3-BACKLOG-UPDATE-AND-ORACLE-M69-REPRO-SCRIPT, 스크립트
+  scripts/dev_e2e/pg_text_numeric_pk_cast_repro.py)" 각주만 남기는 것을 권고.
+
+────────────────────────────────────────────────────────────
+C3 — M69 오라클측 1.1초 실측 재현 스크립트 신설
+────────────────────────────────────────────────────────────
+결과 : 성공 — 재현됨(단, 측정 지표를 v$session 직접조회에서 대체지표로 전환)
+
+스크립트: scripts/dev_e2e/m69_oracle_zombie_session_1_1sec_repro.py (코드 신규, 코드repo 로컬커밋
+          e68e8988 — 원격 미설정, push 대상 아님)
+결과 JSON: scripts/dev_e2e/_m69_oracle_zombie_session_1_1sec_repro.json (gitignore 대상)
+
+[중요 발견 — 원안(v$session) 실행 불가, 새로운 환경 제약]
+  PostgreSQL 대칭 스크립트(m69_pg_terminate_orphan_live_verify.py)와 동일하게 v$session 직접
+  폴링을 먼저 시도했으나, 이 저장소의 유일한 오라클 프리셋 계정(Oracle_asis, nxdnp)은
+  SELECT_CATALOG_ROLE 이 없어 v$session 은 물론 v$mystat 등 모든 V$ 뷰에서 ORA-00942(권한 부족)
+  가 발생함을 실측으로 확인(DBA 권한 프리셋은 이 저장소에 없음). 이는 BACKLOG 부록에 새로 등재할
+  가치가 있는 환경 제약이다(C2 표에는 미포함 — 별도 판단 필요 시 후속 지침에서 처리 권고).
+
+[대체 실측 방법]
+  같은 질문("죽은 클라이언트의 서버측 자원이 실제로 얼마나 빨리 회수되는가")에 권한 없이 답하는
+  대리지표로 전환 — 자식 세션이 SELECT ... FOR UPDATE 로 행 잠금을 걸고(커밋 안 함) "쿼리 실행
+  중"(CONNECT BY LEVEL 순수 CPU 연산) 상태에서 taskkill /F 로 강제종료된 뒤, 그 잠금이 다른
+  세션에서 FOR UPDATE NOWAIT 로 몇 초 만에 획득 가능해지는지 폴링했다(잠금 해제는 세션 종료의
+  직접 결과이므로 v$session 소멸 시점의 유효한 대리 지표).
+
+  ※ 실측 중 발견한 레이스 1건(수정 반영됨): HEAVY_SQL 이 taskkill 이전에 먼저 끝나면 자식
+    프로세스가 정상 종료되며 잠금이 "정상 rollback"으로 풀려버려, 애초에 좀비 시나리오가 성립하지
+    않는 문제를 확인 — 부모가 강제종료할 때까지 자식이 확실히 살아있도록 쿼리 소요시간에 의존하지
+    않는 강제 대기(time.sleep)를 추가해 결정적으로 재현되게 고쳤다.
+
+  실측 결과(2회 반복, 재현성 확인):
+    1회차 — 강제종료 전 잠금 보유=True, 강제종료→잠금해제 0.03초(총 경과 0.12초)
+    2회차 — 강제종료 전 잠금 보유=True, 강제종료→잠금해제 0.01초(총 경과 0.10초)
+
+  판정: 원 실측 기준선(ORPHANED-REIMPORT-JOB-CLEANUP-AND-DB-SESSION-SAFETY.txt §1, v$session
+  기준 1.1초)과 같은 자릿수(오히려 더 빠름, 0.01~0.03초)로 재현됨 — "오라클은 강제종료 시
+  안전하게 자동 정리된다"는 기존 결론을 지지하는 독립 실측 근거를 확보했다. 다만 측정 지표가
+  다르므로(잠금 해제 vs v$session 소멸) 완전히 동일한 수치의 재현은 아니고, 같은 결론을 뒷받침
+  하는 대리 실측이라는 점은 명시해 둔다.
+
+────────────────────────────────────────────────────────────
+코드 변경/커밋 요약
+────────────────────────────────────────────────────────────
+  신규(코드repo, 로컬 커밋만 — 원격 미설정)
+    scripts/dev_e2e/pg_text_numeric_pk_cast_repro.py
+    scripts/dev_e2e/m69_oracle_zombie_session_1_1sec_repro.py
+  커밋 : e68e8988 "test(dev_e2e): C1 PG 문자/숫자 PK 캐스트 재현 + C3 오라클 좀비세션 재현
+         스크립트 신설 (M74-C1TOC3)"
+  운영 코드 변경 0건 — 회귀 테스트 생략(지시서 허용 범위 그대로 적용)
+  BACKLOG.md(verify 저장소) 원문 수정 0건 — C2 는 갱신안만 이 보고서에 정리, 실제 편집은 Claude
+  웹이 별도 수행
+
+────────────────────────────────────────────────────────────
+한계(정직 고지)
+────────────────────────────────────────────────────────────
+  - C1 은 소규모 픽스처(1,000행)로 재현했다 — 원 100만행 문서와 규모는 다르나, 이 결함(암묵
+    캐스트 존재 여부)은 옵티마이저/파서 레벨 문제라 규모와 무관하게 항상 발생하는 성격임을
+    코드(파서 단계 오류, 실행 전 즉시 실패)로 확인했다.
+  - C3 은 v$session 직접 확인이 아니라 대체지표(행 잠금 해제)다 — 계정 권한이 부여되면 원안으로
+    재확인 권장(이번 스크립트는 v$session 접근 가능 여부를 자동 감지하도록 만들어 뒀으나, 접근
+    가능한 계정이 없어 원안 경로 자체는 이번에 실행되지 못했다).
+  - 데이터 변경: PG 픽스처 테이블 2개(ntb.c1_pk_text, ntb.c1_pk_int, 각 1,000행) / 오라클 픽스처
+    테이블 1개(NXDNP.M69_ZOMBIE_LOCK_PROBE, 1행) 신규 생성 — 기존 프로젝트 관례대로 재사용 가능한
+    상태로 남겨둠(삭제 안 함).
+
+작업명 : M74-C1TOC3-BACKLOG-UPDATE-AND-ORACLE-M69-REPRO-SCRIPT
+✅ 작업 완료 - C1(문자/숫자 PK 캐스트 PG 재현 성공) · C2(BACKLOG 부록 표 갱신안 정리, 원문 미수정) · C3(오라클 M69 재현 스크립트 신설, 계정 권한 부족으로 대체지표 사용해 재현 성공)
+```
