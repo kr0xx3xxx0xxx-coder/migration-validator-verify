@@ -1,0 +1,160 @@
+작업명 : CODEBASE-STRUCTURAL-HEALTH-DIAGNOSE
+✅ 작업 완료 - 코드베이스 구조 건강도 실측 완료(코드 변경 없음, 조사·측정만 수행)
+
+────────────────────────────────────────────────────────────
+1. 파일별 크기·책임 분포 실측
+────────────────────────────────────────────────────────────
+[전체 규모]
+- git 추적 .py 파일: 2,310개 / 총 593,829줄 (.venv 등 미추적 파일 제외)
+
+[상위 20개 파일, 줄수 내림차순]
+ 34,542  ui/tabler_renderer.py
+  4,820  samples/test_display_consistency.py
+  2,653  routes/batch_route.py
+  2,283  ui/grid_helpers.py
+  2,225  ui/js_group_master.py
+  2,131  services/single_validation_analyze_service.py
+  1,978  routes/agg_diff_route.py
+  1,768  routes/diagnosis_route.py
+  1,729  services/upload_quality_check_service.py
+  1,707  services/candidate_subtype_service.py
+  1,700  services/db_query_service.py
+  1,582  tests/test_pg_stats_scoring.py
+  1,573  services/single_validation_run_facade.py
+  1,563  services/candidate_display_enricher.py
+  1,559  services/count_precheck_service.py
+  1,555  tests/test_column_semantic_heuristics.py
+  1,536  ui/execute_result_renderer.py
+  1,484  services/batch_stats_execute_service.py
+  1,480  services/db_statistics_service.py
+  1,405  services/batch_runner.py
+
+- 1위 단독(ui/tabler_renderer.py) = 전체 593,829줄의 5.82%
+- 상위 20개 합계 71,273줄 = 전체의 12.0%
+
+[ui/tabler_renderer.py 내부 구성 실측 — 총 34,542줄]
+  순수 파이썬 코드(할당문·시그니처·제어문 등)         약   311줄 ( 0.9%)
+  내장 HTML/CSS 블록(head·sidebar·tab_* 9종)          약 5,379줄 (15.6%)
+  내장 JS 단일 리터럴(scripts 변수, 5547~34390행)         28,842줄 (83.5%)
+                                                합계    34,542줄 (100%)
+
+  * scripts 블록(28,842줄) 안에는 render_stage_gate_js() 등 이미 분리된
+    17개 외부 함수 호출이 1줄(5552행)로 압축돼 있고, 나머지(5553~34390행,
+    28,838줄)는 raw JS/HTML 텍스트가 그대로 이 파일 안에 리터럴로 남아있음.
+  * 이미 별도 ui/js_*.py 모듈로 분리 완료된 JS: 19개 파일 합계 7,525줄
+    (js_group_master 2,225 · js_admin_column_override 821 · js_job_dashboard
+    805 · js_batch_display 694 등).
+  * 분리 완료 : 미분리 비율 = 7,525줄(20.7%) : 28,842줄(79.3%)
+    → "이번 전환은 증상 완화, 원인 제거 아님"(F5 시리즈 언급)이 수치로도 확인됨.
+    5분의 4는 여전히 tabler_renderer.py 안에 그대로 남아있다.
+
+────────────────────────────────────────────────────────────
+2. "한 파일이 너무 많은 책임을 진다" 징후 확인
+────────────────────────────────────────────────────────────
+[tab 단위 DOM id 실측 — 15개 화면/기능이 한 파일에 혼재]
+  tab-analyze(1~5단계 개별검증) · tab-projects(프로젝트관리) · tab-groups(그룹관리)
+  · tab-queryupload(쿼리업로드) · tab-fullvalidation(전수검증) · tab-diagnosis(검증경로/진단)
+  · tab-diaghistory(진단이력) · tab-history(이력) · tab-settings(설정) · tab-dbmscap(DBMS역량)
+  · tab-metadata(메타데이터) · tab-policy(정책) · tab-batch(일괄검증) · tab-results(결과)
+  · (+ sidebar/head 공통 셸)
+
+  이 15개 화면 전체가 물리적으로 파이썬 함수 단 하나 `_build_html()`
+  (158~34,498행, 34,341줄 = 파일의 99.4%)의 반환값 문자열 결합으로 조립됨.
+  파일 하단 TablerRenderer 클래스(34,505~34,542행, 38줄)만 메서드 8개로
+  나뉘어 있으나 그 중 6개는 빈 문자열만 반환하는 스텁.
+
+[services/·routes/ 대비 — "크지만 잘게 나뉜 파일" vs "크고 안 나뉜 파일"]
+  services/ : 428개 파일, 총 121,301줄(파일당 평균 283줄).
+    최대 파일 single_validation_analyze_service.py(2,131줄)도 함수/클래스
+    16개로 분해돼 있음. upload_quality_check_service.py(1,729줄)는 37개,
+    candidate_subtype_service.py(1,707줄)는 37개, db_query_service.py
+    (1,700줄)는 44개로 분해 — 라인수는 크지만 책임은 잘게 나뉜 편.
+  routes/ : 최대 파일 batch_route.py(2,653줄)도 함수 46개(라우트 핸들러
+    다수), agg_diff_route.py(1,978줄) 38개, diagnosis_route.py(1,768줄)
+    86개 — 마찬가지로 크기 대비 분해도가 높음.
+  ui/ 계열은 예외: grid_helpers.py(2,283줄)는 함수 3개, js_group_master.py
+    (2,225줄)는 함수 **1개** 뿐 — "거대 함수가 거대 문자열을 반환"하는
+    tabler_renderer.py와 같은 패턴이 축소판으로 반복됨. 즉 문제는 ui/
+    계열 전반의 관성이지 tabler_renderer.py 하나만의 예외가 아님.
+
+  → 결론: 문제는 "줄수" 자체가 아니라 "줄수 대비 함수/책임 분해도".
+    services/·routes/는 크지만 건강, ui/(특히 tabler_renderer.py)는
+    크고 분해도가 극단적으로 낮음.
+
+────────────────────────────────────────────────────────────
+3. tests/ 디렉토리 비대화 실측
+────────────────────────────────────────────────────────────
+- git 추적 .py: 1,046개 파일 / 229,501줄 (파일당 평균 219줄 — 파일 자체는
+  작음, "개수"가 비대화의 실체).
+- 파일명 패턴 상위: test_batch_* 97 · test_single_* 65 · test_task11_* 52
+  · test_candidate_* 41 · test_validation_* 32 · test_count_* 31
+  · test_diagnosis_* 27 · test_d7_* 25 · test_connection_* 23 · test_analyze_* 19 ...
+
+[M66이 언급한 "1,248개"의 정체 재확인]
+  M66 원문은 "tests/ 디렉토리 자체가 1,248개 파일(+__pycache__ 1,043개)"라고
+  기록했으나, 이번 실측으로 이 수치가 **소스 파일 수가 아님**이 확인됨:
+    git 추적 .py 1,046개 + 잔존 테스트 산출물 .db 파일 192개
+    + .db-journal 임시파일 10개 ≈ 1,248개 (거의 정확히 일치)
+  즉 소스가 1,248개로 불어난 게 아니라, 소스 1,046개에 테스트 실행 중
+  정리 안 된 SQLite 산출물(.db/.db-journal, 모두 git 미추적) 200여개가
+  디스크 스냅샷 집계에 섞여 들어간 결과다. "1,248"을 소스 규모로 오인해
+  향후 리팩터링 스코프를 잡으면 안 됨 — 실제 소스 규모는 1,046개.
+
+[M66 현상과 비대화의 관련성]
+  M66이 실측한 병목(디렉토리 1개로 넘기면 12,378개 테스트를 35초/2.8ms당
+  테스트, 같은 대상을 개별 CLI 인자 140개로 나열하면 1,946개 테스트에
+  72~74초/37ms당 테스트 — 13배 느림)은 pytest가 "인자 개수 × 디렉토리
+  크기(파일 개수)"만큼 반복 판정(is_file() stat 호출)을 수행하는 구조적
+  특성 때문이며, **총 라인수(229,501줄)와는 무관**하다. 즉 "파일 개수"는
+  관련 있지만("디렉토리가 커질수록 개별 인자 나열의 페널티가 커짐"),
+  "라인수 비대화"와는 별개 축이다 — tests/ 파일이 얇든 두껍든 pytest
+  인자 나열 방식을 쓰는 한 개수에 비례해 느려진다.
+
+────────────────────────────────────────────────────────────
+4. 실무 영향 평가
+────────────────────────────────────────────────────────────
+[F5 시리즈 — 2026-08-09 실제 사례]
+- F5 Tier2 스코프 재확정(F5-TIER2-WHITEBOX-CONTRACT-SCOPE-DIAGNOSE) 당시
+  BACKLOG의 "≈180케이스" 추정이 실측 233케이스로 +30% 과소산정 판명 —
+  근거 보고서에 전체 랭킹이 안 남아있던 게 직접 원인이나, 대상 파일이
+  거대·다세션 동시 작업 구조라 위험이 커짐: F5 자체 기록에 "같은 시기
+  ui/tabler_renderer.py가 다른 세션에서 8커밋 활발히 변경 중"이라는
+  위험 메모가 남아있음.
+- 이번 조사로 정량 확인: 최근 14일간 전체 314커밋 중 **114커밋(36.3%)이
+  ui/tabler_renderer.py 단일 파일**을 건드림 — 이 파일이 사실상 UI 변경
+  대부분의 병목 지점이 되어 있음. 파일 하나에 여러 세션 변경이 집중되면
+  병합충돌·리뷰범위 확대 위험이 실제로 존재(수치로 뒷받침됨).
+
+[M66 — 2026-08-09 실제 사례]
+- tests/ 개별 파일 140개 나열 방식이 72~74초 걸리는 것을 처음엔
+  "무응답(hang)"으로 오판 → 별도 재진단(M66-ADJACENT-FILES-COLLECT-
+  HANG-DIAGNOSE)에 시간을 소모한 뒤에야 "정상 지연"으로 정정.
+  근본원인은 코드 결함이 아니라 "개별 인자 나열 습관 × tests/ 파일 개수"
+  조합이었음 — 앞으로도 "디렉토리 통째로 넘기기" 습관을 안 들이면 반복될
+  수 있는 함정(1,046개 파일이 유지되는 한 상존).
+
+[CLAUDE.md 자체 규칙과의 상호작용]
+- CLAUDE.md는 "1~6단계 완료 모듈 임의 리팩토링 금지"를 명시하고 있는데,
+  tabler_renderer.py는 사실상 함수 1개=화면 15개 구조라 "이 파일을
+  건드린다"는 행위 자체가 항상 "여러 완료 화면을 동시에 건드릴 위험"과
+  같은 말이 됨 — 국소 수정이 구조적으로 어렵다(신중해야 하는 범위가
+  파일 크기만큼 넓어짐).
+
+[판단 — F5 시리즈 결론과 일관되게]
+- 지금 당장 착수가 급한 상태는 아니다: 오늘(및 최근) 실측한 두 사례
+  (F5 스코프 재산정, M66 오판)는 모두 "진단 지연"이었지 작업 실패로
+  이어지지 않았고, 두 건 모두 "코드/테스트 무수정으로 종료"가 스스로
+  내린 올바른 결론이었다.
+- 그러나 "알고 있으되 완전히 방치해도 되는" 수준을 넘어서는 정량 근거는
+  있다: 최근 2주 커밋의 36.3%가 단일 34,542줄 파일에 집중되고, 그 중
+  83.5%가 여전히 미분리 JS다 — 이 비율은 UI 기능이 늘수록 더 나빠지는
+  방향으로만 움직인다.
+- 권장: 지금 즉시 리팩터링 착수는 보류. 다만 "다음 대규모 UI 신규 기능
+  추가" 착수 전에는 tabler_renderer.py 분리를 별도 계획(사용자 승인 필요,
+  CLAUDE.md "대규모 리팩토링은 계획 먼저 제시" 규칙 적용 대상)으로
+  우선순위에 올려 재검토할 것.
+- tests/ 디렉토리는 "파일 개수" 자체보다 "pytest 호출 관습" 문제이므로
+  구조 리팩터링 대상이 아니라 운영 관습(디렉토리 단위 호출 + -k 필터,
+  M66이 이미 권고) 교정으로 충분 — 이번 조사도 동일 결론을 재확인함.
+
+✅ 작업 완료 - 코드베이스 구조 건강도 실측 완료(코드 변경 없음, 조사·측정만 수행)
