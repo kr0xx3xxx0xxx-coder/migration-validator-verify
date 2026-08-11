@@ -5196,7 +5196,7 @@ git -C E:/verify_reports worktree remove <임시경로>
   필요, CLAUDE.md "대규모 리팩토링 계획 우선 제시" 규칙 대상)으로 재검토 권장.**
 - 근거: E:\verify_reports\CODEBASE-STRUCTURAL-HEALTH-DIAGNOSE.txt
 
-### M72. LLM 추가 활용처 전면 탐색 완료(0순위 전제 정정됨) — 직접활용 C1/C2 단계적 실측으로 착수권고 확정(스코프 48.8%), 간접활용 2건(E1·일괄실패요약) 구현 완료, 부수 8건 발견
+### M72. ✅ LLM 활용 전체 완결 — 직접활용(C1/C2 판정보완) + 간접활용 2건(E1·일괄실패요약) 전부 구현·검증 완료, 부수 8건 발견
 - 발견/계기: 2026-08-10 (사용자 — "관리컬럼 판정 외 다른 활용처는? 일괄·전수 적용도
   고려, 직접/간접 활용 둘 다 고려" / LLM-ADDITIONAL-USE-CASE-SURVEY, 코드 무변경,
   BACKLOG 5,129줄+완료보고서 386건+로컬DB 읽기전용 조회)
@@ -5334,6 +5334,31 @@ git -C E:/verify_reports worktree remove <임시경로>
   최종판정단계(26.7~30.4%)에서 수렴함을 확인(사전 왜곡이 파이프라인 하류에서
   희석). **결론: 2순위(Ollama 인프라 재검토) 착수 근거 확정**, 스코프는 48.8%로.
 - 참고: E:\verify_reports\C1-C2-PIPELINE-IMPACT-MEASURE-STEP1.txt
+- **✅ 2순위(직접 활용 실구현) 완료(2026-08-11, C1-C2-OLLAMA-DIRECT-USE-SCOPE-AND-
+  IMPLEMENT, 코드 커밋 55f65c2e)**: `candidate_subtype_service.py::classify_
+  candidate_subtype()`의 **두 catch-all fallback 반환문**(SUM 역할
+  `CT_UNKNOWN_REVIEW`, GROUP BY 역할 `CT_GENERAL_GROUP`)만을 삽입지점으로 코드
+  추적 확정(그 외 모든 확신있는 규칙기반 분기는 먼저 return돼 도달 불가) — 순수함수
+  자체는 안 건드리고 호출부(`enrich_candidates_with_subtype`)에서만 3차 근거
+  삽입. **★ 스스로 숨은 결함 발견·차단**: 근거표기를 `candidate_subtype_service`
+  안에만 채우면 충분하다 가정했으나, 코드 추적으로 **실제 화면은 별도 서비스
+  (`candidate_explanation_service.build_candidate_explanation()`)가 재계산한
+  값만 읽는다는 걸 발견**(기존 CANDIDATE-DISPLAY-RENDERER-CONSOLIDATION 원칙,
+  "explanation 있으면 그것만 사용") — 그 서비스에도 `subtype_llm_evidence` 병기
+  수정을 추가하지 않았다면 **백엔드 판정은 정확한데 화면엔 안 보이는 조용한
+  결함**이 될 뻔함. 안전조건 4가지 전부 전용테스트로 기계적 검증: (a) 근거표기
+  실제 화면노출 경로까지 추적확인 (b) 민감정보는 dataclass 필드 자체에 없음(문서화
+  아닌 구조 강제), 캐시키도 코멘트 유무 플래그만 (c) 카탈로그 밖 응답/할루시네이션
+  결과 폐기 확인 (d) 미기동/장애/circuit-breaker 전부 기존판정 유지 확인.
+  **비대칭반영 추가검증**: 확신있는 규칙기반 판정 시 LLM 호출횟수 0회 실측,
+  LOW신뢰도는 캐시재조회해도 승격 안 함 확인. **실제 승격 종단시연**: BATCH_ID
+  (GENERAL_GROUP_CANDIDATE→CODE_LOW_CARDINALITY 승격, "LLM판정(gemma3:4b)" 배지+
+  근거문구 화면노출 확인), 시연용 캐시 흔적 즉시 삭제. 신규 18건 전부 통과,
+  관련 회귀 전부 무영향(E1·일괄실패요약 인프라 재사용도 무영향 확인), 광범위
+  재실행에서 나온 사전존재 실패 31건도 원인 하나하나 특정(경로캐시 잔재, 예전
+  갱신된 문구 미반영 옛기대값, 무관 축) 후 신규필드가 비활성 시 완전 no-op임을
+  코드검토로 인과관계 없음 확정. 동시진행 F6 세션 파일 정확히 배제.
+- 참고: E:\verify_reports\C1-C2-OLLAMA-DIRECT-USE-SCOPE-AND-IMPLEMENT.txt
 - **간접 활용 2순위(일괄검증 실패요약) 구현 완료(2026-08-11,
   BATCH-FAILURE-SUMMARY-LLM-GUIDE-IMPLEMENT, 코드 커밋 25948cf1)**: E1 인프라
   그대로 재사용, 별도 prompt_version("batch-e1-v1")·별도 circuit-breaker로 E1과
