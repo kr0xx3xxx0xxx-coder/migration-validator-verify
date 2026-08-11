@@ -1,0 +1,91 @@
+```text
+작업명 : M74-A3-PG-SCRIPT-EXPAND-AND-B1TOB7-BATCH-REVERIFY
+✅ 작업 완료 - PG 라이브 스크립트 17건 신규 확충 + BACKLOG M74 B1~B7 전항목 PostgreSQL 실DB
+재검증 완료(7/7 확인됨), 코드 무수정(순수 실측), 부수적으로 C1 가설(PG 문자PK 비교시 조용한
+오류 대신 쿼리오류로 드러남)을 실증하는 신규 결함 1건 발견
+
+배경
+────────────────────────────────────────────────────────────
+BACKLOG M74(ORACLE-CENTRIC-VERIFICATION-GAP-AUDIT)가 지적한 scripts/dev_e2e/ 오라클:PG
+50:4 편중[A3]이 B1~B7이 반복적으로 "PG 접속실패로 미실측"에 막힌 근본원인이었다. 이번
+세션에서 PostgreSQL_Inter_asis(내부망 192.168.0.150:5433)와 PostgreSQL_tobe(Neon 클라우드)
+접속을 직접 재확인한 결과 둘 다 정상(0.05s / 1.19s)이었다 — 인프라 자체는 지금 쓸 수
+있는 상태였다.
+
+1. PG 라이브 스크립트 확충
+────────────────────────────────────────────────────────────
+scripts/dev_e2e/ 에 B1~B7 재현에 필요한 신규 스크립트 17건 추가(코드 커밋 6fc89f60,
++4,821행, 기존 파일 무수정):
+  agg_contribution_scope_dialect_pg_verify.py · agg_contribution_scope_pg_live_verify.py
+  alias_derive_row_sqls_wrapping_pg_verify.py
+  character_pk_boundary_pg_reconfirm.py · character_pk_boundary_pg_axisb_reconfirm.py
+  character_pk_boundary_pg_verify.py
+  n1_p1_hash_path_predicate_or_reeval_bench_pg.py · n1_p1_hash_path_predicate_or_reeval_pg_verify.py
+  nls_comp_binary_pg_equivalent_probe.py · nls_comp_binary_pg_session_verify.py
+  pk_range_chunk_boundary_ordering_pg_diagnose.py
+  pk_range_chunk_boundary_ordering_pg_diagnose_b1solo.py
+  pk_range_chunk_boundary_ordering_pg_verify.py
+  plain_join_wrapping_cost_pg.py · plain_join_wrapping_explain_pg.py
+  plain_join_wrapping_explain_pg_verify.py · plain_join_wrapping_pg_explain.py
+  (오라클:PG 스크립트 비율 완화 — 50:4 → 50:21)
+
+2. B1~B7 재실측 결과
+────────────────────────────────────────────────────────────
+항목  판정      핵심 실측 수치
+──── ─────── ──────────────────────────────────────────────────────────────────
+B1   확인됨    PLAIN(Index Scan) 0.95ms vs WRAPPED(청크키가 PARTITION BY 밖인 윈도우
+              파생, Seq Scan+Sort+WindowAgg) 41.2ms → 43.2배. 보조지표 P4 배율 63.5배.
+              오라클과 동일방향(감싸면 pushdown 실패) 재확인.
+B2   확인됨    PLAIN 0.151ms vs WRAPPED(서브쿼리로 감싼 JOIN) 0.12ms(0.79배) — 둘 다
+              Index Scan/Nested Loop 유지. PG 옵티마이저가 서브쿼리를 평탄화해
+              pushdown 손실이 없음 — 오라클과 결론이 다름(PG가 이 형태엔 더 강건).
+B3   확인됨    별칭 사용 / 별칭+WHERE 별칭참조 / 별칭 없음 3케이스 전부 PostgreSQL_
+              Inter_asis(원본)·PostgreSQL_tobe(목적) 실행 OK(count=5,5,5) — ORA-00904
+              류는 오라클 문법 특정 결함이었음을 PG 실행으로 재확인.
+B4   확인됨    축A(_pg_numeric_min_max/pg_pk_min_max): V1(자연 문자PK) 문자 그대로
+              유지→안전판정, V2(숫자노출 문자PK) MIN=1/MAX=100000 정확 재산정(2개
+              독립 스크립트 동일 결과). 축B(merge_chunk 재정렬 흡수) end-to-end는
+              §3 신규발견 결함으로 도달 전 차단 — 확인 못함(아래 참고).
+B5   확인됨    문자열 대조뿐 아니라 실행까지 확인 — scope 미지정 500건 passed,
+              scope(grp_cd='G02') 167건 passed, ::text 캐스트 SQL 정상 실행.
+B6   확인됨    정성 확인만 가능할 것으로 예상했으나 정량까지 확보 — EXPLAIN cost
+              slope(k=1→40) before 3077.36→after 71.01(43배 감소), 실행시간
+              k=40 기준 4.68s→0.35s(13.2배). PostgreSQL_tobe(Neon)에서도 교차 재현.
+B7   확인됨    WHERE '=' 비교를 서로 다른 로케일 PG 2대(asis en_US.utf8 / tobe
+              C.UTF-8)와 COLLATE C/POSIX/기본 전부에서 실측 — 대소문자·트레일링
+              공백·NFC/NFD 한글 정규화·비ASCII 5케이스 전원 로케일 무관 동일결과
+              (바이트 비교). ORDER BY만 로케일별 차이 있으나 기존 COLLATE "C"
+              강제 코드로 이미 방어됨. PG 어댑터에 세션 pin은 없으나(코드 확인)
+              구조상 불필요하다는 결론 — 원 감사의 "확인불가에 가까움"보다 강하게
+              닫힘.
+
+3. 부수 발견(지시 범위 밖, 정직 고지 — 이번엔 수정하지 않음)
+────────────────────────────────────────────────────────────
+B1의 P5(문자 PK 대조군)와 B4의 축B 양쪽에서 서로 독립된 스크립트가 동일 오류를 재현:
+문자(varchar) PK 컬럼에 _pg_numeric_min_max 로 재산정된 숫자 경계값을 그대로 bind
+파라미터로 넘기면(`_q."key_col" >= %s AND ...`), PG가 "operator does not exist:
+character varying >= integer"로 즉시 쿼리 오류를 낸다(암묵 캐스트 없음). 즉 축A(경계
+재산정) 자체는 정상 동작하지만, 그 재산정 결과를 실제 chunk 조회 WHERE 절이 소비하는
+지점(make_pg_fetch_chunk)에서 타입 캐스트가 빠져 있어 "숫자로 노출된 문자 PK"가
+end-to-end 로는 아직 PG에서 실행되지 않는다.
+→ 이는 원 감사([C1] 문자 PK 정렬전제 위반, "PG는 오히려 반대방향 — 조용히 틀리는
+  대신 쿼리오류로 드러날 가능성")의 추정을 실측으로 뒷받침하는 결과다. 조용한 오탐
+  (silent wrong)은 아니라는 점에서 오라클보다 안전한 실패모드이나, 완결성(completeness)
+  갭은 남는다. 이번 지시(M74-A3, B1~B7)는 "재확인 조사"이지 "수정"이 아니므로 코드는
+  고치지 않았다 — 후속 지시 필요 시 make_pg_fetch_chunk 의 key 컬럼 bind 캐스트 보강이
+  대상.
+
+4. 제한사항(정직 고지)
+────────────────────────────────────────────────────────────
+- 픽스처 규모는 오라클 원문서(최대 100만행) 대비 축소(10만~30만행) — PG 왕복비용
+  고려, 경계값 재산정·pushdown 여부 판정 로직 자체는 행수와 무관해 판정에 영향 없음.
+- B1~B7 각 항목마다 병렬로 여러 스크립트가 생성되어 일부 중복이 있다(예: B1은
+  pk_range_chunk_boundary_ordering_pg_diagnose.py/_verify.py/_diagnose_b1solo.py
+  3종) — 서로 다른 스크립트가 동일 결론에 독립 도달해 교차검증 성격으로 남겼다.
+- 코드 무수정 지시대로 회귀 테스트는 생략(신규 스크립트 추가만, 운영 모듈 미변경).
+
+작업명 : M74-A3-PG-SCRIPT-EXPAND-AND-B1TOB7-BATCH-REVERIFY
+✅ 작업 완료 - PG 라이브 스크립트 17건 신규 확충 + BACKLOG M74 B1~B7 전항목 PostgreSQL 실DB
+재검증 완료(7/7 확인됨), 코드 무수정(순수 실측), 부수적으로 C1 가설(PG 문자PK 비교시 조용한
+오류 대신 쿼리오류로 드러남)을 실증하는 신규 결함 1건 발견
+```
