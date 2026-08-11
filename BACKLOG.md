@@ -5579,3 +5579,27 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 한계(정직 고지): 406건 전수를 원문까지 다 읽지 않음(정규식 1차스캔 80건 후보로
   추림), 함수 시그니처 단위 1:1 전수대조는 안 함(구조적 지표로만 확인).
 - 근거: E:\verify_reports\ORACLE-CENTRIC-VERIFICATION-GAP-AUDIT.txt
+
+### M75. COUNT 병렬 vs 4단계 세트병렬(P13) 명칭혼동 정정 — COUNT는 이미 개별/일괄 모두 병렬 정상 작동, P13은 완전히 다른 기능이었음, cross-table 병렬만 추가 최적화 여지로 남음
+- 발견/계기: 2026-08-11 (사용자 — "일괄로 가면 수천 개가 순차로 돌아되는데 맞냐" /
+  채팅 조사, 코드 무변경)
+- **결론: 우려는 근거 없음으로 확인, COUNT 원본/목적 병렬은 이미 정상 작동 중**
+  — `count_common_service.py::_execute_count_sides`(`ThreadPoolExecutor(max_
+  workers=2)`, 원본 물리DB≠목적 물리DB일 때 자동 병렬, 기본 ON, 2026-08-01
+  커밋 a342be19)이 **개별검증·일괄검증 둘 다 동일하게 적용**됨(배치도 같은
+  `run_count_pair` 호출).
+- **⚠️ 명칭 혼동 정정**: BACKLOG P13("효과 불안정")이 가리키는 건 이 COUNT
+  병렬이 아니라 **완전히 다른 기능**(4단계 통계실행의 GROUP BY 축 세트 간 병렬,
+  `_stats_set_parallelism`) — 체감 개선폭이 -2.6%~-56.3%로 들쭉날쭉해서 기본
+  OFF로 유지된 것. COUNT side-parallel은 불안정 기록 자체가 없는 별개 기능인데
+  이름이 비슷해 헷갈리기 쉬웠음(오늘 이 혼동으로 여러 차례 질문 반복됨).
+- **남은 최적화 여지(cross-table 병렬, 이번 우려와는 다른 축)**: 일괄검증에서
+  "테이블 하나당 원본/목적 동시 쏘기"는 되고 있지만, "여러 테이블을 동시에
+  병렬 처리"는 `count_precheck_service.py:946`/`batch_single_core_wrapper.py:601`
+  둘 다 완전 순차 for-loop(`ThreadPoolExecutor` 없음) — `ValidationScheduler`가
+  존재하나 공식 경로엔 미배선(기본 OFF). 이건 버그가 아니라 추가 최적화 여지로만
+  존재, 착수 여부 결정 필요.
+- 부수 발견: `docs/BATCH_VALIDATION_SPEED_IMPROVEMENT_DESIGN.md:36`의 "COUNT는
+  항상 순차" 서술이 a342be19(2026-08-01) 이전(2026-07-08) 작성이라 현재 코드와
+  불일치(stale) — 갱신 권장, 코드 변경 아니므로 별도 지시 시 즉시 가능.
+- 근거: 채팅 조사 결과(별도 파일 미작성)
