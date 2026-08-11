@@ -1,0 +1,137 @@
+작업명 : E1-COUNT-MISMATCH-EXPLANATION-GUIDE-IMPLEMENT
+✅ 작업 완료 - 2단계 COUNT 불일치 원인 확인 가이드 LLM(자체호스팅 Ollama) 간접 활용 연동 — 기본 OFF+fail-open 폴백, 안전조건 4가지 전부 코드 수준 강제, 코드repo 05f0a116(push 안 함)
+
+작성일 : 2026-08-11
+성격   : 이 프로젝트 최초의 실제 LLM 연동 구현(간접 활용 — 판정 미개입)
+
+════════════════════════════════════════════════════════════════════════
+1. 선행 확인
+════════════════════════════════════════════════════════════════════════
+LLM-ADDITIONAL-USE-CASE-SURVEY.txt(§5·§7 E1 항목) 및
+LLM-ADMIN-COLUMN-JUDGMENT-SCOPE-AND-DESIGN-DIAGNOSE.txt(M50, §3 연동 설계)를 먼저 읽고
+그 설계를 그대로 재사용했다(신규 설계 없음) — urllib.request 직접 호출, 기본 OFF+fail-open
+Noop+circuit-breaker, SQLite 캐시(model_id+prompt_version 자동 무효화, 원문 응답 보존).
+
+════════════════════════════════════════════════════════════════════════
+2. 신규/변경 파일 (파일:핵심 라인)
+════════════════════════════════════════════════════════════════════════
+[신규]
+  analyzer/base_count_mismatch_llm_explainer.py
+    - CountMismatchGuideInput(집계 통계량·컬럼명만), LlmExplainResult, BaseCountMismatchLlmExplainer
+  analyzer/noop_count_mismatch_llm_explainer.py
+    - explain() 항상 즉시 None(통신 0) — 기본 폴백 구현체
+  analyzer/ollama_count_mismatch_llm_explainer.py
+    - :43 PROMPT_VERSION="e1-v1", :47~48 circuit-breaker(모듈 전역, 60초 쿨다운)
+    - :55~76 _build_prompt() — 안전조건 (b)(c) 프롬프트 강제
+    - :83~91 _sanitize_or_reject() — 단정문 정규식 검출/폐기(이중 방어)
+    - :96~150 OllamaCountMismatchLlmExplainer.explain() — POST /api/chat, urllib.request,
+      모든 예외 fail-open(None 반환) + circuit-breaker 오픈
+  services/count_mismatch_llm_cache_store.py
+    - count_mismatch_llm_cache 테이블(db/migration_validator.db), UNIQUE(pattern_key,model_id,
+      prompt_version), 원문 응답 보존(explainability), 전역 캐시(프로젝트 비분리)
+  services/count_mismatch_guide_service.py
+    - :56~76 build_pattern_key() — 차이비율 5% 구간화(실 건수 자체는 키에 안 넣음 → 캐시 재사용성↑)
+    - :79~130 generate_guide() — 비활성/캐시히트/explain 실패 전부 하나의 함수에서 안전조건 강제
+  routes/count_mismatch_guide_route.py
+    - POST /count/mismatch-guide — 항상 200 + fallback 보장(예외로 화면 안 막음)
+  tests/test_e1_count_mismatch_llm_guide.py (신규 17건, 전부 통과)
+
+[변경]
+  config/model_config.py
+    - COUNT_MISMATCH_LLM_GUIDE_ENABLED(기본 False) + get_count_mismatch_llm_guide_config() +
+      get_count_mismatch_llm_explainer() 팩토리(NXTDA_INTEGRATION_ENABLED 관례 재사용)
+  web_server.py
+    - /count/mismatch-guide 라우터 등록(count_gate_route 다음)
+  ui/count_mismatch_renderer.py
+    - _buildDiagCandNames()가 date/dim/key 컬럼명 배열을 반환하도록 확장(값 아님 — 서버가
+      중복 재분류하지 않도록 단일 출처 유지)
+    - _mvCountGuideOnToggle()/_mvRenderCountGuideResult() 신규 — 아코디언 최초 펼침 시에만
+      /count/mismatch-guide 호출(불필요한 LLM 호출 방지), source==='LLM' 성공 시에만 문구 교체
+  ui/tabler_renderer.py:25712~25726, :25858~25860
+    - _countGuideAccordionHtml()에 ontoggle 배선 + id="mvCountGuideBody"
+    - renderCountResult()가 _buildDiagCandNames 반환값을 window._mvLastDiagCandNames 에 보관
+  docs/DEPLOYMENT_CHECKLIST.md
+    - "6. 자체호스팅 LLM(Ollama) 서빙" 섹션 신설(기존 "6.참고"는 "7."로 이동)
+
+════════════════════════════════════════════════════════════════════════
+3. 안전조건 4가지 각각 검증 결과 (지시서 §2)
+════════════════════════════════════════════════════════════════════════
+(a) 화면 판정값·수치는 서버 계산값만
+    → generate_guide() 반환 dict 에 src_count/tgt_count/is_matched 등 판정 필드가 아예 없음
+      (test_service_output_has_no_count_or_verdict_fields 로 정적 확인·통과). 화면 4요약카드/
+      COUNT-GATE 배지 렌더 코드(_countSummaryCardsHtml/_mvCountGateHtml)는 이번 작업에서
+      한 줄도 건드리지 않음 — 그대로 서버 /count 응답 값만 사용.
+(b) 모델에는 집계 통계량·컬럼명만, 실 레코드 값 금지
+    → CountMismatchGuideInput 필드는 건수/차이/비율/테이블명/WHERE 존재 여부(불리언, 원문 아님)/
+      컬럼명 목록뿐(test_guide_input_has_only_aggregate_fields_no_record_values 로 필드셋 고정 확인).
+      WHERE 원문은 절대 전송하지 않음(값 리터럴 포함 위험 때문에 존재 여부만 boolean 화 — 조사가
+      권고한 것보다 한 단계 더 보수적으로 설계).
+(c) 단정문 금지 — 제안형만
+    → 프롬프트 지시 + _sanitize_or_reject() 정규식(원인은/이유는/틀림없이/확실히 + 습니다/입니다)
+      이중 방어. "원인은 X입니다"류 3건 전부 폐기 확인, "확인해보세요"류 2건 전부 통과 확인
+      (pytest 5건 통과).
+(d) 미기동/장애 시 기존 하드코딩 문구로 폴백
+    → LLM 비활성/explain() 예외/explain() None 반환 3가지 경로 전부 fallback_result() 로 수렴함을
+      개별 테스트로 확인(3건 통과). 폴백 문구는 기존 3줄 고정 안내와 완전히 동일(_FALLBACK_TEXT).
+
+════════════════════════════════════════════════════════════════════════
+4. 신뢰 표기 규칙(지시서 §3) 반영
+════════════════════════════════════════════════════════════════════════
+- source==='LLM' 성공 시에만 화면에 "출처: LLM(모델명) · 생성 {시각}[· 캐시]" 라인 추가
+  (ui/count_mismatch_renderer.py _mvRenderCountGuideResult).
+- source==='FALLBACK' 이면 기존 고정 3줄을 그대로 두고 아무것도 바꾸지 않음 — 판정 배지·
+  COUNT 수치 렌더 코드는 이번 작업과 완전히 분리돼 있어 LLM 표기가 그쪽에 붙을 경로 자체가 없음.
+
+════════════════════════════════════════════════════════════════════════
+5. 적용 범위 — 개별검증(2단계) 한정 (지시서 §4)
+════════════════════════════════════════════════════════════════════════
+- /count/mismatch-guide 는 ui/tabler_renderer.py 의 개별검증 2단계 아코디언에서만 호출.
+  일괄검증 COUNT 그리드(batch_route 계열)는 이번 작업에서 미배선 — 조사가 권고한 대로
+  "배치는 요약 1건" 형태는 별도 지침 대상으로 남김.
+
+════════════════════════════════════════════════════════════════════════
+6. 캐시 동작 확인
+════════════════════════════════════════════════════════════════════════
+- 같은 pattern_key(테이블쌍+차이비율 5%구간+WHERE유무+후보컬럼 시그니처)로 재요청 시
+  explainer.explain() 재호출 없이 캐시 행을 반환함을 mock explainer 호출 카운터로 확인
+  (test_cache_hit_skips_second_explainer_call, 1회만 호출됨 — 통과).
+- build_pattern_key() 는 실제 건수(src_count/tgt_count/diff) 자체를 키에 넣지 않고 5% 구간으로
+  묶어, 재실행 시 건수가 소폭 달라져도(적재 중 재확인 등) 캐시가 재사용되도록 설계
+  (test_pattern_key_buckets_diff_ratio_and_ignores_raw_counts 로 확인).
+- 캐시 model_id 는 항상 설정값(cfg["model"])을 써서 조회/저장 키 불일치로 캐시가 영구 미스되는
+  경로를 차단(구현체가 explain() 응답에서 다른 모델명을 돌려주는 경우 대비).
+
+════════════════════════════════════════════════════════════════════════
+7. 자체 테스트 결과
+════════════════════════════════════════════════════════════════════════
+  신규(tests/test_e1_count_mismatch_llm_guide.py)         : 17/17 통과
+  기존 COUNT 불일치 렌더러 정적 테스트(2개 파일)            : 24/24 통과(신규 회귀 0건)
+  CLAUDE.md 필수 회귀 — virtual_cases                      : 8/8 통과
+  CLAUDE.md 필수 회귀 — complex_cases                      : 5/5 통과
+  JS 구문 검증(node --check, 전체 인라인 script 225만자)   : 통과, 신규 함수 4종 포함 확인
+  참고: tests/test_count_gate.py::test_ui_gate_display_and_blocking 1건 실패 확인 —
+    원인은 이번 작업과 무관한 사전 존재 결함(_mvExactDiffUpdateButton 함수가 과거 커밋에서
+    "[기능 제거]" 주석과 함께 이미 삭제됐는데 테스트만 갱신 안 됨, HEAD(e63c2c58) 시점에도
+    동일하게 재현 — git show HEAD:ui/tabler_renderer.py 로 확인). 이번 작업 회귀 아님.
+
+════════════════════════════════════════════════════════════════════════
+8. ★ 특이사항 — 세션 중 동시 세션에 의한 작업내용 되돌림 발생·재적용 완료
+════════════════════════════════════════════════════════════════════════
+구현 완료 후 1차 테스트까지 통과한 상태에서, 이후 재검증 도중 아래 5개 파일이 HEAD 상태로
+되돌아가 있는 것을 발견했다(다른 세션의 git checkout/reset 류 동작으로 추정 — 새로 만든
+미추적 파일 7개는 전혀 영향받지 않고, 기존 추적 파일만 정확히 되돌아간 패턴이 이를 뒷받침):
+  config/model_config.py / ui/count_mismatch_renderer.py / ui/tabler_renderer.py /
+  web_server.py / docs/DEPLOYMENT_CHECKLIST.md
+전부 재적용 후 컴파일·라우트 등록·JS 구문·pytest 17건·CLAUDE.md 필수 회귀 2종을 다시 통과
+시켰고, 재검증 직후 즉시 로컬 커밋(05f0a116)으로 고정해 추가 유실을 방지했다. 코드저장소
+push 는 하지 않았다(기존 규칙 유지 — 코드repo push 금지, verify repo 만 push). 같은 저장소를
+동시에 쓰는 다른 세션이 있다면 이 파일들의 상태를 확인 권고.
+
+════════════════════════════════════════════════════════════════════════
+9. 코드저장소(X:\Projects\nxDTV) 커밋
+════════════════════════════════════════════════════════════════════════
+  커밋 해시 : 05f0a11608e3fbacee5ec4a1d1a135c413f77d1e
+  브랜치    : main (로컬 커밋만, push 안 함 — 기존 규칙)
+  변경 파일 : 12개(신규 7 · 변경 5), +1013 -11
+
+✅ 작업 완료 - 2단계 COUNT 불일치 원인 확인 가이드 LLM(자체호스팅 Ollama) 간접 활용 연동 — 기본 OFF+fail-open 폴백, 안전조건 4가지 전부 코드 수준 강제, 코드repo 05f0a116(push 안 함)
