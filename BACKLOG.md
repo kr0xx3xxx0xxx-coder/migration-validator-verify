@@ -5196,7 +5196,7 @@ git -C E:/verify_reports worktree remove <임시경로>
   필요, CLAUDE.md "대규모 리팩토링 계획 우선 제시" 규칙 대상)으로 재검토 권장.**
 - 근거: E:\verify_reports\CODEBASE-STRUCTURAL-HEALTH-DIAGNOSE.txt
 
-### M72. LLM 추가 활용처 전면 탐색 완료(0순위 전제 정정됨) — 직접활용 C1/C2 실측결과 착수권고로 전환(단계적), 간접활용 2건(E1·일괄실패요약) 구현 완료, 부수 8건 발견
+### M72. LLM 추가 활용처 전면 탐색 완료(0순위 전제 정정됨) — 직접활용 C1/C2 단계적 실측으로 착수권고 확정(스코프 48.8%), 간접활용 2건(E1·일괄실패요약) 구현 완료, 부수 8건 발견
 - 발견/계기: 2026-08-10 (사용자 — "관리컬럼 판정 외 다른 활용처는? 일괄·전수 적용도
   고려, 직접/간접 활용 둘 다 고려" / LLM-ADDITIONAL-USE-CASE-SURVEY, 코드 무변경,
   BACKLOG 5,129줄+완료보고서 386건+로컬DB 읽기전용 조회)
@@ -5321,6 +5321,19 @@ git -C E:/verify_reports worktree remove <임시경로>
   면 Ollama 인프라 재검토. C2는 LLM보다 먼저 저비용 대안(로컬 COMMENT 사전 35개→
   확대) 검토가 근거로 뒷받침됨.
 - 참고: E:\verify_reports\C1-C2-DICTIONARY-MISS-RATE-MEASURE.txt
+- **✅ 1순위 실측 완료(2026-08-11, C1-C2-PIPELINE-IMPACT-MEASURE-STEP1, 코드
+  무변경)**: 사전미스 147건을 실제 프로덕션 파이프라인(`candidate_engine`→
+  `candidate_display_enricher`→`candidate_subtype_service`)에 통과시켜 최종판정
+  실측. **낙관 가설("다른 휴리스틱이 커버") 기각** — 실제 해소 29.9%(44건)뿐,
+  **끝까지 애매하게 남는 비율 28.6%(42건)**, C1의 상한근사치(25.8~30.0%)와
+  거의 정확히 수렴(과장 아니었음을 뒷받침). **스코프 정밀화**: "147건 전체" 기준은
+  과대평가 — 41.5%(61건)는 애초에 후보풀에 안 들어가 화면 비노출(사전미스 무의미).
+  **진짜 스코프는 "후보풀 실제진입 86건 중 42건=48.8%"**(이전 추정보다 오히려
+  높음). 부수발견: 애매성이 GROUP BY role에만 집중(SUM role은 UNKNOWN_REVIEW
+  0건 — 숫자타입 여부로 명확히 갈림). 버킷별 편차도 사전미스단계(13.1~50.0%)보다
+  최종판정단계(26.7~30.4%)에서 수렴함을 확인(사전 왜곡이 파이프라인 하류에서
+  희석). **결론: 2순위(Ollama 인프라 재검토) 착수 근거 확정**, 스코프는 48.8%로.
+- 참고: E:\verify_reports\C1-C2-PIPELINE-IMPACT-MEASURE-STEP1.txt
 - **간접 활용 2순위(일괄검증 실패요약) 구현 완료(2026-08-11,
   BATCH-FAILURE-SUMMARY-LLM-GUIDE-IMPLEMENT, 코드 커밋 25948cf1)**: E1 인프라
   그대로 재사용, 별도 prompt_version("batch-e1-v1")·별도 circuit-breaker로 E1과
