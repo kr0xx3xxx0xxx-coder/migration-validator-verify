@@ -3559,7 +3559,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\STAGE5-GROUP-DRILLDOWN-ARCHITECTURE-IMPLEMENT.txt
 - 참고: E:\verify_reports\STAGE5-AXIS-LABEL-CLICK-FIX-AND-INLINE-ACCORDION-EXPAND.txt
 
-### M60. ✅ 해결 완료 — 5단계 상태배지 미갱신·그룹 재확장 재추출(서로 다른 3개 결함) + 검증성능정보 1~5단계 통합·위치재배치·균형조정·중복헤더제거·실행경로이동·카드분리재배치·카드위치스왑수정·카드인라인배치·그룹생성시간 병렬분기(2026-08-11) + 헤더라벨/색상/검색폼/컬럼/CNT 정리 + 시각계층구조·그리드정렬폭 정리 + 잔존 안내문구·빈박스 결합결함 해소 + 집계값 정렬 최종교정
+### M60. ✅ 해결 완료 — 5단계 상태배지 미갱신·그룹 재확장 재추출(서로 다른 3개 결함) + 검증성능정보 1~5단계 통합·위치재배치·균형조정·중복헤더제거·실행경로이동·카드분리재배치·카드위치스왑수정·카드인라인배치·그룹생성시간 병렬분기·전략명중복제거·캐시무의미값2항목제거(2026-08-11) + 헤더라벨/색상/검색폼/컬럼/CNT 정리 + 시각계층구조·그리드정렬폭 정리 + 잔존 안내문구·빈박스 결합결함 해소 + 집계값 정렬 최종교정
 - 발견일: 2026-08-09 (사용자 스크린샷 4장 직접 지적) / 해결일: 2026-08-09
   (STAGE5-EXTRACT-STATUS-TRACKING-BUG-AND-SUMMARY-LAYOUT-FIX, 코드 커밋 92d1b01 관련
   증적 저장소 push, 코드 저장소는 로컬 커밋만)
@@ -3753,6 +3753,28 @@ git -C E:/verify_reports worktree remove <임시경로>
   확실한 통합확인은 별도 권장).
 - 참고: E:\verify_reports\STAGE5-SELECTED-GROUP-CARD-INLINE-BETWEEN-ROW-AND-DETAIL.txt
 - 참고: E:\verify_reports\STAGE5-GROUPGEN-TIME-FORMULA-PARALLEL-FIX.txt
+- **전략명 중복제거 완료(2026-08-11, STAGE5-STRATEGY-NAME-DUPLICATE-REMOVE, 코드
+  커밋 c4f85936)**: "선택 그룹 상세추출" 카드 안에 실행전략명(예: DIRECT_STREAM_
+  COMPARE)이 요약줄+접힌 상세정보 토글 두 곳에 중복 표시되던 것을, 요약줄 쪽만
+  제거하고 접힌 상세정보 쪽만 유지. 실측(그룹 A/B) 둘 다 요약줄 0회·상세토글
+  1회만 확인.
+- **캐시재사용 무의미값 2항목 제거 + 그룹별저장구조 확인 완료(2026-08-11,
+  STAGE5-CARD-REMOVE-ITEM24-AND-PER-GROUP-STORAGE-VERIFY, 코드 커밋 74ce73c6)**:
+  카드 quick 요약줄의 4항목 중 "불일치 추출 완료"(②)·"전체 검증 완료(READY)"(④)
+  — 캐시 재사용 시 start/finish 시각이 둘 다 "지금"으로 재설정돼 사실상 0.01초
+  미만 무의미값이 되던 것 — 을 제거, "추출 소요"(①)·"현재 페이지 조회"(③)만
+  존치. 4개 그룹 실클릭으로 ②④ 완전 부재·①③ 정상표시 확인.
+  **부수 확인(사용자 가설 검증)**: "그룹마다 detailMs가 다르게 나오는 게 그룹별로
+  DB에 독립 저장되기 때문이냐"는 질문에 **그렇다고 실측 확인** — 그룹마다 서로
+  다른 `run_id`(exact_diff_run 테이블, PK)로 독립 저장, API 재조회값과 화면
+  표시값 4/4 완전 일치. **단, 이 저장이 "파일 DB"인지는 도달 경로에 따라 다름**
+  — 소규모 동기 재이관-PK 경로(오늘 픽스처가 탄 경로)는 **프로세스 내 in-memory
+  SQLite**(서버 재시작 시 소멸, 파일 DB 조회 시 0건 확인), 대규모/비동기 경로
+  (PK_RANGE_CHUNK·표본 job)는 **파일 영속**(`db/exact_diff_runs.db`, 재시작 후
+  에도 남음) — 같은 스키마·코드경로를 공유하지만 store 인스턴스 생성 시
+  `persist` 인자가 호출부마다 다르게 넘어감. 버그는 아니나 알아둘 구조적 사실.
+- 참고: E:\verify_reports\STAGE5-STRATEGY-NAME-DUPLICATE-REMOVE.txt
+- 참고: E:\verify_reports\STAGE5-CARD-REMOVE-ITEM24-AND-PER-GROUP-STORAGE-VERIFY.txt
 
 ### M61. ✅ 해결 완료 — 5단계 실행경로/전략 자동판정에서 PK 구성 검사가 실질적으로 무력화됨(하드코딩)
 - 발견일: 2026-08-09 (채팅 조사 — "실행경로/전략" 배지가 실제로 여러 값이 나오는지
