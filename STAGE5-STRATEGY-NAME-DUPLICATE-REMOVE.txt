@@ -1,0 +1,115 @@
+```text
+작업명 : STAGE5-STRATEGY-NAME-DUPLICATE-REMOVE
+✅ 작업 완료 - '선택 그룹 상세추출' 카드 안 전략명 중복(요약 줄) 제거, 접힌 상세정보 토글은 유지
+
+────────────────────────────────────────────────────────────
+지시서 정정 반영
+────────────────────────────────────────────────────────────
+원 지시서는 "둘 중 하나에서만 표시하도록 코드를 조사해 판단하라"였으나, 작업 착수 전
+사용자가 정확히 어느 쪽을 지울지 지정하는 정정 지시를 보냈다:
+  - 제거 대상: "실행경로 — · 전략 DIRECT_STREAM_COMPARE" (요약 줄)
+  - 유지 대상: "▶ 세부 성능정보 · DIRECT_STREAM_COMPARE · 총 11.56초" (접힌 상세정보 토글)
+본 보고는 이 정정 지시 기준으로 구현·검증했다.
+
+────────────────────────────────────────────────────────────
+코드 조사 요약
+────────────────────────────────────────────────────────────
+ui/tabler_renderer.py
+  - _mvRiSummaryHtml() 내부에서 _pathHtml(‘실행경로 <b>X</b> · 전략 <code>Y</code>…’)을
+    계산(28629-28637)하고, 인라인(그룹 펼침) 분기에서 _mvStage5SetGroupPerf() 호출 시
+    pathHtml 로 전달(28762) → window._mvS5GroupPerf.pathHtml 에 보관(28025).
+  - _mvStage5GroupPerfHtml()(27972-27994)이 '선택 그룹 상세추출' 카드를 그리며, 기존에는
+    p.pathHtml(요약 줄) 과 p.detailHtml('▶ 세부 성능정보' 접힌 토글, 제목에 전략명 포함
+    28712-28715) 을 한 카드 안에 나란히 렌더 → 같은 전략명이 카드 한 곳에 두 번 노출.
+  - pathHtml 계산·전달 자체(별도 화면 head 조립이 재사용하는 공용 경로, 28638
+    `if (!_inlineGrp) head += _pathHtml;`)는 그대로 두고, 렌더 단계에서만 pathHtml 을
+    빼는 방식이 가장 국소적이고 회귀 위험이 낮다고 판단(코드 재사용 계약 무변경).
+
+────────────────────────────────────────────────────────────
+변경 파일:라인
+────────────────────────────────────────────────────────────
+ui/tabler_renderer.py:27989-27994
+  _mvStage5GroupPerfHtml() 반환 HTML 조립에서 `(p.pathHtml || '')` 항을 제거.
+  `(p.detailHtml || '')` 는 그대로 유지 — '▶ 세부 성능정보' 토글(전략명 포함) 존속.
+  한글 주석으로 근거·범위(별도 화면 head 조립 무관) 명시.
+
+tests/test_stage5_group_drilldown.py:820-843
+  기존 테스트 test_execution_path_strategy_line_moved_from_inline_card_to_perf_group_card 가
+  구 계약("(p.pathHtml || '') in render")을 그대로 검증하고 있어 본 수정과 충돌 → 새 계약대로
+  갱신: pathHtml 계산·전달은 여전히 존재해야 하되(`assert "pathHtml: _pathHtml" in inline_seg`
+  등 무변경), 렌더 함수에는 `(p.pathHtml || '')`가 없어야 하고 `(p.detailHtml || '')`는
+  있어야 한다는 어서션으로 교체.
+
+scripts/dev_e2e/stage5_strategy_name_duplicate_remove_verify.py (신규)
+  실 클릭 검증 드라이버(아래).
+
+────────────────────────────────────────────────────────────
+검증 — pytest 회귀
+────────────────────────────────────────────────────────────
+1) 관련 서브셋(수정 전 baseline 대조)
+   python -m pytest tests/test_execution_path.py tests/test_stage5_group_drilldown.py tests/test_task11_e.py -q
+   - 수정 전(baseline, 새 어서션 미반영 상태): 4 failed, 75 passed
+     · 3건: test_parallel_read_decision_off_by_default / diff_host_true / same_host_sequential
+       → _parallel_read_decision() 반환형이 (bool, str) 튜플인데 테스트가 bool 단독을 기대.
+       본 작업(ui/tabler_renderer.py, 그룹 상세 카드 렌더)과 무관한 서비스 계층 코드
+       (services 쪽 parallel read 판정) — 이번 변경 파일 어디에도 손대지 않은 함수라 사전
+       존재 실패로 확인.
+     · 1건: test_execution_path_strategy_line_moved_from_inline_card_to_perf_group_card
+       → 본 작업이 의도적으로 깨는 구 계약(위 "변경 파일:라인"에서 갱신 설명).
+   - 수정 후(테스트 갱신 포함): 3 failed(사전 존재, 위 3건 동일), 76 passed — 신규 회귀 0건.
+
+2) CLAUDE.md 필수 회귀(virtual/complex) 최종 1회
+   python samples/test_virtual_cases.py   → 전체 8개 케이스 통과
+   python samples/test_complex_cases.py   → 케이스 분석 완료 5/5, 전체 검증 요약 항목 전부 ✓
+
+────────────────────────────────────────────────────────────
+검증 — 실제 클릭(playwright, 실 오라클 asis/tobe NXDNP.MV_COMBO_SRC/TGT)
+────────────────────────────────────────────────────────────
+드라이버: scripts/dev_e2e/stage5_strategy_name_duplicate_remove_verify.py
+  (기존 stage45_clickthrough_reverify.py 조작 헬퍼 재사용 — 새 조작 방식 미발명)
+GB=STATUS_CD+DEPT_CD 조합(PAIR) 축, SUM=AMT, 실행 결과 불일치 그룹 4건.
+
+그룹 A(첫 번째 행) 클릭 → '선택 그룹 상세추출' 카드 텍스트(요약):
+  "선택 그룹 상세추출 대상 GROUP BY STATUS_CD + DEPT_CD = A | D01
+   추출 소요 0.11초 … 세부 성능정보 · DIRECT_STREAM_COMPARE · 총 0.11초 …"
+  - '실행경로' 리터럴 출현 횟수: 0회 (요약 줄 완전 제거 확인)
+  - 감지된 전략명(DIRECT_STREAM_COMPARE) 카드 내 출현 횟수: 1회 (중복 해소, 세부 토글만 존속)
+  - '▶ 세부 성능정보' 토글 존재: True (정보 자체는 유지됨)
+
+그룹 B(두 번째 행) 클릭 → 동일 확인:
+  - '실행경로' 출현 0회, 전략명 출현 1회 — 그룹 전환 후에도 동일하게 정상.
+
+다른 실행전략(PK_RANGE_CHUNK 등) 케이스: 지시서상 "가능하면 확인"(선택 사항)으로 명시된
+항목이며, 이번 라이브 픽스처(NXDNP.MV_COMBO_SRC/TGT, 1200건)는 DIRECT_STREAM_COMPARE
+경로만 재현한다. 단, 이번 수정은 _mvStage5GroupPerfHtml() 렌더 조립에서 p.pathHtml 문자열
+자체를 빼는 것뿐이라 d.actual_strategy_id 값(전략 종류)에 의존하는 분기가 전혀 없다
+(_detTitle 조립부 28712-28715 는 전략 종류와 무관하게 동일 로직) — 코드 구조상
+PK_RANGE_CHUNK 등 다른 전략에서도 동일하게 동작할 것으로 판단하나, 별도 실측은
+이번 검증 범위에서 수행하지 않았다.
+
+스크린샷: X:\Verify\verify_screenshots_only\STAGE5-STRATEGY-NAME-DUPLICATE-REMOVE\
+  - after_group_a_expanded.png / after_group_a_expanded_full.png
+  - after_group_b_expanded.png
+
+────────────────────────────────────────────────────────────
+서버 재기동
+────────────────────────────────────────────────────────────
+코드 변경(ui/tabler_renderer.py)이 있어 재기동 필수 — 기존 포트 8000 점유 프로세스 종료 후
+python web_server.py 재기동.
+  재기동 시각 : 2026-08-11 19:18:47
+  재기동 시점 HEAD 커밋 : a836a472 (본 작업 커밋 c4f85936 은 재기동 후 별도 확인 불필요 —
+                          코드 변경은 정적 파일이 아닌 서버 프로세스 로드 시점에 이미 반영,
+                          이후 커밋은 코드 저장소 이력 확정용)
+
+────────────────────────────────────────────────────────────
+커밋
+────────────────────────────────────────────────────────────
+코드 저장소(X:\Projects\nxDTV) 커밋: c4f85936
+  fix(stage5-ui): 선택 그룹 상세추출 카드 전략명 중복 제거 (STAGE5-STRATEGY-NAME-DUPLICATE-REMOVE)
+  변경 파일 3개: ui/tabler_renderer.py, tests/test_stage5_group_drilldown.py,
+              scripts/dev_e2e/stage5_strategy_name_duplicate_remove_verify.py
+  (본 완료보고 파일은 규칙에 따라 코드 저장소에는 push 하지 않고 verify 저장소에만 push)
+
+작업명 : STAGE5-STRATEGY-NAME-DUPLICATE-REMOVE
+✅ 작업 완료 - '선택 그룹 상세추출' 카드 안 전략명 중복(요약 줄) 제거, 접힌 상세정보 토글은 유지
+```
