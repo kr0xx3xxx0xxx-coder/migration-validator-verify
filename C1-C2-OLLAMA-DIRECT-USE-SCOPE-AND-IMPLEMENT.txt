@@ -1,0 +1,142 @@
+작업명 : C1-C2-OLLAMA-DIRECT-USE-SCOPE-AND-IMPLEMENT
+✅ 작업 완료 - GROUP BY/SUM 후보 의미분류 3차 판정에 자체호스팅 Ollama(gemma3:4b) 직접 활용 연동, 신규 테스트 18건 전부 통과, 기존 회귀 0건, 커밋 55f65c2e
+
+■ 선행 확인
+  C1-C2-PIPELINE-IMPACT-MEASURE-STEP1.txt(스코프 48.8%, 후보풀 진입분 86건 중 42건 최종애매)와
+  LLM-ADMIN-COLUMN-JUDGMENT-SCOPE-AND-DESIGN-DIAGNOSE.txt(M50, 안전원칙)를 먼저 읽고 시작했다.
+  M50 은 SYSTEM_AUDIT(관리컬럼) 판정 자리에 대한 별개 설계였고, 이번은 candidate_subtype_service.py
+  의 GROUP BY/SUM 후보 의미분류(candidate_subtype) 자리에 M50 이 확립한 안전원칙(비대칭 반영·
+  카탈로그 검증·additive-only)을 그대로 적용한 것 — 판정에 직접 관여하는 첫 사례.
+
+■ 삽입 지점 확정 근거(짐작 아님, 코드로 직접 특정)
+  services/candidate_subtype_service.py:classify_candidate_subtype() 의 두 catch-all 반환문만
+  대상이다(그 외 모든 확신 있는 규칙기반 분기는 이 함수 안에서 먼저 return 되어 절대 도달하지
+  않는다):
+    · SUM 역할 fallback   : 1158행 근방 `return CT_UNKNOWN_REVIEW`(모든 semantic/numeric 판정 실패 시)
+    · GROUP BY 역할 fallback: 1221행 근방 `return CT_GENERAL_GROUP`("일반 후보")
+  실제 호출은 이 함수 밖, enrich_candidates_with_subtype() 루프에서 subtype 확정 직후에 넣었다
+  (`subtype = classify_candidate_subtype(cand, sr, role)` 바로 다음 줄) — classify_candidate_
+  subtype() 자체는 순수 함수로 남기고, 3차 근거 삽입/캐시/note_tags 부착은 호출부에서만 처리해
+  "그 직후에만 LLM 호출" 요건을 코드 구조로 강제했다. role 별 카탈로그로 승격 허용 subtype 을
+  좁혔다(_LLM_ALLOWED_GB_SUBTYPES/_LLM_ALLOWED_SUM_SUBTYPES — classify_candidate_subtype() 이
+  실제로 반환하는 구체적 CT_* 값의 부분집합).
+
+■ 안전조건 4가지 검증 결과(M50 §3 재해석 적용)
+  (a) 배지 근거 표기
+      ✅ 승격 시 note_tags 에 "LLM판정(모델명)" chip 부착(candidate_subtype_service.py) +
+         candidate_explanation_service.build_candidate_explanation() 이 evidence_chips/
+         tooltip_text 에 "LLM 3차 판정: <subtype> — <근거문장>" 병기(F19 score_contributions/
+         배지 툴팁 선례와 동일 책임 분리 — chip=짧은표식, tooltip=상세근거).
+         ★ 최초 설계에서는 candidate_subtype_service.py 의 reason_text/note_tags 만 채우면
+         충분하다고 가정했으나, 코드 추적 결과 화면이 실제로 읽는 것은 별도 서비스
+         candidate_explanation_service.build_candidate_explanation() 이 재계산한
+         explanation.reason_text/tooltip_text/evidence_chips 임을 확인(같은 CANDIDATE-DISPLAY-
+         RENDERER-CONSOLIDATION 원칙 — "explanation 있으면 그것만 사용")했다. 이 서비스에도
+         subtype_llm_evidence 필드를 읽어 병기하도록 추가 수정해 실제 화면 노출을 보장했다
+         (수정하지 않았다면 배지가 생성되고도 화면에는 보이지 않는 조용한 결함이 됐을 것).
+      검증: tests/test_c1_c2_candidate_subtype_llm_judge.py::
+         test_explanation_exposes_llm_attribution_when_promoted (PASS) — chip/tooltip 실제 노출
+         확인. 종단 시연(아래 "실제 승격 사례")으로도 재확인.
+  (b) 민감정보 미전달
+      ✅ CandidateSubtypeJudgeInput(analyzer/base_candidate_subtype_llm_judge.py) 필드는
+         role/column_name/column_comment/tgt_type/tgt_len/tgt_scale/current_subtype/
+         allowed_subtypes 뿐 — sample_values/value_samples 필드 자체가 없다(E1 과 동일하게
+         dataclass 필드 목록 자체로 강제). 캐시 키(pattern_key)도 코멘트 원문이 아닌 "코멘트
+         유무" 플래그만 섞는다(services/candidate_subtype_service.py:build_llm_cache_pattern_key).
+      검증: test_pattern_key_excludes_comment_content (PASS) — 코멘트 원문이 달라도 캐시 키 동일.
+  (c) 카탈로그 검증
+      ✅ analyzer/ollama_candidate_subtype_llm_judge.py:_parse_and_validate() 가 모델 응답에서
+         subtype 을 추출해 호출측이 넘긴 allowed_subtypes(role 별 카탈로그) 안에 있는지 검증하고,
+         밖이면 결과 자체를 폐기한다. 카탈로그에 없는 신규 유형을 모델이 지어내도 반영되지 않는다.
+      검증: test_catalog_validation_rejects_value_outside_role_catalog,
+         test_catalog_validation_rejects_hallucinated_type,
+         test_catalog_validation_unparseable_response_rejected (모두 PASS).
+  (d) 미기동/장애 시 폴백
+      ✅ 기본 OFF(CANDIDATE_SUBTYPE_LLM_JUDGE_ENABLED=False) — 비활성 시 캐시 조회조차 하지
+         않고 즉시 fallback_subtype 반환. 활성 상태에서도 judge() 예외/타임아웃/빈응답/
+         circuit-breaker open 시 None → fallback 그대로 유지(_apply_candidate_subtype_llm_judge
+         전체가 try/except 로 감싸져 어떤 실패도 기존 판정에 영향 없음).
+      검증: test_disabled_flag_skips_cache_and_llm_entirely, test_judge_none_result_falls_back
+         (모두 PASS).
+
+  ── 추가: 비대칭 반영(승격만, 하향 없음) 검증 ──
+      confidence != "HIGH" 이면 카탈로그 안 값이어도 승격하지 않는다(캐시된 LOW 응답 재조회
+      시에도 동일). 확신 있는 규칙기반 판정(예: risk_flags 에 IDENTIFIER_LIKE)은 LLM 호출
+      자체가 발생하지 않는다(counting fake judge 로 호출횟수 0 확인).
+      검증: test_confident_rule_based_result_never_calls_llm, test_low_confidence_does_not_promote,
+         test_cached_low_confidence_does_not_promote_on_replay (모두 PASS).
+
+■ 실제 승격 사례(응답 예시 포함, 실코드 종단 시연)
+  대상: BATCH_ID(varchar(20), 코멘트 없음) — 오늘 실측(C1-C2-PIPELINE-IMPACT-MEASURE-STEP1)에서
+  애매하게 남았던 실제 컬럼군 재현.
+  실행 경로: urllib.request.urlopen() 하나만 스텁하고 나머지는 전부 실제 서비스 함수 호출
+  (classify_candidate_subtype → enrich_candidates_with_subtype → build_candidate_explanation).
+
+  [1] 규칙기반 단독 판정            : GENERAL_GROUP_CANDIDATE (애매 — 지시서가 말한 그 자리)
+  [2] Ollama 스텁 응답(JSON)        : {"subtype": "CODE_LOW_CARDINALITY", "confidence": "HIGH",
+                                       "reason": "배치 실행 식별 코드로, 반복되는 소수의 배치
+                                       유형을 나타내는 구분값으로 보입니다."}
+  [3] LLM 반영 후 candidate_subtype : CODE_LOW_CARDINALITY (승격됨)
+  [4] note_tags                     : ['기본계획포함', 'LLM판정(gemma3:4b)']
+  [5] explanation.evidence_chips    : ['고유값 미수집', 'LLM판정(gemma3:4b)']
+  [6] explanation.tooltip_text      : "그룹 비교 기준으로 적합합니다. | LLM 3차 판정:
+                                       CODE_LOW_CARDINALITY — 배치 실행 식별 코드로, 반복되는
+                                       소수의 배치 유형을 나타내는 구분값으로 보입니다."
+  ※ 데모가 SQLite 캐시(db/migration_validator.db, candidate_subtype_llm_cache 테이블)에 남긴
+    시연용 행 1건은 검증 직후 즉시 삭제해 운영 DB에 잔존시키지 않았다.
+
+■ 테스트 결과
+  신규 tests/test_c1_c2_candidate_subtype_llm_judge.py            : 18/18 PASS
+  기존 회귀 tests/test_candidate_subtype.py                        : 전부 PASS(신규 회귀 0)
+  기존 회귀 tests/test_e1_count_mismatch_llm_guide.py               : 전부 PASS(인프라 재사용 무영향)
+  기존 회귀 tests/test_batch_failure_summary_llm_guide.py           : 전부 PASS(인프라 재사용 무영향)
+  기존 회귀 tests/test_candidate_score_contribution.py              : 전부 PASS
+  기존 회귀 tests/test_candidate_explanation_display.py             : 122 PASS · 1 FAIL(사전 존재,
+    아래 참고)
+  admin_audit/admin_column 전체(candidate_subtype_service 최대 소비처) : 73 PASS · 0 FAIL
+  CLAUDE.md 필수 회귀 samples/test_virtual_cases.py                 : 8/8 PASS
+  CLAUDE.md 필수 회귀 samples/test_complex_cases.py                 : 5/5 PASS
+
+  ※ 참고(사전 존재 실패, 본 작업과 무관 — 원인 특정함):
+    저장소 전체 대상 넓은 범위(-k "candidate or subtype or explanation") 재실행 시 31건 실패가
+    관측됐으나, 표본 조사 결과 전부 본 변경 이전부터 있던 문제로 확인했다:
+      · 스택트레이스가 가리키는 경로가 현재 존재하지 않는 X:\Projects\Migration_Validator
+        (저장소 개명 이전 경로) — 캐시/환경 잔재로 판단.
+      · test_candidate_display_policy.py 등은 candidate_explanation_service.py 가 이미 예전에
+        문구를 바꾼(코드 내 GLOBAL-LIMIT-REASON-REMOVED/ABSTRACT-PHRASE-REMOVED 주석 확인)
+        이후 갱신되지 않은 기대문자열과의 불일치(예: "그룹 기준" 기대 vs 실제 "고유값 3개 ·
+        채널별 불일치 구분에 적합") — 본 작업이 건드리지 않은 로직.
+      · test_candidate_contract.py 실패는 groupby-safety 전략 라벨(SELECTABLE vs
+        FALLBACK_DEFAULT) 불일치 — 본 작업과 무관한 별도 축.
+    본 작업이 새로 추가한 필드(subtype_llm_evidence)는 비활성 시 모든 후보에서 None 이며
+    build_candidate_explanation() 의 추가 분기는 이 필드가 dict 이고 llm_subtype 이 있을 때만
+    동작하는 완전한 no-op 이므로, 위 실패들과 인과관계가 없음을 코드 검토로 확인했다.
+
+■ 변경/신규 파일
+  analyzer/base_candidate_subtype_llm_judge.py    (신규) 인터페이스 + 입출력 dataclass
+  analyzer/noop_candidate_subtype_llm_judge.py    (신규) 기본/폴백 구현체
+  analyzer/ollama_candidate_subtype_llm_judge.py  (신규) Ollama 구현체(urllib.request, 카탈로그
+                                                    검증, circuit-breaker, prompt_version=c1c2-v1)
+  services/candidate_subtype_llm_cache_store.py   (신규) SQLite 캐시(candidate_subtype_llm_cache,
+                                                    UNIQUE(pattern_key, role, model_id,
+                                                    prompt_version))
+  services/candidate_subtype_service.py           (수정) 삽입 지점 + 카탈로그 + 캐시/LLM 호출
+                                                    헬퍼 + note_tags/subtype_llm_evidence 부착
+  services/candidate_explanation_service.py       (수정) tooltip/chip 에 LLM 근거 병기
+  config/model_config.py                          (수정) CANDIDATE_SUBTYPE_LLM_JUDGE_* 3번째
+                                                    LLM 어댑터 블록(기본 OFF)
+  tests/test_c1_c2_candidate_subtype_llm_judge.py (신규) 18개 테스트
+
+■ 설계 결정(자율 진행, 지시서 승인 범위 내 — 되돌리기 어려운 구조 변경 아님)
+  · 캐시 키에 타입 대분류(NUM/DATE/TEXT/OTHER)를 M50 권고(컬럼명+코멘트유무)에 더해 추가했다
+    — 같은 컬럼명·코멘트유무라도 테이블마다 타입이 다르면 의미가 다를 수 있어(예: CHAR(1)
+    코드성 vs VARCHAR(200) 자유텍스트) 동명이의 캐시 오염 위험을 낮추기 위함(히트율 영향은
+    미미 — 타입은 통상 같은 컬럼명이면 테이블 간 일관적).
+  · 캐시 UNIQUE 키에 role 을 포함했다 — 같은 컬럼이 GROUP BY/SUM 양쪽에서 평가될 수 있고
+    두 역할의 카탈로그가 달라 답이 다를 수 있기 때문(classify_candidate_subtype 의 role 분기와
+    같은 이유).
+
+커밋해시: 55f65c2e (코드 저장소, 본 작업 8개 파일만 — 동시 진행 중이던 별도 세션의 F6 관련
+          변경분(services/single_validation_result_store.py 등)은 포함하지 않음)
+
+✅ 작업 완료 - GROUP BY/SUM 후보 의미분류 3차 판정에 자체호스팅 Ollama(gemma3:4b) 직접 활용 연동, 신규 테스트 18건 전부 통과, 기존 회귀 0건, 커밋 55f65c2e
