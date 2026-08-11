@@ -1,0 +1,58 @@
+작업명 : OLLAMA-GEMMA-INSTALL
+
+✅ 작업 완료 - 개발 PC(Windows 네이티브, 폐쇄망 오프라인 반입 절차)에 Ollama + gemma3:4b 를 실제 설치·기동·서빙까지 검증하고 절차를 docs/DEPLOYMENT_CHECKLIST.md §6-1에 문서화(commit 1f890de3)
+
+════════════════════════════════════════════════════════════════════════
+1. 요청 요약 / 배경
+════════════════════════════════════════════════════════════════════════
+- 목적: E1(2단계 COUNT 불일치 안내) LLM 간접 활용 기능(MV_COUNT_MISMATCH_LLM_GUIDE_ENABLED,
+  기본 OFF)을 위한 자체호스팅 LLM 서빙 준비. 고객사가 Docker 대신 Windows 네이티브,
+  인터넷 미연결(폐쇄망) 환경일 수 있다는 전제로 실제 설치·반입 절차를 개발 PC에서
+  선행 검증했다.
+- 이 작업은 코드 저장소(nxDTV) 수정이 아니라 docs 문서화 + 로컬 설치 실측이다.
+  코드 변경은 이미 존재하는 analyzer/ollama_count_mismatch_llm_explainer.py 를
+  대상으로 실제 Ollama 서버가 응답 가능한지 확인하는 인프라 준비 성격.
+
+════════════════════════════════════════════════════════════════════════
+2. 실행 내역 (실측, 2026-08-11)
+════════════════════════════════════════════════════════════════════════
+(a) 앱 설치
+  - 설치 파일: X:\Projects\_shared\ollama\installer\OllamaSetup.exe
+    (1,563,939,896 byte ≈ 1.46 GiB)
+  - 무인 설치: OllamaSetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-
+  - 설치 경로: %LOCALAPPDATA%\Programs\Ollama\ (관리자 권한 불요)
+
+(b) 모델 반입 — gemma3:4b (manifests + blobs 파일 복사 방식)
+  - OLLAMA_MODELS=X:\Projects\_shared\ollama 로 지정
+  - manifests\registry.ollama.ai\library\gemma3\4b (2026-08-11 12:02:41 생성, 856 byte)
+  - blobs\ 5개 파일 총 3,338,792,448+489+8,432+77+358 byte ≈ 3.11 GiB
+    · sha256-aeda25e6...(모델 가중치 본체, 3,338,792,448 byte)
+    · sha256-b6ae5839...(config, 489 byte) / sha256-dd084c7d...(license, 8,432 byte)
+    · sha256-3116c522...(params, 77 byte) / sha256-e0a42594...(template, 358 byte)
+  - manifest 의 layers[].digest 4개가 blobs\ 4개 파일과 정확히 대응됨을 대조 확인
+
+(c) 기동·서빙 검증
+  - 서버 로그(X:\Projects\_shared\ollama\ollama_serve.log) 393~398행:
+    server config 에서 OLLAMA_MODELS:X:\Projects\_shared\ollama 확인
+    (level=INFO source=routes.go:1933, 2026-08-11T12:30:27.810+09:00)
+  - Listening on 127.0.0.1:11434 (version 0.32.7) — 397행
+  - gemma3:4b 실제 로드·추론 서버 기동 확인:
+    llama_server: listening on http://127.0.0.1:13461 (290행, 12:03:28)
+    llama_server: listening on http://127.0.0.1:13953 (673행, 12:30:44)
+    template selection model=registry.ollama.ai/library/gemma3:4b (293/676행)
+
+════════════════════════════════════════════════════════════════════════
+3. 종료 시 완전삭제 절차 (문서화만, 이번 세션에서는 미실행 — 계속 서비스 중)
+════════════════════════════════════════════════════════════════════════
+docs/DEPLOYMENT_CHECKLIST.md §6-1(c) 에 절차 기재:
+프로세스 종료 → 앱 제거(unins000.exe) → OLLAMA_MODELS 폴더 삭제 →
+%LOCALAPPDATA%\Ollama\, %USERPROFILE%\.ollama\ 잔여 삭제 →
+setx 로 등록한 OLLAMA_MODELS 환경변수는 레지스트리 직접 삭제 필요(setx 로 미삭제됨, 주의사항 기재).
+
+════════════════════════════════════════════════════════════════════════
+4. 코드 저장소 변경사항
+════════════════════════════════════════════════════════════════════════
+[수정] docs/DEPLOYMENT_CHECKLIST.md (+75/-1 라인) — commit 1f890de3, 이미 push 완료
+코드(analyzer/, config/) 수정 없음 — 순수 인프라 설치 절차 문서화.
+
+✅ 작업 완료 - 개발 PC(Windows 네이티브, 폐쇄망 오프라인 반입 절차)에 Ollama + gemma3:4b 를 실제 설치·기동·서빙까지 검증하고 절차를 docs/DEPLOYMENT_CHECKLIST.md §6-1에 문서화(commit 1f890de3)
