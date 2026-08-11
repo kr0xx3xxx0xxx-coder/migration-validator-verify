@@ -1,0 +1,126 @@
+작업명 : STAGE5-GROUPGEN-TIME-FORMULA-PARALLEL-FIX
+✅ 작업 완료 - 5단계 그룹생성 시간 공식을 병렬/순차 실행 여부에 따라 분기(음수→0.01초 미만 고착 해소)
+
+배경
+----
+STAGE5-EXEC-TIME-GROUPGEN-SPLIT(오늘, 미커밋 상태로 작업트리에 존재 — "그룹생성 시간 = 전체시간
+- 원본조회 - 목적조회" 공식을 만든 작업)와 STAGE4-SOURCE-TARGET-PARALLEL-EXECUTE(오늘 커밋
+140297df, 4단계 통계검증 실행을 원본/목적 병렬화한 작업)가 서로 충돌했다: 그룹생성 시간 공식은
+원본/목적이 순차 실행된다는 전제(순차면 전체≈원본+목적+그룹생성)로 만들어졌는데, 4단계가 병렬로
+바뀌면서(전체≈max(원본,목적)+그룹생성) 서로 다른 물리 DB 조합에서는 공식이 원본+목적을 이중으로
+차감해 거의 항상 음수가 되고, 기존 음수 방어 로직이 항상 "0.01초 미만"으로 표시를 뭉갰다
+(STAGE2-STAGE4-SOURCE-TARGET-CONCURRENCY-TIMESTAMP-VERIFY 가 4단계 병렬 실행을 실측으로 재확인).
+
+구현
+----
+1) services/stats_execute_service.py:640-647 — /execute 성공 응답 query_timing 에
+   `parallel_sides` 필드 추가. 새 판정 로직 아님 — routes/execute_route.py::_stats_execute_inner
+   (STAGE4-SOURCE-TARGET-PARALLEL-EXECUTE 가 이미 배선한 `_different_physical_db()` 판정 결과)가
+   req.parallel_sides 에 담아 넘긴 값을 그대로 echo 만 한다.
+2) services/multiset_execute_service.py:191-235(`_aggregate`) — 다중 세트(GROUP BY 2축 이상)
+   집계 시 세트별 query_timing.parallel_sides 를 취합해 agg.query_timing.parallel_sides 로 전파.
+   물리 DB 조합(src_db/tgt_db)은 세트 간 불변이므로 첫 세트 값만 채택.
+3) ui/tabler_renderer.py:27545,27567-27572,27580-27581(`_runExecutePlanSets`) — 동기 다중세트
+   경로의 클라이언트측 agg 조립도 서버(2)와 필드 단위로 대칭 전파(qtParallel 누적자 추가).
+4) ui/grid_helpers.py:1170-1228(`_mvStage5ProcInfo(r)`) — 그룹생성 시간 공식 분기:
+     · qt.parallel_sides === true  → 그룹생성 = 전체시간 - max(원본조회, 목적조회)
+     · false 또는 필드 자체가 없는 구버전 응답 → 그룹생성 = 전체시간 - 원본조회 - 목적조회(기존 공식)
+   음수 방어(음수면 0 표시 + console.warn)는 그대로 유지. 툴팁에 "[병렬 실행]"/"[순차 실행]" 라벨과
+   해당 공식(병렬은 max(...), 순차는 -원본-목적)을 함께 표기 — 총시간·원본·목적 세 값 정보손실 없음.
+
+실측(실제 클릭, Neon PostgreSQL 라이브 — 병렬/순차 두 시나리오 모두 확인)
+--------------------------------------------------------------------------------------
+드라이버: scripts/dev_e2e/stage5_groupgen_time_formula_parallel_verify.py (1~5단계 실 Playwright 클릭,
+Chromium headless, 인프로세스 uvicorn — 현재 코드 상태를 그대로 로드해 기동)
+
+[시나리오 A] 병렬 — 서로 다른 물리 DB
+  DB 쌍   : PostgreSQL_asis(ep-bitter-moon-....neon.tech, neondb) -> PostgreSQL_tobe
+            (ep-super-river-....neon.tech, neondb) — host 상이 → _different_physical_db()=True
+  SQL     : mv_bt.orders_a[10,000행] → mv_bt.tgt_orders[19,750행], GB=STATUS_CD, SUM=ORDER_AMT,QTY
+  /execute 응답 원문 : processing_ms=838.4ms
+                       query_timing.source_duration_ms=78ms, target_duration_ms=105ms
+                       query_timing.parallel_sides=true   ← 실측 확인(코드 추론 아님)
+  기대 계산값(병렬 공식) : 838.4 - max(78,105) = 838.4 - 105 = 733.4ms ≈ 0.73초
+  화면 '실행시간' 칸  : "실행 0.73초 / 상세 7.30초"   ← 일치 확인(대조=True, 0.01초 미만 아님)
+  칸 툴팁            : "그룹생성(불일치 그룹 계산·비교) 0.73초 = 전체 0.84초 -
+                        max(원본조회 0.08초, 목적조회 0.10초) [병렬 실행]
+                        (733ms = 838ms - max(78ms, 105ms)) · 상세(불일치 그룹 펼침) …"
+                       → "[병렬 실행]" 라벨 포함, max() 공식 명시, 총시간·원본·목적 세 값 모두 확인.
+
+[시나리오 B] 순차 — 같은 물리 DB
+  DB 쌍   : PostgreSQL_asis -> PostgreSQL_asis_SEQTEST_tgt
+            (이번 검증 전용으로 mv_db_preset 에 TGT 프리셋 1건 추가 — PostgreSQL_asis 와 완전히
+            동일한 접속정보(host/port/dbname/계정)를 그대로 복제한 것으로 새 DB 계정 발급 아님.
+            host/port/dbname 이 원본과 완전히 동일 → _different_physical_db()=False)
+  SQL     : mv_bt.orders_a[10,000행] → mv_bt.orders_b[10,000행, 같은 asis DB 안의 동일스키마 테이블],
+            GB=STATUS_CD, SUM=ORDER_AMT,QTY
+  /execute 응답 원문 : processing_ms=1028.0ms
+                       query_timing.source_duration_ms=73ms, target_duration_ms=88ms
+                       query_timing.parallel_sides=false  ← 실측 확인(코드 추론 아님)
+  기대 계산값(순차 공식, 기존 그대로) : 1028.0 - 73 - 88 = 867.0ms ≈ 0.87초
+  화면 '실행시간' 칸  : "0.87초"   ← 일치 확인(대조=True)
+  칸 툴팁            : "그룹생성(불일치 그룹 계산·비교) 0.87초 = 전체 1.03초 -
+                        원본조회 0.07초 - 목적조회 0.09초 [순차 실행]
+                        (867ms = 1028ms - 73ms - 88ms)"
+                       → "[순차 실행]" 라벨 포함, 기존 -원본-목적 공식 그대로 적용 확인(회귀 없음).
+
+검산: 두 시나리오 모두 스크립트가 /execute 응답 원문(코드가 만든 값이 아니라 네트워크로 실제 수신한
+값)으로 독립 재계산한 기대값과 화면에 실제로 그려진 텍스트를 문자열 대조했다(코드를 다시 실행해
+재확인하는 방식이 아니라 응답 vs DOM 대조).
+
+회귀 테스트
+-----------
+- 관련 서브셋(공통 커밋 a836a472 기준, 최종 1회):
+  tests/test_stage45_strategy_timing_and_text_cleanup.py, test_stage45_status_timing_combo_label_
+  strategy_relocate.py, test_stage5_strategy_relocate_and_advanced_perf_emphasis.py,
+  test_stage5_group_drilldown.py, test_stage45_timing_label_and_dup_guard_fix.py,
+  test_plansets_agg_processing_time_fix.py, test_grid_helpers.py, test_d7_14_stats_set_parallel.py,
+  test_multiset_execute_async_job.py, test_stats_set_parallelism_conditional_enable.py
+  → 162 passed, 2 failed(전부 무관 사전 존재 결함 — test_query_review_grid_render_and_no_secrets /
+  test_candidate_grid_render_and_muted, 1·3단계 타일 관련. 오늘 완료한 STAGE5-EXEC-TIME-GROUPGEN-SPLIT
+  의 완료보고에도 동일 2건이 이미 사전 존재 결함으로 기록돼 있음 — 신규 회귀 아님).
+- baseline 대조(§ project_preexisting_test_failures 방법 — in-place revert 재측정): 이번 브랜치
+  진행 중 넓은 서브셋(-k "stats_execute or execute_route or multiset or stage4 or stage5")에서
+  추가로 11건 실패가 관측돼(test_all_stages_timing_display_expand.py 1건, test_execute_route_
+  shadow_integration.py 2건, test_stage4_postcount_progress_indicator.py 2건,
+  test_stats_execute_error_handling.py 6건) 회귀 여부를 직접 검증했다: 내 diff(services/
+  stats_execute_service.py, services/multiset_execute_service.py, ui/grid_helpers.py,
+  ui/tabler_renderer.py) 를 `git apply -R` 로 정확히 되돌려 HEAD 상태로 만든 뒤 같은 테스트를
+  파일 단위 격리 실행 → **동일 11건이 그대로 재현**(baseline 실패, 내 diff 와 무관) → 원상복구
+  (`git apply` 재적용) 후 diff --stat 로 완전 동일 상태 확인. 원인은 각각 사전 확인됨:
+    · test_stats_execute_error_handling.py 6건 — mock 대상 `_cmn_db_fetch_all` 이 2026-06-29
+      c6b40a64(EXECUTE-READONLY 도입, `cmn_db_fetch_select_readonly` 로 교체)로 이미 실경로에서
+      떨어져 나감(테스트 파일은 2026-06-07 마지막 수정 — 그 이후 리팩터로 mock 표적 상실).
+    · test_all_stages_timing_display_expand.py 1건 — inspect.getsource 소스검사가
+      `_stats_execute_inner`(2026-08-09 f176107a 도입) 분리 이전 함수 본문을 전제로 함
+      (프로젝트 메모 project_getsource_body_marker_test_contract 와 동일 패턴).
+    · test_execute_route_shadow_integration.py 2건 — 파일 단독 실행 시 test_shadow_on_calls_build
+      1건만 안정적으로 재현(순서의존), test_shadow_on_equals_off 는 processing_ms 실측값(wall-clock)
+      의 정확 동일성을 단언하는 타이밍 의존 플레이키 테스트로 별도 5회 반복 실행에서 병합/원복
+      양쪽 모두 5/5 동일하게 실패 확인(내 변경과 무관 — baseline 자체가 근본적으로 비결정적).
+    · test_stage4_postcount_progress_indicator.py 2건 — 5-b 카드(그룹 요약) 문구 관련, 세션 중
+      다른 미커밋 작업의 흔적으로 판단(내 4개 파일 diff 에는 해당 문구 없음).
+- CLAUDE.md 필수 회귀(commit a836a472 기준, 최종 1회): samples/test_virtual_cases.py 8/8 통과,
+  samples/test_complex_cases.py 5/5 통과.
+
+서버 재기동
+-----------
+코드 변경 있음 → 재기동 필수. 최종 재기동: 2026-08-11 18:56:35 KST, PID 15996, HEAD 커밋 a836a472
+(포트 8000 유지 배포 인스턴스). 실측 자체는 스크립트가 별도로 띄운 인프로세스 uvicorn(현재 디스크
+코드를 그대로 fresh import — web_server.app)로 수행돼 배포 인스턴스와 별개로 코드 최신 상태를 보장.
+
+변경/생성 파일
+--------------
+- services/stats_execute_service.py:640-647 (수정 — query_timing.parallel_sides 필드 추가)
+- services/multiset_execute_service.py:191-235 (수정 — 다중세트 집계 시 parallel_sides 전파)
+- ui/tabler_renderer.py:27542-27581 (수정 — _runExecutePlanSets 클라이언트측 대칭 전파)
+- ui/grid_helpers.py:1170-1228 (수정 — _mvStage5ProcInfo 공식 분기 + 툴팁 병렬/순차 라벨)
+- scripts/dev_e2e/stage5_groupgen_time_formula_parallel_verify.py (신규 — 실측 드라이버, 코드 저장소 보존)
+- (DB 픽스처, 코드 저장소 무관) db/migration_validator.db 의 mv_db_preset 테이블에 순차 시나리오
+  검증용 TGT 프리셋 1건(PostgreSQL_asis_SEQTEST_tgt, preset_id=16) 추가 — 재사용 가능하도록 보존.
+
+커밋: a836a472bd575763d6c469b38a07ad57675d0459
+      (fix(stage5-ui): 그룹생성 시간 공식 병렬/순차 분기, X:\Projects\nxDTV, main 브랜치)
+
+작업명 : STAGE5-GROUPGEN-TIME-FORMULA-PARALLEL-FIX
+✅ 작업 완료 - 5단계 그룹생성 시간 공식을 병렬/순차 실행 여부에 따라 분기(음수→0.01초 미만 고착 해소)
