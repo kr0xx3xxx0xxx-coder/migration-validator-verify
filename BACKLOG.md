@@ -1797,7 +1797,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 관련: S10(`is_pk` 고정값 — 점수 오염원의 대표 사례)
 - 참고: E:\verify_reports\CANDIDATE-SCORE-EXPLAINABILITY-BREAKDOWN-DIAGNOSE.txt
 
-### F20. ✅ 1번 위험(과대추정) 해소 완료 — "종속 의심" 플래그 추가(판정 로직 자체는 불변, 설계상 의도된 한계였음)
+### F20. ✅ 완전 해결 — 1번 위험(과대추정) 해소 + 2번 위험(의미중복 조합 과대신뢰) 보정 완료
 - 발견일: 2026-07-31 / 해결일: 2026-08-06 (F24-F20-F4-1-F4-4-APPROVED-SEQUENTIAL-IMPLEMENT,
   코드 커밋 db7be19)
 - 근거 보고서: `CANDIDATE-PROFILING-UNIVARIATE-VS-CORRELATION-DIAGNOSE.txt`(발견) →
@@ -1811,8 +1811,23 @@ git -C E:/verify_reports worktree remove <임시경로>
   갈리는데 실행계획(est)은 신호 유무와 무관하게 완전 동일함을 확인. 신규 테스트 10건 통과.
 - 잔존(2번 위험, 이번 범위 아님): "의미 중복 조합이 HIGH 신뢰도를 받는다"(STATUS_CD+
   STATUS_NM류)는 이번 지시 범위(과대추정 1번만)에 포함 안 됨 — 별도 검토 필요.
+- **✅ 2번 위험 해결 완료(2026-08-11, F20-SEMANTIC-DUPLICATE-OVER-CONFIDENCE-FIX,
+  코드 커밋 286f0920)**: 원인 — `recommender.py`의 axes 계산이 힌트카테고리 매칭
+  컬럼 수를 단순 합산해, STATUS_CD/STATUS_NM처럼 같은 개념(상태)을 코드/명칭 두
+  컬럼으로 나눈 조합도 둘 다 매칭돼 axes=2→HIGH로 과대평가됨. `recommender.py`가
+  순수함수 전용(DB/실행 금지) 모듈이라 1번 위험 해소 때 쓴 실DB샘플링 방식은
+  재사용 불가 판단, **컬럼명 접미사(_CD/_NM류) 기반 정적 판정**으로 최소침습
+  구현 — 동일 stem의 코드/명칭 쌍만 1축으로 묶고, 카테고리만 같고 접미사쌍이
+  아닌 건 종전대로 개별 축 유지(오탐 방지). **3가지 케이스로 정확히 구분
+  검증**: 진짜 의미중복(STATUS_CD+STATUS_NM)→HIGH에서 MEDIUM으로 정확히 강등,
+  이름만 비슷한 오탐후보(ORDER_STATUS+PAYMENT_STATUS)→HIGH 그대로 유지(과도한
+  강등 없음), 중복+진짜추가축 혼합(+REGION)→실질축 2개라 HIGH 유지가 타당함을
+  확인(무조건 강등이 아니라 정확한 축 재계산 실증). `semantic_duplicate_pairs`
+  필드로 근거 보존(설명가능성). 신규 3건 회귀테스트, 사전존재 무관 실패 1건
+  git status로 무변경 확인. CLAUDE.md 필수 회귀 통과.
 - 관련: F18(2026-08-06 착수 보류 데이터 기반 결론) · F6(다중 GROUP BY 조합 판정, 해결완료)
 - 참고: E:\verify_reports\CANDIDATE-PROFILING-UNIVARIATE-VS-CORRELATION-DIAGNOSE.txt
+- 참고: E:\verify_reports\F20-SEMANTIC-DUPLICATE-OVER-CONFIDENCE-FIX.txt
 - 참고: E:\verify_reports\F24-F20-F4-1-F4-4-APPROVED-SEQUENTIAL-IMPLEMENT-COMPLETE.txt
 - 참고: E:\verify_reports\CANDIDATE-PROFILING-UNIVARIATE-VS-CORRELATION-DIAGNOSE.txt
 
