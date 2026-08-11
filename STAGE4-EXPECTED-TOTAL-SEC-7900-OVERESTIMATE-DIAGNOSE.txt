@@ -1,0 +1,61 @@
+작업명 : STAGE4-EXPECTED-TOTAL-SEC-7900-OVERESTIMATE-DIAGNOSE
+✅ 작업 완료 - "예상 총소요 7900초"(신뢰도 LOW) 계산위치·오차원인·용도·LOW발동조건 조사(코드 무수정)
+
+1) 계산 위치·공식
+- 함수: services/strategy/strategy_transition.py `_est_total_seconds()` (choose_compare_strategy 내부 호출)
+- 표시: ui/js_sql_preview.py:412 (`['예상 총소요', ... expectedTotalSec ...]`) — /strategy/plan 응답값을
+  그대로 옮겨 렌더링만 한다(화면 자체 재계산 없음).
+- 벤치마크 원천값: DEFAULT_TRANSITION["benchmarks"] 단 1개 지점
+  {source_count: 1,000,000, direct_total_seconds: 158.0} (주석: "cold cross-host" 실측)
+- 공식(벤치 지점과 source_count 가 다를 때, `_est_total_seconds` 2번째 분기):
+  expected_total_seconds = 벤치 direct_total_seconds × (요청 source_count / 벤치 source_count)
+  = 158.0 × (50,000,000 / 1,000,000) = 158.0 × 50 = 7900.0
+  → 사용자가 본 "7900초"와 정확히 일치(단순 선형 외삽, 실측 재현 완료).
+
+2) 오차 원인 — 공식 결함 아님, "무관한 벤치 1건을 50배 밖으로 선형 외삽"이 원인
+- 이 벤치 158초는 주석상 명시된 "cold cross-host"(콜드 캐시·원격 호스트 간) 측정값이다. 오늘
+  MV_SCATTER50M 실측(17~23초)은 이 벤치 자체(1M/158초 ≈ 6,329행/초)보다도 월등히 빠르다
+  (50M/20초 ≈ 2,500,000행/초, 벤치 대비 약 400배) — 즉 "50M이라 느릴 것"이 아니라애초에
+  이 벤치가 현재 실행 환경(로컬/웜캐시로 추정)의 처리량을 대표하지 못한다.
+- 벤치 지점이 1개뿐이라 `_nearest_benchmark()`는 무조건 이 1M 지점을 고르고, 1M→50M(50배) 같은
+  큰 외삽 거리에도 아무 감쇠·경고 로직이 없다(외삽 거리와 신뢰도가 연동돼 있지 않음, 4번 참고).
+- 이 케이스는 실제로는 두 가지 값이 섞여 나온 것이다:
+  a) `choose_compare_strategy` 상단 `chunk_capable = (pk_kind==PK_SINGLE_NUMERIC and pk_indexed)` 게이트가
+     False면(MV_SCATTER50M PK가 단일 숫자+인덱스 조건을 만족 못함 — 예: 복합/문자/비인덱스 PK)
+     `NOT_CHUNK_CAPABLE_PK` 사유로 **무조건 DIRECT_STREAM_COMPARE, confidence="LOW" 를 반환**하며,
+  b) est_total(7900초)은 이 반환문에 "그냥 같이 실려서" 나가는 값이다 — 전략 선택(DIRECT 확정)에는
+     전혀 영향을 주지 않는 참고용 부산물. 게이트가 전략을 이미 고정했으므로 est_total의 정확도와
+     실제 선택된 전략(DIRECT_STREAM_COMPARE, 즉 실측이 빠른 바로 그 전략) 사이에 인과관계가 없다.
+
+3) 실제 용도
+- (a) 화면 표시 전용 칩(정보성) — ui/js_sql_preview.py `mvStatsStrategyInfoHtml`/
+  `mvCompareStrategyInfoHtml` 이 "예상 소요"/"예상 총소요" 칩으로 노출. 실행을 막거나 경고 배너를
+  띄우는 게이트 로직에 연결돼 있지 않음(routes 쪽에서 expected_total_seconds 로 실행을 차단/확인창을
+  띄우는 코드 없음 — grep 결과 표시부 외 소비처 없음).
+- (b) 전략 자동선택 근거 — 단, `chunk_capable=True`(단일 숫자 PK + 인덱스)인 경우에 한해
+  est_total > resume_threshold_seconds(300초) 이면 PK_RANGE_CHUNK_COMPARE 로 전환하는 판정에 쓰인다
+  (services/strategy/strategy_transition.py:94-98). 오늘 관찰된 케이스는 (a) 경로로, 전략선택에는
+  영향을 주지 않았다(위 2번 참고). 즉 지금 당장 오작동(잘못된 전략 자동선택)으로 이어지진 않았지만,
+  chunk_capable=True 인 다른 케이스에서는 같은 벤치 외삽으로 인해 DIRECT가 실제로 더 빠른데도
+  CHUNK로 잘못 전환될 위험은 남아있다(코드상 가능성, 오늘 관찰된 사례는 아님).
+
+4) "신뢰도 LOW" 발동 기준 — 오차 크기 기반 아님, 3단계(HIGH/MEDIUM/LOW) 고정 분류
+- HIGH: 벤치 지점의 source_count 가 요청값과 정확히 일치할 때만(외삽 없음)
+- LOW: ① chunk_capable=False(PK가 단일숫자+인덱스 아님) → 무조건 LOW (오늘 케이스로 추정)
+       ② 벤치 불일치(외삽) + est_total > resume_threshold(300초) → LOW
+- MEDIUM: 벤치 불일치(외삽)이지만 est_total ≤ 300초일 때
+- 즉 "LOW"는 외삽 거리(1M→50M, 50배)나 예상 오차율을 정량적으로 반영하지 않는 이진/삼진 라벨이다.
+  50배 외삽이나 1.1배 외삽이나 동일하게 "LOW"로 표시되어, "7900초(400배 과다)"처럼 극단적으로
+  틀린 값도 "1000초(2배 정도 틀림)" 수준과 화면상 구분되지 않는다.
+
+결론(조사만, 코드 무수정):
+- 계산 자체는 버그가 아니라 "유일한 벤치 지점(1M, cold cross-host 158초)을 50배 밖으로 그대로
+  선형 외삽"한 결과 — worst-case 가정이 아니라 환경이 다른(콜드/원격) 낡은 벤치 1건을 무비판적으로
+  스케일링한 것이 오차의 실체.
+- 이 값은 오늘 케이스에서는 표시 전용(칩)이며 실행 차단/전략선택에 영향 없음 — 실무적으로는
+  "혼란을 주는 잘못된 정보 표시" 문제이지 "잘못된 자동 결정" 문제는 아니다. 단, chunk_capable=True
+  케이스에서는 잘못된 CHUNK 전환을 유발할 수 있는 구조적 위험은 남아있음.
+- 코드 수정 없음(요청대로 조사만 수행).
+
+작업명 : STAGE4-EXPECTED-TOTAL-SEC-7900-OVERESTIMATE-DIAGNOSE
+✅ 작업 완료 - "예상 총소요 7900초"(신뢰도 LOW) 계산위치·오차원인·용도·LOW발동조건 조사(코드 무수정)
