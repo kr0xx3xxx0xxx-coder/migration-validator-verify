@@ -931,7 +931,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\P13-ORACLE-CONDITIONAL-PARALLEL-CDRIVE-CHERRYPICK-VERIFY.txt(작업명은
   P13이나 실제로는 이 P11 항목 갱신 대상 — BACKLOG 항목 매칭 오류로 명명됨, 정정 기록)
 
-### P13. 통계검증 src/tgt 병렬(`parallel_sides`)은 효과가 불안정하다 — P11(세트 병렬, 별개 메커니즘)과 혼동 주의, 재측정 여전히 불가(심각도 LOW)
+### P13. 통계검증 src/tgt 병렬(`parallel_sides`)은 효과가 불안정하다 — P11(세트 병렬, 별개 메커니즘)과 혼동 주의, 재측정 경로 확정(오라클 조합 시도는 구조적으로 불가함을 확인)
 - 발견일: 2026-08-01
 - 근거 보고서: `LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt` (§4-c2)
 - **중요**: 이 항목은 위 P11("세트 병렬", `_stats_set_parallelism`)과 **다른 기능**이다 —
@@ -947,6 +947,25 @@ git -C E:/verify_reports worktree remove <임시경로>
   가정한 재측정 대상 규모(5,000만행)는 PostgreSQL에 데이터 자체가 없어 여전히 재현 불가하다.
   오라클 쪽으로 재현하는 방안은 이번 P11 확장 작업과 별개로 아직 검토된 적 없음.
 - 관련: P11(별개 메커니즘, 완전 해결) · P12(같은 '측면 병렬' 개념)
+- **시도·경로 확정(2026-08-11, CLOUD-PG-PHYSICALLY-SEPARATED-ENV-CONNECTION-TEST,
+  코드 무변경)**: 물리분리 재현을 위해 오라클(로컬)→클라우드PostgreSQL(Neon)
+  조합으로 실제 연결·검증을 시도. **연결·COUNT 레벨 비교는 완전 정상 동작**(3/3
+  실측 카운트 완전일치). 그러나 **"통계검증 실행"(GROUP BY/SUM, P13이 재측정하려는
+  바로 그 기능) 자체가 원본↔목적 동일 DBMS 조합에서만 지원되도록 설계돼 있음을
+  코드 3곳에서 교차 확인**(`services/single_validation_run_facade.py:1266-1284`
+  "0) DBMS 정책" 게이트, `services/diagnosis/dbms/capabilities.py:69-74` 명시
+  제약, `ui/tabler_renderer.py` 클라이언트측 `_singleExecGuard()` 이중 방어) —
+  개별·일괄 모두 오라클→PostgreSQL 조합에서는 STATUS_HOLD(신규 버그 아님, 기존
+  설계 제한). **결론: P13 재측정에 필요한 건 "동일 DBMS인데 물리적으로 분리된
+  쌍"** — 예: 내부망 PostgreSQL(원본)+클라우드 PostgreSQL(목적), 둘 다
+  PostgreSQL이지만 물리적으로 분리. 이 조합으로 재시도해야 P13을 실제로
+  재측정할 수 있음.
+- 부수 발견: 흔한 테이블명(`TB_ORDER` 등)으로 신규 오라클 테스트 테이블을 만들면
+  `samples/virtual_tables.py`의 데모용 가상 DDL과 이름충돌해 오탐 차단됨(앱 결함
+  아님, 명명 시 주의 필요). 조사 도중 서버(8000포트)가 원인불명으로 한 차례 죽어
+  있던 걸 발견해 재기동(크래시 트레이스 없음, 원인 미특정, 동시세션 환경이라
+  다른 프로세스 관여 가능성 배제 못함).
+- 근거: E:\verify_reports\CLOUD-PG-PHYSICALLY-SEPARATED-ENV-CONNECTION-TEST.txt
 - 참고: E:\verify_reports\LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt
 - 해결일: 2026-08-01 (COUNT-PAIR-PARALLEL-EXECUTION-FIX)
 - 근거 커밋: 코드 저장소 `a342be1` — `perf(count): 원본/목적지 COUNT 병렬 실행
