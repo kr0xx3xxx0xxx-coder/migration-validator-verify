@@ -4450,9 +4450,25 @@ git -C E:/verify_reports worktree remove <임시경로>
   경유, 우회 재구현 아님). 캐시 재생성 계약(5회 analyze당 인덱스 빌드 1회) 유지 확인.
   kill-switch `MV_SEMANTIC_DICT_STORE=file`.
 - 잔존(이번 범위 밖): `db/schema.sql` 미반영, seed의 정책 메타(aliases/sum_policy 등) 미보존
-  (매칭용 투영만 저장 — JSON 원본이 여전히 정본), PENDING 37건 활성화 시 판정이 바뀌는데
-  가드가 없음, project_id override 쓰기 경로 없음(컬럼만 준비, 좌측메뉴 '시맨틱 사전' [준비중]
-  해제는 별건).
+  (매칭용 투영만 저장 — JSON 원본이 여전히 정본), 좌측메뉴 '시맨틱 사전' [준비중] 해제는 별건.
+- **✅ 잔존 이슈 2건 완전 해결(2026-08-11, M39-PENDING-GUARD-AND-PROJECT-OVERRIDE-PATH,
+  코드 커밋 77b94da9)**: 재조사 결과 **PENDING 활성화 가드는 실제로 이미 2760ac4b
+  시점부터 존재**했음이 확인됨(BACKLOG 서술 stale) — 다만 검증하는 테스트가 없어
+  "정말 작동하는지" 증명이 안 된 상태였는데, 회귀테스트로 확실히 고정(ACTIVE 169/
+  PENDING 37 실측, PENDING이 매칭에서 실제로 제외됨을 재현). **진짜 없던
+  `project_id` override 쓰기경로는 신규 구현** — 읽기 경로(`load_default_semantic_
+  dictionary` 등 5개 함수)에 project_id 배선(무인자 호출은 기존과 100% 동일 전역
+  캐시 슬롯 사용, 회귀 없음), 쓰기 경로 신설(`save_project_override_entry`,
+  `admin_column_override_store.py` 패턴 재사용). **실제 채점 함수로 동작 증명**:
+  로컬(신뢰도 0.7) vs 프로젝트override(신뢰도 0.5, 더 낮음)를 `score_candidates()`
+  실경로로 비교 → override가 source우선순위로 실제 대표선정에서 승리함을 확인(단순
+  저장 확인이 아니라 진짜 동작 증명). 화면 위젯은 범위 밖으로 남김(API만 구현,
+  사용자 승인 시 별도 착수). 신규 13건 전부 통과, 관련 서브셋 298 passed(사전존재
+  무관 실패 1건 stash 재현으로 확인). 실운영 DB는 실행 전/후 완전 불변(해시대조
+  가드로 자동검증). **정직한 고백**: 자기 2줄(`web_server.py` 라우터등록)이 동시
+  진행 중이던 다른 세션(BATCH-FAILURE-SUMMARY, 25948cf1)의 커밋에 휩쓸려 들어감 —
+  재분리가 더 위험하다 판단해 그대로 둠(내용은 본인 작성 그대로, 동작 영향 없음).
+- 참고: E:\verify_reports\M39-PENDING-GUARD-AND-PROJECT-OVERRIDE-PATH.txt
 - 근거 보고서: E:\verify_reports\SEMANTIC-DICT-LOCAL-ENTRY-JSON-TO-SQLITE-MIGRATION.txt
 
 ### M40. ✅ 해결 완료 — `db/schema.sql`이 M37~M39 이관 작업이 런타임에 멱등 생성한 실제 테이블/컬럼을 반영하지 못하고 있었다
