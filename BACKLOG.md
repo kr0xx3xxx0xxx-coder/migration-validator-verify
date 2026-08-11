@@ -966,6 +966,15 @@ git -C E:/verify_reports worktree remove <임시경로>
   있던 걸 발견해 재기동(크래시 트레이스 없음, 원인 미특정, 동시세션 환경이라
   다른 프로세스 관여 가능성 배제 못함).
 - 근거: E:\verify_reports\CLOUD-PG-PHYSICALLY-SEPARATED-ENV-CONNECTION-TEST.txt
+- **⚠️ 혼동 방지 기록(2026-08-11, 채팅 조사, 코드 무변경)**: 4단계(통계검증 SQL
+  실행) 웹 버튼 흐름은 **이 P13(parallel_sides)과 무관한 완전히 다른 경로**임을
+  확인 — 4단계는 `stats_execute_service.py:416`의 `parallel_sides` 기본값
+  False가 UI 어디서도 안 바뀌어(0건 배선) 처음부터 순차 고정 설계(결함 아님).
+  병렬 코드(ThreadPoolExecutor) 자체는 존재하나 딱 두 특수경로에만 살아있음
+  (①진단 재검증 전용, 주석에 "기본 실행경로는 순차 유지" 명시 ②`single_
+  validation_run_facade.py`, 자체 docstring에 "route/UI 배선 미연결" 명시).
+  **P13이 가리키는 병렬 기능은 2단계 COUNT 비교 전용 별도 구현**이라, 4단계
+  실행시간이 순차처럼 보이는 건 이 P13 항목과 무관한 정상 동작.
 - 참고: E:\verify_reports\LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt
 - 해결일: 2026-08-01 (COUNT-PAIR-PARALLEL-EXECUTION-FIX)
 - 근거 커밋: 코드 저장소 `a342be1` — `perf(count): 원본/목적지 COUNT 병렬 실행
