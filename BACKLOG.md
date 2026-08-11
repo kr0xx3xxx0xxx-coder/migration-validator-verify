@@ -5050,6 +5050,15 @@ git -C E:/verify_reports worktree remove <임시경로>
 | routes/ 방언 오라클 라이브 실측 3항목 | DB 서버 TCP 미도달 | `ROUTES-DIAGNOSIS-LIMIT-DIALECT-SECONDARY-CHECK.txt` |
 | rename 재래핑 별칭 오라클 실 DB 확인 | 내부망 단절 | `AGG-DIFF-ROUTE-UNDERSCORE-M-ALIAS-FIX.txt` |
 | agg_contribution 4방언 분기 실 DB 실행 검증 | 내부망 단절 | `AGG-CONTRIBUTION-SCOPE-DIALECT-AND-ALIAS-FIX.txt` |
+| HASH_BUCKET 전략 PG 실행계획·실측시간 미측정(**2026-08-12 M74-A2로 해소** — 실물 42M행 직접실행은 여전히 스키마조건 확인만, 실행계획·정확성은 실측완료) | PG 접속불가(Neon 쿼터 소진+내부망 타임아웃) | `HASH-BUCKET-STRATEGY-SORT-AVOIDANCE-VIABILITY-DIAGNOSE.txt` |
+| 문자 PK 경계값(축A·B) 재확인 — PG 재실측(**2026-08-12 M74-A3로 해소**, 단 축B end-to-end는 신규발견 결함으로 도달 전 차단) | 재확인 범위가 오라클 한정 | `CHARACTER-PK-BOUNDARY-FIX-LIVE-RECONFIRM.txt` |
+| alias-derive row SQL 래핑 수정 — PG 실DB 확인(**2026-08-12 M74-A3로 해소**) | PG 프리셋 8건 전부 접속 실패 | `ALIAS-DERIVE-ROW-SQLS-WRAPPING-FIX.txt` |
+| PK_RANGE_CHUNK pushdown/불균형 수정(P1~P5) — PG 방언 실측(**2026-08-12 M74-A3로 해소**) | PG 방언 정적 판정만, 실DB 미실측 | `PK-RANGE-CHUNK-PUSHDOWN-AND-IMBALANCE-P1-P5-FIX.txt` |
+
+*각주(표에서 제외, 이미 해소): `CHARACTER-PK-SILENT-FALSE-MATCH-1M-REPRODUCE.txt` §8의 "PG 미실측" 추정은
+2026-08-12 M74-C1TOC3(스크립트 `pg_text_numeric_pk_cast_repro.py`)로 재현 완료 — 문자PK에 숫자 비교 시
+암묵캐스트 없이 4/4 전부 쿼리오류로 확정(조용한 오탐 0건).*
+
 
 ### NXDTV-RENAME. ✅ 1~2단계 완료 — 화면표시명+폴더명(X:\Projects\nxDTV)+메모리이관 전부 완료, 3~4단계(DB파일명/mv접두사)는 보류
 - 발견/계기: 2026-08-09 (사용자 — "정식 명칭은 nxDTV(Data Transfer Verification)")
@@ -5626,7 +5635,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 근거: 채팅 조사 결과(별도 파일 미작성)
 - 근거: E:\verify_reports\STAGE-NAV-LOCK-REPLACE-WITH-STALE-RESPONSE-DISCARD.txt
 
-### M74. Oracle 중심 검증편향 전면 감사 완료 — 심각 3(A1~A3)·경미 7(B1~B7)·확인불가 3(C1~C3) 발견, 근본원인은 코드편향 아닌 PG 인프라 불안정성
+### M74. ✅ 전체 종결 — Oracle 중심 검증편향 전면 감사, 심각3·경미7·확인불가3 전항목(A1~A3/B1~B7/C1~C3) 실측 해소 완료(2026-08-12), 부수적으로 신규 완결성 갭 1건 발견
 - 발견/계기: 2026-08-11 (사용자 — "지금까지 오라클 기준으로만 했는데, PostgreSQL→
   PostgreSQL로 가면 오라클에서 처리한 게 PostgreSQL 기준으로 안 된 게 있지 않냐" /
   ORACLE-CENTRIC-VERIFICATION-GAP-AUDIT, 코드 무변경, verify 저장소 완료보고서 406건
@@ -5678,6 +5687,33 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 한계(정직 고지): 406건 전수를 원문까지 다 읽지 않음(정규식 1차스캔 80건 후보로
   추림), 함수 시그니처 단위 1:1 전수대조는 안 함(구조적 지표로만 확인).
 - 근거: E:\verify_reports\ORACLE-CENTRIC-VERIFICATION-GAP-AUDIT.txt
+- **✅ 전항목 실측 해소 완료(2026-08-12, 3개 지침 병행 실행)**:
+  - **[A1] 완료**(M74-A1-DIALECT-DEFAULT-STATIC-SCAN-PYTEST-PROMOTE) — 정적스캔
+    pytest 승격, 감지력 실증(임시 위반 삽입→실패→제거). 잔여 3곳(agg_diff_
+    route.py)도 그 사이 별도 작업으로 이미 해소 확인, 현재 14곳 전부 위임 O.
+  - **[A2] 완료**(M74-A2-HASHBUCKET-PG-LIVE-MEASURE) — HASH_BUCKET 최초 PG
+    실측(EXPLAIN, 10만~500만행 3규모). 오탐·누락 0건, 기존 방식 대비 쿼리
+    95% 감소·500만행에서 시간 57% 단축. 부수발견: router.py(개별검증 경로)의
+    "미구현" 주석은 stale — multi_scope.py(일괄검증 경로)엔 이미 구현·배선됨.
+  - **[A3+B1~B7] 완료**(M74-A3-PG-SCRIPT-EXPAND-AND-B1TOB7-BATCH-REVERIFY) —
+    PG 라이브 스크립트 17건 신규(오라클:PG 비율 50:4→50:21), B1~B7 **7/7 전항목
+    실측 확인**. B2는 오라클과 결론이 다름(PG 옵티마이저가 서브쿼리 평탄화해
+    pushdown 손실 없음 — PG가 더 튼튼). **부수발견(신규 완결성 갭, 미수정)**:
+    "숫자로 노출된 문자 PK"의 청크조회 WHERE절(`make_pg_fetch_chunk`)에 타입
+    캐스트가 빠져있어 `character varying >= integer` 쿼리오류 발생 — 조용한
+    오탐은 아니나(C1과 일치) end-to-end 완결성 갭 존재, 후속 지시 시 캐스트
+    보강 필요.
+  - **[C1] 완료**(M74-C1TOC3) — "PG는 조용히 안 틀리고 쿼리오류로 드러난다"는
+    가설을 4/4 케이스로 실증(운영코드 경로 포함). 위 A3 부수발견과 정확히 일치.
+  - **[C2] 완료**(M74-C1TOC3) — 부록 표 갱신 완료(이 문서 §부록 참고).
+  - **[C3] 완료**(M74-C1TOC3) — 오라클 M69(1.1초 좀비정리) 재현 스크립트 신설.
+    **환경제약 신규발견**: 유일한 오라클 계정(Oracle_asis)이 SELECT_CATALOG_
+    ROLE 없어 V$ 뷰 전체 접근불가(ORA-00942) — 대체지표(행잠금 해제시점)로
+    전환해 재현 성공(0.01~0.03초, 기존 1.1초와 같은 자릿수, 오히려 빠름).
+    재현 스크립트 작성 중 레이스컨디션 1건 자체 발견·수정.
+  - 근거: E:\verify_reports\M74-A2-HASHBUCKET-PG-LIVE-MEASURE.txt,
+    E:\verify_reports\M74-A3-PG-SCRIPT-EXPAND-AND-B1TOB7-BATCH-REVERIFY.txt,
+    E:\verify_reports\M74-C1TOC3-BACKLOG-UPDATE-AND-ORACLE-M69-REPRO-SCRIPT.txt
 - **[2026-08-12 추가] A3+B1~B7 전항목 PG 라이브 재실측 완료(7/7 확인됨)** —
   PostgreSQL_Inter_asis(내부망)·PostgreSQL_tobe(Neon) 접속 안정화 확인 후,
   scripts/dev_e2e/ PG 전용 스크립트 17종 신규(코드 저장소 커밋 6fc89f60·965ab6a2)로
@@ -5768,3 +5804,22 @@ git -C E:/verify_reports worktree remove <임시경로>
   고정 3단계(HIGH/MEDIUM/LOW) 라벨 — 50배 외삽(400배 과다)이나 1.1배 외삽
   이나 화면상 동일하게 "LOW"로만 표시돼 구분 안 됨.
 - 근거: E:\verify_reports\STAGE4-EXPECTED-TOTAL-SEC-7900-OVERESTIMATE-DIAGNOSE.txt
+
+### M78. PG make_pg_fetch_chunk — "숫자로 노출된 문자 PK" 청크조회 시 타입캐스트 누락으로 쿼리오류(완결성 갭, 조용한 오탐 아님)
+- 발견/계기: 2026-08-12 (M74-A3-PG-SCRIPT-EXPAND-AND-B1TOB7-BATCH-REVERIFY 부수
+  발견, 독립된 2개 스크립트가 동일 오류 재현 + M74-C1TOC3이 4/4 케이스로 재확인)
+- **증상**: 문자(varchar) PK 컬럼의 경계값을 `_pg_numeric_min_max`로 정상
+  재산정(축A, 정확함)한 뒤, 그 값을 실제 청크 조회 WHERE절이 소비하는 지점
+  (`make_pg_fetch_chunk`, `postgresql.py:479` 부근)에서 bind 파라미터로 그대로
+  넘기면 `operator does not exist: character varying >= integer`로 즉시 쿼리
+  오류 발생 — 암묵 캐스트 없음. 리터럴이든 바인드파라미터든 운영코드 경로든
+  원시SQL이든 전부 동일 재현(파서 단계부터 캐스트 없음).
+- **판정**: 조용한 오탐(silent wrong)은 아님(C1 가설과 일치, 오라클보다 안전한
+  실패모드) — 그러나 "숫자로 노출된 문자 PK" 케이스가 end-to-end로는 PG에서
+  아직 실행되지 않는 완결성 갭.
+- 재현 스크립트: scripts/dev_e2e/pg_text_numeric_pk_cast_repro.py (M74-C1TOC3),
+  pk_range_chunk_boundary_ordering_pg_diagnose*.py 계열(M74-A3)
+- 후속 조치(미착수): `make_pg_fetch_chunk`의 key 컬럼 bind 시 명시적 캐스트
+  (`::text` 등) 보강 필요.
+- 근거: E:\verify_reports\M74-A3-PG-SCRIPT-EXPAND-AND-B1TOB7-BATCH-REVERIFY.txt,
+  E:\verify_reports\M74-C1TOC3-BACKLOG-UPDATE-AND-ORACLE-M69-REPRO-SCRIPT.txt
