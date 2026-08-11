@@ -1,0 +1,107 @@
+F20-SEMANTIC-DUPLICATE-OVER-CONFIDENCE-FIX
+✅ 작업 완료 - 조합 후보 의미중복(CD/NM류) 신뢰도 과대평가 보정 완료(실측 재현·오탐방지 확인)
+
+────────────────────────────────────────────────────────────
+1. 배경 (BACKLOG.md F20)
+────────────────────────────────────────────────────────────
+- F20은 "① 완전 단변량 프로파일링으로 인한 과대추정"과 "② 의미중복 조합 HIGH 과대평가"
+  2가지 위험을 안고 있었다.
+- ①은 2026-08-06 F24-F20-F4-1-F4-4 로 해소 완료(collect_pair_distinct_sample 실측 기반
+  "종속 의심" 참고 플래그, 판정 로직 자체는 불변).
+- ②(STATUS_CD+STATUS_NM류)는 그 지시 범위 밖으로 남아 이번 작업으로 착수.
+
+────────────────────────────────────────────────────────────
+2. 원인 (코드 조사 결과)
+────────────────────────────────────────────────────────────
+파일:라인  services/diagnosis/candidate/recommender.py:318-322 (수정 전)
+
+    axes = sum(1 for c in combo if c[1]["dictionary_evidence"] in
+               ("status_type_hint", "period_hint", "region_dept_hint"))
+    item["confidence"] = "HIGH" if axes >= 2 else ("MEDIUM" if axes == 1 else "LOW")
+
+- axes 를 "힌트 카테고리 매칭 컬럼 수의 단순 합"으로 계산 → STATUS_CD 와 STATUS_NM 처럼
+  같은 개념(상태)을 코드/명칭 두 컬럼으로 나눠 표현한 조합도 둘 다 status_type_hint 로
+  매칭돼 axes=2 → 추가 정보가 0인데도 "업무 축 조합" HIGH 로 과대평가됐다.
+
+3. 재사용 검토 (F20 ①번 위험 해소 방식)
+   candidate_postcount_finalize.py:_detect_pair_dependency_signals() + column_profile_
+   service.py:collect_pair_distinct_sample() 는 실제 DB 조회(SAMPLE_SRC 5만행)로 조합
+   distinct 를 실측하는 방식이라, recommender.py(순수 함수 — DB/실행/새 connection 금지,
+   모듈 docstring 원칙)에는 그대로 재사용 불가로 판단. 대신 지시서가 제시한 대안(컬럼명
+   접미사 패턴)을 이름 기반 정적 판정으로 최소 침습 구현.
+
+────────────────────────────────────────────────────────────
+3. 구현
+────────────────────────────────────────────────────────────
+파일: services/diagnosis/candidate/recommender.py
+
+- _CODE_SUFFIXES / _NAME_SUFFIXES 상수 추가(:36-42) — _cd/_code/_코드 ↔ _nm/_name/_명칭/_명
+- _semantic_dup_stem() (:302-312) — 컬럼명에서 코드/명칭 접미사를 제거한 stem+종류 반환
+- _is_semantic_duplicate_pair() (:315-321) — 두 컬럼이 동일 stem 의 코드/명칭 짝인지 판정
+- _effective_axes() (:324-353) — 조합 내 axes 재계산:
+    · 이름 접미사로 판정되는 코드/명칭 쌍만 1축으로 묶음 (STATUS_CD+STATUS_NM → 1축)
+    · 그 외(카테고리만 같고 접미사 쌍 아님, 예: ORDER_STATUS+PAYMENT_STATUS)는 종전과
+      동일하게 컬럼별 개별 축으로 계산(오탐 방지 — 카테고리 단순 일치만으로 묶지 않음)
+- _combinations() (:379-388) 수정 — axes 계산을 _effective_axes() 로 교체, 의미중복
+  검출 시 semantic_duplicate_pairs 필드로 근거 보존(explainability) + combination_reason
+  에 "의미중복 컬럼 포함 — 신뢰도 보정" 명시
+- groupby_plan_service.py 등 실제 est/그룹수 산정·조합 생성 로직은 무변경(①번 위험 해소
+  방식과 동일 원칙 — 표시/신뢰도 계층만 보정)
+
+────────────────────────────────────────────────────────────
+4. 검증 — 재현(수정 전 과대 HIGH → 수정 후 적절한 신뢰도)
+────────────────────────────────────────────────────────────
+스크립트: scratchpad/_f20_semantic_dup_repro.py (재현용, 저장소 미포함)
+
+  케이스                                    수정후 confidence   combination_reason
+  ----------------------------------------  ------------------  --------------------------------------------
+  STATUS_CD + STATUS_NM (의미중복)          MEDIUM (기존 HIGH)  의미중복 컬럼 포함(코드/명칭 쌍) — 신뢰도 보정
+  STATUS_CD+STATUS_NM+REGION (중복+실축)    HIGH (유지)         의미중복 컬럼 포함(코드/명칭 쌍) — 신뢰도 보정
+                                                                 + 업무 축 조합
+  ORDER_STATUS + PAYMENT_STATUS (정상조합)  HIGH (유지, 오탐無) 업무 축 조합(기간/상태/지역/부서)
+
+- 케이스1: STATUS_CD+STATUS_NM 조합 confidence 가 HIGH → MEDIUM 으로 조정, semantic_
+  duplicate_pairs=[["STATUS_CD","STATUS_NM"]] 근거 부착 확인.
+- 케이스2(오탐방지): 이름만 비슷할 뿐 실제로는 서로 다른 개념인 ORDER_STATUS/PAYMENT_
+  STATUS(둘 다 status_type_hint 매칭이지만 코드/명칭 접미사 쌍 아님) 조합은 종전과 동일
+  하게 HIGH 유지 확인 — 과도한 강등(오탐) 없음.
+- 케이스3: 의미중복 쌍(STATUS_CD/STATUS_NM, 1축) + 별개의 실제 업무 축(REGION)이 섞인
+  조합은 실질 축 2개(상태+지역)이므로 HIGH 유지가 타당함을 확인(무조건 강등이 아니라
+  정확한 축 재계산임을 실증).
+
+────────────────────────────────────────────────────────────
+5. 회귀 테스트
+────────────────────────────────────────────────────────────
+- 신규 회귀 테스트 3건 추가(tests/test_candidate_recommender.py):
+    test_semantic_duplicate_combination_confidence_corrected
+    test_semantic_duplicate_false_positive_guard
+    test_semantic_duplicate_mixed_with_real_axis_stays_high
+- tests/test_candidate_recommender.py: 18/18 통과(기존 15 + 신규 3, 전부 통과)
+- tests/test_engine_cardinality_parity.py + tests/test_browser_test_scenarios.py
+  (recommender 직접 참조 파일): 19건 중 18 통과 / 1 실패
+    · 실패: test_engine_stats_change_groupby_candidacy — services.candidate_engine
+      (recommender.py 무관, import 관계 없음 grep 확인) 의 "고카디널리티 컬럼이 pool 에서
+      완전 배제되는지" 케이스. git status 로 candidate_engine.py/candidate_recommendation_
+      policy.py/해당 테스트 파일 자체가 이번 세션 무변경(pristine) 임을 확인 → 본 수정과
+      무관한 사전 존재 실패로 판정(신규 회귀 아님).
+- CLAUDE.md 필수 회귀:
+    python samples/test_virtual_cases.py   → 8/8 통과
+    python samples/test_complex_cases.py   → 5/5 케이스 분석 완료(FAIL 신뢰도 케이스 포함
+                                              전부 기대대로)
+
+────────────────────────────────────────────────────────────
+6. 커밋
+────────────────────────────────────────────────────────────
+코드 저장소(migration-validator, main): 286f0920
+  fix(diagnosis): 조합 후보 의미중복(CD/NM) 신뢰도 과대평가 보정
+  (F20-SEMANTIC-DUPLICATE-OVER-CONFIDENCE-FIX)
+  변경 파일: services/diagnosis/candidate/recommender.py,
+            tests/test_candidate_recommender.py (2 files, +109/-4)
+
+────────────────────────────────────────────────────────────
+7. 참고
+────────────────────────────────────────────────────────────
+- BACKLOG.md §F20 "잔존(2번 위험)" 항목의 실제 해소 표기(✅)는 verify 저장소 관리자 판단
+  범위로 보아 이번 작업에서는 임의 수정하지 않음(코드/테스트/보고만 완료).
+
+✅ 작업 완료 - 조합 후보 의미중복(CD/NM류) 신뢰도 과대평가 보정 완료(실측 재현·오탐방지 확인)
