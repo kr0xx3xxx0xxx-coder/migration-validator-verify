@@ -1,0 +1,162 @@
+```text
+F6-COMBO-EXEC-PLAN-DISPLAY-AND-RESTORE-EVIDENCE-FIX
+✅ 작업 완료 - 결함 C(재조회 시 조합 세트 실행 증적 소실) 수정 + 이를 무력화하던 별건 결함(gb_keys 미누적 3곳) 발견·수정, 실 브라우저 클릭 검증 13/13 통과
+
+════════════════════════════════════════════════════════════════════════
+0. 지침 범위 재확인
+════════════════════════════════════════════════════════════════════════
+BACKLOG.md F6 3순위(결함 B·C) 대상, 2순위(PLAN_TARGET_MAX_GROUPS 상향)는 범위 제외.
+
+결함 B(5단계 '실행계획' 표기가 SINGLE 세트만 셈)는 착수 전 코드 확인 결과 이미 해소된
+상태였다 — 별건 작업 GROUPBY-COMBO-PLAN-CAP-RESEARCH-AND-RAISE(2026-08-09, 코드 커밋
+dfb54a2e)가 ui/grid_helpers.py:1899 및 ui/execute_result_renderer.py:230~236 두 곳 모두
+SINGLE/PAIR 세트 종류별로 정확히 세도록 이미 수정해 두었다. 재작업 없음(무변경 확인만).
+
+이번 작업은 결함 C(재조회/복원 경로에 _execEvidence가 구성되지 않아, 축별 분해로만
+검증한 과거 결과를 나중에 다시 열면 '조합 미검증' 경고 없이 '일치·정상'으로만 보이는
+문제)에 집중했다.
+
+════════════════════════════════════════════════════════════════════════
+1. 결함 C 근본 원인
+════════════════════════════════════════════════════════════════════════
+현황판(job dashboard) '결과 보기'(mvOpenSingleResultView → GET /single/result-view)로
+과거 결과를 재조회하는 경로에서:
+
+  services/single_validation_result_store.py::build_single_snapshot()
+    → 저장 시 result.get("gb_keys")/result.get("val_cols")만 저장하고,
+      result["_execEvidence"]["plan"]["sets"](SINGLE/PAIR 세트 종류·컬럼)는 전혀
+      저장하지 않았다.
+
+  ui/js_result_view_standalone.py::_jdrvExecResult()
+    → 복원 시 _execEvidence = { gbSel: snap.gb_keys, sumSel: snap.val_cols }만 재구성.
+      plan 필드가 없으므로 ui/grid_helpers.py::_mvComboUnverifiedAxes()가
+      "분해 계획 증적 없음 — 단정하지 않는다"로 처리해 항상 경고를 표시하지 않았다
+      (조합 검증을 했든 안 했든 재조회 후에는 구분이 사라짐).
+
+════════════════════════════════════════════════════════════════════════
+2. 결함 C 수정 내역(파일:라인)
+════════════════════════════════════════════════════════════════════════
+services/single_validation_result_store.py
+  - (신설, ~L594) _plan_sets_for_snapshot(result): _execEvidence.plan.sets 중
+    kind/cols만 whitelist 추출(excluded/policy/fingerprint 등은 소비처가 없어 저장 안 함).
+    형식 오류·누락은 전부 빈 리스트로 안전 폴백.
+  - (~L376) build_single_snapshot()에 snapshot["plan_sets"] = _plan_sets_for_snapshot(result) 추가.
+
+ui/js_result_view_standalone.py
+  - (~L35~46) _jdrvExecResult(snap): snap.plan_sets가 있으면
+    _execEvidence.plan = { sets: snap.plan_sets }로 복원, 없으면(과거 저장분) plan: null
+    (기존 안전 기본값 그대로 — 과거 데이터 소급 조작 없음).
+
+════════════════════════════════════════════════════════════════════════
+3. 실 브라우저 검증 중 발견한 별건 결함(수정 범위에 포함) — gb_keys 미누적
+════════════════════════════════════════════════════════════════════════
+결함 C 수정 직후 실 클릭 검증(시나리오 B: 축별 분해만 실행 → 저장 → 재조회)에서 배너가
+여전히 뜨지 않는 현상이 관찰됐다. 원인 추적 결과, 다중 GROUP BY(2축 이상) 세트 결과를
+합산하는 3곳이 전부 agg.val_cols는 세트별 결과에서 합산하면서 agg.gb_keys는 합산하는
+줄이 아예 없어 항상 [] 로 남는 동일 패턴의 결함이었다(세 곳 모두 주석/문서에서 "클라
+_runExecutePlanSets와 필드 단위로 동일"을 명시적으로 표방하면서 이 누락을 그대로
+복제한 상태였다). build_single_snapshot이 저장하는 gb_keys 필드가 바로 이 값이므로,
+결함 C를 아무리 정확히 고쳐도 저장 시점부터 gb_keys=[]가 되어
+_mvComboUnverifiedAxes가 'gbSel.length < 2'로 먼저 걸러 배너가 영영 뜨지 않았다
+(결함 C 수정이 무력화되는 구조 — 이대로 두면 지침의 실측 요구사항을 통과할 수 없었다).
+
+수정(3곳 모두 val_cols와 동일한 합집합 누적 패턴):
+  ui/tabler_renderer.py (~L27551, _runExecutePlanSets 내부)
+    (r0.gb_keys || []).forEach(function(c){ if (agg.gb_keys.indexOf(c) < 0) agg.gb_keys.push(c); });
+    ※ 같은 파일에 동시에 다른 세션의 별건 작업(STAGE-NAV-LOCK-REPLACE-WITH-STALE-RESPONSE-DISCARD,
+      약 90줄 무관 변경)이 진행 중이었다. git apply --cached로 이 6줄 hunk만 정확히 분리
+      staging하여 커밋 — 다른 세션의 미완료 변경은 working tree에 그대로(uncommitted) 남겨두었다.
+  services/multiset_execute_service.py::_aggregate() (~L205~211)
+  services/single_validation_run_facade.py::_run_multi_gb_sets() (~L671~677)
+
+════════════════════════════════════════════════════════════════════════
+4. 테스트 결과
+════════════════════════════════════════════════════════════════════════
+신규: tests/test_f6_combo_exec_plan_display_and_restore_evidence.py — 19건 전부 통과
+  ┌───────────────────────────────────────────────────┬────────┐
+  │ 구분                                                │ 결과   │
+  ├───────────────────────────────────────────────────┼────────┤
+  │ _plan_sets_for_snapshot whitelist·방어(9건)         │ PASS   │
+  │ build_single_snapshot plan_sets 반영(3건)           │ PASS   │
+  │ save/get_single_result SQLite 왕복 보존(1건)        │ PASS   │
+  │ node 하니스 — 복원 후 배너 판정 4건(콤보/축별/과거   │ PASS   │
+  │   저장분/단일축 무경고)                             │        │
+  │ multiset_execute_service._aggregate gb_keys 누적(2) │ PASS   │
+  │ single_validation_run_facade 실제 요청/응답 경유(1) │ PASS   │
+  └───────────────────────────────────────────────────┴────────┘
+
+관련 회귀 서브셋(16개 파일, 188건): 185 PASS / 3 FAIL — 3건 전부 stash 대조로 본 수정과
+무관한 기존(이번 세션 시작 전부터의) 실패임을 확인:
+  - test_groupby_safety_facade.py::test_19_default_date_groupby_safe_one_click
+  - test_group_save_unify_cleanup.py::test_single_save_calls_register_core_once
+  - test_group_save_unify_cleanup.py::test_save_route_returns_409_on_replace_confirmation
+
+CLAUDE.md 필수 회귀: samples/test_virtual_cases.py 8/8 통과, samples/test_complex_cases.py 5/5 통과.
+
+════════════════════════════════════════════════════════════════════════
+5. 실 브라우저 클릭 검증(필수) — 13/13 통과
+════════════════════════════════════════════════════════════════════════
+대상: 실 오라클(Oracle_asis→Oracle_tobe, 실서비스 포트8000), 픽스처 NXDNP.MV_COMBO_SRC/TGT
+(1,200행), GROUP BY 축 STATUS_CD+DEPT_CD(2×2 라틴 상쇄 — 단일축은 완전 일치, 조합 4그룹만
+불일치). 신규 스크립트: scripts/dev_e2e/f6_combo_exec_plan_restore_evidence_live_verify.py.
+
+시나리오 A(조합 검증됨): 4단계에서 '조합도 함께 검증' 체크 → 실행(SINGLE 2세트+PAIR
+1세트, PAIR에서 불일치 4그룹 검출) → '그룹 등록' 클릭으로 /single/save 공식 저장
+(run_id 85d71b15-6220-4a2f-b271-5892b0ac456c) → 새 페이지에서 현황판 열어 완료 목록의
+해당 run_id 행 실제 클릭 → 재조회 패널에 '조합 미검증' 배너 없음(정상 판정) 확인.
+
+시나리오 B(축별 분해만): 체크박스 미선택 → SINGLE 2세트만 실행(조합 불일치 미검출) →
+동일하게 저장(run_id 1c306444-e626-4178-8626-988176076195) → 새 페이지에서 현황판
+재조회 → '조합 미검증' 배너가 STATUS_CD·DEPT_CD 두 축을 정확히 언급하며 표시됨을 확인
+(결함 C가 실제로 고쳐졌다는 직접 증거).
+
+  ┌────┬──────────────────────────────────────────────────┬────────┐
+  │ ID │ 검증 항목                                          │ 결과   │
+  ├────┼──────────────────────────────────────────────────┼────────┤
+  │A-1 │ 실행: PAIR 세트 실제 실행                           │ true   │
+  │A-2 │ 실행 직후(저장 전) 배너 없음                        │ true   │
+  │A-3 │ /single/save 성공 · run_id 확보                    │ true   │
+  │A-4 │ 재조회: 완료 목록에서 run_id 행 발견                │ true   │
+  │A-5 │ /single/result-view 응답 plan_sets에 PAIR 포함      │ true   │
+  │A-6 │ 재조회 패널: 배너 없음(정상 판정)                   │ true   │
+  │B-1 │ 실행: SINGLE 2세트만(PAIR 미실행)                   │ true   │
+  │B-2 │ 실행 직후(저장 전) 배너 표시                        │ true   │
+  │B-3 │ /single/save 성공 · run_id 확보                    │ true   │
+  │B-4 │ 재조회: 완료 목록에서 run_id 행 발견                │ true   │
+  │B-5 │ /single/result-view 응답 plan_sets에 PAIR 없음      │ true   │
+  │B-6 │ 재조회 패널: 배너 표시(결함 C 수정 확인)            │ true   │
+  │B-7 │ 배너 텍스트에 두 축(STATUS_CD, DEPT_CD) 모두 언급   │ true   │
+  └────┴──────────────────────────────────────────────────┴────────┘
+
+저장 스냅샷 SQLite 직접 조회로 gb_keys/plan_sets 대조(간접 배너 판정이 아닌 저장값 자체 확인):
+  A: gb_keys=[STATUS_CD, DEPT_CD]  plan_sets=[SINGLE(STATUS_CD), SINGLE(DEPT_CD), PAIR(STATUS_CD,DEPT_CD)]
+  B: gb_keys=[STATUS_CD, DEPT_CD]  plan_sets=[SINGLE(STATUS_CD), SINGLE(DEPT_CD)]
+
+증적: scripts/dev_e2e/_f6_combo_exec_plan_restore_evidence_live.json,
+verify_screenshots_only/F6-COMBO-EXEC-PLAN-DISPLAY-AND-RESTORE-EVIDENCE-FIX/ (11장 —
+step4 체크박스 상태, 실행 직후 배너, 그룹 등록 후, 재조회 패널 A/B).
+
+════════════════════════════════════════════════════════════════════════
+6. 코드 저장소 커밋
+════════════════════════════════════════════════════════════════════════
+X:\Projects\nxDTV 커밋 c1eff406 (6 files changed, 395 insertions(+), 1 deletion(-)):
+  services/multiset_execute_service.py
+  services/single_validation_result_store.py
+  services/single_validation_run_facade.py
+  ui/js_result_view_standalone.py
+  ui/tabler_renderer.py (전체 diff 24개 hunk 중 이번 작업분 1개 hunk만 git apply --cached로
+    분리 staging — 동시 진행 중이던 다른 세션의 STAGE-NAV-LOCK-REPLACE-WITH-STALE-RESPONSE-DISCARD
+    관련 23개 hunk는 working tree에 uncommitted 상태로 그대로 보존)
+  tests/test_f6_combo_exec_plan_display_and_restore_evidence.py (신규, 19건)
+
+로컬 전용 — 원격 push 없음(사용자 명시 요청 시에만).
+
+════════════════════════════════════════════════════════════════════════
+7. BACKLOG.md 갱신
+════════════════════════════════════════════════════════════════════════
+F6 항목 제목을 "1순위 완료(결함 B·C 잔존)" → "1·3순위 완료(2순위는 별도 승인 대기)"로
+갱신하고, 결함 B가 이미 해소돼 있었다는 사실과 결함 C 수정 내역 + gb_keys 별건 결함
+발견·수정 내역 + 실측 요약을 본문에 반영(verify 저장소, 본 커밋과 함께 push).
+
+✅ 작업 완료 - 결함 C(재조회 시 조합 세트 실행 증적 소실) 수정 + 이를 무력화하던 별건 결함(gb_keys 미누적 3곳) 발견·수정, 실 브라우저 클릭 검증 13/13 통과
+```

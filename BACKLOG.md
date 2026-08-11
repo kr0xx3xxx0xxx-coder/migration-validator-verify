@@ -2307,7 +2307,7 @@ git -C E:/verify_reports worktree remove <임시경로>
     전환 대상 총량은 파일럿 기준 206파일·809케이스이며, 정확한 잔여 파일 수는 Tier 2 착수 시 재확정 필요.
 - 참고: E:\verify_reports\WHITEBOX-TEST-CONTRACT-CONVERSION-PHASE1.txt
 
-### F6. ✅ 1순위(제외 사유 화면 표시) 완료 — 다중 GROUP BY 조합 검증은 이미 구현돼 있으나, 실무 규모에서 상한(100)에 걸려 자동 제외된다(결함 B·C 잔존)
+### F6. ✅ 1·3순위 완료(2순위 상한 상향은 별도 승인 대기) — 다중 GROUP BY 조합 검증 표시·재조회 정확성
 - 발견일: 2026-07-28 / 재조사: 2026-08-05 / 1순위 해결일: 2026-08-06 (F6-PLAN-EXCLUDED-DISPLAY-IMPLEMENT)
 - 근거 보고서(최초): `SINGLE-STEP5-MULTI-GROUPBY-REPRESENTATIVE-AXIS-DIAGNOSE.txt` /
   `SINGLE-STEP5-COMBO-VIEW-AND-SKEWED-GROUP-VOLUME-DIAGNOSE.txt`
@@ -2322,19 +2322,44 @@ git -C E:/verify_reports worktree remove <임시경로>
   통한 조합(PAIR) 세트 실행이 구현·라이브 검증됐다(기본 OFF). 2026-08-05 재조사에서 5천만행
   라틴방격 재현(REGION_CD×STATUS_CD, 축별 불일치 0건 vs 조합 불일치 4건·1,000만 상당 오차)으로
   조합 검증의 필요성 자체는 다시 실증됐다.
-- 잔존 문제 2가지(B·C, 3순위 — 이번 범위 아님):
-  (B) 조합 세트를 실행해도 5단계 '실행계획' 표기(grid_helpers.py:1933)가 SINGLE 세트만 세어
-      조합 세트 실행 사실이 표기에서 누락된다.
-  (C) 재조회(복원) 경로에 _execEvidence 가 구성되지 않아, 축별 분해로만 검증한 과거 결과를
-      나중에 다시 열면 '조합 미검증' 경고 없이 '일치·정상'으로만 보인다.
+- 3순위(결함 B·C) 해결일: 2026-08-11 (F6-COMBO-EXEC-PLAN-DISPLAY-AND-RESTORE-EVIDENCE-FIX,
+  코드 커밋 c1eff406, 로컬 전용 push 없음)
+  (B) 결함 자체는 이번 세션 시작 시점에 이미 해소돼 있었다 — 별건 작업
+      (GROUPBY-COMBO-PLAN-CAP-RESEARCH-AND-RAISE, 2026-08-09, 코드 커밋 dfb54a2e)이 grid_helpers.py:1899
+      및 execute_result_renderer.py:230~236 두 곳 모두 SINGLE/PAIR 세트 종류별로 정확히 세도록 이미
+      수정해 두었다(재작업 없음, 코드 읽기로 확인).
+  (C) 재조회(복원) 경로 수정: services/single_validation_result_store.py 에 `_plan_sets_for_snapshot()`
+      신설(실행 증적의 plan.sets 를 kind/cols 만 whitelist 추출) + `build_single_snapshot()` 이
+      `snapshot["plan_sets"]` 로 저장. ui/js_result_view_standalone.py::_jdrvExecResult 가
+      `snap.plan_sets` 로 `_execEvidence.plan.sets` 를 복원해, 현황판(job dashboard) '결과 보기'
+      (/single/result-view) 재조회 시 grid_helpers.py::_mvComboUnverifiedAxes 가 조합 세트 실행
+      여부를 정확히 판정하게 됐다.
+  ★ 실 브라우저 클릭 검증 중 위 수정을 무력화시키던 별건 결함을 하나 더 발견해 같이 수정했다 —
+      다중 세트 결과를 합산하는 3곳(ui/tabler_renderer.py::_runExecutePlanSets,
+      services/multiset_execute_service.py::_aggregate, services/single_validation_run_facade.py::
+      _run_multi_gb_sets)이 전부 agg.val_cols 는 세트별 응답에서 합산하면서 agg.gb_keys 는 합산하는
+      줄이 없어 항상 [] 로 남아 있었다(3곳 모두 "클라 _runExecutePlanSets 와 필드 단위로 동일"을
+      명시적으로 표방하면서 같은 누락을 그대로 복제한 상태). build_single_snapshot 이 저장하는
+      gb_keys 필드가 바로 이 값이라, plan_sets 를 아무리 정확히 저장해도 _mvComboUnverifiedAxes 가
+      'gbSel.length < 2' 로 먼저 걸러 배너가 영영 뜨지 않는 상태였다 — [1]~[4]의 수정이 저장 시점부터
+      무력화되는 구조. 세 곳 모두 val_cols 와 동일한 합집합 누적 패턴으로 수정.
+  실 브라우저 검증(실 오라클 MV_COMBO_SRC/TGT 1,200행, STATUS_CD×DEPT_CD): 시나리오 A(조합 체크 ON →
+  PAIR 세트 실행 → 그룹 등록 저장 → 현황판에서 재조회) 결과 '조합 미검증' 배너 미표시(정상) 확인,
+  시나리오 B(조합 체크 OFF → SINGLE 2세트만 실행 → 저장 → 재조회) 결과 배너가 두 축(STATUS_CD,
+  DEPT_CD)을 정확히 언급하며 표시됨을 확인 — 13개 관측 항목 전부 통과. 저장 스냅샷 SQLite 직접
+  조회로 gb_keys/plan_sets 값도 직접 대조(A: gb_keys=[STATUS_CD,DEPT_CD]·plan_sets 에 PAIR 포함,
+  B: 같은 gb_keys·plan_sets 는 SINGLE 2개뿐). 신규 단위/JS하니스 테스트 19건 전부 통과, 관련 회귀
+  188건 중 185건 통과(3건은 이번 수정과 무관한 기존 실패 — stash 대조로 확인), CLAUDE.md 필수
+  회귀(virtual 8/8·complex 5/5) 통과.
 - 상한(100) 근거 반박: 조합 세트 실제 추가비용은 그룹수와 무관(50M 실측 4.02초, 단일축과 동급
   수준)이며, 프로젝트 자체 cost 모델(scan 2.0 vs group 0.17)과도 일치한다. 결과 그룹 hard cap은
-  100,000으로 1,000배 차이 난다.
-- 권장(2순위는 승인 대기, 코드 미착수): 2순위 PLAN_TARGET_MAX_GROUPS 상향(정책값 변경, 별도
-  승인 필요) → 3순위 결함 B·C 표시 정확성. 3축 이상 조합 복원(EXPLICIT_MULTI)은 비권장(D7-17
-  설계 되돌리기, 현재 결함 어느 것도 요구 안 함).
+  100,000으로 1,000배 차이 난다. (참고: 이 상한은 이후 GROUPBY-COMBO-PLAN-CAP-RESEARCH-AND-RAISE
+  에서 100→4,000 으로 상향 완료됐다 — 위 반박 논지와 별개로 이미 반영됨.)
+- 남은 항목: 3축 이상 조합 복원(EXPLICIT_MULTI)은 비권장(D7-17 설계 되돌리기, 현재 결함 어느 것도
+  요구 안 함) — 착수 안 함.
 - 참고: E:\verify_reports\F6-MULTI-GROUPBY-COMBINATION-VALIDATION-SCOPE-DIAGNOSE.txt
 - 참고: E:\verify_reports\F6-PLAN-EXCLUDED-DISPLAY-IMPLEMENT.txt
+- 참고: F6-COMBO-EXEC-PLAN-DISPLAY-AND-RESTORE-EVIDENCE-FIX.txt(본 보고서)
 
 ### F7. ✅ 완전 해결 — 단일세트+다중세트 비동기 job화 전부 완료(다중세트 검증 중 실제 race condition 발견·수정)
 - 발견일: 2026-07-28 / 단일세트 해결일: 2026-08-09(F7-STAGE4-ASYNC-JOB-DESIGN-AND-IMPLEMENT,
