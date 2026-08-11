@@ -10,7 +10,13 @@
 - 대상 제외: 아직 push 되지 않은 로컬 전용 보고서 16건은 이번 취합에서 제외했다.
   push 후 이 파일에 합류시킨다.
 - 최초 작성: 2026-07-29 (VERIFY-REPO-BACKLOG-FILE-CREATE)
-- 최종 갱신: 2026-08-05 (BACKLOG-F16-M19-F22-RESOLVED-MARK) — 해결된 3개 항목(F16·M19·F22)을
+- 최종 갱신: 2026-08-12 (P13-SAME-DBMS-PHYSICALLY-SEPARATED-PG-RETEST) — 해결된 1개 항목(P13)을
+  `✅ 해결` 로 표시(신규 등록·삭제 없음)
+  (P13 해결 — 물리분리 동일DBMS(PostgreSQL_Inter_asis 내부망↔PostgreSQL_tobe 클라우드Neon)
+  환경에서 parallel_sides ON/OFF 를 축당 5회씩(총 20회) 재측정. 짝비교 10/10(100%) ON
+  승리, 평균 wall -5.5% 안정적 개선 확인 — 기존 같은 물리호스트 실측이 보였던 부호 역전
+  현상이 재현되지 않아 "디스크 I/O 공유가 원인" 가설이 뒷받침됨. 코드 변경 없음)
+- 직전 갱신: 2026-08-05 (BACKLOG-F16-M19-F22-RESOLVED-MARK) — 해결된 3개 항목(F16·M19·F22)을
   `✅ 해결 완료` 로 표시(신규 등록·삭제 없음)
   (F16 해결 — CTE 평탄화가 만든 치환 테이블명을 보조수집 SQL 이 그대로 참조해 JOIN 파생 컬럼에서
   통째로 ORA-00904 로 실패하던 것을 확인. "조인이면 전체 생략" 대신 AST 기반 화이트리스트로
@@ -931,7 +937,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\P13-ORACLE-CONDITIONAL-PARALLEL-CDRIVE-CHERRYPICK-VERIFY.txt(작업명은
   P13이나 실제로는 이 P11 항목 갱신 대상 — BACKLOG 항목 매칭 오류로 명명됨, 정정 기록)
 
-### P13. 통계검증 src/tgt 병렬(`parallel_sides`)은 효과가 불안정하다 — P11(세트 병렬, 별개 메커니즘)과 혼동 주의, 재측정 경로 확정(오라클 조합 시도는 구조적으로 불가함을 확인)
+### P13. ✅ 해결 — 통계검증 src/tgt 병렬(`parallel_sides`)은 물리분리 동일DBMS(PostgreSQL↔PostgreSQL) 환경에서 안정적 개선 확인(짝비교 10/10 승률, 평균 +5.5%) — P11(세트 병렬, 별개 메커니즘)과 혼동 주의
 - 발견일: 2026-08-01
 - 근거 보고서: `LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt` (§4-c2)
 - **중요**: 이 항목은 위 P11("세트 병렬", `_stats_set_parallelism`)과 **다른 기능**이다 —
@@ -976,6 +982,30 @@ git -C E:/verify_reports worktree remove <임시경로>
   **P13이 가리키는 병렬 기능은 2단계 COUNT 비교 전용 별도 구현**이라, 4단계
   실행시간이 순차처럼 보이는 건 이 P13 항목과 무관한 정상 동작.
 - 참고: E:\verify_reports\LARGE-TABLE-STATS-EXECUTION-PERFORMANCE-DIAGNOSE-AND-OPTIMIZE.txt
+- **✅ 재측정 완료·해결(2026-08-12, P13-SAME-DBMS-PHYSICALLY-SEPARATED-PG-RETEST, 코드
+  무변경)**: 위 결론대로 **동일 DBMS(PostgreSQL↔PostgreSQL)이면서 물리적으로 분리된
+  쌍** — 원본 `PostgreSQL_Inter_asis`(내부망 192.168.0.150:5433) → 목적
+  `PostgreSQL_tobe`(클라우드 Neon, ap-southeast-1) — 로 재시도했다. 신규 픽스처
+  `p13_pgsep_fixture`(양측 100,000행, region_cd 5종/status_cd 4종) 대상으로
+  `execute_stats_validation` 을 운영 코드 그대로 in-process 호출해 parallel_sides
+  False/True 를 축(region_cd/status_cd)당 5회씩(총 20회) 실측했다.
+  **결과: 짝비교(같은 축·회차 순번끼리 ON vs OFF) 10/10(100%) 전승 — 평균 wall
+  1,847.1ms→1,745.1ms(-5.5%), region_cd -5.6%/status_cd -5.4%로 두 축 모두 일관됨.**
+  기존(2026-08-01) 오라클 동일호스트 실측이 보였던 "한 회차는 개선, 다음 회차는 되레
+  느려짐"(부호 역전) 패턴이 이번에는 20회 전부 재현되지 않았다 — **원인이 물리적으로
+  분리된 환경에서는 사라짐을 실측으로 확인**, 원래 가설("같은 물리 호스트의 디스크
+  I/O 공유가 원인")이 뒷받침됨. wall 시간(≈1.7~2.1초)의 대부분은 GROUP BY/SUM
+  쿼리 실행 자체(src+tgt 합산 ≈130ms)가 아니라 **DB 연결 수립 시간**(특히 Neon
+  클라우드 측 TLS 핸드셰이크)이 차지했고, parallel_sides 의 개선분(≈100ms)은 이
+  연결 수립 구간이 겹쳐지는 데서 나온 것으로 해석된다(원본측 연결+쿼리 총 시간과
+  개선폭 규모가 일치).
+  **결론: P13 종결 가능** — 물리분리 환경에서 parallel_sides 는 작지만(-5.5%)
+  안정적으로 재현되는 개선이며, 더 이상 "효과가 불안정하다"는 결론은 유효하지 않다.
+  단, 개선폭 자체는 크지 않으므로(연결 수립 비용이 지배적) 기본값을 켜는 것까지
+  정당화하려면 별도 승인·위험 검토가 필요(이 항목은 재측정만 완료, 기본값 전환은
+  범위 밖).
+  근거: X:\Verify\_rpt_push\P13-SAME-DBMS-PHYSICALLY-SEPARATED-PG-RETEST.txt
+  (코드 저장소 신규 산출물, 비커밋: scripts/dev_e2e/p13_pg_physically_separated_retest.py)
 - 해결일: 2026-08-01 (COUNT-PAIR-PARALLEL-EXECUTION-FIX)
 - 근거 커밋: 코드 저장소 `a342be1` — `perf(count): 원본/목적지 COUNT 병렬 실행
   (COUNT-PAIR-PARALLEL-EXECUTION-FIX)`

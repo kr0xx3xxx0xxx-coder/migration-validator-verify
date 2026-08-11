@@ -1,0 +1,102 @@
+```text
+P13-SAME-DBMS-PHYSICALLY-SEPARATED-PG-RETEST
+✅ 작업 완료 - 물리분리 동일DBMS(PostgreSQL↔PostgreSQL) 환경에서 parallel_sides 20회 재측정, 짝비교 10/10 전승·평균 -5.5% 안정적 개선 확인, P13 종결 가능 판정
+
+배경
+----
+BACKLOG P13(통계검증 parallel_sides 효과 재측정)을 위해 직전 시도(CLOUD-PG-PHYSICALLY-
+SEPARATED-ENV-CONNECTION-TEST, 2026-08-11)는 오라클(로컬)↔클라우드 PostgreSQL(Neon)
+조합을 썼으나, "통계검증 실행"(GROUP BY/SUM) 단계 자체가 원본↔목적 동일 DBMS 조합에서만
+지원되는 구조적 제약이 확인돼 실패(HOLD)했다. 이번 작업은 그 결론에 따라 **동일 DBMS(둘 다
+PostgreSQL)이면서 물리적으로 분리된 쌍**으로 재시도했다.
+
+1. 측정 환경
+------------
+  구분        프리셋                   위치              호스트                                    DB버전
+  ----------  -----------------------  ----------------  ----------------------------------------  ------------
+  원본(SRC)   PostgreSQL_Inter_asis    내부망             192.168.0.150:5433 / db=asis               PostgreSQL 16.11
+  목적(TGT)   PostgreSQL_tobe          클라우드(Neon)     ep-super-river-*.ap-southeast-1.neon.tech  PostgreSQL 17.10
+
+  → 동일 DBMS(PostgreSQL/PostgreSQL), 물리적으로 완전히 분리(내부망 vs 클라우드 리전),
+    기존 프리셋 재사용(신규 생성 없음).
+
+2. 픽스처
+---------
+  신규 테이블 p13_pgsep_fixture(양측 100,000행) — TB_ 접두어 회피(지침 지시대로).
+  ntb.p13_pgsep_fixture(원본) / public.p13_pgsep_fixture(목적) 양쪽에 generate_series 로
+  동일한 결정적 산식(id, region_cd 5종, status_cd 4종, amt, qty, item_nm)을 각자 생성 —
+  100,000행을 네트워크로 복사하지 않고 동일 값을 만들어 측정 대상을 timing 에만 집중시켰다.
+  컬럼: id PK, region_cd/status_cd varchar, amt numeric(12,2), qty integer, item_nm varchar.
+
+3. 측정 방법
+------------
+  - 운영 코드 경로(services.stats_execute_service.execute_stats_validation)를 in-process
+    로 그대로 호출(신규 SQL 작성 없음, stats_sql_builder.build_stats_sql_pair 로 실제 화면과
+    동일한 SQL 생성).
+  - group_id 미지정 → TEMP 실행, validation_run/result/history 저장 없음.
+  - 축(GROUP BY): region_cd, status_cd / SUM: amt, qty.
+  - parallel_sides False(순차)/True(병렬) 각각 축당 5회 = 조건당 10회, 총 20회 실행.
+  - 스크립트: scripts/dev_e2e/p13_pg_physically_separated_retest.py (코드 저장소,
+    비커밋 신규 산출물 1개 — 기존 코드 무변경).
+
+4. 실측 결과 — parallel_sides=False(순차, OFF)
+------------------------------------------------
+  축          run1(ms)  run2(ms)  run3(ms)  run4(ms)  run5(ms)   평균(ms)   표준편차
+  ----------  --------  --------  --------  --------  --------  ---------  --------
+  region_cd    2105.6    1823.1    1818.1    1789.3    1839.2    1875.1     130.1
+  status_cd    1853.1    1795.0    1836.4    1770.0    1841.3    1819.2      35.1
+  전체(10회) 평균 1847.1ms (±94.6)
+
+5. 실측 결과 — parallel_sides=True(병렬, ON)
+-----------------------------------------------
+  축          run1(ms)  run2(ms)  run3(ms)  run4(ms)  run5(ms)   평균(ms)   표준편차
+  ----------  --------  --------  --------  --------  --------  ---------  --------
+  region_cd    1914.3    1698.3    1723.3    1760.6    1752.8    1769.9      84.5
+  status_cd    1735.1    1695.2    1714.8    1699.5    1757.2    1720.4      25.9
+  전체(10회) 평균 1745.1ms (±64.4)
+
+6. ON vs OFF 비교
+------------------
+  축          OFF 평균(ms)  ON 평균(ms)  개선율     짝비교(같은 회차) 승패
+  ----------  ------------  -----------  --------  --------------------------
+  region_cd     1875.1        1769.9      +5.6%     5/5 (전승)
+  status_cd     1819.2        1720.4      +5.4%     5/5 (전승)
+  전체          1847.1        1745.1      +5.5%     10/10 (전승, 100%)
+
+  참고: query_timing 이 보고하는 src+tgt 쿼리 실행 시간(순수 GROUP BY/SUM)은 조건 무관하게
+  ≈130ms 수준으로 작고, wall 시간(≈1.7~2.1초)의 대부분은 DB 연결 수립(특히 Neon 클라우드
+  측 TLS 핸드셰이크)이 차지한다. parallel_sides 의 개선폭(≈100ms)은 원본측 연결+쿼리
+  총 소요시간과 규모가 일치해, "두 연결 수립·조회 구간이 겹쳐지며 얻는 이득"으로 해석된다.
+
+7. 판정 — 안정적 개선인가, 여전히 들쭉날쭉한가
+-----------------------------------------------
+  ✅ 안정적 개선. 2026-08-01 오라클 동일 물리호스트 실측(1회차 개선 → 2회차 되레 느려짐,
+  부호 역전)과 달리, 이번 20회 전체에서 ON 이 짝비교 기준 단 한 번도 지지 않았다(10/10,
+  100%). 두 축 모두 개선율이 +5.4%~+5.6%로 균일해 축 간 편차도 작다.
+  → **물리적으로 분리된 환경에서는 원래 문제(한쪽이 빨라지면 다른 쪽이 느려지는 현상)가
+    재현되지 않았다** — "같은 물리 호스트의 디스크 I/O 공유가 원인"이라는 기존 가설이
+    실측으로 뒷받침된다.
+
+8. P13 종결 여부
+-----------------
+  종결 가능. 다만 개선폭 자체(≈5.5%, 절대치 ≈100ms)는 크지 않다 — 원인이 순수 쿼리 실행이
+  아니라 연결 수립 비용이 지배적이기 때문이며, 이는 이번 20회 소규모(100,000행) 픽스처의
+  구조적 특성이다(대규모 테이블에서는 쿼리 실행 성분 비중이 커져 개선폭이 달라질 수 있음 —
+  이번 범위 밖). 이 항목은 "재측정으로 안정성 검증"만이 목적이었고 완료했다 — parallel_sides
+  기본값을 켜는 것까지 정당화하려면 별도 승인·위험 검토(원본 오류 시 목적지 미실행 동작이
+  바뀌는 것 등, BACKLOG P12 항목과 동일한 위험)가 필요하며 이번 작업 범위 밖이다.
+
+9. 회귀테스트
+--------------
+  코드 무변경(신규 dev_e2e 스크립트 1개 추가만 발생, 기존 services/*, ui/*, schemas/* 등
+  운영 코드 0건 수정) — 지침에 따라 순수 측정 작업으로 판단해 회귀테스트 생략.
+
+10. 산출물
+-----------
+  코드 저장소(비커밋): scripts/dev_e2e/p13_pg_physically_separated_retest.py
+                       scripts/dev_e2e/_p13_pg_physically_separated_retest.json(원시 실측 로그)
+  verify 저장소(이 파일 + BACKLOG.md P13 항목 갱신)
+
+작업명 : P13-SAME-DBMS-PHYSICALLY-SEPARATED-PG-RETEST
+✅ 작업 완료 - 물리분리 동일DBMS(PostgreSQL↔PostgreSQL) 환경에서 parallel_sides 20회 재측정, 짝비교 10/10 전승·평균 -5.5% 안정적 개선 확인, P13 종결 가능 판정
+```
