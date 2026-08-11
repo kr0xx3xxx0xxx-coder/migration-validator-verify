@@ -193,7 +193,9 @@ _mvStage5PerfPanelHtml 참조처는 ui/tabler_renderer.py 자신과 그 테스�
                 직전 HEAD = d7b332368abee21d198304b3a64c0af57a449aff
 증적 저장소   : a060ee6d6c9d47f9b508f356e8ccf1d2ef54e61a  (X:\Verify\_rpt_push, main, push 완료
                 — 본 보고 파일 + 스크린샷 6장 + 실측 JSON 1건. git ls-remote origin main 값과
-                로컬 HEAD 일치 확인 완료)
+                로컬 HEAD 일치 확인 완료. 이 문구 자체의 커밋해시는 자기참조 불가(파일이 자신을
+                포함하는 커밋의 해시를 담을 수 없음)라 직전 커밋 a060ee6 을 기준으로 표기한다 —
+                이후 사소한 문구 보강 커밋이 더 있을 수 있으며 최신 해시는 git log 로 확인.)
 
 동시 세션 주의 — 내가 만든/건드린 3개 파일(ui/tabler_renderer.py, tests/test_stage5_group_
 drilldown.py, scripts/dev_e2e/stage5_perf_cards_split_reposition_verify.py)만 명시 경로로
