@@ -1,0 +1,178 @@
+STAGE-NAV-LOCK-REPLACE-WITH-STALE-RESPONSE-DISCARD
+✅ 작업 완료 - COUNT 탭이동 잠금 제거하고 COUNT·3단계·4단계 전부 '늦은 응답 조용히 폐기' 방식으로 교체(실 브라우저 BEFORE/AFTER 재현 완료, 신규 회귀 0건)
+
+────────────────────────────────────────────────────────────────────────
+1. 게이트 설계 — 어느 방식을 골랐고 왜인가
+────────────────────────────────────────────────────────────────────────
+지시서 1번의 두 선택지 중 **"요청 시작 시 탭 스냅샷을 별도 축으로 저장"** 을 택했다.
+(_singleSessionVersion 을 탭 이동마다 ++ 하는 확장안은 기각)
+
+기각 근거(실코드 확인):
+  각 실행 함수의 finally 가 '같은 세션일 때만 버튼/라벨을 복구'하는 조건으로
+  `_ver === _singleSessionVer()` 를 이미 쓰고 있다
+  (runCount finally, runGenerate finally, runExecute finally).
+  탭 이동만으로 세대가 바뀌면 이 조건이 false 가 되어 **실행 버튼이 스피너인 채
+  영구히 굳는다**(M57 계열 stale-lock 재발). 또 _singleSessionVersion++ 는
+  resetIndividualValidationWorkSession 의 전면 초기화(_lastCountResult/_countState
+  null 화 등)와 한 몸이라 탭 이동마다 그 부수효과를 끌고 온다.
+
+채택 설계:
+  · _mvRunViewStamp()          — 요청 시작 시점의 _singleViewStep 을 캡처(읽기 전용, 부수효과 0)
+  · _mvStaleRunResponse(ver,step)
+        ver !== _singleSessionVer()  → stale (기존 §40 계약 그대로 유지)
+        step 이 null/undefined       → 탭 검사 생략(스냅샷 미전달 호출부 호환)
+        _mvRunViewStamp() !== step   → stale (사용자가 시작 시점 탭을 떠남)
+  · 게이트는 **응답 처리 진입부에만** 적용한다. finally 의 버튼/잠금/nav 정리는
+    종전 그대로 항상 실행 → 스턱 상태가 생기지 않는다.
+  · 무효 시 렌더·상태갱신을 통째로 건너뛰고 return. 오류·중단 안내도 그리지 않는다.
+
+의도적으로 게이트를 넣지 '않은' 곳(판단 근거 명시):
+  _runExecutePlanSets 의 세트 루프 내부 세션검사(break) 4곳에는 탭 조건을 넣지 않았다.
+  탭 이동만으로 남은 세트 실행을 중단시키면 '늦은 응답을 안 그린다'가 아니라
+  '실행 자체를 부분 취소한다'가 된다(중단은 '■ 중단' 버튼의 몫). 실행은 끝까지 두고
+  결과를 화면·상태에 반영하는 최종 지점에서만 폐기한다.
+
+────────────────────────────────────────────────────────────────────────
+2. 파일:라인 (커밋 39f34615 기준)
+────────────────────────────────────────────────────────────────────────
+ui/tabler_renderer.py
+  6365          _mvCountInflightLock() 제거 — 함수 삭제 + 대체 방식 설명 주석으로 교체
+  6382/6420/6435/6459   호출부 4곳 제거(_mvCanNavStep/_mvCanNavTab/_mvNavClick/_mvNavStep)
+                        → COUNT 도 3·4단계처럼 언제든 탭 이동 자유
+  15671-15690   신규 공용 게이트 _mvRunViewStamp() / _mvStaleRunResponse(ver, step)
+                (_singleSessionVer() 바로 아래 — 기존 세대 스탬프와 같은 자리)
+  16697-16702   runRevalidateFromCandidate: _ver/_step 캡처 신설(종전 방어 전무)
+  16786         runRevalidateFromCandidate: _refreshValidationPlanWithRowCount await 직후 게이트
+  25327-25330   runCount: _step 캡처
+  25376         runCount: 응답 진입부 게이트(renderCountResult 직전 — _countState/_lastCountResult/
+                window._singleSrcCount/_analyzeData._countMatched 소비 지점 전부를 한 줄로 차단)
+  25400/25408   runCount: AbortError 안내·오류 렌더 게이트
+  26999-27000   runGenerate: _step 캡처
+  27029         runGenerate: json 파싱 직후 게이트(!resp.ok 409 분기 포함 — 종전 세션검사 자체가 없던 자리)
+  27078/27090   runGenerate: AbortError 안내·오류 alert 게이트
+  27357-27366   _runExecutePlanSets: /groupby-plan 응답 소비(실패 alert 포함) 게이트
+  27500-27506   _runExecutePlanSets: 세트 전체 종료 후 결과 반영 지점 게이트
+  30924-30926   runExecute: _step 캡처
+  30982         runExecute: ctx.step 으로 다중세트 경로에 전달
+  31052/31079   runExecute: !resp.ok 분기 · 성공 경로(§40/§43) 게이트
+  31150/31160   runExecute: AbortError 안내·오류 렌더 게이트
+
+scripts/dev_e2e/stage_nav_lock_stale_response_discard_verify.py   (신규 실측 드라이버)
+
+테스트(격리 하니스 5곳 + 계약 2곳 갱신):
+  tests/test_stage_tab_free_nav_completed_only.py   잠금 계약 → 폐기 계약으로 반전 + 신규 3건
+  tests/test_shared_sticky_step_nav.py              _mvCountInflightLock 주입 제거
+  tests/test_stage3_explicit_trigger_button.py      게이트 3함수 주입
+  tests/test_stage_button_scope_separation_and_dialog_fix.py  게이트 3함수 주입
+  tests/test_stage_exec_plansets_freshness_fix.py   게이트 주입
+  tests/test_s16_inflight_409_screen_notice.py      분기 절단 앵커 갱신
+  tests/test_work_session_reset_policy.py           가드 표현(인라인→공용헬퍼) 허용
+  tests/test_conn_payload_common_builder.py         runCount 고정폭 창 4000→8000(내가 늘린 함수)
+
+────────────────────────────────────────────────────────────────────────
+3. 실제 클릭 재현 검증 (실 브라우저 · 실 Oracle DB · 강제주입 없음)
+────────────────────────────────────────────────────────────────────────
+방법: 실 서버 2대를 같은 실 DB 로 띄워 동일 드라이버를 각각 실행해 대조.
+      BEFORE = HEAD(55f65c2e) 워크트리 서버 :8022 / AFTER = 수정 코드 서버 :8021
+      '늦은 응답'은 page.route 로 재현 — 요청은 실 서버·실 DB 로 그대로 보내고(route.fetch)
+      받은 **진짜 응답**을 9초 늦춰 페이지에 전달(route.fulfill). 응답 내용 조작 0건.
+      세 케이스 모두 route 기록상 hit/fetched/delivered=true (늦은 응답이 실제로 도착함).
+
+  단계별 결과
+  ─────────────────────────────────────────────────────────────────────
+  구분                 BEFORE(HEAD)                      AFTER(수정)
+  ─────────────────────────────────────────────────────────────────────
+  2단계 COUNT
+   탭 이동 시도        차단(탭 클릭 불가, no-tab)         count → query 이동 성공
+   늦은 응답 도착 후   (이동 자체가 막혀 비교 불가)        상태 완전 불변
+                                                          countState null 유지
+                                                          _singleSrcCount 미정의 유지
+                                                          _countMatched 부재 유지
+                                                          #countResult 길이 1180 그대로
+                                                          completedMaxIdx 0 그대로
+  ─────────────────────────────────────────────────────────────────────
+  3단계 후보재확정
+   탭 이동             candidate → count 이동됨            candidate → count 이동됨
+   늦은 응답 도착 후   ❌ 오염됨                           ✅ 상태 완전 불변
+                       _candidateComputed false→true       _candidateComputed false 유지
+                       completedMaxIdx    1→2              completedMaxIdx 1 유지
+  ─────────────────────────────────────────────────────────────────────
+  4단계 통계검증 실행
+   탭 이동             validation → candidate 이동됨       validation → candidate 이동됨
+   늦은 응답 도착 후   ❌ 5단계 게이트까지 오염             ✅ 상태 완전 불변
+                       _singleValidationExecuted f→t       false 유지
+                       executionDone             f→t       false 유지
+                       _singleLastExecResult  null→SET     null 유지
+                       completedMaxIdx           2→4       2 유지
+  ─────────────────────────────────────────────────────────────────────
+
+  ★ M73 이 "가능성만 있고 재현은 안 됐다"고 남긴 3·4단계 갭이 이번에 **최초로 실측 재현**됐다.
+    COUNT 만 좁게 막아 둔 사이 3·4단계에서는 사용자가 다른 탭으로 옮긴 뒤 도착한 응답이
+    실제로 다음 단계 게이트(completedMaxIdx·validationExecuted)까지 밀어 올리고 있었다.
+    즉 잠금을 없앤 것이 아니라, 잠금이 한 번도 덮지 못한 훨씬 큰 구멍을 함께 막았다.
+
+  정상 케이스(탭 유지) 회귀 확인 — AFTER 에서 세 단계 모두 종전과 동일
+    E1 COUNT 정상 실행        → _countState = 'OK'
+    E2 3단계 후보재확정 정상  → _candidateComputed = true
+    E3 4단계 통계검증 정상    → _singleValidationExecuted = true, executionDone = true,
+                                 _singleLastExecResult = SET, completedMaxIdx = 4
+  pageerror 0건. 폐기 경로에서 사용자에게 뜬 알림 0건(조용히 버림 확인).
+
+  증적 JSON
+    scripts/dev_e2e/_stage_nav_lock_stale_discard.json         (AFTER)
+    scripts/dev_e2e/_stage_nav_lock_stale_discard_BEFORE.json  (BEFORE)
+    ※ .gitignore:130 (scripts/dev_e2e/_*.json) 대상이라 저장소에는 올라가지 않는다.
+
+────────────────────────────────────────────────────────────────────────
+4. 회귀 테스트
+────────────────────────────────────────────────────────────────────────
+대상 선정: 변경 함수(runCount/runGenerate/runExecute/runRevalidateFromCandidate/
+_runExecutePlanSets/nav 게이트/_singleSessionVer)를 참조하는 테스트 전수 = 90개 파일.
+
+  구분                                   결과
+  ──────────────────────────────────────────────────────────────────
+  baseline(내 기능수정 전 작업트리)      38 failed / 986 passed / 2 error
+  final  (수정 후, 동일 파일셋)          37 failed / 989 passed / 0 error
+  ──────────────────────────────────────────────────────────────────
+  신규 회귀(baseline 에 없던 실패)       0건
+  해소                                   test_run_count_uses_common_builder 등
+
+  구현 도중 8건이 깨졌다가 전부 해소(원인 2종, 지시서가 경고한 하니스 함정 그대로):
+    ① 격리 node 하니스 4곳이 신규 게이트 미주입 → ReferenceError
+       (지시서가 지목한 2곳 외에 test_stage3_explicit_trigger_button /
+        test_stage_button_scope_separation_and_dialog_fix /
+        test_stage_exec_plansets_freshness_fix / test_s16_inflight_409_screen_notice 도 해당)
+    ② 원문 문자열 계약이 인라인 비교(`_ver !== _singleSessionVer()`)를 고정하고 있었음
+       → 세션검사가 공용 헬퍼 안으로 옮겨진 것뿐이므로 계약을 두 표현 모두 인정하도록 갱신
+
+  ⚠ 잔존 1건(내 변경과 무관 — 근거 제시):
+    test_conn_payload_common_builder.py::test_run_analyze_uses_common_builder
+      · 고정폭 6000자 창 안에서 판정하는데 대상이 offset 5937 (여유 63자)로 칼끝에 걸려 있다
+      · runAnalyze 는 내 diff 에 단 한 줄도 없고(git diff 매칭 0건),
+        내 마커(STAGE-NAV-LOCK-REPLACE)가 runAnalyze 본문 20,000자 안에 존재하지 않음
+      · HEAD(55f65c2e) 워크트리 대조군에서도 동일하게 실패
+      → 같은 페이지에 합성되는 다른 모듈(동시 진행 중인 타 세션 작업분)이 흔들면 뒤집히는
+        기존 취약 계약. runFullValidation(offset 7181/6000)도 같은 사유로 계속 실패 중이며
+        둘 다 내가 손대지 않은 함수라 범위 밖으로 두었다.
+
+  CLAUDE.md 필수 회귀(최종 1회)
+    python samples/test_virtual_cases.py   → 8/8 통과
+    python samples/test_complex_cases.py   → 5/5 통과
+
+────────────────────────────────────────────────────────────────────────
+5. 커밋 / 잔여
+────────────────────────────────────────────────────────────────────────
+코드 저장소 커밋해시 : 39f34615   (X:\Projects\nxDTV, remote 없음 → push 없음)
+커밋 포함 파일       : 10개 (ui/tabler_renderer.py + 테스트 8 + 신규 드라이버 1)
+                       무관한 타 세션 변경분(services/*, ui/js_batch_display.py,
+                       tests/test_11def_scenarios.py 등)은 staged 하지 않음(확인 완료)
+
+범위 밖으로 남긴 것(의도적, 근거 있음)
+  · _refreshValidationPlanWithRowCount 내부의 자체 렌더는 게이트하지 않았다 —
+    숨겨진 후보 pane 만 다시 그리고 사용자 선택은 _rerenderCandidateTablePreservingSelection
+    이 보존하므로 '사용자가 바꾼 상태를 덮어쓰는' 부류가 아니다. 3단계 재확정의 최종
+    반영(_candidateComputed·completedMaxIdx)은 이번 게이트가 막는 것을 실측 확인.
+  · _mvAnyRunActive() 는 지시대로 손대지 않았다(5단계 job 감시 · M47 예외 보호).
+  · _countInProgress 는 재클릭 가드로 그대로 존치(탭 이동 판정에서만 분리).
+
+✅ 작업 완료 - COUNT 탭이동 잠금 제거하고 COUNT·3단계·4단계 전부 '늦은 응답 조용히 폐기' 방식으로 교체(실 브라우저 BEFORE/AFTER 재현 완료, 신규 회귀 0건)
