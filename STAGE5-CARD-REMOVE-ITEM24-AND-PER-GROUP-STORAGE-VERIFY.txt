@@ -1,0 +1,129 @@
+```text
+작업명 : STAGE5-CARD-REMOVE-ITEM24-AND-PER-GROUP-STORAGE-VERIFY
+✅ 작업 완료 - '선택 그룹 상세추출' 카드 quick 줄에서 ②④(불일치 추출 완료/전체 검증 완료(READY))
+             제거, ①③(추출 소요/현재 페이지 조회)은 존치. 그룹별 독립 run 저장 구조 실측 확인.
+
+────────────────────────────────────────────────────────────
+1번 — ②④ 항목 제거
+────────────────────────────────────────────────────────────
+변경 파일:라인
+  ui/tabler_renderer.py:28758-28767
+    '선택 그룹 상세추출' 카드의 quick 요약 줄을 만드는 `_quickLabels` 배열을
+    `['불일치 추출 완료', '현재 페이지 조회', '전체 검증 완료(READY)']`
+    → `['현재 페이지 조회']` 로 축소. '추출 소요'(detailMs)는 이 배열과 별개로
+    카드 상단(27996줄, `_mvStage5GroupPerfHtml()`)에서 항상 그리는 값이라 그대로 유지된다.
+    rows 계산·detail(접힌 '▶ 세부 성능정보' 표)에는 제거한 두 라벨이 여전히 남아있다
+    (지시서 범위 밖 — "rows 계산·detail 접힘표"는 그대로 두라는 지시 그대로 무변경).
+
+  tests/test_stage5_group_drilldown.py:729-748
+    test_group_card_perf_detail_is_collapsed_with_quick_summary 를 새 계약대로 갱신
+    — quick 줄에 '현재 페이지 조회'만 있고, '불일치 추출 완료'·'전체 검증 완료(READY)'는
+    없어야 한다는 어서션으로 교체(구 3항목 존재 단언 → 신 1항목 존재 + 2항목 부재).
+
+  scripts/dev_e2e/stage5_card_item24_remove_and_pergroup_storage_verify.py (신규)
+    실 클릭 검증 드라이버(아래).
+
+검증 — pytest
+  python -m pytest tests/test_stage5_group_drilldown.py -q
+    → 45 passed, 0 failed (신규 회귀 0건).
+  python -m pytest tests/ -q -k "tabler or stage5 or js_batch or ui"
+    → 82 failed / 1320 passed / 7 skipped / 1 xfailed / 1 error(총 11116 deselected).
+      실패 82건 전체 테스트명을 stage5/perf/quick/extract/ready/tabler_render 키워드로
+      대조한 결과 0건 일치 — 이번 변경(quickLabels 9줄) 관련 테스트가 하나도 없다.
+      [[project_preexisting_test_failures]] 메모리(2026-07-30 기준 UI 계열 53건 사전존재
+      확인됨, 저장소 성장에 따라 현재 82건까지 자연 증가한 것으로 추정)와 부합하는 패턴.
+      git diff 도 이번 세션에서 ui/tabler_renderer.py 를 건드리기 전에는 clean 상태였음을
+      확인(git status 상 사전 미커밋 변경 없었음) — 회귀 신호 아님.
+  python samples/test_virtual_cases.py   → 8/8 통과
+  python samples/test_complex_cases.py   → 5/5 통과, 전체 검증 요약 항목 전부 ✓
+
+검증 — 실제 클릭(playwright, 실 오라클 asis/tobe NXDNP.MV_COMBO_SRC/TGT)
+  드라이버: scripts/dev_e2e/stage5_card_item24_remove_and_pergroup_storage_verify.py
+  GB=STATUS_CD+DEPT_CD 조합축, 실행 결과 불일치 그룹 4건(A|D01, A|D02, P|D01, P|D02).
+  4개 그룹 전부 순서대로 클릭 → 각 카드의 quick 줄(<details> 이전 부분만 추출해 검사,
+  접힌 세부표까지 섞이지 않게 스코프 분리)을 확인한 결과:
+    그룹0(A|D01): 불일치추출완료=False 전체검증완료=False 추출소요=True 현재페이지조회=True
+    그룹1(A|D02): 불일치추출완료=False 전체검증완료=False 추출소요=True 현재페이지조회=True
+    그룹2(P|D01): 불일치추출완료=False 전체검증완료=False 추출소요=True 현재페이지조회=True
+    그룹3(P|D02): 불일치추출완료=False 전체검증완료=False 추출소요=True 현재페이지조회=True
+  → ②④ 4그룹 전부 quick 줄에서 완전히 사라짐, ①③ 4그룹 전부 정상 표시. 오류 0건.
+  스크린샷: X:\Verify\verify_screenshots_only\STAGE5-CARD-REMOVE-ITEM24-AND-PER-GROUP-STORAGE-VERIFY\
+    group_0_perf_card.png ~ group_3_perf_card.png, all_groups_clicked_final.png
+  (그룹1 예시: "대상 GROUP BY STATUS_CD + DEPT_CD = A | D02   추출 소요 0.12초
+    / 현재 페이지 조회 0.18초 / ▶ 세부 성능정보 · DIRECT_STREAM_COMPARE · 총 0.12초" —
+    '불일치 추출 완료'·'전체 검증 완료(READY)' 문구 없음 육안 확인)
+
+────────────────────────────────────────────────────────────
+2번 — 그룹별 저장 구조 조사(코드 무수정, 조사만)
+────────────────────────────────────────────────────────────
+질문: "세 번째 그룹만 13.27초처럼 detailMs 가 그룹마다 다른 게, DB에 그룹별로 각각 따로
+저장돼 있어서 그런 건지" → 결론: 그렇다. 단, "DB" 의 실체가 두 갈래로 갈린다(코드로 확정,
+라이브 클릭으로 실측).
+
+코드 근거:
+  services/exact_diff/store.py:30-64 (스키마) — exact_diff_run 테이블은 run_id 를
+    PRIMARY KEY 로 하는 단일 스키마. run 마다 독립 행, metrics_json 안에
+    detail_elapsed_ms 를 개별 보관(29-64, finish_run()).
+  services/exact_diff/store.py:539-541 — default_exact_diff_store(persist:bool):
+    ExactDiffRunStore(memory = not persist). persist=False 면 프로세스 공유
+    in-memory SQLite(:memory:, 클래스 변수 _mem_conn 로 프로세스 생존 동안 유지 — 서버
+    재시작 시 소멸), persist=True 면 파일 db/exact_diff_runs.db(재시작 후에도 남음).
+  services/exact_diff/agg_contribution.py:242,248 (prepare_reimport_pk_index) —
+    `store = store if store is not None else default_exact_diff_store(False)` 그리고
+    `run_id = "PK" + uuid.uuid4().hex[:12].upper()` — 그룹(재이관 PK 대상) 계산마다
+    새 run_id 로 store.create_run() 호출. 호출부 routes/agg_diff_route.py:1482
+    (`/agg-diff/prepare`, 소규모 동기 경로 — 이번 라이브 픽스처 MV_COMBO(1,200행)가
+    타는 경로)는 store 인자를 넘기지 않아 위 default(False)=in-memory 로 빠진다.
+  대조: 같은 store 클래스를 쓰는 대규모/비동기 경로는 file 영속을 명시적으로 쓴다 —
+    routes/agg_diff_route.py:359, 448, 1421 모두 `store=default_exact_diff_store(True)`
+    (PK_RANGE_CHUNK 청크비교·표본 job 등).
+
+라이브 실측(그룹 4개 클릭, playwright):
+  window._mvDisplayedRunId 로 그룹별 run_id 수집 → 4개 전부 서로 다름
+    (PKF3B6962AAE04 / PK27C78CE9B312 / PKD70E53A5CF94 / PK417AE670FB82).
+  각 run_id 로 화면이 실제로 쓰는 조회 API(/agg-diff/pk-records?run_id=...)를 페이지
+  컨텍스트 안에서 그대로 호출(같은 origin, 같은 서버 store 인스턴스) → 그룹마다 서로 다른
+  detail_elapsed_ms 를 독립적으로 반환:
+    그룹0 run_id=PKF3B6962AAE04 → detail_elapsed_ms=101.7ms → 화면 "추출 소요 0.10초" (일치)
+    그룹1 run_id=PK27C78CE9B312 → detail_elapsed_ms=116.4ms → 화면 "추출 소요 0.12초" (일치)
+    그룹2 run_id=PKD70E53A5CF94 → detail_elapsed_ms=131.5ms → 화면 "추출 소요 0.13초" (일치)
+    그룹3 run_id=PK417AE670FB82 → detail_elapsed_ms=106.1ms → 화면 "추출 소요 0.11초" (일치)
+  → API 재조회값과 화면 표시값 4/4 완전 일치, run_id 4개 전부 상이 — "그룹마다 독립된
+    run(행)으로 저장되고, 그래서 detailMs 가 그룹마다 다르게 나온다"는 사용자 가설이
+    정확함을 확인.
+  파일 DB(db/exact_diff_runs.db) 직접 조회로도 대조: 이 4개 run_id 는 파일에서 전혀
+    검색되지 않음(found_in_file_db=false ×4) — 코드 근거대로 이 경로(소규모 동기
+    재이관-PK)는 파일이 아니라 **프로세스 내 공유 in-memory SQLite**에 저장됨을 실측 확인.
+    즉 서버를 재시작하면 이 run 들은 사라진다(파일 영속 대상 아님). 반대로 대규모/비동기
+    경로(PK_RANGE_CHUNK·표본 job)는 같은 스키마·같은 코드경로를 file db/exact_diff_runs.db
+    로 쓰므로 재시작 후에도 조회 가능하다.
+
+결론(2번 답변): 그룹마다 별도 run 행(run_id PK)으로 저장되는 것은 맞다(①). 다만 이 저장이
+"파일 DB"인지 여부는 도달한 코드경로에 달려 있다(②) — 소규모 동기 재이관-PK 경로(이번
+MV_COMBO 픽스처가 탄 경로)는 in-memory, 대규모/비동기 경로는 파일 영속. 사용자가 관찰한
+"세 번째 그룹만 13.27초" 현상은, 어느 경로든 run_id 가 그룹마다 독립적으로 생성·저장되기
+때문에 그룹별로 다른 detail_elapsed_ms 가 남는 게 정상 동작이라는 뜻이다.
+
+────────────────────────────────────────────────────────────
+서버 재기동
+────────────────────────────────────────────────────────────
+코드 변경(ui/tabler_renderer.py) 반영을 위해 재기동 필수 — 기존 포트 8000 점유 프로세스
+자동 종료 후 python web_server.py 재기동(코드가 자동으로 포트 점유 PID 를 taskkill).
+  재기동 시각 : 2026-08-11 19:37:40
+  재기동 시점 HEAD 커밋 : 74ce73c6 (본 작업 커밋 — 재기동은 커밋 직후 수행, 위 라이브
+                          클릭 검증은 전부 이 재기동 이후 프로세스에서 수행)
+
+────────────────────────────────────────────────────────────
+커밋
+────────────────────────────────────────────────────────────
+코드 저장소(X:\Projects\nxDTV) 커밋: 74ce73c6
+  fix(stage5-ui): 선택 그룹 상세추출 카드 캐시재사용 무의미값 2항목 제거
+  (STAGE5-CARD-REMOVE-ITEM24-AND-PER-GROUP-STORAGE-VERIFY)
+  변경 파일 3개: ui/tabler_renderer.py, tests/test_stage5_group_drilldown.py,
+              scripts/dev_e2e/stage5_card_item24_remove_and_pergroup_storage_verify.py
+  (본 완료보고 파일은 규칙에 따라 코드 저장소에는 push 하지 않고 verify 저장소에만 push)
+
+작업명 : STAGE5-CARD-REMOVE-ITEM24-AND-PER-GROUP-STORAGE-VERIFY
+✅ 작업 완료 - '선택 그룹 상세추출' 카드 quick 줄에서 ②④(불일치 추출 완료/전체 검증 완료(READY))
+             제거, ①③(추출 소요/현재 페이지 조회)은 존치. 그룹별 독립 run 저장 구조 실측 확인.
+```
