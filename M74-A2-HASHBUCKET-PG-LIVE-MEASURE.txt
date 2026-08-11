@@ -1,0 +1,129 @@
+M74-A2-HASHBUCKET-PG-LIVE-MEASURE
+✅ 작업 완료 - HASH_BUCKET 전략 PostgreSQL 실행계획·실측시간·정확성을 Neon PG 라이브로 확인
+
+배경: BACKLOG M74[A2] — HASH_BUCKET 이 실제로 유일하게 동작하는 방언이 PostgreSQL 인데,
+그 PG 실행계획·실측시간이 한 번도 측정된 적이 없었음(과거엔 PG 접속불가로 SQL 지문 대조
+수준에 머묾). 코드 무수정, 순수 실측 조사. verify 저장소 directives/M74-A2-HASHBUCKET-PG-
+LIVE-MEASURE.md 지시서 그대로 수행.
+
+────────────────────────────────────────────────────────────
+1. 트리거 조건 확인 (코드 확인)
+────────────────────────────────────────────────────────────
+- services/diagnosis/strategies/router.py:51 — 문자/UUID MATCH_KEY(match_key_only_
+  unsupported=True, KEY_RANGE 불가) 일 때 ROUTE_HASH_BUCKET 선택. 단, 이 파일의
+  expand()(:64)는 ROUTE_HASH_BUCKET 분기를 처리하지 않음(옛 주석 "미구현" 그대로 —
+  개별검증 진단트리 origin 에서는 여전히 미배선, 회귀 아니라 원래부터 그러함).
+- services/diagnosis/multi_scope.py — 실제 실행 경로는 여기(일괄검증/BATCH origin).
+  PLAN_BATCH_HASH_BUCKET 후보 emit(:222) → _run_hash_bucket_waves(:540) 가 실제 SQL
+  생성/실행. routes/diagnosis_route.py → services/diagnosis/adapters/multi_scope_
+  adapter.py → multi_scope.run_batch_diagnosis 로 실 HTTP 엔드포인트에 배선돼 있음
+  (죽은 코드 아님).
+- services/diagnosis/strategies/hash_bucket.py::build_hash_bucket_agg_sql — 실제 SQL
+  빌더. dialect="postgres" + src/tgt_db_type="postgresql" 명시 시 services/diagnosis/
+  dialects_hash/postgresql.py(PgHashContract, md5 8hex→bit(32)→bigint, 버킷=해시 &
+  (n-1))만 사용 — 계약 부재/혼합방언이면 HashContractUnavailableError 로 SQL 생성 자체
+  차단(정상 가드 확인).
+- 실 데이터 트리거 조건(문자/UUID 복합키) 실물 확인: 내부망 PG asis01.t_as_n_etl01
+  (42,000,000행)의 PK 가 (stu_id, exam_id) 둘 다 character varying — 숫자/날짜 CHUNK_KEY
+  불가 → HASH_BUCKET 대상 조건과 실제로 일치함을 스키마로 확인(단, 이 표 자체를 대상
+  으로 한 실행은 아래 §2 실측 대상이 아님 — 아래는 기존 라이브 테스트가 이미 갖춘
+  generate_series 합성 데이터 방식으로 수행, 한계는 §4 참고).
+
+────────────────────────────────────────────────────────────
+2. 실행계획 + 실측 시간표 (Neon PostgreSQL, PostgreSQL_asis 프리셋)
+────────────────────────────────────────────────────────────
+2-1) 운영 코드(build_hash_bucket_agg_sql) 그대로 생성한 wave1 SQL을 EXPLAIN(ANALYZE,
+     BUFFERS) 직접 실행(별도 스크립트, scratchpad/M74-A2-HASHBUCKET-PG-LIVE-MEASURE_
+     explain.py, 코드저장소 미추적) — 문자열 MATCH_KEY(mk) + 비교컬럼(amt), 20그룹,
+     그룹3 일부 결손.
+
+  규모     행수      실행계획 최상위 연산자      실측(median of 3, side당)   결과행(bucket)
+  -------  --------  ---------------------------  ---------------------------  --------------
+  소규모   100,000   HashAggregate (정렬 無)       SRC 945.3ms / TGT 933.9ms   2,560
+  중규모   3,000,000 HashAggregate (정렬 無)       SRC 24,295.2ms/TGT 23,456.1ms 2,560
+
+  - 두 규모 모두 Sort/Merge 연산자 없음(Group Key 를 HashAggregate 가 직접 소화) —
+    HASH_BUCKET 이 정렬을 회피한다는 설계 의도가 PG EXPLAIN 실측으로 확인됨(N1 Merkle
+    tree 조사에서 확인된 KEY_RANGE 쪽과 동일 패턴, HASH_BUCKET 은 이번이 최초 실측).
+  - 100K→3,000K(30배) 구간에서 실행시간이 대략 25~26배 증가 — Sort 기반(O(n log n))이
+    아니라 스캔+해시 비용에 선형에 가깝게 비례(HashAggregate 특성과 일치).
+  - Buffers: temp read/written 이 두 규모 모두 존재(디스크 스필 발생, 대부분 generate_
+    series 함수 스캔 자체의 임시버퍼) — Memory Usage 897kB 로 표기돼 있어 해시 자체는
+    메모리 내 처리(버킷 128개×20그룹=2,560 그룹키는 작음).
+
+2-2) 기존 라이브 pytest 스위트(tests/test_diagnosis_hash_bucket_e2e.py,
+     tests/test_diagnosis_hash_bucket_5m.py — 코드저장소에 이미 존재, 코드 무수정으로
+     그대로 실행만 함, MV_PG_LIVE_SAFETY=1 게이트)를 소/중/대 3개 규모로 실행:
+
+  규모(행수)   테스트 결과        신규(HASH_BUCKET, 2쿼리) median   기존(그룹별 개별) median   query 감소율
+  -----------  -----------------  --------------------------------  --------------------------  ------------
+  100,000      9 passed (209.5s)  3,528ms                            35,602ms (40쿼리)           95.0%
+  1,000,000    9 passed (335.1s)  9,454ms                             54,299ms (40쿼리)           95.0%
+  5,000,000    6 passed (1,010.5s) 42,769ms                           99,627ms (40쿼리)           95.0% (시간 57.1%↓)
+
+  - 5,000,000행 규모 부가 확인: UUID MATCH_KEY 검출 20/20(43,762ms), 복합키(구분자 충돌
+    유발 값 포함) 검출 20/20(32,203ms), resume(HOLD_BUDGET_EXCEEDED 중단 → wave4 로 정상
+    이어서), HOLD 3종(DENSE_MISMATCH/BUDGET_EXCEEDED/RESULT_LIMIT) 전부 실제로 트리거됨
+    — "미구현" 이 아니라 실동작 확인.
+
+────────────────────────────────────────────────────────────
+3. 결과 정확성(해시 버킷 분할이 정상적인지) 검증
+────────────────────────────────────────────────────────────
+- pytest 스위트 자체가 이미 ground-truth 기반 정확성 단언을 포함(누락 그룹/값변경 그룹을
+  정확히 지정해 합성 후 100% 검출 여부를 assert) — 문자열 키, UUID 키, 복합키(구분자
+  충돌 유발 값 'a'+g / g+'b') 세 유형 모두 그룹 검출 누락 0건, 3개 규모(100K/1M/5M)
+  전부 통과.
+- §2-1 EXPLAIN 스크립트에서 별도로 재확인: 소규모(100K, 2,560 bucket-cell) 불일치
+  17개, 중규모(3M, 2,560 bucket-cell) 불일치 43개 — 두 규모 모두 불일치로 잡힌 그룹이
+  정확히 결손을 심어둔 그룹 3 하나로만 수렴(다른 19개 그룹은 bucket 단위까지 전부
+  일치) → 오탐(false positive) 0건, 누락(false negative) 0건.
+- 계약(hash_contract) 자체의 same-DBMS 가드도 실경로에서 확인: dialect/db_type 쌍이
+  PostgreSQL-PostgreSQL 이 아니면 SQL 생성 전에 HashContractUnavailableError.
+
+────────────────────────────────────────────────────────────
+4. 한계(정직 고지)
+────────────────────────────────────────────────────────────
+- 내부망 PG 의 실물 42,000,000행 문자 복합PK 테이블(asis01.t_as_n_etl01)에 대해서는
+  "PK 타입이 HASH_BUCKET 트리거 조건과 일치함"만 스키마로 확인했고, 그 표 자체에
+  HASH_BUCKET SQL 을 직접 실행하지는 않았다 — 기존 라이브 테스트가 이미 갖춘 read-only
+  generate_series 합성 방식(운영 테이블 DML/DDL 없음 원칙 준수)을 그대로 재사용했다.
+  합성 데이터는 실 테이블과 컬럼 폭/분포가 다를 수 있어 실측 시간이 그대로 실 운영
+  테이블에 대입되진 않는다(다만 canonical 해시 계약·EXPLAIN 상 연산자 종류·정확성
+  검증 결론에는 영향 없음 — 이 세 가지는 데이터 내용이 아니라 SQL 구조/타입에 의해
+  결정됨).
+- Neon(원격, cross-region)에서 측정해 네트워크 왕복시간이 포함돼 있다 — 내부망 PG
+  (192.168.0.150)로 재측정하면 절대시간은 더 짧게 나올 가능성이 높음(다만 상대적
+  스케일링 패턴·정확성 결론은 동일할 것으로 판단).
+- 5,000만행 이상 초대형 스케일은 이번에 측정하지 않음(디렉티브 요구 "소규모/중규모
+  두 가지"는 충족, 3개 규모 100K/1M/5M 로 상회 달성).
+
+────────────────────────────────────────────────────────────
+5. 부수 발견(코드 변경 없이 정보만 기록)
+────────────────────────────────────────────────────────────
+- router.py:35 주석 "(구) 미구현 placeholder" 는 stale — 실제로는 multi_scope.py 쪽
+  (BATCH origin)에 이미 구현·배선 완료돼 있음. router.py(개별검증 진단트리 origin)
+  쪽만 여전히 미배선. 문서/주석 정정이 필요하면 별도 지시 시 진행(이번 지시는 순수
+  실측이라 코드 무수정).
+
+근거: db_presets_src.json(PostgreSQL_asis, Neon), tests/test_diagnosis_hash_bucket_
+e2e.py, tests/test_diagnosis_hash_bucket_5m.py(수정 없이 그대로 실행),
+scratchpad/M74-A2-HASHBUCKET-PG-LIVE-MEASURE_explain.py(신규 실측 스크립트, 코드
+저장소 비추적) + scratchpad/M74-A2-HASHBUCKET-PG-LIVE-MEASURE_result.json(실측 원본)
+코드 커밋: e68e8988 (코드 변경 없음, HEAD 그대로)
+
+최종 상태: ✅ 성공
+
+완료한 것: HASH_BUCKET 트리거 조건 코드 확인, PG EXPLAIN(ANALYZE) 실행계획 확인(소/
+중규모), 실측 시간표(3개 규모: 100K/1M/5M), 결과 정확성 검증(오탐/누락 0건), 계약
+가드 실경로 확인.
+실패하거나 보류한 것: 내부망 PG 실물 42M행 테이블 직접 실행(스키마 조건 확인만),
+5천만행 이상 초대형 스케일 미측정.
+테스트 또는 실행 결과: 기존 라이브 pytest 9/9(100K, 209.5s), 9/9(1M, 335.1s), 6/6
+(5M, 1,010.5s) 전부 통과 + 신규 EXPLAIN 스크립트 정확성 PASS(2개 규모).
+제한사항 위반 여부: 없음(운영 테이블 DML/DDL 없음, 코드 무수정, 비밀번호/접속문자열
+출력 파일 grep 확인 결과 노출 없음).
+다음 권장 작업: 필요 시 내부망 PG(192.168.0.150) 로 동일 스크립트 재실행해 네트워크
+왕복시간 제외한 순수 DB 처리시간 재확인, router.py stale 주석 정정은 별도 지시 시.
+
+작업명 : M74-A2-HASHBUCKET-PG-LIVE-MEASURE
+✅ 작업 완료 - HASH_BUCKET 전략 PostgreSQL 실행계획·실측시간·정확성을 Neon PG 라이브로 확인
