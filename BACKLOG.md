@@ -5396,3 +5396,31 @@ git -C E:/verify_reports worktree remove <임시경로>
   복귀 확인. diff 2줄뿐, 신규 회귀 0건.
 - 참고: E:\verify_reports\DEPLOY-CHECKLIST-6-1-OLLAMA-MODEL-TAG-CROSSCHECK.txt
 - 참고: E:\verify_reports\LLM-CONFIG-MODEL-TAG-FIX-TO-GEMMA.txt
+
+### M73. 개별검증 1~4단계 상호배타 잠금(`_mvAnyRunActive`) — 의도된 안전장치(이중스캔 사고 방지) 확인됐으나 잠금범위가 넓고 alert 안내가 뭉뚱그려짐, 개선 여부 결정 필요
+- 발견/계기: 2026-08-11 (사용자 — "탭별 실행버튼 클릭시 이전 버튼이 잠기는 탭이 있어" /
+  채팅 조사, 코드 무변경)
+- **결론: 결함 아님, 의도된 설계** — `_mvAnyRunActive()`(ui/tabler_renderer.py:29226)는
+  M56/M58(오늘 작업, "5단계 자동진입 금지"만 다룸)이 아니라 그 이전 커밋(STAGE-EXEC-
+  CONTROL-LOCK-IMPLEMENT, M47-PRIOR-STAGE-LOCK-AND-BADGE-LABEL-DISTINCTION-FIX)이
+  만든 것 — "동시에 두 스캔이 같은 원본/목적지에 발사되는 것"을 막기 위한 안전장치
+  (실측된 이중스캔 사고 전례 근거). **개별검증 화면 한정**, 일괄검증(js_batch_
+  display.py)엔 이 메커니즘 자체가 없음.
+- **잠금 관계(상호배타 7개 시작점)**: 1단계 분석실행·2단계 COUNT비교·3단계 후보재확정·
+  4단계 SQL생성·4단계 통계검증실행(동기/비동기)·원클릭 처음부터다시실행 — 이 중
+  하나라도 실행 중이면 `_mvAnyRunActive()`가 true가 돼 나머지 전부 클릭해도 alert만
+  뜨고 무반응. 3단계 GB/SUM체크박스·관리컬럼확정·조합검증체크박스·목적지WHERE입력도
+  `body.mv-run-locked`로 함께 잠김(pointer-events:none).
+- **예외 전례 존재**: 2단계 COUNT 탭이동 잠금만 `_mvAnyRunActive()`가 아니라
+  `_countInProgress` 하나로 이미 좁게 구현돼 있음(M47이 "5단계 job 도는 중에도
+  다른 탭 자유이동은 막지 않는다"는 예외를 지키기 위해) — **더 세밀한 잠금이
+  기술적으로 이미 가능하다는 전례.**
+- **사용성 개선 여지 2가지**:
+  ① 잠금 범위가 넓음 — 5단계 job(폴링 기반, 오래 걸릴 수 있음) 하나가 1~4단계
+     전체를 잠금. "COUNT만 다시 돌려보고 싶다" 같은 가벼운 요청도 대기해야 함.
+  ② alert 안내가 뭉뚱그려짐("통계검증 등 다른 실행이 이미 진행 중입니다") — 정확히
+     어느 단계가 실행 중인지 안 알려줘서, 사용자가 직접 다른 탭 확인하러 이동해야 함.
+- 결정 필요: 현행 유지(의도된 안전장치) vs 개선 착수(②는 저위험·저비용 — 어느 단계가
+  실행 중인지 alert 문구에 명시만 해도 체감 개선. ①은 COUNT 탭 예외 전례를 참고해
+  범위를 더 좁힐 수 있는지 검토 필요, 이중스캔 방지 취지는 반드시 유지).
+- 근거: 채팅 조사 결과(별도 파일 미작성)
