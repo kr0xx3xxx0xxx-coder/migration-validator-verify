@@ -5231,6 +5231,14 @@ git -C E:/verify_reports worktree remove <임시경로>
   **⚠️ 특이사항**: 작업 도중 동시 세션의 git 조작으로 추적파일 5개가 HEAD로
   되돌아간 것을 발견해 즉시 재적용·재검증(전체 스위트 재통과)·즉시 로컬커밋으로
   고정 — 공유 작업트리 위험 재확인, 향후 유사 작업 시 특히 주의 필요.
+- **모델 비교 실측(2026-08-11, OLLAMA-GEMMA-INSTALL+OLLAMA-LLAMA32-3B-INSTALL,
+  코드 무변경)**: Google Gemma 3 4B 외에 비교용으로 Meta Llama 3.2 3B도 같은
+  경로(`X:\Projects\_shared\ollama\`, 두 모델 공존)에 추가 설치. 동일 한국어
+  프롬프트 비교 결과 **Llama 3.2 3B에서 데바나가리 문자 혼입·영어 병기 등 한국어
+  불안정 현상 관찰**, Gemma 3 4B는 안정적 — **E1 실서비스는 계속 Gemma 3 4B
+  유지가 맞다는 게 실측으로 재확인됨**(간이 비교, 정밀 벤치마크 아님이라
+  단정적 결론은 아니나 방향성은 명확). Ollama 자체는 이제 두 모델을 다 갖고
+  있어 필요 시 재비교 가능.
 - 잔여: 일괄검증(batch) COUNT 그리드로의 E1 확장(요약 1건 형태), shadow 계측
   범위한계(엔진게이트 경로 재계측 스크립트 보강) — 둘 다 별도 착수 결정 필요.
 - 참고: E:\verify_reports\SEMANTIC-GLOBAL-DICT-ENABLE.txt
