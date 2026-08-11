@@ -5128,7 +5128,7 @@ git -C E:/verify_reports worktree remove <임시경로>
   필요, CLAUDE.md "대규모 리팩토링 계획 우선 제시" 규칙 대상)으로 재검토 권장.**
 - 근거: E:\verify_reports\CODEBASE-STRUCTURAL-HEALTH-DIAGNOSE.txt
 
-### M72. LLM 추가 활용처 전면 탐색 완료 — 최우선 발견은 LLM무관(행안부 표준용어사전 13,176건 미배선), 직접활용 착수권고 0건·간접활용 1건, 부수 8건 발견
+### M72. LLM 추가 활용처 전면 탐색 완료(0순위 전제 정정됨) — 직접활용 착수권고 0건, 간접활용 1건(E1) 구현 완료, 부수 8건 발견
 - 발견/계기: 2026-08-10 (사용자 — "관리컬럼 판정 외 다른 활용처는? 일괄·전수 적용도
   고려, 직접/간접 활용 둘 다 고려" / LLM-ADDITIONAL-USE-CASE-SURVEY, 코드 무변경,
   BACKLOG 5,129줄+완료보고서 386건+로컬DB 읽기전용 조회)
@@ -5199,3 +5199,39 @@ git -C E:/verify_reports worktree remove <임시경로>
   전수검증 관련 판단은 UI 잠김으로 전부 구조적 가정, 실측 아님. 캐시 히트율
   97.5%도 픽스처 반복 혼입으로 낙관 추정치일 개연성.
 - 근거: E:\verify_reports\LLM-ADDITIONAL-USE-CASE-SURVEY.txt
+- **⚠️ 0순위 항목 전제 정정(2026-08-10, SEMANTIC-GLOBAL-DICT-ENABLE, 코드 커밋
+  c63cfde7)**: "flag 기본 OFF"라는 위 0순위 서술은 **낡은 정보였음이 확인됨** —
+  실제로는 `is_global_dict_enabled()`가 **2026-07-12부터 이미 기본 ON**(오늘
+  M5에서 겪은 것과 동일 패턴 — 어댑터 모듈의 stale 헤더 주석을 근거로 오판, 실제
+  라이브 코드는 확인 안 함). 다만 지침이 "flag ON보다 먼저 고쳐야 한다"고 지목한
+  대표타입 선정 결함(로컬 SYSTEM_AUDIT보다 confidence 높은 글로벌 RAW_TEXT가
+  대표를 빼앗는 타입경계 정렬 결함, 실 Inter 315컬럼 중 28건 영향)은 **정말로
+  미수정 상태로 한 달 가까이 라이브 운영 중이었음** — 지침이 우려한 위험이 실제로
+  발생해 있었던 것. `build_semantic_type_candidates` 최종정렬에 `(-source_priority_
+  rank, score)` 기준 추가로 소급 수정(BATCH_ID 재현 케이스로 검증). Shadow 계측
+  2건 실행(사상 최초 실제 실행, 이전엔 스크립트만 있고 결과 기록 0건) —
+  additive-only 불변식 위반 0건 확인, 다만 계측 스크립트가 재는 경로
+  (`_best_semantic_match`)와 실제 수정한 결함 경로(`candidate_engine._sem_lookup`)
+  가 서로 달라 이 수치가 수정 자체를 직접 증명 못한다는 측정범위 한계도 정직하게
+  기록됨(BATCH_ID 단위테스트로 별도 검증 완료). 관련 서브셋 1,777개 baseline
+  대조로 신규 회귀 0건 확인.
+- **간접 활용 1순위(E1) 구현 완료(2026-08-10, E1-COUNT-MISMATCH-EXPLANATION-GUIDE-
+  IMPLEMENT, 코드 커밋 05f0a116)**: 이 프로젝트 최초의 실제 LLM 연동. 자체호스팅
+  Ollama(Google Gemma 3 4B, 오픈소스·비중국계·폐쇄망 안전)를 M50 설계(urllib.
+  request 직접호출·기본OFF·fail-open Noop·circuit-breaker·SQLite캐시) 그대로
+  재사용해 구현. 안전조건 4가지 전부 코드수준 강제 확인: (a) 판정 필드 자체가
+  반환값에 없음(정적 테스트) (b) WHERE절은 원문 대신 존재여부만 boolean 전송
+  (지시보다 한 단계 더 보수적 자체 설계) (c) 단정문 금지를 프롬프트+정규식 이중
+  방어(단정문 실제 폐기·제안문 실제 통과 테스트 확인) (d) 비활성/장애/None 3경로
+  전부 동일 폴백 문구로 수렴 확인. 신뢰표기는 `source==='LLM'` 성공시에만 노출,
+  판정배지 렌더 코드는 이번 작업과 완전 분리(LLM 표기가 붙을 경로 자체 없음).
+  캐시키는 정확한 건수 대신 차이비율 5%구간으로 묶어 재사용성 극대화. 적용범위는
+  지시대로 개별검증 2단계 한정(일괄 확장은 별도 지침 대상으로 보류). 신규 17건
+  전부 통과, 사전존재 실패 1건 무관 확인, CLAUDE.md 필수 회귀 통과.
+  **⚠️ 특이사항**: 작업 도중 동시 세션의 git 조작으로 추적파일 5개가 HEAD로
+  되돌아간 것을 발견해 즉시 재적용·재검증(전체 스위트 재통과)·즉시 로컬커밋으로
+  고정 — 공유 작업트리 위험 재확인, 향후 유사 작업 시 특히 주의 필요.
+- 잔여: 일괄검증(batch) COUNT 그리드로의 E1 확장(요약 1건 형태), shadow 계측
+  범위한계(엔진게이트 경로 재계측 스크립트 보강) — 둘 다 별도 착수 결정 필요.
+- 참고: E:\verify_reports\SEMANTIC-GLOBAL-DICT-ENABLE.txt
+- 참고: E:\verify_reports\E1-COUNT-MISMATCH-EXPLANATION-GUIDE-IMPLEMENT.txt
