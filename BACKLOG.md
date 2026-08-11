@@ -5678,6 +5678,19 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 한계(정직 고지): 406건 전수를 원문까지 다 읽지 않음(정규식 1차스캔 80건 후보로
   추림), 함수 시그니처 단위 1:1 전수대조는 안 함(구조적 지표로만 확인).
 - 근거: E:\verify_reports\ORACLE-CENTRIC-VERIFICATION-GAP-AUDIT.txt
+- **[2026-08-12 추가] A3+B1~B7 전항목 PG 라이브 재실측 완료(7/7 확인됨)** —
+  PostgreSQL_Inter_asis(내부망)·PostgreSQL_tobe(Neon) 접속 안정화 확인 후,
+  scripts/dev_e2e/ PG 전용 스크립트 17종 신규(코드 저장소 커밋 6fc89f60·965ab6a2)로
+  B1~B7 전부 오라클과 동일 결론 확인(B6 은 정량까지 재현, 절대배율만 오라클과 소폭
+  차이). A1(정적스캔 tests 승격)도 이미 별도 완료(e7229884).
+  **부수 발견 — [C1] 가설이 실측으로 뒷받침됨**: B4 축B(문자 PK 숫자 재산정 경계값을
+  실제 chunk 조회 WHERE 절이 소비하는 지점, make_pg_fetch_chunk)에서 타입 캐스트가
+  빠져 있어, PG 는 "operator does not exist: character varying >= integer" 쿼리
+  오류로 즉시 드러난다(암묵 캐스트 없음) — [C1]이 추정했던 "PG 는 조용히 틀리는 대신
+  쿼리오류로 드러날 가능성"이 실측으로 확인됨. 조용한 오탐은 아니나 완결성 갭은
+  남음(수정은 이번 지시 범위 밖, 후속 지시 필요 시 make_pg_fetch_chunk 캐스트 보강
+  대상). 근거: M74-A3-PG-SCRIPT-EXPAND-AND-B1TOB7-BATCH-REVERIFY 완료보고.
+  A2(HASH_BUCKET PG 실측)·C2·C3 은 별도 지시서로 병행 발행됐으나 이번 작업 범위 밖.
 
 ### M75. COUNT 병렬 vs 4단계 세트병렬(P13) 명칭혼동 정정 — COUNT는 이미 개별/일괄 모두 병렬 정상 작동, P13은 완전히 다른 기능이었음, cross-table 병렬만 추가 최적화 여지로 남음
 - 발견/계기: 2026-08-11 (사용자 — "일괄로 가면 수천 개가 순차로 돌아되는데 맞냐" /
