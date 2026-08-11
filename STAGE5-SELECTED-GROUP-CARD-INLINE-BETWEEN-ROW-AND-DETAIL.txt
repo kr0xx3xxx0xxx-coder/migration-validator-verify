@@ -1,0 +1,199 @@
+작업명 : STAGE5-SELECTED-GROUP-CARD-INLINE-BETWEEN-ROW-AND-DETAIL
+✅ 작업 완료 - [갱신] "선택 그룹 상세추출" 카드를 그룹 목록 표 전체 맨 위 고정 위치에서, 클릭한
+   그룹 행의 펼침 영역 안(상세 레코드 표보다 먼저)으로 옮겼다. 대화 중 추가 지시 2건도 함께 처리:
+   카드 부제 문구 완전 제거, singleMismatchItems 영역의 "전체 N그룹 중 불일치 M그룹" 문구 + 빈
+   Excel 다운로드 링크 통째 제거(실측 확인).
+
+════════════════════════════════════════════════════════════════════════
+0. 선행 지침 확인
+════════════════════════════════════════════════════════════════════════
+X:\Verify\_rpt_push\STAGE5-PERF-CARDS-SWAP-POSITION-FIX.txt(직전 완료, [갱신] 카드를 그룹목록 표
+바로 위로 옮긴 그 작업)를 먼저 읽었다. 이번 작업은 그 위치를 다시 조정한다 — "표 전체 맨 위"는
+그룹이 많으면(예: 11개 그룹) 아래쪽 그룹을 클릭해도 카드가 화면 위쪽에 남아 스크롤해야만 보이는
+문제가 있었다.
+
+════════════════════════════════════════════════════════════════════════
+1. 구현 — 카드 위치를 "표 전체 위"에서 "클릭된 행의 펼침 영역 안"으로
+════════════════════════════════════════════════════════════════════════
+파일:라인 — ui/tabler_renderer.py
+
+  · 28051~28068행(_mvStage5PaintGroupList, 그룹 0건 분기) — host.innerHTML 에서
+    _mvStage5GroupCardHtml() 호출 제거. 그룹이 하나도 없으면 클릭할 행 자체가 없어 카드가 갱신될
+    일이 없으므로 안내 문구만 남긴다.
+  · 28108~28126행(_mvStage5PaintGroupList, 그룹 N건 분기) — host.innerHTML = head + <table>... 에서
+    +_mvStage5GroupCardHtml() 호출 제거(표 전체 위 고정 배치 폐기).
+  · 28275~28322행(_mvRiEnterRecordsView) — inline(mountId 있음, 즉 그룹 행 클릭 경로) 분기에서
+      var perfCard = inline ? _mvStage5GroupCardHtml() : '';
+      host.innerHTML = headHtml + perfCard + filterBar + (window._mvRiRecordsHtml || '<div id="mvRiWrap"></div>');
+    로 변경(28322행 부근). 이 host 가 곧 _mvStage5OpenGroup 이 넘긴 mvS5ChildBody{i}(클릭한 행의
+    펼침 컨테이너)이므로, 여기서 카드를 그리면 "클릭된 행의 펼침 영역 안 · 상세 레코드 표(mvRiWrap)
+    보다 먼저"가 자동으로 성립한다. 스코프 없는 "전체 그룹 한번에 추출" 화면(inline=false)은 특정
+    그룹 행이 없어 카드를 그리지 않는다(기존과 동일 동작 유지).
+  · 카드 함수(_mvStage5GroupCardHtml, 27972행 _mvStage5GroupPerfHtml 포함)와 갱신 로직
+    (_mvStage5SetGroupPerf → #mvS5PerfGroup)은 한 글자도 바꾸지 않았다 — 삽입 위치만 이동. 여러
+    그룹을 동시에 펼치는 구조가 아니라(_mvStage5CollapseGroup 이 "한 번에 하나만 펼침"을 강제) 카드
+    id(#mvS5PerfGroup)를 그룹별로 나눌 필요가 없었다.
+
+════════════════════════════════════════════════════════════════════════
+2. 추가 지시 1 — 카드 부제 문구 완전 제거
+════════════════════════════════════════════════════════════════════════
+파일:라인 — ui/tabler_renderer.py:27975~27978 (_mvStage5GroupPerfHtml)
+
+  부제 "그룹 행을 클릭할 때마다 그 그룹 기준으로 갱신됩니다"를 완전히 제거했다 — 카드가 이제
+  클릭한 그룹 행 바로 아래 펼침 영역 안에서 그려지므로 갱신 대상이 어느 그룹인지 위치 자체로 이미
+  명백하다. 제목 div(<div>선택 그룹 상세추출</div>)에 margin-bottom:4px 를 추가해 부제가 담당하던
+  아래 여백을 대체했다(레이아웃 붕괴 방지).
+
+════════════════════════════════════════════════════════════════════════
+3. 추가 지시 2 — "전체 N그룹 중 불일치 M그룹" 문구 + Excel 다운로드 링크 제거
+════════════════════════════════════════════════════════════════════════
+파일:라인 — ui/grid_helpers.py:2136~2172 (_mvMismatchItemsGridHtml)
+
+  화면 위치 확인: "불일치 3항목 · COUNT · AMT · QTY" 같은 문구(itemLine)를 그리는 함수는
+  _mvMismatchItemsGridHtml 이며, ui/tabler_renderer.py:16900~16901 이 #singleMismatchItems(5단계
+  결과확인 화면, 그룹 목록 바로 위)에 이 함수 결과를 그린다. 그 함수 안에서 itemLine 바로 다음에
+  붙던 아래 두 조각을 통째로 제거했다:
+    - '<span>전체 ' + fmt(totalG) + '그룹 중 불일치 ' + fmt(mismG) + '그룹</span>'
+    - _grpBtn = '<a href="#" ... onclick="window._mvGlobalExport(\'groups\');return false">
+      ⬇ 불일치 그룹 결과 Excel 다운로드</a>' — href="#" 에 onclick 으로만 동작해 실제로는 현재
+      페이지 자체를 가리키는 빈 링크였다(사용자 지적, 실측으로 재확인).
+  더 이상 쓰이지 않는 지역변수 fmt/totalG/_grpBtn 도 함께 제거(죽은 코드 방지). Excel scope 분리
+  (groups/records) 서버 기능 자체(routes/stats_result_route.py)는 손대지 않았다 — 이 화면의 진입
+  링크 하나만 제거.
+
+════════════════════════════════════════════════════════════════════════
+4. 검증 결과 — 실브라우저 실측(지시서 '검증(필수, 실제 클릭)' 절 + 대화 중 추가 지시 포함)
+════════════════════════════════════════════════════════════════════════
+드라이버(신규) : scripts/dev_e2e/stage5_selected_group_card_inline_verify.py
+  scripts/dev_e2e/stage45_clickthrough_reverify.py 의 조작 헬퍼 재사용(새 조작 방식 발명 없음).
+  실 포트 8000, 실 오라클 asis/tobe(NXDNP.MV_COMBO_SRC/TGT), 자동선정 후보(GB=STATUS_CD+DEPT_CD,
+  전체 19그룹 중 불일치 4그룹).
+
+  [before/after 비교 — mismatch_items 영역]
+    실행 순서: (1) --before 모드로 "코드 수정 전" 서버(재기동 전, 기존 프로세스)에 대해 먼저 1회
+    실행해 before 스크린샷 확보 → (2) 코드 수정 반영 후 서버 재기동 → (3) 같은 스크립트를 인자 없이
+    실행해 after 검증.
+
+    항목                                실측값
+    ─────────────────────────────────────────────────────────────────────
+    BEFORE 텍스트                       "불일치 1항목 · AMT 전체 19그룹 중 불일치 4그룹
+                                        ⬇ 불일치 그룹 결과 Excel 다운로드 ※ 위 그룹은..."
+    BEFORE 그룹수 문구 존재              True
+    BEFORE Excel 그룹링크 존재           True
+    AFTER 텍스트                        "불일치 1항목 · AMT ※ 위 그룹은..."
+    AFTER 그룹수 문구 존재(있으면 안 됨)  False
+    AFTER Excel 그룹링크 존재(있으면 안 됨) False
+
+  [카드 위치 — 클릭한 행 펼침 영역 안]
+    항목                                                실측값
+    ─────────────────────────────────────────────────────────────────────
+    진입 직후 그룹 수                                     4
+    클릭 전 #mvS5PerfGroup 존재(있으면 안 됨, 표 위 잔존X)  False
+    마지막(4번째) 그룹 클릭 → child body 존재               True
+    카드가 그 child body 안                                True
+    카드가 상세표(mvRiWrap)보다 먼저                        True
+    카드가 뷰포트 안(추가 스크롤 불필요)                     True
+    카드 내용 가로(flex) 배열                              True
+    카드 부제 문구 존재(있으면 안 됨)                        False
+    카드 텍스트(4번째 그룹)          "선택 그룹 상세추출 대상 GROUP BY STATUS_CD + DEPT_CD = P | D02
+                                    추출 소요 0.13초 ..."
+    첫 번째 그룹으로 전환 → 카드가 새 행 펼침 영역 안         True
+    전환 후 카드 텍스트 변경(그대로면 회귀)                  True(그룹 A "...= A | D01..."로 갱신됨)
+    JS 콘솔 오류(pageerror)                                0건
+    최종 오류 목록(ERRORS)                                 []  (0건)
+
+  스크린샷 7장 + 실측 JSON 2건(before/after) →
+    X:\Verify\verify_screenshots_only\STAGE5-SELECTED-GROUP-CARD-INLINE-BETWEEN-ROW-AND-DETAIL\
+    (증적 저장소 동일 경로에도 사본 push)
+    · mismatch_items_area_before.png — "전체 19그룹 중 불일치 4그룹" + "⬇ 불일치 그룹 결과 Excel
+      다운로드" 링크가 보이는 수정 전 화면(코드 수정 전 서버로 캡처).
+    · mismatch_items_area_after.png — 위 문구·링크가 사라지고 "불일치 1항목 · AMT" + 안내문만
+      남은 수정 후 화면.
+    · after_entry_full_page.png / after_entry_executeout.png — 5단계 진입 직후, 그룹 목록 표
+      바로 위에 카드가 없음(head → 바로 <table>) 육안 확인.
+    · after_last_group_child_body.png — 마지막 그룹 클릭 시 그 행 펼침 영역 맨 위에 부제 없는
+      "선택 그룹 상세추출" 카드, 바로 아래 "전체 재이관 대상(이 그룹) 100건" 상세표 확인.
+    · after_last_group_expanded_full.png — 전체 화면에서 카드가 클릭 위치 근처(스크롤 없이)에
+      바로 보임을 확인.
+    · after_first_group_child_body.png — 다른 그룹(첫 번째)으로 전환 후 카드가 새 행 펼침 영역
+      안에서 정상 갱신됨을 확인.
+
+════════════════════════════════════════════════════════════════════════
+5. 자체 테스트 · 회귀
+════════════════════════════════════════════════════════════════════════
+[A] 렌더 JS 문법 가드 — tests/test_rendered_js_syntax_guard.py 2 passed.
+[B] tests/test_stage5_group_drilldown.py — 재작성 2건 + 신규 1건 포함 전부 통과:
+    · test_stage5_perf_panel_splits_fixed_pipeline_and_per_group — [갱신] 카드 함수가 더 이상
+      _mvStage5PaintGroupList 안에서 쓰이지 않음을 확인하도록 재작성.
+    · test_perf_panel_is_appended_after_group_list_not_prepended_before — 그룹 목록 host 안
+      어디에도 [갱신] 카드가 없음을 확인하도록 재작성.
+    · test_selected_group_card_moved_into_row_expand_area(신규) — _mvRiEnterRecordsView 의
+      inline 분기가 perfCard 를 상세표보다 먼저 조립하는지, _mvStage5OpenGroup 이 실제로 그 행의
+      펼침 컨테이너(mvS5ChildBody+idx)를 mountId 로 넘기는지 확인.
+[C] tests/test_d6_group_record_separation.py::test_terminology_and_excel_button_separation —
+    '전체 N그룹 중 불일치' 문구/그룹 Excel 링크가 _mvMismatchItemsGridHtml 안에 더 이상 없음을
+    확인하도록 재작성(상세 레코드 Excel 버튼(scope=records)은 별개 함수라 무영향, 그대로 확인).
+[D] tests/test_unified_result_detail.py::test_mismatch_one_line_and_no_duplicate_render — node
+    실행 shim 에서 '그룹 중 불일치' 문구·'불일치 그룹 결과 Excel 다운로드' 링크 부재를 확인하도록
+    갱신.
+[E] 관련 서브셋(13개 파일, -p no:randomly) — 165 passed, 5 xfailed, 6 failed.
+    실패 6건은 이번 diff 범위 밖 — 직전 작업(STAGE5-PERF-CARDS-SWAP-POSITION-FIX) 완료보고 §5[C]가
+    명시한 '사전 존재 실패' 목록과 ID 까지 완전히 동일(encoding 문제, routes/execute_route.py·
+    strategy_plan 렌더 검사):
+      test_grid_helpers.py::test_query_review_grid_render_and_no_secrets
+      test_grid_helpers.py::test_candidate_grid_render_and_muted
+      test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+      test_d7_9_gb0_fallback.py::test_gate_gb0_always_grid
+      test_d7_9_gb0_fallback.py::test_stage_timing_display
+      test_all_stages_timing_display_expand.py::test_count_generate_execute_routes_add_processing_ms
+    → 신규 회귀 0건.
+[F] CLAUDE.md 필수 회귀 — samples/test_virtual_cases.py 8/8 통과(커밋 후 재확인),
+    samples/test_complex_cases.py 5/5 통과(케이스 분석 5/5 완료, 커밋 후 재확인).
+
+════════════════════════════════════════════════════════════════════════
+6. 동시 세션 충돌 대응(중요)
+════════════════════════════════════════════════════════════════════════
+작업 중 같은 작업트리(X:\Projects\nxDTV)에서 다른 세션이 ui/tabler_renderer.py·ui/grid_helpers.py
+를 동시에 편집 중임을 실시간으로 포착했다(별도 승인된 직전 지침
+directives/STAGE5-GROUPGEN-TIME-FORMULA-PARALLEL-FIX.md — 그룹생성시간 공식을 병렬/순차로 분기하는
+작업, _mvStage5ProcInfo/parallel_sides 관련). git status 확인 중 내 편집 내용이 순간적으로 사라졌다가
+그 세션의 변경과 함께 다시 나타나는 것을 확인했다(같은 파일을 공유 편집 중이라 발생하는 경합).
+
+대응: git diff 를 hunk 단위로 나눠, 내 변경 hunk만 정확히 골라 git apply --cached 로 인덱스에만
+스테이징한 뒤 커밋했다(작업트리 파일 자체는 건드리지 않음 — 그 세션의 미완성 변경을 삭제/훼손하지
+않았다). 커밋(5395b558)에는 오직 이 작업의 hunk만 포함되며, 그 세션의 _mvStage5ProcInfo/
+parallel_sides 관련 변경은 작업트리에 그대로 남아 그 세션이 검증 완료 후 별도로 커밋해야 한다.
+스테이징 전후로 두 세션 마커(STAGE5-SELECTED-GROUP-CARD-INLINE-BETWEEN-ROW-AND-DETAIL,
+STAGE5-GROUPGEN-TIME-FORMULA-PARALLEL-FIX)가 파일 안에 공존함을 grep 으로 재확인했다(양쪽 다
+유실 없음).
+
+════════════════════════════════════════════════════════════════════════
+7. 변경 파일 · 재기동 시각 · 커밋 해시
+════════════════════════════════════════════════════════════════════════
+  ui/tabler_renderer.py                                                    (수정, 이 작업분 hunk만)
+  ui/grid_helpers.py                                                       (수정, 이 작업분 hunk만)
+  tests/test_stage5_group_drilldown.py                                     (수정 — 2건 재작성 + 1건 신규)
+  tests/test_d6_group_record_separation.py                                 (수정 — 1건 재작성)
+  tests/test_unified_result_detail.py                                      (수정 — 문자열 검증 갱신)
+  scripts/dev_e2e/stage5_selected_group_card_inline_verify.py              (신규 — 실측 드라이버, before/after 겸용)
+
+서버 재기동(최종) : 2026-08-11 18:36:33 (포트 8000, 기존 포트 점유 프로세스(PID 2404) 자동 종료 후
+                    재기동, MV_BIND_HOST 기본값 127.0.0.1). 재기동 시점에는 이 작업 변경분이 이미
+                    작업트리에 반영돼 있었고(커밋은 재기동 이후에 수행) 실측(§4)은 모두 이 재기동
+                    이후 서버로 수행했다 — 서빙 코드와 본 보고의 §1~3 변경 내용이 동일함을 커밋 후
+                    재확인(grep)했다. 단, §6에서 설명한 동시 세션(STAGE5-GROUPGEN-TIME-FORMULA-
+                    PARALLEL-FIX)의 변경은 이 재기동 이후 작업트리에 추가된 것이라 이 서버 인스턴스
+                    에는 포함돼 있지 않다(그 세션이 자기 작업 완료 후 별도로 재기동해야 함).
+서버 HEAD 커밋 해시 : 5395b558(이 작업의 커밋. 재기동 시점 HEAD 는 140297df 였으나, 재기동 이후
+                      커밋된 5395b558 의 diff 내용이 재기동 시점 작업트리 상태와 이 작업 범위에서
+                      동일함을 확인함)
+코드 저장소   : 5395b558  (X:\Projects\nxDTV, main, push 안 함 — 기존 저장소 원칙, remote 미설정)
+                직전 HEAD = 140297df1870d106d88ddbdf255449277ea0636e
+증적 저장소   : 본 보고 파일 + 스크린샷 7장 + 실측 JSON 2건 push(이 문구 자체의 커밋해시는
+                자기참조 불가라 실제 값은 git log 로 확인).
+
+작업명 : STAGE5-SELECTED-GROUP-CARD-INLINE-BETWEEN-ROW-AND-DETAIL
+✅ 작업 완료 - [갱신] "선택 그룹 상세추출" 카드를 그룹 목록 표 전체 맨 위 고정 위치에서, 클릭한
+   그룹 행의 펼침 영역 안(상세 레코드 표보다 먼저)으로 옮겼다. 대화 중 추가 지시 2건도 함께 처리:
+   카드 부제 문구 완전 제거, singleMismatchItems 영역의 "전체 N그룹 중 불일치 M그룹" 문구 + 빈
+   Excel 다운로드 링크 통째 제거(실측 확인).
