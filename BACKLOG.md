@@ -3559,7 +3559,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\STAGE5-GROUP-DRILLDOWN-ARCHITECTURE-IMPLEMENT.txt
 - 참고: E:\verify_reports\STAGE5-AXIS-LABEL-CLICK-FIX-AND-INLINE-ACCORDION-EXPAND.txt
 
-### M60. ✅ 해결 완료 — 5단계 상태배지 미갱신·그룹 재확장 재추출(서로 다른 3개 결함) + 검증성능정보 1~5단계 통합·위치재배치·균형조정·중복헤더제거·실행경로이동·카드분리재배치·카드위치스왑수정·카드인라인배치·그룹생성시간 병렬분기·전략명중복제거·캐시무의미값2항목제거(2026-08-11) + 헤더라벨/색상/검색폼/컬럼/CNT 정리 + 시각계층구조·그리드정렬폭 정리 + 잔존 안내문구·빈박스 결합결함 해소 + 집계값 정렬 최종교정
+### M60. ✅ 해결 완료 — 5단계 상태배지 미갱신·그룹 재확장 재추출(서로 다른 3개 결함) + 검증성능정보 1~5단계 통합·위치재배치·균형조정·중복헤더제거·실행경로이동·카드분리재배치·카드위치스왑수정·카드인라인배치·그룹생성시간 병렬분기·전략명중복제거·캐시무의미값2항목제거·선택그룹상세추출카드 완전제거·재이관대상 문구 콜론포맷(2026-08-11) + 헤더라벨/색상/검색폼/컬럼/CNT 정리 + 시각계층구조·그리드정렬폭 정리 + 잔존 안내문구·빈박스 결합결함 해소 + 집계값 정렬 최종교정
 - 발견일: 2026-08-09 (사용자 스크린샷 4장 직접 지적) / 해결일: 2026-08-09
   (STAGE5-EXTRACT-STATUS-TRACKING-BUG-AND-SUMMARY-LAYOUT-FIX, 코드 커밋 92d1b01 관련
   증적 저장소 push, 코드 저장소는 로컬 커밋만)
@@ -3775,6 +3775,15 @@ git -C E:/verify_reports worktree remove <임시경로>
   `persist` 인자가 호출부마다 다르게 넘어감. 버그는 아니나 알아둘 구조적 사실.
 - 참고: E:\verify_reports\STAGE5-STRATEGY-NAME-DUPLICATE-REMOVE.txt
 - 참고: E:\verify_reports\STAGE5-CARD-REMOVE-ITEM24-AND-PER-GROUP-STORAGE-VERIFY.txt
+- **"선택 그룹 상세추출" 카드 완전 제거 + 문구 콜론포맷 완료(2026-08-11,
+  STAGE5-MISMATCH-LIST-HEADER-TEXT-FIX-AND-GROUP-CARD-REMOVE, 코드 커밋
+  2f9e6de5)**: 오늘 하루 여러 차례 위치·내용을 다듬어온 이 카드가, 캐시재사용
+  시 옛날 저장값을 마치 방금 걸린 시간처럼 보여주는 등 사용자에게 오해를 주는
+  정보라는 게 최종 확인돼(M76 참고), **카드 자체를 완전히 제거**하기로 결정 —
+  갱신 로직 등 죽은 코드도 함께 정리. 불일치 리스트 표는 그대로 유지. 동시에
+  "전체 재이관 대상(이 그룹) N건" → "전체 재이관 대상 : N건"으로 문구 포맷도
+  변경. 실 클릭으로 카드 미표시·리스트 표 정상 확인.
+- 참고: E:\verify_reports\STAGE5-MISMATCH-LIST-HEADER-TEXT-FIX-AND-GROUP-CARD-REMOVE.txt
 
 ### M61. ✅ 해결 완료 — 5단계 실행경로/전략 자동판정에서 PK 구성 검사가 실질적으로 무력화됨(하드코딩)
 - 발견일: 2026-08-09 (채팅 조사 — "실행경로/전략" 배지가 실제로 여러 값이 나오는지
