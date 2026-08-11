@@ -1,5 +1,14 @@
 작업명 : ORACLE-CENTRIC-VERIFICATION-GAP-AUDIT
-✅ 작업 완료 - verify 저장소 완료보고서 406건 전수 스캔 + 코드 방언 구조 직접 대조로, 오라클로만 실측되고 PostgreSQL은 미검증인 항목 11건 발견(심각 2 · 경미 7 · 확인불가 2), 코드 무변경(조사 전용)
+✅ 작업 완료 - verify 저장소 완료보고서 406건 전수 스캔 + 코드 방언 구조 직접 대조로, 오라클로만 실측되고 PostgreSQL은 미검증인 항목 13건 발견(심각 3 · 경미 7 · 확인불가 3), 코드 무변경(조사 전용)
+
+[정정판 안내] 최초 버전(acf23ae, 단일 조사 에이전트)을 코디네이터가 별도의 정밀 코드감사
+에이전트(A) 결과와 대조해 보완했다. 변경점: (1) scripts/dev_e2e/ 라이브 스크립트
+오라클:PostgreSQL 편중(51:4, 재검수 50:4)을 신규 심각 항목[A3]으로 추가 — 최초판 §5는
+pytest 게이트만 보고 이 인벤토리를 누락했었음(원 조사 에이전트도 재검수 후 누락 인정).
+(2) M69 좀비세션 "완전 종결(§4 안심)" 판정을 "확인불가[C3]"로 하향 — 오라클 자동정리
+1.1초 실측은 텍스트 근거뿐이고 재현 스크립트가 저장소에 없음(PG 는 재현 스크립트 존재).
+(3) §5 에 HASH_BUCKET 디스패치 계층(services/diagnosis/dialects_hash/) 대칭성 근거와
+git log --follow 파일별 커밋수 비교를 보강.
 
 ────────────────────────────────────────────────────────────
 0. 조사 범위·방법
@@ -10,10 +19,14 @@
   (HASH_BUCKET·PK_RANGE_CHUNK·NLS/collation·M69 계열)를 원문 확인.
   BACKLOG.md(5,000행 이상)의 "부록 — 환경 때문에 미완인 실측" 표(4914~4925행)와
   S9~S14 항목도 직접 대조.
-- 대상 2(코드) : X:\Projects\nxDTV 의 services/dialects/*.py, services/exact_diff/dialects/*.py 를
+- 대상 2(코드, 1차) : X:\Projects\nxDTV 의 services/dialects/*.py, services/exact_diff/dialects/*.py 를
   직접 열람하고, git log 커밋수·pytest 라이브게이트 환경변수(MV_PG_LIVE_SAFETY 등) 사용빈도를
-  실측 집계. 코드 수정 없음(Read/Grep/git log/wc 만 사용).
-- 코드 수정 0건, push 는 이 보고서(verify 저장소)만 대상.
+  실측 집계.
+- 대상 2(코드, 정정판 보강) : 별도 에이전트가 services/diagnosis/dialects_hash/,
+  services/exact_diff/pg_session_registry.py, scripts/dev_e2e/*.py 전수(파일명 기준
+  오라클/postgres 접두 카운트), git log --follow 파일별 커밋수를 추가로 직접 대조.
+- 코드 수정 없음(Read/Grep/git log/wc 만 사용). 코드 수정 0건, push 는 이 보고서(verify
+  저장소)만 대상.
 
 ────────────────────────────────────────────────────────────
 1. 심각 — PostgreSQL→PostgreSQL 에서 실제로 틀린 결과가 나올 수 있는 것
@@ -48,7 +61,29 @@
          전략이고, 그 전략이 실제로 도는 방언(PG)의 실행계획 근거가 없다는 뜻이다.
          (참고: 코드 자체는 md5 기반이 PG 원안이고 오라클(STANDARD_HASH)이 나중에
          포트된 것 — G7 시리즈 — 이라 "오라클이 원조"는 아니다. 다만 최근 실측 관심이
-         전부 오라클 포트 검증(G7·N1-P1)에 쏠리며 원안인 PG 쪽 성능 재검증이 밀렸다.)
+         전부 오라클 포트 검증(G7·N1-P1)에 쏠리며 원안인 PG 쪽 성능 재검증이 밀렸다.
+         디스패치 계층(services/diagnosis/dialects_hash/oracle.py·postgresql.py,
+         hash_contract.py:122-124) 자체는 두 구현체 모두 등록돼 있고
+         tests/test_hash_contract_dialect_adapter.py 가 SQL 리터럴·인터페이스 표면까지
+         대조하므로 "코드가 없다"는 아니다 — 갭은 코드가 아니라 실DB 실행계획·시간
+         실측 쪽에 있다.)
+
+[A3] 실DB 라이브 실측 스크립트(scripts/dev_e2e/) 자체가 오라클로 극단 편중돼 있다 —
+     개별 버그가 아니라 검증 프로세스 구조의 편향
+  근거 : 코드 저장소 scripts/dev_e2e/*.py 파일명 접두 직접 카운트(코디네이터 재검수 완료) —
+         오라클 관련(oracle/ora 접두) 50개 vs PostgreSQL 관련(postgres/pg 접두) 4개
+         (count_marker_underscore_alias_negctl_and_pg_verify.py,
+          m69_pg_terminate_orphan_live_verify.py, plain_join_wrapping_pg_probe.py,
+          table_key_meta_pg_no_regression_verify.py). tests/*.py 단위테스트 레벨은
+         PostgreSQL 언급이 오라클보다 많지만(services/dialects/base.py 기본 구현이
+         PostgreSQL 동작과 동일해 "기본값" 취급되기 때문), 이는 실DB 접속 실측이 아니라
+         mock/문자열 단위 검증이라 §1 [A1]·[A2]와 같은 종류의 갭을 못 메운다.
+  1차 소견 : 심각(구조적) — 코드 수정 시점마다 두 방언을 대칭으로 고치는 관행(§5
+         파일별 커밋수 참고)은 지켜지고 있으나, "그 수정이 실제 DB에서 맞는지"를
+         실측으로 확인하는 인프라 자체가 오라클에 12배 이상 쏠려 있다. §1[B1]~[B7],
+         §3[C1] 등 개별 항목들이 반복적으로 "PG 접속 실패/미실측"으로 막힌 근본 원인이
+         바로 이 구조다 — 개별 항목을 하나씩 고쳐도 다음 신규 기능에서 같은 패턴이
+         재발할 위험이 높다.
 
 ────────────────────────────────────────────────────────────
 2. 경미 — 검증만 안 됐지 코드 구조상 방언 무관 동일 동작 가능성이 높은 것
@@ -136,14 +171,27 @@
          잔여위험 전체 목록"으로 신뢰하면 안 된다는 뜻. 표 갱신 필요(코드 변경 아니므로
          이번 조사 범위 밖, 별도 지시 필요).
 
+[C3] M69 좀비 세션 정리 — "오라클은 원래 안전하다"는 판단의 실측 재현 근거가 텍스트로만
+     남아있고, 저장소 안에 재현 가능한 스크립트가 없다(지시서가 물어본 반대방향 질문)
+  근거 : services/exact_diff/pg_session_registry.py:11-15 주석에 "Oracle 은 강제종료 시
+         1.1초 만에 세션이 자동 정리되므로(실측) 이 모듈은 PostgreSQL 전용이다"라고
+         명시돼 있고, 원출처인 ORPHANED-REIMPORT-JOB-CLEANUP-AND-DB-SESSION-SAFETY.txt
+         20행에도 같은 수치가 있다. 하지만 이 "1.1초 실측"을 재현할 수 있는
+         scripts/dev_e2e/ 스크립트나 별도 문서는 저장소 전체에 없다(해당 문자열은
+         pg_session_registry.py 자기 자신에서만 출현). PostgreSQL 쪽은 대칭적으로
+         tests/test_m69_pg_terminate_backend_wire.py 회귀 테스트 +
+         scripts/dev_e2e/m69_pg_terminate_orphan_live_verify.py 라이브 재현 스크립트가
+         둘 다 존재해, "언제든 재검증 가능"과 "한 번 측정한 숫자가 주석으로만 남음"의
+         비대칭이 있다.
+  1차 소견 : 확인불가 — "오라클은 원래 안전하다"는 결론 자체를 뒤집을 근거는 없으나,
+         이 저장소 안에서 그 실측을 재현/재확인할 수단이 없어 지금 이 세션에서
+         독립적으로 재검증할 수 없다. 지시서가 우려한 "반대방향은 안 물어봤을 것"이라는
+         전제는 틀렸다(이미 물어보고 답을 냈다) — 다만 그 답의 재현 가능성이 PG 대비
+         떨어진다는 점은 별도로 기록해둘 가치가 있다.
+
 ────────────────────────────────────────────────────────────
 4. 이미 확인되어 "안심"으로 분류할 수 있는 항목(재작업 불필요, 참고용)
 ────────────────────────────────────────────────────────────
-- M69 좀비 세션(pg_terminate_backend, PG 전용 구현) : 반대방향("오라클도 같은 문제
-  아니냐")은 이미 물어봤고 실측까지 됐다 — ORPHANED-REIMPORT-JOB-CLEANUP-AND-DB-SESSION-
-  SAFETY.txt 20행 "오라클은 안전하다. 강제종료 시 DB 쪽 세션이 빠르게(실측 1.1초)
-  자동 정리된다" — 실측 근거 있음, 지시서가 우려한 "안 물어봤을 것"이라는 가정은
-  틀렸다(이미 물어봤고 결론이 났다).
 - VARCHAR2 byte/char 문제(S13) 4방언 확장검토 : PostgreSQL 은 "위험 없음(구조상 불가),
   조사로 종결" 이미 확정(varchar(n) 이 인코딩 무관 항상 "문자 수"라 오라클류 byte/char
   선언 모호성 자체가 없음, 공식문서 인용 확인) — BACKLOG.md 731~733행.
@@ -190,19 +238,39 @@
     md5( 참조(오라클 외) 8개 파일 — 자동 테스트 커버리지 자체는 큰 격차 없음.
     다만 §1 [A2] 처럼 "실측 성능"은 PG 쪽이 비어있다(단위테스트 통과 ≠ 실행계획 실측).
 
+  [정정판 보강] git log --follow 파일별 커밋수 재확인(파일 이동 이력 포함):
+    services/dialects/oracle_dialect.py            2   services/dialects/postgresql_dialect.py     2
+    services/diagnosis/dialects_hash/oracle.py      1   services/diagnosis/dialects_hash/postgresql.py 2
+    services/exact_diff/dialects/oracle.py          6   services/exact_diff/dialects/postgresql.py  6
+    services/exact_diff/pg_session_registry.py      1   (오라클 대응 파일 없음 — PG 전용 모듈)
+    → 파일 단위 수정 빈도는 오라클·PG 거의 1:1(2/2, 6/6). "소스를 고치는 빈도"에는
+      편중이 없고, 편중은 오직 위 [A3]의 실DB 라이브 스크립트 인벤토리(50:4)에 있다.
+      이는 매 수정마다 두 방언을 대칭으로 고쳐왔지만, 그 수정이 실제로 맞는지 실DB로
+      확인한 건 대부분 오라클뿐이라는 뜻이라 [A3]의 "심각(구조적)" 판정을 뒷받침한다.
+
+  [정정판 보강] scripts/dev_e2e/ 라이브 스크립트 오라클:PostgreSQL 인벤토리(§1 [A3] 근거
+    원본) — 오라클 접두 50개, PostgreSQL 접두 4개(파일명은 §1 [A3] 참고).
+    scripts/dev_fixtures/*.py 는 ora_xdiff_fixture.py 1개 vs pgtier_per_group_fixture.py
+    1개로 균형(표본이 작아 유의미하지 않음, 참고용).
+
 ────────────────────────────────────────────────────────────
 6. 우선순위 권고
 ────────────────────────────────────────────────────────────
   1순위 : [A1] dialect 미전달 시 'postgres' 조용한 기본값 구조 — DIALECT-DELEGATION-
           15SPOT-RECOUNT-DIAGNOSE.txt 가 이미 제안한 "정적 스캔을 tests/ 로 승격"부터
           착수 권장(비용 대비 효과 최대, 코드 변경도 작음).
-  2순위 : [A2] HASH_BUCKET PG 실행계획·실측 시간 확보 — PG 접속(Neon 쿼터 복구 또는
-          내부망 5433/5434 복구) 후 HASH-BUCKET-STRATEGY-SORT-AVOIDANCE-VIABILITY-
-          DIAGNOSE.txt 를 PG 대상으로 재실행.
-  3순위 : [B1]~[B7] — PG 인프라 복구 시점에 일괄 재실측(개별 착수 불필요, 접속만
+  2순위 : [A3] scripts/dev_e2e/ PG 라이브 스크립트 확충(50:4 편중 해소) — 개별 항목을
+          하나씩 메우는 것보다, PG 인프라(Neon 쿼터·내부망 5433/5434) 접속 안정화와
+          PG 전용 재현 스크립트 최소 세트 확보가 구조적으로 더 큰 효과. [B1]~[B7]·[C1]이
+          공통으로 이 인프라 부재 때문에 막혀 있다.
+  3순위 : [A2] HASH_BUCKET PG 실행계획·실측 시간 확보 — PG 접속 복구 후
+          HASH-BUCKET-STRATEGY-SORT-AVOIDANCE-VIABILITY-DIAGNOSE.txt 를 PG 대상으로
+          재실행.
+  4순위 : [B1]~[B7] — PG 인프라 복구 시점에 일괄 재실측(개별 착수 불필요, 접속만
           되면 대부분 기존 진단 스크립트 재실행으로 끝남 — 각 보고서에 재실행
           커맨드가 이미 남아있음).
-  4순위(문서) : [C2] BACKLOG.md 부록 표 갱신 — 코드 변경 아니므로 별도 지시 시 즉시
+  5순위(문서) : [C2] BACKLOG.md 부록 표 갱신, [C3] M69 오라클측 1.1초 실측 재현
+          스크립트 신설(현재는 주석 인용뿐) — 코드 변경 소폭이므로 별도 지시 시 즉시
           가능.
 
 ────────────────────────────────────────────────────────────
@@ -214,5 +282,9 @@
 - 코드 쪽 함수 단위 1:1 대조(오라클에는 있는데 PG 에는 없는 메서드)는 이번 보고서
   기준으로는 파일 크기·커밋수·테스트게이트 빈도 등 구조적 지표로만 확인했고, 함수
   시그니처 단위 전수 대조까지는 하지 않았다.
+- 이 보고서는 병렬로 실행된 두 조사 에이전트(문서·1차코드 담당 / 정밀코드감사 담당)의
+  결과를 코디네이터가 대조·병합해 정정판으로 작성했다. 두 에이전트 결과가 갈린 지점
+  (HASH_BUCKET 원조 방언, M69 종결 여부, dev_e2e 인벤토리 누락)은 상호 재검수를 거쳐
+  반영했으나, 정정판 자체가 재검수를 한 번 더 필요로 할 가능성은 열어둔다.
 
-✅ 작업 완료 - verify 저장소 완료보고서 406건 전수 스캔 + 코드 방언 구조 직접 대조로, 오라클로만 실측되고 PostgreSQL은 미검증인 항목 11건 발견(심각 2 · 경미 7 · 확인불가 2), 코드 무변경(조사 전용)
+✅ 작업 완료 - verify 저장소 완료보고서 406건 전수 스캔 + 코드 방언 구조 직접 대조로, 오라클로만 실측되고 PostgreSQL은 미검증인 항목 13건 발견(심각 3 · 경미 7 · 확인불가 3), 코드 무변경(조사 전용)
