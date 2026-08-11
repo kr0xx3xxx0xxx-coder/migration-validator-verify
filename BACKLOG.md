@@ -3559,7 +3559,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\STAGE5-GROUP-DRILLDOWN-ARCHITECTURE-IMPLEMENT.txt
 - 참고: E:\verify_reports\STAGE5-AXIS-LABEL-CLICK-FIX-AND-INLINE-ACCORDION-EXPAND.txt
 
-### M60. ✅ 해결 완료 — 5단계 상태배지 미갱신·그룹 재확장 재추출(서로 다른 3개 결함) + 검증성능정보 1~5단계 통합·위치재배치·균형조정·중복헤더제거·실행경로이동·카드분리재배치·카드위치스왑수정(2026-08-11) + 헤더라벨/색상/검색폼/컬럼/CNT 정리 + 시각계층구조·그리드정렬폭 정리 + 잔존 안내문구·빈박스 결합결함 해소 + 집계값 정렬 최종교정
+### M60. ✅ 해결 완료 — 5단계 상태배지 미갱신·그룹 재확장 재추출(서로 다른 3개 결함) + 검증성능정보 1~5단계 통합·위치재배치·균형조정·중복헤더제거·실행경로이동·카드분리재배치·카드위치스왑수정·카드인라인배치·그룹생성시간 병렬분기(2026-08-11) + 헤더라벨/색상/검색폼/컬럼/CNT 정리 + 시각계층구조·그리드정렬폭 정리 + 잔존 안내문구·빈박스 결합결함 해소 + 집계값 정렬 최종교정
 - 발견일: 2026-08-09 (사용자 스크린샷 4장 직접 지적) / 해결일: 2026-08-09
   (STAGE5-EXTRACT-STATUS-TRACKING-BUG-AND-SUMMARY-LAYOUT-FIX, 코드 커밋 92d1b01 관련
   증적 저장소 push, 코드 저장소는 로컬 커밋만)
@@ -3730,6 +3730,29 @@ git -C E:/verify_reports worktree remove <임시경로>
   전환 시 [갱신]만 갱신·[고정]은 바이트단위 불변 확인. 회귀 6건 전부 어제
   SPLIT-REPOSITION 사전존재 목록과 ID 완전 일치, 신규 회귀 0건.
 - 참고: E:\verify_reports\STAGE5-PERF-CARDS-SWAP-POSITION-FIX.txt
+- **카드 인라인배치 완료(2026-08-11, STAGE5-SELECTED-GROUP-CARD-INLINE-BETWEEN-
+  ROW-AND-DETAIL, 코드 커밋 5395b558)**: [갱신]"선택 그룹 상세추출" 카드가 그룹
+  목록 표 "전체 맨 위"에 고정돼 있어, 그룹이 많으면(11개 등) 아래쪽 그룹 클릭 시
+  카드가 화면 밖으로 밀려나 스크롤해야만 보이던 문제 해소 — **클릭한 그룹 행의
+  펼침 영역 안(상세 레코드 표보다 먼저)**으로 이동. 부제 문구("그룹 행을 클릭할
+  때마다...") 완전 제거, `#singleMismatchItems` 영역의 "전체N그룹 중 불일치M그룹"
+  문구+빈 Excel 다운로드 링크(href="#"만 있던 죽은 링크)도 함께 제거. **진짜 다른
+  서버 상태(수정전/재기동한 수정후)로 실측 대조**, 마지막 그룹→첫 그룹 전환 시
+  카드 내용이 실제로 갱신되는 것도 확인. **작업 중 동시세션(그룹생성시간 공식
+  작업)과 같은 파일(`ui/grid_helpers.py`) 실시간 충돌을 스스로 감지해, hunk 단위
+  `git apply --cached`로 자기 변경분만 정확히 커밋(다른 세션 미완료 변경은 작업
+  트리에 그대로 보존, 양쪽 다 유실 없음 확인)**. 신규 회귀 0건. 서버 재기동
+  18:36:33(커밋 5395b558) — 이 시점엔 동시세션(그룹생성시간 공식)의 변경분은
+  아직 미포함.
+- **그룹생성시간 공식 병렬분기 완료(2026-08-11, STAGE5-GROUPGEN-TIME-FORMULA-
+  PARALLEL-FIX, 코드 커밋 a836a472)**: "그룹생성시간=전체-원본-목적" 공식이
+  4단계 병렬화(위 STAGE4-SOURCE-TARGET-PARALLEL-EXECUTE) 이후 항상 음수→0.01초
+  미만으로 고착되던 문제 해소 — 병렬/순차 여부에 따라 공식 분기(병렬:
+  전체-max(원본,목적), 순차: 기존 공식 유지). 서버 재기동 18:56:35(커밋
+  a836a472, 위 카드인라인배치보다 시점상 나중이라 두 작업 다 포함 가능성 높음,
+  확실한 통합확인은 별도 권장).
+- 참고: E:\verify_reports\STAGE5-SELECTED-GROUP-CARD-INLINE-BETWEEN-ROW-AND-DETAIL.txt
+- 참고: E:\verify_reports\STAGE5-GROUPGEN-TIME-FORMULA-PARALLEL-FIX.txt
 
 ### M61. ✅ 해결 완료 — 5단계 실행경로/전략 자동판정에서 PK 구성 검사가 실질적으로 무력화됨(하드코딩)
 - 발견일: 2026-08-09 (채팅 조사 — "실행경로/전략" 배지가 실제로 여러 값이 나오는지
