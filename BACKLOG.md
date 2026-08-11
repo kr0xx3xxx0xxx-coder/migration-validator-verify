@@ -3491,7 +3491,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\STAGE5-GROUP-DRILLDOWN-ARCHITECTURE-IMPLEMENT.txt
 - 참고: E:\verify_reports\STAGE5-AXIS-LABEL-CLICK-FIX-AND-INLINE-ACCORDION-EXPAND.txt
 
-### M60. ✅ 해결 완료 — 5단계 상태배지 미갱신·그룹 재확장 재추출(서로 다른 3개 결함) + 검증성능정보 1~5단계 통합·위치재배치·균형조정·중복헤더제거·실행경로이동·카드분리재배치(2026-08-11) + 헤더라벨/색상/검색폼/컬럼/CNT 정리 + 시각계층구조·그리드정렬폭 정리 + 잔존 안내문구·빈박스 결합결함 해소 + 집계값 정렬 최종교정
+### M60. ✅ 해결 완료 — 5단계 상태배지 미갱신·그룹 재확장 재추출(서로 다른 3개 결함) + 검증성능정보 1~5단계 통합·위치재배치·균형조정·중복헤더제거·실행경로이동·카드분리재배치·카드위치스왑수정(2026-08-11) + 헤더라벨/색상/검색폼/컬럼/CNT 정리 + 시각계층구조·그리드정렬폭 정리 + 잔존 안내문구·빈박스 결합결함 해소 + 집계값 정렬 최종교정
 - 발견일: 2026-08-09 (사용자 스크린샷 4장 직접 지적) / 해결일: 2026-08-09
   (STAGE5-EXTRACT-STATUS-TRACKING-BUG-AND-SUMMARY-LAYOUT-FIX, 코드 커밋 92d1b01 관련
   증적 저장소 push, 코드 저장소는 로컬 커밋만)
@@ -3653,6 +3653,15 @@ git -C E:/verify_reports worktree remove <임시경로>
   (`ui/tabler_renderer.py` 등 3파일)에 해당 파일이 아예 없음을 확인해 무관 판정.
   동시세션 미커밋 파일 다수 전혀 미접촉.
 - 참고: E:\verify_reports\STAGE5-PERF-CARDS-SPLIT-REPOSITION.txt
+- **위치 스왑 정정(2026-08-11, STAGE5-PERF-CARDS-SWAP-POSITION-FIX, 코드 커밋
+  0c6de53f)**: 직전 분리배치가 사용자 의도와 반대였음을 재지적받아 정정 —
+  [고정]"1~5단계 소요시간"을 화면 최상단(런요약타일 바로아래, 18px 여백)으로,
+  [갱신]"선택 그룹 상세추출"을 그룹목록 표 바로 위로 맞바꿈. 함수·id·갱신계약은
+  한 글자도 안 바꾸고 물리적 위치만 교체. 실측: [고정]카드 첫뷰포트 내 위치 확인,
+  [갱신]카드가 그룹행보다 항상 위(`grpIsBeforeAllGroupRows=true`) 확인, 그룹 A→B
+  전환 시 [갱신]만 갱신·[고정]은 바이트단위 불변 확인. 회귀 6건 전부 어제
+  SPLIT-REPOSITION 사전존재 목록과 ID 완전 일치, 신규 회귀 0건.
+- 참고: E:\verify_reports\STAGE5-PERF-CARDS-SWAP-POSITION-FIX.txt
 
 ### M61. ✅ 해결 완료 — 5단계 실행경로/전략 자동판정에서 PK 구성 검사가 실질적으로 무력화됨(하드코딩)
 - 발견일: 2026-08-09 (채팅 조사 — "실행경로/전략" 배지가 실제로 여러 값이 나오는지
@@ -5321,3 +5330,16 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\SEMANTIC-GLOBAL-DICT-ENABLE.txt
 - 참고: E:\verify_reports\E1-COUNT-MISMATCH-EXPLANATION-GUIDE-IMPLEMENT.txt
 - 참고: E:\verify_reports\BATCH-FAILURE-SUMMARY-LLM-GUIDE-IMPLEMENT.txt
+- **⚠️→✅ 모델 설정 오류 발견·정정(2026-08-11, DEPLOY-CHECKLIST-6-1-OLLAMA-MODEL-
+  TAG-CROSSCHECK 발견 → LLM-CONFIG-MODEL-TAG-FIX-TO-GEMMA 수정, 코드 커밋
+  f90a05d6)**: 폐쇄망 배포문서 태그 대조 중 `config/model_config.py`의 E1·
+  일괄실패요약 두 기능 모델 설정이 **둘 다 존재하지 않는 태그**
+  (`llama3.2:3b-instruct-q4_K_M`)로 하드코딩돼 있던 걸 발견 — 기능 기본OFF라
+  겉으로 안 드러났지만, 켰다면 조용히 fail-open 폴백만 되고 아무도 눈치 못 챌
+  위험(진짜 모델 응답 한 번도 안 나감). **1차 발견보고서가 제안한 정정방향
+  (llama3.2:3b)은 오늘 한국어 비교실측 결과와 배치돼 기각** — 정확한 값
+  `gemma3:4b`로 정정. 정정 후 두 기능 다 실제 활성화해 **진짜 Ollama 응답 성공
+  확인**(각 4초 내외, 단정문 없는 제안형 문장 확인), env 제거 시 기본OFF 정상
+  복귀 확인. diff 2줄뿐, 신규 회귀 0건.
+- 참고: E:\verify_reports\DEPLOY-CHECKLIST-6-1-OLLAMA-MODEL-TAG-CROSSCHECK.txt
+- 참고: E:\verify_reports\LLM-CONFIG-MODEL-TAG-FIX-TO-GEMMA.txt
