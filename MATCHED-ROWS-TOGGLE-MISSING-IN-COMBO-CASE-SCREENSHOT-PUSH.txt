@@ -1,0 +1,73 @@
+작업명 : MATCHED-ROWS-TOGGLE-MISSING-IN-COMBO-CASE-SCREENSHOT-PUSH
+✅ 작업 완료 - 스크린샷 2장 존재 확인 후 정상 위치(E:\verify_screenshots_only\<작업명>\)로 복사·push 완료, 원격 반영 확인
+
+────────────────────────────────────────────────────────────
+1. 로컬 존재 확인
+────────────────────────────────────────────────────────────
+scratchpad/MATCHED-ROWS-TOGGLE-MISSING-IN-COMBO-CASE-DIAGNOSE_shots/ 에 2장 모두 실재 확인:
+  1_stage4_pair_executed_4groups.png  173,844 bytes
+  2_stage5_group_list_no_toggle.png   207,965 bytes
+빈 파일/손상 없음(비제로 크기, 실제 픽셀 내용 육안 확인 완료 — 아래 4번).
+
+────────────────────────────────────────────────────────────
+2. 규정 위치 복사
+────────────────────────────────────────────────────────────
+E:\verify_screenshots_only\MATCHED-ROWS-TOGGLE-MISSING-IN-COMBO-CASE-DIAGNOSE\ 로 복사.
+공유 워킹트리 오염 방지를 위해 origin/main 기반 임시 worktree(E:\_wtvr2) 경유 — 공유 트리
+E:\verify_screenshots_only 자체는 로컬 9-ahead/636-behind + 대량 unstaged 삭제 상태라 직접
+add/commit 하지 않음([[feedback_verify_reports_shared_dir_concurrency]] 원칙 준수).
+
+────────────────────────────────────────────────────────────
+3. 크기·해시(복사 후 재확인, 원본과 바이트 단위 일치)
+────────────────────────────────────────────────────────────
+파일                                    크기(bytes)   sha256
+--------------------------------------- ------------- ----------------------------------------------------------------
+1_stage4_pair_executed_4groups.png      173,844       7e13461580c4496b01cc1c0eed368ee7b61651a3dea150d86c05d1fd8b120eb4
+2_stage5_group_list_no_toggle.png       207,965       85bc6f7c2e6d478979e89449bc2140ad1f7710bebf890f1c376f54119901cffe
+
+────────────────────────────────────────────────────────────
+4. 스크린샷 실제 내용(육안 확인)
+────────────────────────────────────────────────────────────
+- 1_stage4_pair_executed_4groups.png: 4단계 "통계검증 실행" 직후 화면. 목적/원본 SQL 카드에
+  GROUP BY STATUS_CD, DEPT_CD 결합 쿼리(SELECT ... COUNT(*) AS CNT, SUM(AMT) AS AMT ... GROUP BY
+  STATUS_CD, DEPT_CD)와 상태 "불일치" 배지, 하단 "☐ 조합( STATUS_CD + DEPT_CD )도 함께 검증"
+  체크박스(화면상 미체크 표시 — 실제로는 window._mvIncludePairOnce 플래그로 조합 세트 실행을
+  강제했으며, 이 플래그는 체크박스 DOM 표시와 별개로 소비되는 1회성 플래그라 화면 체크 표시는
+  갱신되지 않음. 실행 결과 자체는 조합 세트 결과로 확인됨).
+- 2_stage5_group_list_no_toggle.png: 5단계 "결과 확인" 화면 전체(뷰포트 1600×1100, 상단 메뉴부터
+  "검증 그룹에 등록" 섹션까지 스크롤 없이 한 화면에 포함). 요약 타일 "전체그룹 19개·불일치그룹
+  4개·재이관대상 4건", 안내문 "불일치 그룹 4개 · 상세 추출 완료 0개", 아래 표(GROUP BY 축 | 그룹
+  값 | 판정 | 목적카운트 | 원본카운트 | 목적집계 | 원본 집계 | 상세 추출 상태) 4행(A|D01, A|D02,
+  P|D01, P|D02). 화면 어디에도 "일치 행 보기" 토글 버튼이 없음 — 직전 완료보고(DIAGNOSE)의 핵심
+  근거 화면.
+
+────────────────────────────────────────────────────────────
+5. git 작업(오직 verify 저장소에서만 — 코드 저장소 X:\Projects\nxDTV 에서는 verify 관련 git
+   명령 실행 안 함)
+────────────────────────────────────────────────────────────
+- E:\verify_screenshots_only 의 git 메타데이터로 origin/main 임시 worktree(E:\_wtvr2) 생성
+- verify_screenshots_only/MATCHED-ROWS-TOGGLE-MISSING-IN-COMBO-CASE-DIAGNOSE/*.png 2개만
+  git add → git diff --cached --name-status 로 그 2개뿐임을 확인 후 commit
+- git fetch origin main → rebase(HEAD up to date, 충돌 없음) → git push origin HEAD:main
+- 커밋: e29fbc7 (부모 26dc6cd = 직전 DIAGNOSE 텍스트 보고 커밋)
+- worktree 제거(git worktree remove --force + prune) — 공유 트리 무접촉 확인
+
+────────────────────────────────────────────────────────────
+6. 원격 반영 확인(원문)
+────────────────────────────────────────────────────────────
+$ git ls-remote https://github.com/kr0xx3xxx0xxx-coder/migration-validator-verify.git main
+e29fbc754bf7c1adeb092e74ad1dfccf8fe5f21a	refs/heads/main
+→ 로컬 push 커밋(e29fbc7)과 원격 main 정확히 일치.
+
+────────────────────────────────────────────────────────────
+결론
+────────────────────────────────────────────────────────────
+직전 완료보고(DIAGNOSE, 커밋 26dc6cd)가 인용한 스크린샷 2장은 로컬에 실재했고 손상 없이
+원본과 동일한 크기/해시로 복사돼 verify 저장소 E:\verify_screenshots_only\
+MATCHED-ROWS-TOGGLE-MISSING-IN-COMBO-CASE-DIAGNOSE\ 에 push 완료(커밋 e29fbc7, 원격 확인
+완료). 이로써 DIAGNOSE 보고의 텍스트 결론(조합축 경로에 "일치 행 보기" 토글이 없다)을
+뒷받침하는 시각적 증거가 verify 저장소에도 실제로 존재하게 됐다. 텍스트 결론 자체는
+변경 없음(재조사 불필요 — 이번 작업 범위 아님).
+
+작업명 : MATCHED-ROWS-TOGGLE-MISSING-IN-COMBO-CASE-SCREENSHOT-PUSH
+✅ 작업 완료 - 스크린샷 2장 존재 확인 후 정상 위치(E:\verify_screenshots_only\<작업명>\)로 복사·push 완료, 원격 반영 확인
