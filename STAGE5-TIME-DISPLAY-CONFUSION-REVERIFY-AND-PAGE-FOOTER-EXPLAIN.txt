@@ -1,0 +1,144 @@
+작업명 : STAGE5-TIME-DISPLAY-CONFUSION-REVERIFY-AND-PAGE-FOOTER-EXPLAIN
+✅ 작업 완료 - 사용자 질문 3가지 전부 코드 근거로 확인, 종합 설명 정리(코드 수정 없음)
+
+────────────────────────────────────────────────────────────
+1. "23.22초"는 언제 최초 측정됐나 — db/exact_diff_runs.db 조회 결과
+────────────────────────────────────────────────────────────
+방법: exact_diff_run 테이블 전수(145건) metrics_json 에서 prepare_ms(또는
+detail_elapsed_ms)가 22,000~24,500ms 구간인 행을 필터링.
+
+★ 정확히 일치하는 행을 실제로 찾았다:
+  run_id       : PSA103049C82EE
+  status       : EARLY_STOPPED (수집상한 101건 도달)
+  created_at   : 2026-08-09 10:43:31 (UTC — exact_diff_run.created_at 은 라이브
+                 DB 조회를 실제로 시작한 시각, agg_diff_route.py:1573-1575 주석
+                 기준. KST 환산 08-09 19:43:31)
+  metrics_json.prepare_ms : 23220.4  ← "23.22초"와 소수점까지 일치
+  counts_json  : reimport_pks=101, missing_migration=101, value_mismatch=0
+  ratios       : source_count=2,500,000 / target_count=2,000,000
+
+즉 "23.22초"는 이번 클릭에서 잰 값이 아니라, 2026-08-09(오늘 기준 3일 전)에
+원본 250만행/목적 200만행 규모 테이블을 실제로 콜드 스캔했을 때 실측된 값이다.
+"101건"은 그룹의 진짜 건수가 아니라 재이관 레코드 수집상한(per_group_full_list_
+max+1=101, services/per_group_display_policy.py)에 걸려 EARLY_STOPPED 로 멈춘
+결과다 — 동일 상한(101)에 걸린 EARLY_STOPPED 행이 DB 안에 2026-08-05~08-12
+사이 58건이나 더 있어(같은 fingerprint 구성의 개발/테스트 실행이 반복됨),
+"101건"이라는 숫자 자체가 상한 도달 신호이지 그룹의 실제 규모가 아니라는 점도
+함께 확인된다.
+
+fingerprint 컬럼(hex 해시)은 저장돼 있지만 SQL/GB/SUM 원문을 역산할 수는 없어
+이 run_id 가 사용자가 실제로 본 화면과 100% 동일한 run 인지까지 확정하지는
+못한다(수치·규모가 정확히 맞아떨어지는 정황증거는 강함). 다만 요지는 동일 —
+reused=True 캐시 재사용 메커니즘상 "23.22초"는 실제로 걸렸던 콜드 스캔 시간이
+TTL 없이 그대로 재사용된 것이며, 최소 며칠 전 값이 오늘도 그대로 뜰 수 있음이
+DB 데이터로 실증된다.
+
+────────────────────────────────────────────────────────────
+2. 새로고침해도 "저장 데이터"가 뜨는 이유 — fingerprint 는 브라우저 세션과 무관
+────────────────────────────────────────────────────────────
+캐시 판정 키(fingerprint) 구성요소 확인:
+  services/exact_diff/agg_contribution.py:76-93 pk_index_fingerprint()
+    → src_conn, tgt_conn, src_sql, tgt_sql, key_src, key_tgt, sum_pairs, gb_cols,
+      plan_fingerprint, selection_fingerprint 를 해시
+  → 세션ID·쿠키·브라우저 식별자는 전혀 포함되지 않는다. 같은 (접속정보+SQL+
+    GB/SUM+실행계획) 조합이면 어느 브라우저·어느 새로고침에서 요청해도 동일한
+    fingerprint 문자열이 나온다.
+
+재사용 경로(routes/agg_diff_route.py:1379-1436):
+  ① req.stream=True(대량 그룹)에서 fp = pk_index_fingerprint(...) 계산
+  ② rj.get_by_fingerprint(fp) 로 조회 — 프로세스 메모리(_JOBS_BY_FP, LRU 16개)
+  ③ 미스 시 db/exact_diff_runs.db 를 조회해 재구성(_rehydrate_from_db)
+     (services/exact_diff/reimport_job.py:54-107)
+  ②③ 모두 TTL 이 코드에 없다 — _rehydrate_from_db 는 fingerprint 일치 +
+     상태(DONE/EARLY_STOPPED)만 보고 무기한 재사용한다(reimport_job.py:64-96,
+     "새 저장 구조를 만들지 않고 기존 fingerprint 컬럼만 조회" 주석 그대로).
+
+따라서 "브라우저를 새로고침"은 클라이언트 쪽 JS 변수(window._mvPkState 등)와
+화면 DOM 만 초기화할 뿐, 서버가 캐시 히트를 판정하는 fingerprint 는 요청 본문의
+접속정보/SQL/GB·SUM/plan 값에서만 계산되므로 완전히 무관하다. 새로고침 후 같은
+조건으로 다시 실행 버튼을 누르면 서버는 다시 같은 fp 를 계산하고, 다시 캐시를
+맞혀 "저장 데이터"를 반환한다 — 이는 성능 최적화 목적의 정상 설계이며 버그가
+아니다.
+
+────────────────────────────────────────────────────────────
+3. "현재 페이지 조회 0.12초 · 내부 DB 0.01초 미만 · 서버 0.01초 미만 · 전체 요청
+   0.12초 · 화면 0.01초 미만"은 무엇인가 — 가설(페이지네이션 조회) 코드로 확인됨
+────────────────────────────────────────────────────────────
+가설이 그대로 맞다. 이 줄은 "지금 보고 있는 10~20건짜리 한 페이지"만 다시
+가져오는 완전히 별도의 작업이고, 101건 전체를 원래 추출했던 23.22초(콜드
+스캔)와는 질적으로 다른 작업이다.
+
+경로: ui/tabler_renderer.py:29578-29617 _mvRiLoadPage()
+  → GET /agg-diff/pk-records (routes/agg_diff_route.py:1539)
+  → docstring(1544): "재이관/목적 단독 레코드 페이지 — 저장 index 만 조회
+     (Source/Target DB 0회 §52·§60)"
+  → 1729-1737: _st0=perf_counter() 시작 → store.page_records(...)(이미 저장된
+     run 의 로컬 인덱스에서 page_size 건만 slice) → _store_ms = 내부 DB 조회시간
+  → 1810-1811: 응답에 page_store_ms(=위 _store_ms), page_server_ms(요청 접수~
+     직렬화 포함 서버 전체 처리시간)를 실어 반환
+
+클라이언트 측 5개 항목 매핑(ui/tabler_renderer.py:29880-29892):
+  · "현재 페이지 조회" = mStore = _mvRiLoadPage 의 fetch 왕복시간(29616) —
+    네트워크+서버처리 전체를 감싸는 클라이언트 측 실측
+  · "내부 DB"   = d.page_store_ms  (서버가 로컬 저장소에서 페이지 slice 하는 데 걸린 시간)
+  · "서버"      = d.page_server_ms (서버 요청 접수~응답 직렬화까지 전체 처리시간)
+  · "전체 요청" = mStore 재사용(위와 동일 값, 표시 라벨만 다름)
+  · "화면"      = domMs (DOM 재적용에 걸린 렌더 시간)
+
+즉 이 5개 숫자는 모두 "이미 저장된 run 의 로컬 SQLite/인덱스에서 페이지 하나를
+꺼내오는" 작업만 측정하며, Source/Target 라이브 DB 는 단 한 번도 다시 조회하지
+않는다(§52·§60 주석대로). 반면 "23.22초"(detail_elapsed_ms)는
+services/exact_diff/pk_range_chunk.py:625-628,831-835 에서 "실제 원본/목적
+청크 조회 루프 진입 직전 ~ 종료 직전"을 재는 값 — 즉 Source/Target 라이브 DB를
+실제로 스캔·비교하는 콜드 스캔 시간이다. 두 값은 측정 대상 자체가 다르다
+(로컬 저장 index 페이지 조회 vs 라이브 DB 원본-목적 전수 비교) — 그래서 자릿수가
+100~1000배 차이 나는 게 정상이다.
+
+────────────────────────────────────────────────────────────
+4. 종합 설명(사용자에게 그대로 전달 가능한 요약)
+────────────────────────────────────────────────────────────
+"23.22초 · 저장 데이터"는 방금 클릭에서 걸린 시간이 아니라, 이 그룹(원본 250만행
+/목적 200만행 규모)을 과거 어느 시점(DB 근거상 최소 2026-08-09, 3일 전)에 실제로
+콜드 스캔했을 때 걸렸던 진짜 소요시간이, TTL 없는 fingerprint 캐시(①메모리
+②파일DB exact_diff_runs.db 순서로 폴백)에 의해 그대로 재사용되어 표시된 것이다.
+fingerprint 는 접속정보+SQL+GB/SUM+실행계획으로만 결정되고 브라우저 세션과는
+무관하므로, 새로고침 후 동일 조건으로 다시 실행해도 서버는 매번 같은 캐시를
+맞혀 "저장 데이터"를 반환한다 — 정상 동작이다.
+
+반면 사용자가 체감한 "1초 내외"는 바로 아래 있는 작은 줄("현재 페이지 조회
+0.12초 · …")이 재는, 완전히 다른 작업이다 — 이미 저장돼 있는 101건 인덱스에서
+지금 보이는 페이지(10~20건)만 로컬로 다시 꺼내오는 작업이라 Source/Target DB
+재조회가 아예 없고, 그래서 항상 1초 미만으로 빠르다. "23.22초"는 원본/목적
+DB를 실제로 훑은 1회성 큰 작업(콜드 스캔)의 과거 실측값이고, "0.12초"는 이미
+훑어 저장해 둔 결과에서 화면 한 페이지만 다시 꺼내는 작은 작업 — 서로 다른 두
+작업의 시간이 나란히 표시되고 있어서 체감과 표시값이 어긋나 보이는 것이다.
+버그는 아니지만, "23.22초" 옆의 "· 저장 데이터" 라벨이 이미 "방금 잰 값이 아니라
+과거 캐시값"임을 알려주고 있다는 점이 핵심이다.
+
+────────────────────────────────────────────────────────────
+코드 근거 요약(파일:라인)
+────────────────────────────────────────────────────────────
+  services/exact_diff/agg_contribution.py:76-93           pk_index_fingerprint 구성요소
+  routes/agg_diff_route.py:1379-1436                       재사용 3분기 + source 필드 부여
+  services/exact_diff/reimport_job.py:54-107                get_by_fingerprint/_rehydrate_from_db, TTL 없음
+  services/exact_diff/pk_range_chunk.py:625-628,831-835     detail_elapsed_ms(콜드 스캔 실측) 정의
+  ui/tabler_renderer.py:29710-29744                         "· 저장 데이터/메모리 캐시/새로 스캔" 라벨 조립
+  routes/agg_diff_route.py:1539-1547,1729-1737,1810-1811    /agg-diff/pk-records, page_store_ms/page_server_ms
+  ui/tabler_renderer.py:29578-29617                         _mvRiLoadPage → pk-records 호출, mStore 계측
+  ui/tabler_renderer.py:29880-29892                         5개 항목(현재 페이지 조회/내부DB/서버/전체요청/화면) 조립
+  db/exact_diff_runs.db (run_id=PSA103049C82EE)              prepare_ms=23220.4 원본 실측행(1번 근거)
+
+────────────────────────────────────────────────────────────
+검증 결과
+────────────────────────────────────────────────────────────
+코드 조사만 수행(CLAUDE.md 지침대로 코드 수정 없음) — 코드 변경이 없어
+samples/test_virtual_cases.py 등 회귀 테스트는 실행하지 않았다.
+db/exact_diff_runs.db 는 python sqlite3 로 읽기 전용 조회만 수행했다(수정 없음).
+
+────────────────────────────────────────────────────────────
+변경/생성 파일
+────────────────────────────────────────────────────────────
+없음(조사 전용, 코드 수정 없음)
+
+작업명 : STAGE5-TIME-DISPLAY-CONFUSION-REVERIFY-AND-PAGE-FOOTER-EXPLAIN
+✅ 작업 완료 - 사용자 질문 3가지 전부 코드 근거로 확인, 종합 설명 정리(코드 수정 없음)
