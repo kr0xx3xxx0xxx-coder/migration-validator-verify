@@ -6547,3 +6547,47 @@ git -C E:/verify_reports worktree remove <임시경로>
   추가" 수준(대규모 리팩토링 아님).
 - 근거: 2026-08-12 채팅(SAME-QUERY-RERUN-AUTO-VERSION-INCREMENT-FEASIBILITY-
   DIAGNOSE 조사 결과, 별도 파일 미작성)
+
+### M97. ★ 사용자 전제 2가지 정정 — "불일치만 저장"이 아니라 일치도 저장됨, "캐시가 덮어쓴다"가 아니라 저장은 이미 append-only(덮어쓰기 0건, 동일조건 201회 누적 실측) — "차수 자동증가+별도저장"은 저장계층에선 이미 구현됨, 표시계층(이력탭 접힘 해제+ROW_NUMBER)만 저위험으로 추가하면 됨
+- 발견/계기: 2026-08-12 (SAME-QUERY-RERUN-AUTO-VERSION-INCREMENT-FEASIBILITY-
+  DIAGNOSE 전체 1~5번 재확인, 코드 무변경, sqlite read-only 42회 조사)
+- **정정①**: 4단계 "실행" 자체는 어느 DB에도 저장 안 됨(execute_route.py:318
+  persist=False 하드코딩) — 프로세스 in-memory LRU 24개에만 남음(재시작시
+  소실). **영속 저장은 사용자가 확정저장 버튼(/single/save) 눌렀을 때만**
+  (개별검증), 일괄검증만 행 성공시 자동저장. 저장 정책은 PASSED/MISMATCH/
+  WARNING/PARTIAL 전부 OFFICIAL_RESULT로 저장 — "불일치에 한해"라는 전제
+  틀림.
+- **정정②(핵심)**: 저장구조는 **이미 append-only** — run_id=uuid4(매번
+  신규 INSERT), 덮어쓰기·병합 로직 코드에 존재 안 함. 실측: 동일 set_id가
+  201회까지 누적 저장된 실데이터 확인(2026-06-08~06-25). "캐시가 결과를
+  덮어쓴다"는 사용자 우려는 **저장 자체가 아니라, 실행 전 별도 관문 2곳**
+  (①exec-gate: 실행버튼 클릭시 "기존결과보기/최신데이터로재실행/취소" 선택창
+  ②M96에서 확인한 5단계 상세추출 fingerprint캐시)에서만 발생 — 저장된
+  이력 자체는 지금도 훼손되지 않음.
+- **workflow_generation 실측**: /analyze 성공마다 gen+1, execution_id=
+  token:generation으로 매 신규실행이 이미 구분됨(실측 g=1,2,3,4... 누적
+  확인) — 단 이 카운터는 프로세스 메모리 전용이라 서버재시작시 1로
+  리셋(영속 아님, 그러나 저장된 행 자체는 append-only라 무관).
+- **차수 화면표시 = 대부분 이미 있는 기능**: "검증 이력" 탭(history_
+  renderer.py)+API(history_route.py) 이미 존재. 갭은 딱 2개 — ①헤더에
+  "차수" 컬럼 없음 ②`validation_history_service.py:827-832`가 set당
+  최신 1건만 노출하는 LIMIT 1 서브쿼리로 과거 차수를 의도적으로 접어둠.
+  ROW_NUMBER() OVER(PARTITION BY set_id ORDER BY started_at) 실측 검증
+  완료(번들 sqlite 3.50.4 지원 확인) — **스키마변경 0건, 기존 790행에
+  소급 적용됨**.
+- **구현 우선순위 3안**:
+  [A안, 권장·저위험] 표시전용 — 파일 3개(validation_history_service.py/
+  history_route.py/history_renderer.py), 스키마 0건, 마이그레이션 0건.
+  파티션 축(set_id/job_id/target_id 중 어느 걸 "차수" 기준으로 할지)만
+  사용자 확인 필요.
+  [B안, 고위험] 4단계 자동저장으로 전환(persist=False 고정 해제) — **의도적
+  설계 결정(SINGLE-VALIDATION-EXPLICIT-FINAL-SAVE-GATE, 그룹미선택 임시
+  실행이 DB 오염 안 하게 하려던 것)을 뒤집는 것** — orchestrator 6개 분기점
+  영향, 정책결정 선행 필수.
+  [C안, 비권장] 캐시재사용 관문 제거 — 이미 force 우회로 존재, 제거해도
+  차수누적에 기여 없이 재스캔비용만 증가.
+- **M96과의 관계**: M96(5단계 상세레코드 fingerprint 캐시가 데이터변경
+  미감지)은 그대로 유효한 별개 문제. 이번 M97은 "차수 저장/표시" 자체에
+  대한 더 넓은 그림 — 두 문제 다 존재하며 서로 다른 계층(M96=상세레코드
+  재사용 정합성, M97=이력 저장·표시 체계).
+- 근거: E:\verify_reports\reports\SAME-QUERY-RERUN-AUTO-VERSION-INCREMENT-FEASIBILITY-DIAGNOSE.md
