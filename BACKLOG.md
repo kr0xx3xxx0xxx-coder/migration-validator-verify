@@ -6101,7 +6101,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 권고 순서: I-1 → I-2 → I-3 → I-4 → I-5 → L-1 → L-3 → L-4
 - 근거: E:\verify_reports\PER-STAGE-EXECUTE-BUTTON-CLEAN-SINGLE-PASS-AUDIT.txt
 
-### M83. 5단계 [고정] "불일치 그룹추출" 카드 — 표시값이 캐시재사용(TTL없음) 시 과거 콜드스캔값 그대로 노출, 라벨명도 실제 측정대상과 불일치, 필요 데이터는 이미 다 있고 표시배선만 누락
+### M83. ✅ 해결 완료 — 하단[고정]카드 값을 상단 "실행시간"과 단일출처 통일, 레코드목록 옆에 그룹별 추출시간+캐시출처 3분류(새스캔/메모리캐시/저장데이터) 표시로 재설계
 - 발견/계기: 2026-08-12 (사용자 — "클릭은 1초도 안 걸렸는데 왜 11.56초가 뜨냐,
   이 값이 어디서 나온 거냐" / STAGE5-GROUPEXTRACT-VALUE-VS-REAL-PERCEIVED-TIME-
   MISMATCH-DIAGNOSE, 코드 무변경, 라이브 오라클 실측재현+DB 142건 전수조회)
@@ -6132,6 +6132,29 @@ git -C E:/verify_reports worktree remove <임시경로>
   계측 불필요) ③중기: "최초 스캔 M초 전·그때 소요 N초" 형태로 원 스캔
   시점까지 표시.
 - 근거: E:\verify_reports\STAGE5-GROUPEXTRACT-VALUE-VS-REAL-PERCEIVED-TIME-MISMATCH-DIAGNOSE.txt
+- **✅ 재설계 완료(2026-08-12, STAGE5-TOP-GRID-FLICKER-FIX + STAGE5-TIMING-
+  REDESIGN-BOTTOM-CARD-UNIFY-AND-RECORD-LIST-TIME-ADD, 코드 커밋 fb0af4a4,
+  두 지침이 한 세션에서 순차처리됨 — FLICKER-FIX가 미착수임을 스스로 발견해
+  같이 구현)**:
+  - **깜빡임 해소**: `_mvPkEnsurePrepared`/`_mvPkPrewarm`의 "값 불변 시점
+    재도장" 호출 제거(완료/실패 시 1회만). 콜드클릭 1회당 재도장 3회 중
+    1회만 결함이고 나머지는 정상 상태전이임을 구분해 diff로 판정.
+  - **하단 카드 재설계**: 캐시재사용 시 과거값을 보여주던 "마지막 클릭 그룹
+    detail_ms" 방식을 버리고, **상단 "실행시간"과 완전히 같은 함수·인자를
+    재사용**(단일출처) — 이제 어느 그룹을 클릭해도 하단값이 고정(0.90초=
+    0.90초로 실측 확인, 그룹#1 클릭해도 동일값 유지).
+  - **레코드목록 옆 시간+캐시출처 3분류 추가**: "전체 재이관 대상 : N건
+    (M초 · 새로 스캔/메모리 캐시/저장 데이터)". **부수 정밀 발견**: 캐시
+    재사용은 실제로 2단계(①프로세스 메모리 LRU16개 ②파일DB 복원)인데,
+    **이 2단계 구분 자체가 대용량(스트림, 5만행 초과) 경로 전용**이고,
+    **소규모 그룹은 파일복원 폴백 자체가 존재하지 않아** 재사용이면 무조건
+    메모리캐시만 가능. 이미 있던 `rehydrated_from_db` 플래그를 재사용해
+    새 계산 없이 배선만 추가.
+  - 실측: 새스캔·메모리캐시 둘 다 실 오라클로 확인. 저장데이터(file_
+    restored)는 대용량 픽스처가 이번 범위 밖이라 코드경로 대조로만 검증
+    (동일 함수 내 완전히 같은 패턴이라고 명시, 정직한 스코프 고지).
+  - 회귀 147 passed/2 failed(baseline 대조로 사전존재 확인, 무관).
+  - 근거: E:\verify_reports\STAGE5-TIMING-REDESIGN-BOTTOM-CARD-UNIFY-AND-RECORD-LIST-TIME-ADD.txt
 
 ### M84. 5단계 완전일치 시 상단표시는 정상이나, 하단 상세표가 "비교결과 없음"(부정적 오독)으로 오표시 — 이미 있는 성공문구가 서버저장결과 경로에서 안 쓰이는 배선누락
 - 발견/계기: 2026-08-12 (사용자 — "완전 일치했을 때 어디서 확인하나" /
