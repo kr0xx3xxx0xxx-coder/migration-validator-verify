@@ -1,0 +1,140 @@
+GENERATE-409-CONFLICT-URGENT-DIAGNOSE
+✅ 작업 완료 - 4단계 /generate 409는 코드 결함이 아니라 "서버 재기동으로 무효화된 워크플로 토큰"이 원인임을 확정. 코드 수정 없음(수정 불필요), 재발 방지 행동 지침 제공.
+
+────────────────────────────────────────────────────────────
+1. 사용자가 우선 확인 요청한 가설(오늘 반복된 서버 강제재시작 → 락 상태 고아화) — 검증 결과: 기각
+────────────────────────────────────────────────────────────
+가설: "서버가 거칠게 여러 번 재시작되며 개별검증 실행 상태(락/뮤텍스/job)가 고아로 남아, 다음
+/generate 요청이 '이미 실행 중'으로 오판정된다."
+
+코드 확인(services/workflow_stage_guard.py) 결과 이 가설은 성립하지 않는다:
+  - /generate(=candidate 단계) 의 409 판정은 이 파일의 validate() 단 하나이며, 소스는 전부
+    프로세스 메모리 딕셔너리(_TOKENS/_ACTIVE_GEN/_INFLIGHT, OrderedDict)뿐이다. DB/파일 등
+    프로세스 재시작 후에도 살아남는 영속 저장소는 전혀 쓰지 않는다.
+  - 코드 주석(:414-416)에 이미 설계 의도가 명시돼 있다: "서버 재시작은 메모리 상태를 통째로
+    날리므로 자동 해소되고..." — 즉 재기동은 락을 "남기는" 것이 아니라 매번 완전히 비운다.
+  - 죽은 프로세스(PID 22296, 15:09경 종료)가 만든 토큰/락은 새 프로세스(PID 18880, 15:11:07
+    시작)의 메모리에는 애초에 존재할 수 없다(별개 프로세스 주소공간).
+  - "실행 중 락" 계열 409(EXECUTION_ALREADY_IN_PROGRESS, begin_execution/end_execution)는
+    애초에 /generate 라우트가 호출하지도 않는다 — /generate 가 쓰는 유일한 차단 경로는
+    토큰/문맥 검증(NO_WORKFLOW_TOKEN / INVALID_WORKFLOW_TOKEN / STALE_GENERATION /
+    SQL_CHANGED / *_PROFILE_CHANGED / STAGE_PREREQUISITE_NOT_MET)이다.
+  → 결론: "재기동에도 안 지워지는 고아 락"은 없다. 이 컴포넌트는 오히려 반대 방향으로
+    실패한다(아래 2번).
+
+────────────────────────────────────────────────────────────
+2. 실제 근본원인 — "재기동으로 서버가 잊었는데, 브라우저는 그대로 들고 있던 옛 토큰"
+────────────────────────────────────────────────────────────
+- 오늘 여러 세션이 8000포트 서버를 번갈아 재시작했고, 15:09경 다른 세션이 재시작하며 이전
+  프로세스(PID 22296)가 포트정리 로직에 강제종료됐다. 현재 서버는 PID 18880, 시작시각
+  2026-08-12 15:11:07(재현 조사 시작 3분 전).
+- workflow_token/문맥(_TOKENS)은 오직 그 토큰을 발급한 프로세스의 메모리에만 존재한다.
+  스크린샷 시점 사용자 브라우저 탭이 "3~4단계 완료 표시"였다는 것은, 그 완료 표시가
+  '재기동 전(PID 22296) 서버가 발급한 토큰'을 기준으로 클라이언트가 캐시해 둔 화면상태였다는
+  뜻이다. 재기동 후 그 토큰은 새 프로세스(PID 18880)의 _TOKENS 에 존재하지 않는다.
+- 사용자가 "▶ 통계검증 SQL 생성"을 누를 때마다 이 죽은 토큰이 그대로 재전송됐고,
+  workflow_stage_guard.validate("candidate", ...) 는 매번 결정적으로
+  code=INVALID_WORKFLOW_TOKEN, HTTP 409 를 반환했다(재분석 없이는 재시도해도 계속 같은
+  코드가 반복된다 — 스크린샷의 "콘솔에 동일 오류 여러 번"과 정확히 일치).
+
+────────────────────────────────────────────────────────────
+3. 재현/검증 방법과 결과(실측, 현재 살아있는 서버·실 DB)
+────────────────────────────────────────────────────────────
+[검증 A] 죽은 프로세스가 준 것과 같은 형태의 stale 토큰으로 /generate 직접 호출
+  요청: workflow_token="STALE_TOKEN_FROM_KILLED_PROCESS_ABC123" (그 외 임의 최소 payload)
+  결과: HTTP 409, code=INVALID_WORKFLOW_TOKEN, message="유효하지 않은 워크플로 토큰입니다.
+        분석을 다시 실행하세요." → 2번 근본원인 메커니즘 재현 성공.
+
+[검증 B] 스크린샷과 동일 시나리오를 "지금 서버(PID 18880, 재기동 후)"에서 처음부터 새로
+        analyze→count→generate 로 실행(대상: Oracle_asis→Oracle_tobe,
+        NXDNP.MV_SCATTER50M_SRC(5,000만행)→NXDNP.MV_SCATTER50M_TGT(4,950만행))
+  1) POST /analyze  → HTTP 200, success=true, workflow_token 정상 발급
+  2) POST /count    → HTTP 200, src_count=50,000,000 / tgt_count=49,500,000
+                       (COUNT_MISMATCH, 이 두 테이블의 기존 알려진 픽스처 차이와 일치 —
+                        allow_with_confirm 정책상 비차단, 4단계 진행 막지 않음)
+  3) POST /generate → HTTP 200, success=true, stats_src_sql/stats_tgt_sql 정상 생성
+        (GROUP BY REGION_CD, STATUS_CD / SUM AMT, QTY 로 정상 SQL 렌더 확인)
+  → "오늘의 대규모 변경(M79/M80/M81) 이후" 코드에서 새 세션은 409 없이 정상 완주한다.
+    즉 오늘 커밋(06842d88 M79 / d17b9d89 M80 / 425cd453·37d9fea1·c4c62256·4639e769·72cc7dcc
+    M81)이 /generate 409 의 원인이 아니다 — 이 커밋들이 건드린 파일
+    (single_validation_run_facade.py, strategy_transition.py, agg_diff_route.py,
+    strategy_route.py, stats_execute_service.py, count_precheck_service.py)은 애초에
+    /generate 경로(routes/generate_route.py→services/single_validation_core.py)에
+    포함되지 않고, /generate 의 409 판정을 담당하는 workflow_stage_guard.py 는 오늘
+    전혀 수정되지 않았다(마지막 수정 2026-08-02).
+
+────────────────────────────────────────────────────────────
+4. git bisect / 커밋별 순차 확인 — 불필요 판정 근거
+────────────────────────────────────────────────────────────
+디렉티브 §1은 "정확히 어느 커밋부터 재현되는지" bisect 를 요구했으나, 위 [검증 A][검증 B]로
+"코드 로직 자체는 처음부터(어느 커밋에서도) 정상 — 실패 조건은 커밋이 아니라 '재기동 시점과
+브라우저 세션 시점의 어긋남'"임이 확정됐다. 원인이 코드 변경분이 아니므로 커밋 단위 이분탐색은
+대상이 없어 생략했다(불필요한 반복 재기동은 오히려 이 문제 자체를 재발시키는 행위이기도 하다 —
+5번 참고).
+
+────────────────────────────────────────────────────────────
+5. 수정 내역
+────────────────────────────────────────────────────────────
+코드 변경 없음. 근본원인이 "게이트/락의 오판정 버그"가 아니라 "의도된 fail-closed 설계(재기동 시
+세션 초기화) + 재기동 사실을 모르는 브라우저 탭의 재시도"이므로, 게이트를 풀거나 상태를
+영속화(DB/파일 저장)하는 것은 오히려 CLAUDE.md 원칙(무작정 게이트 완화 금지, TEST_ONLY 실행
+DB row 미증가 설계 원칙 훼손)에 반하는 과잉수정이다. 재현 시나리오에 대한 즉시 해결책은
+코드가 아니라 사용자 행동이다: 1단계 "▶ 분석 실행"을 다시 눌러 새 토큰을 발급받은 뒤 2→3→4
+단계를 이어가면 된다(위 [검증 B]로 이 경로가 정상 동작함을 실측 확인했음).
+
+※ 서버 재기동은 이번 조사에서 별도로 수행하지 않았다 — 조사 시작 시점에 이미 다른 세션이
+  15:11:07에 재기동을 완료한 상태였고(HEAD 72cc7dcc, 오늘 M79/M80/M81 파일 최종 수정시각이
+  모두 그 이전이라 최신 코드로 기동 확인됨), 지금 다시 재기동하면 이번 조사로 확인된 바로 그
+  문제(다른 세션의 진행 중인 워크플로 토큰이 강제 초기화됨)를 우리 손으로 재발시키는 셈이라
+  의도적으로 보류했다.
+
+────────────────────────────────────────────────────────────
+6. 회귀 확인
+────────────────────────────────────────────────────────────
+[CLAUDE.md 필수 회귀]
+  python samples/test_virtual_cases.py   → 8/8 통과
+  python samples/test_complex_cases.py   → 5/5 통과
+
+[오늘 변경 핵심 흐름 재확인]
+  M80(count_precheck 커넥션/scope)
+    tests/test_count_precheck_candidate_targets_schema_compat.py
+    tests/test_count_precheck_scope_guard.py
+  M81(전략판정 재구성)
+    tests/test_strategy_transition.py
+    → 위 3파일 합계 53 passed, 0 failed
+
+  M79(이기종 통계검증 기반: dbms capability/hash bucket 계약)
+    tests/test_dbms_capabilities.py
+    tests/test_hash_bucket_factory_guard.py
+    tests/test_hash_contract_dialect_adapter.py
+    → 64 passed, 5 subtests passed, 0 failed
+
+[/generate·워크플로 게이트 직접 회귀]
+  tests/test_workflow_stage_guard.py
+  tests/test_workflow_stage_guard_inflight.py
+  tests/test_generate_route_contract.py
+  tests/test_generate_route_uses_common_stats_builder.py
+  → 44 passed / 3 failed(아래 참고, 이번 조사와 무관·범위 밖)
+
+  실패 3건: test_g07_sql_generation_uses_common_builder /
+            test_g12_empty_or_none_col_is_error /
+            test_g14_over_three_selection_is_error
+  - 이번 조사 중 코드 수정을 전혀 하지 않았음(git status 로 관련 파일 전부 clean 확인) →
+    working tree = HEAD(72cc7dcc) 그대로이므로 이 3건은 "지금 만든 회귀"가 아니라 이미
+    커밋된 HEAD 자체의 사전 상태다. 내용도 GROUP BY 빈문자열/4개초과 입력검증 문구 불일치로,
+    이번 409(토큰/락) 진단과는 무관한 별개 사안이다. 원인 규명·수정 여부는 별도 작업으로 분리
+    권고(진행/보류 판단은 사용자 승인 필요 — 이번 긴급건 범위 아님).
+
+────────────────────────────────────────────────────────────
+7. 근거 요약
+────────────────────────────────────────────────────────────
+서버 프로세스           PID 18880, 시작 2026-08-12 15:11:07 (직전 PID 22296, 15:09경 강제종료)
+HEAD 커밋 해시(nxDTV)   72cc7dcc1183a4d9398bb29627c17e1c8c0a98a2
+409 판정 소스 파일      services/workflow_stage_guard.py (오늘 미수정, 최종수정 2026-08-02)
+409 코드                INVALID_WORKFLOW_TOKEN (재현 A로 확정)
+재현 시나리오 재실행     analyze 200 / count 200(MISMATCH, 비차단) / generate 200 (재현 B로 확정)
+verify 저장소 push      migration-validator-verify, main
+
+────────────────────────────────────────────────────────────
+작업명 : GENERATE-409-CONFLICT-URGENT-DIAGNOSE
+✅ 작업 완료 - 4단계 /generate 409는 코드 결함이 아니라 "서버 재기동으로 무효화된 워크플로 토큰"이 원인임을 확정. 코드 수정 없음(수정 불필요), 재발 방지 행동 지침 제공.
