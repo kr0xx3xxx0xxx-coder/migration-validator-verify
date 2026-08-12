@@ -1,0 +1,188 @@
+작업명 : DETAIL-EXTRACT-EARLY-STOP-ALL-PK-TYPES-COVERAGE-DIAGNOSE
+✅ 조사 완료 - 표준 단일숫자 PK 경로는 101이 아니라 "원본 10%" 별도 상한만 있고 절대건수
+   보호는 없음(비-stream은 상한 0개); 101을 전 PK 유형으로 확장하는 것은 M85/M88/M90의
+   GROUP BY 집계 장벽과 무관하게 기술적으로 가능(난이도 中, 4~6파일 60~100줄); 현재 제한은
+   절반은 의도적 성능최적화·절반은 미검토 누락으로 판정(코드 수정 없음, 조사만 수행)
+
+────────────────────────────────────────────────────────────
+[0] "101"은 하나가 아니라 별개 메커니즘 3종 — 과거 메모와 M91의 배치는 모순 아님
+────────────────────────────────────────────────────────────
+ 축A 표시정책 : per_group_full_list_max=100 — 그룹당 화면 표시 건수 경계(수집량과 무관)
+ 축B 수집조기중단 : early_stop_abs = full_list_max+1 = 101
+     (services/per_group_display_policy.py:201-207 생산, routes/agg_diff_route.py:1329-1330 소비)
+     실측: python -c "from routes.agg_diff_route import _per_group_policy; print(_per_group_policy())"
+     -> {'per_group_full_list_max':100,'per_group_early_stop_abs':101,'per_group_partial_display_max':100}
+ 축C 누적불일치 강제중단 : mismatch_limit = min(ceil(source_count*10%), abs상한)
+     (agg_diff_route.py:189-215 _mismatch_limit_from_policy) — CHUNK 엔진 전용, 축B와 완전 분리 배선
+
+ 과거 메모("네이티브 PK 정렬 merge 고속경로 + early_stop_abs=101, 5천만행 6종 전부 이 경로")는
+ db/exact_diff_runs.db 실측 재조회 결과 해당 run(PS7B2A2862FB94 등)의 numeric_pk=False(문자 PK)로
+ 확인됨 — _unique_native_key=True 경로(문자/복합 PK 폴백)를 가리킨 것이며 M91과 완전히 양립.
+
+────────────────────────────────────────────────────────────
+[1] 표준 단일숫자 PK 대용량 그룹의 실제 보호장치 (질문1)
+────────────────────────────────────────────────────────────
+ 표준 단일숫자 PK는 _pk_resolve 1단계(TRUSTED_PHYSICAL_PK, key_evidence.py:354-430)에서
+ 확정되고 즉시 return(agg_diff_route.py:1202) — _unique_native_key가 세팅되는 3단계 폴백
+ (1227-1238)을 구조적으로 통과하지 않는다. 단, JOIN 존재(374-375)·select/insert_cols
+ 길이불일치(376-377)로 1단계가 실패하면 단일숫자 PK여도 3단계로 떨어져 101이 걸릴 수 있다
+ (=PK "종류"가 아니라 PK 신뢰판정 "성공 여부"가 실제 스위치).
+
+ 실제 보호장치 3종 (PK신뢰 성공 시):
+ ┌────┬──────────────────────┬───────────────────────────┬──────────────────────────────┐
+ │ P1 │표본preflight조기중단 │숫자PK+stream+동일DBMS      │표본 추정 불일치율≥10%->merge  │
+ │    │                      │(agg_diff_route.py:414-499) │미시작, 대표100건만 저장       │
+ ├────┼──────────────────────┼───────────────────────────┼──────────────────────────────┤
+ │ P2 │누적불일치 강제중단   │compare_strategy=           │ceil(그룹원본행수*10%) 도달시  │
+ │    │(CHUNK)               │PK_RANGE_CHUNK_COMPARE      │중단, 대표100건 trim           │
+ │    │                      │(pk_range_chunk.py:710-713) │                               │
+ ├────┼──────────────────────┼───────────────────────────┼──────────────────────────────┤
+ │ P3 │키개수 HOLD(비-stream)│stream=false(그룹행수<5만)  │원본/목적 키 60,000건 초과시    │
+ │    │                      │(agg_contribution.py:44)    │AGG_SCOPE_TOO_LARGE로 HOLD     │
+ └────┴──────────────────────┴───────────────────────────┴──────────────────────────────┘
+
+ 실측(라이브 정책 계산): source_count 1,000->limit100 / 60,000->6,000 / 1,000,000->100,000 /
+ 50,000,000->5,000,000. 즉 100만행 그룹이면 10만건까지, 5천만행이면 500만건까지 전량
+ 수집·저장한다 — "101"과 자릿수가 다르다(사실상 수집량 보호장치로 기능 안 함).
+
+ 상한 매트릭스(그룹 원본행수 x PK신뢰판정):
+   <50,000 행  : PK신뢰 성공/실패 모두 상한 없음(성공측 P3 키60,000 HOLD만, 실패측=101도 미적용)
+   >=50,000 행 : PK신뢰 성공=CHUNK(P1 추정10% 또는 P2 절대10%) / PK신뢰 실패=DIRECT stream 101 적용
+ -> 101이 실제 발동하는 칸은 4칸 중 1칸뿐.
+
+ 부수발견(죽은 배선): actual_mismatch_limit_abs/_min_decision(agg_diff_route.py:205-206)은
+ 소비 코드만 있고 정책 dict(validation_policy_service.py)·DDL·DB컬럼 어디에도 생산자가 없음
+ (PRAGMA table_info 실측 확인) — 오늘 운영에서 "재이관 절대건수 상한"을 설정할 방법 자체가 없다.
+
+────────────────────────────────────────────────────────────
+[2] 상한이 없을 때 실제로 무슨 일이 일어나는가 (질문2)
+────────────────────────────────────────────────────────────
+ MAX_DISPLAY_ROWS=200(stats_execute_service.py:34)은 4단계 통계검증 그룹표시 전용 상한이며
+ 5단계 재이관 레코드 수집 경로에서는 소비되지 않는다(grep 전수 확인) — 절단되지 않는다.
+ 전부 수집·저장을 "시도"한다: 5,000건마다 batch bulk insert(agg_contribution.py:478,580-609;
+ pk_range_chunk.py:476-486)로 파일 sqlite db/exact_diff_runs.db(WAL)에 적재. 메모리는 배치
+ 단위로 유한하나 디스크·스캔시간은 무제한. CHUNK가 P2에 걸리면 이미 저장한 것을 그제서야
+ trim(100건 남기고 DELETE) — 즉 대량 적재 후 대량 삭제 구조.
+
+ 실측 증거: db/exact_diff_runs.db 파일 4.36GB, page free_pct=99.32%(현재 레코드 66,781건인데
+ 파일은 106만 페이지) — 과거 수백만건 규모가 실제 적재됐다가 trim/정리로 삭제된 흔적.
+ 개별 run 실측: CSPK1MV2(숫자PK, CHUNK, source=1,000,000) counts={reimport_pks:10000,
+ mismatch_limit_stopped:False} -> 10,000건 전량 수집(P2 상한 100,000 근처에도 못 감), 화면표시는
+ 100건뿐. PS40AABACA79F7(숫자PK, DIRECT stream) early_stopped=False로 10,250건 저장(상한 완전
+ 비활성 — early_stop_ratio/abs 둘 다 정책 NULL).
+ 대조로 CHUNK 조기중단 실발동 사례도 존재: DIAGPGB1NUME(숫자PK, source=80,000, mismatch_limit
+ count=500 도달 -> limit_hit=True, remaining_chunks 1개 미조회, 대표20건 trim) — CHUNK 엔진의
+ 행단위 조기중단이 실측으로 정상 동작함을 확인(질문3 근거와 동일 사실).
+
+────────────────────────────────────────────────────────────
+[3] early_stop_abs=101을 PK_RANGE_CHUNK(표준 단일숫자 PK)로 확장 가능한가 (질문3)
+────────────────────────────────────────────────────────────
+ 결론: 가능하다. M85/M88/M90의 장벽과 층위가 다르다.
+   M85/M88/M90(GROUP BY 집계 조기중단) : 판정단위=그룹 집계값, 그 그룹 마지막 행까지 읽어야
+     확정 -> 중간중단 시 판정 자체가 거짓됨 -> 구조적 불가(3회 확인됨, 이번 조사와 무관한 별개 문제)
+   이번 건(PK 행단위 비교 조기중단) : 판정단위=PK 1건, 완결성 요구 없음(merge-walk에서 키 1건
+     비교 종료 즉시 그 건 판정 확정) -> 이미 구현·가동 중
+
+ 근거 코드(두 엔진 모두 행처리 직후 즉시 break):
+   agg_contribution.py:693-701(DIRECT merge) - early_stop_abs 도달시 stopped=True; break
+   pk_range_chunk.py:710-713,725-726(CHUNK) - limit 도달시 limit_hit=True; break; 남은 chunk 미조회
+ 실측: DIAGPGB1NUME run이 CHUNK 경로 break 실발동 증거([2] 참조).
+
+ 경로별 구현난이도:
+ ┌───────────────────┬────────────┬──────────────────────────────────────┬────────┐
+ │DIRECT stream       │엔진지원 有 │agg_diff_route.py:1329-1330 게이트만   │최하     │
+ │                    │            │재설계(PK종류->scope기준 분리), 1~3줄  │        │
+ ├───────────────────┼────────────┼──────────────────────────────────────┼────────┤
+ │PK_RANGE_CHUNK      │엔진지원 有 │356·388-389에서 per-group상한을        │하       │
+ │                    │            │mismatch_limit과 min결합, 3~5줄        │        │
+ ├───────────────────┼────────────┼──────────────────────────────────────┼────────┤
+ │비-stream           │엔진지원 無 │prepare_reimport_pk_index 신규구현     │중       │
+ │(<50,000행 그룹)    │            │(시그니처+루프break+상태필드), 20~30줄 │        │
+ │                    │            │※양측 전량 fetch 후 비교라 스캔절감無 │        │
+ └───────────────────┴────────────┴──────────────────────────────────────┴────────┘
+
+ 진짜 장벽은 기술이 아니라 의미론(scope 미구분):
+  1) early_stop_abs=101은 "그룹당" 정책값인데 소비지점(agg_diff_route.py:1326-1330)은
+     scope(그룹 드릴다운 vs 테이블 전체 추출) 유무를 보지 않는다 -> 현재도 복합/문자 PK의
+     "전체 상세추출"이 101에서 잘리고 있을 가능성(반대방향 결함, 코드구조상 추론).
+  2) 아무 조건 없이 전경로 101 적용 시 PER_GROUP_FULL_LIST_CAP=500 천장(상한 최대로 올려도
+     501건)에 막혀 "재이관 대상 전량 목록/Excel"이 시스템 전체에서 불가능해지는 기능회귀 발생.
+  3) 재개(resume) 불가 — CHUNK limit_hit 시 checkpoint 갱신 없이 DONE 처리(agg_diff_route.py:
+     397-398) -> 101에서 멈춘 뒤 이어받기 불가, 전량 필요시 재실행뿐(재실행해도 다시 101에서 멈춤).
+ 반대로 확장을 쉽게 만드는 요소: early_stopped||mismatch_limit_stopped 판정 UI 6곳+라우트
+ 1곳에 이미 대칭 존재(tabler_renderer.py 다수·agg_diff_route.py:1741-1758), 표시등급도
+ early_stopped=True면 자동 D4(display_limit_policy.py:136,182), CHUNK trim representative_limit=100이
+ 표시정책 full_list_max=100과 우연히 일치.
+
+────────────────────────────────────────────────────────────
+[4] 왜 지금까지 복합/문자 PK 전용으로만 좁혀져 있었는가 (질문4)
+────────────────────────────────────────────────────────────
+ git 이력(실측):
+  도입 3053d51c(2026-07-12) - 주석 원문: "복합/문자 PK 네이티브 키로 확정된 그룹 드릴다운은
+  범위분할(PK_RANGE_CHUNK/HASH_BUCKET) 대신 DIRECT merge로 강제하고 100건 조기중단으로
+  고속화한다" -> 목적은 "복합/문자 PK 드릴다운 고속화"였고 그 자리는 애초에 PK_RANGE_CHUNK를
+  다루는 분기가 아니었음(반대편 분기).
+  후속 96fb91af(2026-07-24) - "하드코딩 101 -> representative_max+1로 통일"만 수행,
+  적용범위(if _unique_native:)는 그대로 유지.
+
+ docs/handoff_backlog.md 등 백로그 문서에 early_stop/mismatch_limit 확장 검토 항목 0건,
+ git log -S "early_stop_abs" 결과도 위 2개 커밋뿐 — "모든 PK 종류에 상한이 필요한가"를
+ 검토한 흔적 없음. actual_mismatch_limit_abs 소비처만 있고 생산자 없는 것([1] 부수발견)도
+ "절대건수 상한을 쓰려다 만" 미완 배선.
+
+ 게다가 좁힌 방식 자체에 비대칭 2개가 남음(설계의도로 설명 안 되는 순수 누락):
+  - _unique_native 분기가 scope(그룹/전체) 구분 없음 ([3]-1)
+  - 같은 복합/문자 PK인데 비-stream 경로(그룹행수<5만)엔 early_stop_* 인자 자체가 전달 안 됨
+    (agg_diff_route.py:1527-1534) -> 그룹행수 5만 경계로 같은 PK종류인데 상한 유무가 갈림.
+
+ 판정: "복합/문자 PK 전용으로 좁힌 것"=의도적(성능최적화, 문맥상 타당) /
+      "표준 단일숫자 PK에 상응 상한이 없는 것"=검토된 적 없는 누락(결함) /
+      "복합/문자 PK인데 비-stream이면 상한이 사라지는 것"=명백한 누락(결함) /
+      "그룹당 정책값이 테이블 전체 추출에도 적용되는 것"=반대방향 결함(추론, 미실측)
+
+────────────────────────────────────────────────────────────
+[5] 종합 판단
+────────────────────────────────────────────────────────────
+ 실현가능성 : 기술적으로 가능(난이도 中). M85/M88/M90의 "GROUP BY 집계 완결성" 장벽은
+   PK 행단위 비교 층위에 존재하지 않으며, 엔진 2/3은 이미 행단위 조기중단을 지원하고
+   실측으로 발동 확인됨(DIAGPGB1NUME).
+
+ 구현규모 추정 : 4~6개 파일, 60~100줄(엔진 알고리즘 변경 없음, 대부분 임계값 배선/정책 문제)
+  - routes/agg_diff_route.py            : 게이트 재설계+chunk임계값 min결합+비stream 인자전달 15~25줄
+  - services/exact_diff/agg_contribution.py : 비-stream 조기중단 신규구현+상태필드           20~30줄
+  - services/exact_diff/pk_range_chunk.py   : 변경 불필요(임계값 주입만), 증적필드 선택      0~5줄
+  - services/validation_policy_service.py   : (선택)actual_mismatch_limit_abs 죽은배선 복구  10~15줄
+  - ui/tabler_renderer.py                   : 대부분 불필요(플래그 대칭 기존)                0~10줄
+  - tests/test_reimport_stream.py 등 회귀 + 신규 3경로 케이스
+
+ 결함/의도 구분(최종):
+  101이 복합/문자 PK 전용            -> 의도적 최적화(안전장치 관점 검토는 부재)
+  표준 단일숫자 PK에 건수상한 없음    -> 결함(누락) — 대안(원본10%)이 자릿수 안 맞음
+  비-stream 경로 전체에 상한 전무     -> 결함(누락) — PK종류 무관하게 뚫려있음
+  그룹당 정책값이 전체추출에도 적용   -> 결함(반대방향, 추론)
+  actual_mismatch_limit_abs 미완배선  -> 절대상한 설정 수단 자체가 없음
+
+ 구현시 필수 제약(권고, 미구현):
+  1) scope 구분 필수 - 그룹 드릴다운엔 per-group 101, 전체추출엔 별도의 더 큰 절대상한
+     (안 그러면 전체 Excel 추출이 501건 천장에 갇히는 기능회귀)
+  2) 임계값은 min결합 + 어느 쪽에 걸려 멈췄는지 limit_evidence에 근거 기록(explainability)
+  3) 비-stream 경로는 "스캔시간 절감 없음"을 증적문구로 명시(전량fetch 후 비교 구조라 오해 소지)
+  4) 101은 반드시 _per_group_policy() 단일출처 경유(하드코딩 금지, 이미 통일돼 있음)
+  5) 회귀위험: CSPK1MV2류(전량 10,000건 확보 기존run) 동일조건 재실행 시 101로 축소되어
+     결과건수가 달라짐 — 사용자 사전고지 필요(기존 완료run은 basis 저장값으로 복원되어 무영향)
+
+ M91 메모 정정 필요: project_combo_group_drilldown_101_earlystop_engine_dependent.md의
+ "scope>=50,000 -> CHUNK 엔진은 그룹완결성 제약으로 조기중단 불가 -> 항상 정확한 건수"는
+ 사실과 다름(정정: CHUNK는 행단위 조기중단을 이미 수행하며 DIAGPGB1NUME이 실발동 증거,
+ 그룹완결성 제약은 GROUP BY 집계 조기중단에만 해당). "비-stream=상한 없음=항상 정확한 건수"는
+ 사실이나 이것이 "보호장치 전무"를 의미함을 함께 기록해야 함.
+
+ 코드 수정 없음(조사 전용 지시 준수). 조사 방법: sqlite read-only 조회(db/exact_diff_runs.db,
+ db/migration_validator.db), _per_group_policy()/_mismatch_limit_from_policy() 라이브 정책 계산,
+ grep 전수 확인, git log -S 이력 추적.
+────────────────────────────────────────────────────────────
+작업명 : DETAIL-EXTRACT-EARLY-STOP-ALL-PK-TYPES-COVERAGE-DIAGNOSE
+✅ 조사 완료 - 표준 단일숫자 PK 경로는 101이 아니라 "원본 10%" 별도 상한만 있고 절대건수
+   보호는 없음(비-stream은 상한 0개); 101을 전 PK 유형으로 확장하는 것은 M85/M88/M90의
+   GROUP BY 집계 장벽과 무관하게 기술적으로 가능(난이도 中, 4~6파일 60~100줄); 현재 제한은
+   절반은 의도적 성능최적화·절반은 미검토 누락으로 판정(코드 수정 없음, 조사만 수행)
