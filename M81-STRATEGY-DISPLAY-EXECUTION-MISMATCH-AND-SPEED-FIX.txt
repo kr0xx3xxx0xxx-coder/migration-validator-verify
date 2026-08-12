@@ -1,0 +1,343 @@
+```text
+작업명 : M81-STRATEGY-DISPLAY-EXECUTION-MISMATCH-AND-SPEED-FIX
+✅ 작업 완료 - 화면표시-실제실행 전략 불일치 (a)판정 단일화로 근본 수정 + 모순경고 안전망 복구 + 표시문구 2건 정정 + ExactDiffRunStore 커넥션 재사용
+
+────────────────────────────────────────────────────────────
+0. 요약
+────────────────────────────────────────────────────────────
+지시서 1~4번(N1 / N2 / N3 / 속도A)을 모두 완료했다. 5번(속도 B/D/H)은 미착수다(사유 §7).
+
+N1 은 지시서가 우선하라고 한 **(a) 근본해결** 로 처리했다 — "계획 따로, 실행 따로"인 이원화를
+없애고, 5단계 상세추출의 DIRECT↔CHUNK 전환 임계값을 **정책 단일 출처**(strategy_resource_weights.
+transition.detail_stream_min_rows, 기본 50,000)로 신설한 뒤 계획 카드·실행경로·화면 JS 세 곳이
+같은 값 하나를 읽게 했다. (b)는 버리지 않고 **안전망으로 함께** 넣었다 — 구조적으로 절대 발동할
+수 없던 모순경고를 실제로 발동하게 비교축을 교정했다(plan_strategy_id ↔ actual_strategy_id).
+
+주의해서 볼 것: 최초 구현은 임계 규칙을 전환판정 함수 안에 넣었다가 자체 회귀 대조에서 결함 2건
+(벤치 지점 신뢰도 HIGH→MEDIUM 강등 · 전환정책 설계원칙 훼손)이 검출돼 구조를 교체했다(§2-2b).
+최종 구조는 "전환 정책 판정(순수) → 상세추출 실행 규칙 적용(별도 단계)" 2단계다.
+
+핵심 실측(20만행, 조용한 불일치 대역 대표값):
+  수정 전 : 화면 DIRECT_STREAM_COMPARE  /  실제 실행요청 PK_RANGE_CHUNK_COMPARE  → 불일치(경고 없음)
+  수정 후 : 화면 PK_RANGE_CHUNK_COMPARE /  실제 실행요청 PK_RANGE_CHUNK_COMPARE  → 일치
+
+────────────────────────────────────────────────────────────
+1. 조사 중 확인된 사실(BACKLOG M81 대비 갱신)
+────────────────────────────────────────────────────────────
+[1-1] N1 은 "임계값이 세 곳에 따로 있는" 문제였다(BACKLOG 기술과 일치, 위치 확정).
+  ① 계획 카드 표시   routes/strategy_route.py:71~81
+                     choose_compare_strategy(벤치/예상시간 기반) 결과를 full.compare_strategy_id 로 확정
+  ② 화면 실행요청    ui/tabler_renderer.py:17677 (수정 전)
+                     var useStream = (totalRows != null && Number(totalRows) > 50000);
+                     → :17700 compare_strategy: (useStream ? 'PK_RANGE_CHUNK_COMPARE' : '')  ← 명시 전송
+  ③ 서버 실행확정    routes/agg_diff_route.py:55~56 (수정 전)
+                     명시 요청이면 choose_compare_strategy 를 재호출하지 않고 그대로 CHUNK 확정
+  ②의 임계 50,000 과 ①의 전환판정(1M 벤치 158초 기준, resume 임계 300초 → 약 190만행)이 어긋나
+  그 사이 구간 전체가 "화면 DIRECT / 실제 CHUNK" 였다.
+
+[1-2] 모순경고가 발동 불가였던 진짜 이유(설계상 필연이었음을 확정).
+  ③이 반환하는 3번째 값이 그대로 "selected_strategy_id" 로 job meta·응답에 실린다
+  (agg_diff_route.py:1477, :1781). 명시 요청 경로에서는 그 값이 이미 actual 과 같은 CHUNK 다.
+  따라서 ui/tabler_renderer.py:28603 의 `selected !== actual` 비교는 **항상 거짓**이었다.
+  → 즉 "값이 우연히 같아서 안 떴다"가 아니라 **비교축 자체가 소실된 상태**였다. 실측 재현 완료(§3).
+
+[1-3] 부수 발견 — 계획 카드와 실행경로가 choose_compare_strategy 를 **다른 인자**로 부르고 있었다.
+  계획 카드는 정책의 transition_config / benchmarks override 를 전달하는데(strategy_route.py:77),
+  실행경로(agg_diff_route.py:85)는 전달하지 않았다. 정책 override 를 쓰는 순간 둘이 또 갈라진다.
+  이번에 실행경로도 동일 인자를 넘기도록 맞췄다(정책 미설정 시 판정 불변 — 무회귀).
+
+[1-4] 부수 발견 — N3 대상 함수 `_mvStratShort`(ui/grid_helpers.py:1472)는 **호출부가 0곳인 dead code** 다.
+  저장소 전체(.py/.js, scratchpad·__pycache__ 제외) 검색 결과 정의 1곳 외 참조 없음.
+  실제 화면이 쓰는 라벨 경로(ui/tabler_renderer.py:18786 / 19303 / 20116 / 20188 / 20282)는
+  이미 '해시 구간 격리' · '해시 구간 분석 필요' 처럼 실행전략명과 겹치지 않는 한글 라벨을 쓴다.
+  → N3 의 현재 사용자 가시 영향은 **없다**. 지시서대로 표기는 교정했으나(향후 배선 대비),
+    "오독 위험이 지금 화면에 존재한다"는 BACKLOG 서술은 과대평가였음을 기록해 둔다.
+
+[1-5] 잔존(의도된 설계, 이번 범위 밖) — 자격 미달 PK + 임계 초과.
+  날짜/문자/복합 단일PK 테이블이 5만행을 넘으면 화면은 여전히 CHUNK 를 요청한다(useStream 은
+  PK 종류를 모른다). 이 경우 서버 엔진이 **HOLD_NON_NUMERIC_PK 로 명시 중단**한다 —
+  ui/tabler_renderer.py:17699 주석이 밝힌 "조용한 DIRECT fallback 없음" 설계 그대로다.
+  즉 조용한 오실행이 아니라 눈에 보이는 HOLD 이고, 이번 수정으로 여기에 **모순경고까지 추가로
+  발동**한다(계획=DIRECT ≠ 실행=CHUNK). 이 HOLD 의미론을 바꾸는 것은 별개 주제라 손대지 않았다.
+
+────────────────────────────────────────────────────────────
+2. 구조 — N1 을 (a)로 푼 방법과 그 판단근거
+────────────────────────────────────────────────────────────
+[2-1] 왜 (a)-A안(화면이 계획값을 그대로 실행요청에 실어보내기)을 쓰지 않았는가
+  화면이 계획 판정(DIRECT)을 그대로 따르면, 5만~약 190만행 구간의 실행이 CHUNK → DIRECT 로 바뀐다.
+  그런데 이 저장소가 보유한 유일한 동일조건 벤치(1M cross-host cold)는 chunk 68초 < direct 158초로
+  **CHUNK 가 2.3배 빠르다**(strategy_transition.py:34~37). 즉 A안은 "표시를 맞추려고 실행을 2배
+  느리게" 만드는 선택이라 채택하지 않았다.
+  → 지시서 (a)의 원문("useStream 임계값까지 반영한 최종 판정을 기준으로 보여주도록")대로
+    **표시를 실행에 맞추는** 방향을 택했다. 실행 동작은 한 톨도 바뀌지 않는다(성능 무영향).
+
+[2-2] 왜 (a)-B안(명시 요청도 매번 재판정)을 그대로 쓰지 않았는가
+  agg_diff_route.py:41~43 docstring 의 "selected==actual 보장 · 자동 fallback 없음" 계약과
+  :56 "명시 요청 존중" 주석은 과거에 조용한 fallback 을 제거하며 세운 의도다. 재판정 결과로
+  실행을 뒤집으면 그 계약이 깨진다.
+  → 계약은 그대로 두고(명시 요청은 여전히 존중, selected==actual 유지), **"계획 기준 판정"을
+    별도 축(plan_strategy_id)으로 추가**해 경고가 비교할 대상을 되살렸다.
+
+[2-2b] 첫 구현을 자체 회귀 대조로 되잡은 과정(중요 — 결함 2건을 스스로 검출해 구조 교체)
+  최초 구현(커밋 425cd453)은 임계 규칙을 choose_compare_strategy **안**에 옵트인 인자로 넣었다.
+  수정 대상 심볼을 참조하는 테스트 33파일을 baseline 과 1:1 대조한 결과 **신규 실패 2건**이 나왔다.
+    결함① 신뢰도 강등 — 임계 판정이 벤치 비교 분기보다 먼저 반환돼, 실측 벤치 지점(1M)에서
+          confidence 가 HIGH → MEDIUM 으로 떨어졌다(전략값 CHUNK 자체는 동일).
+          검출: test_strategy_planner.py::test_strategy_plan_route_1m_benchmark_driven
+    결함② 정책 원칙 훼손 — strategy_transition 모듈 docstring §8 의 설계 원칙이
+          "단순 row count 하나로 결정하지 않는다"인데, 임계 규칙을 그 함수에 넣으면 원칙이 깨진다.
+          검출: test_strategy_planner.py::test_strategy_plan_transition_time_based_not_rowcount
+  → 구조를 교체했다(커밋 72cc7dcc). 전환 정책 판정은 원래대로 순수하게 두고, 실행 규칙 적용을
+    **이름 있는 별도 단계**(apply_detail_extraction_rule)로 분리했다. 계획 카드와 실행경로가
+    이 함수 하나를 공유하므로 N1 의 해결 방식(단일 출처)은 그대로다.
+  → 결함①은 코드 수정만으로 해소(테스트 무수정 통과 복구). 결함②의 테스트는 검증 대상을
+    두 층으로 분리해 갱신했다 — transition 이 시간 기반이라는 원래 취지는 그대로 검증하고,
+    화면 표시값(full_compare_plan)은 실제 실행과 일치해야 하므로 CHUNK 를 기대하게 했다.
+    이 단언이야말로 M81-N1 이 고치려는 '조용한 불일치'를 테스트가 굳혀두고 있던 지점이다.
+
+[2-3] 실제 변경(파일:라인 — 최종 상태)
+  services/strategy/strategy_transition.py
+    :31~36   DEFAULT_TRANSITION["detail_stream_min_rows"] = 50000  (정책 단일 출처 신설)
+    :52~67   detail_stream_min_rows(transition_config) 공개 조회 함수 신설(폴백 50,000)
+    :70~99   apply_detail_extraction_rule(...) 신설 — '전환 정책 판정 위에 상세추출 실행 규칙을
+             덧씌우는' 별도 단계. 자격(단일 숫자 PK+인덱스)·source_count 유무를 확인한 뒤
+             임계 초과면 PK_RANGE_CHUNK 로 확정하고 DETAIL_STREAM_THRESHOLD_CHUNK 근거를 남긴다.
+    choose_compare_strategy 본문은 무변경(전환 정책 판정 그대로 — 기존 호출부 판정 완전 불변)
+  routes/strategy_route.py
+    :71~90   전환 정책 판정 → apply_detail_extraction_rule 적용 → full_compare_plan 확정.
+             transition 응답 필드는 정책 원본 그대로 보존(판정 근거 유지)
+  routes/agg_diff_route.py
+    :40~51   docstring 에 새 계약(plan_strategy_id) 명시
+    :56~59   _unique_native_key 조기반환 경로도 _plan_strategy_id 세팅
+    :60~68   get_validation_policy() 를 1회만 읽어 재사용(종전 live 판정용 1회 + 정책 재조회)
+             + strategy_resource_weights.transition/benchmarks 확보
+    :89~108  계획 카드와 **완전히 같은 2단계**(전환 정책 판정 → 실행 규칙 적용)를 밟아
+             req._plan_strategy_id 보존 → 그 다음에 명시요청/LEGACY 분기
+             (source_count 가 None 이면 판정 생략 — 벤치 비교 TypeError 방지 + 근거 없는 경고 금지)
+    :1482~1484  job meta 에 plan_strategy_id 적재
+    :1786~1790  /agg-diff pk-records 응답에 plan_strategy_id 실어보냄
+  ui/tabler_renderer.py
+    :17676~17691 useStream 임계값을 정책값으로 대체(하드코딩 50000 단독판정 제거,
+                 _mvValidationPolicy 미도착 시에만 50000 폴백 — 무회귀)
+    :28617~28632 모순경고 비교축 교정: plan_strategy_id ↔ actual_strategy_id
+                 (구 run 은 selected 축으로 폴백 — 무회귀), 배지 문구를 '계획=실행' /
+                 '계획≠실행(원래계획)!' + 툴팁으로 교체
+    :19202~19211 [N2] 오라클 HASH_BUCKET 안내문구 정정
+  ui/grid_helpers.py
+    :1476~1487 [N3] HASH_BUCKET_REQUIRED/SPLIT·KEY_RANGE_SPLIT → '(권고)' 접미 표기
+
+[2-4] 속도A 구조 (services/exact_diff/store.py)
+  chunk_checkpoint 의 검증된 패턴을 그대로 이식했다. 20개 공개 메서드의 시그니처와
+  `conn = self._connect() ... finally: self._close(conn)` 구조는 **한 줄도 바꾸지 않았다**.
+    :108~163  _LOCAL(스레드별 conn 캐시) / _SCHEMA_READY / _SCHEMA_LOCK,
+              _thread_conns / _drop_cached_conn / reset_connections / conn_debug_info 신설
+    :193~226  _connect(): 캐시 재사용 + DB 파일당 DDL 1회.
+              캐시 키는 str(_DB_PATH) — 테스트가 monkeypatch 로 경로를 바꾸면 자동으로 새 conn
+              (tests/test_m63_reimport_db_fallback.py 의 격리 방식과 호환)
+    :228~243  _init_file_schema(): 종전 _connect 안의 DDL 블록을 그대로 옮김(스키마 결과 불변)
+    :244~249  _close(): no-op 전환(재사용이 목적)
+  내구성 보존: 종전에는 매 호출 executescript 덕에 DB 파일이 사라져도 자동 복구됐다.
+  같은 내구성을 재사용 직전 os.path.exists() stat 1회로 대체했다(6.8ms DDL → 수 µs).
+
+────────────────────────────────────────────────────────────
+3. 검증 실측 — N1 (전/후, 실제 브라우저·실 API)
+────────────────────────────────────────────────────────────
+하니스: scripts/dev_e2e/m81_strategy_display_execution_verify.py (신규)
+  강제 주입 없음 — 계획 카드는 제품 함수 _mvRenderStrategyPlan 이 스스로 실 /strategy/plan 을
+  호출한 결과를, 실행요청은 제품 payload 빌더 _mvPkPayload 가 실제로 서버에 보낼 값을 그대로 읽는다.
+  (표시값은 카드 본문이 아니라 window._mvStage3PlanInfo.compareStrategy 를 읽는다 —
+   STAGE4-5-STRATEGY-INFO-RELOCATE-FIX 이후 4·5단계 타일의 단일 출처가 여기다.)
+서버: before = HEAD d17b9d89 워크트리 127.0.0.1:8012 / after = 수정본 127.0.0.1:8011 (동시 기동)
+
+  ┌────────────────────┬──────────┬──────────────────────────┬──────────────────────────┬────────┐
+  │ 케이스              │ 원본행수 │ 화면 표시(계획 카드/타일) │ 실제 실행요청(compare_..) │ 판정   │
+  ├────────────────────┼──────────┼──────────────────────────┼──────────────────────────┼────────┤
+  │ [before] 숫자PK     │  200,000 │ DIRECT_STREAM_COMPARE    │ PK_RANGE_CHUNK_COMPARE   │ 불일치!│
+  │ [before] 숫자PK     │   30,000 │ DIRECT_STREAM_COMPARE    │ DIRECT_STREAM_COMPARE    │ 일치   │
+  │ [before] 날짜PK     │  200,000 │ DIRECT_STREAM_COMPARE    │ PK_RANGE_CHUNK_COMPARE   │ 불일치!│
+  ├────────────────────┼──────────┼──────────────────────────┼──────────────────────────┼────────┤
+  │ [after]  숫자PK     │  200,000 │ PK_RANGE_CHUNK_COMPARE   │ PK_RANGE_CHUNK_COMPARE   │ 일치 ✅│
+  │ [after]  숫자PK     │   30,000 │ DIRECT_STREAM_COMPARE    │ DIRECT_STREAM_COMPARE    │ 일치   │
+  │ [after]  날짜PK     │  200,000 │ DIRECT_STREAM_COMPARE    │ PK_RANGE_CHUNK_COMPARE   │ §1-5   │
+  └────────────────────┴──────────┴──────────────────────────┴──────────────────────────┴────────┘
+  ※ 날짜PK 행은 §1-5 의 '의도된 HOLD' 케이스다. 조용한 오실행이 아니라 엔진이 명시 중단하며,
+    이번 수정으로 모순경고까지 함께 뜬다(종전에는 경고조차 없었다).
+
+  판정 근거코드(계획 카드가 실제로 받은 값, 숫자PK 200k):
+    before full_compare_plan : EST_TOTAL_NEAR_EXTRAPOLATED, EST_TOTAL_WITHIN_DIRECT_BUDGET → DIRECT
+    after  full_compare_plan : … + DETAIL_STREAM_THRESHOLD_CHUNK                            → CHUNK
+    after  transition(정책 원본) : EST_TOTAL_WITHIN_DIRECT_BUDGET 그대로 — 전환 정책은 여전히
+           시간 기반이고 실행 규칙은 그 위에 덧씌워진 별도 단계임이 응답에서도 확인된다(§2-2b).
+  기존 하니스(pk_range_chunk_plan_card_browser_verify.py)로 교차확인한 5,000만행 숫자PK:
+    before 계획 = DIRECT_STREAM_COMPARE (실행은 CHUNK — 같은 불일치)
+    after  계획 = PK_RANGE_CHUNK_COMPARE ✅
+
+  모순경고 배지(제품 함수 _mvRiSummaryHtml 실제 출력):
+    before : 계획≠실행 상황을 넣어도 화면에 '· selected=actual' (경고 미발동)  ← 안전망 무력화 재현
+    after  : 계획=실행 → '· 계획=실행'(회색) / 계획≠실행 → '· 계획≠실행(DIRECT_STREAM_COMPARE)!'(적색)
+
+  하니스 종합: before PASS 8 / FAIL 11  →  after PASS 20 / FAIL 0
+
+  스크린샷(증적, X:\Projects\nxDTV\scratchpad\M81-SHOTS\):
+    _m81_before_N1_display_vs_execution.png   ← 표시 vs 실행 불일치 2건(적색)
+    _m81_after_N1_display_vs_execution.png    ← 숫자PK 일치로 전환
+    _m81_before_N1_badge.png / _m81_after_N1_badge.png   ← 모순경고 미발동 → 발동
+    _m81_before_N2_dbms_capabilities.png / _m81_after_N2_dbms_capabilities.png
+  증적 JSON: m81_strategy_display_execution_verify_before.json / _after.json (같은 폴더)
+
+────────────────────────────────────────────────────────────
+3-2. 검증 실측 — N2 / N3
+────────────────────────────────────────────────────────────
+N2 (스크린샷 _m81_after_N2_dbms_capabilities.png)
+  before : "Oracle 은 통계검증 + KEY_RANGE(PK 청크)·ROW_DIFF(재이관 스트림) 지원,
+            HASH_BUCKET 은 미이식(미지원)."   ← 같은 패널 표의 Oracle HASH_BUCKET 배지는 '지원'
+  after  : "Oracle 은 통계검증 + KEY_RANGE(PK 청크)·ROW_DIFF(재이관 스트림)에 더해 HASH_BUCKET 도
+            지원합니다(오라클 해시 계약 이식 완료 — 단 해시 비교 실행은 원본·목적지가 같은 방언일
+            때만, 혼합 방언은 HOLD)."
+  자동 확인 : '미이식(미지원)' 문구 소멸 OK / 지원 사실 명시 OK / 동일 방언 조건 명시 OK /
+             데이터기반 배지(capabilities.py _ORACLE hash_bucket=SUPPORTED)와 무모순 OK
+  ※ 단일 DBMS 능력(지원)과 페어 조건(동일 방언)을 함께 밝혔다 — hash_bucket_pair_status() 가
+    페어 판정 단일 출처라는 capabilities.py 주석의 설계를 문구에서도 깨지 않기 위함.
+
+N3 (제품 함수 _mvStratShort 직접 호출 결과)
+  before : HASH_BUCKET_REQUIRED → 'HASH_BUCKET'   HASH_BUCKET_SPLIT → 'HASH_BUCKET'
+  after  : HASH_BUCKET_REQUIRED → 'HASH_BUCKET(권고)'  HASH_BUCKET_SPLIT → 'HASH_BUCKET(권고)'
+           KEY_RANGE_SPLIT → 'KEY_RANGE(권고)'   EXECUTE_KEY_RANGE → 'KEY_RANGE'(실행 코드는 무변경)
+  ※ §1-4 참조 — 이 함수는 현재 호출부 0곳(dead code)이라 사용자 가시 효과는 없다.
+
+────────────────────────────────────────────────────────────
+4. 검증 실측 — 속도개선 A (ExactDiffRunStore 커넥션 재사용)
+────────────────────────────────────────────────────────────
+하니스: scripts/dev_e2e/m81_exact_diff_store_conn_reuse_measure.py (신규)
+  같은 프로세스·같은 임시 파일 DB에서 수정 전/후를 나란히 잰다. '수정 전'은 _LegacyStore 로
+  종전 _connect/_close 본문을 그대로 재현하므로 두 값의 차이는 커넥션 재사용 여부 하나뿐이다.
+  (운영 db/exact_diff_runs.db 는 건드리지 않는다 — 임시 디렉터리 격리)
+
+  n=200, 중앙값 기준
+  ┌─────────────────┬────────────┬────────────┬─────────┬──────────────────────────────┐
+  │ 메서드           │ 수정 전     │ 수정 후     │ 감소율   │ 호출 빈도                     │
+  ├─────────────────┼────────────┼────────────┼─────────┼──────────────────────────────┤
+  │ append_records  │  3.614 ms  │  2.264 ms  │ -37.4%  │ 청크 경계·5,000행마다          │
+  │ count_records   │  1.739 ms  │  0.361 ms  │ -79.2%  │ 상세추출 폴링마다(1회당 다수)   │
+  │ page_records    │  3.797 ms  │  1.137 ms  │ -70.0%  │ 화면 100건 페이지마다          │
+  │ get_run         │  1.170 ms  │  0.059 ms  │ -94.9%  │ 폴링마다                      │
+  └─────────────────┴────────────┴────────────┴─────────┴──────────────────────────────┘
+  정합성 : 재사용 store 와 legacy store 의 count(10,000/10,000) · page.total · 레코드 키 목록 ·
+           run 헤더가 모두 동일 → PASS
+  동시성 : 4스레드 × 30회 write, 예외 0건, 스레드별 connection 4개가 서로 다름(공유 없음) → PASS
+  ※ chunk_checkpoint 때의 8.15ms→1.38ms(-83%)와 같은 계열의 결과다. write 계열(append_records)의
+    감소폭이 상대적으로 작은 것은 실제 INSERT+commit 비용이 남아있기 때문이며(부대작업만 제거),
+    read 계열은 부대작업 비중이 커서 -70~95% 로 크게 줄었다.
+  실환경 스모크 : 서버 재기동 시 EXACT_DIFF 보존기간 정리 스케줄러가 이 store 를 실제로 호출하는데
+                 오류 없이 기동 완료(§6 로그).
+
+────────────────────────────────────────────────────────────
+5. 회귀 테스트
+────────────────────────────────────────────────────────────
+[5-1] CLAUDE.md 필수 회귀 (최종 1회, 수정본 기준)
+  python samples/test_virtual_cases.py   → 8/8 통과 ✅
+  python samples/test_complex_cases.py   → 5/5 케이스 분석 완료 ✅
+
+[5-2] 회귀 대조 — '수정 대상 심볼을 참조하는 테스트 전수' vs baseline (1:1, 최종)
+  대상 선정 방식: 임의 서브셋이 아니라, 이번에 손댄 심볼
+    (choose_compare_strategy / detail_stream_min_rows / _mvPkPayload / _mvStratShort /
+     ExactDiffRunStore / _mvRenderDbmsCapabilities / selected_strategy_id / useStream)
+  을 참조하는 tests/ 파일을 전수 검색해 얻은 **33개 파일 전부**를 돌렸다.
+  baseline = HEAD d17b9d89 워크트리(X:\wt81), 동일 명령·동일 순서(-p no:randomly).
+
+    수정본   : 8 failed, 389 passed, 4 skipped, 5 xfailed
+    baseline : 8 failed, 389 passed, 4 skipped, 5 xfailed
+    → 실패 목록 **완전 동일**(diff 결과 소요시간 줄만 차이). 신규 회귀 0건.
+
+  사전 실패 8건(양쪽 동일, M81 무관):
+    test_agg_contribution::test_exact_diff_separated_and_terms_removed
+    test_d7_1_completed_history::test_client_gate_and_dialog
+    test_execution_path::test_parallel_read_decision_off_by_default
+    test_execution_path::test_parallel_read_decision_diff_host_true
+    test_execution_path::test_parallel_read_decision_same_host_sequential
+        └ _parallel_read_decision 이 HEAD 에서 이미 (bool, reason) 튜플을 반환하는데 테스트는
+          bool 단독을 기대한다(M80 작업의 테스트 미갱신 — 이번 작업 범위 밖).
+    test_pg_operational_focus::test_oracle_execution_open
+    test_reimport_stream::test_default_20_and_max_20_rows
+    test_stats_result_full::test_phase4b_strategy_plan_effective_selection_display
+  ※ 이 대조가 최초 구현의 결함 2건(§2-2b)을 실제로 잡아냈다 — 서브셋을 넓힌 것이 유효했다.
+
+  추가로 돌린 서브셋(모두 baseline 과 동일한 사전 실패만 발생):
+    exact_diff / reimport_db / chunk_checkpoint / m63 / retention / pk_chunk  → 94 passed, 6 failed
+    stage45_strategy_info_relocate / stats_result_full / batch_ui / batch_row_detail_ux /
+    stats_scale_* / strategy_remote_flag_evidence / d7_pk_chunk_compare_cols → 124 passed, 2 failed
+
+[5-3] 전체 스위트(12,533건) — 미수행 기록(사유)
+  전체 실행을 수정본/baseline 양쪽에서 착수했으나 baseline 워크트리가 tests/test_11def_scenarios.py ·
+  tests/test_12k_stress.py 2개 파일에서 collection 단계 FileNotFoundError 로 중단된다
+  (이 두 파일은 코드 저장소 작업트리에서 **다른 세션이 수정 중인 미커밋 상태**라 HEAD 워크트리에는
+  참조 픽스처가 없다 — M81 과 무관). baseline 이 성립하지 않으면 전체 스위트 숫자만으로는
+  '신규 회귀 0건'을 증명할 수 없으므로, 위 [5-2] 의 **심볼 기준 전수 대조**를 회귀 판정 근거로 삼았다.
+
+────────────────────────────────────────────────────────────
+6. 서버 재기동
+────────────────────────────────────────────────────────────
+  1차 재기동  : 2026-08-12 14:50 (KST) — 커밋 4639e769 기준 (PID 11080 → 2560)
+  최종 재기동 : 2026-08-12 15:00 (KST) — §2-2b 구조 교체 반영 (PID 2560 자동 종료 → 신규 기동)
+  방법        : python web_server.py  (포트 8000 점유 프로세스 자동 종료 후 시작 — CLAUDE.md 서버 규칙)
+  기동 로그   : 서버 인증(HTTP Basic Auth) ON (등록 계정 3명)
+                서버 단계 가드(WORKFLOW-STAGE-GATE) ON
+                [정리] EXACT_DIFF 보존기간 정리 스케줄러 시작(기동 1회 + 이후 24시간 주기)
+                [정리] 재이관 job 좀비 sweeper 시작
+                → 수정한 ExactDiffRunStore 를 실제로 타는 스케줄러가 오류 없이 기동 완료
+  HEAD 커밋   : 72cc7dcc1183a4d9398bb29627c17e1c8c0a98a2 (코드 저장소 main, 로컬 커밋)
+  ※ 검증용으로 띄웠던 8011(after) / 8012(before) 임시 서버는 증적 수집 전용이며 운영과 무관하다.
+
+────────────────────────────────────────────────────────────
+7. 미착수 항목과 사유 (지시서 5번 — 속도 B/D/H)
+────────────────────────────────────────────────────────────
+  B (상세추출 폴링 1회당 COUNT 3회 중복) · D (정책조회 캐시 전무) · H (_resolve_size_class COUNT(*) 4곳)
+  → 이번 작업에서는 착수하지 않았다. 사유:
+    · 지시서가 "시간 남으면"으로 우선순위를 낮춰 두었고, N1(전략판정 로직 변경 + 화면-실행 정합성)
+      검증에 전/후 서버 동시 기동·브라우저 실측·baseline 대조까지 필요해 그쪽 품질에 시간을 썼다.
+      지시서 문구("억지로 다 하려다 N1/A 품질을 떨어뜨리지 마라")를 그대로 따랐다.
+    · 특히 D(정책조회 캐싱)는 무효화 정책(정책 변경 즉시 반영 vs TTL)을 먼저 정해야 하는
+      설계 결정이 걸려 있어, 근거 없이 캐시를 넣으면 "설정을 바꿔도 안 먹는" 종류의 결함을
+      새로 만든다. 별도 작업으로 다루는 편이 안전하다.
+  · 다만 D 의 일부는 이번에 부수적으로 개선됐다 — agg_diff_route._resolve_execution_strategy 가
+    get_validation_policy() 를 2회(live 판정 + 전략 가중치) 읽던 것을 1회 읽어 재사용하도록 바꿨다.
+  → BACKLOG M81 의 B/D/H 항목은 그대로 남겨 두는 것을 권한다.
+
+────────────────────────────────────────────────────────────
+8. 변경/신규 파일 목록
+────────────────────────────────────────────────────────────
+수정:
+  services/strategy/strategy_transition.py
+  routes/strategy_route.py
+  routes/agg_diff_route.py
+  ui/tabler_renderer.py
+  ui/grid_helpers.py
+  services/exact_diff/store.py
+  tests/test_strategy_planner.py   (§2-2b — 검증 대상을 두 층으로 분리해 갱신)
+신규:
+  scripts/dev_e2e/m81_strategy_display_execution_verify.py
+  scripts/dev_e2e/m81_exact_diff_store_conn_reuse_measure.py
+  scripts/dev_e2e/_m81_server.py
+
+증적(코드 저장소 밖 · scratchpad):
+  X:\Projects\nxDTV\scratchpad\M81-SHOTS\  (스크린샷 6종 + 증적 JSON 2종)
+
+────────────────────────────────────────────────────────────
+9. 코드 저장소 커밋 (push 하지 않음)
+────────────────────────────────────────────────────────────
+  425cd453  fix(strategy): 계획 카드 표시 전략과 실제 실행 전략 불일치 근본 수정 (M81-N1, N2 동반)
+  37d9fea1  fix(ui): 권고 코드(HASH_BUCKET_REQUIRED/SPLIT)를 실행전략명과 구분 표시 (M81-N3)
+  c4c62256  perf(exact_diff): ExactDiffRunStore 커넥션 재사용 — 호출당 connect+DDL 반복 제거 (M81-A)
+  4639e769  test(dev_e2e): M81 화면표시-실제실행 전략 일치 검증 하니스 신설
+  72cc7dcc  refactor(strategy): 상세추출 실행 규칙을 전환 정책과 분리된 단계로 재구성 (M81-N1 보정)
+  HEAD = 72cc7dcc1183a4d9398bb29627c17e1c8c0a98a2 (main, 로컬 커밋만 — 원격 push 하지 않았다)
+
+  동시세션 안전조치: 같은 시각 M80 세션이 routes/agg_diff_route.py 를 편집 중이었다. 커밋 직전
+  확인한 결과 M80 이 먼저 d17b9d89 로 커밋을 마쳐 작업트리에는 M81 변경만 남아 있었고
+  (git diff -- <경로> 로 hunk 단위 확인), 각 항목을 자체 테스트 통과 직후 개별 커밋했다.
+  git add -A / stash / checkout / reset 류 광범위·파괴적 명령은 일절 쓰지 않았고,
+  다른 세션의 미커밋 파일(requirements*.txt, tests/test_11def_scenarios.py 등)은 그대로 보존했다.
+
+작업명 : M81-STRATEGY-DISPLAY-EXECUTION-MISMATCH-AND-SPEED-FIX
+✅ 작업 완료 - 화면표시-실제실행 전략 불일치 (a)판정 단일화로 근본 수정 + 모순경고 안전망 복구 + 표시문구 2건 정정 + ExactDiffRunStore 커넥션 재사용
+```
