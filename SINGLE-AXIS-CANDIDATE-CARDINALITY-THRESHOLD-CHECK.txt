@@ -1,0 +1,144 @@
+```text
+작업명 : SINGLE-AXIS-CANDIDATE-CARDINALITY-THRESHOLD-CHECK
+✅ 작업 완료 - 3단계 후보추천 단일 컬럼 GROUP BY 카디널리티 상한 조사(코드 수정 없음)
+
+────────────────────────────────────────────────────────────
+0. 결론 요약(가장 먼저)
+────────────────────────────────────────────────────────────
+"단일 컬럼 하나가 GROUP BY 후보로 최종 채택되려면 카디널리티(고유값 개수)가
+최대 몇까지 허용되는가"의 실질적·최종적 답은 60 이다.
+  → GENERAL_COLUMN_MAX_GROUPS = 60  (config/model_config.py:489,
+     env override MV_GENERAL_COLUMN_MAX_GROUPS)
+
+단, 이 60은 3계층 중 가장 나중에(사후) 적용되는 "최종 권위" 게이트값이다.
+같은 파이프라인 안에 값이 다른 게이트가 3계층 존재하며, 서로 목적이 다르다.
+아래 1~4에서 계층별로 정확히 구분해 답한다.
+
+────────────────────────────────────────────────────────────
+1. 정확한 상수명·값·위치 (3계층)
+────────────────────────────────────────────────────────────
+[계층 A] candidate_engine.py 내부 — 통계전용 저카디 경로의 "후보 생성" 진입조건
+  services/candidate_engine.py:645
+  `2 <= n_distinct <= 50` (하드코딩, 상수 미참조 — magic number)
+  → Step2(메타데이터 기반) 중 "통계만으로 GROUP BY 후보를 만드는" 분기 하나에
+    한정된 게이트. 이 범위를 벗어나면 "이 분기에서는" 후보가 만들어지지
+    않는다(다른 분기·시맨틱 경로로는 여전히 후보가 될 수 있음 — 아래 참고).
+
+[계층 B] candidate_engine.py 내부 — 카디널리티 등급 분류(등급표)
+  services/candidate_engine.py:1132-1136
+    _GB_CARD_LOW_MAX    = 50    (이하: low)
+    _GB_CARD_MEDIUM_MAX = 200   (이하: medium)
+    _GB_CARD_HIGH_MAX   = 1000  (이하: high, 초과: very_high)
+    _GB_CARD_AUTO_OK = frozenset({"low","medium","unknown"})
+  → DIMENSION 시맨틱 경로 등 엔진 내부에서 "기본추천(auto_selected)" 여부를
+    판단할 때 쓰는 등급 경계. 즉 여기서는 n_distinct<=200(또는 통계 unknown)
+    까지는 자동추천 후보로 남을 수 있다(50이 아니라 200). high/very_high여도
+    후보 풀에서 완전히 빠지진 않고 auto_selected=False로만 강등된다
+    (warn_reason="높은 카디널리티 — GROUP BY 기본추천 제외").
+  ※ 단, 이 자동추천 판정은 최종값이 아니다 — 계층 C가 사후에 덮어쓴다
+    (services/candidate_recommendation_policy.py의 _sync_legacy_from_status:
+    "엔진이 남긴 auto=True 라도 status 가 AUTO 가 아니면 auto_selected=False
+    로 강제").
+
+[계층 C] services/candidate_recommendation_policy.py — 최종 권위 게이트(실사용)
+  config/model_config.py:486-489
+    GENERAL_COLUMN_MAX_GROUPS = 60 (env: MV_GENERAL_COLUMN_MAX_GROUPS)
+  services/candidate_recommendation_policy.py:34-41, 58-60, 129-134, 217-219
+    - classify_cardinality()가 실제 고유값 개수(distinct_count)와 60을 비교,
+      초과 시 excluded=True 반환(사유: "그룹 개수 과다(N개 > 상한 60개) —
+      집계 의미 없음")
+    - _gate_verdict()가 GROUP_BY 역할 후보에 이 판정을 적용해
+      recommendation_status = "EXCLUDED"로 강등(services/
+      candidate_evidence_contract.py:45 REC_EXCLUDED = "규칙상 제외")
+    - apply_recommendation_gates()가 candidate_engine이 만든 후보 pool
+      전체(SINGLE 경로 645행 분기든, DIMENSION 시맨틱 경로든 무관하게)에
+      사후 일괄 적용됨 — 호출부: services/candidate_postcount_finalize.py:856,
+      services/single_validation_run_facade.py:1484
+  ※ 별개 축(OR 관계, 절대개수와 무관): GB_IDENTIFIER_DISTINCT_RATIO = 0.9
+    (candidate_recommendation_policy.py:32) — distinct/전체행수 비율이 90%
+    이상이면 "사실상 식별자"로 별도 배제. 60개 상한과 독립적으로 둘 중
+    하나만 걸려도 배제된다.
+
+────────────────────────────────────────────────────────────
+2. 고정값인가, 동적(비율)값인가
+────────────────────────────────────────────────────────────
+기본은 고정 정수 상수다(50 / 200 / 1000 / 60 모두 고정값, 60은 env로만
+조정 가능하고 코드 하드코딩은 아님).
+
+예외 — PostgreSQL n_distinct 음수 표기(pg_stats가 "전체 대비 비율"로 주는
+경우, -1=완전 고유)에 한해 상대적 계산을 쓴다:
+  frac = min(1.0, -n_distinct)
+  frac>=0.5 → very_high / frac>=0.2 → high / 그 외 → low
+  (candidate_engine.py:1152-1159, candidate_recommendation_policy.py:96-99
+   양쪽에 동일 로직 미러링, parity 테스트로 드리프트 방지)
+이는 "테이블 전체 행수 대비 동적 계산식"이 아니라 DB가 이미 제공하는 비율
+표기를 그대로 등급에 매핑한 것이며, 이 음수 경로에서는 "절대 개수" 자체를
+알 수 없어 계층 C의 60개 절대상한(GENERAL_COLUMN_MAX_GROUPS)은 적용되지
+않는다(near_unique/등급 분류로만 처리, candidate_recommendation_policy.py:128
+주석 "절대 개수만 판정한다... 상한 미적용").
+
+────────────────────────────────────────────────────────────
+3. 상한 초과 시 실제 처리 방식
+────────────────────────────────────────────────────────────
+자동 제외도 아니고 순수 경고만도 아닌, 계층별로 다른 처리다.
+
+- 계층 A(645행 진입조건) 초과: 그 분기에서는 후보 자체가 안 만들어짐. 단,
+  같은 컬럼이 DIMENSION 시맨틱 등 다른 경로로 후보가 될 수 있으면 거기서
+  다시 생성 시도된다. 최종적으로 어느 경로로도 후보가 안 만들어지면
+  _gb_non_candidate_reason()(candidate_engine.py:1042-1103)이 사후에 사유만
+  라벨링한다 — HIGH_CARDINALITY 또는(char/varchar이고 길이>=100이면)
+  FREE_TEXT. 이건 새 판정이 아니라 "왜 후보가 없는지" 기존 게이트를 재사용해
+  UI 사유칩(non_candidate_reasons)에 문구로 노출하는 explainability 용도다.
+
+- 계층 B(등급표) high/very_high(50 초과, 즉 51~1000/1000+) 판정: 후보 풀에서
+  빠지지 않는다. auto_selected=False로만 강등되고 warn_reason이 붙어
+  "선택 가능하지만 자동추천은 아님" 상태로 3단계 화면에 계속 노출된다
+  (사용자가 체크박스로 수동 선택 가능).
+
+- 계층 C(60 절대상한) 초과: recommendation_status="EXCLUDED"로 강등된다.
+  §19 원칙("후보 pool 보존 — 삭제 안 함")에 따라 후보 데이터 자체는 dict로
+  남지만, 최종 권위 필드(recommendation_status/auto_selected/
+  selection_status)가 전부 배제 계열로 덮어써지므로 실질적으로 "자동추천은
+  물론 일반 선택 목록에서도 배제됨(EXCLUDED_BY_RULE)"로 처리된다 — 세 가지
+  중 "자동 제외"에 가장 가깝다(단, 데이터 자체를 지우진 않아 사유 문구는
+  계속 조회 가능).
+
+────────────────────────────────────────────────────────────
+4. 오늘 확인된 조합 상한(4,000)과의 관계 — 완전히 다른 단계/다른 값
+────────────────────────────────────────────────────────────
+PLAN_TARGET_MAX_GROUPS = 4000 (services/groupby_plan_service.py:51)은
+"3단계 후보추천"이 아니라 "4단계 실행계획(execution plan)" 단계의 값이다.
+  - 후보추천(오늘 조사 대상, 계층 A/B/C) = "이 컬럼 하나가 GROUP BY 후보
+    목록에 오를 자격이 있는가"를 판단 — candidate_engine.py /
+    candidate_recommendation_policy.py, 단위는 컬럼(축) 1개.
+  - 4,000(오늘 조사 대상 아님) = "채택된 후보들로 조합(2축) 세트를 짤 때,
+    그 조합을 실행하면 예상되는 그룹 수가 몇 개까지면 실행 계획에
+    포함시킬지" — services/groupby_plan_service.py, 단위는 실행 SET(조합).
+
+두 값은 import/참조 관계가 전혀 없다(독립 모듈, 독립 상수). 다만
+groupby_plan_service.py:29 주석이 4,000의 근거를 설명하며 계층 A의 50과
+config.model_config.GENERAL_COLUMN_MAX_GROUPS=60(계층 C)을 "이미 이 상한들을
+통과한 축들만 조합 단계에 들어온다"는 전제로 인용한다 — 즉 4,000은 계층
+A/B/C(50/60 등)를 이미 통과한 축 2개가 조합됐을 때의 상한(구조적 최댓값
+60×60=3,600에 여유를 둔 4,000)이라는 "값 사이의 논리적 연쇄"는 있지만,
+같은 게이트도 같은 판단 대상도 아니다. 혼동하지 말 것.
+
+────────────────────────────────────────────────────────────
+5. 결론(재확인)
+────────────────────────────────────────────────────────────
+- 정확한 상수명·값: 계층 A(645행 하드코딩 2~50) / 계층 B(_GB_CARD_LOW_MAX=50,
+  MEDIUM_MAX=200, HIGH_MAX=1000) / 계층 C(GENERAL_COLUMN_MAX_GROUPS=60, 최종
+  권위) — 실사용 결과에 가장 직접 영향을 주는 값은 60.
+- 고정값/동적값: 기본 고정 정수. PostgreSQL 음수(비율) n_distinct에서만
+  상대 비율로 등급만 분류(60 절대상한은 이 경로에 미적용).
+- 상한 초과 처리: 계층별 상이(A=그 분기 후보 미생성, B=자동추천만 해제,
+  C=recommendation_status=EXCLUDED로 강등) — "완전 자동제외"에 가장 가까운
+  건 계층 C(60).
+- 조합 상한(4,000)과의 관계: 다른 단계(후보추천 vs 실행계획)의 다른 값 —
+  서로 참조 없는 독립 게이트, 다만 4,000의 산정 근거 설명에 계층 A/C 값이
+  인용됨.
+- 코드 수정 없음(조사 전용 지시서 준수).
+
+작업명 : SINGLE-AXIS-CANDIDATE-CARDINALITY-THRESHOLD-CHECK
+✅ 작업 완료 - 3단계 후보추천 단일 컬럼 GROUP BY 카디널리티 상한 조사(코드 수정 없음)
+```
