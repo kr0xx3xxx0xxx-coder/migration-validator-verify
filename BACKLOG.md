@@ -6263,3 +6263,26 @@ git -C E:/verify_reports worktree remove <임시경로>
   체크박스를 켜고 재실행"처럼 실행 가능한 다음 행동을 제시하는 방안도 함께
   검토 권고.
 - 근거: E:\verify_reports\COMBO-UNVERIFIED-FALSE-CONFIDENCE-STATUS-DISPLAY-CHECK.txt
+
+### M87. 일치그룹 조회·Excel 추출 현황 확인 — 일치그룹은 "일치 행 보기" 토글로 이미 조회 가능(발견성 낮음), Excel 추출은 이미 있으나 불일치 전용(일치 미포함, 옵션 없음)
+- 발견/계기: 2026-08-12 (사용자 — "일치그룹도 봐야 하고, 엑셀로 뽑을 수 있어야
+  할 듯한데" / MATCHED-GROUPS-VISIBILITY-AND-EXCEL-EXPORT-CHECK, 코드 무변경,
+  8그룹(3불일치+5일치) 신규 픽스처 라이브 실측)
+- **일치그룹 조회**: 서버는 처음부터 일치분까지 전부 계산·보관(`stats_result_
+  store.py:28-51`). "일치 행 보기 (N건)" 토글(`execute_result_renderer.py:
+  293-312`)이 이미 존재하고 정상 작동 — 실측(8그룹 중 3불일치/5일치)으로
+  토글 전 3그룹→토글 후 8그룹 전체(5개 "✓일치" 포함) 확인, 네트워크 요청
+  `mismatch_only=false` 재조회까지 검증. **단, 발견성이 낮음**(기본화면엔
+  안 보이고 작은 텍스트 버튼 클릭 필요) — 오늘 사용자가 이 질문을 한 것
+  자체가 발견성 문제의 방증.
+- **Excel 추출**: `GET /stats-result/export`(routes/stats_result_route.py)
+  가 이미 존재·정상작동(실측 다운로드+내용검사 PASS) — 시트1(불일치그룹
+  3행)·시트2(재이관대상레코드 300행=3그룹×100건, 절단없음). **일치그룹
+  포함 옵션 자체가 없음**(`iter_rows(rid, mismatch_only=True)` 하드코딩).
+- **부수 확인**: 오늘 초반 제거한 "Excel 다운로드 죽은 링크"(커밋 44f46e14)
+  는 이 전역 버튼과 무관한 별개의 그룹별 인라인 빈 링크였음 — 이 전역
+  버튼은 그때도 지금도 정상.
+- **개선 여지(미구현, 제안만)**: A) 토글 발견성 개선(상단 타일에 별도
+  링크 노출 등) B) Excel에 "일치그룹 포함" 옵션 추가 여부(실무 필요성은
+  일치그룹이 재이관 대상 아니라서 낮을 수 있음, 정책판단 필요).
+- 근거: E:\verify_reports\MATCHED-GROUPS-VISIBILITY-AND-EXCEL-EXPORT-CHECK.txt
