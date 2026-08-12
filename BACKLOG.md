@@ -6368,3 +6368,16 @@ git -C E:/verify_reports worktree remove <임시경로>
   안 들어감 — **조합도 미검증이고 행단위 대안도 막힌 이중 사각지대**가
   가능한지 별도 확인 필요.
 - 근거: E:\verify_reports\COMBO-MISMATCH-VIA-PK-ROW-COMPARISON-BYPASS-DIAGNOSE.txt
+
+### M91. 조합 그룹 드릴다운 = 단일축과 완전 동일 코드경로(정상), 101건 조기중단은 축개수 무관·표준단일숫자PK에서는 거의 미발동(복합/문자PK 전용 좁은 폴백만 해당)
+- 발견/계기: 2026-08-12 (COMBO-GROUP-DRILLDOWN-101-EARLY-STOP-VERIFY, 코드
+  무변경, 조합/단일축 대조 실측)
+- 조합 그룹(R01|S01) 드릴다운은 단일축(R01)과 완전히 동일한 코드/엔진/판정
+  경로(scope.pairs 개수만 다름, WHERE 조건 AND 결합) — 조합 전용 분기 없음.
+- **정정**: early_stop_abs=101은 표준 단일 숫자 PK 신뢰판정(TRUSTED_PHYSICAL_
+  PK)이 실패한 복합키/문자키 전용 폴백에서만 강제 세팅됨 — 가장 흔한 구성
+  (단일 숫자 PK)에서는 조합이든 단일축이든 실제로는 거의 발동 안 함. 작은
+  그룹은 조기중단 파라미터 자체가 없는 비-stream 경로, 큰 그룹은 CHUNK
+  엔진(그룹완결성 제약으로 조기중단 구조적 불가)을 탐.
+- 결함 아님 — 그룹 규모·PK종류별 실행엔진 자동선택의 자연스러운 결과.
+- 근거: E:\verify_reports\COMBO-GROUP-DRILLDOWN-101-EARLY-STOP-VERIFY.txt
