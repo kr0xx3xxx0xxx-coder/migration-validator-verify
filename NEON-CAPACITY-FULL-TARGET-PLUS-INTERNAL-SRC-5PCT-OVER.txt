@@ -1,0 +1,192 @@
+NEON-CAPACITY-FULL-TARGET-PLUS-INTERNAL-SRC-5PCT-OVER
+✅ 작업 완료 - Neon 기존 79개 테이블 삭제(승인됨) 후 목적 테이블 1개로 512MB 캡의 92.72%(여유 7.28%) 최대 적재, 내부망 PostgreSQL에 원본 테이블을 목적의 정확히 105%로 신규 생성(기존 92개 테이블 무결성 보존), 화면 COUNT 사전검증까지 실측 완료
+
+────────────────────────────────────────────────────────────
+배경 / 지시서
+────────────────────────────────────────────────────────────
+directives/NEON-CAPACITY-FULL-TARGET-PLUS-INTERNAL-SRC-5PCT-OVER.md
+(선행: NEON-PG-50M-45M-MISMATCH-FIXTURE-LOAD.txt 에서 Neon 512MB 하드 캡 확인)
+
+Neon(PostgreSQL_tobe) 프로젝트 전체 512MB 스토리지 캡을 목적(TGT) 테이블
+1개로 최대한 채우고, 원본(SRC)은 내부망 PostgreSQL(PostgreSQL_Inter_asis,
+192.168.0.150)에 목적 대비 정확히 5% 더 많은 행수로 구성하라는 지시.
+Neon 기존 데이터는 이번 지시에서 사용자가 명시적으로 삭제를 승인함.
+
+────────────────────────────────────────────────────────────
+1. Neon 기존 데이터 삭제 (사용자 명시 승인)
+────────────────────────────────────────────────────────────
+삭제 전 사용량: 473 MB (496,156,672 bytes) / 512MB 캡 대비 92.4%
+삭제 대상: 79개 테이블(스키마 public/mv_bt/ntb 전체)
+
+  테이블                                용량        행수
+  ────────────────────────────────────────────────────────
+  public.tgt_orders                     186 MB      1,000,000
+  public.neon_mismatch50m_src            78 MB        900,000
+  public.neon_mismatch50m_tgt            70 MB        810,000
+  public.cpkpg_tgt                       12 MB         99,000
+  public.mv_cpkb_tgt                     11 MB         99,000
+  public.n1p1_hb_fixture                 10 MB        100,000
+  public.p13_pgsep_fixture             8912 kB        100,000
+  public.b1_pkchunk_fixture            5264 kB         80,000
+  public.pkdiag_char_fixture           4136 kB         50,000
+  public.tgt_payments                  4040 kB         20,000
+  mv_bt.tgt_payments                   4040 kB         20,000
+  public.tgt_customer_activity         4000 kB         20,000
+  mv_bt.tgt_customer_activity          4000 kB         20,000
+  mv_bt.tgt_ledger                     3912 kB         19,600
+  public.tgt_ledger                    3912 kB         19,600
+  mv_bt.tgt_orders                     3904 kB         19,750
+  mv_bt.tgt_device_event               3856 kB         20,000
+  public.tgt_device_event              3856 kB         20,000
+  public.tgt_subscription              3824 kB         20,000
+  mv_bt.tgt_subscription               3824 kB         20,000
+  public.tgt_claims                    3808 kB         20,060
+  mv_bt.tgt_claims                     3808 kB         20,060
+  public.tgt_campaigns                 3800 kB         20,000
+  mv_bt.tgt_campaigns                  3800 kB         20,000
+  mv_bt.tgt_inventory                  3768 kB         20,000
+  mv_bt.tgt_shipments                  3768 kB         19,800
+  public.tgt_inventory                 3768 kB         20,000
+  public.tgt_shipments                 3768 kB         19,800
+  public.pkdiag_num_fixture            3624 kB         50,000
+  public.m74b2_pgjoin_x                2008 kB         30,000
+  public.pkchunk_b1_verify_num          816 kB         11,681
+  public.agg_b5_scope_fixture            88 kB            500
+  public.pkdiag_join_fixture             80 kB            500
+  public.tb_employee_dim                 64 kB            100
+  public.tv_cardinality_null_parity      64 kB            240
+  public.b1_pkchunk_join                 56 kB            300
+  public.m74b2_pgjoin_t                  56 kB            300
+  public.tv_iv_count_only                40 kB              5
+  public.tb_support_ticket_fact          32 kB            100
+  public.cct_tb_product                  32 kB             20
+  public.tb_dept_hierarchy               32 kB            100
+  public.tb_customer_profile             32 kB            100
+  public.tb_account_balance_snapshot     32 kB            100
+  public.tb_subscription_mart            32 kB            100
+  public.tb_customer_ltv_score           32 kB            100
+  public.tb_usage_daily                  32 kB            100
+  public.tb_customer_contact_summary     32 kB            100
+  public.tb_supplier_product_bridge      32 kB            100
+  public.tb_store_region_dim             32 kB            100
+  public.tb_marketing_response_mart      32 kB            100
+  public.tb_product_master               32 kB            100
+  public.tb_account_txn_fact             32 kB            100
+  public.tb_payment_summary              32 kB            100
+  public.tb_invoice_fact                 32 kB            100
+  public.tb_shipment_status              32 kB            100
+  public.tb_order_item_fact              32 kB            100
+  public.tb_order_fact                   32 kB            100
+  public.tv_iv_sum_fail                  24 kB             10
+  public.tv_iv_case_map                  24 kB             12
+  public.tv_iv_decimal_pass              24 kB              6
+  public.tv_iv_null_pass                 24 kB              8
+  public.tv_iv_group_fail                24 kB             12
+  public.tv_iv_count_fail                24 kB              9
+  public.tv_iv_pass                      24 kB             12
+  public.src_owner_probe                 24 kB             25
+  public.cct_tb_dept                     24 kB             10
+  public.cct_tb_emp                      24 kB             30
+  public.cct_tb_order                    24 kB             20
+  ntb.alias_derive_pg_fixture            24 kB            150
+  public.alias_derive_fixture            24 kB              5
+  public.b3_alias_fixture                24 kB              5
+  public.tb_web_session_fact             24 kB            100
+  public.cct_tb_order_item               16 kB            100
+  public.tv_iv_empty                   8192 B               0
+  public.tv_alias_demo                 8192 B               0
+  public.agg_pg_verify_fixture         8192 B               9
+  public.tv_iv_unsupported                0 B               0
+  public.tv_iv_missing_col                0 B               0
+  public.tv_iv_missing_table              0 B               0
+
+삭제 후: 잔존 테이블 0개, 사용량 8,552,448 bytes(8.16MB, 카탈로그/시스템 오버헤드).
+(스크립트: scripts/dev_e2e/neon_capacity_full_target_step2_delete_all.py, 판정 OK)
+
+────────────────────────────────────────────────────────────
+2. 목적(TGT) 테이블 — Neon 512MB 한도 최대 적재
+────────────────────────────────────────────────────────────
+방법: 짐작 대신 실측 — 50,000행 파일럿 테이블로 행당 용량(PK포함)을 먼저
+측정 후 목표 행수를 산정했으나(1차 시도), id 값이 커질수록 item_nm 문자열
+('ITEM_'+id)과 numeric(amt) 저장 길이가 늘어나 파일럿(id 5자리대) 기준
+91.59B/행 추정치가 실제(id 7자리대까지 있는 535만행) 97.50B/행보다
+작게 잡히는 결함을 발견 — 1차 시도 결과가 캡의 98.90%(여유 1.1%)까지
+차버려 지시서의 5~10% 안전여유 요건을 위반함을 확인.
+
+수정(2차, 채택): 매 청크(150,000행) 삽입 *전에* 직전 청크의 실측
+행당 증분(marginal B/행)으로 다음 청크가 목표를 넘는지 사전 예측 →
+넘으면 남은 예산에 맞춰 청크 크기를 줄여 정확히 목표치까지만 채우고 중단.
+(스크립트: scripts/dev_e2e/neon_capacity_full_target_step4_rebuild_tgt_safe.py)
+
+컬럼 구성: id(PK)/region_cd/status_cd/amt/qty/item_nm — 기존(2026-08 이전
+NEON-PG-50M-45M 픽스처)과 동일 재사용.
+
+[최종 결과]
+  테이블:        public.neon_cap_full_tgt
+  실제 행수:     5,022,674 행
+  테이블 용량:   489,209,856 bytes (466.55 MB)
+  DB 전체 용량:  497,762,304 bytes (474.70 MB)
+  512MB 캡 대비: 92.72%  (여유 7.28%, 지시서 요구 5~10% 범위 내)
+  적재 소요:     26.46s (PK 2.93s, ANALYZE 0.25s)
+  판정: OK
+
+────────────────────────────────────────────────────────────
+3. 원본(SRC) 테이블 — 내부망 PostgreSQL, 목적 대비 5% 더 많게
+────────────────────────────────────────────────────────────
+대상: PostgreSQL_Inter_asis 프리셋 (192.168.0.150:5433/asis)
+신규 테이블: public.neon_cap_full_src (TB_ 접두어 회피, 고유명)
+
+행수 계산: TGT 실제 5,022,674행 × 1.05 = 5,273,807.7 → 반올림 5,273,808행
+검산: 5,273,808 / 5,022,674 = 1.05000006 (목표 1.05000000 대비 오차
+0.000006%p, 정수 행수 제약상 반올림 오차 — 절대 오차 0.3행)
+
+[내부망 기존 테이블 무결성 대조]
+  작업 전 스냅샷: 92개 테이블 (스키마 asis01/b2pjw/mvbench/ntb/public)
+  작업 후:        93개 테이블
+  삭제/소실:      없음
+  신규 추가:      public.neon_cap_full_src (1개만, 기대와 일치)
+  판정: OK
+  (스크립트: step5_internal_snapshot.py 사전 스냅샷 → step7_verify.py 사후 대조)
+
+[SRC 적재 결과]
+  실제 행수: 5,273,808행 (기대 5,273,808행과 정확히 일치)
+  적재 소요: 25.65s (PK 7.68s, ANALYZE 0.32s)
+  판정: OK
+
+────────────────────────────────────────────────────────────
+4. 화면 COUNT 사전검증 (services.count_common_service.run_count_pair, in-process)
+────────────────────────────────────────────────────────────
+SRC(내부망 192.168.0.150) ↔ TGT(Neon 클라우드) 서로 다른 물리 DB 간 비교
+
+  status         = FAILED (COUNT 불일치이므로 정상 판정)
+  source_count   = 5,273,808 (내부망)
+  target_count   = 5,022,674 (Neon)
+  count_diff     = 251,134
+  기대 diff      = 251,134 (SRC가 TGT보다 5.0000% 많음, 목표 정확히 5%와 일치)
+  실행시간       = 1,774.2ms
+  판정: OK (직접 SQL 검산과 화면 경로 결과 완전 일치)
+
+────────────────────────────────────────────────────────────
+5. 종합 판정
+────────────────────────────────────────────────────────────
+1) Neon 기존 79개 테이블 삭제 완료(승인됨), 삭제 후 0개 확인      OK
+2) Neon 목적 테이블 1개, 캡의 92.72%(여유 7.28%) 적재              OK
+3) 내부망 원본 테이블 1개 신규, 목적의 정확히 105%(오차 0.3행)     OK
+4) 내부망 기존 92개 테이블 무결성(변경 0건, 신규 1건만)            OK
+5) 화면 COUNT 사전검증 diff=251,134(=목적의 5%) 실측 일치          OK
+
+────────────────────────────────────────────────────────────
+6. 변경 파일 (코드 저장소, 본 파일은 verify 저장소 별도 보관)
+────────────────────────────────────────────────────────────
+- scripts/dev_e2e/neon_capacity_full_target_step1_inspect.py (신규, 조회전용)
+- scripts/dev_e2e/neon_capacity_full_target_step2_delete_all.py (신규, 삭제)
+- scripts/dev_e2e/neon_capacity_full_target_step3_build_tgt.py (신규, 1차 시도 —
+  여유부족 결함 발견용으로 보존, 실사용 데이터는 4단계로 대체됨)
+- scripts/dev_e2e/neon_capacity_full_target_step4_rebuild_tgt_safe.py (신규, 채택)
+- scripts/dev_e2e/neon_capacity_full_target_step5_internal_snapshot.py (신규)
+- scripts/dev_e2e/neon_capacity_full_target_step6_internal_src_build.py (신규)
+- scripts/dev_e2e/neon_capacity_full_target_step7_verify.py (신규)
+- scripts/dev_e2e/_neon_capacity_step*.json (각 단계 실행 결과, gitignore 대상)
+
+작업명 : NEON-CAPACITY-FULL-TARGET-PLUS-INTERNAL-SRC-5PCT-OVER
+✅ 작업 완료 - Neon 기존 79개 테이블 삭제(승인됨) 후 목적 테이블 1개로 512MB 캡의 92.72%(여유 7.28%) 최대 적재, 내부망 PostgreSQL에 원본 테이블을 목적의 정확히 105%로 신규 생성(기존 92개 테이블 무결성 보존), 화면 COUNT 사전검증까지 실측 완료
