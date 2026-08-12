@@ -5850,3 +5850,37 @@ git -C E:/verify_reports worktree remove <임시경로>
   (`::text` 등) 보강 필요.
 - 근거: E:\verify_reports\M74-A3-PG-SCRIPT-EXPAND-AND-B1TOB7-BATCH-REVERIFY.txt,
   E:\verify_reports\M74-C1TOC3-BACKLOG-UPDATE-AND-ORACLE-M69-REPRO-SCRIPT.txt
+
+### M79. 통계검증(4단계) 이기종 DBMS 차단 — 별도 위험분석 아닌 "오라클개방 시 HASH_BUCKET 원칙 차용"이 근본원인, SQL생성은 이미 이기종지원·결과비교 키정규화만 진짜 공백(구현규모 6~8파일 중간난이도)
+- 발견/계기: 2026-08-12 (사용자 — "현재 동일 DBMS끼리 이관검증만 되어있는데 이기종끼리도
+  고려해야함" / CROSS-DBMS-STATS-EXECUTION-LIMITATION-RATIONALE-DIAGNOSE, 코드 무변경)
+- **근본원인**: 2026-07-21 오라클 실행을 처음 여는 작업(커밋 83851a68c→1c633c5ff)의
+  부산물 — 오라클 개방으로 PG↔Oracle 조합이 처음 가능해지자, 이미 HASH_BUCKET/
+  exact_diff 도메인에 있던 "cross-DBMS canonical 불일치 안전차단" 원칙을 통계검증
+  포함 표준실행 전체(facade)에 그대로 차용해 게이트 신설. **통계검증만을 위해 별도
+  위험분석을 한 적이 없음** — 문서(`POSTGRES_RELEASE_NOTES.md`)도 "위험 확인됨"이
+  아니라 "미검증"으로 명시.
+- **게이트 3곳**: ①`single_validation_run_facade.py:1266-1284`(서버 정책, src≠tgt
+  즉시 HOLD) ②`dbms/capabilities.py`(EXECUTION_SUPPORTED_DBMS 목록만, "동일방언"
+  조건 자체는 없음) ③`tabler_renderer.py::_singleExecGuard()`(클라이언트 alert 차단).
+  **부수발견(비대칭, 별도확인 필요)**: ③이 COUNT 버튼에도 걸리지만 `count_route.py`
+  서버측엔 방언 가드가 전혀 없음 — 드롭다운 dbms 값과 실제 접속프로필 dbms가
+  어긋나면 클라 가드가 무력화될 소지, 이번 조사 범위 밖으로 별도 확인 필요.
+- **기술장벽 평가**: SQL 생성 계층(`sql_generator.py`/`stats_sql_builder.py`)은
+  db_type_src/tgt를 완전히 독립 파라미터로 받아 이미 이기종 지원 — **재설계 불필요**.
+  날짜 GROUP BY(`date_trunc_expr`)도 방언 무관 canonical 문자열을 만들도록 이미
+  설계돼 있어 이기종 비교를 이미 전제. **진짜 공백은 결과비교 단계**
+  (`stats_execute_service.py:254 _to_dict()`)의 GROUP BY 키 매칭이 단순
+  `str()` 캐스팅뿐, 타입별 canonical 정규화가 없음(예: Oracle 100→'100.0'
+  vs PG 100→'100' → 거짓 src_only/tgt_only 위험). HASH_BUCKET의 canonical
+  hash 계약(전체 컬럼 인코딩)만큼 크진 않음(GROUP BY 키 최대 3개, 프로젝트
+  규칙상 사람이 확인 가능한 값 단위).
+- **결론**: (c) 중간 — 일부는 실재하는 기술리스크(키 정규화 공백), 일부는
+  "다른 기능 안전장치를 보수적으로 차용한 미구현".
+- **구현 규모 추정**: 파일 6~8개(신규 canonical 키정규화 유틸 1개, 수정
+  `stats_execute_service.py`/`single_validation_run_facade.py`/
+  `dbms/capabilities.py`/`tabler_renderer.py`, 관련 테스트 9개 파일 재검토 —
+  단 다수가 HASH_BUCKET/exact_diff 전용이라 실제 영향은 착수 시 파일별 재확인
+  필요). 난이도 중간. **이기종 실데이터(Oracle↔PG)로 키 오탐 여부 직접 실측
+  없이는 안전 단정 불가**.
+- 근거: E:\verify_reports\CROSS-DBMS-STATS-EXECUTION-LIMITATION-RATIONALE-DIAGNOSE.txt
