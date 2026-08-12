@@ -1,0 +1,100 @@
+작업명 : WIZARD-STEP-BOTTOM-BAR-BLEED-INTO-OTHER-MENUS-DIAGNOSE
+✅ 작업 완료 - 개별검증 하단 커맨드바가 다른 메뉴로 이동해도 남던 잔존 결함 원인 규명·수정·전수 실측 완료
+
+────────────────────────────────────────────────────────────────────────────
+원인
+────────────────────────────────────────────────────────────────────────────
+컴포넌트   하단 단계 네비게이션 바 = #mvCmdBar(Compact Command Bar 공통 컴포넌트).
+           ui/tabler_renderer.py:3292  <div id="mvCmdBar" class="mv-cmdbar" style="display:none">
+           표시/숨김은 mvCommandBarRender(config) 가 담당(ui/tabler_renderer.py:6894)
+           — config.visible===false 면 hideCompactCommandBar() 로 display:none 처리.
+           개별검증 화면(scope='single-validation')의 config 는
+           _mvSingleValidationCmdBarConfig()(ui/tabler_renderer.py:6944)가 만든다 —
+           이 함수는 이미 "var onAnalyze = (_mvCurrentTab === 'analyze'); if (!onAnalyze)
+           return {visible:false};" 로 '개별검증 탭이 아니면 숨김' 판정을 정확히 하고 있었다.
+
+근본원인   문제는 판정 로직이 아니라 '언제 재평가하는가'였다. 좌측 메뉴 클릭은 전부
+           showTab(name)(ui/tabler_renderer.py:7417, Navigation Controller 단일 진입점)를
+           거치는데, 이 함수는 SubNav(상단 1~5 단계 탭, _mvHideStepNavBar)는 탭 전환마다
+           갱신하면서(7492~7496행) 하단 커맨드바는 단 한 번도 다시 그리지 않았다.
+           #mvCmdBar 는 개별검증 화면에서 렌더될 때 bar.style.display=''(인라인 스타일)로
+           고정되고, 이후 다른 메뉴로 이동해도 그 인라인 스타일이 그대로 남는다 — DOM 은
+           단순히 다른 탭 패널(#tab-settings 등)이 보이는 것뿐이라, 같은 페이지 최하단에
+           위치한 #mvCmdBar 는 계속 화면에 그려진 채로 남았다(현재 단계 문구까지 그대로).
+           _mvRenderCmdBar() 자체는 존재했고 개별검증 화면 안에서 단계 변경 시에는 호출됐지만
+           (6742행 "단계 변경 시 하단 바 갱신"), 메뉴 자체를 벗어나는 호출 경로가 없었다.
+
+재현       실 서비스(포트 8000) 실 브라우저로 재현: 개별검증 진입(쿼리검토 단계, SQL 미입력) →
+           좌측 'DB 프로필 / 검증 경로' 클릭 → 하단바 "현재 단계: 쿼리검토 · SQL 미입력 ·
+           연결 정상 · ◀ 이전 · 다음 ▶" 가 그대로 잔존, 화면 하단 DB 프로필 목록을 가림
+           (screenshot: before_02_settings.png). mvCmdBar computed display='block'
+           (기대값 'none'), currentTab='settings' 로 상태 불일치 확인.
+
+────────────────────────────────────────────────────────────────────────────
+수정
+────────────────────────────────────────────────────────────────────────────
+파일:라인   ui/tabler_renderer.py:7498~7505 (showTab 함수 말미, SubNav 갱신 블록 직후)
+
+내용       showTab() 종료 직전에 _mvRenderCmdBar() 호출 1줄 추가.
+             try { if (typeof _mvRenderCmdBar === 'function') _mvRenderCmdBar(); } catch (e) {}
+           SubNav 와 동일한 패턴으로, 탭 전환마다 adapter(_mvSingleValidationCmdBarConfig)가
+           '현재 _mvCurrentTab' 기준으로 config 를 새로 계산한다 — 개별검증이 아니면
+           visible:false → mvCommandBarRender 가 hideCompactCommandBar() 로 실제 숨김.
+           개별검증으로 복귀하면 같은 adapter 가 _singleViewStep 등 기존 진행 상태를
+           그대로 다시 읽어 렌더하므로, 숨겼다가 다시 보일 때 단계 상태가 유실되지 않는다.
+           판정 로직(_mvSingleValidationCmdBarConfig 자체)은 무접촉 — 호출 시점만 보강.
+
+────────────────────────────────────────────────────────────────────────────
+검증(실 서비스 포트 8000, 실 브라우저 클릭 — Playwright 드라이버로 자동화)
+────────────────────────────────────────────────────────────────────────────
+드라이버   scripts/dev_e2e/wizard_step_bottom_bar_bleed_verify.py (신규)
+
+절차       ①수정 전 코드로 서버 재기동 → 재현(before) ②수정 반영 + 서버 재기동 →
+           개별검증 1~5단계 중 1단계(쿼리검토) 진입 후 4개 메뉴(DB 프로필/검증 경로,
+           일괄검증, 진단 이력, 후보추천 정책) 전수 이동 → 각 화면에서 #mvCmdBar 의
+           computed style(display)·표시 텍스트를 실측 → 개별검증으로 복귀해 바 재표시 +
+           단계 상태(쿼리검토) 유지 확인.
+
+before     analyze 진입: mvCmdBar visible=True, text='현재 단계: 쿼리검토·SQL 미입력·연결 정상'
+           settings 진입: mvCmdBar visible=True (그대로 잔존, 재현 성공)
+           → before_01_analyze_query_step.png / before_02_settings.png
+
+after      analyze 진입           : visible=True  (정상 표시)
+           DB 프로필 / 검증 경로  : visible=False  (숨김 정상)
+           일괄검증               : visible=False  (숨김 정상)
+           진단 이력              : visible=False  (숨김 정상)
+           후보추천 정책(검증기준): visible=False  (숨김 정상)
+           analyze 복귀           : visible=True, text='현재 단계: 쿼리검토·...' (상태 유지 확인)
+           판정: PASS(모든 메뉴에서 bar 숨김)
+           → after_01_analyze_query_step.png / after_02_settings.png / after_02_batch.png /
+             after_02_diaghistory.png / after_02_policy.png / after_03_analyze_return.png
+           스크린샷 경로: verify_screenshots_only/WIZARD-STEP-BOTTOM-BAR-BLEED-INTO-OTHER-MENUS-DIAGNOSE/
+
+단위 테스트  tests/test_bottom_command_bar.py · test_cmdbar_sequential_flow.py ·
+           test_command_bar_refinements.py · test_cmdbar_5steps_live_click.py ·
+           test_shared_sticky_step_nav.py · test_individual_validation_stage_layout.py ·
+           test_stage_gate_unified_contract.py = 143건 통과(baseline 대비 신규 회귀 0건)
+           (test_shared_sticky_step_nav.py::test_generate_no_alert_when_no_candidate_selected
+            1건은 동시 실행 중이던 별도 세션의 실서버가 db/migration_validator.db 를 세션 중
+            변경해 발생한 [PROD-DB-MUTATED] 환경성 플레이키 — 단독/재실행 시 즉시 통과 재확인,
+            내 수정과 무관)
+
+CLAUDE.md   samples/test_virtual_cases.py 8/8 통과, samples/test_complex_cases.py 5/5 통과
+필수 회귀
+
+서버 재기동  2026-08-12 21:38:58, HEAD d501854f (아래 커밋)
+
+────────────────────────────────────────────────────────────────────────────
+동시세션 격리(참고)
+────────────────────────────────────────────────────────────────────────────
+작업 중 다른 세션이 같은 ui/tabler_renderer.py 에 무관한 미커밋 변경(_mvStratDesc 등,
+STATS-SAMPLE-ONLY-CONFIDENCE-COSTSCORE-EXPLAIN-AND-TOOLTIP-ADD 관련 15줄)을 올려 두고
+있었다. hunk 단위 격리(git diff → 내 hunk만 잘라 .patch → git apply --cached → 커밋)로
+분리해 커밋했으며, 남의 미커밋 15줄은 작업트리에 그대로 보존했다(무손상 확인).
+
+────────────────────────────────────────────────────────────────────────────
+커밋해시 : d501854f3dd1d10d36223a00a3ef5198f5ae3246 (코드 저장소, main, push 안 함)
+────────────────────────────────────────────────────────────────────────────
+
+작업명 : WIZARD-STEP-BOTTOM-BAR-BLEED-INTO-OTHER-MENUS-DIAGNOSE
+✅ 작업 완료 - 개별검증 하단 커맨드바가 다른 메뉴로 이동해도 남던 잔존 결함 원인 규명·수정·전수 실측 완료
