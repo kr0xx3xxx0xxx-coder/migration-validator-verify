@@ -1,0 +1,95 @@
+작업명 : MATCHED-ROWS-TOGGLE-MISSING-IN-COMBO-CASE-DIAGNOSE
+✅ 작업 완료 - 조합축(다중 GROUP BY 세트) 경로는 "일치 행 보기" 토글을 만드는 코드/데이터 자체를 타지 않는 설계 갭임을 코드 3곳 + 실측 재현(스크린샷)으로 확정. 코드 수정 없음(조사만, 지시서 준수).
+
+────────────────────────────────────────────────────────────
+1. 토글 렌더 조건 재확인 · M87 케이스와의 차이
+────────────────────────────────────────────────────────────
+- "일치 행 보기" 토글은 오직 ui/execute_result_renderer.py:1417 renderExecute() 안에서만
+  생성된다(matched>0 이면 버튼 HTML 삽입, id="exec-toggle-btn").
+- 분기점은 ui/tabler_renderer.py:16933:
+    opts.planRun 있음 → _mvRenderReimportView(...) 호출          [다중세트/조합]
+    opts.planRun 없음 → renderExecute(...) 호출                  [단일세트]
+  opts.planRun 은 "GROUP BY 선택 축 2개 이상"이면 항상 채워진다(단일축 N세트든 조합(PAIR)
+  세트든 동일 — tabler_renderer.py:31161 `if (gbSel.length >= 2 ...)`).
+- M87이 확인한 케이스(8그룹, 3불일치+5일치)는 GROUP BY 축 1개(단일세트) → renderExecute
+  경로 → 토글 정상 노출.
+- 이번 신고 케이스(NXDNP.MV_SCATTER50M, 조합축 포함, 전체 236개·불일치 21개)는 GROUP BY
+  2개 이상 + 조합(PAIR) 세트 포함 → opts.planRun 이 항상 채워짐 → renderExecute 자체가
+  호출되지 않음 → 토글도 만들어지지 않음. M87과 이번 케이스는 "규모"가 아니라 "GROUP BY
+  선택 축 개수(1개 vs 2개 이상)"로 렌더 경로가 완전히 갈린다.
+
+────────────────────────────────────────────────────────────
+2. 세 가지 가능성 검증
+────────────────────────────────────────────────────────────
+조사항목                                   판정   근거
+------------------------------------------ ------ --------------------------------------------
+(a) 조합축=다른 렌더 경로 타서 토글이       예     ui/tabler_renderer.py 전체에 exec-toggle-btn·
+    아예 안 만들어지는 구조인가                    _execToggleMatched 문자열 0건(Grep 확인).
+                                                   _mvRenderReimportView→_mvStage5RenderGroupList
+                                                   →_mvStage5OpenGroup→_mvRiEnterRecordsView→
+                                                   _mvRiApply 트리 어디에도 토글 없음.
+                                                   더 근본적으로 _mvStage5CollectGroups
+                                                   (tabler_renderer.py:27770)가
+                                                   status==='ok'(일치) 행을 수집 대상에서 제외
+                                                   ("불일치 그룹만 — 일치 그룹은 목록 대상
+                                                   아님" 주석) → /stage5/groups/save 로 서버에
+                                                   저장되는 것도 불일치 그룹뿐. 토글이 "숨겨진"
+                                                   게 아니라 토글을 만들 재료(일치 행 목록)
+                                                   자체가 이 경로에선 수집되지 않는다.
+(b) 토글은 만들어지는데 세트별로            아니오  (a)에서 코드 전체 Grep 0건 확인 — "있는데
+    흩어져 있어 못 찾은 것인가                     못 찾는" 게 아니라 애초에 생성되지 않는다.
+(c) 규모(그룹 236개)가 크면 의도적으로      아니오  분기 조건(opts.planRun 유무)은 그룹 개수와
+    숨기는 조건이 있는가                           무관, 오직 "GROUP BY 선택 축 개수"에만
+                                                   의존. 실측(그룹 19개·불일치 4개, 소규모)
+                                                   에서도 동일하게 토글 없음 확인(3번).
+
+────────────────────────────────────────────────────────────
+3. 실제 재현(실측)
+────────────────────────────────────────────────────────────
+- 픽스처: PostgreSQL_Inter_asis/tobe, asis01.t_combo_src(1,200행, STATUS_CD 3종×DEPT_CD
+  4종) → tobe01.t_combo_tgt(2×2 라틴 상쇄로 AMT만 4개 조합에서 어긋나게 적재. 단일축
+  STATUS_CD 단독/DEPT_CD 단독은 완전 일치, 조합만 4그룹 불일치).
+  scripts/dev_e2e/combo_view_and_skew_fixture.py 로 재시딩, 사전 계산 검증:
+    GROUP BY status_cd          그룹=3  불일치=0
+    GROUP BY dept_cd            그룹=4  불일치=0
+    GROUP BY status_cd+dept_cd  그룹=12 불일치=4  편차그룹=[(A,D01)(A,D02)(P,D01)(P,D02)]
+- 드라이버: scripts/dev_e2e/combo_step5_full_surface_probe.py(기존 스크립트) 그대로 사용,
+  3단계에서 GROUP BY STATUS_CD+DEPT_CD 체크 후 window._mvIncludePairOnce=true 주입으로
+  조합(PAIR) 세트 실행을 강제(=#gbIncludePair 체크박스를 켠 것과 서버 반영상 동일 효과,
+  tabler_renderer.py:31165-31167 확인). 1~5단계 전체를 실제 브라우저(Playwright)로 클릭스루.
+- 실행 로그: COUNT 일치(1,200=1,200) → 4단계 통계검증 실행 결과
+    "불일치 그룹 4개 · 상세 추출 완료 0개 ... STATUS_CD + DEPT_CD ▸ A|D01 집계값 불일치 ...
+     A|D02 ... P|D01 ... P|D02 ..."
+  → 5단계 결과 확인 화면: 전체그룹 19개(=STATUS_CD 3 + DEPT_CD 4 + 조합 12)·불일치그룹 4개.
+- 5단계 화면 실측(스크린샷 2장, 아래 경로): "불일치 그룹 4개 · 상세 추출 완료 0개" 문구 +
+  "GROUP BY 축 | 그룹 값 | 판정 | 목적카운트 | 원본카운트 | 목적집계 | 원본 집계 | 상세 추출
+  상태" 표만 있고, 화면을 "검증 그룹에 등록" 섹션까지 전부 캡처해도 "일치 행 보기" 토글이
+  전혀 없음 — 신고 화면(21개/236개)과 문구·레이아웃이 정확히 동일 패턴(규모만 다름).
+  스크린샷: scratchpad/MATCHED-ROWS-TOGGLE-MISSING-IN-COMBO-CASE-DIAGNOSE_shots/
+    1_stage4_pair_executed_4groups.png (4단계 실행 직후, 조합 세트 SQL·결과 카드)
+    2_stage5_group_list_no_toggle.png  (5단계 결과 확인 전체 화면, 토글 부재 확인)
+
+────────────────────────────────────────────────────────────
+결론 · 원인 지점
+────────────────────────────────────────────────────────────
+결함(있어야 하는데 없는 것) 맞음 — 단 "숨겨진 버그"가 아니라 "설계 갭"이다. 다중세트/조합
+결과 렌더 트리(_mvRenderReimportView 계열)는 렌더 함수(renderExecute)와 데이터 수집
+(_mvStage5CollectGroups) 두 층 모두에서 애초에 일치 그룹을 다루도록 만들어지지 않았다.
+"일치 행 보기" 토글은 단일세트(GROUP BY 1개, legacy) 경로에만 사후로 붙은 기능이라, 신
+아키텍처(다중세트/조합, STAGE5-GROUP-DRILLDOWN-ARCHITECTURE 이후)로 이관되지 않은 채
+방치된 상태다.
+
+원인 지점(사실관계, 판단 아님):
+  ① ui/tabler_renderer.py:16933  — opts.planRun 유무에 따른 렌더 함수 분기점
+  ② ui/tabler_renderer.py:27770  — _mvStage5CollectGroups, 일치(status==='ok') 그룹을
+                                    수집 단계에서부터 제외(데이터 자체가 없음)
+  ③ ui/execute_result_renderer.py:1417 — 토글이 유일하게 존재하는 위치(renderExecute),
+                                    다중세트/조합 경로에서는 호출되지 않음
+
+참고: [[project_matched_groups_toggle_and_excel_mismatch_only_scope]](M87, 단일세트에서
+토글 정상 확인) / [[project_stage5_single_vs_multi_axis_render_path_split]](GB 1개 vs
+2개 이상 렌더 경로 분기 선행 확인) / [[project_multi_groupby_no_combo_judgment]](조합
+opt-in 체크박스 #gbIncludePair 메커니즘)
+
+작업명 : MATCHED-ROWS-TOGGLE-MISSING-IN-COMBO-CASE-DIAGNOSE
+✅ 작업 완료 - 조합축(다중 GROUP BY 세트) 경로는 "일치 행 보기" 토글을 만드는 코드/데이터 자체를 타지 않는 설계 갭임을 코드 3곳 + 실측 재현(스크린샷)으로 확정. 코드 수정 없음(조사만, 지시서 준수).
