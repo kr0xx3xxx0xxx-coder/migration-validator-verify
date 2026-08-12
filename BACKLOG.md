@@ -6052,3 +6052,51 @@ git -C E:/verify_reports worktree remove <임시경로>
     M80이 먼저 커밋 완료해 충돌 없이 순차 진행, 파괴적 git 명령 미사용,
     타 세션 미커밋 파일 보존 확인.
   - 근거: E:\verify_reports\M81-STRATEGY-DISPLAY-EXECUTION-MISMATCH-AND-SPEED-FIX.txt
+
+### M82. 1~5단계 실행버튼 전수 종합점검 — 즉시수정 5건 발견(다중세트 실행 후 5단계 저장 항상409가 최우선), DB커넥션 누수는 0건 확인
+- 발견/계기: 2026-08-12 (사용자 — "각 탭별 실행버튼 누를 때 누수·반복·낭비 없이 정상
+  진행되는지 점검" / PER-STAGE-EXECUTE-BUTTON-CLEAN-SINGLE-PASS-AUDIT, 코드 무변경,
+  6갈래 정적분석+2026-07-13 실측 트레이스 재해석)
+- **좋은 소식(N-1)**: DB 커넥션 누수는 1~5단계 전체에서 0건 — M80이 세운 패턴이
+  전역에 잘 지켜지고 있음.
+- **⚠️ 즉시수정 필요 5건**:
+  - **I-1[최우선, 치명]**: **GROUP BY 2축 이상 + 백그라운드 실행 시, 결과 확인
+    후 "그룹 등록/확정 저장"이 항상 409(STAGE_PREREQUISITE_NOT_MET)** —
+    `multiset_execute_service.py:353-361`이 세트 실행 종료 뒤 잘못된 갱신함수
+    (`record_outcome("candidate",...)`)를 호출 → `workflow_stage_gate.py:181-183`
+    의 `finish_stage`가 후속단계 전부 PENDING으로 초기화 → 방금 성공한 execute
+    단계 상태가 지워짐. **전 세트 성공이어도 무조건 발생**. 피해: 클라가 토큰을
+    null로 지워 SQL 분석부터 전부 재실행 강제. 재현: GROUP BY 2개↑ 선택 →
+    백그라운드 실행 → 결과확인 → 저장 → 409.
+  - **I-2**: `routes/execute_set_route.py:63-83`가 토큰 validate·record_outcome
+    둘 다 호출 안 함 — 무효 토큰으로도 실 DB 통계 SELECT 실행 가능(검증 우회),
+    이 경로로만 실행하면 execute 단계가 영원히 PENDING이라 5단계 저장 불가.
+  - **I-3**: 5단계 그룹 목록이 서버 `MAX_DISPLAY_ROWS=200` 절단본(`stats_
+    execute_service.py:34,661-663`)으로 만들어짐 — 불일치 그룹이 200개 넘으면
+    201번째부터 **드릴다운 진입점 자체가 소실**, 화면엔 "불일치그룹 N개"
+    확정 문구만 뜨고 절단 고지가 없음.
+  - **I-4**: `showSingleStep`(tabler_renderer.py:6476-6494)이 pane만 숨기고
+    `_mvRiStopPolling()`을 안 불러서, 5단계를 떠나도 `/agg-diff/pk-records`
+    1초 폴링이 무한 지속(visibilitychange/pagehide 핸들러 없음).
+  - **I-5[회귀]**: GROUP BY 2축 이상이면 화면의 결합 SQL이 한 번도 실행 안
+    되는데, 이 사실을 알리던 안내문구(2026-07-28 추가)가 이후 다른 정리작업
+    (STAGE4-5-STRATEGY-TIMING-AND-TEXT-CLEANUP-FIX)으로 삭제됨(js_sql_
+    preview.py:80-89) — 현재는 조합 체크박스 라벨 한 줄뿐, SQL 박스 자체엔
+    표기 없음.
+- **낮은 우선순위 14건(L-1~L-14)**: 3단계 scope 미적용(1클릭당 최대 8연결),
+  count-gate scope 미적용(최대 10연결), /csr-preview 1클릭 2회 중복(캐시가
+  응답 수신 후에야 채워지는 레이스), 1·3단계 "중단" 버튼 무효(abort signal
+  미배선), 2단계만 409 에러 원문 노출, stage5_group_store 호출당 connect 2회
+  (M81-A 패턴 미적용 잔존), 4단계 전략 조언 판정 클라 하드코딩(서버 단일출처
+  미적용, M81 패턴이 이 축엔 미적용) 등.
+- **정상 확인 7건(N-1~N-7)**: 커넥션누수 0건, 2·4단계 "생성" 클릭 중복없음,
+  단일세트는 표시=실행 SQL 일치, 5단계 드릴다운 1클릭 완결, COUNT게이트 서버
+  단일출처, M81 수정 5단계 정상반영 확인.
+- **부수 발견**: `ROUTE_STAGE`(workflow_stage_guard.py:48-54)가 소비처 0곳이라
+  route↔stage 배선의 단일출처 역할을 못 하고 있어 이런 드리프트를 구조적으로
+  탐지 못함 — I-1류 재발 방지의 근본 대책 후보.
+- 테스트 공백: `test_multiset_execute_async_job.py::test_a8`이 candidate축만
+  단언해 I-1이 그대로 통과됨. `tests/conftest.py:55-71`이 워크플로 가드를
+  기본 OFF로 둬서 대다수 route 테스트가 가드 미적용 상태로 실행됨.
+- 권고 순서: I-1 → I-2 → I-3 → I-4 → I-5 → L-1 → L-3 → L-4
+- 근거: E:\verify_reports\PER-STAGE-EXECUTE-BUTTON-CLEAN-SINGLE-PASS-AUDIT.txt
