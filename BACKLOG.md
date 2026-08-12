@@ -6381,3 +6381,23 @@ git -C E:/verify_reports worktree remove <임시경로>
   엔진(그룹완결성 제약으로 조기중단 구조적 불가)을 탐.
 - 결함 아님 — 그룹 규모·PK종류별 실행엔진 자동선택의 자연스러운 결과.
 - 근거: E:\verify_reports\COMBO-GROUP-DRILLDOWN-101-EARLY-STOP-VERIFY.txt
+
+### M92. "23.22초 저장데이터" 표시 혼란 완전 규명 — DB에서 정확히 일치하는 3일전 실측기록 발견(prepare_ms=23220.4), 101건도 실제크기 아닌 수집상한 도달신호, 하단 페이지조회는 완전 별개작업(로컬 인덱스 조회, 라이브DB 재조회 0회)
+- 발견/계기: 2026-08-12 (사용자 — "23.22초라는데 체감은 1초 내외, 새로고침
+  했는데 왜 저장데이터로 뜨나, 하단 문구는 또 뭐냐" / STAGE5-TIME-DISPLAY-
+  CONFUSION-REVERIFY-AND-PAGE-FOOTER-EXPLAIN, 코드 무변경, DB 직접조회)
+- **완전 규명**: `db/exact_diff_runs.db`에서 소수점까지 정확히 일치하는
+  실측기록 직접 발견 — run_id=PSA103049C82EE, 2026-08-09(3일전) 생성,
+  prepare_ms=23220.4("23.22초"와 정확 일치), 원본250만/목적200만행 규모
+  콜드스캔 실측치가 TTL없는 fingerprint 캐시로 오늘도 그대로 재사용됨.
+- **부수 발견**: "101건"도 그룹의 실제 크기가 아니라 수집상한(per_group_
+  full_list_max+1=101) 도달로 EARLY_STOPPED된 신호일 뿐 — DB에 동일 패턴
+  58건 추가 확인(반복 테스트로 인한 것).
+- **fingerprint는 세션/브라우저 무관**: 접속정보+SQL+GB/SUM+실행계획으로만
+  결정(agg_contribution.py:76-93) — 새로고침은 클라이언트 상태만 초기화,
+  서버 캐시 판정과 완전 무관.
+- **하단 "현재 페이지 조회" 라인 정체 확인**: `/agg-diff/pk-records`가
+  이미 저장된 로컬 인덱스에서 페이지(10~20건)만 slice — Source/Target
+  라이브 DB 재조회 0회(§52·§60 docstring 명시). "23.22초"(라이브 DB 콜드
+  스캔 실측)와 측정 대상 자체가 달라 100~1000배 차이나는 게 정상.
+- 근거: E:\verify_reports\STAGE5-TIME-DISPLAY-CONFUSION-REVERIFY-AND-PAGE-FOOTER-EXPLAIN.txt
