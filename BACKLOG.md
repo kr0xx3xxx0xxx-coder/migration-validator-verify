@@ -5925,7 +5925,7 @@ git -C E:/verify_reports worktree remove <임시경로>
     저장 — 필요 지점 없다고 정직하게 판단).
   - 근거: E:\verify_reports\M79-CROSS-DBMS-STATS-EXECUTION-IMPLEMENT.txt
 
-### M80. DB 커넥션 관리 종합점검 — 실 누수 1건 발견(agg_diff_route.py:311), 진짜 낭비는 병렬화가 아니라 "우회"(count_precheck_service 배치루프가 풀 안 씀, 3N회 핸드셰이크), 동시성 상한이 대상DB max_connections와 미연동인 잠재위험
+### M80. ✅ 해결 완료 — DB 커넥션 4건 수정(scope적용 물리연결 16→2회 실측·누수의도적재현으로 수정확인), 동시성상한-max_connections 미연동은 별도 잠재위험으로 기록 유지
 - 발견/계기: 2026-08-12 (DB-CONNECTION-SOURCE-AUDIT-UNNECESSARY-LOAD-CHECK, 코드
   무변경, 정적분석+실측 병행)
 - **실 누수 결함(심각도 中)**: `routes/agg_diff_route.py:311` — src/tgt 커넥션
@@ -5957,6 +5957,23 @@ git -C E:/verify_reports worktree remove <임시경로>
   누수 수정 ③count_execution_planner._pg_fetch_scalar도 풀 타도록 ④(정책검토)
   배치 동시성 상한을 대상DB max_connections 추정치와 연동.
 - 근거: E:\verify_reports\DB-CONNECTION-SOURCE-AUDIT-UNNECESSARY-LOAD-CHECK.txt
+- **✅ 수정 완료(2026-08-12, M80-DB-CONNECTION-LEAK-AND-SCOPE-BYPASS-FIX, 코드
+  커밋 d17b9d89)**: 4개 항목 전부 실측/재현으로 증명.
+  ① count_precheck_service 배치루프 scope 적용 — 물리연결 실측 **16회→2회**
+  (4테이블, connection_pool.metrics() physical_open=2로 재확인). 3번 수정이
+  같이 작동해야 정확히 2회로 수렴한다는 점까지 논리적으로 교차증명.
+  ② agg_diff_route.py:311 누수 — **의도적으로 두 번째 연결을 실패시켜(틀린
+  비밀번호) 재현**: 구코드는 첫 연결 `closed==0`(누수), 신코드는 435행 기존
+  정답패턴 적용 후 `closed==1`(정상). **작업 중 M81 세션과 동일 파일 동시편집
+  실제 발생** — hunk 단위 `git apply --cached`로 자기 2개 hunk(306-319,
+  377-386)만 커밋, 상대 미완료 변경 무손실 보존(사전 경고 그대로 작동).
+  ③ count_execution_planner._pg_fetch_scalar 풀 경유 전환 — ①의 실측치로
+  통합검증(정확히 2회 수렴이 곧 정상동작 증거).
+  ④ batch_route.py close finally 이동 — 로직불변(재인덴트만), ast.parse
+  문법검증 통과.
+  회귀: 130건 중 127 통과, 3건은 이전 별개 작업(라벨 개명)으로 인한 사전존재
+  불일치(무관 파일), 신규 회귀 0건.
+- 근거: E:\verify_reports\M80-DB-CONNECTION-LEAK-AND-SCOPE-BYPASS-FIX.txt
 
 ### M81. 5단계 데이터추출 — 화면표시(DIRECT_STREAM_COMPARE) vs 실제실행(PK_RANGE_CHUNK) 조용한 불일치(최대영향, 모순경고 장치도 미발동), 그 외 전략표시 stale 2건 + 속도요소 8건 신규발견(ExactDiffRunStore 커넥션 미재사용이 최대)
 - 발견/계기: 2026-08-12 (DATA-EXTRACTION-SPEED-AND-STRATEGY-CONFORMANCE-CHECK,
