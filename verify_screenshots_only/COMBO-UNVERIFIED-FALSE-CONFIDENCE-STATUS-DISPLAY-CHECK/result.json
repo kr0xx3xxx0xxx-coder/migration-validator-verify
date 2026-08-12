@@ -1,0 +1,443 @@
+{
+  "notes": [],
+  "cases": {
+    "A_multi2axis": {
+      "stage4": {
+        "html": "<div class=\"mv-combo-unverified\" style=\"margin:0 0 10px;padding:9px 12px;border-radius:8px;background:#FFF7ED;border:1px solid #FDBA74;border-left:4px solid #F59E0B;color:#7C2D12;font-size:.8rem;line-height:1.6\"><div style=\"font-weight:700;color:#C2410C\">⚠ 각 축 개별 검증 완료 · 조합(다축 동시) 검증은 수행되지 않았습니다</div><div style=\"margin-top:3px\">선택한 GROUP BY 2개 축(<b>STATUS_CD, DEPT_CD</b>)은 축마다 독립 세트로 나누어 <b>개별로만</b> 비교했습니다. 따라서 위 <b>통계결과·최종상태는 각 축 개별 기준</b>이며, <b>STATUS_CD + DEPT_CD</b> 조합에서만 드러나는 불일치(축별 집계에서 서로 상쇄되어 사라지는 차이)는 이 판정에 포함되어 있지 않습니다.</div><div style=\"margin-top:3px;color:#9A3412\">조합 기준 확인이 필요하면 아래 상세비교(재이관 대상 레코드) 결과를 함께 확인하세요 — 행 단위 비교는 조합 불일치를 그대로 검출합니다.</div></div>",
+        "text": "⚠ 각 축 개별 검증 완료 · 조합(다축 동시) 검증은 수행되지 않았습니다선택한 GROUP BY 2개 축(STATUS_CD, DEPT_CD)은 축마다 독립 세트로 나누어 개별로만 비교했습니다. 따라서 위 통계결과·최종상태는 각 축 개별 기준이며, STATUS_CD + DEPT_CD 조합에서만 드러나는 불일치(축별 집계에서 서로 상쇄되어 사라지는 차이)는 이 판정에 포함되어 있지 않습니다.조합 기준 확인이 필요하면 아래 상세비교(재이관 대상 레코드) 결과를 함께 확인하세요 — 행 단위 비교는 조합 불일치를 그대로 검출합니다.",
+        "display": "block",
+        "visible": true
+      },
+      "stage4_tiles": {
+        "hostFound": true,
+        "visible": true,
+        "tileCount": 8,
+        "tiles": [
+          {
+            "label": "목적테이블",
+            "value": "tobe01.t_combo_tgt",
+            "boxTitle": "tobe01.t_combo_tgt",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val is-mono",
+            "html": "<span class=\"mv-qr-tile-val is-mono\">tobe01.t_combo_tgt</span>"
+          },
+          {
+            "label": "원본테이블",
+            "value": "asis01.t_combo_src",
+            "boxTitle": "asis01.t_combo_src",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val is-mono",
+            "html": "<span class=\"mv-qr-tile-val is-mono\">asis01.t_combo_src</span>"
+          },
+          {
+            "label": "목적그룹",
+            "value": "STATUS_CDDEPT_CD",
+            "boxTitle": "STATUS_CD, DEPT_CD",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val is-mono",
+            "html": "<span class=\"mv-qr-tile-val is-mono\">STATUS_CD<br>DEPT_CD</span>"
+          },
+          {
+            "label": "원본그룹",
+            "value": "status_cddept_cd",
+            "boxTitle": "status_cd, dept_cd",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val is-mono",
+            "html": "<span class=\"mv-qr-tile-val is-mono\">status_cd<br>dept_cd</span>"
+          },
+          {
+            "label": "목적집계",
+            "value": "AMT",
+            "boxTitle": "AMT",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val is-mono",
+            "html": "<span class=\"mv-qr-tile-val is-mono\">AMT</span>"
+          },
+          {
+            "label": "원본집계",
+            "value": "amt",
+            "boxTitle": "amt",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val is-mono",
+            "html": "<span class=\"mv-qr-tile-val is-mono\">amt</span>"
+          },
+          {
+            "label": "실행시간",
+            "value": "원본 0.01초 미만목적 0.01초 미만",
+            "boxTitle": "원본 8ms / 목적지 9ms · 총 0.53초(532ms) — 다중 세트(GROUP BY 2축 이상) 2세트의 원본/목적 개별 실행시간 합계입니다. 총시간은 세트 실행 전체를 감싼 벽시계(세트 계획·SQL 생성·그룹 비교 포함)라 개별시간 합과 같지 않으며, 세트가 동시에 실행되면 총시간이 개별시간 합보다 짧을 수도 있습니다.",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val is-mono",
+            "html": "<span class=\"mv-qr-tile-val is-mono\">원본 0.01초 미만<br>목적 0.01초 미만</span>"
+          },
+          {
+            "label": "상태",
+            "value": "● 정상",
+            "boxTitle": "모든 비교 그룹 일치 — 일치 7개 (다중 세트(GROUP BY 2축 이상) 합산 기준)",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val",
+            "html": "<span class=\"mv-qr-tile-val\"><span class=\"mv-sicon mv-sicon-blue\" title=\"일치\">●</span> <span class=\"mv-sicon-txt\">정상</span></span>"
+          }
+        ],
+        "statusLabelFound": true,
+        "statusValueText": "● 정상",
+        "statusTooltip": "모든 비교 그룹 일치 — 일치 7개 (다중 세트(GROUP BY 2축 이상) 합산 기준)",
+        "comboWordInStatusValue": false,
+        "comboWordInStatusTooltip": false,
+        "comboWordAnywhereText": false,
+        "comboWordAnywhereTooltip": false,
+        "hostText": "목적테이블tobe01.t_combo_tgt원본테이블asis01.t_combo_src목적그룹STATUS_CDDEPT_CD원본그룹status_cddept_cd목적집계AMT원본집계amt실행시간원본 0.01초 미만목적 0.01초 미만상태● 정상"
+      },
+      "stage4_geom": {
+        "tile": {
+          "top": 352,
+          "bottom": 474,
+          "height": 121
+        },
+        "notice": {
+          "top": 1041,
+          "bottom": 1148,
+          "height": 108
+        },
+        "viewportHeight": 1000,
+        "gapPx": 567,
+        "spanPx": 796,
+        "bothInOneViewport": true,
+        "docHeight": 1282
+      },
+      "include_pair": false,
+      "pair_state": {
+        "found": true,
+        "checked": false,
+        "label": "조합(STATUS_CD + DEPT_CD)도 함께 검증 — 세트 1개 추가 실행"
+      },
+      "stage5_collapsed": {
+        "html": "<details class=\"mv-combo-unverified mv-combo-unverified-compact\" style=\"margin:0 0 10px;padding:7px 12px;border-radius:8px;background:#FFF7ED;border:1px solid #FDBA74;border-left:4px solid #F59E0B;color:#7C2D12;font-size:.8rem;line-height:1.6\"><summary style=\"cursor:pointer;font-weight:700;color:#C2410C\">⚠ 축별 개별 검증만 수행됨(조합 미검증) — 자세히</summary><div style=\"margin-top:6px\"><div style=\"font-weight:700;color:#C2410C\">⚠ 각 축 개별 검증 완료 · 조합(다축 동시) 검증은 수행되지 않았습니다</div><div style=\"margin-top:3px\">선택한 GROUP BY 2개 축(<b>STATUS_CD, DEPT_CD</b>)은 축마다 독립 세트로 나누어 <b>개별로만</b> 비교했습니다. 따라서 위 <b>통계결과·최종상태는 각 축 개별 기준</b>이며, <b>STATUS_CD + DEPT_CD</b> 조합에서만 드러나는 불일치(축별 집계에서 서로 상쇄되어 사라지는 차이)는 이 판정에 포함되어 있지 않습니다.</div><div style=\"margin-top:3px;color:#9A3412\">조합 기준 확인이 필요하면 아래 상세비교(재이관 대상 레코드) 결과를 함께 확인하세요 — 행 단위 비교는 조합 불일치를 그대로 검출합니다.</div></div></details>",
+        "text": "⚠ 축별 개별 검증만 수행됨(조합 미검증) — 자세히⚠ 각 축 개별 검증 완료 · 조합(다축 동시) 검증은 수행되지 않았습니다선택한 GROUP BY 2개 축(STATUS_CD, DEPT_CD)은 축마다 독립 세트로 나누어 개별로만 비교했습니다. 따라서 위 통계결과·최종상태는 각 축 개별 기준이며, STATUS_CD + DEPT_CD 조합에서만 드러나는 불일치(축별 집계에서 서로 상쇄되어 사라지는 차이)는 이 판정에 포함되어 있지 않습니다.조합 기준 확인이 필요하면 아래 상세비교(재이관 대상 레코드) 결과를 함께 확인하세요 — 행 단위 비교는 조합 불일치를 그대로 검출합니다.",
+        "hasDetails": true,
+        "detailsOpenAttr": false
+      },
+      "stage5_expanded_text": "⚠ 축별 개별 검증만 수행됨(조합 미검증) — 자세히⚠ 각 축 개별 검증 완료 · 조합(다축 동시) 검증은 수행되지 않았습니다선택한 GROUP BY 2개 축(STATUS_CD, DEPT_CD)은 축마다 독립 세트로 나누어 개별로만 비교했습니다. 따라서 위 통계결과·최종상태는 각 축 개별 기준이며, STATUS_CD + DEPT_CD 조합에서만 드러나는 불일치(축별 집계에서 서로 상쇄되어 사라지는 차이)는 이 판정에 포함되어 있지 않습니다.조합 기준 확인이 필요하면 아래 상세비교(재이관 대상 레코드) 결과를 함께 확인하세요 — 행 단위 비교는 조합 불일치를 그대로 검출합니다.",
+      "stage5_tiles": {
+        "hostFound": true,
+        "visible": true,
+        "tileCount": 8,
+        "tiles": [
+          {
+            "label": "목적테이블",
+            "value": "tobe01.t_combo_tgt",
+            "boxTitle": "tobe01.t_combo_tgt",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val is-mono",
+            "html": "<span class=\"mv-qr-tile-val is-mono\">tobe01.t_combo_tgt</span>"
+          },
+          {
+            "label": "원본테이블",
+            "value": "asis01.t_combo_src",
+            "boxTitle": "asis01.t_combo_src",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val is-mono",
+            "html": "<span class=\"mv-qr-tile-val is-mono\">asis01.t_combo_src</span>"
+          },
+          {
+            "label": "전체그룹",
+            "value": "7개",
+            "boxTitle": "이번 통계검증에서 비교한 전체 GROUP BY 조합(그룹) 개수 — 일치 + 불일치 그룹의 합입니다.",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val",
+            "html": "<span class=\"mv-qr-tile-val\">7개</span>"
+          },
+          {
+            "label": "불일치그룹",
+            "value": "0개",
+            "boxTitle": "집계 그룹 기준 판정 — 통계검증 SQL 의 GROUP BY 집계 결과를 그룹 단위로 비교한 값입니다. 아래 상세비교의 '재이관 대상' 건수는 PK 를 행 레코드 단위로 비교한 값이라 세는 단위가 다르며, 집계에서 서로 상쇄된 차이(예: 같은 그룹 안 +10/−10)는 그룹 단위 판정에 나타나지 않습니다. / 실행계획: 단일축 2세트 · 7그룹 / 각 축 개별 검증 완료 · 조합(다축 동시) 검증은 수행되지 않았습니다 — 선택 축 STATUS_CD, DEPT_CD 을(를) 축별 독립 세트로만 비교했습니다. STATUS_CD + DEPT_CD 조합에서만 드러나는 불일치는 이 판정에 포함되지 않습니다.",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val",
+            "html": "<span class=\"mv-qr-tile-val\">0개</span>"
+          },
+          {
+            "label": "재이관대상",
+            "value": "0건",
+            "boxTitle": "재이관 대상(근사) — 목적지에 통째로 없는 그룹(src_only) + 값이 다른 그룹(diff)의 합계입니다. 집계 그룹 단위 값이며, 행 레코드 단위 확정 목록은 옆의 재이관 PK 와 아래 상세비교가 담당합니다.",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val",
+            "html": "<span class=\"mv-qr-tile-val\">0건</span>"
+          },
+          {
+            "label": "재이관PK",
+            "value": "미추출",
+            "boxTitle": "",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val",
+            "html": "<span id=\"mvPkSummaryCell\" class=\"mv-qr-tile-val\">미추출</span>"
+          },
+          {
+            "label": "실행시간",
+            "value": "0.52초",
+            "boxTitle": "그룹생성(불일치 그룹 계산·비교) 0.52초 = 전체 0.53초 - max(원본조회 0.01초 미만, 목적조회 0.01초 미만) [병렬 실행] (523ms = 532ms - max(8ms, 9ms))",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val is-mono",
+            "html": "<span class=\"mv-qr-tile-val is-mono\">0.52초</span>"
+          },
+          {
+            "label": "상태",
+            "value": "● 정상",
+            "boxTitle": "정상",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val",
+            "html": "<span class=\"mv-qr-tile-val\"><span class=\"mv-sicon mv-sicon-blue\" title=\"정상\">●</span> <span class=\"mv-sicon-txt\">정상</span></span>"
+          }
+        ],
+        "statusLabelFound": true,
+        "statusValueText": "● 정상",
+        "statusTooltip": "정상",
+        "comboWordInStatusValue": false,
+        "comboWordInStatusTooltip": false,
+        "comboWordAnywhereText": false,
+        "comboWordAnywhereTooltip": true,
+        "hostText": "목적테이블tobe01.t_combo_tgt원본테이블asis01.t_combo_src전체그룹7개불일치그룹0개재이관대상0건재이관PK미추출실행시간0.52초상태● 정상"
+      },
+      "stage5_geom": {
+        "tile": {
+          "top": 352,
+          "bottom": 460,
+          "height": 107
+        },
+        "notice": {
+          "top": 631,
+          "bottom": 778,
+          "height": 148
+        },
+        "viewportHeight": 1000,
+        "gapPx": 171,
+        "spanPx": 426,
+        "bothInOneViewport": true,
+        "docHeight": 1116
+      },
+      "stage5_cellnote": {
+        "host": "mvSummary_singleResultSummary",
+        "found": true
+      }
+    },
+    "C_multi2axis_comboON": {
+      "stage4": {
+        "html": "",
+        "text": "",
+        "display": "none",
+        "visible": false
+      },
+      "stage4_tiles": {
+        "hostFound": true,
+        "visible": true,
+        "tileCount": 8,
+        "tiles": [
+          {
+            "label": "목적테이블",
+            "value": "tobe01.t_combo_tgt",
+            "boxTitle": "tobe01.t_combo_tgt",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val is-mono",
+            "html": "<span class=\"mv-qr-tile-val is-mono\">tobe01.t_combo_tgt</span>"
+          },
+          {
+            "label": "원본테이블",
+            "value": "asis01.t_combo_src",
+            "boxTitle": "asis01.t_combo_src",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val is-mono",
+            "html": "<span class=\"mv-qr-tile-val is-mono\">asis01.t_combo_src</span>"
+          },
+          {
+            "label": "목적그룹",
+            "value": "STATUS_CDDEPT_CD",
+            "boxTitle": "STATUS_CD, DEPT_CD",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val is-mono",
+            "html": "<span class=\"mv-qr-tile-val is-mono\">STATUS_CD<br>DEPT_CD</span>"
+          },
+          {
+            "label": "원본그룹",
+            "value": "status_cddept_cd",
+            "boxTitle": "status_cd, dept_cd",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val is-mono",
+            "html": "<span class=\"mv-qr-tile-val is-mono\">status_cd<br>dept_cd</span>"
+          },
+          {
+            "label": "목적집계",
+            "value": "AMT",
+            "boxTitle": "AMT",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val is-mono",
+            "html": "<span class=\"mv-qr-tile-val is-mono\">AMT</span>"
+          },
+          {
+            "label": "원본집계",
+            "value": "amt",
+            "boxTitle": "amt",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val is-mono",
+            "html": "<span class=\"mv-qr-tile-val is-mono\">amt</span>"
+          },
+          {
+            "label": "실행시간",
+            "value": "원본 0.01초 미만목적 0.01초 미만",
+            "boxTitle": "원본 9ms / 목적지 9ms · 총 0.67초(666ms) — 다중 세트(GROUP BY 2축 이상) 3세트의 원본/목적 개별 실행시간 합계입니다. 총시간은 세트 실행 전체를 감싼 벽시계(세트 계획·SQL 생성·그룹 비교 포함)라 개별시간 합과 같지 않으며, 세트가 동시에 실행되면 총시간이 개별시간 합보다 짧을 수도 있습니다.",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val is-mono",
+            "html": "<span class=\"mv-qr-tile-val is-mono\">원본 0.01초 미만<br>목적 0.01초 미만</span>"
+          },
+          {
+            "label": "상태",
+            "value": "● 불일치",
+            "boxTitle": "불일치 그룹 4개 — 값 다름 4 · 원본에만 0 · 목적지에만 0 (다중 세트(GROUP BY 2축 이상) 합산 기준)",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val",
+            "html": "<span class=\"mv-qr-tile-val\"><span class=\"mv-sicon mv-sicon-orange\" title=\"불일치 4건\">●</span> <span class=\"mv-sicon-txt\">불일치</span></span>"
+          }
+        ],
+        "statusLabelFound": true,
+        "statusValueText": "● 불일치",
+        "statusTooltip": "불일치 그룹 4개 — 값 다름 4 · 원본에만 0 · 목적지에만 0 (다중 세트(GROUP BY 2축 이상) 합산 기준)",
+        "comboWordInStatusValue": false,
+        "comboWordInStatusTooltip": false,
+        "comboWordAnywhereText": false,
+        "comboWordAnywhereTooltip": false,
+        "hostText": "목적테이블tobe01.t_combo_tgt원본테이블asis01.t_combo_src목적그룹STATUS_CDDEPT_CD원본그룹status_cddept_cd목적집계AMT원본집계amt실행시간원본 0.01초 미만목적 0.01초 미만상태● 불일치"
+      },
+      "stage4_geom": {
+        "tile": {
+          "top": 352,
+          "bottom": 474,
+          "height": 121
+        },
+        "notice": {
+          "top": 0,
+          "bottom": 0,
+          "height": 0
+        },
+        "viewportHeight": 1000,
+        "gapPx": -474,
+        "spanPx": 474,
+        "bothInOneViewport": true,
+        "docHeight": 1155
+      },
+      "include_pair": true,
+      "pair_state": {
+        "found": true,
+        "checked": true,
+        "label": "단일축 및 그룹조합(STATUS_CD + DEPT_CD)까지 실행"
+      },
+      "stage5_collapsed": {
+        "html": "",
+        "text": "",
+        "hasDetails": false,
+        "detailsOpenAttr": null
+      },
+      "stage5_expanded_text": null,
+      "stage5_tiles": {
+        "hostFound": true,
+        "visible": true,
+        "tileCount": 8,
+        "tiles": [
+          {
+            "label": "목적테이블",
+            "value": "tobe01.t_combo_tgt",
+            "boxTitle": "tobe01.t_combo_tgt",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val is-mono",
+            "html": "<span class=\"mv-qr-tile-val is-mono\">tobe01.t_combo_tgt</span>"
+          },
+          {
+            "label": "원본테이블",
+            "value": "asis01.t_combo_src",
+            "boxTitle": "asis01.t_combo_src",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val is-mono",
+            "html": "<span class=\"mv-qr-tile-val is-mono\">asis01.t_combo_src</span>"
+          },
+          {
+            "label": "전체그룹",
+            "value": "19개",
+            "boxTitle": "이번 통계검증에서 비교한 전체 GROUP BY 조합(그룹) 개수 — 일치 + 불일치 그룹의 합입니다.",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val",
+            "html": "<span class=\"mv-qr-tile-val\">19개</span>"
+          },
+          {
+            "label": "불일치그룹",
+            "value": "4개",
+            "boxTitle": "집계 그룹 기준 판정 — 통계검증 SQL 의 GROUP BY 집계 결과를 그룹 단위로 비교한 값입니다. 아래 상세비교의 '재이관 대상' 건수는 PK 를 행 레코드 단위로 비교한 값이라 세는 단위가 다르며, 집계에서 서로 상쇄된 차이(예: 같은 그룹 안 +10/−10)는 그룹 단위 판정에 나타나지 않습니다. / 실행계획: 단일축 2세트 + 조합 1세트 · 19그룹",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val",
+            "html": "<span class=\"mv-qr-tile-val\">4개</span>"
+          },
+          {
+            "label": "재이관대상",
+            "value": "4건",
+            "boxTitle": "재이관 대상(근사) — 목적지에 통째로 없는 그룹(src_only) + 값이 다른 그룹(diff)의 합계입니다. 집계 그룹 단위 값이며, 행 레코드 단위 확정 목록은 옆의 재이관 PK 와 아래 상세비교가 담당합니다.",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val",
+            "html": "<span class=\"mv-qr-tile-val\">4건</span>"
+          },
+          {
+            "label": "재이관PK",
+            "value": "미추출",
+            "boxTitle": "",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val",
+            "html": "<span id=\"mvPkSummaryCell\" class=\"mv-qr-tile-val\">미추출</span>"
+          },
+          {
+            "label": "실행시간",
+            "value": "0.66초",
+            "boxTitle": "그룹생성(불일치 그룹 계산·비교) 0.66초 = 전체 0.67초 - max(원본조회 0.01초 미만, 목적조회 0.01초 미만) [병렬 실행] (657ms = 666ms - max(9ms, 9ms))",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val is-mono",
+            "html": "<span class=\"mv-qr-tile-val is-mono\">0.66초</span>"
+          },
+          {
+            "label": "상태",
+            "value": "● 불일치",
+            "boxTitle": "불일치",
+            "valTitle": "",
+            "valClass": "mv-qr-tile-val",
+            "html": "<span class=\"mv-qr-tile-val\"><span class=\"mv-sicon mv-sicon-orange\" title=\"불일치\">●</span> <span class=\"mv-sicon-txt\">불일치</span></span>"
+          }
+        ],
+        "statusLabelFound": true,
+        "statusValueText": "● 불일치",
+        "statusTooltip": "불일치",
+        "comboWordInStatusValue": false,
+        "comboWordInStatusTooltip": false,
+        "comboWordAnywhereText": false,
+        "comboWordAnywhereTooltip": true,
+        "hostText": "목적테이블tobe01.t_combo_tgt원본테이블asis01.t_combo_src전체그룹19개불일치그룹4개재이관대상4건재이관PK미추출실행시간0.66초상태● 불일치"
+      },
+      "stage5_geom": {
+        "tile": {
+          "top": 352,
+          "bottom": 460,
+          "height": 107
+        },
+        "notice": null,
+        "bothInOneViewport": null
+      },
+      "stage5_cellnote": {
+        "host": null,
+        "found": false
+      }
+    }
+  },
+  "setup": {
+    "A_multi2axis": {
+      "pair_rows": 1,
+      "pair_created": false,
+      "connected": true
+    },
+    "C_multi2axis_comboON": {
+      "pair_rows": 1,
+      "pair_created": false,
+      "connected": true
+    }
+  }
+}
