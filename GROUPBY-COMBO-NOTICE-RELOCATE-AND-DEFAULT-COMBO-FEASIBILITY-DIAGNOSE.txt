@@ -1,0 +1,143 @@
+```text
+작업명 : GROUPBY-COMBO-NOTICE-RELOCATE-AND-DEFAULT-COMBO-FEASIBILITY-DIAGNOSE
+✅ 작업 완료 - 1번(안내문구 4단계 전체판/5단계 축약판 재배치) 구현+실검증 통과, 2번(조합 기본값화 조사) 결론 도출
+
+────────────────────────────────────────────────────────────
+1. 안내문구 재배치 (구현 완료)
+────────────────────────────────────────────────────────────
+문제  : "⚠ 각 축 개별 검증 완료·조합(다축 동시) 검증은 수행되지 않았습니다" 안내가
+        5단계(결과 확인, singleResultSummary)에만 있어 4단계(통계검증 실행) 화면에
+        머무는 동안에는 보이지 않았다.
+
+변경  : ui/grid_helpers.py
+  - _mvComboUnverifiedNoticeBodyHtml(axes) 신설 — 제목+본문 2단락(전체판/축약판 공유)
+  - _mvComboUnverifiedNoticeHtml(r)        — 전체판(4단계용). 기존 문구/판정 완전 동일, 본문만 공유헬퍼로 분리
+  - _mvComboUnverifiedNoticeCompactHtml(r) — 신설. <details><summary>축약판(5단계용).
+                                              펼치면 전체판과 완전히 같은 본문(정보 손실 없음)
+  - _mvRepaintStage4ComboNotice()          — 신설. window._mvStage4ExecResult 로부터
+                                              #mvStage4ComboNotice host 재도색(값 도착/무효화 양쪽 공용)
+  - _mvRenderResultGrid()                  — 배너 호출을 Compact 판으로 교체(5단계·일괄/이력 상세 공용)
+  - _mvRenderStage4HeaderOnly/_mvRepaintStage4Tiles — 기존 4단계 재동기화 지점에 콤보 배너 repaint 편입
+                                              (무효화 6곳 전부 새 호출부 추가 없이 자동 정리)
+
+        ui/tabler_renderer.py
+  - #mvStage4ComboNotice host 신설(4단계 pane, #mvExecStepError 바로 아래 · #execResultCard 앞)
+  - SINGLE_STEP_CARDS.validation 배열에 등록(다른 단계 잔류 노출 방지)
+
+  ★ 판정/집계 로직(diff/matched/src_only/tgt_only) 불변 — 표시 전용 수정.
+
+────────────────────────────────────────────────────────────
+2. GROUP BY 조합 기본값화 조사 (코드 수정 없음 — 결론)
+────────────────────────────────────────────────────────────
+질문 : "다중 GROUP BY 축을 선택했을 때 조합(다축 동시) 검증도 체크박스가 아니라
+        기본으로 항상 켜지게 하면 문제가 생기는가?"
+
+[현재 조건 — services/groupby_plan_service.py:build_groupby_execution_plan]
+  include_pair 파라미터(기본 False) 로만 켜진다. 실제 트리거는
+  ui/tabler_renderer.py:31024 근방의 체크박스 #gbIncludePair(.checked) — 4단계 SQL 카드에
+  "☐ 조합(A + B)도 함께 검증 — 세트 1개 추가 실행" 로 노출(라이브 스크린샷으로 실측 확인).
+  MAJOR COUNT 상태(COUNT_MAJOR_DIFF)에서는 체크와 무관하게 강제 OFF(안전 게이트 독립 동작).
+
+[성능/시간 영향 — 결론: 조합폭발 없음, 단 무조건 스캔 1회 추가]
+  · PLAN_MAX_AUTO_PAIR_SETS = 1(services/groupby_plan_service.py:53) — 선택 축이 몇 개든
+    "가장 구분효과 큰 2축 조합 1세트"만 채택된다. 3축 선택 시 후보쌍 C(3,2)=3개를 메모리에서만
+    점수 비교하고(DB 비용 0), 실행되는 조합 세트는 항상 최대 1개 — 축 수에 비례한 조합폭발 없음.
+  · 그러나 채택된 1세트는 전체 테이블 풀스캔 1회를 그대로 추가한다(실측: docs/COMBO_PAIR_ENTRY_
+    POINT_RESTORE_FEASIBILITY.md §4-2 — 단일축 세트 1개와 비용 사실상 동일, 1,200행 기준
+    0.73~1.17배). 축 N개 선택 시 총 실행시간 +1/N(2축 +50%, 3축 +33%) — 수천만~억 행 테이블에서
+    사용자가 요청하지 않은 전체 스캔이 매 실행마다 무조건 붙는다는 뜻이다.
+  · 예상 그룹 상한(PLAN_TARGET_MAX_GROUPS=4000)·평균행수 하한(100)·업무근거·구분효과 4중
+    가드는 살아 있어 "결과 그룹 폭주"는 자동 ON 이어도 낮은 위험(가드가 이미 조합을 탈락시킴).
+
+[기존 사용 사례 파손 여부 — 결론: 없음]
+  · MAJOR COUNT 게이트는 체크박스 상태와 무관하게 독립 동작(ui/tabler_renderer.py:27417) —
+    자동 ON 이어도 이 안전장치는 그대로 유지된다.
+  · 일괄검증(batch)은 이 체크박스와 무관 — 선택 축 전체를 처음부터 한 SQL 로 묶어 실행하는
+    별도 경로(services/batch_runner.py)라 default-on 논의 자체가 적용되지 않는다.
+  · 체크박스를 의도적으로 꺼 두고(대형 테이블 비용 회피) 쓰던 사용자가 있다면, 자동 ON 시
+    그 선택권이 사라지고 매번 추가 스캔을 강제로 떠안게 된다 — 이것이 유일한 실질적 파손 지점.
+
+[화면 영향 — 결론: total_groups 표시값이 세트 수만큼 부풀어 오른다(실측 확인)]
+  · services/multiset_execute_service.py:201 — agg["total_groups"] 는 실행된 모든 세트를
+    단순 합산한다. 오늘 옮긴 4/5단계 "전체그룹" 타일(스크린샷 실측: 2축 STATUS_CD(3)+DEPT_CD(4)
+    =7개)이 자동 ON 시 +PAIR 세트 그룹 수(예: 12)까지 더해져 19개로 뛴다 — 기존 "단일축 합산"
+    기준에 익숙한 사용자에게는 갑작스런 수치 점프로 보일 수 있다.
+  · 오늘 재배치한 조합 미검증 배너(1번)와는 이미 자동 연동 — PAIR 세트가 실제로 채택되면
+    _mvComboUnverifiedAxes 가 "선택 축 전부를 덮는 세트 있음"으로 판정해 배너가 자동으로 사라진다
+    (추가 배선 불필요). 단, 3축 이상 선택 시에는 PAIR 가 2축만 덮으므로 자동 ON 이어도 배너가
+    계속 뜬다 — "자동으로 조합까지 봤다는데 왜 아직도 경고가 뜨는가" 라는 혼선 소지가 있다.
+
+[결론]
+  옵트인(체크박스) 유지를 권고한다. 근거:
+  ① 가드는 결과 크기(그룹 수)만 막지 실행 비용(전체 스캔 1회)은 막지 못한다 — 자동 ON 은
+     사용자가 요청하지 않은 비용을 대형 테이블에서 매번 강제한다.
+  ② 자동 ON 의 최대 이점(거짓 안심 제거)은 이미 1번에서 다른 수단(4단계 상시 노출 배너)으로
+     확보됐다 — 자동 ON 이 아니어도 사용자는 "조합 미검증"을 놓치지 않는다.
+  ③ 3축 이상에서는 자동 ON 이 문제를 절반만 푼다(2축만 커버) — 명시(opt-in)면 "내가 켰는데
+     왜 안 됐지"가 되어 사유(탈락 게이트)를 찾을 동기가 남지만, 자동이면 그 차이를 사용자가
+     통제할 수 없다.
+  근거 문서: docs/COMBO_PAIR_ENTRY_POINT_RESTORE_FEASIBILITY.md §4(2026-08-05 실측, 동일 결론
+  선행 확인) — 그 문서가 제안한 opt-in 체크박스(#gbIncludePair)는 이후 실제 구현됐다(COMBO-PAIR-
+  ENTRY-POINT-RESTORE-IMPLEMENT). 오늘 조사는 코드를 직접 재확인해(services/groupby_plan_
+  service.py, ui/tabler_renderer.py:27417/31024, multiset_execute_service.py:201) 동일 결론을
+  독립적으로 재검증했다.
+
+────────────────────────────────────────────────────────────
+검증 결과
+────────────────────────────────────────────────────────────
+[정적 렌더 검증 — node fake-DOM, scripts/dev_e2e/groupby_combo_notice_relocate_verify.py]
+  통과 11 / 11 (4단계 전체판 노출·5단계 축약판(details) 구조·펼친 본문 정보손실없음·
+  단일축 회귀·host repaint 값도착/무효화 양쪽)
+
+[실 브라우저 클릭 검증 — 실 서비스 포트 8000(인증 ON) + 실 PostgreSQL(사내망 192.168.0.150
+ :5433 asis/:5434 tobe, PostgreSQL_Inter_asis→PostgreSQL_Inter_tobe), 픽스처 asis01.t_combo_src
+ →tobe01.t_combo_tgt(1,200행, STATUS_CD/DEPT_CD 단일축 전부 일치·조합 4그룹만 불일치)
+ — scripts/dev_e2e/groupby_combo_notice_relocate_live_clickthrough.py]
+  통과 7 / 7
+    A-1 4단계(GB 2축 선택) 전체 문구 노출                         PASS
+    A-2 4단계 host visible                                        PASS
+    A-3 5단계 <details> 축약판 구조 사용                          PASS
+    A-4 5단계 요약 한 줄("⚠ 축별 개별 검증만 수행됨(조합 미검증) — 자세히") 노출  PASS
+    A-5 5단계 펼친 후 전체 문구 포함(정보 손실 없음)               PASS
+    B-1 4단계(GB 1축 선택) 안내 없음(회귀 방지)                    PASS
+    B-2 5단계(GB 1축 선택) 안내 없음(회귀 방지)                    PASS
+  스크린샷: scratchpad/GROUPBY-COMBO-NOTICE-RELOCATE-shots/
+    (A_multi2axis_04_stage4_notice.png — 4단계 전체 3단락 문구 실제 화면,
+     A_multi2axis_05/06_stage5_collapsed/expanded.png — 5단계 축약↔펼침 실제 화면,
+     B_single1axis_04/05 — 단일축 회귀 확인 화면)
+
+[CLAUDE.md 필수 회귀 — 최종 1회]
+  python samples/test_virtual_cases.py    → 8/8 통과
+  python samples/test_complex_cases.py    → 5/5 통과(케이스 분석 완료)
+
+[관련 서브셋]
+  tests/test_unified_result_detail.py     → 7 passed
+  tests/test_grid_helpers.py              → 12 passed / 2 failed
+    (사전 존재 실패 — Windows cp949 콘솔 인코딩으로 한글 assert 문자열이 깨져서 나는 실패.
+     git stash 로 본 세션 변경 전 HEAD 상태에서도 동일하게 2 failed 재현 — 본 작업과 무관)
+  scripts/dev_e2e/combo_decomposition_warning_before_after_shot.py → 3/6
+    (사전 존재 실패 — _mvExecStepResultHtml 참조 함수가 이전 세션의 STAGE4-COMPLETION-BANNER-
+     REMOVE-FIX 로 이미 삭제되어 있음. git stash 로 HEAD 상태에서도 동일 3/6 재현 — 본 작업과 무관,
+     이번 작업 범위(재배치)와 무관한 구 스크립트라 별도 수정하지 않음)
+  scripts/dev_e2e/combo_decomposition_warning_static_verify.py → node 실행 실패(위와 동일 원인,
+     사전 존재)
+
+서버 재기동: 라이브 클릭 검증(위)은 이미 코드 변경이 반영된 상태로 수행됐다(검증 결과 자체가
+  증거). 검증 이후 web_server.py 를 CLAUDE.md 규칙대로 재기동(기존 포트 점유 프로세스 자동
+  종료 → 새 PID 로 재시작)했고, 재기동된 서버에 HTTP 200 응답·페이지 내 mvStage4ComboNotice
+  host 존재(7회 참조)를 재확인해 배포 상태가 최신 코드와 일치함을 확인했다.
+
+────────────────────────────────────────────────────────────
+변경/생성 파일
+────────────────────────────────────────────────────────────
+  M ui/grid_helpers.py
+  M ui/tabler_renderer.py
+  A scripts/dev_e2e/groupby_combo_notice_relocate_verify.py            (정적 렌더 검증)
+  A scripts/dev_e2e/groupby_combo_notice_relocate_live_clickthrough.py (라이브 클릭 검증)
+
+커밋 해시 : a6c7a040 (main, 로컬 커밋만 — 코드 repo는 push 금지 정책)
+  fix(ui): 조합 미검증 안내를 4단계 전체판/5단계 축약판으로 재배치 (GROUPBY-COMBO-NOTICE-RELOCATE)
+
+작업명 : GROUPBY-COMBO-NOTICE-RELOCATE-AND-DEFAULT-COMBO-FEASIBILITY-DIAGNOSE
+✅ 작업 완료 - 1번(안내문구 4단계 전체판/5단계 축약판 재배치) 구현+실검증 통과, 2번(조합 기본값화 조사) 결론 도출
+```
