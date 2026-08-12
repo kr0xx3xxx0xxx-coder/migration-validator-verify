@@ -1,0 +1,117 @@
+M78-PG-FETCH-CHUNK-TEXT-PK-CAST-FIX
+✅ 작업 완료 - PG make_pg_fetch_chunk 문자 PK 청크 바인드 캐스트 누락 수정, 재현스크립트 전/후·숫자PK회귀無·100,000행 e2e·실서버 HTTP e2e 전부 확인
+
+────────────────────────────────────────────────────────────────
+1. 배경/증상
+────────────────────────────────────────────────────────────────
+BACKLOG.md M78 항목(2026-08-12 발견): PostgreSQL make_pg_fetch_chunk()
+(services/exact_diff/dialects/postgresql.py:479 부근)가 "숫자로 노출된 문자
+PK"(varchar 컬럼에 '1'..'N' 같은 숫자문자열) 청크 조회 시, WHERE절 바인드
+파라미터(int)와 컬럼(varchar) 사이 암묵 캐스트가 없어
+`character varying >= integer` 쿼리 오류 즉시 발생.
+
+────────────────────────────────────────────────────────────────
+2. 수정 내용
+────────────────────────────────────────────────────────────────
+파일:라인   services/exact_diff/dialects/postgresql.py:458-506
+             (make_pg_fetch_chunk 함수)
+
+make_pg_fetch_chunk() 생성 시점에 LIMIT 0 메타 probe(1회, N+1 아님)로 key
+컬럼의 실제 PG 타입(OID)을 확인 → CAT_TEXT/CAT_CHAR(문자 타입)일 때만
+컬럼측을 `(_q.key)::numeric` 캐스트해 비교(WHERE·ORDER BY 동일 적용).
+숫자 PK(정수/numeric 컬럼)는 캐스트를 붙이지 않아 기존 동작·실행계획 그대로.
+
+바인드 파라미터(start/end)가 아니라 컬럼측을 numeric 캐스트한 이유: 호출측
+build_chunk_bounds() 가 넘기는 start/end 는 이미 축A(_pg_numeric_min_max)가
+산정한 "숫자 의미" 경계(정수)라서, 컬럼측을 텍스트로 캐스트해 파라미터와
+맞추면(예: '1'..'50') 텍스트 사전식 비교가 되어 순서가 완전히 틀어진다
+(예: '9' > '50'). 축A 가 이미 전 행 숫자 변환 성공을 보장한 뒤에만 이
+경로가 호출되므로(비숫자 문자는 HOLD_NON_NUMERIC_PK 로 사전 차단) 컬럼측
+numeric 캐스트는 안전하다.
+
+────────────────────────────────────────────────────────────────
+3. 재현 스크립트 재실행(전/후 비교) — scripts/dev_e2e/pg_text_numeric_pk_cast_repro.py
+────────────────────────────────────────────────────────────────
+대상: PostgreSQL_Inter_asis(192.168.0.150:5433/asis), ntb.c1_pk_text(1,000행, 문자 PK)
+
+  항목                                              수정 전            수정 후
+  ------------------------------------------------  -----------------  --------------------------
+  [1] make_pg_fetch_chunk() 문자 PK 직접호출         QUERY_ERROR        SILENT_SUCCESS_NO_ERROR
+                                                      (character varying  (49건 반환, 키 1~49 정상
+                                                      >= integer)          오름차순)
+  [2] 원시SQL 문자컬럼>=정수바인드(대조군, 무변경)   QUERY_ERROR        QUERY_ERROR(그대로, 정상)
+  [3] 문자PK-숫자PK JOIN(대조군, 무변경)             QUERY_ERROR        QUERY_ERROR(그대로, 정상)
+  [4] 문자컬럼>=정수리터럴(대조군, 무변경)           QUERY_ERROR        QUERY_ERROR(그대로, 정상)
+
+  전/후 비교는 git stash 로 수정 전 코드를 일시 복원해 같은 세션에서 재실측
+  (수정 전: `_q."pk_char" >= 1` 형태로 오류 재현 → 수정 복원 후 정상).
+
+────────────────────────────────────────────────────────────────
+4. 숫자 PK 회귀 없음 확인
+────────────────────────────────────────────────────────────────
+- scripts/dev_e2e/pk_range_chunk_boundary_ordering_pg_verify.py
+  → 최종 판정: CONFIRMED_MATCHES_ORACLE (A=True, B=True), merge_chunk 정렬
+    정합성(숫자 PK) 12,000행/11,681행 실접속, order_stats reordered_lists=0
+- 관련 pytest 서브셋(148건 전부 PASS, 신규 회귀 0건):
+    tests/test_pk_range_chunk.py
+    tests/test_pk_range_chunk_pushdown_and_imbalance.py
+    tests/test_pk_range_chunk_representative_axis_unify.py
+    tests/test_pk_range_chunk_sort_order_alignment.py
+    tests/test_d7_pk_chunk_compare_cols.py
+    tests/test_exact_diff_engine.py
+    tests/test_exact_diff_route_dialect_cast.py
+    tests/test_exact_diff_stream_merge_order_violation.py
+    tests/test_d7_5_chunk100k_count.py
+    tests/test_d8_7_parallel_source_target_read.py
+    tests/test_m69_pg_terminate_backend_wire.py
+    tests/test_nls_numeric_tochar_session_independent.py
+    tests/test_sampling_preflight.py
+    tests/test_underscore_alias_oracle_regression_static.py
+  → 95 passed + 53 passed(6 subtests) = 148 passed, 0 failed
+
+────────────────────────────────────────────────────────────────
+5. end-to-end 검증 — 함수 단위(100,000행) + 실서버 HTTP(실 DB)
+────────────────────────────────────────────────────────────────
+[A] scripts/dev_e2e/character_pk_boundary_pg_axisb_reconfirm.py
+    (프리셋 PostgreSQL_Inter_asis, ntb.b4_cspk_v2_numeric, 문자 PK 100,000행)
+    운영 코드 make_pg_fetch_chunk() 를 그대로 호출해 전체 100,000행(1~100,000)
+    range 조회:
+      - 42883(character varying >= integer) 오류 없음(성공)
+      - 반환 100,000행, 역전(정렬 위반) 0회 — 숫자 오름차순 완전 일치
+      - _ensure_pk_ascending() 교정 후 역전 0회
+      - 최종 판정: PASS
+
+[B] 실서버 HTTP end-to-end — /agg-diff/prepare (PK_RANGE_CHUNK_COMPARE)
+    - 서버 재기동: 2026-08-12 04:14:30 KST (MV_AUTH_DISABLED=1, 포트 8000,
+      HTTP 자동화 검증 전용 — 운영 배포 아님)
+    - 재기동 시점 HEAD: 06842d88(수정 파일은 워킹트리에 이미 반영된 상태로
+      기동, 이후 커밋 8c750497 은 파일 내용 변경 없이 스냅샷만 확정)
+    - 픽스처: ntb.m78_e2e_pk_char(varchar PK '1'..'500', val integer) —
+      asis(PostgreSQL_Inter_asis, 192.168.0.150:5433)·tobe(PostgreSQL_Inter_tobe,
+      192.168.0.150:5434) 양쪽 500행 동일 적재
+    - 요청: stream=True, compare_strategy="PK_RANGE_CHUNK_COMPARE",
+      key_src=key_tgt="PK_CHAR", sum_cols=["VAL"], chunk_size=50(정책이
+      chunk_size=10000·chunk_count=1 로 재산정)
+    - 최종 응답: status="READY", actual_strategy_id="PK_RANGE_CHUNK_COMPARE",
+      key_col="PK_CHAR", missing_migration=0, value_mismatch=0,
+      excluded_target_only=0, error_message=null
+    - 서버 로그에 character varying/UndefinedFunction/Traceback 없음(오류 0건)
+    - 스크립트: scratchpad/m78_e2e_fixture_load.py, m78_e2e_http_drive.py
+      (검증 전용 임시 스크립트 — scripts/dev_e2e/ 정식 편입 아님)
+
+────────────────────────────────────────────────────────────────
+6. CLAUDE.md 필수 회귀(최종 1회)
+────────────────────────────────────────────────────────────────
+  python samples/test_virtual_cases.py   → 8/8 통과
+  python samples/test_complex_cases.py   → 5/5 통과(FAIL 신뢰도 기대 케이스 포함)
+
+────────────────────────────────────────────────────────────────
+7. 커밋
+────────────────────────────────────────────────────────────────
+  커밋해시: 8c7504970858a000c8db4c9d1bdca323a93cd158
+  변경파일: services/exact_diff/dialects/postgresql.py (1 file, +28/-3)
+  커밋메시지: fix(exact_diff): PG make_pg_fetch_chunk 문자 PK 청크 바인드
+              캐스트 누락 수정 (M78-PG-FETCH-CHUNK-TEXT-PK-CAST-FIX)
+
+작업명 : M78-PG-FETCH-CHUNK-TEXT-PK-CAST-FIX
+✅ 작업 완료 - PG make_pg_fetch_chunk 문자 PK 청크 바인드 캐스트 누락 수정, 재현스크립트 전/후·숫자PK회귀無·100,000행 e2e·실서버 HTTP e2e 전부 확인
