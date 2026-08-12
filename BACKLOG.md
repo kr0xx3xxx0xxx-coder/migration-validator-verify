@@ -5851,7 +5851,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 근거: E:\verify_reports\M74-A3-PG-SCRIPT-EXPAND-AND-B1TOB7-BATCH-REVERIFY.txt,
   E:\verify_reports\M74-C1TOC3-BACKLOG-UPDATE-AND-ORACLE-M69-REPRO-SCRIPT.txt
 
-### M79. 통계검증(4단계) 이기종 DBMS 차단 — 별도 위험분석 아닌 "오라클개방 시 HASH_BUCKET 원칙 차용"이 근본원인, SQL생성은 이미 이기종지원·결과비교 키정규화만 진짜 공백(구현규모 6~8파일 중간난이도)
+### M79. ✅ 구현 완료 — 통계검증(GROUP BY/SUM) Oracle↔PostgreSQL 이기종 조건부 개방(2026-08-12), canonical 키정규화 어댑터 신설·개별+일괄 양경로 실측검증, 진단서 대비 게이트 실체 정정(단일 관문 구조로 단순화)
 - 발견/계기: 2026-08-12 (사용자 — "현재 동일 DBMS끼리 이관검증만 되어있는데 이기종끼리도
   고려해야함" / CROSS-DBMS-STATS-EXECUTION-LIMITATION-RATIONALE-DIAGNOSE, 코드 무변경)
 - **근본원인**: 2026-07-21 오라클 실행을 처음 여는 작업(커밋 83851a68c→1c633c5ff)의
@@ -5884,3 +5884,33 @@ git -C E:/verify_reports worktree remove <임시경로>
   필요). 난이도 중간. **이기종 실데이터(Oracle↔PG)로 키 오탐 여부 직접 실측
   없이는 안전 단정 불가**.
 - 근거: E:\verify_reports\CROSS-DBMS-STATS-EXECUTION-LIMITATION-RATIONALE-DIAGNOSE.txt
+- **✅ 구현 완료(2026-08-12, M79-CROSS-DBMS-STATS-EXECUTION-IMPLEMENT, 코드 커밋
+  06842d88)**:
+  - **진단서 대비 구조 정정**: 진단서가 지목한 facade 게이트는 "원클릭 표준실행"
+    전용일 뿐, **실제 4단계 수동버튼·일괄 통계검증은 이 게이트를 아예 안 타서
+    기존에 서버측 방어가 전혀 없었음**(클라이언트 alert만 유일 방어선, 우회
+    가능했던 잠재위험)이 구현 중 재확인됨. 3곳에 각각 재게이트하는 대신, 3경로가
+    실제로 수렴하는 **단일 지점**(`stats_execute_service.execute_stats_validation`)
+    한 곳에만 게이트를 심어 구조 단순화 — **일괄검증(batch_stats_execute_service.py)
+    은 무수정으로 자동 보호**됨을 실측 확인.
+  - **어댑터 신설**: `services/diagnosis/canonical_group_key/`(base+postgresql+
+    oracle, 기존 dialects_hash 패턴 준용) — 숫자scale/CHAR우측패딩/날짜시각유무/
+    NULL을 DBMS무관 canonical로 정규화. **NULL·빈문자열은 의도적으로 비병합**
+    (병합 시 "NULL이 실제로 다른 값으로 이관된 진짜 결함"을 도구가 스스로 가릴
+    위험 — 설계근거 `__init__.py`에 문서화).
+  - **허용쌍은 화이트리스트**(`STATS_CROSS_DBMS_PAIRS`, 현재 PG↔Oracle 1개만) +
+    canonicalizer 실재 시에만 개방(무조건 개방 아님, mysql/mssql은 자동 미지원).
+  - **부수 수정**: COUNT 버튼이 통계검증용 클라이언트 가드에 불필요하게 같이
+    막히던 비대칭 해소(`_singleExecGuard(action)`, COUNT는 항상 허용).
+  - **실측(Oracle↔PostgreSQL 실DB, 6개 타입케이스+음성대조)**: 숫자scale(float↔
+    Decimal)·정수표기차이·CHAR우측패딩·날짜시각유무·NULL 전부 정상 매칭(거짓
+    diff 없음), **일부러 틀리게 만든 케이스(SUM 999↔111)는 정확히 불일치 검출**
+    (과잉병합 없음 증명). 개별검증·일괄검증 두 경로 결과 완전 일치.
+  - **회귀**: 진단서 지목 9개 테스트파일 177 passed·0 failed(그 중 2개는 "혼합
+    방언=항상 HOLD"이던 옛 전제를 M79 의도대로 정정 갱신). 자체 발견·수정:
+    최초 시도에서 JS 헬퍼 함수 미인식으로 9건 신규실패 났던 것을 함수 인라인화로
+    해소, 재검증 0건. 전체 스위트 12,832건(414 failed는 전부 사전존재/환경성,
+    M79 관련 키워드 필터링 결과 신규회귀 0건).
+  - **SQLite**: 신설 안 함(허용쌍은 코드상수, 실행이력은 기존 테이블이 이미
+    저장 — 필요 지점 없다고 정직하게 판단).
+  - 근거: E:\verify_reports\M79-CROSS-DBMS-STATS-EXECUTION-IMPLEMENT.txt
