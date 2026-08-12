@@ -6626,3 +6626,55 @@ git -C E:/verify_reports worktree remove <임시경로>
   대한 더 넓은 그림 — 두 문제 다 존재하며 서로 다른 계층(M96=상세레코드
   재사용 정합성, M97=이력 저장·표시 체계).
 - 근거: E:\verify_reports\reports\SAME-QUERY-RERUN-AUTO-VERSION-INCREMENT-FEASIBILITY-DIAGNOSE.md
+
+### M98. ✅ 해결 완료 — STATS_SAMPLE_ONLY(4단계 전용, 표본미구현·항상전체스캔) 등 통계전략 설명을 호버전용에서 상시노출로 이동, 신뢰도 2종(4단계입력완전성 vs M77외삽거리)·비용점수(전략선택무관, 등급표시용) 정체 규명, 5단계와 완전 별개모듈 확인
+- 발견/계기: 2026-08-12 (사용자 — "신뢰도·비용점수가 뭔지, STATS_SAMPLE_ONLY
+  설명을 옆에 표시해달라" / STATS-SAMPLE-ONLY-CONFIDENCE-COSTSCORE-EXPLAIN-
+  AND-TOOLTIP-ADD, 코드 커밋 5910aaaf)
+- **STATS_SAMPLE_ONLY 정체**: 이름과 달리 표본 샘플링 엔진 미구현, 트리거
+  조건(고카디널리티·초대형 무인덱스스캔·복잡SUM식) 충족 시 판정만 되고 **실제
+  실행은 항상 STATS_DIRECT_AGG와 동일한 전체스캔 EXACT 집계**(참고용 판정).
+  같은 그룹(STATS_BUCKET_AGG/STATS_PARTITION_AGG)도 전부 참고용.
+- **신뢰도 2종 확인(같은 화면에 무관하게 공존)**: 4단계 통계전략의 confidence
+  는 "예상스캔행수·예상그룹수 계산 가능했는지" 단순 입력완전성 체크(HIGH/LOW
+  2값뿐) — M77의 전환 신뢰도(벤치마크 외삽거리 기반 LOW/MEDIUM/HIGH, 5단계
+  불일치추출전략 연결)와 **완전히 다른 독립 필드**, 서로 계산 관여 없음.
+- **비용점수(unitless 합성 로그가중합) 확인**: `compute_stats_cost`
+  (scan가중치 2.0이 지배요인, 41건 실측회귀로 확정된 가중치) — **전략ID
+  선택에는 관여 안 함**(선택은 원시 scan/group_sum/max_cardinality 임계값
+  비교로만 결정), 규모등급(소/중/대/초대형) 분류+참고표시(예상소요 환산)에만
+  사용.
+- **5단계와 관계**: `stats_strategy_planner.py`(4단계)와 `full_compare_
+  strategy_planner.py`(5단계 불일치추출전략)는 완전 별개 모듈, 교차참조
+  0건(grep 확인) — STATS_SAMPLE_ONLY는 4단계 전용, 5단계 무영향.
+- **수정**: 이미 존재하던 정확한 설명(`_mvStratLabel` 괄호 텍스트)이 title
+  속성(마우스 호버 전용)에만 있어 발견 못 하던 게 근본원인 — 상시노출 인라인
+  텍스트로 이동. STATS_SAMPLE_ONLY 하나만 하드코딩 안 하고 같은 패턴의
+  모든 참고용 전략(STATS_DIRECT_AGG/BUCKET_AGG/PARTITION_AGG)에 자동 적용.
+- 실측: 사용자가 본 정확한 케이스(그룹31·스캔5천만·비용16.67·소요1분7초)
+  재현, 설명 상시노출 확인. 회귀: 서브셋 138P/5xfail/1F(baseline 사전실패
+  확인, 신규회귀0건), CLAUDE.md 8/8+5/5.
+- 근거: E:\verify_reports\reports\STATS-SAMPLE-ONLY-CONFIDENCE-COSTSCORE-EXPLAIN-AND-TOOLTIP-ADD.md
+
+### M99. ✅ 해결 완료 — 개별검증 하단 커맨드바가 다른 메뉴로 이동해도 잔존하며 화면 가리던 결함, 원인은 판정로직 아닌 "메뉴전환 시 재평가 누락"(SubNav는 갱신하는데 하단바만 빠짐), 1줄 수정+4개메뉴 전수 Playwright 실측
+- 발견/계기: 2026-08-12 (사용자 스크린샷 — "다른 메뉴로 가도 탭에 있는 하단바가
+  나와" / WIZARD-STEP-BOTTOM-BAR-BLEED-INTO-OTHER-MENUS-DIAGNOSE, 코드 커밋
+  d501854f)
+- **근본원인**: `#mvCmdBar`(하단 단계 네비게이션 바)의 표시판정 로직
+  (`_mvSingleValidationCmdBarConfig`)은 처음부터 정확했음("개별검증 탭 아니면
+  숨김") — 문제는 좌측 메뉴 클릭 시 거치는 단일 진입점 `showTab()`이 상단
+  SubNav는 탭 전환마다 갱신하면서 **하단 커맨드바는 한 번도 재호출하지
+  않은 것**. 개별검증에서 렌더될 때 인라인 style이 고정된 채, 다른 메뉴로
+  가도 DOM상 그대로 남아 화면 하단을 가림.
+- **수정(최소침습, 1줄)**: `showTab()` 종료 직전에 `_mvRenderCmdBar()` 호출
+  추가(SubNav와 동일 패턴) — 판정 로직 자체는 무접촉, 호출 시점만 보강.
+- **실측(Playwright, 실 서비스 포트8000)**: 개별검증 진입 후 4개 메뉴(DB
+  프로필/검증경로·일괄검증·진단이력·후보추천정책) 전수 이동 — 수정 전 전부
+  잔존 재현, 수정 후 4곳 전부 정상 숨김(PASS) + 개별검증 복귀 시 진행
+  단계상태(쿼리검토)까지 유지 확인.
+- 회귀: 관련 7개 테스트파일 143 passed(신규회귀 0), 1건 플레이키(동시
+  진행 중이던 다른 세션의 실DB 변경 때문, 단독재실행 즉시통과 재확인·
+  본 수정과 무관). CLAUDE.md 8/8+5/5.
+- **동시세션 안전**: 같은 파일(ui/tabler_renderer.py)을 M98 세션이 동시
+  편집 중이었으나 hunk단위 격리로 서로 무손상 분리 커밋.
+- 근거: E:\verify_reports\WIZARD-STEP-BOTTOM-BAR-BLEED-INTO-OTHER-MENUS-DIAGNOSE.txt
