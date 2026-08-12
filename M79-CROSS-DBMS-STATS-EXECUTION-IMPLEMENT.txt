@@ -1,0 +1,171 @@
+```text
+작업명 : M79-CROSS-DBMS-STATS-EXECUTION-IMPLEMENT
+✅ 작업 완료 - 통계검증(GROUP BY/SUM) Oracle↔PostgreSQL 이기종 실행 조건부 개방
+
+────────────────────────────────────────────────────────────
+0. 요약
+────────────────────────────────────────────────────────────
+BACKLOG M79(=CROSS-DBMS-STATS-EXECUTION-LIMITATION-RATIONALE-DIAGNOSE 진단서) 결론대로
+"SQL 생성 계층은 이미 이기종 지원, 진짜 공백은 결과비교 GROUP BY 키 정규화"를 그대로 구현했다.
+canonical 키 정규화 유틸(어댑터 패턴)을 신설하고, 게이트를 단일 출처로 통일해 개별검증(수동
+4단계 버튼) · 원클릭 표준실행 · 일괄 통계검증 3경로 모두 동일 판정을 쓰게 했다. COUNT 는
+방언차가 없어 클라이언트 가드에서 이기종을 항상 허용한다(서버는 원래도 무가드).
+
+────────────────────────────────────────────────────────────
+1. 조사 중 확인된 사실(진단서 대비 갱신)
+────────────────────────────────────────────────────────────
+- 진단서가 지목한 facade 게이트(services/single_validation_run_facade.py:1266~1284)는
+  "원클릭 표준실행"(routes/single_run_route.py·batch_route.py) 전용이며, CLAUDE.md 가 문서화한
+  수동 4단계 "▶ 통계검증 SQL 생성+실행" 버튼(routes/execute_route.py → orchestrator →
+  single_validation_core.execute_single_validation → stats_execute_service.execute_stats_validation)
+  과 "일괄 통계검증"(batch_stats_execute_service._execute_one_plan → 동일 execute_stats_validation
+  직접호출)은 **이 facade 게이트를 타지 않는다** — 즉 실제 UI 4단계 버튼과 일괄 통계검증 경로는
+  기존에 서버측 이기종 차단이 전혀 없었고, 클라이언트 JS alert(_singleExecGuard)만이 유일한
+  방어선이었다(우회 시 구버전 str() 캐스팅 버그가 그대로 실행될 수 있었던 잠재 위험).
+  → 그래서 새 게이트는 3곳에 각각 다시 심지 않고, 3경로가 모두 실제로 수렴하는 **단일 지점**
+    (stats_execute_service.execute_stats_validation)에 한 번만 심었다(구조 단순화, 중복 배선 회피).
+- 일괄 통계검증(batch_stats_execute_service.py)은 별도 게이트 코드 추가 없이 위 단일 지점 수정만으로
+  자동으로 보호된다(실측으로 확인 — §4).
+- 부수발견(COUNT-클라가드 비대칭): 서버(routes/count_route.py)는 원래도 방언 가드가 전혀 없어
+  이기종 COUNT 가 이미 정상 동작했는데, 클라이언트 _singleExecGuard() 는 COUNT 버튼에도 걸려
+  불필요하게 이기종 COUNT 를 막고 있었다 — action 파라미터를 추가해 COUNT 는 항상 허용, 통계검증
+  실행만 아래 §2 조건을 적용하도록 분리했다.
+  드롭다운 dbms 값 vs 실제 접속 프로필 dbms 어긋남 가능성(진단서가 "범위 밖"으로 남긴 항목)은
+  이번에도 범위 밖으로 유지한다 — 전체 앱의 드롭다운/바인딩 동기화 아키텍처 재조사가 필요한
+  별개 주제라 이번 스코프(결과비교 canonical 키 정규화)에 포함하지 않았다.
+
+────────────────────────────────────────────────────────────
+2. 어댑터 구조(파일별 역할)
+────────────────────────────────────────────────────────────
+신규 패키지 services/diagnosis/canonical_group_key/ (dialects_hash 어댑터 패턴 준용):
+  - __init__.py   : 패키지 docstring(설계 의도) + 공개 API 재수출
+  - base.py       : BaseGroupKeyCanonicalizer(계약) + canon_component() 기본구현(방언 무관 — 숫자
+                    scale 통일/CHAR 우측공백 제거/날짜 canonical ISO/NULL·빈문자열 타입태그 분리) +
+                    위임표(_CANONICALIZERS) + 팩토리(get_group_key_canonicalizer/_pair)
+  - postgresql.py : PgGroupKeyCanonicalizer(db_type="postgresql")
+  - oracle.py     : OracleGroupKeyCanonicalizer(db_type="oracle")
+  (mysql/mssql 미구현 — 팩토리가 None 반환, 상위 게이트가 "미지원"으로 판정)
+
+  설계 메모: 이 계층은 hash_contract/exact_diff.canonical 과 달리 "이미 fetch 된 파이썬 값"을
+  정규화한다(SQL fragment 미생성). 규칙 자체(숫자/날짜/CHAR 처리)는 드라이버 반환 타입에만
+  의존해 방언 무관이지만, CLAUDE.md 8번 규칙(어댑터 패턴, 인라인 if/elif 금지)을 그대로 따라
+  DBMS 별 파일로 나눴다 — 오늘은 각 구현체가 base 를 그대로 상속하지만, 향후 특정 드라이버 전용
+  보정이 필요해지면 해당 파일만 override 하면 된다(호출측 인라인 분기 없이).
+  NULL/빈문자열은 "병합"하지 않는다(의도적 설계 결정, __init__.py 에 근거 문서화) — Oracle 은
+  물리적으로 ''을 저장 못해 NULL 로 접히므로, 정상 이관이면 병합 없이도 양쪽 다 NULL 로 키가
+  일치한다. 병합했다면 "NULL 이 실제로 다른 값으로 이관된" 진짜 결함을 검증 도구 스스로 가릴
+  위험이 있어 채택하지 않았다.
+
+수정 파일:
+  - services/diagnosis/dbms/capabilities.py : stats_execution_pair_status(src,tgt) 신설(L1, 단일
+    출처) — 동일방언은 기존대로 무조건 허용, 이기종은 STATS_CROSS_DBMS_PAIRS(현재 {postgresql,
+    oracle} 1개 조합만 등록) 이면서 canonicalizer 가 실제 존재할 때만 허용(무조건 개방 아님).
+    HR_STATS_CROSS_DBMS_NOT_SUPPORTED 표준 HOLD 사유 신설.
+  - services/stats_execute_service.py :
+    · _to_dict() 가 db_type 인자를 받아 canonicalizer.canon_component() 로 키를 만든다(미상/
+      미구현 방언은 기존 str() 폴백 — 방어적 이중 안전).
+    · execute_stats_validation() 진입부에 유일한 실행 게이트(L2 겸 실질 단일 관문) — "양쪽
+      db_type 이 모두 확인되고 서로 다를 때만" stats_execution_pair_status 로 판정한다(한쪽이라도
+      미상/동일이면 기존과 동일하게 무판정 통과 — core 직접호출·테스트 하위호환 보존, 새 제약
+      추가 아님).
+    · _err_response() 에 reason_code(선택) 필드 추가(하위호환, 표준 사유 코드 노출).
+  - services/single_validation_run_facade.py : "원클릭 표준실행" 게이트를 strict src==tgt 에서
+    stats_execution_pair_status 기반으로 교체(§1 확인대로 이 facade 의 execute 단계는 항상 stats
+    전용이라 안전 — HASH_BUCKET/ROW_DIFF/KEY_RANGE 는 이 경로를 타지 않음, 실 호출부 전수 확인).
+  - ui/tabler_renderer.py : _singleExecGuard(action) — action='count' 는 이기종 항상 허용, 그 외
+    (통계검증 실행, 기본값)만 서버와 동일한 이기종 허용쌍 검사. runCount 는 'count' 로, runExecute
+    계열은 기존 그대로(엄격) 호출. _singleExecPreflight() 도 동일 허용쌍일 때 접속 재확인을
+    수행하도록 조건 확장. (helper 를 함수 내부에 inline — 함수 단위로 소스를 추출해 독립 실행하는
+    기존 테스트들의 계약을 깨지 않기 위함, 회귀에서 실제로 확인됨.)
+
+  batch_stats_execute_service.py 는 **무수정** — execute_stats_validation 의 신규 게이트를
+  그대로 상속해 보호된다(§4 실측으로 확인).
+
+────────────────────────────────────────────────────────────
+3. SQLite 스키마
+────────────────────────────────────────────────────────────
+신설 없음. 이기종 허용쌍(STATS_CROSS_DBMS_PAIRS)은 코드 상수(단일 조합)라 사용자가 편집할
+설정값이 아니고, 실행 이력은 기존 stats_execute_result/batch_stats_execute_run 테이블이 이미
+저장한다 — 새 저장소가 필요한 지점이 없었다.
+
+────────────────────────────────────────────────────────────
+4. 이기종 실측(Oracle↔PostgreSQL, 실 DB — Oracle_asis/PostgreSQL_Inter_tobe 프리셋)
+────────────────────────────────────────────────────────────
+픽스처: scripts/dev_e2e/m79_oracle_pg_cross_dbms_stats_fixture.py (NXDNP.M79_XDBMS_SRC ↔
+public.m79_xdbms_tgt). GROUP BY(GRP_NUM,GRP_STR_CHAR,GRP_DT) 3키 + SUM(AMOUNT) + COUNT(*).
+
+  타입 케이스                        결과
+  ─────────────────────────────────────────────────────────────
+  숫자 scale(100.50 float↔Decimal)   matched(거짓 diff 없음)
+  숫자 정수(200↔200.00)              matched
+  CHAR 우측패딩(Oracle 'AB        '  matched(canonical rstrip 로 PG 'AB' 와 동일 키)
+    ↔ PG 'AB')
+  날짜 시각유무(Oracle datetime      matched(canonical 시각 00:00:00 채움)
+    00:00:00 ↔ PG date)
+  NULL(양쪽 GRP_STR_CHAR NULL)       matched
+  진짜 불일치(SUM 999↔111, 음성대조)  diff 로 정상 검출(과잉 병합 아님 확인)
+
+  개별검증 경로(execute_stats_validation 직접, 실 DB SELECT) : success=True, matched=4, diff=1,
+    src_only=0, tgt_only=0, total_groups=5 — 전부 기대값 일치.
+  일괄검증 경로(batch_stats_execute_service._execute_one_plan, 무수정 함수) : success=True,
+    execution_status=SUCCESS_DIFF, matched_count=4, diff_count=1, src_only_count=0,
+    tgt_only_count=0 — 개별 경로와 동일 결과(같은 core 를 공유하므로 당연하지만 실측으로 재확인).
+  상세 원시결과: scripts/dev_e2e/_m79_oracle_pg_cross_dbms_stats_result.json (gitignore 대상,
+  이 파일에 원본/목적지 셀 값·cell_meta·허용오차 근거까지 남아있음).
+
+────────────────────────────────────────────────────────────
+5. 회귀 테스트
+────────────────────────────────────────────────────────────
+- 진단서가 나열한 9개 관련 테스트 파일 전부 재실행 → 177 passed, 5 subtests passed, 0 failed.
+  (test_hash_bucket_factory_guard / test_hash_contract_dialect_adapter / test_diagnosis_multi_scope /
+   test_dbms_capabilities / test_exact_diff_route_dialect_cast / test_groupby_explain_estimator /
+   test_batch_exhaustive / test_single_validation_run_facade_foundation /
+   test_single_active_path_binding_and_guard — 뒤 2개는 "혼합방언=항상 HOLD" 라는 옛 전제를
+   담고 있어 M79 의도대로 갱신했다: PG↔Oracle 은 이제 OK, 그 외 여전히 HOLD.)
+- services/test_stats_execute_service.py : 32 passed(신규 게이트가 db_type 미상 케이스에 새 제약을
+  추가하지 않는지 확인하는 회귀 포함).
+- JS 가드 관련 6개 파일(_singleExecGuard/_singleExecPreflight 배선) 회귀 대조: 변경 전 11 failed/
+  51 passed(전부 사전 존재 실패, git stash 로 재확인) → 변경 후 동일하게 11 failed/51 passed.
+  최초 시도에서 9건 새 실패(node 단위추출 테스트가 내가 만든 helper 함수를 못 찾음)가 났으나,
+  helper 를 각 함수 내부로 inline 해 원인 제거 후 재확인 완료(0 신규 회귀).
+- CLAUDE.md 필수 회귀: samples/test_virtual_cases.py 8/8 통과, samples/test_complex_cases.py 5/5
+  통과.
+- 전체 스위트(tests/ + services/, 12,832개) 1회 실행: 414 failed / 12,004 passed(73분).
+  M79 변경 파일·키워드(stats_execute/capabilit/canonical_group_key/facade/dialect/groupby/
+  cross_dbms/batch_stats)로 필터링한 결과 관련 실패는 1건(test_task12_a.py 의
+  test_03_no_groupby_no_sum_count_only)뿐이었고, git stash 로 baseline 단독 실행해도 동일하게
+  실패해 사전 존재 실패로 확정했다(memory: project_preexisting_test_failures.md 의 "대량 배치
+  실행 노이즈는 회귀 신호 아님" 원칙과 일치). 나머지 413건은 M79 와 무관한 파일들이며 개별 조사
+  범위 밖(대량 배치 시 PROD-DB-WRITE-BLOCKED 가드·순서의존 등 기존에 문서화된 환경성 실패 패턴).
+  → M79 로 인한 신규 회귀: 0건.
+
+────────────────────────────────────────────────────────────
+6. 서버 재기동
+────────────────────────────────────────────────────────────
+재기동 시각: 2026-08-12 03:04:59 UTC
+HEAD 커밋: 06842d88b4b6e5b999431490d7dd1fc735487c93
+확인: http://127.0.0.1:8000/ 응답(401 Unauthorized — 인증 정상 동작, 서버 기동 확인).
+
+────────────────────────────────────────────────────────────
+7. 변경/생성 파일 목록
+────────────────────────────────────────────────────────────
+신규:
+  services/diagnosis/canonical_group_key/__init__.py
+  services/diagnosis/canonical_group_key/base.py
+  services/diagnosis/canonical_group_key/postgresql.py
+  services/diagnosis/canonical_group_key/oracle.py
+  scripts/dev_e2e/m79_oracle_pg_cross_dbms_stats_fixture.py
+수정:
+  services/diagnosis/dbms/capabilities.py
+  services/stats_execute_service.py
+  services/single_validation_run_facade.py
+  ui/tabler_renderer.py
+  tests/test_single_validation_run_facade_foundation.py
+  tests/test_single_active_path_binding_and_guard.py
+  tests/test_stage_exec_stop_button_fix.py
+
+커밋 해시: 06842d88b4b6e5b999431490d7dd1fc735487c93 (코드 저장소, main 브랜치)
+
+작업명 : M79-CROSS-DBMS-STATS-EXECUTION-IMPLEMENT
+✅ 작업 완료 - 통계검증(GROUP BY/SUM) Oracle↔PostgreSQL 이기종 실행 조건부 개방
+```
