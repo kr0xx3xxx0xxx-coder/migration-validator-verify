@@ -1,0 +1,116 @@
+```text
+작업명 : CROSS-DBMS-STATS-EXECUTION-LIMITATION-RATIONALE-DIAGNOSE
+✅ 작업 완료 - 통계검증(GROUP BY/SUM) 이기종 DBMS 차단 근거·기술장벽 조사(코드 수정 없음)
+
+────────────────────────────────────────────────────────────
+0. 3곳의 게이트 위치 확인
+────────────────────────────────────────────────────────────
+1) 서버측 정책 게이트 : services/single_validation_run_facade.py
+   _run_single_validation_standard_impl() 1266~1284행
+   "0) DBMS 정책" — src != tgt 면 STATUS_HOLD 로 즉시 반환(어떤 단계도 미실행)
+2) DBMS 능력정의 모듈 : services/diagnosis/dbms/capabilities.py
+   EXECUTION_SUPPORTED_DBMS = ("postgresql", "oracle")
+   — 실행 지원 DBMS 목록만 정의, "동일 방언" 조건 자체는 여기 없고 위 1)이 부과
+3) 클라이언트 JS 가드 : ui/tabler_renderer.py _singleExecGuard() 27172~27192행
+   _dtS !== _dtT 면 alert 로 차단(메시지: "원본·목적지를 같은 DBMS로 맞춘 뒤 다시 실행")
+   ※ 이 가드는 COUNT 실행 버튼(runCount, 25279행)에도 호출되지만, 실제 COUNT 는
+     routes/count_route.py 에 dialect/dbms 검사 코드가 전혀 없어(서버측 무가드) 이기종이어도
+     서버에서는 막히지 않는다 — 오늘 실측된 이기종 COUNT 성공은 이 서버측 무가드 때문이며,
+     클라이언트 가드(_dtS!==_dtT)가 COUNT 에도 적용되는 것과는 별개 경로/모순 소지가 있음
+     (드롭다운 값 vs 실제 접속 프로필 dbms 가 어긋나는 경우 클라 가드가 무력화될 수 있음 —
+     본 조사 범위 밖, 별도 확인 필요 항목으로만 남김).
+
+────────────────────────────────────────────────────────────
+1. 왜 이렇게 설계됐는지 (커밋 이력)
+────────────────────────────────────────────────────────────
+- 2026-07-21 14:15 커밋 83851a68c "개별검증 실행 오라클 공식 개방" :
+  services/diagnosis/dbms/capabilities.py 의 EXECUTION_SUPPORTED_DBMS 를
+  ("postgresql",) → ("postgresql","oracle") 로 확장. 이 시점까지는 PG-only 였으므로
+  "혼합 방언"이라는 조합 자체가 원천적으로 존재할 수 없었다.
+- 같은 날 2026-07-21 16:09 커밋 1c633c5ff "일괄+개별검증 원클릭 오라클 실행 공식 개방
+  (facade 게이트 H1 + 동일방언 게이트 신설)" :
+  오라클을 열면서 PG↔Oracle 조합이 처음으로 가능해지자, 그 직후 안전장치로
+  "src != tgt → HOLD" 게이트를 신설(services/single_validation_run_facade.py).
+  커밋 메시지 원문: "혼합 방언(예: PG↔Oracle) HOLD 게이트 신설(canonical 차이 거짓불일치
+  안전차단 — 클라이언트 _singleExecGuard·exact_diff HOLD_UNSUPPORTED_DB·rc_acceptance 와
+  동일 정책의 서버측 최종 게이트)".
+  → 즉 이기종 차단은 "통계검증을 위해 별도로 설계된 규칙"이 아니라, exact_diff/HASH_BUCKET
+    도메인에서 이미 확립돼 있던 "cross-DBMS canonical 불일치" 원칙(아래 참고)을
+    오라클 개방 시점에 통계검증을 포함한 표준 실행 전체(facade)에 그대로 차용/적용한 것.
+- CLAUDE.md·README 등 프로젝트 문서에는 "통계검증 이기종 지원 여부"에 대한 별도의
+  명시적 설계 결정 문서가 없다. docs/POSTGRES_RELEASE_NOTES.md 의 "미검증 / 제외 범위"
+  절에 "혼합 방언(원본≠목적지 DBMS) 실제 실행: 미지원(HOLD_UNSUPPORTED_DB)"라고만
+  기재돼 있고, HASH_BUCKET(canonical hash 계약) 미이식과 나란히 "미검증"으로 묶여있다
+  — 즉 "위험이 실측/증명됐다"가 아니라 "아직 검증하지 않아 보수적으로 막았다"는 취지로
+    문서화돼 있다.
+
+────────────────────────────────────────────────────────────
+2. 기술적 장벽이 실제로 존재하는지
+────────────────────────────────────────────────────────────
+[COUNT] SELECT COUNT(*) 뿐이라 방언차 자체가 없음 — routes/count_route.py 에 게이트가
+아예 없어 실측대로 이기종 정상 작동.
+
+[GROUP BY/SUM SQL 생성 계층] 이미 이기종 대응 아키텍처다.
+  - generator/sql_generator.py SqlGenerator.generate() 는 db_type_src / db_type_tgt 를
+    "완전히 독립된" 파라미터로 받아 각자 방언으로 SQL 을 생성한다(같은 값으로 강제하는
+    코드 없음). services/stats_sql_builder.py build_stats_sql() 도 src_db_type/tgt_db_type
+    을 그대로 전달한다.
+  - 날짜 GROUP BY 기간변환(stats_sql_builder.date_trunc_expr)은 "어느 방언이든 동일한
+    canonical 문자열(월 202607/분기 2026Q3/년 2026)을 만들어 원본/목적 비교 키가 어긋나지
+    않는다"고 명시적으로 설계돼 있음 — 즉 이기종 비교를 이미 전제하고 설계된 부분이 존재.
+  - 결론: "오라클용 빌더/PG용 빌더를 같은 논리적 GROUP BY 요청에 대해 동시 호출"하는
+    구조는 이미 갖춰져 있다. 재설계가 필요한 부분이 아니다.
+
+[결과 비교(원본 vs 목적) 단계] — 여기가 실제 미비 지점이다.
+  - services/stats_execute_service.py:254 _to_dict() 의 GROUP BY 키 매칭:
+      key = tuple(str(rd.get(k, '')) for k in gb_keys)
+    드라이버가 반환한 파이썬 값을 단순 str() 캐스팅만으로 키를 만든다. 타입별 canonical
+    정규화가 전혀 없다. 같은 DBMS 쌍(PG-PG, Oracle-Oracle)에서는 양쪽 드라이버 반환 타입이
+    같아 문제가 드러나지 않았지만, 이기종(cx_Oracle NUMBER↔Decimal/float vs psycopg2
+    int/Decimal, CHAR 우측 패딩, NLS 포맷 등)에서는 같은 논리값이 다른 문자열이 될 위험이
+    실재한다(예: Oracle 100 → '100.0', PG 100 → '100' → 거짓 src_only/tgt_only).
+  - SUM 값 자체 비교(services/numeric_compare_policy.compare_numeric)는 이미 허용오차
+    기반이라 상대적으로 안전하지만, "행을 정렬시키는 키" 쪽에는 그런 관용도가 없다.
+  - 이는 HASH_BUCKET 의 canonical hash 계약(services/diagnosis/hash_contract.py — 타입태그
+    +길이접두 결합의 결정적 인코딩)만큼 크지는 않다. HASH_BUCKET 은 "전체 컬럼 조합을 해시로
+    묶어 버킷 분배"하는 구조라 인코딩 발산이 대량 오탐으로 증폭되지만, 통계검증은 GROUP BY
+    컬럼(최대 3개, 프로젝트 규칙)만 키로 쓰고 그마저도 사람이 확인 가능한 값 단위 비교라
+    영향 범위가 훨씬 좁다.
+
+────────────────────────────────────────────────────────────
+3. 결론
+────────────────────────────────────────────────────────────
+(c) 중간 — 부분적으로 장벽이 있고 부분적으로는 "다른 기능의 안전장치를 그대로 차용해
+    막아둔 미구현"이다.
+  - SQL 생성(어댑터 구조)은 이미 이기종을 지원할 수 있게 돼 있다 → 이 부분은 재설계 불필요.
+  - 결과 비교의 GROUP BY 키 정규화가 없다는 점은 실재하는 기술 리스크이나, HASH_BUCKET
+    수준의 근본적 재설계가 아니라 "타입별 canonical 변환 함수 한 개 신설 + 적용" 규모다.
+  - 현재 게이트 자체는 "오라클 개방" 작업의 부산물로, 통계검증을 위해 별도로 위험을 분석한
+    결과가 아니라 HASH_BUCKET 원칙을 안전측으로 넓게 적용한 것 — 즉 (a)로 단정하기엔
+    근거 문서가 "미검증"이라고 스스로 밝히고 있고, (b)로 단정하기엔 키 매칭 정규화라는
+    실제 공백이 남아있다.
+
+구현 시 규모 추정
+  - 파일 수: 약 6~8개
+    · 신규: 타입별 canonical 키 정규화 유틸 1개 (숫자 trim/scale, 문자열 trim,
+      NULL/빈문자열 처리, 날짜 포맷 — 기존 date_trunc_expr 패턴 확장)
+    · 수정: services/stats_execute_service.py(_to_dict 키 생성부),
+      services/single_validation_run_facade.py(동일방언 조건 완화),
+      services/diagnosis/dbms/capabilities.py(조합 표기 필요 시),
+      ui/tabler_renderer.py(_singleExecGuard 조건/문구)
+    · 테스트: 기존 "혼합 방언 HOLD" 전제 테스트 9개 파일(tests/test_hash_bucket_factory_guard.py,
+      test_hash_contract_dialect_adapter.py, test_diagnosis_multi_scope.py,
+      test_dbms_capabilities.py, test_exact_diff_route_dialect_cast.py,
+      test_groupby_explain_estimator.py, test_batch_exhaustive.py,
+      test_single_validation_run_facade_foundation.py,
+      test_single_active_path_binding_and_guard.py) 재검토·갱신 필요
+      (단, 이 중 다수는 HASH_BUCKET/exact_diff 전용이라 통계검증 게이트 완화와 무관할 수
+       있음 — 실제 착수 시 파일별로 재확인 필요).
+  - 난이도: 중간. 신규 SQL 생성 로직은 필요 없고, 핵심은 (1) 키 정규화 계층 신설과
+    타입별 케이스(숫자/문자/날짜/NULL) 검증, (2) 게이트 3곳 조건 완화, (3) 이기종 실측
+    (Oracle↔PG 실데이터로 GROUP BY 키 오탐 여부 직접 확인) — 이 실측 없이는 안전하다고
+    단정할 수 없음.
+
+작업명 : CROSS-DBMS-STATS-EXECUTION-LIMITATION-RATIONALE-DIAGNOSE
+✅ 작업 완료 - 통계검증(GROUP BY/SUM) 이기종 DBMS 차단 근거·기술장벽 조사(코드 수정 없음)
+```
