@@ -5832,7 +5832,7 @@ git -C E:/verify_reports worktree remove <임시경로>
   최소침습 원칙상 이번 범위 제외 — 필요 시 별도 작업 권장.
 - 근거: E:\verify_reports\M77-EXPECTED-TOTAL-SEC-BENCHMARK-FIX.txt
 
-### M78. PG make_pg_fetch_chunk — "숫자로 노출된 문자 PK" 청크조회 시 타입캐스트 누락으로 쿼리오류(완결성 갭, 조용한 오탐 아님)
+### M78. ✅ 해결 완료 — PG make_pg_fetch_chunk 문자PK 캐스트 누락 수정(컬럼측 numeric 캐스트, 파라미터측 아님 — 텍스트캐스트 시 정렬역전 위험 회피), e2e 오류 0건 확인
 - 발견/계기: 2026-08-12 (M74-A3-PG-SCRIPT-EXPAND-AND-B1TOB7-BATCH-REVERIFY 부수
   발견, 독립된 2개 스크립트가 동일 오류 재현 + M74-C1TOC3이 4/4 케이스로 재확인)
 - **증상**: 문자(varchar) PK 컬럼의 경계값을 `_pg_numeric_min_max`로 정상
@@ -5848,6 +5848,16 @@ git -C E:/verify_reports worktree remove <임시경로>
   pk_range_chunk_boundary_ordering_pg_diagnose*.py 계열(M74-A3)
 - 후속 조치(미착수): `make_pg_fetch_chunk`의 key 컬럼 bind 시 명시적 캐스트
   (`::text` 등) 보강 필요.
+- **✅ 수정 완료(2026-08-12, M78-PG-FETCH-CHUNK-TEXT-PK-CAST-FIX, 코드 커밋
+  8c750497)**: `services/exact_diff/dialects/postgresql.py:458-506`, LIMIT 0
+  메타 probe로 key 컬럼 실제 PG 타입 확인 후 문자타입일 때만 **컬럼측을
+  `::numeric` 캐스트**(파라미터측 아님 — start/end가 이미 숫자 의미 경계라
+  파라미터를 텍스트로 맞추면 `'9'>'50'` 같은 사전식 정렬역전이 발생했을 것,
+  설계 시 미리 회피). 재현스크립트 전/후 대조(QUERY_ERROR→정상 49건 반환),
+  숫자PK 회귀 148건 전부 통과, 100,000행 함수단위 e2e + 실서버 HTTP e2e
+  (agg-diff/prepare, missing_migration=0/value_mismatch=0/error_message=null)
+  전부 오류 0건 확인.
+- 근거: E:\verify_reports\M78-PG-FETCH-CHUNK-TEXT-PK-CAST-FIX.txt
 - 근거: E:\verify_reports\M74-A3-PG-SCRIPT-EXPAND-AND-B1TOB7-BATCH-REVERIFY.txt,
   E:\verify_reports\M74-C1TOC3-BACKLOG-UPDATE-AND-ORACLE-M69-REPRO-SCRIPT.txt
 
@@ -5914,3 +5924,75 @@ git -C E:/verify_reports worktree remove <임시경로>
   - **SQLite**: 신설 안 함(허용쌍은 코드상수, 실행이력은 기존 테이블이 이미
     저장 — 필요 지점 없다고 정직하게 판단).
   - 근거: E:\verify_reports\M79-CROSS-DBMS-STATS-EXECUTION-IMPLEMENT.txt
+
+### M80. DB 커넥션 관리 종합점검 — 실 누수 1건 발견(agg_diff_route.py:311), 진짜 낭비는 병렬화가 아니라 "우회"(count_precheck_service 배치루프가 풀 안 씀, 3N회 핸드셰이크), 동시성 상한이 대상DB max_connections와 미연동인 잠재위험
+- 발견/계기: 2026-08-12 (DB-CONNECTION-SOURCE-AUDIT-UNNECESSARY-LOAD-CHECK, 코드
+  무변경, 정적분석+실측 병행)
+- **실 누수 결함(심각도 中)**: `routes/agg_diff_route.py:311` — src/tgt 커넥션
+  2개를 try 블록 진입 "전"에 열어서, 두 번째(tgt) 연결이 실패하면 이미 연
+  src 연결이 close 안 되고 누수. 같은 파일 435행에 정답 패턴(None 선언→try 안
+  connect→finally None체크 close)이 이미 존재 — 그 패턴으로 통일 권고.
+  (부수: `batch_route.py:1041↔1203`도 close가 finally 밖, 심각도 低)
+- **★ 최대 발견(비용대비효과 최우선 후보)**: `count_precheck_service.py:946`의
+  일괄검증 배치 루프가 `request_connection_scope`를 아예 안 써서 **테이블당
+  최대 3회 물리 핸드셰이크**(전부 풀 우회) — 같은 목적의 `batch_count_only_
+  service.py:243`은 이미 scope로 감싸 재사용 중이라, 동일 기능 두 경로가
+  비대칭. scope로 감싸면 3N→2로 감소.
+- **실측(실 서버+실 DB)으로 확인된 "누수 아님"**: 실행 직후 커넥션이 안
+  사라지는 것처럼 보이는 게, 실은 풀 설계상 의도된 idle 보관(M69의 진짜
+  좀비와 다른 범주) — `pool.close_all()` 강제 실행 시 즉시 0으로 떨어짐을
+  실측 확인. 개별검증 1회 기준 PG 최대 2세션·Oracle 최대 1세션, 실행 후
+  baseline 정상 복귀(누적 없음).
+- **잠재 위험(미실측, 코드 확인만)**: 세트병렬+side병렬 중첩 시 개별검증
+  1회 이론상 최대 6동시 커넥션, 일괄검증 전역 동시성 예산까지 곱하면 이론상
+  최대 24 — 이 상한이 **대상 DB의 실제 max_connections와 전혀 연동 안 됨**.
+  Neon 무료/저사양 tier처럼 max_connections가 작은 환경에서 사용자가 배치
+  동시성을 공격적으로 올리면 다른 워크로드에 영향 줄 잠재 위험(상용 DB를
+  일부러 압박하는 테스트라 실측은 보류).
+- **부수**: `_different_physical_db` 판정이 host:port:dbname 문자열 비교만이라,
+  "같은 호스트의 다른 포트/인스턴스"(오늘 192.168.0.150:5433/5434 같은 경우)를
+  무조건 "다른 물리DB"로 오판 — 기존에 알려진 리스크(P13 디스크I/O경합)의
+  재확인.
+- 개선 우선순위: ①count_precheck_service scope 적용 ②agg_diff_route.py:311
+  누수 수정 ③count_execution_planner._pg_fetch_scalar도 풀 타도록 ④(정책검토)
+  배치 동시성 상한을 대상DB max_connections 추정치와 연동.
+- 근거: E:\verify_reports\DB-CONNECTION-SOURCE-AUDIT-UNNECESSARY-LOAD-CHECK.txt
+
+### M81. 5단계 데이터추출 — 화면표시(DIRECT_STREAM_COMPARE) vs 실제실행(PK_RANGE_CHUNK) 조용한 불일치(최대영향, 모순경고 장치도 미발동), 그 외 전략표시 stale 2건 + 속도요소 8건 신규발견(ExactDiffRunStore 커넥션 미재사용이 최대)
+- 발견/계기: 2026-08-12 (DATA-EXTRACTION-SPEED-AND-STRATEGY-CONFORMANCE-CHECK,
+  코드 무변경, opus 병렬 조사에이전트 2개+본세션 재대조)
+- **★ N1[최대영향] 화면-실행 전략 불일치**: 계획 카드는 `choose_compare_
+  strategy` 결과(대개 DIRECT_STREAM_COMPARE)를 표시하지만, 실제 실행 시
+  `tabler_renderer.py:17677`의 "totalRows>50000이면 useStream" 로직이
+  무조건 `PK_RANGE_CHUNK_COMPARE`를 명시 전송 → `agg_diff_route.py:55-56`
+  "명시 요청 존중" 규칙이 전환판정 자체를 재호출 안 하고 그대로 CHUNK 확정.
+  기본 벤치(1M=158초) 기준 **약 190만행 미만부터 그 이상 대다수 구간까지,
+  화면=DIRECT 표시·실제=CHUNK 실행**(예외는 source_count가 벤치 기준값과
+  정확히 일치하는 극히 좁은 경우뿐). **실행 후 selected≠actual 모순경고
+  장치(`tabler_renderer.py:28603`)도 발동 안 함** — 안전망 자체가 무력화된
+  상태로 조용히 지나감. **오늘 낮에 사용자가 본 "DIRECT_STREAM_COMPARE·예상
+  총소요 7900초" 화면도 이 케이스였을 가능성 있음**(별도 재확인 필요).
+- **N2**: 오라클 HASH_BUCKET이 실제로는 SUPPORTED(G7 개방 반영, `capabilities.
+  py:118`)인데 `tabler_renderer.py:19189`의 고정 안내문구는 여전히 "미지원"
+  — 같은 패널 안에서 데이터기반 표(지원배지)와 상반된 정보 동시 노출.
+- **N3**: 권고 코드(HASH_BUCKET_REQUIRED/SPLIT, 미실행 권고일 뿐)가
+  `_mvStratShort`에서 실제 실행전략과 동일하게 'HASH_BUCKET'으로 축약 표시돼
+  "수행됨"으로 오독 소지(`router.py:52` ROUTE_HASH_BUCKET은 실제 expand() 시
+  빈 배열 — 실행 0건).
+- **속도요소 신규발견(영향도순)**: A) `ExactDiffRunStore`(store.py) 20개
+  공개메서드 전부가 호출마다 connect+PRAGMA+CREATE+INDEX+ALTER 반복 —
+  chunk_checkpoint에서 이미 검증된 동일 개선패턴(8.15ms→1.38ms, -83%)이
+  store에만 미적용, 소비빈도 높음(청크경계·5000행마다·폴링마다). B) 상세추출
+  폴링 1회당 COUNT 3회 중복. C) 원본 MIN/MAX 중복 실행(sampling gate와 chunk
+  경로 각각). D) 정책조회 캐시 전무(prepare 1회당 7회 호출 중 2개 중복).
+  E) 후보컬럼 N+1(컬럼당 4왕복). F) 커넥션 풀 우회 2종(비PG 매번 새연결,
+  PG도 exact-diff 경로는 raw connect). G) SELECT *로 전컬럼 재투영.
+  H) COUNT(*) 4곳에서 무캐시 반복 재실행.
+- **기존 알려진 요소 재확인**: 정렬비용/pushdown 실패(HOLD로 방어 중, 구조적
+  한계라 "손댈 필요 없음" 판정)·해시버킷 wave OR 비용(same-DBMS 한정, 이미
+  알려진 트레이드오프)·DB스캔이 97% 병목(불변, 배경)은 그대로.
+- 개선 우선순위: ①N1 화면/실행 전략 일치화(신뢰성 근본원인) ②A ExactDiffRun
+  Store 커넥션 재사용 이식(저비용·검증된 패턴) ③B/D/H 요청당 중복조회 캐싱
+  ④N2/N3 표시문구 stale 정정(저비용·즉시가능) ⑤E/F N+1·풀우회(중간비용)
+  ⑥⑦(정렬비용/해시버킷)은 구조적 한계로 "손댈 필요 없음" 범주.
+- 근거: E:\verify_reports\DATA-EXTRACTION-SPEED-AND-STRATEGY-CONFORMANCE-CHECK.txt
