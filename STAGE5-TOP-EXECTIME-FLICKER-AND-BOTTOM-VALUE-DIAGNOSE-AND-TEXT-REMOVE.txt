@@ -1,0 +1,142 @@
+작업명 : STAGE5-TOP-EXECTIME-FLICKER-AND-BOTTOM-VALUE-DIAGNOSE-AND-TEXT-REMOVE
+✅ 작업 완료 - 진단(코드무수정) 3건 결론 확정 + 텍스트 제거 2건(원지시 1건 + 사용자 추가지시 1건) 적용·검증
+
+────────────────────────────────────────────────────────────
+[1] 진단 결과 (코드 무수정 — 조사만)
+────────────────────────────────────────────────────────────
+
+1-A. 상단 그리드 "실행시간" 깜빡임 원인
+  ▸ 판정: 실제 결함(불필요한 재렌더링). 다만 "값 자체가 틀리다"는 의심은 근거 없음(값은 안 바뀜).
+  ▸ 원인: 그룹을 처음 클릭(캐시 미적중, 재이관 PK index 최초 prepare)하면
+    _mvPkEnsurePrepared(ui/tabler_renderer.py:17612~17625)가
+      ① fetch 시작 직후 1회, ② .then/.catch(응답 도착) 시 1회
+    총 2회 이상 _mvRepaintStage5Tiles()를 호출한다. 이 함수는
+    host.innerHTML = _mvStage5TilesHtml(r, ctx) 로 상단 타일 그리드 전체를 매번
+    통째로 교체한다(ui/grid_helpers.py:1370~1388) — "실행시간" 칸도 예외 없이 DOM 노드가
+    파괴·재생성된다. 같은 패턴이 _mvPkPrewarm(ui/tabler_renderer.py:18653~18665)에도 있다.
+  ▸ "실행시간" 값은 window._mvStage5ProcMs 기반(_mvStage5ProcInfo, 아래 1-B)이고
+    이 값은 재이관 PK 준비 상태(_mvPkState)와 무관하게 통계검증 실행 시점에 이미 고정된다.
+    즉 재렌더 전/후로 표시 문자열은 동일한데, DOM 을 통째로 다시 그리는 과정에서
+    그 짧은 순간 셀이 비었다가 다시 채워지는 것처럼 보인다(=사용자가 본 "깜빡임").
+  ▸ 코드 수정 필요 여부: 예(권장). 수정 방향은 "값이 바뀌지 않은 칸까지 통째로 지우지 않기" —
+    예) _mvRepaintStage5Tiles 를 '실행시간' 칸 하나만 갱신하는 부분 갱신 경로로 바꾸거나,
+    prepare 시작 시점 호출(값 변화 없음)을 제거하고 완료/실패 시 1회만 남긴다.
+    이번 작업은 조사까지만 — 실제 수정은 사용자 승인 후 별도 지시로 진행한다.
+
+1-B. 상단 그리드 "실행시간"이 정확히 무슨 값인가
+  ▸ 판정: 현재 표시값은 "4단계 실행시간 전체"가 아니라 "그룹생성(불일치 계산·비교)만의 시간"이다.
+    이는 오류가 아니라 STAGE5-EXEC-TIME-GROUPGEN-SPLIT(과거 작업)에서 의도적으로 좁힌 값이다.
+  ▸ 근거(_mvStage5ProcInfo, ui/grid_helpers.py:1195~1235):
+    - window._mvStage5ProcMs = 4단계 전체 벽시계(원본조회+목적조회+그룹생성/비교, 순차 실행 시
+      합·병렬 실행 시 max 기준) — 이 원값 자체는 안 바뀐다.
+    - 표시 텍스트만 = 전체시간 − (병렬이면 max(원본,목적), 순차면 원본+목적) = "그룹생성 시간"만.
+    - 이유(코드 주석 그대로): 총시간을 '실행시간' 칸에 그대로 두면 "5단계(그룹생성) 자체 소요"로
+      오독된다는 실측 지적이 있었다(예: 23.15초=원본10.91+목적11.21+그룹생성1.03인데 이름표만
+      보고 전체를 5단계 소요로 읽음). 그래서 그룹생성분만 분리해 보여주고, 총시간·원본·목적
+      개별값은 툴팁(마우스 오버)에 그대로 남겼다.
+  ▸ 결론: 화면 값 자체는 설계대로 동작 중 — "적다"고 느껴진다면 그룹생성만 보고 있기 때문이며,
+    전체 내역은 같은 칸의 툴팁에서 확인 가능하다. 코드 결함 아님.
+
+1-C. 하단 [고정] "5단계 불일치 그룹추출: 12.18초"의 의미
+  ▸ 판정: 결함 아님 — "그룹 존재"와 "그 그룹의 상세 PK 레코드 추출"은 서로 다른 작업이다.
+  ▸ 이 값은 5단계 전체나 "불일치 그룹이 이미 다 만들어졌는가"와 무관하다. 통계검증 실행(4단계)
+    시점에 diff/src_only/tgt_only 집계(=불일치 그룹 목록)는 이미 서버에서 계산 완료된 상태로
+    5단계에 넘어온다 — 이건 "그룹 존재"다.
+  ▸ 반면 이 카드 값은 "그 그룹들 중 사용자가 실제로 클릭해서 펼쳐 본, 가장 최근 그룹 하나"의
+    재이관 대상 원본 PK 목록을 서버(/agg-diff/prepare + pk-records)에서 실제로 조회해 온
+    소요시간(detail_ms)이다(_mvStage5SetGroupPerf, ui/tabler_renderer.py:28020~28030 /
+    표시부: :27980~27995). 그룹을 하나도 안 열었으면 0.00초.
+  ▸ 스크린샷의 "완료" 2개 / "미확인" 다수 상태가 바로 이 구분과 정확히 대응한다 — "완료"는 그
+    그룹의 상세 PK 추출을 이미 마쳤다는 뜻이고, "미확인"은 그룹(불일치 자체)은 존재하지만 아직
+    클릭해서 상세를 뽑아본 적이 없다는 뜻이다. 12.18초는 "완료" 표시된 그룹 중 가장 최근에 클릭한
+    그룹 하나의 실제 추출 소요이지 그룹 생성/전체 소요가 아니다. 이 값 자체는 오늘 이미
+    STAGE5-BATCH3-AMTQTY-INDENT-TOTALGROUP-LASTCLICK 로 "가장 최근 클릭 1건"으로 수정된 로직이며,
+    이번 재확인으로 의도대로 동작함이 다시 확인됐다.
+
+────────────────────────────────────────────────────────────
+[2] 텍스트 제거 (적용 + 검증 완료)
+────────────────────────────────────────────────────────────
+
+2-A. [원지시] 5단계 불일치그룹 카드 안내 문구 제거
+  대상: "※ 위 그룹은 집계값이 다른 불일치 그룹이며 개별 재이관 레코드 수가 아닙니다.
+        실제 재이관 대상 레코드는 아래 상세비교 결과에서 확인하세요."
+  파일: ui/grid_helpers.py :: _mvMismatchItemsGridHtml (구 라인 2194)
+  처리: 해당 <div> 통째 제거. 항목명 줄(itemLine, "불일치 N항목 · ...")은 그대로 유지.
+
+2-B. [대화 중 추가 지시] 5단계 '불일치 추출전략' 칩 줄 제거
+  대상: 전략 칩("불일치 추출전략 직접 스트림 비교 DIRECT_STREAM_COMPARE") 아래
+        "신뢰도 LOW · 예상 스캔 50,000,000행 · 예상 총소요 17.42초" 근거 칩 줄.
+  파일: ui/js_sql_preview.py :: mvCompareStrategyInfoHtml
+  처리: 신뢰도/예상 스캔/예상 추출/청크 크기/예상 첫결과/예상 총소요 6종 칩 조립 코드 제거.
+        전략명 칩(text/code) 자체는 그대로 유지. 근거는 3단계 계획(/strategy/plan) 응답이
+        window._mvStage3PlanInfo.compareStrategy 에 계속 보관되므로(렌더링만 뺐음) 다른
+        소비처(3단계 근거 테이블 등)에는 영향 없음 — 사유: 이 값들은 4단계 실행 "전" 계획
+        단계에서 미리 계산한 예상치인데, 5단계는 4단계 실행이 이미 끝난 뒤의 화면이라 실측이
+        아닌 예상치를 보여주는 것이 의미가 없다는 지적이 타당함을 코드 흐름으로도 확인했다
+        (5단계 실측 소요는 같은 화면 상단 그리드 '실행시간'·하단 [고정] 카드가 별도로 담당).
+
+2-C. 검증 (실제 화면 확인, before/after 스크린샷)
+  - 검증 스크립트: scripts/dev_e2e/stage5_notice_and_strategy_chip_remove_shot.py
+    (git HEAD의 수정 전 코드와 작업 트리의 수정 후 코드를, 사용자가 보고한 것과 동일한
+     mock 값(신뢰도 LOW·예상 스캔 50,000,000행·예상 총소요 17.42초 등)으로 각각 실제
+     제품 렌더 함수를 호출해 정적 HTML로 만들고 playwright 로 스크린샷)
+  - 판정 10/10 PASS:
+    A BEFORE → 안내 문구 존재 / A AFTER → 안내 문구 제거 / A AFTER → 항목명 줄 유지(무회귀)
+    B BEFORE → 신뢰도·예상 스캔·예상 총소요 칩 존재(LOW/50,000,000/17.42초 그대로 재현)
+    B AFTER  → 위 3칩 모두 제거 / B AFTER → 전략명 칩(직접 스트림 비교/DIRECT_STREAM_COMPARE) 유지
+  - 스크린샷 4장(채팅에 전달됨):
+    A_before_notice.png / A_after_notice.png / B_before_chips.png / B_after_chips.png
+
+────────────────────────────────────────────────────────────
+[3] 회귀 테스트
+────────────────────────────────────────────────────────────
+- CLAUDE.md 필수 회귀:
+  python samples/test_virtual_cases.py   → 8/8 통과
+  python samples/test_complex_cases.py   → 5/5 통과(FAIL 신뢰도 케이스 포함 전부 기대대로)
+- 관련 테스트 서브셋(5개 파일) 최종 1회:
+  tests/test_stage45_status_timing_combo_label_strategy_relocate.py
+  tests/test_grid_helpers.py
+  tests/test_stage5_group_drilldown.py
+  tests/test_stage5_strategy_relocate_and_advanced_perf_emphasis.py
+  tests/test_stage45_strategy_info_relocate.py
+  tests/test_stats_result_full.py
+  → 115 passed, 5 xfailed, 3 failed(전부 사전 존재 실패 — 아래 대조로 확정, 회귀 0건)
+- 사전 존재 실패 3건(git worktree HEAD baseline 단독 대조로 재확인, 회귀 아님):
+  · test_grid_helpers.py::test_query_review_grid_render_and_no_secrets
+  · test_grid_helpers.py::test_candidate_grid_render_and_muted
+    (둘 다 3단계 '처리시간' 타일 컬럼 부재 — 이번 수정 대상 함수와 무관한 별도 화면)
+  · test_stats_result_full.py::test_phase4b_strategy_plan_effective_selection_display
+    (정규식 함수경계 추출 취약성 — 기존 메모리에 2026-08-03 사전 실패로 이미 기록됨)
+  → tests/test_stage45_status_timing_combo_label_strategy_relocate.py::
+    test_compare_strategy_evidence_chips_render 는 2-B 변경에 맞춰 기대값을 갱신했다
+    (칩 부재 확인으로 전환, 전략명 칩 존재는 그대로 유지 검증).
+- 관련 없는 기존 미커밋 변경(.claude/settings.json, requirements*.txt, js_batch_display.py 등)은
+  이번 작업 범위 밖이라 손대지 않았다(커밋 대상에서도 제외).
+
+────────────────────────────────────────────────────────────
+서버 재기동
+────────────────────────────────────────────────────────────
+- 코드 변경(텍스트 제거)이 있어 web_server.py 재기동함.
+- 기존 점유 PID 32312 → web_server.py 자체 포트정리 로직(_cmn_free_port)이 자동 종료 후
+  신규 PID 19284 로 기동, 포트 8000 정상 LISTENING 확인.
+
+────────────────────────────────────────────────────────────
+변경 파일 / 커밋
+────────────────────────────────────────────────────────────
+  M  ui/grid_helpers.py                                           (2-A)
+  M  ui/js_sql_preview.py                                         (2-B)
+  M  tests/test_stage45_status_timing_combo_label_strategy_relocate.py  (2-B 대응 테스트 기대값)
+  A  scripts/dev_e2e/stage5_notice_and_strategy_chip_remove_shot.py     (2-C 검증 스크립트)
+
+커밋: 44f46e14
+  fix(ui): 5단계 불일치그룹 안내문구/전략 예상치 칩 제거
+  (STAGE5-TOP-EXECTIME-FLICKER-AND-BOTTOM-VALUE-DIAGNOSE-AND-TEXT-REMOVE)
+
+────────────────────────────────────────────────────────────
+남은 결정 필요 사항 (사용자 확인 후 별도 지시로 진행)
+────────────────────────────────────────────────────────────
+- 1-A 깜빡임: "값 변화 없는 상단 그리드 전체 재렌더" 를 부분 갱신으로 좁히는 수정 여부/방법 승인 필요.
+  (이번 작업 범위는 조사까지 — 코드 수정 안 함)
+
+작업명 : STAGE5-TOP-EXECTIME-FLICKER-AND-BOTTOM-VALUE-DIAGNOSE-AND-TEXT-REMOVE
+✅ 작업 완료 - 진단(코드무수정) 3건 결론 확정 + 텍스트 제거 2건(원지시 1건 + 사용자 추가지시 1건) 적용·검증
