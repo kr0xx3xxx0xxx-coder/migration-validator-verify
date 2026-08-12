@@ -1,0 +1,449 @@
+```text
+작업명 : PER-STAGE-EXECUTE-BUTTON-CLEAN-SINGLE-PASS-AUDIT
+⚠️ 추가 작업 필요 - 1~5단계 실행버튼 전수 점검 완료(코드 수정 없음). DB커넥션 누수 0건이나 즉시수정 5건(다중세트 실행 후 5단계 저장 항상 409 등) 확인
+
+════════════════════════════════════════════════════════════════════════════════
+0. 조사 기준·범위·방법
+════════════════════════════════════════════════════════════════════════════════
+코드 저장소 HEAD   : 72cc7dcc (조사 중 코드 변경 0건 — git status 가 조사 시작 시점과 동일)
+조사 방식          : 정적 코드분석(프론트 핸들러 ↔ 서버 route 짝지어 추적) 6갈래 병렬
+실측 상태          : **신규 실측 미수행**(운영 8000 포트는 BasicAuth ON, 자격증명 미보유).
+                     대신 저장소에 남아있는 **기존 실측 트레이스**를 근거로 사용:
+                       scripts/dev_e2e/_reaudit_result.json  (2026-07-13, 1~5단계 클릭스루
+                       82개 API 요청 전량 캡처)
+                       scripts/dev_e2e/_reaudit2_result.json (2026-07-13, 재클릭 거동)
+                     → 한 달 전 데이터이므로 "실측 관찰 → 현재 코드에서 재확인" 방식으로만 인용.
+                     아래 표의 (실측) 표기는 이 트레이스, 그 외는 전부 현재 HEAD 코드 근거.
+
+[가장 먼저 정정해야 할 전제]
+지시서는 2·4단계를 "생성 버튼 1개 + 실행 버튼 1개의 2버튼 구조"로 기술했으나, 현재 코드의
+실제 구조는 **버튼 2개가 아니라 '같은 자리 단일 버튼의 상태전이 2클릭'** 이다.
+  - 1~5단계 실행버튼의 단일 출처 = 하단 커맨드바 어댑터
+    ui/tabler_renderer.py:6935~7096  _mvSingleValidationCmdBarConfig()
+  - 본문 버튼(#runBtn/#countRunBtn/#genColBtn/#candCalcBtn/#execBtn)은 커맨드바가 뜨면
+    CSS 로 전부 숨겨진다(ui/tabler_renderer.py:493~498  body.mv-has-cmdbar #...{display:none}).
+  - 2단계 : 단일 핸들러 _mvCountStageAction(:25171) 이 1차=SQL생성(fetch 0건) / 2차=runCount()
+  - 4단계 : validationSqlGenerated 플래그로 같은 자리 버튼이 runGenerate → runExecute 로 전환
+            (:7033~7049, 주석 GATE-4-5-REVERT-TO-TWO-STEP-CONFIRM 이 "1클릭 즉시실행을
+             되돌렸다"고 명시 — 의도된 설계 확정)
+  - **3단계도 동일한 2클릭 구조다**(_mvStage3BtnLabel :6147 — 미계산이면 '▶ 후보 컬럼 추천',
+    계산 후엔 '▶ 선택 적용 후 통계검증 진행'). 지시서 항목 1c 가 "판단이 필요한 대상"이라고
+    한 바로 그 경우에 해당하며, "2·4단계 예외"에 포함되지 않는다.
+
+════════════════════════════════════════════════════════════════════════════════
+1. 단계별 종합표
+════════════════════════════════════════════════════════════════════════════════
+─────────────────────────────────────────────────────────────────────────────────
+[1단계] 쿼리검토 — 커맨드바 '▶ 검증 실행' → runAnalyze()  (ui/tabler_renderer.py:6996, 21278)
+─────────────────────────────────────────────────────────────────────────────────
+버튼구조        1버튼 1클릭 완결 (숨은 재클릭 없음, 성공해도 자동 탭이동 없음 :21634)
+항목1-a 중복    해당없음(생성/실행 분리 아님)
+항목1-b 재사용  해당없음
+항목1-c 1클릭   ○ 1클릭 완결. 단 클릭당 4요청:
+                  GET /api/validation-policy/start-gate (:21200, 매 클릭 재조회·캐시 없음)
+                  POST /analyze (:21385)
+                  POST /sample/collect (:32353) + GET /sample/{table} (:32265) ← 아래 낭비
+네트워크 중복   ▲ /sample/collect+/sample/{table} 이 1단계에서 나가는데, 이 카드(sampleCard)는
+                  pane 소속이 validation(4단계)이라 **1단계 화면에 보이지도 않는다**
+                  (:5880). 게다가 /analyze 내부가 이미 후보 샘플값을 수집한다
+                  (single_validation_analyze_service.py:1427 resolve_candidate_sample_values)
+                  → 동일 성격 원본 DB 조회의 이중 수행. collect 직후 무조건 재조회(:32363).
+                (실측) 1클릭 = start-gate·analyze·sample/collect·history/summary·sample/{t}
+DB커넥션 반납   ○ 누수 없음. single_validation_core.py:452 with request_connection_scope(10s)
+                  반납은 db_query_service.py:515~544 try/finally, scope 내부 close 는 no-op 프록시
+                ▲ scope **밖** 경로 2건(누수 아님·풀 우회): analyze_route.py:150
+                  attach_load_profiles_to_analyze (요청당 원본/목적 신규 TCP+SSL 2회),
+                  /sample/collect (db_query_service.py:731)
+워크플로 토큰   ○ 발급 정상 — analyze_route.py:185 issue_token → resp.workflow_token/
+                  workflow_generation(:187), 클라 저장 _singleApplyWorkflowToken(:15699, :21451)
+                ✗ 결함 3건: (A) CONFIGURED_EFFECTIVE_MISMATCH 409 는 :185 에서 generation 을
+                  이미 올린 뒤 :228 로 409 반환 → 클라는 옛 토큰 유지 → 다음 단계 STALE_GENERATION
+                  (B) 조기반환(:97 400, :107 409)은 직전 토큰 invalidate 안 함
+                  (C) stale 응답 폐기(:21426)시에도 서버는 이미 발급·증가 완료
+N1류 불일치     ✗ 동일 라벨 '▶ 검증 실행' 이 두 동작 — 커맨드바=runAnalyze(1단계만, :6996),
+                  본문 #runBtn=runFullValidation(1~5단계 전체 자동, :3263). 커맨드바가
+                  visible:false 가 되면(:7134→:6901 클래스 제거) 본문 버튼이 노출된다
+                ✗ 클라 전용 차단판정 잔존 — _validateSqlFormat(:15418~15508)이 CRITICAL/
+                  UNSUPPORTED 면 /analyze 를 호출조차 않고 화면에 차단 표시
+                  (MULTIPLE_STATEMENTS·RECURSIVE_CTE·NON_INSERT_DML·NOT_INSERT_SELECT)
+                ✗ '■ 중단' 버튼 무효 — /analyze fetch(:21385)에 abort signal 미배선
+                ○ 1단계 타일/그리드 값은 전부 /analyze 응답 파생, 클라 재파싱 없음
+                  (ui/grid_helpers.py:483~527, 603~608, 472~475)
+
+─────────────────────────────────────────────────────────────────────────────────
+[2단계] COUNT 사전검증 — 단일 핸들러 _mvCountStageAction (:25171) 1차 생성 / 2차 실행
+─────────────────────────────────────────────────────────────────────────────────
+버튼구조        단일버튼 2클릭(상태전이 3-state 라벨 _mvStage2BtnLabel :6132)
+                생성=▶ COUNT SQL 생성 / 실행=▶ COUNT 비교 실행 / 이후=▶ COUNT 다시 실행
+항목1-a 중복    ○ **없음**. 1차 클릭 경로(renderCountSqls·_mvPaintCountTiles·라벨동기·
+                  커맨드바 재렌더) 전체에서 **fetch 0건** — /analyze 응답의 count_sql_hint
+                  를 그대로 렌더(:25196~25209). 본문/커맨드바가 같은 핸들러 1개라 이중발사 없음
+항목1-b 재사용  ✗ **재사용 아님 — 서버가 처음부터 재생성**. 클라는 SQL 문자열을 보내지 않고
+                  #sqlInput 원문(migration_sql)+테이블+target_where 만 전송(:25377~25381).
+                  서버는 sqlglot 로 **재파싱**(single_validation_core.py:302~313) 후 COUNT SQL
+                  신규 생성(count_common_service.py:697).
+                  화면 코드에 이미 명시: ui/tabler_renderer.py:25193~25195
+                    "이 SQL이 실제 COUNT 실행에 사용되지 않는다 — runCount()는 migration_sql을
+                     서버로 전달"
+                  ▶ 표시 SQL ≠ 실행 SQL 이 되는 실조건(빌더 이중화 실재):
+                    · 표시 hint = build_count_sql_from_model + qualify_count_hint_sql
+                      (single_validation_analyze_service.py:1480~1508)
+                    · 실행     = CTE/GROUP BY/UNION 만 build_count_sql_from_model, 그 외는
+                      parse_migration_sql_for_count + _inject_qualified
+                      (count_common_service.py:806~836)
+                    · DISTINCT SQL : 화면엔 COUNT SQL 이 보이는데 실행은 UNSUPPORTED_SQL_DISTINCT
+                      ERROR (count_common_service.py:115~121)
+                    · JOIN 다수    : hint 는 from/tgt 2개만 스키마 한정, 실행은 JOIN 테이블까지
+                      한정 → 문자열 상이 (count_sql_builder.py:63~73 vs count_common_service.py:98)
+                    · 목적지 WHERE 편집 : 표시는 analyze 시점 hint 고정, 실행은 클릭 시점 DOM 값
+                  ▶ 완화 : 실행 성공 후에는 서버가 실제 실행한 SQL 로 화면을 덮어씀(:25829~25833)
+                    → 괴리 노출 구간은 '생성 후 ~ 실행 전' 뿐
+항목1-c 1클릭   해당없음(2클릭 = 의도된 설계)
+네트워크 중복   ○ 실행 클릭 요청은 presets(src,tgt) → /db/test ×2(preflight 증거 없을 때만)
+                  → /count. 중복 발사 없음
+                ▲ /db/presets/src|tgt 를 preflight 마다 무캐시 재조회(:27264~27265)
+                ▲ 죽은 라우트 : POST /count/preview 는 UI 호출처 0건(count_route.py:84)
+DB커넥션 반납   ○ /count 정상 — single_validation_core.py:241~243 request_connection_scope,
+                  원본/목적 각 1커넥션·풀 반납. 병렬시 scope 승계(count_common_service.py:645~660)
+                ○ M80 수정 반영 확인 : count_precheck_service.py:949~950 with request_connection_scope
+                ▲ **잔존 비효율** count_gate_route.py 전체에 scope 없음 — _fetch(:98~101)가
+                  매 쿼리 connect/close. /count-gate/range-diagnosis 는 측당 5쿼리×2측 =
+                  **요청 1건에 최대 10회 connect**(:104~190). one-side-preview(:192) 동일
+                ▲ /count 요청마다 sqlglot 재파싱(single_validation_core.py:305) — analyze 가
+                  이미 파싱한 SQL 을 또 파싱(오라클 CTE hang 이력 경로)
+워크플로 토큰   ○ 검증 O : count_route.py:47 validate("count", token_required=False)
+                ○ 갱신 O : count_route.py:58 record_outcome("count")  (새 토큰 재발급은 없음 —
+                  토큰은 /analyze 가 1회 발급하는 설계라 정상). 3단계 409 위험 없음
+                ▲ 역방향 위험 : 토큰 없는 세션(복원/스냅샷 진입)은 /count 는 통과(token_required
+                  =False)하나 count 상태가 기록되지 않아 4단계 /generate 가 NO_WORKFLOW_TOKEN 409
+                ✗ 표시 결함 : runCount 는 if(!resp.ok) throw '서버 오류 '+status (:25393) 뿐이라
+                  워크플로 409 가 원문 노출. runGenerate(:21413)·runExecute(:27067,:31103)에는
+                  error_contract.user_message 처리가 있는데 2단계만 누락
+N1류 불일치     ○ 판정/임계값은 서버 단일출처 — 심각도·차단은 count_gate_service 가 계산
+                  (count_route.py:64), 클라 _mvCountGateHtml(:25968~26034)은 표시만
+                ✗ 위 항목1-b 의 hint↔실행 빌더 이중화
+                ✗ 범위 이상 진단(mvRunRangeDiagnosis :26060)이 서버 실행 COUNT SQL 을 쓰지 않고
+                  클라가 parse_result 로 재조립 → JOIN·CTE 래핑·target_where 전부 누락
+                ✗ _analyzeData 가 null 이면 라벨은 '생성'인데 _mvCountStageAction 의 1차 분기가
+                  `_analyzeData &&`(:25176) 라 곧장 runCount()(실행)로 떨어짐 — 문구/동작 불일치
+
+─────────────────────────────────────────────────────────────────────────────────
+[3단계] 후보 컬럼 선정 — runRevalidateFromCandidate() (:7027, :16661)
+─────────────────────────────────────────────────────────────────────────────────
+버튼구조        ✗ **1클릭 완결 아님 — 최소 2클릭, 선택 변경 시 3클릭** (항목 1c 핵심 답)
+                  클릭1 showColSelect(:25526→:26367) : 계산 안 함, candCalcGate 안내만 노출.
+                    _candidateComputed=false 면 후보표(체크박스) DOM 자체가 없음(:26372~26377)
+                  클릭2 candCalcBtn : 여기서 비로소 POST /validation-sets/preview → 후보표 렌더
+                  클릭3 (숨은 재클릭 요구) 체크박스를 하나라도 바꾸면 checkLimit()가 완료
+                    플래그를 무효화 → 재클릭 없이는 4단계 이동 불가
+                    ui/tabler_renderer.py:24746  _analyzeData._candidateComputed = false
+                    주석 :24741~24745 "…'▶ 선택 적용 후 다시 검증'을 눌러야 재허용된다"
+                  ※ 배경 : STAGE3-EXPLICIT-TRIGGER-BUTTON(탭 전환만으로 대용량 프로파일링이
+                    시작되던 우회 경로 차단, :5940~5947)의 결과 — 되돌리려면 그 방어를 별도 유지 필요
+                ▲ 비대칭 : 탭 nav 는 잠기는데 본문 #genColBtn 은 항상 활성(:25126~25133)
+항목1-a/b       해당없음(생성/실행 분리 없음)
+네트워크 중복   ✗ **/csr-preview 가 1클릭에 2회 발사**(실측 재확인). _showCandidateTable() 이
+                  두 번 실행됨: ① validation_plan_renderer.py:958 _rerenderCandidateTable...
+                  내부, ② tabler_renderer.py:16782. _csrPreviewCache(:26418)는 **응답 수신
+                  시점**에야 채워지므로 ①의 응답 전 ②가 실행 → 캐시 miss → 동일 payload 2회 POST.
+                  오라클 접속 시 /csr-preview 는 실제 메타 조회 수행(csr_preview_route.py:141~143)
+                  (실측 A3/B3 : /validation-sets/preview 1 + /csr-preview 2)
+                ▲ 후보표 전체 렌더(renderColSelect/renderUnifiedColTable/renderValidationPlan
+                  Preview/refreshFinalSelectionState)도 각 2회, scrollIntoView 2회(:26303)
+                ▲ 캐시 미사용 : candidate_recompute_cache 스냅샷은 /analyze 가 저장하고
+                  admin_column_override_route.py:148 만 소비 — /validation-sets/preview 는
+                  조회하지 않아 3↔4단계 왕복마다 전체 재확정
+                ▲ 죽은 코드 : _refreshVspOnCheckChange(validation_plan_renderer.py:970) 호출처 0건
+DB커넥션 반납   ○ 반납 누락 없음(확인한 connect 전부 try/finally close)
+                ✗ **scope 미적용 — 1클릭당 최대 8개 신규 물리 연결**.
+                  /validation-sets/preview 라우트에 request_connection_scope 없음 →
+                  db_query_service.py:579~581 `cache is None` 경로로 **풀조차 우회**하고 매번
+                  신규 TLS 핸드셰이크.
+                  ① column_profile_service.py:580 (bounded sample)
+                  ② column_profile_service.py:214 (sample values)
+                  ③ db_statistics_service.py:191 (date catalog stats)
+                  ④ candidate_postcount_finalize.py:308 (날짜 L2 MIN/MAX)
+                  ⑤⑥ 동 :308 (날짜 L4 EXACT, 컬럼당 1회 ×2)
+                  ⑦ column_profile_service.py:580 (lastresort SUM distinct)
+                  ⑧ column_profile_service.py:759 (pair distinct)
+                  → Neon 등 원격 PG 에서 3단계 체감지연의 상당 부분
+워크플로 토큰   ▲ **3단계 실제 엔드포인트가 토큰 체계 밖** — /validation-sets/preview 는
+                  ROUTE_STAGE 에 없고 라우트에 validate/record_outcome 호출 0건. UI 도 토큰을
+                  싣지 않는다. candidate 단계를 SUCCESS 로 만드는 것은 4단계 /generate 다
+                  (generate_route.py:26, :43)
+                ○ 갱신 누락으로 인한 다음 단계 409 위험은 **없음**(문맥을 건드리지 않음)
+                ✗ 게이트 공백 : 토큰·선행단계 검증 없이 클라가 보낸 src_conn 으로 실제 DB
+                  프로파일링(bounded sample / MIN·MAX / COUNT DISTINCT) 수행. /analyze·/count
+                  를 거치지 않은 직접 호출도 그대로 실행됨
+N1류 불일치     ✗ 체크박스 초기값을 클라가 **한글 warn_reason 문자열 매칭**으로 재계산
+                  (:23179~23182  _wr.indexOf('PK')/'식별자'/'순번') — 서버 문구가 바뀌면 조용히 무력화
+                ✗ 클라 cap 이 서버 추천을 잘라냄(_initCheckedCapped :23191~23195), 표시 카운트는
+                  Math.min(3,...) 하드코딩(:23252~23253)
+                ✗ 4단계에서 서버가 선택을 재정규화(generate_route.py:29~34 normalize_selection)
+                  → 화면에 3개 체크돼 있어도 실제 실행은 2개일 수 있음
+                ✗ '■ 중단' 무효 — runRevalidateFromCandidate 가 _singleNewAbortSignal 을 발급
+                  하지만(:16681) /validation-sets/preview fetch 에 signal 미전달
+                  (validation_plan_renderer.py:929~945). 커맨드바는 abortable:true 로 노출(:7027)
+                ○ 후보 배지/verdict 는 서버 부착값만 읽고 JS 재판정 없음(:24413, :24492, :24525)
+                ○ 계산 전 점수는 '1차 추정치' 배너로 정직하게 고지(:26260~26264)
+
+─────────────────────────────────────────────────────────────────────────────────
+[4단계] 통계검증 SQL 생성 + 실행 — runGenerate(:26927) / runExecute(:30846)
+─────────────────────────────────────────────────────────────────────────────────
+버튼구조        단일버튼 2클릭(validationSqlGenerated 로 전환, :7033~7049)
+                + 별도 보조 버튼 #execBtnAsync '⏱ 백그라운드로 실행'(:3042, runExecuteAsync)
+항목1-a 중복    ○ **없음**. /generate 는 클릭당 정확히 1회(:27035). 후속 갱신 함수에 fetch 없음
+                ▲ 부수 호출 : /groupby-plan 이 생성 시 1회(:27376 조합 preflight) + 실행 시
+                  1회(:27420 세트계획) = 2회. **DB 미접속 계산 전용 라우트**라 비용 낮음(의도된 설계)
+항목1-b 재사용  경로별로 갈림 —
+                ○ 단일세트 동기 /execute      : 클라가 #srcBox/#tgtBox 의 textContent 를
+                  그대로 src_sql/tgt_sql 로 전송(:30965~30966, :31082), 서버는 req.src_sql 그대로
+                  실행(stats_execute_service.py:400) → **표시 SQL == 실행 SQL**
+                ○ 단일세트 비동기 /execute/async : 동일(:31746, :31763)
+                ✗ **다중세트(GROUP BY 2축 이상)** : :31014 에서 _runExecutePlanSets 로 분기 →
+                  /groupby-plan 후 **세트마다 /generate 재호출**(:27492) 하여 재생성한 SQL 을
+                  실행(:27530). 즉 화면의 결합 SQL(GROUP BY A, B)은 **한 번도 실행되지 않는다**
+                ✗ 다중세트 비동기 : 클라 SQL 미전송, 서버가 세트마다 /generate 재호출
+                  (multiset_execute_service.py:305)
+                ✗ /execute/set(검증세트 ▶실행, validation_plan_renderer.py:486) : 클라 SQL
+                  미전송, 서버가 파라미터로 재빌드(execute_set_route.py:36)
+                ✗ **이중 builder 잔존** — 표시용 build_stats_sql_pair(stats_sql_builder.py:357
+                  → validation_sql/*_stats_sql_builder.py) vs 실행용 build_stats_sql(:29 →
+                  generator/sql_generator.py). 4단계 메인 경로는 표시 builder 산출물을 그대로
+                  실행해 안전하나, /execute/set·batch_runner 는 실행 builder 로 재빌드
+                ✗ **회귀** : 2026-07-28 STATS-EXECUTE-STEP4-GENERATED-SQL-LABEL-ACCURACY-FIX 가
+                  넣었던 "이 SQL 은 참고용, 실제로는 축별 분해 실행" 안내박스가 이후
+                  STAGE4-5-STRATEGY-TIMING-AND-TEXT-CLEANUP-FIX 로 **삭제됨**
+                  (ui/js_sql_preview.py:80~89). 현재 이 사실을 알리는 표시는 조합 체크박스
+                  라벨 한 줄뿐이고 SQL 박스 자체에는 표기 없음
+항목1-c 1클릭   해당없음(2클릭 = 의도된 설계, 코드 주석 GATE-4-5-REVERT-TO-TWO-STEP-CONFIRM 확인)
+네트워크 중복   ○ 중복 발사 없음. (실측 A4) 1클릭 실행이 유발한 요청 24건은 전부 서로 다른
+                  목적(strategy/plan, stats-result/page, diagnosis/scope-actions, agg-diff/
+                  prepare, diagnosis/analyze 등) — 5단계 결과까지 이어서 채움
+                ▲ /db/presets/src|tgt 재조회(preflight 공통)
+DB커넥션 반납   ○ **누수 경로 없음**. single_validation_core.py:420~421 request_connection_scope,
+                  실 SELECT 는 db_query_service.py:756 → finally ROLLBACK+close(:855~866),
+                  보조조회 :717→finally close(:747~750). /execute/set 도 동일 scope 경유
+                  (execute_set_route.py:151). in-flight 표식도 finally 해제 + TTL fail-open
+워크플로 토큰   ○ /generate      validate("candidate") generate_route.py:26 / record_outcome :43
+                ○ /execute       validate("execute") execute_route.py:79 / record_outcome :322
+                ○ /execute/async·/multiset/async  validate :132, :208
+                ✗ **/execute/set 은 validate·record_outcome 둘 다 없음**(execute_set_route.py:
+                  63~83, begin_execution 만) → 토큰 검증 우회 + 이 경로로만 실행하면 execute
+                  단계가 영원히 PENDING 이라 5단계 저장 불가
+                ✗ **[치명] 다중세트 비동기 실행 후 execute 단계가 PENDING 으로 되돌아감**
+                  services/multiset_execute_service.py:353~361 이 **모든 세트 실행이 끝난 뒤**
+                  guard.record_outcome("candidate", req, {"success": True}) 를 호출하는데,
+                  finish_stage 는 후속 단계를 전부 PENDING 으로 초기화한다
+                  (services/workflow_stage_gate.py:181~183  for d_id in downstream(...): ns[d_id]=PENDING)
+                  → 직전에 세트 실행이 남긴 execute=SUCCESS 가 지워짐
+N1류 불일치     ✗ 위 항목1-b 의 다중세트 표시 SQL 미실행(+안내 삭제 회귀)
+                ✗ **클라 하드코딩 임계/판정 잔존** — ui/tabler_renderer.py:30095
+                    var _statsAdvisoryOnly = (_sid==='STATS_SAMPLE_ONLY' ||
+                                              _sid==='STATS_BUCKET_AGG' || _sid==='STATS_PARTITION_AGG');
+                  "이 전략은 참고용, 실제 실행은 항상 EXACT 전체스캔" 판정을 **클라가 전략 ID
+                  3개를 하드코딩해서** 내린다. 서버 /strategy/plan 응답에 advisory_only 필드 없음.
+                  라벨 문자열도 클라 하드코딩(:29970~29972). M81 이 execution_strategy_policy
+                  단일출처로 정리한 패턴이 **4단계 통계전략 축에는 미적용**
+                ✗ 표시 전략과 실행의 연결 자체가 없음 — 4단계 전략 줄(js_sql_preview.py:362)이
+                  보여주는 전략은 /generate SQL 빌더도 /execute 도 입력으로 받지 않는다
+                  (순수 조언). STATS_DIRECT_AGG 에는 그 고지 배지도 안 붙음(:30093)
+                ○ 조합/세트 구성·제외사유는 서버 /groupby-plan 응답만 읽고 클라 재계산 없음
+                  (js_sql_preview.py:251~279) — 이 축은 단일출처 유지
+                ▲ _mvAnyRunActive(:29305~29327)가 스피너 DOM 휴리스틱만 보고
+                  window._singleAsyncExecJobId 를 보지 않음 → 백그라운드 job 중 동기 실행이
+                  클라에서 안 막히고 서버 S16 409 에 의존(반대 방향은 구현됨 — 비대칭)
+                ▲ /groupby-plan 2곳(:27376, :27420)에 abort signal 미배선
+
+─────────────────────────────────────────────────────────────────────────────────
+[5단계] 결과 확인 — 커맨드바 주 액션은 '그룹 등록' 1개뿐(:7074~7078)
+─────────────────────────────────────────────────────────────────────────────────
+버튼구조        커맨드바 실행 액션 = 그룹 등록(runSingleFinalSave :32086 → POST /single/save)
+                본문 실행성 액션 14종(그룹 행 클릭=드릴다운 :28098→:28212, 전체 그룹 한번에
+                추출 :28085→:28244, 조회/초기화, Excel, 불일치행 클릭 전수검증 :17181,
+                중단/일시중지/이어서 실행/복구 후 계속, ↻ 지금 다시 조회 :30472)
+항목1-a/b       해당없음
+항목1-c 1클릭   ○ **드릴다운은 1클릭 완결** — 클릭 1회로 prepare → pk-records 자동 연결
+                  (:28318 → :28846). 2·4단계식 생성→실행 2클릭 **없음**
+                ▲ 추가 클릭이 필요한 예외 3건은 전부 복구/재실행 성격이라 정당 :
+                  INTERRUPTED_RESUMABLE→'이어서 실행'(:28872, 무인 자동재개 금지),
+                  recovery_required→'복구 후 계속'(:29454)
+                ▲ '↻ 지금 다시 조회'(:30472)는 5단계 버튼인데 confirm 후 **4단계 전체 재실행**
+                  (:30505 _mvExecRestartFromStart) — 라벨 대비 실제 비용이 큼
+                (실측 A5) 5단계 진입 자체는 요청 0건 — 4단계 실행이 5단계 처리시간까지 채움
+네트워크 중복   ✗ **탭 이탈해도 폴링이 멈추지 않음** — showSingleStep(:6476~6494)이 pane 만
+                  숨기고 _mvRiStopPolling() 을 부르지 않는다. #mvRiWrap 이 DOM 에 남아 있어
+                  5단계를 떠나 4·3단계로 가도 /agg-diff/pk-records 1초 폴링(:28976,
+                  _mvPollMs 기본 1000ms)이 계속된다. visibilitychange/pagehide 핸들러 없음
+                ▲ /stage5/groups/detail-status 남발 — 그룹 1회 클릭에 최소 2~3회 POST
+                  (:28226 EXTRACTING → :28861~28863 prepare 결과 → :29003 폴링 종료).
+                  '전체 그룹 한번에 추출'은 그룹 수 N 만큼 한꺼번에 발사(:28250~28252)
+                ▲ _mvStage5RenderGroupList(:27830)의 /stage5/groups 응답에 runId 재확인 가드
+                  없음 → 빠른 전환 시 이전 run 목록이 그려질 수 있음
+                ○ prepare 중복은 st.promise 공유 + scope/planFp 캐시로 방지(:17579~17629)
+                (실측) /single/active-run 과 /agg-diff/resumable 이 쌍으로 반복 관측 —
+                  _mvExecReenterRestore(:29386)가 4단계 재진입/재렌더마다 호출(:5989, :29242, :29482)
+DB커넥션 반납   ○ **M80 패턴 위반 0건**(지시서 항목3 전수 확인 결과)
+                  agg_diff_route.py : 실 connect 정확히 2곳, 둘 다 scn=tcn=None→try 안 connect→
+                    finally None체크 close (:336/:338/:405~411, :455/:462/:500~504)
+                  exact_diff_route.py : 직접 connect 0건(conn dict 위임만)
+                  stage5_group_route.py / single_save_route.py / single_result_view_route.py /
+                  stats_result_route.py / single_run_route.py : connect 0건
+                ▲ services/stage5_group_store.py 는 호출마다 ensure_schema(:98~129, 자체
+                  connect+CREATE TABLE+close) 후 다시 _connect → **호출당 connect 2회**.
+                  save_groups:186 / list_groups:232 / update_detail:274 / delete_run:298 전부.
+                  M81-A 가 ExactDiffRunStore 에 고친 것과 **동일 패턴이 그대로 남아 있음**
+                  (누수는 아님 — try/finally close 완비)
+워크플로 토큰   ○ /single/save 정상 — validate("result") single_save_route.py:47 /
+                  record_outcome("result") :161, 서버 idempotency 방어 :133
+                ✗ **/agg-diff/* , /exact-diff/* , /stage5/* 는 토큰 체계 완전히 밖**
+                  (ROUTE_STAGE 에 없고 라우트에 guard 호출 0건). COUNT 게이트 차단도
+                  **클라이언트 전용**(_mvGateBlocked :26040 을 :17200/:17380/:17535/:18650
+                  에서만 검사) — 서버측 검사 없음. 이 두 엔드포인트는 클라가 보낸 src_conn/
+                  tgt_conn 으로 접속해 scope pushdown SQL 을 실행(agg_diff_route.py:1308~1320)
+                  → 단계 게이트 없이 임의 대량 스캔 유발 가능(완화: 전체가 BasicAuth 뒤)
+N1류 불일치     ✗ **[중대] 5단계 그룹 목록이 200건 절단본에서 생성** — 서버는 /execute 응답
+                  rows 를 MAX_DISPLAY_ROWS=200 으로 자르는데(stats_execute_service.py:34,
+                  661~663) 5단계 그룹 목록은 그 **잘린 r.rows** 로 만들어진다
+                  (_mvStage5CollectGroups :27735~27773 → 저장 :27788). 반면 타일 '불일치그룹'
+                  은 서버 카운터 diff+src_only+tgt_only(grid_helpers.py:1266).
+                  → 불일치 그룹이 200 개를 넘으면 목록은 최대 200 개만 표시·저장되고 나머지는
+                    **드릴다운 진입점 자체가 사라진다**. 화면엔 '불일치 그룹 N개'(:28078)로
+                    확정 문구만 나오고 **절단 고지가 없다**
+                ✗ 처리시간이 두 종류로 공존 — 타일 2행은 클라 벽시계 tPrep+tFetch+tRender
+                  (:18399 → grid_helpers.py:1241~1249, 1312, 캐시 히트면 ~0ms), [고정] 카드
+                  '5단계 불일치 그룹추출' 은 서버 실측 detail_elapsed_ms(:28655→:28744→:27990).
+                  추가로 _mvStage5ProcInfo(grid_helpers.py:1195~1235)는 '그룹생성 시간'을
+                  클라에서 역산하고 음수면 0 으로 뭉갬(:1212~1222)
+                ▲ P1/P3(그룹당 표시) 판정은 클라 _mvPerGroupDecide(:17860~17866)가 수행.
+                  서버에 동일 판정 함수 decide_per_group_display(per_group_display_policy.py:
+                  136~168)가 **호출처 0 인 채 존재** → 잠재 이중출처
+                ▲ D1~D4 는 서버 단일출처(agg_diff_route.py:1689~1692, 1739~1743)이나 클라
+                  소비처가 배너 제거로 사실상 0
+                ○ **M81 수정은 정상 반영 확인** — useStream 이 서버 detail_stream_min_rows 를
+                  읽고(:17683~17691), 모순경고는 plan_strategy_id ↔ actual_strategy_id 축으로
+                  교정됨(:28625~28639). 단 chunk_size:50000 은 여전히 클라 하드코딩(:17715)
+
+════════════════════════════════════════════════════════════════════════════════
+2. 심각도 분류
+════════════════════════════════════════════════════════════════════════════════
+■ 즉시 수정 필요 (5건)
+  I-1  다중세트 비동기 실행 후 5단계 '그룹 등록/확정 저장'이 **항상 409**
+       services/multiset_execute_service.py:353~361 (record_outcome("candidate") 가 세트 실행
+       종료 뒤 호출) + services/workflow_stage_gate.py:181~183 (finish_stage 가 후속 단계
+       PENDING 초기화) → execute=SUCCESS 가 지워짐
+       재현 : GROUP BY 2개 이상 선택 → [⏱ 백그라운드로 실행] → 결과 확인 → 저장 → 409
+              STAGE_PREREQUISITE_NOT_MET. **전 세트 성공이어도 발생**(any_generate_ok=True 면 무조건)
+       피해 : 클라가 tabler_renderer.py:32178 에서 토큰을 null 로 지워 SQL 분석부터 전부 재실행
+       실측(조사 중 순수함수 프로브) :
+         after execute : execute=SUCCESS, result=PENDING  → save allowed = True
+         after healing : execute=PENDING,  result=PENDING  → save allowed = False (STAGE_PREREQUISITE_NOT_MET)
+  I-2  /execute/set 에 validate·record_outcome 둘 다 없음 — routes/execute_set_route.py:63~83
+       → 토큰 검증 우회(무효 토큰으로도 실 DB 통계 SELECT 실행) + 이 경로로만 실행하면
+         execute 단계가 영원히 PENDING 이라 5단계 저장 불가
+  I-3  5단계 그룹 목록이 MAX_DISPLAY_ROWS=200 절단본에서 생성돼, 불일치 그룹 200 초과분은
+       드릴다운 진입점이 소실되는데 **절단 고지가 없음**
+       services/stats_execute_service.py:34, 661~663 ↔ ui/tabler_renderer.py:27735~27773, 28078
+  I-4  5단계 이탈 후에도 /agg-diff/pk-records 1초 폴링이 무한 지속
+       ui/tabler_renderer.py:6476~6494 (showSingleStep 이 _mvRiStopPolling 미호출),
+       폴링 :28976 / _mvPollMs 1000ms. visibilitychange·pagehide 핸들러 없음
+  I-5  GB 2축 이상에서 화면 결합 SQL 이 한 번도 실행되지 않는데 그 사실을 알리는 안내가 삭제됨
+       (회귀) — ui/js_sql_preview.py:80~89 (2026-07-28 추가분이 이후 cleanup 작업으로 제거),
+       분해 실행 분기 ui/tabler_renderer.py:31014
+
+■ 낮은 우선순위 (14건)
+  L-1  3단계 /validation-sets/preview 에 request_connection_scope 없음 → 1클릭당 최대 8개
+       신규 물리 연결(풀 우회). 반납은 정상. routes/validation_set_preview_route.py 전체
+  L-2  count_gate_route.py 전체 scope 없음 → /count-gate/range-diagnosis 1요청에 최대 10회 connect (:98~101, :104~190)
+  L-3  /csr-preview 1클릭 2회 중복 POST — 캐시가 응답 수신 후에야 채워짐 (ui/tabler_renderer.py:26418, 16782, validation_plan_renderer.py:958)
+  L-4  1·3단계 '■ 중단' 이 무효 UI — /analyze(:21385)·/validation-sets/preview
+       (validation_plan_renderer.py:929~945)에 abort signal 미배선인데 커맨드바는 abortable:true
+  L-5  1단계 락 강제해제 20초(runAnalyze 에 lockMaxMs 미지정, :6806~6816) → 20초 초과 시
+       연타로 /analyze 2건 동시 실행 가능(첫 요청 취소 수단 없음)
+  L-6  2단계 표시 COUNT SQL ≠ 실행 SQL (DISTINCT / JOIN 스키마한정 / tgtWhere 편집) — 상세 위 표
+  L-7  2단계만 워크플로 409 의 user_message 미처리 → '오류: 서버 오류 409' 원문 노출 (:25393)
+  L-8  services/stage5_group_store.py 호출당 connect 2회(ensure_schema + _connect) — :98~129, 186/232/274/298
+  L-9  1단계 /sample/collect + /sample/{table} — 4단계 카드용 샘플을 1단계에서 원본 DB 조회,
+       /analyze 내부 샘플수집과 이중 (:32353, :32265, :32363 / analyze 측 :1427)
+  L-10 /db/presets/src|tgt 를 preflight 마다 무캐시 재조회 (:27264~27265 외 12곳)
+  L-11 _mvAnyRunActive 가 백그라운드 job(_singleAsyncExecJobId)을 모름 — 가드 비대칭 (:29305~29327)
+  L-12 1단계 CONFIGURED_EFFECTIVE_MISMATCH 409 가 토큰 발급 후 반환 → STALE_GENERATION 유발
+       (routes/analyze_route.py:185 ↔ :228~229, 클라 :21412~21418)
+  L-13 4단계 _statsAdvisoryOnly 클라 하드코딩(:30095) / 전략 라벨 하드코딩(:29970~29972) —
+       서버 단일출처 부재
+  L-14 5단계 처리시간 2종 공존(클라 벽시계 ↔ 서버 detail_elapsed_ms), P1/P3 판정 클라 재구현
+       + 서버 decide_per_group_display 호출처 0
+
+■ 정상 · 문제 없음
+  N-1  **DB 커넥션 누수 0건** — 1~5단계 개별검증 경로 전 구간에서 try/finally 또는 with
+       request_connection_scope 미보장 경로 발견 안 됨. M80 이 세운 패턴(scn=tcn=None→try 안
+       connect→finally None체크 close)이 agg_diff_route.py 전체에서 준수되고 있으며,
+       exact_diff_route / stage5_group_route / single_save_route 는 직접 connect 자체가 없음
+  N-2  2·4단계 '생성' 클릭에서 서버 중복요청 없음 — 2단계는 **fetch 0건**(analyze 응답의
+       count_sql_hint 재사용), 4단계 /generate 는 정확히 1회
+  N-3  단일세트(GB 0~1) 4단계 실행은 화면에 표시된 SQL 문자열을 그대로 전송·실행 → 표시=실행
+  N-4  5단계 그룹 드릴다운은 1클릭 완결(prepare→pk-records 자동 연결), prepare 중복은
+       promise 공유로 방지
+  N-5  COUNT 게이트 판정·차단은 서버 단일출처(클라는 표시만), 조합/세트 구성 판정도 서버 단일출처
+  N-6  M81(화면표시-실행전략 불일치) 수정은 5단계에서 정상 동작 확인 — useStream 이 서버
+       detail_stream_min_rows 를 읽고 모순경고가 plan↔actual 축으로 교정됨
+  N-7  1단계 쿼리검토 타일/그리드 표시값은 전부 /analyze 응답 파생(클라 재파싱 없음)
+
+════════════════════════════════════════════════════════════════════════════════
+3. 지시서 항목별 직답 요약
+════════════════════════════════════════════════════════════════════════════════
+1-a 생성 클릭 중복요청       2단계 없음(fetch 0건) / 4단계 없음(1회) → **정상**
+1-b 실행이 생성 SQL 재사용?  2단계 ✗ 서버 재파싱·재생성(빌더 이중화 실재, 표시≠실행 조건 4가지)
+                             4단계 ○ 단일세트는 DOM SQL 그대로 실행 / ✗ 다중세트·/execute/set 은 재생성
+1-c 1·3·5단계 1클릭 완결?    1단계 ○ / **3단계 ✗ 최소 2클릭, 선택 변경 시 3클릭** / 5단계 ○(드릴다운)
+2   네트워크 중복             /csr-preview 2회, /stage5/groups/detail-status 2~3회,
+                             5단계 이탈 후 폴링 무한 지속, presets·sample 재조회
+3   DB커넥션 반납             **누수 0건**. 다만 scope 미적용 구간(3단계 8연결, count-gate 10연결)과
+                             stage5_group_store 이중 connect 는 낭비로 잔존
+4   토큰 갱신 누락 위험       **실재** — I-1(다중세트 후 execute 되돌림, 저장 항상 409),
+                             I-2(/execute/set 미배선), L-12(analyze 409 시 미전달).
+                             ROUTE_STAGE(workflow_stage_guard.py:48~54)는 **소비처 0곳**이라
+                             route↔stage 배선의 단일 출처가 아니며 드리프트를 탐지하지 못함
+5   N1류 불일치 타 단계 존재  **다수 존재** — 4단계 다중세트 표시 SQL 미실행(안내 삭제 회귀),
+                             4단계 _statsAdvisoryOnly 클라 하드코딩, 2단계 hint↔실행 빌더 이중화,
+                             5단계 그룹목록 200건 절단, 처리시간 2종, 1단계 동일 라벨 2동작
+
+════════════════════════════════════════════════════════════════════════════════
+4. 테스트 커버리지 공백(참고)
+════════════════════════════════════════════════════════════════════════════════
+- tests/test_multiset_execute_async_job.py 의 test_a8 은 **candidate 축만** 단언(파일 330~332)
+  → I-1 이 그대로 통과. validate("result") 시나리오 미검증
+- /execute/set 의 stage 검증 부재를 계약으로 못박은 테스트 없음(의도인지 결함인지 불명)
+- /agg-diff/* 등 5단계 우회 route 의 가드 부재 검증 없음
+- ROUTE_STAGE 와 실제 route 배선 일치 검사 테스트 없음(소비처 0 이라 드리프트 탐지 불가)
+- tests/conftest.py:55~71 이 가드를 **기본 OFF** 로 두고 nodeid 에 workflow_stage_guard 가
+  있거나 @pytest.mark.stage_guard_enforce 가 붙은 테스트만 ON → 대다수 route 테스트는
+  가드를 통과시키지 않은 채 실행됨
+
+════════════════════════════════════════════════════════════════════════════════
+5. 수정 내역
+════════════════════════════════════════════════════════════════════════════════
+**코드 변경 0건** (조사 전용 지시). git status 가 조사 시작 시점과 동일함을 확인했다.
+발견 항목의 수정 여부·순서는 별도 지시를 받아 진행한다.
+권고 순서 : I-1 → I-2 → I-3 → I-4 → I-5 → L-1 → L-3 → L-4
+(I-1·I-2 는 사용자가 결과를 저장하지 못하는 기능 차단 결함이라 최우선)
+
+════════════════════════════════════════════════════════════════════════════════
+6. 근거 요약
+════════════════════════════════════════════════════════════════════════════════
+코드 저장소 HEAD        72cc7dcc (조사 중 변경 0건)
+실행버튼 단일 출처      ui/tabler_renderer.py:6935~7096 _mvSingleValidationCmdBarConfig
+2단계 게이트 핸들러     ui/tabler_renderer.py:25171 _mvCountStageAction (1차 생성 / 2차 실행)
+3단계 2클릭 근거        ui/tabler_renderer.py:6147 _mvStage3BtnLabel, :24746 checkLimit 무효화
+4단계 2클릭 근거        ui/tabler_renderer.py:7033~7049 (GATE-4-5-REVERT-TO-TWO-STEP-CONFIRM)
+치명 결함 I-1           services/multiset_execute_service.py:353~361
+                        + services/workflow_stage_gate.py:181~183
+치명 결함 I-2           routes/execute_set_route.py:63~83
+기존 실측 트레이스      scripts/dev_e2e/_reaudit_result.json (2026-07-13, 82 requests)
+                        scripts/dev_e2e/_reaudit2_result.json (2026-07-13)
+신규 실측               미수행(운영 8000 BasicAuth 자격증명 미보유) — 코드 근거 중심
+verify 저장소 push      migration-validator-verify, main
+
+작업명 : PER-STAGE-EXECUTE-BUTTON-CLEAN-SINGLE-PASS-AUDIT
+⚠️ 추가 작업 필요 - 1~5단계 실행버튼 전수 점검 완료(코드 수정 없음). DB커넥션 누수 0건이나 즉시수정 5건(다중세트 실행 후 5단계 저장 항상 409 등) 확인
+```
