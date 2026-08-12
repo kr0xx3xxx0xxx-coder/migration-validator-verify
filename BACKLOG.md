@@ -5975,7 +5975,7 @@ git -C E:/verify_reports worktree remove <임시경로>
   불일치(무관 파일), 신규 회귀 0건.
 - 근거: E:\verify_reports\M80-DB-CONNECTION-LEAK-AND-SCOPE-BYPASS-FIX.txt
 
-### M81. 5단계 데이터추출 — 화면표시(DIRECT_STREAM_COMPARE) vs 실제실행(PK_RANGE_CHUNK) 조용한 불일치(최대영향, 모순경고 장치도 미발동), 그 외 전략표시 stale 2건 + 속도요소 8건 신규발견(ExactDiffRunStore 커넥션 미재사용이 최대)
+### M81. ✅ N1/N2/N3/속도A 해결 완료 — 화면-실행 전략판정 단일출처화(2단계 구조 재설계)로 근본수정, 모순경고 안전망 복구, ExactDiffRunStore 커넥션재사용(-79~95%), 속도B/D/H는 설계결정 필요해 의도적 보류
 - 발견/계기: 2026-08-12 (DATA-EXTRACTION-SPEED-AND-STRATEGY-CONFORMANCE-CHECK,
   코드 무변경, opus 병렬 조사에이전트 2개+본세션 재대조)
 - **★ N1[최대영향] 화면-실행 전략 불일치**: 계획 카드는 `choose_compare_
@@ -6013,3 +6013,42 @@ git -C E:/verify_reports worktree remove <임시경로>
   ④N2/N3 표시문구 stale 정정(저비용·즉시가능) ⑤E/F N+1·풀우회(중간비용)
   ⑥⑦(정렬비용/해시버킷)은 구조적 한계로 "손댈 필요 없음" 범주.
 - 근거: E:\verify_reports\DATA-EXTRACTION-SPEED-AND-STRATEGY-CONFORMANCE-CHECK.txt
+- **✅ N1/N2/N3/속도A 해결 완료(2026-08-12, M81-STRATEGY-DISPLAY-EXECUTION-
+  MISMATCH-AND-SPEED-FIX, 코드 커밋 72cc7dcc, 로컬만·미push)**:
+  - **N1 근본수정(전/후 실제 브라우저·API, 200,000행 숫자PK)**: 수정 전
+    화면=DIRECT_STREAM_COMPARE·실제요청=PK_RANGE_CHUNK_COMPARE(불일치, 경고
+    없음) → 수정 후 둘 다 CHUNK로 일치. **판단력**: "실행을 표시에 맞추는"
+    대안은 기각(유일 벤치 지점에서 CHUNK가 DIRECT보다 2.3배 빠름 —
+    표시일치를 위해 성능 2배 희생하는 셈이라 배제), "표시를 실행에 맞추는"
+    방향 채택(실행 동작 무변경). **1차 구현이 자체 회귀대조에서 결함 2건
+    (신뢰도 HIGH→MEDIUM 강등, "단순 rowcount 결정 금지" 설계원칙 위반)을
+    검출하자 구조 자체를 재설계** — 전환정책 판정(순수)과 상세추출 실행규칙
+    적용을 명확히 분리된 2단계로 재구성. **모순경고 근본원인**: "우연히
+    값이 같아 경고가 안 뜬 것"이 아니라 명시요청 경로에서 selected==actual이
+    항상 같은 변수라 비교축 자체가 소실돼 있었음 — plan_strategy_id라는
+    별도 축을 신설해 비교 부활. **부수 선제수정**: 계획카드와 실행경로가
+    같은 함수를 다른 인자(정책 override)로 호출 중이던 것도 통일(정책 설정
+    시 재이원화 방지).
+  - **N2 완료**: 오라클 HASH_BUCKET 안내문구를 실제 상태(SUPPORTED)에 맞게
+    정정, 단일DBMS능력과 페어조건(동일방언 필요)을 문구에서 명확히 구분.
+  - **N3 완료(단, 실사용 영향 0으로 정정)**: 권고코드 표기에 '(권고)' 접미
+    추가 — 단 대상함수(`_mvStratShort`)가 **호출부 0곳인 dead code**임을
+    발견, BACKLOG의 "오독 위험이 현재 화면에 존재" 서술은 과대평가였음을
+    정직하게 기록. 향후 배선 대비 코드는 지시대로 수정.
+  - **속도A 완료(실측, n=200 중앙값)**: `ExactDiffRunStore` 커넥션 재사용 —
+    `count_records` -79.2%·`get_run` -94.9%·`page_records` -70.0%·
+    `append_records` -37.4%(INSERT 자체 비용 잔존이라 상대적으로 작음).
+    레거시 재현 클래스로 진짜 대조군 확보, 동시성(4스레드×30회) 예외 0건.
+  - **속도B/D/H 의도적 보류**: 지시서의 "N1/A 품질 우선" 원칙을 그대로 따름.
+    특히 D(정책캐싱)는 무효화 정책(즉시반영 vs TTL) 설계결정이 먼저 필요해
+    근거없이 넣으면 새 결함 위험 — 별도 작업 권장, BACKLOG 항목 유지 권고.
+    (부수로 정책조회 2회→1회 중복제거는 됨)
+  - **회귀**: 수정 심볼 참조 파일 전수(33개, 임의 서브셋 아님) baseline
+    대조 — 수정본/baseline 둘 다 8 failed·389 passed(실패목록 완전 동일,
+    신규회귀 0건). 이 전수대조 방식 자체가 1차 구현의 결함 2건을 실제로
+    검출한 방법. 전체 스위트는 타세션 미커밋 픽스처 누락으로 collection
+    실패해 미수행, 심볼기준 전수대조로 대체(사유 명시).
+  - **동시세션 안전**: M80이 같은 파일(`agg_diff_route.py`) 편집 중이었으나
+    M80이 먼저 커밋 완료해 충돌 없이 순차 진행, 파괴적 git 명령 미사용,
+    타 세션 미커밋 파일 보존 확인.
+  - 근거: E:\verify_reports\M81-STRATEGY-DISPLAY-EXECUTION-MISMATCH-AND-SPEED-FIX.txt
