@@ -1,0 +1,137 @@
+```text
+작업명 : MATCHED-GROUPS-VISIBILITY-AND-EXCEL-EXPORT-CHECK
+✅ 작업 완료 - 일치 그룹 조회 가능(토글 실측 확인)·Excel 추출은 이미 있으나 불일치 전용(일치 미포함) 확인
+
+────────────────────────────────────────────────────────────
+1. 일치 그룹 조회 가능 여부
+────────────────────────────────────────────────────────────
+
+(1) 코드 확인
+  파일: services/stats_result_store.py:28-51 (save_result)
+    실행 결과는 항상 "불일치 전량 + 일치 전량"을 저장한다(주석 원문). 화면에 일부만
+    보여준다고 서버가 일치분 계산 자체를 생략하는 게 아니다.
+  파일: services/stats_result_store.py:76-99 (page_result)
+    mismatch_only=False 로 조회하면 status=='ok'(일치) 행도 그대로 반환.
+  파일: ui/execute_result_renderer.py:978, 1415-1420
+    matched 변수는 서버 요약필드 r.matched 기준이라, 초기 페이지가 불일치만 와도
+    "일치 행 보기 (N건)" 토글 버튼은 정확한 N으로 항상 노출된다(1409-1420, 1449).
+  파일: ui/execute_result_renderer.py:196-218 (_execSrvGo), 293-312 (_execToggleMatched)
+    토글 클릭 → window._execSrv.includeMatched=true → /stats-result/page?...
+    &mismatch_only=false 재조회 → 일치 그룹 포함 전체 rows 로 tbody 교체.
+  → "일치 행 보기" 토글은 "전부 일치(0건)" 케이스 전용이 아니라, 일부만 불일치인
+    일반 케이스에서도 동작하도록 설계되어 있다(M84 백로그 항목은 이 토글과 무관한
+    별개 결함 — 완전일치 시 "기본 상태"의 빈 결과 문구 오표시).
+
+(2) 실측 재현 (오라클 asis/tobe 라이브, 8그룹 중 3불일치/5일치 픽스처)
+  픽스처: NXDNP.MV_PM_SRC/MV_PM_TGT(신규, GRP_CD 8종×100행=800행, P01/P03/P05 만 AMT
+  변조·나머지 P02/P04/P06/P07/P08 완전 동일 적재) —
+  scripts/dev_e2e/stage5_partial_mismatch_visibility_fixture.py (코드 저장소, 직접 SQL
+  그룹별 COUNT/SUM 대조로 3불일치·5일치 자체검증 PASS)
+  드라이버: scripts/dev_e2e/stage5_partial_mismatch_visibility_verify.py
+  (GB 단일축=GRP_CD, SUM=AMT — 5단계 하단 mtbl 표는 GB 1축일 때만 렌더)
+
+  실측 결과:
+    단계            항목                실제 화면값
+    ----            ------------------  ------------------------------------------
+    2단계           COUNT               COUNT_MATCHED · 원본 800 / 목적 800
+    5단계 상단타일   전체그룹/불일치그룹  8개 / 3개
+    5단계 하단(토글 전) 표시 그룹        P01/P03/P05(3그룹)만, 재이관 대상 300건
+    5단계 하단       토글 버튼 라벨      "일치 행 보기 (5건)" — 정확한 일치 건수 표시
+    5단계 하단(토글 후) 표시 그룹        P01/P03/P05 + P02/P04/P06/P07/P08 = 8그룹 전체
+    5단계 하단       일치 그룹 판정      P02/P04/P06/P07/P08 모두 "✓ 일치" 텍스트로 확인
+    5단계 하단       상태 요약 문구      "현재 불일치 그룹 1~3 표시" → 토글 후
+                                          "현재 행 1~8 표시"로 갱신
+
+  네트워크 확인: 토글 클릭 시 /stats-result/page?...&mismatch_only=false 요청·200
+  응답·rows 8건(diff 3 + ok 5) 반환을 별도 확인.
+
+  스크린샷(X:\Projects\nxDTV\scratchpad\MATCHED-GROUPS-VISIBILITY-AND-EXCEL-EXPORT-CHECK_shots\,
+  코드 저장소 미추적 scratchpad 영역, 9장 + export.xlsx):
+    01_stage1_analyze.png                    1단계 쿼리검토
+    02_stage2_count.png                      2단계 COUNT 일치(800/800)
+    03_stage3_candidate.png                  3단계 후보컬럼(GRP_CD/AMT) 선정
+    04_stage4_validation_sql.png             4단계 SQL 생성 화면
+    05_stage4_after_execute_status.png       4단계 실행 후 상태 칸
+    06_stage5_before_toggle.png              5단계 전체화면 — 토글 전(3그룹만 표시)
+    07_stage5_ctx_tiles_zoom.png             5단계 상단 타일 확대(전체8/불일치3)
+    08_stage5_executeOut_before_toggle_zoom.png  하단 표 확대(토글 전)
+    09_stage5_after_toggle.png               5단계 전체화면 — 토글 후(8그룹 전체 표시)
+    10_stage5_executeOut_after_toggle_zoom.png   하단 표 확대(토글 후, 일치 5그룹 노출)
+  결과 JSON: X:\Projects\nxDTV\scripts\dev_e2e\_stage5_partial_mismatch_visibility.json
+
+  결론: 일부만 불일치인 일반적인 케이스에서 일치 그룹은 "일치 행 보기 (N건)" 토글로
+  실제 확인 가능하다(실측 PASS). 다만 발견성(discoverability)은 낮다 — 기본 화면에는
+  일치 그룹이 전혀 안 보이고, 작은 텍스트 버튼을 눌러야만 나타난다. 이는 결함이 아니라
+  UX 개선 여지로 분류한다(아래 3번 참고).
+
+────────────────────────────────────────────────────────────
+2. 엑셀 추출 기능 확인
+────────────────────────────────────────────────────────────
+
+(1) 존재 여부 — 이미 있다
+  라우트: GET /stats-result/export (routes/stats_result_route.py:49-209)
+  버튼: 5단계 결과표 우측 상단 "⬇ 전체 불일치 결과 Excel 다운로드"
+    (ui/execute_result_renderer.py:1453-1459, onclick=window._mvGlobalExport())
+  정의: ui/tabler_renderer.py:18577-18610 (_mvGlobalExport) — 실행 결과 result_id/
+    plan_fingerprint/pk_run_id/target_table 을 쿼리스트링으로 넘겨 다운로드 URL 이동.
+
+(2) 오늘 초반 제거한 "Excel 다운로드 죽은 링크"와의 관계
+  커밋 44f46e14(ui/grid_helpers.py) 에서 제거한 것은 이 전역 버튼과 별개인, 그룹별
+  인라인 Excel 아이콘(href="#" + onclick 이 실제로는 아무 동작도 안 하던 빈 링크)이다.
+  전역 버튼(_mvGlobalExport)은 그대로 살아있고 이번 조사에서 손대지 않았다.
+
+(3) 실측 확인(같은 부분 불일치 픽스처로 다운로드 → 내용 검사)
+  다운로드 파일명: MV_PM_TGT_validation_mismatch_20260812.xlsx
+  저장 경로: X:\Projects\nxDTV\scratchpad\MATCHED-GROUPS-VISIBILITY-AND-EXCEL-EXPORT-CHECK_shots\export.xlsx
+  시트 구성: ["불일치 그룹", "재이관 대상 레코드"]
+
+  시트1 "불일치 그룹":
+    헤더: 검증 세트/GROUP BY 컬럼/GROUP BY 값/원본 COUNT/목적 COUNT/COUNT 차이/
+          원본 AMT/목적 AMT/차이 AMT/판정
+    데이터 행 수: 3행 (GROUP BY 값 = P01, P03, P05)
+    일치 그룹(P02/P04/P06/P07/P08) 유입: 0건 — 일치 그룹이 섞여 들어오는 사례 없음.
+
+  시트2 "재이관 대상 레코드":
+    데이터 행 수(헤더 제외): 300행 = 불일치 3그룹 × 100건(전량, 절단 없음)
+    일치 그룹의 레코드는 당연히 포함되지 않음(재이관 대상 정의 자체가 불일치 레코드).
+
+  근거: routes/stats_result_route.py:114 `iter_rows(rid, mismatch_only=True)` —
+  시트1 생성 시 하드코딩되어 있어 일치 그룹을 포함할 옵션 자체가 없다.
+
+  결론: Excel 추출 기능은 존재하고 정상 작동한다(실측 PASS). 단, 범위는 "불일치 그룹
+  전체 + 재이관 대상 레코드 전체"로 고정이며(버튼 옆 보조문구가 이미 이 범위를
+  명시 중), 일치 그룹을 포함해서 뽑는 옵션은 없다.
+
+────────────────────────────────────────────────────────────
+3. 판단 및 참고
+────────────────────────────────────────────────────────────
+[명확히 확인된 사실]
+  - 일치 그룹은 서버가 처음부터 계산·보관하고 있으며, 화면 토글로 실제 조회 가능
+    (전부 불일치/일부 불일치 케이스 모두 동일 메커니즘, 실측 PASS).
+  - Excel 추출 기능은 이미 존재·정상 작동하며, 범위는 불일치 그룹 + 재이관 레코드로
+    한정(일치 그룹 미포함, 옵션 없음) — 실측 PASS, 화면 문구와도 일치해 오도 없음.
+
+[구조적 문제점 / 운영상 위험 — CLAUDE.md 비판적 검토]
+  - 없음. 이번 조사는 기존 기능의 존재·정상동작 확인이며 신규 구현이 아니다.
+  - heuristic/scoring/explainability 영향: 없음(판정 로직 미변경, 조사만 수행).
+
+[개선 여지 — 구현 없음, 제안만]
+  A. (선택) "일치 행 보기" 토글의 발견성이 낮다 — 기본 표시가 불일치만이라 사용자가
+     "일치 그룹은 어디서 보나" 라고 묻는 것 자체가 이 발견성 문제의 방증(오늘 사용자
+     질문 1번). 라벨을 더 눈에 띄게 하거나, 상단 타일에 "일치 그룹 보기" 링크를
+     별도로 노출하는 방안을 고려할 수 있다.
+  B. (선택) Excel 추출에 "일치 그룹 포함" 옵션을 추가할지는 별도 정책 판단 필요 —
+     일반적으로 이관 검증에서 일치 그룹은 확인 대상이 아니라 재이관 불필요 대상이라
+     엑셀에 넣을 실무적 필요가 낮을 수 있다(사용자 확인 후 결정 권장).
+  둘 다 이번 지시(조사만)를 벗어나므로 구현하지 않았다.
+
+[지금 구현 여부]: 보류(이번 지시가 "코드 수정 없이 조사·실측만"이었으므로 코드 미수정).
+
+[하니스 참고사항 — 제품 결함 아님]
+  검증 드라이버의 click_execute 완료신호 폴링(_execPlanRun 참조 조건)이 이번 8그룹
+  픽스처에서 타임아웃됐으나, 실제 화면은 정상 완료·정상 값을 보여줬다(위 실측 결과
+  전부 정상). dev_e2e 하니스의 폴링 조건 문제로, 제품 코드와 무관.
+
+작업명 : MATCHED-GROUPS-VISIBILITY-AND-EXCEL-EXPORT-CHECK
+✅ 작업 완료 - 일치 그룹 조회 가능(토글 실측 확인)·Excel 추출은 이미 있으나 불일치 전용(일치 미포함) 확인
+```
