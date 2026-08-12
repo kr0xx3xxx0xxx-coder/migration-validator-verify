@@ -1,0 +1,458 @@
+{
+  "notes": [],
+  "setup": {
+    "pair_rows": 1,
+    "connected": true
+  },
+  "gbIncludePair": {
+    "found": true,
+    "checked": true
+  },
+  "group_list": [
+    {
+      "axis": "REGION_CD",
+      "val": "R01",
+      "key": {
+        "REGION_CD": "R01"
+      },
+      "src": "60200",
+      "tgt": "60200"
+    },
+    {
+      "axis": "REGION_CD",
+      "val": "R02",
+      "key": {
+        "REGION_CD": "R02"
+      },
+      "src": "400",
+      "tgt": "400"
+    },
+    {
+      "axis": "REGION_CD + STATUS_CD",
+      "val": "R01 | S01",
+      "key": {
+        "REGION_CD": "R01",
+        "STATUS_CD": "S01"
+      },
+      "src": "60000",
+      "tgt": "60000"
+    },
+    {
+      "axis": "REGION_CD + STATUS_CD",
+      "val": "R01 | S02",
+      "key": {
+        "REGION_CD": "R01",
+        "STATUS_CD": "S02"
+      },
+      "src": "200",
+      "tgt": "200"
+    },
+    {
+      "axis": "REGION_CD + STATUS_CD",
+      "val": "R02 | S01",
+      "key": {
+        "REGION_CD": "R02",
+        "STATUS_CD": "S01"
+      },
+      "src": "200",
+      "tgt": "200"
+    },
+    {
+      "axis": "REGION_CD + STATUS_CD",
+      "val": "R02 | S02",
+      "key": {
+        "REGION_CD": "R02",
+        "STATUS_CD": "S02"
+      },
+      "src": "200",
+      "tgt": "200"
+    },
+    {
+      "axis": "STATUS_CD",
+      "val": "S01",
+      "key": {
+        "STATUS_CD": "S01"
+      },
+      "src": "60200",
+      "tgt": "60200"
+    },
+    {
+      "axis": "STATUS_CD",
+      "val": "S02",
+      "key": {
+        "STATUS_CD": "S02"
+      },
+      "src": "400",
+      "tgt": "400"
+    }
+  ],
+  "target_idx": 2,
+  "panel_text": "표본 예상 재이관 불일치율 0.25% · 95% 신뢰구간 0.11~0.58% · 기준 10% 미만 · 전체 상세검증 진행전체 재이관 대상 : 150건 (0.85초 · 메모리 캐시)현재 1~10 표시 · 1/15페이지표시 건수 10건50건100건불일치 유형IDPKREGION_CD(원본)REGION_CD(목적)STATUS_CD(원본)STATUS_CD(목적)AMT(원본)AMT(목적)값 불일치1R01R01S01S012,001.003,000.00값 불일치2R01R01S01S012,002.003,001.00값 불일치3R01R01S01S012,003.003,002.00값 불일치4R01R01S01S012,004.003,003.00값 불일치5R01R01S01S012,005.003,004.00값 불일치6R01R01S01S012,006.003,005.00값 불일치7R01R01S01S012,007.003,006.00값 불일치8R01R01S01S012,008.003,007.00값 불일치9R01R01S01S012,009.003,008.00값 불일치10R01R01S01S012,010.003,009.00처음이전12345다음마지막1/15페이지 · 150건현재 페이지 조회 0.13초 · 내부 DB 0.01초 미만 · 서버 0.01초 · 전체 요청 0.13초 · 화면 0.01초 미만",
+  "prepare_response": {
+    "ok": true,
+    "status": "READY",
+    "run_id": "PS59F761AE3324",
+    "counts": {
+      "missing_migration": 0,
+      "value_mismatch": 150,
+      "reimport_pks": 150,
+      "reimport_total": 150,
+      "excluded_target_only": 0,
+      "target_only_stored": 0,
+      "mismatch_limit_stopped": false
+    },
+    "metrics": {
+      "prepare_ms": 923.83,
+      "first_20_committed_ms": 589.26,
+      "peak_python_mb": null,
+      "src_query_count": 2,
+      "tgt_query_count": 2,
+      "chunks_total": 2,
+      "chunks_done": 2,
+      "chunk_size": 50000,
+      "src_query_count_total": 2,
+      "source_chunk_read_seconds": 0.43,
+      "target_chunk_read_seconds": 0.41,
+      "source_read_seconds": 0.43,
+      "target_read_seconds": 0.41,
+      "source_target_wall_seconds": 0.46,
+      "read_overlap_saved_seconds": 0.38,
+      "parallel_read": true,
+      "parallel_read_used": true,
+      "parallel_read_disabled_reason": "",
+      "source_read_sec": 0.43,
+      "target_read_sec": 0.41,
+      "read_wall_sec": 0.46,
+      "overlap_saved_sec": 0.38,
+      "pk_order_checked_lists": 4,
+      "pk_order_normalized_lists": 0,
+      "pk_order_normalized_rows": 0,
+      "pk_order_violations": 0,
+      "pk_order_uncomparable_lists": 0,
+      "pk_order_normalized_src_lists": 0,
+      "pk_order_normalized_tgt_lists": 0,
+      "pk_order_normalization_applied": false,
+      "chunk_imbalance": {
+        "chunks_executed": 2,
+        "chunks_total": 2,
+        "rows_total": 120000,
+        "rows_max": 100000,
+        "rows_min": 20000,
+        "rows_avg": 60000.0,
+        "max_to_avg_ratio": 1.67,
+        "empty_chunks": 0,
+        "empty_chunk_ratio": 0.0,
+        "empty_chunk_read_seconds": 0.0,
+        "rows_sample": [
+          100000,
+          20000
+        ],
+        "sample_capped": false,
+        "imbalance_warning": false,
+        "warning_text": ""
+      },
+      "chunk_rows_max": 100000,
+      "chunk_rows_min": 20000,
+      "chunk_rows_avg": 60000.0,
+      "chunk_rows_max_ratio": 1.67,
+      "empty_chunks": 0,
+      "empty_chunk_ratio": 0.0,
+      "empty_chunk_read_seconds": 0.0,
+      "chunk_imbalance_warning": false,
+      "pushdown_verdict": "PUSHDOWN_LIKELY",
+      "pushdown_reason": "",
+      "pushdown_blockers": [],
+      "pushdown_warning": "",
+      "chunk_plan_guard": {
+        "hold": false,
+        "stop_reason": "",
+        "job_status_detail": "",
+        "error_message": "",
+        "warning_text": "",
+        "chunk_count": 2,
+        "chunk_size": 50000,
+        "pk_min": 1,
+        "pk_max": 60000,
+        "expected_rows": 60000,
+        "expected_density": 0.6,
+        "sparse": false,
+        "hold_threshold": null,
+        "hold_threshold_kind": "",
+        "pushdown": {
+          "verdict": "PUSHDOWN_LIKELY",
+          "reason": "",
+          "blockers": [],
+          "blocker_codes": [],
+          "warning_text": "",
+          "key_col": "id",
+          "key_names": [
+            "ID"
+          ],
+          "key_is_expression": false,
+          "analyzed": true,
+          "elapsed_ms": 1.36,
+          "dialect": "postgres",
+          "set_op_info": []
+        },
+        "guard_enabled": true
+      },
+      "compare_seconds": 0.07,
+      "store_seconds": 0.29,
+      "total_ready_seconds": 0.92,
+      "total_wall_sec": 0.92,
+      "detail_started_at": 1786526335.0405803,
+      "detail_finished_at": 1786526335.8865592,
+      "detail_elapsed_ms": 845.98,
+      "orchestration_overhead_ms": 77.85
+    },
+    "ratios": {
+      "reimport_ratio": 0.25,
+      "missing_ratio": 0.0,
+      "value_ratio": 0.25,
+      "target_only_ratio": 0.0
+    },
+    "reimport": 150,
+    "missing_migration": 0,
+    "value_mismatch": 150,
+    "excluded_target_only": 0,
+    "mismatch_group_distribution": {
+      "group_col": "REGION_CD",
+      "groups": [
+        {
+          "value": "R01",
+          "count": 150,
+          "sample_pks": [
+            1,
+            2,
+            3
+          ]
+        }
+      ],
+      "groups_capped": false,
+      "top": [
+        {
+          "value": "R01",
+          "count": 150,
+          "sample_pks": [
+            1,
+            2,
+            3
+          ]
+        }
+      ],
+      "other_count": 0,
+      "group_total": 1,
+      "total_group_count": 1,
+      "returned_group_count": 1,
+      "truncated": false,
+      "group_cap": 200,
+      "representative_axis": "REGION_CD",
+      "mismatch_group_count": 1,
+      "candidate_score": null,
+      "selection_order": 0,
+      "selection_reason": "OUT_OF_BAND_FEWEST_GROUPS",
+      "axis_group_counts": {
+        "REGION_CD": 1,
+        "STATUS_CD": 1
+      },
+      "representative_axis_reason": "2~200 구간 축 없음 → 불일치 그룹 1개로 최소인 축 선택 · 선택 순서 무관 고정",
+      "axis_selection_deterministic": true
+    },
+    "chunk_plan_guard": {
+      "hold": false,
+      "stop_reason": "",
+      "job_status_detail": "",
+      "error_message": "",
+      "warning_text": "",
+      "chunk_count": 2,
+      "chunk_size": 50000,
+      "pk_min": 1,
+      "pk_max": 60000,
+      "expected_rows": 60000,
+      "expected_density": 0.6,
+      "sparse": false,
+      "hold_threshold": null,
+      "hold_threshold_kind": "",
+      "pushdown": {
+        "verdict": "PUSHDOWN_LIKELY",
+        "reason": "",
+        "blockers": [],
+        "blocker_codes": [],
+        "warning_text": "",
+        "key_col": "id",
+        "key_names": [
+          "ID"
+        ],
+        "key_is_expression": false,
+        "analyzed": true,
+        "elapsed_ms": 1.36,
+        "dialect": "postgres",
+        "set_op_info": []
+      },
+      "guard_enabled": true
+    },
+    "chunk_imbalance": {
+      "chunks_executed": 2,
+      "chunks_total": 2,
+      "rows_total": 120000,
+      "rows_max": 100000,
+      "rows_min": 20000,
+      "rows_avg": 60000.0,
+      "max_to_avg_ratio": 1.67,
+      "empty_chunks": 0,
+      "empty_chunk_ratio": 0.0,
+      "empty_chunk_read_seconds": 0.0,
+      "rows_sample": [
+        100000,
+        20000
+      ],
+      "sample_capped": false,
+      "imbalance_warning": false,
+      "warning_text": ""
+    },
+    "mismatch_limit": {
+      "mismatch_limit_count": 6000,
+      "limit_hit": false,
+      "actual_missing": 0,
+      "actual_value": 150,
+      "stop_pk": null,
+      "processed_src_rows": 60000,
+      "processed_tgt_rows": 60000,
+      "remaining_chunks": 0,
+      "representative_limit": 100,
+      "mismatch_limit_rate": 10.0
+    },
+    "last_completed_end": 60001,
+    "actual_strategy_id": "PK_RANGE_CHUNK_COMPARE",
+    "gb_cols": [
+      "REGION_CD",
+      "STATUS_CD"
+    ],
+    "sum_labels": [
+      "AMT"
+    ],
+    "numeric_pk": true,
+    "key_col": "id",
+    "source_count": 60000,
+    "target_count": 60000,
+    "resumed": false,
+    "resume_count": 0,
+    "resume_from_chunk": 0,
+    "reused": true,
+    "accepted": true,
+    "source": "memory_cache",
+    "configured_group_by": 3,
+    "configured_sum": 3,
+    "effective_group_by_columns": [
+      "REGION_CD",
+      "STATUS_CD"
+    ],
+    "effective_sum_columns": [
+      "AMT"
+    ],
+    "effective_group_by_count": 2,
+    "effective_sum_count": 1,
+    "selection_mode": "MANUAL",
+    "selection_fingerprint": "ca79f7002f82d70feb91",
+    "plan_fingerprint": "807f8e17672fb3f087b9",
+    "selection_evidence": {
+      "configured_group_by": 3,
+      "configured_sum": 3,
+      "effective_group_by_columns": [
+        "REGION_CD",
+        "STATUS_CD"
+      ],
+      "effective_sum_columns": [
+        "AMT"
+      ],
+      "effective_group_by_count": 2,
+      "effective_sum_count": 1,
+      "selection_mode": "MANUAL",
+      "selection_fingerprint": "ca79f7002f82d70feb91",
+      "plan_fingerprint": "807f8e17672fb3f087b9",
+      "run_id": "PS59F761AE3324"
+    }
+  },
+  "has_earlystop_label": false,
+  "single_axis_idx": 0,
+  "single_axis_panel_text": "표본 예상 재이관 불일치율 0.25% · 95% 신뢰구간 0.11~0.58% · 기준 10% 미만 · 전체 상세검증 진행전체 재이관 대상 : 155건 (0.86초 · 새로 스캔)현재 1~10 표시 · 1/16페이지표시 건수 10건50건100건불일치 유형IDPKREGION_CD(원본)REGION_CD(목적)STATUS_CD(원본)STATUS_CD(목적)AMT(원본)AMT(목적)값 불일치1R01R01S01S012,001.003,000.00값 불일치2R01R01S01S012,002.003,001.00값 불일치3R01R01S01S012,003.003,002.00값 불일치4R01R01S01S012,004.003,003.00값 불일치5R01R01S01S012,005.003,004.00값 불일치6R01R01S01S012,006.003,005.00값 불일치7R01R01S01S012,007.003,006.00값 불일치8R01R01S01S012,008.003,007.00값 불일치9R01R01S01S012,009.003,008.00값 불일치10R01R01S01S012,010.003,009.00처음이전12345다음마지막1/16페이지 · 155건현재 페이지 조회 0.12초 · 내부 DB 0.01초 미만 · 서버 0.01초 미만 · 전체 요청 0.12초 · 화면 0.01초 미만",
+  "single_axis_prepare_response": {
+    "ok": true,
+    "status": "PREPARING",
+    "run_id": "PS2BC7FCEC295A",
+    "accepted": true,
+    "prepare_timing_ms": {
+      "key_evidence_validate_ms": 3.9,
+      "trusted_physical_pk": true,
+      "fingerprint_validate_ms": 8.1,
+      "enqueue_ms": 0.2,
+      "run_id_bind_ms": 50.1,
+      "total_accepted_ms": 62.3
+    },
+    "chunk_key_evidence": {
+      "evidence_version": "cke-2",
+      "verdict": "TRUSTED_PHYSICAL_PK",
+      "reason": "",
+      "query_hash": "bbc7c94cf38f181e20a65054c63719f562c0a28eb173b5e47b43bfcb6657ba05",
+      "project_id": "976",
+      "src_profile": "192.168.0.150:5433/asis",
+      "tgt_profile": "192.168.0.150:5434/tobe",
+      "src_table": "G101CB_SRC",
+      "tgt_table": "G101CB_TGT",
+      "join_multiplicity_risk": false,
+      "source_exists": true,
+      "target_exists": true,
+      "schema_structure_hash": "sh_f002830099ce1f35243c",
+      "type": "NUMBER",
+      "src_expr": "id",
+      "tgt_expr": "id",
+      "src_output_alias": "id",
+      "tgt_output_alias": "id",
+      "src_column": "id",
+      "tgt_column": "ID",
+      "numeric": true,
+      "is_pk": true,
+      "not_null": true,
+      "direct_passthrough": true,
+      "expression_used": false,
+      "indexed": true,
+      "_reused": true
+    },
+    "error_message": null,
+    "fingerprint": "63671f99d9808135fdb81f2053f7614ba1b560558a7b06d763cc4209f2ce84d3",
+    "reused": false,
+    "source": "fresh_scan",
+    "configured_group_by": 3,
+    "configured_sum": 3,
+    "effective_group_by_columns": [
+      "REGION_CD",
+      "STATUS_CD"
+    ],
+    "effective_sum_columns": [
+      "AMT"
+    ],
+    "effective_group_by_count": 2,
+    "effective_sum_count": 1,
+    "selection_mode": "MANUAL",
+    "selection_fingerprint": "ca79f7002f82d70feb91",
+    "plan_fingerprint": "807f8e17672fb3f087b9",
+    "selection_evidence": {
+      "configured_group_by": 3,
+      "configured_sum": 3,
+      "effective_group_by_columns": [
+        "REGION_CD",
+        "STATUS_CD"
+      ],
+      "effective_sum_columns": [
+        "AMT"
+      ],
+      "effective_group_by_count": 2,
+      "effective_sum_count": 1,
+      "selection_mode": "MANUAL",
+      "selection_fingerprint": "ca79f7002f82d70feb91",
+      "plan_fingerprint": "807f8e17672fb3f087b9",
+      "run_id": "PS2BC7FCEC295A"
+    }
+  },
+  "single_axis_has_earlystop_label": false
+}
