@@ -6100,3 +6100,35 @@ git -C E:/verify_reports worktree remove <임시경로>
   기본 OFF로 둬서 대다수 route 테스트가 가드 미적용 상태로 실행됨.
 - 권고 순서: I-1 → I-2 → I-3 → I-4 → I-5 → L-1 → L-3 → L-4
 - 근거: E:\verify_reports\PER-STAGE-EXECUTE-BUTTON-CLEAN-SINGLE-PASS-AUDIT.txt
+
+### M83. 5단계 [고정] "불일치 그룹추출" 카드 — 표시값이 캐시재사용(TTL없음) 시 과거 콜드스캔값 그대로 노출, 라벨명도 실제 측정대상과 불일치, 필요 데이터는 이미 다 있고 표시배선만 누락
+- 발견/계기: 2026-08-12 (사용자 — "클릭은 1초도 안 걸렸는데 왜 11.56초가 뜨냐,
+  이 값이 어디서 나온 거냐" / STAGE5-GROUPEXTRACT-VALUE-VS-REAL-PERCEIVED-TIME-
+  MISMATCH-DIAGNOSE, 코드 무변경, 라이브 오라클 실측재현+DB 142건 전수조회)
+- **근본원인**: `/agg-diff/prepare`가 fingerprint(원본/목적+SQL+GB/SUM+scope
+  전부 포함)로 기존 job을 먼저 찾아 READY/EARLY_STOPPED면 과거 summary를
+  `reused=True`로 그대로 반환 — **TTL 없음**(메모리 LRU 16건 소멸돼도
+  `_rehydrate_from_db`가 파일DB에서 무기한 복원). 즉 며칠 전 값이라도 재사용됨.
+- **실측 재현 성공**: 신규 픽스처(900행)로 콜드클릭(0.15초)→재클릭(실제
+  0.00초, 체감과 일치)했더니 카드값은 0.15초 그대로, `window._mvPkPrepFrom
+  Cache=True` 직접 확인 — 사용자가 겪은 패턴과 정확히 동일한 메커니즘.
+- **11~12초가 가짜가 아님도 확인**: `db/exact_diff_runs.db` 142건 전수조회
+  결과, 150만행 스캔이 실제로 22.56초 걸린 기록 존재(2026-08-10) — 대용량
+  그룹의 진짜 과거 콜드스캔값일 개연성 높음(단, R01/G01 특정 run과의 1:1
+  대응은 group_id 컬럼 부재로 완전 특정은 못함, 정직히 고지됨).
+- **라벨명 오류(사용자 의심 확인됨)**: "5단계 불일치 그룹추출"이란 이름이
+  "그룹을 찾는 시간"으로 오독되지만, 실제로는 "이미 4단계에서 확정된 그룹
+  중 하나를 골라 그 레코드를 상세비교하는 시간"(`pk_range_chunk.py:625`)
+  — 그룹 자체를 찾는 GROUP BY 스캔은 4단계에서 이미 끝나 있음.
+- **★ 메타 발견**: 오늘 이 정확한 혼동 문제 때문에 "선택 그룹 상세추출"
+  인라인 카드를 통째로 삭제(STAGE5-GROUP-CARD-REMOVE)했는데, **문제가
+  해결된 게 아니라 완전히 동일한 숫자를 보여주는 [고정] 카드로 옮겨갔을
+  뿐** — [고정] 카드는 캐시 재사용 여부와 무관하게 항상 값을 보여줌.
+- **재료는 이미 있음**: 서버 응답 `reused` 필드, 클라이언트 `window._mvPk
+  PrepFromCache` 변수 둘 다 이미 계산되고 있는데, **화면 어디에도 표시하는
+  코드가 없음**(대입만 있고 소비처 0곳) — 배선 마지막 한 줄만 빠짐.
+- 개선 제안(미구현, 사용자 승인 시 진행): ①라벨을 "선택 그룹 상세비교(레코드)
+  소요"류로 정정 ②이미 있는 reused 값을 "(캐시 재사용)" 배지로 노출(신규
+  계측 불필요) ③중기: "최초 스캔 M초 전·그때 소요 N초" 형태로 원 스캔
+  시점까지 표시.
+- 근거: E:\verify_reports\STAGE5-GROUPEXTRACT-VALUE-VS-REAL-PERCEIVED-TIME-MISMATCH-DIAGNOSE.txt
