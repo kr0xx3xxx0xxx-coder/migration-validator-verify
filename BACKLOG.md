@@ -6286,3 +6286,45 @@ git -C E:/verify_reports worktree remove <임시경로>
   링크 노출 등) B) Excel에 "일치그룹 포함" 옵션 추가 여부(실무 필요성은
   일치그룹이 재이관 대상 아니라서 낮을 수 있음, 정책판단 필요).
 - 근거: E:\verify_reports\MATCHED-GROUPS-VISIBILITY-AND-EXCEL-EXPORT-CHECK.txt
+
+### M88. "조합 필수화+조기중단" 절충안 — 2개 독립조사 모두 동일결론(불가/무의미), M85 비채택 유지·근거 보강
+- 발견/계기: 2026-08-12 (사용자 — "조합도 개별 101건처럼 상한 두고 조기중단
+  하면 필수로 해도 되지 않냐" / COMBO-MANDATORY-WITH-GROUP-CAP-EARLY-STOP-
+  FEASIBILITY-DIAGNOSE + COMBO-ONLY-...-ITEM6-EARLY-STOP-REEVAL, 코드 무변경,
+  2개 독립조사)
+- **핵심 원인**: 101건 조기중단(애플리케이션 레벨 행단위 순회, 언제든 멈춰도
+  됨)과 4,000 조합상한(DB에 SQL 한 번도 안 보내는 순수 사전 산술 추정)은
+  실행모델이 근본적으로 다름. GROUP BY가 HashAggregate로 처리되면(인덱스
+  없는 일반적 경우) **블로킹 연산** — LIMIT 붙여도 스캔비용 그대로.
+  **이 프로젝트에 실제 전례 있음**: 1,000만 그룹 처리하려다 56초 소모 후에야
+  차단된 사고 — 그걸 피하려고 지금의 사전차단 방식을 만든 것.
+- **조기중단 자체는 이미 존재하나(사후 cap+1 fetch stop), "비교 없이
+  BLOCKED"로 끝나게 의도적으로 설계됨** — 잘린 결과를 비교하면 원본/목적
+  서로 다른 부분집합이라 존재하지 않는 가짜 불일치를 만들 위험 때문.
+- **재평가 결과**: M85의 3가지 비채택 이유 중 ①(가용성붕괴)은 조기중단으로도
+  미해소(오히려 성능리스크 재유입 가능), ②(후보추천이 조합 안 만들어줌)·
+  ③(비용이득 제한적)은 조기중단과 무관하게 그대로 유효.
+- **결론**: M85(조합전용/필수화 비채택) 유지, 근거 보강.
+- **부가 제안(범위 밖, 별도 검토 권고)**: 4,000 사전게이트를 완화하고,
+  대신 "정식 비교 판정이 아닌 참고용 표시"(상위 N개 그룹만 비교 없이
+  나열) 모드를 신설하는 방향은 검토 여지 있음 — 별도 지시서 필요.
+- 근거: E:\verify_reports\COMBO-MANDATORY-WITH-GROUP-CAP-EARLY-STOP-FEASIBILITY-DIAGNOSE.txt,
+  E:\verify_reports\COMBO-ONLY-SINGLE-SCAN-ARCHITECTURE-FEASIBILITY-DIAGNOSE-ITEM6-EARLY-STOP-REEVAL.txt
+
+### M89. 3단계 후보추천 — 단일컬럼 GROUP BY 카디널리티 최종상한은 60개(EXCLUDED), 조합4000과는 완전히 다른 단계·다른 값(계산근거로만 연결)
+- 발견/계기: 2026-08-12 (사용자 — "개별 그룹당 후보 카디널리티 몇까지인가" /
+  SINGLE-AXIS-CANDIDATE-CARDINALITY-THRESHOLD-CHECK, 코드 무변경)
+- **3계층 게이트 확인**: A(candidate_engine.py:645, 하드코딩 2~50, 저카디
+  통계전용 경로 진입조건) → B(_GB_CARD_LOW/MEDIUM/HIGH_MAX=50/200/1000,
+  자동추천 등급분류만) → **C(GENERAL_COLUMN_MAX_GROUPS=60, config/model_
+  config.py:489, 최종권위)** — 실사용 결과에 직접 영향 주는 값은 60,
+  초과 시 `recommendation_status=EXCLUDED`로 강등(완전배제에 가장 가까움).
+- 별개 축(OR): `GB_IDENTIFIER_DISTINCT_RATIO=0.9` — distinct/전체행 90%
+  이상이면 "사실상 식별자"로 60과 무관하게 별도 배제.
+- **동적계산 예외**: PostgreSQL n_distinct 음수(비율)표기 시에만 상대비율로
+  등급 분류(60 절대상한 미적용) — 그 외엔 전부 고정 정수.
+- **조합상한(4,000)과 관계**: 완전히 다른 단계(3단계 후보추천 vs 4단계
+  실행계획)의 다른 값, 참조관계 없는 독립 게이트. 다만 4,000의 산정근거에
+  "이미 60을 통과한 축끼리 조합(60×60=3,600)에 여유를 둔 값"이라는 논리적
+  연쇄는 있음 — 혼동 주의.
+- 근거: E:\verify_reports\SINGLE-AXIS-CANDIDATE-CARDINALITY-THRESHOLD-CHECK.txt
