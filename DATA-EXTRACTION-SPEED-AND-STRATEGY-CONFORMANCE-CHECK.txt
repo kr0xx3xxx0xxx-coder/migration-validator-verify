@@ -1,0 +1,173 @@
+```text
+작업명 : DATA-EXTRACTION-SPEED-AND-STRATEGY-CONFORMANCE-CHECK
+✅ 작업 완료 - 5단계 데이터 추출 경로 전체를 대상으로 전략-실행 일치성 및 속도 영향 요소를 종합 점검함(조사 전용, 코드 수정 없음)
+
+────────────────────────────────────────────────────────────
+개요
+────────────────────────────────────────────────────────────
+- 배경  : M76(첫 클릭만 유독 느림) · M77(예상 총소요 벤치마크 수정) · 전략선택
+          (DIRECT_STREAM_COMPARE/PK_RANGE_CHUNK/HASH_BUCKET) 관련 발견을 계기로,
+          5단계 데이터 추출 경로 전체에서 (1) 화면에 표시된 전략과 실제 실행 경로가
+          일치하는지, (2) 속도에 영향 미치는 요소가 무엇인지 종합 재점검함.
+- 방법  : 오피너스 병렬 조사 에이전트 2개 투입.
+          A) 전략 선택-실행 일치성 조사(과거 조사 스냅샷 13개 항목 재확인 + 신규 탐색)
+          B) 속도 영향 요소 전수점검(과거 조사 스냅샷 11개 항목 재확인 + 신규 탐색)
+          두 조사 모두 Read/Grep/git log 등 읽기 전용 도구만 사용, 코드 수정 없음.
+
+────────────────────────────────────────────────────────────
+1. 전략-실행 일치 여부 확인 결과
+────────────────────────────────────────────────────────────
+총평: 13개 지점 확인 → 해소 6건 / 불일치 잔존·신규 7건(신규 3, 재확인 4)
+
+[해소 확인 — 회귀 없음]
+  - 날짜 단일 PK CHUNK 자격 제외(계획층 full_compare_strategy_planner.py:45-52,71-72 /
+    전환층 strategy_transition.py:116-118) — 자격 게이트가 벤치 비교보다 앞에 위치
+  - HASH_BUCKET PG 계약 누출 방지 — hash_bucket.py:145 _require_contract 강제,
+    실패 시 예외로 SQL 미생성(운영 호출부 multi_scope.py:582-587 db_type 쌍 전달)
+  - G1 dialect 미전달 — diagnosis_route.py 4개 호출부 전부 dialect=_routing_dialect(req)
+  - G2 오라클 바인드 DPY-4009 — row_diff.py:68-81 방언별 Placeholder 적용
+  - chunk 상·하한 사장 — strategy_transition.py:177-192 + agg_diff_route.py:193-220가
+    clamp_chunk_size 실제 강제(사유코드 기록). 단 chunk_sizes 후보값 자체는 여전히 소비처 0건
+  - pk_indexed 항상 참 — grid_helpers.py:1600-1634가 카탈로그 실측값만 신뢰하도록 수정됨
+
+[불일치 — 신규 발견, 영향도 순]
+
+  N1. [영향 최대] 5단계 상세추출: 화면 "직접 스트림 비교" 표시 vs 실제 PK_RANGE_CHUNK 실행
+      - 화면 계획 카드는 choose_compare_strategy 결과를 표시(strategy_route.py:78-80)
+      - 그러나 실행 시 tabler_renderer.py:17677 "totalRows>50000이면 useStream" 로직이
+        무조건 compare_strategy='PK_RANGE_CHUNK_COMPARE' 를 명시 전송
+        → agg_diff_route.py:55-56 "명시 요청 존중" 규칙이 전환판정 자체를 호출하지
+          않고 그대로 CHUNK 확정 → agg_diff_route.py:1406-1407 _run_pk_range_chunk 실행
+      - 조건: 기본 벤치(1M=158초, resume_threshold_seconds=300) 기준 대략 190만행 미만은
+        DIRECT로 계획되고, 그 이상 수천만행 구간도 보간상 DIRECT로 나오는 경우가 대부분
+        → 즉 "5만 초과~수천만행 대다수 구간"에서 화면 표시=DIRECT, 실제 실행=CHUNK.
+        유일 예외는 source_count가 벤치 기준값(1,000,000)과 정확히 일치하는 경우뿐
+      - 실행 후 selected/actual 배지 둘 다 CHUNK로 기록되어 화면 자체 모순 경고
+        (tabler_renderer.py:28603 selected≠actual)도 발동하지 않음 → 조용한 불일치
+
+  N2. [영향 중] 오라클 HASH_BUCKET 지원 안내 문구가 stale 상태로 자기모순
+      - capabilities.py:118 는 oracle hash_bucket:SUPPORTED(G7 개방 반영)
+      - 그러나 tabler_renderer.py:19189-19190 고정 문구는 여전히
+        "Oracle 은 HASH_BUCKET 미이식(미지원)" 표기
+      - 같은 패널 내 데이터 기반 표(:19205)는 지원 배지 → 한 화면에서 상반된 정보 노출
+
+  N3. [영향 중] 권고 코드가 실행 전략명과 동일하게 축약 표시됨
+      - grid_helpers.py:1471-1477 _mvStratShort 가 HASH_BUCKET_REQUIRED/HASH_BUCKET_SPLIT
+        (=권고일 뿐 미실행)를 실제 실행 전략과 같은 'HASH_BUCKET' 문구로 표기
+      - router.py:52 ROUTE_HASH_BUCKET 은 expand()가 빈 배열 반환 → 실제 실행 0건인데
+        화면상 "HASH_BUCKET 수행됨"으로 오독될 소지
+
+[불일치 — 기존 재확인(과거 조사 이후 변동 없음)]
+  R1. agg_diff_route.py:46-48 _unique_native_key 조기 반환 — UI가 보낸 PK_RANGE_CHUNK
+      요청을 무시하고 DIRECT_COMPOSITE_PK/DIRECT_STREAM 확정. 다만 job meta·상태 응답
+      모두 DIRECT로 일관 기록되어 표시상 불일치는 없음("요청 무시"만 잔존, 낮은 위험)
+  R2. key_src/key_tgt 명시 지정 API 경로에서 문자 PK가 CHUNK로 흘러 정렬전제 위반 가능
+      — 현재 UI는 이 경로를 호출하지 않아(key_src 미전송) 실사용 미도달, API 직접
+      호출 시에만 해당. 최종 방어선은 agg_diff_route.py:317-323 HOLD_NON_NUMERIC_PK
+  R3. MultiScopeConfig.max_seconds 가 diagnosis_route.py:556-557 화이트리스트에 없어
+      운영에서 항상 None → HASH_BUCKET 계열 시간상한 영구 미발동
+  R4. STREAM 엔진(agg_contribution.py)에 checkpoint 참조 0건 — 복합 PK는 항상 이
+      경로라 중단 시 진행분 전량 소실(전략 표시와는 무관한 별도 리스크 항목)
+
+참고: CHUNK 실행이 막히는 HOLD 경로(미지원 방언·비숫자 PK·alias 모호)는 전부
+actual_strategy_id="PK_RANGE_CHUNK_COMPARE" + 명시 사유로 응답하며 조용한 DIRECT
+폴백은 없음(N1과는 별개 사안). 실행 전 계획 게이트 evaluate_chunk_plan_guard 는
+pk_range_chunk.py:302 존재, :404-417 에서 DB 접근 전 호출됨을 확인.
+
+────────────────────────────────────────────────────────────
+2. 속도 영향 요소 목록
+────────────────────────────────────────────────────────────
+[기존 11개 항목 재확인]
+  항목                          상태        비고
+  ----------------------------  ----------  ------------------------------------------
+  1 정렬비용/pushdown 실패       여전        완화책은 "chunk수 축소"가 아니라 실행
+                                             차단(HOLD). PUSHDOWN_BLOCKED+chunk>200 이면
+                                             보류, 그 이하(약 1,000만행@5만청크)는
+                                             기존 최대 30배 비용을 그대로 지불
+                                             (pk_range_chunk.py:282,358-366)
+  2 해시버킷 wave OR 비용        여전        wave마다 활성 bucket 전체 OR 재구성,
+                                             상한 4000 bucket(multi_scope.py:593,55)
+  3 청크 50,000 고정             여전(부분)  min/max clamp만 배선, 크기 자체는 고정
+  4 병렬화                       개선        세트 병렬이 "기본OFF"→"조건부 자동ON"
+                                             (100만행↑+다른물리DB+풀여유 시)
+  5 tracemalloc 상시 ON          해소        memory_profiling_enabled 기본 False,
+                                             토글 경유(execution_settings.py:167-173)
+  6 checkpoint 커넥션            절반해소    chunk_checkpoint는 재사용 유지,
+                                             exact_diff_runs.db(store.py)는 미해소
+                                             → 아래 신규 A 항목의 실체
+  7 STREAM checkpoint 없음       여전        agg_contribution.py checkpoint_cb 0건
+  8 DB스캔이 병목(97%)           불변(배경)  대규모에서는 앱 코드 최적화 여지 원천적 작음
+  9 MetaCollector PG abort       해소유지    _safe_rollback 2지점 배선 확인
+  10 Neon 네트워크 편차          코드무관    개선 불가 항목(참고용)
+  11 진행신호 공백               여전        CHUNK는 fetch 구간 전체가 공백 구조 동일
+
+[신규 발견 — 영향도 순]
+  A. ExactDiffRunStore 커넥션 미재사용(최대 신규 요소)
+     - store.py 공개 메서드 20곳 전부가 호출마다 connect+PRAGMA 2회+CREATE TABLE×2+
+       INDEX+ALTER 3회 시도 후 close 반복. chunk_checkpoint에서 이미 검증된 동일
+       패턴(8.15ms→1.38ms, -83%)이 store에만 미적용
+     - 소비 빈도 높음: chunk 경계·5,000행마다 append_records, 상태 폴링마다
+       get_run/count_records/page_records
+  B. 상세추출 폴링 1회당 COUNT 3회 중복(count_records→page_records 내부 재실행→
+     target_only count_records, agg_diff_route.py:1565,1567,1584). A와 곱해져 증폭
+  C. 원본 MIN/MAX 중복 실행 — sampling gate(agg_diff_route.py:436)와 chunk 경로
+     (:313-314)가 각각 별도로 조회
+  D. 정책 조회(validation_policy_service) 캐시 전무, 매 호출 새 연결+_ensure_table+
+     SELECT *. prepare 1회당 7회 호출, 그중 2개는 중복
+  E. 후보 컬럼 N+1 — _has_null/_dup_present를 컬럼마다 src/tgt 각각 실행(4왕복/컬럼),
+     meta_collector.py도 컬럼마다 개별 execute(executemany 미사용)
+  F. 커넥션 풀 우회 2종 — ① connection_pool.checkout이 PostgreSQL 전용이라
+     Oracle/MySQL/MSSQL은 매번 새 물리 연결 ② exact-diff 경로는 PG에서도
+     _pg_raw_connect로 풀을 우회(단, side당 1회 연결만 잡고 chunk 루프 내
+     재연결은 없어 실질 영향은 요청당 handshake 수준)
+  G. scope pushdown/store.page_records 가 SELECT * 로 전 컬럼 재투영
+  H. _resolve_size_class 의 COUNT(*) 를 size-strategy/drilldown-strategy/orchestrate/
+     multi-row-diff 가 각각 무캐시로 재실행
+
+────────────────────────────────────────────────────────────
+3. 개선 우선순위 제안(비용 대비 효과 기준)
+────────────────────────────────────────────────────────────
+ 순위  항목                                    비용    효과         근거
+ ----  --------------------------------------  ------  -----------  --------------------------
+  1    N1 화면/실행 전략 표시 불일치            중      상위 레벨    "화면이 DIRECT라 빠를 것"
+       (agg_diff_route.py:55-56 명시요청       (표시    (신뢰성+     이라는 잘못된 전제 위에서
+       존중이 전환판정을 우회)                  로직     후속 판단    속도 튜닝/설정 판단이
+                                                 재계산)  정확화)     이뤄지는 근본원인 제거
+  2    A. ExactDiffRunStore 커넥션 재사용       낮음    폴링/누적    이미 chunk_checkpoint에서
+       (chunk_checkpoint와 동일 패턴 이식)              작업 다수    검증된 패턴 그대로 이식
+                                                          영향       가능, 리스크 최소
+  3    B/D/H 요청당 중복조회 캐싱               낮음    중간~누적   같은 요청 내 캐싱만
+       (COUNT 3회, 정책 7회, size-class 중복)                       추가하면 되는 낮은 비용
+  4    N2/N3 표시 문구 stale 정정               낮음    신뢰도      속도와 무관하나 사용자
+       (오라클 HASH_BUCKET 지원 문구,                               오판 방지 차원에서 저비용
+        권고코드=실행전략 오인 표기)                                즉시 수정 권장
+  5    E/F N+1·풀 우회                          중      중간        컬럼 수/원격 환경일수록
+       (후보컬럼 4왕복, 비PG 매번 새연결)                           누적, 근본수정은 구조변경
+  6    1. 정렬비용/pushdown 실패                고      -           옵티마이저 pushdown 실패는
+       (구조적 제약, 현재 HOLD로 방어 중)                           구조적 한계 — 이미 최악
+                                                                     케이스는 HOLD로 차단됨.
+                                                                     "손댈 필요 없음" 범주
+  7    2. 해시버킷 wave OR 비용                 고      -           same-DBMS 한정 기능, 이미
+       (선형 증가 특성, 4000 bucket 상한 존재)                       알려진 트레이드오프.
+                                                                     근본수정은 알고리즘 교체
+                                                                     수준 — 문서화 우선
+  -    3(청크고정)/6(STREAM ckpt)/8(DB스캔)/    -       -           개선 여지 없거나(구조적
+       9(MetaCollector)/10(Neon)/11(진행신호)                       한계) 이미 최적화 완료,
+       R1~R4                                                        또는 별도 리스크 트랙
+
+**heuristic/scoring/explainability 영향**: N1은 화면 표시 로직(useStream 임계값)과
+서버 확정 로직(명시요청 존중)이 이원화되어 있어 발생 — 하드코딩 증가는 아니나
+"단일 출처 원칙" 위반 사례로 후속 설계 시 유의 필요. 나머지 항목은 기존 구조
+내 최적화이며 heuristic/scoring 로직 자체에는 영향 없음.
+
+────────────────────────────────────────────────────────────
+비고
+────────────────────────────────────────────────────────────
+- 코드 수정 없음(조사 전용 지침 준수)
+- 조사 도구: 병렬 opus 에이전트 2개(전략-실행 일치성 / 속도 요소), 읽기 전용
+- 참고: M76/M68 태그는 이번 조사 범위(git log, 메모리 색인)에서 직접 확인되지
+  않음 — 지시서에 인용된 배경 지식으로 처리, 별도 재확인 필요 시 후속 조사 권장
+
+작업명 : DATA-EXTRACTION-SPEED-AND-STRATEGY-CONFORMANCE-CHECK
+✅ 작업 완료 - 5단계 데이터 추출 경로 전체를 대상으로 전략-실행 일치성 및 속도 영향 요소를 종합 점검함(조사 전용, 코드 수정 없음)
+```
