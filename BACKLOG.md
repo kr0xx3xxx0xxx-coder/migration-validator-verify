@@ -6678,3 +6678,31 @@ git -C E:/verify_reports worktree remove <임시경로>
 - **동시세션 안전**: 같은 파일(ui/tabler_renderer.py)을 M98 세션이 동시
   편집 중이었으나 hunk단위 격리로 서로 무손상 분리 커밋.
 - 근거: E:\verify_reports\WIZARD-STEP-BOTTOM-BAR-BLEED-INTO-OTHER-MENUS-DIAGNOSE.txt
+
+### M100. STATS_SAMPLE_ONLY 표시 필요성 재검토 — "유지 권장"으로 결론(N1과 다른 종류, 의도적 고지설계임을 이력으로 확인), M98 배경색 변경도 완료
+- 발견/계기: 2026-08-12 (사용자 — "실제 실행 전략과 다른데 왜 보여주냐" /
+  STATS-SAMPLE-ONLY-DISPLAY-NECESSITY-RECONSIDER-DIAGNOSE, 코드 무변경,
+  git log -S + verify 메모리 사료 대조)
+- **설계의도 확정**: 코드 주석에 원 작업 태그명 "STRATEGY-PLAN-EXECUTION-
+  MISMATCH-DISCLOSURE" 그대로 잔존 — 우연한 부산물 아닌 명명된 의도적 고지
+  조치. 2026-07-18 조사 당시 "화면 노출 결정"과 "노출 시 참고용임을 반드시
+  밝히기로 결정"이 동시에 이뤄짐(verify 메모리 1차사료로 확인, 당시 원본
+  directives/reports 파일은 verify 클론 stale삭제로 소실 추정).
+- **N1(M81)과 구분**: 표면(화면≠실행)은 같으나, N1은 무고지+안전망도 구조적
+  으로 무력화된 결함, STATS_SAMPLE_ONLY는 처음부터 note/tip(최근엔 인라인
+  desc)으로 명시 고지된 설계 — 동일 범주로 묶어 고칠 대상 아님.
+- **실익 확인**: 배지가 "카디널리티근접/무인덱스대형스캔/복잡SUM식 중 하나에
+  걸렸다"는 분류신호 기능 — 없애면 사용자가 비용점수 숫자만으로 "왜 느린지"
+  추론해야 함(정보손실).
+- **결론(구현 없음, 조사·추천만)**: 지금처럼 유지 권장, STATS_DIRECT_AGG
+  통일표시는 비권장. 잔여 미세개선 여지(전략명 자체가 여전히 액션을 암시하는
+  이름이라 완전히 오인위험 0은 아님)는 향후 라벨문구 중립화 정도로만 별도
+  검토 가능(이번 범위 아님).
+- 근거: E:\verify_reports\reports\STATS-SAMPLE-ONLY-DISPLAY-NECESSITY-RECONSIDER-DIAGNOSE.md
+
+### (M98 보강) 배경색 흰색변경 완료
+- MISMATCH-LIST-GRID-BG-WHITE 완료 — `ui/execute_result_renderer.py:40-42`
+  짝수행 지브라(#F8FAFC) 제거, 전 행 흰색 통일. 원본만/목적지만 강조행(주황/
+  보라, 인라인 스타일)은 그대로 보존. Chromium 렌더+getComputedStyle 실측
+  확인(8행 픽스처, 전/후 대조). 커밋 910cf757.
+- 근거: E:\verify_reports\reports\MISMATCH-LIST-GRID-BG-WHITE.md
