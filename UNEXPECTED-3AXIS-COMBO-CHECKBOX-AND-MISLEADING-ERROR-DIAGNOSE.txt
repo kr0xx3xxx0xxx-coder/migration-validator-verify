@@ -1,0 +1,227 @@
+```text
+작업명 : UNEXPECTED-3AXIS-COMBO-CHECKBOX-AND-MISLEADING-ERROR-DIAGNOSE
+✅ 작업 완료 - (a)3축 UI는 신규 기능 아님, 서로 무관한 기존 표시요소 3개(조합PAIR체크박스 라벨버그
+                +참고용 결합SQL 박스+3단계 비용예측 칩)가 처음으로 동시 노출된 것 — 실제 3축 결합
+                실행 코드는 여전히 없음(오늘 커밋/미커밋 변경 0건) (b)에러문구는 발동조건은 정확하나
+                화면배지 문구("보조확인후보")와 실제 사용 단어("보류")가 달라 오인 소지 있음
+                (c)REGION_NM 미확인 원인은 JOIN 파생컬럼에 대한 값샘플 배선 공백(has_join 게이트)
+                — 코드 근거로 3가지 모두 확정, 판단불가 없음
+
+■ 0. 작업 성격
+  조사 전용. 코드 저장소(X:\Projects\nxDTV) 변경 0줄 · 신규 파일 0건 · 커밋 0건 · DB 변경 0건.
+  git log(오늘 2026-08-13 커밋 6건 전수 확인) + git status/diff(미커밋 변경 0건, 대상 3파일 모두
+  clean) + 코드 정독(관련 8개 파일)으로 조사했다.
+
+■ 1. 결론 먼저
+  (a) 이 3축 결합 "UI"는 오늘도 과거에도 3축을 실제로 결합 실행하는 신규/부활 기능이 아니다.
+      COMBO-3AXIS-COST-WARNING-CONFIRM-IMPLEMENT(이 사례를 만들었을 것으로 의심됐던 지침)는
+      완료보고가 없을 뿐 아니라 코드 흔적도 전무하다(§2 근거). 사용자가 본 화면은 서로 독립적으로
+      개발된 기존 표시요소 3개가 "3개 GROUP BY 후보 선택 + 조합 체크박스 ON + 대형(5천만행) 테이블"
+      조합에서 처음으로 한 화면에 동시 노출된 것이다. 실제 실행되는 세트는 여전히
+      "단일축 N세트(N=선택 축 수) + 최대 2축 PAIR 1세트"뿐이다(오늘 이전 조사
+      COMBO-3AXIS-STRUCTURAL-MAX-RECHECK-DIAGNOSE 결론과 동일 — 재확인 완료).
+  (b) 에러 문구 "정책상 제외/보류 컬럼은 실행할 수 없습니다"의 발동 조건 자체는 정확하다
+      (REGION_NM 은 실제로 REC_HOLD 상태였다). 다만 그 원인이 사용자가 화면에서 본
+      "관리컬럼 미확인"(NOT_AUDIT_AMBIGUOUS) 배지와는 **완전히 무관한 별개 판정 축**이었고, 실제
+      원인(REC_HOLD)에 해당하는 화면 배지는 "보조확인후보"라는 문구를 쓸 뿐 "제외"·"보류" 단어를
+      한 번도 쓰지 않는다 — 원인 조건은 정확, 화면 문구 정합성은 부정확(오인 유발).
+  (c) REGION_NM 이 "관리컬럼 미확인"으로 남은 이유는 관리컬럼 자동판정 로직이 "조인으로 가져온
+      컬럼"을 제대로 처리하지 못해서가 맞다 — 정확히는 "값 샘플이 애초에 배선되지 않아 판정
+      근거 자체가 없었다"(A축 판정불가·N1)이며, 그 배선 공백의 원인은 JOIN 존재 시 실DB 값샘플
+      조회 경로를 통째로 꺼버리는 has_join 게이트다(§4 근거).
+
+■ 2. 3축 결합 UI/기능 출처 확인 (조사범위 1)
+  (1) 오늘(2026-08-13) 커밋 6건 전수 확인(`git log --since/--until` + groupby_plan_service.py /
+      multiset_execute_service.py / tabler_renderer.py 3개 파일 필터) — COMBO-3AXIS-COST-
+      WARNING-CONFIRM-IMPLEMENT 관련 커밋 0건. 6건 전부 무관한 별개 작업(5단계 스타일 정리,
+      MIN_AVG_ROWS 게이트 제거, CSR 프리뷰 중복호출 가드, 5단계 폴링 누수 수정 등).
+  (2) `git status --porcelain` + `git diff --stat` 로 위 3개 파일 미커밋 변경도 확인 — 0건
+      (working tree/staged 모두 clean). 즉 COMBO-3AXIS-COST-WARNING-CONFIRM-IMPLEMENT /
+      COMBO-3AXIS-DYNAMIC-DOWNGRADE-THRESHOLD-AND-IMPLEMENT(둘 다 완료보고 없음, 후자는
+      전자로 대체돼 폐기됨) 어느 쪽도 코드에 반영된 흔적이 없다 — 완료보고 누락이 아니라
+      "아직 시작도 안 됨"이 맞다.
+  (3) 그렇다면 화면에 보인 3가지 요소는 서로 다른 기존(오늘 이전) 커밋에서 왔다:
+      ① 조합 체크박스 라벨 오기 — ui/js_sql_preview.py:312
+         `mvComboPairLabelHtml()` 이 ON 상태에서 반환하는 문구:
+           `'단일축 및 그룹조합(' + colTxt + ')까지 실행'`
+         `colTxt` 는 `window._mvComboLabelCols`(= 그 시점 **선택된 GROUP BY 후보 전체**, 즉 gbSel)를
+         그대로 join 한 것이다(js_sql_preview.py:266-267, 274). 실제 실행되는 조합은 항상
+         "2축 PAIR 1개"뿐인데(§1 근거, groupby_plan_service.py 구조는 오늘 재확인한
+         COMBO-3AXIS-STRUCTURAL-MAX-RECHECK-DIAGNOSE 그대로 무변경) 라벨은 선택된 축 이름을
+         전부 나열한다 — REGION_CD/STATUS_CD/REGION_NM 3개를 선택했으므로 "REGION_CD + STATUS_CD +
+         REGION_NM"이 그대로 라벨에 찍힌다. 이 오기는 오늘 이전 조사
+         COMBO-3AXIS-STRUCTURAL-MAX-RECHECK-DIAGNOSE §5-⑥에 "3개 축 이름을 그대로 나열해 3축이
+         결합된다고 오독할 여지가 있다"고 이미 예견·기록돼 있던 바로 그 문제다(그때는 2축 사례로만
+         재현, 이번이 3축 실사례 최초 확인).
+      ② 참고용 결합 SQL 박스 — 같은 파일 el.innerHTML(215-234행)이 그리는 srcBox/tgtBox 는
+         g.stats_src_sql/g.stats_tgt_sql(서버 /generate 응답) 원문을 그대로 표시한다. GROUP BY 2개
+         이상 선택 시 이 SQL 은 항상 "선택된 축 전부를 combine 한 GROUP BY"로 생성되지만
+         (STATS-EXECUTE-STEP4-GENERATED-SQL-LABEL-ACCURACY-FIX 시점부터 "참고용"으로 명시,
+         js_sql_preview.py:62-72), 체크박스 OFF 상태에서 뜨는 안내문(129-146행,
+         `_gbArr.length >= 2` 조건)이 "이 SQL은 참고용입니다 — 실제로는 각 축을 독립적으로
+         실행합니다"라고 이미 밝히고 있다. 사용자가 본 "REGION_CD, STATUS_CD, REGION_NM 전부
+         결합한 SQL"은 바로 이 참고용 박스다 — 체크박스 ON 여부와 무관하게 GROUP BY 2개 이상이면
+         항상 뜬다.
+      ③ 비용추정(예상그룹 52개·예상소요 1분37초) — 이 값은 조합 체크박스와 무관한 **별도 표시
+         지점**이다. ui/js_sql_preview.py:392-401 `mvStatsStrategyInfoHtml()` 이
+         `window._mvStage3PlanInfo.statsStrategy`(3단계 전략계획 `/strategy/plan` 응답, 오늘
+         이전부터 존재)의 `estimatedGroupCount`/`estimatedElapsedMs` 를 칩으로 표시한다. 그 값의
+         산출은 services/strategy/stats_strategy_planner.py:104-109 `_axis_group_sum()` —
+         함수 주석에 명시된 대로 "단일축 예상 그룹 **'합'**(§3.5 — 축 곱 아님)"이다. 즉 "52개"는
+         REGION_CD+STATUS_CD+REGION_NM 3축을 곱한 카디널리티(3축 결합 시의 실제 그룹 수)가 아니라
+         "3개 단일축 세트가 각각 만드는 그룹 수의 합"이며, "1분37초"도 그 3개 단일축 세트를
+         순차 실행하는 데 걸리는 총 예상시간이다(같은 파일 118-122행 주석: "다중 GROUP BY 는 조합
+         1회가 아니라 단일축 N세트 '순차' 실행" — set_multiplier 로 스캔 비용을 N배 보정). 즉 이
+         숫자는 "3축 결합 실행"의 비용이 아니라 "단일축 3세트 실행"의 비용이며, 실제로 그렇게
+         실행된다.
+      결론: ①②③ 모두 "3축을 결합 실행한다"는 근거가 아니라 "3축을 선택했다"는 사실에서 파생된
+      서로 다른 기존 표시일 뿐이다. 화면을 종합해서 본 사용자가 "3축 결합이 실행되는구나"라고
+      오해할 만한 근거(①②)는 실재하나, 코드가 실제로 3축을 결합 실행하는 경로는 여전히 없다
+      (오늘 재확인, §1).
+  (4) "STATS_SAMPLE_ONLY" 전략명 확인 — services/strategy/stats_strategy_planner.py:319-365
+      `plan_stats_strategy()`. 대용량(예: 5천만행) 테이블에서 huge_unindexed_scan(스캔행수가
+      임계값 초과 + 파티션·인덱스 미사용, 340행) 또는 card_near_scan(최대 카디널리티가 스캔량의
+      30% 이상, 337행) 조건이면 `sid = STATS_SAMPLE_ONLY`(351행)로 판정된다 — 이는 GROUP BY 축
+      개수·조합 여부와 무관한 **집계 부담(스캔량/카디널리티) 기준** 전략이며, STATS_DIRECT_AGG와는
+      "표본/제한 통계로 갈지 직접 전체집계로 갈지"만 가르는 축이다. 3축 결합을 위한 별도 경로가
+      아니다 — MV_SCATTER50M 이 대형 테이블이라 이 전략이 뽑혔을 뿐, 3축 여부와는 직교(orthogonal)
+      한 판정이다.
+
+■ 3. 에러 문구 정확한 발생조건 확인 (조사범위 2)
+  (1) 문자열 발생 지점 — services/groupby_execution_safety.py:206-211
+        # 정책상 제외/보류 컬럼이 선택되면 실행 불가(추천 정책과 별개의 안전 차단).
+        from services.fallback_recommendation import classify_recommendation_status, REC_EXCLUDED, REC_HOLD
+        for c in selected_cands:
+            if classify_recommendation_status(c) in (REC_EXCLUDED, REC_HOLD):
+                return _result(BLOCKED_UNVERIFIABLE, POLICY_EXCLUDED, selected=sel, limit=limit,
+                               detail="정책상 제외/보류 컬럼은 실행할 수 없습니다.")
+      조건: `selected_cands`(선택된 GROUP BY 컬럼 중 후보사전에 매칭된 것들) 중 하나라도
+      `classify_recommendation_status(c)` 가 REC_EXCLUDED 또는 REC_HOLD 면 무조건 차단. **컬럼
+      1개만 걸려도 선택 전체(그 실행 요청)가 막힌다** — REGION_NM 하나만 HOLD 여도 이번 요청은
+      전부 차단됐다.
+      호출 시점 — services/single_validation_core.py:425 `groupby_execution_safety_gate.run_gate`
+      가 이 함수를 감싸 부른다. 이 게이트는 SQL 생성/미리보기(§2 ②③)에는 관여하지 않고, 실제
+      "▶ 통계검증 실행"(백그라운드 실행 포함) 요청 처리 시점에만 발동한다 — 그래서 사용자는 SQL과
+      비용추정까지 정상적으로 다 본 뒤에야 실행 단계에서 처음 이 에러를 만났다(preview 단계에
+      이 게이트가 없다는 것 자체는 이번 조사범위 밖이라 판단하지 않음, 사실만 기록).
+  (2) REGION_NM이 REC_HOLD가 된 경로 — `classify_recommendation_status`
+      (services/fallback_recommendation.py:603-621): 619-620행
+        if st in ("MANUAL_REQUIRED", "DATE_BUCKET_CANDIDATE", "NAME_DESC_CANDIDATE"):
+            return REC_HOLD
+      `NAME_DESC_CANDIDATE` 는 REGION_NM 의 `selection_status`(=legacy_status) 값이었다 —
+      services/db_statistics_service.py:1160-1167:
+        # 기존 warn_reason에서 비추천 표시된 컬럼 → NAME_DESC_CANDIDATE
+        _warn_r = cand.get('warn_reason') or ''
+        if ('비추천' in _warn_r and extra.get('selection_status') not in (
+                _STATUS_DATE_BUCKET_CANDIDATE, _STATUS_EXCLUDED_BY_RULE)):
+            extra['selection_status'] = _STATUS_NAME_DESC_CANDIDATE
+      `warn_reason` 이 "비추천"을 포함하게 된 것은 services/analyze_service.py:223-224 —
+      `_RE_NAME_DESC.search(col)` 매칭 시 `_warn_r = '명칭/설명성 컬럼 — GROUP BY 후보 비추천'`.
+      `_RE_NAME_DESC`(analyzer/column_analyzer.py:121-125) 는 `(^|_)(NM|NAME|DESC|...)$` 패턴이고
+      "REGION_NM"은 `_NM` 접미사로 정확히 매칭된다(문서 RELEASE_CANDIDATE_READINESS_REVIEW.md:71
+      에도 `*_NM` 이 이 패턴의 대표 예시로 명시돼 있다). 즉 REGION_NM 은 "명칭성 컬럼이라 GROUP BY
+      로 부적합하다"는 **완전히 다른, 오래된 heuristic**(컬럼명 접미사 기반) 때문에 HOLD 가 됐다 —
+      3축이라서도, 대형 테이블이라서도 아니다. 같은 이름(REGION_NM)을 가진 컬럼은 몇 개를 선택하든,
+      단독으로 선택하든 항상 이 사유로 실행이 막힌다(재현 가능한 결정론적 조건).
+  (3) NOT_AUDIT_AMBIGUOUS(관리컬럼 미확인)와의 관계 — **무관계, 별개 판정 축임을 코드로 확정**.
+      services/candidate_subtype_service.py:691-707 `is_admin_audit_confirmed()` 문서에 명시:
+        "NOT_AUDIT_CONFIRMED / NOT_AUDIT_AMBIGUOUS → 배제 아님(둘 다 CONFIRMED 가 아님)"
+      즉 admin_audit_verdict 축(B축 명칭/코멘트 × A축 값 교차확인, 관리컬럼=시스템/배치 스탬프
+      컬럼 여부 판정)은 `classify_recommendation_status`/REC_HOLD·REC_EXCLUDED 판정에 **전혀
+      입력되지 않는다** — 두 시스템은 서로 다른 파일(fallback_recommendation.py vs
+      candidate_subtype_service.py)에 독립적으로 구현돼 있고, 실행 차단 게이트
+      (groupby_execution_safety.py)는 오직 `classify_recommendation_status` 만 읽는다.
+      REGION_NM 이 화면에서 "관리컬럼 미확인" 배지를 달고 있었던 것은 §4 에서 다루는 완전히
+      별개의 이유(값 샘플 미배선)이고, 실행을 막은 진짜 이유(NAME_DESC_CANDIDATE→HOLD)와는
+      우연히 같은 컬럼에서 동시에 나타났을 뿐 인과관계가 없다.
+  (4) 문구 정확성 최종 판정 — **발동 조건은 정확, 화면 문구 정합성은 부정확**.
+      REC_HOLD(NAME_DESC_CANDIDATE) 상태의 화면 배지 문구는 "보조확인후보"다
+      (services/candidate_display_enricher.py:51, ui/tabler_renderer.py:11315/22855/23787 등
+      전 렌더 경로 동일 — "제외"·"보류" 단어를 쓰지 않는다). REC_EXCLUDED 의 배지만 "정책상제외"
+      (services/fallback_recommendation.py:629)로 "제외" 단어를 실제로 쓴다. 사용자가 실행 화면
+      어디에서도 "제외"나 "보류"라는 글자 자체를 본 적이 없다는 관찰(지시서 §배경)은 코드로도
+      맞다 — REGION_NM 의 실제 badge 는 "보조확인후보"(HOLD 지만 그 단어를 안 씀) + 별개로
+      "관리컬럼 미확인"(무관한 축) 둘뿐이었다. 반면 실행 실패 에러는 정책 카테고리명("제외/보류")
+      을 그대로 노출해, 화면에서 본 배지 문구와 에러 문구 사이에 **어휘 불일치**가 있다 — 이것이
+      사용자가 "실제 상황과 안 맞아 보인다"고 느낀 근본 원인이다. 원인(조건) 자체가 틀린 것은
+      아니다 — REGION_NM은 실제로, 확정적으로 HOLD 상태였다.
+
+■ 4. REGION_NM이 "관리컬럼 미확인"으로 남은 이유 (조사범위 3)
+  판정: **관리컬럼 자동판정 로직이 "조인으로 가져온 컬럼"을 제대로 처리하지 못했다** — 정확히는
+  판정에 필요한 값 샘플(sample_values)이 애초에 배선되지 않아 A축(값) 판정이 "판정불가(None)"로
+  고정된 것이 원인이다.
+  (1) 판정표(services/candidate_subtype_service.py:710-734 `evaluate_admin_audit_crosscheck`
+      docstring) — "B=False + A=None + 값 미배선(N1) → NOT_AUDIT_AMBIGUOUS". REGION_NM 은
+      B축(명칭/코멘트가 관리컬럼 표준사전과 매칭)이 False(REGION_NM 은 REG_DT/BATCH_ID 류 감사
+      컬럼명 사전과 무관)이고, A축(값)이 판정불가(None)였다.
+  (2) A축이 None 이 된 경로 — `candidate_system_audit_value_verdict()`
+      (candidate_subtype_service.py:661-676) 는 `_candidate_sample_values(candidate)` 가 None
+      이면(즉 `candidate['sample_values']`/`['value_samples']` 가 비어 있으면) 곧바로 None 을
+      반환한다(295-302행). REGION_NM 의 sample_values 가 비어 있었다는 뜻이다.
+  (3) sample_values 배선이 안 된 이유 — services/column_profile_service.py:155-238
+      `resolve_candidate_sample_values()`:
+        ① column_profiles 재사용(199-206행) — `collect_column_profiles` 가 미리 만들어 둔
+           프로필 맵에서 값을 가져오는 경로다. 이 프로필은 이관 SELECT의 **from_table(기준
+           테이블) 자체 컬럼**을 대상으로 하는 것이 정상 동작이며(스키마상 REGION_NM 은 SRC
+           테이블에 없고 DIM 테이블 JOIN 으로만 존재 — MV-SCATTER50M-SCHEMA-QUICK-CHECK 기존
+           조사 확인), 그 프로필 맵에 REGION_NM 항목이 아예 없다면 이 경로는 값을 못 찾는다.
+        ② mv_column_sample(SQLite) 캐시 재사용 — 이 테이블/컬럼을 처음 분석하는 시나리오라면
+           캐시도 비어 있다.
+        ③ 실DB LIMIT 100 라이브 조회(211행) — 유일하게 새로 값을 떠올 수 있는 경로이지만
+             `if allow_db_fetch and src_db_info and not has_join:`
+           **JOIN 이 있으면(`has_join=True`) 이 경로 전체가 통째로 비활성화된다.** 실제 호출부인
+           services/candidate_postcount_finalize.py:791-806 은
+             has_join=bool(join_clauses)
+           로 넘긴다 — MV_SCATTER50M 이관 SQL 은 DIM 테이블과 JOIN 하므로 `join_clauses` 가
+           비어 있지 않고, 따라서 `has_join=True` → ③ 경로가 이 테이블의 **모든 후보(REGION_CD/
+           STATUS_CD/REGION_NM 전부)에 대해** 꺼진다. 다만 REGION_CD/STATUS_CD는 SRC 테이블
+           자신의 컬럼이라 ①(column_profiles, from_table 단일 테이블 기준 프로파일링)에서
+           정상적으로 값을 확보하므로 문제가 드러나지 않고, REGION_NM 만 애초에 SRC 테이블에
+           없는 컬럼이라 ①에서도 항목 자체가 없어 두 경로(①③) 모두에서 값을 못 얻는다.
+      ③ 경로가 `has_join` 전체를 끄는 이유는 방어적 설계다(211행 인접 주석,
+      PROFILE-COLLECTION-CTE-JOIN-COLUMN-REFERENCE-FIX) — "base 테이블에 없는 컬럼을 섞어
+      조회하면 값 샘플 SELECT 한 건이 통째로 실패해(ORA-00904) 정상 컬럼 샘플까지 같이 잃는다"는
+      과거 결함의 재발 방지책이다. 즉 "JOIN 파생 컬럼이 있으면 그 배치 전체의 라이브 조회를
+      끈다"는 **의도된 안전장치**이지만, 그 부작용으로 "JOIN 파생 컬럼 자신은 어떤 경로로도 값을
+      영영 못 받는다"는 사각지대가 생겼다 — CTE_FLATTENED 화이트리스트(192-196행)로 이 사각지대를
+      메우는 장치가 이미 같은 함수에 있지만, candidate_postcount_finalize.py 호출부는 CTE(WITH절)
+      평탄화 케이스만 `source_scope`를 채워 넘기고(804-805행 주석), 일반 JOIN(비-CTE) 파생 컬럼인
+      REGION_NM 케이스는 그 화이트리스트 대상이 아니라서 구제되지 않는다.
+  (4) 결론 — REGION_NM 이 "관리컬럼 미확인"으로 남은 것은 REGION_NM 의 실제 데이터 성격과 무관하게,
+      "JOIN 으로 가져온 컬럼"이라는 구조적 이유만으로 값 샘플이 원천적으로 배선되지 않아
+      A축이 항상 판정불가(None)로 고정되기 때문이다 — 관리컬럼 자동판정 로직이 JOIN 파생 컬럼을
+      제대로 처리하지 못한다는 지시서의 가설이 코드로 확정됐다.
+
+■ 5. 종합 결론 (조사범위 4)
+  ① 3축 UI 출처: 신규/부활 기능 아님 — 조합PAIR 체크박스 라벨의 축 이름 나열 오기(기존 조사가
+     이미 예견) + 참고용 결합SQL(기존 기능) + 3단계 비용예측 칩(단일축 합산치, 조합과 무관)
+     3개가 "3축 후보 선택 + 대형 테이블"에서 처음으로 함께 노출된 것. 실제 실행 세트 구성은
+     여전히 단일축 N개 + PAIR 1개뿐이며 이는 오늘 재확인(§2)으로 무변경 확정.
+  ② 에러 문구: 발동 조건(REGION_NM=REC_HOLD)은 정확하고 재현 가능한 결정론적 원인
+     (_RE_NAME_DESC 의 `_NM` 접미사 매칭 → NAME_DESC_CANDIDATE → REC_HOLD)이 있다. 다만 문구가
+     쓰는 "제외/보류"라는 단어가 실제 화면 배지("보조확인후보")에는 등장하지 않아, 사용자가
+     화면에서 본 것(관리컬럼 미확인 배지)과 에러가 지목하는 것(HOLD, 별개 축)이 다르다는 데서
+     오는 오인 소지가 실재한다 — "부정확"이 아니라 "배지 문구와 에러 문구 간 어휘 불일치"로 판정.
+  ③ REGION_NM 미확인 원인: JOIN 파생 컬럼에 대한 값 샘플 배선 경로 공백(has_join 게이트 +
+     CTE_FLATTENED 화이트리스트가 일반 JOIN은 커버 안 함)이 원인 — 코드로 확정.
+  ④ 판단불가 항목 없음 — 3가지 모두 파일:라인 근거로 확정했다. 코드 수정은 지시서 원칙대로
+     수행하지 않았다(조사 전용).
+  ⑤ (참고, 조사범위 밖 — 기록만) 실행 안전 게이트(groupby_execution_safety_gate)가 SQL
+     미리보기/비용추정 단계가 아니라 실제 실행 요청 시점에만 발동해, 사용자가 문제없어 보이는
+     화면(SQL+비용추정)을 다 확인한 뒤에야 뒤늦게 차단을 만난 것도 이번 혼란에 기여했다 — 조사
+     범위 밖이라 개선 여부는 판단하지 않았다.
+
+■ 6. 변경/생성 파일
+  코드 저장소(X:\Projects\nxDTV) : 변경 0건 · 신규 0건 · 커밋 0건(조사 전용, 지시서 원칙 준수)
+  완료보고 파일 :
+    G:\내 드라이브\nxDTV-verify\reports\UNEXPECTED-3AXIS-COMBO-CHECKBOX-AND-MISLEADING-ERROR-DIAGNOSE.md
+    X:\Verify\_rpt_push\UNEXPECTED-3AXIS-COMBO-CHECKBOX-AND-MISLEADING-ERROR-DIAGNOSE.txt (verify 저장소 push)
+
+작업명 : UNEXPECTED-3AXIS-COMBO-CHECKBOX-AND-MISLEADING-ERROR-DIAGNOSE
+✅ 작업 완료 - (a)3축 UI는 신규 기능 아님, 서로 무관한 기존 표시요소 3개(조합PAIR체크박스 라벨버그
+                +참고용 결합SQL 박스+3단계 비용예측 칩)가 처음으로 동시 노출된 것 — 실제 3축 결합
+                실행 코드는 여전히 없음(오늘 커밋/미커밋 변경 0건) (b)에러문구는 발동조건은 정확하나
+                화면배지 문구("보조확인후보")와 실제 사용 단어("보류")가 달라 오인 소지 있음
+                (c)REGION_NM 미확인 원인은 JOIN 파생컬럼에 대한 값샘플 배선 공백(has_join 게이트)
+                — 코드 근거로 3가지 모두 확정, 판단불가 없음
+```
