@@ -6854,3 +6854,32 @@ git -C E:/verify_reports worktree remove <임시경로>
   일치 그룹을 봐야 할 케이스가 얼마나 있는지 — 부터 확인 권장).
 - 근거: E:\verify_reports\reports\MATCHED-ROWS-TOGGLE-MISSING-IN-COMBO-CASE-DIAGNOSE.txt,
   스크린샷 verify_screenshots_only\MATCHED-ROWS-TOGGLE-MISSING-IN-COMBO-CASE-DIAGNOSE\
+
+### M103. ✅ 해결 완료 — 조합(다축) GROUP BY 평균행수 하한 게이트(100행/그룹) 제거, 상쇄탐지 실측 확인
+- 발견/계기: 2026-08-13 (사용자 - 조합 축이 "평균 6행/그룹 < 최소기준 100행"
+  으로 자동실행 불가 처리되는 것을 화면에서 발견, "원본=목적 완전일치 원칙상
+  조합축도 항상 스크리닝돼야 한다"는 정책 결정 / COMBO-MIN-AVG-ROWS-SKIP-
+  GATE-REMOVE)
+- **게이트 위치**: services/groupby_plan_service.py:52
+  PLAN_MIN_AVG_ROWS_PER_GROUP=100, 판정분기 L168-174. MAX_GROUPS(4,000, M65)
+  와는 서로 독립된 별개 게이트(elif 아님, 둘 다 순차 통과 필요) - 이중방어나
+  SQL 생성방식과 구조적 결합 없음을 grep 전수확인 후 완전제거(임계값 완화
+  아님 - 관련 단위테스트 4건 재작성 필요는 어차피 동일해 완화의 이점 없었음).
+- **핵심 실측(상쇄탐지)**: 신규 픽스처 MV_MINAVG(STATUS_CD 4×DEPT_CD 6=24
+  조합·150행)로 2×2 라틴 상쇄 4셀 주입 - 단일축(STATUS_CD 4그룹, DEPT_CD
+  6그룹) 둘 다 불일치 0개(완전 일치로 보임)인데, 조합축만 정확히 4개 불일치
+  검출(COUNT는 7=7/7=7/6=6/6=6로 전부 일치, AMT만 ±50씩 어긋남) - Claude
+  웹이 스크린샷 직접 열람해 COUNT/AMT 수치까지 픽셀 단위로 확인 완료.
+  5단계 드릴다운(행단위 비교)도 신규 스크리닝 그룹에서 정상 동작 확인(M91
+  코드경로 공유 결론 재확인).
+- **회귀 확인**: MV_DTIER(1,600조합·완전일치)에서 과탐 0건, MV_ORA_DEMO
+  (지침 원문 실사례)에서 게이트 해제 재현. MAX_GROUPS(4,000) 상한은 단위
+  테스트+라이브 HTTP 실측(10,080그룹 케이스) 둘 다로 여전히 정상 작동 확인
+  - 이번 변경이 그 상한을 손상시키지 않음.
+- 회귀 테스트: 83 passed, 1 failed(무관한 기존 결함, execute_result_
+  renderer.py CSS 문자열 부재 - 이번 변경 파일 미참조 확인).
+- 커밋(코드저장소): 00260b978490bd678be2d23a5cc5eb2a9282052c
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  COMBO-MIN-AVG-ROWS-SKIP-GATE-REMOVE.md, 스크린샷/JSON
+  G:\내 드라이브\nxDTV-verify\screenshots\COMBO-MIN-AVG-ROWS-SKIP-GATE-REMOVE\
+
