@@ -6998,3 +6998,95 @@ git -C E:/verify_reports worktree remove <임시경로>
   COMBO-3AXIS-STRUCTURAL-MAX-RECHECK-DIAGNOSE.md
 
 
+### M107. ✅ 해결 완료 — 5단계 불일치 상세/일치 샘플 표 UI 개선 시리즈
+(단일표 통일 + 정렬 규칙 + '불일치 유형' 배지 제거 + 상세리스트 시각 위계)
+- 발견/계기: 2026-08-13 (사용자 스크린샷 검수 3회 반복 - M104 직후 "원본/목적
+  표가 따로 있고 전체 컬럼이 나온다", "헤더/값 정렬 없다", "불일치 유형이
+  일치와 통일감 없다", "상세리스트가 그룹목록보다 폰트 크고 폭도 같아 위계가
+  안 느껴진다")
+- **1단계(STAGE5-MATCHED-SAMPLE-UI-CONSISTENCY-FIX)**: 일치 그룹 샘플의
+  "원본/목적 별도 2표 + 전체컬럼" 구조를 불일치 상세와 동일한 "단일표 +
+  ID(PK)+후보컬럼(원본)/(목적) 쌍" 구조로 재작성. 컬럼 출처는 불일치 상세가
+  /agg-diff/prepare 요청에 넣는 것과 완전히 동일한 소스(_execEvidence.
+  gbSel/sumSel) 재사용(신규 계산 없음). "상세 추출 상태" 칸도 "일치(샘플
+  보기)" 중복문구 대신 미확인/완료 체계로 통일. 실측 9/9 PASS.
+- **2단계(STAGE5-MISMATCH-TYPE-BADGE-NECESSITY-DIAGNOSE, 조사)**: "불일치
+  유형" 배지 조사 결과 (a) 가능한 값이 "값 불일치"/"목적 미존재" 2개뿐(실측
+  91%/9%) (b) 같은 행의 (목적) 컬럼 셀 강조·대시 표시만으로 100% 재현되는
+  완전 중복 정보임을 확인 - 제거해도 정보손실 없음(코너케이스 1건: GROUP BY/
+  SUM 컬럼 미선택 시에만 유일 단서이나 실사용에서 거의 발생 안 함). 사용자가
+  이 근거로 배지 제거 결정.
+- **3단계(STAGE5-DETAIL-LIST-FULL-STYLE-FIX)**: 6개 항목 일괄 적용 - ①헤더
+  전부 가운데 정렬 ②값 정렬(코드성/PK 가운데, SUM 오른쪽+여백, 컬럼 역할
+  기준 판단) ③"불일치 유형" 배지 컬럼 완전 제거(3개 렌더 지점 + 자체발견
+  1곳, 두 표 모두 ID/PK부터 시작으로 통일) ④상세리스트 폰트를 그룹목록과
+  동일하게(.78rem, 기존 값 재사용) ⑤상세리스트 왼쪽 들여쓰기+오른쪽 그룹
+  목록과 수직정렬 ⑥상세리스트 배경 흰색. 실측 20/20 PASS, Claude 웹이
+  스크린샷 직접 열람해 최종 형태(배지없음/정렬/들여쓰기/흰배경) 픽셀단위
+  확인.
+- 커밋(코드저장소): 940be987(1단계), 7914a2ef(2·3단계 통합 - 착수 시점 이미
+  같은 파일에 미커밋 상태이던 1단계 변경분도 함께 포함해 커밋됨).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\ 내 STAGE5-MATCHED-SAMPLE-UI-
+  CONSISTENCY-FIX.md / STAGE5-MISMATCH-TYPE-BADGE-NECESSITY-DIAGNOSE.md /
+  STAGE5-DETAIL-LIST-FULL-STYLE-FIX.md, 스크린샷 각 폴더.
+
+### M108. ✅ 해결 완료 — 4단계 통계검증 fetch 경로 arraysize 미설정 결함 수정
+(과세분화 케이스 -89.5% 성능개선)
+- 발견/계기: 2026-08-13 (사용자 "병렬처리 같은 기술적 방법으로 비용 못
+  낮추나" 질문 → COMBO-OVERFRAGMENTED-PARALLEL-FETCH-FEASIBILITY-DIAGNOSE
+  조사 중 발견)
+- **1단계 조사 결론(병렬fetch)**: 병렬 fetch는 "권장하지 않음" - 커넥션을
+  늘려도 총 왕복횟수(sum_fetch)는 안 줄고 파이프만 나뉨(N무관 4,100~
+  5,500ms), 반면 DB 스캔부하는 N배 폭증(61.5배 실측)하고 32커넥션에서
+  실제 접속끊김(DPY-4011) 재현. 조사 중 **진짜 원인을 발견**: services/
+  db_query_service.py:795~844(4단계 GROUP BY fetch 유일 실행지점)에
+  arraysize/prefetchrows 설정이 전혀 없어 Oracle 기본값(100)으로 동작 -
+  148,877행 케이스에서 왕복 1,489회 발생. 같은 저장소 exact_diff 모듈은
+  이미 arraysize=5000을 쓰고 있어 이 경로만의 설계 누락으로 확인. 단일
+  커넥션+arraysize5000이 8,264ms→900ms(-89.1%)로 병렬(최선 -84%)보다 더
+  크고 싸고 안전함.
+- **2단계 구현(STAGE4-FETCH-ARRAYSIZE-TUNING-FIX)**: 어댑터 위임 패턴
+  (기존 apply_query_timeout 선례 재사용, 인라인 if db_type== 분기 없음)
+  으로 OracleAdapter.apply_fetch_tuning(arraysize=min(5000,row_cap+1))
+  추가. PostgreSQL은 의도적 no-op(기존 설계문서 근거 - psycopg2 client-side
+  커서는 이미 1왕복으로 전량 수신, 튜닝이 무의미). MySQL/MSSQL은 이 fetch
+  경로 자체가 구조적으로 도달 불가(read-only 보장 미지원 방언 차단)라
+  조사 불필요로 확정.
+- **실측(운영 함수 in-process 직접 호출, 재구현 없음)**: 148,877그룹 케이스
+  6,770ms→712ms(-89.5%), correctness_unchanged=True(그룹수·판정 결과
+  완전 동일, 속도만 개선).
+- 커밋(코드저장소): d88b71ab.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\ 내 COMBO-OVERFRAGMENTED-
+  PARALLEL-FETCH-FEASIBILITY-DIAGNOSE.md / STAGE4-FETCH-ARRAYSIZE-TUNING-
+  FIX.md.
+
+### M109. 조사완료 — arraysize 수정(M108) 이후 3축 결합(A) vs 2축분할(B)
+비용 재측정, "B가 11배 유리"하던 결론 크게 후퇴
+- 발견/계기: 2026-08-13 (M108 완료 직후 사용자 "arraysize 효과 좋으면
+  60/4,000/3축비용 재검토 필요한가" 질문 / COMBO-3AXIS-COST-REMEASURE-
+  AFTER-ARRAYSIZE-FIX-DIAGNOSE)
+- **핵심 결과**: M108 적용 전 "과세분화 시 B가 11배 유리"했던 지점
+  (24×24×24=13,824그룹, 평균 11행/그룹)이 arraysize 적용 후 **A 우세로
+  역전**됨. B가 여전히 우세를 유지하는 지점은 평균 약 1행/그룹(53×53×53=
+  148,877그룹, "거의 1행=1그룹" 극단 과세분화)까지 좁혀졌고, 그마저도
+  격차는 11배→2.04배로 대폭 축소. 원인: arraysize 개선은 그룹수가 많을수록
+  (A쪽이 항상 B보다 그룹수가 큼, k³ vs k²) 이득이 크게 실려 B보다 A에
+  항상 유리하게 작용.
+- **대규모 테이블(5천만행)에서 새로 확인된 사실**: arraysize 수정 효과가
+  사실상 없음 - 이 규모의 병목은 fetch가 아니라 테이블 풀스캔(exec) 자체.
+  MAX_GROUPS=4,000 게이트로 그룹수를 아무리 제한해도, 대용량 테이블에서는
+  스캔이 그룹수와 무관하게 항상 전체 테이블을 읽으므로 A/B 모두 여전히
+  수십 초 소요 - 4,000 게이트의 존재 의의(M65/M106)와는 별개로, "빠르게
+  만드는" 효과는 없다는 것이 이번에 새로 확인됨.
+- **3축 확인창(COMBO-3AXIS-COST-WARNING-CONFIRM-IMPLEMENT, 별도 진행중
+  작업) 필요성 결론**: "조건부 필요"(불필요 아님) - 단, 판단 기준을
+  "예상 그룹수"에서 "테이블 규모(스캔비용)"로 바꿔야 함. 소·중규모
+  테이블(15만행급)은 최악의 과세분화 케이스도 1초 미만(A=607ms/B=298ms)
+  이라 확인창 사실상 불필요. 대용량 테이블(5천만행급)은 스캔 자체가
+  선택(A/B)과 무관하게 비싸므로 확인창 계속 필요 - 다만 경고 근거를
+  "그룹수 폭증"이 아니라 "테이블 크기"로 갱신해야 함.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  COMBO-3AXIS-COST-REMEASURE-AFTER-ARRAYSIZE-FIX-DIAGNOSE.md
+
+
+
