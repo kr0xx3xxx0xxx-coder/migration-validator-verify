@@ -7089,4 +7089,95 @@ git -C E:/verify_reports worktree remove <임시경로>
   COMBO-3AXIS-COST-REMEASURE-AFTER-ARRAYSIZE-FIX-DIAGNOSE.md
 
 
+### M110. 조사완료 — Oracle 커서 arraysize 미설정 지점 전수조사, 고우선순위 4곳 확정(도달불가 1곳 별도)
+- 발견/계기: 2026-08-13 (M108 직후 사용자 "이 개선이 프로그램 전체 쿼리에
+  다 적용됐나" 질문 / ORACLE-CURSOR-ARRAYSIZE-FULL-SURVEY-DIAGNOSE)
+- 프로덕션 코드 27개 파일 전수 확인(services/, routes/, db/, validator/).
+  고우선순위 미설정 5곳 중 실행경로 살아있는 4곳: db_adapters/oracle.py:443
+  (fetch_column_stats, 3단계 후보추천 시 매번 실행) / db_query_service.py:
+  1208(_query_columns_info, 카탈로그 조회) / exact_diff/dialects/oracle.py:
+  247(detail_fetch, 불일치 상세 최대1000건) / :576(make_ora_fetch_chunk,
+  PK범위 청크 전수비교). 4곳 전부 기존 apply_fetch_tuning 어댑터 메서드
+  재사용 가능한 구조로 확인.
+- 5번째 validator/default_validator.py:119는 이론상 최대 결과셋이지만
+  어떤 route에서도 호출되지 않는 도달불가 코드로 확인(grep 검증) - 이번
+  수정 범위 제외, 향후 배선 시에만 유효해지는 잠재 리스크로 기록.
+- 후속 수정 지침(ORACLE-CURSOR-ARRAYSIZE-HIGH-PRIORITY-4SPOTS-FIX) 발행됨,
+  진행 중 - 완료 시 M110 갱신 예정.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  ORACLE-CURSOR-ARRAYSIZE-FULL-SURVEY-DIAGNOSE.md
+
+### M111. 조사완료 — Oracle 서버측 병렬실행(PX) 실현가능성: 이미 완전 구현됨(코드 변경 불요), 현재 환경은 에디션 제약
+- 발견/계기: 2026-08-13 (대용량 테이블 스캔비용 문제 대안 모색 /
+  ORACLE-SERVER-PARALLEL-PX-FEASIBILITY-DIAGNOSE)
+- 오늘 실측환경(Oracle Free)의 PX 불가(v$option 'Parallel execution'=
+  FALSE)는 설정 문제가 아니라 **에디션(Free/Standard Edition 2) 자체의
+  기능 제한**임을 Oracle 공식 문서(ORA-39094)·라이선싱 자료로 확인 -
+  Enterprise Edition은 추가 비용 없이 기본 포함.
+- **핵심 발견**: services/dialects/oracle/parallel_hint.py(커밋 d2d52258,
+  2026-08-01 신설, 289줄)가 이미 완전 구현·배선·테스트(14건)돼 있음 -
+  v$option을 스스로 프로브해서 EE+대상테이블 100만행 이상일 때만 자동
+  PARALLEL 힌트 적용(기능플래그·DOP 모두 env로 조정 가능, 미충족 시 원본
+  SQL 그대로 반환해 무회귀 보장 설계). 즉 실 운영이 EE이고 대상 테이블이
+  기준 이상이면 **코드 수정 0줄로 즉시 동작**한다.
+- 실측은 이 환경 제약상 "무회귀(결과 100% 동일)"까지만 가능, 실제 속도
+  개선은 문서 근거(Amdahl 식 이론치)로만 제시(실측과 구분 표기). 부작용은
+  단일커넥션 내 서버측 분할이라 클라이언트 다중커넥션 병렬(오늘 별도조사,
+  권장안함 결론)보다 위험이 작음.
+- 도입 시 변경범위 = "없음"(이미 완료) + 운영 튜닝 문서화(DOP/임계치 env,
+  DEPLOYMENT_CHECKLIST.md 누락) 정도만 선택적 후속.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  ORACLE-SERVER-PARALLEL-PX-FEASIBILITY-DIAGNOSE.md
+
+### M112. 조사완료 — 커버링 인덱스로 대용량 스캔비용 절감: 효과 실측 확인되나 "실 테이블 CUD 금지" 원칙과 상충, 도구 자동화는 부적합
+- 발견/계기: 2026-08-13 (대용량 테이블 스캔비용 문제 대안 모색 /
+  COVERING-INDEX-SCAN-COST-REDUCTION-FEASIBILITY-DIAGNOSE)
+- EXPLAIN PLAN 간접검증(신규 인덱스 생성 없이, 기존 PK_STR 인덱스로 대조):
+  이론과 실측 정확히 일치 - 인덱스만으로 충족되는 쿼리는 cost가 약
+  2.56~2.79배 절감. 단 "전부 아니면 전무" 특성 실측 확인 - GROUP BY 축에
+  인덱스 컬럼이 있어도 SUM 대상 컬럼 하나(AMT)만 인덱스 밖이면 절감 효과
+  즉시 소멸(순수 TABLE ACCESS FULL과 동일 cost로 복귀).
+- 실질 검증 시나리오(GROUP BY+SUM)에 필요한 커버링 인덱스는 신규 생성이
+  필요한데, 이는 "원본/목적 실 테이블 CUD 금지"라는 이 프로젝트 최상위
+  원칙과 상충 소지가 있다고 판단 - 도구가 자동으로 인덱스를 만들었다
+  지우는 방식은 채택하지 않음(정직한 결론: 기술적으로는 가능·효과도
+  확인되나 정책적 판단 필요, 임의 단정 안 함).
+- 참고: COUNT(*) 단독 비교(2단계)는 PK 인덱스가 있으면 옵티마이저가 이미
+  자동으로 Index Fast Full Scan을 선택 중 - 도구 측 추가 조치 불필요.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  COVERING-INDEX-SCAN-COST-REDUCTION-FEASIBILITY-DIAGNOSE.md
+
+### M113. 조사완료 — 예기치 못한 "3축 결합 UI" 정체 규명: 신규기능 아님(기존 표시요소 3개 우연 동시노출), 오인유발 에러문구·REGION_NM 배선공백 2건 실버그 확정
+- 발견/계기: 2026-08-13 (사용자가 MV_SCATTER50M 대용량 테스트 중 "GROUP BY
+  최대 3개" 선택 시 "단일축 및 그룹조합(3개 전부)까지 실행" 체크박스와
+  3축 결합 SQL·비용추정이 표시되는 것을 처음 발견, 실행 시 "정책상 제외/
+  보류 컬럼은 실행할 수 없습니다" 오류로 실패 / UNEXPECTED-3AXIS-COMBO-
+  CHECKBOX-AND-MISLEADING-ERROR-DIAGNOSE)
+- **(a) 3축 결합은 신규/부활 기능이 아님 - 확정**: 오늘 커밋 6건 전수 확인
+  + git status/diff(대상 3파일 전부 clean) 결과 COMBO-3AXIS-COST-WARNING-
+  CONFIRM-IMPLEMENT 관련 코드 흔적 0건 - "완료보고 누락"이 아니라 "아직
+  시작도 안 됨"이 맞음. 실제로는 서로 무관한 기존 표시요소 3개(①조합
+  체크박스 라벨이 실제 실행(2축 PAIR 1개)과 무관하게 선택된 축 전부를
+  나열하는 표시버그, js_sql_preview.py:312 - 이미 M106 조사 §5-⑥에서
+  "2축 사례로 오독 여지 예견"했던 문제의 3축 실사례 최초 확인 ②GROUP BY
+  2개 이상이면 항상 뜨는 "참고용" 결합SQL 박스(체크박스 무관) ③3단계
+  전략계획의 "예상그룹52개·1분37초"는 3축 곱이 아니라 "단일축 3세트 합"
+  표시)가 대형(5천만행)+3개선택 조합에서 처음 동시 노출된 것 - 실제
+  실행세트는 여전히 단일축N+PAIR1개뿐(M106 결론 그대로 유효).
+- **(b) 에러문구 발동조건은 정확하나 화면표시와 불일치(버그)**: REGION_NM
+  이 실제로 REC_HOLD 상태였던 것은 맞으나, 그 상태의 화면 배지 문구는
+  "보조확인후보"인데 에러 메시지는 "제외"·"보류" 단어를 쓴다 - 사용자가
+  본 "관리컬럼 미확인"(NOT_AUDIT_AMBIGUOUS) 배지와도 완전히 무관한 별개
+  판정축이라 원인 추적이 어려웠음. 오인유발 확정.
+- **(c) REGION_NM 미확인 근본원인**: 관리컬럼 자동판정 로직이 JOIN으로
+  가져온 파생 컬럼을 처리 못 해서가 아니라, JOIN 존재 시 실DB 값샘플
+  조회 경로 자체를 꺼버리는 has_join 게이트 때문에 판정 근거(값 샘플)
+  자체가 배선되지 않았던 것 - 값 샘플 배선 공백 확정.
+- 후속 수정 지침 발행 예정(에러문구 정합성, has_join 값샘플 배선) - 완료
+  시 M113 갱신.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  UNEXPECTED-3AXIS-COMBO-CHECKBOX-AND-MISLEADING-ERROR-DIAGNOSE.md
+
+
+
 
