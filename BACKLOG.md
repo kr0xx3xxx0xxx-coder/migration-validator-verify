@@ -6883,3 +6883,118 @@ git -C E:/verify_reports worktree remove <임시경로>
   COMBO-MIN-AVG-ROWS-SKIP-GATE-REMOVE.md, 스크린샷/JSON
   G:\내 드라이브\nxDTV-verify\screenshots\COMBO-MIN-AVG-ROWS-SKIP-GATE-REMOVE\
 
+
+### M104. ✅ 해결 완료 — 5단계 조합/다중세트 그룹 목록에 전체/일치/불일치 필터 + 일치 그룹 샘플 10건(전수확인 아님 고지) 구현
+- 발견/계기: 2026-08-13 (사용자 - "이게 검증전용 프로그램인데 일치도 봐야
+  하지 않나" / M87+M102 재확인, STAGE5-COMBO-MATCHED-GROUPS-FILTER-IMPLEMENT)
+- **근본원인(M102 재확인)**: "숨김"이 아니라 "수집 제외" - ui/tabler_
+  renderer.py의 _mvStage5CollectGroups 안 push()가
+  `if (st === 'ok' || !st) return;`로 일치 그룹을 목록에 담기 전에 버림.
+  4단계 STATS_DIRECT_AGG 결과에는 일치/불일치가 전부 있었음.
+- **사용자 정책 결정**: 그리드 위 필터(전체/일치/불일치, 기본값 불일치로
+  회귀없음 유지) + 일치 그룹은 집계만 표시하되 클릭 시 샘플 10건(행단위
+  드릴다운 아님, "전수확인 아님" 고지 필수).
+- **핵심 설계 판단**: 샘플 10건을 기존 불일치 드릴다운(/agg-diff/prepare)
+  으로 받으려다 불가 확인(그 저장소는 일치 행을 아예 저장 안 함 - 항상
+  0건 반환됐을 것). 대신 이미 있던 별개 엔드포인트(/count-gate/
+  one-side-preview, 기존 "대표 레코드" 기능용으로 ONE_SIDE_PREVIEW_ROWS=10
+  상수 이미 보유)를 재사용 - 새 샘플링 로직 발명 없이 제약 두 개(신규
+  로직 금지, 단일파일 수정) 모두 충족.
+- **저장 범위**: 최소침습 - 불일치 그룹만 저장(기존 계약 유지), 일치
+  그룹은 화면 표시 전용(새로고침 시 4단계 결과에서 재수집).
+- **회귀방지 설계 2건**: 전역 인덱스 고정(필터된 배열 loop index를 쓰면
+  다른 그룹이 열리는 버그 사전 차단), 빈 상태 2종 분리("목록 자체 0건"과
+  "필터 결과 0건" 구분, 기존 초록 안내문구 글자 그대로 보존).
+- **실측(18항목 전부 PASS)**: NXDNP.MV_MINAVG 픽스처(SINGLE 4그룹+6그룹
+  전부일치, PAIR 24그룹 중 불일치4)로 필터 전환·일치그룹 클릭·샘플
+  10건×2표·안내문구·레거시 단일세트 토글 회귀 전부 확인. Claude 웹이
+  스크린샷 직접 열람해 안내문구 원문("⚠ 아래는 일치 레코드의 샘플입니다
+  — 이 그룹 42건 중 최대 10건만 보여주는 참고용이며, 불일치 0건을
+  증명하는 전수 확인이 아닙니다")과 10건×2표까지 픽셀 단위로 확인.
+- **알려진 한계(정직 고지)**: mysql/mssql은 one-side-preview read-only
+  경로 미지원이라 일치 그룹 샘플이 "조회 실패"로 정직하게 표시됨(거짓
+  성공 아님). 일치 그룹 클릭마다 캐시 없이 실DB 2회 조회(원본+목적).
+  _mvS5ScopeEq가 서버 _scope_eq_expr의 4방언 규칙을 클라이언트에 복제 -
+  방언 규칙 변경 시 두 곳 동시 수정 필요한 이원화 부채로 기록.
+- 커밋(코드저장소): 940be987
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  STAGE5-COMBO-MATCHED-GROUPS-FILTER-IMPLEMENT.md, 스크린샷
+  G:\내 드라이브\nxDTV-verify\screenshots\
+  STAGE5-COMBO-MATCHED-GROUPS-FILTER-IMPLEMENT\
+
+### M105. 조사완료 — GROUP BY 단일 컬럼 카디널리티 상한 60의 타당성: 방향(타이트) 확정, 적정값은 실사업 데이터 부재로 미확정
+- 발견/계기: 2026-08-13 (사용자 - 4,000 조사와 별개로 "단일컬럼 카디널리티
+  60도 실측 근거가 있는 값인지" 문의 / SINGLE-COLUMN-CANDIDATE-
+  CARDINALITY-60-CAP-DIAGNOSE)
+- **60의 유래(실측, git log)**: DATE_BUCKET_MAX_GROUPS=60(월버킷 5년치,
+  도메인 유도값)이 먼저 도입(2026-07-20) → 4일 뒤 GENERAL_COLUMN_MAX_
+  GROUPS=60이 그 값을 그대로 복사해 도입(2026-07-24, 도입 커밋 자체가
+  "일반 컬럼 성격상 이 값이 너무 작을 수 있어... 실측하며 재검토 가능"
+  이라고 명시). 오늘까지 조정된 적 없음, 산출근거·후보값비교·비용실측
+  문서 전무.
+- **완전배제 하드게이트임을 코드로 확인**: 점수감점이 아니라 61부터
+  UI 체크박스 disabled까지 가는 이중 게이트(candidate_recommendation_
+  policy.py:129-134, tabler_renderer.py:23742,23752). 사용자가 화면에서
+  되살릴 수단 없음(등록 plan/API 명시선택 경로만 우회 가능).
+- **내부 모순 4가지(전부 저장소 내 실측)**:
+  1. 비용 근거 없음 - 5천만행 실측에서 그룹 10→5,000 구간 소요시간 무상관.
+  2. 표시 근거 없음 - 표시등급 D1(전량나열)의 그룹 밴드가 이미 1,000.
+  3. 엔진 계층 B는 카디널리티 medium(≤200)을 자동추천 가능 등급으로
+     분류하는데, 계층 C(60 상한)가 61~200을 전부 사후에 되돌림 - 같은
+     코드베이스 안에서 200과 60이 충돌(test_engine_cardinality_
+     parity.py:320-322가 이 모순을 그대로 assert로 고정).
+  4. 프로젝트 자체 의미코퍼스(COLUMN_SEMANTIC_CORPUS.md)가 SIGUNGU_CD/
+     ORG_CD/BRANCH_CD를 GROUP BY 정당 차원으로 등재해뒀는데, 카디널리티
+     상한이 이를 자동 무효화.
+- **실데이터 검증 시도 - 3회 연속 미확보**: 나이스/K-에듀파인 컬럼매핑
+  정의서를 이번 포함 3회(2026-08-05, 2026-08-07, 2026-08-13) 독립
+  확인했으나 전부 미확보. 저장소 내 유일한 distinct 실측 자료(profile_
+  snapshot_column 352건 등)는 전부 인공 픽스처/합성 시드로, 실사업
+  카디널리티 분포 근거로 쓸 수 없음.
+- **결론**: (A) 60이라는 값 자체엔 정량근거 없음 - 확정. (B) 타이트한
+  쪽으로 치우쳤을 가능성 높음 - 위 4가지 내부모순이 근거. (C) 느슨하다는
+  신호는 어디에도 없음. (D) 그러나 "60→얼마"의 적정값은 실사업(또는
+  최소 실 고객 DB) 컬럼별 n_distinct 분포 표본 없이는 근거있게 제시
+  불가 - 방향은 결론 있음/값은 결론 없음.
+- **4,000 상한과의 연쇄 위험(경고, 이번 조사에서 4,000은 미변경)**: 60을
+  올리면 "2축 구조적 최댓값 3,600, 4,000은 도달불가 백스톱"이라는 M65/
+  오늘 COMBO-GROUP-COUNT-COST-RELATIONSHIP-DIAGNOSE의 전제가 깨짐(64×64
+  =4,096부터 4,000 실제 발동 시작). 60 상향 시 4,000 재검토 반드시 동반
+  필요.
+- **임시 조정 수단(코드 수정 없이 가능)**: env MV_GENERAL_COLUMN_MAX_
+  GROUPS로 조정 가능(config/model_config.py:483,489).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  SINGLE-COLUMN-CANDIDATE-CARDINALITY-60-CAP-DIAGNOSE.md
+
+### M106. 조사완료 — "GROUP BY 최대 3개" 재확인: 3축 결합(EXPLICIT_MULTI) 코드 자체가 부재, 60³=216,000 우려 근거없음, 4,000 유지 결론 그대로 유효
+- 발견/계기: 2026-08-13 (사용자 - "화면에 GROUP BY 최대 3개라고 돼있는데
+  그럼 60×60×60도 정상 아닌가" / COMBO-3AXIS-STRUCTURAL-MAX-RECHECK-
+  DIAGNOSE, COMBO-GROUP-COUNT-COST-RELATIONSHIP-DIAGNOSE 직후 재검토)
+- **"GROUP BY 최대 3개" 문구의 정확한 의미(코드 확인)**: "선택 가능한
+  축의 총 개수 상한"(체크박스 최대 3개까지 켤 수 있다)일 뿐 -
+  "선택한 3개가 GROUP BY a,b,c로 결합실행된다"는 뜻이 아님(ui/tabler_
+  renderer.py:24935, gbN은 단순 체크된 개수 카운트).
+- **3축 결합 코드는 이미 삭제돼 있었음**: 커밋 763e7b31("Phase4-D7-17
+  통합 D", 오늘 조사보다 훨씬 이전)에서 복합(EXPLICIT_MULTI) GROUP BY
+  세트 생성 기능이 완전 삭제됨. groupby_plan_service.py의 est = min(da
+  * db, total) 계산식 자체가 변수 2개만 곱하는 하드코딩 구조(N축 일반화
+  아님), PLAN_MAX_AUTO_PAIR_SETS=1(변수명 자체가 "정확히 2개"를 의도).
+  혹시 남아있어도 프런트·백엔드 양쪽에 EXPLICIT_MULTI 이중 필터로 차단.
+- **실측 재현**: 3축(STATUS_CD/DEPT_CD/GRADE_CD) 실제 체크 + 조합
+  체크박스 ON 후 브라우저 실행 → 실행된 세트는 "단일축 3개 + 2축 PAIR
+  1개(가장 그룹수 큰 쌍만 자동채택)"뿐, 3축 결합 세트는 1건도 생성 안됨.
+  단위테스트(test_three_candidates_produce_three_single_sets_not_
+  composite 등)로도 이미 고정돼 있었음.
+- **결론**: 60³=216,000 시나리오는 코드상 발생 가능성 없음. 오늘 COMBO-
+  GROUP-COUNT-COST-RELATIONSHIP-DIAGNOSE의 "4,000 유지" 결론은 그대로
+  유효, 변경 불필요.
+- **후속 논의(진행 중, 별도 지침 COMBO-3AXIS-COMBINED-VS-SPLIT-COST-
+  AND-DETECTION-DIAGNOSE)**: 사용자가 "선택가능이 3개면 3축 곱이 정상
+  아니냐"는 반론 제기 - M103과 같은 논리(2축조합 3개가 전부 일치해도
+  3축 전체에서만 드러나는 상쇄 가능성, "3원 교호작용") 확장 여부와,
+  3축 결합 삭제 이유·성능비교(결합1쿼리 vs 2축쪼개기N쿼리)를 별도
+  조사 중 - 결과 나오면 M106 갱신 예정.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  COMBO-3AXIS-STRUCTURAL-MAX-RECHECK-DIAGNOSE.md
+
+
