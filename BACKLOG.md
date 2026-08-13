@@ -6141,6 +6141,42 @@ git -C E:/verify_reports worktree remove <임시경로>
   상세 서술부)이 한때(커밋 7d051d5) Claude 웹의 str_replace 편집 중 인코딩
   손상(UTF-8 BOM 관련 추정)을 겪었다가 eb41262 기준으로 복구됨 - 향후 이
   파일 편집 시 str_replace 대신 스크립트 기반 바이트 안전 편집 권장.
+- **I-2 진행상황(2026-08-13)**: 완료 확인 - routes/execute_set_route.py 에
+  /execute 와 동일한 서버 단계 가드 패턴 적용(workflow_stage_guard.validate
+  ->begin_execution->실행->record_outcome). before/after 를 별도 git
+  worktree 로 분리해 실측: 수정 전(BEFORE) 위조/누락 토큰 모두 HTTP 200 +
+  실제 DB SELECT 실행(우회 확인) -> 수정 후(AFTER) 동일 케이스 HTTP 409 +
+  0.01~0.02초 응답(DB 미도달 확인, elapsed 시간축으로도 뒷받침). 함수 호출
+  계측 로그로 execute_single_validation(실DB경계) 0회 호출까지 직접 증명.
+  회귀 81건 중 80 passed(실패 1건은 본 수정과 무관한 별도 라우트의 기존
+  취약 테스트). 커밋: 0686cab1.
+- **L-1 진행상황(2026-08-13)**: 조사완료, 보류 권장 - 3단계 8연결 전부
+  파일:라인 특정(services/candidate_postcount_finalize.py 등 8개 지점),
+  scope 적용 시 8->1 축소 가능함을 확인했으나: (a) 개인프로젝트 동시사용자
+  1명 환경이라 커넥션 고갈 위험 실질적 0 (b) 대상 파일이 최근 20+커밋 몰린
+  활성 변경 영역이라 지금 건드리면 회귀 원인 추적 어려움 (c) 이득이
+  "부하경감"아닌 "지연단축"이라 기존 계측 인프라(count_exec_probe)와 묶어
+  처리하는 게 효과검증에 유리. 커넥션 누수 0건(M80 결론과 일치) 재확인.
+- **L-3 진행상황(2026-08-13)**: 조사완료, 즉시수정 필요 - _fetchCsrPreview()
+  가 1클릭에 2회 호출되는 정확한 레이스 메커니즘 확정(ui/tabler_renderer.py
+  :26428-26563, 캐시가 응답 후에야 채워져 두번째 호출이 캐시미스). Oracle
+  연결 환경에서 실제 DB 메타데이터 조회 2배 낭비 확인(PG/MySQL/MSSQL은
+  CPU 스코어링만 낭비, 데이터 정합성 문제는 없음). 수정범위 함수 1개
+  ~10~15줄, 기존 in-flight 가드 패턴(_mvScopeAnalysisInflight) 그대로
+  재사용 가능 - 별도 소규모 지시서로 진행 권장.
+- **L-4 진행상황(2026-08-13)**: 조사완료 - 1·3단계 "중단" 버튼이 프런트
+  (signal 미배선)+백엔드(취소 배선 자체 없음) 복합 결함으로 무효함을 파일:
+  라인 단위로 확정. 1단계(runAnalyze)는 AbortController 자체를 안 만듦,
+  3단계(runRevalidateFromCandidate)는 컨트롤러는 만들지만 실제 fetch에
+  signal 미전달. 백엔드(analyze_route.py, validation_set_preview_route.py)
+  는 둘 다 동기 함수라 취소 감지 배선 자체가 없음(단, /count·/execute 는
+  이미 M8로 완성된 재사용 인프라(run_with_disconnect_cancel) 보유).
+  결론: **3단계는 즉시수정 필요**(실측 근거 있는 대용량 지연 경로, 주석
+  자체가 인정, 중단 수단 전무 상태로 방치 중) / **1단계는 보류 권장**
+  (보통 순식간에 끝나 실익 낮음, 단 프런트 신호배선은 3단계와 같이 거의
+  공짜로 추가 가능). 백엔드 적용 시 /analyze는 src+tgt 이중연결이라
+  CancelTokenGroup 필요(단일 토큰 재사용 시 "한쪽만 취소" 함정 주의).
+
 
 
 ### M83. ✅ 해결 완료 — 하단[고정]카드 값을 상단 "실행시간"과 단일출처 통일, 레코드목록 옆에 그룹별 추출시간+캐시출처 3분류(새스캔/메모리캐시/저장데이터) 표시로 재설계
