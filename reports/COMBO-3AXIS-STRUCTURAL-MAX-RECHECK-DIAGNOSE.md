@@ -87,13 +87,13 @@
   만들었다(정합성 검증이 목적이 아니므로 상쇄 없이 원본=목적지 완전 동일로 구성).
     신규 픽스처 : NXDNP.MV_3AXIS_SRC/TGT — STATUS_CD 4종 × DEPT_CD 6종 × GRADE_CD 3종
       = 72조합 × 5행 = 360행, 원본=목적지 완전 동일(COUNT 360=360, 전 축 조합 불일치 0건 사전검증).
-    생성 스크립트 : scripts/dev_e2e/combo_3axis_oracle_fixture.py
+    생성 스크립트(코드 저장소 밖 scratchpad 전용, 커밋하지 않음) : combo_3axis_oracle_fixture.py
 
   실행 방식 : 실 서비스(포트 8000, BasicAuth ON)·실 오라클(Oracle_asis→Oracle_tobe)·Playwright
   headless 브라우저로 1단계 분석 → 2단계 COUNT → 3단계 GROUP BY 3축 전부 체크 + SUM(AMT) 체크 →
   4단계 SQL 생성 → 실행까지 실제 클릭으로 진행(강제 주입 없음).
-    재현 스크립트 : scripts/dev_e2e/combo_3axis_live_verify.py
-    결과 원본(JSON) : scripts/dev_e2e/_combo_3axis_live_verify.json
+    재현 스크립트(코드 저장소 밖 scratchpad 전용, 커밋하지 않음) : combo_3axis_live_verify.py
+    결과 원본(JSON, scratchpad 전용) : combo_3axis_live_verify_result.json
 
   [케이스 1] 3축 선택 · '조합도 함께 검증' 체크박스 미체크(기본)
     4단계 생성 SQL 안내 문구(그대로 인용) :
@@ -168,11 +168,11 @@
        권장).
 
 ■ 6. 변경/생성 파일
-  코드 저장소(X:\Projects\nxDTV) : 로직 변경 0건 · 커밋 0건(조사 전용)
-    신규 스크립트(측정/재현 전용, 코드 로직 변경 아님) :
-      scripts/dev_e2e/combo_3axis_oracle_fixture.py   (3축 최소 픽스처 생성)
-      scripts/dev_e2e/combo_3axis_live_verify.py      (3축 선택 실 브라우저 재현·관측)
-      scripts/dev_e2e/_combo_3axis_live_verify.json   (재현 결과 원본, gitignore 대상)
+  코드 저장소(X:\Projects\nxDTV) : 변경 0건 · 신규 0건 · 커밋 0건(조사 전용)
+    측정/재현 스크립트(코드 저장소 밖 세션 scratchpad 전용, 커밋하지 않음) :
+      combo_3axis_oracle_fixture.py     (3축 최소 픽스처 생성)
+      combo_3axis_live_verify.py        (3축 선택 실 브라우저 재현·관측)
+      combo_3axis_live_verify_result.json (재현 결과 원본)
   DB 픽스처(신규, 삭제 없음) : NXDNP.MV_3AXIS_SRC/TGT(오라클, 360행씩) — 원본=목적지 완전 동일,
     삭제/롤백 필요 시 combo_3axis_oracle_fixture.py 의 DROP 로직 재실행으로 정리 가능.
   완료보고 파일 :
