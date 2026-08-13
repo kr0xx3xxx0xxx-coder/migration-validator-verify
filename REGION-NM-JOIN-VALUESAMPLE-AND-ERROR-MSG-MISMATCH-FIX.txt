@@ -1,0 +1,142 @@
+```text
+작업명 : REGION-NM-JOIN-VALUESAMPLE-AND-ERROR-MSG-MISMATCH-FIX
+✅ 작업 완료 - (A)실행차단 에러 문구를 실제 화면 배지 문구(컬럼별 인용)로 교체 (B)has_join 값샘플
+                게이트를 profile CTE FROM+JOIN 빌더 재사용으로 안전하게 열어 REGION_NM 등 JOIN
+                파생 컬럼도 관리컬럼 자동판정 확정 상태를 받게 함, 부수 발견한 배지 stale 재동기화
+                누락도 함께 해소 — 실 오라클 5천만행 픽스처로 전/후 실측 완료
+
+■ 0. 배경
+  UNEXPECTED-3AXIS-COMBO-CHECKBOX-AND-MISLEADING-ERROR-DIAGNOSE(오늘 이전 조사, 코드 수정 0건)가
+  확정한 두 결함을 수정한다.
+  (b) "정책상 제외/보류 컬럼은 실행할 수 없습니다" 에러 문구가, 실제 원인(REC_HOLD 상태)의 화면
+      배지 문구와 다른 단어를 써서 사용자가 원인을 못 찾음.
+  (c) JOIN으로 가져온 파생 컬럼(REGION_NM)은 has_join 게이트가 실DB 값샘플 조회 경로를 통째로
+      꺼버려서, 관리컬럼 자동판정 근거(값 샘플) 자체가 배선되지 않아 "관리컬럼 미확인"
+      (NOT_AUDIT_AMBIGUOUS) 상태로 남음.
+
+■ 1. 작업범위 A — 에러 문구 정합성 수정
+  파일: services/groupby_execution_safety.py:206-220 (evaluate_groupby_execution_safety)
+
+  수정 전:
+    REC_EXCLUDED/REC_HOLD 컬럼이 선택되면 무조건 고정 문구
+    "정책상 제외/보류 컬럼은 실행할 수 없습니다." 반환.
+
+  문제: REC_HOLD 는 legacy_status 에 따라 화면 배지가 3갈래로 갈린다(전량 확인).
+    MANUAL_REQUIRED       → "수동선택필요"
+    DATE_BUCKET_CANDIDATE → "참고후보"
+    NAME_DESC_CANDIDATE   → "보조확인후보"   (REGION_NM 실사례)
+    REC_EXCLUDED(EXCLUDED_BY_RULE) → "정책상제외"
+  고정 문구의 "제외"·"보류" 단어는 위 4갈래 중 "정책상제외" 1개만 실제로 쓰는 단어라, 나머지
+  3갈래(REC_HOLD 대부분)에서는 화면 배지와 에러 문구 어휘가 어긋난다.
+
+  수정 후: 위반 컬럼마다 candidate_display_enricher.compute_display_badge_label()(화면 배지
+  단일 출처, 신규 로직 없음 — 기존 함수 재사용)로 실제 배지 문구를 구해 그대로 인용.
+    "다음 컬럼은 실행할 수 없습니다: REGION_NM(보조확인후보). 화면 배지 문구를 참고해 그룹
+    선택을 조정해주세요."
+  REC_HOLD 3갈래·REC_EXCLUDED 모두 배지 문구를 그대로 인용하므로 4갈래 전부 해소(코드 구조상
+  "일반화 문구"가 아니라 "컬럼별 실제 배지 인용" 방식을 택함 — 사유가 갈라지는 만큼 인용이 가장
+  정확하고 향후 배지 문구가 바뀌어도 단일 출처만 따라감).
+
+■ 2. 작업범위 B — JOIN 파생 컬럼 값샘플 배선공백 수정
+  게이트 존재 이유 확인(커밋이력/주석, 짐작 아님):
+    services/column_profile_service.py 주석(PROFILE-COLLECTION-CTE-JOIN-COLUMN-REFERENCE-FIX) —
+    "base 테이블에 없는 컬럼을 섞어 조회하면 값 샘플 SELECT 한 건이 통째로 실패해(ORA-00904)
+    정상 컬럼 샘플까지 같이 잃는다"는 과거 결함의 재발 방지책 → 의도된 안전장치.
+    다만 같은 파일의 collect_column_profiles()(distinct/null 집계용)는 이미 JOIN 을 CTE
+    (_build_from_join_clause + WITH SRC AS)로 안전하게 감싸 처리하고 있었다 — 즉 "JOIN 자체가
+    기술적으로 불가능"이 아니라 "값샘플 조회 함수(_collect_sample_values_bounded)만 그 안전
+    빌더를 재사용하지 않고 단순 SELECT col FROM from_table 로 짜여 있어 JOIN 컬럼에 못 쓰던"
+    단순 미구현으로 판정. → 새 샘플링 로직을 발명하지 않고 기존 _build_from_join_clause(profile
+    CTE 가 이미 쓰는 JOIN-safe FROM 빌더)를 값샘플 조회에도 재사용해 해소.
+
+  수정 파일:
+    - services/column_profile_service.py
+        _collect_sample_values_bounded(): from_clause/join_clauses/where_clause 선택 인자 추가.
+          has_join 이고 from_clause 를 받으면 _build_from_join_clause 로 FROM+JOIN 을 재구성해
+          조회(위치기반 매칭, AS alias 불필요 — 기존 단일테이블 경로와 동일 패턴). from_clause
+          미전달(레거시 호출부)이면 기존과 동일하게 캐시만(무회귀).
+        collect_column_profiles() 내부 호출 지점도 이미 갖고 있던 from_clause/join_clauses/
+          where_clause 를 그대로 전달.
+        resolve_candidate_sample_values(): 동일하게 from_clause/join_clauses/where_clause
+          선택 인자 추가, has_join 이어도 from_clause 있으면 조회 진행하도록 게이트 완화.
+    - services/candidate_postcount_finalize.py
+        finalize_recommendation_postcount() 의 resolve_candidate_sample_values 호출에
+        from_clause/join_clauses/where_clause(이미 함수 인자로 보유) 전달 추가.
+
+  실측 중 추가 발견(부수 결함, §B 완결에 필요해 함께 수정) — stale 배지 재동기화 누락:
+    admin_audit_verdict 는 postcount 재확정으로 정상 갱신되지만, "⚠ 관리컬럼 미확인" 배지의
+    표시 근거(ambiguous_audit_evidence)는 1단계 analyze 시점에 candidate_display_enricher.
+    attach_ambiguous_audit_evidence() 가 in-place 로 부착한 값이 그대로 남아, verdict 가
+    AMBIGUOUS→CONFIRMED 로 바뀌어도 postcount 이후 재호출되지 않아 배지가 stale 하게 남았다
+    (실측으로 확정 — id() 비교·before/after 후보 dict 직접 비교). 이 상태로는 sample_values
+    수정만으로 REGION_NM 배지가 실제로 사라지지 않아 §B 목적을 완결하지 못하므로 함께 수정:
+      - candidate_display_enricher.attach_ambiguous_audit_evidence(): verdict 가 더 이상
+        AMBIGUOUS 가 아니면 그 자리에서 evidence 를 pop 해 idempotent 하게 함.
+      - candidate_postcount_finalize.finalize_recommendation_postcount(): 반환 직전
+        attach_ambiguous_audit_evidence(gb+sm) 재호출로 최종 verdict 기준 배지 근거 동기화.
+
+■ 3. 실측 검증(실 오라클, 전 과정 SELECT 전용)
+  픽스처: NXDNP.MV_SCATTER50M_SRC(50,000,000행) LEFT OUTER JOIN MV_SCATTER50M_DIM → REGION_NM
+    이관 SQL: INSERT INTO MV_SCATTER50M_TGT(...,REGION_NM) SELECT ...,d.REGION_NM FROM
+              MV_SCATTER50M_SRC s LEFT OUTER JOIN MV_SCATTER50M_DIM d ON s.REGION_CD=d.REGION_CD
+  서버(포트 8000) 최신 코드로 재기동 후 검증(재기동 확인 완료).
+
+  [A] 직접 함수호출 재현 — REGION_NM 실제 상태(selection_status=NAME_DESC_CANDIDATE→REC_HOLD)로
+      evaluate_groupby_execution_safety() 호출:
+        수정 전 문구: "정책상 제외/보류 컬럼은 실행할 수 없습니다."
+        수정 후 문구: "다음 컬럼은 실행할 수 없습니다: REGION_NM(보조확인후보). 화면 배지
+                       문구를 참고해 그룹 선택을 조정해주세요."
+        판정: 화면 배지("보조확인후보")와 정확히 일치 · "제외/보류" 원문 잔존 0.
+      REC_EXCLUDED 케이스(PII_FLAG, EXCLUDED_BY_RULE)도 배지 "정책상제외"와 일치 확인.
+
+  [B] 실 오라클 analyze→postcount(finalize_recommendation_postcount, 실제 3단계 경로) 직접 호출:
+        REGION_NM sample_values : (수정 전) None → (수정 후) 100건 배선(REGION-01~20 순환)
+        REGION_NM admin_audit_verdict : NOT_AUDIT_AMBIGUOUS → NOT_AUDIT_CONFIRMED
+      브라우저(Playwright, 실제 제품 렌더 함수 _showCandidateTable, 강제주입 없음) 3단계
+      후보표 전/후 캡처:
+        수정 전: REGION_NM 배지 = "기본추천⚠ 관리컬럼 미확인"  (stale 배지 재현)
+        수정 후: REGION_NM 배지 = "기본추천"                  (배지 정상 소거)
+      스크린샷: G:\내 드라이브\nxDTV-verify\screenshots\
+                REGION-NM-JOIN-VALUESAMPLE-AND-ERROR-MSG-MISMATCH-FIX\
+                stage3_region_nm_{before,after}_{full,card}.png (4장)
+      REGION_CD/STATUS_CD(SRC 테이블 자체 컬럼) 값샘플·판정 회귀 없음 확인(기존 경로 그대로 동작).
+
+  [범위 밖 확인] 3-axis 관련 화면 표시(체크박스 라벨 오기·참고용SQL박스·비용예측칩)는 지침대로
+      이번 수정에서 손대지 않았다(코드 diff 0건, 재확인 완료).
+
+■ 4. 회귀 테스트
+  CLAUDE.md 규정 순서대로 실행:
+    1) python samples/test_virtual_cases.py   → 8/8 통과
+    2) python samples/test_complex_cases.py   → 5/5 통과
+    3) 수정 대상 pytest 스위트(신규 3건 포함 총 149건) → 전량 통과
+       tests/test_sample_values_wiring.py(신규 3건 포함 25건) ·
+       tests/test_groupby_execution_safety.py(30건) ·
+       tests/test_postcount_finalize.py · tests/test_column_profile_service.py(문구수정 1건 포함) ·
+       tests/test_candidate_subtype.py · tests/test_fk_default_consumption_wiring.py
+  참고: 전체 pytest 배치실행은 이 저장소에서 사전 존재(코드 무관) 실패가 다수 섞여(execute-core/
+  UI-renderer/candidate 계열 등, memory: project_preexisting_test_failures) 회귀 신호로 부적절
+  하다고 이미 확정돼 있어, 변경 파일 대상 targeted 스위트로 회귀를 판정했다(프로젝트 관례).
+
+■ 5. 변경/생성 파일 (커밋 a4f45e7a, pathspec 커밋 — 동시세션 무관 파일 0건 혼입)
+  수정:
+    services/groupby_execution_safety.py       (§A)
+    services/column_profile_service.py         (§B)
+    services/candidate_postcount_finalize.py   (§B, 배지 재동기화)
+    services/candidate_display_enricher.py     (§B, idempotent 정리)
+    tests/test_column_profile_service.py       (기존 단언 위치 보정 — execute 호출 2회 대응)
+    tests/test_sample_values_wiring.py         (JOIN 값샘플 신규 테스트 3건 추가)
+  신규(검증용 dev_e2e 스크립트, 실DB SELECT 전용):
+    scripts/dev_e2e/region_nm_join_valuesample_and_error_msg_postcount_repro.py
+    scripts/dev_e2e/region_nm_join_valuesample_stage3_browser_shot.py
+  코드 저장소 push 없음(commit까지만, 정책 준수).
+
+■ 6. 다음 단계 가능 여부
+  이번 지침(A/B) 완료. 3-axis 관련 표시 버그 3종(체크박스 라벨/참고SQL박스/비용예측칩)은 범위
+  밖으로 남아있으며, 사용자가 원하면 별도 지침으로 다룰 대상이다.
+
+작업명 : REGION-NM-JOIN-VALUESAMPLE-AND-ERROR-MSG-MISMATCH-FIX
+✅ 작업 완료 - (A)실행차단 에러 문구를 실제 화면 배지 문구(컬럼별 인용)로 교체 (B)has_join 값샘플
+                게이트를 profile CTE FROM+JOIN 빌더 재사용으로 안전하게 열어 REGION_NM 등 JOIN
+                파생 컬럼도 관리컬럼 자동판정 확정 상태를 받게 함, 부수 발견한 배지 stale 재동기화
+                누락도 함께 해소 — 실 오라클 5천만행 픽스처로 전/후 실측 완료
+```
