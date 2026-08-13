@@ -1,0 +1,152 @@
+작업명 : STAGE5-POLLING-LEAK-AND-COMBO-SQL-NOTICE-RESTORE
+✅ 작업 완료 - I-4(5단계 이탈 시 폴링 무한지속 수정) / I-5(4단계 조합 SQL 미실행 안내문구 복원) 각각 별도 커밋, 실 브라우저 실측 통과
+
+배경(BACKLOG.md M82 I-4, I-5 — 파일이 서로 달라 지침은 하나로 묶였으나 커밋은 독립적으로 분리)
+
+────────────────────────────────────────────────────────────────
+I-4. 5단계 이탈 시 상세비교 폴링 무한 지속 (ui/tabler_renderer.py)
+────────────────────────────────────────────────────────────────
+
+증상
+  showSingleStep(pane 전환 함수)이 pane 만 숨기고 _mvRiStopPolling()을 호출하지 않아, 5단계
+  (결과확인)에서 그룹 상세비교(/agg-diff/pk-records 1초 폴링)를 켠 채로 다른 단계로 이동하면
+  폴링이 화면 밖에서 무한히 계속됐다.
+
+수정 (ui/tabler_renderer.py, showSingleStep, 6485줄 부근)
+  수정 전:
+    function showSingleStep(key) {
+      if (!SINGLE_STEP_CARDS.hasOwnProperty(key)) return;
+      if (!_mvWfStageAccessible(key)) {
+        _mvNotifyNavBlocked('선행 단계를 먼저 완료하세요. (잠긴 단계로 이동 불가)');
+        return;
+      }
+      _singleViewStep = key;
+      ...
+
+  수정 후:
+    function showSingleStep(key) {
+      if (!SINGLE_STEP_CARDS.hasOwnProperty(key)) return;
+      if (!_mvWfStageAccessible(key)) {
+        _mvNotifyNavBlocked('선행 단계를 먼저 완료하세요. (잠긴 단계로 이동 불가)');
+        return;
+      }
+      if (_singleViewStep === 'result' && key !== 'result') {
+        try { if (typeof _mvRiStopPolling === 'function') _mvRiStopPolling(); } catch (e) {}
+      }
+      _singleViewStep = key;
+      ...
+
+  적용 범위: 5단계를 "떠나는" 전환에서만 정지. 탭 자체가 백그라운드로 가는 경우
+  (visibilitychange)는 지침대로 범위 밖(우선 확실한 케이스만 수정).
+
+실측 (Neon PostgreSQL 실 브라우저, GROUP BY 2축 CHANNEL_CD+STATUS_CD, 사내망 미도달 확인 후
+Neon 쌍으로 대체 — scripts/dev_e2e/stage5_polling_leak_and_combo_sql_notice_restore_verify.py)
+
+  절차: 1~4단계 실행 → 5단계 진입 → 그룹 행 클릭(_mvStage5OpenGroup)으로 상세비교 시작
+        → 폴링 유지 확인(3.5초 관찰) → 4단계 탭으로 전환 → 전환 후 3.5초 관찰
+
+  결과표
+    항목                              전환 전(5단계, 폴링 중)   전환 후(4단계)
+    window._mvRiState._polling        true                     false
+    window._mvRiState._pollTimer      존재(hasTimer=true)      null(hasTimer=false)
+    3.5초간 /agg-diff/pk-records 요청  3건 (실제 발생)          0건 (0 기대와 일치)
+
+  판정: PASS(전 항목 통과) — 산출 JSON:
+    scripts/dev_e2e/_stage5_polling_leak_and_combo_sql_notice_restore.json
+  스크린샷: E:\verify_screenshots_only\STAGE5-POLLING-LEAK-AND-COMBO-SQL-NOTICE-RESTORE\
+    s5pollcombo_02_stage5_polling_active.png (폴링 중 5단계)
+    s5pollcombo_03_after_leave_stage4.png (전환 직후 4단계)
+
+커밋: 6663ab2c fix(ui): 5단계 이탈 시 상세비교 폴링 무한 지속 수정
+      (STAGE5-POLLING-LEAK-AND-COMBO-SQL-NOTICE-RESTORE I-4)
+
+────────────────────────────────────────────────────────────────
+I-5. 조합축 SQL 미실행 안내문구 소실 (ui/js_sql_preview.py)
+────────────────────────────────────────────────────────────────
+
+증상
+  GROUP BY 2축 이상이면 4단계 화면의 결합 SQL은 실제로 실행되지 않는데, 이를 알리던 안내문구
+  (2026-07-28 STATS-EXECUTE-STEP4-GENERATED-SQL-LABEL-ACCURACY-FIX 추가, git show 28973dbb)가
+  이후 STAGE4-5-STRATEGY-TIMING-AND-TEXT-CLEANUP-FIX 요구사항 2 로 코드째 삭제되고, 이어진
+  STAGE4-5-STATUS-TIMING-COMBO-LABEL-STRATEGY-RELOCATE-FIX 에서 대체 문구(ON 박스)까지
+  체크박스 라벨 한 줄로 흡수돼, SQL 박스 자체에는 아무 표기도 남지 않았다.
+
+조사 (git log/blame으로 원문 확인 — 새로 창작하지 않고 그대로 복원)
+  git show 28973dbb (최초 도입, 2026-07-28):
+    ⚠️ <strong>이 SQL은 참고용입니다 — 실제로는 각 축을 독립적으로 실행합니다.</strong>
+    <div>아래 조합 SQL(GROUP BY ${_gbLine})은 실행되지 않습니다. 통계검증 실행 시
+    <strong>단일 축 ${_gbArr.length}세트</strong>(${_gbArr.map(esc).join(' / ')})로 분해해
+    축별로 따로 집계·비교합니다.</div>
+    <div>실제 실행된 SQL과 세트 구성은 <strong>5단계(결과 확인)</strong>에서 확인할 수 있습니다.</div>
+
+  git show 486b1a17 (STAGE4-5-STRATEGY-TIMING-AND-TEXT-CLEANUP-FIX 요구사항 2, 위 박스를
+  #genSqlComboOffText 채 삭제) → git log 이후 STAGE4-5-STATUS-TIMING-COMBO-LABEL-STRATEGY-
+  RELOCATE-FIX 가 대체 ON 박스마저 걷어내고 체크박스 라벨 1줄(#gbIncludePairLabel)로 통합.
+
+수정 (ui/js_sql_preview.py, renderSQL 의 _comboNotice 조립부 + mvToggleComboPair)
+  - 원문 그대로 #genSqlComboOffText div 를 복원(조합 체크박스 위, 같은 _comboNotice 컨테이너 안).
+  - 표시 조건은 원문과 동일하게 미체크(OFF, _pairOn=false)일 때만 노출 — 체크(ON) 시에는 실제로
+    조합이 실행되므로 "실행되지 않는다" 문구는 숨긴다(display:${_pairOn?'none':'block'}).
+  - mvToggleComboPair 에 offEl.style.display 토글을 되돌려, 체크/해제 시 재생성 없이 즉시 반영.
+  - 실행 배선(gbIncludePair 체크박스·include_pair 전달)은 무변경.
+
+  _gbLine 관련: 삭제 당시 이 변수는 이 문구가 마지막 소비처라 함께 제거됐었다(STAGE4-5-STRATEGY-
+  TIMING-AND-TEXT-CLEANUP-FIX 요구사항 2 주석). 복원 시 별도 변수를 되살리는 대신 동일 값을
+  `_gbArr.map(esc).join(', ')` 로 인라인 계산해 동일 문구를 만든다(불필요한 변수 재도입 없음).
+
+테스트 계약 갱신 (tests/test_stage45_strategy_timing_and_text_cleanup.py)
+  test_reference_only_sql_warning_box_is_gone(삭제 계약 고정)는 이번 복원과 정면 충돌해
+  test_reference_only_sql_warning_box_is_restored 로 교체 — 문구 존재·OFF 상태 조건부 표시·
+  토글 함수의 표시 갱신을 검증하도록 갱신. 나머지 테스트(체크박스 opt-in 배선 무회귀,
+  ON 문구 축약 등)는 무변경으로 계속 통과.
+
+실측 (Neon PostgreSQL 실 브라우저, GROUP BY CHANNEL_CD+STATUS_CD 2축 선택,
+scripts/dev_e2e/stage5_polling_leak_and_combo_sql_notice_restore_verify.py)
+
+  4단계 SQL 생성 직후(미체크 상태) #sqlOut 실 DOM 캡처:
+    boxExists / offExists            true / true
+    off.display                      "block"(노출)
+    checkboxChecked                  false(기본 OFF 무회귀)
+    hasRefOnlyPhrase                 true ("이 SQL은 참고용입니다" 포함)
+    hasNotExecutedPhrase             true ("실행되지 않습니다" 포함)
+    실제 렌더 문구(원문과 완전 일치, 축 이름만 이번 시나리오 값):
+      "⚠️ 이 SQL은 참고용입니다 — 실제로는 각 축을 독립적으로 실행합니다.
+       아래 조합 SQL(GROUP BY CHANNEL_CD, STATUS_CD)은 실행되지 않습니다. 통계검증 실행 시
+       단일 축 2세트(CHANNEL_CD / STATUS_CD)로 분해해 축별로 따로 집계·비교합니다.
+       실제 실행된 SQL과 세트 구성은 5단계(결과 확인)에서 확인할 수 있습니다."
+
+  판정: PASS(전 항목 통과) — 같은 산출 JSON에 포함.
+  스크린샷: E:\verify_screenshots_only\STAGE5-POLLING-LEAK-AND-COMBO-SQL-NOTICE-RESTORE\
+    s5pollcombo_01_stage4_combo_notice.png (SQL 박스 바로 아래 안내문구 노출 확인)
+
+자체 테스트(회귀)
+  python -m pytest tests/test_rendered_js_syntax_guard.py
+    tests/test_stage45_strategy_timing_and_text_cleanup.py
+    tests/test_stage45_status_timing_combo_label_strategy_relocate.py
+    tests/test_stage5_group_drilldown.py  → 81 passed
+  python samples/test_virtual_cases.py   → 8/8 통과
+  python samples/test_complex_cases.py   → 5/5 통과
+  node --check (ui/js_sql_preview.py 추출 JS, 전체 페이지 inline script) → 이상 없음
+  참고: tests/test_groupby_plan.py::test_ui_display_policy_and_colors 실패는 이번 수정과
+  무관한 기존 결함(910cf757 지브라줄무늬 제거 커밋 이후 미갱신 — stash 대조로 확인, 사전 존재).
+  tests/test_multiset_execute_async_job.py 1건은 파일 단독 실행 시 25/25 통과 — 대규모 스위트
+  동시 실행 시에만 실패하는 순서의존 사전 이슈(코드 회귀 아님).
+
+커밋
+  037c1168 fix(ui): 4단계 조합 SQL 미실행 안내문구 복원
+            (STAGE5-POLLING-LEAK-AND-COMBO-SQL-NOTICE-RESTORE I-5)
+            [ui/js_sql_preview.py, tests/test_stage45_strategy_timing_and_text_cleanup.py]
+  d16255de test(dev_e2e): I-4/I-5 실측 드라이버 추가
+            (STAGE5-POLLING-LEAK-AND-COMBO-SQL-NOTICE-RESTORE)
+            [scripts/dev_e2e/stage5_polling_leak_and_combo_sql_notice_restore_verify.py]
+
+────────────────────────────────────────────────────────────────
+종합
+────────────────────────────────────────────────────────────────
+- I-4, I-5 파일이 서로 달라 커밋 2개로 분리(6663ab2c / 037c1168) + 실측 드라이버 커밋 1개(d16255de),
+  총 3개 커밋. main 브랜치 로컬 커밋 완료(원격 push는 미수행 — 코드 저장소 push 는 별도 승인 필요).
+- 서버 최신 코드 서빙 확인: 실측 스크립트가 매 실행마다 별도 포트로 인프로세스 서버를 새로 기동
+  (uvicorn, web_server.app)하므로 커밋된 최신 코드가 그대로 서빙됨을 구조적으로 보장.
+
+작업명 : STAGE5-POLLING-LEAK-AND-COMBO-SQL-NOTICE-RESTORE
+✅ 작업 완료 - I-4(5단계 이탈 시 폴링 무한지속 수정) / I-5(4단계 조합 SQL 미실행 안내문구 복원) 각각 별도 커밋, 실 브라우저 실측 통과
