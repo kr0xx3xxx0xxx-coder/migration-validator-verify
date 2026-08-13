@@ -6747,3 +6747,32 @@ git -C E:/verify_reports worktree remove <임시경로>
   자리에서 대조해 달라지면 명시 알림 — M96의 evaluate() 함수를 "캐시재사용
   판단용"이 아니라 "표시용 안내"로 재사용(새 아키텍처 불필요, 낮은 결합도).
 - 근거: E:\verify_reports\reports\STAGE5-COLD-CLICK-TIME-GAP-CONSISTENCY-DIAGNOSE.md
+
+### M102. ✅ 확정(조사완료, 코드수정 없음) — 조합축(다중 GROUP BY 세트) 경로는 "일치 행 보기" 토글을 만드는 코드/데이터 자체를 타지 않는 설계 갭 — 스크린샷 증거로 재확인 완료
+- 발견/계기: 2026-08-12 (사용자 — NXDNP.MV_SCATTER50M 조합축 포함 대규모 케이스에서
+  "일치 행 보기" 토글이 안 보인다는 신고 / MATCHED-ROWS-TOGGLE-MISSING-IN-COMBO-CASE-
+  DIAGNOSE, 코드 무변경, Playwright 실측 재현)
+- **원인**: opts.planRun(GROUP BY 선택 축 2개 이상이면 항상 채워짐, 단일축 N세트든
+  조합(PAIR) 세트든 동일)이 있으면 `_mvRenderReimportView` 계열로 렌더되는데, 이
+  경로는 렌더 함수(`renderExecute`, 토글이 유일하게 존재하는 곳)와 데이터 수집
+  (`_mvStage5CollectGroups`, tabler_renderer.py:27770 — status==='ok' 일치 그룹을
+  수집 단계에서부터 제외) 두 층 모두에서 애초에 일치 그룹을 다루도록 만들어지지
+  않았음. "숨겨진 버그"가 아니라 신 아키텍처(다중세트/조합, STAGE5-GROUP-DRILLDOWN-
+  ARCHITECTURE 이후)로 이관되지 않은 설계 갭.
+- **M87과의 관계**: M87이 확인한 케이스(GROUP BY 축 1개, 단일세트)는 정상 노출 —
+  "규모"가 아니라 "GROUP BY 선택 축 개수(1개 vs 2개 이상)"로 렌더 경로가 완전히
+  갈리는 게 핵심 차이. M87의 "발견성 낮음" 결론과 이번 "아예 존재하지 않음" 결론은
+  서로 다른 케이스(단일축 vs 조합축)에 대한 것으로 모순 아님.
+- **원인 지점(사실관계)**: ① tabler_renderer.py:16933(렌더 함수 분기점) ②
+  tabler_renderer.py:27770(_mvStage5CollectGroups, 데이터 자체 미수집) ③
+  execute_result_renderer.py:1417(토글 유일 존재 위치, 다중세트/조합 경로 미호출)
+- **증거 검증(Claude 웹이 직접 스크린샷 열람 확인)**: 픽스처(1,200행, STATUS_CD
+  3종×DEPT_CD 4종, 조합만 4그룹 어긋나게 적재)로 실측 — 4단계 실행 후 5단계 화면
+  (전체그룹 19개·불일치그룹 4개, GROUP BY 축=STATUS_CD+DEPT_CD 4행 표) 전체를
+  스크린샷 2장으로 확인, 화면 어디에도 토글 없음을 직접 눈으로 확인. sha256 해시
+  독립 재계산 일치, git ls-remote로 원격 반영 확인.
+- **개선 여지(미구현, 제안만)**: 토글/일치행 수집 로직을 `_mvStage5CollectGroups`와
+  다중세트 렌더 경로에도 이식할지 여부는 정책 판단 필요(실무 필요성 — 조합축에서
+  일치 그룹을 봐야 할 케이스가 얼마나 있는지 — 부터 확인 권장).
+- 근거: E:\verify_reports\reports\MATCHED-ROWS-TOGGLE-MISSING-IN-COMBO-CASE-DIAGNOSE.txt,
+  스크린샷 verify_screenshots_only\MATCHED-ROWS-TOGGLE-MISSING-IN-COMBO-CASE-DIAGNOSE\
