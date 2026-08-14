@@ -7751,6 +7751,22 @@ Excel 레코드 내보내기에서 GB/SUM 미선택 불일치 컬럼이 누락�
   BATCH-SIZE-AWARE-SCHEDULING-SAFE-COMMIT.md
 
 
+### M130. 조사완료(문제없음 확인) - M129 LPT 스케줄링이 재사용하는
+2단계 COUNT 사전검증 값이 WHERE/JOIN을 정확히 반영하는지 확인
+- 발견/계기: 2026-08-14 (M129의 크기 점수가 물리 테이블 전체 행수가
+  아니라 실제 쿼리 결과 행수를 반영하는지 확인 필요 /
+  BATCH-QUERY-COMPLEXITY-SCORING-WHERE-JOIN-RULE-DIAGNOSE)
+- 결론: (a) 이미 정확함 - 2단계 COUNT는 물리 테이블 COUNT가 아니라
+  이관 SQL을 파싱해 재구성한 COUNT SQL(WHERE 반영, 다중 테이블 JOIN
+  결과 행수 반영, CTE/GROUP BY/UNION은 원본 SELECT를 서브쿼리로 감싸
+  정확 반영)을 실제 DB에 실행한 값. 파싱 실패 시에도 물리 전체 카운트로
+  조용히 폴백하는 경로 없음(명시적 ERROR, source_count는 NULL로 남아
+  LPT가 규모미상으로 안전 처리). 코드 수정 불필요.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  BATCH-QUERY-COMPLEXITY-SCORING-WHERE-JOIN-RULE-DIAGNOSE.md
+
+
+
 
 
 
