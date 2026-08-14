@@ -5317,11 +5317,30 @@ git -C E:/verify_reports worktree remove <임시경로>
   **바이트 단위 동일 재현 확인 → 신규 회귀 0건 확정**.
 - 참고: E:\verify_reports\STAGE5-GROUP-SWITCH-AUTO-CANCEL-PREVIOUS-JOB.txt
 
-**[3] NXDTV 리네이밍 2~4단계 — 미착수**
-- NXDTV-RENAME 항목(별도 등록됨) 참고. 1단계(화면표시명)만 완료, 2단계(폴더명)는
-  Claude Code auto-memory 프로젝트키 단절 위험 때문에 메모리 이관계획 선확정
-  필요, 3단계(DB파일명)·4단계(mv 접두사 전면)는 보류 권장 상태 그대로.
-- 결정 필요: 2단계 착수 여부(메모리 이관계획부터).
+**[3] ✅ 해결 완료 — NXDTV 리네이밍 2단계(폴더명) 이미 완료 확인, nxDTV로 확정**
+- NXDTV-RENAME-PHASE2-MEMORY-MIGRATION-PLAN-AND-EXECUTE(2026-08-14) 조사 결과,
+  폴더명 변경(X:\Projects\Migration-Validator → X:\Projects\nxDTV)이 이미
+  실행돼 있었고, 이 조사가 진행된 세션 자체가 새 폴더에서 돌고 있었음 - 지시서
+  작성 시점 이후 별도 경로로 이미 반영된 것으로 추정(정확한 시점/주체는 불명,
+  추측하지 않고 정직하게 기록).
+- 메모리 이관도 이미 성공: 신규 메모리 키(X--Projects-nxDTV)에 파일 326개,
+  그중 223개가 구 키(Migration-Validator)와 동일 파일명·동일 원본시각으로
+  존재 - "복사 후 계속 사용"한 흔적. 이 세션이 오늘 하루 종일 옛 프로젝트의
+  방대한 맥락(M1~M125 등)에 문제없이 접근한 사실 자체가 이관 성공의 직접
+  증거.
+- "nxDTV 이후 추가 목표 명칭"을 뒷받침하는 문서는 코드 저장소·verify
+  저장소 전체를 전수 검색해도 찾지 못함(추측 금지 원칙에 따라 추가 변경
+  미실행) - 사용자에게 직접 확인한 결과 추가 목표 명칭 없음, nxDTV로 최종
+  확정.
+- 3단계(DB파일명)·4단계(mv 접두사 전면)는 이번 범위 밖으로 여전히 보류
+  상태 유지(별도 결정 필요 시 재논의).
+- 부수 발견(저위험, 미수정): CLAUDE.md 제목·git 커밋 identity·.venv
+  pyvenv.cfg 경로 기록에 구 브랜딩("Migration Validator"/
+  "migration-validator") 잔재가 남아있으나 동작에 영향 없어 손대지 않음
+  (README/CLAUDE.md 임의 수정 금지 원칙 준수). 옛 메모리 키 폴더가 심볼릭
+  링크로 대체된 사례 1건 발견됐으나 원인 불명, 현재 동작 무영향으로 확인.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  NXDTV-RENAME-PHASE2-MEMORY-MIGRATION-PLAN-AND-EXECUTE.md
 
 **[4] 🆕 3단계 실행계획 카드 표시 오류 가능성 — 상세 미확인, 발견만 됨**
 - CHARACTER-PK-BOUNDARY-FIX-LIVE-RECONFIRM.txt "제한사항" 절에 "3단계 실행계획
