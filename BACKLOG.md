@@ -6785,7 +6785,7 @@ git -C E:/verify_reports worktree remove <임시경로>
   확인(8행 픽스처, 전/후 대조). 커밋 910cf757.
 - 근거: E:\verify_reports\reports\MISMATCH-LIST-GRID-BG-WHITE.md
 
-### M101. ✅ 해결 완료 — 5단계 그룹 요약(T1 저장시각 필수표시+5회 FIFO) + \
+### M101. ✅ 해결 완료 — 5단계 그룹 요약(T1 저장시각 필수표시+5회 FIFO) +
 '결과 저장' 스냅샷(그룹당 최대101건, 보고서 재현성 보장) 최종 구현
 - 발견/계기: 2026-08-12 (사용자 - "5단계 화면을 오래 두다가 나중에 조회하면
   그걸 검증데이터라고 볼 수 있나" / STAGE5-COLD-CLICK-TIME-GAP-CONSISTENCY-
