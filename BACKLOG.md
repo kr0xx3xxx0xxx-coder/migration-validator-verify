@@ -7524,3 +7524,74 @@ run_id 없음)이 일괄검증에는 노출되지 않음
   BATCH-VALIDATION-INFLIGHT-RUNID-GAP-EXPOSURE-DIAGNOSE.md
 
 
+### M123. 조사완료(무해+추가이득 확인) - M117 수치정규화 수정이 동종
+방언(Oracle-Oracle/PostgreSQL-PostgreSQL) 조합에도 안전하며 실제 이득
+사례도 새로 발견됨
+- 발견/계기: 2026-08-14 (M117 수정이 이기종 조합으로만 검증돼 동종
+  조합 안전성이 미확인 상태였던 것을 재확인 / M90-FIX-SAME-DIALECT-
+  REGRESSION-SAFETY-DIAGNOSE)
+- 코드 확인: 정규화 로직은 방언 조합을 가르는 조건이 없고 "컬럼이
+  숫자형이면 각 측이 자기 쪽만 독립 판단"하는 구조 - 동종/이기종
+  무관하게 동일 작동함을 확정.
+- 실측: 동종 조합(선언 동일)은 정규화 유무와 무관하게 결과 동일(무해,
+  회귀 0건). **동종 조합에서도 실질 이득 사례를 새로 발견**: (1)
+  Oracle-Oracle 두 인스턴스의 세션 NLS_NUMERIC_CHARACTERS 로케일이
+  다르면(예: 유럽식 소수점) 정규화 없이는 동종 이관에서도 거짓
+  값불일치가 났을 것을 재현 확인. (2) PostgreSQL-PostgreSQL에서 원본/
+  목적 컬럼 선언 scale이 다르면(스키마 재설계 동반 동종 이관) 5건 전부
+  표현이 달라져 거짓불일치가 났을 것을 재현 확인.
+- 결론: 코드 수정 대상 없음 - 현재 구조("숫자형이면 항상 정규화")가
+  동종 조합에서도 안전하며 오히려 필요한 설계임을 실측으로 재확인.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  M90-FIX-SAME-DIALECT-REGRESSION-SAFETY-DIAGNOSE.md
+
+### M124. 해결 완료 - 비-stream 재이관 엔진의 저장 계약 비대칭으로
+Excel 레코드 내보내기에서 GB/SUM 미선택 불일치 컬럼이 누락되던 결함
+- 발견/계기: 어제(8/13) COMPARE-COLS-CONTRACT-SYSTEMIC-AUDIT-DIAGNOSE가
+  "부분적 영향" 2건 중 1건으로 발견해 미해결로 남긴 것을 오늘 실측
+  재현·수정 / COMPARE-COLS-STORAGE-ASYMMETRY-EXCEL-EXPORT-GAP-DIAGNOSE
+- 실측 재현(원본/목적 각 20행 픽스처, GB=co_cd, SUM 미선택, note
+  컬럼 5건만 값불일치): 판정 자체는 정확(value_mismatch=5, 어제
+  NONSTREAM-COMPARE-COLS-MISSING-URGENT-FIX로 이미 정상)하지만, 저장된
+  basis에 row_compare_columns 필드 자체가 없어 Excel(scope=records)
+  시트2 헤더에 [ID, 불일치유형, 원본CO_CD, 목적CO_CD]만 나오고 실제
+  값이 다른 NOTE 컬럼이 완전히 누락됨을 확인 - 값 자체는 store에 이미
+  있으나 export 단계가 못 꺼냄.
+- 수정: stream 엔진이 이미 쓰던 저장 계약(match_key_columns/row_
+  compare_columns/row_compare_excluded_columns/encrypted_excluded_
+  columns 5개 필드)을 비-stream 엔진에 그대로 이식 - 새 저장 스키마
+  발명 없음, 판정 로직은 전혀 안 건드림(저장/export만 대칭화).
+- 실측(수정 후): Excel 헤더에 원본/목적 NOTE 컬럼 정상 추가, 실제
+  값(note16 vs CHANGED16) 정상 노출. 판정 수치는 수정 전과 동일(회귀
+  없음). 회귀 174/177 passed(무관 사전존재 실패 3건만).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  COMPARE-COLS-STORAGE-ASYMMETRY-EXCEL-EXPORT-GAP-DIAGNOSE.md
+
+### M125. 해결 완료 - 4단계 조합검증 체크박스를 1개로 통합하고 실행
+구조를 "교체"에서 "덧셈"으로 전환(M120 후속 구현)
+- 발견/계기: M120(STAGE4-PAIR-VS-EXPLICITMULTI-CHECKBOX-CONFUSION-
+  DIAGNOSE) 실측 확정 후 사용자 정책 결정 / STAGE4-UNIFIED-COMBO-
+  CHECKBOX-ADDITIVE-IMPLEMENT
+- 구현: #gbIncludePair(PAIR) 체크박스와 관련 렌더링·필터링 로직 전부
+  제거(ui/js_sql_preview.py의 PAIR 전용 함수 3개 삭제 포함).
+  #gbExplicitMulti 하나만 남기고 라벨을 "선택한 축 전부를 하나로 묶은
+  조합 검증도 추가 실행"으로 갱신. 실행세트 조립을 "교체"(explicitMulti
+  켜지면 SINGLE·PAIR 전부 버리고 EXPLICIT_MULTI만 실행)에서
+  "덧셈"(SINGLE은 항상 실행 + 체크 시 EXPLICIT_MULTI 세트 추가)으로
+  전환 - 한 번의 실행으로 축별 분해와 전체조합을 동시에 얻도록 개선.
+  서버측 include_pair 파라미터는 최소침습 원칙에 따라 삭제하지 않고
+  그대로 둠(클라이언트가 더 이상 안 보내 실질적으로 비활성).
+- 취소정책 결정: 대용량 확인창에서 취소 시 조합 세트만 제외되고 SINGLE
+  세트는 그대로 실행됨(전체 실행이 막히지 않음) - "취소는 조합 확장에
+  대한 거부일 뿐 이번 실행 자체에 대한 거부가 아니다"로 판단, 실측으로
+  확인(취소 후에도 SINGLE 3세트 정상 완료).
+- 회귀: 관련 6개 테스트 파일 94 passed(무관 사전실패 1건만), 광역
+  회귀 602 passed(실패 29건 전부 이번 작업 범위 밖 다른 세션 진행중
+  파일 기인, 표본 확인으로 확정). 오늘 완료된 M119(STAGE5-SNAPSHOT-
+  SAVE-CONCURRENT-CLICK-RACE-DIAGNOSE)가 건드린 tabler_renderer.py
+  영역과 diff 충돌 없음 확인.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  STAGE4-UNIFIED-COMBO-CHECKBOX-ADDITIVE-IMPLEMENT.md
+
+
+
