@@ -8238,6 +8238,36 @@ SUM 미선택 컬럼의 불일치를 반영 못 해 실제 규모를 과소평�
   SINGLE-PASS-OR-CONDITION-MULTI-GROUP-SCAN-DIAGNOSE.md
 
 
+### M142. 조사완료(문제없음 확인) - 서버 크래시 시 고아 RUNNING 상태
+잔류(M68[3]이 남긴 미해결 사항)는 기존 3개 계층으로 이미 충분히
+커버됨을 확인
+- 발견/계기: 2026-08-14 (M68[3]이 "M64와 같은 계열, 별도 지침"이라고만
+  기록하고 후속 처리 여부가 불명확했던 것을 재확인 필요성 제기 /
+  M68-3-ORPHAN-RUNNING-STATE-ON-CRASH-DIAGNOSE)
+- 결론: (b) 이미 충분히 커버됨, 코드 수정 불필요. 상태 저장 위치를
+  2계층으로 나눠 확인: [계층A] 영속 DB(exact_diff_run.status)는
+  M64(EXACT-DIFF-RUNS-RETENTION-CLEANUP-AND-ADMIN-UI, 커밋 6b23ed6e)
+  가 서버 기동 시 mark_startup_orphans()로 자동 정리. [계층B] 프로세스
+  메모리(reimport_job.py의 _JOBS_BY_FP 등)는 크래시 자체가 스스로
+  청소함(재기동하면 빈 dict로 시작하므로 "메모리 상 고아"라는 게 애초에
+  존재할 수 없음) - 다만 "같은 프로세스 내 스레드만 사망"하는 경우는
+  JOB-RECOVERY-STAGE1(커밋 f54c9573)의 reclaim_dead_thread_jobs()가
+  유예(30초) 후 자동 회수 + 주기적 sweeper(ORPHANED-REIMPORT-JOB-
+  CLEANUP-AND-DB-SESSION-SAFETY, 커밋 129658e8)가 추가 보강, "프로세스
+  자체 재시작"의 경우는 Active Run Recovery(D7-19, 커밋 6523cfef)가
+  checkpoint 기반으로 "이어서 실행" 또는 "새로 시작"을 정확히 안내.
+- 부가 확인: PK_INFLIGHT_JOIN_WAIT_SEC(≈130초) join-wait와 크래시가
+  나쁘게 얽히는 경로도 없음을 코드로 배제 확인(finally 블록이 예외
+  시에도 즉시 fp를 정리해 join-wait가 130초를 다 기다리지 않음).
+- 코드 수정 없음(순수 진단, 정적 분석+관련 단위테스트 42건 실행 -
+  실 DB/브라우저 크래시 재현은 불필요 판정, 이미 있는 단위테스트가
+  kill을 직접 시뮬레이션하고 있어 실제 프로세스 kill과 관측 결과가
+  동일함을 확인).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  M68-3-ORPHAN-RUNNING-STATE-ON-CRASH-DIAGNOSE.md
+
+
+
 
 
 
