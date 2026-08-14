@@ -6785,47 +6785,41 @@ git -C E:/verify_reports worktree remove <임시경로>
   확인(8행 픽스처, 전/후 대조). 커밋 910cf757.
 - 근거: E:\verify_reports\reports\MISMATCH-LIST-GRID-BG-WHITE.md
 
-### M101. 5단계 그룹목록 요약(CNT/SUM)이 4단계 완료 시점(T1) 1회 저장 후 무갱신 — 오래 방치 후 콜드클릭 시 "불일치 표시인데 클릭하면 0건"처럼 모순으로 보일 수 있음, M96 가드는 설계상 미적용(재사용캐시 없어 검사대상 자체가 없음), 완화안 3가지 비용순 제시
-- 발견/계기: 2026-08-12 (사용자 — "5단계 화면을 오래 두다가 나중에 조회하면 그걸
-  검증데이터라고 볼 수 있나" / STAGE5-COLD-CLICK-TIME-GAP-CONSISTENCY-DIAGNOSE,
-  코드 무변경)
-- **상세 레코드 자체는 문제없음**: 그룹 클릭 시 캐시 없으면(콜드) fingerprint
-  재사용 분기(agg_diff_route.py:1415 `ex is not None` 블록) 자체를 안 타고
-  곧장 실시간 스캔(prepare_reimport_pk_index_stream/prepare_reimport_pk_
-  index) — 클릭 순간(T2)의 실제 데이터를 정확히 가져옴. 캐시된 예전 행을
-  재사용하는 구조 아님(오히려 올바른 설계).
-- **★ 진짜 문제: 그룹 요약(CNT/SUM)은 T1(4단계 완료) 1회 스냅샷, 이후 무갱신**.
-  `/stage5/groups/save`(stage5_group_route.py:9-38)가 "4단계 완료 시 1회"만
-  호출(`_mvStage5PersistGroups`) — 화면을 아무리 오래 열어둬도 그룹목록·CNT·
-  SUM이 재조회되지 않음. 클릭 시 `g.src_values/tgt_values`(T1 저장값)를
-  그대로 서버에 실어 보냄(재조회 없음). 코드 주석("4단계는 캐시없어 항상
-  최신")은 "4단계 실행되는 그 순간"에만 참이고 "그 결과가 브라우저에 얼마나
-  머무는지"는 전제하지 않음 — 지시서가 지목한 지점과 코드 전제가 실제로 어긋남.
-- **실제 재현 가능 시나리오**: T1엔 불일치였는데 T2엔 다른 경로로 해소된 경우
-  → 클릭 시 라이브스캔은 정확히 0건 반환하지만, 화면엔 T1의 불일치 CNT/SUM이
-  여전히 나란히 남아있어 **아무 설명 없는 모순처럼 보임**. (반대방향: T1엔
-  일치인데 T2엔 문제 생김 — 이건 일치 그룹이 애초에 목록에 안 올라와 개별
-  클릭 경로로는 도달 불가, "전체 그룹 한번에 추출"만 영향권 밖으로 무관.)
-  "데이터가 바뀐 것 같다" 안내는 코드 전역 검색(staleness/drift 계열)해도
-  5단계 상세추출 경로에 존재하지 않음 — 조용히 그 시점 결과만 표시.
-  (SCOPE_MISMATCH 방어는 별개 — "재이관건수가 원본건수 초과"만 잡는 기술적
-  오류탐지이지 T1↔T2 데이터변경 감지 아님, 이 시나리오엔 안 걸림.)
-- **M96 가드 미적용 확인(설계 범위, 버그 아님)**: `evaluate(cached,current)`는
-  캐시된 run이 READY/EARLY_STOPPED로 존재할 때만 호출(agg_diff_route.py:
-  1442-1445/1598-1600) — 콜드클릭은 `ex`/`_ns_hit`가 None이라 이 if문 진입
-  자체를 안 함, `_guard_check`가 호출조차 안 됨. M96은 "캐시 재사용 여부"
-  판단용이라 재사용할 캐시가 없는 최초스캔엔 원래 적용 대상이 아님.
-- **완화안(구현 없음, 제안만, 비용순)**:
-  a) [최우선 권장, 저비용] 저장 시각(T1)을 그룹목록/상세패널에 노출("이 요약은
-  OO시 OO분 기준") — 기존 formatKstDateTime류 포맷터 재사용, 신규계측 불요.
-  b) [정책결정 필요] T1-T2 시차가 임계값(예: 10분/1시간) 넘으면 경고배너 —
-  detail_cache_guard.py의 기존 메시지 패턴 재사용 가능하나 임계값은 사용자
-  정책결정 선행 필요(임의로 확정 안 함).
-  c) [가장 확실, 중간비용] 라이브스캔 직후 얻은 실측 CNT를 T1 저장값과 그
-  자리에서 대조해 달라지면 명시 알림 — M96의 evaluate() 함수를 "캐시재사용
-  판단용"이 아니라 "표시용 안내"로 재사용(새 아키텍처 불필요, 낮은 결합도).
-- 근거: E:\verify_reports\reports\STAGE5-COLD-CLICK-TIME-GAP-CONSISTENCY-DIAGNOSE.md
-
+### M101. ✅ 해결 완료 — 5단계 그룹 요약(T1 저장시각 필수표시+5회 FIFO) + \
+'결과 저장' 스냅샷(그룹당 최대101건, 보고서 재현성 보장) 최종 구현
+- 발견/계기: 2026-08-12 (사용자 - "5단계 화면을 오래 두다가 나중에 조회하면
+  그걸 검증데이터라고 볼 수 있나" / STAGE5-COLD-CLICK-TIME-GAP-CONSISTENCY-
+  DIAGNOSE) - 이후 2026-08-13~14 설계 논의를 거쳐 최종 확정.
+- **1단계(M101-A)**: 그룹요약 저장시각(T1)을 "YYYY-MM-DD HH:MM:SS KST
+  기준입니다"로 헤더 상시 표시(옵션 아님, 값 없으면 정직하게 "정보없음").
+  M96/M97의 "5개 차수 이력"과는 물리적으로 다른 테이블(FIFO 삭제 로직
+  자체가 없음)임을 확인 후 stage5_mismatch_group에 신규 5회 FIFO 구현
+  (스코프별 오래된 run_id부터 삭제, 삭제목록 항상 응답에 포함 - 침묵삭제
+  금지). 그룹 클릭 시 조회시각(T2)도 last_viewed_at 컬럼 1개로 영속저장
+  (누적 아닌 최신값 덮어쓰기 - 재이관 캐시 설계와 정합). 6회 연속 실행
+  실측으로 FIFO 정확히 5개만 유지 확인.
+- **2단계(M101-B, 핵심)**: 사용자 지적("보고서 제출 후 원본이 바뀌면 화면과
+  보고서가 달라진다")을 반영해 설계를 "매번 실시간 재조회"에서 "명시적
+  스냅샷 저장"으로 전환. 5단계에 "결과 저장" 버튼 신규 - 누르면 그 시점
+  불일치 그룹 전체를 그룹당 최대 101건(기존 상수 재사용)씩 실디비 스캔해
+  스냅샷 저장. 신규 PK저장 테이블 대신 기존 ExactDiffRunStore(run_id 기준
+  불변 저장 구조)를 그대로 재사용해 "원본이 바뀌어도 스냅샷 불변"이 저장소
+  재사용만으로 보장됨. 저장 전=매번 실디비 재조회(회귀없음)/저장 후=
+  스냅샷 표시(재조회 없음, "저장된 스냅샷" 고지)로 클릭 동작 분기, "지금
+  실시간 재확인" 버튼 별도 제공.
+- **결정적 실측(TEST4a)**: 스냅샷 저장 후 원본 DB를 실제로 UPDATE했음에도
+  재클릭 시 화면 값이 전혀 안 바뀌고 HTML이 변경 전과 완전 동일함을
+  확인(prepare 요청 0건) - "보고서 재현성" 목적 실증.
+- **DB 대체 발견 및 재검증**: 최초 라이브검증이 Oracle 접속장애로 조용히
+  Neon PostgreSQL로 대체됐던 사실을 사용자가 발견·지적, "주력DB 접속불가
+  시 조용히 대체 금지, 먼저 알리고 승인받을 것" 원칙 확립. Oracle 접속
+  복구 후 A/B 전 항목 Oracle로 재검증(Neon과 동일 결과, stage5_group_
+  store.py가 DBMS 무관 순수 SQLite 저장계층임을 grep 0건으로 코드 증명).
+- 커밋: M101-A(29f0eb70, hunk격리), M101-B(d3ea7000, hunk격리).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\ 내 M101-A-PLAN-FULL-
+  IMPLEMENT.md / M101-A-SAFE-COMMIT-ISOLATED.md / M101-B-SNAPSHOT-SAVE-
+  FINAL-IMPLEMENT.md / M101-AB-ORACLE-REVERIFY-AFTER-CONNECTIVITY-
+  RESTORED.md
 ### M102. ✅ 확정(조사완료, 코드수정 없음) — 조합축(다중 GROUP BY 세트) 경로는 "일치 행 보기" 토글을 만드는 코드/데이터 자체를 타지 않는 설계 갭 — 스크린샷 증거로 재확인 완료
 - 발견/계기: 2026-08-12 (사용자 — NXDNP.MV_SCATTER50M 조합축 포함 대규모 케이스에서
   "일치 행 보기" 토글이 안 보인다는 신고 / MATCHED-ROWS-TOGGLE-MISSING-IN-COMBO-CASE-
@@ -7268,6 +7262,41 @@ git -C E:/verify_reports worktree remove <임시경로>
   M87-MATCHED-GROUPS-EXCEL-EXPORT-OPTION.md / M95-EARLY-STOP-101-EXPAND-
   TO-ALL-PK-TYPES.md / COMBO-3AXIS-COST-CONFIRM-TABLESCALE-BASIS-
   IMPLEMENT.md, 스크린샷 각 폴더.
+
+
+### M116. ✅ 해결 완료 — JOIN SQL에서 base 테이블 컬럼의 카탈로그 통계
+조회를 건너뛰던 게이트 제거(REGION_CD 등 4단계 실행 차단 해소)
+- 발견/계기: 2026-08-14 (사용자 실사용 중 발견 - MV_SCATTER50M 5천만행
+  JOIN 픽스처에서 REGION_CD가 "수동선택필요"로 4단계 실행 차단, "✗
+  관리컬럼 아님" 버튼을 눌러도 안 풀림 / REGION-CD-CLASSIFICATION-AND-
+  BLOCK-FULL-DIAGNOSE)
+- **근본원인**: 관리컬럼 판정과 무관 - 시맨틱(_CD 패턴)·휴리스틱(값샘플)
+  둘 다 정상 작동해 이미 "관리컬럼 아님(자동확정)" 상태였음. 진짜 원인은
+  1단계 /analyze가 SQL에 JOIN이 하나라도 있으면 DB 카탈로그 컬럼통계
+  조회 자체를 건너뛰던 게이트(`not _has_join`) - base 테이블의 평범한
+  코드성 컬럼까지 "cardinality 근거 부족"→MANUAL_REQUIRED→4단계 차단.
+  5천만행 규모와 무관, 같은 테이블·컬럼에서 JOIN만 빼면 정상 동작함을
+  A/B 실측으로 확정. "✗ 관리컬럼 아님" 버튼은 애초에 다른 축(admin_
+  audit_verdict) 전용 컨트롤이라 이 차단과 무관 - 눌러도 no-op.
+- **수정**: `not _has_join` 게이트 제거 + 신규 함수 2개(base_table_
+  source_columns/restrict_stats_to_columns)로 "SQL 문법상 base 테이블
+  소속이 확정되는 컬럼만" 통계를 붙이도록 - 원 게이트가 막으려던 동명
+  컬럼 오귀속(예: SRC.REGION_CD 21개 vs DIM.REGION_NM 20개)은 여전히
+  100% 차단. 별칭 없는 컬럼(소속 확정 불가)은 기존처럼 정직하게 근거
+  없음 유지 - 추측 안 함.
+- 실측: REGION_CD/STATUS_CD 둘 다 수동선택필요→기본추천 개선, 4단계
+  차단 해소, 조인상대 컬럼(REGION_NM)은 의도대로 유지, JOIN 없는 SQL
+  무회귀, 회귀서브셋 706 PASS(전/후 동일).
+- 커밋: 16a00102(케이스A, 혼재 없어 hunk격리 불필요).
+- **후속 논의 진행 중**: 별칭 없는 컬럼이 "조인된 테이블 중 한쪽에만
+  존재"하면 자동해소 가능하다는 사용자 제안 조사 완료(JOIN-UNALIASED-
+  COLUMN-AMBIGUITY-REFINEMENT-DIAGNOSE) - 셀프조인 시 물리테이블명이
+  아닌 참조 인스턴스(별칭) 단위로 세야 하는 안전장치 필수 확인, 구현
+  지침 발행됨(진행중, 완료 시 M116 갱신 예정).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\ 내 REGION-CD-
+  CLASSIFICATION-AND-BLOCK-FULL-DIAGNOSE.md / REGION-CD-FIX-SAFE-
+  COMMIT.md / JOIN-UNALIASED-COLUMN-AMBIGUITY-REFINEMENT-DIAGNOSE.md
+
 
 
 
