@@ -8266,6 +8266,47 @@ SUM 미선택 컬럼의 불일치를 반영 못 해 실제 규모를 과소평�
 - 근거: G:\내 드라이브\nxDTV-verify\reports\
   M68-3-ORPHAN-RUNNING-STATE-ON-CRASH-DIAGNOSE.md
 
+### M143. 해결 완료 - M141(OR조건 단일패스 다중그룹 스캔) 설계를
+실제 구현 - 5단계 자동저장 루프가 불일치 그룹 N개를 순차 개별 스캔
+하던 것을 1회 통합 스캔으로 전환, 정합성(스큐 시나리오)과 5천만행
+실측 모두 통과
+- 발견/계기: 2026-08-14 (M138이 확정한 중복 풀스캔 문제를 M141이
+  설계하고, 사용자가 그 설계를 실제로 구현하도록 결정 /
+  SINGLE-PASS-OR-CONDITION-MULTI-GROUP-SCAN-IMPLEMENT)
+- 구현: services/exact_diff/agg_contribution.py에 신규 함수
+  prepare_reimport_pk_index_stream_multi_group 추가(기존 함수 완전
+  무수정, 하위호환) - groups 리스트를 받아 그룹별 AND predicate를
+  OR로 묶고 CASE WHEN...THEN tag END 컬럼을 추가하는 방식으로 SQL
+  합성(기존 scope pushdown 로직 재사용, 신규 SQL 빌더 발명 없음).
+  merge-walk 카운터를 tag별 딕셔너리로 전환해 그룹별 독립 상한(101건)
+  판정 - 반드시 merge-join 완료 후에만 카운트(SQL 선-cap 절대 금지,
+  M141이 발견한 함정 회피). unique_key=False(복합키)는 명시적으로
+  거부하고 기존 순차 방식으로 자동 폴백. 신규 배치 엔드포인트(POST
+  /agg-diff/prepare-batch)를 기존 단일 엔드포인트와 나란히 추가(기존
+  온디맨드 그룹 클릭 경로 완전 무변경). 프런트도 배치 우선 시도 후
+  실패/미지원 그룹만 기존 순차 루프로 개별 폴백하도록 배선.
+- **정합성 검증(최우선)**: 오프라인 스큐 시나리오(불일치 10,000건이
+  PK 상위 구간에만 몰린 경우)에서 캡처된 레코드 전부가 정확히 그
+  구간에서만 나옴 - SQL 선-cap 방식이었다면 절대 나올 수 없는 결과라
+  "확정 후 슬라이싱" 원칙이 실제로 지켜졌음을 실측 증명. 실 DB
+  (PostgreSQL, Oracle 양쪽)에서도 오차 주입 구간과 검출 구간이 정확히
+  일치, 그룹 간 교차오염 없음 확인.
+- **5천만행 실측(M141이 추정만 하고 못 했던 부분)**: 실측 119.7초 -
+  M141 추정 구간(70~120초) 이내(상단 경계에 근접). 대규모에서는 exec
+  (테이블 전체 스캔)가 지배적이라는 기존 결론과 방향 일치.
+- 시행착오 정직 기재: 최초 실 DB 검증 시도에서 서로 다른 물리 DB가
+  우연히 같은 스키마/테이블명을 가져 같은 테이블로 잘못 가정해 HOLD가
+  발생 - 코드 결함이 아니라 검증 스크립트 설계 오류로 확인, 양쪽에
+  실존이 확인된 픽스처로 교체 후 정상 검증 완료(원인·교정 과정을
+  숨기지 않고 결과 JSON에 그대로 보존).
+- 남은 사항(범위 밖, 후속 검토): 복합키(unique_key=False) 경로는
+  이번 구현에서 명시적으로 거부만 하고 지원 안 함 - 여러 컬럼을
+  concat으로 묶어 지원 가능한지는 별도 조사 진행 중
+  (COMPOSITE-KEY-STREAM-ENGINE-NATIVE-SUPPORT-DIAGNOSE).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  SINGLE-PASS-OR-CONDITION-MULTI-GROUP-SCAN-IMPLEMENT.md
+
+
 
 
 
