@@ -2916,6 +2916,23 @@ git -C E:/verify_reports worktree remove <임시경로>
   확인됨.
 - 근거: G:\내 드라이브\nxDTV-verify\reports\
   REIMPORT-JOB-FORCE-CANCEL-STREAM-SCALE-DIAGNOSE.md
+- 최종 해결(2026-08-14) - M33-13MIN-FREEZE-AUTOMATED-REPRODUCE-AND-FIX
+  로 293회 자동 반복 시도 끝에 재현 성공(22.9분 정지, 원 사례 13분보다
+  더 긺). faulthandler 5분 주기 덤프가 정지 구간 5회 연속 동일 지점을
+  가리킴 - services/db_query_service.py cur.execute(sql)(목적지 SELECT
+  fetch). 원인 확정: services/db_adapters/postgresql.py의 PostgreSQL
+  연결에 TCP keepalive가 전혀 설정돼 있지 않아, "쿼리는 보냈는데 응답이
+  네트워크 구간에서 유실되는" 상황을 OS가 스스로 감지 못 해 애플리케이션이
+  영원히 안 올 수도 있는 응답을 무기한 대기했음(statement_timeout·
+  connect_timeout 둘 다 이 구간을 방어 못 함). 수정: psycopg2.connect()
+  에 keepalives=1/keepalives_idle=10/keepalives_interval=5/
+  keepalives_count=3 추가. 재검증(800회 반복): 같은 급 네트워크 이상
+  이벤트 자체는 여전히 발생(5/800, 발생률 자체는 안 바뀜)하나, 수정 전
+  최대 1,373.6초(상한 없이 무기한)까지 늘어지던 것이 수정 후 5/5 전부
+  약 60초 안에 명확한 오류로 확정 종료됨 - "무기한 침묵 정지"가 "유한
+  시간 내 오류"로 바뀐 것을 직접 재현으로 확인. 커밋: e6aeeb8d.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  M33-13MIN-FREEZE-AUTOMATED-REPRODUCE-AND-FIX.md
 
 ### M28. ✅ 해결 완료 — 사전차단 SQL 조용한 성공(success=true) 오판을 정확한 신호 배선 복구로 해소
 - 발견일: 2026-08-02 / 정밀재진단: 2026-08-08 / 해결일: 2026-08-08
@@ -7637,6 +7654,52 @@ Excel 레코드 내보내기에서 GB/SUM 미선택 불일치 컬럼이 누락�
   영역과 diff 충돌 없음 확인.
 - 근거: G:\내 드라이브\nxDTV-verify\reports\
   STAGE4-UNIFIED-COMBO-CHECKBOX-ADDITIVE-IMPLEMENT.md
+
+
+### M128. 해결 완료 - 다중 탭/다중 사용자가 같은 그룹을 동시에 열면
+서버 in-flight 응답에 run_id가 없어 재이관 상세조회가 조용히 누락되는
+결함
+- 발견/계기: 2026-08-14 (M119 완료보고가 "다중 탭·다중 사용자 등 다른
+  경로에도 같은 계약결함이 남을 수 있다"고 지목한 마지막 남은 후보 -
+  일괄검증(M122)은 노출없음으로 이미 확정됨 / MULTITAB-INFLIGHT-RUNID-
+  GAP-EXPOSURE-DIAGNOSE)
+- 근본원인 확정: pk_index_fingerprint(재이관 PK조회 지문)의 구성요소
+  10개(src/tgt 연결·SQL·키·SUM·GROUP BY·plan/selection 지문) 중 세션/
+  탭/프로젝트/사용자 식별자는 0개 - 같은 프로젝트·같은 그룹을 다른 탭
+  (또는 다른 검증자가 각자 브라우저)에서 열면 완전히 같은 지문이 됨을
+  코드로 확정. 지문이 겹친 순간 서버 in-flight 가드가 run_id 없는
+  "RUNNING" 응답을 주는데, 소비처 3곳(개별조회·prewarm·M101-B 스냅샷)
+  전부 run_id로만 다음 단계로 넘어가 조용히 고착/제외됨.
+- 실측 재현(수정 전): 5단계 상세조회가 "준비 중..." 문구에 영구 고착,
+  '결과 저장'은 실제로 9개 중 8개만 저장하고도 "결과 저장 완료(8개
+  그룹)"로 조용히 끝남(제외 사실이 겉으로는 성공처럼 보임 - 빈도보다
+  위험한 실패 양상으로 판정).
+- 참고: M119의 클라이언트 가드(같은 탭 안 window 전역상태)는 다른
+  탭에서는 값 자체가 undefined라 구조적으로 적용 불가함을 실측으로
+  확인 - 서버측 계약 수정이 불가피했음.
+- 수정: in-flight 시 "즉시 포기"에서 "진행 중인 조회에 합류"로 전환 -
+  같은 지문은 정의상 같은 입력·같은 결과이므로, 선행 조회가 끝날 때까지
+  대기(상한 있음, 기본 130초)했다가 그 결과(run_id 포함)를 그대로
+  공유. 새 DB 조회를 추가로 시작하지 않음(fetch 호출 횟수 불변을
+  테스트로 고정). force=true도 합류 대상 - force의 목적은 "과거 캐시
+  재사용 금지"이지 "같은 순간 만들어진 결과 금지"가 아니므로.
+- 노출 범위: 소량(비-stream, 5단계 그룹 드릴다운 대부분) 경로에 한정 -
+  대량(stream) 경로는 원래도 reimport_job이 fingerprint를 job으로
+  붙잡아 run_id를 정상 반환하므로 노출 없음.
+- 실측(수정 후): 다중탭 동시조작 시 두 탭 모두 정상 run_id 확보(같은
+  run_id 공유), '결과 저장' 9/9 전부 저장(누락 0), 제외 안내문구 없음.
+  회귀 162 passed(신규 3건 포함), 무관 사전실패 5건만.
+- 남은 사항(범위 밖, 기록만): (a) 대량(stream) 경로도 force=true 겹치면
+  먼저 시작한 job이 취소될 수 있는 별개 문제 발견 - 이번 범위 밖,
+  실측 없이 후속 과제로만 기록. (b) 이 지문에 project_id 등 컨텍스트
+  식별자가 전혀 없다는 사실 자체가 "다른 프로젝트/다른 검증모드 간에도
+  지문이 겹쳐 데이터가 섞일 수 있는가"라는 더 근본적인 우려로 이어져
+  별도 조사(CROSS-CONTEXT-FINGERPRINT-COLLISION-DATA-INTEGRITY-DIAGNOSE)
+  진행 중.
+- 커밋: c6e142d6.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  MULTITAB-INFLIGHT-RUNID-GAP-EXPOSURE-DIAGNOSE.md
+
 
 
 
