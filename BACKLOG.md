@@ -7473,3 +7473,54 @@ EXPLICIT_MULTI) 혼란 - PAIR는 최대2축만, EXPLICIT_MULTI는 전체교체
 - 근거: G:\내 드라이브\nxDTV-verify\reports\
  STAGE4-PAIR-VS-EXPLICITMULTI-CHECKBOX-CONFUSION-DIAGNOSE.md
 
+
+### M121. 해결 완료 - 관리컬럼 재확정(/reapply-autoselection) 후에도
+실행게이트가 옛날 후보pool을 참조해 배제됐어야 할 컬럼 실행을 허용하던
+잠재 결함(현재 UI 미배선으로 실사용 영향은 없음, 선제 수정)
+- 발견/계기: 2026-08-14 (M118 완료보고가 "관대해지는 방향이라 안전할
+  것"이라고 짐작으로만 적어둔 두 번째 지점을 직접 재검증 / REAPPLY-
+  AUTOSELECTION-TOKEN-STALENESS-DIAGNOSE)
+- **기존 "안전하다" 판단이 실측으로 뒤집힘**: 관리컬럼을 "아님→맞음"
+  으로 확정하면 그 컬럼은 GROUP BY 후보에서 배제(REC_EXCLUDED)돼야
+  하는데, /reapply-autoselection이 재계산 결과를 workflow_token
+  artifact에 되저장하지 않아 게이트가 여전히 배제 이전 상태를 봄 -
+  "관대해진다"는 건 사실이지만, 그 관대함이 "막혔어야 할 컬럼의 실행을
+  허용"하는 방향으로 작동해 위험함을 A/B 실측으로 증명(수정 전:
+  방금 확정한 관리컬럼도 SAFE로 통과 -> 수정 후: 정확히
+  BLOCKED/POLICY_EXCLUDED로 차단).
+- 수정: M118과 동일 패턴 재사용(입력=서버 원본, 계산=서버 자체,
+  출력=같은 토큰에 되저장) - 새 신뢰경계 설계 없이 workflow_token
+  선택필드 추가 + store_stage_artifact로 되저장.
+- **중요 정정**: 이 API는 현재 어떤 화면 JS에서도 호출되지 않음(F4-4
+  설계 이후 미배선) - 재분석(/analyze) 재실행 시 토큰이 완전히 새로
+  발급되므로 이 stale 문제 자체가 현재 UI 흐름으로는 발생하지 않음.
+  즉 "지금 작동 중인 결함 수정"이 아니라 "이 API가 향후 화면에
+  배선되는 순간 재발했을 잠재 결함을 선제 차단"한 것.
+- 회귀: 관련 테스트 158+ passed, 무관 사전존재 실패 1건만.
+- 커밋: 43e03cee.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  REAPPLY-AUTOSELECTION-TOKEN-STALENESS-DIAGNOSE.md
+
+### M122. 조사완료(노출없음 확정) - M119 근본원인(in-flight 응답에
+run_id 없음)이 일괄검증에는 노출되지 않음
+- 발견/계기: 2026-08-14 (M119 완료보고가 "다중탭·일괄검증 등 다른
+  경로에도 같은 계약결함이 남을 수 있다"고 지목한 것을 직접 확인 /
+  BATCH-VALIDATION-INFLIGHT-RUNID-GAP-EXPOSURE-DIAGNOSE)
+- **결론: 노출 없음(NOT EXPOSED), 코드 수정 없음**. 일괄검증은 문제의
+  함수(prepare_reimport_pk_index, _PK_INFLIGHT 가드 보유)를 호출하는
+  경로 자체가 없음을 코드 전수추적으로 확정 - 일괄검증은 완전히 다른
+  core 경로(single_validation_run_facade 등)를 타며, 문제 함수의
+  실사용 호출부는 저장소 전체에서 개별검증 화면 JS 3곳뿐임을 확인.
+- **검증 방법이 견고함**: 일괄검증 실행 중 문제 함수 호출 0회를
+  실측하면서, 동시에 같은 도구로 개별검증 경로에서는 버그가 여전히
+  재현됨을 양성 대조군으로 함께 확인 - "테스트 도구가 못 잡는 것"이
+  아니라 "정말 안 부르는 것"임을 증명.
+- 부수 발견: 일괄검증은 실패 행을 조용히 건너뛰지 않고 BatchRowEnvelope
+  로 사유까지 남겨 집계·표시하는 더 견고한 설계임을 확인(M119의 "조용한
+  누락"과 반대 방향). 일괄검증 실행 중 개별검증 동시조작 자체는 막혀있지
+  않으나(화면잠금이 일괄 요소에만 걸림), 그 동시성이 문제 함수로 흘러갈
+  통로가 애초에 없어 위험이 실현되지 않음.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  BATCH-VALIDATION-INFLIGHT-RUNID-GAP-EXPOSURE-DIAGNOSE.md
+
+
