@@ -7391,3 +7391,85 @@ git -C E:/verify_reports worktree remove <임시경로>
 
 
 
+
+
+### M118. 해결 완료 - 3단계 화면(authoritative 재확정)과 4단계
+실행게이트가 서로 다른 후보 스냅샷을 참조하던 stale 결함
+- 발견/계기: 2026-08-14 (사용자 실사용 - MV_SCATTER50M JOIN 픽스처에서
+ 3단계가 REGION_NM을 "기본추천(고유값20)"으로 정상 표시하는데도 4단계
+ 실행 시 여전히 "REGION_NM(수동선택필요)"로 차단됨 / REGION-NM-DISPLAY-
+ VS-EXECUTION-GATE-STATE-MISMATCH-DIAGNOSE)
+- 근본원인: 4단계 실행게이트(groupby_execution_safety_gate.py)는
+ workflow_token의 서버 저장물(artifact)만 근거로 삼는데, 이 저장물은
+ 1단계 /analyze에서 딱 한 번만 쓰이고 3단계의 COUNT 이후 authoritative
+ 재확정(finalize_recommendation_postcount) 결과로는 한 번도 갱신된 적
+ 없었음. base 테이블 소속 컬럼(REGION_CD/STATUS_CD)은 1단계부터 이미
+ 근거가 붙어 문제없었지만, 조인상대 소속 컬럼(REGION_NM)만 3단계에서야
+ 근거가 붙어 게이트만 stale 상태로 남음. 같은 순간 게이트를
+ 1단계값(BLOCKED)/3단계값(SAFE)으로 각각 판정시켜 완전히 다른 결과가
+ 나옴을 실측으로 증명.
+- 수정: 신뢰경계(S15, 클라이언트 조작 방지) 유지 - 게이트가 클라이언트
+ 값을 그냥 믿게 바꾸지 않고, 3단계 재확정의 입력·출력을 전부 "서버
+ 자신의 토큰 저장물"로 닫음(입력=토큰 원본 deepcopy, 계산=서버
+ finalize, 출력=같은 토큰에 되저장). 클라이언트가 조작한 가짜 근거를
+ 주입해도 되저장 값에 반영 안 됨을 직접 공격 테스트로 확인.
+- 실측(실 브라우저, Oracle 5천만행): 수정 전 4단계 축 2개만 실행(11개
+ 불일치그룹) -> 수정 후 3개 축 모두 실행(12개, REGION_NM 축에서만
+ 나오던 불일치 1건 추가 검출). 회귀 244건 PASS.
+- 남은 사항(범위 밖, 기록만): /reapply-autoselection(관리컬럼 재확정)도
+ 같은 패턴(토큰 미갱신)의 두 번째 지점 - 게이트가 "더 관대해지는"
+ 방향이라 안전성 위험은 없으나 별도 후속 권장.
+- 커밋: b39e60cc.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+ REGION-NM-DISPLAY-VS-EXECUTION-GATE-STATE-MISMATCH-DIAGNOSE.md
+
+### M119. 해결 완료 - '결과 저장' 일괄 스냅샷 진행 중 개별 그룹 클릭 시
+경쟁상태로 스냅샷 그룹이 조용히 누락되는 결함
+- 발견/계기: 2026-08-14 (사용자 실사용 - 일괄 저장 진행 중 아직 처리
+ 안 된 그룹을 클릭한 화면을 보고 "동시 진행이 맞는 설계인가" 질문 /
+ STAGE5-SNAPSHOT-SAVE-CONCURRENT-CLICK-RACE-DIAGNOSE)
+- 실측 재현 확정: 저장 진행 중 개별 클릭 시, 서버 in-flight 거절 응답에
+ run_id가 없어 저장 루프가 해당 그룹을 조용히 건너뜀 - 9개 중 1개
+ 누락, 그 그룹은 "추출중" 상태로 영구 고착. 게다가 "N개 제외됨" 경고
+ 문구가 화면 재도장 직후 바로 지워져 사용자가 누락 사실 자체를 알 수
+ 없었음(이중 은폐). M101-B 원 설계에 이 시나리오 언급 자체가 0건 -
+ "고려 안 된 사각지대"로 확정(우연히 안전한 구조 아님).
+ SQLite 저장 계층 자체(threading.Lock 직렬화)는 동시쓰기에 안전함을
+ 확인 - 깨진 것은 "무엇을 저장할지 정하는 클라이언트 루프"뿐.
+- 수정(최소침습): 저장 진행 중 그룹 클릭을 차단(기존 버튼 비활성/접기
+ 가드와 동일 기준을 클릭 경로에도 적용)하고, "제외됨" 안내가 화면
+ 재도장에 안 지워지도록 순서 조정.
+- 실측(수정 후): 9/9 전부 저장(누락 0), 영구고착 0건, run_id 이원화
+ 0건. 회귀 275건 중 관련없는 사전존재 실패 5건만.
+- 남은 사항(범위 밖, 기록만): 서버 in-flight 응답에 run_id가 없다는
+ 근본 계약 결함 자체는 남아있음(다중탭·일괄검증 등 다른 경로엔 여전히
+ 잠재) - 별도 후속 권장. 대량(stream) 그룹에서 저장 루프가 진행중
+ 스캔을 강제취소할 수 있는 코드경로도 발견됐으나 이번 픽스처로는
+ 재현 못 해 결론 미포함(짐작 금지 원칙).
+- 커밋: 5ee4069e.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+ STAGE5-SNAPSHOT-SAVE-CONCURRENT-CLICK-RACE-DIAGNOSE.md
+
+### M120. 조사완료(후속 구현중) - 4단계 조합검증 체크박스 2개(PAIR/
+EXPLICIT_MULTI) 혼란 - PAIR는 최대2축만, EXPLICIT_MULTI는 전체교체
+- 발견/계기: 2026-08-14 (사용자 실사용 - 3축 선택 후 "그룹조합까지 실행"
+ 체크박스를 켜도 "조합 미검증" 배너가 계속 뜨는 것을 발견 /
+ STAGE4-PAIR-VS-EXPLICITMULTI-CHECKBOX-CONFUSION-DIAGNOSE)
+- 실측 확정: #gbIncludePair(PAIR)와 #gbExplicitMulti(EXPLICIT_MULTI)는
+ 완전히 독립된 별개 체크박스(상호배제 없음, 동시 체크 가능). PAIR는
+ 선택 축이 몇 개든 "구분효과가 가장 큰 2축"만 묶은 조합 1세트만
+ 추가(선택 전부를 묶는 게 아님). EXPLICIT_MULTI는 켜면 SINGLE·PAIR
+ 세트를 전부 교체하고 선택 축 전부를 묶은 세트 1개만 실행 - "덧셈"이
+ 아니라 "교체" 구조라, 축별 분해와 전체조합을 둘 다 보려면 실행을
+ 2회(끄고 1번, 켜고 1번) 해야 함. 둘 다 켜도 PAIR는 조용히 무시됨
+ (EXPLICIT_MULTI가 우선, 이번에 처음 확인된 사실). 조합 미검증 배너는
+ "선택 축 전부를 묶은 세트가 실행됐는가"로만 판정 - PAIR로는 절대
+ 안 사라지고 EXPLICIT_MULTI로만 사라짐(정상 동작, 버그 아님).
+- 대용량 확인창(93초 추정치)은 M109 유도 공식과 정확히 일치 확인.
+- 사용자 결정: 체크박스 1개로 통합(PAIR 제거), 의미를 "선택 축 전부를
+ 하나로 묶음"으로 통일, 구조를 "교체"에서 "SINGLE 항상 실행 + 조합
+ 추가 실행"이라는 덧셈 구조로 전환 - 한 번의 실행으로 축별 분해와
+ 전체조합을 동시에 얻도록 개선. 구현 지침 발행됨(STAGE4-UNIFIED-COMBO-CHECKBOX-ADDITIVE-IMPLEMENT, 진행중 - 완료 시 M120 갱신 예정).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+ STAGE4-PAIR-VS-EXPLICITMULTI-CHECKBOX-CONFUSION-DIAGNOSE.md
+
