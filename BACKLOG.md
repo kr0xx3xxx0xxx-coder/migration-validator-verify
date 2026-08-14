@@ -7701,5 +7701,56 @@ Excel 레코드 내보내기에서 GB/SUM 미선택 불일치 컬럼이 누락�
   MULTITAB-INFLIGHT-RUNID-GAP-EXPOSURE-DIAGNOSE.md
 
 
+### M129. 해결 완료 - 일괄검증 병렬 스케줄링이 테이블 크기를 전혀
+고려하지 않던 문제(사실상 FIFO) 확인 및 크기기반(LPT) 스케줄링 +
+사전 예상소요시간(ETA) 표시 구현
+- 발견/계기: 2026-08-14 (사용자 실전 경험 - 나이스/에듀파인급 수천개
+  테이블 ETL 검증 시 8core/128GB 장비로 병렬 처리했으나 "병렬이라도
+  끝나는 시점이 대충 다 비슷해야 한다"는 요구 - 테이블별 크기를 미리
+  산정해 효과적으로 병렬 배분하는 스케줄링 필요성 제기 /
+  BATCH-SIZE-AWARE-PARALLEL-SCHEDULING-AND-ETA-DIAGNOSE)
+- 근본원인 확정: ValidationScheduler에 "소형우선+aging" 우선순위 큐가
+  이미 있었으나, 실제 호출부(wrapper_parallel_runner.run_batch_rows_
+  parallel)가 priority/heavy/weight를 전혀 안 넘겨 모든 row가 동일
+  우선순위로 제출됨 - 사실상 제출순서(FIFO)로 동작. 큰 테이블이 목록
+  뒤쪽에 있으면 소형들이 워커를 먼저 점유해 대형이 지연되는 꼬리지연
+  (tail latency)이 구조적으로 가능함을 실측 재현(대형 시작시각 0.36초
+  지연).
+- 수정: 이미 있는 우선순위 큐를 LPT(Longest Processing Time first,
+  큰 것부터 먼저 배정)로 활용하도록 신호만 배선(새 스케줄링 알고리즘
+  발명 없음) - 2단계 COUNT 사전검증이 이미 저장해둔 값을 재사용해
+  원격 DB 추가 조회 없이 크기 점수화. 하드웨어 사양(8core/128GB 등)
+  반영은 기존 환경변수(MV_BATCH_SCHED_CONCURRENCY)로 이미 가능함을
+  확인, 코드 기본값은 보수적 원칙에 따라 변경하지 않음.
+- 사전 ETA 표시도 함께 구현: 일괄검증 시작 전 "예상 총 소요시간: 약
+  N분(M개 테이블, 병렬도 K)" 표시 - M109(단일 테이블 스캔속도 공식)
+  재사용, 신뢰도는 항상 LOW로 고정(과신 방지, 등급 나눌 근거 없음을
+  정직하게 반영). M77(5단계 상세추출용 추정)은 범위가 달라(별개 엔진
+  경로) 재사용하지 않고 그 이유를 명시.
+- 실측(makespan 비교, 실제 프로덕션 스케줄러 코드 그대로 구동 - DB I/O
+  만 크기비례 sleep으로 대체): BEFORE(FIFO) 5.927초(이론하한 대비
+  1.07배) -> AFTER(LPT) 5.592초(1.01배), 대형 테이블 시작시각 0.36초
+  -> 0.02초로 단축. 이번 시나리오는 소형 작업이 짧아 개선폭이 크게 안
+  보였으나(5.7%), 소형 작업 수가 많은 실사용 규모에서는 효과가 더 클
+  것으로 예상(예측이며 실측 아님을 구분해 명시). 회귀 신규 4개 테스트
+  파일 83 passed.
+- 커밋: 2d2fe8d2(BATCH-SIZE-AWARE-SCHEDULING-SAFE-COMMIT, hunk 격리로
+  같은 파일을 건드리던 다른 세션 M117-B2-REPRESENTATION-ADVISORY-
+  IMPLEMENT 무손상 확인).
+- 남은 사항(범위 밖, 후속 조사 진행 중): (1) LPT 크기점수가 물리
+  테이블 전체 행수뿐이라, 업로드된 쿼리에 WHERE 필터·다중 테이블 JOIN이
+  있을 때도 정확한지 별도 확인 필요(BATCH-QUERY-COMPLEXITY-SCORING-
+  WHERE-JOIN-RULE-DIAGNOSE 진행 중). (2) 대형이 계속 유입될 때 소형이
+  aging에도 불구하고 무기한 밀리는 굶주림(starvation) 현상 여부는
+  이번 소규모 검증으로는 확인 안 됨(LPT-SMALL-TABLE-STARVATION-
+  DIAGNOSE 진행 중). (3) 크기 점수가 순수 행수만 반영해 LOB 컬럼처럼
+  같은 행수라도 물리적으로 무거운 테이블 간 차이는 반영 안 됨 - 실사용
+  체감 문제가 관측되면 후속 검토(당장 급하지 않음으로 합의).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  BATCH-SIZE-AWARE-PARALLEL-SCHEDULING-AND-ETA-DIAGNOSE.md /
+  BATCH-SIZE-AWARE-SCHEDULING-SAFE-COMMIT.md
+
+
+
 
 
