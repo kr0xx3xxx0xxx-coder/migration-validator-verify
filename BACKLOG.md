@@ -5342,16 +5342,27 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 근거: G:\내 드라이브\nxDTV-verify\reports\
   NXDTV-RENAME-PHASE2-MEMORY-MIGRATION-PLAN-AND-EXECUTE.md
 
-**[4] 🆕 3단계 실행계획 카드 표시 오류 가능성 — 상세 미확인, 발견만 됨**
-- CHARACTER-PK-BOUNDARY-FIX-LIVE-RECONFIRM.txt "제한사항" 절에 "3단계 실행계획
-  카드 오표기(E 단계)는 이번 재확인 범위 밖(원문서 §3·§4 참고, 이번엔 재실행하지
-  않음 — 그 부분은 표시/자동판정 문제이지 축A·B 수정 유효성과 무관)"이라는 언급이
-  있었으나, **이걸 Claude(웹)이 놓치고 넘어가 원문서(CHARACTER_PK_SILENT_
-  FALSE_MATCH_1M_REPRODUCE.md) §3·§4가 정확히 뭘 가리키는지, 지금도 재현되는
-  문제인지 전혀 확인 안 된 상태.**
-- 조치: 별도 채팅조사/지침으로 원문서 §3·§4(HTTP 자동경로 D단계, 3단계 실행계획
-  카드 오표기 E단계) 상세 확인 필요.
-- 근거: E:\verify_reports\CHARACTER-PK-BOUNDARY-FIX-LIVE-RECONFIRM.txt(제한사항 절)
+**[4] ✅ 해결 완료(이미 종결 상태였음 확인) — 3단계 실행계획 카드 표시
+오류, 원문서 §3·§4 정체 규명 + 재현 안 됨 확정**
+- STAGE3-EXECUTION-PLAN-CARD-DISPLAY-ERROR-RECHECK(2026-08-14)로 원문서
+  §3·§4의 정체를 규명: §3=HTTP 자동경로의 문자PK 분류 방식(애초에 결함
+  아니었음), §4=3단계 실행계획 카드가 문자/복합 PK 테이블도 무조건
+  "SINGLE_NUMERIC"으로 잘못 표시하던 것(진짜 조사 대상).
+- §4 시나리오를 오늘 코드로 그대로 재현 시도 → 재현 안 됨. 원인: 커밋
+  66a5c869(2026-07-30, STRATEGY-PLAN-PK-KIND-HARDCODE-FIX)가 ui/
+  grid_helpers.py의 하드코딩된 고정값 전송 로직을 실제 근거 기반
+  판정으로 이미 교체해뒀음을 git log·git show로 직접 확인.
+- 시점 재해석: 재확인 문서(CHARACTER-PK-BOUNDARY-FIX-LIVE-RECONFIRM,
+  8/10 작성)가 §3·§4를 "범위 밖"으로 남긴 건 "여전히 안 고쳐진 결함"
+  이라서가 아니라 "축A·B 수정 유효성 검증과 무관한 별개 주제라 굳이
+  재확인 안 했다"는 뜻이었음 - 그 수정(7/30)이 문서 작성 시점(8/10)
+  보다도 먼저 있었기 때문.
+- 검증: 운영 코드(ui/grid_helpers.py 실제 함수, services/strategy 실제
+  모듈)를 재구현 없이 직접 호출해 (A)PK 프로파일 산정 (B)서버 전략
+  판정 두 단계 모두 실제 픽스처(단일 문자PK/복합PK)로 정확히 HOLD
+  판정됨을 확인. 코드 수정 없음(이미 해소된 상태 확인만).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  STAGE3-EXECUTION-PLAN-CARD-DISPLAY-ERROR-RECHECK.md
 
 ### M71. `ui/tabler_renderer.py` 구조 건강도 실측 — 34,542줄·미분리JS 83.5%·최근14일 커밋 36.3% 집중 확인, 지금 착수는 보류·다음 대규모 UI 기능 전 재검토 권장
 - 발견/계기: 2026-08-10 (사용자 — "하나의 파일이 너무 많은 서비스를 담당하는지,
