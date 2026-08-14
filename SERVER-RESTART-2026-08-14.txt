@@ -1,0 +1,40 @@
+```text
+작업명 : SERVER-RESTART-2026-08-14
+✅ 작업 완료 - web_server.py 재기동 및 포트 리스닝/기동 로그 확인
+
+■ 작업 개요
+사용자 요청 "서버재시작"에 따라 X:\Projects\nxDTV\web_server.py(uvicorn 기반
+FastAPI 서버)를 재기동함.
+
+■ 사전 상태 확인
+- netstat -ano | grep ":8000" → LISTENING 항목 없음
+- tasklist(python.exe 필터) → 실행 중인 python 프로세스 없음
+→ 서버가 이미 중지된 상태였음(재기동 전 별도 프로세스 종료 불필요).
+
+■ 조치 내용
+- `python web_server.py` 를 백그라운드로 재기동
+  (web_server.py 내부 `_cmn_free_port(_bind_port)` 로직이 기존 포트 점유
+   프로세스를 자동 종료 후 기동하는 구조 — 코드 수정 없이 그대로 사용)
+- 바인딩: MV_BIND_HOST/MV_BIND_PORT 미설정 → 기본값 127.0.0.1:8000 적용
+
+■ 검증 결과
+- 기동 로그(uvicorn):
+  INFO: Started server process [24240]
+  INFO: Waiting for application startup.
+  INFO: Application startup complete.
+  INFO: Uvicorn running on http://127.0.0.1:8000
+- netstat -ano | grep ":8000" | grep LISTENING
+  → TCP 127.0.0.1:8000  LISTENING  (PID 24240) 확인
+- curl 헬스체크는 이번 세션 Bash 권한 정책상 거부되어 미실시
+  (포트 리스닝 + uvicorn 기동 완료 로그로 정상 기동을 확인함)
+
+■ 커밋 해시
+해당 없음 (코드 변경 없음, 서버 재기동만 수행)
+
+■ 비고
+web_server.py 자체는 수정하지 않았으며, 기존에 구현되어 있던 포트 점유
+자동 해제 로직(CLAUDE.md "서버 관련 규칙")을 그대로 활용함.
+
+작업명 : SERVER-RESTART-2026-08-14
+✅ 작업 완료 - web_server.py 재기동 및 포트 리스닝/기동 로그 확인
+```
