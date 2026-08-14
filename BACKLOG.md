@@ -6540,6 +6540,17 @@ git -C E:/verify_reports worktree remove <임시경로>
   옵션이 "켜면 비쌈"이라는 안내 미비 시 대규모에서 예상외 지연 위험.
 - 최종 선택은 사용자 결정 대기 — 결론 강요 없이 근거만 제시됨.
 - 근거: E:\verify_reports\COMBO-VS-ROWLEVEL-DEFAULT-PRIORITY-RESTRUCTURE-FEASIBILITY-DIAGNOSE.txt
+- 최종 확정(2026-08-14): 워크플로 재설계(원 방향B) 없이 이미 존재하는
+  "그룹 드릴다운"(불일치 그룹 안에서만 PK 매칭) 구조를 그대로 유지 -
+  조합 스크리닝 단계는 안 건드림. 논의 끝에 원래 추정했던 "7덩어리
+  고난이도 재설계"는 대부분 불필요하거나 이미 존재하는 인프라로 커버됨이
+  확인됨 - 실제 남는 신규 작업은 "PK 기반 레코드 추출을 MySQL/MSSQL
+  문법으로 이식"과 "이기종 간 수치값 표현 정규화"(M117) 2가지로 좁혀짐.
+  MySQL/DB2/MSSQL 확장은 실 환경이 구축된 뒤로 보류. 지금은 Oracle/
+  PostgreSQL 환경 안에서 프로그램을 완성하는 데 집중 - 그 일환으로
+  수치값 표현 정규화(M117)를 Oracle-PostgreSQL 범위로 완료함(2026-08-14).
+- 근거(추가): ROWLEVEL-ENGINE-4DBMS-COVERAGE-DIAGNOSE의 "MySQL/MSSQL
+  구조적 미지원" 확인이 이 결정의 배경 근거 중 하나.
 
 ### M95. 표준 단일숫자PK는 "101건" 아닌 "원본10%" 상한(자릿수 완전히 다름), 소규모(5만행미만)는 상한 전무, 절대건수상한 설정기능 자체가 죽은배선 — 101을 전PK타입 확장은 기술적으로 가능(중간난이도, 4~6파일), M91 CHUNK조기중단불가 메모 정정
 - 발견/계기: 2026-08-12 (사용자 — "조기중단은 모든 PK타입에서 작동해야한다" /
@@ -7140,6 +7151,24 @@ git -C E:/verify_reports worktree remove <임시경로>
   자동으로 Index Fast Full Scan을 선택 중 - 도구 측 추가 조치 불필요.
 - 근거: G:\내 드라이브\nxDTV-verify\reports\
   COVERING-INDEX-SCAN-COST-REDUCTION-FEASIBILITY-DIAGNOSE.md
+- 후속(완료) - 기존 인덱스 힌트/컬럼구성 유도 2통로 조사: "새 인덱스
+  생성은 여전히 불가하되 이미 있는 인덱스를 최대한 활용하자"는 재제안
+  (①쿼리 힌트 ②SELECT 컬럼구성 조정)을 조사(EXISTING-INDEX-OPTIMIZER-
+  STEERING-DIAGNOSE), Oracle+PG 라이브 EXPLAIN 실측 완료.
+  쿼리 힌트 = 비권장: Oracle INDEX() 힌트 강제 시 커버링 쿼리도 3.53배
+  손해, 비커버링(실제 통계검증 형태)은 5.84배 손해. 정확한 변형(INDEX_
+  FFS)을 써도 이득 0. Oracle 힌트는 틀려도 안전하게 무시되는 장치가 없어
+  무회귀 보장 불가. PostgreSQL은 힌트 확장(pg_hint_plan) 자체가 미설치.
+  컬럼구성 조정 = 불필요: 커버링 조건 만족 쿼리는 이미 옵티마이저가
+  힌트 없이도 무료로 최적 스캔을 자동 선택 중(실측 확인) - 도구가 유도할
+  필요 자체가 없음.
+  근본원인(M112와 동일): 실제 GROUP BY/SUM 검증 쿼리의 SUM 대상은 항상
+  비즈니스 숫자컬럼인데 이런 컬럼엔 실무상 인덱스를 거의 안 걺 - 인덱스
+  기반 접근 전체가 이 도구의 검증 쿼리 형태와 구조적으로 안 맞음.
+  종합 결론: M112와 본 조사, 두 번의 독립 조사가 동일 결론에 도달 - 인덱스
+  기반 성능개선 주제는 여기서 종결.
+  근거: G:\내 드라이브\nxDTV-verify\reports\
+  EXISTING-INDEX-OPTIMIZER-STEERING-DIAGNOSE.md
 
 ### M113. 조사완료 — 예기치 못한 "3축 결합 UI" 정체 규명: 신규기능 아님(기존 표시요소 3개 우연 동시노출), 오인유발 에러문구·REGION_NM 배선공백 2건 실버그 확정
 - 발견/계기: 2026-08-13 (사용자가 MV_SCATTER50M 대용량 테스트 중 "GROUP BY
@@ -7288,14 +7317,73 @@ git -C E:/verify_reports worktree remove <임시경로>
   차단 해소, 조인상대 컬럼(REGION_NM)은 의도대로 유지, JOIN 없는 SQL
   무회귀, 회귀서브셋 706 PASS(전/후 동일).
 - 커밋: 16a00102(케이스A, 혼재 없어 hunk격리 불필요).
-- **후속 논의 진행 중**: 별칭 없는 컬럼이 "조인된 테이블 중 한쪽에만
-  존재"하면 자동해소 가능하다는 사용자 제안 조사 완료(JOIN-UNALIASED-
-  COLUMN-AMBIGUITY-REFINEMENT-DIAGNOSE) - 셀프조인 시 물리테이블명이
-  아닌 참조 인스턴스(별칭) 단위로 세야 하는 안전장치 필수 확인, 구현
-  지침 발행됨(진행중, 완료 시 M116 갱신 예정).
+- 후속(완료) - 별칭 없는 컬럼 자동해소 + 배지 강화: 사용자 제안
+  ("한쪽에만 존재하면 자동해소, 양쪽 다 있으면 표시만 강화")을 조사
+  (JOIN-UNALIASED-COLUMN-AMBIGUITY-REFINEMENT-DIAGNOSE) 후 그대로 구현
+  (JOIN-UNALIASED-COLUMN-AUTORESOLVE-AND-BADGE-ENHANCE-IMPLEMENT). 카탈로그
+  조회를 4방언 어댑터 공통 경로로 배선(테이블 귀속 보존 - 기존 평탄화
+  함수는 불변, 새 얇은 래퍼만 추가)하고, metadata_provider.py에 순수함수
+  4종(resolve_unaliased_column_owner 등) 신설. 셀프조인 안전장치를 실측
+  확정 - 판정 단위를 물리 테이블명이 아니라 FROM/JOIN절 참조 인스턴스
+  (별칭) 단위로 세어, FROM T a JOIN T b처럼 같은 테이블을 별칭만 바꿔
+  두 번 참조해도 정확히 "2곳 존재"로 판정돼 자동해소가 안전하게 차단됨을
+  Oracle·PostgreSQL 양쪽 라이브 브라우저 실측으로 확인(케이스 A/B/C/D
+  4종 전부 PASS). "컬럼 없음"(빈 set)과 "모름"(None)을 절대 안 섞음 -
+  참조 인스턴스 중 하나라도 카탈로그를 못 얻으면 전체 판정을 포기(추측
+  안 함). 진짜 애매한 경우(2곳 이상 존재)는 자동해소 대신 전용 배지로
+  사유 강화, 강제 차단은 추가하지 않음(체크박스로 여전히 선택 가능).
+  회귀: BEFORE/AFTER 2400+ 서브셋 baseline 대조로 새로 깨진 테스트 0건.
+  MySQL/MSSQL은 실DB 미보유로 실측 못 했으나 카탈로그 조회 자체는 4방언
+  공통 경로라 구조적으로 동작(정적 확인만, M94 결정에 따라 실측은 보류).
+- 커밋: 16a00102(1차), 1df5d4b6(자동해소+배지).
 - 근거: G:\내 드라이브\nxDTV-verify\reports\ 내 REGION-CD-
   CLASSIFICATION-AND-BLOCK-FULL-DIAGNOSE.md / REGION-CD-FIX-SAFE-
-  COMMIT.md / JOIN-UNALIASED-COLUMN-AMBIGUITY-REFINEMENT-DIAGNOSE.md
+  COMMIT.md / JOIN-UNALIASED-COLUMN-AMBIGUITY-REFINEMENT-DIAGNOSE.md /
+  JOIN-UNALIASED-COLUMN-AUTORESOLVE-AND-BADGE-ENHANCE-IMPLEMENT.md
+
+
+### M117. 해결 완료(B-1) / B-2 보류 - Oracle-PostgreSQL 이기종 이관에서
+숫자 표현 차이로 인한 거짓 값불일치 발견 및 수정
+- 발견/계기: 2026-08-14 (M94 정책 결정 후속 - "이기종 간 수치값 표현
+  정규화"를 Oracle/PostgreSQL 범위로 지금 해결하기로 확정 / M90-NUMERIC-
+  COMPARISON-DUALITY-ORACLE-PG-FULL)
+- 원 "M90 수치비교 이원화" 조사문서는 저장소/Drive 전수 검색으로도
+  존재하지 않음을 확인(짐작 없이 "없음"을 사실로 확정) - 지침 원문의
+  조사 지시를 그대로 정의로 채택해 진행.
+- 실제 발견된 이원화: 3개 실행경로(stream/비-stream/PK_RANGE_CHUNK)
+  끼리는 이미 같은 빌더를 공유해 일치했음(경로간 이원화 아님). 진짜
+  이원화는 코드베이스 안에 독립적으로 존재하던 두 정규화 체계 - (A)
+  canonical adapter(이미 정확하게 구현돼 있었으나 방언이 다르면 실행
+  자체를 차단해 Oracle-PostgreSQL 조합에 애초에 도달 못 함) vs (B)
+  compare_cols 상세비교 경로(이관검증 핵심 시나리오가 실제로 쓰는 경로,
+  canonical adapter를 안 쓰고 방언별 원시 캐스트를 그대로 사용).
+- 실측(라이브 Oracle-PostgreSQL, NUMBER(12,2)-numeric(12,2) 동일값 10건):
+  수정 전 프로덕션 함수(merge_chunk 등)를 직접 호출한 결과 NULL 아닌
+  9건 중 8건이 값은 완전히 같은데 표현만 다르다는 이유로("100" vs
+  "100.00" 등) 거짓 "값불일치"로 오판정됨을 재현 확인. 소수점 있는
+  금액/수량 컬럼에서 원본 실값의 소수자릿수가 목적 컬럼 선언 scale보다
+  작을 때(정수값·후행0값 등, 실무에서 매우 흔함) 구조적으로 매번 발생.
+  결론: (c) 광범위한 문제로 확정 - 이관검증 도구의 핵심 사용 시나리오
+  (Oracle to PostgreSQL)와 정면으로 겹침.
+- 수정(B-1, 완료): 새 정규화 규칙을 만들지 않고 이미 정확함이 검증된
+  canonical adapter의 정규화 표현식을 compare_cols 경로에 그대로 재사용.
+  컬럼 타입을 1회 메타 probe로 확인해 숫자형 컬럼만 정규화 적용(문자열/
+  날짜 등 비숫자 컬럼은 기존 동작 100% 불변, 범위 확장 없음). 각 측이
+  자기 쪽 컬럼만 독립 판단해 상호조율 불필요, 미지원 방언은 기존 동작
+  그대로 폴백(회귀 없음).
+- 실측 검증: 수정 전 9건 중 8건 거짓불일치 -> 수정 후 0건(전부 정확히
+  일치). 진짜 값불일치(100 vs 200)와 비숫자 컬럼("007" vs "7")은 수정
+  후에도 정상적으로 "다름"으로 검출 - 과잉 정규화로 인한 새로운 거짓
+  일치 없음을 확인. 관련 회귀 스위트 189 passed(무관 사전존재 실패
+  7건만, baseline 대조로 확인).
+- B-2(보류): "값은 같지만 표현이 달랐다"는 사실을 화면에 안내(advisory)
+  하는 UI 기능은 이번 회차 보류 - 완전일치 행 자체가 재이관 대상이
+  아니라 store에 저장되지 않는 기존 설계와 충돌해, 신규 레코드 종류
+  설계+기존 소비처 전수 영향조사가 선행돼야 함. 스킵(불필요 결론)이
+  아니라 범위/시간상 후속 세션 권장으로 명시적 이월.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  M90-NUMERIC-COMPARISON-DUALITY-ORACLE-PG-FULL.md
+
 
 
 
