@@ -2901,6 +2901,21 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 대응 방향: 재현율이 낮아(**1/약 90**) 원인 미확정. 측정 하니스에 **faulthandler 주기 덤프**를 걸어 두었으니
   재발 시 그 덤프로 원인 규명을 시도한다. **당장 조치 불필요 — 관찰 대상으로 등록.**
 - 참고: E:\verify_reports\STATS-SCALE-COST-BAND-BENCHMARK-MEASURE.txt (§7-3)
+- 후속(2026-08-14) - 유력 후보 경로 1건 전수 재현·안전 확인: 진행중
+  스캔이 죽는 증상을 낼 수 있는 코드 경로(services/exact_diff/
+  reimport_job.py force=true 취소)를 대량(stream) 규모로 자동화
+  반복 실측(REIMPORT-JOB-FORCE-CANCEL-STREAM-SCALE-DIAGNOSE) - 이
+  경로 자체는 실재하고 서버 단독 호출로는 재현되나(같은 fingerprint에
+  force=true 요청 시 진행중 PREPARING job이 취소), 실사용 '결과 저장'
+  경로에서는 저장 루프 시작 시 명시적 취소 신호가 먼저 전송돼 job
+  상태가 이미 바뀌어 있어 이 조건이 성립하지 않음을 4가지 시나리오
+  (A/B/C/D) 실측으로 확정. 최악의 경쟁 시나리오에서도 사용자 피해
+  0건(불일치 그룹 전부 정상 저장). 운영 코드 수정 없음. M33이 원래
+  지목한 13분 정지의 근본원인이 이걸로 확정된 것은 아니므로 "관찰
+  대상" 결론 자체는 유지 - 다만 유력 후보였던 경로 하나는 안전함이
+  확인됨.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  REIMPORT-JOB-FORCE-CANCEL-STREAM-SCALE-DIAGNOSE.md
 
 ### M28. ✅ 해결 완료 — 사전차단 SQL 조용한 성공(success=true) 오판을 정확한 신호 배선 복구로 해소
 - 발견일: 2026-08-02 / 정밀재진단: 2026-08-08 / 해결일: 2026-08-08
