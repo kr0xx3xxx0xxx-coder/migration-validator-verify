@@ -8698,6 +8698,22 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 근거: G 드라이브 nxDTV-verify reports 폴더의 OR-CONDITION-INDEX-BYPASS-SORT-ELIMINATION-DIAGNOSE.md
 
 
+### M161. 해결 완료 - 하단 공통 커맨드바 진행정보가 현재 보고 있는 탭과 무관하게 다른 탭 실행 정보를 그대로 노출하던 결함 수정
+- 발견/계기: 2026-08-15 (사용자가 2번 탭 COUNT 실행 중 1번 탭으로 이동했더니 1번 탭에 COUNT 진행상황이 그대로 뜨는 것을 실사용으로 재현, "각 탭별 진행정보는 그 탭에 종속돼야 한다"는 기대와 불일치 / M149-CMDBAR-CROSS-TAB-LEAK-DIAGNOSE-AND-FIX)
+- 원인: 주 액션(버튼)은 현재 보고 있는 탭 기준으로 정확히 그려지는데, 진행정보(줄2/줄3) 조립 로직만 탭 정보를 전혀 안 받고 "시스템에 지금 실행 중인 게 있는지"만 보고 아무 lock이나 대표로 골라 표시하던 비대칭 구조.
+- 수정(최소침습): 각 실행 함수를 소속 탭 화이트리스트로 매핑, 진행정보 조회 시 현재 탭을 인자로 넘겨 다른 탭 소속이면 걸러내도록 함. 4·5단계는 원래 같은 진행 문구를 공유하도록 설계된 것이므로 그대로 유지.
+- 검증: Before(재현)/After(해소) 스크린샷 4종 + Node 하니스 5개 시나리오 전부 PASS, 기존 회귀 40건 통과(회귀 0).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\M149-CMDBAR-CROSS-TAB-LEAK-DIAGNOSE-AND-FIX.md
+
+### M162. 해결 완료 - 1~3단계 및 4단계 SQL생성 클릭 시 경과시간 타이머가 4·5단계와 달리 실시간 갱신되지 않던 결함 수정
+- 발견/계기: 2026-08-15 (사용자가 경과시간 숫자는 움직이지만 4단계에서만 그렇고 다른 탭에서는 안 그렇다고 재확인 / CMDBAR-ELAPSED-TIMER-ALL-STAGES-DIAGNOSE-AND-FIX)
+- 원인: 타이머 로직 자체는 정상이었으나, 4·5단계(_mvShowExecStepProgress 경유)만 진행정보를 그릴 때마다 커맨드바 재렌더를 명시적으로 호출하고, 1~3단계+4단계SQL생성(공용 클릭 진입점 mvCommandBarRunAction)은 버튼 DOM만 직접 패치하고 재렌더를 안 불러 타이머가 갱신할 DOM 자체가 안 만들어졌음 - "타이머 부재"가 아니라 "타이머 갱신 대상 DOM 부재" 결함으로 정확히 구분됨.
+- 수정(최소침습): mvCommandBarRunAction의 락 확정 직후 커맨드바 재렌더 호출 1줄만 추가 - 4단계가 이미 쓰는 패턴 그대로 재사용, 새 렌더 경로 미발명.
+- 검증: 1~5단계 전부 0초→1~2초 실측 PASS(4단계와 동일 갱신주기), M149 회귀 4건 재확인 PASS, 기존 회귀 116건 통과(회귀 0).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\CMDBAR-ELAPSED-TIMER-ALL-STAGES-DIAGNOSE-AND-FIX.md
+
+
+
 
 
 
