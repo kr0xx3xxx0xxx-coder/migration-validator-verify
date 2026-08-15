@@ -8609,6 +8609,17 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE5-AUTOSAVE-REMOVE-TO-MANUAL-PERGROUP-SAVE-DIAGNOSE.md / STAGE5-AUTOSAVE-REVERT-TO-MANUAL-BUTTONS-IMPLEMENT.md / STAGE5-AUTOSAVE-REVERT-ORACLE-50M-LIVE-VERIFY.md
 
 
+### M152. 조사완료(상한조정 효과없음 확정, 미착수) - 그룹당 조기중단 상한(101)을 낮추는 방안 검토 - 원 근거는 성능과 무관한 UI 표시 관례였음을 확인했으나, 1,651초 사고 유형(PK 뒷부분 쏠림)에는 상한을 10분의 1로 낮춰도 절감 1% 미만
+- 발견/계기: 2026-08-15 (STAGE5-AUTOSAVE-REVERT-ORACLE-50M-LIVE-VERIFY가 확정한 1,651초 지연 사고 이후, 사용자가 "그룹당 101건 상한이 근본 원인 아니냐"고 문제제기 - 상한을 낮추면 각 그룹이 더 일찍 채워져 스캔이 빨리 끝날 것이라는 가설 / PER-GROUP-CAP-LOWER-RECONSIDER-DIAGNOSE)
+- 101의 원 근거 재확인(git log -S로 최초 도입 커밋까지 추적): 2026-07-12 커밋(COMPOSITE-PK-DIRECT-MERGE-DRILLDOWN-FIX)에서 "그룹당 불일치가 100건 초과인지(>100) 판정하기 위한 화면 표시 트릭"으로 처음 등장 - 재이관 패턴 분석에 필요한 최소 표본수도, 측정된 스캔 성능 최적값도 아니었음이 확정됨. 이후 여러 세션(P1/P2/P3 표시 정책 재편 등)을 거치며 "표시 목록 길이"와 "조기중단 스캔 상한"이 우연히 같은 숫자로 통일된 것뿐임.
+- 실측(오프라인, 실제 프로덕션 함수 prepare_reimport_pk_index_stream_multi_group을 DB I/O만 제거하고 직접 호출 - M141이 쓴 검증 패턴 재사용): 1,651초 사고와 동일한 유형(13개 그룹 중 1개만 PK 뒷부분에 쏠린 분포, DENSE/SPARSE 밀도 2종 교차검증)에서, 상한을 101→10으로 10분의 1까지 낮춰도 스캔 범위가 80.65%→80.06%(0.6%p)만 감소 - 전체 소요시간 절감폭은 1% 미만으로 사실상 무의미. 원인: 그 "운 나쁜 그룹"이 PK 뒷부분에 있다는 사실 자체는 상한 조정으로 바뀌지 않음 - 상한은 "도달 후 몇 건 채울지"만 결정하고 "언제 도달하는지"는 못 바꿈.
+- 부가 발견: 겉보기엔 하나의 "101"이지만 실제로는 서로 무관한 두 값(agg_contribution.py의 MULTI_GROUP_PER_TAG_CAP_DEFAULT=101 하드코딩 상수와, per_group_display_policy의 표시용 full_list_max+1 파생값)이 우연히 같은 숫자를 쓰고 있음이 확인됨 - 향후 둘 중 하나만 조정하려 할 때 나머지가 안 바뀌는 혼란 위험 있음(이번 조사 범위 밖, 참고 기록만).
+- 절충안(1차 저상한 스캔 + 그룹별 개별 재조회, M151의 개별저장 인프라 재사용) 검토: 배선 자체는 기술적으로 가능하나, 정작 사고를 일으킨 분포 유형(PK 뒷부분 쏠림)에는 1차 단계부터 효과가 작다는 한계가 있어 실익이 낮다고 판단.
+- 결론: 상한 조정은 "불일치가 테이블 전체에 고르게 퍼진" 경우에만 유효한 처방이며, 실제 사고 원인이었던 분포 유형에는 처방이 되지 못함 - 근본 해결은 병렬 스캔(PARALLEL-SCAN-MULTI-GROUP-STREAM-DIAGNOSE, 진행중) 쪽에 달려있음. 코드 수정 없음(순수 조사) - 상한값 자체는 현행 101 유지 권고.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\PER-GROUP-CAP-LOWER-RECONSIDER-DIAGNOSE.md
+
+
+
 
 
 
