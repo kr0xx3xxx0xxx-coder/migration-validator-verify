@@ -8597,6 +8597,19 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 근거: G:\내 드라이브\nxDTV-verify\reports\CMDBAR-HEIGHT-3X-UNIFIED-PROGRESS-IMPLEMENT.md
 
 
+### M151. 해결 완료(5천만행 실측 완료, ETA 편차는 후속 별도과제로 분리) - 5단계 자동저장(M131)을 되돌려 [전체 저장]/그룹별 개별 [저장] 버튼으로 재설계, 5천만행 실브라우저 실측 6항목 전부 기능 PASS
+- 발견/계기: 2026-08-14~15 (사용자가 "불일치 리스트 저장은 검증 증적이지 이관에 직접 도움 안 됨" 관점에서 자동저장을 되돌리자고 제안, M131 원 근거 재확인 후 (b) 일부 구조변경 필요로 판정 / STAGE5-AUTOSAVE-REMOVE-TO-MANUAL-PERGROUP-SAVE-DIAGNOSE, STAGE5-AUTOSAVE-REVERT-TO-MANUAL-BUTTONS-IMPLEMENT, STAGE5-AUTOSAVE-REVERT-ORACLE-50M-LIVE-VERIFY)
+- 구현: M131의 자동 예약/발화 트리거 3곳 완전 삭제. [전체 저장] 버튼 신설(기존 _mvStage5SaveSnapshot 본체 무변경 재사용, M143 배치엔진·폴백 로직 그대로). 그룹별 개별 [저장] 버튼 신설(이미 화면에 있는 상세를 그대로 1건 POST, 스캔 0회). 서버에 merge 모드 추가(같은 run_id 재저장 시 새 회차 대신 기존 회차 재사용 - "직전 그룹 저장분이 사라지는" 구조적 결함 해소). 회차단위 배너 2종을 그룹단위 저장 배지로 전환.
+- 동시성 처리(주목할 사례): 착수 시점 ui/tabler_renderer.py가 다른 세션(CMDBAR-HEIGHT-3X, 알고보니 M143 배치엔진 작업까지 같은 미커밋 블록에 번들) 점유 중이었음 - 서버 작업(독립 파일)은 먼저 진행·즉시 커밋(5c4ad936), UI 배선은 별도 격리 작업트리(X:\Projects\nxDTV-wt-stage5-autosave)를 새로 만들어 "다른 세션 패치 적용 후 병합 상태"를 미리 재현해 그 위에서 개발·자체검증한 뒤, 순수 변경분만 diff로 추출해 본 작업트리에 hunk 단위로만 적용(다른 세션 미커밋 15건 무손실 보존 확인) - 오늘 hunk 격리보다 한 단계 발전된 방식. UI 배선 커밋: 008b35cf.
+- 자체 테스트 28개 전면 재작성(옛 계약 "자동화됨"을 새 계약 "버튼 존재·수동 트리거·merge 모드·저장 배지"로 교체, 우연히 같은 개수).
+- 5천만행 실브라우저 실측(NXDNP.MV_SCATTER50M_SRC/TGT, 13개 불일치 그룹, Playwright 실제 클릭 기반, 포트 8000 비접촉): 6항목 전부 PASS - ①자동트리거 0건(핵심 목적 달성 확인) ②개별저장 스캔0건·POST1건·0.56초 ③merge모드로 그룹A·B 재진입 후에도 둘 다 보존 확인 ④전체저장 시 /agg-diff/prepare-batch 정확히 1회 호출(M143 정상 배선) ⑤저장시각이 실제 클릭 시각과 정확히 일치, 캐시재사용 시 갱신 안 됨 ⑥13/13 그룹 저장배지 정확 표시, 회차배너 2종 완전 부재.
+- **예상 밖 발견(코드 결함 아님, 안내식 문제)**: [전체 저장] 실제 소요 1,651초(약 27.5분) - 사전 안내치(93초)의 17.8배, 오늘 M143 벤치마크(119.7초)의 13.8배. Oracle v$session 실시간 샘플링으로 원인 확정: 13개 그룹 중 가장 늦게 조건(101건)을 채우는 그룹이 우연히 PK 테이블 끝부분에 있어, "OR 통합 1회 스캔" 설계 자체(그룹별 반복 스캔 회피)는 정상 동작했으나 "일찍 끝난다"는 전제가 그룹 분포에 따라 깨질 수 있음이 처음 실측 확인됨. 데이터 정확성 자체는 무영향(13/13 정상 저장).
+- ETA 안내식 과소추정 자체는 M131이 이미 남긴 "8배 과소추정" 문제와 같은 계열 - 이번엔 별도로 고치지 않고 그 기존 과제와 합쳐 후속 별도 지침으로 분리 판단.
+- 3단계 후보선택 스크립트 selector 불일치(제품 결함 아님, 검증스크립트 이슈)로 자동추천 다축 4종이 그대로 적용됐으나 결과적으로 목표(다수 그룹) 이상 충족.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE5-AUTOSAVE-REMOVE-TO-MANUAL-PERGROUP-SAVE-DIAGNOSE.md / STAGE5-AUTOSAVE-REVERT-TO-MANUAL-BUTTONS-IMPLEMENT.md / STAGE5-AUTOSAVE-REVERT-ORACLE-50M-LIVE-VERIFY.md
+
+
+
 
 
 
