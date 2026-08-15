@@ -8712,6 +8712,14 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 검증: 1~5단계 전부 0초→1~2초 실측 PASS(4단계와 동일 갱신주기), M149 회귀 4건 재확인 PASS, 기존 회귀 116건 통과(회귀 0).
 - 근거: G:\내 드라이브\nxDTV-verify\reports\CMDBAR-ELAPSED-TIMER-ALL-STAGES-DIAGNOSE-AND-FIX.md
 
+### M163. 해결 완료(자체 변경분 미커밋, 기존 정책 준수) - M143 OR 통합 배치 재이관 준비에 콜백 배선+비동기 job 전환+프런트 다중 run_id 폴링 3단 구현 - 27분 침묵 문제 해소, 5천만행 실측으로 정합성·진행신호 갱신 전부 확인
+- 발견/계기: 2026-08-15 (M141이 예측만 하고 미구현으로 남긴 진행신호 부재를, M156 조사가 최소침습 구현방향으로 확정한 뒤 실제 구현 / M143-BATCH-PROGRESS-ASYNC-JOB-IMPLEMENT)
+- 착수 전 절차 준수: 지시서가 요구한 "STREAM-SRC-TGT-CONCURRENT-OPEN-IMPLEMENT 완료·커밋 확인 후 착수" 조건을 git log로 재확인한 결과 완료보고서는 있으나 실제 커밋은 없었음(같은 diff에 SINGLE-PASS-OR-CONDITION-MULTI-GROUP-SCAN-IMPLEMENT 및 무관한 완료작업 2건까지 함께 미커밋 상태로 혼재) - 즉시 착수하지 않고 사용자에게 확인 요청, "먼저 커밋 후 착수"를 선택받아 4개 완료·검증된 작업을 하나의 커밋(35db4b70)으로 정리한 뒤 착수.
+- 구현: agg_contribution.py 다중그룹 배치엔진(prepare_reimport_pk_index_stream_multi_group)에 progress_cb+on_groups_created 콜백 배선(단일-그룹 STREAM 함수와 동일 호출 패턴 재사용) → routes/agg_diff_route.py의 /agg-diff/prepare-batch를 완전동기에서 reimport_job.start_or_attach 비동기 job 패턴으로 전환 → on_groups_created가 등록하는 N개 tag별 run_id를 전부 같은 job에 반복 등록(bind_run_id)해 "대표 run_id 1개"만 폴링해도 배치 전체 합산 진행상황을 받도록 설계. reimport_job.py 모듈 자체는 무수정(기존 _JOBS_BY_RUN 등록 반복 호출만) - 새 자료구조 발명 없음.
+- 트레이드오프(기록만, 이번 범위 밖): pg_session_registry(thread↔run_id 매핑)는 마지막 tag의 run_id만 기록 - 배치 전체가 좀비 스레드로 죽는 극단 상황에서 PG 세션 강제종료 로그가 "마지막 tag" 기준으로만 남을 수 있음(job 자체의 ORPHAN 판정은 정상). 기존 reimport_job이 원래 단일-그룹 전용으로 설계됐던 데서 오는 N:1 재사용 한계.
+- 검증(5천만행 실측, Oracle NXDNP.MV_SCATTER50M_SRC/TGT, 13개 REGION_CD 그룹): PREPARING+run_id 13개 도착까지 0.76초(구 동기 방식은 전체 스캔이 끝날 때까지 무신호 대기), 진행 신호 60회(10초 간격) 수신 - processed_source_count가 0→31,726,337까지 단조 증가 확인(죽은 배선 아님). 총 소요 601.43초. 최종 결과 R01=EARLY_STOPPED@101, R02~13=READY@0 - STREAM 보고서 기준값과 13/13 완전 일치(result_matches_stream_report_baseline=true) - 비동기 전환이 "언제 알리는지"만 바꾸고 "무엇을 계산하는지"는 그대로임을 실측 대조로 확인. 기존 회귀 전부 통과.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\M143-BATCH-PROGRESS-ASYNC-JOB-IMPLEMENT.md
+
 
 
 
