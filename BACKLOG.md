@@ -8549,9 +8549,53 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 커밋: 25aae878 (services/exact_diff/dialects/oracle.py +44줄,
   postgresql.py +29줄, agg_contribution.py 무변경) - push는 코드
   저장소 로컬 커밋 전용 원칙에 따라 안 함.
-- 근거: G:\내 드라이브
-xDTV-verifyeports  ORACLE-PK-AGG-SQL-CMP-NUMERIC-COLS-PARAM-MISMATCH-DIAGNOSE.md /
+- 근거: G:\내 드라이브\nxDTV-verify\reports
+  ORACLE-PK-AGG-SQL-CMP-NUMERIC-COLS-PARAM-MISMATCH-DIAGNOSE.md /
   ORACLE-PK-AGG-SQL-CMP-NUMERIC-COLS-FIX-COMMIT.md
+
+
+### M149. 해결 완료(커밋 전, 워킹트리 반영) - 하단 공통 커맨드바
+(.mv-cmdbar-info) 높이를 기존 대비 3배(1줄→3줄)로 상시 고정하고,
+1~5단계 실행 진행정보(title/counter/elapsed/note)를 통합 표시
+- 발견/계기: 2026-08-14 (UNIFIED-PROGRESS-BAR-ALL-STAGES-DIAGNOSE(M148)
+  가 "조건부 확장" 설계를 제시했으나, 사용자가 "높이 자체가 작다"며
+  상시 3배 고정으로 방식 변경 결정 / CMDBAR-HEIGHT-3X-UNIFIED-
+  PROGRESS-IMPLEMENT)
+- 구현: .mv-cmdbar CSS min-height 46px→80px, info 영역을 nowrap+
+  ellipsis(1줄 잘림)에서 벗어나 line-height 기준 정확히 3줄분
+  (calc(1.42em*3)=56px)으로 고정. 안전장치로 멀티라인 ellipsis
+  대신 세로 스크롤 채택(M148이 지적한 "정보 손실" 위험을 스크롤로
+  완전 제거 - 잘려서 못 읽는 대신 스크롤해서 전부 읽을 수 있음).
+  줄1(기존 "현재 단계: ..." 요약)은 nowrap+ellipsis 그대로 유지해
+  무회귀 보장, 줄2·3만 신규(wrap).
+- M148 설계원칙 4가지 그대로 준수: 새 문구 포맷 미발명(#mvExecStep
+  Progress 문구 생성 로직 재사용, _mvShowExecStepProgress가 확정
+  문구를 상태객체에 남기고 커맨드바가 그대로 읽는 단일출처 구조),
+  #mvS5SnapshotProgress(dual-write) 삭제 안 함(유지), percent(%)
+  공통화 안 함(chunk 비교만 정확한 %를 가지며 그대로 유지, 세트
+  실행·COUNT·자동저장은 counter만), 5단계 ETA 8배 과소추정 공식은
+  불변(표시 위치만 이동).
+- **사전 함정 발견·설계 변경(중요)**: 경과시간 갱신에 흔한
+  setInterval 대신 "자기 재예약 setTimeout 체인"을 채택 - 기존
+  테스트(test_exec_step_progress_display.py)가 "살아있는 setInterval
+  개수가 정확히 1개"임을 정수로 검사하는 계약이 있어 setInterval을
+  추가하면 그 계약이 깨지고, 일부 정적 테스트 하네스는 setInterval을
+  스텁하지 않고 subprocess timeout도 없어 실제로 걸면 테스트가
+  "무한 대기"로 멈춘다는 것을 사전 조사로 발견해 설계를 바꿈(실행
+  중 막힌 게 아니라 사전 예측으로 회피).
+- 진행표시가 없던 단계(1단계 분석·2단계 COUNT·3단계 재검증·4단계
+  SQL생성)는 새 상태머신을 만들지 않고, 이미 있는 커맨드바 액션
+  lock을 "실행 중"의 사실 근거로 재사용(제목=그 액션의 loading
+  라벨, 경과=lock 시작시각).
+- 검증: Playwright로 1~5단계 전체 순회(비실행) - 바높이 80px/info
+  높이 56px/3줄/본문여백 120px 전부 일관, 기존 줄1 정보 보존 100%,
+  다른 UI와 겹침·잘림 0건. 서버 포트 처리도 신중함(포트 8000은 다른
+  세션 서버가 점유 중이라 안 건드리고 별도 포트 8001로 검증 후 8001
+  만 종료, 8000 생존 재확인).
+- 커밋 여부: 워킹트리에는 반영, git commit/push는 안 함(지시 준수 -
+  다른 세션 WIP와 저장소 상태가 얽혀 있어 커밋 시점은 별도 판단 필요).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\CMDBAR-HEIGHT-3X-UNIFIED-PROGRESS-IMPLEMENT.md
+
 
 
 
