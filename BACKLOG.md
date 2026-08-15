@@ -8388,6 +8388,124 @@ concat(chr(1) 구분자) merge-join 엔진이 "SQL 정렬 순서 = Python 비교
   COMPOSITE-KEY-STREAM-ENGINE-NATIVE-SUPPORT-DIAGNOSE.md
 
 
+### M146. 심각 - 해결 완료 - 복합/문자 PK STREAM merge-join 엔진의
+__K(비교키)/ORDER BY 정렬계약 위반 결함(M145) 수정 - 단일출처 통일 +
+canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이스
+차등테스트+M143 회귀 전부 통과
+- 발견/계기: 2026-08-14 (M145가 실측 확정한 결함의 최소침습 수정 /
+  COMPOSITE-KEY-MERGE-SORT-CONTRACT-FIX,
+  COMPOSITE-KEY-MERGE-SORT-CONTRACT-FIX-COMMIT)
+- 수정: __K(chr(1) concat 비교키)와 ORDER BY를 완전히 같은 식(kexpr)
+  에서만 생성하도록 단일출처 통일(PostgreSQL COLLATE "C", Oracle
+  NLSSORT(...,'NLS_SORT=BINARY')로 이진 정렬 강제). 성분 캐스트를
+  M117 canonical norm_expr로 교체(신규 정규화 로직 발명 없음). NULL
+  성분은 COALESCE/NVL로 명시 sentinel 인코딩.
+- 진행 중 자체 발견·수정한 2차 결함(투명 공개): 1차 구현의 NULL
+  인코딩 방식이 NULL 아닌 값에도 항상 접두를 붙여 단일 컬럼 키까지
+  오염시키는 결함을 M143 라이브 재검증 중 ValueError로 직접 발견,
+  COALESCE/NVL 재설계로 해소 + 정적검사에 "단일 컬럼 키 무오염" 항목
+  추가해 재발 방지.
+- 검증: 4개 재현시나리오(숫자복합키/문자복합키+비-C collation/단일
+  숫자PK/300케이스) 전부 수정 전 어긋남→수정 후 완전 일치. 300케이스
+  차등테스트 PG·Oracle 양쪽 300/300 correct. M143(OR 통합 배치) 회귀
+  확인도 통과(key 표시값 오염 없음 재확인).
+- 성능 트레이드오프(정직 기재): 50만행 소규모 측정 +5.0% 오버헤드.
+  단, kexpr가 단순 컬럼 참조가 아닌 계산식이라 일반 btree 인덱스로
+  ORDER BY를 만족시키지 못해 "인덱스로 Sort 생략" 이점을 잃을 수
+  있음(정확성 우선의 의도된 트레이드오프) - 대용량 인덱스 테이블에서
+  체감 지연이 보고되면 순서보존 인코딩(권고안-3) 재검토 권고.
+- 부수 발견(범위 밖, 후속 조사 권고): test_agg_contribution_scope_
+  dialect.py 3건 실패가 가리키는 HEAD의 기존 결함(agg_contribution.py
+  →oracle.py Oracle 위임 시 cmp_numeric_cols 파라미터 불일치,
+  TypeError) - 이번 커밋 범위와 무관해 손대지 않음, git worktree
+  비파괴 검증으로 "이번 작업이 만든 회귀가 아님"을 확정.
+- 커밋 분리(중요): 착수 시점 워킹트리에 다른 세션(SINGLE-PASS-OR-
+  CONDITION-MULTI-GROUP-SCAN-IMPLEMENT, M90-NUMERIC-COMPARISON-
+  DUALITY-ORACLE-PG-FULL)의 미완료 작업이 대상 3개 파일과 같은 줄/
+  같은 함수 시그니처 안에 교차 삽입돼 있어 hunk 단위 분리 자체가
+  불가능했음 - git show HEAD로 원본을 추출한 사본에 이번 수정만
+  재현 후 git hash-object+update-index로 인덱스에 직접 스테이징하는
+  방식으로 격리(워킹트리는 전혀 건드리지 않음, 다른 세션 작업 보존
+  확인).
+- 커밋: 59811e2e (로컬, 12 files changed, 3041 insertions, 22
+  deletions) - push는 코드 저장소(X:\Projects\nxDTV) 로컬 커밋
+  전용 원칙에 따라 안 함.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  COMPOSITE-KEY-MERGE-SORT-CONTRACT-FIX.md /
+  COMPOSITE-KEY-MERGE-SORT-CONTRACT-FIX-COMMIT.md
+
+### M147. 해결 완료 - 4단계 통계검증 SQL 미리보기 안내문구가 M139
+(조합 기본 True 전환) 이후 실제 동작과 어긋나 있던 것 정정, 조사
+중 발견된 실제 중복실행 결함(체크 ON 시 이미 자동실행된 조합과
+동일 SQL 재실행)도 함께 수정
+- 발견/계기: 2026-08-14 (사용자 스크린샷 - "조합 SQL은 실행되지
+  않습니다, 체크박스를 켜세요"라는 문구가 M139 이후에도 안 바뀐 것
+  의심 / M139-POST-SQL-PREVIEW-CHECKBOX-TEXT-STALE-FIX)
+- 체크박스 실제 동작 (b) 상태불일치로 확정: 2축 선택 시 체크박스가
+  꺼져 있어도 조합(PAIR)이 서버 기본값(True)에 의해 이미 자동
+  실행되고 있었음(FastAPI TestClient 실측) - 기존 안내문구("실행
+  되지 않습니다")는 거짓이었음.
+- 부수 발견(예상 못한 실제 낭비): 체크박스를 ON으로 켜면, 이미
+  자동으로 도는 조합과 완전히 같은 SQL을 한 번 더 실행하고 있었음
+  (순수 낭비, 실행시간 2배) - 이번에 열 구성이 이미 있는 세트와
+  같은 EXPLICIT_MULTI를 걸러 1회만 실행하도록 dedup 로직 추가.
+- 수정: 안내문구를 선택 축 개수(2축/3축 이상)로 분기해 각각 사실에
+  맞게 재작성(2축: "체크박스와 무관하게 기본 자동 실행됨" / 3축
+  이상: 기존 "실행 안 됨" 문구는 유지하되 "2축 조합 1세트는 자동
+  실행됨"이라는 빠졌던 사실 추가). 중복 실행 시 "이미 자동으로
+  실행됩니다 - 중복 실행을 생략합니다" 안내로 원인 구분.
+- 5단계 "조합 미검증" 배너(M86) 판정은 이미 이 사실을 정확히 반영
+  하고 있었음이 재확인됨(stale 아님) - 4단계 SQL 미리보기 텍스트만
+  stale이었음.
+- 검증: Node 유닛 8건, 실제 DOM 렌더 4건(2축×ON/OFF, 3축×ON/OFF),
+  서버 실측 페이로드(FastAPI TestClient) 전부 기대값과 일치. 회귀
+  250 passed(무관 사전존재 실패 2건만).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  M139-POST-SQL-PREVIEW-CHECKBOX-TEXT-STALE-FIX.md
+
+### M148. 조사완료(설계 확정, 구현 지침 발행됨) - 1~5단계에 흩어진
+진행상황 배너 전수조사, 데이터 원천은 이미 통합돼 있음을 확인,
+표시 위치 통합이 조건부(a) 실현 가능으로 판정
+- 발견/계기: 2026-08-14 (사용자가 여러 화면에 흩어진 진행배너를
+  모든 단계 하단 공통 자리로 통합 표시하자고 제안 /
+  UNIFIED-PROGRESS-BAR-ALL-STAGES-DIAGNOSE)
+- 핵심 발견: 진행배너 9종을 전수 추적한 결과, 그중 3종(GROUP BY
+  세트 실행/5단계 자동저장 2곳)이 이미 같은 컴포넌트(#mvExecStep
+  Progress)를 재사용하고 있었음(M131이 이미 그렇게 설계) - "여러
+  화면에 흩어진 문제"가 아니라 "렌더 대상 DOM만 상황별로 2곳으로
+  갈라진" 구조였음이 코드로 재확인됨.
+- 하단 공통 커맨드바(_mvSingleValidationCmdBarConfig)는 이미 1~5
+  단계 전체에 존재하는 공통 자리이며, 4단계 행단위 chunk 비교
+  실행 중에는 이미 진행률(%)·경과·건수까지 표시 중임을 확인 - 사용자
+  요청의 절반은 이미 구현돼 있었음. 반면 같은 4단계 화면 안에서도
+  GROUP BY 세트 집계 실행은 완전히 다른 표시체계(박스형)를 써서,
+  "여러 화면"이 아니라 "같은 화면 안 실행 종류별 표시 불일치"가
+  진짜 문제의 본체임을 재정의.
+- 실현을 가로막는 유일한 물리적 제약: 하단 바가 `white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis`(1줄, 잘림) 구조임을 CSS로
+  확인 - 정보를 만드는 로직이 아니라 "그릇 크기"만이 장벽.
+- 공통 스키마화 가능 판단: title/counter/elapsed/note는 공통 필드로
+  추상화 가능. percent(%)는 근거 있는 곳(chunk 비교)에만 조건부
+  유지하고 억지 통일 금지(근거 없는 GROUP BY 세트 실행에 가짜 %를
+  붙이면 오히려 후퇴). counter의 분모(N)가 균일하지 않은 점(5단계
+  자동저장이 배치+개별폴백 하이브리드라 카운터 의미가 구간별로
+  다름)도 스키마에 반영 필요.
+- 설계 방향(6단계, 실현 예정): 커맨드바에 실행 중 조건부 보조줄 추가
+  (평상시 1줄 유지) 또는 사용자 결정으로 상시 3배 높이 고정(아래
+  CMDBAR-HEIGHT-3X-UNIFIED-PROGRESS-IMPLEMENT), 기존 문구 생성 로직
+  재사용(신규 발명 없음), 5단계 dual-write 삭제는 "완료된 모듈
+  리팩토링"이라 별도 사용자 확인 필요로 분리, 이미 정확한 chunk
+  진행률은 무변경, ETA 없는 단계는 "계산 불가"만 표시(새 추정 공식
+  발명 금지), 5단계 자동저장 ETA 8배 과소추정 결함(M131 기지식)은
+  표시위치 통합과 무관하게 후속 별도 과제로 명확히 분리.
+- 코드 수정 없음(순수 조사·설계) - 구현 지침 발행됨
+  (CMDBAR-HEIGHT-3X-UNIFIED-PROGRESS-IMPLEMENT, 진행중 - 완료 시 이
+  항목 갱신 예정).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\
+  UNIFIED-PROGRESS-BAR-ALL-STAGES-DIAGNOSE.md
+
+
+
 
 
 
