@@ -8676,6 +8676,17 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 근거: G:\내 드라이브\nxDTV-verify\reports\BUSINESS-SIGNAL-VERIFICATION-DIFFICULTY-NOTICE-IMPLEMENT.md
 
 
+### M159. 조사완료(사실관계 확정, 문구수정 불필요 - 이미 반영돼있음) - "조합그룹이 체크박스와 무관하게 기본 실행된다"는 사용자 주장을 코드+실측으로 검증 - 판정 (b) 부분적으로 맞음: PAIR(자동실행)는 항상 정확히 2축 고정이며, 3축 이상 선택 시 화면에 보이는 전체조합(3축)과는 다른 세트
+- 발견/계기: 2026-08-15 (사용자가 3축 선택 화면에서 "기본으로 조합그룹이 도는데 안내문구가 그와 다르다"고 문제제기, Claude(웹)가 근거 없이 "2축 자동조합과 3축 화면조합이 다를 수 있다"고 짐작으로 반박했다가 스스로 오류 인정 후 실측 조사로 확정 / M139-COMBO-DEFAULT-EXECUTION-SCOPE-VERIFY)
+- 코드 확정: services/groupby_plan_service.py:133-232의 PAIR 세트는 cols=[a["col"], b["col"]]로 항상 정확히 2개 열 고정 - 선택 축이 몇 개든 안 바뀜. 선택된 후보 전체 쌍 중 4가지 가드를 통과하는 쌍 중 예상 그룹 수(est)가 가장 큰 1개만 PLAN_MAX_AUTO_PAIR_SETS(=1)개 채택. 3축 이상을 전부 묶는 세트(EXPLICIT_MULTI)는 클라이언트가 explicit_multi_cols를 명시 전송(체크박스 ON)할 때만 생성 - 자동 생성 0건(코드 주석 원문 확인).
+- 실측(TestClient 직접 호출, 3축 REGION_CD+STATUS_CD+REGION_NM, 5,000,000행): 체크박스 OFF 시 SINGLE 3개+PAIR[REGION_CD,REGION_NM] 1개(총 4세트) 자동 실행 - 화면 SQL 미리보기(3축 GROUP BY)와 열 구성이 완전히 같은 세트는 OFF 상태에 없음. 체크박스 ON 시에만 EXPLICIT_MULTI(3축 전체)가 추가돼 화면 미리보기와 정확히 일치.
+- 판정: 사용자 주장의 절반은 정확함(체크박스 무관 자동조합이 실제로 존재·실행됨은 사실) - 다만 그 자동조합(2축)이 화면에 보이는 조합(3축 전체)과 동일하지 않다는 점에서 완전히 일치하지는 않음. 이전 Claude(웹)의 반박은 방향은 결과적으로 맞았으나 근거 없는 짐작이었다는 점에서 부적절했음 - 이번에 코드+실측 근거로 확정.
+- 문구 수정: 판정 (b)에 따라 원래 수정 대상이었으나, 착수 시점 확인 결과 이미 다른 세션(M139-POST-SQL-PREVIEW-CHECKBOX-TEXT-STALE-FIX, 미커밋 WIP)이 정확히 이 사실관계로 문구를 수정해둔 상태였음(ui/js_sql_preview.py 96~127행 - "2축 조합 1세트는 체크박스와 무관하게 자동 실행됩니다" 문구 포함, ui/tabler_renderer.py의 _runExecutePlanSets에 PAIR 실행+EXPLICIT_MULTI 중복 dedup 로직도 이미 반영). 이번 실측이 그 문구와 100% 일치 확인되어 추가 수정 없이 종결. 체크박스는 3축 이상 전체조합을 켜는 유일한 수단이라 여전히 필요(제거 대상 아님).
+- 코드 수정 없음(순수 조사, 파일 충돌 회피를 위해 §0 순서 규칙 준수 - M149-CMDBAR-CROSS-TAB-LEAK-DIAGNOSE-AND-FIX 미커밋 확인 후 문구 편집은 보류).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\M139-COMBO-DEFAULT-EXECUTION-SCOPE-VERIFY.md
+
+
+
 
 
 
