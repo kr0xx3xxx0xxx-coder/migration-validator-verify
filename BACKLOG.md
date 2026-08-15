@@ -8505,6 +8505,56 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
   UNIFIED-PROGRESS-BAR-ALL-STAGES-DIAGNOSE.md
 
 
+### M150. 심각 - 해결 완료 - Oracle pk_agg_sql() cmp_numeric_cols
+파라미터 누락으로 Oracle을 원본/목적으로 쓰는 모든 재이관 PK index
+준비 요청이 HEAD 기준 100% 실패하던 결함 수정
+- 발견/계기: 2026-08-14 (COMPOSITE-KEY-MERGE-SORT-CONTRACT-FIX-COMMIT
+  이 커밋 격리 검증 중 부수 발견 - git worktree 비파괴 검증으로
+  회귀 아닌 기존 HEAD 결함임을 확정 / ORACLE-PK-AGG-SQL-CMP-NUMERIC-
+  COLS-PARAM-MISMATCH-DIAGNOSE, ORACLE-PK-AGG-SQL-CMP-NUMERIC-COLS-
+  FIX-COMMIT)
+- 원인: agg_contribution._pk_agg_sql(db_type='oracle', ...)이
+  dialects.oracle.pk_agg_sql(cmp_numeric_cols=...)로 무조건 위임하는데,
+  HEAD의 oracle.py pk_agg_sql() 시그니처에는 이 파라미터가 없어
+  TypeError 발생 - non-stream/stream 엔진 양쪽의 재이관 PK index
+  준비 요청 전부가 이 위임을 예외 없이 탄다. 서버는 안 죽고 HOLD로
+  노출되나(CLAUDE.md 규칙대로 raise 대신 error_message 반환), 원인이
+  조사 없이는 사용자에게 불투명했음.
+- 커밋 이력 재추적으로 지침 원 가설 정정: "M90 작업이 agg_
+  contribution.py만 커밋되고 oracle.py가 누락"이 아니라, M90 기능
+  자체가 별도 커밋으로 존재한 적이 없고 전혀 무관한 주제의 커밋
+  (c6e142d6, 다중탭 in-flight)이 이 기능 코드를 곁다리로 실어나르며
+  oracle.py/postgresql.py 쪽 대응 함수 추가가 통째로 누락된 채
+  방치돼 있었음이 git log -S 추적으로 확정됨.
+- 부가 발견: agg_contribution._probe_cmp_numeric_cols()가 호출하는
+  dialects.oracle/postgresql.probe_cmp_numeric_cols가 양쪽 다 HEAD에
+  없어 except로 조용히 빈 set 반환되던 것도 같은 계열 결함 - 이번
+  커밋에서 양쪽 다 신규 함수로 추가해 함께 해소.
+- 커밋 시 조사 가설과 실제가 다름을 스스로 재확인: agg_contribution.
+  py는 조사 예측과 달리 HEAD에 이미 cmp_numeric_cols 배선이 전부
+  정상 존재해 이번 커밋 대상에서 제외(불필요한 변경 방지) - 작업
+  트리에 보이던 그 파일의 변경분은 전부 다른 세션(SINGLE-PASS-OR-
+  CONDITION의 tag_col)관련임을 diff로 확인.
+- 얽힘 격리: oracle.py 함수 시그니처 한 줄 안에 이번 수정(cmp_
+  numeric_cols)과 무관한 다른 세션 작업(tag_col)이 같은 줄에 섞여
+  있어, 오늘 검증된 방식(git show HEAD 원본 추출 → 수정만 재현한
+  사본 작성 → git hash-object+update-index로 인덱스 직접 스테이징)
+  으로 격리 - 워킹트리 파일은 검증 후 바이트 단위 diff로 원상복구
+  확인.
+- 검증: 재현(HEAD 임시 복원 시 3건 실패) → 격리수정 반영 시 7건
+  통과 대조 확인. 라이브 Oracle(Oracle_asis/MV_ORA_TEST_SRC) 실측 -
+  cmp_numeric_cols 제공/미제공 양쪽 호출 모두 SQL 생성·실행 성공,
+  canonical 정규화 값 정상 반환. 회귀 테스트 34건(5 failed는 전부
+  기존 baseline 사전실패와 동일, 신규 회귀 0건).
+- 커밋: 25aae878 (services/exact_diff/dialects/oracle.py +44줄,
+  postgresql.py +29줄, agg_contribution.py 무변경) - push는 코드
+  저장소 로컬 커밋 전용 원칙에 따라 안 함.
+- 근거: G:\내 드라이브
+xDTV-verifyeports  ORACLE-PK-AGG-SQL-CMP-NUMERIC-COLS-PARAM-MISMATCH-DIAGNOSE.md /
+  ORACLE-PK-AGG-SQL-CMP-NUMERIC-COLS-FIX-COMMIT.md
+
+
+
 
 
 
