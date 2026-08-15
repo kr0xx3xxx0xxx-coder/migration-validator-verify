@@ -8630,6 +8630,20 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 근거: 2026-08-15 세션 내 논의(별도 조사보고서 없음, 사용자-Claude 대화록 기반 정리)
 
 
+### M154. 조사완료(문제없음 확정, 통합설계 근거자료) - 후보추천 카디널리티(n_distinct) 판정은 카탈로그 우선+조건부 표본폴백 혼합형, 42M행 실측 0.163초로 풀스캔 비용 우려 기각
+- 발견/계기: 2026-08-15 (사용자가 후보추천의 저카디널리티 판정이 실시간 조사인지 통계정보 기반인지 질문, 이후 LPT/후보추천/조합게이트 통합설계 논의로 이어짐 / CANDIDATE-CARDINALITY-SOURCE-DIAGNOSE)
+- 결론: (c) 혼합형이나 "매번 실시간 COUNT(DISTINCT)"는 아님. 정확한 2단계 구조 - 1차(analyze, 항상): 카탈로그 전용(PostgreSQL pg_stats / Oracle ALL_TAB_COL_STATISTICS), SQL 실행 없이 dict 조회만. 2차(count 사전검증 이후, 조건부): "카탈로그 근거 없음"+"최종 후보로 압축된 컬럼"에만 한정해 표본(SAMPLE_SRC 5만행 CTE) COUNT(DISTINCT), statement_timeout 15초 가드.
+- PG·Oracle 판정 방식 동일(카탈로그 전용), 값 표현 규약만 다름(Oracle 절대값→PG 비율 변환은 PostgreSQL ANALYZE 10% 규칙 재현).
+- 실측(내부망 PostgreSQL 42,000,024행, 실제 제품 함수 직접 호출): fetch_postgres_column_stats() 0.163초(순수 카탈로그 쿼리 9ms와 동일 자릿수, 행수 무관 상수시간) vs 무제한 COUNT(DISTINCT) 대조군 15.7~51.7초(최대 317배 차이) - "카디널리티 판정이 오늘 다룬 풀스캔 비용 문제의 발생지"라는 우려는 근거 없음으로 기각.
+- 통계 신선도(FRESH/STALE/UNANALYZED, PG·Oracle 동일 7일 기준) 처리: 차단이 아니라 신뢰도 라벨링 - STALE도 값 자체는 신뢰하고 confidence만 LOW로 낮춤, 완전 부재 시에만 EVIDENCE_INSUFFICIENT로 안전 강등(예외 발생 없음).
+- "pg_stats 컬럼 키 불일치" 과거 이력(커밋 30e0f5f1/f578a415, 2026-07-09) 재확인: 오늘 조사 질문(실시간 vs 카탈로그)과는 다른 축의 결함(이관 리네임으로 인한 조회 키 불일치)이었음 - "이 프로젝트는 카탈로그 기반"이라는 이번 결론과 정합, 카탈로그를 실시간으로 바꾼 이력이 아니었음.
+- 부수 발견(버그 아님, 참고 기록): 42M행 실측 컬럼들에서 n_distinct 값 자체는 유효한데 pg_stat_all_tables.last_analyze/last_autoanalyze 활동카운터만 NULL이라 UNANALYZED로 오판되는 사례 확인 - 값을 못 쓰는 게 아니라 신뢰도 라벨만 과보수적으로 매겨짐(pg_stat 카운터 리셋 환경에서 재현 가능). 별도 지침 필요 여부는 미결정으로 남김.
+- 통합설계 함의(참고): 카디널리티 정보가 사실상 무료(0.16초)로 이미 확보되고 있어, LPT 스케줄링(M129)·조합게이트(M85/M139) 사전판정에 재사용하는 통합설계의 실현 가능성이 높다고 판단 - 후속 별도 지침으로 다룰 예정.
+- 코드 수정 없음(순수 조사).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\CANDIDATE-CARDINALITY-SOURCE-DIAGNOSE.md
+
+
+
 
 
 
