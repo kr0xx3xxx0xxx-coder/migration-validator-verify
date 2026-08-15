@@ -8653,6 +8653,30 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 근거: G:\내 드라이브\nxDTV-verify\reports\LPT-CANDIDATE-COMBO-GATE-UNIFIED-METADATA-DIAGNOSE.md
 
 
+### M156. 조사완료(부분실현가능, 구현지침 발행됨) - M143 OR 통합 배치 엔진의 진행신호(progress_cb) 부재 상태 확인 및 최소침습 구현방향 확정
+- 발견/계기: 2026-08-15 (PARALLEL-SCAN-MULTI-GROUP-STREAM-DIAGNOSE가 "진행 신호 부재가 병렬화보다 먼저 필요한 운영 항목"으로 지목, STAGE5-AUTOSAVE-REVERT-ORACLE-50M-LIVE-VERIFY에서 사용자가 [전체 저장] 1,651초 동안 이 공백을 실제로 겪음 / M143-BATCH-ENGINE-PROGRESS-CALLBACK-DIAGNOSE)
+- 확인: prepare_reimport_pk_index_stream_multi_group에 cancel_check만 배선돼 있고 progress_cb는 전혀 없음(함수 docstring이 이미 "알려진 한계"로 자인). 단일-그룹 함수(prepare_reimport_pk_index_stream)가 이미 쓰는 threshold 패턴(최초 20건+이후 20,000행마다)을 그대로 재사용하면 최소침습 배선 가능. ETA(%)는 정확한 근거가 없어 M149 원칙("근거 없는 곳에 %를 붙이지 않는다") 그대로 "처리 행 수"만 표시하는 방향으로 확정.
+- 결론(a): 배선 최소침습 가능 + 유의미한 진행정보(처리 행 수, 채워진 그룹 수) 제공 가능. 코드 수정 없음(순수 조사) - 구현 지침 별도 발행(M143-BATCH-PROGRESS-ASYNC-JOB-IMPLEMENT, 라우트 동기→비동기 전환 포함 - 착수 전 STREAM-SRC-TGT-CONCURRENT-OPEN-IMPLEMENT와의 파일 충돌 확인 필요로 대기 상태였음).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\M143-BATCH-ENGINE-PROGRESS-CALLBACK-DIAGNOSE.md
+
+### M157. 해결 완료(이득 제한적, 실측 정정 포함) - M143 OR 통합 배치 엔진의 원본/목적 스트림 open을 순차에서 동시(ThreadPoolExecutor)로 전환 - 위험 0·정합성 100% 확인되었으나 실측 개선폭은 사전 예상(1.90배)보다 크게 낮은 1.095배(8.7%)로 확정
+- 발견/계기: 2026-08-15 (PARALLEL-SCAN-MULTI-GROUP-STREAM-DIAGNOSE 1순위 권고, 비-stream DIRECT 엔진이 이미 쓰는 동시 open 패턴을 stream 다중그룹 엔진에도 재사용 / STREAM-SRC-TGT-CONCURRENT-OPEN-IMPLEMENT)
+- 구현: agg_contribution.py:1385~1386의 순차 open 2줄을 ThreadPoolExecutor(max_workers=2)로 교체(기존 358~373행 패턴 그대로 복사, 신규 메커니즘 발명 없음). 예외 계약 유지 - 각 future를 개별 try/except로 수거해 한쪽 실패 시에도 이미 성공한 다른 쪽 close()가 반드시 호출되도록 함(리소스 누수 방지, 기존 1454~1469행 계약과 정합).
+- 검증: 오프라인 예외처리 계약 3/3 통과. 실 Oracle 예외 시나리오(tgt 커넥션 인위 불능) - src는 정상 open 시도, tgt 실패해도 hang 없이 정상 HOLD 반환, src closer 정리 확인. 결과 정확성 - 소규모(200만행) before/after 2회씩 완전 동일, 전량(5천만행) before(순차) 1167.81초 vs after(동시) 1066.20초, 13/13 그룹 결과 완전 동일(회귀 0).
+- **중요 정정(정직 기재)**: 사전 조사(PARALLEL-SCAN-MULTI-GROUP-STREAM-DIAGNOSE)가 제시한 626.74초→330.06초(1.90배)는 실제 함수 전체가 아니라 "쿼리 실행 시작+첫 5,000행 fetch만 재는" 별도 proxy 스크립트의 실측치였음이 이번에 확인됨 - 실제 프로덕션 함수(open+전량 merge-walk+저장) 전체로 재측정한 결과 개선폭은 1.90배가 아니라 1.095배(8.7%, 101.61초 단축)였음. 원인: merge-walk 자체가 두 이터레이터를 한 스레드가 번갈아 소진하는 구조라 병렬화 구간(open~정렬완료)이 전체 벽시계에서 차지하는 비중이 예상보다 작았음. 위험 0·순수 이득이므로 변경 자체는 유지, 코드 내 주석도 실측치(1167.81→1066.2초)로 갱신해 향후 세션이 잘못된 626.74/330.06 수치를 재인용하지 않도록 조치.
+- 후속 권고(범위 밖): 대부분 시간이 소진되는 merge-walk 구간 자체의 병렬화(그룹별 PK 파티션 병렬)는 별도 조사에서 이득 상한 1.5~1.6배·불일치 분포에 따라 역효과 가능성이 이미 확인된 상태 - 신중한 접근 필요. progress_cb 배선(M156)이 더 우선순위 높은 운영 항목으로 재확인됨.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\STREAM-SRC-TGT-CONCURRENT-OPEN-IMPLEMENT.md
+
+### M158. 해결 완료 - "업무적으로 중요해 보이나 검증난이도가 높은 축"을 조용히 배제하지 않고 안내하는 표시 전용 계층(S1~S4) 구현, 날짜축 카디널리티 과대추정 오탐(F-4) 선행 해소
+- 발견/계기: 2026-08-15 (M155 조사가 확정한 설계를 그대로 구현 - "검증 정확성 최우선, 업무중요도는 우대가 아니라 난이도 경고 신호로만 사용" 원칙 / BUSINESS-SIGNAL-VERIFICATION-DIFFICULTY-NOTICE-IMPLEMENT)
+- F-4 선행정리: 날짜형 축이 실제로는 월/분기 단위(예: 24그룹)로 버킷팅되는데 원본 컬럼 raw distinct(예: 700,000)가 그대로 전달돼 자동계획 상한(4,000그룹)을 오탐 초과시키던 결함 - 새 추정 로직 발명 없이 서버가 이미 수집한 정확한 버킷 근거(_collect_date_bucket_profiles)를 읽어 쓰도록 전달 경로 3곳(축 카디널리티 배열/후보 evidence/화면 예상 그룹수 표시)을 단일 출처로 통일. 실측 전/후 대조: 수정 전 blocked_by=MAX_GROUPS(오탐 배제) → 수정 후 pair_blocked=None, PAIR 세트 1개 정상 생성(expected_groups=120) 확인.
+- S1~S4 구현: 후보 dict에 business_signal(시맨틱 표준용어 사전·컬럼 코멘트 매칭 재사용, 재계산 0)과 verification_difficulty(기존 카디널리티 등급 분류 재사용) 표시 전용 필드 2종을 candidate_postcount_finalize.py의 "모든 판정이 끝난 뒤" 후행 부착 구간에 추가. S2는 groupby_plan_service.py를 한 줄도 안 바꾸고 기존 반환값(excluded[]/pair_blocked)만 재사용(diff 0줄로 "새 판정 0개" 지시 실제 증명). S3(3단계 안내)·S4(4·5단계 배너 확장)는 기존 배너·왕복 경로에 인자만 추가(신규 UI 컴포넌트 발명 없음).
+- 핵심 원칙 준수 실측 증명: 새 필드 부착 전/후 후보 선정 결과가 100% 동일(판정에 전혀 개입 안 함), 소비처는 지시가 제한한 S3/S4 2곳으로 한정 확인.
+- 커밋: cad5b4b4(services/candidate_postcount_finalize.py +181/-0, ui/grid_helpers.py +176/-11, ui/tabler_renderer.py +24/-3, services/groupby_plan_service.py 0줄 변경, 총 3개 파일 +381/-14).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\BUSINESS-SIGNAL-VERIFICATION-DIFFICULTY-NOTICE-IMPLEMENT.md
+
+
+
 
 
 
