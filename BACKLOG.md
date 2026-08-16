@@ -8825,3 +8825,15 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 
 
 
+
+### M172. 심각 - 해결 완료 - 일괄검증 결과 엑셀에 표지, 제개정이력, 종합요약(테이블당 정확히 1행, 확정 30컬럼) 시트 추가 완료. 작업 중 기존 운영 결함 2건을 실측으로 발견하고 함께 수정 - 공식 업로드 경로의 report.xlsx가 실제로는 항상 HTTP 404였던 것, 그리고 다축(2개 이상) GROUP BY 실행 시 집계 총계가 축 수만큼 그대로 곱해져 부풀려지던 것(3축 실측 정확히 3배)
+- 발견/계기: 2026-08-16 (BATCH-SUMMARY-REPORT-1LINE-PER-TABLE-EXISTENCE-DIAGNOSE 결론을 바탕으로 사용자와 다단계 논의 끝에 확정된 30컬럼 양식을 실제 구현 / BATCH-SUMMARY-EXCEL-1ROW-PER-TABLE-IMPLEMENT)
+- 심각 결함1(기존, 이번에 발견): batch_item과 batch_run은 레거시 경로(기본 차단)에서만 쓰이고, 정식 업로드 경로(POST /batch/upload 이후 run-wrapper, run-count-only)는 완전히 다른 테이블(batch_wrapper_result)에만 저장하고 있었음. 실측(운영 SQLite) - batch_run 741행과 batch_wrapper_result 8401행의 batch_run_id 교집합이 0건. 즉 실제 업로드된 일괄검증은 GET 리포트 요청 시 항상 HTTP 404였음. 결과 병합 시점에 batch_run 부모행을 멱등 생성(ensure_batch_run)하고 batch_item을 upsert하도록 배선해 처음으로 정식 경로 리포트가 생성되도록 수정.
+- 심각 결함2(기존, 이번에 발견): routes/batch_route.py의 run-wrapper가 validation_target_id를 항상 None으로 읽고 있었음(get_items_by_source_batch가 반환하는 키가 row_id인데 라우트는 id만 읽음) - 이로 인해 대상 전체가 등록 필요로 오분류되며 검증 자체가 차단되던 상태. it.get("row_id") or it.get("id")로 수정.
+- 심각 결함3(이번 구현이 도입할 뻔했다가 자체 발견해 회피): 그룹기준 축이 2개 이상이면 축마다 별도 세트가 실행되고 execute_result에 세트별 rows가 그대로 이어붙은 합본이 들어오는데, 이 합본을 그대로 합산하면 같은 테이블을 축 수만큼 중복 합산하게 됨. 실측 재현 - NXDNP.MV_ORA_TEST(축3개) 수정 전 리포트 SUM(AMT) SRC=135,900.0인데 Oracle 직접 SQL은 45,300 - 정확히 3배. 성공한 단일 세트 1개만 골라 그 세트의 전체 그룹을 합산하는 규칙(pick_single_set_execute_result)으로 수정, 단일 세트를 확보 못하면 총계 산출 안 하고 SKIP+사유 기록.
+- 상태값 3값 채택 근거: 지시서 원문은 PASS/WARNING/FAIL이라고 썼으나 CLAUDE.md 절대규칙(PASS/WARNING/SKIP만 허용)과 충돌함을 확인하고 프로젝트 규칙을 우선 채택 - FAIL에 해당하는 상태는 WARNING으로 표기. 판정은 새 기준 발명 없이 기존 3계층(공통 판정 verdict, result_view.status_code, single_batch_status_mapping)을 순서대로 읽기만 함.
+- 지시서 오기 자체 정정: 지시서 본문이 "총 26개 컬럼"이라고 썼으나 같은 지시서가 열거한 구역1~7을 실제로 세면 30개였음 - 숫자보다 열거된 항목 목록 자체를 확정 사항으로 우선해 30개 그대로 구현.
+- 실측 검증: 실 Oracle(NXDNP, 원본/목적 별도 컨테이너)로 소규모 5개 테이블 배치(집계 컬럼 1개/2개/3개 케이스 전부 포함, 3개 케이스는 신규 픽스처 bsum3_agg_fixture로 직접 생성) + 5천만행(NXDNP.MV_SCATTER50M, 3축 GROUP BY, 134.951초) 전부 실행. COUNT/SUM 값 36개 항목을 Oracle 직접 SQL과 전부 대조해 100% 일치 확인, 판정(PASS/WARNING) 정확성도 전부 실제 일치여부와 일치 확인.
+- 정직하게 남긴 한계: xlsx를 실제 뷰어로 열어 화면 캡처하는 것은 이 환경에 뷰어가 없어 불가능했음(신규 외부 패키지 설치 금지) - 대신 openpyxl로 재로드해서 전체 셀 값을 원문 그대로 덤프해 증적으로 남김. 화면 그리드(ui/js_batch_display.py)는 다른 세션이 동시에 수정 중(dirty)이라 충돌 회피 위해 미착수, Excel만 완료 - 후속 과제로 명시. 주제영역/테이블명(논리명)은 스키마만 만들고 도구가 알 수 있는 출처가 없어 현재 공란. COUNT-only 단독 실행 경로는 이번 작업 이전부터 있던 별개의 교착 상태(db_valid_status 선행조건 상호대기)를 발견했으나 범위 밖으로 남김.
+- 커밋: b1b3e058(15 files, +2000/-28), push는 안 함(사용자 명시 지시 시에만). 자체 테스트 32건 전부 통과, 회귀는 신규 실패 1건 발견 즉시 수정(주석 문구에 감사 테스트가 금지하는 리터럴이 우연히 포함됐던 것) 후 재확인 통과, 관련 파일 172건 집중 재확인에서 신규 실패 0건.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\BATCH-SUMMARY-EXCEL-1ROW-PER-TABLE-IMPLEMENT.md
