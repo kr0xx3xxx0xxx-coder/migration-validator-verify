@@ -8767,6 +8767,35 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 코드 수정 0줄(순수 조사, git status 확인한 20건 수정파일은 전부 이번 조사 이전부터 있던 다른 세션 미커밋 변경) - 구현은 별도 지침 필요.
 - 근거: G:\내 드라이브\nxDTV-verify\reports\BACKGROUND-EXEC-COMBO-SUPPORT-DIAGNOSE.md
 
+### M169. 조사완료(구현 비권장, 지시서 전제 오인 정정) - "조합 게이트 4,000 초과 시 자동 축소" 아이디어 조사 중, 원래 지시서가 전제한 "4,000 초과 시 완전히 실행 안 됨"이라는 상황 자체가 현재 코드와 다름을 확인
+- 발견/계기: 2026-08-16 (실행 시점 안전 게이트와 계획생성 게이트를 혼동한 지침 작성 오류를 조사 과정에서 자체 발견 / COMBO-AUTO-AXIS-REDUCTION-ON-GATE-EXCEED-DIAGNOSE)
+- 핵심 정정: services/groupby_plan_service.py의 build_groupby_execution_plan() 실측 결과, 사용자가 명시 선택한 EXPLICIT_MULTI(전체축 조합) 세트는 PLAN_TARGET_MAX_GROUPS(4,000) 상한과 무관하게 항상 계획에 포함되고 실행 시도된다. 4,000이 실제로 막는 것은 서버가 알아서 추가하는 자동 보강 PAIR 세트뿐이다. EXPLICIT_MULTI가 실제로 안 도는 경우는 별도의 실행 시점 안전 게이트(INTERACTIVE_GROUPBY_MAX_GROUPS, 기본 100,000, 근사추정 시 안전계수 2.0 적용돼 실질 약 50,000)뿐이며, 이는 4,000과 25배 이상 차이나는 완전히 별개의 상한이다.
+- 지침이 가정한 "3축 선택하면 4,000 넘어서 0건" 시나리오는 재현 조건 자체가 없음을 확인 - M85가 우려했던 "조합전용 아키텍처의 가용성 붕괴"는 현재 구조(SINGLE 안전망이 항상 함께 유지됨)에서 이미 해소돼 있었다.
+- 축소 기준 참고 의견(구현 안 함): 만약 진짜 큰 게이트(50,000~100,000)에 걸리는 드문 케이스를 다룬다면, 카디널리티가 가장 큰 축을 먼저 제외하는 것이 M158 원칙(업무중요도는 판정에 개입하지 않음)과 일치하는 방향. 다만 기존 2축 자동 PAIR 선택 로직이 이미 이 역할을 사실상 겸하고 있어, 별도 축소 로직을 새로 만들면 M147이 겪었던 것과 같은 중복 실행 함정 위험이 있어 구현 비권장.
+- 코드 수정 없음(순수 조사).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\COMBO-AUTO-AXIS-REDUCTION-ON-GATE-EXCEED-DIAGNOSE.md
+
+### M170. 조사완료(존재하나 불충분, 결론 b) - 일괄검증 "테이블당 1줄" 요약 보고서 필요성 확인 - 화면 그리드와 Excel Items 시트 형태로 이미 후보가 있으나 COUNT 일치여부, SUM 컬럼별 일치여부, PASS 워닝 판정이 빠져있어 사용자 요구를 충족하지 못함
+- 발견/계기: 2026-08-16 (사용자가 일괄검증이 메인 시나리오인데 조합 게이트 최대치 4,000줄짜리 상세 결과만으로는 수천 테이블 규모에서 실무적 검토가 불가능하다고 근본 문제제기 / BATCH-SUMMARY-REPORT-1LINE-PER-TABLE-EXISTENCE-DIAGNOSE)
+- 이미 존재하는 후보 2가지 확인: 화면 그리드(ui/js_batch_display.py _batchRenderStatsExecuteResults)와 Excel Items 시트(services/batch_report_service.py build_batch_excel_report) - 둘 다 batch_item 테이블을 공통 데이터원으로 사용, 테이블당 1행 구조.
+- 불충분한 이유 3가지: 1) COUNT 일치여부가 batch_item 스키마에 아예 없음(별도 저장소에 분리 저장되고 병합 안 됨). 2) SUM이 컬럼별이 아니라 그룹 단위로 뭉뚱그려져 있어 어느 집계 컬럼이 불일치를 유발했는지 알 수 없음. 3) 실제 PASS 워닝 판정 매핑 로직(services/single_batch_status_mapping.py)이 이미 코드에 존재하나 스스로 read-only 검토용이라 명시하고 실제 저장/실행 경로에는 배선돼 있지 않음.
+- 조합 세트가 여러 개일 때 batch_item에 세트 구분 필드 자체가 없다는 구조적 공백도 확인.
+- 데이터 소스 공유 가능성(참고): 상세 결과와 같은 파이프라인 산출물이라 파생 자체는 구조적으로 막혀있지 않으나 스키마 확장이 함께 필요.
+- 코드 수정 없음(순수 조사) - 이 결론을 바탕으로 사용자와 다단계 논의를 거쳐 최종 양식을 확정하고 구현 지침 발행됨(BATCH-SUMMARY-EXCEL-1ROW-PER-TABLE-IMPLEMENT).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\BATCH-SUMMARY-REPORT-1LINE-PER-TABLE-EXISTENCE-DIAGNOSE.md
+
+### M171. 해결 완료 - 3단계 SQL미리보기 노란 배너 문구 축약과 체크박스 위치 이동, 4단계 백그라운드 실행 버튼 제거, 4단계 하단 주황 배너 문구 축약 4건 구현 완료, 실 브라우저 클릭검증 12/12 통과
+- 발견/계기: 2026-08-16 (사용자 스크린샷 기반 UI 개선 요청 5건 / STAGE3-4-COMBO-BANNER-CONSOLIDATE-AND-BUTTON-REMOVE-IMPLEMENT)
+- 3단계 배너 문구를 사실관계(단일축 항상실행, 2축조합 조건부자동실행, 전체조합은 opt-in) 그대로 보존하면서 9~10줄에서 3~4줄로 축약. 체크박스를 실행버튼 줄에서 배너 안 좌측으로 이동, 라벨 축약(상세 안내는 툴팁 보존).
+- 4단계 백그라운드 실행 버튼은 마크업만 제거하고 JS 함수는 보존(향후 재활용 대비), 관련 참조부 전부 기존 널가드 패턴이라 예외 없음을 실측 확인.
+- 착수 전 정적 가설 검증에서 4단계 하단 배너의 판정 로직(_mvComboUnverifiedAxes) 자체는 이미 체크박스 상태를 정확히 반영하고 있었음을 확인 - 지시서가 전제한 버그는 없었고 문구 축약만 필요했음을 스스로 밝힘.
+- 파일 충돌 처리: ui/tabler_renderer.py의 대량 diff(+419)를 hunk 헤더로 정밀 분리해 자기 몫(1곳)만 반영, 다른 세션 무관 WIP은 그대로 보존 확인.
+- 픽스처 변경 정직 기재: 지시서가 지정한 사내망 PostgreSQL이 TCP 타임아웃으로 접속 불가해, 이미 검증된 대체 픽스처(Neon PostgreSQL)로 교체 후 진행.
+- 검증: 라이브 브라우저 클릭검증(Playwright, 실 서비스, 실 PostgreSQL) 12/12 PASS, 타깃 회귀 120 passed(사전 존재 실패 2건 무관 확인).
+- 커밋: 코드 저장소 커밋 없음(사용자 명시 요청 없음, 다른 세션 WIP과 파일 공유 상태라 워킹트리에만 반영).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE3-4-COMBO-BANNER-CONSOLIDATE-AND-BUTTON-REMOVE-IMPLEMENT.md
+
+
 
 
 
