@@ -8939,11 +8939,14 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 근거: G:\내 드라이브\nxDTV-verify\reports\ENCRYPTED-COLUMN-VALUE-BASED-DETECTION-OPTION-A-IMPLEMENT.md
 
 
-### M188. 보류 결정 - ENCRYPTED-COLUMN-DETECTION-BATCH-PATH-COVERAGE-CHECK-ADDENDUM(일괄검증 경로 커버리지 확인), nxTDA 이관 예정 영역과 겹쳐 이 프로젝트에서는 착수하지 않음
-- 발견/계기: 2026-08-17, M186/M187(암호화 컬럼 값기반 보조탐지) 완료 후 남아있던 후속 조사 항목
-- 핵심 내용: 이 항목은 candidate_engine.py/encrypted_column_policy.py 관련 후보추천·암호화판정 영역 — 별도 신규 프로젝트 nxTDA(테이블분석 모듈, Java, 스키마/PK/암호화여부/GROUP BY·SUM 후보추천을 전담할 예정)가 이 영역을 대체할 가능성이 있다고 사전에 판단해둔 영역과 정확히 겹침. nxTDA 착수 확정으로, 이 프로젝트(migration-validator)에서 추가 투자를 진행하지 않기로 결정.
-- 후속: nxTDA 쪽에서 일괄검증(batch) 경로에 상응하는 개념이 필요해지면 그쪽 설계에서 다룸. migration-validator의 기존 로직(candidate_engine.py, encrypted_column_policy.py, detect_encrypted_value_suspicion)은 nxTDA 요구사항 문서의 "이식 대상 참고"로만 활용.
-- 근거: 별도 첨부문서 없음(대화 결정 사항), 2026-08-17 세션 기록 참고
+### M188. 해결 완료(정정) - ENCRYPTED-COLUMN-DETECTION-BATCH-PATH-COVERAGE-CHECK-ADDENDUM, 일괄검증 3개 후보산출 경로에 값 기반 암호화 의심 배지 배선 완료
+- [2026-08-17 정정] 이 항목은 최초 "보류 결정 - nxTDA 이관 예정 영역과 겹쳐 착수하지 않음"으로 잘못 기록됐었음. 실제로는 이 작업이 M188 최초 등록 시점 이전에 이미 완료·커밋(6f0d45e5)돼 있었으나 Claude(웹)가 확인 없이 미착수로 오기재함 — 아래가 정정된 내용.
+- 발견/계기: 2026-08-16, M186/M187(암호화 컬럼 값기반 보조탐지) 완료 후 후속 조사로 착수, 별도 세션에서 완료됨
+- 핵심 내용: 일괄검증 후보산출은 레거시 _build_from 사례와 달리 개별검증과 동일한 candidate_engine.py::build_column_candidates / candidate_display_enricher.py::enrich_candidates_for_display를 공유하는 단일 진입점 3곳(column_candidate_gen_service.py, batch_runner.py, validation_job_core.py)으로 확인됨. 갭은 그 직후 "증거 부착" 단계가 개별검증 흐름에만 있고 3개 일괄 경로 어디에도 없었던 것 — attach_encrypted_value_suspicion_evidence를 동일 함수 재사용으로 3경로 전부에 배선(새 판정 로직 복제 없음).
+- 실측/검증: 결정적 hex 암호화/정상 코드값 합성 데이터로 6/6 PASS, 회귀 서브셋 92/95 PASS(실패 3건은 무관한 사전 존재 콘솔인코딩 결함, 이번 세션 미접촉 파일).
+- 부가 발견(→ M191로 후속 처리): 명시필드 기반 완전배제(encrypted_columns, 커밋 67d5f761)도 이 3경로 어디에도 전달되지 않는 별도 갭을 함께 발견 — 부작용 방향은 안전(과탐 방향)임을 확인 후 별도 항목으로 분리.
+- 커밋: 6f0d45e5
+- 근거: G:\내 드라이브\nxDTV-verify\reports\ENCRYPTED-COLUMN-DETECTION-BATCH-PATH-COVERAGE-CHECK-ADDENDUM.md
 
 ### M189. 미착수(오픈) - 코드 저장소(C:\projects\migration-validator) 원격 백업 부재, private 저장소 신설 필요
 - 발견/계기: 2026-08-17, 사용자 지적("우리 소스 백업좀 해야지않아? 한번도 안한듯")
@@ -8954,3 +8957,11 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 발견/계기: 2026-08-17, 사용자 신고(그룹 접어도 저장 버튼이 남아 행 높이가 들쭉날쭉함) → STAGE5-SEQNUM-AND-SAVEALL-NAV-DIAGNOSE-SEQUENTIAL 지침 초안까지 준비됐으나, "항상 보이되 비활성/활성 토글" 방식으로 바꾸는 게 나을 수 있다는 논의로 방향 미확정 상태에서 보류됨. "최근조회 시각" 텍스트 표시 유지 여부도 같이 걸려있음(사용자: "중요한 건 아니니 일단 그냥두자").
 - 후속: 방향(펼침시만 노출 vs 항상노출+토글) 확정되면 별도 지침으로 재개.
 - 근거: 별도 첨부문서 없음(대화 결정 사항), 2026-08-17 세션 기록 참고
+
+
+### M191. 해결 완료 - 명시필드 기반 암호화 컬럼 완전배제, 일괄검증 3개 경로 배선 누락 수정
+- 발견/계기: 2026-08-17, M188(ADDENDUM) 조사 중 발견된 부가 갭 — 사용자 결정으로 즉시 수정(nxTDA 이관 대상 아님, 기존 기능의 배선 누락 결함으로 판단)
+- 핵심 내용: 매핑정의서/저장소 명시필드 기반 완전배제(encrypted_columns, resolve_encrypted_column_set)를 일괄검증 3경로 중 2경로에 배선했다. (1) column_candidate_gen_service.py::_generate_for_row — group_id로 batch_group_service.get_group을 조회해 project_id를 확보(개별검증 req.project_id와 동등한 정보원, 그룹은 항상 프로젝트에 소속), target_table을 table_key로 삼아 column_encryption_flag_store.resolve_encrypted_column_set을 그대로 재사용. (2) batch_runner.py::_build_core_candidates/analyze_item — 기존 ADMIN-COLUMN-OVERRIDE-BATCH-WIRING-FIX가 이미 확보해 두던 project_id/override_table_key(동일 프로젝트×테이블 키)를 그대로 재사용해 동일 저장소 함수를 1회 호출, encrypted_columns 신규 파라미터로 build_column_candidates에 전달. 두 경로 모두 attach_encrypted_value_suspicion_evidence 2번째 인자로도 전달해 "명시필드 완전배제 > 값 기반 의심 배지" 우선순위를 방어적으로 재확인했다. (3) validation_job_core.py::generate_validation_job_candidates는 확보 불가로 보류 — ValidationJobContext 데이터클래스에 project_id 필드 자체가 없고, build_validation_job_context도 project_id 파라미터를 받지 않으며, 이 core(run_validation_job_until_candidates/_plan/_execute 포함)를 호출하는 프로덕션 route/service가 전무함(테스트·dev_e2e 전용)을 grep으로 확인 — project_id를 넘겨줄 실제 호출자가 없어 임의로 필드를 추가하지 않고 주석으로 사유만 남겼다.
+- 실측/검증: 신규 scripts/dev_e2e/encrypted_column_explicit_exclusion_batch_path_verify.py — 실 프로젝트(테스트 전용 프로젝트)와 실 그룹/등록행으로 두 경로(_build_core_candidates 직접 호출, analyze_item의 명시 project_id 전달·item 폴백 전달 2가지, _generate_for_row 실행)에서 명시필드 지정 컬럼(SECRET_ENC)이 GROUP BY/SUM 후보 목록 자체에서 완전배제되고 비암호화 컬럼(STATUS_CD)은 정상 유지되는지, attach_encrypted_value_suspicion_evidence 우선순위 방어 로직이 실제로 값 기반 배지를 skip하는지, validation_job_core에 project_id 확보 경로가 없다는 보류 근거까지 총 9/9 PASS. 회귀 서브셋(6f0d45e5 완료보고와 동일 8개 테스트 파일, 95건) 92 passed·3 failed — 실패 3건은 test_candidate_display_policy.py의 콘솔 인코딩 mojibake로 6f0d45e5 시점과 동일한 사전 존재 결함(이번 세션 미접촉 파일, 신규 회귀 아님). 기존 배지 배선 검증 스크립트(encrypted_value_suspicion_batch_path_verify.py 6/6, encrypted_value_suspicion_verify.py 10/10) 재실행도 무회귀.
+- 커밋: 86667384
+- 근거: G:\내 드라이브\nxDTV-verify\reports\ENCRYPTED-COLUMN-BATCH-FIX-AND-BACKLOG-CORRECTION-SEQUENTIAL.md (파트1)
