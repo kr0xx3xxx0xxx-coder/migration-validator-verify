@@ -8965,3 +8965,11 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 실측/검증: 신규 scripts/dev_e2e/encrypted_column_explicit_exclusion_batch_path_verify.py — 실 프로젝트(테스트 전용 프로젝트)와 실 그룹/등록행으로 두 경로(_build_core_candidates 직접 호출, analyze_item의 명시 project_id 전달·item 폴백 전달 2가지, _generate_for_row 실행)에서 명시필드 지정 컬럼(SECRET_ENC)이 GROUP BY/SUM 후보 목록 자체에서 완전배제되고 비암호화 컬럼(STATUS_CD)은 정상 유지되는지, attach_encrypted_value_suspicion_evidence 우선순위 방어 로직이 실제로 값 기반 배지를 skip하는지, validation_job_core에 project_id 확보 경로가 없다는 보류 근거까지 총 9/9 PASS. 회귀 서브셋(6f0d45e5 완료보고와 동일 8개 테스트 파일, 95건) 92 passed·3 failed — 실패 3건은 test_candidate_display_policy.py의 콘솔 인코딩 mojibake로 6f0d45e5 시점과 동일한 사전 존재 결함(이번 세션 미접촉 파일, 신규 회귀 아님). 기존 배지 배선 검증 스크립트(encrypted_value_suspicion_batch_path_verify.py 6/6, encrypted_value_suspicion_verify.py 10/10) 재실행도 무회귀.
 - 커밋: 86667384
 - 근거: G:\내 드라이브\nxDTV-verify\reports\ENCRYPTED-COLUMN-BATCH-FIX-AND-BACKLOG-CORRECTION-SEQUENTIAL.md (파트1)
+
+### M192. 해결 완료 - 5단계 접힌 요약 행을 상태 무관 항상 2줄(배지+시각/저장버튼)로 고정
+- 발견/계기: 2026-08-17, 사용자 신고(그룹 접어도 저장 버튼이 남아 행 높이가 들쭉날쭉함) — 논의 끝에 "항상 보이되 비활성/활성 토글" 방식으로 확정
+- 핵심 내용: 지시서는 T2(최근조회 시각)와 저장버튼이 같은 div라고 전제했으나, 조사 결과 서로 다른 별도 div 2개였음이 원인으로 재확인됨 — 신설 _mvStage5DetailLine2Html()로 두 요소를 한 줄에 나란히 그리는 단일 템플릿으로 통일, 초기 렌더/재도장 양쪽이 이 함수 하나만 호출하도록 배선. 미확인 상태도 빈 시각+비활성 버튼으로 2줄을 채우도록 통일. 펼친 화면(상세 그리드)에는 저장버튼/시각이 애초에 없었음을 재조사로 확인(지시서의 "펼친 화면 제거" 전제는 틀렸음 — 제거 대상 자체가 없었음).
+- 부가 발견 및 수정: "저장됨" 하위상태만 <span> 요소라 padding이 줄 높이에 안 반영돼 8.32px 낮았던 실결함 발견 — 1차 보정(padding 수동 지정) 실패 후, 4개 하위상태 전부 <button disabled>로 구조 통일해 해소.
+- 실측/검증: 겹침 없는 단독 재실행(프로세스 목록으로 확인) 기준 미확인/완료/저장됨 3개 하위상태 전부 54.98px로 픽셀 단위 완전 일치. GB=0/1/2 케이스 전부 확인, 펼친 화면 저장버튼/시각 중복 없음(hasSaveBtn=false) 재확인. 회귀 105/107 PASS(실패 2건 무관한 사전 존재 결함).
+- 특이사항: 검증 과정에서 예약 알림/실시간 알림이 같은 서버를 동시에 재기동하려던 정황으로 결과 JSON에 낡은 값이 한때 섞였음을 정직하게 기록 — 최종 결론은 겹침 없는 단독 실행 결과만 근거로 사용, 코드 자체는 그 기간 변경되지 않았음을 확인.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE5-SAVEROW-FIXED-2LINE-ALWAYS-VISIBLE.md
