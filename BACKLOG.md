@@ -8937,3 +8937,20 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 범위 밖(후속 필요): 일괄검증(batch_runner/job_core) 배선 여부 미확인 — ENCRYPTED-COLUMN-DETECTION-BATCH-PATH-COVERAGE-CHECK-ADDENDUM 대기 중(2026-08-17 기준 미착수). UI(JS) 배지 렌더링도 범위 밖(백엔드 evidence 부착까지만).
 - 커밋: b75f60f1
 - 근거: G:\내 드라이브\nxDTV-verify\reports\ENCRYPTED-COLUMN-VALUE-BASED-DETECTION-OPTION-A-IMPLEMENT.md
+
+
+### M188. 보류 결정 - ENCRYPTED-COLUMN-DETECTION-BATCH-PATH-COVERAGE-CHECK-ADDENDUM(일괄검증 경로 커버리지 확인), nxTDA 이관 예정 영역과 겹쳐 이 프로젝트에서는 착수하지 않음
+- 발견/계기: 2026-08-17, M186/M187(암호화 컬럼 값기반 보조탐지) 완료 후 남아있던 후속 조사 항목
+- 핵심 내용: 이 항목은 candidate_engine.py/encrypted_column_policy.py 관련 후보추천·암호화판정 영역 — 별도 신규 프로젝트 nxTDA(테이블분석 모듈, Java, 스키마/PK/암호화여부/GROUP BY·SUM 후보추천을 전담할 예정)가 이 영역을 대체할 가능성이 있다고 사전에 판단해둔 영역과 정확히 겹침. nxTDA 착수 확정으로, 이 프로젝트(migration-validator)에서 추가 투자를 진행하지 않기로 결정.
+- 후속: nxTDA 쪽에서 일괄검증(batch) 경로에 상응하는 개념이 필요해지면 그쪽 설계에서 다룸. migration-validator의 기존 로직(candidate_engine.py, encrypted_column_policy.py, detect_encrypted_value_suspicion)은 nxTDA 요구사항 문서의 "이식 대상 참고"로만 활용.
+- 근거: 별도 첨부문서 없음(대화 결정 사항), 2026-08-17 세션 기록 참고
+
+### M189. 미착수(오픈) - 코드 저장소(C:\projects\migration-validator) 원격 백업 부재, private 저장소 신설 필요
+- 발견/계기: 2026-08-17, 사용자 지적("우리 소스 백업좀 해야지않아? 한번도 안한듯")
+- 핵심 내용: verify 저장소(BACKLOG/지침/보고서 전용, public)와 달리, 실제 제품 소스코드는 로컬 커밋만 하고 원격 push가 한 번도 없었던 것으로 확인됨. 원격 저장소는 private로(제품 소스라 verify 저장소와 달리 노출 리스크 있음) 신설 필요. 사내 GitHub 조직 계정 여부, 어디에(GitHub private / 사내 GitLab 등) 둘지, push 주기(매 커밋 자동 vs 세션 종료 시 일괄)는 사용자 결정 대기.
+- 근거: 별도 첨부문서 없음(대화 결정 사항), 2026-08-17 세션 기록 참고
+
+### M190. 미착수(오픈) - 5단계 상세추출 상태의 [저장] 버튼 표시 방식 최종 확정 필요(펼침 시만 노출 vs 항상 노출+비활성/활성 토글)
+- 발견/계기: 2026-08-17, 사용자 신고(그룹 접어도 저장 버튼이 남아 행 높이가 들쭉날쭉함) → STAGE5-SEQNUM-AND-SAVEALL-NAV-DIAGNOSE-SEQUENTIAL 지침 초안까지 준비됐으나, "항상 보이되 비활성/활성 토글" 방식으로 바꾸는 게 나을 수 있다는 논의로 방향 미확정 상태에서 보류됨. "최근조회 시각" 텍스트 표시 유지 여부도 같이 걸려있음(사용자: "중요한 건 아니니 일단 그냥두자").
+- 후속: 방향(펼침시만 노출 vs 항상노출+토글) 확정되면 별도 지침으로 재개.
+- 근거: 별도 첨부문서 없음(대화 결정 사항), 2026-08-17 세션 기록 참고
