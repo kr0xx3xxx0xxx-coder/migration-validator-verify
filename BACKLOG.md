@@ -8922,3 +8922,18 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 실측/검증: git worktree로 수정 전/후 나란히 실 오라클 재현 — 전: "4. 통계검증 실행" 탭 현재로 전환, 후: "5. 결과 확인" 탭 현재 유지+저장시각 정상 갱신, 스크린샷 대조 완료(Claude 웹이 직접 열어 확인). gate/nav 관련 회귀 30개 파일 신규회귀 0건.
 - 커밋: bfbb4d12
 - 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE5-SEQNUM-AND-SAVEALL-NAV-DIAGNOSE-SEQUENTIAL.md (파트2)
+
+
+### M186. 조사완료(코드 무변경) - 암호화 컬럼 자동배제, 명시필드 기반 완전배제(encrypted_column_policy.py)가 이미 완성·검증돼 있음을 확인, 값 기반(엔트로피) 자동탐지는 도입하지 않는다는 기존 설계 원칙 재확인
+- 발견/계기: 2026-08-16, 사용자 요청("암호화컬럼이 있을경우 자동으로 후보에서 제외시켜야해, 이관팀이 별도로 명시안할수 있어")
+- 핵심 내용: 지시서는 값 기반(엔트로피) 자동탐지 신규 구현을 전제로 했으나, 조사 결과 services/analysis/encrypted_column_policy.py(커밋 1ebb4ed6, 2026-07-21)가 이미 매핑정의서 "암호화여부" 명시필드 기반 완전배제를 구현·검증(실 DB 거짓불일치 25건→0건) 완료된 상태로 존재. 해당 모듈 docstring에 "명시필드 방식만 채택, 엔트로피 등 자동탐지는 하지 않는다"는 의도적 설계 원칙이 명시돼 있었음(원 진단 근거 문서는 소실). Claude Code가 이 기존 원칙과 신규 지시가 충돌함을 스스로 감지해 임의 구현하지 않고 사용자 판단을 구함.
+- 결정: 사용자가 옵션 A(최소침습 — encrypted_column_policy.py/candidate_engine.py 무편집, 값 기반 판정을 별도 함수로 신설해 명시필드 없을 때만 보조 표시배지로 병기) 채택 → M187로 구현.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\ENCRYPTED-COLUMN-VALUE-BASED-DETECTION-DESIGN-AND-IMPLEMENT.md
+
+### M187. 해결 완료 - 암호화 컬럼 값 기반(엔트로피) 보조 탐지 신규 구현(명시필드 없을 때만 작동, 완전배제 아닌 표시 전용 배지)
+- 발견/계기: 2026-08-16~17, M186 조사 결과 + 사용자 결정(옵션 A)
+- 핵심 내용: candidate_subtype_service.py에 detect_encrypted_value_suspicion() 신규 함수 추가. 문자셋(hex/base64/일반텍스트) 이론 최대 엔트로피 대비 상대 엔트로피 계산(표준 라이브러리만 사용, 신규 의존성 없음), 순수 숫자값 판정 제외, 표본 8건 미만 판정 보류. candidate_display_enricher.py의 기존 순수표시 배지 배선 지점에 병기하되 호출 조건을 "encrypted_columns(명시필드 완전배제 목록)에 없을 때만"으로 한정 — encrypted_column_policy.py를 import조차 하지 않아 우선순위 침해 원천 차단.
+- 실측/검증: 합성 테스트 10케이스(무작위IV암호화/결정적암호화/정상코드값/영문설명/한글주소/전화번호 등) 전수 검증, 오탐 0/4·미탐 0/2. 임계값 0.85 채택(정상값 최대 0.7662 ~ 결정적암호화 최소 0.9756 사이). 명시필드 우선순위 실측 확인(explicit_has_badge=False). 개발 중 git stash 오용을 스스로 발견·시정(git worktree 방식으로 전환, 손실 없음).
+- 범위 밖(후속 필요): 일괄검증(batch_runner/job_core) 배선 여부 미확인 — ENCRYPTED-COLUMN-DETECTION-BATCH-PATH-COVERAGE-CHECK-ADDENDUM 대기 중(2026-08-17 기준 미착수). UI(JS) 배지 렌더링도 범위 밖(백엔드 evidence 부착까지만).
+- 커밋: b75f60f1
+- 근거: G:\내 드라이브\nxDTV-verify\reports\ENCRYPTED-COLUMN-VALUE-BASED-DETECTION-OPTION-A-IMPLEMENT.md
