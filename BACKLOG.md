@@ -8908,3 +8908,17 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 핵심 내용: 실제 적용 페이지 크기(window._mvRiState.size)는 재펼침 후에도 정상 유지되고 있었으나, select 마크업이 재펼침마다 하드코딩된 "10건 selected" 고정 문자열로 재생성되던 것이 원인(데이터는 정상, 표시만 불일치). 마크업 재주입 직후 select 값을 실제 상태로 동기화하는 코드 추가(순수 표시값 정합화, 데이터 로직 무변경).
 - 실측/검증: GB=0/1/2 세 케이스 모두 "10→100 변경→접기→재펼침→100 유지" 확인(스크린샷 직접 대조), baseline 대조로 수정 전 결함 재현 확인.
 - 근거: G:\내 드라이브\nxDTV-verify\reports\GB01PART2-SELECTBOX-FIX-AND-SCREENSHOT-RESAVE-완료보고.md
+
+### M184. 해결 완료 - 5단계 상세 레코드 그리드 5종 전부에 순번 컬럼 추가(페이지네이션 있는 그리드는 페이지 넘어도 이어짐)
+- 발견/계기: 2026-08-16, 사용자 요청("일치던 불일치던 그룹이있던 없던 상세리스트 그리드 맨앞에 순번 하나 추가해줘")
+- 핵심 내용: 지시서는 "단일 함수"로 가정했으나 조사 결과 실제 그리드 빌더가 5개(_mvRiApply, _mvRiApplyTO, _mvRiApplySampleStop, _mvBuildGridHtml, _mvStage5SampleTable)로 확인돼 전부 수정. 호출부 없는 죽은 코드 2개(_mvPkLoadPage/_hcolsPk, _mvRiRenderGroupView/_mvRiGroupToggle) 발견, 삭제 없이 보고만. 페이지네이션 있는 그리드는 (현재페이지-1)×페이지크기 오프셋으로 순번이 이어지게 계산.
+- 실측/검증: GB=2 조합 불일치/일치 그룹 실 오라클 Playwright 클릭스루로 페이지 이동 시 순번 이어짐(1~10→11~20) 확인. GB=0은 픽스처 우연 상쇄로 실측 화면 재현 실패, 코드 근거(GB=2와 100% 동일 조립 로직)로 대체했음을 명시적으로 밝힘.
+- 커밋: d84510dc
+- 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE5-SEQNUM-AND-SAVEALL-NAV-DIAGNOSE-SEQUENTIAL.md (파트1)
+
+### M185. 해결 완료 - 5단계 "전체 저장" 클릭 시 4단계로 튕겨나가던 결함 수정(저장은 항상 정상 처리되고 있었음, 화면 이동만 결함)
+- 발견/계기: 2026-08-16, 사용자 실측 신고("전체저장 누르면 왜 4단계 탭으로 이동하지?")
+- 핵심 내용: 지시서가 의심한 M182(_singleInvalidateDownstream)는 함수 호출 계측으로 무관함을 확정, 실제 원인은 M131 시절 도입된 "4단계 자동저장 중 5단계 신규진입 차단" 가드(_renderSingleStepNav, window._fullRunResultActive 예외조건)였음 — 이후 수동 [전체 저장] 버튼이 추가되며 "아직 5단계 밖" 전제가 깨져 "이미 5단계 안에 있는데 강제 퇴장"으로 역작용. 플래그 강제 조작으로 인과관계 양방향 재현 확정 후, "이미 result를 보던 중이면 같은 busy 플래그로 안 튕긴다"는 예외만 최소 추가(원래 가드의 신규진입 차단 목적은 유지).
+- 실측/검증: git worktree로 수정 전/후 나란히 실 오라클 재현 — 전: "4. 통계검증 실행" 탭 현재로 전환, 후: "5. 결과 확인" 탭 현재 유지+저장시각 정상 갱신, 스크린샷 대조 완료(Claude 웹이 직접 열어 확인). gate/nav 관련 회귀 30개 파일 신규회귀 0건.
+- 커밋: bfbb4d12
+- 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE5-SEQNUM-AND-SAVEALL-NAV-DIAGNOSE-SEQUENTIAL.md (파트2)
