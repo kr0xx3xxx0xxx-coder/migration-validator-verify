@@ -8974,3 +8974,51 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 실측/검증: 겹침 없는 단독 재실행(프로세스 목록으로 확인) 기준 미확인/완료/저장됨 3개 하위상태 전부 54.98px로 픽셀 단위 완전 일치. GB=0/1/2 케이스 전부 확인, 펼친 화면 저장버튼/시각 중복 없음(hasSaveBtn=false) 재확인. 회귀 105/107 PASS(실패 2건 무관한 사전 존재 결함).
 - 특이사항: 검증 과정에서 예약 알림/실시간 알림이 같은 서버를 동시에 재기동하려던 정황으로 결과 JSON에 낡은 값이 한때 섞였음을 정직하게 기록 — 최종 결론은 겹침 없는 단독 실행 결과만 근거로 사용, 코드 자체는 그 기간 변경되지 않았음을 확인.
 - 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE5-SAVEROW-FIXED-2LINE-ALWAYS-VISIBLE.md
+
+### M193. 해결 완료 - nxDTV 내부 SQLite 접근을 프로그램 간 DB 표준(MariaDB) 통일 논의의 일환으로 조사, 공통 조회 계층(services/db_access) 신설 및 순수조회 9개 파일 이관
+- 발견/계기: 2026-08-17, 8개 프로그램 공용 DB 표준화 논의 중 nxDTV 내부 저장소(SQLite) 구조 조사 필요성 확인. DTV-SQLITE-TO-MARIADB-MIGRATION-SCOPE-ASSESSMENT(운영 64파일·1,843줄, 접근계층 집중도 낮음, 동시성 임계 7개 파일 확인) 후속으로 공통화 자체가 DB 이전 여부와 무관하게 필요하다는 결론.
+- 핵심 내용: services/db_access/read_query_helper.py 신설(연결 보일러플레이트+파라미터화 조회 함수), 순수조회로 분류된 파일 중 실이관 이득 있는 9개 이관. 기존 함수 시그니처·반환값 불변, 내부 구현만 교체.
+- 실측/검증: 이관 전/후 동일 입력 동일 반환값 대조, baseline 대비 회귀 0건.
+- 커밋: 6e743a6c
+- 근거: G:\내 드라이브\nxDTV-verify\reports\ (SQLITE-COMMON-ACCESS-STAGE1 계열)
+
+### M194. 조사완료(코드 무변경) - SQLite 68개 내부 파일을 순수조회(A)/혼합쓰기(B)/동시성임계(C)로 정밀 분류, D(공통화 후보 14건) 및 동시성 위험 재검토 대상 확정
+- 발견/계기: 2026-08-17, M193 이후 나머지 파일(쓰기 포함) 분류 필요
+- 핵심 내용: 68개 파일(외부 DB 접근 제외한 내부 SQLite 한정) 정밀 재조사 — A 9(+2 보류), B 48, C 7(동시성 임계 확정: db_preset_service.py, group_collection_state_service.py, metadata_collection_store.py, single_official_register_txn.py, single_validation_save_service.py, validation_result_store.py, validation_run/idempotency_store.py), 애매 1, 범위밖 1. B 48개 중 D(쓰기 있으나 명시적 트랜잭션 원자성 없음) 14건을 D-안전 32건(함수단위)/D-재검토필요 12건으로 세분류, 1단계 분류표와 교차검증 완료.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\ (SQLITE-COMMON-ACCESS-STAGE2 계열)
+
+### M195. 해결 완료 - SQLite 공통 쓰기 계층 신설 및 D-안전 32건(전체28+부분4) 전량 이관, STAGE1 미커밋분 포함 총 4개 커밋으로 정리
+- 발견/계기: 2026-08-17~18, M194 분류 결과 기반
+- 핵심 내용: services/db_access/write_query_helper.py 신설(commit/rollback 타이밍은 절대 흡수하지 않음 — 원본 함수별 커밋 시점·예외처리 그대로 유지, 순수 위치이동 원칙). 1차 세션이 18건만 진행 후 미커밋 종료 → 후속 세션이 중단 복구 확인(손상 없음, py_compile 전수 통과) 후 커밋 진행, 이어서 나머지 14건 중 13건 완료(직전 세션이 이미 이관해둔 9건을 diff 전수 검토 후 흡수 커밋 포함). validation_policy_service.py 1건은 무관한 기능(GENERAL-COLUMN-MAX-GROUPS 설정 필드)이 같은 INSERT 문에 물리적으로 뒤섞여 있어 커밋 대상에서 정직하게 제외(코드 손실 없이 uncommitted 유지).
+- 실측/검증: 이관 전/후 부작용 대조, 관련 서브셋+baseline 무회귀. batch_group_service.py/policy_target_table_service.py는 D-재검토필요 함수(register_batch_run/soft_delete_batch_run/upsert_from_batch_items) 완전 제외, diff 무변경 확인.
+- 커밋: 90a6e800, 8bd7d956, 1435996d (+STAGE1 6e743a6c)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\ (SQLITE-COMMON-ACCESS-STAGE3-D-SAFE-CONSOLIDATE, STAGE3-COMMIT-AND-CONTINUE-V2)
+
+### M196. 조사완료(코드 무변경) - D-재검토필요 12건 실동시성 재현 진단, 8건 위험확정
+- 발견/계기: 2026-08-18, M194 D-재검토필요 목록 실측 필요
+- 핵심 내용: 격리 DB 사본 + threading/multiprocessing으로 12건 전부 실제 동시요청 재현(5~110회 반복). 재현됨(위험확정) 8건: upload_quality_check_service.py(확정소실 10/10), batch_group_service.py(이중active 90~100%), exact_diff/store.py(예외시 미커밋 트랜잭션 잔존 10/10, 최대10초 락점유), policy_target_table_service.py(is_latest손상 10%), candidate_snapshot_store.py(10/10), conn_pair_service.py(최대90%), metadata_inventory_service.py(80~90%, 단 실사용 노출 없는 잠재결함), diagnosis/multi_scope_store.py(10/10). 재현안됨(안전근거) 4건, 판단불가 0건. 각 건 구체적 수정 방향 제안(구현은 안 함).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\SQLITE-COMMON-ACCESS-STAGE3-D-REVIEW-RACE-CONDITION-DIAGNOSE.md
+
+### M197. 해결 완료 - 위험확정 8건 중 6건(batch_group_service.py/policy_target_table_service.py 제외) 경쟁조건 수정, 검수 중 신규 위험 2건 추가 발견·해소
+- 발견/계기: 2026-08-18, M196 위험확정 결과 기반. 선행 세션 미완결 코드를 검수·보완하는 방식으로 진행(재구현 아님).
+- 핵심 내용: upload_quality_check_service.py(BEGIN IMMEDIATE 단일 트랜잭션+CAS+부분갱신 범위 축소), exact_diff/store.py(_write_txn 컨텍스트매니저로 9개 쓰기 메서드 통일), candidate_snapshot_store.py(_write_txn 원자화), conn_pair_service.py(UNIQUE 인덱스+BEGIN IMMEDIATE 이중방어), metadata_inventory_service.py(ON CONFLICT DO UPDATE 원자 UPSERT), diagnosis/multi_scope_store.py(lease/heartbeat 토큰 기반 CAS, TTL 탈출구). 검수 중 발견해 함께 해소한 신규 위험: conn_pair_service.py 스키마 마이그레이션 조용한 실패로 인한 영구 생성불능, upload_quality_check_service.py 락경합 시 예외 미처리로 인한 30분 그룹 잠금 잔존. routes/diagnosis_route.py, routes/batch_exhaustive_route.py도 계약 변경과 분리 불가능해 함께 포함(실측 근거: 라우트 미포함 시 재개 저장 회귀 10/10).
+- 실측/검증: 6개 시나리오 재현율 전부 수정전 80~100%→수정후 0%(대조군으로 하니스 민감도 별도 입증). 회귀 스위트 다수 통과, 실패건 전부 이번 수정과 무관함을 개별 원인규명. exact_diff 순수동시쓰기 안전성(0/5) 유지 재확인. multi_scope lease 탈출구 5개 항목 전항 통과.
+- 후속 과제(이번 범위 밖, 낮은 우선순위): exact_diff 락 스코프 불일치(현재 무해), quality_check 잠금해제 재시도 실패 잔여, conn_pair 키 정의 이원화, metadata_inventory 예외전파, diagnosis_route 무증상 실패 표시, conftest guard bypass 누락(legacy 테스트 8건 상시실패).
+- 커밋: 90eafbda
+- 근거: G:\내 드라이브\nxDTV-verify\reports\RACE-CONDITION-FIX-BATCH1-NONCONFLICTING-6FILES-V2.md
+
+### M198. 해결 완료 - M197 검수 중 발견된 범위 밖 별건 결함 2건(candidate 재산정 교차 lost-update, 전체선택/해제 override 미동기화) 수정
+- 발견/계기: 2026-08-18, M197 완료보고 §6-B 항목
+- 핵심 내용: candidate_recalculation_service.py가 잠금 밖에서 manual_overrides를 읽고 장시간 재계산 후 통째 덮어써 그 사이 사용자 변경이 소실되는 문제 — candidate_policy_snapshot에 row_version 정수 CAS 컬럼 추가, save_snapshot에 expected_version 파라미터로 충돌 시 최신 override를 기존 _apply_manual_overrides로 재적용 병합. apply_select_all/apply_clear_all이 manual_overrides_json을 미동기화해 재산정 시 되살아나는 문제도 함께 수정(기존 manual_override UI 배지 계약은 유지, 저장필드만 동기화).
+- 설계 시행착오(정직히 기록): 1차 구현은 updated_at(초단위 문자열)을 CAS 토큰으로 재사용했으나 실측 9/10 여전히 lost — 동시 이벤트가 같은 1초 안에 겹쳐 오판. 정수 카운터(row_version)로 교체해 근본 해결.
+- 실측/검증: B-1, B-2 각각 수정전 10/10(100%) 재현 → 수정후 0/20(0%). 정상케이스(동시변경 없음) 무회귀 확인.
+- 커밋: 627a6ba4
+- 근거: G:\내 드라이브\nxDTV-verify\reports\CANDIDATE-RECALC-LOST-UPDATE-FIX.md
+
+### M199. 해결 완료 - 위험확정 8건 중 나머지 2건(batch_group_service.py, policy_target_table_service.py) 경쟁조건 3개 함수 수정, 검수 중 순차로직 결함 1건 추가 발견
+- 발견/계기: 2026-08-18, M196 위험확정 결과 기반, M195(STAGE3-D-SAFE-CONSOLIDATE) 완료·커밋 후 착수(두 파일의 D-안전 함수와 겹치지 않도록 순서 강제)
+- 핵심 내용: register_batch_run(SELECT+UPDATE+INSERT 단일 트랜잭션화+부분UNIQUE인덱스 이중방어), soft_delete_batch_run(2단계 분할커밋 통합, 재계산 실패시 rollback+False 반환으로 "성공했지만 실패" 버그 해소), upsert_from_batch_items(DELETE+INSERT+재계산 전체 단일 트랜잭션화). 검수 중 발견·함께 수정: _recompute_latest_flags()가 재승격 시 superseded_by_row_id를 안 지워 is_latest=1과 superseded_by_row_id 동시존재 모순이 영구 잔존하던 순차로직 결함(동시성 아님).
+- 설계 시행착오(정직히 기록): 최초 구현이 _connect()를 안 거치고 open_write_connection을 직접 호출해 기존 테스트(patch 기반 연결주입 관례)와 충돌하는 회귀를 스스로 유발 → 발견 후 _connect() 경유로 재수정.
+- 실측/검증: 3개 시나리오 재현율 100%(또는 90~100%)→0% 확인. STAGE3-D-SAFE-CONSOLIDATE 이관 D-안전 함수는 내부구현·호출부 모두 원본 유지 확인.
+- 커밋: 28bbdc30
+- 근거: G:\내 드라이브\nxDTV-verify\reports\RACE-CONDITION-FIX-BATCH2-BATCHGROUP-POLICY.md
