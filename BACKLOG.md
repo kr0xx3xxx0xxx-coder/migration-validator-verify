@@ -9022,3 +9022,30 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 실측/검증: 3개 시나리오 재현율 100%(또는 90~100%)→0% 확인. STAGE3-D-SAFE-CONSOLIDATE 이관 D-안전 함수는 내부구현·호출부 모두 원본 유지 확인.
 - 커밋: 28bbdc30
 - 근거: G:\내 드라이브\nxDTV-verify\reports\RACE-CONDITION-FIX-BATCH2-BATCHGROUP-POLICY.md
+
+
+### M200. 해결 완료 - validation_policy_service.py의 SQLite 공통화 이관분을 무관한 기능(GENERAL-COLUMN-MAX-GROUPS)과 수작업 hunk 분리 후 커밋
+- 발견/계기: 2026-08-17, SQLITE-COMMON-ACCESS-STAGE3-COMMIT-AND-CONTINUE-V2에서 이 파일 1건만 같은 INSERT 문 안에 두 변경이 물리적으로 뒤섞여 있어 자동 hunk 분리 불가로 보류됨
+- 핵심 내용: uncommitted diff를 8개 지점으로 정확히 식별, GENERAL-COLUMN-MAX-GROUPS 관련 부분을 원본 HEAD 상태로 되돌려 "SQLite 이관만 반영된 중간 버전"을 수작업으로 구성 후 커밋, 커밋 직후 백업본으로 working tree 복원. 복원본이 백업본과 바이트 단위 완전 동일함을 diff로 재확인해 GENERAL-COLUMN-MAX-GROUPS 코드 손실 없음을 확정.
+- 실측/검증: (a)-only 버전 48 passed. 확장 서브셋 98 passed/6 failed, baseline 대조로 6건 전부 이 변경과 무관한 사전 존재 실패임을 확인.
+- 커밋: 489e23af
+- 근거: G:\내 드라이브\nxDTV-verify\reports\VALIDATION-POLICY-SQLITE-HUNK-SEPARATE.md
+
+### M201. 해결 완료 - post-commit 자동 push 훅 비활성화(운영 편의 개선)
+- 발견/계기: 2026-08-17~18, 매 커밋마다 자동 push가 실행되며 GitHub 인증 팝업이 반복 발생해 사용자 불편 — 지침마다 "완료·검증 후 즉시 커밋+push"가 명시돼 있어 훅 없이도 push는 계속 이뤄짐을 확인 후 비활성화 결정
+- 핵심 내용: X:\Projects\nxDTV\.git\hooks\post-commit → post-commit.disabled로 이름 변경(내용·권한 보존, 삭제 아님 — 필요시 이름 되돌리면 즉시 복구). 더미 커밋으로 자동 push 미발생 실측 확인(캐시된 origin/main ref 비교), 테스트 흔적은 비파괴적 삭제 커밋으로 정리.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\DISABLE-POST-COMMIT-AUTOPUSH-HOOK.md
+
+### M202. 해결 완료 - RACE-CONDITION-FIX-BATCH1-V2가 남긴 저위험 잔여항목 A-3~A-6 전부 수정
+- 발견/계기: 2026-08-18, M197(RACE-CONDITION-FIX-BATCH1-NONCONFLICTING-6FILES-V2) 완료보고 §6-A 잔여 저위험 항목
+- 핵심 내용: A-3(exact_diff/store.py 락 스코프 불일치, 현재 무해 확인 — 실제 위험 시나리오에서만 경고 로그가 울리는지 3단계 테스트로 검증), A-4(conn_pair_service.py 키 정의 이원화, 운영 DB 실측으로 NULL 0건 확인 후 폴백 제거), A-5(conn_pair_service.py update_pair 무방비 — 재현 결과 100% 완전중복 확인 후 create_pair와 동일 이중방어 적용), A-6(metadata_inventory_service.py 예외전파 시 배치 RUNNING 영구잔류 — 강제 예외 주입으로 재현 후 FAILED 상태 정정 로직 추가, 원 예외 전파는 유지).
+- 실측/검증: 4건 전부 수정 전 재현(A-5 100% 완전중복, A-6 RUNNING 고착) → 수정 후 해소 확인. 관련 서브셋 128건 통과.
+- 커밋: 777439f8
+- 근거: G:\내 드라이브\nxDTV-verify\reports\RACE-CONDITION-FOLLOWUP-A3-A6-LOWPRIORITY-FIX.md
+
+### M203. 해결 완료 - RACE-CONDITION-FIX-BATCH1-V2가 남긴 별건 결함 B-3, B-4 수정
+- 발견/계기: 2026-08-18, M197 완료보고 §6-B 잔여 항목(B-1, B-2는 M198로 기처리)
+- 핵심 내용: B-3(routes/diagnosis_route.py 6개 라우트가 저장 거부(CAS 불일치 등) 시에도 항상 official=True로 응답하던 무증상 실패 — 반환값 확인 후 거부 시 official=False+save_rejected 플래그 추가), B-4(tests/conftest.py의 route guard bypass 목록에 _project_scope_block 누락으로 legacy 테스트 상시 실패 — 목록에 추가).
+- 실측/검증: B-3 monkeypatch로 강제 거부 시나리오 실측, 정상/거부 양쪽 응답 정직성 확인. B-4 수정 전 9 failed(지시서 예상과 일치) → 수정 후 7건 해소, 남은 2건은 트레이스백 바이트 단위 대조로 무관한 사전 결함임을 증명(정직 보고, "전부 통과"로 과장하지 않음). 광역 회귀 24개 파일 확대 실측, baseline 대조로 무관 실패 11건 사전존재 확인.
+- 커밋: 6b60fb7a
+- 근거: G:\내 드라이브\nxDTV-verify\reports\RACE-CONDITION-FOLLOWUP-B3-B4-FIX.md
