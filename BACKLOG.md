@@ -9114,3 +9114,11 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 핵심 내용: 개별 저장 버튼(_mvStage5SaveOneGroup, ui/tabler_renderer.py:29195)이 배치 "전체 저장" 진행 플래그(ctx._snapshotSaving)를 전혀 참조하지 않아, 배치저장 진행 중에도 이미 DONE인 다른 그룹의 개별 저장 버튼이 막히지 않는다. 같은 그룹을 배치와 개별이 동시에 스캔하면 기존 문서화된 서버 _PK_INFLIGHT 거절(agg_contribution.py:223, run_id 없는 status=RUNNING)에 걸릴 수 있으나, 조용한 데이터 누락이 아니라 화면에 보이는 명시적 실패 메시지로 끝나(재클릭하면 됨) 심각도는 낮다고 평가. 정상 사용(마우스 연타) 자체는 클라이언트 즉시 비활성화+서버 upsert(merge)+threading.Lock() 3중 방어로 안전 확인.
 - 실측/검증: 정적조사 1~4번 완료(안전). 5번(실 서버 5~10회 연속 발사 실측)은 SAVE-BUTTON-RAPID-CLICK-5-REEXECUTE로 별도 재실행 예정.
 - 근거: G:\내 드라이브\nxDTV-verify\reports\SAVE-BUTTON-RAPID-REPEATED-CLICK-DIAGNOSE.md
+
+### M214. 완료 - ORACLE-NXDNP-SELECT-CATALOG-ROLE-GRANT-VIA-PYTHON-AND-VSESSION-REVERIFY
+- 추가/배경: 2026-08-20, LONGRUNNING-EXECUTE-MITIGATION-TABLOCK-FIX-AND-INPUTGUARD-SEQUENTIAL 파트3(브라우저 탭 종료 시 자동취소) 검증 관련 인프라 작업 마무리 — Oracle 권한 부여/정리 건 등록.
+- 핵심 내용: NXDNP 계정에 SELECT_CATALOG_ROLE 부여(SYSTEM 계정, python-oracledb) 후 v$session 직접 재검증 2회 PASS. LONGRUNNING-EXECUTE 파트3(브라우저 종료 시 자동취소)이 실제로 Oracle 서버 세션을 종료시킨다는 것을 간접 증거(net::ERR_ABORTED)에서 직접 실측(v$session)으로 격상 확인. 작업 중 NXDNP에 의도치 않은 DBA 롤이 함께 부여된 것을 발견, 사용자 승인 후 같은 세션에서 REVOKE DBA FROM NXDNP 실행해 최소권한으로 정리(SELECT_CATALOG_ROLE, DB_DEVELOPER_ROLE만 유지). 코드 변경 없음(순수 DB 권한/검증 작업), 커밋 없음.
+- 참고(각주): DBA 롤이 왜 함께 부여됐는지 원인은 미확인(담당 DBA와 연락 두절 상태에서 진행) — 추후 연락되면 사유 확인 및 재부여 필요 여부 재검토 권장.
+- 비고: 신규 스크립트 scripts/dev_e2e/vsession_pagehide_reverify.py(커밋 안 함, 요청 시 커밋 가능)
+- 커밋: 없음(코드 변경 없음)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M214-TEXT-REGISTER_20260820.md
