@@ -8712,6 +8712,88 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 검증: 1~5단계 전부 0초→1~2초 실측 PASS(4단계와 동일 갱신주기), M149 회귀 4건 재확인 PASS, 기존 회귀 116건 통과(회귀 0).
 - 근거: G:\내 드라이브\nxDTV-verify\reports\CMDBAR-ELAPSED-TIMER-ALL-STAGES-DIAGNOSE-AND-FIX.md
 
+### M163. 해결 완료(자체 변경분 미커밋, 기존 정책 준수) - M143 OR 통합 배치 재이관 준비에 콜백 배선+비동기 job 전환+프런트 다중 run_id 폴링 3단 구현 - 27분 침묵 문제 해소, 5천만행 실측으로 정합성·진행신호 갱신 전부 확인
+- 발견/계기: 2026-08-15 (M141이 예측만 하고 미구현으로 남긴 진행신호 부재를, M156 조사가 최소침습 구현방향으로 확정한 뒤 실제 구현 / M143-BATCH-PROGRESS-ASYNC-JOB-IMPLEMENT)
+- 착수 전 절차 준수: 지시서가 요구한 "STREAM-SRC-TGT-CONCURRENT-OPEN-IMPLEMENT 완료·커밋 확인 후 착수" 조건을 git log로 재확인한 결과 완료보고서는 있으나 실제 커밋은 없었음(같은 diff에 SINGLE-PASS-OR-CONDITION-MULTI-GROUP-SCAN-IMPLEMENT 및 무관한 완료작업 2건까지 함께 미커밋 상태로 혼재) - 즉시 착수하지 않고 사용자에게 확인 요청, "먼저 커밋 후 착수"를 선택받아 4개 완료·검증된 작업을 하나의 커밋(35db4b70)으로 정리한 뒤 착수.
+- 구현: agg_contribution.py 다중그룹 배치엔진(prepare_reimport_pk_index_stream_multi_group)에 progress_cb+on_groups_created 콜백 배선(단일-그룹 STREAM 함수와 동일 호출 패턴 재사용) → routes/agg_diff_route.py의 /agg-diff/prepare-batch를 완전동기에서 reimport_job.start_or_attach 비동기 job 패턴으로 전환 → on_groups_created가 등록하는 N개 tag별 run_id를 전부 같은 job에 반복 등록(bind_run_id)해 "대표 run_id 1개"만 폴링해도 배치 전체 합산 진행상황을 받도록 설계. reimport_job.py 모듈 자체는 무수정(기존 _JOBS_BY_RUN 등록 반복 호출만) - 새 자료구조 발명 없음.
+- 트레이드오프(기록만, 이번 범위 밖): pg_session_registry(thread↔run_id 매핑)는 마지막 tag의 run_id만 기록 - 배치 전체가 좀비 스레드로 죽는 극단 상황에서 PG 세션 강제종료 로그가 "마지막 tag" 기준으로만 남을 수 있음(job 자체의 ORPHAN 판정은 정상). 기존 reimport_job이 원래 단일-그룹 전용으로 설계됐던 데서 오는 N:1 재사용 한계.
+- 검증(5천만행 실측, Oracle NXDNP.MV_SCATTER50M_SRC/TGT, 13개 REGION_CD 그룹): PREPARING+run_id 13개 도착까지 0.76초(구 동기 방식은 전체 스캔이 끝날 때까지 무신호 대기), 진행 신호 60회(10초 간격) 수신 - processed_source_count가 0→31,726,337까지 단조 증가 확인(죽은 배선 아님). 총 소요 601.43초. 최종 결과 R01=EARLY_STOPPED@101, R02~13=READY@0 - STREAM 보고서 기준값과 13/13 완전 일치(result_matches_stream_report_baseline=true) - 비동기 전환이 "언제 알리는지"만 바꾸고 "무엇을 계산하는지"는 그대로임을 실측 대조로 확인. 기존 회귀 전부 통과.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\M143-BATCH-PROGRESS-ASYNC-JOB-IMPLEMENT.md
+
+
+### M164. 해결 완료 - 4단계 통계검증 실행 중(158초) 완료 탭으로 이동 후 복귀가 막혀, 서버는 5세트 전부 정상 완료했는데도 결과가 조용히 폐기되던 결함을 _mvCanNavTab 1곳(3줄) 수정으로 해소
+- 발견/계기: 2026-08-15 (FULL-50M-COMBO-E2E-VERIFY-WITH-TIMING-RECOMMENDATION §8-이슈1에서 2회 독립 재현 / STAGE4-TAB-NAV-STALE-DISCARD-FIX)
+- 원인: 두 정책이 서로 다른 전제로 충돌 - STAGE-TAB-FREE-NAV-COMPLETED-ONLY(완료 단계만 자유이동)가 "실행 중"(미완료) 4단계로의 복귀 자체를 차단하는데, STAGE-NAV-LOCK-REPLACE-WITH-STALE-RESPONSE-DISCARD 정책은 "복귀는 언제든 가능하다"를 전제로 응답 도착 시점에 "지금 보고 있는 탭"만 스냅샷 비교해 다르면 폐기하도록 설계돼 있었음 - 복귀 자체가 막혀 있으니 항상 폐기 판정이 남.
+- 수정: _mvCanNavTab에 대상 단계가 RUNNING이면 completed/인접 여부와 무관하게 항상 복귀를 허용하는 분기 추가(3줄). 안전성 논리 증명: RUNNING은 정의상 이미 선행 단계(SUCCESS)를 통과해야만 도달하는 상태이므로, 인접정책이 막으려는 "전제조건 없는 건너뛰기"가 이 케이스에서는 애초에 발생할 수 없어 원 정책의 보호 목적이 훼손되지 않음.
+- 정직하게 남긴 한계: 복귀를 "시도했으나 막혔던" 케이스는 해소되나, 아예 복귀하지 않고 다른 탭에 계속 머문 채 실행이 끝나는 케이스는 원 정책의 보호 목적과 정확히 같은 자리라 의도적으로 남겨둠 - 완전 해소하려면 "결과 보관 후 재표시"가 별도 필요(후속 과제로 명시). 조합 체크박스(EXPLICIT_MULTI)의 백그라운드 실행 경로 미지원도 별개 갭으로 범위 밖 유지.
+- 검증: 실제 배포 JS 원문을 node로 직접 실행하는 화이트박스 계약 테스트 신규 4건 - 재현(수정 되돌리면 2건 FAIL)→해소(복원하면 4건 PASS) 코드로 직접 대조, 원 정책 보호목적 보존 확인용 2건은 항상 PASS 유지. 영향집합 133+65건 회귀 통과, 레거시 13건 통과. 사전 존재 실패 1건은 git stash 베이스라인 대조로 무관함을 직접 증명.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE4-TAB-NAV-STALE-DISCARD-FIX.md
+
+### M165. 검증완료(코드 수정 0건, 개선 우선순위 근거자료) - Oracle 5천만행 1~5단계 실브라우저 종단간 검증 - 오늘 완성 기능 8/9 PASS, 신규 FAIL 1건(M164로 해소됨) 발견, 5단계 [전체 저장]이 전체시간의 85.8% 차지함을 실측 확정
+- 발견/계기: 2026-08-15 (오늘 완성된 여러 개선이 실제로 함께 맞물려 동작하는지 5천만행 규모로 종합 검증 요청 / FULL-50M-COMBO-E2E-VERIFY-WITH-TIMING-RECOMMENDATION)
+- 시간측정(합계 1,491.45초): 5단계 [전체 저장] 1,272초(85.8%)가 압도적 1위, 4단계 실행 158~162초(10.8%), 나머지 6단계 합쳐 4% 미만. 5단계 내부 분해 - 블로킹정렬대기 약250초(19.6%) + merge-walk 전량소진 약1,005초(79.0%, 49.4M행÷1,005초≈49,200행/초) + 저장POST/마감 약17초(1.4%).
+- 기능검증 8/9 PASS: M139(체크박스ON시 조합세트 2개 실제실행) · M143(저장중 진행신호 2초주기 갱신, 27분 침묵 해소 확인) · M151(자동저장 없음+merge모드 그룹 전부 잔존) · M156/M161/M162(진행바 실시간+탭이동 정보 미노출) 전부 실사용 규모에서 정상 작동 재확인.
+- 핵심 신규 발견: 조기중단이 사실상 무효화됨 - 불일치 23개 그룹 중 상한(101건) 도달은 1개뿐, 나머지 22개는 98.8% 전량 소진. 원인은 STATUS_CD 단일축 불일치그룹 10개가 테이블을 촘촘히 분할 덮어 OR 결합 시 predicate가 사실상 전 테이블이 되기 때문 - M152(PER-GROUP-CAP 하향 무효)의 결론이 실사용 규모에서 재확인됨. M160(정렬제거) 선택도 게이트(≥50%) 조건이 이 시나리오에서 98.8%로 여유있게 통과함이 실측으로 확정(처리 원본 0 고정 250초가 블로킹 정렬 대기의 직접 증거).
+- ETA 안내식 과소추정 정량화: 4단계 93초 안내→158초 실측(1.7배), 5단계 93초 안내→1,272초 실측(13.7배) - M131이 짐작했던 "8배"보다 더 크게 벌어질 수 있음이 실측으로 확인됨.
+- 개선 우선순위 추천(실측 근거): ①M160 정렬제거(선택도게이트 부착) - 1,272초→850~1,020초(17~28%↓), 전체시간 85% 구간 직접 타격, 최우선 권고. ②M164(위, 이미 해소) - 158초 손실 제거, 변경비용 최소. ③4단계 세트 병렬 배선 - 158초→90~110초(3~5%↓), 효과 작아 후순위. 비채택 확정: per_group_cap 하향(무효 재확인) / 동시open 추가(이미 반영, 추가 여지 없음) / M21 통합쿼리(Oracle 기각 유지) / 조합세트 축소(검출력 손실 위험).
+- 코드 수정 0건(순수 검증), 스크린샷 26장 별도 보관.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\FULL-50M-COMBO-E2E-VERIFY-WITH-TIMING-RECOMMENDATION.md
+
+
+### M166. ⚠️ 구현완료·기본OFF로 안전보류 - M160(OR 통합 배치의 블로킹 정렬 제거) 선택도 게이트 구현 - 단독으로는 조건 충족 시 효과 확인되나, 오늘 만든 다른 개선(동시open)까지 합친 운영형태 5천만행 A/B에서 오히려 1.15~1.34배 악화 발견돼 롤아웃 스위치(MV_SORT_ELIM_ENABLED, 기본 OFF)로 처리
+- 발견/계기: 2026-08-15/16 (M165가 개선 우선순위 1위로 확정한 것을 실제 구현 / M160-SORT-ELIMINATION-SELECTIVITY-GATE-IMPLEMENT)
+- 구현: Oracle 전용(PostgreSQL 무수정) - ALTER SESSION NLS_SORT=BINARY + ORDER BY를 함수래핑 없는 형태로 전환 + probe_sort_elimination()으로 선택도·전제조건 8가지를 카탈로그 조회만으로 판정(신규 통계수집 없음, M154 경로 재사용). 선택도 추정식은 카탈로그 기반과 관측 기반 중 작은 값을 채택(과대추정 방지, 안전 방향으로만 어긋나도록 설계) - 50M 픽스처 실측으로 카탈로그 추정이 실제보다 낮게 나옴(과소추정 방향) 확인. 임계값(선택도 50%, 대상행 5,000,000) 둘 다 조사 실측 지점들 사이의 보수적 값으로 근거 명시.
+- 단독 실측: EXPLAIN으로 블로킹 SORT 완전 제거 확인, 고선택도 조건에서 첫 행 도달 153.5초→2.8초.
+- **예상 밖 발견(운영형태 A/B, 안전 보류 사유)**: 원본/목적 스트림 동시 open(오늘 다른 개선)까지 합친 실제 운영 형태로 50M 교차 A/B 2쌍을 재보니, 전량 소진 기준 1.15~1.34배 악화. 단독 벤치마크와 운영형태 통합 벤치마크가 다른 결론을 낼 수 있음을 실증 - 이번에도 "짐작 대신 실측"이 정확히 필요했던 사례.
+- 대응: 무리하게 밀어붙이지 않고 코드는 완성하되 기본 OFF(MV_SORT_ELIM_ENABLED, 환경변수로 조정 가능)로 유지 - 켤지 여부는 사용자 판단 필요로 명확히 열어둠. 자체 테스트 16건(DB 불필요, 순수 로직/문자열 계약) 별도 통과.
+- 성격: 코드 수정 + 실측, git 커밋 0건(지시대로 미커밋). DB 작업은 SELECT/EXPLAIN PLAN/ALTER SESSION(세션 한정)뿐, 픽스처 변경 0건.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\M160-SORT-ELIMINATION-SELECTIVITY-GATE-IMPLEMENT.md
+
+### M167. 조사완료(실현가능(a), 설계 확정, 미구현) - M164가 남긴 잔여 갭(4단계 실행 중 복귀 없이 다른 탭에 계속 머물면 결과 폐기) 해소를 위한 결과 버퍼링 설계 확정 - 기존 비동기 재진입 복원 패턴을 그대로 확장하는 최소침습안
+- 발견/계기: 2026-08-15/16 (M164가 "복귀 시도했으나 막힘"은 해소했지만 "복귀 자체를 안 함"은 범위 밖으로 남긴 것의 후속 / STAGE4-RESULT-BUFFER-ON-TAB-LEAVE-DIAGNOSE)
+- 핵심 발견: 폐기 지점(다중세트/단일세트 각 1곳, 게이트 1줄 뒤 상태세팅+렌더 블록 전체가 좌우되는 동일 구조)과, 재진입 시 자동 복원 지점(_applySinglePane, 비동기 경로가 이미 쓰는 _mvAsyncExecRehydrate 호출 자리)이 전부 이미 명확한 단일 지점으로 존재 - "새 아키텍처"가 아니라 "기존 패턴에 버퍼 캡처+드레인 한 줄씩 추가"로 설계 가능함을 코드로 확인.
+- 안전성: 세션 자체가 바뀐 경우(재분석 등)는 명시적으로 버퍼링 제외 - 원 정책(다른 화면 덮어쓰기 방지)과 동일 경계 유지. 소비는 오직 사용자가 명시적으로 그 탭에 재진입할 때만(showSingleStep 경로) - 백그라운드 자동 덮어쓰기 없음. 기존 "재검증 필요" 배너 메커니즘(staleGen 비교)과도 자연히 호환(새 판정축 불필요).
+- 구현 방식 2가지 중 권장안 명시: (a-1)기존 렌더로직 추출 리팩토링은 "완료 모듈 임의 리팩토링 금지" 규칙에 해당해 사용자 승인 필요, (a-2)버퍼 전용 복제 함수 작성은 승인 없이 최소침습 가능하나 유지보수 이중화 비용 있음 - 1차로 (a-2) 권장.
+- 비판적 검토(자체 명시): 코드 복제 비용, 비동기(F7) 경로와의 우선순위 규칙 필요(capturedAtMs/job완료시각 중 최신 우선 권장), BACKGROUND-EXEC-COMBO-SUPPORT-DIAGNOSE(M168) 완료 후 다중세트 동기경로 사용빈도 자체가 줄어들 수 있어 착수 시점에 그 결과 우선 확인 권고.
+- 코드 수정 없음(순수 조사·설계) - 구현은 별도 지침 필요.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE4-RESULT-BUFFER-ON-TAB-LEAVE-DIAGNOSE.md
+
+### M168. 조사완료(구조적 문제 아님, 배선누락 4곳 확정, 미구현) - 백그라운드(⏱) 실행 경로가 조합(EXPLICIT_MULTI) 세트를 지원 못하는 진짜 원인은 설계 비호환이 아니라 두 기능의 구현 시점 차이(8/9 비동기 구현 vs 8/14 조합정책 개편)로 인한 배선 누락 4곳
+- 발견/계기: 2026-08-15/16 (M164가 "백그라운드 실행이 조합세트 미지원이라 회피수단 자체가 없다"고 남긴 별개 갭 / BACKGROUND-EXEC-COMBO-SUPPORT-DIAGNOSE)
+- 핵심 발견(git log로 커밋 시점 비교 확정): F7-STAGE4-MULTISET-ASYNC-IMPLEMENT(2026-08-09, 커밋 920f57e)가 완성된 뒤, 5일 뒤 STAGE4-UNIFIED-COMBO-CHECKBOX-ADDITIVE-IMPLEMENT(2026-08-14, 커밋 96d0c561)가 동기 경로의 조합 체크박스 의미를 "대체"에서 "덧셈"으로 바꿨는데 비동기 경로는 갱신 대상에서 빠짐 - 배선이 끊긴 4개 지점(요청 스키마 필드 부재/서버 계획생성 호출 파라미터 누락/방어적 필터 주석이 stale/클라이언트 페이로드 필드 누락) 전부 같은 원인의 연쇄.
+- 간접 증거: single_execute_job.py의 multiset_max_sets() 독스트링이 이미 "GROUP BY 최대 3 + 조합 1 = 실제 최대 4"라고 조합 세트 몫을 상한 산정에 포함해 뒀음(설계 시점부터 조합 세트 수용을 전제, 구현만 누락). 회귀 위험 확인 - 관련 테스트에 EXPLICIT_MULTI assert 자체가 없어 "의도적으로 잠긴 계약"이 아니라 단순 미완임을 재확인.
+- reimport_job.start_or_attach(M143 재사용 패턴) 적합성 검토 결과 불필요·부적합 결론: 그 패턴은 "여러 물리 run_id를 N:1로 묶는" 문제를 풀지만, 4단계 다중세트는 이미 단일 스레드가 세트 리스트를 순차 실행하며 progress.sets[] 배열로 보고하는 기존 인프라(single_execute_job.py, KIND_MULTISET)가 있어 그 문제 자체가 없음 - 조합 세트는 그 배열에 원소 하나 느는 것뿐. 새 job 저장소·새 폴링·새 상태값 전부 불필요.
+- 최소침습 설계 방향: 4개 배선 지점을 동기 경로가 이미 확정한 로직·값과 맞추기만 하면 됨(새 판정 로직 발명 없음), 파일 3개 각 국소 수정 규모로 추정.
+- 코드 수정 0줄(순수 조사, git status 확인한 20건 수정파일은 전부 이번 조사 이전부터 있던 다른 세션 미커밋 변경) - 구현은 별도 지침 필요.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\BACKGROUND-EXEC-COMBO-SUPPORT-DIAGNOSE.md
+
+### M169. 조사완료(구현 비권장, 지시서 전제 오인 정정) - "조합 게이트 4,000 초과 시 자동 축소" 아이디어 조사 중, 원래 지시서가 전제한 "4,000 초과 시 완전히 실행 안 됨"이라는 상황 자체가 현재 코드와 다름을 확인
+- 발견/계기: 2026-08-16 (실행 시점 안전 게이트와 계획생성 게이트를 혼동한 지침 작성 오류를 조사 과정에서 자체 발견 / COMBO-AUTO-AXIS-REDUCTION-ON-GATE-EXCEED-DIAGNOSE)
+- 핵심 정정: services/groupby_plan_service.py의 build_groupby_execution_plan() 실측 결과, 사용자가 명시 선택한 EXPLICIT_MULTI(전체축 조합) 세트는 PLAN_TARGET_MAX_GROUPS(4,000) 상한과 무관하게 항상 계획에 포함되고 실행 시도된다. 4,000이 실제로 막는 것은 서버가 알아서 추가하는 자동 보강 PAIR 세트뿐이다. EXPLICIT_MULTI가 실제로 안 도는 경우는 별도의 실행 시점 안전 게이트(INTERACTIVE_GROUPBY_MAX_GROUPS, 기본 100,000, 근사추정 시 안전계수 2.0 적용돼 실질 약 50,000)뿐이며, 이는 4,000과 25배 이상 차이나는 완전히 별개의 상한이다.
+- 지침이 가정한 "3축 선택하면 4,000 넘어서 0건" 시나리오는 재현 조건 자체가 없음을 확인 - M85가 우려했던 "조합전용 아키텍처의 가용성 붕괴"는 현재 구조(SINGLE 안전망이 항상 함께 유지됨)에서 이미 해소돼 있었다.
+- 축소 기준 참고 의견(구현 안 함): 만약 진짜 큰 게이트(50,000~100,000)에 걸리는 드문 케이스를 다룬다면, 카디널리티가 가장 큰 축을 먼저 제외하는 것이 M158 원칙(업무중요도는 판정에 개입하지 않음)과 일치하는 방향. 다만 기존 2축 자동 PAIR 선택 로직이 이미 이 역할을 사실상 겸하고 있어, 별도 축소 로직을 새로 만들면 M147이 겪었던 것과 같은 중복 실행 함정 위험이 있어 구현 비권장.
+- 코드 수정 없음(순수 조사).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\COMBO-AUTO-AXIS-REDUCTION-ON-GATE-EXCEED-DIAGNOSE.md
+
+### M170. 조사완료(존재하나 불충분, 결론 b) - 일괄검증 "테이블당 1줄" 요약 보고서 필요성 확인 - 화면 그리드와 Excel Items 시트 형태로 이미 후보가 있으나 COUNT 일치여부, SUM 컬럼별 일치여부, PASS 워닝 판정이 빠져있어 사용자 요구를 충족하지 못함
+- 발견/계기: 2026-08-16 (사용자가 일괄검증이 메인 시나리오인데 조합 게이트 최대치 4,000줄짜리 상세 결과만으로는 수천 테이블 규모에서 실무적 검토가 불가능하다고 근본 문제제기 / BATCH-SUMMARY-REPORT-1LINE-PER-TABLE-EXISTENCE-DIAGNOSE)
+- 이미 존재하는 후보 2가지 확인: 화면 그리드(ui/js_batch_display.py _batchRenderStatsExecuteResults)와 Excel Items 시트(services/batch_report_service.py build_batch_excel_report) - 둘 다 batch_item 테이블을 공통 데이터원으로 사용, 테이블당 1행 구조.
+- 불충분한 이유 3가지: 1) COUNT 일치여부가 batch_item 스키마에 아예 없음(별도 저장소에 분리 저장되고 병합 안 됨). 2) SUM이 컬럼별이 아니라 그룹 단위로 뭉뚱그려져 있어 어느 집계 컬럼이 불일치를 유발했는지 알 수 없음. 3) 실제 PASS 워닝 판정 매핑 로직(services/single_batch_status_mapping.py)이 이미 코드에 존재하나 스스로 read-only 검토용이라 명시하고 실제 저장/실행 경로에는 배선돼 있지 않음.
+- 조합 세트가 여러 개일 때 batch_item에 세트 구분 필드 자체가 없다는 구조적 공백도 확인.
+- 데이터 소스 공유 가능성(참고): 상세 결과와 같은 파이프라인 산출물이라 파생 자체는 구조적으로 막혀있지 않으나 스키마 확장이 함께 필요.
+- 코드 수정 없음(순수 조사) - 이 결론을 바탕으로 사용자와 다단계 논의를 거쳐 최종 양식을 확정하고 구현 지침 발행됨(BATCH-SUMMARY-EXCEL-1ROW-PER-TABLE-IMPLEMENT).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\BATCH-SUMMARY-REPORT-1LINE-PER-TABLE-EXISTENCE-DIAGNOSE.md
+
+### M171. 해결 완료 - 3단계 SQL미리보기 노란 배너 문구 축약과 체크박스 위치 이동, 4단계 백그라운드 실행 버튼 제거, 4단계 하단 주황 배너 문구 축약 4건 구현 완료, 실 브라우저 클릭검증 12/12 통과
+- 발견/계기: 2026-08-16 (사용자 스크린샷 기반 UI 개선 요청 5건 / STAGE3-4-COMBO-BANNER-CONSOLIDATE-AND-BUTTON-REMOVE-IMPLEMENT)
+- 3단계 배너 문구를 사실관계(단일축 항상실행, 2축조합 조건부자동실행, 전체조합은 opt-in) 그대로 보존하면서 9~10줄에서 3~4줄로 축약. 체크박스를 실행버튼 줄에서 배너 안 좌측으로 이동, 라벨 축약(상세 안내는 툴팁 보존).
+- 4단계 백그라운드 실행 버튼은 마크업만 제거하고 JS 함수는 보존(향후 재활용 대비), 관련 참조부 전부 기존 널가드 패턴이라 예외 없음을 실측 확인.
+- 착수 전 정적 가설 검증에서 4단계 하단 배너의 판정 로직(_mvComboUnverifiedAxes) 자체는 이미 체크박스 상태를 정확히 반영하고 있었음을 확인 - 지시서가 전제한 버그는 없었고 문구 축약만 필요했음을 스스로 밝힘.
+- 파일 충돌 처리: ui/tabler_renderer.py의 대량 diff(+419)를 hunk 헤더로 정밀 분리해 자기 몫(1곳)만 반영, 다른 세션 무관 WIP은 그대로 보존 확인.
+- 픽스처 변경 정직 기재: 지시서가 지정한 사내망 PostgreSQL이 TCP 타임아웃으로 접속 불가해, 이미 검증된 대체 픽스처(Neon PostgreSQL)로 교체 후 진행.
+- 검증: 라이브 브라우저 클릭검증(Playwright, 실 서비스, 실 PostgreSQL) 12/12 PASS, 타깃 회귀 120 passed(사전 존재 실패 2건 무관 확인).
+- 커밋: 코드 저장소 커밋 없음(사용자 명시 요청 없음, 다른 세션 WIP과 파일 공유 상태라 워킹트리에만 반영).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE3-4-COMBO-BANNER-CONSOLIDATE-AND-BUTTON-REMOVE-IMPLEMENT.md
 
 
 
@@ -8739,3 +8821,312 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 
 
 
+
+
+
+
+
+### M172. 심각 - 해결 완료 - 일괄검증 결과 엑셀에 표지, 제개정이력, 종합요약(테이블당 정확히 1행, 확정 30컬럼) 시트 추가 완료. 작업 중 기존 운영 결함 2건을 실측으로 발견하고 함께 수정 - 공식 업로드 경로의 report.xlsx가 실제로는 항상 HTTP 404였던 것, 그리고 다축(2개 이상) GROUP BY 실행 시 집계 총계가 축 수만큼 그대로 곱해져 부풀려지던 것(3축 실측 정확히 3배)
+- 발견/계기: 2026-08-16 (BATCH-SUMMARY-REPORT-1LINE-PER-TABLE-EXISTENCE-DIAGNOSE 결론을 바탕으로 사용자와 다단계 논의 끝에 확정된 30컬럼 양식을 실제 구현 / BATCH-SUMMARY-EXCEL-1ROW-PER-TABLE-IMPLEMENT)
+- 심각 결함1(기존, 이번에 발견): batch_item과 batch_run은 레거시 경로(기본 차단)에서만 쓰이고, 정식 업로드 경로(POST /batch/upload 이후 run-wrapper, run-count-only)는 완전히 다른 테이블(batch_wrapper_result)에만 저장하고 있었음. 실측(운영 SQLite) - batch_run 741행과 batch_wrapper_result 8401행의 batch_run_id 교집합이 0건. 즉 실제 업로드된 일괄검증은 GET 리포트 요청 시 항상 HTTP 404였음. 결과 병합 시점에 batch_run 부모행을 멱등 생성(ensure_batch_run)하고 batch_item을 upsert하도록 배선해 처음으로 정식 경로 리포트가 생성되도록 수정.
+- 심각 결함2(기존, 이번에 발견): routes/batch_route.py의 run-wrapper가 validation_target_id를 항상 None으로 읽고 있었음(get_items_by_source_batch가 반환하는 키가 row_id인데 라우트는 id만 읽음) - 이로 인해 대상 전체가 등록 필요로 오분류되며 검증 자체가 차단되던 상태. it.get("row_id") or it.get("id")로 수정.
+- 심각 결함3(이번 구현이 도입할 뻔했다가 자체 발견해 회피): 그룹기준 축이 2개 이상이면 축마다 별도 세트가 실행되고 execute_result에 세트별 rows가 그대로 이어붙은 합본이 들어오는데, 이 합본을 그대로 합산하면 같은 테이블을 축 수만큼 중복 합산하게 됨. 실측 재현 - NXDNP.MV_ORA_TEST(축3개) 수정 전 리포트 SUM(AMT) SRC=135,900.0인데 Oracle 직접 SQL은 45,300 - 정확히 3배. 성공한 단일 세트 1개만 골라 그 세트의 전체 그룹을 합산하는 규칙(pick_single_set_execute_result)으로 수정, 단일 세트를 확보 못하면 총계 산출 안 하고 SKIP+사유 기록.
+- 상태값 3값 채택 근거: 지시서 원문은 PASS/WARNING/FAIL이라고 썼으나 CLAUDE.md 절대규칙(PASS/WARNING/SKIP만 허용)과 충돌함을 확인하고 프로젝트 규칙을 우선 채택 - FAIL에 해당하는 상태는 WARNING으로 표기. 판정은 새 기준 발명 없이 기존 3계층(공통 판정 verdict, result_view.status_code, single_batch_status_mapping)을 순서대로 읽기만 함.
+- 지시서 오기 자체 정정: 지시서 본문이 "총 26개 컬럼"이라고 썼으나 같은 지시서가 열거한 구역1~7을 실제로 세면 30개였음 - 숫자보다 열거된 항목 목록 자체를 확정 사항으로 우선해 30개 그대로 구현.
+- 실측 검증: 실 Oracle(NXDNP, 원본/목적 별도 컨테이너)로 소규모 5개 테이블 배치(집계 컬럼 1개/2개/3개 케이스 전부 포함, 3개 케이스는 신규 픽스처 bsum3_agg_fixture로 직접 생성) + 5천만행(NXDNP.MV_SCATTER50M, 3축 GROUP BY, 134.951초) 전부 실행. COUNT/SUM 값 36개 항목을 Oracle 직접 SQL과 전부 대조해 100% 일치 확인, 판정(PASS/WARNING) 정확성도 전부 실제 일치여부와 일치 확인.
+- 정직하게 남긴 한계: xlsx를 실제 뷰어로 열어 화면 캡처하는 것은 이 환경에 뷰어가 없어 불가능했음(신규 외부 패키지 설치 금지) - 대신 openpyxl로 재로드해서 전체 셀 값을 원문 그대로 덤프해 증적으로 남김. 화면 그리드(ui/js_batch_display.py)는 다른 세션이 동시에 수정 중(dirty)이라 충돌 회피 위해 미착수, Excel만 완료 - 후속 과제로 명시. 주제영역/테이블명(논리명)은 스키마만 만들고 도구가 알 수 있는 출처가 없어 현재 공란. COUNT-only 단독 실행 경로는 이번 작업 이전부터 있던 별개의 교착 상태(db_valid_status 선행조건 상호대기)를 발견했으나 범위 밖으로 남김.
+- 커밋: b1b3e058(15 files, +2000/-28), push는 안 함(사용자 명시 지시 시에만). 자체 테스트 32건 전부 통과, 회귀는 신규 실패 1건 발견 즉시 수정(주석 문구에 감사 테스트가 금지하는 리터럴이 우연히 포함됐던 것) 후 재확인 통과, 관련 파일 172건 집중 재확인에서 신규 실패 0건.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\BATCH-SUMMARY-EXCEL-1ROW-PER-TABLE-IMPLEMENT.md
+
+
+### M173. 해결 완료 - 5단계 결과 리스트를 GROUP BY 축 블록 우선 정렬로 변경(판정 무관하게 축별로 묶임)
+- 발견/계기: 2026-08-16, 사용자 요청(그룹바이 축 기준 재정렬)
+- 핵심 내용: `_mvStage5MergeMatched` 정렬 키를 판정(일치/불일치) 우선에서 축 조합 우선으로 변경. 판정 로직 자체는 무변경.
+- 실측/검증: 실 브라우저 전/후 스크린샷 직접 대조(축 블록 연속성 확인), 회귀 74건 통과.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\SORT-GROUPBY-AXIS-BLOCK-REORDER.md
+
+### M174. 해결 완료 - 4단계 2축 조합 체크박스, 축이 정확히 2개일 때 비활성화+안내문구로 전환(3축 이상은 그대로 활성)
+- 발견/계기: 2026-08-16, 사용자 질문("체크박스는 왜 필요하지?") — 2축 선택 시 자동 PAIR 실행과 체크박스가 만드는 조합이 동일해 체크박스가 사실상 무의미했던 UX 결함
+- 핵심 내용: 축 개수를 프론트에서 계산해 2개일 때만 비활성화+안내문구로 대체, 3축 이상은 기존대로 활성 유지. 팝업 안전망은 그대로 보존.
+- 실측/검증: 2축/3축 케이스 실 브라우저 스크린샷 대조, 회귀 94건 통과(무관 사전 실패 1건 제외).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\PAIR-CHECKBOX-CONDITIONAL-DISABLE-OR-CLARIFY.md
+
+### M175. 해결 완료 - 그룹 미선택(GB=0) 실행 시 101건 조기중단 상한이 그룹 선택 시와 동일하게 이미 적용되고 있음을 확인, UI에 안내문구만 보강
+- 발견/계기: 2026-08-16, 사용자가 그룹 미선택 실행 결과 화면이 그룹 선택 시와 이질적임을 지적
+- 핵심 내용: 조사 결과 101건 상한 로직 자체는 이미 공유 함수(`_mvPerGroupPolicy`)로 정상 배선돼 있었음(수정 불필요). 실제 갭은 "GROUP BY 축 미선택 — 테이블 전체를 가상 그룹 1개(전체합계)로 비교" 안내문구 부재뿐이었음, 해당 문구 추가.
+- 실측/검증: 150건 초과 케이스로 상한 도달 재현, GB=0/1/2 각각 스크린샷 대조. 회귀 180 passed/2 failed(사전 존재, 무관).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\NOGROUP-DETAIL-EXTRACT-CAP-AND-UI-DIAGNOSE-AND-FIX.md
+
+### M176. 해결 완료 - GROUP BY 축 0개/1개/2개 이상 결과 화면 UI를 GB≥2 그룹목록 렌더러로 완전 통합
+- 발견/계기: 2026-08-16, 사용자 스크린샷("그룹2개의 모양하고 비슷하게 만들어")
+- 핵심 내용: 지시서가 지목한 분기 지점(gbSel.length>=2)이 실제로는 실행 분기였고, 진짜 렌더 분기는 planRun 객체 존재 여부였음을 재확인·정정. 단일 세트 결과를 planRun 형태로 감싸 GB≥2 렌더러(_mvStage5RenderGroupList)를 그대로 재사용. GB=0 전용 서버 저장소 제약(빈 group_axis 배제)은 라벨을 '(축 없음)'으로 채우고 group_key 빈 객체로 판별해 우회.
+- 실측/검증: GB=0/1/2 세 케이스 전/후 스크린샷 6쌍 직접 대조(목록·펼침 레이아웃 완전 통일 확인), renderExecute 다른 호출부 16곳 전수 확인(영향 0).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\GB01-UNIFY-WITH-GB2PLUS-GROUPLIST-UI.md
+
+### M177. 해결 완료 - GENERAL_COLUMN_MAX_GROUPS(GROUP BY 후보 절대 그룹수 상한) 60→100 상향 + 전역설정 화면(정책 DB) 노출
+- 발견/계기: 2026-08-16, 사용자 판단(60이 정상 분류 컬럼을 오배제할 수 있다는 우려에 따른 잠정 조정치)
+- 핵심 내용: env 변수 폴백뿐이던 값을 "후보추천 정책" 화면에 편집 가능한 항목으로 추가(정책 DB 3단 우선순위: env→정책DB→코드기본값, 기존 다른 정책값과 동일 패턴 재사용). 기본값 100은 실측치가 아닌 잠정 조정치임을 화면 문구에 명시.
+- 실측/검증: 화면에서 값 저장 즉시(서버 재기동 없이) 판정 반영 실측(distinct=80/100/101 경계값 확인), M160 날짜축 오탐 방지 회귀(86,400그룹) 유지 확인.
+- ⚠ 부가 발견(미해결): PLAN_TARGET_MAX_GROUPS=4,000(조합 자동실행 상한)의 산정 근거(60×60 기준)가 이번 상향으로 어긋남 — M179에서 안내 보강으로 대응, 4,000 값 자체는 미변경.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\GENERAL-COLUMN-MAX-GROUPS-SETTINGS-EXPOSE-AND-DEFAULT-100.md
+
+### M178. 해결 완료 - GB=0 가상 그룹 인라인 펼침에 남아있던 레거시 성능정보 블록 제거(GB≥2와 레이아웃 통일)
+- 발견/계기: 2026-08-16, M176 통합 후 사용자 스크린샷으로 잔재 확인
+- 핵심 내용: `_mvRiSummaryHtml`의 인라인 판정 변수(`_inlineGrp`)가 window.scope.col 유무로 계산되던 것을 window.state.inline 명시적 플래그로 교체 — GB=0 가상 그룹만 "좁힐 조건 없음"과 "인라인 여부"를 혼동해 오판정되던 근본원인 수정(실제로는 GB=1은 애초 결함 없었음, GB=0 1건뿐).
+- 부수: 5단계 "표시 건수" 드롭다운 재조회 자체는 별도 조사 결과 이미 정상 동작(버그 아님) 확인. 단 접었다 재펼침 시 select 표시값만 10건으로 되돌아가는 표시 불일치를 추가 발견 → M183에서 수정.
+- 실측/검증: Before/After HTML 바이트 단위 비교(GB≥2 무회귀, GB=0 결함 해소), 회귀 164 passed/4 failed(사전 존재, 무관).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\GB01-STAGE5-UI-CLEANUP-COMBINED.md
+
+### M179. 해결 완료 - 3단계 조합게이트 사전 안내에 "수동 실행 가능" 문구 추가 + 4단계 2축 체크박스 트리거 조건 결함(자동실행 차단 시에도 무조건 비활성화되던 버그) 수정
+- 발견/계기: 2026-08-16, M177의 부가 발견(PLAN_TARGET_MAX_GROUPS=4,000 산정 근거 어긋남) 후속 — 4,000 값 자체는 유지, 안내만 보강하기로 사용자 결정
+- 핵심 내용: PLAN_TARGET_MAX_GROUPS(4,000)는 자동보강 PAIR 세트에만 적용되고 사용자 수동선택(EXPLICIT_MULTI)에는 적용 안 됨(M89 재확인)을 근거로, 3단계 안내에 "자동실행에서만 제외, 4단계에서 체크박스로 수동 실행 가능" 문구 추가. 조사 중 발견한 실제 버그(2축 조합이 4,000 상한에 막혀 자동실행 안 됐는데도 체크박스가 무조건 비활성화되던 것 — M159 회귀)도 함께 수정.
+- 실측/검증: 3단계 안내·4단계 체크박스 활성/비활성 3종 시나리오 실 브라우저 스크린샷(OCR 대조 완료). 4,000 값·게이트 로직 자체는 무변경.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\COMBO-4000-CAP-NOTICE-AUDIT-AND-ENHANCE.md
+
+### M180. 조사완료(코드 무변경, 부차 결함 1건 M182로 분리) - 5단계 "재검증 필요" 미해제 신고는 실제로는 3단계 버튼 라벨이 실제 동작(후보 재확정만)과 다른 데서 온 오인이었음, 상태관리 로직 자체는 정상
+- 발견/계기: 2026-08-16, 사용자 신고("4단계 재실행해도 5단계가 재검증 필요 그대로")
+- 핵심 내용: stale 플래그 전파/클리어 로직(_singleDownstreamStale)은 실측상 정상 동작 확인(가정된 버그 없음). 실제 원인은 3단계 버튼 [▶ 선택 적용 후 통계검증 진행]이 이름과 달리 통계검증을 실행하지 않고 후보 재확정만 하는 것 — 2026-07-15(153f4681)에 도입된 라벨-동작 불일치(문구 리그레션). git log로 과거 게이트 순환 수정(2026-07-10)과는 무관함을 확인.
+- 부차 발견: 4단계를 실제 재실행하면 5단계 배지가 '대기'가 아니라 '완료'로 오표시(_mvResultTabVisited 미리셋) — 별도 결함으로 M182에 분리.
+- 후속 조치: 사용자 결정으로 라벨 정정 진행 → M181.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE3-LABEL-AND-STAGE5-BADGE-FIX-SEQUENTIAL.md (파트1 조사 섹션)
+
+### M181. 해결 완료 - 3단계 버튼 라벨을 실제 동작(후보 재확정만, 통계검증 미실행)에 맞게 정정
+- 발견/계기: 2026-08-16, M180 조사 결과 + 사용자 결정("라벨을 실제 동작에 맞게 바꾸는 게 맞지")
+- 핵심 내용: '▶ 선택 적용 후 통계검증 진행' → '▶ 선택 적용 후 후보 재확정'. 코드 주석의 "특정 문자열('통계검증 실행 →') 금지" 제약은 준수(라벨 전면 금지 아니었음을 git blame으로 확인). 확산된 7개 위치(함수 본체·하드코딩 동기화·주석 5곳) 전수 갱신.
+- 실측/검증: 3단계·4단계 화면 실 브라우저 스크린샷으로 새 라벨과 4단계 실제 버튼 문구가 명확히 구분됨을 확인. 회귀 20 PASS(라벨 관련), 사전 존재 실패 3건 무관 확인.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE3-LABEL-AND-STAGE5-BADGE-FIX-SEQUENTIAL.md (파트1)
+
+### M182. 해결 완료 - 3단계 변경 후 4단계 재실행 시 5단계 배지가 "완료"로 오표시되던 결함 수정("대기"로 정상화)
+- 발견/계기: 2026-08-16, M180 부차 발견 + 사용자 결정
+- 핵심 내용: `_mvResultTabVisited`(5단계 방문 이력 플래그)가 3→4→5 회차마다 리셋되지 않고 누적되던 것이 원인. 3단계 변경으로 하위 단계를 무효화하는 기존 훅(_singleInvalidateDownstream) 안에 이 플래그와 `_mvReimportStatus` 리셋을 추가.
+- 실측/검증: 라운드1(5단계 실방문)→3단계 변경→라운드2(4단계 재실행) 시나리오 실 브라우저 스크린샷 대조, "완료"→"대기" 정상 전환 확인. mutation 테스트(수정 전 코드로 재실행해 실제 FAIL 확인 후 수정 코드로 PASS) 방식 사용. 회귀 157 PASS/1 FAIL(사전 존재, 무관).
+- 참고(범위 밖): 4단계 직접 재실행(3단계 미경유) 경로는 이번 수정 미적용 — 후속 검토 권장.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE3-LABEL-AND-STAGE5-BADGE-FIX-SEQUENTIAL.md (파트2)
+
+### M183. 해결 완료 - 5단계 상세레코드 "표시 건수" select가 그룹 접었다 재펼침 시 실제 값 대신 10건으로 되돌아가던 표시 오류 수정
+- 발견/계기: 2026-08-16, M178 조사 중 부가 발견 + 사용자 결정
+- 핵심 내용: 실제 적용 페이지 크기(window._mvRiState.size)는 재펼침 후에도 정상 유지되고 있었으나, select 마크업이 재펼침마다 하드코딩된 "10건 selected" 고정 문자열로 재생성되던 것이 원인(데이터는 정상, 표시만 불일치). 마크업 재주입 직후 select 값을 실제 상태로 동기화하는 코드 추가(순수 표시값 정합화, 데이터 로직 무변경).
+- 실측/검증: GB=0/1/2 세 케이스 모두 "10→100 변경→접기→재펼침→100 유지" 확인(스크린샷 직접 대조), baseline 대조로 수정 전 결함 재현 확인.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\GB01PART2-SELECTBOX-FIX-AND-SCREENSHOT-RESAVE-완료보고.md
+
+### M184. 해결 완료 - 5단계 상세 레코드 그리드 5종 전부에 순번 컬럼 추가(페이지네이션 있는 그리드는 페이지 넘어도 이어짐)
+- 발견/계기: 2026-08-16, 사용자 요청("일치던 불일치던 그룹이있던 없던 상세리스트 그리드 맨앞에 순번 하나 추가해줘")
+- 핵심 내용: 지시서는 "단일 함수"로 가정했으나 조사 결과 실제 그리드 빌더가 5개(_mvRiApply, _mvRiApplyTO, _mvRiApplySampleStop, _mvBuildGridHtml, _mvStage5SampleTable)로 확인돼 전부 수정. 호출부 없는 죽은 코드 2개(_mvPkLoadPage/_hcolsPk, _mvRiRenderGroupView/_mvRiGroupToggle) 발견, 삭제 없이 보고만. 페이지네이션 있는 그리드는 (현재페이지-1)×페이지크기 오프셋으로 순번이 이어지게 계산.
+- 실측/검증: GB=2 조합 불일치/일치 그룹 실 오라클 Playwright 클릭스루로 페이지 이동 시 순번 이어짐(1~10→11~20) 확인. GB=0은 픽스처 우연 상쇄로 실측 화면 재현 실패, 코드 근거(GB=2와 100% 동일 조립 로직)로 대체했음을 명시적으로 밝힘.
+- 커밋: d84510dc
+- 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE5-SEQNUM-AND-SAVEALL-NAV-DIAGNOSE-SEQUENTIAL.md (파트1)
+
+### M185. 해결 완료 - 5단계 "전체 저장" 클릭 시 4단계로 튕겨나가던 결함 수정(저장은 항상 정상 처리되고 있었음, 화면 이동만 결함)
+- 발견/계기: 2026-08-16, 사용자 실측 신고("전체저장 누르면 왜 4단계 탭으로 이동하지?")
+- 핵심 내용: 지시서가 의심한 M182(_singleInvalidateDownstream)는 함수 호출 계측으로 무관함을 확정, 실제 원인은 M131 시절 도입된 "4단계 자동저장 중 5단계 신규진입 차단" 가드(_renderSingleStepNav, window._fullRunResultActive 예외조건)였음 — 이후 수동 [전체 저장] 버튼이 추가되며 "아직 5단계 밖" 전제가 깨져 "이미 5단계 안에 있는데 강제 퇴장"으로 역작용. 플래그 강제 조작으로 인과관계 양방향 재현 확정 후, "이미 result를 보던 중이면 같은 busy 플래그로 안 튕긴다"는 예외만 최소 추가(원래 가드의 신규진입 차단 목적은 유지).
+- 실측/검증: git worktree로 수정 전/후 나란히 실 오라클 재현 — 전: "4. 통계검증 실행" 탭 현재로 전환, 후: "5. 결과 확인" 탭 현재 유지+저장시각 정상 갱신, 스크린샷 대조 완료(Claude 웹이 직접 열어 확인). gate/nav 관련 회귀 30개 파일 신규회귀 0건.
+- 커밋: bfbb4d12
+- 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE5-SEQNUM-AND-SAVEALL-NAV-DIAGNOSE-SEQUENTIAL.md (파트2)
+
+
+### M186. 조사완료(코드 무변경) - 암호화 컬럼 자동배제, 명시필드 기반 완전배제(encrypted_column_policy.py)가 이미 완성·검증돼 있음을 확인, 값 기반(엔트로피) 자동탐지는 도입하지 않는다는 기존 설계 원칙 재확인
+- 발견/계기: 2026-08-16, 사용자 요청("암호화컬럼이 있을경우 자동으로 후보에서 제외시켜야해, 이관팀이 별도로 명시안할수 있어")
+- 핵심 내용: 지시서는 값 기반(엔트로피) 자동탐지 신규 구현을 전제로 했으나, 조사 결과 services/analysis/encrypted_column_policy.py(커밋 1ebb4ed6, 2026-07-21)가 이미 매핑정의서 "암호화여부" 명시필드 기반 완전배제를 구현·검증(실 DB 거짓불일치 25건→0건) 완료된 상태로 존재. 해당 모듈 docstring에 "명시필드 방식만 채택, 엔트로피 등 자동탐지는 하지 않는다"는 의도적 설계 원칙이 명시돼 있었음(원 진단 근거 문서는 소실). Claude Code가 이 기존 원칙과 신규 지시가 충돌함을 스스로 감지해 임의 구현하지 않고 사용자 판단을 구함.
+- 결정: 사용자가 옵션 A(최소침습 — encrypted_column_policy.py/candidate_engine.py 무편집, 값 기반 판정을 별도 함수로 신설해 명시필드 없을 때만 보조 표시배지로 병기) 채택 → M187로 구현.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\ENCRYPTED-COLUMN-VALUE-BASED-DETECTION-DESIGN-AND-IMPLEMENT.md
+
+### M187. 해결 완료 - 암호화 컬럼 값 기반(엔트로피) 보조 탐지 신규 구현(명시필드 없을 때만 작동, 완전배제 아닌 표시 전용 배지)
+- 발견/계기: 2026-08-16~17, M186 조사 결과 + 사용자 결정(옵션 A)
+- 핵심 내용: candidate_subtype_service.py에 detect_encrypted_value_suspicion() 신규 함수 추가. 문자셋(hex/base64/일반텍스트) 이론 최대 엔트로피 대비 상대 엔트로피 계산(표준 라이브러리만 사용, 신규 의존성 없음), 순수 숫자값 판정 제외, 표본 8건 미만 판정 보류. candidate_display_enricher.py의 기존 순수표시 배지 배선 지점에 병기하되 호출 조건을 "encrypted_columns(명시필드 완전배제 목록)에 없을 때만"으로 한정 — encrypted_column_policy.py를 import조차 하지 않아 우선순위 침해 원천 차단.
+- 실측/검증: 합성 테스트 10케이스(무작위IV암호화/결정적암호화/정상코드값/영문설명/한글주소/전화번호 등) 전수 검증, 오탐 0/4·미탐 0/2. 임계값 0.85 채택(정상값 최대 0.7662 ~ 결정적암호화 최소 0.9756 사이). 명시필드 우선순위 실측 확인(explicit_has_badge=False). 개발 중 git stash 오용을 스스로 발견·시정(git worktree 방식으로 전환, 손실 없음).
+- 범위 밖(후속 필요): 일괄검증(batch_runner/job_core) 배선 여부 미확인 — ENCRYPTED-COLUMN-DETECTION-BATCH-PATH-COVERAGE-CHECK-ADDENDUM 대기 중(2026-08-17 기준 미착수). UI(JS) 배지 렌더링도 범위 밖(백엔드 evidence 부착까지만).
+- 커밋: b75f60f1
+- 근거: G:\내 드라이브\nxDTV-verify\reports\ENCRYPTED-COLUMN-VALUE-BASED-DETECTION-OPTION-A-IMPLEMENT.md
+
+
+### M188. 해결 완료(정정) - ENCRYPTED-COLUMN-DETECTION-BATCH-PATH-COVERAGE-CHECK-ADDENDUM, 일괄검증 3개 후보산출 경로에 값 기반 암호화 의심 배지 배선 완료
+- [2026-08-17 정정] 이 항목은 최초 "보류 결정 - nxTDA 이관 예정 영역과 겹쳐 착수하지 않음"으로 잘못 기록됐었음. 실제로는 이 작업이 M188 최초 등록 시점 이전에 이미 완료·커밋(6f0d45e5)돼 있었으나 Claude(웹)가 확인 없이 미착수로 오기재함 — 아래가 정정된 내용.
+- 발견/계기: 2026-08-16, M186/M187(암호화 컬럼 값기반 보조탐지) 완료 후 후속 조사로 착수, 별도 세션에서 완료됨
+- 핵심 내용: 일괄검증 후보산출은 레거시 _build_from 사례와 달리 개별검증과 동일한 candidate_engine.py::build_column_candidates / candidate_display_enricher.py::enrich_candidates_for_display를 공유하는 단일 진입점 3곳(column_candidate_gen_service.py, batch_runner.py, validation_job_core.py)으로 확인됨. 갭은 그 직후 "증거 부착" 단계가 개별검증 흐름에만 있고 3개 일괄 경로 어디에도 없었던 것 — attach_encrypted_value_suspicion_evidence를 동일 함수 재사용으로 3경로 전부에 배선(새 판정 로직 복제 없음).
+- 실측/검증: 결정적 hex 암호화/정상 코드값 합성 데이터로 6/6 PASS, 회귀 서브셋 92/95 PASS(실패 3건은 무관한 사전 존재 콘솔인코딩 결함, 이번 세션 미접촉 파일).
+- 부가 발견(→ M191로 후속 처리): 명시필드 기반 완전배제(encrypted_columns, 커밋 67d5f761)도 이 3경로 어디에도 전달되지 않는 별도 갭을 함께 발견 — 부작용 방향은 안전(과탐 방향)임을 확인 후 별도 항목으로 분리.
+- 커밋: 6f0d45e5
+- 근거: G:\내 드라이브\nxDTV-verify\reports\ENCRYPTED-COLUMN-DETECTION-BATCH-PATH-COVERAGE-CHECK-ADDENDUM.md
+
+### M189. 해결 완료 - 코드 저장소(nxDTV) 원격 백업 부재 해소, private 저장소(nxDTV-src) 신설 및 최초 push 완료
+- [2026-08-20 정정] 이 항목은 최초 "미착수(오픈)"으로 기록됐었으나, 2026-08-16 private 원격 저장소(GitHub, nxDTV-src) 신설 + 최초 push + post-commit 자동 push 훅 설치까지 완료되어 상태를 정정한다.
+- 핵심 내용: verify 저장소(BACKLOG/지침/보고서 전용, public)와 달리 로컬 커밋만 하고 원격 push가 없었던 제품 소스코드 저장소에 private 원격(nxDTV-src, GitHub)을 신설해 최초 push, 이후 "커밋 후 push"를 놓쳤을 때의 안전망으로 post-commit 훅(git push origin main, 실패해도 커밋 자체는 exit 0으로 무해 통과) 설치.
+- 각주(훅 상태): 위 post-commit 훅은 2026-08-18 M201로 비활성화됨(post-commit → post-commit.disabled 이름 변경, 삭제 아님 — 필요시 즉시 복구 가능). 사유는 매 커밋마다 GitHub 인증 팝업이 반복돼 불편했기 때문이며, "완료·검증 후 즉시 커밋+push" 지침이 훅 없이도 지켜지고 있어 안전상 공백은 없음. 상세는 M201 참고.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\NXDTV-SRC-POST-COMMIT-AUTOPUSH-HOOK-SETUP.md, BACKLOG.md M201 항목
+
+### M190. 해결 완료(정정) - 5단계 상세추출 상태의 [저장] 버튼 표시 방식 확정 및 구현(항상 노출+상태무관 2줄 고정)
+- [2026-08-17 정정] 이 항목은 최초 "미착수(오픈) - 방향 미확정"으로 기록됐었으나, 이후 논의로 방향이 확정되고 구현·검증까지 완료됨. 상세 내용은 M192 참고.
+- 확정된 방향: 펼침 시만 노출이 아니라, 접힌 요약 행에서 상태와 무관하게 항상 2줄(1줄 판정배지, 2줄 최근조회시각+저장버튼)로 고정 — 미확인 상태는 빈 시각+비활성 버튼으로 동일 2줄 유지.
+- 구현/커밋: STAGE5-SAVEROW-FIXED-2LINE-ALWAYS-VISIBLE, BACKLOG M192(커밋 4caf91f)에 상세 등록됨.
+- 근거: BACKLOG.md M192 항목, G:\내 드라이브\nxDTV-verify\reports\STAGE5-SAVEROW-FIXED-2LINE-ALWAYS-VISIBLE.md
+
+
+### M191. 해결 완료 - 명시필드 기반 암호화 컬럼 완전배제, 일괄검증 3개 경로 배선 누락 수정
+- 발견/계기: 2026-08-17, M188(ADDENDUM) 조사 중 발견된 부가 갭 — 사용자 결정으로 즉시 수정(nxTDA 이관 대상 아님, 기존 기능의 배선 누락 결함으로 판단)
+- 핵심 내용: 매핑정의서/저장소 명시필드 기반 완전배제(encrypted_columns, resolve_encrypted_column_set)를 일괄검증 3경로 중 2경로에 배선했다. (1) column_candidate_gen_service.py::_generate_for_row — group_id로 batch_group_service.get_group을 조회해 project_id를 확보(개별검증 req.project_id와 동등한 정보원, 그룹은 항상 프로젝트에 소속), target_table을 table_key로 삼아 column_encryption_flag_store.resolve_encrypted_column_set을 그대로 재사용. (2) batch_runner.py::_build_core_candidates/analyze_item — 기존 ADMIN-COLUMN-OVERRIDE-BATCH-WIRING-FIX가 이미 확보해 두던 project_id/override_table_key(동일 프로젝트×테이블 키)를 그대로 재사용해 동일 저장소 함수를 1회 호출, encrypted_columns 신규 파라미터로 build_column_candidates에 전달. 두 경로 모두 attach_encrypted_value_suspicion_evidence 2번째 인자로도 전달해 "명시필드 완전배제 > 값 기반 의심 배지" 우선순위를 방어적으로 재확인했다. (3) validation_job_core.py::generate_validation_job_candidates는 확보 불가로 보류 — ValidationJobContext 데이터클래스에 project_id 필드 자체가 없고, build_validation_job_context도 project_id 파라미터를 받지 않으며, 이 core(run_validation_job_until_candidates/_plan/_execute 포함)를 호출하는 프로덕션 route/service가 전무함(테스트·dev_e2e 전용)을 grep으로 확인 — project_id를 넘겨줄 실제 호출자가 없어 임의로 필드를 추가하지 않고 주석으로 사유만 남겼다.
+- 실측/검증: 신규 scripts/dev_e2e/encrypted_column_explicit_exclusion_batch_path_verify.py — 실 프로젝트(테스트 전용 프로젝트)와 실 그룹/등록행으로 두 경로(_build_core_candidates 직접 호출, analyze_item의 명시 project_id 전달·item 폴백 전달 2가지, _generate_for_row 실행)에서 명시필드 지정 컬럼(SECRET_ENC)이 GROUP BY/SUM 후보 목록 자체에서 완전배제되고 비암호화 컬럼(STATUS_CD)은 정상 유지되는지, attach_encrypted_value_suspicion_evidence 우선순위 방어 로직이 실제로 값 기반 배지를 skip하는지, validation_job_core에 project_id 확보 경로가 없다는 보류 근거까지 총 9/9 PASS. 회귀 서브셋(6f0d45e5 완료보고와 동일 8개 테스트 파일, 95건) 92 passed·3 failed — 실패 3건은 test_candidate_display_policy.py의 콘솔 인코딩 mojibake로 6f0d45e5 시점과 동일한 사전 존재 결함(이번 세션 미접촉 파일, 신규 회귀 아님). 기존 배지 배선 검증 스크립트(encrypted_value_suspicion_batch_path_verify.py 6/6, encrypted_value_suspicion_verify.py 10/10) 재실행도 무회귀.
+- 커밋: 86667384
+- 근거: G:\내 드라이브\nxDTV-verify\reports\ENCRYPTED-COLUMN-BATCH-FIX-AND-BACKLOG-CORRECTION-SEQUENTIAL.md (파트1)
+
+### M192. 해결 완료 - 5단계 접힌 요약 행을 상태 무관 항상 2줄(배지+시각/저장버튼)로 고정
+- 발견/계기: 2026-08-17, 사용자 신고(그룹 접어도 저장 버튼이 남아 행 높이가 들쭉날쭉함) — 논의 끝에 "항상 보이되 비활성/활성 토글" 방식으로 확정
+- 핵심 내용: 지시서는 T2(최근조회 시각)와 저장버튼이 같은 div라고 전제했으나, 조사 결과 서로 다른 별도 div 2개였음이 원인으로 재확인됨 — 신설 _mvStage5DetailLine2Html()로 두 요소를 한 줄에 나란히 그리는 단일 템플릿으로 통일, 초기 렌더/재도장 양쪽이 이 함수 하나만 호출하도록 배선. 미확인 상태도 빈 시각+비활성 버튼으로 2줄을 채우도록 통일. 펼친 화면(상세 그리드)에는 저장버튼/시각이 애초에 없었음을 재조사로 확인(지시서의 "펼친 화면 제거" 전제는 틀렸음 — 제거 대상 자체가 없었음).
+- 부가 발견 및 수정: "저장됨" 하위상태만 <span> 요소라 padding이 줄 높이에 안 반영돼 8.32px 낮았던 실결함 발견 — 1차 보정(padding 수동 지정) 실패 후, 4개 하위상태 전부 <button disabled>로 구조 통일해 해소.
+- 실측/검증: 겹침 없는 단독 재실행(프로세스 목록으로 확인) 기준 미확인/완료/저장됨 3개 하위상태 전부 54.98px로 픽셀 단위 완전 일치. GB=0/1/2 케이스 전부 확인, 펼친 화면 저장버튼/시각 중복 없음(hasSaveBtn=false) 재확인. 회귀 105/107 PASS(실패 2건 무관한 사전 존재 결함).
+- 특이사항: 검증 과정에서 예약 알림/실시간 알림이 같은 서버를 동시에 재기동하려던 정황으로 결과 JSON에 낡은 값이 한때 섞였음을 정직하게 기록 — 최종 결론은 겹침 없는 단독 실행 결과만 근거로 사용, 코드 자체는 그 기간 변경되지 않았음을 확인.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE5-SAVEROW-FIXED-2LINE-ALWAYS-VISIBLE.md
+
+### M193. 해결 완료 - nxDTV 내부 SQLite 접근을 프로그램 간 DB 표준(MariaDB) 통일 논의의 일환으로 조사, 공통 조회 계층(services/db_access) 신설 및 순수조회 9개 파일 이관
+- 발견/계기: 2026-08-17, 8개 프로그램 공용 DB 표준화 논의 중 nxDTV 내부 저장소(SQLite) 구조 조사 필요성 확인. DTV-SQLITE-TO-MARIADB-MIGRATION-SCOPE-ASSESSMENT(운영 64파일·1,843줄, 접근계층 집중도 낮음, 동시성 임계 7개 파일 확인) 후속으로 공통화 자체가 DB 이전 여부와 무관하게 필요하다는 결론.
+- 핵심 내용: services/db_access/read_query_helper.py 신설(연결 보일러플레이트+파라미터화 조회 함수), 순수조회로 분류된 파일 중 실이관 이득 있는 9개 이관. 기존 함수 시그니처·반환값 불변, 내부 구현만 교체.
+- 실측/검증: 이관 전/후 동일 입력 동일 반환값 대조, baseline 대비 회귀 0건.
+- 커밋: 6e743a6c
+- 근거: G:\내 드라이브\nxDTV-verify\reports\ (SQLITE-COMMON-ACCESS-STAGE1 계열)
+
+### M194. 조사완료(코드 무변경) - SQLite 68개 내부 파일을 순수조회(A)/혼합쓰기(B)/동시성임계(C)로 정밀 분류, D(공통화 후보 14건) 및 동시성 위험 재검토 대상 확정
+- 발견/계기: 2026-08-17, M193 이후 나머지 파일(쓰기 포함) 분류 필요
+- 핵심 내용: 68개 파일(외부 DB 접근 제외한 내부 SQLite 한정) 정밀 재조사 — A 9(+2 보류), B 48, C 7(동시성 임계 확정: db_preset_service.py, group_collection_state_service.py, metadata_collection_store.py, single_official_register_txn.py, single_validation_save_service.py, validation_result_store.py, validation_run/idempotency_store.py), 애매 1, 범위밖 1. B 48개 중 D(쓰기 있으나 명시적 트랜잭션 원자성 없음) 14건을 D-안전 32건(함수단위)/D-재검토필요 12건으로 세분류, 1단계 분류표와 교차검증 완료.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\ (SQLITE-COMMON-ACCESS-STAGE2 계열)
+
+### M195. 해결 완료 - SQLite 공통 쓰기 계층 신설 및 D-안전 32건(전체28+부분4) 전량 이관, STAGE1 미커밋분 포함 총 4개 커밋으로 정리
+- 발견/계기: 2026-08-17~18, M194 분류 결과 기반
+- 핵심 내용: services/db_access/write_query_helper.py 신설(commit/rollback 타이밍은 절대 흡수하지 않음 — 원본 함수별 커밋 시점·예외처리 그대로 유지, 순수 위치이동 원칙). 1차 세션이 18건만 진행 후 미커밋 종료 → 후속 세션이 중단 복구 확인(손상 없음, py_compile 전수 통과) 후 커밋 진행, 이어서 나머지 14건 중 13건 완료(직전 세션이 이미 이관해둔 9건을 diff 전수 검토 후 흡수 커밋 포함). validation_policy_service.py 1건은 무관한 기능(GENERAL-COLUMN-MAX-GROUPS 설정 필드)이 같은 INSERT 문에 물리적으로 뒤섞여 있어 커밋 대상에서 정직하게 제외(코드 손실 없이 uncommitted 유지).
+- 실측/검증: 이관 전/후 부작용 대조, 관련 서브셋+baseline 무회귀. batch_group_service.py/policy_target_table_service.py는 D-재검토필요 함수(register_batch_run/soft_delete_batch_run/upsert_from_batch_items) 완전 제외, diff 무변경 확인.
+- 커밋: 90a6e800, 8bd7d956, 1435996d (+STAGE1 6e743a6c)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\ (SQLITE-COMMON-ACCESS-STAGE3-D-SAFE-CONSOLIDATE, STAGE3-COMMIT-AND-CONTINUE-V2)
+
+### M196. 조사완료(코드 무변경) - D-재검토필요 12건 실동시성 재현 진단, 8건 위험확정
+- 발견/계기: 2026-08-18, M194 D-재검토필요 목록 실측 필요
+- 핵심 내용: 격리 DB 사본 + threading/multiprocessing으로 12건 전부 실제 동시요청 재현(5~110회 반복). 재현됨(위험확정) 8건: upload_quality_check_service.py(확정소실 10/10), batch_group_service.py(이중active 90~100%), exact_diff/store.py(예외시 미커밋 트랜잭션 잔존 10/10, 최대10초 락점유), policy_target_table_service.py(is_latest손상 10%), candidate_snapshot_store.py(10/10), conn_pair_service.py(최대90%), metadata_inventory_service.py(80~90%, 단 실사용 노출 없는 잠재결함), diagnosis/multi_scope_store.py(10/10). 재현안됨(안전근거) 4건, 판단불가 0건. 각 건 구체적 수정 방향 제안(구현은 안 함).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\SQLITE-COMMON-ACCESS-STAGE3-D-REVIEW-RACE-CONDITION-DIAGNOSE.md
+
+### M197. 해결 완료 - 위험확정 8건 중 6건(batch_group_service.py/policy_target_table_service.py 제외) 경쟁조건 수정, 검수 중 신규 위험 2건 추가 발견·해소
+- 발견/계기: 2026-08-18, M196 위험확정 결과 기반. 선행 세션 미완결 코드를 검수·보완하는 방식으로 진행(재구현 아님).
+- 핵심 내용: upload_quality_check_service.py(BEGIN IMMEDIATE 단일 트랜잭션+CAS+부분갱신 범위 축소), exact_diff/store.py(_write_txn 컨텍스트매니저로 9개 쓰기 메서드 통일), candidate_snapshot_store.py(_write_txn 원자화), conn_pair_service.py(UNIQUE 인덱스+BEGIN IMMEDIATE 이중방어), metadata_inventory_service.py(ON CONFLICT DO UPDATE 원자 UPSERT), diagnosis/multi_scope_store.py(lease/heartbeat 토큰 기반 CAS, TTL 탈출구). 검수 중 발견해 함께 해소한 신규 위험: conn_pair_service.py 스키마 마이그레이션 조용한 실패로 인한 영구 생성불능, upload_quality_check_service.py 락경합 시 예외 미처리로 인한 30분 그룹 잠금 잔존. routes/diagnosis_route.py, routes/batch_exhaustive_route.py도 계약 변경과 분리 불가능해 함께 포함(실측 근거: 라우트 미포함 시 재개 저장 회귀 10/10).
+- 실측/검증: 6개 시나리오 재현율 전부 수정전 80~100%→수정후 0%(대조군으로 하니스 민감도 별도 입증). 회귀 스위트 다수 통과, 실패건 전부 이번 수정과 무관함을 개별 원인규명. exact_diff 순수동시쓰기 안전성(0/5) 유지 재확인. multi_scope lease 탈출구 5개 항목 전항 통과.
+- 후속 과제(이번 범위 밖, 낮은 우선순위): exact_diff 락 스코프 불일치(현재 무해), quality_check 잠금해제 재시도 실패 잔여, conn_pair 키 정의 이원화, metadata_inventory 예외전파, diagnosis_route 무증상 실패 표시, conftest guard bypass 누락(legacy 테스트 8건 상시실패).
+- 커밋: 90eafbda
+- 근거: G:\내 드라이브\nxDTV-verify\reports\RACE-CONDITION-FIX-BATCH1-NONCONFLICTING-6FILES-V2.md
+
+### M198. 해결 완료 - M197 검수 중 발견된 범위 밖 별건 결함 2건(candidate 재산정 교차 lost-update, 전체선택/해제 override 미동기화) 수정
+- 발견/계기: 2026-08-18, M197 완료보고 §6-B 항목
+- 핵심 내용: candidate_recalculation_service.py가 잠금 밖에서 manual_overrides를 읽고 장시간 재계산 후 통째 덮어써 그 사이 사용자 변경이 소실되는 문제 — candidate_policy_snapshot에 row_version 정수 CAS 컬럼 추가, save_snapshot에 expected_version 파라미터로 충돌 시 최신 override를 기존 _apply_manual_overrides로 재적용 병합. apply_select_all/apply_clear_all이 manual_overrides_json을 미동기화해 재산정 시 되살아나는 문제도 함께 수정(기존 manual_override UI 배지 계약은 유지, 저장필드만 동기화).
+- 설계 시행착오(정직히 기록): 1차 구현은 updated_at(초단위 문자열)을 CAS 토큰으로 재사용했으나 실측 9/10 여전히 lost — 동시 이벤트가 같은 1초 안에 겹쳐 오판. 정수 카운터(row_version)로 교체해 근본 해결.
+- 실측/검증: B-1, B-2 각각 수정전 10/10(100%) 재현 → 수정후 0/20(0%). 정상케이스(동시변경 없음) 무회귀 확인.
+- 커밋: 627a6ba4
+- 근거: G:\내 드라이브\nxDTV-verify\reports\CANDIDATE-RECALC-LOST-UPDATE-FIX.md
+
+### M199. 해결 완료 - 위험확정 8건 중 나머지 2건(batch_group_service.py, policy_target_table_service.py) 경쟁조건 3개 함수 수정, 검수 중 순차로직 결함 1건 추가 발견
+- 발견/계기: 2026-08-18, M196 위험확정 결과 기반, M195(STAGE3-D-SAFE-CONSOLIDATE) 완료·커밋 후 착수(두 파일의 D-안전 함수와 겹치지 않도록 순서 강제)
+- 핵심 내용: register_batch_run(SELECT+UPDATE+INSERT 단일 트랜잭션화+부분UNIQUE인덱스 이중방어), soft_delete_batch_run(2단계 분할커밋 통합, 재계산 실패시 rollback+False 반환으로 "성공했지만 실패" 버그 해소), upsert_from_batch_items(DELETE+INSERT+재계산 전체 단일 트랜잭션화). 검수 중 발견·함께 수정: _recompute_latest_flags()가 재승격 시 superseded_by_row_id를 안 지워 is_latest=1과 superseded_by_row_id 동시존재 모순이 영구 잔존하던 순차로직 결함(동시성 아님).
+- 설계 시행착오(정직히 기록): 최초 구현이 _connect()를 안 거치고 open_write_connection을 직접 호출해 기존 테스트(patch 기반 연결주입 관례)와 충돌하는 회귀를 스스로 유발 → 발견 후 _connect() 경유로 재수정.
+- 실측/검증: 3개 시나리오 재현율 100%(또는 90~100%)→0% 확인. STAGE3-D-SAFE-CONSOLIDATE 이관 D-안전 함수는 내부구현·호출부 모두 원본 유지 확인.
+- 커밋: 28bbdc30
+- 근거: G:\내 드라이브\nxDTV-verify\reports\RACE-CONDITION-FIX-BATCH2-BATCHGROUP-POLICY.md
+
+
+### M200. 해결 완료 - validation_policy_service.py의 SQLite 공통화 이관분을 무관한 기능(GENERAL-COLUMN-MAX-GROUPS)과 수작업 hunk 분리 후 커밋
+- 발견/계기: 2026-08-17, SQLITE-COMMON-ACCESS-STAGE3-COMMIT-AND-CONTINUE-V2에서 이 파일 1건만 같은 INSERT 문 안에 두 변경이 물리적으로 뒤섞여 있어 자동 hunk 분리 불가로 보류됨
+- 핵심 내용: uncommitted diff를 8개 지점으로 정확히 식별, GENERAL-COLUMN-MAX-GROUPS 관련 부분을 원본 HEAD 상태로 되돌려 "SQLite 이관만 반영된 중간 버전"을 수작업으로 구성 후 커밋, 커밋 직후 백업본으로 working tree 복원. 복원본이 백업본과 바이트 단위 완전 동일함을 diff로 재확인해 GENERAL-COLUMN-MAX-GROUPS 코드 손실 없음을 확정.
+- 실측/검증: (a)-only 버전 48 passed. 확장 서브셋 98 passed/6 failed, baseline 대조로 6건 전부 이 변경과 무관한 사전 존재 실패임을 확인.
+- 커밋: 489e23af
+- 근거: G:\내 드라이브\nxDTV-verify\reports\VALIDATION-POLICY-SQLITE-HUNK-SEPARATE.md
+
+### M201. 해결 완료 - post-commit 자동 push 훅 비활성화(운영 편의 개선)
+- 발견/계기: 2026-08-17~18, 매 커밋마다 자동 push가 실행되며 GitHub 인증 팝업이 반복 발생해 사용자 불편 — 지침마다 "완료·검증 후 즉시 커밋+push"가 명시돼 있어 훅 없이도 push는 계속 이뤄짐을 확인 후 비활성화 결정
+- 핵심 내용: X:\Projects\nxDTV\.git\hooks\post-commit → post-commit.disabled로 이름 변경(내용·권한 보존, 삭제 아님 — 필요시 이름 되돌리면 즉시 복구). 더미 커밋으로 자동 push 미발생 실측 확인(캐시된 origin/main ref 비교), 테스트 흔적은 비파괴적 삭제 커밋으로 정리.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\DISABLE-POST-COMMIT-AUTOPUSH-HOOK.md
+
+### M202. 해결 완료 - RACE-CONDITION-FIX-BATCH1-V2가 남긴 저위험 잔여항목 A-3~A-6 전부 수정
+- 발견/계기: 2026-08-18, M197(RACE-CONDITION-FIX-BATCH1-NONCONFLICTING-6FILES-V2) 완료보고 §6-A 잔여 저위험 항목
+- 핵심 내용: A-3(exact_diff/store.py 락 스코프 불일치, 현재 무해 확인 — 실제 위험 시나리오에서만 경고 로그가 울리는지 3단계 테스트로 검증), A-4(conn_pair_service.py 키 정의 이원화, 운영 DB 실측으로 NULL 0건 확인 후 폴백 제거), A-5(conn_pair_service.py update_pair 무방비 — 재현 결과 100% 완전중복 확인 후 create_pair와 동일 이중방어 적용), A-6(metadata_inventory_service.py 예외전파 시 배치 RUNNING 영구잔류 — 강제 예외 주입으로 재현 후 FAILED 상태 정정 로직 추가, 원 예외 전파는 유지).
+- 실측/검증: 4건 전부 수정 전 재현(A-5 100% 완전중복, A-6 RUNNING 고착) → 수정 후 해소 확인. 관련 서브셋 128건 통과.
+- 커밋: 777439f8
+- 근거: G:\내 드라이브\nxDTV-verify\reports\RACE-CONDITION-FOLLOWUP-A3-A6-LOWPRIORITY-FIX.md
+
+### M203. 해결 완료 - RACE-CONDITION-FIX-BATCH1-V2가 남긴 별건 결함 B-3, B-4 수정
+- 발견/계기: 2026-08-18, M197 완료보고 §6-B 잔여 항목(B-1, B-2는 M198로 기처리)
+- 핵심 내용: B-3(routes/diagnosis_route.py 6개 라우트가 저장 거부(CAS 불일치 등) 시에도 항상 official=True로 응답하던 무증상 실패 — 반환값 확인 후 거부 시 official=False+save_rejected 플래그 추가), B-4(tests/conftest.py의 route guard bypass 목록에 _project_scope_block 누락으로 legacy 테스트 상시 실패 — 목록에 추가).
+- 실측/검증: B-3 monkeypatch로 강제 거부 시나리오 실측, 정상/거부 양쪽 응답 정직성 확인. B-4 수정 전 9 failed(지시서 예상과 일치) → 수정 후 7건 해소, 남은 2건은 트레이스백 바이트 단위 대조로 무관한 사전 결함임을 증명(정직 보고, "전부 통과"로 과장하지 않음). 광역 회귀 24개 파일 확대 실측, baseline 대조로 무관 실패 11건 사전존재 확인.
+- 커밋: 6b60fb7a
+- 근거: G:\내 드라이브\nxDTV-verify\reports\RACE-CONDITION-FOLLOWUP-B3-B4-FIX.md
+
+
+### M204. 조사완료(코드 무변경) - "저장된 스냅샷입니다" 배너와 "찾을 수 없습니다" 오류가 동시 표시되는 현상, 서로 다른 두 저장소(메타정보/실제 PK레코드)의 내구성 차이가 근본원인임을 확정
+- 발견/계기: 2026-08-18, SAVED-MISMATCH-STABLE-KEY-LOOKUP-FIX(M203) 배포 후 사용자가 저장된 그룹 클릭 시 모순되는 두 메시지가 동시에 뜨는 것을 발견
+- 핵심 내용: 스냅샷 메타정보(어느 run을 언제 저장했는지)는 db/migration_validator.db에 항상 파일 영속되나, 그 메타정보가 가리키는 실제 PK 레코드는 소규모(비-stream, 5만행 미만) 그룹의 경우 프로세스 메모리(:memory: SQLite)에만 저장되어 서버 재기동 시 영구 소실됨을 코드+DB 직접조회로 확정. 지시서가 세운 가설("스코프 폴백 미적용이 원인")을 직접 반박(run_id 자체는 정확했음, 스토어 자체가 애초에 존재하지 않는 문제). A(파일영속 전환)/B(라이브처럼 자동 재조회 폴백)/C(문구만 개선) 3가지 선택지 제시, 사용자가 A안 채택 → M205로 구현.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\SAVED-SNAPSHOT-PK-INDEX-NOT-FOUND-DIAGNOSE.md
+
+### M205. 해결 완료 - 5단계 소규모 그룹 "결과 저장"이 메모리 store에만 남아 서버 재기동 시 상세 소실되던 결함 수정(개별 저장 버튼 경로 포함)
+- 발견/계기: 2026-08-18, M204 진단 결과 + 사용자 A안(파일 영속 전환) 채택
+- 핵심 내용: "저장"과 "단순 클릭 조회"가 완전히 같은 엔드포인트를 공유해 구분이 불가했던 문제를, PkPrepareRequest.persist_snapshot 신규 파라미터로 해결 — 저장 의도(_mvStage5PrepareGroupSnapshot)에서만 true 전달, 단순 조회는 기존처럼 메모리 store 유지(가벼운 온디맨드 특성 보존, 파일 크기 불필요 증가 없음). 구현 중 두 번째 저장 경로(그룹별 개별 [저장] 버튼, _mvStage5SaveOneGroup)가 동일 버그를 그대로 갖고 있음을 발견 — 사용자 승인 후 함께 수정(_detailPersisted 플래그로 durable 여부 추적, durable 아닐 때만 1회 강제 재스캔 후 저장, 이미 durable하면 재스캔 0회로 원 설계 유지).
+- 실측/검증: 실 Neon PostgreSQL + 실 OS 서브프로세스 kill/재기동으로 "저장→재기동→조회" 전 시나리오 4개(A~D) 전부 PASS. D(baseline, 저장 안 한 케이스)는 재기동 후에도 여전히 실패함을 확인해 수정 범위가 정확함을 대조 증명. 3개 파일이 다른 세션 미완성 WIP(818행)와 공존 — hunk 단위 정밀 분리(내 변경 150행만) 커밋, 나머지 668행 손실 없음 재확인.
+- 커밋: e1774ccf
+- 근거: G:\내 드라이브\nxDTV-verify\reports\SAVED-SNAPSHOT-PK-INDEX-PERSIST-ON-SAVE-FIX.md
+
+### M206. 조사완료(코드 무변경) - 통계검증(4단계) 중 1단계 SQL 입력 시 "모든 탭 잠김" 현상, 원인은 프런트 플래그이며 실행 중이던 작업은 백그라운드에서 완주하나 결과가 조용히 유실됨을 확정
+- 발견/계기: 2026-08-18, 사용자가 통계검증 도중 1단계에 새 쿼리 입력 시 모든 탭이 잠기는 현상을 신고
+- 핵심 내용: 서버측 423/409 거부가 아니라 순수 프런트 플래그(_singleSqlStale=true)가 완료단계 자유이동·전체완료 자유이동·전진이동 3가지 예외를 동시에 해제해 발생. 실제 프로덕션 판정 함수를 그대로 하니스에 넣어 A~D 단계로 100% 재현. 실행 중이던 통계검증은 (a) 취소되지 않고 서버에서 끝까지 완주하나, 사용자가 4단계를 떠나 있으면 _mvStaleRunResponse가 응답을 조용히 폐기하고 persist=False라 DB에도 저장 안 됨(결과 회수 불가, 재실행 필요). "동시성 임계 7개 파일"은 이 현상과 무관함을 확정(설계 검토 분리 가능). 지목됐던 group_collection_state_service.py 무관 확인. 실무 안내(새로고침 절대 금지 - 실행 중이면 진짜로 취소됨 등) 완료보고에 명시.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\TAB-LOCK-DURING-STATS-VALIDATION-DIAGNOSE.md
+
+### M207. 조사완료(코드 무변경) - 통계검증 쿼리 실행시간 상한(60초, DB레벨) 존재 확정, 다만 탭이탈 시 결과유실로 인한 원본DB 반복 풀스캔이 실질적 위험으로 확인됨
+- 발견/계기: 2026-08-18, M206 진단을 바탕으로 "10억행 규모에서 원본 운영 DB에 무한정 부하를 줄 수 있는가" 우려 제기(이 프로젝트는 nxSDC 복제 없이 원본/목적 DB에 직접 접속하는 구조임을 재확인)
+- 핵심 내용: MV_EXECUTE_STATEMENT_TIMEOUT_MS(기본 60000ms)가 원본/목적지 SQL 문 각각에 DB 레벨(PG SET LOCAL statement_timeout / Oracle call_timeout)로 적용되어 "무한정 실행"은 아님을 확정. 단 이 60초는 "쿼리 문 1개당" 상한이라 다중세트/비동기job에서는 누적 최대 16분(8세트×2측×60초)까지 가능하고 동시 3job 중첩 가능, 5단계 exact_diff PG 스트림은 전체 누적시간 상한 자체가 없음(FETCH당 300초만). 가장 실질적 위험은 타임아웃 부재가 아니라 "탭 이탈 시 취소 안 되고 결과만 유실 → 사용자가 동일 원본DB 풀스캔을 반복 발사"하는 구조(M206과 동일 근본원인). 완화안 A~E 제시(A: 탭 이탈 시 기존 검증된 abort 함수 자동 호출, 신규 API 불필요 — 비용대비 효과 최고로 평가 / B: 대용량 비동기 강제+persist 전환).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\LONGRUNNING-EXECUTE-SOURCE-DB-LOAD-DIAGNOSE.md
+
+### M208. 해결 완료 - GRID-REORDER — 5단계 상세 그리드 순번 폭 축소 + 원본/목적 컬럼 순서 통일(파트A), "상세추출상태"→"조회여부"/"저장" 2컬럼 분리(파트B)
+- 발견/계기: 2026-08-18, 5단계 상세 레코드 그리드 가독성 개선 지시서(STAGE5-GRID-REORDER-AND-COLUMN-SPLIT)
+- 핵심 내용: (파트A) 5개 그리드 빌더가 공유하는 _mvDrillHeaderCell/_mvDrillHeaderCellSplit에 순번(SEQ) 컬럼 min-width:40px 추가, _mvDrillHeaderCellSplit에 tgtFirst 매개변수를 신설해 상세 그리드 4곳만 원본→목적을 목적→원본으로 전환(그룹 클릭 드릴다운 등 다른 공유 호출부는 tgtFirst 생략으로 기존 순서 유지, 회귀 차단). (파트B) 그룹 리스트의 "상세 추출 상태" 1컬럼(76px)을 "조회여부"(150px, 배지+조회시각)/"저장"(190px, 저장시각+버튼) 2컬럼으로 분리, 저장 버튼 활성화 조건식(g.detail_status === 'DONE' && g.detail_run_id)은 이식만 하고 무변경.
+- 실측/검증: 실 오라클(NXDNP.MV_COMBO_SRC/TGT 1,200행) GB=0/1/2 실브라우저로 헤더 순서·컬럼폭·3상태 전환(미확인→완료→저장) 실클릭 확인, 행 높이 44.66px 고정 무회귀(M192 원칙). pytest 169건(stage5/tabler 관련) 전부 통과, 무관한 사전 존재 실패 2건은 HEAD baseline worktree 대조로 무관 확인.
+- 커밋: 4ceaf4f5(파트A), 0c3cf4f9(파트B)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE5-GRID-REORDER-AND-COLUMN-SPLIT.md
+
+### M209. 해결 완료 - STABLE-KEY-LOOKUP-FIX — 새로고침 후 저장된 그룹을 못 찾던 버그, 스코프 기준 폴백 조회 추가
+- 발견/계기: 2026-08-18, M204 진단(스냅샷 메타정보와 실제 PK 레코드가 서로 다른 저장소에 있어 내구성이 갈린다는 근본원인) 기반, 사용자가 스코프 폴백 방향 채택
+- 핵심 내용: services/stage5_group_store.py에 list_groups_by_scope/get_snapshot_by_scope 신규(기존 정확 일치 함수는 무수정), project_id/target_table/plan_fingerprint 스코프 안에서 MAX(id) 기준 최신 회차를 폴백 조회. routes/stage5_group_route.py는 정확 일치 실패 시에만 폴백을 호출(monkeypatch 스파이로 "정확 일치 성공 시 폴백 미호출"을 결정적으로 확정). 실측 결과 list_groups(T1)는 4단계 완료 직후 자동 재저장돼 대부분 정확 일치로 성공하고, 실무상 아픈 지점은 개별 [저장] 버튼으로 만든 get_snapshot(T2) 쪽. ui/tabler_renderer.py는 g._liveConfirmedThisSession 플래그로 "폴백 화면에서 과거 회차 값"과 "이번 세션에 실제로 재확인한 값"을 구분.
+- 실측/검증: 신규 단위테스트 22건 + 회귀 128건 통과. 실 Neon PostgreSQL(mv_bt.orders_a→tgt_orders) E2E로 재진입 시 amber 폴백 배너+저장됨 배지 복구+GET snapshot의 is_fallback=true 확인. HEAD baseline worktree 대조로 무회귀 확인.
+- 커밋: aca338d0
+- 근거: G:\내 드라이브\nxDTV-verify\reports\SAVED-MISMATCH-STABLE-KEY-LOOKUP-FIX.md
+
+### M210. 해결 완료 - 통계검증 실행 중 1단계 SQL 재입력 시 상단 탭이 고립되던 결함 수정(M206 후속)
+- 발견/계기: 2026-08-20, M206 조사 결과(원인: _mvCanNavTab의 _stale 조건이 완료단계 자유이동 예외를 해제) 기반 수정 착수
+- 핵심 내용: _mvCanNavTab(ui/tabler_renderer.py)의 `_completed && !_stale` 조건에서 _stale 변수/조건을 제거해 `if (_completed)`로 단순화 - 완료 단계 자유이동을 stale 여부와 무관하게 항상 허용하도록 변경. _mvForwardBlocked·실행버튼 가드는 무변경.
+- 실측/검증: node 하니스 87 passed(신규 계약 포함, in-place revert A/B로 미적용 시 신규 2건 실패 확인). 실 포트 8000 + 실 Oracle 라이브 e2e(scripts/dev_e2e/tablock_m206_fix_verify.py)로 1~4단계 완주 후 SQL 재입력→stale=True 확인→4단계 탭 직접 클릭 성공(PASS) 재현.
+- 커밋: 8b82a376
+- 근거: G:\내 드라이브\nxDTV-verify\reports\LONGRUNNING-EXECUTE-MITIGATION-TABLOCK-FIX-AND-INPUTGUARD-SEQUENTIAL.md
+
+### M211. 해결 완료 - 1단계 SQL 입력창이 실행중 잠금 목록에서 누락돼 실행 중에도 편집 가능했던 결함 수정(M210의 근본 유발 지점)
+- 발견/계기: 2026-08-20, M210 구현 중 STAGE-EXEC-CONTROL-LOCK(body.mv-run-locked)이 3단계 후보체크박스·관리컬럼·조합체크·목적지 WHERE는 이미 잠그면서 1단계 SQL 입력창(#sqlInput)만 빠져 있음을 발견
+- 핵심 내용: CSS 잠금 선택자에 #sqlInput 추가(동일 body.mv-run-locked 클래스 재사용, 별도 상태머신 없음). SQL 입력창 하단/후보 선택 상단에 "실행 중에는 변경할 수 없습니다" 정적 안내 2곳 추가.
+- 실측/검증: tests/test_stage_exec_control_lock_fix.py 갱신 7 passed, 인접 회귀 11개 파일 150 passed(사전 실패 3건 무관 확인). 실 포트 8000(scripts/dev_e2e/inputguard_part2_verify.py)에서 실행 클릭 직후 body.mv-run-locked 즉시 True 확인 → 1단계 SQL·3단계 후보 체크박스 실제 클릭 차단+안내 노출, 해제 후 재입력 가능(PASS).
+- 커밋: 0b713428
+- 근거: G:\내 드라이브\nxDTV-verify\reports\LONGRUNNING-EXECUTE-MITIGATION-TABLOCK-FIX-AND-INPUTGUARD-SEQUENTIAL.md
+
+### M212. 해결 완료 - 브라우저 탭 종료 시 진행 중인 개별검증(1~4단계) 실행 자동 취소(LONGRUNNING-EXECUTE A안)
+- 발견/계기: 2026-08-20, M207 진단(탭 이탈 시 결과 유실로 인한 원본DB 반복 풀스캔 위험) 완화안 중 A안(탭 이탈 시 기존 검증된 abort 함수 자동 호출)을 사용자가 채택
+- 핵심 내용: _mvSingleAbortRun()이 서버 취소요청이 아니라 로컬 fetch 자체를 즉시 끊는 동기 함수(서버는 request.is_disconnected()로 감지)임을 확인해 지시서 원 전제(sendBeacon 필요 여부)를 반박, 신규 API 없이 그대로 재사용. 기존 beforeunload(경고창 전용)와 별개로 pagehide 이벤트에서만 _mvSingleAbortRun()을 호출 - beforeunload에서 바로 취소하면 "머무르기" 선택 시에도 취소돼 버리는 오작동을 피하기 위함.
+- 실측/검증: tests/test_pagehide_auto_abort.py(신규) 4 passed + 인접 스위트 52 passed. 실 포트 8000 + 실 Oracle DB(scripts/dev_e2e/pagehide_abort_part3_verify.py)에서 4단계 실행 클릭 후 문서 언로드 시 클라이언트 net::ERR_ABORTED 관측(PASS).
+- 커밋: 63657669
+- 근거: G:\내 드라이브\nxDTV-verify\reports\LONGRUNNING-EXECUTE-MITIGATION-TABLOCK-FIX-AND-INPUTGUARD-SEQUENTIAL.md
+
+### M213. 완료(정정) - 5단계 개별 저장 버튼이 배치 "전체 저장" 진행 플래그를 참조하지 않던 결함 수정
+- 발견/계기: 2026-08-18~20, SAVE-BUTTON-RAPID-REPEATED-CLICK-DIAGNOSE 정적조사에서 최초 발견(당시 "조사완료·코드 무변경"으로 등록) → 2026-08-20 STAGE5-INDIVIDUAL-SAVE-BATCH-CROSS-GUARD-FIX로 수정 완료
+- 핵심 내용: 개별 저장 버튼(_mvStage5SaveOneGroup, ui/tabler_renderer.py)이 배치 "전체 저장" 진행 플래그(ctx._snapshotSaving)를 전혀 참조하지 않아, 배치저장 진행 중에도 이미 DONE인 다른 그룹의 개별 저장 버튼을 누르면 서버 in-flight 가드에 거절돼 "저장 요청 중 오류" 메시지만 뜨던 결함. 새 상태머신 발명 없이 기존 ctx._snapshotSaving 플래그만 재사용해 수정: _mvStage5SaveBadgeHtml은 배치저장 중이면 DONE 그룹이어도 비활성 버튼("배치 전체 저장이 진행 중입니다" 안내)을 렌더해 클릭 자체를 원천 차단(실패 메시지 방식 → 클릭 불가로 UX 개선), _mvStage5SaveOneGroup에 경합 창 대비 방어 가드 추가(ctx._snapshotSaving true면 조기 return), _mvStage5SaveSnapshot은 플래그가 true/false로 바뀌는 두 시점 모두 모든 그룹의 저장 배지를 개별 재도장(전체 목록 재도장은 펼침/스크롤 파괴 위험이 있어 회피 - 종료 시점 재도장으로 락 영구화 방지).
+- 실측/검증: 신규 tests/test_stage5_individual_save_batch_cross_guard_fix.py 5건 전부 통과 + tests/ -k stage5 130건 중 129건 통과(무관한 사전실패 1건 확인) + 서버 재기동 정상. 세션 sandbox 네트워크 제약으로 브라우저 클릭 실측은 미수행(py_compile+pytest+import 검증으로 대체) - 사용자 브라우저 직접 확인 권장.
+- 커밋: 2f1edde2
+- 근거: G:\내 드라이브\nxDTV-verify\reports\SAVE-BUTTON-RAPID-REPEATED-CLICK-DIAGNOSE.md, G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M213-UPDATE-AND-M215-ORPHANED-WIP-REGISTER_20260820.md
+
+### M214. 완료 - ORACLE-NXDNP-SELECT-CATALOG-ROLE-GRANT-VIA-PYTHON-AND-VSESSION-REVERIFY
+- 추가/배경: 2026-08-20, LONGRUNNING-EXECUTE-MITIGATION-TABLOCK-FIX-AND-INPUTGUARD-SEQUENTIAL 파트3(브라우저 탭 종료 시 자동취소) 검증 관련 인프라 작업 마무리 — Oracle 권한 부여/정리 건 등록.
+- 핵심 내용: NXDNP 계정에 SELECT_CATALOG_ROLE 부여(SYSTEM 계정, python-oracledb) 후 v$session 직접 재검증 2회 PASS. LONGRUNNING-EXECUTE 파트3(브라우저 종료 시 자동취소)이 실제로 Oracle 서버 세션을 종료시킨다는 것을 간접 증거(net::ERR_ABORTED)에서 직접 실측(v$session)으로 격상 확인. 작업 중 NXDNP에 의도치 않은 DBA 롤이 함께 부여된 것을 발견, 사용자 승인 후 같은 세션에서 REVOKE DBA FROM NXDNP 실행해 최소권한으로 정리(SELECT_CATALOG_ROLE, DB_DEVELOPER_ROLE만 유지). 코드 변경 없음(순수 DB 권한/검증 작업), 커밋 없음.
+- 참고(각주): DBA 롤이 왜 함께 부여됐는지 원인은 미확인(담당 DBA와 연락 두절 상태에서 진행) — 추후 연락되면 사유 확인 및 재부여 필요 여부 재검토 권장.
+- 비고: 신규 스크립트 scripts/dev_e2e/vsession_pagehide_reverify.py(커밋 안 함, 요청 시 커밋 가능)
+- 커밋: 없음(코드 변경 없음)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M214-TEXT-REGISTER_20260820.md
+
+### M215. 완료 - ORPHANED-WIP-28-TAGS-FULL-COMMIT-RECONSTRUCTION - 코드 저장소 방치 미커밋 작업 재구성 및 push
+- 발견/계기: 2026-08-20, 코드 저장소(X:\Projects\nxDTV)에 여러 세션에 걸쳐 누적된 미커밋 작업 발견 - 커밋은 명시적 요청시에만 한다는 하드룰과 커밋 지시 없이 세션이 종료되는 패턴이 반복되며 쌓인 것으로 추정
+- 핵심 내용: 미커밋 35개 파일(+1,526/-254줄), 태그 기준 33개(당초 발견 28개)를 조사·의존관계 확인 후 14개 커밋(f0f2738f~9e336c3f)으로 재구성해 전부 origin/main push 완료. 같은 물리적 git hunk 안에서 여러 태그가 순차 인터리브(이전 세션 미커밋 코드를 다음 세션이 이어 수정)돼 "태그 1개=커밋 1개" 원칙이 구조적으로 불가능한 경우가 다수(예: ui/js_sql_preview.py 한 hunk에 M139→STAGE3-4-COMBO-BANNER→PAIR-CHECKBOX(M159)→COMBO-4000-CAP-NOTICE 4개 태그 순차 인터리브) - 이 경우 병합 커밋 처리(예: 1개 커밋에 4개 태그), 근거는 각 커밋 메시지에 명시. M143(배치 진행률) 프런트-백엔드 크로스파일 의존관계는 URL/응답필드 정적 대조로 확인 후 같은 커밋으로 묶어 해소. `.claude/settings.json`/`settings.local.json`의 curl/wget 권한 확장 등 2건은 일치하는 지침이 없어 자동커밋 대상에서 의도적으로 제외(사용자 직접 검토 필요 - 누가/왜 추가했는지 원인 미확인, 보안 관련 변경).
+- 실측/검증: 각 커밋 단계마다 무관해 보이는 pytest 실패가 나올 때마다 `git worktree add --detach HEAD`(스태시 대신)로 클린 베이스라인 대조를 6회 반복 - 전부 이번 변경과 무관한 사전존재 결함으로 확인(회귀 없음). 이 세션 sandbox 네트워크 제약으로 실제 브라우저 클릭 실측은 못 하고 py_compile+pytest(700여건)+서버 재기동 import 확인+정적 대조로 대체 - 사용자 브라우저 직접 확인 권장. git push 자체(git 프로토콜)는 정상 동작(3회 타임아웃 후 재시도로 성공), curl만 sandbox에서 차단된 것으로 확인.
+- 커밋: f0f2738f, ceb62b2b, 94bfd6f2, 91dc19b8, 24ce698f, e5d9700f, 2cdcac47, d79faf2d, 328f6b6a, c2aac617, 48fafa4f, 05834afb, a7eb16cb, 9e336c3f
+- 근거: G:\내 드라이브\nxDTV-verify\reports\ORPHANED-WIP-28-TAGS-FULL-COMMIT-RECONSTRUCTION_20260820.md, G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M213-UPDATE-AND-M215-ORPHANED-WIP-REGISTER_20260820.md
