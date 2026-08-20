@@ -9109,11 +9109,12 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 커밋: 63657669
 - 근거: G:\내 드라이브\nxDTV-verify\reports\LONGRUNNING-EXECUTE-MITIGATION-TABLOCK-FIX-AND-INPUTGUARD-SEQUENTIAL.md
 
-### M213. 조사완료(코드 무변경) - 5단계 개별 저장 버튼이 배치 "전체 저장" 진행 플래그를 보지 않아 배치저장 중 교차 가능한 잔여 사각지대 발견
-- 발견/계기: 2026-08-18~20, SAVE-BUTTON-RAPID-REPEATED-CLICK-DIAGNOSE 정적조사 중 발견
-- 핵심 내용: 개별 저장 버튼(_mvStage5SaveOneGroup, ui/tabler_renderer.py:29195)이 배치 "전체 저장" 진행 플래그(ctx._snapshotSaving)를 전혀 참조하지 않아, 배치저장 진행 중에도 이미 DONE인 다른 그룹의 개별 저장 버튼이 막히지 않는다. 같은 그룹을 배치와 개별이 동시에 스캔하면 기존 문서화된 서버 _PK_INFLIGHT 거절(agg_contribution.py:223, run_id 없는 status=RUNNING)에 걸릴 수 있으나, 조용한 데이터 누락이 아니라 화면에 보이는 명시적 실패 메시지로 끝나(재클릭하면 됨) 심각도는 낮다고 평가. 정상 사용(마우스 연타) 자체는 클라이언트 즉시 비활성화+서버 upsert(merge)+threading.Lock() 3중 방어로 안전 확인.
-- 실측/검증: 정적조사 1~4번 완료(안전). 5번(실 서버 5~10회 연속 발사 실측)은 SAVE-BUTTON-RAPID-CLICK-5-REEXECUTE로 별도 재실행 예정.
-- 근거: G:\내 드라이브\nxDTV-verify\reports\SAVE-BUTTON-RAPID-REPEATED-CLICK-DIAGNOSE.md
+### M213. 완료(정정) - 5단계 개별 저장 버튼이 배치 "전체 저장" 진행 플래그를 참조하지 않던 결함 수정
+- 발견/계기: 2026-08-18~20, SAVE-BUTTON-RAPID-REPEATED-CLICK-DIAGNOSE 정적조사에서 최초 발견(당시 "조사완료·코드 무변경"으로 등록) → 2026-08-20 STAGE5-INDIVIDUAL-SAVE-BATCH-CROSS-GUARD-FIX로 수정 완료
+- 핵심 내용: 개별 저장 버튼(_mvStage5SaveOneGroup, ui/tabler_renderer.py)이 배치 "전체 저장" 진행 플래그(ctx._snapshotSaving)를 전혀 참조하지 않아, 배치저장 진행 중에도 이미 DONE인 다른 그룹의 개별 저장 버튼을 누르면 서버 in-flight 가드에 거절돼 "저장 요청 중 오류" 메시지만 뜨던 결함. 새 상태머신 발명 없이 기존 ctx._snapshotSaving 플래그만 재사용해 수정: _mvStage5SaveBadgeHtml은 배치저장 중이면 DONE 그룹이어도 비활성 버튼("배치 전체 저장이 진행 중입니다" 안내)을 렌더해 클릭 자체를 원천 차단(실패 메시지 방식 → 클릭 불가로 UX 개선), _mvStage5SaveOneGroup에 경합 창 대비 방어 가드 추가(ctx._snapshotSaving true면 조기 return), _mvStage5SaveSnapshot은 플래그가 true/false로 바뀌는 두 시점 모두 모든 그룹의 저장 배지를 개별 재도장(전체 목록 재도장은 펼침/스크롤 파괴 위험이 있어 회피 - 종료 시점 재도장으로 락 영구화 방지).
+- 실측/검증: 신규 tests/test_stage5_individual_save_batch_cross_guard_fix.py 5건 전부 통과 + tests/ -k stage5 130건 중 129건 통과(무관한 사전실패 1건 확인) + 서버 재기동 정상. 세션 sandbox 네트워크 제약으로 브라우저 클릭 실측은 미수행(py_compile+pytest+import 검증으로 대체) - 사용자 브라우저 직접 확인 권장.
+- 커밋: 2f1edde2
+- 근거: G:\내 드라이브\nxDTV-verify\reports\SAVE-BUTTON-RAPID-REPEATED-CLICK-DIAGNOSE.md, G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M213-UPDATE-AND-M215-ORPHANED-WIP-REGISTER_20260820.md
 
 ### M214. 완료 - ORACLE-NXDNP-SELECT-CATALOG-ROLE-GRANT-VIA-PYTHON-AND-VSESSION-REVERIFY
 - 추가/배경: 2026-08-20, LONGRUNNING-EXECUTE-MITIGATION-TABLOCK-FIX-AND-INPUTGUARD-SEQUENTIAL 파트3(브라우저 탭 종료 시 자동취소) 검증 관련 인프라 작업 마무리 — Oracle 권한 부여/정리 건 등록.
@@ -9122,3 +9123,10 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 비고: 신규 스크립트 scripts/dev_e2e/vsession_pagehide_reverify.py(커밋 안 함, 요청 시 커밋 가능)
 - 커밋: 없음(코드 변경 없음)
 - 근거: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M214-TEXT-REGISTER_20260820.md
+
+### M215. 완료 - ORPHANED-WIP-28-TAGS-FULL-COMMIT-RECONSTRUCTION - 코드 저장소 방치 미커밋 작업 재구성 및 push
+- 발견/계기: 2026-08-20, 코드 저장소(X:\Projects\nxDTV)에 여러 세션에 걸쳐 누적된 미커밋 작업 발견 - 커밋은 명시적 요청시에만 한다는 하드룰과 커밋 지시 없이 세션이 종료되는 패턴이 반복되며 쌓인 것으로 추정
+- 핵심 내용: 미커밋 35개 파일(+1,526/-254줄), 태그 기준 33개(당초 발견 28개)를 조사·의존관계 확인 후 14개 커밋(f0f2738f~9e336c3f)으로 재구성해 전부 origin/main push 완료. 같은 물리적 git hunk 안에서 여러 태그가 순차 인터리브(이전 세션 미커밋 코드를 다음 세션이 이어 수정)돼 "태그 1개=커밋 1개" 원칙이 구조적으로 불가능한 경우가 다수(예: ui/js_sql_preview.py 한 hunk에 M139→STAGE3-4-COMBO-BANNER→PAIR-CHECKBOX(M159)→COMBO-4000-CAP-NOTICE 4개 태그 순차 인터리브) - 이 경우 병합 커밋 처리(예: 1개 커밋에 4개 태그), 근거는 각 커밋 메시지에 명시. M143(배치 진행률) 프런트-백엔드 크로스파일 의존관계는 URL/응답필드 정적 대조로 확인 후 같은 커밋으로 묶어 해소. `.claude/settings.json`/`settings.local.json`의 curl/wget 권한 확장 등 2건은 일치하는 지침이 없어 자동커밋 대상에서 의도적으로 제외(사용자 직접 검토 필요 - 누가/왜 추가했는지 원인 미확인, 보안 관련 변경).
+- 실측/검증: 각 커밋 단계마다 무관해 보이는 pytest 실패가 나올 때마다 `git worktree add --detach HEAD`(스태시 대신)로 클린 베이스라인 대조를 6회 반복 - 전부 이번 변경과 무관한 사전존재 결함으로 확인(회귀 없음). 이 세션 sandbox 네트워크 제약으로 실제 브라우저 클릭 실측은 못 하고 py_compile+pytest(700여건)+서버 재기동 import 확인+정적 대조로 대체 - 사용자 브라우저 직접 확인 권장. git push 자체(git 프로토콜)는 정상 동작(3회 타임아웃 후 재시도로 성공), curl만 sandbox에서 차단된 것으로 확인.
+- 커밋: f0f2738f, ceb62b2b, 94bfd6f2, 91dc19b8, 24ce698f, e5d9700f, 2cdcac47, d79faf2d, 328f6b6a, c2aac617, 48fafa4f, 05834afb, a7eb16cb, 9e336c3f
+- 근거: G:\내 드라이브\nxDTV-verify\reports\ORPHANED-WIP-28-TAGS-FULL-COMMIT-RECONSTRUCTION_20260820.md, G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M213-UPDATE-AND-M215-ORPHANED-WIP-REGISTER_20260820.md
