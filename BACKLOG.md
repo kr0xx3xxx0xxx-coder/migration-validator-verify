@@ -8948,10 +8948,11 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 커밋: 6f0d45e5
 - 근거: G:\내 드라이브\nxDTV-verify\reports\ENCRYPTED-COLUMN-DETECTION-BATCH-PATH-COVERAGE-CHECK-ADDENDUM.md
 
-### M189. 미착수(오픈) - 코드 저장소(C:\projects\migration-validator) 원격 백업 부재, private 저장소 신설 필요
-- 발견/계기: 2026-08-17, 사용자 지적("우리 소스 백업좀 해야지않아? 한번도 안한듯")
-- 핵심 내용: verify 저장소(BACKLOG/지침/보고서 전용, public)와 달리, 실제 제품 소스코드는 로컬 커밋만 하고 원격 push가 한 번도 없었던 것으로 확인됨. 원격 저장소는 private로(제품 소스라 verify 저장소와 달리 노출 리스크 있음) 신설 필요. 사내 GitHub 조직 계정 여부, 어디에(GitHub private / 사내 GitLab 등) 둘지, push 주기(매 커밋 자동 vs 세션 종료 시 일괄)는 사용자 결정 대기.
-- 근거: 별도 첨부문서 없음(대화 결정 사항), 2026-08-17 세션 기록 참고
+### M189. 해결 완료 - 코드 저장소(nxDTV) 원격 백업 부재 해소, private 저장소(nxDTV-src) 신설 및 최초 push 완료
+- [2026-08-20 정정] 이 항목은 최초 "미착수(오픈)"으로 기록됐었으나, 2026-08-16 private 원격 저장소(GitHub, nxDTV-src) 신설 + 최초 push + post-commit 자동 push 훅 설치까지 완료되어 상태를 정정한다.
+- 핵심 내용: verify 저장소(BACKLOG/지침/보고서 전용, public)와 달리 로컬 커밋만 하고 원격 push가 없었던 제품 소스코드 저장소에 private 원격(nxDTV-src, GitHub)을 신설해 최초 push, 이후 "커밋 후 push"를 놓쳤을 때의 안전망으로 post-commit 훅(git push origin main, 실패해도 커밋 자체는 exit 0으로 무해 통과) 설치.
+- 각주(훅 상태): 위 post-commit 훅은 2026-08-18 M201로 비활성화됨(post-commit → post-commit.disabled 이름 변경, 삭제 아님 — 필요시 즉시 복구 가능). 사유는 매 커밋마다 GitHub 인증 팝업이 반복돼 불편했기 때문이며, "완료·검증 후 즉시 커밋+push" 지침이 훅 없이도 지켜지고 있어 안전상 공백은 없음. 상세는 M201 참고.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\NXDTV-SRC-POST-COMMIT-AUTOPUSH-HOOK-SETUP.md, BACKLOG.md M201 항목
 
 ### M190. 해결 완료(정정) - 5단계 상세추출 상태의 [저장] 버튼 표시 방식 확정 및 구현(항상 노출+상태무관 2줄 고정)
 - [2026-08-17 정정] 이 항목은 최초 "미착수(오픈) - 방향 미확정"으로 기록됐었으나, 이후 논의로 방향이 확정되고 구현·검증까지 완료됨. 상세 내용은 M192 참고.
@@ -9072,6 +9073,21 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 발견/계기: 2026-08-18, M206 진단을 바탕으로 "10억행 규모에서 원본 운영 DB에 무한정 부하를 줄 수 있는가" 우려 제기(이 프로젝트는 nxSDC 복제 없이 원본/목적 DB에 직접 접속하는 구조임을 재확인)
 - 핵심 내용: MV_EXECUTE_STATEMENT_TIMEOUT_MS(기본 60000ms)가 원본/목적지 SQL 문 각각에 DB 레벨(PG SET LOCAL statement_timeout / Oracle call_timeout)로 적용되어 "무한정 실행"은 아님을 확정. 단 이 60초는 "쿼리 문 1개당" 상한이라 다중세트/비동기job에서는 누적 최대 16분(8세트×2측×60초)까지 가능하고 동시 3job 중첩 가능, 5단계 exact_diff PG 스트림은 전체 누적시간 상한 자체가 없음(FETCH당 300초만). 가장 실질적 위험은 타임아웃 부재가 아니라 "탭 이탈 시 취소 안 되고 결과만 유실 → 사용자가 동일 원본DB 풀스캔을 반복 발사"하는 구조(M206과 동일 근본원인). 완화안 A~E 제시(A: 탭 이탈 시 기존 검증된 abort 함수 자동 호출, 신규 API 불필요 — 비용대비 효과 최고로 평가 / B: 대용량 비동기 강제+persist 전환).
 - 근거: G:\내 드라이브\nxDTV-verify\reports\LONGRUNNING-EXECUTE-SOURCE-DB-LOAD-DIAGNOSE.md
+
+### M208. 해결 완료 - GRID-REORDER — 5단계 상세 그리드 순번 폭 축소 + 원본/목적 컬럼 순서 통일(파트A), "상세추출상태"→"조회여부"/"저장" 2컬럼 분리(파트B)
+- 발견/계기: 2026-08-18, 5단계 상세 레코드 그리드 가독성 개선 지시서(STAGE5-GRID-REORDER-AND-COLUMN-SPLIT)
+- 핵심 내용: (파트A) 5개 그리드 빌더가 공유하는 _mvDrillHeaderCell/_mvDrillHeaderCellSplit에 순번(SEQ) 컬럼 min-width:40px 추가, _mvDrillHeaderCellSplit에 tgtFirst 매개변수를 신설해 상세 그리드 4곳만 원본→목적을 목적→원본으로 전환(그룹 클릭 드릴다운 등 다른 공유 호출부는 tgtFirst 생략으로 기존 순서 유지, 회귀 차단). (파트B) 그룹 리스트의 "상세 추출 상태" 1컬럼(76px)을 "조회여부"(150px, 배지+조회시각)/"저장"(190px, 저장시각+버튼) 2컬럼으로 분리, 저장 버튼 활성화 조건식(g.detail_status === 'DONE' && g.detail_run_id)은 이식만 하고 무변경.
+- 실측/검증: 실 오라클(NXDNP.MV_COMBO_SRC/TGT 1,200행) GB=0/1/2 실브라우저로 헤더 순서·컬럼폭·3상태 전환(미확인→완료→저장) 실클릭 확인, 행 높이 44.66px 고정 무회귀(M192 원칙). pytest 169건(stage5/tabler 관련) 전부 통과, 무관한 사전 존재 실패 2건은 HEAD baseline worktree 대조로 무관 확인.
+- 커밋: 4ceaf4f5(파트A), 0c3cf4f9(파트B)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE5-GRID-REORDER-AND-COLUMN-SPLIT.md
+
+### M209. 해결 완료 - STABLE-KEY-LOOKUP-FIX — 새로고침 후 저장된 그룹을 못 찾던 버그, 스코프 기준 폴백 조회 추가
+- 발견/계기: 2026-08-18, M204 진단(스냅샷 메타정보와 실제 PK 레코드가 서로 다른 저장소에 있어 내구성이 갈린다는 근본원인) 기반, 사용자가 스코프 폴백 방향 채택
+- 핵심 내용: services/stage5_group_store.py에 list_groups_by_scope/get_snapshot_by_scope 신규(기존 정확 일치 함수는 무수정), project_id/target_table/plan_fingerprint 스코프 안에서 MAX(id) 기준 최신 회차를 폴백 조회. routes/stage5_group_route.py는 정확 일치 실패 시에만 폴백을 호출(monkeypatch 스파이로 "정확 일치 성공 시 폴백 미호출"을 결정적으로 확정). 실측 결과 list_groups(T1)는 4단계 완료 직후 자동 재저장돼 대부분 정확 일치로 성공하고, 실무상 아픈 지점은 개별 [저장] 버튼으로 만든 get_snapshot(T2) 쪽. ui/tabler_renderer.py는 g._liveConfirmedThisSession 플래그로 "폴백 화면에서 과거 회차 값"과 "이번 세션에 실제로 재확인한 값"을 구분.
+- 실측/검증: 신규 단위테스트 22건 + 회귀 128건 통과. 실 Neon PostgreSQL(mv_bt.orders_a→tgt_orders) E2E로 재진입 시 amber 폴백 배너+저장됨 배지 복구+GET snapshot의 is_fallback=true 확인. HEAD baseline worktree 대조로 무회귀 확인.
+- 커밋: aca338d0
+- 근거: G:\내 드라이브\nxDTV-verify\reports\SAVED-MISMATCH-STABLE-KEY-LOOKUP-FIX.md
+
 ### M210. 해결 완료 - 통계검증 실행 중 1단계 SQL 재입력 시 상단 탭이 고립되던 결함 수정(M206 후속)
 - 발견/계기: 2026-08-20, M206 조사 결과(원인: _mvCanNavTab의 _stale 조건이 완료단계 자유이동 예외를 해제) 기반 수정 착수
 - 핵심 내용: _mvCanNavTab(ui/tabler_renderer.py)의 `_completed && !_stale` 조건에서 _stale 변수/조건을 제거해 `if (_completed)`로 단순화 - 완료 단계 자유이동을 stale 여부와 무관하게 항상 허용하도록 변경. _mvForwardBlocked·실행버튼 가드는 무변경.
