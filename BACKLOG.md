@@ -9130,3 +9130,8 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 실측/검증: 각 커밋 단계마다 무관해 보이는 pytest 실패가 나올 때마다 `git worktree add --detach HEAD`(스태시 대신)로 클린 베이스라인 대조를 6회 반복 - 전부 이번 변경과 무관한 사전존재 결함으로 확인(회귀 없음). 이 세션 sandbox 네트워크 제약으로 실제 브라우저 클릭 실측은 못 하고 py_compile+pytest(700여건)+서버 재기동 import 확인+정적 대조로 대체 - 사용자 브라우저 직접 확인 권장. git push 자체(git 프로토콜)는 정상 동작(3회 타임아웃 후 재시도로 성공), curl만 sandbox에서 차단된 것으로 확인.
 - 커밋: f0f2738f, ceb62b2b, 94bfd6f2, 91dc19b8, 24ce698f, e5d9700f, 2cdcac47, d79faf2d, 328f6b6a, c2aac617, 48fafa4f, 05834afb, a7eb16cb, 9e336c3f
 - 근거: G:\내 드라이브\nxDTV-verify\reports\ORPHANED-WIP-28-TAGS-FULL-COMMIT-RECONSTRUCTION_20260820.md, G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M213-UPDATE-AND-M215-ORPHANED-WIP-REGISTER_20260820.md
+
+### M216. 오픈 - SCATTER-STAGE5-SELECTOR-FIX
+- 발견/계기: 2026-08-20, WT-GB01-ORPHAN-SCRIPTS-COMMIT-OR-DISCARD 조사 중 scatter_mismatch_perf_measure.py(scripts/dev_e2e) 커밋 과정에서 발견.
+- 핵심 내용: scatter_mismatch_perf_measure.py의 5단계 그룹행 탐지가 tr[data-row-key] 셀렉터를 쓰는데, GB01-UNIFY-WITH-GB2PLUS-GROUPLIST-UI 이후 실제 마크업이 <tr id="mvS5Row{i}">로 바뀌어 그룹 행 0개로 감지돼 드릴다운(3건 계측)·Excel 다운로드 단계가 조용히 스킵됨(에러 없이 False 리턴). tr[id^="mvS5Row"] 매칭으로 셀렉터 갱신 필요(추정 1~2줄).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\WT-GB01-SCRIPTS-COMMIT-AND-CLEANUP-FINAL_20260820.md
