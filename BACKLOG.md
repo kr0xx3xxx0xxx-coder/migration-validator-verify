@@ -9072,3 +9072,29 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 발견/계기: 2026-08-18, M206 진단을 바탕으로 "10억행 규모에서 원본 운영 DB에 무한정 부하를 줄 수 있는가" 우려 제기(이 프로젝트는 nxSDC 복제 없이 원본/목적 DB에 직접 접속하는 구조임을 재확인)
 - 핵심 내용: MV_EXECUTE_STATEMENT_TIMEOUT_MS(기본 60000ms)가 원본/목적지 SQL 문 각각에 DB 레벨(PG SET LOCAL statement_timeout / Oracle call_timeout)로 적용되어 "무한정 실행"은 아님을 확정. 단 이 60초는 "쿼리 문 1개당" 상한이라 다중세트/비동기job에서는 누적 최대 16분(8세트×2측×60초)까지 가능하고 동시 3job 중첩 가능, 5단계 exact_diff PG 스트림은 전체 누적시간 상한 자체가 없음(FETCH당 300초만). 가장 실질적 위험은 타임아웃 부재가 아니라 "탭 이탈 시 취소 안 되고 결과만 유실 → 사용자가 동일 원본DB 풀스캔을 반복 발사"하는 구조(M206과 동일 근본원인). 완화안 A~E 제시(A: 탭 이탈 시 기존 검증된 abort 함수 자동 호출, 신규 API 불필요 — 비용대비 효과 최고로 평가 / B: 대용량 비동기 강제+persist 전환).
 - 근거: G:\내 드라이브\nxDTV-verify\reports\LONGRUNNING-EXECUTE-SOURCE-DB-LOAD-DIAGNOSE.md
+### M210. 해결 완료 - 통계검증 실행 중 1단계 SQL 재입력 시 상단 탭이 고립되던 결함 수정(M206 후속)
+- 발견/계기: 2026-08-20, M206 조사 결과(원인: _mvCanNavTab의 _stale 조건이 완료단계 자유이동 예외를 해제) 기반 수정 착수
+- 핵심 내용: _mvCanNavTab(ui/tabler_renderer.py)의 `_completed && !_stale` 조건에서 _stale 변수/조건을 제거해 `if (_completed)`로 단순화 - 완료 단계 자유이동을 stale 여부와 무관하게 항상 허용하도록 변경. _mvForwardBlocked·실행버튼 가드는 무변경.
+- 실측/검증: node 하니스 87 passed(신규 계약 포함, in-place revert A/B로 미적용 시 신규 2건 실패 확인). 실 포트 8000 + 실 Oracle 라이브 e2e(scripts/dev_e2e/tablock_m206_fix_verify.py)로 1~4단계 완주 후 SQL 재입력→stale=True 확인→4단계 탭 직접 클릭 성공(PASS) 재현.
+- 커밋: 8b82a376
+- 근거: G:\내 드라이브\nxDTV-verify\reports\LONGRUNNING-EXECUTE-MITIGATION-TABLOCK-FIX-AND-INPUTGUARD-SEQUENTIAL.md
+
+### M211. 해결 완료 - 1단계 SQL 입력창이 실행중 잠금 목록에서 누락돼 실행 중에도 편집 가능했던 결함 수정(M210의 근본 유발 지점)
+- 발견/계기: 2026-08-20, M210 구현 중 STAGE-EXEC-CONTROL-LOCK(body.mv-run-locked)이 3단계 후보체크박스·관리컬럼·조합체크·목적지 WHERE는 이미 잠그면서 1단계 SQL 입력창(#sqlInput)만 빠져 있음을 발견
+- 핵심 내용: CSS 잠금 선택자에 #sqlInput 추가(동일 body.mv-run-locked 클래스 재사용, 별도 상태머신 없음). SQL 입력창 하단/후보 선택 상단에 "실행 중에는 변경할 수 없습니다" 정적 안내 2곳 추가.
+- 실측/검증: tests/test_stage_exec_control_lock_fix.py 갱신 7 passed, 인접 회귀 11개 파일 150 passed(사전 실패 3건 무관 확인). 실 포트 8000(scripts/dev_e2e/inputguard_part2_verify.py)에서 실행 클릭 직후 body.mv-run-locked 즉시 True 확인 → 1단계 SQL·3단계 후보 체크박스 실제 클릭 차단+안내 노출, 해제 후 재입력 가능(PASS).
+- 커밋: 0b713428
+- 근거: G:\내 드라이브\nxDTV-verify\reports\LONGRUNNING-EXECUTE-MITIGATION-TABLOCK-FIX-AND-INPUTGUARD-SEQUENTIAL.md
+
+### M212. 해결 완료 - 브라우저 탭 종료 시 진행 중인 개별검증(1~4단계) 실행 자동 취소(LONGRUNNING-EXECUTE A안)
+- 발견/계기: 2026-08-20, M207 진단(탭 이탈 시 결과 유실로 인한 원본DB 반복 풀스캔 위험) 완화안 중 A안(탭 이탈 시 기존 검증된 abort 함수 자동 호출)을 사용자가 채택
+- 핵심 내용: _mvSingleAbortRun()이 서버 취소요청이 아니라 로컬 fetch 자체를 즉시 끊는 동기 함수(서버는 request.is_disconnected()로 감지)임을 확인해 지시서 원 전제(sendBeacon 필요 여부)를 반박, 신규 API 없이 그대로 재사용. 기존 beforeunload(경고창 전용)와 별개로 pagehide 이벤트에서만 _mvSingleAbortRun()을 호출 - beforeunload에서 바로 취소하면 "머무르기" 선택 시에도 취소돼 버리는 오작동을 피하기 위함.
+- 실측/검증: tests/test_pagehide_auto_abort.py(신규) 4 passed + 인접 스위트 52 passed. 실 포트 8000 + 실 Oracle DB(scripts/dev_e2e/pagehide_abort_part3_verify.py)에서 4단계 실행 클릭 후 문서 언로드 시 클라이언트 net::ERR_ABORTED 관측(PASS).
+- 커밋: 63657669
+- 근거: G:\내 드라이브\nxDTV-verify\reports\LONGRUNNING-EXECUTE-MITIGATION-TABLOCK-FIX-AND-INPUTGUARD-SEQUENTIAL.md
+
+### M213. 조사완료(코드 무변경) - 5단계 개별 저장 버튼이 배치 "전체 저장" 진행 플래그를 보지 않아 배치저장 중 교차 가능한 잔여 사각지대 발견
+- 발견/계기: 2026-08-18~20, SAVE-BUTTON-RAPID-REPEATED-CLICK-DIAGNOSE 정적조사 중 발견
+- 핵심 내용: 개별 저장 버튼(_mvStage5SaveOneGroup, ui/tabler_renderer.py:29195)이 배치 "전체 저장" 진행 플래그(ctx._snapshotSaving)를 전혀 참조하지 않아, 배치저장 진행 중에도 이미 DONE인 다른 그룹의 개별 저장 버튼이 막히지 않는다. 같은 그룹을 배치와 개별이 동시에 스캔하면 기존 문서화된 서버 _PK_INFLIGHT 거절(agg_contribution.py:223, run_id 없는 status=RUNNING)에 걸릴 수 있으나, 조용한 데이터 누락이 아니라 화면에 보이는 명시적 실패 메시지로 끝나(재클릭하면 됨) 심각도는 낮다고 평가. 정상 사용(마우스 연타) 자체는 클라이언트 즉시 비활성화+서버 upsert(merge)+threading.Lock() 3중 방어로 안전 확인.
+- 실측/검증: 정적조사 1~4번 완료(안전). 5번(실 서버 5~10회 연속 발사 실측)은 SAVE-BUTTON-RAPID-CLICK-5-REEXECUTE로 별도 재실행 예정.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\SAVE-BUTTON-RAPID-REPEATED-CLICK-DIAGNOSE.md
