@@ -9260,3 +9260,20 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 보통
 - 커밋: 904b1871 (push 확인 완료, origin/main..HEAD 비어있음)
 - 근거: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M237-REGISTER_20260821.md
+### M238. 완료 - TAB-NAVIGATION-KILLS-BACKGROUND-EXECUTION-URGENT-DIAGNOSE - 2/4단계 실행 중 다른 탭으로 이동했다가 복귀 시 "대기"로 초기화돼 보이던 현상의 진짜 원인 확정 및 수정
+- 진짜 원인: 서버 쿼리 취소가 아니라 2026-08-11(커밋 39f34615) 도입된 _mvStaleRunResponse 게이트가 "응답 도착 시점에 그 탭을 안 보고 있으면 조용히 폐기"만 하고 나중에 복귀 시 재생하는 경로가 없던 결함. _mvDeferStepResult/_mvApplyDeferredStepResult 신설로 폐기 응답을 스텝별 보관 후 복귀 시 재생.
+- 검증 중 발견된 2차 교착(보관값 있어도 탭 복귀 자체가 막히던 경우)도 _mvCanNavTab 예외로 해소.
+- 오늘 안전장치(M210~M212, pagehide 전용 취소)는 무관·무회귀 재확인.
+- 실 Oracle DB 6초 인위지연 재현으로 2/4단계 모두 PASS 실측, 33/33 테스트 통과.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 726810ee (push 완료 확인, origin/main..HEAD 반영됨)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\TAB-NAVIGATION-KILLS-BACKGROUND-EXECUTION-URGENT-DIAGNOSE_20260821.md
+
+### M239. 조사완료 - RESET-INDIVIDUAL-VALIDATION-TRIGGER-INVESTIGATE - M238이 언급한 "재분석/초기화"라는 표현이 실제 UI 문구가 아님을 확인
+- 사용자 지적으로 발견. "초기화" 버튼은 과거에 사용자 UI에서 이미 제거됐음이 코드 주석으로 확인됨(관련 HTML 요소 없음, CSS만 죽은 채 잔존).
+- "재분석"도 실제 라벨이 아니며 실제 버튼은 "▶ 검증 실행"/"▶ 다시 검증 실행" 뿐.
+- resetIndividualValidationWorkSession 호출 5곳 전수 확인(버튼 직접 트리거 2곳, 자동 트리거 3곳).
+- 코드 변경 없음(용어 정정 목적의 조사).
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (조사 전용, 코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M238-M239-REGISTER_20260821.md
