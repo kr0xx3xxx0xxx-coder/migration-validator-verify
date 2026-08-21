@@ -9253,3 +9253,10 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 운영 메모(각주): 작업 중 동시 진행 중이던 POLICY-SETTINGS 세션의 커밋(bf77ef05)이 같은 파일(services/stats_execute_service.py)에 남긴 미완성 편집(신규 import 줄)을 그대로 흡수해 먼저 커밋 — 그 import가 참조하는 신규 파일(stats_fingerprint.py)은 그 시점 untracked라 미포함, origin/main HEAD가 한동안 ModuleNotFoundError로 파손된 채 있었음(격리 worktree로 실측 확인 후 긴급 커밋 bcbf8af5로 즉시 복구). "착수 전 git status 확인"만으로는 못 막는 종류의 충돌 — 여러 터미널이 같은 파일을 동시에 활발히 편집할 때 커밋 타이밍이 겹치면 재발 가능(코드 결함이 아니라 운영 방식 자체에 대한 교훈).
 - 커밋: 560fea5c, bcbf8af5(긴급복구) (push 확인 완료, origin/main..HEAD 비어있음)
 - 근거: G:\내 드라이브\nxDTV-verify\reports\STATS-FINGERPRINT-ENRICH-MIN-MAX-AVG-STDDEV-DESIGN_20260821.md
+### M237. 완료 - DIAGNOSIS-ENGINE-EXACT-DIFF-HYBRID-STRATEGY-WIRE - 전수검증 백엔드 결정(M223/FULL-VALIDATION-BACKEND-DECISION-SUPPORT 하이브리드 권장안) 실제 구현
+- 발견/계기: 2026-08-21, 전수검증 백엔드 4세대 파편화(legacy CLI/diagnosis 공통엔진/HASH_BUCKET/exact_diff) 상태에서 하이브리드 권장안(M223)을 실제 코드로 구현해야 하는 필요가 확인됨
+- 핵심 내용: 신규 전략 EXACT_DIFF_FULL을 diagnosis 공통엔진에 등록(터미널 전략, GROUP_SCOPE/KEY_RANGE 트리 확장 없이 1회 실행으로 종료), exact_diff의 기존 검증된 로직(_pk_resolve/_resolve_execution_strategy/run_pk_range_chunk_compare 등)을 새 compare_fn 팩토리(services/diagnosis/exact_diff_full.py)로 위임 재사용 — full_adapter.py/agg_diff_route.py/exact_diff 코어 전부 무변경(공유원칙 그대로 준수). 부하정책 계층(P0) 부재를 메우는 3중 안전게이트(위험인지 확인/5만행 하드상한/PG·Oracle만 허용) 신설, 하나라도 막히면 is_matched=None. 실 DB(원본 1만행/목적 9,950행, 실제 50행 누락)로 정확한 검출 실증, M143 게이트(_pk_resolve) 자동 승계를 spy로 실측 확인. 신규 엔드포인트 POST /diagnosis/full-exact-start. 신규 테스트 16건, 회귀 627P/11F(11건 전부 baseline 대조로 무관 확정).
+- 부수 기록(M번호 아님): 남은 후속 필요 3가지(완료보고 §9 참고) — 부하정책 계층(P0) 정식 구현 시 evaluate_full_scan_gate()를 그 계층으로 교체 필요, 대용량 개방 시 동기 대기(현재 job 완료 폴링) 대신 비동기 응답(run_id 폴링) 구조 전환 필요, UI(전수검증 메뉴) 연결은 이번 범위 밖 — 백엔드 진입점만 존재.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 904b1871 (push 확인 완료, origin/main..HEAD 비어있음)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M237-REGISTER_20260821.md
