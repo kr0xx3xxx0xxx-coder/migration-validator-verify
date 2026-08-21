@@ -9223,3 +9223,33 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 핵심 내용: 실제로는 결함이 아님을 확정(오탐). 지목된 2곳은 8/14에 이미 별개 작업으로 가드돼 있었고(M213보다 앞선 이력, 같은 플래그를 쓴다는 표면적 유사성만 있었음), "3번째"는 5단계 진입점 6개 전수 확인 결과 애초에 존재하지 않았음(각각 자기잠금/읽기전용/기존 다른 경합방지 메커니즘/별개 잠금으로 이미 안전). 코드 변경 없음, 이 확정 상태를 회귀테스트 6건으로 고정.
 - 커밋: 34b65b92 (테스트 파일만 커밋, 프로덕션 코드 변경 없음 — push 확인 완료, origin/main..HEAD 비어있음)
 - 근거: G:\내 드라이브\nxDTV-verify\reports\SAVE-GUARD-DEFECT-PATTERN-3-MORE-FIX_20260821.md
+### M232. 완료 - SQLITE-TIMEOUT-MISMATCH-AND-1000-CAP-RULE-SEQUENTIAL 파트1 - chunk_checkpoint.py SQLite connect timeout/busy_timeout 불일치 정정
+- 발견/계기: 2026-08-21, connect(timeout=30)과 PRAGMA busy_timeout=5000이 서로 다른 API로 같은 값을 중복 설정하다 5000이 이겨 30초가 죽은 값이던 모순을 발견
+- 핵심 내용: 단일 상수(15000ms, 다른 SQLite 저장소 관례와 동일)로 통일. 8초 배타락 재현으로 실효 15초 적용 실측 확인.
+- 커밋: 2b6f1e70 (push 확인 완료, origin/main..HEAD 비어있음)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\SQLITE-TIMEOUT-MISMATCH-AND-1000-CAP-RULE-SEQUENTIAL_20260821.md
+
+### M233. 완료 - CLAUDE-MD-1000CAP-RULE-UPDATE-AND-CONTRACTS-DOCSTRING-FIX - SQLITE-TIMEOUT/1000-CAP 파트2, 불일치 ROW 저장 규칙 문구를 경로별로 구분 갱신
+- 발견/계기: 2026-08-21, 레거시 validator는 1000건 cap 유지하나 exact_diff 라이브 경로는 2026-07-04 Phase 1-B 결정으로 무제한 스트리밍 저장이라 규칙-코드 불일치가 exact_diff에 한정됨을 확인
+- 핵심 내용: CLAUDE.md 규칙 문구를 레거시/exact_diff 경로별로 구분 갱신 + contracts.py 독스트링 모순 정정(코드 로직 무변경).
+- 커밋: 831e030d (push 확인 완료, origin/main..HEAD 비어있음)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\CLAUDE-MD-1000CAP-RULE-UPDATE-AND-CONTRACTS-DOCSTRING-FIX_20260821.md
+
+### M234. 완료 - DATE-PROFILE-TIMEOUT-VALUE-REASSESS-AND-FIX - 날짜 evidence EXACT 집계 statement timeout 재산정 15초→20초
+- 발견/계기: 2026-08-21, 지침 전제("인자 누락 버그 미수정")가 실제로는 6주 전(7/10, 커밋 e626b8d3)에 이미 수정됐음을 재확인(과거형 주석을 현재형으로 오독한 선행 조사의 오탐 정정)
+- 핵심 내용: 이 함수가 3회 순차 호출되는 구조(worst-case=3×타임아웃)를 감안해, 단순 "실측치의 2~3배" 대신 4단계 전체 타임아웃(60초)에 맞춰 20초로 재산정(20×3=60). 실 DB 강제 타임아웃 발동 검증.
+- 커밋: 370d1c22 (2b6f1e70 다음, push 확인 완료, origin/main..HEAD 비어있음)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\DATE-PROFILE-TIMEOUT-VALUE-REASSESS-AND-FIX_20260821.md
+
+### M235. 완료 - POLICY-SETTINGS-TIMEOUT-AND-FALLBACK-WIRING-SEQUENTIAL - 정책DB 타임아웃/fallback/표본게이트 배선
+- 발견/계기: 2026-08-21, MV_EXECUTE/COUNT_STATEMENT_TIMEOUT_MS가 정책화면에 미노출, 날짜버킷 fallback MIN/MAX·표본게이트 6종이 기존 3단 우선순위 함수에 배선만 누락돼 있음을 확인
+- 핵심 내용: 파트1: MV_EXECUTE/COUNT_STATEMENT_TIMEOUT_MS 정책화면 노출+배선(재기동 없이 즉시 반영, env 최우선 유지 확인). 파트2: 날짜버킷 fallback MIN/MAX, 표본게이트 6종 정책DB 배선. env 설정 시 정책DB를 건너뛰어 기존 "env=최우선" 원칙을 지키도록 스스로 제동 건 판단 포함.
+- 커밋: bf77ef05, e4a53c0d (push 확인 완료, origin/main..HEAD 비어있음)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\POLICY-SETTINGS-TIMEOUT-AND-FALLBACK-WIRING-SEQUENTIAL_20260821.md
+
+### M236. 완료 - STATS-FINGERPRINT-ENRICH-MIN-MAX-AVG-STDDEV-DESIGN - 통계검증(4단계) GROUP BY/SUM SQL에 MIN/MAX/AVG/STDDEV 지문 확장
+- 발견/계기: 2026-08-21, GROUP BY/SUM만으로는 "합계가 우연히 같은데 실제로는 다른 값들로 상쇄된" 케이스를 검출 못하는 한계 확인
+- 핵심 내용: 통계검증 SQL 8개 조립 지점에 MIN/MAX/AVG/STDDEV 지문 확장, 4종 DBMS STDDEV/STDEV 방언 분기, 새 판정상태 추가 없이 fingerprint_suspect 플래그로 "일치인데 지문만 다른" 케이스 검출(실 DB 상쇄 시나리오 실측 검출 성공). 실행비용 실측 결과 "추가 스캔 없음"은 맞으나 컬럼당 CPU 비용 증가(SUM 3개 기준 +89.3%, 절대값은 작음)는 정직하게 병기. 파트B: M224(자동 후속조치, 보류)를 "재검토 가능"으로 조정할 근거가 된다는 평가만 제시(구현 아님).
+- 운영 메모(각주): 작업 중 동시 진행 중이던 POLICY-SETTINGS 세션의 커밋(bf77ef05)이 같은 파일(services/stats_execute_service.py)에 남긴 미완성 편집(신규 import 줄)을 그대로 흡수해 먼저 커밋 — 그 import가 참조하는 신규 파일(stats_fingerprint.py)은 그 시점 untracked라 미포함, origin/main HEAD가 한동안 ModuleNotFoundError로 파손된 채 있었음(격리 worktree로 실측 확인 후 긴급 커밋 bcbf8af5로 즉시 복구). "착수 전 git status 확인"만으로는 못 막는 종류의 충돌 — 여러 터미널이 같은 파일을 동시에 활발히 편집할 때 커밋 타이밍이 겹치면 재발 가능(코드 결함이 아니라 운영 방식 자체에 대한 교훈).
+- 커밋: 560fea5c, bcbf8af5(긴급복구) (push 확인 완료, origin/main..HEAD 비어있음)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\STATS-FINGERPRINT-ENRICH-MIN-MAX-AVG-STDDEV-DESIGN_20260821.md
