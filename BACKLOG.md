@@ -9130,3 +9130,66 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 실측/검증: 각 커밋 단계마다 무관해 보이는 pytest 실패가 나올 때마다 `git worktree add --detach HEAD`(스태시 대신)로 클린 베이스라인 대조를 6회 반복 - 전부 이번 변경과 무관한 사전존재 결함으로 확인(회귀 없음). 이 세션 sandbox 네트워크 제약으로 실제 브라우저 클릭 실측은 못 하고 py_compile+pytest(700여건)+서버 재기동 import 확인+정적 대조로 대체 - 사용자 브라우저 직접 확인 권장. git push 자체(git 프로토콜)는 정상 동작(3회 타임아웃 후 재시도로 성공), curl만 sandbox에서 차단된 것으로 확인.
 - 커밋: f0f2738f, ceb62b2b, 94bfd6f2, 91dc19b8, 24ce698f, e5d9700f, 2cdcac47, d79faf2d, 328f6b6a, c2aac617, 48fafa4f, 05834afb, a7eb16cb, 9e336c3f
 - 근거: G:\내 드라이브\nxDTV-verify\reports\ORPHANED-WIP-28-TAGS-FULL-COMMIT-RECONSTRUCTION_20260820.md, G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M213-UPDATE-AND-M215-ORPHANED-WIP-REGISTER_20260820.md
+
+### M216. 오픈 - SCATTER-STAGE5-SELECTOR-FIX
+- 발견/계기: 2026-08-20, WT-GB01-ORPHAN-SCRIPTS-COMMIT-OR-DISCARD 조사 중 scatter_mismatch_perf_measure.py(scripts/dev_e2e) 커밋 과정에서 발견.
+- 핵심 내용: scatter_mismatch_perf_measure.py의 5단계 그룹행 탐지가 tr[data-row-key] 셀렉터를 쓰는데, GB01-UNIFY-WITH-GB2PLUS-GROUPLIST-UI 이후 실제 마크업이 <tr id="mvS5Row{i}">로 바뀌어 그룹 행 0개로 감지돼 드릴다운(3건 계측)·Excel 다운로드 단계가 조용히 스킵됨(에러 없이 False 리턴). tr[id^="mvS5Row"] 매칭으로 셀렉터 갱신 필요(추정 1~2줄).
+- 근거: G:\내 드라이브\nxDTV-verify\reports\WT-GB01-SCRIPTS-COMMIT-AND-CLEANUP-FINAL_20260820.md
+
+### M217. 완료 - CMDBAR-STATUS-TEXT-CONCISE-SUMMARY - 하단 고정 커맨드바 진행상태 문구를 본문 카드와 분리해 축약
+- 발견/계기: 2026-08-20, 하단 커맨드바가 본문 진행 카드(#mvExecStepProgress)의 ETA 장문·note 보조설명까지 그대로 dual-write해 과도하게 길어진 문제
+- 핵심 내용: _mvCmdBarProgressLines()(ui/tabler_renderer.py:7220)에서 줄3(경과시간)의 "예상 소요시간: 계산 불가" 등 ETA 장문·note를 제거하고 "경과 N초"만 남김. 본문 카드(_mvShowExecStepProgress)는 별도 함수라 무변경(상세 설명은 본문에 그대로 유지). 이 함수가 1~5단계 커맨드바 진행줄의 단일 출처라 전 단계 일관 적용됨(단계별 개별 수정 불필요). playwright 전/후 실측으로 5단계가 최대폭 축약(159자→80자, 49.7%↓) 확인, 본문 카드 무회귀 별도 확인.
+- 실측/검증: tests/test_cmdbar_sequential_flow.py, tests/test_cmdbar_5steps_live_click.py 등 cmdbar 관련 33건 통과, 렌더 페이지 inline <script> node --check 통과.
+- 커밋: 1f435c77 (push 확인 완료, origin/main..HEAD 비어있음)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\CMDBAR-CONCISE-AND-STAGE5-ELAPSED-FIX-SEQUENTIAL_20260820.md
+
+### M218. 완료 - STAGE5-ELAPSED-TIME-DISPLAY-WRONG-DIAGNOSE - 5단계 그룹 드릴다운 표시 소요시간이 실제 조회시간이 아닌 결함 정정
+- 발견/계기: 2026-08-20~21, 사용자 실보고("0.13초 표시·수십 초 체감") 재확인 지시. 과거 동일 제목 지시서(directives/STAGE5-ELAPSED-TIME-DISPLAY-WRONG-DIAGNOSE.md)는 존재했으나 대응 reports/ 파일이 없어 실제 조사·수정 이력이 없었음을 확인(회귀 아니라 최초 처리).
+- 핵심 내용: 화면에 보이는 "5단계 불일치 그룹추출" 소요시간 셀(#mvS5PerfPipeline)이 그룹 클릭과 무관한 "4단계 통계검증 1회 실행시간"(STAGE5-TIMING-REDESIGN-BOTTOM-CARD-UNIFY 설계상 고정값)을 보여주고 있었고, 서버가 실제로 응답에 담아 보내는 실측값(d.detail_elapsed_ms)은 어디에도 출력되지 않고 있었음을 확정(과거 수정이 해결한 "고정 카드 고착" 문제와 이번 문제가 같은 코드변경의 서로 다른 부작용). Neon PostgreSQL 실측(50,000행, G00 그룹)으로 수정 전 표시값(0.50~0.74초) vs 서버 실측(4.62초) 10배 가까운 자릿수 불일치 재현 후, 그룹 인라인 영역에 실제 조회 소요시간 신설 표시. 구현 중 캐시 재사용 시에도 이전 스캔값이 고착 표시되는 2차 결함을 자체 발견해 fromCache 신호를 함께 배선(신규 스캔/캐시 재사용 문구 구분).
+- 실측/검증: tests/test_d7_8_inline_drill_time.py, tests/test_stage5_group_drilldown.py 등 정적 앵커 갱신 후 70건 통과, samples/test_virtual_cases.py 8/8, samples/test_complex_cases.py 5/5 통과.
+- 커밋: c0ecd3f0 (push 확인 완료, origin/main..HEAD 비어있음)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\CMDBAR-CONCISE-AND-STAGE5-ELAPSED-FIX-SEQUENTIAL_20260820.md
+
+### M219. 완료 - FANOUT-PROBE-PER-BATCH-CACHE-IMPLEMENT - prepare-batch fan-out 프로브를 요청 스코프 캐시로 1회만 계산
+- 발견/계기: 2026-08-21, fan-out 확인 프로브가 배치 요청당 최대 14회(1+13) 중복 계산되고 있음을 발견
+- 핵심 내용: fan-out 여부가 그룹 scope와 무관하게 불변이라는 전제를 코드 레벨로 재검증한 후, 요청 스코프 캐시를 도입해 중복 계산을 1회로 축소. 90.2% 시간감소(171초 추정→16.8초 실측) 실증. 확인불가 시 unique=False로 보수처리하는 기존 안전장치(NATIVE-PK-FANOUT-PROBE-TIMEOUT-ADD)는 무변경.
+- 커밋: 121111cf (push 확인 완료, origin/main..HEAD 비어있음)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\FANOUT-PROBE-PER-BATCH-CACHE-IMPLEMENT_20260821.md
+
+### M220. 완료 - SAVE-BADGE-1-OF-13-ROOT-CAUSE-PINPOINT - 비-숫자 PK 테이블 5단계 저장이 매번 실패하던 근본원인 확정 및 수정
+- 발견/계기: 2026-08-21, M143-BATCH-SLOWNESS-AND-SAVE-BADGE-MISMATCH-DIAGNOSE가 "13개 그룹 전체저장 시 저장배지 1/13만 표시" 현상을 4개 가설까지 배제하고도 원인을 못 박지 못한 채 남긴 것을 재조사
+- 핵심 내용: 표시버그가 아니라 "5만행 초과+비-숫자PK 그룹 저장이 항상 실패"하는 실제 결함이었음을 확정. 원인 3단: ①프런트(_mvPkPayload)가 행수만 보고 PK 숫자 여부 확인 없이 PK_RANGE_CHUNK_COMPARE를 강제 ②숫자 PK가 아니면 서버(_run_pk_range_chunk)가 의도대로 HOLD(자동전환 없음)시켜 job이 즉시 FAILED로 굳음 ③그 정확한 실패사유를 돌려주는 서버 분기(agg_diff_pk_records의 FAILED 전용 처리)가 죽은코드라 범용 에러("재이관 PK index를 찾을 수 없습니다")로 뭉개짐. "1/13 저장됨" 표시는 이번 회차 13개 전부 실패(items=0, 저장 POST 자체 미발생)한 상태에서 2026-08-15 과거 회차 잔존 데이터가 그대로 보인 것으로 부수 확인. 수정: 죽은 FAILED 분기 복원 + 기존 "1회 자동 재-prepare" 패턴(_mvPkLoadPage)을 재사용해 실패사유가 "숫자 PK 아님"일 때만 DIRECT 전략으로 1회 재시도(재시도 경로에만 폴링상한 120→600 확장, 원 시도 상한은 무변경).
+- 실측/검증: 대표 3그룹 재현(수정전 3/3 TIMEOUT_POLLING/PREPARE_ERROR로 저장 POST 미발생 → 수정후 3/3 저장 성공, saved_at 신규값 확인). tests/ -k "stage5 or agg_diff or pk_records or pk_index" 148 passed(무관 사전결함 1건 제외), samples 필수 회귀 스위트 전부 통과.
+- 커밋: 5fbacf88 (push 확인 완료, origin/main..HEAD 비어있음 — 완료보고에도 121111cf..5fbacf88 push 완료 명시)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\SAVE-BADGE-1-OF-13-ROOT-CAUSE-PINPOINT_20260821.md
+
+### M221. 조사완료(코드 무변경) - SPEED-IMPROVEMENT-DEEP-DIVE-INVESTIGATE - 성능 병목 5개 영역 전수조사
+- 발견/계기: 2026-08-21, 성능 개선 여지 전수조사 지시
+- 핵심 내용: `_DATE_PROFILE_TIMEOUT_MS=15초`가 인자누락 버그로 한번도 실적용된 적이 없는데도 그 상태에서 42M행 실측 47~58초가 걸려, 버그를 고치면 즉시 타임아웃 위험이 있음을 확인. profiler.py의 8초 타임아웃이 M219에서 고친 fan-out 프로브와 동일한 미캐시 반복호출 구조로 아직 미수정 상태임을 확인. CLAUDE.md의 "불일치 최대 1000건" 규칙과 실제 코드(cap 제거됨)가 불일치함을 확인. 코드 수정 없음, 우선순위 목록만 제시.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\SPEED-IMPROVEMENT-DEEP-DIVE-INVESTIGATE_20260821.md
+
+### M222. 조사완료(코드 무변경, 항목별 사용자 승인 필요) - CODE-REFACTORING-OPPORTUNITY-SURVEY - 리팩토링 기회 8건 발견
+- 발견/계기: 2026-08-21, 리팩토링 기회 전수조사 지시
+- 핵심 내용: M220에서 고친 저장가드 결함과 동일 패턴이 `_mvStage5OpenGroup` 등 3곳 더 존재함을 발견. fan-out 차단 시 사용자 경고배너가 누락되는 경로 발견. MSSQL 분기 누락(CLAUDE.md의 4종 DB 지원 원칙 위반) 발견. SQLite busy_timeout(5초)이 connect timeout(30초)보다 짧아 대기가 조기절단되는 모순 발견. 최우선 8건, 순수 조사이며 실제 리팩토링은 항목별 사용자 승인 후 진행 필요. 코드 수정 없음.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\CODE-REFACTORING-OPPORTUNITY-SURVEY_20260821.md
+
+### M223. 조사완료(코드 무변경) - STAGE-FULL-VALIDATION-READINESS-SURVEY - "전수검증" 메뉴 구현현황 조사
+- 발견/계기: 2026-08-21, "전수검증" 메뉴 실제 구현 상태 확인 지시
+- 핵심 내용: "전수검증" 메뉴가 실제로는 4세대 부품(레거시CLI / 공통진단엔진 / HASH_BUCKET·ROW_DIFF / STAGE5 exact_diff)이 서로 미연결 상태로 존재함을 확인. exact_diff(STAGE5) 계열이 가장 성숙(5천만행 실측 검증됨, merge-join 원형이나 그룹 스코프 전제). diagnosis 엔진 vs exact_diff 중 전수검증 백엔드로 무엇을 쓸지는 신규 파이프라인 단계 개설과 맞먹는 중간 규모 결정이 필요함을 확인. 코드 수정 없음.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE-FULL-VALIDATION-READINESS-SURVEY_20260821.md
+
+### M224. 조사완료(보류 권고) - STAGE4-STATS-AUTO-FOLLOWUP-EXACT-DIFF-DESIGN - 통계검증 후 위험군 자동 전수재확인 설계안
+- 발견/계기: 2026-08-21, 통계검증 후 위험군 자동 전수재확인 아이디어 설계 지시
+- 핵심 내용: 상쇄위험 일치그룹 자동 merge-walk 설계 자체의 재사용성은 확인(5단계 merge-walk/M143 배치엔진 재사용 가능, 훅=_mvStage5PersistGroups). 다만 "축 1개=위험" 신호가 현재 구조에서 선별력이 없음(모든 그룹이 항상 축 1개)을 확인, GB=0 포함 시 사실상 전수검증과 동일 비용이 되어 M223(전수검증 백엔드 결정)과 범위가 충돌함을 확인. 별도 구현 대신 전수검증 아키텍처 결정에 통합 설계할 것을 권고(보류). 코드 수정 없음.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE4-STATS-AUTO-FOLLOWUP-EXACT-DIFF-DESIGN_20260821.md
+
+### M225. 조사완료(코드 무변경) - GLOBAL-SETTINGS-PAGE-CONSOLIDATION-SURVEY - "전역설정" 화면 분산현황 조사
+- 발견/계기: 2026-08-21, "전역설정" 화면 하드코딩 값 및 신규 노출 후보 조사 지시
+- 핵심 내용: "전역설정"이 실제로는 3개 화면(후보추천 정책 / DBMS 실행지원 읽기전용 / 실행전 게이트 모달 읽기전용)으로 분산돼 있음을 확인, 12항목을 이미노출/신규후보/유지권장 3그룹으로 분류. 신규 노출 후보 1순위: MV_EXECUTE_STATEMENT_TIMEOUT_MS·MV_COUNT_STATEMENT_TIMEOUT_MS(이미 에러메시지가 "재기동 필요" 안내 중), PLAN_TARGET_MAX_GROUPS=4000(GENERAL_COLUMN_MAX_GROUPS 100 상향 이후 구조적 최댓값을 못 덮을 위험 — 코드 주석이 이미 자체 인정한 갭 재확인). 2순위: 날짜버킷 fallback MIN/MAX, 표본게이트 파라미터 6종(둘 다 배선만 하면 됨). OR단일패스는 미구현 확정. 코드 수정 없음.
+- 근거: G:\내 드라이브\nxDTV-verify\reports\GLOBAL-SETTINGS-PAGE-CONSOLIDATION-SURVEY_20260821.md
+
+### M226. 완료 - STAGE1-CLEAR-INPUT-BUTTON-EXEC-LOCK-FIX - 1단계 "입력 내용 지우기" 링크가 실행중 잠금 목록에서 빠져있던 결함 정정
+- 발견/계기: 2026-08-21, 1단계 "입력 내용 지우기" 링크(#clearSqlLink)가 SQL 입력창(#sqlInput)과 달리 실행중 잠금 목록에서 빠져있어 다른 단계 실행 중에도 클릭 가능함을 발견
+- 핵심 내용: 기존 잠금 CSS 셀렉터 목록에 #clearSqlLink 1행 추가(신규 로직 없음). 1단계 화면 전수 확인 결과 다른 누락 컨트롤 없음 확정. DOM 상태 실측(pointer-events/opacity)으로 잠금·해제 타이밍 전/후 대조 확인.
+- 커밋: 7f30ce27 (push 확인 완료, origin/main..HEAD 비어있음)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE1-CLEAR-INPUT-BUTTON-EXEC-LOCK-FIX_20260821.md
