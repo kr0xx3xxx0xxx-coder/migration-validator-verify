@@ -9193,3 +9193,33 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 핵심 내용: 기존 잠금 CSS 셀렉터 목록에 #clearSqlLink 1행 추가(신규 로직 없음). 1단계 화면 전수 확인 결과 다른 누락 컨트롤 없음 확정. DOM 상태 실측(pointer-events/opacity)으로 잠금·해제 타이밍 전/후 대조 확인.
 - 커밋: 7f30ce27 (push 확인 완료, origin/main..HEAD 비어있음)
 - 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE1-CLEAR-INPUT-BUTTON-EXEC-LOCK-FIX_20260821.md
+
+### M227. 완료 - FANOUT-WARNING-BANNER-ON-BLOCK-IMPLEMENT - fan-out 확인 결과로 M143 고속경로가 차단될 때 사유별 경고배너 표시
+- 발견/계기: 2026-08-21, fan-out 확인 결과 unique_key=False로 M143 고속경로가 차단될 때(중복확정/확인불가 두 사유 구분) 서버가 이미 응답에 담아 보내던 fanout_pk_warning을 프런트가 소비하지 않던 누락 발견
+- 핵심 내용: 기존 "데이터 변경 감지" 배너 자리·톤을 그대로 확장 재사용(신규 컴포넌트 없음). node 기반 실제 제품 JS 함수 추출·실행으로 4가지 케이스 전부 검증.
+- 커밋: 7f162cb6 (push 확인 완료, origin/main..HEAD 비어있음)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\FANOUT-WARNING-BANNER-ON-BLOCK-IMPLEMENT_20260821.md
+
+### M228. 완료 - PLAN-TARGET-MAX-GROUPS-COVERAGE-GAP-FIX - PLAN_TARGET_MAX_GROUPS 조합 자동실행 상한을 동적 재계산으로 전환
+- 발견/계기: 2026-08-21, GENERAL_COLUMN_MAX_GROUPS 100 상향(8/16) 이후 PLAN_TARGET_MAX_GROUPS=4000 고정값이 구조적 최댓값(현재 10,000)을 못 덮던 커버리지 갭이 M225 조사에서 확인됨
+- 핵심 내용: 단순 값 상향 대신 GENERAL_COLUMN_MAX_GROUPS가 재기동 없이 상한 없게 조정 가능함을 확인하고, 재발 방지를 위해 매 계획 생성 시 관련 상수를 다시 읽어 동적 재계산하는 함수로 전환(예외적 신규 메커니즘, 근거 명시). 8,100그룹 케이스가 자동실행 대상에 포함되도록 실측 확인, 4,000 이하 케이스 무회귀.
+- 커밋: bfa66034 (push 확인 완료, origin/main..HEAD 비어있음)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\PLAN-TARGET-MAX-GROUPS-COVERAGE-GAP-FIX_20260821.md
+
+### M229. 완료 - PROFILER-8SEC-TIMEOUT-INCONCLUSIVE-FIX - chunk_key 경계(min/max) probe 확인불가를 안전값(0.2)으로 오판정하던 결함 정정
+- 발견/계기: 2026-08-21, 지침 전제(8초 타임아웃 fan-out과 동일)를 코드로 확인한 결과 틀렸음을 확인, 실제로는 같은 파일의 별도 30초 chunk_key 경계(min/max) probe에서 확인불가(예외/타임아웃) 시 skew=0.2(정상 확인시와 동일값)로 처리해 강한 추천이 조용히 나가던 결함을 발견
+- 핵심 내용: skew=1.0(보수)+inconclusive 플래그+로그로 정정. 실 DB 31초 지연으로 타임아웃 실측 검증.
+- 커밋: 3aa78bb3 (push 확인 완료, origin/main..HEAD 비어있음)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\PROFILER-8SEC-TIMEOUT-INCONCLUSIVE-FIX_20260821.md
+
+### M230. 완료 - MSSQL-MISSING-BRANCH-INVESTIGATE-AND-FIX - 일괄처리 업로드 소스 접속에서 MSSQL 분기 누락 정정
+- 발견/계기: 2026-08-21, 일괄처리 업로드(routes/batch_route.py) 소스 접속 분기에서 MSSQL만 빠져있어 소스 테이블 존재 확인이 매번 조용히 스킵되던 기능누락 확정(의도적 미지원 아님 — 어댑터는 이미 구현돼 있고 DB Profile 화면에도 정식 노출됨)
+- 핵심 내용: oracle과 동일하게 어댑터 경유로 확장, postgresql/mysql 인라인 분기는 무변경.
+- 커밋: 55cd0bb5 (push 확인 완료, origin/main..HEAD 비어있음)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\MSSQL-MISSING-BRANCH-INVESTIGATE-AND-FIX_20260821.md
+
+### M231. 조사완료(결함없음 확정) - SAVE-GUARD-DEFECT-PATTERN-3-MORE-FIX - M213과 동형 결함 3곳 더라는 M222 지목을 재확인한 결과 오탐으로 확정
+- 발견/계기: 2026-08-21, CODE-REFACTORING-OPPORTUNITY-SURVEY(M222)가 "M213과 동형 결함 3곳 더"라고 지목한 것을 git blame으로 전수 재확인
+- 핵심 내용: 실제로는 결함이 아님을 확정(오탐). 지목된 2곳은 8/14에 이미 별개 작업으로 가드돼 있었고(M213보다 앞선 이력, 같은 플래그를 쓴다는 표면적 유사성만 있었음), "3번째"는 5단계 진입점 6개 전수 확인 결과 애초에 존재하지 않았음(각각 자기잠금/읽기전용/기존 다른 경합방지 메커니즘/별개 잠금으로 이미 안전). 코드 변경 없음, 이 확정 상태를 회귀테스트 6건으로 고정.
+- 커밋: 34b65b92 (테스트 파일만 커밋, 프로덕션 코드 변경 없음 — push 확인 완료, origin/main..HEAD 비어있음)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\SAVE-GUARD-DEFECT-PATTERN-3-MORE-FIX_20260821.md
