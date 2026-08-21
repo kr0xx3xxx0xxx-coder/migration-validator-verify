@@ -9187,3 +9187,9 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 발견/계기: 2026-08-21, "전역설정" 화면 하드코딩 값 및 신규 노출 후보 조사 지시
 - 핵심 내용: "전역설정"이 실제로는 3개 화면(후보추천 정책 / DBMS 실행지원 읽기전용 / 실행전 게이트 모달 읽기전용)으로 분산돼 있음을 확인, 12항목을 이미노출/신규후보/유지권장 3그룹으로 분류. 신규 노출 후보 1순위: MV_EXECUTE_STATEMENT_TIMEOUT_MS·MV_COUNT_STATEMENT_TIMEOUT_MS(이미 에러메시지가 "재기동 필요" 안내 중), PLAN_TARGET_MAX_GROUPS=4000(GENERAL_COLUMN_MAX_GROUPS 100 상향 이후 구조적 최댓값을 못 덮을 위험 — 코드 주석이 이미 자체 인정한 갭 재확인). 2순위: 날짜버킷 fallback MIN/MAX, 표본게이트 파라미터 6종(둘 다 배선만 하면 됨). OR단일패스는 미구현 확정. 코드 수정 없음.
 - 근거: G:\내 드라이브\nxDTV-verify\reports\GLOBAL-SETTINGS-PAGE-CONSOLIDATION-SURVEY_20260821.md
+
+### M226. 완료 - STAGE1-CLEAR-INPUT-BUTTON-EXEC-LOCK-FIX - 1단계 "입력 내용 지우기" 링크가 실행중 잠금 목록에서 빠져있던 결함 정정
+- 발견/계기: 2026-08-21, 1단계 "입력 내용 지우기" 링크(#clearSqlLink)가 SQL 입력창(#sqlInput)과 달리 실행중 잠금 목록에서 빠져있어 다른 단계 실행 중에도 클릭 가능함을 발견
+- 핵심 내용: 기존 잠금 CSS 셀렉터 목록에 #clearSqlLink 1행 추가(신규 로직 없음). 1단계 화면 전수 확인 결과 다른 누락 컨트롤 없음 확정. DOM 상태 실측(pointer-events/opacity)으로 잠금·해제 타이밍 전/후 대조 확인.
+- 커밋: 7f30ce27 (push 확인 완료, origin/main..HEAD 비어있음)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE1-CLEAR-INPUT-BUTTON-EXEC-LOCK-FIX_20260821.md
