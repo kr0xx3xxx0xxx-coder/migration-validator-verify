@@ -9356,3 +9356,18 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - JOIN 이관까지 커버하려면 `_derive_row_sqls`의 JOIN 지원 확장(원본/목적 행 단위 대응 관계를 JOIN 조건 기준으로 재정의)이 필요 — 별도 설계·구현 필요한 확장 과제로 남김, 이번 등록에서는 M번호 없이 참고 기록만.
 - 커밋: - (참고 기록 전용, 코드 변경 없음)
 - 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M246-PLUS-REGISTER_20260822.md
+
+### M258. 완료(부분) - FULL-VALIDATION-UI-WIRE-AND-WIDE-TABLE-100COL-TEST - 전수검증(EXACT_DIFF_FULL) 백엔드를 화면("전수검증" 메뉴)에 연결
+- 새 폼 없이 개별검증 전역 상태(_analyzeData/_lastCountResult) 재사용, 진행표시는 기존 그리드 타이머 재사용(신규 폴링 없음).
+- 부수 발견: 결과 렌더 함수의 도달불가 죽은 분기(BLOCKED 전용, 서버가 항상 ok:false와 함께 주므로 무의미) 제거.
+- 파트B: evaluate_full_scan_gate()가 컬럼 정보를 인자로 받지 않아 구조적으로 컬럼 수가 게이트 판정에 영향 못 줌을 코드로 확정, 50,000/50,001행 경계값 실 브라우저 검증 완료.
+- 미완료: 100컬럼 테이블 실제 데이터 적재 후 진짜 스캔 성능/메모리 측정은 이 세션에 DB 접속정보 없어 미실행 — 다음 실DB 접속 가능 세션에서 재개 필요.
+- 권장 모델: Opus / 추론 강도: 높음
+- 커밋: a6f37616 (push 완료 확인, origin/main..HEAD 비어있음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\FULL-VALIDATION-UI-WIRE-AND-WIDE-TABLE-100COL-TEST_20260823.md
+
+### 부수 기록(M번호 아님) - nxTDA 분리 방향 논의 - "nxDTV에서 전체 개발 후 나중에 nxTDA로 소스 분리" 결정
+- 사전 인터페이스 계약 설계(NXTDA-ROLE-DEFINITION-AND-NXDTV-CONSUMPTION-CONTRACT-DESIGN 지침)는 미실행 상태로 보류.
+- candidate_engine.py/encrypted_column_policy.py는 계속 nxDTV 내부에서 발전시키다가, 실제 사용 패턴이 성숙하면 그때 분리 검토(기존 SQLite→MariaDB 미이관 결정과 동일한 원칙).
+- 커밋: - (참고 기록 전용, 코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M258-REGISTER_20260823.md
