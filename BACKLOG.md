@@ -9318,3 +9318,41 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 보통
 - 커밋: - (결정 기록, 코드 변경 없음)
 - 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M240-PLUS-REGISTER_20260822.md
+
+### M246. 완료 - SAVEALL-BADGE-1-OF-N-STRUCTURAL-ROOT-CAUSE-DIAGNOSE - 저장배지 "1/N" 표시 이상현상 근본원인 진단
+- 저장배지 "1/N" 표시 이상현상이 제품 결함이 아니라 검증 스크립트의 배지 인덱스 측정 결함(불일치만 필터된 화면에서 전체그룹 기준 배열인덱스로 range(n) 조회해 gidx=0만 존재)임을 DB/화면/재현 3중 증적으로 확정.
+- 제품 코드 변경 0줄, 검증 스크립트 2개만 정정.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: f645d3ce (push 완료 확인, origin/main..HEAD 비어있음)
+
+### M247. 완료 - STAGE1-ANALYZE-LOCKMAX-RAISE-AND-CATALOG-PARALLELIZE - 1단계 실행 잠금해제 상한 상향 + 카탈로그 조회 병렬화
+- 1단계 실행 잠금해제 기준을 2/4단계와 동일하게 180초로 상향(파트A).
+- 카탈로그 왕복 20개 스텝 전수 분류 후 완전 독립적인 2쌍(FK/DEFAULT, 컬럼코멘트)만 안전하게 병렬화(파트B), target/source_metadata_lookup 쌍은 차단응답 의존관계로 의도적 보류.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: a828b76a (push 완료 확인, origin/main..HEAD 비어있음)
+
+### M248. 완료 - GROUP-RECORDSET-HASH-FINGERPRINT-IMPLEMENT - 그룹 레코드셋 전체 해시 비교 신규 구현
+- D01류(통계지문까지 우연히 전부 일치) 사각지대를 근본 해결하는 레코드셋 전체 해시 비교 신규 구현.
+- DB 네이티브 해시 대신 클라이언트(파이썬) 단일 정규화+해시 알고리즘 사용(M223 방언 위험 회피). opt-in 설계로 무회귀 보증, 해시 불일치 확정 시 'ok'→'diff' 재분류.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 264d92d8 (push 완료 확인, origin/main..HEAD 비어있음)
+
+### M249. 완료 - STAGE5-GRID-UNIFY-AND-STAGE1-LOCKMAX-SEQUENTIAL - 5단계 그리드 스타일 통일 + 1단계 잠금상한 상향(파트2)
+- 일치/불일치 그리드 조회여부·저장 칸 스타일 통일, 콤보축 그룹값 행높이 불일치(줄바꿈) 수정, 저장컬럼 폭 축소(190→150px), 콤보값 말줄임+툴팁.
+- 조회건수(일치10/불일치101) 정책 무변경 확인. 1단계 lockMaxMs 180000ms 적용(파트2, M247과 별도 경로).
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: ff94a822, aa15abd3 (push 완료 확인, origin/main..HEAD 비어있음)
+
+### M250. 완료 - HASH-VERIFY-ROUTE-AUTOWIRE-AND-METADATA-LOOKUP-PARALLELIZE-INVESTIGATE - 레코드셋 해시검증 자동배선 + metadata_lookup 병렬화 재검토
+- 파트A: M248의 record_hash_verify(opt-in)를 /analyze→/execute 흐름에서 자동 배선(parse_result 토큰 보관, SUM/JOIN/토큰 조건 충족 시에만 조용히 활성화).
+- 파트B: 보류됐던 target/source_metadata_lookup 병렬화를 재검토한 결과 이미 캐시로 중복조회 0건임을 확인, 병렬화 시 캐시 레이스로 오히려 악화될 위험 발견 — 현행 순차 유지로 최종 결론(코드 변경 없음).
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: d48181ab, ed7e61cc (push 완료 확인, origin/main..HEAD 비어있음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M246-PLUS-REGISTER_20260822.md
+
+### 부수 기록(M번호 아님) - JOIN 이관 레코드셋 해시 검증 미지원 - 향후 확장 후보
+- M248/M250이 자동 활성화하는 레코드셋 해시 검증은 `_derive_row_sqls`가 JOIN 이관을 명시적으로 미지원("JOIN 이관은 Phase 1-B 미지원입니다")하는 관계로, 1:1(원본→목적 단순 복사) 이관쿼리에만 적용됨.
+- JOIN으로 여러 테이블을 엮어 이관하는 경우엔 D01류 문제가 있어도 자동 감지가 안 됨(조용히 비활성화, 에러 아님).
+- JOIN 이관까지 커버하려면 `_derive_row_sqls`의 JOIN 지원 확장(원본/목적 행 단위 대응 관계를 JOIN 조건 기준으로 재정의)이 필요 — 별도 설계·구현 필요한 확장 과제로 남김, 이번 등록에서는 M번호 없이 참고 기록만.
+- 커밋: - (참고 기록 전용, 코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M246-PLUS-REGISTER_20260822.md
