@@ -9277,3 +9277,44 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 보통
 - 커밋: - (조사 전용, 코드 변경 없음)
 - 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M238-M239-REGISTER_20260821.md
+### M240. 완료 - SERVER-LOG-OVERWRITE-AND-PID-FILE-PORT-SEPARATE-FIX - 분리기동 부모/자식이 같은 logs/server.log를 동시에 열어 라인이 잘리거나 소실되던 결함 수정
+- 실측: 8/22 서버시작 로그 소실 확인 후 착수. 콘솔 출력을 logs/server_console.log로 분리, logs/server.log는 구조화 로거 전용 단일 writer로 정리(파트1).
+- logs/server.pid가 포트 무관 단일경로라 격리 인스턴스 기동 시 운영 인스턴스 PID가 덮어써지던 결함도 logs/server_{port}.pid로 분리해 해소(파트2).
+- 자체 테스트: test_virtual_cases.py 8/8, test_complex_cases.py 5/5 각 파트 커밋 전 재실행 모두 통과. py_compile 구문 오류 없음.
+- 실 서버로 8010/8011 격리 인스턴스 기동 후 운영 인스턴스(8000/8001) PID 무손상 확인.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 92b79b16(파트1), 853d50e6(파트2) (push 완료 확인, origin/main..HEAD 비어있음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\SERVER-LOG-OVERWRITE-AND-PID-FILE-PORT-SEPARATE-FIX_20260822.md
+
+### M241. 완료 - COUNT-GATE-CONNECTION-SCOPE-REUSE-FIX - /count-gate/range-diagnosis가 "저비용 진단" 문서화와 달리 쿼리마다 신규 물리 커넥션을 열던 결함 수정
+- 기존 /diagnosis/analyze 패턴 그대로 재사용해 request_connection_scope로 감쌈. 물리 커넥션 10회→2회 실측 감소, 진단 결과값 dict 비교 완전 동일 확인.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 3196a797 (push 완료 확인, origin/main..HEAD 비어있음)
+- 참고: 완료보고 원문(커밋 메시지 "fix(routes): /count-gate/range-diagnosis 를 request_connection_scope 로 감싸 쿼리당 신규 커넥션 open 제거")
+
+### M242. 완료 - STALE-ROLLBACK-JSON-PLAINTEXT-PASSWORD-CLEANUP - 2026-08-06 SQLite 이관 전 롤백용 JSON 사본이 현재 DB와 어긋나 있고 평문 비밀번호를 담고 있던 문제 해소
+- db_presets_src/tgt.json, auth_users.json 세 파일 삭제. kill-switch 코드(현재 프로덕션 비활성, 테스트 커버리지 0건 확인)는 무변경.
+- file 모드로 전환돼도 "낡은 데이터로 조용한 롤백" 대신 "빈 값으로 즉시 눈에 띄는 실패"로 바뀌어 divergence 위험과 평문노출을 코드 0줄 변경으로 동시 해소.
+- git 이력 확인: 세 JSON 파일 `git log --all` 결과 0건, 평문 비밀번호가 커밋 이력에 남은 적 없음 확인.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 1e72509c (주석 변경 2파일만, pre-commit 비밀번호 스캔 통과, push 완료 확인)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\STALE-ROLLBACK-JSON-PLAINTEXT-PASSWORD-CLEANUP_20260822.md
+
+### M243. 조사완료(전제 반증, 미구현) - BATCH-DIRECT-FORCE-RETRY-PORT-FROM-INDIVIDUAL-PATH
+- 지시서 전제("개별 경로에 PK 유일성 확인불가 시 DIRECT 강행 안전판이 있다")가 코드 조사 결과 사실이 아님을 확인. 참조된 커밋 5fbacf88은 PK 유일성이 아니라 숫자PK 여부라는 별개 신호를 다룸.
+- 존재하지 않는 안전장치를 "이식"한다는 명목으로 신규 우회 로직을 발명하면 M143(OR통합 단일스캔)의 정합성 전제(키 유일성)를 깨 fan-out 오귀속 위험이 생기므로 구현하지 않음(코드 변경 없음). 후속 A/B안 제시.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (조사 전용, 코드 변경 없음)
+
+### M244. 조사완료(기각) - BATCH-FALLBACK-COUNT-VERIFICATION-PARALLELIZE-INVESTIGATE
+- M243의 A안(배치 폴백 병렬화) 실측 결과 완전 기각: 순차 13/13 성공(2153.51초) vs 병렬 시 13개·3개 그룹 모두 0/N 완전 실패.
+- Oracle 신규 연결 동시 오픈으로 인한 자원 경합 강력 시사(120초 근방 균일 타임아웃). "미미한 개선 아닌 완전 파괴적 악화"로 코드 변경 없이 기각.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (조사 전용, 코드 변경 없음)
+
+### M245. 결정 기록 - M143 배치저장 저선택도 그룹 속도 저하 - A안(신규 COUNT검증 이식)/B안(현행 순차 수용) 중 B안(현행 유지)으로 최종 결정
+- 근거: 근본원인은 코드가 아니라 그룹컬럼 무인덱스(asis 49개 테이블 중 4개·8.2%에서만 실제 영향, SYSTEMWIDE-LOW-SELECTIVITY-GROUP-SURVEY 확인). A안도 B안도 이 근본원인을 해결 못 하며, 정합성 핵심 엔진에 신규 설계 리스크를 지금 감수할 실익이 낮다고 판단.
+- 진짜 해법은 DBA에게 그룹컬럼 인덱스 추가 요청(운영 테이블 DDL이라 이 도구 범위 밖, 별도 논의 필요) — 사용자에게 안내됨, 미착수.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (결정 기록, 코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M240-PLUS-REGISTER_20260822.md
