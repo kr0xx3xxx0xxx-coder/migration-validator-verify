@@ -9371,3 +9371,20 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - candidate_engine.py/encrypted_column_policy.py는 계속 nxDTV 내부에서 발전시키다가, 실제 사용 패턴이 성숙하면 그때 분리 검토(기존 SQLite→MariaDB 미이관 결정과 동일한 원칙).
 - 커밋: - (참고 기록 전용, 코드 변경 없음)
 - 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M258-REGISTER_20260823.md
+
+### M259. 완료(결함 발견, 미수정) - ORACLE-100COL-10K-FULLVALIDATION-FIXTURE-CREATE - 100컬럼x1만행 Oracle 실측 픽스처 생성 + 전수검증 조기중단 결함 발견
+- 100컬럼x1만행 Oracle 실측 픽스처(MV_WIDE100_SRC/TGT, PK 단일 숫자, 의도적 불일치 400건+원본단독 100건=5%) 생성.
+- 전수검증(EXACT_DIFF_FULL) 실측 완료: 전체 파이프라인 8.0초, 5만행 게이트 정상 PASS, 컬럼수 무관 재확인.
+- 중대 결함 발견: PK가 유일 네이티브 키로 판정되면 그룹 드릴다운용 조기중단 임계(early_stop_abs, 기본 101, PER-GROUP-RECORD-DISPLAY-SINGLE-THRESHOLD 용도)가 EXACT_DIFF_FULL 오케스트레이션 재사용 구조상 그대로 적용돼, 누적 불일치가 101건에 도달하는 순간 테이블 전체를 안 보고 조기종료(EARLY_STOPPED)하며 그 부분결과를 최종결과처럼 반환함 - "전수검증은 테이블 전체를 행 단위로 비교" 정의 위반.
+- 정책 clamp 상한이 500이라 불일치 500건 초과 테이블은 정책 조정으로도 완주 불가능(구조적 한계). API 레벨 우회 경로도 없음(FullExactDiffStartRequest에 early_stop_abs 전달 불가).
+- 코드 수정 안 함(완성 모듈), 실측은 정책값 임시상향(100→500)+즉시원복으로 우회 측정.
+- 우선순위: 높음 - 전수검증이 정의(테이블 전체 비교)를 어기고 있어, 이 상태로 실무에 쓰이면 "전수검증 통과"라는 잘못된 확신을 줄 위험이 있음.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: a6bae5bf (push 완료 확인, origin/main..HEAD 비어있음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M259-REGISTER-AND-PUSH_20260823.md
+
+### 부수 기록(M번호 아님) - EXACT_DIFF_FULL 조기중단 결함 후속 설계 메모
+- 근본 해결 방향 후보: EXACT_DIFF_FULL 전용 별도 파라미터로 early_stop_abs를 무제한(또는 매우 큰 값)으로 강제 지정 - 그룹 드릴다운(개별/일괄검증)의 101건 표시상한 정책과 완전히 분리된 별도 값을 갖도록 설계 필요.
+- exact_diff_full.py가 "전량 재사용"하는 오케스트레이션 설계 자체를 다시 볼 필요가 있는지도 검토 대상.
+- 커밋: - (참고 기록 전용, 코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M259-REGISTER-AND-PUSH_20260823.md
