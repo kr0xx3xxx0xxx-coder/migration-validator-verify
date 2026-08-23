@@ -9357,6 +9357,55 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 커밋: - (참고 기록 전용, 코드 변경 없음)
 - 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M246-PLUS-REGISTER_20260822.md
 
+### M251. 완료 - D01-HASH-DETECTION-NOT-TRIGGERED-DIAGNOSE - D01 그룹 레코드셋 해시 배지 미표시 근본원인 진단
+- D01 그룹에서 레코드셋 해시 배지가 안 뜨던 1차 원인을 서버 미재기동(11시간 전 기동, 커밋 3건 미반영)으로 확정, 재기동 후 자동배선 정상 발동(record_hash_checked=true) 확인.
+- 부수적으로 8001/8020 등 다른 서버 인스턴스가 같은 라이브 데모 스키마에 반복 접근해 데이터가 조사 시점마다 바뀌는(데이터 드리프트) 문제도 짚어냄.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: (코드 변경 없음, 서버 재기동만)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M251-PLUS-REGISTER_20260823.md
+
+### M252. 완료 - STAGE5-MATCH-SAVE-BUTTON-DISABLED-REGRESSION-AND-ROWHEIGHT-FIX - 일치 그룹 저장 버튼 비활성 회귀 의심 재확인 + 조회여부 행높이 수정
+- 일치 그룹 저장 버튼 "해당없음" 고정은 회귀가 아니라 940be987부터 3중(서버 필터/클라이언트 필터/버튼 disabled)으로 일관된 의도된 설계임을 git blame으로 확정(일치 그룹 샘플조회는 경량 미리보기라 detail_run_id 미생성 → 저장 구조적 불가) — 보류·문서화만.
+- 조회여부 칸 행높이 불일치(불일치 항상 2줄 vs 일치 미확인 시 1줄)는 실제 회귀로 확인해 1줄 수정.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 16b65af8 (push 완료 확인, origin/main..HEAD 비어있음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M251-PLUS-REGISTER_20260823.md
+
+### M253. 완료 - STDDEV-FINGERPRINT-TOLERANCE-POLICY-VERIFY - 지문 컬럼 허용오차 정책 미적용 의심 재확인
+- 지문(MIN/MAX/AVG/STDDEV) 컬럼도 SUM과 동일한 NUMERIC-TOLERANCE-POLICY(기본 허용오차 1e-9)를 그대로 통과하는 설계임을 커밋 이력+오프라인 재현(6케이스)으로 확정.
+- 5e-5 오차 사례는 기준(1e-9)보다 5만 배 커서 정상적으로 "의심" 판정된 것 — 정책 미적용 버그 아님, 코드 수정 없음. 허용오차 값 자체의 적절성은 별도 검토 과제로 남김.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: (코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M251-PLUS-REGISTER_20260823.md
+
+### M254. 완료 - FINGERPRINT-HIDE-AND-VERDICT-COLUMN-MOVE-SEQUENTIAL - 지문 원본 숫자 완전 숨김 + 판정 컬럼 위치 이동
+- 파트1: 지문(MIN/MAX/AVG/STDDEV) 원본 숫자를 일치/불일치 모든 그룹에서 완전히 숨김(배지만 유지) — 레코드셋 해시(M248)가 근본 해결하므로 사람이 숫자 직접 대조할 필요성 자체가 사라졌다는 최종 결정 반영.
+- 파트2: '판정' 컬럼을 GROUP BY 축 다음에서 '조회여부' 바로 앞으로 이동. 4가지 케이스(완전일치/의심/불일치확정/확정불일치) 스크린샷 검증.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 파트1 54fda70e / 파트2 66220e26 (push 완료 확인, origin/main..HEAD 비어있음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M251-PLUS-REGISTER_20260823.md
+
+### M255. 완료(핵심 반전) - D01-HASH-BADGE-STILL-MISSING-LIVE-RECHECK - D01 배지 미표시 2차 재현 재조사
+- D01 배지 미표시가 2차로 재현된 것을 재조사한 결과, **배지 로직에는 결함이 없었고 D01은 실제로 완전 일치 상태**(150행 전수 DB 대조로 확정)임을 밝힘.
+- 육안으로 본 "한쪽에만 있는 레코드"는 일치 그룹 "참고용 샘플" 조회가 원본/목적을 정렬 없이 완전히 독립적으로 조회해 서로 다른 표본이 뽑히는 표시 결함(착시)이었음을 재현 스크립트로 100% 일치 확인. 임시 조치로 "표본 외" 라벨+안내문 추가.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: f91ad7bf (push 완료 확인, origin/main..HEAD 비어있음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M251-PLUS-REGISTER_20260823.md
+
+### M256. 완료(근본해결) - STAGE5-MATCHED-SAMPLE-PK-DRIVEN-JOIN-FIX - 일치 그룹 표본 불일치 착시 근본 해결
+- M255가 임시 안내문으로 덮었던 표본 불일치 착시를 근본 해결: 원본에서 그룹조건 유지한 채 PK N건 조회 → 그 PK 값을 목적 조회의 WHERE ... AND PK IN (...) 조건으로 그대로 사용(그룹조건도 원본/목적 양쪽 유지).
+- PK 있는 테이블은 착시가 구조적으로 불가능해져 M255의 임시 안내문 제거, PK 없는 테이블은 기존 방식+안내문 그대로 유지. Oracle 실측(EXPLAIN PLAN)으로 PK IN 조회가 인덱스 유니크스캔이라 대용량에도 안전함을 확인.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: dbfaaaee (push 완료 확인, origin/main..HEAD 비어있음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M251-PLUS-REGISTER_20260823.md
+
+### M257. 완료(운영정책) - STALE-TEST-PORTS-8001-8020-CLEANUP-AND-POLICY - 유휴 테스트 포트 정리 + 운영 원칙 명문화
+- 8000만 실제 운영 서버이고 8001/8020 등은 세션이 검증용으로 띄운 테스트 인스턴스라는 원칙을 확정, 유휴 상태 확인 후 종료(딸린 sqlglot 격리 워커 4개도 watchdog으로 자동 소멸 확인).
+- CLAUDE.md에 "테스트 포트는 그 지침 안에서 직접 종료, 사용자에게 판단 묻지 않는다" 원칙 명문화 — 앞으로 이런 상황에서 사용자에게 종료 여부를 되묻는 비효율 재발 방지.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 2ce19d50 (push 완료 확인, origin/main..HEAD 비어있음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M251-PLUS-REGISTER_20260823.md
+
 ### M258. 완료(부분) - FULL-VALIDATION-UI-WIRE-AND-WIDE-TABLE-100COL-TEST - 전수검증(EXACT_DIFF_FULL) 백엔드를 화면("전수검증" 메뉴)에 연결
 - 새 폼 없이 개별검증 전역 상태(_analyzeData/_lastCountResult) 재사용, 진행표시는 기존 그리드 타이머 재사용(신규 폴링 없음).
 - 부수 발견: 결과 렌더 함수의 도달불가 죽은 분기(BLOCKED 전용, 서버가 항상 ok:false와 함께 주므로 무의미) 제거.
