@@ -9546,3 +9546,61 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 2026-08-28 세션 중 Claude Code가 "환경확인용 no-op"으로 자체 오판해 실제로는 파괴적 삭제 명령(`rm -f`)을 실행한 사고 발생, Anthropic에 버그 신고 완료(접수 d9c792a4-b36d-4901-b249-263335746c61) - M270 파트A가 재발방지 규칙으로 대응.
 - 커밋: - (참고 기록 전용, 코드 변경 없음)
 - 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M267-PLUS-REGISTER_20260828.md
+
+### M273. 조사완료 - BATCH-VALIDATION-EXCEL-UPLOAD-FORMAT-INVESTIGATE - 일괄검증 엑셀 업로드 지원 양식 및 개별검증 파이프라인 재사용 확정
+- 일괄검증 엑셀 업로드가 지원하는 3가지 양식(query/ops/new)과 필수·선택 컬럼을 코드 근거로 확정.
+- 각 행이 개별검증과 100% 동일한 core 파이프라인을 재사용함(일괄 전용 로직 없음)을 확인해, 오늘 개별검증에서 확인된 JOIN/컬럼목록생략/SUM없는 코드성테이블 처리가 전부 자동 적용됨을 확정. GROUP BY/SUM은 엑셀 컬럼이 아니라 개별검증 자동 DEFAULT 추천을 그대로 씀도 확인.
+- `samples/batch_input_template.xlsx`가 비활성화된 legacy 15컬럼 양식이라 현재 파서로 올리면 즉시 실패하는 문서-코드 세대차이 발견(제안만, 미수정).
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M273-PLUS-REGISTER_20260828.md
+
+### M274. 완료 - CLIENT-INSERT-NO-COLLIST-RECLASSIFY-TO-CRITICAL - 클라이언트 INSERT 컬럼목록 생략 판정 WARNING→CRITICAL 재분류
+- 클라이언트(WARNING)와 서버(CRITICAL 차단)가 INSERT 컬럼목록 생략 SQL을 다르게 판정하던 불일치(INSERT-COLUMNS-REQUIRED-BLOCKING-VS-WARNING-BROWSER-VERIFY가 실 브라우저로 확정)를 클라이언트를 CRITICAL로 재분류해 해소. 안내 문구도 서버 문구로 통일.
+- worktree(--detach)로 수정 전/후 실 브라우저 대조(analyze_api_called: true→false), 다른 WARNING 사유(SELECT_STAR) 무회귀 확인.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 073f699f (push 완료 확인, origin/main..HEAD 비어있음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M273-PLUS-REGISTER_20260828.md
+
+### M275. 조사완료 - BATCH-VALIDATION-MISSING-COMMANDBAR-INVESTIGATE - 일괄검증 커맨드바 부재 이유 1차 조사
+- 개별검증 하단 커맨드바가 일괄검증엔 없는 이유를 조사, 1차 결론 "의도된 설계 차이, 이미 대체 UI 있음"으로 결론(단, 이 결론은 M276 재조사로 일부 정정됨).
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M273-PLUS-REGISTER_20260828.md
+
+### M276. 조사완료(전제 정정) - BATCH-VALIDATION-TAB-LEVEL-STATUS-SUMMARY-RECHECK - M275 결론 재검토, 미세 실공백 2건 발견
+- M275의 "이미 대체 UI 있음" 결론을 재검토, 대체 UI 4종을 탭전체/개별쿼리/혼합형으로 재분류. 큰 틀의 "탭 전체 요약 없음" 공백은 없으나(5단계 배지는 100개 쿼리 규모에서도 개념 유지됨을 실측), 미세한 실공백 2건(다음단계 안내 수동적, 연결상태 갱신 트리거 1곳뿐) 발견 - M277로 이어짐.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M273-PLUS-REGISTER_20260828.md
+
+### M277. 완료 - BATCH-VALIDATION-NEXTSTEP-PASSIVE-AND-CONNSTATUS-REFRESH-FIX - 일괄검증 다음단계 안내 상시노출 + 연결상태 갱신 트리거 보강
+- M276이 발견한 공백 2건 수정. 파트1: 잠긴 탭 title에 사유 상시 노출(최초렌더 + in-place 갱신 경로 둘 다 수정 - 실 브라우저 재현 중 in-place 경로 누락을 추가 발견해 같이 수정).
+- 파트2: `refreshBatchSteps()`에 `batchUpdateConnStatus()` 호출 추가(호출부 10곳 전수 확인, 폴링 루프 미포함 성능 영향 없음 확인).
+- CLAUDE.md 27번 규칙(실 브라우저 증적) 준수, DOM title 속성 직접 추출로 대체수단 사용 사실 명시.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 7029b88c (push 완료 확인, origin/main..HEAD 비어있음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M273-PLUS-REGISTER_20260828.md
+
+### M278. 조사완료(설계안) - BATCH-VALIDATION-AUTO-STAGE-PROGRESSION-INVESTIGATE-AND-DESIGN - 일괄검증 2단계 COUNT 병렬화 선행조건 설계
+- 일괄검증 5단계 중 2단계(COUNT)만 병렬 0·순차 for루프임을 확인(4단계는 이미 비동기+병렬). 5,000건 규모에서 2단계가 구조적으로 17~50분 블로킹 위험(실측 아닌 구조적 근거로 명시).
+- 사람개입 필요 지점 4가지(GROUP BY/SUM 수동조정, 위험도 게이트, profile 미수집, COUNT불일치 차단) 확인해 "3→4는 완전자동 아닌 원클릭 확인" 등 안전한 자동화 설계안 제시, 2단계 병렬화를 선행조건으로 명시 - M279로 이어짐.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M273-PLUS-REGISTER_20260828.md
+
+### M279. 완료 - BATCH-COUNT-PRECHECK-ASYNC-PARALLEL-IMPLEMENT - 일괄검증 COUNT 사전검증 비동기+제한 병렬 전환
+- M278이 선행조건으로 지목한 2단계 병렬화 구현. 지시서가 지목한 대상(count_precheck_service.py)이 실제로는 어떤 버튼에서도 호출 안 되는 죽은 코드임을 착수 전 확인, 진짜 실행 경로(batch_count_only_service)로 대상을 정정해 진행.
+- 4단계 기존 스케줄러(ValidationScheduler/ResourceBudget) 그대로 재사용, 환경변수 플래그로 즉시 롤백 가능. 신규 테스트 8건(순차/병렬 결과 동일성 등) 통과.
+- 실 브라우저 검증은 DB 프리셋 부재로 "화면 동작만 재현, COUNT 값 정합성은 실검증 아님"으로 명시.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: ce3b8d6d (push 완료 확인, origin/main..HEAD 비어있음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M273-PLUS-REGISTER_20260828.md
+
+### M280. 조사완료(설계안) - BATCH-VALIDATION-UNIFIED-BOTTOM-PROGRESSBAR-DESIGN - 일괄검증 하단 통합 진행바 설계
+- "일괄검증에 이미 진행률바가 여러 개 있다"는 M276 전제를 재검증해 정정: 실제로 살아있는 진행 표시는 텍스트 1곳(mvRunLock)뿐, 나머지 2곳은 죽었거나 도달불가 잔존 코드.
+- 개별검증의 기존 통합진행바 선례(CMDBAR-HEIGHT-3X-UNIFIED-PROGRESS-IMPLEMENT) 설계원칙을 그대로 적용한 배치 전용 하단 진행바 설계안 제시 - 단계별 근거유무에 따라 %bar/counter/indeterminate 차등 적용, 과거 크로스탭 유출 사고(M149) 근거로 mvCmdBar 공유 대신 별도 컴포넌트 권고.
+- 2단계 %표시는 M279 완료로 선행조건 충족, 3단계는 별도 배선(mvRunLock.begin 연결) 선행 필요.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M273-PLUS-REGISTER_20260828.md
