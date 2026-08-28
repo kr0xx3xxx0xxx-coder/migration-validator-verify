@@ -9495,3 +9495,54 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 보통
 - 커밋: - (코드 변경 없음, 조사·검증만)
 - 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M260-PLUS-REGISTER_20260823.md
+
+### M267. 조사·설계완료 - HASH-VERIFY-NO-INSERT-COLLIST-COVERAGE-INVESTIGATE - INSERT 컬럼목록 생략 이관쿼리의 해시검증 사각지대 실위험도 확인
+- INSERT 컬럼목록 생략 이관쿼리의 해시검증 사각지대(M263이 tgt_conn=None 고정으로 남긴 것) 실위험도 확인. UI가 이 형태를 CRITICAL 아닌 WARNING으로 통과시켜 발생 가능성을 배제할 수 없음을 확인.
+- tgt_conn 미전달 사유를 코드로 직접 검증 - 반쪽 배선 시 원본/목적 양쪽 컬럼이 조용히 NULL 인코딩되어 false PASS 위험이 구체적으로 있음을 확인해 M263의 보수적 선택이 정확했음을 증명.
+- 이미 검증된 안전판정 함수(positional_insert_cols, 16개 테스트)를 먼저 호출해 조건부 활성화하는 설계안 제시(컬럼목록 있는 흔한 케이스는 추가 DB왕복 없음). 구현은 별도 승인 필요.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (코드 변경 없음, 조사·설계 문서만)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M267-PLUS-REGISTER_20260828.md
+
+### M268. 조사·설계완료 - FULL-VALIDATION-LOAD-POLICY-P0-DESIGN - 전수검증 5만행 하드상한을 크기등급 정책으로 대체하는 설계
+- 전수검증 5만행 하드상한을 크기등급 정책으로 대체하는 설계. 5만행 근거가 성능실측이 아니라 별개 목적(엔진전환 임계값)에서 빌려온 값임을 확인. "원본>목적 비대칭 보수정책"이 2026-06-03 기설계 문서에 이미 있던 원칙임을 확인.
+- 크기등급 개념이 이미 이 프로젝트에 2개 모듈(size_strategy.py, table_size_policy_service.py, 15개 파일 실사용)로 실전 배선돼 있어 신규개발이 아니라 세 번째 재사용 문제로 축소됨을 확인. 예상 400~600줄, 신규 알고리즘 0개.
+- Phase1 착수 전 4가지 승인 필요 사항(50만~500만행 실측, 136초 병목 재현여부 별도실측, 설계안 승인, 완성모듈 수정 승인) 명시.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (코드 변경 없음, 조사·설계 문서만)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M267-PLUS-REGISTER_20260828.md
+
+### M269. 완료(근본해결) - ORACLE-NUMBER-DECIMAL-OUTPUT-TYPE-HANDLER-IMPLEMENT - Oracle NUMBER→float 정밀도 손실 근본 해결
+- Oracle NUMBER→float 정밀도 손실(대형금액 1억 이상에서 AVG/SUM 최대 2×10⁻⁸ 오차, 기준 1e-9의 12~20배)을 OracleAdapter.connect() 1줄(outputtypehandler로 NUMBER→Decimal 강제 수신)로 근본 해결. exact_diff TO_CHAR 경로 무충돌, VARCHAR2/DATE 등 타 타입 무영향 실측 확인.
+- 범위 밖 발견: oracledb 4.0.1의 fetchall()+커스텀var 결합 시 프로젝트 튜닝값(arraysize=5000)에서 결정적 실패(20/20) 결함을 우연히 발견 - 그대로 배선했으면 프로덕션 간헐 실패 유입 위험. 드라이버 4.0.2 업그레이드로 40/40 해소 확인, requirements.txt 갱신.
+- NUMBER 비중 높은 와이드 테이블에서 최대 1.8배 성능저하 정직 명시. 관련 24개 파일 413건 통과.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: d8d01548 (push 완료 확인, origin/main..HEAD 비어있음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M267-PLUS-REGISTER_20260828.md
+
+### M270. 완료 - CLAUDE-MD-DESTRUCTIVE-FILE-DELETE-SAFEGUARD-AND-BACKUP-ROTATION - 파일삭제 확인규칙 강화 + DB 백업 로테이션 스크립트 추가
+- 직전 세션이 "확인용 no-op"으로 자체 오판해 rm -f로 DB 백업(db/migration_validator.db.bak_20260809)을 영구 삭제한 사고(운영 영향 없음, 중복 스냅샷 소실 수준으로 확정) 재발방지.
+- 파트A: CLAUDE.md에 "자체판단 삭제 절대 금지, db/ 하위 백업패턴 명시 배제" 규칙 추가.
+- 파트B: 기존 백업생성이 1회성 스크립트 부수효과뿐임을 확인 후 표준 백업 로테이션 스크립트(scripts/db_backup_rotate.py) 신설 - 자기가 만든 표준명명 패턴만 정규식으로 정확히 매칭해 삭제(타 패턴 절대 미삭제 테스트 포함 신규 6건).
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: f8b8e779 (push 완료 확인, origin/main..HEAD 비어있음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M267-PLUS-REGISTER_20260828.md
+
+### M271. 완료 - DB-BACKUP-ROTATE-CP949-CONSOLE-ENCODING-FIX - 백업 스크립트 Windows CP949 콘솔 한글 출력 깨짐 수정
+- M270 백업 스크립트 실행 시 Windows CP949 콘솔에서 한글 메시지가 깨지던 문제, 기존 프로젝트 표준 패턴(web_server.py의 stdout/stderr UTF-8 reconfigure)을 그대로 재사용해 6줄로 수정.
+- 로직 무변경, 실제 chcp 949 콘솔로 전/후 대조 확인.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 3089af3b (push 완료 확인, origin/main..HEAD 비어있음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M267-PLUS-REGISTER_20260828.md
+
+### M272. 조사완료(정리불필요) - SIZE-THRESHOLD-REGISTRY-ORBIT-DEVIATION-CLEANUP - detail_stream_min_rows의 size_threshold_registry.py 편입 필요성 조사
+- M268이 "궤도 이탈"로 지목한 detail_stream_min_rows를 size_threshold_registry.py에 등록해야 하는지 조사, 결론 "정리 불필요"(코드 변경 없음).
+- 레지스트리 12개 축은 override 불가 평문 상수의 단순 재배치(등급 3단계 이상 분류 전용)인 반면, detail_stream_min_rows는 이미 정책으로 override 가능한 자체 접근함수를 가진 값이고 목적도 이진 전환분기점 하나라 성격이 다름을 실측 비교로 확인 - 억지 편입 시 이중 단일출처 혼선을 새로 만들 뻔했음을 지적.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M267-PLUS-REGISTER_20260828.md
+
+### 부수 기록(M번호 아님) - Claude Code 자체판단 파괴적 삭제 사고 - Anthropic 버그 신고 접수
+- 2026-08-28 세션 중 Claude Code가 "환경확인용 no-op"으로 자체 오판해 실제로는 파괴적 삭제 명령(`rm -f`)을 실행한 사고 발생, Anthropic에 버그 신고 완료(접수 d9c792a4-b36d-4901-b249-263335746c61) - M270 파트A가 재발방지 규칙으로 대응.
+- 커밋: - (참고 기록 전용, 코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M267-PLUS-REGISTER_20260828.md
