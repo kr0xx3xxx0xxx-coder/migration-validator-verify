@@ -9604,3 +9604,92 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 보통
 - 커밋: - (코드 변경 없음)
 - 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M273-PLUS-REGISTER_20260828.md
+
+
+### M281. 완료 - BATCH-EXCEL-TEMPLATE-AND-SPEC-DOC-CLEANUP - 배치 업로드 샘플 템플릿/스펙문서 세대 정합화
+- 낡은 batch_input_template.xlsx(비활성 15컬럼 legacy 양식)를 화면 실제 다운로드 API(_build_query_template())를 직접 호출해 재생성 - 단일 출처 원칙 확립, 향후 화면 양식 변경 시 자동 동기화.
+- BATCH_EXCEL_INPUT_SPEC.md 상단에 "레거시 비활성" 배너 추가, target_where 안내 문구 보강.
+- 재생성 템플릿과 충돌하던 기존 테스트 1건을 새 포맷 기준으로 갱신(지침 승인 작업의 자연스러운 결과로 범위 내 처리).
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: ace3b568 (push 완료 확인, origin/main..HEAD 비어있음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M281-PLUS-REGISTER_20260829.md
+
+### M282. 조사완료 - BATCH-UPLOAD-MIGRATION-SQL-TEXT-PERSISTENCE-INVESTIGATE - 업로드 이관쿼리 SQL 원문 영구저장 경로 조사
+- 업로드된 이관쿼리 SQL 원문이 mv_upload_row_result.migration_sql에 영구 저장됨을 확정(엑셀 원본 파일 저장과 별개 경로).
+- 재업로드해도 안 지워지고 current_yn=0 + replaced_by_batch_id로 이력만 남으며, 사용자가 명시적으로 "그룹 hard reset"할 때만 실제 삭제됨을 확인.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M281-PLUS-REGISTER_20260829.md
+
+### M283. 조사완료(설계안) - BATCH-COUNT-MISMATCH-SEPARATE-TRACK-INVESTIGATE-AND-DESIGN - COUNT 불일치 건 별도 트랙 조사
+- COUNT 불일치 건이 이미 3중으로 조회 가능(전용 버튼/상태필터/결과요약)하고 "COUNT 불일치 포함 고위험" 우회 옵션도 이미 존재함을 확인(자동체이닝 M279는 이 위험옵션을 안 씀을 재확인).
+- 진짜 공백은 "불일치 건만 골라 재실행" 하나뿐 - 재실행 판정이 COUNT 여부와 무관(row_id 변경여부만 봄)해 아무리 재실행해도 불일치 건이 안 돌아가는 구조.
+- A안(기존 필드로 "이 목록만 재실행" 버튼 추가, 최소침습) 권장.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M281-PLUS-REGISTER_20260829.md
+
+### M284. 조사완료(결정 제안) - HASH-VERIFY-NO-INSERT-COLLIST-DEAD-CODE-DECISION - 해시검증 컬럼목록 자동추론 도달불가 판정
+- M267(위치기준 자동추론) 구현이 실제로는 서버 차단(check_sql_pre_parse, M267보다 1.5개월 먼저 존재)이 항상 먼저 막아 workflow_token조차 발급 안 되는 완전한 도달불가 죽은 코드임을 확정.
+- 개별/일괄 양쪽 다 우회 경로 없음(일괄은 서버가 행 단위로 같은 함수 직접 재호출해 오히려 더 이른 지점에서 차단).
+- 제거 권장(explainability·테스트가능성 관점)이나, 최종 결정은 M285(BATCH-VALIDATION-PARITY-WITH-INDIVIDUAL-GAP-AUDIT)로 이어져 재검토됨.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M281-PLUS-REGISTER_20260829.md
+
+### M285. 조사완료(핵심 재확인) - BATCH-VALIDATION-PARITY-WITH-INDIVIDUAL-GAP-AUDIT - 일괄검증 vs 개별검증 격차 감사
+- "일괄검증이 개별검증보다 뒤처져있다"는 우려를 재검증. 핵심 파이프라인(SQL파싱/후보추천/통계SQL/COUNT/실행비교)은 batch_single_core_wrapper.py가 개별검증과 100% 동일 함수를 그대로 호출함을 확인("복사해서 루프" 구조가 이미 존재) - 전면 재구축 불필요로 반박.
+- 유일한 진짜 격차는 레코드셋 해시 검증(M248/M263) 자동배선뿐 - workflow_token(HTTP 요청 전용)에 의존해 같은 프로세스 직접호출 구조인 배치에서 원천적으로 발동 불가.
+- 최소 설계: 해시검증 배선을 workflow_token 의존에서 순수함수로 분리해 개별 facade execute 직전 1곳에만 심는 안(예상 변경 3~4개 파일) 제시.
+- M284가 인용한 근거 코드 일부가 이미 죽은 legacy였음도 재확인(단, M284 최종 결론 자체는 우연히 유효).
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M281-PLUS-REGISTER_20260829.md
+
+### M286. 조사완료 - BATCH-VALIDATION-RESULT-JUDGEMENT-PERSISTENCE-INVESTIGATE - 검증 판정 결과 저장 구조 조사
+- 검증 판정 결과가 SQL원문(M282, mv_upload_row_result)과 완전히 별개 테이블(batch_wrapper_result)에 저장됨을 확정.
+- 핵심 발견: 이 테이블은 일치/불일치 구분 없이 둘 다 {matched,diff,src_only,tgt_only} 정수 카운트 요약만 저장 - 개별검증처럼 실제 불일치 ROW 원본 데이터를 저장하는 경로가 일괄검증엔 존재하지 않음.
+- 자동저장 설계(M290/M291)의 핵심 전제가 됨.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M281-PLUS-REGISTER_20260829.md
+
+### M287. 조사완료(설계안) - BATCH-EXCEL-ERROR-MARKED-REDOWNLOAD-FEATURE-INVESTIGATE - 업로드 오류행 재다운로드 기능 조사
+- "업로드 오류행 재다운로드" 기능이 과거 실제 구현됐고(최초 "오류행만 추출" 방식) 6/17 의도적으로 "전체워크북+주석컬럼" 방식으로 전환(서식/수식/재업로드 파일명 정합 보존 목적)돼 현재도 라이브임을 git 이력으로 확정. AutoFilter로 "오류만 보기" 이미 가능.
+- 유일한 진짜 갭은 REQUIRED_HEADER_MISSING 등 치명적 파싱오류 5종(행 파싱 자체가 안 돼 이 방식 적용 불가, 화면 텍스트만 존재)뿐 - 옵션1(전용 최소 안내 파일) 권장, M290으로 구현됨.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M281-PLUS-REGISTER_20260829.md
+
+### M288. 조사완료(결함 발견) - BATCH-AUTO-SAVE-RISK-GATED-SUMMARY-DESIGN - 일괄검증 대량 자동저장 설계 1차
+- 일괄검증 대량(5,000건) 자동저장 설계 1차. 긴급 결함 발견: 자동진행 위험도 게이트(파트3)가 필드명 불일치(risk_level vs execution_risk_level)로 HIGH/VERY_HIGH 차단이 전혀 작동하지 않는 상태임을 발견 - M289로 즉시 수정됨.
+- 핵심 재정의: 기존 "위험도"가 불일치 심각도가 아니라 "저장 비용(DB 부하) 등급"임을 확인, 명칭·설계 전제 재정의 필요 제시.
+- 코드 수정 없음(보류·문서화 우선), M291로 심화 조사됨.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M281-PLUS-REGISTER_20260829.md
+
+### M289. 완료(긴급 결함 수정) - BATCH-AUTORUN-RISK-GATE-FIELDNAME-BUG-FIX - 자동진행 위험도 게이트 필드명 버그 수정
+- M288이 발견한 필드명 버그를 1줄 수정(p.risk_level → p.execution_risk_level).
+- 재발방지: 파트3 완료 시 자체검증 스크립트가 실제 API와 다른 가짜 필드명으로 테스트해 버그를 놓쳤던 원인까지 규명, 이번엔 진짜 스키마로만 재실측.
+- worktree로 BEFORE(run-wrapper 호출 1회, 차단실패 재현)/AFTER(호출 0회, 정상 차단) 실 브라우저 대조.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 21832829 (push 완료 확인, origin/main..HEAD 비어있음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M281-PLUS-REGISTER_20260829.md
+
+### M290. 완료 - BATCH-HEADER-MISSING-GUIDE-FILE-IMPLEMENT - 업로드 치명적 파싱오류 안내 Excel 다운로드 신설
+- M287 옵션1 그대로 구현. REQUIRED_HEADER_MISSING 등 5종 치명적 파싱오류에 1시트 안내 Excel(기대헤더+오류원인+재업로드안내) 다운로드 신설, GET /batch/upload-fatal-error-guide(무상태, batch_id 없어도 즉석생성).
+- 지침이 지목한 "일괄검증 화면"이 실제로는 파일입력 자체 없는 죽은 경로임을 재확인해 진짜 활성 채널(quAutoUpload, "데이터 준비>이관쿼리 업로드")부터 정확히 수정.
+- 5종 전부 실제 재현+다운로드+openpyxl 재오픈 내용검증까지 완료.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: fb5b2488 (push 완료 확인, origin/main..HEAD 비어있음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M281-PLUS-REGISTER_20260829.md
+
+### M291. 완료(심층설계) - BATCH-AUTO-SAVE-REDESIGN-STORAGE-COST-TIER - 일괄검증 자동저장 저장비용 등급 재설계
+- M288 후속 심화 설계. 재사용 난이도 하향: agg_diff_prepare/prepare-batch가 HTTP·화면상태 의존 없는 순수 함수라 배치가 별도 배선 없이 직접 함수호출 가능함을 확인(서버계약 승격 불필요, 선행설계 최대 우려사항 해소).
+- 비용 낙관 반박: M143(다중그룹 1회스캔) 최적화가 이 환경 테이블의 80%(숫자단일PK)에서 미발동하고, 발동하는 20%조차 50M행 실측상 이득 7.3%뿐임을 재확인 - "저장이 쌀 것"이라는 기대 근거없음.
+- cost cap 필수화: 기존 위험도(테이블규모×GB유무)가 "불일치 그룹 수"를 전혀 안 보아, 같은 등급도 그룹1개 vs 40개면 40배 차이남을 실증 - 그룹수 상한을 선택이 아닌 필수 3번째 게이트 조건으로 격상. 배선지점 4곳(신규 모듈 2개+기존 재사용 2개) 구체화.
+- 최종판정 "여전히 보류, 문서화 우선" 유지.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M281-PLUS-REGISTER_20260829.md
