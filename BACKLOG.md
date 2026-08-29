@@ -9710,3 +9710,40 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 낮음
 - 커밋: - (기록만, 코드 변경 없음)
 - 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-CHAT-ONLY-IDEAS-RECORD_20260829.md
+
+### M294. 완료(M285 격차 해소) - HASH-VERIFY-DECOUPLE-FROM-WORKFLOW-TOKEN-IMPLEMENT - 레코드셋 해시 검증 workflow_token 의존 제거
+- 레코드셋 해시 검증(M248/M263) 자동배선이 workflow_token(HTTP 전용)에 의존해 배치(동일 프로세스 직접함수호출) 경로에서 원리적으로 발동 불가능하던 M285의 유일한 격차를 해소.
+- 신규 순수함수 모듈(services/record_hash_verify_core.py)로 판정 로직을 그대로 이동(SUM요건완화/JOIN지원/위치기준매핑안전판정 전부 유지, 새 판정 로직 0개), single_validation_run_facade의 _build_execute_request 단일 지점에 배선해 개별 표준실행+다중 GROUP BY세트+배치 전부 자동 커버.
+- 핵심 성공 기준: 실 Oracle(MV_ORA_DEMO_SRC/TGT, D01 사례)로 개별/배치형 양쪽에서 상쇄 재현 - 수정 전 배치형은 record_hash_verify:None(전혀 미감지), 수정 후 status=diff/mismatch=True(최초 자동감지) 확인. 대조군(정상 케이스) 양쪽 status=ok 유지로 오탐 없음도 확인.
+- 34개 무관 실패는 baseline 대조로 확정(본 수정과 무관).
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: d6e0fb19 (push 완료 확인, origin/main..HEAD 비어있음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M294-PLUS-REGISTER_20260829.md
+
+### M295. 완료 - BATCH-AUTOSAVE-DRYRUN-MEASUREMENT-IMPLEMENT - 배치 자동저장 dry-run 실측 모듈 신설
+- M291 순서 ②(그룹수 상한 없이 dry-run만, 저장 0건) 구현.
+- 핵심 통찰: 별도 dry-run 모드 신설 불필요 - persist_snapshot=False로 실제 함수를 그대로 호출하는 것 자체가 이미 완전한 dry-run(내부적으로 sqlite ":memory:"만 사용, 디스크 미기록). persist_snapshot=False, stream=False를 함수 내부에서 하드코딩해 호출측이 실수로도 저장을 못 켜도록 방지.
+- 실제저장 대조 검증 중 "force 없이 persist_snapshot만 바꾸면 dry-run 캐시를 그대로 반환해 실제로 저장 안 되는" 함정을 스스로 발견·회피.
+- Neon 실DB로 dry-run 전/후 4개 테이블 행수 완전 동일 확인, 실제저장 1건과 dry-run 예측 완전 일치 확인 후 즉시 삭제 원복.
+- 한계: LOW 등급 1개 규모만 실측됐음(MEDIUM/LARGE/HUGE 미실측).
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: d1c6e76b (push 완료 확인, origin/main..HEAD 비어있음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M294-PLUS-REGISTER_20260829.md
+
+### M296. 조사완료 - LARGE-MATCHED-GROUP-HASH-BLINDSPOT-INVESTIGATE - 대용량 "일치" 그룹 레코드셋 해시 사각지대(M292) 3방향 평가
+- 방향1(청크단위 해시)은 PK 재부여 시 거짓불일치 위험 + 신규 정규화/결합자 설계 필요로 보류.
+- 방향2(병목 동일여부)는 "층위가 다른 문제"로 확정하되, 신규 발견: 해시검증 경로 자체가 8/22 확인된 그 병목(그룹컬럼 무인덱스 스캔)을 이미 매일 지불 중이며 상한을 올리면 대용량에도 이 비용이 새로 발생함을 확인.
+- 방향3(merge-walk 제한적용)이 가장 유력(기존 함수 인자 조정만으로 시범 가능, 이미 비동기 job) - 단 선행 결함 발견: 다중그룹 merge-walk가 시간상한으로 취소되면 status=READY/is_matched=True로 마감돼 "끝까지 확인 못한 검증"이 "일치 확인됨"으로 조용히 저장되는 비대칭 결함, 방향3 채택 시 반드시 선수정 필요.
+- 권장순서: ①사각지대 크기 요약 노출(즉시가능) ②취소마감 결함 선수정 ③방향3 소규모 opt-in 시범 ④방향1 착수 안 함.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M294-PLUS-REGISTER_20260829.md
+
+### M297. 조사완료(통합설계) - AUTOSAVE-CHECKBOX-AND-COSTGATE-INTEGRATED-DESIGN - M291(비용등급 게이트)과 M293(체크박스 opt-in) 통합설계
+- 핵심 안전설계: 게이트 함수 시그니처 자체에 체크박스 상태값을 안 받게 설계(evaluate_auto_save(groups), 체크박스 파라미터 없음) - 체크박스는 게이트 "호출 여부"만 결정하고 게이트 "판정 내용"은 절대 못 건드리는 구조, 향후 실수로 우회 코드가 추가돼도 함수 구조상 불가능하게 원천 차단.
+- UI 배치는 기존 batchAutoRunBar(일괄)/4단계 execBtn(개별) 옆에 배치(신규 UI 패턴 발명 안 함).
+- M295(DRYRUN)가 미완료 상태임을 스스로 확인해, 확정 산출물을 전제하지 않고 dry_run=True 공유 파라미터로 설계해 두 지침이 서로 다른 계산식으로 갈라지는 위험 사전 차단.
+- 최종판정 "여전히 보류, 문서화 우선" 승계.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M294-PLUS-REGISTER_20260829.md
