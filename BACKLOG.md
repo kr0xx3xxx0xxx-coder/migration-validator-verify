@@ -9810,3 +9810,50 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 보통
 - 커밋: 057627f7, a54be314, a700197b (push 완료 확인, origin/main..HEAD 빈결과)
 - 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M301-PLUS-REGISTER_20260829.md
+
+### M314. 완료(실서비스 버그 해소) - MERGEWALK-TARGET-WHERE-WIRE-IMPLEMENT - merge-walk 정밀비교에 목적지 검증범위(target_where) 배선
+- M310이 발견한 target_where 미배선 버그 해소. ExactDiffRunRequest에 target_where 필드 신설, SCOPE-PUSHDOWN 이전에 WHERE 적용(AND 결합), readonly_sql_guard 기존 안전검사 재사용(HOLD_TARGET_WHERE_UNSAFE).
+- 프론트 유일 호출부(_mvToggleRowExactDiff)에 1단계 입력값 그대로 전달해 개별/일괄 양쪽 동시 배선.
+- 별도 포트(8010 unpatched/8011 patched) 동일 payload 대조로 LEGACY 오탐 3→0건 실측 확인, target_where 미지정 시 무회귀 확인.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 53d59c99 (push 완료 확인, origin/main..HEAD 빈결과)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M314-PLUS-REGISTER_20260829.md
+
+### M315. 완료(구조적 안전장치) - CLAUDE-MD-BROWSER-EVIDENCE-CHECKLIST-ENFORCE - 27번 규칙(UI 브라우저 증적) 반복 누락 재발방지
+- 27번 규칙(UI 브라우저 증적)이 여러 세션에 걸쳐 형식적으로만 언급되고 실제 스크린샷 첨부가 빠지는 일이 반복돼, CLAUDE.md에 29번 항목 신설 — UI 변경 포함 지침은 체크리스트를 문자 그대로 채워야 완료 인정.
+- 사용자 지시로 적용범위 경계 명확화(서버재시작/백업/DB조회 등 운영작업은 대상 아님, "코드로 화면요소를 바꿨는가"가 판단기준) 추가 반영.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: a0fd170c, dcdc79fd (push 완료 확인, origin/main..HEAD 빈결과)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M314-PLUS-REGISTER_20260829.md
+
+### M316. 완료(핵심 성능개선, 안전상태로 완결) - UNSORTED-CHUNK-PK-LOOKUP-FETCH-ADAPTER-IMPLEMENT - 무정렬 청크+목적 PK IN조회 fetch 어댑터 신설
+- 같은 날 확정된 설계(M308/M309/M313)를 실제 코드로 구현. 신규 fetch 어댑터(무정렬 그룹스캔+목적PK IN조회), PostgreSQL named cursor 강제, 필수 설계요건 7가지 전부 반영(특히 tgt_only는 UNKNOWN 명시, cap 없으면 HOLD로 무음 전량스캔 방지).
+- 실 Oracle 407.5배 개선 확인(같은 날 원 조사 26.9배보다 큼, DB부하 변동으로 정직히 설명).
+- 인덱스 판정 서브시스템 부재로 라우팅 미배선 상태 — "모르면 기존경로 유지"라는 게이트 기본값으로 안전하게 완결.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 17f3d5de (push 완료 확인, origin/main..HEAD 빈결과)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M314-PLUS-REGISTER_20260829.md
+
+### M317. 완료 - PK-RANGE-CHUNK-EARLY-STOP-RATE-TO-FIXED-101-IMPLEMENT - PK_RANGE_CHUNK 조기중단 cap을 DIRECT와 동일한 고정 101 우선으로 통일
+- M309가 발견한 PK_RANGE_CHUNK 실효cap(원본×10% 비율)을 DIRECT 경로와 동일한 고정 101 우선으로 통일.
+- actual_mismatch_limit_abs 정책필드 신설(기본101), 절대상한 있으면 우선·없으면 기존비율 하위호환.
+- R01급(250만행) 실효cap 250,000건→101건 확인.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: a9ed07af (push 완료 확인, origin/main..HEAD 빈결과)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M314-PLUS-REGISTER_20260829.md
+
+### M318. 완료 - BATCH-PAUSE-RESUME-CANCEL-BUTTON-REVIVE-IMPLEMENT - 일괄검증 일시중지/재개/중단 버튼 복원
+- M306이 발견한 죽은배선(서버API는 있으나 화면버튼 없음) 해소. #batchCmdBar에 액션영역+버튼3개 DOM추가(JS 무수정), 폴링에 기존 batchRefreshPauseStatus() 1줄 연결해 "클릭 없이도 재개버튼 자동활성화" 자동동기화 확보.
+- 8단계 전체 사이클 실 브라우저 검증(RUNNING→일시정지→재개→중단).
+- 부수기록: 작업 중 타 세션이 같은 파일을 동시커밋해 이 변경분이 그 커밋(620da3b2)에 흡수됨 — git show로 무손실 확인, 재발 패턴("네 번째 사고형") 스스로 인지·기록.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 620da3b2 (흡수됨, push 완료 확인, origin/main..HEAD 빈결과)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M314-PLUS-REGISTER_20260829.md
+
+### M319. 완료 - BATCH-UI-VISIBILITY-UNIFY-AND-AUTOSAVE-CHECKBOX-WIRE-SEQUENTIAL - 일괄검증 카드 가시성 단일 컨트롤러화 + 불일치 자동저장 체크박스 UI 배선
+- 파트1: M306 핵심결함(#batchViewerCard 상시노출, 컨트롤러 2개충돌, 9카드 미매핑) 해소, 25조합(5상태×5단계) 전수검증 25/25 일치.
+- 파트2: M297 체크박스 UI 배선(개별4단계/일괄상시바), M303 cap기준(그룹당행수) 게이트에 이미 반영돼있음 재확인.
+- 비판적 판단: "실행완료시 게이트 실제 호출 트리거"는 지침 미명시 사항이라 임의로 안 만들고 별도 후속 이관 — 검증안된 자동저장 실행 경로 생성 위험 회피.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 620da3b2, c881d8b9 (push 완료 확인, origin/main..HEAD 빈결과)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M314-PLUS-REGISTER_20260829.md
