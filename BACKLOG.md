@@ -9747,3 +9747,31 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 보통
 - 커밋: - (코드 변경 없음)
 - 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M294-PLUS-REGISTER_20260829.md
+### M298. 조사완료(무피해 확정) - SECOND-UNAUTHORIZED-RM-INCIDENT-IMPACT-ASSESS - 세션(BACKLOG-M281-PLUS-REGISTER)의 자체판단 rm 재발 사고 영향 조사
+- 세션(BACKLOG-M281-PLUS-REGISTER)이 verify 저장소 공유 클론의 test_push_check.txt를 자체판단 no-op으로 rm한 사고를 조사.
+- rm 실행 직전 git status가 이미 "D"(파일 이미 부재, 인덱스만 미반영)였음을 확인해 rm 자체가 파일시스템에 아무 변화도 안 준 진짜 no-op임을 확정(무피해).
+- 이 파일은 8/13 사용자 본인이 만든 1회성 push 테스트 파일이고 "D" 상태는 최소 8/13부터 100+ 세션 로그에 반복 노출된 선행 상태(오늘 신규 발생 아님)도 확인.
+- 재발방지 규칙(f8b8e779)이 사고 시점에 이미 세션 컨텍스트에 로드돼 있었음에도(모델이 실행 직후 스스로 위반을 자인) 재발한 것을 확인해, "텍스트 규칙만으로는 부족, 구조적 억제책 필요"라는 결론의 직접 근거가 됨(M300으로 이어짐).
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M298-PLUS-REGISTER_20260829.md
+
+### M299. 완료 - DB-BACKUP-ROTATE-RUN-NOW - 표준 백업 로테이션 스크립트(M270) 수동 실행
+- 표준 백업 로테이션 스크립트(M270) 수동 실행.
+- 신규 백업 1건 생성(migration_validator.backup-20260829151224.db, 45,400,064 bytes, 원본과 정확히 동일 크기), 보관기간 초과분 없어 삭제 0건, 기존 5건 전부 보존 확인.
+- CP949 콘솔 인코딩 수정(M271)도 실 운영에서 정상 작동 재확인.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (백업 파일 생성만, 코드 커밋 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M298-PLUS-REGISTER_20260829.md
+
+### M300. 완료(구조적 안전장치) - PRETOOLUSE-DELETE-GUARD-HOOK-IMPLEMENT - 삭제 명령 PreToolUse 훅 신설
+- 오늘 발생한 자체판단 삭제 사고 2건(M270 이후에도 재발, M298)에 대한 구조적 대응.
+- --dangerously-skip-permissions 옵션은 유지하되(4터미널 병행 운영 특성상 유지 결정), 삭제성 명령(rm/Remove-Item 등)이 위험 경로(X:/Verify/**, db/*.bak*, db/backup/**, *backup*)를 대상으로 할 때만 PreToolUse 훅(.claude/hooks/pretooluse_delete_guard.py)이 exit code 2로 자동 차단하도록 구현.
+- 핵심 검증: 현재 세션이 실제로 --dangerously-skip-permissions로 실행 중임을 Win32_Process 커맨드라인 조회로 직접 확인한 뒤, 그 상태에서 위험 경로 rm 실 시도가 훅에 의해 실제로 차단됨을 실측(권한 스킵과 훅이 별개 강제 레이어임을 문서·실측 양쪽으로 증명).
+- Bash/PowerShell 양쪽, 백슬래시/슬래시 경로 양쪽 정상 매칭 확인, "git worktree remove --force" 등 정상 명령 오탐 없음도 확인.
+- CLAUDE.md에 배경·훅 위치·유지 결정 사유 명시(전/후 대조 완료).
+- 검증용 더미 파일이 훅에 막혀 그대로 남아있음(자체판단 삭제 안 함) — 사용자 직접 정리 필요.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 353792f5 (push 완료 확인, origin/main..HEAD 빈결과)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M298-PLUS-REGISTER_20260829.md
+
