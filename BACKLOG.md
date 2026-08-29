@@ -9775,3 +9775,38 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 커밋: 353792f5 (push 완료 확인, origin/main..HEAD 빈결과)
 - 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M298-PLUS-REGISTER_20260829.md
 
+### M301. 완료 - LARGE-MATCHED-GROUP-HASH-VISIBILITY-EXPOSE - 대용량 일치그룹 해시검증 생략 사각지대 요약 노출
+- M296 권장안 1번 구현. 대용량이라 레코드셋 해시검증이 생략된 "일치" 그룹의 사각지대 크기(record_hash_skipped_groups/최대 규모)를 새 쿼리 없이 요약에 노출.
+- 3단계 "대용량 그룹 추정" 경고의 하드코딩 임계값(2000)을 서버 상수 단일 출처로 정리.
+- 실 Oracle(임계값 5로 몽키패치해 25행도 재현)로 전/후 스크린샷 대조, 표시된 생략 그룹 수가 실제 데이터와 정확히 일치함을 5단계 표와 대조 확인.
+- 3단계 경고칩 미발동은 이번 변경과 무관한 별개 사전결함(카탈로그 통계 미전달)으로 원인 특정, 코드 레벨 대체검증으로 마커 치환 로직 자체는 정상 확인.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 24426846 (push 완료 확인, origin/main..HEAD 빈결과)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M301-PLUS-REGISTER_20260829.md
+
+### M302. 완료 - INSERT-NO-COLLIST-DEAD-CODE-REMOVE - INSERT 컬럼목록 생략 위치기준 매핑 도달불가 죽은 코드 제거
+- M284/M285가 확정한 "INSERT 컬럼목록 생략 위치기준 자동추론(M267)은 개별/일괄 양쪽 다 도달불가 완전한 죽은 코드"를 M294 리팩토링 이후 위치(services/record_hash_verify_core.py)에서 최종 재확인 후 제거.
+- positional_insert_cols 함수 자체는 완전히 별개인 살아있는 기능(재이관 드릴다운, routes/agg_diff_route.py::_pk_resolve)에서 여전히 쓰이고 있음을 확인해 함수는 그대로 유지, 해시검증 쪽 중복 호출부만 정밀 제거(174줄 삭제/23줄 추가).
+- 제거 전 죽은 분기가 실제로 딱 1건 테스트에서만 동작함을 실측으로 먼저 증명 후 제거, 관련 4개 테스트 스위트 47건 통과.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 52a4fba6 (push 완료 확인, origin/main..HEAD 빈결과)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M301-PLUS-REGISTER_20260829.md
+
+### M303. 완료(실측, 핵심 반전) - BATCH-AUTOSAVE-MEDIUM-LARGE-SCALE-MEASURE - 배치 자동저장 MEDIUM/LARGE 등급 dry-run 실측
+- M295가 미확정으로 남긴 MEDIUM/LARGE 등급 dry-run 실측.
+- 핵심 발견: 그룹당 비용은 테이블 등급(SMALL/MEDIUM/LARGE)이 아니라 "그룹당 실제 행수"에 좌우됨을 실증 - 같은 LARGE 등급·같은 테이블 총행수(100만)라도 그룹을 거칠게 나누면(200,000행/그룹) 기존 AGG_MAX_KEYS(60,000) 게이트에 전부 막혀 측정 자체가 불가능(HOLD)했고, 세분해서 나누면(50,000행/그룹) 정상 측정됨(6,325.8ms/그룹).
+- HOLD도 결과 없이 평균 10.9초를 소모한다는 것도 실측 확인 - cost cap 설계는 테이블 등급이 아니라 그룹당 예상 행수를 반영해야 한다는 근거 확보.
+- Neon 환경 제약(기존 프로젝트 512MB 초과, WAL 급증으로 50만행조차 실패해 UNLOGGED TABLE로 우회) 정직 기록, LARGE 픽스처는 컴퓨트 재기동 시 소실 위험 명시.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 5f511102 (push 완료 확인, origin/main..HEAD 빈결과)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M301-PLUS-REGISTER_20260829.md
+
+### M304. 완료(정합성 핵심+신규기능) - MERGEWALK-CANCEL-MARK-FIX-AND-PILOT-SEQUENTIAL - 다중그룹 merge-walk 취소 마감 결함 수정 + 대용량 사각지대 정밀 확인 파일럿
+- 파트1: M296 발견(K) 해소, 다중그룹 merge-walk 취소 시 "일치 확인됨"으로 조용히 오판정되던 결함을 단일그룹 엔진과 동일 패턴(CANCELLED/is_matched=None)으로 수정.
+- 파트2: M296 권장안 3번 실행, 대용량 사각지대 "일치" 그룹을 사용자가 opt-in으로 정밀 확인(per_group_cap=21)할 수 있는 UI 신설(백엔드 무변경, 기존 /agg-diff/prepare-batch 재사용).
+- 검증 중 배지 재도장 결함 1건과 이전 세션이 만든 검증 스크립트의 순서결함 1건을 추가 발견·즉시 수정.
+- 실 Oracle로 정밀확인 클릭→결과→재도장(확인한 그룹만 정확히 갱신)까지 스크린샷 3장 순서대로 증명.
+- 5천만행 픽스처 재사용해 500K~5M 구간 소요시간 실측(44.99초/그룹).
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 057627f7, a54be314, a700197b (push 완료 확인, origin/main..HEAD 빈결과)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M301-PLUS-REGISTER_20260829.md
