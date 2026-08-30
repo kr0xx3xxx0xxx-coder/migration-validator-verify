@@ -9893,3 +9893,86 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 보통
 - 커밋: c38f9d3a~56f9b12d(15개 커밋, 최종 HEAD 56f9b12d) (push 완료 확인, origin/main..HEAD 빈결과)
 - 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M320-PLUS-REGISTER_20260830.md
+
+### M324. 완료(핵심 사용성 결함 해소) - INDIVIDUAL-VALIDATION-50M-LIVE-BROWSER-MISMATCH-TIMING-VERIFY - 5천만행 실 Oracle 브라우저 실측, 5단계 영구고착 확정
+- 5천만행 실 Oracle 브라우저 실측. 1~4단계는 정상(180.08초 통계검증)이나 5단계 상세추출이 PK유일성 프로브 타임아웃 → FAILED → 20분 완전고착되는 핵심 결함을 실측 확정(단순 느림이 아니라 영구실패).
+- 부수 발견: 상태가 FAILED인데 화면 문구는 "진행중"으로 고정 노출되는 표시버그.
+- 이 발견이 M329(REPLACE-MERGEWALK) 착수의 직접 계기가 됨.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M324-PLUS-REGISTER_20260830.md
+
+### M325. 완료(진짜 원인 규명) - BATCH-METADATA-COLLECTION-FAILURE-DIAGNOSE - 배치 자동저장 실 DB 미실행 원인 규명·수정
+- 배치 자동저장이 실 DB로 한 번도 실행되지 못한 원인을 Oracle 메타데이터 수집(PG/MySQL 전용 %s bind를 그대로 태워 즉시 실패)으로 규명·수정.
+- 회귀가 아니라 애초에 Oracle 미구현 상태였음을 git 이력으로 확정. 기존 F14 카탈로그 조회 재사용, NUMBER→Decimal 변환 2차 충돌도 함께 해소.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 4024d417 (push 완료 확인, origin/main..HEAD 빈결과)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M324-PLUS-REGISTER_20260830.md
+
+### M326. 완료(실 DB 저장 성공) - INDIVIDUAL-AUTOSAVE-STAGE4-CHECKBOX-WIRE-IMPLEMENT - 개별검증 4단계 자동저장 체크박스 실기능화
+- 개별검증 4단계 자동저장 체크박스가 완전한 죽은 UI였던 것을 M320 3모듈에 배선해 실기능화.
+- 렌더링 계획을 실측으로 정정(원 계획 위치가 죽은 경로임을 발견해 `_mvStage5PaintGroupList`로 변경), 과거 "회차단위 배너 제거" 결정과 안 부딪히게 성격을 다르게 설계.
+- 실 Oracle 라이브로 저장 성공 확인. 배치 코드의 숨은 결함(src_conn/tgt_conn 미배선) 발견·기록(M327로 이어짐).
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 4d06c777 (push 완료 확인, origin/main..HEAD 빈결과)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M324-PLUS-REGISTER_20260830.md
+
+### M327. 완료(배치 자동저장 최종 관문 해소) - BATCH-AUTOSAVE-PREPARE-CONN-KEY-MISSING-FIX - 배치 자동저장 candidate group에 src_conn/tgt_conn 배선
+- M326이 발견한 결함(run_batch_auto_save가 prepare_batch_saves에 접속정보를 안 넘겨 항상 조용히 rejected) 수정, 2줄 추가.
+- 실 Oracle 직접호출로 BEFORE(ok:false, 저장0건)/AFTER(saved_count:2) 대조 확인.
+- 부수 발견(미수정, 훨씬 큰 문제): 웹 UI 경유로는 업로드가 DB접속정보 자체를 안 넘기고, DB유효성검증이 PG/MySQL만 지원해 Oracle/MSSQL은 구조적으로 온보딩 자체가 안 됨 - 후속 필요.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: a798f5e8 (push 완료 확인, origin/main..HEAD 빈결과)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M324-PLUS-REGISTER_20260830.md
+
+### M328. 완료(코드레벨) - MSSQL-METADATA-COLLECTION-BIND-STYLE-INVESTIGATE - MSSQL 메타데이터 수집 카탈로그 조회 방식 교체
+- Oracle과 동일한 bind스타일 불일치(pyodbc는 `?`)가 MSSQL에도 있음을 확인·수정. 이미 있던 F15(VARCHAR/NVARCHAR 용량조회) 자산 재사용.
+- pyodbc 미설치 + MSSQL 접속정보 부재로 코드레벨 검증까지만 수행(가짜 커넥션 assert로 배선 정확성 확보).
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: f68763bc (push 완료 확인, origin/main..HEAD 빈결과)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M324-PLUS-REGISTER_20260830.md
+
+### M329. 완료(대장정, 핵심 아키텍처 전환) - REPLACE-MERGEWALK-WITH-UNSORTED-ENGINE-UNCONDITIONAL - 불일치 레코드 추출 merge-walk 완전 대체
+- 불일치 레코드 추출 5개 진입점(/agg-diff/prepare stream=True, /agg-diff/prepare-batch, 전수검증 등)을 merge-walk(정렬필요)에서 신규엔진(UNSORTED_CHUNK_PK_LOOKUP, 무정렬스캔+PK IN조회) 무조건 호출로 완전 교체. PK유일성 프로브·게이트조건 전부 제거.
+- M324가 실측한 92초 FAILED+20분 고착 시나리오가 34.0초 정상완료로 전환 확인. FAILED 표시버그도 함께 수정. cap없는 전량추출 완주 지원.
+- tgt_only는 UNKNOWN 상시명시로 정직화(단, 인라인 노출 안 됨 발견 → M334로 이어짐). 비-stream 소량 경로는 의도적으로 범위 밖(자율판단, 문서화).
+- 특이사항: git stash 2회 위반 자백(피해 없음), 동시세션 커밋 3건 병행 확인 → M331/M333로 이어짐.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: cfa5b170 (push 완료 확인, origin/main..HEAD 빈결과)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M324-PLUS-REGISTER_20260830.md
+
+### M330. 완료(진짜 갭 해소) - AUTOSAVE-TARGET-WHERE-PROPAGATE-IMPLEMENT - target_where 자동저장(개별·배치) 전파
+- target_where가 자동저장(개별·배치)에 전달 안 되던 갭 해소. 조사 예상보다 근본적인 2건 추가 발견·해소: plan 딕셔너리 자체가 target_where 컬럼을 조회 안 하고 있었음, ExecuteRequest 모델/화면 JS에 그 값을 실어보내는 경로 자체가 없었음(지침 범위를 필요한 만큼만 최소 확장해 해소).
+- 배치 증분이관(실사용기능)·개별검증 수동/자동저장 범위불일치 실리스크 해소.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 3dee435f (push 완료 확인, origin/main..HEAD 빈결과)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M324-PLUS-REGISTER_20260830.md
+
+### M331. 완료(구조적 안전장치) - PRETOOLUSE-STASH-GUARD-HOOK-EXTEND - git stash 계열 명령 PreToolUse 구조적 차단
+- 오늘 하루 git stash 반복 위반(6회 이상, 실제 충돌 1회 발생)에 대한 구조적 대응. 신규 훅(pretooluse_stash_guard.py)으로 list/show 제외 모든 stash 하위명령 기본차단.
+- --dangerously-skip-permissions 무관 작동 확인. 검증 중 실제 하네스가 우연히 실전 검증(스크립트 소스에 포함된 "git stash" 문자열 자체가 차단됨)까지 됨.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 45c14a37 (push 완료 확인, origin/main..HEAD 빈결과)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M324-PLUS-REGISTER_20260830.md
+
+### M332. 완료(실측 등급 상향) - MYSQL-MSSQL-RAW-CONNECTOR-SUPPORT-IMPLEMENT - mysql/mssql raw connector 등록
+- M329 부수발견(mysql/mssql raw connector 미등록으로 신규엔진 크래시, DIRECT/CHUNK 엔진도 동일 사전결함 보유) 해소.
+- MSSQL은 F15 어댑터 위임, MySQL은 기존 pymysql 패턴(핸드셰이크 함정 회피 설정 포함) 재사용.
+- MariaDB로 실접속 성공(SELECT VERSION() 확인) - MySQL 어댑터 신규구현은 별도계획 트랙과 안 겹치게 범위 밖 유지.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: c58e9a34 (push 완료 확인, origin/main..HEAD 빈결과)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M324-PLUS-REGISTER_20260830.md
+
+### M333. 완료(무피해 확정+훅 실전검증) - STASH-COLLISION-INCIDENT-CLEANUP-VERIFY - M329 stash 위반 충돌 사고 뒷정리 검증
+- M329 stash 위반이 실제로 동시세션 UI파일 편집분과 충돌했던 사고의 뒷정리 검증. 줄단위 전수대조로 235줄 전량 반영 확인(미반영 0건, 데이터 유실 없음 최종 확정).
+- 정리(`git stash drop`) 시도 시 M331 훅이 실제로 차단하는 것까지 실증, 임의 우회 안 하고 사용자 판단 3가지 선택지로 정리.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M324-PLUS-REGISTER_20260830.md
+
+### M334. 조사완료(역사고증) - TGT-ONLY-INLINE-NOTICE-EXPOSURE-DECISION-INVESTIGATE - tgt_only 안내 표준 클릭경로 미노출 조사
+- M329의 tgt_only 안내가 표준 클릭경로(인라인)에서 안 보이는 문제, 3주 전 원 지침(STAGE5-DETAIL-COLUMN-REDUCE-INFO-SIMPLIFY, 완료보고 부재로 커밋diff+주석만으로 고증)의 "중복세부 축소" 취지와 성격이 다름(방법론적 한계 고지 vs 이미 계산된 수치 재진술)을 규명, 예외 노출 권장(안A).
+- 별도화면 정상노출도 실제 API payload를 프로덕션 렌더함수에 직접 흘려 위험 없이 실증.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M324-PLUS-REGISTER_20260830.md
