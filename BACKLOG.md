@@ -9857,3 +9857,39 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 보통
 - 커밋: 620da3b2, c881d8b9 (push 완료 확인, origin/main..HEAD 빈결과)
 - 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M314-PLUS-REGISTER_20260829.md
+
+### M320. 완료(부분, 실DB확인 필요) - BATCH-AUTOSAVE-TRIGGER-WIRE-IMPLEMENT - 일괄검증 불일치 자동저장 체크박스↔게이트/prepare/store 연결부 신설
+- M319가 남긴 자동저장 체크박스와 3모듈(게이트/prepare/store) 사이 연결부가 없던 문제 해소. 지침 원문의 대상파일 오류 2건을 짐작 없이 grep으로 정정(routes/batch_route.py→실제 stats_validation_plan_route.py, tabler_renderer.py→실제 js_batch_dom.py).
+- plan(테이블)단위 위험도를 그 안의 모든 그룹이 상속받는 구조로 매핑(배치는 그룹별 위험도 개념 자체가 없음을 확인). migration_sql 재파싱으로 배치 전용 parse_result 재구성 헬퍼 신설.
+- evaluate_auto_save 시그니처에 체크박스값을 전달하지 않는 원칙(M297 §3)을 유지.
+- 신규 테스트 14건, 회귀 209건 통과(무관 사전결함 1건 확인). 실 브라우저로 체크박스→요청바디, 결과요약 렌더링 2건 실측, "체크박스ON→실제DB저장" 1건은 실Neon 부재로 미실측(사유·대체수단 명시).
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 11fd7994 (push 완료 확인, origin/main..HEAD 빈결과)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M320-PLUS-REGISTER_20260830.md
+
+### M321. 완료 - GROUP-COLUMN-INDEX-CATALOG-DETECTION-AND-ROUTING-IMPLEMENT - 그룹컬럼 인덱스 카탈로그 조회 신설 + 관측용 배선
+- M316(무정렬청크+PK조회)이 항상 None으로만 받던 group_col_indexed를 실제 카탈로그 조회(Oracle all_ind_columns/PostgreSQL pg_index)로 채우는 서브시스템 신설, agg_diff_route.py에 관측용 배선(엔진 자동전환은 범위 밖, 별도 후속).
+- 공통 read-only 실행기의 sqlglot 가드가 Oracle 위치바인드(:1)를 못 파싱하는 함정을 발견해 이름바인드로 해결.
+- 조회실패/미지원방언은 전부 None(불명→기존경로 유지)으로 폴백.
+- 작업 중 병행세션(M322)이 먼저 push한 사실을 rebase로 확인해 자기 주석의 근거 오류만 정직하게 정정(동작 무변경, 후속 커밋 be0b01d1).
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: 3f483996, be0b01d1(주석 정정) (push 완료 확인, origin/main..HEAD 빈결과)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M320-PLUS-REGISTER_20260830.md
+
+### M322. 완료(코드검증만, 실DB없음) - UNSORTED-CHUNK-FETCH-MYSQL-MSSQL-DIALECT-EXTEND - 무정렬 스캔+PK IN 조회 어댑터 MySQL/MSSQL 방언 확장
+- M316 보조경로에 MySQL/MSSQL 어댑터 추가. 이 환경에 두 DB 실접속이 없어 코드레벨 검증만 수행함을 정직히 명시.
+- MSSQL 핵심발견 2건: ① 바인드 총 2,100개 하드리밋이 컬럼수와 결합돼 복합PK는 폭을 동적축소해야 함(3컬럼→666) ② T-SQL은 행값 IN 문법 자체를 미지원, 몰랐으면 복합PK 실행 시 항상 구문오류 - EXISTS+VALUES로 우회.
+- MySQL은 PostgreSQL과 동일계열 커서블로킹 함정을 발견, SSCursor(unbuffered) 강제로 회피. pyodbc 미설치 환경에서도 테스트 가능하도록 직접 import 안 함.
+- 신규 테스트 14건(가짜 DB-API로 SQL텍스트·바인드 계약 검증).
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: d8de2e72 (push 완료 확인, origin/main..HEAD 빈결과)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M320-PLUS-REGISTER_20260830.md
+
+### M323. 완료 - BATCH-UI-REDESIGN-REMAINING-PARTS-SEQUENTIAL - 일괄검증 UI 개편 잔여 4파트(요약타일그리드/Tabulator전환/버튼·CSS통일/결과배지) 구현
+- M306 설계 잔여 4파트(요약타일그리드/Tabulator전환/버튼·CSS통일/MvResultView배지) 전부 구현. 오케스트레이터가 서브에이전트 보고를 그대로 믿지 않고 매 파트 완료 직후 커밋해시·코드존재·회귀·스크린샷을 독립 재검증(Trust but verify).
+- 파트4에서 지침 전제 오류 발견: 원문이 지목한 배지교체 대상 3곳 중 1곳은 죽은코드(호출부 0건), 1곳(batchItemsTable)은 "실행진행상태"와 "검증판정"이 다른 축이라 강제전환 시 의미훼손 위험을 확인해 제외 - 실제 자체매핑을 쓰던 유일한 진짜 대상(batchFullResultBoard)만 정확히 전환.
+- 작업 중 병행세션 충돌 2건(원인불명 git reset 1건, push충돌 1건) 전부 stash 없이 worktree/merge로 안전복구, 코드손실 0건 재확인.
+- 총 15개 커밋 전부 push, HEAD=origin/main 최종확인.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: c38f9d3a~56f9b12d(15개 커밋, 최종 HEAD 56f9b12d) (push 완료 확인, origin/main..HEAD 빈결과)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M320-PLUS-REGISTER_20260830.md
