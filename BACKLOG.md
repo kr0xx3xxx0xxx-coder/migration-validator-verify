@@ -9976,3 +9976,19 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 보통
 - 커밋: - (코드 변경 없음)
 - 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M324-PLUS-REGISTER_20260830.md
+
+### M335. 지침만 발행(실행/완료보고 미확인) - SAMPLING-PREFLIGHT-STAGE3-COMBO-PLAN-REUSE-INVESTIGATE - 3단계 조합 그룹수 계산 자원의 4단계 표본 조기경보 재사용 조사
+- 3단계의 기존 조합(곱셈 기반) 그룹 수 계산 자원을, 4단계 표본 조기경보(sampling_preflight)의 정확도 개선에 재사용할 수 있는지 조사하는 지침. 발행만 되고 실행/완료보고가 확인되지 않아 소급 등록.
+- 우선순위: 낮음 - 현재 조기경보 기능 자체는 정상 작동 중이며, 정확도 개선은 선택적 후속 과제.
+- 권장 모델: Sonnet / 추론 강도: 낮음
+- 커밋: - (미실행)
+- 참고: G:\내 드라이브\nxDTV-verify\directives\BACKLOG-UPDATE-20260831-PENDING-ITEMS.md
+
+### M336. 조사완료(실측 기반 보류) - STAGE4-COMPOSITE-PK-DOMAIN-PREQUERY-FULL-FIX-DEFER - 복합 PK 표본 조기경보 도메인 사전조회(완전 해결) 보류
+- STAGE4-PK-ANCHOR-STRING-FIX-AND-COMPOSITE-NUMERIC-CRASH-AND-DOMAIN-QUERY-TRADEOFF-SEQUENTIAL 파트3에서 실측만 하고 구현 보류된 항목을 소급 등록.
+- 복합 PK 표본추출이 현재 부분 개선(2.2배)에 그치는데, 완전 해결하려면 그룹별 실제 값 범위를 미리 조회하는 추가 쿼리가 필요. 실측 결과 이 추가 비용이 "무시할 수준"을 초과해 이번엔 보류됨.
+- 우선순위: 낮음 - 현재도 문자 PK는 완전 해결됨, PostgreSQL 크래시 버그도 수정됨. 복합 PK는 부분 개선 상태로 두어도 심각한 위험은 없음.
+- 재검토 조건: 향후 복합 PK 비중이 실측으로 확인되거나, 성능 예산이 늘어나면 재검토.
+- 권장 모델: Sonnet / 추론 강도: 낮음
+- 커밋: - (기록만, 코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\directives\BACKLOG-UPDATE-20260831-PENDING-ITEMS.md
