@@ -9992,3 +9992,13 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 낮음
 - 커밋: - (기록만, 코드 변경 없음)
 - 참고: G:\내 드라이브\nxDTV-verify\directives\BACKLOG-UPDATE-20260831-PENDING-ITEMS.md
+
+### M337. 조사완료(실측 기반 보류) - ENGINE-A-COMPOSITE-PK-REUSE-ENGINE-B-RESOLVER - 그룹 클릭 미리보기(엔진A) 복합 PK MATCH_KEY_HOLD 시 엔진B 리졸버 재사용 여부 조사
+- 그룹 클릭 미리보기(엔진A)는 목적지 PK가 복합(2개 이상 컬럼)일 때 "MATCH_KEY_HOLD"로 조용히 상세조회를 보류한다(에러/크래시 아님, 명확한 안내 문구와 함께 정상 차단). 전수검증(엔진B)은 이미 복합 PK를 안전하게 지원한다.
+- 보류 이유: (1) 엔진A가 복합 PK를 만나도 안전하게(크래시 없이) 보류될 뿐이라 실제 위험이 낮음, (2) 엔진B라는 대안 경로가 이미 존재, (3) 복합 PK 테이블을 실무에서 얼마나 자주 검증하는지 아직 확인 안 됨, (4) 필요한 구현이 3개 파일(요청 스키마 확장, 키 인코딩 유틸 추출, 스트림 엔진 4개 지점 분기)에 걸친 제법 큰 구조 변경이라 시급성 대비 비용이 불확실.
+- 재검토 조건: 실제로 복합 PK 테이블 검증 중 이 보류(MATCH_KEY_HOLD)를 자주 마주치게 되면 재검토.
+- 설계안 요약(구현 시 참고): 엔진B의 `_resolve_native_pk_key`를 통째로 재사용하는 대신, (a) 엔진A 요청 스키마에 query_full 필드 추가, (b) 복합 PK 콤마결합 인코딩을 위한 공용 유틸(`agg_contribution.py`의 `_key_comp` 재사용) 추출, (c) `services/exact_diff/engine.py`의 키 처리 4개 지점을 콤마결합 키도 처리하도록 분기 — fan-out 재확인(`_native_pk_fanout_present`)은 반드시 함께 재사용해야 함(생략 불가로 확정됨).
+- 우선순위: 낮음 - 엔진A는 이미 안전하게(크래시 없이) 차단 중이며, 엔진B라는 대안 경로가 존재.
+- 권장 모델: Sonnet / 추론 강도: 낮음
+- 커밋: - (기록만, 코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\directives\BACKLOG-UPDATE-20260901-ENGINE-A-COMPOSITE-PK.md
