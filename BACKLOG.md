@@ -10014,6 +10014,22 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
   참고)이므로 M336 안에 "4단계 관련" 하위 부분은 처음부터 존재하지 않았다 — 폐기할 부분도, 범위를
   좁힐 부분도 없이 전체가 그대로 유효. 제목의 "STAGE4-" 표기가 오인을 유발할 수 있어
   이 재확인 기록만 남기고 원문은 보존한다(임의 재작성 금지 원칙).
+- 2026-09-02 완전 제거 확정(SAMPLING-PREFLIGHT-REMOVE-STAGE5-AND-BATCH-PLUS-BACKLOG-AUDIT):
+  M336이 대상으로 하는 5단계 원조 게이트(`routes/agg_diff_route.py::_run_sampling_gate`,
+  `services/exact_diff/sampling_preflight.py`) 자체를 5단계·배치 양쪽에서 완전히 걷어내기로
+  사용자가 최종 확정했다. 사유 3가지: (1) 5단계는 이미 그룹당 최대 101건에서 조기종료돼
+  실행시간 우려가 실무적으로 과장돼 있었다. (2) 4단계가 이미 그룹을 "불일치"로 확정한 뒤에
+  뜨는 경고라 새 정보가 아니고, 실행을 막지도 않아 행동으로 이어지지 않는다. (3) 배치는
+  무인 실행이라 경고 배너를 볼 사람 자체가 없다. 이로써 M336이 다루던 "부분 개선(2.2배)에
+  그친 도메인 사전조회를 완전 해결로 확장할지" 질문 자체가 대상 소멸로 폐기된다 — 게이트가
+  아예 호출되지 않으므로 정확도를 더 개선할 대상이 없다. 코드는 삭제하지 않고 죽은 코드로
+  보존한다(`services/exact_diff/sampling_preflight.py` 모듈 docstring 및
+  `pg_composite_pk_domain`/`ora_composite_pk_domain` 각 함수 docstring에 동일 취지 주석 추가,
+  단위테스트도 유지). 같은 날 커밋 02dea829(SAMPLING-ANCHOR-PERQUERY-ROUNDTRIP-BATCH-
+  IMPROVEMENT-INVESTIGATE)가 이 게이트의 잔여 병목을 배치화까지 했었는데, 그 최적화 대상도
+  함께 죽은 코드가 됐다(코드 삭제는 안 함 — 위와 동일 방침). 재도입 검토 조건: 향후 5단계
+  상세조회 소요시간이 실무에서 실제로 문제가 되는 구체 사례가 누적되면 재검토.
+  참고: G:\내 드라이브\nxDTV-verify\reports\SAMPLING-PREFLIGHT-REMOVE-STAGE5-AND-BATCH-PLUS-BACKLOG-AUDIT_20260902.md
 
 ### M337. 조사완료(실측 기반 보류) - ENGINE-A-COMPOSITE-PK-REUSE-ENGINE-B-RESOLVER - 그룹 클릭 미리보기(엔진A) 복합 PK MATCH_KEY_HOLD 시 엔진B 리졸버 재사용 여부 조사
 - 그룹 클릭 미리보기(엔진A)는 목적지 PK가 복합(2개 이상 컬럼)일 때 "MATCH_KEY_HOLD"로 조용히 상세조회를 보류한다(에러/크래시 아님, 명확한 안내 문구와 함께 정상 차단). 전수검증(엔진B)은 이미 복합 PK를 안전하게 지원한다.
@@ -10024,3 +10040,33 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 낮음
 - 커밋: - (기록만, 코드 변경 없음)
 - 참고: G:\내 드라이브\nxDTV-verify\directives\BACKLOG-UPDATE-20260901-ENGINE-A-COMPOSITE-PK.md
+
+### M338. 완료(기능 완전 제거) - SAMPLING-PREFLIGHT-REMOVE-STAGE5-AND-BATCH-PLUS-BACKLOG-AUDIT - 표본 조기중단 게이트 5단계·배치 완전 제거
+- 5단계(개별검증 그룹 상세조회)·배치(일괄검증 자동저장) 양쪽에서 표본 기반 조기중단 게이트
+  (sampling_preflight)를 완전히 제거하기로 사용자가 확정. 4단계는 이미 2026-09-01
+  STAGE4-SAMPLING-PREFLIGHT-REMOVE-KEEP-STAGE5-ONLY(커밋 307eb527)로 제거된 상태였고, 이번
+  지침으로 나머지 두 실행경로도 마저 걷어낸다.
+- 조사 결과 실제 호출부는 이미 둘 다 비어 있었다: 5단계는 2026-08-31
+  STAGE5-SAMPLING-PREFLIGHT-BLOCKING-FULL-DETAIL-EXTRACTION-REVERT(커밋 27f0005b)로
+  `_run_sampling_gate` 호출이 실행 흐름(`_run_fn_inner`)에서 이미 분리돼 있었고, 배치
+  (`services/batch_auto_save_gate.py`)는 2026-08-31 신설 시점(AUTOSAVE-GATE-DECOUPLE-
+  EXECUTION-RISK-FROM-STORAGE-DECISION)부터 이 게이트를 부른 적이 없었다(ROW_COUNT_HOLD
+  단일 판정). UI 쪽도 "표본 조기경보" 문구/배너는 이미 4단계 제거 시 함께 사라져 5단계·배치
+  화면에 남아있지 않음을 확인(grep 0건). 즉 이번 지침 시점에 새로 제거할 살아있는 코드는
+  없었고, "완전 제거"라는 사용자 결정을 코드에 공식적으로 문서화(주석)하는 작업이 실제
+  변경분이었다.
+- 실제 조치: `services/exact_diff/sampling_preflight.py` 모듈 docstring,
+  `services/exact_diff/dialects/{postgresql,oracle}.py`의 `pg_composite_pk_domain`/
+  `ora_composite_pk_domain` 함수 docstring, `routes/agg_diff_route.py::_run_sampling_gate`
+  주석, `services/batch_auto_save_gate.py` 모듈 docstring에 "2026-09-02 5단계·배치에서
+  제거됨" 확정 기록 추가. 함수/모듈 자체는 삭제하지 않음(사용자 결정 — 오늘까지 상당한
+  실측·설계 노력이 들어간 코드이며 tests/test_sampling_preflight.py 등이 순수 함수 단위테스트로
+  계속 검증). 로직/UI 변경 없음(주석만 추가) — 회귀 위험 없음.
+- 재검토 조건: 향후 5단계 상세조회 소요시간이 실무에서 실제로 문제가 되는 구체 사례가 누적되면
+  재도입 검토.
+- 권장 모델: Opus / 추론 강도: 높음
+- 커밋: d2140cfb(문서화 커밋 본체, 3파일) + 1e3ebe69(동시 진행 중이던 다른 세션의 M337 커밋에
+  나머지 2개 dialects 파일 docstring 훅이 함께 편입됨 — 공유 워킹트리 동시편집으로 인한 것,
+  내용은 의도한 그대로)
+- 참고: G:\내 드라이브\nxDTV-verify\directives\SAMPLING-PREFLIGHT-REMOVE-STAGE5-AND-BATCH-PLUS-BACKLOG-AUDIT.md
+  / G:\내 드라이브\nxDTV-verify\reports\SAMPLING-PREFLIGHT-REMOVE-STAGE5-AND-BATCH-PLUS-BACKLOG-AUDIT_20260902.md
