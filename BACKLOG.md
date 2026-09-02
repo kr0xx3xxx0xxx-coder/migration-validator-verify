@@ -9977,14 +9977,24 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 커밋: - (코드 변경 없음)
 - 참고: G:\내 드라이브\nxDTV-verify\reports\BACKLOG-M324-PLUS-REGISTER_20260830.md
 
-### M335. 지침만 발행(실행/완료보고 미확인) - SAMPLING-PREFLIGHT-STAGE3-COMBO-PLAN-REUSE-INVESTIGATE - 3단계 조합 그룹수 계산 자원의 4단계 표본 조기경보 재사용 조사
+### M335. 폐기(대상 기능 제거) - SAMPLING-PREFLIGHT-STAGE3-COMBO-PLAN-REUSE-INVESTIGATE - 3단계 조합 그룹수 계산 자원의 4단계 표본 조기경보 재사용 조사
 - 3단계의 기존 조합(곱셈 기반) 그룹 수 계산 자원을, 4단계 표본 조기경보(sampling_preflight)의 정확도 개선에 재사용할 수 있는지 조사하는 지침. 발행만 되고 실행/완료보고가 확인되지 않아 소급 등록.
 - 우선순위: 낮음 - 현재 조기경보 기능 자체는 정상 작동 중이며, 정확도 개선은 선택적 후속 과제.
 - 권장 모델: Sonnet / 추론 강도: 낮음
 - 커밋: - (미실행)
 - 참고: G:\내 드라이브\nxDTV-verify\directives\BACKLOG-UPDATE-20260831-PENDING-ITEMS.md
+- 2026-09-02 폐기 확정(BACKLOG-M335-M336-OBSOLETE-CHECK-AND-CLEANUP): 2026-09-01
+  STAGE4-SAMPLING-PREFLIGHT-REMOVE-KEEP-STAGE5-ONLY(커밋 307eb527)로 웹 UI 4단계의
+  표본 조기경보 배선 자체(`routes/execute_route.py::_autowire_sampling_preflight_ctx`,
+  `services/stats_execute_service.py::_run_stage4_sampling_preflight`, 응답 키
+  `sampling_early_warning`, `schemas/request_models.py::sampling_preflight_ctx`)가 전부
+  제거됨을 현재 코드(`grep`, 4개 심볼 전부 0건)로 재확인. M335가 "정확도를 개선"하려던
+  대상 자체가 사라져 개선할 여지가 없으므로 폐기. 참고: sampling_preflight.py 모듈은
+  5단계(`routes/agg_diff_route.py::_run_sampling_gate`)에서 여전히 살아있으나, M335는
+  명시적으로 "4단계 표본 조기경보"를 대상으로 했으므로 5단계 쪽으로 범위를 옮겨
+  재작성하지 않음(요청 시 신규 항목으로 별도 등록).
 
-### M336. 조사완료(실측 기반 보류) - STAGE4-COMPOSITE-PK-DOMAIN-PREQUERY-FULL-FIX-DEFER - 복합 PK 표본 조기경보 도메인 사전조회(완전 해결) 보류
+### M336. 조사완료(실측 기반 보류, 2026-09-02 유효성 재확인) - STAGE4-COMPOSITE-PK-DOMAIN-PREQUERY-FULL-FIX-DEFER - 복합 PK 표본 조기경보 도메인 사전조회(완전 해결) 보류
 - STAGE4-PK-ANCHOR-STRING-FIX-AND-COMPOSITE-NUMERIC-CRASH-AND-DOMAIN-QUERY-TRADEOFF-SEQUENTIAL 파트3에서 실측만 하고 구현 보류된 항목을 소급 등록.
 - 복합 PK 표본추출이 현재 부분 개선(2.2배)에 그치는데, 완전 해결하려면 그룹별 실제 값 범위를 미리 조회하는 추가 쿼리가 필요. 실측 결과 이 추가 비용이 "무시할 수준"을 초과해 이번엔 보류됨.
 - 우선순위: 낮음 - 현재도 문자 PK는 완전 해결됨, PostgreSQL 크래시 버그도 수정됨. 복합 PK는 부분 개선 상태로 두어도 심각한 위험은 없음.
@@ -9992,6 +10002,18 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 낮음
 - 커밋: - (기록만, 코드 변경 없음)
 - 참고: G:\내 드라이브\nxDTV-verify\directives\BACKLOG-UPDATE-20260831-PENDING-ITEMS.md
+- 2026-09-02 재확인(BACKLOG-M335-M336-OBSOLETE-CHECK-AND-CLEANUP): 제목의 "STAGE4-" 접두는
+  당시 지침 명명 관례일 뿐, 실제 대상은 처음부터 5단계 원조 게이트
+  (`routes/agg_diff_route.py::_run_sampling_gate`, `services/exact_diff/sampling_preflight.py`)
+  하나였음을 코드로 재확인(해당 함수는 M336이 언급한 STAGE4-PK-ANCHOR-STRING-FIX-AND-
+  COMPOSITE-NUMERIC-CRASH-AND-DOMAIN-QUERY-TRADEOFF-SEQUENTIAL 파트1~3 커밋(9c29be66,
+  c51e0cc7, 518bd0f7)이 전부 수정한 바로 그 파일). 같은 날(2026-09-01)의
+  STAGE4-SAMPLING-PREFLIGHT-REMOVE-KEEP-STAGE5-ONLY는 웹 UI 4단계의 별도 배선 계층만
+  제거했고 5단계 게이트는 무변경(git diff 0줄, 완료보고
+  G:\내 드라이브\nxDTV-verify\reports\STAGE4-SAMPLING-PREFLIGHT-REMOVE-KEEP-STAGE5-ONLY_20260901.md
+  참고)이므로 M336 안에 "4단계 관련" 하위 부분은 처음부터 존재하지 않았다 — 폐기할 부분도, 범위를
+  좁힐 부분도 없이 전체가 그대로 유효. 제목의 "STAGE4-" 표기가 오인을 유발할 수 있어
+  이 재확인 기록만 남기고 원문은 보존한다(임의 재작성 금지 원칙).
 
 ### M337. 조사완료(실측 기반 보류) - ENGINE-A-COMPOSITE-PK-REUSE-ENGINE-B-RESOLVER - 그룹 클릭 미리보기(엔진A) 복합 PK MATCH_KEY_HOLD 시 엔진B 리졸버 재사용 여부 조사
 - 그룹 클릭 미리보기(엔진A)는 목적지 PK가 복합(2개 이상 컬럼)일 때 "MATCH_KEY_HOLD"로 조용히 상세조회를 보류한다(에러/크래시 아님, 명확한 안내 문구와 함께 정상 차단). 전수검증(엔진B)은 이미 복합 PK를 안전하게 지원한다.
