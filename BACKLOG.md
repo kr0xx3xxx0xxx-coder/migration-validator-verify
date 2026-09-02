@@ -6174,6 +6174,24 @@ git -C E:/verify_reports worktree remove <임시경로>
   추가됨. 커밋(코드저장소, Claude 웹 미검증): 328042a3/9786c130/b8f846af.
   근거: E:\verify_reports\reports\STAGE5-GROUP-LIST-200-TRUNCATION-
   DISCLOSURE-FIX.md
+- **I-3 재확인(2026-09-02)**: 우선순위 하향(낮음), 미해결 상태 유지 - 오늘
+  STAGE5-MAX-DISPLAY-ROWS-200-CAP-REMOVE-NOW-THAT-PAGINATION-EXISTS가 같은
+  상수(MAX_DISPLAY_ROWS)를 200->1,000으로 상향해, 발동 임계값 자체가
+  올라갔다. 오늘 확정된 캐스케이드(3축->2축->1축->COUNT/SUM, 그룹 수 사전
+  상한 1,000)가 정상 작동하는 대부분의 경우 total_groups는 1,000을 넘지
+  않아, 이 절단 로직 자체가 실무적으로 거의 발동하지 않게 됐다. 다만
+  완전히 무의미해지지는 않음 - 여전히 발동 가능한 예외 3가지 확인됨:
+  (1) 캐스케이드의 사전 추정(distinct 값 곱)이 카탈로그 통계 신선도
+  문제로 부정확할 경우, (2) 일괄검증(배치) 경로는 이 캐스케이드 자체를
+  거치지 않음, (3) 캐스케이드 추정 근거가 아예 없을 때 상한 확인 없이
+  다음 단계로 넘어가는 분기 존재. 사용자 결정: 위 예외가 드문 경우이므로,
+  프론트 배선(수집->저장->렌더 3단계, 2026-08-13 원문이 이미 설계 제시)은
+  지금 진행하지 않고 백로그로만 유지한다 - "완전히 무의미"는 아니지만
+  "거의 안 쓰이는 마지막 안전망"이라는 이유로 하향. 재검토 조건: 실제로
+  위 3가지 예외 상황(통계 신선도 문제, 일괄검증, 추정 근거 없음)으로 인해
+  total_groups가 1,000을 넘는 사례가 실무에서 관찰되면 재검토.
+  근거: G:\내 드라이브\nxDTV-verify\directives\BACKLOG-UPDATE-M82I3-LOW-
+  PRIORITY-RATIONALE.md
 - **I-1 진행상황(2026-08-13)**: 완료 확인 - 근본원인은 지시서 추정
   ("candidate가 잘못된 stage 키")과 달랐음(candidate 자체는 의도된 정상
   복원 코드, F7-STAGE4-MULTISET-ASYNC-VERIFY-RESUME 관련). 실제 원인은
