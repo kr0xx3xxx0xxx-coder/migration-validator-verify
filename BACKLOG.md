@@ -10088,3 +10088,60 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
   내용은 의도한 그대로)
 - 참고: G:\내 드라이브\nxDTV-verify\directives\SAMPLING-PREFLIGHT-REMOVE-STAGE5-AND-BATCH-PLUS-BACKLOG-AUDIT.md
   / G:\내 드라이브\nxDTV-verify\reports\SAMPLING-PREFLIGHT-REMOVE-STAGE5-AND-BATCH-PLUS-BACKLOG-AUDIT_20260902.md
+### M339. 아이디어(미착수) - LLM-SEMANTIC-JUDGE-ACTUAL-CONNECTION-PENDING - LLM 의미판단 실제 채점 로직 연결 미착수
+- 2026-09-04 세션 중 채팅으로만 논의, 지침화·실행 전혀 안 된 항목을 소급 기록(구현 결정 아님).
+- 타이밍 인프라(keep_alive/timeout)는 완료됐으나(LLM-JUDGE-TIMEOUT-KEEPALIVE-TUNE-INVESTIGATE-AND-FIX), 실제 채점 로직 연결은 CANDIDATE_SCORING_LLM_JUDGE_ENABLED 기본 OFF 상태로 대기 중.
+- 권장 순서(논의 합의): 1단계=③샘플링 정교화, 2단계=①사후검증(GROUPBY-SUM-OVERLAP-EDGECASES-INVESTIGATE-AND-FIX 및 CANDIDATE-SUBTYPE-LLM-JUDGE-INVESTIGATE-FOR-NUMERIC-CODE-CLASSIFY 완료보고 참고).
+- 권장 모델: Sonnet / 추론 강도: 낮음
+- 커밋: - (기록만, 코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\LLM-JUDGE-TIMEOUT-KEEPALIVE-TUNE-INVESTIGATE-AND-FIX_20260904.md / G:\내 드라이브\nxDTV-verify\reports\GROUPBY-SUM-OVERLAP-EDGECASES-INVESTIGATE-AND-FIX_20260904.md / G:\내 드라이브\nxDTV-verify\reports\CANDIDATE-SUBTYPE-LLM-JUDGE-INVESTIGATE-FOR-NUMERIC-CODE-CLASSIFY_20260904.md
+
+### M340. 아이디어(미착수) - MODEL-CONFIG-LLM-GATE-COMMENT-CODE-MISMATCH-DECIDE - config/model_config.py:294 주석-실동작 불일치 결정 필요
+- 2026-09-04 세션 중 채팅으로만 논의, 지침화·실행 전혀 안 된 항목을 소급 기록(구현 결정 아님).
+- `config/model_config.py:294` 주석에 "C1/C2와 독립된 게이트"라고 적혀 있으나, 실제로는 C1/C2 게이트(MV_CANDIDATE_SUBTYPE_LLM_JUDGE_ENABLED)에 종속된다는 사실이 STATUS-CD-SUM-SCORE-BREAKDOWN-LLM-ENABLED-VERIFY 완료보고에서 실측 확인됨.
+- 결정 필요: 주석을 실동작에 맞게 정정만 할지, 주석이 원래 의도한 대로 진짜 독립 게이트로 코드를 바꿀지.
+- 권장 모델: Sonnet / 추론 강도: 낮음
+- 커밋: - (기록만, 코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\STATUS-CD-SUM-SCORE-BREAKDOWN-LLM-ENABLED-VERIFY_20260904.md
+
+### M341. 아이디어(미착수) - GEMMA4-STRONGER-ENV-AND-SMALLER-SIZE-RECHECK - Gemma4 강한 GPU/배포 환경 재측정 및 E2B 비교 미실행
+- 2026-09-04 세션 중 채팅으로만 논의, 지침화·실행 전혀 안 된 항목을 소급 기록(구현 결정 아님).
+- Gemma4 재검토 조건: 더 강한 GPU/배포 환경에서 재측정 필요, 더 작은 규격(E2B)과의 비교는 이번 세션에서 미실행(GEMMA4-UPGRADE-EVALUATE-KOREAN-QUALITY-COMPARE 완료보고 참고).
+- 권장 모델: Sonnet / 추론 강도: 낮음
+- 커밋: - (기록만, 코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\GEMMA4-UPGRADE-EVALUATE-KOREAN-QUALITY-COMPARE_20260904.md
+
+### M342. 아이디어(미착수) - NONSTANDARD-DICT-NAME-PROD-CD-GAP-RECONFIRM - 표준사전 밖 이름(PROD_CD류) 대응 갭 최종구현 잔존 여부 재확인 필요
+- 2026-09-04 세션 중 채팅으로만 논의, 지침화·실행 전혀 안 된 항목을 소급 기록(구현 결정 아님).
+- 표준사전 밖 이름(`PROD_CD`류) 대응 갭에 대한 설계가 여러 차례 변경(접미사패턴→LLM우선순위→다요소 재설계)되어 왔음 - 이 구체적 갭이 최종 구현(CANDIDATE-MULTIFACTOR-SCORING-CASCADE-REPLACE-IMPLEMENT-WITH-BACKUP)에 실제로 남아있는지 재확인 필요.
+- 권장 모델: Sonnet / 추론 강도: 낮음
+- 커밋: - (기록만, 코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\CANDIDATE-MULTIFACTOR-SCORING-CASCADE-REPLACE-IMPLEMENT-WITH-BACKUP_20260904.md
+
+### M343. 아이디어(미착수) - STATUS-CD-JUDGE-LIVE-DB-VERIFICATION-GAP - STATUS_CD류 판정 실 Oracle/PostgreSQL 라이브 테이블 미검증
+- 2026-09-04 세션 중 채팅으로만 논의, 지침화·실행 전혀 안 된 항목을 소급 기록(구현 결정 아님).
+- STATUS_CD류 판정이 지금까지 전부 합성 메타데이터(dict 직접 주입)로만 테스트됐음 - 실 Oracle/PostgreSQL 라이브 테이블로는 한 번도 검증된 적 없음.
+- 권장 모델: Sonnet / 추론 강도: 낮음
+- 커밋: - (기록만, 코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\CANDIDATE-MULTIFACTOR-SCORING-CASCADE-REPLACE-IMPLEMENT-WITH-BACKUP_20260904.md
+
+### M344. 아이디어(미착수) - STANDARD-DICT-COVERAGE-EXPANSION-DESIGN-NEEDED - 표준사전 자체 커버리지 확장(나이스/에듀파인) 설계 미착수
+- 2026-09-04 세션 중 채팅으로만 논의, 지침화·실행 전혀 안 된 항목을 소급 기록(구현 결정 아님).
+- 표준사전 자체 커버리지 확장(나이스/에듀파인 실데이터 컬럼매핑정의서 반영)이 여러 세션에서 언급만 되고 설계 자체가 아직 시작되지 않았음.
+- 권장 모델: Sonnet / 추론 강도: 낮음
+- 커밋: - (기록만, 코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\CANDIDATE-MULTIFACTOR-SCORING-CASCADE-REPLACE-IMPLEMENT-WITH-BACKUP_20260904.md
+
+### M345. 아이디어(미착수) - SQL-PARSE-MODEL-CONVERT-HASH-WRAPPER-47PCT-OPTIMIZE - SQL 파싱 모델변환/해시 wrapper 47% 비용 구간 미착수
+- 2026-09-04 세션 중 채팅으로만 논의, 지침화·실행 전혀 안 된 항목을 소급 기록(구현 결정 아님).
+- SQL 파싱 모델변환/해시 wrapper가 전체 파싱 비용의 47%를 차지하며, SQLGLOT-PARSE-WORKER-POOL-PARALLELIZE-INVESTIGATE-AND-IMPLEMENT(순차 for루프→격리 워커 풀 병렬화)로도 손대지 못한 구간 - 해당 완료보고에서 다음으로 큰 개선 여지로 지목됨.
+- 권장 모델: Sonnet / 추론 강도: 낮음
+- 커밋: - (기록만, 코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\SQLGLOT-PARSE-WORKER-POOL-PARALLELIZE-INVESTIGATE-AND-IMPLEMENT_20260904.md
+
+### M346. 아이디어(미착수) - BATCH-FAILURE-SUMMARY-LLM-GUIDE-COLDSTART-TIMEOUT-VULNERABLE - BATCH_FAILURE_SUMMARY_LLM_GUIDE 자체 타임아웃(8초) 콜드스타트 취약점
+- 2026-09-04 세션 중 채팅으로만 논의, 지침화·실행 전혀 안 된 항목을 소급 기록(구현 결정 아님).
+- `BATCH_FAILURE_SUMMARY_LLM_GUIDE` 자체 타임아웃(8초)이 콜드스타트에 취약함 - keep_alive는 LLM-JUDGE-TIMEOUT-KEEPALIVE-TUNE-INVESTIGATE-AND-FIX에서 적용됐지만, 이 타임아웃 자체는 해당 지침 범위 밖으로 남았음.
+- 권장 모델: Sonnet / 추론 강도: 낮음
+- 커밋: - (기록만, 코드 변경 없음)
+- 참고: G:\내 드라이브\nxDTV-verify\reports\LLM-JUDGE-TIMEOUT-KEEPALIVE-TUNE-INVESTIGATE-AND-FIX_20260904.md
