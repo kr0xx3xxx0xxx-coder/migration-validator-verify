@@ -10147,6 +10147,12 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 근거(갱신): G:\내 드라이브\nxDTV-verify\reports\STANDARD-DICT-COMMON-CODE-TOKEN-EXPAND-PROD-GRP-ETC_20260905.md,
   G:\내 드라이브\nxDTV-verify\reports\STANDARD-DICT-SEMANTIC-SELFEVIDENT-TOKEN-EXPAND-SEC-CLS-LVL-RANK_20260905.md,
   G:\내 드라이브\nxDTV-verify\reports\NUMERIC-CODE-HARDGATE-TO-PENALTY-CONVERT-M342-OPTIONB_20260905.md
+- **[2026-09-05 추가 갱신] QTY-AMT 원본시나리오 회귀 해소**: 위 NUMERIC-CODE-HARDGATE-TO-PENALTY-
+  CONVERT-M342-OPTIONB(커밋 b3b93395) 도입 시, VALUE_ONLY 등급이 "이름 매칭 없음"과 "표준사전이
+  이미 측정값(MEASURE_*)으로 매칭함"을 구분하지 못해 QTY 같은 순수 측정값 컬럼이 GROUP BY로
+  잘못 자동선정되는 회귀가 발생했었음 - `_SEM_TYPES_MEASURE_NAMED` 신설로 교정(커밋 0f0b8aa8).
+  근거: G:\내 드라이브\nxDTV-verify\reports\QTY-AMT-ORIGINAL-CASE-REGRESSION-DIAGNOSE-POST-
+  REDESIGN_20260905.md
 
 ### M343. 아이디어(미착수) - STATUS-CD-JUDGE-LIVE-DB-VERIFICATION-GAP - STATUS_CD류 판정 실 Oracle/PostgreSQL 라이브 테이블 미검증
 - 2026-09-04 세션 중 채팅으로만 논의, 지침화·실행 전혀 안 된 항목을 소급 기록(구현 결정 아님).
@@ -10218,3 +10224,23 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 커밋: 90271d0c
 - 근거: G:\내 드라이브\nxDTV-verify\reports\NUMERIC-CODE-HARDGATE-TO-PENALTY-CONVERT-M342-OPTIONB_20260905.md,
   DUAL-SCORING-SYSTEM-INVESTIGATE-UNIFY-OR-DOCUMENT-M348 완료보고서
+
+### M349. 아이디어(미착수) - NUMERIC-2COL-TABLE-GROUPBY-SUM-SAME-COLUMN-DUPLICATE - 숫자형 컬럼 2개뿐인 표에서 동일 컬럼이 GROUP BY 축이자 SUM 대상으로 동시 자동선정
+- 발견/계기: 2026-09-05 (QTY-AMT-ORIGINAL-CASE-REGRESSION-DIAGNOSE-POST-REDESIGN 조사 중 발견)
+- 숫자형 컬럼 2개뿐인 표(예: STATUS_CD+AMT)에서 STATUS_CD가 GROUP BY 축이자 SUM 집계 대상으로
+  동시 자동선정되는 문제가 여전히 존재한다. 정상 경로에는 SUM 중복배제가 없고, postcount 대체추천
+  승격 순서(GROUP BY 먼저→SUM 나중) 때문에 대체추천 경로의 배제도 우회된다.
+- "GROUP BY를 죽이는" 방향이 아니라 "차원 매칭 컬럼을 SUM top-N에서 빼는" 역할 중재 방향이
+  유력해 보이나 정책 결정 필요.
+- 권장 모델: Sonnet / 추론 강도: 낮음
+- 커밋: - (기록만, 코드 변경 없음)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\QTY-AMT-ORIGINAL-CASE-REGRESSION-DIAGNOSE-POST-REDESIGN_20260905.md
+
+### M350. 아이디어(미착수) - HOLD-STATUS-BADGE-LABEL-STALE-DISPLAY - HOLD 후보 배지 라벨이 구조화 상태와 무관하게 기존 라벨(예: 기본추천)로 잔존 표시
+- 발견/계기: 2026-09-05 (QTY-AMT-ORIGINAL-CASE-REGRESSION-DIAGNOSE-POST-REDESIGN 조사 중 발견)
+- `recommendation_status=HOLD` 후보의 배지 라벨이 `sync_display_badge_label_from_structured()`에서
+  매핑되지 않고 기존 라벨을 그대로 보존해, 체크 해제·점수 하락 후에도 배지만 "기본추천"으로 남는
+  화면상 오해 소지가 있다(의도된 기존 동작이나 사용자 혼란 가능).
+- 권장 모델: Sonnet / 추론 강도: 낮음
+- 커밋: - (기록만, 코드 변경 없음)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\QTY-AMT-ORIGINAL-CASE-REGRESSION-DIAGNOSE-POST-REDESIGN_20260905.md
