@@ -7282,7 +7282,7 @@ git -C E:/verify_reports worktree remove <임시경로>
   UNEXPECTED-3AXIS-COMBO-CHECKBOX-AND-MISLEADING-ERROR-DIAGNOSE.md
 
 
-### M114. 고려사항(미착수) — 싱글테이블 최대 10억행 규모 가정 시, 사전조사(COUNT DISTINCT)·확인창 설계 전제 재검토 필요
+### M114. ✅ 해결 완료(조사·설계, 2026-09-05) — 싱글테이블 최대 10억행 규모 가정 시, 사전조사(COUNT DISTINCT)·확인창 설계 전제 재검토 필요
 - 발견/계기: 2026-08-13 (사용자 - PRECOUNT-DISTINCT-VS-FULL-COMBO-COST-
   DIAGNOSE 논의 중 "싱글테이블 최대 10억행까지 있을 수 있다고 간주하면"
   조건 제시)
@@ -7305,6 +7305,13 @@ git -C E:/verify_reports worktree remove <임시경로>
   미조사 상태.
 - 사용자 결정: 지금은 조사/구현 착수하지 않고 고려사항으로만 기록.
   향후 필요 시(예: 실제로 이런 규모 고객 사례가 생기면) 재검토.
+- **✅ 해결(2026-09-05, SINGLETABLE-1B-ROWS-PRECHECK-CONFIRM-DESIGN-RECHECK-M114)**:
+  위 우려는 이미 해소되어 있었음을 재확인 — 현재 사전조사 경로는 전체 스캔이 아니라
+  5만행 CTE 표본 기반이라 테이블 크기와 무관하게 O(1) 비용이며, 42M행 실측 0.24초로
+  확인. 확인창 발동 임계값(100만행)과 동적 소요시간 표시 모두 10억행 규모를 가정해도
+  전제가 깨지지 않고 정상 작동함을 확인. 코드 수정 없음(조사·설계 재검토만).
+  근거: G:\내 드라이브\nxDTV-verify\reports\SINGLETABLE-1B-ROWS-PRECHECK-CONFIRM-
+  DESIGN-RECHECK-M114_20260905.md
 
 
 ### M115. ✅ 해결 완료 — 4개 항목 일괄 처리(긴급버그 1건 + M84/M86/M87 완료 + M95 전제뒤집힘 확인 + 3축 결합 최종 opt-in 구현)
@@ -10177,17 +10184,22 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 커밋: - (기록만, 코드 변경 없음)
 - 참고: G:\내 드라이브\nxDTV-verify\reports\LLM-JUDGE-TIMEOUT-KEEPALIVE-TUNE-INVESTIGATE-AND-FIX_20260904.md
 
-### M347. 아이디어(미착수) - SYNC-BUFFER-VS-ASYNC-JOB-PRIORITY-ORDER-RECHECK - 동기 결과 버퍼와 비동기(F7) job 결과 동시 존재 시 고정 순서(최신 우선 아님)
+### M347. ✅ 해결 완료(2026-09-05) - SYNC-BUFFER-VS-ASYNC-JOB-PRIORITY-ORDER-RECHECK - 동기 결과 버퍼와 비동기(F7) job 결과 동시 존재 시 고정 순서(최신 우선 아님)
 - 발견/계기: 2026-09-05 (STAGE4-RESULT-BUFFER-ON-TAB-LEAVE-IMPLEMENT 조사 중 발견, M167 해결 확인 과정의 부산물)
 - 동기 버퍼(`_mvDeferStepResult`)와 비동기(F7) job 결과가 한 세션에 동시에 존재할 때, 현재는
   "capturedAtMs/완료시각 중 최신 우선"이 아니라 "동기 버퍼가 항상 나중에 실행돼 우선"하는 고정
   순서다(`_applySinglePane`이 `showSingleStep` 내부에서 `_mvApplyDeferredStepResult`보다 먼저 실행).
 - 발생 빈도가 낮은 것으로 판단해 이번엔 보류, 실무에서 관찰되면 재검토.
+- **✅ 해결(2026-09-05, SYNC-BUFFER-ASYNC-JOB-PRIORITY-LATEST-WINS-FIX-M347)**: `showSingleStep`의
+  동기버퍼/비동기job 고정순서를 `capturedAtMs` vs `completedAtMs` 비교 기반 "최신 우선" 순서로
+  전환. 코드는 병행 세션 커밋 `90271d0c`에 의도치 않게 포함돼 이미 반영, 검증 산출물은 별도 커밋
+  `6c0a46d3`.
 - 권장 모델: Sonnet / 추론 강도: 낮음
-- 커밋: - (기록만, 코드 변경 없음)
-- 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE4-RESULT-BUFFER-ON-TAB-LEAVE-IMPLEMENT_20260905.md
+- 커밋: 90271d0c(코드, 병행 세션 혼입), 6c0a46d3(검증 산출물)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE4-RESULT-BUFFER-ON-TAB-LEAVE-IMPLEMENT_20260905.md,
+  SYNC-BUFFER-ASYNC-JOB-PRIORITY-LATEST-WINS-FIX-M347 완료보고서
 
-### M348. 아이디어(미착수) - DUAL-SCORING-SYSTEM-CANDIDATE-ENGINE-VS-SCORING-UNIFY-RISK - candidate_engine 로컬 척도와 candidate_scoring 100점 척도, 서로 독립된 두 점수 체계 병존 리스크
+### M348. ✅ 해결 완료(2026-09-05) - DUAL-SCORING-SYSTEM-CANDIDATE-ENGINE-VS-SCORING-UNIFY-RISK - candidate_engine 로컬 척도와 candidate_scoring 100점 척도, 서로 독립된 두 점수 체계 병존 리스크
 - 발견/계기: 2026-09-05 (NUMERIC-CODE-HARDGATE-TO-PENALTY-CONVERT-M342-OPTIONB 조사 중 발견, M342 해결 확인 과정의 부산물)
 - `candidate_engine.py`(GROUP BY `auto_selected`를 결정하는 로컬 0.0~1.0 척도, 실질적 최종 판정자)와
   `candidate_scoring.py`(100점 척도, score_contributions - "표시 전용, 판정에 관여하지 않음"이 자체
@@ -10195,6 +10207,14 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 이 이원 구조를 모르고 향후 candidate_scoring.py에만 새 점수 요소를 추가하면 "화면 점수는 바뀌는데
   실제 자동선정 결과는 안 바뀌는" 혼란이 재발할 수 있다. 두 체계를 하나로 통합할지, 아니면 역할을
   명확히 문서화(코드 주석 강화)하는 선에서 둘지는 별도 지침에서 결정 필요.
+- **✅ 해결(2026-09-05, DUAL-SCORING-SYSTEM-INVESTIGATE-UNIFY-OR-DOCUMENT-M348)**: 두 점수체계의
+  실질 관계를 규명 — candidate_scoring 100점 척도는 "표시 전용"이 아니라 `_apply_global_
+  autoselection`이 top-N `SELECTED_DEFAULT`를 이 점수로 결정함(개별검증+일괄검증 공통). 병합
+  여부는 기존 문서(docs/CANDIDATE_SCORING_SINGLE_SOURCE_D9_2.md)가 이미 "보류"로 결정해둔 것을
+  재확인해 유지, "표시 전용"이라는 오독 유발 문구만 코드주석·문서·화면 3곳에서 정정(커밋
+  90271d0c). 잔여 과제로 "engine 1차cap이 scoring 2차cap에 사실상 덮어써지는 구조적 중복"은
+  별도 조사 필요로 남음(이번엔 미포함).
 - 권장 모델: Sonnet / 추론 강도: 낮음
-- 커밋: - (기록만, 코드 변경 없음)
-- 근거: G:\내 드라이브\nxDTV-verify\reports\NUMERIC-CODE-HARDGATE-TO-PENALTY-CONVERT-M342-OPTIONB_20260905.md
+- 커밋: 90271d0c
+- 근거: G:\내 드라이브\nxDTV-verify\reports\NUMERIC-CODE-HARDGATE-TO-PENALTY-CONVERT-M342-OPTIONB_20260905.md,
+  DUAL-SCORING-SYSTEM-INVESTIGATE-UNIFY-OR-DOCUMENT-M348 완료보고서
