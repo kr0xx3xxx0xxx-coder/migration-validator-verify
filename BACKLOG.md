@@ -10121,12 +10121,25 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 커밋: - (기록만, 코드 변경 없음)
 - 참고: G:\내 드라이브\nxDTV-verify\reports\GEMMA4-UPGRADE-EVALUATE-KOREAN-QUALITY-COMPARE_20260904.md
 
-### M342. 아이디어(미착수) - NONSTANDARD-DICT-NAME-PROD-CD-GAP-RECONFIRM - 표준사전 밖 이름(PROD_CD류) 대응 갭 최종구현 잔존 여부 재확인 필요
+### M342. ✅ 해결 완료(2026-09-05) - NONSTANDARD-DICT-NAME-PROD-CD-GAP-RECONFIRM - 표준사전 밖 이름(PROD_CD류) 대응 갭 최종구현 잔존 여부 재확인 필요
 - 2026-09-04 세션 중 채팅으로만 논의, 지침화·실행 전혀 안 된 항목을 소급 기록(구현 결정 아님).
 - 표준사전 밖 이름(`PROD_CD`류) 대응 갭에 대한 설계가 여러 차례 변경(접미사패턴→LLM우선순위→다요소 재설계)되어 왔음 - 이 구체적 갭이 최종 구현(CANDIDATE-MULTIFACTOR-SCORING-CASCADE-REPLACE-IMPLEMENT-WITH-BACKUP)에 실제로 남아있는지 재확인 필요.
 - 권장 모델: Sonnet / 추론 강도: 낮음
 - 커밋: - (기록만, 코드 변경 없음)
 - 참고: G:\내 드라이브\nxDTV-verify\reports\CANDIDATE-MULTIFACTOR-SCORING-CASCADE-REPLACE-IMPLEMENT-WITH-BACKUP_20260904.md
+- **[2026-09-05 갱신]** 아래 3개 완료보고로 최종 해결됨:
+  - STANDARD-DICT-COMMON-CODE-TOKEN-EXPAND-PROD-GRP-ETC(표준사전에 GRP/SE/GRD TOKEN 3건 등록,
+    이중근거 기준 통과분)
+  - STANDARD-DICT-SEMANTIC-SELFEVIDENT-TOKEN-EXPAND-SEC-CLS-LVL-RANK(약어 뜻 자체가 범주형임이
+    자명한 SEC/CLS/LVL/RANK 4건 추가 등록, PROD는 엔티티 접두어라 계속 제외)
+  - NUMERIC-CODE-HARDGATE-TO-PENALTY-CONVERT-M342-OPTIONB(이름 사전매칭이 여전히 없는 잔여 갭에
+    대해, 숫자형 GROUP BY 코드성 판정을 하드 게이트에서 MATCHED/VALUE_ONLY/NONE 3단계 감점형으로
+    전환 - 이름 매칭 없이 값검증만 강해도 감점된 신뢰도로 auto_selected 인정, 커밋 b3b93395)
+  - 조사 중 발견된 부산물(candidate_engine.py 로컬 0.0~1.0 척도 vs candidate_scoring.py 100점
+    표시전용 척도의 이원 구조)은 별도 신규 항목 M348로 등록(아래 참고).
+- 근거(갱신): G:\내 드라이브\nxDTV-verify\reports\STANDARD-DICT-COMMON-CODE-TOKEN-EXPAND-PROD-GRP-ETC_20260905.md,
+  G:\내 드라이브\nxDTV-verify\reports\STANDARD-DICT-SEMANTIC-SELFEVIDENT-TOKEN-EXPAND-SEC-CLS-LVL-RANK_20260905.md,
+  G:\내 드라이브\nxDTV-verify\reports\NUMERIC-CODE-HARDGATE-TO-PENALTY-CONVERT-M342-OPTIONB_20260905.md
 
 ### M343. 아이디어(미착수) - STATUS-CD-JUDGE-LIVE-DB-VERIFICATION-GAP - STATUS_CD류 판정 실 Oracle/PostgreSQL 라이브 테이블 미검증
 - 2026-09-04 세션 중 채팅으로만 논의, 지침화·실행 전혀 안 된 항목을 소급 기록(구현 결정 아님).
@@ -10142,12 +10155,20 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 커밋: - (기록만, 코드 변경 없음)
 - 참고: G:\내 드라이브\nxDTV-verify\reports\CANDIDATE-MULTIFACTOR-SCORING-CASCADE-REPLACE-IMPLEMENT-WITH-BACKUP_20260904.md
 
-### M345. 아이디어(미착수) - SQL-PARSE-MODEL-CONVERT-HASH-WRAPPER-47PCT-OPTIMIZE - SQL 파싱 모델변환/해시 wrapper 47% 비용 구간 미착수
+### M345. ✅ 해결 완료(2026-09-05) - SQL-PARSE-MODEL-CONVERT-HASH-WRAPPER-47PCT-OPTIMIZE - SQL 파싱 모델변환/해시 wrapper 47% 비용 구간 미착수
 - 2026-09-04 세션 중 채팅으로만 논의, 지침화·실행 전혀 안 된 항목을 소급 기록(구현 결정 아님).
 - SQL 파싱 모델변환/해시 wrapper가 전체 파싱 비용의 47%를 차지하며, SQLGLOT-PARSE-WORKER-POOL-PARALLELIZE-INVESTIGATE-AND-IMPLEMENT(순차 for루프→격리 워커 풀 병렬화)로도 손대지 못한 구간 - 해당 완료보고에서 다음으로 큰 개선 여지로 지목됨.
 - 권장 모델: Sonnet / 추론 강도: 낮음
 - 커밋: - (기록만, 코드 변경 없음)
 - 참고: G:\내 드라이브\nxDTV-verify\reports\SQLGLOT-PARSE-WORKER-POOL-PARALLELIZE-INVESTIGATE-AND-IMPLEMENT_20260904.md
+- **[2026-09-05 갱신]** 세부 프로파일링 결과 실제 병목은 "모델변환/해시" 자체가 아니라
+  `extract_cte_names()`가 WITH절 없는 SQL에도 매 row마다 sqlglot 격리 프로세스로 무조건
+  재파싱하는 것이었음(dataclass 생성·해시 계산 자체는 3.1% 미만). `\bWITH\b` 사전 정규식
+  필터로 WITH 키워드가 없으면 재파싱 자체를 건너뛰도록 수정 - 실제 배선 경로 기준 n=3000에서
+  38% 단축(2.635ms/row → 1.633ms/row), 격리 프로세스 파싱 요청 수 50% 감소. WITH절을 쓰는
+  SQL은 기존과 동일하게 동작(회귀 없음).
+- 커밋(갱신): 7e190f60
+- 근거(갱신): G:\내 드라이브\nxDTV-verify\reports\SQL-PARSE-MODEL-CONVERT-HASH-WRAPPER-OPTIMIZE-M345_20260905.md
 
 ### M346. 아이디어(미착수) - BATCH-FAILURE-SUMMARY-LLM-GUIDE-COLDSTART-TIMEOUT-VULNERABLE - BATCH_FAILURE_SUMMARY_LLM_GUIDE 자체 타임아웃(8초) 콜드스타트 취약점
 - 2026-09-04 세션 중 채팅으로만 논의, 지침화·실행 전혀 안 된 항목을 소급 기록(구현 결정 아님).
@@ -10165,3 +10186,15 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 낮음
 - 커밋: - (기록만, 코드 변경 없음)
 - 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE4-RESULT-BUFFER-ON-TAB-LEAVE-IMPLEMENT_20260905.md
+
+### M348. 아이디어(미착수) - DUAL-SCORING-SYSTEM-CANDIDATE-ENGINE-VS-SCORING-UNIFY-RISK - candidate_engine 로컬 척도와 candidate_scoring 100점 척도, 서로 독립된 두 점수 체계 병존 리스크
+- 발견/계기: 2026-09-05 (NUMERIC-CODE-HARDGATE-TO-PENALTY-CONVERT-M342-OPTIONB 조사 중 발견, M342 해결 확인 과정의 부산물)
+- `candidate_engine.py`(GROUP BY `auto_selected`를 결정하는 로컬 0.0~1.0 척도, 실질적 최종 판정자)와
+  `candidate_scoring.py`(100점 척도, score_contributions - "표시 전용, 판정에 관여하지 않음"이 자체
+  주석에 명시됨)가 서로 독립된 두 점수 체계로 존재한다.
+- 이 이원 구조를 모르고 향후 candidate_scoring.py에만 새 점수 요소를 추가하면 "화면 점수는 바뀌는데
+  실제 자동선정 결과는 안 바뀌는" 혼란이 재발할 수 있다. 두 체계를 하나로 통합할지, 아니면 역할을
+  명확히 문서화(코드 주석 강화)하는 선에서 둘지는 별도 지침에서 결정 필요.
+- 권장 모델: Sonnet / 추론 강도: 낮음
+- 커밋: - (기록만, 코드 변경 없음)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\NUMERIC-CODE-HARDGATE-TO-PENALTY-CONVERT-M342-OPTIONB_20260905.md
