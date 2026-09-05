@@ -8767,7 +8767,7 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 성격: 코드 수정 + 실측, git 커밋 0건(지시대로 미커밋). DB 작업은 SELECT/EXPLAIN PLAN/ALTER SESSION(세션 한정)뿐, 픽스처 변경 0건.
 - 근거: G:\내 드라이브\nxDTV-verify\reports\M160-SORT-ELIMINATION-SELECTIVITY-GATE-IMPLEMENT.md
 
-### M167. 조사완료(실현가능(a), 설계 확정, 미구현) - M164가 남긴 잔여 갭(4단계 실행 중 복귀 없이 다른 탭에 계속 머물면 결과 폐기) 해소를 위한 결과 버퍼링 설계 확정 - 기존 비동기 재진입 복원 패턴을 그대로 확장하는 최소침습안
+### M167. ✅ 해결 완료(선행 해소 확인, 2026-09-05) - M164가 남긴 잔여 갭(4단계 실행 중 복귀 없이 다른 탭에 계속 머물면 결과 폐기) 해소를 위한 결과 버퍼링 설계 확정 - 기존 비동기 재진입 복원 패턴을 그대로 확장하는 최소침습안
 - 발견/계기: 2026-08-15/16 (M164가 "복귀 시도했으나 막힘"은 해소했지만 "복귀 자체를 안 함"은 범위 밖으로 남긴 것의 후속 / STAGE4-RESULT-BUFFER-ON-TAB-LEAVE-DIAGNOSE)
 - 핵심 발견: 폐기 지점(다중세트/단일세트 각 1곳, 게이트 1줄 뒤 상태세팅+렌더 블록 전체가 좌우되는 동일 구조)과, 재진입 시 자동 복원 지점(_applySinglePane, 비동기 경로가 이미 쓰는 _mvAsyncExecRehydrate 호출 자리)이 전부 이미 명확한 단일 지점으로 존재 - "새 아키텍처"가 아니라 "기존 패턴에 버퍼 캡처+드레인 한 줄씩 추가"로 설계 가능함을 코드로 확인.
 - 안전성: 세션 자체가 바뀐 경우(재분석 등)는 명시적으로 버퍼링 제외 - 원 정책(다른 화면 덮어쓰기 방지)과 동일 경계 유지. 소비는 오직 사용자가 명시적으로 그 탭에 재진입할 때만(showSingleStep 경로) - 백그라운드 자동 덮어쓰기 없음. 기존 "재검증 필요" 배너 메커니즘(staleGen 비교)과도 자연히 호환(새 판정축 불필요).
@@ -8775,6 +8775,16 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 비판적 검토(자체 명시): 코드 복제 비용, 비동기(F7) 경로와의 우선순위 규칙 필요(capturedAtMs/job완료시각 중 최신 우선 권장), BACKGROUND-EXEC-COMBO-SUPPORT-DIAGNOSE(M168) 완료 후 다중세트 동기경로 사용빈도 자체가 줄어들 수 있어 착수 시점에 그 결과 우선 확인 권고.
 - 코드 수정 없음(순수 조사·설계) - 구현은 별도 지침 필요.
 - 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE4-RESULT-BUFFER-ON-TAB-LEAVE-DIAGNOSE.md
+- **[2026-09-05 갱신]** STAGE4-RESULT-BUFFER-ON-TAB-LEAVE-IMPLEMENT(2026-09-05) 실행 중 코드 실측으로
+  확인 - 이 기능은 M167 진단(2026-08-16) 이후, 별개의 긴급버그 수정
+  (TAB-NAVIGATION-KILLS-BACKGROUND-EXECUTION-URGENT-DIAGNOSE, 2026-08-21, 커밋 726810ee)에서 같은
+  아키텍처 지점(`_mvStaleRunResponse` 게이트)을 다루다 이미 완전히 구현·검증·배포됨.
+- `_mvDeferStepResult`/`_mvApplyDeferredStepResult`(ui/tabler_renderer.py:17189~17200)가 버퍼링
+  메커니즘, 다중세트(29810)/단일세트(36486)/COUNT(27474) 3곳 모두 배선 확인. 소비는
+  `showSingleStep`(:6971) 1곳뿐(자동 덮어쓰기 없음).
+- 실제 구현이 원 설계안(a-2, 복제 함수)보다 우수함: 즉시/지연 경로가 같은 클로저 함수를 재사용해
+  코드 복제 이중화 비용 자체가 없음.
+- 근거(갱신): G:\내 드라이브\nxDTV-verify\reports\STAGE4-RESULT-BUFFER-ON-TAB-LEAVE-IMPLEMENT_20260905.md
 
 ### M168. 조사완료(구조적 문제 아님, 배선누락 4곳 확정, 미구현) - 백그라운드(⏱) 실행 경로가 조합(EXPLICIT_MULTI) 세트를 지원 못하는 진짜 원인은 설계 비호환이 아니라 두 기능의 구현 시점 차이(8/9 비동기 구현 vs 8/14 조합정책 개편)로 인한 배선 누락 4곳
 - 발견/계기: 2026-08-15/16 (M164가 "백그라운드 실행이 조합세트 미지원이라 회피수단 자체가 없다"고 남긴 별개 갭 / BACKGROUND-EXEC-COMBO-SUPPORT-DIAGNOSE)
@@ -10145,3 +10155,13 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 낮음
 - 커밋: - (기록만, 코드 변경 없음)
 - 참고: G:\내 드라이브\nxDTV-verify\reports\LLM-JUDGE-TIMEOUT-KEEPALIVE-TUNE-INVESTIGATE-AND-FIX_20260904.md
+
+### M347. 아이디어(미착수) - SYNC-BUFFER-VS-ASYNC-JOB-PRIORITY-ORDER-RECHECK - 동기 결과 버퍼와 비동기(F7) job 결과 동시 존재 시 고정 순서(최신 우선 아님)
+- 발견/계기: 2026-09-05 (STAGE4-RESULT-BUFFER-ON-TAB-LEAVE-IMPLEMENT 조사 중 발견, M167 해결 확인 과정의 부산물)
+- 동기 버퍼(`_mvDeferStepResult`)와 비동기(F7) job 결과가 한 세션에 동시에 존재할 때, 현재는
+  "capturedAtMs/완료시각 중 최신 우선"이 아니라 "동기 버퍼가 항상 나중에 실행돼 우선"하는 고정
+  순서다(`_applySinglePane`이 `showSingleStep` 내부에서 `_mvApplyDeferredStepResult`보다 먼저 실행).
+- 발생 빈도가 낮은 것으로 판단해 이번엔 보류, 실무에서 관찰되면 재검토.
+- 권장 모델: Sonnet / 추론 강도: 낮음
+- 커밋: - (기록만, 코드 변경 없음)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\STAGE4-RESULT-BUFFER-ON-TAB-LEAVE-IMPLEMENT_20260905.md
