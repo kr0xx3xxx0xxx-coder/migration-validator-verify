@@ -10244,3 +10244,18 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 낮음
 - 커밋: - (기록만, 코드 변경 없음)
 - 근거: G:\내 드라이브\nxDTV-verify\reports\QTY-AMT-ORIGINAL-CASE-REGRESSION-DIAGNOSE-POST-REDESIGN_20260905.md
+
+### M351. 아이디어(미착수) - DISCOUNT-RATE-LIKE-DECIMAL-CODE-COLUMN-AUTOSELECTION-GAP-INVESTIGATE - NUMBER(5,2) 이산값 코드성 컬럼(discount_rate류)이 3단계 자동선정에서 배제됨
+- 발견/계기: 2026-09-05 (AGG-DIFF-LOG-ADD-AND-TODAY-FULL-CASES-INTEGRATED-SWEEP Part B 통합 스윕 중 발견)
+- NUMBER(5,2) 이산값 10종(0.05~0.50, discount_rate류)으로 코드성 후보를 의도한 컬럼이, 전체
+  candidate_engine 파이프라인을 실제로 통과시켜 보니(오늘 처음 확인, 과거엔
+  score_group_by_candidate() 단위테스트로만 검증됨) 3단계 자동선정에서 GROUP BY/SUM 어느
+  쪽으로도 선택되지 않는 것으로 확인됨. 소수점 코드값이 실제 파이프라인에서 왜 배제되는지
+  원인 조사 필요.
+- 참고(신규 항목 아님, 위 발견 근거와 동일 스윕): 오늘 반영분(후보추천 판정·화면표시·분석
+  파이프라인·재이관/상세비교, 10개 이상 지침) 전체를 8개 케이스·1~5단계로 통합 스윕한 결과,
+  위 discount_rate 갭 1건 외에는 새로운 결함(콘솔/HTTP/DB 에러, 판정 로직 붕괴) 없음을
+  확인함(CLAUDE.md 17번 규칙 실행 완료).
+- 권장 모델: Sonnet / 추론 강도: 낮음
+- 커밋: - (기록만, 코드 변경 없음)
+- 근거: G:\내 드라이브\nxDTV-verify\reports\AGG-DIFF-LOG-ADD-AND-TODAY-FULL-CASES-INTEGRATED-SWEEP_20260905.md
