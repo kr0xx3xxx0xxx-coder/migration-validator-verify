@@ -3444,7 +3444,7 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: E:\verify_reports\M52-FIVE-REVEALED-FAILURES-ROOT-CAUSE-DIAGNOSE.txt
 - 참고: E:\verify_reports\M52-3-CANDIDATE-NOTICE-STALE-ASSERTION-UPDATE.txt
 
-### M53. ✅ Phase1~4 완료+검증됨 — SQLite DB 경로 계산 단일 진실 출처화(5단계 실이관은 "안전" 판정, 최종 승인 대기)
+### M53. ✅ 완전 해결(2026-09-06) — SQLite DB 경로 계산 단일 진실 출처화
 - 발견/계기: 2026-08-07 / 1~4단계 완료: 2026-08-07(코드 커밋 23e3fb60) / 검증: 2026-08-07
   (DB-SEPARATE-FOLDER-PHASE1-4-VERIFY)
 - 조사 핵심(1단계): 운영 코드 49개 파일 47개 지점이 각자 `Path(__file__).parent.parent
@@ -3478,6 +3478,12 @@ git -C E:/verify_reports worktree remove <임시경로>
 - 참고: 코드 저장소 로컬 커밋 23e3fb60(verify 저장소 완료보고 미push — 채팅에서 직접
   조사·설계 산출물 공유 후 사용자 승인으로 진행)
 - 참고: E:\verify_reports\DB-SEPARATE-FOLDER-PHASE1-4-VERIFY.txt
+- **완전 해결(2026-09-06)**: 사용자 최종 승인 확정. 코드 재확인 결과 후속 스위치 없음 —
+  경로 계산 단일화(`config/db_paths.py`)는 이미 완전 반영·정착 상태(참조 파일 49→65개로
+  확대 확인). 물리 이관(`X:\Data\Migration_Validator` 전환)은 원 커밋부터 별도 승인
+  필요 항목으로 명시돼 있었으며 M53과 분리된 별개 미착수 항목임을 재확인(`X:\Data`
+  디렉터리 미존재 실측 확인). 회귀 테스트 전용 8건 + 확장 서브셋 9건 전부 통과.
+  코드 수정 없음. 근거: M53-SQLITE-PATH-SINGLE-SOURCE-FINAL-APPROVAL-CONFIRM 완료보고서.
 
 ### M54. ✅ 해결 완료 — 개별검증 4·5단계 버그2건+개선4건(재실행 결과잔존/원시에러노출/설정배너오탐/전략정보확장/탭배지분리/그리드축소)
 - 발견일: 2026-08-07 (사용자 스크린샷 5장 직접 지적) / 해결일: 2026-08-07
@@ -10247,7 +10253,7 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
   자체를 직접 겨냥해 검증 완료. 커밋 e730f618. 근거:
   GROUPBY-CONFIRMED-SUM-EXCLUDE-FALLBACK-PATH-GAP-FIX-M349 완료보고서.
 
-### M350. 아이디어(미착수) - HOLD-STATUS-BADGE-LABEL-STALE-DISPLAY - HOLD 후보 배지 라벨이 구조화 상태와 무관하게 기존 라벨(예: 기본추천)로 잔존 표시
+### M350. ✅ 해결 완료(2026-09-06) - HOLD-STATUS-BADGE-LABEL-STALE-DISPLAY - HOLD 후보 배지 라벨이 구조화 상태와 무관하게 기존 라벨(예: 기본추천)로 잔존 표시
 - 발견/계기: 2026-09-05 (QTY-AMT-ORIGINAL-CASE-REGRESSION-DIAGNOSE-POST-REDESIGN 조사 중 발견)
 - `recommendation_status=HOLD` 후보의 배지 라벨이 `sync_display_badge_label_from_structured()`에서
   매핑되지 않고 기존 라벨을 그대로 보존해, 체크 해제·점수 하락 후에도 배지만 "기본추천"으로 남는
@@ -10255,6 +10261,13 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 낮음
 - 커밋: - (기록만, 코드 변경 없음)
 - 근거: G:\내 드라이브\nxDTV-verify\reports\QTY-AMT-ORIGINAL-CASE-REGRESSION-DIAGNOSE-POST-REDESIGN_20260905.md
+- **해결 완료(2026-09-06)**: `_REC_BADGE_LABEL` 매핑 테이블에 `REC_HOLD` 항목이 없어 HOLD
+  확정 후보의 배지 라벨이 재계산 안 되던 구조적 누락 확인(의도된 설계였으나 전제 불성립
+  사각지대 존재). `compute_display_badge_label()` 재사용해 legacy_status 기준 무조건
+  재계산하도록 수정(어제 GROUPBY-EXCLUDE-REASON 완료보고와 동일 원칙 재사용, 신규
+  메커니즘 없음). 실 브라우저 렌더 함수 직접 검증(BEFORE "기본추천"→AFTER "수동선택필요"
+  배지 전환 스크린샷 대조), 회귀 이름단위 diff로 신규 실패 0건. 커밋 `1177f8db`. 근거:
+  HOLD-STATUS-BADGE-LABEL-STALE-DISPLAY-FIX-M350 완료보고서.
 
 ### M351. ✅ 해결 완료(2026-09-06) - DISCOUNT-RATE-LIKE-DECIMAL-CODE-COLUMN-AUTOSELECTION-GAP-INVESTIGATE - NUMBER(5,2) 이산값 코드성 컬럼(discount_rate류)이 3단계 자동선정에서 배제됨
 - 발견/계기: 2026-09-05 (AGG-DIFF-LOG-ADD-AND-TODAY-FULL-CASES-INTEGRATED-SWEEP Part B 통합 스윕 중 발견)
