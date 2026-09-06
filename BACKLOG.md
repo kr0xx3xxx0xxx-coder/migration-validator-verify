@@ -10259,3 +10259,22 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 낮음
 - 커밋: - (기록만, 코드 변경 없음)
 - 근거: G:\내 드라이브\nxDTV-verify\reports\AGG-DIFF-LOG-ADD-AND-TODAY-FULL-CASES-INTEGRATED-SWEEP_20260905.md
+
+### M352. 아이디어(참고, 저빈도 — 조치 불필요) - CV-SAFETYNET-FAILOPEN-INDIVIDUAL-VALIDATION-PATH - RATE_RATIO 예외의 VALUE_DISTRIBUTION_SHAPE(CV) 안전장치가 개별검증 경로에서 구조적으로 상시 fail-open
+- 발견/계기: 2026-09-06 (DISCOUNT-RATE-GAP-SCALE-RELAX-AND-RATE-RATIO-EXCEPTION-IMPLEMENT-M351
+  구현 중 발견)
+- DISCOUNT-RATE-GAP-SCALE-RELAX-AND-RATE-RATIO-EXCEPTION-IMPLEMENT-M351이 RATE_RATIO 좁은
+  예외에 추가한 VALUE_DISTRIBUTION_SHAPE(CV) 안전장치가, 개별검증 `/analyze` 1차 경로에서는
+  PROFILE-EVIDENCE-ORDER 설계(저비용 catalog 메타 먼저, 비싼 샘플 프로파일은 후행)상 CV 값이
+  후보 생성 시점에 구조적으로 거의 항상 미수집 상태라 fail-open(막지 않음)으로 항상 빠진다.
+  일괄검증 경로는 이미 profile snapshot을 갖고 있어 정상 작동함.
+- 판단(사용자 확인, 2026-09-06): 저카디널리티 비율값이 GROUP BY로 잘못 선정돼도 검증
+  정확성(원본/목적 COUNT·SUM 비교)엔 손상이 없다 — 통계검증의 목적(정상 이관 여부 판단)은
+  그대로 달성됨. VALUE_ONLY 점수는 MATCHED보다 항상 낮아 진짜 범주형 컬럼이 있으면 자연히
+  밀려나고, 없을 때만 슬롯을 채우는데 이는 "빈 슬롯보다 낫다"는 기존 설계 원칙과 일치한다.
+  실질적 피해가 없다고 판단해 지금은 조치하지 않기로 확정 — 프로파일 수집 순서를 바꾸는 건
+  기존 성능 최적화 구조(저비용 우선)를 흔드는 더 큰 변경이라 이 낮은 리스크 대비 비용이 안
+  맞는다. 향후 실사용에서 실제 불만이 접수되면 재검토.
+- 권장 모델: Sonnet / 추론 강도: 낮음
+- 커밋: - (기록만, 코드 변경 없음)
+- 근거: DISCOUNT-RATE-GAP-SCALE-RELAX-AND-RATE-RATIO-EXCEPTION-IMPLEMENT-M351 완료보고서
