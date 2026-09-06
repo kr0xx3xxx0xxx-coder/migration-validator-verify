@@ -10278,3 +10278,29 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 낮음
 - 커밋: - (기록만, 코드 변경 없음)
 - 근거: DISCOUNT-RATE-GAP-SCALE-RELAX-AND-RATE-RATIO-EXCEPTION-IMPLEMENT-M351 완료보고서
+
+### M353. 아이디어(미착수) - LLM-VALUEONLY-LASTRESORT-GROUPBY-SEMANTIC-VETO - VALUE_ONLY 최후수단 허용이 통계(값분포)만으로 판단, 컬럼 의미(업무 타당성)는 미검증
+- 발견/계기: 2026-09-06 (오늘 세션 마무리 논의, 채팅으로만 논의되고 지침화·실행 전혀 안 된
+  항목을 소급 기록 - 구현 결정 아님)
+- 오늘 여러 지침(M342/M351 등)을 거치며 확립된 2단계 배제 구조 - ①이름이 확실히 아니라고
+  말하면(측정값 이름매칭) 무조건 배제, ②이름이 애매/무명이면 "다른 후보가 없을 때만" 통계
+  조건(카디널리티+CV)으로 최후수단 허용(VALUE_ONLY) - 에서, ②의 "다른 후보 없으면 쓴다"
+  판단이 순전히 통계(값 분포)에만 의존한다는 한계가 있음. 예: 자유 텍스트 메모(MEMO_TXT)
+  컬럼이 우연히 저카디널리티+좁은 값분포를 보여 통계 조건은 통과해도, 실제로는 "그룹화
+  대상으로 삼는 게 업무적으로 말이 안 되는" 컬럼일 수 있음 - 이는 값 분포가 아니라 컬럼명·
+  의미를 이해해야 판단 가능한 질문이라 통계 신호로는 원리적으로 답할 수 없음.
+- 아이디어: VALUE_ONLY 최후수단 허용 판정 지점에서만, LLM에게 "이 컬럼을 그룹화 기준으로
+  쓰는 게 업무적으로 타당한가"를 좁은 이진 질문으로 물어, "아니오"면 통계 조건을 통과했어도
+  최후수단 허용 자체를 거부(veto)하는 방안. 오늘 오전 CANDIDATE-SUBTYPE-LLM-JUDGE-INVESTIGATE-
+  FOR-NUMERIC-CODE-CLASSIFY가 검토했던 "②사전참여"(가장 위험한 각도로 분류돼 보류됨) 각도와
+  유사하나, 전체 점수 산정에 개입하는 것이 아니라 이 좁은 지점(최후수단 허용 여부)에서만
+  이진 판단을 추가하는 것이라 범위가 훨씬 좁고 안전할 가능성 - 다만 실제 위험도는 별도 조사
+  필요.
+- M339(LLM 의미판단 실제 채점 로직 연결 미착수)와 관련 있으나 더 좁고 구체적인 하위 아이디어로
+  등록(M339와 통합 검토 여부는 착수 시 판단).
+- 권장 모델: Sonnet / 추론 강도: 낮음
+- 커밋: - (기록만, 코드 변경 없음)
+- 근거: 오늘 세션 QTY-AMT/discount_rate/RATE_RATIO 논의 전체(관련 완료보고서:
+  MEASURE-NAMED-NUMERIC-GROUPBY-FULL-EXCLUDE-CONSISTENCY-FIX,
+  DISCOUNT-RATE-GAP-SCALE-RELAX-AND-RATE-RATIO-EXCEPTION-IMPLEMENT-M351,
+  CANDIDATE-SUBTYPE-LLM-JUDGE-INVESTIGATE-FOR-NUMERIC-CODE-CLASSIFY)
