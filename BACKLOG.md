@@ -10165,12 +10165,18 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
   근거: G:\내 드라이브\nxDTV-verify\reports\QTY-AMT-ORIGINAL-CASE-REGRESSION-DIAGNOSE-POST-
   REDESIGN_20260905.md
 
-### M343. 아이디어(미착수) - STATUS-CD-JUDGE-LIVE-DB-VERIFICATION-GAP - STATUS_CD류 판정 실 Oracle/PostgreSQL 라이브 테이블 미검증
+### M343. ✅ 해결 완료(2026-09-05) - STATUS-CD-JUDGE-LIVE-DB-VERIFICATION-GAP - STATUS_CD류 판정 실 Oracle/PostgreSQL 라이브 테이블 미검증
 - 2026-09-04 세션 중 채팅으로만 논의, 지침화·실행 전혀 안 된 항목을 소급 기록(구현 결정 아님).
 - STATUS_CD류 판정이 지금까지 전부 합성 메타데이터(dict 직접 주입)로만 테스트됐음 - 실 Oracle/PostgreSQL 라이브 테이블로는 한 번도 검증된 적 없음.
 - 권장 모델: Sonnet / 추론 강도: 낮음
 - 커밋: - (기록만, 코드 변경 없음)
 - 참고: G:\내 드라이브\nxDTV-verify\reports\CANDIDATE-MULTIFACTOR-SCORING-CASCADE-REPLACE-IMPLEMENT-WITH-BACKUP_20260904.md
+- **[2026-09-05 갱신, 갱신 누락 소급 반영]** STATUS-CD-LIVEDB-AND-PROD-CD-GAP-RECONFIRM(Part A)이
+  합성테스트-실DB 불일치 갭을 실측 확인 → SYNTHETIC-CANDIDATE-TEST-HARNESS-PROFILE-GAP-FIX가
+  하네스에 실DB 프로파일 입력 배선 누락(PROFILE_CARDINALITY/VALUE_DISTRIBUTION_SHAPE)을 수정해
+  하네스와 실DB 결과 일치 확인.
+- 근거(갱신): 위 두 완료보고서(STATUS-CD-LIVEDB-AND-PROD-CD-GAP-RECONFIRM,
+  SYNTHETIC-CANDIDATE-TEST-HARNESS-PROFILE-GAP-FIX)
 
 ### M344. 아이디어(미착수) - STANDARD-DICT-COVERAGE-EXPANSION-DESIGN-NEEDED - 표준사전 자체 커버리지 확장(나이스/에듀파인) 설계 미착수
 - 2026-09-04 세션 중 채팅으로만 논의, 지침화·실행 전혀 안 된 항목을 소급 기록(구현 결정 아님).
@@ -10335,3 +10341,57 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
   MEASURE-NAMED-NUMERIC-GROUPBY-FULL-EXCLUDE-CONSISTENCY-FIX,
   DISCOUNT-RATE-GAP-SCALE-RELAX-AND-RATE-RATIO-EXCEPTION-IMPLEMENT-M351,
   CANDIDATE-SUBTYPE-LLM-JUDGE-INVESTIGATE-FOR-NUMERIC-CODE-CLASSIFY)
+
+### M354. 아이디어(미착수, P0 최우선) - DOMAIN-LOG-ROOT-HANDLER-WIRING-MISSING-126SITES - 도메인 로거 126곳이 root 로거로 흘러가는데 root 로거에 파일 핸들러 미연결
+- 발견/계기: 2026-09-06, ALL-STAGES-BROWSER-FORCE-CLOSE-RESUME-AND-STEP-LOGGING-MAP-DIAGNOSE-ONLY
+  완료(진단 전용) 결과 도출된 우선순위 항목을 소급 등록(구현 결정 아님).
+- `services/`·`routes/` 126곳이 쓰는 일반 로거(`getLogger(__name__)`)가 root 로거로 흘러가는데,
+  root 로거에 파일 핸들러가 없어 도메인 로그가 전부 `logs/server.log`에 안 남고 소실됨(ORA-01741
+  사고 시간대 로그 실측으로 도메인 로그 0줄 확인). AGG-DIFF-LOG-ADD가 잡은 건 이 중 2곳뿐이었음.
+- root 로거에 파일 핸들러 연결(또는 전 도메인 로거를 "server" 로거로 통일)이 M355~M358 후속
+  항목의 전제조건.
+- 권장 모델: Sonnet / 추론 강도: 낮음
+- 커밋: - (기록만, 코드 변경 없음)
+- 근거: ALL-STAGES-BROWSER-FORCE-CLOSE-RESUME-AND-STEP-LOGGING-MAP-DIAGNOSE-ONLY 완료보고서
+
+### M355. 아이디어(미착수, P1) - STAGE4-TAB-SWITCH-CANCELS-QUERY-JOB-MIGRATE - 4단계 탭 전환만 해도 서버가 DB 쿼리를 능동 취소하는 문제, 서버측 job으로 이전 필요
+- 발견/계기: 2026-09-06, ALL-STAGES-BROWSER-FORCE-CLOSE-RESUME-AND-STEP-LOGGING-MAP-DIAGNOSE-ONLY
+  완료(진단 전용) 결과 도출된 우선순위 항목을 소급 등록(구현 결정 아님).
+- 4단계(통계검증 실행)는 탭을 닫지 않고 다른 탭으로 전환만 해도 0.25~0.5초 내 서버가 DB 쿼리를
+  능동적으로 취소함(M8 - DB를 60초씩 붙잡는 것 방지 목적으로 의도된 설계). 4단계가 5개 단계 중
+  가장 오래 걸림(5천만행 90초대, 다중세트 시 6분+)과 겹쳐 최악의 조합.
+- 기존 백그라운드 실행 백엔드(`/execute/async` 등)는 살아있음(버튼만 화면에서 제거됨) - M140
+  패턴(STAGE5-AUTOSAVE-SERVER-SIDE-JOB-MIGRATE) 재사용 시 난이도 낮을 것으로 추정.
+- M354(root 로거 배선) 완료 후 진행 권장.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (기록만, 코드 변경 없음)
+- 근거: ALL-STAGES-BROWSER-FORCE-CLOSE-RESUME-AND-STEP-LOGGING-MAP-DIAGNOSE-ONLY 완료보고서
+
+### M356. 아이디어(미착수, P2) - INDIVIDUAL-BATCH-SHARED-CORE-STEP-LOGGING - 개별·일괄검증 공유 실행 코어에 단계별 진행 로그 일관 추가
+- 발견/계기: 2026-09-06, ALL-STAGES-BROWSER-FORCE-CLOSE-RESUME-AND-STEP-LOGGING-MAP-DIAGNOSE-ONLY
+  완료(진단 전용) 결과 도출된 우선순위 항목을 소급 등록(구현 결정 아님).
+- 개별검증·일괄검증이 공유하는 핵심 실행 코어에 단계별 진행 로그를 일관되게 추가해, 실패 시점을
+  로그만으로 재구성 가능하게 함.
+- M354(root 로거 배선) 완료 후 진행.
+- 권장 모델: Sonnet / 추론 강도: 낮음
+- 커밋: - (기록만, 코드 변경 없음)
+- 근거: ALL-STAGES-BROWSER-FORCE-CLOSE-RESUME-AND-STEP-LOGGING-MAP-DIAGNOSE-ONLY 완료보고서
+
+### M357. 아이디어(미착수, P3) - BATCH-GHOST-RUNNING-LOCK-AUTO-RECOVERY-MISSING - 일괄검증 서버 재기동 시 일시정지 소실 + 유령 RUNNING 잠금 미해소
+- 발견/계기: 2026-09-06, ALL-STAGES-BROWSER-FORCE-CLOSE-RESUME-AND-STEP-LOGGING-MAP-DIAGNOSE-ONLY
+  완료(진단 전용) 결과 도출된 우선순위 항목을 소급 등록(구현 결정 아님).
+- 일괄검증은 서버 재기동에도 SQLite로 진행상태가 복원되나, 새로 발견된 결함 2건 - (a)일시정지
+  상태가 재기동 시 소실 (b)재기동 시 "유령 RUNNING 잠금"이 6시간 동안 자동 해소 안 됨.
+- 같은 저장소 안에 이미 올바르게 복구하는 패턴(통계검증 run)이 존재해 재사용 가능.
+- 권장 모델: Sonnet / 추론 강도: 보통
+- 커밋: - (기록만, 코드 변경 없음)
+- 근거: ALL-STAGES-BROWSER-FORCE-CLOSE-RESUME-AND-STEP-LOGGING-MAP-DIAGNOSE-ONLY 완료보고서
+
+### M358. 아이디어(미착수, P4, M8 정책 재확인 선행) - STAGE2-3-BROWSER-DEPENDENCY-RECHECK-AFTER-M8-POLICY-REVIEW - 2·3단계 브라우저 의존 개선은 M8(탭이탈 즉시취소) 정책 재검토 후 진행
+- 발견/계기: 2026-09-06, ALL-STAGES-BROWSER-FORCE-CLOSE-RESUME-AND-STEP-LOGGING-MAP-DIAGNOSE-ONLY
+  완료(진단 전용) 결과 도출된 우선순위 항목을 소급 등록(구현 결정 아님).
+- 2·3단계의 브라우저 의존 여부 개선은, 4단계의 탭이탈 즉시취소(M8) 정책 자체를 먼저
+  재검토·재확정한 뒤 진행하는 게 순서상 맞음(1단계는 현행 유지 권장, 항목 등록 안 함).
+- 권장 모델: Sonnet / 추론 강도: 낮음
+- 커밋: - (기록만, 코드 변경 없음)
+- 근거: ALL-STAGES-BROWSER-FORCE-CLOSE-RESUME-AND-STEP-LOGGING-MAP-DIAGNOSE-ONLY 완료보고서
