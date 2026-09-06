@@ -10417,3 +10417,30 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 낮음
 - 커밋: - (기록만, 코드 변경 없음)
 - 근거: ALL-STAGES-BROWSER-FORCE-CLOSE-RESUME-AND-STEP-LOGGING-MAP-DIAGNOSE-ONLY 완료보고서
+
+### M359. 아이디어(미착수) - BATCH-PAUSE-CONTROL-DUAL-LAYER-UNWIRED-SUSPECT - 일괄검증 제어 계층이 batch_execution_state_service / batch_pause_control 두 개로 병렬 존재, 후자가 실제 실행 루프에 미배선일 가능성
+- 발견/계기: 2026-09-06, LOG-DASHBOARD-ADD-PROCESS-STATUS-AND-FORCE-KILL-TAB 완료보고서(현상
+  절, batch_pause_control 관련 서술)에서 발견된 후속 사안을 소급 등록(이번 지침 범위 밖이라
+  재조사 없이 구현 결정 아님).
+- 일괄검증 실제 실행 루프(`run_batch_rows`)는 `batch_execution_state_service`를 참조하는
+  것으로 보이는 반면, 기존 검증현황판의 '중단' 버튼은 `batch_pause_control`을 호출하는 것으로
+  보임 - 코드 추적 결과 후자가 전자(실행 루프)에 배선되지 않은 것으로 보여, 검증현황판의
+  '중단' 버튼이 실제로 실행 중인 배치를 멈추지 못할 가능성이 있음. "~로 보인다" 수준이며
+  확정 아님, 재조사 필요.
+- 권장 모델: Sonnet / 추론 강도: 낮음
+- 커밋: - (기록만, 코드 변경 없음)
+- 근거: LOG-DASHBOARD-ADD-PROCESS-STATUS-AND-FORCE-KILL-TAB 완료보고서
+
+### M360. 설계결정 대기 - STAGE4-ASYNC-JOB-CANCEL-DESIGN-DECISION-NEEDED - 4단계 백그라운드 job(브라우저 이탈해도 계속 실행)에 취소 API 자체가 없어 사람이 멈출 방법이 전혀 없음
+- 발견/계기: 2026-09-06, LOG-DASHBOARD-ADD-PROCESS-STATUS-AND-FORCE-KILL-TAB 완료보고서(현상
+  절, single_execute_job 관련 서술)에서 발견된 후속 사안을 소급 등록.
+- M355가 4단계 백그라운드 job을 "브라우저 이탈해도 계속 실행"되도록 의도적으로 설계했고
+  (`cancel_token=None` 고정), 그 결과 이 job은 취소 API 자체가 없음 - LOG-DASHBOARD-ADD-
+  PROCESS-STATUS 작업에서 실 화면에 "강제종료 미지원(취소 API 없음)"으로 정직하게 노출됨.
+  사용자가 실수로 잘못된 조건으로 대용량 실행을 시작한 경우 등, 4단계 job을 사람이 직접
+  멈출 방법이 전혀 없다는 것 자체가 설계 공백일 수 있음 - "이탈해도 계속"과 "필요시 멈출
+  수 있음"을 동시에 만족하는 설계(예: 취소 요청은 받되 즉시 취소가 아니라 다음 체크포인트
+  에서 정리)가 필요한지 사용자 결정 필요.
+- 권장 모델: Sonnet / 추론 강도: 낮음
+- 커밋: - (기록만, 코드 변경 없음)
+- 근거: LOG-DASHBOARD-ADD-PROCESS-STATUS-AND-FORCE-KILL-TAB 완료보고서
