@@ -10342,7 +10342,7 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
   DISCOUNT-RATE-GAP-SCALE-RELAX-AND-RATE-RATIO-EXCEPTION-IMPLEMENT-M351,
   CANDIDATE-SUBTYPE-LLM-JUDGE-INVESTIGATE-FOR-NUMERIC-CODE-CLASSIFY)
 
-### M354. 아이디어(미착수, P0 최우선) - DOMAIN-LOG-ROOT-HANDLER-WIRING-MISSING-126SITES - 도메인 로거 126곳이 root 로거로 흘러가는데 root 로거에 파일 핸들러 미연결
+### M354. ✅ 해결 완료(2026-09-06) - DOMAIN-LOG-ROOT-HANDLER-WIRING-MISSING-126SITES - 도메인 로거 126곳이 root 로거로 흘러가는데 root 로거에 파일 핸들러 미연결
 - 발견/계기: 2026-09-06, ALL-STAGES-BROWSER-FORCE-CLOSE-RESUME-AND-STEP-LOGGING-MAP-DIAGNOSE-ONLY
   완료(진단 전용) 결과 도출된 우선순위 항목을 소급 등록(구현 결정 아님).
 - `services/`·`routes/` 126곳이 쓰는 일반 로거(`getLogger(__name__)`)가 root 로거로 흘러가는데,
@@ -10353,8 +10353,12 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 낮음
 - 커밋: - (기록만, 코드 변경 없음)
 - 근거: ALL-STAGES-BROWSER-FORCE-CLOSE-RESUME-AND-STEP-LOGGING-MAP-DIAGNOSE-ONLY 완료보고서
+- ✅ 해결 완료(2026-09-06): root 전체가 아닌 실제 도메인 코드 위치(services/routes/analyzer/
+  integration) 4개 네임스페이스에만 파일 핸들러를 배선(서드파티 로그 폭증 방지). 재기동
+  전/후 "도메인 로그 0줄 → 즉시 기록" 실측 대조 완료. 커밋 401c49e9. 근거:
+  DOMAIN-LOGGER-ROOT-PROPAGATE-FILE-HANDLER-FIX 완료보고서.
 
-### M355. 아이디어(미착수, P1) - STAGE4-TAB-SWITCH-CANCELS-QUERY-JOB-MIGRATE - 4단계 탭 전환만 해도 서버가 DB 쿼리를 능동 취소하는 문제, 서버측 job으로 이전 필요
+### M355. ✅ 해결 완료(2026-09-06) - STAGE4-TAB-SWITCH-CANCELS-QUERY-JOB-MIGRATE - 4단계 탭 전환만 해도 서버가 DB 쿼리를 능동 취소하는 문제, 서버측 job으로 이전 필요
 - 발견/계기: 2026-09-06, ALL-STAGES-BROWSER-FORCE-CLOSE-RESUME-AND-STEP-LOGGING-MAP-DIAGNOSE-ONLY
   완료(진단 전용) 결과 도출된 우선순위 항목을 소급 등록(구현 결정 아님).
 - 4단계(통계검증 실행)는 탭을 닫지 않고 다른 탭으로 전환만 해도 0.25~0.5초 내 서버가 DB 쿼리를
@@ -10366,8 +10370,13 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 보통
 - 커밋: - (기록만, 코드 변경 없음)
 - 근거: ALL-STAGES-BROWSER-FORCE-CLOSE-RESUME-AND-STEP-LOGGING-MAP-DIAGNOSE-ONLY 완료보고서
+- ✅ 해결 완료(2026-09-06): 실행 진입점 2곳(본문 버튼·커맨드바)을 동기→비동기 job으로
+  재배선. 조사 중 숨은 결함 3건(커맨드바 미배선, 비동기 payload 자동저장옵션 누락,
+  백그라운드 job 미인식) 추가 발견·수정. 탭 이동 상태에서 서버 직접 폴링으로 COMPLETED
+  도달 실측(M8 취소 미발동 확인). 커밋 c35c99aa. 근거:
+  STAGE4-EXECUTE-SERVER-SIDE-JOB-DEFAULT-PROMOTE-M355 완료보고서.
 
-### M356. 아이디어(미착수, P2) - INDIVIDUAL-BATCH-SHARED-CORE-STEP-LOGGING - 개별·일괄검증 공유 실행 코어에 단계별 진행 로그 일관 추가
+### M356. ✅ 해결 완료(2026-09-06) - INDIVIDUAL-BATCH-SHARED-CORE-STEP-LOGGING - 개별·일괄검증 공유 실행 코어에 단계별 진행 로그 일관 추가
 - 발견/계기: 2026-09-06, ALL-STAGES-BROWSER-FORCE-CLOSE-RESUME-AND-STEP-LOGGING-MAP-DIAGNOSE-ONLY
   완료(진단 전용) 결과 도출된 우선순위 항목을 소급 등록(구현 결정 아님).
 - 개별검증·일괄검증이 공유하는 핵심 실행 코어에 단계별 진행 로그를 일관되게 추가해, 실패 시점을
@@ -10376,8 +10385,13 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 낮음
 - 커밋: - (기록만, 코드 변경 없음)
 - 근거: ALL-STAGES-BROWSER-FORCE-CLOSE-RESUME-AND-STEP-LOGGING-MAP-DIAGNOSE-ONLY 완료보고서
+- ✅ 해결 완료(2026-09-06): 공유 코어(single_validation_run_facade.py 등)에 logging
+  import 자체가 0건이던 것을 발견해 시작/종료/세트별 로그 추가. 미지원 DBMS 요청으로
+  "로그 2줄만으로 실패지점 재구성" 실측 성공(access log는 200으로만 남아 도메인 로그
+  없이는 구분 불가였음을 대조 확인). 커밋 01fa21d3. 근거:
+  SHARED-CORE-STEP-LOGGING-M356 완료보고서.
 
-### M357. 아이디어(미착수, P3) - BATCH-GHOST-RUNNING-LOCK-AUTO-RECOVERY-MISSING - 일괄검증 서버 재기동 시 일시정지 소실 + 유령 RUNNING 잠금 미해소
+### M357. ✅ 해결 완료(2026-09-06) - BATCH-GHOST-RUNNING-LOCK-AUTO-RECOVERY-MISSING - 일괄검증 서버 재기동 시 일시정지 소실 + 유령 RUNNING 잠금 미해소
 - 발견/계기: 2026-09-06, ALL-STAGES-BROWSER-FORCE-CLOSE-RESUME-AND-STEP-LOGGING-MAP-DIAGNOSE-ONLY
   완료(진단 전용) 결과 도출된 우선순위 항목을 소급 등록(구현 결정 아님).
 - 일괄검증은 서버 재기동에도 SQLite로 진행상태가 복원되나, 새로 발견된 결함 2건 - (a)일시정지
@@ -10386,6 +10400,14 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 보통
 - 커밋: - (기록만, 코드 변경 없음)
 - 근거: ALL-STAGES-BROWSER-FORCE-CLOSE-RESUME-AND-STEP-LOGGING-MAP-DIAGNOSE-ONLY 완료보고서
+- ✅ 해결 완료(2026-09-06): 6시간 지연은 배선 누락이 아니라 다른 용도(동시실행 충돌 방지)의
+  나이조건을 잘못 재사용한 진짜 버그였음을 확인, 기동전용 복구함수 신설로 해소. 일시정지
+  상태도 신규 컬럼으로 영속화. 서버 강제종료(taskkill) → 재기동 실측으로 유령잠금 즉시
+  해소·일시정지 이력 보존 확인. 커밋 f98cc659. 근거:
+  STAGE4-5-BATCH-PAUSE-PERSIST-AND-GHOST-LOCK-FIX-M357 완료보고서.
+  (참고, 신규 항목 아님) 같은 날 좌측 메뉴에 로그현황 조회 페이지 신설(읽기전용, 레벨/
+  키워드 필터) + 배포 전 로거 호출부 ~200곳 개인정보 스캔(위험사례 0건) 완료. 커밋
+  a43210b3.
 
 ### M358. 아이디어(미착수, P4, M8 정책 재확인 선행) - STAGE2-3-BROWSER-DEPENDENCY-RECHECK-AFTER-M8-POLICY-REVIEW - 2·3단계 브라우저 의존 개선은 M8(탭이탈 즉시취소) 정책 재검토 후 진행
 - 발견/계기: 2026-09-06, ALL-STAGES-BROWSER-FORCE-CLOSE-RESUME-AND-STEP-LOGGING-MAP-DIAGNOSE-ONLY
