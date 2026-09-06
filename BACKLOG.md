@@ -10418,7 +10418,7 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 커밋: - (기록만, 코드 변경 없음)
 - 근거: ALL-STAGES-BROWSER-FORCE-CLOSE-RESUME-AND-STEP-LOGGING-MAP-DIAGNOSE-ONLY 완료보고서
 
-### M359. 아이디어(미착수) - BATCH-PAUSE-CONTROL-DUAL-LAYER-UNWIRED-SUSPECT - 일괄검증 제어 계층이 batch_execution_state_service / batch_pause_control 두 개로 병렬 존재, 후자가 실제 실행 루프에 미배선일 가능성
+### M359. ✅ 해결 완료(2026-09-06, 오탐 확정) - BATCH-PAUSE-CONTROL-DUAL-LAYER-UNWIRED-SUSPECT - 일괄검증 제어 계층이 batch_execution_state_service / batch_pause_control 두 개로 병렬 존재, 후자가 실제 실행 루프에 미배선일 가능성
 - 발견/계기: 2026-09-06, LOG-DASHBOARD-ADD-PROCESS-STATUS-AND-FORCE-KILL-TAB 완료보고서(현상
   절, batch_pause_control 관련 서술)에서 발견된 후속 사안을 소급 등록(이번 지침 범위 밖이라
   재조사 없이 구현 결정 아님).
@@ -10427,11 +10427,15 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
   보임 - 코드 추적 결과 후자가 전자(실행 루프)에 배선되지 않은 것으로 보여, 검증현황판의
   '중단' 버튼이 실제로 실행 중인 배치를 멈추지 못할 가능성이 있음. "~로 보인다" 수준이며
   확정 아님, 재조사 필요.
+- 해결: 2026-09-06 재조사 결과 실행 경로가 실제로는 3갈래(A: UI 미사용 죽은 코드,
+  B: 그룹 스코프 실제 UI 경로 - 두 제어계층 모두 정상 배선 확인, C: 검증현황판 '중단'
+  버튼 - 정상 작동 확인)임을 실측으로 확정. 우려했던 미배선은 없었음(코드 수정 없음).
 - 권장 모델: Sonnet / 추론 강도: 낮음
 - 커밋: - (기록만, 코드 변경 없음)
-- 근거: LOG-DASHBOARD-ADD-PROCESS-STATUS-AND-FORCE-KILL-TAB 완료보고서
+- 근거: LOG-DASHBOARD-ADD-PROCESS-STATUS-AND-FORCE-KILL-TAB 완료보고서,
+  M359-M360-BATCH-STAGE4-KILL-AND-WIRING-FIX 완료보고서 Part A
 
-### M360. 설계결정 대기 - STAGE4-ASYNC-JOB-CANCEL-DESIGN-DECISION-NEEDED - 4단계 백그라운드 job(브라우저 이탈해도 계속 실행)에 취소 API 자체가 없어 사람이 멈출 방법이 전혀 없음
+### M360. ✅ 해결 완료(2026-09-06) - STAGE4-ASYNC-JOB-CANCEL-DESIGN-DECISION-NEEDED - 4단계 백그라운드 job(브라우저 이탈해도 계속 실행)에 취소 API 자체가 없어 사람이 멈출 방법이 전혀 없음
 - 발견/계기: 2026-09-06, LOG-DASHBOARD-ADD-PROCESS-STATUS-AND-FORCE-KILL-TAB 완료보고서(현상
   절, single_execute_job 관련 서술)에서 발견된 후속 사안을 소급 등록.
 - M355가 4단계 백그라운드 job을 "브라우저 이탈해도 계속 실행"되도록 의도적으로 설계했고
@@ -10441,6 +10445,13 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
   멈출 방법이 전혀 없다는 것 자체가 설계 공백일 수 있음 - "이탈해도 계속"과 "필요시 멈출
   수 있음"을 동시에 만족하는 설계(예: 취소 요청은 받되 즉시 취소가 아니라 다음 체크포인트
   에서 정리)가 필요한지 사용자 결정 필요.
+- 해결: 사용자가 "강제로라도 멈출 수 있어야 한다"고 결정. M8이 쓰던 DB세션 종료
+  메커니즘(`CancelTokenGroup`)이 죽지 않고 남아있던 것을 재사용 - 호출부 2곳의
+  `cancel_token=None` 하드코딩만 제거해 강제종료 구현(신규 메커니즘 없음). "토큰 실재
+  여부"로 강제종료 가능 여부를 판정해 다른 기능에 버튼이 잘못 뜨는 것도 구조적으로
+  차단. 정상 탭 전환/이탈 시 취소 안 되는 M355 핵심 효과 회귀 없음 실측 확인
+  (13개 체크 전부 PASS). 커밋 `3a48f05f`.
 - 권장 모델: Sonnet / 추론 강도: 낮음
-- 커밋: - (기록만, 코드 변경 없음)
-- 근거: LOG-DASHBOARD-ADD-PROCESS-STATUS-AND-FORCE-KILL-TAB 완료보고서
+- 커밋: 3a48f05f
+- 근거: LOG-DASHBOARD-ADD-PROCESS-STATUS-AND-FORCE-KILL-TAB 완료보고서,
+  M359-M360-BATCH-STAGE4-KILL-AND-WIRING-FIX 완료보고서 Part B
