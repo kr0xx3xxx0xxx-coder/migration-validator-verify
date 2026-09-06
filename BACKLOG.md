@@ -8080,7 +8080,7 @@ SUM 미선택 컬럼의 불일치를 반영 못 해 실제 규모를 과소평�
 - 근거: G:\내 드라이브\nxDTV-verify\reports\STREAM-JOIN-WAIT-AND-CANCEL-BANNER-IMPLEMENT.md /
   G:\내 드라이브\nxDTV-verify\reports\SAME-TAB-REEXECUTE-DURING-AUTOSNAPSHOT-DIAGNOSE.md
 
-### M138. 조사완료(근본원인 확정, 최적화는 구조변경 필요 - 미착수) -
+### M138. ✅ 해결 완료(2026-09-06) -
 5단계 자동저장 루프에서 단일축/조합 그룹이 각각 독립 조회되며, 코드성
 컬럼에 인덱스가 없어 매 그룹마다 원본/목적 테이블 전체를 다시
 풀스캔하는 중복 확정
@@ -8127,6 +8127,11 @@ SUM 미선택 컬럼의 불일치를 반영 못 해 실제 규모를 과소평�
 - 코드 수정 없음(순수 조사) - 구조 변경이 필요한 사안이라 별도 제안·
   승인 필요, 이번엔 미착수.
 - 근거: G:\내 드라이브\nxDTV-verify\reports\SINGLE-VS-COMBO-DETAIL-EXTRACTION-DUPLICATE-SCAN-DIAGNOSE.md
+- ✅ 해결 완료(2026-09-06): 5단계 배치(전체저장) 그룹별 개별 원본 풀스캔(N회)을 OR 통합
+  단일 스캔(1회, 청크 초과 시 소수 회)으로 재통합. 50,000,000행 실측 3.96배 개선(원
+  진단서가 지목한 실사용 규모와 동일 조건), 1M/50M 양쪽 그룹별 값 완전일치 확인, 실
+  브라우저 [전체 저장] 클릭으로 10개 혼합그룹 저장 완료 확인. 커밋 c79c7c3d. 근거:
+  STAGE5-GROUP-DETAIL-QUERY-CONSOLIDATE-IMPLEMENT-M138 완료보고서.
 
 
 ### M139. 해결 완료 - M85 재조사 결론에 따라 "조합 기본값 승격"
@@ -10225,7 +10230,7 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 근거: G:\내 드라이브\nxDTV-verify\reports\NUMERIC-CODE-HARDGATE-TO-PENALTY-CONVERT-M342-OPTIONB_20260905.md,
   DUAL-SCORING-SYSTEM-INVESTIGATE-UNIFY-OR-DOCUMENT-M348 완료보고서
 
-### M349. 아이디어(미착수) - NUMERIC-2COL-TABLE-GROUPBY-SUM-SAME-COLUMN-DUPLICATE - 숫자형 컬럼 2개뿐인 표에서 동일 컬럼이 GROUP BY 축이자 SUM 대상으로 동시 자동선정
+### M349. ✅ 해결 완료(2026-09-06) - NUMERIC-2COL-TABLE-GROUPBY-SUM-SAME-COLUMN-DUPLICATE - 숫자형 컬럼 2개뿐인 표에서 동일 컬럼이 GROUP BY 축이자 SUM 대상으로 동시 자동선정
 - 발견/계기: 2026-09-05 (QTY-AMT-ORIGINAL-CASE-REGRESSION-DIAGNOSE-POST-REDESIGN 조사 중 발견)
 - 숫자형 컬럼 2개뿐인 표(예: STATUS_CD+AMT)에서 STATUS_CD가 GROUP BY 축이자 SUM 집계 대상으로
   동시 자동선정되는 문제가 여전히 존재한다. 정상 경로에는 SUM 중복배제가 없고, postcount 대체추천
@@ -10235,6 +10240,12 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 낮음
 - 커밋: - (기록만, 코드 변경 없음)
 - 근거: G:\내 드라이브\nxDTV-verify\reports\QTY-AMT-ORIGINAL-CASE-REGRESSION-DIAGNOSE-POST-REDESIGN_20260905.md
+- ✅ 해결 완료(2026-09-06): GROUP BY 축 확정 컬럼의 SUM 중복감점(GROUPBY_AXIS_SUM_REDUNDANT)을
+  postcount 대체추천 경로에도 확장 적용(반대방향 함수 groupby_confirmed_cols_for_sum_penalty
+  신규, 기존 상수·감점폭 재사용). 실 DB 재현 픽스처 2종은 우연히 이 사각지대 조건을 벗어나
+  결과 불변(회귀 없음)이었으나, 신규 단위테스트 4건(네거티브 컨트롤 포함)으로 사각지대
+  자체를 직접 겨냥해 검증 완료. 커밋 e730f618. 근거:
+  GROUPBY-CONFIRMED-SUM-EXCLUDE-FALLBACK-PATH-GAP-FIX-M349 완료보고서.
 
 ### M350. 아이디어(미착수) - HOLD-STATUS-BADGE-LABEL-STALE-DISPLAY - HOLD 후보 배지 라벨이 구조화 상태와 무관하게 기존 라벨(예: 기본추천)로 잔존 표시
 - 발견/계기: 2026-09-05 (QTY-AMT-ORIGINAL-CASE-REGRESSION-DIAGNOSE-POST-REDESIGN 조사 중 발견)
@@ -10245,7 +10256,7 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 커밋: - (기록만, 코드 변경 없음)
 - 근거: G:\내 드라이브\nxDTV-verify\reports\QTY-AMT-ORIGINAL-CASE-REGRESSION-DIAGNOSE-POST-REDESIGN_20260905.md
 
-### M351. 아이디어(미착수) - DISCOUNT-RATE-LIKE-DECIMAL-CODE-COLUMN-AUTOSELECTION-GAP-INVESTIGATE - NUMBER(5,2) 이산값 코드성 컬럼(discount_rate류)이 3단계 자동선정에서 배제됨
+### M351. ✅ 해결 완료(2026-09-06) - DISCOUNT-RATE-LIKE-DECIMAL-CODE-COLUMN-AUTOSELECTION-GAP-INVESTIGATE - NUMBER(5,2) 이산값 코드성 컬럼(discount_rate류)이 3단계 자동선정에서 배제됨
 - 발견/계기: 2026-09-05 (AGG-DIFF-LOG-ADD-AND-TODAY-FULL-CASES-INTEGRATED-SWEEP Part B 통합 스윕 중 발견)
 - NUMBER(5,2) 이산값 10종(0.05~0.50, discount_rate류)으로 코드성 후보를 의도한 컬럼이, 전체
   candidate_engine 파이프라인을 실제로 통과시켜 보니(오늘 처음 확인, 과거엔
@@ -10259,6 +10270,13 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 낮음
 - 커밋: - (기록만, 코드 변경 없음)
 - 근거: G:\내 드라이브\nxDTV-verify\reports\AGG-DIFF-LOG-ADD-AND-TODAY-FULL-CASES-INTEGRATED-SWEEP_20260905.md
+- ✅ 해결 완료(2026-09-06): Part A(무명 소수점 코드컬럼 scale 0→{0,1,2} 완화) + Part B
+  (RATE_RATIO 타입 한정 좁은 예외, CV 안전장치 포함, QTY/AMT 등 다른 MEASURE_NAMED는
+  영향 없음) 구현. discount_rate 실 DB 재현: EXCLUDED_BY_RULE→SELECTED_DEFAULT 승격
+  확인, 브라우저 3단계 화면 전/후 스크린샷 대조 완료. 잔여 한계 2건(통계적 완전 구분
+  불가, CV 안전장치 개별 검증 경로 fail-open)은 각각 사용자 인지 확정 및 별도 항목
+  (M352)으로 이미 등록됨. 커밋 ccd82c64. 근거:
+  DISCOUNT-RATE-GAP-SCALE-RELAX-AND-RATE-RATIO-EXCEPTION-IMPLEMENT-M351 완료보고서.
 
 ### M352. 아이디어(참고, 저빈도 — 조치 불필요) - CV-SAFETYNET-FAILOPEN-INDIVIDUAL-VALIDATION-PATH - RATE_RATIO 예외의 VALUE_DISTRIBUTION_SHAPE(CV) 안전장치가 개별검증 경로에서 구조적으로 상시 fail-open
 - 발견/계기: 2026-09-06 (DISCOUNT-RATE-GAP-SCALE-RELAX-AND-RATE-RATIO-EXCEPTION-IMPLEMENT-M351
