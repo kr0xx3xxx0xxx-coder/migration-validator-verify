@@ -8776,7 +8776,7 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 근거: G:\내 드라이브\nxDTV-verify\reports\FULL-50M-COMBO-E2E-VERIFY-WITH-TIMING-RECOMMENDATION.md
 
 
-### M166. ⚠️ 구현완료·기본OFF로 안전보류 - M160(OR 통합 배치의 블로킹 정렬 제거) 선택도 게이트 구현 - 단독으로는 조건 충족 시 효과 확인되나, 오늘 만든 다른 개선(동시open)까지 합친 운영형태 5천만행 A/B에서 오히려 1.15~1.34배 악화 발견돼 롤아웃 스위치(MV_SORT_ELIM_ENABLED, 기본 OFF)로 처리
+### M166. ✅ 화해불가 확정(2026-09-06), 현행 기본 OFF 유지가 최선 - M160(OR 통합 배치의 블로킹 정렬 제거) 선택도 게이트 구현 - 단독으로는 조건 충족 시 효과 확인되나, 오늘 만든 다른 개선(동시open)까지 합친 운영형태 5천만행 A/B에서 오히려 1.15~1.34배 악화 발견돼 롤아웃 스위치(MV_SORT_ELIM_ENABLED, 기본 OFF)로 처리
 - 발견/계기: 2026-08-15/16 (M165가 개선 우선순위 1위로 확정한 것을 실제 구현 / M160-SORT-ELIMINATION-SELECTIVITY-GATE-IMPLEMENT)
 - 구현: Oracle 전용(PostgreSQL 무수정) - ALTER SESSION NLS_SORT=BINARY + ORDER BY를 함수래핑 없는 형태로 전환 + probe_sort_elimination()으로 선택도·전제조건 8가지를 카탈로그 조회만으로 판정(신규 통계수집 없음, M154 경로 재사용). 선택도 추정식은 카탈로그 기반과 관측 기반 중 작은 값을 채택(과대추정 방지, 안전 방향으로만 어긋나도록 설계) - 50M 픽스처 실측으로 카탈로그 추정이 실제보다 낮게 나옴(과소추정 방향) 확인. 임계값(선택도 50%, 대상행 5,000,000) 둘 다 조사 실측 지점들 사이의 보수적 값으로 근거 명시.
 - 단독 실측: EXPLAIN으로 블로킹 SORT 완전 제거 확인, 고선택도 조건에서 첫 행 도달 153.5초→2.8초.
@@ -8784,6 +8784,14 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 대응: 무리하게 밀어붙이지 않고 코드는 완성하되 기본 OFF(MV_SORT_ELIM_ENABLED, 환경변수로 조정 가능)로 유지 - 켤지 여부는 사용자 판단 필요로 명확히 열어둠. 자체 테스트 16건(DB 불필요, 순수 로직/문자열 계약) 별도 통과.
 - 성격: 코드 수정 + 실측, git 커밋 0건(지시대로 미커밋). DB 작업은 SELECT/EXPLAIN PLAN/ALTER SESSION(세션 한정)뿐, 픽스처 변경 0건.
 - 근거: G:\내 드라이브\nxDTV-verify\reports\M160-SORT-ELIMINATION-SELECTIVITY-GATE-IMPLEMENT.md
+- **[2026-09-06 갱신]** M166-SORT-ELIM-VS-CONCURRENT-OPEN-CONFLICT-ROOTCAUSE-DIAGNOSE-ONLY로
+  확정 근거 보강. 소스 무수정 런타임 몬키패치로 "GATE+순차open" 조합을 신규 실측해
+  "동시open이 정렬제거를 방해한다"는 원 가설을 직접 반증(순차 전환 시 862.58초로, 기존
+  GATE+동시open 753.86초보다 오히려 14% 더 느려짐, M160 보고서 자신의 "동시open 원인" 가설
+  스스로 반증). 진짜 원인은 기능 간 상호작용이 아니라, 정렬제거(INDEX 기반 스캔) 자체가
+  이 규모(고선택도·수천만행)에서 CBO cost 기준 1.35배로 풀스캔+정렬보다 본질적으로 손해라는
+  것으로 재확정. 코드 수정 없음(재확인만). 근거:
+  G:\내 드라이브\nxDTV-verify\reports\M166-SORT-ELIM-VS-CONCURRENT-OPEN-CONFLICT-ROOTCAUSE-DIAGNOSE-ONLY_20260906.md
 
 ### M167. ✅ 해결 완료(선행 해소 확인, 2026-09-05) - M164가 남긴 잔여 갭(4단계 실행 중 복귀 없이 다른 탭에 계속 머물면 결과 폐기) 해소를 위한 결과 버퍼링 설계 확정 - 기존 비동기 재진입 복원 패턴을 그대로 확장하는 최소침습안
 - 발견/계기: 2026-08-15/16 (M164가 "복귀 시도했으나 막힘"은 해소했지만 "복귀 자체를 안 함"은 범위 밖으로 남긴 것의 후속 / STAGE4-RESULT-BUFFER-ON-TAB-LEAVE-DIAGNOSE)
@@ -8804,7 +8812,7 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
   코드 복제 이중화 비용 자체가 없음.
 - 근거(갱신): G:\내 드라이브\nxDTV-verify\reports\STAGE4-RESULT-BUFFER-ON-TAB-LEAVE-IMPLEMENT_20260905.md
 
-### M168. 조사완료(구조적 문제 아님, 배선누락 4곳 확정, 미구현) - 백그라운드(⏱) 실행 경로가 조합(EXPLICIT_MULTI) 세트를 지원 못하는 진짜 원인은 설계 비호환이 아니라 두 기능의 구현 시점 차이(8/9 비동기 구현 vs 8/14 조합정책 개편)로 인한 배선 누락 4곳
+### M168. ✅ 종결 확정(2026-09-06, 이미 해소돼 있었음) - 백그라운드(⏱) 실행 경로가 조합(EXPLICIT_MULTI) 세트를 지원 못하는 진짜 원인은 설계 비호환이 아니라 두 기능의 구현 시점 차이(8/9 비동기 구현 vs 8/14 조합정책 개편)로 인한 배선 누락 4곳
 - 발견/계기: 2026-08-15/16 (M164가 "백그라운드 실행이 조합세트 미지원이라 회피수단 자체가 없다"고 남긴 별개 갭 / BACKGROUND-EXEC-COMBO-SUPPORT-DIAGNOSE)
 - 핵심 발견(git log로 커밋 시점 비교 확정): F7-STAGE4-MULTISET-ASYNC-IMPLEMENT(2026-08-09, 커밋 920f57e)가 완성된 뒤, 5일 뒤 STAGE4-UNIFIED-COMBO-CHECKBOX-ADDITIVE-IMPLEMENT(2026-08-14, 커밋 96d0c561)가 동기 경로의 조합 체크박스 의미를 "대체"에서 "덧셈"으로 바꿨는데 비동기 경로는 갱신 대상에서 빠짐 - 배선이 끊긴 4개 지점(요청 스키마 필드 부재/서버 계획생성 호출 파라미터 누락/방어적 필터 주석이 stale/클라이언트 페이로드 필드 누락) 전부 같은 원인의 연쇄.
 - 간접 증거: single_execute_job.py의 multiset_max_sets() 독스트링이 이미 "GROUP BY 최대 3 + 조합 1 = 실제 최대 4"라고 조합 세트 몫을 상한 산정에 포함해 뒀음(설계 시점부터 조합 세트 수용을 전제, 구현만 누락). 회귀 위험 확인 - 관련 테스트에 EXPLICIT_MULTI assert 자체가 없어 "의도적으로 잠긴 계약"이 아니라 단순 미완임을 재확인.
@@ -8812,6 +8820,13 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 최소침습 설계 방향: 4개 배선 지점을 동기 경로가 이미 확정한 로직·값과 맞추기만 하면 됨(새 판정 로직 발명 없음), 파일 3개 각 국소 수정 규모로 추정.
 - 코드 수정 0줄(순수 조사, git status 확인한 20건 수정파일은 전부 이번 조사 이전부터 있던 다른 세션 미커밋 변경) - 구현은 별도 지침 필요.
 - 근거: G:\내 드라이브\nxDTV-verify\reports\BACKGROUND-EXEC-COMBO-SUPPORT-DIAGNOSE.md
+- **[2026-09-06 갱신]** M168-BACKGROUND-COMBO-STATUS-RECHECK-AFTER-M355-DIAGNOSE-ONLY로
+  M355(4단계 실행 전체 서버job화) 이후 상태 재확인. 실질 결함(조합 채택 시 백그라운드 job
+  전멸)은 M355 이전인 2026-09-05(커밋 742b1509, BACKGROUND-EXEC-COMBO-SUPPORT-WIRING-FIX-
+  IMPLEMENT)에서 이미 수정 완료돼 있었음을 재확인. 여기에 2026-09-06 M355가 "백그라운드냐
+  동기냐"라는 구분 자체를 소멸시켜(화면 유일의 실행 진입점이 예외 없이 서버job 경로 하나로만
+  동작) M168 원 질문 자체가 무의미해짐을 확정. 코드 수정 없음(재확인만). 근거:
+  G:\내 드라이브\nxDTV-verify\reports\M168-BACKGROUND-COMBO-STATUS-RECHECK-AFTER-M355-DIAGNOSE-ONLY_20260906.md
 
 ### M169. 조사완료(구현 비권장, 지시서 전제 오인 정정) - "조합 게이트 4,000 초과 시 자동 축소" 아이디어 조사 중, 원래 지시서가 전제한 "4,000 초과 시 완전히 실행 안 됨"이라는 상황 자체가 현재 코드와 다름을 확인
 - 발견/계기: 2026-08-16 (실행 시점 안전 게이트와 계획생성 게이트를 혼동한 지침 작성 오류를 조사 과정에서 자체 발견 / COMBO-AUTO-AXIS-REDUCTION-ON-GATE-EXCEED-DIAGNOSE)
@@ -10124,13 +10139,19 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 커밋: - (기록만, 코드 변경 없음)
 - 참고: G:\내 드라이브\nxDTV-verify\reports\LLM-JUDGE-TIMEOUT-KEEPALIVE-TUNE-INVESTIGATE-AND-FIX_20260904.md / G:\내 드라이브\nxDTV-verify\reports\GROUPBY-SUM-OVERLAP-EDGECASES-INVESTIGATE-AND-FIX_20260904.md / G:\내 드라이브\nxDTV-verify\reports\CANDIDATE-SUBTYPE-LLM-JUDGE-INVESTIGATE-FOR-NUMERIC-CODE-CLASSIFY_20260904.md
 
-### M340. 아이디어(미착수) - MODEL-CONFIG-LLM-GATE-COMMENT-CODE-MISMATCH-DECIDE - config/model_config.py:294 주석-실동작 불일치 결정 필요
+### M340. ✅ 해결 완료(2026-09-07) - MODEL-CONFIG-LLM-GATE-COMMENT-CODE-MISMATCH-DECIDE - config/model_config.py:294 주석-실동작 불일치 결정 필요
 - 2026-09-04 세션 중 채팅으로만 논의, 지침화·실행 전혀 안 된 항목을 소급 기록(구현 결정 아님).
 - `config/model_config.py:294` 주석에 "C1/C2와 독립된 게이트"라고 적혀 있으나, 실제로는 C1/C2 게이트(MV_CANDIDATE_SUBTYPE_LLM_JUDGE_ENABLED)에 종속된다는 사실이 STATUS-CD-SUM-SCORE-BREAKDOWN-LLM-ENABLED-VERIFY 완료보고에서 실측 확인됨.
 - 결정 필요: 주석을 실동작에 맞게 정정만 할지, 주석이 원래 의도한 대로 진짜 독립 게이트로 코드를 바꿀지.
 - 권장 모델: Sonnet / 추론 강도: 낮음
 - 커밋: - (기록만, 코드 변경 없음)
 - 참고: G:\내 드라이브\nxDTV-verify\reports\STATUS-CD-SUM-SCORE-BREAKDOWN-LLM-ENABLED-VERIFY_20260904.md
+- **[2026-09-07 갱신]** MODEL-CONFIG-LLM-GATE-COMMENT-FIX-M340로 해결. 결정은 "주석을
+  실동작에 맞게 정정"(코드 로직 무변경)으로 확정 - `CANDIDATE_SCORING_LLM_JUDGE_ENABLED`
+  주석을 "C1/C2와 독립"에서 "C1/C2가 꺼져 있으면 이 플래그를 켜도 LLM 호출 자체가 발생하지
+  않는 종속 관계"로 정정, 근거 문서 참조 링크 포함. 실측 재확인(C1/C2만 켰을 때는 LLM
+  미호출 확정, 둘 다 켰을 때는 정상 호출) 완료. 커밋 `33d5b9ab`. 근거:
+  G:\내 드라이브\nxDTV-verify\reports\MODEL-CONFIG-LLM-GATE-COMMENT-FIX-M340_20260907.md
 
 ### M341. 아이디어(미착수) - GEMMA4-STRONGER-ENV-AND-SMALLER-SIZE-RECHECK - Gemma4 강한 GPU/배포 환경 재측정 및 E2B 비교 미실행
 - 2026-09-04 세션 중 채팅으로만 논의, 지침화·실행 전혀 안 된 항목을 소급 기록(구현 결정 아님).
@@ -10409,7 +10430,7 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
   키워드 필터) + 배포 전 로거 호출부 ~200곳 개인정보 스캔(위험사례 0건) 완료. 커밋
   a43210b3.
 
-### M358. 아이디어(미착수, P4, M8 정책 재확인 선행) - STAGE2-3-BROWSER-DEPENDENCY-RECHECK-AFTER-M8-POLICY-REVIEW - 2·3단계 브라우저 의존 개선은 M8(탭이탈 즉시취소) 정책 재검토 후 진행
+### M358. ✅ 종결 확정(2026-09-06, 신규 작업 불필요) - STAGE2-3-BROWSER-DEPENDENCY-RECHECK-AFTER-M8-POLICY-REVIEW - 2·3단계 브라우저 의존 개선은 M8(탭이탈 즉시취소) 정책 재검토 후 진행
 - 발견/계기: 2026-09-06, ALL-STAGES-BROWSER-FORCE-CLOSE-RESUME-AND-STEP-LOGGING-MAP-DIAGNOSE-ONLY
   완료(진단 전용) 결과 도출된 우선순위 항목을 소급 등록(구현 결정 아님).
 - 2·3단계의 브라우저 의존 여부 개선은, 4단계의 탭이탈 즉시취소(M8) 정책 자체를 먼저
@@ -10417,6 +10438,13 @@ canonical 정규화 재사용 + NULL sentinel, 4개 재현시나리오+300케이
 - 권장 모델: Sonnet / 추론 강도: 낮음
 - 커밋: - (기록만, 코드 변경 없음)
 - 근거: ALL-STAGES-BROWSER-FORCE-CLOSE-RESUME-AND-STEP-LOGGING-MAP-DIAGNOSE-ONLY 완료보고서
+- **[2026-09-06 갱신]** M358-STAGE2-3-BROWSER-DEPENDENCY-RECHECK-AFTER-M8-M355-DIAGNOSE-ONLY로
+  M8 정책 재검토(M355/M360) 이후 상태로 재확인, 결론 (b)+(c) 확정 - 2단계는 단일요청·단일
+  60초 상한(4단계처럼 세트 수만큼 곱해지는 다중 왕복 누적 없음)+기존 취소 경로(커맨드바
+  [■ 중단]→AbortController.abort()→서버 disconnect 감지→CancelToken 취소, 실측 0.55초)가
+  이미 정상 동작해 M355식 서버job화 불필요. 3단계도 같은 단일 진입 구조라 동일 범주로
+  대상 아님. 코드 수정 없음(조사 전용). 근거:
+  G:\내 드라이브\nxDTV-verify\reports\M358-STAGE2-3-BROWSER-DEPENDENCY-RECHECK-AFTER-M8-M355-DIAGNOSE-ONLY_20260906.md
 
 ### M359. ✅ 해결 완료(2026-09-06, 오탐 확정) - BATCH-PAUSE-CONTROL-DUAL-LAYER-UNWIRED-SUSPECT - 일괄검증 제어 계층이 batch_execution_state_service / batch_pause_control 두 개로 병렬 존재, 후자가 실제 실행 루프에 미배선일 가능성
 - 발견/계기: 2026-09-06, LOG-DASHBOARD-ADD-PROCESS-STATUS-AND-FORCE-KILL-TAB 완료보고서(현상
